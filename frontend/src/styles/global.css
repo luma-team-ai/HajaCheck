@@ -1,0 +1,9 @@
+/* 전역 스타일 — 스타일 방식(Tailwind 권장)은 착수 회의에서 확정 후 세팅 */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Pretendard', -apple-system, sans-serif;
+}

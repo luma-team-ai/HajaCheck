@@ -1,0 +1,32 @@
+# --- 공통 ---
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# --- backend (Gradle/Java) ---
+backend/build/
+backend/.gradle/
+backend/out/
+backend/src/main/resources/application-local.yml
+
+# --- ai-server (Python) ---
+ai-server/.venv/
+ai-server/__pycache__/
+**/__pycache__/
+*.py[cod]
+ai-server/chroma_data/
+ai-server/models/*.onnx
+ai-server/models/*.pt
+
+# --- frontend (Node/Vite) ---
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+
+# --- 업로드/데이터 ---
+uploads/

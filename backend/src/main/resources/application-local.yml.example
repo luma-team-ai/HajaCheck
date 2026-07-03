@@ -1,0 +1,31 @@
+# 복사해서 application-local.yml 로 사용 (gitignore 대상)
+# 시크릿은 환경변수 주입 — yml에 실제 값 커밋 금지 (SpringBoot_코드_컨벤션.md §9)
+spring:
+  datasource:
+    url: jdbc:postgresql://<공용-개발-DB-IP>:5432/hajacheck_dev
+    username: hajacheck
+    password: ${DB_PASSWORD}
+  data:
+    redis:
+      host: <공용-개발-DB-IP>
+      port: 6379
+      password: ${REDIS_PASSWORD}
+      database: 1   # 개발은 1번 (운영 0번)
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+  security:
+    oauth2:
+      client:
+        registration:
+          kakao:
+            client-id: ${KAKAO_CLIENT_ID}
+            client-secret: ${KAKAO_CLIENT_SECRET}
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+
+ai:
+  server:
+    base-url: http://localhost:8000

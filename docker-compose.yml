@@ -1,0 +1,21 @@
+# 로컬 예비용 (기본은 OCI 공용 개발 DB 접속 — PRD §6.1)
+# 용도: ① 오프라인·서버 장애 시 단독 작업 ② 파괴적 테스트 격리 실행
+services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: hajacheck_dev
+      POSTGRES_USER: hajacheck
+      POSTGRES_PASSWORD: hajacheck-local
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:

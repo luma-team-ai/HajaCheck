@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: hajacheck
+  profiles:
+    active: local
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  session:
+    store-type: redis
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, metrics
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
