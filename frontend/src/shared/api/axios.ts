@@ -12,7 +12,11 @@ api.interceptors.response.use(
   (response) => {
     const body = response.data as ApiResponse<unknown>;
     if (body && body.success === false) {
-      return Promise.reject<ApiError>(body.error);
+      const apiError: ApiError = body.error ?? {
+        code: 'UNKNOWN_ERROR',
+        message: '알 수 없는 오류가 발생했습니다.',
+      };
+      return Promise.reject(apiError);
     }
     response.data = body.data;
     return response;

@@ -30,3 +30,4 @@ frontend/.env.local
 
 # --- 업로드/데이터 ---
 uploads/
+frontend/tsconfig.tsbuildinfo
