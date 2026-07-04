@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-07-04
+> 마지막 갱신: 2026-07-05
 
 ## 인프라
 
@@ -12,7 +12,7 @@
 | 공용 개발 DB (PostgreSQL 16) | ✅ | DB/계정 `hajacheck`, localhost 전용 — 팀원 접근은 SSH 터널(`hajadev` 터널 전용 계정) |
 | Redis | ✅ | 전용 컨테이너 `hajacheck-redis` 127.0.0.1:6380, requirepass·AOF |
 | 팀원 DB 온보딩 | 🔶 진행 중 | PACA 문서 「인프라/개발 DB 접속 온보딩」 게시, 공개키 수집 중 (등록 0/7) |
-| OAuth 앱 (Kakao/Google) | ⬜ | 다음 작업 — redirect URI용 도메인 준비 완료 |
+| OAuth 앱 (Kakao/Google) | ✅ | Kakao(앱 1504012)·Google(hajacheck/hajacheck-web) 등록, Redirect URI=`/login/oauth2/code/{kakao\|google}` (localhost:8080 + dev 도메인). 크레덴셜=서버 `~/apps/hajacheck/.env`. 잔여: 구글 테스트 사용자(팀원 이메일) 등록 |
 | GitHub Actions CI | ✅ 그린 | PR 시 파트별 빌드/테스트 (backend·ai-server·frontend) |
 | CD (서버 배포) | ⬜ | Sprint 1 앱 골격 후 — 배포 전용 SSH 키 + Secrets 예정 |
 
@@ -23,7 +23,6 @@
 ## 다음 작업
 
 - **P0**
-  - [ ] Kakao/Google OAuth 앱 등록 (PACA #12, 정재봉)
   - [ ] 착수 회의: 담당자 배정, TS/JS·스타일 방식 확정
   - [ ] OpenAPI 스펙 우선 커밋 (Contract-First, PACA #10)
   - [ ] ERD 초안 + 데이터셋 확보 (PACA #10, #13)
