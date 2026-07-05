@@ -1,14 +1,16 @@
 # 복사해서 application-local.yml 로 사용 (gitignore 대상)
 # 시크릿은 환경변수 주입 — yml에 실제 값 커밋 금지 (SpringBoot_코드_컨벤션.md §9)
+# 접속 전 SSH 터널 필요 (PACA 「개발 DB 접속 온보딩」): ssh -N hajacheck-db
+# → 로컬 localhost:5432(PostgreSQL) / localhost:6380(Redis) 가 공용 개발 서버로 포워딩됨
 spring:
   datasource:
-    url: jdbc:postgresql://<공용-개발-DB-IP>:5432/hajacheck_dev
+    url: jdbc:postgresql://localhost:5432/hajacheck
     username: hajacheck
     password: ${DB_PASSWORD}
   data:
     redis:
-      host: <공용-개발-DB-IP>
-      port: 6379
+      host: localhost
+      port: 6380
       password: ${REDIS_PASSWORD}
       database: 1   # 개발은 1번 (운영 0번)
   jpa:
