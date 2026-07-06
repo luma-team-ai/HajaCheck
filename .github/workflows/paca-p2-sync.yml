@@ -25,8 +25,14 @@ jobs:
           ISSUE_NUM: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
+          ISSUE_ASSIGNEE: ${{ github.event.issue.assignee.login }}
+          # GitHub 로그인 → PACA UUID 매핑(JSON). 공개 레포라 본명·매핑을 파일에 두지 않고 시크릿으로.
+          PACA_USER_MAP: ${{ secrets.PACA_USER_MAP }}
         run: |
           export MARK="gh#${ISSUE_NUM}"
+
+          # 담당자 매핑: 이슈 담당자(GitHub) → PACA 사용자 UUID (없거나 미매핑이면 빈값 → Unassigned)
+          ASSIGNEE_ID=$(python3 -c "import json,os; m=json.loads(os.environ.get('PACA_USER_MAP') or '{}'); print(m.get(os.environ.get('ISSUE_ASSIGNEE') or '', ''))" 2>/dev/null || echo "")
 
           # 1) 멱등성: 같은 gh# 태그(또는 제목)의 태스크가 이미 있으면 스킵
           EXIST=$(curl -sf -H "X-API-Key: $PACA_API_KEY" \
@@ -39,7 +45,13 @@ jobs:
           # 2) 제목에서 기존 [HAJA-N] 접두 제거 후 [P2] 부여 (status/type는 기본값=Backlog/Task)
           CLEAN=$(printf '%s' "$ISSUE_TITLE" | sed -E 's/^\[HAJA-[0-9]+\][[:space:]]*//')
           export TITLE="[P2] ${CLEAN} (${MARK})"
-          PAYLOAD=$(python3 -c "import json,os; print(json.dumps({'title':os.environ['TITLE'],'status_id':os.environ['BACKLOG_STATUS_ID'],'tags':['P2','gh-sync',os.environ['MARK']]}))")
+          if [ -n "$ASSIGNEE_ID" ]; then
+            echo "담당자 매핑: $ISSUE_ASSIGNEE → $ASSIGNEE_ID"
+          else
+            echo "담당자 매핑 없음(assignee='$ISSUE_ASSIGNEE') — Unassigned로 생성"
+          fi
+          export ASSIGNEE_ID
+          PAYLOAD=$(python3 -c "import json,os; aid=os.environ.get('ASSIGNEE_ID') or ''; p={'title':os.environ['TITLE'],'status_id':os.environ['BACKLOG_STATUS_ID'],'tags':['P2','gh-sync',os.environ['MARK']]}; p.update({'assignee_id':aid}) if aid else None; print(json.dumps(p))")
 
           RESP=$(curl -s -w '\n%{http_code}' -X POST -H "X-API-Key: $PACA_API_KEY" -H "Content-Type: application/json" \
             -d "$PAYLOAD" "$PACA_URL/api/v1/projects/$PROJECT_ID/tasks")
