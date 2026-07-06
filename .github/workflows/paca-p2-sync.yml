@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   create-task:
-    if: github.event.label.name == 'P2'
+    if: github.event.label.name == 'ai:p2-followup'
     runs-on: ubuntu-latest
     steps:
       - name: Create PACA backlog task for P2 issue
