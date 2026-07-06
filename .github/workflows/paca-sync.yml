@@ -1,6 +1,6 @@
 name: PACA Sync
 
-# PR 머지 시 제목의 [HAJA-N]을 파싱해 PACA 태스크를 Done으로 이동
+# PR 머지 시 제목/본문의 HAJA-N을 파싱해 PACA 태스크를 Done으로 이동
 on:
   pull_request:
     types: [closed]
@@ -13,14 +13,16 @@ jobs:
       - name: Move PACA task to Done
         env:
           PACA_API_KEY: ${{ secrets.PACA_API_KEY }}
-          PACA_URL: https://paca.rkqkdrnportfolio.shop
+          PACA_URL: https://paca.luma200ok.com
           PROJECT_ID: 8a31f5aa-58c3-402f-b1ac-e1956695b46e
           DONE_STATUS_ID: e910c5e8-f015-4e37-9a73-1e1a37dc3c50
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          NUM=$(echo "$PR_TITLE" | grep -oE 'HAJA-[0-9]+' | head -1 | cut -d- -f2)
+          # PR 제목 우선, 없으면 본문(템플릿 "PACA 태스크: HAJA-N")에서 파싱
+          NUM=$(printf '%s\n%s' "$PR_TITLE" "$PR_BODY" | grep -oE 'HAJA-[0-9]+' | head -1 | cut -d- -f2)
           if [ -z "$NUM" ]; then
-            echo "PR 제목에 HAJA-N 없음 — 스킵"; exit 0
+            echo "PR 제목·본문에 HAJA-N 없음 — 스킵"; exit 0
           fi
           TASK_ID=$(curl -sf -H "X-API-Key: $PACA_API_KEY" \
             "$PACA_URL/api/v1/projects/$PROJECT_ID/tasks?page_size=200" \
