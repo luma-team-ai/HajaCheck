@@ -1,0 +1,59 @@
+name: PACA P2 Sync
+
+# GitHub 이슈에 'P2' 라벨이 붙으면 PACA에 후속 태스크(Backlog)를 생성해 추적한다.
+# 멱등성: PACA 태스크 tag `gh#<이슈번호>` 존재 시 재생성하지 않음.
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  issues: write
+
+jobs:
+  create-task:
+    if: github.event.label.name == 'P2'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create PACA backlog task for P2 issue
+        env:
+          PACA_API_KEY: ${{ secrets.PACA_API_KEY }}
+          PACA_URL: https://paca.luma200ok.com
+          PROJECT_ID: 8a31f5aa-58c3-402f-b1ac-e1956695b46e
+          BACKLOG_STATUS_ID: 9deac9e4-0d7a-40b4-b282-be4523c48b31
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+        run: |
+          export MARK="gh#${ISSUE_NUM}"
+
+          # 1) 멱등성: 같은 gh# 태그(또는 제목)의 태스크가 이미 있으면 스킵
+          EXIST=$(curl -sf -H "X-API-Key: $PACA_API_KEY" \
+            "$PACA_URL/api/v1/projects/$PROJECT_ID/tasks?page_size=200" \
+            | python3 -c "import json,sys,os; m=os.environ['MARK']; items=json.load(sys.stdin)['data']['items']; print(next((t['task_number'] for t in items if m in (t.get('tags') or []) or m in (t.get('title') or '')), ''))" || echo "")
+          if [ -n "$EXIST" ]; then
+            echo "이미 PACA HAJA-$EXIST 로 추적 중 — 스킵"; exit 0
+          fi
+
+          # 2) 제목에서 기존 [HAJA-N] 접두 제거 후 [P2] 부여 (status/type는 기본값=Backlog/Task)
+          CLEAN=$(printf '%s' "$ISSUE_TITLE" | sed -E 's/^\[HAJA-[0-9]+\][[:space:]]*//')
+          export TITLE="[P2] ${CLEAN} (${MARK})"
+          PAYLOAD=$(python3 -c "import json,os; print(json.dumps({'title':os.environ['TITLE'],'status_id':os.environ['BACKLOG_STATUS_ID'],'tags':['P2','gh-sync',os.environ['MARK']]}))")
+
+          RESP=$(curl -s -w '\n%{http_code}' -X POST -H "X-API-Key: $PACA_API_KEY" -H "Content-Type: application/json" \
+            -d "$PAYLOAD" "$PACA_URL/api/v1/projects/$PROJECT_ID/tasks")
+          CODE=$(printf '%s' "$RESP" | tail -1)
+          BODY=$(printf '%s' "$RESP" | sed '$d')
+          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
+            echo "PACA 태스크 생성 실패 (HTTP $CODE): $BODY"; exit 0
+          fi
+
+          HAJA=$(printf '%s' "$BODY" | python3 -c "import json,sys; d=json.load(sys.stdin); print((d.get('data') or d).get('task_number',''))" || echo "")
+          echo "P2 이슈 #$ISSUE_NUM → PACA HAJA-$HAJA (Backlog)"
+
+          # 3) 이슈에 역링크 코멘트 (마커로 중복 코멘트 방지 참고용)
+          if [ -n "$HAJA" ]; then
+            gh issue comment "$ISSUE_NUM" -R "$REPO" \
+              --body "📋 PACA 등록: **HAJA-${HAJA}** (Backlog · P2) — tag \`${MARK}\` <!-- paca-p2-synced -->"
+          fi
