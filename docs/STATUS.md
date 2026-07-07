@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-07-05
+> 마지막 갱신: 2026-07-07
 
 ## 인프라
 
@@ -11,7 +11,7 @@
 | 도메인·HTTPS | ✅ | https://hajacheck.luma200ok.com — nginx `/`→8100(Spring)·`/ai/`→8101(FastAPI), certbot 자동갱신 크론 |
 | 공용 개발 DB (PostgreSQL 16) | ✅ | DB/계정 `hajacheck`, localhost 전용 — 팀원 접근은 SSH 터널(`hajadev` 터널 전용 계정) |
 | Redis | ✅ | 전용 컨테이너 `hajacheck-redis` 127.0.0.1:6380, requirepass·AOF |
-| 팀원 DB 온보딩 | 🔶 진행 중 | PACA 문서 「인프라/개발 DB 접속 온보딩」 게시. 등록 2/7 (유병현·김관영) — `hajadev` 터널 계정 authorized_keys, permitopen 5432(DB)·6380(Redis) 제약. 나머지 5명 공개키 **7/7(화)까지 수집** 예정 |
+| 팀원 DB 온보딩 | ✅ 완료 | `hajadev` 터널 전용 계정(authorized_keys, permitopen 5432(DB)·6380(Redis) 제약)에 팀원 7명 전원 공개키 등록 완료 |
 | OAuth 앱 (Kakao/Google) | ✅ | Kakao(앱 1504012)·Google(hajacheck/hajacheck-web) 등록, Redirect URI=`/login/oauth2/code/{kakao\|google}` (localhost:8080 + dev 도메인). 크레덴셜=서버 `~/apps/hajacheck/.env`. 구글 테스트 사용자 8명(팀 전원 Gmail) 등록 완료 — 게시상태 Testing 유지(오픈 시 프로덕션 전환) |
 | GitHub Actions CI | ✅ 그린 | PR 시 파트별 빌드/테스트 (backend·ai-server·frontend) |
 | CD (서버 배포) | ⬜ | Sprint 1 앱 골격 후 — 배포 전용 SSH 키 + Secrets 예정 |
