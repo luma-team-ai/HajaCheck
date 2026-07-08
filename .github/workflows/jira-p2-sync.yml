@@ -8,6 +8,8 @@ name: Jira P2 Sync
 #         JSON)으로 GitHub 이슈 담당자를 Jira 이슈 담당자로 자동 매핑한다. 매핑에 없거나 GitHub 이슈에
 #         담당자가 없으면 기존처럼 Unassigned로 생성한다(하위호환 유지).
 #         (labels의 gh-<이슈번호>로 원본 GitHub 이슈를 역추적할 수 있다.)
+# 부모 에픽: 원본 태스크가 속한 에픽을 그대로 상속받아 parent로 연결한다(원본 태스크를 못 찾거나
+#         부모 에픽이 없으면 parent 없이 생성 — 하위호환 유지).
 on:
   issues:
     types: [labeled]
@@ -63,8 +65,19 @@ jobs:
             echo "담당자 매핑 없음(assignee='${ISSUE_ASSIGNEE}') — Unassigned로 생성"
           fi
 
-          # 3) Jira 이슈 생성 요청 페이로드 구성 (description은 ADF 최소 구조, assignee는 매핑 있을 때만)
-          PAYLOAD=$(python3 -c "import json,os; fields={'project': {'key': os.environ['PROJECT_KEY']}, 'issuetype': {'name': os.environ['ISSUE_TYPE']}, 'summary': os.environ['SUMMARY'], 'description': {'type': 'doc', 'version': 1, 'content': [{'type': 'paragraph', 'content': [{'type': 'text', 'text': 'GitHub 원본: ' + os.environ['ISSUE_URL']}]}]}, 'labels': ['P2', 'gh-sync', os.environ['MARK']]}; acc=os.environ.get('ASSIGNEE_ACCOUNT_ID'); fields.update({'assignee': {'id': acc}} if acc else {}); print(json.dumps({'fields': fields}))")
+          # 2.6) 원본(주담당) 태스크의 부모 에픽 조회 → 새 P2 이슈도 같은 에픽에 연결
+          PARENT_EPIC=""
+          PARENT_SEARCH_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$JQL_ENC&fields=parent" || echo "")
+          PARENT_EPIC=$(printf '%s' "$PARENT_SEARCH_RESP" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; parent=(issues[0].get('fields',{}) or {}).get('parent') if issues else None; print((parent or {}).get('key','') if parent else '')" 2>/dev/null || echo "")
+          export PARENT_EPIC
+          if [ -n "$PARENT_EPIC" ]; then
+            echo "원본 태스크의 부모 에픽: ${PARENT_EPIC} → P2 이슈도 동일 에픽에 연결"
+          else
+            echo "원본 태스크에 부모 에픽 없음(또는 원본을 못 찾음) — parent 없이 생성"
+          fi
+
+          # 3) Jira 이슈 생성 요청 페이로드 구성 (description은 ADF 최소 구조, assignee/parent는 있을 때만)
+          PAYLOAD=$(python3 -c "import json,os; fields={'project': {'key': os.environ['PROJECT_KEY']}, 'issuetype': {'name': os.environ['ISSUE_TYPE']}, 'summary': os.environ['SUMMARY'], 'description': {'type': 'doc', 'version': 1, 'content': [{'type': 'paragraph', 'content': [{'type': 'text', 'text': 'GitHub 원본: ' + os.environ['ISSUE_URL']}]}]}, 'labels': ['P2', 'gh-sync', os.environ['MARK']]}; acc=os.environ.get('ASSIGNEE_ACCOUNT_ID'); fields.update({'assignee': {'id': acc}} if acc else {}); parent_epic=os.environ.get('PARENT_EPIC'); fields.update({'parent': {'key': parent_epic}} if parent_epic else {}); print(json.dumps({'fields': fields}))")
 
           RESP=$(curl -s -w '\n%{http_code}' -X POST -u "$JIRA_EMAIL:$JIRA_TOKEN" \
             -H "Content-Type: application/json" \
