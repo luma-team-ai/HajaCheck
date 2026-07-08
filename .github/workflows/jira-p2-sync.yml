@@ -54,15 +54,29 @@ jobs:
 
           # 생성 응답 유실(타임아웃/연결끊김)로 실제론 이슈가 만들어졌을 수 있으므로, P2_MARK로
           # 재조회해 이미 있으면 그 Jira 키를 돌려준다(없으면 빈 문자열). 중복 이슈 생성 방지용.
-          # Jira 검색 인덱스는 최종적 일관성이라 짧게 대기 후 조회한다. JQL_ENC는 1) 단계에서 설정된다.
+          # Jira 검색은 최종적 일관성이라 인덱싱 지연을 백오프(3→6→10초, 최대 3회)로 흡수한다.
+          # JQL_ENC는 1) 단계에서 설정된다. stdout에는 키만 출력(로그 없음 — 호출부가 캡처).
           recheck_existing_key() {
-            sleep 3
-            local resp
-            resp=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$JQL_ENC&fields=key" || echo "")
-            printf '%s' "$resp" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; print(issues[0]['key'] if issues else '')" 2>/dev/null || echo ""
+            local resp key delay
+            for delay in 3 6 10; do
+              sleep "$delay"
+              resp=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$JQL_ENC&fields=key" || echo "")
+              key=$(printf '%s' "$resp" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; print(issues[0]['key'] if issues else '')" 2>/dev/null || echo "")
+              if [ -n "$key" ]; then printf '%s' "$key"; return 0; fi
+            done
+            printf '%s' ""
           }
 
-          # 1) 멱등성: 이 워크플로우 자신의 마커(gh-p2-<이슈번호>) 라벨의 Jira 이슈가 이미 있으면 스킵
+          # 0) 강한 일관성 우선 멱등성: 원본 GitHub 이슈에 이미 sync 마커 코멘트가 있으면 스킵한다.
+          #    GitHub API는 read-your-writes 강한 일관성이라, concurrency로 직렬화된 후속/재라벨 실행이
+          #    Jira 검색 인덱싱 지연과 무관하게 즉시 중복을 차단한다(아래 Jira 검색보다 견고).
+          SYNCED=$(gh issue view "$ISSUE_NUM" -R "$REPO" --json comments \
+            --jq '[.comments[].body | select(contains("<!-- jira-p2-synced -->"))] | length' 2>/dev/null || echo "0")
+          if [ "${SYNCED:-0}" != "0" ]; then
+            echo "이미 sync 마커 코멘트 존재 — 스킵(GitHub 강한 일관성)"; exit 0
+          fi
+
+          # 1) 멱등성(보조): 이 워크플로우 자신의 마커(gh-p2-<이슈번호>) 라벨의 Jira 이슈가 이미 있으면 스킵
           JQL="project=${PROJECT_KEY} AND labels=\"${P2_MARK}\""
           JQL_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$JQL")
           SEARCH_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$JQL_ENC&fields=key" || echo "")
