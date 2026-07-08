@@ -152,7 +152,12 @@ jobs:
           fi
 
           if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
-            echo "Jira 이슈 생성 실패 (HTTP $CODE): $BODY"; exit 0
+            echo "Jira 이슈 생성 최종 실패 (HTTP $CODE): $BODY"
+            # 무음 유실 방지: 원본 이슈에 실패를 남기고 워크플로우를 실패로 표면화한다(담당자 인지).
+            # exit 0이면 Actions가 초록불로 끝나 Critical P2 추적이 조용히 사라진다.
+            gh issue comment "$ISSUE_NUM" -R "$REPO" \
+              --body "⚠️ Jira P2 자동 등록 실패 (HTTP ${CODE}). 워크플로우 로그 확인 후 수동 등록이 필요합니다." 2>/dev/null || true
+            exit 1
           fi
 
           JIRA_KEY=$(printf '%s' "$BODY" | python3 -c "import json,sys; print(json.loads(sys.stdin.read() or '{}').get('key',''))" 2>/dev/null || echo "")
