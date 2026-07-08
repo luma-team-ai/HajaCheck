@@ -25,6 +25,11 @@ jobs:
   create-task:
     if: github.event.label.name == 'ai:p2-followup'
     runs-on: ubuntu-latest
+    # 같은 이슈에 대한 동시/재라벨 실행을 직렬화해 중복 Jira 이슈 생성을 차단한다.
+    # cancel-in-progress: false — 진행 중 실행을 취소하지 않고 큐잉(취소 시 생성 응답 유실로 중복 위험).
+    concurrency:
+      group: jira-p2-sync-${{ github.event.issue.number }}
+      cancel-in-progress: false
     steps:
       - name: Create Jira task for P2 issue
         env:
@@ -40,10 +45,22 @@ jobs:
           ISSUE_URL: ${{ github.event.issue.html_url }}
           JIRA_USER_MAP: ${{ secrets.JIRA_USER_MAP }}
           ISSUE_ASSIGNEE: ${{ github.event.issue.assignee.login }}
+          # 부모 에픽 판정용 issuetype 이름 후보(Jira 사이트 언어/설정에 따라 '에픽' 또는 'Epic'). 콤마 구분.
+          EPIC_TYPE_NAMES: "에픽,Epic"
         run: |
           set -u
           export P2_MARK="gh-p2-${ISSUE_NUM}"
           export ORIG_MARK="gh-${ISSUE_NUM}"
+
+          # 생성 응답 유실(타임아웃/연결끊김)로 실제론 이슈가 만들어졌을 수 있으므로, P2_MARK로
+          # 재조회해 이미 있으면 그 Jira 키를 돌려준다(없으면 빈 문자열). 중복 이슈 생성 방지용.
+          # Jira 검색 인덱스는 최종적 일관성이라 짧게 대기 후 조회한다. JQL_ENC는 1) 단계에서 설정된다.
+          recheck_existing_key() {
+            sleep 3
+            local resp
+            resp=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$JQL_ENC&fields=key" || echo "")
+            printf '%s' "$resp" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; print(issues[0]['key'] if issues else '')" 2>/dev/null || echo ""
+          }
 
           # 1) 멱등성: 이 워크플로우 자신의 마커(gh-p2-<이슈번호>) 라벨의 Jira 이슈가 이미 있으면 스킵
           JQL="project=${PROJECT_KEY} AND labels=\"${P2_MARK}\""
@@ -76,7 +93,7 @@ jobs:
           ORIG_JQL_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$ORIG_JQL")
           PARENT_EPIC=""
           PARENT_SEARCH_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$ORIG_JQL_ENC&fields=parent" || echo "")
-          PARENT_EPIC=$(printf '%s' "$PARENT_SEARCH_RESP" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; parent=(issues[0].get('fields',{}) or {}).get('parent') if issues else None; issuetype=((parent or {}).get('fields',{}) or {}).get('issuetype',{}) or {}; print(parent.get('key','') if (parent and issuetype.get('name') == '에픽') else '')" 2>/dev/null || echo "")
+          PARENT_EPIC=$(printf '%s' "$PARENT_SEARCH_RESP" | python3 -c "import json,sys,os; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; parent=(issues[0].get('fields',{}) or {}).get('parent') if issues else None; issuetype=((parent or {}).get('fields',{}) or {}).get('issuetype',{}) or {}; names=[n.strip() for n in (os.environ.get('EPIC_TYPE_NAMES') or '에픽,Epic').split(',') if n.strip()]; print(parent.get('key','') if (parent and issuetype.get('name') in names) else '')" 2>/dev/null || echo "")
           export PARENT_EPIC
           if [ -n "$PARENT_EPIC" ]; then
             echo "원본 태스크의 부모 에픽: ${PARENT_EPIC} → P2 이슈도 동일 에픽에 연결"
@@ -93,15 +110,31 @@ jobs:
           CODE=$(printf '%s' "$RESP" | tail -1)
           BODY=$(printf '%s' "$RESP" | sed '$d')
 
-          # 3.5) parent를 포함한 생성이 실패하면 parent를 제거하고 1회만 재시도
-          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ] && [ -n "$PARENT_EPIC" ]; then
-            echo "Jira 이슈 생성 실패 (HTTP $CODE, parent=${PARENT_EPIC}): $BODY — parent 제거 후 재시도"
-            RETRY_PAYLOAD=$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); d['fields'].pop('parent', None); print(json.dumps(d))" "$PAYLOAD")
-            RESP=$(curl -s -w '\n%{http_code}' -X POST -u "$JIRA_EMAIL:$JIRA_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "$RETRY_PAYLOAD" "$JIRA_SITE/rest/api/3/issue")
-            CODE=$(printf '%s' "$RESP" | tail -1)
-            BODY=$(printf '%s' "$RESP" | sed '$d')
+          # 3.5) 생성 실패 처리 — 먼저 재조회로 '응답만 유실됐고 실제론 생성됨'을 흡수(중복 방지),
+          #      그래도 없으면 parent 문제일 수 있으니 parent 제거 후 1회 재시도한다.
+          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
+            echo "Jira 이슈 생성 응답 실패(HTTP $CODE): $BODY — 이미 생성됐는지 재조회"
+            RECHECK=$(recheck_existing_key)
+            if [ -n "$RECHECK" ]; then
+              echo "재조회 결과 이미 존재(${RECHECK}) — 중복 생성 방지, 해당 이슈 사용"
+              BODY="{\"key\":\"${RECHECK}\"}"; CODE=201
+            elif [ -n "$PARENT_EPIC" ]; then
+              echo "재조회 결과 없음 — parent(${PARENT_EPIC}) 제거 후 1회 재시도"
+              RETRY_PAYLOAD=$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); d['fields'].pop('parent', None); print(json.dumps(d))" "$PAYLOAD")
+              RESP=$(curl -s -w '\n%{http_code}' -X POST -u "$JIRA_EMAIL:$JIRA_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "$RETRY_PAYLOAD" "$JIRA_SITE/rest/api/3/issue")
+              CODE=$(printf '%s' "$RESP" | tail -1)
+              BODY=$(printf '%s' "$RESP" | sed '$d')
+              # 재시도 응답도 유실됐을 수 있으니 한 번 더 재조회로 중복 방지
+              if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
+                RECHECK2=$(recheck_existing_key)
+                if [ -n "$RECHECK2" ]; then
+                  echo "재시도 응답 실패였으나 재조회 결과 존재(${RECHECK2}) — 해당 이슈 사용"
+                  BODY="{\"key\":\"${RECHECK2}\"}"; CODE=201
+                fi
+              fi
+            fi
           fi
 
           if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
