@@ -60,7 +60,7 @@ jobs:
             local resp key delay
             for delay in 3 6 10; do
               sleep "$delay"
-              resp=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$JQL_ENC&fields=key" || echo "")
+              resp=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search/jql?jql=$JQL_ENC&fields=key" || echo "")
               key=$(printf '%s' "$resp" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; print(issues[0]['key'] if issues else '')" 2>/dev/null || echo "")
               if [ -n "$key" ]; then printf '%s' "$key"; return 0; fi
             done
@@ -79,7 +79,7 @@ jobs:
           # 1) 멱등성(보조): 이 워크플로우 자신의 마커(gh-p2-<이슈번호>) 라벨의 Jira 이슈가 이미 있으면 스킵
           JQL="project=${PROJECT_KEY} AND labels=\"${P2_MARK}\""
           JQL_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$JQL")
-          SEARCH_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$JQL_ENC&fields=key" || echo "")
+          SEARCH_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search/jql?jql=$JQL_ENC&fields=key" || echo "")
           EXIST=$(printf '%s' "$SEARCH_RESP" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; print(issues[0]['key'] if issues else '')" 2>/dev/null || echo "")
           if [ -n "$EXIST" ]; then
             echo "이미 Jira ${EXIST} 로 추적 중 — 스킵"; exit 0
@@ -103,34 +103,21 @@ jobs:
 
           # 2.6) 원본(주담당) 태스크는 gh-<이슈번호>(ORIG_MARK) 라벨을 갖고 있으므로, 1)과는 별도의
           #      JQL로 조회해 그 부모 에픽을 확인한다(1)의 JQL을 재사용하면 항상 빈 결과라 죽은 코드가 됨).
-          #      [2단계 조회] Jira REST /search 의 parent 필드는 issuetype이 축약(누락)될 수 있어
-          #      search에서는 parent.key만 신뢰하고, 그 부모를 GET /issue/{key}?fields=issuetype 로
-          #      직접 조회해 에픽 여부를 확정한다(search 응답 축약 여부와 무관하게 정확).
+          #      [2단계 조회] search/jql 에서는 parent.key만 신뢰하고, 그 부모를
+          #      GET /issue/{key}?fields=issuetype 로 직접 조회해 에픽 여부를 확정한다.
+          #      ※ Jira가 구 /rest/api/3/search 를 삭제(410 Gone, CHANGE-2046)해 /search/jql 로 이전함.
           ORIG_JQL="project=${PROJECT_KEY} AND labels=\"${ORIG_MARK}\""
           ORIG_JQL_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$ORIG_JQL")
-          echo "::group::DEBUG epic-parent"
-          echo "DEBUG ORIG_MARK=${ORIG_MARK}"
-          echo "DEBUG ORIG_JQL=${ORIG_JQL}"
-          echo "DEBUG ORIG_JQL_ENC=${ORIG_JQL_ENC}"
-          # 디버그: search를 http_code 포함해 호출하여 실제 응답을 관찰
-          DBG_SEARCH=$(curl -s -w $'\n%{http_code}' -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$ORIG_JQL_ENC&fields=parent")
-          echo "DEBUG search http_code=$(printf '%s' "$DBG_SEARCH" | tail -1)"
-          echo "DEBUG search body(앞 900자)=$(printf '%s' "$DBG_SEARCH" | sed '$d' | head -c 900)"
           PARENT_EPIC=""
-          # 1단계: 원본 태스크의 부모 key만 얻는다(축약돼도 key는 항상 온다).
-          PARENT_SEARCH_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$ORIG_JQL_ENC&fields=parent" || echo "")
+          # 1단계: 원본 태스크의 부모 key만 얻는다.
+          PARENT_SEARCH_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search/jql?jql=$ORIG_JQL_ENC&fields=parent" || echo "")
           PARENT_KEY=$(printf '%s' "$PARENT_SEARCH_RESP" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; parent=(issues[0].get('fields',{}) or {}).get('parent') if issues else None; print((parent or {}).get('key','') if parent else '')" 2>/dev/null || echo "")
-          echo "DEBUG PARENT_KEY=${PARENT_KEY}"
           # 2단계: 부모를 직접 조회해 issuetype이 에픽인지 확정한다.
           if [ -n "$PARENT_KEY" ]; then
             PARENT_ISSUE_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/issue/${PARENT_KEY}?fields=issuetype" || echo "")
-            echo "DEBUG PARENT_ISSUE_RESP(앞 400자)=$(printf '%s' "$PARENT_ISSUE_RESP" | head -c 400)"
             IS_EPIC=$(printf '%s' "$PARENT_ISSUE_RESP" | python3 -c "import json,sys,os; d=json.loads(sys.stdin.read() or '{}'); name=((d.get('fields',{}) or {}).get('issuetype',{}) or {}).get('name',''); names=[n.strip() for n in (os.environ.get('EPIC_TYPE_NAMES') or '에픽,Epic').split(',') if n.strip()]; print(name if name in names else '')" 2>/dev/null || echo "")
-            echo "DEBUG IS_EPIC=${IS_EPIC}"
             [ -n "$IS_EPIC" ] && PARENT_EPIC="$PARENT_KEY"
           fi
-          echo "DEBUG PARENT_EPIC=${PARENT_EPIC}"
-          echo "::endgroup::"
           export PARENT_EPIC
           if [ -n "$PARENT_EPIC" ]; then
             echo "원본 태스크의 부모 에픽: ${PARENT_EPIC} → P2 이슈도 동일 에픽에 연결"
