@@ -1,5 +1,8 @@
 # 복사해서 application-local.yml 로 사용 (gitignore 대상)
 # 시크릿은 환경변수 주입 — yml에 실제 값 커밋 금지 (SpringBoot_코드_컨벤션.md §9)
+# 시크릿 값은 루트 .env 에 작성(DB_PASSWORD, REDIS_PASSWORD 등) — 단 Spring Boot가 .env 를 자동 로드하지 않으므로
+#   IntelliJ: EnvFile 플러그인으로 Run Configuration 에 .env 연결
+#   터미널: export $(grep -v '^#' .env | xargs) && ./gradlew bootRun
 # 접속 전 SSH 터널 필요: ssh -N hajacheck-db (설정은 ~/.ssh/config 의 Host hajacheck-db 참조)
 # → 로컬 localhost:5432(PostgreSQL) / localhost:6380(Redis) 가 공용 개발 서버로 포워딩됨
 spring:
