@@ -1,0 +1,70 @@
+name: Jira P2 Sync
+
+# GitHub 이슈에 'ai:p2-followup' 라벨이 붙으면(PR머신이 P2 등급 리뷰 코멘트 처리 시 자동 부여)
+# Jira(HAJA 프로젝트)에 후속 태스크를 자동 생성해 추적한다.
+# PACA(자체 호스팅 PM 툴) 폐기 후 Jira+Slack 체계로 전환하며 옛 paca-p2-sync.yml을 대체한다.
+# 멱등성: Jira 라벨 `gh-<이슈번호>` 존재 시 재생성하지 않음(JQL로 사전 조회).
+# 담당자: 팀원 대부분이 아직 Jira 계정에 초대되지 않은 상태라 자동배정이 불가능하다.
+#         PACA 때와 동일한 제약 — Unassigned로 생성하고, 담당자는 각자 Jira에서 직접 배정한다.
+#         (labels의 gh-<이슈번호>로 원본 GitHub 이슈를 역추적할 수 있다.)
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  issues: write
+
+jobs:
+  create-task:
+    if: github.event.label.name == 'ai:p2-followup'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Jira task for P2 issue
+        env:
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA }}
+          JIRA_SITE: https://human2-team.atlassian.net
+          PROJECT_KEY: HAJA
+          ISSUE_TYPE: 작업
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+        run: |
+          set -u
+          export MARK="gh-${ISSUE_NUM}"
+
+          # 1) 멱등성: 같은 gh-<이슈번호> 라벨의 Jira 이슈가 이미 있으면 스킵
+          JQL="project=${PROJECT_KEY} AND labels=\"${MARK}\""
+          JQL_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$JQL")
+          SEARCH_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$JQL_ENC&fields=key" || echo "")
+          EXIST=$(printf '%s' "$SEARCH_RESP" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; print(issues[0]['key'] if issues else '')" 2>/dev/null || echo "")
+          if [ -n "$EXIST" ]; then
+            echo "이미 Jira ${EXIST} 로 추적 중 — 스킵"; exit 0
+          fi
+
+          # 2) 제목에서 기존 [HAJA-N] 접두 제거 후 [P2] 부여
+          CLEAN=$(printf '%s' "$ISSUE_TITLE" | sed -E 's/^\[HAJA-[0-9]+\][[:space:]]*//')
+          export SUMMARY="[P2] ${CLEAN}"
+
+          # 3) Jira 이슈 생성 요청 페이로드 구성 (description은 ADF 최소 구조)
+          PAYLOAD=$(python3 -c "import json,os; print(json.dumps({'fields': {'project': {'key': os.environ['PROJECT_KEY']}, 'issuetype': {'name': os.environ['ISSUE_TYPE']}, 'summary': os.environ['SUMMARY'], 'description': {'type': 'doc', 'version': 1, 'content': [{'type': 'paragraph', 'content': [{'type': 'text', 'text': 'GitHub 원본: ' + os.environ['ISSUE_URL']}]}]}, 'labels': ['P2', 'gh-sync', os.environ['MARK']]}}))")
+
+          RESP=$(curl -s -w '\n%{http_code}' -X POST -u "$JIRA_EMAIL:$JIRA_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" "$JIRA_SITE/rest/api/3/issue")
+          CODE=$(printf '%s' "$RESP" | tail -1)
+          BODY=$(printf '%s' "$RESP" | sed '$d')
+          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
+            echo "Jira 이슈 생성 실패 (HTTP $CODE): $BODY"; exit 0
+          fi
+
+          JIRA_KEY=$(printf '%s' "$BODY" | python3 -c "import json,sys; print(json.loads(sys.stdin.read() or '{}').get('key',''))" 2>/dev/null || echo "")
+          echo "P2 이슈 #${ISSUE_NUM} → Jira ${JIRA_KEY}"
+
+          # 4) 원본 이슈에 역링크 코멘트 (마커로 중복 코멘트 방지 참고용)
+          if [ -n "$JIRA_KEY" ]; then
+            gh issue comment "$ISSUE_NUM" -R "$REPO" \
+              --body "📋 Jira 등록: **${JIRA_KEY}** — ${JIRA_SITE}/browse/${JIRA_KEY} (P2) <!-- jira-p2-synced -->"
+          fi
