@@ -1,0 +1,103 @@
+# GitHub 이슈/PR 오픈 시 Jira 이슈 자동 생성 + 제목/코멘트로 상호 링크 (HAJA-1)
+name: Jira Auto Issue Sync
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 이벤트 정보 추출
+        id: info
+        env:
+          JIRA_PROJECT_KEY: ${{ vars.JIRA_PROJECT_KEY || 'HAJA' }}
+        run: |
+          if [ "${{ github.event_name }}" = "issues" ]; then
+            TYPE="issue"
+            TITLE=${{ toJSON(github.event.issue.title) }}
+            NUMBER="${{ github.event.issue.number }}"
+            URL="${{ github.event.issue.html_url }}"
+          else
+            TYPE="pr"
+            TITLE=${{ toJSON(github.event.pull_request.title) }}
+            NUMBER="${{ github.event.pull_request.number }}"
+            URL="${{ github.event.pull_request.html_url }}"
+          fi
+          echo "type=$TYPE" >> "$GITHUB_OUTPUT"
+          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+          echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          if echo "$TITLE" | grep -qE "${JIRA_PROJECT_KEY}-[0-9]+"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Jira 이슈 생성
+        id: jira
+        if: steps.info.outputs.skip != 'true'
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ vars.JIRA_PROJECT_KEY || 'HAJA' }}
+          GH_TITLE: ${{ steps.info.outputs.title }}
+          GH_URL: ${{ steps.info.outputs.url }}
+          GH_TYPE: ${{ steps.info.outputs.type }}
+          GH_NUMBER: ${{ steps.info.outputs.number }}
+        run: |
+          SUMMARY="[GitHub ${GH_TYPE} #${GH_NUMBER}] ${GH_TITLE}"
+          BODY=$(jq -n \
+            --arg project "$JIRA_PROJECT_KEY" \
+            --arg summary "$SUMMARY" \
+            --arg link "$GH_URL" \
+            '{fields: {project: {key: $project}, summary: $summary, issuetype: {name: "작업"}, description: {type: "doc", version: 1, content: [{type: "paragraph", content: [{type: "text", text: $link}]}]}}}')
+          RESPONSE=$(curl -sS -w "\n%{http_code}" -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            -X POST "$JIRA_BASE_URL/rest/api/3/issue" \
+            -H "Content-Type: application/json" \
+            -d "$BODY")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          JSON=$(echo "$RESPONSE" | sed '$d')
+          if [ "$HTTP_CODE" -ge 300 ]; then
+            echo "Jira 이슈 생성 실패 ($HTTP_CODE): $JSON" >&2
+            exit 1
+          fi
+          KEY=$(echo "$JSON" | jq -r '.key')
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "jira_url=$JIRA_BASE_URL/browse/$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: GitHub 제목에 Jira 키 반영
+        if: steps.info.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const key = "${{ steps.jira.outputs.key }}";
+            const title = ${{ steps.info.outputs.title }};
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.info.outputs.number }},
+              title: `${key} ${title}`,
+            });
+
+      - name: GitHub에 Jira 링크 코멘트
+        if: steps.info.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const key = "${{ steps.jira.outputs.key }}";
+            const jiraUrl = "${{ steps.jira.outputs.jira_url }}";
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.info.outputs.number }},
+              body: `🔗 Jira 이슈 자동 생성: [${key}](${jiraUrl})`,
+            });
