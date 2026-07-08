@@ -103,11 +103,21 @@ jobs:
 
           # 2.6) 원본(주담당) 태스크는 gh-<이슈번호>(ORIG_MARK) 라벨을 갖고 있으므로, 1)과는 별도의
           #      JQL로 조회해 그 부모 에픽을 확인한다(1)의 JQL을 재사용하면 항상 빈 결과라 죽은 코드가 됨).
+          #      [2단계 조회] Jira REST /search 의 parent 필드는 issuetype이 축약(누락)될 수 있어
+          #      search에서는 parent.key만 신뢰하고, 그 부모를 GET /issue/{key}?fields=issuetype 로
+          #      직접 조회해 에픽 여부를 확정한다(search 응답 축약 여부와 무관하게 정확).
           ORIG_JQL="project=${PROJECT_KEY} AND labels=\"${ORIG_MARK}\""
           ORIG_JQL_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$ORIG_JQL")
           PARENT_EPIC=""
+          # 1단계: 원본 태스크의 부모 key만 얻는다(축약돼도 key는 항상 온다).
           PARENT_SEARCH_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$ORIG_JQL_ENC&fields=parent" || echo "")
-          PARENT_EPIC=$(printf '%s' "$PARENT_SEARCH_RESP" | python3 -c "import json,sys,os; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; parent=(issues[0].get('fields',{}) or {}).get('parent') if issues else None; issuetype=((parent or {}).get('fields',{}) or {}).get('issuetype',{}) or {}; names=[n.strip() for n in (os.environ.get('EPIC_TYPE_NAMES') or '에픽,Epic').split(',') if n.strip()]; print(parent.get('key','') if (parent and issuetype.get('name') in names) else '')" 2>/dev/null || echo "")
+          PARENT_KEY=$(printf '%s' "$PARENT_SEARCH_RESP" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; parent=(issues[0].get('fields',{}) or {}).get('parent') if issues else None; print((parent or {}).get('key','') if parent else '')" 2>/dev/null || echo "")
+          # 2단계: 부모를 직접 조회해 issuetype이 에픽인지 확정한다.
+          if [ -n "$PARENT_KEY" ]; then
+            PARENT_ISSUE_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/issue/${PARENT_KEY}?fields=issuetype" || echo "")
+            IS_EPIC=$(printf '%s' "$PARENT_ISSUE_RESP" | python3 -c "import json,sys,os; d=json.loads(sys.stdin.read() or '{}'); name=((d.get('fields',{}) or {}).get('issuetype',{}) or {}).get('name',''); names=[n.strip() for n in (os.environ.get('EPIC_TYPE_NAMES') or '에픽,Epic').split(',') if n.strip()]; print(name if name in names else '')" 2>/dev/null || echo "")
+            [ -n "$IS_EPIC" ] && PARENT_EPIC="$PARENT_KEY"
+          fi
           export PARENT_EPIC
           if [ -n "$PARENT_EPIC" ]; then
             echo "원본 태스크의 부모 에픽: ${PARENT_EPIC} → P2 이슈도 동일 에픽에 연결"
