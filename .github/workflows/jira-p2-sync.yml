@@ -3,13 +3,17 @@ name: Jira P2 Sync
 # GitHub 이슈에 'ai:p2-followup' 라벨이 붙으면(PR머신이 P2 등급 리뷰 코멘트 처리 시 자동 부여)
 # Jira(HAJA 프로젝트)에 후속 태스크를 자동 생성해 추적한다.
 # PACA(자체 호스팅 PM 툴) 폐기 후 Jira+Slack 체계로 전환하며 옛 paca-p2-sync.yml을 대체한다.
-# 멱등성: Jira 라벨 `gh-<이슈번호>` 존재 시 재생성하지 않음(JQL로 사전 조회).
+# 멱등성: 이 워크플로우 자신의 마커는 `gh-p2-<이슈번호>`(P2_MARK)를 쓴다. `gh-<이슈번호>`(ORIG_MARK)는
+#         최초 34개 태스크 동기화 시점부터 원본 태스크 자신의 추적 라벨로 이미 쓰이고 있어서, 같은 이슈번호를
+#         공유하는 이 워크플로우가 멱등성 마커로 재사용하면 원본 태스크를 "이미 추적 중"으로 오인해
+#         P2 이슈 생성이 항상 스킵되는 라벨 충돌이 있었다(GitHub #73 / Jira HAJA-76). P2_MARK로 분리해 해결.
 # 담당자: 팀원 8명 전원 Jira 사이트 초대 완료. `JIRA_USER_MAP` 시크릿(GitHub 로그인 → Jira accountId
 #         JSON)으로 GitHub 이슈 담당자를 Jira 이슈 담당자로 자동 매핑한다. 매핑에 없거나 GitHub 이슈에
 #         담당자가 없으면 기존처럼 Unassigned로 생성한다(하위호환 유지).
-#         (labels의 gh-<이슈번호>로 원본 GitHub 이슈를 역추적할 수 있다.)
-# 부모 에픽: 원본 태스크가 속한 에픽을 그대로 상속받아 parent로 연결한다(원본 태스크를 못 찾거나
-#         부모 에픽이 없으면 parent 없이 생성 — 하위호환 유지).
+#         (labels의 gh-p2-<이슈번호>로 원본 GitHub 이슈를 역추적할 수 있다.)
+# 부모 에픽: ORIG_MARK 전용 별도 JQL로 원본 태스크를 조회하고, 그 parent가 에픽 타입일 때만 새 P2 이슈의
+#         parent로 상속한다(원본 태스크를 못 찾거나 부모가 에픽이 아니거나 부모가 없으면 parent 없이 생성
+#         — 하위호환 유지). parent를 포함한 생성 요청이 실패하면 parent를 제거하고 1회 재시도한다.
 on:
   issues:
     types: [labeled]
@@ -38,10 +42,11 @@ jobs:
           ISSUE_ASSIGNEE: ${{ github.event.issue.assignee.login }}
         run: |
           set -u
-          export MARK="gh-${ISSUE_NUM}"
+          export P2_MARK="gh-p2-${ISSUE_NUM}"
+          export ORIG_MARK="gh-${ISSUE_NUM}"
 
-          # 1) 멱등성: 같은 gh-<이슈번호> 라벨의 Jira 이슈가 이미 있으면 스킵
-          JQL="project=${PROJECT_KEY} AND labels=\"${MARK}\""
+          # 1) 멱등성: 이 워크플로우 자신의 마커(gh-p2-<이슈번호>) 라벨의 Jira 이슈가 이미 있으면 스킵
+          JQL="project=${PROJECT_KEY} AND labels=\"${P2_MARK}\""
           JQL_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$JQL")
           SEARCH_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$JQL_ENC&fields=key" || echo "")
           EXIST=$(printf '%s' "$SEARCH_RESP" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; print(issues[0]['key'] if issues else '')" 2>/dev/null || echo "")
@@ -65,25 +70,40 @@ jobs:
             echo "담당자 매핑 없음(assignee='${ISSUE_ASSIGNEE}') — Unassigned로 생성"
           fi
 
-          # 2.6) 원본(주담당) 태스크의 부모 에픽 조회 → 새 P2 이슈도 같은 에픽에 연결
+          # 2.6) 원본(주담당) 태스크는 gh-<이슈번호>(ORIG_MARK) 라벨을 갖고 있으므로, 1)과는 별도의
+          #      JQL로 조회해 그 부모 에픽을 확인한다(1)의 JQL을 재사용하면 항상 빈 결과라 죽은 코드가 됨).
+          ORIG_JQL="project=${PROJECT_KEY} AND labels=\"${ORIG_MARK}\""
+          ORIG_JQL_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$ORIG_JQL")
           PARENT_EPIC=""
-          PARENT_SEARCH_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$JQL_ENC&fields=parent" || echo "")
-          PARENT_EPIC=$(printf '%s' "$PARENT_SEARCH_RESP" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; parent=(issues[0].get('fields',{}) or {}).get('parent') if issues else None; print((parent or {}).get('key','') if parent else '')" 2>/dev/null || echo "")
+          PARENT_SEARCH_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search?jql=$ORIG_JQL_ENC&fields=parent" || echo "")
+          PARENT_EPIC=$(printf '%s' "$PARENT_SEARCH_RESP" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; parent=(issues[0].get('fields',{}) or {}).get('parent') if issues else None; issuetype=((parent or {}).get('fields',{}) or {}).get('issuetype',{}) or {}; print(parent.get('key','') if (parent and issuetype.get('name') == '에픽') else '')" 2>/dev/null || echo "")
           export PARENT_EPIC
           if [ -n "$PARENT_EPIC" ]; then
             echo "원본 태스크의 부모 에픽: ${PARENT_EPIC} → P2 이슈도 동일 에픽에 연결"
           else
-            echo "원본 태스크에 부모 에픽 없음(또는 원본을 못 찾음) — parent 없이 생성"
+            echo "원본 태스크를 못 찾았거나 부모가 에픽이 아님/부모 없음 — parent 없이 생성"
           fi
 
           # 3) Jira 이슈 생성 요청 페이로드 구성 (description은 ADF 최소 구조, assignee/parent는 있을 때만)
-          PAYLOAD=$(python3 -c "import json,os; fields={'project': {'key': os.environ['PROJECT_KEY']}, 'issuetype': {'name': os.environ['ISSUE_TYPE']}, 'summary': os.environ['SUMMARY'], 'description': {'type': 'doc', 'version': 1, 'content': [{'type': 'paragraph', 'content': [{'type': 'text', 'text': 'GitHub 원본: ' + os.environ['ISSUE_URL']}]}]}, 'labels': ['P2', 'gh-sync', os.environ['MARK']]}; acc=os.environ.get('ASSIGNEE_ACCOUNT_ID'); fields.update({'assignee': {'id': acc}} if acc else {}); parent_epic=os.environ.get('PARENT_EPIC'); fields.update({'parent': {'key': parent_epic}} if parent_epic else {}); print(json.dumps({'fields': fields}))")
+          PAYLOAD=$(python3 -c "import json,os; fields={'project': {'key': os.environ['PROJECT_KEY']}, 'issuetype': {'name': os.environ['ISSUE_TYPE']}, 'summary': os.environ['SUMMARY'], 'description': {'type': 'doc', 'version': 1, 'content': [{'type': 'paragraph', 'content': [{'type': 'text', 'text': 'GitHub 원본: ' + os.environ['ISSUE_URL']}]}]}, 'labels': ['P2', 'gh-sync', os.environ['P2_MARK']]}; acc=os.environ.get('ASSIGNEE_ACCOUNT_ID'); fields.update({'assignee': {'id': acc}} if acc else {}); parent_epic=os.environ.get('PARENT_EPIC'); fields.update({'parent': {'key': parent_epic}} if parent_epic else {}); print(json.dumps({'fields': fields}))")
 
           RESP=$(curl -s -w '\n%{http_code}' -X POST -u "$JIRA_EMAIL:$JIRA_TOKEN" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" "$JIRA_SITE/rest/api/3/issue")
           CODE=$(printf '%s' "$RESP" | tail -1)
           BODY=$(printf '%s' "$RESP" | sed '$d')
+
+          # 3.5) parent를 포함한 생성이 실패하면 parent를 제거하고 1회만 재시도
+          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ] && [ -n "$PARENT_EPIC" ]; then
+            echo "Jira 이슈 생성 실패 (HTTP $CODE, parent=${PARENT_EPIC}): $BODY — parent 제거 후 재시도"
+            RETRY_PAYLOAD=$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); d['fields'].pop('parent', None); print(json.dumps(d))" "$PAYLOAD")
+            RESP=$(curl -s -w '\n%{http_code}' -X POST -u "$JIRA_EMAIL:$JIRA_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$RETRY_PAYLOAD" "$JIRA_SITE/rest/api/3/issue")
+            CODE=$(printf '%s' "$RESP" | tail -1)
+            BODY=$(printf '%s' "$RESP" | sed '$d')
+          fi
+
           if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
             echo "Jira 이슈 생성 실패 (HTTP $CODE): $BODY"; exit 0
           fi
