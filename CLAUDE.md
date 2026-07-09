@@ -19,7 +19,7 @@
 
 ## Jira 연동 (Rovo MCP 오케스트레이션, 2026-07-08 확정, 2026-07-08 사이트 정정, 2026-07-08 프로젝트 키 정정)
 - 팀 표준화로 paca → **Jira(`human2-team.atlassian.net`) + Slack**로 전환. GitHub↔Jira 양방향 동기화는 **네이티브 앱(GitHub for Jira) 설치 없이**, Claude가 워크플로우 단계마다 Atlassian Rovo MCP 도구를 직접 호출하는 방식으로 구현한다.
-- **Jira 사이트 = `human2-team.atlassian.net`, 프로젝트 키 = `HAJA`** (프로젝트 표시명은 "haja-check"). ⚠️ 이름이 비슷한 `human-2team.atlassian.net`(프로젝트 키 `SCRUM`)은 **다른 사이트**이며 현재 claude.ai 커넥터 권한이 없음(재연결 시 `human2-team` 하나만 승인됨) — 헷갈리지 말 것. 이슈 타입: 에픽/스토리/작업/버그/Feature/Subtask. (과거 `KAN`으로 잘못 기재돼 있었음 — 2026-07-08 `jira-p2-sync.yml` 버그 조사 중 실제 라이브 데이터(HAJA-42 등, GitHub 이슈와 상호 참조 확인됨)로 `HAJA`가 맞다는 걸 확인해 정정.)
+- **Jira 사이트 = `human2-team.atlassian.net`, 프로젝트 키 = `HAJA`** (프로젝트 표시명은 "haja-check"). ⚠️ 이름이 비슷한 `human-2team.atlassian.net`(프로젝트 키 `SCRUM`)은 **다른 사이트**이며 현재 claude.ai 커넥터 권한이 없음(재연결 시 `human2-team` 하나만 승인됨) — 헷갈리지 말 것. 이슈 타입: 에픽/스토리/작업/버그/Feature/Subtask. (과거 `KAN`으로 잘못 기재돼 있었음 — 2026-07-08 `jira-p2-sync.yml` 버그 조사 중 실제 라이브 데이터로 `HAJA`가 맞다는 걸 확인해 정정.)
 - **동기화 지점 (전역 워크트리 워크플로우 2단계·9단계에 얹는다):**
   1. **이슈 등록**(`gh issue create` 직후) → `createJiraIssue`(cloudId=`human2-team.atlassian.net`, projectKey=`HAJA`)로 대응 Jira 티켓 생성, 상태=**할 일**. 이슈 타입 매핑: GitHub 라벨 `bug`→버그, 그 외(`feature` 등)→작업. GitHub 이슈 본문에 Jira 키 추가 + Jira 설명에 GitHub 이슈 링크 추가(상호 참조).
   2. **dev 머지**(PR머신 자동 머지 완료) → Jira 상태를 **진행 중**으로 전환(코드는 끝났지만 아직 미배포). 필요 시 dev PR 링크 코멘트.
