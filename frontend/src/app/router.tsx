@@ -4,16 +4,28 @@ import { lazy, Suspense } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 
 const MapPage = lazy(() => import('../features/map/MapPage'));
+const ResultViewerPage = lazy(() =>
+  import('../features/inspection/pages/ResultViewerPage').then((m) => ({
+    default: m.ResultViewerPage,
+  })),
+);
 
 export const router = createBrowserRouter([
   {
     path: '/',
     element: <div>hajaCheck — 스켈레톤 (각 feature 담당이 라우트 추가)</div>,
   },
+  {
+    path: '/inspections/:id/viewer',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <ResultViewerPage />
+      </Suspense>
+    ),
+  },
   // { path: '/login', ... }                    — features/auth
   // { path: '/dashboard', ... }                — features/dashboard
   // { path: '/facilities', ... }               — features/facility
-  // { path: '/inspections/:id/viewer', ... }   — features/inspection
   {
     path: '/map',
     element: (
