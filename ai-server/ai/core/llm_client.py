@@ -68,7 +68,11 @@ class CachedLLM:
         return content
 
     def with_structured_output(self, schema):
-        return self._chat.with_structured_output(schema)
+        # KNOWN ISSUE (2026-07-09): HF Serverless Inference가 강제 tool_choice를 지원 안 해서
+        # 기본 방식(function_calling)도, method="json_mode"도 동일한 400 INVALID_TOOL_CHOICE로 실패함
+        # (langchain-huggingface==0.1.2 두 방식 다 내부적으로 tool_choice를 거는 것으로 추정).
+        # 아직 미해결 — 온보딩 세션 전 재확인 필요. 임시 우회책은 memory 참고.
+        return self._chat.with_structured_output(schema, method="json_mode")
 
 
 def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
