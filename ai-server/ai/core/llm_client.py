@@ -10,6 +10,7 @@ from datetime import date
 from functools import lru_cache
 
 import redis
+from langchain_core.output_parsers import PydanticOutputParser
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 
 DEFAULT_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-8B")
@@ -68,11 +69,30 @@ class CachedLLM:
         return content
 
     def with_structured_output(self, schema):
-        # KNOWN ISSUE (2026-07-09): HF Serverless Inference가 강제 tool_choice를 지원 안 해서
-        # 기본 방식(function_calling)도, method="json_mode"도 동일한 400 INVALID_TOOL_CHOICE로 실패함
-        # (langchain-huggingface==0.1.2 두 방식 다 내부적으로 tool_choice를 거는 것으로 추정).
-        # 아직 미해결 — 온보딩 세션 전 재확인 필요. 임시 우회책은 memory 참고.
-        return self._chat.with_structured_output(schema, method="json_mode")
+        # langchain 표준 with_structured_output()은 tool_choice 강제 호출(bind_tools) 기반인데
+        # HF Serverless Inference가 "auto"/"none" 외 tool_choice를 지원 안 해서 항상 400
+        # INVALID_TOOL_CHOICE로 실패함(langchain-ai/langchain#29569, upstream "not planned" —
+        # 버전 업그레이드로 해결 안 됨). 프롬프트에 JSON 스키마를 지시하고 직접 파싱하는 방식으로 우회.
+        return _StructuredLLM(self._chat, schema)
+
+
+class _StructuredLLM:
+    """with_structured_output() 우회 구현 — 프롬프트 지시 + PydanticOutputParser 파싱."""
+
+    def __init__(self, chat_model: ChatHuggingFace, schema):
+        self._chat = chat_model
+        self._parser = PydanticOutputParser(pydantic_object=schema)
+
+    def invoke(self, prompt: str):
+        full_prompt = f"{prompt}\n\n{self._parser.get_format_instructions()}"
+        last_error: Exception | None = None
+        for _ in range(MAX_RETRIES + 1):
+            response = self._chat.invoke(full_prompt)
+            try:
+                return self._parser.parse(response.content)
+            except Exception as e:  # noqa: BLE001 — 파싱 실패(형식 어긋난 출력)는 재시도 대상
+                last_error = e
+        raise last_error
 
 
 def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
@@ -82,7 +102,7 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
     - 응답 캐시: 프롬프트 해시 키 `ai:cache:{hash}` Redis 캐시 자동 적용
       (개발 중 크레딧 소진 방지, 우회는 cache=False)
     - structured output이 필요하면 `get_llm().with_structured_output(Schema)` 사용
-      (이 경로는 캐시/재시도 래퍼를 거치지 않음 — langchain 표준 방식 그대로)
+      (프롬프트 지시 + PydanticOutputParser 파싱 방식 — 응답 캐시는 거치지 않고, 파싱 실패 시 자체 재시도)
     """
     endpoint = HuggingFaceEndpoint(
         repo_id=DEFAULT_MODEL,
