@@ -31,7 +31,24 @@ export function DefectOverlay({ media, defects }: DefectOverlayProps) {
             border: `2px solid ${GRADE_COLOR[defect.grade]}`,
             boxSizing: 'border-box',
           }}
-        />
+        >
+          {/* ponytail: 이미지 최상단 박스는 라벨이 잘릴 수 있음 — 피그마 시안 나오면 방향 자동전환으로 교체 */}
+          <span
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              transform: 'translateY(-100%)',
+              whiteSpace: 'nowrap',
+              background: GRADE_COLOR[defect.grade],
+              color: '#fff',
+              fontSize: 12,
+              padding: '2px 4px',
+            }}
+          >
+            {defect.type} · {defect.grade}등급
+          </span>
+        </div>
       ))}
     </div>
   );
