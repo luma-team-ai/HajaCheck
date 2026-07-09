@@ -10,9 +10,15 @@ const ALL_GRADES: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
 export function ResultViewerPage() {
   const { id } = useParams<{ id: string }>();
   const inspectionId = Number(id);
-  const { data, isLoading, isError } = useInspectionResult(inspectionId);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [gradeFilter, setGradeFilter] = useState<DefectGrade[]>(ALL_GRADES);
+
+  // URL 파라미터 검증
+  if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
+    return <div style={{ padding: '20px', color: 'red' }}>잘못된 접근입니다. 유효한 검사 ID를 확인하세요.</div>;
+  }
+
+  const { data, isLoading, isError } = useInspectionResult(inspectionId);
 
   const handleThresholdChange = (event: ChangeEvent<HTMLInputElement>) => {
     setConfidenceThreshold(Number(event.target.value));
