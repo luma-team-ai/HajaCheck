@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { DefectOverlay } from '../components/DefectOverlay';
 import { useInspectionResult } from '../hooks/useInspectionResult';
 import type { DefectGrade } from '../types';
+import { filterDefects } from '../utils/filterDefects';
 
 const ALL_GRADES: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
 
@@ -34,9 +35,7 @@ export function ResultViewerPage() {
   if (isError) return <div>결과를 불러오지 못했습니다.</div>;
   if (!data || data.defects.length === 0) return <div>탐지된 하자가 없습니다.</div>;
 
-  const visibleDefects = data.defects.filter(
-    (defect) => defect.confidence >= confidenceThreshold && gradeFilter.includes(defect.grade),
-  );
+  const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
 
   return (
     <div>
