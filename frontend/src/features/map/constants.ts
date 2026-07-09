@@ -13,6 +13,9 @@ export const GRADE_LABEL: Record<DefectGrade, string> = {
   RED: '심각',
 };
 
+/** 에러 메시지 텍스트 색상 */
+export const ERROR_TEXT_COLOR = '#B91C1C';
+
 /** 시설물 목록이 비어있을 때 초기 지도 중심 (서울시청) */
 export const DEFAULT_MAP_CENTER = { latitude: 37.5665, longitude: 126.978 };
 export const DEFAULT_MAP_LEVEL = 7;

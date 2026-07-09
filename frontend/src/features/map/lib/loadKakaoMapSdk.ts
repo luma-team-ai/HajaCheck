@@ -45,6 +45,7 @@ export function loadKakaoMapSdk(): Promise<void> {
     script.async = true;
     script.onload = () => window.kakao.maps.load(() => resolve());
     script.onerror = () => {
+      script.remove(); // 실패한 태그를 제거해야 재진입 시 새 script로 재시도 가능 (잔존 시 영구 pending)
       loadPromise = null; // 실패 시 재시도 가능하도록 리셋
       reject(new Error('Kakao Maps SDK 로드에 실패했습니다.'));
     };

@@ -3,7 +3,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { mapApi } from './api';
-import { DEFAULT_MAP_CENTER, DEFAULT_MAP_LEVEL, GRADE_COLOR, GRADE_LABEL } from './constants';
+import {
+  DEFAULT_MAP_CENTER,
+  DEFAULT_MAP_LEVEL,
+  ERROR_TEXT_COLOR,
+  GRADE_COLOR,
+  GRADE_LABEL,
+} from './constants';
 import { createFacilityMarker, buildInfoWindowContent } from './lib/createFacilityMarker';
 import { KakaoMapKeyMissingError, loadKakaoMapSdk } from './lib/loadKakaoMapSdk';
 import type { FacilityLocation } from './types';
@@ -67,16 +73,14 @@ export default function MapPage() {
     infoWindowRef.current?.close();
 
     markersRef.current = facilities.map((facility) =>
-      createFacilityMarker(map, facility, (selected: FacilityLocation) => {
+      createFacilityMarker(map, facility, (selected: FacilityLocation, marker: KakaoMarker) => {
+        // 클릭된 마커 인스턴스를 클로저로 직접 전달받음 — 좌표 비교 검색 불필요
         infoWindowRef.current?.close();
         infoWindowRef.current = new window.kakao.maps.InfoWindow({
           content: buildInfoWindowContent(selected),
           removable: true,
         });
-        const marker = markersRef.current.find((m) => m.getPosition().getLat() === selected.latitude);
-        if (marker) {
-          infoWindowRef.current.open(map, marker);
-        }
+        infoWindowRef.current.open(map, marker);
       }),
     );
 
@@ -86,11 +90,13 @@ export default function MapPage() {
   }, [facilities, sdkStatus]);
 
   if (sdkStatus === 'error') {
-    return <div style={{ padding: 24, color: '#B91C1C' }}>{sdkError}</div>;
+    return <div style={{ padding: 24, color: ERROR_TEXT_COLOR }}>{sdkError}</div>;
   }
 
   if (isError) {
-    return <div style={{ padding: 24, color: '#B91C1C' }}>시설물 위치를 불러오지 못했습니다.</div>;
+    return (
+      <div style={{ padding: 24, color: ERROR_TEXT_COLOR }}>시설물 위치를 불러오지 못했습니다.</div>
+    );
   }
 
   return (

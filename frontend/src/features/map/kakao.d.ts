@@ -76,7 +76,7 @@ declare global {
   }
 
   interface KakaoInfoWindowOptions {
-    content: string;
+    content: string | HTMLElement;
     removable?: boolean;
   }
 
