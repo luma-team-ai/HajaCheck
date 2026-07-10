@@ -1,5 +1,6 @@
 # 버전 고정 — 수정은 AI-LLM 코치 승인 필수 (AI_개발_컨벤션.md §7)
 # 정확한 버전은 온보딩 세션(7/15) 전 코치가 확정·공지
+python-dotenv==1.0.1
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic==2.10.4
