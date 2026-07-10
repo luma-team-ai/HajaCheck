@@ -100,8 +100,8 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
     """모든 체인의 시작점.
 
     - 토큰 사용량은 Redis `ai:usage:{yyyyMMdd}` 에 자동 집계 (관리자 모니터링 연동)
-    - 응답 캐시: 프롬프트 해시 키 `ai:cache:{hash}` Redis 캐시 자동 적용
-      (개발 중 크레딧 소진 방지, 우회는 cache=False)
+    - 응답 캐시: 키 `ai:cache:{provider}:{model}:{temperature}:{hash}` Redis 캐시 자동 적용
+      (provider/모델/temperature별 네임스페이스 분리로 전환 시 캐시 오염 방지, 우회는 cache=False)
     - structured output이 필요하면 `get_llm().with_structured_output(Schema)` 사용
       (프롬프트 지시 + PydanticOutputParser 파싱 방식 — 응답 캐시는 거치지 않고, 파싱 실패 시 자체 재시도)
     """
@@ -111,16 +111,20 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
 
     if llm_provider == "ollama":
         model_name = os.getenv("OLLAMA_MODEL", "qwen3:8b")
-        from langchain_ollama import ChatOllama  # noqa: F401 — 조건부 import
+        # 지연 import: HF만 쓰는 환경에서 langchain-ollama 미설치여도 hf 경로는 동작
+        from langchain_ollama import ChatOllama
 
         chat_model = ChatOllama(
             model=model_name,
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             temperature=temperature,
+            # client_kwargs는 내부 ollama httpx 클라이언트로 전달 → connect/read 타임아웃 30s
+            # (HF의 timeout=30과 동일하게 무응답 서버에서 무한 대기 방지)
             client_kwargs={"timeout": 30},
         )
     else:  # default "hf"
-        model_name = DEFAULT_MODEL
+        # OLLAMA_MODEL과 동일하게 호출 시점에 LLM_MODEL을 읽어 provider 간 일관성 유지
+        model_name = os.getenv("LLM_MODEL", DEFAULT_MODEL)
         endpoint = HuggingFaceEndpoint(
             repo_id=model_name,
             huggingfacehub_api_token=os.environ["HF_API_TOKEN"],
