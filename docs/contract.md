@@ -1,7 +1,7 @@
 # API 계약 (OpenAPI) — 초안
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
-> 원본 스펙: `ai-server` 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 항상 최신 버전 확인 가능. 이 문서는 그 스냅샷.
+> SOT는 `docs/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
 
 ## GET /health
 
@@ -45,9 +45,7 @@
 { "success": false, "data": null, "usage": null, "error": { "code": "LLM_INVALID_OUTPUT", "message": "..." } }
 ```
 
-> ⚠️ 알려진 이슈: HF Serverless Inference의 structured output(`tool_choice`)이 현재 `400 INVALID_TOOL_CHOICE`로 실패 중 — 위 성공 응답 형태는 스키마 기준이며 실제 호출은 온보딩 세션 전 해결 필요.
-
----
+> ✅ **해결됨 (2026-07-09, PR #88)**: HF Serverless Inference는 langchain 표준 `with_structured_output()`이 강제하는 `tool_choice="any"`를 지원하지 않아 `400 INVALID_TOOL_CHOICE`가 발생하는 구조적 제약이었다(`langchain-ai/langchain#29569`, upstream "not planned" — 버전 업그레이드로는 해결 안 됨). `get_llm().with_structured_output(schema)`는 내부적으로 `PydanticOutputParser`로 프롬프트에 JSON 스키마를 지시하고 응답을 직접 파싱하는 방식으로 우회 구현됨(`ai-server/ai/core/llm_client.py`의 `_StructuredLLM`). 호출부 시그니처는 동일하게 유지되므로 각 체인 담당자는 그대로 `get_llm().with_structured_output(Schema).invoke(...)`만 쓰면 된다 — 실제 HF 토큰으로 `/ai/defect-explain` e2e 검증 완료.
 
 ---
 

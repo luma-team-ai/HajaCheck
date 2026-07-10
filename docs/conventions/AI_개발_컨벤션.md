@@ -81,8 +81,10 @@ class DefectExplain(BaseModel):
     action: str         # 권고 조치
     confidence: str     # 상/중/하
 
-result = chain_with_structured_output(DefectExplain).invoke(...)
+result = get_llm().with_structured_output(DefectExplain).invoke(prompt)
 ```
+
+> ⚠️ **트러블슈팅 — `400 INVALID_TOOL_CHOICE`가 나면**: HF Serverless Inference는 langchain 표준 구현이 강제하는 `tool_choice="any"`를 지원하지 않아, `.with_structured_output()`을 직접 새로 구현/변형하면 이 에러가 재현될 수 있다(`langchain-ai/langchain#29569`, upstream "not planned" — 라이브러리 버전을 올려도 안 고쳐짐). `get_llm().with_structured_output(schema)`는 이미 프롬프트에 JSON 스키마를 지시하고 `PydanticOutputParser`로 직접 파싱하는 우회 방식(`ai/core/llm_client.py`의 `_StructuredLLM`)이라 **이 함수를 그대로 쓰면 이 문제를 안 만난다** — 같은 문제를 각자 다시 겪지 말고 반드시 `get_llm()` 경유로만 구조화 출력을 받을 것.
 
 ## 5. 엔드포인트·에러 규약
 
