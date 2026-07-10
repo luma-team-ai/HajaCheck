@@ -96,12 +96,15 @@ export default function MapPage() {
 
     markersRef.current = validFacilities.map((facility) =>
       createFacilityMarker(map, facility, (selected: FacilityLocation, marker: KakaoMarker) => {
-        // 클릭된 마커 인스턴스를 클로저로 직접 전달받음 — 좌표 비교 검색 불필요
-        infoWindowRef.current?.close();
-        infoWindowRef.current = new window.kakao.maps.InfoWindow({
-          content: buildInfoWindowContent(selected),
-          removable: true,
-        });
+        // InfoWindow 인스턴스를 한 번만 생성해 재사용 — 클릭마다 새로 만들지 않음
+        if (!infoWindowRef.current) {
+          infoWindowRef.current = new window.kakao.maps.InfoWindow({
+            content: buildInfoWindowContent(selected),
+            removable: true,
+          });
+        } else {
+          infoWindowRef.current.setContent(buildInfoWindowContent(selected));
+        }
         infoWindowRef.current.open(map, marker);
       }),
     );

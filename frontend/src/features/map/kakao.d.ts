@@ -83,5 +83,6 @@ declare global {
   interface KakaoInfoWindow {
     open(map: KakaoMap, marker: KakaoMarker): void;
     close(): void;
+    setContent(content: string | HTMLElement): void;
   }
 }
