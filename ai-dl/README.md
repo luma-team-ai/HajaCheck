@@ -36,3 +36,15 @@ mlflow ui
 ## 실험 이름 규칙
 
 `{날짜}_{데이터셋버전}` — PRD §6.2 모델 버전 관리 규칙과 동일. 예: `20260710_v1`
+
+## Colab 세션 유실 대비 (선택)
+
+Colab 런타임은 유료 플랜이어도 여전히 휘발성 VM이라, 세션이 끊기면 로컬에 기록된 실험도 같이 사라질 수 있습니다. Google Drive에 남기고 싶으면 학습 시작 전에 한 줄 추가:
+
+```python
+from google.colab import drive
+drive.mount('/content/drive')
+
+import os
+os.environ["MLFLOW_TRACKING_URI"] = "/content/drive/MyDrive/hajacheck-mlruns"
+```
