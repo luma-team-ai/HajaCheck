@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-07-07
+> 마지막 갱신: 2026-07-10
 
 ## 인프라
 
@@ -18,8 +18,10 @@
 
 ## 마지막 머지 PR
 
-- #38 `chore: application-local.yml.example 실제 인프라와 동기화 (터널 localhost·hajacheck·6380)` (→ dev, 2026-07-05)
-- #32 `chore: CI 그린화 — gradle wrapper·pytest 스켈레톤 테스트·eslint 설정·lockfile 추가` (→ dev, 2026-07-04)
+- #91 `chore: env-example-trim-unused-keys` (→ dev, 2026-07-09)
+- #88 `ai/HAJA-20-llm-coach-defect-explain` — llm_client·prompts·structured output 우회·청킹·예시체인(defect-explain) 전부 포함 (→ dev, 2026-07-09)
+- #87 `docs/HAJA-20-openapi-contract-draft` (→ dev, 2026-07-09)
+- #86 `frontend/HAJA-41-result-viewer` (→ dev, 2026-07-09)
 
 ## 다음 작업
 
@@ -29,8 +31,9 @@
   - [ ] ERD 초안 + 데이터셋 확보 (PACA #10, #13 — 유병현·김승현)
   - [ ] 팀원 SSH 공개키 수집·등록 (2/7 완료, 나머지 **7/7(화)** 마감) + DB/Redis 비밀번호 개별 전달
 - **P1**
-  - [ ] AI-LLM 코치: llm_client 구현 + requirements 버전 확정 (7/15 온보딩 전, PACA #20)
-  - [ ] 워킹 스켈레톤 관통 (7/18~19, PACA #21)
+  - [x] AI-LLM 코치: llm_client 구현 + structured output 버그 우회 (HAJA-20, PR #88, 2026-07-09 완료)
+  - [ ] AI 온보딩 세션 자료에 HF `tool_choice` 400 트러블슈팅 반영 (HAJA-20 ⑥, 7/15 전)
+  - [ ] 워킹 스켈레톤 관통 (7/18~19, HAJA-21)
 
 ## 알려진 이슈
 
