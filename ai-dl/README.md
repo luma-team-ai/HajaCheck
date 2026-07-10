@@ -5,15 +5,15 @@
 ## 설치
 
 ```bash
-pip install -r ml/requirements.txt
+pip install -r ai-dl/requirements.txt
 ```
 
-Colab에서도 동일 — 노트북 첫 셀에 `!pip install mlflow==2.19.0` 후 이 파일(`ml/tracking.py`)만 레포에서 복사해 쓰면 됩니다.
+Colab에서도 동일 — 노트북 첫 셀에 `!pip install mlflow==2.19.0` 후 이 파일(`ai-dl/tracking.py`)을 학습 스크립트와 같은 폴더에 복사해 쓰면 됩니다 (하이픈 폴더명이라 `ai-dl` 패키지로는 import 불가 — `tracking.py`를 직접 옆에 두고 쓰는 방식).
 
 ## 사용법
 
 ```python
-from ml.tracking import start_run, log_epoch_metrics, log_hyperparams
+from tracking import start_run, log_epoch_metrics, log_hyperparams
 
 with start_run(dataset_version="v1", notes="1차 학습 — AI Hub 균열탐지 데이터셋"):
     log_hyperparams(model="yolov8s-seg", epochs=50, lr=0.001)

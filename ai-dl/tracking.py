@@ -1,10 +1,10 @@
 """공통 MLflow 트래킹 헬퍼 — AI-DL 학습 실험 기록용.
 
-로컬/Colab 어디서든 동일하게 사용. 트래킹 서버 없이 로컬 파일(ml/mlruns, 실행 위치와 무관하게 고정)에 기록 —
+로컬/Colab 어디서든 동일하게 사용. 트래킹 서버 없이 로컬 파일(ai-dl/mlruns, 실행 위치와 무관하게 고정)에 기록 —
 필요해지면(07/24 AI 운영 서버 세팅 때) MLFLOW_TRACKING_URI 환경변수만 바꾸면 원격 서버로 전환.
 
-사용 예:
-    from ml.tracking import start_run
+사용 예 (이 파일을 학습 스크립트와 같은 폴더에 두고):
+    from tracking import start_run
 
     with start_run(dataset_version="v1", notes="1차 학습"):
         for epoch in range(epochs):
