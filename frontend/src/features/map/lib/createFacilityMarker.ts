@@ -1,5 +1,5 @@
 // 시설물 마커 생성 — 하자 최고 등급별 색상(GRADE_COLOR) 원형 SVG 마커
-import { GRADE_COLOR, GRADE_LABEL } from '../constants';
+import { FALLBACK_GRADE_COLOR, FALLBACK_GRADE_LABEL, GRADE_COLOR, GRADE_LABEL } from '../constants';
 import type { FacilityLocation } from '../types';
 
 function buildMarkerImageSrc(color: string): string {
@@ -20,9 +20,9 @@ export function buildInfoWindowContent(facility: FacilityLocation): HTMLElement 
   nameEl.textContent = facility.name;
 
   const gradeEl = document.createElement('span');
-  gradeEl.style.color = GRADE_COLOR[facility.highestGrade];
+  gradeEl.style.color = GRADE_COLOR[facility.highestGrade] ?? FALLBACK_GRADE_COLOR;
   gradeEl.style.fontWeight = '600';
-  gradeEl.textContent = GRADE_LABEL[facility.highestGrade];
+  gradeEl.textContent = GRADE_LABEL[facility.highestGrade] ?? FALLBACK_GRADE_LABEL;
 
   container.appendChild(nameEl);
   container.appendChild(gradeEl);
@@ -35,7 +35,7 @@ export function createFacilityMarker(
   onSelect: (facility: FacilityLocation, marker: KakaoMarker) => void,
 ): KakaoMarker {
   const position = new window.kakao.maps.LatLng(facility.latitude, facility.longitude);
-  const color = GRADE_COLOR[facility.highestGrade];
+  const color = GRADE_COLOR[facility.highestGrade] ?? FALLBACK_GRADE_COLOR;
   const image = new window.kakao.maps.MarkerImage(
     buildMarkerImageSrc(color),
     new window.kakao.maps.Size(28, 28),

@@ -38,7 +38,8 @@ export default function MapPage() {
 
     loadKakaoMapSdk()
       .then(() => {
-        if (cancelled || !mapContainerRef.current) return;
+        // mapInstanceRef.current 가드: StrictMode 재마운트 등으로 재진입해도 같은 컨테이너에 지도를 중복 생성하지 않음
+        if (cancelled || !mapContainerRef.current || mapInstanceRef.current) return;
         const center = new window.kakao.maps.LatLng(
           DEFAULT_MAP_CENTER.latitude,
           DEFAULT_MAP_CENTER.longitude,
@@ -61,6 +62,11 @@ export default function MapPage() {
 
     return () => {
       cancelled = true;
+      markersRef.current.forEach((marker) => marker.setMap(null));
+      markersRef.current = [];
+      infoWindowRef.current?.close();
+      infoWindowRef.current = null;
+      mapInstanceRef.current = null;
     };
   }, []);
 
@@ -86,6 +92,8 @@ export default function MapPage() {
 
     return () => {
       markersRef.current.forEach((marker) => marker.setMap(null));
+      markersRef.current = [];
+      infoWindowRef.current?.close();
     };
   }, [facilities, sdkStatus]);
 

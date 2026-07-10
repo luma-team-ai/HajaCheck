@@ -34,8 +34,17 @@ export function loadKakaoMapSdk(): Promise<void> {
   loadPromise = new Promise<void>((resolve, reject) => {
     const existing = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
     if (existing) {
+      // load 이벤트가 리스너 등록 이전에 이미 발화됐을 수 있으므로 kakao.maps 존재 여부를 먼저 확인
+      if (window.kakao?.maps) {
+        resolve();
+        return;
+      }
       existing.addEventListener('load', () => window.kakao.maps.load(() => resolve()));
-      existing.addEventListener('error', () => reject(new Error('Kakao Maps SDK 로드에 실패했습니다.')));
+      existing.addEventListener('error', () => {
+        existing.remove();
+        loadPromise = null; // 실패 시 재시도 가능하도록 리셋 (new script 경로와 동일 처리)
+        reject(new Error('Kakao Maps SDK 로드에 실패했습니다.'));
+      });
       return;
     }
 
