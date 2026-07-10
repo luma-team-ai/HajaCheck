@@ -38,14 +38,15 @@ def _log_usage(tokens: int) -> None:
 class CachedLLM:
     """get_llm()이 반환하는 래퍼. .invoke()에서만 캐시/재시도/사용량 로깅을 적용한다."""
 
-    def __init__(self, chat_model, cache: bool):  # chat_model: 모든 provider 호환 LangChain chat 모델
+    def __init__(self, chat_model, cache: bool, cache_namespace: str = "default"):  # chat_model: 모든 provider 호환 LangChain chat 모델
         self._chat = chat_model
         self._cache = cache
+        self._cache_namespace = cache_namespace
 
     def invoke(self, prompt: str):
         cache_key = None
         if self._cache:
-            cache_key = f"ai:cache:{_prompt_hash(prompt)}"
+            cache_key = f"ai:cache:{self._cache_namespace}:{_prompt_hash(prompt)}"
             cached = _redis().get(cache_key)
             if cached is not None:
                 return cached
@@ -109,20 +110,24 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
         raise ValueError(f"LLM_PROVIDER must be 'hf' or 'ollama', got '{llm_provider}'")
 
     if llm_provider == "ollama":
+        model_name = os.getenv("OLLAMA_MODEL", "exaone3.5:7.8b")
         from langchain_ollama import ChatOllama  # noqa: F401 — 조건부 import
 
         chat_model = ChatOllama(
-            model=os.getenv("OLLAMA_MODEL", "exaone3.5:7.8b"),
+            model=model_name,
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             temperature=temperature,
+            timeout=30,
         )
     else:  # default "hf"
+        model_name = DEFAULT_MODEL
         endpoint = HuggingFaceEndpoint(
-            repo_id=DEFAULT_MODEL,
+            repo_id=model_name,
             huggingfacehub_api_token=os.environ["HF_API_TOKEN"],
             temperature=temperature,
             timeout=30,
         )
         chat_model = ChatHuggingFace(llm=endpoint)
 
-    return CachedLLM(chat_model, cache=cache)
+    cache_namespace = f"{llm_provider}:{model_name}"
+    return CachedLLM(chat_model, cache=cache, cache_namespace=cache_namespace)

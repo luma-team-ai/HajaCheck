@@ -109,6 +109,32 @@ def test_get_llm_invalid_provider_raises_error():
         get_llm()
 
 
+@patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "test-token"})
+@patch("ai.core.llm_client.HuggingFaceEndpoint")
+@patch("ai.core.llm_client.ChatHuggingFace")
+def test_cache_namespace_differs_by_provider_and_model(mock_chat_hf, mock_endpoint):
+    """provider와 model이 다르면 캐시 네임스페이스가 달라진다는 검증."""
+    mock_endpoint.return_value = MagicMock()
+    mock_chat_hf.return_value = MagicMock()
+
+    # HF provider의 기본 모델로 캐시 네임스페이스 생성
+    llm_hf = get_llm(cache=True)
+    hf_namespace = llm_hf._cache_namespace
+    # 형식: "hf:Qwen/Qwen3-8B" (DEFAULT_MODEL 사용)
+    assert hf_namespace.startswith("hf:")
+
+    # Ollama provider로 전환 시 다른 네임스페이스 생성
+    with patch.dict(os.environ, {"LLM_PROVIDER": "ollama", "OLLAMA_MODEL": "exaone3.5:7.8b"}):
+        with patch("langchain_ollama.ChatOllama") as mock_ollama:
+            mock_ollama.return_value = MagicMock()
+            llm_ollama = get_llm(cache=True)
+            ollama_namespace = llm_ollama._cache_namespace
+            assert ollama_namespace == "ollama:exaone3.5:7.8b"
+
+    # 네임스페이스가 다르므로 캐시 키도 달라야 함
+    assert hf_namespace != ollama_namespace
+
+
 if __name__ == "__main__":
     print("Running LLM provider tests...")
     test_get_llm_hf_provider()
