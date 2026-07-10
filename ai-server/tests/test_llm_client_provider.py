@@ -47,6 +47,7 @@ def test_get_llm_ollama_provider(mock_chat_ollama):
     assert call_args.kwargs["model"] == "exaone3.5:7.8b"
     assert call_args.kwargs["base_url"] == "http://localhost:11434"
     assert call_args.kwargs["temperature"] == 0.5
+    assert call_args.kwargs["client_kwargs"] == {"timeout": 30}
 
 
 @patch.dict(os.environ, {"LLM_PROVIDER": "ollama"})
@@ -118,21 +119,28 @@ def test_cache_namespace_differs_by_provider_and_model(mock_chat_hf, mock_endpoi
     mock_chat_hf.return_value = MagicMock()
 
     # HF provider의 기본 모델로 캐시 네임스페이스 생성
-    llm_hf = get_llm(cache=True)
+    llm_hf = get_llm(temperature=0.1, cache=True)
     hf_namespace = llm_hf._cache_namespace
-    # 형식: "hf:Qwen/Qwen3-8B" (DEFAULT_MODEL 사용)
+    # 형식: "hf:Qwen/Qwen3-8B:0.1" (DEFAULT_MODEL + temperature 포함)
     assert hf_namespace.startswith("hf:")
+    assert ":0.1" in hf_namespace
 
     # Ollama provider로 전환 시 다른 네임스페이스 생성
     with patch.dict(os.environ, {"LLM_PROVIDER": "ollama", "OLLAMA_MODEL": "exaone3.5:7.8b"}):
         with patch("langchain_ollama.ChatOllama") as mock_ollama:
             mock_ollama.return_value = MagicMock()
-            llm_ollama = get_llm(cache=True)
+            llm_ollama = get_llm(temperature=0.1, cache=True)
             ollama_namespace = llm_ollama._cache_namespace
-            assert ollama_namespace == "ollama:exaone3.5:7.8b"
+            assert ollama_namespace == "ollama:exaone3.5:7.8b:0.1"
 
     # 네임스페이스가 다르므로 캐시 키도 달라야 함
     assert hf_namespace != ollama_namespace
+
+    # temperature가 다르면 네임스페이스도 달라야 함
+    with patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "test-token"}):
+        llm_hf_diff_temp = get_llm(temperature=0.7, cache=True)
+        assert llm_hf_diff_temp._cache_namespace != hf_namespace
+        assert ":0.7" in llm_hf_diff_temp._cache_namespace
 
 
 if __name__ == "__main__":

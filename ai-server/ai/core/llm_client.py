@@ -117,7 +117,7 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
             model=model_name,
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             temperature=temperature,
-            timeout=30,
+            client_kwargs={"timeout": 30},
         )
     else:  # default "hf"
         model_name = DEFAULT_MODEL
@@ -129,5 +129,5 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
         )
         chat_model = ChatHuggingFace(llm=endpoint)
 
-    cache_namespace = f"{llm_provider}:{model_name}"
+    cache_namespace = f"{llm_provider}:{model_name}:{temperature}"
     return CachedLLM(chat_model, cache=cache, cache_namespace=cache_namespace)
