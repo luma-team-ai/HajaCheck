@@ -10,7 +10,11 @@ import {
   GRADE_COLOR,
   GRADE_LABEL,
 } from './constants';
-import { createFacilityMarker, buildInfoWindowContent } from './lib/createFacilityMarker';
+import {
+  createFacilityMarker,
+  buildInfoWindowContent,
+  isValidCoordinate,
+} from './lib/createFacilityMarker';
 import { KakaoMapKeyMissingError, loadKakaoMapSdk } from './lib/loadKakaoMapSdk';
 import type { FacilityLocation } from './types';
 
@@ -78,7 +82,19 @@ export default function MapPage() {
     markersRef.current.forEach((marker) => marker.setMap(null));
     infoWindowRef.current?.close();
 
-    markersRef.current = facilities.map((facility) =>
+    // 좌표 런타임 검증 — 실 API 연동 시 서버가 null/NaN/범위밖 좌표를 줄 수 있으므로
+    // 마커 생성 전에 걸러내고, 걸러진 항목은 warn으로 남겨 추적 가능하게 한다
+    const validFacilities = facilities.filter((facility) => {
+      const valid = isValidCoordinate(facility.latitude, facility.longitude);
+      if (!valid) {
+        console.warn(
+          `[MapPage] 유효하지 않은 좌표를 가진 시설물을 건너뜁니다: id=${facility.id}, latitude=${facility.latitude}, longitude=${facility.longitude}`,
+        );
+      }
+      return valid;
+    });
+
+    markersRef.current = validFacilities.map((facility) =>
       createFacilityMarker(map, facility, (selected: FacilityLocation, marker: KakaoMarker) => {
         // 클릭된 마커 인스턴스를 클로저로 직접 전달받음 — 좌표 비교 검색 불필요
         infoWindowRef.current?.close();
