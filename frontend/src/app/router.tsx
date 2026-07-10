@@ -9,10 +9,16 @@ const ResultViewerPage = lazy(() =>
   })),
 );
 
+const LandingPage = lazy(() => import('../features/landing/LandingPage'));
+
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <div>hajaCheck — 스켈레톤 (각 feature 담당이 라우트 추가)</div>,
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <LandingPage />
+      </Suspense>
+    ),
   },
   {
     path: '/inspections/:id/viewer',
