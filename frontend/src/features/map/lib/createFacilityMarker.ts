@@ -3,6 +3,7 @@ import { FALLBACK_GRADE_COLOR, FALLBACK_GRADE_LABEL, GRADE_COLOR, GRADE_LABEL } 
 import type { FacilityLocation } from '../types';
 
 // 실 API 연동(#8) 시 서버가 null/NaN/범위밖 좌표를 줄 수 있어, 마커 생성 전 런타임 검증이 필요하다.
+// (0,0)은 EXIF GPS 태그 결측/손상 시 흔한 직렬화 결과(기니만 앞바다)이므로 유효 좌표로 취급하지 않는다.
 export function isValidCoordinate(latitude: number, longitude: number): boolean {
   return (
     Number.isFinite(latitude) &&
@@ -10,7 +11,8 @@ export function isValidCoordinate(latitude: number, longitude: number): boolean 
     latitude >= -90 &&
     latitude <= 90 &&
     longitude >= -180 &&
-    longitude <= 180
+    longitude <= 180 &&
+    !(latitude === 0 && longitude === 0)
   );
 }
 

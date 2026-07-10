@@ -41,7 +41,10 @@ describe('isValidCoordinate', () => {
     expect(isValidCoordinate(37.5, 127.0)).toBe(true);
     expect(isValidCoordinate(-90, -180)).toBe(true);
     expect(isValidCoordinate(90, 180)).toBe(true);
-    expect(isValidCoordinate(0, 0)).toBe(true);
+  });
+
+  it('(0,0)은 EXIF GPS 결측 센티널로 간주해 false를 반환한다', () => {
+    expect(isValidCoordinate(0, 0)).toBe(false);
   });
 
   it('NaN 좌표는 false를 반환한다', () => {
