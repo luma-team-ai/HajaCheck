@@ -1,0 +1,4 @@
+# 공유 O (커밋 대상): project.yml, memories/** — 팀 공용 프로젝트 지식/설정
+# 공유 X (아래, 로컬 전용): LSP 심볼 캐시, 개인 로컬 오버라이드
+/cache
+/project.local.yml
