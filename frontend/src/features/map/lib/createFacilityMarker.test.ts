@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { FALLBACK_GRADE_COLOR, FALLBACK_GRADE_LABEL, GRADE_COLOR, GRADE_LABEL } from '../constants';
-import { buildInfoWindowContent, createFacilityMarker } from './createFacilityMarker';
+import { buildInfoWindowContent, createFacilityMarker, isValidCoordinate } from './createFacilityMarker';
 import type { FacilityLocation } from '../types';
 
 const baseFacility: FacilityLocation = {
@@ -33,6 +33,32 @@ describe('buildInfoWindowContent', () => {
     const gradeEl = content.querySelector('span') as HTMLSpanElement;
     expect(gradeEl.textContent).toBe(FALLBACK_GRADE_LABEL);
     expect(gradeEl.style.color).toBe(toRgb(FALLBACK_GRADE_COLOR));
+  });
+});
+
+describe('isValidCoordinate', () => {
+  it('유효 범위 내 좌표는 true를 반환한다', () => {
+    expect(isValidCoordinate(37.5, 127.0)).toBe(true);
+    expect(isValidCoordinate(-90, -180)).toBe(true);
+    expect(isValidCoordinate(90, 180)).toBe(true);
+    expect(isValidCoordinate(0, 0)).toBe(true);
+  });
+
+  it('NaN 좌표는 false를 반환한다', () => {
+    expect(isValidCoordinate(NaN, 127.0)).toBe(false);
+    expect(isValidCoordinate(37.5, NaN)).toBe(false);
+  });
+
+  it('Infinity 좌표는 false를 반환한다', () => {
+    expect(isValidCoordinate(Infinity, 127.0)).toBe(false);
+    expect(isValidCoordinate(37.5, -Infinity)).toBe(false);
+  });
+
+  it('범위를 벗어난 좌표는 false를 반환한다', () => {
+    expect(isValidCoordinate(91, 127.0)).toBe(false);
+    expect(isValidCoordinate(-91, 127.0)).toBe(false);
+    expect(isValidCoordinate(37.5, 181)).toBe(false);
+    expect(isValidCoordinate(37.5, -181)).toBe(false);
   });
 });
 
