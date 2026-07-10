@@ -110,7 +110,7 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
         raise ValueError(f"LLM_PROVIDER must be 'hf' or 'ollama', got '{llm_provider}'")
 
     if llm_provider == "ollama":
-        model_name = os.getenv("OLLAMA_MODEL", "exaone3.5:7.8b")
+        model_name = os.getenv("OLLAMA_MODEL", "qwen3:8b")
         from langchain_ollama import ChatOllama  # noqa: F401 — 조건부 import
 
         chat_model = ChatOllama(

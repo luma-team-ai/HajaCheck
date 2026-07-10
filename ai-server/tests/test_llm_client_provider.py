@@ -61,7 +61,7 @@ def test_get_llm_ollama_defaults(mock_chat_ollama):
 
     mock_chat_ollama.assert_called_once()
     call_args = mock_chat_ollama.call_args
-    assert call_args.kwargs["model"] == "exaone3.5:7.8b"
+    assert call_args.kwargs["model"] == "qwen3:8b"
     assert call_args.kwargs["base_url"] == "http://localhost:11434"
     assert call_args.kwargs["temperature"] == 0.1
 
