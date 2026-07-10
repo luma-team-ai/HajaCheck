@@ -2,6 +2,18 @@
 import { FALLBACK_GRADE_COLOR, FALLBACK_GRADE_LABEL, GRADE_COLOR, GRADE_LABEL } from '../constants';
 import type { FacilityLocation } from '../types';
 
+// 실 API 연동(#8) 시 서버가 null/NaN/범위밖 좌표를 줄 수 있어, 마커 생성 전 런타임 검증이 필요하다.
+export function isValidCoordinate(latitude: number, longitude: number): boolean {
+  return (
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
+  );
+}
+
 function buildMarkerImageSrc(color: string): string {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28">
     <circle cx="14" cy="14" r="11" fill="${color}" stroke="#ffffff" stroke-width="3" />
