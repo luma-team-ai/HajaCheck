@@ -1,8 +1,8 @@
 """공통 LLM 클라이언트 — ★유일한 LLM 호출 지점 (AI_개발_컨벤션.md §2)
 
-모델명·HF 엔드포인트·타임아웃·재시도·토큰 사용량 로깅을 한 곳에서 관리.
-체인에서는 get_llm()만 호출한다. HuggingFaceEndpoint 직접 생성 금지.
-모델 교체(HF Serverless <-> Ollama)는 이 파일 + 환경변수만 수정.
+모델명·엔드포인트·타임아웃·재시도·토큰 사용량 로깅을 한 곳에서 관리.
+체인에서는 get_llm()만 호출한다. LLM 클라이언트 직접 생성 금지.
+provider 선택(HF Serverless <-> Ollama)은 환경변수(LLM_PROVIDER) 또는 이 파일만 수정.
 """
 import hashlib
 import os
@@ -38,7 +38,7 @@ def _log_usage(tokens: int) -> None:
 class CachedLLM:
     """get_llm()이 반환하는 래퍼. .invoke()에서만 캐시/재시도/사용량 로깅을 적용한다."""
 
-    def __init__(self, chat_model: ChatHuggingFace, cache: bool):
+    def __init__(self, chat_model, cache: bool):  # chat_model: 모든 provider 호환 LangChain chat 모델
         self._chat = chat_model
         self._cache = cache
 
@@ -79,7 +79,7 @@ class CachedLLM:
 class _StructuredLLM:
     """with_structured_output() 우회 구현 — 프롬프트 지시 + PydanticOutputParser 파싱."""
 
-    def __init__(self, chat_model: ChatHuggingFace, schema):
+    def __init__(self, chat_model, schema):  # chat_model: 모든 provider 호환 LangChain chat 모델
         self._chat = chat_model
         self._parser = PydanticOutputParser(pydantic_object=schema)
 
@@ -104,10 +104,23 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
     - structured output이 필요하면 `get_llm().with_structured_output(Schema)` 사용
       (프롬프트 지시 + PydanticOutputParser 파싱 방식 — 응답 캐시는 거치지 않고, 파싱 실패 시 자체 재시도)
     """
-    endpoint = HuggingFaceEndpoint(
-        repo_id=DEFAULT_MODEL,
-        huggingfacehub_api_token=os.environ["HF_API_TOKEN"],
-        temperature=temperature,
-        timeout=30,
-    )
-    return CachedLLM(ChatHuggingFace(llm=endpoint), cache=cache)
+    llm_provider = os.getenv("LLM_PROVIDER", "hf")  # "hf" | "ollama"
+
+    if llm_provider == "ollama":
+        from langchain_ollama import ChatOllama  # noqa: F401 — 조건부 import
+
+        chat_model = ChatOllama(
+            model=os.getenv("OLLAMA_MODEL", "exaone3.5:7.8b"),
+            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+            temperature=temperature,
+        )
+    else:  # default "hf"
+        endpoint = HuggingFaceEndpoint(
+            repo_id=DEFAULT_MODEL,
+            huggingfacehub_api_token=os.environ["HF_API_TOKEN"],
+            temperature=temperature,
+            timeout=30,
+        )
+        chat_model = ChatHuggingFace(llm=endpoint)
+
+    return CachedLLM(chat_model, cache=cache)
