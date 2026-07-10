@@ -100,6 +100,15 @@ def test_cached_llm_with_structured_output():
     assert structured._chat is mock_chat
 
 
+@patch.dict(os.environ, {"LLM_PROVIDER": "invalid_provider"})
+def test_get_llm_invalid_provider_raises_error():
+    """LLM_PROVIDER=invalid 일 때 ValueError 발생 검증."""
+    import pytest
+
+    with pytest.raises(ValueError, match="LLM_PROVIDER must be 'hf' or 'ollama', got 'invalid_provider'"):
+        get_llm()
+
+
 if __name__ == "__main__":
     print("Running LLM provider tests...")
     test_get_llm_hf_provider()

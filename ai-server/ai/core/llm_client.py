@@ -104,7 +104,9 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
     - structured output이 필요하면 `get_llm().with_structured_output(Schema)` 사용
       (프롬프트 지시 + PydanticOutputParser 파싱 방식 — 응답 캐시는 거치지 않고, 파싱 실패 시 자체 재시도)
     """
-    llm_provider = os.getenv("LLM_PROVIDER", "hf")  # "hf" | "ollama"
+    llm_provider = os.getenv("LLM_PROVIDER", "hf").lower()
+    if llm_provider not in ("hf", "ollama"):
+        raise ValueError(f"LLM_PROVIDER must be 'hf' or 'ollama', got '{llm_provider}'")
 
     if llm_provider == "ollama":
         from langchain_ollama import ChatOllama  # noqa: F401 — 조건부 import
