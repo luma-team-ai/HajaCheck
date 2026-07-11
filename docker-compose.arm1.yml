@@ -30,6 +30,9 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: docker
       SERVER_PORT: 9100
+      # host-net라 0.0.0.0로 열리면 다른 사이트 컨테이너에서도 접근 가능 — loopback으로 제한(defense-in-depth,
+      # 프록시는 전부 host nginx→127.0.0.1 경유라 이걸로 충분. 리뷰 P2)
+      SERVER_ADDRESS: 127.0.0.1
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/${ARM1_DB_NAME:-hajacheck}
       SPRING_DATASOURCE_USERNAME: ${DB_USER:-hajacheck}
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD가 .env에 설정되어야 합니다}
@@ -55,7 +58,9 @@ services:
       dockerfile: Dockerfile
     network_mode: host
     restart: unless-stopped
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8101"]
+    # --host 127.0.0.1 — host-net라 0.0.0.0면 다른 사이트 컨테이너에서도 접근 가능(defense-in-depth,
+    # host nginx가 127.0.0.1:8101로만 프록시하므로 loopback으로 충분. 리뷰 P2)
+    command: ["uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8101"]
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}@127.0.0.1:6380/0
       LLM_PROVIDER: ${LLM_PROVIDER:-hf}

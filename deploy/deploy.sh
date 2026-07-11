@@ -2,10 +2,12 @@
 # HajaCheck 운영 배포 스크립트 — OCI VM에서 실행 (PRD §6.1)
 # 사용: ./deploy/deploy.sh [IMAGE_TAG]
 #   IMAGE_TAG 생략 시 배포일자+커밋 짧은 SHA로 자동 생성(latest 금지) — arm1 대상은 미사용(build만).
-# 배포 대상(DEPLOY_TARGET, 서버 로컬 .env에서만 읽음 — 이 스크립트에 하드코딩 금지, 이슈 #104):
-#   vm(기본값)  — 전용 VM: docker-compose.yml + docker-compose.prod.yml (postgres/redis/nginx 포함 풀스택)
-#   arm1        — 공유 호스트(oci-arm1): docker-compose.arm1.yml만(standalone, host-net 앱 3개,
-#                 공유 nginx/postgres/redis는 이 스크립트가 건드리지 않음)
+# 배포 대상(DEPLOY_TARGET, 서버 로컬 .env에서 **명시 필수** — 이 스크립트에 하드코딩 금지, 이슈 #104):
+#   vm    — 전용 VM: docker-compose.yml + docker-compose.prod.yml (postgres/redis/nginx 포함 풀스택)
+#   arm1  — 공유 호스트(oci-arm1): docker-compose.arm1.yml만(standalone, host-net 앱 3개,
+#           공유 nginx/postgres/redis는 이 스크립트가 건드리지 않음)
+# DEPLOY_TARGET이 .env에 없거나 vm/arm1이 아니면 즉시 exit 1(조용한 vm 폴백 금지 — 공유 호스트에서
+# 실수로 풀스택 vm 경로가 돌면 80/443·postgres·redis가 충돌해 다른 사이트가 죽는다. 리뷰 P1).
 # 롤백(vm 대상만): 전 서비스 healthy로 배포 성공한 경우에만 .last_good_tag(배포 디렉토리 내, 서버 로컬
 #   파일)에 IMAGE_TAG를 기록한다. 이후 배포가 헬스체크 unhealthy/타임아웃으로 실패하면
 #   .last_good_tag가 있을 때 그 태그로 즉시 재기동(자동 롤백) 후 exit 1, 없으면(최초 배포)
@@ -14,11 +16,18 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-DEPLOY_TARGET="vm"
+DEPLOY_TARGET=""
 if [ -f .env ]; then
-  ENV_TARGET=$(grep -E '^DEPLOY_TARGET=' .env | tail -n1 | cut -d'=' -f2- || true)
-  [ -n "${ENV_TARGET:-}" ] && DEPLOY_TARGET="$ENV_TARGET"
+  DEPLOY_TARGET=$(grep -E '^DEPLOY_TARGET=' .env | tail -n1 | cut -d'=' -f2- | tr -d "[:space:]\"'" || true)
 fi
+
+case "$DEPLOY_TARGET" in
+  vm|arm1) ;;
+  *)
+    echo "!! DEPLOY_TARGET='${DEPLOY_TARGET}' 유효하지 않음 — .env에 vm 또는 arm1로 명시해야 합니다"
+    exit 1
+    ;;
+esac
 
 IMAGE_TAG="${1:-$(date +%Y%m%d)-$(git rev-parse --short HEAD)}"
 export IMAGE_TAG
