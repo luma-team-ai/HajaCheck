@@ -37,3 +37,6 @@ frontend/tsconfig.tsbuildinfo
 
 # --- ML 실험 추적 ---
 mlruns/
+
+# --- Docker/배포 ---
+.last_good_tag
