@@ -1,0 +1,27 @@
+# HajaCheck 운영 배포 정의 — PRD §6.1
+# 사용: docker compose -f docker-compose.yml -f docker-compose.prod.yml build && \
+#      docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# ARM 이미지는 VM(OCI Ampere A1, aarch64)에서 직접 빌드(크로스빌드·외부 레지스트리 불필요).
+# 이미지 태그 = 버전+커밋 SHA 고정(latest 금지) — IMAGE_TAG는 배포 스크립트(deploy/deploy.sh)가 주입.
+# bind mount 없음 — 코드는 빌드 시 이미지에 baked-in(COPY), 데이터만 named volume(pgdata 등)에 영속.
+
+services:
+  postgres:
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
+
+  spring:
+    image: hajacheck-backend:${IMAGE_TAG:?IMAGE_TAG(버전+커밋 SHA)가 필요합니다 — latest 금지}
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+
+  fastapi:
+    image: hajacheck-fastapi:${IMAGE_TAG:?IMAGE_TAG(버전+커밋 SHA)가 필요합니다 — latest 금지}
+    restart: unless-stopped
+
+  nginx:
+    image: hajacheck-nginx:${IMAGE_TAG:?IMAGE_TAG(버전+커밋 SHA)가 필요합니다 — latest 금지}
+    restart: unless-stopped
