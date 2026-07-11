@@ -1,0 +1,9 @@
+build/
+.gradle/
+out/
+*.iml
+.idea/
+.vscode/
+src/main/resources/application-local.yml
+*.log
+.DS_Store

@@ -1,0 +1,79 @@
+# HajaCheck 운영 TLS(443) 설정 예시 — 참고용, 자동 로드되지 않음
+# (PR #101 범위 밖: certbot 인증서 발급·서버 커토버는 별도 작업)
+#
+# 적용 절차(운영, 인증서 발급 후):
+#   1) certbot으로 certbot 볼륨(/etc/letsencrypt)에 인증서 발급
+#      (webroot: /var/www/certbot — default.conf의 /.well-known/acme-challenge/ 경로 사용)
+#   2) 이 파일 내용을 default.conf에 반영(또는 conf.d에 추가 파일로 배치) 후 이미지 재빌드/재배포
+#   3) docker compose exec nginx nginx -s reload (또는 컨테이너 재기동)
+
+upstream spring_backend {
+    server spring:8080;
+}
+
+upstream fastapi_backend {
+    server fastapi:8000;
+}
+
+server {
+    listen 80;
+    server_name hajacheck.example.com;  # 실제 도메인으로 교체
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name hajacheck.example.com;  # 실제 도메인으로 교체
+
+    ssl_certificate     /etc/letsencrypt/live/hajacheck.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/hajacheck.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location = /ai/health {
+        proxy_pass http://fastapi_backend/health;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /ai/ {
+        proxy_pass http://fastapi_backend/ai/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /api/ {
+        proxy_pass http://spring_backend/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /ws/ {
+        proxy_pass http://spring_backend/ws/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 3600s;
+    }
+
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+        try_files $uri $uri/ /index.html;
+    }
+}
