@@ -8,6 +8,9 @@
 .vscode/
 *.iml
 
+# 내부 비공개 문서(handoff·검수본 등) — 팀 공통 보호(전역 gitignore 없는 팀원 대비)
+docs/_local/
+
 # --- backend (Gradle/Java) ---
 backend/build/
 backend/.gradle/
