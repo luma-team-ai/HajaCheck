@@ -19,6 +19,11 @@ server {
     listen 80;
     server_name hajacheck.example.com;  # 실제 도메인으로 교체
 
+    # 기본 보안 헤더(HSTS/CSP는 TLS 후속 작업에서 추가 — 이 PR 범위 아님)
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
     }
@@ -35,6 +40,11 @@ server {
     ssl_certificate     /etc/letsencrypt/live/hajacheck.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/hajacheck.example.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
+
+    # 기본 보안 헤더(HSTS/CSP는 TLS 후속 작업에서 추가 — 이 PR 범위 아님)
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
 
     location = /ai/health {
         proxy_pass http://fastapi_backend/health;
