@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+tests/
+chroma_data/
+models/*.onnx
+models/*.pt
+.idea/
+.vscode/
+*.log
+.DS_Store

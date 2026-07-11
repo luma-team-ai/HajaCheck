@@ -1,0 +1,59 @@
+# HajaCheck 로컬 개발 오버라이드 — `docker compose up`(파일 미지정 시) 시 base와 자동 병합.
+# 소스 bind mount + 핫리로드: backend devtools(gradle bootRun --continuous) /
+# ai-server uvicorn --reload / frontend는 별도 vite dev 서버(frontend-dev, :5173) 추가.
+# nginx는 base와 동일(정적 dist 서빙) — /api·/ws·/ai 통합 리버스 프록시 검증은 계속 80으로 가능.
+
+services:
+  spring:
+    build:
+      target: build # JDK 빌드 스테이지 재사용(gradlew bootRun에 필요, jre 런타임 스테이지 아님)
+    command: ["./gradlew", "bootRun", "--no-daemon", "--continuous"]
+    volumes:
+      - ./backend/src:/workspace/src
+      - ./backend/build.gradle:/workspace/build.gradle
+      - gradle-cache:/root/.gradle
+    environment:
+      SPRING_DEVTOOLS_RESTART_ENABLED: "true"
+    ports:
+      - "8080:8080" # 로컬 직접 접근/디버깅 편의(base는 내부 전용 — 미publish)
+    # gradlew bootRun은 기본 curl 헬스체크 응답까지 오래 걸릴 수 있어 여유 부여
+    healthcheck:
+      start_period: 120s
+
+  fastapi:
+    volumes:
+      - ./ai-server/main.py:/app/main.py
+      - ./ai-server/routers:/app/routers
+      - ./ai-server/ai:/app/ai
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ports:
+      - "8000:8000" # 로컬 직접 접근/디버깅 편의(base는 내부 전용 — 미publish)
+
+  # Vite dev 서버(핫리로드) — nginx(정적 dist)와 별개로 개발 편의상 추가. 접속: http://localhost:5173
+  frontend-dev:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: build # node 빌드 스테이지 재사용(vite dev 서버 실행)
+    command: ["npm", "run", "dev"]
+    environment:
+      VITE_PROXY_SPRING: http://spring:8080
+      VITE_PROXY_FASTAPI: http://fastapi:8000
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+    ports:
+      - "5173:5173"
+    healthcheck:
+      # 127.0.0.1 명시(IPv6 localhost 폴백 실패 회피 — frontend/Dockerfile 헬스체크와 동일 이유)
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:5173/"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    networks: [hajacheck-net]
+
+volumes:
+  gradle-cache:

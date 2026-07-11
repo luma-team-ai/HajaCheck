@@ -1,21 +1,133 @@
-# 로컬 예비용 (기본은 OCI 공용 개발 DB 접속 — PRD §6.1)
-# 용도: ① 오프라인·서버 장애 시 단독 작업 ② 파괴적 테스트 격리 실행
-services:
-  postgres:
-    image: postgres:16
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: hajacheck_dev
-      POSTGRES_USER: hajacheck
-      POSTGRES_PASSWORD: hajacheck-local
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+# HajaCheck 배포 정의 (base) — PRD §6.1
+# 정식 배포 수단(운영·로컬 공용). 오프라인·파괴적 테스트도 동일 정의로 격리 실행 가능.
+#   로컬 개발: docker compose up --build (override.yml 자동 적용)
+#   운영:       docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# 환경변수는 루트 .env(gitignore)에서 주입 — 커밋 금지, 값은 .env.example 참조.
 
-  redis:
-    image: redis:7
-    ports:
-      - "6379:6379"
+name: hajacheck
+
+networks:
+  hajacheck-net:
+    driver: bridge
 
 volumes:
   pgdata:
+  redisdata:
+  chroma_data:
+  certbot:
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hajacheck_dev}
+      POSTGRES_USER: ${DB_USER:-hajacheck}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD가 .env에 설정되어야 합니다}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # 팀 SSH 터널 전용 — 공개 미개방(127.0.0.1 바인딩)
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hajacheck} -d ${POSTGRES_DB:-hajacheck_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks: [hajacheck-net]
+
+  redis:
+    image: redis:7
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}
+    # requirepass 미설정 시 인증 없이 전체 접근 가능 — PRD §6.1 보안 필수 조치
+    command: ["sh", "-c", "redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
+    volumes:
+      - redisdata:/data
+    ports:
+      # 내부 6379 → 호스트 6380, 팀 SSH 터널 전용 — 공개 미개방(127.0.0.1 바인딩)
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks: [hajacheck-net]
+
+  spring:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-hajacheck_dev}
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-hajacheck}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD가 .env에 설정되어야 합니다}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}
+      SPRING_DATA_REDIS_DATABASE: ${REDIS_DB_INDEX:-0}
+      AI_SERVER_BASE_URL: http://fastapi:8000
+      # OAuth2 registration(KAKAO_CLIENT_ID 등)은 아직 어떤 코드도 참조하지 않아 여기서는 미주입한다.
+      # Spring Boot는 registration.{provider}.client-id 키가 "존재"하기만 해도(빈 문자열이어도)
+      # OAuth2ClientProperties 검증에서 기동 실패시키므로, 실제 값이 있을 때만 개별 추가할 것
+      # (SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_KAKAO_CLIENT_ID 등 — 빈 값으로 정의 금지).
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 45s
+    networks: [hajacheck-net]
+
+  fastapi:
+    build:
+      context: ./ai-server
+      dockerfile: Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}@redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-hf}
+      LLM_MODEL: ${LLM_MODEL:-Qwen/Qwen3-8B}
+      HF_API_TOKEN: ${HF_API_TOKEN:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+    volumes:
+      - chroma_data:/app/chroma_data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    networks: [hajacheck-net]
+
+  nginx:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      spring:
+        condition: service_healthy
+      fastapi:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - certbot:/var/www/certbot:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks: [hajacheck-net]
