@@ -15,8 +15,12 @@ RUN npm run build
 # ---- Runtime stage (nginx: React dist 정적 서빙 + /api·/ws·/ai 리버스 프록시) ----
 FROM nginx:1.27-alpine AS runtime
 
+# 배포 대상별 nginx conf 선택(기본=전용 VM용 default.conf, 공유 호스트 arm1은
+# `--build-arg NGINX_CONF_FILE=nginx/arm1.conf`로 docker-compose.arm1.yml이 주입 — 이슈 #104)
+ARG NGINX_CONF_FILE=nginx/default.conf
+
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY ${NGINX_CONF_FILE} /etc/nginx/conf.d/default.conf
 
 # nginx 공식 이미지 표준 관행: master는 80/443 저포트 바인딩을 위해 root로 시작하고,
 # 실제 요청을 처리하는 worker 프로세스는 nginx.conf 기본값 `user nginx;`로 non-root 실행됨.
