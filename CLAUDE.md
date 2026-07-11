@@ -14,8 +14,8 @@
 - **머신이 꺼져 있으면(go-live 전 공백 기간)** → 위임 무효, **전역 검수 사이클을 그대로 수행**. (무검수 PR 방지)
 
 ## 스택
-- `backend`=Java/Spring Boot · `ai-server`=Python/Flask · `frontend`=Next.js.
-- 각 폴더 작업 시 전역 CLAUDE.md의 해당 스택 컨벤션·빌드/테스트 명령을 적용한다.
+- `backend`=Java/Spring Boot · `ai-server`=Python/FastAPI · `frontend`=React(Vite SPA, react-router).
+- 각 폴더 작업 시 전역 CLAUDE.md의 해당 스택 컨벤션·빌드/테스트 명령을 적용한다. (frontend는 Next.js가 아니라 Vite SPA이므로 전역 Next.js 컨벤션 중 App Router 전용 항목은 제외하고 공통 원칙만 적용)
 
 ## Jira 연동 (Rovo MCP 오케스트레이션, 2026-07-08 확정, 2026-07-08 사이트 정정, 2026-07-08 프로젝트 키 정정, 2026-07-11 4단계 동기화로 확장)
 - 팀 표준화로 paca → **Jira(`human2-team.atlassian.net`) + Slack**로 전환. GitHub↔Jira 양방향 동기화는 **네이티브 앱(GitHub for Jira) 설치 없이**, Claude가 워크플로우 단계마다 Atlassian Rovo MCP 도구를 직접 호출하는 방식으로 구현한다. PR머신 repo(`.github/workflows/*.yml` 등)에는 아무것도 추가하지 않는다 — PR머신은 리뷰·머지만 하고 Jira를 모른다.

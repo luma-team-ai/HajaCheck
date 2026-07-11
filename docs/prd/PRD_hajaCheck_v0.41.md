@@ -24,7 +24,7 @@
 10. [리스크 및 대응](#10-리스크-및-대응)
 11. [오픈 이슈 (팀 확정 필요)](#11-오픈-이슈-팀-확정-필요)
 
-**연관 문서**: `AI_개발_컨벤션.md` · `SpringBoot_코드_컨벤션.md` · `React_코드_컨벤션.md` · `팀회의_아키텍처_비교_모놀리식_vs_MSA.md` · `docker-compose.yml`(로컬 예비용)
+**연관 문서**: `AI_개발_컨벤션.md` · `SpringBoot_코드_컨벤션.md` · `React_코드_컨벤션.md` · `팀회의_아키텍처_비교_모놀리식_vs_MSA.md` · `docker-compose.yml`(배포 정의 — 운영·로컬 공용)
 
 ---
 
@@ -345,53 +345,56 @@
 - **모듈러 모놀리스**: Spring Boot 내부 패키지를 도메인별(auth / core / counsel / admin)로 엄격 분리 — 향후 서비스 분리 가능한 구조로 설계
 - **ORM: Spring Data JPA(Hibernate)** — Entity·Repository 규약은 `SpringBoot_코드_컨벤션.md` 참조. 프론트 규약은 `React_코드_컨벤션.md` 참조
 - Spring Boot ↔ FastAPI: REST + 비동기 잡 패턴(분석 요청 → 잡 ID → 폴링/콜백). FastAPI·DB·Redis·Chroma는 외부 포트 미개방(내부 통신 전용)
-- **FastAPI 워커 분리**: CPU-bound인 YOLO 추론은 별도 워커 프로세스(`ProcessPoolExecutor` 또는 uvicorn 워커 분배)로 오프로드 — 분석 진행 중에도 챗봇·보고서 API가 블로킹되지 않게(4 OCPU: 탐지용 1~2 + API용 1~2)
+- **FastAPI 워커 분리**: CPU-bound인 YOLO 추론은 별도 워커 프로세스(`ProcessPoolExecutor` 또는 uvicorn 워커 분배)로 오프로드 — 분석 진행 중에도 챗봇·보고서 API가 블로킹되지 않게(3 OCPU: 탐지용 1 + API용 1~2)
 - **Correlation ID**: 모든 분석 잡·요청에 `X-Request-Id` 발급, Spring·FastAPI 양쪽 로그에 동일 ID 기록 — 경계 넘는 요청 추적(디버깅 시간 절감)
 - 영상 프레임 추출: FastAPI 측 OpenCV/ffmpeg
 - **Redis 활용처**: ① Spring Session(로그인 세션) ② 분석 잡 상태·진행률 캐시 ③ LangChain 챗봇 대화 메모리 ④ 상담 대기열(Sorted Set) ⑤ 대시보드 통계 캐시 ⑥ OAuth 인가 state 임시 저장 ⑦ LLM 응답 캐시(프롬프트 해시 키)
 
 ### 6.1 배포 환경 — OCI (Oracle Cloud Infrastructure)
 
-**인프라: OCI Always Free — Ampere A1 VM 1대 (ARM, 4 OCPU / 24GB RAM, Ubuntu 22.04)**
+**인프라: OCI Always Free — Ampere A1 VM 1대 (ARM/aarch64, 3 OCPU / 16GB RAM, Ubuntu 22.04)**
 
 ```
 [도메인 DNS] ── A레코드 ──▶ [OCI Reserved Public IP(고정)]
                                     │
-[OCI VCN — 퍼블릭 서브넷, Security List: 80/443/22 전체 허용 + 5432/6379는 팀원 IP만]
- └─ Ampere A1 VM
-     ├─ Nginx (80/443) — React 정적 서빙, 리버스 프록시, certbot(Let's Encrypt)
-     ├─ Spring Boot jar (8080, systemd)
-     ├─ FastAPI/uvicorn (8000, systemd) — YOLOv8-seg 추론(CPU) + Chroma 임베디드
-     └─ PostgreSQL / Redis — apt 직접 설치, systemd (외부 포트 미개방)
+[OCI VCN — 퍼블릭 서브넷, Security List: 80/443/22만 개방]
+ └─ Ampere A1 VM ─ Docker Compose (단일 호스트, 내부 bridge 네트워크 1개)
+     ├─ nginx    :80/:443 — React dist 서빙, 리버스 프록시, certbot(TLS 종료)
+     ├─ spring   (내부) — nginx가 /api·/ws 프록시
+     ├─ fastapi  (내부) — nginx가 /ai 프록시, 외부 차단. YOLOv8-seg 추론(CPU) + Chroma 임베디드(볼륨)
+     ├─ postgres (내부) + 127.0.0.1:5432 publish — 팀 SSH 터널 전용
+     └─ redis    (내부) + 127.0.0.1:6380 publish — 팀 SSH 터널 전용, requirepass·AOF
+   volumes: pgdata · redisdata · chroma_data · certbot 인증서
 ```
 
-- **서버에는 Docker 미사용**: 전 구성요소 직접 설치 + systemd 관리. Chroma는 FastAPI 임베디드 모드로 별도 프로세스 없음 → ARM 이미지 호환 문제 원천 회피, 관리 단순화
+- **서버 구성 = Docker Compose 단일 호스트**: 전 구성요소를 compose 서비스로 관리(내부 bridge 네트워크, 외부 노출은 nginx 80/443만). ARM(aarch64) 호환은 검증됨 — 베이스 이미지 전부 multi-arch, ML 의존성(torch·onnxruntime)은 aarch64 사전빌드 휠 사용, Redis는 이미 컨테이너로 운영 중. Chroma는 임베디드 모드(볼륨 파일 저장) 유지 → 별도 프로세스 없음.
+- **이미지 버전 = 레포 추종**(단일 진실): Dockerfile은 `build.gradle`(Java 17·Gradle 8.14.3)·`requirements.txt`·`package.json`(Vite 6·React 18)을 그대로 빌드하고 버전을 중복 명시하지 않는다. 이미지 태그는 `latest` 금지 — 버전+커밋 SHA 병행. 멀티스테이지·non-root `USER`·`.dockerignore`·`HEALTHCHECK`·`depends_on: condition: service_healthy` 적용.
 
-**개발 환경 — 공용 개발 DB (공인 IP 직접 접속)**
+**개발 환경 — 공용 개발 DB (SSH 터널 접속)**
 
-- OCI 서버의 PostgreSQL(5432)·Redis(6379)를 **팀 공용 개발 DB**로 사용. 포트를 개방하고 팀원들이 공인 IP로 직접 접속 — 로컬 Docker 불필요, `application-local.yml`에 서버 IP만 설정
-- **보안 필수 조치** (포트 개방의 전제조건):
-  - OCI Security List 인그레스를 0.0.0.0/0이 아닌 **팀원 IP 대역만 허용**(IP 변동 시 콘솔에서 갱신)
-  - PostgreSQL: 강력한 비밀번호 + `pg_hba.conf`에서 접속 IP 제한
-  - Redis: `requirepass` 필수 설정(미설정 시 인증 없이 전체 접근 가능), bind 설정 확인
+- OCI 서버의 PostgreSQL·Redis **컨테이너**를 **팀 공용 개발 DB**로 사용. 포트는 공개하지 않고 **SSH 터널 전용 계정(`hajadev`, permitopen 5432·6380 제약)**으로만 접속 — `application-local.yml`에 터널 로컬 포트 설정. 컨테이너는 호스트 `127.0.0.1:5432`·`:6380`에 publish → 터널 대상 주소가 불변이라 **Docker 전환 후에도 팀원 재온보딩 불필요**. (로컬은 필요 시 동일 compose로 재현)
+- **보안 필수 조치**:
+  - 5432·6380은 **공개 미개방** — OCI Security List는 80/443/22만. DB/Redis는 SSH 터널로만 도달
+  - PostgreSQL: 강력한 비밀번호, 컨테이너는 내부 bridge 네트워크에만 노출
+  - Redis: `requirepass` 필수 설정(미설정 시 인증 없이 전체 접근 가능) + AOF
 - **개발/운영 분리**: PostgreSQL은 `hajacheck_dev` / `hajacheck_prod` 데이터베이스 분리, Redis는 DB 인덱스 분리(운영 0번 / 개발 1번)
 - 팀 규칙: 공용 dev DB의 스키마 변경(DDL)은 사전 공지 후 진행. **개발 DB에 실사용자 데이터 저장 금지** — 시연·테스트용 합성 데이터만 사용(개인정보가 팀원 전원의 로컬 접속 구간에 노출되는 것 방지)
-- 저장소의 `docker-compose.yml`(PostgreSQL+Redis)은 예비용으로 유지: ① 오프라인·서버 장애 시 단독 작업 ② 파괴적 테스트(스키마 실험 등) 격리 실행
-- 방화벽 이중 설정 주의: OCI Security List + VM 내부(ufw/iptables) 모두 개방 필요
+- 저장소의 compose 정의는 **정식 배포 수단**(운영·로컬 공용): `docker-compose.yml`(base) + `docker-compose.override.yml`(로컬 개발, 핫리로드) + `docker-compose.prod.yml`(운영). 오프라인·파괴적 테스트도 동일 정의로 격리 실행
+- 방화벽 이중 설정 주의: OCI Security List + VM 내부(ufw/iptables) — 공개는 80/443/22만
 - Nginx WebSocket 프록시 설정(`Upgrade`/`Connection` 헤더) 필수 — 상담 기능 전제조건
-- 보안: SSH 키 인증, 80/443은 전체 개방, 5432/6379는 팀원 IP 대역만 허용, FastAPI(8000)는 외부 접근 차단
+- 보안: SSH 키 인증, 외부 노출은 nginx 80/443만, DB(5432)·Redis(6380)는 SSH 터널 전용(미개방), fastapi는 내부 네트워크 전용
 - LLM(HF Serverless API)은 외부 API 호출이라 서버 사양 무관, YOLO 추론은 ARM CPU로 수행(데모 수준 충분)
 
 **CI/CD: GitHub Actions**
 
-- CI (PR 시): Spring Boot 빌드+테스트, FastAPI 테스트, React 빌드 — path filter로 변경 파트만 실행
-- CD (main 머지 시): 빌드 산출물(jar, React dist)을 SSH/scp로 OCI VM 전송 → systemd 서비스 재시작
+- CI (PR 시): Spring Boot 빌드+테스트, FastAPI 테스트, React 빌드 — path filter로 변경 파트만 실행 (네이티브 실행, 현행 유지)
+- CD (main 승격 시): VM에 SSH → `git pull && docker compose build && docker compose up -d`. **ARM 이미지는 VM에서 직접 빌드**(VM 자체가 aarch64 → 크로스빌드·외부 레지스트리 불필요), BuildKit 레이어 캐시로 재빌드 최소화. 코드는 빌드 시 이미지에 baked-in(COPY), 데이터는 볼륨에 영속. 배포 후 `HEALTHCHECK`로 기동 확인
 - SSH 키·서버 IP 등은 GitHub Secrets 관리
 
 **리스크 대비**
 
 - A1 무료 인스턴스는 리전 용량 부족("Out of capacity")이 잦음 — **착수 주간(7/9~13)에 선확보**, 실패 시 PAYG 전환(Always Free 한도 내 과금 없음)
-- **시연 백업 플랜**: 완료보고(8/7) 당일 로컬 실행 환경 별도 준비
+- **시연 백업 플랜**: 완료보고(8/7) 당일 로컬 실행 환경 — 동일 compose로 그대로 재현 가능(별도 준비 최소화)
 
 ### 6.2 AI 개발 컨벤션 (전원 AI 구현 체제의 품질 통일 장치)
 
