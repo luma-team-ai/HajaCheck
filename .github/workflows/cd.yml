@@ -4,9 +4,10 @@
 # ARM 이미지는 VM(aarch64)에서 직접 빌드되므로 여기서는 빌드하지 않는다(크로스빌드·레지스트리 불필요).
 #
 # 필요한 GitHub Secrets (Settings > Secrets and variables > Actions):
-#   OCI_HOST     — VM 공인 IP 또는 도메인
-#   OCI_USER     — 배포용 SSH 계정
-#   OCI_SSH_KEY  — 위 계정의 SSH 개인키(PEM)
+#   OCI_HOST              — VM 공인 IP 또는 도메인
+#   OCI_USER              — 배포용 SSH 계정
+#   OCI_SSH_KEY            — 위 계정의 SSH 개인키(PEM)
+#   OCI_HOST_FINGERPRINT   — VM SSH 호스트키 fingerprint(ssh-keyscan -t ed25519 <HOST> | ssh-keygen -lf -로 신뢰 경로에서 사전 확보)
 name: CD
 
 on:
@@ -18,16 +19,19 @@ concurrency:
   group: cd-deploy
   cancel-in-progress: false
 
+permissions: {}
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - name: SSH 배포 (deploy/deploy.sh 실행)
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
         with:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USER }}
           key: ${{ secrets.OCI_SSH_KEY }}
+          fingerprint: ${{ secrets.OCI_HOST_FINGERPRINT }}
           script: |
             set -e
             cd ~/apps/hajacheck
