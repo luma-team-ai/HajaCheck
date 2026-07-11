@@ -1,0 +1,95 @@
+# HajaCheck 배포 정의 — oci-arm1(공유 호스트) 전용 standalone 변형 (이슈 #104 / Design A)
+#
+# oci-arm1은 hajacheck 외 다른 사이트(smartfarm·pension_db 등)와 nginx(80/443)·postgres-16(5432)를
+# 공유한다. base(docker-compose.yml)를 그대로 올리면 공유 nginx·postgres와 포트/서비스가 충돌해
+# 다른 사이트가 죽는다. 그래서 이 파일은 **공유 자원(nginx/postgres/redis)을 정의하지 않고 재사용**하며,
+# 앱 컨테이너 3개(spring·fastapi·frontend)만 기동한다. 전부 network_mode: host — host-net이라
+# `ports:`가 무효하므로 각 앱이 자기 포트를 직접 리슨하도록 설정하고, 서비스 간 통신은 127.0.0.1로 한다.
+#
+# 재사용하는 공유 자원(이 compose 밖, arm1에 이미 존재 — 절대 건드리지 않음):
+#   - host nginx(80/443, TLS 종료): `/`→127.0.0.1:8100(frontend), `/ai/`→127.0.0.1:8101(fastapi)
+#   - postgres-16(127.0.0.1:5432, DB `hajacheck`)
+#   - redis 컨테이너 `hajacheck-redis`(127.0.0.1:6380, requirepass)
+#
+# 사용: docker compose -f docker-compose.arm1.yml build && docker compose -f docker-compose.arm1.yml up -d
+# 절대 금지: 80/443 바인딩, postgres·redis·base nginx(80/443) 서비스 정의.
+# base/override/prod(docker-compose.yml 계열)는 로컬 개발·향후 전용 VM 재현용으로 그대로 유지.
+
+name: hajacheck-arm1
+
+volumes:
+  chroma_data:
+
+services:
+  spring:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 9100
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/${ARM1_DB_NAME:-hajacheck}
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-hajacheck}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD가 .env에 설정되어야 합니다}
+      SPRING_DATA_REDIS_HOST: 127.0.0.1
+      SPRING_DATA_REDIS_PORT: 6380
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}
+      SPRING_DATA_REDIS_DATABASE: ${REDIS_DB_INDEX:-0}
+      AI_SERVER_BASE_URL: http://127.0.0.1:8101
+      # OAuth2 registration(KAKAO_CLIENT_ID 등)은 base compose와 동일하게 값이 있을 때만 개별 추가할 것
+      # (registration.{provider}.client-id 키가 빈 문자열로만 존재해도 기동 실패 — 위 base 주석 참조).
+    healthcheck:
+      # network_mode: host라 자기 자신(127.0.0.1)의 SERVER_PORT(9100)로 확인 — 이미지 baked-in
+      # HEALTHCHECK(127.0.0.1:8080)는 이 포트와 다르므로 여기서 반드시 재정의해야 한다.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9100/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 45s
+
+  fastapi:
+    build:
+      context: ./ai-server
+      dockerfile: Dockerfile
+    network_mode: host
+    restart: unless-stopped
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8101"]
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}@127.0.0.1:6380/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-hf}
+      LLM_MODEL: ${LLM_MODEL:-Qwen/Qwen3-8B}
+      HF_API_TOKEN: ${HF_API_TOKEN:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+    volumes:
+      - chroma_data:/app/chroma_data
+    healthcheck:
+      # 이미지 baked-in HEALTHCHECK(127.0.0.1:8000)와 리슨 포트(8101)가 달라 재정의 필수(위 spring과 동일 이유)
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8101/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NGINX_CONF_FILE: nginx/arm1.conf
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      spring:
+        condition: service_healthy
+      fastapi:
+        condition: service_healthy
+    healthcheck:
+      # 이미지 baked-in HEALTHCHECK(127.0.0.1:80)와 리슨 포트(8100, arm1.conf)가 달라 재정의 필수
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8100/"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
