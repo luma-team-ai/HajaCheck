@@ -141,7 +141,7 @@ oauth:state:{state}        # OAuth 인가 state (TTL 5m)
 ## 9. 설정·시크릿
 
 - 프로파일: `local` / `prod` 2종 (`application-local.yml`, `application-prod.yml`)
-- 시크릿(OAuth 클라이언트 시크릿, DB 비밀번호, HF 토큰)은 **yml에 커밋 금지** — 환경변수 주입(`${KAKAO_CLIENT_SECRET}`), 서버는 systemd `EnvironmentFile`, 로컬은 `.env`(gitignore)
+- 시크릿(OAuth 클라이언트 시크릿, DB 비밀번호, HF 토큰)은 **yml에 커밋 금지** — 환경변수 주입(`${KAKAO_CLIENT_SECRET}`). 서버·로컬 모두 **Docker Compose가 `.env`(gitignore)에서 주입**(운영 서버는 `~/apps/hajacheck/.env`)
 - 매직넘버 금지 — 설정값은 `@ConfigurationProperties` 클래스로 바인딩
 
 ## 10. 로깅
@@ -159,9 +159,9 @@ oauth:state:{state}        # OAuth 인가 state (TTL 5m)
 
 ## 12. Git / PR
 
-- 브랜치: `main`(배포) ← `develop`(통합) ← `feature/{도메인}-{작업}` (예: `feature/defect-nl-search`)
+- 브랜치: `main`(운영) ← `dev`(통합) ← `feature/{도메인}-{작업}` (예: `feature/defect-nl-search`)
 - 커밋 메시지: `타입: 요약` — `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:` (한글 요약 허용)
-- PR 규칙: main·develop 직접 푸시 금지, 부담당 승인 + CI 통과 필수, PR은 500라인 이하 권장(리뷰 가능 크기)
+- PR 규칙: main·dev **직접 푸시 금지(브랜치 보호)**, CI 통과 필수, PR은 500라인 이하 권장(리뷰 가능 크기). `dev` PR은 PR머신이 자동 검수·머지
 - PR 템플릿: 작업 내용 / 테스트 방법 / 스크린샷(화면 변경 시)
 
 ## 13. 코드 스타일
