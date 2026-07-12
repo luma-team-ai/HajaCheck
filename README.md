@@ -24,31 +24,35 @@ LLM(LangChain + RAG)이 점검 보고서 초안을 자동 생성하는 시설물
                                                             └ Chroma (임베디드)
 ```
 
+> 운영 배포는 **Docker Compose(공유 호스트 oci-arm1)** 기반 — 앱만 컨테이너로 격리, 공유 nginx·PostgreSQL·Redis 재사용. 상세: `docs/prd/PRD_hajaCheck_v0.41.md §6.1`.
+
 ## 시작하기
 
+로컬 개발은 두 방식 중 선택.
+
+**① 전체 스택을 Docker로** (override 자동 적용 · 핫리로드)
 ```bash
-# 로컬 인프라 (예비용 — 기본은 공용 개발 DB 접속)
-docker compose up -d
+docker compose up --build   # nginx·spring·fastapi·postgres·redis 전체 기동
+```
 
-# backend
-cd backend && ./gradlew bootRun
-
-# ai-server
+**② 서비스 개별 실행 + 공용 개발 DB(SSH 터널)**
+```bash
+cd backend  && ./gradlew bootRun
 cd ai-server && uv venv && uv pip install -r requirements.txt && uvicorn main:app --port 8000
-
-# frontend
 cd frontend && npm install && npm run dev
 ```
 
+> ⚠️ `docker-compose.arm1.yml`은 **운영 서버(공유 호스트) 전용** — 로컬에서 실행 금지.
+
 ## 컨벤션 문서 (필독)
 
-- `docs/PRD_hajaCheck.md` — 요구사항·아키텍처·일정
-- `docs/SpringBoot_코드_컨벤션.md` — 백엔드 규약
-- `docs/React_코드_컨벤션.md` — 프론트 규약
-- `docs/AI_개발_컨벤션.md` — AI 체인 개발 규약
+- `docs/prd/PRD_hajaCheck_v0.41.md` — 요구사항·아키텍처·일정(배포 §6.1)
+- `docs/conventions/SpringBoot_코드_컨벤션.md` — 백엔드 규약
+- `docs/conventions/React_코드_컨벤션.md` — 프론트 규약
+- `docs/conventions/AI_개발_컨벤션.md` — AI 체인 개발 규약
 
 ## Git 규칙
 
-- 브랜치: `main`(배포) ← `develop`(통합) ← `feature/{도메인}-{작업}`
+- 브랜치: `main`(운영) ← `dev`(통합) ← `feature/{도메인}-{작업}`
 - 커밋: `feat:` / `fix:` / `refactor:` / `test:` / `docs:` / `chore:` + 한글 요약
-- main·develop 직접 푸시 금지 — PR + 부담당 승인 + CI 통과 필수
+- main·dev **직접 푸시 금지(브랜치 보호 적용)** — PR + CI 통과 필수. `dev` PR은 PR머신이 자동 검수·머지, `main`은 승격(운영자 승인) 시 CD 자동배포
