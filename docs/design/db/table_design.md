@@ -612,9 +612,10 @@ users ──┬──< user_consents
 | `trg_reports_set_updated_at` | 트리거 (BEFORE UPDATE, `reports`) | `reports` 행 수정 시 `updated_at` 자동 갱신 |
 | `trg_bot_scenarios_set_updated_at` | 트리거 (BEFORE UPDATE, `bot_scenarios`) | `bot_scenarios` 행 수정 시 `updated_at` 자동 갱신 |
 | `trg_users_set_updated_at` | 트리거 (BEFORE UPDATE, `users`) | `users` 행 수정 시 `updated_at` 자동 갱신 |
+| `trg_companies_set_updated_at` | 트리거 (BEFORE UPDATE, `companies`) | `companies` 행 수정 시 `updated_at` 자동 갱신 |
 | `trg_facilities_set_updated_at` | 트리거 (BEFORE UPDATE, `facilities`) | `facilities` 행 수정 시 `updated_at` 자동 갱신 |
 
-✅ **확정**: `updated_at` 컬럼을 가진 테이블(`users`, `plans`, `facilities`, `reports`, `bot_scenarios`)에는 **모두** `set_updated_at()` 트리거를 연결한다. 초안에서 누락됐던 `users`·`facilities`도 위와 같이 트리거를 추가해, `updated_at`이 생성 시각에 고정되지 않고 행 수정 시 일관되게 자동 갱신되도록 통일한다.
+✅ **확정**: `updated_at` 컬럼을 가진 테이블(`users`, `companies`, `plans`, `facilities`, `reports`, `bot_scenarios`)에는 **모두** `set_updated_at()` 트리거를 연결한다. 초안에서 누락됐던 `users`·`companies`·`facilities`도 위와 같이 트리거를 추가해, `updated_at`이 생성 시각에 고정되지 않고 행 수정 시 일관되게 자동 갱신되도록 통일한다.
 
 ---
 
