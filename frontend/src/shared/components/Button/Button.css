@@ -1,10 +1,10 @@
 .btn {
-  --btn-primary-bg: #000;
-  --btn-primary-fg: #fff;
-  --btn-secondary-bg: #f2f2f2;
-  --btn-secondary-fg: #111;
-  --btn-danger-bg: #d92d20;
-  --btn-danger-fg: #fff;
+  --btn-primary-bg: var(--color-primary);
+  --btn-primary-fg: var(--color-surface);
+  --btn-secondary-bg: var(--color-secondary-bg);
+  --btn-secondary-fg: var(--color-secondary-fg);
+  --btn-danger-bg: var(--color-danger);
+  --btn-danger-fg: var(--color-surface);
   --btn-radius: 8px;
 
   display: inline-flex;

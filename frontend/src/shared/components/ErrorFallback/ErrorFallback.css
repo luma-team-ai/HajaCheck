@@ -1,5 +1,5 @@
 .error-fallback {
-  --error-fallback-fg: #666;
+  --error-fallback-fg: var(--color-text-muted);
 
   display: flex;
   flex-direction: column;

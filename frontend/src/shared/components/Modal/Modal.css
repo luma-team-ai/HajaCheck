@@ -1,6 +1,6 @@
 .modal-overlay {
-  --modal-overlay-bg: rgba(0, 0, 0, 0.5);
-  --modal-content-bg: #fff;
+  --modal-overlay-bg: var(--color-overlay);
+  --modal-content-bg: var(--color-surface);
   --modal-radius: 12px;
 
   position: fixed;

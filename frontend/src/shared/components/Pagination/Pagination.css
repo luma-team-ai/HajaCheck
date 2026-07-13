@@ -1,7 +1,7 @@
 .pagination {
-  --pagination-active-bg: #000;
-  --pagination-active-fg: #fff;
-  --pagination-border: #ddd;
+  --pagination-active-bg: var(--color-primary);
+  --pagination-active-fg: var(--color-surface);
+  --pagination-border: var(--color-border);
 
   display: flex;
   align-items: center;
@@ -11,7 +11,7 @@
 .pagination-nav,
 .pagination-page {
   border: 1px solid var(--pagination-border);
-  background: #fff;
+  background: var(--color-surface);
   border-radius: 6px;
   padding: 6px 12px;
   font-size: 13px;

@@ -1,6 +1,7 @@
 .ai-loading {
-  --ai-loading-accent: #4a4aff;
-  --ai-loading-skeleton-bg: #eee;
+  --ai-loading-accent: var(--color-accent);
+  --ai-loading-skeleton-bg: var(--color-neutral-100);
+  --ai-loading-label-fg: var(--color-text-muted);
 
   display: flex;
   flex-direction: column;
@@ -38,7 +39,7 @@
 }
 
 .ai-loading-label {
-  color: #666;
+  color: var(--ai-loading-label-fg);
   font-size: 13px;
   margin: 0;
 }

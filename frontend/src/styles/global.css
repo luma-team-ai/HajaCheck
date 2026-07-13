@@ -1,4 +1,6 @@
 /* 전역 스타일 — 스타일 방식(Tailwind 권장)은 착수 회의에서 확정 후 세팅 */
+@import './tokens.css';
+
 * {
   box-sizing: border-box;
 }

@@ -1,0 +1,24 @@
+/*
+ * 전역 색상 토큰 — shared/components 각 CSS에서 반복되던 하드코딩 값을 승격.
+ * 새 팔레트를 디자인한 것이 아니라, 기존에 각 컴포넌트 파일에 흩어져 있던
+ * 값을 그대로 옮겨 단일 출처로 모은 것.
+ */
+:root {
+  /* Primary / accent */
+  --color-primary: #000; /* Button primary 배경, Pagination 활성 배경 */
+  --color-surface: #fff; /* 밝은 표면/전경 — Button primary·danger 전경, Modal 콘텐츠 배경, Pagination 활성 전경 */
+  --color-danger: #d92d20; /* Button danger 배경 */
+  --color-accent: #4a4aff; /* AILoadingIndicator 스피너 강조색 */
+
+  /* Neutral */
+  --color-secondary-bg: #f2f2f2; /* Button secondary 배경 */
+  --color-secondary-fg: #111; /* Button secondary 전경 */
+  --color-surface-muted: #f9f9f9; /* Table 헤더 배경 */
+  --color-text-default: #444; /* Table 헤더 텍스트 */
+  --color-text-muted: #666; /* ErrorFallback 메시지, AILoadingIndicator 라벨 */
+  --color-neutral-100: #eee; /* Table 보더, AILoadingIndicator 스켈레톤 배경 */
+  --color-border: #ddd; /* Pagination 보더 */
+
+  /* Overlay */
+  --color-overlay: rgba(0, 0, 0, 0.5); /* Modal 오버레이 배경 */
+}

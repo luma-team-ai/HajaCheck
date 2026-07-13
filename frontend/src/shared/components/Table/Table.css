@@ -1,7 +1,7 @@
 .table {
-  --table-border: #eee;
-  --table-header-bg: #f9f9f9;
-  --table-header-fg: #444;
+  --table-border: var(--color-neutral-100);
+  --table-header-bg: var(--color-surface-muted);
+  --table-header-fg: var(--color-text-default);
 
   width: 100%;
   border-collapse: collapse;
