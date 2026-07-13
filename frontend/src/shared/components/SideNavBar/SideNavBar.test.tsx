@@ -81,12 +81,34 @@ describe('SideNavBar', () => {
     expect(handleLogout).toHaveBeenCalledTimes(1);
   });
 
-  it('접기 버튼 클릭 시 onCollapseToggle이 호출된다', () => {
+  it('접기 버튼 클릭 시 실제로 접혀서 라벨 텍스트가 사라지고, onCollapseToggle(true)이 호출된다', () => {
+    const handleToggle = vi.fn();
+    render(<SideNavBar onCollapseToggle={handleToggle} />);
+
+    expect(screen.getByText('대시보드')).not.toBeNull();
+
+    fireEvent.click(screen.getByLabelText('사이드바 접기'));
+
+    expect(handleToggle).toHaveBeenCalledWith(true);
+    expect(screen.queryByText('대시보드')).toBeNull();
+    expect(screen.getByLabelText('사이드바 펼치기')).not.toBeNull();
+  });
+
+  it('다시 펼치기 버튼을 클릭하면 라벨이 복귀하고 onCollapseToggle(false)이 호출된다', () => {
     const handleToggle = vi.fn();
     render(<SideNavBar onCollapseToggle={handleToggle} />);
 
     fireEvent.click(screen.getByLabelText('사이드바 접기'));
+    fireEvent.click(screen.getByLabelText('사이드바 펼치기'));
 
-    expect(handleToggle).toHaveBeenCalledTimes(1);
+    expect(handleToggle).toHaveBeenLastCalledWith(false);
+    expect(screen.getByText('대시보드')).not.toBeNull();
+  });
+
+  it('defaultCollapsed=true면 접힌 상태로 시작한다', () => {
+    render(<SideNavBar defaultCollapsed />);
+
+    expect(screen.queryByText('대시보드')).toBeNull();
+    expect(screen.getByLabelText('사이드바 펼치기')).not.toBeNull();
   });
 });

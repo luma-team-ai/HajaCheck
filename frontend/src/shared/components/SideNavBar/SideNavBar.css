@@ -7,6 +7,37 @@
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   font-size: 14px;
+  transition: width 0.15s ease;
+}
+
+.side-nav--collapsed {
+  width: 72px;
+  padding: 16px 8px;
+}
+
+.side-nav--collapsed .side-nav-top {
+  justify-content: center;
+  flex-direction: column;
+  height: auto;
+  gap: 12px;
+}
+
+.side-nav--collapsed .side-nav-logo {
+  justify-content: center;
+}
+
+.side-nav--collapsed .side-nav-link,
+.side-nav--collapsed .side-nav-logout {
+  justify-content: center;
+  padding: 8px;
+}
+
+.side-nav--collapsed .side-nav-link-main {
+  gap: 0;
+}
+
+.side-nav--collapsed .side-nav-user-info {
+  justify-content: center;
 }
 
 .side-nav-top {

@@ -39,7 +39,10 @@ interface SideNavBarProps {
   activeHref?: string;
   user?: SideNavBarUser;
   onLogout?: () => void;
-  onCollapseToggle?: () => void;
+  /** 초기 접힘 상태(비제어). 기본값 false — 펼쳐진 상태로 시작 */
+  defaultCollapsed?: boolean;
+  /** 접기/펼치기 토글마다 호출(레이아웃 쪽에서 margin 조정 등에 사용) */
+  onCollapseToggle?: (collapsed: boolean) => void;
 }
 
 // Figma node-id 151-967 "대시보드SideNavBar"(일반) / 163-663 "관리자 SideNavBar"(관리자) 기준
@@ -146,6 +149,7 @@ export function SideNavBar({
   activeHref,
   user,
   onLogout,
+  defaultCollapsed = false,
   onCollapseToggle,
 }: SideNavBarProps) {
   const allItems = isAdmin ? [...items, adminItem] : items;
@@ -153,29 +157,41 @@ export function SideNavBar({
     item.subItems?.some((sub) => sub.href === activeHref),
   )?.label;
   const [expandedLabel, setExpandedLabel] = useState<string | undefined>(defaultExpanded);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   function toggleExpand(label: string) {
     setExpandedLabel((current) => (current === label ? undefined : label));
   }
 
+  function handleCollapseToggle() {
+    setCollapsed((current) => {
+      const next = !current;
+      onCollapseToggle?.(next);
+      return next;
+    });
+  }
+
   return (
-    <aside className="side-nav">
+    <aside className={`side-nav${collapsed ? ' side-nav--collapsed' : ''}`}>
       <div className="side-nav-top">
         <div className="side-nav-logo">
           <img className="side-nav-logo-mark" src={brandMark} alt="" />
-          <span>HajaCheck</span>
-          {isAdmin && <span className="side-nav-admin-badge">ADMIN</span>}
+          {!collapsed && (
+            <>
+              <span>HajaCheck</span>
+              {isAdmin && <span className="side-nav-admin-badge">ADMIN</span>}
+            </>
+          )}
         </div>
-        {onCollapseToggle && (
-          <button
-            type="button"
-            className="side-nav-collapse"
-            onClick={onCollapseToggle}
-            aria-label="사이드바 접기"
-          >
-            <img src={collapseIcon} alt="" />
-          </button>
-        )}
+        <button
+          type="button"
+          className="side-nav-collapse"
+          onClick={handleCollapseToggle}
+          aria-label={collapsed ? '사이드바 펼치기' : '사이드바 접기'}
+          aria-expanded={!collapsed}
+        >
+          <img src={collapseIcon} alt="" />
+        </button>
       </div>
 
       <nav className="side-nav-links" aria-label="사이드 메뉴">
@@ -186,19 +202,22 @@ export function SideNavBar({
                 type="button"
                 className="side-nav-link side-nav-link--group"
                 onClick={() => toggleExpand(item.label)}
-                aria-expanded={expandedLabel === item.label}
+                aria-expanded={!collapsed && expandedLabel === item.label}
+                title={collapsed ? item.label : undefined}
               >
                 <span className="side-nav-link-main">
                   <img className="side-nav-link-icon" src={item.icon} alt="" />
-                  {item.label}
+                  {!collapsed && item.label}
                 </span>
-                <img
-                  className={`side-nav-chevron${expandedLabel === item.label ? ' side-nav-chevron--open' : ''}`}
-                  src={chevronIcon}
-                  alt=""
-                />
+                {!collapsed && (
+                  <img
+                    className={`side-nav-chevron${expandedLabel === item.label ? ' side-nav-chevron--open' : ''}`}
+                    src={chevronIcon}
+                    alt=""
+                  />
+                )}
               </button>
-              {expandedLabel === item.label && (
+              {!collapsed && expandedLabel === item.label && (
                 <div className="side-nav-sublist">
                   {item.subItems.map((sub) => (
                     <a
@@ -219,10 +238,11 @@ export function SideNavBar({
               href={item.href}
               className={`side-nav-link${item.href === activeHref ? ' side-nav-link--active' : ''}`}
               aria-current={item.href === activeHref ? 'page' : undefined}
+              title={collapsed ? item.label : undefined}
             >
               <span className="side-nav-link-main">
                 <img className="side-nav-link-icon" src={item.icon} alt="" />
-                {item.label}
+                {!collapsed && item.label}
               </span>
             </a>
           ),
@@ -240,18 +260,25 @@ export function SideNavBar({
                 aria-hidden="true"
               />
             )}
-            <span className="side-nav-user-text">
-              <span className="side-nav-user-name">{user.name}</span>
-              {user.plan && <span className="side-nav-user-plan">{user.plan}</span>}
-            </span>
+            {!collapsed && (
+              <span className="side-nav-user-text">
+                <span className="side-nav-user-name">{user.name}</span>
+                {user.plan && <span className="side-nav-user-plan">{user.plan}</span>}
+              </span>
+            )}
           </div>
         </div>
       )}
 
       {onLogout && (
-        <button type="button" className="side-nav-logout" onClick={onLogout}>
+        <button
+          type="button"
+          className="side-nav-logout"
+          onClick={onLogout}
+          title={collapsed ? '로그아웃' : undefined}
+        >
           <img src={logoutIcon} alt="" />
-          로그아웃
+          {!collapsed && '로그아웃'}
         </button>
       )}
     </aside>
