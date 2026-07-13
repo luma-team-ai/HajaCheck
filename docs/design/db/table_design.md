@@ -160,12 +160,12 @@ FR·API·플로우 동기화는 이번 범위에서 **제외**하고, ERD(DB 설
 | `usage_counters` | 컬럼 변경 없음. `user_plan_id`가 회사 귀속 `user_plans.id`를 가리키면 `seat_count` 등 사용량이 자연스럽게 회사 전체 기준으로 집계된다 |
 | `companies` 테이블 자체 | 재검토 결과 컬럼 추가 불필요 — `owner_user_id`가 이미 "플랜 보유자"를 가리키고 있고, 플랜 데이터는 `user_plans.company_id`로 참조되므로 `companies`에 중복 컬럼(예: `plan_id`)을 두지 않는다. 다만 `owner_user_id` 코멘트 문구("플랜 보유자")가 이제 "회사 귀속 `user_plans`를 관리할 권한을 가진 사용자"라는 의미로 재해석됨을 명시해 둔다 |
 
-**반영 내용**: `user_plans.user_id` nullable화, `user_plans.company_id` 컬럼·FK·인덱스(`idx_user_plans_company`) 추가, `ck_user_plans_owner_xor` CHECK 추가. 상세는 §5.2 참조. ERD는 §3에 `companies ──< user_plans` 관계를 추가로 표기했다.
+**반영 내용**: `user_plans.user_id` nullable화, `user_plans.company_id` 컬럼·FK·인덱스(`idx_user_plans_company`) 추가, `ck_user_plans_owner_xor` CHECK 추가, **ACTIVE 구독 부분 유니크 인덱스**(`uq_user_plans_active_user`·`uq_user_plans_active_company`) 추가. 회사 귀속 상속은 **승인된 회사(APPROVED+VERIFIED)·승인된 멤버십**을 전제로 게이팅한다(위 규칙 참조). 상세는 §5.2 참조. ERD는 §3에 `companies ──< user_plans` 관계를 추가로 표기했다.
 
-**아직 미확정인 부분**:
-- 회사가 `status = PENDING_REVIEW`/`REJECTED`인 동안에도 회사 귀속 `user_plans`가 ACTIVE로 존재할 수 있는지(예: 승인 전 결제 허용 여부)는 DB CHECK로 강제하지 않음 — 애플리케이션 레벨에서 "승인된 회사만 플랜 결제 가능"을 지키는 것을 권장
-- 임직원이 개인 자격으로 별도 유료 플랜을 동시에 구독할 수 있는지(회사 플랜 + 개인 플랜 이중 구독)는 이번 범위에서 막지 않음 — 필요 시 애플리케이션에서 정책적으로 제한
-- ⚠️ **구현 시 필수 검증(권한 상속 방지)**: 회사 플랜 상속 판단이 `users.company_id` 값만 신뢰하므로, `company_id`가 검증 없이 사용자 입력으로 채워지면 임의 사용자가 유료 회사 id를 자기 `company_id`로 설정해 그 회사의 상담 등 유료 기능을 무단 상속(cross-tenant 권한 상승)할 수 있다. 따라서 ① `company_id`는 사용자가 직접 세팅할 수 없고 반드시 "회사 오너의 초대 승인"이라는 검증된 경로로만 채워지도록 강제하고, ② 플랜 상속 판단 시에도 단순히 `company_id` 존재만이 아니라 "해당 회사에 유효하게 소속(승인된 멤버십)되었는가"를 함께 확인할 것. 가능하면 멤버십을 별도 상태/테이블로 모델링해 자기 신고형 `company_id` 신뢰를 제거한다.
+**플랜 상속 관련 규칙 (✅ 확정 / ⏳ 미확정)**:
+- ✅ **확정(승인된 회사만 결제·상속)**: 회사 귀속 `user_plans`의 결제/활성화는 `status = APPROVED`(그리고 §5.1의 `verification_status = VERIFIED`) 회사만 가능하다. `PENDING_REVIEW`/`REJECTED` 회사는 회사 귀속 플랜을 `ACTIVE`로 둘 수 없으며, 반려 시 기존 회사 귀속 `user_plans`를 `EXPIRED`/정지 처리한다. (DB CHECK가 아닌 애플리케이션/승인 트랜잭션에서 보장)
+- ✅ **확정(cross-tenant 권한 상속 차단)**: 회사 플랜 상속 판단은 `users.company_id` 값을 **그대로 신뢰하지 않는다**. `company_id`는 사용자가 직접 세팅할 수 없고 반드시 **"회사 오너의 초대 승인"이라는 검증된 경로로만** 채워지며(자기 신고형 입력 금지), 플랜 상속 판단 시에도 단순히 `company_id` 존재만이 아니라 **"해당 회사에 유효하게 소속(승인된 멤버십)되었는가"를 함께 확인**한다. 이로써 임의 사용자가 유료 회사 id를 자기 `company_id`로 설정해 유료 기능을 무단 상속(cross-tenant IDOR)하는 경로를 차단한다. 후속 구현에서 멤버십을 별도 상태/테이블로 모델링해 자기 신고형 신뢰를 제거하는 것을 권장한다.
+- ⏳ **미확정**: 임직원이 개인 자격으로 별도 유료 플랜을 동시에 구독할 수 있는지(회사 플랜 + 개인 플랜 이중 구독)는 이번 범위에서 막지 않음 — 필요 시 애플리케이션에서 정책적으로 제한.
 
 ---
 
@@ -284,7 +284,8 @@ users ──┬──< user_consents
 - **UQ**: `business_registration_number` — 동일 사업자등록번호로 중복 가입 방지.
 - 인덱스: `idx_companies_owner (owner_user_id)`
 - §2.5 근거: 스토리보드의 사업자등록증 업로드→OCR 자동 인식(사업자등록번호/상호명/대표자)→관리자 승인 대기 흐름을 그대로 컬럼화했다. OCR 인식(자동)과 국세청 진위확인(외부 API)은 서로 다른 검증 단계라 `business_registration_ocr_raw`(원본 추출값)와 `verification_status`(진위확인 결과)를 분리했다.
-- `verification_status`(진위확인, 자동)와 `status`(관리자 승인, 사람이 처리)는 서로 독립적인 두 축이다 — 진위확인이 통과해도 관리자가 반려할 수 있고, 그 반대도 이론상 가능하다.
+- `verification_status`(진위확인, 자동)와 `status`(관리자 승인, 사람이 처리)는 서로 독립적인 두 축이다 — 진위확인이 통과해도 관리자가 반려할 수 있다.
+- ✅ **승인 게이팅 확정(미검증 기업 유료권한 차단)**: 단, 두 축이 독립이라도 **`status`를 `APPROVED`로 전이하려면 `verification_status = VERIFIED`가 전제조건**이다(`FAILED`/`PENDING` 회사는 승인 불가). 승인 전이는 이 조건을 강제하는 애플리케이션 트랜잭션(가능하면 트리거 병행)으로만 처리하고, **회사 귀속 `user_plans` 결제/활성화 시에도 `verification_status = VERIFIED AND status = APPROVED`를 함께 확인**한다. 승인 전이 시점의 검증 상태는 감사 로그(`reviewed_by`/`reviewed_at` + 검증 상태)로 남긴다. 이로써 국세청 진위확인에 실패한 위조/미검증 기업이 관리자 실수·절차 누락만으로 유료 기능·기업 워크스페이스 권한을 얻는 경로를 차단한다.
 - §2.6 근거: `owner_user_id` 코멘트의 "플랜 보유자"는 회사 귀속 `user_plans.company_id`(§5.2)를 관리할 권한을 가진 사용자라는 뜻이다. `companies` 자체에는 플랜 참조 컬럼을 추가하지 않았다 — `user_plans.company_id` FK가 이미 그 역할을 하므로 중복 컬럼을 두면 두 값이 어긋날 위험만 생긴다.
 
 #### `user_consents` — 약관·개인정보 처리방침 동의 이력
@@ -292,7 +293,7 @@ users ──┬──< user_consents
 | 컬럼 | 타입 | NULL | 기본값 | 키 | 설명 |
 |---|---|---|---|---|---|
 | id | bigint (identity) | N | - | **PK** | 동의 이력 식별자 |
-| user_id | bigint | N | - | **FK→users**, ON DELETE CASCADE, UQ(복합) | 동의한 사용자 |
+| user_id | bigint | N | - | **FK→users**, ON DELETE RESTRICT, UQ(복합) | 동의한 사용자 |
 | policy_type | consent_policy_type | N | - | UQ(복합) | 동의한 정책 유형(이용약관/개인정보 처리방침) |
 | policy_version | varchar(20) | N | - | UQ(복합) | 동의한 정책 버전 |
 | agreed_at | timestamptz | N | now() | | 동의 시각 |
@@ -300,7 +301,7 @@ users ──┬──< user_consents
 - **UQ**: `(user_id, policy_type, policy_version)` — 동일 버전 중복 동의 방지.
 - 인덱스: `idx_user_consents_user (user_id)`
 - §2.5 근거: 회원가입 화면의 "(필수) 서비스 이용약관 및 개인정보 처리방침 동의" 체크박스를, 법무 감사에 대비해 단일 타임스탬프가 아니라 약관별·버전별 이력으로 저장한다. 약관 개정 시에도 과거 동의 시점의 버전을 그대로 보존한다.
-- ⚠️ **구현 시 확정 필요(감사 보존 vs CASCADE 상충)**: 현재 `user_id` FK가 `ON DELETE CASCADE`라 사용자 계정을 물리 삭제하면 "언제 어떤 약관 버전에 동의했는가"라는 법적 증빙까지 함께 소멸한다. 이 테이블의 존재 목적(법무 감사·분쟁 대응)과 정면으로 충돌하므로, ① 사용자 삭제를 soft delete(탈퇴 플래그/`status`)로 처리해 원본 행을 물리 삭제하지 않거나, ② `ON DELETE RESTRICT`/`SET NULL` + 익명화 후 보존으로 정책을 확정할 것. 개인정보 파기 요건과 감사 보존 요건이 상충하면 익명화 보존 방식을 우선 검토한다.
+- ✅ **삭제 정책 확정(감사 보존 우선)**: 이 테이블은 법무 감사·분쟁 대응이 존재 목적이므로 동의 이력은 사용자 삭제와 **독립적으로 보존**한다. 이에 따라 `user_id` FK를 `ON DELETE RESTRICT`로 확정해(위 DDL 반영) 동의 이력이 남아 있는 사용자의 물리 삭제를 DB 레벨에서 차단한다. 사용자 탈퇴는 **soft delete**(탈퇴 플래그/`status`)로 처리해 원본 행을 물리 삭제하지 않으며, 개인정보 파기 요건이 걸리면 사용자 식별정보만 **익명화 후 동의 이력 자체는 보존**한다. (개인정보 파기 요건과 감사 보존 요건 상충 시 익명화 보존을 우선한다.)
 
 ---
 
@@ -335,8 +336,9 @@ users ──┬──< user_consents
 | ended_at | timestamptz | Y | - | | 구독 종료 시각 |
 
 - **CK** `ck_user_plans_owner_xor`: `(user_id IS NOT NULL) <> (company_id IS NOT NULL)` — 개인 귀속과 회사 귀속 중 정확히 하나만 채워지도록 강제(§2.6).
+- **부분 UQ(중복 활성 구독 차단, 확정)**: `uq_user_plans_active_user` = `CREATE UNIQUE INDEX ... ON user_plans (user_id) WHERE status='ACTIVE'`, `uq_user_plans_active_company` = `... ON user_plans (company_id) WHERE status='ACTIVE'`. 동일 사용자/회사에 `ACTIVE` 구독이 둘 이상 생기는 것을 DB 레벨에서 차단해 중복 과금·엔타이틀먼트 혼선을 막는다. 구독 업그레이드/갱신(`UPGRADE_REQUESTED` 등)은 **단일 트랜잭션 내에서 기존 `ACTIVE`를 `EXPIRED`로 내리고 신규를 `ACTIVE`로 올리는** 순서로 처리한다.
 - 인덱스: `idx_user_plans_user (user_id)`, `idx_user_plans_company (company_id)`
-- §2.6 근거: 회사 귀속 행(`company_id` 세팅)은 그 회사에 소속된 모든 `users.company_id` 임직원의 상담 이용 권한 등 플랜 게이팅을 대표한다. 판단 로직은 "내 개인 `user_plans` OR 내 소속 회사의 `user_plans`" 중 하나라도 `ACTIVE`면 허용하는 방식이며, DB 레벨이 아니라 애플리케이션 레벨에서 처리한다.
+- §2.6 근거: 회사 귀속 행(`company_id` 세팅)은 그 회사에 소속된 모든 `users.company_id` 임직원의 상담 이용 권한 등 플랜 게이팅을 대표한다. 판단 로직은 "내 개인 `user_plans` OR 내 소속 회사의 `user_plans`" 중 하나라도 `ACTIVE`면 허용하는 방식이며(단 회사 귀속 상속은 **승인된 멤버십 확인 전제** — §2.6), DB 레벨이 아니라 애플리케이션 레벨에서 처리한다.
 
 #### `usage_counters` — 구독(개인/회사)별 월간 기능 사용량 집계
 
@@ -356,6 +358,7 @@ users ──┬──< user_consents
 - **UQ**: `(user_plan_id, period)` — 구독별 월 1건.
 - **CK** `ck_usage_counters_period_month_start`: `period`가 해당 월 1일이어야 함.
 - **CK** `ck_usage_counters_nonnegative`: 모든 카운트 컬럼 ≥ 0.
+- **동시성 정책 확정(쿼터 초과 방지)**: `QuotaInterceptor`의 한도 판정은 "조회 후 증가"를 분리하지 않고 **원자적 조건부 UPDATE**로 처리한다 — 예: `UPDATE usage_counters SET analysis_request_count = analysis_request_count + 1 WHERE user_plan_id=:id AND period=:p AND analysis_request_count < :limit RETURNING ...` 로, 갱신 행 수가 0이면 한도 초과로 판정한다. period 행 최초 생성 경합은 위 `(user_plan_id, period)` UNIQUE 기반 **UPSERT(`INSERT ... ON CONFLICT (user_plan_id, period) DO UPDATE ...`)**로 흡수해 동시 요청이 같은 잔여 한도를 읽고 함께 통과하는 경쟁 조건을 제거한다.
 
 ---
 
@@ -578,6 +581,7 @@ users ──┬──< user_consents
 - 인덱스: `idx_chat_message_citations_message (message_id)`, `idx_chat_message_citations_document (document_id)`
 - `document_id`는 PostgreSQL 내 `rag_documents`를 정상적으로 FK 참조하지만, `chunk_ref`는 Chroma가 관리하는 값이라 데이터베이스 레벨 참조 무결성을 보장할 수 없다(애플리케이션에서 Chroma 조회 결과와 정합성을 맞춰야 한다).
 - 메시지 하나가 여러 문서·청크를 인용하는 1:N 구조를 표현하며, `chat_messages`가 삭제되면 인용 레코드도 함께 삭제된다(ON DELETE CASCADE).
+- ✅ **삭제 정책 확정(KPI 근거 보존)**: 이 테이블은 §7 KPI "출처 표기율 100%" 검증의 유일한 근거이므로, `chat_messages`는 **물리 삭제 대신 soft delete**를 원칙으로 해 메시지·인용 레코드를 보존한다(CASCADE는 실제로는 발생하지 않도록 운영). 만약 보존기간 만료 등으로 메시지 물리 삭제를 도입할 경우, 삭제 전 인용 준수 지표(답변 건수 대비 인용 존재율)를 **별도 집계·스냅샷으로 보존**해 사후 재검증 가능성을 유지한다.
 
 ---
 
@@ -607,8 +611,10 @@ users ──┬──< user_consents
 | `trg_plans_set_updated_at` | 트리거 (BEFORE UPDATE, `plans`) | `plans` 행 수정 시 `updated_at` 자동 갱신 |
 | `trg_reports_set_updated_at` | 트리거 (BEFORE UPDATE, `reports`) | `reports` 행 수정 시 `updated_at` 자동 갱신 |
 | `trg_bot_scenarios_set_updated_at` | 트리거 (BEFORE UPDATE, `bot_scenarios`) | `bot_scenarios` 행 수정 시 `updated_at` 자동 갱신 |
+| `trg_users_set_updated_at` | 트리거 (BEFORE UPDATE, `users`) | `users` 행 수정 시 `updated_at` 자동 갱신 |
+| `trg_facilities_set_updated_at` | 트리거 (BEFORE UPDATE, `facilities`) | `facilities` 행 수정 시 `updated_at` 자동 갱신 |
 
-`updated_at` 컬럼을 가진 테이블(`users`, `plans`, `facilities`, `reports`, `bot_scenarios`) 중 `users`와 `facilities`는 현재 트리거가 연결되어 있지 않다. 애플리케이션 레벨에서 직접 갱신하지 않는다면 동일한 트리거를 추가하는 것을 고려할 수 있다.
+✅ **확정**: `updated_at` 컬럼을 가진 테이블(`users`, `plans`, `facilities`, `reports`, `bot_scenarios`)에는 **모두** `set_updated_at()` 트리거를 연결한다. 초안에서 누락됐던 `users`·`facilities`도 위와 같이 트리거를 추가해, `updated_at`이 생성 시각에 고정되지 않고 행 수정 시 일관되게 자동 갱신되도록 통일한다.
 
 ---
 
