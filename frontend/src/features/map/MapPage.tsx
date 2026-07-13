@@ -2,7 +2,7 @@
 // PRD_hajaCheck_v0.37.md 92행, 171행: 업로드 시 수집한 EXIF GPS 활용
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { mapApi } from './api';
+import { mapApi } from './api/mapApi';
 import {
   DEFAULT_MAP_CENTER,
   DEFAULT_MAP_LEVEL,

@@ -1,6 +1,6 @@
 // 시설물 위치 조회 — feature별 api 모듈 (React_코드_컨벤션.md §3)
 // TODO(#8): 시설물 API 완성 시 /api/facilities 연동으로 교체 (현재는 목 데이터 반환)
-import type { FacilityLocation } from './types';
+import type { FacilityLocation } from '../types';
 
 const MOCK_FACILITY_LOCATIONS: FacilityLocation[] = [
   {
