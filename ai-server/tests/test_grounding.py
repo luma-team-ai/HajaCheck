@@ -161,6 +161,26 @@ def test_check_grounding_empty_defects_but_claims_count_mismatches():
     assert all(c.status is CheckStatus.MISMATCH for c in result.mismatches)
 
 
+def test_summarize_defects_normalizes_type_whitespace():
+    # 공백/서식만 다른 동일 유형은 하나로 집계 (P3-a)
+    defects = [
+        GroundingDefect(defect_type="균열", grade="C"),
+        GroundingDefect(defect_type=" 균열 ", grade="C"),
+        GroundingDefect(defect_type="누수", grade="D"),
+    ]
+    truth = summarize_defects(defects)
+    assert truth.count_by_type == {"균열": 2, "누수": 1}
+
+
+def test_check_grounding_type_whitespace_matches_not_mismatch():
+    # 실측 균열 2건, 주장 " 균열 ": 2 → 정규화 후 MATCH (공백 차이로 오탐 안 함) (P3-a)
+    result = check_grounding(_sample_defects(), GroundingClaims(count_by_type={" 균열 ": 2}))
+    assert result.grounded is True
+    assert result.action is GroundingAction.PASS
+    assert result.checks[0].field == "type:균열"
+    assert result.checks[0].status is CheckStatus.MATCH
+
+
 @patch("routers.ai_router.check_grounding", side_effect=RuntimeError("boom"))
 def test_grounding_endpoint_error_returns_fail_envelope(_mock):
     # 대조 중 예외 발생 시 서버가 죽지 않고 fail envelope 로 응답
@@ -171,7 +191,8 @@ def test_grounding_endpoint_error_returns_fail_envelope(_mock):
     assert res.status_code == 200
     body = res.json()
     assert body["success"] is False
-    assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
+    # grounding 은 LLM 무관 코드 경로 → 범용 VALIDATION_ERROR (P3-b)
+    assert body["error"]["code"] == "VALIDATION_ERROR"
 
 
 if __name__ == "__main__":
@@ -185,6 +206,8 @@ if __name__ == "__main__":
     test_check_grounding_empty_defects_default_claims_passes()
     test_check_grounding_zero_total_count_matches()
     test_check_grounding_empty_defects_but_claims_count_mismatches()
+    test_summarize_defects_normalizes_type_whitespace()
+    test_check_grounding_type_whitespace_matches_not_mismatch()
     test_grounding_endpoint_success()
     test_grounding_endpoint_mismatch_returns_regenerate()
     print("OK: grounding check self-check passed")
