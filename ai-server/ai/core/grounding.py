@@ -85,8 +85,12 @@ class CheckItem(BaseModel):
 
 
 class GroundingResult(BaseModel):
-    grounded: bool  # 확정 불일치(MISMATCH)가 하나도 없으면 True
-    action: GroundingAction  # 통과(PASS) / 확정 불일치 조치(REGENERATE·WARN) / 검증불가(WARN)
+    """대조 결과. ⚠️ 소비처(라우터/프론트) 주의: `grounded`만 보고 통과 판정하지 말 것.
+    근거 부재(UNVERIFIABLE)만 있는 경우 `grounded=True` 이면서 `action=WARN` 이 될 수 있다(#117, #121).
+    즉 grounded=True 라도 action != PASS 이면 경고 배지를 노출해야 한다 — `action`(또는 `unverifiable`)을 함께 확인. (#121 P2)
+    """
+    grounded: bool  # 확정 불일치(MISMATCH)가 하나도 없으면 True (검증불가만 있어도 True — action으로 최종 판정)
+    action: GroundingAction  # 통과(PASS) / 확정 불일치 조치(REGENERATE·WARN) / 검증불가(WARN) — 최종 판정 기준
     ground_truth: GroundTruth
     checks: list[CheckItem]  # 수행한 전체 대조 내역
     mismatches: list[CheckItem]  # 확정 불일치(환각) 항목 — 재생성 트리거용

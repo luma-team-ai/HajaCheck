@@ -203,6 +203,23 @@ def test_check_grounding_type_whitespace_matches_not_mismatch():
     assert result.checks[0].status is CheckStatus.MATCH
 
 
+def test_grounding_endpoint_unverifiable_returns_warn():
+    # 엔드포인트 레벨: 실측 0건 + 양성 주장 → data.action=WARN, data.unverifiable 채워지고
+    # grounded=True 여도 통과가 아님을 응답 body가 올바로 직렬화하는지 검증 (#121 P3)
+    res = client.post(
+        "/ai/grounding-check",
+        json={"defects": [], "claims": {"total_count": 3, "count_by_grade": {"C": 3}}},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert body["data"]["grounded"] is True  # 확정 불일치는 없음
+    assert body["data"]["action"] == "WARN"  # 그러나 검증불가라 통과(PASS) 아님 — 소비처 경고 필요
+    assert body["data"]["mismatches"] == []
+    assert len(body["data"]["unverifiable"]) == 2  # total_count + grade:C
+    assert all(c["status"] == "UNVERIFIABLE" for c in body["data"]["unverifiable"])
+
+
 @patch("routers.ai_router.check_grounding", side_effect=RuntimeError("boom"))
 def test_grounding_endpoint_error_returns_fail_envelope(_mock):
     # 대조 중 예외 발생 시 서버가 죽지 않고 fail envelope 로 응답
@@ -234,4 +251,5 @@ if __name__ == "__main__":
     test_check_grounding_type_whitespace_matches_not_mismatch()
     test_grounding_endpoint_success()
     test_grounding_endpoint_mismatch_returns_regenerate()
+    test_grounding_endpoint_unverifiable_returns_warn()
     print("OK: grounding check self-check passed")
