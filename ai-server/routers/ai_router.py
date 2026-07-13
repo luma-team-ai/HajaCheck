@@ -6,6 +6,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from ai.chains.briefing_chain import DashboardStats, run_briefing_chain
 from ai.chains.defect_explain_chain import run_defect_explain_chain
 from ai.core.schemas import AIErrorCode, AIResponse
 
@@ -34,3 +35,13 @@ def defect_explain(req: DefectExplainRequest) -> AIResponse:
     except Exception as e:  # noqa: BLE001 — 스키마 파싱 실패·타임아웃 등 표준 폴백
         return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, str(e))
     return AIResponse.ok(result.model_dump())
+
+
+@router.post("/briefing")
+def briefing(req: DashboardStats) -> AIResponse:
+    """대시보드 AI 주간 브리핑 — 현황 데이터 → 자연어 요약(수치는 코드 계산)."""
+    try:
+        result, facts = run_briefing_chain(req)
+    except Exception as e:  # noqa: BLE001 — 스키마 파싱 실패·타임아웃 등 표준 폴백
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, str(e))
+    return AIResponse.ok({**result.model_dump(), "facts": facts.model_dump()})
