@@ -18,7 +18,7 @@
 ## 1. 디렉토리 구조 (FastAPI)
 
 ```
-fastapi-app/
+ai-server/
 ├─ ai/
 │  ├─ core/
 │  │  ├─ llm_client.py      # 공통 LLM 클라이언트 (★유일한 LLM 호출 지점)
@@ -47,7 +47,7 @@ fastapi-app/
 
 - 모델명, HF 엔드포인트, API 토큰, 타임아웃, 재시도(2회), 토큰 사용량 로깅을 **한 곳에서** 관리
 - 체인에서는 `get_llm()`만 호출한다. `HuggingFaceEndpoint`를 직접 생성하지 않는다
-- 모델 교체(HF Serverless ↔ Ollama)는 이 파일 + 환경변수만 수정하면 되도록 유지
+- 모델 교체(HF Serverless ↔ Ollama)는 이 파일 + 환경변수만 수정하면 되도록 유지 — `LLM_PROVIDER=hf|ollama`(기본 `hf`), Ollama 사용 시 `OLLAMA_MODEL`(기본 `qwen3:8b`)·`OLLAMA_BASE_URL`(기본 `http://localhost:11434`) 추가 설정(`.env.example` 참고, HAJA-114)
 
 ```python
 # 사용 예 — 모든 체인의 시작점
@@ -58,7 +58,7 @@ llm = get_llm(temperature=0.2)  # 파라미터만 오버라이드 가능
 ```
 
 - 토큰 사용량은 클라이언트가 자동으로 Redis에 집계 (`ai:usage:{date}` — 관리자 모니터링 연동)
-- **응답 캐시 내장**: 프롬프트 해시 키(`ai:cache:{hash}`) Redis 캐시를 클라이언트가 자동 적용 — 개발 중 동일 질의 반복으로 인한 크레딧 소진 방지. 캐시 우회가 필요하면 `get_llm(cache=False)`
+- **응답 캐시 내장**: 캐시 키 `ai:cache:{provider}:{model}:{temperature}:{hash}` Redis 캐시를 클라이언트가 자동 적용 — 개발 중 동일 질의 반복으로 인한 크레딧 소진 방지. provider/모델/temperature별로 네임스페이스 분리(HAJA-114 P1 픽스 — provider 전환 시 이전 provider 캐시가 잘못 재사용되는 정합성 버그 방지). 캐시 우회가 필요하면 `get_llm(cache=False)`
 
 ## 3. 프롬프트 규약
 
@@ -79,10 +79,10 @@ class DefectExplain(BaseModel):
     cause: str          # 추정 원인
     risk: str           # 방치 시 위험
     action: str         # 권고 조치
-    confidence: str     # 상/중/하
 
 result = get_llm().with_structured_output(DefectExplain).invoke(prompt)
 ```
+(실제 예시: `ai/chains/defect_explain_chain.py`)
 
 > ⚠️ **트러블슈팅 — `400 INVALID_TOOL_CHOICE`가 나면**: HF Serverless Inference는 langchain 표준 구현이 강제하는 `tool_choice="any"`를 지원하지 않아, `.with_structured_output()`을 직접 새로 구현/변형하면 이 에러가 재현될 수 있다(`langchain-ai/langchain#29569`, upstream "not planned" — 라이브러리 버전을 올려도 안 고쳐짐). `get_llm().with_structured_output(schema)`는 이미 프롬프트에 JSON 스키마를 지시하고 `PydanticOutputParser`로 직접 파싱하는 우회 방식(`ai/core/llm_client.py`의 `_StructuredLLM`)이라 **이 함수를 그대로 쓰면 이 문제를 안 만난다** — 같은 문제를 각자 다시 겪지 말고 반드시 `get_llm()` 경유로만 구조화 출력을 받을 것.
 
