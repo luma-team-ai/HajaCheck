@@ -702,8 +702,8 @@ HAJA-102 기준 최종 산출물은 아래 파일들이다.
 
 | 산출물 | 파일 | 용도 |
 |---|---|---|
-| 테이블 디자인 설계서 | `table_design_v0.4.md` | 착수보고서·PRD 대비 변경 사항, ERD 개요, enum/테이블 상세, RAG·상담 공용 설계, 핵심 요구사항 요약을 설명하는 기준 문서 |
-| 최종 통합 DDL | `HajaCheck_script_v0.4.sql` | 신규 DB를 현재 최종 스키마로 생성할 때 사용하는 기준 SQL |
+| 테이블 디자인 설계서 | `table_design.md` | 착수보고서·PRD 대비 변경 사항, ERD 개요, enum/테이블 상세, RAG·상담 공용 설계, 핵심 요구사항 요약을 설명하는 기준 문서 |
+| 최종 통합 DDL | `HajaCheck_script.sql` | 신규 DB를 현재 최종 스키마로 생성할 때 사용하는 기준 SQL |
 | 기준 요구사항 문서 | `PRD_hajaCheck_v0.41.md` | 테이블 설계의 근거가 되는 기능 요구사항, IA, 시스템 아키텍처, 주요 데이터 모델 정의 |
 
-제출·공유 시에는 `table_design_v0.4.md`를 설명 문서로, `HajaCheck_script_v0.4.sql`을 최종 적용 기준으로 사용한다.
+제출·공유 시에는 `table_design.md`를 설명 문서로, `HajaCheck_script.sql`을 최종 적용 기준으로 사용한다.
