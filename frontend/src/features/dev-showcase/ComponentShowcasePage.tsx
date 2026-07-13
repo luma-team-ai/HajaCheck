@@ -6,6 +6,7 @@ import { Button } from '../../shared/components/Button/Button';
 import { ErrorFallback } from '../../shared/components/ErrorFallback/ErrorFallback';
 import { FloatingPopup } from '../../shared/components/FloatingPopup/FloatingPopup';
 import { Footer } from '../../shared/components/Footer/Footer';
+import { Header } from '../../shared/components/Header/Header';
 import { Modal } from '../../shared/components/Modal/Modal';
 import {
   NotificationDropdown,
@@ -72,23 +73,36 @@ export default function ComponentShowcasePage() {
   const [tablePage, setTablePage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [popupOpen, setPopupOpen] = useState(false);
+  const [isAdminView, setIsAdminView] = useState(false);
 
   return (
     <div className="showcase">
       <h1>공통 컴포넌트 데모 (임시 — #116)</h1>
 
       <section className="showcase-section">
-        <h2>TopNavigation</h2>
+        <h2>TopNavigation (랜딩용, node-id 63-2)</h2>
         <TopNavigation />
       </section>
 
       <section className="showcase-section">
-        <h2>SideNavBar</h2>
-        <p className="showcase-note">
-          Figma 노드 링크 미제공 — 사용자 제공 텍스트 기준 추정 구현(실제 시안 확인 필요)
-        </p>
+        <h2>Header (내부 페이지용, node-id 205-2333)</h2>
+        <Header breadcrumb={[{ label: '하자 관리' }, { label: '하자 목록' }]} unreadCount={5} />
+      </section>
+
+      <section className="showcase-section">
+        <h2>SideNavBar (하나의 컴포넌트, isAdmin prop으로 전환 — node-id 151-967 / 163-663)</h2>
+        <div className="showcase-row">
+          <Button onClick={() => setIsAdminView((prev) => !prev)}>
+            {isAdminView ? '일반 사용자로 전환' : '관리자로 전환'}
+          </Button>
+        </div>
         <div className="showcase-sidenav-frame">
-          <SideNavBar activeHref="/dashboard" user={{ name: '김관리', plan: 'Standard' }} />
+          <SideNavBar
+            isAdmin={isAdminView}
+            activeHref={isAdminView ? '/admin/users' : '/defects'}
+            user={{ name: '김관리', plan: 'Standard' }}
+            onLogout={() => {}}
+          />
         </div>
       </section>
 

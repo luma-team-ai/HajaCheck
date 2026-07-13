@@ -22,16 +22,11 @@
   margin-bottom: 12px;
 }
 
-.showcase-note {
-  color: #999;
-  font-size: 13px;
-  margin: -8px 0 16px;
-}
-
 .showcase-sidenav-frame {
   display: inline-flex;
-  height: 420px;
+  max-height: 720px;
   border: 1px solid #eee;
   border-radius: 8px;
-  overflow: hidden;
+  overflow-y: auto;
+  margin-bottom: 16px;
 }
