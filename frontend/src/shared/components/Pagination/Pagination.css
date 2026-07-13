@@ -1,0 +1,30 @@
+.pagination {
+  --pagination-active-bg: #000;
+  --pagination-active-fg: #fff;
+  --pagination-border: #ddd;
+
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pagination-nav,
+.pagination-page {
+  border: 1px solid var(--pagination-border);
+  background: #fff;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pagination-nav:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pagination-page--active {
+  background: var(--pagination-active-bg);
+  color: var(--pagination-active-fg);
+  border-color: var(--pagination-active-bg);
+}
