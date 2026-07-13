@@ -1,0 +1,37 @@
+.showcase {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 40px 24px 120px;
+  font-family: 'Pretendard', -apple-system, sans-serif;
+}
+
+.showcase-section {
+  margin-bottom: 48px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid #eee;
+}
+
+.showcase-section h2 {
+  margin-bottom: 16px;
+}
+
+.showcase-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.showcase-note {
+  color: #999;
+  font-size: 13px;
+  margin: -8px 0 16px;
+}
+
+.showcase-sidenav-frame {
+  display: inline-flex;
+  height: 420px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  overflow: hidden;
+}

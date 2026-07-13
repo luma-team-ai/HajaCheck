@@ -12,12 +12,24 @@ const ResultViewerPage = lazy(() =>
 
 const LandingPage = lazy(() => import('../features/landing/LandingPage'));
 
+// 개발 확인용 임시 라우트 — 이슈 #116 공통 컴포넌트 시각 검증 목적, 머지 전 유지 여부 협의 필요
+const ComponentShowcasePage = lazy(() => import('../features/dev-showcase/ComponentShowcasePage'));
+
 export const router = createBrowserRouter([
   {
     path: '/',
     element: (
       <Suspense fallback={<div>불러오는 중...</div>}>
         <LandingPage />
+      </Suspense>
+    ),
+  },
+  {
+    // TODO(#116): 공통 컴포넌트 시각 검증용 임시 라우트 — 팀 리뷰 후 제거 또는 정식 스토리북 대체 검토
+    path: '/dev/components',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <ComponentShowcasePage />
       </Suspense>
     ),
   },
