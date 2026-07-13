@@ -1,0 +1,1 @@
+export { TableFooterPagination } from './TableFooterPagination';

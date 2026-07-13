@@ -1,0 +1,28 @@
+.table-footer-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  padding: 17px 24px 16px;
+}
+
+.table-footer-pagination-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.table-footer-pagination-select {
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 5px 9px;
+  font-size: 12px;
+  color: #1c1b1c;
+  cursor: pointer;
+}
