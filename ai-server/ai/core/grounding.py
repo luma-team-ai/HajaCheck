@@ -12,7 +12,7 @@
 """
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 VALID_GRADES = ("A", "B", "C", "D", "E")  # 시설물 안전점검 등급 (defect_explain.md 등급 기준)
 
@@ -20,7 +20,11 @@ VALID_GRADES = ("A", "B", "C", "D", "E")  # 시설물 안전점검 등급 (defec
 class CheckStatus(str, Enum):
     MATCH = "MATCH"  # 주장 == 실측치
     MISMATCH = "MISMATCH"  # 주장 != 실측치 (환각)
-    UNVERIFIABLE = "UNVERIFIABLE"  # 대조할 실측 근거 없음
+    # 대조할 실측 근거 자체가 없어 참/거짓을 판정할 수 없는 상태.
+    # 현재 범위에서는 미사용(예약) — 실측 grade는 GroundingDefect 검증자가 A~E로 보장하고,
+    # 빈 defects에 대한 주장은 환각으로 보아 MISMATCH로 판정하므로 UNVERIFIABLE이 발생하지 않는다.
+    # 서술형 근거 부재 등 향후 확장 시 활성화 예정 (후속 이슈: #117).
+    UNVERIFIABLE = "UNVERIFIABLE"
 
 
 class GroundingAction(str, Enum):
@@ -38,7 +42,23 @@ class MismatchPolicy(str, Enum):
 class GroundingDefect(BaseModel):
     """대조 기준이 되는 실측 하자 1건 (defects 테이블의 grounding 필요 부분집합)."""
     defect_type: str  # 하자 유형 (예: 균열, 박리, 누수)
-    grade: str  # 심각도 등급 A~E
+    grade: str  # 심각도 등급 A~E (검증자가 정규화)
+
+    @field_validator("grade")
+    @classmethod
+    def _validate_grade(cls, v: str) -> str:
+        """실측 grade를 A~E 대문자로 정규화·검증. 'C등급'·' c '→'C'.
+
+        시설 안전점검 도메인상 등급 오류는 grounding 판정 신뢰도에 직결되므로,
+        오탈자·비정상값은 매칭 키로 흘러들기 전에 경계에서 차단(무결성 방어).
+        """
+        normalized = v.strip().upper()
+        grade = normalized[0] if normalized else ""
+        if grade not in VALID_GRADES:
+            raise ValueError(
+                f"실측 grade는 A~E여야 합니다 (입력: {v!r}). defects 데이터 무결성 오류."
+            )
+        return grade
 
 
 class GroundingClaims(BaseModel):

@@ -6,7 +6,9 @@
 """
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from ai.core.grounding import (
     CheckStatus,
@@ -116,6 +118,49 @@ def test_grounding_endpoint_mismatch_returns_regenerate():
     assert body["data"]["mismatches"][0]["field"] == "total_count"
 
 
+def test_grade_validator_normalizes():
+    # 'c등급'·' d ' 등 오탈자성 표기를 A~E 대문자로 정규화
+    assert GroundingDefect(defect_type="균열", grade="c등급").grade == "C"
+    assert GroundingDefect(defect_type="박리", grade=" d ").grade == "D"
+
+
+def test_grade_validator_rejects_invalid():
+    # A~E가 아닌 등급은 경계에서 예외 — 매칭 키 오염 방지 (P2)
+    with pytest.raises(ValidationError):
+        GroundingDefect(defect_type="균열", grade="X")
+    with pytest.raises(ValidationError):
+        GroundingDefect(defect_type="균열", grade="")
+
+
+def test_check_grounding_empty_defects_default_claims_passes():
+    # 실측 0건 + 기본값 claims(주장 없음) → 대조 항목 없음, 통과 (경계 조건)
+    result = check_grounding([], GroundingClaims())
+    assert result.grounded is True
+    assert result.action is GroundingAction.PASS
+    assert result.checks == []
+    assert result.mismatches == []
+    assert result.ground_truth.total_count == 0
+    assert result.ground_truth.count_by_grade == {}
+    assert result.ground_truth.count_by_type == {}
+
+
+def test_check_grounding_zero_total_count_matches():
+    # 실측 0건인데 생성물도 0건 주장 → 일치, 통과
+    result = check_grounding([], GroundingClaims(total_count=0))
+    assert result.grounded is True
+    assert result.action is GroundingAction.PASS
+    assert len(result.checks) == 1
+    assert result.checks[0].status is CheckStatus.MATCH
+
+
+def test_check_grounding_empty_defects_but_claims_count_mismatches():
+    # 실측 0건인데 생성물이 3건 주장 → 환각으로 판정(MISMATCH), 재생성 권고
+    result = check_grounding([], GroundingClaims(total_count=3, count_by_grade={"C": 3}))
+    assert result.grounded is False
+    assert result.action is GroundingAction.REGENERATE
+    assert all(c.status is CheckStatus.MISMATCH for c in result.mismatches)
+
+
 @patch("routers.ai_router.check_grounding", side_effect=RuntimeError("boom"))
 def test_grounding_endpoint_error_returns_fail_envelope(_mock):
     # 대조 중 예외 발생 시 서버가 죽지 않고 fail envelope 로 응답
@@ -136,6 +181,10 @@ if __name__ == "__main__":
     test_check_grounding_type_mismatch()
     test_check_grounding_warn_policy()
     test_check_grounding_hallucinated_grade()
+    test_grade_validator_normalizes()
+    test_check_grounding_empty_defects_default_claims_passes()
+    test_check_grounding_zero_total_count_matches()
+    test_check_grounding_empty_defects_but_claims_count_mismatches()
     test_grounding_endpoint_success()
     test_grounding_endpoint_mismatch_returns_regenerate()
     print("OK: grounding check self-check passed")
