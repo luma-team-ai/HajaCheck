@@ -7,10 +7,10 @@
 - 이 단계는 **LLM 호출이 없다** (결정론적·재현 가능·크레딧 0). 모든 판정은 코드로만.
 - 특정 체인 전용이 아니라 `ai/core/`의 **공통 재사용 모듈** — 보고서/브리핑 등 생성 체인이
   마지막에 `check_grounding(...)` 을 호출해 게이트로 사용한다 (AI_개발_컨벤션.md §0 공통 기반 원칙).
-- 서술형 텍스트만 가진 체인은 `check_generated_report(...)` 로 텍스트에서 주장 수치를 추출해 대조.
+- 입력 claims 는 생성 체인의 **structured output**(Pydantic)에서 채운다 — 자유 텍스트 정규식 파싱 금지
+  (AI_개발_컨벤션.md §4). 서술형 텍스트 추출 경로는 후속 이슈 + AI 코치 협의로 분리.
 """
 from enum import Enum
-import re
 
 from pydantic import BaseModel, Field
 
@@ -147,47 +147,3 @@ def check_grounding(
     return GroundingResult(
         grounded=grounded, action=action, ground_truth=truth, checks=checks, mismatches=mismatches,
     )
-
-
-# --- 서술형 텍스트에서 주장 수치 추출 (structured output이 없는 체인용 보조) --------------------
-
-_TOTAL_PATTERNS = (
-    re.compile(r"(?:총|전체)\s*(\d+)\s*(?:건|개)"),  # 총 12건 / 전체 12개
-    re.compile(r"하자(?:는|가|를)?\s*(?:총\s*)?(\d+)\s*(?:건|개)"),  # 하자 12건 / 하자는 총 12건
-    re.compile(r"(\d+)\s*(?:건|개)\s*의?\s*하자"),  # 12건의 하자
-)
-_GRADE_COUNT_PATTERN = re.compile(r"([A-Ea-e])\s*등급\s*(?:하자\s*)?(\d+)\s*(?:건|개)")  # C등급 3건
-_GRADE_MENTION_PATTERN = re.compile(r"([A-Ea-e])\s*등급|등급\s*([A-Ea-e])\b")  # C등급 / 등급 C
-
-
-def extract_claims_from_text(text: str) -> GroundingClaims:
-    """서술형 생성 텍스트에서 주장 하자 건수·등급을 best-effort 추출."""
-    total_count: int | None = None
-    for pat in _TOTAL_PATTERNS:
-        m = pat.search(text)
-        if m:
-            total_count = int(m.group(1))
-            break
-
-    count_by_grade: dict[str, int] = {}
-    for g, cnt in _GRADE_COUNT_PATTERN.findall(text):
-        count_by_grade[_norm_grade(g)] = int(cnt)
-
-    mentioned: list[str] = []
-    for m in _GRADE_MENTION_PATTERN.finditer(text):
-        grade = _norm_grade(m.group(1) or m.group(2))
-        if grade not in mentioned:
-            mentioned.append(grade)
-
-    return GroundingClaims(
-        total_count=total_count, count_by_grade=count_by_grade, mentioned_grades=mentioned,
-    )
-
-
-def check_generated_report(
-    defects: list[GroundingDefect],
-    generated_text: str,
-    on_mismatch: MismatchPolicy = MismatchPolicy.REGENERATE,
-) -> GroundingResult:
-    """서술형 보고서 텍스트를 실측 defects와 대조하는 편의 래퍼 (추출 → 대조)."""
-    return check_grounding(defects, extract_claims_from_text(generated_text), on_mismatch)

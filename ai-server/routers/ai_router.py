@@ -1,6 +1,6 @@
 """AI 엔드포인트 — 네이밍: /ai/{기능} (AI_개발_컨벤션.md §5)
 
-/ai/report · /ai/chat · /ai/briefing · /ai/defect-explain · /ai/nl-search
+/ai/report · /ai/chat · /ai/briefing · /ai/defect-explain · /ai/nl-search · /ai/grounding-check
 장시간 작업(보고서 생성)은 동기 응답 금지 — 비동기 잡 패턴(잡 ID -> 폴링)
 """
 from fastapi import APIRouter

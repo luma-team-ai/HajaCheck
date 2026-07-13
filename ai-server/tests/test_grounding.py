@@ -1,10 +1,11 @@
 """Grounding Check (사실 검증) 로직/엔드포인트 검증 — LLM 호출 없는 결정론적 대조 (HAJA-117).
 
 - 실측 defects 집계(summarize_defects)
-- 주장 수치·등급 일치/불일치 판정(check_grounding) + 조치(PASS/REGENERATE/WARN)
-- 서술형 텍스트 주장 추출(extract_claims_from_text)
-- /ai/grounding-check 이 공통 AIResponse envelope으로 감싸는지
+- 주장 수치·등급·유형 일치/불일치 판정(check_grounding) + 조치(PASS/REGENERATE/WARN)
+- /ai/grounding-check 이 공통 AIResponse envelope으로 감싸는지 (성공/불일치/예외 폴백)
 """
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 
 from ai.core.grounding import (
@@ -13,9 +14,7 @@ from ai.core.grounding import (
     GroundingClaims,
     GroundingDefect,
     MismatchPolicy,
-    check_generated_report,
     check_grounding,
-    extract_claims_from_text,
     summarize_defects,
 )
 from main import app
@@ -59,6 +58,15 @@ def test_check_grounding_count_mismatch_regenerates():
     assert result.mismatches[0].status is CheckStatus.MISMATCH
 
 
+def test_check_grounding_type_mismatch():
+    # 유형별 대조: 실측 균열 2건인데 5건이라 주장 → 불일치
+    claims = GroundingClaims(count_by_type={"균열": 5})
+    result = check_grounding(_sample_defects(), claims)
+    assert result.grounded is False
+    assert result.mismatches[0].field == "type:균열"
+    assert result.mismatches[0].actual == "2"
+
+
 def test_check_grounding_warn_policy():
     claims = GroundingClaims(count_by_grade={"C": 99})
     result = check_grounding(_sample_defects(), claims, on_mismatch=MismatchPolicy.WARN)
@@ -72,22 +80,6 @@ def test_check_grounding_hallucinated_grade():
     result = check_grounding(_sample_defects(), claims)
     assert result.grounded is False
     assert len(result.mismatches) == 2
-
-
-def test_extract_claims_from_text():
-    text = "이번 점검에서 총 4건의 하자가 발견되었습니다. C등급 3건, D등급 1건입니다."
-    claims = extract_claims_from_text(text)
-    assert claims.total_count == 4
-    assert claims.count_by_grade == {"C": 3, "D": 1}
-    assert "C" in claims.mentioned_grades and "D" in claims.mentioned_grades
-
-
-def test_check_generated_report_detects_number_hallucination():
-    # 서술은 12건이라 하지만 실측은 4건
-    text = "총 12건의 하자가 확인되었습니다."
-    result = check_generated_report(_sample_defects(), text)
-    assert result.grounded is False
-    assert result.action is GroundingAction.REGENERATE
 
 
 def test_grounding_endpoint_success():
@@ -124,14 +116,26 @@ def test_grounding_endpoint_mismatch_returns_regenerate():
     assert body["data"]["mismatches"][0]["field"] == "total_count"
 
 
+@patch("routers.ai_router.check_grounding", side_effect=RuntimeError("boom"))
+def test_grounding_endpoint_error_returns_fail_envelope(_mock):
+    # 대조 중 예외 발생 시 서버가 죽지 않고 fail envelope 로 응답
+    res = client.post(
+        "/ai/grounding-check",
+        json={"defects": [{"defect_type": "균열", "grade": "C"}], "claims": {"total_count": 1}},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
+
+
 if __name__ == "__main__":
     test_summarize_defects_counts()
     test_check_grounding_all_match_passes()
     test_check_grounding_count_mismatch_regenerates()
+    test_check_grounding_type_mismatch()
     test_check_grounding_warn_policy()
     test_check_grounding_hallucinated_grade()
-    test_extract_claims_from_text()
-    test_check_generated_report_detects_number_hallucination()
     test_grounding_endpoint_success()
     test_grounding_endpoint_mismatch_returns_regenerate()
     print("OK: grounding check self-check passed")

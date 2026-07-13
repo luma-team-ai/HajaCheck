@@ -39,8 +39,8 @@ GroundingResult(grounded, action, checks, mismatches, ground_truth)
    └─ action=WARN        → 프론트 경고 배지 표시
 ```
 
-서술형 텍스트만 있는 체인은 `extract_claims_from_text()`(정규식 best-effort 추출) → `check_generated_report()`로
-텍스트에서 "총 N건", "C등급 3건" 등을 뽑아 대조한다.
+입력 `claims` 는 생성 체인의 **structured output**(Pydantic)에서 채운다 — 자유 텍스트 정규식 파싱 금지
+(AI_개발_컨벤션.md §4). 서술형 텍스트에서 수치를 추출하는 경로는 **후속 이슈 + AI 코치 협의**로 분리(§7).
 
 ## 4. 대조 항목
 
@@ -95,5 +95,7 @@ if result.action is not GroundingAction.PASS:
 - 현재 범위: **수치·등급의 코드 대조**(PRD 정의 그대로). 서술 문장의 의미적 사실성(원인·조치의 근거 부합)은 범위 밖.
 - 서술 근거 검증(RAG 출처 인용 대조, 문장 단위 entailment)은 후속 확장 포인트 — 이 모듈의 `check_grounding` 뒤에
   LLM entailment 계층을 선택적으로 얹을 수 있도록 결과 구조(CheckItem)를 열어 둠.
-- 텍스트 추출(`extract_claims_from_text`)은 정규식 best-effort — 생성 체인은 가능하면 structured output의
-  구조화 수치를 직접 넘기는 것을 권장(추출 오탐 방지).
+- **서술형 텍스트 추출 경로는 이번 범위에서 제외**(후속 이슈 + AI 코치 협의). 정규식 best-effort 추출은
+  어순("3건의 A등급" vs "A등급 3건")·지역/전역 총계 구분에서 오탐 위험이 있어(정상 출력을 환각으로 오탐),
+  AI_개발_컨벤션 §4(자유 텍스트 파싱 금지)에 따라 분리한다. 생성 체인은 structured output의 구조화 수치를
+  `claims` 로 직접 넘긴다.
