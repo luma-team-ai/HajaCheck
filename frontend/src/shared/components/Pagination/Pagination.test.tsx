@@ -26,4 +26,13 @@ describe('Pagination', () => {
 
     expect(screen.getByLabelText('다음 페이지').hasAttribute('disabled')).toBe(true);
   });
+
+  it('페이지가 많으면 현재 페이지 주변만 남기고 가운데를 생략(...) 표시한다', () => {
+    render(<Pagination currentPage={5} totalPages={10} onPageChange={vi.fn()} />);
+
+    expect(screen.getAllByText('...').length).toBeGreaterThan(0);
+    expect(screen.getByText('1')).not.toBeNull();
+    expect(screen.getByText('10')).not.toBeNull();
+    expect(screen.queryByText('8')).toBeNull();
+  });
 });

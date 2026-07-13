@@ -3,9 +3,10 @@
   --btn-primary-fg: var(--color-surface);
   --btn-secondary-bg: var(--color-secondary-bg);
   --btn-secondary-fg: var(--color-secondary-fg);
+  --btn-secondary-border: var(--color-border);
   --btn-danger-bg: var(--color-danger);
   --btn-danger-fg: var(--color-surface);
-  --btn-radius: 8px;
+  --btn-radius: 9999px;
 
   display: inline-flex;
   align-items: center;
@@ -15,7 +16,9 @@
   border-radius: var(--btn-radius);
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .btn--sm {
@@ -41,6 +44,7 @@
 .btn--secondary {
   background: var(--btn-secondary-bg);
   color: var(--btn-secondary-fg);
+  border: 1px solid var(--btn-secondary-border);
 }
 
 .btn--danger {
