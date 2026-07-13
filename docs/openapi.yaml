@@ -145,7 +145,11 @@ components:
   schemas:
     AIErrorCode:
       type: string
-      enum: [LLM_TIMEOUT, LLM_RATE_LIMIT, LLM_INVALID_OUTPUT, RAG_NO_RESULT]
+      enum: [LLM_TIMEOUT, LLM_RATE_LIMIT, LLM_INVALID_OUTPUT, RAG_NO_RESULT, VALIDATION_ERROR]
+      description: >-
+        LLM 계열(TIMEOUT/RATE_LIMIT/INVALID_OUTPUT)·RAG_NO_RESULT 외에,
+        VALIDATION_ERROR 는 LLM 호출이 없는 순수 코드 대조 경로(grounding-check 등)의
+        입력·대조 검증 실패용 (#122).
 
     AIError:
       type: object

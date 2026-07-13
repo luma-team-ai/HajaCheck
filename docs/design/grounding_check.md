@@ -74,6 +74,12 @@ GroundingResult(grounded, action, checks, mismatches, ground_truth)
 }
 ```
 
+**실패 폴백**: grounding-check 는 LLM 호출이 없는 순수 코드 대조라 통상 예외가 없지만, 방어적으로 예외 발생 시 공통 fail envelope 로 응답한다. 이때 `error.code` 는 LLM 계열이 아닌 **`VALIDATION_ERROR`** 다 (#122, PR #120) — 소비처는 이 코드를 재시도가 아니라 입력 재검토로 분기해야 한다.
+
+```jsonc
+{ "success": false, "data": null, "usage": null, "error": { "code": "VALIDATION_ERROR", "message": "..." } }
+```
+
 ## 6. 생성 체인 통합 방법 (재사용 가이드)
 
 ```python
