@@ -17,6 +17,23 @@
 | GitHub Actions CI | ✅ 그린 | PR 시 파트별 빌드/테스트 (backend·ai-server·frontend) |
 | CD (서버 배포) | ✅ 가동 | `cd.yml`: main push → appleboy SSH(opc, **RSA 배포키**) → VM에서 `deploy.sh`(`DEPLOY_TARGET=arm1`) → arm1 compose 빌드·기동·헬스체크. Secrets: `OCI_HOST`·`OCI_USER`(opc)·`OCI_SSH_KEY`(RSA)·`OCI_HOST_FINGERPRINT`(**ECDSA** — appleboy가 ed25519보다 ECDSA 우선) |
 
+## 버전 정합 (PRD ↔ 레포 ↔ OCI 실측, 2026-07-13 확인)
+
+PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원칙 기준으로 대조. **PRD 명시분(JDK 17·Gradle 8.14.3·Vite 6·React 18) 전부 일치**, PRD 미지정분(Python·Node·nginx·PG·Redis)은 레포 파일이 단일 진실 → OCI 실측과 일치. **불일치 없음.**
+
+| 영역 | PRD 명시 | 레포(Dockerfile/compose·빌드파일) | OCI 실측 (arm1, `docker exec`) | 일치 |
+|---|---|---|---|---|
+| Backend JDK | JDK 17 | `eclipse-temurin:17` / `build.gradle` toolchain 17 | **OpenJDK 17.0.19** | ✅ |
+| Gradle | 8.14.3 | wrapper `gradle-8.14.3` | (빌드타임) | ✅ |
+| AI server Python | (미지정) | `python:3.11-slim` | **Python 3.11** (레포 추종, 패치 재측정 전) | ✅ |
+| Frontend | Vite 6·React 18 | `package.json` Vite ^6.0.3 / React ^18.3.1 | (빌드타임) | ✅ |
+| Frontend nginx | (미지정) | `nginx:1.27-alpine` | **nginx 1.27.5** | ✅ |
+| PostgreSQL | (컨테이너, 메이저 미명시) | `postgres:16` | **PostgreSQL 16.13** (호스트) | ✅ |
+| Redis | (requirepass·AOF) | `redis:7` (arm1 공유 컨테이너 `hajacheck-redis`=`redis:7-alpine`) | **Redis 7.4.9** | ✅ |
+| OS/아키 | Ubuntu 22.04·ARM/aarch64 | multi-arch 이미지 | Ampere A1(aarch64) | ✅ |
+
+> ⚠️ 지난 세션 이슈였던 JDK가 **PRD·`build.gradle`·Dockerfile·OCI 실측 네 곳 모두 17로 정합** 확인됨. (호스트 직접 `./gradlew build` 시 JDK 부재 문제는 컨테이너 빌드와 별개 — 아래 [알려진 이슈] 참조)
+
 ## 마지막 머지 PR
 
 - **#111 `docs: API 계약 문서 docs/api-contract/로 이동·정리`** (→ dev, 2026-07-13) — `contract.md`·`requirements_endpoints.{md,xlsx}`를 `docs/api-contract/`로 이동(내용 변경 0)

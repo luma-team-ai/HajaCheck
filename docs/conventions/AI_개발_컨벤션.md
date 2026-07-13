@@ -99,7 +99,7 @@ result = get_llm().with_structured_output(DefectExplain).invoke(prompt)
 { "success": false, "error": { "code": "LLM_TIMEOUT", "message": "..." } }
 ```
 
-**에러 코드**: `LLM_TIMEOUT`, `LLM_RATE_LIMIT`, `LLM_INVALID_OUTPUT`(스키마 파싱 실패), `RAG_NO_RESULT`
+**에러 코드**: `LLM_TIMEOUT`, `LLM_RATE_LIMIT`, `LLM_INVALID_OUTPUT`(스키마 파싱 실패), `RAG_NO_RESULT`, `VALIDATION_ERROR`(비-LLM 코드 경로의 입력·대조 검증 실패 — grounding-check 등, #122)
 
 **프론트 폴백 표준**: AI 기능 실패 시 화면이 깨지지 않아야 한다 — 표준 문구("AI 분석을 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.") + 재시도 버튼. AI 실패가 비-AI 기능(목록 조회 등)을 막으면 안 됨
 
