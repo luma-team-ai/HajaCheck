@@ -153,11 +153,33 @@ def test_check_grounding_zero_total_count_matches():
     assert result.checks[0].status is CheckStatus.MATCH
 
 
-def test_check_grounding_empty_defects_but_claims_count_mismatches():
-    # 실측 0건인데 생성물이 3건 주장 → 환각으로 판정(MISMATCH), 재생성 권고
+def test_check_grounding_empty_defects_positive_claim_is_unverifiable():
+    # 실측 0건(대조 근거 없음)인데 생성물이 3건·C3 주장 → 환각으로 단정하지 않고
+    # 검증 불가(UNVERIFIABLE)로 분기, 재생성 대신 사람 확인(WARN). (#117)
     result = check_grounding([], GroundingClaims(total_count=3, count_by_grade={"C": 3}))
+    assert result.grounded is True  # 확정 불일치(MISMATCH) 없음
+    assert result.action is GroundingAction.WARN
+    assert result.mismatches == []
+    assert len(result.unverifiable) == 2  # total_count + grade:C 둘 다 검증 불가
+    assert all(c.status is CheckStatus.UNVERIFIABLE for c in result.unverifiable)
+
+
+def test_check_grounding_empty_defects_mentioned_grade_unverifiable():
+    # 근거 없음 + 유효 등급 언급 → UNVERIFIABLE, 유효하지 않은 등급(F)은 근거 무관 MISMATCH
+    result = check_grounding([], GroundingClaims(mentioned_grades=["C", "F"]))
+    statuses = {c.field: c.status for c in result.checks}
+    assert statuses["mentioned_grade:C"] is CheckStatus.UNVERIFIABLE
+    assert statuses["mentioned_grade:F"] is CheckStatus.MISMATCH
+    assert result.action is GroundingAction.REGENERATE  # F 환각이 있으므로 재생성
+
+
+def test_check_grounding_nonempty_defects_still_mismatches():
+    # 근거가 있으면(비어있지 않으면) 기존대로 환각은 MISMATCH/REGENERATE (회귀 보호)
+    result = check_grounding(_sample_defects(), GroundingClaims(total_count=99))
     assert result.grounded is False
     assert result.action is GroundingAction.REGENERATE
+    assert result.unverifiable == []
+    assert result.mismatches[0].status is CheckStatus.MISMATCH
     assert all(c.status is CheckStatus.MISMATCH for c in result.mismatches)
 
 
@@ -205,7 +227,9 @@ if __name__ == "__main__":
     test_grade_validator_normalizes()
     test_check_grounding_empty_defects_default_claims_passes()
     test_check_grounding_zero_total_count_matches()
-    test_check_grounding_empty_defects_but_claims_count_mismatches()
+    test_check_grounding_empty_defects_positive_claim_is_unverifiable()
+    test_check_grounding_empty_defects_mentioned_grade_unverifiable()
+    test_check_grounding_nonempty_defects_still_mismatches()
     test_summarize_defects_normalizes_type_whitespace()
     test_check_grounding_type_whitespace_matches_not_mismatch()
     test_grounding_endpoint_success()

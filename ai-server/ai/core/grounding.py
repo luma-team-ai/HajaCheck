@@ -20,10 +20,10 @@ VALID_GRADES = ("A", "B", "C", "D", "E")  # 시설물 안전점검 등급 (defec
 class CheckStatus(str, Enum):
     MATCH = "MATCH"  # 주장 == 실측치
     MISMATCH = "MISMATCH"  # 주장 != 실측치 (환각)
-    # 대조할 실측 근거 자체가 없어 참/거짓을 판정할 수 없는 상태.
-    # 현재 범위에서는 미사용(예약) — 실측 grade는 GroundingDefect 검증자가 A~E로 보장하고,
-    # 빈 defects에 대한 주장은 환각으로 보아 MISMATCH로 판정하므로 UNVERIFIABLE이 발생하지 않는다.
-    # 서술형 근거 부재 등 향후 확장 시 활성화 예정 (후속 이슈: #117).
+    # 대조할 실측 근거(defects)가 아예 없어 양성 주장의 참/거짓을 판정할 수 없는 상태 (HAJA-117 후속 #117).
+    # defects 가 빈 경우 "3건 주장 vs 실측 0"을 곧바로 환각(MISMATCH→재생성)으로 단정하면,
+    # 실제 환각과 "실측 파이프라인 미반영으로 근거만 비어있는 정상 생성물"을 구분하지 못한다.
+    # → 근거 부재 시 UNVERIFIABLE로 분기해 재생성 대신 사람 확인(WARN)을 유도. (0건 주장은 0==0이라 MATCH)
     UNVERIFIABLE = "UNVERIFIABLE"
 
 
@@ -85,11 +85,12 @@ class CheckItem(BaseModel):
 
 
 class GroundingResult(BaseModel):
-    grounded: bool  # 불일치가 하나도 없으면 True
-    action: GroundingAction  # 통과(PASS) 또는 불일치 조치(REGENERATE/WARN)
+    grounded: bool  # 확정 불일치(MISMATCH)가 하나도 없으면 True
+    action: GroundingAction  # 통과(PASS) / 확정 불일치 조치(REGENERATE·WARN) / 검증불가(WARN)
     ground_truth: GroundTruth
     checks: list[CheckItem]  # 수행한 전체 대조 내역
-    mismatches: list[CheckItem]  # 그중 불일치 항목만 (프론트 경고/재생성 트리거용)
+    mismatches: list[CheckItem]  # 확정 불일치(환각) 항목 — 재생성 트리거용
+    unverifiable: list[CheckItem] = Field(default_factory=list)  # 대조 근거 없어 검증 불가 항목 — 사람 확인용
 
 
 def _norm_grade(value: str) -> str:
@@ -119,7 +120,13 @@ def summarize_defects(defects: list[GroundingDefect]) -> GroundTruth:
     return GroundTruth(total_count=len(defects), count_by_grade=by_grade, count_by_type=by_type)
 
 
-def _cmp(field: str, claimed: int, actual: int) -> CheckItem:
+def _cmp(field: str, claimed: int, actual: int, has_basis: bool = True) -> CheckItem:
+    # 실측 근거가 아예 없는데 양성(>0) 주장 → 환각으로 단정하지 않고 검증 불가로 분기
+    if not has_basis and claimed > 0:
+        return CheckItem(
+            field=field, claimed=str(claimed), actual=str(actual),
+            status=CheckStatus.UNVERIFIABLE, detail="대조할 실측 근거(defects)가 없어 검증 불가",
+        )
     status = CheckStatus.MATCH if claimed == actual else CheckStatus.MISMATCH
     detail = "" if status is CheckStatus.MATCH else "생성물 주장이 실측치와 불일치"
     return CheckItem(field=field, claimed=str(claimed), actual=str(actual), status=status, detail=detail)
@@ -135,27 +142,35 @@ def check_grounding(
     반환 GroundingResult.action 으로 통과/재생성/경고를 판정한다.
     """
     truth = summarize_defects(defects)
+    has_basis = bool(defects)  # 대조 기준 실측이 하나라도 있는가 (없으면 양성 주장은 검증 불가)
     checks: list[CheckItem] = []
 
     if claims.total_count is not None:
-        checks.append(_cmp("total_count", claims.total_count, truth.total_count))
+        checks.append(_cmp("total_count", claims.total_count, truth.total_count, has_basis))
 
     for grade, cnt in claims.count_by_grade.items():
         g = _norm_grade(grade)
-        checks.append(_cmp(f"grade:{g}", cnt, truth.count_by_grade.get(g, 0)))
+        checks.append(_cmp(f"grade:{g}", cnt, truth.count_by_grade.get(g, 0), has_basis))
 
     for dtype, cnt in claims.count_by_type.items():
-        nt = _norm_type(dtype)  # 주장 유형도 실측과 동일 정규화 후 대조 (공백/서식 오탐 방지)
-        checks.append(_cmp(f"type:{nt}", cnt, truth.count_by_type.get(nt, 0)))
+        nt = _norm_type(dtype)  # 주장 유형도 실측과 동일 정규화 후 대조 (공백/서식 오탐 방지, #120)
+        checks.append(_cmp(f"type:{nt}", cnt, truth.count_by_type.get(nt, 0), has_basis))
 
     # 서술 중 언급된 등급이 실제로 존재하는지 (없는 등급을 지어냈는지) 검증
     for raw_grade in claims.mentioned_grades:
         g = _norm_grade(raw_grade)
         actual = truth.count_by_grade.get(g, 0)
         if g not in VALID_GRADES:
+            # 유효하지 않은 등급(A~E 밖)은 근거 유무와 무관하게 구조적 환각
             checks.append(CheckItem(
                 field=f"mentioned_grade:{raw_grade}", claimed=raw_grade, actual="유효 등급 아님(A~E)",
                 status=CheckStatus.MISMATCH, detail="존재하지 않는 등급을 언급",
+            ))
+        elif not has_basis:
+            # 유효 등급이나 대조할 실측 근거가 없음 → 존재 여부 검증 불가
+            checks.append(CheckItem(
+                field=f"mentioned_grade:{g}", claimed="언급됨", actual="근거 없음",
+                status=CheckStatus.UNVERIFIABLE, detail="대조할 실측 근거(defects)가 없어 검증 불가",
             ))
         elif actual == 0:
             checks.append(CheckItem(
@@ -169,12 +184,16 @@ def check_grounding(
             ))
 
     mismatches = [c for c in checks if c.status is CheckStatus.MISMATCH]
-    grounded = not mismatches
-    if grounded:
-        action = GroundingAction.PASS
-    else:
+    unverifiable = [c for c in checks if c.status is CheckStatus.UNVERIFIABLE]
+    grounded = not mismatches  # 확정 불일치가 없으면 grounded (검증불가만 있으면 grounded=True + WARN)
+    if mismatches:
         action = GroundingAction.REGENERATE if on_mismatch is MismatchPolicy.REGENERATE else GroundingAction.WARN
+    elif unverifiable:
+        action = GroundingAction.WARN  # 근거 부재 — 재생성 대신 사람 확인
+    else:
+        action = GroundingAction.PASS
 
     return GroundingResult(
-        grounded=grounded, action=action, ground_truth=truth, checks=checks, mismatches=mismatches,
+        grounded=grounded, action=action, ground_truth=truth,
+        checks=checks, mismatches=mismatches, unverifiable=unverifiable,
     )
