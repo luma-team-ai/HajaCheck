@@ -57,8 +57,9 @@ class GroundingCheckRequest(BaseModel):
 def grounding_check(req: GroundingCheckRequest) -> AIResponse:
     try:
         result = check_grounding(req.defects, req.claims, req.on_mismatch)
-    except Exception as e:  # noqa: BLE001 — 방어적 폴백(코드 대조라 통상 예외 없음)
-        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, str(e))
+    except Exception as e:  # noqa: BLE001 — 방어적 폴백(LLM 무관 코드 경로, 통상 예외 없음)
+        # grounding 은 LLM 호출이 없는 순수 코드 대조 → LLM 에러코드 대신 범용 VALIDATION_ERROR 사용
+        return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, str(e))
     return AIResponse.ok(result.model_dump())
 
 

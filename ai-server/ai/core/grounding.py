@@ -98,14 +98,24 @@ def _norm_grade(value: str) -> str:
     return stripped[0] if stripped and stripped[0] in VALID_GRADES else stripped
 
 
+def _norm_type(value: str) -> str:
+    """하자 유형 문자열 정규화 — 앞뒤·중복 공백 제거('균열 '·' 균열'·'균 열'→일관 키).
+
+    grade와 달리 유형은 자유 문자열이라, 공백/서식 차이만으로 정상 데이터가
+    MISMATCH(불필요한 재생성)로 오탐되지 않도록 실측·주장 양쪽을 같은 규칙으로 정규화한다.
+    """
+    return " ".join(value.split())
+
+
 def summarize_defects(defects: list[GroundingDefect]) -> GroundTruth:
     """실측 defects → 총계·등급별·유형별 집계 (대조 기준)."""
     by_grade: dict[str, int] = {}
     by_type: dict[str, int] = {}
     for d in defects:
         grade = _norm_grade(d.grade)
+        dtype = _norm_type(d.defect_type)
         by_grade[grade] = by_grade.get(grade, 0) + 1
-        by_type[d.defect_type] = by_type.get(d.defect_type, 0) + 1
+        by_type[dtype] = by_type.get(dtype, 0) + 1
     return GroundTruth(total_count=len(defects), count_by_grade=by_grade, count_by_type=by_type)
 
 
@@ -135,7 +145,8 @@ def check_grounding(
         checks.append(_cmp(f"grade:{g}", cnt, truth.count_by_grade.get(g, 0)))
 
     for dtype, cnt in claims.count_by_type.items():
-        checks.append(_cmp(f"type:{dtype}", cnt, truth.count_by_type.get(dtype, 0)))
+        nt = _norm_type(dtype)  # 주장 유형도 실측과 동일 정규화 후 대조 (공백/서식 오탐 방지)
+        checks.append(_cmp(f"type:{nt}", cnt, truth.count_by_type.get(nt, 0)))
 
     # 서술 중 언급된 등급이 실제로 존재하는지 (없는 등급을 지어냈는지) 검증
     for raw_grade in claims.mentioned_grades:
