@@ -1,0 +1,29 @@
+.modal-overlay {
+  --modal-overlay-bg: rgba(0, 0, 0, 0.5);
+  --modal-content-bg: #fff;
+  --modal-radius: 12px;
+
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--modal-overlay-bg);
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--modal-content-bg);
+  border-radius: var(--modal-radius);
+  padding: 24px;
+  min-width: 320px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.modal-title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 700;
+}
