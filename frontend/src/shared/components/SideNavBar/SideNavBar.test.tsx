@@ -6,11 +6,11 @@ import { SideNavBar } from './SideNavBar';
 afterEach(cleanup);
 
 describe('SideNavBar', () => {
-  it('기본 메뉴 항목을 렌더링하고 activeHref에 해당하는 링크를 표시한다', () => {
-    render(<SideNavBar activeHref="/defects" />);
+  it('기본 메뉴 항목을 렌더링하고, activeHref가 하위 항목이면 해당 그룹이 자동으로 펼쳐진다', () => {
+    render(<SideNavBar activeHref="/defects/detail" />);
 
     expect(screen.getByText('시설물 관리')).not.toBeNull();
-    expect(screen.getByText('하자 관리').closest('a')?.getAttribute('aria-current')).toBe('page');
+    expect(screen.getByText('하자 상세').closest('a')?.getAttribute('aria-current')).toBe('page');
   });
 
   it('대시보드 그룹을 클릭하면 하위 항목이 펼쳐진다', () => {
@@ -21,6 +21,25 @@ describe('SideNavBar', () => {
     fireEvent.click(screen.getByText('대시보드'));
 
     expect(screen.getByText('전체 시설물 현황')).not.toBeNull();
+  });
+
+  it('시설물 관리 그룹을 클릭하면 하위 항목(시설물 목록/등록 등)이 펼쳐진다', () => {
+    render(<SideNavBar />);
+
+    expect(screen.queryByText('지도 뷰')).toBeNull();
+
+    fireEvent.click(screen.getByText('시설물 관리'));
+
+    expect(screen.getByText('시설물 목록/등록')).not.toBeNull();
+    expect(screen.getByText('점검 주기 설정')).not.toBeNull();
+    expect(screen.getByText('지도 뷰')).not.toBeNull();
+  });
+
+  it('통계와 설정은 하위 메뉴 없는 단일 링크로 렌더링된다', () => {
+    render(<SideNavBar />);
+
+    expect(screen.getByText('통계').closest('a')).not.toBeNull();
+    expect(screen.getByText('설정').closest('a')).not.toBeNull();
   });
 
   it('마이페이지 그룹을 클릭하면 하위 항목(내 정보 등)이 펼쳐진다', () => {

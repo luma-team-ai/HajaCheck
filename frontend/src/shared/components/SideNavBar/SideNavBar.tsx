@@ -54,11 +54,58 @@ const DEFAULT_ITEMS: SideNavItem[] = [
       { label: 'AI 주간 브리핑 카드', href: '/dashboard/ai-weekly-briefing' },
     ],
   },
-  { label: '시설물 관리', href: '/facilities', icon: facilitiesIcon },
-  { label: '점검 관리', href: '/inspections', icon: inspectionsIcon },
-  { label: '하자 관리', href: '/defects', icon: defectsIcon },
-  { label: '보고서', href: '/reports', icon: reportsIcon },
-  { label: '고객지원', href: '/support', icon: supportIcon },
+  {
+    label: '시설물 관리',
+    href: '/facilities',
+    icon: facilitiesIcon,
+    subItems: [
+      { label: '시설물 목록/등록', href: '/facilities/list' },
+      { label: '시설물 상세', href: '/facilities/detail' },
+      { label: '점검 주기 설정', href: '/facilities/inspection-cycle' },
+      { label: '지도 뷰', href: '/facilities/map' },
+    ],
+  },
+  {
+    label: '점검 관리',
+    href: '/inspections',
+    icon: inspectionsIcon,
+    subItems: [
+      { label: '점검(회차) 생성', href: '/inspections/create' },
+      { label: '촬영 데이터 업로드', href: '/inspections/media-upload' },
+      { label: 'AI 분석 실행/상태', href: '/inspections/ai-analysis' },
+      { label: '분석 결과 뷰어', href: '/inspections/result-viewer' },
+      { label: '보고서 생성 진입점', href: '/inspections/report-entry' },
+    ],
+  },
+  {
+    label: '하자 관리',
+    href: '/defects',
+    icon: defectsIcon,
+    subItems: [
+      { label: '하자 목록', href: '/defects/list' },
+      { label: '하자 상세', href: '/defects/detail' },
+    ],
+  },
+  {
+    label: '보고서',
+    href: '/reports',
+    icon: reportsIcon,
+    subItems: [
+      { label: '보고서 목록/이력 관리', href: '/reports/list' },
+      { label: '보고서 편집·미리보기', href: '/reports/editor' },
+      { label: 'PDF 내보내기', href: '/reports/export-pdf' },
+    ],
+  },
+  {
+    label: '고객지원',
+    href: '/support',
+    icon: supportIcon,
+    subItems: [
+      { label: 'AI 어시스턴트', href: '/support/ai-assistant' },
+      { label: '상담 챗봇', href: '/support/chat-bot' },
+      { label: '내 상담 이력', href: '/support/history' },
+    ],
+  },
   {
     label: '마이페이지',
     href: '/my-page',
@@ -71,6 +118,9 @@ const DEFAULT_ITEMS: SideNavItem[] = [
       { label: '내 상담 내역', href: '/my-page/counsels' },
     ],
   },
+  // TODO: "통계" 전용 아이콘이 Figma에서 아직 안 나와서 보고서(reportsIcon)를 임시로 재사용 중 —
+  // 실제 아이콘 나오면 교체 필요
+  { label: '통계', href: '/statistics', icon: reportsIcon },
   { label: '설정', href: '/settings', icon: settingsIcon },
 ];
 
