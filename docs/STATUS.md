@@ -1,12 +1,12 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-07-12
+> 마지막 갱신: 2026-07-13
 
 ## 인프라
 
 | 항목 | 상태 | 비고 |
 |---|---|---|
-| GitHub 레포 | ✅ | luma-team-ai/HajaCheck (main + dev) |
+| GitHub 레포 | ✅ | luma-team-ai/HajaCheck (main + dev). **dev 브랜치 보호 활성화**(protected=true) — #106 승격 시 dev 자동삭제 재발 방지, 직접 push 차단·PR 전용 |
 | OCI A1 VM | ✅ 확보 | oci-arm1 (158.179.169.146, 3코어/16GB) |
 | 도메인·HTTPS | ✅ | https://hajacheck.luma200ok.com — **공유 host nginx**가 TLS 종료 `/`→8100(frontend 컨테이너)·`/ai/`→8101(fastapi 컨테이너), certbot 자동갱신 크론 |
 | **배포 방식** | ✅ Docker | oci-arm1은 **공유 호스트**(nginx·postgres 공유) → `docker-compose.arm1.yml`로 **앱 컨테이너만**(spring 9100·fastapi 8101·frontend 8100, `network_mode: host`) 기동, 공유 nginx·postgres(hajacheck DB)·redis(6380) 재사용. base/override/prod은 전용 VM/로컬용 |
@@ -19,7 +19,10 @@
 
 ## 마지막 머지 PR
 
-- **#106 `chore: dev→main 승격 — Docker 전환 + 공유호스트 배포`** (→ **main**, 2026-07-12) — HajaCheck Docker 배포 LIVE. ⚠️ 이 승격 머지로 `delete_branch_on_merge=true` 때문에 dev가 자동삭제돼 재생성함(향후 승격 전 dev 브랜치 보호 필요)
+- **#111 `docs: API 계약 문서 docs/api-contract/로 이동·정리`** (→ dev, 2026-07-13) — `contract.md`·`requirements_endpoints.{md,xlsx}`를 `docs/api-contract/`로 이동(내용 변경 0)
+- **#108 `feat: 대시보드 AI 주간 브리핑`** (design-03-16, HAJA-118 → dev, 2026-07-13) — 현황데이터→자연어 요약 체인+`POST /ai/briefing`. code-reviewer P1 0, CI 20/20
+- #107 `chore: dev→main 승격 — 문서 최신화` (→ **main**, 2026-07-12) — STATUS·컨벤션·README Docker 반영
+- **#106 `chore: dev→main 승격 — Docker 전환 + 공유호스트 배포`** (→ **main**, 2026-07-12) — HajaCheck Docker 배포 LIVE. ⚠️ 이 승격 머지로 `delete_branch_on_merge=true` 때문에 dev가 자동삭제됐던 이슈는 **dev 브랜치 보호로 해소**
 - #105 `fix: 공유 호스트(arm1) 배포 변형` (Closes #104, HAJA-125 → dev, 2026-07-12)
 - #103 `chore: Docker Compose 전환` (Closes #101, HAJA-124 → dev, 2026-07-12)
 - #91 `chore: env-example-trim-unused-keys` (→ dev, 2026-07-09)
@@ -36,6 +39,8 @@
   - [ ] 팀원 SSH 공개키 수집·등록 (2/7 완료, 나머지 **7/7(화)** 마감) + DB/Redis 비밀번호 개별 전달
 - **P1**
   - [x] AI-LLM 코치: llm_client 구현 + structured output 버그 우회 (HAJA-20, PR #88, 2026-07-09 완료)
+  - [ ] **#100 Grounding Check(HAJA-117) 재작업** — 작성자가 P1 2건 수정 + 최신 dev로 rebase 후 재검수
+  - [ ] **dev→main 승격 대기** — #108·#111 등 dev 반영분, 사람 승인(hold_promote)
   - [ ] AI 온보딩 세션 자료에 HF `tool_choice` 400 트러블슈팅 반영 (HAJA-20 ⑥, 7/15 전)
   - [ ] 워킹 스켈레톤 관통 (7/18~19, HAJA-21)
 
@@ -43,4 +48,6 @@
 
 | 이슈 | 상태 |
 |---|---|
-| — | — |
+| **arm1 호스트 JDK 17 부재** (Docker 전환 부작용) — 앱 빌드가 컨테이너(`temurin:17`) 안으로 들어가며 호스트 JDK가 불필요→소실, 호스트에서 직접 `./gradlew build` 시 "Java 17 못 찾음" 실패 | arm1에 JDK 17 설치로 **해소**. 항구 대책(`settings.gradle` foojay-resolver로 JDK 자동 조달)은 별도 |
+| **#100 Grounding Check** — 부가 텍스트 정규식 함수의 환각 오탐(P1)+`AI_개발_컨벤션 §4` 위반(P1)+dev 충돌 | Jira INSPECTION CHECK, 작성자 수정 대기 |
+| ~~#73 P2 sync stale 중복본~~ | 폐기 완료(dev에 우수 버전 존재, 이슈 이미 CLOSED) |
