@@ -1,0 +1,122 @@
+.floating-popup {
+  width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 21px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  box-shadow:
+    0px 20px 25px -5px rgba(0, 0, 0, 0.1),
+    0px 8px 10px -6px rgba(0, 0, 0, 0.1);
+}
+
+/* BottomNavBarFab(우하단 고정, right/bottom 32px, 56px 원)의 바로 위에 붙도록 배치 —
+   같은 Jira 서브태스크(HAJA-138)로 묶인 두 컴포넌트가 별도 래퍼 없이도 항상 짝을 맞춰
+   뜨도록 기본값으로 고정 */
+.floating-popup--fixed {
+  position: fixed;
+  right: 32px;
+  bottom: 100px;
+  z-index: 950;
+}
+
+.floating-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.floating-popup-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #18181b;
+}
+
+.floating-popup-title-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.floating-popup-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.floating-popup-close img {
+  width: 14px;
+  height: 14px;
+}
+
+.floating-popup-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.floating-popup-link {
+  text-align: left;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  padding: 11px 17px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #18181b;
+  cursor: pointer;
+}
+
+.floating-popup-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 13px;
+  border-top: 1px solid var(--color-border);
+}
+
+.floating-popup-connect {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.floating-popup-connect img {
+  width: 9px;
+  height: 9px;
+}
+
+.floating-popup-waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  padding: 5px 9px;
+  font-size: 12px;
+  color: #494551;
+}
+
+.floating-popup-waiting-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: #3b82f6;
+}
