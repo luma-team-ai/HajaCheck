@@ -72,9 +72,49 @@ paths:
 
   # ── 아래는 계획 단계(경로안) — 각 담당자가 구현 시 requestBody/responses 채울 것 ──
 
+  /api/auth/login:
+    post:
+      summary: 자체(기업 email/password) 로그인
+      description: >
+        loginId(=email)/password 로 인증. 성공 시 세션 쿠키(SESSION) 발급.
+        실패는 계정 열거 방지를 위해 id/pw/미존재/잠금 구분 없이 401 AUTH_INVALID_CREDENTIALS 로 통일.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: 로그인 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserApiResponse" }
+        "401":
+          description: 인증 실패 (AUTH_INVALID_CREDENTIALS)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/auth/logout:
+    post:
+      summary: 로그아웃
+      description: 세션 무효화 + SecurityContext clear
+      tags: [auth]
+      responses:
+        "200":
+          description: 로그아웃 성공 (data=null)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoidApiResponse" }
+
   /api/auth/oauth2/{provider}:
     get:
-      summary: 소셜 로그인 (Kakao/Google)
+      summary: 소셜 로그인 시작 (Kakao/Google)
+      description: >
+        브라우저를 이 경로로 이동시키면 제공자 인가 화면으로 302 리다이렉트된다.
+        인가 완료 후 서버가 콜백(/login/oauth2/code/{provider})을 처리하고,
+        성공 시 app.oauth2.success-redirect, 실패 시 failure-redirect(프론트)로 리다이렉트한다.
       tags: [auth]
       parameters:
         - name: provider
@@ -82,14 +122,24 @@ paths:
           required: true
           schema: { type: string, enum: [kakao, google] }
       responses:
-        "302": { description: OAuth 리다이렉트 }
+        "302": { description: 제공자 인가 화면 또는 프론트로 리다이렉트 }
 
   /api/users/me:
     get:
       summary: 내 정보 조회
+      description: 세션의 인증 사용자 정보 반환. 미인증 시 401 UNAUTHORIZED(JSON).
       tags: [auth]
       responses:
-        "200": { description: TODO — 정재봉/오영석 확정 필요 }
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
   /api/facilities:
     post:
@@ -182,6 +232,54 @@ paths:
 
 components:
   schemas:
+    # ── auth 도메인 (Spring Boot envelope: { success, data, error }) ──
+    LoginRequest:
+      type: object
+      required: [loginId, password]
+      properties:
+        loginId: { type: string, description: 로그인 ID(=email), example: company@haja.com }
+        password: { type: string, format: password, example: "pw123456" }
+
+    UserResponse:
+      type: object
+      description: 사용자 응답(민감 필드 password_hash/social_id 제외)
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        email: { type: string, example: company@haja.com }
+        name: { type: string, example: 기업사용자 }
+        role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR], example: USER }
+        companyId: { type: integer, format: int64, nullable: true, example: 10 }
+        profileImageUrl: { type: string, nullable: true, example: "https://.../p.png" }
+
+    ApiError:
+      type: object
+      properties:
+        code: { type: string, example: AUTH_INVALID_CREDENTIALS }
+        message: { type: string, example: 아이디 또는 비밀번호가 올바르지 않습니다. }
+
+    UserApiResponse:
+      type: object
+      description: 성공 envelope — data=UserResponse
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/UserResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    VoidApiResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { type: object, nullable: true, example: null }
+        error: { type: object, nullable: true, example: null }
+
+    ErrorApiResponse:
+      type: object
+      description: 실패 envelope — error=ApiError
+      properties:
+        success: { type: boolean, example: false }
+        data: { type: object, nullable: true, example: null }
+        error: { $ref: "#/components/schemas/ApiError" }
+
     AIErrorCode:
       type: string
       enum: [LLM_TIMEOUT, LLM_RATE_LIMIT, LLM_INVALID_OUTPUT, RAG_NO_RESULT, VALIDATION_ERROR]
