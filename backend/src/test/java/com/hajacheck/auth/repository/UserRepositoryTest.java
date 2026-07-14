@@ -6,15 +6,20 @@ import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.SocialProvider;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.support.PostgresTestSupport;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
+import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.test.context.ActiveProfiles;
 
+// 실 PG named enum 검증을 위해 임베디드 교체를 끄고 Testcontainers PostgreSQL 을 그대로 사용.
 @DataJpaTest
+@AutoConfigureTestDatabase(replace = Replace.NONE)
 @ActiveProfiles("test")
-class UserRepositoryTest {
+class UserRepositoryTest extends PostgresTestSupport {
 
     @Autowired
     private UserRepository userRepository;

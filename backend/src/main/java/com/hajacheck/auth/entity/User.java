@@ -3,8 +3,6 @@ package com.hajacheck.auth.entity;
 import com.hajacheck.global.common.BaseTimeEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -15,13 +13,16 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * 서비스 사용자 계정 (자체가입 + 소셜) — DDL users 테이블 대응.
  * SpringBoot_코드_컨벤션.md §6/§7: @Setter 금지, 상태 변경은 의도가 드러나는 메서드로.
  *
- * ⚠️ role/status/socialProvider 는 DDL 상 PG enum 타입이지만 로컬 ddl-auto=update 에서는
- *    @Enumerated(STRING) 에 따라 varchar 로 생성된다. prod(validate) enum 정합성은 후속 인프라 과제.
+ * role/status/socialProvider 는 DDL 상 PG named enum 타입(role_type/social_provider_type/user_status_type)이며,
+ * @JdbcTypeCode(NAMED_ENUM) + columnDefinition 으로 실 PG enum 타입에 매핑한다(서버 ddl-auto=validate 통과).
+ * Java enum 라벨은 v0.3 DDL 의 enum 라벨과 정확히 일치한다.
  */
 @Entity
 @Getter
@@ -43,12 +44,12 @@ public class User extends BaseTimeEntity {
     @Column(nullable = false, length = 100)
     private String name;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(columnDefinition = "role_type", nullable = false)
     private Role role;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "social_provider", length = 20)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "social_provider", columnDefinition = "social_provider_type")
     private SocialProvider socialProvider;
 
     @Column(name = "social_id", length = 255)
@@ -64,8 +65,8 @@ public class User extends BaseTimeEntity {
     @Column(name = "profile_image_url", length = 500)
     private String profileImageUrl;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(columnDefinition = "user_status_type", nullable = false)
     private UserStatus status;
 
     @Column(name = "last_login_at")
