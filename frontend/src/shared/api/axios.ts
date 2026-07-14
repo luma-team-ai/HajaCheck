@@ -13,9 +13,9 @@ api.interceptors.response.use(
   (response) => {
     const body = response.data as ApiResponse<unknown>;
     if (body && body.success === false) {
-      const apiError: ApiError = body.error ?? {
-        code: 'UNKNOWN_ERROR',
-        message: '알 수 없는 오류가 발생했습니다.',
+      const apiError: ApiError = {
+        ...(body.error ?? { code: 'UNKNOWN_ERROR', message: '알 수 없는 오류가 발생했습니다.' }),
+        status: response.status,
       };
       return Promise.reject(apiError);
     }
@@ -23,14 +23,18 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    const status = error.response?.status;
     // 이미 로그인 경로면 리다이렉트 스킵 — 로그인 화면 세션체크·로그인 실패 401이 무한 리로드로 이어지는 것 방지
-    // 정확일치 대신 endsWith — basename/서브패스 배포('/app/login', '/haja/login')에서도 안전
-    if (error.response?.status === 401 && !window.location.pathname.endsWith(LOGIN_PATH)) {
+    // LOGIN_PATH가 basename까지 반영된 정확한 경로라 정확 일치로 비교(과매칭 방지 — 예: '/company/login')
+    if (status === 401 && window.location.pathname !== LOGIN_PATH) {
       window.location.href = LOGIN_PATH; // 401 일괄 처리
     }
-    const apiError: ApiError = error.response?.data?.error ?? {
-      code: 'NETWORK_ERROR',
-      message: '네트워크 오류가 발생했습니다.',
+    const apiError: ApiError = {
+      ...(error.response?.data?.error ?? {
+        code: 'NETWORK_ERROR',
+        message: '네트워크 오류가 발생했습니다.',
+      }),
+      status,
     };
     return Promise.reject(apiError);
   },
