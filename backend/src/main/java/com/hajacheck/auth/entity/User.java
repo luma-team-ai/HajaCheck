@@ -88,6 +88,8 @@ public class User extends BaseTimeEntity {
 
     /**
      * 소셜 신규 가입 팩토리 — passwordHash 는 null(소셜 전용), role=USER, status=ACTIVE.
+     * 참고: 소셜 자동가입이 ACTIVE 인 것은 companyId=null 개인회원의 의도된 셀프가입이다.
+     * 보호 리소스의 companyId/role 권한 경계는 각 엔드포인트 후속 과제로 다룬다(이 PR 범위 밖).
      */
     public static User createSocialUser(SocialProvider provider, String socialId,
                                         String email, String name) {

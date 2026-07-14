@@ -66,6 +66,8 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**")
                         .permitAll()
+                        // 현재는 "인증됨"만 요구. 소셜 셀프가입 계정(companyId=null·role=USER)에 대한
+                        // companyId/role 기반 리소스 권한 경계는 각 도메인 엔드포인트에서 후속 과제로 부여한다.
                         .anyRequest().authenticated())
                 .oauth2Login(oauth -> oauth
                         .authorizationEndpoint(a -> a.baseUri("/api/auth/oauth2"))

@@ -47,6 +47,7 @@ class CustomOAuth2UserServiceTest {
         return Map.of(
                 "sub", "google-sub-999",
                 "email", "google@haja.com",
+                "email_verified", true,
                 "name", "구글영희");
     }
 
@@ -141,5 +142,51 @@ class CustomOAuth2UserServiceTest {
         assertThat(result.getEmail()).isEqualTo("kakao@haja.com");
         verify(userRepository, times(2))
                 .findBySocialProviderAndSocialId(SocialProvider.KAKAO, "4823001");
+    }
+
+    @Test
+    void processOAuth2User_정지계정소셜로그인_차단() {
+        User suspended = User.builder()
+                .email("kakao@haja.com")
+                .name("정지회원")
+                .socialProvider(SocialProvider.KAKAO)
+                .socialId("4823001")
+                .status(UserStatus.SUSPENDED)
+                .build();
+        when(userRepository.findBySocialProviderAndSocialId(SocialProvider.KAKAO, "4823001"))
+                .thenReturn(Optional.of(suspended));
+
+        assertThatThrownBy(() -> customOAuth2UserService.processOAuth2User("kakao", kakaoAttributes()))
+                .isInstanceOf(OAuth2AuthenticationException.class)
+                .hasMessageContaining("정지");
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void processOAuth2User_email충돌_명확한실패() {
+        // (provider, socialId) 는 신규지만 email unique 충돌로 save 실패 → 재조회도 없음 → 명확 실패
+        when(userRepository.findBySocialProviderAndSocialId(SocialProvider.KAKAO, "4823001"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.empty());
+        when(userRepository.save(any(User.class)))
+                .thenThrow(new DataIntegrityViolationException("users_email_key"));
+
+        assertThatThrownBy(() -> customOAuth2UserService.processOAuth2User("kakao", kakaoAttributes()))
+                .isInstanceOf(OAuth2AuthenticationException.class)
+                .satisfies(ex -> assertThat(((OAuth2AuthenticationException) ex).getError().getErrorCode())
+                        .isEqualTo("email_already_registered"));
+    }
+
+    @Test
+    void processOAuth2User_구글이메일미검증_예외로가입차단() {
+        Map<String, Object> attributes = Map.of(
+                "sub", "google-sub-999",
+                "email", "google@haja.com",
+                "email_verified", false,
+                "name", "구글영희");
+
+        assertThatThrownBy(() -> customOAuth2UserService.processOAuth2User("google", attributes))
+                .isInstanceOf(OAuth2AuthenticationException.class);
+        verify(userRepository, never()).save(any(User.class));
     }
 }

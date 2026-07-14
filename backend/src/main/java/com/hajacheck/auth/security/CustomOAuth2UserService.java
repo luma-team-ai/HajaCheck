@@ -45,7 +45,20 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     private User findOrRegister(OAuth2Attributes parsed) {
         return userRepository.findBySocialProviderAndSocialId(parsed.provider(), parsed.socialId())
+                .map(this::requireActive)
                 .orElseGet(() -> register(parsed));
+    }
+
+    /**
+     * 정지 계정의 소셜 로그인 우회 차단 — 자체 로그인(LockedException)과 동일한 정지 정책.
+     * 필터단 예외라 OAuth2FailureHandler 로 흐른다.
+     */
+    private User requireActive(User user) {
+        if (user.isSuspended()) {
+            throw new OAuth2AuthenticationException(
+                    new OAuth2Error("account_suspended"), "정지된 계정입니다.");
+        }
+        return user;
     }
 
     private User register(OAuth2Attributes parsed) {
@@ -53,10 +66,14 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             return userRepository.save(User.createSocialUser(
                     parsed.provider(), parsed.socialId(), parsed.email(), parsed.name()));
         } catch (DataIntegrityViolationException e) {
-            // 경합: 동시에 다른 요청이 먼저 저장(unique 위반) → 재조회로 그 레코드 반환.
+            // (provider, socialId) 재조회로 원인 구분:
+            //  - 있으면 = 동시 가입 경합 → 먼저 저장된 레코드 반환(정지 계정은 차단).
+            //  - 없으면 = email 유니크 충돌(다른 계정이 이미 같은 email 보유) → 명확히 실패.
             return userRepository.findBySocialProviderAndSocialId(parsed.provider(), parsed.socialId())
+                    .map(this::requireActive)
                     .orElseThrow(() -> new OAuth2AuthenticationException(
-                            new OAuth2Error("registration_conflict"), "소셜 계정 등록 충돌", e));
+                            new OAuth2Error("email_already_registered"),
+                            "이미 다른 계정에 등록된 이메일입니다.", e));
         }
     }
 
@@ -90,9 +107,11 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             if ("google".equalsIgnoreCase(registrationId)) {
                 String socialId = (String) attributes.get("sub");
                 String email = (String) attributes.get("email");
-                if (email == null) {
+                Object verified = attributes.get("email_verified");
+                // 카카오와 정책 일치: email 이 없거나 email_verified 미검증이면 신뢰 불가 → 인증 실패.
+                if (email == null || !Boolean.TRUE.equals(verified)) {
                     throw new OAuth2AuthenticationException(
-                            new OAuth2Error("invalid_email"), "구글 이메일이 없습니다.");
+                            new OAuth2Error("invalid_email"), "구글 이메일이 없거나 검증되지 않았습니다.");
                 }
                 String name = (String) attributes.get("name");
                 return new OAuth2Attributes(SocialProvider.GOOGLE, socialId, email,
