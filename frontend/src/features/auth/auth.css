@@ -1,4 +1,5 @@
-/* 로그인 화면(HAJA-160, #157) 전용 스타일 — dashboard.css와 동일 방식(일반 CSS, BEM, 데스크톱 우선 1920 기준) */
+/* 인증(auth) feature 전용 스타일 — 로그인(HAJA-160, #157) + 기업 인증 플로우(HAJA-170, #187)
+   dashboard.css와 동일 방식(일반 CSS, BEM, 데스크톱 우선 1920 기준) */
 
 .login-page {
   display: flex;
@@ -312,4 +313,312 @@
   text-align: left;
   cursor: pointer;
   padding: 0;
+}
+
+/* ── 기업 인증 플로우 공통 — 독립 페이지 레이아웃(HAJA-170, #187) ───────────────────────── */
+
+.auth-standalone-page {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  background: #f7f7f8;
+  padding: 48px 24px;
+}
+
+.auth-standalone-panel {
+  width: 100%;
+  max-width: 400px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 40px;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
+}
+
+.auth-standalone-panel--wide {
+  max-width: 520px;
+}
+
+.auth-standalone-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 24px;
+  text-align: center;
+  color: #111;
+}
+
+.auth-form-success {
+  color: #1a9a52;
+  font-size: 13px;
+  margin: -8px 0 12px;
+}
+
+.auth-form-hint {
+  color: #888;
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+/* ── 이메일 중복확인 인라인 버튼 ───────────────────────────────────── */
+
+.auth-inline-check-row {
+  display: flex;
+  gap: 8px;
+}
+
+.auth-inline-check-row .auth-form-input {
+  flex: 1;
+}
+
+.auth-inline-check-btn {
+  white-space: nowrap;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid #dcdde1;
+  background: #fff;
+  color: #111;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-inline-check-btn:disabled {
+  color: #b4b6bd;
+  cursor: not-allowed;
+}
+
+/* ── 사업자등록증 파일 업로드 ───────────────────────────────────── */
+
+.auth-file-input {
+  font-size: 13px;
+}
+
+.auth-file-selected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #f4f4f6;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.auth-file-selected-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-file-selected-size {
+  color: #888;
+}
+
+.auth-file-remove-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #888;
+  font-size: 14px;
+  padding: 0 4px;
+}
+
+/* ── 회사주소 검색(다음 우편번호) ───────────────────────────────────── */
+
+.auth-address-search-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.auth-address-search-row .auth-form-input {
+  flex: 1;
+}
+
+.auth-address-search-btn {
+  white-space: nowrap;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid #dcdde1;
+  background: #fff;
+  color: #111;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── 비밀번호 강도미터 ───────────────────────────────────── */
+
+.auth-password-strength {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.auth-password-strength-bar {
+  height: 4px;
+  width: 80px;
+  border-radius: 2px;
+  background: #e0473f;
+}
+
+.auth-password-strength-bar--medium {
+  background: #e0a83f;
+  width: 130px;
+}
+
+.auth-password-strength-bar--strong {
+  background: #1a9a52;
+  width: 180px;
+}
+
+.auth-password-strength-label {
+  font-size: 12px;
+  color: #666;
+}
+
+/* ── 기업 회원가입 안내·약관 ───────────────────────────────────── */
+
+.auth-signup-notice {
+  background: #f4f4f6;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #555;
+  margin-bottom: 16px;
+}
+
+.auth-terms-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #333;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+
+/* ── 가입 승인 대기 화면 ───────────────────────────────────── */
+
+.auth-signup-pending-icon {
+  font-size: 40px;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.auth-signup-stepper {
+  display: flex;
+  justify-content: space-between;
+  list-style: none;
+  padding: 0;
+  margin: 24px 0;
+}
+
+.auth-signup-step {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  color: #b4b6bd;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.auth-signup-step-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid #dcdde1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.auth-signup-step--active {
+  color: #111;
+  font-weight: 600;
+}
+
+.auth-signup-step--active .auth-signup-step-icon {
+  border-color: #111;
+  color: #111;
+}
+
+.auth-signup-step--done {
+  color: #1a9a52;
+}
+
+.auth-signup-step--done .auth-signup-step-icon {
+  border-color: #1a9a52;
+  background: #1a9a52;
+  color: #fff;
+}
+
+.auth-signup-step--rejected {
+  color: #e0473f;
+}
+
+.auth-signup-step--rejected .auth-signup-step-icon {
+  border-color: #e0473f;
+  color: #e0473f;
+}
+
+.auth-signup-summary {
+  background: #f4f4f6;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 0 0 20px;
+}
+
+.auth-signup-summary dt {
+  font-size: 12px;
+  color: #888;
+  margin-top: 8px;
+}
+
+.auth-signup-summary dt:first-child {
+  margin-top: 0;
+}
+
+.auth-signup-summary dd {
+  font-size: 14px;
+  color: #111;
+  font-weight: 600;
+  margin: 2px 0 0;
+}
+
+/* ── 아이디 찾기 결과 ───────────────────────────────────── */
+
+.auth-find-result {
+  text-align: center;
+  padding: 24px 0;
+}
+
+.auth-find-result-label {
+  font-size: 13px;
+  color: #666;
+  margin: 0 0 8px;
+}
+
+.auth-find-result-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #111;
+}
+
+/* ── 새 비밀번호 설정 — 기업정보 인증 완료 배지 ───────────────────────────────────── */
+
+.auth-verified-badge {
+  background: #eaf7f0;
+  color: #1a9a52;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  margin: 0 0 20px;
 }
