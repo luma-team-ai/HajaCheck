@@ -25,9 +25,12 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       window.location.href = '/login'; // 401 일괄 처리
     }
-    const apiError: ApiError = error.response?.data?.error ?? {
-      code: 'NETWORK_ERROR',
-      message: '네트워크 오류가 발생했습니다.',
+    const apiError: ApiError = {
+      ...(error.response?.data?.error ?? {
+        code: 'NETWORK_ERROR',
+        message: '네트워크 오류가 발생했습니다.',
+      }),
+      status: error.response?.status,
     };
     return Promise.reject(apiError);
   },
