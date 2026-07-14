@@ -4,7 +4,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { act, createRoot } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import { DefectExplainPanel } from '../components/DefectExplainPanel';
@@ -120,7 +120,7 @@ describe('useDefectExplain (통합 테스트)', () => {
   });
 
   it('로딩 상태: 요청 중에는 로딩 메시지가 표시되었다가 성공하면 사라진다', async () => {
-    let resolveRequest: (() => void) | null = null;
+    let resolveRequest: (() => void) = () => {};
     const requestPromise = new Promise<void>((resolve) => {
       resolveRequest = resolve;
     });
@@ -150,9 +150,7 @@ describe('useDefectExplain (통합 테스트)', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     // 요청 완료
-    if (resolveRequest) {
-      resolveRequest();
-    }
+    resolveRequest();
 
     // 데이터 로드 완료 대기 (로딩이 완료되고 데이터가 표시됨)
     await waitFor(() => container.textContent?.includes('추정 원인'), 2000);
