@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '../api/authApi';
@@ -14,19 +15,20 @@ export function LoginPage() {
   const navigate = useNavigate();
   const setUser = useAuthStore((state) => state.setUser);
 
+  // CSRF 쿠키 프리밍 겸 세션 확인 — 서버 상태는 React Query로(React_코드_컨벤션.md §4), 실패(미로그인)는 무시
+  const { data: me, isSuccess } = useQuery({
+    queryKey: ['auth', 'me'],
+    queryFn: () => authApi.getMe().then((res) => res.data),
+    retry: false,
+  });
+
   useEffect(() => {
-    // CSRF 쿠키 프리밍 겸 세션 확인 — 이미 로그인 상태면 대시보드로 이동, 실패(미로그인)는 무시
-    authApi
-      .getMe()
-      .then((res) => {
-        setUser(res.data);
-        navigate('/dashboard');
-      })
-      .catch(() => {
-        // 미로그인 상태 — 로그인 화면 그대로 노출
-      });
-    // 마운트 시 1회만 실행 — navigate/setUser는 재실행 트리거로 삼지 않음(참조 안정성 있음: react-router/zustand)
-  }, [navigate, setUser]);
+    // 이미 로그인 상태면 대시보드로 이동 — 네비게이션은 데이터 fetching이 아니라 부수효과이므로 useEffect 유지
+    if (isSuccess && me) {
+      setUser(me);
+      navigate('/dashboard');
+    }
+  }, [isSuccess, me, navigate, setUser]);
 
   return (
     <div className="login-page">
