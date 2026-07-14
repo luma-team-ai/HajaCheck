@@ -133,18 +133,40 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         }
 
         /**
+         * placeholder 이메일 도메인 — 변경 금지: 반드시 라우팅 불가한 예약 도메인(RFC 6761 {@code .local})을 유지한다.
+         * 실도메인으로 바꾸면 실제 사용자의 검증 이메일과 placeholder 가 겹칠 수 있어 email UNIQUE 충돌 →
+         * 서로 다른 사람이 한 계정으로 dedup 되는 교차계정(계정 탈취) 위험이 생긴다(#199).
+         */
+        private static final String PLACEHOLDER_EMAIL_DOMAIN = "@social.local";
+
+        /**
          * 검증된 이메일만 신뢰. 없거나 미검증이면 placeholder 로 대체(#199).
+         *
+         * 방어심층(#199 보안): email 필수 가드를 제거해 (socialProvider, socialId) 가 유일한 신원 앵커가 됐으므로,
+         * socialId 가 신뢰 불가(null/공백/문자열 "null")면 placeholder 가 {@code {provider}_null@social.local} 로
+         * 붕괴해 서로 다른 사용자가 동일 앵커로 dedup·교차 로그인될 수 있다 → 진입부에서 차단한다.
          */
         private static OAuth2Attributes resolveEmail(SocialProvider provider, String socialId,
                                                      String email, Object verified, String name) {
+            requireValidSocialId(socialId);
             if (email != null && Boolean.TRUE.equals(verified)) {
                 return new OAuth2Attributes(provider, socialId, email, name, false);
             }
             return new OAuth2Attributes(provider, socialId, placeholderEmail(provider, socialId), name, true);
         }
 
+        /**
+         * socialId 신원 앵커 유효성 — null·공백·문자열 "null"(kakao id 누락 시 String.valueOf(null))이면 인증 차단.
+         */
+        private static void requireValidSocialId(String socialId) {
+            if (socialId == null || socialId.isBlank() || "null".equalsIgnoreCase(socialId.trim())) {
+                throw new OAuth2AuthenticationException(
+                        new OAuth2Error("invalid_request"), "소셜 사용자 식별자를 확인할 수 없습니다.");
+            }
+        }
+
         private static String placeholderEmail(SocialProvider provider, String socialId) {
-            return provider.name().toLowerCase() + "_" + socialId + "@social.local";
+            return provider.name().toLowerCase() + "_" + socialId + PLACEHOLDER_EMAIL_DOMAIN;
         }
     }
 }
