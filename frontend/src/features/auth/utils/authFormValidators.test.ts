@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   doPasswordsMatch,
-  getPasswordStrength,
   isValidBusinessNumber,
   isValidEmail,
   isValidPassword,
@@ -73,19 +72,5 @@ describe('normalizeBusinessNumber / isValidBusinessNumber', () => {
 
   it('숫자가 아닌 문자만 있으면 무효하다', () => {
     expect(isValidBusinessNumber('')).toBe(false);
-  });
-});
-
-describe('getPasswordStrength', () => {
-  it('검증 실패 비밀번호는 weak이다', () => {
-    expect(getPasswordStrength('abc')).toBe('weak');
-  });
-
-  it('8자 이상 영문+숫자만이면 medium이다', () => {
-    expect(getPasswordStrength('abcd1234')).toBe('medium');
-  });
-
-  it('12자 이상+특수문자 포함이면 strong이다', () => {
-    expect(getPasswordStrength('abcd1234!@#$')).toBe('strong');
   });
 });

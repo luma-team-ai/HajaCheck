@@ -13,9 +13,6 @@ import {
   MOCK_DUPLICATED_EMAIL,
   MOCK_FIND_ID_BUSINESS_NUMBER,
   MOCK_FIND_ID_COMPANY_NAME,
-  MOCK_PASSWORD_INQUIRY_BUSINESS_NUMBER,
-  MOCK_PASSWORD_INQUIRY_EMAIL,
-  MOCK_RESET_TOKEN,
   MOCK_SIGNUP_TOKEN,
   companyAuthHandlers,
   resetCompanyAuthMockState,
@@ -89,37 +86,5 @@ describe('authApi.findLoginId', () => {
   });
 });
 
-describe('authApi.passwordInquiry', () => {
-  it('이메일+사업자번호가 일치하면 resetToken을 반환한다', async () => {
-    const res = await authApi.passwordInquiry({
-      email: MOCK_PASSWORD_INQUIRY_EMAIL,
-      businessRegistrationNumber: MOCK_PASSWORD_INQUIRY_BUSINESS_NUMBER,
-    });
-    expect(res.data).toMatchObject({ resetToken: MOCK_RESET_TOKEN });
-  });
-
-  it('불일치면 AUTH_VERIFICATION_FAILED(400)로 reject된다', async () => {
-    await expect(
-      authApi.passwordInquiry({
-        email: 'wrong@check.com',
-        businessRegistrationNumber: MOCK_PASSWORD_INQUIRY_BUSINESS_NUMBER,
-      }),
-    ).rejects.toMatchObject({ code: 'AUTH_VERIFICATION_FAILED', status: 400 });
-  });
-});
-
-describe('authApi.passwordReset', () => {
-  it('유효한 resetToken이면 성공(data:null)한다', async () => {
-    const res = await authApi.passwordReset({
-      resetToken: MOCK_RESET_TOKEN,
-      newPassword: 'newpass1234',
-    });
-    expect(res.data).toBeNull();
-  });
-
-  it('무효한 resetToken이면 AUTH_RESET_TOKEN_INVALID(400)로 reject된다', async () => {
-    await expect(
-      authApi.passwordReset({ resetToken: 'invalid-token', newPassword: 'newpass1234' }),
-    ).rejects.toMatchObject({ code: 'AUTH_RESET_TOKEN_INVALID', status: 400 });
-  });
-});
+// authApi.passwordInquiry / authApi.passwordReset 테스트는 계정 탈취 P1(보안 리뷰)로
+// 해당 API 자체가 범위 제외되어 함께 제거됨 — 보안질문 방식으로 후속(#194, HAJA-172)

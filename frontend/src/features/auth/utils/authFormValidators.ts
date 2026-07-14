@@ -1,4 +1,4 @@
-// 기업 인증 플로우 공통 검증기 — HAJA-170(#187), 여러 화면(회원가입/아이디·비밀번호 찾기)에서 재사용
+// 기업 인증 플로우 공통 검증기 — HAJA-170(#187), 여러 화면(회원가입/아이디 찾기)에서 재사용
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // 계약(contract.md): @Size(min=8), 영문+숫자 포함
 const PASSWORD_HAS_LETTER = /[A-Za-z]/;
@@ -27,13 +27,5 @@ export function isValidBusinessNumber(value: string): boolean {
   return normalizeBusinessNumber(value).length === 10;
 }
 
-export type PasswordStrength = 'weak' | 'medium' | 'strong';
-
-// 새 비밀번호 설정 화면의 강도미터용 — 유효성 검증과는 별개(참고용 시각 피드백)
-export function getPasswordStrength(password: string): PasswordStrength {
-  if (!isValidPassword(password)) return 'weak';
-
-  const hasSpecial = /[^A-Za-z0-9]/.test(password);
-  if (password.length >= 12 && hasSpecial) return 'strong';
-  return 'medium';
-}
+// getPasswordStrength(비밀번호 강도미터)는 새 비밀번호 설정 화면 전용이었으나 해당 화면이
+// 계정 탈취 P1(보안 리뷰)로 범위 제외되며 함께 제거됨 — #194(HAJA-172)

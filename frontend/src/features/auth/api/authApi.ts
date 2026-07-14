@@ -4,8 +4,6 @@ import {
   COMPANY_SIGNUP_STATUS_PATH,
   EMAIL_AVAILABILITY_PATH,
   ID_INQUIRY_PATH,
-  PASSWORD_INQUIRY_PATH,
-  PASSWORD_RESET_PATH,
 } from '../constants';
 import type {
   CompanySignupRequest,
@@ -14,9 +12,6 @@ import type {
   IdInquiryRequest,
   IdInquiryResponse,
   LoginRequest,
-  PasswordInquiryRequest,
-  PasswordInquiryResponse,
-  PasswordResetRequest,
   SignupStatusResponse,
   UserResponse,
 } from '../types';
@@ -55,7 +50,6 @@ export const authApi = {
   getSignupStatus: (signupToken: string) =>
     api.get<SignupStatusResponse>(COMPANY_SIGNUP_STATUS_PATH, { params: { token: signupToken } }),
   findLoginId: (body: IdInquiryRequest) => api.post<IdInquiryResponse>(ID_INQUIRY_PATH, body),
-  passwordInquiry: (body: PasswordInquiryRequest) =>
-    api.post<PasswordInquiryResponse>(PASSWORD_INQUIRY_PATH, body),
-  passwordReset: (body: PasswordResetRequest) => api.post<null>(PASSWORD_RESET_PATH, body),
+  // 비밀번호 찾기(passwordInquiry/passwordReset)는 계정 탈취 P1(보안 리뷰)로 범위 제외 —
+  // 보안질문 방식으로 후속(#194, HAJA-172)
 };

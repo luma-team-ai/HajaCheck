@@ -57,21 +57,7 @@ export interface IdInquiryResponse {
   maskedEmail: string;
 }
 
-export interface PasswordInquiryRequest {
-  email: string;
-  businessRegistrationNumber: string;
-}
-
-export interface PasswordInquiryResponse {
-  resetToken: string;
-  maskedEmail: string;
-  expiresInSeconds: number;
-}
-
-export interface PasswordResetRequest {
-  resetToken: string;
-  newPassword: string;
-}
+// 비밀번호 찾기 요청/응답 타입은 계정 탈취 P1(보안 리뷰)로 범위 제외 — #194(HAJA-172)에서 보안질문 방식으로 재설계
 
 export interface SignupStatusResponse {
   status: CompanyStatus;

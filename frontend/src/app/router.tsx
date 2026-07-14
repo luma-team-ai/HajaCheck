@@ -30,16 +30,7 @@ const CompanySignupPendingPage = lazy(() =>
 const FindIdPage = lazy(() =>
   import('../features/auth/pages/FindIdPage').then((m) => ({ default: m.FindIdPage })),
 );
-const FindPasswordPage = lazy(() =>
-  import('../features/auth/pages/FindPasswordPage').then((m) => ({
-    default: m.FindPasswordPage,
-  })),
-);
-const ResetPasswordPage = lazy(() =>
-  import('../features/auth/pages/ResetPasswordPage').then((m) => ({
-    default: m.ResetPasswordPage,
-  })),
-);
+// 비밀번호 찾기·재설정 2화면은 계정 탈취 P1(보안 리뷰)로 이번 범위에서 제외 — 보안질문 방식으로 후속(#194, HAJA-172)
 
 const DashboardPage = lazy(() =>
   import('../features/dashboard/pages/DashboardPage').then((m) => ({
@@ -93,22 +84,6 @@ export const router = createBrowserRouter([
     element: (
       <Suspense fallback={<div>불러오는 중...</div>}>
         <FindIdPage />
-      </Suspense>
-    ),
-  },
-  {
-    path: '/find-password',
-    element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
-        <FindPasswordPage />
-      </Suspense>
-    ),
-  },
-  {
-    path: '/reset-password',
-    element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
-        <ResetPasswordPage />
       </Suspense>
     ),
   }, // — features/auth 기업 인증 플로우 (HAJA-170, #187)

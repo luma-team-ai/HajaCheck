@@ -1,12 +1,13 @@
-// 기업 인증 플로우 MSW 목 — HAJA-170(#187), 5화면 클릭 플로우가 끝까지 동작하도록 구성
-// 데이터가 많아 authApi.handlers.ts에서 분리(React_코드_컨벤션.md 지침)
+// 기업 인증 플로우 MSW 목 — HAJA-170(#187), 3화면(회원가입/승인대기/아이디찾기) 클릭 플로우가
+// 끝까지 동작하도록 구성. 데이터가 많아 authApi.handlers.ts에서 분리(React_코드_컨벤션.md 지침)
+// 비밀번호 찾기(password-inquiry/password-reset)는 계정 탈취 P1(보안 리뷰)로 범위 제외 —
+// 보안질문 방식으로 후속(#194, HAJA-172)
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse } from '../../../shared/api/types';
 import type {
   CompanySignupResponse,
   EmailAvailabilityResponse,
   IdInquiryResponse,
-  PasswordInquiryResponse,
   SignupStatusResponse,
 } from '../types';
 
@@ -19,11 +20,6 @@ export const MOCK_FIND_ID_BUSINESS_NUMBER = '1234567890';
 export const MOCK_FIND_ID_COMPANY_NAME = '(주)하자체크';
 export const MOCK_FIND_ID_REPRESENTATIVE_NAME = '김민수';
 export const MOCK_FIND_ID_MASKED_EMAIL = 'ha***@check.com';
-
-// 비밀번호 찾기 1단계 성공 시나리오 더미
-export const MOCK_PASSWORD_INQUIRY_EMAIL = 'haja@check.com';
-export const MOCK_PASSWORD_INQUIRY_BUSINESS_NUMBER = '1234567890';
-export const MOCK_RESET_TOKEN = 'mock-reset-token';
 
 export const MOCK_SIGNUP_TOKEN = 'mock-signup-token';
 
@@ -158,56 +154,6 @@ export const companyAuthHandlers = [
       success: true,
       data: { maskedEmail: MOCK_FIND_ID_MASKED_EMAIL },
     };
-    return HttpResponse.json(success);
-  }),
-
-  http.post('/api/auth/password-inquiry', async ({ request }) => {
-    const body = (await request.json()) as { email: string; businessRegistrationNumber: string };
-    const businessRegistrationNumber = normalizeDigits(body.businessRegistrationNumber);
-
-    const isMatch =
-      body.email === MOCK_PASSWORD_INQUIRY_EMAIL &&
-      businessRegistrationNumber === MOCK_PASSWORD_INQUIRY_BUSINESS_NUMBER;
-
-    if (!isMatch) {
-      const failure: ApiResponse<null> = {
-        success: false,
-        data: null,
-        error: {
-          code: 'AUTH_VERIFICATION_FAILED',
-          message: '입력하신 정보와 일치하는 계정을 찾을 수 없습니다.',
-        },
-      };
-      return HttpResponse.json(failure, { status: 400 });
-    }
-
-    const success: ApiResponse<PasswordInquiryResponse> = {
-      success: true,
-      data: {
-        resetToken: MOCK_RESET_TOKEN,
-        maskedEmail: maskEmail(MOCK_PASSWORD_INQUIRY_EMAIL),
-        expiresInSeconds: 600,
-      },
-    };
-    return HttpResponse.json(success);
-  }),
-
-  http.post('/api/auth/password-reset', async ({ request }) => {
-    const body = (await request.json()) as { resetToken: string; newPassword: string };
-
-    if (body.resetToken !== MOCK_RESET_TOKEN) {
-      const failure: ApiResponse<null> = {
-        success: false,
-        data: null,
-        error: {
-          code: 'AUTH_RESET_TOKEN_INVALID',
-          message: '재설정 링크가 만료되었거나 유효하지 않습니다.',
-        },
-      };
-      return HttpResponse.json(failure, { status: 400 });
-    }
-
-    const success: ApiResponse<null> = { success: true, data: null };
     return HttpResponse.json(success);
   }),
 ];

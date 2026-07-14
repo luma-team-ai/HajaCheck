@@ -105,9 +105,14 @@ export function FindIdPage() {
             로그인으로
           </Link>
           <span className="auth-links-divider">|</span>
-          <Link to="/find-password" className="auth-link-btn">
+          {/* 비밀번호 찾기는 계정 탈취 P1(보안 리뷰)로 범위 제외 — 보안질문 방식 후속(#194, HAJA-172) */}
+          <button
+            type="button"
+            className="auth-link-btn"
+            onClick={() => window.alert('준비 중인 기능입니다.')}
+          >
             비밀번호 찾기
-          </Link>
+          </button>
         </div>
       </section>
     </div>
