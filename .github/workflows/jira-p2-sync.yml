@@ -101,28 +101,26 @@ jobs:
             echo "담당자 매핑 없음(assignee='${ISSUE_ASSIGNEE}') — Unassigned로 생성"
           fi
 
-          # 2.6) 원본(주담당) 태스크는 gh-<이슈번호>(ORIG_MARK) 라벨을 갖고 있으므로, 1)과는 별도의
-          #      JQL로 조회해 그 부모 에픽을 확인한다(1)의 JQL을 재사용하면 항상 빈 결과라 죽은 코드가 됨).
-          #      [2단계 조회] search/jql 에서는 parent.key만 신뢰하고, 그 부모를
-          #      GET /issue/{key}?fields=issuetype 로 직접 조회해 에픽 여부를 확정한다.
-          #      ※ Jira가 구 /rest/api/3/search 를 삭제(410 Gone, CHANGE-2046)해 /search/jql 로 이전함.
-          ORIG_JQL="project=${PROJECT_KEY} AND labels=\"${ORIG_MARK}\""
-          ORIG_JQL_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$ORIG_JQL")
+          # 2.6) 부모 에픽 상속: 후속 이슈 제목의 [<PROJECT_KEY>-N](=원본 태스크 키)을 추출해
+          #      그 이슈의 parent가 에픽이면 P2도 같은 에픽에 연결한다.
+          #      (기존엔 gh-<후속이슈번호>(ORIG_MARK) 라벨로 Jira를 검색했는데, 그런 라벨의
+          #       Jira 태스크가 존재하지 않아 항상 빈 결과 → parent 없이 생성되던 버그.
+          #       원본 키는 제목에 이미 [HAJA-N]으로 들어 있어 그것을 쓰는 게 정확·안정적이다.)
+          #      GET /issue/{key}?fields=issuetype,parent 응답의 parent 객체엔 issuetype이
+          #      포함돼 한 번 조회로 부모 에픽 여부까지 확정한다(구 2단계 조회 불필요).
+          #      원본 키가 제목에 없거나 / 원본이 에픽이거나 / 부모가 에픽이거나 아니거나를
+          #      모두 처리하고, 어디에도 해당 없으면 parent 없이 생성(하위호환).
+          ORIG_KEY=$(printf '%s' "$ISSUE_TITLE" | grep -oiE "\[${PROJECT_KEY}-[0-9]+\]" | head -1 | tr -d '[]')
           PARENT_EPIC=""
-          # 1단계: 원본 태스크의 부모 key만 얻는다.
-          PARENT_SEARCH_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/search/jql?jql=$ORIG_JQL_ENC&fields=parent" || echo "")
-          PARENT_KEY=$(printf '%s' "$PARENT_SEARCH_RESP" | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); issues=d.get('issues') or []; parent=(issues[0].get('fields',{}) or {}).get('parent') if issues else None; print((parent or {}).get('key','') if parent else '')" 2>/dev/null || echo "")
-          # 2단계: 부모를 직접 조회해 issuetype이 에픽인지 확정한다.
-          if [ -n "$PARENT_KEY" ]; then
-            PARENT_ISSUE_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/issue/${PARENT_KEY}?fields=issuetype" || echo "")
-            IS_EPIC=$(printf '%s' "$PARENT_ISSUE_RESP" | python3 -c "import json,sys,os; d=json.loads(sys.stdin.read() or '{}'); name=((d.get('fields',{}) or {}).get('issuetype',{}) or {}).get('name',''); names=[n.strip() for n in (os.environ.get('EPIC_TYPE_NAMES') or '에픽,Epic').split(',') if n.strip()]; print(name if name in names else '')" 2>/dev/null || echo "")
-            [ -n "$IS_EPIC" ] && PARENT_EPIC="$PARENT_KEY"
+          if [ -n "$ORIG_KEY" ]; then
+            ORIG_RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_SITE/rest/api/3/issue/${ORIG_KEY}?fields=issuetype,parent" || echo "")
+            PARENT_EPIC=$(printf '%s' "$ORIG_RESP" | ORIG_KEY="$ORIG_KEY" python3 -c "import json,sys,os; d=json.loads(sys.stdin.read() or '{}'); f=d.get('fields',{}) or {}; names=[n.strip() for n in (os.environ.get('EPIC_TYPE_NAMES') or '에픽,Epic').split(',') if n.strip()]; tn=lambda x:(((x or {}).get('issuetype') or {}).get('name') or ''); p=f.get('parent') or {}; print(os.environ['ORIG_KEY'] if tn(f) in names else (p.get('key','') if (p.get('key') and tn(p.get('fields') or {}) in names) else ''))" 2>/dev/null || echo "")
           fi
           export PARENT_EPIC
           if [ -n "$PARENT_EPIC" ]; then
-            echo "원본 태스크의 부모 에픽: ${PARENT_EPIC} → P2 이슈도 동일 에픽에 연결"
+            echo "원본(${ORIG_KEY})의 부모 에픽: ${PARENT_EPIC} → P2 이슈도 동일 에픽에 연결"
           else
-            echo "원본 태스크를 못 찾았거나 부모가 에픽이 아님/부모 없음 — parent 없이 생성"
+            echo "제목에 원본 키 없음/원본·부모가 에픽 아님 — parent 없이 생성"
           fi
 
           # 3) Jira 이슈 생성 요청 페이로드 구성 (description은 ADF 최소 구조, assignee/parent는 있을 때만)
