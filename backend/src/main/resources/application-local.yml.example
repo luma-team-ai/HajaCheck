@@ -7,6 +7,10 @@
 # → 로컬 localhost:5432(PostgreSQL) / localhost:6380(Redis) 가 공용 개발 서버로 포워딩됨
 # (SSH 터널 없이 로컬 자체 컨테이너로 개발한다면: 루트 docker-compose.yml 로 `docker compose up -d postgres redis`
 #  실행 — 기본 DB명이 hajacheck_dev 라 아래 url 은 그 값을 그대로 쓴다. docs/conventions/로컬_개발_가이드.md 참고)
+#
+# ⚠️ 공유 DB 오염 주의: local 프로파일은 known-password ADMIN 시드(dev@hajacheck.local / dev1234)를 생성한다.
+#    SSH 터널로 "공용 개발 서버"에 붙는 위 경로를 쓸 때는 그 known 계정이 공용 DB에 심어지므로,
+#    아래 app.local-seed.enabled 를 false 로 두어 시드를 꺼라. 로컬 격리 DB(compose)에서만 true 로 둔다.
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/hajacheck_dev
@@ -53,6 +57,10 @@ spring:
 
 # 소셜 로그인 성공/실패 후 프론트 리다이렉트 대상(로컬 Vite dev 기준, prod 는 env override)
 app:
+  # 로컬 시드 유저(dev@hajacheck.local / dev1234, ADMIN) 생성 스위치.
+  # 로컬 격리 DB(compose)면 true, SSH 터널로 공용 DB에 붙을 때는 반드시 false 로 꺼 공유 DB 오염 방지.
+  local-seed:
+    enabled: true
   oauth2:
     success-redirect: http://localhost:5173/dashboard
     failure-redirect: http://localhost:5173/login?error=oauth
