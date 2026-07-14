@@ -13,7 +13,6 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 로컬 개발 전용 시드 유저 — 전역 인증 강제(anyRequest().authenticated()) 이후
@@ -55,10 +54,9 @@ public class LocalUserSeeder implements ApplicationRunner {
     private boolean seedEnabled;
 
     @Override
-    @Transactional
     public void run(ApplicationArguments args) {
         if (!seedEnabled) {
-            log.info("로컬 시드 유저 비활성화(app.local-seed.enabled=false) — 생성 스킵");
+            log.debug("로컬 시드 유저 비활성화(app.local-seed.enabled=false) — 생성 스킵");
             return;
         }
         if (userRepository.findByEmail(SEED_EMAIL).isPresent()) {
@@ -74,6 +72,9 @@ public class LocalUserSeeder implements ApplicationRunner {
                 .status(UserStatus.ACTIVE)
                 .build();
         try {
+            // 이 run() 자체는 @Transactional 이 아니므로 save() 는 Spring Data 의 자체(내부) 트랜잭션에서 실행된다.
+            // 그래야 경합(unique 위반) 시 그 내부 tx만 롤백되고 DataIntegrityViolationException 이 바깥으로
+            // 전파돼도 여기서 안전하게 삼킬 수 있다(바깥 tx가 없으니 rollback-only 오염도 없음).
             userRepository.save(seedUser);
         } catch (DataIntegrityViolationException e) {
             // 동시 기동(devtools 재시작 등)에서 다른 인스턴스가 먼저 생성한 경합 — email unique 제약에 걸린 것뿐이라 스킵.

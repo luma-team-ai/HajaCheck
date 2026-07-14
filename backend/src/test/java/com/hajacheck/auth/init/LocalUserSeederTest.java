@@ -1,6 +1,7 @@
 package com.hajacheck.auth.init;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -20,6 +21,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -96,5 +98,19 @@ class LocalUserSeederTest {
         verify(userRepository, never()).findByEmail(any());
         verify(userRepository, never()).save(any(User.class));
         verify(passwordEncoder, never()).encode(any());
+    }
+
+    @Test
+    void run_저장시경합예외발생해도_예외전파없이_정상리턴한다() {
+        when(userRepository.findByEmail(eq(SEED_EMAIL))).thenReturn(Optional.empty());
+        when(passwordEncoder.encode(eq(SEED_PASSWORD))).thenReturn("encoded-pw");
+        when(userRepository.save(any(User.class)))
+                .thenThrow(new DataIntegrityViolationException("unique constraint violation"));
+
+        // run() 은 @Transactional 이 아니므로 save() 의 DataIntegrityViolationException 은
+        // 바깥 트랜잭션 없이 그대로 catch 로 흡수돼야 한다(기동 실패로 전파되면 안 됨).
+        assertThatCode(() -> localUserSeeder.run(null)).doesNotThrowAnyException();
+
+        verify(userRepository, times(1)).save(any(User.class));
     }
 }
