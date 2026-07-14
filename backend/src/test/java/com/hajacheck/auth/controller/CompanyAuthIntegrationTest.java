@@ -143,49 +143,7 @@ class CompanyAuthIntegrationTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.error.code").value("AUTH_ACCOUNT_NOT_FOUND"));
     }
 
-    @Test
-    void 비밀번호찾기_1단계_2단계_정상() throws Exception {
-        signup("pw@haja.com", "444-55-66666", "(주)비번회사", "정비번");
-
-        // 1단계: 이메일+사업자번호 인증 → 재설정 토큰
-        String inquiryBody = objectMapper.writeValueAsString(java.util.Map.of(
-                "email", "pw@haja.com",
-                "businessRegistrationNumber", "444-55-66666"));
-        MvcResult inquiry = mockMvc.perform(post("/api/auth/password-inquiry").with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON).content(inquiryBody))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.expiresInSeconds").value(600))
-                .andReturn();
-        String resetToken = objectMapper.readTree(inquiry.getResponse().getContentAsString())
-                .get("data").get("resetToken").asText();
-
-        // 2단계: 토큰으로 비밀번호 재설정
-        String resetBody = objectMapper.writeValueAsString(java.util.Map.of(
-                "resetToken", resetToken,
-                "newPassword", "newpass99"));
-        mockMvc.perform(post("/api/auth/password-reset").with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON).content(resetBody))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true));
-
-        // 토큰 단일 사용 — 재사용 시 400
-        mockMvc.perform(post("/api/auth/password-reset").with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON).content(resetBody))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("AUTH_RESET_TOKEN_INVALID"));
-    }
-
-    @Test
-    void 비밀번호찾기_1단계_불일치_400_VERIFICATION_FAILED() throws Exception {
-        String body = objectMapper.writeValueAsString(java.util.Map.of(
-                "email", "nobody@haja.com",
-                "businessRegistrationNumber", "000-00-00000"));
-
-        mockMvc.perform(post("/api/auth/password-inquiry").with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("AUTH_VERIFICATION_FAILED"));
-    }
+    // 비밀번호 찾기(1·2단계)는 P1 로 제외됨 — 후속 #194(보안질문 방식).
 
     @Test
     void 이메일중복확인_사용가능_200() throws Exception {

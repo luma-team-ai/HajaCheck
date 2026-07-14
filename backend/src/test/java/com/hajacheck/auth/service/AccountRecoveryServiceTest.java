@@ -2,29 +2,18 @@ package com.hajacheck.auth.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hajacheck.auth.config.AuthProperties;
 import com.hajacheck.auth.dto.FindIdRequest;
 import com.hajacheck.auth.dto.FindIdResponse;
-import com.hajacheck.auth.dto.PasswordInquiryRequest;
-import com.hajacheck.auth.dto.PasswordInquiryResponse;
-import com.hajacheck.auth.dto.PasswordResetRequest;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
-import com.hajacheck.auth.support.TokenNamespaces;
-import com.hajacheck.auth.support.TokenStore;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
-import java.time.Duration;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,8 +22,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
+/**
+ * 아이디 찾기 단위 테스트. (비밀번호 찾기는 P1 로 제외됨 — 후속 #194.)
+ */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class AccountRecoveryServiceTest {
@@ -43,17 +34,9 @@ class AccountRecoveryServiceTest {
     private UserRepository userRepository;
     @Mock
     private CompanyRepository companyRepository;
-    @Mock
-    private TokenStore tokenStore;
-    @Mock
-    private PasswordEncoder passwordEncoder;
-    @Mock
-    private AuthProperties authProperties;
 
     @InjectMocks
     private AccountRecoveryService service;
-
-    // ---------- 아이디 찾기 ----------
 
     @Test
     void findId_대표자명매칭_마스킹이메일반환() {
@@ -106,78 +89,5 @@ class AccountRecoveryServiceTest {
         assertThatThrownBy(() -> service.findId(new FindIdRequest("123-45-67890", "김민수", "(주)가짜회사")))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.AUTH_ACCOUNT_NOT_FOUND));
-    }
-
-    // ---------- 비밀번호 1단계 ----------
-
-    @Test
-    void 비번1단계_매칭_재설정토큰발급() {
-        User user = mock(User.class);
-        when(user.getId()).thenReturn(7L);
-        when(user.getEmail()).thenReturn("haja@check.com");
-        when(userRepository.findByEmail("haja@check.com")).thenReturn(Optional.of(user));
-        Company company = mock(Company.class);
-        when(company.getOwnerUserId()).thenReturn(7L);
-        when(companyRepository.findByBusinessRegistrationNumber("1234567890")).thenReturn(Optional.of(company));
-        when(authProperties.getPasswordResetTtl()).thenReturn(Duration.ofMinutes(10));
-        when(tokenStore.issue(eq(TokenNamespaces.PASSWORD_RESET), eq("7"), any(Duration.class)))
-                .thenReturn("reset-tok");
-
-        PasswordInquiryResponse response = service.verifyForPasswordReset(
-                new PasswordInquiryRequest("haja@check.com", "123-45-67890"));
-
-        assertThat(response.resetToken()).isEqualTo("reset-tok");
-        assertThat(response.expiresInSeconds()).isEqualTo(600L);
-        assertThat(response.maskedEmail()).isEqualTo("haja***@check.com");
-    }
-
-    @Test
-    void 비번1단계_소유자불일치_400_VERIFICATION_FAILED() {
-        User user = mock(User.class);
-        when(user.getId()).thenReturn(7L);
-        when(userRepository.findByEmail("haja@check.com")).thenReturn(Optional.of(user));
-        Company company = mock(Company.class);
-        when(company.getOwnerUserId()).thenReturn(99L); // 다른 소유자
-        when(companyRepository.findByBusinessRegistrationNumber("1234567890")).thenReturn(Optional.of(company));
-
-        assertThatThrownBy(() -> service.verifyForPasswordReset(
-                new PasswordInquiryRequest("haja@check.com", "123-45-67890")))
-                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(ErrorCode.AUTH_VERIFICATION_FAILED));
-        verify(tokenStore, never()).issue(anyString(), anyString(), any());
-    }
-
-    @Test
-    void 비번1단계_이메일미존재_400_VERIFICATION_FAILED() {
-        when(userRepository.findByEmail(anyString())).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.verifyForPasswordReset(
-                new PasswordInquiryRequest("none@check.com", "123-45-67890")))
-                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(ErrorCode.AUTH_VERIFICATION_FAILED));
-    }
-
-    // ---------- 비밀번호 2단계 ----------
-
-    @Test
-    void 비번2단계_토큰유효_비밀번호변경() {
-        when(tokenStore.consume(TokenNamespaces.PASSWORD_RESET, "reset-tok")).thenReturn(Optional.of("7"));
-        User user = mock(User.class);
-        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
-        when(passwordEncoder.encode("newpass12")).thenReturn("$2a$new");
-
-        service.resetPassword(new PasswordResetRequest("reset-tok", "newpass12"));
-
-        verify(user).changePassword("$2a$new");
-    }
-
-    @Test
-    void 비번2단계_토큰무효또는이미소비_400_RESET_TOKEN_INVALID() {
-        when(tokenStore.consume(TokenNamespaces.PASSWORD_RESET, "bad")).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.resetPassword(new PasswordResetRequest("bad", "newpass12")))
-                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(ErrorCode.AUTH_RESET_TOKEN_INVALID));
-        verify(passwordEncoder, never()).encode(anyString());
     }
 }
