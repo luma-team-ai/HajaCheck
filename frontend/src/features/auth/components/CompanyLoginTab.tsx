@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import { AuthFooterLinks } from './AuthFooterLinks';
 import { useLogin } from '../hooks/useLogin';
-import { clearSavedLoginId, getSavedLoginId, setSavedLoginId } from '../utils/savedLoginId';
+import {
+  clearSavedLoginId,
+  getSavedLoginId,
+  resolveSavedLoginId,
+  setSavedLoginId,
+} from '../utils/savedLoginId';
 import { isLoginFormValid } from '../utils/validateLoginForm';
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -26,8 +31,10 @@ export function CompanyLoginTab() {
 
   const handleToggleSaveId = (checked: boolean) => {
     setIsSaveIdChecked(checked);
-    if (checked) {
-      setSavedLoginId(loginId.trim());
+    // 체크했더라도 아이디가 빈 값(공백만 포함)이면 저장할 것이 없으므로 저장소는 정리 상태로 둔다
+    const idToSave = resolveSavedLoginId(checked, loginId);
+    if (idToSave) {
+      setSavedLoginId(idToSave);
     } else {
       clearSavedLoginId();
     }
@@ -39,8 +46,9 @@ export function CompanyLoginTab() {
 
     // 검증(isLoginFormValid)과 동일하게 trim된 값을 저장·전송에 사용 — 원본과 불일치 방지
     const trimmedLoginId = loginId.trim();
-    if (isSaveIdChecked) {
-      setSavedLoginId(trimmedLoginId);
+    const idToSave = resolveSavedLoginId(isSaveIdChecked, loginId);
+    if (idToSave) {
+      setSavedLoginId(idToSave);
     }
     login({ loginId: trimmedLoginId, password });
   };
