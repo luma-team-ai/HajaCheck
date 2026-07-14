@@ -9,6 +9,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -24,7 +25,10 @@ import lombok.NoArgsConstructor;
  */
 @Entity
 @Getter
-@Table(name = "users")
+@Table(name = "users", uniqueConstraints = {
+        // DDL 의 unique(social_provider, social_id) 반영 — 소셜 계정 중복/경합을 DB 제약으로 차단.
+        @UniqueConstraint(name = "uk_users_social", columnNames = {"social_provider", "social_id"})
+})
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class User extends BaseTimeEntity {
 
