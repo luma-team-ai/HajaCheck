@@ -37,6 +37,7 @@ export const router = createBrowserRouter([
   },
   // { path: '/login', ... }                    — features/auth
   {
+    // TODO: 인증 가드(ProtectedRoute) 도입 시 시설물 현황·점검 통계 등 업무 데이터 노출 라우트이므로 적용 필요 — 현재는 인증 스켈레톤(features/auth) 미구현이라 미적용(의도된 임시 상태)
     path: '/dashboard',
     element: (
       <Suspense fallback={<div>불러오는 중...</div>}>

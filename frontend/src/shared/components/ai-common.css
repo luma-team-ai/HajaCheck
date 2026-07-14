@@ -1,0 +1,50 @@
+/* 공통 AI 로딩/에러 컴포넌트 — React_코드_컨벤션.md §6, AI_개발_컨벤션.md §5 규약 */
+
+.ai-loading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  color: #999;
+  font-size: 14px;
+}
+
+.ai-loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #e2e6ff;
+  border-top-color: #4a5cff;
+  border-radius: 50%;
+  animation: ai-loading-spin 0.8s linear infinite;
+}
+
+@keyframes ai-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ai-error-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.ai-error-message {
+  color: #dc2626;
+  font-size: 14px;
+}
+
+.ai-error-retry-btn {
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid #d8dbe6;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  cursor: pointer;
+}

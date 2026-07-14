@@ -1,9 +1,18 @@
 import { useGradeDistribution } from '../hooks/useGradeDistribution';
-import { getGradeColor, sortGradeDistribution } from '../utils/gradeDistribution';
+import {
+  getGradeColor,
+  isGradeTotalValid,
+  sortGradeDistribution,
+  sumGradePercent,
+} from '../utils/gradeDistribution';
 
 export function GradeDistributionCard() {
   const { data, isLoading, isError } = useGradeDistribution();
   const sorted = data ? sortGradeDistribution(data) : [];
+
+  // 스토리보드 DASH-01 V2: 등급별 비율 막대의 합계가 100%인지 검증 (부동소수 오차 허용)
+  const totalPercent = sumGradePercent(sorted);
+  const isTotalValid = isGradeTotalValid(sorted);
 
   return (
     <section className="dashboard-card grade-distribution-card">
@@ -34,6 +43,11 @@ export function GradeDistributionCard() {
               </li>
             ))}
           </ul>
+          {!isTotalValid && (
+            <p className="dashboard-card-status grade-distribution-warning" role="alert">
+              등급 분포 합계가 100%가 아닙니다 (현재 {totalPercent.toFixed(1)}%) — 데이터를 확인해 주세요.
+            </p>
+          )}
         </>
       )}
     </section>

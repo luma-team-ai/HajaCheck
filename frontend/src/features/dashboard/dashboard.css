@@ -1,5 +1,10 @@
 /* 대시보드 개요 화면(dev-03-01, HAJA-17) 전용 스타일 — landing.css와 동일 방식(일반 CSS, 데스크톱 우선) */
 
+/* 대시보드 색상 토큰 — 하드코딩 대신 변수로 단일 관리 (E등급/경고 = 위험 색) */
+:root {
+  --dashboard-color-danger: #dc2626;
+}
+
 .dashboard-layout {
   display: flex;
   min-height: 100vh;
@@ -560,4 +565,11 @@
   .dashboard-content {
     padding: 16px;
   }
+}
+
+/* 스토리보드 DASH-01 V2: 등급 분포 합계 100% 미충족 경고 */
+.grade-distribution-warning {
+  margin-top: 8px;
+  color: var(--dashboard-color-danger);
+  font-size: 13px;
 }
