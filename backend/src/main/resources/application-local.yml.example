@@ -31,9 +31,9 @@ spring:
             authorization-grant-type: authorization_code
             # 인가 base-uri 를 /api/auth/oauth2 로 커스텀했으므로 redirect-uri 경로는 /login/oauth2/code/* 유지
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            # account_email 미요청 — 개인 카카오 앱은 이메일 동의항목 활성화 불가 → 요청 시 KOE205(#202). 이메일은 placeholder 처리(#199).
             scope:
               - profile_nickname
-              - account_email
             client-name: Kakao
           google:
             client-id: ${GOOGLE_CLIENT_ID}
