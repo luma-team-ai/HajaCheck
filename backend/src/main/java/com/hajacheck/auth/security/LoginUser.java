@@ -6,6 +6,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import lombok.Getter;
+import org.springframework.security.core.CredentialsContainer;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -14,13 +15,17 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 /**
  * 자체 로그인(UserDetails)과 소셜 로그인(OAuth2User)을 통합하는 단일 principal.
  * 컨트롤러에서 {@code @AuthenticationPrincipal LoginUser} 로 주입 가능.
+ *
+ * CredentialsContainer 구현: 인증 성공 후 ProviderManager 가 eraseCredentials() 를 호출해
+ * password 를 제거 → Redis 세션에 자격증명(passwordHash)이 직렬화되지 않는다.
  */
 @Getter
-public class LoginUser implements UserDetails, OAuth2User {
+public class LoginUser implements UserDetails, OAuth2User, CredentialsContainer {
 
     private final Long userId;
     private final String email;
-    private final String password;
+    // eraseCredentials() 로 null 처리해야 하므로 final 이 아니다.
+    private String password;
     private final Role role;
     private final boolean suspended;
     private final transient Map<String, Object> attributes;
@@ -86,5 +91,11 @@ public class LoginUser implements UserDetails, OAuth2User {
     public String getName() {
         // OAuth2User.getName() 은 principal 식별자 — userId 를 사용.
         return String.valueOf(userId);
+    }
+
+    // ── CredentialsContainer ──
+    @Override
+    public void eraseCredentials() {
+        this.password = null;
     }
 }
