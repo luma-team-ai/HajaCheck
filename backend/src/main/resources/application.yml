@@ -1,3 +1,9 @@
+server:
+  # nginx(TLS 종단) 뒤에서 X-Forwarded-* 를 신뢰해 https/Secure 쿠키를 정상 인식.
+  forward-headers-strategy: framework
+  # TODO(후속, application-prod.yml 신설 시): prod 프로파일에서 세션 쿠키
+  #   server.servlet.session.cookie.secure=true / same-site=lax 설정할 것.
+
 spring:
   application:
     name: hajacheck

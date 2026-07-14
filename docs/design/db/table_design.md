@@ -669,3 +669,13 @@ HAJA-102 기준 최종 산출물은 아래 파일들이다.
 | 기준 요구사항 문서 | `PRD_hajaCheck_v0.41.md` | 테이블 설계의 근거가 되는 기능 요구사항, IA, 시스템 아키텍처, 주요 데이터 모델 정의 |
 
 제출·공유 시에는 `table_design.md`를 설명 문서로, `hajaCheck_script.sql`을 최종 적용 기준으로 사용한다.
+
+---
+
+## 10. 운영 정책 (스키마·설정·매핑)
+
+백엔드 배포·스키마 운영의 기준. (HAJA-164에서 명문화)
+
+1. **마이그레이션**: **수동 DDL(`HajaCheck_script_v0.x.sql`) + JPA `ddl-auto: validate`**. Flyway는 도입하지 않는다(전역 컨벤션의 Flyway 규칙을 이 프로젝트에서 오버라이드). 스키마 변경은 DDL 스크립트를 사람이 서버에 적용하고, 애플리케이션은 기동 시 `validate`로 엔티티↔스키마 정합만 검증한다(스키마를 생성/수정하지 않는다).
+2. **프로파일**: `local`(개발) / `docker`(oci-arm1 서버). 서버용 설정은 `application-docker.yml` **단일 파일**로 관리하며, 인프라 오너가 단독 관리한다. 시크릿 실제 값은 서버 `~/apps/hajacheck/.env`(미커밋)에만 두고, yml·compose에는 `${ENV}` 참조만 둔다. datasource/redis는 compose가 `SPRING_DATASOURCE_*`/`SPRING_DATA_REDIS_*`로 주입하고, `ddl-auto`/세션 등 공통값은 `application.yml`(base)에서 상속한다.
+3. **JPA ↔ PG named enum 매핑**: PG named enum 컬럼(`role_type`·`social_provider_type`·`user_status_type` 등)은 엔티티에서 `@JdbcTypeCode(org.hibernate.type.SqlTypes.NAMED_ENUM)` + `@Column(columnDefinition = "<enum_type>")`으로 매핑한다. Java enum 라벨은 PG enum 라벨과 정확히 일치시켜야 하며, `@Enumerated(STRING)`(varchar 매핑)은 사용하지 않는다. named enum은 H2로 재현할 수 없으므로 관련 엔티티/리포지토리 테스트는 Testcontainers PostgreSQL(실 PG, `ddl-auto=validate`)로 검증한다.

@@ -41,8 +41,12 @@ services:
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}
       SPRING_DATA_REDIS_DATABASE: ${REDIS_DB_INDEX:-0}
       AI_SERVER_BASE_URL: http://127.0.0.1:8101
-      # OAuth2 registration(KAKAO_CLIENT_ID 등)은 base compose와 동일하게 값이 있을 때만 개별 추가할 것
-      # (registration.{provider}.client-id 키가 빈 문자열로만 존재해도 기동 실패 — 위 base 주석 참조).
+      # OAuth2 registration — 값은 서버 .env(미커밋)에만. 미설정 시 기동 실패(:? 가드)로 조기 차단.
+      # (registration.{provider}.client-id 키가 빈 문자열로만 존재해도 기동 실패 — 위 base 주석 참조.)
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:?KAKAO_CLIENT_ID가 .env에 설정되어야 합니다}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:?KAKAO_CLIENT_SECRET이 .env에 설정되어야 합니다}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID가 .env에 설정되어야 합니다}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET이 .env에 설정되어야 합니다}
     healthcheck:
       # network_mode: host라 자기 자신(127.0.0.1)의 SERVER_PORT(9100)로 확인 — 이미지 baked-in
       # HEALTHCHECK(127.0.0.1:8080)는 이 포트와 다르므로 여기서 반드시 재정의해야 한다.

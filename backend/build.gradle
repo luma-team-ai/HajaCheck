@@ -44,9 +44,18 @@ dependencies {
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
+    // PG named enum(@JdbcTypeCode NAMED_ENUM)은 H2로 재현 불가 → DB 접근 테스트는 실 PostgreSQL(Testcontainers)로 검증.
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testRuntimeOnly 'com.h2database:h2'
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+    // 로컬 Docker Desktop(API 프록시 소켓)에서 Testcontainers 가 전략 고정으로 DOCKER_HOST 를 무시할 때만
+    // 오버라이드용(기본 미설정 → CI/기본 환경엔 영향 없음): ./gradlew test -PdockerStrategy=...
+    if (project.hasProperty('dockerStrategy')) {
+        systemProperty 'docker.client.strategy', project.getProperty('dockerStrategy')
+    }
 }
