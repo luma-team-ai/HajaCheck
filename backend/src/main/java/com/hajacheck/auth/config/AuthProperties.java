@@ -10,7 +10,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app.auth")
 public class AuthProperties {
 
-    /** 비밀번호 재설정 토큰 TTL. 기본 10분. */
+    /**
+     * 비밀번호 재설정 토큰 TTL. 기본 10분.
+     * ⚠️ 현재 미사용 — 비밀번호 찾기 엔드포인트가 P1 로 제외됨. 보안질문 방식 후속에서 재사용 예정(#194 / HAJA-172).
+     */
     private Duration passwordResetTtl = Duration.ofMinutes(10);
 
     /** 가입 상태 조회 토큰 TTL. 기본 30일. */

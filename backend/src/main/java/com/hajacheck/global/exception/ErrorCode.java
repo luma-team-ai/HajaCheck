@@ -28,7 +28,7 @@ public enum ErrorCode {
     AUTH_BUSINESS_NUMBER_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 사업자등록번호입니다."),
     // 계정 열거 방지: 아이디 찾기 무매칭은 이 코드로 통일.
     AUTH_ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "일치하는 계정을 찾을 수 없습니다."),
-    // 비밀번호 찾기 1단계(기업정보 인증) 실패 — 불일치·미존재 통일(401 아님).
+    // 비밀번호 찾기 관련 — 현재 미사용(엔드포인트 P1 제외). 보안질문 방식 후속에서 재사용 예정(#194 / HAJA-172).
     AUTH_VERIFICATION_FAILED(HttpStatus.BAD_REQUEST, "입력하신 정보와 일치하는 계정을 찾을 수 없습니다."),
     AUTH_RESET_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "유효하지 않거나 만료된 재설정 토큰입니다."),
     AUTH_SIGNUP_TOKEN_INVALID(HttpStatus.NOT_FOUND, "유효하지 않은 가입 상태 토큰입니다."),

@@ -137,6 +137,7 @@ public class User extends BaseTimeEntity {
 
     /**
      * 비밀번호 재설정 (상태 전이). 호출부에서 반드시 인코딩된 해시를 전달한다.
+     * ⚠️ 현재 미사용 — 비밀번호 찾기 엔드포인트가 P1 로 제외됨. 보안질문 방식 후속에서 재사용 예정(#194 / HAJA-172).
      */
     public void changePassword(String newPasswordHash) {
         this.passwordHash = newPasswordHash;
