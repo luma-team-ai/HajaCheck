@@ -165,3 +165,71 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 - `/ai/rag-chat` — RAG 챗봇 (이은석)
 - `/ai/nl-search` — 자연어 검색 (하자 관리 담당)
 - Spring Boot REST 엔드포인트 전체 (백엔드 담당)
+
+---
+
+# 기업 인증 플로우 (회원가입·아이디/비밀번호 찾기) — Contract v1 (2026-07-14)
+
+> Figma 5개 화면(기업 회원가입/가입 승인 대기/아이디 찾기/비밀번호 찾기/새 비밀번호 설정) 풀스택 대응. 백엔드(Spring)·프론트(React)·AI(stub) 정렬용 단일 계약. **모든 엔드포인트는 `/api/auth/**`**(기존 SecurityConfig permitAll 커버). 응답은 공통 `ApiResponse` envelope `{success, data, error{code,message}}`.
+>
+> **결정**: OCR=stub+수동입력 · 파일저장=dev 로컬볼륨 · 주소=다음(카카오) 우편번호 · 개인가입=소셜 위임(범위 외) · 관리자 승인 화면=범위 외(가입은 company.status=PENDING_REVIEW 생성만).
+>
+> **공통 규약(소비처 필수 준수)**:
+> - 검증 실패는 **절대 401 금지**(프론트 axios가 401을 로그인 강제 리다이렉트로 처리) → 400/404/409만 사용.
+> - CSRF: double-submit 쿠키. 비로그인 POST도 `XSRF-TOKEN` 쿠키를 먼저 받아 `X-XSRF-TOKEN` 헤더로 재전송해야 통과 → 프론트는 인증 폼 마운트 시 GET(`email-availability` 등) 1회로 쿠키 프라이밍.
+> - 계정 열거 방지: 찾기류 실패 메시지 통일.
+
+## POST /api/auth/companies — 기업 회원가입 (multipart/form-data)
+가입 신청. User(passwordHash·ACTIVE) + Company(PENDING_REVIEW) + UserConsent(약관 2건) 원자 생성.
+
+**요청** (multipart 폼 필드 + 파일):
+| 필드 | 타입 | 검증 |
+|---|---|---|
+| `email` | text | @NotBlank @Email (= 로그인 아이디) |
+| `password` | text | @NotBlank @Size(min=8), 영문+숫자 포함 |
+| `companyName` | text | @NotBlank ≤200 |
+| `businessRegistrationNumber` | text | @NotBlank `\d{3}-?\d{2}-?\d{5}` (수동입력) |
+| `representativeName` | text | @NotBlank ≤100 (수동입력) |
+| `address` | text | @NotBlank ≤300 (다음 우편번호 결과) |
+| `addressDetail` | text | ≤200 (직접입력, nullable) |
+| `agreeTermsOfService` | text(bool) | @AssertTrue |
+| `agreePrivacyPolicy` | text(bool) | @AssertTrue |
+| `businessRegistrationFile` | file | 필수, MIME∈{image/jpeg,image/png,application/pdf}, ≤10MB |
+
+> 약관 버전은 클라이언트가 보내지 않음(서버 소유). OCR 필드(사업자번호/상호/대표)는 현재 사용자가 수동 입력한 값을 그대로 저장.
+
+**성공 201** `data`: `{ "companyId": 12, "maskedEmail": "haja***@check.com", "status": "PENDING_REVIEW", "signupToken": "<opaque>" }`
+`signupToken`은 승인 대기 화면 상태조회에 사용(불투명 랜덤, PK 노출 금지).
+
+**실패**: `409 AUTH_EMAIL_DUPLICATED` · `409 AUTH_BUSINESS_NUMBER_DUPLICATED` · `400 FILE_REQUIRED|FILE_INVALID_TYPE|FILE_TOO_LARGE` · `400 INVALID_INPUT` · `500 FILE_UPLOAD_FAILED`
+
+## GET /api/auth/email-availability?email={email} — 아이디(이메일) 중복확인
+**성공 200** `data`: `{ "available": true }`
+
+## POST /api/auth/id-inquiry — 아이디 찾기 (application/json)
+**요청**: `{ "businessRegistrationNumber": "123-45-67890", "representativeName": "김민수", "companyName": "(주)하자체크" }` — repName·companyName 중 **최소 1개** 필수.
+**성공 200** `data`: `{ "maskedEmail": "haja***@check.com" }`
+**실패**: `404 AUTH_ACCOUNT_NOT_FOUND` (무매칭 통일 "일치하는 계정을 찾을 수 없습니다.")
+
+## POST /api/auth/password-inquiry — 비밀번호 찾기 1단계(기업정보 인증)
+**요청**: `{ "email": "haja@check.com", "businessRegistrationNumber": "123-45-67890" }`
+**성공 200** `data`: `{ "resetToken": "<opaque>", "maskedEmail": "haja***@check.com", "expiresInSeconds": 600 }`
+**실패**: `400 AUTH_VERIFICATION_FAILED` (불일치·미존재 통일, **401 아님**)
+
+## POST /api/auth/password-reset — 비밀번호 찾기 2단계(재설정)
+**요청**: `{ "resetToken": "<opaque>", "newPassword": "..." }` (@Size(min=8), 영문+숫자)
+**성공 200** `data`: `null`. 토큰은 단일 사용(소비 후 삭제).
+**실패**: `400 AUTH_RESET_TOKEN_INVALID` (무효/만료)
+
+## GET /api/auth/companies/status?token={signupToken} — 가입 상태 조회(승인 대기 새로고침)
+**성공 200** `data`: `{ "status": "PENDING_REVIEW" , "companyName": "(주)하자체크", "rejectionReason": null }`
+`status` ∈ `PENDING_REVIEW|APPROVED|REJECTED`. 스테퍼: PENDING_REVIEW=서류검토중, APPROVED=승인완료.
+**실패**: `404 AUTH_SIGNUP_TOKEN_INVALID`
+
+## POST /ai/business-license-ocr — 사업자등록증 OCR (AI서버, **stub**)
+현재 stub. 백엔드 미배선(향후 실제 OCR 교체 seam).
+**요청**: `{ "image_base64": "..." }` 또는 `{ "file_ref": "..." }`
+**성공 200** (`AIResponse` envelope) `data`: `{ "businessRegistrationNumber": null, "companyName": null, "representativeName": null, "raw": {}, "stub": true }`
+
+### 추가 ErrorCode (Spring `ErrorCode`)
+`AUTH_EMAIL_DUPLICATED`(409) · `AUTH_BUSINESS_NUMBER_DUPLICATED`(409) · `AUTH_ACCOUNT_NOT_FOUND`(404) · `AUTH_VERIFICATION_FAILED`(400) · `AUTH_RESET_TOKEN_INVALID`(400) · `AUTH_SIGNUP_TOKEN_INVALID`(404) · `FILE_REQUIRED`(400) · `FILE_INVALID_TYPE`(400) · `FILE_TOO_LARGE`(400) · `FILE_UPLOAD_FAILED`(500)
