@@ -1,6 +1,16 @@
+import { useNavigate } from 'react-router-dom';
+import { COMPANY_SIGNUP_ROUTE, LOGIN_ROUTE } from '../constants';
+
 export function LoginHeroPanel() {
-  const handleComingSoon = () => {
-    window.alert('준비 중인 기능입니다.');
+  const navigate = useNavigate();
+
+  const handleCompanySignup = () => {
+    navigate(COMPANY_SIGNUP_ROUTE);
+  };
+
+  // 개인 회원가입 전용 화면은 범위 외 — 소셜 로그인(개인회원 탭)으로 안내
+  const handlePersonalSignup = () => {
+    navigate(LOGIN_ROUTE);
   };
 
   return (
@@ -18,10 +28,10 @@ export function LoginHeroPanel() {
       <div className="login-hero-image" aria-hidden="true" />
 
       <div className="login-hero-footer">
-        <button type="button" className="login-hero-company-btn" onClick={handleComingSoon}>
+        <button type="button" className="login-hero-company-btn" onClick={handleCompanySignup}>
           기업 통합회원 가입
         </button>
-        <button type="button" className="login-hero-personal-link" onClick={handleComingSoon}>
+        <button type="button" className="login-hero-personal-link" onClick={handlePersonalSignup}>
           개인 회원가입
         </button>
       </div>
