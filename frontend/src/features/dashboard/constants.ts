@@ -1,6 +1,13 @@
 // 사이드바 네비게이션 구성 — dev-03-01(Figma) 기준
 // 실제 구현된 경로는 /dashboard(전체 시설물 현황)뿐 — 나머지는 담당 feature 착수 전까지 비활성 처리
 
+// 스토리보드 DASH-01 action 이동 경로 (URL 하드코딩 방지 — 단일 지점 관리)
+// A1: 새 점검 시작 → 점검 회차 생성(INSP-01, FR-2-01 업로드)
+export const INSPECTION_NEW_PATH = '/inspections/new';
+// A2: 검수하기 → 분석 결과 뷰어에서 수동 검수(INSP-04, FR-4-02)
+export const inspectionReviewPath = (inspectionId: number): string =>
+  `/inspections/${inspectionId}/viewer`;
+
 export interface DashboardNavSubItem {
   label: string;
   path: string;

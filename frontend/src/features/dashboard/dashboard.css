@@ -561,3 +561,10 @@
     padding: 16px;
   }
 }
+
+/* 스토리보드 DASH-01 V2: 등급 분포 합계 100% 미충족 경고 */
+.grade-distribution-warning {
+  margin-top: 8px;
+  color: #dc2626;
+  font-size: 13px;
+}
