@@ -19,3 +19,62 @@ export interface LoginRequest {
   loginId: string;
   password: string;
 }
+
+// 기업 인증 플로우 — HAJA-170(#187) — docs/api-contract/contract.md "기업 인증 플로우 Contract v1"
+export type CompanyStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED';
+
+export interface CompanySignupRequest {
+  email: string;
+  password: string;
+  companyName: string;
+  businessRegistrationNumber: string;
+  representativeName: string;
+  address: string;
+  addressDetail: string;
+  agreeTermsOfService: boolean;
+  agreePrivacyPolicy: boolean;
+  businessRegistrationFile: File;
+}
+
+export interface CompanySignupResponse {
+  companyId: number;
+  maskedEmail: string;
+  status: CompanyStatus;
+  signupToken: string;
+}
+
+export interface EmailAvailabilityResponse {
+  available: boolean;
+}
+
+export interface IdInquiryRequest {
+  businessRegistrationNumber: string;
+  companyName: string;
+  representativeName: string;
+}
+
+export interface IdInquiryResponse {
+  maskedEmail: string;
+}
+
+export interface PasswordInquiryRequest {
+  email: string;
+  businessRegistrationNumber: string;
+}
+
+export interface PasswordInquiryResponse {
+  resetToken: string;
+  maskedEmail: string;
+  expiresInSeconds: number;
+}
+
+export interface PasswordResetRequest {
+  resetToken: string;
+  newPassword: string;
+}
+
+export interface SignupStatusResponse {
+  status: CompanyStatus;
+  companyName: string;
+  rejectionReason: string | null;
+}
