@@ -19,8 +19,10 @@ spring:
             client-secret: ${KAKAO_CLIENT_SECRET}
             client-authentication-method: client_secret_post
             authorization-grant-type: authorization_code
-            # 인가 base-uri 를 /api/auth/oauth2 로 커스텀했으므로 redirect-uri 경로는 /login/oauth2/code/* 유지
-            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            # redirect-uri 는 절대 https 로 고정한다. nginx(TLS 종단) 뒤에서 forward-headers 가
+            # X-Forwarded-Proto 를 반영하지 못해 {baseUrl} 이 http 로 해석되면 provider 가
+            # redirect_uri_mismatch(400) 를 반환한다(인가 base-uri 커스텀과 무관하게 콜백 경로는 /login/oauth2/code/*).
+            redirect-uri: "https://hajacheck.luma200ok.com/login/oauth2/code/kakao"
             scope:
               - profile_nickname
               - account_email
@@ -28,6 +30,8 @@ spring:
           google:
             client-id: ${GOOGLE_CLIENT_ID}
             client-secret: ${GOOGLE_CLIENT_SECRET}
+            # kakao 와 동일 사유로 절대 https 로 고정(forward-headers proto 미반영 → mismatch 방지)
+            redirect-uri: "https://hajacheck.luma200ok.com/login/oauth2/code/google"
             scope:
               - email
               - profile
