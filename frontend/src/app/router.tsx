@@ -12,6 +12,10 @@ const ResultViewerPage = lazy(() =>
 
 const LandingPage = lazy(() => import('../features/landing/LandingPage'));
 
+const LoginPage = lazy(() =>
+  import('../features/auth/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
+);
+
 const DashboardPage = lazy(() =>
   import('../features/dashboard/pages/DashboardPage').then((m) => ({
     default: m.DashboardPage,
@@ -35,7 +39,14 @@ export const router = createBrowserRouter([
       </Suspense>
     ),
   },
-  // { path: '/login', ... }                    — features/auth
+  {
+    path: '/login',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <LoginPage />
+      </Suspense>
+    ),
+  }, // — features/auth (HAJA-160, #157)
   {
     path: '/dashboard',
     element: (
