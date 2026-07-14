@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse } from '../../../shared/api/types';
+import { companyAuthHandlers } from '../mocks/companyAuth.mock';
 import type { LoginRequest, UserResponse } from '../types';
 
 // 기업회원 로그인 목 자격증명 — hajacheck / password1234 (더미, 실제 계정 아님)
@@ -49,4 +50,7 @@ export const authHandlers = [
     const success: ApiResponse<null> = { success: true, data: null };
     return HttpResponse.json(success);
   }),
+
+  // 기업 인증 플로우(HAJA-170, #187) 핸들러 — features/auth/mocks/companyAuth.mock.ts
+  ...companyAuthHandlers,
 ];
