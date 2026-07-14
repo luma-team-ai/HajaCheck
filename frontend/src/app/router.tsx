@@ -22,6 +22,12 @@ const DashboardPage = lazy(() =>
   })),
 );
 
+const DefectDetailPage = lazy(() =>
+  import('../features/defect/pages/DefectDetailPage').then((m) => ({
+    default: m.DefectDetailPage,
+  })),
+);
+
 export const router = createBrowserRouter([
   {
     path: '/',
@@ -56,6 +62,14 @@ export const router = createBrowserRouter([
       </Suspense>
     ),
   }, // — features/dashboard (HAJA-17)
+  {
+    path: '/defects/:id',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <DefectDetailPage />
+      </Suspense>
+    ),
+  }, // — features/defect (HAJA-171)
   // { path: '/facilities', ... }               — features/facility
   {
     // TODO: 인증 가드(ProtectedRoute) 도입 시 시설물 위치 노출 라우트이므로 적용 필요 — 현재는 라우터 스켈레톤 단계라 미적용
