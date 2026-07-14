@@ -5,9 +5,11 @@
 #   터미널: export $(grep -v '^#' .env | xargs) && ./gradlew bootRun
 # 접속 전 SSH 터널 필요: ssh -N hajacheck-db (설정은 ~/.ssh/config 의 Host hajacheck-db 참조)
 # → 로컬 localhost:5432(PostgreSQL) / localhost:6380(Redis) 가 공용 개발 서버로 포워딩됨
+# (SSH 터널 없이 로컬 자체 컨테이너로 개발한다면: 루트 docker-compose.yml 로 `docker compose up -d postgres redis`
+#  실행 — 기본 DB명이 hajacheck_dev 라 아래 url 은 그 값을 그대로 쓴다. docs/conventions/로컬_개발_가이드.md 참고)
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/hajacheck
+    url: jdbc:postgresql://localhost:5432/hajacheck_dev
     username: hajacheck
     password: ${DB_PASSWORD}
   data:
