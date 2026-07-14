@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { getGradeColor, sortGradeDistribution, sumGradePercent } from './gradeDistribution';
+import {
+  getGradeColor,
+  isGradeTotalValid,
+  sortGradeDistribution,
+  sumGradePercent,
+} from './gradeDistribution';
 import type { GradeDistributionItem } from '../types';
 
 describe('sortGradeDistribution', () => {
@@ -40,6 +45,51 @@ describe('sumGradePercent', () => {
 
   it('빈 배열은 0을 반환한다', () => {
     expect(sumGradePercent([])).toBe(0);
+  });
+});
+
+describe('isGradeTotalValid (DASH-01 V2)', () => {
+  const full: GradeDistributionItem[] = [
+    { grade: 'A', percent: 45 },
+    { grade: 'B', percent: 25 },
+    { grade: 'C', percent: 15 },
+    { grade: 'D', percent: 10 },
+    { grade: 'E', percent: 5 },
+  ];
+
+  it('합계가 정확히 100%면 유효하다', () => {
+    expect(isGradeTotalValid(full)).toBe(true);
+  });
+
+  it('부동소수 오차 범위(< 0.5) 내면 유효하다', () => {
+    // 33.33 * 3 = 99.99 → |99.99 - 100| = 0.01 < 0.5
+    const items: GradeDistributionItem[] = [
+      { grade: 'A', percent: 33.33 },
+      { grade: 'B', percent: 33.33 },
+      { grade: 'C', percent: 33.33 },
+    ];
+    expect(isGradeTotalValid(items)).toBe(true);
+  });
+
+  it('오차 범위를 벗어나면(합계 90%) 유효하지 않다', () => {
+    const items: GradeDistributionItem[] = [
+      { grade: 'A', percent: 45 },
+      { grade: 'B', percent: 25 },
+      { grade: 'C', percent: 15 },
+      { grade: 'D', percent: 5 },
+    ];
+    expect(sumGradePercent(items)).toBe(90);
+    expect(isGradeTotalValid(items)).toBe(false);
+  });
+
+  it('빈 배열은 검증 대상이 없어 유효하다', () => {
+    expect(isGradeTotalValid([])).toBe(true);
+  });
+
+  it('허용 오차를 인자로 조절할 수 있다', () => {
+    const items: GradeDistributionItem[] = [{ grade: 'A', percent: 98 }]; // 합계 98 → |−2|
+    expect(isGradeTotalValid(items, 1)).toBe(false); // 오차 1 초과
+    expect(isGradeTotalValid(items, 3)).toBe(true); // 오차 3 이내
   });
 });
 

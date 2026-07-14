@@ -1,8 +1,8 @@
 // ai-server 전용 axios 인스턴스 — AI_개발_컨벤션.md §5 AIResponse({success,data,usage,error}) envelope 해제
 // shared/api/axios.ts(baseURL=/api)와 별도: ai-server 라우트는 /ai/* prefix(vite.config.ts 프록시 참고)
-// 대시보드 AI 브리핑 1건만 사용 중 — 다른 feature도 AI 호출이 필요해지면 shared/로 승격 검토(FE 리드 협의)
+// React_코드_컨벤션.md §3에 따라 shared로 승격 — AI 호출이 필요한 모든 feature에서 공용으로 사용
 import axios from 'axios';
-import type { ApiError } from '../../../shared/api/types';
+import type { ApiError } from './types';
 
 export const aiClient = axios.create({
   baseURL: '/ai',
