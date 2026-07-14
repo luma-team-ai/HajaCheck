@@ -198,8 +198,7 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 
 > 약관 버전은 클라이언트가 보내지 않음(서버 소유). OCR 필드(사업자번호/상호/대표)는 현재 사용자가 수동 입력한 값을 그대로 저장.
 
-**성공 201** `data`: `{ "companyId": 12, "maskedEmail": "haja***@check.com", "status": "PENDING_REVIEW", "signupToken": "<opaque>" }`
-`signupToken`은 승인 대기 화면 상태조회에 사용(불투명 랜덤, PK 노출 금지).
+**성공 201** `data` 필드: `companyId`(number), `maskedEmail`(string, 예 `haja***@check.com`), `status`(`PENDING_REVIEW`), `signupToken`(string). `signupToken`은 승인 대기 화면 상태조회에 쓰는 **불투명 랜덤 문자열**(서버 발급, PK 노출 금지) — 예시값은 문서에 싣지 않는다.
 
 **실패**: `409 AUTH_EMAIL_DUPLICATED` · `409 AUTH_BUSINESS_NUMBER_DUPLICATED` · `400 FILE_REQUIRED|FILE_INVALID_TYPE|FILE_TOO_LARGE` · `400 INVALID_INPUT` · `500 FILE_UPLOAD_FAILED`
 
