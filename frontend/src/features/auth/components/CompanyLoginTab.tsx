@@ -27,7 +27,7 @@ export function CompanyLoginTab() {
   const handleToggleSaveId = (checked: boolean) => {
     setIsSaveIdChecked(checked);
     if (checked) {
-      setSavedLoginId(loginId);
+      setSavedLoginId(loginId.trim());
     } else {
       clearSavedLoginId();
     }
@@ -37,10 +37,12 @@ export function CompanyLoginTab() {
     event.preventDefault();
     if (!isLoginFormValid(loginId, password)) return;
 
+    // 검증(isLoginFormValid)과 동일하게 trim된 값을 저장·전송에 사용 — 원본과 불일치 방지
+    const trimmedLoginId = loginId.trim();
     if (isSaveIdChecked) {
-      setSavedLoginId(loginId);
+      setSavedLoginId(trimmedLoginId);
     }
-    login({ loginId, password });
+    login({ loginId: trimmedLoginId, password });
   };
 
   const errorMessage = error ? (ERROR_MESSAGES[error.code] ?? DEFAULT_ERROR_MESSAGE) : null;
