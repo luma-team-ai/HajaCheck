@@ -58,4 +58,14 @@ tasks.named('test') {
     if (project.hasProperty('dockerStrategy')) {
         systemProperty 'docker.client.strategy', project.getProperty('dockerStrategy')
     }
+    // 최신 Docker Desktop(Server min API ≥ 1.44)에서 번들 docker-java 가 낮은 API 를 협상해 400 을 받을 때만
+    // 오버라이드용(기본 미설정 → 영향 없음): ./gradlew test -PdockerApiVersion=1.44
+    // docker-java 는 api.version 을 '시스템 프로퍼티'로만 읽으므로(포크된 test 워커엔 env 전파 안 됨) 여기서 주입.
+    if (project.hasProperty('dockerApiVersion')) {
+        systemProperty 'api.version', project.getProperty('dockerApiVersion')
+    }
+    // 마찬가지로 docker.host 를 워커 시스템 프로퍼티로 주입할 수 있게 한다(기본 미설정).
+    if (project.hasProperty('dockerHost')) {
+        systemProperty 'docker.host', project.getProperty('dockerHost')
+    }
 }
