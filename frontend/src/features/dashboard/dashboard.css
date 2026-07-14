@@ -8,7 +8,8 @@
 .dashboard-layout {
   display: flex;
   min-height: 100vh;
-  background: #f5f6f8;
+  /* 7. 맨 바탕색 흰색으로 통일(시안) — 기존 회색(#f5f6f8) 제거 */
+  background: #fff;
   color: #111;
 }
 
@@ -241,8 +242,14 @@
 
 /* ── 콘텐츠 공통 ───────────────────────────────────────── */
 
+/* 0. 가로폭 줄이기 — 콘텐츠를 둥근 흰 패널로 감싸 좌우 여백 확보(시안의 페이지 카드) */
 .dashboard-content {
-  padding: 24px 32px 48px;
+  margin: 20px 24px 28px;
+  padding: 24px 28px 30px;
+  background: #fff;
+  border: 1px solid #ececec;
+  border-radius: 20px;
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.03);
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -380,13 +387,21 @@
   color: #dc2626;
 }
 
-/* ── 등급 분포 + 처리 대기 행 ───────────────────────────── */
+/* ── 2단 컬럼(좌=등급분포+최근점검 / 우=처리대기+AI) ───────── */
+/* 2·3. 최근점검을 등급분포 아래(좌), AI를 처리대기 아래(우)에 배치 */
 
-.dashboard-row {
+.dashboard-columns {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
+}
+
+.dashboard-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
 
 .grade-bar {
@@ -402,13 +417,14 @@
   height: 100%;
 }
 
+/* 1. A~E 5개 범례를 한 줄로(시안). 좁은 화면에선 아래 미디어쿼리에서 wrap 허용 */
 .grade-legend {
   list-style: none;
   margin: 14px 0 0;
   padding: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+  flex-wrap: nowrap;
+  gap: 10px;
 }
 
 .grade-legend-item {
@@ -531,19 +547,36 @@
   font-size: 13px;
 }
 
+/* 5. 제목 ROW 회색 바탕(시안) */
 .recent-inspections-table th {
   text-align: left;
-  color: #999;
+  color: #888;
   font-weight: 600;
-  padding: 10px 12px;
+  padding: 11px 12px;
+  background: #f6f7f9;
   border-bottom: 1px solid #eee;
   white-space: nowrap;
+}
+
+.recent-inspections-table th:first-child {
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+.recent-inspections-table th:last-child {
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
 }
 
 .recent-inspections-table td {
   padding: 12px;
   border-bottom: 1px solid #f4f4f4;
   white-space: nowrap;
+}
+
+/* 6. 본문 행 회색 배경(시안) — 짝수 행 zebra */
+.recent-inspections-table tbody tr:nth-child(even) td {
+  background: #fafbfc;
 }
 
 .status-badge {
@@ -630,8 +663,12 @@
     border-bottom: 1px solid #ececec;
   }
 
-  .dashboard-row {
+  .dashboard-columns {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .grade-legend {
+    flex-wrap: wrap;
   }
 }
 
@@ -649,6 +686,7 @@
   }
 
   .dashboard-content {
+    margin: 12px;
     padding: 16px;
   }
 }
