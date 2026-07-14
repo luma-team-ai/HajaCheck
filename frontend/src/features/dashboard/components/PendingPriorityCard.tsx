@@ -15,7 +15,10 @@ export function PendingPriorityCard() {
 
   return (
     <section className="dashboard-card pending-priority-card">
-      <h3 className="dashboard-card-title">처리 대기 (우선순위)</h3>
+      <div className="dashboard-card-header">
+        <h3 className="dashboard-card-title">처리 대기</h3>
+        <span className="pending-priority-subtitle">우선순위</span>
+      </div>
 
       {isLoading && <p className="dashboard-card-status">불러오는 중...</p>}
       {isError && <p className="dashboard-card-status">처리 대기 목록을 불러오지 못했습니다.</p>}
@@ -27,20 +30,23 @@ export function PendingPriorityCard() {
         <ul className="pending-priority-list">
           {data.map((item) => (
             <li key={item.id} className="pending-priority-item">
-              <GradeBadge grade={item.grade} />
-              <div className="pending-priority-info">
-                <p className="pending-priority-title">{item.title}</p>
-                <p className="pending-priority-meta">
-                  {item.location} · {formatElapsedTime(item.occurredAt)}
-                </p>
+              <div className="pending-priority-top">
+                <div className="pending-priority-title-group">
+                  <GradeBadge grade={item.grade} />
+                  <p className="pending-priority-title">{item.title}</p>
+                </div>
+                <span className="pending-priority-elapsed">{formatElapsedTime(item.occurredAt)}</span>
               </div>
-              <button
-                type="button"
-                className="pending-priority-action"
-                onClick={() => handleReview(item.id)}
-              >
-                검수하기
-              </button>
+              <p className="pending-priority-location">{item.location}</p>
+              <div className="pending-priority-footer">
+                <button
+                  type="button"
+                  className="pending-priority-action"
+                  onClick={() => handleReview(item.id)}
+                >
+                  검수하기
+                </button>
+              </div>
             </li>
           ))}
         </ul>
