@@ -5,6 +5,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -110,6 +111,20 @@ class AuthControllerTest {
                         .content(body))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value("AUTH_INVALID_CREDENTIALS"));
+    }
+
+    @Test
+    void 로그아웃_세션무효화_쿠키만료() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+
+        mockMvc.perform(post("/api/auth/logout").session(session).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                // SESSION·XSRF-TOKEN 쿠키가 Max-Age=0 으로 만료돼야 한다.
+                .andExpect(cookie().maxAge("SESSION", 0))
+                .andExpect(cookie().maxAge("XSRF-TOKEN", 0));
+
+        assertThat(session.isInvalid()).isTrue();
     }
 
     @Test

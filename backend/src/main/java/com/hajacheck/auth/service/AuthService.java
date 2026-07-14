@@ -21,13 +21,13 @@ public class AuthService {
     private final UserRepository userRepository;
 
     /**
-     * 로그인 성공 후 lastLoginAt 갱신(dirty checking) 및 사용자 응답 반환.
+     * 로그인 성공 후 lastLoginAt 갱신(dirty checking).
+     * 응답 생성과 분리해, 이 write 가 실패해도 이미 발급된 세션·응답과 불일치가 나지 않도록
+     * 컨트롤러에서 best-effort 로 호출한다(실패 시 로깅만).
      */
     @Transactional
-    public UserResponse recordLogin(Long userId) {
-        User user = findUser(userId);
-        user.updateLastLogin(Instant.now());
-        return UserResponse.from(user);
+    public void updateLastLogin(Long userId) {
+        findUser(userId).updateLastLogin(Instant.now());
     }
 
     public UserResponse getMe(Long userId) {

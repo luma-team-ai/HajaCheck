@@ -7,11 +7,13 @@ import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.global.common.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -28,11 +30,16 @@ import org.springframework.web.bind.annotation.RestController;
  * 자체(기업 email/password) 로그인·로그아웃.
  * loginId 를 email 로 사용. 실패는 GlobalExceptionHandler 에서 AUTH_INVALID_CREDENTIALS 로 통일.
  */
+@Slf4j
 @Tag(name = "Auth", description = "인증 API")
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
+
+    // Spring Session 기본 쿠키명 / CSRF 쿠키명 — 로그아웃 시 만료 처리 대상.
+    private static final String SESSION_COOKIE = "SESSION";
+    private static final String CSRF_COOKIE = "XSRF-TOKEN";
 
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository securityContextRepository;
@@ -62,18 +69,39 @@ public class AuthController {
         securityContextRepository.saveContext(context, httpRequest, httpResponse);
 
         LoginUser principal = (LoginUser) authentication.getPrincipal();
-        UserResponse response = authService.recordLogin(principal.getUserId());
+        Long userId = principal.getUserId();
+
+        // 응답은 조회로 구성하고, lastLoginAt 갱신은 best-effort — 갱신 실패가 로그인 성공(세션 발급)을
+        // 무효화하지 않도록 분리(이미 인증된 세션과 500 응답의 불일치 방지).
+        UserResponse response = authService.getMe(userId);
+        try {
+            authService.updateLastLogin(userId);
+        } catch (Exception e) {
+            log.warn("lastLoginAt 갱신 실패(로그인 자체는 성공) userId={}", userId, e);
+        }
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
-    @Operation(summary = "로그아웃", description = "세션 무효화 + SecurityContext clear")
+    @Operation(summary = "로그아웃", description = "세션 무효화 + SecurityContext clear + 쿠키 만료")
     @PostMapping("/logout")
-    public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest httpRequest) {
+    public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest httpRequest,
+                                                    HttpServletResponse httpResponse) {
         HttpSession session = httpRequest.getSession(false);
         if (session != null) {
             session.invalidate();
         }
         SecurityContextHolder.clearContext();
+        // 브라우저에 남은 세션·CSRF 쿠키를 즉시 만료(Max-Age=0)시켜 stale 쿠키 재사용 방지.
+        expireCookie(httpResponse, SESSION_COOKIE, true);
+        expireCookie(httpResponse, CSRF_COOKIE, false);
         return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    private void expireCookie(HttpServletResponse response, String name, boolean httpOnly) {
+        Cookie cookie = new Cookie(name, "");
+        cookie.setPath("/");
+        cookie.setMaxAge(0);
+        cookie.setHttpOnly(httpOnly);
+        response.addCookie(cookie);
     }
 }
