@@ -8,14 +8,15 @@ import type {
 
 // ponytail: 백엔드 대시보드 집계 엔드포인트 미구현 — 계약(#10) 확정 전까지 Figma 캡처(dev-03-01) 수치 기준 mock
 export const mockDashboardSummary: DashboardSummary = {
+  // Figma 시안(dev-03-01)과 동일: 4개 카드 모두 ↗8%
   totalFacilities: 24,
   totalFacilitiesChangeRate: 8,
   monthlyAnalyzed: 1284,
-  monthlyAnalyzedChangeRate: 12,
+  monthlyAnalyzedChangeRate: 8,
   pendingReview: 37,
-  pendingReviewChangeRate: -4,
+  pendingReviewChangeRate: 8,
   pendingAction: 12,
-  pendingActionChangeRate: -2,
+  pendingActionChangeRate: 8,
 };
 
 export const mockGradeDistribution: GradeDistributionItem[] = [
@@ -41,22 +42,15 @@ export const mockPendingPriority: PendingPriorityItem[] = [
   {
     id: 2,
     grade: 'D',
-    title: '균열 (폭 0.8mm)',
-    location: '강남 오피스타워 - 5층 슬라브',
+    title: '균열 (관통)',
+    location: '강남 오피스타워 A동 - 외벽 북측',
     occurredAt: hoursAgo(5),
   },
   {
     id: 3,
     grade: 'D',
     title: '누수·백태',
-    location: '판교 테크노밸리 - 옥상 방수층',
-    occurredAt: hoursAgo(9),
-  },
-  {
-    id: 4,
-    grade: 'E',
-    title: '박리·박락',
-    location: '송도 물류센터 - 지상 1층 기둥',
+    location: '한강대교 북단 - 교각 하부 3번',
     occurredAt: hoursAgo(26),
   },
 ];
