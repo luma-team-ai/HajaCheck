@@ -22,7 +22,8 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
-    if (error.response?.status === 401) {
+    // 이미 /login이면 리다이렉트 스킵 — 로그인 화면 세션체크·로그인 실패 401이 무한 리로드로 이어지는 것 방지
+    if (error.response?.status === 401 && window.location.pathname !== '/login') {
       window.location.href = '/login'; // 401 일괄 처리
     }
     const apiError: ApiError = error.response?.data?.error ?? {
