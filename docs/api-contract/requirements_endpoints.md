@@ -1,7 +1,7 @@
 # 2.1 요구사항 정의서 — API 엔드포인트 (점검관리B 작성분)
 
 > 팀 전체 FR 번호 체계 확정 전 독립 문서로 작성 — 번호 확정되면 일괄 치환 예정.
-> 기술 스펙 원본은 `docs/openapi.yaml`, 사람이 보는 요약은 `docs/contract.md` 참조.
+> 기술 스펙 원본은 `docs/api-contract/openapi.yaml`, 사람이 보는 요약은 `docs/api-contract/contract.md` 참조.
 
 ## 핵심 명세서 (워킹 스켈레톤 관통용)
 
