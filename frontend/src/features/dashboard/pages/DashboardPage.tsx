@@ -31,14 +31,17 @@ export function DashboardPage() {
 
       <KpiSection />
 
-      <div className="dashboard-row">
-        <GradeDistributionCard />
-        <PendingPriorityCard />
+      {/* 시안: KPI 아래는 2단 컬럼 — 좌(넓음)=등급분포+최근점검 / 우(좁음)=처리대기+AI 브리핑 */}
+      <div className="dashboard-columns">
+        <div className="dashboard-col dashboard-col--main">
+          <GradeDistributionCard />
+          <RecentInspectionsTable />
+        </div>
+        <div className="dashboard-col dashboard-col--side">
+          <PendingPriorityCard />
+          <AiBriefingCard />
+        </div>
       </div>
-
-      <RecentInspectionsTable />
-
-      <AiBriefingCard />
     </DashboardLayout>
   );
 }

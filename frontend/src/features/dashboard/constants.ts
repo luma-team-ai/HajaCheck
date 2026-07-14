@@ -14,25 +14,38 @@ export interface DashboardNavSubItem {
   isActive: boolean;
 }
 
+// Figma dev-03-01 기준 메뉴별 아이콘 — Sidebar.tsx의 NavIcon 컴포넌트가 이 이름으로 SVG를 렌더링
+export type DashboardNavIconName =
+  | 'dashboard'
+  | 'facility'
+  | 'inspection'
+  | 'defect'
+  | 'report'
+  | 'support'
+  | 'mypage'
+  | 'settings';
+
 export interface DashboardNavItem {
   label: string;
+  icon: DashboardNavIconName;
   subItems?: DashboardNavSubItem[];
 }
 
 export const NAV_ITEMS: DashboardNavItem[] = [
   {
     label: '대시보드',
+    icon: 'dashboard',
     subItems: [
       { label: '전체 시설물 현황', path: '/dashboard', isActive: true },
       { label: '다음 점검일 도래', path: '#', isActive: false },
       { label: 'AI 주간 브리핑', path: '#', isActive: false },
     ],
   },
-  { label: '시설물 관리' },
-  { label: '점검 관리' },
-  { label: '하자 관리' },
-  { label: '보고서' },
-  { label: '고객지원' },
-  { label: '마이페이지' },
-  { label: '설정' },
+  { label: '시설물 관리', icon: 'facility' },
+  { label: '점검 관리', icon: 'inspection' },
+  { label: '하자 관리', icon: 'defect' },
+  { label: '보고서', icon: 'report' },
+  { label: '고객지원', icon: 'support' },
+  { label: '마이페이지', icon: 'mypage' },
+  { label: '설정', icon: 'settings' },
 ];

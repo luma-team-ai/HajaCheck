@@ -39,7 +39,7 @@ export function GradeDistributionCard() {
             {sorted.map((item) => (
               <li key={item.grade} className="grade-legend-item">
                 <span className="grade-legend-dot" style={{ backgroundColor: getGradeColor(item.grade) }} />
-                {item.grade}등급 {item.percent}%
+                {item.grade} 등급 ({item.percent}%)
               </li>
             ))}
           </ul>

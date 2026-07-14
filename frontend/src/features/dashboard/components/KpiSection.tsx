@@ -8,7 +8,7 @@ export function KpiSection() {
   if (isError || !data) return <p className="dashboard-card-status">요약 정보를 불러오지 못했습니다.</p>;
 
   return (
-    <div className="kpi-grid">
+    <div className="dashboard-card kpi-card-group">
       <KpiCard
         label="전체 시설물"
         value={`${data.totalFacilities}개`}
