@@ -1,5 +1,6 @@
 package com.hajacheck.auth.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -20,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -70,6 +72,21 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.email").value("company@haja.com"))
                 .andExpect(jsonPath("$.data.role").value("INSPECTOR"));
+    }
+
+    @Test
+    void 로그인_성공시_세션ID회전_세션고정방어() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        String beforeId = session.getId();
+        String body = objectMapper.writeValueAsString(new LoginRequest("company@haja.com", "pw123456"));
+
+        mockMvc.perform(post("/api/auth/login").session(session).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk());
+
+        // changeSessionId() 로 로그인 전 세션 ID 가 무효화되고 새 ID 가 발급돼야 한다.
+        assertThat(session.getId()).isNotEqualTo(beforeId);
     }
 
     @Test

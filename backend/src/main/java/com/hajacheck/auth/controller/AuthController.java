@@ -49,6 +49,12 @@ public class AuthController {
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.loginId(), request.password()));
 
+        // 세션 고정(Session Fixation) 방어: 인증 성공 직후 세션 ID 를 회전.
+        // (수동 authenticate 라 Spring 의 SessionAuthenticationStrategy 가 안 걸리므로 직접 처리.)
+        // changeSessionId() 로 익명 세션 ID 를 무효화 → Redis 세션 키 재발급. saveContext 이전에 수행.
+        httpRequest.getSession(true);      // CSRF 로 대개 이미 존재하나 안전하게 보장
+        httpRequest.changeSessionId();
+
         // Spring Security 6: SecurityContext 를 명시적으로 세션에 저장해야 이후 요청에서 인증 유지.
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
