@@ -1,12 +1,13 @@
 import { AuthFooterLinks } from './AuthFooterLinks';
+import { GOOGLE_OAUTH_PATH, KAKAO_OAUTH_PATH } from '../constants';
 
 export function PersonalLoginTab() {
   const handleKakaoLogin = () => {
-    window.location.href = '/api/auth/oauth2/kakao';
+    window.location.href = KAKAO_OAUTH_PATH;
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = '/api/auth/oauth2/google';
+    window.location.href = GOOGLE_OAUTH_PATH;
   };
 
   return (
