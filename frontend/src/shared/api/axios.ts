@@ -1,6 +1,7 @@
 // 공통 axios 인스턴스 — 컴포넌트에서 axios 직접 import 금지 (React_코드_컨벤션.md §3)
 // 백엔드 envelope({ success, data, error })은 인터셉터에서 해제 — 컴포넌트/훅은 data만 다룬다
 import axios from 'axios';
+import { LOGIN_PATH } from '../constants/authPaths';
 import type { ApiError, ApiResponse } from './types';
 
 export const api = axios.create({
@@ -22,9 +23,10 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
-    // 이미 /login이면 리다이렉트 스킵 — 로그인 화면 세션체크·로그인 실패 401이 무한 리로드로 이어지는 것 방지
-    if (error.response?.status === 401 && window.location.pathname !== '/login') {
-      window.location.href = '/login'; // 401 일괄 처리
+    // 이미 로그인 경로면 리다이렉트 스킵 — 로그인 화면 세션체크·로그인 실패 401이 무한 리로드로 이어지는 것 방지
+    // 정확일치 대신 endsWith — basename/서브패스 배포('/app/login', '/haja/login')에서도 안전
+    if (error.response?.status === 401 && !window.location.pathname.endsWith(LOGIN_PATH)) {
+      window.location.href = LOGIN_PATH; // 401 일괄 처리
     }
     const apiError: ApiError = error.response?.data?.error ?? {
       code: 'NETWORK_ERROR',

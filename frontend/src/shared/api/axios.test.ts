@@ -70,4 +70,14 @@ describe('axios 401 인터셉터 — /login 재리다이렉트 가드', () => {
       restore();
     }
   });
+
+  it('basename 서브패스(/app/login)여도 로그인 경로로 인식해 리다이렉트를 스킵한다', async () => {
+    const { hrefSetter, restore } = mockLocation('/app/login');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(hrefSetter).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
 });
