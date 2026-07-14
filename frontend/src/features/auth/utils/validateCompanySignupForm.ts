@@ -11,7 +11,10 @@ export interface CompanySignupFormValues {
   representativeName: string;
   address: string;
   businessRegistrationFile: File | null;
-  agreeToTerms: boolean;
+  // 이용약관 동의와 개인정보 수집·이용 동의는 국내 개인정보보호법상 별도 동의가 필요해 분리
+  // (PR머신 P2, 백엔드는 이미 두 필드를 별개로 받아 UserConsent 2건 생성)
+  agreeTermsOfService: boolean;
+  agreePrivacyPolicy: boolean;
 }
 
 export function isCompanySignupFormValid(form: CompanySignupFormValues): boolean {
@@ -24,6 +27,7 @@ export function isCompanySignupFormValid(form: CompanySignupFormValues): boolean
     form.representativeName.trim().length > 0 &&
     form.address.trim().length > 0 &&
     validateBusinessLicenseFile(form.businessRegistrationFile) === null &&
-    form.agreeToTerms
+    form.agreeTermsOfService &&
+    form.agreePrivacyPolicy
   );
 }

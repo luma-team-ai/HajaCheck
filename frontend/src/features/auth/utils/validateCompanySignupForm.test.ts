@@ -16,7 +16,8 @@ function makeValidForm(overrides: Partial<CompanySignupFormValues> = {}): Compan
     representativeName: '김민수',
     address: '서울시 강남구 테헤란로 1',
     businessRegistrationFile: makeFile(),
-    agreeToTerms: true,
+    agreeTermsOfService: true,
+    agreePrivacyPolicy: true,
     ...overrides,
   };
 }
@@ -46,8 +47,20 @@ describe('isCompanySignupFormValid', () => {
     );
   });
 
-  it('약관 미동의면 false를 반환한다', () => {
-    expect(isCompanySignupFormValid(makeValidForm({ agreeToTerms: false }))).toBe(false);
+  it('이용약관 미동의면 false를 반환한다', () => {
+    expect(isCompanySignupFormValid(makeValidForm({ agreeTermsOfService: false }))).toBe(false);
+  });
+
+  it('개인정보 수집·이용 미동의면 false를 반환한다', () => {
+    expect(isCompanySignupFormValid(makeValidForm({ agreePrivacyPolicy: false }))).toBe(false);
+  });
+
+  it('둘 중 하나만 동의해도 false를 반환한다(별도 동의 필수)', () => {
+    expect(
+      isCompanySignupFormValid(
+        makeValidForm({ agreeTermsOfService: true, agreePrivacyPolicy: false }),
+      ),
+    ).toBe(false);
   });
 
   it('회사명이 공백뿐이면 false를 반환한다', () => {

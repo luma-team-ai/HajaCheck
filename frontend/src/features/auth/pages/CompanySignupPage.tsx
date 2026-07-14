@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BusinessLicenseUpload } from '../components/BusinessLicenseUpload';
 import { CompanyAddressField } from '../components/CompanyAddressField';
+import { LOGIN_ROUTE } from '../constants';
 import { useCompanySignup } from '../hooks/useCompanySignup';
 import { useEmailAvailability } from '../hooks/useEmailAvailability';
 import { isValidBusinessNumber, isValidEmail, isValidPassword, doPasswordsMatch } from '../utils/authFormValidators';
@@ -32,16 +33,28 @@ export function CompanySignupPage() {
   const [address, setAddress] = useState('');
   const [addressDetail, setAddressDetail] = useState('');
   const [file, setFile] = useState<File | null>(null);
-  const [agreeToTerms, setAgreeToTerms] = useState(false);
+  const [agreeTermsOfService, setAgreeTermsOfService] = useState(false);
+  const [agreePrivacyPolicy, setAgreePrivacyPolicy] = useState(false);
   const [showValidation, setShowValidation] = useState(false);
 
-  const { checkEmailAvailability, isPending: isCheckingEmail, result: emailCheckResult } =
-    useEmailAvailability();
+  const {
+    checkEmailAvailability,
+    isPending: isCheckingEmail,
+    result: emailCheckResult,
+    reset: resetEmailCheck,
+  } = useEmailAvailability();
   const { signup, isPending, error } = useCompanySignup();
 
   const handleCheckEmail = () => {
     if (!isValidEmail(email)) return;
     checkEmailAvailability(email.trim());
+  };
+
+  // 이메일을 바꾸면 이전 중복확인 결과(stale)를 즉시 무효화 — A로 확인 후 B로 바꿔도
+  // A의 "사용 가능" 결과가 남아 잘못된 메시지·제출 판정으로 이어지는 것 방지(PR머신 P2)
+  const handleEmailChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setEmail(event.target.value);
+    if (emailCheckResult) resetEmailCheck();
   };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -57,7 +70,8 @@ export function CompanySignupPage() {
       representativeName,
       address,
       businessRegistrationFile: file,
-      agreeToTerms,
+      agreeTermsOfService,
+      agreePrivacyPolicy,
     };
     if (!isCompanySignupFormValid(form)) return;
     if (emailCheckResult?.available === false) return;
@@ -70,8 +84,8 @@ export function CompanySignupPage() {
       representativeName: representativeName.trim(),
       address,
       addressDetail,
-      agreeTermsOfService: agreeToTerms,
-      agreePrivacyPolicy: agreeToTerms,
+      agreeTermsOfService,
+      agreePrivacyPolicy,
       businessRegistrationFile: file as File,
     });
   };
@@ -95,7 +109,7 @@ export function CompanySignupPage() {
                 type="email"
                 className="auth-form-input"
                 value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                onChange={handleEmailChange}
                 autoComplete="username"
               />
               <button
@@ -233,16 +247,29 @@ export function CompanySignupPage() {
             관리자 승인 후 가입이 완료됩니다. 승인까지 영업일 기준 2-3일이 소요될 수 있어요.
           </div>
 
+          {/* 이용약관 동의·개인정보 수집·이용 동의는 개인정보보호법상 별도 동의 대상이라 체크박스를 분리한다(PR머신 P2) */}
           <label className="auth-terms-checkbox">
             <input
               type="checkbox"
-              checked={agreeToTerms}
-              onChange={(event) => setAgreeToTerms(event.target.checked)}
+              checked={agreeTermsOfService}
+              onChange={(event) => setAgreeTermsOfService(event.target.checked)}
             />
-            (필수) 이용약관 및 개인정보처리방침에 동의합니다.
+            (필수) 이용약관에 동의합니다.
           </label>
-          {showValidation && !agreeToTerms && (
-            <p className="auth-form-error">약관에 동의해야 가입할 수 있습니다.</p>
+          {showValidation && !agreeTermsOfService && (
+            <p className="auth-form-error">이용약관에 동의해야 가입할 수 있습니다.</p>
+          )}
+
+          <label className="auth-terms-checkbox">
+            <input
+              type="checkbox"
+              checked={agreePrivacyPolicy}
+              onChange={(event) => setAgreePrivacyPolicy(event.target.checked)}
+            />
+            (필수) 개인정보 수집 및 이용에 동의합니다.
+          </label>
+          {showValidation && !agreePrivacyPolicy && (
+            <p className="auth-form-error">개인정보 수집·이용에 동의해야 가입할 수 있습니다.</p>
           )}
 
           {submitErrorMessage && <p className="auth-form-error">{submitErrorMessage}</p>}
@@ -252,7 +279,7 @@ export function CompanySignupPage() {
           </button>
 
           <p className="auth-panel-guide">
-            이미 계정이 있으신가요? <Link to="/login">로그인</Link>
+            이미 계정이 있으신가요? <Link to={LOGIN_ROUTE}>로그인</Link>
           </p>
         </form>
       </section>
