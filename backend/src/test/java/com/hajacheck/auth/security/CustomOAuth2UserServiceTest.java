@@ -1,0 +1,97 @@
+package com.hajacheck.auth.security;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.hajacheck.auth.entity.SocialProvider;
+import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.UserRepository;
+import java.util.Map;
+import java.util.Optional;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class CustomOAuth2UserServiceTest {
+
+    @Mock
+    private UserRepository userRepository;
+
+    @InjectMocks
+    private CustomOAuth2UserService customOAuth2UserService;
+
+    private Map<String, Object> kakaoAttributes() {
+        return Map.of(
+                "id", 4823001L,
+                "kakao_account", Map.of(
+                        "email", "kakao@haja.com",
+                        "profile", Map.of("nickname", "카카오길동")));
+    }
+
+    private Map<String, Object> googleAttributes() {
+        return Map.of(
+                "sub", "google-sub-999",
+                "email", "google@haja.com",
+                "name", "구글영희");
+    }
+
+    @Test
+    void processOAuth2User_카카오신규_가입후principal반환() {
+        when(userRepository.findBySocialProviderAndSocialId(eq(SocialProvider.KAKAO), eq("4823001")))
+                .thenReturn(Optional.empty());
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LoginUser result = customOAuth2UserService.processOAuth2User("kakao", kakaoAttributes());
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository, times(1)).save(captor.capture());
+        User saved = captor.getValue();
+        assertThat(saved.getSocialProvider()).isEqualTo(SocialProvider.KAKAO);
+        assertThat(saved.getSocialId()).isEqualTo("4823001");
+        assertThat(saved.getEmail()).isEqualTo("kakao@haja.com");
+        assertThat(saved.getName()).isEqualTo("카카오길동");
+        assertThat(saved.getPasswordHash()).isNull();
+        assertThat(result.getEmail()).isEqualTo("kakao@haja.com");
+        assertThat(result.getAttributes()).containsKey("kakao_account");
+    }
+
+    @Test
+    void processOAuth2User_구글신규_가입후principal반환() {
+        when(userRepository.findBySocialProviderAndSocialId(eq(SocialProvider.GOOGLE), eq("google-sub-999")))
+                .thenReturn(Optional.empty());
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LoginUser result = customOAuth2UserService.processOAuth2User("google", googleAttributes());
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getSocialProvider()).isEqualTo(SocialProvider.GOOGLE);
+        assertThat(captor.getValue().getSocialId()).isEqualTo("google-sub-999");
+        assertThat(captor.getValue().getName()).isEqualTo("구글영희");
+        assertThat(result.getEmail()).isEqualTo("google@haja.com");
+    }
+
+    @Test
+    void processOAuth2User_기존사용자_저장없이principal반환() {
+        User existing = User.createSocialUser(
+                SocialProvider.KAKAO, "4823001", "kakao@haja.com", "카카오길동");
+        when(userRepository.findBySocialProviderAndSocialId(SocialProvider.KAKAO, "4823001"))
+                .thenReturn(Optional.of(existing));
+
+        LoginUser result = customOAuth2UserService.processOAuth2User("kakao", kakaoAttributes());
+
+        verify(userRepository, never()).save(any(User.class));
+        assertThat(result.getEmail()).isEqualTo("kakao@haja.com");
+        assertThat(existing.getStatus()).isEqualTo(UserStatus.ACTIVE);
+    }
+}

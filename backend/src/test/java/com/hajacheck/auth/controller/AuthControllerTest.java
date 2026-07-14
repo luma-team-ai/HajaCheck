@@ -1,0 +1,118 @@
+package com.hajacheck.auth.controller;
+
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hajacheck.auth.dto.LoginRequest;
+import com.hajacheck.auth.entity.Role;
+import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.auth.security.LoginUser;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * 자체 로그인 + /api/users/me MVC·시큐리티 통합 테스트.
+ * oauth2Login 필터가 ClientRegistrationRepository 를 요구해 슬라이스(@WebMvcTest)로는 취약 →
+ * 실제 시큐리티 필터체인·세션 저장·EntryPoint 를 그대로 태우는 @SpringBootTest+MockMvc 로 검증.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+@Transactional
+class AuthControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+    @Autowired
+    private ObjectMapper objectMapper;
+    @Autowired
+    private UserRepository userRepository;
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    private User seededUser;
+
+    @BeforeEach
+    void setUp() {
+        seededUser = userRepository.save(User.builder()
+                .email("company@haja.com")
+                .name("기업사용자")
+                .role(Role.INSPECTOR)
+                .passwordHash(passwordEncoder.encode("pw123456"))
+                .status(UserStatus.ACTIVE)
+                .build());
+    }
+
+    @Test
+    void 로그인_올바른자격_200과사용자반환() throws Exception {
+        String body = objectMapper.writeValueAsString(new LoginRequest("company@haja.com", "pw123456"));
+
+        mockMvc.perform(post("/api/auth/login").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.email").value("company@haja.com"))
+                .andExpect(jsonPath("$.data.role").value("INSPECTOR"));
+    }
+
+    @Test
+    void 로그인_틀린비밀번호_401_AUTH_INVALID_CREDENTIALS() throws Exception {
+        String body = objectMapper.writeValueAsString(new LoginRequest("company@haja.com", "wrongpw"));
+
+        mockMvc.perform(post("/api/auth/login").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("AUTH_INVALID_CREDENTIALS"));
+    }
+
+    @Test
+    void 로그인_없는계정_401_AUTH_INVALID_CREDENTIALS() throws Exception {
+        String body = objectMapper.writeValueAsString(new LoginRequest("none@haja.com", "pw123456"));
+
+        mockMvc.perform(post("/api/auth/login").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("AUTH_INVALID_CREDENTIALS"));
+    }
+
+    @Test
+    void 내정보_미인증_401_UNAUTHORIZED() throws Exception {
+        mockMvc.perform(get("/api/users/me"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void 내정보_인증_200과내정보반환() throws Exception {
+        LoginUser principal = new LoginUser(seededUser);
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                principal, null, principal.getAuthorities());
+
+        mockMvc.perform(get("/api/users/me").with(authentication(auth)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.email").value("company@haja.com"))
+                .andExpect(jsonPath("$.data.name").value("기업사용자"));
+    }
+}
