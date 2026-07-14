@@ -172,6 +172,8 @@ class ReportRecommendation(BaseModel):
 
 **이미지 첨부**: §7 표 #3(유형별 상세)의 사진 슬롯은 하자 탐지·업로드 파이프라인이 이미 적재한 데이터(PRD §6.3 데이터 모델의 `media`/`defects` 테이블 — 실제 점검 촬영 이미지)를 그대로 삽입한다. 이 이미지는 report_chain의 산출물이 아니라 **입력**(`confirmed_defects`와 함께 조립 단계에 전달)이며, PDF 라이브러리의 이미지 삽입 API로 바이트를 직접 넣는 방식 — LLM은 이미지에 관여하지 않는다(사진 슬롯 배치만 템플릿에 정의).
 
+**원본 vs 축소본 (2026-07-14 확정, 오영석·허남 협의)**: PDF 사진 슬롯에는 **축소본(리사이즈된 이미지)만 삽입**한다. 원본 이미지는 `media`/`defects` 테이블에 그대로 보존되어 별도 조회(웹 UI 등)로만 접근 가능 — PDF는 원본을 참조·임베드하지 않는다. 근거: PDF 용량·렌더링(OpenHTMLtoPDF) 성능 확보, 증빙이 필요할 경우 원본은 시스템 내 별도 경로로 언제든 조회 가능하므로 PDF 자체에 원본 해상도를 실을 필요가 없음.
+
 **외부 참고 문서 의존성 금지 — 근거**: 지금 설계에 참고 중인 자료(`OTKCEC230761.pdf`, `시설물의+안전+및+유지관리+...고시.PDF`)는 **설계 시점(design-time) 구조 참고용**이며, 런타임 코드가 이 원본 파일을 직접 열람·파싱하는 경로는 이미 설계상 존재하지 않는다 — 기존 컨벤션(`AI_개발_컨벤션.md` §6 RAG 규약)이 이를 이미 강제하고 있음을 이번에 재확인했다:
 
 - **법규·지침(고시 PDF, 평가사례집 PDF)**: RAG 추천 섹션(§6.4 `recommendation`)은 원본 PDF가 아니라 **Chroma `regulations` 컬렉션**만 조회(`AI_개발_컨벤션.md` §6 "Chroma 접근은 `vectorstore.py` 팩토리만 사용"). 원본 PDF는 관리자 RAG 문서 관리 화면에서 **1회 업로드→명시적 배치 임베딩**(PRD FR-8, §6.2 §6)으로만 시스템에 들어오고, 그 이후 report_chain·rag_chat_chain 등 어떤 체인도 raw PDF/md 파일을 직접 읽지 않는다. 즉 "외부 PDF·md 파일에 런타임 의존성이 있으면 안 된다"는 요구는 **이미 이 파이프라인 구조로 충족**되어 있음 — 신규 코드에서 이 원칙을 어기고 PDF를 직접 `open()`/파싱하는 우회 경로를 만들지 않는 것만 리뷰에서 확인하면 된다
@@ -184,6 +186,6 @@ class ReportRecommendation(BaseModel):
 - [x] 하자 등급 라벨 확정 — A~E (`docs/api-contract/openapi.yaml` `severity_grade` enum과 일치, 2026-07-13 정정; `docs/conventions/하자_심각도_등급_규칙.md`(HAJA-109, 2026-07-13)와도 정합 확인)
 - [x] 제출 포맷 확정 — PDF 전용(규정 제36조 근거, 기존)
 - [x] PDF 렌더링 라이브러리 선정 — `OpenHTMLtoPDF` + `Thymeleaf` 조합 (§7.1.1)
-- [ ] 이미지 삽입 구현 — `media`/`defects` 저장 이미지를 PDF에 바이트 삽입(§7.3)
+- [x] 이미지 삽입 방식 확정 — 축소본만 PDF 삽입, 원본은 별도 저장/조회(2026-07-14, §7.3). 실 구현(`media`/`defects` 이미지 바이트 삽입)은 dev-07-01에서 진행
 
 → 완료되는 대로 이 문서 갱신 + `ai-server/ai/chains/report_chain.py` 구현(dev-07-01)으로 이관.
