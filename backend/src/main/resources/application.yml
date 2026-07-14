@@ -15,6 +15,30 @@ spring:
     open-in-view: false
   session:
     store-type: redis
+  servlet:
+    multipart:
+      # 사업자등록증 업로드 한도(계약: ≤10MB). request 는 파일+폼필드 여유로 12MB.
+      max-file-size: 10MB
+      max-request-size: 12MB
+
+# 기업 인증(회원가입·아이디/비번 찾기) 설정 — 시크릿 아님(SpringBoot_코드_컨벤션.md §9 @ConfigurationProperties).
+app:
+  file-storage:
+    # local 기본: 임시경로. docker/dev 는 application-docker.yml 에서 마운트 볼륨 경로로 override.
+    base-dir: ${java.io.tmpdir}/hajacheck-files
+    base-url-path: /files
+    allowed-content-types:
+      - image/jpeg
+      - image/png
+      - application/pdf
+    max-size-bytes: 10485760
+  policy:
+    # 약관 버전은 서버 소유(클라이언트 미전송) — 동의 이력에 기록.
+    terms-version: "1.0"
+    privacy-version: "1.0"
+  auth:
+    password-reset-ttl: 10m
+    signup-status-ttl: 30d
 
 management:
   endpoints:
