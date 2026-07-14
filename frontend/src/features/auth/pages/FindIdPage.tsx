@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { LOGIN_ROUTE } from '../constants';
 import { useCsrfPrime } from '../hooks/useCsrfPrime';
 import { useFindLoginId } from '../hooks/useFindLoginId';
 import { isFindIdFormValid } from '../utils/validateFindIdForm';
@@ -101,7 +102,7 @@ export function FindIdPage() {
         )}
 
         <div className="auth-links-row">
-          <Link to="/login" className="auth-link-btn">
+          <Link to={LOGIN_ROUTE} className="auth-link-btn">
             로그인으로
           </Link>
           <span className="auth-links-divider">|</span>

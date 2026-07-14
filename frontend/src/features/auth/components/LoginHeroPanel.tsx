@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { COMPANY_SIGNUP_ROUTE } from '../constants';
+import { COMPANY_SIGNUP_ROUTE, LOGIN_ROUTE } from '../constants';
 
 export function LoginHeroPanel() {
   const navigate = useNavigate();
@@ -10,7 +10,7 @@ export function LoginHeroPanel() {
 
   // 개인 회원가입 전용 화면은 범위 외 — 소셜 로그인(개인회원 탭)으로 안내
   const handlePersonalSignup = () => {
-    navigate('/login');
+    navigate(LOGIN_ROUTE);
   };
 
   return (

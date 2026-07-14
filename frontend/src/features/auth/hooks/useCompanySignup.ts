@@ -4,6 +4,7 @@ import type { ApiError } from '../../../shared/api/types';
 import { authApi } from '../api/authApi';
 import { COMPANY_SIGNUP_PENDING_ROUTE } from '../constants';
 import type { CompanySignupRequest, CompanySignupResponse } from '../types';
+import { saveCompanySignupSession } from '../utils/companySignupSession';
 
 export function useCompanySignup() {
   const navigate = useNavigate();
@@ -11,12 +12,15 @@ export function useCompanySignup() {
   const mutation = useMutation<CompanySignupResponse, ApiError, CompanySignupRequest>({
     mutationFn: (body) => authApi.signupCompany(body).then((res) => res.data),
     onSuccess: (data, variables) => {
-      // 승인 대기 화면은 새로고침에도 상태조회가 가능하도록 signupToken을 쿼리스트링으로 전달
-      // (companyName은 응답에 없어 요청값을 사용 — 표시정보는 location.state로 함께 전달,
-      //  새로고침 시 유실될 수 있는 부가정보이므로 상태조회 API 응답으로 재보강한다)
-      navigate(`${COMPANY_SIGNUP_PENDING_ROUTE}?token=${encodeURIComponent(data.signupToken)}`, {
-        state: { companyName: variables.companyName, maskedEmail: data.maskedEmail },
+      // opaque signupToken을 쿼리스트링(?token=)으로 넘기면 URL/히스토리/Referer로 유출될 수 있어
+      // sessionStorage로 전달 — 새로고침해도 승인 대기 화면 복원 가능, 탭 종료 시 자동 소거(PR머신 P3)
+      // companyName은 응답에 없어 요청값을 사용
+      saveCompanySignupSession({
+        signupToken: data.signupToken,
+        companyName: variables.companyName,
+        maskedEmail: data.maskedEmail,
       });
+      navigate(COMPANY_SIGNUP_PENDING_ROUTE, { replace: true });
     },
   });
 
