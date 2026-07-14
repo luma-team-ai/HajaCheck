@@ -7,6 +7,34 @@
   color: #111;
 }
 
+/* ── 세션 확인 실패(5xx/네트워크) 상태 — 무단 로그인화면 노출 대신 에러+재시도 노출 ── */
+
+.login-page--session-error {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  text-align: center;
+  padding: 24px;
+}
+
+.login-session-error-message {
+  font-size: 16px;
+  color: #333;
+  margin: 0;
+}
+
+.login-session-error-retry-btn {
+  background: #111;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 /* ── 좌측 히어로 패널 ───────────────────────────────────── */
 
 .login-hero-panel {
