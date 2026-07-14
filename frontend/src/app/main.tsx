@@ -3,13 +3,16 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
 import { router } from './router';
+import { shouldEnableMocking } from './shouldEnableMocking';
 import '../styles/global.css';
 
 const queryClient = new QueryClient();
 
-// 개발 모드에서만 MSW 목서버 구동 — 계약(#10) 확정 전까지 임시 mock으로 화면 개발
+// 개발 모드에서만 MSW 목서버 구동 — 계약(#10) 확정 전까지 임시 mock으로 화면 개발.
+// 로컬 실 백엔드 통합 확인 시엔 .env.local 에 VITE_ENABLE_MSW=false 로 끄면
+// 모든 요청이 MSW를 거치지 않고 Vite proxy를 통해 실 백엔드로 나간다(기본값은 켜짐 — 기존 동작 유지).
 async function enableMocking() {
-  if (!import.meta.env.DEV) return;
+  if (!shouldEnableMocking(import.meta.env)) return;
   const { worker } = await import('../mocks/browser');
   return worker.start({ onUnhandledRequest: 'bypass' });
 }
