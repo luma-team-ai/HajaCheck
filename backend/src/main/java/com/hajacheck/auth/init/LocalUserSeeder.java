@@ -25,8 +25,10 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>⚠️ 공유 DB 오염 주의</b>: {@code @Profile("local")} 은 "코드 프로파일"만 보장하고
  * "어떤 DB에 붙었는지"는 보장하지 못한다. SSH 터널로 공유 개발 DB(localhost:5432 로 포워딩)에
- * 붙은 채 local 프로파일로 기동하면 known-password ADMIN 이 공유 DB에 생성된다. 그런 경우
- * {@code app.local-seed.enabled=false} 로 시드를 꺼라(기본값 true — 로컬 격리 DB 전제).
+ * 붙은 채 local 프로파일로 기동하면 known-password ADMIN 이 공유 DB에 생성된다.
+ * 기본값 false(옵트인) — 시드를 쓰려면 본인 로컬 격리 DB에서만 {@code app.local-seed.enabled=true}
+ * 로 명시적으로 켜라. 공유 DB(SSH 터널)에 붙은 상태면 절대 켜지 말 것
+ * (known-password ADMIN 이 공유 DB에 생성됨).
  *
  * <p>TODO(후속): 역할 기반 인가 도입 시 여러 role(USER/INSPECTOR/COUNSELOR) 시드 확장,
  * 회사 스코프 기능 도입 시 companyId 샘플값 추가 검토.
@@ -45,10 +47,11 @@ public class LocalUserSeeder implements ApplicationRunner {
     private final PasswordEncoder passwordEncoder;
 
     /**
-     * 시드 on/off 스위치(기본 켜짐 — 로컬 격리 DB 전제).
-     * SSH 터널로 공유 DB에 붙을 때는 application-local.yml 에서 false 로 꺼 공유 DB 오염을 막는다.
+     * 시드 on/off 스위치(기본 꺼짐 — 옵트인).
+     * 본인 로컬 격리 DB에서 시드를 쓰려면 application-local.yml 에서 true 로 명시적으로 켜라.
+     * SSH 터널로 공유 DB에 붙은 상태면 절대 켜지 말 것(공유 DB 오염 방지).
      */
-    @Value("${app.local-seed.enabled:true}")
+    @Value("${app.local-seed.enabled:false}")
     private boolean seedEnabled;
 
     @Override
