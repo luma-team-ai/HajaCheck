@@ -57,3 +57,8 @@ app:
   oauth2:
     success-redirect: https://hajacheck.luma200ok.com/dashboard
     failure-redirect: https://hajacheck.luma200ok.com/login?error=oauth
+  # 사업자등록증 저장 루트 — 컨테이너 재시작에도 보존되도록 마운트 볼륨 경로.
+  # ⚠️ 인프라: docker-compose(arm1) spring 서비스에 이 경로로 볼륨을 마운트해야 파일이 유실되지 않는다.
+  #   (미마운트 시 컨테이너 임시 FS 에 저장되어 재시작 시 소실 — 인프라 오너 후속 배선.)
+  file-storage:
+    base-dir: /app/uploads/hajacheck-files

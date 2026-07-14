@@ -3,6 +3,8 @@
 /ai/report · /ai/chat · /ai/briefing · /ai/defect-explain · /ai/nl-search · /ai/grounding-check
 장시간 작업(보고서 생성)은 동기 응답 금지 — 비동기 잡 패턴(잡 ID -> 폴링)
 """
+from typing import Optional
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -71,3 +73,27 @@ def briefing(req: DashboardStats) -> AIResponse:
     except Exception as e:  # noqa: BLE001 — 스키마 파싱 실패·타임아웃 등 표준 폴백
         return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, str(e))
     return AIResponse.ok({**result.model_dump(), "facts": facts.model_dump()})
+
+
+class BusinessLicenseOcrRequest(BaseModel):
+    """사업자등록증 OCR 요청 — stub 단계는 내용 미사용(seam only)."""
+
+    image_base64: Optional[str] = None
+    file_ref: Optional[str] = None
+
+
+@router.post("/business-license-ocr")
+def business_license_ocr(req: BusinessLicenseOcrRequest) -> AIResponse:
+    """사업자등록증 OCR — stub. 실제 OCR 미구현, 향후 교체 예정(HAJA-169).
+
+    입력(image_base64/file_ref)은 현재 사용하지 않으며, 계약된 고정 stub 응답만 반환한다.
+    """
+    return AIResponse.ok(
+        {
+            "businessRegistrationNumber": None,
+            "companyName": None,
+            "representativeName": None,
+            "raw": {},
+            "stub": True,
+        }
+    )

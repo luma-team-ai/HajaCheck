@@ -16,9 +16,31 @@ const LoginPage = lazy(() =>
   import('../features/auth/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
 );
 
+// 기업 인증 플로우 — HAJA-170(#187)
+const CompanySignupPage = lazy(() =>
+  import('../features/auth/pages/CompanySignupPage').then((m) => ({
+    default: m.CompanySignupPage,
+  })),
+);
+const CompanySignupPendingPage = lazy(() =>
+  import('../features/auth/pages/CompanySignupPendingPage').then((m) => ({
+    default: m.CompanySignupPendingPage,
+  })),
+);
+const FindIdPage = lazy(() =>
+  import('../features/auth/pages/FindIdPage').then((m) => ({ default: m.FindIdPage })),
+);
+// 비밀번호 찾기·재설정 2화면은 계정 탈취 P1(보안 리뷰)로 이번 범위에서 제외 — 보안질문 방식으로 후속(#194, HAJA-172)
+
 const DashboardPage = lazy(() =>
   import('../features/dashboard/pages/DashboardPage').then((m) => ({
     default: m.DashboardPage,
+  })),
+);
+
+const DefectDetailPage = lazy(() =>
+  import('../features/defect/pages/DefectDetailPage').then((m) => ({
+    default: m.DefectDetailPage,
   })),
 );
 
@@ -48,6 +70,30 @@ export const router = createBrowserRouter([
     ),
   }, // — features/auth (HAJA-160, #157)
   {
+    path: '/signup/company',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <CompanySignupPage />
+      </Suspense>
+    ),
+  },
+  {
+    path: '/signup/company/pending',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <CompanySignupPendingPage />
+      </Suspense>
+    ),
+  },
+  {
+    path: '/find-id',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <FindIdPage />
+      </Suspense>
+    ),
+  }, // — features/auth 기업 인증 플로우 (HAJA-170, #187)
+  {
     // TODO: 인증 가드(ProtectedRoute) 도입 시 시설물 현황·점검 통계 등 업무 데이터 노출 라우트이므로 적용 필요 — 현재는 인증 스켈레톤(features/auth) 미구현이라 미적용(의도된 임시 상태)
     path: '/dashboard',
     element: (
@@ -56,6 +102,15 @@ export const router = createBrowserRouter([
       </Suspense>
     ),
   }, // — features/dashboard (HAJA-17)
+  {
+    // TODO: 인증 가드(ProtectedRoute) 도입 시 하자 상세(업무 데이터) 노출 라우트이므로 적용 필요 — 현재 라우터에 가드 미적용(ProtectedRoute 컴포넌트 자체가 아직 없음)
+    path: '/defects/:id',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <DefectDetailPage />
+      </Suspense>
+    ),
+  }, // — features/defect (HAJA-171)
   // { path: '/facilities', ... }               — features/facility
   {
     // TODO: 인증 가드(ProtectedRoute) 도입 시 시설물 위치 노출 라우트이므로 적용 필요 — 현재는 라우터 스켈레톤 단계라 미적용
