@@ -27,9 +27,33 @@ spring:
           kakao:
             client-id: ${KAKAO_CLIENT_ID}
             client-secret: ${KAKAO_CLIENT_SECRET}
+            client-authentication-method: client_secret_post
+            authorization-grant-type: authorization_code
+            # 인가 base-uri 를 /api/auth/oauth2 로 커스텀했으므로 redirect-uri 경로는 /login/oauth2/code/* 유지
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope:
+              - profile_nickname
+              - account_email
+            client-name: Kakao
           google:
             client-id: ${GOOGLE_CLIENT_ID}
             client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope:
+              - email
+              - profile
+        # 카카오는 표준 OIDC provider 가 아니라서 provider 블록을 직접 정의해야 한다.
+        provider:
+          kakao:
+            authorization-uri: https://kauth.kakao.com/oauth/authorize
+            token-uri: https://kauth.kakao.com/oauth/token
+            user-info-uri: https://kapi.kakao.com/v2/user/me
+            user-name-attribute: id
+
+# 소셜 로그인 성공/실패 후 프론트 리다이렉트 대상(로컬 Vite dev 기준, prod 는 env override)
+app:
+  oauth2:
+    success-redirect: http://localhost:5173/dashboard
+    failure-redirect: http://localhost:5173/login?error=oauth
 
 ai:
   server:
