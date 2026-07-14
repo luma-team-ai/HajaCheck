@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import bellIcon from '../../../assets/brand/header-bell.svg';
 import userIcon from '../../../assets/brand/header-user-outlined.svg';
 import './Header.css';
@@ -23,7 +24,7 @@ export function Header({ breadcrumb, unreadCount = 0, onNotificationClick, onPro
         {breadcrumb.map((item, index) => (
           <span key={item.label} className="app-header-breadcrumb-item">
             {index > 0 && <span className="app-header-breadcrumb-sep">{'>'}</span>}
-            {item.href ? <a href={item.href}>{item.label}</a> : <span>{item.label}</span>}
+            {item.href ? <Link to={item.href}>{item.label}</Link> : <span>{item.label}</span>}
           </span>
         ))}
       </nav>

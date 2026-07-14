@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import brandMark from '../../../assets/brand/brand-mark.png';
 import './TopNavigation.css';
 
@@ -28,22 +29,22 @@ export function TopNavigation({
 }: TopNavigationProps) {
   return (
     <div className="top-nav">
-      <a className="top-nav-logo" href={logoHref}>
+      <Link className="top-nav-logo" to={logoHref}>
         <img className="top-nav-logo-mark" src={brandMark} alt="" />
         <span>HajaCheck</span>
-      </a>
+      </Link>
 
       <nav className="top-nav-links" aria-label="주요 메뉴">
         {navItems.map((item) => (
-          <a key={item.href} className="top-nav-link" href={item.href}>
+          <Link key={item.href} className="top-nav-link" to={item.href}>
             {item.label}
-          </a>
+          </Link>
         ))}
       </nav>
 
-      <a href={loginHref} className="top-nav-login">
+      <Link to={loginHref} className="top-nav-login">
         로그인
-      </a>
+      </Link>
     </div>
   );
 }

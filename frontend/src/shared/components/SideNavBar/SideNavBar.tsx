@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import brandMark from '../../../assets/brand/brand-mark.png';
 import collapseIcon from '../../../assets/brand/sidenav-collapse.svg';
 import dashboardIcon from '../../../assets/brand/sidenav-dashboard.svg';
@@ -220,22 +221,22 @@ export function SideNavBar({
               {!collapsed && expandedLabel === item.label && (
                 <div className="side-nav-sublist">
                   {item.subItems.map((sub) => (
-                    <a
+                    <Link
                       key={sub.href}
-                      href={sub.href}
+                      to={sub.href}
                       className={`side-nav-sublink${sub.href === activeHref ? ' side-nav-sublink--active' : ''}`}
                       aria-current={sub.href === activeHref ? 'page' : undefined}
                     >
                       {sub.label}
-                    </a>
+                    </Link>
                   ))}
                 </div>
               )}
             </div>
           ) : (
-            <a
+            <Link
               key={item.href}
-              href={item.href}
+              to={item.href}
               className={`side-nav-link${item.href === activeHref ? ' side-nav-link--active' : ''}`}
               aria-current={item.href === activeHref ? 'page' : undefined}
               title={collapsed ? item.label : undefined}
@@ -244,7 +245,7 @@ export function SideNavBar({
                 <img className="side-nav-link-icon" src={item.icon} alt="" />
                 {!collapsed && item.label}
               </span>
-            </a>
+            </Link>
           ),
         )}
       </nav>

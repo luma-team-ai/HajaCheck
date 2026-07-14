@@ -13,8 +13,8 @@ describe('AILoadingIndicator', () => {
     expect(screen.getByText('AI 분석 중입니다...')).not.toBeNull();
   });
 
-  it('label prop을 전달하면 해당 문구를 표시한다', () => {
-    render(<AILoadingIndicator label="보고서 생성 중..." />);
+  it('message prop을 전달하면 해당 문구를 표시한다', () => {
+    render(<AILoadingIndicator message="보고서 생성 중..." />);
 
     expect(screen.getByText('보고서 생성 중...')).not.toBeNull();
   });

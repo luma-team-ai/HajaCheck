@@ -1,10 +1,12 @@
 import './AILoadingIndicator.css';
 
 interface AILoadingIndicatorProps {
-  label?: string;
+  message?: string;
 }
 
-export function AILoadingIndicator({ label = 'AI 분석 중입니다...' }: AILoadingIndicatorProps) {
+// prop 이름은 dev의 기존 사용부(AiBriefingCard: <AILoadingIndicator message="..." />)와
+// 호환되도록 message로 맞춤(과거 flat 버전과 동일 API)
+export function AILoadingIndicator({ message = 'AI 분석 중입니다...' }: AILoadingIndicatorProps) {
   return (
     <div className="ai-loading" role="status" aria-live="polite">
       <span className="ai-loading-spinner" aria-hidden="true" />
@@ -12,7 +14,7 @@ export function AILoadingIndicator({ label = 'AI 분석 중입니다...' }: AILo
         <span className="ai-loading-bar" />
         <span className="ai-loading-bar ai-loading-bar--short" />
       </div>
-      <p className="ai-loading-label">{label}</p>
+      <p className="ai-loading-label">{message}</p>
     </div>
   );
 }

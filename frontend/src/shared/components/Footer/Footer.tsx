@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import brandMark from '../../../assets/brand/brand-mark.png';
 import './Footer.css';
 
@@ -68,7 +69,7 @@ export function Footer({
             <ul>
               {column.links.map((link) => (
                 <li key={link.href}>
-                  <a href={link.href}>{link.label}</a>
+                  <Link to={link.href}>{link.label}</Link>
                 </li>
               ))}
             </ul>
