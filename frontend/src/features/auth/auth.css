@@ -1,0 +1,315 @@
+/* 로그인 화면(HAJA-160, #157) 전용 스타일 — dashboard.css와 동일 방식(일반 CSS, BEM, 데스크톱 우선 1920 기준) */
+
+.login-page {
+  display: flex;
+  min-height: 100vh;
+  background: #fff;
+  color: #111;
+}
+
+/* ── 세션 확인 실패(5xx/네트워크) 상태 — 무단 로그인화면 노출 대신 에러+재시도 노출 ── */
+
+.login-page--session-error {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  text-align: center;
+  padding: 24px;
+}
+
+.login-session-error-message {
+  font-size: 16px;
+  color: #333;
+  margin: 0;
+}
+
+.login-session-error-retry-btn {
+  background: #111;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ── 좌측 히어로 패널 ───────────────────────────────────── */
+
+.login-hero-panel {
+  flex: 1;
+  min-width: 480px;
+  background: #101114;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 64px;
+}
+
+.login-hero-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.login-hero-logo {
+  font-weight: 800;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+
+.login-hero-copy {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #f2f2f2;
+}
+
+.login-hero-image {
+  flex: 1;
+  margin: 32px 0;
+  border-radius: 16px;
+  background: linear-gradient(160deg, #2a2c33 0%, #1a1b1f 100%);
+  min-height: 240px;
+}
+
+.login-hero-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.login-hero-company-btn {
+  background: #fff;
+  color: #101114;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.login-hero-personal-link {
+  background: none;
+  border: none;
+  color: #cfd0d4;
+  font-size: 14px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* ── 우측 인증 패널 ───────────────────────────────────── */
+
+.login-auth-panel {
+  flex: 1;
+  min-width: 480px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px;
+}
+
+.login-auth-tabs {
+  display: flex;
+  gap: 32px;
+  margin-bottom: 32px;
+  border-bottom: 1px solid #e6e6e6;
+  width: 100%;
+  max-width: 360px;
+}
+
+.login-auth-tab {
+  background: none;
+  border: none;
+  padding: 12px 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #9a9ba1;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.login-auth-tab--active {
+  color: #111;
+  border-bottom-color: #111;
+}
+
+.personal-login-tab,
+.company-login-tab {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-panel-guide {
+  font-size: 14px;
+  color: #666;
+  margin: 0 0 16px;
+  text-align: center;
+}
+
+/* ── 소셜 로그인 버튼 ───────────────────────────────────── */
+
+.social-login-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+
+.social-login-btn--kakao {
+  background: #fee500;
+  border: none;
+  color: #191919;
+}
+
+.social-login-btn--google {
+  background: #fff;
+  border: 1px solid #dcdde1;
+  color: #111;
+}
+
+/* ── 기업회원 폼 ───────────────────────────────────── */
+
+.auth-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.auth-form-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.auth-form-input {
+  padding: 12px 14px;
+  border: 1px solid #dcdde1;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.auth-password-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.auth-password-input-wrap .auth-form-input {
+  flex: 1;
+  padding-right: 44px;
+}
+
+.auth-password-toggle-btn {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 6px;
+}
+
+.auth-form-error {
+  color: #e0473f;
+  font-size: 13px;
+  margin: -8px 0 12px;
+}
+
+.auth-save-id-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #555;
+  margin-bottom: 20px;
+  cursor: pointer;
+}
+
+.company-login-submit-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 8px;
+  background: #111;
+  color: #fff;
+  border: none;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 20px;
+}
+
+.company-login-submit-btn:disabled {
+  background: #b4b6bd;
+  cursor: not-allowed;
+}
+
+/* ── 공통 하단 링크·배너 ───────────────────────────────────── */
+
+.auth-links-row {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.auth-link-btn {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.auth-links-divider {
+  color: #ccc;
+}
+
+.auth-link-btn--collaborator {
+  display: block;
+  text-align: center;
+  margin: 0 auto 28px;
+}
+
+.auth-workspace-banner {
+  background: #101114;
+  color: #fff;
+  border-radius: 12px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auth-workspace-banner-title {
+  margin: 0;
+  font-size: 14px;
+  color: #cfd0d4;
+}
+
+.auth-workspace-banner-link {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}

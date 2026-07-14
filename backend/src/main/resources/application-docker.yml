@@ -1,0 +1,59 @@
+# oci-arm1 서버 docker 프로파일 (SPRING_PROFILES_ACTIVE=docker) — 인프라 오너 단독 관리.
+# ⚠️ 시크릿 실제 값은 서버 ~/apps/hajacheck/.env(미커밋)에만 존재. 이 파일은 ${ENV} 참조만 한다.
+#
+# 여기 없는 설정은 어디서 오나(중복 최소화):
+#   - datasource(url/username/password), redis(host/port/password/database), ai.server.base-url
+#     → docker-compose.arm1.yml 이 SPRING_DATASOURCE_* / SPRING_DATA_REDIS_* / AI_SERVER_BASE_URL 로 주입
+#       (Spring Boot relaxed binding 으로 spring.datasource.* 등에 그대로 바인딩).
+#   - ddl-auto: validate, session.store-type: redis, forward-headers-strategy: framework, open-in-view: false
+#     → application.yml(base, 전 프로파일 공통)에서 이미 설정됨.
+# 즉 docker 프로파일이 추가로 책임지는 건 OAuth2 등록/프로바이더 + 세션 쿠키 보안 + 리다이렉트 대상뿐이다.
+
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          kakao:
+            client-id: ${KAKAO_CLIENT_ID}
+            client-secret: ${KAKAO_CLIENT_SECRET}
+            client-authentication-method: client_secret_post
+            authorization-grant-type: authorization_code
+            # redirect-uri 는 절대 https 로 고정한다. nginx(TLS 종단) 뒤에서 forward-headers 가
+            # X-Forwarded-Proto 를 반영하지 못해 {baseUrl} 이 http 로 해석되면 provider 가
+            # redirect_uri_mismatch(400) 를 반환한다(인가 base-uri 커스텀과 무관하게 콜백 경로는 /login/oauth2/code/*).
+            redirect-uri: "https://hajacheck.luma200ok.com/login/oauth2/code/kakao"
+            scope:
+              - profile_nickname
+              - account_email
+            client-name: Kakao
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            # kakao 와 동일 사유로 절대 https 로 고정(forward-headers proto 미반영 → mismatch 방지)
+            redirect-uri: "https://hajacheck.luma200ok.com/login/oauth2/code/google"
+            scope:
+              - email
+              - profile
+        # 카카오는 표준 OIDC provider 가 아니라서 provider 블록을 직접 정의해야 한다.
+        provider:
+          kakao:
+            authorization-uri: https://kauth.kakao.com/oauth/authorize
+            token-uri: https://kauth.kakao.com/oauth/token
+            user-info-uri: https://kapi.kakao.com/v2/user/me
+            user-name-attribute: id
+
+server:
+  servlet:
+    session:
+      cookie:
+        # host nginx 가 TLS 종단(https) → Secure 쿠키. SameSite=Lax, HttpOnly 로 세션 쿠키 보호.
+        secure: true
+        same-site: lax
+        http-only: true
+
+# 소셜 로그인 성공/실패 후 프론트 리다이렉트 대상 — dev 도메인(hajacheck.luma200ok.com).
+app:
+  oauth2:
+    success-redirect: https://hajacheck.luma200ok.com/dashboard
+    failure-redirect: https://hajacheck.luma200ok.com/login?error=oauth

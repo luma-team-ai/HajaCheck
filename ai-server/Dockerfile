@@ -6,7 +6,7 @@
 # 소스 빌드 없이 설치된다(현재 requirements.txt에는 YOLO 추론용 패키지가 아직 없음 — 추가 시에도 동일).
 
 # ---- Build stage ----
-FROM python:3.12-slim AS build
+FROM python:3.11-slim AS build
 WORKDIR /app
 
 # 일부 전이 의존성의 네이티브 확장 컴파일 대비(런타임 이미지에는 포함하지 않음)
@@ -20,7 +20,7 @@ RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # ---- Runtime stage ----
-FROM python:3.12-slim AS runtime
+FROM python:3.11-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update \
