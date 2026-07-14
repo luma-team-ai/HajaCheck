@@ -211,15 +211,9 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 **성공 200** `data`: `{ "maskedEmail": "haja***@check.com" }`
 **실패**: `404 AUTH_ACCOUNT_NOT_FOUND` (무매칭 통일 "일치하는 계정을 찾을 수 없습니다.")
 
-## POST /api/auth/password-inquiry — 비밀번호 찾기 1단계(기업정보 인증)
-**요청**: `{ "email": "haja@check.com", "businessRegistrationNumber": "123-45-67890" }`
-**성공 200** `data`: `{ "resetToken": "<opaque>", "maskedEmail": "haja***@check.com", "expiresInSeconds": 600 }`
-**실패**: `400 AUTH_VERIFICATION_FAILED` (불일치·미존재 통일, **401 아님**)
-
-## POST /api/auth/password-reset — 비밀번호 찾기 2단계(재설정)
-**요청**: `{ "resetToken": "<opaque>", "newPassword": "..." }` (@Size(min=8), 영문+숫자)
-**성공 200** `data`: `null`. 토큰은 단일 사용(소비 후 삭제).
-**실패**: `400 AUTH_RESET_TOKEN_INVALID` (무효/만료)
+## ~~비밀번호 찾기 1·2단계~~ — **이번 배포 제외, 후속(#194 / HAJA-172)**
+> ⚠️ 최초 설계(이메일 + 사업자번호만으로 resetToken 반환)는 **계정 탈취 P1**(PR머신·security-reviewer 지적)으로 판정됨: 이메일·사업자번호 둘 다 준공개 정보라 out-of-band 소유 증명이 없으면 안전한 재설정 불가. SMTP 미사용 결정에 따라 **비밀번호 찾기·새 비밀번호 설정 2화면은 이번 범위에서 제외**하고, **보안질문/PIN(가입 시 비공개 비밀값 저장) 방식**으로 후속 구현한다(DB 컬럼 추가 동반). → **#194 / HAJA-172**.
+> 관련 ErrorCode(`AUTH_VERIFICATION_FAILED`, `AUTH_RESET_TOKEN_INVALID`)와 password-reset 토큰 네임스페이스는 후속에서 사용.
 
 ## GET /api/auth/companies/status?token={signupToken} — 가입 상태 조회(승인 대기 새로고침)
 **성공 200** `data`: `{ "status": "PENDING_REVIEW" , "companyName": "(주)하자체크", "rejectionReason": null }`
@@ -232,4 +226,5 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 **성공 200** (`AIResponse` envelope) `data`: `{ "businessRegistrationNumber": null, "companyName": null, "representativeName": null, "raw": {}, "stub": true }`
 
 ### 추가 ErrorCode (Spring `ErrorCode`)
-`AUTH_EMAIL_DUPLICATED`(409) · `AUTH_BUSINESS_NUMBER_DUPLICATED`(409) · `AUTH_ACCOUNT_NOT_FOUND`(404) · `AUTH_VERIFICATION_FAILED`(400) · `AUTH_RESET_TOKEN_INVALID`(400) · `AUTH_SIGNUP_TOKEN_INVALID`(404) · `FILE_REQUIRED`(400) · `FILE_INVALID_TYPE`(400) · `FILE_TOO_LARGE`(400) · `FILE_UPLOAD_FAILED`(500)
+이번 배포: `AUTH_EMAIL_DUPLICATED`(409) · `AUTH_BUSINESS_NUMBER_DUPLICATED`(409) · `AUTH_ACCOUNT_NOT_FOUND`(404) · `AUTH_SIGNUP_TOKEN_INVALID`(404) · `FILE_REQUIRED`(400) · `FILE_INVALID_TYPE`(400) · `FILE_TOO_LARGE`(400) · `FILE_UPLOAD_FAILED`(500)
+후속(#194): `AUTH_VERIFICATION_FAILED`(400) · `AUTH_RESET_TOKEN_INVALID`(400)
