@@ -1,5 +1,5 @@
 import { api } from '../../../shared/api/axios';
-import { aiClient } from './aiClient';
+import { aiClient } from '../../../shared/api/aiClient';
 import type {
   AiBriefing,
   DashboardSummary,
