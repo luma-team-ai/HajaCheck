@@ -220,6 +220,65 @@ class CustomOAuth2UserServiceTest {
     }
 
     @Test
+    void processOAuth2User_카카오socialId누락_예외로가입차단() {
+        // id 누락 → String.valueOf(null)="null" 문자열 → 신원 앵커 붕괴 방지(교차 dedup 차단, #199)
+        Map<String, Object> attributes = Map.of(
+                "kakao_account", Map.of("is_email_verified", true,
+                        "profile", Map.of("nickname", "카카오길동")));
+
+        assertThatThrownBy(() -> customOAuth2UserService.processOAuth2User("kakao", attributes))
+                .isInstanceOf(OAuth2AuthenticationException.class)
+                .satisfies(ex -> assertThat(((OAuth2AuthenticationException) ex).getError().getErrorCode())
+                        .isEqualTo("invalid_request"));
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void processOAuth2User_구글sub누락_예외로가입차단() {
+        Map<String, Object> attributes = new HashMap<>();
+        attributes.put("sub", null);
+        attributes.put("email", "google@haja.com");
+        attributes.put("email_verified", true);
+        attributes.put("name", "구글영희");
+
+        assertThatThrownBy(() -> customOAuth2UserService.processOAuth2User("google", attributes))
+                .isInstanceOf(OAuth2AuthenticationException.class)
+                .satisfies(ex -> assertThat(((OAuth2AuthenticationException) ex).getError().getErrorCode())
+                        .isEqualTo("invalid_request"));
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void processOAuth2User_구글sub공백_예외로가입차단() {
+        Map<String, Object> attributes = Map.of(
+                "sub", "   ",
+                "email", "google@haja.com",
+                "email_verified", true,
+                "name", "구글영희");
+
+        assertThatThrownBy(() -> customOAuth2UserService.processOAuth2User("google", attributes))
+                .isInstanceOf(OAuth2AuthenticationException.class)
+                .satisfies(ex -> assertThat(((OAuth2AuthenticationException) ex).getError().getErrorCode())
+                        .isEqualTo("invalid_request"));
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void processOAuth2User_구글sub리터럴null문자열_예외로가입차단() {
+        Map<String, Object> attributes = Map.of(
+                "sub", "null",
+                "email", "google@haja.com",
+                "email_verified", true,
+                "name", "구글영희");
+
+        assertThatThrownBy(() -> customOAuth2UserService.processOAuth2User("google", attributes))
+                .isInstanceOf(OAuth2AuthenticationException.class)
+                .satisfies(ex -> assertThat(((OAuth2AuthenticationException) ex).getError().getErrorCode())
+                        .isEqualTo("invalid_request"));
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
     void processOAuth2User_구글이메일미검증_placeholder로가입성공() {
         // 정책 공통 적용: 미검증 이메일은 신뢰하지 않고 placeholder 로 대체(#199)
         when(userRepository.findBySocialProviderAndSocialId(eq(SocialProvider.GOOGLE), eq("google-sub-999")))
