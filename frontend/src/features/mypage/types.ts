@@ -53,3 +53,13 @@ export interface SeatsInfo {
 export interface UpgradeInquiryResult {
   status: PlanStatus;
 }
+
+// contract.md 추가 ErrorCode(마이페이지) — error.code 비교를 이 상수로 통일해 오타 시 컴파일 에러가 나게 한다.
+// (shared/api/types.ts의 ApiError.code는 앱 전역 에러코드를 아우르는 plain string이라 여기서 좁힐 수 없음 —
+// 대신 이 객체의 프로퍼티를 통해서만 비교하게 해 오타를 컴파일 타임에 잡는다.)
+export const MYPAGE_ERROR_CODE = {
+  PLAN_NOT_FOUND: 'PLAN_NOT_FOUND',
+  PLAN_FORBIDDEN: 'PLAN_FORBIDDEN',
+} as const;
+
+export type MyPageErrorCode = (typeof MYPAGE_ERROR_CODE)[keyof typeof MYPAGE_ERROR_CODE];

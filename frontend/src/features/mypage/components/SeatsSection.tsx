@@ -1,14 +1,16 @@
 import { useSeats } from '../hooks/useSeats';
+import { MYPAGE_ERROR_CODE, type SeatMemberRole, type SeatMemberStatus } from '../types';
 import { formatLimit } from '../utils/planFormat';
 
-const ROLE_LABEL: Record<string, string> = {
+// SeatMemberRole/SeatMemberStatus 유니온 기준 Record — 백엔드 enum에 값이 추가되면 여기서 컴파일 에러로 드러남
+const ROLE_LABEL: Record<SeatMemberRole, string> = {
   ADMIN: '관리자',
   INSPECTOR: '검사자',
   USER: '일반',
   COUNSELOR: '상담사',
 };
 
-const STATUS_LABEL: Record<string, string> = {
+const STATUS_LABEL: Record<SeatMemberStatus, string> = {
   ACTIVE: '활성',
   SUSPENDED: '정지',
 };
@@ -16,7 +18,7 @@ const STATUS_LABEL: Record<string, string> = {
 // 좌석 현황(조회 전용, contract.md) — "좌석 초대" 버튼은 후속 범위라 비활성만 노출
 export function SeatsSection() {
   const { data, isLoading, isError, error } = useSeats();
-  const errorCode = (error as { code?: string } | null)?.code;
+  const errorCode = error?.code;
 
   return (
     <section className="dashboard-card mypage-seats-card">
@@ -36,10 +38,10 @@ export function SeatsSection() {
 
       {isLoading && <p className="dashboard-card-status">불러오는 중...</p>}
 
-      {isError && errorCode === 'PLAN_NOT_FOUND' && (
+      {isError && errorCode === MYPAGE_ERROR_CODE.PLAN_NOT_FOUND && (
         <p className="dashboard-card-status">활성 구독이 없어 좌석 정보를 표시할 수 없습니다.</p>
       )}
-      {isError && errorCode !== 'PLAN_NOT_FOUND' && (
+      {isError && errorCode !== MYPAGE_ERROR_CODE.PLAN_NOT_FOUND && (
         <p className="dashboard-card-status">좌석 정보를 불러오지 못했습니다.</p>
       )}
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useUpgradeInquiry } from '../hooks/useUpgradeInquiry';
-import type { MyPlanInfo } from '../types';
+import { MYPAGE_ERROR_CODE, type MyPlanInfo } from '../types';
 import { PLAN_NAME_LABEL, PLAN_STATUS_LABEL, formatPriceMonthly } from '../utils/planFormat';
 
 type Props = {
@@ -14,7 +14,7 @@ export function PlanCard({ plan }: Props) {
   const [justRequested, setJustRequested] = useState(false);
 
   const isUpgradeRequested = plan.status === 'UPGRADE_REQUESTED' || justRequested;
-  const upgradeError = upgradeInquiry.error as { code?: string } | null;
+  const upgradeError = upgradeInquiry.error;
 
   const handleUpgradeInquiry = () => {
     upgradeInquiry.mutate(undefined, {
@@ -61,7 +61,7 @@ export function PlanCard({ plan }: Props) {
 
       {upgradeInquiry.isError && (
         <p className="dashboard-card-status mypage-status--error" role="alert">
-          {upgradeError?.code === 'PLAN_FORBIDDEN'
+          {upgradeError?.code === MYPAGE_ERROR_CODE.PLAN_FORBIDDEN
             ? '플랜 소유자만 업그레이드를 문의할 수 있습니다.'
             : '업그레이드 문의 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.'}
         </p>
