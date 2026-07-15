@@ -7,6 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
 
 from deps import verify_internal_key
 
@@ -95,7 +96,12 @@ def report(req: ReportRequest) -> AIResponse:
     """AI 보고서 4섹션(개요/요약/상세/권고) 병렬 생성 + Grounding Check (FR-5, HAJA-31)."""
     try:
         result = run_report_chain(req.facility_info, req.confirmed_defects, req.on_mismatch.value)
-    except Exception as e:  # noqa: BLE001 — 스키마 파싱 실패·detail 개수 불일치 등 표준 폴백
+    except (ValueError, PydanticValidationError) as e:
+        # 비-LLM 검증 실패 — detail.items 개수 불일치(ValueError, run_report_chain 자체 검증)나
+        # confirmed_defects의 잘못된 severity_grade(GroundingDefect validator 실패) 등.
+        # LLM 호출·파싱과 무관한 입력/코드 검증 오류이므로 /ai/grounding-check와 동일하게 VALIDATION_ERROR.
+        return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, str(e))
+    except Exception as e:  # noqa: BLE001 — LLM 호출·structured output 파싱 실패 등 표준 폴백
         return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, str(e))
     return AIResponse.ok(result)
 
