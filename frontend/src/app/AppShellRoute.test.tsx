@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,7 +9,9 @@ afterEach(cleanup);
 
 // useMatches()는 data router(createMemoryRouter/RouterProvider)에서만 동작하므로
 // MemoryRouter + Routes 조합이 아니라 실제 router.tsx와 동일한 방식으로 렌더링한다.
+// AppShellRoute가 useLogout(useQueryClient 필요)을 사용하므로 QueryClientProvider로 감싼다(#231).
 function renderAt(initialPath: string) {
+  const queryClient = new QueryClient();
   const router = createMemoryRouter(
     [
       {
@@ -32,7 +35,11 @@ function renderAt(initialPath: string) {
     { initialEntries: [initialPath] },
   );
 
-  return render(<RouterProvider router={router} />);
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
 }
 
 describe('AppShellRoute', () => {
