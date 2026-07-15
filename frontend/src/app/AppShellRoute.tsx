@@ -3,7 +3,9 @@
 // 새 페이지를 이 셸에 포함하려면 router.tsx의 children 배열에 라우트를 추가하고,
 // 그 라우트의 `handle`에 breadcrumb/activeHref를 선언하기만 하면 된다 — 페이지 컴포넌트 자체는
 // AppLayout을 몰라도 됨(react-router v6 표준 패턴: useMatches() + handle).
-import { Outlet, useMatches } from 'react-router-dom';
+import { Outlet, useMatches, useNavigate } from 'react-router-dom';
+import { useLogout } from '../features/auth/hooks/useLogout';
+import { useAuthStore } from '../features/auth/store/authStore';
 import type { BreadcrumbItem } from '../shared/components/Header';
 import { AppLayout } from '../shared/components/AppLayout';
 import { isRouteImplemented } from './implementedRoutes';
@@ -30,6 +32,9 @@ function hasAppShellHandle(handle: unknown): handle is AppShellHandle {
 
 export function AppShellRoute() {
   const matches = useMatches();
+  const navigate = useNavigate();
+  const authUser = useAuthStore((state) => state.user);
+  const { logout } = useLogout();
   // 가장 깊은(마지막) match부터 breadcrumb/activeHref를 선언한 handle을 찾는다.
   const current = [...matches].reverse().find((match) => hasAppShellHandle(match.handle));
   const handle = current?.handle as AppShellHandle | undefined;
@@ -39,6 +44,13 @@ export function AppShellRoute() {
       breadcrumb={handle?.breadcrumb ?? []}
       activeHref={handle?.activeHref}
       isRouteImplemented={isRouteImplemented}
+      user={
+        authUser
+          ? { name: authUser.name, avatarUrl: authUser.profileImageUrl ?? undefined }
+          : undefined
+      }
+      onLogout={() => void logout()}
+      onProfileClick={() => navigate('/mypage/plan')}
     >
       <Outlet />
     </AppLayout>

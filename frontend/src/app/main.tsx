@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
+import { AuthGate } from './AuthGate';
 import { router } from './router';
 import { shouldEnableMocking } from '../shared/utils/shouldEnableMocking';
 import '../styles/global.css';
@@ -30,7 +31,9 @@ function renderApp(): void {
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <AuthGate>
+          <RouterProvider router={router} />
+        </AuthGate>
       </QueryClientProvider>
     </React.StrictMode>,
   );
