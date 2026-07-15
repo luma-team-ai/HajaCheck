@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.1.0-draft"
+  version: "0.2.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
     구현된 엔드포인트(ai-server)는 실행 후 /docs(Swagger UI)에서 최신본 재확인 가능.
