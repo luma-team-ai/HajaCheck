@@ -4,7 +4,7 @@
 실패: { "success": false, "error": { "code": "LLM_TIMEOUT", "message": "..." } }
 """
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -39,3 +39,24 @@ class AIResponse(BaseModel):
     @classmethod
     def fail(cls, code: AIErrorCode, message: str) -> "AIResponse":
         return cls(success=False, error=AIError(code=code, message=message))
+
+
+class SourceCitation(BaseModel):
+    """RAG 답변이 인용한 문서 1건 — docs/design/ai/rag_chroma_schema.md §6 계약.
+
+    locator는 렌더링이 끝난 표시 문구("제12조", "12페이지" 등)이며, 답변 생성
+    시점에 1회 조립해 채운다 — 화면 표시 때마다 Chroma를 재조회하지 않는다.
+    """
+
+    doc_id: str
+    title: str
+    collection: Literal["regulations", "defect_kb"]
+    locator: str
+    chunk_ref: str
+
+
+class RagAnswerData(BaseModel):
+    """FR-6 RAG 챗봇 답변 — AIResponse.data에 담기는 형태(HAJA-145)."""
+
+    answer: str
+    sources: list[SourceCitation]
