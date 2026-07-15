@@ -39,6 +39,10 @@ public enum ErrorCode {
     FILE_TOO_LARGE(HttpStatus.BAD_REQUEST, "파일 용량이 너무 큽니다. (최대 10MB)"),
     FILE_UPLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "파일 업로드에 실패했습니다."),
 
+    // 마이페이지 — 내 플랜·사용량·좌석(HAJA-177)
+    PLAN_NOT_FOUND(HttpStatus.NOT_FOUND, "활성 구독을 찾을 수 없습니다."),
+    PLAN_FORBIDDEN(HttpStatus.FORBIDDEN, "구독 소유자만 요청할 수 있습니다."),
+
     // 도메인별 예시 — 각 담당이 추가
     DEFECT_NOT_FOUND(HttpStatus.NOT_FOUND, "하자를 찾을 수 없습니다."),
     AI_JOB_TIMEOUT(HttpStatus.INTERNAL_SERVER_ERROR, "AI 분석 요청이 시간 초과되었습니다.");
