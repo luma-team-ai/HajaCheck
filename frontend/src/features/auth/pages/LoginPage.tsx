@@ -6,6 +6,7 @@ import { authApi } from '../api/authApi';
 import { CompanyLoginTab } from '../components/CompanyLoginTab';
 import { LoginHeroPanel } from '../components/LoginHeroPanel';
 import { PersonalLoginTab } from '../components/PersonalLoginTab';
+import { AUTH_ME_QUERY_KEY, AUTH_ME_QUERY_STALE_TIME_MS } from '../constants';
 import { useAuthStore } from '../store/authStore';
 import type { UserResponse } from '../types';
 import '../auth.css';
@@ -19,6 +20,10 @@ export function LoginPage() {
   const setUser = useAuthStore((state) => state.setUser);
 
   // CSRF 쿠키 프리밍 겸 세션 확인 — 서버 상태는 React Query로(React_코드_컨벤션.md §4)
+  // AuthGate(app/AuthGate.tsx)와 동일 queryKey·staleTime 공유 — 로그아웃 직후 useLogout이
+  // setQueryData(AUTH_ME_QUERY_KEY, null)로 고정한 값이 staleTime 동안 fresh로 간주돼,
+  // /login으로 전환되며 이 컴포넌트가 마운트돼도 getMe를 즉시 재요청하지 않는다.
+  // 즉시 재요청하면 로그아웃 API가 실패해 쿠키가 아직 유효한 경우 세션이 재복원된다(PR #232 P2-D).
   const {
     data: me,
     isSuccess,
@@ -26,9 +31,10 @@ export function LoginPage() {
     error: sessionCheckError,
     refetch: retrySessionCheck,
   } = useQuery<UserResponse, ApiError>({
-    queryKey: ['auth', 'me'],
+    queryKey: AUTH_ME_QUERY_KEY,
     queryFn: () => authApi.getMe().then((res) => res.data),
     retry: false,
+    staleTime: AUTH_ME_QUERY_STALE_TIME_MS,
   });
 
   useEffect(() => {
