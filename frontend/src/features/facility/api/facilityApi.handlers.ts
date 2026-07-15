@@ -2,6 +2,7 @@ import { http, HttpResponse } from 'msw';
 import type { ApiResponse } from '../../../shared/api/types';
 import { mockFacilities } from '../mocks/facility.mock';
 import type { CreateFacilityRequest, Facility } from '../types';
+import { computeNextInspectionDueAt } from '../utils/computeNextInspectionDueAt';
 
 // 메모리 목 저장소 — POST로 생성한 시설물이 이후 GET 목록 조회에 즉시 반영되도록 모듈 스코프에서 유지
 // (dashboardApi.handlers.ts처럼 고정 응답만으로는 등록 폼 E2E 확인이 불가능해 facility만 mutable로 구성)
@@ -11,20 +12,11 @@ let nextId = facilities.reduce((max, facility) => Math.max(max, facility.id), 0)
 // 테스트에서 setupServer(...facilityHandlers) + afterEach(() => server.resetHandlers())로 격리해도
 // 이 모듈 스코프 상태(facilities/nextId)는 resetHandlers()로 초기화되지 않는다 — POST 등록 후
 // GET 목록을 검증하는 테스트가 여러 it() 블록에 걸쳐 있을 때 상태가 새는 것을 막기 위해
-// 명시적으로 호출 가능한 리셋 함수를 노출한다(현재 이를 호출하는 테스트는 없음).
+// 명시적으로 호출 가능한 리셋 함수를 노출한다. FacilityListPage.test.tsx의
+// afterEach(() => { server.resetHandlers(); resetFacilityMockStore(); })에서 사용한다.
 export function resetFacilityMockStore(): void {
   facilities = [...mockFacilities];
   nextId = facilities.reduce((max, facility) => Math.max(max, facility.id), 0) + 1;
-}
-
-// 점검주기(개월) 기준으로 다음 점검일을 오늘부터 산정 — 실제 백엔드 산정 로직의 목(mock) 근사치
-function computeNextInspectionDueAt(inspectionCycleMonths?: number | null): string | null {
-  if (!inspectionCycleMonths || inspectionCycleMonths <= 0) {
-    return null;
-  }
-  const due = new Date();
-  due.setMonth(due.getMonth() + inspectionCycleMonths);
-  return due.toISOString().slice(0, 10);
 }
 
 export const facilityHandlers = [
@@ -75,7 +67,11 @@ export const facilityHandlers = [
       builtYear: reqBody.builtYear ?? null,
       scale: reqBody.scale ?? null,
       inspectionCycleMonths: reqBody.inspectionCycleMonths ?? null,
-      nextInspectionDueAt: computeNextInspectionDueAt(reqBody.inspectionCycleMonths),
+      // 실제 FacilityService는 클라이언트가 보낸 값을 그대로 저장(패스스루)할 뿐 자동계산하지 않는다.
+      // FE는 항상 computeNextInspectionDueAt으로 산정해 보내지만, 이를 생략한 요청(예: 구버전 클라이언트,
+      // 직접 호출하는 테스트)도 데모가 가능하도록 목에서만 동일 규칙으로 보정 계산한다.
+      nextInspectionDueAt:
+        reqBody.nextInspectionDueAt ?? computeNextInspectionDueAt(reqBody.inspectionCycleMonths),
       createdAt: now,
       updatedAt: now,
     };

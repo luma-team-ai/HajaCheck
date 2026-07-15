@@ -108,6 +108,7 @@ describe('toCreateFacilityRequest', () => {
       builtYear: null,
       scale: null,
       inspectionCycleMonths: null,
+      nextInspectionDueAt: null,
     });
   });
 
@@ -127,5 +128,29 @@ describe('toCreateFacilityRequest', () => {
     expect(request.longitude).toBe(127.0);
     expect(request.builtYear).toBe(2008);
     expect(request.inspectionCycleMonths).toBe(6);
+  });
+
+  it('점검주기가 있으면 nextInspectionDueAt을 오늘로부터 해당 개월 수 뒤 날짜로 계산해 포함한다', () => {
+    const request = toCreateFacilityRequest({
+      ...FACILITY_FORM_INITIAL_VALUES,
+      name: '강남 오피스타워 A동',
+      type: '건물',
+      inspectionCycleMonths: '6',
+    });
+
+    const expected = new Date();
+    expected.setMonth(expected.getMonth() + 6);
+    expect(request.nextInspectionDueAt).toBe(expected.toISOString().slice(0, 10));
+  });
+
+  it('점검주기가 0이면 nextInspectionDueAt은 null이다', () => {
+    const request = toCreateFacilityRequest({
+      ...FACILITY_FORM_INITIAL_VALUES,
+      name: '강남 오피스타워 A동',
+      type: '건물',
+      inspectionCycleMonths: '0',
+    });
+
+    expect(request.nextInspectionDueAt).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import type { CreateFacilityRequest } from '../types';
+import { computeNextInspectionDueAt } from './computeNextInspectionDueAt';
 
 // 폼 입력은 모두 문자열로 관리(빈 문자열 = 미입력) 후 제출 시 CreateFacilityRequest로 변환한다.
 export interface FacilityFormValues {
@@ -94,7 +95,13 @@ export function hasFacilityFormErrors(errors: FacilityFormErrors): boolean {
 }
 
 // 빈 문자열 입력은 옵셔널 필드를 null로 취급 — 서버에 불필요한 빈 문자열을 보내지 않는다.
+// nextInspectionDueAt은 백엔드가 자동계산하지 않으므로(FacilityService는 패스스루 저장만) 여기서
+// inspectionCycleMonths 기준으로 산정해 함께 전송한다 — computeNextInspectionDueAt은 MSW 목과 공용.
 export function toCreateFacilityRequest(values: FacilityFormValues): CreateFacilityRequest {
+  const inspectionCycleMonths = values.inspectionCycleMonths.trim()
+    ? Number(values.inspectionCycleMonths)
+    : null;
+
   return {
     name: values.name.trim(),
     type: values.type.trim(),
@@ -103,8 +110,7 @@ export function toCreateFacilityRequest(values: FacilityFormValues): CreateFacil
     longitude: values.longitude.trim() ? Number(values.longitude) : null,
     builtYear: values.builtYear.trim() ? Number(values.builtYear) : null,
     scale: values.scale.trim() || null,
-    inspectionCycleMonths: values.inspectionCycleMonths.trim()
-      ? Number(values.inspectionCycleMonths)
-      : null,
+    inspectionCycleMonths,
+    nextInspectionDueAt: computeNextInspectionDueAt(inspectionCycleMonths),
   };
 }

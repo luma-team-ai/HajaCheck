@@ -12,7 +12,9 @@ export interface Facility {
   builtYear: number | null;
   scale: string | null;
   inspectionCycleMonths: number | null;
-  nextInspectionDueAt: string | null; // ISO date — 서버 계산값(response-only)
+  // ISO date — 클라이언트가 산정해 전송, 서버(FacilityService)는 그대로 저장하는 패스스루 필드다.
+  // 서버측 자동산정은 FR-019 `POST /api/facilities/{id}/schedule`(dev-04-03) 소관.
+  nextInspectionDueAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -26,4 +28,7 @@ export interface CreateFacilityRequest {
   builtYear?: number | null;
   scale?: string | null;
   inspectionCycleMonths?: number | null;
+  // 클라이언트가 inspectionCycleMonths 기준으로 산정해 전송(utils/computeNextInspectionDueAt.ts) —
+  // 백엔드가 자동계산하지 않으므로 FE가 보내지 않으면 항상 null로 저장된다.
+  nextInspectionDueAt?: string | null;
 }
