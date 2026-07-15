@@ -5,8 +5,10 @@
 """
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+
+from deps import verify_internal_key
 
 from ai.chains.briefing_chain import DashboardStats, run_briefing_chain
 from ai.chains.defect_explain_chain import run_defect_explain_chain
@@ -18,7 +20,11 @@ from ai.core.grounding import (
 )
 from ai.core.schemas import AIErrorCode, AIResponse
 
-router = APIRouter(prefix="/ai", tags=["ai"])
+# dependencies=[Depends(verify_internal_key)] — /ai/* 전 라우트에 내부키 검증 일괄 적용.
+# (/health는 main.py에 prefix 없이 정의돼 이 라우터 밖 → 무인증 유지, 컨테이너 헬스체크용)
+router = APIRouter(
+    prefix="/ai", tags=["ai"], dependencies=[Depends(verify_internal_key)]
+)
 
 
 @router.get("/ping")

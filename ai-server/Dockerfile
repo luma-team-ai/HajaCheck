@@ -32,6 +32,7 @@ COPY --from=build /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 COPY --chown=fastapi:fastapi main.py ./
+COPY --chown=fastapi:fastapi deps.py ./
 COPY --chown=fastapi:fastapi routers ./routers
 COPY --chown=fastapi:fastapi ai ./ai
 
