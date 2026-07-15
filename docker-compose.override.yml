@@ -23,6 +23,7 @@ services:
   fastapi:
     volumes:
       - ./ai-server/main.py:/app/main.py
+      - ./ai-server/deps.py:/app/deps.py
       - ./ai-server/routers:/app/routers
       - ./ai-server/ai:/app/ai
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

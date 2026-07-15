@@ -43,9 +43,19 @@ def test_post_route_missing_key_returns_401():
     assert res.status_code == 401
 
 
-def test_ai_route_no_key_configured_allows_no_header():
+@patch.dict(os.environ, {"AI_INTERNAL_KEY": "secret-k"})
+def test_non_ascii_header_does_not_500():
+    # 비-ASCII 헤더값(latin-1 바이트)이 와도 서버가 500으로 죽지 않고 정상 401로 거부.
+    # Starlette은 헤더를 latin-1로 디코드 → x_internal_key가 비-ASCII str이 됨. .encode() 비교가 아니면
+    # compare_digest(str, str)가 TypeError(500) 냄. bytes 헤더로 httpx의 ascii 인코딩을 우회해 실경로 재현.
+    res = client.get("/ai/ping", headers={"X-Internal-Key": "é".encode("latin-1")})
+    assert res.status_code == 401
+
+
+def test_ai_route_no_key_configured_allows_no_header(monkeypatch):
     # AI_INTERNAL_KEY 미설정 → 검증 비활성. 기존 무키 테스트가 깨지지 않음을 보장.
-    os.environ.pop("AI_INTERNAL_KEY", None)
+    # monkeypatch.delenv로 env 오염 없이 이 테스트 범위에서만 키 제거(자동 복원).
+    monkeypatch.delenv("AI_INTERNAL_KEY", raising=False)
     res = client.get("/ai/ping")
     assert res.status_code == 200
     assert res.json()["success"] is True
@@ -60,5 +70,5 @@ def test_health_is_unauthenticated_even_with_key():
 
 
 if __name__ == "__main__":
-    test_ai_route_no_key_configured_allows_no_header()
-    print("OK: internal key self-check passed (run full suite with pytest)")
+    # 대부분 케이스가 patch.dict/monkeypatch(픽스처)에 의존하므로 self-run 대신 pytest로 실행할 것.
+    print("Run with pytest: pytest tests/test_internal_key.py")

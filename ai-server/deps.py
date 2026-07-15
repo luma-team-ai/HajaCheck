@@ -22,5 +22,8 @@ def verify_internal_key(x_internal_key: str | None = Header(default=None)) -> No
     expected = os.getenv("AI_INTERNAL_KEY")
     if not expected:
         return
-    if x_internal_key is None or not hmac.compare_digest(x_internal_key, expected):
+    # bytes 비교 — 비-ASCII 헤더값에서 str 혼용 시 compare_digest가 TypeError(500) 내는 것 방지.
+    if x_internal_key is None or not hmac.compare_digest(
+        x_internal_key.encode(), expected.encode()
+    ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
