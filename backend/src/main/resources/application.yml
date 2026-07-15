@@ -40,6 +40,14 @@ app:
     password-reset-ttl: 10m
     signup-status-ttl: 30d
 
+# AI 서버(FastAPI) 인증 프록시 설정(#228) — 시크릿(internal-key)은 env 참조, 커밋값 없음.
+ai:
+  server:
+    base-url: ${AI_SERVER_BASE_URL:http://localhost:8000}
+    internal-key: ${AI_SERVER_INTERNAL_KEY:}
+    connect-timeout-ms: 3000
+    read-timeout-ms: 60000
+
 management:
   endpoints:
     web:
