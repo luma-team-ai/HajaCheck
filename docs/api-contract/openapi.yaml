@@ -147,6 +147,35 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AIResponse" }
 
+  /ai/nl-search:
+    post:
+      summary: 자연어 질의를 하자 필터로 변환 (HAJA-120, 계획/미구현)
+      description: >
+        Spring Boot의 공개 POST /api/defects/nl-search 게이트웨이만 호출하는 내부 전용 경로다.
+        FastAPI는 X-Internal-Service-Token이 누락되거나 일치하지 않으면 LLM 호출 전에 거부한다.
+        DB를 조회하지 않고 질의를 NlSearchResult로 변환하며, 입력 검증 및 LLM 실패도 공통
+        AIResponse envelope으로 반환한다. 운영 nginx는 이 경로를 외부에 직접 노출하지 않는다.
+      x-internal: true
+      security:
+        - InternalServiceToken: []
+      tags: [ai, defect]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NlSearchRequest" }
+      responses:
+        "200":
+          description: 성공 또는 VALIDATION_ERROR/LLM 오류 — success 필드로 구분
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NlSearchAIResponse" }
+        "401":
+          description: X-Internal-Service-Token 누락 또는 불일치
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIResponse" }
+
   /api/auth/companies:
     post:
       summary: 기업 회원가입 (multipart/form-data)
@@ -351,6 +380,102 @@ paths:
       responses:
         "200": { description: TODO — 오영석 확정 필요 }
 
+  /api/defects:
+    get:
+      summary: 하자 목록 검색·필터 (FR-012, 계획/미구현)
+      description: >
+        서버가 인증 주체로부터 조회 가능한 범위를 먼저 계산한다. 시설물 소유자는 본인 소유 시설물,
+        점검자는 배정된 시설물·점검 회차, 관리자는 전체 하자만 조회할 수 있다. 아래 쿼리 파라미터는
+        이 서버 유도 소유권 범위를 좁히는 용도로만 사용하며 클라이언트 입력으로 범위를 확장할 수 없다.
+      security:
+        - SessionCookie: []
+      tags: [defect]
+      parameters:
+        - name: type
+          in: query
+          description: 하자 유형 코드 목록(콤마 구분)
+          style: form
+          explode: false
+          schema:
+            type: array
+            uniqueItems: true
+            items: { $ref: "#/components/schemas/DefectTypeCode" }
+        - name: grade
+          in: query
+          description: 하자 등급 코드 목록(콤마 구분)
+          style: form
+          explode: false
+          schema:
+            type: array
+            uniqueItems: true
+            items: { $ref: "#/components/schemas/DefectGradeCode" }
+        - name: status
+          in: query
+          description: 하자 상태 코드 목록(콤마 구분)
+          style: form
+          explode: false
+          schema:
+            type: array
+            uniqueItems: true
+            items: { $ref: "#/components/schemas/DefectStatusCode" }
+        - name: confidenceMin
+          in: query
+          description: AI 탐지 신뢰도 하한(0~1)
+          schema: { type: number, format: double, minimum: 0, maximum: 1 }
+      responses:
+        "200":
+          description: 소유권 범위와 필터를 모두 만족하는 하자 목록(응답 enum은 위 코드값 사용)
+        "401":
+          description: 미인증
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 역할 또는 데이터 접근 범위 위반
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/defects/nl-search:
+    post:
+      summary: 하자 자연어 검색 공개 게이트웨이 (FR-013, 계획/미구현)
+      description: >
+        세션 인증과 점검자 역할을 검사하고 has_ai_addon=true인 활성 플랜만 허용한다.
+        회사 플랜은 회사 status=APPROVED, verification_status=VERIFIED 및 요청 사용자의 유효한
+        승인 멤버십을 모두 검증하며 users.company_id만으로 상속하지 않는다. 게이트 실패 시 내부
+        FastAPI를 호출하지 않는다. 성공한 요청만 내부 POST /ai/nl-search로 전달하고 내부 오류 코드에서
+        예외·토큰 값을 제거한 뒤 Spring ApiResponse로 보존한다.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [defect, ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NlSearchRequest" }
+      responses:
+        "200":
+          description: 변환 성공 또는 전달된 LLM 오류 — success 필드로 구분
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NlSearchApiResponse" }
+        "400":
+          description: 빈 질의 또는 trim 후 500자 초과(INVALID_INPUT/VALIDATION_ERROR)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 점검자 권한 없음 또는 AI 부가 기능 미보유(AI_ADDON_REQUIRED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
   /api/defects/{id}:
     patch:
       summary: 검수 — 오탐 수정·등급 조정 (defect_revisions append-only)
@@ -406,6 +531,16 @@ components:
       in: header
       name: X-Internal-Service-Token
       description: Spring Boot와 FastAPI 환경변수에만 주입하는 내부 호출 토큰
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: SESSION
+      description: Spring Security 인증 세션 쿠키
+    XsrfToken:
+      type: apiKey
+      in: header
+      name: X-XSRF-TOKEN
+      description: 상태 변경 요청에 필요한 double-submit CSRF 토큰
 
   schemas:
     # ── auth 도메인 (Spring Boot envelope: { success, data, error }) ──
@@ -483,6 +618,106 @@ components:
         data: {}
         usage: { $ref: "#/components/schemas/AIUsage" }
         error: { $ref: "#/components/schemas/AIError" }
+
+    DefectTypeCode:
+      type: string
+      enum: [CRACK, SPALLING, LEAK_EFFLORESCENCE, REBAR_EXPOSURE, PAINT_DAMAGE]
+
+    DefectGradeCode:
+      type: string
+      enum: [A, B, C, D, E]
+
+    DefectStatusCode:
+      type: string
+      enum: [DETECTED, CONFIRMED, ACTION_PENDING, IN_PROGRESS, RESOLVED]
+
+    NlSearchRequest:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: 양끝 공백 제거 후 1~500자인 자연어 질의
+          example: D등급 이상 조치 대기 하자
+
+    NlSearchFilters:
+      type: object
+      additionalProperties: false
+      required: [type, grade, status, confidenceMin]
+      properties:
+        type:
+          type: array
+          uniqueItems: true
+          items: { $ref: "#/components/schemas/DefectTypeCode" }
+        grade:
+          type: array
+          uniqueItems: true
+          items: { $ref: "#/components/schemas/DefectGradeCode" }
+        status:
+          type: array
+          uniqueItems: true
+          items: { $ref: "#/components/schemas/DefectStatusCode" }
+        confidenceMin:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          nullable: true
+
+    NlSearchResult:
+      type: object
+      additionalProperties: false
+      required: [filters, unsupported_terms, clarifying_question, interpretation_confidence]
+      properties:
+        filters: { $ref: "#/components/schemas/NlSearchFilters" }
+        unsupported_terms:
+          type: array
+          items: { type: string }
+        clarifying_question:
+          type: string
+          nullable: true
+        interpretation_confidence:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+
+    NlSearchAIResponse:
+      type: object
+      description: 내부 /ai/nl-search 전용 AIResponse envelope
+      required: [success, data, usage, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/NlSearchResult" }
+        usage:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/AIUsage" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/AIError" }
+
+    NlSearchApiResponse:
+      type: object
+      description: 공개 /api/defects/nl-search 전용 Spring ApiResponse envelope
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/NlSearchResult" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
 
     SourceCitation:
       type: object

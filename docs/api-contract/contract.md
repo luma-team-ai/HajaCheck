@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.4 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+> **문서 버전:** v0.3 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -240,7 +240,7 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 | FR-9 | GET | `/api/notifications` (P1) | 알림 센터 | 미배정 |
 | 공통 | GET | `/actuator/health`, `/health` | 헬스체크 | 인프라 |
 
-> 하자 관리 메뉴(`/api/defects` 목록·검색, 공개 `/api/defects/nl-search` → 내부 `/ai/nl-search`)는 유병현/정재봉 담당(§7 표), 위 FR-4 검수 경로와 데이터는 공유하되 엔드포인트는 별도. 자연어 검색 공개 경로는 Spring Boot가 인증·점검자 권한·`has_ai_addon`을 검사한 뒤에만 내부 FastAPI로 전달한다.
+> 하자 관리 메뉴(`/api/defects` 목록·검색, 공개 `/api/defects/nl-search` → 내부 `/ai/nl-search`)는 유병현/정재봉 담당(§7 표), 위 FR-4 검수 경로와 데이터는 공유하되 엔드포인트는 별도. 자연어 검색 공개 경로는 Spring Boot가 인증·점검자 권한·`has_ai_addon`을 검사한 뒤에만 내부 FastAPI로 전달한다. `GET /api/defects`는 클라이언트 필터와 별개로 인증 주체를 기준으로 시설물 소유자·배정 점검자 범위를 강제하며, 관리자는 전체 범위를 조회할 수 있다.
 
 ## 다음 추가 예정 (각 담당자)
 
