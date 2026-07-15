@@ -2,7 +2,7 @@
 
 > **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
 
-> 메뉴: 하자 관리 (담당: 유병현) · 관련 요구: PRD §4 메뉴 구성(IA) "자연어 검색(P1)" · API 요구사항 FR-013 `POST /ai/nl-search` · 관련 Jira: HAJA-120(설계) — 하위 HAJA-179~183
+> 메뉴: 하자 관리 (담당: 유병현) · 관련 요구: PRD §4 메뉴 구성(IA) "자연어 검색(P1)" — 별도 FR 번호 미부여 · 관련 Jira: HAJA-120(설계) — 하위 HAJA-179~183
 > 구현 예정(후속): `ai-server/ai/chains/nl_search_chain.py` · 프롬프트: `ai/prompts/nl_search_convert.md` · 엔드포인트: `POST /ai/nl-search`
 > **이 문서는 설계 확정 범위다. `/ai/nl-search`·`/api/defects` 실제 구현, 프론트 연동 코드는 후속 티켓에서 진행한다.**
 
@@ -226,6 +226,8 @@ def run_nl_search_chain(query: str) -> NlSearchResult:
 | `filters.confidenceMin` (number\|null) | `confidenceMin=0.8` | 미지정 시 파라미터 생략 |
 
 빈 배열(`[]`)인 필드는 쿼리 파라미터에서 생략한다(= 해당 축은 필터링 안 함).
+
+`confidenceMin`이 지정된 경우 `defects.confidence IS NULL`인 행은 임계값 비교 대상에서 제외한다. `confidenceMin`이 `null`이거나 생략된 경우에만 confidence 값 유무와 무관하게 조회한다.
 
 ### 4.3 프론트 수동 필터 ↔ 자연어 필터 동기화 방식
 
