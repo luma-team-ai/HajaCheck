@@ -20,6 +20,9 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 export function Modal({ open, onClose, title, children }: ModalProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
+  // onClose가 부모 렌더마다 새로 생성돼도 effect가 재실행되지 않도록 ref로 최신값만 참조
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) {
@@ -37,7 +40,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -69,7 +72,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
       document.removeEventListener('keydown', handleKeyDown);
       previousActiveElementRef.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) {
     return null;

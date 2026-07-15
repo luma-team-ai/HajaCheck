@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import brandMark from '../../../assets/brand/brand-mark.png';
 import collapseIcon from '../../../assets/brand/sidenav-collapse.svg';
@@ -154,11 +154,20 @@ export function SideNavBar({
   onCollapseToggle,
 }: SideNavBarProps) {
   const allItems = isAdmin ? [...items, adminItem] : items;
-  const defaultExpanded = allItems.find((item) =>
-    item.subItems?.some((sub) => sub.href === activeHref),
-  )?.label;
-  const [expandedLabel, setExpandedLabel] = useState<string | undefined>(defaultExpanded);
+  const [expandedLabel, setExpandedLabel] = useState<string | undefined>(() =>
+    allItems.find((item) => item.subItems?.some((sub) => sub.href === activeHref))?.label,
+  );
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+
+  // activeHref가 마운트 이후 바뀌어도(사이드바 클릭이 아닌 다른 경로로 하위 라우트 진입 시) 해당 그룹이 펼쳐지도록 동기화
+  useEffect(() => {
+    const activeGroupLabel = allItems.find((item) =>
+      item.subItems?.some((sub) => sub.href === activeHref),
+    )?.label;
+    if (activeGroupLabel) {
+      setExpandedLabel(activeGroupLabel);
+    }
+  }, [activeHref, allItems]);
 
   function toggleExpand(label: string) {
     setExpandedLabel((current) => (current === label ? undefined : label));
