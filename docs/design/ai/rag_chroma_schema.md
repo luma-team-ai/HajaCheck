@@ -36,8 +36,10 @@ FR-6 RAG 챗봇이 `regulations`(법규·지침)/`defect_kb`(하자 지식) 두 
 - **네이밍**: 전부 `snake_case`, 두 컬렉션 공통 키(`doc_id`, `source`, `doc_type`, `page`, `chunk_index`, `chunk_hash`, `embedding_model`, `embedded_at`) 고정.
 - **다중값 평탄화**: 청크가 여러 조문에 걸치면 `"제12조,제13조"`처럼 콤마 구분 문자열(파싱은 조회 측에서 `split(",")`).
 - **결측값**: 값이 없는 필드는 키 자체를 생성하지 않는다(`None`/빈 문자열 저장 금지).
-- **날짜**: `effective_date`, `embedded_at`은 ISO 8601 문자열(`"2026-01-01"`) 고정.
+- **날짜**: `effective_date`, `authored_at`, `embedded_at`은 ISO 8601 문자열(`"2026-01-01"`) 고정.
 - **Chroma document id**: `{doc_id}_{chunk_index}` — 재임베딩 시 동일 청크는 동일 id로 upsert.
+
+법규 개정 버전은 별도 자유 형식 `version` 필드를 두지 않는다. 개정본마다 새 `rag_documents` 행을 생성하고 `effective_date`로 시행 시점을 식별해, 과거 문서와 citation이 같은 문서 행에서 덮어써지지 않게 한다.
 
 ## 4. 필드 정의서 — `regulations` 컬렉션
 
@@ -71,6 +73,8 @@ FR-6 RAG 챗봇이 `regulations`(법규·지침)/`defect_kb`(하자 지식) 두 
 | chunk_index / chunk_hash / embedding_model / embedded_at | — | ✅ | `regulations`와 동일 | 관리 |
 
 > `article`/`clause`/`effective_date`는 `defect_kb`에 없음 — 법조문 구조가 아니므로 강제하지 않는다.
+>
+> 객관적인 산정식이 없는 숫자형 신뢰도 점수는 만들지 않는다. 하자 지식의 신뢰 상태는 전문가 검토 여부인 `verification_status`를 SoT로 사용한다.
 
 ## 6. `sources` 응답 스키마 (`ai/core/schemas.py`, HAJA-145)
 
