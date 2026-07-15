@@ -25,6 +25,10 @@ describe('usagePercent', () => {
     expect(usagePercent(0, 0)).toBeNull();
   });
 
+  it('한도가 0이고 사용량이 0보다 커도(비정상 데이터) null을 반환한다', () => {
+    expect(usagePercent(5, 0)).toBeNull();
+  });
+
   it('정상 비율을 반올림해 반환한다', () => {
     expect(usagePercent(786, 1000)).toBe(79);
   });
