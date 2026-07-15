@@ -1,5 +1,7 @@
 # Grounding Check (사실 검증) 로직 설계 — HAJA-117
 
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+
 > 에픽: HAJA-103 [AI 설계] · 담당: 허남 · 관련 요구: PRD_hajaCheck_v0.41 §6.2 (line 274)
 > 구현: `ai-server/ai/core/grounding.py` · 엔드포인트: `POST /ai/grounding-check` · 테스트: `ai-server/tests/test_grounding.py`
 

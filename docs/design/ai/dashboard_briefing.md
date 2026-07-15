@@ -1,5 +1,7 @@
 # 대시보드 AI 주간 브리핑 로직 설계 — WBS design-03-16
 
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+
 > 메뉴: 대시보드 (담당: 허남) · 관련 요구: PRD §4 대시보드 "AI 주간 브리핑 카드 (LLM 자연어 요약)"
 > 구현: `ai-server/ai/chains/briefing_chain.py` · 프롬프트: `ai/prompts/dashboard_briefing.md` · 엔드포인트: `POST /ai/briefing` · 테스트: `ai-server/tests/test_briefing.py`
 

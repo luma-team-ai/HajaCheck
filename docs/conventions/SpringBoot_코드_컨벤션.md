@@ -1,5 +1,7 @@
 # hajaCheck — Spring Boot(Java) 코드 컨벤션
 
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+
 > 대상: 백엔드 코드를 작성하는 전체 팀원 (메뉴 담당제 — 전원이 API를 직접 구현)
 > 관리: Backend 리드 (프로젝트 구조·API 계약 총괄, 리뷰 시 준수 점검)
 > 기준: JDK 17 / Spring Boot 3.x / Gradle / 모듈러 모놀리스

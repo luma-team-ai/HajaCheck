@@ -1,5 +1,7 @@
 # 2.1 요구사항 정의서 — API 엔드포인트 (점검관리B 작성분)
 
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+
 > 팀 전체 FR 번호 체계 확정 전 독립 문서로 작성 — 번호 확정되면 일괄 치환 예정.
 > 기술 스펙 원본은 `docs/api-contract/openapi.yaml`, 사람이 보는 요약은 `docs/api-contract/contract.md` 참조.
 
