@@ -1,11 +1,11 @@
 # PRD — hajaCheck : AI 기반 시설물 외관 하자 점검 플랫폼
 
-> **문서 버전:** v0.45 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+> **문서 버전:** v0.44 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | v0.45 |
-| 작성 | 김승현 || 작성일 | 2026-07-15 (최초 2026-07-02) — v0.45: 회원가입·아이디 찾기·비밀번호 찾기 3개 화면에 **이메일 인증(Spring Mail SMTP, 코드 입력형 6자리)** 추가 — Redis 키 `email:verify:{PURPOSE}:{email}`(PURPOSE=SIGNUP/FIND_ID/RESET_PW), TTL 5분, 1회성 삭제, 5회 실패 시 재발급 강제, 재발송 쿨다운 60초. v0.43의 사업자등록번호 대조 방식은 이메일 인증 코드 방식으로 대체(2026-07-15) / v0.44: §2.4 요금제 확정(Standard 월 ₩29,000 / Enterprise 월 ₩59,000, "협의/별도 견적" 방침 폐기), 프론트엔드 공통 스택에 Tailwind CSS 4.3.2 + Recharts 3.9.2(차트·그래프 공통 컴포넌트, 화면별 혼용 금지) 명시(2026-07-15) / v0.43: FR-1 로그인·마이페이지에 아이디 찾기·비밀번호 찾기(재설정) 기능 추가 — 기업회원(ID/PW 로그인) 대상, **사업자등록번호 기반 본인 인증**(이메일 발송·인증 기능 없음 — 가입 시 OCR로 확인된 사업자등록정보로 동일 세션 내 즉시 인증), 시도 횟수 제한·인증 성공 후 세션 전체 무효화 원칙 §5 반영(2026-07-14) / v0.42: 착수 주간 진척 반영(2026-07-13) — ①탐지 클래스 5종→**3종 확정**(균열·박리박락·철근노출) ②데이터셋 **약 161,000장 확보 완료** ③ONNX 경량화·모델 버전관리 규칙 **완료** ④논리·물리 ERD **완료** ⑤AI 공통기반(llm_client·prompts·structured output·법규 청킹·예시체인) **완료** ⑥심각도 등급 **A~E 5등급 확정**(오픈이슈 해소) ⑦랜딩·지도뷰·Stitch→Figma **완료** / v0.41: §7 기술 챕터 표를 9개(기술 축)로 정리 — 주/부담당은 메뉴 오너에서 도출, 각 챕터 실제 기술 스택 명시(챕터9=DevOps 플랫폼 운영 레이어) + §8 협업 도구: PACA(자체 호스팅) 폐기 → Jira·Slack 전환 반영(2026-07-07) |
+| 문서 버전 | v0.44 |
+| 작성 | 김승현 || 작성일 | 2026-07-15 (최초 2026-07-02) — v0.44: §2.4 요금제 확정(Standard 월 ₩29,000 / Enterprise 월 ₩59,000, "협의/별도 견적" 방침 폐기), 프론트엔드 공통 스택에 Tailwind CSS 4.3.2 + Recharts 3.9.2(차트·그래프 공통 컴포넌트, 화면별 혼용 금지) 명시(2026-07-15) / v0.43: FR-1 로그인·마이페이지에 아이디 찾기·비밀번호 찾기(재설정) 기능 추가 — 기업회원(ID/PW 로그인) 대상, **사업자등록번호 기반 본인 인증**(이메일 발송·인증 기능 없음 — 가입 시 OCR로 확인된 사업자등록정보로 동일 세션 내 즉시 인증), 시도 횟수 제한·인증 성공 후 세션 전체 무효화 원칙 §5 반영(2026-07-14) / v0.42: 착수 주간 진척 반영(2026-07-13) — ①탐지 클래스 5종→**3종 확정**(균열·박리박락·철근노출) ②데이터셋 **약 161,000장 확보 완료** ③ONNX 경량화·모델 버전관리 규칙 **완료** ④논리·물리 ERD **완료** ⑤AI 공통기반(llm_client·prompts·structured output·법규 청킹·예시체인) **완료** ⑥심각도 등급 **A~E 5등급 확정**(오픈이슈 해소) ⑦랜딩·지도뷰·Stitch→Figma **완료** / v0.41: §7 기술 챕터 표를 9개(기술 축)로 정리 — 주/부담당은 메뉴 오너에서 도출, 각 챕터 실제 기술 스택 명시(챕터9=DevOps 플랫폼 운영 레이어) + §8 협업 도구: PACA(자체 호스팅) 폐기 → Jira·Slack 전환 반영(2026-07-07) |
 | 프로젝트 기간 | 2026-07-09(목) ~ 2026-08-07(금), 4주 |
 | 팀 구성 | 김승현(PM), 정재봉(PL), 김관영, 오영석, 이은석, 허남, 유병현, 황승현 (8명) |
 | 프로젝트명 | **hajaCheck** |
@@ -244,9 +244,7 @@
 - **권한 집행 원칙**: 프론트 메뉴 숨김(`ProtectedRoute`/`AdminRoute`)은 편의일 뿐 — 백엔드에서 `@PreAuthorize`(역할) + 소유권 데이터 필터를 반드시 병행. 플랜 제한은 별도 `QuotaInterceptor`로 분리(§2.4)
 - **CSRF 방어**: 쿠키 세션 기반이므로 상태 변경 요청(POST/PUT/PATCH/DELETE)에 Spring Security CSRF 토큰 적용 — React는 `XSRF-TOKEN` 쿠키를 읽어 헤더로 전송
 - **기업회원 ID/PW 로그인**(v0.43 신규): 사업자등록증 OCR 인증으로 가입한 기업회원은 소셜 로그인 대신 아이디/비밀번호 자체 로그인 사용(스토리보드 AUTH-01 기업회원 탭). 비밀번호는 BCrypt 해시 저장, 평문 저장·로그 노출 금지
-- **기업회원 가입 — 이메일 인증**(v0.45 신규, **Spring Mail SMTP**): 사업자등록증 OCR 인증에 더해 가입 이메일 소유 확인을 위한 인증코드(6자리 숫자) 발송·검증 통과 시 가입 완료 처리. 인증코드는 Redis에 `email:verify:SIGNUP:{email}` 키로 저장(아래 공통 규약 참조)
-- **아이디 찾기 / 비밀번호 찾기**(v0.45 개정 — **이메일 인증 코드 방식으로 전환, Spring Mail SMTP**): 이메일 입력 → 인증코드(6자리 숫자) 발송(아이디 찾기는 PURPOSE=FIND_ID, 비밀번호 찾기는 PURPOSE=RESET_PW) → 사용자가 코드를 직접 입력해 검증 → 성공 시 **동일 세션 내에서 즉시** 아이디 마스킹 표시(예: `abc***@company.com`) 또는 새 비밀번호 설정 화면으로 진행. 계정 미존재 시에도 "인증코드를 발송했습니다" 등 동일한 응답을 반환해 계정 존재 여부 비노출. 비밀번호 재설정 완료 후 기존 세션 전체 무효화(재로그인 요구). (v0.43의 사업자등록번호 대조 방식은 본 방식으로 대체)
-- **이메일 인증 공통 규약**(v0.45 신규 — SIGNUP/FIND_ID/RESET_PW 3개 화면 공용): Redis 키 `email:verify:{PURPOSE}:{email}`(PURPOSE enum: SIGNUP/FIND_ID/RESET_PW) · 값 = 6자리 랜덤 숫자(또는 검증용 해시) · **TTL 5분**(Redis 자체 만료 — 별도 배치/스케줄러 불필요) · **1회성**: 검증 성공 시 즉시 삭제(재사용 방지) · **실패 횟수 제한**: 같은 키에 attempt count 병행 저장, **5회 실패 시 코드 재발급 강제**(무차별 대입 방지) · **재발송 쿨다운 60초**(이메일 폭탄 방지). JWT 서명 토큰 방식도 검토했으나, 재발송 시 이전 토큰 무효화·1회성 강제에는 결국 서버 측 상태 저장이 필요해 이미 스택에 있는 **Redis TTL 방식**이 더 단순·적합하다고 판단
+- **아이디 찾기 / 비밀번호 찾기**(v0.43 신규 — **본 프로젝트는 이메일 발송·인증 기능이 없으므로 이메일 링크 방식 미사용**): 가입 시 OCR로 확인·저장된 **사업자등록번호**를 입력받아 회원정보와 대조 → 일치 시 **동일 세션 내에서 즉시** 아이디 마스킹 표시(예: `abc***`) 또는 새 비밀번호 설정 화면으로 진행(비동기 이메일 토큰·링크 없음). 계정 미존재 시에도 "확인 중입니다" 등 동일한 응답을 반환해 계정 존재 여부 비노출. 비밀번호 재설정 완료 후 기존 세션 전체 무효화(재로그인 요구). 사업자등록번호 대조 시도는 IP·계정 단위 레이트리밋 적용(무차별 대입 방지)
 
 ### FR-2 촬영 데이터 업로드
 
@@ -350,13 +348,12 @@
 
 - **모듈러 모놀리스**: Spring Boot 내부 패키지를 도메인별(auth / core / counsel / admin)로 엄격 분리 — 향후 서비스 분리 가능한 구조로 설계
 - **ORM: Spring Data JPA(Hibernate)** — Entity·Repository 규약은 `SpringBoot_코드_컨벤션.md` 참조. 프론트 규약은 `React_코드_컨벤션.md` 참조
-- **이메일 발송: Spring Boot Starter Mail(SMTP)**(v0.45 신규) — 회원가입·아이디 찾기·비밀번호 찾기 인증코드 발송 전용. 실제 발송은 비동기 처리(`@Async`)로 API 응답 지연 방지
 - **프론트엔드 공통 UI 스택**(v0.44): 스타일링은 **Tailwind CSS 4.3.2**로 통일, 대시보드·통계·회차 비교 등 화면 전반의 차트·그래프는 **Recharts 3.9.2**를 공통 컴포넌트로 사용(개별 화면별 차트 라이브러리 혼용 금지)
 - Spring Boot ↔ FastAPI: REST + 비동기 잡 패턴(분석 요청 → 잡 ID → 폴링/콜백). FastAPI·DB·Redis·Chroma는 외부 포트 미개방(내부 통신 전용)
 - **FastAPI 워커 분리**: CPU-bound인 YOLO 추론은 별도 워커 프로세스(`ProcessPoolExecutor` 또는 uvicorn 워커 분배)로 오프로드 — 분석 진행 중에도 챗봇·보고서 API가 블로킹되지 않게(3 OCPU: 탐지용 1 + API용 1~2)
 - **Correlation ID**: 모든 분석 잡·요청에 `X-Request-Id` 발급, Spring·FastAPI 양쪽 로그에 동일 ID 기록 — 경계 넘는 요청 추적(디버깅 시간 절감)
 - 영상 프레임 추출: FastAPI 측 OpenCV/ffmpeg
-- **Redis 활용처**: ① Spring Session(로그인 세션) ② 분석 잡 상태·진행률 캐시 ③ LangChain 챗봇 대화 메모리 ④ 상담 대기열(Sorted Set) ⑤ 대시보드 통계 캐시 ⑥ OAuth 인가 state 임시 저장 ⑦ LLM 응답 캐시(프롬프트 해시 키) ⑧ **이메일 인증 코드**(`email:verify:{PURPOSE}:{email}`, TTL 5분 — v0.45)
+- **Redis 활용처**: ① Spring Session(로그인 세션) ② 분석 잡 상태·진행률 캐시 ③ LangChain 챗봇 대화 메모리 ④ 상담 대기열(Sorted Set) ⑤ 대시보드 통계 캐시 ⑥ OAuth 인가 state 임시 저장 ⑦ LLM 응답 캐시(프롬프트 해시 키)
 
 ### 6.1 배포 환경 — OCI (Oracle Cloud Infrastructure)
 
@@ -421,7 +418,7 @@
 
 ### 6.3 주요 데이터 모델 — 논리·물리 ERD 초안 완료(2026-07-13)
 
-`users`(소셜 연동 정보 + 기업회원용 `password_hash`·`business_reg_no`·`email`·`email_verified` 포함 — v0.45: 회원가입·아이디/비밀번호 찾기의 이메일 인증코드는 Redis TTL 키로만 관리, 별도 토큰 테이블 불필요), `facilities`(점검 주기 필드 포함 — P1), `inspections`, `media`, `defects`(유형, bbox, confidence, 등급, 상태, 검수 여부), **`defect_revisions`(검수 수정 이력 — append-only, FR-4 감사 추적)**, `reports`, `chat_sessions`/`chat_messages`(RAG·상담 공용, `session_type` 구분, **RAG 메시지에는 출처 citation 필드 필수** — KPI '출처 표기율 100%' 검증용), `counsel_tickets`(상담 대기열/티켓), `bot_scenarios`(챗봇 시나리오), `rag_documents`, **`plans`/`user_plans`/`usage_counters`(멤버십 — P1, §2.4)**, **`notifications`(인앱 알림 — P1, FR-9)**
+`users`(소셜 연동 정보 + 기업회원용 `password_hash`·`business_reg_no` 포함 — v0.43: 아이디/비밀번호 찾기는 사업자등록번호 대조로 동일 세션 내 처리, 별도 토큰 테이블 불필요), `facilities`(점검 주기 필드 포함 — P1), `inspections`, `media`, `defects`(유형, bbox, confidence, 등급, 상태, 검수 여부), **`defect_revisions`(검수 수정 이력 — append-only, FR-4 감사 추적)**, `reports`, `chat_sessions`/`chat_messages`(RAG·상담 공용, `session_type` 구분, **RAG 메시지에는 출처 citation 필드 필수** — KPI '출처 표기율 100%' 검증용), `counsel_tickets`(상담 대기열/티켓), `bot_scenarios`(챗봇 시나리오), `rag_documents`, **`plans`/`user_plans`/`usage_counters`(멤버십 — P1, §2.4)**, **`notifications`(인앱 알림 — P1, FR-9)**
 
 ---
 
