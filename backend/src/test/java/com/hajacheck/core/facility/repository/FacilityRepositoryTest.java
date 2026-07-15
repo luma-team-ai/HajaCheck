@@ -3,16 +3,21 @@ package com.hajacheck.core.facility.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.support.PostgresTestSupport;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
+import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.test.context.ActiveProfiles;
 
+// 실 PG DDL(facilities) 대조를 위해 임베디드 교체를 끄고 Testcontainers PostgreSQL 사용 (리뷰 P2).
 @DataJpaTest
+@AutoConfigureTestDatabase(replace = Replace.NONE)
 @ActiveProfiles("test")
-class FacilityRepositoryTest {
+class FacilityRepositoryTest extends PostgresTestSupport {
 
     @Autowired
     private FacilityRepository facilityRepository;
