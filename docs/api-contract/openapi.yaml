@@ -416,8 +416,9 @@ paths:
       summary: 하자 목록 검색·필터 (FR-012, 계획/미구현)
       description: >
         서버가 인증 주체로부터 조회 가능한 시설물 범위를 먼저 계산한다: 본인 소유 시설물(facilities.owner_id),
-        같은 회사의 유효한 company_memberships를 가진 시설물 소유자의 시설물(등록자가 아니어도 같은 회사 소속이면
-        포함), 관리자는 전체 시설물. 이와 별개로 inspections.assigned_inspector_id가 본인인 점검 회차는
+        회사 소속 공유 시설물(등록자가 아니어도 시설물 소유자와 요청자 양쪽 모두가 같은 회사에 대해 유효한
+        company_memberships를 가진 경우에 한해 포함 — 요청자 자신의 멤버십이 미승인·회수·만료 상태면 제외),
+        관리자는 전체 시설물. 이와 별개로 inspections.assigned_inspector_id가 본인인 점검 회차는
         시설물 범위 밖이어도 항상 포함한다. 모든 역할에서 defects.is_deleted=false를 강제한다. 아래 쿼리
         파라미터는 이 서버 유도 소유권 범위를 좁히는 용도로만 사용하며 클라이언트 입력으로 범위를 확장할 수
         없다. 정렬은 created_at DESC, id DESC로 고정해 페이지 간 결과 순서를 안정적으로 유지한다.
