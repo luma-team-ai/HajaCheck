@@ -212,7 +212,7 @@ v1은 신뢰도 **하한(`confidenceMin`)만** 지원한다. 사용자가 하한
 자연어 검색은 PRD §2.3/§2.4의 인증·플랜 집행 원칙과 §6 내부 네트워크 아키텍처를 따른다.
 
 - **공개 호출 경로**: 프론트는 Spring Boot의 `POST /api/defects/nl-search`만 호출한다. Spring Security 세션 인증을 통과한 점검자 요청만 허용한다.
-- **플랜 게이트**: Spring Boot는 개인 활성 플랜 또는 회사 활성 플랜을 조회해 `plans.has_ai_addon = true`인지 검사한다. 회사 플랜 상속은 회사가 `status = APPROVED`이면서 `verification_status = VERIFIED`이고, 요청 사용자가 해당 회사에 **유효하게 소속된 승인 멤버십**을 보유한 경우에만 허용한다. `users.company_id` 존재만으로 상속하지 않는다(`table_design.md` §2.6 cross-tenant IDOR 방지 규칙). Free 등 AI 부가 기능이 없는 플랜과 회사·멤버십 검증 실패 요청은 FastAPI를 호출하지 않고 `403 AI_ADDON_REQUIRED`로 거부한다. 프론트에서 버튼을 숨기는 것은 보조 UX일 뿐 서버 검사를 대체하지 않는다.
+- **플랜 게이트**: Spring Boot는 개인 활성 플랜 또는 회사 활성 플랜을 조회해 `plans.has_ai_addon = true`인지 검사한다. 회사 플랜 상속은 회사가 `status = APPROVED`이면서 `verification_status = VERIFIED`이고, `company_memberships`에 요청 사용자와 회사를 잇는 행이 `status = APPROVED`, `approved_at IS NOT NULL`, `revoked_at IS NULL`, `expires_at IS NULL OR expires_at > now()`이며 사용자도 `ACTIVE`, `users.company_id = company_memberships.company_id`일 때만 허용한다. 회사 오너도 동일한 멤버십 행을 가져야 하며 `users.company_id` 존재만으로 상속하지 않는다(`table_design.md` §2.6/§5.1). Free 등 AI 부가 기능이 없는 플랜과 회사·멤버십 검증 실패 요청은 FastAPI를 호출하지 않고 `403 AI_ADDON_REQUIRED`로 거부한다. 프론트에서 버튼을 숨기는 것은 보조 UX일 뿐 서버 검사를 대체하지 않는다.
 - **내부 호출 경로**: 위 검사를 통과한 경우에만 Spring Boot가 내부 네트워크의 FastAPI `POST /ai/nl-search`를 호출한다. 환경변수로 주입한 `X-Internal-Service-Token`을 전달하고 FastAPI는 누락·불일치 요청을 처리 전에 거부한다.
 - **외부 노출 차단**: 운영 nginx는 `/ai/nl-search`를 FastAPI로 직접 프록시하지 않는다. 현재의 포괄적인 `/ai/**` 프록시는 이 기능 배포 전에 Spring 경유 또는 외부 차단으로 변경하며, 프론트도 `aiClient`가 아니라 인증·CSRF 처리가 적용되는 Spring API 클라이언트를 사용한다.
 - **응답 변환**: FastAPI 내부 `AIResponse.data`의 `NlSearchResult`를 Spring 공통 `ApiResponse.ok(data)`에 담아 반환한다. FastAPI의 LLM 에러 코드는 Spring `ApiResponse.fail(code, message)`로 보존하되 내부 예외·토큰 값은 노출하지 않는다.
@@ -228,7 +228,7 @@ v1은 신뢰도 **하한(`confidenceMin`)만** 지원한다. 사용자가 하한
 
 `GET /api/defects`는 아직 미구현이라 이 매핑이 곧 그 쿼리 파라미터 설계의 기준이 된다.
 
-**소유권 범위는 아래 클라이언트 필터보다 먼저 서버에서 강제한다.** Spring Boot는 인증 주체로부터 조회 가능한 점검 회차를 계산해 시설물 소유자는 본인 소유 시설물, 점검자는 자신에게 배정된 시설물·점검 회차, 관리자는 전체 하자만 조회할 수 있게 제한한다. 클라이언트가 `facilityId`·`inspectionId`·회사 식별자 등으로 이 범위를 확장할 수 없으며, 범위 밖 `defects`는 다른 필터 조건과 일치하더라도 결과에 포함하지 않는다. 역할 검사는 `@PreAuthorize`, 데이터 범위는 repository/service의 소유권 조건으로 함께 적용한다(PRD §5 FR-1).
+**소유권 범위는 아래 클라이언트 필터보다 먼저 서버에서 강제한다.** Spring Boot는 인증 주체로부터 조회 가능한 점검 회차를 계산해 시설물 소유자는 `facilities.owner_id = authUserId`인 시설물, 점검자는 `inspections.assigned_inspector_id = authUserId`인 점검 회차, 관리자는 전체 하자만 조회할 수 있게 제한한다. 모든 역할에서 `defects.is_deleted = false`를 추가로 강제한다. 클라이언트가 `facilityId`·`inspectionId`·회사 식별자 등으로 이 범위를 확장하거나 논리 삭제 행을 다시 포함시킬 수 없으며, 범위 밖 `defects`는 다른 필터 조건과 일치하더라도 결과에 포함하지 않는다. 역할 검사는 `@PreAuthorize`, 데이터 범위와 논리 삭제 조건은 repository/service 조건으로 함께 적용한다(PRD §5 FR-1/FR-4, `table_design.md` §5.3/§5.4).
 
 | 자연어 변환 응답 필드 | `/api/defects` 쿼리 파라미터(안) | 비고 |
 |---|---|---|
@@ -238,6 +238,8 @@ v1은 신뢰도 **하한(`confidenceMin`)만** 지원한다. 사용자가 하한
 | `filters.confidenceMin` (number\|null) | `confidenceMin=0.8` | 미지정 시 파라미터 생략 |
 
 빈 배열(`[]`)인 필드는 쿼리 파라미터에서 생략한다(= 해당 축은 필터링 안 함).
+
+목록 페이지 파라미터는 `page`(0부터, 기본 0), `size`(1~100, 기본 20)를 사용한다. 정렬은 `created_at DESC, id DESC`로 서버에서 고정한다. 성공 응답은 Spring 목록 규약에 맞춰 `ApiResponse.data = { content: DefectListItem[], page, size, totalElements, totalPages }`이며, `DefectListItem`은 `id`, `inspectionId`, `facilityId`, `type`, nullable `grade`, `status`, `confidence`, `isReviewed`, `createdAt`을 포함한다. 상세 JSON 스키마는 API SOT인 `openapi.yaml`의 `DefectListItem`/`DefectPage`를 따른다.
 
 현재 DB 설계상 `defects.confidence`는 NOT NULL이다(`table_design.md` §5.4). 따라서 `confidenceMin`이 지정되면 `confidence >= confidenceMin` 조건으로 비교한다. 향후 confidence가 nullable로 완화될 경우 NULL 행 처리 정책은 해당 DB 변경 티켓에서 별도로 확정한다.
 
@@ -262,7 +264,7 @@ Spring 게이트웨이가 전달한 자연어 변환 요청이 실패(`LLM_TIMEO
 ### 4.5 완료 기준 반영
 
 - AI/백엔드/프론트가 위 4.1~4.4 계약을 기준으로 각자 구현 가능.
-- HAJA-120 후속 구현 티켓 범위: ① AI 서버 내부 `/ai/nl-search` + 내부 토큰 검증 구현, ② Spring Boot 공개 `POST /api/defects/nl-search` 게이트웨이(인증·점검자 권한·`has_ai_addon`)와 `GET /api/defects` 구현(§4.2 파라미터 기준), ③ 운영 nginx 직접 노출 차단, ④ 프론트 `inspection/types.ts` 영문 코드 마이그레이션 + Spring API 기반 자연어 검색 UI(§4.3 동기화 로직).
+- HAJA-120 후속 구현 티켓 범위: ① `company_memberships`·`inspections.assigned_inspector_id` 마이그레이션과 기존 데이터 검증/백필, 기업 가입·승인·초대 트랜잭션 확장, ② AI 서버 내부 `/ai/nl-search` + 내부 토큰 검증 구현, ③ Spring Boot 공개 `POST /api/defects/nl-search` 게이트웨이(인증·점검자 권한·`has_ai_addon`)와 `GET /api/defects` 구현(§4.2 파라미터 기준), ④ 운영 nginx 직접 노출 차단, ⑤ 프론트 `inspection/types.ts` 영문 코드 마이그레이션 + Spring API 기반 자연어 검색 UI(§4.3 동기화 로직). 회사 플랜 게이트는 멤버십 백필 검증이 완료되기 전에 활성화하지 않는다.
 
 ---
 
@@ -309,8 +311,8 @@ Spring 게이트웨이가 전달한 자연어 변환 요청이 실패(`LLM_TIMEO
 ### 5.5 스택별 재사용 기준
 
 - **AI 서버**: 5.1~5.4를 `test_nl_search_chain.py`의 케이스로 사용. 5.1(정상)·5.3(미지원 조건 포함)은 `filters`/`unsupported_terms`가 표에 명시된 값과 **정확히 일치**하는지 검증한다. 5.2(애매한 질의)는 `clarifying_question` 문구까지 고정하지 않고 `filters == 표의 빈 값` && `clarifying_question is not None`라는 **구조적 조건**만 검증한다(§5.2 참고). 5.4는 LLM mock이 호출되지 않고 `VALIDATION_ERROR` envelope이 반환되는지 검증한다.
-- **Spring 백엔드 — 인증·플랜 게이트**: 미인증 요청은 `401`, AI 부가 기능이 없는 Free 플랜은 `403 AI_ADDON_REQUIRED`이며 두 경우 FastAPI 클라이언트가 호출되지 않는지 검증한다. 개인 활성 플랜 또는 `APPROVED`+`VERIFIED` 회사와 유효한 승인 멤버십을 모두 만족하는 회사 활성 플랜이 `has_ai_addon=true`인 점검자 요청만 내부 토큰을 포함해 전달되는지 검증한다. `users.company_id`만 일치하거나 회사/멤버십이 대기·반려·만료된 요청은 `403`이고 FastAPI가 호출되지 않아야 한다.
-- **Spring 백엔드 — 조회 소유권**: 통과 케이스에서는 5.1의 기대 `filters`를 §4.2 매핑표로 변환한 쿼리 파라미터가 `GET /api/defects`에서 올바른 결과를 반환하는지 검증한다. 동일 필터에 대해 시설물 소유자는 본인 소유, 점검자는 배정된 시설물·점검 회차, 관리자는 전체 결과만 받는지 확인하고, 타 회사·타 소유자·미배정 점검자의 하자가 섞이지 않는 cross-tenant 부정 테스트를 필수로 둔다.
+- **Spring 백엔드 — 인증·플랜 게이트**: 미인증 요청은 `401`, AI 부가 기능이 없는 Free 플랜은 `403 AI_ADDON_REQUIRED`이며 두 경우 FastAPI 클라이언트가 호출되지 않는지 검증한다. 개인 활성 플랜 또는 `APPROVED`+`VERIFIED` 회사와 `company_memberships`의 유효한 승인 멤버십을 모두 만족하는 회사 활성 플랜이 `has_ai_addon=true`인 점검자 요청만 내부 토큰을 포함해 전달되는지 검증한다. `users.company_id`만 일치하거나 회사/멤버십이 대기·반려·회수·만료된 요청, 비활성 사용자는 `403`이고 FastAPI가 호출되지 않아야 한다. 회사 오너도 멤버십 행이 없으면 상속하지 않는지 검증한다.
+- **Spring 백엔드 — 조회 소유권·논리 삭제·페이지**: 통과 케이스에서는 5.1의 기대 `filters`를 §4.2 매핑표로 변환한 쿼리 파라미터가 `GET /api/defects`에서 올바른 결과를 반환하는지 검증한다. 동일 필터에 대해 시설물 소유자는 `facilities.owner_id`, 점검자는 `inspections.assigned_inspector_id`, 관리자는 전체 범위로 제한되는지 확인하고, 타 회사·타 소유자·미배정 점검자의 하자가 섞이지 않는 cross-tenant 부정 테스트를 필수로 둔다. 모든 역할에서 `is_deleted=true` 행은 제외하고, `page`/`size` 경계(0/1/100 및 음수·101 거부), `created_at DESC, id DESC` 고정 정렬, `totalElements`/`totalPages` 계산도 검증한다.
 - **AI 서버 호출 경계**: `X-Internal-Service-Token` 누락·불일치 요청을 LLM 호출 전에 거부하고, 올바른 내부 호출만 허용하는지 검증한다.
 - **프론트**: 5.1~5.4를 MSW mock 핸들러 fixture로 사용 — 공개 Spring 경로(`/api/defects/nl-search`)만 호출하며 `clarifying_question`/`unsupported_terms` 분기 UI, `401` 로그인 유도, `403 AI_ADDON_REQUIRED` 업그레이드 안내가 각각 올바르게 렌더링되는지 검증한다.
 
