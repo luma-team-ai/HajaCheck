@@ -1,7 +1,9 @@
 # Chroma 컬렉션 메타데이터 & RAG 출처(sources) 응답 스키마 — HAJA-113
 
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+
 > 에픽: HAJA-103 [AI 설계] · 담당: 유병현(챕터2 데이터·API 계약 오너) · 관련 요구: `PRD_hajaCheck_v0.43.md` §5 FR-6, §6.3 (v0.41 대비 RAG·데이터 모델 요구사항 변경 없음)
-> 구현 연계: `ai-server/ai/core/vectorstore.py`(Chroma 컬렉션 팩토리, RAG 코치 구현 예정) · `ai-server/ai/core/schemas.py`(`SourceCitation`/`RagAnswerData`) · DB: `docs/design/db/table_design_v0.4.md` §5.5 (`rag_documents`, `chat_message_citations`)
+> 구현 연계: `ai-server/ai/core/vectorstore.py`(Chroma 컬렉션 팩토리, RAG 코치 구현 예정) · `ai-server/ai/core/schemas.py`(`SourceCitation`/`RagAnswerData`) · DB: `docs/design/db/table_design.md` §5.5 (`rag_documents`, `chat_message_citations`)
 
 ## 1. 목적
 
