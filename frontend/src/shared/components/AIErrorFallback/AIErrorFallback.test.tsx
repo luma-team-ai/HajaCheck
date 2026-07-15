@@ -7,7 +7,7 @@ afterEach(cleanup);
 
 describe('AIErrorFallback', () => {
   it('표준 문구를 렌더링한다', () => {
-    render(<AIErrorFallback />);
+    render(<AIErrorFallback onRetry={vi.fn()} />);
 
     expect(
       screen.getByText('AI 분석을 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.'),
