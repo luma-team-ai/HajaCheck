@@ -1,5 +1,4 @@
 import { useNavigate } from 'react-router-dom';
-import { AppLayout } from '../../../shared/components/AppLayout';
 import '../../../shared/styles/layout.css';
 import { AiBriefingCard } from '../components/AiBriefingCard';
 import { GradeDistributionCard } from '../components/GradeDistributionCard';
@@ -18,36 +17,31 @@ export function DashboardPage() {
   };
 
   return (
-    <AppLayout
-      breadcrumb={[{ label: '홈' }, { label: '대시보드' }]}
-      activeHref="/dashboard"
-    >
-      <div className="dashboard-content">
-        <div className="dashboard-page-header">
-          <h1 className="dashboard-page-title">대시보드</h1>
-          <button
-            type="button"
-            className="dashboard-new-inspection-btn"
-            onClick={handleStartNewInspection}
-          >
-            + 새 점검 시작
-          </button>
+    <div className="dashboard-content">
+      <div className="dashboard-page-header">
+        <h1 className="dashboard-page-title">대시보드</h1>
+        <button
+          type="button"
+          className="dashboard-new-inspection-btn"
+          onClick={handleStartNewInspection}
+        >
+          + 새 점검 시작
+        </button>
+      </div>
+
+      <KpiSection />
+
+      {/* 시안: KPI 아래는 2단 컬럼 — 좌(넓음)=등급분포+최근점검 / 우(좁음)=처리대기+AI 브리핑 */}
+      <div className="dashboard-columns">
+        <div className="dashboard-col dashboard-col--main">
+          <GradeDistributionCard />
+          <RecentInspectionsTable />
         </div>
-
-        <KpiSection />
-
-        {/* 시안: KPI 아래는 2단 컬럼 — 좌(넓음)=등급분포+최근점검 / 우(좁음)=처리대기+AI 브리핑 */}
-        <div className="dashboard-columns">
-          <div className="dashboard-col dashboard-col--main">
-            <GradeDistributionCard />
-            <RecentInspectionsTable />
-          </div>
-          <div className="dashboard-col dashboard-col--side">
-            <PendingPriorityCard />
-            <AiBriefingCard />
-          </div>
+        <div className="dashboard-col dashboard-col--side">
+          <PendingPriorityCard />
+          <AiBriefingCard />
         </div>
       </div>
-    </AppLayout>
+    </div>
   );
 }

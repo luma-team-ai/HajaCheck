@@ -1,9 +1,8 @@
 import { useParams } from 'react-router-dom';
-import { AppLayout } from '../../../shared/components/AppLayout';
 import { DefectExplainPanel } from '../components/DefectExplainPanel';
 
 // 최소 셸 — AI 설명 패널만 구현(FR-08-04 범위에 한정)
-// 앱 셸(SideNavBar+Header) 최초 연결(HAJA-186, #217)
+// 앱 셸(SideNavBar+Header)은 라우터 레벨 AppShellRoute가 담당(HAJA-186, #217 후속)
 // TODO: 등급 수동조정, 상태 전이 스텝퍼, 이미지 탭 전환, 활동이력 (FR-08-04/05/06/08) — 별도 이슈
 export function DefectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -18,25 +17,20 @@ export function DefectDetailPage() {
   };
 
   return (
-    <AppLayout
-      breadcrumb={[{ label: '홈' }, { label: '하자 관리' }, { label: '하자 상세' }]}
-      activeHref="/defects/detail"
-    >
-      <div className="defect-detail-page p-8">
-        <header className="defect-detail-header">
-          <h1>하자 상세</h1>
-          <p className="defect-id">ID: {defect.id}</p>
-        </header>
+    <div className="defect-detail-page p-8">
+      <header className="defect-detail-header">
+        <h1>하자 상세</h1>
+        <p className="defect-id">ID: {defect.id}</p>
+      </header>
 
-        <main className="defect-detail-main">
-          <DefectExplainPanel
-            defect_type={defect.defect_type}
-            severity_grade={defect.severity_grade}
-            location={defect.location}
-            facility_type={defect.facility_type}
-          />
-        </main>
-      </div>
-    </AppLayout>
+      <main className="defect-detail-main">
+        <DefectExplainPanel
+          defect_type={defect.defect_type}
+          severity_grade={defect.severity_grade}
+          location={defect.location}
+          facility_type={defect.facility_type}
+        />
+      </main>
+    </div>
   );
 }
