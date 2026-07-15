@@ -14,7 +14,7 @@ type DefectExplain = {
 };
 
 export const defectApi = {
-  // POST /ai/defect-explain — AI 하자 원인·조치방안 설명
+  // POST /api/ai/defect-explain — AI 하자 원인·조치방안 설명
   getExplanation: (req: DefectExplainRequest) =>
     aiClient.post<DefectExplain>('/defect-explain', req),
 };
