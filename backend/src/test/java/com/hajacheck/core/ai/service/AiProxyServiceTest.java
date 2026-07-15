@@ -14,7 +14,8 @@ import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.net.ConnectException;
-import java.net.SocketTimeoutException;
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpTimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -97,16 +98,33 @@ class AiProxyServiceTest {
     }
 
     @Test
-    void explainDefect_읽기타임아웃_AI_SERVER_TIMEOUT예외() {
+    void explainDefect_읽기타임아웃_HttpTimeoutException_AI_SERVER_TIMEOUT예외() {
+        // 이 레포는 httpclient5/okhttp 미의존이라 RestClient 가 JdkClientHttpRequestFactory 를 쓰고,
+        // 실제 read 타임아웃은 java.net.http.HttpTimeoutException 으로 던져진다(SocketTimeoutException 아님).
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andRespond(request -> {
-                    throw new SocketTimeoutException("Read timed out");
+                    throw new HttpTimeoutException("Response timed out");
                 });
 
         assertThatThrownBy(() -> aiProxyService.explainDefect(REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_SERVER_TIMEOUT));
+    }
+
+    @Test
+    void explainDefect_연결타임아웃_HttpConnectTimeoutException_AI_SERVER_UNREACHABLE예외() {
+        // HttpConnectTimeoutException 은 HttpTimeoutException 의 하위형이지만 연결 자체 실패로 보아
+        // UNREACHABLE 로 분류해야 한다(TIMEOUT 아님) — mapConnectionFailure 분기 순서 검증.
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(request -> {
+                    throw new HttpConnectTimeoutException("Connect timed out");
+                });
+
+        assertThatThrownBy(() -> aiProxyService.explainDefect(REQUEST))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.AI_SERVER_UNREACHABLE));
     }
 
     @Test
