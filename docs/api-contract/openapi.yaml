@@ -54,9 +54,50 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AIResponse" }
 
+  /ai/grounding-check:
+    post:
+      summary: 환각 방어 게이트 — 생성물 주장 수치·등급을 실측 defects와 코드로 대조 (HAJA-117)
+      description: >
+        LLM 호출 없음 — 결정론적 코드 대조. `ai-server/routers/ai_router.py` 구현됨(약 58~65행).
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GroundingCheckRequest" }
+      responses:
+        "200":
+          description: 성공/실패 모두 200 — success 필드로 구분
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIResponse" }
+
+  /ai/briefing:
+    post:
+      summary: 대시보드 AI 주간 브리핑 (대시보드 P1)
+      description: >
+        현황 데이터(코드 집계) → 자연어 요약. 전주 대비 변화율·추세는 코드로 계산해 프롬프트에 주입하고
+        LLM은 자연어만 생성(수치 환각 방지). `ai-server/routers/ai_router.py` 구현됨(약 68~75행).
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DashboardStats" }
+      responses:
+        "200":
+          description: 성공/실패 모두 200 — success 필드로 구분
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIResponse" }
+
   /ai/report:
     post:
       summary: AI 보고서 4개 섹션 병렬 생성 및 Grounding Check (FR-5, 로그인/보고서 담당)
+      description: >
+        (계획/미구현) `ai-server/routers/ai_router.py`에 아직 라우트가 없다 — 설계만 완료된 상태
+        (`docs/design/ai/report-chain-design.md` 참조). 아래 requestBody/responses는 계획 스펙이며,
+        구현 시 실제 코드 기준으로 갱신할 것.
       tags: [ai]
       requestBody:
         required: true
@@ -69,6 +110,98 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AIResponse" }
+
+  /api/auth/companies:
+    post:
+      summary: 기업 회원가입 (multipart/form-data)
+      description: >
+        User(passwordHash·ACTIVE) + Company(PENDING_REVIEW) + UserConsent(약관 2건) 원자 생성.
+        `CompanySignupController.signup` 구현됨. 검증 실패는 401 금지(400/404/409만 사용).
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/CompanySignupRequest" }
+      responses:
+        "201":
+          description: 가입 신청 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompanySignupApiResponse" }
+        "409":
+          description: AUTH_EMAIL_DUPLICATED | AUTH_BUSINESS_NUMBER_DUPLICATED
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "400":
+          description: FILE_REQUIRED | FILE_INVALID_TYPE | FILE_TOO_LARGE | INVALID_INPUT
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/auth/email-availability:
+    get:
+      summary: 이메일(아이디) 중복확인
+      description: "`CompanySignupController.checkEmailAvailability` 구현됨."
+      tags: [auth]
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema: { type: string, format: email }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmailAvailabilityApiResponse" }
+
+  /api/auth/companies/status:
+    get:
+      summary: 가입 상태 조회 (승인 대기 화면 새로고침)
+      description: "`CompanySignupController.getSignupStatus` 구현됨. token=signupToken(불투명 문자열)."
+      tags: [auth]
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SignupStatusApiResponse" }
+        "404":
+          description: AUTH_SIGNUP_TOKEN_INVALID
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/auth/id-inquiry:
+    post:
+      summary: 아이디(이메일) 찾기
+      description: >
+        사업자등록번호 + (대표자명|상호명 최소 1개) 매칭 → 마스킹 이메일. 계정 열거 방지를 위해
+        무매칭 시 통일 메시지. `AccountRecoveryController.findId` 구현됨.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FindIdRequest" }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FindIdApiResponse" }
+        "404":
+          description: AUTH_ACCOUNT_NOT_FOUND
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
   # ── 아래는 계획 단계(경로안) — 각 담당자가 구현 시 requestBody/responses 채울 것 ──
 
@@ -351,3 +484,219 @@ components:
           type: string
           enum: [regenerate, warn]
           default: regenerate
+
+    # ── grounding-check (구현됨, ai-server/ai/core/grounding.py) ──
+    GroundingDefect:
+      type: object
+      description: 대조 기준이 되는 실측 하자 1건
+      required: [defect_type, grade]
+      properties:
+        defect_type: { type: string, example: 균열 }
+        grade: { type: string, enum: [A, B, C, D, E], example: B }
+
+    GroundingClaims:
+      type: object
+      description: 생성물(LLM 출력)이 주장하는 수치·등급 — 체인의 structured output에서 채운다
+      properties:
+        total_count: { type: integer, nullable: true, example: 1 }
+        count_by_grade:
+          type: object
+          additionalProperties: { type: integer }
+          example: { "B": 1 }
+        count_by_type:
+          type: object
+          additionalProperties: { type: integer }
+          example: { "균열": 1 }
+        mentioned_grades:
+          type: array
+          items: { type: string }
+          example: ["B"]
+
+    GroundingCheckRequest:
+      type: object
+      required: [defects, claims]
+      properties:
+        defects:
+          type: array
+          items: { $ref: "#/components/schemas/GroundingDefect" }
+        claims: { $ref: "#/components/schemas/GroundingClaims" }
+        on_mismatch:
+          type: string
+          enum: [regenerate, warn]
+          default: regenerate
+          description: 불일치 발생 시 조치 — REGENERATE(재생성 권고) | WARN(경고 배지)
+
+    GroundingCheckItem:
+      type: object
+      properties:
+        field: { type: string, example: "grade:B" }
+        claimed: { type: string, example: "1" }
+        actual: { type: string, example: "1" }
+        status: { type: string, enum: [MATCH, MISMATCH, UNVERIFIABLE] }
+        detail: { type: string }
+
+    GroundingResult:
+      type: object
+      description: AIResponse.data 의 실제 형태(성공 시) — grounded=True 라도 action!=PASS 면 경고 배지 필요(#121)
+      properties:
+        grounded: { type: boolean }
+        action: { type: string, enum: [PASS, REGENERATE, WARN] }
+        ground_truth:
+          type: object
+          properties:
+            total_count: { type: integer }
+            count_by_grade:
+              type: object
+              additionalProperties: { type: integer }
+            count_by_type:
+              type: object
+              additionalProperties: { type: integer }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/GroundingCheckItem" }
+        mismatches:
+          type: array
+          items: { $ref: "#/components/schemas/GroundingCheckItem" }
+        unverifiable:
+          type: array
+          items: { $ref: "#/components/schemas/GroundingCheckItem" }
+
+    # ── briefing (구현됨, ai-server/ai/chains/briefing_chain.py) ──
+    DashboardStats:
+      type: object
+      description: 대시보드 현황 데이터(브리핑 입력) — 값은 백엔드 집계 실측치
+      required:
+        [
+          total_facilities,
+          monthly_analysis,
+          pending_review,
+          pending_action,
+          this_week_defects,
+          last_week_defects,
+          top_defect_type,
+          critical_defects,
+        ]
+      properties:
+        total_facilities: { type: integer, example: 12 }
+        monthly_analysis: { type: integer, example: 34 }
+        pending_review: { type: integer, example: 5 }
+        pending_action: { type: integer, example: 2 }
+        this_week_defects: { type: integer, example: 8 }
+        last_week_defects: { type: integer, example: 10 }
+        top_defect_type: { type: string, example: 균열 }
+        critical_defects: { type: integer, example: 1 }
+        grade_distribution:
+          type: object
+          additionalProperties: { type: integer }
+          example: { "A": 3, "B": 4, "C": 1 }
+
+    WeeklyBriefing:
+      type: object
+      description: AIResponse.data 의 실제 형태(성공 시)
+      properties:
+        briefing: { type: string, description: "카드 본문(2~4문장)" }
+        recommendation: { type: string, description: "권고 조치(1~2문장)" }
+        facts:
+          type: object
+          description: 코드로 계산한 파생 사실(프론트 배지용)
+          properties:
+            this_week_defects: { type: integer }
+            last_week_defects: { type: integer }
+            change_pct: { type: integer, nullable: true }
+            trend: { type: string, enum: [감소, 증가, 유지] }
+            top_defect_type: { type: string }
+            critical_defects: { type: integer }
+
+    # ── 기업 인증 (구현됨, backend/auth) ──
+    CompanySignupRequest:
+      type: object
+      description: multipart/form-data(@ModelAttribute) — 약관 버전은 서버 소유, 클라이언트는 동의 여부만 전송
+      required:
+        [
+          email,
+          password,
+          companyName,
+          businessRegistrationNumber,
+          representativeName,
+          address,
+          agreeTermsOfService,
+          agreePrivacyPolicy,
+        ]
+      properties:
+        email: { type: string, format: email, example: company@haja.com }
+        password: { type: string, format: password, description: "8자 이상, 영문+숫자 포함", example: "pw123456" }
+        companyName: { type: string, maxLength: 200, example: "(주)하자체크" }
+        businessRegistrationNumber: { type: string, pattern: '\d{3}-?\d{2}-?\d{5}', example: "123-45-67890" }
+        representativeName: { type: string, maxLength: 100, example: 김민수 }
+        address: { type: string, maxLength: 300, example: 서울시 강남구 ... }
+        addressDetail: { type: string, maxLength: 200, nullable: true }
+        agreeTermsOfService: { type: boolean }
+        agreePrivacyPolicy: { type: boolean }
+        businessRegistrationFile:
+          type: string
+          format: binary
+          description: "필수, MIME∈{image/jpeg,image/png,application/pdf}, ≤10MB"
+
+    CompanySignupResponse:
+      type: object
+      description: signupToken 은 승인 대기 화면 상태조회용 불투명 랜덤 문자열(PK 비노출)
+      properties:
+        companyId: { type: integer, format: int64, example: 1 }
+        maskedEmail: { type: string, example: "haja***@check.com" }
+        status: { type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED], example: PENDING_REVIEW }
+        signupToken: { type: string }
+
+    CompanySignupApiResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/CompanySignupResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    EmailAvailabilityResponse:
+      type: object
+      properties:
+        available: { type: boolean }
+
+    EmailAvailabilityApiResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/EmailAvailabilityResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    SignupStatusResponse:
+      type: object
+      description: rejectionReason 은 REJECTED 일 때만 존재
+      properties:
+        status: { type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED] }
+        companyName: { type: string }
+        rejectionReason: { type: string, nullable: true }
+
+    SignupStatusApiResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/SignupStatusResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    FindIdRequest:
+      type: object
+      description: representativeName·companyName 중 최소 1개 필수(@AssertTrue)
+      required: [businessRegistrationNumber]
+      properties:
+        businessRegistrationNumber: { type: string, example: "123-45-67890" }
+        representativeName: { type: string, nullable: true, example: 김민수 }
+        companyName: { type: string, nullable: true, example: "(주)하자체크" }
+
+    FindIdResponse:
+      type: object
+      properties:
+        maskedEmail: { type: string, example: "haja***@check.com" }
+
+    FindIdApiResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/FindIdResponse" }
+        error: { type: object, nullable: true, example: null }
