@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { ApiError } from '../../../shared/api/types';
 import { authApi } from '../api/authApi';
 import { CompanyLoginTab } from '../components/CompanyLoginTab';
@@ -15,6 +15,7 @@ type AuthTab = 'personal' | 'company';
 export function LoginPage() {
   const [activeTab, setActiveTab] = useState<AuthTab>('personal');
   const navigate = useNavigate();
+  const location = useLocation();
   const setUser = useAuthStore((state) => state.setUser);
 
   // CSRF 쿠키 프리밍 겸 세션 확인 — 서버 상태는 React Query로(React_코드_컨벤션.md §4)
@@ -31,12 +32,14 @@ export function LoginPage() {
   });
 
   useEffect(() => {
-    // 이미 로그인 상태면 대시보드로 이동 — 네비게이션은 데이터 fetching이 아니라 부수효과이므로 useEffect 유지
+    // 이미 로그인 상태면 원래 가려던 목적지(ProtectedRoute가 state.from으로 보존, P3-2)로 이동,
+    // 없으면 기존대로 대시보드 — 네비게이션은 데이터 fetching이 아니라 부수효과이므로 useEffect 유지
     if (isSuccess && me) {
       setUser(me);
-      navigate('/dashboard');
+      const from = (location.state as { from?: string } | null)?.from;
+      navigate(from ?? '/dashboard');
     }
-  }, [isSuccess, me, navigate, setUser]);
+  }, [isSuccess, me, navigate, setUser, location.state]);
 
   // 401(미로그인)은 정상 흐름 — 로그인 폼을 그대로 노출한다.
   // 5xx/네트워크 오류는 로그인 여부를 알 수 없으므로, 로그인된 사용자에게 무단으로
