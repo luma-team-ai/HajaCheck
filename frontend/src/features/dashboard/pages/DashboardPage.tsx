@@ -20,7 +20,7 @@ export function DashboardPage() {
   return (
     <AppLayout
       breadcrumb={[{ label: '홈' }, { label: '대시보드' }]}
-      activeHref="/dashboard/facilities-overview"
+      activeHref="/dashboard"
     >
       <div className="dashboard-content">
         <div className="dashboard-page-header">

@@ -52,7 +52,7 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     href: '/dashboard',
     icon: dashboardIcon,
     subItems: [
-      { label: '전체 시설물 현황', href: '/dashboard/facilities-overview' },
+      { label: '전체 시설물 현황', href: '/dashboard' },
       { label: '다음 점검일 도래', href: '/dashboard/upcoming-inspections' },
       { label: 'AI 주간 브리핑 카드', href: '/dashboard/ai-weekly-briefing' },
     ],
@@ -205,7 +205,7 @@ export function SideNavBar({
     >
       <div
         className={`flex border-b border-border pb-4 mb-1 ${
-          collapsed ? 'flex-col h-auto justify-center gap-3' : 'items-center justify-between gap-2 h-16'
+          collapsed ? 'flex-col items-center h-auto justify-center gap-3' : 'items-center justify-between gap-2 h-16'
         }`}
       >
         <div
