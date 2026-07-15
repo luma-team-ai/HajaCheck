@@ -190,7 +190,7 @@ describe('SideNavBar', () => {
       fireEvent.click(screen.getByText('마이페이지'));
       fireEvent.click(screen.getByText('내 정보'));
 
-      expect(screen.getByTestId('location-probe').textContent).toBe('/my-page/profile');
+      expect(screen.getByTestId('location-probe').textContent).toBe('/mypage/profile');
       expect(screen.queryByRole('status')).toBeNull();
     });
   });

@@ -121,14 +121,14 @@ const DEFAULT_ITEMS: SideNavItem[] = [
   },
   {
     label: '마이페이지',
-    href: '/my-page',
+    href: '/mypage',
     icon: mypageIcon,
     subItems: [
-      { label: '내 정보', href: '/my-page/profile' },
-      { label: '내 점검 이력', href: '/my-page/inspections' },
-      { label: '내 보고서', href: '/my-page/reports' },
+      { label: '내 정보', href: '/mypage/profile' },
+      { label: '내 점검 이력', href: '/mypage/inspections' },
+      { label: '내 보고서', href: '/mypage/reports' },
       { label: '내 플랜', href: '/mypage/plan' },
-      { label: '내 상담 내역', href: '/my-page/counsels' },
+      { label: '내 상담 내역', href: '/mypage/counsels' },
     ],
   },
   // TODO: "통계" 전용 아이콘이 Figma에서 아직 안 나와서 보고서(reportsIcon)를 임시로 재사용 중 —
