@@ -11,9 +11,8 @@ upstream spring_backend {
     server spring:8080;
 }
 
-upstream fastapi_backend {
-    server fastapi:8000;
-}
+# FastAPI(/ai/) upstream 없음 — 외부 공개 폐쇄(A안 3/3, #235). default.conf와 동일하게
+# /api/ai/*(스프링 프록시)만 경유하므로 TLS 설정에도 공개 /ai/ 경로를 두지 않는다.
 
 server {
     listen 80;
@@ -45,22 +44,6 @@ server {
     add_header X-Content-Type-Options nosniff always;
     add_header X-Frame-Options SAMEORIGIN always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;
-
-    location = /ai/health {
-        proxy_pass http://fastapi_backend/health;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /ai/ {
-        proxy_pass http://fastapi_backend/ai/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
 
     location /api/ {
         proxy_pass http://spring_backend/api/;
