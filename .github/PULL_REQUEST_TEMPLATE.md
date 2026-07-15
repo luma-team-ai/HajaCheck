@@ -9,4 +9,4 @@ Closes #<!-- GitHub 이슈 번호 -->
 - [ ] 테스트 PASS — Java=`./gradlew test` / FastAPI=`pytest` / React=`npm run build`
 
 ## 참고
-- PRD 섹션: `docs/PRD_hajaCheck_v0.37.md` §
+- PRD 섹션: `docs/prd/PRD_hajaCheck.md` §

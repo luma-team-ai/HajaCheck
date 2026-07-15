@@ -24,7 +24,7 @@ LLM(LangChain + RAG)이 점검 보고서 초안을 자동 생성하는 시설물
                                                             └ Chroma (임베디드)
 ```
 
-> 운영 배포는 **Docker Compose(공유 호스트 oci-arm1)** 기반 — 앱만 컨테이너로 격리, 공유 nginx·PostgreSQL·Redis 재사용. 상세: `docs/prd/PRD_hajaCheck_v0.41.md §6.1`.
+> 운영 배포는 **Docker Compose(공유 호스트 oci-arm1)** 기반 — 앱만 컨테이너로 격리, 공유 nginx·PostgreSQL·Redis 재사용. 상세: `docs/prd/PRD_hajaCheck.md §6.1`.
 
 ## 시작하기
 
@@ -46,7 +46,7 @@ cd frontend && npm install && npm run dev
 
 ## 컨벤션 문서 (필독)
 
-- `docs/prd/PRD_hajaCheck_v0.41.md` — 요구사항·아키텍처·일정(배포 §6.1)
+- `docs/prd/PRD_hajaCheck.md` — 요구사항·아키텍처·일정(배포 §6.1)
 - `docs/conventions/SpringBoot_코드_컨벤션.md` — 백엔드 규약
 - `docs/conventions/React_코드_컨벤션.md` — 프론트 규약
 - `docs/conventions/AI_개발_컨벤션.md` — AI 체인 개발 규약

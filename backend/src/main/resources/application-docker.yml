@@ -23,9 +23,11 @@ spring:
             # X-Forwarded-Proto 를 반영하지 못해 {baseUrl} 이 http 로 해석되면 provider 가
             # redirect_uri_mismatch(400) 를 반환한다(인가 base-uri 커스텀과 무관하게 콜백 경로는 /login/oauth2/code/*).
             redirect-uri: "https://hajacheck.luma200ok.com/login/oauth2/code/kakao"
+            # account_email 미요청: 개인 카카오 앱은 이메일 동의항목을 활성화할 수 없어(비즈앱 전환+검수 필요)
+            # account_email 요청 시 카카오 인가에서 KOE205(동의 항목 오류) 발생 → 로그인 불가(#202).
+            # 이메일 미수집은 CustomOAuth2UserService 가 placeholder 로 처리(#199).
             scope:
               - profile_nickname
-              - account_email
             client-name: Kakao
           google:
             client-id: ${GOOGLE_CLIENT_ID}
@@ -57,3 +59,8 @@ app:
   oauth2:
     success-redirect: https://hajacheck.luma200ok.com/dashboard
     failure-redirect: https://hajacheck.luma200ok.com/login?error=oauth
+  # 사업자등록증 저장 루트 — 컨테이너 재시작에도 보존되도록 마운트 볼륨 경로.
+  # ⚠️ 인프라: docker-compose(arm1) spring 서비스에 이 경로로 볼륨을 마운트해야 파일이 유실되지 않는다.
+  #   (미마운트 시 컨테이너 임시 FS 에 저장되어 재시작 시 소실 — 인프라 오너 후속 배선.)
+  file-storage:
+    base-dir: /app/uploads/hajacheck-files

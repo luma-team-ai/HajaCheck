@@ -1,5 +1,10 @@
+import { useNavigate } from 'react-router-dom';
+import { FIND_ID_ROUTE } from '../constants';
+
 // 개인/기업회원 탭 공통 하단 링크·배너 — 두 탭에서 동일하게 노출(스펙: "하단 링크·배너 동일")
 export function AuthFooterLinks() {
+  const navigate = useNavigate();
+
   const handleComingSoon = () => {
     window.alert('준비 중인 기능입니다.');
   };
@@ -7,10 +12,11 @@ export function AuthFooterLinks() {
   return (
     <>
       <div className="auth-links-row">
-        <button type="button" className="auth-link-btn" onClick={handleComingSoon}>
+        <button type="button" className="auth-link-btn" onClick={() => navigate(FIND_ID_ROUTE)}>
           아이디 찾기
         </button>
         <span className="auth-links-divider">|</span>
+        {/* 비밀번호 찾기는 계정 탈취 P1(보안 리뷰)로 범위 제외 — 보안질문 방식 후속(#194, HAJA-172) */}
         <button type="button" className="auth-link-btn" onClick={handleComingSoon}>
           비밀번호 찾기
         </button>

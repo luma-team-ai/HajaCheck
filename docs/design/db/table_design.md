@@ -1,5 +1,7 @@
 # hajaCheck 테이블 디자인 설계
 
+> **문서 버전:** v0.2 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+
 - 대상 스키마 파일: `hajaCheck_script.sql` (프로젝트 SQL 제네레이터 초안 — 레포 미포함 로컬 산출물)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
 - 기준 문서: `report/hajaCheck착수 보고.pdf` 53~60p (테이블 정의서 1/8~8/8), [PRD_hajaCheck_v0.41.md](../../prd/archive/PRD_hajaCheck_v0.41.md)
@@ -293,7 +295,7 @@ users ──┬──< user_consents
 | 컬럼 | 타입 | NULL | 기본값 | 키 | 설명 |
 |---|---|---|---|---|---|
 | id | bigint (identity) | N | - | **PK** | 동의 이력 식별자 |
-| user_id | bigint | N | - | **FK→users**, ON DELETE RESTRICT, UQ(복합) | 동의한 사용자 |
+| user_id | bigint | N | - | **FK→users**, ON DELETE CASCADE, UQ(복합) | 동의한 사용자 |
 | policy_type | consent_policy_type | N | - | UQ(복합) | 동의한 정책 유형(이용약관/개인정보 처리방침) |
 | policy_version | varchar(20) | N | - | UQ(복합) | 동의한 정책 버전 |
 | agreed_at | timestamptz | N | now() | | 동의 시각 |
@@ -301,7 +303,7 @@ users ──┬──< user_consents
 - **UQ**: `(user_id, policy_type, policy_version)` — 동일 버전 중복 동의 방지.
 - 인덱스: `idx_user_consents_user (user_id)`
 - §2.5 근거: 회원가입 화면의 "(필수) 서비스 이용약관 및 개인정보 처리방침 동의" 체크박스를, 법무 감사에 대비해 단일 타임스탬프가 아니라 약관별·버전별 이력으로 저장한다. 약관 개정 시에도 과거 동의 시점의 버전을 그대로 보존한다.
-- ✅ **삭제 정책 확정(감사 보존 우선)**: 이 테이블은 법무 감사·분쟁 대응이 존재 목적이므로 동의 이력은 사용자 삭제와 **독립적으로 보존**한다. 이에 따라 `user_id` FK를 `ON DELETE RESTRICT`로 확정해(위 DDL 반영) 동의 이력이 남아 있는 사용자의 물리 삭제를 DB 레벨에서 차단한다. 사용자 탈퇴는 **soft delete**(탈퇴 플래그/`status`)로 처리해 원본 행을 물리 삭제하지 않으며, 개인정보 파기 요건이 걸리면 사용자 식별정보만 **익명화 후 동의 이력 자체는 보존**한다. (개인정보 파기 요건과 감사 보존 요건 상충 시 익명화 보존을 우선한다.)
+- ✅ **삭제 정책(감사 보존 우선) — 라이브 DB 실측 반영(2026-07-15)**: 이 테이블은 법무 감사·분쟁 대응이 존재 목적이므로 동의 이력은 사용자 삭제와 **독립적으로 보존**해야 한다. **실측 결과 `user_id` FK는 `ON DELETE CASCADE`**다(참조 DDL `HajaCheck_script_v0.3.sql`과 일치 — 과거 문서의 "RESTRICT로 확정" 서술은 실제와 달라 정정함). 따라서 보존은 DB 레벨 제약이 아니라 **운영 원칙으로 보장**한다: 사용자 탈퇴는 **soft delete**(탈퇴 플래그/`status`)로 처리해 원본 행을 물리 삭제하지 않으므로 CASCADE가 실제로는 발생하지 않는다(§`chat_message_citations`의 CASCADE 운영과 동일 패턴). 개인정보 파기 요건이 걸리면 사용자 식별정보만 **익명화 후 동의 이력 자체는 보존**한다(파기·감사 요건 상충 시 익명화 보존 우선). ⚠️ **후속**: DB 레벨 강제 보존이 필요하면 FK를 `ON DELETE RESTRICT`로 바꾸는 마이그레이션이 필요하다 — 현재 엔티티(`UserConsent.java`)는 `user_id`를 FK 관계로 매핑하지 않고 Flyway도 없어 스키마 정합이 수동 관리 상태이므로, 마이그레이션 도구 도입과 함께 다뤄야 한다.
 
 ---
 

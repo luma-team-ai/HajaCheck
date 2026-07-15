@@ -105,10 +105,42 @@ public class User extends BaseTimeEntity {
     }
 
     /**
+     * 기업 회원가입(자체가입) 소유자 계정 팩토리 — email/password 로그인, role=USER, status=ACTIVE.
+     * 참고: user.name 에는 대표자명을 담는다(users.name len100 = 표시명). companyId 는 가입 트랜잭션에서
+     * Company 저장 후 {@link #assignToCompany(Long)} 로 배선한다.
+     * status=ACTIVE 인 이유: user_status_type 에 PENDING 라벨이 없다. 승인 게이팅(company.status=PENDING_REVIEW)은
+     * 각 보호 리소스 엔드포인트의 후속 과제이며, 이 계정은 로그인은 되되 미승인 상태로 남는다.
+     */
+    public static User createCompanyOwner(String email, String name, String passwordHash) {
+        return User.builder()
+                .email(email)
+                .name(name)
+                .role(Role.USER)
+                .passwordHash(passwordHash)
+                .status(UserStatus.ACTIVE)
+                .build();
+    }
+
+    /**
      * 로그인 성공 시각 갱신 (상태 전이 메서드).
      */
     public void updateLastLogin(Instant loginAt) {
         this.lastLoginAt = loginAt;
+    }
+
+    /**
+     * 기업 계정 소속 배선 (상태 전이 — @Setter 금지 회피). 가입 트랜잭션에서 Company 저장 직후 호출.
+     */
+    public void assignToCompany(Long companyId) {
+        this.companyId = companyId;
+    }
+
+    /**
+     * 비밀번호 재설정 (상태 전이). 호출부에서 반드시 인코딩된 해시를 전달한다.
+     * ⚠️ 현재 미사용 — 비밀번호 찾기 엔드포인트가 P1 로 제외됨. 보안질문 방식 후속에서 재사용 예정(#194 / HAJA-172).
+     */
+    public void changePassword(String newPasswordHash) {
+        this.passwordHash = newPasswordHash;
     }
 
     public boolean isSuspended() {
