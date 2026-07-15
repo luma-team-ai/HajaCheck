@@ -12,6 +12,7 @@ from deps import verify_internal_key
 
 from ai.chains.briefing_chain import DashboardStats, run_briefing_chain
 from ai.chains.defect_explain_chain import run_defect_explain_chain
+from ai.chains.report_chain import run_report_chain
 from ai.core.grounding import (
     GroundingClaims,
     GroundingDefect,
@@ -79,6 +80,24 @@ def briefing(req: DashboardStats) -> AIResponse:
     except Exception as e:  # noqa: BLE001 — 스키마 파싱 실패·타임아웃 등 표준 폴백
         return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, str(e))
     return AIResponse.ok({**result.model_dump(), "facts": facts.model_dump()})
+
+
+class ReportRequest(BaseModel):
+    """AI 보고서 생성 요청 (AP-040, contract.md `POST /ai/report`)."""
+
+    facility_info: dict
+    confirmed_defects: list[dict]
+    on_mismatch: MismatchPolicy = MismatchPolicy.REGENERATE
+
+
+@router.post("/report")
+def report(req: ReportRequest) -> AIResponse:
+    """AI 보고서 4섹션(개요/요약/상세/권고) 병렬 생성 + Grounding Check (FR-5, HAJA-31)."""
+    try:
+        result = run_report_chain(req.facility_info, req.confirmed_defects, req.on_mismatch.value)
+    except Exception as e:  # noqa: BLE001 — 스키마 파싱 실패·detail 개수 불일치 등 표준 폴백
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, str(e))
+    return AIResponse.ok(result)
 
 
 class BusinessLicenseOcrRequest(BaseModel):
