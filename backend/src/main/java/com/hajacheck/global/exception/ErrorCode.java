@@ -39,6 +39,12 @@ public enum ErrorCode {
     FILE_TOO_LARGE(HttpStatus.BAD_REQUEST, "파일 용량이 너무 큽니다. (최대 10MB)"),
     FILE_UPLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "파일 업로드에 실패했습니다."),
 
+    // 마이페이지 — 내 플랜·사용량·좌석(HAJA-177)
+    PLAN_NOT_FOUND(HttpStatus.NOT_FOUND, "활성 구독을 찾을 수 없습니다."),
+    PLAN_FORBIDDEN(HttpStatus.FORBIDDEN, "구독 소유자만 요청할 수 있습니다."),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
+    // user_plans.plan_id 가 가리키는 요금제가 없는 데이터 정합성 오류(FK not-null 이라 정상 운영에선 발생 불가) — 500.
+    PLAN_DATA_INVALID(HttpStatus.INTERNAL_SERVER_ERROR, "요금제 데이터에 오류가 있습니다."),
     // 시설물(facility)
     // 미존재/타인 소유 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.
     FACILITY_NOT_FOUND(HttpStatus.NOT_FOUND, "시설물을 찾을 수 없습니다."),

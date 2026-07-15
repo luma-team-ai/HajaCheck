@@ -85,6 +85,73 @@ create table user_consents
 
 create index idx_user_consents_user
     on user_consents (user_id);
+
+-- 마이페이지(HAJA-177) — plans / user_plans / usage_counters 및 관련 enum. v0.3 DDL 과 정확히 동일해야 validate 통과.
+create type plan_name_type as enum ('FREE', 'STANDARD', 'ENTERPRISE');
+create type user_plan_status_type as enum ('ACTIVE', 'EXPIRED', 'UPGRADE_REQUESTED');
+
+create table plans
+(
+    id                   bigint generated always as identity
+        primary key,
+    name                 plan_name_type                         not null
+        unique,
+    max_facilities       integer,
+    max_monthly_analyses integer,
+    max_seats            integer                  default 0     not null,
+    has_pdf_watermark    boolean                  default false not null,
+    has_counselor_access boolean                  default false not null,
+    has_ai_addon         boolean                  default false not null,
+    price_monthly        numeric(10, 2),
+    created_at           timestamp with time zone default now() not null,
+    updated_at           timestamp with time zone default now() not null
+);
+
+create table user_plans
+(
+    id         bigint generated always as identity
+        primary key,
+    user_id    bigint
+        references users,
+    company_id bigint
+        references companies,
+    plan_id    bigint                                                           not null
+        references plans,
+    status     user_plan_status_type    default 'ACTIVE'::user_plan_status_type not null,
+    started_at timestamp with time zone default now()                           not null,
+    ended_at   timestamp with time zone,
+    constraint ck_user_plans_owner_xor
+        check ((user_id is not null) <> (company_id is not null))
+);
+
+create index idx_user_plans_user
+    on user_plans (user_id);
+
+create index idx_user_plans_company
+    on user_plans (company_id);
+
+create table usage_counters
+(
+    id                     bigint generated always as identity
+        primary key,
+    user_plan_id           bigint                                 not null
+        references user_plans,
+    period                 date                                   not null
+        constraint ck_usage_counters_period_month_start
+            check (period = (date_trunc('month'::text, (period)::timestamp with time zone))::date),
+    analyzed_image_count   integer                  default 0     not null,
+    facility_count         integer                  default 0     not null,
+    analysis_request_count integer                  default 0     not null,
+    seat_count             integer                  default 0     not null,
+    counsel_ticket_count   integer                  default 0     not null,
+    pdf_generation_count   integer                  default 0     not null,
+    created_at             timestamp with time zone default now() not null,
+    unique (user_plan_id, period),
+    constraint ck_usage_counters_nonnegative
+        check ((analyzed_image_count >= 0) AND (analysis_request_count >= 0) AND (facility_count >= 0) AND
+               (seat_count >= 0) AND (counsel_ticket_count >= 0) AND (pdf_generation_count >= 0))
+);
+
 -- facilities: 서버 스키마(v0.3)의 시설물 테이블. dev-04-01(시설물 CRUD) Facility 엔티티 validate 대조용.
 -- enum 없이 type=varchar(20), is_deleted 없음(하드 삭제) — HajaCheck_script_v0.3.sql 과 동일.
 create table facilities
