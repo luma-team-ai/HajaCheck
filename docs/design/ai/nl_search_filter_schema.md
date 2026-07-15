@@ -227,7 +227,7 @@ def run_nl_search_chain(query: str) -> NlSearchResult:
 
 빈 배열(`[]`)인 필드는 쿼리 파라미터에서 생략한다(= 해당 축은 필터링 안 함).
 
-`confidenceMin`이 지정된 경우 `defects.confidence IS NULL`인 행은 임계값 비교 대상에서 제외한다. `confidenceMin`이 `null`이거나 생략된 경우에만 confidence 값 유무와 무관하게 조회한다.
+현재 DB 설계상 `defects.confidence`는 NOT NULL이다(`table_design.md` §5.4). 따라서 `confidenceMin`이 지정되면 `confidence >= confidenceMin` 조건으로 비교한다. 향후 confidence가 nullable로 완화될 경우 NULL 행 처리 정책은 해당 DB 변경 티켓에서 별도로 확정한다.
 
 ### 4.3 프론트 수동 필터 ↔ 자연어 필터 동기화 방식
 
