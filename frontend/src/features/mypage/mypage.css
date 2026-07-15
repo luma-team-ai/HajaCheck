@@ -1,0 +1,180 @@
+/* 마이페이지 — 내 플랜 화면(HAJA-185, #212) 전용 스타일 — 앱 셸은 shared/styles/layout.css,
+   카드 프리미티브(.dashboard-card, .dashboard-card-title, .dashboard-card-status 등)는 그대로 재사용 */
+
+.mypage-status--error {
+  color: var(--dashboard-color-danger, #dc2626);
+}
+
+/* ── 요금제 카드 ─────────────────────────────────────────── */
+
+.mypage-plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mypage-plan-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.mypage-plan-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mypage-plan-name {
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.mypage-plan-status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #e3f5e6;
+  color: #16a34a;
+}
+
+.mypage-plan-status-badge--expired {
+  background: #fdecec;
+  color: #dc2626;
+}
+
+.mypage-plan-status-badge--upgrade_requested {
+  background: #fdf0d5;
+  color: #b5670a;
+}
+
+.mypage-plan-price {
+  font-size: 22px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.mypage-plan-next-billing {
+  padding: 0;
+}
+
+.mypage-plan-card-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.mypage-btn {
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mypage-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.mypage-btn--primary {
+  background: #111;
+  color: #fff;
+  border: none;
+}
+
+.mypage-btn--secondary {
+  background: #fff;
+  color: #333;
+  border: 1px solid #d8dbe6;
+}
+
+/* ── 사용량 ─────────────────────────────────────────────── */
+
+.mypage-usage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mypage-usage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mypage-usage-row-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.mypage-usage-label {
+  font-weight: 600;
+  color: #333;
+}
+
+.mypage-usage-value {
+  color: #888;
+}
+
+.mypage-usage-bar-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: #f0f1f3;
+  overflow: hidden;
+}
+
+.mypage-usage-bar-fill {
+  height: 100%;
+  background: #4a5cff;
+  border-radius: 999px;
+}
+
+.mypage-usage-bar-fill--warning {
+  background: var(--dashboard-color-danger, #dc2626);
+}
+
+/* ── 좌석 ───────────────────────────────────────────────── */
+
+.mypage-table-scroll {
+  overflow-x: auto;
+}
+
+.mypage-seats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.mypage-seats-table th {
+  text-align: left;
+  color: #888;
+  font-weight: 600;
+  padding: 11px 12px;
+  background: #f6f7f9;
+  border-bottom: 1px solid #eee;
+  white-space: nowrap;
+}
+
+.mypage-seats-table td {
+  padding: 12px;
+  border-bottom: 1px solid #f4f4f4;
+  white-space: nowrap;
+}
+
+.mypage-seats-table tbody tr:nth-child(even) td {
+  background: #fafbfc;
+}
+
+/* ── 결제 이력 ──────────────────────────────────────────── */
+
+.mypage-billing-card {
+  display: flex;
+  flex-direction: column;
+}

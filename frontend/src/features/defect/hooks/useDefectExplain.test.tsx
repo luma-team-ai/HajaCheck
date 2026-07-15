@@ -4,6 +4,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import type { ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
@@ -59,7 +60,7 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 describe('useDefectExplain (통합 테스트)', () => {
-  const renderWithQuery = (element: React.ReactElement) => {
+  const renderWithQuery = (element: ReactElement) => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const queryClient = new QueryClient({
@@ -161,7 +162,7 @@ describe('useDefectExplain (통합 테스트)', () => {
     root.unmount();
   });
 
-  it('에러 상태: 필수 파라미터가 누락되면 에러 폴백을 표시한다', async () => {
+  it('필수 파라미터 누락: 쿼리가 비활성화되어 아무것도 렌더링되지 않는다', async () => {
     const { container, root } = renderWithQuery(
       <DefectExplainPanel
         defect_type="" /* 빈 값 */

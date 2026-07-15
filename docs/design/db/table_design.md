@@ -1,8 +1,8 @@
 # hajaCheck 테이블 디자인 설계
 
-> **문서 버전:** v0.2 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+> **문서 버전:** v0.3 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
 
-- 대상 스키마 파일: `hajaCheck_script.sql` (프로젝트 SQL 제네레이터 초안 — 레포 미포함 로컬 산출물)
+- 대상 스키마 파일: [HajaCheck_script.sql](HajaCheck_script.sql)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
 - 기준 문서: `report/hajaCheck착수 보고.pdf` 53~60p (테이블 정의서 1/8~8/8), [PRD_hajaCheck_v0.41.md](../../prd/archive/PRD_hajaCheck_v0.41.md)
 - 인코딩: UTF-8 (BOM 없음)
@@ -16,6 +16,8 @@
    - 2.4 [PRD v0.41 대비 정합성 검토](#24-prd-v041-대비-정합성-검토)
    - 2.5 [자체 회원가입(AUTH-02, 개인·기업) 반영](#25-자체-회원가입auth-02-개인기업-반영)
    - 2.6 [기업 임직원의 상담 이용 권한 상속 (plans/user_plans 회사 단위 확장)](#26-기업-임직원의-상담-이용-권한-상속-plansuser_plans-회사-단위-확장)
+   - 2.7 [`rag_documents` 컬렉션 라우팅·시행일 컬럼 추가 (Chroma 메타데이터 설계 대조, HAJA-113)](#27-rag_documents-컬렉션-라우팅시행일-컬럼-추가-chroma-메타데이터-설계-대조-haja-113)
+   - 2.8 [`rag_documents` 발행처·작성일·검증여부 컬럼 추가 (HAJA-143/144 필드 누락 보완)](#28-rag_documents-발행처작성일검증여부-컬럼-추가-haja-143144-필드-누락-보완)
 3. [ERD 개요 (테이블 관계)](#3-erd-개요-테이블-관계)
 4. [Enum 타입 정의](#4-enum-타입-정의)
 5. [테이블 상세](#5-테이블-상세)
@@ -171,6 +173,35 @@ FR·API·플로우 동기화는 이번 범위에서 **제외**하고, ERD(DB 설
 
 ---
 
+### 2.7 `rag_documents` 컬렉션 라우팅·시행일 컬럼 추가 (Chroma 메타데이터 설계 대조, HAJA-113)
+
+**배경**: `Chroma_컬렉션_메타데이터_설계.md`(HAJA-113/143/144/145) 작업 중 이 ERD와 대조한 결과, `rag_documents`가 `regulations`/`defect_kb` 두 Chroma 컬렉션을 모두 커버해야 하는데 구분 컬럼이 `source_type`(`LAW`/`GUIDELINE` 2종)뿐이라 어떤 문서가 어느 컬렉션에 임베딩되는지 판단할 근거가 없었다(HAJA-113 코멘트, 2026-07-13). 또한 regulations 컬렉션의 필수 필드인 `effective_date`(시행일)도 Postgres에 SoT 컬럼이 없었다.
+
+| 결정 항목 | 확정 내용 |
+|---|---|
+| 컬렉션 구분 | `target_collection`(신규 enum `rag_target_collection_type`: `REGULATIONS`/`DEFECT_KB`) 컬럼 추가 — `source_type`(출처 유형: 법령/지침)과는 별개 축으로 분리. NOT NULL, 기본값 없음(등록 시 명시 필수) |
+| 법규 시행일 | `effective_date`(date, nullable) 컬럼 추가 — LAW 문서만 채우고 GUIDELINE/DEFECT_KB 문서는 NULL 허용 |
+
+**반영 내용**: `rag_target_collection_type` enum 신규, `rag_documents.target_collection`/`effective_date` 컬럼 추가. 상세는 §4, §5.5 참조. SQL 반영: `HajaCheck_script.sql`(구 `v0.3`은 `archive/`로 이동). 이 SQL은 신규 DB용 최종 DDL이며 운영 DB 증분 마이그레이션으로 직접 실행하지 않는다.
+
+**기존 DB 마이그레이션 순서**: `target_collection`을 nullable·기본값 없이 추가한 뒤, 현재 Chroma의 `regulations`/`defect_kb` 컬렉션에 실제 저장된 `doc_id`를 기준으로 각 행을 명시적으로 백필한다. `source_type`만으로 컬렉션을 추론하거나 전체 행을 `REGULATIONS`로 일괄 백필하지 않는다. 미분류(NULL) 또는 양쪽 컬렉션에 중복된 문서가 없는지 확인한 후에만 NOT NULL 제약을 적용하며, 검증 실패 시 마이그레이션을 중단한다.
+
+---
+
+### 2.8 `rag_documents` 발행처·작성일·검증여부 컬럼 추가 (HAJA-143/144 필드 누락 보완)
+
+**배경**: HAJA-143(regulations 컬렉션 필드 설계)·HAJA-144(defect_kb 컬렉션 필드 설계) 원 요구사항을 `Chroma_컬렉션_메타데이터_설계.md` 확정본과 재대조한 결과, 요구됐던 필드 3개가 설계에서 누락된 채로 "확정" 처리되어 있었다: HAJA-143의 **발행처**, HAJA-144의 **작성일**·**신뢰도/검증여부**. §2.7과 동일하게 Postgres SoT 컬럼 부재가 원인이라 이번에 함께 보완한다.
+
+| 결정 항목 | 확정 내용 |
+|---|---|
+| 발행처(HAJA-143) | `publisher`(varchar(200), nullable) 컬럼 추가 — 법규·지침 문서의 발행 기관/부처명. regulations 대상, defect_kb 등 해당 없는 문서는 NULL |
+| 작성일(HAJA-144) | `authored_at`(date, nullable) 컬럼 추가 — 문서(주로 하자 지식 문서) 작성 시점. `effective_date`(법규 시행일)와는 별개 개념이라 컬럼을 분리했다 |
+| 신뢰도/검증여부(HAJA-144) | `verification_status`(신규 enum `rag_doc_verification_status_type`: `UNVERIFIED`/`VERIFIED`, nullable) 컬럼 추가 — 하자 지식 문서가 전문가 검토를 통과했는지 여부. regulations는 공식 법규 출처라 별도 검증 프로세스가 없으므로 NULL 허용 |
+
+**반영 내용**: `rag_doc_verification_status_type` enum 신규, `rag_documents.publisher`/`authored_at`/`verification_status` 컬럼 추가. 상세는 §4, §5.5 참조. SQL 반영: `HajaCheck_script.sql`. Chroma 필드 정의서(`Chroma_컬렉션_메타데이터_설계.md`, `docs/design/ai/rag_chroma_schema.md`)도 함께 갱신했다.
+
+---
+
 ## 3. ERD 개요 (테이블 관계)
 
 ```
@@ -223,6 +254,8 @@ users ──┬──< user_consents
 | `chat_sender_type` | `USER`, `BOT`, `COUNSELOR` | 채팅 메시지 발신자 유형 | `chat_messages.sender` |
 | `counsel_ticket_status_type` | `WAITING`, `IN_PROGRESS`, `RESOLVED`, `OFFLINE_LEFT` | 상담 티켓 처리 상태 | `counsel_tickets.status` |
 | `rag_doc_source_type` | `LAW`, `GUIDELINE` | RAG 문서 출처 유형(법령/지침) | `rag_documents.source_type` |
+| `rag_target_collection_type` | `REGULATIONS`, `DEFECT_KB` | RAG 문서가 임베딩되는 Chroma 컬렉션 | `rag_documents.target_collection` |
+| `rag_doc_verification_status_type` | `UNVERIFIED`, `VERIFIED` | RAG 문서(주로 defect_kb) 검증 여부 | `rag_documents.verification_status` |
 | `rag_embedding_status_type` | `PENDING`, `EMBEDDING`, `DONE`, `FAILED` | RAG 문서 임베딩 처리 상태 | `rag_documents.embedding_status` |
 | `notification_type` | `ANALYSIS_DONE`, `REVIEW_PENDING`, `COUNSEL_REPLIED`, `INSPECTION_DUE` | 알림 유형 | `notifications.type` |
 | `company_status_type` | `PENDING_REVIEW`, `APPROVED`, `REJECTED` | 기업 회원가입 관리자 승인 상태 | `companies.status` |
@@ -303,7 +336,7 @@ users ──┬──< user_consents
 - **UQ**: `(user_id, policy_type, policy_version)` — 동일 버전 중복 동의 방지.
 - 인덱스: `idx_user_consents_user (user_id)`
 - §2.5 근거: 회원가입 화면의 "(필수) 서비스 이용약관 및 개인정보 처리방침 동의" 체크박스를, 법무 감사에 대비해 단일 타임스탬프가 아니라 약관별·버전별 이력으로 저장한다. 약관 개정 시에도 과거 동의 시점의 버전을 그대로 보존한다.
-- ✅ **삭제 정책(감사 보존 우선) — 라이브 DB 실측 반영(2026-07-15)**: 이 테이블은 법무 감사·분쟁 대응이 존재 목적이므로 동의 이력은 사용자 삭제와 **독립적으로 보존**해야 한다. **실측 결과 `user_id` FK는 `ON DELETE CASCADE`**다(참조 DDL `HajaCheck_script_v0.3.sql`과 일치 — 과거 문서의 "RESTRICT로 확정" 서술은 실제와 달라 정정함). 따라서 보존은 DB 레벨 제약이 아니라 **운영 원칙으로 보장**한다: 사용자 탈퇴는 **soft delete**(탈퇴 플래그/`status`)로 처리해 원본 행을 물리 삭제하지 않으므로 CASCADE가 실제로는 발생하지 않는다(§`chat_message_citations`의 CASCADE 운영과 동일 패턴). 개인정보 파기 요건이 걸리면 사용자 식별정보만 **익명화 후 동의 이력 자체는 보존**한다(파기·감사 요건 상충 시 익명화 보존 우선). ⚠️ **후속**: DB 레벨 강제 보존이 필요하면 FK를 `ON DELETE RESTRICT`로 바꾸는 마이그레이션이 필요하다 — 현재 엔티티(`UserConsent.java`)는 `user_id`를 FK 관계로 매핑하지 않고 Flyway도 없어 스키마 정합이 수동 관리 상태이므로, 마이그레이션 도구 도입과 함께 다뤄야 한다.
+- ✅ **삭제 정책(감사 보존 우선) — 라이브 DB 실측 반영(2026-07-15)**: 이 테이블은 법무 감사·분쟁 대응이 존재 목적이므로 동의 이력은 사용자 삭제와 **독립적으로 보존**해야 한다. **실측 결과 `user_id` FK는 `ON DELETE CASCADE`**다(참조 DDL `HajaCheck_script.sql`과 일치 — 과거 문서의 "RESTRICT로 확정" 서술은 실제와 달라 정정함). 따라서 보존은 DB 레벨 제약이 아니라 **운영 원칙으로 보장**한다: 사용자 탈퇴는 **soft delete**(탈퇴 플래그/`status`)로 처리해 원본 행을 물리 삭제하지 않으므로 CASCADE가 실제로는 발생하지 않는다(§`chat_message_citations`의 CASCADE 운영과 동일 패턴). 개인정보 파기 요건이 걸리면 사용자 식별정보만 **익명화 후 동의 이력 자체는 보존**한다(파기·감사 요건 상충 시 익명화 보존 우선). ⚠️ **후속**: DB 레벨 강제 보존이 필요하면 FK를 `ON DELETE RESTRICT`로 바꾸는 마이그레이션이 필요하다 — 현재 엔티티(`UserConsent.java`)는 `user_id`를 FK 관계로 매핑하지 않고 Flyway도 없어 스키마 정합이 수동 관리 상태이므로, 마이그레이션 도구 도입과 함께 다뤄야 한다.
 
 ---
 
@@ -560,6 +593,11 @@ users ──┬──< user_consents
 | id | bigint (identity) | N | - | **PK** | 문서 식별자 |
 | title | varchar(300) | N | - | | 문서 제목 |
 | source_type | rag_doc_source_type | N | - | | 문서 출처 유형(`LAW`/`GUIDELINE`) |
+| target_collection | rag_target_collection_type | N | - | | 이 문서의 청크가 임베딩되는 Chroma 컬렉션(`REGULATIONS`/`DEFECT_KB`, 등록 시 명시 필수) |
+| effective_date | date | Y | - | | 문서 시행일(법규 개정 추적용, LAW 문서만 채움) |
+| publisher | varchar(200) | Y | - | | 발행 기관/부처명(법규·지침 문서 출처 표시용, regulations 대상 — 해당 없는 문서는 NULL) |
+| authored_at | date | Y | - | | 문서 작성일(주로 하자 지식 문서 대상 — `effective_date`와 별개 개념) |
+| verification_status | rag_doc_verification_status_type | Y | - | | 문서 검증 여부(주로 defect_kb 하자 지식 문서의 전문가 검토 통과 여부 — regulations는 NULL 허용) |
 | file_url | varchar(500) | N | - | | 원본 파일 URL |
 | embedding_status | rag_embedding_status_type | N | `PENDING` | | 임베딩 처리 상태 |
 | chunk_count | integer | Y | - | | 문서를 분할하여 Chroma에 임베딩한 청크 수 |
@@ -567,6 +605,9 @@ users ──┬──< user_consents
 | created_at | timestamptz | N | now() | | 업로드 시작 시각 |
 
 - 이 테이블은 문서 메타데이터만 갖는다. 실제 청크 본문·임베딩 벡터는 Chroma(FastAPI 임베디드, 로컬 파일)에 저장되며 PostgreSQL에는 존재하지 않는다(§2.4.1).
+- §2.7 근거: `source_type`(출처 유형: 법령/지침)과 `target_collection`(저장 위치: regulations/defect_kb Chroma 컬렉션)은 서로 다른 축이다. 기존에는 컬렉션 구분 컬럼이 없어 `defect_kb` 문서가 `rag_documents`의 어디에 속하는지 판단할 근거가 없었다(HAJA-113 코멘트 2026-07-13) — 이를 해결하기 위해 `target_collection` 컬럼을 신설했다. `effective_date`도 같은 이유로 함께 추가 — 기존 스키마에는 법규 시행일을 추적할 SoT 컬럼이 없었다.
+- §2.8 근거: `publisher`(HAJA-143), `authored_at`·`verification_status`(HAJA-144)는 각 Jira 하위 업무가 원래 요구했지만 Chroma 필드 설계 확정 과정에서 누락됐던 필드다. 셋 다 nullable로 두고 대상 컬렉션(target_collection)에 따라 조건부로 채운다 — `effective_date`와 동일한 패턴.
+- `target_collection`은 문서 생성 시 확정하는 불변값이다. 임베딩 또는 citation이 생성된 뒤에는 변경하지 않으며, 문서를 다른 컬렉션으로 재분류할 때는 새 `rag_documents` 행을 생성해 새 문서 ID로 재임베딩한다.
 
 #### `chat_message_citations` — RAG 답변의 근거 문서·청크 인용
 
@@ -576,12 +617,17 @@ users ──┬──< user_consents
 | message_id | bigint | N | - | **FK→chat_messages**, ON DELETE CASCADE, UQ(복합) | 인용을 포함한 메시지 |
 | document_id | bigint | N | - | **FK→rag_documents**, UQ(복합) | 인용된 RAG 문서 |
 | chunk_ref | varchar(100) | N | - | UQ(복합) | Chroma에 저장된 청크(벡터)의 식별자 — Postgres 외부 저장소 참조라 FK 불가 |
-| snippet | text | Y | - | | 인용된 청크 원문 발췌(표시용 캐시, Chroma 재조회 없이 UI에 노출) |
+| locator | text | N | - | | 화면 표시용 출처 라벨(예: `제12조`, `제12조 ①`, `12페이지`) |
+| snippet | text | N | - | | 인용된 청크 원문 발췌(표시용 캐시, Chroma 재조회 없이 UI에 노출) |
 | created_at | timestamptz | N | now() | | 생성 시각 |
 
 - **UQ**: `(message_id, document_id, chunk_ref)` — 동일 청크 중복 인용 방지.
 - 인덱스: `idx_chat_message_citations_message (message_id)`, `idx_chat_message_citations_document (document_id)`
 - `document_id`는 PostgreSQL 내 `rag_documents`를 정상적으로 FK 참조하지만, `chunk_ref`는 Chroma가 관리하는 값이라 데이터베이스 레벨 참조 무결성을 보장할 수 없다(애플리케이션에서 Chroma 조회 결과와 정합성을 맞춰야 한다).
+- `locator`는 채팅 이력 표시용 짧은 라벨이고, `snippet`은 실제 검색된 청크 원문 발췌다. 둘을 분리해 UI 표시와 원문 캐시의 의미가 섞이지 않도록 한다.
+- API의 `SourceCitation.doc_id`는 양의 정수 문자열만 허용하며 저장 경계에서 `int(doc_id)`로 변환해 `document_id`에 저장한다.
+- API의 `SourceCitation.collection`(`regulations`/`defect_kb`)은 이 테이블에 중복 저장하지 않고, 이력 복원 시 불변인 `rag_documents.target_collection`(`REGULATIONS`/`DEFECT_KB`)을 조인해 변환한다.
+- 기존 citation 행의 `locator`/`snippet`이 NULL이면 `chunk_ref`로 실제 Chroma 청크를 조회해 두 값을 복원한 뒤 NOT NULL 제약을 적용한다. 복원 불가능한 행이 하나라도 있으면 제약 적용을 중단한다.
 - 메시지 하나가 여러 문서·청크를 인용하는 1:N 구조를 표현하며, `chat_messages`가 삭제되면 인용 레코드도 함께 삭제된다(ON DELETE CASCADE).
 - ✅ **삭제 정책 확정(KPI 근거 보존)**: 이 테이블은 §7 KPI "출처 표기율 100%" 검증의 유일한 근거이므로, `chat_messages`는 **물리 삭제 대신 soft delete**를 원칙으로 해 메시지·인용 레코드를 보존한다(CASCADE는 실제로는 발생하지 않도록 운영). 만약 보존기간 만료 등으로 메시지 물리 삭제를 도입할 경우, 삭제 전 인용 준수 지표(답변 건수 대비 인용 존재율)를 **별도 집계·스냅샷으로 보존**해 사후 재검증 가능성을 유지한다.
 
@@ -667,17 +713,7 @@ HAJA-102 기준 최종 산출물은 아래 파일들이다.
 | 산출물 | 파일 | 용도 |
 |---|---|---|
 | 테이블 디자인 설계서 | `table_design.md` | 착수보고서·PRD 대비 변경 사항, ERD 개요, enum/테이블 상세, RAG·상담 공용 설계, 핵심 요구사항 요약을 설명하는 기준 문서 |
-| 최종 통합 DDL | `hajaCheck_script.sql` | 신규 DB를 현재 최종 스키마로 생성할 때 사용하는 기준 SQL |
+| 최종 통합 DDL | `HajaCheck_script.sql` | 신규 DB를 현재 최종 스키마로 생성할 때 사용하는 기준 SQL |
 | 기준 요구사항 문서 | `PRD_hajaCheck_v0.41.md` | 테이블 설계의 근거가 되는 기능 요구사항, IA, 시스템 아키텍처, 주요 데이터 모델 정의 |
 
-제출·공유 시에는 `table_design.md`를 설명 문서로, `hajaCheck_script.sql`을 최종 적용 기준으로 사용한다.
-
----
-
-## 10. 운영 정책 (스키마·설정·매핑)
-
-백엔드 배포·스키마 운영의 기준. (HAJA-164에서 명문화)
-
-1. **마이그레이션**: **수동 DDL(`HajaCheck_script_v0.x.sql`) + JPA `ddl-auto: validate`**. Flyway는 도입하지 않는다(전역 컨벤션의 Flyway 규칙을 이 프로젝트에서 오버라이드). 스키마 변경은 DDL 스크립트를 사람이 서버에 적용하고, 애플리케이션은 기동 시 `validate`로 엔티티↔스키마 정합만 검증한다(스키마를 생성/수정하지 않는다).
-2. **프로파일**: `local`(개발) / `docker`(oci-arm1 서버). 서버용 설정은 `application-docker.yml` **단일 파일**로 관리하며, 인프라 오너가 단독 관리한다. 시크릿 실제 값은 서버 `~/apps/hajacheck/.env`(미커밋)에만 두고, yml·compose에는 `${ENV}` 참조만 둔다. datasource/redis는 compose가 `SPRING_DATASOURCE_*`/`SPRING_DATA_REDIS_*`로 주입하고, `ddl-auto`/세션 등 공통값은 `application.yml`(base)에서 상속한다.
-3. **JPA ↔ PG named enum 매핑**: PG named enum 컬럼(`role_type`·`social_provider_type`·`user_status_type` 등)은 엔티티에서 `@JdbcTypeCode(org.hibernate.type.SqlTypes.NAMED_ENUM)` + `@Column(columnDefinition = "<enum_type>")`으로 매핑한다. Java enum 라벨은 PG enum 라벨과 정확히 일치시켜야 하며, `@Enumerated(STRING)`(varchar 매핑)은 사용하지 않는다. named enum은 H2로 재현할 수 없으므로 관련 엔티티/리포지토리 테스트는 Testcontainers PostgreSQL(실 PG, `ddl-auto=validate`)로 검증한다.
+제출·공유 시에는 `table_design.md`를 설명 문서로, `HajaCheck_script.sql`을 최종 적용 기준으로 사용한다.

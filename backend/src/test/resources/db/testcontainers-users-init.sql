@@ -1,6 +1,7 @@
--- Testcontainers(postgres:16) 초기화 스크립트 — 서버 스키마(v0.3)의 users 관련 부분만 재현.
+-- Testcontainers(postgres:16) 초기화 스크립트 — 서버 스키마(v0.3)의 users·facilities 부분 재현.
 -- @JdbcTypeCode(NAMED_ENUM) 매핑을 실 PG named enum 에 대해 ddl-auto=validate 로 검증하기 위함.
--- 서버 스키마는 불변이므로 이 SQL 은 docs/design/db/HajaCheck_script_v0.3.sql 의 users 정의와 동일해야 한다.
+-- 또한 같은 영속성 유닛의 모든 엔티티(Facility 포함)가 validate 대상이므로, 그 테이블도 여기에 있어야 한다.
+-- 서버 스키마는 불변이므로 이 SQL 은 docs/design/db/HajaCheck_script_v0.3.sql 의 해당 정의와 동일해야 한다.
 
 create type role_type as enum ('ADMIN', 'INSPECTOR', 'USER', 'COUNSELOR');
 create type social_provider_type as enum ('KAKAO', 'GOOGLE');
@@ -28,6 +29,7 @@ create table users
         check ((social_provider is not null and social_id is not null) or password_hash is not null)
 );
 
+-- <<< 병합: dev(기업 인증) + facility(시설물) 양쪽 테이블 모두 유지 >>>
 -- 기업 인증(HAJA-168) — companies / user_consents 및 관련 enum. v0.3 DDL 과 정확히 동일해야 validate 통과.
 create type company_status_type as enum ('PENDING_REVIEW', 'APPROVED', 'REJECTED');
 create type business_verification_status_type as enum ('PENDING', 'VERIFIED', 'FAILED');
@@ -148,4 +150,25 @@ create table usage_counters
     constraint ck_usage_counters_nonnegative
         check ((analyzed_image_count >= 0) AND (analysis_request_count >= 0) AND (facility_count >= 0) AND
                (seat_count >= 0) AND (counsel_ticket_count >= 0) AND (pdf_generation_count >= 0))
+);
+
+-- facilities: 서버 스키마(v0.3)의 시설물 테이블. dev-04-01(시설물 CRUD) Facility 엔티티 validate 대조용.
+-- enum 없이 type=varchar(20), is_deleted 없음(하드 삭제) — HajaCheck_script_v0.3.sql 과 동일.
+create table facilities
+(
+    id                      bigint generated always as identity
+        primary key,
+    owner_id                bigint                                 not null
+        references users,
+    name                    varchar(200)                           not null,
+    type                    varchar(20)                            not null,
+    address                 varchar(300),
+    latitude                numeric(9, 6),
+    longitude               numeric(9, 6),
+    built_year              integer,
+    scale                   varchar(100),
+    inspection_cycle_months integer,
+    next_inspection_due_at  date,
+    created_at              timestamp with time zone default now() not null,
+    updated_at              timestamp with time zone default now() not null
 );

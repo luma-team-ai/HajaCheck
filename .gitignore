@@ -15,6 +15,10 @@ docs/_local/
 backend/build/
 backend/.gradle/
 backend/out/
+backend/bin/
+backend/.classpath
+backend/.project
+backend/.settings/
 backend/src/main/resources/application-local.yml
 
 # --- ai-server (Python) ---
@@ -40,3 +44,4 @@ mlruns/
 
 # --- Docker/배포 ---
 .last_good_tag
+/.metadata/

@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+> **문서 버전:** v0.3 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -86,6 +86,50 @@
 **응답 성공** `data`: `{ briefing, recommendation, facts: { this_week_defects, last_week_defects, change_pct, trend, top_defect_type, critical_defects } }`. 상세 스키마는 `openapi.yaml`(`BriefingRequest`/`WeeklyBriefing`) 참조.
 
 **응답 실패** (`AIErrorCode`: `LLM_TIMEOUT` | `LLM_RATE_LIMIT` | `LLM_INVALID_OUTPUT` | `RAG_NO_RESULT`).
+
+---
+
+## POST /ai/rag-chat — ⏳ 미구현(설계만, 예: `docs/design/ai/rag_chroma_schema.md` 참조) — 계획 엔드포인트
+
+점검 기준·법규 질의 전담 RAG 챗봇(FR-6). 성공 시 `AIResponse.data`는 `RagAnswerData` 형태이며, `sources[]`는 표시 라벨(`locator`)과 원문 발췌(`snippet`)를 분리한다.
+
+> **내부 호출 계약**: PRD §6의 Spring Boot → FastAPI 구조를 따른다. 프론트엔드는 이 엔드포인트를 직접 호출하지 않는다. Spring Boot는 `session_id`가 인증 사용자 소유이고 `session_type='RAG'`인지 확인한 뒤에만 FastAPI를 호출한다. 세션이 존재하지 않거나 타인 소유이면 정보 노출을 막기 위해 모두 `404`로 처리하고 FastAPI 호출은 생략한다. 따라서 아래 `session_id`는 클라이언트가 임의 지정한 값이 아니라 Spring Boot가 검증한 서버 관리 식별자다.
+>
+> Spring Boot는 환경변수로 주입된 내부 서비스 토큰을 `X-Internal-Service-Token` 헤더에 담고, FastAPI는 일치하지 않거나 누락된 요청을 처리 전에 거부해야 한다. 토큰 값은 저장소·로그·OpenAPI에 기록하지 않는다. 운영 nginx는 `/ai/rag-chat`을 FastAPI로 직접 프록시하면 안 되며, 현재 `/ai/**` 직접 경로는 이 엔드포인트 구현 전에 Spring Boot 경유 또는 외부 차단으로 변경해야 한다. 이 인증·라우팅 구현은 후속 Spring/FastAPI 배포 작업의 선행조건이다.
+
+**요청**:
+```json
+{
+  "question": "균열 보수 기준은 무엇인가요?",
+  "session_id": 42
+}
+```
+
+**응답 성공**:
+```json
+{
+  "success": true,
+  "data": {
+    "answer": "균열 보수는 손상 정도와 구조 안전성 평가 결과에 따라 보수 공법을 선택합니다.",
+    "sources": [
+      {
+        "doc_id": "42",
+        "title": "시설물의 안전 및 유지관리에 관한 특별법",
+        "collection": "regulations",
+        "locator": "제12조",
+        "snippet": "관리주체는 시설물의 안전점검을 정기적으로 실시하여야 한다.",
+        "chunk_ref": "42_3"
+      }
+    ]
+  },
+  "usage": { "tokens": 320 },
+  "error": null
+}
+```
+
+**응답 실패**: `RAG_NO_RESULT`(검색 결과 0건) 또는 공통 LLM 오류 코드.
+
+`sources[].doc_id`는 PostgreSQL `rag_documents.id`를 문자열화한 양의 정수 문자열(`^[1-9][0-9]*$`)이다. Spring Boot가 `chat_message_citations.document_id`에 저장할 때 패턴 검증을 통과한 값을 `int(doc_id)`로 변환한다.
 
 ---
 
