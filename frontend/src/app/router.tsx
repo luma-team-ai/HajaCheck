@@ -2,6 +2,7 @@
 // 경로: kebab-case / 인증 가드: ProtectedRoute, AdminRoute / 페이지 lazy loading 기본
 import { lazy, Suspense } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
+import { ProtectedRoute } from '../shared/components/ProtectedRoute';
 import { AppShellRoute } from './AppShellRoute';
 
 const MapPage = lazy(() => import('../features/map/MapPage'));
@@ -68,9 +69,11 @@ export const router = createBrowserRouter([
   {
     path: '/inspections/:id/viewer',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
-        <ResultViewerPage />
-      </Suspense>
+      <ProtectedRoute>
+        <Suspense fallback={<div>불러오는 중...</div>}>
+          <ResultViewerPage />
+        </Suspense>
+      </ProtectedRoute>
     ),
   },
   {
@@ -107,12 +110,16 @@ export const router = createBrowserRouter([
   }, // — features/auth 기업 인증 플로우 (HAJA-170, #187)
   {
     // 로그인 후 내부 페이지 공통 앱 셸(SideNavBar+Header, AppLayout) — nested route로 강제 연결(HAJA-186, #217 후속).
+    // ProtectedRoute로 부모 전체를 감싸 자식 라우트를 일괄 보호한다(#231, HAJA-189) —
     // 이 셸에 새 페이지를 포함하려면: children에 라우트 추가 + handle에 breadcrumb/activeHref 선언만 하면 됨
     // (페이지 컴포넌트는 AppLayout을 직접 감쌀 필요 없음 — AppShellRoute.tsx 참조)
-    element: <AppShellRoute />,
+    element: (
+      <ProtectedRoute>
+        <AppShellRoute />
+      </ProtectedRoute>
+    ),
     children: [
       {
-        // TODO: 인증 가드(ProtectedRoute) 도입 시 시설물 현황·점검 통계 등 업무 데이터 노출 라우트이므로 적용 필요 — 현재는 인증 스켈레톤(features/auth) 미구현이라 미적용(의도된 임시 상태)
         path: '/dashboard',
         element: (
           <Suspense fallback={<div>불러오는 중...</div>}>
@@ -122,7 +129,6 @@ export const router = createBrowserRouter([
         handle: { breadcrumb: [{ label: '홈' }, { label: '대시보드' }], activeHref: '/dashboard' },
       }, // — features/dashboard (HAJA-17)
       {
-        // TODO: 인증 가드(ProtectedRoute) 도입 시 하자 상세(업무 데이터) 노출 라우트이므로 적용 필요 — 현재 라우터에 가드 미적용(ProtectedRoute 컴포넌트 자체가 아직 없음)
         path: '/defects/:id',
         element: (
           <Suspense fallback={<div>불러오는 중...</div>}>
@@ -135,7 +141,6 @@ export const router = createBrowserRouter([
         },
       }, // — features/defect (HAJA-171)
       {
-        // TODO: 인증 가드(ProtectedRoute) 도입 시 적용 필요 — 현재 라우터에 가드 미적용(다른 대시보드 셸 라우트와 동일 상태)
         path: '/mypage/plan',
         element: (
           <Suspense fallback={<div>불러오는 중...</div>}>
@@ -150,21 +155,25 @@ export const router = createBrowserRouter([
     ],
   },
   {
-    // TODO: 인증 가드(ProtectedRoute) 도입 시 시설물 목록(업무 데이터) 노출 라우트이므로 적용 필요 — 현재는 라우터 스켈레톤 단계라 미적용
+    // 셸(AppShellRoute) 중첩 밖 업무 라우트 — 인증 가드는 적용하되 AppLayout 셸 미포함(#231 관찰,
+    // 셸 포함은 별도 후속 스코프).
     path: '/facilities',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
-        <FacilityListPage />
-      </Suspense>
+      <ProtectedRoute>
+        <Suspense fallback={<div>불러오는 중...</div>}>
+          <FacilityListPage />
+        </Suspense>
+      </ProtectedRoute>
     ),
   }, // — features/facility (dev-04-01, FR-003)
   {
-    // TODO: 인증 가드(ProtectedRoute) 도입 시 시설물 위치 노출 라우트이므로 적용 필요 — 현재는 라우터 스켈레톤 단계라 미적용
     path: '/map',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
-        <MapPage />
-      </Suspense>
+      <ProtectedRoute>
+        <Suspense fallback={<div>불러오는 중...</div>}>
+          <MapPage />
+        </Suspense>
+      </ProtectedRoute>
     ),
   }, // — features/map (#28)
   // { path: '/defects', ... }                  — features/defect
