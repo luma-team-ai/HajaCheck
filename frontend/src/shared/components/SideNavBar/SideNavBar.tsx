@@ -117,7 +117,7 @@ const DEFAULT_ITEMS: SideNavItem[] = [
       { label: '내 정보', href: '/my-page/profile' },
       { label: '내 점검 이력', href: '/my-page/inspections' },
       { label: '내 보고서', href: '/my-page/reports' },
-      { label: '내 플랜', href: '/my-page/plan' },
+      { label: '내 플랜', href: '/mypage/plan' },
       { label: '내 상담 내역', href: '/my-page/counsels' },
     ],
   },

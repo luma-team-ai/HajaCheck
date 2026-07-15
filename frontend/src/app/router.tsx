@@ -144,7 +144,7 @@ export const router = createBrowserRouter([
         ),
         handle: {
           breadcrumb: [{ label: '홈' }, { label: '마이페이지' }, { label: '내 플랜' }],
-          activeHref: '/my-page/plan',
+          activeHref: '/mypage/plan',
         },
       }, // — features/mypage (HAJA-185, #212)
     ],
