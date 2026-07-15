@@ -1,8 +1,11 @@
 package com.hajacheck.auth.service;
 
 import com.hajacheck.auth.dto.UserResponse;
+import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -32,6 +35,21 @@ public class AuthService {
 
     public UserResponse getMe(Long userId) {
         return UserResponse.from(findUser(userId));
+    }
+
+    /**
+     * 점검 담당자 배정 가능 여부 검증(dev-05-02, 점검 회차 생성) — docs/design/db/table_design.md
+     * §inspections: "assigned_inspector_id가 가리키는 사용자는 애플리케이션에서
+     * users.status=ACTIVE AND role IN (INSPECTOR, ADMIN)인지 검증한다."
+     * 미존재/조건 불충족 모두 이 코드로 통일 응답(리소스 존재 여부 열거 방지 — FacilityService 패턴과 동일).
+     */
+    public void validateAssignableInspector(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID_INSPECTOR));
+        boolean assignableRole = user.getRole() == Role.INSPECTOR || user.getRole() == Role.ADMIN;
+        if (user.isSuspended() || !assignableRole) {
+            throw new BusinessException(ErrorCode.AUTH_INVALID_INSPECTOR);
+        }
     }
 
     private User findUser(Long userId) {

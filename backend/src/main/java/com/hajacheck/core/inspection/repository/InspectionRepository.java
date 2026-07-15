@@ -25,4 +25,8 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long> {
             @Param("statuses") Collection<InspectionStatus> statuses,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);
+
+    // 점검 회차 생성(dev-05-02) — 시설물별 다음 회차 번호 계산.
+    @Query("select coalesce(max(i.roundNo), 0) from Inspection i where i.facilityId = :facilityId")
+    int findMaxRoundNoByFacilityId(@Param("facilityId") Long facilityId);
 }
