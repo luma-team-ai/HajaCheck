@@ -17,7 +17,7 @@ const mockDefectExplain = {
 };
 
 const handlers = [
-  http.post('/ai/defect-explain', async ({ request }) => {
+  http.post('/api/ai/defect-explain', async ({ request }) => {
     // 요청 딜레이를 시뮬레이션해서 로딩 상태를 테스트할 수 있게 함
     await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -127,7 +127,7 @@ describe('useDefectExplain (통합 테스트)', () => {
     });
 
     server.use(
-      http.post('/ai/defect-explain', async () => {
+      http.post('/api/ai/defect-explain', async () => {
         // 요청이 완료될 때까지 기다림
         await requestPromise;
         const success: ApiResponse<typeof mockDefectExplain> = {
@@ -184,7 +184,7 @@ describe('useDefectExplain (통합 테스트)', () => {
 
   it('에러 상태: 서버 에러 응답을 처리한다', async () => {
     server.use(
-      http.post('/ai/defect-explain', () => {
+      http.post('/api/ai/defect-explain', () => {
         const failure: ApiResponse<null> = {
           success: false,
           data: null,
@@ -218,7 +218,7 @@ describe('useDefectExplain (통합 테스트)', () => {
   it('재시도 로직: retry: 1로 설정되어 실패 시 한 번 더 시도한다', async () => {
     let callCount = 0;
     server.use(
-      http.post('/ai/defect-explain', () => {
+      http.post('/api/ai/defect-explain', () => {
         callCount++;
         // 첫 번째 시도는 실패, 두 번째는 성공
         if (callCount === 1) {

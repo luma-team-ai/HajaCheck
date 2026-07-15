@@ -42,8 +42,8 @@ export const dashboardHandlers = [
     return HttpResponse.json(body);
   }),
 
-  // ai-server AIResponse({success,data,usage,error}) — /api prefix 없음(vite.config.ts /ai 프록시)
-  http.post('/ai/briefing', () => {
+  // ai-server AIResponse({success,data,usage,error}) — 스프링 인증 프록시 /api/ai/* 경유(vite.config.ts /api 프록시)
+  http.post('/api/ai/briefing', () => {
     const body: { success: boolean; data: AiBriefing; usage: { tokens: number } } = {
       success: true,
       data: mockAiBriefing,
