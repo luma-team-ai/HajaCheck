@@ -78,7 +78,7 @@ export function FloatingPopup({
           )}
           {waitingLabel && (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-muted px-[9px] py-[5px] text-xs text-text-default">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#3b82f6]" aria-hidden="true" />
+              <span className="h-1.5 w-1.5 rounded-full bg-info" aria-hidden="true" />
               {waitingLabel}
             </span>
           )}

@@ -59,7 +59,7 @@ export function Footer({
             <img className="h-4 w-4 object-contain" src={brandMark} alt="" />
             <span>HajaCheck</span>
           </div>
-          <p className="m-0 text-sm leading-[1.6] text-[#47464b]">{tagline}</p>
+          <p className="m-0 text-sm leading-[1.6] text-text-secondary">{tagline}</p>
         </div>
 
         {columns.map((column) => (
@@ -70,7 +70,7 @@ export function Footer({
             <ul className="m-0 flex list-none flex-col gap-3 p-0">
               {column.links.map((link) => (
                 <li key={link.href}>
-                  <Link to={link.href} className="text-sm text-[#47464b] no-underline">
+                  <Link to={link.href} className="text-sm text-text-secondary no-underline">
                     {link.label}
                   </Link>
                 </li>
@@ -80,7 +80,7 @@ export function Footer({
         ))}
       </div>
 
-      <div className="mx-auto max-w-7xl border-t border-border pt-[33px] text-sm text-[#858387]">
+      <div className="mx-auto max-w-7xl border-t border-border pt-[33px] text-sm text-text-subtle">
         {copyright}
       </div>
     </footer>
