@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.3 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+> **문서 버전:** v0.3 · **최종 수정:** 2026-07-16 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -240,12 +240,12 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 | FR-9 | GET | `/api/notifications` (P1) | 알림 센터 | 미배정 |
 | 공통 | GET | `/actuator/health`, `/health` | 헬스체크 | 인프라 |
 
-> 하자 관리 메뉴(`/api/defects` 목록·검색, `/ai/nl-search`)는 유병현/정재봉 담당(§7 표), 위 FR-4 검수 경로와 데이터는 공유하되 엔드포인트는 별도.
+> 하자 관리 메뉴(`/api/defects` 목록·검색, 공개 `/api/defects/nl-search` → 내부 `/ai/nl-search`)는 유병현/정재봉 담당(§7 표), 위 FR-4 검수 경로와 데이터는 공유하되 엔드포인트는 별도. 자연어 검색 공개 경로는 Spring Boot가 인증·점검자 권한·`has_ai_addon`을 검사한 뒤에만 내부 FastAPI로 전달한다. 회사 플랜은 `company_memberships`의 승인·미회수·미만료 소속을 회사 승인·진위확인과 함께 검증한다. `GET /api/defects`는 클라이언트 필터와 별개로 `facilities.owner_id`(개인 소유) 또는 회사 소속 공유 시설물(등록자가 아니어도, 시설물 소유자와 요청자 **양쪽 모두**가 같은 회사에 대해 유효한 `company_memberships`를 가진 경우에만 조회 가능 — 요청자 본인의 멤버십이 미승인·회수·만료 상태면 제외) 또는 `inspections.assigned_inspector_id`를 기준으로 범위를 강제하고, 관리자는 전체 범위를 조회하되 모든 역할에서 `is_deleted=false`만 페이지 응답한다. 허용 역할의 조회 가능 결과가 0건이면 `200` 빈 페이지이며, `403`은 엔드포인트 허용 역할이 아닌 경우에만 사용한다. 상세 필드·페이지 규약은 OpenAPI SOT를 따른다.
 
 ## 다음 추가 예정 (각 담당자)
 
 - `/ai/rag-chat` — RAG 챗봇 (이은석)
-- `/ai/nl-search` — 자연어 검색 (하자 관리 담당)
+- `/api/defects/nl-search` — 자연어 검색 공개 게이트웨이(Spring Boot, 인증·플랜 검사) → 내부 `/ai/nl-search`(FastAPI, 외부 직접 노출 금지)
 - Spring Boot REST 엔드포인트 전체 (백엔드 담당)
 
 ---
