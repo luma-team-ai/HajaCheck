@@ -10,6 +10,7 @@
 - recommendation 섹션의 RAG 조회(ai.core.vectorstore.get_vectorstore)는 아직 NotImplementedError 스텁이므로,
   실패 시(0건 검색과 동일하게) legal_basis를 "관련 근거 없음"으로 고정하고 체인 전체는 정상 진행한다
 """
+import logging
 from pathlib import Path
 
 from langchain_core.runnables import RunnableLambda, RunnableParallel
@@ -25,6 +26,8 @@ from ai.core.grounding import (
 )
 from ai.core.llm_client import MAX_RETRIES, get_llm
 from ai.core.vectorstore import COLLECTION_REGULATIONS, get_vectorstore
+
+logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -47,11 +50,16 @@ class ReportOverview(BaseModel):
 
 
 class ReportSummary(BaseModel):
-    """total_count/count_by_grade 필드명은 ai.core.grounding.GroundingClaims와 동일해야 함(design §5-1)."""
+    """total_count/count_by_grade 필드명은 ai.core.grounding.GroundingClaims와 동일해야 함(design §5-1).
+
+    count_by_grade/key_findings는 design §6.2 기준 필수 출력값이라 기본값을 두지 않는다 — LLM이
+    필드를 누락하면 `_StructuredLLM`의 PydanticOutputParser 파싱 단계에서 실패해 기존 재시도 경로를
+    타야 하며, 여기서 조용히 빈 dict/list로 통과되면 grounding 검사가 "0건 주장"으로 오판할 수 있다.
+    """
     overall_opinion: str  # 종합 의견
     total_count: int  # 총 하자 수
-    count_by_grade: dict[str, int] = Field(default_factory=dict)  # 등급별 개수 {"A": n, ...}
-    key_findings: list[str] = Field(default_factory=list)  # 주요 발견사항 3~5개
+    count_by_grade: dict[str, int]  # 등급별 개수 {"A": n, ...} — 필수(누락 시 파싱 실패 → 재시도)
+    key_findings: list[str]  # 주요 발견사항 3~5개 — 필수(누락 시 파싱 실패 → 재시도)
 
 
 class DefectDetailItem(BaseModel):
@@ -192,7 +200,12 @@ def _retrieve_legal_basis_context(confirmed_defects: list[dict]) -> str:
         vectorstore = get_vectorstore(COLLECTION_REGULATIONS)
         query = " ".join(sorted({str(d.get("defect_type", "")) for d in confirmed_defects if d.get("defect_type")}))
         docs = vectorstore.similarity_search(query, k=3)
-    except Exception:  # noqa: BLE001 — NotImplementedError(현재 스텁) 포함, 검색 실패 전체를 "0건"과 동일 취급
+    except NotImplementedError as e:
+        # 현재 예상된 상태(vectorstore.py 미구현) — 소음 방지 위해 info, 하지만 로그는 남긴다
+        logger.info("vectorstore 미구현(NotImplementedError) — 검색 결과 없음으로 폴백: %s", e)
+        return ""
+    except Exception:  # noqa: BLE001 — vectorstore 실구현 이후의 진짜 오류를 놓치지 않기 위해 warning으로 남김
+        logger.warning("법규 검색 실패 — 검색 결과 없음으로 폴백", exc_info=True)
         return ""
     if not docs:
         return ""
