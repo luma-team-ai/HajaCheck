@@ -34,8 +34,10 @@ describe('FacilityFormModal', () => {
 
     expect(handleSubmit).toHaveBeenCalledTimes(1);
     // 실패했으므로 입력값이 그대로 남아있어야 한다(제출 이전 상태로 초기화되지 않음)
-    expect(screen.getByLabelText(/시설물명/)).toHaveValue('강남 오피스타워 A동');
-    expect(screen.getByLabelText(/시설물 유형/)).toHaveValue('건물');
+    expect((screen.getByLabelText(/시설물명/) as HTMLInputElement).value).toBe(
+      '강남 오피스타워 A동',
+    );
+    expect((screen.getByLabelText(/시설물 유형/) as HTMLSelectElement).value).toBe('건물');
   });
 
   it('등록 성공 시 폼 값을 초기화한다', async () => {
@@ -52,8 +54,8 @@ describe('FacilityFormModal', () => {
     });
 
     expect(handleSubmit).toHaveBeenCalledTimes(1);
-    expect(screen.getByLabelText(/시설물명/)).toHaveValue('');
-    expect(screen.getByLabelText(/시설물 유형/)).toHaveValue('');
+    expect((screen.getByLabelText(/시설물명/) as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText(/시설물 유형/) as HTMLSelectElement).value).toBe('');
   });
 
   it('필수값 검증 실패 시 onSubmit을 호출하지 않는다', async () => {
@@ -68,6 +70,6 @@ describe('FacilityFormModal', () => {
     });
 
     expect(handleSubmit).not.toHaveBeenCalled();
-    expect(screen.getByText('시설물명을 입력해 주세요.')).toBeInTheDocument();
+    expect(screen.getByText('시설물명을 입력해 주세요.')).not.toBeNull();
   });
 });
