@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '../api/authApi';
+import { AUTH_ME_QUERY_KEY } from '../constants';
 import { useAuthStore } from '../store/authStore';
 
 // 로그아웃 — Sidebar/TopBar가 공유하는 단일 훅 (React_코드_컨벤션.md §0 "공통 로직 중복 금지")
@@ -17,7 +18,13 @@ export function useLogout() {
     } catch {
       // 무시 — API 실패와 무관하게 클라이언트 세션은 정리한다
     } finally {
-      queryClient.clear();
+      // queryClient.clear()는 AuthGate가 상시 구독 중인 ['auth','me'] 쿼리 옵저버까지
+      // 초기화해 재-pending 상태로 되돌리고(스플래시 재노출, PR #232 P2-C), react-query가
+      // 그 재구독을 즉시 재요청으로 이어가 유효 쿠키가 남아있으면 세션이 재복원되는
+      // 부작용(P2-D)이 있었다 — 그래서 auth 쿼리는 지우지 않고 settled-null로 고정만 하고,
+      // 그 외 캐시만 제거한다.
+      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'auth' });
+      queryClient.setQueryData(AUTH_ME_QUERY_KEY, null);
       clearUser();
       navigate('/login');
     }
