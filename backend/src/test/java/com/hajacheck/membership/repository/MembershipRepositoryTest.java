@@ -2,9 +2,11 @@ package com.hajacheck.membership.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
@@ -36,6 +38,8 @@ class MembershipRepositoryTest extends PostgresTestSupport {
     @Autowired
     private UserRepository userRepository;
     @Autowired
+    private CompanyRepository companyRepository;
+    @Autowired
     private PlanRepository planRepository;
     @Autowired
     private UserPlanRepository userPlanRepository;
@@ -55,6 +59,18 @@ class MembershipRepositoryTest extends PostgresTestSupport {
                 .companyId(companyId)
                 .status(UserStatus.ACTIVE)
                 .build());
+    }
+
+    /**
+     * user_plans.company_id / users.company_id 는 DDL 상 companies 테이블 FK 이므로,
+     * 리터럴 id 대신 실제 Company 행을 먼저 저장하고 그 id 를 사용해야 한다(FK 위반 방지).
+     * businessRegistrationNumber 는 unique 라 호출부마다 다른 값을 넘겨야 한다.
+     */
+    private Company saveCompany(String ownerEmail, String businessRegistrationNumber) {
+        User owner = saveUser(ownerEmail, null);
+        return companyRepository.save(Company.createPendingReview(
+                owner.getId(), "(주)테스트", businessRegistrationNumber, "김대표",
+                "서울시 강남구", null, "http://files/brn.png", "{}"));
     }
 
     @Test
@@ -97,10 +113,11 @@ class MembershipRepositoryTest extends PostgresTestSupport {
     @Test
     void userPlan_회사구독_findFirstByCompanyIdAndStatus_ACTIVE조회() {
         Plan plan = savePlan(PlanName.ENTERPRISE);
-        userPlanRepository.save(UserPlan.forCompany(999L, plan.getId()));
+        Company company = saveCompany("companyplan-owner@haja.com", "1111111111");
+        userPlanRepository.save(UserPlan.forCompany(company.getId(), plan.getId()));
 
         Optional<UserPlan> found = userPlanRepository
-                .findFirstByCompanyIdAndStatusOrderByStartedAtDesc(999L, UserPlanStatus.ACTIVE);
+                .findFirstByCompanyIdAndStatusOrderByStartedAtDesc(company.getId(), UserPlanStatus.ACTIVE);
 
         assertThat(found).isPresent();
         assertThat(found.get().getUserId()).isNull();
@@ -138,7 +155,8 @@ class MembershipRepositoryTest extends PostgresTestSupport {
 
     @Test
     void user_회사소속조회_findByCompanyId_countByCompanyId() {
-        Long companyId = 777L;
+        Company company = saveCompany("seats-owner@haja.com", "2222222222");
+        Long companyId = company.getId();
         saveUser("member1@haja.com", companyId);
         saveUser("member2@haja.com", companyId);
         saveUser("other@haja.com", null);
