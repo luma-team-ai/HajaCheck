@@ -94,6 +94,8 @@
 점검 기준·법규 질의 전담 RAG 챗봇(FR-6). 성공 시 `AIResponse.data`는 `RagAnswerData` 형태이며, `sources[]`는 표시 라벨(`locator`)과 원문 발췌(`snippet`)를 분리한다.
 
 > **내부 호출 계약**: PRD §6의 Spring Boot → FastAPI 구조를 따른다. 프론트엔드는 이 엔드포인트를 직접 호출하지 않는다. Spring Boot는 `session_id`가 인증 사용자 소유이고 `session_type='RAG'`인지 확인한 뒤에만 FastAPI를 호출한다. 세션이 존재하지 않거나 타인 소유이면 정보 노출을 막기 위해 모두 `404`로 처리하고 FastAPI 호출은 생략한다. 따라서 아래 `session_id`는 클라이언트가 임의 지정한 값이 아니라 Spring Boot가 검증한 서버 관리 식별자다.
+>
+> Spring Boot는 환경변수로 주입된 내부 서비스 토큰을 `X-Internal-Service-Token` 헤더에 담고, FastAPI는 일치하지 않거나 누락된 요청을 처리 전에 거부해야 한다. 토큰 값은 저장소·로그·OpenAPI에 기록하지 않는다. 운영 nginx는 `/ai/rag-chat`을 FastAPI로 직접 프록시하면 안 되며, 현재 `/ai/**` 직접 경로는 이 엔드포인트 구현 전에 Spring Boot 경유 또는 외부 차단으로 변경해야 한다. 이 인증·라우팅 구현은 후속 Spring/FastAPI 배포 작업의 선행조건이다.
 
 **요청**:
 ```json

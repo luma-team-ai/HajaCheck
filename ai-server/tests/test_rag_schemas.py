@@ -40,6 +40,15 @@ def test_source_citation_requires_rendered_citation_text(field: str):
         SourceCitation.model_validate(payload)
 
 
+@pytest.mark.parametrize("field", ["title", "locator", "snippet", "chunk_ref"])
+def test_source_citation_rejects_empty_required_text(field: str):
+    payload = _citation().model_dump()
+    payload[field] = ""
+
+    with pytest.raises(ValidationError):
+        SourceCitation.model_validate(payload)
+
+
 def test_rag_answer_data_serializes_locator_and_snippet_in_envelope():
     data = RagAnswerData(answer="균열 보수 기준 답변", sources=[_citation()])
     body = AIResponse.ok(data=data.model_dump()).model_dump()

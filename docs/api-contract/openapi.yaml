@@ -118,9 +118,13 @@ paths:
         (계획/미구현, 내부 전용) Spring Boot가 인증 사용자 소유이면서 session_type=RAG인
         세션인지 검증한 뒤 호출한다. 존재하지 않거나 타인 소유인 세션은 Spring Boot가
         동일하게 404로 처리하며 FastAPI를 호출하지 않는다. 프론트엔드는 이 엔드포인트를
-        직접 호출하지 않는다. 성공 시 AIResponse.data는 RagAnswerData(answer, sources[])
+        직접 호출하지 않는다. Spring Boot는 환경변수로 주입된 내부 서비스 토큰을
+        X-Internal-Service-Token 헤더로 전달하고 FastAPI는 누락 또는 불일치 요청을 거부한다.
+        운영 nginx는 이 경로를 FastAPI로 직접 프록시하지 않는다. 성공 시 AIResponse.data는 RagAnswerData(answer, sources[])
         형태이며, sources[]는 문서명·컬렉션·표시 라벨·원문 발췌·Chroma 청크 참조를 포함한다.
       x-internal: true
+      security:
+        - InternalServiceToken: []
       tags: [ai]
       requestBody:
         required: true
@@ -396,6 +400,13 @@ paths:
           description: 보고서 또는 PDF 파일을 찾을 수 없음
 
 components:
+  securitySchemes:
+    InternalServiceToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Service-Token
+      description: Spring Boot와 FastAPI 환경변수에만 주입하는 내부 호출 토큰
+
   schemas:
     # ── auth 도메인 (Spring Boot envelope: { success, data, error }) ──
     LoginRequest:
@@ -479,11 +490,11 @@ components:
       required: [doc_id, title, collection, locator, snippet, chunk_ref]
       properties:
         doc_id: { type: string, pattern: "^[1-9][0-9]*$", example: "42" }
-        title: { type: string, example: "시설물의 안전 및 유지관리에 관한 특별법" }
+        title: { type: string, minLength: 1, example: "시설물의 안전 및 유지관리에 관한 특별법" }
         collection: { type: string, enum: [regulations, defect_kb], example: regulations }
-        locator: { type: string, example: "제12조" }
-        snippet: { type: string, example: "관리주체는 시설물의 안전점검을 정기적으로 실시하여야 한다." }
-        chunk_ref: { type: string, example: "42_3" }
+        locator: { type: string, minLength: 1, example: "제12조" }
+        snippet: { type: string, minLength: 1, example: "관리주체는 시설물의 안전점검을 정기적으로 실시하여야 한다." }
+        chunk_ref: { type: string, minLength: 1, example: "42_3" }
 
     RagAnswerData:
       type: object

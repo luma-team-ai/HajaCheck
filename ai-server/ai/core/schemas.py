@@ -49,10 +49,11 @@ class SourceCitation(BaseModel):
     """
 
     doc_id: str = Field(pattern=r"^[1-9][0-9]*$")
-    title: str
+    title: str = Field(min_length=1)
     collection: Literal["regulations", "defect_kb"]
-    locator: str
-    chunk_ref: str
+    locator: str = Field(min_length=1)
+    snippet: str = Field(min_length=1)
+    chunk_ref: str = Field(min_length=1)
 
 
 class RagAnswerData(BaseModel):
