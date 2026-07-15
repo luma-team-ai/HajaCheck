@@ -97,7 +97,7 @@ RAG 체인이 **답변 생성 시점에 1회** `locator`를 렌더링한다 — 
 
 ## 8. 연관 문서
 
-- `docs/design/db/table_design_v0.4.md` §5.5 (`rag_documents`, `chat_message_citations` 확정 스키마)
+- `docs/design/db/table_design.md` §5.5 (`rag_documents`, `chat_message_citations` 확정 스키마)
 - `docs/conventions/AI_개발_컨벤션.md` §6 (RAG 규약 — 컬렉션 네이밍, 청킹 분리자)
 - `ai-server/ai/core/chunking.py` (법조문 경계 우선 분리 구현)
 - `ai-server/ai/core/vectorstore.py` (Chroma 컬렉션 팩토리 — 온보딩 세션 이후 RAG 코치 구현)

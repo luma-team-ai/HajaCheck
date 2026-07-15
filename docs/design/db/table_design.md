@@ -198,7 +198,7 @@ FR·API·플로우 동기화는 이번 범위에서 **제외**하고, ERD(DB 설
 | 작성일(HAJA-144) | `authored_at`(date, nullable) 컬럼 추가 — 문서(주로 하자 지식 문서) 작성 시점. `effective_date`(법규 시행일)와는 별개 개념이라 컬럼을 분리했다 |
 | 신뢰도/검증여부(HAJA-144) | `verification_status`(신규 enum `rag_doc_verification_status_type`: `UNVERIFIED`/`VERIFIED`, nullable) 컬럼 추가 — 하자 지식 문서가 전문가 검토를 통과했는지 여부. regulations는 공식 법규 출처라 별도 검증 프로세스가 없으므로 NULL 허용 |
 
-**반영 내용**: `rag_doc_verification_status_type` enum 신규, `rag_documents.publisher`/`authored_at`/`verification_status` 컬럼 추가. 상세는 §4, §5.5 참조. SQL 반영: `HajaCheck_script_v0.4.sql`. Chroma 필드 정의서(`Chroma_컬렉션_메타데이터_설계.md`, `docs/design/ai/rag_chroma_schema.md`)도 함께 갱신했다.
+**반영 내용**: `rag_doc_verification_status_type` enum 신규, `rag_documents.publisher`/`authored_at`/`verification_status` 컬럼 추가. 상세는 §4, §5.5 참조. SQL 반영: `HajaCheck_script.sql`. Chroma 필드 정의서(`Chroma_컬렉션_메타데이터_설계.md`, `docs/design/ai/rag_chroma_schema.md`)도 함께 갱신했다.
 
 ---
 
@@ -328,7 +328,7 @@ users ──┬──< user_consents
 | 컬럼 | 타입 | NULL | 기본값 | 키 | 설명 |
 |---|---|---|---|---|---|
 | id | bigint (identity) | N | - | **PK** | 동의 이력 식별자 |
-| user_id | bigint | N | - | **FK→users**, ON DELETE RESTRICT, UQ(복합) | 동의한 사용자 |
+| user_id | bigint | N | - | **FK→users**, ON DELETE CASCADE, UQ(복합) | 동의한 사용자 |
 | policy_type | consent_policy_type | N | - | UQ(복합) | 동의한 정책 유형(이용약관/개인정보 처리방침) |
 | policy_version | varchar(20) | N | - | UQ(복합) | 동의한 정책 버전 |
 | agreed_at | timestamptz | N | now() | | 동의 시각 |
@@ -336,7 +336,7 @@ users ──┬──< user_consents
 - **UQ**: `(user_id, policy_type, policy_version)` — 동일 버전 중복 동의 방지.
 - 인덱스: `idx_user_consents_user (user_id)`
 - §2.5 근거: 회원가입 화면의 "(필수) 서비스 이용약관 및 개인정보 처리방침 동의" 체크박스를, 법무 감사에 대비해 단일 타임스탬프가 아니라 약관별·버전별 이력으로 저장한다. 약관 개정 시에도 과거 동의 시점의 버전을 그대로 보존한다.
-- ✅ **삭제 정책 확정(감사 보존 우선)**: 이 테이블은 법무 감사·분쟁 대응이 존재 목적이므로 동의 이력은 사용자 삭제와 **독립적으로 보존**한다. 이에 따라 `user_id` FK를 `ON DELETE RESTRICT`로 확정해(위 DDL 반영) 동의 이력이 남아 있는 사용자의 물리 삭제를 DB 레벨에서 차단한다. 사용자 탈퇴는 **soft delete**(탈퇴 플래그/`status`)로 처리해 원본 행을 물리 삭제하지 않으며, 개인정보 파기 요건이 걸리면 사용자 식별정보만 **익명화 후 동의 이력 자체는 보존**한다. (개인정보 파기 요건과 감사 보존 요건 상충 시 익명화 보존을 우선한다.)
+- ✅ **삭제 정책(감사 보존 우선) — 라이브 DB 실측 반영(2026-07-15)**: 이 테이블은 법무 감사·분쟁 대응이 존재 목적이므로 동의 이력은 사용자 삭제와 **독립적으로 보존**해야 한다. **실측 결과 `user_id` FK는 `ON DELETE CASCADE`**다(참조 DDL `HajaCheck_script.sql`과 일치 — 과거 문서의 "RESTRICT로 확정" 서술은 실제와 달라 정정함). 따라서 보존은 DB 레벨 제약이 아니라 **운영 원칙으로 보장**한다: 사용자 탈퇴는 **soft delete**(탈퇴 플래그/`status`)로 처리해 원본 행을 물리 삭제하지 않으므로 CASCADE가 실제로는 발생하지 않는다(§`chat_message_citations`의 CASCADE 운영과 동일 패턴). 개인정보 파기 요건이 걸리면 사용자 식별정보만 **익명화 후 동의 이력 자체는 보존**한다(파기·감사 요건 상충 시 익명화 보존 우선). ⚠️ **후속**: DB 레벨 강제 보존이 필요하면 FK를 `ON DELETE RESTRICT`로 바꾸는 마이그레이션이 필요하다 — 현재 엔티티(`UserConsent.java`)는 `user_id`를 FK 관계로 매핑하지 않고 Flyway도 없어 스키마 정합이 수동 관리 상태이므로, 마이그레이션 도구 도입과 함께 다뤄야 한다.
 
 ---
 
