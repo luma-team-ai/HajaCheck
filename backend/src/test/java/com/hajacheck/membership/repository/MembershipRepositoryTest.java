@@ -17,6 +17,7 @@ import com.hajacheck.support.PostgresTestSupport;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -154,14 +155,26 @@ class MembershipRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void user_회사소속조회_findByCompanyId_countByCompanyId() {
+    void user_회사소속_활성사용자만조회_findByCompanyIdAndStatus() {
         Company company = saveCompany("seats-owner@haja.com", "2222222222");
         Long companyId = company.getId();
         saveUser("member1@haja.com", companyId);
         saveUser("member2@haja.com", companyId);
         saveUser("other@haja.com", null);
+        userRepository.save(User.builder()
+                .email("suspended@haja.com")
+                .name("정지된사용자")
+                .role(Role.USER)
+                .passwordHash("$2a$10$hashed")
+                .companyId(companyId)
+                .status(UserStatus.SUSPENDED)
+                .build());
 
-        assertThat(userRepository.findByCompanyId(companyId)).hasSize(2);
-        assertThat(userRepository.countByCompanyId(companyId)).isEqualTo(2);
+        List<User> activeMembers = userRepository.findByCompanyIdAndStatus(companyId, UserStatus.ACTIVE);
+
+        // 정지(SUSPENDED) 구성원은 좌석 과다집계·PII 노출 방지를 위해 제외되어야 한다.
+        assertThat(activeMembers).hasSize(2);
+        assertThat(activeMembers).extracting(User::getEmail)
+                .containsExactlyInAnyOrder("member1@haja.com", "member2@haja.com");
     }
 }

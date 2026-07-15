@@ -29,6 +29,7 @@ import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -79,7 +80,7 @@ class MembershipServiceTest {
     @Test
     void 내플랜조회_개인구독_ACTIVE_사용량있음() {
         UserPlan userPlan = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
-        LocalDate period = YearMonth.now().atDay(1);
+        LocalDate period = YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1);
         UsageCounter usage = UsageCounter.create(500L, period, 786, 4, 12, 1, 0, 2);
 
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
@@ -102,7 +103,7 @@ class MembershipServiceTest {
     @Test
     void 내플랜조회_당월사용량행없음_0으로반환() {
         UserPlan userPlan = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
-        LocalDate period = YearMonth.now().atDay(1);
+        LocalDate period = YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1);
 
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
         when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
@@ -151,7 +152,7 @@ class MembershipServiceTest {
     @Test
     void 내플랜조회_회사소속은_회사구독으로조회() {
         UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
-        LocalDate period = YearMonth.now().atDay(1);
+        LocalDate period = YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1);
 
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
         when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
@@ -175,14 +176,33 @@ class MembershipServiceTest {
         when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
                 .thenReturn(Optional.of(userPlan));
         when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
-        when(userRepository.findByCompanyId(COMPANY_ID)).thenReturn(List.of(companyUser, member2));
-        when(userRepository.countByCompanyId(COMPANY_ID)).thenReturn(2L);
+        when(userRepository.findByCompanyIdAndStatus(COMPANY_ID, UserStatus.ACTIVE))
+                .thenReturn(List.of(companyUser, member2));
 
         SeatsResponse response = service.getSeats(USER_ID);
 
         assertThat(response.used()).isEqualTo(2);
         assertThat(response.limit()).isEqualTo(3);
         assertThat(response.members()).hasSize(2);
+    }
+
+    @Test
+    void 좌석조회_정지된구성원은_제외() {
+        UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
+        when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        // findByCompanyIdAndStatus(..., ACTIVE) 자체가 정지 구성원을 제외한 결과를 반환한다는 전제 —
+        // 리포지토리가 활성 사용자만 돌려주므로 서비스가 이를 그대로 신뢰함을 검증.
+        when(userRepository.findByCompanyIdAndStatus(COMPANY_ID, UserStatus.ACTIVE))
+                .thenReturn(List.of(companyUser));
+
+        SeatsResponse response = service.getSeats(USER_ID);
+
+        assertThat(response.used()).isEqualTo(1);
+        assertThat(response.members()).hasSize(1);
     }
 
     @Test
