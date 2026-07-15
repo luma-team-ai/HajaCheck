@@ -177,10 +177,12 @@ FR·API·플로우 동기화는 이번 범위에서 **제외**하고, ERD(DB 설
 
 | 결정 항목 | 확정 내용 |
 |---|---|
-| 컬렉션 구분 | `target_collection`(신규 enum `rag_target_collection_type`: `REGULATIONS`/`DEFECT_KB`) 컬럼 추가 — `source_type`(출처 유형: 법령/지침)과는 별개 축으로 분리. NOT NULL, 기본값 `REGULATIONS` |
+| 컬렉션 구분 | `target_collection`(신규 enum `rag_target_collection_type`: `REGULATIONS`/`DEFECT_KB`) 컬럼 추가 — `source_type`(출처 유형: 법령/지침)과는 별개 축으로 분리. NOT NULL, 기본값 없음(등록 시 명시 필수) |
 | 법규 시행일 | `effective_date`(date, nullable) 컬럼 추가 — LAW 문서만 채우고 GUIDELINE/DEFECT_KB 문서는 NULL 허용 |
 
-**반영 내용**: `rag_target_collection_type` enum 신규, `rag_documents.target_collection`/`effective_date` 컬럼 추가. 상세는 §4, §5.5 참조. SQL 반영: `HajaCheck_script_v0.4.sql`(구 `v0.3`은 `archive/`로 이동).
+**반영 내용**: `rag_target_collection_type` enum 신규, `rag_documents.target_collection`/`effective_date` 컬럼 추가. 상세는 §4, §5.5 참조. SQL 반영: `HajaCheck_script.sql`(구 `v0.3`은 `archive/`로 이동). 이 SQL은 신규 DB용 최종 DDL이며 운영 DB 증분 마이그레이션으로 직접 실행하지 않는다.
+
+**기존 DB 마이그레이션 순서**: `target_collection`을 nullable·기본값 없이 추가한 뒤, 현재 Chroma의 `regulations`/`defect_kb` 컬렉션에 실제 저장된 `doc_id`를 기준으로 각 행을 명시적으로 백필한다. `source_type`만으로 컬렉션을 추론하거나 전체 행을 `REGULATIONS`로 일괄 백필하지 않는다. 미분류(NULL) 또는 양쪽 컬렉션에 중복된 문서가 없는지 확인한 후에만 NOT NULL 제약을 적용하며, 검증 실패 시 마이그레이션을 중단한다.
 
 ---
 
@@ -589,7 +591,7 @@ users ──┬──< user_consents
 | id | bigint (identity) | N | - | **PK** | 문서 식별자 |
 | title | varchar(300) | N | - | | 문서 제목 |
 | source_type | rag_doc_source_type | N | - | | 문서 출처 유형(`LAW`/`GUIDELINE`) |
-| target_collection | rag_target_collection_type | N | `REGULATIONS` | | 이 문서의 청크가 임베딩되는 Chroma 컬렉션(`REGULATIONS`/`DEFECT_KB`) |
+| target_collection | rag_target_collection_type | N | - | | 이 문서의 청크가 임베딩되는 Chroma 컬렉션(`REGULATIONS`/`DEFECT_KB`, 등록 시 명시 필수) |
 | effective_date | date | Y | - | | 문서 시행일(법규 개정 추적용, LAW 문서만 채움) |
 | publisher | varchar(200) | Y | - | | 발행 기관/부처명(법규·지침 문서 출처 표시용, regulations 대상 — 해당 없는 문서는 NULL) |
 | authored_at | date | Y | - | | 문서 작성일(주로 하자 지식 문서 대상 — `effective_date`와 별개 개념) |
@@ -603,6 +605,7 @@ users ──┬──< user_consents
 - 이 테이블은 문서 메타데이터만 갖는다. 실제 청크 본문·임베딩 벡터는 Chroma(FastAPI 임베디드, 로컬 파일)에 저장되며 PostgreSQL에는 존재하지 않는다(§2.4.1).
 - §2.7 근거: `source_type`(출처 유형: 법령/지침)과 `target_collection`(저장 위치: regulations/defect_kb Chroma 컬렉션)은 서로 다른 축이다. 기존에는 컬렉션 구분 컬럼이 없어 `defect_kb` 문서가 `rag_documents`의 어디에 속하는지 판단할 근거가 없었다(HAJA-113 코멘트 2026-07-13) — 이를 해결하기 위해 `target_collection` 컬럼을 신설했다. `effective_date`도 같은 이유로 함께 추가 — 기존 스키마에는 법규 시행일을 추적할 SoT 컬럼이 없었다.
 - §2.8 근거: `publisher`(HAJA-143), `authored_at`·`verification_status`(HAJA-144)는 각 Jira 하위 업무가 원래 요구했지만 Chroma 필드 설계 확정 과정에서 누락됐던 필드다. 셋 다 nullable로 두고 대상 컬렉션(target_collection)에 따라 조건부로 채운다 — `effective_date`와 동일한 패턴.
+- `target_collection`은 문서 생성 시 확정하는 불변값이다. 임베딩 또는 citation이 생성된 뒤에는 변경하지 않으며, 문서를 다른 컬렉션으로 재분류할 때는 새 `rag_documents` 행을 생성해 새 문서 ID로 재임베딩한다.
 
 #### `chat_message_citations` — RAG 답변의 근거 문서·청크 인용
 
@@ -612,12 +615,17 @@ users ──┬──< user_consents
 | message_id | bigint | N | - | **FK→chat_messages**, ON DELETE CASCADE, UQ(복합) | 인용을 포함한 메시지 |
 | document_id | bigint | N | - | **FK→rag_documents**, UQ(복합) | 인용된 RAG 문서 |
 | chunk_ref | varchar(100) | N | - | UQ(복합) | Chroma에 저장된 청크(벡터)의 식별자 — Postgres 외부 저장소 참조라 FK 불가 |
-| snippet | text | Y | - | | 인용된 청크 원문 발췌(표시용 캐시, Chroma 재조회 없이 UI에 노출) |
+| locator | text | N | - | | 화면 표시용 출처 라벨(예: `제12조`, `제12조 ①`, `12페이지`) |
+| snippet | text | N | - | | 인용된 청크 원문 발췌(표시용 캐시, Chroma 재조회 없이 UI에 노출) |
 | created_at | timestamptz | N | now() | | 생성 시각 |
 
 - **UQ**: `(message_id, document_id, chunk_ref)` — 동일 청크 중복 인용 방지.
 - 인덱스: `idx_chat_message_citations_message (message_id)`, `idx_chat_message_citations_document (document_id)`
 - `document_id`는 PostgreSQL 내 `rag_documents`를 정상적으로 FK 참조하지만, `chunk_ref`는 Chroma가 관리하는 값이라 데이터베이스 레벨 참조 무결성을 보장할 수 없다(애플리케이션에서 Chroma 조회 결과와 정합성을 맞춰야 한다).
+- `locator`는 채팅 이력 표시용 짧은 라벨이고, `snippet`은 실제 검색된 청크 원문 발췌다. 둘을 분리해 UI 표시와 원문 캐시의 의미가 섞이지 않도록 한다.
+- API의 `SourceCitation.doc_id`는 양의 정수 문자열만 허용하며 저장 경계에서 `int(doc_id)`로 변환해 `document_id`에 저장한다.
+- API의 `SourceCitation.collection`(`regulations`/`defect_kb`)은 이 테이블에 중복 저장하지 않고, 이력 복원 시 불변인 `rag_documents.target_collection`(`REGULATIONS`/`DEFECT_KB`)을 조인해 변환한다.
+- 기존 citation 행의 `locator`/`snippet`이 NULL이면 `chunk_ref`로 실제 Chroma 청크를 조회해 두 값을 복원한 뒤 NOT NULL 제약을 적용한다. 복원 불가능한 행이 하나라도 있으면 제약 적용을 중단한다.
 - 메시지 하나가 여러 문서·청크를 인용하는 1:N 구조를 표현하며, `chat_messages`가 삭제되면 인용 레코드도 함께 삭제된다(ON DELETE CASCADE).
 - ✅ **삭제 정책 확정(KPI 근거 보존)**: 이 테이블은 §7 KPI "출처 표기율 100%" 검증의 유일한 근거이므로, `chat_messages`는 **물리 삭제 대신 soft delete**를 원칙으로 해 메시지·인용 레코드를 보존한다(CASCADE는 실제로는 발생하지 않도록 운영). 만약 보존기간 만료 등으로 메시지 물리 삭제를 도입할 경우, 삭제 전 인용 준수 지표(답변 건수 대비 인용 존재율)를 **별도 집계·스냅샷으로 보존**해 사후 재검증 가능성을 유지한다.
 

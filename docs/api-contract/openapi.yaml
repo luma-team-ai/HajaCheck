@@ -111,6 +111,38 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AIResponse" }
 
+  /ai/rag-chat:
+    post:
+      summary: RAG 챗봇 질의 (FR-6, 고객지원)
+      description: >
+        (계획/미구현, 내부 전용) Spring Boot가 인증 사용자 소유이면서 session_type=RAG인
+        세션인지 검증한 뒤 호출한다. 존재하지 않거나 타인 소유인 세션은 Spring Boot가
+        동일하게 404로 처리하며 FastAPI를 호출하지 않는다. 프론트엔드는 이 엔드포인트를
+        직접 호출하지 않는다. 성공 시 AIResponse.data는 RagAnswerData(answer, sources[])
+        형태이며, sources[]는 문서명·컬렉션·표시 라벨·원문 발췌·Chroma 청크 참조를 포함한다.
+      x-internal: true
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question, session_id]
+              properties:
+                question: { type: string, example: "균열 보수 기준은 무엇인가요?" }
+                session_id:
+                  type: integer
+                  format: int64
+                  description: Spring Boot가 소유권과 RAG 세션 유형을 검증한 서버 관리 식별자
+                  example: 42
+      responses:
+        "200":
+          description: 성공/실패 모두 200 — success 필드로 구분
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIResponse" }
+
   /api/auth/companies:
     post:
       summary: 기업 회원가입 (multipart/form-data)
@@ -440,6 +472,28 @@ components:
         data: {}
         usage: { $ref: "#/components/schemas/AIUsage" }
         error: { $ref: "#/components/schemas/AIError" }
+
+    SourceCitation:
+      type: object
+      description: RAG 답변이 인용한 문서 1건. Chroma metadata `source`는 API 경계에서 `title`로 매핑한다.
+      required: [doc_id, title, collection, locator, snippet, chunk_ref]
+      properties:
+        doc_id: { type: string, pattern: "^[1-9][0-9]*$", example: "42" }
+        title: { type: string, example: "시설물의 안전 및 유지관리에 관한 특별법" }
+        collection: { type: string, enum: [regulations, defect_kb], example: regulations }
+        locator: { type: string, example: "제12조" }
+        snippet: { type: string, example: "관리주체는 시설물의 안전점검을 정기적으로 실시하여야 한다." }
+        chunk_ref: { type: string, example: "42_3" }
+
+    RagAnswerData:
+      type: object
+      description: AIResponse.data 의 실제 형태(성공 시) — /ai/rag-chat
+      required: [answer, sources]
+      properties:
+        answer: { type: string, example: "균열 보수는 손상 정도와 구조 안전성 평가 결과에 따라 보수 공법을 선택합니다." }
+        sources:
+          type: array
+          items: { $ref: "#/components/schemas/SourceCitation" }
 
     DefectExplainRequest:
       type: object

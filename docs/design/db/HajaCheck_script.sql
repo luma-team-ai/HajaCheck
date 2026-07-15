@@ -1,3 +1,6 @@
+-- 신규 DB를 현재 최종 스키마로 생성하기 위한 설계 기준 DDL이다.
+-- 운영 DB 증분 마이그레이션에는 직접 실행하지 말고 별도 버전 마이그레이션을 사용한다.
+
 create type role_type as enum ('ADMIN', 'INSPECTOR', 'USER', 'COUNSELOR');
 
 alter type role_type owner to postgres;
@@ -896,7 +899,7 @@ create table rag_documents
         primary key,
     title              varchar(300)                                                           not null,
     source_type        rag_doc_source_type                                                    not null,
-    target_collection  rag_target_collection_type default 'REGULATIONS'::rag_target_collection_type not null,
+    target_collection  rag_target_collection_type                                            not null,
     effective_date     date,
     publisher          varchar(200),
     authored_at        date,
@@ -949,7 +952,8 @@ create table chat_message_citations
     document_id bigint                                 not null
         references rag_documents,
     chunk_ref   varchar(100)                           not null,
-    snippet     text,
+    locator     text                                   not null,
+    snippet     text                                   not null,
     created_at  timestamp with time zone default now() not null,
     unique (message_id, document_id, chunk_ref)
 );

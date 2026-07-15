@@ -89,6 +89,48 @@
 
 ---
 
+## POST /ai/rag-chat — ⏳ 미구현(설계만, 예: `docs/design/ai/rag_chroma_schema.md` 참조) — 계획 엔드포인트
+
+점검 기준·법규 질의 전담 RAG 챗봇(FR-6). 성공 시 `AIResponse.data`는 `RagAnswerData` 형태이며, `sources[]`는 표시 라벨(`locator`)과 원문 발췌(`snippet`)를 분리한다.
+
+> **내부 호출 계약**: PRD §6의 Spring Boot → FastAPI 구조를 따른다. 프론트엔드는 이 엔드포인트를 직접 호출하지 않는다. Spring Boot는 `session_id`가 인증 사용자 소유이고 `session_type='RAG'`인지 확인한 뒤에만 FastAPI를 호출한다. 세션이 존재하지 않거나 타인 소유이면 정보 노출을 막기 위해 모두 `404`로 처리하고 FastAPI 호출은 생략한다. 따라서 아래 `session_id`는 클라이언트가 임의 지정한 값이 아니라 Spring Boot가 검증한 서버 관리 식별자다.
+
+**요청**:
+```json
+{
+  "question": "균열 보수 기준은 무엇인가요?",
+  "session_id": 42
+}
+```
+
+**응답 성공**:
+```json
+{
+  "success": true,
+  "data": {
+    "answer": "균열 보수는 손상 정도와 구조 안전성 평가 결과에 따라 보수 공법을 선택합니다.",
+    "sources": [
+      {
+        "doc_id": "42",
+        "title": "시설물의 안전 및 유지관리에 관한 특별법",
+        "collection": "regulations",
+        "locator": "제12조",
+        "snippet": "관리주체는 시설물의 안전점검을 정기적으로 실시하여야 한다.",
+        "chunk_ref": "42_3"
+      }
+    ]
+  },
+  "usage": { "tokens": 320 },
+  "error": null
+}
+```
+
+**응답 실패**: `RAG_NO_RESULT`(검색 결과 0건) 또는 공통 LLM 오류 코드.
+
+`sources[].doc_id`는 PostgreSQL `rag_documents.id`를 문자열화한 양의 정수 문자열(`^[1-9][0-9]*$`)이다. Spring Boot가 `chat_message_citations.document_id`에 저장할 때 패턴 검증을 통과한 값을 `int(doc_id)`로 변환한다.
+
+---
+
 ## POST /ai/report — ⏳ 미구현(설계만, 예: `docs/design/ai/report-chain-design.md` 참조) — 계획 엔드포인트
 
 AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Grounding Check (FR-5, 로그인/보고서 담당). **아래는 계획 스펙** — `ai-server/routers/ai_router.py`에 아직 라우트가 없다(실제 코드는 `ai/chains/report_chain.py`에 작성 예정, 설계는 완료).

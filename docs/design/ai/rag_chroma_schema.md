@@ -13,10 +13,10 @@ FR-6 RAG 챗봇이 `regulations`(법규·지침)/`defect_kb`(하자 지식) 두 
 
 | `rag_documents` 컬럼 | Chroma 복제 | 비고 |
 |---|---|---|
-| `id` | → `doc_id`(문자열화) | 접두사 없는 단순 정수(`"42"`) |
+| `id` | → `doc_id`(문자열화) | 접두사 없는 양의 정수 문자열(`"42"`, `^[1-9][0-9]*$`) |
 | `title` | → `source` | citation 표시용 문서명 |
 | `source_type`(`LAW`/`GUIDELINE`) | → `doc_type` | 법률/지침 구분 라벨. **컬렉션 라우팅과는 무관** |
-| `target_collection`(`REGULATIONS`/`DEFECT_KB`, 신규) | 라우팅 근거(메타데이터 필드로 복제 안 함) | 임베딩 파이프라인이 이 값으로 `regulations`/`defect_kb` 컬렉션을 결정 — `source_type`과 분리된 축이라 `defect_kb` 문서도 `source_type=GUIDELINE`을 유지하면서 라우팅 가능 |
+| `target_collection`(`REGULATIONS`/`DEFECT_KB`, 신규) | 라우팅 근거(메타데이터 필드로 복제 안 함) | 등록 시 반드시 명시하며 임베딩 후에는 변경하지 않는 불변값. 임베딩 파이프라인이 이 값으로 `regulations`/`defect_kb` 컬렉션을 결정 — `source_type`과 분리된 축이라 `defect_kb` 문서도 `source_type=GUIDELINE`을 유지하면서 라우팅 가능 |
 | `effective_date`(date, nullable, 신규) | → `effective_date`(ISO 문자열) | LAW만 채움, 그 외 NULL → 값 없으면 Chroma 키 자체 생략 |
 | `publisher`(varchar, nullable, §2.8 신규) | → `publisher`(문자열) | regulations 대상 — 발행 기관/부처명. 값 없으면 키 생략 |
 | `authored_at`(date, nullable, §2.8 신규) | → `authored_at`(ISO 문자열) | defect_kb 대상 — 문서 작성일(`effective_date`와 별개). 값 없으면 키 생략 |
@@ -24,7 +24,7 @@ FR-6 RAG 챗봇이 `regulations`(법규·지침)/`defect_kb`(하자 지식) 두 
 | `file_url` / `embedding_status` / `chunk_count` / `created_at` | ❌ | 검색·citation에 불필요(관리 목적) |
 | `embedded_at` | → `embedded_at` | 임베딩 처리 시각 |
 
-> `target_collection`/`effective_date`는 `table_design_v0.4.md` §2.7 마이그레이션으로, `publisher`/`authored_at`/`verification_status`는 §2.8 마이그레이션(HAJA-143/144 필드 누락 보완)으로 `rag_documents`에 추가된 컬럼이다(`rag_target_collection_type`/`rag_doc_verification_status_type` enum 신규).
+> `target_collection`/`effective_date`는 `table_design.md` §2.7 마이그레이션으로, `publisher`/`authored_at`/`verification_status`는 §2.8 마이그레이션(HAJA-143/144 필드 누락 보완)으로 `rag_documents`에 추가된 컬럼이다(`rag_target_collection_type`/`rag_doc_verification_status_type` enum 신규). 기존 행의 `target_collection`은 현재 Chroma 컬렉션의 실제 `doc_id` 소속으로 명시적 백필하며 `source_type`으로 추론하지 않는다.
 
 `article`/`clause`/`page`/`chunk_index`/`chunk_hash`/`defect_category`/`severity_ref`는 Postgres에 대응 컬럼이 없다 — 청킹·분류 단계에서 청크 단위로 새로 채워진다.
 
@@ -74,8 +74,8 @@ FR-6 RAG 챗봇이 `regulations`(법규·지침)/`defect_kb`(하자 지식) 두 
 
 ```python
 class SourceCitation(BaseModel):
-    doc_id: str
-    title: str
+    doc_id: str       # 양의 정수 문자열(^[1-9][0-9]*$)
+    title: str       # Chroma metadata `source`를 API 경계에서 `title`로 매핑
     collection: Literal["regulations", "defect_kb"]
     locator: str      # "제12조" / "제12조 ①" / "12페이지" — 렌더링 완료된 표시 문구
     chunk_ref: str     # Chroma document id ({doc_id}_{chunk_index}), chat_message_citations.chunk_ref에 그대로 저장
@@ -87,7 +87,7 @@ class RagAnswerData(BaseModel):
 
 `AIResponse.ok(data=RagAnswerData(...))` 형태로 공통 envelope에 담는다. 검색 결과 0건은 기존 `AIErrorCode.RAG_NO_RESULT`를 그대로 사용한다(신규 에러 코드 불필요).
 
-`chat_message_citations`(Postgres: `message_id`, `document_id`, `chunk_ref`, `snippet`)와 필드를 맞췄다 — `SourceCitation.doc_id`→`document_id`(FK 조회), `chunk_ref`→`chunk_ref`(그대로), `locator`→`snippet`에 렌더링 결과를 그대로 저장.
+`chat_message_citations`(Postgres: `message_id`, `document_id`, `chunk_ref`, `locator`, `snippet`)와 필드를 맞췄다 — `SourceCitation.doc_id`는 양의 정수 문자열 검증 후 `int(doc_id)`로 변환해 `document_id`에 저장하고, `chunk_ref`→`chunk_ref`(그대로), `locator`→`locator`, `snippet`→`snippet`에 저장한다. `collection`은 중복 저장하지 않고 이력 복원 시 불변인 `rag_documents.target_collection`을 조인해 `REGULATIONS`→`regulations`, `DEFECT_KB`→`defect_kb`로 변환한다. 문서를 다른 컬렉션으로 재분류할 때는 기존 행을 수정하지 않고 새 `rag_documents` 행을 생성해 재임베딩한다.
 
 ## 7. 인용(citation) 렌더링 정책
 

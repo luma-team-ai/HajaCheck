@@ -6,7 +6,7 @@
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AIErrorCode(str, Enum):
@@ -48,7 +48,7 @@ class SourceCitation(BaseModel):
     시점에 1회 조립해 채운다 — 화면 표시 때마다 Chroma를 재조회하지 않는다.
     """
 
-    doc_id: str
+    doc_id: str = Field(pattern=r"^[1-9][0-9]*$")
     title: str
     collection: Literal["regulations", "defect_kb"]
     locator: str
