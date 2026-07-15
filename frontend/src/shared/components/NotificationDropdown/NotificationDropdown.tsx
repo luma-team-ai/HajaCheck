@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+
 export interface NotificationFilter {
   key: string;
   label: string;
@@ -22,12 +24,12 @@ interface NotificationDropdownProps {
   onFilterChange?: (key: string) => void;
   onMarkAllRead?: () => void;
   onViewAll?: () => void;
+  /** 바깥 클릭·ESC 시 호출 — 열림 상태 자체는 여전히 상위 컴포넌트가 소유(조건부 렌더링) */
+  onClose?: () => void;
 }
 
 // Figma node-id 208-2458 "Notification Dropdown" 기준 — 알림 유형별 아이콘 일러스트는
 // 별도 아이콘 시스템이 필요해 이번 범위에서는 생략, unread dot으로만 상태 표시
-// 열림/닫힘 상태와 바깥 클릭·ESC 닫기는 이 컴포넌트가 스스로 갖지 않음 — Header 등
-// 상위 컴포넌트가 조건부 렌더링 + 클릭 아웃사이드 핸들러로 제어하는 설계(의도적)
 export function NotificationDropdown({
   notifications,
   unreadCount,
@@ -36,7 +38,37 @@ export function NotificationDropdown({
   onFilterChange,
   onMarkAllRead,
   onViewAll,
+  onClose,
 }: NotificationDropdownProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!onCloseRef.current) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        onCloseRef.current?.();
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onCloseRef.current?.();
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   const visibleNotifications =
     !activeFilter || activeFilter === 'all'
       ? notifications
@@ -44,6 +76,7 @@ export function NotificationDropdown({
 
   return (
     <div
+      ref={rootRef}
       className="flex max-h-160 w-95 flex-col overflow-hidden rounded-2xl border border-border bg-white/90 shadow-2xl backdrop-blur-[10px]"
       role="menu"
       aria-label="알림"

@@ -29,6 +29,33 @@ describe('FloatingPopup', () => {
     expect(handleClose).toHaveBeenCalledTimes(1);
   });
 
+  it('바깥 영역을 클릭하면 onClose가 호출된다', () => {
+    const handleClose = vi.fn();
+    render(<FloatingPopup onClose={handleClose} links={[]} />);
+
+    fireEvent.mouseDown(document.body);
+
+    expect(handleClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('팝업 내부를 클릭하면 onClose가 호출되지 않는다', () => {
+    const handleClose = vi.fn();
+    render(<FloatingPopup onClose={handleClose} links={[{ label: '링크', onClick: vi.fn() }]} />);
+
+    fireEvent.mouseDown(screen.getByText('링크'));
+
+    expect(handleClose).not.toHaveBeenCalled();
+  });
+
+  it('ESC 키를 누르면 onClose가 호출된다', () => {
+    const handleClose = vi.fn();
+    render(<FloatingPopup onClose={handleClose} links={[]} />);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(handleClose).toHaveBeenCalledTimes(1);
+  });
+
   it('waitingLabel과 상담원 연결 버튼을 표시한다', () => {
     const handleConnect = vi.fn();
     render(

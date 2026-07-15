@@ -63,6 +63,39 @@ describe('NotificationDropdown', () => {
     expect(handleMarkAllRead).toHaveBeenCalledTimes(1);
   });
 
+  it('onClose 제공 시 바깥 영역 클릭이나 ESC 키로 닫을 수 있다', () => {
+    const handleClose = vi.fn();
+    render(
+      <NotificationDropdown notifications={notifications} unreadCount={1} onClose={handleClose} />,
+    );
+
+    fireEvent.mouseDown(document.body);
+    expect(handleClose).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(handleClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('onClose 제공 시 드롭다운 내부 클릭으로는 닫히지 않는다', () => {
+    const handleClose = vi.fn();
+    render(
+      <NotificationDropdown notifications={notifications} unreadCount={1} onClose={handleClose} />,
+    );
+
+    fireEvent.mouseDown(screen.getByText('AI 분석 완료'));
+
+    expect(handleClose).not.toHaveBeenCalled();
+  });
+
+  it('onClose 미제공 시 바깥 클릭·ESC를 눌러도 에러 없이 무시된다', () => {
+    render(<NotificationDropdown notifications={notifications} unreadCount={1} />);
+
+    expect(() => {
+      fireEvent.mouseDown(document.body);
+      fireEvent.keyDown(document, { key: 'Escape' });
+    }).not.toThrow();
+  });
+
   it('필터 선택 시 onFilterChange가 호출되고 해당 카테고리만 표시된다', () => {
     const handleFilterChange = vi.fn();
     const { rerender } = render(

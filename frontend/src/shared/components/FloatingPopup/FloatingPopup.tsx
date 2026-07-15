@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import titleIcon from '../../../assets/brand/popup-title-icon.svg';
 import closeIcon from '../../../assets/brand/popup-close-icon.svg';
 import arrowIcon from '../../../assets/brand/popup-arrow-icon.svg';
@@ -21,8 +22,6 @@ interface FloatingPopupProps {
 // 208-2459) 클릭 시 그 위에 뜨는 빠른 링크 패널(챗봇 진입점). 두 컴포넌트가 Jira에서 같은
 // 서브태스크(HAJA-138)로 묶여있어, 별도 래퍼 없이도 항상 FAB 바로 위(우하단)에 고정
 // 배치되도록 fixedPosition 기본값을 true로 둠
-// Modal과 달리 바깥 클릭·ESC 닫기를 자체적으로 갖지 않음 — BottomNavBarFab을 소유한
-// 상위 컴포넌트가 열림 상태와 바깥 클릭 처리를 함께 담당하는 설계(의도적)
 export function FloatingPopup({
   title = 'HajaCheck 도우미',
   onClose,
@@ -31,8 +30,34 @@ export function FloatingPopup({
   waitingLabel,
   fixedPosition = true,
 }: FloatingPopupProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        onCloseRef.current();
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onCloseRef.current();
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   return (
     <div
+      ref={rootRef}
       className={`flex w-90 flex-col gap-4 rounded-[20px] border border-border bg-white/90 p-[21px] shadow-[0px_20px_25px_-5px_rgba(0,0,0,0.1),0px_8px_10px_-6px_rgba(0,0,0,0.1)] backdrop-blur-[10px]${
         fixedPosition ? ' floating-popup--fixed fixed right-8 bottom-[100px] z-[950]' : ''
       }`}
