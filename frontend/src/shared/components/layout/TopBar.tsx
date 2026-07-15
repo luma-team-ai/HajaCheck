@@ -13,8 +13,9 @@ export function TopBar({ currentLabel = '대시보드' }: Props) {
   const { logout } = useLogout();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const firstMenuItemRef = useRef<HTMLButtonElement>(null);
 
-  // 아바타 메뉴 바깥 클릭 시 닫기 — NotificationDropdown과 동일한 패턴(document mousedown)
+  // 아바타 메뉴 바깥 클릭·ESC 시 닫기 — NotificationDropdown과 동일한 패턴(document mousedown/keydown)
   useEffect(() => {
     if (!isMenuOpen) return undefined;
 
@@ -24,8 +25,25 @@ export function TopBar({ currentLabel = '대시보드' }: Props) {
       }
     }
 
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsMenuOpen(false);
+      }
+    }
+
     document.addEventListener('mousedown', handlePointerDown);
-    return () => document.removeEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMenuOpen]);
+
+  // 메뉴가 열리면 첫 menuitem(로그아웃)으로 포커스 이동 — 키보드 접근성(P3-1)
+  useEffect(() => {
+    if (isMenuOpen) {
+      firstMenuItemRef.current?.focus();
+    }
   }, [isMenuOpen]);
 
   const handleAvatarClick = () => {
@@ -96,6 +114,7 @@ export function TopBar({ currentLabel = '대시보드' }: Props) {
                 type="button"
                 role="menuitem"
                 className="topbar-profile-logout"
+                ref={firstMenuItemRef}
                 onClick={handleLogoutClick}
               >
                 로그아웃

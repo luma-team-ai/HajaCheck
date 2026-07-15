@@ -95,4 +95,25 @@ describe('TopBar', () => {
 
     expect(screen.queryByRole('menu')).toBeNull();
   });
+
+  it('메뉴가 열린 상태에서 Escape 키를 누르면 메뉴가 닫힌다', () => {
+    useAuthStore.setState({ user: mockUser });
+    renderTopBar();
+
+    fireEvent.click(screen.getByLabelText('하자체크 담당자 프로필 메뉴'));
+    expect(screen.getByRole('menu')).not.toBeNull();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('메뉴가 열리면 첫 menuitem(로그아웃)으로 포커스가 이동한다', () => {
+    useAuthStore.setState({ user: mockUser });
+    renderTopBar();
+
+    fireEvent.click(screen.getByLabelText('하자체크 담당자 프로필 메뉴'));
+
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: '로그아웃' }));
+  });
 });
