@@ -175,12 +175,13 @@ FR·API·플로우 동기화는 이번 범위에서 **제외**하고, ERD(DB 설
 
 ### 2.7 `rag_documents` 컬렉션 라우팅·시행일 컬럼 추가 (Chroma 메타데이터 설계 대조, HAJA-113)
 
-**배경**: `Chroma_컬렉션_메타데이터_설계.md`(HAJA-113/143/144/145) 작업 중 이 ERD와 대조한 결과, `rag_documents`가 `regulations`/`defect_kb` 두 Chroma 컬렉션을 모두 커버해야 하는데 구분 컬럼이 `source_type`(`LAW`/`GUIDELINE` 2종)뿐이라 어떤 문서가 어느 컬렉션에 임베딩되는지 판단할 근거가 없었다(HAJA-113 코멘트, 2026-07-13). 또한 regulations 컬렉션의 필수 필드인 `effective_date`(시행일)도 Postgres에 SoT 컬럼이 없었다.
+**배경**: `docs/design/ai/rag_chroma_schema.md`(HAJA-113/143/144/145) 작업 중 이 ERD와 대조한 결과, `rag_documents`가 `regulations`/`defect_kb` 두 Chroma 컬렉션을 모두 커버해야 하는데 구분 컬럼이 `source_type`(`LAW`/`GUIDELINE` 2종)뿐이라 어떤 문서가 어느 컬렉션에 임베딩되는지 판단할 근거가 없었다(HAJA-113 코멘트, 2026-07-13). 또한 regulations 컬렉션의 필수 필드인 `effective_date`(시행일)도 Postgres에 SoT 컬럼이 없었다.
 
 | 결정 항목 | 확정 내용 |
 |---|---|
 | 컬렉션 구분 | `target_collection`(신규 enum `rag_target_collection_type`: `REGULATIONS`/`DEFECT_KB`) 컬럼 추가 — `source_type`(출처 유형: 법령/지침)과는 별개 축으로 분리. NOT NULL, 기본값 없음(등록 시 명시 필수) |
 | 법규 시행일 | `effective_date`(date, nullable) 컬럼 추가 — LAW 문서만 채우고 GUIDELINE/DEFECT_KB 문서는 NULL 허용 |
+| 법규 버전 식별 | 별도 자유 형식 `version` 컬럼은 두지 않음 — 개정본마다 새 `rag_documents` 행을 생성하고 `effective_date`로 시행 시점을 식별해 과거 문서·citation을 보존 |
 
 **반영 내용**: `rag_target_collection_type` enum 신규, `rag_documents.target_collection`/`effective_date` 컬럼 추가. 상세는 §4, §5.5 참조. SQL 반영: `HajaCheck_script.sql`(구 `v0.3`은 `archive/`로 이동). 이 SQL은 신규 DB용 최종 DDL이며 운영 DB 증분 마이그레이션으로 직접 실행하지 않는다.
 
@@ -190,15 +191,15 @@ FR·API·플로우 동기화는 이번 범위에서 **제외**하고, ERD(DB 설
 
 ### 2.8 `rag_documents` 발행처·작성일·검증여부 컬럼 추가 (HAJA-143/144 필드 누락 보완)
 
-**배경**: HAJA-143(regulations 컬렉션 필드 설계)·HAJA-144(defect_kb 컬렉션 필드 설계) 원 요구사항을 `Chroma_컬렉션_메타데이터_설계.md` 확정본과 재대조한 결과, 요구됐던 필드 3개가 설계에서 누락된 채로 "확정" 처리되어 있었다: HAJA-143의 **발행처**, HAJA-144의 **작성일**·**신뢰도/검증여부**. §2.7과 동일하게 Postgres SoT 컬럼 부재가 원인이라 이번에 함께 보완한다.
+**배경**: HAJA-143(regulations 컬렉션 필드 설계)·HAJA-144(defect_kb 컬렉션 필드 설계) 원 요구사항을 `docs/design/ai/rag_chroma_schema.md` 확정본과 재대조한 결과, 요구됐던 필드 3개가 설계에서 누락된 채로 "확정" 처리되어 있었다: HAJA-143의 **발행처**, HAJA-144의 **작성일**·**신뢰도/검증여부**. §2.7과 동일하게 Postgres SoT 컬럼 부재가 원인이라 이번에 함께 보완한다.
 
 | 결정 항목 | 확정 내용 |
 |---|---|
 | 발행처(HAJA-143) | `publisher`(varchar(200), nullable) 컬럼 추가 — 법규·지침 문서의 발행 기관/부처명. regulations 대상, defect_kb 등 해당 없는 문서는 NULL |
 | 작성일(HAJA-144) | `authored_at`(date, nullable) 컬럼 추가 — 문서(주로 하자 지식 문서) 작성 시점. `effective_date`(법규 시행일)와는 별개 개념이라 컬럼을 분리했다 |
-| 신뢰도/검증여부(HAJA-144) | `verification_status`(신규 enum `rag_doc_verification_status_type`: `UNVERIFIED`/`VERIFIED`, nullable) 컬럼 추가 — 하자 지식 문서가 전문가 검토를 통과했는지 여부. regulations는 공식 법규 출처라 별도 검증 프로세스가 없으므로 NULL 허용 |
+| 신뢰도/검증여부(HAJA-144) | `verification_status`(신규 enum `rag_doc_verification_status_type`: `UNVERIFIED`/`VERIFIED`, nullable) 컬럼 추가 — 객관적 산정식이 없는 숫자형 신뢰도 점수는 만들지 않고, 하자 지식 문서가 전문가 검토를 통과했는지를 신뢰 상태의 SoT로 사용. regulations는 공식 법규 출처라 별도 검증 프로세스가 없으므로 NULL 허용 |
 
-**반영 내용**: `rag_doc_verification_status_type` enum 신규, `rag_documents.publisher`/`authored_at`/`verification_status` 컬럼 추가. 상세는 §4, §5.5 참조. SQL 반영: `HajaCheck_script.sql`. Chroma 필드 정의서(`Chroma_컬렉션_메타데이터_설계.md`, `docs/design/ai/rag_chroma_schema.md`)도 함께 갱신했다.
+**반영 내용**: `rag_doc_verification_status_type` enum 신규, `rag_documents.publisher`/`authored_at`/`verification_status` 컬럼 추가. 상세는 §4, §5.5 참조. SQL 반영: `HajaCheck_script.sql`. Chroma 필드 정의서(`docs/design/ai/rag_chroma_schema.md`)도 함께 갱신했다.
 
 ---
 
@@ -702,7 +703,7 @@ users ──┬──< user_consents
 2. **상담 큐와 대화의 분리**: `counsel_tickets`는 배정/대기열/상태 같은 운영 정보만 갖고, 실제 대화는 `session_id`로 `chat_sessions`를 참조해 재사용. 상담 티켓 생성 시점엔 대화가 아직 없을 수 있어 `session_id`는 nullable로 설계.
 3. **시나리오 이력 추적**: `chat_messages.scenario_id`로 시나리오 봇 세션에서 사용자가 어떤 버튼(노드)을 선택했는지 남길 수 있도록 `bot_scenarios`와 연결. `bot_scenarios`는 `parent_id` 자기 참조로 계층형 트리를 표현.
 4. **RAG 벡터스토어는 PostgreSQL 밖(Chroma)에 유지**: PRD가 이미 Chroma(FastAPI 임베디드, 로컬 파일 저장)와 HuggingFace 한국어 임베딩 모델(ko-sbert/BGE-m3)을 확정하고 있음을 재확인했다. SQL 초안 중간 단계에서 `pgvector`+`rag_chunks`를 PostgreSQL에 추가했던 시도는 이 아키텍처와 어긋나 **되돌렸다**(§2.4.1). PostgreSQL은 문서 메타데이터(`rag_documents`)만 갖고, 실제 임베딩·유사도 검색은 전부 Chroma가 담당한다.
-5. **근거 인용 구조화**: 초기에는 `chat_messages.citation`을 자유 텍스트로 설계했다. 이후 `rag_chunks`(pgvector)를 참조하는 조인 테이블로 바꿨다가, 4번 결정에 따라 `rag_documents`(FK, PostgreSQL 내부) + `chunk_ref`(Chroma 청크 식별자, 문자열) + `snippet`(표시용 발췌 캐시)을 함께 저장하는 `chat_message_citations`로 최종 정리했다. `citation` 컬럼은 제거.
+5. **근거 인용 구조화**: 초기에는 `chat_messages.citation`을 자유 텍스트로 설계했다. 이후 `rag_chunks`(pgvector)를 참조하는 조인 테이블로 바꿨다가, 4번 결정에 따라 `rag_documents`(FK, PostgreSQL 내부) + `chunk_ref`(Chroma 청크 식별자, 문자열) + `locator`(화면 표시용 출처 라벨) + `snippet`(청크 원문 발췌 캐시)을 함께 저장하는 `chat_message_citations`로 최종 정리했다. `citation` 컬럼은 제거.
 
 이 결과 RAG 문답은 `chat_sessions(RAG) → chat_messages → chat_message_citations → rag_documents`(+ Chroma의 `chunk_ref`), 시나리오 봇은 `chat_sessions(SCENARIO_BOT) → chat_messages → bot_scenarios`, 상담은 `counsel_tickets → chat_sessions(COUNSEL) → chat_messages` 흐름으로 각각 표현되며, 세 채널 모두 동일한 `chat_sessions`/`chat_messages` 공용 테이블을 기반으로 동작한다.
 
