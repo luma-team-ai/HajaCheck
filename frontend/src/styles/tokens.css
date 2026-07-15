@@ -17,6 +17,7 @@
   --color-surface-muted: #fafafa; /* Figma 헤더/페이지 사이즈 셀렉트 배경 */
   --color-text-default: #494551; /* Figma 본문/내비 텍스트 */
   --color-text-muted: #7a7582; /* Figma 보조 텍스트("미읽음 5", 타임스탬프 등) */
+  --color-heading: #1d1b20; /* Figma 강조 텍스트(SideNavBar 사용자명, TopNavigation 로고) — 2026-07-15 Tailwind 전환 시 중복 하드코딩 정리하며 토큰 승격 */
   --color-neutral-100: #e4e4e7; /* Figma 공통 보더 컬러 */
   --color-border: #e4e4e7; /* Figma 공통 보더 컬러 (Pagination, 카드 등) */
 

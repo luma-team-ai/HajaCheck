@@ -143,7 +143,7 @@ const DEFAULT_ADMIN_ITEM: SideNavItem = {
 };
 
 const LINK_BASE =
-  'flex w-full items-center rounded-full border-none bg-none text-base font-medium text-text-default no-underline cursor-pointer hover:bg-surface-muted hover:text-[#18181b]';
+  'flex w-full items-center rounded-full border-none bg-none text-base font-medium text-text-default no-underline cursor-pointer hover:bg-surface-muted hover:text-primary';
 
 const LOGOUT_BASE =
   'inline-flex w-fit items-center gap-3 border-none bg-none text-sm font-medium text-[#3f3f46] cursor-pointer';
@@ -187,7 +187,7 @@ export function SideNavBar({
   }
 
   function getLinkClassName(isActive: boolean, isGroup = false) {
-    const active = isActive ? ' bg-surface text-[#18181b] ring-1 ring-border' : '';
+    const active = isActive ? ' bg-surface text-primary ring-1 ring-border' : '';
     const layout = collapsed ? 'justify-center p-2' : `${isGroup ? 'justify-between ' : ''}px-4 py-2`;
     return `${LINK_BASE} ${layout}${active}`;
   }
@@ -204,7 +204,7 @@ export function SideNavBar({
         }`}
       >
         <div
-          className={`flex items-center gap-1.5 text-sm font-semibold text-[#18181b] ${collapsed ? 'justify-center' : ''}`}
+          className={`flex items-center gap-1.5 text-sm font-semibold text-primary ${collapsed ? 'justify-center' : ''}`}
         >
           <img className="h-4 w-4 object-contain" src={brandMark} alt="" />
           {!collapsed && (
@@ -260,9 +260,9 @@ export function SideNavBar({
                     <Link
                       key={sub.href}
                       to={sub.href}
-                      className={`rounded-full px-4 py-[6px] text-[13px] no-underline hover:text-[#18181b] ${
+                      className={`rounded-full px-4 py-[6px] text-[13px] no-underline hover:text-primary ${
                         sub.href === activeHref
-                          ? 'bg-surface text-[#18181b] ring-1 ring-border'
+                          ? 'bg-surface text-primary ring-1 ring-border'
                           : 'text-[#71717a]'
                       }`}
                       aria-current={sub.href === activeHref ? 'page' : undefined}
@@ -307,7 +307,7 @@ export function SideNavBar({
             )}
             {!collapsed && (
               <span className="flex flex-col">
-                <span className="text-sm text-[#1d1b20]">{user.name}</span>
+                <span className="text-sm text-heading">{user.name}</span>
                 {user.plan && (
                   <span className="text-[11px] tracking-[0.05em] text-text-default">
                     {user.plan}

@@ -38,7 +38,7 @@ export function FloatingPopup({
       aria-label={title}
     >
       <div className="flex items-center justify-between">
-        <h3 className="m-0 flex items-center gap-2 text-xl font-semibold text-[#18181b]">
+        <h3 className="m-0 flex items-center gap-2 text-xl font-semibold text-primary">
           <img className="h-5 w-5" src={titleIcon} alt="" />
           {title}
         </h3>
@@ -57,7 +57,7 @@ export function FloatingPopup({
           <button
             key={link.label}
             type="button"
-            className="cursor-pointer rounded-full border border-border bg-surface px-[17px] py-[11px] text-left text-sm font-medium text-[#18181b]"
+            className="cursor-pointer rounded-full border border-border bg-surface px-[17px] py-[11px] text-left text-sm font-medium text-primary"
             onClick={link.onClick}
           >
             {link.label}
@@ -77,7 +77,7 @@ export function FloatingPopup({
             </button>
           )}
           {waitingLabel && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-muted px-[9px] py-[5px] text-xs text-[#494551]">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-muted px-[9px] py-[5px] text-xs text-text-default">
               <span className="h-1.5 w-1.5 rounded-full bg-[#3b82f6]" aria-hidden="true" />
               {waitingLabel}
             </span>

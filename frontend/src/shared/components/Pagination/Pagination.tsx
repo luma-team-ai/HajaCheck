@@ -40,7 +40,7 @@ function getPageEntries(currentPage: number, totalPages: number, siblingCount = 
 }
 
 const PAGE_BASE =
-  'inline-flex h-8 w-8 items-center justify-center rounded-full border-none bg-transparent text-sm font-medium text-[#1c1b1c] cursor-pointer transition-colors duration-150';
+  'inline-flex h-8 w-8 items-center justify-center rounded-full border-none bg-transparent text-sm font-medium text-primary cursor-pointer transition-colors duration-150';
 
 export function Pagination({ currentPage, totalPages, onPageChange }: PaginationProps) {
   const pageEntries = getPageEntries(currentPage, totalPages);

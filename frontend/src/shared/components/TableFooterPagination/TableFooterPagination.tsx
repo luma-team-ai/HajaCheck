@@ -34,7 +34,7 @@ export function TableFooterPagination({
       <div className="flex items-center gap-2 text-xs text-text-muted">
         <span>페이지당</span>
         <select
-          className="cursor-pointer rounded-2xl border border-border bg-surface-muted px-[9px] py-[5px] text-xs text-[#1c1b1c]"
+          className="cursor-pointer rounded-2xl border border-border bg-surface-muted px-[9px] py-[5px] text-xs text-primary"
           value={pageSize}
           onChange={handlePageSizeChange}
           aria-label="페이지당 항목 수"

@@ -29,7 +29,7 @@ export function TopNavigation({
   return (
     <div className="flex max-w-7xl items-center justify-between gap-6 rounded-full border border-white/20 bg-white/50 px-[33px] py-[13px] shadow-[0px_3px_4px_0px_rgba(0,0,0,0.2)] backdrop-blur-[10px]">
       <Link
-        className="inline-flex items-center gap-[5px] text-[22px] font-extrabold whitespace-nowrap text-[#1d1b20] no-underline"
+        className="inline-flex items-center gap-[5px] text-[22px] font-extrabold whitespace-nowrap text-heading no-underline"
         to={logoHref}
       >
         <img className="h-[25px] w-[25px] object-contain" src={brandMark} alt="" />
@@ -40,7 +40,7 @@ export function TopNavigation({
         {navItems.map((item) => (
           <Link
             key={item.href}
-            className="text-base font-medium whitespace-nowrap text-[#494551] no-underline"
+            className="text-base font-medium whitespace-nowrap text-text-default no-underline"
             to={item.href}
           >
             {item.label}
