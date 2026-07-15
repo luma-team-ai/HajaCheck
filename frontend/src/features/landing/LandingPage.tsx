@@ -11,6 +11,10 @@ function scrollToBottom() {
   window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 }
 
+function scrollToSection(targetId: string) {
+  document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth' });
+}
+
 export default function LandingPage() {
   const [isAtTop, setIsAtTop] = useState(true);
   const [isAtBottom, setIsAtBottom] = useState(false);
@@ -33,10 +37,9 @@ export default function LandingPage() {
       <header className="landing-header">
         <span className="landing-logo">HajaCheck</span>
         <nav className="landing-nav">
-          {/* 각 팀원의 라우트가 준비되기 전까지는 동작 없는 placeholder */}
           {NAV_ITEMS.map((item) => (
-            <button key={item} type="button">
-              {item}
+            <button key={item.label} type="button" onClick={() => scrollToSection(item.targetId)}>
+              {item.label}
             </button>
           ))}
         </nav>
@@ -73,7 +76,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="landing-partners">
+      <section id="partners" className="landing-partners">
         <p className="landing-partners-label">신뢰할 수 있는 파트너</p>
         <div className="landing-partners-row">
           {PARTNERS.map((partner) => (
@@ -84,7 +87,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="landing-section">
+      <section id="facility-info" className="landing-section">
         <p className="landing-eyebrow">FACILITY INFORMATION MANAGEMENT</p>
         <h2>
           모든 시설물 데이터를 한 곳에서
@@ -98,7 +101,7 @@ export default function LandingPage() {
         <div className="landing-visual" />
       </section>
 
-      <section className="landing-section">
+      <section id="inspection" className="landing-section">
         <p className="landing-eyebrow">INSPECTION MANAGEMENT</p>
         <h2>체계적인 점검 일정과 이력 관리</h2>
         <p>
@@ -108,7 +111,7 @@ export default function LandingPage() {
         <div className="landing-visual landing-visual--dark" />
       </section>
 
-      <section className="landing-section">
+      <section id="ai-analysis" className="landing-section">
         <p className="landing-eyebrow">AI DEFECT ANALYSIS</p>
         <h2>
           인공지능이 찾아내는

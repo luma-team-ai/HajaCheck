@@ -33,7 +33,20 @@ export const PRICING_TIERS: PricingTier[] = [
   },
 ];
 
-export const NAV_ITEMS = ['대시보드', '점검 관리', '시설물 정보', 'AI 분석', '고객센터'];
+export interface NavItem {
+  label: string;
+  targetId: string;
+}
+
+// 각 항목은 랜딩페이지 내 실제 섹션(id)과 1:1 대응 — 매칭되는 섹션이 없던 '대시보드'·'고객센터'는
+// '파트너사'(#partners)·'요금제'(#pricing)로 대체
+export const NAV_ITEMS: NavItem[] = [
+  { label: '파트너사', targetId: 'partners' },
+  { label: '시설물 정보', targetId: 'facility-info' },
+  { label: '점검 관리', targetId: 'inspection' },
+  { label: 'AI 분석', targetId: 'ai-analysis' },
+  { label: '요금제', targetId: 'pricing' },
+];
 
 export const PARTNERS = ['HUG', '한국공인중개사협회', '국토교통부', '한국시설안전관리원'];
 
