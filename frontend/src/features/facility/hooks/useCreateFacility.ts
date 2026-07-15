@@ -19,5 +19,7 @@ export function useCreateFacility() {
     createFacility: mutation.mutateAsync,
     isPending: mutation.isPending,
     error: mutation.error,
+    // 모달을 닫을 때 이전 실패의 에러 메시지가 다음 오픈 때 재노출되지 않도록 호출부에서 초기화용으로 사용
+    resetError: mutation.reset,
   };
 }
