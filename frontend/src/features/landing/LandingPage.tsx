@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { FOOTER_LINKS, NAV_ITEMS, PARTNERS, PRICING_TIERS } from './constants';
 import heroVisualImage from '../../assets/brand/landing-hero-ai-scan.svg';
 import './landing.css';
@@ -11,6 +12,22 @@ function scrollToBottom() {
 }
 
 export default function LandingPage() {
+  const [isAtTop, setIsAtTop] = useState(true);
+  const [isAtBottom, setIsAtBottom] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsAtTop(window.scrollY === 0);
+      setIsAtBottom(
+        window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 10,
+      );
+    };
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   return (
     <div className="landing">
       <header className="landing-header">
@@ -149,15 +166,20 @@ export default function LandingPage() {
           시설물 관리를 경험하세요.
         </h2>
         <p>복잡한 설치 없이 브라우저에서 바로 시작할 수 있습니다.</p>
-        <div className="landing-banner-controls">
+      </section>
+
+      <div className="landing-floating-controls">
+        {!isAtTop && (
           <button type="button" onClick={scrollToTop} aria-label="맨 위로">
             ↑
           </button>
+        )}
+        {!isAtBottom && (
           <button type="button" onClick={scrollToBottom} aria-label="맨 아래로">
             ↓
           </button>
-        </div>
-      </section>
+        )}
+      </div>
 
       <footer className="landing-footer">
         <div className="landing-footer-top">
