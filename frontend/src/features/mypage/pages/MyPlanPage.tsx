@@ -1,4 +1,3 @@
-import { DashboardLayout } from '../../../shared/components/layout/DashboardLayout';
 import '../../../shared/styles/layout.css';
 import { BillingHistoryPlaceholder } from '../components/BillingHistoryPlaceholder';
 import { PlanCard } from '../components/PlanCard';
@@ -14,7 +13,7 @@ export function MyPlanPage() {
   const errorCode = error?.code;
 
   return (
-    <DashboardLayout currentLabel="마이페이지">
+    <div className="dashboard-content">
       <div className="dashboard-page-header">
         <h1 className="dashboard-page-title">내 플랜</h1>
       </div>
@@ -41,6 +40,6 @@ export function MyPlanPage() {
 
       <SeatsSection />
       <BillingHistoryPlaceholder />
-    </DashboardLayout>
+    </div>
   );
 }

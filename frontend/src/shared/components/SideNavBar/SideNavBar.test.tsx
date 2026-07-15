@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SideNavBar } from './SideNavBar';
 
@@ -125,5 +125,73 @@ describe('SideNavBar', () => {
 
     expect(screen.queryByText('대시보드')).toBeNull();
     expect(screen.getByLabelText('사이드바 펼치기')).not.toBeNull();
+  });
+
+  describe('isRouteImplemented — 미구현 라우트 내비게이션 차단(HAJA-186, #217 후속)', () => {
+    function LocationProbe() {
+      const location = useLocation();
+      return <div data-testid="location-probe">{location.pathname}</div>;
+    }
+
+    function renderFromDashboard(isRouteImplemented: (href: string) => boolean) {
+      return render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" isRouteImplemented={isRouteImplemented} />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+    }
+
+    it('구현된 라우트(href)를 클릭하면 정상적으로 이동한다', () => {
+      renderFromDashboard((href) => href === '/mypage/plan');
+
+      fireEvent.click(screen.getByText('마이페이지'));
+      fireEvent.click(screen.getByText('내 플랜'));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/mypage/plan');
+    });
+
+    it('미구현 라우트(href)를 클릭하면 이동하지 않고 안내 메시지가 표시된다', () => {
+      renderFromDashboard((href) => href === '/mypage/plan');
+
+      fireEvent.click(screen.getByText('마이페이지'));
+      fireEvent.click(screen.getByText('내 정보'));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/dashboard');
+      expect(screen.getByRole('status').textContent).toBe('아직 구현되지 않은 페이지입니다');
+    });
+
+    it('안내 메시지는 일정 시간 뒤 자동으로 사라진다', () => {
+      vi.useFakeTimers();
+      try {
+        renderFromDashboard(() => false);
+
+        fireEvent.click(screen.getByText('통계'));
+        expect(screen.getByRole('status')).not.toBeNull();
+
+        act(() => {
+          vi.advanceTimersByTime(3000);
+        });
+
+        expect(screen.queryByRole('status')).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('isRouteImplemented를 지정하지 않으면 기존처럼 모든 링크가 정상 이동한다(하위 호환)', () => {
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('마이페이지'));
+      fireEvent.click(screen.getByText('내 정보'));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/mypage/profile');
+      expect(screen.queryByRole('status')).toBeNull();
+    });
   });
 });

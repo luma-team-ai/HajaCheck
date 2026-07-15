@@ -1,5 +1,4 @@
 import { useNavigate } from 'react-router-dom';
-import { DashboardLayout } from '../../../shared/components/layout/DashboardLayout';
 import '../../../shared/styles/layout.css';
 import { AiBriefingCard } from '../components/AiBriefingCard';
 import { GradeDistributionCard } from '../components/GradeDistributionCard';
@@ -18,7 +17,7 @@ export function DashboardPage() {
   };
 
   return (
-    <DashboardLayout>
+    <div className="dashboard-content">
       <div className="dashboard-page-header">
         <h1 className="dashboard-page-title">대시보드</h1>
         <button
@@ -43,6 +42,6 @@ export function DashboardPage() {
           <AiBriefingCard />
         </div>
       </div>
-    </DashboardLayout>
+    </div>
   );
 }

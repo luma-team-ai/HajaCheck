@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import brandMark from '../../../assets/brand/brand-mark.png';
 import collapseIcon from '../../../assets/brand/sidenav-collapse.svg';
@@ -43,7 +44,16 @@ interface SideNavBarProps {
   defaultCollapsed?: boolean;
   /** 접기/펼치기 토글마다 호출(레이아웃 쪽에서 margin 조정 등에 사용) */
   onCollapseToggle?: (collapsed: boolean) => void;
+  /**
+   * href가 실제로 이동 가능한 라우트인지 판별. SideNavBar는 라우터 전체 구조를 모르므로
+   * 호출부(AppLayout)가 주입 — 미지정 시 전부 구현된 것으로 간주(기존 동작과 동일).
+   * false를 반환하는 항목을 클릭하면 이동을 막고 안내 메시지를 띄운다.
+   */
+  isRouteImplemented?: (href: string) => boolean;
 }
+
+const NOTICE_AUTO_DISMISS_MS = 2500;
+const NOT_IMPLEMENTED_MESSAGE = '아직 구현되지 않은 페이지입니다';
 
 // Figma node-id 151-967 "대시보드SideNavBar"(일반) / 163-663 "관리자 SideNavBar"(관리자) 기준
 const DEFAULT_ITEMS: SideNavItem[] = [
@@ -52,7 +62,7 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     href: '/dashboard',
     icon: dashboardIcon,
     subItems: [
-      { label: '전체 시설물 현황', href: '/dashboard/facilities-overview' },
+      { label: '전체 시설물 현황', href: '/dashboard' },
       { label: '다음 점검일 도래', href: '/dashboard/upcoming-inspections' },
       { label: 'AI 주간 브리핑 카드', href: '/dashboard/ai-weekly-briefing' },
     ],
@@ -111,14 +121,14 @@ const DEFAULT_ITEMS: SideNavItem[] = [
   },
   {
     label: '마이페이지',
-    href: '/my-page',
+    href: '/mypage',
     icon: mypageIcon,
     subItems: [
-      { label: '내 정보', href: '/my-page/profile' },
-      { label: '내 점검 이력', href: '/my-page/inspections' },
-      { label: '내 보고서', href: '/my-page/reports' },
-      { label: '내 플랜', href: '/my-page/plan' },
-      { label: '내 상담 내역', href: '/my-page/counsels' },
+      { label: '내 정보', href: '/mypage/profile' },
+      { label: '내 점검 이력', href: '/mypage/inspections' },
+      { label: '내 보고서', href: '/mypage/reports' },
+      { label: '내 플랜', href: '/mypage/plan' },
+      { label: '내 상담 내역', href: '/mypage/counsels' },
     ],
   },
   // TODO: "통계" 전용 아이콘이 Figma에서 아직 안 나와서 보고서(reportsIcon)를 임시로 재사용 중 —
@@ -157,6 +167,7 @@ export function SideNavBar({
   onLogout,
   defaultCollapsed = false,
   onCollapseToggle,
+  isRouteImplemented = () => true,
 }: SideNavBarProps) {
   // isAdmin=true일 때 spread로 매 렌더 새 배열이 생기면 activeHref 동기화 effect가 매 렌더 재실행되어
   // 수동으로 펼친 다른 그룹이 즉시 스냅백되는 버그가 있었음(PR#154 리뷰 P1) — useMemo로 참조 안정화
@@ -168,6 +179,9 @@ export function SideNavBar({
     allItems.find((item) => item.subItems?.some((sub) => sub.href === activeHref))?.label,
   );
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  // 미구현 라우트 클릭 시 안내 메시지 — 몇 초 후 자동으로 사라짐(HAJA-186, #217 후속)
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   // activeHref가 마운트 이후 바뀌어도(사이드바 클릭이 아닌 다른 경로로 하위 라우트 진입 시) 해당 그룹이 펼쳐지도록 동기화
   useEffect(() => {
@@ -179,8 +193,25 @@ export function SideNavBar({
     }
   }, [activeHref, allItems]);
 
+  // 언마운트 시 대기 중인 자동 dismiss 타이머 정리
+  useEffect(() => {
+    return () => {
+      clearTimeout(noticeTimerRef.current);
+    };
+  }, []);
+
   function toggleExpand(label: string) {
     setExpandedLabel((current) => (current === label ? undefined : label));
+  }
+
+  function handleNavClick(event: MouseEvent<HTMLAnchorElement>, href: string) {
+    if (isRouteImplemented(href)) {
+      return;
+    }
+    event.preventDefault();
+    clearTimeout(noticeTimerRef.current);
+    setNotice(NOT_IMPLEMENTED_MESSAGE);
+    noticeTimerRef.current = setTimeout(() => setNotice(null), NOTICE_AUTO_DISMISS_MS);
   }
 
   function handleCollapseToggle() {
@@ -205,7 +236,7 @@ export function SideNavBar({
     >
       <div
         className={`flex border-b border-border pb-4 mb-1 ${
-          collapsed ? 'flex-col h-auto justify-center gap-3' : 'items-center justify-between gap-2 h-16'
+          collapsed ? 'flex-col items-center h-auto justify-center gap-3' : 'items-center justify-between gap-2 h-16'
         }`}
       >
         <div
@@ -265,6 +296,7 @@ export function SideNavBar({
                     <Link
                       key={sub.href}
                       to={sub.href}
+                      onClick={(event) => handleNavClick(event, sub.href)}
                       className={`rounded-full px-4 py-[6px] text-[13px] no-underline hover:text-primary ${
                         sub.href === activeHref
                           ? 'bg-surface text-primary ring-1 ring-border'
@@ -282,6 +314,7 @@ export function SideNavBar({
             <Link
               key={item.href}
               to={item.href}
+              onClick={(event) => handleNavClick(event, item.href)}
               className={getLinkClassName(item.href === activeHref)}
               aria-current={item.href === activeHref ? 'page' : undefined}
               title={collapsed ? item.label : undefined}
@@ -294,6 +327,18 @@ export function SideNavBar({
           ),
         )}
       </nav>
+
+      {notice && (
+        <div className="pointer-events-none fixed inset-0 z-[1000] flex items-center justify-center">
+          <div
+            role="status"
+            aria-live="polite"
+            className="rounded-[20px] border border-border bg-white/90 px-6 py-4 text-sm font-medium text-text-default shadow-[0px_20px_25px_-5px_rgba(0,0,0,0.1),0px_8px_10px_-6px_rgba(0,0,0,0.1)] backdrop-blur-[10px]"
+          >
+            {notice}
+          </div>
+        </div>
+      )}
 
       {user && (
         <div className="border-t border-[#cbc4d2]/30 px-4 pt-[17px] pb-2.5">
