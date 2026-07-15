@@ -47,6 +47,10 @@ const DefectDetailPage = lazy(() =>
 // 마이페이지 — 내 플랜 (HAJA-185, #212)
 const MyPlanPage = lazy(() =>
   import('../features/mypage/pages/MyPlanPage').then((m) => ({ default: m.MyPlanPage })),
+const FacilityListPage = lazy(() =>
+  import('../features/facility/pages/FacilityListPage').then((m) => ({
+    default: m.FacilityListPage,
+  })),
 );
 
 export const router = createBrowserRouter([
@@ -126,6 +130,14 @@ export const router = createBrowserRouter([
     ),
   }, // — features/mypage (HAJA-185, #212)
   // { path: '/facilities', ... }               — features/facility
+    // TODO: 인증 가드(ProtectedRoute) 도입 시 시설물 목록(업무 데이터) 노출 라우트이므로 적용 필요 — 현재는 라우터 스켈레톤 단계라 미적용
+    path: '/facilities',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <FacilityListPage />
+      </Suspense>
+    ),
+  }, // — features/facility (dev-04-01, FR-003)
   {
     // TODO: 인증 가드(ProtectedRoute) 도입 시 시설물 위치 노출 라우트이므로 적용 필요 — 현재는 라우터 스켈레톤 단계라 미적용
     path: '/map',
