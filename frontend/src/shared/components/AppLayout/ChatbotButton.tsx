@@ -1,3 +1,5 @@
+// 로그인 후 앱 셸 우하단 고정 챗봇 진입 버튼(FAB). 스타일은 shared/styles/layout.css의 .chatbot-fab.
+// (구 DashboardLayout에서 이관 — 앱 레이아웃 공통 요소라 AppLayout 하위로 이동, HAJA-186)
 export function ChatbotButton() {
   return (
     <button type="button" className="chatbot-fab" aria-label="챗봇 열기">
