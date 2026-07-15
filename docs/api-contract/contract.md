@@ -49,11 +49,49 @@
 
 **`VALIDATION_ERROR`** = 비-LLM 코드 경로(입력·대조 검증) 실패용 코드. `POST /ai/grounding-check`(환각 방어 게이트)처럼 LLM 호출이 없는 순수 코드 대조 엔드포인트가 예외 폴백 시 사용한다(#122, PR #120). 프론트/백엔드 소비처는 이 코드를 `error.code` 분기에 포함해야 한다 — LLM 계열 코드와 달리 재시도가 아니라 입력 재검토가 필요하다.
 
+> ✅ **해결됨 (2026-07-09, PR #88)**: HF Serverless Inference는 langchain 표준 `with_structured_output()`이 강제하는 `tool_choice="any"`를 지원하지 않아 `400 INVALID_TOOL_CHOICE`가 발생하는 구조적 제약이었다(`langchain-ai/langchain#29569`, upstream "not planned" — 버전 업그레이드로는 해결 안 됨). `get_llm().with_structured_output(schema)`는 내부적으로 `PydanticOutputParser`로 프롬프트에 JSON 스키마를 지시하고 응답을 직접 파싱하는 방식으로 우회 구현됨(`ai-server/ai/core/llm_client.py`의 `_StructuredLLM`). 호출부 시그니처는 동일하게 유지되므로 각 체인 담당자는 그대로 `get_llm().with_structured_output(Schema).invoke(...)`만 쓰면 된다 — 실제 HF 토큰으로 `/ai/defect-explain` e2e 검증 완료.
+
 ---
 
-## POST /ai/report
+## POST /ai/grounding-check
 
-AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Grounding Check (FR-5, 로그인/보고서 담당).
+생성물이 주장하는 하자 수치·등급을 실측 `defects`와 코드로 대조하는 환각 방어 게이트(HAJA-117). **LLM 호출 없음 — 결정론적**. `ai-server/routers/ai_router.py`(약 58~65행) 구현됨.
+
+**요청**:
+```json
+{
+  "defects": [ { "defect_type": "균열", "grade": "B" } ],
+  "claims": {
+    "total_count": 1,
+    "count_by_grade": { "B": 1 },
+    "count_by_type": { "균열": 1 },
+    "mentioned_grades": ["B"]
+  },
+  "on_mismatch": "regenerate"
+}
+```
+
+**응답 성공** `data`: `{ grounded, action, ground_truth, checks, mismatches, unverifiable }` — `action` ∈ `PASS|REGENERATE|WARN`. 상세 스키마는 `docs/api-contract/openapi.yaml`(`GroundingCheckRequest`/`GroundingResult`) 참조.
+
+**응답 실패**: `VALIDATION_ERROR`(위 각주 참조).
+
+---
+
+## POST /ai/briefing
+
+대시보드 AI 주간 브리핑 — 현황 데이터(코드 집계) → 자연어 요약 카드(대시보드 P1). `ai-server/routers/ai_router.py`(약 68~75행) 구현됨. 수치(전주 대비 변화율·추세)는 코드로 계산해 프롬프트에 주입하고, LLM은 자연어만 생성한다(수치 환각 방지).
+
+**요청** (`DashboardStats`): `total_facilities`·`monthly_analysis`·`pending_review`·`pending_action`·`this_week_defects`·`last_week_defects`·`top_defect_type`·`critical_defects`·`grade_distribution`(선택).
+
+**응답 성공** `data`: `{ briefing, recommendation, facts: { this_week_defects, last_week_defects, change_pct, trend, top_defect_type, critical_defects } }`. 상세 스키마는 `openapi.yaml`(`BriefingRequest`/`WeeklyBriefing`) 참조.
+
+**응답 실패** (`AIErrorCode`: `LLM_TIMEOUT` | `LLM_RATE_LIMIT` | `LLM_INVALID_OUTPUT` | `RAG_NO_RESULT`).
+
+---
+
+## POST /ai/report — ⏳ 미구현(설계만, 예: `docs/design/ai/report-chain-design.md` 참조) — 계획 엔드포인트
+
+AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Grounding Check (FR-5, 로그인/보고서 담당). **아래는 계획 스펙** — `ai-server/routers/ai_router.py`에 아직 라우트가 없다(실제 코드는 `ai/chains/report_chain.py`에 작성 예정, 설계는 완료).
 
 **요청**:
 ```json
@@ -124,8 +162,6 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 { "success": false, "data": null, "usage": null, "error": { "code": "LLM_INVALID_OUTPUT", "message": "..." } }
 ```
 
-> ✅ **해결됨 (2026-07-09, PR #88)**: HF Serverless Inference는 langchain 표준 `with_structured_output()`이 강제하는 `tool_choice="any"`를 지원하지 않아 `400 INVALID_TOOL_CHOICE`가 발생하는 구조적 제약이었다(`langchain-ai/langchain#29569`, upstream "not planned" — 버전 업그레이드로는 해결 안 됨). `get_llm().with_structured_output(schema)`는 내부적으로 `PydanticOutputParser`로 프롬프트에 JSON 스키마를 지시하고 응답을 직접 파싱하는 방식으로 우회 구현됨(`ai-server/ai/core/llm_client.py`의 `_StructuredLLM`). 호출부 시그니처는 동일하게 유지되므로 각 체인 담당자는 그대로 `get_llm().with_structured_output(Schema).invoke(...)`만 쓰면 된다 — 실제 HF 토큰으로 `/ai/defect-explain` e2e 검증 완료.
-
 ---
 
 ### 핵심 명세서 (P0 — 워킹 스켈레톤 관통용 최소 경로)
@@ -141,7 +177,7 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 | GET | `/api/inspections/{id}/defects` | 분석 결과(하자 목록) 조회 | 오영석 |
 | PATCH | `/api/defects/{id}` | 검수(오탐 수정·등급 조정) | 오영석 |
 | POST | `/ai/defect-explain` | AI 하자 설명 생성 | 오영석 ✅ 구현됨 |
-| POST | `/ai/report` | AI 보고서 생성 및 Grounding | 김관영 |
+| POST | `/ai/report` | AI 보고서 생성 및 Grounding | 김관영 ⏳ 미구현(설계만) |
 | POST | `/api/reports` | 보고서 생성 요청 (비동기 잡 발족) | 김관영 |
 | GET | `/api/reports/{id}/pdf` | 보고서 PDF 다운로드 | 김관영 |
 

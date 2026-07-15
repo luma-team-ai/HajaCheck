@@ -64,4 +64,4 @@ TBD — 학습 완료 시 클래스별 mAP@0.5 / mAP@0.5:0.95 / precision / reca
 
 ---
 
-> 관련: PRD §FR-3·§6.2 (`docs/prd/PRD_hajaCheck_v0.42.md`) · 실험 추적 `ai-dl/tracking.py`·`ai-dl/README.md`(실험 이름 규칙)
+> 관련: PRD §FR-3·§6.2 (`docs/prd/PRD_hajaCheck.md`) · 실험 추적 `ai-dl/tracking.py`·`ai-dl/README.md`(실험 이름 규칙)
