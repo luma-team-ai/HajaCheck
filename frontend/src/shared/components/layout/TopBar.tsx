@@ -11,6 +11,9 @@ type Props = {
 export function TopBar({ currentLabel = '대시보드' }: Props) {
   const user = useAuthStore((state) => state.user);
   const { logout } = useLogout();
+  // 서로게이트 페어(이모지 등)를 포함한 이름도 안전하게 첫 글자를 뽑기 위해 charAt 대신
+  // Array.from 사용(PR #232 P3) — 이름이 공백뿐이면 undefined → 기존 SVG 폴백 유지
+  const avatarInitial = user ? Array.from(user.name.trim())[0] : undefined;
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const firstMenuItemRef = useRef<HTMLButtonElement>(null);
@@ -93,9 +96,9 @@ export function TopBar({ currentLabel = '대시보드' }: Props) {
           >
             {user?.profileImageUrl ? (
               <img src={user.profileImageUrl} alt="" className="topbar-avatar-img" />
-            ) : user ? (
+            ) : avatarInitial ? (
               <span className="topbar-avatar-initial" aria-hidden="true">
-                {user.name.charAt(0)}
+                {avatarInitial}
               </span>
             ) : (
               <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">

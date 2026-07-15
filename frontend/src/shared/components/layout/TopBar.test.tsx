@@ -116,4 +116,21 @@ describe('TopBar', () => {
 
     expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: '로그아웃' }));
   });
+
+  it('이름이 서로게이트 페어(이모지)로 시작해도 첫 글자가 깨지지 않는다(P3)', () => {
+    useAuthStore.setState({ user: { ...mockUser, name: '😀철수' } });
+    renderTopBar();
+
+    const avatarBtn = screen.getByLabelText('😀철수 프로필 메뉴');
+    expect(avatarBtn.textContent).toBe('😀');
+  });
+
+  it('이름이 공백뿐이면 이니셜 대신 기존 SVG 폴백을 표시한다(P3)', () => {
+    useAuthStore.setState({ user: { ...mockUser, name: '   ' } });
+    renderTopBar();
+
+    const avatarBtn = screen.getByRole('button', { name: /프로필 메뉴/ });
+    expect(avatarBtn.querySelector('svg')).not.toBeNull();
+    expect(avatarBtn.querySelector('.topbar-avatar-initial')).toBeNull();
+  });
 });
