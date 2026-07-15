@@ -2,6 +2,7 @@ package com.hajacheck.membership.service;
 
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.global.exception.BusinessException;
@@ -18,9 +19,9 @@ import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,7 +66,7 @@ public class MembershipService {
 
         UserPlan userPlan = resolveCurrentUserPlan(userId, companyId);
         Plan plan = findPlan(userPlan.getPlanId());
-        List<User> members = userRepository.findByCompanyId(companyId);
+        List<User> members = userRepository.findByCompanyIdAndStatus(companyId, UserStatus.ACTIVE);
         return SeatsResponse.of(members.size(), members, plan.getMaxSeats());
     }
 
@@ -78,7 +79,7 @@ public class MembershipService {
         if (companyId != null) {
             Company company = companyRepository.findById(companyId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_FORBIDDEN));
-            if (!company.getOwnerUserId().equals(userId)) {
+            if (!userId.equals(company.getOwnerUserId())) {
                 throw new BusinessException(ErrorCode.PLAN_FORBIDDEN);
             }
         } else if (!userPlan.isOwnedByUser(userId)) {
@@ -106,15 +107,16 @@ public class MembershipService {
 
     private Plan findPlan(Long planId) {
         return planRepository.findById(planId)
-                .orElseThrow(() -> new IllegalStateException("user_plans.plan_id 가 가리키는 요금제가 없습니다: " + planId));
+                .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
     }
 
     private User findUser(Long userId) {
         return userRepository.findById(userId)
-                .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
     }
 
     private LocalDate currentPeriod() {
-        return YearMonth.now().atDay(1);
+        // 사용량 집계(usage_counters.period) 존과 일치 — 서버 기본 타임존에 의존하지 않고 KST 로 고정.
+        return YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1);
     }
 }
