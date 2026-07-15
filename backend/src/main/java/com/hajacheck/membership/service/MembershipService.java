@@ -66,8 +66,7 @@ public class MembershipService {
         UserPlan userPlan = resolveCurrentUserPlan(userId, companyId);
         Plan plan = findPlan(userPlan.getPlanId());
         List<User> members = userRepository.findByCompanyId(companyId);
-        long used = userRepository.countByCompanyId(companyId);
-        return SeatsResponse.of((int) used, members, plan.getMaxSeats());
+        return SeatsResponse.of(members.size(), members, plan.getMaxSeats());
     }
 
     @Transactional
