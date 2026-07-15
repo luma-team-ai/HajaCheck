@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.exceptions import OutputParserException
 from pydantic import ValidationError
 
 from ai.chains.report_chain import (
@@ -217,6 +218,32 @@ def test_report_endpoint_llm_failure_returns_error_envelope(mock_get_llm):
 
 @patch("ai.chains.report_chain.get_vectorstore")
 @patch("ai.chains.report_chain.get_llm")
+def test_report_endpoint_output_parser_exception_returns_llm_invalid_output_not_validation_error(
+    mock_get_llm, mock_get_vectorstore
+):
+    """P1 회귀 방지: OutputParserException은 ValueError의 서브클래스이므로, 라우터의
+    (ValueError, PydanticValidationError) 절보다 먼저 OutputParserException을 잡아야 한다.
+    이 케이스는 _StructuredLLM.invoke()가 MAX_RETRIES 소진 후 던지는 "진짜 LLM 출력 파싱 실패"
+    (contract.md 기준 LLM_INVALID_OUTPUT)이므로, VALIDATION_ERROR로 오분류되면 안 된다."""
+    mock_get_vectorstore.side_effect = NotImplementedError("stub")
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.return_value.invoke.side_effect = OutputParserException(
+        "malformed/incomplete JSON — LLM 출력 파싱 실패"
+    )
+    mock_get_llm.return_value = mock_llm
+
+    res = client.post(
+        "/ai/report",
+        json={"facility_info": _sample_facility_info(), "confirmed_defects": _sample_defects()},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
+
+
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
 def test_grounding_mismatch_triggers_regenerate_then_recovers(mock_get_llm, mock_get_vectorstore):
     """summary가 처음엔 실측(1건)과 다른 5건을 주장 → REGENERATE 재시도 → 재생성된 값이 일치하면 grounding_ok True."""
     mock_get_vectorstore.side_effect = NotImplementedError("stub")
@@ -268,6 +295,52 @@ def test_grounding_mismatch_persists_sets_grounding_ok_false_but_still_returns_r
 
     assert result["grounding_ok"] is False
     assert result["summary"]["total_count"] == 5  # 보고서는 그대로 반환(생성 자체를 막지 않음)
+
+
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
+def test_regenerate_loop_output_parser_exception_propagates_as_llm_invalid_output(
+    mock_get_llm, mock_get_vectorstore
+):
+    """재생성(regenerate) 루프에서 _run_summary_chain 재호출이 OutputParserException을 던지는 경우도
+    같은 원인(라우터의 except 순서)으로 오분류될 수 있었다 — run_report_chain은 이 예외를 삼키지 않고
+    그대로 위로 전파해야 하며, 라우터 픽스가 이 경로에도 적용되는지 e2e로 확인한다."""
+    mock_get_vectorstore.side_effect = NotImplementedError("stub")
+    wrong_summary = _sample_summary(total_count=5)
+    wrong_summary.count_by_grade = {"A": 0, "B": 5, "C": 0, "D": 0, "E": 0}
+
+    outputs = {
+        ReportOverview: _sample_overview(),
+        ReportDetail: _sample_detail(),
+        ReportRecommendation: _sample_recommendation(),
+    }
+    summary_calls = {"n": 0}
+
+    def _with_structured_output(schema):
+        structured = MagicMock()
+        if schema is ReportSummary:
+            def _invoke(*_a, **_kw):
+                summary_calls["n"] += 1
+                if summary_calls["n"] == 1:
+                    return wrong_summary  # 최초 생성 — grounding 불일치로 REGENERATE 트리거
+                raise OutputParserException("재생성 시도에서도 malformed JSON")
+            structured.invoke.side_effect = _invoke
+        else:
+            structured.invoke.side_effect = lambda *_a, **_kw: outputs[schema]
+        return structured
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.side_effect = _with_structured_output
+    mock_get_llm.return_value = mock_llm
+
+    res = client.post(
+        "/ai/report",
+        json={"facility_info": _sample_facility_info(), "confirmed_defects": _sample_defects()},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
 
 
 @patch("ai.chains.report_chain.get_vectorstore")
