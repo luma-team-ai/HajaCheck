@@ -1,13 +1,19 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { useLogout } from '../../../features/auth/hooks/useLogout';
 import { NAV_ITEMS } from '../../constants/navItems';
 import { NavIcon } from './NavIcon';
 
 export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const { logout } = useLogout();
 
   const handleToggleCollapse = () => {
     setIsCollapsed((prev) => !prev);
+  };
+
+  const handleLogoutClick = () => {
+    void logout();
   };
 
   return (
@@ -79,7 +85,12 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <button type="button" className="sidebar-logout-btn" aria-disabled="true">
+      <button
+        type="button"
+        className="sidebar-logout-btn"
+        onClick={handleLogoutClick}
+        title={isCollapsed ? '로그아웃' : undefined}
+      >
         <NavIcon name="logout" />
         {!isCollapsed && <span className="sidebar-nav-text">로그아웃</span>}
       </button>
