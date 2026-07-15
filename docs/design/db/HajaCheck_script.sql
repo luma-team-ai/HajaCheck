@@ -288,7 +288,8 @@ create table company_memberships
     constraint ck_company_memberships_revoked_at
         check (status <> 'REVOKED'::company_membership_status_type or revoked_at is not null),
     constraint ck_company_memberships_expiry
-        check (expires_at is null or expires_at > created_at)
+        check (expires_at is null or
+               (expires_at > created_at and (approved_at is null or expires_at > approved_at)))
 );
 
 comment on table company_memberships is '기업 초대·승인·회수·만료 이력과 현재 소속 판정의 기준을 관리한다.';

@@ -342,7 +342,7 @@ users ──┬──< user_consents
 
 - **UQ**: `(company_id, user_id)` — 같은 회사에 동일 사용자의 멤버십 이력을 중복 생성하지 않고 상태 전이로 관리한다.
 - **부분 UQ** `uq_company_memberships_approved_user`: 사용자 한 명이 동시에 두 회사에서 `APPROVED`일 수 없게 한다. 만료 시에는 상태를 `EXPIRED`로 전이한 뒤 다른 회사 승인을 처리한다.
-- **CK**: `APPROVED`이면 `approved_at IS NOT NULL`, `REVOKED`이면 `revoked_at IS NOT NULL`, `expires_at`이 있으면 `created_at`보다 뒤여야 한다.
+- **CK**: `APPROVED`이면 `approved_at IS NOT NULL`, `REVOKED`이면 `revoked_at IS NOT NULL`이어야 한다. `expires_at`이 있으면 `created_at`보다 뒤여야 하고, 이미 승인 시각이 정해졌다면 `approved_at`보다도 반드시 뒤여야 한다(`ck_company_memberships_expiry`) — 승인과 동시에 이미 만료된 멤버십은 DB 레벨에서 거부한다.
 - **유효 멤버십 판정**: `status=APPROVED AND approved_at IS NOT NULL AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())`. 여기에 `users.status=ACTIVE`, `users.company_id=company_id`, 회사 `status=APPROVED`, `verification_status=VERIFIED`를 함께 검사한다.
 - `users.company_id`는 조회 편의를 위한 현재 소속 포인터이며 멤버십 SoT가 아니다. 승인 시 같은 트랜잭션에서 세팅하고 반려·회수·만료 시 일치하는 값을 제거한다. 회사 플랜 상속은 이 포인터만으로 허용하지 않는다.
 - **기존 데이터 전환**: 신규 테이블 배포 시 `companies.owner_user_id`는 회사별 오너 멤버십을 만드는 신뢰 가능한 근거로 사용한다. 비오너의 기존 `users.company_id`는 초대 승인 근거를 별도 감사자료와 대조해 확인된 건만 `APPROVED`로 백필하고, 근거가 없는 건은 `PENDING`으로 격리해 관리자 재승인 전에는 플랜을 상속하지 않는다. 자연어 검색의 회사 플랜 게이트는 이 백필·검증이 끝난 뒤 활성화한다.

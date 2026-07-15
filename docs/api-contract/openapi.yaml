@@ -475,7 +475,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "403":
-          description: 역할 또는 데이터 접근 범위 위반
+          description: >
+            인증됐지만 이 엔드포인트를 사용할 역할이 아님. 허용된 역할이지만 소유·배정 범위에
+            결과가 없거나 필터/논리 삭제 조건 적용 후 0건이면 403이 아니라 200 빈 페이지를 반환한다.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }

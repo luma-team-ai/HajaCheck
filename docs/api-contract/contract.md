@@ -240,7 +240,7 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 | FR-9 | GET | `/api/notifications` (P1) | 알림 센터 | 미배정 |
 | 공통 | GET | `/actuator/health`, `/health` | 헬스체크 | 인프라 |
 
-> 하자 관리 메뉴(`/api/defects` 목록·검색, 공개 `/api/defects/nl-search` → 내부 `/ai/nl-search`)는 유병현/정재봉 담당(§7 표), 위 FR-4 검수 경로와 데이터는 공유하되 엔드포인트는 별도. 자연어 검색 공개 경로는 Spring Boot가 인증·점검자 권한·`has_ai_addon`을 검사한 뒤에만 내부 FastAPI로 전달한다. 회사 플랜은 `company_memberships`의 승인·미회수·미만료 소속을 회사 승인·진위확인과 함께 검증한다. `GET /api/defects`는 클라이언트 필터와 별개로 `facilities.owner_id` 또는 `inspections.assigned_inspector_id`를 기준으로 범위를 강제하고, 관리자는 전체 범위를 조회하되 모든 역할에서 `is_deleted=false`만 페이지 응답한다. 상세 필드·페이지 규약은 OpenAPI SOT를 따른다.
+> 하자 관리 메뉴(`/api/defects` 목록·검색, 공개 `/api/defects/nl-search` → 내부 `/ai/nl-search`)는 유병현/정재봉 담당(§7 표), 위 FR-4 검수 경로와 데이터는 공유하되 엔드포인트는 별도. 자연어 검색 공개 경로는 Spring Boot가 인증·점검자 권한·`has_ai_addon`을 검사한 뒤에만 내부 FastAPI로 전달한다. 회사 플랜은 `company_memberships`의 승인·미회수·미만료 소속을 회사 승인·진위확인과 함께 검증한다. `GET /api/defects`는 클라이언트 필터와 별개로 `facilities.owner_id` 또는 `inspections.assigned_inspector_id`를 기준으로 범위를 강제하고, 관리자는 전체 범위를 조회하되 모든 역할에서 `is_deleted=false`만 페이지 응답한다. 허용 역할의 조회 가능 결과가 0건이면 `200` 빈 페이지이며, `403`은 엔드포인트 허용 역할이 아닌 경우에만 사용한다. 상세 필드·페이지 규약은 OpenAPI SOT를 따른다.
 
 ## 다음 추가 예정 (각 담당자)
 
