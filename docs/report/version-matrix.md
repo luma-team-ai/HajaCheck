@@ -1,5 +1,7 @@
 # 버전 정합 — 착수보고서 정정 기준 (Docker 실측)
 
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+
 > 작성 2026-07-13. **출처 = 레포 실측**: `backend/build.gradle`, `ai-server/Dockerfile`·`requirements.txt`, `frontend/package.json`·`Dockerfile`, `docker-compose.yml`.
 > 착수보고서 PDF의 `3.1.1 기술 스택`·`3.1.2 개발 환경` 버전을 **현재 Docker/빌드 핀 값**으로 정정하기 위한 기준표.
 > 미설치 항목(YOLO·실험추적·Tailwind 등)은 온보딩(7/15) 전 미도입 상태이므로 "미설치(예정)"로 표기.

@@ -1,5 +1,7 @@
 # hajaCheck 테이블 디자인 설계
 
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+
 - 대상 스키마 파일: `hajaCheck_script.sql` (프로젝트 SQL 제네레이터 초안 — 레포 미포함 로컬 산출물)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
 - 기준 문서: `report/hajaCheck착수 보고.pdf` 53~60p (테이블 정의서 1/8~8/8), [PRD_hajaCheck_v0.41.md](../../prd/archive/PRD_hajaCheck_v0.41.md)
