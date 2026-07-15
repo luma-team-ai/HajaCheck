@@ -9,7 +9,9 @@
 """
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from ai.chains.report_chain import (
     DefectDetailItem,
@@ -117,6 +119,14 @@ def test_build_prompt_detail_includes_defect_count_and_list():
 def test_build_prompt_recommendation_uses_no_result_notice_when_context_empty():
     prompt = _build_prompt_recommendation(_sample_defects(), "")
     assert "검색 결과 없음" in prompt
+
+
+def test_report_summary_requires_count_by_grade_and_key_findings():
+    """P2 픽스: count_by_grade/key_findings는 기본값이 없어야 한다 — LLM이 필드를 누락하면
+    structured output 파싱 단계(PydanticOutputParser)에서 조용히 빈 dict/list로 통과하지 않고
+    ValidationError로 실패해 기존 재시도 경로를 타야 한다(grounding이 빈 dict를 0건으로 오판 방지)."""
+    with pytest.raises(ValidationError):
+        ReportSummary(overall_opinion="양호", total_count=1)
 
 
 # ── run_report_chain / /ai/report e2e (LLM + vectorstore 모킹) ──
@@ -262,8 +272,12 @@ def test_grounding_mismatch_persists_sets_grounding_ok_false_but_still_returns_r
 
 @patch("ai.chains.report_chain.get_vectorstore")
 @patch("ai.chains.report_chain.get_llm")
-def test_detail_item_count_mismatch_raises(mock_get_llm, mock_get_vectorstore):
-    """detail.items 개수가 confirmed_defects와 다르면 report_chain에서 직접 검증해 실패 처리(design §5-4)."""
+def test_detail_item_count_mismatch_returns_validation_error(mock_get_llm, mock_get_vectorstore):
+    """detail.items 개수가 confirmed_defects와 다르면 report_chain에서 직접 검증해 실패 처리(design §5-4).
+
+    P3 픽스: 이 실패는 LLM 호출·파싱 실패가 아니라 report_chain 자체의 비-LLM 검증(ValueError)이므로
+    /ai/grounding-check와 동일하게 VALIDATION_ERROR로 분리되어야 한다(LLM_INVALID_OUTPUT과 뭉뚱그리지 않음).
+    """
     mock_get_vectorstore.side_effect = NotImplementedError("stub")
     _patch_all_sections(mock_get_llm, detail=_sample_detail(n=2))  # 입력은 1건인데 출력은 2건
 
@@ -274,7 +288,28 @@ def test_detail_item_count_mismatch_raises(mock_get_llm, mock_get_vectorstore):
     assert res.status_code == 200
     body = res.json()
     assert body["success"] is False
-    assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
+def test_invalid_severity_grade_returns_validation_error(mock_get_llm, mock_get_vectorstore):
+    """confirmed_defects의 severity_grade가 A~E 밖이면 GroundingDefect validator가 실패한다(P3 픽스).
+
+    이 역시 LLM과 무관한 입력 데이터 무결성 오류이므로 LLM_INVALID_OUTPUT이 아니라 VALIDATION_ERROR여야 한다.
+    """
+    mock_get_vectorstore.side_effect = NotImplementedError("stub")
+    _patch_all_sections(mock_get_llm)
+    bad_defects = [{**_sample_defects()[0], "severity_grade": "Z"}]
+
+    res = client.post(
+        "/ai/report",
+        json={"facility_info": _sample_facility_info(), "confirmed_defects": bad_defects},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "VALIDATION_ERROR"
 
 
 @patch("ai.chains.report_chain.get_vectorstore")
