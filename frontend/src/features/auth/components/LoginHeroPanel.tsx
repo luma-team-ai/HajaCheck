@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { COMPANY_SIGNUP_ROUTE, LOGIN_ROUTE } from '../constants';
+import loginHeroImage from '../../../assets/brand/login-hero-illustration.svg';
 
 export function LoginHeroPanel() {
   const navigate = useNavigate();
@@ -24,8 +25,7 @@ export function LoginHeroPanel() {
         </p>
       </div>
 
-      {/* TODO: Figma 에셋 교체 — 건물 이미지 placeholder */}
-      <div className="login-hero-image" aria-hidden="true" />
+      <img src={loginHeroImage} className="login-hero-image" alt="" aria-hidden="true" />
 
       <div className="login-hero-footer">
         <button type="button" className="login-hero-company-btn" onClick={handleCompanySignup}>

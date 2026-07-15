@@ -1,4 +1,5 @@
 import { FOOTER_LINKS, NAV_ITEMS, PARTNERS, PRICING_TIERS } from './constants';
+import heroVisualImage from '../../assets/brand/landing-hero-ai-scan.svg';
 import './landing.css';
 
 function scrollToTop() {
@@ -43,6 +44,12 @@ export default function LandingPage() {
         </a>
 
         <div className="landing-hero-visual">
+          <img
+            src={heroVisualImage}
+            className="landing-hero-visual-image"
+            alt=""
+            aria-hidden="true"
+          />
           <div className="landing-chip landing-chip--1">균열 폭: 0.8mm</div>
           <div className="landing-chip landing-chip--2">취약 부재: 3</div>
           <div className="landing-chip landing-chip--3">AI 분석 중: 68%</div>
