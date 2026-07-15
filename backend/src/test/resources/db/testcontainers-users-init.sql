@@ -172,3 +172,51 @@ create table facilities
     created_at              timestamp with time zone default now() not null,
     updated_at              timestamp with time zone default now() not null
 );
+
+-- 대시보드 개요 집계(HAJA-17) — inspections / defects 및 관련 enum. v0.3 DDL 과 정확히 동일해야 validate 통과.
+create type inspection_status_type as enum ('CREATED', 'UPLOADING', 'ANALYZING', 'ANALYZED', 'REVIEWED', 'REPORTED');
+create type defect_type as enum ('CRACK', 'SPALLING', 'LEAK_EFFLORESCENCE', 'REBAR_EXPOSURE', 'PAINT_DAMAGE');
+create type defect_grade_type as enum ('A', 'B', 'C', 'D', 'E');
+create type defect_status_type as enum ('DETECTED', 'CONFIRMED', 'ACTION_PENDING', 'IN_PROGRESS', 'RESOLVED');
+
+create table inspections
+(
+    id              bigint generated always as identity
+        primary key,
+    facility_id     bigint                                                             not null
+        references facilities,
+    created_by      bigint                                                             not null
+        references users,
+    round_no        integer                                                            not null,
+    inspection_date date                                                               not null,
+    status          inspection_status_type   default 'CREATED'::inspection_status_type not null,
+    created_at      timestamp with time zone default now()                             not null,
+    unique (facility_id, round_no)
+);
+
+create index idx_inspections_facility
+    on inspections (facility_id);
+
+create table defects
+(
+    id              bigint generated always as identity
+        primary key,
+    inspection_id   bigint                                                          not null
+        references inspections,
+    type            defect_type                                                     not null,
+    bbox_x          double precision,
+    bbox_y          double precision,
+    bbox_w          double precision,
+    bbox_h          double precision,
+    confidence      double precision                                                not null,
+    grade           defect_grade_type,
+    status          defect_status_type       default 'DETECTED'::defect_status_type not null,
+    is_reviewed     boolean                  default false                          not null,
+    is_deleted      boolean                  default false                          not null,
+    crack_width_mm  double precision,
+    crack_length_mm double precision,
+    created_at      timestamp with time zone default now()                          not null
+);
+
+create index idx_defects_inspection
+    on defects (inspection_id);
