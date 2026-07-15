@@ -54,8 +54,15 @@ export function FacilityFormModal({
     if (hasFacilityFormErrors(nextErrors)) {
       return;
     }
-    await onSubmit(toCreateFacilityRequest(values));
-    setValues(FACILITY_FORM_INITIAL_VALUES);
+    try {
+      await onSubmit(toCreateFacilityRequest(values));
+      // 성공 확정 후에만 폼을 초기화 — 실패 시(catch)에는 아무것도 하지 않고 사용자가 입력한
+      // 값과 에러 배너(submitErrorMessage)를 그대로 유지한다.
+      setValues(FACILITY_FORM_INITIAL_VALUES);
+    } catch {
+      // onSubmit(FacilityListPage.handleSubmit)이 던진 에러 — 여기서는 폼을 유지만 하고
+      // 별도 처리는 하지 않는다. 에러 메시지 표시는 submitErrorMessage prop이 담당한다.
+    }
   };
 
   return (
@@ -75,7 +82,7 @@ export function FacilityFormModal({
         </button>
       </div>
 
-      <form className="flex w-[420px] max-w-full flex-col gap-4" onSubmit={handleSubmit} noValidate>
+      <form className="flex w-105 max-w-full flex-col gap-4" onSubmit={handleSubmit} noValidate>
         <div className="flex flex-col gap-1">
           <label htmlFor="facility-name" className={LABEL_CLASSES}>
             시설물명 <span className="text-danger">*</span>

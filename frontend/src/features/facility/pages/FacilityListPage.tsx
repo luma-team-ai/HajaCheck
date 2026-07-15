@@ -9,19 +9,22 @@ import type { CreateFacilityRequest } from '../types';
 export function FacilityListPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { data: facilities, isLoading, isError, refetch } = useFacilities();
-  const { createFacility, isPending, error } = useCreateFacility();
+  const { createFacility, isPending, error, resetError } = useCreateFacility();
 
   const handleOpenModal = () => setIsModalOpen(true);
-  const handleCloseModal = () => setIsModalOpen(false);
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    // 모달을 닫을 때(성공/실패/취소/Escape 등 어떤 경로든) 이전 실패의 에러를 초기화 —
+    // 그러지 않으면 재오픈 시 지난 세션의 에러 메시지가 즉시 다시 노출된다.
+    resetError();
+  };
 
   const handleSubmit = async (payload: CreateFacilityRequest) => {
-    try {
-      await createFacility(payload);
-      handleCloseModal();
-    } catch {
-      // 등록 실패 시 모달을 닫지 않고 유지 — 에러 메시지는 useCreateFacility의 error(ApiError)를
-      // submitErrorMessage로 전달해 모달 내부에 표시한다(여기서 추가 처리 불필요).
-    }
+    await createFacility(payload);
+    handleCloseModal();
+    // 실패 시 여기서 잡지 않고 그대로 전파한다 — FacilityFormModal이 실패를 감지해 폼 값을
+    // 초기화하지 않고 유지해야 하므로(등록 실패 시 사용자가 입력한 내용을 잃지 않도록),
+    // 이 함수가 던지는 rejection을 FacilityFormModal의 handleSubmit이 catch한다.
   };
 
   return (

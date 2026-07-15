@@ -8,6 +8,15 @@ import type { CreateFacilityRequest, Facility } from '../types';
 let facilities: Facility[] = [...mockFacilities];
 let nextId = facilities.reduce((max, facility) => Math.max(max, facility.id), 0) + 1;
 
+// 테스트에서 setupServer(...facilityHandlers) + afterEach(() => server.resetHandlers())로 격리해도
+// 이 모듈 스코프 상태(facilities/nextId)는 resetHandlers()로 초기화되지 않는다 — POST 등록 후
+// GET 목록을 검증하는 테스트가 여러 it() 블록에 걸쳐 있을 때 상태가 새는 것을 막기 위해
+// 명시적으로 호출 가능한 리셋 함수를 노출한다(현재 이를 호출하는 테스트는 없음).
+export function resetFacilityMockStore(): void {
+  facilities = [...mockFacilities];
+  nextId = facilities.reduce((max, facility) => Math.max(max, facility.id), 0) + 1;
+}
+
 // 점검주기(개월) 기준으로 다음 점검일을 오늘부터 산정 — 실제 백엔드 산정 로직의 목(mock) 근사치
 function computeNextInspectionDueAt(inspectionCycleMonths?: number | null): string | null {
   if (!inspectionCycleMonths || inspectionCycleMonths <= 0) {
