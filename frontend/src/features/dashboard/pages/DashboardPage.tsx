@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom';
+import { DashboardLayout } from '../../../shared/components/layout/DashboardLayout';
+import '../../../shared/styles/layout.css';
 import { AiBriefingCard } from '../components/AiBriefingCard';
 import { GradeDistributionCard } from '../components/GradeDistributionCard';
-import { DashboardLayout } from '../components/layout/DashboardLayout';
 import { KpiSection } from '../components/KpiSection';
 import { PendingPriorityCard } from '../components/PendingPriorityCard';
 import { RecentInspectionsTable } from '../components/RecentInspectionsTable';

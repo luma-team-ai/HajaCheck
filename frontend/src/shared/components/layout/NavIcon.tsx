@@ -1,4 +1,4 @@
-import type { DashboardNavIconName } from '../../constants';
+import type { DashboardNavIconName } from '../../constants/navItems';
 
 type Props = {
   name: DashboardNavIconName | 'chevron-down' | 'logout' | 'sidebar-toggle';

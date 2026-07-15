@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { NAV_ITEMS } from '../../constants';
+import { NAV_ITEMS } from '../../constants/navItems';
 import { NavIcon } from './NavIcon';
 
 export function Sidebar() {

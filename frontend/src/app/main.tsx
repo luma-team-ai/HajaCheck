@@ -3,7 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
 import { router } from './router';
-import { shouldEnableMocking } from './shouldEnableMocking';
+import { shouldEnableMocking } from '../shared/utils/shouldEnableMocking';
 import '../styles/global.css';
 
 const queryClient = new QueryClient();

@@ -2,5 +2,11 @@
 import { authHandlers } from '../features/auth/api/authApi.handlers';
 import { dashboardHandlers } from '../features/dashboard/api/dashboardApi.handlers';
 import { inspectionHandlers } from '../features/inspection/api/inspectionApi.handlers';
+import { mypageHandlers } from '../features/mypage/api/mypageApi.handlers';
 
-export const handlers = [...authHandlers, ...inspectionHandlers, ...dashboardHandlers];
+export const handlers = [
+  ...authHandlers,
+  ...inspectionHandlers,
+  ...dashboardHandlers,
+  ...mypageHandlers,
+];

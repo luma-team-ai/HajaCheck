@@ -1,10 +1,16 @@
-export function TopBar() {
+type Props = {
+  // 상단바 breadcrumb 현재 위치 표시 — 페이지별로 다름(HAJA-185, 마이페이지 재사용 대비).
+  // 미지정 시 기존 대시보드 동작 그대로 유지(하위 호환).
+  currentLabel?: string;
+};
+
+export function TopBar({ currentLabel = '대시보드' }: Props) {
   return (
     <header className="topbar">
       <nav className="topbar-breadcrumb" aria-label="현재 위치">
         <span>홈</span>
         <span className="topbar-breadcrumb-sep">/</span>
-        <span className="topbar-breadcrumb-current">대시보드</span>
+        <span className="topbar-breadcrumb-current">{currentLabel}</span>
       </nav>
 
       <div className="topbar-actions">
