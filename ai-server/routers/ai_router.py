@@ -6,6 +6,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends
+from langchain_core.exceptions import OutputParserException
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
@@ -96,6 +97,12 @@ def report(req: ReportRequest) -> AIResponse:
     """AI 보고서 4섹션(개요/요약/상세/권고) 병렬 생성 + Grounding Check (FR-5, HAJA-31)."""
     try:
         result = run_report_chain(req.facility_info, req.confirmed_defects, req.on_mismatch.value)
+    except OutputParserException as e:
+        # OutputParserException은 ValueError의 서브클래스라 (ValueError, PydanticValidationError)절보다
+        # 먼저 잡아야 한다 — _StructuredLLM.invoke()가 MAX_RETRIES 소진 후 던지는, LLM이 malformed/
+        # incomplete JSON을 뱉은 "진짜 LLM 출력 파싱 실패" 케이스(contract.md 기준 LLM_INVALID_OUTPUT).
+        # 아래 VALIDATION_ERROR절로 잘못 흡수되면 가장 흔한 실패 유형이 오분류된다(P1 회귀, 코드리뷰 지적).
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, str(e))
     except (ValueError, PydanticValidationError) as e:
         # 비-LLM 검증 실패 — detail.items 개수 불일치(ValueError, run_report_chain 자체 검증)나
         # confirmed_defects의 잘못된 severity_grade(GroundingDefect validator 실패) 등.
