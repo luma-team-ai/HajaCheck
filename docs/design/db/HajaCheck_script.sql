@@ -579,7 +579,7 @@ comment on column inspections.facility_id is '점검 대상 시설 식별자';
 
 comment on column inspections.created_by is '점검 생성자 사용자 식별자';
 
-comment on column inspections.assigned_inspector_id is '점검 담당자로 배정된 점검자 사용자 식별자';
+comment on column inspections.assigned_inspector_id is '점검 담당자로 배정된 점검자 사용자 식별자. 본 스크립트는 신규 환경 전체 재생성용(파일 상단 주석 참조)이라 백필 로직을 담지 않는다 — 기존 데이터가 있는 환경에 증분 반영할 때는 NOT NULL 적용 전 담당자 확정값으로 먼저 백필해야 하며, 근거 없이 created_by를 자동 복사하지 않는다(백필 절차는 table_design.md §5 `inspections` 참조)';
 
 comment on column inspections.round_no is '시설별 점검 회차';
 

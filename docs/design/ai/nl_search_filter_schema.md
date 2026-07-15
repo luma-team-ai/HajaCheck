@@ -228,7 +228,12 @@ v1은 신뢰도 **하한(`confidenceMin`)만** 지원한다. 사용자가 하한
 
 `GET /api/defects`는 아직 미구현이라 이 매핑이 곧 그 쿼리 파라미터 설계의 기준이 된다.
 
-**소유권 범위는 아래 클라이언트 필터보다 먼저 서버에서 강제한다.** Spring Boot는 인증 주체로부터 조회 가능한 점검 회차를 계산해 시설물 소유자는 `facilities.owner_id = authUserId`인 시설물, 점검자는 `inspections.assigned_inspector_id = authUserId`인 점검 회차, 관리자는 전체 하자만 조회할 수 있게 제한한다. 모든 역할에서 `defects.is_deleted = false`를 추가로 강제한다. 클라이언트가 `facilityId`·`inspectionId`·회사 식별자 등으로 이 범위를 확장하거나 논리 삭제 행을 다시 포함시킬 수 없으며, 범위 밖 `defects`는 다른 필터 조건과 일치하더라도 결과에 포함하지 않는다. 역할 검사는 `@PreAuthorize`, 데이터 범위와 논리 삭제 조건은 repository/service 조건으로 함께 적용한다(PRD §5 FR-1/FR-4, `table_design.md` §5.3/§5.4).
+**소유권 범위는 아래 클라이언트 필터보다 먼저 서버에서 강제한다.** `facilities`에는 `company_id` 컬럼이 없으므로 회사 소속 여부는 시설물 소유자(`owner_id`)의 소속을 통해 판단한다. Spring Boot는 인증 주체로부터 조회 가능한 **시설물 범위**를 다음 조건의 합집합으로 계산한다:
+1. `facilities.owner_id = authUserId`인 시설물 — **소유자 본인은 회사 소속 여부·멤버십 상태와 무관하게 항상 조회할 수 있다.**
+2. **회사 소속 시설물 공유**: 요청자가 시설물의 등록자(`owner_id`)가 아니더라도, 시설물 소유자와 요청자 **양쪽 모두**가 같은 회사에 대해 `table_design.md` §5.1의 **유효 멤버십 판정 전체 기준**을 만족하면 조회할 수 있다 — 멤버십 행 조건(`status=APPROVED`, `approved_at IS NOT NULL`, `revoked_at IS NULL`, `expires_at IS NULL OR expires_at > now()`)뿐 아니라 `users.status=ACTIVE`, `users.company_id`가 그 회사와 일치, **회사 자체가 `status=APPROVED` 및 `verification_status=VERIFIED`**까지 모두 충족해야 한다(승인·진위확인 전 회사 소속끼리는 공유되지 않는다). `company_memberships`를 회사 단위 협업(플랜 상속 등)의 SoT로 도입한 이번 PR의 취지와 일관되게, 시설물도 개인이 아니라 소속 회사 단위로 공유한다.
+3. 관리자는 위 두 조건과 무관하게 전체 시설물을 조회할 수 있다.
+
+이 시설물 범위와 별개로, `inspections.assigned_inspector_id = authUserId`인 점검 회차는 그 시설물이 본인 소유·소속 회사 밖이더라도(예: 소속 없는 프리랜서 점검자가 개별 배정된 경우) 항상 조회 범위에 포함한다. 모든 역할에서 `defects.is_deleted = false`를 추가로 강제한다. 클라이언트가 `facilityId`·`inspectionId`·회사 식별자 등으로 이 범위를 확장하거나 논리 삭제 행을 다시 포함시킬 수 없으며, 범위 밖 `defects`는 다른 필터 조건과 일치하더라도 결과에 포함하지 않는다. 역할 검사는 `@PreAuthorize`, 데이터 범위와 논리 삭제 조건은 repository/service 조건으로 함께 적용한다(PRD §5 FR-1/FR-4, `table_design.md` §5.1 `company_memberships`, §5.3/§5.4).
 
 | 자연어 변환 응답 필드 | `/api/defects` 쿼리 파라미터(안) | 비고 |
 |---|---|---|
@@ -314,7 +319,7 @@ Spring 게이트웨이가 전달한 자연어 변환 요청이 실패(`LLM_TIMEO
 
 - **AI 서버**: 5.1~5.4를 `test_nl_search_chain.py`의 케이스로 사용. 5.1(정상)·5.3(미지원 조건 포함)은 `filters`/`unsupported_terms`가 표에 명시된 값과 **정확히 일치**하는지 검증한다. 5.2(애매한 질의)는 `clarifying_question` 문구까지 고정하지 않고 `filters == 표의 빈 값` && `clarifying_question is not None`라는 **구조적 조건**만 검증한다(§5.2 참고). 5.4는 LLM mock이 호출되지 않고 `VALIDATION_ERROR` envelope이 반환되는지 검증한다.
 - **Spring 백엔드 — 인증·플랜 게이트**: 미인증 요청은 `401`, AI 부가 기능이 없는 Free 플랜은 `403 AI_ADDON_REQUIRED`이며 두 경우 FastAPI 클라이언트가 호출되지 않는지 검증한다. 개인 활성 플랜 또는 `APPROVED`+`VERIFIED` 회사와 `company_memberships`의 유효한 승인 멤버십을 모두 만족하는 회사 활성 플랜이 `has_ai_addon=true`인 점검자 요청만 내부 토큰을 포함해 전달되는지 검증한다. `users.company_id`만 일치하거나 회사/멤버십이 대기·반려·회수·만료된 요청, 비활성 사용자는 `403`이고 FastAPI가 호출되지 않아야 한다. 회사 오너도 멤버십 행이 없으면 상속하지 않는지 검증한다.
-- **Spring 백엔드 — 조회 소유권·논리 삭제·페이지**: 통과 케이스에서는 5.1의 기대 `filters`를 §4.2 매핑표로 변환한 쿼리 파라미터가 `GET /api/defects`에서 올바른 결과를 반환하는지 검증한다. 동일 필터에 대해 시설물 소유자는 `facilities.owner_id`, 점검자는 `inspections.assigned_inspector_id`, 관리자는 전체 범위로 제한되는지 확인하고, 타 회사·타 소유자·미배정 점검자의 하자가 섞이지 않는 cross-tenant 부정 테스트를 필수로 둔다. 모든 역할에서 `is_deleted=true` 행은 제외하고, `page`/`size` 경계(0/1/100 및 음수·101 거부), `created_at DESC, id DESC` 고정 정렬, `totalElements`/`totalPages` 계산도 검증한다. 허용 역할이지만 ① 소유·배정 범위 자체가 없음, ② 범위 내 필터 일치 0건, ③ 일치 행이 모두 논리 삭제됨, ④ 타 사용자 범위에만 일치 행이 있음인 네 fixture는 모두 `200` 빈 페이지여야 하며, 허용되지 않은 역할만 `403`인지 별도로 검증한다.
+- **Spring 백엔드 — 조회 소유권·논리 삭제·페이지**: 통과 케이스에서는 5.1의 기대 `filters`를 §4.2 매핑표로 변환한 쿼리 파라미터가 `GET /api/defects`에서 올바른 결과를 반환하는지 검증한다. 동일 필터에 대해 시설물 소유자 본인은 `facilities.owner_id`, **같은 회사의 유효 `company_memberships`를 가진 다른 점검자·관리자는 등록자가 아니어도 그 시설물이 포함**되는지, 배정된 점검자는 `inspections.assigned_inspector_id`, 관리자는 전체 범위로 제한되는지 확인한다. 타 회사 소속 시설물·회사에 소속되지 않은 타 개인 소유자의 하자가 섞이지 않는 cross-tenant 부정 테스트는 필수로 두되, **같은 회사 소속 간에는 등록자가 달라도 결과에 포함되는 것이 정상 동작**이므로 이를 격리 실패로 오판하지 않는다. 모든 역할에서 `is_deleted=true` 행은 제외하고, `page`/`size` 경계(0/1/100 및 음수·101 거부), `created_at DESC, id DESC` 고정 정렬, `totalElements`/`totalPages` 계산도 검증한다. 허용 역할이지만 ① 소유·소속 회사·배정 범위 자체가 없음, ② 범위 내 필터 일치 0건, ③ 일치 행이 모두 논리 삭제됨, ④ 타 회사·타 개인 범위에만 일치 행이 있음인 네 fixture는 모두 `200` 빈 페이지여야 하며, 허용되지 않은 역할만 `403`인지 별도로 검증한다.
 - **AI 서버 호출 경계**: `X-Internal-Service-Token` 누락·불일치 요청을 LLM 호출 전에 거부하고, 올바른 내부 호출만 허용하는지 검증한다.
 - **프론트**: 5.1~5.4를 MSW mock 핸들러 fixture로 사용 — 공개 Spring 경로(`/api/defects/nl-search`)만 호출하며 `clarifying_question`/`unsupported_terms` 분기 UI, `401` 로그인 유도, `403 AI_ADDON_REQUIRED` 업그레이드 안내가 각각 올바르게 렌더링되는지 검증한다.
 
