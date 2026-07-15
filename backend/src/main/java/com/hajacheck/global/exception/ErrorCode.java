@@ -51,7 +51,12 @@ public enum ErrorCode {
 
     // 도메인별 예시 — 각 담당이 추가
     DEFECT_NOT_FOUND(HttpStatus.NOT_FOUND, "하자를 찾을 수 없습니다."),
-    AI_JOB_TIMEOUT(HttpStatus.INTERNAL_SERVER_ERROR, "AI 분석 요청이 시간 초과되었습니다.");
+    AI_JOB_TIMEOUT(HttpStatus.INTERNAL_SERVER_ERROR, "AI 분석 요청이 시간 초과되었습니다."),
+
+    // AI 서버(FastAPI) 인증 프록시(#228) — 연결/타임아웃/응답형식 3종
+    AI_SERVER_UNREACHABLE(HttpStatus.SERVICE_UNAVAILABLE, "AI 서버에 연결할 수 없습니다."),
+    AI_SERVER_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "AI 서버 응답이 지연되고 있습니다."),
+    AI_INVALID_RESPONSE(HttpStatus.BAD_GATEWAY, "AI 서버 응답을 처리할 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;
