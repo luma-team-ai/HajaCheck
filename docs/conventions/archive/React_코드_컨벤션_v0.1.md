@@ -1,6 +1,6 @@
 # hajaCheck — React 코드 컨벤션
 
-> **문서 버전:** v0.2 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
 
 > 대상: 프론트엔드 코드를 작성하는 전체 팀원 (메뉴 담당제 — 전원이 화면을 직접 구현)
 > 관리: Frontend 리드 (구조·공통 컴포넌트·컨벤션 총괄, 리뷰 시 준수 점검)
@@ -13,10 +13,7 @@
 
 - 함수형 컴포넌트 + Hooks만 사용 (클래스 컴포넌트 금지)
 - API 호출은 공통 axios 인스턴스와 feature별 api 모듈을 통해서만 — 컴포넌트에서 axios 직접 import 금지
-- 공통 컴포넌트를 우선 사용 — 각자 유사 컴포넌트 중복 제작 금지, 필요 시 Frontend 리드와 협의 후 공통에 추가. `shared/components/`에 이미 있는 컴포넌트(재구현 금지, 반드시 import해서 재사용):
-  - 기초 UI: Button, Modal, Table, Pagination, TableFooterPagination, ErrorFallback, AILoadingIndicator, AIErrorFallback
-  - 레이아웃/네비게이션: Header, TopNavigation, SideNavBar, Footer, BottomNavBarFab, FloatingPopup, NotificationDropdown
-  - (신규 공통 컴포넌트 추가 시 이 목록도 함께 갱신)
+- 공통 컴포넌트(Button, Modal, Table 등)를 우선 사용 — 각자 유사 컴포넌트 중복 제작 금지, 필요 시 Frontend 리드와 협의 후 공통에 추가
 - 언어: **TypeScript 권장** (포트폴리오 가치·자동완성·API 타입 안정성). 팀 숙련도에 따라 착수 회의에서 JS(JSX) 선택 가능 — 단, 혼용 금지
 
 ## 1. 디렉토리 구조 (feature 기반 — 메뉴 담당제와 1:1)
