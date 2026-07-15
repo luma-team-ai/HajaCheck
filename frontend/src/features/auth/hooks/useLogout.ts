@@ -1,0 +1,27 @@
+import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import { authApi } from '../api/authApi';
+import { useAuthStore } from '../store/authStore';
+
+// 로그아웃 — Sidebar/TopBar가 공유하는 단일 훅 (React_코드_컨벤션.md §0 "공통 로직 중복 금지")
+// logout API가 실패해도 클라이언트 세션(react-query 캐시·authStore)은 항상 정리한다 —
+// 로그아웃은 사용자 관점에서 항상 성공해야 하는 액션이라, 네트워크 오류로 화면에 갇히면 안 된다.
+export function useLogout() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const clearUser = useAuthStore((state) => state.clearUser);
+
+  const logout = async (): Promise<void> => {
+    try {
+      await authApi.logout();
+    } catch {
+      // 무시 — API 실패와 무관하게 클라이언트 세션은 정리한다
+    } finally {
+      queryClient.clear();
+      clearUser();
+      navigate('/login');
+    }
+  };
+
+  return { logout };
+}

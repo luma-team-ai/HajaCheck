@@ -1,0 +1,125 @@
+// @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
+import { setupServer } from 'msw/node';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { ApiResponse } from '../../../shared/api/types';
+import { useAuthStore } from '../store/authStore';
+import type { User } from '../types';
+import { useLogout } from './useLogout';
+
+const mockUser: User = {
+  id: 1,
+  email: 'hajacheck@example.com',
+  name: '하자체크 담당자',
+  role: 'USER',
+  companyId: 1,
+  profileImageUrl: null,
+};
+
+let logoutCallCount = 0;
+
+const handlers = [
+  http.post('/api/auth/logout', () => {
+    logoutCallCount += 1;
+    const success: ApiResponse<null> = { success: true, data: null };
+    return HttpResponse.json(success);
+  }),
+];
+
+const server = setupServer(...handlers);
+
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+afterEach(() => {
+  server.resetHandlers();
+  cleanup();
+  useAuthStore.setState({ user: null });
+});
+afterAll(() => server.close());
+
+const waitFor = (predicate: () => boolean, timeout = 3000): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const startTime = Date.now();
+    const interval = setInterval(() => {
+      if (predicate()) {
+        clearInterval(interval);
+        resolve();
+      } else if (Date.now() - startTime > timeout) {
+        clearInterval(interval);
+        reject(new Error('Timeout waiting for condition'));
+      }
+    }, 20);
+  });
+};
+
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location">{location.pathname}</span>;
+}
+
+function LogoutButton() {
+  const { logout } = useLogout();
+  return (
+    <button type="button" onClick={() => void logout()}>
+      로그아웃
+    </button>
+  );
+}
+
+function renderWithProviders(queryClient: QueryClient) {
+  render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <Routes>
+          <Route
+            path="*"
+            element={
+              <>
+                <LogoutButton />
+                <LocationProbe />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe('useLogout', () => {
+  beforeEach(() => {
+    logoutCallCount = 0;
+    useAuthStore.setState({ user: mockUser });
+  });
+
+  it('로그아웃 성공 시 API 호출 + 캐시/스토어 정리 + /login으로 이동한다', async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(['probe'], 'cached-value');
+    renderWithProviders(queryClient);
+
+    fireEvent.click(screen.getByText('로그아웃'));
+
+    await waitFor(() => screen.getByTestId('location').textContent === '/login');
+
+    expect(logoutCallCount).toBe(1);
+    expect(queryClient.getQueryData(['probe'])).toBeUndefined();
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+
+  it('logout API가 실패해도 클라이언트 세션은 정리되고 /login으로 이동한다', async () => {
+    server.use(http.post('/api/auth/logout', () => HttpResponse.error()));
+
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(['probe'], 'cached-value');
+    renderWithProviders(queryClient);
+
+    fireEvent.click(screen.getByText('로그아웃'));
+
+    await waitFor(() => screen.getByTestId('location').textContent === '/login');
+
+    expect(queryClient.getQueryData(['probe'])).toBeUndefined();
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+});
