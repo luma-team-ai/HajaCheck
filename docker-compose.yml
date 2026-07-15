@@ -74,6 +74,8 @@ services:
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}
       SPRING_DATA_REDIS_DATABASE: ${REDIS_DB_INDEX:-0}
       AI_SERVER_BASE_URL: http://fastapi:8000
+      # 스프링→FastAPI 프록시가 부착하는 내부키. FastAPI의 AI_INTERNAL_KEY와 동일 소스여야 검증 통과.
+      AI_SERVER_INTERNAL_KEY: ${AI_INTERNAL_KEY:-}
       # OAuth2 registration(KAKAO_CLIENT_ID 등)은 아직 어떤 코드도 참조하지 않아 여기서는 미주입한다.
       # Spring Boot는 registration.{provider}.client-id 키가 "존재"하기만 해도(빈 문자열이어도)
       # OAuth2ClientProperties 검증에서 기동 실패시키므로, 실제 값이 있을 때만 개별 추가할 것
@@ -100,6 +102,9 @@ services:
       HF_API_TOKEN: ${HF_API_TOKEN:-}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+      # 스프링이 부착하는 X-Internal-Key 검증용 공유키(동일 ${AI_INTERNAL_KEY} 소스).
+      # 미설정(빈값) 시 FastAPI 검증 비활성 — 로컬/dev 편의(nginx 폐쇄가 1차 방어).
+      AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:-}
     volumes:
       - chroma_data:/app/chroma_data
     healthcheck:

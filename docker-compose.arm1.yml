@@ -41,6 +41,8 @@ services:
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}
       SPRING_DATA_REDIS_DATABASE: ${REDIS_DB_INDEX:-0}
       AI_SERVER_BASE_URL: http://127.0.0.1:8101
+      # 스프링→FastAPI 프록시 부착 내부키. FastAPI AI_INTERNAL_KEY와 동일 소스. 운영은 강제(:?).
+      AI_SERVER_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
       # OAuth2 registration — 값은 서버 .env(미커밋)에만. 미설정 시 기동 실패(:? 가드)로 조기 차단.
       # (registration.{provider}.client-id 키가 빈 문자열로만 존재해도 기동 실패 — 위 base 주석 참조.)
       KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:?KAKAO_CLIENT_ID가 .env에 설정되어야 합니다}
@@ -72,6 +74,8 @@ services:
       HF_API_TOKEN: ${HF_API_TOKEN:-}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+      # X-Internal-Key 검증용 공유키(스프링 AI_SERVER_INTERNAL_KEY와 동일 소스). 운영은 강제(:?).
+      AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
     volumes:
       - chroma_data:/app/chroma_data
     healthcheck:

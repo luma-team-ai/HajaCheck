@@ -37,8 +37,8 @@ services:
       target: build # node 빌드 스테이지 재사용(vite dev 서버 실행)
     command: ["npm", "run", "dev"]
     environment:
+      # VITE_PROXY_FASTAPI 제거 — 프론트가 /api/ai/*(스프링 경유)로만 호출(#234), FastAPI 직결 폐쇄(#235)
       VITE_PROXY_SPRING: http://spring:8080
-      VITE_PROXY_FASTAPI: http://fastapi:8000
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
