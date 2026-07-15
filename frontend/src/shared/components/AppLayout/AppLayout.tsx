@@ -24,6 +24,11 @@ interface AppLayoutProps {
   activeHref?: string;
   /** SideNavBar 메뉴 항목. 미지정 시 SideNavBar 기본 전체 메뉴(DEFAULT_ITEMS) 사용 */
   items?: SideNavItem[];
+  /**
+   * SideNavBar 메뉴 href가 실제로 이동 가능한 라우트인지 판별하는 함수. shared는 라우터 전체 구조를
+   * 몰라야 하므로 호출부(app/AppShellRoute)가 주입 — 미지정 시 전부 구현된 것으로 간주(SideNavBar 기본값과 동일).
+   */
+  isRouteImplemented?: (href: string) => boolean;
   isAdmin?: boolean;
   /** 사이드바 하단 프로필. 미지정 시 프로필 블록 미표시 */
   user?: AppLayoutUser;
@@ -43,6 +48,7 @@ export function AppLayout({
   children,
   activeHref,
   items,
+  isRouteImplemented,
   isAdmin,
   user,
   onLogout,
@@ -58,6 +64,7 @@ export function AppLayout({
       <SideNavBar
         items={items}
         activeHref={resolvedActiveHref}
+        isRouteImplemented={isRouteImplemented}
         isAdmin={isAdmin}
         user={user}
         onLogout={onLogout}

@@ -6,6 +6,7 @@
 import { Outlet, useMatches } from 'react-router-dom';
 import type { BreadcrumbItem } from '../shared/components/Header';
 import { AppLayout } from '../shared/components/AppLayout';
+import { isRouteImplemented } from './implementedRoutes';
 
 export interface AppShellHandle {
   /** Header 브레드크럼(현재 위치) */
@@ -34,7 +35,11 @@ export function AppShellRoute() {
   const handle = current?.handle as AppShellHandle | undefined;
 
   return (
-    <AppLayout breadcrumb={handle?.breadcrumb ?? []} activeHref={handle?.activeHref}>
+    <AppLayout
+      breadcrumb={handle?.breadcrumb ?? []}
+      activeHref={handle?.activeHref}
+      isRouteImplemented={isRouteImplemented}
+    >
       <Outlet />
     </AppLayout>
   );
