@@ -65,6 +65,18 @@ describe('SideNavBar', () => {
     expect(screen.getByText('플랜·쿼터 관리')).not.toBeNull();
   });
 
+  it('isAdmin=true + activeHref가 다른 그룹의 하위 항목이어도, 수동으로 펼친 그룹이 스냅백되지 않는다', () => {
+    render(<SideNavBar isAdmin activeHref="/defects/detail" />, { wrapper: MemoryRouter });
+
+    // 마운트 시 activeHref(하자 관리)의 그룹이 자동으로 펼쳐진 상태
+    expect(screen.getByText('하자 상세')).not.toBeNull();
+
+    // 다른 그룹(대시보드)을 수동으로 펼치면, activeHref는 그대로여도 대시보드가 계속 펼쳐져 있어야 한다
+    fireEvent.click(screen.getByText('대시보드'));
+
+    expect(screen.getByText('전체 시설물 현황')).not.toBeNull();
+  });
+
   it('isAdmin이 아니면 관리자 페이지 그룹이 표시되지 않는다', () => {
     render(<SideNavBar />, { wrapper: MemoryRouter });
 

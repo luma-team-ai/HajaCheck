@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import brandMark from '../../../assets/brand/brand-mark.png';
 import collapseIcon from '../../../assets/brand/sidenav-collapse.svg';
@@ -158,7 +158,12 @@ export function SideNavBar({
   defaultCollapsed = false,
   onCollapseToggle,
 }: SideNavBarProps) {
-  const allItems = isAdmin ? [...items, adminItem] : items;
+  // isAdmin=true일 때 spread로 매 렌더 새 배열이 생기면 activeHref 동기화 effect가 매 렌더 재실행되어
+  // 수동으로 펼친 다른 그룹이 즉시 스냅백되는 버그가 있었음(PR#154 리뷰 P1) — useMemo로 참조 안정화
+  const allItems = useMemo(
+    () => (isAdmin ? [...items, adminItem] : items),
+    [isAdmin, items, adminItem],
+  );
   const [expandedLabel, setExpandedLabel] = useState<string | undefined>(() =>
     allItems.find((item) => item.subItems?.some((sub) => sub.href === activeHref))?.label,
   );

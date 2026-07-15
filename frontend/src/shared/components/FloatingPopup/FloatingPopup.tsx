@@ -21,6 +21,8 @@ interface FloatingPopupProps {
 // 208-2459) 클릭 시 그 위에 뜨는 빠른 링크 패널(챗봇 진입점). 두 컴포넌트가 Jira에서 같은
 // 서브태스크(HAJA-138)로 묶여있어, 별도 래퍼 없이도 항상 FAB 바로 위(우하단)에 고정
 // 배치되도록 fixedPosition 기본값을 true로 둠
+// Modal과 달리 바깥 클릭·ESC 닫기를 자체적으로 갖지 않음 — BottomNavBarFab을 소유한
+// 상위 컴포넌트가 열림 상태와 바깥 클릭 처리를 함께 담당하는 설계(의도적)
 export function FloatingPopup({
   title = 'HajaCheck 도우미',
   onClose,
@@ -53,9 +55,10 @@ export function FloatingPopup({
       </div>
 
       <div className="flex flex-col gap-2">
-        {links.map((link) => (
+        {links.map((link, index) => (
           <button
-            key={link.label}
+            // label 중복 가능성을 배제하기 위해 index를 함께 사용(Pagination의 dots-${index} 패턴과 동일)
+            key={`${index}-${link.label}`}
             type="button"
             className="cursor-pointer rounded-full border border-border bg-surface px-[17px] py-[11px] text-left text-sm font-medium text-primary"
             onClick={link.onClick}

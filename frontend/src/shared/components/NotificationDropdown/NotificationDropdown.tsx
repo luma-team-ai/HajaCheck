@@ -26,6 +26,8 @@ interface NotificationDropdownProps {
 
 // Figma node-id 208-2458 "Notification Dropdown" 기준 — 알림 유형별 아이콘 일러스트는
 // 별도 아이콘 시스템이 필요해 이번 범위에서는 생략, unread dot으로만 상태 표시
+// 열림/닫힘 상태와 바깥 클릭·ESC 닫기는 이 컴포넌트가 스스로 갖지 않음 — Header 등
+// 상위 컴포넌트가 조건부 렌더링 + 클릭 아웃사이드 핸들러로 제어하는 설계(의도적)
 export function NotificationDropdown({
   notifications,
   unreadCount,

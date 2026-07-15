@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 export interface TableColumn<T> {
-  key: string;
+  key: keyof T & string;
   header: string;
   render?: (row: T) => ReactNode;
 }
@@ -43,7 +43,7 @@ export function Table<T extends { id: string | number }>({
             <tr key={row.id}>
               {columns.map((column) => (
                 <td key={column.key} className="border-b border-neutral-100 px-4 py-3">
-                  {column.render ? column.render(row) : String(row[column.key as keyof T] ?? '')}
+                  {column.render ? column.render(row) : String(row[column.key] ?? '')}
                 </td>
               ))}
             </tr>
