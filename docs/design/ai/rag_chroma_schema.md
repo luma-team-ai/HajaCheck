@@ -89,11 +89,11 @@ class RagAnswerData(BaseModel):
 
 `AIResponse.ok(data=RagAnswerData(...))` 형태로 공통 envelope에 담는다. 검색 결과 0건은 기존 `AIErrorCode.RAG_NO_RESULT`를 그대로 사용한다(신규 에러 코드 불필요).
 
-`chat_message_citations`(Postgres: `message_id`, `document_id`, `chunk_ref`, `locator`, `snippet`)와 필드를 맞췄다 — `SourceCitation.doc_id`는 양의 정수 문자열 검증 후 `int(doc_id)`로 변환해 `document_id`에 저장하고, `chunk_ref`→`chunk_ref`(그대로), `locator`→`locator`, `snippet`→`snippet`에 저장한다. `collection`은 중복 저장하지 않고 이력 복원 시 불변인 `rag_documents.target_collection`을 조인해 `REGULATIONS`→`regulations`, `DEFECT_KB`→`defect_kb`로 변환한다. 문서를 다른 컬렉션으로 재분류할 때는 기존 행을 수정하지 않고 새 `rag_documents` 행을 생성해 재임베딩한다.
+`chat_message_citations`(Postgres: `message_id`, `document_id`, `chunk_ref`, `locator`, `snippet`)와 필드를 맞췄다 — `SourceCitation.doc_id`는 양의 정수 문자열 검증 후 `int(doc_id)`로 변환해 `document_id`에 저장하고, `chunk_ref`→`chunk_ref`(그대로), `locator`→`locator`에 저장한다. `snippet`은 `SourceCitation`에 대응 필드가 없다 — API 응답과는 별개로, RAG 체인이 검색 단계에서 이미 확보한 해당 청크의 Chroma 원문 텍스트를 인용 저장 시점에 발췌해 넣는다(§7). `collection`은 중복 저장하지 않고 이력 복원 시 불변인 `rag_documents.target_collection`을 조인해 `REGULATIONS`→`regulations`, `DEFECT_KB`→`defect_kb`로 변환한다. 문서를 다른 컬렉션으로 재분류할 때는 기존 행을 수정하지 않고 새 `rag_documents` 행을 생성해 재임베딩한다.
 
 ## 7. 인용(citation) 렌더링 정책
 
-RAG 체인이 **답변 생성 시점에 1회** `locator`를 렌더링한다 — article/clause 유무에 따라 `"제12조"`/`"제12조 ①"`(있으면) 또는 `"{page}페이지"`(법조문 정보가 없는 지침류)로 조립하고, 결과를 그대로 `chat_message_citations.snippet`에 저장한다. 화면 표시 시점마다 Chroma를 재조회하지 않는다 — `snippet` 컬럼의 설계 의도("Chroma 재조회 없이 UI 노출")와 일치하며, 채팅 이력 로드 시 Chroma 가용성에 의존하지 않는다는 장점이 있다.
+RAG 체인이 **답변 생성 시점에 1회** `locator`를 렌더링한다 — article/clause 유무에 따라 `"제12조"`/`"제12조 ①"`(있으면) 또는 `"{page}페이지"`(법조문 정보가 없는 지침류)로 조립하고, 결과를 그대로 `chat_message_citations.locator`에 저장한다. `snippet`은 별개 값이다 — 같은 시점에 검색 단계에서 이미 확보한 해당 청크의 Chroma 원문 텍스트를 발췌해 저장한다(`locator` 문자열을 복사하는 것이 아니다). 화면 표시 시점마다 Chroma를 재조회하지 않는다 — `locator`/`snippet` 모두 인용 생성 시점에 캐시해두는 것이므로, 채팅 이력 로드 시 Chroma 가용성에 의존하지 않는다는 장점이 있다.
 
 ## 8. 연관 문서
 
@@ -101,3 +101,8 @@ RAG 체인이 **답변 생성 시점에 1회** `locator`를 렌더링한다 — 
 - `docs/conventions/AI_개발_컨벤션.md` §6 (RAG 규약 — 컬렉션 네이밍, 청킹 분리자)
 - `ai-server/ai/core/chunking.py` (법조문 경계 우선 분리 구현)
 - `ai-server/ai/core/vectorstore.py` (Chroma 컬렉션 팩토리 — 온보딩 세션 이후 RAG 코치 구현)
+
+## 9. 미결 사항 (담당자 확인 필요)
+
+- **HAJA-143**: Jira 요구사항 원문은 "문서명, 조문/항 번호, 페이지, 발행처, **시행일/버전**"이나, 본 문서와 `table_design.md` §2.7/§2.8에는 시행일(`effective_date`)만 반영되고 **"버전"(법규 개정판 번호 등) 필드는 구현되지 않았다.** 의도적 제외인지, 누락인지 담당자(유병현) 확인 필요 — 확인 후 이 절을 제거하고 §2/§4에 결정 근거를 기록한다.
+- **HAJA-144**: Jira 요구사항 원문은 "하자 유형, 사례 출처, 작성일, **신뢰도/검증여부**"이나, 반영된 것은 `verification_status`(`UNVERIFIED`/`VERIFIED` 이진값) 하나뿐이다. "신뢰도"(점수/등급 등 연속값 개념일 가능성)를 검증여부로 대체하기로 확정한 것인지, 별도 필드가 추가로 필요한지 담당자 확인 필요 — 확인 후 이 절을 제거하고 §2/§5에 결정 근거를 기록한다.
