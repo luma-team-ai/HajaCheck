@@ -1,6 +1,5 @@
 import type { ChangeEvent } from 'react';
 import { Pagination } from '../Pagination/Pagination';
-import './TableFooterPagination.css';
 
 interface TableFooterPaginationProps {
   pageSize: number;
@@ -31,11 +30,11 @@ export function TableFooterPagination({
   }
 
   return (
-    <div className="table-footer-pagination">
-      <div className="table-footer-pagination-meta">
-        <span className="table-footer-pagination-label">페이지당</span>
+    <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border bg-surface px-6 pt-[17px] pb-4">
+      <div className="flex items-center gap-2 text-xs text-text-muted">
+        <span>페이지당</span>
         <select
-          className="table-footer-pagination-select"
+          className="cursor-pointer rounded-2xl border border-border bg-surface-muted px-[9px] py-[5px] text-xs text-[#1c1b1c]"
           value={pageSize}
           onChange={handlePageSizeChange}
           aria-label="페이지당 항목 수"
@@ -46,7 +45,7 @@ export function TableFooterPagination({
             </option>
           ))}
         </select>
-        <span className="table-footer-pagination-range">
+        <span>
           {rangeStart}-{rangeEnd} / {totalItems}
         </span>
       </div>

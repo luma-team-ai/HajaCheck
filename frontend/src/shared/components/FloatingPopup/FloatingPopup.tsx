@@ -1,7 +1,6 @@
 import titleIcon from '../../../assets/brand/popup-title-icon.svg';
 import closeIcon from '../../../assets/brand/popup-close-icon.svg';
 import arrowIcon from '../../../assets/brand/popup-arrow-icon.svg';
-import './FloatingPopup.css';
 
 export interface FloatingPopupLink {
   label: string;
@@ -32,26 +31,33 @@ export function FloatingPopup({
 }: FloatingPopupProps) {
   return (
     <div
-      className={`floating-popup${fixedPosition ? ' floating-popup--fixed' : ''}`}
+      className={`flex w-90 flex-col gap-4 rounded-[20px] border border-border bg-white/90 p-[21px] shadow-[0px_20px_25px_-5px_rgba(0,0,0,0.1),0px_8px_10px_-6px_rgba(0,0,0,0.1)] backdrop-blur-[10px]${
+        fixedPosition ? ' floating-popup--fixed fixed right-8 bottom-[100px] z-[950]' : ''
+      }`}
       role="dialog"
       aria-label={title}
     >
-      <div className="floating-popup-header">
-        <h3>
-          <img className="floating-popup-title-icon" src={titleIcon} alt="" />
+      <div className="flex items-center justify-between">
+        <h3 className="m-0 flex items-center gap-2 text-xl font-semibold text-[#18181b]">
+          <img className="h-5 w-5" src={titleIcon} alt="" />
           {title}
         </h3>
-        <button type="button" className="floating-popup-close" onClick={onClose} aria-label="닫기">
-          <img src={closeIcon} alt="" />
+        <button
+          type="button"
+          className="inline-flex cursor-pointer items-center justify-center border-none bg-none p-1"
+          onClick={onClose}
+          aria-label="닫기"
+        >
+          <img className="h-3.5 w-3.5" src={closeIcon} alt="" />
         </button>
       </div>
 
-      <div className="floating-popup-links">
+      <div className="flex flex-col gap-2">
         {links.map((link) => (
           <button
             key={link.label}
             type="button"
-            className="floating-popup-link"
+            className="cursor-pointer rounded-full border border-border bg-surface px-[17px] py-[11px] text-left text-sm font-medium text-[#18181b]"
             onClick={link.onClick}
           >
             {link.label}
@@ -60,15 +66,19 @@ export function FloatingPopup({
       </div>
 
       {(onConnectAgent || waitingLabel) && (
-        <div className="floating-popup-footer">
+        <div className="flex items-center justify-between border-t border-border pt-[13px]">
           {onConnectAgent && (
-            <button type="button" className="floating-popup-connect" onClick={onConnectAgent}>
-              상담원 연결하기 <img src={arrowIcon} alt="" />
+            <button
+              type="button"
+              className="inline-flex cursor-pointer items-center gap-1 border-none bg-none p-0 text-sm text-text-muted"
+              onClick={onConnectAgent}
+            >
+              상담원 연결하기 <img className="h-[9px] w-[9px]" src={arrowIcon} alt="" />
             </button>
           )}
           {waitingLabel && (
-            <span className="floating-popup-waiting">
-              <span className="floating-popup-waiting-dot" aria-hidden="true" />
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-muted px-[9px] py-[5px] text-xs text-[#494551]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#3b82f6]" aria-hidden="true" />
               {waitingLabel}
             </span>
           )}

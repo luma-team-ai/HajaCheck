@@ -1,5 +1,4 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import './Button.css';
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger';
 type ButtonSize = 'sm' | 'md' | 'lg';
@@ -13,6 +12,21 @@ interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'typ
   type?: 'button' | 'submit';
 }
 
+const BASE_CLASSES =
+  'inline-flex items-center justify-center gap-1.5 rounded-full font-semibold cursor-pointer transition duration-150 disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:opacity-85';
+
+const SIZE_CLASSES: Record<ButtonSize, string> = {
+  sm: 'px-3 py-1.5 text-[13px]',
+  md: 'px-[18px] py-2.5 text-sm',
+  lg: 'px-6 py-3.5 text-base',
+};
+
+const VARIANT_CLASSES: Record<ButtonVariant, string> = {
+  primary: 'bg-primary text-surface',
+  secondary: 'bg-secondary-bg text-secondary-fg border border-border',
+  danger: 'bg-danger text-surface',
+};
+
 export function Button({
   children,
   variant = 'primary',
@@ -23,7 +37,7 @@ export function Button({
   className,
   ...rest
 }: ButtonProps) {
-  const classNames = ['btn', `btn--${variant}`, `btn--${size}`, className]
+  const classNames = [BASE_CLASSES, SIZE_CLASSES[size], VARIANT_CLASSES[variant], className]
     .filter(Boolean)
     .join(' ');
 

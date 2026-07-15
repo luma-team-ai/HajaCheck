@@ -13,7 +13,6 @@ import mypageIcon from '../../../assets/brand/sidenav-mypage.svg';
 import settingsIcon from '../../../assets/brand/sidenav-settings.svg';
 import logoutIcon from '../../../assets/brand/sidenav-logout.svg';
 import adminIcon from '../../../assets/brand/sidenav-admin.svg';
-import './SideNavBar.css';
 
 export interface SideNavSubItem {
   label: string;
@@ -143,6 +142,12 @@ const DEFAULT_ADMIN_ITEM: SideNavItem = {
   ],
 };
 
+const LINK_BASE =
+  'flex w-full items-center rounded-full border-none bg-none text-base font-medium text-text-default no-underline cursor-pointer hover:bg-surface-muted hover:text-[#18181b]';
+
+const LOGOUT_BASE =
+  'inline-flex w-fit items-center gap-3 border-none bg-none text-sm font-medium text-[#3f3f46] cursor-pointer';
+
 export function SideNavBar({
   items = DEFAULT_ITEMS,
   adminItem = DEFAULT_ADMIN_ITEM,
@@ -181,59 +186,85 @@ export function SideNavBar({
     });
   }
 
+  function getLinkClassName(isActive: boolean, isGroup = false) {
+    const active = isActive ? ' bg-surface text-[#18181b] ring-1 ring-border' : '';
+    const layout = collapsed ? 'justify-center p-2' : `${isGroup ? 'justify-between ' : ''}px-4 py-2`;
+    return `${LINK_BASE} ${layout}${active}`;
+  }
+
   return (
-    <aside className={`side-nav${collapsed ? ' side-nav--collapsed' : ''}`}>
-      <div className="side-nav-top">
-        <div className="side-nav-logo">
-          <img className="side-nav-logo-mark" src={brandMark} alt="" />
+    <aside
+      className={`flex min-h-full flex-col border-r border-border bg-surface text-sm transition-[width] duration-150 ${
+        collapsed ? 'w-18 px-2 py-4' : 'w-60 p-4'
+      }`}
+    >
+      <div
+        className={`flex border-b border-border pb-4 mb-1 ${
+          collapsed ? 'flex-col h-auto justify-center gap-3' : 'items-center justify-between gap-2 h-16'
+        }`}
+      >
+        <div
+          className={`flex items-center gap-1.5 text-sm font-semibold text-[#18181b] ${collapsed ? 'justify-center' : ''}`}
+        >
+          <img className="h-4 w-4 object-contain" src={brandMark} alt="" />
           {!collapsed && (
             <>
               <span>HajaCheck</span>
-              {isAdmin && <span className="side-nav-admin-badge">ADMIN</span>}
+              {isAdmin && (
+                <span className="rounded-full border border-[#e5e7eb] bg-[#f3f4f6] px-[7px] py-[3px] text-[10px] tracking-[0.05em] text-[#6b7280]">
+                  ADMIN
+                </span>
+              )}
             </>
           )}
         </div>
         <button
           type="button"
-          className="side-nav-collapse"
+          className="inline-flex h-5 w-5 cursor-pointer items-center justify-center border-none bg-none p-0"
           onClick={handleCollapseToggle}
           aria-label={collapsed ? '사이드바 펼치기' : '사이드바 접기'}
           aria-expanded={!collapsed}
         >
-          <img src={collapseIcon} alt="" />
+          <img className="h-5 w-5" src={collapseIcon} alt="" />
         </button>
       </div>
 
-      <nav className="side-nav-links" aria-label="사이드 메뉴">
+      <nav className="flex flex-1 flex-col gap-2 pt-1" aria-label="사이드 메뉴">
         {allItems.map((item) =>
           item.subItems ? (
-            <div key={item.href} className="side-nav-group">
+            <div key={item.href}>
               <button
                 type="button"
-                className="side-nav-link side-nav-link--group"
+                className={getLinkClassName(false, true)}
                 onClick={() => toggleExpand(item.label)}
                 aria-expanded={!collapsed && expandedLabel === item.label}
                 title={collapsed ? item.label : undefined}
               >
-                <span className="side-nav-link-main">
-                  <img className="side-nav-link-icon" src={item.icon} alt="" />
+                <span className={`inline-flex items-center ${collapsed ? 'gap-0' : 'gap-3'}`}>
+                  <img className="h-[18px] w-[18px] object-contain" src={item.icon} alt="" />
                   {!collapsed && item.label}
                 </span>
                 {!collapsed && (
                   <img
-                    className={`side-nav-chevron${expandedLabel === item.label ? ' side-nav-chevron--open' : ''}`}
+                    className={`h-[5.55px] w-[9px] transition-transform duration-150 ${
+                      expandedLabel === item.label ? 'rotate-180' : ''
+                    }`}
                     src={chevronIcon}
                     alt=""
                   />
                 )}
               </button>
               {!collapsed && expandedLabel === item.label && (
-                <div className="side-nav-sublist">
+                <div className="flex flex-col gap-1 pr-4 pl-[46px]">
                   {item.subItems.map((sub) => (
                     <Link
                       key={sub.href}
                       to={sub.href}
-                      className={`side-nav-sublink${sub.href === activeHref ? ' side-nav-sublink--active' : ''}`}
+                      className={`rounded-full px-4 py-[6px] text-[13px] no-underline hover:text-[#18181b] ${
+                        sub.href === activeHref
+                          ? 'bg-surface text-[#18181b] ring-1 ring-border'
+                          : 'text-[#71717a]'
+                      }`}
                       aria-current={sub.href === activeHref ? 'page' : undefined}
                     >
                       {sub.label}
@@ -246,12 +277,12 @@ export function SideNavBar({
             <Link
               key={item.href}
               to={item.href}
-              className={`side-nav-link${item.href === activeHref ? ' side-nav-link--active' : ''}`}
+              className={getLinkClassName(item.href === activeHref)}
               aria-current={item.href === activeHref ? 'page' : undefined}
               title={collapsed ? item.label : undefined}
             >
-              <span className="side-nav-link-main">
-                <img className="side-nav-link-icon" src={item.icon} alt="" />
+              <span className={`inline-flex items-center ${collapsed ? 'gap-0' : 'gap-3'}`}>
+                <img className="h-[18px] w-[18px] object-contain" src={item.icon} alt="" />
                 {!collapsed && item.label}
               </span>
             </Link>
@@ -260,20 +291,28 @@ export function SideNavBar({
       </nav>
 
       {user && (
-        <div className="side-nav-user">
-          <div className="side-nav-user-info">
+        <div className="border-t border-[#cbc4d2]/30 px-4 pt-[17px] pb-2.5">
+          <div className={`flex items-center gap-2 ${collapsed ? 'justify-center' : ''}`}>
             {user.avatarUrl ? (
-              <img className="side-nav-user-avatar" src={user.avatarUrl} alt="" />
+              <img
+                className="h-8 w-8 rounded-full bg-[#cbc4d2] object-cover"
+                src={user.avatarUrl}
+                alt=""
+              />
             ) : (
               <span
-                className="side-nav-user-avatar side-nav-user-avatar--placeholder"
+                className="inline-block h-8 w-8 rounded-full bg-[#cbc4d2] object-cover"
                 aria-hidden="true"
               />
             )}
             {!collapsed && (
-              <span className="side-nav-user-text">
-                <span className="side-nav-user-name">{user.name}</span>
-                {user.plan && <span className="side-nav-user-plan">{user.plan}</span>}
+              <span className="flex flex-col">
+                <span className="text-sm text-[#1d1b20]">{user.name}</span>
+                {user.plan && (
+                  <span className="text-[11px] tracking-[0.05em] text-text-default">
+                    {user.plan}
+                  </span>
+                )}
               </span>
             )}
           </div>
@@ -283,11 +322,11 @@ export function SideNavBar({
       {onLogout && (
         <button
           type="button"
-          className="side-nav-logout"
+          className={`${LOGOUT_BASE} ${collapsed ? 'justify-center p-2' : 'px-4 py-2'}`}
           onClick={onLogout}
           title={collapsed ? '로그아웃' : undefined}
         >
-          <img src={logoutIcon} alt="" />
+          <img className="h-[18px] w-[18px]" src={logoutIcon} alt="" />
           {!collapsed && '로그아웃'}
         </button>
       )}

@@ -2,8 +2,9 @@
  * 전역 색상 토큰 — Figma "HajaCheck" 파일(node-id 63-2, 205-2333, 208-2458~2460,
  * 322-2363 등, 2026-07-13 확인) 실측값 반영. shared/components CSS가 각자
  * 하드코딩하던 값을 이 파일로 승격.
+ * Tailwind v4 @theme — --color-* 네임스페이스가 bg-primary/text-muted 등 유틸리티로 자동 생성됨.
  */
-:root {
+@theme {
   /* Primary / accent */
   --color-primary: #18181b; /* Figma 버튼(로그인/결과 보기/필터 액티브) 배경 — 순수 black 아님 */
   --color-surface: #fff; /* 밝은 표면/전경 — Button primary 전경, Pagination 활성 전경 */

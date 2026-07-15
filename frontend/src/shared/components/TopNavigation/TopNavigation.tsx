@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom';
 import brandMark from '../../../assets/brand/brand-mark.png';
-import './TopNavigation.css';
 
 export interface TopNavItem {
   label: string;
@@ -28,21 +27,31 @@ export function TopNavigation({
   logoHref = '/',
 }: TopNavigationProps) {
   return (
-    <div className="top-nav">
-      <Link className="top-nav-logo" to={logoHref}>
-        <img className="top-nav-logo-mark" src={brandMark} alt="" />
+    <div className="flex max-w-7xl items-center justify-between gap-6 rounded-full border border-white/20 bg-white/50 px-[33px] py-[13px] shadow-[0px_3px_4px_0px_rgba(0,0,0,0.2)] backdrop-blur-[10px]">
+      <Link
+        className="inline-flex items-center gap-[5px] text-[22px] font-extrabold whitespace-nowrap text-[#1d1b20] no-underline"
+        to={logoHref}
+      >
+        <img className="h-[25px] w-[25px] object-contain" src={brandMark} alt="" />
         <span>HajaCheck</span>
       </Link>
 
-      <nav className="top-nav-links" aria-label="주요 메뉴">
+      <nav className="flex items-center gap-8" aria-label="주요 메뉴">
         {navItems.map((item) => (
-          <Link key={item.href} className="top-nav-link" to={item.href}>
+          <Link
+            key={item.href}
+            className="text-base font-medium whitespace-nowrap text-[#494551] no-underline"
+            to={item.href}
+          >
             {item.label}
           </Link>
         ))}
       </nav>
 
-      <Link to={loginHref} className="top-nav-login">
+      <Link
+        to={loginHref}
+        className="inline-flex items-center justify-center rounded-full bg-primary px-6 py-2.5 text-base font-semibold whitespace-nowrap text-surface no-underline"
+      >
         로그인
       </Link>
     </div>

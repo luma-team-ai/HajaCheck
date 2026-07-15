@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom';
 import brandMark from '../../../assets/brand/brand-mark.png';
-import './Footer.css';
 
 export interface FooterLink {
   label: string;
@@ -53,23 +52,27 @@ export function Footer({
   copyright = '© 2026 FACIL.AI Inc. All rights reserved.',
 }: FooterProps) {
   return (
-    <footer className="site-footer">
-      <div className="site-footer-top">
-        <div className="site-footer-brand">
-          <div className="site-footer-logo">
-            <img className="site-footer-logo-mark" src={brandMark} alt="" />
+    <footer className="border-t border-border bg-surface-muted px-8 pt-[65px] pb-8">
+      <div className="mx-auto flex max-w-7xl flex-wrap gap-10 pb-8">
+        <div className="grow shrink basis-60 min-w-50">
+          <div className="mb-3 flex items-center gap-2 text-base font-bold text-black">
+            <img className="h-4 w-4 object-contain" src={brandMark} alt="" />
             <span>HajaCheck</span>
           </div>
-          <p className="site-footer-tagline">{tagline}</p>
+          <p className="m-0 text-sm leading-[1.6] text-[#47464b]">{tagline}</p>
         </div>
 
         {columns.map((column) => (
-          <div key={column.title} className="site-footer-column">
-            <h4>{column.title}</h4>
-            <ul>
+          <div key={column.title} className="grow shrink basis-40 min-w-35">
+            <h4 className="m-0 mb-4 text-sm font-semibold tracking-[0.05em] text-black uppercase">
+              {column.title}
+            </h4>
+            <ul className="m-0 flex list-none flex-col gap-3 p-0">
               {column.links.map((link) => (
                 <li key={link.href}>
-                  <Link to={link.href}>{link.label}</Link>
+                  <Link to={link.href} className="text-sm text-[#47464b] no-underline">
+                    {link.label}
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -77,7 +80,9 @@ export function Footer({
         ))}
       </div>
 
-      <div className="site-footer-bottom">{copyright}</div>
+      <div className="mx-auto max-w-7xl border-t border-border pt-[33px] text-sm text-[#858387]">
+        {copyright}
+      </div>
     </footer>
   );
 }

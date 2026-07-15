@@ -1,4 +1,5 @@
-/* 전역 스타일 — 스타일 방식(Tailwind 권장)은 착수 회의에서 확정 후 세팅 */
+/* 전역 스타일 — Tailwind CSS v4 채택 (2026-07-15) */
+@import 'tailwindcss';
 @import './tokens.css';
 
 * {

@@ -1,7 +1,6 @@
 import type { MouseEvent, ReactNode } from 'react';
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import './Modal.css';
 
 interface ModalProps {
   open: boolean;
@@ -87,16 +86,20 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
   }
 
   return createPortal(
-    <div className="modal-overlay" onClick={handleOverlayClick} role="presentation">
+    <div
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-overlay"
+      onClick={handleOverlayClick}
+      role="presentation"
+    >
       <div
         ref={contentRef}
-        className="modal-content"
+        className="max-h-[85vh] min-w-80 max-w-[90vw] overflow-y-auto rounded-[20px] border border-border bg-surface p-6 shadow-2xl"
         role="dialog"
         aria-modal="true"
         tabIndex={-1}
         onClick={handleContentClick}
       >
-        {title && <h2 className="modal-title">{title}</h2>}
+        {title && <h2 className="m-0 mb-4 text-lg font-bold">{title}</h2>}
         {children}
       </div>
     </div>,

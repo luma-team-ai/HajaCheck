@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import { Button } from '../Button/Button';
-import './ErrorFallback.css';
 
 interface ErrorFallbackProps {
   message?: string;
@@ -16,8 +15,8 @@ export function ErrorFallback({
   children,
 }: ErrorFallbackProps) {
   return (
-    <div className="error-fallback" role="alert">
-      <p className="error-fallback-message">{message}</p>
+    <div className="flex flex-col items-center gap-3 px-4 py-8 text-center" role="alert">
+      <p className="m-0 text-sm text-text-muted">{message}</p>
       {onRetry && (
         <Button variant="secondary" size="sm" onClick={onRetry}>
           {retryLabel}
