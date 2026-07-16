@@ -1,6 +1,9 @@
 package com.hajacheck.core.ai.service;
 
 import com.hajacheck.core.ai.config.AiServerProperties;
+import com.hajacheck.core.ai.dto.BriefingAiEnvelope;
+import com.hajacheck.core.ai.dto.BriefingResponse;
+import com.hajacheck.core.ai.dto.BriefingStatsRequest;
 import com.hajacheck.core.ai.dto.DefectExplainAiEnvelope;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
@@ -33,10 +36,12 @@ public class AiProxyService {
 
     private static final String DEFECT_EXPLAIN_PATH = "/ai/defect-explain";
     private static final String REPORT_PATH = "/ai/report";
+    private static final String BRIEFING_PATH = "/ai/briefing";
     private static final String INTERNAL_KEY_HEADER = "X-Internal-Key";
 
     private final RestClient aiServerRestClient;
     private final AiServerProperties aiServerProperties;
+    private final BriefingStatsService briefingStatsService;
 
     public ApiResponse<DefectExplainResponse> explainDefect(DefectExplainRequest request) {
         DefectExplainAiEnvelope envelope = callAiServer(request);
@@ -103,6 +108,48 @@ public class AiProxyService {
                     .body(request)
                     .retrieve()
                     .body(ReportAiEnvelope.class);
+        } catch (ResourceAccessException e) {
+            throw mapConnectionFailure(e);
+        } catch (RestClientException e) {
+            log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    /**
+     * 로그인 사용자(ownerId) 소유 범위 현황을 {@link BriefingStatsService} 로 집계해 FastAPI
+     * {@code /ai/briefing} 을 호출한다(#248 / HAJA-197). ownerId 는 컨트롤러가
+     * {@code @AuthenticationPrincipal} 에서만 취득해 전달한다(IDOR 방지).
+     */
+    public ApiResponse<BriefingResponse> briefing(Long ownerId) {
+        BriefingStatsRequest stats = briefingStatsService.buildStats(ownerId);
+        BriefingAiEnvelope envelope = callAiServer(stats);
+        if (envelope == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+
+        if (!envelope.success()) {
+            BriefingAiEnvelope.ErrorBody error = envelope.error();
+            if (error == null) {
+                throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+            }
+            return ApiResponse.fail(error.code(), error.message());
+        }
+
+        if (envelope.data() == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        return ApiResponse.ok(envelope.data());
+    }
+
+    private BriefingAiEnvelope callAiServer(BriefingStatsRequest request) {
+        try {
+            return aiServerRestClient.post()
+                    .uri(BRIEFING_PATH)
+                    .headers(this::attachInternalKeyIfPresent)
+                    .body(request)
+                    .retrieve()
+                    .body(BriefingAiEnvelope.class);
         } catch (ResourceAccessException e) {
             throw mapConnectionFailure(e);
         } catch (RestClientException e) {

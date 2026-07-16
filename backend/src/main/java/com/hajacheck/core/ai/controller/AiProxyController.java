@@ -1,5 +1,7 @@
 package com.hajacheck.core.ai.controller;
 
+import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.core.ai.dto.BriefingResponse;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
 import com.hajacheck.core.ai.dto.ReportRequest;
@@ -11,6 +13,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -40,5 +43,11 @@ public class AiProxyController {
     public ResponseEntity<ApiResponse<ReportResponse>> report(
             @Valid @RequestBody ReportRequest request) {
         return ResponseEntity.ok(aiProxyService.generateReport(request));
+    }
+
+    @Operation(summary = "AI 주간 브리핑", description = "로그인 사용자 소유 현황을 집계해 인증 프록시로 AI 서버에 전달해 주간 브리핑 카드를 반환한다")
+    @PostMapping("/briefing")
+    public ResponseEntity<ApiResponse<BriefingResponse>> briefing(@AuthenticationPrincipal LoginUser loginUser) {
+        return ResponseEntity.ok(aiProxyService.briefing(loginUser.getUserId()));
     }
 }

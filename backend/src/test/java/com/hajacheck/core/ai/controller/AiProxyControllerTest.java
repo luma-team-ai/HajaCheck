@@ -13,6 +13,7 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.core.ai.dto.BriefingResponse;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
 import com.hajacheck.global.common.ApiResponse;
@@ -110,5 +111,31 @@ class AiProxyControllerTest extends PostgresTestSupport {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void 브리핑_미인증_401() throws Exception {
+        mockMvc.perform(post("/api/ai/briefing").with(csrf()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void 브리핑_인증됨_AI서버성공_200과데이터반환() throws Exception {
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                loginUser, null, loginUser.getAuthorities());
+        BriefingResponse response = new BriefingResponse(
+                "이번 주 하자 발생이 감소했습니다.",
+                "균열 유형 점검을 우선하세요.",
+                new BriefingResponse.BriefingFacts(8L, 10L, -20, "감소", "균열", 1L));
+        when(aiProxyService.briefing(loginUser.getUserId())).thenReturn(ApiResponse.ok(response));
+
+        mockMvc.perform(post("/api/ai/briefing").with(csrf()).with(authentication(auth)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.briefing").value("이번 주 하자 발생이 감소했습니다."))
+                .andExpect(jsonPath("$.data.facts.thisWeekDefects").value(8))
+                .andExpect(jsonPath("$.data.facts.trend").value("감소"));
     }
 }

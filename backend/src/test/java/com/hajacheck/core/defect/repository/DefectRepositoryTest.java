@@ -11,6 +11,7 @@ import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.support.PostgresTestSupport;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -147,6 +148,43 @@ class DefectRepositoryTest extends PostgresTestSupport {
 
         assertThat(inRange).isEqualTo(1);
         assertThat(outOfRange).isEqualTo(0);
+    }
+
+    @Test
+    void countByInspectionIdInAndDeletedFalseAndCreatedAtRange_주경계자정하자는이번주지난주중한쪽에만집계() {
+        // 리뷰 P1 회귀 방지 — 과거 "-1ns" 트릭(BETWEEN 양끝 포함을 반열림처럼 흉내)은 PG timestamp
+        // (defects.created_at 은 timestamp with time zone)가 마이크로초 정밀도라 .999999999 가
+        // 다음 자정으로 반올림되어 사실상 양끝 포함이 되고, 주 경계 자정(00:00:00.000000)인 하자가
+        // 이번주·지난주 양쪽에 중복 집계됐다. 실 PG(Testcontainers)로만 검증 가능한 결함이라
+        // Mockito 단위테스트가 아닌 이 통합테스트로 반열림 [from,to) 이 실제로 지켜지는지 확인한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+
+        Defect boundaryDefect = defectRepository.save(
+                newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
+        em.flush();
+
+        // @CreatedDate 는 persist 시점에 auditing 이 "now" 로 덮어써 builder/reflection 으로 미리
+        // 지정할 수 없다 — 저장 후 네이티브 UPDATE 로 주 경계 자정 값을 강제한다.
+        LocalDate weekStart = LocalDate.of(2026, 1, 5).with(DayOfWeek.MONDAY);
+        LocalDateTime weekBoundary = weekStart.atStartOfDay();
+        em.getEntityManager()
+                .createNativeQuery("update defects set created_at = ?1 where id = ?2")
+                .setParameter(1, weekBoundary)
+                .setParameter(2, boundaryDefect.getId())
+                .executeUpdate();
+        em.flush();
+        em.clear();
+
+        long thisWeekCount = defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
+                List.of(inspectionId), weekBoundary, weekBoundary.plusWeeks(1));
+        long lastWeekCount = defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
+                List.of(inspectionId), weekBoundary.minusWeeks(1), weekBoundary);
+
+        assertThat(thisWeekCount).isEqualTo(1); // 경계 자정은 from(inclusive) 쪽인 "이번주"에만 집계
+        assertThat(lastWeekCount).isEqualTo(0); // "지난주" 쪽 to 는 exclusive 라 겹치지 않음
+        assertThat(thisWeekCount + lastWeekCount).isEqualTo(1); // 핵심 검증 — 이중집계 없음
     }
 
     @Test

@@ -47,7 +47,8 @@ class AiProxyServiceTest {
 
         RestClient.Builder builder = RestClient.builder().baseUrl(properties.getBaseUrl());
         mockServer = MockRestServiceServer.bindTo(builder).build();
-        aiProxyService = new AiProxyService(builder.build(), properties);
+        // briefingStatsService 는 defect-explain 테스트에서 사용하지 않아 null(#248 추가 의존성).
+        aiProxyService = new AiProxyService(builder.build(), properties, null);
     }
 
     @Test
