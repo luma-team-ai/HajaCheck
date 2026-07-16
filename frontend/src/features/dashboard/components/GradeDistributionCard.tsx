@@ -1,3 +1,4 @@
+import { DASHBOARD_COLOR_CLASS } from '../colors';
 import { useGradeDistribution } from '../hooks/useGradeDistribution';
 import {
   getGradeBgClass,
@@ -5,6 +6,10 @@ import {
   sortGradeDistribution,
   sumGradePercent,
 } from '../utils/gradeDistribution';
+
+// `dashboard-card-status`(layout.css, un-layered)가 color:#999 / font-size:14px를 지정하므로,
+// 경고 문구의 빨강·13px을 살리려면 두 유틸리티 모두 `!`가 필요하다(Cascade Layers — colors.ts 주석 참고).
+const WARNING_CLASS = `dashboard-card-status mt-2 ${DASHBOARD_COLOR_CLASS.dangerTextImportant} text-[13px]!`;
 
 export function GradeDistributionCard() {
   const { data, isLoading, isError } = useGradeDistribution();
@@ -48,7 +53,7 @@ export function GradeDistributionCard() {
             ))}
           </ul>
           {!isTotalValid && (
-            <p className="dashboard-card-status mt-2 text-[#dc2626] text-[13px]" role="alert">
+            <p className={WARNING_CLASS} role="alert">
               등급 분포 합계가 100%가 아닙니다 (현재 {totalPercent.toFixed(1)}%) — 데이터를 확인해 주세요.
             </p>
           )}

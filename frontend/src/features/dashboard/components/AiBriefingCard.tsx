@@ -1,5 +1,6 @@
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
+import { DASHBOARD_COLOR_CLASS } from '../colors';
 import { useAiBriefing } from '../hooks/useAiBriefing';
 
 // shared/styles/layout.css의 .dashboard-card 배경/보더를 이 카드만 덮어써야 해서(그라데이션+보더 색)
@@ -22,7 +23,9 @@ export function AiBriefingCard() {
         <span className="text-base" aria-hidden="true">
           ✨
         </span>
-        <span className="bg-[#4a5cff] text-white text-[11px] font-bold py-0.5 px-2 rounded-full">
+        <span
+          className={`${DASHBOARD_COLOR_CLASS.accentBg} text-white text-[11px] font-bold py-0.5 px-2 rounded-full`}
+        >
           AI
         </span>
         <h3 className="dashboard-card-title m-0!">이번 주 브리핑</h3>
@@ -35,8 +38,12 @@ export function AiBriefingCard() {
       )}
       {!isLoading && !isError && data && (
         <>
-          <p className="text-sm leading-[1.6] text-[#333] mt-0 mb-2 mx-0">{data.briefing}</p>
-          <p className="text-[13px] font-semibold text-[#4a5cff] m-0">{data.recommendation}</p>
+          <p className={`text-sm leading-[1.6] ${DASHBOARD_COLOR_CLASS.bodyText} mt-0 mb-2 mx-0`}>
+            {data.briefing}
+          </p>
+          <p className={`text-[13px] font-semibold ${DASHBOARD_COLOR_CLASS.accentText} m-0`}>
+            {data.recommendation}
+          </p>
         </>
       )}
     </section>

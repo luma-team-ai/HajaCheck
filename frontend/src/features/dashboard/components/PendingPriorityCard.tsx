@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { DASHBOARD_COLOR_CLASS } from '../colors';
 import { inspectionReviewPath } from '../constants';
 import { usePendingPriority } from '../hooks/usePendingPriority';
 import { formatElapsedTime } from '../utils/formatElapsedTime';
@@ -17,7 +18,7 @@ export function PendingPriorityCard() {
     <section className="dashboard-card">
       <div className="dashboard-card-header">
         <h3 className="dashboard-card-title">처리 대기</h3>
-        <span className="text-[13px] font-semibold text-[#999]">우선순위</span>
+        <span className={`text-[13px] font-semibold ${DASHBOARD_COLOR_CLASS.mutedText}`}>우선순위</span>
       </div>
 
       {isLoading && <p className="dashboard-card-status">불러오는 중...</p>}
@@ -31,7 +32,7 @@ export function PendingPriorityCard() {
           {data.map((item) => (
             <li
               key={item.id}
-              className="flex flex-col gap-2 py-3.5 px-4 border border-[#ececec] rounded-[14px]"
+              className={`flex flex-col gap-2 py-3.5 px-4 border ${DASHBOARD_COLOR_CLASS.dividerBorder} rounded-[14px]`}
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
@@ -40,7 +41,7 @@ export function PendingPriorityCard() {
                     {item.title}
                   </p>
                 </div>
-                <span className="shrink-0 text-xs text-[#999]">
+                <span className={`shrink-0 text-xs ${DASHBOARD_COLOR_CLASS.mutedText}`}>
                   {formatElapsedTime(item.occurredAt)}
                 </span>
               </div>
@@ -50,7 +51,7 @@ export function PendingPriorityCard() {
               <div className="flex justify-end">
                 <button
                   type="button"
-                  className="shrink-0 bg-white border border-[#d8dbe6] rounded-lg py-1.75 px-3.5 text-[13px] font-semibold text-[#333] cursor-pointer"
+                  className={`shrink-0 bg-white border border-[#d8dbe6] rounded-lg py-1.75 px-3.5 text-[13px] font-semibold ${DASHBOARD_COLOR_CLASS.bodyText} cursor-pointer`}
                   onClick={() => handleReview(item.id)}
                 >
                   검수하기

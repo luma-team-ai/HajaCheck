@@ -1,8 +1,9 @@
+import { DASHBOARD_COLOR_CLASS } from '../colors';
 import { useRecentInspections } from '../hooks/useRecentInspections';
 import { StatusBadge } from './StatusBadge';
 
 const TH_BASE_CLASS =
-  'text-left text-[#888] font-semibold py-2.75 px-3 bg-[#f6f7f9] border-b border-[#eee] whitespace-nowrap';
+  `text-left ${DASHBOARD_COLOR_CLASS.labelText} font-semibold py-2.75 px-3 bg-[#f6f7f9] border-b border-[#eee] whitespace-nowrap`;
 const TD_CLASS = 'p-3 border-b border-[#f4f4f4] whitespace-nowrap';
 
 export function RecentInspectionsTable() {
