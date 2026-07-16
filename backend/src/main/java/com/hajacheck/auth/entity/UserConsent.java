@@ -2,10 +2,14 @@ package com.hajacheck.auth.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -24,7 +28,11 @@ import org.hibernate.type.SqlTypes;
  */
 @Entity
 @Getter
-@Table(name = "user_consents")
+@Table(
+        name = "user_consents",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_user_consents_user_policy_version",
+                columnNames = {"user_id", "policy_type", "policy_version"}))
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class UserConsent {
 
@@ -34,6 +42,10 @@ public class UserConsent {
 
     @Column(name = "user_id", nullable = false)
     private Long userId;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", insertable = false, updatable = false)
+    private User user;
 
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "policy_type", columnDefinition = "consent_policy_type", nullable = false)
