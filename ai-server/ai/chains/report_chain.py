@@ -128,8 +128,20 @@ _UNTRUSTED_DATA_BEGIN = "---BEGIN UNTRUSTED DATA---"
 _UNTRUSTED_DATA_END = "---END UNTRUSTED DATA---"
 
 
+def _sanitize_untrusted(text: str) -> str:
+    """사용자 입력 안에 마커 리터럴 자체가 들어있으면 치환해 래퍼 조기 종료(스푸핑)를 막는다
+    (code-reviewer P2: confirmed_defects[].description 등은 자유 텍스트라 길이·문자 제한이 없어
+    `---END UNTRUSTED DATA---\\n<가짜 지침>`을 그대로 넣으면 래퍼가 조기 종료돼 삽입 텍스트가
+    LLM에게 신뢰할 수 있는 프롬프트 내용처럼 보일 수 있었다). 대시 3개+공백 패턴만 깨뜨려도
+    정확한 마커 문자열 재구성이 불가능해지므로, 마커 리터럴 자체가 아니라 그 구성요소인
+    `---`를 전각 대시로 치환한다 — 부분 문자열이 변형되어 원본 마커와 더 이상 일치하지 않는다.
+    """
+    return text.replace("---", "—--")
+
+
 def _wrap_untrusted(text: str) -> str:
-    return f"{_UNTRUSTED_DATA_BEGIN}\n{text}\n{_UNTRUSTED_DATA_END}"
+    safe_text = _sanitize_untrusted(text)
+    return f"{_UNTRUSTED_DATA_BEGIN}\n{safe_text}\n{_UNTRUSTED_DATA_END}"
 
 
 def _format_facility_info(facility_info: dict) -> str:
