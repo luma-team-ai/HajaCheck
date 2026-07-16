@@ -10,7 +10,10 @@ servers:
   - url: /api
     description: Spring Boot (백엔드)
   - url: /ai
-    description: FastAPI (ai-server, 내부 전용)
+    description: >
+      FastAPI (ai-server) — **내부 전용**. 외부 공개 안 됨(nginx 공개 `/ai/` 제거, #236).
+      스프링 `/api/ai/*` 프록시만 호출하며 `X-Internal-Key`(env `AI_INTERNAL_KEY`) 검증(설정 시 불일치 401, `/health` 제외).
+      프론트는 이 서버를 직접 호출하지 않음 → `/api/ai/*`(세션 인증) 경유. 상세 `contract.md` §접근 모델.
 
 paths:
   /health:

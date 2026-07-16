@@ -5,6 +5,23 @@
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
 
+## 접근 모델 — `/ai/*`는 내부 전용 (2026-07-16, #229·#234·#236)
+
+**외부(브라우저)는 FastAPI `/ai/*`를 직접 호출하지 않는다.** 무인증 공개 구멍 폐쇄(A안, 스프링 강제 경유):
+- 프론트 → 스프링 `POST /api/ai/*`(**세션+CSRF 인증**, 미인증 401) → 스프링이 `X-Internal-Key` 헤더를 부착해 FastAPI `POST /ai/*` 호출 → 결과를 표준 `ApiResponse{success,data,error}`로 변환해 반환.
+- **nginx는 공개 `/ai/`를 더 이상 프록시하지 않는다**(default/arm1/tls.conf에서 제거). FastAPI는 내부망/loopback으로만 도달 가능.
+- FastAPI는 `AI_INTERNAL_KEY` 설정 시 `X-Internal-Key` 불일치 요청을 **401**로 거부(`/health` 제외, `hmac.compare_digest` 상수시간 비교).
+- 공유키 = env `AI_INTERNAL_KEY`(스프링은 `AI_SERVER_INTERNAL_KEY`로 주입받아 `ai.server.internal-key`에 바인딩, 동일 단일 소스). 운영(arm1/prod) compose는 `:?`로 강제.
+- ⚠️ 라이브 arm1의 실제 공개 엣지는 **공유 host nginx**(레포 밖, `443 /ai/ → 8101`)라 별도 ops로 `/ai/` 제거 필요 — 그 전엔 내부키가 심층방어.
+
+### POST /api/ai/defect-explain (스프링 인증 프록시 · #229)
+프론트가 실제 호출하는 엔드포인트. 세션 인증 필요. 바디는 FastAPI `/ai/defect-explain`과 동일(snake_case, 각 필드 `@NotBlank`+`@Size`). 스프링이 FastAPI를 호출해 표준 envelope으로 반환:
+- 성공 → `data: { cause, risk, action }`
+- FastAPI LLM 실패(`success=false`) → FastAPI 코드/메시지 그대로 전파(HTTP 200)
+- AI 서버 장애 → `AI_SERVER_UNREACHABLE`(503) · `AI_SERVER_TIMEOUT`(504) · `AI_INVALID_RESPONSE`(502)
+
+> `briefing` 등 다른 `/ai/*`도 향후 동일 패턴의 스프링 프록시(`/api/ai/*`)로만 노출한다 — 프론트의 FastAPI 직접 호출 금지.
+
 ## GET /health
 
 헬스체크. 응답: `{"status": "ok"}`
