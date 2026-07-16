@@ -76,7 +76,7 @@ export function SelectedFacilityPopup({
           onClick={onGoToInspectionResult}
           className="flex h-10 w-[92px] items-center justify-center rounded-[999px] bg-[#18181b] font-medium text-white text-[14px] leading-[21px] transition hover:opacity-85"
         >
-          결과 접수
+          결과 검수
         </button>
       </div>
     </div>
