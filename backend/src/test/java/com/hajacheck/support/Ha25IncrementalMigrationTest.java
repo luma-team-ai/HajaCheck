@@ -450,7 +450,7 @@ class Ha25IncrementalMigrationTest {
                 alter table companies alter column lock_version drop default;
                 """);
         runPsqlExpectFailure(
-                postgres, "20260716_03_ha25_verify.sql", "must be bigint");
+                postgres, "20260716_03_ha25_verify.sql", "must be DEFAULT 0 NOT NULL");
         runSql(postgres, "restore lock default", """
                 alter table companies alter column lock_version set default 0;
                 """);
