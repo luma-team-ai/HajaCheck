@@ -28,6 +28,7 @@ declare global {
     CustomOverlay: new (options: KakaoCustomOverlayOptions) => KakaoCustomOverlay;
     Size: new (width: number, height: number) => KakaoSize;
     Point: new (x: number, y: number) => KakaoPoint;
+    MapTypeId: KakaoMapTypeIdMap;
     event: {
       addListener: (
         target: KakaoMarker,
@@ -59,9 +60,20 @@ declare global {
 
   interface KakaoMap {
     setCenter(latlng: KakaoLatLng): void;
+    panTo(latlng: KakaoLatLng): void;
     setLevel(level: number): void;
     getLevel(): number;
     relayout(): void;
+    setMapTypeId(mapTypeId: KakaoMapTypeId): void;
+  }
+
+  // 지도 타입 식별자 — ROADMAP(기본 지도) / SKYVIEW(순수 위성) / HYBRID(위성+지명)
+  type KakaoMapTypeId = number & { readonly __brand: 'KakaoMapTypeId' };
+
+  interface KakaoMapTypeIdMap {
+    ROADMAP: KakaoMapTypeId;
+    SKYVIEW: KakaoMapTypeId;
+    HYBRID: KakaoMapTypeId;
   }
 
   type KakaoMarkerImage = unknown;
