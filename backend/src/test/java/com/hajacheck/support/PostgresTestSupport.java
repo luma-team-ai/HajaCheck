@@ -15,22 +15,37 @@ import org.testcontainers.containers.PostgreSQLContainer;
  */
 public abstract class PostgresTestSupport {
 
-    static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:16")
-                    .withDatabaseName("hajacheck")
-                    .withUsername("postgres")
-                    .withPassword("postgres")
-                    .withInitScript("db/HajaCheck_script.sql");
+    private static final String EXTERNAL_URL = System.getenv("TEST_POSTGRES_URL");
+    private static final String EXTERNAL_USERNAME = System.getenv("TEST_POSTGRES_USERNAME");
+    private static final String EXTERNAL_PASSWORD = System.getenv("TEST_POSTGRES_PASSWORD");
+
+    static final PostgreSQLContainer<?> POSTGRES = createContainerWhenNeeded();
 
     static {
-        POSTGRES.start();
+        if (POSTGRES != null) {
+            POSTGRES.start();
+        }
+    }
+
+    private static PostgreSQLContainer<?> createContainerWhenNeeded() {
+        if (EXTERNAL_URL != null && !EXTERNAL_URL.isBlank()) {
+            return null;
+        }
+        return new PostgreSQLContainer<>("postgres:16")
+                .withDatabaseName("hajacheck")
+                .withUsername("postgres")
+                .withPassword("postgres")
+                .withInitScript("db/HajaCheck_script.sql");
     }
 
     @DynamicPropertySource
     static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.datasource.url",
+                () -> POSTGRES == null ? EXTERNAL_URL : POSTGRES.getJdbcUrl());
+        registry.add("spring.datasource.username",
+                () -> POSTGRES == null ? EXTERNAL_USERNAME : POSTGRES.getUsername());
+        registry.add("spring.datasource.password",
+                () -> POSTGRES == null ? EXTERNAL_PASSWORD : POSTGRES.getPassword());
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
         // 서버와 동일하게 스키마는 미리 만들어져 있고 엔티티는 대조만 한다.
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
