@@ -25,7 +25,8 @@ spring:
       database: 1   # 개발은 1번 (운영 0번)
   jpa:
     hibernate:
-      ddl-auto: update
+      # 공용 개발 DB(SSH 터널)에 Hibernate가 스키마를 자동 변경하지 않도록 none 고정(스키마는 수동 관리, #273)
+      ddl-auto: none
     show-sql: true
   security:
     oauth2:
