@@ -3,9 +3,12 @@ package com.hajacheck.auth.entity;
 import com.hajacheck.global.common.BaseTimeEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import lombok.AccessLevel;
@@ -40,6 +43,10 @@ public class Company extends BaseTimeEntity {
     // 기업 계정 소유자(플랜 보유자) 사용자 식별자 — FK 값만 보유(User 엔티티 결합 금지).
     @Column(name = "owner_user_id", nullable = false)
     private Long ownerUserId;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "owner_user_id", insertable = false, updatable = false)
+    private User ownerUser;
 
     @Column(nullable = false, length = 200)
     private String name;
@@ -78,6 +85,10 @@ public class Company extends BaseTimeEntity {
     // 승인/반려 처리 관리자 식별자 — FK 값만 보유.
     @Column(name = "reviewed_by")
     private Long reviewedBy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reviewed_by", insertable = false, updatable = false)
+    private User reviewer;
 
     @Column(name = "reviewed_at")
     private Instant reviewedAt;
