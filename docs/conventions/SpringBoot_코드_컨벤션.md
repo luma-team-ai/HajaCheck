@@ -119,8 +119,9 @@ POST   /api/inspections/{id}/analysis       # 행위성 리소스는 명사로
   해당 Entity에 `@CreatedDate` 필드를 선언한다.
 - 감사 시각(`createdAt`, `updatedAt`)은 기존 규약대로 `LocalDateTime`, 그 밖의 `timestamptz` 업무 시각은
   `Instant`, 날짜 컬럼은 `LocalDate`를 사용한다.
-- 같은 도메인 내부 연관관계만 필요에 따라 JPA 관계로 매핑하고 기본 fetch는 `LAZY`로 한다.
-  도메인 경계를 넘는 FK는 `Long` 식별자로 유지하고 Entity를 직접 참조하지 않는다.
+- FK는 `Long` 식별자 필드를 영속화의 쓰기 소스로 사용한다. 같은 도메인 내부에서 읽기 탐색이 필요하면
+  동일 FK 컬럼에 `insertable = false, updatable = false`를 지정한 읽기 전용 JPA 관계를 병행하고 기본
+  fetch는 `LAZY`로 한다. 도메인 경계를 넘는 FK는 `Long` 식별자만 유지하고 Entity를 직접 참조하지 않는다.
 - PostgreSQL named enum은 `@JdbcTypeCode(SqlTypes.NAMED_ENUM)`과 실제 타입명의 `columnDefinition`을
   함께 사용하며 Java enum 라벨과 순서를 DDL에 맞춘다.
 - `jsonb`는 `@JdbcTypeCode(SqlTypes.JSON)`과 `columnDefinition = "jsonb"`로 매핑한다. 현재 JSON 표현은
