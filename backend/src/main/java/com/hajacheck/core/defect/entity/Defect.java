@@ -6,6 +6,7 @@ import jakarta.persistence.EntityListeners;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
@@ -26,7 +27,9 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
  */
 @Entity
 @Getter
-@Table(name = "defects")
+@Table(name = "defects", indexes = {
+        @Index(name = "idx_defects_inspection", columnList = "inspection_id")
+})
 @EntityListeners(AuditingEntityListener.class)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Defect {
@@ -99,5 +102,23 @@ public class Defect {
         this.deleted = deleted;
         this.crackWidthMm = crackWidthMm;
         this.crackLengthMm = crackLengthMm;
+    }
+
+    public void review(DefectGrade grade) {
+        this.grade = grade;
+        this.reviewed = true;
+    }
+
+    public void changeStatus(DefectStatus status) {
+        this.status = status;
+    }
+
+    public void updateCrackMeasurement(Double crackWidthMm, Double crackLengthMm) {
+        this.crackWidthMm = crackWidthMm;
+        this.crackLengthMm = crackLengthMm;
+    }
+
+    public void softDelete() {
+        this.deleted = true;
     }
 }
