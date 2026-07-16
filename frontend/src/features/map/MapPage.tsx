@@ -10,9 +10,15 @@ import { MapControls } from './components/MapControls';
 import { MapLegend } from './components/MapLegend';
 import { SelectedFacilityPopup } from './components/SelectedFacilityPopup';
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_LEVEL, ERROR_TEXT_COLOR, MAX_MAP_LEVEL, MIN_MAP_LEVEL } from './constants';
+import { useDebouncedValue } from './hooks/useDebouncedValue';
 import { createFacilityMarker, isValidCoordinate } from './lib/createFacilityMarker';
 import { filterFacilities } from './lib/filterFacilities';
 import { KakaoMapKeyMissingError, loadKakaoMapSdk } from './lib/loadKakaoMapSdk';
+
+// 검색어 타이핑마다 지도 마커를 전량 재생성(setMap(null) 후 재생성)하면 입력이 잦을수록
+// 불필요한 DOM/SVG 마커 생성 비용이 커진다. 목록 패널 필터링은 즉시 반영하되, 마커 재생성에
+// 쓰이는 검색어만 디바운스해 타이핑이 끝난 뒤에 한 번만 재생성되도록 한다(P2, 2026-07-16).
+const MARKER_SEARCH_DEBOUNCE_MS = 250;
 
 export default function MapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -41,6 +47,14 @@ export default function MapPage() {
   const filteredFacilities = useMemo(
     () => filterFacilities(facilities, searchQuery, selectedCategory),
     [facilities, searchQuery, selectedCategory]
+  );
+
+  // 마커 재생성 전용 디바운스 검색어 — 목록 패널(filteredFacilities)은 즉시 반영되지만
+  // 마커는 이 값이 안정된 뒤에만 재계산된다.
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, MARKER_SEARCH_DEBOUNCE_MS);
+  const markerFacilities = useMemo(
+    () => filterFacilities(facilities, debouncedSearchQuery, selectedCategory),
+    [facilities, debouncedSearchQuery, selectedCategory]
   );
 
   const selectedFacility = useMemo(
@@ -74,7 +88,12 @@ export default function MapPage() {
         mapInstanceRef.current = map;
         setSdkStatus('ready');
 
-        // 초기 렌더링 시 flex 레이아웃 계산 타이밍 불일치로 인한 타일 미로드/오버레이 깨짐 방지
+        // 초기 렌더링 시 flex 레이아웃 계산 타이밍 불일치로 인한 타일 미로드/오버레이 깨짐 방지.
+        // 100ms는 실측 기반 값 — 로컬/CI 크롬에서 flex 자식(지도 컨테이너) 레이아웃 계산이
+        // 마운트 직후 프레임 내에 끝나지 않아 relayout() 호출 없이는 초기 타일이 잘리는 현상을
+        // 재현했고, 60ms 이하에서는 간헐적으로 재현되어 여유를 둔 100ms로 고정함(2026-07-16).
+        // ResizeObserver로 컨테이너 크기 변화를 감지해 대체하는 방안도 검토했으나, 이 문제는
+        // "최초 1회, 마운트 직후"에만 발생하는 타이밍 이슈라 상시 관찰자를 두는 것은 과설계로 판단.
         setTimeout(() => {
           if (!cancelled && mapInstanceRef.current) {
             mapInstanceRef.current.relayout();
@@ -109,7 +128,7 @@ export default function MapPage() {
 
     // 좌표 런타임 검증 — 실 API 연동 시 서버가 null/NaN/범위밖 좌표를 줄 수 있으므로
     // 마커 생성 전에 걸러내고, 걸러진 항목은 warn으로 남겨 추적 가능하게 한다
-    const validFacilities = filteredFacilities.filter((facility) => {
+    const validFacilities = markerFacilities.filter((facility) => {
       const valid = isValidCoordinate(facility.latitude, facility.longitude);
       if (!valid) {
         console.warn(
@@ -127,7 +146,7 @@ export default function MapPage() {
       markersRef.current.forEach((marker) => marker.setMap(null));
       markersRef.current = [];
     };
-  }, [filteredFacilities, sdkStatus]);
+  }, [markerFacilities, sdkStatus]);
 
   // 선택된 시설물 변경 시 카카오맵 CustomOverlay 동기화
   useEffect(() => {
