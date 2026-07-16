@@ -236,6 +236,7 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 | GET | `/api/facilities/{id}` | 시설물 상세 조회(점검이력 포함) | 허남/김관영 |
 | PUT | `/api/facilities/{id}` | 시설물 수정 | 허남/김관영 |
 | DELETE | `/api/facilities/{id}` | 시설물 삭제 | 허남/김관영 |
+| POST | `/api/facilities/{id}/schedule` | 시설물 점검주기 설정(dev-04-03) | 허남/김관영 |
 | POST | `/api/inspections` | 점검(회차) 생성 | 황승현 |
 | POST | `/api/inspections/{id}/media` | 촬영 데이터 업로드 | 황승현 |
 | POST | `/api/inspections/{id}/analyze` | AI 분석 요청 | 황승현 |
