@@ -26,6 +26,8 @@ services:
     environment:
       # FastAPI X-Internal-Key 검증용 공유키(스프링 AI_SERVER_INTERNAL_KEY와 동일 소스). 운영 강제.
       AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
+      # 프로덕션 신호 — main.py가 이 값으로 /docs·/redoc·/openapi.json을 비활성화(무인증 스키마 노출 차단)
+      APP_ENV: prod
 
   nginx:
     image: hajacheck-nginx:${IMAGE_TAG:?IMAGE_TAG(버전+커밋 SHA)가 필요합니다 — latest 금지}
