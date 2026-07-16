@@ -1,3 +1,4 @@
+import { USAGE_BAR_FILL_CLASS, USAGE_WARNING_BADGE_CLASS } from '../statusClasses';
 import { formatLimit, isUsageWarning, usagePercent } from '../utils/planFormat';
 
 type Props = {
@@ -13,21 +14,37 @@ export function UsageBar({ label, used, limit, unit = '' }: Props) {
   const limitText = limit === null ? formatLimit(limit) : `${formatLimit(limit)}${unit}`;
 
   return (
-    <div className="mypage-usage-row">
-      <div className="mypage-usage-row-header">
-        <span className="mypage-usage-label">{label}</span>
-        <span className="mypage-usage-value">
-          {used.toLocaleString()}
-          {unit} / {limitText}
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span className="flex items-center gap-2 text-sm font-semibold text-text-default">
+          {label}
+          {warning && (
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${USAGE_WARNING_BADGE_CLASS}`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+              {percent}% 도달
+            </span>
+          )}
+        </span>
+        <span className="flex items-baseline gap-1 whitespace-nowrap">
+          <span className="text-2xl font-semibold text-heading">
+            {used.toLocaleString()}
+            {unit}
+          </span>
+          <span className="text-xs text-text-muted">/{limitText}</span>
         </span>
       </div>
       <div
-        className="mypage-usage-bar-track"
-        role="img"
+        className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-100"
+        role="progressbar"
+        aria-valuenow={percent ?? 0}
+        aria-valuemin={0}
+        aria-valuemax={100}
         aria-label={`${label} 사용량 ${percent ?? 0}%`}
       >
         <div
-          className={`mypage-usage-bar-fill${warning ? ' mypage-usage-bar-fill--warning' : ''}`}
+          className={`h-full rounded-full ${warning ? USAGE_BAR_FILL_CLASS.warning : USAGE_BAR_FILL_CLASS.normal}`}
           style={{ width: `${percent ?? 0}%` }}
         />
       </div>
