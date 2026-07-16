@@ -1,5 +1,10 @@
-# 레포 루트를 build context로 쓰는 서비스는 docker-compose.oci-db.yml의 db-tunnel뿐이고,
-# 그 Dockerfile(dockerfile_inline, alpine+openssh-client/autossh 설치만)은 COPY를 전혀 안 쓴다.
-# context 내용 자체가 이미지에 들어가지 않으므로 전체를 제외해 빌드 시 daemon으로의 컨텍스트 전송을 없앤다.
-# (backend/frontend/ai-server는 각자 서비스 디렉터리를 context로 쓰고 자체 .dockerignore를 따로 갖고 있어 무관)
+# ⚠️ 루트를 build context로 쓰는 새 서비스를 추가할 때는 이 파일을 반드시 먼저 갱신할 것.
+# 아래 `*`(전체 제외)는 "현재 루트 context를 쓰는 서비스가 COPY를 전혀 안 한다"는 전제에만 의존한다 —
+# COPY를 쓰는 서비스가 루트 context로 추가되면 context가 비어 COPY가 실패하거나 조용히 빈 파일이
+# 복사된다(원인 파악이 어려운 회귀). 그때는 `*` 대신 필요한 경로만 화이트리스트(`!path`)로 열어야 한다.
+#
+# 현재 전제: 루트 context 사용 서비스는 docker-compose.oci-db.yml의 db-tunnel 하나뿐이고,
+# 그 Dockerfile(dockerfile_inline)은 alpine에 openssh-client/autossh를 apk 설치만 하고 COPY를 안 쓴다.
+# 따라서 전체를 제외해 빌드 시 daemon으로의 컨텍스트 전송을 없앤다.
+# (backend/frontend/ai-server는 각자 서비스 디렉터리를 context로 쓰고 자체 .dockerignore가 있어 무관)
 *

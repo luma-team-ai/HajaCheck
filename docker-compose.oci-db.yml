@@ -42,8 +42,8 @@ services:
       -o StrictHostKeyChecking=accept-new
       -o ServerAliveInterval=30 -o ServerAliveCountMax=3
       -i /tmp/id_tunnel
-      -L 0.0.0.0:5432:127.0.0.1:${OCI_DB_REMOTE_PORT:-5432}
-      -L 0.0.0.0:6380:127.0.0.1:${OCI_REDIS_REMOTE_PORT:-6380}
+      -L 0.0.0.0:5432:127.0.0.1:${OCI_DB_REMOTE_PORT:?OCI_DB_REMOTE_PORT가 .env에 설정되어야 합니다}
+      -L 0.0.0.0:6380:127.0.0.1:${OCI_REDIS_REMOTE_PORT:?OCI_REDIS_REMOTE_PORT가 .env에 설정되어야 합니다}
       ${OCI_SSH_USER:?OCI_SSH_USER가 .env에 설정되어야 합니다}@${OCI_SSH_HOST:?OCI_SSH_HOST가 .env에 설정되어야 합니다}"
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 5432 && nc -z 127.0.0.1 6380"]

@@ -92,4 +92,8 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-co
 
 - **OCI DB는 팀 공용 개발 서버다.** `app.local-seed.enabled`를 여기서 `true`로 켜지 말 것(known-password ADMIN 계정이 공유 DB에 그대로 생성됨).
 - 본인 SSH 개인키는 절대 다른 사람과 공유하거나 저장소에 커밋하지 않는다.
+- `db-tunnel`은 `StrictHostKeyChecking=accept-new`로 붙는다 — known_hosts는 named volume(`db-tunnel-ssh`)에
+  지속되어 2회차부터는 호스트 키가 고정되지만, **볼륨이 비어있는 최초 1회 접속은 키를 검증 없이 신뢰(TOFU)**한다.
+  강화하려면 최초 기동 전 인프라 담당자에게 OCI 서버 호스트 키 지문을 받아
+  `docker compose ... run --rm db-tunnel ssh-keyscan -H <OCI_SSH_HOST>` 결과와 대조할 것(선택).
 - `REDIS_PASSWORD`는 `docker-compose.oci-db.yml`에서 `redis://:${REDIS_PASSWORD}@...` 형태로 URL에 그대로 삽입된다 — 비밀번호에 `@`·`:`·`/`·`%` 같은 URL 예약 문자가 들어있으면 파싱이 깨질 수 있으니 피할 것.
