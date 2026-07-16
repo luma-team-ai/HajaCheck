@@ -63,11 +63,20 @@ export default function MapPage() {
           DEFAULT_MAP_CENTER.latitude,
           DEFAULT_MAP_CENTER.longitude,
         );
-        mapInstanceRef.current = new window.kakao.maps.Map(mapContainerRef.current, {
+        const map = new window.kakao.maps.Map(mapContainerRef.current, {
           center,
           level: DEFAULT_MAP_LEVEL,
         });
+        mapInstanceRef.current = map;
         setSdkStatus('ready');
+
+        // 초기 렌더링 시 flex 레이아웃 계산 타이밍 불일치로 인한 타일 미로드/오버레이 깨짐 방지
+        setTimeout(() => {
+          if (!cancelled && mapInstanceRef.current) {
+            mapInstanceRef.current.relayout();
+            mapInstanceRef.current.setCenter(center);
+          }
+        }, 100);
       })
       .catch((error: unknown) => {
         if (cancelled) return;
