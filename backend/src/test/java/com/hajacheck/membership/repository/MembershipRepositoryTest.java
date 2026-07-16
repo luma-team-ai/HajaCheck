@@ -24,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
@@ -46,6 +47,8 @@ class MembershipRepositoryTest extends PostgresTestSupport {
     private UserPlanRepository userPlanRepository;
     @Autowired
     private UsageCounterRepository usageCounterRepository;
+    @Autowired
+    private TestEntityManager em;
 
     private Plan savePlan(PlanName name) {
         return planRepository.save(Plan.create(name, 10, 1000, 3, false, true, false, BigDecimal.valueOf(99000)));
@@ -101,13 +104,15 @@ class MembershipRepositoryTest extends PostgresTestSupport {
     void userPlan_개인구독_findFirstByUserIdAndStatus_ACTIVE조회() {
         Plan plan = savePlan(PlanName.STANDARD);
         User user = saveUser("individual@haja.com", null);
-        userPlanRepository.save(UserPlan.forUser(user.getId(), plan.getId()));
+        userPlanRepository.saveAndFlush(UserPlan.forUser(user.getId(), plan.getId()));
+        em.clear();
 
         Optional<UserPlan> found = userPlanRepository
                 .findFirstByUserIdAndStatusOrderByStartedAtDesc(user.getId(), UserPlanStatus.ACTIVE);
 
         assertThat(found).isPresent();
         assertThat(found.get().getPlanId()).isEqualTo(plan.getId());
+        assertThat(found.get().getPlan().getName()).isEqualTo(PlanName.STANDARD);
         assertThat(found.get().getCompanyId()).isNull();
     }
 
@@ -143,15 +148,17 @@ class MembershipRepositoryTest extends PostgresTestSupport {
         User user = saveUser("usage@haja.com", null);
         UserPlan userPlan = userPlanRepository.save(UserPlan.forUser(user.getId(), plan.getId()));
 
-        UsageCounter saved = usageCounterRepository.save(
+        UsageCounter saved = usageCounterRepository.saveAndFlush(
                 UsageCounter.create(userPlan.getId(), LocalDate.now(), 786, 4, 12, 1, 0, 2));
 
         assertThat(saved.getPeriod()).isEqualTo(YearMonth.now().atDay(1));
 
+        em.clear();
         Optional<UsageCounter> found = usageCounterRepository
                 .findByUserPlanIdAndPeriod(userPlan.getId(), YearMonth.now().atDay(1));
         assertThat(found).isPresent();
         assertThat(found.get().getAnalyzedImageCount()).isEqualTo(786);
+        assertThat(found.get().getUserPlan().getPlan().getName()).isEqualTo(PlanName.STANDARD);
     }
 
     @Test
