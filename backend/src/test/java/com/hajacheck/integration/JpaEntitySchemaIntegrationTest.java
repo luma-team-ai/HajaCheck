@@ -93,7 +93,7 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
 
         Media media = Media.create(
                 inspection.getId(), MediaFileType.IMAGE, "https://files.example/image.jpg",
-                null, Instant.now(), null, null, true, "image/jpeg");
+                null, Instant.now(), null, null, "image/jpeg");
         em.persist(media);
 
         Defect defect = Defect.builder()
@@ -123,6 +123,7 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
 
         Media foundMedia = em.find(Media.class, mediaId);
         assertThat(foundMedia.getMimeType()).isEqualTo("image/jpeg");
+        assertThat(foundMedia.isMimeSignatureVerified()).isFalse();
         assertThat(foundMedia.getInspection().getFacility().getName()).isEqualTo("통합검증 시설");
         DefectRevision foundRevision = em.find(DefectRevision.class, revisionId);
         Report foundReport = em.find(Report.class, reportId);

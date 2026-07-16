@@ -20,7 +20,6 @@ class MediaTest {
                 capturedAt,
                 new BigDecimal("37.566500"),
                 new BigDecimal("126.978000"),
-                false,
                 "video/mp4");
 
         assertThat(media.getInspectionId()).isEqualTo(10L);
@@ -41,23 +40,19 @@ class MediaTest {
                 null,
                 null,
                 null,
-                true,
                 "image/jpeg");
 
         assertThat(frame.getFileType()).isEqualTo(MediaFileType.IMAGE);
         assertThat(frame.getSourceVideoId()).isEqualTo(20L);
         assertThat(frame.getFrameIndex()).isEqualTo(15);
-        assertThat(frame.isMimeSignatureVerified()).isTrue();
+        assertThat(frame.isMimeSignatureVerified()).isFalse();
     }
 
     @Test
-    void markMimeSignatureVerified_검증상태를변경() {
-        Media media = Media.create(
-                10L, MediaFileType.IMAGE, "image.jpg", null,
-                null, null, null, false, "image/jpeg");
-
-        media.markMimeSignatureVerified();
-
-        assertThat(media.isMimeSignatureVerified()).isTrue();
+    void publicApi_호출자가MIME검증상태를주입할수없음() {
+        assertThat(java.util.Arrays.stream(Media.class.getMethods())
+                .map(method -> method.getName())
+                .toList())
+                .doesNotContain("markMimeSignatureVerified", "setMimeSignatureVerified");
     }
 }

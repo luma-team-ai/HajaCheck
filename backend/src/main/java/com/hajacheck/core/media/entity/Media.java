@@ -49,6 +49,7 @@ public class Media {
     @Column(name = "file_type", columnDefinition = "media_file_type", nullable = false)
     private MediaFileType fileType;
 
+    /** 업로드가 완료된 내부 저장소 객체 위치. 서버가 임의 외부 URL을 fetch하는 입력으로 사용하지 않는다. */
     @Column(name = "original_url", nullable = false, length = 500)
     private String originalUrl;
 
@@ -71,6 +72,7 @@ public class Media {
     @Column(name = "gps_lng", precision = 9, scale = 6)
     private BigDecimal gpsLng;
 
+    /** 새 엔티티는 항상 false로 시작하며, 검증 결과를 호출자 인자로 받지 않는다. */
     @Column(name = "mime_signature_verified", nullable = false)
     private boolean mimeSignatureVerified;
 
@@ -85,7 +87,7 @@ public class Media {
     private Media(Long inspectionId, MediaFileType fileType, String originalUrl,
                   String thumbnailUrl, Long sourceVideoId, Integer frameIndex,
                   Instant capturedAt, BigDecimal gpsLat, BigDecimal gpsLng,
-                  boolean mimeSignatureVerified, String mimeType) {
+                  String mimeType) {
         this.inspectionId = inspectionId;
         this.fileType = fileType;
         this.originalUrl = originalUrl;
@@ -95,14 +97,14 @@ public class Media {
         this.capturedAt = capturedAt;
         this.gpsLat = gpsLat;
         this.gpsLng = gpsLng;
-        this.mimeSignatureVerified = mimeSignatureVerified;
+        this.mimeSignatureVerified = false;
         this.mimeType = mimeType;
     }
 
     public static Media create(Long inspectionId, MediaFileType fileType, String originalUrl,
                                String thumbnailUrl, Instant capturedAt,
                                BigDecimal gpsLat, BigDecimal gpsLng,
-                               boolean mimeSignatureVerified, String mimeType) {
+                               String mimeType) {
         return Media.builder()
                 .inspectionId(inspectionId)
                 .fileType(fileType)
@@ -111,7 +113,6 @@ public class Media {
                 .capturedAt(capturedAt)
                 .gpsLat(gpsLat)
                 .gpsLng(gpsLng)
-                .mimeSignatureVerified(mimeSignatureVerified)
                 .mimeType(mimeType)
                 .build();
     }
@@ -119,7 +120,7 @@ public class Media {
     public static Media extractedFrame(Long inspectionId, String originalUrl, String thumbnailUrl,
                                        Long sourceVideoId, Integer frameIndex, Instant capturedAt,
                                        BigDecimal gpsLat, BigDecimal gpsLng,
-                                       boolean mimeSignatureVerified, String mimeType) {
+                                       String mimeType) {
         return Media.builder()
                 .inspectionId(inspectionId)
                 .fileType(MediaFileType.IMAGE)
@@ -130,12 +131,7 @@ public class Media {
                 .capturedAt(capturedAt)
                 .gpsLat(gpsLat)
                 .gpsLng(gpsLng)
-                .mimeSignatureVerified(mimeSignatureVerified)
                 .mimeType(mimeType)
                 .build();
-    }
-
-    public void markMimeSignatureVerified() {
-        this.mimeSignatureVerified = true;
     }
 }

@@ -15,7 +15,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.MountableFile;
 
 /**
- * 운영 증분 경로(v0.3 → HAJA-25)를 실제 psql autocommit으로 적용한 뒤 JPA 전체 스키마를 validate한다.
+ * 운영 증분 경로(v0.3 → HAJA-25)를 실제 psql autocommit으로 적용한 뒤 새 DB에 적용한
+ * 캐노니컬 DDL과 PostgreSQL 카탈로그를 대조하고, JPA 전체 스키마를 validate한다.
  * CREATE INDEX CONCURRENTLY를 포함하므로 JDBC 트랜잭션 기반 SQL 실행기로 대체하지 않는다.
  */
 @DataJpaTest
@@ -25,6 +26,106 @@ class Ha25IncrementalMigrationTest {
 
     private static final String MIGRATION_ROOT = "db/migrations/";
     private static final String CONTAINER_ROOT = "/tmp/";
+    private static final String CANONICAL_DDL_FILE = "HajaCheck_script.sql";
+    private static final String CANONICAL_DATABASE = "hajacheck_canonical";
+    private static final String SCHEMA_SIGNATURE_SQL = """
+            with schema_objects as (
+                select 'ENUM'::text as kind,
+                       type_meta.typname::text as object_name,
+                       string_agg(enum_meta.enumlabel::text, ',' order by enum_meta.enumsortorder) as definition
+                from pg_type type_meta
+                join pg_namespace namespace on namespace.oid = type_meta.typnamespace
+                join pg_enum enum_meta on enum_meta.enumtypid = type_meta.oid
+                where namespace.nspname = 'public'
+                group by type_meta.typname
+
+                union all
+
+                select 'TABLE', table_meta.relname,
+                       concat_ws('|', table_meta.relkind::text, table_meta.relpersistence::text)
+                from pg_class table_meta
+                join pg_namespace namespace on namespace.oid = table_meta.relnamespace
+                where namespace.nspname = 'public'
+                  and table_meta.relkind in ('r', 'p', 'v', 'm')
+
+                union all
+
+                select 'COLUMN', table_meta.relname || '.' || attribute.attname,
+                       concat_ws('|',
+                           format_type(attribute.atttypid, attribute.atttypmod),
+                           case when attribute.attnotnull then 'NOT NULL' else 'NULL' end,
+                           coalesce(pg_get_expr(default_meta.adbin, default_meta.adrelid, true), ''),
+                           attribute.attidentity::text,
+                           attribute.attgenerated::text)
+                from pg_class table_meta
+                join pg_namespace namespace on namespace.oid = table_meta.relnamespace
+                join pg_attribute attribute on attribute.attrelid = table_meta.oid
+                left join pg_attrdef default_meta
+                  on default_meta.adrelid = attribute.attrelid
+                 and default_meta.adnum = attribute.attnum
+                where namespace.nspname = 'public'
+                  and table_meta.relkind in ('r', 'p', 'v', 'm')
+                  and attribute.attnum > 0
+                  and not attribute.attisdropped
+
+                union all
+
+                select 'CONSTRAINT', table_meta.relname || '.' || constraint_meta.conname,
+                       concat_ws('|', constraint_meta.contype::text,
+                           constraint_meta.convalidated::text,
+                           pg_get_constraintdef(constraint_meta.oid, true))
+                from pg_constraint constraint_meta
+                join pg_class table_meta on table_meta.oid = constraint_meta.conrelid
+                join pg_namespace namespace on namespace.oid = table_meta.relnamespace
+                where namespace.nspname = 'public'
+
+                union all
+
+                select 'INDEX', index_class.relname,
+                       regexp_replace(pg_get_indexdef(index_class.oid), '[[:space:]]+', ' ', 'g')
+                from pg_index index_meta
+                join pg_class index_class on index_class.oid = index_meta.indexrelid
+                join pg_class table_meta on table_meta.oid = index_meta.indrelid
+                join pg_namespace namespace on namespace.oid = table_meta.relnamespace
+                where namespace.nspname = 'public'
+
+                union all
+
+                select 'TRIGGER', table_meta.relname || '.' || trigger_meta.tgname,
+                       concat_ws('|', trigger_meta.tgenabled::text,
+                           regexp_replace(pg_get_triggerdef(trigger_meta.oid, true), '[[:space:]]+', ' ', 'g'))
+                from pg_trigger trigger_meta
+                join pg_class table_meta on table_meta.oid = trigger_meta.tgrelid
+                join pg_namespace namespace on namespace.oid = table_meta.relnamespace
+                where namespace.nspname = 'public'
+                  and not trigger_meta.tgisinternal
+
+                union all
+
+                select 'SEQUENCE', sequence_class.relname,
+                       concat_ws('|', format_type(sequence_meta.seqtypid, null),
+                           sequence_meta.seqstart::text, sequence_meta.seqincrement::text,
+                           sequence_meta.seqmin::text, sequence_meta.seqmax::text,
+                           sequence_meta.seqcache::text, sequence_meta.seqcycle::text)
+                from pg_sequence sequence_meta
+                join pg_class sequence_class on sequence_class.oid = sequence_meta.seqrelid
+                join pg_namespace namespace on namespace.oid = sequence_class.relnamespace
+                where namespace.nspname = 'public'
+
+                union all
+
+                select 'FUNCTION', procedure_meta.proname || '(' ||
+                           pg_get_function_identity_arguments(procedure_meta.oid) || ')',
+                       regexp_replace(pg_get_functiondef(procedure_meta.oid), '[[:space:]]+', ' ', 'g')
+                from pg_proc procedure_meta
+                join pg_namespace namespace on namespace.oid = procedure_meta.pronamespace
+                where namespace.nspname = 'public'
+                  and procedure_meta.prokind = 'f'
+            )
+            select kind || '|' || object_name || '|' || definition
+            from schema_objects
+            order by kind, object_name;
+            """;
     private static final String LEGACY_FIXTURE_SQL = """
             insert into users (email, name, password_hash)
             values ('approved-owner@ha25.test', 'approved owner', 'hash'),
@@ -119,7 +220,7 @@ class Ha25IncrementalMigrationTest {
     }
 
     @Test
-    void v03PlusHa25Migration_matchesAllJpaMappings() {
+    void v03PlusHa25Migration_matchesCanonicalSchemaAndAllJpaMappings() {
         // ApplicationContext 시작 시 Hibernate validate가 전체 Entity를 대조한다.
         if (POSTGRES == null) {
             assertThat(EXTERNAL_SCHEMA_READY).isTrue();
@@ -160,6 +261,9 @@ class Ha25IncrementalMigrationTest {
                 .withDatabaseName("hajacheck")
                 .withUsername("postgres")
                 .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("db/" + CANONICAL_DDL_FILE),
+                        CONTAINER_ROOT + CANONICAL_DDL_FILE)
+                .withCopyFileToContainer(
                         MountableFile.forClasspathResource(MIGRATION_ROOT + "HajaCheck_script_v0.3.sql"),
                         CONTAINER_ROOT + "HajaCheck_script_v0.3.sql")
                 .withCopyFileToContainer(
@@ -174,9 +278,11 @@ class Ha25IncrementalMigrationTest {
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
+        assertV03BaselineContract(postgres);
         runSql(postgres, "legacy fixture", LEGACY_FIXTURE_SQL);
         runPsql(postgres, "20260716_01_ha25_expand.sql");
         runPsql(postgres, "20260716_01_ha25_expand.sql");
+        assertLockVersionBackfill(postgres);
 
         requireQuery(postgres, "membership backfill", """
                 select u.email || ':' || cm.status::text
@@ -197,7 +303,89 @@ class Ha25IncrementalMigrationTest {
 
         assertVerifierRejectsSemanticDrift(postgres);
         runPsql(postgres, "20260716_03_ha25_verify.sql");
+        assertCanonicalSchemaParity(postgres);
         return postgres;
+    }
+
+    private static void assertV03BaselineContract(PostgreSQLContainer<?> postgres) {
+        requireQuery(postgres, "tracked v0.3 baseline contract", """
+                select case when
+                    exists (
+                        select 1
+                        from pg_constraint constraint_meta
+                        where constraint_meta.conrelid = 'user_consents'::regclass
+                          and constraint_meta.contype = 'u'
+                          and (
+                              select array_agg(attribute.attname::text order by key.ordinality)
+                              from unnest(constraint_meta.conkey) with ordinality as key(attnum, ordinality)
+                              join pg_attribute attribute
+                                on attribute.attrelid = constraint_meta.conrelid
+                               and attribute.attnum = key.attnum
+                          ) = array['user_id', 'policy_type', 'policy_version']
+                    )
+                    and exists (
+                        select 1
+                        from pg_constraint constraint_meta
+                        where constraint_meta.conrelid = 'inspections'::regclass
+                          and constraint_meta.contype = 'u'
+                          and (
+                              select array_agg(attribute.attname::text order by key.ordinality)
+                              from unnest(constraint_meta.conkey) with ordinality as key(attnum, ordinality)
+                              join pg_attribute attribute
+                                on attribute.attrelid = constraint_meta.conrelid
+                               and attribute.attnum = key.attnum
+                          ) = array['facility_id', 'round_no']
+                    )
+                    and exists (
+                        select 1
+                        from information_schema.columns
+                        where table_schema = 'public'
+                          and table_name = 'media'
+                          and column_name = 'mime_signature_verified'
+                          and is_nullable = 'NO'
+                          and lower(column_default) like 'false%'
+                    )
+                then 'ready' else 'missing' end
+                """, "ready");
+    }
+
+    private static void assertLockVersionBackfill(PostgreSQLContainer<?> postgres) {
+        requireQuery(postgres, "lock_version backfill", """
+                select count(*)
+                from (
+                    select lock_version from companies
+                    union all select lock_version from company_memberships
+                    union all select lock_version from defects
+                    union all select lock_version from reports
+                    union all select lock_version from counsel_tickets
+                    union all select lock_version from rag_documents
+                ) state_machine_rows
+                where lock_version is distinct from 0
+                """, "0");
+    }
+
+    private static void assertCanonicalSchemaParity(PostgreSQLContainer<?> postgres) {
+        runSql(postgres, "create canonical comparison database",
+                "create database " + CANONICAL_DATABASE);
+        runPsql(postgres, CANONICAL_DDL_FILE, CANONICAL_DATABASE);
+
+        String migratedSchema = query(
+                postgres, postgres.getDatabaseName(), SCHEMA_SIGNATURE_SQL);
+        String canonicalSchema = query(
+                postgres, CANONICAL_DATABASE, SCHEMA_SIGNATURE_SQL);
+        if (!canonicalSchema.equals(migratedSchema)) {
+            java.util.Set<String> canonicalOnly = new java.util.TreeSet<>(
+                    canonicalSchema.lines().toList());
+            canonicalOnly.removeAll(migratedSchema.lines().toList());
+            java.util.Set<String> migratedOnly = new java.util.TreeSet<>(
+                    migratedSchema.lines().toList());
+            migratedOnly.removeAll(canonicalSchema.lines().toList());
+            throw new IllegalStateException(
+                    "Canonical DDL and v0.3 + HAJA-25 migration schemas differ."
+                            + "%nCanonical only:%n%s%nMigrated only:%n%s".formatted(
+                            String.join("\n", canonicalOnly.stream().limit(40).toList()),
+                            String.join("\n", migratedOnly.stream().limit(40).toList())));
+        }
     }
 
     private static void assertVerifierRejectsSemanticDrift(PostgreSQLContainer<?> postgres) {
@@ -257,10 +445,15 @@ class Ha25IncrementalMigrationTest {
     }
 
     private static void runPsql(PostgreSQLContainer<?> postgres, String fileName) {
+        runPsql(postgres, fileName, postgres.getDatabaseName());
+    }
+
+    private static void runPsql(
+            PostgreSQLContainer<?> postgres, String fileName, String databaseName) {
         Container.ExecResult result = execute(postgres,
                 "psql", "-X", "--set", "ON_ERROR_STOP=1",
                 "--username", postgres.getUsername(),
-                "--dbname", postgres.getDatabaseName(),
+                "--dbname", databaseName,
                 "--file", CONTAINER_ROOT + fileName);
         requireSuccess(result, fileName);
     }
@@ -291,11 +484,16 @@ class Ha25IncrementalMigrationTest {
     }
 
     private static String query(PostgreSQLContainer<?> postgres, String sql) {
+        return query(postgres, postgres.getDatabaseName(), sql);
+    }
+
+    private static String query(
+            PostgreSQLContainer<?> postgres, String databaseName, String sql) {
         Container.ExecResult result = execute(postgres,
                 "psql", "-X", "--set", "ON_ERROR_STOP=1",
                 "--tuples-only", "--no-align",
                 "--username", postgres.getUsername(),
-                "--dbname", postgres.getDatabaseName(),
+                "--dbname", databaseName,
                 "--command", sql);
         requireSuccess(result, "query");
         return result.getStdout().strip().replace("\r\n", "\n");
