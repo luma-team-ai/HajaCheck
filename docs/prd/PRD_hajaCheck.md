@@ -1,6 +1,6 @@
 # PRD — hajaCheck : AI 기반 시설물 외관 하자 점검 플랫폼
 
-> **문서 버전:** v0.45 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+> **문서 버전:** v0.45 · **최종 수정:** 2026-07-16 · 이전 버전 `archive/`
 
 | 항목 | 내용 |
 |---|---|
@@ -359,6 +359,11 @@
 - **Redis 활용처**: ① Spring Session(로그인 세션) ② 분석 잡 상태·진행률 캐시 ③ LangChain 챗봇 대화 메모리 ④ 상담 대기열(Sorted Set) ⑤ 대시보드 통계 캐시 ⑥ OAuth 인가 state 임시 저장 ⑦ LLM 응답 캐시(프롬프트 해시 키) ⑧ **이메일 인증 코드**(`email:verify:{PURPOSE}:{email}`, TTL 5분 — v0.45)
 
 ### 6.1 배포 환경 — OCI (Oracle Cloud Infrastructure)
+
+> **📌 실배포 현황(2026-07-16, #258·#260) — 아래 "전용 VM 단일 호스트"는 목표(prod/향후)이고, 현재 dev 배포는 공유 호스트다.**
+> A1 전용 VM 확보 전까지 dev는 **oci-arm1 공유 호스트**(hajacheck 외 7개 사이트와 공존)에서 운영한다. 공유 호스트에선 80/443이 호스트당 1개뿐이라 하자첵 nginx가 이를 독점할 수 없다 → **유일한 PRD 이탈 = "엣지 80/443 TLS 종료 nginx가 공용 host nginx"** 1건. 나머지(내부 bridge 네트워크·전용 postgres/redis 컨테이너·dev/prod DB 분리·이미지 SHA 태그)는 모두 준수하며, 하자첵 전용 nginx 컨테이너는 그 뒤 `127.0.0.1:8100`에서 앱 라우팅(/api·/ai·/ws·정적)을 담당한다(`docker-compose.arm1.yml`, 2026-07-16 B안 확정).
+> - **dev/prod 분리**: 현재 arm1 = **dev 전용**(DB `hajacheck_dev`, Redis 인덱스 1). `hajacheck_prod`는 예약, **prod 실배포는 전용 VM 확보 시** 아래 이상형대로 이관.
+> - 전용 VM 확보 시 아래 구성(nginx 포함 전 구성요소 compose, 80/443 독점)을 그대로 적용하면 이탈 0.
 
 **인프라: OCI Always Free — Ampere A1 VM 1대 (ARM/aarch64, 3 OCPU / 16GB RAM, Ubuntu 22.04)**
 
