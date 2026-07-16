@@ -25,12 +25,16 @@ from ai.core.grounding import (
     check_grounding,
     normalize_grade_strict,
 )
-from ai.core.llm_client import MAX_RETRIES, get_llm
+from ai.core.llm_client import get_llm
 from ai.core.vectorstore import COLLECTION_REGULATIONS, get_vectorstore
 
 logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+
+# Grounding mismatch 재생성 룰 전용 상한 — llm_client.MAX_RETRIES(출력 파싱 재시도)와
+# 의미가 다르므로 별도 상수로 분리(PR머신 P2 후속).
+GROUNDING_MAX_RETRIES = 2
 
 # facility_info 는 자유 dict(계약상 name/location 등)이므로, 알려진 키에는 한국어 라벨을 붙이고
 # 나머지 키는 키 이름을 그대로 노출해 정보 손실 없이 프롬프트에 전달한다.
@@ -336,10 +340,10 @@ def run_report_chain(
     claims = GroundingClaims(total_count=summary.total_count, count_by_grade=summary.count_by_grade)
     grounding_result = check_grounding(grounding_defects, claims, mismatch_policy)
 
-    # 불일치 → 재생성(최대 MAX_RETRIES회, design §5-3). 재생성 후에도 불일치면 WARN(=grounding_ok False)로
+    # 불일치 → 재생성(최대 GROUNDING_MAX_RETRIES회, design §5-3). 재생성 후에도 불일치면 WARN(=grounding_ok False)로
     # 전환하되 보고서 생성 자체는 막지 않는다 (컨벤션 §5 "AI 실패가 비-AI 기능을 막으면 안 됨").
     attempts = 0
-    while grounding_result.action is GroundingAction.REGENERATE and attempts < MAX_RETRIES:
+    while grounding_result.action is GroundingAction.REGENERATE and attempts < GROUNDING_MAX_RETRIES:
         summary = _run_summary_chain(confirmed_defects)
         claims = GroundingClaims(total_count=summary.total_count, count_by_grade=summary.count_by_grade)
         grounding_result = check_grounding(grounding_defects, claims, mismatch_policy)
