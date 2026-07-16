@@ -61,7 +61,7 @@ export function CompanyAddressField({
       />
       {/* 시안 문구는 "행정안전부 주소 API로 자동 입력됩니다"이나, 실제 연동은 다음(카카오) 우편번호
           서비스(useDaumPostcodeSearch)라 기관명을 그대로 옮기면 사실과 다르다. 실제 연동에 맞게
-          수정 — A 승인 완료(#292) */}
+          수정 — 시안 문구 정정은 디자이너 확인 대기(#292) */}
       <p className="m-0 text-xs text-text-muted">우편번호 검색으로 자동 입력됩니다.</p>
     </div>
   );
