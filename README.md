@@ -28,21 +28,33 @@ LLM(LangChain + RAG)이 점검 보고서 초안을 자동 생성하는 시설물
 
 ## 시작하기
 
-로컬 개발은 두 방식 중 선택.
+로컬 개발은 **arm1 공유 dev DB(`hajacheck_dev`)** 에 붙어 진행한다(팀 표준). `.env`는 `.env.example`를 복사해 값을 채운다.
 
-**① 전체 스택을 Docker로** (override 자동 적용 · 핫리로드)
+**① (권장) Docker + arm1 공유 dev DB** (핫리로드 · 카카오/구글 로그인 동작)
+
+먼저 호스트에서 arm1 SSH 터널을 연다(DB·Redis를 로컬 15432/16380으로 포워딩):
 ```bash
-docker compose up --build   # nginx·spring·fastapi·postgres·redis 전체 기동
+ssh -N -L 15432:localhost:5432 -L 16380:localhost:6380 oci-arm1
 ```
+다른 터미널에서 base + 핫리로드 override + 로컬 override를 겹쳐 기동한다:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.local.yml up -d --build
+```
+- 접속: `http://localhost`(nginx 통합 진입) · `http://localhost:5173`(Vite 핫리로드)
+- `docker-compose.local.yml`이 spring을 arm1 `hajacheck_dev`(터널)로 연결하고 OAuth redirect-uri를 `http://localhost`로 오버라이드한다.
+- 전제: 각 팀원 **oci-arm1 SSH 접근 권한** + 카카오/구글 콘솔 "로그인 Redirect URI"에 `http://localhost/login/oauth2/code/{kakao,google}` 등록(운영자 완료).
+- ⚠️ 스키마는 건드리지 않는다(`ddl-auto=none`). dev 코드가 새 컬럼을 요구하면 인프라 담당이 arm1 `hajacheck_dev`에 반영해야 한다(→ 후속: Flyway 도입).
 
 **② 서비스 개별 실행 + 공용 개발 DB(SSH 터널)**
 ```bash
-cd backend  && ./gradlew bootRun
+ssh -N -L 5432:localhost:5432 -L 6380:localhost:6380 oci-arm1   # 터널(직접 포워딩)
+cd backend  && ./gradlew bootRun          # application-local.yml(.example 복사) 사용
 cd ai-server && uv venv && uv pip install -r requirements.txt && uvicorn main:app --port 8000
 cd frontend && npm install && npm run dev
 ```
 
 > ⚠️ `docker-compose.arm1.yml`은 **운영 서버(공유 호스트) 전용** — 로컬에서 실행 금지.
+> ⚠️ `docker compose up`(override 파일 미지정)은 **빈 로컬 postgres**에 붙어 스키마가 없어 실패한다 — 반드시 위 ①처럼 `-f docker-compose.local.yml`을 포함할 것.
 
 ## 컨벤션 문서 (필독)
 

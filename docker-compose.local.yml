@@ -1,0 +1,42 @@
+# HajaCheck 팀 공용 로컬 개발 override — arm1 공유 dev DB(hajacheck_dev) + localhost OAuth.
+#
+# 사용법 (base + override(핫리로드) + 이 파일 순서로 겹쳐 실행):
+#   1) 호스트에서 arm1 SSH 터널 먼저 (DB 5432, Redis 6380 → 로컬 15432/16380):
+#        ssh -N -L 15432:localhost:5432 -L 16380:localhost:6380 oci-arm1
+#   2) 스택 기동:
+#        docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.local.yml up -d
+#
+# 값(시크릿)은 루트 .env 에서 주입 — 커밋 금지, 키는 .env.example 참조.
+# 전제: 카카오/구글 콘솔 "로그인 Redirect URI" 필드에 http://localhost/login/oauth2/code/{kakao,google} 등록.
+#       각 팀원 oci-arm1 SSH 접근 권한 필요.
+services:
+  spring:
+    # 컨테이너 → 호스트(터널) 접근용
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # --- arm1 공유 dev DB (SSH 터널 경유) ---
+      # 공유 DB 스키마 오염 방지: Hibernate는 스키마를 건드리지 않음(#273 정책과 동일).
+      # 스키마 변경이 dev에 머지되면 인프라 담당이 arm1 hajacheck_dev에 반영(→ 후속: Flyway 도입).
+      SPRING_JPA_HIBERNATE_DDL_AUTO: none
+      SPRING_DATASOURCE_URL: jdbc:postgresql://host.docker.internal:15432/hajacheck_dev
+      SPRING_DATASOURCE_USERNAME: hajacheck
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD가 .env에 설정되어야 합니다}
+      SPRING_DATA_REDIS_HOST: host.docker.internal
+      SPRING_DATA_REDIS_PORT: "16380"
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}
+
+      # --- 로컬 OAuth (http://localhost = nginx:80 단일 오리진) ---
+      # base docker-compose.yml은 OAuth 자격증명을 주입하지 않으므로 여기서 .env 값을 주입한다.
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:?}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:?}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?}
+      # application-docker.yml의 redirect-uri(프로덕션 도메인 하드코딩)를 localhost로 오버라이드.
+      # 이게 없으면 로컬에서 프로덕션 redirect_uri를 보내 카카오 KOE006이 발생한다.
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_KAKAO_REDIRECT_URI: "http://localhost/login/oauth2/code/kakao"
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_REDIRECT_URI: "http://localhost/login/oauth2/code/google"
+      APP_OAUTH2_SUCCESS_REDIRECT: "http://localhost/dashboard"
+      APP_OAUTH2_FAILURE_REDIRECT: "http://localhost/login?error=oauth"
+      # http(localhost)에서는 Secure 쿠키를 브라우저가 안 보내므로 세션 유지를 위해 false.
+      SERVER_SERVLET_SESSION_COOKIE_SECURE: "false"
