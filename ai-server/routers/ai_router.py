@@ -1,7 +1,11 @@
-"""AI 엔드포인트 — 네이밍: /ai/{기능} (AI_개발_컨벤션.md §5)
+"""AI 엔드포인트 — 네이밍: /ai/{기능} (AI_개발_컨벤션.md §5, v0.2)
 
 /ai/report · /ai/chat · /ai/briefing · /ai/defect-explain · /ai/nl-search · /ai/grounding-check
-장시간 작업(보고서 생성)은 동기 응답 금지 — 비동기 잡 패턴(잡 ID -> 폴링)
+
+동기/비동기 경계(§5 v0.2, HAJA-208): 비동기 잡 패턴(잡 ID -> 폴링) 원칙은 클라이언트 대면
+경계(예: 백엔드 /api/reports)에 적용된다. 이 라우터의 /ai/* 는 verify_internal_key로 보호되는
+내부 전용 엔드포인트 — 그 경계 안쪽(백엔드가 잡 워커에서 호출)이므로 동기 응답이 정상이다.
+/ai/report가 4개 섹션을 동기로 생성해 반환하는 것은 설계 위반이 아니라 의도된 구조.
 """
 import logging
 from typing import Optional
