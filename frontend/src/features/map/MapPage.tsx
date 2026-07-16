@@ -10,6 +10,7 @@ import { MapLegend } from './components/MapLegend';
 import { SelectedFacilityPopup } from './components/SelectedFacilityPopup';
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_LEVEL, ERROR_TEXT_COLOR, MAX_MAP_LEVEL, MIN_MAP_LEVEL } from './constants';
 import { createFacilityMarker, isValidCoordinate } from './lib/createFacilityMarker';
+import { filterFacilities } from './lib/filterFacilities';
 import { KakaoMapKeyMissingError, loadKakaoMapSdk } from './lib/loadKakaoMapSdk';
 
 export default function MapPage() {
@@ -33,22 +34,22 @@ export default function MapPage() {
     queryFn: mapApi.getFacilityLocations,
   });
 
-  const filteredFacilities = useMemo(() => {
-    if (!facilities) return [];
-    return facilities.filter((facility) => {
-      const matchesSearch =
-        searchQuery.trim().length === 0 ||
-        facility.name.includes(searchQuery) ||
-        facility.address.includes(searchQuery);
-      const matchesCategory = selectedCategory === '전체' || facility.category === selectedCategory;
-      return matchesSearch && matchesCategory;
-    });
-  }, [facilities, searchQuery, selectedCategory]);
+  const filteredFacilities = useMemo(
+    () => filterFacilities(facilities, searchQuery, selectedCategory),
+    [facilities, searchQuery, selectedCategory]
+  );
 
   const selectedFacility = useMemo(
-    () => facilities?.find((facility) => facility.id === selectedFacilityId) ?? null,
-    [facilities, selectedFacilityId],
+    () => filteredFacilities.find((facility) => facility.id === selectedFacilityId) ?? null,
+    [filteredFacilities, selectedFacilityId]
   );
+
+  // 필터 적용으로 선택된 시설물이 결과에서 사라지면 선택 상태를 해제합니다.
+  useEffect(() => {
+    if (selectedFacilityId !== null && !filteredFacilities.some((f) => f.id === selectedFacilityId)) {
+      setSelectedFacilityId(null);
+    }
+  }, [filteredFacilities, selectedFacilityId]);
 
   // Kakao Maps SDK 로드 + 지도 인스턴스 생성 (최초 1회)
   useEffect(() => {
