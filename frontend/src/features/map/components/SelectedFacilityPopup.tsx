@@ -31,6 +31,8 @@ export function SelectedFacilityPopup({
   const badgeBgColor = GRADE_COLOR[facility.highestGrade] ?? '#9CA3AF';
 
   return (
+    // border-[#d4d4d8]: Figma 팝업 전용 보더 색상 — styles/tokens.css의 --color-border(#e4e4e7)와
+    // 값이 달라 시맨틱 토큰으로 치환하지 않고 유지(P3, 2026-07-16 검토)
     <div className="w-[290px] rounded-[24px] border border-[#d4d4d8] bg-white p-4 shadow-[0px_8px_24px_rgba(0,0,0,0.08)] z-10">
       <div className="flex items-start gap-3">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-100">
@@ -46,6 +48,8 @@ export function SelectedFacilityPopup({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
+            {/* text-[#3f3f46]: Figma 팝업 전용 제목 색상 — 기존 text-heading(#1d1b20)/text-default(#494551)
+                토큰과 값이 달라 임의 대입하지 않고 하드코딩 유지(P3, 2026-07-16 검토) */}
             <div className="truncate font-semibold text-[#3f3f46] text-[15px] leading-[22.5px]">
               {facility.name}
             </div>
@@ -58,23 +62,28 @@ export function SelectedFacilityPopup({
               </span>
             </div>
           </div>
+          {/* text-[#71717a]: Figma 팝업 보조 텍스트 색상 — text-text-muted(#7a7582)와 근접하지만 동일값이
+              아니라 시맨틱 토큰으로 대체 시 시안과 미세하게 어긋남. 하드코딩 유지(P3, 2026-07-16 검토) */}
           <div className="mt-1 font-normal text-[#71717a] text-[12px] leading-[18px]">
             {getStatusText(facility.highestGrade)}
           </div>
         </div>
       </div>
       <div className="mt-4 flex items-center gap-3">
+        {/* border-border(#e4e4e7)로 시맨틱 토큰 치환(정확히 일치, P3). bg-[#f7f7f7]/text-[#52525b]는
+            매칭되는 토큰이 없어 하드코딩 유지 */}
         <button
           type="button"
           onClick={onViewDetail}
-          className="flex h-10 w-[92px] items-center justify-center rounded-[999px] border border-[#e4e4e7] bg-[#f7f7f7] font-medium text-[#52525b] text-[14px] leading-[21px] transition hover:opacity-85"
+          className="flex h-10 w-[92px] items-center justify-center rounded-[999px] border border-border bg-[#f7f7f7] font-medium text-[#52525b] text-[14px] leading-[21px] transition hover:opacity-85"
         >
           상세 보기
         </button>
+        {/* bg-primary(#18181b)로 시맨틱 토큰 치환(정확히 일치, P3) */}
         <button
           type="button"
           onClick={onGoToInspectionResult}
-          className="flex h-10 w-[92px] items-center justify-center rounded-[999px] bg-[#18181b] font-medium text-white text-[14px] leading-[21px] transition hover:opacity-85"
+          className="flex h-10 w-[92px] items-center justify-center rounded-[999px] bg-primary font-medium text-white text-[14px] leading-[21px] transition hover:opacity-85"
         >
           결과 검수
         </button>
