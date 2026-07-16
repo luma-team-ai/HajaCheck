@@ -7,16 +7,27 @@ type Props = {
   hasAlertDot?: boolean;
 };
 
+// kpi-col 반응형(1100px/720px 데스크톱 우선 breakpoint)·형제 순서 기반 보더 규칙은
+// Tailwind 임의 variant(max-[…]:, first:/last:, [&:nth-child(2)])로 그대로 이식.
+const KPI_COL_CLASS =
+  'pl-7 pr-7 border-r border-[#ececec] first:pl-1 last:pr-1 last:border-r-0 ' +
+  'max-[1100px]:px-5 max-[1100px]:py-3 max-[1100px]:border-b max-[1100px]:border-b-[#ececec] ' +
+  'max-[1100px]:[&:nth-child(2)]:border-r-0 max-[720px]:border-r-0';
+
 export function KpiCard({ label, value, changeRate, hasAlertDot = false }: Props) {
+  const changeColorClass = changeRate < 0 ? 'text-[#dc2626]' : 'text-[#16a34a]';
+
   return (
-    <div className="kpi-col">
-      <div className="kpi-card-header">
-        {hasAlertDot && <span className="kpi-card-dot" aria-hidden="true" />}
-        <span className="kpi-card-label">{label}</span>
+    <div className={KPI_COL_CLASS}>
+      <div className="flex items-center gap-1.5 mb-2.5">
+        {hasAlertDot && (
+          <span className="w-1.5 h-1.5 rounded-full bg-[#f97316] shrink-0" aria-hidden="true" />
+        )}
+        <span className="text-[13px] text-[#888] font-semibold">{label}</span>
       </div>
-      <p className="kpi-value-row">
-        <span className="kpi-card-value">{value}</span>
-        <span className={`kpi-card-change${changeRate < 0 ? ' kpi-card-change--down' : ''}`}>
+      <p className="flex items-baseline gap-2 m-0">
+        <span className="text-[28px] font-extrabold leading-none">{value}</span>
+        <span className={`text-[13px] font-bold ${changeColorClass}`}>
           {formatChangeRate(changeRate)}
         </span>
       </p>

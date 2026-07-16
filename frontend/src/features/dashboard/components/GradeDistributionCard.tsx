@@ -1,6 +1,6 @@
 import { useGradeDistribution } from '../hooks/useGradeDistribution';
 import {
-  getGradeColor,
+  getGradeBgClass,
   isGradeTotalValid,
   sortGradeDistribution,
   sumGradePercent,
@@ -15,7 +15,7 @@ export function GradeDistributionCard() {
   const isTotalValid = isGradeTotalValid(sorted);
 
   return (
-    <section className="dashboard-card grade-distribution-card">
+    <section className="dashboard-card">
       <h3 className="dashboard-card-title">하자 등급 분포</h3>
 
       {isLoading && <p className="dashboard-card-status">불러오는 중...</p>}
@@ -26,25 +26,29 @@ export function GradeDistributionCard() {
 
       {!isLoading && !isError && sorted.length > 0 && (
         <>
-          <div className="grade-bar" role="img" aria-label="하자 등급 분포 막대 그래프">
+          <div
+            className="flex w-full h-3.5 rounded-full overflow-hidden bg-[#f0f1f3]"
+            role="img"
+            aria-label="하자 등급 분포 막대 그래프"
+          >
             {sorted.map((item) => (
               <div
                 key={item.grade}
-                className="grade-bar-segment"
-                style={{ width: `${item.percent}%`, backgroundColor: getGradeColor(item.grade) }}
+                className={`h-full ${getGradeBgClass(item.grade)}`}
+                style={{ width: `${item.percent}%` }}
               />
             ))}
           </div>
-          <ul className="grade-legend">
+          <ul className="list-none mt-3.5 mb-0 mx-0 p-0 flex flex-nowrap gap-2.5 max-[1100px]:flex-wrap">
             {sorted.map((item) => (
-              <li key={item.grade} className="grade-legend-item">
-                <span className="grade-legend-dot" style={{ backgroundColor: getGradeColor(item.grade) }} />
+              <li key={item.grade} className="flex items-center gap-1.5 text-[13px] text-[#555]">
+                <span className={`inline-block w-2 h-2 rounded-full ${getGradeBgClass(item.grade)}`} />
                 {item.grade} 등급 ({item.percent}%)
               </li>
             ))}
           </ul>
           {!isTotalValid && (
-            <p className="dashboard-card-status grade-distribution-warning" role="alert">
+            <p className="dashboard-card-status mt-2 text-[#dc2626] text-[13px]" role="alert">
               등급 분포 합계가 100%가 아닙니다 (현재 {totalPercent.toFixed(1)}%) — 데이터를 확인해 주세요.
             </p>
           )}

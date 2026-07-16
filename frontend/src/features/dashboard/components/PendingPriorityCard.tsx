@@ -14,10 +14,10 @@ export function PendingPriorityCard() {
   };
 
   return (
-    <section className="dashboard-card pending-priority-card">
+    <section className="dashboard-card">
       <div className="dashboard-card-header">
         <h3 className="dashboard-card-title">처리 대기</h3>
-        <span className="pending-priority-subtitle">우선순위</span>
+        <span className="text-[13px] font-semibold text-[#999]">우선순위</span>
       </div>
 
       {isLoading && <p className="dashboard-card-status">불러오는 중...</p>}
@@ -27,21 +27,30 @@ export function PendingPriorityCard() {
       )}
 
       {!isLoading && !isError && data && data.length > 0 && (
-        <ul className="pending-priority-list">
+        <ul className="list-none m-0 p-0 flex flex-col gap-3">
           {data.map((item) => (
-            <li key={item.id} className="pending-priority-item">
-              <div className="pending-priority-top">
-                <div className="pending-priority-title-group">
+            <li
+              key={item.id}
+              className="flex flex-col gap-2 py-3.5 px-4 border border-[#ececec] rounded-[14px]"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                   <GradeBadge grade={item.grade} />
-                  <p className="pending-priority-title">{item.title}</p>
+                  <p className="text-sm font-bold m-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                    {item.title}
+                  </p>
                 </div>
-                <span className="pending-priority-elapsed">{formatElapsedTime(item.occurredAt)}</span>
+                <span className="shrink-0 text-xs text-[#999]">
+                  {formatElapsedTime(item.occurredAt)}
+                </span>
               </div>
-              <p className="pending-priority-location">{item.location}</p>
-              <div className="pending-priority-footer">
+              <p className="text-[13px] text-[#777] m-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                {item.location}
+              </p>
+              <div className="flex justify-end">
                 <button
                   type="button"
-                  className="pending-priority-action"
+                  className="shrink-0 bg-white border border-[#d8dbe6] rounded-lg py-1.75 px-3.5 text-[13px] font-semibold text-[#333] cursor-pointer"
                   onClick={() => handleReview(item.id)}
                 >
                   검수하기
