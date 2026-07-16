@@ -3,6 +3,7 @@
 do $verification$
 declare
     invalid_count bigint;
+    invalid_indexes text;
 begin
     if to_regclass('public.company_memberships') is null then
         raise exception 'company_memberships table is missing';
@@ -56,9 +57,46 @@ begin
         raise exception '% citations still have a null snippet', invalid_count;
     end if;
 
-    if to_regclass('public.uq_user_plans_active_user') is null
-       or to_regclass('public.uq_user_plans_active_company') is null then
-        raise exception 'ACTIVE user plan uniqueness indexes are missing';
+    select string_agg(expected.index_name, ', ' order by expected.index_name)
+    into invalid_indexes
+    from unnest(array[
+        'idx_company_memberships_company_status',
+        'idx_company_memberships_user_status',
+        'uq_company_memberships_approved_user',
+        'idx_inspections_assigned_inspector',
+        'idx_rag_documents_embedding_status',
+        'idx_rag_documents_target_collection',
+        'uq_user_plans_active_user',
+        'uq_user_plans_active_company'
+    ]) as expected(index_name)
+    left join pg_class index_class
+      on index_class.relname = expected.index_name
+     and index_class.relnamespace = 'public'::regnamespace
+    left join pg_index index_meta on index_meta.indexrelid = index_class.oid
+    where index_class.oid is null
+       or not coalesce(index_meta.indisvalid, false)
+       or not coalesce(index_meta.indisready, false);
+
+    if invalid_indexes is not null then
+        raise exception 'required indexes are missing or invalid: %', invalid_indexes;
+    end if;
+
+    if exists (
+        select 1
+        from companies c
+        join users u on u.id = c.owner_user_id
+        left join company_memberships cm
+          on cm.company_id = c.id
+         and cm.user_id = c.owner_user_id
+         and cm.status = 'APPROVED'::company_membership_status_type
+         and cm.approved_at is not null
+         and cm.revoked_at is null
+         and (cm.expires_at is null or cm.expires_at > now())
+        where c.status = 'APPROVED'::company_status_type
+          and c.verification_status = 'VERIFIED'::business_verification_status_type
+          and (cm.id is null or u.company_id is distinct from c.id)
+    ) then
+        raise exception 'an APPROVED+VERIFIED company lacks a valid owner membership or matching users.company_id';
     end if;
 
     if not exists (

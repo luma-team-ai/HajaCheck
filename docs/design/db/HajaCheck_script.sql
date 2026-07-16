@@ -563,6 +563,7 @@ create table inspections
     created_by      bigint                                                             not null
         references users,
     assigned_inspector_id bigint                                                        not null
+        constraint fk_inspections_assigned_inspector
         references users,
     round_no        integer                                                            not null,
     inspection_date date                                                               not null,

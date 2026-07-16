@@ -139,6 +139,11 @@ public class Company extends BaseTimeEntity {
      * 관리자 승인 (상태 전이 — 현재 미배선, 관리자 승인 화면 후속 과제).
      */
     public void approve(Long reviewerUserId) {
+        requirePendingReview("approve");
+        if (this.verificationStatus != BusinessVerificationStatus.VERIFIED) {
+            throw new IllegalStateException(
+                    "approve 불가: 사업자등록정보 검증이 완료된 회사만 승인할 수 있다");
+        }
         this.status = CompanyStatus.APPROVED;
         this.reviewedBy = reviewerUserId;
         this.reviewedAt = Instant.now();
@@ -149,6 +154,7 @@ public class Company extends BaseTimeEntity {
      * 관리자 반려 (상태 전이 — 현재 미배선).
      */
     public void reject(Long reviewerUserId, String reason) {
+        requirePendingReview("reject");
         this.status = CompanyStatus.REJECTED;
         this.reviewedBy = reviewerUserId;
         this.reviewedAt = Instant.now();
@@ -161,5 +167,13 @@ public class Company extends BaseTimeEntity {
     public void markBusinessVerified() {
         this.verificationStatus = BusinessVerificationStatus.VERIFIED;
         this.verifiedAt = Instant.now();
+    }
+
+    private void requirePendingReview(String action) {
+        if (this.status != CompanyStatus.PENDING_REVIEW) {
+            throw new IllegalStateException(
+                    "%s 불가: 현재 회사 상태=%s, 심사 대기 상태에서만 처리할 수 있다"
+                            .formatted(action, this.status));
+        }
     }
 }
