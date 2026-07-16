@@ -16,6 +16,22 @@ from pydantic import BaseModel, Field, field_validator
 
 VALID_GRADES = ("A", "B", "C", "D", "E")  # 시설물 안전점검 등급 (defect_explain.md 등급 기준)
 
+_GRADE_SUFFIX = "등급"
+
+
+def normalize_grade_strict(value: str) -> str | None:
+    """'C등급'·' c '→'C' 처럼 알려진 접미사(등급)만 제거한 뒤, 결과가 정확히 한 글자이고
+    A~E에 속할 때만 유효로 인정한다. 그 외(다글자 잔존 등)는 None — first-char 매칭 휴리스틱은
+    "Bogus" 같은 임의 문자열의 첫 글자가 우연히 A~E와 겹치면 오인식하므로 사용하지 않는다
+    (PR머신 3차 리뷰 지적, grounding.py의 _norm_grade / GroundingDefect._validate_grade 공통 헬퍼).
+    """
+    normalized = value.strip().upper()
+    if normalized.endswith(_GRADE_SUFFIX):
+        normalized = normalized[: -len(_GRADE_SUFFIX)].strip()
+    if len(normalized) == 1 and normalized in VALID_GRADES:
+        return normalized
+    return None
+
 
 class CheckStatus(str, Enum):
     MATCH = "MATCH"  # 주장 == 실측치
@@ -52,9 +68,8 @@ class GroundingDefect(BaseModel):
         시설 안전점검 도메인상 등급 오류는 grounding 판정 신뢰도에 직결되므로,
         오탈자·비정상값은 매칭 키로 흘러들기 전에 경계에서 차단(무결성 방어).
         """
-        normalized = v.strip().upper()
-        grade = normalized[0] if normalized else ""
-        if grade not in VALID_GRADES:
+        grade = normalize_grade_strict(v)
+        if grade is None:
             raise ValueError(
                 f"실측 grade는 A~E여야 합니다 (입력: {v!r}). defects 데이터 무결성 오류."
             )
@@ -98,9 +113,10 @@ class GroundingResult(BaseModel):
 
 
 def _norm_grade(value: str) -> str:
-    """'C등급', ' c ' 등을 대문자 등급 문자로 정규화. 등급 문자가 아니면 원본 유지."""
-    stripped = value.strip().upper()
-    return stripped[0] if stripped and stripped[0] in VALID_GRADES else stripped
+    """'C등급', ' c ' 등을 대문자 등급 문자로 정규화. 유효 등급으로 확정되지 않으면(예: "Bogus")
+    first-char 오인식 없이 strip+upper된 원본을 그대로 반환한다(기존 계약 유지 — 매칭 실패 시 원본 유지)."""
+    normalized = normalize_grade_strict(value)
+    return normalized if normalized is not None else value.strip().upper()
 
 
 def _norm_type(value: str) -> str:

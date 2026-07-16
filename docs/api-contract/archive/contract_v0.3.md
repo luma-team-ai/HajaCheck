@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.4 · **최종 수정:** 2026-07-16 · 이전 버전 `archive/`
+> **문서 버전:** v0.3 · **최종 수정:** 2026-07-16 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -64,7 +64,7 @@
 { "success": false, "data": null, "usage": null, "error": { "code": "LLM_INVALID_OUTPUT", "message": "..." } }
 ```
 
-**`VALIDATION_ERROR`** = 비-LLM 코드 경로(입력·대조 검증) 실패용 코드. `POST /ai/grounding-check`(환각 방어 게이트)처럼 LLM 호출이 없는 순수 코드 대조 엔드포인트가 예외 폴백 시 사용한다(#122, PR #120). 프론트/백엔드 소비처는 이 코드를 `error.code` 분기에 포함해야 한다 — LLM 계열 코드와 달리 재시도가 아니라 입력 재검토가 필요하다.
+> **`VALIDATION_ERROR`** = 비-LLM 코드 경로(입력·대조 검증) 실패용 코드. `POST /ai/grounding-check`(환각 방어 게이트)처럼 LLM 호출이 없는 순수 코드 대조 엔드포인트가 예외 폴백 시 사용한다(#122, PR #120). 프론트/백엔드 소비처는 이 코드를 `error.code` 분기에 포함해야 한다 — LLM 계열 코드와 달리 재시도가 아니라 입력 재검토가 필요하다.
 
 > ✅ **해결됨 (2026-07-09, PR #88)**: HF Serverless Inference는 langchain 표준 `with_structured_output()`이 강제하는 `tool_choice="any"`를 지원하지 않아 `400 INVALID_TOOL_CHOICE`가 발생하는 구조적 제약이었다(`langchain-ai/langchain#29569`, upstream "not planned" — 버전 업그레이드로는 해결 안 됨). `get_llm().with_structured_output(schema)`는 내부적으로 `PydanticOutputParser`로 프롬프트에 JSON 스키마를 지시하고 응답을 직접 파싱하는 방식으로 우회 구현됨(`ai-server/ai/core/llm_client.py`의 `_StructuredLLM`). 호출부 시그니처는 동일하게 유지되므로 각 체인 담당자는 그대로 `get_llm().with_structured_output(Schema).invoke(...)`만 쓰면 된다 — 실제 HF 토큰으로 `/ai/defect-explain` e2e 검증 완료.
 
@@ -106,7 +106,7 @@
 
 ---
 
-## POST /ai/rag-chat — ⏳ 미구현(설계만, 예: `docs/design/ai/rag_chroma_schema.md` 참조) — 계획 엔드포인트
+## POST /ai/rag-chat — ⏳ 미구현(설계만, 예: `docs/design/ai/rag_chroma_schema.md` 참조) — 계흭 엔드포인트
 
 점검 기준·법규 질의 전담 RAG 챗봇(FR-6). 성공 시 `AIResponse.data`는 `RagAnswerData` 형태이며, `sources[]`는 표시 라벨(`locator`)과 원문 발췌(`snippet`)를 분리한다.
 
@@ -150,9 +150,9 @@
 
 ---
 
-## POST /ai/report — ⏳ 미구현(설계만, 예: `docs/design/ai/report-chain-design.md` 참조) — 계획 엔드포인트
+## POST /ai/report — ⏳ 미구현(설계만, 예: `docs/design/ai/report-chain-design.md` 참조) — 계흭 엔드포인트
 
-AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Grounding Check (FR-5, 로그인/보고서 담당). **아래는 계획 스펙** — `ai-server/routers/ai_router.py`에 아직 라우트가 없다(실제 코드는 `ai/chains/report_chain.py`에 작성 예정, 설계는 완료).
+AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Grounding Check (FR-5, 로그인/보고서 담당). **아래는 계흭 스펙** — `ai-server/routers/ai_router.py`에 아직 라우트가 없다(실제 코드는 `ai/chains/report_chain.py`에 작성 예정, 설계는 완료).
 
 **요청**:
 ```json
@@ -206,8 +206,7 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
           "target": "균열",
           "method": "에폭시 수지 주입 공법",
           "priority": "중",
-          "legal_basis": "콘크리트 구조 설계기준 제X조",
-          "legal_basis_verified": true
+          "legal_basis": "콘크리트 구조 설계기준 제X조"
         }
       ],
       "monitoring_points": ["지하주차장 균열 발생 부위"]
@@ -232,12 +231,7 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 |---|---|---|---|
 | GET | `/api/auth/oauth2/{provider}` | 소셜 로그인(Kakao/Google) | 정재봉 |
 | GET | `/api/users/me` | 내 정보 조회 | 정재봉/오영석 |
-| POST | `/api/facilities` | 시설물 등록 | 허남/김관영 |
-| GET | `/api/facilities` | 내 시설물 목록 조회 | 허남/김관영 |
-| GET | `/api/facilities/{id}` | 시설물 상세 조회(점검이력 포함) | 허남/김관영 |
-| PUT | `/api/facilities/{id}` | 시설물 수정 | 허남/김관영 |
-| DELETE | `/api/facilities/{id}` | 시설물 삭제 | 허남/김관영 |
-| POST | `/api/facilities/{id}/schedule` | 시설물 점검주기 설정(dev-04-03) | 허남/김관영 |
+| POST | `/api/facilities` | 시설물 등록 | 김관영/유병현 |
 | POST | `/api/inspections` | 점검(회차) 생성 | 황승현 |
 | POST | `/api/inspections/{id}/media` | 촬영 데이터 업로드 | 황승현 |
 | POST | `/api/inspections/{id}/analyze` | AI 분석 요청 | 황승현 |
@@ -252,7 +246,7 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 
 | FR | 메서드 | 경로(안) | 기능 | 담당 |
 |---|---|---|---|---|
-| FR-1 | GET/POST | `/api/auth/**`, `/api/users/me` | 로그인·마이페이지·권한 | 정재봉/오영석 |
+| FR-1 | GET/POST | `/api/auth/**`, `/api/users/me` | 로그인·마이페이지·권한 | 정재봉 |
 | FR-2 | POST | `/api/inspections/{id}/media` | 업로드·프레임 추출 | 황승현/허남 |
 | FR-3 | POST | `/api/inspections/{id}/analyze`, `/api/jobs/{id}` | AI 하자 탐지·잡 상태 | 황승현 |
 | FR-4 | GET/PATCH | `/api/defects/**`, `/ai/defect-explain` | 시각화·검수·AI 설명 | 오영석 |

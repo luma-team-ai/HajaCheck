@@ -17,6 +17,7 @@ from ai.core.grounding import (
     GroundingDefect,
     MismatchPolicy,
     check_grounding,
+    normalize_grade_strict,
     summarize_defects,
 )
 from main import app
@@ -130,6 +131,35 @@ def test_grade_validator_rejects_invalid():
         GroundingDefect(defect_type="균열", grade="X")
     with pytest.raises(ValidationError):
         GroundingDefect(defect_type="균열", grade="")
+
+
+def test_grade_validator_rejects_first_char_false_positive():
+    """PR머신 3차 리뷰 지적: first-char 매칭 휴리스틱은 "Bogus"의 첫 글자 'B'가 우연히
+    VALID_GRADES에 속해 유효 등급으로 오인식했다 — 접미사(등급) 제거 후에도 여러 글자가 남으면
+    반드시 거부해야 한다."""
+    with pytest.raises(ValidationError):
+        GroundingDefect(defect_type="균열", grade="Bogus")
+    with pytest.raises(ValidationError):
+        GroundingDefect(defect_type="균열", grade="Doughnut")  # 'D'로 시작하지만 유효 등급 아님
+
+
+def test_normalize_grade_strict_accepts_known_forms_rejects_bogus():
+    # 정상 동작(회귀 방지): "C등급" → "C", " c " → "C"
+    assert normalize_grade_strict("C등급") == "C"
+    assert normalize_grade_strict(" c ") == "C"
+    # 접미사 제거해도 다글자로 남는 값은 None (구조적 환각 방지)
+    assert normalize_grade_strict("Bogus") is None
+    assert normalize_grade_strict("") is None
+
+
+def test_norm_grade_module_function_matches_unified_helper_contract():
+    """check_grounding 내부에서 쓰는 _norm_grade는 grounding.py의 통일 헬퍼를 통해 동작한다 —
+    "Bogus" 같은 값이 매칭 실패 시 원본(strip+upper)을 유지하는 기존 계약은 유지하되, 더 이상
+    첫 글자만으로 A~E 중 하나로 오인식하지 않는다."""
+    claims = GroundingClaims(mentioned_grades=["Bogus"])
+    result = check_grounding(_sample_defects(), claims)
+    # "Bogus"는 정규화해도 VALID_GRADES에 속하지 않으므로 "유효 등급 아님" 구조적 환각으로 분류되어야 한다
+    assert any(c.field == "mentioned_grade:Bogus" and c.status is CheckStatus.MISMATCH for c in result.checks)
 
 
 def test_check_grounding_empty_defects_default_claims_passes():

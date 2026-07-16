@@ -101,6 +101,24 @@ def test_cached_llm_with_structured_output():
     assert structured._chat is mock_chat
 
 
+@patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "dummy"})
+@patch("ai.core.llm_client.HuggingFaceEndpoint")
+@patch("ai.core.llm_client.ChatHuggingFace")
+def test_get_llm_creates_independent_instance_per_call(mock_chat_hf, mock_endpoint):
+    """report_chain._run_parallel처럼 여러 브랜치(스레드)에서 동시에 get_llm()을 호출필도 안전하다는
+    근거: get_llm()에 @lru_cache/싱글턴이 없어 매 호출마다 새 ChatHuggingFace/CachedLLM 인스턴스를
+    만들고 어떤 클라이언트 상태도 호출 간 공유하지 않는다(PR머신 P2 후속)."""
+    mock_endpoint.side_effect = lambda **kwargs: MagicMock()
+    mock_chat_hf.side_effect = lambda **kwargs: MagicMock()
+
+    first = get_llm()
+    second = get_llm()
+
+    assert first is not second
+    assert first._chat is not second._chat
+    assert mock_chat_hf.call_count == 2
+
+
 @patch.dict(os.environ, {"LLM_PROVIDER": "invalid_provider"})
 def test_get_llm_invalid_provider_raises_error():
     """LLM_PROVIDER=invalid 일 때 ValueError 발생 검증."""
