@@ -265,8 +265,31 @@ begin
         create trigger trg_facilities_set_updated_at before update on facilities
             for each row execute procedure set_updated_at();
     end if;
+    if not exists (select 1 from pg_trigger where tgname = 'trg_plans_set_updated_at'
+                   and tgrelid = 'plans'::regclass and not tgisinternal) then
+        create trigger trg_plans_set_updated_at before update on plans
+            for each row execute procedure set_updated_at();
+    end if;
+    if not exists (select 1 from pg_trigger where tgname = 'trg_reports_set_updated_at'
+                   and tgrelid = 'reports'::regclass and not tgisinternal) then
+        create trigger trg_reports_set_updated_at before update on reports
+            for each row execute procedure set_updated_at();
+    end if;
+    if not exists (select 1 from pg_trigger where tgname = 'trg_bot_scenarios_set_updated_at'
+                   and tgrelid = 'bot_scenarios'::regclass and not tgisinternal) then
+        create trigger trg_bot_scenarios_set_updated_at before update on bot_scenarios
+            for each row execute procedure set_updated_at();
+    end if;
 end
 $migration$;
+
+comment on trigger trg_users_set_updated_at on users is 'users 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
+comment on trigger trg_companies_set_updated_at on companies is 'companies 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
+comment on trigger trg_company_memberships_set_updated_at on company_memberships is 'company_memberships 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
+comment on trigger trg_plans_set_updated_at on plans is 'plans 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
+comment on trigger trg_facilities_set_updated_at on facilities is 'facilities 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
+comment on trigger trg_reports_set_updated_at on reports is 'reports 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
+comment on trigger trg_bot_scenarios_set_updated_at on bot_scenarios is 'bot_scenarios 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
 
 comment on column users.company_id is '현재 소속 기업의 조회 편의 포인터. 개인 사용자는 NULL이며 company_memberships의 유효한 승인 행과 일치해야 하지만 단독 권한 근거로 사용하지 않는다.';
 
@@ -289,7 +312,7 @@ comment on column company_memberships.updated_at is '멤버십 최종 상태 변
 
 comment on column user_consents.user_id is '동의한 사용자 식별자. 감사·분쟁 대응을 위해 동의 이력은 사용자 삭제와 독립적으로 보존해야 하나, 실측 결과 FK는 ON DELETE CASCADE이므로 보존은 DB 제약이 아닌 운영 원칙(사용자 탈퇴는 soft delete)으로 보장한다.';
 comment on table user_plans is '개인(user_id) 또는 회사(company_id)에 적용된 구독 요금제와 이용 기간을 관리한다. 회사 귀속 행은 유효한 승인 company_memberships 사용자에게만 상속된다.';
-comment on column inspections.assigned_inspector_id is '점검 담당자로 배정된 점검자 사용자 식별자. 본 스크립트는 신규 환경 전체 재생성용(파일 상단 주석 참조)이라 백필 로직을 담지 않는다 — 기존 데이터가 있는 환경에 증분 반영할 때는 NOT NULL 적용 전 담당자 확정값으로 먼저 백필해야 하며, 근거 없이 created_by를 자동 복사하지 않는다(백필 절차는 table_design.md §5 `inspections` 참조)';
+comment on column inspections.assigned_inspector_id is '점검 담당자로 배정된 점검자 사용자 식별자. 본 증분 스크립트는 기존 값을 자동 추정·백필하지 않는다 — finalize 전 담당자 확정값으로 먼저 백필해야 하며, 근거 없이 created_by를 자동 복사하지 않는다(백필 절차는 migrations/README.md 참조)';
 comment on column media.source_video_id is '프레임 이미지의 원본 영상 식별자(media.id 자기 참조 개념이나 FK 미설정 — 영상 프레임 추출 파이프라인의 유연한 기록을 위함)';
 comment on column rag_documents.target_collection is '이 문서의 청크가 임베딩되는 Chroma 컬렉션(regulations/defect_kb)';
 comment on column rag_documents.effective_date is '문서 시행일(법규 개정 추적용, LAW 문서만 채움 — GUIDELINE/DEFECT_KB 문서는 NULL 허용)';

@@ -120,6 +120,9 @@ public class Defect {
 
     public void review(DefectGrade grade) {
         requireNotDeleted("review");
+        if (grade == null) {
+            throw new IllegalArgumentException("review 불가: 결함 등급은 필수다");
+        }
         if (this.status == DefectStatus.RESOLVED) {
             throw new IllegalStateException(
                     "review 불가: 이미 RESOLVED 상태인 결함은 등급을 변경할 수 없다");

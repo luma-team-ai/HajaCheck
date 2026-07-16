@@ -125,6 +125,9 @@ public class RagDocument {
 
     public void completeEmbedding(int chunkCount) {
         requireEmbeddingStatus("completeEmbedding", RagEmbeddingStatus.EMBEDDING);
+        if (chunkCount < 0) {
+            throw new IllegalArgumentException("completeEmbedding 불가: 청크 수는 0 이상이어야 한다");
+        }
         this.embeddingStatus = RagEmbeddingStatus.DONE;
         this.chunkCount = chunkCount;
         this.embeddedAt = Instant.now();

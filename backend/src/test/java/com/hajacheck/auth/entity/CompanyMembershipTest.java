@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class CompanyMembershipTest {
 
@@ -123,5 +124,36 @@ class CompanyMembershipTest {
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> approved.reinvite(4L, null))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void invite_이미지난만료시각이면예외() {
+        assertThatThrownBy(() -> CompanyMembership.invite(
+                1L, 2L, 3L, Instant.now().minusSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void approve_승인전에만료된초대이면대기상태를유지하고예외() {
+        CompanyMembership membership = CompanyMembership.invite(
+                1L, 2L, 3L, Instant.now().plusSeconds(3600));
+        ReflectionTestUtils.setField(membership, "expiresAt", Instant.now().minusSeconds(1));
+
+        assertThatThrownBy(membership::approve)
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(membership.getStatus()).isEqualTo(CompanyMembershipStatus.PENDING);
+        assertThat(membership.getApprovedAt()).isNull();
+    }
+
+    @Test
+    void reinvite_이미지난만료시각이면기존회수상태를유지하고예외() {
+        CompanyMembership membership = CompanyMembership.approvedOwner(1L, 2L);
+        membership.revoke();
+
+        assertThatThrownBy(() -> membership.reinvite(4L, Instant.now().minusSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(membership.getStatus()).isEqualTo(CompanyMembershipStatus.REVOKED);
+        assertThat(membership.getInvitedBy()).isNull();
+        assertThat(membership.getRevokedAt()).isNotNull();
     }
 }

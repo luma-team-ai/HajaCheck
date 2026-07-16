@@ -136,19 +136,22 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
     @Test
     void chatRagCitation_관계와외부Chunk참조저장조회() {
         User user = seedUser("chat-user@haja.com");
-        ChatSession session = ChatSession.start(user.getId(), ChatSessionType.SCENARIO_BOT);
-        em.persist(session);
+        ChatSession scenarioSession = ChatSession.start(user.getId(), ChatSessionType.SCENARIO_BOT);
+        em.persist(scenarioSession);
+        ChatSession counselSession = ChatSession.start(user.getId(), ChatSessionType.COUNSEL);
+        em.persist(counselSession);
 
         BotScenario root = BotScenario.create(null, "시설", "시설 점검", "선택하세요", false, 0);
         em.persist(root);
         BotScenario child = BotScenario.create(root.getId(), "시설", "균열", "균열 안내", false, 1);
         em.persist(child);
 
-        ChatMessage message = ChatMessage.create(session.getId(), ChatSenderType.BOT, "관련 근거입니다", child.getId());
+        ChatMessage message = ChatMessage.create(
+                scenarioSession.getId(), ChatSenderType.BOT, "관련 근거입니다", child.getId());
         em.persist(message);
 
         CounselTicket ticket = CounselTicket.request(user.getId(), 1);
-        ticket.assign(user.getId(), session.getId());
+        ticket.assign(user.getId(), counselSession);
         em.persist(ticket);
 
         RagDocument document = RagDocument.upload(

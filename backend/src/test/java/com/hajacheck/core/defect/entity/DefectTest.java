@@ -94,6 +94,17 @@ class DefectTest {
     }
 
     @Test
+    void review_등급이없으면검토상태를변경하지않고예외() {
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).build();
+
+        assertThatThrownBy(() -> defect.review(null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(defect.getGrade()).isNull();
+        assertThat(defect.isReviewed()).isFalse();
+    }
+
+    @Test
     void 삭제된결함_검토와상태변경을거부() {
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).build();
