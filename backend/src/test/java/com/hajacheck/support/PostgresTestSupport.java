@@ -11,13 +11,16 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * 없어, enum 이 걸린 User 엔티티/리포지토리는 실 PG 에서만 정합성(ddl-auto=validate)을 검증할 수 있다.
  *
  * <p>컨테이너는 단일 인스턴스(static)로 한 번만 기동해 모든 테스트 클래스가 재사용한다(Ryuk 가 JVM 종료 시 정리).
- * 초기화 스크립트가 서버 스키마(v0.3)의 enum 타입 3개 + users 테이블을 만들고, Hibernate 는 validate 로 대조한다.
+ * 초기화 스크립트는 빌드 시 설계 기준 DDL에서 복사되며, Hibernate 는 전체 스키마를 validate 로 대조한다.
  */
 public abstract class PostgresTestSupport {
 
     static final PostgreSQLContainer<?> POSTGRES =
             new PostgreSQLContainer<>("postgres:16")
-                    .withInitScript("db/testcontainers-users-init.sql");
+                    .withDatabaseName("hajacheck")
+                    .withUsername("postgres")
+                    .withPassword("postgres")
+                    .withInitScript("db/HajaCheck_script.sql");
 
     static {
         POSTGRES.start();
