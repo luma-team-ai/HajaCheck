@@ -25,6 +25,7 @@ from ai.chains.report_chain import (
     _build_prompt_overview,
     _build_prompt_recommendation,
     _build_prompt_summary,
+    _normalize_grade,
     full_grade_counts,
     run_report_chain,
 )
@@ -96,6 +97,21 @@ def _sample_recommendation(legal_basis: str = "콘크리트 구조 설계기준 
 def test_full_grade_counts_fills_all_grades_with_zero():
     counts = full_grade_counts(_sample_defects())
     assert counts == {"A": 0, "B": 1, "C": 0, "D": 0, "E": 0}
+
+
+def test_normalize_grade_regression_known_forms():
+    # 회귀 방지: "C등급" → "C", " c " → "C" (grounding.py 통일 헬퍼 재사용 후에도 정상 동작 유지)
+    assert _normalize_grade("C등급") == "C"
+    assert _normalize_grade(" c ") == "C"
+
+
+def test_normalize_grade_rejects_first_char_false_positive():
+    """PR머신 3차 리뷰 지적: report_chain._normalize_grade가 자체 first-char 휴리스틱을 복붙하지
+    않고 grounding.py의 통일된 헬퍼를 재사용한 뒤, "Bogus" 같은 값이 더 이상 "B"등급으로 오인식되지
+    않고 full_grade_counts 집계에서 자연히 걸러지는지 확인한다."""
+    assert _normalize_grade("Bogus") != "B"
+    counts = full_grade_counts([{"severity_grade": "Bogus"}, {"severity_grade": "B"}])
+    assert counts == {"A": 0, "B": 1, "C": 0, "D": 0, "E": 0}  # Bogus는 어느 등급으로도 집계되지 않음
 
 
 def test_build_prompt_overview_includes_facility_info():
@@ -214,6 +230,114 @@ def test_report_endpoint_llm_failure_returns_error_envelope(mock_get_llm):
     body = res.json()
     assert body["success"] is False
     assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
+    # PR머신 3차 리뷰 지적: 원본 예외 문자열(str(e))이 그대로 노출되면 안 됨(환경변수명 등 내부정보 유출 위험)
+    assert body["error"]["message"] == "보고서 생성 중 오류가 발생했습니다"
+    assert "HF_API_TOKEN" not in body["error"]["message"]
+
+
+@patch("ai.chains.defect_explain_chain.get_llm")
+def test_defect_explain_endpoint_failure_does_not_leak_exception_message(mock_get_llm):
+    """3차 리뷰 지적(:49 부근) — /ai/defect-explain도 예외 메시지 그대로 반환하던 것을 고정 메시지로."""
+    mock_get_llm.side_effect = KeyError("HF_API_TOKEN")
+
+    res = client.post(
+        "/ai/defect-explain",
+        json={
+            "defect_type": "균열",
+            "severity_grade": "C",
+            "location": "1층 기둥",
+            "facility_type": "공동주택",
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
+    assert body["error"]["message"] == "하자 설명 생성 중 오류가 발생했습니다"
+    assert "HF_API_TOKEN" not in body["error"]["message"]
+
+
+@patch("ai.chains.briefing_chain.get_llm")
+def test_briefing_endpoint_failure_does_not_leak_exception_message(mock_get_llm):
+    """3차 리뷰 지적(:80 부근) — /ai/briefing도 예외 메시지 그대로 반환하던 것을 고정 메시지로."""
+    from ai.chains.briefing_chain import DashboardStats
+
+    mock_get_llm.side_effect = KeyError("HF_API_TOKEN")
+    stats = DashboardStats(
+        total_facilities=24, monthly_analysis=1284, pending_review=37, pending_action=12,
+        this_week_defects=45, last_week_defects=51, top_defect_type="균열", critical_defects=3,
+    )
+
+    res = client.post("/ai/briefing", json=stats.model_dump())
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
+    assert body["error"]["message"] == "브리핑 생성 중 오류가 발생했습니다"
+    assert "HF_API_TOKEN" not in body["error"]["message"]
+
+
+# ── facility_info 검증 (PR머신 3차 리뷰 지적: raw dict 그대로 노출 금지) ──
+
+
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
+def test_facility_info_rejects_non_scalar_values(mock_get_llm, mock_get_vectorstore):
+    """facility_info 값이 dict/list 같은 비스칼라면 요청 단계(422)에서 거부되어야 한다 —
+    LLM 호출 전에 프롬프트에 구조화된 값이 섞여 들어가는 걸 막는다."""
+    mock_get_vectorstore.side_effect = NotImplementedError("stub")
+    _patch_all_sections(mock_get_llm)
+
+    res = client.post(
+        "/ai/report",
+        json={
+            "facility_info": {"name": "Haja APT", "location": {"nested": "dict"}},
+            "confirmed_defects": _sample_defects(),
+        },
+    )
+    assert res.status_code == 422
+
+
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
+def test_facility_info_rejects_list_value(mock_get_llm, mock_get_vectorstore):
+    mock_get_vectorstore.side_effect = NotImplementedError("stub")
+    _patch_all_sections(mock_get_llm)
+
+    res = client.post(
+        "/ai/report",
+        json={
+            "facility_info": {"name": "Haja APT", "scale": ["a", "b"]},
+            "confirmed_defects": _sample_defects(),
+        },
+    )
+    assert res.status_code == 422
+
+
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
+def test_facility_info_allows_unknown_extra_scalar_keys(mock_get_llm, mock_get_vectorstore):
+    """_format_facility_info는 알려지지 않은 추가 키도 그대로 렌더링하는 open-ended 설계이므로,
+    FacilityInfoInput은 extra='allow'로 계약을 깨지 않아야 한다(값이 스칼라인 한 통과)."""
+    mock_get_vectorstore.side_effect = NotImplementedError("stub")
+    _patch_all_sections(mock_get_llm)
+
+    res = client.post(
+        "/ai/report",
+        json={
+            "facility_info": {
+                "name": "Haja APT",
+                "location": "서울시",
+                "manager_name": "홍길동",  # 알려지지 않은 다수 키
+                "contact_phone": "02-1234-5678",
+                "extra_note": "특이사항 없음",
+            },
+            "confirmed_defects": _sample_defects(),
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
 
 
 @patch("ai.chains.report_chain.get_vectorstore")
