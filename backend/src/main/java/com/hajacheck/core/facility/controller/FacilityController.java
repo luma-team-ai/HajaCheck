@@ -3,6 +3,7 @@ package com.hajacheck.core.facility.controller;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
+import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.global.common.ApiResponse;
@@ -76,5 +77,15 @@ public class FacilityController {
             @PathVariable Long id) {
         facilityService.delete(loginUser.getUserId(), id);
         return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    @Operation(summary = "시설물 점검주기 설정", description = "로그인 사용자 소유의 시설물에 점검 주기를 설정하고 다음 점검일(nextInspectionDueAt)을 산출·저장한다")
+    @PostMapping("/{id}/schedule")
+    public ResponseEntity<ApiResponse<FacilityResponse>> setSchedule(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long id,
+            @Valid @RequestBody FacilityScheduleRequest request) {
+        FacilityResponse response = facilityService.setSchedule(loginUser.getUserId(), id, request);
+        return ResponseEntity.ok(ApiResponse.ok(response));
     }
 }
