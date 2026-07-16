@@ -3,10 +3,13 @@ package com.hajacheck.core.rag.entity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
@@ -43,6 +46,10 @@ public class ChatMessageCitation {
 
     @Column(name = "document_id", nullable = false)
     private Long documentId;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "document_id", insertable = false, updatable = false)
+    private RagDocument document;
 
     /** PostgreSQL FK가 아닌 Chroma 외부 저장소의 청크 식별자. */
     @Column(name = "chunk_ref", nullable = false, length = 100)
