@@ -29,6 +29,24 @@ begin
         raise exception 'rag_doc_verification_status_type labels do not match the canonical DDL';
     end if;
 
+    if exists (
+        select 1
+        from user_consents
+        group by user_id, policy_type, policy_version
+        having count(*) > 1
+    ) then
+        raise exception 'duplicate user_consents(user_id, policy_type, policy_version) rows remain';
+    end if;
+
+    if exists (
+        select 1
+        from inspections
+        group by facility_id, round_no
+        having count(*) > 1
+    ) then
+        raise exception 'duplicate inspections(facility_id, round_no) rows remain';
+    end if;
+
     if not exists (
         select 1
         from pg_constraint c
@@ -89,6 +107,43 @@ begin
         raise exception 'v0.3 media.mime_signature_verified DEFAULT false NOT NULL is missing';
     end if;
 
+    -- 컬럼 존재/타입을 먼저 확인한 뒤 실제 행의 NULL 잔존 여부와 최종 DEFAULT/NOT NULL을 각각 검증한다.
+    select string_agg(expected.table_name || '.lock_version', ', ' order by expected.table_name)
+    into invalid_columns
+    from (values
+        ('companies'),
+        ('company_memberships'),
+        ('defects'),
+        ('reports'),
+        ('counsel_tickets'),
+        ('rag_documents')
+    ) as expected(table_name)
+    left join information_schema.columns actual
+     on actual.table_schema = 'public'
+     and actual.table_name = expected.table_name
+     and actual.column_name = 'lock_version'
+     and actual.data_type = 'bigint'
+    where actual.column_name is null;
+
+    if invalid_columns is not null then
+        raise exception 'optimistic-lock bigint columns are missing: %', invalid_columns;
+    end if;
+
+    if exists (
+        select 1
+        from (
+            select lock_version from companies
+            union all select lock_version from company_memberships
+            union all select lock_version from defects
+            union all select lock_version from reports
+            union all select lock_version from counsel_tickets
+            union all select lock_version from rag_documents
+        ) state_machine_rows
+        where lock_version is null
+    ) then
+        raise exception 'state-machine rows with null lock_version remain';
+    end if;
+
     select string_agg(expected.table_name || '.lock_version', ', ' order by expected.table_name)
     into invalid_columns
     from (values
@@ -103,14 +158,13 @@ begin
       on actual.table_schema = 'public'
      and actual.table_name = expected.table_name
      and actual.column_name = 'lock_version'
-     and actual.data_type = 'bigint'
      and actual.is_nullable = 'NO'
      and regexp_replace(lower(coalesce(actual.column_default, '')), '[[:space:]()]', '', 'g')
          in ('0', '0::bigint', '0::int8')
     where actual.column_name is null;
 
     if invalid_columns is not null then
-        raise exception 'optimistic-lock columns must be bigint DEFAULT 0 NOT NULL: %', invalid_columns;
+        raise exception 'optimistic-lock columns must be DEFAULT 0 NOT NULL: %', invalid_columns;
     end if;
 
     if not exists (

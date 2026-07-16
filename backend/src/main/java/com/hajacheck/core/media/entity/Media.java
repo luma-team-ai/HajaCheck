@@ -72,7 +72,7 @@ public class Media {
     @Column(name = "gps_lng", precision = 9, scale = 6)
     private BigDecimal gpsLng;
 
-    /** 새 엔티티는 항상 false로 시작하며, 검증 결과를 호출자 인자로 받지 않는다. */
+    /** 새 엔티티는 항상 false로 시작하며, 검증 결과를 생성 호출자 인자로 받지 않는다. */
     @Column(name = "mime_signature_verified", nullable = false)
     private boolean mimeSignatureVerified;
 
@@ -133,5 +133,16 @@ public class Media {
                 .gpsLng(gpsLng)
                 .mimeType(mimeType)
                 .build();
+    }
+
+    /**
+     * 서버가 실제 파일 바이트의 매직바이트와 {@link #mimeType} 일치를 검증한 뒤 호출한다.
+     * 생성 요청이 검증 여부를 주입하지 못하게 하고, 검증 완료 상태만 단방향으로 기록한다.
+     */
+    public void markMimeSignatureVerified() {
+        if (mimeType == null || mimeType.isBlank()) {
+            throw new IllegalStateException("MIME type is required before signature verification");
+        }
+        this.mimeSignatureVerified = true;
     }
 }

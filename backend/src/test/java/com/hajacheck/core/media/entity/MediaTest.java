@@ -1,6 +1,7 @@
 package com.hajacheck.core.media.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -49,10 +50,49 @@ class MediaTest {
     }
 
     @Test
-    void publicApi_호출자가MIME검증상태를주입할수없음() {
+    void markMimeSignatureVerified_서버검증완료를단방향으로반영() {
+        Media media = Media.create(
+                10L,
+                MediaFileType.IMAGE,
+                "https://files.example/image.jpg",
+                null,
+                null,
+                null,
+                null,
+                "image/jpeg");
+
+        media.markMimeSignatureVerified();
+        media.markMimeSignatureVerified();
+
+        assertThat(media.isMimeSignatureVerified()).isTrue();
+    }
+
+    @Test
+    void markMimeSignatureVerified_MIME타입이없으면거부() {
+        Media media = Media.create(
+                10L,
+                MediaFileType.IMAGE,
+                "https://files.example/image.jpg",
+                null,
+                null,
+                null,
+                null,
+                null);
+
+        assertThatThrownBy(media::markMimeSignatureVerified)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("MIME type");
+    }
+
+    @Test
+    void publicApi_호출자가MIME검증상태를생성인자로주입할수없음() {
         assertThat(java.util.Arrays.stream(Media.class.getMethods())
                 .map(method -> method.getName())
                 .toList())
-                .doesNotContain("markMimeSignatureVerified", "setMimeSignatureVerified");
+                .doesNotContain("setMimeSignatureVerified");
+        assertThat(java.util.Arrays.stream(Media.class.getMethods())
+                .filter(method -> method.getName().equals("markMimeSignatureVerified"))
+                .allMatch(method -> method.getParameterCount() == 0))
+                .isTrue();
     }
 }

@@ -43,7 +43,7 @@ class StateTransitionOptimisticLockTest extends PostgresTestSupport {
                     User.createCompanyOwner(
                             "lock-" + suffix + "@haja.test",
                             "optimistic-lock-owner",
-                            "test-hash"));
+                            "<password-hash-placeholder>"));
             Company company = Company.createPendingReview(
                     owner.getId(),
                     "optimistic-lock-company",
