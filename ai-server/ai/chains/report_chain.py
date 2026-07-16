@@ -23,6 +23,7 @@ from ai.core.grounding import (
     GroundingDefect,
     MismatchPolicy,
     check_grounding,
+    normalize_grade_strict,
 )
 from ai.core.llm_client import MAX_RETRIES, get_llm
 from ai.core.vectorstore import COLLECTION_REGULATIONS, get_vectorstore
@@ -107,8 +108,12 @@ def _format_facility_info(facility_info: dict) -> str:
 
 
 def _normalize_grade(raw: str) -> str:
-    normalized = str(raw or "").strip().upper()
-    return normalized[0] if normalized and normalized[0] in VALID_GRADES else normalized
+    """grounding.py의 통일된 정규화 헬퍼를 재사용 — 자체 first-char 휴리스틱을 복붙하지 않는다
+    (PR머신 3차 리뷰 지적: 첫 글자만 보는 방식은 "Bogus" 같은 값을 "B"등급으로 오인식했다).
+    유효 등급으로 확정되지 않으면(예: "Bogus") full_grade_counts의 `if grade in counts` 필터에서
+    자연히 걸러지도록, 매칭 실패 시 원본(strip+upper)을 그대로 반환한다(기존 계약 유지)."""
+    normalized = normalize_grade_strict(str(raw or ""))
+    return normalized if normalized is not None else str(raw or "").strip().upper()
 
 
 def full_grade_counts(confirmed_defects: list[dict]) -> dict[str, int]:
