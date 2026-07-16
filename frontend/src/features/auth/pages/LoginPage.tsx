@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { ApiError } from '../../../shared/api/types';
+import { isSafeInternalPath } from '../../../shared/utils/safeInternalPath';
 import { authApi } from '../api/authApi';
 import { CompanyLoginTab } from '../components/CompanyLoginTab';
 import { LoginHeroPanel } from '../components/LoginHeroPanel';
@@ -35,6 +36,11 @@ export function LoginPage() {
     queryFn: () => authApi.getMe().then((res) => res.data),
     retry: false,
     staleTime: AUTH_ME_QUERY_STALE_TIME_MS,
+    // AuthGate(app/AuthGate.tsx)와 동일 옵션 — 로그아웃 API 실패로 쿠키가 아직 유효할 때,
+    // staleTime 경과 후 탭 포커스 복귀/재연결로 이 쿼리가 재요청되면 200→setUser→navigate로
+    // 세션이 재복원된다(#280 P2). 포커스/재연결 refetch를 꺼서 이 트리거를 없앤다.
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   useEffect(() => {
@@ -43,7 +49,9 @@ export function LoginPage() {
     if (isSuccess && me) {
       setUser(me);
       const from = (location.state as { from?: string } | null)?.from;
-      navigate(from ?? '/dashboard');
+      // state.from은 라우터 state에 실린 값이라 외부에서 임의로 주입 가능 — 내부 절대경로임을
+      // 검증하지 않고 그대로 navigate에 넘기면 오픈 리다이렉트로 악용될 수 있다(#280 P3).
+      navigate(isSafeInternalPath(from) ? from : '/dashboard');
     }
   }, [isSuccess, me, navigate, setUser, location.state]);
 
