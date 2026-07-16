@@ -28,6 +28,10 @@ import org.hibernate.type.SqlTypes;
  * <p>기존 auth 엔티티 규약에 따라 사용자와 기업 FK는 식별자 값으로 보유한다. 유효 멤버십 판정에는
  * 사용자·기업 상태와 {@code User.companyId} 교차 확인이 추가로 필요하므로 이 엔티티의 상태만으로
  * 권한을 부여해서는 안 된다.</p>
+ *
+ * <p>⚠️ 계약: {@code Company.status}(승인/반려)와 이 엔티티의 {@code status}(멤버십 유효성)는 독립된 두
+ * 상태 머신이다(HAJA-25 P2 — 현재 둘 다 서비스 미배선). {@code Company.approve}/{@code Company.reject}가
+ * 배선될 때는 오너의 멤버십도 같은 트랜잭션에서 함께 전이시켜야 두 상태가 어긋나지 않는다.</p>
  */
 @Entity
 @Getter

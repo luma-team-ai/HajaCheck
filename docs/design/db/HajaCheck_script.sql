@@ -1084,6 +1084,7 @@ create table notifications
 (
     id           bigint generated always as identity
         primary key,
+    lock_version bigint                   default 0    not null,
     user_id      bigint                                 not null
         references users,
     type         notification_type                      not null,
@@ -1095,6 +1096,8 @@ create table notifications
 comment on table notifications is '사용자에게 전달되는 서비스 알림을 관리한다.';
 
 comment on column notifications.id is '알림 식별자';
+
+comment on column notifications.lock_version is '동시 갱신 충돌 감지용 낙관적 락 버전(상태 머신은 아니나 다른 가변 Entity와의 일관성을 위해 적용)';
 
 comment on column notifications.user_id is '알림 수신 사용자 식별자';
 

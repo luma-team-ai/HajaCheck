@@ -7,6 +7,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -28,6 +29,11 @@ public class Notification {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    // 상태 머신은 아니지만(단순 읽음 플래그 토글), 이 PR의 다른 모든 가변 Entity와의 낙관적 락 일관성을 위해 적용.
+    @Version
+    @Column(name = "lock_version", nullable = false)
+    private long lockVersion;
 
     @Column(name = "user_id", nullable = false)
     private Long userId;

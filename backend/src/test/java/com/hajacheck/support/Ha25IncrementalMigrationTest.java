@@ -372,6 +372,7 @@ class Ha25IncrementalMigrationTest {
                     union all select lock_version from reports
                     union all select lock_version from counsel_tickets
                     union all select lock_version from rag_documents
+                    union all select lock_version from notifications
                 ) state_machine_rows
                 where lock_version is distinct from 0
                 """, "0");
@@ -479,6 +480,18 @@ class Ha25IncrementalMigrationTest {
                 alter table inspections drop constraint fk_inspections_assigned_inspector;
                 alter table inspections add constraint fk_inspections_assigned_inspector
                     foreign key (assigned_inspector_id) references users(id);
+                """);
+
+        runSql(postgres, "drop assigned inspector company-boundary trigger", """
+                drop trigger trg_inspections_check_assigned_inspector_company on inspections;
+                """);
+        runPsqlExpectFailure(
+                postgres, "20260716_03_ha25_verify.sql",
+                "trg_inspections_check_assigned_inspector_company trigger is missing");
+        runSql(postgres, "restore assigned inspector company-boundary trigger", """
+                create trigger trg_inspections_check_assigned_inspector_company
+                    before insert or update of assigned_inspector_id, created_by on inspections
+                    for each row execute procedure check_inspection_assigned_inspector_company();
                 """);
 
         runSql(postgres, "set updated_at trigger to replica-only", """

@@ -142,6 +142,12 @@ public class Company extends BaseTimeEntity {
 
     /**
      * 관리자 승인 (상태 전이 — 현재 미배선, 관리자 승인 화면 후속 과제).
+     *
+     * <p>⚠️ 계약: {@code Company.status}와 {@code CompanyMembership.status}는 독립된 두 상태 머신이다(HAJA-25 P2).
+     * 이 메서드를 서비스 계층에 배선할 때는 같은 트랜잭션에서 오너의 {@link CompanyMembership}도 함께
+     * {@code APPROVED}로 전이(신규 발급 또는 기존 PENDING 행의 {@code approve()})시켜야 한다. 그렇지 않으면
+     * 회사는 승인되었지만 오너에게는 유효한 소속 멤버십이 없는 상태 불일치가 생긴다(migration의 finalize/verify가
+     * 검증하는 "APPROVED+VERIFIED 회사는 유효한 오너 멤버십을 가져야 한다" 불변식과 충돌).
      */
     public void approve(Long reviewerUserId) {
         requirePendingReview("approve");
@@ -157,6 +163,10 @@ public class Company extends BaseTimeEntity {
 
     /**
      * 관리자 반려 (상태 전이 — 현재 미배선).
+     *
+     * <p>⚠️ 계약: {@link #approve(Long)}와 동일하게, 이 회사에 이미 {@code PENDING} {@link CompanyMembership}
+     * 초대가 존재한다면(예: 재심사 흐름) 반려 시 함께 {@code REJECTED}로 정리할지 서비스 계층에서 결정해야
+     * 한다 — 두 상태 머신을 독립적으로 갱신하면 회사는 반려됐는데 멤버십은 대기 상태로 남는 불일치가 생긴다.
      */
     public void reject(Long reviewerUserId, String reason) {
         requirePendingReview("reject");
