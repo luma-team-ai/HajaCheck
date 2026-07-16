@@ -345,9 +345,141 @@ paths:
   /api/facilities:
     post:
       summary: 시설물 등록
+      description: >
+        인증 사용자가 시설물을 등록한다. ownerId 는 요청 바디가 아니라 인증 주체에서 서버가 기록한다.
+        name/type 은 필수(DDL NOT NULL), 나머지는 선택 입력이다.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [facility]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FacilityCreateRequest" }
+      responses:
+        "201":
+          description: 시설물 등록 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityApiResponse" }
+        "400":
+          description: 입력값 오류 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+    get:
+      summary: 내 시설물 목록 조회
+      description: 인증 주체가 소유한(ownerId 일치) 시설물만 반환한다.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
       tags: [facility]
       responses:
-        "201": { description: TODO — 김관영/유병현 확정 필요 }
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityListApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/facilities/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    get:
+      summary: 시설물 상세 조회
+      description: >
+        소유자 스코프로 조회한다. 미존재와 타인 소유를 구분하지 않고 모두 404 FACILITY_NOT_FOUND 로
+        응답해 리소스 존재 여부 열거(cross-owner IDOR)를 차단한다.
+        ⚠️ 현재 구현(PR #176)은 시설물 단건(FacilityResponse)만 반환한다. 점검이력(inspections) 결합은
+        dev-04-02 후속 작업으로 미구현 — 아래 FacilityDetailResponse 참조(계획안).
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [facility]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 타인 소유 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+    put:
+      summary: 시설물 수정
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [facility]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FacilityUpdateRequest" }
+      responses:
+        "200":
+          description: 수정 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityApiResponse" }
+        "400":
+          description: 입력값 오류 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 타인 소유 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+    delete:
+      summary: 시설물 삭제
+      description: 하드 삭제(facilities 테이블에 is_deleted 컬럼 없음).
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [facility]
+      responses:
+        "200":
+          description: 삭제 성공 (data=null)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoidApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 타인 소유 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
   /api/inspections:
     post:
@@ -699,6 +831,114 @@ components:
           format: int64
           minimum: 1
           description: ACTIVE이며 INSPECTOR 또는 ADMIN 역할인 담당자 식별자
+
+    FacilityCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, type]
+      description: ownerId 는 인증 주체에서 서버가 기록하므로 요청 바디에 포함하지 않는다.
+      properties:
+        name: { type: string, maxLength: 200 }
+        type: { type: string, maxLength: 20 }
+        address: { type: string, maxLength: 300, nullable: true }
+        latitude: { type: number, format: double, minimum: -90.0, maximum: 90.0, nullable: true }
+        longitude: { type: number, format: double, minimum: -180.0, maximum: 180.0, nullable: true }
+        builtYear: { type: integer, nullable: true }
+        scale: { type: string, maxLength: 100, nullable: true }
+        inspectionCycleMonths: { type: integer, minimum: 0, nullable: true }
+        nextInspectionDueAt: { type: string, format: date, nullable: true }
+
+    FacilityUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, type]
+      description: FacilityCreateRequest 와 동일 필드 집합(전체 교체 방식).
+      properties:
+        name: { type: string, maxLength: 200 }
+        type: { type: string, maxLength: 20 }
+        address: { type: string, maxLength: 300, nullable: true }
+        latitude: { type: number, format: double, minimum: -90.0, maximum: 90.0, nullable: true }
+        longitude: { type: number, format: double, minimum: -180.0, maximum: 180.0, nullable: true }
+        builtYear: { type: integer, nullable: true }
+        scale: { type: string, maxLength: 100, nullable: true }
+        inspectionCycleMonths: { type: integer, minimum: 0, nullable: true }
+        nextInspectionDueAt: { type: string, format: date, nullable: true }
+
+    FacilityResponse:
+      type: object
+      additionalProperties: false
+      required: [id, ownerId, name, type, createdAt, updatedAt]
+      properties:
+        id: { type: integer, format: int64 }
+        ownerId: { type: integer, format: int64 }
+        name: { type: string }
+        type: { type: string }
+        address: { type: string, nullable: true }
+        latitude: { type: number, format: double, nullable: true }
+        longitude: { type: number, format: double, nullable: true }
+        builtYear: { type: integer, nullable: true }
+        scale: { type: string, nullable: true }
+        inspectionCycleMonths: { type: integer, nullable: true }
+        nextInspectionDueAt: { type: string, format: date, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    FacilityDetailResponse:
+      type: object
+      additionalProperties: false
+      required: [facility, inspections]
+      description: >
+        ⚠️ 계획안(미구현) — dev-04-02 점검이력 결합 후속 작업에서 채택 예정. 현재 GET /api/facilities/{id}
+        는 flat FacilityResponse 를 반환한다. 채택 시 응답 구조 변경(breaking)이므로 계약 오너 승인 필요.
+        시설물 상세 + 해당 시설의 점검 회차 이력(최신순).
+      properties:
+        facility: { $ref: "#/components/schemas/FacilityResponse" }
+        inspections:
+          type: array
+          items: { $ref: "#/components/schemas/InspectionResponse" }
+
+    FacilityApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/FacilityResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    FacilityListApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          type: array
+          items: { $ref: "#/components/schemas/FacilityResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    FacilityDetailApiResponse:
+      type: object
+      description: ⚠️ 계획안(미구현) — FacilityDetailResponse 채택 시 사용.
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/FacilityDetailResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
 
     InspectionResponse:
       type: object
