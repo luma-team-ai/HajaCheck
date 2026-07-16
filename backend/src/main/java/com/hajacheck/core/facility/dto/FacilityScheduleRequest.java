@@ -1,5 +1,6 @@
 package com.hajacheck.core.facility.dto;
 
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 
@@ -10,6 +11,9 @@ import jakarta.validation.constraints.NotNull;
 public record FacilityScheduleRequest(
         // @Min(1): FacilityCreate/UpdateRequest 는 @Min(0)(주기 미설정 허용)이지만,
         // 이 엔드포인트는 주기를 '설정'하는 것이 목적이라 0(주기 없음)은 무의미 → 최소 1개월 강제.
-        @NotNull @Min(1) Integer inspectionCycleMonths
+        // @Max(120): 상한(10년) 방어(PR #284 P2). 상한이 없으면 Integer.MAX_VALUE 같은 극단값이
+        //   검증을 통과해 Facility.updateSchedule 의 baseDate.plusMonths(...) 에서 산술 오버플로우
+        //   (DateTimeException)를 일으켜 미처리 500 위험 → 현실적 상한으로 400(INVALID_INPUT) 처리.
+        @NotNull @Min(1) @Max(120) Integer inspectionCycleMonths
 ) {
 }
