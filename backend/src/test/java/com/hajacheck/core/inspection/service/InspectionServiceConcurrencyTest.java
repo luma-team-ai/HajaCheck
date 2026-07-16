@@ -68,8 +68,10 @@ class InspectionServiceConcurrencyTest extends PostgresTestSupport {
                 .status(UserStatus.ACTIVE)
                 .build());
 
+        // business_registration_number 는 varchar(20) — 접두사 짧게 + nanoTime 뒷자리로 유니크성 확보.
+        String brn = "brn-" + (System.nanoTime() % 10_000_000_000L);
         Company company = companyRepository.save(Company.createPendingReview(
-                owner.getId(), "(주)동시성테스트", "concurrency-brn-" + System.nanoTime(),
+                owner.getId(), "(주)동시성테스트", brn,
                 "김대표", "서울시 강남구", null, "http://files/brn.png", "{}"));
         owner.assignToCompany(company.getId());
         userRepository.save(owner);
