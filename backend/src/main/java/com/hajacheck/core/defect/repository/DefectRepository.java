@@ -34,4 +34,15 @@ public interface DefectRepository extends JpaRepository<Defect, Long> {
             + "where d.inspectionId in :inspectionIds and d.deleted = false group by d.inspectionId")
     List<InspectionDefectCountProjection> countGroupByInspectionId(
             @Param("inspectionIds") Collection<Long> inspectionIds);
+
+    // AI 주간 브리핑(#248 / HAJA-197) — 등록 기준 주간 하자 count(전 상태 포함, createdAt 기준 [from,to) 는
+    // 호출측이 to 를 다음 경계 직전(-1ns)으로 넘겨 사실상 반열림 구간으로 사용한다).
+    long countByInspectionIdInAndDeletedFalseAndCreatedAtBetween(
+            Collection<Long> inspectionIds, LocalDateTime from, LocalDateTime to);
+
+    // AI 주간 브리핑(#248 / HAJA-197) — 최다 발생 결함 유형 선정용, count 내림차순 정렬.
+    @Query("select d.type as type, count(d) as cnt from Defect d "
+            + "where d.inspectionId in :inspectionIds and d.deleted = false group by d.type order by cnt desc")
+    List<DefectTypeCountProjection> countGroupByTypeOrderByCntDesc(
+            @Param("inspectionIds") Collection<Long> inspectionIds);
 }
