@@ -1,6 +1,8 @@
 import type { ChangeEvent } from 'react';
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
+import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
 import { DefectOverlay } from '../components/DefectOverlay';
 import { useInspectionResult } from '../hooks/useInspectionResult';
@@ -22,10 +24,10 @@ export function ResultViewerPage() {
     );
   }
 
-  const { data, isLoading, isError } = useInspectionResult(inspectionId);
+  const { data, isLoading, isError, refetch } = useInspectionResult(inspectionId);
 
-  if (isLoading) return <div className="p-5">불러오는 중...</div>;
-  if (isError) return <div className="p-5">결과를 불러오지 못했습니다.</div>;
+  if (isLoading) return <AILoadingIndicator message="점검 결과를 분석 중입니다..." />;
+  if (isError) return <AIErrorFallback onRetry={() => void refetch()} />;
   if (!data || data.defects.length === 0)
     return <div className="p-5">탐지된 하자가 없습니다.</div>;
 
