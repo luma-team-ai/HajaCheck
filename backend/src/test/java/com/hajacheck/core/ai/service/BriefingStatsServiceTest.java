@@ -126,7 +126,7 @@ class BriefingStatsServiceTest {
         assertThat(stats.gradeDistribution()).containsEntry("A", 0L).containsEntry("E", 0L);
         verify(inspectionRepository, never()).countByFacilityIdInAndStatusIn(anyCollection(), anyCollection());
         verify(defectRepository, never())
-                .countByInspectionIdInAndDeletedFalseAndCreatedAtBetween(anyCollection(), any(), any());
+                .countByInspectionIdInAndDeletedFalseAndCreatedAtRange(anyCollection(), any(), any());
     }
 
     @Test
@@ -142,7 +142,7 @@ class BriefingStatsServiceTest {
                 .thenReturn(2L);
         when(defectRepository.countByInspectionIdInAndStatusAndDeletedFalse(eq(List.of(INSPECTION_ID)), any()))
                 .thenReturn(3L);
-        when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtBetween(
+        when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
                 eq(List.of(INSPECTION_ID)), any(), any())).thenReturn(0L);
         when(defectRepository.countGroupByGrade(List.of(INSPECTION_ID))).thenReturn(List.of());
         when(defectRepository.countGroupByTypeOrderByCntDesc(List.of(INSPECTION_ID))).thenReturn(List.of());
@@ -174,23 +174,25 @@ class BriefingStatsServiceTest {
         LocalDate thisWeekStart = LocalDate.now(KST).with(DayOfWeek.MONDAY);
         LocalDate nextWeekStart = thisWeekStart.plusWeeks(1);
         LocalDate lastWeekStart = thisWeekStart.minusWeeks(1);
+        // 반열림 [from,to) — to 는 다음 경계(exclusive) 그대로, "-1ns" 트릭 금지(리뷰 P1: PG timestamp
+        // 마이크로초 정밀도라 -1ns 가 다음 자정으로 반올림돼 경계 자정 하자가 이중집계되는 결함이었음).
         LocalDateTime thisWeekFrom = thisWeekStart.atStartOfDay();
-        LocalDateTime thisWeekTo = nextWeekStart.atStartOfDay().minusNanos(1);
+        LocalDateTime thisWeekTo = nextWeekStart.atStartOfDay();
         LocalDateTime lastWeekFrom = lastWeekStart.atStartOfDay();
-        LocalDateTime lastWeekTo = thisWeekStart.atStartOfDay().minusNanos(1);
+        LocalDateTime lastWeekTo = thisWeekStart.atStartOfDay();
 
-        when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtBetween(
+        when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
                 List.of(INSPECTION_ID), thisWeekFrom, thisWeekTo)).thenReturn(5L);
-        when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtBetween(
+        when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
                 List.of(INSPECTION_ID), lastWeekFrom, lastWeekTo)).thenReturn(8L);
 
         BriefingStatsRequest stats = briefingStatsService.buildStats(OWNER_ID);
 
         assertThat(stats.thisWeekDefects()).isEqualTo(5L);
         assertThat(stats.lastWeekDefects()).isEqualTo(8L);
-        verify(defectRepository).countByInspectionIdInAndDeletedFalseAndCreatedAtBetween(
+        verify(defectRepository).countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
                 List.of(INSPECTION_ID), thisWeekFrom, thisWeekTo);
-        verify(defectRepository).countByInspectionIdInAndDeletedFalseAndCreatedAtBetween(
+        verify(defectRepository).countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
                 List.of(INSPECTION_ID), lastWeekFrom, lastWeekTo);
     }
 
@@ -207,7 +209,7 @@ class BriefingStatsServiceTest {
                 .thenReturn(0L);
         when(defectRepository.countByInspectionIdInAndStatusAndDeletedFalse(eq(List.of(INSPECTION_ID)), any()))
                 .thenReturn(0L);
-        when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtBetween(
+        when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
                 eq(List.of(INSPECTION_ID)), any(), any())).thenReturn(0L);
         when(defectRepository.countGroupByGrade(List.of(INSPECTION_ID))).thenReturn(List.of(
                 gradeCount(DefectGrade.A, 1L),
@@ -236,7 +238,7 @@ class BriefingStatsServiceTest {
                 .thenReturn(0L);
         when(defectRepository.countByInspectionIdInAndStatusAndDeletedFalse(eq(List.of(INSPECTION_ID)), any()))
                 .thenReturn(0L);
-        when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtBetween(
+        when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
                 eq(List.of(INSPECTION_ID)), any(), any())).thenReturn(0L);
         when(defectRepository.countGroupByGrade(List.of(INSPECTION_ID))).thenReturn(List.of());
         when(defectRepository.countGroupByTypeOrderByCntDesc(List.of(INSPECTION_ID))).thenReturn(List.of(
@@ -246,6 +248,35 @@ class BriefingStatsServiceTest {
         BriefingStatsRequest stats = briefingStatsService.buildStats(OWNER_ID);
 
         assertThat(stats.topDefectType()).isEqualTo("균열");
+    }
+
+    @Test
+    void buildStats_top타입동률이면_repository가정렬해준결과의첫요소를그대로채택() {
+        // 동률(count 동일) 시 결정적 순서는 DefectRepository.countGroupByTypeOrderByCntDesc 의
+        // "order by cnt desc, d.type asc" 가 보장한다(리뷰 P2 픽스) — 서비스는 정렬된 결과의 첫
+        // 요소를 그대로 채택하면 되므로, 여기서는 repository 가 이미 type asc 로 동률을 깨뜨려
+        // 반환한 상황(CRACK 이 SPALLING 보다 enum 선언 순서상 먼저)을 스텁해 서비스 동작을 검증한다.
+        when(facilityRepository.findByOwnerId(OWNER_ID))
+                .thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "내시설")));
+        when(facilityRepository.countByOwnerId(OWNER_ID)).thenReturn(1L);
+        when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID)))
+                .thenReturn(List.of(inspection(INSPECTION_ID, FACILITY_ID, InspectionStatus.REVIEWED)));
+        when(inspectionRepository.countByFacilityIdInAndStatusInAndInspectionDateRange(
+                eq(List.of(FACILITY_ID)), anyCollection(), any(), any())).thenReturn(0L);
+        when(inspectionRepository.countByFacilityIdInAndStatusIn(eq(List.of(FACILITY_ID)), anyCollection()))
+                .thenReturn(0L);
+        when(defectRepository.countByInspectionIdInAndStatusAndDeletedFalse(eq(List.of(INSPECTION_ID)), any()))
+                .thenReturn(0L);
+        when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
+                eq(List.of(INSPECTION_ID)), any(), any())).thenReturn(0L);
+        when(defectRepository.countGroupByGrade(List.of(INSPECTION_ID))).thenReturn(List.of());
+        when(defectRepository.countGroupByTypeOrderByCntDesc(List.of(INSPECTION_ID))).thenReturn(List.of(
+                typeCount(DefectType.CRACK, 5L),
+                typeCount(DefectType.SPALLING, 5L)));
+
+        BriefingStatsRequest stats = briefingStatsService.buildStats(OWNER_ID);
+
+        assertThat(stats.topDefectType()).isEqualTo(DefectType.CRACK.label());
     }
 
     @Test
@@ -268,7 +299,7 @@ class BriefingStatsServiceTest {
         verify(defectRepository, never())
                 .countByInspectionIdInAndStatusAndDeletedFalse(anyCollection(), any());
         verify(defectRepository, never())
-                .countByInspectionIdInAndDeletedFalseAndCreatedAtBetween(anyCollection(), any(), any());
+                .countByInspectionIdInAndDeletedFalseAndCreatedAtRange(anyCollection(), any(), any());
         verify(defectRepository, never()).countGroupByTypeOrderByCntDesc(anyCollection());
     }
 }
