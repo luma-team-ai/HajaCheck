@@ -31,7 +31,7 @@ export function SelectedFacilityPopup({
   const badgeBgColor = GRADE_COLOR[facility.highestGrade] ?? '#9CA3AF';
 
   return (
-    <div className="w-[290px] rounded-[24px] border border-[#d4d4d8] bg-white p-4 shadow-[0px_8px_24px_rgba(0,0,0,0.08)]">
+    <div className="w-[290px] rounded-[24px] border border-[#d4d4d8] bg-white p-4 shadow-[0px_8px_24px_rgba(0,0,0,0.08)] z-10">
       <div className="flex items-start gap-3">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-100">
           {facility.thumbnailUrl ? (

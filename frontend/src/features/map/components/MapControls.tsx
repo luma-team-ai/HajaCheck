@@ -7,7 +7,7 @@ interface MapControlsProps {
 
 export function MapControls({ onZoomIn, onZoomOut, onMyLocation }: MapControlsProps) {
   return (
-    <div className="absolute right-4 top-4 flex flex-col items-end gap-2">
+    <div className="absolute right-4 top-4 z-10 flex flex-col items-end gap-2">
       <div className="flex overflow-hidden rounded-full border border-border bg-white shadow-sm">
         <button
           type="button"
