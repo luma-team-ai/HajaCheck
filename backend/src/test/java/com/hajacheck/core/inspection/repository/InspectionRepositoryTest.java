@@ -67,6 +67,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         assertThat(saved.getId()).isNotNull();
         assertThat(saved.getCreatedAt()).isNotNull();
         assertThat(saved.getStatus()).isEqualTo(InspectionStatus.CREATED);
+        assertThat(saved.getAssignedInspectorId()).isEqualTo(ownerId);
     }
 
     @Test
