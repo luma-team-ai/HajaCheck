@@ -152,6 +152,18 @@ export const router = createBrowserRouter([
           activeHref: '/mypage/plan',
         },
       }, // — features/mypage (HAJA-185, #212)
+      {
+        path: '/facilities/map',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <MapPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '시설물 관리' }, { label: '지도 뷰' }],
+          activeHref: '/facilities/map',
+        },
+      }, // — features/map (#28, HAJA-150 §129 재오픈: 공용 셸 편입 + SideNavBar 경로 버그 수정)
     ],
   },
   {
@@ -166,16 +178,6 @@ export const router = createBrowserRouter([
       </ProtectedRoute>
     ),
   }, // — features/facility (dev-04-01, FR-003)
-  {
-    path: '/map',
-    element: (
-      <ProtectedRoute>
-        <Suspense fallback={<div>불러오는 중...</div>}>
-          <MapPage />
-        </Suspense>
-      </ProtectedRoute>
-    ),
-  }, // — features/map (#28)
   // { path: '/defects', ... }                  — features/defect
   // { path: '/reports', ... }                  — features/report
   // { path: '/support', ... }                  — features/support
