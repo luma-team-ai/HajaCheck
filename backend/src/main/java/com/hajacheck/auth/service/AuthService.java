@@ -3,6 +3,7 @@ package com.hajacheck.auth.service;
 import com.hajacheck.auth.dto.UserResponse;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -54,7 +55,9 @@ public class AuthService {
         boolean assignableRole = assignee.getRole() == Role.INSPECTOR || assignee.getRole() == Role.ADMIN;
         boolean sameCompany = requester.getCompanyId() != null
                 && requester.getCompanyId().equals(assignee.getCompanyId());
-        if (assignee.isSuspended() || !assignableRole || !sameCompany) {
+        // 문서 요구사항 문구("status=ACTIVE")와 코드가 정확히 대응하도록 명시 비교로 작성
+        // (isSuspended() 부정과 현재는 결과가 같지만, status 값이 늘어나도 의도가 코드에서 바로 드러난다).
+        if (assignee.getStatus() != UserStatus.ACTIVE || !assignableRole || !sameCompany) {
             throw new BusinessException(ErrorCode.AUTH_INVALID_INSPECTOR);
         }
     }

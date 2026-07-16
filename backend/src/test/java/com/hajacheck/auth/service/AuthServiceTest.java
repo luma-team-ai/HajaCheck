@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -40,7 +41,7 @@ class AuthServiceTest {
         User user = mock(User.class);
         when(user.getCompanyId()).thenReturn(companyId);
         when(user.getRole()).thenReturn(role);
-        when(user.isSuspended()).thenReturn(suspended);
+        when(user.getStatus()).thenReturn(suspended ? UserStatus.SUSPENDED : UserStatus.ACTIVE);
         return user;
     }
 
@@ -119,7 +120,7 @@ class AuthServiceTest {
         User requester = requesterOf(null);
         User assignee = mock(User.class);
         when(assignee.getRole()).thenReturn(Role.INSPECTOR);
-        when(assignee.isSuspended()).thenReturn(false);
+        when(assignee.getStatus()).thenReturn(UserStatus.ACTIVE);
         when(userRepository.findById(100L)).thenReturn(Optional.of(requester));
         when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
 
