@@ -44,7 +44,7 @@
 - 최신 DDL의 `Inspection.assignedInspectorId` 누락 보완 완료
 - 현재 Entity 구현 수: 20개(DDL 테이블 20개 전체 대응)
 - PostgreSQL 17 빈 DB에 통합 DDL 적용 및 Hibernate `ddl-auto=validate` 통과
-- 최신 `origin/dev` 통합 및 P1~P3 최종 검수 반영 후 전체 Gradle 테스트 230개 통과
+- 최신 `origin/dev` 통합 및 P1~P3 최종 검수 반영 후 전체 Gradle 테스트 240개 통과
 
 ### 1.1 기존 Entity 필드 대조 결과
 
@@ -233,8 +233,8 @@ Entity에 노출하지 않는다.
 이후 로컬 PostgreSQL 17 격리 DB를 외부 테스트 DB 경로로 연결해 동일한 전체 테스트를 다시 실행했다.
 
 - 명령: `backend/gradlew.bat test`
-- 전체: 230개
-- 성공: 230개
+- 전체: 240개
+- 성공: 240개
 - 실패/오류/건너뜀: 0개
 - 통합 DDL 적용 및 Hibernate `ddl-auto=validate`: 통과
 - PostgreSQL 17에서 v0.3 → expand 2회 → finalize 2회 → verify(`ha25_schema_ready=true`) →
@@ -242,8 +242,8 @@ Entity에 노출하지 않는다.
 - P2 보강 후 격리 PostgreSQL 17의 독립 DB 두 개에 각각 `v0.3 + HAJA-25 증분`과 캐노니컬
   DDL을 적용하고 정규화한 카탈로그 서명을 대조: 통과
 - `lock_version=0` 기존 행 백필과 `assigned_inspector_id` 미백필 finalize 차단: 통과
-- 잘못된 인덱스 정의, 컬럼 NULL/default 드리프트, 잘못된 FK 대상, replica-only 트리거를 verify가
-  각각 거부하고 원상복구 뒤 다시 통과함을 확인
+- 복합 업무 키 중복, `lock_version` NULL 잔존, 잘못된 인덱스 정의, 컬럼 NULL/default 드리프트,
+  잘못된 FK 대상, replica-only 트리거를 verify가 각각 거부하고 원상복구 뒤 다시 통과함을 확인
 - stale 상태 전이 낙관적 락 통합 테스트: 통과
 
 따라서 HAJA-206 완료 기준인 “`./gradlew test`가 통과한다”를 2026-07-16 기준으로 충족했다.

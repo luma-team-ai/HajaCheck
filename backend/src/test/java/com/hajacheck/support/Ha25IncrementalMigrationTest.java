@@ -128,9 +128,9 @@ class Ha25IncrementalMigrationTest {
             """;
     private static final String LEGACY_FIXTURE_SQL = """
             insert into users (email, name, password_hash)
-            values ('approved-owner@ha25.test', 'approved owner', 'hash'),
-                   ('legacy-member@ha25.test', 'legacy member', 'hash'),
-                   ('pending-owner@ha25.test', 'pending owner', 'hash');
+            values ('approved-owner@ha25.test', 'approved owner', '<password-hash-placeholder>'),
+                   ('legacy-member@ha25.test', 'legacy member', '<password-hash-placeholder>'),
+                   ('pending-owner@ha25.test', 'pending owner', '<password-hash-placeholder>');
 
             insert into companies (
                 owner_user_id, name, business_registration_number, representative_name,
@@ -389,6 +389,27 @@ class Ha25IncrementalMigrationTest {
     }
 
     private static void assertVerifierRejectsSemanticDrift(PostgreSQLContainer<?> postgres) {
+        runSql(postgres, "insert duplicate v0.3 inspection key", """
+                alter table inspections drop constraint inspections_facility_id_round_no_key;
+                insert into inspections (
+                    facility_id, created_by, assigned_inspector_id, round_no,
+                    inspection_date, status)
+                select facility_id, created_by, assigned_inspector_id, round_no,
+                       inspection_date, status
+                from inspections
+                order by id
+                limit 1;
+                """);
+        runPsqlExpectFailure(
+                postgres, "20260716_03_ha25_verify.sql", "duplicate inspections");
+        runSql(postgres, "restore v0.3 inspection uniqueness", """
+                delete from inspections
+                where id = (select max(id) from inspections);
+                alter table inspections
+                    add constraint inspections_facility_id_round_no_key
+                    unique (facility_id, round_no);
+                """);
+
         runSql(postgres, "tamper partial unique index", """
                 drop index uq_company_memberships_approved_user;
                 create index uq_company_memberships_approved_user
@@ -410,6 +431,19 @@ class Ha25IncrementalMigrationTest {
                 postgres, "20260716_03_ha25_verify.sql", "snippet is missing");
         runSql(postgres, "restore citation nullability", """
                 alter table chat_message_citations alter column snippet set not null;
+                """);
+
+        runSql(postgres, "leave null optimistic-lock row", """
+                alter table companies alter column lock_version drop not null;
+                update companies
+                set lock_version = null
+                where id = (select min(id) from companies);
+                """);
+        runPsqlExpectFailure(
+                postgres, "20260716_03_ha25_verify.sql", "null lock_version");
+        runSql(postgres, "restore optimistic-lock rows", """
+                update companies set lock_version = 0 where lock_version is null;
+                alter table companies alter column lock_version set not null;
                 """);
 
         runSql(postgres, "tamper lock default", """

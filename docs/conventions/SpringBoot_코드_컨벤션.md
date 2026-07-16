@@ -122,6 +122,10 @@ POST   /api/inspections/{id}/analysis       # 행위성 리소스는 명사로
 - FK는 `Long` 식별자 필드를 영속화의 쓰기 소스로 사용한다. 같은 도메인 내부에서 읽기 탐색이 필요하면
   동일 FK 컬럼에 `insertable = false, updatable = false`를 지정한 읽기 전용 JPA 관계를 병행하고 기본
   fetch는 `LAZY`로 한다. 도메인 경계를 넘는 FK는 `Long` 식별자만 유지하고 Entity를 직접 참조하지 않는다.
+- 읽기 전용 관계는 FK 식별자 필드와 메모리에서 자동 동기화되지 않는다. 신규 Entity에 FK 식별자만 넣어
+  `persist`/`flush`한 직후 같은 영속성 컨텍스트에서 관계 getter를 호출하면 `null`일 수 있으므로, 해당 경로는
+  FK 식별자를 사용한다. 관계 객체가 필요하면 `flush` 후 영속성 컨텍스트를 비우고 다시 조회한 Entity에서
+  접근하며, 생성 직후 읽기 전용 관계를 역참조하는 코드를 작성하지 않는다.
 - 목록 조회에서 읽기 전용 연관관계에 접근해야 하면 Repository 쿼리에 `fetch join`, `@EntityGraph`, 또는
   DTO 프로젝션을 명시한다. 식별자만 필요한 경로는 `Long` FK 필드를 사용하고, 로딩 전략 없이 컬렉션을
   순회하며 LAZY 연관관계에 접근하지 않는다.

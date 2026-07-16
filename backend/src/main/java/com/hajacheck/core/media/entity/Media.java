@@ -90,7 +90,7 @@ public class Media {
     @Column(name = "gps_lng", precision = 9, scale = 6)
     private BigDecimal gpsLng;
 
-    /** 새 엔티티는 항상 false로 시작하며, 검증 결과를 호출자 인자로 받지 않는다. */
+    /** 새 엔티티는 항상 false로 시작하며, 검증 결과를 생성 호출자 인자로 받지 않는다. */
     @Column(name = "mime_signature_verified", nullable = false)
     private boolean mimeSignatureVerified;
 

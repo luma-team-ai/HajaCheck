@@ -209,7 +209,7 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
     }
 
     private User seedUser(String email) {
-        User user = User.createCompanyOwner(email, "사용자", "$2a$10$testtesttesttesttesttes");
+        User user = User.createCompanyOwner(email, "사용자", "<password-hash-placeholder>");
         em.persistAndFlush(user);
         return user;
     }
