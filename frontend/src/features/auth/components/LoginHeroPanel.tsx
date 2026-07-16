@@ -1,21 +1,8 @@
-import { useNavigate } from 'react-router-dom';
 import brandMark from '../../../assets/brand/brand-mark.png';
 import loginHeroImage from '../../../assets/brand/login-hero-illustration.svg';
-import { Button } from '../../../shared/components/Button';
-import { COMPANY_SIGNUP_ROUTE, LOGIN_ROUTE } from '../constants';
+import { AuthSignupCta } from './AuthSignupCta';
 
 export function LoginHeroPanel() {
-  const navigate = useNavigate();
-
-  const handleCompanySignup = () => {
-    navigate(COMPANY_SIGNUP_ROUTE);
-  };
-
-  // 개인 회원가입 전용 화면은 범위 외 — 소셜 로그인(개인회원 탭)으로 안내
-  const handlePersonalSignup = () => {
-    navigate(LOGIN_ROUTE);
-  };
-
   return (
     <section className="hidden w-1/2 flex-col justify-between border-r border-border p-12 lg:flex">
       <div className="flex flex-col gap-6">
@@ -44,18 +31,7 @@ export function LoginHeroPanel() {
         />
       </div>
 
-      <div className="flex flex-col items-start gap-3">
-        <Button variant="secondary" size="lg" className="w-full" onClick={handleCompanySignup}>
-          기업 통합회원 가입
-        </Button>
-        <button
-          type="button"
-          className="cursor-pointer border-none bg-transparent p-0 text-[13px] text-text-muted underline"
-          onClick={handlePersonalSignup}
-        >
-          개인 회원가입
-        </button>
-      </div>
+      <AuthSignupCta />
     </section>
   );
 }

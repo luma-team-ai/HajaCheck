@@ -5,6 +5,7 @@ import type { ApiError } from '../../../shared/api/types';
 import { Button } from '../../../shared/components/Button';
 import { isSafeInternalPath } from '../../../shared/utils/safeInternalPath';
 import { authApi } from '../api/authApi';
+import { AuthSignupCta } from '../components/AuthSignupCta';
 import { CompanyLoginTab } from '../components/CompanyLoginTab';
 import { LoginHeroPanel } from '../components/LoginHeroPanel';
 import { PersonalLoginTab } from '../components/PersonalLoginTab';
@@ -103,6 +104,14 @@ export function LoginPage() {
           </div>
 
           {activeTab === 'personal' ? <PersonalLoginTab /> : <CompanyLoginTab />}
+
+          {/* lg 미만(1024px 미만)에서는 LoginHeroPanel 전체가 hidden이라, 그 안에만 있는
+              "기업 통합회원 가입"·"개인 회원가입" 진입점이 화면에서 완전히 사라진다(PR #297 P2).
+              동일 CTA를 인증 패널 하단에도 렌더하되 lg 이상에서는 숨겨 시안(데스크톱)과
+              동일하게 유지한다 — 데스크톱은 LoginHeroPanel 쪽 CTA만 보임(중복 노출 없음). */}
+          <div className="lg:hidden" data-testid="mobile-signup-cta">
+            <AuthSignupCta />
+          </div>
         </section>
       </div>
     </div>
