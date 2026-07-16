@@ -114,8 +114,12 @@ class AuthServiceTest {
 
     @Test
     void validateAssignableInspector_요청자가회사소속없음_AUTH_INVALID_INSPECTOR() {
+        // requester.getCompanyId()==null 이면 sameCompany 판정이 단락 평가로 끝나 assignee.getCompanyId()까지
+        // 가지 않는다 — assignee 쪽 companyId 스텁은 생략.
         User requester = requesterOf(null);
-        User assignee = assigneeOf(null, Role.INSPECTOR, false);
+        User assignee = mock(User.class);
+        when(assignee.getRole()).thenReturn(Role.INSPECTOR);
+        when(assignee.isSuspended()).thenReturn(false);
         when(userRepository.findById(100L)).thenReturn(Optional.of(requester));
         when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
 
