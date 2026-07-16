@@ -17,6 +17,9 @@ export interface Defect {
   status: DefectStatus;
   confidence: number; // 0~1
   bbox: DefectBoundingBox;
+  depthMm: number; // 예상 깊이
+  widthMm: number; // 균열 폭
+  summary: string; // 분석 요약
 }
 
 export interface InspectionMedia {
@@ -30,4 +33,9 @@ export interface InspectionResult {
   inspectionId: number;
   media: InspectionMedia;
   defects: Defect[];
+  defectCode: string; // 예: DEF-0192
+  facilityName: string; // 예: 강남 오피스타워 A동
+  status: string; // 예: AI 검수중
+  reviewedCount: number; // 예: 128
+  totalCount: number; // 예: 214
 }
