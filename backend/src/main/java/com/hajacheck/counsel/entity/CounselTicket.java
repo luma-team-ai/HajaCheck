@@ -13,6 +13,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -118,6 +119,6 @@ public class CounselTicket {
         }
         throw new IllegalStateException(
                 "%s 불가: 현재 상담 티켓 상태=%s, 허용 상태=%s"
-                        .formatted(action, this.status, java.util.Arrays.toString(allowed)));
+                        .formatted(action, this.status, Arrays.toString(allowed)));
     }
 }
