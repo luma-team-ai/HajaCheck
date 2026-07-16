@@ -237,6 +237,19 @@ class Ha25IncrementalMigrationTest {
                 approved-owner@ha25.test:APPROVED
                 legacy-member@ha25.test:PENDING
                 pending-owner@ha25.test:PENDING""");
+
+        // HAJA-25 P2: 유효한 APPROVED 멤버십이 없는 사용자는 레거시 company_id가 정리되어야
+        // AuthService.validateAssignableInspector 등 "같은 회사" 판정이 인가 우회로 이어지지 않는다.
+        String approvedCompanyId = query(postgres(),
+                "select id::text from companies where name = 'approved company'");
+        assertThat(query(postgres(), """
+                select email || ':' || coalesce(company_id::text, 'NULL')
+                from users
+                order by email
+                """)).isEqualTo("""
+                approved-owner@ha25.test:%s
+                legacy-member@ha25.test:NULL
+                pending-owner@ha25.test:NULL""".formatted(approvedCompanyId));
     }
 
     private static boolean useExternalDatabase() {

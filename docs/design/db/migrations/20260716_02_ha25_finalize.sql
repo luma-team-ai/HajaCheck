@@ -90,6 +90,27 @@ begin
         raise warning 'HAJA-25 finalize: % PENDING company memberships remain quarantined and receive no company entitlement',
             pending_membership_count;
     end if;
+
+    -- expand가 격리 대상 사용자의 company_id를 null로 정리하지만, expand와 finalize 사이에
+    -- 애플리케이션 쓰기가 완전히 멈추지 않으면 그 사이 새로 생긴 stale company_id가 남을 수 있다.
+    -- users.company_id를 인가 근거로 쓰는 기존 경로(AuthService.validateAssignableInspector 등)를
+    -- 보호하기 위해, 유효한 APPROVED 멤버십이 없는 company_id 잔존을 최종 확정 전에 차단한다.
+    if exists (
+        select 1
+        from users u
+        where u.company_id is not null
+          and not exists (
+              select 1
+              from company_memberships cm
+              where cm.company_id = u.company_id
+                and cm.user_id = u.id
+                and cm.status = 'APPROVED'::company_membership_status_type
+                and cm.revoked_at is null
+                and (cm.expires_at is null or cm.expires_at > now())
+          )
+    ) then
+        raise exception 'HAJA-25 finalize blocked: users.company_id set without a matching valid APPROVED membership remain (re-run the expand cleanup)';
+    end if;
 end
 $migration$;
 

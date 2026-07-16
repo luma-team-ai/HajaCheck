@@ -1,6 +1,6 @@
 # HAJA-25 기존 PostgreSQL 증분 반영 절차
 
-> **문서 버전:** v0.1 · **최종 수정:** 2026-07-16 · 이전 버전 `archive/`
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-17 · 이전 버전 `archive/`
 
 이 디렉터리는 이미 운영 중인 v0.3 계열 PostgreSQL을 현재
 [`HajaCheck_script.sql`](../HajaCheck_script.sql) 스키마로 올리는 수동 증분 SQL을 보관한다.
@@ -86,6 +86,13 @@ order by company_id, user_id;
 
 finalize는 정상적으로 격리된 `PENDING` 건수를 경고하고, 승인·검증된 회사에 유효한 오너 멤버십 또는
 일치하는 `users.company_id`가 없으면 중단한다.
+
+expand는 격리 대상 사용자(유효한 `APPROVED` 멤버십이 없는 `company_id` 보유자)의 `users.company_id`를
+그 자리에서 `NULL`로 정리한다. `company_memberships`가 소속·권한의 새 권위 원천이 된 이후에도
+`users.company_id`가 남아 있으면, 이를 인가 근거로 참조하는 기존 경로(`AuthService.validateAssignableInspector`의
+"같은 회사" 판정 등)가 승인되지 않은 사용자를 회사 소속으로 오인할 수 있기 때문이다. finalize와 verify는
+이 정리가 유지되는지(애플리케이션 쓰기가 완전히 멈추지 않아 그 사이 새로 생긴 stale `company_id`가 없는지)
+각각 차단·확인한다.
 
 ### 점검 담당자
 

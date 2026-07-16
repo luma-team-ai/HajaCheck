@@ -5,6 +5,7 @@ import jakarta.validation.ConstraintViolationException;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -120,6 +121,19 @@ public class GlobalExceptionHandler {
             return null;
         }
         return CONTROL_CHARS.matcher(value).replaceAll("_");
+    }
+
+    /**
+     * 상태 전이 엔티티(@Version 낙관적 락 — HAJA-25)의 동시 갱신 충돌 통일 처리.
+     * 이 필드가 도입되기 전에는 read-check-write 경쟁이 조용히 덮어써졌으나(last-write-wins),
+     * 이제 동시 갱신은 이 예외로 표면화된다. 500으로 새지 않도록 재시도 유도가 가능한 409로 변환한다.
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiResponse<Void>> handleOptimisticLockingFailure(
+            ObjectOptimisticLockingFailureException e) {
+        log.warn("낙관적 락 충돌: {}", e.getMessage());
+        return ResponseEntity.status(ErrorCode.CONCURRENT_UPDATE_CONFLICT.getStatus())
+                .body(ApiResponse.fail(ErrorCode.CONCURRENT_UPDATE_CONFLICT));
     }
 
     @ExceptionHandler(Exception.class)
