@@ -27,6 +27,9 @@ services:
       - ./ai-server/routers:/app/routers
       - ./ai-server/ai:/app/ai
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      # main.py가 fail-closed(명시적 dev/local만 /docs 노출)로 바뀌어 로컬 개발에서 켜려면 명시 필요
+      APP_ENV: dev
     ports:
       - "8000:8000" # 로컬 직접 접근/디버깅 편의(base는 내부 전용 — 미publish)
 
