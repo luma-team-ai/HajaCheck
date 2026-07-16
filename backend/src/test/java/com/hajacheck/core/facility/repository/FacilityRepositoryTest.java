@@ -101,4 +101,23 @@ class FacilityRepositoryTest extends PostgresTestSupport {
 
         assertThat(found).isEmpty();
     }
+
+    // dev-05-02 점검 회차 채번 동시성 방지용 행 잠금 조회 — PESSIMISTIC_WRITE 쿼리가 실 PG 에서 정상 동작하는지 확인.
+    @Test
+    void findByIdForUpdate_존재하는시설_반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Facility saved = facilityRepository.save(newFacility(ownerId, "테스트빌딩"));
+
+        Optional<Facility> found = facilityRepository.findByIdForUpdate(saved.getId());
+
+        assertThat(found).isPresent();
+        assertThat(found.get().getName()).isEqualTo("테스트빌딩");
+    }
+
+    @Test
+    void findByIdForUpdate_없는id_빈값() {
+        Optional<Facility> found = facilityRepository.findByIdForUpdate(999L);
+
+        assertThat(found).isEmpty();
+    }
 }

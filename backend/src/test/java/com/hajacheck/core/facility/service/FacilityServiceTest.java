@@ -146,4 +146,11 @@ class FacilityServiceTest {
                 .isInstanceOf(BusinessException.class);
         verify(facilityRepository, never()).delete(any(Facility.class));
     }
+
+    @Test
+    void lockForUpdate_행잠금조회위임() {
+        facilityService.lockForUpdate(10L);
+
+        verify(facilityRepository).findByIdForUpdate(10L);
+    }
 }

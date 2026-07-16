@@ -187,6 +187,8 @@ create table inspections
         references facilities,
     created_by      bigint                                                             not null
         references users,
+    assigned_inspector_id bigint                                                        not null
+        references users,
     round_no        integer                                                            not null,
     inspection_date date                                                               not null,
     status          inspection_status_type   default 'CREATED'::inspection_status_type not null,

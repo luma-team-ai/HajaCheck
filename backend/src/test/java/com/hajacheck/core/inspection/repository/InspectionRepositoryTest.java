@@ -44,11 +44,12 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         return facility.getId();
     }
 
-    private Inspection newInspection(Long facilityId, Long createdBy, int roundNo,
+    private Inspection newInspection(Long facilityId, Long createdBy, Long assignedInspectorId, int roundNo,
                                       LocalDate inspectionDate, InspectionStatus status) {
         return Inspection.builder()
                 .facilityId(facilityId)
                 .createdBy(createdBy)
+                .assignedInspectorId(assignedInspectorId)
                 .roundNo(roundNo)
                 .inspectionDate(inspectionDate)
                 .status(status)
@@ -61,7 +62,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
 
         Inspection saved = inspectionRepository.save(
-                newInspection(facilityId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
 
         assertThat(saved.getId()).isNotNull();
         assertThat(saved.getCreatedAt()).isNotNull();
@@ -75,14 +76,14 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         Long facilityA = seedFacility(ownerA, "A시설");
         Long facilityB = seedFacility(ownerB, "B시설");
         inspectionRepository.save(
-                newInspection(facilityA, ownerA, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZED));
+                newInspection(facilityA, ownerA, ownerA, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZED));
         inspectionRepository.save(
-                newInspection(facilityA, ownerA, 2, LocalDate.of(2026, 7, 2), InspectionStatus.REVIEWED));
+                newInspection(facilityA, ownerA, ownerA, 2, LocalDate.of(2026, 7, 2), InspectionStatus.REVIEWED));
         inspectionRepository.save(
-                newInspection(facilityA, ownerA, 3, LocalDate.of(2026, 7, 3), InspectionStatus.CREATED));
+                newInspection(facilityA, ownerA, ownerA, 3, LocalDate.of(2026, 7, 3), InspectionStatus.CREATED));
         // 타인(B) 소유 시설물의 점검 — facilityA 스코프 조회에 섞이면 안 된다.
         inspectionRepository.save(
-                newInspection(facilityB, ownerB, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZED));
+                newInspection(facilityB, ownerB, ownerB, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZED));
 
         long count = inspectionRepository.countByFacilityIdInAndStatusIn(
                 List.of(facilityA), List.of(InspectionStatus.ANALYZED, InspectionStatus.REVIEWED));
@@ -95,9 +96,9 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         inspectionRepository.save(
-                newInspection(facilityId, ownerId, 1, LocalDate.of(2026, 7, 5), InspectionStatus.ANALYZED));
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 5), InspectionStatus.ANALYZED));
         inspectionRepository.save(
-                newInspection(facilityId, ownerId, 2, LocalDate.of(2026, 6, 20), InspectionStatus.ANALYZED));
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 6, 20), InspectionStatus.ANALYZED));
 
         long julyCount = inspectionRepository.countByFacilityIdInAndStatusInAndInspectionDateRange(
                 List.of(facilityId), List.of(InspectionStatus.ANALYZED),
@@ -111,11 +112,11 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         inspectionRepository.save(
-                newInspection(facilityId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
         inspectionRepository.save(
-                newInspection(facilityId, ownerId, 2, LocalDate.of(2026, 7, 10), InspectionStatus.CREATED));
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 10), InspectionStatus.CREATED));
         inspectionRepository.save(
-                newInspection(facilityId, ownerId, 3, LocalDate.of(2026, 7, 5), InspectionStatus.CREATED));
+                newInspection(facilityId, ownerId, ownerId, 3, LocalDate.of(2026, 7, 5), InspectionStatus.CREATED));
 
         List<Inspection> result =
                 inspectionRepository.findTop10ByFacilityIdInOrderByInspectionDateDescIdDesc(List.of(facilityId));

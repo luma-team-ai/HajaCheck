@@ -54,6 +54,7 @@ class DefectRepositoryTest extends PostgresTestSupport {
         Inspection inspection = Inspection.builder()
                 .facilityId(facilityId)
                 .createdBy(createdBy)
+                .assignedInspectorId(createdBy)
                 .roundNo(roundNo)
                 .inspectionDate(LocalDate.of(2026, 7, 1))
                 .status(InspectionStatus.REVIEWED)
