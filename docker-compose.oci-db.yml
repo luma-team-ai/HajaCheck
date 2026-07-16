@@ -1,0 +1,95 @@
+# 개인 전용 옵트인 오버레이 — compose로 뜨는 spring/fastapi가 로컬 postgres/redis 컨테이너 대신
+# OCI 공용 개발 DB에 SSH 터널로 붙게 한다. base(docker-compose.yml)·override.yml은 건드리지 않는다
+# (base는 운영과 공용 정의라 직접 수정 금지 — docker-compose.prod.yml/arm1.yml과 함께 씀).
+#
+# 실행 (postgres/redis 로컬 컨테이너는 띄우지 않음):
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.oci-db.yml \
+#     up --build spring fastapi nginx db-tunnel frontend-dev
+#
+# 필요 환경변수(.env, 미커밋) — 본인 ~/.ssh/config 의 `Host hajacheck-db` 항목과 동일한 값으로 채운다:
+#   OCI_SSH_HOST=<OCI 서버 IP/도메인>
+#   OCI_SSH_USER=<SSH 계정>
+#   OCI_SSH_KEY_PATH=<개인키 절대경로, 예: ~/.ssh/id_ed25519>
+#   OCI_DB_REMOTE_PORT=5432        # OCI 상의 실제 PostgreSQL 포트
+#   OCI_REDIS_REMOTE_PORT=6380     # OCI 상의 실제 Redis 포트(⚠️ 6379 아님 — ~/.ssh/config LocalForward 6380 127.0.0.1:6380 참고,
+#                                   #   sshd PermitOpen이 목적지 포트까지 엄격히 검사해 다르면 "administratively prohibited"로 거부됨)
+#
+# ⚠️ 공유 DB 오염 주의: 이 오버레이로 붙는 DB는 팀 공용 개발 서버다.
+#   application-local.yml.example 안내와 동일하게 app.local-seed.enabled 를 여기서 절대 true 로 켜지 말 것.
+
+services:
+  db-tunnel:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM alpine:3.20
+        RUN apk add --no-cache openssh-client autossh
+    restart: unless-stopped
+    volumes:
+      - ${OCI_SSH_KEY_PATH:?OCI_SSH_KEY_PATH가 .env에 설정되어야 합니다}:/run/secrets/id_tunnel:ro
+      # known_hosts를 named volume에 지속 — 없으면 컨테이너 재기동(--build 등)마다 known_hosts가
+      # 초기화되어 accept-new가 매번 "최초 접속"으로 취급, host key pinning이 사실상 무력화된다.
+      - db-tunnel-ssh:/root/.ssh
+    environment:
+      AUTOSSH_GATETIME: "0"
+    # 개인키 사본은 /tmp(휘발성, named volume 아님)에만 둔다 — /root/.ssh(db-tunnel-ssh 볼륨,
+    # known_hosts 지속용)에 같이 넣으면 개인키 사본이 컨테이너 재기동 후에도 디스크에 영구 잔존한다.
+    command: >
+      sh -c "mkdir -p /root/.ssh &&
+      cp /run/secrets/id_tunnel /tmp/id_tunnel &&
+      chmod 600 /tmp/id_tunnel &&
+      autossh -M 0 -N
+      -o StrictHostKeyChecking=accept-new
+      -o ServerAliveInterval=30 -o ServerAliveCountMax=3
+      -i /tmp/id_tunnel
+      -L 0.0.0.0:5432:127.0.0.1:${OCI_DB_REMOTE_PORT:-5432}
+      -L 0.0.0.0:6380:127.0.0.1:${OCI_REDIS_REMOTE_PORT:-6380}
+      ${OCI_SSH_USER:?OCI_SSH_USER가 .env에 설정되어야 합니다}@${OCI_SSH_HOST:?OCI_SSH_HOST가 .env에 설정되어야 합니다}"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5432 && nc -z 127.0.0.1 6380"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks: [hajacheck-net]
+
+  spring:
+    depends_on:
+      postgres: !reset null
+      redis: !reset null
+      db-tunnel:
+        condition: service_healthy
+    volumes:
+      # application-docker.yml의 app.file-storage.base-dir 대응 — 미마운트 시 컨테이너 임시 FS에 저장되어
+      # 재시작(--build 등) 시 업로드 파일이 유실된다(arm1 운영 compose와 동일한 이유로 개인 로컬에도 배선).
+      - oci-db-uploads:/app/uploads/hajacheck-files
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db-tunnel:5432/hajacheck_dev
+      SPRING_DATA_REDIS_HOST: db-tunnel
+      SPRING_DATA_REDIS_PORT: 6380
+      # application-docker.yml이 운영 도메인(https://hajacheck.luma200ok.com)으로 하드코딩한 OAuth2 redirect-uri·
+      # Secure 쿠키·리다이렉트 대상을 로컬(h/ttp:/localhost)용으로 override — 콘솔에 로컬 redirect URI를 추가
+      # 등록해뒀다는 전제(카카오/구글 개발자 콘솔). 운영 설정 파일 자체는 건드리지 않는다.
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_KAKAO_REDIRECT_URI: "http://localhost/login/oauth2/code/kakao"
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_REDIRECT_URI: "http://localhost/login/oauth2/code/google"
+      # application-docker.yml의 ${KAKAO_CLIENT_ID} 등 플레이스홀더 해결용 — base docker-compose.yml은 이 값을
+      # 주입하지 않으므로(로컬 OAuth 미사용 전제) 여기서 별도 주입하지 않으면 기동 자체가 실패한다.
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:?KAKAO_CLIENT_ID가 .env에 설정되어야 합니다}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:?KAKAO_CLIENT_SECRET가 .env에 설정되어야 합니다}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID가 .env에 설정되어야 합니다}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET가 .env에 설정되어야 합니다}
+      SERVER_SERVLET_SESSION_COOKIE_SECURE: "false"
+      APP_OAUTH2_SUCCESS_REDIRECT: "http://localhost:5173/dashboard"
+      APP_OAUTH2_FAILURE_REDIRECT: "http://localhost:5173/login?error=oauth"
+
+  fastapi:
+    depends_on:
+      redis: !reset null
+      db-tunnel:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}@db-tunnel:6380/1
+
+volumes:
+  oci-db-uploads:
+  db-tunnel-ssh:
