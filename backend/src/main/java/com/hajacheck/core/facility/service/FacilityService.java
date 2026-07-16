@@ -2,11 +2,13 @@ package com.hajacheck.core.facility.service;
 
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
+import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -79,6 +81,17 @@ public class FacilityService {
     @Transactional
     public void delete(Long ownerId, Long facilityId) {
         facilityRepository.delete(findOwnedFacility(ownerId, facilityId));
+    }
+
+    /**
+     * 점검주기 설정(dev-04-03, #268) — owner 스코프 검증 후 엔티티 메서드로 상태전이 위임.
+     * 기준일(오늘)은 서비스가 LocalDate.now() 로 산출해 엔티티에 주입한다.
+     */
+    @Transactional
+    public FacilityResponse setSchedule(Long ownerId, Long facilityId, FacilityScheduleRequest request) {
+        Facility facility = findOwnedFacility(ownerId, facilityId);
+        facility.updateSchedule(request.inspectionCycleMonths(), LocalDate.now());
+        return FacilityResponse.from(facility);
     }
 
     private Facility findOwnedFacility(Long ownerId, Long facilityId) {
