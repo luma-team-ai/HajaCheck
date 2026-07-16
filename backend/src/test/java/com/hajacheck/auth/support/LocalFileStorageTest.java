@@ -39,7 +39,8 @@ class LocalFileStorageTest {
         MockMultipartFile empty = new MockMultipartFile(
                 "businessRegistrationFile", "a.png", "image/png", new byte[0]);
 
-        assertThatThrownBy(() -> storage.store(empty, "business-registration"))
+        assertThatThrownBy(() -> storage.store(empty, "business-registration",
+                        properties.getAllowedContentTypes(), properties.getMaxSizeBytes()))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_REQUIRED));
     }
@@ -49,7 +50,8 @@ class LocalFileStorageTest {
         MockMultipartFile bad = new MockMultipartFile(
                 "businessRegistrationFile", "a.txt", "text/plain", "hello".getBytes());
 
-        assertThatThrownBy(() -> storage.store(bad, "business-registration"))
+        assertThatThrownBy(() -> storage.store(bad, "business-registration",
+                        properties.getAllowedContentTypes(), properties.getMaxSizeBytes()))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_INVALID_TYPE));
     }
 
@@ -59,7 +61,8 @@ class LocalFileStorageTest {
         MockMultipartFile big = new MockMultipartFile(
                 "businessRegistrationFile", "a.png", "image/png", "0123456789".getBytes());
 
-        assertThatThrownBy(() -> storage.store(big, "business-registration"))
+        assertThatThrownBy(() -> storage.store(big, "business-registration",
+                        properties.getAllowedContentTypes(), properties.getMaxSizeBytes()))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_TOO_LARGE));
     }
 
@@ -69,7 +72,8 @@ class LocalFileStorageTest {
         MockMultipartFile file = new MockMultipartFile(
                 "businessRegistrationFile", "evil.exe", "image/png", "PNGDATA".getBytes());
 
-        StoredFile stored = storage.store(file, "business-registration");
+        StoredFile stored = storage.store(file, "business-registration",
+                properties.getAllowedContentTypes(), properties.getMaxSizeBytes());
 
         // 저장키·URL 형식 검증
         assertThat(stored.storageKey()).startsWith("business-registration/");
@@ -89,7 +93,8 @@ class LocalFileStorageTest {
         MockMultipartFile file = new MockMultipartFile(
                 "businessRegistrationFile", "a.pdf", "application/pdf", "PDF".getBytes());
 
-        StoredFile stored = storage.store(file, "../../etc");
+        StoredFile stored = storage.store(file, "../../etc",
+                properties.getAllowedContentTypes(), properties.getMaxSizeBytes());
 
         Path saved = tempDir.resolve(stored.storageKey()).normalize();
         // 경로 조작 문자가 제거되어 최종 경로가 baseDir 하위여야 한다.
@@ -102,7 +107,8 @@ class LocalFileStorageTest {
     void delete_저장된파일_삭제됨() {
         MockMultipartFile file = new MockMultipartFile(
                 "businessRegistrationFile", "a.png", "image/png", "X".getBytes());
-        StoredFile stored = storage.store(file, "business-registration");
+        StoredFile stored = storage.store(file, "business-registration",
+                properties.getAllowedContentTypes(), properties.getMaxSizeBytes());
         Path saved = tempDir.resolve(stored.storageKey());
         assertThat(Files.exists(saved)).isTrue();
 
@@ -117,5 +123,35 @@ class LocalFileStorageTest {
         storage.delete(null);
         storage.delete("");
         storage.delete("business-registration/does-not-exist.png");
+    }
+
+    @Test
+    void storeBytes_정상_저장후읽으면동일바이트() {
+        StoredFile stored = storage.storeBytes("THUMBDATA".getBytes(), "image/jpeg", "inspection-media-thumb",
+                List.of("image/jpeg"), 1_000_000L);
+
+        assertThat(stored.storageKey()).startsWith("inspection-media-thumb/");
+        assertThat(stored.storageKey()).endsWith(".jpg");
+        assertThat(storage.read(stored.storageKey())).isEqualTo("THUMBDATA".getBytes());
+    }
+
+    @Test
+    void storeBytes_빈바이트_FILE_REQUIRED() {
+        assertThatThrownBy(() -> storage.storeBytes(new byte[0], "image/jpeg", "inspection-media-thumb",
+                        List.of("image/jpeg"), 1_000_000L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_REQUIRED));
+    }
+
+    @Test
+    void storeBytes_허용되지않는타입_FILE_INVALID_TYPE() {
+        assertThatThrownBy(() -> storage.storeBytes("data".getBytes(), "image/gif", "inspection-media-thumb",
+                        List.of("image/jpeg"), 1_000_000L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_INVALID_TYPE));
+    }
+
+    @Test
+    void read_저장하지않은storageKey_FILE_UPLOAD_FAILED() {
+        assertThatThrownBy(() -> storage.read("business-registration/does-not-exist.png"))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_UPLOAD_FAILED));
     }
 }

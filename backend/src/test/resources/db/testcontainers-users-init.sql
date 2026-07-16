@@ -199,6 +199,31 @@ create table inspections
 create index idx_inspections_facility
     on inspections (facility_id);
 
+-- 촬영 데이터 업로드(dev-05-03) — media 및 관련 enum. HajaCheck_script.sql 과 정확히 동일해야 validate 통과.
+create type media_file_type as enum ('IMAGE', 'VIDEO');
+
+create table media
+(
+    id                      bigint generated always as identity
+        primary key,
+    inspection_id           bigint                                 not null
+        references inspections,
+    file_type               media_file_type                        not null,
+    original_url            varchar(500)                           not null,
+    thumbnail_url           varchar(500),
+    source_video_id         bigint,
+    frame_index             integer,
+    captured_at             timestamp with time zone,
+    gps_lat                 numeric(9, 6),
+    gps_lng                 numeric(9, 6),
+    mime_signature_verified boolean                  default false not null,
+    created_at              timestamp with time zone default now() not null,
+    mime_type               varchar(100)
+);
+
+create index idx_media_inspection
+    on media (inspection_id);
+
 create table defects
 (
     id              bigint generated always as identity

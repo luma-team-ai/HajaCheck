@@ -64,6 +64,10 @@ public enum ErrorCode {
     // 점검일 도메인 검증 — 시설물 등록일 이전이거나 지나치게 먼 미래는 비정상 입력으로 간주.
     INSPECTION_DATE_INVALID(HttpStatus.BAD_REQUEST, "점검일이 올바르지 않습니다."),
 
+    // 촬영 데이터(미디어) 업로드(dev-05-03)
+    MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "미디어를 찾을 수 없습니다."),
+    MEDIA_COUNT_EXCEEDED(HttpStatus.BAD_REQUEST, "한 번에 업로드할 수 있는 파일 수를 초과했습니다."),
+
     // 도메인별 예시 — 각 담당이 추가
     DEFECT_NOT_FOUND(HttpStatus.NOT_FOUND, "하자를 찾을 수 없습니다."),
     AI_JOB_TIMEOUT(HttpStatus.INTERNAL_SERVER_ERROR, "AI 분석 요청이 시간 초과되었습니다."),
