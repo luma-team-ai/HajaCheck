@@ -4,6 +4,9 @@ import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.DefectExplainAiEnvelope;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
+import com.hajacheck.core.ai.dto.ReportAiEnvelope;
+import com.hajacheck.core.ai.dto.ReportRequest;
+import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -29,6 +32,7 @@ import org.springframework.web.client.RestClientException;
 public class AiProxyService {
 
     private static final String DEFECT_EXPLAIN_PATH = "/ai/defect-explain";
+    private static final String REPORT_PATH = "/ai/report";
     private static final String INTERNAL_KEY_HEADER = "X-Internal-Key";
 
     private final RestClient aiServerRestClient;
@@ -66,6 +70,42 @@ public class AiProxyService {
             throw mapConnectionFailure(e);
         } catch (RestClientException e) {
             // 4xx/5xx 응답(기본 에러 핸들러가 던짐) 또는 envelope 역직렬화 실패 — 모두 형식 불량으로 취급.
+            log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    public ApiResponse<ReportResponse> generateReport(ReportRequest request) {
+        ReportAiEnvelope envelope = callAiServer(request);
+        if (envelope == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+
+        if (!envelope.success()) {
+            ReportAiEnvelope.ErrorBody error = envelope.error();
+            if (error == null) {
+                throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+            }
+            return ApiResponse.fail(error.code(), error.message());
+        }
+
+        if (envelope.data() == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        return ApiResponse.ok(envelope.data());
+    }
+
+    private ReportAiEnvelope callAiServer(ReportRequest request) {
+        try {
+            return aiServerRestClient.post()
+                    .uri(REPORT_PATH)
+                    .headers(this::attachInternalKeyIfPresent)
+                    .body(request)
+                    .retrieve()
+                    .body(ReportAiEnvelope.class);
+        } catch (ResourceAccessException e) {
+            throw mapConnectionFailure(e);
+        } catch (RestClientException e) {
             log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
         }
