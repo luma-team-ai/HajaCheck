@@ -73,16 +73,32 @@ tasks.named('test') {
 }
 
 def canonicalDdl = rootProject.file('../docs/design/db/HajaCheck_script.sql')
+def v03BaselineDdl = rootProject.file('../docs/design/db/archive/HajaCheck_script_v0.3.sql')
+def ha25MigrationDir = rootProject.file('../docs/design/db/migrations')
+def ha25MigrationScripts = rootProject.files(
+        new File(ha25MigrationDir, '20260716_01_ha25_expand.sql'),
+        new File(ha25MigrationDir, '20260716_02_ha25_finalize.sql'),
+        new File(ha25MigrationDir, '20260716_03_ha25_verify.sql'))
 
 tasks.named('processTestResources') {
     // 테스트 스키마를 별도 복제하지 않고 설계 기준 DDL을 그대로 classpath에 포함한다.
     inputs.file(canonicalDdl)
+    inputs.file(v03BaselineDdl)
+    inputs.files(ha25MigrationScripts)
     doFirst {
-        if (!canonicalDdl.isFile()) {
-            throw new GradleException("설계 기준 DDL을 찾을 수 없습니다: ${canonicalDdl}")
+        ([canonicalDdl, v03BaselineDdl] + ha25MigrationScripts.files).each { ddlFile ->
+            if (!ddlFile.isFile()) {
+                throw new GradleException("테스트용 DDL/마이그레이션을 찾을 수 없습니다: ${ddlFile}")
+            }
         }
     }
     from(canonicalDdl) {
         into 'db'
+    }
+    from(v03BaselineDdl) {
+        into 'db/migrations'
+    }
+    from(ha25MigrationScripts) {
+        into 'db/migrations'
     }
 }

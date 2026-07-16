@@ -312,6 +312,7 @@ users ──┬──< user_consents
 | 컬럼 | 타입 | NULL | 기본값 | 키 | 설명 |
 |---|---|---|---|---|---|
 | id | bigint (identity) | N | - | **PK** | 기업 계정 식별자 |
+| lock_version | bigint | N | 0 | | 상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전 |
 | owner_user_id | bigint | N | - | **FK→users** | 가입을 신청하고 계정을 소유·관리하는 사용자(플랜 보유자, 협업자 초대 권한) |
 | name | varchar(200) | N | - | | 상호명 |
 | business_registration_number | varchar(20) | N | - | UQ | 사업자등록번호 |
@@ -341,6 +342,7 @@ users ──┬──< user_consents
 | 컬럼 | 타입 | NULL | 기본값 | 키 | 설명 |
 |---|---|---|---|---|---|
 | id | bigint (identity) | N | - | **PK** | 기업 멤버십 식별자 |
+| lock_version | bigint | N | 0 | | 상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전 |
 | company_id | bigint | N | - | **FK→companies**, UQ(복합) | 소속 회사 |
 | user_id | bigint | N | - | **FK→users**, UQ(복합) | 소속 사용자 |
 | invited_by | bigint | Y | - | **FK→users** | 초대한 회사 오너/관리자. 기업 가입 신청자의 오너 멤버십은 NULL 가능 |
@@ -506,6 +508,7 @@ users ──┬──< user_consents
 | id | bigint (identity) | N | - | **PK** | 결함 식별자 |
 | inspection_id | bigint | N | - | **FK→inspections** | 결함이 발견된 점검 |
 | type | defect_type | N | - | | 결함 유형 |
+| lock_version | bigint | N | 0 | | 상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전 |
 | bbox_x / bbox_y / bbox_w / bbox_h | double precision | Y | - | | 결함 바운딩 박스 좌표/크기 |
 | confidence | double precision | N | - | | AI 결함 탐지 신뢰도 |
 | grade | defect_grade_type | Y | - | | 결함 위험·심각도 등급(A~E) |
@@ -540,6 +543,7 @@ users ──┬──< user_consents
 | id | bigint (identity) | N | - | **PK** | 보고서 식별자 |
 | inspection_id | bigint | N | - | **FK→inspections**, UQ(복합) | 보고서 대상 점검 |
 | version | integer | N | 1 | UQ(복합) | 동일 점검 내 보고서 버전 |
+| lock_version | bigint | N | 0 | | `version`과 별개인 상태 전이 낙관적 락 버전 |
 | content_json | jsonb | N | - | | 보고서 본문 구조화 데이터 |
 | grounding_check_passed | boolean | Y | - | | 근거검증(Grounding) 통과 여부 |
 | grounding_warnings | jsonb | Y | - | | 근거검증 경고 목록 |
@@ -596,6 +600,7 @@ users ──┬──< user_consents
 | id | bigint (identity) | N | - | **PK** | 상담 티켓 식별자 |
 | user_id | bigint | N | - | **FK→users** | 상담 요청 사용자 |
 | counselor_id | bigint | Y | - | **FK→users** | 배정된 상담사 |
+| lock_version | bigint | N | 0 | | 상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전 |
 | session_id | bigint | Y | - | **FK→chat_sessions** | 상담 대화가 이루어지는 채팅 세션(`session_type='COUNSEL'`) |
 | status | counsel_ticket_status_type | N | `WAITING` | | 상담 티켓 처리 상태 |
 | queue_position | integer | Y | - | | 상담 대기열 순번 |
@@ -631,6 +636,7 @@ users ──┬──< user_consents
 | id | bigint (identity) | N | - | **PK** | 문서 식별자 |
 | title | varchar(300) | N | - | | 문서 제목 |
 | source_type | rag_doc_source_type | N | - | | 문서 출처 유형(`LAW`/`GUIDELINE`) |
+| lock_version | bigint | N | 0 | | 임베딩·검증 상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전 |
 | target_collection | rag_target_collection_type | N | - | | 이 문서의 청크가 임베딩되는 Chroma 컬렉션(`REGULATIONS`/`DEFECT_KB`, 등록 시 명시 필수) |
 | effective_date | date | Y | - | | 문서 시행일(법규 개정 추적용, LAW 문서만 채움) |
 | publisher | varchar(200) | Y | - | | 발행 기관/부처명(법규·지침 문서 출처 표시용, regulations 대상 — 해당 없는 문서는 NULL) |

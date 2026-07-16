@@ -3,6 +3,7 @@
 do $verification$
 declare
     invalid_count bigint;
+    invalid_columns text;
     invalid_indexes text;
 begin
     if to_regclass('public.company_memberships') is null then
@@ -25,6 +26,87 @@ begin
         from pg_enum e where e.enumtypid = 'rag_doc_verification_status_type'::regtype)
        <> array['UNVERIFIED', 'VERIFIED'] then
         raise exception 'rag_doc_verification_status_type labels do not match the canonical DDL';
+    end if;
+
+    if not exists (
+        select 1
+        from pg_constraint c
+        where c.conrelid = 'user_consents'::regclass
+          and c.contype = 'u'
+          and (
+              select array_agg(a.attname::text order by k.ordinality)
+              from unnest(c.conkey) with ordinality as k(attnum, ordinality)
+              join pg_attribute a
+                on a.attrelid = c.conrelid
+               and a.attnum = k.attnum
+          ) = array['user_id', 'policy_type', 'policy_version']
+    ) then
+        raise exception 'v0.3 UNIQUE user_consents(user_id, policy_type, policy_version) is missing';
+    end if;
+
+    if not exists (
+        select 1
+        from pg_constraint c
+        where c.conrelid = 'inspections'::regclass
+          and c.contype = 'u'
+          and (
+              select array_agg(a.attname::text order by k.ordinality)
+              from unnest(c.conkey) with ordinality as k(attnum, ordinality)
+              join pg_attribute a
+                on a.attrelid = c.conrelid
+               and a.attnum = k.attnum
+          ) = array['facility_id', 'round_no']
+    ) then
+        raise exception 'v0.3 UNIQUE inspections(facility_id, round_no) is missing';
+    end if;
+
+    if not exists (
+        select 1
+        from pg_constraint c
+        where c.conrelid = 'company_memberships'::regclass
+          and c.contype = 'u'
+          and (
+              select array_agg(a.attname::text order by k.ordinality)
+              from unnest(c.conkey) with ordinality as k(attnum, ordinality)
+              join pg_attribute a
+                on a.attrelid = c.conrelid
+               and a.attnum = k.attnum
+          ) = array['company_id', 'user_id']
+    ) then
+        raise exception 'UNIQUE company_memberships(company_id, user_id) is missing';
+    end if;
+
+    if not exists (
+        select 1
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'media'
+          and column_name = 'mime_signature_verified'
+          and is_nullable = 'NO'
+          and lower(column_default) like 'false%'
+    ) then
+        raise exception 'v0.3 media.mime_signature_verified DEFAULT false NOT NULL is missing';
+    end if;
+
+    select string_agg(expected.table_name || '.lock_version', ', ' order by expected.table_name)
+    into invalid_columns
+    from (values
+        ('companies'),
+        ('company_memberships'),
+        ('defects'),
+        ('reports'),
+        ('counsel_tickets'),
+        ('rag_documents')
+    ) as expected(table_name)
+    left join information_schema.columns actual
+      on actual.table_schema = 'public'
+     and actual.table_name = expected.table_name
+     and actual.column_name = 'lock_version'
+     and actual.is_nullable = 'NO'
+    where actual.column_name is null;
+
+    if invalid_columns is not null then
+        raise exception 'optimistic-lock columns are missing or nullable: %', invalid_columns;
     end if;
 
     if not exists (

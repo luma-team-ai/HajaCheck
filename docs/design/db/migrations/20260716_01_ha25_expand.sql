@@ -9,10 +9,62 @@ do $migration$
 begin
     if to_regclass('public.users') is null
        or to_regclass('public.companies') is null
+       or to_regclass('public.user_consents') is null
        or to_regclass('public.inspections') is null
+       or to_regclass('public.media') is null
        or to_regclass('public.rag_documents') is null
        or to_regclass('public.chat_message_citations') is null then
         raise exception 'HAJA-25 migration requires the v0.3 baseline tables';
+    end if;
+end
+$migration$;
+
+-- HAJA-25가 새로 만드는 제약으로 오인되지 않도록 v0.3 기준선의 핵심 UQ/NOT NULL을 구조로 검증한다.
+-- 제약명은 환경마다 달라질 수 있으므로 이름이 아니라 제약 컬럼 순서로 확인한다.
+do $migration$
+begin
+    if not exists (
+        select 1
+        from pg_constraint c
+        where c.conrelid = 'user_consents'::regclass
+          and c.contype = 'u'
+          and (
+              select array_agg(a.attname::text order by k.ordinality)
+              from unnest(c.conkey) with ordinality as k(attnum, ordinality)
+              join pg_attribute a
+                on a.attrelid = c.conrelid
+               and a.attnum = k.attnum
+          ) = array['user_id', 'policy_type', 'policy_version']
+    ) then
+        raise exception 'HAJA-25 migration requires v0.3 UNIQUE user_consents(user_id, policy_type, policy_version)';
+    end if;
+
+    if not exists (
+        select 1
+        from pg_constraint c
+        where c.conrelid = 'inspections'::regclass
+          and c.contype = 'u'
+          and (
+              select array_agg(a.attname::text order by k.ordinality)
+              from unnest(c.conkey) with ordinality as k(attnum, ordinality)
+              join pg_attribute a
+                on a.attrelid = c.conrelid
+               and a.attnum = k.attnum
+          ) = array['facility_id', 'round_no']
+    ) then
+        raise exception 'HAJA-25 migration requires v0.3 UNIQUE inspections(facility_id, round_no)';
+    end if;
+
+    if not exists (
+        select 1
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'media'
+          and column_name = 'mime_signature_verified'
+          and is_nullable = 'NO'
+          and lower(column_default) like 'false%'
+    ) then
+        raise exception 'HAJA-25 migration requires v0.3 media.mime_signature_verified DEFAULT false NOT NULL';
     end if;
 end
 $migration$;
@@ -35,6 +87,7 @@ $migration$;
 create table if not exists company_memberships
 (
     id          bigint generated always as identity primary key,
+    lock_version bigint default 0 not null,
     company_id  bigint not null references companies,
     user_id     bigint not null references users,
     invited_by  bigint references users,
@@ -54,6 +107,21 @@ create table if not exists company_memberships
         check (expires_at is null or
                (expires_at > created_at and (approved_at is null or expires_at > approved_at)))
 );
+
+-- 이전 버전의 expand를 이미 실행한 환경에서도 재실행만으로 낙관적 락 컬럼을 보강한다.
+-- finalize 전까지는 nullable로 추가해 긴 테이블 검증 잠금을 피하고, 상수 기본값으로 기존 행을 0으로 읽는다.
+alter table companies
+    add column if not exists lock_version bigint default 0;
+alter table company_memberships
+    add column if not exists lock_version bigint default 0;
+alter table defects
+    add column if not exists lock_version bigint default 0;
+alter table reports
+    add column if not exists lock_version bigint default 0;
+alter table counsel_tickets
+    add column if not exists lock_version bigint default 0;
+alter table rag_documents
+    add column if not exists lock_version bigint default 0;
 
 create index if not exists idx_company_memberships_company_status
     on company_memberships (company_id, status);
@@ -203,6 +271,12 @@ $migration$;
 comment on column users.company_id is '현재 소속 기업의 조회 편의 포인터. 개인 사용자는 NULL이며 company_memberships의 유효한 승인 행과 일치해야 하지만 단독 권한 근거로 사용하지 않는다.';
 
 comment on table company_memberships is '기업 초대·승인·회수·만료 이력과 현재 소속 판정의 기준을 관리한다.';
+comment on column companies.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
+comment on column company_memberships.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
+comment on column defects.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
+comment on column reports.lock_version is '보고서 업무 버전과 별개인 상태 전이 낙관적 락 버전';
+comment on column counsel_tickets.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
+comment on column rag_documents.lock_version is '임베딩·검증 상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 comment on column company_memberships.company_id is '소속 회사 식별자';
 comment on column company_memberships.user_id is '소속 사용자 식별자';
 comment on column company_memberships.invited_by is '초대한 회사 오너 또는 관리자 사용자 식별자. 오너의 최초 멤버십은 NULL 가능';
