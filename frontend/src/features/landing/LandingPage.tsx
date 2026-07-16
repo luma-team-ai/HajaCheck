@@ -70,9 +70,9 @@ export default function LandingPage() {
             alt=""
             aria-hidden="true"
           />
-          <div className="landing-chip landing-chip--1">균열 폭: 0.8mm</div>
-          <div className="landing-chip landing-chip--2">취약 부재: 3</div>
-          <div className="landing-chip landing-chip--3">AI 분석 중: 68%</div>
+          <div className="landing-chip landing-chip--1">균열 · E · 0.94</div>
+          <div className="landing-chip landing-chip--2">박리·박락 · D</div>
+          <div className="landing-chip landing-chip--3">AI 분석 중 · 68%</div>
         </div>
       </section>
 
@@ -127,7 +127,7 @@ export default function LandingPage() {
         </p>
         <div className="landing-badge-row">
           <span className="landing-pill landing-pill--danger">균열 심각도 High</span>
-          <span className="landing-pill landing-pill--warning">누수 양호 Medium</span>
+          <span className="landing-pill landing-pill--warning">누수 징후 Medium</span>
         </div>
         <div className="landing-visual" />
       </section>
