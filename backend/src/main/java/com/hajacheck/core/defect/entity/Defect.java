@@ -114,6 +114,7 @@ public class Defect {
     }
 
     public void review(DefectGrade grade) {
+        requireNotDeleted("review");
         if (this.status == DefectStatus.RESOLVED) {
             throw new IllegalStateException(
                     "review 불가: 이미 RESOLVED 상태인 결함은 등급을 변경할 수 없다");
@@ -126,6 +127,7 @@ public class Defect {
         if (status == null) {
             throw new IllegalArgumentException("changeStatus 불가: 변경할 상태는 필수다");
         }
+        requireNotDeleted("changeStatus");
 
         DefectStatus expectedNext = switch (this.status) {
             case DETECTED -> DefectStatus.CONFIRMED;
@@ -144,11 +146,26 @@ public class Defect {
     }
 
     public void updateCrackMeasurement(Double crackWidthMm, Double crackLengthMm) {
+        requireNotDeleted("updateCrackMeasurement");
+        if (this.status == DefectStatus.RESOLVED) {
+            throw new IllegalStateException(
+                    "updateCrackMeasurement 불가: 이미 RESOLVED 상태인 결함은 측정값을 변경할 수 없다");
+        }
         this.crackWidthMm = crackWidthMm;
         this.crackLengthMm = crackLengthMm;
     }
 
     public void softDelete() {
+        if (this.deleted) {
+            return;
+        }
         this.deleted = true;
+    }
+
+    private void requireNotDeleted(String action) {
+        if (this.deleted) {
+            throw new IllegalStateException(
+                    "%s 불가: 삭제된 결함은 변경할 수 없다".formatted(action));
+        }
     }
 }

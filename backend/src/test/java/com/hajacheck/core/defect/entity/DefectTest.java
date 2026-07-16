@@ -63,7 +63,45 @@ class DefectTest {
                 .confidence(0.8).build();
 
         defect.softDelete();
+        defect.softDelete();
 
         assertThat(defect.isDeleted()).isTrue();
+    }
+
+    @Test
+    void updateCrackMeasurement_진행중결함의측정값을갱신() {
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).build();
+
+        defect.updateCrackMeasurement(0.4, 120.0);
+
+        assertThat(defect.getCrackWidthMm()).isEqualTo(0.4);
+        assertThat(defect.getCrackLengthMm()).isEqualTo(120.0);
+    }
+
+    @Test
+    void updateCrackMeasurement_해결되었거나삭제된결함이면예외() {
+        Defect resolved = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).status(DefectStatus.RESOLVED).build();
+        Defect deleted = Defect.builder().inspectionId(2L).type(DefectType.CRACK)
+                .confidence(0.9).build();
+        deleted.softDelete();
+
+        assertThatThrownBy(() -> resolved.updateCrackMeasurement(0.4, 120.0))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> deleted.updateCrackMeasurement(0.4, 120.0))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 삭제된결함_검토와상태변경을거부() {
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).build();
+        defect.softDelete();
+
+        assertThatThrownBy(() -> defect.review(DefectGrade.C))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> defect.changeStatus(DefectStatus.CONFIRMED))
+                .isInstanceOf(IllegalStateException.class);
     }
 }

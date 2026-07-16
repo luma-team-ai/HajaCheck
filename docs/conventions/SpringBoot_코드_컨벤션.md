@@ -122,6 +122,9 @@ POST   /api/inspections/{id}/analysis       # 행위성 리소스는 명사로
 - FK는 `Long` 식별자 필드를 영속화의 쓰기 소스로 사용한다. 같은 도메인 내부에서 읽기 탐색이 필요하면
   동일 FK 컬럼에 `insertable = false, updatable = false`를 지정한 읽기 전용 JPA 관계를 병행하고 기본
   fetch는 `LAZY`로 한다. 도메인 경계를 넘는 FK는 `Long` 식별자만 유지하고 Entity를 직접 참조하지 않는다.
+- 목록 조회에서 읽기 전용 연관관계에 접근해야 하면 Repository 쿼리에 `fetch join`, `@EntityGraph`, 또는
+  DTO 프로젝션을 명시한다. 식별자만 필요한 경로는 `Long` FK 필드를 사용하고, 로딩 전략 없이 컬렉션을
+  순회하며 LAZY 연관관계에 접근하지 않는다.
 - PostgreSQL named enum은 `@JdbcTypeCode(SqlTypes.NAMED_ENUM)`과 실제 타입명의 `columnDefinition`을
   함께 사용하며 Java enum 라벨과 순서를 DDL에 맞춘다.
 - `jsonb`는 `@JdbcTypeCode(SqlTypes.JSON)`과 `columnDefinition = "jsonb"`로 매핑한다. 현재 JSON 표현은
