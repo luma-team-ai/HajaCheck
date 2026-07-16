@@ -61,6 +61,7 @@ declare global {
     setCenter(latlng: KakaoLatLng): void;
     setLevel(level: number): void;
     getLevel(): number;
+    relayout(): void;
   }
 
   type KakaoMarkerImage = unknown;
