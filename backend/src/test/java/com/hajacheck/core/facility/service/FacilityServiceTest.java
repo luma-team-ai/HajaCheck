@@ -10,11 +10,13 @@ import static org.mockito.Mockito.when;
 
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
+import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -152,5 +154,38 @@ class FacilityServiceTest {
         facilityService.lockForUpdate(10L);
 
         verify(facilityRepository).findByIdForUpdate(10L);
+    }
+
+    @Test
+    void setSchedule_본인시설_다음점검일산출저장() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        FacilityScheduleRequest request = new FacilityScheduleRequest(6);
+
+        FacilityResponse response = facilityService.setSchedule(OWNER_ID, 10L, request);
+
+        assertThat(response.inspectionCycleMonths()).isEqualTo(6);
+        assertThat(response.nextInspectionDueAt()).isEqualTo(LocalDate.now().plusMonths(6));
+    }
+
+    @Test
+    void setSchedule_없는시설_FACILITY_NOT_FOUND예외() {
+        when(facilityRepository.findByIdAndOwnerId(999L, OWNER_ID)).thenReturn(Optional.empty());
+        FacilityScheduleRequest request = new FacilityScheduleRequest(12);
+
+        assertThatThrownBy(() -> facilityService.setSchedule(OWNER_ID, 999L, request))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
+    }
+
+    @Test
+    void setSchedule_타인소유시설_FACILITY_NOT_FOUND예외() {
+        // findByIdAndOwnerId 는 소유자 스코프라 타인 소유는 조회 자체가 빈 값으로 온다(cross-owner IDOR 방지).
+        when(facilityRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.empty());
+        FacilityScheduleRequest request = new FacilityScheduleRequest(12);
+
+        assertThatThrownBy(() -> facilityService.setSchedule(OWNER_ID, 10L, request))
+                .isInstanceOf(BusinessException.class);
     }
 }
