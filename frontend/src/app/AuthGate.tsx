@@ -61,10 +61,11 @@ export function AuthGate({ children }: Props) {
   // 미인증으로 취급한다(!!me 체크로 데드락 방지). ready가 되면 이 판정 자체를 더 이상 하지 않는다.
   const isRestoring = !ready && (isPending || (isSuccess && !!me && !storeUser));
 
-  // shared/api/axios.ts 인터셉터가 401은 이미 하드 리다이렉트(location.href=/login) 처리하므로
-  // AuthGate가 보는 isError는 사실상 5xx/네트워크 오류다. 이런 오류는 로그인 여부를 알 수 없으므로
-  // 유효 세션을 곧바로 미인증(children/user=null)으로 강등시키지 않고, LoginPage의 세션체크
-  // 에러 UI와 동일한 정책(status !== 401 → 에러+재시도)으로 별도 안내한다(PR #232 P2-A).
+  // getMe는 skipAuthRedirect라 401(미로그인)이 하드 리다이렉트되지 않고 여기로 들어온다 —
+  // 401은 미인증 정상 신호이므로 children을 그대로 렌더하고(공개 랜딩 '/'도 보이게, #276),
+  // 보호 라우트 접근은 ProtectedRoute가 가드한다. 반면 5xx/네트워크 오류는 로그인 여부를 알 수
+  // 없으므로 유효 세션을 곧바로 미인증으로 강등시키지 않고, LoginPage 세션체크와 동일 정책
+  // (status !== 401 → 에러+재시도 안내)으로 처리한다(PR #232 P2-A).
   // ready 이후에는 이 판정도 재평가하지 않는다(부트스트랩 이후 일시적 5xx로 화면이 되돌아가면 안 됨).
   const isSessionCheckUnavailable = !ready && isError && error.status !== 401;
 

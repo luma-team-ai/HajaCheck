@@ -83,6 +83,30 @@ describe('axios 401 인터셉터 — 로그인 경로 가드 (기본 base=/)', (
     }
   });
 
+  it('skipAuthRedirect면 /login이 아닌 공개 경로(랜딩 "/")에서 401이어도 리다이렉트하지 않는다 (#276)', async () => {
+    const api = await importFreshApi();
+    const { hrefSetter, restore } = mockLocation('/');
+    try {
+      await expect(api.get('/test-401', { skipAuthRedirect: true })).rejects.toMatchObject({
+        code: 'AUTH_UNAUTHORIZED',
+      });
+      expect(hrefSetter).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('skipAuthRedirect가 없으면 기존대로 /login이 아닌 경로에서 401 시 리다이렉트한다 (회귀 대비)', async () => {
+    const api = await importFreshApi();
+    const { hrefSetter, restore } = mockLocation('/');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(hrefSetter).toHaveBeenCalledWith('/login');
+    } finally {
+      restore();
+    }
+  });
+
   it('과매칭 방지 — /company/login처럼 "login"으로 끝나지만 다른 경로여도 정확 비교로 리다이렉트한다', async () => {
     const api = await importFreshApi();
     const { hrefSetter, restore } = mockLocation('/company/login');
