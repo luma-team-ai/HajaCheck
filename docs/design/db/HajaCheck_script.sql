@@ -196,6 +196,7 @@ create table companies
 (
     id                              bigint generated always as identity
         primary key,
+    lock_version                    bigint                            default 0                                          not null,
     owner_user_id                   bigint                                                                  not null
         references users,
     name                            varchar(200)                                                            not null,
@@ -220,6 +221,8 @@ create table companies
 comment on table companies is '기업 회원가입으로 생성된 회사(기업) 계정 정보를 관리한다.';
 
 comment on column companies.id is '기업 계정 식별자';
+
+comment on column companies.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column companies.owner_user_id is '기업 가입을 신청하고 계정을 소유·관리하는 사용자 식별자(플랜 보유자, 협업자 초대 권한)';
 
@@ -270,6 +273,7 @@ create table company_memberships
 (
     id          bigint generated always as identity
         primary key,
+    lock_version bigint                            default 0                            not null,
     company_id  bigint                                                                     not null
         references companies,
     user_id     bigint                                                                     not null
@@ -293,6 +297,8 @@ create table company_memberships
 );
 
 comment on table company_memberships is '기업 초대·승인·회수·만료 이력과 현재 소속 판정의 기준을 관리한다.';
+
+comment on column company_memberships.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column company_memberships.company_id is '소속 회사 식별자';
 
@@ -656,6 +662,7 @@ create table defects
 (
     id              bigint generated always as identity
         primary key,
+    lock_version    bigint                   default 0                              not null,
     inspection_id   bigint                                                          not null
         references inspections,
     type            defect_type                                                     not null,
@@ -676,6 +683,8 @@ create table defects
 comment on table defects is '점검 이미지에서 탐지되거나 검토된 시설 결함 정보를 관리한다.';
 
 comment on column defects.id is '결함 식별자';
+
+comment on column defects.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column defects.inspection_id is '결함이 발견된 점검 식별자';
 
@@ -754,6 +763,7 @@ create table reports
 (
     id                     bigint generated always as identity
         primary key,
+    lock_version           bigint                   default 0                           not null,
     inspection_id          bigint                                                       not null
         references inspections,
     version                integer                  default 1                           not null,
@@ -775,6 +785,8 @@ create table reports
 comment on table reports is '점검 결과를 기반으로 생성한 버전별 보고서를 관리한다.';
 
 comment on column reports.id is '보고서 식별자';
+
+comment on column reports.lock_version is '보고서 업무 버전과 별개인 상태 전이 낙관적 락 버전';
 
 comment on column reports.inspection_id is '보고서 대상 점검 식별자';
 
@@ -872,6 +884,7 @@ create table counsel_tickets
 (
     id             bigint generated always as identity
         primary key,
+    lock_version   bigint                            default 0                                 not null,
     user_id        bigint                                                                   not null
         references users,
     counselor_id   bigint
@@ -887,6 +900,8 @@ create table counsel_tickets
 comment on table counsel_tickets is '사용자의 전문 상담 요청과 상담 진행 상태를 관리한다.';
 
 comment on column counsel_tickets.id is '상담 티켓 식별자';
+
+comment on column counsel_tickets.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column counsel_tickets.user_id is '상담을 요청한 사용자 식별자';
 
@@ -970,6 +985,7 @@ create table rag_documents
 (
     id                 bigint generated always as identity
         primary key,
+    lock_version       bigint                            default 0                                not null,
     title              varchar(300)                                                           not null,
     source_type        rag_doc_source_type                                                    not null,
     target_collection  rag_target_collection_type                                            not null,
@@ -987,6 +1003,8 @@ create table rag_documents
 comment on table rag_documents is '검색 증강 생성에 사용하는 법령 및 지침 문서를 관리한다.';
 
 comment on column rag_documents.id is 'RAG 문서 식별자';
+
+comment on column rag_documents.lock_version is '임베딩·검증 상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column rag_documents.title is '문서 제목';
 

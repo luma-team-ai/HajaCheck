@@ -30,6 +30,25 @@ begin
             missing_count;
     end if;
 
+    select sum(null_count) into missing_count
+    from (
+        select count(*) as null_count from companies where lock_version is null
+        union all
+        select count(*) from company_memberships where lock_version is null
+        union all
+        select count(*) from defects where lock_version is null
+        union all
+        select count(*) from reports where lock_version is null
+        union all
+        select count(*) from counsel_tickets where lock_version is null
+        union all
+        select count(*) from rag_documents where lock_version is null
+    ) lock_versions;
+    if missing_count > 0 then
+        raise exception 'HAJA-25 finalize blocked: % state-machine rows need lock_version backfill',
+            missing_count;
+    end if;
+
     if exists (
         select 1 from user_plans
         where status = 'ACTIVE'::user_plan_status_type and user_id is not null
@@ -114,6 +133,65 @@ alter table chat_message_citations
     alter column locator set not null,
     alter column snippet set not null;
 alter table chat_message_citations drop constraint ck_chat_message_citations_locator_snippet_not_null;
+
+do $migration$
+begin
+    if not exists (select 1 from pg_constraint where conname = 'ck_companies_lock_version_not_null'
+                   and conrelid = 'companies'::regclass) then
+        alter table companies add constraint ck_companies_lock_version_not_null
+            check (lock_version is not null) not valid;
+    end if;
+    if not exists (select 1 from pg_constraint where conname = 'ck_company_memberships_lock_version_not_null'
+                   and conrelid = 'company_memberships'::regclass) then
+        alter table company_memberships add constraint ck_company_memberships_lock_version_not_null
+            check (lock_version is not null) not valid;
+    end if;
+    if not exists (select 1 from pg_constraint where conname = 'ck_defects_lock_version_not_null'
+                   and conrelid = 'defects'::regclass) then
+        alter table defects add constraint ck_defects_lock_version_not_null
+            check (lock_version is not null) not valid;
+    end if;
+    if not exists (select 1 from pg_constraint where conname = 'ck_reports_lock_version_not_null'
+                   and conrelid = 'reports'::regclass) then
+        alter table reports add constraint ck_reports_lock_version_not_null
+            check (lock_version is not null) not valid;
+    end if;
+    if not exists (select 1 from pg_constraint where conname = 'ck_counsel_tickets_lock_version_not_null'
+                   and conrelid = 'counsel_tickets'::regclass) then
+        alter table counsel_tickets add constraint ck_counsel_tickets_lock_version_not_null
+            check (lock_version is not null) not valid;
+    end if;
+    if not exists (select 1 from pg_constraint where conname = 'ck_rag_documents_lock_version_not_null'
+                   and conrelid = 'rag_documents'::regclass) then
+        alter table rag_documents add constraint ck_rag_documents_lock_version_not_null
+            check (lock_version is not null) not valid;
+    end if;
+end
+$migration$;
+
+alter table companies validate constraint ck_companies_lock_version_not_null;
+alter table companies alter column lock_version set not null;
+alter table companies drop constraint ck_companies_lock_version_not_null;
+
+alter table company_memberships validate constraint ck_company_memberships_lock_version_not_null;
+alter table company_memberships alter column lock_version set not null;
+alter table company_memberships drop constraint ck_company_memberships_lock_version_not_null;
+
+alter table defects validate constraint ck_defects_lock_version_not_null;
+alter table defects alter column lock_version set not null;
+alter table defects drop constraint ck_defects_lock_version_not_null;
+
+alter table reports validate constraint ck_reports_lock_version_not_null;
+alter table reports alter column lock_version set not null;
+alter table reports drop constraint ck_reports_lock_version_not_null;
+
+alter table counsel_tickets validate constraint ck_counsel_tickets_lock_version_not_null;
+alter table counsel_tickets alter column lock_version set not null;
+alter table counsel_tickets drop constraint ck_counsel_tickets_lock_version_not_null;
+
+alter table rag_documents validate constraint ck_rag_documents_lock_version_not_null;
+alter table rag_documents alter column lock_version set not null;
+alter table rag_documents drop constraint ck_rag_documents_lock_version_not_null;
 
 alter table inspections
     validate constraint fk_inspections_assigned_inspector;

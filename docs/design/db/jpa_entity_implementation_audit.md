@@ -44,7 +44,7 @@
 - 최신 DDL의 `Inspection.assignedInspectorId` 누락 보완 완료
 - 현재 Entity 구현 수: 20개(DDL 테이블 20개 전체 대응)
 - PostgreSQL 17 빈 DB에 통합 DDL 적용 및 Hibernate `ddl-auto=validate` 통과
-- 최신 `origin/dev` 통합 및 리뷰 수정 후 전체 Gradle 테스트 187개 통과
+- 최신 `origin/dev` 통합 및 P2 동시성·마이그레이션 검수 반영 후 전체 Gradle 테스트 221개 통과
 
 ### 1.1 기존 Entity 필드 대조 결과
 
@@ -202,19 +202,18 @@ Entity가 하나의 정책 결정에 강하게 종속되는 경우, 분리보다
 ### 3.7 상태 전이 동시성 정책
 
 Entity의 `requireStatus`·`requireDraft` 가드는 한 트랜잭션에서 읽은 객체의 잘못된 전이만 차단하며,
-동일 행을 동시에 읽은 두 요청 사이의 경쟁까지 해결하지는 않는다. 현재 상태 전이 서비스가 아직 배선되지
-않은 단계에서 `@Version`을 추가하면 상태 머신 Entity 전체의 DDL 컬럼과 운영 DB 증분 마이그레이션까지
-확대되므로 이번 스키마 정합화 범위에는 포함하지 않는다.
+동일 행을 동시에 읽은 두 요청 사이의 경쟁까지 해결하지는 않는다. HAJA-25에서 신규 또는 강화한 상태 머신
+`CompanyMembership`, `Defect`, `RagDocument`, `Report`, `CounselTicket`, `Company`에는 모두 JPA
+`@Version`과 `lock_version bigint default 0 not null`을 적용해 stale update를 거부한다. 보고서의 업무 버전
+`reports.version`과 낙관적 락 버전 `reports.lock_version`은 분리한다.
 
-향후 `CompanyMembership`, `Defect`, `RagDocument`, `Report`, `CounselTicket`, `Company`의 상태 전이를
-서비스에 배선할 때는 다음 중 하나를 트랜잭션 경계에서 반드시 적용한다.
+캐노니컬 DDL과 기존 v0.3 증분 마이그레이션 모두 같은 컬럼을 제공하며, 증분 경로는 nullable expand 후
+`NOT VALID CHECK` 검증을 거쳐 NOT NULL을 확정한다. `StateTransitionOptimisticLockTest`는 같은 회사를
+동시에 읽은 두 심사 전이 중 두 번째 갱신이 낙관적 락 예외로 거부되는지 실제 PostgreSQL에서 검증한다.
 
-- `update ... where id = :id and status = :expectedStatus` 형태의 조건부 UPDATE를 실행하고 영향 행이 정확히
-  1개인지 확인한다.
-- 전이 전에 `select ... for update` 또는 JPA 비관적 쓰기 잠금으로 대상 행을 잠근다.
-
-Entity 가드만 동시성 제어로 간주해서는 안 되며, 선택한 방식에 대한 동시 요청 통합 테스트를 서비스 구현의
-완료 조건에 포함한다. 전 Entity에 대한 `@Version` 도입이 필요하면 별도 스키마 변경 이슈에서 결정한다.
+낙관적 락은 DB 갱신 충돌을 막지만 트랜잭션 중 먼저 실행한 외부 부작용을 되돌리지는 못한다. 임베딩 호출,
+PDF 생성, 메시지 발행처럼 외부 효과가 있는 서비스는 version 반영 flush/commit 성공 뒤에 실행하거나
+transactional outbox·멱등성 키를 사용해야 하며, 해당 서비스 구현의 동시 요청 통합 테스트에 포함한다.
 
 ### 3.8 `BotScenario` 트리 사이클 정책
 
@@ -234,10 +233,13 @@ Entity에 노출하지 않는다.
 이후 로컬 PostgreSQL 17 격리 DB를 외부 테스트 DB 경로로 연결해 동일한 전체 테스트를 다시 실행했다.
 
 - 명령: `backend/gradlew.bat test`
-- 전체: 219개
-- 성공: 219개
+- 전체: 221개
+- 성공: 221개
 - 실패/오류/건너뜀: 0개
 - 통합 DDL 적용 및 Hibernate `ddl-auto=validate`: 통과
+- PostgreSQL 17에서 v0.3 → expand 2회 → finalize 2회 → verify(`ha25_schema_ready=true`) →
+  Hibernate `ddl-auto=validate`: 통과
+- stale 상태 전이 낙관적 락 통합 테스트: 통과
 
 따라서 HAJA-206 완료 기준인 “`./gradlew test`가 통과한다”를 2026-07-16 기준으로 충족했다.
 Testcontainers 기본 이미지(`postgres:16`)와 운영 목표 PostgreSQL 버전의 통일은 §3.4에 기록한 후속 사항이다.

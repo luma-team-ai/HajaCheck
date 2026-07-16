@@ -12,6 +12,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.Arrays;
 import lombok.AccessLevel;
@@ -45,6 +46,10 @@ public class CompanyMembership extends BaseTimeEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Version
+    @Column(name = "lock_version", nullable = false)
+    private long lockVersion;
 
     @Column(name = "company_id", nullable = false)
     private Long companyId;

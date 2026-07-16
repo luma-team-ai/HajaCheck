@@ -131,6 +131,9 @@ POST   /api/inspections/{id}/analysis       # 행위성 리소스는 명사로
   기존 Entity와 동일하게 유효한 JSON 문자열을 사용한다.
 - 부분 인덱스와 복잡한 CHECK 등 JPA annotation으로 정확히 표현할 수 없는 제약은
   `docs/design/db/HajaCheck_script.sql`에서 관리한다. Hibernate는 스키마를 생성하지 않고 `validate`만 수행한다.
+- 현재 상태를 검사한 뒤 다음 상태로 전이하는 Entity는 `@Version`과 `lock_version` 컬럼으로 동시 갱신을
+  감지한다. 외부 API 호출·파일 생성·메시지 발행 같은 부작용은 낙관적 락이 반영되는 flush/commit 성공 뒤에
+  실행하거나, transactional outbox·멱등성 키로 재실행 안전성을 보장한다.
 - DTO 변환은 DTO 클래스의 정적 팩토리 `from(entity)` / `toEntity()` 사용 (MapStruct 도입 안 함)
 - record 사용 권장: 요청/응답 DTO는 Java record로 작성
 
