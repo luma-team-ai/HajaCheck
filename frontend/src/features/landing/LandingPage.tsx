@@ -80,9 +80,12 @@ export default function LandingPage() {
         <p className="landing-partners-label">신뢰할 수 있는 파트너</p>
         <div className="landing-partners-row">
           {PARTNERS.map((partner) => (
-            <span key={partner} className="landing-partner">
-              {partner}
-            </span>
+            <img
+              key={partner.name}
+              src={partner.logo}
+              alt={partner.name}
+              className="landing-partner"
+            />
           ))}
         </div>
       </section>

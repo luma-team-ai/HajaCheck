@@ -1,3 +1,8 @@
+import partnerLogo1 from '../../assets/brand/landing-partner-1.svg';
+import partnerLogo2 from '../../assets/brand/landing-partner-2.svg';
+import partnerLogo3 from '../../assets/brand/landing-partner-3.svg';
+import partnerLogo4 from '../../assets/brand/landing-partner-4.svg';
+
 export interface PricingTier {
   name: string;
   price: string;
@@ -48,7 +53,17 @@ export const NAV_ITEMS: NavItem[] = [
   { label: '요금제', targetId: 'pricing' },
 ];
 
-export const PARTNERS = ['HUG', '한국공인중개사협회', '국토교통부', '한국시설안전관리원'];
+export interface Partner {
+  name: string;
+  logo: string;
+}
+
+export const PARTNERS: Partner[] = [
+  { name: 'HUG', logo: partnerLogo1 },
+  { name: '한국공인중개사협회', logo: partnerLogo2 },
+  { name: '국토교통부', logo: partnerLogo3 },
+  { name: '한국시설안전관리원', logo: partnerLogo4 },
+];
 
 export const FOOTER_LINKS = [
   { title: '제품', links: ['시설물 관리', '점검 관리', 'AI 분석'] },
