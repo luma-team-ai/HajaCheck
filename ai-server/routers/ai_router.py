@@ -12,7 +12,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends
 from langchain_core.exceptions import OutputParserException
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
 from deps import verify_internal_key
@@ -101,10 +101,10 @@ class ConfirmedDefectInput(BaseModel):
     """confirmed_defects 배열 원소 — report_chain 전반에서 `d.get(key, '-')`로 조용히 기본값
     처리되던 필드 존재·타입을 요청 단계(Pydantic)에서 검증한다(PR머신 P2 후속)."""
 
-    defect_type: str
-    location: str
-    severity_grade: str
-    description: str
+    defect_type: str = Field(min_length=1)
+    location: str = Field(min_length=1)
+    severity_grade: str = Field(min_length=1)
+    description: str = Field(min_length=1)
 
 
 class FacilityInfoInput(BaseModel):
@@ -139,9 +139,10 @@ class FacilityInfoInput(BaseModel):
         return data
 
 
-assert set(FACILITY_FIELD_LABELS) <= set(FacilityInfoInput.model_fields), (
-    "FACILITY_FIELD_LABELS와 FacilityInfoInput 필드가 어긋났습니다 — 라벨 매핑 동기화 필요"
-)
+if not set(FACILITY_FIELD_LABELS) <= set(FacilityInfoInput.model_fields):
+    raise RuntimeError(
+        "FACILITY_FIELD_LABELS와 FacilityInfoInput 필드가 어긋났습니다 — 라벨 매핑 동기화 필요"
+    )
 
 
 class ReportRequest(BaseModel):
