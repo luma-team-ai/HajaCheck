@@ -4,8 +4,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
+import { AUTH_ME_QUERY_KEY } from '../constants';
 import { useAuthStore } from '../store/authStore';
 import type { User } from '../types';
 import { useLogout } from './useLogout';
@@ -121,5 +122,30 @@ describe('useLogout', () => {
 
     expect(queryClient.getQueryData(['probe'])).toBeUndefined();
     expect(useAuthStore.getState().user).toBeNull();
+  });
+
+  it('cancelQueries(auth me)가 setQueryData(null)보다 먼저 호출된다(in-flight 재복원 레이스 방지, #280 P3)', async () => {
+    const queryClient = new QueryClient();
+    const callOrder: string[] = [];
+    const cancelQueriesSpy = vi
+      .spyOn(queryClient, 'cancelQueries')
+      .mockImplementation(async () => {
+        callOrder.push('cancelQueries');
+        return undefined;
+      });
+    const setQueryDataSpy = vi.spyOn(queryClient, 'setQueryData').mockImplementation(() => {
+      callOrder.push('setQueryData');
+      return undefined;
+    });
+
+    renderWithProviders(queryClient);
+
+    fireEvent.click(screen.getByText('로그아웃'));
+
+    await waitFor(() => screen.getByTestId('location').textContent === '/login');
+
+    expect(cancelQueriesSpy).toHaveBeenCalledWith({ queryKey: AUTH_ME_QUERY_KEY });
+    expect(setQueryDataSpy).toHaveBeenCalledWith(AUTH_ME_QUERY_KEY, null);
+    expect(callOrder.indexOf('cancelQueries')).toBeLessThan(callOrder.indexOf('setQueryData'));
   });
 });

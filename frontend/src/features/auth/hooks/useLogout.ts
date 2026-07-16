@@ -24,6 +24,10 @@ export function useLogout() {
       // 부작용(P2-D)이 있었다 — 그래서 auth 쿼리는 지우지 않고 settled-null로 고정만 하고,
       // 그 외 캐시만 제거한다.
       queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'auth' });
+      // 진행 중이던 getMe(['auth','me']) 요청이 setQueryData(null) 이후 200으로 도착하면
+      // 캐시를 사용자 값으로 덮어써 세션이 재복원된다(#280 P3) — settled-null로 고정하기 전에
+      // in-flight 요청을 먼저 취소한다.
+      await queryClient.cancelQueries({ queryKey: AUTH_ME_QUERY_KEY });
       queryClient.setQueryData(AUTH_ME_QUERY_KEY, null);
       clearUser();
       navigate(LOGIN_ROUTE);

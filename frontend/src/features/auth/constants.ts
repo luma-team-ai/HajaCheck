@@ -23,6 +23,8 @@ export const LOGIN_ROUTE = '/login';
 export const COMPANY_SIGNUP_ROUTE = '/signup/company';
 export const COMPANY_SIGNUP_PENDING_ROUTE = '/signup/company/pending';
 export const FIND_ID_ROUTE = '/find-id';
+// 프로필 클릭 이동 경로(app/AppShellRoute.tsx와 공유, 하드코딩 방지 — #280 P3)
+export const MYPAGE_PLAN_ROUTE = '/mypage/plan';
 
 // 사업자등록증 업로드 제약 — 계약(contract.md) FILE_INVALID_TYPE/FILE_TOO_LARGE와 정합
 export const BUSINESS_LICENSE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
+import { MYPAGE_PLAN_ROUTE } from '../features/auth/constants';
 import { AppShellRoute } from './AppShellRoute';
 
 afterEach(cleanup);
@@ -28,6 +29,10 @@ function renderAt(initialPath: string) {
           {
             path: '/no-handle',
             element: <div>핸들 없는 페이지</div>,
+          },
+          {
+            path: MYPAGE_PLAN_ROUTE,
+            element: <div>마이페이지 이용권 페이지</div>,
           },
         ],
       },
@@ -62,5 +67,13 @@ describe('AppShellRoute', () => {
     fireEvent.click(screen.getByText('통계'));
 
     expect(screen.getByRole('status').textContent).toBe('아직 구현되지 않은 페이지입니다');
+  });
+
+  it('프로필 클릭 시 MYPAGE_PLAN_ROUTE 상수 경로로 이동한다(#280 P3)', () => {
+    renderAt('/dashboard');
+
+    fireEvent.click(screen.getByRole('button', { name: '내 프로필' }));
+
+    expect(screen.getByText('마이페이지 이용권 페이지')).not.toBeNull();
   });
 });

@@ -5,6 +5,7 @@
 // AppLayout을 몰라도 됨(react-router v6 표준 패턴: useMatches() + handle).
 import { Outlet, useMatches, useNavigate } from 'react-router-dom';
 import { useLogout } from '../features/auth/hooks/useLogout';
+import { MYPAGE_PLAN_ROUTE } from '../features/auth/constants';
 import { useAuthStore } from '../features/auth/store/authStore';
 import type { BreadcrumbItem } from '../shared/components/Header';
 import { AppLayout } from '../shared/components/AppLayout';
@@ -50,7 +51,7 @@ export function AppShellRoute() {
           : undefined
       }
       onLogout={() => void logout()}
-      onProfileClick={() => navigate('/mypage/plan')}
+      onProfileClick={() => navigate(MYPAGE_PLAN_ROUTE)}
     >
       <Outlet />
     </AppLayout>
