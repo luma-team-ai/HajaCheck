@@ -38,8 +38,9 @@ export function toCompanySignupFormData(body: CompanySignupRequest): FormData {
 export const authApi = {
   login: (body: LoginRequest) => api.post<UserResponse>('/auth/login', body),
   logout: () => api.post('/auth/logout'),
-  // 로그인 화면 마운트 시 CSRF 쿠키 프리밍 겸 세션 확인 — 401은 미로그인으로 간주(호출부에서 무시)
-  getMe: () => api.get<UserResponse>('/users/me'),
+  // 세션 확인(부트스트랩 AuthGate·로그인 화면 마운트 시 CSRF 프리밍) — 401은 미로그인으로 간주(호출부에서 무시).
+  // skipAuthRedirect: 401이어도 전역 /login 하드 리다이렉트를 하지 않는다 — 공개 랜딩('/')이 안 뜨던 회귀 방지(#276).
+  getMe: () => api.get<UserResponse>('/users/me', { skipAuthRedirect: true }),
 
   // 기업 인증 플로우 — HAJA-170(#187)
   // 이메일 중복확인 겸 인증 폼(회원가입 외) 마운트 시 CSRF 쿠키 프라이밍 용도로도 사용(useCsrfPrime)
