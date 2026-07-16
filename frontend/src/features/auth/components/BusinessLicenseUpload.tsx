@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { formatFileSize } from '../utils/validateBusinessLicenseFile';
+import ocrSuccessPreview from '../../../assets/brand/signup-ocr-success.svg';
 
 interface BusinessLicenseUploadProps {
   file: File | null;
@@ -52,6 +53,11 @@ export function BusinessLicenseUpload({ file, onFileSelect, errorMessage }: Busi
       {errorMessage && <p className="auth-form-error">{errorMessage}</p>}
 
       <p className="auth-form-hint">사업자등록번호·상호명·대표자명 자동인식은 준비 중입니다. 아래 항목을 직접 입력해 주세요.</p>
+
+      <div className="auth-ocr-preview">
+        <img src={ocrSuccessPreview} className="auth-ocr-preview-image" alt="" aria-hidden="true" />
+        <span className="auth-ocr-preview-caption">자동인식 완료 시 예상 화면 (준비 중)</span>
+      </div>
     </div>
   );
 }
