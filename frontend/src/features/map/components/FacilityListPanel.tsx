@@ -29,14 +29,18 @@ export function FacilityListPanel({
   return (
     <div className="flex w-60 shrink-0 flex-col border-r border-border bg-surface-muted">
       <div className="flex flex-col gap-3 border-b border-border p-3">
-        <input
-          role="search"
-          type="text"
-          value={searchQuery}
-          onChange={(event) => onSearchQueryChange(event.target.value)}
-          placeholder="지역·시설물 검색"
-          className="w-full rounded-full border border-border bg-white px-3 py-2 text-sm text-text-default placeholder:text-text-muted focus:outline-none"
-        />
+        {/* role="search"는 검색 입력을 감싸는 랜드마크 컨테이너에 부여하는 것이 올바른 사용법(ARIA search landmark).
+            input 자체에 부여하면 스크린리더가 잘못된 role 매핑을 시도하므로 컨테이너로 이동(P3) */}
+        <div role="search">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(event) => onSearchQueryChange(event.target.value)}
+            placeholder="지역·시설물 검색"
+            aria-label="지역·시설물 검색"
+            className="w-full rounded-full border border-border bg-white px-3 py-2 text-sm text-text-default placeholder:text-text-muted focus:outline-none"
+          />
+        </div>
         <div className="flex flex-wrap gap-1.5">
           {FACILITY_CATEGORY_FILTERS.map((category) => (
             <button
