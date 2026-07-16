@@ -201,6 +201,24 @@ from users u
 where u.company_id is not null
 on conflict (company_id, user_id) do nothing;
 
+-- company_memberships가 소속·권한의 새 권위 원천이 된 이후에는, 유효한 APPROVED 멤버십이 없는
+-- 사용자의 레거시 company_id를 그대로 두지 않는다. AuthService.validateAssignableInspector 등
+-- 기존 인가 경로가 users.company_id 동일 여부만으로 "같은 회사"를 판정하므로, 격리된 PENDING
+-- 사용자가 company_id를 계속 보유하면 승인 없이 회사 소속으로 오인되는 권한 우회 경로가 남는다.
+update users u
+set company_id = null,
+    updated_at = now()
+where u.company_id is not null
+  and not exists (
+      select 1
+      from company_memberships cm
+      where cm.company_id = u.company_id
+        and cm.user_id = u.id
+        and cm.status = 'APPROVED'::company_membership_status_type
+        and cm.revoked_at is null
+        and (cm.expires_at is null or cm.expires_at > now())
+  );
+
 alter table inspections
     add column if not exists assigned_inspector_id bigint;
 

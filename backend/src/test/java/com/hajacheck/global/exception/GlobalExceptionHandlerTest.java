@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -95,5 +96,21 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(ErrorCode.FILE_TOO_LARGE.getStatus());
         assertThat(response.getBody().success()).isFalse();
         assertThat(response.getBody().error().code()).isEqualTo(ErrorCode.FILE_TOO_LARGE.name());
+    }
+
+    @Test
+    void handleOptimisticLockingFailure_mapsToConflictWithUnifiedErrorCode() {
+        // Arrange
+        ObjectOptimisticLockingFailureException exception =
+                new ObjectOptimisticLockingFailureException("Report", 1L);
+
+        // Act
+        ResponseEntity<ApiResponse<Void>> response =
+                handler.handleOptimisticLockingFailure(exception);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().error().code())
+                .isEqualTo(ErrorCode.CONCURRENT_UPDATE_CONFLICT.name());
     }
 }

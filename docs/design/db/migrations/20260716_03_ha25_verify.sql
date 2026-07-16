@@ -274,6 +274,26 @@ begin
         raise exception 'an APPROVED+VERIFIED company lacks a valid owner membership or matching users.company_id';
     end if;
 
+    -- 반대 방향 검증: company_id가 세팅된 모든 사용자가 그 회사에 유효한 APPROVED 멤버십을
+    -- 가지고 있는지 확인한다. 격리된 PENDING 사용자의 레거시 포인터가 남으면 users.company_id를
+    -- 인가 근거로 쓰는 기존 경로에서 승인 없이 회사 소속으로 오인될 수 있다.
+    if exists (
+        select 1
+        from users u
+        where u.company_id is not null
+          and not exists (
+              select 1
+              from company_memberships cm
+              where cm.company_id = u.company_id
+                and cm.user_id = u.id
+                and cm.status = 'APPROVED'::company_membership_status_type
+                and cm.revoked_at is null
+                and (cm.expires_at is null or cm.expires_at > now())
+          )
+    ) then
+        raise exception 'users.company_id set without a matching valid APPROVED membership remain';
+    end if;
+
     if not exists (
         select 1
         from pg_constraint constraint_meta

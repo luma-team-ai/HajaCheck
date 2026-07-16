@@ -19,6 +19,8 @@ public enum ErrorCode {
     // 각 도메인의 {도메인}_NOT_FOUND 를 쓴다. 내부 경로 유추를 막기 위해 메시지에 경로를 담지 않는다.
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청하신 리소스를 찾을 수 없습니다."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 발생했습니다."),
+    // 상태 전이 엔티티(@Version 낙관적 락 — HAJA-25)의 동시 갱신 충돌 통일 응답.
+    CONCURRENT_UPDATE_CONFLICT(HttpStatus.CONFLICT, "다른 요청과 충돌하여 처리하지 못했습니다. 다시 시도해 주세요."),
 
     // 인증(auth)
     // 로그인 실패는 계정 열거 방지를 위해 id/pw/미존재/잠금 구분 없이 이 코드로 통일 응답.
