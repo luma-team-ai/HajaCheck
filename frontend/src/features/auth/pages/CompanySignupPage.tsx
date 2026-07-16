@@ -5,7 +5,13 @@ import { BusinessLicenseUpload } from '../components/BusinessLicenseUpload';
 import { CompanyAddressField } from '../components/CompanyAddressField';
 import { CompanySignupHeroPanel } from '../components/CompanySignupHeroPanel';
 import { LOGIN_ROUTE } from '../constants';
-import { ERROR_CLASSES, INPUT_CLASSES, LABEL_CLASSES, SUCCESS_CLASSES } from '../formClasses';
+import {
+  ERROR_CLASSES,
+  INPUT_CLASSES,
+  LABEL_CLASSES,
+  PASSWORD_TOGGLE_CLASSES,
+  SUCCESS_CLASSES,
+} from '../formClasses';
 import { useCompanySignup } from '../hooks/useCompanySignup';
 import { useEmailAvailability } from '../hooks/useEmailAvailability';
 import { isValidBusinessNumber, isValidEmail, isValidPassword, doPasswordsMatch } from '../utils/authFormValidators';
@@ -25,8 +31,6 @@ const DEFAULT_ERROR_MESSAGE = '가입 신청에 실패했습니다. 잠시 후 �
 
 const INLINE_BTN_CLASSES =
   'shrink-0 cursor-pointer whitespace-nowrap rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-text-default enabled:hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-text-muted';
-const PASSWORD_TOGGLE_CLASSES =
-  'absolute right-2.5 cursor-pointer border-none bg-transparent p-1.5 text-base leading-none';
 
 export function CompanySignupPage() {
   const [email, setEmail] = useState('');

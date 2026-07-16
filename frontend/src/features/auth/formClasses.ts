@@ -9,6 +9,11 @@ export const INPUT_CLASSES =
 
 export const ERROR_CLASSES = 'text-xs text-danger';
 
+// 비밀번호 입력창 우측 내부 눈 아이콘 토글 버튼 — CompanySignupPage에 이어 로그인(#295)에서도
+// 동일 패턴이 필요해져 단일 소스로 승격(formClasses.ts 취지와 동일하게 중복 정의 방지).
+export const PASSWORD_TOGGLE_CLASSES =
+  'absolute right-2.5 cursor-pointer border-none bg-transparent p-1.5 text-base leading-none';
+
 // auth.css의 기존 .auth-form-success(#1a9a52)와 동일 값을 그대로 이식 — 신규 색이 아니라 기존
 // 성공색을 재사용하는 것. tokens.css는 타 오너 자산이라 미터치 규칙상 토큰 승격 대신 로컬 상수로
 // 유지(후속 이슈로 tokens.css 승격 여부는 Frontend 리드와 별도 협의 — P3).
