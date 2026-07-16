@@ -6,7 +6,9 @@ import jakarta.persistence.EntityListeners;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
@@ -32,7 +34,15 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
  */
 @Entity
 @Getter
-@Table(name = "inspections")
+@Table(
+        name = "inspections",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_inspections_facility_round",
+                columnNames = {"facility_id", "round_no"}),
+        indexes = {
+                @Index(name = "idx_inspections_facility", columnList = "facility_id"),
+                @Index(name = "idx_inspections_assigned_inspector", columnList = "assigned_inspector_id")
+        })
 @EntityListeners(AuditingEntityListener.class)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Inspection {
