@@ -496,6 +496,8 @@ users ──┬──< user_consents
 - 인덱스: `idx_media_inspection (inspection_id)`
 - 참고: `source_video_id`는 개념상 `media.id`를 가리키는 자기 참조 값이지만, 현재 `hajaCheck_script.sql`에는 FK 제약이 걸려 있지 않다(영상 프레임 추출 파이프라인에서 유연하게 채워 넣기 위함으로 추정). 데이터 정합성이 필요하면 별도 FK 추가를 검토할 수 있다.
 - PRD FR-2 근거: `mime_signature_verified`는 "확장자 외 매직바이트(파일 시그니처) 검증"이라는 업로드 보안 요구사항을 그대로 반영한 컬럼이다.
+- 신뢰 경계: Entity 팩토리는 호출자에게 `mime_signature_verified`를 받지 않고 신규 행을 항상 `false`로 생성한다. 현재 HAJA-25 범위에서는 이 값을 `true`로 바꾸는 public API도 노출하지 않는다. 향후 업로드 서비스가 실제 파일 바이트와 MIME을 검증하는 경로와 함께 전이 API를 추가한다.
+- URL 정책: `original_url`과 `thumbnail_url`은 업로드·생성이 완료된 내부 저장소 객체 위치를 기록하는 값이며, 임의 외부 URL을 서버가 다시 fetch하는 입력으로 사용하지 않는다.
 
 ---
 

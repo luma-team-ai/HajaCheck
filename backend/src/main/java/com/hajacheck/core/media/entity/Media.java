@@ -65,6 +65,7 @@ public class Media {
     @Column(name = "file_type", columnDefinition = "media_file_type", nullable = false)
     private MediaFileType fileType;
 
+    /** 업로드가 완료된 내부 저장소 객체 위치. 서버가 임의 외부 URL을 fetch하는 입력으로 사용하지 않는다. */
     @Column(name = "original_url", nullable = false, length = 500)
     private String originalUrl;
 
@@ -89,6 +90,7 @@ public class Media {
     @Column(name = "gps_lng", precision = 9, scale = 6)
     private BigDecimal gpsLng;
 
+    /** 새 엔티티는 항상 false로 시작하며, 검증 결과를 호출자 인자로 받지 않는다. */
     @Column(name = "mime_signature_verified", nullable = false)
     private boolean mimeSignatureVerified;
 

@@ -82,19 +82,27 @@ def ha25MigrationScripts = rootProject.files(
         new File(ha25MigrationDir, '20260716_01_ha25_expand.sql'),
         new File(ha25MigrationDir, '20260716_02_ha25_finalize.sql'),
         new File(ha25MigrationDir, '20260716_03_ha25_verify.sql'))
+def ha25SchemaInputs = rootProject.files(canonicalDdl, v03BaselineDdl, ha25MigrationScripts)
 
-tasks.named('processTestResources') {
-    // 테스트 스키마를 별도 복제하지 않고 설계 기준 DDL을 그대로 classpath에 포함한다.
-    inputs.file(canonicalDdl)
-    inputs.file(v03BaselineDdl)
-    inputs.files(ha25MigrationScripts)
-    doFirst {
-        ([canonicalDdl, v03BaselineDdl] + ha25MigrationScripts.files).each { ddlFile ->
+// The released v0.3 archive is a tracked migration input even when it is not part of a PR diff.
+// Fail before test-resource processing so CI cannot silently validate only the canonical DDL.
+def verifyHa25SchemaInputs = tasks.register('verifyHa25SchemaInputs') {
+    group = 'verification'
+    description = 'Verifies the canonical DDL, tracked v0.3 baseline, and HAJA-25 migration scripts.'
+    inputs.files(ha25SchemaInputs)
+    doLast {
+        ha25SchemaInputs.files.each { ddlFile ->
             if (!ddlFile.isFile()) {
                 throw new GradleException("테스트용 DDL/마이그레이션을 찾을 수 없습니다: ${ddlFile}")
             }
         }
     }
+}
+
+tasks.named('processTestResources') {
+    dependsOn verifyHa25SchemaInputs
+    // 테스트 스키마를 별도 복제하지 않고 설계 기준 DDL을 그대로 classpath에 포함한다.
+    inputs.files(ha25SchemaInputs)
     from(canonicalDdl) {
         into 'db'
     }
