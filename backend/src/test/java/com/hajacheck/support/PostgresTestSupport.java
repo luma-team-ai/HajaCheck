@@ -34,7 +34,6 @@ public abstract class PostgresTestSupport {
         return new PostgreSQLContainer<>("postgres:16")
                 .withDatabaseName("hajacheck")
                 .withUsername("postgres")
-                .withPassword("postgres")
                 .withInitScript("db/HajaCheck_script.sql");
     }
 
