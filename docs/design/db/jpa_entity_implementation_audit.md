@@ -44,7 +44,7 @@
 - 최신 DDL의 `Inspection.assignedInspectorId` 누락 보완 완료
 - 현재 Entity 구현 수: 20개(DDL 테이블 20개 전체 대응)
 - PostgreSQL 17 빈 DB에 통합 DDL 적용 및 Hibernate `ddl-auto=validate` 통과
-- 전체 Gradle 테스트 162개 통과
+- 최신 `origin/dev` 통합 후 전체 Gradle 테스트 176개 통과
 
 ### 1.1 기존 Entity 필드 대조 결과
 
