@@ -94,6 +94,9 @@ public class Report extends BaseTimeEntity {
     }
 
     public static Report draft(Long inspectionId, int version, String contentJson, Long createdBy) {
+        if (version < 1) {
+            throw new IllegalArgumentException("보고서 버전은 1 이상이어야 한다");
+        }
         requireContent(contentJson);
         return Report.builder()
                 .inspectionId(inspectionId)
@@ -120,6 +123,7 @@ public class Report extends BaseTimeEntity {
             throw new IllegalStateException(
                     "finalizeReport 불가: 근거 검증을 통과한 보고서만 확정할 수 있다");
         }
+        requirePdfUrl(pdfUrl);
         this.pdfUrl = pdfUrl;
         this.editedBy = editedBy;
         this.status = ReportStatus.FINALIZED;
@@ -135,6 +139,12 @@ public class Report extends BaseTimeEntity {
     private static void requireContent(String contentJson) {
         if (contentJson == null || contentJson.isBlank()) {
             throw new IllegalArgumentException("보고서 본문 JSON은 필수다");
+        }
+    }
+
+    private static void requirePdfUrl(String pdfUrl) {
+        if (pdfUrl == null || pdfUrl.isBlank()) {
+            throw new IllegalArgumentException("확정 보고서 PDF URL은 필수다");
         }
     }
 }

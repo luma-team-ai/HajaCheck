@@ -58,6 +58,9 @@ public class ChatSession {
     }
 
     public void end() {
+        if (this.endedAt != null) {
+            return;
+        }
         this.endedAt = Instant.now();
     }
 }

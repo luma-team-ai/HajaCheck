@@ -5,6 +5,7 @@ declare
     invalid_count bigint;
     invalid_columns text;
     invalid_indexes text;
+    invalid_triggers text;
 begin
     if to_regclass('public.company_memberships') is null then
         raise exception 'company_memberships table is missing';
@@ -102,17 +103,21 @@ begin
       on actual.table_schema = 'public'
      and actual.table_name = expected.table_name
      and actual.column_name = 'lock_version'
+     and actual.data_type = 'bigint'
      and actual.is_nullable = 'NO'
+     and regexp_replace(lower(coalesce(actual.column_default, '')), '[[:space:]()]', '', 'g')
+         in ('0', '0::bigint', '0::int8')
     where actual.column_name is null;
 
     if invalid_columns is not null then
-        raise exception 'optimistic-lock columns are missing or nullable: %', invalid_columns;
+        raise exception 'optimistic-lock columns must be bigint DEFAULT 0 NOT NULL: %', invalid_columns;
     end if;
 
     if not exists (
         select 1 from information_schema.columns
         where table_schema = 'public' and table_name = 'inspections'
-          and column_name = 'assigned_inspector_id' and is_nullable = 'NO'
+          and column_name = 'assigned_inspector_id'
+          and data_type = 'bigint' and is_nullable = 'NO'
     ) then
         raise exception 'inspections.assigned_inspector_id is missing or nullable';
     end if;
@@ -120,7 +125,9 @@ begin
     if not exists (
         select 1 from information_schema.columns
         where table_schema = 'public' and table_name = 'rag_documents'
-          and column_name = 'target_collection' and is_nullable = 'NO'
+          and column_name = 'target_collection'
+          and udt_schema = 'public' and udt_name = 'rag_target_collection_type'
+          and is_nullable = 'NO'
     ) then
         raise exception 'rag_documents.target_collection is missing or nullable';
     end if;
@@ -128,9 +135,17 @@ begin
     if not exists (
         select 1 from information_schema.columns
         where table_schema = 'public' and table_name = 'chat_message_citations'
-          and column_name = 'locator' and is_nullable = 'NO'
+          and column_name = 'locator' and data_type = 'text' and is_nullable = 'NO'
     ) then
         raise exception 'chat_message_citations.locator is missing or nullable';
+    end if;
+
+    if not exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = 'chat_message_citations'
+          and column_name = 'snippet' and data_type = 'text' and is_nullable = 'NO'
+    ) then
+        raise exception 'chat_message_citations.snippet is missing or nullable';
     end if;
 
     select count(*) into invalid_count
@@ -141,23 +156,47 @@ begin
 
     select string_agg(expected.index_name, ', ' order by expected.index_name)
     into invalid_indexes
-    from unnest(array[
-        'idx_company_memberships_company_status',
-        'idx_company_memberships_user_status',
-        'uq_company_memberships_approved_user',
-        'idx_inspections_assigned_inspector',
-        'idx_rag_documents_embedding_status',
-        'idx_rag_documents_target_collection',
-        'uq_user_plans_active_user',
-        'uq_user_plans_active_company'
-    ]) as expected(index_name)
+    from (values
+        ('idx_company_memberships_company_status', 'company_memberships', false,
+            array['company_id', 'status']::text[], null::text),
+        ('idx_company_memberships_user_status', 'company_memberships', false,
+            array['user_id', 'status']::text[], null::text),
+        ('uq_company_memberships_approved_user', 'company_memberships', true,
+            array['user_id']::text[], 'status=''APPROVED''::company_membership_status_type'),
+        ('idx_inspections_assigned_inspector', 'inspections', false,
+            array['assigned_inspector_id']::text[], null::text),
+        ('idx_rag_documents_embedding_status', 'rag_documents', false,
+            array['embedding_status']::text[], null::text),
+        ('idx_rag_documents_target_collection', 'rag_documents', false,
+            array['target_collection']::text[], null::text),
+        ('uq_user_plans_active_user', 'user_plans', true,
+            array['user_id']::text[], 'status=''ACTIVE''::user_plan_status_type'),
+        ('uq_user_plans_active_company', 'user_plans', true,
+            array['company_id']::text[], 'status=''ACTIVE''::user_plan_status_type')
+    ) as expected(index_name, table_name, is_unique, column_names, predicate)
     left join pg_class index_class
       on index_class.relname = expected.index_name
      and index_class.relnamespace = 'public'::regnamespace
     left join pg_index index_meta on index_meta.indexrelid = index_class.oid
+    left join pg_class table_class on table_class.oid = index_meta.indrelid
+    left join lateral (
+        select array_agg(attribute.attname::text order by key.ordinality) as names
+        from unnest(index_meta.indkey::smallint[]) with ordinality as key(attnum, ordinality)
+        join pg_attribute attribute
+          on attribute.attrelid = index_meta.indrelid
+         and attribute.attnum = key.attnum
+        where key.ordinality <= index_meta.indnkeyatts
+    ) indexed_columns on true
     where index_class.oid is null
        or not coalesce(index_meta.indisvalid, false)
-       or not coalesce(index_meta.indisready, false);
+       or not coalesce(index_meta.indisready, false)
+       or table_class.relnamespace <> 'public'::regnamespace
+       or table_class.relname <> expected.table_name
+       or index_meta.indisunique <> expected.is_unique
+       or indexed_columns.names is distinct from expected.column_names
+       or regexp_replace(
+              pg_get_expr(index_meta.indpred, index_meta.indrelid),
+              '[[:space:]()]', '', 'g') is distinct from expected.predicate;
 
     if invalid_indexes is not null then
         raise exception 'required indexes are missing or invalid: %', invalid_indexes;
@@ -182,19 +221,56 @@ begin
     end if;
 
     if not exists (
-        select 1 from pg_constraint
-        where conname = 'fk_inspections_assigned_inspector'
-          and conrelid = 'inspections'::regclass
-          and convalidated
+        select 1
+        from pg_constraint constraint_meta
+        where constraint_meta.conname = 'fk_inspections_assigned_inspector'
+          and constraint_meta.contype = 'f'
+          and constraint_meta.conrelid = 'inspections'::regclass
+          and constraint_meta.confrelid = 'users'::regclass
+          and constraint_meta.convalidated
+          and constraint_meta.confmatchtype = 's'
+          and constraint_meta.confupdtype = 'a'
+          and constraint_meta.confdeltype = 'a'
+          and (
+              select array_agg(attribute.attname::text order by key.ordinality)
+              from unnest(constraint_meta.conkey) with ordinality as key(attnum, ordinality)
+              join pg_attribute attribute
+                on attribute.attrelid = constraint_meta.conrelid
+               and attribute.attnum = key.attnum
+          ) = array['assigned_inspector_id']
+          and (
+              select array_agg(attribute.attname::text order by key.ordinality)
+              from unnest(constraint_meta.confkey) with ordinality as key(attnum, ordinality)
+              join pg_attribute attribute
+                on attribute.attrelid = constraint_meta.confrelid
+               and attribute.attnum = key.attnum
+          ) = array['id']
     ) then
-        raise exception 'assigned inspector foreign key is missing or not validated';
+        raise exception 'assigned inspector foreign key is missing, invalid, or points to the wrong key';
     end if;
 
-    if not exists (
-        select 1 from pg_trigger
-        where tgname = 'trg_company_memberships_set_updated_at' and not tgisinternal
-    ) then
-        raise exception 'company_memberships updated_at trigger is missing';
+    select string_agg(expected.trigger_name, ', ' order by expected.trigger_name)
+    into invalid_triggers
+    from (values
+        ('trg_users_set_updated_at', 'users'),
+        ('trg_companies_set_updated_at', 'companies'),
+        ('trg_company_memberships_set_updated_at', 'company_memberships'),
+        ('trg_plans_set_updated_at', 'plans'),
+        ('trg_facilities_set_updated_at', 'facilities'),
+        ('trg_reports_set_updated_at', 'reports'),
+        ('trg_bot_scenarios_set_updated_at', 'bot_scenarios')
+    ) as expected(trigger_name, table_name)
+    left join pg_trigger actual
+      on actual.tgname = expected.trigger_name
+     and actual.tgrelid = to_regclass('public.' || expected.table_name)
+     and actual.tgfoid = to_regprocedure('public.set_updated_at()')
+     and actual.tgtype = 19
+     and actual.tgenabled in ('O', 'A')
+     and not actual.tgisinternal
+    where actual.oid is null;
+
+    if invalid_triggers is not null then
+        raise exception 'required updated_at triggers are missing or misconfigured: %', invalid_triggers;
     end if;
 end
 $verification$;

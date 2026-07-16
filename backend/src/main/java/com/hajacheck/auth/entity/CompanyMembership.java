@@ -99,6 +99,7 @@ public class CompanyMembership extends BaseTimeEntity {
     }
 
     public static CompanyMembership invite(Long companyId, Long userId, Long invitedBy, Instant expiresAt) {
+        requireFutureExpiration(expiresAt, Instant.now());
         return CompanyMembership.builder()
                 .companyId(companyId)
                 .userId(userId)
@@ -119,8 +120,10 @@ public class CompanyMembership extends BaseTimeEntity {
 
     public void approve() {
         requireStatus("approve", CompanyMembershipStatus.PENDING);
+        Instant approvedAt = Instant.now();
+        requireFutureExpiration(this.expiresAt, approvedAt);
         this.status = CompanyMembershipStatus.APPROVED;
-        this.approvedAt = Instant.now();
+        this.approvedAt = approvedAt;
         this.revokedAt = null;
     }
 
@@ -151,6 +154,7 @@ public class CompanyMembership extends BaseTimeEntity {
                 CompanyMembershipStatus.REJECTED,
                 CompanyMembershipStatus.REVOKED,
                 CompanyMembershipStatus.EXPIRED);
+        requireFutureExpiration(expiresAt, Instant.now());
         this.invitedBy = invitedBy;
         this.status = CompanyMembershipStatus.PENDING;
         this.approvedAt = null;
@@ -166,6 +170,12 @@ public class CompanyMembership extends BaseTimeEntity {
         }
         throw new IllegalStateException(
                 "%s 불가: 현재 상태=%s, 허용 상태=%s".formatted(action, this.status, Arrays.toString(allowed)));
+    }
+
+    private static void requireFutureExpiration(Instant expiresAt, Instant reference) {
+        if (expiresAt != null && !expiresAt.isAfter(reference)) {
+            throw new IllegalArgumentException("멤버십 만료 시각은 현재보다 이후여야 한다");
+        }
     }
 
     public boolean isEffectiveAt(Instant now) {

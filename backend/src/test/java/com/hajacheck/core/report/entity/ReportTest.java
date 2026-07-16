@@ -76,6 +76,31 @@ class ReportTest {
     }
 
     @Test
+    void draft_버전이1보다작으면예외() {
+        assertThatThrownBy(() -> Report.draft(10L, 0, "{}", 20L))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> Report.draft(10L, -1, "{}", 20L))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void finalizeReport_PDF주소가없으면초안상태를유지하고예외() {
+        Report nullUrl = Report.draft(10L, 1, "{}", 20L);
+        nullUrl.updateContent("{}", true, null, 30L);
+        Report blankUrl = Report.draft(10L, 2, "{}", 20L);
+        blankUrl.updateContent("{}", true, null, 30L);
+
+        assertThatThrownBy(() -> nullUrl.finalizeReport(null, 30L))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> blankUrl.finalizeReport("  ", 30L))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(nullUrl.getStatus()).isEqualTo(ReportStatus.DRAFT);
+        assertThat(blankUrl.getStatus()).isEqualTo(ReportStatus.DRAFT);
+        assertThat(nullUrl.getPdfUrl()).isNull();
+        assertThat(blankUrl.getPdfUrl()).isNull();
+    }
+
+    @Test
     void updateContent_본문이없으면기존내용을유지하고예외() {
         Report report = Report.draft(10L, 1, "{\"original\":true}", 20L);
 

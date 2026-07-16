@@ -48,4 +48,18 @@ class RagDocumentTest {
         assertThatThrownBy(document::failEmbedding)
                 .isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    void completeEmbedding_음수청크수이면임베딩중상태를유지하고예외() {
+        RagDocument document = RagDocument.upload(
+                "검증 문서", RagDocumentSourceType.LAW, RagTargetCollection.REGULATIONS,
+                null, null, null, null, "https://files.example/doc.pdf");
+        document.startEmbedding();
+
+        assertThatThrownBy(() -> document.completeEmbedding(-1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(document.getEmbeddingStatus()).isEqualTo(RagEmbeddingStatus.EMBEDDING);
+        assertThat(document.getChunkCount()).isNull();
+        assertThat(document.getEmbeddedAt()).isNull();
+    }
 }

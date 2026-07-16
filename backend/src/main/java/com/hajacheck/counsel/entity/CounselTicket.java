@@ -15,6 +15,7 @@ import jakarta.persistence.Version;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -96,10 +97,29 @@ public class CounselTicket {
                 .build();
     }
 
-    public void assign(Long counselorId, Long sessionId) {
+    /**
+     * 대기 티켓을 동일 사용자의 활성 전문상담 세션에 배정한다.
+     * 연관관계는 조회 전용으로 유지하되, 검증을 마친 세션의 식별자를 FK 쓰기 값으로 사용한다.
+     */
+    public void assign(Long counselorId, ChatSession session) {
         requireStatus("assign", CounselTicketStatus.WAITING);
+        if (counselorId == null) {
+            throw new IllegalArgumentException("assign 불가: 상담사 식별자는 필수다");
+        }
+        if (session == null || session.getId() == null) {
+            throw new IllegalArgumentException("assign 불가: 저장된 상담 세션은 필수다");
+        }
+        if (session.getSessionType() != ChatSessionType.COUNSEL) {
+            throw new IllegalArgumentException("assign 불가: 전문상담 세션만 배정할 수 있다");
+        }
+        if (session.getEndedAt() != null) {
+            throw new IllegalStateException("assign 불가: 종료된 상담 세션은 배정할 수 없다");
+        }
+        if (!Objects.equals(this.userId, session.getUserId())) {
+            throw new IllegalArgumentException("assign 불가: 티켓 사용자와 상담 세션 사용자가 다르다");
+        }
         this.counselorId = counselorId;
-        this.sessionId = sessionId;
+        this.sessionId = session.getId();
         this.status = CounselTicketStatus.IN_PROGRESS;
         this.queuePosition = null;
     }
