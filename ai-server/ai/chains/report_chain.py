@@ -79,6 +79,12 @@ class RecommendationItem(BaseModel):
     method: str
     priority: str
     legal_basis: str  # RAG 근거 인용, 검색 결과 없으면 "관련 근거 없음"
+    # LLM 출력 스키마의 일부가 아니라 _run_recommendation_chain이 생성 후 계산해 채운다(PR머신 P2 후속) —
+    # legal_basis 문자열이 실제 검색된 legal_basis_context에 (부분)포함되는지 대조한 결과.
+    # RAG 검색 결과가 일부라도 있으면 기존에는 legal_basis를 그대로 신뢰했는데, LLM이 검색된 문서 중
+    # 무관한 조문을 인용하거나 존재하지 않는 조문을 지어내도 걸러내지 못했다 — 이 플래그로 하류(FE)가
+    # 미검증 인용을 구분해 표시할 수 있게 한다. False라고 응답 자체를 막지는 않는다(컨벤션 §5).
+    legal_basis_verified: bool = False
 
 
 class ReportRecommendation(BaseModel):
@@ -223,6 +229,20 @@ def _build_prompt_recommendation(confirmed_defects: list[dict], legal_basis_cont
     return f"{system}\n\n{filled}"
 
 
+def _legal_basis_verified(legal_basis: str, legal_basis_context: str) -> bool:
+    """legal_basis 인용문이 실제 검색된 legal_basis_context에 (부분)포함되는지 최소한으로 대조한다.
+
+    엄격한 조문 매칭이 아니라 공백 제거 후 부분 문자열 포함 여부만 보는 저비용 휴리스틱 — LLM이
+    검색 결과와 무관하거나 존재하지 않는 조문을 인용해도 legal_basis 자체를 뒤집지는 않고(오탐 시
+    보고서 내용을 임의로 훼손하지 않기 위해), legal_basis_verified 플래그로만 신호를 남긴다.
+    """
+    if not legal_basis_context or not legal_basis:
+        return False
+    normalized_context = legal_basis_context.replace(" ", "")
+    normalized_basis = legal_basis.replace(" ", "")
+    return normalized_basis in normalized_context
+
+
 def _run_recommendation_chain(confirmed_defects: list[dict]) -> ReportRecommendation:
     legal_basis_context = _retrieve_legal_basis_context(confirmed_defects)
     prompt = _build_prompt_recommendation(confirmed_defects, legal_basis_context)
@@ -232,7 +252,24 @@ def _run_recommendation_chain(confirmed_defects: list[dict]) -> ReportRecommenda
         # RAG 검색 결과가 없음(또는 vectorstore 미구현) — legal_basis를 코드에서 고정값으로 강제해
         # LLM이 그럴듯한 법규·조문을 창작(환각)하는 경로를 원천 차단한다.
         result = ReportRecommendation(
-            items=[item.model_copy(update={"legal_basis": "관련 근거 없음"}) for item in result.items],
+            items=[
+                item.model_copy(update={"legal_basis": "관련 근거 없음", "legal_basis_verified": False})
+                for item in result.items
+            ],
+            monitoring_points=result.monitoring_points,
+        )
+    else:
+        # 검색 결과가 일부라도 있는 경우 — 기존에는 이 경로에서 legal_basis를 무조건 신뢰했다(PR머신 P2).
+        # 강제 대체는 하지 않되(부분 검색 결과 중 실제로 관련된 인용일 수 있으므로), 검증 결과를 플래그로 남긴다.
+        result = ReportRecommendation(
+            items=[
+                item.model_copy(
+                    update={
+                        "legal_basis_verified": _legal_basis_verified(item.legal_basis, legal_basis_context)
+                    }
+                )
+                for item in result.items
+            ],
             monitoring_points=result.monitoring_points,
         )
     return result
@@ -241,6 +278,11 @@ def _run_recommendation_chain(confirmed_defects: list[dict]) -> ReportRecommenda
 # ── 병렬 실행 + Grounding Check + 조립 ──
 
 def _run_parallel(facility_info: dict, confirmed_defects: list[dict]) -> dict:
+    """4개 RunnableLambda는 각자 내부에서 get_llm()을 직접 호출한다(각 _run_*_chain 참고) — 스레드풀에서
+    동시 실행돼도 get_llm()이 매 호출마다 새 HuggingFaceEndpoint/ChatOllama + CachedLLM 인스턴스를
+    생성하므로(ai.core.llm_client.get_llm, @lru_cache 없음) 4개 브랜치가 클라이언트 상태를 공유하지
+    않는다(PR머신 P2 후속 확인 — 유일한 모듈 레벨 공유 상태는 get_llm() 내부가 아니라 llm_client._redis()의
+    lru_cache 싱글턴인데, redis-py Redis 클라이언트는 커넥션 풀 기반으로 스레드 안전하다)."""
     parallel = RunnableParallel(
         overview=RunnableLambda(lambda _: _run_overview_chain(facility_info)),
         summary=RunnableLambda(lambda _: _run_summary_chain(confirmed_defects)),

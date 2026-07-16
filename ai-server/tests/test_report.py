@@ -385,6 +385,61 @@ def test_invalid_severity_grade_returns_validation_error(mock_get_llm, mock_get_
     assert body["error"]["code"] == "VALIDATION_ERROR"
 
 
+def test_report_endpoint_confirmed_defects_missing_required_field_returns_422():
+    """P2 픽스: confirmed_defects 배열 원소가 ConfirmedDefectInput(Pydantic)으로 검증된다 —
+    defect_type 등 필수 필드가 없으면 LLM 호출 전에 요청 단계(422)에서 거부되어야 한다
+    (기존엔 list[dict]라 아무 필드가 빠져도 report_chain 내부에서 d.get(key, '-')로 조용히 통과됨)."""
+    res = client.post(
+        "/ai/report",
+        json={
+            "facility_info": _sample_facility_info(),
+            "confirmed_defects": [{"location": "1동 1층 기둥", "severity_grade": "B", "description": "균열"}],
+        },
+    )
+    assert res.status_code == 422
+
+
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
+def test_legal_basis_verified_true_when_citation_found_in_partial_rag_context(
+    mock_get_llm, mock_get_vectorstore
+):
+    """P2 픽스: RAG 검색 결과가 있고(부분) LLM의 legal_basis 인용이 그 컨텍스트에 실제로 포함되면
+    legal_basis_verified=True — 기존엔 검색 결과가 0건일 때만 검증했다."""
+    mock_doc = MagicMock()
+    mock_doc.page_content = "공동주택관리법 제33조 안전점검"
+    mock_get_vectorstore.return_value.similarity_search.return_value = [mock_doc]
+    recommendation = _sample_recommendation(legal_basis="공동주택관리법 제33조 안전점검")
+    _patch_all_sections(mock_get_llm, recommendation=recommendation)
+
+    result = run_report_chain(_sample_facility_info(), _sample_defects(), on_mismatch="regenerate")
+
+    item = result["recommendation"]["items"][0]
+    assert item["legal_basis"] == "공동주택관리법 제33조 안전점검"  # 검색 결과 있을 땐 강제 대체 안 함
+    assert item["legal_basis_verified"] is True
+
+
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
+def test_legal_basis_verified_false_when_citation_not_in_partial_rag_context(
+    mock_get_llm, mock_get_vectorstore
+):
+    """P2 픽스: 검색 결과는 있지만 LLM이 그와 무관하거나 지어낸 조문을 인용하면
+    legal_basis는 그대로 두되(오탐으로 내용을 훼손하지 않음) legal_basis_verified=False로 신호를 남긴다
+    (기존엔 이 경로에서 아무 검증도 없이 LLM 인용을 그대로 신뢰했음 — PR머신 P2 지적)."""
+    mock_doc = MagicMock()
+    mock_doc.page_content = "공동주택관리법 제33조 안전점검"
+    mock_get_vectorstore.return_value.similarity_search.return_value = [mock_doc]
+    hallucinated = _sample_recommendation(legal_basis="건축법 제99조(가상 조문)")
+    _patch_all_sections(mock_get_llm, recommendation=hallucinated)
+
+    result = run_report_chain(_sample_facility_info(), _sample_defects(), on_mismatch="regenerate")
+
+    item = result["recommendation"]["items"][0]
+    assert item["legal_basis"] == "건축법 제99조(가상 조문)"
+    assert item["legal_basis_verified"] is False
+
+
 @patch("ai.chains.report_chain.get_vectorstore")
 @patch("ai.chains.report_chain.get_llm")
 def test_vectorstore_not_implemented_falls_back_to_no_basis_notice(mock_get_llm, mock_get_vectorstore):

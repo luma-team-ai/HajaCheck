@@ -87,19 +87,30 @@ def briefing(req: DashboardStats) -> AIResponse:
     return AIResponse.ok({**result.model_dump(), "facts": facts.model_dump()})
 
 
+class ConfirmedDefectInput(BaseModel):
+    """confirmed_defects 배열 원소 — report_chain 전반에서 `d.get(key, '-')`로 조용히 기본값
+    처리되던 필드 존재·타입을 요청 단계(Pydantic)에서 검증한다(PR머신 P2 후속)."""
+
+    defect_type: str
+    location: str
+    severity_grade: str
+    description: str
+
+
 class ReportRequest(BaseModel):
     """AI 보고서 생성 요청 (AP-040, contract.md `POST /ai/report`)."""
 
     facility_info: dict
-    confirmed_defects: list[dict]
+    confirmed_defects: list[ConfirmedDefectInput]
     on_mismatch: MismatchPolicy = MismatchPolicy.REGENERATE
 
 
 @router.post("/report")
 def report(req: ReportRequest) -> AIResponse:
     """AI 보고서 4섹션(개요/요약/상세/권고) 병렬 생성 + Grounding Check (FR-5, HAJA-31)."""
+    confirmed_defects = [d.model_dump() for d in req.confirmed_defects]
     try:
-        result = run_report_chain(req.facility_info, req.confirmed_defects, req.on_mismatch.value)
+        result = run_report_chain(req.facility_info, confirmed_defects, req.on_mismatch.value)
     except OutputParserException as e:
         # OutputParserException은 ValueError의 서브클래스라 (ValueError, PydanticValidationError)절보다
         # 먼저 잡아야 한다 — _StructuredLLM.invoke()가 MAX_RETRIES 소진 후 던지는, LLM이 malformed/
