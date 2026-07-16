@@ -1,12 +1,16 @@
 package com.hajacheck.core.defect.entity;
 
+import com.hajacheck.core.inspection.entity.Inspection;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
@@ -41,6 +45,10 @@ public class Defect {
 
     @Column(name = "inspection_id", nullable = false)
     private Long inspectionId;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "inspection_id", insertable = false, updatable = false)
+    private Inspection inspection;
 
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(columnDefinition = "defect_type", nullable = false)
