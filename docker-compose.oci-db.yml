@@ -92,6 +92,14 @@ services:
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}@db-tunnel:6380/1
 
+  frontend-dev:
+    environment:
+      # MSW 기본값(DEV=true)은 켜짐 — 이 오버레이로 실 백엔드(spring 컨테이너, OCI DB 연결)를 붙여
+      # 통합 테스트하려면 꺼야 getMe 등 목 핸들러(항상 401)가 실제 세션 쿠키를 가리지 않는다.
+      # override.yml(항상 자동 병합)이 아니라 여기(옵트인)에 둬서, OCI DB 연동을 안 쓰는 팀원의
+      # 기본 로컬 개발 흐름(MSW 목 기반)에는 영향 없게 스코프를 좁힌다.
+      VITE_ENABLE_MSW: "false"
+
 volumes:
   oci-db-uploads:
   db-tunnel-ssh:
