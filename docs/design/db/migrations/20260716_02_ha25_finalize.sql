@@ -1,12 +1,13 @@
 -- HAJA-25 finalize migration: 백필과 중복 정리가 끝난 뒤 최종 NOT NULL/UQ/FK를 강제한다.
 
-begin;
-
-select pg_advisory_xact_lock(hashtext('hajacheck:HAJA-25:schema-migration'));
+-- Run this file with autocommit enabled. CREATE INDEX CONCURRENTLY cannot run
+-- inside a transaction. Validated CHECK constraints make SET NOT NULL metadata-only.
+select pg_advisory_lock(hashtext('hajacheck:HAJA-25:schema-migration'));
 
 do $migration$
 declare
     missing_count bigint;
+    pending_membership_count bigint;
 begin
     select count(*) into missing_count
     from inspections where assigned_inspector_id is null;
@@ -44,27 +45,84 @@ begin
     ) then
         raise exception 'HAJA-25 finalize blocked: duplicate ACTIVE company plans exist';
     end if;
+
+    if exists (
+        select 1
+        from companies c
+        join users u on u.id = c.owner_user_id
+        left join company_memberships cm
+          on cm.company_id = c.id
+         and cm.user_id = c.owner_user_id
+         and cm.status = 'APPROVED'::company_membership_status_type
+         and cm.approved_at is not null
+         and cm.revoked_at is null
+         and (cm.expires_at is null or cm.expires_at > now())
+        where c.status = 'APPROVED'::company_status_type
+          and c.verification_status = 'VERIFIED'::business_verification_status_type
+          and (cm.id is null or u.company_id is distinct from c.id)
+    ) then
+        raise exception 'HAJA-25 finalize blocked: an APPROVED+VERIFIED company lacks a valid owner membership or matching users.company_id';
+    end if;
+
+    select count(*) into pending_membership_count
+    from company_memberships
+    where status = 'PENDING'::company_membership_status_type;
+    if pending_membership_count > 0 then
+        raise warning 'HAJA-25 finalize: % PENDING company memberships remain quarantined and receive no company entitlement',
+            pending_membership_count;
+    end if;
 end
 $migration$;
 
-alter table inspections
-    alter column assigned_inspector_id set not null;
+do $migration$
+begin
+    if not exists (select 1 from pg_constraint where conname = 'ck_inspections_assigned_inspector_not_null'
+                   and conrelid = 'inspections'::regclass) then
+        alter table inspections add constraint ck_inspections_assigned_inspector_not_null
+            check (assigned_inspector_id is not null) not valid;
+    end if;
+end
+$migration$;
+alter table inspections validate constraint ck_inspections_assigned_inspector_not_null;
+alter table inspections alter column assigned_inspector_id set not null;
+alter table inspections drop constraint ck_inspections_assigned_inspector_not_null;
 
-alter table rag_documents
-    alter column target_collection set not null;
+do $migration$
+begin
+    if not exists (select 1 from pg_constraint where conname = 'ck_rag_documents_target_collection_not_null'
+                   and conrelid = 'rag_documents'::regclass) then
+        alter table rag_documents add constraint ck_rag_documents_target_collection_not_null
+            check (target_collection is not null) not valid;
+    end if;
+end
+$migration$;
+alter table rag_documents validate constraint ck_rag_documents_target_collection_not_null;
+alter table rag_documents alter column target_collection set not null;
+alter table rag_documents drop constraint ck_rag_documents_target_collection_not_null;
 
+do $migration$
+begin
+    if not exists (select 1 from pg_constraint where conname = 'ck_chat_message_citations_locator_snippet_not_null'
+                   and conrelid = 'chat_message_citations'::regclass) then
+        alter table chat_message_citations add constraint ck_chat_message_citations_locator_snippet_not_null
+            check (locator is not null and snippet is not null) not valid;
+    end if;
+end
+$migration$;
+alter table chat_message_citations validate constraint ck_chat_message_citations_locator_snippet_not_null;
 alter table chat_message_citations
     alter column locator set not null,
     alter column snippet set not null;
+alter table chat_message_citations drop constraint ck_chat_message_citations_locator_snippet_not_null;
 
 alter table inspections
     validate constraint fk_inspections_assigned_inspector;
 
-create unique index if not exists uq_user_plans_active_user
+create unique index concurrently if not exists uq_user_plans_active_user
     on user_plans (user_id)
     where status = 'ACTIVE'::user_plan_status_type;
 
-create unique index if not exists uq_user_plans_active_company
+create unique index concurrently if not exists uq_user_plans_active_company
     on user_plans (company_id)
     where status = 'ACTIVE'::user_plan_status_type;
 
@@ -73,4 +131,4 @@ comment on index uq_user_plans_active_user is
 comment on index uq_user_plans_active_company is
     '동일 회사에 ACTIVE 구독이 둘 이상 존재하는 것을 방지한다(중복 과금·엔타이틀먼트 혼선 차단).';
 
-commit;
+select pg_advisory_unlock(hashtext('hajacheck:HAJA-25:schema-migration'));

@@ -114,14 +114,31 @@ public class Defect {
     }
 
     public void review(DefectGrade grade) {
+        if (this.status == DefectStatus.RESOLVED) {
+            throw new IllegalStateException(
+                    "review 불가: 이미 RESOLVED 상태인 결함은 등급을 변경할 수 없다");
+        }
         this.grade = grade;
         this.reviewed = true;
     }
 
     public void changeStatus(DefectStatus status) {
-        if (this.status == DefectStatus.RESOLVED) {
+        if (status == null) {
+            throw new IllegalArgumentException("changeStatus 불가: 변경할 상태는 필수다");
+        }
+
+        DefectStatus expectedNext = switch (this.status) {
+            case DETECTED -> DefectStatus.CONFIRMED;
+            case CONFIRMED -> DefectStatus.ACTION_PENDING;
+            case ACTION_PENDING -> DefectStatus.IN_PROGRESS;
+            case IN_PROGRESS -> DefectStatus.RESOLVED;
+            case RESOLVED -> null;
+        };
+
+        if (status != expectedNext) {
             throw new IllegalStateException(
-                    "changeStatus 불가: 이미 RESOLVED 상태인 결함은 상태를 변경할 수 없다");
+                    "changeStatus 불가: 현재 상태=%s, 허용되는 다음 상태=%s, 요청 상태=%s"
+                            .formatted(this.status, expectedNext, status));
         }
         this.status = status;
     }

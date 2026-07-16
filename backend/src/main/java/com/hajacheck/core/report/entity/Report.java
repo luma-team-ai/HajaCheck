@@ -100,6 +100,7 @@ public class Report extends BaseTimeEntity {
 
     public void updateContent(String contentJson, Boolean groundingCheckPassed,
                               String groundingWarnings, Long editedBy) {
+        requireDraft("updateContent");
         this.contentJson = contentJson;
         this.groundingCheckPassed = groundingCheckPassed;
         this.groundingWarnings = groundingWarnings;
@@ -107,8 +108,16 @@ public class Report extends BaseTimeEntity {
     }
 
     public void finalizeReport(String pdfUrl, Long editedBy) {
+        requireDraft("finalizeReport");
         this.pdfUrl = pdfUrl;
         this.editedBy = editedBy;
         this.status = ReportStatus.FINALIZED;
+    }
+
+    private void requireDraft(String action) {
+        if (this.status != ReportStatus.DRAFT) {
+            throw new IllegalStateException(
+                    "%s 불가: 이미 확정된 보고서는 수정할 수 없다".formatted(action));
+        }
     }
 }

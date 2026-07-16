@@ -91,6 +91,7 @@ public class CounselTicket {
     }
 
     public void assign(Long counselorId, Long sessionId) {
+        requireStatus("assign", CounselTicketStatus.WAITING);
         this.counselorId = counselorId;
         this.sessionId = sessionId;
         this.status = CounselTicketStatus.IN_PROGRESS;
@@ -98,12 +99,25 @@ public class CounselTicket {
     }
 
     public void resolve() {
+        requireStatus("resolve", CounselTicketStatus.IN_PROGRESS);
         this.status = CounselTicketStatus.RESOLVED;
         this.endedAt = Instant.now();
     }
 
     public void leaveOffline() {
+        requireStatus("leaveOffline", CounselTicketStatus.WAITING, CounselTicketStatus.IN_PROGRESS);
         this.status = CounselTicketStatus.OFFLINE_LEFT;
         this.endedAt = Instant.now();
+    }
+
+    private void requireStatus(String action, CounselTicketStatus... allowed) {
+        for (CounselTicketStatus candidate : allowed) {
+            if (this.status == candidate) {
+                return;
+            }
+        }
+        throw new IllegalStateException(
+                "%s 불가: 현재 상담 티켓 상태=%s, 허용 상태=%s"
+                        .formatted(action, this.status, java.util.Arrays.toString(allowed)));
     }
 }
