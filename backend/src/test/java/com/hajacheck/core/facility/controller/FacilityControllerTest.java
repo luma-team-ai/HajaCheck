@@ -130,6 +130,22 @@ class FacilityControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void 점검주기설정_유효성실패_상한초과_400() throws Exception {
+        // @Max(120) 상한 방어(PR #284 P2): 극단값(Integer.MAX_VALUE)이 검증을 통과하면
+        // Facility.updateSchedule 의 plusMonths 에서 산술 오버플로우로 500이 날 수 있으므로,
+        // 상한 초과 요청은 검증 계층에서 400 으로 걸러져야 한다.
+        User owner = saveUser("owner5@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        FacilityScheduleRequest request = new FacilityScheduleRequest(Integer.MAX_VALUE);
+
+        mockMvc.perform(post("/api/facilities/{id}/schedule", facility.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void 점검주기설정_미인증_401() throws Exception {
         FacilityScheduleRequest request = new FacilityScheduleRequest(6);
 
