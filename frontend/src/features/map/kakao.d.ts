@@ -25,6 +25,7 @@ declare global {
       options?: { offset?: KakaoPoint },
     ) => KakaoMarkerImage;
     InfoWindow: new (options: KakaoInfoWindowOptions) => KakaoInfoWindow;
+    CustomOverlay: new (options: KakaoCustomOverlayOptions) => KakaoCustomOverlay;
     Size: new (width: number, height: number) => KakaoSize;
     Point: new (x: number, y: number) => KakaoPoint;
     event: {
@@ -85,5 +86,15 @@ declare global {
     open(map: KakaoMap, marker: KakaoMarker): void;
     close(): void;
     setContent(content: string | HTMLElement): void;
+  }
+
+  interface KakaoCustomOverlayOptions {
+    position: KakaoLatLng;
+    content: HTMLElement;
+    yAnchor?: number;
+  }
+
+  interface KakaoCustomOverlay {
+    setMap(map: KakaoMap | null): void;
   }
 }

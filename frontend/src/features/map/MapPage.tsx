@@ -18,7 +18,7 @@ export default function MapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<KakaoMap | null>(null);
   const markersRef = useRef<KakaoMarker[]>([]);
-  const overlayRef = useRef<any>(null);
+  const overlayRef = useRef<KakaoCustomOverlay | null>(null);
 
   const [overlayContainer] = useState(() => document.createElement('div'));
 
