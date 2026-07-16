@@ -269,6 +269,10 @@ def run_report_chain(
     """
     mismatch_policy = MismatchPolicy(on_mismatch)
 
+    # severity_grade 등 저비용 입력 검증(GroundingDefect 생성)은 LLM 호출 전에 먼저 수행한다 —
+    # 4섹션 LLM 호출을 전부 마친 뒤에야 잘못된 입력이 드러나면 비용·지연이 낭비되므로(PR머신 지적, P2).
+    grounding_defects = _to_grounding_defects(confirmed_defects)
+
     results = _run_parallel(facility_info, confirmed_defects)
     overview: ReportOverview = results["overview"]
     summary: ReportSummary = results["summary"]
@@ -282,7 +286,6 @@ def run_report_chain(
             f"({len(detail.items)})가 확정 하자 수({len(confirmed_defects)})와 일치하지 않습니다."
         )
 
-    grounding_defects = _to_grounding_defects(confirmed_defects)
     claims = GroundingClaims(total_count=summary.total_count, count_by_grade=summary.count_by_grade)
     grounding_result = check_grounding(grounding_defects, claims, mismatch_policy)
 

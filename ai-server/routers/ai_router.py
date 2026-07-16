@@ -3,6 +3,7 @@
 /ai/report · /ai/chat · /ai/briefing · /ai/defect-explain · /ai/nl-search · /ai/grounding-check
 장시간 작업(보고서 생성)은 동기 응답 금지 — 비동기 잡 패턴(잡 ID -> 폴링)
 """
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -22,6 +23,8 @@ from ai.core.grounding import (
     check_grounding,
 )
 from ai.core.schemas import AIErrorCode, AIResponse
+
+logger = logging.getLogger(__name__)
 
 # dependencies=[Depends(verify_internal_key)] — /ai/* 전 라우트에 내부키 검증 일괄 적용.
 # (/health는 main.py에 prefix 없이 정의돼 이 라우터 밖 → 무인증 유지, 컨테이너 헬스체크용)
@@ -108,7 +111,11 @@ def report(req: ReportRequest) -> AIResponse:
         # confirmed_defects의 잘못된 severity_grade(GroundingDefect validator 실패) 등.
         # LLM 호출·파싱과 무관한 입력/코드 검증 오류이므로 /ai/grounding-check와 동일하게 VALIDATION_ERROR.
         return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, str(e))
-    except Exception as e:  # noqa: BLE001 — LLM 호출·structured output 파싱 실패 등 표준 폴백
+    except Exception as e:  # noqa: BLE001 — LLM 클라이언트 오류부터 코드 버그까지 포괄하는 최종 폴백.
+        # 위 절들이 예측 가능한 LLM/검증 실패를 이미 걸러냈으므로, 여기 도달하는 예외는 네트워크 오류
+        # 등 인프라성 실패이거나 실제 프로그래밍 버그일 수 있다 — 어느 쪽이든 스택트레이스를 남겨
+        # 클라이언트에는 조용히 LLM_INVALID_OUTPUT으로 보이는 실패가 서버 로그에서는 추적 가능해야 한다.
+        logger.exception("POST /ai/report 처리 중 예상치 못한 예외 발생")
         return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, str(e))
     return AIResponse.ok(result)
 
