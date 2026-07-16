@@ -330,6 +330,9 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 - 토큰: `TokenStore.issue(TokenNamespaces.PASSWORD_RESET, userId, AuthProperties.passwordResetTtl)` 재사용(기본 TTL 10분, `app.auth.password-reset-ttl`로 조정).
   - **Redis 저장 키는 토큰 원문이 아니라 `sha256(token)`을 쓴다** — Redis 덤프·스냅샷 유출 시 토큰 평문이 곧 계정 탈취가 되는 것을 막는 심층방어. `TokenStore` **시그니처는 바꾸지 않고** password-reset 네임스페이스 경로에서만 해시한다(signup-status는 TTL 30일 in-flight 토큰이 있어 건드리면 깨진다).
 - **재발급 시 해당 사용자의 이전 토큰 무효화**(동시 다발 링크 방지). 현 `RedisTokenStore`는 `key=토큰 → value=userId` 단방향이라 역추적이 불가능하므로, **보조 인덱스 `auth:password-reset:user:{userId} → 현재 토큰해시`를 두고** 신규 발급 시 이전 항목을 삭제한다. ⚠️ `KEYS`/`SCAN` 순회 금지(운영 Redis 블로킹).
+  - **인덱스 TTL = 토큰 TTL과 동일하게** 건다. 안 걸면 토큰은 10분 뒤 사라지는데 인덱스만 영구 잔존해 Redis 키가 샌다.
+  - **원자성**: 발급은 ①새 토큰 저장 ②인덱스에서 이전 토큰해시 조회·삭제 ③인덱스 갱신의 다단계 연산이다. 동시 요청이 인터리브되면 이전 토큰이 살아남거나(무효화 실패) 방금 발급한 토큰이 지워진다(정상 링크 사망). **MULTI/EXEC 또는 Lua 스크립트로 원자화**하라.
+  - **consume 시 인덱스 정리는 compare-and-delete**로 한다 — 인덱스가 가리키는 값이 **방금 소비한 토큰해시일 때만** 삭제. 무조건 지우면, 아직 안 지워진 구토큰을 소비할 때 현재 유효 토큰의 인덱스가 날아가 다음 발급의 무효화가 실패한다.
 - 메일 링크: `{FRONTEND_BASE_URL}/reset-password?token={resetToken}`
   - ⚠️ **링크 base는 설정값 `FRONTEND_BASE_URL`만 쓴다. 요청에서 유도 금지**(`ServletUriComponentsBuilder.fromCurrentRequest()`, `Host`/`X-Forwarded-Host` 헤더 등). nginx가 `Host`를 그대로 통과시키므로, 요청에서 유도하면 공격자가 Host를 조작해 **피해자 메일에 공격자 도메인 링크**를 심는 password-reset poisoning이 성립한다.
   - 메일 제목·본문에 **사용자 입력을 삽입하지 않는다**(헤더 인젝션 표면 제거).
@@ -349,16 +352,19 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 ### Rate-limit
 전역 rate-limit은 미도입(#185 P2 후속)이므로 **1단계에만 최소 구현**한다. Redis 카운터 기반.
 
-- **대상 이메일 기준**: 예 이메일당 5분 3회 — 특정 피해자 메일 폭탄 방어. 값은 설정으로.
-- **전역 상한**: 예 전체 합쳐 분당 N건 — 서로 다른 주소를 대량으로 훑는 발송 남용(발신 도메인 평판 훼손·SMTP 제공자 차단)에 천장. 값은 설정으로.
+- **대상 이메일 기준**: 예 이메일당 5분 3회 — 특정 피해자 메일 폭탄 방어. **사용자 단위 실질 방어는 이 축이 담당한다.** 값은 설정으로.
+- **전역 상한**: 전체 합쳐 분당 N건 — 발송 남용(발신 도메인 평판 훼손·SMTP 제공자 차단)에 천장. 값은 설정으로.
+  - ⚠️ **N의 성격**: **"SMTP 제공자 한도·발신 평판을 보호하는 천장"**이지 사용자 단위 방어가 아니다. **정상 트래픽이 절대 닿지 않을 만큼 크게** 잡고, 제공자 쿼터를 기준으로 산정한다. 정상 트래픽 수준에 맞춰 작게 잡으면 안 된다.
 - 초과 시 `429 AUTH_TOO_MANY_REQUESTS`. **1단계의 429는 계정 열거 단서가 되지 않도록** 이메일 존재 여부와 무관하게 동일 조건으로 건다.
+
+> ⚠️ **알려진 한계 — 전역 상한은 DoS로 역이용될 수 있다.** IP 축을 쓰지 않으므로 공격자와 정상 사용자를 구분할 수단이 없다. 공격자가 임의 이메일로 전역 상한을 채우면 그 시간 창의 **정상 사용자 재설정 요청도 429로 막힌다**(비인증 엔드포인트라 비용이 사실상 0). N을 크게 잡는 것은 이 역이용의 실익을 줄이기 위함이기도 하다. 근본 해결(XFF 신뢰경계 정리 후 IP 축 도입, 또는 CAPTCHA)은 **후속 이슈**다.
 
 > **IP 기준 rate-limit은 쓰지 않는다**(2026-07-17 결정). nginx가 `X-Forwarded-For $proxy_add_x_forwarded_for`로 **클라이언트 제공값에 덧붙이고**(`frontend/nginx/arm1.conf:33`) 스프링이 `forward-headers-strategy: framework`로 **첫 항목을 클라 IP로 채택**하므로, 헤더 위조로 IP 카운터가 무력화된다. 실제 외부 엣지가 레포 밖 host nginx라 레포만 고쳐선 완결되지 않아 **IP 축 자체를 채택하지 않고** 이메일 축 + 전역 상한으로 간다. → XFF 신뢰경계 정리는 후속(ops 동반).
 > ⚠️ 따라서 **감사 로그의 IP는 위조 가능한 값**이다. 추적 근거로 신뢰하지 말 것.
 
 - 감사 로그: 대상 이메일 **해시**·성공/실패·시각. **이메일 원문·토큰 평문 로깅 금지.**
 
-> **2단계에는 rate-limit을 걸지 않는다.** 토큰 기준 카운터는 공격자가 매 시도 다른 토큰을 쓰므로 항상 1이라 무의미하고, IP 기준은 위 사유로 무력하다. 2단계의 실제 방어는 **토큰 엔트로피**(32바이트 `SecureRandom`, `RedisTokenStore`)이며 이는 rate-limit으로 보강할 성질이 아니다.
+> **2단계에는 rate-limit을 걸지 않는다.** 토큰 기준 카운터는 공격자가 매 시도 다른 토큰을 쓰므로 항상 1이라 무의미하고, IP 기준은 위 사유로 무력하다. 2단계의 실제 방어는 **토큰 엔트로피**(32바이트 `SecureRandom`, `RedisTokenStore`)이며 이는 rate-limit으로 보강할 성질이 아니다. 애플리케이션 레벨 요청 폭주(리소스 소모)는 인프라(nginx `limit_req` 등) 몫으로 남긴다.
 
 ### SMTP 설정 (env)
 | env | 용도 |
@@ -393,4 +399,5 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 
 ### 추가 ErrorCode (Spring `ErrorCode`)
 이번 배포: `AUTH_EMAIL_DUPLICATED`(409) · `AUTH_BUSINESS_NUMBER_DUPLICATED`(409) · `AUTH_ACCOUNT_NOT_FOUND`(404) · `AUTH_SIGNUP_TOKEN_INVALID`(404) · `FILE_REQUIRED`(400) · `FILE_INVALID_TYPE`(400) · `FILE_TOO_LARGE`(400) · `FILE_UPLOAD_FAILED`(500)
-후속(#194): `AUTH_VERIFICATION_FAILED`(400) · `AUTH_RESET_TOKEN_INVALID`(400)
+비밀번호 찾기(#194, 이메일 링크 방식): `AUTH_RESET_TOKEN_INVALID`(400, 기존 예약분) · `AUTH_TOO_MANY_REQUESTS`(429, 신규)
+> `AUTH_VERIFICATION_FAILED`(400)는 보안질문 방식 전용으로 예약됐으나 그 방식이 폐기돼 **참조 0건** — 제거 대상(후속 정리). 이번 PR에서는 건드리지 않는다.
