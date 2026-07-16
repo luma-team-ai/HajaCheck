@@ -11,6 +11,7 @@ import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,10 @@ public class InspectionService {
     // 점검일 상한 — 원거리 미래 날짜(연도 오타 등 비정상 입력) 방어용 여유폭. 정식 "점검 예약" 정책이
     // 확정되면 재조정 필요(현재 PRD 는 사전 예약 스케줄링을 명시하지 않음).
     private static final int MAX_FUTURE_MONTHS = 12;
+
+    // PG 가 unique(facility_id, round_no) 에 명시적 이름을 주지 않아 자동 생성되는 제약명
+    // (HajaCheck_script.sql, testcontainers-users-init.sql 양쪽 다 동일 정의).
+    private static final String ROUND_NO_UNIQUE_CONSTRAINT = "inspections_facility_id_round_no_key";
 
     private final InspectionRepository inspectionRepository;
     private final FacilityService facilityService;
@@ -54,10 +59,25 @@ public class InspectionService {
         try {
             return InspectionResponse.from(inspectionRepository.save(inspection));
         } catch (DataIntegrityViolationException e) {
-            // advisory lock 이 정상 경로는 모두 막지만, 방어적으로 unique(facility_id, round_no) 위반이
-            // 그대로 500 으로 노출되지 않도록 통일된 비즈니스 예외로 변환한다.
-            throw new BusinessException(ErrorCode.INSPECTION_ROUND_CONFLICT);
+            // PESSIMISTIC_WRITE 행 잠금이 정상 경로는 모두 막지만, 방어적으로 unique(facility_id, round_no)
+            // 위반만 통일된 409로 변환한다. 그 외 무결성 위반(예: FK 대상이 검증 이후 삭제된 경우 등)은
+            // "재시도하면 된다"는 잘못된 안내를 주지 않도록 그대로 전파해 GlobalExceptionHandler가 500으로
+            // 로그와 함께 처리하게 둔다.
+            if (isRoundNoUniqueViolation(e)) {
+                throw new BusinessException(ErrorCode.INSPECTION_ROUND_CONFLICT);
+            }
+            throw e;
         }
+    }
+
+    private boolean isRoundNoUniqueViolation(DataIntegrityViolationException e) {
+        if (e.getCause() instanceof ConstraintViolationException cve
+                && cve.getConstraintName() != null
+                && cve.getConstraintName().contains(ROUND_NO_UNIQUE_CONSTRAINT)) {
+            return true;
+        }
+        String message = e.getMostSpecificCause().getMessage();
+        return message != null && message.contains(ROUND_NO_UNIQUE_CONSTRAINT);
     }
 
     public InspectionResponse getInspection(Long requesterUserId, Long inspectionId) {

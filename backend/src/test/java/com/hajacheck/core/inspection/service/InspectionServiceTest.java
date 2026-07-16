@@ -22,9 +22,11 @@ import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.lang.reflect.Field;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -156,11 +158,30 @@ class InspectionServiceTest {
         when(facilityService.get(100L, 1L)).thenReturn(ownedFacility());
         when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(0);
         when(inspectionRepository.save(any(Inspection.class)))
-                .thenThrow(new DataIntegrityViolationException("unique(facility_id, round_no) 위반"));
+                .thenThrow(new DataIntegrityViolationException("could not execute statement",
+                        new ConstraintViolationException("duplicate key value violates unique constraint",
+                                new SQLException("duplicate key"), "inspections_facility_id_round_no_key")));
 
         assertThatThrownBy(() -> service.createInspection(request, 100L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.INSPECTION_ROUND_CONFLICT));
+    }
+
+    @Test
+    void createInspection_회차unique위반이아닌무결성위반_원예외그대로전파() {
+        // 배정 검증과 save 사이에 FK 대상이 삭제되는 등 round_no 와 무관한 무결성 위반은 "재시도" 안내로
+        // 오분류하지 않고 그대로 전파해야 GlobalExceptionHandler 로그에 실제 원인이 남는다.
+        InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 20), 200L);
+        when(facilityService.get(100L, 1L)).thenReturn(ownedFacility());
+        when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(0);
+        DataIntegrityViolationException fkViolation = new DataIntegrityViolationException(
+                "could not execute statement",
+                new ConstraintViolationException("insert or update violates foreign key constraint",
+                        new SQLException("fk violation"), "fk_inspections_assigned_inspector_id"));
+        when(inspectionRepository.save(any(Inspection.class))).thenThrow(fkViolation);
+
+        assertThatThrownBy(() -> service.createInspection(request, 100L))
+                .isSameAs(fkViolation);
     }
 
     @Test
