@@ -89,17 +89,18 @@ public class BriefingStatsService {
     }
 
     /**
-     * [from, to) 반열림 구간(KST 자정 기준) 집계. countByInspectionIdInAndDeletedFalseAndCreatedAtBetween
-     * 은 JPQL BETWEEN(양끝 포함)이라 to 경계 직전(-1ns)을 넘겨 사실상 반열림으로 만든다
-     * (이번주/지난주 카운트가 자정 경계에서 겹치지 않도록).
+     * [from, to) 반열림 구간(KST 자정 기준) 집계 — {@code to} 는 다음 주 경계(exclusive)를 그대로
+     * 넘긴다. 과거 "-1ns" 트릭(BETWEEN 양끝 포함을 흉내)은 PG timestamp 가 마이크로초 정밀도라
+     * .999999999 가 다음 자정으로 반올림되어 사실상 양끝 포함이 되고, 주 경계 자정 하자가 이번주·
+     * 지난주 양쪽에 중복 집계되는 결함이 있었다(리뷰 P1 픽스) — 명시적 반열림 쿼리로 대체했다.
      */
     private long countWeeklyDefects(List<Long> inspectionIds, LocalDate from, LocalDate to) {
         if (inspectionIds.isEmpty()) {
             return 0;
         }
         LocalDateTime fromDt = from.atStartOfDay();
-        LocalDateTime toDt = to.atStartOfDay().minusNanos(1);
-        return defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtBetween(inspectionIds, fromDt, toDt);
+        LocalDateTime toDt = to.atStartOfDay();
+        return defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtRange(inspectionIds, fromDt, toDt);
     }
 
     private Map<String, Long> gradeDistribution(List<Long> inspectionIds) {

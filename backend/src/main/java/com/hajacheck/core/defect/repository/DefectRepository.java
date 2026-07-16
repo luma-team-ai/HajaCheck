@@ -35,14 +35,22 @@ public interface DefectRepository extends JpaRepository<Defect, Long> {
     List<InspectionDefectCountProjection> countGroupByInspectionId(
             @Param("inspectionIds") Collection<Long> inspectionIds);
 
-    // AI 주간 브리핑(#248 / HAJA-197) — 등록 기준 주간 하자 count(전 상태 포함, createdAt 기준 [from,to) 는
-    // 호출측이 to 를 다음 경계 직전(-1ns)으로 넘겨 사실상 반열림 구간으로 사용한다).
-    long countByInspectionIdInAndDeletedFalseAndCreatedAtBetween(
-            Collection<Long> inspectionIds, LocalDateTime from, LocalDateTime to);
+    // AI 주간 브리핑(#248 / HAJA-197) — 등록 기준 주간 하자 count(전 상태 포함), createdAt 기준
+    // 명시적 반열림 [from,to) — PG timestamp 는 마이크로초 정밀도라 "-1ns" 트릭은 다음 자정으로
+    // 반올림되어 BETWEEN(양끝 포함)과 사실상 동일해지고 주 경계 자정 값이 이중집계된다(리뷰 P1 픽스,
+    // countByInspectionIdInAndStatusAndDeletedFalseAndCreatedAtRange 와 동일 패턴으로 대체).
+    @Query("select count(d) from Defect d where d.inspectionId in :inspectionIds "
+            + "and d.deleted = false and d.createdAt >= :from and d.createdAt < :to")
+    long countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
+            @Param("inspectionIds") Collection<Long> inspectionIds,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
 
-    // AI 주간 브리핑(#248 / HAJA-197) — 최다 발생 결함 유형 선정용, count 내림차순 정렬.
+    // AI 주간 브리핑(#248 / HAJA-197) — 최다 발생 결함 유형 선정용, count 내림차순 + 동률 시 type asc
+    // 로 결정적 정렬(리뷰 P2 픽스 — 동률일 때 순서가 비결정적이면 안 됨).
     @Query("select d.type as type, count(d) as cnt from Defect d "
-            + "where d.inspectionId in :inspectionIds and d.deleted = false group by d.type order by cnt desc")
+            + "where d.inspectionId in :inspectionIds and d.deleted = false "
+            + "group by d.type order by cnt desc, d.type asc")
     List<DefectTypeCountProjection> countGroupByTypeOrderByCntDesc(
             @Param("inspectionIds") Collection<Long> inspectionIds);
 }
