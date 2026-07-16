@@ -3,6 +3,7 @@
 // AppShellRoute(공용 앱 셸) 안에서 렌더링되므로 셸(사이드바/헤더) 마크업은 포함하지 않는다(HAJA-150, #129 재오픈)
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { mapApi } from './api/mapApi';
 import { FacilityListPanel } from './components/FacilityListPanel';
 import { MapControls } from './components/MapControls';
@@ -17,6 +18,9 @@ export default function MapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<KakaoMap | null>(null);
   const markersRef = useRef<KakaoMarker[]>([]);
+  const overlayRef = useRef<any>(null);
+
+  const [overlayContainer] = useState(() => document.createElement('div'));
 
   const [sdkStatus, setSdkStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [sdkError, setSdkError] = useState<string | null>(null);
@@ -125,6 +129,40 @@ export default function MapPage() {
     };
   }, [filteredFacilities, sdkStatus]);
 
+  // 선택된 시설물 변경 시 카카오맵 CustomOverlay 동기화
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (sdkStatus !== 'ready' || !map) return;
+
+    if (overlayRef.current) {
+      overlayRef.current.setMap(null);
+      overlayRef.current = null;
+    }
+
+    if (!selectedFacility) return;
+
+    const position = new window.kakao.maps.LatLng(
+      selectedFacility.latitude,
+      selectedFacility.longitude
+    );
+
+    const overlay = new window.kakao.maps.CustomOverlay({
+      position,
+      content: overlayContainer,
+      yAnchor: 1.18, // 마커 살짝 위에 배치하기 위한 Anchor 값
+    });
+
+    overlay.setMap(map);
+    overlayRef.current = overlay;
+
+    return () => {
+      if (overlayRef.current) {
+        overlayRef.current.setMap(null);
+        overlayRef.current = null;
+      }
+    };
+  }, [selectedFacility, sdkStatus, overlayContainer]);
+
   const handleZoomIn = () => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -175,7 +213,7 @@ export default function MapPage() {
         <div ref={mapContainerRef} className="h-full w-full" />
         <MapControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} onMyLocation={handleMyLocation} />
         <MapLegend />
-        {selectedFacility && (
+        {selectedFacility && createPortal(
           <SelectedFacilityPopup
             facility={selectedFacility}
             onViewDetail={() => {
@@ -184,7 +222,8 @@ export default function MapPage() {
             onGoToInspectionResult={() => {
               // 결과접수 라우트 미구현 — 버튼 자리만 배치, 구현 시 연결
             }}
-          />
+          />,
+          overlayContainer
         )}
       </div>
     </div>

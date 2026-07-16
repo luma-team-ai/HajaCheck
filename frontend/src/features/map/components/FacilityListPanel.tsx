@@ -34,7 +34,7 @@ export function FacilityListPanel({
           type="text"
           value={searchQuery}
           onChange={(event) => onSearchQueryChange(event.target.value)}
-          placeholder="시설물명, 주소 검색"
+          placeholder="지역·시설물 검색"
           className="w-full rounded-full border border-border bg-white px-3 py-2 text-sm text-text-default placeholder:text-text-muted focus:outline-none"
         />
         <div className="flex flex-wrap gap-1.5">
