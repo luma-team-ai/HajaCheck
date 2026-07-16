@@ -29,7 +29,14 @@ class AuthServiceTest {
     @InjectMocks
     private AuthService authService;
 
-    private static User userOf(Long companyId, Role role, boolean suspended) {
+    // 요청자는 companyId만 검증에 쓰인다(역할/정지 여부는 assignee 쪽만 확인).
+    private static User requesterOf(Long companyId) {
+        User user = mock(User.class);
+        when(user.getCompanyId()).thenReturn(companyId);
+        return user;
+    }
+
+    private static User assigneeOf(Long companyId, Role role, boolean suspended) {
         User user = mock(User.class);
         when(user.getCompanyId()).thenReturn(companyId);
         when(user.getRole()).thenReturn(role);
@@ -39,8 +46,8 @@ class AuthServiceTest {
 
     @Test
     void validateAssignableInspector_같은회사_INSPECTOR_ACTIVE_통과() {
-        User requester = userOf(1L, Role.USER, false);
-        User assignee = userOf(1L, Role.INSPECTOR, false);
+        User requester = requesterOf(1L);
+        User assignee = assigneeOf(1L, Role.INSPECTOR, false);
         when(userRepository.findById(100L)).thenReturn(Optional.of(requester));
         when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
 
@@ -49,8 +56,8 @@ class AuthServiceTest {
 
     @Test
     void validateAssignableInspector_같은회사_ADMIN_ACTIVE_통과() {
-        User requester = userOf(1L, Role.USER, false);
-        User assignee = userOf(1L, Role.ADMIN, false);
+        User requester = requesterOf(1L);
+        User assignee = assigneeOf(1L, Role.ADMIN, false);
         when(userRepository.findById(100L)).thenReturn(Optional.of(requester));
         when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
 
@@ -59,7 +66,8 @@ class AuthServiceTest {
 
     @Test
     void validateAssignableInspector_대상사용자없음_AUTH_INVALID_INSPECTOR() {
-        User requester = userOf(1L, Role.USER, false);
+        // assignee 조회가 먼저 비어있음으로 끝나 requester.getCompanyId()까지 도달하지 않는다 — 스텁 없이 mock만 사용.
+        User requester = mock(User.class);
         when(userRepository.findById(100L)).thenReturn(Optional.of(requester));
         when(userRepository.findById(999L)).thenReturn(Optional.empty());
 
@@ -70,8 +78,8 @@ class AuthServiceTest {
 
     @Test
     void validateAssignableInspector_역할이USER_AUTH_INVALID_INSPECTOR() {
-        User requester = userOf(1L, Role.USER, false);
-        User assignee = userOf(1L, Role.USER, false);
+        User requester = requesterOf(1L);
+        User assignee = assigneeOf(1L, Role.USER, false);
         when(userRepository.findById(100L)).thenReturn(Optional.of(requester));
         when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
 
@@ -82,8 +90,8 @@ class AuthServiceTest {
 
     @Test
     void validateAssignableInspector_정지된계정_AUTH_INVALID_INSPECTOR() {
-        User requester = userOf(1L, Role.USER, false);
-        User assignee = userOf(1L, Role.INSPECTOR, true);
+        User requester = requesterOf(1L);
+        User assignee = assigneeOf(1L, Role.INSPECTOR, true);
         when(userRepository.findById(100L)).thenReturn(Optional.of(requester));
         when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
 
@@ -94,8 +102,8 @@ class AuthServiceTest {
 
     @Test
     void validateAssignableInspector_다른회사소속_AUTH_INVALID_INSPECTOR() {
-        User requester = userOf(1L, Role.USER, false);
-        User assignee = userOf(2L, Role.INSPECTOR, false);
+        User requester = requesterOf(1L);
+        User assignee = assigneeOf(2L, Role.INSPECTOR, false);
         when(userRepository.findById(100L)).thenReturn(Optional.of(requester));
         when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
 
@@ -106,8 +114,8 @@ class AuthServiceTest {
 
     @Test
     void validateAssignableInspector_요청자가회사소속없음_AUTH_INVALID_INSPECTOR() {
-        User requester = userOf(null, Role.USER, false);
-        User assignee = userOf(null, Role.INSPECTOR, false);
+        User requester = requesterOf(null);
+        User assignee = assigneeOf(null, Role.INSPECTOR, false);
         when(userRepository.findById(100L)).thenReturn(Optional.of(requester));
         when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
 
