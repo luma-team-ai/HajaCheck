@@ -139,6 +139,12 @@ alter type consent_policy_type owner to postgres;
 
 comment on type consent_policy_type is '약관 동의 정책 유형(서비스 이용약관/개인정보 처리방침)';
 
+create type menu_node_type as enum ('GROUP', 'INTERNAL', 'EXTERNAL');
+
+alter type menu_node_type owner to postgres;
+
+comment on type menu_node_type is '사이드바 메뉴 노드 유형(그룹/내부 링크/외부 링크)';
+
 create table users
 (
     id                bigint generated always as identity
@@ -1129,6 +1135,121 @@ create index idx_notifications_user_unread
 create index idx_notifications_user_history
     on notifications (user_id, created_at desc, id desc);
 
+create table menus
+(
+    id                  bigint generated always as identity
+        primary key,
+    code                varchar(100)                            not null
+        unique,
+    name                varchar(100)                            not null,
+    menu_type           menu_node_type                          not null,
+    parent_id           bigint
+        constraint fk_menus_parent
+            references menus
+            on delete restrict,
+    path                varchar(500),
+    active_path_pattern varchar(500),
+    icon_key            varchar(100),
+    icon_url            varchar(500),
+    sort_order          integer                  default 0     not null,
+    is_visible          boolean                  default true  not null,
+    is_enabled          boolean                  default true  not null,
+    opens_new_tab       boolean                  default false not null,
+    description         varchar(500),
+    created_by          bigint
+        references users,
+    updated_by          bigint
+        references users,
+    created_at          timestamp with time zone default now() not null,
+    updated_at          timestamp with time zone default now() not null,
+    constraint ck_menus_not_self_parent
+        check ((parent_id IS NULL) OR (parent_id <> id)),
+    constraint ck_menus_sort_order_nonnegative
+        check (sort_order >= 0),
+    constraint ck_menus_icon_single
+        check (
+            (menu_type = 'GROUP'::menu_node_type AND num_nonnulls(icon_key, icon_url) <= 1)
+            OR (menu_type <> 'GROUP'::menu_node_type AND num_nonnulls(icon_key, icon_url) = 1)
+        ),
+    constraint ck_menus_path_by_type
+        check (
+            (menu_type = 'GROUP'::menu_node_type AND path IS NULL)
+            OR (menu_type <> 'GROUP'::menu_node_type AND path IS NOT NULL)
+        )
+);
+
+comment on table menus is '사이드바 및 관리자 메뉴 트리를 관리한다. lock_version을 두지 않는다 — 소수 관리자가 드물게 편집하는 설정 테이블이라 동시 갱신 충돌 위험이 낮다. 필요해지면 companies/reports처럼 후속으로 추가한다.';
+
+comment on column menus.id is '메뉴 식별자';
+
+comment on column menus.code is '변경되지 않는 고유 메뉴 코드(예: DASHBOARD, ADMIN_USERS)';
+
+comment on column menus.name is '표시 메뉴명';
+
+comment on column menus.menu_type is '메뉴 노드 유형(그룹/내부 링크/외부 링크)';
+
+comment on column menus.parent_id is '상위 메뉴 식별자. 자기참조이며 하위 메뉴가 있는 상위 메뉴는 삭제할 수 없다(ON DELETE RESTRICT)';
+
+comment on column menus.path is '이동 경로. GROUP은 NULL, INTERNAL/EXTERNAL은 필수. 같은 라우트를 가리키는 여러 메뉴 항목을 허용하므로 UNIQUE로 두지 않는다';
+
+comment on column menus.active_path_pattern is '실제 라우트가 path와 다를 때(예: 메뉴 path=/facilities/list, 실제 라우트=/facilities, 상세 라우트=/defects/:id) 활성 메뉴 판정에 쓰는 동적 경로 패턴';
+
+comment on column menus.icon_key is '프론트 번들 아이콘 키(예: dashboard, facilities). 현재 프론트가 SVG를 번들 import하는 방식이라 icon_url보다 우선 사용한다';
+
+comment on column menus.icon_url is 'CDN 아이콘을 쓸 때만 채우는 URL. icon_key와 동시에 채우지 않는다';
+
+comment on column menus.sort_order is '동일 부모 하위 노출 순서. 정렬은 sort_order, id 순';
+
+comment on column menus.is_visible is '메뉴 표시 여부';
+
+comment on column menus.is_enabled is '클릭 가능 여부(아직 미구현된 메뉴 등을 표시는 하되 비활성화할 때 사용)';
+
+comment on column menus.opens_new_tab is '외부 링크를 새 창으로 여는지 여부';
+
+comment on column menus.description is '관리자용 메뉴 설명';
+
+comment on column menus.created_by is '메뉴를 생성한 관리자 사용자 식별자. 초기 시드 데이터는 NULL 허용';
+
+comment on column menus.updated_by is '메뉴를 마지막으로 수정한 관리자 사용자 식별자';
+
+comment on column menus.created_at is '메뉴 생성 시각';
+
+comment on column menus.updated_at is '메뉴 최종 수정 시각';
+
+alter table menus
+    owner to postgres;
+
+create index idx_menus_parent
+    on menus (parent_id);
+
+create table menu_role_access
+(
+    menu_id    bigint                                 not null
+        references menus
+            on delete cascade,
+    role       role_type                              not null,
+    created_by bigint
+        references users,
+    created_at timestamp with time zone default now() not null,
+    primary key (menu_id, role)
+);
+
+comment on table menu_role_access is '역할별로 노출되는 메뉴를 관리한다. 매핑 행이 존재하면 해당 역할에 노출되는 방식이라 can_view 컬럼은 두지 않는다. GROUP 메뉴에는 매핑 행을 넣지 않는다 — 허용된 자식이 하나라도 있으면 부모 GROUP은 서비스 로직이 자동으로 포함시킨다';
+
+comment on column menu_role_access.menu_id is '메뉴 식별자. 메뉴 삭제 시 매핑도 함께 삭제된다(ON DELETE CASCADE)';
+
+comment on column menu_role_access.role is '이 메뉴에 접근 가능한 역할';
+
+comment on column menu_role_access.created_by is '매핑을 등록한 관리자 사용자 식별자';
+
+comment on column menu_role_access.created_at is '매핑 등록 시각';
+
+alter table menu_role_access
+    owner to postgres;
+
+create index idx_menu_role_access_role
+    on menu_role_access (role, menu_id);
+
 create function set_updated_at() returns trigger
     language plpgsql
 as
@@ -1254,3 +1375,11 @@ create trigger trg_inspections_check_assigned_inspector_company
 execute procedure check_inspection_assigned_inspector_company();
 
 comment on trigger trg_inspections_check_assigned_inspector_company on inspections is 'assigned_inspector_id 배정 시 애플리케이션과 동일한 담당자·회사·멤버십 인가 불변식을 강제한다(HAJA-25 P2 — DB 레벨 방어).';
+
+create trigger trg_menus_set_updated_at
+    before update
+    on menus
+    for each row
+execute procedure set_updated_at();
+
+comment on trigger trg_menus_set_updated_at on menus is 'menus 행 수정 시 updated_at을 현재 시각으로 갱신한다.';

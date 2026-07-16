@@ -81,7 +81,9 @@ def ha25MigrationDir = rootProject.file('../docs/design/db/migrations')
 def ha25MigrationScripts = rootProject.files(
         new File(ha25MigrationDir, '20260716_01_ha25_expand.sql'),
         new File(ha25MigrationDir, '20260716_02_ha25_finalize.sql'),
-        new File(ha25MigrationDir, '20260716_03_ha25_verify.sql'))
+        new File(ha25MigrationDir, '20260716_03_ha25_verify.sql'),
+        new File(ha25MigrationDir, '20260716_04_menu_schema_expand.sql'),
+        new File(ha25MigrationDir, '20260716_05_menu_schema_verify.sql'))
 // AP-020(#25 / HAJA-38)이 canonical DDL에 추가한 idx_notifications_user_history는 위 HAJA-25
 // expand/finalize/verify 체인과 무관한 별도 파일이지만, Ha25IncrementalMigrationTest가 "v0.3 +
 // 모든 증분 스크립트 적용 후 DB"와 canonical DDL 신규 설치 DB의 카탈로그 전체를 대조하므로 이 파일도
@@ -95,7 +97,7 @@ def ha25SchemaInputs = rootProject.files(
 // Fail before test-resource processing so CI cannot silently validate only the canonical DDL.
 def verifyHa25SchemaInputs = tasks.register('verifyHa25SchemaInputs') {
     group = 'verification'
-    description = 'Verifies the canonical DDL, tracked v0.3 baseline, and HAJA-25/AP-020 migration scripts.'
+    description = 'Verifies the canonical DDL, tracked v0.3 baseline, and HAJA-25/AP-020/menu-schema migration scripts.'
     inputs.files(ha25SchemaInputs)
     doLast {
         ha25SchemaInputs.files.each { ddlFile ->
