@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { ERROR_CLASSES, LABEL_CLASSES } from '../formClasses';
 import { formatFileSize } from '../utils/validateBusinessLicenseFile';
 import ocrSuccessPreview from '../../../assets/brand/signup-ocr-success.svg';
 
@@ -7,9 +8,6 @@ interface BusinessLicenseUploadProps {
   onFileSelect: (file: File | null) => void;
   errorMessage?: string | null;
 }
-
-const LABEL_CLASSES = 'text-sm font-medium text-text-default';
-const ERROR_CLASSES = 'text-xs text-danger';
 
 // 사업자등록증 파일 업로드 — 파일명·용량 표시 + 삭제(✕) 지원. OCR은 stub이라 수동입력 필드 병행 안내
 // ⚠️ OCR 자동인식 미구현(AI서버 business-license-ocr stub, 프록시 경로 부재, #292 handoff 근거) —

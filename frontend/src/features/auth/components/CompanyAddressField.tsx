@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ERROR_CLASSES, INPUT_CLASSES, LABEL_CLASSES } from '../formClasses';
 import { useDaumPostcodeSearch } from '../hooks/useDaumPostcodeSearch';
 
 interface CompanyAddressFieldProps {
@@ -7,11 +8,6 @@ interface CompanyAddressFieldProps {
   onAddressChange: (address: string) => void;
   onAddressDetailChange: (addressDetail: string) => void;
 }
-
-const LABEL_CLASSES = 'text-sm font-medium text-text-default';
-const INPUT_CLASSES =
-  'w-full rounded-lg border border-border bg-surface-muted px-3.5 py-3 text-sm text-text-default outline-none focus:ring-2 focus:ring-primary';
-const ERROR_CLASSES = 'text-xs text-danger';
 
 // 회사주소 — 다음(카카오) 우편번호 서비스로 도로명주소 검색, 상세주소는 직접 입력
 export function CompanyAddressField({
@@ -64,7 +60,8 @@ export function CompanyAddressField({
         placeholder="상세주소를 입력해 주세요"
       />
       {/* 시안 문구는 "행정안전부 주소 API로 자동 입력됩니다"이나, 실제 연동은 다음(카카오) 우편번호
-          서비스(useDaumPostcodeSearch)라 기관명을 그대로 옮기면 사실과 다르다. 실제 연동에 맞게 수정 — A 보고 시 확인 필요 */}
+          서비스(useDaumPostcodeSearch)라 기관명을 그대로 옮기면 사실과 다르다. 실제 연동에 맞게
+          수정 — A 승인 완료(#292) */}
       <p className="m-0 text-xs text-text-muted">우편번호 검색으로 자동 입력됩니다.</p>
     </div>
   );

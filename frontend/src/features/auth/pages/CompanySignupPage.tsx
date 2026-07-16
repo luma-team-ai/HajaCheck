@@ -5,6 +5,7 @@ import { BusinessLicenseUpload } from '../components/BusinessLicenseUpload';
 import { CompanyAddressField } from '../components/CompanyAddressField';
 import { CompanySignupHeroPanel } from '../components/CompanySignupHeroPanel';
 import { LOGIN_ROUTE } from '../constants';
+import { ERROR_CLASSES, INPUT_CLASSES, LABEL_CLASSES, SUCCESS_CLASSES } from '../formClasses';
 import { useCompanySignup } from '../hooks/useCompanySignup';
 import { useEmailAvailability } from '../hooks/useEmailAvailability';
 import { isValidBusinessNumber, isValidEmail, isValidPassword, doPasswordsMatch } from '../utils/authFormValidators';
@@ -22,13 +23,6 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 const DEFAULT_ERROR_MESSAGE = '가입 신청에 실패했습니다. 잠시 후 다시 시도해 주세요.';
 
-const LABEL_CLASSES = 'text-sm font-medium text-text-default';
-const INPUT_CLASSES =
-  'w-full rounded-lg border border-border bg-surface-muted px-3.5 py-3 text-sm text-text-default outline-none focus:ring-2 focus:ring-primary';
-const ERROR_CLASSES = 'text-xs text-danger';
-// auth.css의 기존 .auth-form-success(#1a9a52)와 동일 값을 그대로 이식 — 신규 색이 아니라 기존
-// 성공색을 재사용하는 것. tokens.css는 타 오너 자산이라 미터치 규칙상 토큰 승격 대신 로컬 상수로 유지.
-const SUCCESS_CLASSES = 'text-xs text-[#1a9a52]';
 const INLINE_BTN_CLASSES =
   'shrink-0 cursor-pointer whitespace-nowrap rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-text-default enabled:hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-text-muted';
 const PASSWORD_TOGGLE_CLASSES =
@@ -163,7 +157,10 @@ export function CompanySignupPage() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   autoComplete="new-password"
-                  placeholder="비밀번호 입력 (8자 이상)"
+                  // 시안 문구는 "8자 이상"만 요구하나 실제 검증(isValidPassword)·에러 문구는
+                  // "8자 이상 + 영문+숫자 포함"이라, 시안 그대로 두면 8자만 채우고 통과를 기대하게
+                  // 된다(placeholder-검증 불일치, PR머신 P3) — 실제 규칙에 맞춰 정확성 우선(#292)
+                  placeholder="8자 이상, 영문+숫자 포함"
                 />
                 <button
                   type="button"
