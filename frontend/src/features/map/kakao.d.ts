@@ -59,6 +59,7 @@ declare global {
   interface KakaoMap {
     setCenter(latlng: KakaoLatLng): void;
     setLevel(level: number): void;
+    getLevel(): number;
   }
 
   type KakaoMarkerImage = unknown;
