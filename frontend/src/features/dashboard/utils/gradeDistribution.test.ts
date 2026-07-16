@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  getGradeColor,
+  getGradeBgClass,
   isGradeTotalValid,
   sortGradeDistribution,
   sumGradePercent,
@@ -93,11 +93,11 @@ describe('isGradeTotalValid (DASH-01 V2)', () => {
   });
 });
 
-describe('getGradeColor', () => {
-  it('모든 등급에 대해 색상 hex 값을 반환한다', () => {
+describe('getGradeBgClass', () => {
+  it('모든 등급에 대해 완전한 Tailwind 배경색 클래스명을 반환한다', () => {
     const grades: GradeDistributionItem['grade'][] = ['A', 'B', 'C', 'D', 'E'];
     grades.forEach((grade) => {
-      expect(getGradeColor(grade)).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(getGradeBgClass(grade)).toMatch(/^bg-\[#[0-9a-f]{6}\]$/i);
     });
   });
 });
