@@ -95,6 +95,17 @@ public class Facility extends BaseTimeEntity {
         this.nextInspectionDueAt = nextInspectionDueAt;
     }
 
+    /**
+     * 점검 주기 설정(dev-04-03, #268) — nextInspectionDueAt = baseDate + inspectionCycleMonths(개월).
+     * 1차 산출 기준은 "설정일(오늘)" — 최종 점검일 기준 정교화는 dev-03-02 후속 작업에서 처리한다.
+     * baseDate 를 파라미터로 받아 호출부(Service)가 LocalDate.now() 를 주입하게 하고,
+     * 테스트에서는 임의 시점을 직접 주입해 결정적으로 검증할 수 있게 한다.
+     */
+    public void updateSchedule(int inspectionCycleMonths, LocalDate baseDate) {
+        this.inspectionCycleMonths = inspectionCycleMonths;
+        this.nextInspectionDueAt = baseDate.plusMonths(inspectionCycleMonths);
+    }
+
     public boolean isOwnedBy(Long userId) {
         return this.ownerId.equals(userId);
     }

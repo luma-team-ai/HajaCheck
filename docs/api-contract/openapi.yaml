@@ -481,6 +481,49 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
+  /api/facilities/{id}/schedule:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    post:
+      summary: 시설물 점검주기 설정
+      description: >
+        인증 사용자 소유의 시설물에 점검 주기(개월)를 설정하고 다음 점검일(nextInspectionDueAt)을
+        산출·저장한다(FR-019, dev-04-03). 기준일은 1차로 "설정일(오늘)" 기준으로 산출한다
+        (최종 점검일 기준 정교화는 dev-03-02 후속 작업). 미존재/타인 소유 모두 404 FACILITY_NOT_FOUND.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [facility]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FacilityScheduleRequest" }
+      responses:
+        "200":
+          description: 점검주기 설정 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityApiResponse" }
+        "400":
+          description: 입력값 오류 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 타인 소유 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
   /api/inspections:
     post:
       summary: 점검(회차) 생성
@@ -863,6 +906,15 @@ components:
         scale: { type: string, maxLength: 100, nullable: true }
         inspectionCycleMonths: { type: integer, minimum: 0, nullable: true }
         nextInspectionDueAt: { type: string, format: date, nullable: true }
+
+    FacilityScheduleRequest:
+      type: object
+      additionalProperties: false
+      required: [inspectionCycleMonths]
+      description: >
+        점검주기 설정 요청(dev-04-03). 기준일(오늘)은 서버가 산출하므로 요청 바디에 포함하지 않는다.
+      properties:
+        inspectionCycleMonths: { type: integer, minimum: 1 }
 
     FacilityResponse:
       type: object
