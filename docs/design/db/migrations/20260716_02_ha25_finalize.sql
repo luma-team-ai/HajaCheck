@@ -43,6 +43,8 @@ begin
         select count(*) from counsel_tickets where lock_version is null
         union all
         select count(*) from rag_documents where lock_version is null
+        union all
+        select count(*) from notifications where lock_version is null
     ) lock_versions;
     if missing_count > 0 then
         raise exception 'HAJA-25 finalize blocked: % state-machine rows need lock_version backfill',
@@ -127,6 +129,47 @@ alter table inspections validate constraint ck_inspections_assigned_inspector_no
 alter table inspections alter column assigned_inspector_id set not null;
 alter table inspections drop constraint ck_inspections_assigned_inspector_not_null;
 
+-- assigned_inspector_id의 FK는 users(id)만 참조할 뿐 회사 경계는 강제하지 않는다.
+-- AuthService.validateAssignableInspector가 매 생성 시점에 요청자(=created_by)와 배정자가
+-- 같은 회사(users.company_id)인지 이미 검증하지만, 이는 애플리케이션 계층 방어일 뿐이다.
+-- 백필이 끝난 뒤(NOT NULL 확정 후)에만 설치해, 정리되지 않은 과거 데이터가 백필 자체를 막지 않게 한다.
+do $migration$
+begin
+    if not exists (
+        select 1 from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'check_inspection_assigned_inspector_company'
+    ) then
+        create function check_inspection_assigned_inspector_company() returns trigger as $check$
+        declare
+            creator_company_id bigint;
+            inspector_company_id bigint;
+        begin
+            select company_id into creator_company_id from users where id = new.created_by;
+            select company_id into inspector_company_id from users where id = new.assigned_inspector_id;
+            if creator_company_id is null or inspector_company_id is null
+               or creator_company_id <> inspector_company_id then
+                raise exception
+                    'assigned_inspector_id % must belong to the same company as created_by %',
+                    new.assigned_inspector_id, new.created_by;
+            end if;
+            return new;
+        end;
+        $check$ language plpgsql;
+    end if;
+
+    if not exists (select 1 from pg_trigger where tgname = 'trg_inspections_check_assigned_inspector_company'
+                   and tgrelid = 'inspections'::regclass and not tgisinternal) then
+        create trigger trg_inspections_check_assigned_inspector_company
+            before insert or update of assigned_inspector_id, created_by on inspections
+            for each row execute procedure check_inspection_assigned_inspector_company();
+    end if;
+end
+$migration$;
+
+comment on function check_inspection_assigned_inspector_company() is
+    'inspections.assigned_inspector_id와 created_by가 users.company_id 기준으로 같은 회사인지 강제한다(HAJA-25 P2 — DB 레벨 방어).';
+
 do $migration$
 begin
     if not exists (select 1 from pg_constraint where conname = 'ck_rag_documents_target_collection_not_null'
@@ -187,6 +230,11 @@ begin
         alter table rag_documents add constraint ck_rag_documents_lock_version_not_null
             check (lock_version is not null) not valid;
     end if;
+    if not exists (select 1 from pg_constraint where conname = 'ck_notifications_lock_version_not_null'
+                   and conrelid = 'notifications'::regclass) then
+        alter table notifications add constraint ck_notifications_lock_version_not_null
+            check (lock_version is not null) not valid;
+    end if;
 end
 $migration$;
 
@@ -213,6 +261,10 @@ alter table counsel_tickets drop constraint ck_counsel_tickets_lock_version_not_
 alter table rag_documents validate constraint ck_rag_documents_lock_version_not_null;
 alter table rag_documents alter column lock_version set not null;
 alter table rag_documents drop constraint ck_rag_documents_lock_version_not_null;
+
+alter table notifications validate constraint ck_notifications_lock_version_not_null;
+alter table notifications alter column lock_version set not null;
+alter table notifications drop constraint ck_notifications_lock_version_not_null;
 
 alter table inspections
     validate constraint fk_inspections_assigned_inspector;

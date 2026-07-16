@@ -686,6 +686,7 @@ users ──┬──< user_consents
 | 컬럼 | 타입 | NULL | 기본값 | 키 | 설명 |
 |---|---|---|---|---|---|
 | id | bigint (identity) | N | - | **PK** | 알림 식별자 |
+| lock_version | bigint | N | 0 | | 동시 갱신 충돌 감지용 낙관적 락 버전(상태 머신은 아니나 다른 가변 테이블과의 일관성을 위해 적용) |
 | user_id | bigint | N | - | **FK→users** | 알림 수신 사용자 |
 | type | notification_type | N | - | | 알림 유형 |
 | payload_json | jsonb | Y | - | | 알림 표시/이동에 필요한 부가 데이터 |

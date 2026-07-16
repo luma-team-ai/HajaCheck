@@ -116,7 +116,8 @@ begin
         ('defects'),
         ('reports'),
         ('counsel_tickets'),
-        ('rag_documents')
+        ('rag_documents'),
+        ('notifications')
     ) as expected(table_name)
     left join information_schema.columns actual
      on actual.table_schema = 'public'
@@ -138,6 +139,7 @@ begin
             union all select lock_version from reports
             union all select lock_version from counsel_tickets
             union all select lock_version from rag_documents
+            union all select lock_version from notifications
         ) state_machine_rows
         where lock_version is null
     ) then
@@ -152,7 +154,8 @@ begin
         ('defects'),
         ('reports'),
         ('counsel_tickets'),
-        ('rag_documents')
+        ('rag_documents'),
+        ('notifications')
     ) as expected(table_name)
     left join information_schema.columns actual
       on actual.table_schema = 'public'
@@ -345,6 +348,22 @@ begin
 
     if invalid_triggers is not null then
         raise exception 'required updated_at triggers are missing or misconfigured: %', invalid_triggers;
+    end if;
+
+    -- assigned_inspector_id 회사 경계 트리거(HAJA-25 P2 — DB 레벨 방어)가 설치되어 있는지 확인한다.
+    if not exists (
+        select 1
+        from pg_trigger trigger_meta
+        join pg_proc proc_meta on proc_meta.oid = trigger_meta.tgfoid
+        join pg_namespace namespace on namespace.oid = proc_meta.pronamespace
+        where trigger_meta.tgname = 'trg_inspections_check_assigned_inspector_company'
+          and trigger_meta.tgrelid = 'inspections'::regclass
+          and namespace.nspname = 'public'
+          and proc_meta.proname = 'check_inspection_assigned_inspector_company'
+          and trigger_meta.tgenabled in ('O', 'A')
+          and not trigger_meta.tgisinternal
+    ) then
+        raise exception 'trg_inspections_check_assigned_inspector_company trigger is missing or misconfigured';
     end if;
 end
 $verification$;
