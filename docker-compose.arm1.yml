@@ -71,6 +71,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # latest 금지(PRD §6.1) — deploy.sh가 IMAGE_TAG(날짜+커밋SHA)를 주입해 태깅. 수동 실행 시 local.
+    image: hajacheck-arm1-spring:${IMAGE_TAG:-local}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -109,6 +111,8 @@ services:
     build:
       context: ./ai-server
       dockerfile: Dockerfile
+    # latest 금지(PRD §6.1) — deploy.sh가 IMAGE_TAG(날짜+커밋SHA)를 주입해 태깅. 수동 실행 시 local.
+    image: hajacheck-arm1-fastapi:${IMAGE_TAG:-local}
     restart: unless-stopped
     # bridge-net에서 spring이 http://fastapi:8000 으로 서비스명 통신하므로 컨테이너 내부는 0.0.0.0 리슨 필수.
     # 이미지 Dockerfile 기본 CMD도 --host 0.0.0.0 --port 8000 이지만, 리뷰어 모호성 제거 + 회귀 방지 위해 명시.
@@ -143,6 +147,8 @@ services:
       dockerfile: Dockerfile
       args:
         NGINX_CONF_FILE: nginx/arm1.conf
+    # latest 금지(PRD §6.1) — deploy.sh가 IMAGE_TAG(날짜+커밋SHA)를 주입해 태깅. 수동 실행 시 local.
+    image: hajacheck-arm1-frontend:${IMAGE_TAG:-local}
     restart: unless-stopped
     depends_on:
       spring:
