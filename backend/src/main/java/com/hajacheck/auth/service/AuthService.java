@@ -41,13 +41,20 @@ public class AuthService {
      * 점검 담당자 배정 가능 여부 검증(dev-05-02, 점검 회차 생성) — docs/design/db/table_design.md
      * §inspections: "assigned_inspector_id가 가리키는 사용자는 애플리케이션에서
      * users.status=ACTIVE AND role IN (INSPECTOR, ADMIN)인지 검증한다."
-     * 미존재/조건 불충족 모두 이 코드로 통일 응답(리소스 존재 여부 열거 방지 — FacilityService 패턴과 동일).
+     * 역할/상태 조건에 더해, 요청자와 같은 회사(companyId) 소속인지도 확인한다 — 이 검증이 없으면
+     * 임의의 활성 점검자·관리자를 아무 시설물에나 배정할 수 있는 권한 범위 문제가 생긴다.
+     * (users.company_id는 요금제 판단의 단독 근거는 아니지만(table_design.md §2.6),
+     * 배정 범위를 같은 회사로 제한하는 교차 확인 용도로는 충분하다.)
+     * 미존재/정지/역할·소속 불충족 모두 이 코드로 통일 응답(리소스 존재 여부 열거 방지 — FacilityService 패턴과 동일).
      */
-    public void validateAssignableInspector(Long userId) {
-        User user = userRepository.findById(userId)
+    public void validateAssignableInspector(Long requesterUserId, Long assignedInspectorId) {
+        User requester = findUser(requesterUserId);
+        User assignee = userRepository.findById(assignedInspectorId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID_INSPECTOR));
-        boolean assignableRole = user.getRole() == Role.INSPECTOR || user.getRole() == Role.ADMIN;
-        if (user.isSuspended() || !assignableRole) {
+        boolean assignableRole = assignee.getRole() == Role.INSPECTOR || assignee.getRole() == Role.ADMIN;
+        boolean sameCompany = requester.getCompanyId() != null
+                && requester.getCompanyId().equals(assignee.getCompanyId());
+        if (assignee.isSuspended() || !assignableRole || !sameCompany) {
             throw new BusinessException(ErrorCode.AUTH_INVALID_INSPECTOR);
         }
     }

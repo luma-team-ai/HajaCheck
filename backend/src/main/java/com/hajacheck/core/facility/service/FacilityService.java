@@ -49,6 +49,17 @@ public class FacilityService {
         return FacilityResponse.from(findOwnedFacility(ownerId, facilityId));
     }
 
+    /**
+     * 시설물 행 잠금(PESSIMISTIC_WRITE) — 호출부의 트랜잭션이 끝날 때까지 유지된다.
+     * dev-05-02(점검 회차 생성)에서 같은 시설물에 대한 동시 회차 생성 요청을 직렬화해
+     * round_no 채번 경쟁(unique(facility_id, round_no) 위반)을 막는 용도로 사용.
+     * 호출 전 소유권 검증이 끝난 상태(시설물 존재 보장)를 전제하므로 반환값은 사용하지 않는다.
+     */
+    @Transactional
+    public void lockForUpdate(Long facilityId) {
+        facilityRepository.findByIdForUpdate(facilityId);
+    }
+
     @Transactional
     public FacilityResponse update(Long ownerId, Long facilityId, FacilityUpdateRequest request) {
         Facility facility = findOwnedFacility(ownerId, facilityId);

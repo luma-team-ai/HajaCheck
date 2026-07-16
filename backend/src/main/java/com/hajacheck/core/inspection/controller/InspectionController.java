@@ -41,7 +41,8 @@ public class InspectionController {
 
     @Operation(summary = "점검 회차 단건 조회")
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<InspectionResponse>> getInspection(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(inspectionService.getInspection(id)));
+    public ResponseEntity<ApiResponse<InspectionResponse>> getInspection(
+            @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
+        return ResponseEntity.ok(ApiResponse.ok(inspectionService.getInspection(loginUser.getUserId(), id)));
     }
 }
