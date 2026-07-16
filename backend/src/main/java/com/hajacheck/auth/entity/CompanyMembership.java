@@ -137,6 +137,22 @@ public class CompanyMembership extends BaseTimeEntity {
         this.status = CompanyMembershipStatus.EXPIRED;
     }
 
+    /**
+     * 동일 기업·사용자 조합의 비활성 멤버십 행을 새 초대로 재사용한다.
+     * 복합 유니크 제약을 유지하면서 재초대를 허용하기 위해 새 행을 추가하지 않는다.
+     */
+    public void reinvite(Long invitedBy, Instant expiresAt) {
+        requireStatus("reinvite",
+                CompanyMembershipStatus.REJECTED,
+                CompanyMembershipStatus.REVOKED,
+                CompanyMembershipStatus.EXPIRED);
+        this.invitedBy = invitedBy;
+        this.status = CompanyMembershipStatus.PENDING;
+        this.approvedAt = null;
+        this.expiresAt = expiresAt;
+        this.revokedAt = null;
+    }
+
     private void requireStatus(String action, CompanyMembershipStatus... allowed) {
         for (CompanyMembershipStatus candidate : allowed) {
             if (this.status == candidate) {

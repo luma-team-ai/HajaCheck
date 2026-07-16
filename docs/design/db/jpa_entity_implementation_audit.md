@@ -199,6 +199,23 @@ HAJA-25의 현재 목표는 하위 작업 전체 구현이다. 다만 한 기능
 하는 비용이 더 크다고 판단해 리뷰 과정에서 의도적 예외로 승인되었다(2026-07-16). 향후 유사하게 여러
 Entity가 하나의 정책 결정에 강하게 종속되는 경우, 분리보다 통합 구현이 합리적일 수 있음을 참고한다.
 
+### 3.7 상태 전이 동시성 정책
+
+Entity의 `requireStatus`·`requireDraft` 가드는 한 트랜잭션에서 읽은 객체의 잘못된 전이만 차단하며,
+동일 행을 동시에 읽은 두 요청 사이의 경쟁까지 해결하지는 않는다. 현재 상태 전이 서비스가 아직 배선되지
+않은 단계에서 `@Version`을 추가하면 상태 머신 Entity 전체의 DDL 컬럼과 운영 DB 증분 마이그레이션까지
+확대되므로 이번 스키마 정합화 범위에는 포함하지 않는다.
+
+향후 `CompanyMembership`, `Defect`, `RagDocument`, `Report`, `CounselTicket`, `Company`의 상태 전이를
+서비스에 배선할 때는 다음 중 하나를 트랜잭션 경계에서 반드시 적용한다.
+
+- `update ... where id = :id and status = :expectedStatus` 형태의 조건부 UPDATE를 실행하고 영향 행이 정확히
+  1개인지 확인한다.
+- 전이 전에 `select ... for update` 또는 JPA 비관적 쓰기 잠금으로 대상 행을 잠근다.
+
+Entity 가드만 동시성 제어로 간주해서는 안 되며, 선택한 방식에 대한 동시 요청 통합 테스트를 서비스 구현의
+완료 조건에 포함한다. 전 Entity에 대한 `@Version` 도입이 필요하면 별도 스키마 변경 이슈에서 결정한다.
+
 ## 4. 현재 테스트 기준선
 
 2026-07-16 최초 로컬 실행에서는 Docker CLI/엔진이 없어 Testcontainers의 PostgreSQL 컨테이너를
@@ -207,8 +224,8 @@ Entity가 하나의 정책 결정에 강하게 종속되는 경우, 분리보다
 이후 로컬 PostgreSQL 17 격리 DB를 외부 테스트 DB 경로로 연결해 동일한 전체 테스트를 다시 실행했다.
 
 - 명령: `backend/gradlew.bat test`
-- 전체: 187개
-- 성공: 187개
+- 전체: 216개
+- 성공: 216개
 - 실패/오류/건너뜀: 0개
 - 통합 DDL 적용 및 Hibernate `ddl-auto=validate`: 통과
 

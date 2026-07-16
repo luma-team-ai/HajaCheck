@@ -80,4 +80,48 @@ class CompanyMembershipTest {
 
         assertThatThrownBy(membership::reject).isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    void reinvite_회수된멤버십행을대기상태로재사용() {
+        CompanyMembership membership = CompanyMembership.approvedOwner(1L, 2L);
+        membership.revoke();
+        Instant newExpiresAt = Instant.now().plusSeconds(7200);
+
+        membership.reinvite(4L, newExpiresAt);
+
+        assertThat(membership.getStatus()).isEqualTo(CompanyMembershipStatus.PENDING);
+        assertThat(membership.getInvitedBy()).isEqualTo(4L);
+        assertThat(membership.getExpiresAt()).isEqualTo(newExpiresAt);
+        assertThat(membership.getApprovedAt()).isNull();
+        assertThat(membership.getRevokedAt()).isNull();
+        assertThat(membership.isEffectiveAt(Instant.now())).isFalse();
+    }
+
+    @Test
+    void reinvite_거절또는만료된멤버십에서도가능() {
+        CompanyMembership rejected = CompanyMembership.invite(
+                1L, 2L, 3L, Instant.now().plusSeconds(3600));
+        rejected.reject();
+        CompanyMembership expired = CompanyMembership.invite(
+                1L, 3L, 4L, Instant.now().plusSeconds(3600));
+        expired.expire();
+
+        rejected.reinvite(5L, null);
+        expired.reinvite(5L, null);
+
+        assertThat(rejected.getStatus()).isEqualTo(CompanyMembershipStatus.PENDING);
+        assertThat(expired.getStatus()).isEqualTo(CompanyMembershipStatus.PENDING);
+    }
+
+    @Test
+    void reinvite_대기또는승인상태에서는예외() {
+        CompanyMembership pending = CompanyMembership.invite(
+                1L, 2L, 3L, Instant.now().plusSeconds(3600));
+        CompanyMembership approved = CompanyMembership.approvedOwner(1L, 3L);
+
+        assertThatThrownBy(() -> pending.reinvite(4L, null))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> approved.reinvite(4L, null))
+                .isInstanceOf(IllegalStateException.class);
+    }
 }

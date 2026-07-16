@@ -9,10 +9,10 @@ import org.junit.jupiter.api.Test;
 class RagDocumentTest {
 
     @Test
-    void upload_allowsNullableVerificationMetadata() {
+    void upload_nullable검증상태를보존하고대기상태로생성() {
         RagDocument document = RagDocument.upload(
-                "safety law", RagDocumentSourceType.LAW, RagTargetCollection.REGULATIONS,
-                LocalDate.of(2026, 1, 1), "authority", null, null,
+                "시설물 안전법", RagDocumentSourceType.LAW, RagTargetCollection.REGULATIONS,
+                LocalDate.of(2026, 1, 1), "국토교통부", null, null,
                 "https://files.example/law.pdf");
 
         assertThat(document.getVerificationStatus()).isNull();
@@ -21,9 +21,9 @@ class RagDocumentTest {
     }
 
     @Test
-    void embedding_recordsChunkCountAndCompletionTime() {
+    void completeEmbedding_청크수와완료시각을기록() {
         RagDocument document = RagDocument.upload(
-                "guideline", RagDocumentSourceType.GUIDELINE, RagTargetCollection.DEFECT_KB,
+                "하자 지식", RagDocumentSourceType.GUIDELINE, RagTargetCollection.DEFECT_KB,
                 null, null, LocalDate.of(2026, 7, 16),
                 RagDocumentVerificationStatus.UNVERIFIED, "https://files.example/kb.pdf");
 
@@ -36,9 +36,9 @@ class RagDocumentTest {
     }
 
     @Test
-    void embedding_rejectsInvalidTransitions() {
+    void embedding_잘못된상태전이를거부() {
         RagDocument document = RagDocument.upload(
-                "document", RagDocumentSourceType.LAW, RagTargetCollection.REGULATIONS,
+                "검증 문서", RagDocumentSourceType.LAW, RagTargetCollection.REGULATIONS,
                 null, null, null, null, "https://files.example/doc.pdf");
 
         assertThatThrownBy(() -> document.completeEmbedding(1))

@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 class DefectTest {
 
     @Test
-    void review_recordsGradeAndReviewedFlag() {
+    void review_등급을반영하고검토완료로변경() {
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).build();
 
@@ -19,7 +19,7 @@ class DefectTest {
     }
 
     @Test
-    void review_rejectsResolvedDefect() {
+    void review_해결된결함이면예외() {
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).status(DefectStatus.RESOLVED).build();
 
@@ -28,7 +28,7 @@ class DefectTest {
     }
 
     @Test
-    void changeStatus_followsDefinedLifecycle() {
+    void changeStatus_정의된수명주기순서로전이() {
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).build();
 
@@ -41,7 +41,7 @@ class DefectTest {
     }
 
     @Test
-    void changeStatus_rejectsSkipBackwardSameStateAndResolvedExit() {
+    void changeStatus_건너뛰기역행동일상태및해결상태이탈을거부() {
         Defect detected = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).build();
         assertThatThrownBy(() -> detected.changeStatus(DefectStatus.ACTION_PENDING))
@@ -58,7 +58,7 @@ class DefectTest {
     }
 
     @Test
-    void softDelete_marksDefectDeleted() {
+    void softDelete_물리삭제대신삭제표시() {
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.SPALLING)
                 .confidence(0.8).build();
 
