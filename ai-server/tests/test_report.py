@@ -523,6 +523,17 @@ def test_report_endpoint_confirmed_defects_missing_required_field_returns_422():
     assert res.status_code == 422
 
 
+def test_report_endpoint_confirmed_defects_exceeds_max_limit_returns_422():
+    """P2 픽스(6차 검수): confirmed_defects 배열 크기는 100건으로 상한을 두어
+    토큰/비용 폭증과 LLM 컨텍스트 초과를 방지한다."""
+    too_many = [_sample_defects()[0] for _ in range(101)]
+    res = client.post(
+        "/ai/report",
+        json={"facility_info": _sample_facility_info(), "confirmed_defects": too_many},
+    )
+    assert res.status_code == 422
+
+
 @patch("ai.chains.report_chain.get_vectorstore")
 @patch("ai.chains.report_chain.get_llm")
 def test_legal_basis_verified_true_when_citation_found_in_partial_rag_context(

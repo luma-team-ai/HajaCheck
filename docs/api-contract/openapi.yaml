@@ -1215,6 +1215,7 @@ components:
             location: { type: string, example: 서울시 }
         confirmed_defects:
           type: array
+          maxItems: 100
           items:
             { $ref: "#/components/schemas/ReportDefectInput" }
         on_mismatch:

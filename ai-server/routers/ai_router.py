@@ -149,7 +149,7 @@ class ReportRequest(BaseModel):
     """AI 보고서 생성 요청 (AP-040, contract.md `POST /ai/report`)."""
 
     facility_info: FacilityInfoInput
-    confirmed_defects: list[ConfirmedDefectInput]
+    confirmed_defects: list[ConfirmedDefectInput] = Field(max_length=100)
     on_mismatch: MismatchPolicy = MismatchPolicy.REGENERATE
 
 
