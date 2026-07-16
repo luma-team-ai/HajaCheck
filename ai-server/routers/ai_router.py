@@ -160,17 +160,22 @@ def report(req: ReportRequest) -> AIResponse:
     facility_info = req.facility_info.model_dump(exclude_none=True)
     try:
         result = run_report_chain(facility_info, confirmed_defects, req.on_mismatch.value)
-    except OutputParserException as e:
+    except OutputParserException:
         # OutputParserException은 ValueError의 서브클래스라 (ValueError, PydanticValidationError)절보다
         # 먼저 잡아야 한다 — _StructuredLLM.invoke()가 MAX_RETRIES 소진 후 던지는, LLM이 malformed/
         # incomplete JSON을 뱉은 "진짜 LLM 출력 파싱 실패" 케이스(contract.md 기준 LLM_INVALID_OUTPUT).
         # 아래 VALIDATION_ERROR절로 잘못 흡수되면 가장 흔한 실패 유형이 오분류된다(P1 회귀, 코드리뷰 지적).
-        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, str(e))
-    except (ValueError, PydanticValidationError) as e:
+        # str(e)에는 LLM raw 출력이 담길 수 있어 클라이언트에 반환하지 않는다(타 엔드포인트·generic 핸들러와
+        # 동일하게 상세는 서버 로그로만, PR머신 P2 지적 — 예외 메시지 비노출 일관성).
+        logger.exception("POST /ai/report — LLM 출력 파싱 실패(OutputParserException)")
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "보고서 생성 결과를 처리하지 못했습니다")
+    except (ValueError, PydanticValidationError):
         # 비-LLM 검증 실패 — detail.items 개수 불일치(ValueError, run_report_chain 자체 검증)나
         # confirmed_defects의 잘못된 severity_grade(GroundingDefect validator 실패) 등.
         # LLM 호출·파싱과 무관한 입력/코드 검증 오류이므로 /ai/grounding-check와 동일하게 VALIDATION_ERROR.
-        return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, str(e))
+        # str(e)에는 내부 검증 상세가 담길 수 있어 클라이언트에 반환하지 않는다(PR머신 P2 지적 — 비노출 일관성).
+        logger.exception("POST /ai/report — 비-LLM 검증 실패(ValueError/PydanticValidationError)")
+        return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, "보고서 생성 입력이 올바르지 않습니다")
     except Exception as e:  # noqa: BLE001 — LLM 클라이언트 오류부터 코드 버그까지 포괄하는 최종 폴백.
         # 위 절들이 예측 가능한 LLM/검증 실패를 이미 걸러냈으므로, 여기 도달하는 예외는 네트워크 오류
         # 등 인프라성 실패이거나 실제 프로그래밍 버그일 수 있다 — 어느 쪽이든 스택트레이스를 남겨

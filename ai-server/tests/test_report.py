@@ -364,6 +364,9 @@ def test_report_endpoint_output_parser_exception_returns_llm_invalid_output_not_
     body = res.json()
     assert body["success"] is False
     assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
+    # PR머신 P2: OutputParserException의 str(e)(LLM raw 출력·파싱 상세)가 클라이언트에 노출되면 안 됨.
+    assert body["error"]["message"] == "보고서 생성 결과를 처리하지 못했습니다"
+    assert "malformed" not in body["error"]["message"]
 
 
 @patch("ai.chains.report_chain.get_vectorstore")
@@ -507,6 +510,8 @@ def test_invalid_severity_grade_returns_validation_error(mock_get_llm, mock_get_
     body = res.json()
     assert body["success"] is False
     assert body["error"]["code"] == "VALIDATION_ERROR"
+    # PR머신 P2: 비-LLM 검증 실패의 str(e)(내부 검증 상세)가 클라이언트에 노출되면 안 됨.
+    assert body["error"]["message"] == "보고서 생성 입력이 올바르지 않습니다"
 
 
 def test_report_endpoint_confirmed_defects_missing_required_field_returns_422():
