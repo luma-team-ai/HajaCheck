@@ -6,7 +6,12 @@
 // 동적 파라미터 패턴(예: '/defects/:id')은 쓰지 않는다 — ':id' 자리가 임의의 한 세그먼트와
 // 매치되어 SideNavBar의 미구현 플레이스홀더 href(예: '/defects/list')까지 구현된 것으로
 // 잘못 통과시킨다(#227 리뷰 P1). 실제로 이동 가능한 정확한 경로만 화이트리스트한다.
-const IMPLEMENTED_ROUTES = new Set(['/dashboard', '/defects/detail', '/mypage/plan']);
+const IMPLEMENTED_ROUTES = new Set([
+  '/dashboard',
+  '/defects/detail',
+  '/mypage/plan',
+  '/inspections/1/viewer',
+]);
 
 export function isRouteImplemented(href: string): boolean {
   return IMPLEMENTED_ROUTES.has(href);
