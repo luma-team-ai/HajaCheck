@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { ApiError } from '../../../shared/api/types';
+import { Button } from '../../../shared/components/Button';
 import { isSafeInternalPath } from '../../../shared/utils/safeInternalPath';
 import { authApi } from '../api/authApi';
 import { CompanyLoginTab } from '../components/CompanyLoginTab';
@@ -10,7 +11,6 @@ import { PersonalLoginTab } from '../components/PersonalLoginTab';
 import { AUTH_ME_QUERY_KEY, AUTH_ME_QUERY_STALE_TIME_MS } from '../constants';
 import { useAuthStore } from '../store/authStore';
 import type { UserResponse } from '../types';
-import '../auth.css';
 
 type AuthTab = 'personal' | 'company';
 
@@ -62,49 +62,49 @@ export function LoginPage() {
 
   if (isSessionCheckUnavailable) {
     return (
-      <div className="login-page login-page--session-error">
-        <p className="login-session-error-message">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-surface-muted p-6 text-center">
+        <p className="m-0 text-base text-text-default">
           로그인 상태를 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.
         </p>
-        <button
-          type="button"
-          className="login-session-error-retry-btn"
-          onClick={() => retrySessionCheck()}
-        >
-          다시 시도
-        </button>
+        <Button onClick={() => retrySessionCheck()}>다시 시도</Button>
       </div>
     );
   }
 
   return (
-    <div className="login-page">
-      <LoginHeroPanel />
+    <div className="flex min-h-screen items-center justify-center bg-surface-muted p-6">
+      <div className="flex w-full max-w-[1080px] overflow-hidden rounded-[20px] border border-border bg-surface shadow-sm">
+        <LoginHeroPanel />
 
-      <section className="login-auth-panel">
-        <div className="login-auth-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'personal'}
-            className={`login-auth-tab${activeTab === 'personal' ? ' login-auth-tab--active' : ''}`}
-            onClick={() => setActiveTab('personal')}
-          >
-            개인회원
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'company'}
-            className={`login-auth-tab${activeTab === 'company' ? ' login-auth-tab--active' : ''}`}
-            onClick={() => setActiveTab('company')}
-          >
-            기업회원
-          </button>
-        </div>
+        <section className="flex w-full flex-col justify-center gap-8 p-12 lg:w-1/2">
+          <div className="flex gap-8 border-b border-border" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'personal'}
+              className={`-mb-px border-b-2 px-1 py-3 text-base font-semibold ${
+                activeTab === 'personal' ? 'border-primary text-heading' : 'border-transparent text-text-muted'
+              }`}
+              onClick={() => setActiveTab('personal')}
+            >
+              개인회원
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'company'}
+              className={`-mb-px border-b-2 px-1 py-3 text-base font-semibold ${
+                activeTab === 'company' ? 'border-primary text-heading' : 'border-transparent text-text-muted'
+              }`}
+              onClick={() => setActiveTab('company')}
+            >
+              기업회원
+            </button>
+          </div>
 
-        {activeTab === 'personal' ? <PersonalLoginTab /> : <CompanyLoginTab />}
-      </section>
+          {activeTab === 'personal' ? <PersonalLoginTab /> : <CompanyLoginTab />}
+        </section>
+      </div>
     </div>
   );
 }
