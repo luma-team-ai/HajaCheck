@@ -86,6 +86,8 @@ const DEFAULT_ITEMS: SideNavItem[] = [
       { label: '점검(회차) 생성', href: '/inspections/create' },
       { label: '촬영 데이터 업로드', href: '/inspections/media-upload' },
       { label: 'AI 분석 실행/상태', href: '/inspections/ai-analysis' },
+      // ponytail: 점검 목록/선택 화면이 아직 없어 샘플 ID(1)로 임시 연결(#249) —
+      // 목록 페이지 생기면 "최근 점검으로 이동" 등 컨텍스트 있는 진입점으로 교체
       { label: '분석 결과 뷰어', href: '/inspections/1/viewer' },
       { label: '보고서 생성 진입점', href: '/inspections/report-entry' },
     ],
