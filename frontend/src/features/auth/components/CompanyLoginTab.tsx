@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AuthFooterLinks } from './AuthFooterLinks';
 import { Button } from '../../../shared/components/Button';
-import { ERROR_CLASSES, INPUT_CLASSES, LABEL_CLASSES, PASSWORD_TOGGLE_CLASSES } from '../formClasses';
+import { ERROR_CLASSES, LABEL_CLASSES, LOGIN_INPUT_CLASSES, PASSWORD_TOGGLE_CLASSES } from '../formClasses';
 import { useLogin } from '../hooks/useLogin';
 import {
   clearSavedLoginId,
@@ -63,13 +63,13 @@ export function CompanyLoginTab() {
         <label className={LABEL_CLASSES} htmlFor="company-login-id">
           아이디
         </label>
-        {/* 시안은 rounded-xl·흰 배경이나 formClasses.INPUT_CLASSES(rounded-lg·surface-muted)를
-            그대로 재사용 — 기업 회원가입 폼과 스타일 통일 우선, 차이는 8px/12px 라운딩·
-            #fff/#fafafa 배경 정도로 미미하다(중복 클래스 정의 방지, #292에서 지적받은 항목) */}
+        {/* LOGIN_INPUT_CLASSES — 로그인 시안(Figma node 53-390)은 회원가입 시안과 실제로 다르게
+            그려져 있어(rounded-xl·흰 배경·15px) formClasses.INPUT_CLASSES와 분리된 전용 상수를
+            쓴다. 근거는 formClasses.ts LOGIN_INPUT_CLASSES 선언부 주석 참고. */}
         <input
           id="company-login-id"
           type="text"
-          className={INPUT_CLASSES}
+          className={LOGIN_INPUT_CLASSES}
           value={loginId}
           onChange={(event) => setLoginId(event.target.value)}
           autoComplete="username"
@@ -85,7 +85,7 @@ export function CompanyLoginTab() {
           <input
             id="company-login-password"
             type={isPasswordVisible ? 'text' : 'password'}
-            className={`${INPUT_CLASSES} pr-11`}
+            className={`${LOGIN_INPUT_CLASSES} pr-11`}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="current-password"

@@ -7,6 +7,19 @@ export const LABEL_CLASSES = 'text-sm font-medium text-text-default';
 export const INPUT_CLASSES =
   'w-full rounded-lg border border-border bg-surface-muted px-3.5 py-3 text-sm text-text-default outline-none focus:ring-2 focus:ring-primary';
 
+// 로그인 화면(#295) 전용 입력창 — 기업 회원가입 시안(Figma node 50-63 계열, INPUT_CLASSES)과
+// 로그인 시안(Figma node 53-390)이 실제로 다르게 그려져 있어 공유하지 않고 분리한다:
+// 모서리 rounded-lg(8px)→rounded-xl(12px), 배경 bg-surface-muted(#fafafa)→bg-surface(흰색),
+// 글자 text-sm(14px)→text-[15px](Figma 실측 15px, Tailwind 기본 스케일에 없어 임의값 사용).
+// 색은 raw zinc-*를 그대로 쓰지 않고 토큰 매핑: bg-white→bg-surface, border-zinc-200→border-border,
+// text-zinc-900(#18181b)→text-primary(#18181b, 정확히 일치하는 토큰), placeholder:text-zinc-400→
+// placeholder:text-text-subtle(가장 가까운 토큰, 정확한 hex 대응 토큰 없음).
+// 높이 h-[46px]/py-[13px]는 Figma export 산물이라 그대로 쓰지 않고 py-3(12px)로 근사 —
+// text-[15px]와 결합하면 실측 46px에 근접한다. INPUT_CLASSES는 회원가입(#292 머지분)이 계속 쓰므로
+// 절대 수정하지 말 것(수정 시 CompanySignupPage 시각 회귀).
+export const LOGIN_INPUT_CLASSES =
+  'w-full rounded-xl border border-border bg-surface px-4 py-3 text-[15px] text-primary outline-none placeholder:text-text-subtle focus:ring-2 focus:ring-primary';
+
 export const ERROR_CLASSES = 'text-xs text-danger';
 
 // 비밀번호 입력창 우측 내부 눈 아이콘 토글 버튼 — CompanySignupPage에 이어 로그인(#295)에서도
