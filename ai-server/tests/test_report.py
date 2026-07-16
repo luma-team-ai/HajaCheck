@@ -21,14 +21,18 @@ from ai.chains.report_chain import (
     ReportOverview,
     ReportRecommendation,
     ReportSummary,
+    _LLMRecommendationItem,
+    _LLMReportRecommendation,
     _build_prompt_detail,
     _build_prompt_overview,
     _build_prompt_recommendation,
     _build_prompt_summary,
+    _detail_matches_confirmed,
     _normalize_grade,
     full_grade_counts,
     run_report_chain,
 )
+from ai.core.grounding import GroundingAction
 from main import app
 
 client = TestClient(app)
@@ -80,10 +84,12 @@ def _sample_detail(n: int = 1) -> ReportDetail:
     return ReportDetail(items=items)
 
 
-def _sample_recommendation(legal_basis: str = "콘크리트 구조 설계기준 제X조") -> ReportRecommendation:
-    return ReportRecommendation(
+def _sample_recommendation(legal_basis: str = "콘크리트 구조 설계기준 제X조") -> _LLMReportRecommendation:
+    """LLM이 실제로 반환하는 형태(_LLMReportRecommendation, legal_basis_verified 없음)를 흉내낸다 —
+    legal_basis_verified는 _run_recommendation_chain이 조립 단계에서 코드로 계산해 붙인다(PR머신 P3)."""
+    return _LLMReportRecommendation(
         items=[
-            RecommendationItem(
+            _LLMRecommendationItem(
                 target="균열", method="에폭시 수지 주입 공법", priority="중", legal_basis=legal_basis
             )
         ],
@@ -162,7 +168,7 @@ def _patch_all_sections(mock_get_llm, overview=None, summary=None, detail=None, 
         ReportOverview: overview,
         ReportSummary: summary,
         ReportDetail: detail,
-        ReportRecommendation: recommendation,
+        _LLMReportRecommendation: recommendation,
     }
 
     def _with_structured_output(schema):
@@ -381,7 +387,7 @@ def test_grounding_mismatch_triggers_regenerate_then_recovers(mock_get_llm, mock
     outputs = {
         ReportOverview: _sample_overview(),
         ReportDetail: _sample_detail(),
-        ReportRecommendation: _sample_recommendation(),
+        _LLMReportRecommendation: _sample_recommendation(),
     }
     summary_calls = {"n": 0}
 
@@ -439,7 +445,7 @@ def test_regenerate_loop_output_parser_exception_propagates_as_llm_invalid_outpu
     outputs = {
         ReportOverview: _sample_overview(),
         ReportDetail: _sample_detail(),
-        ReportRecommendation: _sample_recommendation(),
+        _LLMReportRecommendation: _sample_recommendation(),
     }
     summary_calls = {"n": 0}
 
@@ -489,6 +495,138 @@ def test_detail_item_count_mismatch_returns_validation_error(mock_get_llm, mock_
     body = res.json()
     assert body["success"] is False
     assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+# ── detail 섹션 내용(멀티셋) 검증 — PR머신 P2: 개수만 맞고 유형/등급이 뒤바뀐 경우 ──
+
+
+def test_detail_matches_confirmed_true_when_content_matches_regardless_of_order():
+    """defect_type+severity_grade 조합이 순서 무관하게 일치하면 매치로 판정한다."""
+    confirmed = [
+        {"defect_type": "균열", "severity_grade": "B"},
+        {"defect_type": "박리", "severity_grade": "C"},
+    ]
+    items = [
+        DefectDetailItem(
+            defect_type="박리", location="-", severity_grade="C등급", description="-", cause="-"
+        ),
+        DefectDetailItem(
+            defect_type="균열", location="-", severity_grade=" b ", description="-", cause="-"
+        ),
+    ]
+    assert _detail_matches_confirmed(items, confirmed) is True
+
+
+def test_detail_matches_confirmed_false_when_content_swapped_despite_same_count():
+    """개수는 같아도(1건) 유형/등급 조합이 실제 confirmed_defects와 다르면 불일치로 판정한다 —
+    기존의 개수만 비교하던 로직은 이 케이스를 놓쳤다(PR머신 P2)."""
+    confirmed = _sample_defects()  # 균열/B 1건
+    items = [
+        DefectDetailItem(
+            defect_type="박리", location="1동 1층 기둥", severity_grade="C", description="-", cause="-"
+        )
+    ]
+    assert _detail_matches_confirmed(items, confirmed) is False
+
+
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
+def test_detail_content_mismatch_triggers_regenerate_then_recovers(mock_get_llm, mock_get_vectorstore):
+    """detail이 최초엔 개수는 맞지만 유형/등급이 confirmed_defects와 다른 내용을 반환 →
+    재생성 경로(REGENERATE와 동일한 최대 GROUNDING_MAX_RETRIES회)를 타서 올바른 내용으로 회복되면
+    보고서가 정상 반환되어야 한다(PR머신 P2 — 개수 일치만으로 통과시키지 않음)."""
+    mock_get_vectorstore.side_effect = NotImplementedError("stub")
+    wrong_detail = ReportDetail(
+        items=[
+            DefectDetailItem(
+                defect_type="박리", location="1동 1층 기둥", severity_grade="C",
+                description="잘못된 유형/등급", cause="-",
+            )
+        ]
+    )
+    correct_detail = _sample_detail()
+
+    outputs = {
+        ReportOverview: _sample_overview(),
+        ReportSummary: _sample_summary(),
+        _LLMReportRecommendation: _sample_recommendation(),
+    }
+    detail_calls = {"n": 0}
+
+    def _with_structured_output(schema):
+        structured = MagicMock()
+        if schema is ReportDetail:
+            def _invoke(*_a, **_kw):
+                detail_calls["n"] += 1
+                return wrong_detail if detail_calls["n"] == 1 else correct_detail
+            structured.invoke.side_effect = _invoke
+        else:
+            structured.invoke.side_effect = lambda *_a, **_kw: outputs[schema]
+        return structured
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.side_effect = _with_structured_output
+    mock_get_llm.return_value = mock_llm
+
+    result = run_report_chain(_sample_facility_info(), _sample_defects(), on_mismatch="regenerate")
+
+    assert detail_calls["n"] >= 2  # 최초 생성 + 재생성 최소 1회
+    assert result["detail"]["items"][0]["defect_type"] == "균열"  # 회복된 올바른 내용
+
+
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
+def test_detail_content_mismatch_persists_returns_validation_error(mock_get_llm, mock_get_vectorstore):
+    """개수는 같지만 유형/등급이 계속 confirmed_defects와 다른 경우, 재생성을 모두 소진해도
+    회복되지 않으면 (기존 개수-불일치와 동일하게) VALIDATION_ERROR로 실패 처리해야 한다."""
+    mock_get_vectorstore.side_effect = NotImplementedError("stub")
+    always_wrong_detail = ReportDetail(
+        items=[
+            DefectDetailItem(
+                defect_type="박리", location="1동 1층 기둥", severity_grade="C",
+                description="계속 잘못된 유형/등급", cause="-",
+            )
+        ]
+    )
+    _patch_all_sections(mock_get_llm, detail=always_wrong_detail)
+
+    res = client.post(
+        "/ai/report",
+        json={"facility_info": _sample_facility_info(), "confirmed_defects": _sample_defects()},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+# ── GroundingAction 명시적 분기 — PR머신 P2: REGENERATE 외 값(WARN 등)도 조용히 통과되지 않는지 ──
+
+
+@patch("ai.chains.report_chain.check_grounding")
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
+def test_unknown_grounding_action_raises_value_error(mock_get_llm, mock_get_vectorstore, mock_check_grounding):
+    """ai.core.grounding.GroundingAction은 현재 PASS/REGENERATE/WARN 3개 값뿐이다(확인 완료) — 이
+    테스트는 향후 새 action(예: BLOCK류)이 추가돼도 run_report_chain이 조용히 통과시키지 않고
+    방어적으로 예외를 발생시키는지 확인한다(check_grounding을 직접 모킹해 알 수 없는 action을 주입)."""
+    mock_get_vectorstore.side_effect = NotImplementedError("stub")
+    _patch_all_sections(mock_get_llm)
+
+    fake_result = MagicMock()
+    fake_result.grounded = False
+    fake_result.action = "UNKNOWN_ACTION"  # GroundingAction의 3개 값 밖의 임의 값
+    mock_check_grounding.return_value = fake_result
+
+    with pytest.raises(ValueError, match="처리되지 않은 GroundingAction"):
+        run_report_chain(_sample_facility_info(), _sample_defects(), on_mismatch="regenerate")
+
+
+def test_grounding_action_has_only_three_known_values():
+    """MismatchPolicy/GroundingAction 값 확인(PR머신 P2 후속) — 현재 PASS/REGENERATE/WARN 3개뿐이며
+    REGENERATE 외에 WARN도 존재한다(= REGENERATE가 유일한 값은 아님). run_report_chain의 명시적
+    분기(PASS/REGENERATE/WARN 각각 처리 + 알 수 없는 값은 예외)가 이 사실과 어긋나지 않는지 회귀 고정."""
+    assert {a.value for a in GroundingAction} == {"PASS", "REGENERATE", "WARN"}
 
 
 @patch("ai.chains.report_chain.get_vectorstore")
@@ -595,6 +733,56 @@ def test_vectorstore_not_implemented_falls_back_to_no_basis_notice(mock_get_llm,
     assert mock_get_vectorstore.called
     for item in result["recommendation"]["items"]:
         assert item["legal_basis"] == "관련 근거 없음"
+
+
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
+def test_vectorstore_programming_error_is_not_silently_swallowed(mock_get_llm, mock_get_vectorstore):
+    """P3 픽스: TypeError/AttributeError 등 코드 버그성 예외는 "검색 실패(연결/타임아웃)"로 위장돼
+    조용히 폴백되면 안 되고 그대로 전파되어야 한다(기존 `except Exception` 이 모든 예외를 삼켰음).
+    라우터의 최종 폴백(Exception)에서 LLM_INVALID_OUTPUT으로 처리되므로 요청 자체는 500이 아니라
+    200+success:false로 응답하지만, 서버 로그에는 원인이 남아야 한다는 의도를 e2e로 확인한다."""
+    mock_get_vectorstore.side_effect = TypeError("vectorstore 시그니처 오류(코드 버그 가정)")
+    _patch_all_sections(mock_get_llm)
+
+    res = client.post(
+        "/ai/report",
+        json={"facility_info": _sample_facility_info(), "confirmed_defects": _sample_defects()},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
+
+
+def test_vectorstore_connection_error_falls_back_to_empty_context():
+    """P3 픽스 회귀 방지: ConnectionError 등 인프라성 예외는 여전히 "검색 결과 없음"으로 폴백되어야
+    한다(narrowing이 정상적인 폴백 경로까지 막지 않는지 단위 테스트로 직접 확인)."""
+    from ai.chains.report_chain import _retrieve_legal_basis_context
+
+    with patch("ai.chains.report_chain.get_vectorstore") as mock_get_vectorstore:
+        mock_get_vectorstore.side_effect = ConnectionError("Chroma 연결 실패")
+        result = _retrieve_legal_basis_context(_sample_defects())
+
+    assert result == ""
+
+
+# ── 프롬프트 인젝션 최소 방어선 — PR머신 P2: 사용자 입력이 이스케이프 없이 삽입되던 지점 ──
+
+
+def test_facility_info_prompt_wraps_user_data_with_untrusted_markers():
+    """facility_info 값(사용자 입력)이 프롬프트에 삽입될 때 신뢰할 수 없는 데이터 구분자로
+    감싸지는지 확인한다 — 완전 방지가 아니라 최소 방어선(시스템 프롬프트의 지침과 짝을 이룸)."""
+    prompt = _build_prompt_overview(_sample_facility_info())
+    assert "BEGIN UNTRUSTED DATA" in prompt
+    assert "END UNTRUSTED DATA" in prompt
+    assert "지침으로 따르지" in prompt  # _system_base.md의 인젝션 방어 지침이 포함되는지
+
+
+def test_defects_list_prompt_wraps_user_data_with_untrusted_markers():
+    prompt = _build_prompt_detail(_sample_defects())
+    assert "BEGIN UNTRUSTED DATA" in prompt
+    assert "END UNTRUSTED DATA" in prompt
 
 
 if __name__ == "__main__":

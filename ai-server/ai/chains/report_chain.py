@@ -11,6 +11,7 @@
   실패 시(0건 검색과 동일하게) legal_basis를 "관련 근거 없음"으로 고정하고 체인 전체는 정상 진행한다
 """
 import logging
+from collections import Counter
 from pathlib import Path
 
 from langchain_core.runnables import RunnableLambda, RunnableParallel
@@ -79,12 +80,32 @@ class ReportDetail(BaseModel):
     items: list[DefectDetailItem] = Field(default_factory=list)  # confirmed_defects와 1:1
 
 
-class RecommendationItem(BaseModel):
+class _LLMRecommendationItem(BaseModel):
+    """LLM structured-output 전용 스키마 — legal_basis_verified는 여기 포함하지 않는다(PR머신 P3).
+
+    legal_basis_verified는 _run_recommendation_chain이 응답을 받은 뒤 코드로 항상 덮어쓰는 값인데,
+    기존에는 이 필드가 RecommendationItem(=with_structured_output 스키마)에 함께 있어 LLM에게
+    불필요하게 노출됐다(스키마 설명·few-shot 여지 낭비, 모델이 값을 "채워야 하는 필드"로 오인할 여지).
+    LLM에는 실제로 채워야 하는 필드만 요구하고, legal_basis_verified는 조립 단계에서만 추가한다.
+    """
     target: str
     method: str
     priority: str
     legal_basis: str  # RAG 근거 인용, 검색 결과 없으면 "관련 근거 없음"
-    # LLM 출력 스키마의 일부가 아니라 _run_recommendation_chain이 생성 후 계산해 채운다(PR머신 P2 후속) —
+
+
+class _LLMReportRecommendation(BaseModel):
+    items: list[_LLMRecommendationItem] = Field(default_factory=list)
+    monitoring_points: list[str] = Field(default_factory=list)
+
+
+class RecommendationItem(BaseModel):
+    """최종 응답 스키마(FE로 나가는 형태) — LLM 출력 + 코드가 계산한 legal_basis_verified 조합."""
+    target: str
+    method: str
+    priority: str
+    legal_basis: str  # RAG 근거 인용, 검색 결과 없으면 "관련 근거 없음"
+    # _run_recommendation_chain이 LLM 응답을 받은 뒤 코드로 계산해 채운다(PR머신 P2 후속) —
     # legal_basis 문자열이 실제 검색된 legal_basis_context에 (부분)포함되는지 대조한 결과.
     # RAG 검색 결과가 일부라도 있으면 기존에는 legal_basis를 그대로 신뢰했는데, LLM이 검색된 문서 중
     # 무관한 조문을 인용하거나 존재하지 않는 조문을 지어내도 걸러내지 못했다 — 이 플래그로 하류(FE)가
@@ -99,6 +120,18 @@ class ReportRecommendation(BaseModel):
 
 # ── 공통: 코드로 집계한 사실을 텍스트로 조립 (LLM이 재계산하지 않도록 — briefing_chain.py 패턴) ──
 
+# 사용자/외부 입력이 그대로 프롬프트에 삽입되는 지점(facility_info·confirmed_defects)을
+# 감싸는 구분자 — _system_base.md의 프롬프트 인젝션 방어 지침이 참조하는 마커와 동일해야 한다
+# (PR머신 P2: 이스케이프 없이 삽입되던 사용자 입력에 최소 방어선 추가. 완전 방지가 아니라
+# "이 구간은 지침이 아니라 데이터"임을 모델에 명시하는 최소 방어선).
+_UNTRUSTED_DATA_BEGIN = "---BEGIN UNTRUSTED DATA---"
+_UNTRUSTED_DATA_END = "---END UNTRUSTED DATA---"
+
+
+def _wrap_untrusted(text: str) -> str:
+    return f"{_UNTRUSTED_DATA_BEGIN}\n{text}\n{_UNTRUSTED_DATA_END}"
+
+
 def _format_facility_info(facility_info: dict) -> str:
     lines = []
     for key, label in FACILITY_FIELD_LABELS.items():
@@ -108,7 +141,8 @@ def _format_facility_info(facility_info: dict) -> str:
     for key, value in facility_info.items():
         if key not in FACILITY_FIELD_LABELS and value not in (None, ""):
             lines.append(f"- {key}: {value}")
-    return "\n".join(lines) if lines else "- (제공된 시설물 정보 없음)"
+    body = "\n".join(lines) if lines else "- (제공된 시설물 정보 없음)"
+    return _wrap_untrusted(body)
 
 
 def _normalize_grade(raw: str) -> str:
@@ -140,14 +174,14 @@ def _type_counts(confirmed_defects: list[dict]) -> dict[str, int]:
 
 def _format_defects_list(confirmed_defects: list[dict]) -> str:
     if not confirmed_defects:
-        return "(확정된 하자 없음)"
+        return _wrap_untrusted("(확정된 하자 없음)")
     lines = []
     for i, d in enumerate(confirmed_defects, start=1):
         lines.append(
             f"{i}. 유형: {d.get('defect_type', '-')} / 위치: {d.get('location', '-')} / "
             f"등급: {d.get('severity_grade', '-')} / 설명: {d.get('description', '-')}"
         )
-    return "\n".join(lines)
+    return _wrap_untrusted("\n".join(lines))
 
 
 # ── overview ──
@@ -219,8 +253,13 @@ def _retrieve_legal_basis_context(confirmed_defects: list[dict]) -> str:
         # 현재 예상된 상태(vectorstore.py 미구현) — 소음 방지 위해 info, 하지만 로그는 남긴다
         logger.info("vectorstore 미구현(NotImplementedError) — 검색 결과 없음으로 폴백: %s", e)
         return ""
-    except Exception:  # noqa: BLE001 — vectorstore 실구현 이후의 진짜 오류를 놓치지 않기 위해 warning으로 남김
-        logger.warning("법규 검색 실패 — 검색 결과 없음으로 폴백", exc_info=True)
+    except Exception as e:  # noqa: BLE001 — vectorstore 실구현 이후의 검색/연결 실패까지 폴백 대상으로 폭넓게 잡되,
+        # 아래 프로그래밍 오류(잘못된 인자·타입·존재하지 않는 속성 등)는 "검색 실패"가 아니라 코드 버그일
+        # 가능성이 높으므로 조용히 폴백시키지 않고 그대로 재발생시킨다(PR머신 P3 — 과도한 except Exception이
+        # 진짜 버그를 "0건 검색"으로 위장해 은폐하는 것을 방지). 연결/타임아웃 등 인프라성 실패만 폴백한다.
+        if isinstance(e, (TypeError, AttributeError, NameError, KeyError)):
+            raise
+        logger.warning("법규 검색 실패(연결/타임아웃 등으로 추정) — 검색 결과 없음으로 폴백", exc_info=True)
         return ""
     if not docs:
         return ""
@@ -255,33 +294,40 @@ def _legal_basis_verified(legal_basis: str, legal_basis_context: str) -> bool:
 def _run_recommendation_chain(confirmed_defects: list[dict]) -> ReportRecommendation:
     legal_basis_context = _retrieve_legal_basis_context(confirmed_defects)
     prompt = _build_prompt_recommendation(confirmed_defects, legal_basis_context)
-    result: ReportRecommendation = get_llm().with_structured_output(ReportRecommendation).invoke(prompt)
+    # LLM에는 legal_basis_verified가 없는 전용 스키마(_LLMReportRecommendation)로만 구조화 출력을
+    # 요청한다 — legal_basis_verified는 항상 아래에서 코드로 계산해 채우므로 LLM 스키마에 노출할
+    # 이유가 없다(PR머신 P3).
+    llm_result: _LLMReportRecommendation = (
+        get_llm().with_structured_output(_LLMReportRecommendation).invoke(prompt)
+    )
 
     if not legal_basis_context:
         # RAG 검색 결과가 없음(또는 vectorstore 미구현) — legal_basis를 코드에서 고정값으로 강제해
         # LLM이 그럴듯한 법규·조문을 창작(환각)하는 경로를 원천 차단한다.
-        result = ReportRecommendation(
-            items=[
-                item.model_copy(update={"legal_basis": "관련 근거 없음", "legal_basis_verified": False})
-                for item in result.items
-            ],
-            monitoring_points=result.monitoring_points,
-        )
+        items = [
+            RecommendationItem(
+                target=item.target,
+                method=item.method,
+                priority=item.priority,
+                legal_basis="관련 근거 없음",
+                legal_basis_verified=False,
+            )
+            for item in llm_result.items
+        ]
     else:
         # 검색 결과가 일부라도 있는 경우 — 기존에는 이 경로에서 legal_basis를 무조건 신뢰했다(PR머신 P2).
         # 강제 대체는 하지 않되(부분 검색 결과 중 실제로 관련된 인용일 수 있으므로), 검증 결과를 플래그로 남긴다.
-        result = ReportRecommendation(
-            items=[
-                item.model_copy(
-                    update={
-                        "legal_basis_verified": _legal_basis_verified(item.legal_basis, legal_basis_context)
-                    }
-                )
-                for item in result.items
-            ],
-            monitoring_points=result.monitoring_points,
-        )
-    return result
+        items = [
+            RecommendationItem(
+                target=item.target,
+                method=item.method,
+                priority=item.priority,
+                legal_basis=item.legal_basis,
+                legal_basis_verified=_legal_basis_verified(item.legal_basis, legal_basis_context),
+            )
+            for item in llm_result.items
+        ]
+    return ReportRecommendation(items=items, monitoring_points=llm_result.monitoring_points)
 
 
 # ── 병렬 실행 + Grounding Check + 조립 ──
@@ -299,6 +345,25 @@ def _run_parallel(facility_info: dict, confirmed_defects: list[dict]) -> dict:
         recommendation=RunnableLambda(lambda _: _run_recommendation_chain(confirmed_defects)),
     )
     return parallel.invoke({})
+
+
+def _detail_content_key(defect_type: str, severity_grade: str) -> tuple[str, str]:
+    return (str(defect_type or "").strip(), _normalize_grade(str(severity_grade or "")))
+
+
+def _detail_matches_confirmed(items: list[DefectDetailItem], confirmed_defects: list[dict]) -> bool:
+    """detail.items가 confirmed_defects와 순서 무관하게 내용까지 일치하는지 검증한다(PR머신 P2).
+
+    기존에는 `len(detail.items) != len(confirmed_defects)` 개수만 비교해, 개수는 맞지만 유형·등급이
+    뒤바뀌거나 창작된 경우(예: 실제로는 균열/B인데 박리/C로 응답)를 잡아내지 못했다. confirmed_defects에
+    안정적인 식별자(id)가 없으므로 defect_type+severity_grade 조합의 멀티셋(Counter)으로 비교한다 —
+    완벽한 항목 단위 매칭(어떤 detail item이 어떤 confirmed_defect에 대응하는지)까지는 과설계이므로 하지 않는다.
+    """
+    detail_counter = Counter(_detail_content_key(item.defect_type, item.severity_grade) for item in items)
+    confirmed_counter = Counter(
+        _detail_content_key(d.get("defect_type", ""), d.get("severity_grade", "")) for d in confirmed_defects
+    )
+    return detail_counter == confirmed_counter
 
 
 def _to_grounding_defects(confirmed_defects: list[dict]) -> list[GroundingDefect]:
@@ -330,11 +395,24 @@ def run_report_chain(
     detail: ReportDetail = results["detail"]
     recommendation: ReportRecommendation = results["recommendation"]
 
-    # detail 섹션 개수 대조는 grounding 공통 모듈의 범위 밖 — report_chain에서 직접 검증(design §5-4)
-    if len(detail.items) != len(confirmed_defects):
+    # detail 섹션 대조는 grounding 공통 모듈의 범위 밖 — report_chain에서 직접 검증(design §5-4).
+    # 개수뿐 아니라 defect_type+severity_grade 조합(멀티셋)까지 실제 confirmed_defects와 일치하는지
+    # 대조한다(PR머신 P2 — 개수만 맞고 내용이 뒤바뀌거나 창작된 경우를 놓치던 것을 보강).
+    # 불일치 시 기존 grounding 재생성 경로와 동일하게 최대 GROUNDING_MAX_RETRIES회 재시도한다.
+    detail_attempts = 0
+    while not _detail_matches_confirmed(detail.items, confirmed_defects) and detail_attempts < GROUNDING_MAX_RETRIES:
+        logger.warning(
+            "detail 섹션 items가 confirmed_defects와 불일치(개수 또는 유형/등급 조합) — 재생성 시도 %d/%d",
+            detail_attempts + 1, GROUNDING_MAX_RETRIES,
+        )
+        detail = _run_detail_chain(confirmed_defects)
+        detail_attempts += 1
+
+    if not _detail_matches_confirmed(detail.items, confirmed_defects):
         raise ValueError(
-            "detail 섹션 items 개수"
-            f"({len(detail.items)})가 확정 하자 수({len(confirmed_defects)})와 일치하지 않습니다."
+            "detail 섹션 items가 확정 하자 목록과 일치하지 않습니다"
+            f"(items={len(detail.items)}건, confirmed={len(confirmed_defects)}건, "
+            f"재생성 {detail_attempts}회 후에도 개수 또는 유형/등급 조합 불일치)."
         )
 
     claims = GroundingClaims(total_count=summary.total_count, count_by_grade=summary.count_by_grade)
@@ -348,6 +426,24 @@ def run_report_chain(
         claims = GroundingClaims(total_count=summary.total_count, count_by_grade=summary.count_by_grade)
         grounding_result = check_grounding(grounding_defects, claims, mismatch_policy)
         attempts += 1
+
+    # GroundingAction은 PASS/REGENERATE/WARN 3개 값뿐이다(ai.core.grounding 확인 완료, PR머신 P2 후속).
+    # REGENERATE는 위 while 루프에서 재시도를 모두 소진하면 그대로 남을 수 있고(재생성해도 계속 불일치),
+    # WARN은 on_mismatch=warn 정책이거나 UNVERIFIABLE(근거 부재)로 즉시 확정된 경우다. 셋 다 여기서
+    # "보고서 생성 자체를 막지 않는다"는 동일한 결론으로 귀결되므로 분기가 사실상 통과(pass)이지만,
+    # 향후 GroundingAction에 새 값(예: BLOCK류)이 추가돼도 조용히 통과되지 않도록 명시적으로 분기하고
+    # 알려지지 않은 값은 방어적으로 예외를 발생시킨다(라우터가 VALIDATION_ERROR로 처리).
+    if grounding_result.action is GroundingAction.PASS:
+        pass
+    elif grounding_result.action is GroundingAction.REGENERATE:
+        logger.warning(
+            "Grounding mismatch가 재생성 %d회 후에도 지속됨 — grounding_ok=False로 반환(보고서 생성은 계속)",
+            attempts,
+        )
+    elif grounding_result.action is GroundingAction.WARN:
+        pass  # 설계 의도대로 재생성하지 않고 grounding_ok=False(또는 UNVERIFIABLE만 있으면 True)로 반영
+    else:
+        raise ValueError(f"처리되지 않은 GroundingAction 입니다: {grounding_result.action!r}")
 
     return {
         "overview": overview.model_dump(),
