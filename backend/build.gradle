@@ -74,3 +74,10 @@ tasks.named('test') {
         systemProperty 'docker.host', project.getProperty('dockerHost')
     }
 }
+
+tasks.named('processTestResources') {
+    // 테스트 스키마를 별도 복제하지 않고 설계 기준 DDL을 그대로 classpath에 포함한다.
+    from('../docs/design/db/HajaCheck_script.sql') {
+        into 'db'
+    }
+}
