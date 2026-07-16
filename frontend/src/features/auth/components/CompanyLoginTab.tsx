@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AuthFooterLinks } from './AuthFooterLinks';
+import { Button } from '../../../shared/components/Button';
+import { ERROR_CLASSES, INPUT_CLASSES, LABEL_CLASSES, PASSWORD_TOGGLE_CLASSES } from '../formClasses';
 import { useLogin } from '../hooks/useLogin';
 import {
   clearSavedLoginId,
@@ -56,37 +58,42 @@ export function CompanyLoginTab() {
   const errorMessage = error ? (ERROR_MESSAGES[error.code] ?? DEFAULT_ERROR_MESSAGE) : null;
 
   return (
-    <form className="company-login-tab" onSubmit={handleSubmit}>
-      <div className="auth-form-field">
-        <label className="auth-form-label" htmlFor="company-login-id">
+    <form className="flex w-full flex-col gap-4" onSubmit={handleSubmit}>
+      <div className="flex flex-col gap-1.5">
+        <label className={LABEL_CLASSES} htmlFor="company-login-id">
           아이디
         </label>
+        {/* 시안은 rounded-xl·흰 배경이나 formClasses.INPUT_CLASSES(rounded-lg·surface-muted)를
+            그대로 재사용 — 기업 회원가입 폼과 스타일 통일 우선, 차이는 8px/12px 라운딩·
+            #fff/#fafafa 배경 정도로 미미하다(중복 클래스 정의 방지, #292에서 지적받은 항목) */}
         <input
           id="company-login-id"
           type="text"
-          className="auth-form-input"
+          className={INPUT_CLASSES}
           value={loginId}
           onChange={(event) => setLoginId(event.target.value)}
           autoComplete="username"
+          placeholder="아이디"
         />
       </div>
 
-      <div className="auth-form-field">
-        <label className="auth-form-label" htmlFor="company-login-password">
+      <div className="flex flex-col gap-1.5">
+        <label className={LABEL_CLASSES} htmlFor="company-login-password">
           비밀번호
         </label>
-        <div className="auth-password-input-wrap">
+        <div className="relative flex items-center">
           <input
             id="company-login-password"
             type={isPasswordVisible ? 'text' : 'password'}
-            className="auth-form-input"
+            className={`${INPUT_CLASSES} pr-11`}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="current-password"
+            placeholder="비밀번호"
           />
           <button
             type="button"
-            className="auth-password-toggle-btn"
+            className={PASSWORD_TOGGLE_CLASSES}
             aria-label={isPasswordVisible ? '비밀번호 숨기기' : '비밀번호 표시'}
             onClick={() => setIsPasswordVisible((prev) => !prev)}
           >
@@ -95,9 +102,9 @@ export function CompanyLoginTab() {
         </div>
       </div>
 
-      {errorMessage && <p className="auth-form-error">{errorMessage}</p>}
+      {errorMessage && <p className={ERROR_CLASSES}>{errorMessage}</p>}
 
-      <label className="auth-save-id-checkbox">
+      <label className="flex cursor-pointer items-center gap-2 text-[13px] text-text-default">
         <input
           type="checkbox"
           checked={isSaveIdChecked}
@@ -106,13 +113,14 @@ export function CompanyLoginTab() {
         아이디 저장
       </label>
 
-      <button
+      <Button
         type="submit"
-        className="company-login-submit-btn"
+        size="lg"
+        className="w-full"
         disabled={isPending || !isLoginFormValid(loginId, password)}
       >
         {isPending ? '로그인 중...' : '로그인'}
-      </button>
+      </Button>
 
       <AuthFooterLinks />
     </form>
