@@ -41,6 +41,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 
 @DataJpaTest
@@ -140,14 +141,14 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
 
         BotScenario root = BotScenario.create(null, "시설", "시설 점검", "선택하세요", false, 0);
         em.persist(root);
-        BotScenario child = BotScenario.create(root, "시설", "균열", "균열 안내", false, 1);
+        BotScenario child = BotScenario.create(root.getId(), "시설", "균열", "균열 안내", false, 1);
         em.persist(child);
 
-        ChatMessage message = ChatMessage.create(session, ChatSenderType.BOT, "관련 근거입니다", child);
+        ChatMessage message = ChatMessage.create(session.getId(), ChatSenderType.BOT, "관련 근거입니다", child.getId());
         em.persist(message);
 
         CounselTicket ticket = CounselTicket.request(user.getId(), 1);
-        ticket.assign(user.getId(), session);
+        ticket.assign(user.getId(), session.getId());
         em.persist(ticket);
 
         RagDocument document = RagDocument.upload(
@@ -196,7 +197,8 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
         em.clear();
 
         List<Notification> result =
-                notificationRepository.findAllByUserIdAndReadFalseOrderByCreatedAtDesc(user.getId());
+                notificationRepository.findAllByUserIdAndReadFalseOrderByCreatedAtDesc(
+                        user.getId(), PageRequest.of(0, 20));
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getPayloadJson()).isEqualToIgnoringWhitespace("{\"inspectionId\":10}");

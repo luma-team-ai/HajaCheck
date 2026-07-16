@@ -9,12 +9,11 @@ class CounselTicketTest {
     @Test
     void assign_상담사와상담세션을배정() {
         CounselTicket ticket = CounselTicket.request(10L, 3);
-        ChatSession session = ChatSession.start(10L, ChatSessionType.COUNSEL);
 
-        ticket.assign(20L, session);
+        ticket.assign(20L, 5L);
 
         assertThat(ticket.getCounselorId()).isEqualTo(20L);
-        assertThat(ticket.getSession()).isSameAs(session);
+        assertThat(ticket.getSessionId()).isEqualTo(5L);
         assertThat(ticket.getStatus()).isEqualTo(CounselTicketStatus.IN_PROGRESS);
         assertThat(ticket.getQueuePosition()).isNull();
     }

@@ -21,7 +21,12 @@ import org.hibernate.type.SqlTypes;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-/** 채팅 세션에서 송수신된 메시지. */
+/**
+ * 채팅 세션에서 송수신된 메시지.
+ *
+ * <p>{@code sessionId}/{@code scenarioId}는 FK 값 컬럼을 실제 매핑 소스로 두고, 연관관계
+ * ({@code session}/{@code scenario})는 조회 전용({@code insertable/updatable = false})으로 병행 제공한다.</p>
+ */
 @Entity
 @Getter
 @Table(name = "chat_messages", indexes = {
@@ -36,8 +41,11 @@ public class ChatMessage {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "session_id", nullable = false)
+    private Long sessionId;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "session_id", nullable = false)
+    @JoinColumn(name = "session_id", insertable = false, updatable = false)
     private ChatSession session;
 
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
@@ -47,8 +55,11 @@ public class ChatMessage {
     @Column(nullable = false, columnDefinition = "text")
     private String content;
 
+    @Column(name = "scenario_id")
+    private Long scenarioId;
+
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "scenario_id")
+    @JoinColumn(name = "scenario_id", insertable = false, updatable = false)
     private BotScenario scenario;
 
     @CreatedDate
@@ -56,21 +67,21 @@ public class ChatMessage {
     private LocalDateTime createdAt;
 
     @Builder(access = AccessLevel.PRIVATE)
-    private ChatMessage(ChatSession session, ChatSenderType sender,
-                        String content, BotScenario scenario) {
-        this.session = session;
+    private ChatMessage(Long sessionId, ChatSenderType sender,
+                        String content, Long scenarioId) {
+        this.sessionId = sessionId;
         this.sender = sender;
         this.content = content;
-        this.scenario = scenario;
+        this.scenarioId = scenarioId;
     }
 
-    public static ChatMessage create(ChatSession session, ChatSenderType sender,
-                                     String content, BotScenario scenario) {
+    public static ChatMessage create(Long sessionId, ChatSenderType sender,
+                                     String content, Long scenarioId) {
         return ChatMessage.builder()
-                .session(session)
+                .sessionId(sessionId)
                 .sender(sender)
                 .content(content)
-                .scenario(scenario)
+                .scenarioId(scenarioId)
                 .build();
     }
 }

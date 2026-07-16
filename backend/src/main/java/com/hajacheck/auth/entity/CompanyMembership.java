@@ -13,6 +13,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
+import java.util.Arrays;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -112,24 +113,38 @@ public class CompanyMembership extends BaseTimeEntity {
     }
 
     public void approve() {
+        requireStatus("approve", CompanyMembershipStatus.PENDING);
         this.status = CompanyMembershipStatus.APPROVED;
         this.approvedAt = Instant.now();
         this.revokedAt = null;
     }
 
     public void reject() {
+        requireStatus("reject", CompanyMembershipStatus.PENDING);
         this.status = CompanyMembershipStatus.REJECTED;
         this.approvedAt = null;
         this.revokedAt = null;
     }
 
     public void revoke() {
+        requireStatus("revoke", CompanyMembershipStatus.APPROVED);
         this.status = CompanyMembershipStatus.REVOKED;
         this.revokedAt = Instant.now();
     }
 
     public void expire() {
+        requireStatus("expire", CompanyMembershipStatus.PENDING, CompanyMembershipStatus.APPROVED);
         this.status = CompanyMembershipStatus.EXPIRED;
+    }
+
+    private void requireStatus(String action, CompanyMembershipStatus... allowed) {
+        for (CompanyMembershipStatus candidate : allowed) {
+            if (this.status == candidate) {
+                return;
+            }
+        }
+        throw new IllegalStateException(
+                "%s 불가: 현재 상태=%s, 허용 상태=%s".formatted(action, this.status, Arrays.toString(allowed)));
     }
 
     public boolean isEffectiveAt(Instant now) {

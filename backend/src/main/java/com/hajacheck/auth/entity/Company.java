@@ -21,8 +21,9 @@ import org.hibernate.type.SqlTypes;
 /**
  * 기업(회사) 계정 — DDL companies 테이블 대응. 기업 회원가입으로 생성된다.
  *
- * <p>User 와의 결합: {@code ownerUserId} 를 Long 값 컬럼으로만 보유한다(양방향 엔티티 결합 금지 —
- * 기존 {@code User.companyId} 가 Long 인 것과 대칭). 도메인 경계·N+1·순환참조를 피하려는 의도.
+ * <p>User 와의 결합: {@code ownerUserId}/{@code reviewedBy} 는 FK 값 컬럼을 실제 매핑 소스로 두고,
+ * 지연 로딩 연관관계({@code ownerUser}/{@code reviewer})는 조회 전용({@code insertable/updatable = false})으로
+ * 병행 제공한다(양방향 엔티티 결합은 여전히 금지 — User 쪽에서 Company 를 역참조하지 않는다).
  *
  * <p>enum(verification_status/status) 은 PG named enum 타입이며 {@code @JdbcTypeCode(NAMED_ENUM)} +
  * columnDefinition 으로 실 PG enum 에 매핑한다(ddl-auto=validate 통과). Java enum 라벨은 v0.3 DDL 과 일치.
@@ -40,7 +41,7 @@ public class Company extends BaseTimeEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // 기업 계정 소유자(플랜 보유자) 사용자 식별자 — FK 값만 보유(User 엔티티 결합 금지).
+    // 기업 계정 소유자(플랜 보유자) 사용자 식별자 — FK 값 컬럼(쓰기 소스), 아래 ownerUser 는 조회 전용 병행 매핑.
     @Column(name = "owner_user_id", nullable = false)
     private Long ownerUserId;
 
@@ -82,7 +83,7 @@ public class Company extends BaseTimeEntity {
     @Column(columnDefinition = "company_status_type", nullable = false)
     private CompanyStatus status;
 
-    // 승인/반려 처리 관리자 식별자 — FK 값만 보유.
+    // 승인/반려 처리 관리자 식별자 — FK 값 컬럼(쓰기 소스), 아래 reviewer 는 조회 전용 병행 매핑.
     @Column(name = "reviewed_by")
     private Long reviewedBy;
 

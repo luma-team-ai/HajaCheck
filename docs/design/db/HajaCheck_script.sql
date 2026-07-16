@@ -1014,6 +1014,12 @@ comment on column rag_documents.created_at is '문서 업로드 시작 시각';
 alter table rag_documents
     owner to postgres;
 
+create index idx_rag_documents_embedding_status
+    on rag_documents (embedding_status);
+
+create index idx_rag_documents_target_collection
+    on rag_documents (target_collection);
+
 create table chat_message_citations
 (
     id          bigint generated always as identity
