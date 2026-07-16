@@ -40,9 +40,11 @@
 
 - `CompanyMembership`과 `CompanyMembershipStatus` 구현 완료
 - `Media`와 `MediaFileType` 구현 완료
-- 순수 도메인 테스트 7개 통과
-- 현재 Entity 구현 수: 11개
-- 남은 신규 Entity: 9개
+- `DefectRevision`, `Report`, 채팅·상담·RAG 6개 Entity, `Notification` 구현 완료
+- 최신 DDL의 `Inspection.assignedInspectorId` 누락 보완 완료
+- 현재 Entity 구현 수: 20개(DDL 테이블 20개 전체 대응)
+- PostgreSQL 17 빈 DB에 통합 DDL 적용 및 Hibernate `ddl-auto=validate` 통과
+- 전체 Gradle 테스트 162개 통과
 
 ### 1.1 기존 Entity 필드 대조 결과
 
