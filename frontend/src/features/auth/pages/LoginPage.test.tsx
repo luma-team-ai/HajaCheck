@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // #280 P2·P3 후속 하드닝 테스트 — LoginPage 세션체크 refetch 억제 + state.from 오픈 리다이렉트 검증.
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
@@ -141,5 +141,31 @@ describe('LoginPage', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(getMeCallCount).toBe(1);
+  });
+
+  // PR #297 P2 픽스 — LoginHeroPanel(좌측 브랜딩 패널)이 lg 미만에서 hidden 처리되면서,
+  // 그 안에만 있던 "기업 통합회원 가입" 진입점이 1024px 미만(태블릿·모바일)에서 완전히
+  // 사라지는 회귀가 있었다. 인증 패널 하단에 별도로 렌더되는 모바일 전용 CTA 블록
+  // (data-testid="mobile-signup-cta")이 항상 존재하고 정상 동작하는지 고정한다.
+  // jsdom은 CSS 미디어쿼리(lg:hidden)를 평가하지 않으므로 실제 반응형 숨김/노출 자체는
+  // 검증 대상이 아니다 — "hidden lg:flex" 컨테이너(LoginHeroPanel) 밖에 독립된 CTA 진입점이
+  // 구조적으로 존재하고 클릭 시 정상 라우팅되는지를 고정하는 것이 이 테스트의 목적이다.
+  it('모바일 전용 회원가입 CTA가 렌더되고 클릭 시 기업 회원가입으로 이동한다(#297 P2)', async () => {
+    mockGetMeUnauthorized();
+    const queryClient = new QueryClient();
+    renderLoginPage(queryClient, { pathname: '/login' });
+
+    await waitFor(() => {
+      expect(getMeCallCount).toBe(1);
+    });
+
+    const mobileCta = await screen.findByTestId('mobile-signup-cta');
+    const companySignupButton = within(mobileCta).getByRole('button', { name: '기업 통합회원 가입' });
+
+    fireEvent.click(companySignupButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location').textContent).toBe('/signup/company');
+    });
   });
 });
