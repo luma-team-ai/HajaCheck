@@ -33,9 +33,9 @@
 ## 3. `.env`에 채워야 할 항목
 
 ```bash
-# 기존에 이미 있어야 하는 값(로컬_개발_가이드.md 공통)
-DB_PASSWORD=...
-REDIS_PASSWORD=...
+# 기존에 이미 있어야 하는 값(로컬_개발_가이드.md 공통) — 실제 값은 팀 공유 채널 참고, 여기 적지 말 것
+DB_PASSWORD=<본인 .env의 기존 값>
+REDIS_PASSWORD=<본인 .env의 기존 값>
 
 # OCI SSH 터널용 (신규)
 OCI_SSH_HOST=<OCI 서버 IP/도메인>          # 인프라 담당자에게 문의
@@ -44,11 +44,11 @@ OCI_SSH_KEY_PATH=<본인 개인키 절대경로>      # 예: ~/.ssh/hajacheck
 OCI_DB_REMOTE_PORT=5432
 OCI_REDIS_REMOTE_PORT=6380                  # ⚠️ 6379 아님 — sshd PermitOpen이 정확한 목적지 포트를 요구함
 
-# 소셜 로그인(카카오/구글)도 로컬에서 테스트하려면 추가(선택)
-KAKAO_CLIENT_ID=...
-KAKAO_CLIENT_SECRET=...
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
+# 소셜 로그인(카카오/구글)도 로컬에서 테스트하려면 추가(선택) — 팀이 이미 등록해둔 앱 값을 공유받아 채운다
+KAKAO_CLIENT_ID=<팀 공유 카카오 앱 REST API 키>
+KAKAO_CLIENT_SECRET=<팀 공유 카카오 앱 시크릿>
+GOOGLE_CLIENT_ID=<팀 공유 구글 OAuth 클라이언트 ID>
+GOOGLE_CLIENT_SECRET=<팀 공유 구글 OAuth 클라이언트 시크릿>
 ```
 
 카카오/구글 값은 **팀이 이미 등록해둔 OAuth 앱의 client-id/secret**을 그대로 공유받아 쓰면 되고(새 앱 생성 불필요),
@@ -86,8 +86,10 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-co
 | 카카오 로그인 KOE006(등록되지 않은 Redirect URI) | `:8080`이나 `:5173`으로 직접 접속해서 로그인을 시작한 경우 — redirect-uri override가 `http://localhost`(포트 없음, nginx 80 전제) 고정값이라 다른 포트로 접속하면 실제 redirect_uri와 콘솔 등록값이 달라짐. `http://localhost`(nginx)로 접속해서 로그인 시작할 것 |
 | 소셜 로그인 성공(DB에 유저 생성됨)했는데 `/dashboard` 잠깐 보이다 바로 `/login`으로 튕김 | 세션 문제가 아니라 **MSW(Mock Service Worker)가 `GET /api/users/me`를 세션과 무관하게 항상 401로 응답**하기 때문(`frontend/src/features/auth/api/authApi.handlers.ts`). `frontend-dev`가 `VITE_ENABLE_MSW`를 안 켜면 기본값(DEV=true)이 켜짐 상태라 실 백엔드 세션이 가려짐. `docker-compose.override.yml`의 `frontend-dev` 환경변수에 `VITE_ENABLE_MSW: "false"`를 추가하고 재기동(`--build`) |
 | `frontend-dev` 컨테이너가 "Created" 상태로 멈춰 안 뜸(`ports are not available: ... 0.0.0.0:5173`) | 호스트에서 이미 `npm run dev`(로컬 네이티브 Vite) 등이 5173을 점유 중. `netstat -ano \| findstr :5173`(PowerShell은 `Get-NetTCPConnection -LocalPort 5173`)로 PID 확인 후 종료하거나, 로컬 dev 서버를 끄고 `docker start`/`up`을 다시 실행 |
+| `docker-compose.oci-db.yml` 적용 시 파싱 오류로 기동 자체가 실패 | `depends_on`의 `postgres: !reset null` 같은 `!reset` 태그는 Docker Compose v2.20+ 에서 지원하는 확장 문법 — 그보다 낮은 버전이면 파싱 오류가 난다. `docker compose version`으로 버전 확인 후 업데이트 |
 
 ## 6. 주의사항
 
 - **OCI DB는 팀 공용 개발 서버다.** `app.local-seed.enabled`를 여기서 `true`로 켜지 말 것(known-password ADMIN 계정이 공유 DB에 그대로 생성됨).
 - 본인 SSH 개인키는 절대 다른 사람과 공유하거나 저장소에 커밋하지 않는다.
+- `REDIS_PASSWORD`는 `docker-compose.oci-db.yml`에서 `redis://:${REDIS_PASSWORD}@...` 형태로 URL에 그대로 삽입된다 — 비밀번호에 `@`·`:`·`/`·`%` 같은 URL 예약 문자가 들어있으면 파싱이 깨질 수 있으니 피할 것.

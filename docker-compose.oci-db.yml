@@ -55,6 +55,8 @@ services:
 
   spring:
     depends_on:
+      # !reset 은 Compose Spec 확장 병합 태그 — Docker Compose v2.20+ 필요(그 이하 버전은 파싱 오류로
+      # 기동 자체가 실패한다). 오류 시 `docker compose version`으로 먼저 확인할 것(§5 트러블슈팅 참고).
       postgres: !reset null
       redis: !reset null
       db-tunnel:
