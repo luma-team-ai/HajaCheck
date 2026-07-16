@@ -110,6 +110,9 @@ services:
       context: ./ai-server
       dockerfile: Dockerfile
     restart: unless-stopped
+    # bridge-net에서 spring이 http://fastapi:8000 으로 서비스명 통신하므로 컨테이너 내부는 0.0.0.0 리슨 필수.
+    # 이미지 Dockerfile 기본 CMD도 --host 0.0.0.0 --port 8000 이지만, 리뷰어 모호성 제거 + 회귀 방지 위해 명시.
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     depends_on:
       redis:
         condition: service_healthy
