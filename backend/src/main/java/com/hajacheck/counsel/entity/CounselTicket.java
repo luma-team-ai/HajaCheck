@@ -22,7 +22,13 @@ import org.hibernate.type.SqlTypes;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-/** 사용자의 전문 상담 요청과 상담 진행 상태. */
+/**
+ * 사용자의 전문 상담 요청과 상담 진행 상태.
+ *
+ * <p>{@code sessionId}는 FK 값 컬럼을 실제 매핑 소스로 두고, 연관관계({@code session})는 조회 전용
+ * ({@code insertable/updatable = false})으로 병행 제공한다. {@code userId}/{@code counselorId}는
+ * auth 도메인 경계를 넘는 참조라 Long 값만 보유한다.</p>
+ */
 @Entity
 @Getter
 @Table(name = "counsel_tickets", indexes = {
@@ -44,8 +50,11 @@ public class CounselTicket {
     @Column(name = "counselor_id")
     private Long counselorId;
 
+    @Column(name = "session_id")
+    private Long sessionId;
+
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "session_id")
+    @JoinColumn(name = "session_id", insertable = false, updatable = false)
     private ChatSession session;
 
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
@@ -63,11 +72,11 @@ public class CounselTicket {
     private Instant endedAt;
 
     @Builder(access = AccessLevel.PRIVATE)
-    private CounselTicket(Long userId, Long counselorId, ChatSession session,
+    private CounselTicket(Long userId, Long counselorId, Long sessionId,
                           CounselTicketStatus status, Integer queuePosition, Instant endedAt) {
         this.userId = userId;
         this.counselorId = counselorId;
-        this.session = session;
+        this.sessionId = sessionId;
         this.status = status == null ? CounselTicketStatus.WAITING : status;
         this.queuePosition = queuePosition;
         this.endedAt = endedAt;
@@ -81,9 +90,9 @@ public class CounselTicket {
                 .build();
     }
 
-    public void assign(Long counselorId, ChatSession session) {
+    public void assign(Long counselorId, Long sessionId) {
         this.counselorId = counselorId;
-        this.session = session;
+        this.sessionId = sessionId;
         this.status = CounselTicketStatus.IN_PROGRESS;
         this.queuePosition = null;
     }

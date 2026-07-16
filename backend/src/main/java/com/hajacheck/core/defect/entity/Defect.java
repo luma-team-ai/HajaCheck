@@ -24,7 +24,8 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 /**
  * 점검 이미지에서 탐지되거나 검토된 시설 결함 — DDL defects 테이블 대응.
- * SpringBoot_코드_컨벤션.md §6/§7: @Setter 금지, 연관관계 대신 FK 값 컬럼만 보유(inspectionId).
+ * SpringBoot_코드_컨벤션.md §6/§7: @Setter 금지. {@code inspectionId} 는 FK 값 컬럼을 실제 매핑 소스로 두고,
+ * 지연 로딩 연관관계({@code inspection})는 조회 전용({@code insertable/updatable = false})으로 병행 제공한다.
  *
  * <p>⚠️ BaseTimeEntity 상속 금지: defects 테이블에는 updated_at 컬럼이 없다(created_at 만 존재).
  * type/grade/status 는 PG named enum — @JdbcTypeCode(NAMED_ENUM) 매핑. grade 는 DDL 상 nullable.
@@ -118,6 +119,10 @@ public class Defect {
     }
 
     public void changeStatus(DefectStatus status) {
+        if (this.status == DefectStatus.RESOLVED) {
+            throw new IllegalStateException(
+                    "changeStatus 불가: 이미 RESOLVED 상태인 결함은 상태를 변경할 수 없다");
+        }
         this.status = status;
     }
 

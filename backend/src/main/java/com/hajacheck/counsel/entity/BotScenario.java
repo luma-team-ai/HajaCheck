@@ -16,7 +16,12 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/** 버튼 선택 방식의 계층형 챗봇 시나리오 노드. */
+/**
+ * 버튼 선택 방식의 계층형 챗봇 시나리오 노드.
+ *
+ * <p>자기 참조 {@code parentId}는 FK 값 컬럼을 실제 매핑 소스로 두고, 같은 도메인 내부 지연 로딩
+ * 연관관계({@code parent})는 조회 전용({@code insertable/updatable = false})으로 병행 제공한다.</p>
+ */
 @Entity
 @Getter
 @Table(name = "bot_scenarios", indexes = {
@@ -29,8 +34,11 @@ public class BotScenario extends BaseTimeEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "parent_id")
+    private Long parentId;
+
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "parent_id")
+    @JoinColumn(name = "parent_id", insertable = false, updatable = false)
     private BotScenario parent;
 
     @Column(nullable = false, length = 100)
@@ -49,9 +57,9 @@ public class BotScenario extends BaseTimeEntity {
     private int sortOrder;
 
     @Builder(access = AccessLevel.PRIVATE)
-    private BotScenario(BotScenario parent, String category, String buttonLabel,
+    private BotScenario(Long parentId, String category, String buttonLabel,
                         String responseText, boolean leadsToCounselor, int sortOrder) {
-        this.parent = parent;
+        this.parentId = parentId;
         this.category = category;
         this.buttonLabel = buttonLabel;
         this.responseText = responseText;
@@ -59,10 +67,10 @@ public class BotScenario extends BaseTimeEntity {
         this.sortOrder = sortOrder;
     }
 
-    public static BotScenario create(BotScenario parent, String category, String buttonLabel,
+    public static BotScenario create(Long parentId, String category, String buttonLabel,
                                      String responseText, boolean leadsToCounselor, int sortOrder) {
         return BotScenario.builder()
-                .parent(parent)
+                .parentId(parentId)
                 .category(category)
                 .buttonLabel(buttonLabel)
                 .responseText(responseText)

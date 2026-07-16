@@ -6,10 +6,12 @@ import jakarta.persistence.EntityListeners;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -22,7 +24,10 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 /** PostgreSQL 메타데이터와 Chroma 임베딩 상태를 연결하는 RAG 문서. */
 @Entity
 @Getter
-@Table(name = "rag_documents")
+@Table(name = "rag_documents", indexes = {
+        @Index(name = "idx_rag_documents_embedding_status", columnList = "embedding_status"),
+        @Index(name = "idx_rag_documents_target_collection", columnList = "target_collection")
+})
 @EntityListeners(AuditingEntityListener.class)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class RagDocument {
@@ -109,17 +114,31 @@ public class RagDocument {
     }
 
     public void startEmbedding() {
+        requireEmbeddingStatus("startEmbedding", RagEmbeddingStatus.PENDING, RagEmbeddingStatus.FAILED);
         this.embeddingStatus = RagEmbeddingStatus.EMBEDDING;
     }
 
     public void completeEmbedding(int chunkCount) {
+        requireEmbeddingStatus("completeEmbedding", RagEmbeddingStatus.EMBEDDING);
         this.embeddingStatus = RagEmbeddingStatus.DONE;
         this.chunkCount = chunkCount;
         this.embeddedAt = Instant.now();
     }
 
     public void failEmbedding() {
+        requireEmbeddingStatus("failEmbedding", RagEmbeddingStatus.EMBEDDING);
         this.embeddingStatus = RagEmbeddingStatus.FAILED;
+    }
+
+    private void requireEmbeddingStatus(String action, RagEmbeddingStatus... allowed) {
+        for (RagEmbeddingStatus candidate : allowed) {
+            if (this.embeddingStatus == candidate) {
+                return;
+            }
+        }
+        throw new IllegalStateException(
+                "%s 불가: 현재 임베딩 상태=%s, 허용 상태=%s"
+                        .formatted(action, this.embeddingStatus, Arrays.toString(allowed)));
     }
 
     public void verify() {

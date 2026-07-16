@@ -1,6 +1,7 @@
 package com.hajacheck.auth.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
@@ -51,5 +52,32 @@ class CompanyMembershipTest {
         membership.approve();
 
         assertThat(membership.isEffectiveAt(Instant.now().plusSeconds(20))).isFalse();
+    }
+
+    @Test
+    void approve_회수된멤버십에서재호출하면예외() {
+        CompanyMembership membership = CompanyMembership.approvedOwner(1L, 2L);
+        membership.revoke();
+
+        assertThatThrownBy(membership::approve).isInstanceOf(IllegalStateException.class);
+        assertThat(membership.getStatus()).isEqualTo(CompanyMembershipStatus.REVOKED);
+    }
+
+    @Test
+    void revoke_승인되지않은멤버십에서호출하면예외() {
+        CompanyMembership membership = CompanyMembership.invite(
+                1L, 2L, 3L, Instant.now().plusSeconds(3600));
+
+        assertThatThrownBy(membership::revoke).isInstanceOf(IllegalStateException.class);
+        assertThat(membership.getStatus()).isEqualTo(CompanyMembershipStatus.PENDING);
+    }
+
+    @Test
+    void reject_이미거절된멤버십에서재호출하면예외() {
+        CompanyMembership membership = CompanyMembership.invite(
+                1L, 2L, 3L, Instant.now().plusSeconds(3600));
+        membership.reject();
+
+        assertThatThrownBy(membership::reject).isInstanceOf(IllegalStateException.class);
     }
 }
