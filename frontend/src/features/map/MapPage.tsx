@@ -1,31 +1,28 @@
-// 지도 뷰 — Kakao Map에 시설물 마커(하자 최고 등급별 색상) 표시
+// 지도 뷰 — Kakao Map에 시설물 마커(하자 최고 등급별 색상) 표시 + 검색/필터 목록 패널
 // PRD_hajaCheck_v0.37.md 92행, 171행: 업로드 시 수집한 EXIF GPS 활용
+// AppShellRoute(공용 앱 셸) 안에서 렌더링되므로 셸(사이드바/헤더) 마크업은 포함하지 않는다(HAJA-150, #129 재오픈)
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { mapApi } from './api/mapApi';
-import {
-  DEFAULT_MAP_CENTER,
-  DEFAULT_MAP_LEVEL,
-  ERROR_TEXT_COLOR,
-  GRADE_COLOR,
-  GRADE_LABEL,
-} from './constants';
-import {
-  createFacilityMarker,
-  buildInfoWindowContent,
-  isValidCoordinate,
-} from './lib/createFacilityMarker';
+import { FacilityListPanel } from './components/FacilityListPanel';
+import { MapControls } from './components/MapControls';
+import { MapLegend } from './components/MapLegend';
+import { SelectedFacilityPopup } from './components/SelectedFacilityPopup';
+import { DEFAULT_MAP_CENTER, DEFAULT_MAP_LEVEL, ERROR_TEXT_COLOR, MAX_MAP_LEVEL, MIN_MAP_LEVEL } from './constants';
+import { createFacilityMarker, isValidCoordinate } from './lib/createFacilityMarker';
 import { KakaoMapKeyMissingError, loadKakaoMapSdk } from './lib/loadKakaoMapSdk';
-import type { FacilityLocation } from './types';
 
 export default function MapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<KakaoMap | null>(null);
-  const infoWindowRef = useRef<KakaoInfoWindow | null>(null);
   const markersRef = useRef<KakaoMarker[]>([]);
 
   const [sdkStatus, setSdkStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [sdkError, setSdkError] = useState<string | null>(null);
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('전체');
+  const [selectedFacilityId, setSelectedFacilityId] = useState<number | null>(null);
 
   const {
     data: facilities,
@@ -35,6 +32,23 @@ export default function MapPage() {
     queryKey: ['map', 'facilities'],
     queryFn: mapApi.getFacilityLocations,
   });
+
+  const filteredFacilities = useMemo(() => {
+    if (!facilities) return [];
+    return facilities.filter((facility) => {
+      const matchesSearch =
+        searchQuery.trim().length === 0 ||
+        facility.name.includes(searchQuery) ||
+        facility.address.includes(searchQuery);
+      const matchesCategory = selectedCategory === '전체' || facility.category === selectedCategory;
+      return matchesSearch && matchesCategory;
+    });
+  }, [facilities, searchQuery, selectedCategory]);
+
+  const selectedFacility = useMemo(
+    () => facilities?.find((facility) => facility.id === selectedFacilityId) ?? null,
+    [facilities, selectedFacilityId],
+  );
 
   // Kakao Maps SDK 로드 + 지도 인스턴스 생성 (최초 1회)
   useEffect(() => {
@@ -68,23 +82,20 @@ export default function MapPage() {
       cancelled = true;
       markersRef.current.forEach((marker) => marker.setMap(null));
       markersRef.current = [];
-      infoWindowRef.current?.close();
-      infoWindowRef.current = null;
       mapInstanceRef.current = null;
     };
   }, []);
 
-  // 시설물 데이터가 준비되면 마커 렌더링 (재렌더 시 기존 마커 정리 후 재생성)
+  // 필터링된 시설물 목록이 준비되면 마커 렌더링 (재렌더 시 기존 마커 정리 후 재생성)
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (sdkStatus !== 'ready' || !map || !facilities) return;
+    if (sdkStatus !== 'ready' || !map) return;
 
     markersRef.current.forEach((marker) => marker.setMap(null));
-    infoWindowRef.current?.close();
 
     // 좌표 런타임 검증 — 실 API 연동 시 서버가 null/NaN/범위밖 좌표를 줄 수 있으므로
     // 마커 생성 전에 걸러내고, 걸러진 항목은 warn으로 남겨 추적 가능하게 한다
-    const validFacilities = facilities.filter((facility) => {
+    const validFacilities = filteredFacilities.filter((facility) => {
       const valid = isValidCoordinate(facility.latitude, facility.longitude);
       if (!valid) {
         console.warn(
@@ -95,67 +106,77 @@ export default function MapPage() {
     });
 
     markersRef.current = validFacilities.map((facility) =>
-      createFacilityMarker(map, facility, (selected: FacilityLocation, marker: KakaoMarker) => {
-        // InfoWindow 인스턴스를 한 번만 생성해 재사용 — 클릭마다 새로 만들지 않음
-        if (!infoWindowRef.current) {
-          infoWindowRef.current = new window.kakao.maps.InfoWindow({
-            content: buildInfoWindowContent(selected),
-            removable: true,
-          });
-        } else {
-          infoWindowRef.current.setContent(buildInfoWindowContent(selected));
-        }
-        infoWindowRef.current.open(map, marker);
-      }),
+      createFacilityMarker(map, facility, (selected) => setSelectedFacilityId(selected.id)),
     );
 
     return () => {
       markersRef.current.forEach((marker) => marker.setMap(null));
       markersRef.current = [];
-      infoWindowRef.current?.close();
     };
-  }, [facilities, sdkStatus]);
+  }, [filteredFacilities, sdkStatus]);
+
+  const handleZoomIn = () => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    map.setLevel(Math.max(MIN_MAP_LEVEL, map.getLevel() - 1));
+  };
+
+  const handleZoomOut = () => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    map.setLevel(Math.min(MAX_MAP_LEVEL, map.getLevel() + 1));
+  };
+
+  const handleMyLocation = () => {
+    const map = mapInstanceRef.current;
+    if (!map || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const center = new window.kakao.maps.LatLng(
+          position.coords.latitude,
+          position.coords.longitude,
+        );
+        map.setCenter(center);
+      },
+      () => {
+        // 위치 권한 거부/실패 시 조용히 무시 — 지도 기본 중심을 그대로 유지
+      },
+    );
+  };
 
   if (sdkStatus === 'error') {
     return <div style={{ padding: 24, color: ERROR_TEXT_COLOR }}>{sdkError}</div>;
   }
 
-  if (isError) {
-    return (
-      <div style={{ padding: 24, color: ERROR_TEXT_COLOR }}>시설물 위치를 불러오지 못했습니다.</div>
-    );
-  }
-
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 16px' }}>
-        <h1 style={{ fontSize: 18, margin: 0 }}>지도 뷰</h1>
-        {(isLoading || sdkStatus === 'loading') && <span>불러오는 중...</span>}
-        {!isLoading && facilities?.length === 0 && <span>등록된 시설물 위치가 없습니다.</span>}
+    <div className="flex h-full w-full overflow-hidden">
+      <FacilityListPanel
+        facilities={filteredFacilities}
+        isLoading={isLoading || sdkStatus === 'loading'}
+        isError={isError}
+        searchQuery={searchQuery}
+        onSearchQueryChange={setSearchQuery}
+        selectedCategory={selectedCategory}
+        onSelectCategory={setSelectedCategory}
+        selectedFacilityId={selectedFacilityId}
+        onSelectFacility={setSelectedFacilityId}
+      />
+      <div className="relative flex-1 overflow-hidden bg-white">
+        <div ref={mapContainerRef} className="h-full w-full" />
+        <MapControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} onMyLocation={handleMyLocation} />
         <MapLegend />
-      </div>
-      <div ref={mapContainerRef} style={{ width: '100%', height: '640px' }} />
-    </div>
-  );
-}
-
-function MapLegend() {
-  return (
-    <div style={{ display: 'flex', gap: 12, marginLeft: 'auto', fontSize: 13 }}>
-      {(Object.keys(GRADE_LABEL) as Array<keyof typeof GRADE_LABEL>).map((grade) => (
-        <span key={grade} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span
-            style={{
-              display: 'inline-block',
-              width: 10,
-              height: 10,
-              borderRadius: '50%',
-              backgroundColor: GRADE_COLOR[grade],
+        {selectedFacility && (
+          <SelectedFacilityPopup
+            facility={selectedFacility}
+            onViewDetail={() => {
+              // 시설물 상세 라우트 미구현(features/facility) — 버튼 자리만 배치, 구현 시 연결
+            }}
+            onGoToInspectionResult={() => {
+              // 결과접수 라우트 미구현 — 버튼 자리만 배치, 구현 시 연결
             }}
           />
-          {GRADE_LABEL[grade]}
-        </span>
-      ))}
+        )}
+      </div>
     </div>
   );
 }
