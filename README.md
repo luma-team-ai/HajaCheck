@@ -32,18 +32,16 @@ LLM(LangChain + RAG)이 점검 보고서 초안을 자동 생성하는 시설물
 
 **① (권장) Docker + arm1 공유 dev DB** (핫리로드 · 카카오/구글 로그인 동작)
 
-먼저 호스트에서 arm1 SSH 터널을 연다(DB·Redis를 로컬 15432/16380으로 포워딩):
+`docker-compose.oci-db.yml` 옵트인 오버레이를 얹으면 **`db-tunnel` 컨테이너(autossh)가 SSH 터널을 자동으로** 잡아 spring/fastapi가 arm1 공유 dev DB·Redis에 붙는다(수동 `ssh -N` 불필요). 로컬 postgres/redis 컨테이너는 기동하지 않는다.
 ```bash
-ssh -N -L 15432:localhost:5432 -L 16380:localhost:6380 oci-arm1
-```
-다른 터미널에서 base + 핫리로드 override + 로컬 override를 겹쳐 기동한다:
-```bash
-docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.local.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.oci-db.yml \
+  up --build spring fastapi nginx db-tunnel frontend-dev
 ```
 - 접속: `http://localhost`(nginx 통합 진입) · `http://localhost:5173`(Vite 핫리로드)
-- `docker-compose.local.yml`이 spring을 arm1 `hajacheck_dev`(터널)로 연결하고 OAuth redirect-uri를 `http://localhost`로 오버라이드한다.
-- 전제: 각 팀원 **oci-arm1 SSH 접근 권한** + 카카오/구글 콘솔 "로그인 Redirect URI"에 `http://localhost/login/oauth2/code/{kakao,google}` 등록(운영자 완료).
-- ⚠️ 스키마는 건드리지 않는다(`ddl-auto=none`). dev 코드가 새 컬럼을 요구하면 인프라 담당이 arm1 `hajacheck_dev`에 반영해야 한다(→ 후속: Flyway 도입).
+- 전제:
+  - `.env`에 `OCI_SSH_HOST/USER/KEY_PATH`, `OCI_DB_REMOTE_PORT`, `OCI_REDIS_REMOTE_PORT` 설정(`.env.example` 참조) — 본인 `~/.ssh/config`의 `Host hajacheck-db` 값과 동일하게.
+  - 각 팀원 **oci-arm1 SSH 접근 권한** + 카카오/구글 콘솔 "로그인 Redirect URI"에 `http://localhost/login/oauth2/code/{kakao,google}` 등록(운영자 완료).
+- ⚠️ 공유 dev DB이므로 스키마를 건드리지 않는다. 시더(`app.local-seed.enabled`)를 여기서 켜지 말 것(공용 DB 오염 방지). dev 코드가 새 컬럼을 요구하면 인프라 담당이 arm1 `hajacheck_dev`에 반영(→ 후속: Flyway 도입).
 
 **② 서비스 개별 실행 + 공용 개발 DB(SSH 터널)**
 ```bash
@@ -54,7 +52,7 @@ cd frontend && npm install && npm run dev
 ```
 
 > ⚠️ `docker-compose.arm1.yml`은 **운영 서버(공유 호스트) 전용** — 로컬에서 실행 금지.
-> ⚠️ `docker compose up`(override 파일 미지정)은 **빈 로컬 postgres**에 붙어 스키마가 없어 실패한다 — 반드시 위 ①처럼 `-f docker-compose.local.yml`을 포함할 것.
+> ⚠️ `docker compose up`(오버레이 미지정)은 **빈 로컬 postgres**에 붙어 스키마가 없어 실패한다 — 반드시 위 ①처럼 `-f docker-compose.oci-db.yml`을 포함할 것.
 
 ## 컨벤션 문서 (필독)
 
