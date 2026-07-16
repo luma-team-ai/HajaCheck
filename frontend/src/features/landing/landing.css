@@ -154,8 +154,7 @@
   height: 32px;
   width: auto;
   object-fit: contain;
-  opacity: 0.6;
-  filter: grayscale(100%);
+  opacity: 0.75;
 }
 
 .landing-section {
