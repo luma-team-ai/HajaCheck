@@ -1185,3 +1185,37 @@ create trigger trg_bot_scenarios_set_updated_at
 execute procedure set_updated_at();
 
 comment on trigger trg_bot_scenarios_set_updated_at on bot_scenarios is 'bot_scenarios 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
+
+create function check_inspection_assigned_inspector_company() returns trigger
+    language plpgsql
+as
+$$
+declare
+    creator_company_id bigint;
+    inspector_company_id bigint;
+begin
+    select company_id into creator_company_id from users where id = new.created_by;
+    select company_id into inspector_company_id from users where id = new.assigned_inspector_id;
+    -- IS DISTINCT FROM은 둘 다 NULL(무소속 개인 사용자의 자기배정 등 — 이 트리거의 관할 밖,
+    -- AuthService.validateAssignableInspector가 별도로 다룸)인 경우를 정상 통과시키고,
+    -- 서로 다른 회사로 확인된 경우만(한쪽만 NULL인 경우 포함) 차단한다.
+    if creator_company_id is distinct from inspector_company_id then
+        raise exception
+            'assigned_inspector_id % must belong to the same company as created_by %',
+            new.assigned_inspector_id, new.created_by;
+    end if;
+    return new;
+end;
+$$;
+
+alter function check_inspection_assigned_inspector_company() owner to postgres;
+
+comment on function check_inspection_assigned_inspector_company() is 'inspections.assigned_inspector_id와 created_by가 users.company_id 기준으로 같은 회사인지 강제한다(둘 다 무소속이면 통과 — HAJA-25 P2 DB 레벨 방어).';
+
+create trigger trg_inspections_check_assigned_inspector_company
+    before insert or update of assigned_inspector_id, created_by
+    on inspections
+    for each row
+execute procedure check_inspection_assigned_inspector_company();
+
+comment on trigger trg_inspections_check_assigned_inspector_company on inspections is 'assigned_inspector_id 배정 시 created_by와 같은 회사 소속인지 강제한다(HAJA-25 P2 — DB 레벨 방어).';

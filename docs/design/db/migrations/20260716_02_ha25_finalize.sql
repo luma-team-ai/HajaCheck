@@ -147,8 +147,10 @@ begin
         begin
             select company_id into creator_company_id from users where id = new.created_by;
             select company_id into inspector_company_id from users where id = new.assigned_inspector_id;
-            if creator_company_id is null or inspector_company_id is null
-               or creator_company_id <> inspector_company_id then
+            -- IS DISTINCT FROM은 둘 다 NULL(무소속 개인 사용자의 자기배정 등 — 이 트리거의 관할 밖,
+            -- AuthService.validateAssignableInspector가 별도로 다룸)인 경우를 정상 통과시키고,
+            -- 서로 다른 회사로 확인된 경우만(한쪽만 NULL인 경우 포함) 차단한다.
+            if creator_company_id is distinct from inspector_company_id then
                 raise exception
                     'assigned_inspector_id % must belong to the same company as created_by %',
                     new.assigned_inspector_id, new.created_by;
@@ -168,7 +170,7 @@ end
 $migration$;
 
 comment on function check_inspection_assigned_inspector_company() is
-    'inspections.assigned_inspector_id와 created_by가 users.company_id 기준으로 같은 회사인지 강제한다(HAJA-25 P2 — DB 레벨 방어).';
+    'inspections.assigned_inspector_id와 created_by가 users.company_id 기준으로 같은 회사인지 강제한다(둘 다 무소속이면 통과 — HAJA-25 P2 DB 레벨 방어).';
 
 do $migration$
 begin
