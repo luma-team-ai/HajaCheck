@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.CompanyMembership;
+import com.hajacheck.auth.entity.ConsentPolicyType;
 import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.entity.UserConsent;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectRevision;
 import com.hajacheck.core.defect.entity.DefectStatus;
@@ -65,14 +67,22 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
                 company.getId(), member.getId(), owner.getId(), Instant.now().plusSeconds(3600));
         membership.approve();
         em.persistAndFlush(membership);
+        UserConsent consent = UserConsent.of(
+                member.getId(), ConsentPolicyType.TERMS_OF_SERVICE, "v1.0");
+        em.persistAndFlush(consent);
         Long membershipId = membership.getId();
+        Long consentId = consent.getId();
         em.clear();
 
         CompanyMembership found = em.find(CompanyMembership.class, membershipId);
 
         assertThat(found.getCompanyId()).isEqualTo(company.getId());
         assertThat(found.getUserId()).isEqualTo(member.getId());
+        assertThat(found.getCompany().getOwnerUser().getId()).isEqualTo(owner.getId());
+        assertThat(found.getUser().getEmail()).isEqualTo("membership-member@haja.com");
+        assertThat(found.getInviter().getId()).isEqualTo(owner.getId());
         assertThat(found.isEffectiveAt(Instant.now())).isTrue();
+        assertThat(em.find(UserConsent.class, consentId).getUser().getId()).isEqualTo(member.getId());
     }
 
     @Test
@@ -110,10 +120,16 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
         Long reportId = report.getId();
         em.clear();
 
-        assertThat(em.find(Media.class, mediaId).getMimeType()).isEqualTo("image/jpeg");
-        assertThat(em.find(DefectRevision.class, revisionId).getReason()).isEqualTo("현장 검토");
-        assertThat(em.find(Report.class, reportId).getContentJson()).contains("균열 확인");
-        assertThat(em.find(Report.class, reportId).getGroundingWarnings()).isEqualTo("[]");
+        Media foundMedia = em.find(Media.class, mediaId);
+        assertThat(foundMedia.getMimeType()).isEqualTo("image/jpeg");
+        assertThat(foundMedia.getInspection().getFacility().getName()).isEqualTo("통합검증 시설");
+        DefectRevision foundRevision = em.find(DefectRevision.class, revisionId);
+        Report foundReport = em.find(Report.class, reportId);
+        assertThat(foundRevision.getReason()).isEqualTo("현장 검토");
+        assertThat(foundRevision.getDefect().getInspection().getId()).isEqualTo(inspection.getId());
+        assertThat(foundReport.getContentJson()).contains("균열 확인");
+        assertThat(foundReport.getGroundingWarnings()).isEqualTo("[]");
+        assertThat(foundReport.getInspection().getId()).isEqualTo(inspection.getId());
     }
 
     @Test
@@ -164,6 +180,8 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
                 em.find(ChatMessageCitation.class, firstId).getChunkRef(),
                 em.find(ChatMessageCitation.class, secondId).getChunkRef()))
                 .containsExactly("chunk-1", "chunk-2");
+        assertThat(em.find(ChatMessageCitation.class, firstId).getDocument().getId())
+                .isEqualTo(documentId);
     }
 
     @Test
