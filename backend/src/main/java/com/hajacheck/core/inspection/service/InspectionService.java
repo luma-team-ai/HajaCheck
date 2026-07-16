@@ -57,7 +57,10 @@ public class InspectionService {
                 .build();
 
         try {
-            return InspectionResponse.from(inspectionRepository.save(inspection));
+            // saveAndFlush로 명시 — Inspection.id는 IDENTITY 전략이라 save()만으로도 즉시 INSERT되지만,
+            // catch가 채번 전략(SEQUENCE/AUTO 등으로 변경 시 flush가 커밋까지 지연될 수 있음)에
+            // 암묵적으로 의존하지 않도록 이 트랜잭션 안에서 INSERT를 강제로 확정한다.
+            return InspectionResponse.from(inspectionRepository.saveAndFlush(inspection));
         } catch (DataIntegrityViolationException e) {
             // PESSIMISTIC_WRITE 행 잠금이 정상 경로는 모두 막지만, 방어적으로 unique(facility_id, round_no)
             // 위반만 통일된 409로 변환한다. 그 외 무결성 위반(예: FK 대상이 검증 이후 삭제된 경우 등)은

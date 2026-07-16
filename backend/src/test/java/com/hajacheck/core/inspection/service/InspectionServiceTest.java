@@ -80,7 +80,7 @@ class InspectionServiceTest {
         InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 20), 200L);
         when(facilityService.get(100L, 1L)).thenReturn(ownedFacility());
         when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(0);
-        when(inspectionRepository.save(any(Inspection.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(inspectionRepository.saveAndFlush(any(Inspection.class))).thenAnswer(inv -> inv.getArgument(0));
 
         InspectionResponse response = service.createInspection(request, 100L);
 
@@ -97,7 +97,7 @@ class InspectionServiceTest {
         InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 20), 200L);
         when(facilityService.get(100L, 1L)).thenReturn(ownedFacility());
         when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(3);
-        when(inspectionRepository.save(any(Inspection.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(inspectionRepository.saveAndFlush(any(Inspection.class))).thenAnswer(inv -> inv.getArgument(0));
 
         InspectionResponse response = service.createInspection(request, 100L);
 
@@ -113,7 +113,7 @@ class InspectionServiceTest {
         assertThatThrownBy(() -> service.createInspection(request, 999L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
-        verify(inspectionRepository, never()).save(any());
+        verify(inspectionRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -126,7 +126,7 @@ class InspectionServiceTest {
         assertThatThrownBy(() -> service.createInspection(request, 100L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.AUTH_INVALID_INSPECTOR));
-        verify(inspectionRepository, never()).save(any());
+        verify(inspectionRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -137,7 +137,7 @@ class InspectionServiceTest {
         assertThatThrownBy(() -> service.createInspection(request, 100L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.INSPECTION_DATE_INVALID));
-        verify(inspectionRepository, never()).save(any());
+        verify(inspectionRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -149,7 +149,7 @@ class InspectionServiceTest {
         assertThatThrownBy(() -> service.createInspection(request, 100L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.INSPECTION_DATE_INVALID));
-        verify(inspectionRepository, never()).save(any());
+        verify(inspectionRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -157,7 +157,7 @@ class InspectionServiceTest {
         InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 20), 200L);
         when(facilityService.get(100L, 1L)).thenReturn(ownedFacility());
         when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(0);
-        when(inspectionRepository.save(any(Inspection.class)))
+        when(inspectionRepository.saveAndFlush(any(Inspection.class)))
                 .thenThrow(new DataIntegrityViolationException("could not execute statement",
                         new ConstraintViolationException("duplicate key value violates unique constraint",
                                 new SQLException("duplicate key"), "inspections_facility_id_round_no_key")));
@@ -178,7 +178,7 @@ class InspectionServiceTest {
                 "could not execute statement",
                 new ConstraintViolationException("insert or update violates foreign key constraint",
                         new SQLException("fk violation"), "fk_inspections_assigned_inspector_id"));
-        when(inspectionRepository.save(any(Inspection.class))).thenThrow(fkViolation);
+        when(inspectionRepository.saveAndFlush(any(Inspection.class))).thenThrow(fkViolation);
 
         assertThatThrownBy(() -> service.createInspection(request, 100L))
                 .isSameAs(fkViolation);
