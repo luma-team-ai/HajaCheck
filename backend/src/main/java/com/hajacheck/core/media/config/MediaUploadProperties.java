@@ -17,8 +17,9 @@ public class MediaUploadProperties {
     /** 개별 파일 최대 용량(bytes). 기본 20MB(폰 카메라 사진 고려, 사업자등록증보다 큼). */
     private long maxSizeBytes = 20_971_520L;
 
-    /** 한 번의 업로드 요청에서 허용하는 최대 파일 개수. */
-    private int maxFilesPerRequest = 20;
+    /** 한 번의 업로드 요청에서 허용하는 최대 파일 개수 — 요청당 메모리 상한(개수×maxSizeBytes)을 통제하는
+     * 방어값이라 과도하게 키우지 않는다(리뷰 P2: 요청 총량·동시성 DoS 노출 완화). */
+    private int maxFilesPerRequest = 10;
 
     /** 썸네일 재인코딩 시 가로/세로 중 긴 변의 최대 픽셀(비율 유지 축소). */
     private int thumbnailMaxDimension = 400;

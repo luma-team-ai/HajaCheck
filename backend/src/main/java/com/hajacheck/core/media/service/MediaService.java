@@ -15,6 +15,7 @@ import com.hajacheck.core.media.support.ImageThumbnailGenerator;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -96,13 +97,25 @@ public class MediaService {
                 properties.getAllowedContentTypes(), properties.getMaxSizeBytes());
         storedKeys.add(original.storageKey());
 
-        byte[] originalBytes = readBytes(file);
-        byte[] thumbnailBytes = ImageThumbnailGenerator.generate(originalBytes, properties.getThumbnailMaxDimension());
+        // byte[] 전체를 앱 힙에 올리지 않고 스트리밍으로 처리 — 각 유틸이 필요한 만큼만 읽는다
+        // (최대 20개 파일 배치 업로드에서 힙 압박을 줄이기 위함). MultipartFile은 임시 저장소
+        // 기반이라 getInputStream()을 여러 번 독립적으로 호출해도 매번 처음부터 읽힌다.
+        byte[] thumbnailBytes;
+        try (InputStream in = file.getInputStream()) {
+            thumbnailBytes = ImageThumbnailGenerator.generate(in, properties.getThumbnailMaxDimension());
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
+        }
         StoredFile thumbnail = fileStorage.storeBytes(thumbnailBytes, THUMBNAIL_MIME_TYPE, THUMBNAIL_CATEGORY,
                 THUMBNAIL_CONTENT_TYPES, THUMBNAIL_MAX_BYTES);
         storedKeys.add(thumbnail.storageKey());
 
-        ExifData exif = ExifGpsExtractor.extract(originalBytes);
+        ExifData exif;
+        try (InputStream in = file.getInputStream()) {
+            exif = ExifGpsExtractor.extract(in);
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
+        }
 
         return Media.builder()
                 .inspectionId(inspectionId)
@@ -120,7 +133,12 @@ public class MediaService {
     /**
      * 썸네일 조회(인가된 서빙 엔드포인트 전용) — 소유권 재검증 후 바이트를 반환한다.
      * 원본(originalUrl)은 어떤 경로로도 읽어 반환하지 않는다(PRD FR-2 원본 비공개 정책).
+     *
+     * <p>⚠️ uploadMedia()와 동일한 이유로 NOT_SUPPORTED — 클래스 레벨 readOnly=true 트랜잭션을 연 채로
+     * fileStorage.read()의 블로킹 디스크 IO를 수행하면 DB 커넥션을 불필요하게 오래 점유한다. 조회는
+     * 병렬·빈번하게 호출될 수 있어(썸네일 그리드) 커넥션 풀 고갈 위험이 업로드보다 오히려 크다.
      */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ThumbnailFile getThumbnail(Long requesterUserId, Long mediaId) {
         Media media = mediaRepository.findById(mediaId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
@@ -129,14 +147,6 @@ public class MediaService {
             throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
         }
         return new ThumbnailFile(fileStorage.read(media.getThumbnailUrl()), THUMBNAIL_MIME_TYPE);
-    }
-
-    private byte[] readBytes(MultipartFile file) {
-        try {
-            return file.getBytes();
-        } catch (IOException e) {
-            throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
-        }
     }
 
     public record ThumbnailFile(byte[] content, String mimeType) {

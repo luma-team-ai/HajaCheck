@@ -19,8 +19,8 @@ spring:
     multipart:
       # 개별 파일 한도는 두 업로드 기능 중 더 큰 쪽(점검 미디어 20MB, 사업자등록증 10MB) 기준.
       max-file-size: 20MB
-      # 점검 미디어 다중 업로드 최악값 기준: maxFilesPerRequest(20) × maxSizeBytes(20MB) + 여유.
-      max-request-size: 405MB
+      # 점검 미디어 다중 업로드 최악값 기준: maxFilesPerRequest(10) × maxSizeBytes(20MB) + 여유.
+      max-request-size: 205MB
   # 비밀번호 재설정 메일 발송(#194) — 시크릿은 전부 env 참조, 커밋된 값 없음.
   # ⚠️ SMTP_HOST 미설정 시 값이 "빈 문자열로 존재"한다 → 스프링은 JavaMailSender 빈을 만들지만,
   #    발송 구현체 선택은 SmtpConfiguredCondition(빈값 배제)이 하므로 로컬/dev 는 로그 폴백으로 간다.
@@ -72,7 +72,7 @@ app:
       - image/jpeg
       - image/png
     max-size-bytes: 20971520
-    max-files-per-request: 20
+    max-files-per-request: 10
     thumbnail-max-dimension: 400
   policy:
     # 약관 버전은 서버 소유(클라이언트 미전송) — 동의 이력에 기록.
