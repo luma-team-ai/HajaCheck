@@ -83,6 +83,23 @@ class ImageThumbnailGeneratorTest {
                         .isEqualTo(ErrorCode.FILE_INVALID_TYPE));
     }
 
+    /**
+     * ImageSignatureValidator는 앞 8바이트(PNG 시그니처)만 대조하므로, "시그니처+헤더(IHDR)는 유효하나
+     * 실제 픽셀 데이터(IDAT)가 조작/손상된" 입력이 이 검증을 통과해 디코딩 단계까지 도달할 수 있다
+     * (리뷰 P2). getWidth/getHeight(헤더 단계)는 통과하지만 reader.read(픽셀 디코딩 단계)에서 실패하는
+     * 입력이므로, 헤더만 조작한 픽셀폭탄 테스트와 달리 실제 디코딩 경로의 예외 흡수를 검증한다. JDK
+     * PNG 리더가 이런 입력에 체크 예외(IOException)를 던지는지 unchecked 예외를 던지는지는 버전마다
+     * 다를 수 있으므로, 결과가 "어떤 BusinessException(400)"인지만 고정한다 — raw 500이 아니면 된다
+     * (ExifGpsExtractorTest.extract_유효매직바이트지만내용이잘리거나손상됨_예외없이EMPTY반환과 대응).
+     */
+    @Test
+    void generate_시그니처와헤더는유효하나픽셀데이터가손상됨_예외전파없이BusinessException으로매핑() {
+        byte[] corruptedPixelData = craftPngWithCorruptedIdat(100, 100);
+
+        assertThatThrownBy(() -> ImageThumbnailGenerator.generate(new ByteArrayInputStream(corruptedPixelData), 400))
+                .isInstanceOf(BusinessException.class);
+    }
+
     private static byte[] craftPngWithDeclaredDimensions(int width, int height) {
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -96,6 +113,28 @@ class ImageThumbnailGeneratorTest {
 
             // IDAT은 실제 픽셀 디코딩 단계까지 가면 실패해도 무방 — 헤더 단계에서 이미 거부되어야 하므로 빈 데이터.
             writeChunk(out, "IDAT", new byte[0]);
+            writeChunk(out, "IEND", new byte[0]);
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static byte[] craftPngWithCorruptedIdat(int width, int height) {
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            out.write(new byte[] {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A});
+
+            ByteArrayOutputStream ihdrData = new ByteArrayOutputStream();
+            ihdrData.write(intToBytes(width));
+            ihdrData.write(intToBytes(height));
+            ihdrData.write(new byte[] {8, 2, 0, 0, 0});
+            writeChunk(out, "IHDR", ihdrData.toByteArray());
+
+            // 유효한 zlib/deflate 스트림이 아닌 임의 바이트 — 헤더 파싱은 통과하지만 픽셀 압축해제에서 실패해야 한다.
+            byte[] garbageIdat = new byte[64];
+            new java.util.Random(7).nextBytes(garbageIdat);
+            writeChunk(out, "IDAT", garbageIdat);
             writeChunk(out, "IEND", new byte[0]);
             return out.toByteArray();
         } catch (IOException e) {

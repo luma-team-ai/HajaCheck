@@ -49,6 +49,16 @@ public final class ImageThumbnailGenerator {
                 }
                 BufferedImage image = reader.read(0, subsamplingParam(reader, width, height, maxDimension));
                 return resizeToJpeg(image, maxDimension);
+            } catch (BusinessException e) {
+                throw e;
+            } catch (RuntimeException e) {
+                // ImageSignatureValidator는 앞 8바이트만 대조하므로 "매직바이트는 유효하나 그 뒤가
+                // 조작/손상된 바이트"가 여기까지 도달할 수 있다(리뷰 P2). 그런 입력에서 ImageReader의
+                // getWidth/read는 IOException이 아니라 IllegalArgumentException·
+                // ArrayIndexOutOfBoundsException 등 unchecked 예외를 던질 수 있는데, 이를 잡지 않으면
+                // 조작된 파일 하나가 배치 업로드 전체를 매핑되지 않은 500으로 깨뜨린다
+                // (ExifGpsExtractor.extract()의 동일 위협에 대한 방어와 대칭을 맞춘다).
+                throw new BusinessException(ErrorCode.FILE_INVALID_TYPE);
             } finally {
                 reader.dispose();
             }
