@@ -84,7 +84,9 @@ services:
         condition: service_healthy
     volumes:
       # application-docker.yml의 app.file-storage.base-dir 대응 — 미마운트 시 컨테이너 임시 FS에 저장되어
-      # 재시작(--build 등) 시 업로드 파일이 유실된다(arm1 운영 compose와 동일한 이유로 개인 로컬에도 배선).
+      # 재시작(--build 등) 시 업로드 파일이 유실된다. arm1 운영 compose도 #323에서 동일한 마운트를
+      # 추가함(그 전까지는 이 개인 오버레이만 배선돼 있었고, arm1은 마운트 없이 라이브 배포된 상태였다 —
+      # 운영 갭이었다. 아래 문장이 한동안 사실이 아니었던 이유).
       - oci-db-uploads:/app/uploads/hajacheck-files
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db-tunnel:5432/hajacheck_dev
