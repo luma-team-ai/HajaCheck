@@ -1,6 +1,7 @@
 package com.hajacheck.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.CompanyMembership;
@@ -24,6 +25,7 @@ import com.hajacheck.core.rag.entity.RagEmbeddingStatus;
 import com.hajacheck.core.rag.entity.RagTargetCollection;
 import com.hajacheck.core.report.entity.GroundingCheckResult;
 import com.hajacheck.core.report.entity.Report;
+import com.hajacheck.core.report.service.GroundingCheckResultFactory;
 import com.hajacheck.counsel.entity.BotScenario;
 import com.hajacheck.counsel.entity.ChatMessage;
 import com.hajacheck.counsel.entity.ChatSenderType;
@@ -44,6 +46,8 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 @DataJpaTest
@@ -56,6 +60,9 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
 
     @Autowired
     private NotificationRepository notificationRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void companyMembership_저장조회() {
@@ -115,7 +122,7 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
                 inspection.getId(), 1, "{\"summary\":\"균열 발견\"}", owner.getId());
         report.updateContent("{\"summary\":\"균열 확인\"}", owner.getId());
         report.recordGroundingResult(
-                GroundingCheckResult.fromAiReport(
+                GroundingCheckResultFactory.fromAiReport(
                         new ReportResponse(null, null, null, null, true), "[]"),
                 owner.getId());
         em.persist(report);
@@ -192,6 +199,22 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
                 .containsExactly("chunk-1", "chunk-2");
         assertThat(em.find(ChatMessageCitation.class, firstId).getDocument().getId())
                 .isEqualTo(documentId);
+    }
+
+    @Test
+    void counselTicket_동일상담세션중복배정_거부() {
+        User user = seedUser("counsel-unique-user@haja.com");
+        ChatSession session = ChatSession.start(user.getId(), ChatSessionType.COUNSEL);
+        em.persistAndFlush(session);
+        CounselTicket first = CounselTicket.request(user.getId(), 1);
+        first.assign(user.getId(), session);
+        em.persistAndFlush(first);
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                insert into counsel_tickets (user_id, counselor_id, session_id, status, queue_position)
+                values (?, ?, ?, 'IN_PROGRESS'::counsel_ticket_status_type, null)
+                """, user.getId(), user.getId(), session.getId()))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test

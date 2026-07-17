@@ -68,6 +68,14 @@ begin
     end if;
 
     if exists (
+        select 1 from counsel_tickets
+        where session_id is not null
+        group by session_id having count(*) > 1
+    ) then
+        raise exception 'HAJA-25 finalize blocked: one counsel session is assigned to multiple tickets';
+    end if;
+
+    if exists (
         select 1
         from companies c
         join users u on u.id = c.owner_user_id
@@ -279,9 +287,15 @@ create unique index concurrently if not exists uq_user_plans_active_company
     on user_plans (company_id)
     where status = 'ACTIVE'::user_plan_status_type;
 
+create unique index concurrently if not exists uq_counsel_tickets_session
+    on counsel_tickets (session_id)
+    where session_id is not null;
+
 comment on index uq_user_plans_active_user is
     '동일 사용자에게 ACTIVE 구독이 둘 이상 존재하는 것을 방지한다(중복 과금·엔타이틀먼트 혼선 차단).';
 comment on index uq_user_plans_active_company is
     '동일 회사에 ACTIVE 구독이 둘 이상 존재하는 것을 방지한다(중복 과금·엔타이틀먼트 혼선 차단).';
+comment on index uq_counsel_tickets_session is
+    '하나의 전문상담 세션이 여러 상담 티켓에 중복 배정되는 것을 방지한다.';
 
 select pg_advisory_unlock(hashtext('hajacheck:HAJA-25:schema-migration'));

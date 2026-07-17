@@ -226,6 +226,13 @@ HA25_MIGRATION_EXTERNAL_SCHEMA_READY="true" \
 ./gradlew test --tests com.hajacheck.support.Ha25IncrementalMigrationTest
 ```
 
+### 상담 세션 중복 배정
+
+`counsel_tickets.session_id`는 전문상담 세션 하나와 상담 티켓 하나의 1:1 배정을 뜻한다. finalize는
+동일한 non-null `session_id`가 여러 티켓에 연결된 기존 데이터가 있으면 중단한다. 중복 원인을 확인해
+유효한 티켓 하나만 남기거나 세션을 분리한 뒤 재실행한다. 정리가 끝나면
+`uq_counsel_tickets_session` 부분 유니크 인덱스가 이후 중복 배정을 차단한다.
+
 ### 실패한 concurrent 인덱스 복구
 
 중단된 `CREATE INDEX CONCURRENTLY`는 같은 이름의 INVALID 인덱스를 남길 수 있다. verify가 누락 또는
