@@ -444,6 +444,10 @@ class Ha25IncrementalMigrationTest {
     private static void assertVerifierRejectsSemanticDrift(PostgreSQLContainer<?> postgres) {
         runSql(postgres, "insert duplicate v0.3 inspection key", """
                 alter table inspections drop constraint inspections_facility_id_round_no_key;
+                -- 복제 대상 레거시 row의 assigned_inspector_id가 회사 경계 트리거(INSPECTOR/ADMIN
+                -- role 요구)를 통과하도록, 이 중복-키 테스트 목적과 무관하게 role만 승격한다.
+                update users set role = 'INSPECTOR'::role_type
+                where email = 'approved-owner@ha25.test';
                 insert into inspections (
                     facility_id, created_by, assigned_inspector_id, round_no,
                     inspection_date, status)
