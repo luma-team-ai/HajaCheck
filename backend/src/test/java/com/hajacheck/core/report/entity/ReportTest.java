@@ -3,7 +3,6 @@ package com.hajacheck.core.report.entity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.hajacheck.core.ai.dto.ReportResponse;
 import org.junit.jupiter.api.Test;
 
 class ReportTest {
@@ -164,7 +163,8 @@ class ReportTest {
     }
 
     private static GroundingCheckResult grounding(boolean passed, String warnings) {
-        ReportResponse aiReport = new ReportResponse(null, null, null, null, passed);
-        return GroundingCheckResult.fromAiReport(aiReport, warnings);
+        return passed
+                ? GroundingCheckResult.passed(warnings)
+                : GroundingCheckResult.failed(warnings);
     }
 }

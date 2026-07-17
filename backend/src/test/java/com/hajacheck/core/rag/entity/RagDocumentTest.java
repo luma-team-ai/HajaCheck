@@ -62,4 +62,17 @@ class RagDocumentTest {
         assertThat(document.getChunkCount()).isNull();
         assertThat(document.getEmbeddedAt()).isNull();
     }
+
+    @Test
+    void verify_미검증문서를검증하고재호출은멱등() {
+        RagDocument document = RagDocument.upload(
+                "검증 문서", RagDocumentSourceType.LAW, RagTargetCollection.REGULATIONS,
+                null, null, null, RagDocumentVerificationStatus.UNVERIFIED,
+                "https://files.example/doc.pdf");
+
+        document.verify();
+        document.verify();
+
+        assertThat(document.getVerificationStatus()).isEqualTo(RagDocumentVerificationStatus.VERIFIED);
+    }
 }
