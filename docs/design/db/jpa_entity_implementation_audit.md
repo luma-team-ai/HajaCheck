@@ -236,24 +236,60 @@ Entity에 노출하지 않는다.
 2026-07-16 최초 로컬 실행에서는 Docker CLI/엔진이 없어 Testcontainers의 PostgreSQL 컨테이너를
 시작하지 못했고, 당시 129개 중 49개가 실패했다. 이 결과는 환경 실패 기록이며 현재 기준선이 아니다.
 
-이후 로컬 PostgreSQL 17 격리 DB를 외부 테스트 DB 경로로 연결해 동일한 전체 테스트를 다시 실행했다.
+⚠️ **실행 경로 구분(2026-07-17 정정)**: `Ha25IncrementalMigrationTest`는 `TEST_POSTGRES_URL`
+(외부 DB 경로)이 설정되면 `POSTGRES == null` 분기로 진입해 `EXTERNAL_SCHEMA_READY` 확인 후
+즉시 `return`하며, expand/finalize/verify 실행·카탈로그 서명 대조(`assertCanonicalSchemaParity`)·
+5가지 tamper 거부 시나리오(`assertVerifierRejectsSemanticDrift`)는 `createMigratedContainer()`
+(Testcontainers 경로)에서만 실행된다(`Ha25IncrementalMigrationTest.java:222-228, 259-308`). 즉
+아래 두 항목은 **서로 다른 실행에서 나온 결과이며 하나의 `gradlew test` 실행으로 동시에 나올 수 없다.**
+이전 버전 문서는 이를 하나의 목록으로 나열해 근거가 불명확했다 — §4.1/§4.2로 분리한다.
 
-- 명령: `backend/gradlew.bat test`
-- 전체: 240개
-- 성공: 240개
-- 실패/오류/건너뜀: 0개
-- 통합 DDL 적용 및 Hibernate `ddl-auto=validate`: 통과
-- PostgreSQL 17에서 v0.3 → expand 2회 → finalize 2회 → verify(`ha25_schema_ready=true`) →
-  Hibernate `ddl-auto=validate`: 통과
-- P2 보강 후 격리 PostgreSQL 17의 독립 DB 두 개에 각각 `v0.3 + HAJA-25 증분`과 캐노니컬
-  DDL을 적용하고 정규화한 카탈로그 서명을 대조: 통과
-- `lock_version=0` 기존 행 백필과 `assigned_inspector_id` 미백필 finalize 차단: 통과
+### 4.1 `gradlew.bat test` (외부 DB 경로, `TEST_POSTGRES_URL`) — 자동화된 테스트 실행
+
+- 2026-07-16 최초 기준선: 전체 240개, 성공 240개, 실패/오류/건너뜀 0개
+- 2026-07-17 P1(캐노니컬 DDL drift)·P2(회사 경계 트리거 런타임 테스트, Notification 낙관적 락
+  테스트) 추가 반영 후 재실행: 전체 246개, 성공 245개, 실패 1개(`Ha25IncrementalMigrationTest` —
+  이 경로에서도 Testcontainers를 시도하다 이 로컬 환경의 Docker Desktop named pipe 호환성 문제로
+  실패. 회귀 아님 — §4.2에서 동일 내용을 수동 재현해 확인)
+- 포함 범위: `PostgresTestSupport`를 상속한 모든 Repository/통합 테스트(엔티티 Hibernate
+  `ddl-auto=validate` 포함), `StateTransitionOptimisticLockTest`, `NotificationOptimisticLockTest`,
+  `InspectionAssignedInspectorCompanyBoundaryTest`(cross-company 배정 거부·동일회사 허용·
+  무소속 자기배정 허용 런타임 검증)
+
+### 4.2 Testcontainers 전용 경로 — 수동 검증(자동화된 CI 실행 아님)
+
+아래는 `Ha25IncrementalMigrationTest.createMigratedContainer()`가 Testcontainers로 자동 수행하도록
+설계된 검증이나, 이 로컬 환경은 Docker Desktop named pipe 호환성 문제로 Testcontainers Java
+클라이언트를 통한 자동 실행이 불가능했다. 대신 `docker run`으로 컨테이너를 직접 띄워 동일한 SQL
+절차를 수동으로 재현했다 — **자동화된 테스트 통과가 아니라 사람이 명령을 하나씩 실행하고 결과를
+눈으로 확인한 것**이다.
+
+- PostgreSQL 17에서 v0.3 → expand 2회 → finalize 2회 → verify(`ha25_schema_ready=true`) 확인
+  (2026-07-16 최초 검증)
+- 캐노니컬 DDL만 적용한 신규설치 DB와 `v0.3 + HAJA-25 증분` 전체 경로를 거친 DB의 정규화된
+  카탈로그 서명(enum/table/column/constraint/index/trigger/sequence/function)을 직접 `diff` —
+  완전 일치 확인(2026-07-17, 회사 경계 트리거를 캐노니컬 DDL에 반영한 뒤 재검증)
+- `lock_version=0` 기존 행 백필과 `assigned_inspector_id` 미백필 finalize 차단 확인
 - 복합 업무 키 중복, `lock_version` NULL 잔존, 잘못된 인덱스 정의, 컬럼 NULL/default 드리프트,
-  잘못된 FK 대상, replica-only 트리거를 verify가 각각 거부하고 원상복구 뒤 다시 통과함을 확인
-- stale 상태 전이 낙관적 락 통합 테스트: 통과
+  잘못된 FK 대상, replica-only 트리거, 회사 경계 트리거 누락을 verify가 각각 거부하고 원상복구 뒤
+  다시 통과함을 확인
+- 회사 경계 트리거의 실제 INSERT/UPDATE 거부·허용 3가지 조합(서로 다른 회사 차단, 동일 회사 다른
+  사용자 허용, 둘 다 무소속 자기배정 허용)을 수동으로 재현해 확인(자동화 버전은 §4.1의
+  `InspectionAssignedInspectorCompanyBoundaryTest`)
 
-따라서 HAJA-206 완료 기준인 “`./gradlew test`가 통과한다”를 2026-07-16 기준으로 충족했다.
-Repository 및 증분 테스트의 Testcontainers 기본 이미지도 운영 목표와 같은 `postgres:17`로 통일했다.
+### 4.3 미확정 사항
+
+- 이 브랜치는 아직 원격에 `push`되지 않았다. Docker 기반 CI가 이 커밋들에 대해
+  `Ha25IncrementalMigrationTest`(캐노니컬 parity·tamper 시나리오 포함, §4.2 해당)를 자동
+  실행한 적이 없다. §4.2의 수동 검증은 §4.1의 자동화된 테스트 실행과 **같은 실행에서 나온 결과가
+  아니며**, 서로 다른 방식(자동 vs 수동)으로 얻은 근거임을 분리해 기록한다.
+- push 후 CI가 그린으로 확인되기 전까지 이 문서의 "테스트 기준선"은 로컬 검증 수준으로만 신뢰하고,
+  최종 확정("검증 완료") 근거로 인용하지 않는다.
+
+따라서 HAJA-206 완료 기준인 "`./gradlew test`가 통과한다"는 §4.1 기준 2026-07-16 시점에 충족했다.
+§4.2의 Testcontainers 전용 검증은 push 후 CI(또는 Docker가 정상 동작하는 환경)에서 자동 재확인이
+필요하다. Repository 및 증분 테스트의 Testcontainers 기본 이미지도 운영 목표와 같은 `postgres:17`로
+통일했다.
 
 ## 5. 구현 완료 체크리스트
 
