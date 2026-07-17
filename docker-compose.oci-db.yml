@@ -86,8 +86,15 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID가 .env에 설정되어야 합니다}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET가 .env에 설정되어야 합니다}
       SERVER_SERVLET_SESSION_COOKIE_SECURE: "false"
-      APP_OAUTH2_SUCCESS_REDIRECT: "http://localhost:5173/dashboard"
-      APP_OAUTH2_FAILURE_REDIRECT: "http://localhost:5173/login?error=oauth"
+      # ⚠️ 콜백(redirect-uri)과 반드시 같은 오리진이어야 한다 — http://localhost(80, nginx).
+      # 이전엔 :5173(vite dev)이었는데, 이 오버레이가 전제하는 "nginx 80 단일 오리진"과 어긋났다(#302).
+      # 그 탓에 80에서 로그인하면 5173(다른 앱)으로 착지했다:
+      #   - 80은 nginx가 서빙하는 dist(프로덕션 빌드 → DEV=false → MSW 없음)
+      #   - 5173은 vite dev 서버(DEV=true → MSW 기본 켜짐)
+      #   → 착지한 5173에서 목 getMe(항상 401)가 실 세션을 가려 /login으로 축출됐다.
+      # 운영 설정(application-docker.yml)도 콜백·착지가 같은 오리진(luma200ok.com)이다 — 그 패턴을 따른다.
+      APP_OAUTH2_SUCCESS_REDIRECT: "http://localhost/dashboard"
+      APP_OAUTH2_FAILURE_REDIRECT: "http://localhost/login?error=oauth"
 
   fastapi:
     depends_on:
