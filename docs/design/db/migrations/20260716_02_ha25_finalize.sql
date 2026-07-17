@@ -141,41 +141,28 @@ alter table inspections drop constraint ck_inspections_assigned_inspector_not_nu
 -- AuthService.validateAssignableInspector가 매 생성 시점에 요청자(=created_by)와 배정자가
 -- 같은 회사(users.company_id)인지 이미 검증하지만, 이는 애플리케이션 계층 방어일 뿐이다.
 -- 백필이 끝난 뒤(NOT NULL 확정 후)에만 설치해, 정리되지 않은 과거 데이터가 백필 자체를 막지 않게 한다.
-do $migration$
+create or replace function check_inspection_assigned_inspector_company() returns trigger as $check$
+declare
+    creator_company_id bigint;
+    inspector_company_id bigint;
 begin
-    if not exists (
-        select 1 from pg_proc p
-        join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'public' and p.proname = 'check_inspection_assigned_inspector_company'
-    ) then
-        create function check_inspection_assigned_inspector_company() returns trigger as $check$
-        declare
-            creator_company_id bigint;
-            inspector_company_id bigint;
-        begin
-            select company_id into creator_company_id from users where id = new.created_by;
-            select company_id into inspector_company_id from users where id = new.assigned_inspector_id;
-            -- IS DISTINCT FROM은 둘 다 NULL(무소속 개인 사용자의 자기배정 등 — 이 트리거의 관할 밖,
-            -- AuthService.validateAssignableInspector가 별도로 다룸)인 경우를 정상 통과시키고,
-            -- 서로 다른 회사로 확인된 경우만(한쪽만 NULL인 경우 포함) 차단한다.
-            if creator_company_id is distinct from inspector_company_id then
-                raise exception
-                    'assigned_inspector_id % must belong to the same company as created_by %',
-                    new.assigned_inspector_id, new.created_by;
-            end if;
-            return new;
-        end;
-        $check$ language plpgsql;
+    select company_id into creator_company_id from users where id = new.created_by;
+    select company_id into inspector_company_id from users where id = new.assigned_inspector_id;
+    -- IS DISTINCT FROM은 둘 다 NULL(무소속 개인 사용자의 자기배정 등 — 이 트리거의 관할 밖,
+    -- AuthService.validateAssignableInspector가 별도로 다룸)인 경우를 정상 통과시키고,
+    -- 서로 다른 회사로 확인된 경우만(한쪽만 NULL인 경우 포함) 차단한다.
+    if creator_company_id is distinct from inspector_company_id then
+        raise exception
+            'assigned_inspector_id % must belong to the same company as created_by %',
+            new.assigned_inspector_id, new.created_by;
     end if;
+    return new;
+end;
+$check$ language plpgsql;
 
-    if not exists (select 1 from pg_trigger where tgname = 'trg_inspections_check_assigned_inspector_company'
-                   and tgrelid = 'inspections'::regclass and not tgisinternal) then
-        create trigger trg_inspections_check_assigned_inspector_company
-            before insert or update of assigned_inspector_id, created_by on inspections
-            for each row execute procedure check_inspection_assigned_inspector_company();
-    end if;
-end
-$migration$;
+create or replace trigger trg_inspections_check_assigned_inspector_company
+    before insert or update of assigned_inspector_id, created_by on inspections
+    for each row execute procedure check_inspection_assigned_inspector_company();
 
 comment on function check_inspection_assigned_inspector_company() is
     'inspections.assigned_inspector_id와 created_by가 users.company_id 기준으로 같은 회사인지 강제한다(둘 다 무소속이면 통과 — HAJA-25 P2 DB 레벨 방어).';
