@@ -86,5 +86,5 @@ describe('authApi.findLoginId', () => {
   });
 });
 
-// authApi.passwordInquiry / authApi.passwordReset 테스트는 계정 탈취 P1(보안 리뷰)로
-// 해당 API 자체가 범위 제외되어 함께 제거됨 — 보안질문 방식으로 후속(#194, HAJA-172)
+// 비밀번호 찾기 API(requestPasswordReset / resetPassword) 테스트는 authApi.passwordReset.test.ts
+// 로 분리돼 있다 — 이메일 링크 방식으로 재설계·구현(#301, HAJA-224).
