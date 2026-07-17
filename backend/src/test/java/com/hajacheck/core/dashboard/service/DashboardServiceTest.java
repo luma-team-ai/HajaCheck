@@ -34,6 +34,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 
 @ExtendWith(MockitoExtension.class)
 class DashboardServiceTest {
@@ -162,8 +163,9 @@ class DashboardServiceTest {
                 inspection(200L, FACILITY_ID, OWNER_ID, LocalDate.now(), InspectionStatus.REVIEWED);
         when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of(myInspection));
         Defect pending = defect(300L, 200L, DefectGrade.E, DefectStatus.ACTION_PENDING);
-        when(defectRepository.findTop10ByInspectionIdInAndStatusAndDeletedFalseOrderByGradeDescCreatedAtDesc(
-                List.of(200L), DefectStatus.ACTION_PENDING)).thenReturn(List.of(pending));
+        when(defectRepository.findPendingPriorityDefects(
+                List.of(200L), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10)))
+                .thenReturn(List.of(pending));
 
         List<PendingPriorityResponse> result = dashboardService.getPendingPriority(OWNER_ID);
 
@@ -172,8 +174,8 @@ class DashboardServiceTest {
         assertThat(result.get(0).grade()).isEqualTo("E");
         // 타인(OTHER_OWNER_ID) 소유 시설물은 findByOwnerId(OWNER_ID) 결과에 없으므로
         // defectRepository 조회 인자에도 해당 시설물의 inspectionId 가 절대 섞이지 않는다.
-        verify(defectRepository).findTop10ByInspectionIdInAndStatusAndDeletedFalseOrderByGradeDescCreatedAtDesc(
-                List.of(200L), DefectStatus.ACTION_PENDING);
+        verify(defectRepository).findPendingPriorityDefects(
+                List.of(200L), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10));
     }
 
     @Test
@@ -184,7 +186,7 @@ class DashboardServiceTest {
 
         assertThat(result).isEmpty();
         verify(defectRepository, never())
-                .findTop10ByInspectionIdInAndStatusAndDeletedFalseOrderByGradeDescCreatedAtDesc(any(), any());
+                .findPendingPriorityDefects(any(), any(), any());
     }
 
     @Test
