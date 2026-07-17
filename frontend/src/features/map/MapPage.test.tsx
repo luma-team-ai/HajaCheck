@@ -47,6 +47,31 @@ vi.mock('./api/mapApi', () => ({
 // MapPage를 동적 import하여 위 vi.mock이 먼저 적용된 뒤 로드되도록 한다
 let MapPage: typeof import('./MapPage').default;
 
+/**
+ * jsdom에는 ResizeObserver가 구현돼 있지 않으므로 최소 스텁으로 대체한다.
+ * MapPage가 지도 컨테이너 레이아웃 확정 시점(100ms 고정 setTimeout 대신)을 감지하는 데 사용한다.
+ */
+class MockResizeObserver {
+  static instances: MockResizeObserver[] = [];
+  callback: ResizeObserverCallback;
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+    MockResizeObserver.instances.push(this);
+  }
+
+  /** 테스트에서 컨테이너 크기가 확정된 상황을 흉내내기 위한 헬퍼 */
+  triggerResize(width: number, height: number) {
+    this.callback(
+      [{ contentRect: { width, height } } as ResizeObserverEntry],
+      this as unknown as ResizeObserver,
+    );
+  }
+}
+
 /** 지도 인스턴스 상태를 추적하는 최소 Kakao Maps 스텁 (window.kakao.maps) */
 function stubKakaoMaps() {
   let currentLevel = 7;
@@ -116,6 +141,8 @@ describe('MapPage', () => {
   beforeEach(async () => {
     vi.resetModules();
     stubKakaoMaps();
+    MockResizeObserver.instances = [];
+    vi.stubGlobal('ResizeObserver', MockResizeObserver);
     ({ default: MapPage } = await import('./MapPage'));
   });
 
@@ -123,6 +150,39 @@ describe('MapPage', () => {
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('컨테이너 레이아웃 크기가 확정되면(ResizeObserver) relayout과 setCenter를 호출한다', async () => {
+    renderMapPage();
+    await screen.findByText('한강대교 북단');
+
+    const map = window.kakao.maps.Map as unknown as ReturnType<typeof vi.fn>;
+    const mapInstance = map.mock.results[0].value as {
+      relayout: ReturnType<typeof vi.fn>;
+      setCenter: ReturnType<typeof vi.fn>;
+    };
+
+    expect(MockResizeObserver.instances).toHaveLength(1);
+    const observer = MockResizeObserver.instances[0];
+
+    // 크기 0(레이아웃 계산 전)은 무시해야 한다
+    observer.triggerResize(0, 0);
+    expect(mapInstance.relayout).not.toHaveBeenCalled();
+
+    // 유효한 크기가 관측되면 relayout/setCenter를 호출한다
+    observer.triggerResize(800, 600);
+    expect(mapInstance.relayout).toHaveBeenCalled();
+    expect(mapInstance.setCenter).toHaveBeenCalled();
+  });
+
+  it('언마운트 시 ResizeObserver를 disconnect한다', async () => {
+    const { unmount } = renderMapPage();
+    await screen.findByText('한강대교 북단');
+
+    const observer = MockResizeObserver.instances[0];
+    unmount();
+
+    expect(observer.disconnect).toHaveBeenCalled();
   });
 
   it('확대 버튼 클릭 시 레벨이 감소하고 MIN_MAP_LEVEL(1) 아래로 내려가지 않는다', async () => {
