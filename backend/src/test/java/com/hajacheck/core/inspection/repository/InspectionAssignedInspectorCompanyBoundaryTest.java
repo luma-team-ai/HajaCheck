@@ -99,14 +99,30 @@ class InspectionAssignedInspectorCompanyBoundaryTest extends PostgresTestSupport
     }
 
     @Test
-    void bothCompanyLessSelfAssignment_allowed() {
+    void bothCompanyLessDifferentUsersAssignment_rejectedByTrigger() {
+        User creator = userRepository.saveAndFlush(
+                User.createCompanyOwner(
+                        "boundary-individual-a@haja.test", "individual-a", "<password-hash-placeholder>"));
+        User inspector = userRepository.saveAndFlush(
+                User.createCompanyOwner(
+                        "boundary-individual-b@haja.test", "individual-b", "<password-hash-placeholder>"));
+        Long facilityId = seedFacility(creator.getId(), "무소속사용자간배정차단빌딩");
+
+        assertThatThrownBy(() -> inspectionRepository.saveAndFlush(
+                newInspection(facilityId, creator.getId(), inspector.getId())))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("must belong to the same company");
+    }
+
+    @Test
+    void bothCompanyLessSelfAssignment_rejectedByTrigger() {
         User individual = userRepository.saveAndFlush(
                 User.createCompanyOwner("boundary-individual@haja.test", "individual", "<password-hash-placeholder>"));
         Long facilityId = seedFacility(individual.getId(), "개인빌딩");
 
-        Inspection saved = inspectionRepository.saveAndFlush(
-                newInspection(facilityId, individual.getId(), individual.getId()));
-
-        assertThat(saved.getId()).isNotNull();
+        assertThatThrownBy(() -> inspectionRepository.saveAndFlush(
+                newInspection(facilityId, individual.getId(), individual.getId())))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("must belong to the same company");
     }
 }
