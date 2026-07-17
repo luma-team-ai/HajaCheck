@@ -129,14 +129,29 @@ class AiProxyServiceTest {
     }
 
     @Test
-    void explainDefect_5xx응답_AI_INVALID_RESPONSE예외() {
+    void explainDefect_5xx응답_AI_SERVER_ERROR예외() {
+        // #334 P3: RestClientResponseException 의 상태코드로 4xx/5xx 를 구분 — 5xx 는 업스트림 장애로 AI_SERVER_ERROR.
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andRespond(withServerError());
 
         assertThatThrownBy(() -> aiProxyService.explainDefect(REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
-                        .isEqualTo(ErrorCode.AI_INVALID_RESPONSE));
+                        .isEqualTo(ErrorCode.AI_SERVER_ERROR));
+    }
+
+    @Test
+    void explainDefect_4xx응답_AI_REQUEST_REJECTED예외() {
+        // #334 P3: 4xx 는 우리 쪽 요청이 AI 서버 계약에 안 맞아 거부된 것으로 보아 AI_REQUEST_REJECTED.
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"detail\":\"invalid request\"}"));
+
+        assertThatThrownBy(() -> aiProxyService.explainDefect(REQUEST))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.AI_REQUEST_REJECTED));
     }
 
     @Test

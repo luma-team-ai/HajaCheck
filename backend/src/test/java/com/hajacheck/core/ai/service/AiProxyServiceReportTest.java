@@ -126,13 +126,28 @@ class AiProxyServiceReportTest {
     }
 
     @Test
-    void generateReport_5xx응답_AI_INVALID_RESPONSE예외() {
+    void generateReport_5xx응답_AI_SERVER_ERROR예외() {
+        // #334 P3: 5xx 는 업스트림(AI 서버) 자체 장애로 보아 AI_SERVER_ERROR 로 분기.
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andRespond(withServerError());
 
         assertThatThrownBy(() -> aiProxyService.generateReport(REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
-                        .isEqualTo(ErrorCode.AI_INVALID_RESPONSE));
+                        .isEqualTo(ErrorCode.AI_SERVER_ERROR));
+    }
+
+    @Test
+    void generateReport_4xx응답_AI_REQUEST_REJECTED예외() {
+        // #334 P3: 4xx 는 요청 데이터가 AI 서버 계약에 안 맞아 거부된 것으로 보아 AI_REQUEST_REJECTED 로 분기.
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"detail\":\"invalid request\"}"));
+
+        assertThatThrownBy(() -> aiProxyService.generateReport(REQUEST))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.AI_REQUEST_REJECTED));
     }
 }

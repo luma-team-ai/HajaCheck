@@ -130,7 +130,8 @@ class AiProxyServiceBriefingTest {
     }
 
     @Test
-    void briefing_5xx응답_AI_INVALID_RESPONSE예외() {
+    void briefing_5xx응답_AI_SERVER_ERROR예외() {
+        // #334 P3: 5xx 는 업스트림(AI 서버) 자체 장애로 보아 AI_SERVER_ERROR 로 분기.
         when(briefingStatsService.buildStats(OWNER_ID)).thenReturn(STATS);
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andRespond(withServerError());
@@ -138,6 +139,21 @@ class AiProxyServiceBriefingTest {
         assertThatThrownBy(() -> aiProxyService.briefing(OWNER_ID))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
-                        .isEqualTo(ErrorCode.AI_INVALID_RESPONSE));
+                        .isEqualTo(ErrorCode.AI_SERVER_ERROR));
+    }
+
+    @Test
+    void briefing_4xx응답_AI_REQUEST_REJECTED예외() {
+        // #334 P3: 4xx 는 요청 데이터가 AI 서버 계약에 안 맞아 거부된 것으로 보아 AI_REQUEST_REJECTED 로 분기.
+        when(briefingStatsService.buildStats(OWNER_ID)).thenReturn(STATS);
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"detail\":\"invalid request\"}"));
+
+        assertThatThrownBy(() -> aiProxyService.briefing(OWNER_ID))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.AI_REQUEST_REJECTED));
     }
 }
