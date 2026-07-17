@@ -5,7 +5,8 @@ import { GradeBadge } from './GradeBadge';
 
 // 결함/주의 건수 심각도 색상 — 등급 범례(MapLegend)와 동일한 GRADE_COLOR 팔레트를 재사용해
 // 신호등(빨강/노랑/초록) 3단계로 단순화. Figma 대조로 임계값 확인(2026-07-17).
-function getCountSeverityColor(count: number): string {
+// export: 단위 테스트에서 경계값(3, 10)을 직접 검증하기 위해(code-reviewer P2).
+export function getCountSeverityColor(count: number): string {
   if (count >= 10) return GRADE_COLOR.E; // 빨강
   if (count >= 3) return GRADE_COLOR.C; // 노랑
   return GRADE_COLOR.A; // 초록
@@ -101,7 +102,7 @@ export function FacilityListPanel({
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col gap-1">
                     <span className="flex items-start justify-between gap-2">
-                      <span className="truncate text-sm font-semibold text-heading">
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-heading">
                         {facility.name}
                       </span>
                       <GradeBadge grade={facility.highestGrade} />
