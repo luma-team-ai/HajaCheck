@@ -226,7 +226,6 @@ export function SideNavBar({
       clearTimeout(noticeTimerRef.current);
       stopResize();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function toggleExpand(label: string) {
