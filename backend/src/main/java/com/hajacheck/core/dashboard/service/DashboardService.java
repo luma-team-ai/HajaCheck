@@ -117,6 +117,14 @@ public class DashboardService {
             total += projection.getCnt();
         }
 
+        // 하자가 한 건도 없으면 빈 목록(#347). A~E 를 0% 5건으로 채우면 프론트의 빈 상태 가드가
+        // 발동하지 못하고, 합계가 0% 라 스토리보드 DASH-01 V2("합계가 100%인지 검증")도 위반된다.
+        // 반면 하자가 있으면 집계 0 인 등급까지 5개 전부 반환한다 — 막대그래프가 A~E 를 모두 보여주고
+        // 합계 100% 가 성립해야 하므로(GradeDistributionResponse javadoc 참고).
+        if (total == 0) {
+            return List.of();
+        }
+
         long finalTotal = total;
         return Arrays.stream(DefectGrade.values())
                 .map(grade -> GradeDistributionResponse.of(grade, countByGrade.getOrDefault(grade, 0L), finalTotal))

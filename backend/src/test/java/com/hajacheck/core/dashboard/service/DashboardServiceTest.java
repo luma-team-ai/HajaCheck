@@ -154,6 +154,29 @@ class DashboardServiceTest {
     }
 
     @Test
+    void getGradeDistribution_하자0건이면_빈목록() {
+        // 점검은 있으나 하자가 0건인 경우. 0% 5건을 반환하면 프론트 빈 상태 가드(items.length===0)가
+        // 발동하지 못하고, 합계 0% 라 DASH-01 V2("합계 100% 검증")도 깨진다(#347).
+        when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "A")));
+        Inspection insp = inspection(100L, FACILITY_ID, OWNER_ID, LocalDate.now(), InspectionStatus.REVIEWED);
+        when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of(insp));
+        when(defectRepository.countGroupByGrade(List.of(100L))).thenReturn(List.of());
+
+        List<GradeDistributionResponse> result = dashboardService.getGradeDistribution(OWNER_ID);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void getGradeDistribution_소유시설물없으면_빈목록() {
+        when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of());
+
+        List<GradeDistributionResponse> result = dashboardService.getGradeDistribution(OWNER_ID);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
     void getPendingPriority_타인소유시설물의점검은조회대상에서제외() {
         // owner 소유 facility 만 findByOwnerId 로 반환되므로, defectRepository 조회에는
         // owner 소유 facility 로부터 얻은 inspectionId 만 전달돼야 한다(cross-owner IDOR 방지).
