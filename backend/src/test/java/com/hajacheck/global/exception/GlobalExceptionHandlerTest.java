@@ -3,8 +3,10 @@ package com.hajacheck.global.exception;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.global.common.ApiResponse;
+import java.sql.SQLException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -95,6 +97,78 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void handleDataIntegrityViolation_승인멤버십제약명_AUTH충돌로매핑() {
+        DataIntegrityViolationException exception = constraintViolation(
+                "uq_company_memberships_approved_user");
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleDataIntegrityViolation(exception);
+
+        assertConflict(response, ErrorCode.AUTH_APPROVED_MEMBERSHIP_CONFLICT);
+    }
+
+    @Test
+    void handleDataIntegrityViolation_사용자활성플랜제약명_PLAN충돌로매핑() {
+        DataIntegrityViolationException exception = constraintViolation("uq_user_plans_active_user");
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleDataIntegrityViolation(exception);
+
+        assertConflict(response, ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
+    }
+
+    @Test
+    void handleDataIntegrityViolation_회사활성플랜메시지Fallback_PLAN충돌로매핑() {
+        DataIntegrityViolationException exception = new DataIntegrityViolationException(
+                "could not execute statement",
+                new SQLException("duplicate key value violates unique constraint \"uq_user_plans_active_company\""));
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleDataIntegrityViolation(exception);
+
+        assertConflict(response, ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
+    }
+
+    @Test
+    void handleDataIntegrityViolation_상담세션제약명_COUNSEL충돌로매핑() {
+        DataIntegrityViolationException exception = constraintViolation("uq_counsel_tickets_session");
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleDataIntegrityViolation(exception);
+
+        assertConflict(response, ErrorCode.COUNSEL_SESSION_ASSIGNMENT_CONFLICT);
+    }
+
+    @Test
+    void handleDataIntegrityViolation_알수없는구조화제약의Detail에허용이름포함_INTERNAL_ERROR유지() {
+        DataIntegrityViolationException exception = new DataIntegrityViolationException(
+                "could not execute statement",
+                new org.hibernate.exception.ConstraintViolationException(
+                        "duplicate key value violates unique constraint \"uq_actual_unknown\"; "
+                                + "Detail: Key (memo)=(uq_user_plans_active_user)",
+                        new SQLException("Detail: Key (memo)=(uq_user_plans_active_user)"),
+                        "uq_actual_unknown"));
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleDataIntegrityViolation(exception);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().error().code()).isEqualTo(ErrorCode.INTERNAL_ERROR.name());
+        assertThat(response.getBody().error().message()).isEqualTo(ErrorCode.INTERNAL_ERROR.getMessage());
+        assertThat(response.getBody().error().message()).doesNotContain("uq_user_plans_active_user");
+    }
+
+    @Test
+    void handleDataIntegrityViolation_허용이름보다긴인용제약_INTERNAL_ERROR유지() {
+        DataIntegrityViolationException exception = new DataIntegrityViolationException(
+                "could not execute statement",
+                new SQLException(
+                        "duplicate key value violates unique constraint \"uq_user_plans_active_user_archive\""));
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleDataIntegrityViolation(exception);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().error().code()).isEqualTo(ErrorCode.INTERNAL_ERROR.name());
+    }
+
+    @Test
     void handleDomainValidationException_mapsToInvalidInput() {
         ResponseEntity<ApiResponse<Void>> response =
                 handler.handleDomainValidationException(new DomainValidationException("보고서 본문(contentJson)는 유효한 JSON이어야 한다"));
@@ -125,5 +199,22 @@ class GlobalExceptionHandlerTest {
         assertThat(argumentResponse.getBody().error().code()).isEqualTo(ErrorCode.INTERNAL_ERROR.name());
         assertThat(stateResponse.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(stateResponse.getBody().error().code()).isEqualTo(ErrorCode.INTERNAL_ERROR.name());
+    }
+
+    private static DataIntegrityViolationException constraintViolation(String constraintName) {
+        return new DataIntegrityViolationException(
+                "could not execute statement",
+                new org.hibernate.exception.ConstraintViolationException(
+                        "duplicate key value violates unique constraint",
+                        new SQLException("duplicate key"),
+                        constraintName));
+    }
+
+    private static void assertConflict(ResponseEntity<ApiResponse<Void>> response, ErrorCode errorCode) {
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().success()).isFalse();
+        assertThat(response.getBody().error().code()).isEqualTo(errorCode.name());
+        assertThat(response.getBody().error().message()).isEqualTo(errorCode.getMessage());
     }
 }

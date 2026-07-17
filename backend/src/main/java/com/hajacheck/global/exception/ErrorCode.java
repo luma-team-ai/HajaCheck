@@ -44,6 +44,7 @@ public enum ErrorCode {
     AUTH_SIGNUP_TOKEN_INVALID(HttpStatus.NOT_FOUND, "유효하지 않은 가입 상태 토큰입니다."),
     // 점검 담당자 배정(dev-05-02) — 미존재/정지/역할 불충족 모두 통일 응답(리소스 열거 방지).
     AUTH_INVALID_INSPECTOR(HttpStatus.BAD_REQUEST, "담당자로 배정할 수 없는 사용자입니다."),
+    AUTH_APPROVED_MEMBERSHIP_CONFLICT(HttpStatus.CONFLICT, "이미 승인된 회사 멤버십이 존재합니다."),
 
     // 파일 업로드(사업자등록증)
     FILE_REQUIRED(HttpStatus.BAD_REQUEST, "파일이 필요합니다."),
@@ -54,6 +55,7 @@ public enum ErrorCode {
     // 마이페이지 — 내 플랜·사용량·좌석(HAJA-177)
     PLAN_NOT_FOUND(HttpStatus.NOT_FOUND, "활성 구독을 찾을 수 없습니다."),
     PLAN_FORBIDDEN(HttpStatus.FORBIDDEN, "구독 소유자만 요청할 수 있습니다."),
+    PLAN_ACTIVE_SUBSCRIPTION_CONFLICT(HttpStatus.CONFLICT, "이미 활성 구독이 존재합니다."),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
     // user_plans.plan_id 가 가리키는 요금제가 없는 데이터 정합성 오류(FK not-null 이라 정상 운영에선 발생 불가) — 500.
     PLAN_DATA_INVALID(HttpStatus.INTERNAL_SERVER_ERROR, "요금제 데이터에 오류가 있습니다."),
@@ -67,6 +69,9 @@ public enum ErrorCode {
     INSPECTION_ROUND_CONFLICT(HttpStatus.CONFLICT, "다른 요청과 충돌하여 점검 회차를 생성하지 못했습니다. 다시 시도해 주세요."),
     // 점검일 도메인 검증 — 시설물 등록일 이전이거나 지나치게 먼 미래는 비정상 입력으로 간주.
     INSPECTION_DATE_INVALID(HttpStatus.BAD_REQUEST, "점검일이 올바르지 않습니다."),
+
+    // 상담(counsel)
+    COUNSEL_SESSION_ASSIGNMENT_CONFLICT(HttpStatus.CONFLICT, "이미 상담 세션이 배정된 티켓입니다."),
 
     // 도메인별 예시 — 각 담당이 추가
     DEFECT_NOT_FOUND(HttpStatus.NOT_FOUND, "하자를 찾을 수 없습니다."),

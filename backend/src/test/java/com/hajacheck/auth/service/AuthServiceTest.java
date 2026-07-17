@@ -2,8 +2,9 @@ package com.hajacheck.auth.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.entity.CompanyMembershipStatus;
@@ -22,7 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * validateAssignableInspector 단위 테스트(dev-05-02) — 역할/상태/소속 회사 3가지 조건을 모두 검증.
+ * validateAssignableInspector 단위 테스트(dev-05-02) — 요청자·배정자의 상태, 역할, 소속 회사를 검증.
  */
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
@@ -36,10 +37,14 @@ class AuthServiceTest {
     @InjectMocks
     private AuthService authService;
 
-    // 요청자는 companyId만 검증에 쓰인다(역할/정지 여부는 assignee 쪽만 확인).
     private static User requesterOf(Long companyId) {
+        return requesterOf(companyId, UserStatus.ACTIVE);
+    }
+
+    private static User requesterOf(Long companyId, UserStatus status) {
         User user = mock(User.class);
         when(user.getCompanyId()).thenReturn(companyId);
+        when(user.getStatus()).thenReturn(status);
         return user;
     }
 
@@ -145,6 +150,33 @@ class AuthServiceTest {
     }
 
     @Test
+    void validateAssignableInspector_정지된요청자와양쪽유효멤버십_AUTH_INVALID_INSPECTOR() {
+        User requester = requesterOf(1L, UserStatus.SUSPENDED);
+        User assignee = mock(User.class);
+        when(assignee.getCompanyId()).thenReturn(1L);
+        when(assignee.getRole()).thenReturn(Role.INSPECTOR);
+        lenient().when(assignee.getStatus()).thenReturn(UserStatus.ACTIVE);
+        when(userRepository.findById(100L)).thenReturn(Optional.of(requester));
+        when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
+        // 회귀 전 구현에서는 양쪽 멤버십이 유효하면 통과했다. 수정 후에는 상태 검사에서 먼저 거부되므로
+        // 해당 스텁이 사용되지 않을 수 있음을 명시한다.
+        lenient().when(companyMembershipRepository.existsEffectiveMembership(
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(100L),
+                org.mockito.ArgumentMatchers.eq(CompanyMembershipStatus.APPROVED),
+                any())).thenReturn(true);
+        lenient().when(companyMembershipRepository.existsEffectiveMembership(
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(200L),
+                org.mockito.ArgumentMatchers.eq(CompanyMembershipStatus.APPROVED),
+                any())).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.validateAssignableInspector(100L, 200L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_INVALID_INSPECTOR));
+    }
+
+    @Test
     void validateAssignableInspector_다른회사소속_AUTH_INVALID_INSPECTOR() {
         User requester = requesterOf(1L);
         User assignee = assigneeOf(2L, Role.INSPECTOR, false);
@@ -159,7 +191,7 @@ class AuthServiceTest {
     @Test
     void validateAssignableInspector_요청자가회사소속없음_AUTH_INVALID_INSPECTOR() {
         // requester.getCompanyId()==null 이면 sameCompany 판정이 단락 평가로 끝나 assignee.getCompanyId()까지
-        // 가지 않는다 — assignee 쪽 companyId 스텁은 생략.
+        // 가지 않는다 — assignee 쪽 companyId 스텁은 생략. 요청자 상태는 ACTIVE여야 소속 검사까지 도달한다.
         User requester = requesterOf(null);
         User assignee = mock(User.class);
         when(assignee.getRole()).thenReturn(Role.INSPECTOR);

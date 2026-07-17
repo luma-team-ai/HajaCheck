@@ -49,7 +49,8 @@ public class AuthService {
      * 임의의 활성 점검자·관리자를 아무 시설물에나 배정할 수 있는 권한 범위 문제가 생긴다.
      * users.company_id는 조회 편의 포인터일 뿐 권한의 단독 근거가 아니므로, 요청자와 배정자 모두
      * company_memberships의 유효한 APPROVED 멤버십을 가져야 한다.
-     * 미존재/정지/역할·소속 불충족 모두 이 코드로 통일 응답(리소스 존재 여부 열거 방지 — FacilityService 패턴과 동일).
+     * 요청자 또는 배정자의 미존재/정지/역할·소속 불충족 모두 이 코드로 통일 응답
+     * (리소스 존재 여부 열거 방지 — FacilityService 패턴과 동일).
      */
     public void validateAssignableInspector(Long requesterUserId, Long assignedInspectorId) {
         User requester = findUser(requesterUserId);
@@ -60,7 +61,10 @@ public class AuthService {
                 && requester.getCompanyId().equals(assignee.getCompanyId());
         // 문서 요구사항 문구("status=ACTIVE")와 코드가 정확히 대응하도록 명시 비교로 작성
         // (isSuspended() 부정과 현재는 결과가 같지만, status 값이 늘어나도 의도가 코드에서 바로 드러난다).
-        if (assignee.getStatus() != UserStatus.ACTIVE || !assignableRole || !sameCompany) {
+        if (requester.getStatus() != UserStatus.ACTIVE
+                || assignee.getStatus() != UserStatus.ACTIVE
+                || !assignableRole
+                || !sameCompany) {
             throw new BusinessException(ErrorCode.AUTH_INVALID_INSPECTOR);
         }
 
