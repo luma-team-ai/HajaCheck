@@ -137,8 +137,7 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     icon: mypageIcon,
     subItems: [
       { label: '내 정보', href: '/mypage/profile' },
-      { label: '내 점검 이력', href: '/mypage/inspections' },
-      { label: '내 보고서', href: '/mypage/reports' },
+      { label: '내 점검 이력/보고서', href: '/mypage/inspections' },
       { label: '내 플랜', href: '/mypage/plan' },
       { label: '내 상담 내역', href: '/mypage/counsels' },
     ],
