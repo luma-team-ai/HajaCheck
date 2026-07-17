@@ -119,6 +119,11 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # Vite가 빌드 시점에 인라인하는 카카오맵 키(#323). 로컬은 지도 기능 없이도 개발 가능하므로
+        # 무가드(빈 값이면 Vite가 undefined를 인라인 — 지도 페이지만 영향, 기동은 막지 않음).
+        # 운영(arm1/prod)은 :? 가드로 강제 — docker-compose.arm1.yml / docker-compose.prod.yml 참조.
+        VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:-}
     depends_on:
       spring:
         condition: service_healthy
