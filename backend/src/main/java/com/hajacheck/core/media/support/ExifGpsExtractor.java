@@ -80,12 +80,25 @@ public final class ExifGpsExtractor {
 
     private static BigDecimal extractGpsLat(Metadata metadata) {
         GeoLocation location = geoLocation(metadata);
-        return location == null ? null : BigDecimal.valueOf(location.getLatitude()).setScale(6, RoundingMode.HALF_UP);
+        return location == null ? null : boundedCoordinate(location.getLatitude(), 90);
     }
 
     private static BigDecimal extractGpsLng(Metadata metadata) {
         GeoLocation location = geoLocation(metadata);
-        return location == null ? null : BigDecimal.valueOf(location.getLongitude()).setScale(6, RoundingMode.HALF_UP);
+        return location == null ? null : boundedCoordinate(location.getLongitude(), 180);
+    }
+
+    // GPS 좌표는 항상 |위도|<=90, |경도|<=180 이다. media.gps_lat/gps_lng 컬럼은 numeric(9,6)이라
+    // |값|<1000 까지 물리적으로 저장 가능하지만, 매직바이트만 유효하고 그 뒤가 조작된 EXIF에서
+    // metadata-extractor 가 산출하는 GeoLocation 좌표는 이 물리적 범위 안에서도 실제 위경도
+    // 범위를 벗어날 수 있다(리뷰 P2). 그런 값을 그대로 저장하면 저장 계층까지는 통과했다가 INSERT
+    // 시점의 numeric 오버플로(1000 이상)나 이후 좌표 사용 로직에서 예기치 못한 결과를 낼 수 있으므로,
+    // 범위를 벗어나면 "좌표 없음"과 동일하게 null 처리한다(예외를 던지지 않는 이 클래스의 기존 계약과 일관).
+    static BigDecimal boundedCoordinate(double value, double maxAbsolute) {
+        if (Double.isNaN(value) || Double.isInfinite(value) || Math.abs(value) > maxAbsolute) {
+            return null;
+        }
+        return BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP);
     }
 
     public record ExifData(LocalDateTime capturedAt, BigDecimal gpsLat, BigDecimal gpsLng) {

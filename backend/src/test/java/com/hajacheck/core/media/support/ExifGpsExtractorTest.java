@@ -74,4 +74,41 @@ class ExifGpsExtractorTest {
 
         assertThat(result).isEqualTo(ExifGpsExtractor.ExifData.EMPTY);
     }
+
+    /**
+     * GPS 좌표는 항상 |위도|<=90, |경도|<=180 이다(리뷰 P2). media.gps_lat/gps_lng 컬럼은
+     * numeric(9,6)이라 |값|<1000 까지는 물리적으로 저장되지만, 조작된 EXIF가 산출하는 좌표는
+     * 실제 위경도 범위를 벗어날 수 있어 별도 가드가 필요하다. 실제 EXIF GPS 바이트를 조작해
+     * 범위초과 값을 재현하기보다, 범위 클램프 로직 자체를 직접 단위 테스트한다
+     * (parseCapturedAt과 동일한 테스트 전략).
+     */
+    @Test
+    void boundedCoordinate_범위이내값_그대로반환() {
+        assertThat(ExifGpsExtractor.boundedCoordinate(37.5, 90))
+                .isEqualByComparingTo("37.500000");
+        assertThat(ExifGpsExtractor.boundedCoordinate(-179.999999, 180))
+                .isEqualByComparingTo("-179.999999");
+    }
+
+    @Test
+    void boundedCoordinate_경계값_포함() {
+        assertThat(ExifGpsExtractor.boundedCoordinate(90.0, 90)).isEqualByComparingTo("90.000000");
+        assertThat(ExifGpsExtractor.boundedCoordinate(-180.0, 180)).isEqualByComparingTo("-180.000000");
+    }
+
+    @Test
+    void boundedCoordinate_범위초과값_null반환() {
+        // 위도 91, 경도 1000처럼 numeric(9,6) 컬럼(|값|<1000)에는 담기지만 실제 위경도 범위를
+        // 벗어나는 값 — INSERT는 통과할 수 있어도 좌표로서는 무의미하므로 null 처리해야 한다.
+        assertThat(ExifGpsExtractor.boundedCoordinate(91.0, 90)).isNull();
+        assertThat(ExifGpsExtractor.boundedCoordinate(-91.0, 90)).isNull();
+        assertThat(ExifGpsExtractor.boundedCoordinate(1000.0, 180)).isNull();
+        assertThat(ExifGpsExtractor.boundedCoordinate(181.0, 180)).isNull();
+    }
+
+    @Test
+    void boundedCoordinate_NaN이나무한대_null반환() {
+        assertThat(ExifGpsExtractor.boundedCoordinate(Double.NaN, 90)).isNull();
+        assertThat(ExifGpsExtractor.boundedCoordinate(Double.POSITIVE_INFINITY, 180)).isNull();
+    }
 }
