@@ -25,6 +25,8 @@ export default function MapPage() {
   const mapInstanceRef = useRef<KakaoMap | null>(null);
   const markersRef = useRef<KakaoMarker[]>([]);
   const overlayRef = useRef<KakaoCustomOverlay | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const hasCenteredRef = useRef(false);
 
   const [overlayContainer] = useState(() => document.createElement('div'));
 
@@ -90,17 +92,30 @@ export default function MapPage() {
         setSdkStatus('ready');
 
         // 초기 렌더링 시 flex 레이아웃 계산 타이밍 불일치로 인한 타일 미로드/오버레이 깨짐 방지.
-        // 100ms는 실측 기반 값 — 로컬/CI 크롬에서 flex 자식(지도 컨테이너) 레이아웃 계산이
-        // 마운트 직후 프레임 내에 끝나지 않아 relayout() 호출 없이는 초기 타일이 잘리는 현상을
-        // 재현했고, 60ms 이하에서는 간헐적으로 재현되어 여유를 둔 100ms로 고정함(2026-07-16).
-        // ResizeObserver로 컨테이너 크기 변화를 감지해 대체하는 방안도 검토했으나, 이 문제는
-        // "최초 1회, 마운트 직후"에만 발생하는 타이밍 이슈라 상시 관찰자를 두는 것은 과설계로 판단.
-        setTimeout(() => {
-          if (!cancelled && mapInstanceRef.current) {
-            mapInstanceRef.current.relayout();
+        // 과거에는 100ms 고정 setTimeout으로 우회했으나(실측 기반이라도 매직넘버 워크어라운드,
+        // P3, PR #265/#130 리뷰), 실제로 필요한 건 "지도 컨테이너의 레이아웃(크기)이 확정된 시점"이므로
+        // ResizeObserver로 컨테이너 크기 변화를 직접 감지해 그 시점에 relayout()을 호출한다.
+        // 크기가 0이면 아직 flex 레이아웃 계산 전이므로 건너뛰고, 유효한 크기가 처음 관측될 때만
+        // relayout을 실행한다(이후 실제 리사이즈에도 relayout을 다시 호출하는 것은 카카오맵 SDK가
+        // 컨테이너 크기 변경에 자동 대응하지 못하는 문제를 함께 방지하는 부가 효과).
+        // setCenter(center)는 "최초 유효 레이아웃" 시점 딱 1회만 호출한다 — 이후 리사이즈(예: 사용자가
+        // 지도를 팬/줌한 뒤 브라우저 창 크기가 바뀌는 경우)마다 호출하면 사용자가 옮긴 현재 중심을
+        // 매번 초기 DEFAULT_MAP_CENTER로 되돌려버리는 회귀가 생긴다(code-reviewer P1, #335).
+        const container = mapContainerRef.current;
+        const observer = new ResizeObserver((entries) => {
+          if (cancelled || !mapInstanceRef.current) return;
+          const entry = entries[0];
+          if (!entry) return;
+          const { width, height } = entry.contentRect;
+          if (width === 0 || height === 0) return;
+          mapInstanceRef.current.relayout();
+          if (!hasCenteredRef.current) {
+            hasCenteredRef.current = true;
             mapInstanceRef.current.setCenter(center);
           }
-        }, 100);
+        });
+        observer.observe(container);
+        resizeObserverRef.current = observer;
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -114,6 +129,9 @@ export default function MapPage() {
 
     return () => {
       cancelled = true;
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      hasCenteredRef.current = false;
       markersRef.current.forEach((marker) => marker.setMap(null));
       markersRef.current = [];
       mapInstanceRef.current = null;
