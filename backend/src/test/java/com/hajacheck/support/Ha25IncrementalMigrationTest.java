@@ -329,7 +329,21 @@ class Ha25IncrementalMigrationTest {
                 postgres, "20260716_02_ha25_finalize.sql", "assigned_inspector_id backfill");
 
         runSql(postgres, "legacy backfill", LEGACY_BACKFILL_SQL);
+        runSql(postgres, "install stale assigned inspector company-boundary function", """
+                create or replace function check_inspection_assigned_inspector_company()
+                returns trigger as $stale$
+                begin
+                    return new;
+                end;
+                $stale$ language plpgsql;
+                """);
         runPsql(postgres, "20260716_02_ha25_finalize.sql");
+        requireQuery(postgres, "finalize replaces stale company-boundary function", """
+                select case when pg_get_functiondef(
+                    'check_inspection_assigned_inspector_company()'::regprocedure
+                ) like '%creator_company_id is distinct from inspector_company_id%'
+                then 'replaced' else 'stale' end
+                """, "replaced");
         runPsql(postgres, "20260716_02_ha25_finalize.sql");
         runPsql(postgres, "20260716_03_ha25_verify.sql");
 
@@ -512,6 +526,29 @@ class Ha25IncrementalMigrationTest {
                     before insert or update of assigned_inspector_id, created_by on inspections
                     for each row execute procedure check_inspection_assigned_inspector_company();
                 """);
+
+        runSql(postgres, "tamper assigned inspector company-boundary function", """
+                create or replace function check_inspection_assigned_inspector_company()
+                returns trigger as $tampered$
+                begin
+                    return new;
+                end;
+                $tampered$ language plpgsql;
+                """);
+        runPsqlExpectFailure(
+                postgres, "20260716_03_ha25_verify.sql",
+                "check_inspection_assigned_inspector_company function is missing or misconfigured");
+        runPsql(postgres, "20260716_02_ha25_finalize.sql");
+
+        runSql(postgres, "tamper assigned inspector company-boundary trigger definition", """
+                create or replace trigger trg_inspections_check_assigned_inspector_company
+                    before update of assigned_inspector_id on inspections
+                    for each row execute procedure check_inspection_assigned_inspector_company();
+                """);
+        runPsqlExpectFailure(
+                postgres, "20260716_03_ha25_verify.sql",
+                "trg_inspections_check_assigned_inspector_company trigger is missing or misconfigured");
+        runPsql(postgres, "20260716_02_ha25_finalize.sql");
 
         runSql(postgres, "set updated_at trigger to replica-only", """
                 alter table company_memberships enable replica trigger trg_company_memberships_set_updated_at;

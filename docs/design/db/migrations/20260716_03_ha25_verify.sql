@@ -362,17 +362,59 @@ begin
         raise exception 'required updated_at triggers are missing or misconfigured: %', invalid_triggers;
     end if;
 
-    -- assigned_inspector_id 회사 경계 트리거(HAJA-25 P2 — DB 레벨 방어)가 설치되어 있는지 확인한다.
+    -- assigned_inspector_id 회사 경계 함수가 캐노니컬 본문·속성으로 설치되어 있는지 확인한다.
+    if not exists (
+        select 1
+        from pg_proc proc_meta
+        join pg_language language_meta on language_meta.oid = proc_meta.prolang
+        where proc_meta.oid = to_regprocedure('public.check_inspection_assigned_inspector_company()')
+          and proc_meta.prokind = 'f'
+          and pg_get_function_identity_arguments(proc_meta.oid) = ''
+          and pg_get_function_result(proc_meta.oid) = 'trigger'
+          and language_meta.lanname = 'plpgsql'
+          and proc_meta.provolatile = 'v'
+          and not proc_meta.prosecdef
+          and regexp_replace(btrim(proc_meta.prosrc), '[[:space:]]+', ' ', 'g') =
+              regexp_replace(btrim($expected_function$
+              declare
+                  creator_company_id bigint;
+                  inspector_company_id bigint;
+              begin
+                  select company_id into creator_company_id from users where id = new.created_by;
+                  select company_id into inspector_company_id from users where id = new.assigned_inspector_id;
+                  -- IS DISTINCT FROM은 둘 다 NULL(무소속 개인 사용자의 자기배정 등 — 이 트리거의 관할 밖,
+                  -- AuthService.validateAssignableInspector가 별도로 다룸)인 경우를 정상 통과시키고,
+                  -- 서로 다른 회사로 확인된 경우만(한쪽만 NULL인 경우 포함) 차단한다.
+                  if creator_company_id is distinct from inspector_company_id then
+                      raise exception
+                          'assigned_inspector_id % must belong to the same company as created_by %',
+                          new.assigned_inspector_id, new.created_by;
+                  end if;
+                  return new;
+              end;
+              $expected_function$), '[[:space:]]+', ' ', 'g')
+    ) then
+        raise exception 'check_inspection_assigned_inspector_company function is missing or misconfigured';
+    end if;
+
+    -- 트리거도 BEFORE ROW INSERT/UPDATE, UPDATE 대상 컬럼, 호출 함수와 활성 상태를 정확히 대조한다.
     if not exists (
         select 1
         from pg_trigger trigger_meta
-        join pg_proc proc_meta on proc_meta.oid = trigger_meta.tgfoid
-        join pg_namespace namespace on namespace.oid = proc_meta.pronamespace
         where trigger_meta.tgname = 'trg_inspections_check_assigned_inspector_company'
           and trigger_meta.tgrelid = 'inspections'::regclass
-          and namespace.nspname = 'public'
-          and proc_meta.proname = 'check_inspection_assigned_inspector_company'
-          and trigger_meta.tgenabled in ('O', 'A')
+          and trigger_meta.tgfoid = to_regprocedure('public.check_inspection_assigned_inspector_company()')
+          and trigger_meta.tgtype = 23
+          and (
+              select array_agg(attribute.attname::text order by attribute.attname)
+              from unnest(trigger_meta.tgattr::smallint[]) as trigger_column(attnum)
+              join pg_attribute attribute
+                on attribute.attrelid = trigger_meta.tgrelid
+               and attribute.attnum = trigger_column.attnum
+          ) = array['assigned_inspector_id', 'created_by']
+          and trigger_meta.tgenabled = 'O'
+          and trigger_meta.tgqual is null
+          and trigger_meta.tgnargs = 0
           and not trigger_meta.tgisinternal
     ) then
         raise exception 'trg_inspections_check_assigned_inspector_company trigger is missing or misconfigured';
