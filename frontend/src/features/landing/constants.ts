@@ -60,9 +60,9 @@ export interface Partner {
 
 export const PARTNERS: Partner[] = [
   { name: 'HUG', logo: partnerLogo1 },
-  { name: '한국공인중개사협회', logo: partnerLogo2 },
+  { name: '한국도로공사', logo: partnerLogo2 },
   { name: '국토교통부', logo: partnerLogo3 },
-  { name: '한국시설안전관리원', logo: partnerLogo4 },
+  { name: '한국시설안전공단', logo: partnerLogo4 },
 ];
 
 export const FOOTER_LINKS = [
