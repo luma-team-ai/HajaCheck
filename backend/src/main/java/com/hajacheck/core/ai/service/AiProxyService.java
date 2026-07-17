@@ -203,6 +203,8 @@ public class AiProxyService {
             log.warn("AI 서버 오류(5xx): {}", ErrorCode.AI_SERVER_ERROR, e);
             return new BusinessException(ErrorCode.AI_SERVER_ERROR);
         }
+        // Spring DefaultResponseErrorHandler 규약상 RestClientResponseException 은 4xx/5xx 에서만 던져지므로
+        // 이 분기는 이론상 도달 불가 — 향후 핸들러 구현 변경에 대비한 방어적 폴백이다(code-reviewer 지적).
         log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
         return new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
     }
