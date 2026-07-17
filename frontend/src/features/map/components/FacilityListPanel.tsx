@@ -84,7 +84,7 @@ export function FacilityListPanel({
                 <button
                   type="button"
                   onClick={() => onSelectFacility(facility.id)}
-                  className={`flex w-full items-start gap-3 px-3 py-3 text-left transition hover:bg-white ${
+                  className={`flex w-full items-start gap-3 px-3 py-3 text-left transition ${
                     selectedFacilityId === facility.id ? 'bg-primary/5' : ''
                   }`}
                 >
