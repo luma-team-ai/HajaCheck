@@ -9,11 +9,9 @@ import com.hajacheck.auth.dto.PasswordResetResponse;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.support.PasswordResetMailDispatcher;
-import com.hajacheck.auth.support.PasswordResetTokenIndex;
+import com.hajacheck.auth.support.PasswordResetTokenStore;
 import com.hajacheck.auth.support.RateLimiter;
 import com.hajacheck.auth.support.TokenKeys;
-import com.hajacheck.auth.support.TokenNamespaces;
-import com.hajacheck.auth.support.TokenStore;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.net.URLEncoder;
@@ -54,8 +52,7 @@ public class PasswordResetService {
     private static final String RESET_PATH = "/reset-password?token=";
 
     private final UserRepository userRepository;
-    private final TokenStore tokenStore;
-    private final PasswordResetTokenIndex tokenIndex;
+    private final PasswordResetTokenStore tokenStore;
     private final RateLimiter rateLimiter;
     private final PasswordResetMailDispatcher mailDispatcher;
     private final PasswordEncoder passwordEncoder;
@@ -73,8 +70,10 @@ public class PasswordResetService {
         // ⚠️ rate-limit 은 계정 조회 전에, 존재 여부와 무관한 조건으로 건다(429 가 열거 단서가 되면 안 된다).
         enforceRateLimits(emailHash);
 
-        // 존재할 때만 발송. 여기서 분기해도 응답 바디·시점은 동일하다(발송은 @Async).
-        userRepository.findByEmail(email).ifPresent(user -> issueAndDispatch(user, emailHash));
+        // 존재하고 + 비밀번호 로그인 계정일 때만 발송. 여기서 분기해도 응답 바디·시점은 동일하다(발송은 @Async).
+        userRepository.findByEmail(email)
+                .filter(User::hasPassword)
+                .ifPresent(user -> issueAndDispatch(user, emailHash));
 
         // 감사 로그: 이메일 해시·시각(로거가 부착). ⚠️ 이메일 원문·토큰 평문 금지.
         log.info("비밀번호 재설정 링크 요청 접수 — emailHash={}", emailHash);
@@ -94,18 +93,18 @@ public class PasswordResetService {
      */
     @Transactional
     public PasswordResetResponse reset(PasswordResetRequest request) {
-        String token = request.token();
-        // consume: getAndDelete — 조회와 삭제가 원자적이라 동시 요청에도 단 한 번만 성공한다(1회용 보장).
-        Long userId = tokenStore.consume(TokenNamespaces.PASSWORD_RESET, token)
-                .flatMap(PasswordResetService::parseUserId)
+        // consume: 조회·삭제·인덱스 정리가 한 Lua 로 원자적 — 동시 요청에도 단 한 번만 성공한다(1회용 보장).
+        Long userId = tokenStore.consume(request.token())
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_RESET_TOKEN_INVALID));
-
-        // compare-and-delete — 방금 소비한 토큰을 가리킬 때만 인덱스를 지운다.
-        tokenIndex.clearIfMatches(userId, TokenKeys.hash(token));
 
         User user = userRepository.findById(userId)
                 // 토큰 발급 후 계정이 삭제된 경우 — 사유를 구분해 노출하지 않는다(통일 메시지).
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_RESET_TOKEN_INVALID));
+        // 소셜 전용 계정 방어(심층방어) — 1단계가 이미 걸러내지만, 발급 후 계정이 소셜 전용으로 바뀌었거나
+        // 다른 경로로 토큰이 생겼을 때도 비밀번호를 심지 않는다. 사유는 노출하지 않는다(통일 메시지).
+        if (!user.hasPassword()) {
+            throw new BusinessException(ErrorCode.AUTH_RESET_TOKEN_INVALID);
+        }
         user.changePassword(passwordEncoder.encode(request.newPassword()));
 
         log.info("비밀번호 재설정 완료 — userId={}", userId);
@@ -134,13 +133,15 @@ public class PasswordResetService {
         }
     }
 
-    /** 토큰 발급 + 이전 토큰 무효화 + 비동기 발송. 계정이 존재할 때만 호출된다. */
+    /**
+     * 토큰 발급(이전 토큰 무효화 포함) + 비동기 발송. 비밀번호 로그인 계정이 존재할 때만 호출된다.
+     *
+     * <p>발급은 {@link PasswordResetTokenStore#issueAndRotate} <b>한 번</b>으로 끝낸다 — 저장·무효화·인덱스
+     * 갱신을 따로 호출하면 그 사이가 열려, 동시 요청 시 나중에 발송된 메일의 링크가 죽는다.
+     */
     private void issueAndDispatch(User user, String emailHash) {
-        Duration ttl = authProperties.getPasswordResetTtl();
-        // 저장 키는 sha256(token) 으로 파생된다(RedisTokenStore) — Redis 덤프에 원문이 남지 않는다.
-        String token = tokenStore.issue(TokenNamespaces.PASSWORD_RESET, String.valueOf(user.getId()), ttl);
-        // 재발급 시 이전 링크 무효화(동시 다발 링크 방지). 인덱스 TTL = 토큰 TTL.
-        tokenIndex.rotate(user.getId(), TokenKeys.hash(token), ttl);
+        // 저장 키는 sha256(token) — Redis 덤프에 원문이 남지 않는다. 원문은 반환값(=메일)로만 나간다.
+        String token = tokenStore.issueAndRotate(user.getId(), authProperties.getPasswordResetTtl());
 
         mailDispatcher.dispatch(user.getEmail(), resetLink(token), emailHash);
     }
@@ -159,15 +160,5 @@ public class PasswordResetService {
             base = base.substring(0, base.length() - 1);
         }
         return base + RESET_PATH + URLEncoder.encode(token, StandardCharsets.UTF_8);
-    }
-
-    private static Optional<Long> parseUserId(String value) {
-        try {
-            return Optional.of(Long.valueOf(value));
-        } catch (NumberFormatException e) {
-            // 저장값 손상 — 토큰 무효로 취급한다(원인은 응답에 노출하지 않는다).
-            log.warn("비밀번호 재설정 토큰의 저장값이 userId 형식이 아닙니다.");
-            return Optional.empty();
-        }
     }
 }

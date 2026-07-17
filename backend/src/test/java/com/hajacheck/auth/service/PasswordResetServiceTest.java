@@ -12,14 +12,14 @@ import com.hajacheck.auth.config.AuthProperties;
 import com.hajacheck.auth.dto.PasswordResetLinkRequest;
 import com.hajacheck.auth.dto.PasswordResetLinkResponse;
 import com.hajacheck.auth.dto.PasswordResetRequest;
+import com.hajacheck.auth.entity.SocialProvider;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.support.PasswordResetMailDispatcher;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
-import com.hajacheck.support.InMemoryPasswordResetTokenIndex;
+import com.hajacheck.support.InMemoryPasswordResetTokenStore;
 import com.hajacheck.support.InMemoryRateLimiter;
-import com.hajacheck.support.InMemoryTokenStore;
 import com.hajacheck.support.RecordingPasswordResetMailSender;
 import com.hajacheck.support.RecordingPasswordResetMailSender.Sent;
 import java.time.Duration;
@@ -34,19 +34,20 @@ import org.springframework.test.util.ReflectionTestUtils;
 /**
  * 비밀번호 재설정 서비스 — 계약의 보안 요건을 테스트로 고정한다(#194).
  *
- * <p>Redis 없이 검증하려고 fake(TokenStore·인덱스·rate-limiter)를 주입한다. 디스패처는 프록시 없이 직접
+ * <p>Redis 없이 검증하려고 fake(토큰 저장소·rate-limiter)를 주입한다. 디스패처는 프록시 없이 직접
  * 생성하므로 발송이 동기로 실행된다 — 덕분에 "발송이 실패해도 응답은 동일"을 결정적으로 검증할 수 있다
  * (@Async 자체의 부착 여부는 PasswordResetMailDispatcherTest 가 따로 고정한다).
  */
 class PasswordResetServiceTest {
 
     private static final String EMAIL = "owner@haja.com";
+    private static final String SOCIAL_EMAIL = "social@haja.com";
     private static final String BASE_URL = "https://app.hajacheck.test";
     private static final long USER_ID = 42L;
+    private static final long SOCIAL_USER_ID = 77L;
 
     private Instant now;
-    private InMemoryTokenStore tokenStore;
-    private InMemoryPasswordResetTokenIndex tokenIndex;
+    private InMemoryPasswordResetTokenStore tokenStore;
     private InMemoryRateLimiter rateLimiter;
     private RecordingPasswordResetMailSender mailSender;
     private UserRepository userRepository;
@@ -54,14 +55,14 @@ class PasswordResetServiceTest {
     private PasswordEncoder passwordEncoder;
     private PasswordResetService service;
     private User user;
+    private User socialUser;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
         now = Instant.parse("2026-07-17T00:00:00Z");
-        tokenStore = new InMemoryTokenStore(() -> now);
-        tokenIndex = new InMemoryPasswordResetTokenIndex(tokenStore);
+        tokenStore = new InMemoryPasswordResetTokenStore(() -> now);
         rateLimiter = new InMemoryRateLimiter(() -> now);
         mailSender = new RecordingPasswordResetMailSender();
         userRepository = mock(UserRepository.class);
@@ -73,11 +74,17 @@ class PasswordResetServiceTest {
 
         user = User.createCompanyOwner(EMAIL, "김대표", passwordEncoder.encode("oldpass1"));
         ReflectionTestUtils.setField(user, "id", USER_ID);
+        // 소셜 전용 계정 — passwordHash=null(CustomUserDetailsService 가 비밀번호 로그인을 금지하는 계정).
+        socialUser = User.createSocialUser(SocialProvider.KAKAO, "social-id-1", SOCIAL_EMAIL, "소셜사용자");
+        ReflectionTestUtils.setField(socialUser, "id", SOCIAL_USER_ID);
+
         when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(user));
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.findByEmail(SOCIAL_EMAIL)).thenReturn(Optional.of(socialUser));
+        when(userRepository.findById(SOCIAL_USER_ID)).thenReturn(Optional.of(socialUser));
         when(userRepository.findByEmail("nobody@haja.com")).thenReturn(Optional.empty());
 
-        service = new PasswordResetService(userRepository, tokenStore, tokenIndex, rateLimiter,
+        service = new PasswordResetService(userRepository, tokenStore, rateLimiter,
                 new PasswordResetMailDispatcher(mailSender), passwordEncoder, authProperties, mailProperties);
     }
 
@@ -236,7 +243,29 @@ class PasswordResetServiceTest {
         service.reset(new PasswordResetRequest(token, "newpass1"));
 
         // compare-and-delete — 방금 소비한 토큰을 가리키던 인덱스는 사라진다(키 누수 방지).
-        assertThat(tokenIndex.currentTokenHash(USER_ID)).isNull();
+        assertThat(tokenStore.currentTokenHash(USER_ID)).isNull();
+        // (인덱스 정리는 consume 과 같은 Lua 안에서 원자적으로 일어난다.)
+    }
+
+    @Test
+    void 재발급은_단일_원자연산이라_나중에_발급된_토큰이_항상_살아남는다() throws Exception {
+        // P2-1 회귀: 예전엔 issue() 와 rotate() 가 따로였다. 그 사이가 열려 있으면 동시 요청 시
+        //   T1 issue(A) → T2 issue(B) → T2 rotate(B) → T1 rotate(A) 로 인터리브되어
+        //   "나중에 발송된 메일(B)의 링크가 죽고 먼저 발급된 A 가 사는" 사용자 체감 버그가 났다.
+        // 이제 발급은 issueAndRotate 단일 호출(단일 Lua)이라 마지막 발급이 항상 이긴다.
+        // (재발급 횟수는 이메일 축 한도 안에서 — 한도 초과는 여기 관심사가 아니다.)
+        for (int i = 0; i < authProperties.getPasswordResetRateLimit().getEmailLimit(); i++) {
+            request(EMAIL);
+        }
+        String latest = null;
+        Sent sent;
+        while ((sent = mailSender.awaitSent(Duration.ofMillis(200))) != null) {
+            latest = sent.resetLink().substring(sent.resetLink().indexOf("token=") + "token=".length());
+        }
+
+        // 마지막으로 발급(=발송)된 토큰이 유효해야 한다 — 사용자가 최신 메일을 누르는 시나리오.
+        assertThat(latest).isNotNull();
+        assertThat(service.reset(new PasswordResetRequest(latest, "newpass1")).reset()).isTrue();
     }
 
     @Test
@@ -252,8 +281,42 @@ class PasswordResetServiceTest {
         assertThatThrownBy(() -> service.reset(new PasswordResetRequest(firstToken, "newpass1")))
                 .isInstanceOf(BusinessException.class);
 
-        assertThat(tokenIndex.currentTokenHash(USER_ID))
+        assertThat(tokenStore.currentTokenHash(USER_ID))
                 .isEqualTo(com.hajacheck.auth.support.TokenKeys.hash(secondToken));
+    }
+
+    // ---------- 소셜 전용 계정(P2-3) ----------
+
+    @Test
+    void 소셜_전용_계정에는_재설정_메일을_보내지_않는다() throws Exception {
+        // CustomUserDetailsService 가 소셜 전용 계정의 비밀번호 로그인을 명시적으로 금지한다.
+        // 재설정이 비밀번호를 심으면 그 계층 규칙을 이 경로가 말없이 뒤집는 셈이 된다.
+        request(SOCIAL_EMAIL);
+
+        assertThat(mailSender.nothingSentWithin(Duration.ofMillis(300))).isTrue();
+    }
+
+    @Test
+    void 소셜_전용_계정의_응답은_일반_계정과_완전히_동일하다() throws Exception {
+        // 차단하되 존재 단서가 되면 안 된다 — 응답이 다르면 "이 이메일은 소셜 계정"임이 새어나간다.
+        PasswordResetLinkResponse social = request(SOCIAL_EMAIL);
+        PasswordResetLinkResponse normal = request(EMAIL);
+        PasswordResetLinkResponse missing = request("nobody@haja.com");
+
+        assertThat(objectMapper.writeValueAsString(social))
+                .isEqualTo(objectMapper.writeValueAsString(normal))
+                .isEqualTo(objectMapper.writeValueAsString(missing));
+    }
+
+    @Test
+    void 소셜_전용_계정_토큰으로는_비밀번호가_설정되지_않는다() {
+        // 심층방어: 발급 후 계정이 소셜 전용으로 바뀌었거나 다른 경로로 토큰이 생긴 경우.
+        String token = tokenStore.issueAndRotate(SOCIAL_USER_ID, authProperties.getPasswordResetTtl());
+
+        assertThatThrownBy(() -> service.reset(new PasswordResetRequest(token, "newpass1")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.AUTH_RESET_TOKEN_INVALID);
+        assertThat(socialUser.hasPassword()).isFalse();
     }
 
     // ---------- rate-limit ----------

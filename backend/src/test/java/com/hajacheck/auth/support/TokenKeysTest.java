@@ -5,8 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
 
 /**
- * 토큰 저장 키 파생(순수 함수) 검증 — Redis 없이 "저장 키가 토큰 원문이 아님"을 고정한다.
- * (테스트 환경은 RedisTokenStore 가 뜨지 않으므로 파생 로직을 순수 함수로 분리해 여기서 검증한다.)
+ * 단방향 해시(순수 함수) 검증 — Redis 없이 "저장 키/로그 식별자가 원문이 아님"을 고정한다.
  */
 class TokenKeysTest {
 
@@ -29,27 +28,7 @@ class TokenKeysTest {
     }
 
     @Test
-    void 서로_다른_토큰은_다른_해시를_만든다() {
+    void 서로_다른_입력은_다른_해시를_만든다() {
         assertThat(TokenKeys.hash("token-a")).isNotEqualTo(TokenKeys.hash("token-b"));
-    }
-
-    @Test
-    void password_reset_네임스페이스는_해시_저장_키를_쓴다() {
-        String token = "raw-reset-token";
-
-        String storage = TokenKeys.storageToken(TokenNamespaces.PASSWORD_RESET, token);
-
-        assertThat(TokenKeys.isHashedNamespace(TokenNamespaces.PASSWORD_RESET)).isTrue();
-        // 최초 P1(토큰 원문 노출) 재발 방지의 심층방어 — Redis 덤프에 원문이 남지 않아야 한다.
-        assertThat(storage).isNotEqualTo(token).isEqualTo(TokenKeys.hash(token));
-    }
-
-    @Test
-    void signup_status_네임스페이스는_원문_저장_키를_유지한다() {
-        // 회귀 방지: TTL 30일 in-flight 가입 토큰이 있어 해시로 바꾸면 기존 승인대기 사용자의 상태조회가 깨진다.
-        String token = "raw-signup-token";
-
-        assertThat(TokenKeys.isHashedNamespace(TokenNamespaces.SIGNUP_STATUS)).isFalse();
-        assertThat(TokenKeys.storageToken(TokenNamespaces.SIGNUP_STATUS, token)).isEqualTo(token);
     }
 }
