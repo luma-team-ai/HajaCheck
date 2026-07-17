@@ -4,11 +4,40 @@
 - 컬렉션: regulations(법규·지침), defect_kb(하자 지식)
 - 재임베딩은 명시적 배치 잡으로만 실행 (쓰기 락 충돌 방지)
 """
+import os
+from functools import lru_cache
+
+import chromadb
+from chromadb import Collection
+from chromadb.api.types import Documents, Embeddings
+
+from ai.core.embeddings import get_embeddings
 
 COLLECTION_REGULATIONS = "regulations"
 COLLECTION_DEFECT_KB = "defect_kb"
 
+# docker-compose 볼륨(chroma_data:/app/chroma_data)과 일치 — 로컬 실행 시 오버라이드
+CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "/app/chroma_data")
 
-def get_vectorstore(collection: str):
-    # TODO(AI-LLM 코치): chromadb.PersistentClient 설정
-    raise NotImplementedError("온보딩 세션(7/15) 전 AI-LLM 코치가 구현")
+
+class _LangChainEmbeddingFunction:
+    """embeddings.py의 LangChain Embeddings(.embed_documents)를 chromadb EmbeddingFunction 프로토콜로 어댑팅."""
+
+    def __call__(self, input: Documents) -> Embeddings:
+        return get_embeddings().embed_documents(list(input))
+
+
+@lru_cache
+def _client() -> chromadb.ClientAPI:
+    return chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
+
+
+def get_vectorstore(collection: str) -> Collection:
+    if collection not in (COLLECTION_REGULATIONS, COLLECTION_DEFECT_KB):
+        raise ValueError(f"unknown collection: {collection}")
+    return _client().get_or_create_collection(
+        name=collection,
+        embedding_function=_LangChainEmbeddingFunction(),
+        # BGE 계열 임베딩은 코사인 유사도 기준으로 학습됨 — chromadb 기본(L2)과 다르므로 명시
+        metadata={"hnsw:space": "cosine"},
+    )
