@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hajacheck.auth.config.AuthProperties;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.support.LoggingPasswordResetMailSender;
@@ -55,6 +56,8 @@ class PasswordResetIntegrationTest extends PostgresTestSupport {
     private RecordingPasswordResetMailSender mailSender;
     @Autowired
     private InMemoryRateLimiter rateLimiter;
+    @Autowired
+    private AuthProperties authProperties;
     @Autowired
     private ApplicationContext applicationContext;
 
@@ -142,7 +145,9 @@ class PasswordResetIntegrationTest extends PostgresTestSupport {
 
     @Test
     void 이메일_한도_초과_시_429다() throws Exception {
-        for (int i = 0; i < 3; i++) {
+        // 한도는 설정값에서 읽는다(하드코딩하면 설정이 바뀔 때 테스트가 조용히 무의미해진다 — 단위 테스트와 동일 방식).
+        int limit = authProperties.getPasswordResetRateLimit().getEmailLimit();
+        for (int i = 0; i < limit; i++) {
             mockMvc.perform(post("/api/auth/password-reset-request").with(csrf())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(requestBody(Map.of("email", EMAIL))))

@@ -22,11 +22,13 @@ public class RecordingPasswordResetMailSender implements PasswordResetMailSender
 
     @Override
     public void send(String toEmail, String resetLink) {
-        sent.add(new Sent(toEmail, resetLink));
+        // ⚠️ 기록보다 실패를 먼저 — 순서가 반대면 failWith + awaitSent 조합에서 "발송이 실패했는데 발송됨"으로
+        // 관찰돼 테스트가 거짓 통과한다(실패한 발송은 기록되지 않아야 한다).
         RuntimeException toThrow = failure;
         if (toThrow != null) {
             throw toThrow;
         }
+        sent.add(new Sent(toEmail, resetLink));
     }
 
     /** 이후 모든 발송이 이 예외로 실패하게 한다(SMTP 장애 재현). */

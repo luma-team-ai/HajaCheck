@@ -46,8 +46,11 @@ public class RedisRateLimiter implements RateLimiter {
                 List.of(key),
                 String.valueOf(Math.max(1L, window.toMillis())),
                 String.valueOf(limit));
-        // Redis 장애로 null 이면 열어준다(fail-open): 재설정 요청은 부가 기능이라, Redis 가 흔들릴 때
-        // 전 사용자의 비밀번호 찾기를 막는(fail-closed) 쪽이 더 해롭다. 남용 천장은 SMTP 제공자 쿼터가 최종 방어.
-        return allowed == null || allowed == 1L;
+        // Redis 장애 시 execute() 는 null 이 아니라 RedisConnectionFailureException 을 던져 500 이 된다.
+        // 그대로 수용한다: 이 플로우 전체가 Redis 에 의존하므로(토큰 발급·보조 인덱스·세션 저장소) Redis 가
+        // 죽으면 재설정 자체가 성립하지 않는다 — rate-limit 만 fail-open 시켜도 의미가 없다.
+        // ⚠️ fail-open 을 명시적으로 구현하지 말 것: 훗날 발송 경로가 Redis 비의존이 되면 Redis 블립 동안
+        // 무제한 메일 폭탄이 열린다. 스크립트가 항상 0/1 을 반환해 null 은 도달 불가하지만 방어적으로 차단한다.
+        return Long.valueOf(1L).equals(allowed);
     }
 }

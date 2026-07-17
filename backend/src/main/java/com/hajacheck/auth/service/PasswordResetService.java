@@ -86,6 +86,11 @@ public class PasswordResetService {
      *
      * <p>비밀번호 정책 위반은 DTO 검증이 먼저 걸러 INVALID_INPUT(400) 이 되므로 <b>토큰을 태우지 않는다</b>
      * (오타 한 번에 링크가 죽어 재발급을 강요당하는 UX 사고 방지).
+     *
+     * <p><b>트랜잭션 경계(의도된 순서)</b>: Redis consume(비가역) → DB 커밋 순이다. DB 커밋이 실패하면 토큰은
+     * 이미 소비돼 사용자가 링크를 재발급받아야 하지만, 비밀번호도 바뀌지 않았으므로 안전한 실패다. 순서를
+     * 뒤집으면(DB 먼저 변경 → 토큰 나중 소비) 동시 요청 2건이 <b>같은 토큰으로 모두 성공</b>하는 리플레이 창이
+     * 열려 1회용 보장이 깨진다. 드문 재발급 요구를 감수하고 리플레이를 막는 쪽을 택했다.
      */
     @Transactional
     public PasswordResetResponse reset(PasswordResetRequest request) {
