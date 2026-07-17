@@ -5,15 +5,24 @@ import com.hajacheck.core.defect.entity.DefectStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface DefectRepository extends JpaRepository<Defect, Long> {
 
-    // 대시보드 조치대기 우선순위 목록(HAJA-17) — 등급(E→A) 우선, 최신순.
-    List<Defect> findTop10ByInspectionIdInAndStatusAndDeletedFalseOrderByGradeDescCreatedAtDesc(
-            Collection<Long> inspectionIds, DefectStatus status);
+    // 대시보드 조치대기 우선순위 목록(HAJA-17) — 등급(E→A) 우선, 미분류(grade=null)는 최하단, 동일 등급
+    // 내에서는 최신순. PostgreSQL은 "ORDER BY ... DESC" 시 기본이 NULLS FIRST라, 파생 쿼리
+    // (OrderByGradeDescCreatedAtDesc)로는 "nulls last"를 표현할 수 없어 미분류 하자가 등급 E보다
+    // 위(최상단)로 노출되는 버그가 있었다(#327) — JPQL 로 전환해 명시적으로 nulls last 지정.
+    // Top10 제한은 파생 쿼리의 findTop10 대신 Pageable(PageRequest.of(0, 10))로 유지한다.
+    @Query("select d from Defect d where d.inspectionId in :inspectionIds and d.status = :status "
+            + "and d.deleted = false order by d.grade desc nulls last, d.createdAt desc")
+    List<Defect> findPendingPriorityDefects(
+            @Param("inspectionIds") Collection<Long> inspectionIds,
+            @Param("status") DefectStatus status,
+            Pageable pageable);
 
     long countByInspectionIdInAndStatusAndDeletedFalse(Collection<Long> inspectionIds, DefectStatus status);
 

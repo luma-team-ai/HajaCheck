@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,6 +54,7 @@ public class DashboardService {
             EnumSet.of(InspectionStatus.ANALYZED, InspectionStatus.REVIEWED, InspectionStatus.REPORTED);
     private static final Set<InspectionStatus> PENDING_REVIEW_STATUSES = EnumSet.of(InspectionStatus.ANALYZED);
     private static final int RECENT_LIMIT = 10;
+    private static final int PENDING_PRIORITY_LIMIT = 10;
 
     private final FacilityRepository facilityRepository;
     private final InspectionRepository inspectionRepository;
@@ -133,9 +135,8 @@ public class DashboardService {
             return List.of();
         }
 
-        List<Defect> defects = defectRepository
-                .findTop10ByInspectionIdInAndStatusAndDeletedFalseOrderByGradeDescCreatedAtDesc(
-                        inspectionIds, DefectStatus.ACTION_PENDING);
+        List<Defect> defects = defectRepository.findPendingPriorityDefects(
+                inspectionIds, DefectStatus.ACTION_PENDING, PageRequest.of(0, PENDING_PRIORITY_LIMIT));
 
         return defects.stream()
                 .map(defect -> {
