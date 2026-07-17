@@ -110,4 +110,36 @@ class ReportTest {
         assertThat(report.getGroundingCheckPassed()).isNull();
         assertThat(report.getEditedBy()).isNull();
     }
+
+    @Test
+    void draft_본문이유효한JSON이아니면예외() {
+        assertThatThrownBy(() -> Report.draft(10L, 1, "{invalid", 20L))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void updateContent_근거경고가유효한JSON이아니면예외() {
+        Report report = Report.draft(10L, 1, "{}", 20L);
+
+        assertThatThrownBy(() -> report.updateContent("{}", false, "not-json", 30L))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void updateContent_통과와동시에불일치경고가있으면예외() {
+        Report report = Report.draft(10L, 1, "{}", 20L);
+
+        assertThatThrownBy(() -> report.updateContent("{}", true, "[\"근거 확인 필요\"]", 30L))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void updateContent_통과와빈배열경고는허용() {
+        Report report = Report.draft(10L, 1, "{}", 20L);
+
+        report.updateContent("{}", true, "[]", 30L);
+
+        assertThat(report.getGroundingCheckPassed()).isTrue();
+        assertThat(report.getGroundingWarnings()).isEqualTo("[]");
+    }
 }

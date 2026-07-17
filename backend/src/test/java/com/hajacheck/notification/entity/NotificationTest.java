@@ -1,6 +1,7 @@
 package com.hajacheck.notification.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 
@@ -15,6 +16,12 @@ class NotificationTest {
         assertThat(notification.getType()).isEqualTo(NotificationType.ANALYSIS_DONE);
         assertThat(notification.getPayloadJson()).isEqualTo("{\"inspectionId\":20}");
         assertThat(notification.isRead()).isFalse();
+    }
+
+    @Test
+    void create_payload가유효한JSON이아니면예외() {
+        assertThatThrownBy(() -> Notification.create(10L, NotificationType.ANALYSIS_DONE, "not-json"))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
