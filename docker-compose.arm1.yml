@@ -106,6 +106,9 @@ services:
       # ⚠️ 승격 순서: 서버 .env에 값 주입 → 그 다음 main 승격(가드가 의도적으로 배포를 멈춘다).
       SMTP_HOST: ${SMTP_HOST:?SMTP_HOST가 .env에 설정되어야 합니다}
       SMTP_PORT: ${SMTP_PORT:-587}
+      # 465(SMTPS, 암묵적 TLS)를 쓸 때만 true — 587(STARTTLS)이 기본이며 포트와 세트로 설정할 것.
+      # (전달하지 않으면 .env에 넣어도 컨테이너에 반영되지 않는다.)
+      SMTP_SSL_ENABLE: ${SMTP_SSL_ENABLE:-false}
       SMTP_USERNAME: ${SMTP_USERNAME:?SMTP_USERNAME이 .env에 설정되어야 합니다}
       SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD가 .env에 설정되어야 합니다}
       MAIL_FROM: ${MAIL_FROM:?MAIL_FROM이 .env에 설정되어야 합니다}
