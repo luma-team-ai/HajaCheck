@@ -9,7 +9,7 @@ from functools import lru_cache
 
 import chromadb
 from chromadb import Collection
-from chromadb.api.types import Documents, Embeddings
+from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 
 from ai.core.embeddings import get_embeddings
 
@@ -20,11 +20,30 @@ COLLECTION_DEFECT_KB = "defect_kb"
 CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "/app/chroma_data")
 
 
-class _LangChainEmbeddingFunction:
-    """embeddings.py의 LangChain Embeddings(.embed_documents)를 chromadb EmbeddingFunction 프로토콜로 어댑팅."""
+class _LangChainEmbeddingFunction(EmbeddingFunction):
+    """embeddings.py의 LangChain Embeddings(.embed_documents)를 chromadb EmbeddingFunction으로 어댑팅.
+
+    chromadb는 컬렉션 생성/재오픈 시 embedding_function의 name()/config로 등록·검증하므로
+    __call__ 외에 name()/get_config()/build_from_config()까지 구현해야 실 런타임에서 동작한다.
+    """
+
+    def __init__(self) -> None:
+        pass
 
     def __call__(self, input: Documents) -> Embeddings:
         return get_embeddings().embed_documents(list(input))
+
+    @staticmethod
+    def name() -> str:
+        return "hajacheck_langchain"
+
+    def get_config(self) -> dict:
+        # 모델 설정은 get_embeddings()(EMBEDDING_MODEL env)가 소유 — 여기선 식별용 빈 config로 충분
+        return {}
+
+    @staticmethod
+    def build_from_config(config: dict) -> "_LangChainEmbeddingFunction":
+        return _LangChainEmbeddingFunction()
 
 
 @lru_cache
