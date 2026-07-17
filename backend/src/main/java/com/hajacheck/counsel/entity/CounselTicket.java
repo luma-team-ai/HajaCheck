@@ -1,5 +1,7 @@
 package com.hajacheck.counsel.entity;
 
+import com.hajacheck.global.exception.DomainStateTransitionException;
+import com.hajacheck.global.exception.DomainValidationException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -104,19 +106,19 @@ public class CounselTicket {
     public void assign(Long counselorId, ChatSession session) {
         requireStatus("assign", CounselTicketStatus.WAITING);
         if (counselorId == null) {
-            throw new IllegalArgumentException("assign 불가: 상담사 식별자는 필수다");
+            throw new DomainValidationException("assign 불가: 상담사 식별자는 필수다");
         }
         if (session == null || session.getId() == null) {
-            throw new IllegalArgumentException("assign 불가: 저장된 상담 세션은 필수다");
+            throw new DomainValidationException("assign 불가: 저장된 상담 세션은 필수다");
         }
         if (session.getSessionType() != ChatSessionType.COUNSEL) {
-            throw new IllegalArgumentException("assign 불가: 전문상담 세션만 배정할 수 있다");
+            throw new DomainValidationException("assign 불가: 전문상담 세션만 배정할 수 있다");
         }
         if (session.getEndedAt() != null) {
-            throw new IllegalStateException("assign 불가: 종료된 상담 세션은 배정할 수 없다");
+            throw new DomainStateTransitionException("assign 불가: 종료된 상담 세션은 배정할 수 없다");
         }
         if (!Objects.equals(this.userId, session.getUserId())) {
-            throw new IllegalArgumentException("assign 불가: 티켓 사용자와 상담 세션 사용자가 다르다");
+            throw new DomainValidationException("assign 불가: 티켓 사용자와 상담 세션 사용자가 다르다");
         }
         this.counselorId = counselorId;
         this.sessionId = session.getId();
@@ -142,7 +144,7 @@ public class CounselTicket {
                 return;
             }
         }
-        throw new IllegalStateException(
+        throw new DomainStateTransitionException(
                 "%s 불가: 현재 상담 티켓 상태=%s, 허용 상태=%s"
                         .formatted(action, this.status, Arrays.toString(allowed)));
     }

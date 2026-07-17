@@ -115,9 +115,9 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void handleIllegalArgumentException_mapsToInvalidInput() {
+    void handleDomainValidationException_mapsToInvalidInput() {
         ResponseEntity<ApiResponse<Void>> response =
-                handler.handleIllegalArgumentException(new IllegalArgumentException("보고서 본문(contentJson)는 유효한 JSON이어야 한다"));
+                handler.handleDomainValidationException(new DomainValidationException("보고서 본문(contentJson)는 유효한 JSON이어야 한다"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody().error().code())
@@ -125,12 +125,25 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void handleIllegalStateException_mapsToInvalidStateTransition() {
+    void handleDomainStateTransitionException_mapsToInvalidStateTransition() {
         ResponseEntity<ApiResponse<Void>> response =
-                handler.handleIllegalStateException(new IllegalStateException("이미 확정된 보고서는 수정할 수 없다"));
+                handler.handleDomainStateTransitionException(new DomainStateTransitionException("이미 확정된 보고서는 수정할 수 없다"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody().error().code())
                 .isEqualTo(ErrorCode.INVALID_STATE_TRANSITION.name());
+    }
+
+    @Test
+    void unexpectedStandardExceptions_fallBackToInternalError() {
+        ResponseEntity<ApiResponse<Void>> argumentResponse =
+                handler.handleException(new IllegalArgumentException("library bug"));
+        ResponseEntity<ApiResponse<Void>> stateResponse =
+                handler.handleException(new IllegalStateException("initialization bug"));
+
+        assertThat(argumentResponse.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(argumentResponse.getBody().error().code()).isEqualTo(ErrorCode.INTERNAL_ERROR.name());
+        assertThat(stateResponse.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(stateResponse.getBody().error().code()).isEqualTo(ErrorCode.INTERNAL_ERROR.name());
     }
 }

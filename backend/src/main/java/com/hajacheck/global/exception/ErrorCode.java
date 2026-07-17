@@ -21,7 +21,7 @@ public enum ErrorCode {
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 발생했습니다."),
     // 상태 전이 엔티티(@Version 낙관적 락 — HAJA-25)의 동시 갱신 충돌 통일 응답.
     CONCURRENT_UPDATE_CONFLICT(HttpStatus.CONFLICT, "다른 요청과 충돌하여 처리하지 못했습니다. 다시 시도해 주세요."),
-    // Entity 도메인 메서드의 상태 전이 가드(requireDraft 등 IllegalStateException) 통일 응답 — HAJA-25 PR 재검수 P2.
+    // Entity 도메인 메서드의 명시적 상태 전이 가드(DomainStateTransitionException) 통일 응답.
     INVALID_STATE_TRANSITION(HttpStatus.CONFLICT, "현재 상태에서는 처리할 수 없는 요청입니다."),
 
     // 인증(auth)

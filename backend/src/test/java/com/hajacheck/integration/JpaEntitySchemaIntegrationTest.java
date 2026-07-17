@@ -7,6 +7,7 @@ import com.hajacheck.auth.entity.CompanyMembership;
 import com.hajacheck.auth.entity.ConsentPolicyType;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserConsent;
+import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectRevision;
 import com.hajacheck.core.defect.entity.DefectStatus;
@@ -21,6 +22,7 @@ import com.hajacheck.core.rag.entity.RagDocument;
 import com.hajacheck.core.rag.entity.RagDocumentSourceType;
 import com.hajacheck.core.rag.entity.RagEmbeddingStatus;
 import com.hajacheck.core.rag.entity.RagTargetCollection;
+import com.hajacheck.core.report.entity.GroundingCheckResult;
 import com.hajacheck.core.report.entity.Report;
 import com.hajacheck.counsel.entity.BotScenario;
 import com.hajacheck.counsel.entity.ChatMessage;
@@ -111,8 +113,11 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
 
         Report report = Report.draft(
                 inspection.getId(), 1, "{\"summary\":\"균열 발견\"}", owner.getId());
-        report.updateContent(
-                "{\"summary\":\"균열 확인\"}", true, "[]", owner.getId());
+        report.updateContent("{\"summary\":\"균열 확인\"}", owner.getId());
+        report.recordGroundingResult(
+                GroundingCheckResult.fromAiReport(
+                        new ReportResponse(null, null, null, null, true), "[]"),
+                owner.getId());
         em.persist(report);
         em.flush();
 

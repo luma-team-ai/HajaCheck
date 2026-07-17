@@ -1,6 +1,8 @@
 package com.hajacheck.core.defect.entity;
 
 import com.hajacheck.core.inspection.entity.Inspection;
+import com.hajacheck.global.exception.DomainStateTransitionException;
+import com.hajacheck.global.exception.DomainValidationException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -121,10 +123,10 @@ public class Defect {
     public void review(DefectGrade grade) {
         requireNotDeleted("review");
         if (grade == null) {
-            throw new IllegalArgumentException("review 불가: 결함 등급은 필수다");
+            throw new DomainValidationException("review 불가: 결함 등급은 필수다");
         }
         if (this.status == DefectStatus.RESOLVED) {
-            throw new IllegalStateException(
+            throw new DomainStateTransitionException(
                     "review 불가: 이미 RESOLVED 상태인 결함은 등급을 변경할 수 없다");
         }
         this.grade = grade;
@@ -133,7 +135,7 @@ public class Defect {
 
     public void changeStatus(DefectStatus status) {
         if (status == null) {
-            throw new IllegalArgumentException("changeStatus 불가: 변경할 상태는 필수다");
+            throw new DomainValidationException("changeStatus 불가: 변경할 상태는 필수다");
         }
         requireNotDeleted("changeStatus");
 
@@ -146,7 +148,7 @@ public class Defect {
         };
 
         if (status != expectedNext) {
-            throw new IllegalStateException(
+            throw new DomainStateTransitionException(
                     "changeStatus 불가: 현재 상태=%s, 허용되는 다음 상태=%s, 요청 상태=%s"
                             .formatted(this.status, expectedNext, status));
         }
@@ -156,7 +158,7 @@ public class Defect {
     public void updateCrackMeasurement(Double crackWidthMm, Double crackLengthMm) {
         requireNotDeleted("updateCrackMeasurement");
         if (this.status == DefectStatus.RESOLVED) {
-            throw new IllegalStateException(
+            throw new DomainStateTransitionException(
                     "updateCrackMeasurement 불가: 이미 RESOLVED 상태인 결함은 측정값을 변경할 수 없다");
         }
         this.crackWidthMm = crackWidthMm;
@@ -172,7 +174,7 @@ public class Defect {
 
     private void requireNotDeleted(String action) {
         if (this.deleted) {
-            throw new IllegalStateException(
+            throw new DomainStateTransitionException(
                     "%s 불가: 삭제된 결함은 변경할 수 없다".formatted(action));
         }
     }

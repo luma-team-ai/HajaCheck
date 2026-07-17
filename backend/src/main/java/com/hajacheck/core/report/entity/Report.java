@@ -2,6 +2,8 @@ package com.hajacheck.core.report.entity;
 
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.global.common.BaseTimeEntity;
+import com.hajacheck.global.exception.DomainStateTransitionException;
+import com.hajacheck.global.exception.DomainValidationException;
 import com.hajacheck.global.util.JsonValidator;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -96,7 +98,7 @@ public class Report extends BaseTimeEntity {
 
     public static Report draft(Long inspectionId, int version, String contentJson, Long createdBy) {
         if (version < 1) {
-            throw new IllegalArgumentException("보고서 버전은 1 이상이어야 한다");
+            throw new DomainValidationException("보고서 버전은 1 이상이어야 한다");
         }
         requireContent(contentJson);
         return Report.builder()
@@ -108,22 +110,31 @@ public class Report extends BaseTimeEntity {
                 .build();
     }
 
-    public void updateContent(String contentJson, Boolean groundingCheckPassed,
-                              String groundingWarnings, Long editedBy) {
+    /** 콘텐츠를 수정하면 이전 콘텐츠에 대한 grounding 판정은 더 이상 유효하지 않다. */
+    public void updateContent(String contentJson, Long editedBy) {
         requireDraft("updateContent");
         requireContent(contentJson);
-        String normalizedWarnings = JsonValidator.normalizeOrRequireValid(groundingWarnings, "근거 검증 경고(groundingWarnings)");
-        requireConsistentGroundingResult(groundingCheckPassed, normalizedWarnings);
         this.contentJson = contentJson;
-        this.groundingCheckPassed = groundingCheckPassed;
-        this.groundingWarnings = normalizedWarnings;
+        this.groundingCheckPassed = null;
+        this.groundingWarnings = null;
+        this.editedBy = editedBy;
+    }
+
+    /** 내부 AI 서버에서 유래한 grounding 결과만 별도 단계로 기록한다. */
+    public void recordGroundingResult(GroundingCheckResult result, Long editedBy) {
+        requireDraft("recordGroundingResult");
+        if (result == null) {
+            throw new DomainValidationException("grounding 결과는 필수다");
+        }
+        this.groundingCheckPassed = result.passed();
+        this.groundingWarnings = result.warnings();
         this.editedBy = editedBy;
     }
 
     public void finalizeReport(String pdfUrl, Long editedBy) {
         requireDraft("finalizeReport");
         if (!Boolean.TRUE.equals(this.groundingCheckPassed)) {
-            throw new IllegalStateException(
+            throw new DomainStateTransitionException(
                     "finalizeReport 불가: 근거 검증을 통과한 보고서만 확정할 수 있다");
         }
         requirePdfUrl(pdfUrl);
@@ -134,34 +145,21 @@ public class Report extends BaseTimeEntity {
 
     private void requireDraft(String action) {
         if (this.status != ReportStatus.DRAFT) {
-            throw new IllegalStateException(
+            throw new DomainStateTransitionException(
                     "%s 불가: 이미 확정된 보고서는 수정할 수 없다".formatted(action));
         }
     }
 
     private static void requireContent(String contentJson) {
         if (contentJson == null || contentJson.isBlank()) {
-            throw new IllegalArgumentException("보고서 본문 JSON은 필수다");
+            throw new DomainValidationException("보고서 본문 JSON은 필수다");
         }
         JsonValidator.requireValidJson(contentJson, "보고서 본문(contentJson)");
     }
 
-    /**
-     * grounding_check.md §3: {@code grounded=true}(PASS)는 MISMATCH 0건을 의미하므로
-     * groundingCheckPassed=true와 비어있지 않은 groundingWarnings는 동시에 성립할 수 없다.
-     * 엔티티는 호출자가 넘긴 groundingCheckPassed 자체의 진위(실제 검증을 거쳤는지)는 검증할 수 없지만,
-     * 이 정합성 불변식만큼은 여기서 기계적으로 강제한다.
-     */
-    private static void requireConsistentGroundingResult(Boolean groundingCheckPassed, String groundingWarnings) {
-        if (Boolean.TRUE.equals(groundingCheckPassed) && !JsonValidator.isEmptyJson(groundingWarnings)) {
-            throw new IllegalArgumentException(
-                    "groundingCheckPassed=true와 비어있지 않은 groundingWarnings는 동시에 있을 수 없다");
-        }
-    }
-
     private static void requirePdfUrl(String pdfUrl) {
         if (pdfUrl == null || pdfUrl.isBlank()) {
-            throw new IllegalArgumentException("확정 보고서 PDF URL은 필수다");
+            throw new DomainValidationException("확정 보고서 PDF URL은 필수다");
         }
     }
 }

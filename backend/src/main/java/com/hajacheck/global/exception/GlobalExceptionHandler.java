@@ -137,24 +137,23 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Entity 도메인 메서드의 입력 검증 실패(JsonValidator, requireContent 등 IllegalArgumentException) —
-     * 이전에는 핸들러가 없어 Exception 폴백(500)으로 새어 나갔다(HAJA-25 PR 재검수 P2).
-     * 예외 메시지에는 Jackson 파서가 원문 JSON 조각을 그대로 포함시킬 수 있어(OCR 원본·보고서 본문 등
-     * 민감할 수 있는 입력 유래) 클라이언트 응답에는 절대 노출하지 않고, 로그도 ERROR 대신 WARN으로 낮춘다.
+     * Entity 도메인 메서드의 명시적인 입력 검증 실패만 400으로 변환한다.
+     * 표준 IllegalArgumentException은 프로그래밍 오류일 수 있으므로 이 핸들러가 잡지 않으며 500으로 처리한다.
+     * 민감한 입력 조각이 로그에 남지 않도록 예외 메시지 자체도 기록하지 않는다.
      */
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ApiResponse<Void>> handleIllegalArgumentException(IllegalArgumentException e) {
-        log.warn("잘못된 입력값: {}", e.getMessage());
+    @ExceptionHandler(DomainValidationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDomainValidationException(DomainValidationException e) {
+        log.warn("도메인 입력값 검증 실패: {}", e.getClass().getSimpleName());
         return ResponseEntity.status(ErrorCode.INVALID_INPUT.getStatus())
                 .body(ApiResponse.fail(ErrorCode.INVALID_INPUT));
     }
 
     /**
-     * Entity 도메인 메서드의 상태 전이 가드 위반(requireDraft/requirePendingReview 등 IllegalStateException) —
-     * 이전에는 핸들러가 없어 Exception 폴백(500)으로 새어 나갔다(HAJA-25 PR 재검수 P2).
+     * Entity 도메인 메서드의 명시적인 상태 전이 가드 위반만 409로 변환한다.
+     * 표준 IllegalStateException은 프로그래밍 오류일 수 있으므로 이 핸들러가 잡지 않으며 500으로 처리한다.
      */
-    @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<ApiResponse<Void>> handleIllegalStateException(IllegalStateException e) {
+    @ExceptionHandler(DomainStateTransitionException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDomainStateTransitionException(DomainStateTransitionException e) {
         log.warn("잘못된 상태 전이 요청: {}", e.getMessage());
         return ResponseEntity.status(ErrorCode.INVALID_STATE_TRANSITION.getStatus())
                 .body(ApiResponse.fail(ErrorCode.INVALID_STATE_TRANSITION));

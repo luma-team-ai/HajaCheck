@@ -1,6 +1,6 @@
 # hajaCheck 테이블 디자인 설계
 
-> **문서 버전:** v0.3 · **최종 수정:** 2026-07-16 · 이전 버전 `archive/`
+> **문서 버전:** v0.3 · **최종 수정:** 2026-07-17 · 이전 버전 `archive/`
 
 - 대상 스키마 파일: [HajaCheck_script.sql](HajaCheck_script.sql)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
@@ -559,6 +559,9 @@ users ──┬──< user_consents
 - **UQ**: `(inspection_id, version)`
 - 인덱스: `idx_reports_created_by (created_by)`, `idx_reports_edited_by (edited_by)`
 - 트리거: `trg_reports_set_updated_at` — 행 수정 시 `updated_at` 자동 갱신
+- **Grounding 신뢰 경계**: 콘텐츠 수정은 기존 grounding 판정을 `NULL`로 무효화한다. 판정값은 요청 DTO의
+  boolean을 직접 저장하지 않고, 백엔드가 내부 AI 서버에서 받은 `ReportResponse`로 생성한
+  `GroundingCheckResult`를 별도 기록한 경우에만 갱신한다. `finalizeReport`는 이 결과가 통과일 때만 허용한다.
 - 착수 보고서 대비: `created_by`, `updated_at` 신규 추가, `grounding_check_passed` NOT NULL → NULL 허용 (§2.1 참조)
 
 ---
