@@ -79,6 +79,9 @@ class InspectionServiceConcurrencyTest extends PostgresTestSupport {
         Company company = companyRepository.save(Company.createPendingReview(
                 owner.getId(), "(주)동시성테스트", brn,
                 "김대표", "서울시 강남구", null, "http://files/brn.png", "{}"));
+        company.markBusinessVerified();
+        company.approve(owner.getId());
+        company = companyRepository.save(company);
         owner.assignToCompany(company.getId());
         userRepository.save(owner);
 
