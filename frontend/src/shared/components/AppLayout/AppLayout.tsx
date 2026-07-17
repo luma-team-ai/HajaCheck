@@ -66,7 +66,8 @@ export function AppLayout({
         activeHref={resolvedActiveHref}
         isRouteImplemented={isRouteImplemented}
         isAdmin={isAdmin}
-        user={user}
+        // 사이드바 하단 프로필은 관리자에게만 노출 — 일반 사용자 프로필은 별도 이슈에서 헤더에 붙일 예정(HAJA-167, #184)
+        user={isAdmin ? user : undefined}
         onLogout={onLogout}
       />
       <div className="flex min-w-0 flex-1 flex-col">
