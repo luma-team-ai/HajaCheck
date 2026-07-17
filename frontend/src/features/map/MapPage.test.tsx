@@ -64,7 +64,7 @@ function stubKakaoMaps() {
   (window as unknown as { kakao: unknown }).kakao = {
     maps: {
       load: (cb: () => void) => cb(),
-      MapTypeId: { ROADMAP: 0, SKYVIEW: 1, HYBRID: 2 },
+      MapTypeId: { ROADMAP: 0, HYBRID: 2 },
       LatLng: vi.fn(function LatLng(this: Record<string, unknown>, lat: number, lng: number) {
         this.lat = lat;
         this.lng = lng;

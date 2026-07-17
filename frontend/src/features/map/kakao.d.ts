@@ -67,12 +67,11 @@ declare global {
     setMapTypeId(mapTypeId: KakaoMapTypeId): void;
   }
 
-  // 지도 타입 식별자 — ROADMAP(기본 지도) / SKYVIEW(순수 위성) / HYBRID(위성+지명)
+  // 지도 타입 식별자 — ROADMAP(기본 지도) / HYBRID(위성+지명, 위성뷰 토글에서 사용)
   type KakaoMapTypeId = number & { readonly __brand: 'KakaoMapTypeId' };
 
   interface KakaoMapTypeIdMap {
     ROADMAP: KakaoMapTypeId;
-    SKYVIEW: KakaoMapTypeId;
     HYBRID: KakaoMapTypeId;
   }
 
