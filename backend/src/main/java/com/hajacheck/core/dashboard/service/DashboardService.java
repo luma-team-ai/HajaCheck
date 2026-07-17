@@ -117,7 +117,9 @@ public class DashboardService {
             total += projection.getCnt();
         }
 
-        // 하자가 한 건도 없으면 빈 목록(#347). A~E 를 0% 5건으로 채우면 프론트의 빈 상태 가드가
+        // 등급 분류된 하자가 한 건도 없으면 빈 목록(#347). countGroupByGrade 는 grade is not null
+        // 조건이라 total==0 은 "미분류(grade=null) 하자만 있는 경우"도 포함한다 — 어느 쪽이든
+        // 등급 막대에 그릴 것이 없다. A~E 를 0% 5건으로 채우면 프론트의 빈 상태 가드가
         // 발동하지 못하고, 합계가 0% 라 스토리보드 DASH-01 V2("합계가 100%인지 검증")도 위반된다.
         // 반면 하자가 있으면 집계 0 인 등급까지 5개 전부 반환한다 — 막대그래프가 A~E 를 모두 보여주고
         // 합계 100% 가 성립해야 하므로(GradeDistributionResponse javadoc 참고).

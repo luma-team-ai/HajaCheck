@@ -177,6 +177,20 @@ class DashboardServiceTest {
     }
 
     @Test
+    void getGradeDistribution_미분류하자만있으면_빈목록() {
+        // countGroupByGrade 는 "grade is not null" 조건이라 미분류(grade=null) 하자만 있으면
+        // 집계가 비어 total==0 이 된다. 등급 막대에 그릴 것이 없으므로 빈 목록이 맞다(#347).
+        when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "A")));
+        Inspection insp = inspection(100L, FACILITY_ID, OWNER_ID, LocalDate.now(), InspectionStatus.ANALYZED);
+        when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of(insp));
+        when(defectRepository.countGroupByGrade(List.of(100L))).thenReturn(List.of());
+
+        List<GradeDistributionResponse> result = dashboardService.getGradeDistribution(OWNER_ID);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
     void getPendingPriority_타인소유시설물의점검은조회대상에서제외() {
         // owner 소유 facility 만 findByOwnerId 로 반환되므로, defectRepository 조회에는
         // owner 소유 facility 로부터 얻은 inspectionId 만 전달돼야 한다(cross-owner IDOR 방지).
