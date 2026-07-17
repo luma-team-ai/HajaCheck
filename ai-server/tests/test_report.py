@@ -872,8 +872,6 @@ def test_sanitize_untrusted_full_marker_with_non_multiple_of_three_padding_does_
     assert "---" not in sanitized
 
 
-
-
 if __name__ == "__main__":
     test_full_grade_counts_fills_all_grades_with_zero()
     test_build_prompt_overview_includes_facility_info()
