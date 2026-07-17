@@ -2,7 +2,7 @@
 // MapPage 상호작용 테스트 — 줌 클램프, 내 위치 이동(성공/실패), 필터-선택 상태 동기화(P2, 2026-07-16)
 // Kakao Maps SDK는 실제 스크립트 로드 없이 최소 스텁으로 대체하고, loadKakaoMapSdk/mapApi는 모듈 목으로 우회한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FacilityLocation } from './types';
 
@@ -192,6 +192,21 @@ describe('MapPage', () => {
       fireEvent.click(screen.getByRole('button', { name: '내 위치로 이동' }));
     }).not.toThrow();
     expect(getCurrentPosition).toHaveBeenCalled();
+  });
+
+  it('선택 팝업(SelectedFacilityPopup)은 GradeBadge를 사용하지 않고 등급 문자만 단독 렌더링한다', async () => {
+    renderMapPage();
+    await screen.findByText('한강대교 북단');
+
+    fireEvent.click(screen.getByText('한강대교 북단'));
+
+    const popupContainer = screen.getByText('상세 보기').closest('.z-10') as HTMLElement;
+    expect(popupContainer).not.toBeNull();
+
+    // popupContainer 내부에서 "E" 등급 배지는 존재하지만, GradeBadge 형식의 "등급 E"는 렌더링되지 않아야 함
+    const gradeBadge = within(popupContainer).getByText('E');
+    expect(gradeBadge).toBeTruthy();
+    expect(within(popupContainer).queryByText('등급 E')).toBeNull();
   });
 
   it('검색어로 선택된 시설물이 필터링되면 선택 상태가 해제되고 팝업이 사라진다', async () => {

@@ -82,6 +82,7 @@ export function FacilityListPanel({
           <ul>
             {facilities.map((facility) => (
               <li key={facility.id}>
+                {/* 카드 간 구분선(border-b) 제거 및 호버 밝아짐 효과 제거 — Figma 시안 정합성 준수(2026-07-17) */}
                 <button
                   type="button"
                   onClick={() => onSelectFacility(facility.id)}
