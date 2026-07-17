@@ -26,7 +26,10 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd -r fastapi && useradd -r -g fastapi -d /app -s /usr/sbin/nologin fastapi
+    # UID/GID를 999로 명시 고정(#345) — useradd -r의 자동 할당값이었던 999를 그대로 박은 것.
+    # chroma_data는 named volume 마운트 대상이라 최초 마운트 시점의 UID로 초기화되므로, 베이스
+    # 이미지 변경 등으로 자동 할당 UID가 바뀌면 기존 볼륨을 못 읽는다. 절대 임의 값으로 바꾸지 말 것.
+    && groupadd -r -g 999 fastapi && useradd -r -u 999 -g fastapi -d /app -s /usr/sbin/nologin fastapi
 
 COPY --from=build /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
