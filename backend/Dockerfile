@@ -24,6 +24,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -r spring && useradd -r -g spring -d /app -s /usr/sbin/nologin spring \
+    # uploads는 named volume 마운트 대상(#323) — 이미지에 경로가 미리 없으면 Docker가 빈 볼륨을
+    # root:root 755로 새로 만들어 non-root spring이 쓰기 실패한다. 미리 만들어 소유권을 아래
+    # chown -R로 함께 넘겨줘야 볼륨이 그 소유권을 상속받는다(ai-server/Dockerfile의 chroma_data와 동일 패턴).
+    && mkdir -p /app/uploads/hajacheck-files \
     && chown -R spring:spring /app
 
 COPY --from=build --chown=spring:spring /workspace/build/libs/*.jar app.jar
