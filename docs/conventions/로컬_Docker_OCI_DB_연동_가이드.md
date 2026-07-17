@@ -70,13 +70,14 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-co
 > ```
 > COMPOSE_FILE=docker-compose.yml:docker-compose.override.yml:docker-compose.oci-db.yml
 > ```
-> 이후로는 `docker compose up -d --build`만 쳐도 3개가 항상 적용된다.
+> 이후로는 **서비스명도 `-f`도 없이 `docker compose up -d --build`** 만 쳐도 된다 — 3개 파일이 항상 적용되고, 로컬 `postgres`/`redis`는 아래 profiles 로 알아서 빠진다.
 > **`-f`를 매번 나열하는 방식은 한 번만 빠뜨려도 오버레이 없이 컨테이너가 재생성돼 로그인이 조용히 깨진다**(§5 표 참조).
 > `-f`를 명시하면 `override.yml` **자동 병합이 꺼진다**는 점도 주의 — 자동 병합은 `-f` 미지정일 때만 동작하므로, `-f`를 쓸 땐 `override.yml`도 반드시 나열해야 한다(빼면 `frontend-dev has neither an image nor a build context specified`).
 
-- `postgres`/`redis` 서비스명을 목록에서 뺐기 때문에 로컬 컨테이너는 안 뜨고, `db-tunnel`이 대신 OCI로 붙는다.
+- **로컬 `postgres`/`redis`는 이 오버레이에서 `profiles: ["local-db"]`로 묶여 기본 미기동**이다 — `db-tunnel`이 대신 OCI로 붙으므로 로컬 컨테이너는 쓰이지 않는다. 정상 기동 시 컨테이너는 **5개**(`spring`·`fastapi`·`nginx`·`db-tunnel`·`frontend-dev`).
+  > ⚠️ profiles가 없던 시절엔 서비스명을 일일이 나열해서 둘을 제외했다. 그래서 `COMPOSE_FILE`을 쓰며 서비스명 없이 `up -d`를 치면 **아무도 안 쓰는 postgres/redis가 함께 떠서 호스트 `127.0.0.1:5432`·`127.0.0.1:6380`을 점유**했고, 네이티브 SSH 터널(`LocalForward 6380 127.0.0.1:6380`)이 포트 충돌로 열리지 않았다(#302 후속).
+  > 굳이 로컬 DB 컨테이너가 필요하면 `docker compose --profile local-db up -d postgres redis`.
 - `db-tunnel`이 헬스체크(5432·6380 포트 확인)를 통과해야 `spring`/`fastapi`가 기동을 시작한다.
-- **서비스명을 나열하는 방식**이라 `frontend-dev`를 빼먹으면(override.yml에 정의돼 있어도) 안 뜬다 — 서비스명 없이 `up --build`만 실행하면(-f 3개는 유지) override.yml에 정의된 서비스 전체가 다 뜬다.
 - **접속은 `http://localhost`(80) 하나만 쓰면 된다**(#311). 로그인 테스트도 여기서 시작 — 위 §3 redirect-uri 설명 참고.
   **소셜 로그인은 `80`에서 시작해 `80`으로 끝난다**(`APP_OAUTH2_SUCCESS_REDIRECT`가 `http://localhost/dashboard`).
   이 오버레이는 **nginx 80 단일 오리진**이 전제라 콜백(`redirect-uri`)과 착지(`success-redirect`)가 **같은 오리진**이어야 한다 — 운영(`application-docker.yml`)도 둘 다 `luma200ok.com`으로 같다.
@@ -127,6 +128,7 @@ curl -s http://localhost/ | grep -q "@vite/client" && echo "개발 모드" || ec
 |---|---|
 | `pull access denied for linuxserver/openssh-client` | 그 이미지가 실제로 존재하지 않음 — `docker-compose.oci-db.yml`은 `alpine` 기반 인라인 빌드로 이미 고쳐져 있으니 최신 버전인지 확인 |
 | `chmod: /root/.ssh/id_tunnel: Read-only file system` | 개인키를 `:ro`로 마운트해놓고 그 자리에서 chmod하려 해서 발생 — 현재 파일은 `/run/secrets`에 마운트 후 컨테이너 내부로 복사한 뒤 chmod하도록 이미 수정됨 |
+| 네이티브 SSH 터널(`ssh -N hajacheck-db`)이 **포트 충돌**로 안 열림 / `docker ps`에 컨테이너가 **7개** | 로컬 `postgres`·`redis` 컨테이너가 같이 떠서 호스트 `127.0.0.1:5432`·`127.0.0.1:6380`을 점유한 것. 이 오버레이에선 **5개가 정상**(`spring`·`fastapi`·`nginx`·`db-tunnel`·`frontend-dev`) — `db-tunnel`이 OCI에 붙으므로 로컬 DB는 쓰이지 않는다. `docker compose stop postgres redis`로 내리면 된다. 지금은 `profiles: ["local-db"]`로 기본 미기동이라 재발하지 않지만, **옛 설정으로 뜬 컨테이너가 남아 있으면** 위 명령으로 정리할 것 |
 | `channel ... open failed: administratively prohibited` | OCI sshd의 `PermitOpen`이 목적지 포트를 엄격히 검사함. `~/.ssh/config`의 `LocalForward` 포트(특히 Redis 6380, 6379 아님)와 `.env`의 `OCI_*_REMOTE_PORT`가 정확히 일치하는지 확인 |
 | `RedisConnectionFailureException` (Postgres는 되는데 Redis만 실패) | `db-tunnel` 헬스체크가 5432만 확인해서 6380 포워딩 실패를 못 잡아냄 — 지금은 healthcheck가 둘 다 확인하도록 고쳐짐. 그래도 안 되면 `.env`의 `REDIS_PASSWORD`가 OCI 공용 Redis의 실제 비밀번호와 일치하는지 확인 |
 | `SchemaManagementException: missing column ...` | 공용 OCI DB 스키마가 최신 엔티티와 안 맞음(Flyway 없이 `ddl-auto`로만 관리되는 프로젝트라 드리프트 발생 가능). 팀에 공유해서 DB 쪽 컬럼을 맞추거나, 본인 담당 기능이 아니면 일단 그 기능만 피해서 테스트 |

@@ -23,6 +23,22 @@
 #   application-local.yml.example 안내와 동일하게 app.local-seed.enabled 를 여기서 절대 true 로 켜지 말 것.
 
 services:
+  # base(docker-compose.yml)의 로컬 postgres/redis 를 이 오버레이에선 기본 미기동으로 돌린다(#302 후속).
+  # 이 오버레이의 spring/fastapi 는 db-tunnel 을 통해 OCI DB 에 붙으므로 로컬 컨테이너는 쓰이지 않는다.
+  #
+  # ⚠️ profiles 가 없으면 `docker compose up -d`(서비스명 미지정)가 정의된 서비스를 전부 띄워
+  #   아무도 안 쓰는 postgres/redis 가 함께 뜬다. 단순 낭비가 아니라 실제로 해롭다:
+  #   호스트 포트 127.0.0.1:5432 / 127.0.0.1:6380 을 점유해, 네이티브 SSH 터널 흐름
+  #   (~/.ssh/config 의 `LocalForward 6380 127.0.0.1:6380`)이 포트 충돌로 열리지 않는다.
+  #   `.env` 에 COMPOSE_FILE 을 고정하면(#302) 서비스명을 나열할 일이 없어 이 문제가 상시화된다.
+  #
+  # 로컬 DB 컨테이너가 굳이 필요하면(이 오버레이를 쓰면서 동시에? — 정상 흐름은 아님):
+  #   docker compose --profile local-db up -d postgres redis
+  postgres:
+    profiles: ["local-db"]
+  redis:
+    profiles: ["local-db"]
+
   db-tunnel:
     build:
       context: .
