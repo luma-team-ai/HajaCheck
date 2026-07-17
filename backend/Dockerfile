@@ -23,7 +23,10 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd -r spring && useradd -r -g spring -d /app -s /usr/sbin/nologin spring \
+    # UID/GID를 999로 명시 고정(#345) — useradd -r의 자동 할당값이었던 999를 그대로 박은 것.
+    # named volume(uploads)은 최초 마운트 시점의 UID로 초기화되므로, 베이스 이미지 변경 등으로
+    # 자동 할당 UID가 바뀌면 기존 볼륨을 못 읽는다. 절대 임의 값으로 바꾸지 말 것.
+    && groupadd -r -g 999 spring && useradd -r -u 999 -g spring -d /app -s /usr/sbin/nologin spring \
     # uploads는 named volume 마운트 대상(#323) — 이미지에 경로가 미리 없으면 Docker가 빈 볼륨을
     # root:root 755로 새로 만들어 non-root spring이 쓰기 실패한다. 미리 만들어 소유권을 아래
     # chown -R로 함께 넘겨줘야 볼륨이 그 소유권을 상속받는다(ai-server/Dockerfile의 chroma_data와 동일 패턴).
