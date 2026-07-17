@@ -100,6 +100,23 @@ management:
     web:
       exposure:
         include: health, metrics
+  health:
+    # 메일 헬스체크 비활성(#310 — #194 회귀 수정). 끄는 이유가 셋이다:
+    #
+    # 1) 로컬/dev를 깨뜨린다. 로컬 compose는 SMTP_* 를 전달하지 않는 게 설계 의도라
+    #    spring.mail.host 가 빈 문자열이 되는데, Boot 의 MailSenderAutoConfiguration 은
+    #    @ConditionalOnProperty(name="spring.mail.host") 라 빈 문자열도 "속성 존재"로 보고
+    #    JavaMailSender 빈을 만든다. 그러면 MailHealthIndicator 가 붙어 연결을 시도하고
+    #    AuthenticationFailedException → health DOWN → 도커 헬스체크 실패 → 스택이 안 뜬다.
+    # 2) 운영에서 SMTP 도달성이 서비스 전체 health 를 좌우하면 안 된다. 메일은 비밀번호 재설정
+    #    한 기능의 의존성인데, 제공자가 잠깐 흔들렸다고 앱 전체가 DOWN 으로 찍혀 재시작·LB 제거로
+    #    이어지는 건 과하다.
+    # 3) MailHealthIndicator.testConnection() 은 헬스 폴링마다 SMTP 연결을 연다. 짧은 주기로
+    #    돌면 제공자(예: Gmail) 한도를 소모하고 계정이 스로틀·차단될 수 있다.
+    #
+    # 발송 실패의 관측 지점은 여기가 아니라 PasswordResetMailDispatcher 의 WARN 로그다.
+    mail:
+      enabled: false
 
 springdoc:
   swagger-ui:
