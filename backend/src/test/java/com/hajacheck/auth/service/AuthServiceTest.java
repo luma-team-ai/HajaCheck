@@ -3,11 +3,14 @@ package com.hajacheck.auth.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.entity.CompanyMembershipStatus;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -27,6 +30,9 @@ class AuthServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private CompanyMembershipRepository companyMembershipRepository;
+
     @InjectMocks
     private AuthService authService;
 
@@ -45,12 +51,26 @@ class AuthServiceTest {
         return user;
     }
 
+    private void givenEffectiveMemberships(Long companyId, Long requesterUserId, Long assignedInspectorId) {
+        when(companyMembershipRepository.existsEffectiveMembership(
+                org.mockito.ArgumentMatchers.eq(companyId),
+                org.mockito.ArgumentMatchers.eq(requesterUserId),
+                org.mockito.ArgumentMatchers.eq(CompanyMembershipStatus.APPROVED),
+                any())).thenReturn(true);
+        when(companyMembershipRepository.existsEffectiveMembership(
+                org.mockito.ArgumentMatchers.eq(companyId),
+                org.mockito.ArgumentMatchers.eq(assignedInspectorId),
+                org.mockito.ArgumentMatchers.eq(CompanyMembershipStatus.APPROVED),
+                any())).thenReturn(true);
+    }
+
     @Test
     void validateAssignableInspector_같은회사_INSPECTOR_ACTIVE_통과() {
         User requester = requesterOf(1L);
         User assignee = assigneeOf(1L, Role.INSPECTOR, false);
         when(userRepository.findById(100L)).thenReturn(Optional.of(requester));
         when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
+        givenEffectiveMemberships(1L, 100L, 200L);
 
         authService.validateAssignableInspector(100L, 200L);
     }
@@ -61,8 +81,31 @@ class AuthServiceTest {
         User assignee = assigneeOf(1L, Role.ADMIN, false);
         when(userRepository.findById(100L)).thenReturn(Optional.of(requester));
         when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
+        givenEffectiveMemberships(1L, 100L, 200L);
 
         authService.validateAssignableInspector(100L, 200L);
+    }
+
+    @Test
+    void validateAssignableInspector_배정자멤버십회수또는만료_AUTH_INVALID_INSPECTOR() {
+        User requester = requesterOf(1L);
+        User assignee = assigneeOf(1L, Role.INSPECTOR, false);
+        when(userRepository.findById(100L)).thenReturn(Optional.of(requester));
+        when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
+        when(companyMembershipRepository.existsEffectiveMembership(
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(100L),
+                org.mockito.ArgumentMatchers.eq(CompanyMembershipStatus.APPROVED),
+                any())).thenReturn(true);
+        when(companyMembershipRepository.existsEffectiveMembership(
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(200L),
+                org.mockito.ArgumentMatchers.eq(CompanyMembershipStatus.APPROVED),
+                any())).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.validateAssignableInspector(100L, 200L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_INVALID_INSPECTOR));
     }
 
     @Test
