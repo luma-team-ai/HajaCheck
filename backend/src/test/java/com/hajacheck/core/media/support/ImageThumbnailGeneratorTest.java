@@ -48,6 +48,22 @@ class ImageThumbnailGeneratorTest {
         assertThat(decoded.getHeight()).isEqualTo(400);
     }
 
+    /**
+     * 최신 플래그십 폰 카메라는 48MP·108MP·200MP 원본을 흔히 촬영한다(리뷰 P2). 이전 40MP 상한은
+     * 이런 정상 사진을 "허용되지 않는 파일 형식"으로 거부했다 — 8000×6000(48MP)이 거부되지 않고
+     * 정확한 비율로 축소되는지 고정한다(MAX_PIXELS를 250MP로 올린 결정의 회귀 테스트).
+     */
+    @Test
+    void generate_48MP정상사진_거부되지않고정확한크기의썸네일반환() throws IOException {
+        byte[] png = realPngBytes(8000, 6000);
+
+        byte[] thumbnail = ImageThumbnailGenerator.generate(new ByteArrayInputStream(png), 400);
+
+        BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(thumbnail));
+        assertThat(decoded.getWidth()).isEqualTo(400);
+        assertThat(decoded.getHeight()).isEqualTo(300);
+    }
+
     @Test
     void generate_원본이맥스디멘션보다작으면확대하지않음() throws IOException {
         byte[] png = realPngBytes(30, 20);

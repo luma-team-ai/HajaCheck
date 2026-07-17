@@ -28,7 +28,14 @@ public final class ImageThumbnailGenerator {
     // 디컴프레션 밤(픽셀 폭탄) 방어 — 파일 용량이 작아도 헤더에 거대한 가로×세로를 선언하면
     // 전체 디코딩 시 픽셀 버퍼가 수 GB에 달해 OOM을 유발할 수 있다. 실제 픽셀을 읽기 전에
     // ImageReader로 크기(헤더)만 먼저 확인해 상한을 넘으면 디코딩 자체를 하지 않고 거부한다.
-    private static final long MAX_PIXELS = 40_000_000L; // 40MP — 폰 카메라 사진 대부분을 커버하는 여유 상한
+    //
+    // ⚠️ 40MP는 최신 플래그십 폰 카메라(48MP·108MP·200MP 원본 촬영 흔함)의 정상 사진을 거부하는
+    // 상한이었다(리뷰 P2). subsamplingParam으로 이미 디코딩 단계부터 서브샘플링하므로 픽셀 버퍼는
+    // width×height가 아니라 이미 targetWidth×targetHeight로 제한되어 있어, 이 상한을 실제 지원
+    // 기기 스펙보다 낮게 잡을 이유가 없다. 250MP는 현존 최대급 카메라 센서(200MP)에 여유를 더한
+    // 값으로, 여전히 아래 픽셀폭탄 테스트의 60000×60000(36억 픽셀)보다는 훨씬 작아 방어 목적은
+    // 유지한다 — "정상 대용량 사진 허용"과 "비현실적으로 거대한 선언 크기 거부"를 분리한 것.
+    private static final long MAX_PIXELS = 250_000_000L; // 250MP
 
     private ImageThumbnailGenerator() {
     }
@@ -68,9 +75,10 @@ public final class ImageThumbnailGenerator {
     }
 
     // 썸네일은 어차피 maxDimension 이하로 축소되므로, 디코딩 단계부터 서브샘플링해 원본 풀 해상도
-    // 버퍼(40MP·TYPE_INT_RGB 기준 약 160MB)를 힙에 올리지 않는다(리뷰 P2 — 요청당 최대 10개 파일을
-    // 순차 처리하고 동시 요청도 가능해 힙 압박이 누적될 수 있음). 서브샘플링은 스트라이드 단위라
-    // 정확한 목표 크기를 만들지 못하므로, 이어지는 resizeToJpeg 의 비율 유지 축소가 정확히 맞춘다.
+    // 버퍼(MAX_PIXELS 상한 기준 최악값으로도 TYPE_INT_RGB 수백 MB대)를 힙에 올리지 않는다
+    // (리뷰 P2 — 요청당 최대 10개 파일을 순차 처리하고 동시 요청도 가능해 힙 압박이 누적될 수 있음).
+    // 서브샘플링은 스트라이드 단위라 정확한 목표 크기를 만들지 못하므로, 이어지는 resizeToJpeg 의
+    // 비율 유지 축소가 정확히 맞춘다.
     private static ImageReadParam subsamplingParam(ImageReader reader, int width, int height, int maxDimension) {
         ImageReadParam param = reader.getDefaultReadParam();
         int longerSide = Math.max(width, height);
