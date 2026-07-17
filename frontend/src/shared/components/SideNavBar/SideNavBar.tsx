@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { MouseEvent } from 'react';
+import type { KeyboardEvent, MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import brandIcon from '../../../assets/brand/sidenav-brand-icon.png';
@@ -138,6 +138,11 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     icon: mypageIcon,
     subItems: [
       { label: '내 정보', href: '/mypage/profile' },
+      // '내 점검 이력'과 '내 보고서'를 한 항목으로 통합(HAJA-167, #184, 사용자 요청).
+      // /mypage/reports는 router.tsx·implementedRoutes.ts 어디에도 등록된 적 없는
+      // placeholder였으므로(=/mypage/inspections와 마찬가지로 아직 실제 페이지 없음)
+      // 통합으로 인한 실제 접근 경로 손실은 없다. 추후 보고서 화면을 실제로 구현할 때
+      // 이 메뉴 구조를 다시 검토할 것.
       { label: '내 점검 이력/보고서', href: '/mypage/inspections' },
       { label: '내 플랜', href: '/mypage/plan' },
       { label: '내 상담 내역', href: '/mypage/counsels' },
@@ -271,6 +276,10 @@ export function SideNavBar({
   // 시작 X좌표/시작폭을 기록한 뒤 window에 mousemove/mouseup을 등록하고, mouseup(또는 언마운트) 시 정리한다(HAJA-167, #184)
   function handleResizeMouseDown(event: MouseEvent<HTMLDivElement>) {
     event.preventDefault();
+    // 이전 드래그의 mouseup이 브라우저 창 밖에서 발생하는 등의 이유로 누락되면 window에
+    // 등록된 이전 mousemove/mouseup 리스너가 정리되지 않은 채 남을 수 있다. 새 드래그를
+    // 시작하기 전 항상 먼저 정리해 리스너 중복 등록을 방지한다(PR머신 리뷰 P2).
+    stopResize();
     dragStateRef.current = { startX: event.clientX, startWidth: width };
 
     function handleMouseMove(moveEvent: WindowEventMap['mousemove']) {
@@ -295,6 +304,23 @@ export function SideNavBar({
     dragUpHandlerRef.current = handleMouseUp;
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
+  }
+
+  // 마우스 없이도 리사이즈 핸들에 포커스한 뒤 좌/우 화살표 키로 폭을 조절할 수 있게 한다
+  // (WAI-ARIA separator 패턴 — PR머신 리뷰 P2, 키보드 접근성 회귀 지적 반영)
+  function handleResizeKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const step = 16;
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      const nextWidth = clamp(width - step, MIN_WIDTH, MAX_WIDTH);
+      setWidth(nextWidth);
+      onWidthChange?.(nextWidth);
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      const nextWidth = clamp(width + step, MIN_WIDTH, MAX_WIDTH);
+      setWidth(nextWidth);
+      onWidthChange?.(nextWidth);
+    }
   }
 
   function getLinkClassName(isActive: boolean, isGroup = false) {
@@ -480,8 +506,13 @@ export function SideNavBar({
             role="separator"
             aria-orientation="vertical"
             aria-label="사이드바 너비 조절"
+            aria-valuenow={width}
+            aria-valuemin={MIN_WIDTH}
+            aria-valuemax={MAX_WIDTH}
+            tabIndex={0}
             onMouseDown={handleResizeMouseDown}
-            className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30"
+            onKeyDown={handleResizeKeyDown}
+            className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 focus-visible:bg-primary/40 focus-visible:outline-none"
           />
         )}
       </aside>

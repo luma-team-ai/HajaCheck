@@ -245,6 +245,21 @@ describe('SideNavBar', () => {
       expect(handleToggle).toHaveBeenCalledWith(true);
     });
 
+    it('마우스가 여전히 사이드바 위에 있어도 접기 버튼을 누르면 즉시 시각적으로 접힌다(hover 중 토글 회귀 방지)', () => {
+      render(<SideNavBar />, { wrapper: MemoryRouter });
+
+      // 클릭하려면 이미 사이드바 위에 마우스가 있어야 하므로 hoverExpanded는 true인 상태
+      fireEvent.mouseEnter(getSideNavWrapper());
+      expect(screen.getByText('대시보드')).not.toBeNull();
+
+      // mouseLeave 없이(=여전히 hover 중) 접기 버튼을 눌러도 즉시 접힌 모습으로 바뀌어야 한다.
+      // setHoverExpanded(false) 리셋이 없으면 hoverExpanded가 true로 남아 라벨이 계속 보인다.
+      fireEvent.click(screen.getByLabelText('사이드바 접기'));
+
+      expect(screen.queryByText('대시보드')).toBeNull();
+      expect(screen.getByLabelText('사이드바 펼치기')).not.toBeNull();
+    });
+
     it('접힌 상태에서 hover로 펼친 뒤 하위 메뉴를 클릭하면 실제로 이동한다', () => {
       function LocationProbe() {
         const location = useLocation();
@@ -350,6 +365,57 @@ describe('SideNavBar', () => {
       render(<SideNavBar defaultCollapsed />, { wrapper: MemoryRouter });
 
       expect(screen.queryByRole('separator', { name: '사이드바 너비 조절' })).toBeNull();
+    });
+
+    it('첫 번째 드래그의 mouseup 없이 두 번째 mousedown이 발생해도 이전 mousemove 리스너가 남지 않는다(PR머신 리뷰 P2 회귀 방지)', () => {
+      const handleWidthChange = vi.fn();
+      render(<SideNavBar onWidthChange={handleWidthChange} />, { wrapper: MemoryRouter });
+
+      // 첫 번째 드래그를 시작만 하고 mouseup 없이 방치(브라우저 창 밖에서 놓친 상황 재현)
+      fireEvent.mouseDown(getResizeHandle(), { clientX: 240 });
+      fireEvent.mouseMove(window, { clientX: 260 });
+      expect(handleWidthChange).toHaveBeenCalledTimes(1);
+
+      // 두 번째 드래그 시작 — 이전 리스너가 정리되지 않았다면 이후 mousemove마다
+      // 두 개의 핸들러가 중복으로 onWidthChange를 호출하게 된다
+      fireEvent.mouseDown(getResizeHandle(), { clientX: 260 });
+      handleWidthChange.mockClear();
+      fireEvent.mouseMove(window, { clientX: 300 });
+
+      expect(handleWidthChange).toHaveBeenCalledTimes(1);
+      expect(handleWidthChange).toHaveBeenCalledWith(300);
+
+      fireEvent.mouseUp(window);
+    });
+
+    it('리사이즈 핸들에 포커스 가능하고 ArrowRight/ArrowLeft로 폭이 조절된다(키보드 접근성, PR머신 리뷰 P2)', () => {
+      const handleWidthChange = vi.fn();
+      render(<SideNavBar onWidthChange={handleWidthChange} />, { wrapper: MemoryRouter });
+
+      const handle = getResizeHandle();
+      expect(handle.getAttribute('tabindex')).toBe('0');
+      expect(handle.getAttribute('aria-valuenow')).toBe('240');
+      expect(handle.getAttribute('aria-valuemin')).toBe('200');
+      expect(handle.getAttribute('aria-valuemax')).toBe('320');
+
+      fireEvent.keyDown(handle, { key: 'ArrowRight' });
+      expect(getAsideWidth()).toBe('256px');
+      expect(handleWidthChange).toHaveBeenCalledWith(256);
+
+      fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+      fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+      expect(getAsideWidth()).toBe('224px');
+    });
+
+    it('키보드 ArrowRight를 반복해도 MAX_WIDTH(320px)를 넘지 않도록 clamp된다', () => {
+      render(<SideNavBar />, { wrapper: MemoryRouter });
+      const handle = getResizeHandle();
+
+      for (let i = 0; i < 10; i += 1) {
+        fireEvent.keyDown(handle, { key: 'ArrowRight' });
+      }
+
+      expect(getAsideWidth()).toBe('320px');
     });
   });
 });
