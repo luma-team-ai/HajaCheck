@@ -175,6 +175,37 @@ describe('MapPage', () => {
     expect(mapInstance.setCenter).toHaveBeenCalled();
   });
 
+  it('최초 레이아웃 확정 이후 재리사이즈에서는 relayout만 호출하고 setCenter로 중심을 되돌리지 않는다(회귀 방지, code-reviewer P1)', async () => {
+    renderMapPage();
+    await screen.findByText('한강대교 북단');
+
+    const map = window.kakao.maps.Map as unknown as ReturnType<typeof vi.fn>;
+    const mapInstance = map.mock.results[0].value as {
+      relayout: ReturnType<typeof vi.fn>;
+      setCenter: ReturnType<typeof vi.fn>;
+    };
+
+    const observer = MockResizeObserver.instances[0];
+
+    // 1차 리사이즈: 최초 유효 레이아웃 확정 — setCenter가 정확히 1번 호출된다
+    observer.triggerResize(800, 600);
+    expect(mapInstance.setCenter).toHaveBeenCalledTimes(1);
+
+    // 사용자가 다른 위치로 지도를 팬/줌했다고 가정(예: 시설물 선택에 따른 panTo, 확대/축소 등) —
+    // 이 시점부터는 지도의 실제 중심이 초기 DEFAULT_MAP_CENTER가 아니다.
+
+    // 2차 리사이즈(예: 브라우저 창 크기 변경): relayout은 다시 호출되어야 하지만
+    // setCenter는 추가로 호출되어 사용자가 옮긴 중심을 초기값으로 되돌려서는 안 된다.
+    observer.triggerResize(1024, 768);
+    expect(mapInstance.relayout).toHaveBeenCalledTimes(2);
+    expect(mapInstance.setCenter).toHaveBeenCalledTimes(1);
+
+    // 3차 리사이즈에도 동일하게 setCenter는 여전히 최초 1회에서 늘어나지 않는다
+    observer.triggerResize(1200, 900);
+    expect(mapInstance.relayout).toHaveBeenCalledTimes(3);
+    expect(mapInstance.setCenter).toHaveBeenCalledTimes(1);
+  });
+
   it('언마운트 시 ResizeObserver를 disconnect한다', async () => {
     const { unmount } = renderMapPage();
     await screen.findByText('한강대교 북단');
