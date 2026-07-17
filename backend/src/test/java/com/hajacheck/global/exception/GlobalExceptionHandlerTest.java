@@ -50,8 +50,9 @@ class GlobalExceptionHandlerTest {
         assertThat(GlobalExceptionHandler.sanitizeForLog(null)).isNull();
 
         // 일부 로그 뷰어가 개행으로 렌더링하는 유니코드 줄바꿈도 제거한다(\p{Cntrl} 는 ASCII 만 잡음).
-        // U+0085 NEL / U+2028 LINE SEPARATOR / U+2029 PARAGRAPH SEPARATOR
-        assertThat(GlobalExceptionHandler.sanitizeForLog("/ab c d"))
+        // U+0085 NEL / U+2028 LINE SEPARATOR / U+2029 PARAGRAPH SEPARATOR.
+        // 비가시 문자를 소스에 직접 넣으면 에디터가 공백으로 정규화해버리므로 명시적 이스케이프로 고정한다.
+        assertThat(GlobalExceptionHandler.sanitizeForLog("/a\u0085b\u2028c\u2029d"))
                 .isEqualTo("/a_b_c_d");
     }
 

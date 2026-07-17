@@ -25,6 +25,7 @@ import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -34,18 +35,21 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 미인증 요청이 SecurityConfig 의 anyRequest().authenticated() 로 실제 차단되어 401을
  * 반환하는지 고정하는 회귀 테스트(리뷰 P2). 두 엔드포인트 모두 @AuthenticationPrincipal
  * LoginUser 를 컨트롤러 진입 즉시 역참조하므로, 필터체인이 이 경로를 보호하지 못하게 되면
  * 401 대신 NPE(500)로 응답한다 — 이 테스트가 그 회귀를 잡는다.
+ *
+ * <p>클래스 레벨 @Transactional 을 붙이지 않는다: 썸네일 조회는 MediaService#getThumbnail 이
+ * @Transactional(NOT_SUPPORTED) 로 트랜잭션 밖에서 실행되어(디스크 IO 중 DB 커넥션 미점유),
+ * 롤백 트랜잭션 안에서 저장한 미커밋 픽스처를 보지 못한다. 따라서 MediaServiceIntegrationTest 와
+ * 동일하게 실제로 커밋한 뒤 {@link #tearDown()} 에서 직접 정리한다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@Transactional
 class MediaControllerTest extends PostgresTestSupport {
 
     @Autowired
@@ -60,6 +64,15 @@ class MediaControllerTest extends PostgresTestSupport {
     private MediaRepository mediaRepository;
     @Autowired
     private FileStorageService fileStorage;
+
+    @AfterEach
+    void tearDown() {
+        // 커밋된 픽스처를 FK 안전 순서(media → inspection → facility → user)로 정리한다.
+        mediaRepository.deleteAll();
+        inspectionRepository.deleteAll();
+        facilityRepository.deleteAll();
+        userRepository.deleteAll();
+    }
 
     @Test
     void 업로드_미인증_401() throws Exception {
