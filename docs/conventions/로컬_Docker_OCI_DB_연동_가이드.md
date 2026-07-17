@@ -54,10 +54,8 @@ GOOGLE_CLIENT_SECRET=<팀 공유 구글 OAuth 클라이언트 시크릿>
 카카오/구글 값은 **팀이 이미 등록해둔 OAuth 앱의 client-id/secret**을 그대로 공유받아 쓰면 되고(새 앱 생성 불필요),
 `docker-compose.oci-db.yml`의 spring env는 redirect-uri를 `http://localhost/login/oauth2/code/{kakao,google}`으로
 **고정 문자열 override**해뒀다(⚠️ `{baseUrl}` 템플릿이 아니라 리터럴 고정값 — 포트 번호가 없다는 점 주의). 이 오버레이는
-`nginx`가 80번으로 서빙하는 단일 오리진 접속(`http://localhost`)을 전제로 하므로, **`:8080`(spring 직접 접근)이나
-`:5173`(frontend-dev 직접 접근)으로 로그인 진입 시 카카오 콘솔 값과 실제 redirect_uri가 달라 KOE006
-(등록되지 않은 Redirect URI)이 난다.** 반드시 `http://localhost`(포트 생략, nginx 경유)로 접속해서 로그인을
-시작해야 한다. 카카오/구글 콘솔의 Redirect URI 목록에는 `http://localhost/login/oauth2/code/{kakao,google}`이
+`nginx`가 80번으로 서빙하는 단일 오리진 접속(`http://localhost`)을 전제로 한다. **로그인은 `http://localhost`
+(포트 생략, nginx 경유)로 접속해서 시작한다** — #311로 개발 모드에선 80이 곧 vite dev 서버라 어차피 80만 쓰면 된다. 카카오/구글 콘솔의 Redirect URI 목록에는 `http://localhost/login/oauth2/code/{kakao,google}`이
 리터럴로 등록되어 있어야 한다(한 번만 등록해두면 팀원 전체가 공용으로 씀 — 팀원별로 매번 추가할 필요 없음).
 
 ## 4. 실행
@@ -103,6 +101,26 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-co
 
 > **왜 이렇게 했나**: 전에는 80(dist)과 5173(vite)이 **서로 다른 앱**으로 공존했다. 소셜 로그인 착지는 고정값이어야 하는데(Host 유도는 poisoning 취약, §비밀번호 찾기 계약) 진입점이 둘이라 **어느 값을 넣어도 반대쪽 진입자가 다른 앱으로 튕겼다** — #302 로그인 무한 루프의 구조적 원인이다. 80 자리에 vite를 걸어 진입점을 하나로 만들면 튕김 자체가 사라진다.
 
+#### 지금 어느 모드인지 확인하기
+
+화면 **좌하단 배지**로 바로 알 수 있다:
+
+| 배지 | 의미 |
+|---|---|
+| **`● DEV`** (회색) | 개발 모드 — vite dev 서버, **저장 즉시 반영** |
+| **`● DEV · MSW 목`** (앰버) | 개발 모드 + **MSW가 요청을 가로채는 중** — 실 백엔드 세션이 가려진다(#302) |
+| **배지 없음** | dist 검증 모드(= 프로덕션 빌드) |
+
+> 프로덕션 빌드에선 배지가 렌더되지 않으므로 **"배지 부재"가 곧 dist 신호**다. 로컬 dist와 실제 운영은 산출물이 동일해 클라이언트에서 구분할 수단이 없어, 회색 배지라도 띄우면 운영 사이트에 노출된다 — 그래서 부재로 구분한다.
+
+터미널로 확인하려면:
+
+```bash
+curl -s http://localhost/ | grep -q "@vite/client" && echo "개발 모드" || echo "dist 모드"
+```
+
+브라우저 콘솔에 `[vite] connected.`가 뜨는 것도 개발 모드의 증거다(저장하면 `[vite] hot updated: ...`).
+
 ## 5. 자주 걸리는 것 (이번에 실제로 겪은 이슈)
 
 | 증상 | 원인 / 해결 |
@@ -113,8 +131,8 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-co
 | `RedisConnectionFailureException` (Postgres는 되는데 Redis만 실패) | `db-tunnel` 헬스체크가 5432만 확인해서 6380 포워딩 실패를 못 잡아냄 — 지금은 healthcheck가 둘 다 확인하도록 고쳐짐. 그래도 안 되면 `.env`의 `REDIS_PASSWORD`가 OCI 공용 Redis의 실제 비밀번호와 일치하는지 확인 |
 | `SchemaManagementException: missing column ...` | 공용 OCI DB 스키마가 최신 엔티티와 안 맞음(Flyway 없이 `ddl-auto`로만 관리되는 프로젝트라 드리프트 발생 가능). 팀에 공유해서 DB 쪽 컬럼을 맞추거나, 본인 담당 기능이 아니면 일단 그 기능만 피해서 테스트 |
 | 카카오/구글 로그인 "액세스 차단됨: 승인 오류" | `docker` 프로파일(`application-docker.yml`)이 운영 도메인으로 redirect-uri를 하드코딩해서 로컬에선 원래 안 됨. `docker-compose.oci-db.yml`의 spring env로 redirect-uri·세션 쿠키·리다이렉트 대상을 로컬용으로 override해뒀으니, 3번 항목의 카카오/구글 값만 채우면 동작함 |
-| 카카오 로그인 KOE006(등록되지 않은 Redirect URI) | `:8080`이나 `:5173`으로 직접 접속해서 로그인을 시작한 경우 — redirect-uri override가 `http://localhost`(포트 없음, nginx 80 전제) 고정값이라 다른 포트로 접속하면 실제 redirect_uri와 콘솔 등록값이 달라짐. `http://localhost`(nginx)로 접속해서 로그인 시작할 것 |
-| 소셜 로그인 성공(DB에 유저 생성됨)했는데 `/dashboard` 잠깐 보이다 바로 `/login`으로 튕김 | 세션 문제가 아니라 **MSW(Mock Service Worker)가 `GET /api/users/me`를 세션과 무관하게 항상 401로 응답**하기 때문(`frontend/src/features/auth/api/authApi.handlers.ts`). `frontend-dev`가 `VITE_ENABLE_MSW`를 안 켜면 기본값(DEV=true)이 켜짐 상태라 실 백엔드 세션이 가려짐. `docker-compose.oci-db.yml`의 `frontend-dev` 환경변수에 `VITE_ENABLE_MSW: "false"`가 반영돼 있다. **화면 좌하단에 `MSW 목 모드` 배지가 보이면 목이 켜진 것**(#302) — 아래 두 경우를 확인할 것:<br>① **컨테이너가 오버레이 없이 떴다** — `-f`를 하나라도 명시하면 `override.yml` 자동 병합이 꺼지므로 정식 커맨드는 3개를 전부 나열한다. 그렇게 띄운 뒤 무심코 `docker compose up -d`(-f 없이)를 돌리면 `oci-db.yml`이 빠진 채 재생성돼 `frontend-dev`만 이 값을 잃는다(**부분 오염** — 컨테이너는 전부 healthy로 보임). `docker inspect <컨테이너> --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}'`로 `oci-db.yml` 포함 여부 확인. **`.env`에 `COMPOSE_FILE`을 설정하면 원천 차단**(`.env.example` 참조).<br>② **`:5173`으로 착지했다** — 2026-07-17 이전 `success-redirect`가 `:5173`이라 80에서 로그인해도 vite dev 서버(MSW 켜짐)로 넘어갔다. 지금은 `http://localhost/dashboard`로 고쳐져 80에 머문다 |
+| 카카오 로그인 KOE006(등록되지 않은 Redirect URI) | 콘솔에 `http://localhost/login/oauth2/code/{kakao,google}`이 **리터럴로 등록돼 있는지** 먼저 확인. `http://localhost`(nginx 80)로 접속해 로그인을 시작할 것.<br>⚠️ 이 표의 옛 설명은 "`:8080`/`:5173`으로 접속하면 redirect_uri가 달라져 KOE006"이라고 했으나, **`oci-db.yml`의 redirect-uri override는 `{baseUrl}` 템플릿이 아니라 리터럴 고정값**이라 접속 포트가 redirect_uri에 영향을 주지 않는다(스프링이 콘솔에 넘기는 값은 항상 `http://localhost/...`). `{baseUrl}`을 쓰던 시절(`application-local.yml`은 아직 `{baseUrl}`)의 설명이 남은 것으로 보이나 **실측하지 않았다** — 접속 포트 때문에 KOE006이 나는 사례를 만나면 이 항목을 갱신할 것 |
+| 소셜 로그인 성공(DB에 유저 생성됨)했는데 `/dashboard` 잠깐 보이다 바로 `/login`으로 튕김 | 세션 문제가 아니라 **MSW(Mock Service Worker)가 `GET /api/users/me`를 세션과 무관하게 항상 401로 응답**하기 때문(`frontend/src/features/auth/api/authApi.handlers.ts`). `frontend-dev`가 `VITE_ENABLE_MSW`를 안 켜면 기본값(DEV=true)이 켜짐 상태라 실 백엔드 세션이 가려짐. `docker-compose.oci-db.yml`의 `frontend-dev` 환경변수에 `VITE_ENABLE_MSW: "false"`가 반영돼 있다. **화면 좌하단 배지가 앰버 `● DEV · MSW 목`이면 목이 켜진 것**(#302, #311) — 아래 두 경우를 확인할 것:<br>① **컨테이너가 오버레이 없이 떴다** — `-f`를 하나라도 명시하면 `override.yml` 자동 병합이 꺼지므로 정식 커맨드는 3개를 전부 나열한다. 그렇게 띄운 뒤 무심코 `docker compose up -d`(-f 없이)를 돌리면 `oci-db.yml`이 빠진 채 재생성돼 `frontend-dev`만 이 값을 잃는다(**부분 오염** — 컨테이너는 전부 healthy로 보임). `docker inspect <컨테이너> --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}'`로 `oci-db.yml` 포함 여부 확인. **`.env`에 `COMPOSE_FILE`을 설정하면 원천 차단**(`.env.example` 참조).<br>② **`:5173`으로 착지했다** — 2026-07-17 이전 `success-redirect`가 `:5173`이라 80에서 로그인해도 vite dev 서버(MSW 켜짐)로 넘어갔다. 지금은 `http://localhost/dashboard`로 고쳐져 80에 머문다 |
 | 소셜 로그인 후 주소가 `localhost` → `localhost:5173`으로 바뀜 | **2026-07-17 이전 버그**(#302) — `redirect-uri`는 80인데 `success-redirect`만 `:5173`이라 다른 오리진(=다른 앱)으로 착지했다. 쿠키는 포트를 구분하지 않아 로그인 자체는 유지되는 탓에 눈치채기 어려웠고, **80으로 dist를 검증하려던 목적도 무너졌다**(로그인 후엔 dev 서버를 보게 됨). 지금은 둘 다 `http://localhost`로 통일. 그래도 포트가 바뀐다면 컨테이너가 옛 설정으로 떠 있는 것이니 `--force-recreate` |
 | 코드를 고쳤는데 `http://localhost`(80)에 반영이 안 됨 | **dist 검증 모드로 떠 있는 것**(#311 §4-1). 80이 이미지에 구운 dist를 서빙 중이라 `--build` 전엔 안 바뀐다. 개발 모드(`docker compose up -d` — override 포함)로 띄우면 80이 vite를 프록시해 저장 즉시 반영된다. 현재 모드 확인: `docker exec hajacheck-nginx-1 grep -c vite_dev /etc/nginx/conf.d/default.conf` → `0`이면 dist 모드, `2`면 개발 모드. 브라우저 콘솔에 `[vite] connected.`가 뜨면 개발 모드다 |
 | **워크트리에서 `docker compose`를 실행했더니 남의 컨테이너를 가져감** | compose 프로젝트명이 같아(`hajacheck`) 워크트리에서 실행해도 **기존 컨테이너를 그대로 재사용**하며, `--force-recreate` 시 **bind mount 원본이 그 워크트리로 바뀐다**. 주 작업 폴더의 수정이 컨테이너에 안 보이게 되고 원인 추적이 어렵다. 확인: `docker inspect <컨테이너> --format '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}'` → 경로가 주 작업 폴더인지 볼 것. 복구: 주 작업 폴더에서 `docker compose up -d --force-recreate --no-deps <서비스>`. **워크트리에선 compose를 실행하지 말 것** |
