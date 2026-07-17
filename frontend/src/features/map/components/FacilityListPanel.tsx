@@ -1,7 +1,15 @@
 // 검색 + 카테고리 필터 + 시설물 목록 패널 (지도 뷰 좌측) — HAJA-150(#129) 재오픈 컨벤션 준수 작업
-import { FACILITY_CATEGORY_FILTERS } from '../constants';
+import { FACILITY_CATEGORY_FILTERS, GRADE_COLOR } from '../constants';
 import type { FacilityLocation } from '../types';
 import { GradeBadge } from './GradeBadge';
+
+// 결함/주의 건수 심각도 색상 — 등급 범례(MapLegend)와 동일한 GRADE_COLOR 팔레트를 재사용해
+// 신호등(빨강/노랑/초록) 3단계로 단순화. Figma 대조로 임계값 확인(2026-07-17).
+function getCountSeverityColor(count: number): string {
+  if (count >= 10) return GRADE_COLOR.E; // 빨강
+  if (count >= 3) return GRADE_COLOR.C; // 노랑
+  return GRADE_COLOR.A; // 초록
+}
 
 interface FacilityListPanelProps {
   facilities: FacilityLocation[];
@@ -76,8 +84,8 @@ export function FacilityListPanel({
                 <button
                   type="button"
                   onClick={() => onSelectFacility(facility.id)}
-                  className={`flex w-full items-start gap-3 border-b border-border px-3 py-3 text-left transition hover:bg-white ${
-                    selectedFacilityId === facility.id ? 'bg-white' : ''
+                  className={`flex w-full items-start gap-3 px-3 py-3 text-left transition hover:bg-white ${
+                    selectedFacilityId === facility.id ? 'bg-primary/5' : ''
                   }`}
                 >
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-md bg-neutral-100 text-text-muted">
@@ -99,8 +107,21 @@ export function FacilityListPanel({
                       <GradeBadge grade={facility.highestGrade} />
                     </span>
                     <span className="truncate text-xs text-text-muted">{facility.address}</span>
-                    <span className="text-[11px] text-text-muted">
-                      결함 {facility.warningCount} · 주의 {facility.cautionCount}
+                    <span className="flex items-center gap-3 text-[11px] text-text-muted">
+                      <span className="flex items-center gap-1">
+                        <span
+                          className="inline-block h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: getCountSeverityColor(facility.warningCount) }}
+                        />
+                        결함 {facility.warningCount}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span
+                          className="inline-block h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: getCountSeverityColor(facility.cautionCount) }}
+                        />
+                        주의 {facility.cautionCount}
+                      </span>
                     </span>
                   </span>
                 </button>
