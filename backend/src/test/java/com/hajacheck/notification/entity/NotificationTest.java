@@ -25,6 +25,13 @@ class NotificationTest {
     }
 
     @Test
+    void create_공백payload는null로정규화() {
+        Notification notification = Notification.create(10L, NotificationType.ANALYSIS_DONE, "   ");
+
+        assertThat(notification.getPayloadJson()).isNull();
+    }
+
+    @Test
     void markAsRead_읽음상태를명시적으로변경() {
         Notification notification = Notification.create(10L, NotificationType.REVIEW_PENDING, null);
 

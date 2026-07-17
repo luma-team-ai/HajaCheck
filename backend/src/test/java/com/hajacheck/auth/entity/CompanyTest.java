@@ -42,6 +42,15 @@ class CompanyTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void createPendingReview_공백OCR원본은null로정규화() {
+        Company company = Company.createPendingReview(
+                1L, "HajaCheck", "123-45-67890", "Owner", "Seoul", null,
+                "https://files.example/registration.pdf", "   ");
+
+        assertThat(company.getBusinessRegistrationOcrRaw()).isNull();
+    }
+
     private Company company() {
         return Company.createPendingReview(
                 1L,

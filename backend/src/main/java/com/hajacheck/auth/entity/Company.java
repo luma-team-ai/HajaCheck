@@ -127,7 +127,8 @@ public class Company extends BaseTimeEntity {
     public static Company createPendingReview(Long ownerUserId, String name, String businessRegistrationNumber,
                                               String representativeName, String address, String addressDetail,
                                               String businessRegistrationFileUrl, String businessRegistrationOcrRaw) {
-        JsonValidator.requireValidJson(businessRegistrationOcrRaw, "OCR 원본(businessRegistrationOcrRaw)");
+        String normalizedOcrRaw = JsonValidator.normalizeOrRequireValid(
+                businessRegistrationOcrRaw, "OCR 원본(businessRegistrationOcrRaw)");
         return Company.builder()
                 .ownerUserId(ownerUserId)
                 .name(name)
@@ -136,7 +137,7 @@ public class Company extends BaseTimeEntity {
                 .address(address)
                 .addressDetail(addressDetail)
                 .businessRegistrationFileUrl(businessRegistrationFileUrl)
-                .businessRegistrationOcrRaw(businessRegistrationOcrRaw)
+                .businessRegistrationOcrRaw(normalizedOcrRaw)
                 .verificationStatus(BusinessVerificationStatus.PENDING)
                 .status(CompanyStatus.PENDING_REVIEW)
                 .build();

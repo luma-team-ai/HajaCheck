@@ -112,11 +112,11 @@ public class Report extends BaseTimeEntity {
                               String groundingWarnings, Long editedBy) {
         requireDraft("updateContent");
         requireContent(contentJson);
-        JsonValidator.requireValidJson(groundingWarnings, "근거 검증 경고(groundingWarnings)");
-        requireConsistentGroundingResult(groundingCheckPassed, groundingWarnings);
+        String normalizedWarnings = JsonValidator.normalizeOrRequireValid(groundingWarnings, "근거 검증 경고(groundingWarnings)");
+        requireConsistentGroundingResult(groundingCheckPassed, normalizedWarnings);
         this.contentJson = contentJson;
         this.groundingCheckPassed = groundingCheckPassed;
-        this.groundingWarnings = groundingWarnings;
+        this.groundingWarnings = normalizedWarnings;
         this.editedBy = editedBy;
     }
 

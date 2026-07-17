@@ -63,11 +63,11 @@ public class Notification {
     }
 
     public static Notification create(Long userId, NotificationType type, String payloadJson) {
-        JsonValidator.requireValidJson(payloadJson, "알림 payload(payloadJson)");
+        String normalizedPayload = JsonValidator.normalizeOrRequireValid(payloadJson, "알림 payload(payloadJson)");
         return Notification.builder()
                 .userId(userId)
                 .type(type)
-                .payloadJson(payloadJson)
+                .payloadJson(normalizedPayload)
                 .read(false)
                 .build();
     }
