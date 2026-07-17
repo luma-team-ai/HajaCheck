@@ -11,8 +11,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class AuthProperties {
 
     /**
-     * 비밀번호 재설정 토큰 TTL. 기본 10분.
-     * ⚠️ 현재 미사용 — 비밀번호 찾기 엔드포인트가 P1 로 제외됨. 보안질문 방식 후속에서 재사용 예정(#194 / HAJA-172).
+     * 비밀번호 재설정 토큰 TTL. 기본 10분 — 메일 링크의 유효시간이자 보조 인덱스 TTL(#194 / HAJA-172).
+     * 짧게 둘수록 유출 링크의 악용 창이 좁아진다. 메일 본문 안내 문구도 이 값을 그대로 쓴다.
      */
     private Duration passwordResetTtl = Duration.ofMinutes(10);
 
