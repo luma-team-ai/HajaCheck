@@ -19,30 +19,27 @@ export function MapControls({
   return (
     <div className="absolute right-4 top-4 z-10 flex flex-col items-end gap-2">
       <div className="flex overflow-hidden rounded-full border border-border bg-white shadow-sm">
-        <button
-          type="button"
-          aria-pressed={mapType === 'roadmap'}
-          onClick={() => onChangeMapType('roadmap')}
-          className={
-            mapType === 'roadmap'
-              ? 'bg-primary px-3 py-1.5 text-xs font-semibold text-surface'
-              : 'px-3 py-1.5 text-xs font-medium text-text-muted hover:bg-surface-muted'
-          }
-        >
-          지도
-        </button>
-        <button
-          type="button"
-          aria-pressed={mapType === 'hybrid'}
-          onClick={() => onChangeMapType('hybrid')}
-          className={
-            mapType === 'hybrid'
-              ? 'bg-primary px-3 py-1.5 text-xs font-semibold text-surface'
-              : 'px-3 py-1.5 text-xs font-medium text-text-muted hover:bg-surface-muted'
-          }
-        >
-          위성
-        </button>
+        {([
+          { type: 'roadmap', label: '지도' },
+          { type: 'hybrid', label: '위성' },
+        ] as const).map(({ type, label }) => {
+          const isActive = mapType === type;
+          return (
+            <button
+              key={type}
+              type="button"
+              aria-pressed={isActive}
+              onClick={() => onChangeMapType(type)}
+              className={
+                isActive
+                  ? 'bg-primary px-3 py-1.5 text-xs font-semibold text-surface'
+                  : 'px-3 py-1.5 text-xs font-medium text-text-muted hover:bg-surface-muted'
+              }
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-white shadow-sm">
