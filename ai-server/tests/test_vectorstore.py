@@ -49,6 +49,45 @@ def test_get_vectorstore_creates_collection(mock_persistent_client, mock_get_emb
     assert [float(v) for v in emb_out[0]] == pytest.approx([0.1])
 
 
+@patch("ai.core.embeddings.HuggingFaceEmbeddings")
+def test_get_embeddings_env_override(mock_hf_embeddings):
+    """EMBEDDING_MODEL 오버라이드가 실제로 먹는지 — 모듈 임포트 뒤 주입해도 반영돼야 한다."""
+    from ai.core import embeddings
+
+    try:
+        with patch.dict(os.environ, {"EMBEDDING_MODEL": "intfloat/multilingual-e5-small"}):
+            embeddings.get_embeddings.cache_clear()
+            embeddings.get_embeddings()
+
+        mock_hf_embeddings.assert_called_once_with(
+            model_name="intfloat/multilingual-e5-small", model_kwargs={"device": "cpu"}
+        )
+    finally:
+        # 오버라이드된 인스턴스가 캐시에 남아 다른 테스트로 새지 않게
+        embeddings.get_embeddings.cache_clear()
+
+
+@patch("ai.core.vectorstore.chromadb.PersistentClient")
+def test_chroma_persist_dir_read_at_call_time_not_import_time(mock_persistent_client):
+    """env 는 **호출 시점**에 읽어야 한다 — 임포트 순서에 좌우되면 안 된다.
+
+    회귀 방지: CHROMA_PERSIST_DIR 을 모듈 최상단에서 os.getenv 로 읽으면 값이 첫 임포트
+    시점에 고정된다. 그러면 다른 테스트가 먼저 main→ai_router→vectorstore 를 임포트한
+    경우(test_internal_key.py 가 실제로 그렇다) 이 주입이 통째로 무시된다.
+    아래는 그 상황을 결정적으로 재현한다 — env 주입 **전에** 모듈을 먼저 임포트한다.
+    """
+    from ai.core import vectorstore  # env 주입보다 먼저 임포트
+
+    try:
+        with patch.dict(os.environ, {"CHROMA_PERSIST_DIR": "/tmp/chroma-late"}):
+            vectorstore._client.cache_clear()
+            vectorstore._client()
+
+        mock_persistent_client.assert_called_once_with(path="/tmp/chroma-late")
+    finally:
+        vectorstore._client.cache_clear()
+
+
 def test_get_vectorstore_unknown_collection_raises():
     from ai.core import vectorstore
 
@@ -74,8 +113,10 @@ def test_get_vectorstore_real_chromadb_add_query(tmp_path):
 
     fake = MagicMock(embed_documents=fake_embed)
 
-    with patch("ai.core.vectorstore.get_embeddings", return_value=fake):
-        vectorstore.CHROMA_PERSIST_DIR = str(tmp_path)
+    with (
+        patch("ai.core.vectorstore.get_embeddings", return_value=fake),
+        patch.dict(os.environ, {"CHROMA_PERSIST_DIR": str(tmp_path)}),
+    ):
         vectorstore._client.cache_clear()
 
         col = vectorstore.get_vectorstore(vectorstore.COLLECTION_REGULATIONS)

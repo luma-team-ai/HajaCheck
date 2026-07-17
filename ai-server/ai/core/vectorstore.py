@@ -17,7 +17,7 @@ COLLECTION_REGULATIONS = "regulations"
 COLLECTION_DEFECT_KB = "defect_kb"
 
 # docker-compose 볼륨(chroma_data:/app/chroma_data)과 일치 — 로컬 실행 시 오버라이드
-CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "/app/chroma_data")
+DEFAULT_CHROMA_PERSIST_DIR = "/app/chroma_data"
 
 
 class _LangChainEmbeddingFunction(EmbeddingFunction):
@@ -48,7 +48,12 @@ class _LangChainEmbeddingFunction(EmbeddingFunction):
 
 @lru_cache
 def _client() -> chromadb.ClientAPI:
-    return chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
+    # NOTE: `os.getenv`는 반드시 함수 **내부**에서 호출(모듈 임포트 시점 아님) — deps.py와 동일 규칙.
+    # 모듈 최상단에서 읽으면 값이 첫 임포트 시점에 고정돼, 테스트가 patch.dict(os.environ, ...)로
+    # 주입해도 반영되지 않는다(임포트 순서에 따라 통과/실패가 갈림).
+    return chromadb.PersistentClient(
+        path=os.getenv("CHROMA_PERSIST_DIR", DEFAULT_CHROMA_PERSIST_DIR)
+    )
 
 
 def get_vectorstore(collection: str) -> Collection:
