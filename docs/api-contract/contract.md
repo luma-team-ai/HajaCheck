@@ -327,12 +327,14 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 - 계정 존재 여부와 **무관하게 항상 200 + 동일 바디**(계정 열거 방지). 존재할 때만 실제 메일을 발송한다.
 - **응답에 resetToken을 포함하지 않는다**(포함 시 최초 P1 재현 — 준공개 정보만으로 토큰 획득 가능해짐).
 - ⚠️ **메일 발송은 비동기로 처리하고 응답은 즉시 반환한다.** 동기 발송하면 존재하는 계정만 SMTP 왕복(수백 ms~초)만큼 느려져 **바디가 같아도 응답시간 차이로 계정 열거가 가능**하다. 발송 실패도 응답에 반영하지 않는다(반영하면 그 자체가 존재 단서).
-- 토큰: `TokenStore.issue(TokenNamespaces.PASSWORD_RESET, userId, AuthProperties.passwordResetTtl)` 재사용(기본 TTL 10분, `app.auth.password-reset-ttl`로 조정).
-  - **Redis 저장 키는 토큰 원문이 아니라 `sha256(token)`을 쓴다** — Redis 덤프·스냅샷 유출 시 토큰 평문이 곧 계정 탈취가 되는 것을 막는 심층방어. `TokenStore` **시그니처는 바꾸지 않고** password-reset 네임스페이스 경로에서만 해시한다(signup-status는 TTL 30일 in-flight 토큰이 있어 건드리면 깨진다).
-- **재발급 시 해당 사용자의 이전 토큰 무효화**(동시 다발 링크 방지). 현 `RedisTokenStore`는 `key=토큰 → value=userId` 단방향이라 역추적이 불가능하므로, **보조 인덱스 `auth:password-reset:user:{userId} → 현재 토큰해시`를 두고** 신규 발급 시 이전 항목을 삭제한다. ⚠️ `KEYS`/`SCAN` 순회 금지(운영 Redis 블로킹).
+- 토큰: **전용 `PasswordResetTokenStore`**(재설정 전용 인터페이스, Redis 구현은 `RedisPasswordResetTokenStore`). TTL은 `AuthProperties.passwordResetTtl`(기본 10분, `app.auth.password-reset-ttl`로 조정).
+  > **왜 `TokenStore`를 재사용하지 않는가** (2026-07-17 정정): 초안은 "`TokenStore.issue(PASSWORD_RESET, …)` 재사용"과 "발급 ①②③을 Lua로 원자화"를 **동시에** 요구했는데 **두 조항은 양립 불가능**하다 — `issue`로 ①을 하면 별도 왕복이라 ①②③을 한 스크립트에 넣을 수 없다. 원자성(보안·정합성)을 택해 재설정 경로를 전용 인터페이스로 분리했다. `TokenStore`는 **가입 상태 토큰 전용**으로 남고 시그니처·동작 모두 불변이다(원문 키 유지 — TTL 30일 in-flight 토큰 보호).
+  - **Redis 저장 키는 토큰 원문이 아니라 `sha256(token)`을 쓴다** — Redis 덤프·스냅샷 유출 시 토큰 평문이 곧 계정 탈취가 되는 것을 막는 심층방어. 이 해시는 **재설정 경로에만** 적용된다(가입 상태 토큰은 원문 키 그대로).
+- **재발급 시 해당 사용자의 이전 토큰 무효화**(동시 다발 링크 방지). `key=토큰해시 → value=userId`는 단방향이라 역추적이 불가능하므로, **보조 인덱스 `auth:password-reset:user:{userId} → 현재 토큰해시`를 둔다.** ⚠️ `KEYS`/`SCAN` 순회 금지(운영 Redis 블로킹).
   - **인덱스 TTL = 토큰 TTL과 동일하게** 건다. 안 걸면 토큰은 10분 뒤 사라지는데 인덱스만 영구 잔존해 Redis 키가 샌다.
-  - **원자성**: 발급은 ①새 토큰 저장 ②인덱스에서 이전 토큰해시 조회·삭제 ③인덱스 갱신의 다단계 연산이다. 동시 요청이 인터리브되면 이전 토큰이 살아남거나(무효화 실패) 방금 발급한 토큰이 지워진다(정상 링크 사망). **MULTI/EXEC 또는 Lua 스크립트로 원자화**하라.
-  - **consume 시 인덱스 정리는 compare-and-delete**로 한다 — 인덱스가 가리키는 값이 **방금 소비한 토큰해시일 때만** 삭제. 무조건 지우면, 아직 안 지워진 구토큰을 소비할 때 현재 유효 토큰의 인덱스가 날아가 다음 발급의 무효화가 실패한다.
+  - **발급은 단일 Lua로 원자화한다** — ①이전 토큰 삭제 ②새 토큰 저장 ③인덱스 갱신을 **한 스크립트**에서. 쪼개면 동시 요청 인터리브 시 이전 토큰이 살아남거나(무효화 실패) **방금 발급한 토큰이 지워진다** — 후자는 "**나중에 보낸 메일의 링크가 죽고 먼저 온 링크가 사는**" 사용자 체감 버그다(발송 버튼 더블클릭으로 재현). 단일 스크립트면 마지막에 실행된 요청이 이기고 그 요청이 메일도 나중에 보내므로 **"최신 메일 = 유효한 링크"가 구조적으로 보장**된다.
+  - **consume도 단일 Lua** — 조회·삭제 + 인덱스 정리를 한 스크립트에서. 인덱스 정리는 **compare-and-delete**: 인덱스가 가리키는 값이 **방금 소비한 토큰해시일 때만** 삭제한다. 무조건 지우면, 아직 안 지워진 구토큰을 소비할 때 현재 유효 토큰의 인덱스가 날아가 다음 발급의 무효화가 실패한다.
+  - Lua가 여러 키를 다루므로 **단일 노드 Redis 전제**다(현 compose `redis` 서비스). 클러스터 전환 시 hash tag로 같은 슬롯에 묶어야 한다.
 - 메일 링크: `{FRONTEND_BASE_URL}/reset-password?token={resetToken}`
   - ⚠️ **링크 base는 설정값 `FRONTEND_BASE_URL`만 쓴다. 요청에서 유도 금지**(`ServletUriComponentsBuilder.fromCurrentRequest()`, `Host`/`X-Forwarded-Host` 헤더 등). nginx가 `Host`를 그대로 통과시키므로, 요청에서 유도하면 공격자가 Host를 조작해 **피해자 메일에 공격자 도메인 링크**를 심는 password-reset poisoning이 성립한다.
   - 메일 제목·본문에 **사용자 입력을 삽입하지 않는다**(헤더 인젝션 표면 제거).
