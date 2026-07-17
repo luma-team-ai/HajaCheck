@@ -1,4 +1,4 @@
-import { GRADE_COLOR } from '../constants';
+import { FALLBACK_GRADE_COLOR, GRADE_COLOR } from '../constants';
 import type { FacilityLocation } from '../types';
 
 interface SelectedFacilityPopupProps {
@@ -28,7 +28,7 @@ export function SelectedFacilityPopup({
     }
   };
 
-  const badgeBgColor = GRADE_COLOR[facility.highestGrade] ?? '#9CA3AF';
+  const badgeBgColor = GRADE_COLOR[facility.highestGrade] ?? FALLBACK_GRADE_COLOR;
 
   return (
     // border-[#d4d4d8]: Figma 팝업 전용 보더 색상 — styles/tokens.css의 --color-border(#e4e4e7)와
