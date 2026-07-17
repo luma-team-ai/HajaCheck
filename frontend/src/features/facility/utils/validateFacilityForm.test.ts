@@ -80,6 +80,39 @@ describe('validateFacilityForm', () => {
     expect(errors.builtYear).toBeDefined();
   });
 
+  // #224 P2 → #352: 정수 검사만 있으면 -100·999999 같은 값이 그대로 서버로 전송된다.
+  // 상한은 현재연도+1("내년 준공 예정" 허용)이라 테스트도 연도를 동적으로 계산한다(하드코딩 시 해가 바뀌면 깨짐).
+  it.each([
+    ['하한 미만', '1899'],
+    ['음수', '-100'],
+    ['과대값', '999999'],
+    ['상한 초과(현재연도+2)', String(new Date().getFullYear() + 2)],
+  ])('준공년도가 범위를 벗어나면(%s) 에러를 반환한다', (_label, builtYear) => {
+    const errors = validateFacilityForm({
+      ...FACILITY_FORM_INITIAL_VALUES,
+      name: '테스트',
+      type: '건물',
+      builtYear,
+    });
+
+    expect(errors.builtYear).toBeDefined();
+  });
+
+  it.each([
+    ['하한 경계', '1900'],
+    ['상한 경계(현재연도+1)', String(new Date().getFullYear() + 1)],
+    ['일반값', '2008'],
+  ])('준공년도가 범위 안이면(%s) 에러가 없다', (_label, builtYear) => {
+    const errors = validateFacilityForm({
+      ...FACILITY_FORM_INITIAL_VALUES,
+      name: '테스트',
+      type: '건물',
+      builtYear,
+    });
+
+    expect(errors.builtYear).toBeUndefined();
+  });
+
   it('시설물명이 최대 길이를 넘으면 에러를 반환한다', () => {
     const errors = validateFacilityForm({
       ...FACILITY_FORM_INITIAL_VALUES,
