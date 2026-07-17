@@ -2,7 +2,11 @@ package com.hajacheck.core.defect.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hajacheck.auth.entity.Company;
+import com.hajacheck.auth.entity.CompanyMembership;
+import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectStatus;
@@ -37,10 +41,34 @@ class DefectRepositoryTest extends PostgresTestSupport {
     @Autowired
     private TestEntityManager em;
 
+    // HAJA-25 배정 검증 트리거(trg_inspections_check_assigned_inspector_company)는
+    // assigned_inspector_id가 승인+검증된 회사에 속한 INSPECTOR/ADMIN 역할이면서 유효한
+    // APPROVED 멤버십을 가질 것을 요구한다. 이 픽스처는 owner를 그대로 담당자로도 재사용하므로
+    // 역할을 INSPECTOR로 두고 승인된 회사·멤버십을 함께 시드한다.
     private Long seedOwner(String email) {
-        User owner = User.createCompanyOwner(email, "소유자", "$2a$10$testtesttesttesttesttes");
+        User owner = User.builder()
+                .email(email)
+                .name("소유자")
+                .role(Role.INSPECTOR)
+                .passwordHash("$2a$10$testtesttesttesttesttes")
+                .status(UserStatus.ACTIVE)
+                .build();
         em.persist(owner);
         em.flush();
+
+        Company company = Company.createPendingReview(
+                owner.getId(), "테스트회사-" + owner.getId(), "REG-" + owner.getId(), "대표자",
+                "서울시 강남구", null, "https://files.example.com/registration.png", "{}");
+        em.persist(company);
+        em.flush();
+        company.markBusinessVerified();
+        company.approve(owner.getId());
+        em.flush();
+
+        em.persist(CompanyMembership.approvedOwner(company.getId(), owner.getId()));
+        owner.assignToCompany(company.getId());
+        em.flush();
+
         return owner.getId();
     }
 
