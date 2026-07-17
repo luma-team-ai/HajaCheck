@@ -345,7 +345,8 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 **요청**: `{ "token": "...", "newPassword": "..." }` — `newPassword`는 가입과 **동일 정책**(@NotBlank @Size(min=8), 영문+숫자 포함)
 
 **성공 200** `data`: `{ "reset": true }`
-- `TokenStore.consume(PASSWORD_RESET, token)` — **조회 즉시 삭제**(1회용, `getAndDelete` 원자적). 성공 후 재사용 불가. 보조 인덱스도 함께 정리한다.
+- `PasswordResetTokenStore.consume(token)` — 조회·삭제·**보조 인덱스 CAD**를 **단일 Lua로 원자 처리**(1회용). 성공 후 재사용 불가. 동시 소비 2건도 Redis 단일 스레드 직렬화로 **1건만 성공**한다.
+  > ⚠️ `TokenStore.consume(PASSWORD_RESET, …)`를 쓰면 **안 된다.** `TokenStore`는 원문 키(`auth:password-reset:{원문}`)를 조회하는데 재설정 토큰은 `auth:password-reset:{sha256}`에 저장되므로 **영원히 empty를 반환해 2단계가 100% 실패**한다. 위 §토큰의 전용 인터페이스 분리와 세트다.
 
 **실패**: `400 AUTH_RESET_TOKEN_INVALID` (토큰 무효·만료·사용됨 — 세 경우 **메시지 통일**, 어느 쪽인지 노출 금지) · `400 INVALID_INPUT` (비밀번호 정책 위반)
 
@@ -366,7 +367,7 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 
 - 감사 로그: 대상 이메일 **해시**·성공/실패·시각. **이메일 원문·토큰 평문 로깅 금지.**
 
-> **2단계에는 rate-limit을 걸지 않는다.** 토큰 기준 카운터는 공격자가 매 시도 다른 토큰을 쓰므로 항상 1이라 무의미하고, IP 기준은 위 사유로 무력하다. 2단계의 실제 방어는 **토큰 엔트로피**(32바이트 `SecureRandom`, `RedisTokenStore`)이며 이는 rate-limit으로 보강할 성질이 아니다. 애플리케이션 레벨 요청 폭주(리소스 소모)는 인프라(nginx `limit_req` 등) 몫으로 남긴다.
+> **2단계에는 rate-limit을 걸지 않는다.** 토큰 기준 카운터는 공격자가 매 시도 다른 토큰을 쓰므로 항상 1이라 무의미하고, IP 기준은 위 사유로 무력하다. 2단계의 실제 방어는 **토큰 엔트로피**(32바이트 `SecureRandom`, `RedisPasswordResetTokenStore.generateToken()`)이며 이는 rate-limit으로 보강할 성질이 아니다. 애플리케이션 레벨 요청 폭주(리소스 소모)는 인프라(nginx `limit_req` 등) 몫으로 남긴다.
 
 ### SMTP 설정 (env)
 | env | 용도 |
