@@ -11,8 +11,10 @@ import org.springframework.stereotype.Component;
  * 실제 SMTP 발송 — {@code spring.mail.host} 가 <b>비어있지 않게</b> 설정된 경우에만 뜬다
  * ({@link SmtpConfiguredCondition} — 빈 문자열 함정 주의).
  *
- * <p>운영(arm1)에서는 compose {@code :?} 가드가 SMTP_* 미설정 시 컨테이너 기동을 막으므로,
- * 이 구현이 반드시 선택된다(운영이 조용히 로그 폴백으로 도는 사고를 설정 레벨에서 차단).
+ * <p>운영 배포 경로 <b>양쪽</b>({@code docker-compose.arm1.yml} = DEPLOY_TARGET=arm1,
+ * {@code docker-compose.prod.yml} = DEPLOY_TARGET=vm)이 compose {@code :?} 가드로 SMTP_* 미설정 시
+ * 컨테이너 기동을 막으므로, 운영에서는 이 구현이 반드시 선택된다(운영이 조용히 로그 폴백으로 도는 사고를
+ * 설정 레벨에서 차단). 한쪽 compose 만 가드하면 그 배포 타깃이 조용히 뚫리니 항상 함께 갱신할 것.
  */
 @Component
 @Conditional(SmtpConfiguredCondition.class)

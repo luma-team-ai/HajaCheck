@@ -19,6 +19,18 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       # 운영(VM)은 내부키 강제 — arm1과 동일 패턴(fail-open 방지, 동일 ${AI_INTERNAL_KEY} 소스)
       AI_SERVER_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
+      # 비밀번호 재설정 메일 발송(#194) — arm1과 동일 패턴으로 운영 강제.
+      # 미설정 시 spring.mail.host가 빈 문자열이 되어 앱이 로그 폴백(LoggingPasswordResetMailSender)을 선택한다
+      # → 메일 미발송(무증상 장애) + 재설정 링크(=토큰 원문)가 서버 로그에 평문으로 남는다. 그래서 :? 로 막는다.
+      # ⚠️ 이 파일과 docker-compose.arm1.yml은 항상 함께 갱신할 것 — deploy.sh가 DEPLOY_TARGET으로 두 경로
+      #    (arm1 / vm)를 모두 지원하므로, 한쪽만 가드하면 다른 쪽 배포가 조용히 뚫린다.
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST가 .env에 설정되어야 합니다}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:?SMTP_USERNAME이 .env에 설정되어야 합니다}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD가 .env에 설정되어야 합니다}
+      MAIL_FROM: ${MAIL_FROM:?MAIL_FROM이 .env에 설정되어야 합니다}
+      # 재설정 링크 base. 요청 Host에서 유도하지 않으므로(poisoning 방어) 이 값이 유일한 출처 — 미설정 시 기동 실패.
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:?FRONTEND_BASE_URL이 .env에 설정되어야 합니다}
 
   fastapi:
     image: hajacheck-fastapi:${IMAGE_TAG:?IMAGE_TAG(버전+커밋 SHA)가 필요합니다 — latest 금지}
