@@ -121,7 +121,7 @@ export default function MapPage() {
         if (cancelled) return;
         const message =
           error instanceof KakaoMapKeyMissingError
-            ? 'Kakao Map API 키가 설정되지 않았습니다. frontend/.env.local 에 VITE_KAKAO_MAP_APP_KEY 값을 설정해 주세요.'
+            ? 'Kakao Map API 키가 설정되지 않았습니다. VITE_KAKAO_MAP_APP_KEY 를 설정하세요 (도커: 루트 .env / 네이티브: frontend/.env.local).'
             : 'Kakao Map을 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.';
         setSdkError(message);
         setSdkStatus('error');
