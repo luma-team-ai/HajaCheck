@@ -2,6 +2,7 @@ package com.hajacheck.core.report.entity;
 
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.global.common.BaseTimeEntity;
+import com.hajacheck.global.util.JsonValidator;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -111,6 +112,8 @@ public class Report extends BaseTimeEntity {
                               String groundingWarnings, Long editedBy) {
         requireDraft("updateContent");
         requireContent(contentJson);
+        JsonValidator.requireValidJson(groundingWarnings, "근거 검증 경고(groundingWarnings)");
+        requireConsistentGroundingResult(groundingCheckPassed, groundingWarnings);
         this.contentJson = contentJson;
         this.groundingCheckPassed = groundingCheckPassed;
         this.groundingWarnings = groundingWarnings;
@@ -139,6 +142,20 @@ public class Report extends BaseTimeEntity {
     private static void requireContent(String contentJson) {
         if (contentJson == null || contentJson.isBlank()) {
             throw new IllegalArgumentException("보고서 본문 JSON은 필수다");
+        }
+        JsonValidator.requireValidJson(contentJson, "보고서 본문(contentJson)");
+    }
+
+    /**
+     * grounding_check.md §3: {@code grounded=true}(PASS)는 MISMATCH 0건을 의미하므로
+     * groundingCheckPassed=true와 비어있지 않은 groundingWarnings는 동시에 성립할 수 없다.
+     * 엔티티는 호출자가 넘긴 groundingCheckPassed 자체의 진위(실제 검증을 거쳤는지)는 검증할 수 없지만,
+     * 이 정합성 불변식만큼은 여기서 기계적으로 강제한다.
+     */
+    private static void requireConsistentGroundingResult(Boolean groundingCheckPassed, String groundingWarnings) {
+        if (Boolean.TRUE.equals(groundingCheckPassed) && !JsonValidator.isEmptyJson(groundingWarnings)) {
+            throw new IllegalArgumentException(
+                    "groundingCheckPassed=true와 비어있지 않은 groundingWarnings는 동시에 있을 수 없다");
         }
     }
 

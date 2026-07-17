@@ -1,6 +1,7 @@
 package com.hajacheck.auth.entity;
 
 import com.hajacheck.global.common.BaseTimeEntity;
+import com.hajacheck.global.util.JsonValidator;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -126,6 +127,7 @@ public class Company extends BaseTimeEntity {
     public static Company createPendingReview(Long ownerUserId, String name, String businessRegistrationNumber,
                                               String representativeName, String address, String addressDetail,
                                               String businessRegistrationFileUrl, String businessRegistrationOcrRaw) {
+        JsonValidator.requireValidJson(businessRegistrationOcrRaw, "OCR 원본(businessRegistrationOcrRaw)");
         return Company.builder()
                 .ownerUserId(ownerUserId)
                 .name(name)

@@ -26,6 +26,13 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
  *
  * <p>DDL 에 updated_at 컬럼이 없어 BaseTimeEntity 를 상속하지 않고 createdAt 만 자체 관리한다.
  * period 는 항상 해당 월 1일로 저장(DB 제약 ck_usage_counters_period_month_start).
+ *
+ * <p>⚠️ 이 Entity에는 의도적으로 {@code @Version}을 두지 않는다. 카운터 증가는 JPA 낙관적 락(읽기→증가→저장)이
+ * 아니라 table_design.md §usage_counters "동시성 정책 확정"이 규정한 **원자적 조건부 UPDATE**
+ * (예: {@code UPDATE ... SET count = count + 1 WHERE ... AND count < :limit RETURNING ...})로만
+ * 수행해야 한다 — 갱신 행 수 0이 곧 한도 초과 판정이며, period 최초 생성 경합은 UNIQUE 기반 UPSERT로 흡수한다.
+ * 향후 이 카운터를 증가시키는 서비스(QuotaInterceptor 등)를 구현할 때 read-modify-write 패턴으로
+ * 되돌리지 않도록 주의한다(jpa_entity_implementation_audit.md §3.7 참조).
  */
 @Entity
 @Getter
