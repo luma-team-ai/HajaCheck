@@ -157,7 +157,7 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
         Report foundReport = em.find(Report.class, reportId);
         assertThat(foundRevision.getReason()).isEqualTo("현장 검토");
         assertThat(foundRevision.getDefect().getInspection().getId()).isEqualTo(inspection.getId());
-        assertThat(foundReport.getContentJson()).contains("\"grounding_ok\":true");
+        assertThat(foundReport.getContentJson()).containsIgnoringWhitespaces("\"grounding_ok\":true");
         assertThat(foundReport.getGroundingWarnings()).isEqualTo("[]");
         assertThat(foundReport.getInspection().getId()).isEqualTo(inspection.getId());
     }
