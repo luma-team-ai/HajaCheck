@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
+import brandIcon from '../../../assets/brand/sidenav-brand-icon.png';
 import collapseIcon from '../../../assets/brand/sidenav-collapse.svg';
 import dashboardIcon from '../../../assets/brand/sidenav-dashboard.svg';
 import chevronIcon from '../../../assets/brand/sidenav-chevron.svg';
@@ -242,6 +243,11 @@ export function SideNavBar({
   }
 
   function handleCollapseToggle() {
+    // 토글 클릭 시점엔 마우스가 사이드바 위에 올라가 있는 경우가 많아 hoverExpanded가
+    // true로 남아있으면 접기를 눌러도 시각적으로 펼쳐진 채 유지된다. 토글은 항상 명시적
+    // 액션이므로 hover 오버레이 상태를 초기화해 실제 collapsed 값을 그대로 반영시킨다
+    // — 이후 마우스를 뗐다가 다시 올리면 hover-펼침은 정상 동작한다(#317 피드백).
+    setHoverExpanded(false);
     setCollapsed((current) => {
       const next = !current;
       onCollapseToggle?.(next);
@@ -322,7 +328,7 @@ export function SideNavBar({
           <Link
             to="/dashboard"
             onClick={(event) => handleNavClick(event, '/dashboard')}
-            className={`flex items-center gap-1.5 no-underline ${
+            className={`flex w-full items-center gap-1.5 no-underline ${
               visuallyExpanded ? '' : 'justify-center'
             }`}
             aria-label="HajaCheck 대시보드로 이동"
@@ -330,11 +336,7 @@ export function SideNavBar({
             {visuallyExpanded ? (
               <img className="h-7 w-auto object-contain" src={brandLogo} alt="HajaCheck" />
             ) : (
-              <img
-                className="h-8 w-8 object-cover object-left"
-                src={brandLogo}
-                alt="HajaCheck"
-              />
+              <img className="h-8 w-8 object-contain" src={brandIcon} alt="HajaCheck" />
             )}
             {visuallyExpanded && isAdmin && (
               <span className="rounded-full border border-[#e5e7eb] bg-[#f3f4f6] px-[7px] py-[3px] text-[10px] tracking-[0.05em] text-[#6b7280]">
