@@ -32,7 +32,17 @@ const CompanySignupPendingPage = lazy(() =>
 const FindIdPage = lazy(() =>
   import('../features/auth/pages/FindIdPage').then((m) => ({ default: m.FindIdPage })),
 );
-// 비밀번호 찾기·재설정 2화면은 계정 탈취 P1(보안 리뷰)로 이번 범위에서 제외 — 보안질문 방식으로 후속(#194, HAJA-172)
+// 비밀번호 찾기 — 이메일 링크 방식(#301, HAJA-224)
+const FindPasswordPage = lazy(() =>
+  import('../features/auth/pages/FindPasswordPage').then((m) => ({
+    default: m.FindPasswordPage,
+  })),
+);
+const ResetPasswordPage = lazy(() =>
+  import('../features/auth/pages/ResetPasswordPage').then((m) => ({
+    default: m.ResetPasswordPage,
+  })),
+);
 
 const DashboardPage = lazy(() =>
   import('../features/dashboard/pages/DashboardPage').then((m) => ({
@@ -108,6 +118,22 @@ export const router = createBrowserRouter([
       </Suspense>
     ),
   }, // — features/auth 기업 인증 플로우 (HAJA-170, #187)
+  {
+    path: '/find-password',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <FindPasswordPage />
+      </Suspense>
+    ),
+  }, // — features/auth 비밀번호 찾기 1단계 (#301, HAJA-224)
+  {
+    path: '/reset-password',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <ResetPasswordPage />
+      </Suspense>
+    ),
+  }, // — features/auth 비밀번호 찾기 2단계, 메일 링크 진입 (#301, HAJA-224)
   {
     // 로그인 후 내부 페이지 공통 앱 셸(SideNavBar+Header, AppLayout) — nested route로 강제 연결(HAJA-186, #217 후속).
     // ProtectedRoute로 부모 전체를 감싸 자식 라우트를 일괄 보호한다(#231, HAJA-189) —
