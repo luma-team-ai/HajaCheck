@@ -120,11 +120,21 @@ public class Report extends BaseTimeEntity {
         this.editedBy = editedBy;
     }
 
+    /** 비동기 Grounding 요청 전에 현재 보고서 대상을 불변 스냅샷으로 캡처한다. */
+    public GroundingCheckTarget captureGroundingTarget() {
+        requireDraft("captureGroundingTarget");
+        return GroundingCheckTarget.capture(this.inspectionId, this.version, this.contentJson);
+    }
+
     /** 내부 AI 서버에서 유래한 grounding 결과만 별도 단계로 기록한다. */
     public void recordGroundingResult(GroundingCheckResult result, Long editedBy) {
         requireDraft("recordGroundingResult");
         if (result == null) {
             throw new DomainValidationException("grounding 결과는 필수다");
+        }
+        if (!result.matches(this.inspectionId, this.version, this.contentJson)) {
+            throw new DomainValidationException(
+                    "grounding 결과가 현재 보고서 버전 또는 콘텐츠와 일치하지 않는다");
         }
         this.groundingCheckPassed = result.passed();
         this.groundingWarnings = result.warnings();
