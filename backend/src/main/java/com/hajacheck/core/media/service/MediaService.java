@@ -148,7 +148,15 @@ public class MediaService {
     public ThumbnailFile getThumbnail(Long requesterUserId, Long mediaId) {
         Media media = mediaRepository.findById(mediaId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
-        inspectionService.getInspection(requesterUserId, media.getInspectionId());
+        try {
+            inspectionService.getInspection(requesterUserId, media.getInspectionId());
+        } catch (BusinessException e) {
+            // 존재 여부 열거 방지(리뷰 P2) — 타인 소유 미디어(getInspection이 던지는
+            // FACILITY_NOT_FOUND/INSPECTION_NOT_FOUND)와 아예 없는 미디어(MEDIA_NOT_FOUND)를
+            // error.code로 구분할 수 있으면 안 된다(openapi.yaml·클래스 문서가 명시한 "존재 여부
+            // 열거 방지 통일 응답" 계약). 실패 사유와 무관하게 동일한 MEDIA_NOT_FOUND(404)로 통일한다.
+            throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
+        }
         if (media.getThumbnailUrl() == null) {
             throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
         }

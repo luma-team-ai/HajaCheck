@@ -193,7 +193,10 @@ class MediaServiceTest {
     }
 
     @Test
-    void getThumbnail_타인소유_예외전파() {
+    void getThumbnail_타인소유_존재하지않는id와동일하게MEDIA_NOT_FOUND() {
+        // 리뷰 P2: 타인 소유(FACILITY_NOT_FOUND)와 아예 없는 id(MEDIA_NOT_FOUND)의 error.code가
+        // 다르면 공격자가 이를 존재 열거에 악용할 수 있다 — 두 경우 모두 동일한 MEDIA_NOT_FOUND(404)로
+        // 응답해 "이 미디어가 존재하는지"를 외부에서 구분할 수 없어야 한다.
         Media media = Media.builder()
                 .inspectionId(1L)
                 .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
@@ -208,7 +211,7 @@ class MediaServiceTest {
 
         assertThatThrownBy(() -> service.getThumbnail(999L, 10L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
+                        .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
     }
 
     @Test
