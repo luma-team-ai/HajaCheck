@@ -1,7 +1,6 @@
 // 기업 인증 플로우 MSW 목 — HAJA-170(#187), 3화면(회원가입/승인대기/아이디찾기) 클릭 플로우가
 // 끝까지 동작하도록 구성. 데이터가 많아 authApi.handlers.ts에서 분리(React_코드_컨벤션.md 지침)
-// 비밀번호 찾기(password-inquiry/password-reset)는 계정 탈취 P1(보안 리뷰)로 범위 제외 —
-// 보안질문 방식으로 후속(#194, HAJA-172)
+// 비밀번호 찾기·새 비밀번호 설정 목은 passwordReset.mock.ts 로 분리(#301, HAJA-224)
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse } from '../../../shared/api/types';
 import type {

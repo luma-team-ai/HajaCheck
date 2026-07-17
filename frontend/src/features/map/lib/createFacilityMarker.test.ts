@@ -7,9 +7,14 @@ import type { FacilityLocation } from '../types';
 const baseFacility: FacilityLocation = {
   id: 1,
   name: '테스트 시설물',
+  address: '서울 강남구 테헤란로 1',
+  category: '건물',
   latitude: 37.5,
   longitude: 127.0,
-  highestGrade: 'RED',
+  highestGrade: 'E',
+  warningCount: 2,
+  cautionCount: 1,
+  thumbnailUrl: null,
 };
 
 // jsdom은 style.color를 rgb()로 정규화해 반환하므로 동일한 정규화를 거쳐 비교한다
@@ -23,8 +28,8 @@ describe('buildInfoWindowContent', () => {
   it('정의된 등급이면 GRADE_COLOR/GRADE_LABEL 값을 그대로 사용한다', () => {
     const content = buildInfoWindowContent(baseFacility);
     const gradeEl = content.querySelector('span') as HTMLSpanElement;
-    expect(gradeEl.textContent).toBe(GRADE_LABEL.RED);
-    expect(gradeEl.style.color).toBe(toRgb(GRADE_COLOR.RED));
+    expect(gradeEl.textContent).toBe(GRADE_LABEL.E);
+    expect(gradeEl.style.color).toBe(toRgb(GRADE_COLOR.E));
   });
 
   it('알 수 없는 등급 값이면 fallback 색상/라벨로 대체한다', () => {

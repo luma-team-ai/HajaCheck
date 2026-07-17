@@ -1,11 +1,16 @@
 import type { InspectionStatus } from '../types';
-import { getInspectionStatusVariant } from '../utils/statusBadge';
+import { getInspectionStatusClass } from '../utils/statusBadge';
 
 type Props = {
   status: InspectionStatus;
 };
 
 export function StatusBadge({ status }: Props) {
-  const variant = getInspectionStatusVariant(status);
-  return <span className={`status-badge status-badge--${variant}`}>{status}</span>;
+  return (
+    <span
+      className={`inline-block py-1 px-2.5 rounded-full text-xs font-bold ${getInspectionStatusClass(status)}`}
+    >
+      {status}
+    </span>
+  );
 }

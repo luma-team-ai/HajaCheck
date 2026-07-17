@@ -10,6 +10,14 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+
+# Vite는 import.meta.env.VITE_*를 빌드 시점에 인라인한다(런타임 주입 불가) — 이 ARG/ENV가 없으면
+# 운영 이미지가 키 없이 빌드되어 Vite가 에러 없이 undefined를 인라인, /facilities/map이 런타임에만
+# 조용히 깨진다(#323). npm ci 앞이 아니라 여기(COPY 뒤·build 앞)에 둬야 키 변경 시에도 의존성
+# 레이어 캐시가 무효화되지 않는다.
+ARG VITE_KAKAO_MAP_APP_KEY
+ENV VITE_KAKAO_MAP_APP_KEY=${VITE_KAKAO_MAP_APP_KEY}
+
 RUN npm run build
 
 # ---- Runtime stage (nginx: React dist 정적 서빙 + /api·/ws·/ai 리버스 프록시) ----

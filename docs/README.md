@@ -51,7 +51,7 @@
 - **PRD**: 루트 `PRD_hajaCheck.md`(헤더에 실버전) + `prd/archive/`에 구버전. 파일명에 버전 박지 않음.
 - **STATUS.md는 버전 대상 아님**(살아있는 보드).
 
-**예시(현재 상태):** `PRD_hajaCheck.md`(v0.43) · `table_design.md`(v0.2, archive에 v0.1) · 나머지 문서 v0.1.
+**예시(현재 상태):** `PRD_hajaCheck.md`(v0.43) · `table_design.md`(v0.3, archive에 v0.1/v0.2) · `contract.md`/`openapi.yaml`(v0.3, archive에 v0.1/v0.2) · 나머지 문서 v0.1.
 
 ---
 

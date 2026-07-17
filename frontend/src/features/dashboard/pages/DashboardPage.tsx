@@ -1,12 +1,11 @@
 import { useNavigate } from 'react-router-dom';
+import '../../../shared/styles/layout.css';
 import { AiBriefingCard } from '../components/AiBriefingCard';
 import { GradeDistributionCard } from '../components/GradeDistributionCard';
-import { DashboardLayout } from '../components/layout/DashboardLayout';
 import { KpiSection } from '../components/KpiSection';
 import { PendingPriorityCard } from '../components/PendingPriorityCard';
 import { RecentInspectionsTable } from '../components/RecentInspectionsTable';
 import { INSPECTION_NEW_PATH } from '../constants';
-import '../dashboard.css';
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -17,12 +16,12 @@ export function DashboardPage() {
   };
 
   return (
-    <DashboardLayout>
+    <div className="dashboard-content">
       <div className="dashboard-page-header">
         <h1 className="dashboard-page-title">대시보드</h1>
         <button
           type="button"
-          className="dashboard-new-inspection-btn"
+          className="bg-[#111] text-white border-none rounded-[10px] py-2.5 px-4.5 text-sm font-semibold cursor-pointer"
           onClick={handleStartNewInspection}
         >
           + 새 점검 시작
@@ -32,16 +31,16 @@ export function DashboardPage() {
       <KpiSection />
 
       {/* 시안: KPI 아래는 2단 컬럼 — 좌(넓음)=등급분포+최근점검 / 우(좁음)=처리대기+AI 브리핑 */}
-      <div className="dashboard-columns">
-        <div className="dashboard-col dashboard-col--main">
+      <div className="grid grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] gap-4 items-start max-[1100px]:grid-cols-1">
+        <div className="flex flex-col gap-4 min-w-0">
           <GradeDistributionCard />
           <RecentInspectionsTable />
         </div>
-        <div className="dashboard-col dashboard-col--side">
+        <div className="flex flex-col gap-4 min-w-0">
           <PendingPriorityCard />
           <AiBriefingCard />
         </div>
       </div>
-    </DashboardLayout>
+    </div>
   );
 }

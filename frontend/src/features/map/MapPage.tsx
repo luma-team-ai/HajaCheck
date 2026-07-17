@@ -1,31 +1,42 @@
-// 지도 뷰 — Kakao Map에 시설물 마커(하자 최고 등급별 색상) 표시
+// 지도 뷰 — Kakao Map에 시설물 마커(하자 최고 등급별 색상) 표시 + 검색/필터 목록 패널
 // PRD_hajaCheck_v0.37.md 92행, 171행: 업로드 시 수집한 EXIF GPS 활용
+// AppShellRoute(공용 앱 셸) 안에서 렌더링되므로 셸(사이드바/헤더) 마크업은 포함하지 않는다(HAJA-150, #129 재오픈)
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { mapApi } from './api/mapApi';
-import {
-  DEFAULT_MAP_CENTER,
-  DEFAULT_MAP_LEVEL,
-  ERROR_TEXT_COLOR,
-  GRADE_COLOR,
-  GRADE_LABEL,
-} from './constants';
-import {
-  createFacilityMarker,
-  buildInfoWindowContent,
-  isValidCoordinate,
-} from './lib/createFacilityMarker';
+import { FacilityListPanel } from './components/FacilityListPanel';
+import { MapControls, type MapDisplayType } from './components/MapControls';
+import { MapLegend } from './components/MapLegend';
+import { SelectedFacilityPopup } from './components/SelectedFacilityPopup';
+import { DEFAULT_MAP_CENTER, DEFAULT_MAP_LEVEL, ERROR_TEXT_COLOR, MAX_MAP_LEVEL, MIN_MAP_LEVEL } from './constants';
+import { useDebouncedValue } from './hooks/useDebouncedValue';
+import { createFacilityMarker, isValidCoordinate } from './lib/createFacilityMarker';
+import { filterFacilities } from './lib/filterFacilities';
 import { KakaoMapKeyMissingError, loadKakaoMapSdk } from './lib/loadKakaoMapSdk';
-import type { FacilityLocation } from './types';
+
+// 검색어 타이핑마다 지도 마커를 전량 재생성(setMap(null) 후 재생성)하면 입력이 잦을수록
+// 불필요한 DOM/SVG 마커 생성 비용이 커진다. 목록 패널 필터링은 즉시 반영하되, 마커 재생성에
+// 쓰이는 검색어만 디바운스해 타이핑이 끝난 뒤에 한 번만 재생성되도록 한다(P2, 2026-07-16).
+const MARKER_SEARCH_DEBOUNCE_MS = 250;
 
 export default function MapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<KakaoMap | null>(null);
-  const infoWindowRef = useRef<KakaoInfoWindow | null>(null);
   const markersRef = useRef<KakaoMarker[]>([]);
+  const overlayRef = useRef<KakaoCustomOverlay | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const hasCenteredRef = useRef(false);
+
+  const [overlayContainer] = useState(() => document.createElement('div'));
 
   const [sdkStatus, setSdkStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [sdkError, setSdkError] = useState<string | null>(null);
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('전체');
+  const [selectedFacilityId, setSelectedFacilityId] = useState<number | null>(null);
+  const [mapType, setMapType] = useState<MapDisplayType>('roadmap');
 
   const {
     data: facilities,
@@ -35,6 +46,31 @@ export default function MapPage() {
     queryKey: ['map', 'facilities'],
     queryFn: mapApi.getFacilityLocations,
   });
+
+  const filteredFacilities = useMemo(
+    () => filterFacilities(facilities, searchQuery, selectedCategory),
+    [facilities, searchQuery, selectedCategory]
+  );
+
+  // 마커 재생성 전용 디바운스 검색어 — 목록 패널(filteredFacilities)은 즉시 반영되지만
+  // 마커는 이 값이 안정된 뒤에만 재계산된다.
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, MARKER_SEARCH_DEBOUNCE_MS);
+  const markerFacilities = useMemo(
+    () => filterFacilities(facilities, debouncedSearchQuery, selectedCategory),
+    [facilities, debouncedSearchQuery, selectedCategory]
+  );
+
+  const selectedFacility = useMemo(
+    () => filteredFacilities.find((facility) => facility.id === selectedFacilityId) ?? null,
+    [filteredFacilities, selectedFacilityId]
+  );
+
+  // 필터 적용으로 선택된 시설물이 결과에서 사라지면 선택 상태를 해제합니다.
+  useEffect(() => {
+    if (selectedFacilityId !== null && !filteredFacilities.some((f) => f.id === selectedFacilityId)) {
+      setSelectedFacilityId(null);
+    }
+  }, [filteredFacilities, selectedFacilityId]);
 
   // Kakao Maps SDK 로드 + 지도 인스턴스 생성 (최초 1회)
   useEffect(() => {
@@ -48,11 +84,38 @@ export default function MapPage() {
           DEFAULT_MAP_CENTER.latitude,
           DEFAULT_MAP_CENTER.longitude,
         );
-        mapInstanceRef.current = new window.kakao.maps.Map(mapContainerRef.current, {
+        const map = new window.kakao.maps.Map(mapContainerRef.current, {
           center,
           level: DEFAULT_MAP_LEVEL,
         });
+        mapInstanceRef.current = map;
         setSdkStatus('ready');
+
+        // 초기 렌더링 시 flex 레이아웃 계산 타이밍 불일치로 인한 타일 미로드/오버레이 깨짐 방지.
+        // 과거에는 100ms 고정 setTimeout으로 우회했으나(실측 기반이라도 매직넘버 워크어라운드,
+        // P3, PR #265/#130 리뷰), 실제로 필요한 건 "지도 컨테이너의 레이아웃(크기)이 확정된 시점"이므로
+        // ResizeObserver로 컨테이너 크기 변화를 직접 감지해 그 시점에 relayout()을 호출한다.
+        // 크기가 0이면 아직 flex 레이아웃 계산 전이므로 건너뛰고, 유효한 크기가 처음 관측될 때만
+        // relayout을 실행한다(이후 실제 리사이즈에도 relayout을 다시 호출하는 것은 카카오맵 SDK가
+        // 컨테이너 크기 변경에 자동 대응하지 못하는 문제를 함께 방지하는 부가 효과).
+        // setCenter(center)는 "최초 유효 레이아웃" 시점 딱 1회만 호출한다 — 이후 리사이즈(예: 사용자가
+        // 지도를 팬/줌한 뒤 브라우저 창 크기가 바뀌는 경우)마다 호출하면 사용자가 옮긴 현재 중심을
+        // 매번 초기 DEFAULT_MAP_CENTER로 되돌려버리는 회귀가 생긴다(code-reviewer P1, #335).
+        const container = mapContainerRef.current;
+        const observer = new ResizeObserver((entries) => {
+          if (cancelled || !mapInstanceRef.current) return;
+          const entry = entries[0];
+          if (!entry) return;
+          const { width, height } = entry.contentRect;
+          if (width === 0 || height === 0) return;
+          mapInstanceRef.current.relayout();
+          if (!hasCenteredRef.current) {
+            hasCenteredRef.current = true;
+            mapInstanceRef.current.setCenter(center);
+          }
+        });
+        observer.observe(container);
+        resizeObserverRef.current = observer;
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -66,25 +129,25 @@ export default function MapPage() {
 
     return () => {
       cancelled = true;
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      hasCenteredRef.current = false;
       markersRef.current.forEach((marker) => marker.setMap(null));
       markersRef.current = [];
-      infoWindowRef.current?.close();
-      infoWindowRef.current = null;
       mapInstanceRef.current = null;
     };
   }, []);
 
-  // 시설물 데이터가 준비되면 마커 렌더링 (재렌더 시 기존 마커 정리 후 재생성)
+  // 필터링된 시설물 목록이 준비되면 마커 렌더링 (재렌더 시 기존 마커 정리 후 재생성)
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (sdkStatus !== 'ready' || !map || !facilities) return;
+    if (sdkStatus !== 'ready' || !map) return;
 
     markersRef.current.forEach((marker) => marker.setMap(null));
-    infoWindowRef.current?.close();
 
     // 좌표 런타임 검증 — 실 API 연동 시 서버가 null/NaN/범위밖 좌표를 줄 수 있으므로
     // 마커 생성 전에 걸러내고, 걸러진 항목은 warn으로 남겨 추적 가능하게 한다
-    const validFacilities = facilities.filter((facility) => {
+    const validFacilities = markerFacilities.filter((facility) => {
       const valid = isValidCoordinate(facility.latitude, facility.longitude);
       if (!valid) {
         console.warn(
@@ -95,67 +158,133 @@ export default function MapPage() {
     });
 
     markersRef.current = validFacilities.map((facility) =>
-      createFacilityMarker(map, facility, (selected: FacilityLocation, marker: KakaoMarker) => {
-        // InfoWindow 인스턴스를 한 번만 생성해 재사용 — 클릭마다 새로 만들지 않음
-        if (!infoWindowRef.current) {
-          infoWindowRef.current = new window.kakao.maps.InfoWindow({
-            content: buildInfoWindowContent(selected),
-            removable: true,
-          });
-        } else {
-          infoWindowRef.current.setContent(buildInfoWindowContent(selected));
-        }
-        infoWindowRef.current.open(map, marker);
-      }),
+      createFacilityMarker(map, facility, (selected) => setSelectedFacilityId(selected.id)),
     );
 
     return () => {
       markersRef.current.forEach((marker) => marker.setMap(null));
       markersRef.current = [];
-      infoWindowRef.current?.close();
     };
-  }, [facilities, sdkStatus]);
+  }, [markerFacilities, sdkStatus]);
+
+  // 지도/위성 토글 상태를 실제 카카오맵 인스턴스에 반영
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (sdkStatus !== 'ready' || !map) return;
+    const typeId =
+      mapType === 'hybrid' ? window.kakao.maps.MapTypeId.HYBRID : window.kakao.maps.MapTypeId.ROADMAP;
+    map.setMapTypeId(typeId);
+  }, [mapType, sdkStatus]);
+
+  // 선택된 시설물 변경 시 카카오맵 CustomOverlay 동기화 + 지도 시점을 부드럽게 이동(panTo)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (sdkStatus !== 'ready' || !map) return;
+
+    if (overlayRef.current) {
+      overlayRef.current.setMap(null);
+      overlayRef.current = null;
+    }
+
+    if (!selectedFacility) return;
+
+    const position = new window.kakao.maps.LatLng(
+      selectedFacility.latitude,
+      selectedFacility.longitude
+    );
+
+    map.panTo(position);
+
+    const overlay = new window.kakao.maps.CustomOverlay({
+      position,
+      content: overlayContainer,
+      yAnchor: 1.18, // 마커 살짝 위에 배치하기 위한 Anchor 값
+    });
+
+    overlay.setMap(map);
+    overlayRef.current = overlay;
+
+    return () => {
+      if (overlayRef.current) {
+        overlayRef.current.setMap(null);
+        overlayRef.current = null;
+      }
+    };
+  }, [selectedFacility, sdkStatus, overlayContainer]);
+
+  const handleChangeMapType = (nextType: MapDisplayType) => {
+    setMapType(nextType);
+  };
+
+  const handleZoomIn = () => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    map.setLevel(Math.max(MIN_MAP_LEVEL, map.getLevel() - 1));
+  };
+
+  const handleZoomOut = () => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    map.setLevel(Math.min(MAX_MAP_LEVEL, map.getLevel() + 1));
+  };
+
+  const handleMyLocation = () => {
+    const map = mapInstanceRef.current;
+    if (!map || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const center = new window.kakao.maps.LatLng(
+          position.coords.latitude,
+          position.coords.longitude,
+        );
+        map.panTo(center);
+      },
+      () => {
+        // 위치 권한 거부/실패 시 조용히 무시 — 지도 기본 중심을 그대로 유지
+      },
+    );
+  };
 
   if (sdkStatus === 'error') {
     return <div style={{ padding: 24, color: ERROR_TEXT_COLOR }}>{sdkError}</div>;
   }
 
-  if (isError) {
-    return (
-      <div style={{ padding: 24, color: ERROR_TEXT_COLOR }}>시설물 위치를 불러오지 못했습니다.</div>
-    );
-  }
-
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 16px' }}>
-        <h1 style={{ fontSize: 18, margin: 0 }}>지도 뷰</h1>
-        {(isLoading || sdkStatus === 'loading') && <span>불러오는 중...</span>}
-        {!isLoading && facilities?.length === 0 && <span>등록된 시설물 위치가 없습니다.</span>}
+    <div className="flex h-full w-full overflow-hidden">
+      <FacilityListPanel
+        facilities={filteredFacilities}
+        isLoading={isLoading || sdkStatus === 'loading'}
+        isError={isError}
+        searchQuery={searchQuery}
+        onSearchQueryChange={setSearchQuery}
+        selectedCategory={selectedCategory}
+        onSelectCategory={setSelectedCategory}
+        selectedFacilityId={selectedFacilityId}
+        onSelectFacility={setSelectedFacilityId}
+      />
+      <div className="relative flex-1 overflow-hidden bg-white">
+        <div ref={mapContainerRef} className="h-full w-full" />
+        <MapControls
+          mapType={mapType}
+          onChangeMapType={handleChangeMapType}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onMyLocation={handleMyLocation}
+        />
         <MapLegend />
-      </div>
-      <div ref={mapContainerRef} style={{ width: '100%', height: '640px' }} />
-    </div>
-  );
-}
-
-function MapLegend() {
-  return (
-    <div style={{ display: 'flex', gap: 12, marginLeft: 'auto', fontSize: 13 }}>
-      {(Object.keys(GRADE_LABEL) as Array<keyof typeof GRADE_LABEL>).map((grade) => (
-        <span key={grade} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span
-            style={{
-              display: 'inline-block',
-              width: 10,
-              height: 10,
-              borderRadius: '50%',
-              backgroundColor: GRADE_COLOR[grade],
+        {selectedFacility && createPortal(
+          <SelectedFacilityPopup
+            facility={selectedFacility}
+            onViewDetail={() => {
+              // 시설물 상세 라우트 미구현(features/facility) — 버튼 자리만 배치, 구현 시 연결
             }}
-          />
-          {GRADE_LABEL[grade]}
-        </span>
-      ))}
+            onGoToInspectionResult={() => {
+              // 결과접수 라우트 미구현 — 버튼 자리만 배치, 구현 시 연결
+            }}
+          />,
+          overlayContainer
+        )}
+      </div>
     </div>
   );
 }

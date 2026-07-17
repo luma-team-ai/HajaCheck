@@ -2,6 +2,7 @@ package com.hajacheck.global.exception;
 
 import com.hajacheck.global.common.ApiResponse;
 import jakarta.validation.ConstraintViolationException;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.AuthenticationException;
@@ -10,11 +11,19 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.validation.BindException;
 
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    /**
+     * 로그 위조 방지용(#330) — CR/LF 및 기타 ASCII 제어문자.
+     * \p{Cntrl} 는 기본 모드에서 ASCII(0x00-0x1F, 0x7F)만 잡으므로, 일부 로그 뷰어가 개행으로
+     * 렌더링하는 유니코드 줄바꿈(U+2028/U+2029/U+0085)을 함께 포함한다.
+     */
+    private static final Pattern CONTROL_CHARS = Pattern.compile("[\\p{Cntrl}\\u0085\\u2028\\u2029]");
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {
@@ -86,6 +95,31 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleAuthenticationException(AuthenticationException e) {
         return ResponseEntity.status(ErrorCode.AUTH_INVALID_CREDENTIALS.getStatus())
                 .body(ApiResponse.fail(ErrorCode.AUTH_INVALID_CREDENTIALS));
+    }
+
+    /**
+     * 매핑되지 않은 경로/정적 리소스 요청(#330). 이 클래스는 ResponseEntityExceptionHandler 를 상속하지 않는
+     * 순수 @RestControllerAdvice 라, 전용 핸들러가 없으면 아래 포괄 handleException 이 NoResourceFoundException 을
+     * 가로채 500 + 전체 스택트레이스로 처리한다(= 단순 404가 서버 장애로 둔갑 + 로그 노이즈).
+     * 따라서 404 로 정정하고, 스택트레이스 없이 WARN 단일 라인만 남긴다.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(NoResourceFoundException e) {
+        log.warn("존재하지 않는 리소스 요청: {} {}", e.getHttpMethod(), sanitizeForLog(e.getResourcePath()));
+        return ResponseEntity.status(ErrorCode.RESOURCE_NOT_FOUND.getStatus())
+                .body(ApiResponse.fail(ErrorCode.RESOURCE_NOT_FOUND));
+    }
+
+    /**
+     * 로그 위조(CWE-117) 방지 — 사용자 입력 경로는 URL 디코딩된 값이라 %0d%0a 로 CR/LF 를 실어 보낼 수 있고,
+     * Logback 은 파라미터의 제어문자를 이스케이프하지 않아 가짜 로그 라인이 주입될 수 있다.
+     * 직접 단위 테스트하기 위해 package-private.
+     */
+    static String sanitizeForLog(String value) {
+        if (value == null) {
+            return null;
+        }
+        return CONTROL_CHARS.matcher(value).replaceAll("_");
     }
 
     @ExceptionHandler(Exception.class)

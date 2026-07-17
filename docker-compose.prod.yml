@@ -17,11 +17,39 @@ services:
     restart: unless-stopped
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      # 운영(VM)은 내부키 강제 — arm1과 동일 패턴(fail-open 방지, 동일 ${AI_INTERNAL_KEY} 소스)
+      AI_SERVER_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
+      # 비밀번호 재설정 메일 발송(#194) — arm1과 동일 패턴으로 운영 강제.
+      # 미설정 시 spring.mail.host가 빈 문자열이 되어 앱이 로그 폴백(LoggingPasswordResetMailSender)을 선택한다
+      # → 메일 미발송(무증상 장애) + 재설정 링크(=토큰 원문)가 서버 로그에 평문으로 남는다. 그래서 :? 로 막는다.
+      # ⚠️ 이 파일과 docker-compose.arm1.yml은 항상 함께 갱신할 것 — deploy.sh가 DEPLOY_TARGET으로 두 경로
+      #    (arm1 / vm)를 모두 지원하므로, 한쪽만 가드하면 다른 쪽 배포가 조용히 뚫린다.
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST가 .env에 설정되어야 합니다}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      # 465(SMTPS, 암묵적 TLS)를 쓸 때만 true — 587(STARTTLS)이 기본이며 포트와 세트로 설정할 것.
+      # (전달하지 않으면 .env에 넣어도 컨테이너에 반영되지 않는다.)
+      SMTP_SSL_ENABLE: ${SMTP_SSL_ENABLE:-false}
+      SMTP_USERNAME: ${SMTP_USERNAME:?SMTP_USERNAME이 .env에 설정되어야 합니다}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD가 .env에 설정되어야 합니다}
+      MAIL_FROM: ${MAIL_FROM:?MAIL_FROM이 .env에 설정되어야 합니다}
+      # 재설정 링크 base. 요청 Host에서 유도하지 않으므로(poisoning 방어) 이 값이 유일한 출처 — 미설정 시 기동 실패.
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:?FRONTEND_BASE_URL이 .env에 설정되어야 합니다}
 
   fastapi:
     image: hajacheck-fastapi:${IMAGE_TAG:?IMAGE_TAG(버전+커밋 SHA)가 필요합니다 — latest 금지}
     restart: unless-stopped
+    environment:
+      # FastAPI X-Internal-Key 검증용 공유키(스프링 AI_SERVER_INTERNAL_KEY와 동일 소스). 운영 강제.
+      AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
+      # 프로덕션 신호 — main.py가 이 값으로 /docs·/redoc·/openapi.json을 비활성화(무인증 스키마 노출 차단)
+      APP_ENV: prod
 
   nginx:
     image: hajacheck-nginx:${IMAGE_TAG:?IMAGE_TAG(버전+커밋 SHA)가 필요합니다 — latest 금지}
     restart: unless-stopped
+    build:
+      # base(docker-compose.yml)의 nginx build.context/dockerfile과 병합됨 — args만 추가.
+      # Vite가 빌드 시점에 인라인하는 카카오맵 키(#323) — 운영은 강제(:?), arm1.yml과 동일 패턴
+      # (한쪽만 가드하면 다른 쪽 배포가 조용히 뚫린다 — 아래 spring 서비스 SMTP 주석과 같은 근거).
+      args:
+        VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:?VITE_KAKAO_MAP_APP_KEY가 .env에 설정되어야 합니다}

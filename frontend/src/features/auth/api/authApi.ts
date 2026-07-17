@@ -4,6 +4,8 @@ import {
   COMPANY_SIGNUP_STATUS_PATH,
   EMAIL_AVAILABILITY_PATH,
   ID_INQUIRY_PATH,
+  PASSWORD_RESET_PATH,
+  PASSWORD_RESET_REQUEST_PATH,
 } from '../constants';
 import type {
   CompanySignupRequest,
@@ -12,6 +14,10 @@ import type {
   IdInquiryRequest,
   IdInquiryResponse,
   LoginRequest,
+  PasswordResetLinkRequest,
+  PasswordResetLinkResponse,
+  PasswordResetRequest,
+  PasswordResetResponse,
   SignupStatusResponse,
   UserResponse,
 } from '../types';
@@ -38,8 +44,9 @@ export function toCompanySignupFormData(body: CompanySignupRequest): FormData {
 export const authApi = {
   login: (body: LoginRequest) => api.post<UserResponse>('/auth/login', body),
   logout: () => api.post('/auth/logout'),
-  // 로그인 화면 마운트 시 CSRF 쿠키 프리밍 겸 세션 확인 — 401은 미로그인으로 간주(호출부에서 무시)
-  getMe: () => api.get<UserResponse>('/users/me'),
+  // 세션 확인(부트스트랩 AuthGate·로그인 화면 마운트 시 CSRF 프리밍) — 401은 미로그인으로 간주(호출부에서 무시).
+  // skipAuthRedirect: 401이어도 전역 /login 하드 리다이렉트를 하지 않는다 — 공개 랜딩('/')이 안 뜨던 회귀 방지(#276).
+  getMe: () => api.get<UserResponse>('/users/me', { skipAuthRedirect: true }),
 
   // 기업 인증 플로우 — HAJA-170(#187)
   // 이메일 중복확인 겸 인증 폼(회원가입 외) 마운트 시 CSRF 쿠키 프라이밍 용도로도 사용(useCsrfPrime)
@@ -50,6 +57,9 @@ export const authApi = {
   getSignupStatus: (signupToken: string) =>
     api.get<SignupStatusResponse>(COMPANY_SIGNUP_STATUS_PATH, { params: { token: signupToken } }),
   findLoginId: (body: IdInquiryRequest) => api.post<IdInquiryResponse>(ID_INQUIRY_PATH, body),
-  // 비밀번호 찾기(passwordInquiry/passwordReset)는 계정 탈취 P1(보안 리뷰)로 범위 제외 —
-  // 보안질문 방식으로 후속(#194, HAJA-172)
+  // 비밀번호 찾기 — 이메일 링크 방식(#301, HAJA-224)
+  requestPasswordReset: (body: PasswordResetLinkRequest) =>
+    api.post<PasswordResetLinkResponse>(PASSWORD_RESET_REQUEST_PATH, body),
+  resetPassword: (body: PasswordResetRequest) =>
+    api.post<PasswordResetResponse>(PASSWORD_RESET_PATH, body),
 };

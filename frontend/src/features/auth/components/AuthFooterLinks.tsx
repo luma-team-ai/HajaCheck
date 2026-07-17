@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { FIND_ID_ROUTE } from '../constants';
+import { FIND_ID_ROUTE, FIND_PASSWORD_ROUTE } from '../constants';
 
 // 개인/기업회원 탭 공통 하단 링크·배너 — 두 탭에서 동일하게 노출(스펙: "하단 링크·배너 동일")
 export function AuthFooterLinks() {
@@ -11,27 +11,40 @@ export function AuthFooterLinks() {
 
   return (
     <>
-      <div className="auth-links-row">
-        <button type="button" className="auth-link-btn" onClick={() => navigate(FIND_ID_ROUTE)}>
-          아이디 찾기
-        </button>
-        <span className="auth-links-divider">|</span>
-        {/* 비밀번호 찾기는 계정 탈취 P1(보안 리뷰)로 범위 제외 — 보안질문 방식 후속(#194, HAJA-172) */}
-        <button type="button" className="auth-link-btn" onClick={handleComingSoon}>
-          비밀번호 찾기
+      <div className="flex items-center justify-between text-[13px] text-text-muted">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="cursor-pointer border-none bg-transparent p-0 text-text-muted"
+            onClick={() => navigate(FIND_ID_ROUTE)}
+          >
+            아이디 찾기
+          </button>
+          <span aria-hidden="true">|</span>
+          <button
+            type="button"
+            className="cursor-pointer border-none bg-transparent p-0 text-text-muted"
+            onClick={() => navigate(FIND_PASSWORD_ROUTE)}
+          >
+            비밀번호 찾기
+          </button>
+        </div>
+        <button
+          type="button"
+          className="cursor-pointer border-none bg-transparent p-0 text-text-muted underline"
+          onClick={handleComingSoon}
+        >
+          협업자 로그인
         </button>
       </div>
-      <button
-        type="button"
-        className="auth-link-btn auth-link-btn--collaborator"
-        onClick={handleComingSoon}
-      >
-        협업자 로그인
-      </button>
 
-      <div className="auth-workspace-banner">
-        <p className="auth-workspace-banner-title">결함 검수의 모든 과정을 한 곳에서</p>
-        <button type="button" className="auth-workspace-banner-link" onClick={handleComingSoon}>
+      <div className="mt-6 flex flex-col gap-2 rounded-2xl bg-primary p-5">
+        <p className="m-0 text-sm font-medium text-surface">결함 검수의 모든 과정을 한 곳에서</p>
+        <button
+          type="button"
+          className="cursor-pointer self-start border-none bg-transparent p-0 text-[13px] font-bold text-surface/70"
+          onClick={handleComingSoon}
+        >
           HajaCheck 워크스페이스 둘러보기 →
         </button>
       </div>

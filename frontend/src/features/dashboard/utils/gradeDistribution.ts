@@ -1,15 +1,7 @@
+import { GRADE_BG_CLASS } from '../colors';
 import type { DefectGrade, GradeDistributionItem } from '../types';
 
 const GRADE_ORDER: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
-
-// 등급별 색상 — A(양호,초록) → E(중대,빨강) 그라데이션 (docs 시안 기준, 하드코딩 대신 단일 지점에서 관리)
-const GRADE_COLOR: Record<DefectGrade, string> = {
-  A: '#16a34a',
-  B: '#65a30d',
-  C: '#eab308',
-  D: '#f97316',
-  E: '#dc2626',
-};
 
 /**
  * 하자 등급 분포를 A→E 고정 순서로 정렬합니다.
@@ -48,10 +40,10 @@ export function isGradeTotalValid(
 }
 
 /**
- * 등급에 대응하는 표시 색상을 반환합니다.
+ * 등급에 대응하는 배경색 Tailwind 유틸리티 클래스를 반환합니다.
  * @param grade - 하자 등급
- * @returns 색상 hex 값
+ * @returns 완전한 Tailwind 클래스명(예: 'bg-[#16a34a]')
  */
-export function getGradeColor(grade: DefectGrade): string {
-  return GRADE_COLOR[grade];
+export function getGradeBgClass(grade: DefectGrade): string {
+  return GRADE_BG_CLASS[grade];
 }

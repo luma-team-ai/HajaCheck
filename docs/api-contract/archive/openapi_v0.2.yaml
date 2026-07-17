@@ -1,0 +1,702 @@
+openapi: 3.0.3
+info:
+  title: hajaCheck API
+  version: "0.2.0-draft"
+  description: >
+    Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    구현된 엔드포인트(ai-server)는 실행 후 /docs(Swagger UI)에서 최신본 재확인 가능.
+    나머지(Spring Boot)는 각 담당자가 이 파일에 스펙을 채워나감 — 임의로 필드명·구조를 바꾸지 말 것.
+servers:
+  - url: /api
+    description: Spring Boot (백엔드)
+  - url: /ai
+    description: FastAPI (ai-server, 내부 전용)
+
+paths:
+  /health:
+    get:
+      summary: 헬스체크
+      tags: [common]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /ai/ping:
+    get:
+      summary: AI 서버 envelope 동작 확인
+      tags: [ai]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIResponse" }
+
+  /ai/defect-explain:
+    post:
+      summary: AI 하자 원인·조치방안 설명 (FR-4 P1, 점검관리B)
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DefectExplainRequest" }
+      responses:
+        "200":
+          description: 성공/실패 모두 200 — success 필드로 구분(AI_개발_컨벤션.md §4 표준 폴백)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIResponse" }
+
+  /ai/grounding-check:
+    post:
+      summary: 환각 방어 게이트 — 생성물 주장 수치·등급을 실측 defects와 코드로 대조 (HAJA-117)
+      description: >
+        LLM 호출 없음 — 결정론적 코드 대조. `ai-server/routers/ai_router.py` 구현됨(약 58~65행).
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GroundingCheckRequest" }
+      responses:
+        "200":
+          description: 성공/실패 모두 200 — success 필드로 구분
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIResponse" }
+
+  /ai/briefing:
+    post:
+      summary: 대시보드 AI 주간 브리핑 (대시보드 P1)
+      description: >
+        현황 데이터(코드 집계) → 자연어 요약. 전주 대비 변화율·추세는 코드로 계산해 프롬프트에 주입하고
+        LLM은 자연어만 생성(수치 환각 방지). `ai-server/routers/ai_router.py` 구현됨(약 68~75행).
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DashboardStats" }
+      responses:
+        "200":
+          description: 성공/실패 모두 200 — success 필드로 구분
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIResponse" }
+
+  /ai/report:
+    post:
+      summary: AI 보고서 4개 섹션 병렬 생성 및 Grounding Check (FR-5, 로그인/보고서 담당)
+      description: >
+        (계획/미구현) `ai-server/routers/ai_router.py`에 아직 라우트가 없다 — 설계만 완료된 상태
+        (`docs/design/ai/report-chain-design.md` 참조). 아래 requestBody/responses는 계획 스펙이며,
+        구현 시 실제 코드 기준으로 갱신할 것.
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReportGenerateRequest" }
+      responses:
+        "200":
+          description: 성공/실패 모두 200 — success 필드로 구분
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIResponse" }
+
+  /api/auth/companies:
+    post:
+      summary: 기업 회원가입 (multipart/form-data)
+      description: >
+        User(passwordHash·ACTIVE) + Company(PENDING_REVIEW) + UserConsent(약관 2건) 원자 생성.
+        `CompanySignupController.signup` 구현됨. 검증 실패는 401 금지(400/404/409만 사용).
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/CompanySignupRequest" }
+      responses:
+        "201":
+          description: 가입 신청 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompanySignupApiResponse" }
+        "409":
+          description: AUTH_EMAIL_DUPLICATED | AUTH_BUSINESS_NUMBER_DUPLICATED
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "400":
+          description: FILE_REQUIRED | FILE_INVALID_TYPE | FILE_TOO_LARGE | INVALID_INPUT
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/auth/email-availability:
+    get:
+      summary: 이메일(아이디) 중복확인
+      description: "`CompanySignupController.checkEmailAvailability` 구현됨."
+      tags: [auth]
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema: { type: string, format: email }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmailAvailabilityApiResponse" }
+
+  /api/auth/companies/status:
+    get:
+      summary: 가입 상태 조회 (승인 대기 화면 새로고침)
+      description: "`CompanySignupController.getSignupStatus` 구현됨. token=signupToken(불투명 문자열)."
+      tags: [auth]
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SignupStatusApiResponse" }
+        "404":
+          description: AUTH_SIGNUP_TOKEN_INVALID
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/auth/id-inquiry:
+    post:
+      summary: 아이디(이메일) 찾기
+      description: >
+        사업자등록번호 + (대표자명|상호명 최소 1개) 매칭 → 마스킹 이메일. 계정 열거 방지를 위해
+        무매칭 시 통일 메시지. `AccountRecoveryController.findId` 구현됨.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FindIdRequest" }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FindIdApiResponse" }
+        "404":
+          description: AUTH_ACCOUNT_NOT_FOUND
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  # ── 아래는 계획 단계(경로안) — 각 담당자가 구현 시 requestBody/responses 채울 것 ──
+
+  /api/auth/login:
+    post:
+      summary: 자체(기업 email/password) 로그인
+      description: >
+        loginId(=email)/password 로 인증. 성공 시 세션 쿠키(SESSION) 발급.
+        실패는 계정 열거 방지를 위해 id/pw/미존재/잠금 구분 없이 401 AUTH_INVALID_CREDENTIALS 로 통일.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: 로그인 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserApiResponse" }
+        "401":
+          description: 인증 실패 (AUTH_INVALID_CREDENTIALS)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/auth/logout:
+    post:
+      summary: 로그아웃
+      description: 세션 무효화 + SecurityContext clear
+      tags: [auth]
+      responses:
+        "200":
+          description: 로그아웃 성공 (data=null)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoidApiResponse" }
+
+  /api/auth/oauth2/{provider}:
+    get:
+      summary: 소셜 로그인 시작 (Kakao/Google)
+      description: >
+        브라우저를 이 경로로 이동시키면 제공자 인가 화면으로 302 리다이렉트된다.
+        인가 완료 후 서버가 콜백(/login/oauth2/code/{provider})을 처리하고,
+        성공 시 app.oauth2.success-redirect, 실패 시 failure-redirect(프론트)로 리다이렉트한다.
+      tags: [auth]
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [kakao, google] }
+      responses:
+        "302": { description: 제공자 인가 화면 또는 프론트로 리다이렉트 }
+
+  /api/users/me:
+    get:
+      summary: 내 정보 조회
+      description: 세션의 인증 사용자 정보 반환. 미인증 시 401 UNAUTHORIZED(JSON).
+      tags: [auth]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/facilities:
+    post:
+      summary: 시설물 등록
+      tags: [facility]
+      responses:
+        "201": { description: TODO — 김관영/유병현 확정 필요 }
+
+  /api/inspections:
+    post:
+      summary: 점검(회차) 생성
+      tags: [inspection]
+      responses:
+        "201": { description: TODO — 황승현 확정 필요 }
+
+  /api/inspections/{id}/media:
+    post:
+      summary: 촬영 데이터 업로드
+      tags: [inspection]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "202": { description: TODO — 황승현/허남 확정 필요 }
+
+  /api/inspections/{id}/analyze:
+    post:
+      summary: AI 분석 요청
+      tags: [inspection]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "202": { description: TODO — 황승현 확정 필요(비동기 잡 패턴) }
+
+  /api/inspections/{id}/defects:
+    get:
+      summary: 분석 결과(하자 목록) 조회
+      tags: [defect]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: TODO — 오영석 확정 필요 }
+
+  /api/defects/{id}:
+    patch:
+      summary: 검수 — 오탐 수정·등급 조정 (defect_revisions append-only)
+      tags: [defect]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: TODO — 오영석 확정 필요 }
+
+  /api/reports:
+    post:
+      summary: 보고서 생성 요청 (비동기 잡 발족)
+      tags: [report]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [facility_id, inspection_id]
+              properties:
+                facility_id: { type: integer, example: 1 }
+                inspection_id: { type: integer, example: 10 }
+      responses:
+        "202":
+          description: 보고서 생성 비동기 잡 발족 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id: { type: string, example: "job-report-999" }
+
+  /api/reports/{id}/pdf:
+    get:
+      summary: 보고서 PDF 다운로드
+      tags: [report]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: PDF 파일 다운로드 성공
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        "404":
+          description: 보고서 또는 PDF 파일을 찾을 수 없음
+
+components:
+  schemas:
+    # ── auth 도메인 (Spring Boot envelope: { success, data, error }) ──
+    LoginRequest:
+      type: object
+      required: [loginId, password]
+      properties:
+        loginId: { type: string, description: 로그인 ID(=email), example: company@haja.com }
+        password: { type: string, format: password, example: "pw123456" }
+
+    UserResponse:
+      type: object
+      description: 사용자 응답(민감 필드 password_hash/social_id 제외)
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        email: { type: string, example: company@haja.com }
+        name: { type: string, example: 기업사용자 }
+        role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR], example: USER }
+        companyId: { type: integer, format: int64, nullable: true, example: 10 }
+        profileImageUrl: { type: string, nullable: true, example: "https://.../p.png" }
+
+    ApiError:
+      type: object
+      properties:
+        code: { type: string, example: AUTH_INVALID_CREDENTIALS }
+        message: { type: string, example: 아이디 또는 비밀번호가 올바르지 않습니다. }
+
+    UserApiResponse:
+      type: object
+      description: 성공 envelope — data=UserResponse
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/UserResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    VoidApiResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { type: object, nullable: true, example: null }
+        error: { type: object, nullable: true, example: null }
+
+    ErrorApiResponse:
+      type: object
+      description: 실패 envelope — error=ApiError
+      properties:
+        success: { type: boolean, example: false }
+        data: { type: object, nullable: true, example: null }
+        error: { $ref: "#/components/schemas/ApiError" }
+
+    AIErrorCode:
+      type: string
+      enum: [LLM_TIMEOUT, LLM_RATE_LIMIT, LLM_INVALID_OUTPUT, RAG_NO_RESULT, VALIDATION_ERROR]
+      description: >-
+        LLM 계열(TIMEOUT/RATE_LIMIT/INVALID_OUTPUT)·RAG_NO_RESULT 외에,
+        VALIDATION_ERROR 는 LLM 호출이 없는 순수 코드 대조 경로(grounding-check 등)의
+        입력·대조 검증 실패용 (#122).
+
+    AIError:
+      type: object
+      properties:
+        code: { $ref: "#/components/schemas/AIErrorCode" }
+        message: { type: string }
+
+    AIUsage:
+      type: object
+      properties:
+        tokens: { type: integer }
+
+    AIResponse:
+      type: object
+      description: 모든 /ai/** 공통 응답 envelope (AI_개발_컨벤션.md §5)
+      properties:
+        success: { type: boolean }
+        data: {}
+        usage: { $ref: "#/components/schemas/AIUsage" }
+        error: { $ref: "#/components/schemas/AIError" }
+
+    DefectExplainRequest:
+      type: object
+      required: [defect_type, severity_grade, location, facility_type]
+      properties:
+        defect_type: { type: string, example: 철근 노출 }
+        severity_grade: { type: string, enum: [A, B, C, D, E], example: D }
+        location: { type: string, example: 교각 하부 }
+        facility_type: { type: string, example: 교량 }
+
+    DefectExplain:
+      type: object
+      description: AIResponse.data 의 실제 형태(성공 시)
+      properties:
+        cause: { type: string, description: 추정 원인 }
+        risk: { type: string, description: 방치 시 위험 }
+        action: { type: string, description: 조치 방안 }
+
+    ReportDefectInput:
+      type: object
+      required: [defect_type, location, severity_grade, description]
+      properties:
+        defect_type: { type: string, example: 균열 }
+        location: { type: string, example: 1동 1층 기둥 }
+        severity_grade: { type: string, enum: [A, B, C, D, E], example: B }
+        description: { type: string, example: 기둥 표면 수평 균열 }
+
+    ReportGenerateRequest:
+      type: object
+      required: [facility_info, confirmed_defects]
+      properties:
+        facility_info:
+          type: object
+          properties:
+            name: { type: string, example: Haja APT }
+            location: { type: string, example: 서울시 }
+        confirmed_defects:
+          type: array
+          items:
+            { $ref: "#/components/schemas/ReportDefectInput" }
+        on_mismatch:
+          type: string
+          enum: [regenerate, warn]
+          default: regenerate
+
+    # ── grounding-check (구현됨, ai-server/ai/core/grounding.py) ──
+    GroundingDefect:
+      type: object
+      description: 대조 기준이 되는 실측 하자 1건
+      required: [defect_type, grade]
+      properties:
+        defect_type: { type: string, example: 균열 }
+        grade: { type: string, enum: [A, B, C, D, E], example: B }
+
+    GroundingClaims:
+      type: object
+      description: 생성물(LLM 출력)이 주장하는 수치·등급 — 체인의 structured output에서 채운다
+      properties:
+        total_count: { type: integer, nullable: true, example: 1 }
+        count_by_grade:
+          type: object
+          additionalProperties: { type: integer }
+          example: { "B": 1 }
+        count_by_type:
+          type: object
+          additionalProperties: { type: integer }
+          example: { "균열": 1 }
+        mentioned_grades:
+          type: array
+          items: { type: string }
+          example: ["B"]
+
+    GroundingCheckRequest:
+      type: object
+      required: [defects, claims]
+      properties:
+        defects:
+          type: array
+          items: { $ref: "#/components/schemas/GroundingDefect" }
+        claims: { $ref: "#/components/schemas/GroundingClaims" }
+        on_mismatch:
+          type: string
+          enum: [regenerate, warn]
+          default: regenerate
+          description: 불일치 발생 시 조치 — REGENERATE(재생성 권고) | WARN(경고 배지)
+
+    GroundingCheckItem:
+      type: object
+      properties:
+        field: { type: string, example: "grade:B" }
+        claimed: { type: string, example: "1" }
+        actual: { type: string, example: "1" }
+        status: { type: string, enum: [MATCH, MISMATCH, UNVERIFIABLE] }
+        detail: { type: string }
+
+    GroundingResult:
+      type: object
+      description: AIResponse.data 의 실제 형태(성공 시) — grounded=True 라도 action!=PASS 면 경고 배지 필요(#121)
+      properties:
+        grounded: { type: boolean }
+        action: { type: string, enum: [PASS, REGENERATE, WARN] }
+        ground_truth:
+          type: object
+          properties:
+            total_count: { type: integer }
+            count_by_grade:
+              type: object
+              additionalProperties: { type: integer }
+            count_by_type:
+              type: object
+              additionalProperties: { type: integer }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/GroundingCheckItem" }
+        mismatches:
+          type: array
+          items: { $ref: "#/components/schemas/GroundingCheckItem" }
+        unverifiable:
+          type: array
+          items: { $ref: "#/components/schemas/GroundingCheckItem" }
+
+    # ── briefing (구현됨, ai-server/ai/chains/briefing_chain.py) ──
+    DashboardStats:
+      type: object
+      description: 대시보드 현황 데이터(브리핑 입력) — 값은 백엔드 집계 실측치
+      required:
+        [
+          total_facilities,
+          monthly_analysis,
+          pending_review,
+          pending_action,
+          this_week_defects,
+          last_week_defects,
+          top_defect_type,
+          critical_defects,
+        ]
+      properties:
+        total_facilities: { type: integer, example: 12 }
+        monthly_analysis: { type: integer, example: 34 }
+        pending_review: { type: integer, example: 5 }
+        pending_action: { type: integer, example: 2 }
+        this_week_defects: { type: integer, example: 8 }
+        last_week_defects: { type: integer, example: 10 }
+        top_defect_type: { type: string, example: 균열 }
+        critical_defects: { type: integer, example: 1 }
+        grade_distribution:
+          type: object
+          additionalProperties: { type: integer }
+          example: { "A": 3, "B": 4, "C": 1 }
+
+    WeeklyBriefing:
+      type: object
+      description: AIResponse.data 의 실제 형태(성공 시)
+      properties:
+        briefing: { type: string, description: "카드 본문(2~4문장)" }
+        recommendation: { type: string, description: "권고 조치(1~2문장)" }
+        facts:
+          type: object
+          description: 코드로 계산한 파생 사실(프론트 배지용)
+          properties:
+            this_week_defects: { type: integer }
+            last_week_defects: { type: integer }
+            change_pct: { type: integer, nullable: true }
+            trend: { type: string, enum: [감소, 증가, 유지] }
+            top_defect_type: { type: string }
+            critical_defects: { type: integer }
+
+    # ── 기업 인증 (구현됨, backend/auth) ──
+    CompanySignupRequest:
+      type: object
+      description: multipart/form-data(@ModelAttribute) — 약관 버전은 서버 소유, 클라이언트는 동의 여부만 전송
+      required:
+        [
+          email,
+          password,
+          companyName,
+          businessRegistrationNumber,
+          representativeName,
+          address,
+          agreeTermsOfService,
+          agreePrivacyPolicy,
+        ]
+      properties:
+        email: { type: string, format: email, example: company@haja.com }
+        password: { type: string, format: password, description: "8자 이상, 영문+숫자 포함", example: "pw123456" }
+        companyName: { type: string, maxLength: 200, example: "(주)하자체크" }
+        businessRegistrationNumber: { type: string, pattern: '\d{3}-?\d{2}-?\d{5}', example: "123-45-67890" }
+        representativeName: { type: string, maxLength: 100, example: 김민수 }
+        address: { type: string, maxLength: 300, example: 서울시 강남구 ... }
+        addressDetail: { type: string, maxLength: 200, nullable: true }
+        agreeTermsOfService: { type: boolean }
+        agreePrivacyPolicy: { type: boolean }
+        businessRegistrationFile:
+          type: string
+          format: binary
+          description: "필수, MIME∈{image/jpeg,image/png,application/pdf}, ≤10MB"
+
+    CompanySignupResponse:
+      type: object
+      description: signupToken 은 승인 대기 화면 상태조회용 불투명 랜덤 문자열(PK 비노출)
+      properties:
+        companyId: { type: integer, format: int64, example: 1 }
+        maskedEmail: { type: string, example: "haja***@check.com" }
+        status: { type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED], example: PENDING_REVIEW }
+        signupToken: { type: string }
+
+    CompanySignupApiResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/CompanySignupResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    EmailAvailabilityResponse:
+      type: object
+      properties:
+        available: { type: boolean }
+
+    EmailAvailabilityApiResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/EmailAvailabilityResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    SignupStatusResponse:
+      type: object
+      description: rejectionReason 은 REJECTED 일 때만 존재
+      properties:
+        status: { type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED] }
+        companyName: { type: string }
+        rejectionReason: { type: string, nullable: true }
+
+    SignupStatusApiResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/SignupStatusResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    FindIdRequest:
+      type: object
+      description: representativeName·companyName 중 최소 1개 필수(@AssertTrue)
+      required: [businessRegistrationNumber]
+      properties:
+        businessRegistrationNumber: { type: string, example: "123-45-67890" }
+        representativeName: { type: string, nullable: true, example: 김민수 }
+        companyName: { type: string, nullable: true, example: "(주)하자체크" }
+
+    FindIdResponse:
+      type: object
+      properties:
+        maskedEmail: { type: string, example: "haja***@check.com" }
+
+    FindIdApiResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/FindIdResponse" }
+        error: { type: object, nullable: true, example: null }

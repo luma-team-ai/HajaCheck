@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// aiClient는 baseURL='/ai'(상대경로)를 XHR 어댑터로 resolve하려면 jsdom 환경이 필요
+// aiClient는 baseURL='/api/ai'(상대경로)를 XHR 어댑터로 resolve하려면 jsdom 환경이 필요
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -13,7 +13,7 @@ const mockDefectExplain = {
 };
 
 const handlers = [
-  http.post('/ai/defect-explain', async ({ request }) => {
+  http.post('/api/ai/defect-explain', async ({ request }) => {
     const body = (await request.json()) as {
       defect_type: string;
       severity_grade: string;
@@ -84,7 +84,7 @@ describe('defectApi.getExplanation', () => {
 
   it('서버 에러 응답을 처리한다', async () => {
     server.use(
-      http.post('/ai/defect-explain', () => {
+      http.post('/api/ai/defect-explain', () => {
         const failure: ApiResponse<null> = {
           success: false,
           data: null,
@@ -111,7 +111,7 @@ describe('defectApi.getExplanation', () => {
 
   it('네트워크 에러를 처리한다', async () => {
     server.use(
-      http.post('/ai/defect-explain', () => {
+      http.post('/api/ai/defect-explain', () => {
         return HttpResponse.error();
       }),
     );

@@ -4,6 +4,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import type { ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
@@ -16,7 +17,7 @@ const mockDefectExplain = {
 };
 
 const handlers = [
-  http.post('/ai/defect-explain', async ({ request }) => {
+  http.post('/api/ai/defect-explain', async ({ request }) => {
     // 요청 딜레이를 시뮬레이션해서 로딩 상태를 테스트할 수 있게 함
     await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -59,7 +60,7 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 describe('useDefectExplain (통합 테스트)', () => {
-  const renderWithQuery = (element: React.ReactElement) => {
+  const renderWithQuery = (element: ReactElement) => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const queryClient = new QueryClient({
@@ -126,7 +127,7 @@ describe('useDefectExplain (통합 테스트)', () => {
     });
 
     server.use(
-      http.post('/ai/defect-explain', async () => {
+      http.post('/api/ai/defect-explain', async () => {
         // 요청이 완료될 때까지 기다림
         await requestPromise;
         const success: ApiResponse<typeof mockDefectExplain> = {
@@ -161,7 +162,7 @@ describe('useDefectExplain (통합 테스트)', () => {
     root.unmount();
   });
 
-  it('에러 상태: 필수 파라미터가 누락되면 에러 폴백을 표시한다', async () => {
+  it('필수 파라미터 누락: 쿼리가 비활성화되어 아무것도 렌더링되지 않는다', async () => {
     const { container, root } = renderWithQuery(
       <DefectExplainPanel
         defect_type="" /* 빈 값 */
@@ -183,7 +184,7 @@ describe('useDefectExplain (통합 테스트)', () => {
 
   it('에러 상태: 서버 에러 응답을 처리한다', async () => {
     server.use(
-      http.post('/ai/defect-explain', () => {
+      http.post('/api/ai/defect-explain', () => {
         const failure: ApiResponse<null> = {
           success: false,
           data: null,
@@ -217,7 +218,7 @@ describe('useDefectExplain (통합 테스트)', () => {
   it('재시도 로직: retry: 1로 설정되어 실패 시 한 번 더 시도한다', async () => {
     let callCount = 0;
     server.use(
-      http.post('/ai/defect-explain', () => {
+      http.post('/api/ai/defect-explain', () => {
         callCount++;
         // 첫 번째 시도는 실패, 두 번째는 성공
         if (callCount === 1) {

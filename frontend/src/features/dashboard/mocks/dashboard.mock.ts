@@ -1,3 +1,10 @@
+// 대시보드 목 데이터 — MSW 핸들러(api/dashboardApi.handlers.ts) 전용이다.
+//
+// ⚠️ 훅(useDashboardSummary/useGradeDistribution/usePendingPriority/useRecentInspections)은
+//    PR #321(dev-03-01)에서 404 폴백(fetchWithFallback)을 제거하고 실 API(/api/dashboard/*)를
+//    직접 호출한다. 따라서 이 목들은 프로덕션 데이터 경로에 관여하지 않는다.
+//    그럼에도 유지하는 이유는 팀의 FE-우선 개발 사이클(MSW로 화면 먼저 → BE 연동) 때문이다.
+//    → 훅에서 import가 사라졌다고 "고아 export"로 오해하지 말 것(#328 오탐 사례).
 import type {
   AiBriefing,
   DashboardSummary,
@@ -6,7 +13,8 @@ import type {
   RecentInspectionItem,
 } from '../types';
 
-// ponytail: 백엔드 대시보드 집계 엔드포인트 미구현 — 계약(#10) 확정 전까지 Figma 캡처(dev-03-01) 수치 기준 mock
+// MSW 응답용 예시 값 — Figma 캡처(dev-03-01) 수치 기준.
+// (BE 집계 API는 PR #222로 구현 완료 — 과거 "백엔드 미구현" 주석은 stale이라 정리)
 export const mockDashboardSummary: DashboardSummary = {
   // Figma 시안(dev-03-01)과 동일: 4개 카드 모두 ↗8%
   totalFacilities: 24,
@@ -52,6 +60,15 @@ export const mockPendingPriority: PendingPriorityItem[] = [
     title: '누수·백태',
     location: '한강대교 북단 - 교각 하부 3번',
     occurredAt: hoursAgo(26),
+  },
+  // BE PendingPriorityResponse.grade는 AI 등급 미분류 하자에서 null — 로컬 MSW에서도 '-' 배지를
+  // 육안 확인할 수 있도록 미분류 샘플을 1건 포함한다(HAJA-17 dev-03-01).
+  {
+    id: 4,
+    grade: null,
+    title: '도장 손상',
+    location: '판교 테크노밸리 - 외벽 동측',
+    occurredAt: hoursAgo(31),
   },
 ];
 

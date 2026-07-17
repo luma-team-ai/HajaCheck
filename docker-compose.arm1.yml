@@ -1,86 +1,165 @@
-# HajaCheck 배포 정의 — oci-arm1(공유 호스트) 전용 standalone 변형 (이슈 #104 / Design A)
+# HajaCheck 배포 정의 — oci-arm1(공유 호스트) 전용 변형 (이슈 #104 → #258로 bridge 전환)
 #
-# oci-arm1은 hajacheck 외 다른 사이트(smartfarm·pension_db 등)와 nginx(80/443)·postgres-16(5432)를
-# 공유한다. base(docker-compose.yml)를 그대로 올리면 공유 nginx·postgres와 포트/서비스가 충돌해
-# 다른 사이트가 죽는다. 그래서 이 파일은 **공유 자원(nginx/postgres/redis)을 정의하지 않고 재사용**하며,
-# 앱 컨테이너 3개(spring·fastapi·frontend)만 기동한다. 전부 network_mode: host — host-net이라
-# `ports:`가 무효하므로 각 앱이 자기 포트를 직접 리슨하도록 설정하고, 서비스 간 통신은 127.0.0.1로 한다.
+# oci-arm1은 hajacheck 외 다른 사이트(smartfarm·pension_db 등)와 host nginx(80/443)를 공유한다.
+# base(docker-compose.yml)를 그대로 올리면 postgres(5432)가 공유 host postgres-16과 충돌하므로,
+# 이 파일은 base와 같은 bridge-net + 전용 postgres/redis 컨테이너 구조를 쓰되, 포트만 arm1에 맞게
+# 옮겨서(충돌 회피) publish한다. 서비스 간 통신은 서비스명(postgres/redis/spring/fastapi)으로 한다.
 #
 # 재사용하는 공유 자원(이 compose 밖, arm1에 이미 존재 — 절대 건드리지 않음):
-#   - host nginx(80/443, TLS 종료): `/`→127.0.0.1:8100(frontend), `/ai/`→127.0.0.1:8101(fastapi)
-#   - postgres-16(127.0.0.1:5432, DB `hajacheck`)
-#   - redis 컨테이너 `hajacheck-redis`(127.0.0.1:6380, requirepass)
+#   - host nginx(80/443, TLS 종료): `/`→127.0.0.1:8100(frontend). `/ai/`는 이미 외부 폐쇄(#235,
+#     스프링이 내부에서만 fastapi를 호출) — host nginx의 `/ai/`→8101 location 정리는 레포 밖(사람이 별도 수행).
+#   - 공유 host postgres-16(127.0.0.1:5432, DB `hajacheck`) — 이 compose의 전용 postgres(5433)와는
+#     별개. 컷오버(#258 Task #6, 런북 참조) 전까지는 앱이 여전히 host postgres를 쓸 수 있으나,
+#     이 파일 자체는 전용 postgres/redis로 완전히 옮겨간 구조를 정의한다.
 #
 # 사용: docker compose -f docker-compose.arm1.yml build && docker compose -f docker-compose.arm1.yml up -d
-# 절대 금지: 80/443 바인딩, postgres·redis·base nginx(80/443) 서비스 정의.
-# base/override/prod(docker-compose.yml 계열)는 로컬 개발·향후 전용 VM 재현용으로 그대로 유지.
+# 절대 금지: 80/443 바인딩(TLS는 host nginx 담당), 공유 host postgres(5432) 참조.
 
 name: hajacheck-arm1
 
+networks:
+  hajacheck-net:
+    driver: bridge
+
 volumes:
+  pgdata:
+  redisdata:
   chroma_data:
+  # application-docker.yml의 app.file-storage.base-dir 대응 — 미마운트 시 컨테이너 임시 FS에 저장되어
+  # deploy.sh의 매 배포 컨테이너 재생성마다 업로드 파일(사업자등록증 등)이 유실되고 DB 행만 남는다(#323).
+  uploads:
 
 services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${ARM1_DB_NAME:-hajacheck_dev}
+      POSTGRES_USER: ${DB_USER:-hajacheck}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD가 .env에 설정되어야 합니다}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # 팀 SSH 터널 전용 — 공유 host postgres(5432)와 충돌 회피로 5433에 publish, 공개 미개방(127.0.0.1)
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hajacheck} -d ${ARM1_DB_NAME:-hajacheck_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks: [hajacheck-net]
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}
+    # requirepass 미설정 시 인증 없이 전체 접근 가능 — PRD §6.1 보안 필수 조치
+    command: ["sh", "-c", "redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
+    volumes:
+      - redisdata:/data
+    ports:
+      # 내부 6379 → 호스트 6380, 팀 SSH 터널 전용 — 공개 미개방(127.0.0.1 바인딩)
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks: [hajacheck-net]
+
   spring:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    network_mode: host
+    # latest 금지(PRD §6.1) — deploy.sh가 IMAGE_TAG(날짜+커밋SHA)를 주입해 태깅. 수동 실행 시 local.
+    image: hajacheck-arm1-spring:${IMAGE_TAG:-local}
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      SERVER_PORT: 9100
-      # host-net라 0.0.0.0로 열리면 다른 사이트 컨테이너에서도 접근 가능 — loopback으로 제한(defense-in-depth,
-      # 프록시는 전부 host nginx→127.0.0.1 경유라 이걸로 충분. 리뷰 P2)
-      SERVER_ADDRESS: 127.0.0.1
-      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/${ARM1_DB_NAME:-hajacheck}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${ARM1_DB_NAME:-hajacheck_dev}
       SPRING_DATASOURCE_USERNAME: ${DB_USER:-hajacheck}
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD가 .env에 설정되어야 합니다}
-      SPRING_DATA_REDIS_HOST: 127.0.0.1
-      SPRING_DATA_REDIS_PORT: 6380
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}
-      SPRING_DATA_REDIS_DATABASE: ${REDIS_DB_INDEX:-0}
-      AI_SERVER_BASE_URL: http://127.0.0.1:8101
+      # 운영 0번 / 개발 1번(PRD §6.1) — arm1은 dev 스택이므로 기본 1
+      SPRING_DATA_REDIS_DATABASE: ${REDIS_DB_INDEX:-1}
+      AI_SERVER_BASE_URL: http://fastapi:8000
+      # 스프링→FastAPI 프록시가 부착하는 내부키. FastAPI의 AI_INTERNAL_KEY와 동일 소스여야 검증 통과.
+      # 운영(arm1)은 강제(:?).
+      AI_SERVER_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
       # OAuth2 registration — 값은 서버 .env(미커밋)에만. 미설정 시 기동 실패(:? 가드)로 조기 차단.
-      # (registration.{provider}.client-id 키가 빈 문자열로만 존재해도 기동 실패 — 위 base 주석 참조.)
+      # (registration.{provider}.client-id 키가 빈 문자열로만 존재해도 기동 실패 — base 주석 참조.)
       KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:?KAKAO_CLIENT_ID가 .env에 설정되어야 합니다}
       KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:?KAKAO_CLIENT_SECRET이 .env에 설정되어야 합니다}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID가 .env에 설정되어야 합니다}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET이 .env에 설정되어야 합니다}
+      # 비밀번호 재설정 메일 발송(#194) — 값은 서버 .env(미커밋)에만.
+      # 운영은 강제(:?): SMTP_HOST가 비면 앱이 "로그 폴백"으로 조용히 전환돼, 재설정 링크가 사용자에게
+      # 안 가고 서버 로그에만 찍힌다(무증상 장애 + 토큰이 로그에 남음). 프로파일로는 막을 수 없다 —
+      # arm1과 로컬이 둘 다 SPRING_PROFILES_ACTIVE=docker라서. 그래서 AI_INTERNAL_KEY와 동일하게 :? 가드로 막는다.
+      # ⚠️ 승격 순서: 서버 .env에 값 주입 → 그 다음 main 승격(가드가 의도적으로 배포를 멈춘다).
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST가 .env에 설정되어야 합니다}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      # 465(SMTPS, 암묵적 TLS)를 쓸 때만 true — 587(STARTTLS)이 기본이며 포트와 세트로 설정할 것.
+      # (전달하지 않으면 .env에 넣어도 컨테이너에 반영되지 않는다.)
+      SMTP_SSL_ENABLE: ${SMTP_SSL_ENABLE:-false}
+      SMTP_USERNAME: ${SMTP_USERNAME:?SMTP_USERNAME이 .env에 설정되어야 합니다}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD가 .env에 설정되어야 합니다}
+      MAIL_FROM: ${MAIL_FROM:?MAIL_FROM이 .env에 설정되어야 합니다}
+      # 재설정 링크 base. 요청 Host에서 유도하지 않으므로(poisoning 방어) 이 값이 유일한 출처 — 미설정 시 기동 실패.
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:?FRONTEND_BASE_URL이 .env에 설정되어야 합니다}
+    volumes:
+      - uploads:/app/uploads/hajacheck-files
     healthcheck:
-      # network_mode: host라 자기 자신(127.0.0.1)의 SERVER_PORT(9100)로 확인 — 이미지 baked-in
-      # HEALTHCHECK(127.0.0.1:8080)는 이 포트와 다르므로 여기서 반드시 재정의해야 한다.
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9100/actuator/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
       interval: 15s
       timeout: 5s
       retries: 8
       start_period: 45s
+    networks: [hajacheck-net]
 
   fastapi:
     build:
       context: ./ai-server
       dockerfile: Dockerfile
-    network_mode: host
+    # latest 금지(PRD §6.1) — deploy.sh가 IMAGE_TAG(날짜+커밋SHA)를 주입해 태깅. 수동 실행 시 local.
+    image: hajacheck-arm1-fastapi:${IMAGE_TAG:-local}
     restart: unless-stopped
-    # --host 127.0.0.1 — host-net라 0.0.0.0면 다른 사이트 컨테이너에서도 접근 가능(defense-in-depth,
-    # host nginx가 127.0.0.1:8101로만 프록시하므로 loopback으로 충분. 리뷰 P2)
-    command: ["uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8101"]
+    # bridge-net에서 spring이 http://fastapi:8000 으로 서비스명 통신하므로 컨테이너 내부는 0.0.0.0 리슨 필수.
+    # 이미지 Dockerfile 기본 CMD도 --host 0.0.0.0 --port 8000 이지만, 리뷰어 모호성 제거 + 회귀 방지 위해 명시.
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}@127.0.0.1:6380/0
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}@redis:6379/${REDIS_DB_INDEX:-1}
       LLM_PROVIDER: ${LLM_PROVIDER:-hf}
       LLM_MODEL: ${LLM_MODEL:-Qwen/Qwen3-8B}
       HF_API_TOKEN: ${HF_API_TOKEN:-}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+      # X-Internal-Key 검증용 공유키(스프링 AI_SERVER_INTERNAL_KEY와 동일 소스). 운영은 강제(:?).
+      AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
+      # 프로덕션 신호 — main.py가 이 값으로 /docs·/redoc·/openapi.json을 비활성화(무인증 스키마 노출 차단)
+      APP_ENV: prod
     volumes:
       - chroma_data:/app/chroma_data
     healthcheck:
-      # 이미지 baked-in HEALTHCHECK(127.0.0.1:8000)와 리슨 포트(8101)가 달라 재정의 필수(위 spring과 동일 이유)
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8101/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 15s
       timeout: 5s
       retries: 8
       start_period: 20s
+    networks: [hajacheck-net]
 
   frontend:
     build:
@@ -88,17 +167,24 @@ services:
       dockerfile: Dockerfile
       args:
         NGINX_CONF_FILE: nginx/arm1.conf
-    network_mode: host
+        # Vite가 빌드 시점에 인라인하는 카카오맵 키(#323) — 운영은 강제(:?). 미설정 시 지도 페이지가
+        # 빌드·헬스체크 전부 통과한 뒤 런타임에만 KakaoMapKeyMissingError로 조용히 깨진다.
+        VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:?VITE_KAKAO_MAP_APP_KEY가 .env에 설정되어야 합니다}
+    # latest 금지(PRD §6.1) — deploy.sh가 IMAGE_TAG(날짜+커밋SHA)를 주입해 태깅. 수동 실행 시 local.
+    image: hajacheck-arm1-frontend:${IMAGE_TAG:-local}
     restart: unless-stopped
     depends_on:
       spring:
         condition: service_healthy
       fastapi:
         condition: service_healthy
+    ports:
+      # host nginx가 `/`→127.0.0.1:8100으로 프록시(TLS는 host nginx 담당) — 공개 미개방(127.0.0.1)
+      - "127.0.0.1:8100:80"
     healthcheck:
-      # 이미지 baked-in HEALTHCHECK(127.0.0.1:80)와 리슨 포트(8100, arm1.conf)가 달라 재정의 필수
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8100/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
       interval: 15s
       timeout: 5s
       retries: 6
       start_period: 10s
+    networks: [hajacheck-net]

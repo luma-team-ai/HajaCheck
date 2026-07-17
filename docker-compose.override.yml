@@ -1,7 +1,14 @@
 # HajaCheck 로컬 개발 오버라이드 — `docker compose up`(파일 미지정 시) 시 base와 자동 병합.
 # 소스 bind mount + 핫리로드: backend devtools(gradle bootRun --continuous) /
-# ai-server uvicorn --reload / frontend는 별도 vite dev 서버(frontend-dev, :5173) 추가.
-# nginx는 base와 동일(정적 dist 서빙) — /api·/ws·/ai 통합 리버스 프록시 검증은 계속 80으로 가능.
+# ai-server uvicorn --reload / frontend는 vite dev 서버(frontend-dev) 추가.
+#
+# nginx(80)는 이 오버라이드에서 dist 대신 frontend-dev를 프록시한다(#311) — 진입점을 80 하나로 통일.
+#   개발(거울): docker compose up -d            → localhost = vite HMR, 저장 즉시 반영
+#   검증(사진): COMPOSE_FILE=docker-compose.yml docker compose up -d --build nginx
+#                                               → localhost = 구운 dist(운영과 동일 조건)
+#   ⚠️ .env에 COMPOSE_FILE을 고정해뒀다면(#303) 사진 모드에선 위처럼 그 값을 덮어써야 한다.
+# 전에는 nginx=dist / frontend-dev=:5173 두 진입점이 공존해, 소셜 로그인 착지 고정값이 어느 쪽을
+# 가리키든 반대쪽 진입자가 다른 앱으로 튕겼다(#302 로그인 무한 루프의 구조적 원인).
 
 services:
   spring:
@@ -23,13 +30,29 @@ services:
   fastapi:
     volumes:
       - ./ai-server/main.py:/app/main.py
+      - ./ai-server/deps.py:/app/deps.py
       - ./ai-server/routers:/app/routers
       - ./ai-server/ai:/app/ai
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      # main.py가 fail-closed(명시적 dev/local만 /docs 노출)로 바뀌어 로컬 개발에서 켜려면 명시 필요
+      APP_ENV: dev
     ports:
       - "8000:8000" # 로컬 직접 접근/디버깅 편의(base는 내부 전용 — 미publish)
 
-  # Vite dev 서버(핫리로드) — nginx(정적 dist)와 별개로 개발 편의상 추가. 접속: http://localhost:5173
+  # nginx가 dist 대신 vite dev 서버를 서빙하도록 conf 교체(#311) — 이미지 재빌드 없이 bind mount로.
+  # base(운영)가 쓰는 default.conf는 이미지 안에 그대로 있고, 이 오버라이드를 뺀 순간 되살아난다.
+  nginx:
+    volumes:
+      - ./frontend/nginx/dev.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      # frontend-dev가 뜨기 전에 nginx가 프록시하면 502 — healthy까지 대기.
+      # base의 spring/fastapi depends_on은 병합되어 유지된다(오버라이드는 키 단위 교체가 아님).
+      frontend-dev:
+        condition: service_healthy
+
+  # Vite dev 서버(핫리로드) — 평소엔 nginx(80)가 프록시하므로 직접 접속할 일이 없다.
+  # :5173 publish는 네이티브 vite(npm run dev) 흐름·기존 문서 호환을 위해 유지(#311).
   frontend-dev:
     build:
       context: ./frontend
@@ -37,8 +60,8 @@ services:
       target: build # node 빌드 스테이지 재사용(vite dev 서버 실행)
     command: ["npm", "run", "dev"]
     environment:
+      # VITE_PROXY_FASTAPI 제거 — 프론트가 /api/ai/*(스프링 경유)로만 호출(#234), FastAPI 직결 폐쇄(#235)
       VITE_PROXY_SPRING: http://spring:8080
-      VITE_PROXY_FASTAPI: http://fastapi:8000
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
