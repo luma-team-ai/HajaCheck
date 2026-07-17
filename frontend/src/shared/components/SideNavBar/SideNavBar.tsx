@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
-import brandMark from '../../../assets/brand/brand-mark.png';
+import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import collapseIcon from '../../../assets/brand/sidenav-collapse.svg';
 import dashboardIcon from '../../../assets/brand/sidenav-dashboard.svg';
 import chevronIcon from '../../../assets/brand/sidenav-chevron.svg';
@@ -319,23 +319,29 @@ export function SideNavBar({
               : 'flex-col items-center h-auto justify-center gap-3'
           }`}
         >
-          <div
-            className={`flex items-center gap-1.5 text-sm font-semibold text-primary ${
+          <Link
+            to="/dashboard"
+            onClick={(event) => handleNavClick(event, '/dashboard')}
+            className={`flex items-center gap-1.5 no-underline ${
               visuallyExpanded ? '' : 'justify-center'
             }`}
+            aria-label="HajaCheck 대시보드로 이동"
           >
-            <img className="h-4 w-4 object-contain" src={brandMark} alt="" />
-            {visuallyExpanded && (
-              <>
-                <span>HajaCheck</span>
-                {isAdmin && (
-                  <span className="rounded-full border border-[#e5e7eb] bg-[#f3f4f6] px-[7px] py-[3px] text-[10px] tracking-[0.05em] text-[#6b7280]">
-                    ADMIN
-                  </span>
-                )}
-              </>
+            {visuallyExpanded ? (
+              <img className="h-7 w-auto object-contain" src={brandLogo} alt="HajaCheck" />
+            ) : (
+              <img
+                className="h-8 w-8 object-cover object-left"
+                src={brandLogo}
+                alt="HajaCheck"
+              />
             )}
-          </div>
+            {visuallyExpanded && isAdmin && (
+              <span className="rounded-full border border-[#e5e7eb] bg-[#f3f4f6] px-[7px] py-[3px] text-[10px] tracking-[0.05em] text-[#6b7280]">
+                ADMIN
+              </span>
+            )}
+          </Link>
           <button
             type="button"
             className="inline-flex h-5 w-5 cursor-pointer items-center justify-center border-none bg-none p-0"
