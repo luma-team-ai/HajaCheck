@@ -135,4 +135,27 @@ class AiProxyReportControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
     }
+
+    @Test
+    void 보고서생성_onMismatch허용값아님_400_INVALID_INPUT() throws Exception {
+        // #334 P3: on_mismatch 는 계약(regenerate/warn) 밖의 값이면 검증에서 거부되어야 한다.
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                loginUser, null, loginUser.getAuthorities());
+        String invalidBody = """
+                {
+                  "facility_info": {"name": "Haja APT", "location": "서울시"},
+                  "confirmed_defects": [
+                    {"defect_type": "균열", "location": "1동 1층 기둥", "severity_grade": "B", "description": "기둥 표면 수평 균열"}
+                  ],
+                  "on_mismatch": "delete-everything"
+                }
+                """;
+
+        mockMvc.perform(post("/api/ai/report").with(csrf()).with(authentication(auth))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(invalidBody))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
 }
