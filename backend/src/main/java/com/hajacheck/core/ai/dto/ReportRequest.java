@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 
@@ -16,6 +17,8 @@ import java.util.List;
 public record ReportRequest(
         @NotNull @Valid @JsonProperty("facility_info") FacilityInfo facilityInfo,
         @NotEmpty @Valid @JsonProperty("confirmed_defects") List<ConfirmedDefect> confirmedDefects,
+        // 허용값은 계약(docs/api-contract/openapi.yaml "on_mismatch" enum)의 regenerate/warn 2종뿐(#334 P3).
+        @Pattern(regexp = "^(regenerate|warn)$", message = "on_mismatch 는 regenerate 또는 warn 만 허용됩니다.")
         @JsonProperty("on_mismatch") String onMismatch) {
 
     /** on_mismatch 미지정 시 계약 기본값 "regenerate" 로 채운다. */
