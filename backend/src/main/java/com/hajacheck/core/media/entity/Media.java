@@ -1,6 +1,8 @@
 package com.hajacheck.core.media.entity;
 
+import com.hajacheck.core.media.support.CapturedAtConverter;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
 import jakarta.persistence.GeneratedValue;
@@ -67,6 +69,9 @@ public class Media {
     @Column(name = "frame_index")
     private Integer frameIndex;
 
+    // 카메라 현지시각(naive) ↔ timestamptz 컬럼 변환을 서버 TZ와 무관하게 고정(리뷰 P2) — 상세 이유는
+    // CapturedAtConverter 참조.
+    @Convert(converter = CapturedAtConverter.class)
     @Column(name = "captured_at")
     private LocalDateTime capturedAt;
 

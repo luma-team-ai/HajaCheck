@@ -12,6 +12,7 @@ import com.hajacheck.support.PostgresTestSupport;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.TimeZone;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -98,5 +99,39 @@ class MediaRepositoryTest extends PostgresTestSupport {
         assertThat(saved.getGpsLat()).isEqualByComparingTo("37.500000");
         assertThat(saved.getGpsLng()).isEqualByComparingTo("127.000000");
         assertThat(saved.getMimeType()).isEqualTo("image/png");
+    }
+
+    /**
+     * captured_at 은 DDL상 timestamptz 인데 엔티티 필드는 naive LocalDateTime(카메라 현지시각)이다
+     * (리뷰 P2). CapturedAtConverter 가 서버 TZ와 무관하게 고정 존(Asia/Seoul)으로 변환하는지
+     * 실제 PG 라운드트립으로 검증한다 — 저장 시점과 조회 시점의 JVM 기본 TZ 를 서로 다르게 바꿔도
+     * 원문 벽시계 값이 그대로 복원되어야 한다.
+     */
+    @Test
+    void save_저장과조회사이TZ변경돼도_capturedAt은원문벽시계값유지() {
+        TimeZone originalDefault = TimeZone.getDefault();
+        try {
+            Long inspectionId = seedInspection();
+            LocalDateTime raw = LocalDateTime.of(2024, 3, 15, 14, 30, 0);
+
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+            Media media = Media.builder()
+                    .inspectionId(inspectionId)
+                    .fileType(MediaFileType.IMAGE)
+                    .originalUrl("inspection-media/a.png")
+                    .capturedAt(raw)
+                    .mimeSignatureVerified(true)
+                    .build();
+            Media saved = mediaRepository.save(media);
+            em.flush();
+            em.clear();
+
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"));
+            Media reloaded = mediaRepository.findById(saved.getId()).orElseThrow();
+
+            assertThat(reloaded.getCapturedAt()).isEqualTo(raw);
+        } finally {
+            TimeZone.setDefault(originalDefault);
+        }
     }
 }
