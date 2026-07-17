@@ -43,4 +43,21 @@ describe('GradeBadge', () => {
       expect(badge.className).not.toContain(gradeClass);
     });
   });
+
+  // '-'만으로는 의미가 모호해 접근성 라벨로 "미분류"를 명시한다(#326 — "분석중" 아님).
+  it('등급이 null이면 "등급 미분류"를 접근성 라벨과 툴팁으로 노출한다', () => {
+    render(<GradeBadge grade={null} />);
+
+    const badge = screen.getByLabelText('등급 미분류');
+    expect(badge.textContent).toBe('-');
+    expect(badge.getAttribute('title')).toBe('등급 미분류');
+  });
+
+  it('등급이 있으면 "{등급} 등급"을 접근성 라벨과 툴팁으로 노출한다', () => {
+    render(<GradeBadge grade="E" />);
+
+    const badge = screen.getByLabelText('E 등급');
+    expect(badge.textContent).toBe('E');
+    expect(badge.getAttribute('title')).toBe('E 등급');
+  });
 });
