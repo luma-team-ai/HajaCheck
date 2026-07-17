@@ -152,6 +152,9 @@ public class RagDocument {
     }
 
     public void verify() {
+        if (this.verificationStatus == RagDocumentVerificationStatus.VERIFIED) {
+            return;
+        }
         this.verificationStatus = RagDocumentVerificationStatus.VERIFIED;
     }
 }
