@@ -53,6 +53,15 @@ export const mockPendingPriority: PendingPriorityItem[] = [
     location: '한강대교 북단 - 교각 하부 3번',
     occurredAt: hoursAgo(26),
   },
+  // BE PendingPriorityResponse.grade는 AI 등급 미분류 하자에서 null — 로컬 MSW에서도 '-' 배지를
+  // 육안 확인할 수 있도록 미분류 샘플을 1건 포함한다(HAJA-17 dev-03-01).
+  {
+    id: 4,
+    grade: null,
+    title: '도장 손상',
+    location: '판교 테크노밸리 - 외벽 동측',
+    occurredAt: hoursAgo(31),
+  },
 ];
 
 export const mockRecentInspections: RecentInspectionItem[] = [
