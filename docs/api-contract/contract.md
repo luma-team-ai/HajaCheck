@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.5 · **최종 수정:** 2026-07-17 · 이전 버전 `archive/`
+> **문서 버전:** v0.5 · **최종 수정:** 2026-07-18 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -150,9 +150,23 @@
 
 ---
 
-## POST /ai/report — ⏳ 미구현(설계만, 예: `docs/design/ai/report-chain-design.md` 참조) — 계획 엔드포인트
+## POST /ai/report — ✅ 구현됨(내부 전용, Spring `/api/ai/report` 프록시 경유)
 
-AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Grounding Check (FR-5, 로그인/보고서 담당). **아래는 계획 스펙** — `ai-server/routers/ai_router.py`에 아직 라우트가 없다(실제 코드는 `ai/chains/report_chain.py`에 작성 예정, 설계는 완료).
+AI 보고서 4개 섹션(개요·요약·상세·권고)을 병렬 생성하고 Grounding Check를 수행한다
+(FR-5, 로그인/보고서 담당). FastAPI 라우트는 `ai-server/routers/ai_router.py`에 구현되어 있으며,
+외부 클라이언트는 직접 호출하지 않고 인증된 Spring `/api/ai/report` 프록시를 경유한다.
+
+현재 correlation 필드에는 두 호환 모드가 있다.
+
+- `grounding_request_id`, `inspection_id`, `report_version`을 **모두 생략**하면 기존 호환 경로로 처리하며,
+  응답에도 correlation 필드와 `content_hash`를 포함하지 않는다.
+- 세 필드를 **모두 제공**하면 AI 서버가 응답에 같은 값을 되돌리고, correlation 필드를 제외한 보고서 본문을
+  canonical JSON(키 정렬, 공백 없는 구분자, UTF-8)으로 직렬화한 SHA-256 `content_hash`를 함께 반환한다.
+- 세 필드 중 일부만 제공하면 FastAPI 요청 모델 검증 단계에서 HTTP 422를 반환한다.
+
+⚠️ 현재 Spring 프록시는 correlation 값을 서버에서 생성·조회해 강제하지 않고 요청 DTO의 값을 그대로 전달한다.
+따라서 이 필드들은 응답 상관관계와 본문 무결성 대조를 위한 **선택적 호환 계약**이며, “인증 사용자의 점검과
+서버가 발급한 요청만 저장된다”는 권한·귀속 보장은 아니다. 서버 강제 배선과 공개·내부 DTO 분리는 후속 범위다.
 
 **요청**:
 ```json
@@ -169,7 +183,10 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
       "description": "기둥 표면 수평 균열"
     }
   ],
-  "on_mismatch": "regenerate"
+  "on_mismatch": "regenerate",
+  "grounding_request_id": "rpt-01J2Y8A7M6",
+  "inspection_id": 42,
+  "report_version": 3
 }
 ```
 
@@ -212,17 +229,26 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
       ],
       "monitoring_points": ["지하주차장 균열 발생 부위"]
     },
-    "grounding_ok": true
+    "grounding_ok": true,
+    "grounding_request_id": "rpt-01J2Y8A7M6",
+    "inspection_id": 42,
+    "report_version": 3,
+    "content_hash": "64자리 소문자 SHA-256 hex"
   },
   "usage": { "tokens": 850 },
   "error": null
 }
 ```
 
-**응답 실패** (`AIErrorCode`: `LLM_TIMEOUT` | `LLM_RATE_LIMIT` | `LLM_INVALID_OUTPUT` | `RAG_NO_RESULT`):
+**응답 실패(HTTP 200 envelope)** (`AIErrorCode`: `LLM_TIMEOUT` | `LLM_RATE_LIMIT` |
+`LLM_INVALID_OUTPUT` | `RAG_NO_RESULT` | `VALIDATION_ERROR`):
 ```json
 { "success": false, "data": null, "usage": null, "error": { "code": "LLM_INVALID_OUTPUT", "message": "..." } }
 ```
+
+**요청 모델 검증 실패(HTTP 422)**: correlation 일부 입력, 빈 `grounding_request_id`, 1 미만의
+`inspection_id`/`report_version` 등 FastAPI 요청 모델 자체가 거부하는 경우에는 공통 AI envelope가 아니라
+FastAPI validation error(`detail[]`)를 반환한다.
 
 ---
 
@@ -244,7 +270,7 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 | GET | `/api/inspections/{id}/defects` | 분석 결과(하자 목록) 조회 | 오영석 |
 | PATCH | `/api/defects/{id}` | 검수(오탐 수정·등급 조정) | 오영석 |
 | POST | `/ai/defect-explain` | AI 하자 설명 생성 | 오영석 ✅ 구현됨 |
-| POST | `/ai/report` | AI 보고서 생성 및 Grounding | 김관영 ⏳ 미구현(설계만) |
+| POST | `/ai/report` | AI 보고서 생성 및 Grounding(내부 전용) | 김관영 ✅ 구현됨 |
 | POST | `/api/reports` | 보고서 생성 요청 (비동기 잡 발족) | 김관영 |
 | GET | `/api/reports/{id}/pdf` | 보고서 PDF 다운로드 | 김관영 |
 
