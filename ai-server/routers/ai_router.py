@@ -7,6 +7,8 @@
 내부 전용 엔드포인트 — 그 경계 안쪽(백엔드가 잡 워커에서 호출)이므로 동기 응답이 정상이다.
 /ai/report가 4개 섹션을 동기로 생성해 반환하는 것은 설계 위반이 아니라 의도된 구조.
 """
+import hashlib
+import json
 import logging
 from typing import Optional
 
@@ -151,6 +153,32 @@ class ReportRequest(BaseModel):
     facility_info: FacilityInfoInput
     confirmed_defects: list[ConfirmedDefectInput] = Field(max_length=100)
     on_mismatch: MismatchPolicy = MismatchPolicy.REGENERATE
+    grounding_request_id: Optional[str] = Field(default=None, min_length=1)
+    inspection_id: Optional[int] = Field(default=None, ge=1)
+    report_version: Optional[int] = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _require_complete_grounding_correlation(self):
+        correlation = (
+            self.grounding_request_id,
+            self.inspection_id,
+            self.report_version,
+        )
+        if any(value is not None for value in correlation) and not all(
+            value is not None for value in correlation
+        ):
+            raise ValueError("grounding correlation 필드는 모두 함께 제공해야 합니다")
+        return self
+
+
+def _canonical_content_hash(report_content: dict) -> str:
+    canonical = json.dumps(
+        report_content,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 @router.post("/report")
@@ -182,6 +210,14 @@ def report(req: ReportRequest) -> AIResponse:
         # 클라이언트에는 조용히 LLM_INVALID_OUTPUT으로 보이는 실패가 서버 로그에서는 추적 가능해야 한다.
         logger.exception("POST /ai/report 처리 중 예상치 못한 예외 발생")
         return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "보고서 생성 중 오류가 발생했습니다")
+    if req.grounding_request_id is not None:
+        result = {
+            **result,
+            "grounding_request_id": req.grounding_request_id,
+            "inspection_id": req.inspection_id,
+            "report_version": req.report_version,
+            "content_hash": _canonical_content_hash(result),
+        }
     return AIResponse.ok(result)
 
 

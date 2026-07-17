@@ -11,12 +11,16 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/** Grounding 요청 시점의 보고서와 콘텐츠를 식별하는 불변 스냅샷. */
-public record GroundingCheckTarget(Long inspectionId, int reportVersion, String contentHash) {
+/** AI 응답과 실제 저장 payload 대조가 끝난 뒤 확정되는 보고서 grounding 대상. */
+public record GroundingCheckTarget(
+        String groundingRequestId, Long inspectionId, int reportVersion, String contentHash) {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     public GroundingCheckTarget {
+        if (groundingRequestId == null || groundingRequestId.isBlank()) {
+            throw new DomainValidationException("grounding 요청 ID는 필수다");
+        }
         if (inspectionId == null) {
             throw new DomainValidationException("grounding 대상 점검 ID는 필수다");
         }
@@ -28,8 +32,16 @@ public record GroundingCheckTarget(Long inspectionId, int reportVersion, String 
         }
     }
 
-    public static GroundingCheckTarget capture(Long inspectionId, int reportVersion, String contentJson) {
-        return new GroundingCheckTarget(inspectionId, reportVersion, hash(contentJson));
+    public static GroundingCheckTarget capture(
+            GroundingRequestContext context, String contentJson) {
+        if (context == null) {
+            throw new DomainValidationException("grounding 요청 context는 필수다");
+        }
+        return new GroundingCheckTarget(
+                context.groundingRequestId(),
+                context.inspectionId(),
+                context.reportVersion(),
+                hash(contentJson));
     }
 
     public boolean matches(Long inspectionId, int reportVersion, String contentJson) {

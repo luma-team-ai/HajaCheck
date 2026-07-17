@@ -7,6 +7,8 @@
 - detail 섹션 items 개수가 confirmed_defects와 다르면 실패 처리되는지
 - vectorstore.get_vectorstore()가 NotImplementedError를 던져도 recommendation이 "관련 근거 없음"으로 폴백되는지
 """
+import hashlib
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -34,8 +36,49 @@ from ai.chains.report_chain import (
 )
 from ai.core.grounding import GroundingAction
 from main import app
+from routers.ai_router import _canonical_content_hash
 
 client = TestClient(app)
+
+
+def test_canonical_content_hash_matches_backend_canonical_sample():
+    content = {
+        "overview": {"purpose": "purpose", "facility_summary": "facility", "scope": "all"},
+        "summary": {
+            "overall_opinion": "caution",
+            "total_count": 1,
+            "count_by_grade": {"A": 0, "B": 1, "C": 0, "D": 0, "E": 0},
+            "key_findings": ["crack"],
+        },
+        "detail": {
+            "items": [
+                {
+                    "defect_type": "crack",
+                    "location": "floor-1",
+                    "severity_grade": "B",
+                    "description": "micro crack",
+                    "cause": "shrinkage",
+                }
+            ]
+        },
+        "recommendation": {
+            "items": [
+                {
+                    "target": "crack",
+                    "method": "epoxy",
+                    "priority": "medium",
+                    "legal_basis": "article-1",
+                    "legal_basis_verified": True,
+                }
+            ],
+            "monitoring_points": ["crack area"],
+        },
+        "grounding_ok": True,
+    }
+
+    assert _canonical_content_hash(content) == (
+        "4a1bb364dd04353d066273d3347a7a6702b98150d0a24d1a21f3229be6ccfdcd"
+    )
 
 
 def _sample_facility_info() -> dict:
@@ -213,6 +256,9 @@ def test_report_endpoint_success_envelope(mock_get_llm, mock_get_vectorstore):
             "facility_info": _sample_facility_info(),
             "confirmed_defects": _sample_defects(),
             "on_mismatch": "regenerate",
+            "grounding_request_id": "request-123",
+            "inspection_id": 10,
+            "report_version": 3,
         },
     )
     assert res.status_code == 200
@@ -222,6 +268,30 @@ def test_report_endpoint_success_envelope(mock_get_llm, mock_get_vectorstore):
     assert body["data"]["summary"]["total_count"] == 1
     assert body["data"]["detail"]["items"][0]["cause"] == "건조 수축에 의한 미세 균열"
     assert body["data"]["recommendation"]["monitoring_points"] == ["지하주차장 균열 발생 부위"]
+    assert body["data"]["grounding_request_id"] == "request-123"
+    assert body["data"]["inspection_id"] == 10
+    assert body["data"]["report_version"] == 3
+    content = {
+        key: value
+        for key, value in body["data"].items()
+        if key
+        not in {"grounding_request_id", "inspection_id", "report_version", "content_hash"}
+    }
+    canonical = json.dumps(content, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    assert body["data"]["content_hash"] == hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def test_report_endpoint_rejects_partial_grounding_correlation():
+    res = client.post(
+        "/ai/report",
+        json={
+            "facility_info": _sample_facility_info(),
+            "confirmed_defects": _sample_defects(),
+            "grounding_request_id": "request-without-report-identity",
+        },
+    )
+
+    assert res.status_code == 422
 
 
 @patch("ai.chains.report_chain.get_llm")

@@ -120,10 +120,10 @@ public class Report extends BaseTimeEntity {
         this.editedBy = editedBy;
     }
 
-    /** 비동기 Grounding 요청 전에 현재 보고서 대상을 불변 스냅샷으로 캡처한다. */
-    public GroundingCheckTarget captureGroundingTarget() {
-        requireDraft("captureGroundingTarget");
-        return GroundingCheckTarget.capture(this.inspectionId, this.version, this.contentJson);
+    /** 비동기 Grounding 요청 전에, 아직 생성되지 않은 payload와 분리된 요청 식별자를 캡처한다. */
+    public GroundingRequestContext captureGroundingRequestContext() {
+        requireDraft("captureGroundingRequestContext");
+        return GroundingRequestContext.capture(this.inspectionId, this.version);
     }
 
     /** 내부 AI 서버에서 유래한 grounding 결과만 별도 단계로 기록한다. */
