@@ -143,18 +143,39 @@ alter table inspections drop constraint ck_inspections_assigned_inspector_not_nu
 -- 백필이 끝난 뒤(NOT NULL 확정 후)에만 설치해, 정리되지 않은 과거 데이터가 백필 자체를 막지 않게 한다.
 create or replace function check_inspection_assigned_inspector_company() returns trigger as $check$
 declare
-    creator_company_id bigint;
-    inspector_company_id bigint;
+    assignment_company_id bigint;
 begin
-    select company_id into creator_company_id from users where id = new.created_by;
-    select company_id into inspector_company_id from users where id = new.assigned_inspector_id;
-    -- AuthService.validateAssignableInspector와 동일하게 양쪽 모두 회사 소속이고 회사가 같을 때만 허용한다.
-    -- 따라서 한쪽 또는 양쪽 company_id가 NULL인 무소속 사용자 배정도 DB 경계에서 차단한다.
-    if creator_company_id is null
-        or inspector_company_id is null
-        or creator_company_id is distinct from inspector_company_id then
+    select c.id into assignment_company_id
+    from users creator
+    join users inspector on inspector.id = new.assigned_inspector_id
+    join companies c
+      on c.id = creator.company_id
+     and c.id = inspector.company_id
+    join company_memberships creator_membership
+      on creator_membership.company_id = c.id
+     and creator_membership.user_id = creator.id
+    join company_memberships inspector_membership
+      on inspector_membership.company_id = c.id
+     and inspector_membership.user_id = inspector.id
+    where creator.id = new.created_by
+      and creator.status = 'ACTIVE'::user_status_type
+      and inspector.status = 'ACTIVE'::user_status_type
+      and inspector.role in ('INSPECTOR'::role_type, 'ADMIN'::role_type)
+      and c.status = 'APPROVED'::company_status_type
+      and c.verification_status = 'VERIFIED'::business_verification_status_type
+      and creator_membership.status = 'APPROVED'::company_membership_status_type
+      and creator_membership.approved_at is not null
+      and creator_membership.revoked_at is null
+      and (creator_membership.expires_at is null or creator_membership.expires_at > now())
+      and inspector_membership.status = 'APPROVED'::company_membership_status_type
+      and inspector_membership.approved_at is not null
+      and inspector_membership.revoked_at is null
+      and (inspector_membership.expires_at is null or inspector_membership.expires_at > now())
+    limit 1;
+
+    if assignment_company_id is null then
         raise exception
-            'assigned_inspector_id % must belong to the same company as created_by %',
+            'assigned_inspector_id % must be an active inspector with an effective membership in the approved company of created_by %',
             new.assigned_inspector_id, new.created_by;
     end if;
     return new;
@@ -166,7 +187,7 @@ create or replace trigger trg_inspections_check_assigned_inspector_company
     for each row execute procedure check_inspection_assigned_inspector_company();
 
 comment on function check_inspection_assigned_inspector_company() is
-    'inspections.assigned_inspector_id와 created_by가 모두 회사 소속이고 users.company_id 기준으로 같은 회사인지 강제한다(무소속은 거부 — HAJA-25 P2 DB 레벨 방어).';
+    'AuthService.validateAssignableInspector와 동일하게 활성 사용자, 담당자 역할, APPROVED+VERIFIED 회사, 양쪽 유효 멤버십과 company_id 일치를 강제한다(HAJA-25 P2 DB 레벨 방어).';
 
 do $migration$
 begin
