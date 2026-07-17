@@ -170,7 +170,9 @@ class ReportTest {
     @Test
     void recordGroundingResult_수정전콘텐츠의늦게도착한결과를거부() {
         Report report = Report.draft(10L, 1, "{\"content\":\"A\"}", 20L);
-        GroundingCheckTarget contentATarget = report.captureGroundingTarget();
+        GroundingRequestContext contentAContext = report.captureGroundingRequestContext();
+        GroundingCheckTarget contentATarget = GroundingCheckTarget.capture(
+                contentAContext, report.getContentJson());
         GroundingCheckResult contentAResult = GroundingCheckResult.passed(contentATarget, null);
 
         report.updateContent("{\"content\":\"B\"}", 30L);
@@ -205,7 +207,8 @@ class ReportTest {
     }
 
     private static GroundingCheckResult grounding(Report report, boolean passed, String warnings) {
-        GroundingCheckTarget target = report.captureGroundingTarget();
+        GroundingRequestContext context = report.captureGroundingRequestContext();
+        GroundingCheckTarget target = GroundingCheckTarget.capture(context, report.getContentJson());
         return passed
                 ? GroundingCheckResult.passed(target, warnings)
                 : GroundingCheckResult.failed(target, warnings);

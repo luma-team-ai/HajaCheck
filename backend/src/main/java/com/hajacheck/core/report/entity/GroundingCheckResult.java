@@ -21,7 +21,7 @@ public final class GroundingCheckResult {
         this.warnings = warnings;
     }
 
-    public static GroundingCheckResult passed(
+    static GroundingCheckResult passed(
             GroundingCheckTarget target, String groundingWarnings) {
         String normalizedWarnings = JsonValidator.normalizeOrRequireValid(
                 groundingWarnings, "근거 검증 경고(groundingWarnings)");
@@ -32,7 +32,7 @@ public final class GroundingCheckResult {
         return new GroundingCheckResult(target, true, normalizedWarnings);
     }
 
-    public static GroundingCheckResult failed(
+    static GroundingCheckResult failed(
             GroundingCheckTarget target, String groundingWarnings) {
         String normalizedWarnings = JsonValidator.normalizeOrRequireValid(
                 groundingWarnings, "근거 검증 경고(groundingWarnings)");
@@ -49,6 +49,31 @@ public final class GroundingCheckResult {
 
     public String warnings() {
         return warnings;
+    }
+
+    /** AI 응답의 상관관계 값이 캡처된 대상과 모두 일치할 때만 결과를 생성한다. */
+    public static GroundingCheckResult fromVerifiedAiResponse(
+            GroundingCheckTarget target,
+            String groundingRequestId,
+            Long inspectionId,
+            Integer reportVersion,
+            String contentHash,
+            boolean passed,
+            String groundingWarnings) {
+        if (target == null) {
+            throw new DomainValidationException("grounding 대상은 필수다");
+        }
+        if (!target.groundingRequestId().equals(groundingRequestId)
+                || !target.inspectionId().equals(inspectionId)
+                || reportVersion == null
+                || target.reportVersion() != reportVersion
+                || !target.contentHash().equals(contentHash)) {
+            throw new DomainValidationException(
+                    "AI grounding 응답이 요청 ID, 보고서 버전 또는 콘텐츠와 일치하지 않는다");
+        }
+        return passed
+                ? passed(target, groundingWarnings)
+                : failed(target, groundingWarnings);
     }
 
     public boolean matches(Long inspectionId, int reportVersion, String contentJson) {

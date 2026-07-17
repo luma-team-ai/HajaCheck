@@ -1,7 +1,6 @@
 package com.hajacheck.auth.service;
 
 import com.hajacheck.auth.dto.UserResponse;
-import com.hajacheck.auth.entity.CompanyMembershipStatus;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
@@ -70,10 +69,10 @@ public class AuthService {
 
         Instant now = Instant.now();
         Long companyId = requester.getCompanyId();
-        boolean requesterMembershipEffective = companyMembershipRepository.existsEffectiveMembership(
-                companyId, requesterUserId, CompanyMembershipStatus.APPROVED, now);
-        boolean assigneeMembershipEffective = companyMembershipRepository.existsEffectiveMembership(
-                companyId, assignedInspectorId, CompanyMembershipStatus.APPROVED, now);
+        boolean requesterMembershipEffective = companyMembershipRepository.existsEffectiveApprovedMembership(
+                companyId, requesterUserId, now);
+        boolean assigneeMembershipEffective = companyMembershipRepository.existsEffectiveApprovedMembership(
+                companyId, assignedInspectorId, now);
         if (!requesterMembershipEffective || !assigneeMembershipEffective) {
             throw new BusinessException(ErrorCode.AUTH_INVALID_INSPECTOR);
         }

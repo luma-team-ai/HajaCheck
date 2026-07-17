@@ -26,6 +26,7 @@ import com.hajacheck.core.rag.entity.RagTargetCollection;
 import com.hajacheck.core.report.entity.GroundingCheckResult;
 import com.hajacheck.core.report.entity.Report;
 import com.hajacheck.core.report.service.GroundingCheckResultFactory;
+import com.hajacheck.core.report.service.GroundingReportContentSerializer;
 import com.hajacheck.counsel.entity.BotScenario;
 import com.hajacheck.counsel.entity.ChatMessage;
 import com.hajacheck.counsel.entity.ChatSenderType;
@@ -120,12 +121,23 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
 
         Report report = Report.draft(
                 inspection.getId(), 1, "{\"summary\":\"균열 발견\"}", owner.getId());
-        report.updateContent("{\"summary\":\"균열 확인\"}", owner.getId());
-        var groundingTarget = report.captureGroundingTarget();
+        var groundingContext = report.captureGroundingRequestContext();
+        var aiReport = new ReportResponse(
+                null,
+                null,
+                null,
+                null,
+                true,
+                groundingContext.groundingRequestId(),
+                groundingContext.inspectionId(),
+                groundingContext.reportVersion(),
+                "d6efff2a647c31d336f34cf55d1475873932bf6d826cbe236f2fd01c6017dcaf");
+        report.updateContent(GroundingReportContentSerializer.serialize(aiReport), owner.getId());
         report.recordGroundingResult(
                 GroundingCheckResultFactory.fromAiReport(
-                        groundingTarget,
-                        new ReportResponse(null, null, null, null, true), "[]"),
+                        groundingContext,
+                        aiReport,
+                        "[]"),
                 owner.getId());
         em.persist(report);
         em.flush();
@@ -143,7 +155,7 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
         Report foundReport = em.find(Report.class, reportId);
         assertThat(foundRevision.getReason()).isEqualTo("현장 검토");
         assertThat(foundRevision.getDefect().getInspection().getId()).isEqualTo(inspection.getId());
-        assertThat(foundReport.getContentJson()).contains("균열 확인");
+        assertThat(foundReport.getContentJson()).contains("\"grounding_ok\":true");
         assertThat(foundReport.getGroundingWarnings()).isEqualTo("[]");
         assertThat(foundReport.getInspection().getId()).isEqualTo(inspection.getId());
     }
