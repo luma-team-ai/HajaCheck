@@ -929,6 +929,13 @@ create index idx_counsel_tickets_user
 create index idx_counsel_tickets_session
     on counsel_tickets (session_id);
 
+create unique index uq_counsel_tickets_session
+    on counsel_tickets (session_id)
+    where (session_id is not null);
+
+comment on index uq_counsel_tickets_session is
+    '하나의 전문상담 세션이 여러 상담 티켓에 중복 배정되는 것을 방지한다.';
+
 create table bot_scenarios
 (
     id                 bigint generated always as identity

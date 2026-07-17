@@ -1,5 +1,6 @@
 package com.hajacheck.notification.repository;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.hajacheck.auth.entity.User;
@@ -70,6 +71,37 @@ class NotificationOptimisticLockTest extends PostgresTestSupport {
                 staleSecondRequest.markAsRead();
                 return notificationRepository.saveAndFlush(staleSecondRequest);
             })).isInstanceOf(OptimisticLockingFailureException.class);
+        } finally {
+            inTransaction(() -> {
+                notificationRepository.deleteById(ids[1]);
+                userRepository.deleteById(ids[0]);
+                return null;
+            });
+        }
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void markAsReadIfUnread_재호출은멱등() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        Long[] ids = inTransaction(() -> {
+            User user = userRepository.saveAndFlush(
+                    User.createCompanyOwner(
+                            "atomic-" + suffix + "@haja.test",
+                            "atomic-read-user",
+                            "<password-hash-placeholder>"));
+            Notification notification = notificationRepository.saveAndFlush(
+                    Notification.create(user.getId(), NotificationType.ANALYSIS_DONE, null));
+            return new Long[]{user.getId(), notification.getId()};
+        });
+
+        try {
+            assertThat(inTransaction(() -> notificationRepository.markAsReadIfUnread(ids[1], ids[0])))
+                    .isEqualTo(1);
+            assertThat(inTransaction(() -> notificationRepository.markAsReadIfUnread(ids[1], ids[0])))
+                    .isZero();
+            assertThat(inTransaction(() -> notificationRepository.existsByIdAndUserIdAndReadTrue(ids[1], ids[0])))
+                    .isTrue();
         } finally {
             inTransaction(() -> {
                 notificationRepository.deleteById(ids[1]);

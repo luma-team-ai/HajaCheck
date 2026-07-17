@@ -47,6 +47,16 @@ begin
         raise exception 'duplicate inspections(facility_id, round_no) rows remain';
     end if;
 
+    if exists (
+        select 1
+        from counsel_tickets
+        where session_id is not null
+        group by session_id
+        having count(*) > 1
+    ) then
+        raise exception 'one counsel session is assigned to multiple tickets';
+    end if;
+
     if not exists (
         select 1
         from pg_constraint c
@@ -229,7 +239,9 @@ begin
         ('uq_user_plans_active_user', 'user_plans', true,
             array['user_id']::text[], 'status=''ACTIVE''::user_plan_status_type'),
         ('uq_user_plans_active_company', 'user_plans', true,
-            array['company_id']::text[], 'status=''ACTIVE''::user_plan_status_type')
+            array['company_id']::text[], 'status=''ACTIVE''::user_plan_status_type'),
+        ('uq_counsel_tickets_session', 'counsel_tickets', true,
+            array['session_id']::text[], 'session_idISNOTNULL')
     ) as expected(index_name, table_name, is_unique, column_names, predicate)
     left join pg_class index_class
       on index_class.relname = expected.index_name
