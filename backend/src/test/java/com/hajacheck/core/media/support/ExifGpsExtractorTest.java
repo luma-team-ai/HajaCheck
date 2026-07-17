@@ -2,7 +2,9 @@ package com.hajacheck.core.media.support;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.ByteArrayInputStream;
 import java.time.LocalDateTime;
+import java.util.Random;
 import java.util.TimeZone;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -43,5 +45,33 @@ class ExifGpsExtractorTest {
     @Test
     void parseCapturedAt_형식이맞지않으면null반환() {
         assertThat(ExifGpsExtractor.parseCapturedAt("not-a-date")).isNull();
+    }
+
+    /**
+     * 매직바이트만 유효하고 그 뒤가 잘리거나 조작된 입력(리뷰 P2) — metadata-extractor 가
+     * 체크 예외가 아닌 unchecked 예외를 던지더라도 extract()가 이를 전파하지 않고 EMPTY로
+     * 흡수해야 한다(그렇지 않으면 조작 파일 하나로 업로드 요청 전체가 raw 500이 된다).
+     */
+    @Test
+    void extract_유효매직바이트지만내용이잘리거나손상됨_예외없이EMPTY반환() {
+        byte[] truncatedJpegWithExifHeader = {
+                (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE1, 0x00, 0x10,
+                'E', 'x', 'i', 'f', 0x00, 0x00, 'M', 'M', 0x00
+        };
+
+        ExifGpsExtractor.ExifData result =
+                ExifGpsExtractor.extract(new ByteArrayInputStream(truncatedJpegWithExifHeader));
+
+        assertThat(result).isEqualTo(ExifGpsExtractor.ExifData.EMPTY);
+    }
+
+    @Test
+    void extract_무작위가비지바이트_예외없이EMPTY반환() {
+        byte[] garbage = new byte[256];
+        new Random(42).nextBytes(garbage);
+
+        ExifGpsExtractor.ExifData result = ExifGpsExtractor.extract(new ByteArrayInputStream(garbage));
+
+        assertThat(result).isEqualTo(ExifGpsExtractor.ExifData.EMPTY);
     }
 }

@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Iterator;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 
@@ -40,11 +41,13 @@ public final class ImageThumbnailGenerator {
             ImageReader reader = firstReader(iis);
             try {
                 reader.setInput(iis);
-                long pixels = (long) reader.getWidth(0) * reader.getHeight(0);
+                int width = reader.getWidth(0);
+                int height = reader.getHeight(0);
+                long pixels = (long) width * height;
                 if (pixels > MAX_PIXELS) {
                     throw new BusinessException(ErrorCode.FILE_INVALID_TYPE);
                 }
-                BufferedImage image = reader.read(0);
+                BufferedImage image = reader.read(0, subsamplingParam(reader, width, height, maxDimension));
                 return resizeToJpeg(image, maxDimension);
             } finally {
                 reader.dispose();
@@ -52,6 +55,18 @@ public final class ImageThumbnailGenerator {
         } catch (IOException e) {
             throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
         }
+    }
+
+    // 썸네일은 어차피 maxDimension 이하로 축소되므로, 디코딩 단계부터 서브샘플링해 원본 풀 해상도
+    // 버퍼(40MP·TYPE_INT_RGB 기준 약 160MB)를 힙에 올리지 않는다(리뷰 P2 — 요청당 최대 10개 파일을
+    // 순차 처리하고 동시 요청도 가능해 힙 압박이 누적될 수 있음). 서브샘플링은 스트라이드 단위라
+    // 정확한 목표 크기를 만들지 못하므로, 이어지는 resizeToJpeg 의 비율 유지 축소가 정확히 맞춘다.
+    private static ImageReadParam subsamplingParam(ImageReader reader, int width, int height, int maxDimension) {
+        ImageReadParam param = reader.getDefaultReadParam();
+        int longerSide = Math.max(width, height);
+        int subsampling = Math.max(1, longerSide / Math.max(1, maxDimension));
+        param.setSourceSubsampling(subsampling, subsampling, 0, 0);
+        return param;
     }
 
     private static ImageReader firstReader(ImageInputStream iis) {

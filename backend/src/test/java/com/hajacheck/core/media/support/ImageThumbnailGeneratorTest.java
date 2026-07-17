@@ -33,6 +33,21 @@ class ImageThumbnailGeneratorTest {
         assertThat(decoded.getHeight()).isEqualTo(25);
     }
 
+    /**
+     * 서브샘플링 디코딩 도입(리뷰 P2) 후에도 결과가 정확한지 실제 대형 PNG(25MP)로 검증한다.
+     * 풀 해상도 디코딩 없이도 비율 유지 축소가 정확히 맞춰지는지 확인.
+     */
+    @Test
+    void generate_대형이미지_서브샘플링디코딩으로도_정확한크기의썸네일반환() throws IOException {
+        byte[] png = realPngBytes(5000, 5000);
+
+        byte[] thumbnail = ImageThumbnailGenerator.generate(new ByteArrayInputStream(png), 400);
+
+        BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(thumbnail));
+        assertThat(decoded.getWidth()).isEqualTo(400);
+        assertThat(decoded.getHeight()).isEqualTo(400);
+    }
+
     @Test
     void generate_원본이맥스디멘션보다작으면확대하지않음() throws IOException {
         byte[] png = realPngBytes(30, 20);

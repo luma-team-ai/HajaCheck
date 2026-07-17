@@ -38,7 +38,12 @@ public final class ExifGpsExtractor {
         try {
             Metadata metadata = ImageMetadataReader.readMetadata(original);
             return new ExifData(extractCapturedAt(metadata), extractGpsLat(metadata), extractGpsLng(metadata));
-        } catch (ImageProcessingException | IOException e) {
+        } catch (ImageProcessingException | IOException | RuntimeException e) {
+            // 매직바이트 8바이트만 통과하면 그 뒤는 임의 바이트여도 이 경로에 도달한다(리뷰 P2).
+            // metadata-extractor 는 조작·손상된 세그먼트에서 체크 예외(ImageProcessingException/
+            // IOException) 외에도 NumberFormatException 등 unchecked 예외를 던질 수 있는데, 이
+            // 메서드의 계약은 "EXIF 파싱 실패는 항상 정상 케이스로 흡수"이므로(클래스 상단 문서 참고)
+            // RuntimeException 도 동일하게 EMPTY 로 흡수해야 조작된 파일 하나로 500이 나는 것을 막는다.
             return ExifData.EMPTY;
         }
     }

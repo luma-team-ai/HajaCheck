@@ -104,6 +104,20 @@ class LocalFileStorageTest {
     }
 
     @Test
+    void store_사업자등록증실제한도10MB초과_servlet전역한도20MB이내여도FILE_TOO_LARGE() {
+        // 리뷰 P2: 미디어 업로드 때문에 servlet 전역 max-file-size 가 20MB로 상향됐다. 사업자등록증은
+        // FileStorageProperties.maxSizeBytes(운영값 10MB)로 별도 앱 레벨 상한을 가지므로, "servlet은
+        // 통과하지만 앱 한도는 초과"하는 15MB 크기에서도 여전히 거부되어야 계약이 유지된다.
+        properties.setMaxSizeBytes(10_485_760L);
+        MockMultipartFile file = new MockMultipartFile(
+                "businessRegistrationFile", "brn.png", "image/png", new byte[15 * 1024 * 1024]);
+
+        assertThatThrownBy(() -> storage.store(file, "business-registration",
+                        properties.getAllowedContentTypes(), properties.getMaxSizeBytes()))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_TOO_LARGE));
+    }
+
+    @Test
     void delete_저장된파일_삭제됨() {
         MockMultipartFile file = new MockMultipartFile(
                 "businessRegistrationFile", "a.png", "image/png", "X".getBytes());
