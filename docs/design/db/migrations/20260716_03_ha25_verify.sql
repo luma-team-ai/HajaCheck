@@ -377,18 +377,39 @@ begin
           and regexp_replace(btrim(proc_meta.prosrc), '[[:space:]]+', ' ', 'g') =
               regexp_replace(btrim($expected_function$
               declare
-                  creator_company_id bigint;
-                  inspector_company_id bigint;
+                  assignment_company_id bigint;
               begin
-                  select company_id into creator_company_id from users where id = new.created_by;
-                  select company_id into inspector_company_id from users where id = new.assigned_inspector_id;
-                  -- AuthService.validateAssignableInspector와 동일하게 양쪽 모두 회사 소속이고 회사가 같을 때만 허용한다.
-                  -- 따라서 한쪽 또는 양쪽 company_id가 NULL인 무소속 사용자 배정도 DB 경계에서 차단한다.
-                  if creator_company_id is null
-                      or inspector_company_id is null
-                      or creator_company_id is distinct from inspector_company_id then
+                  select c.id into assignment_company_id
+                  from users creator
+                  join users inspector on inspector.id = new.assigned_inspector_id
+                  join companies c
+                    on c.id = creator.company_id
+                   and c.id = inspector.company_id
+                  join company_memberships creator_membership
+                    on creator_membership.company_id = c.id
+                   and creator_membership.user_id = creator.id
+                  join company_memberships inspector_membership
+                    on inspector_membership.company_id = c.id
+                   and inspector_membership.user_id = inspector.id
+                  where creator.id = new.created_by
+                    and creator.status = 'ACTIVE'::user_status_type
+                    and inspector.status = 'ACTIVE'::user_status_type
+                    and inspector.role in ('INSPECTOR'::role_type, 'ADMIN'::role_type)
+                    and c.status = 'APPROVED'::company_status_type
+                    and c.verification_status = 'VERIFIED'::business_verification_status_type
+                    and creator_membership.status = 'APPROVED'::company_membership_status_type
+                    and creator_membership.approved_at is not null
+                    and creator_membership.revoked_at is null
+                    and (creator_membership.expires_at is null or creator_membership.expires_at > now())
+                    and inspector_membership.status = 'APPROVED'::company_membership_status_type
+                    and inspector_membership.approved_at is not null
+                    and inspector_membership.revoked_at is null
+                    and (inspector_membership.expires_at is null or inspector_membership.expires_at > now())
+                  limit 1;
+
+                  if assignment_company_id is null then
                       raise exception
-                          'assigned_inspector_id % must belong to the same company as created_by %',
+                          'assigned_inspector_id % must be an active inspector with an effective membership in the approved company of created_by %',
                           new.assigned_inspector_id, new.created_by;
                   end if;
                   return new;

@@ -341,13 +341,13 @@ class Ha25IncrementalMigrationTest {
         requireQuery(postgres, "finalize replaces stale company-boundary function", """
                 select case when pg_get_functiondef(
                     'check_inspection_assigned_inspector_company()'::regprocedure
-                ) like '%creator_company_id is null%'
+                ) like '%company_memberships%'
                   and pg_get_functiondef(
                     'check_inspection_assigned_inspector_company()'::regprocedure
-                ) like '%inspector_company_id is null%'
+                ) like '%assignment_company_id%'
                   and pg_get_functiondef(
                     'check_inspection_assigned_inspector_company()'::regprocedure
-                ) like '%creator_company_id is distinct from inspector_company_id%'
+                ) like '%effective membership%'
                 then 'replaced' else 'stale' end
                 """, "replaced");
         runPsql(postgres, "20260716_02_ha25_finalize.sql");
