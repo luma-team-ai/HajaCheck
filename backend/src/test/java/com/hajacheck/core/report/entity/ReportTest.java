@@ -134,6 +134,15 @@ class ReportTest {
     }
 
     @Test
+    void updateContent_공백경고는null로정규화() {
+        Report report = Report.draft(10L, 1, "{}", 20L);
+
+        report.updateContent("{}", true, "   ", 30L);
+
+        assertThat(report.getGroundingWarnings()).isNull();
+    }
+
+    @Test
     void updateContent_통과와빈배열경고는허용() {
         Report report = Report.draft(10L, 1, "{}", 20L);
 

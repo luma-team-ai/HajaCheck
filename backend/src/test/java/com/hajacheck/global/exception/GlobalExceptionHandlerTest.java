@@ -113,4 +113,24 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody().error().code())
                 .isEqualTo(ErrorCode.CONCURRENT_UPDATE_CONFLICT.name());
     }
+
+    @Test
+    void handleIllegalArgumentException_mapsToInvalidInput() {
+        ResponseEntity<ApiResponse<Void>> response =
+                handler.handleIllegalArgumentException(new IllegalArgumentException("보고서 본문(contentJson)는 유효한 JSON이어야 한다"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().error().code())
+                .isEqualTo(ErrorCode.INVALID_INPUT.name());
+    }
+
+    @Test
+    void handleIllegalStateException_mapsToInvalidStateTransition() {
+        ResponseEntity<ApiResponse<Void>> response =
+                handler.handleIllegalStateException(new IllegalStateException("이미 확정된 보고서는 수정할 수 없다"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().error().code())
+                .isEqualTo(ErrorCode.INVALID_STATE_TRANSITION.name());
+    }
 }
