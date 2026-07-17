@@ -6,8 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.CompanyMembership;
 import com.hajacheck.auth.entity.ConsentPolicyType;
+import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserConsent;
+import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectRevision;
@@ -98,7 +100,7 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
 
     @Test
     void inspectionMediaDefectRevisionReport_저장조회() {
-        User owner = seedUser("inspection-owner@haja.com");
+        User owner = seedInspectorOwner("inspection-owner@haja.com");
         Inspection inspection = seedInspection(owner, "통합검증 시설");
 
         Media media = Media.create(
@@ -254,6 +256,35 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
         User user = User.createCompanyOwner(email, "사용자", "<password-hash-placeholder>");
         em.persistAndFlush(user);
         return user;
+    }
+
+    // HAJA-25 배정 검증 트리거(trg_inspections_check_assigned_inspector_company)는
+    // assigned_inspector_id가 승인+검증된 회사에 속한 INSPECTOR/ADMIN 역할이면서 유효한
+    // APPROVED 멤버십을 가질 것을 요구한다. seedInspection이 owner를 그대로 담당자로도
+    // 재사용하므로, 이 픽스처는 역할을 INSPECTOR로 두고 승인된 회사·멤버십을 함께 시드한다.
+    private User seedInspectorOwner(String email) {
+        User owner = User.builder()
+                .email(email)
+                .name("사용자")
+                .role(Role.INSPECTOR)
+                .passwordHash("<password-hash-placeholder>")
+                .status(UserStatus.ACTIVE)
+                .build();
+        em.persistAndFlush(owner);
+
+        Company company = Company.createPendingReview(
+                owner.getId(), "통합검증회사-" + owner.getId(), "REG-" + owner.getId(), "대표자",
+                "서울시", null, "https://files.example/business.pdf", "{\"source\":\"MANUAL_INPUT\"}");
+        em.persistAndFlush(company);
+        company.markBusinessVerified();
+        company.approve(owner.getId());
+        em.flush();
+
+        em.persistAndFlush(CompanyMembership.approvedOwner(company.getId(), owner.getId()));
+        owner.assignToCompany(company.getId());
+        em.persistAndFlush(owner);
+
+        return owner;
     }
 
     private Inspection seedInspection(User owner, String facilityName) {
