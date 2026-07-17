@@ -1203,10 +1203,11 @@ declare
 begin
     select company_id into creator_company_id from users where id = new.created_by;
     select company_id into inspector_company_id from users where id = new.assigned_inspector_id;
-    -- IS DISTINCT FROM은 둘 다 NULL(무소속 개인 사용자의 자기배정 등 — 이 트리거의 관할 밖,
-    -- AuthService.validateAssignableInspector가 별도로 다룸)인 경우를 정상 통과시키고,
-    -- 서로 다른 회사로 확인된 경우만(한쪽만 NULL인 경우 포함) 차단한다.
-    if creator_company_id is distinct from inspector_company_id then
+    -- AuthService.validateAssignableInspector와 동일하게 양쪽 모두 회사 소속이고 회사가 같을 때만 허용한다.
+    -- 따라서 한쪽 또는 양쪽 company_id가 NULL인 무소속 사용자 배정도 DB 경계에서 차단한다.
+    if creator_company_id is null
+        or inspector_company_id is null
+        or creator_company_id is distinct from inspector_company_id then
         raise exception
             'assigned_inspector_id % must belong to the same company as created_by %',
             new.assigned_inspector_id, new.created_by;
@@ -1217,7 +1218,7 @@ $$;
 
 alter function check_inspection_assigned_inspector_company() owner to postgres;
 
-comment on function check_inspection_assigned_inspector_company() is 'inspections.assigned_inspector_id와 created_by가 users.company_id 기준으로 같은 회사인지 강제한다(둘 다 무소속이면 통과 — HAJA-25 P2 DB 레벨 방어).';
+comment on function check_inspection_assigned_inspector_company() is 'inspections.assigned_inspector_id와 created_by가 모두 회사 소속이고 users.company_id 기준으로 같은 회사인지 강제한다(무소속은 거부 — HAJA-25 P2 DB 레벨 방어).';
 
 create trigger trg_inspections_check_assigned_inspector_company
     before insert or update of assigned_inspector_id, created_by
