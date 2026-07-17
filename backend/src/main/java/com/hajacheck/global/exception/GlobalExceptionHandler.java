@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.validation.BindException;
 
 @Slf4j
@@ -86,6 +87,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleAuthenticationException(AuthenticationException e) {
         return ResponseEntity.status(ErrorCode.AUTH_INVALID_CREDENTIALS.getStatus())
                 .body(ApiResponse.fail(ErrorCode.AUTH_INVALID_CREDENTIALS));
+    }
+
+    /**
+     * 매핑되지 않은 경로/정적 리소스 요청(#330). 이 클래스는 ResponseEntityExceptionHandler 를 상속하지 않는
+     * 순수 @RestControllerAdvice 라, 전용 핸들러가 없으면 아래 포괄 handleException 이 NoResourceFoundException 을
+     * 가로채 500 + 전체 스택트레이스로 처리한다(= 단순 404가 서버 장애로 둔갑 + 로그 노이즈).
+     * 따라서 404 로 정정하고, 스택트레이스 없이 WARN 단일 라인만 남긴다.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(NoResourceFoundException e) {
+        log.warn("존재하지 않는 리소스 요청: {} {}", e.getHttpMethod(), e.getResourcePath());
+        return ResponseEntity.status(ErrorCode.RESOURCE_NOT_FOUND.getStatus())
+                .body(ApiResponse.fail(ErrorCode.RESOURCE_NOT_FOUND));
     }
 
     @ExceptionHandler(Exception.class)
