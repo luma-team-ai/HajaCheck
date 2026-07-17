@@ -14,6 +14,7 @@ import com.hajacheck.auth.dto.PasswordResetLinkResponse;
 import com.hajacheck.auth.dto.PasswordResetRequest;
 import com.hajacheck.auth.entity.SocialProvider;
 import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.support.PasswordResetMailDispatcher;
 import com.hajacheck.global.exception.BusinessException;
@@ -283,6 +284,49 @@ class PasswordResetServiceTest {
 
         assertThat(tokenStore.currentTokenHash(USER_ID))
                 .isEqualTo(com.hajacheck.auth.support.TokenKeys.hash(secondToken));
+    }
+
+    // ---------- 정지 계정 ----------
+
+    @Test
+    void 정지_계정에는_재설정_메일을_보내지_않는다() throws Exception {
+        // CustomUserDetailsService 가 정지 계정의 로그인을 막는다(LockedException). 재설정이 비밀번호를
+        // 바꿔주면 그 계층 규칙을 이 경로가 말없이 뒤집는 셈 — 소셜 전용 계정 차단과 완전히 같은 논리다.
+        suspend(user);
+
+        request(EMAIL);
+
+        assertThat(mailSender.nothingSentWithin(Duration.ofMillis(300))).isTrue();
+    }
+
+    @Test
+    void 정지_계정의_응답은_정상_계정과_완전히_동일하다() throws Exception {
+        // 차단하되 정지 여부가 응답에 드러나면 안 된다(계정 상태 열거 방지).
+        PasswordResetLinkResponse normal = request(EMAIL);
+        suspend(user);
+        PasswordResetLinkResponse suspended = request(EMAIL);
+
+        assertThat(objectMapper.writeValueAsString(suspended))
+                .isEqualTo(objectMapper.writeValueAsString(normal));
+    }
+
+    @Test
+    void 발급_후_정지된_계정은_2단계에서_차단된다() throws Exception {
+        // 링크 유효 창이 10분이라, 발급 후 정지된 계정이 재설정을 완주하는 일이 실제로 가능하다(심층방어).
+        request(EMAIL);
+        String token = tokenFromMail();
+        suspend(user);
+
+        assertThatThrownBy(() -> service.reset(new PasswordResetRequest(token, "newpass1")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.AUTH_RESET_TOKEN_INVALID);
+        // 비밀번호가 바뀌지 않았어야 한다.
+        assertThat(passwordEncoder.matches("newpass1", user.getPasswordHash())).isFalse();
+    }
+
+    /** 정지 상태 전이 메서드는 없다(정지는 관리자 도구 몫 — 이 PR 범위 밖)라 필드를 직접 세팅한다. */
+    private void suspend(User target) {
+        ReflectionTestUtils.setField(target, "status", UserStatus.SUSPENDED);
     }
 
     // ---------- 소셜 전용 계정(P2-3) ----------

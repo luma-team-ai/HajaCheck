@@ -70,9 +70,9 @@ public class PasswordResetService {
         // ⚠️ rate-limit 은 계정 조회 전에, 존재 여부와 무관한 조건으로 건다(429 가 열거 단서가 되면 안 된다).
         enforceRateLimits(emailHash);
 
-        // 존재하고 + 비밀번호 로그인 계정일 때만 발송. 여기서 분기해도 응답 바디·시점은 동일하다(발송은 @Async).
+        // 재설정 가능한 계정일 때만 발송. 여기서 분기해도 응답 바디·시점은 동일하다(발송은 @Async).
         userRepository.findByEmail(email)
-                .filter(User::hasPassword)
+                .filter(PasswordResetService::isPasswordResettable)
                 .ifPresent(user -> issueAndDispatch(user, emailHash));
 
         // 감사 로그: 이메일 해시·시각(로거가 부착). ⚠️ 이메일 원문·토큰 평문 금지.
@@ -100,15 +100,31 @@ public class PasswordResetService {
         User user = userRepository.findById(userId)
                 // 토큰 발급 후 계정이 삭제된 경우 — 사유를 구분해 노출하지 않는다(통일 메시지).
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_RESET_TOKEN_INVALID));
-        // 소셜 전용 계정 방어(심층방어) — 1단계가 이미 걸러내지만, 발급 후 계정이 소셜 전용으로 바뀌었거나
-        // 다른 경로로 토큰이 생겼을 때도 비밀번호를 심지 않는다. 사유는 노출하지 않는다(통일 메시지).
-        if (!user.hasPassword()) {
+        // 심층방어 — 1단계가 이미 걸러내지만, 토큰 발급 후 계정이 정지되거나 소셜 전용으로 바뀌었을 수 있다
+        // (링크 유효 창이 10분이라 그 사이 정지된 계정이 재설정을 완주하는 일이 실제로 가능하다).
+        // 사유는 노출하지 않는다(통일 메시지) — 정지 여부가 드러나면 그 자체가 계정 상태 열거다.
+        if (!isPasswordResettable(user)) {
             throw new BusinessException(ErrorCode.AUTH_RESET_TOKEN_INVALID);
         }
         user.changePassword(passwordEncoder.encode(request.newPassword()));
 
         log.info("비밀번호 재설정 완료 — userId={}", userId);
         return PasswordResetResponse.done();
+    }
+
+    /**
+     * 비밀번호 재설정을 허용할 계정인지 — <b>CustomUserDetailsService 의 비밀번호 로그인 허용 조건과 동일</b>하게
+     * 유지한다(소셜 전용 계정 불가 · 정지 계정 불가).
+     *
+     * <p>재설정 경로가 이 조건을 느슨하게 잡으면, 다른 계층이 <b>명시적으로 금지한 규칙을 침묵으로 뒤집는</b> 셈이
+     * 된다 — 소셜 전용 계정에 비밀번호를 심어 로그인 수단을 열어주거나, 정지 계정의 비밀번호를 바꿔준다.
+     * 두 계층의 조건은 항상 함께 갱신할 것.
+     *
+     * <p>차단은 응답에 드러나지 않는다: 1단계는 그냥 발송하지 않고 동일한 200 을, 2단계는 통일된
+     * AUTH_RESET_TOKEN_INVALID 를 반환한다(계정 상태 열거 방지).
+     */
+    private static boolean isPasswordResettable(User user) {
+        return user.hasPassword() && !user.isSuspended();
     }
 
     /**
