@@ -1,5 +1,6 @@
 package com.hajacheck.auth.support;
 
+import com.hajacheck.global.config.AsyncConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -22,11 +23,15 @@ public class PasswordResetMailDispatcher {
     private final PasswordResetMailSender mailSender;
 
     /**
-     * 발송을 별도 스레드에 위임한다(즉시 반환).
+     * 발송을 메일 전용 스레드 풀에 위임한다(즉시 반환).
+     *
+     * <p>큐가 포화돼도 <b>예외가 요청 스레드로 전파되지 않는다</b> — 실행기의 거부 핸들러가 삼키고 WARN 만
+     * 남기도록 구성돼 있다({@link AsyncConfig#mailTaskExecutor()}). 전파되면 존재하는 계정만 500 이 되어
+     * 그 자체로 계정 열거 단서가 된다.
      *
      * @param emailHash 감사 로그용 이메일 해시 — 원문 이메일은 로그에 남기지 않는다.
      */
-    @Async
+    @Async(AsyncConfig.MAIL_TASK_EXECUTOR)
     public void dispatch(String toEmail, String resetLink, String emailHash) {
         try {
             mailSender.send(toEmail, resetLink);
