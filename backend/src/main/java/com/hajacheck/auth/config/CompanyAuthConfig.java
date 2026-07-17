@@ -17,7 +17,8 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * (prod 엔 아직 파일 조회 소비처가 없어 기능 영향 없음.)
  */
 @Configuration
-@EnableConfigurationProperties({FileStorageProperties.class, PolicyProperties.class, AuthProperties.class})
+@EnableConfigurationProperties({
+        FileStorageProperties.class, PolicyProperties.class, AuthProperties.class, AppMailProperties.class})
 public class CompanyAuthConfig {
 
     /**

@@ -31,6 +31,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
     implementation 'org.springframework.boot:spring-boot-starter-websocket'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    // 비밀번호 재설정 링크 발송(#194). SMTP 미설정(로컬/dev)이면 JavaMailSender 를 쓰지 않고 로그 폴백으로 전환된다.
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.session:spring-session-data-redis'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
