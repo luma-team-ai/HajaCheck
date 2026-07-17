@@ -57,7 +57,7 @@ export default function LandingPage() {
         </h1>
         <p>
           AI 기술과 체계적인 데이터 관리로 시설물의 수명을 늘리고 유지보수 비용을 절감하세요.
-          도면부터 센서 데이터까지 완벽하게 통합됩니다.
+          도면부터 센서 데이터까지 완벽하게 통제합니다.
         </p>
         <a className="landing-cta" href="/login">
           무료로 시작하기 →
@@ -93,9 +93,9 @@ export default function LandingPage() {
       <section id="facility-info" className="landing-section">
         <p className="landing-eyebrow">FACILITY INFORMATION MANAGEMENT</p>
         <h2>
-          모든 시설물 데이터를 한 곳에서
+          모든 시설물 데이터를 한 곳에서 완벽
           <br />
-          완벽하게
+          하게
         </h2>
         <p>
           도면, 센서 데이터, 점검 이력 등 흩어져 있는 시설물 정보를 한 곳에 통합해 언제든 쉽게
@@ -192,7 +192,9 @@ export default function LandingPage() {
           <div>
             <span className="landing-logo">HajaCheck</span>
             <p className="landing-footer-tagline">
-              AI 기반의 시설물 안전 관리로 미래를 준비하세요.
+              데이터와 AI 기술로 시설물 관리의 새로운
+              <br />
+              기준을 제시합니다.
             </p>
           </div>
           <div className="landing-footer-columns">
