@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { FOOTER_LINKS, NAV_ITEMS, PARTNERS, PRICING_TIERS } from './constants';
-import heroVisualImage from '../../assets/brand/landing-hero-ai-scan.svg';
+import heroVisualImage from '../../assets/brand/landing-hero-ai-scan.jpg';
 import './landing.css';
 
 function scrollToTop() {

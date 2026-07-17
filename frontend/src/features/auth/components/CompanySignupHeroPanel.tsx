@@ -1,5 +1,5 @@
 import brandMark from '../../../assets/brand/brand-mark.png';
-import heroBackground from '../../../assets/brand/landing-hero-ai-scan.svg';
+import heroBackground from '../../../assets/brand/landing-hero-ai-scan.jpg';
 
 // 기업 회원가입 좌측 브랜드 패널(Figma node 50-63) — 랜딩 히어로와 동일 SVG 배경을 재사용하고
 // 그 위에 CSS 그라디언트 스크림을 얹어 흰 텍스트 대비를 확보한다(별도 스크림 에셋 생성 금지, #292).

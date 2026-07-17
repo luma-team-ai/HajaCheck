@@ -1,7 +1,7 @@
-import partnerLogo1 from '../../assets/brand/landing-partner-1.svg';
-import partnerLogo2 from '../../assets/brand/landing-partner-2.svg';
-import partnerLogo3 from '../../assets/brand/landing-partner-3.svg';
-import partnerLogo4 from '../../assets/brand/landing-partner-4.svg';
+import partnerLogo1 from '../../assets/brand/landing-partner-1.png';
+import partnerLogo2 from '../../assets/brand/landing-partner-2.png';
+import partnerLogo3 from '../../assets/brand/landing-partner-3.png';
+import partnerLogo4 from '../../assets/brand/landing-partner-4.png';
 
 export interface PricingTier {
   name: string;
