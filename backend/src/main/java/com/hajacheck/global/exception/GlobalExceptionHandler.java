@@ -18,8 +18,12 @@ import org.springframework.validation.BindException;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    /** 로그 위조 방지용 — CR/LF 및 기타 제어문자(#330). */
-    private static final Pattern CONTROL_CHARS = Pattern.compile("\\p{Cntrl}");
+    /**
+     * 로그 위조 방지용(#330) — CR/LF 및 기타 ASCII 제어문자.
+     * \p{Cntrl} 는 기본 모드에서 ASCII(0x00-0x1F, 0x7F)만 잡으므로, 일부 로그 뷰어가 개행으로
+     * 렌더링하는 유니코드 줄바꿈(U+2028/U+2029/U+0085)을 함께 포함한다.
+     */
+    private static final Pattern CONTROL_CHARS = Pattern.compile("[\\p{Cntrl}\\u0085\\u2028\\u2029]");
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {

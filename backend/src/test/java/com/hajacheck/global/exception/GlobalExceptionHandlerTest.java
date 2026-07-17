@@ -47,6 +47,11 @@ class GlobalExceptionHandlerTest {
         assertThat(sanitized).doesNotContain("\r").doesNotContain("\n").doesNotContain("\t");
         assertThat(sanitized).isEqualTo("/api/x__2026-07-17 INFO 위조된-로그-라인_TAB");
         assertThat(GlobalExceptionHandler.sanitizeForLog(null)).isNull();
+
+        // 일부 로그 뷰어가 개행으로 렌더링하는 유니코드 줄바꿈도 제거한다(\p{Cntrl} 는 ASCII 만 잡음).
+        // U+0085 NEL / U+2028 LINE SEPARATOR / U+2029 PARAGRAPH SEPARATOR
+        assertThat(GlobalExceptionHandler.sanitizeForLog("/ab c d"))
+                .isEqualTo("/a_b_c_d");
     }
 
     @Test
