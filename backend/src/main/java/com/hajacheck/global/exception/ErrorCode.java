@@ -46,6 +46,9 @@ public enum ErrorCode {
     FILE_INVALID_TYPE(HttpStatus.BAD_REQUEST, "허용되지 않는 파일 형식입니다. (JPG, PNG, PDF 만 가능)"),
     FILE_TOO_LARGE(HttpStatus.BAD_REQUEST, "파일 용량이 너무 큽니다. (최대 10MB)"),
     FILE_UPLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "파일 업로드에 실패했습니다."),
+    // DB 행은 존재하나 디스크의 실제 파일이 유실/미생성된 경우(리뷰 P2) — IO 실패(500)가 아니라
+    // 리소스 없음(404)으로 구분. FileStorageService.read()가 NoSuchFileException을 이 코드로 매핑한다.
+    FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "파일을 찾을 수 없습니다."),
 
     // 마이페이지 — 내 플랜·사용량·좌석(HAJA-177)
     PLAN_NOT_FOUND(HttpStatus.NOT_FOUND, "활성 구독을 찾을 수 없습니다."),

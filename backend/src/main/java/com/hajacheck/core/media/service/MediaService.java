@@ -57,6 +57,12 @@ public class MediaService {
      * INSERT가 읽기전용 위반으로 실패한다(CompanySignupService와 동일하게 "트랜잭션 밖 IO, 별도 빈에서
      * 진짜 새 트랜잭션" 패턴을 따르되, 이 클래스는 getThumbnail()을 위해 클래스 레벨 readOnly=true를
      * 유지하므로 이 메서드에서만 명시적으로 무효화해야 한다).
+     *
+     * <p>⚠️ 소유권 검증(getInspection→FacilityService.get())은 "조회 가능한 사용자"가 아니라
+     * {@code Facility.ownerId == requesterUserId} 단일 일치를 요구한다(FacilityService 클래스 문서:
+     * "모든 조회/수정/삭제는 owner 스코프로 제한"). 즉 이 도메인엔 "읽기는 되지만 쓰기는 안 되는" 별도
+     * 권한 계층이 아직 없어 조회 검증을 업로드(쓰기)에 재사용해도 권한 상승이 되지 않는다(리뷰 P2 확인).
+     * assignedInspectorId 기반의 세분화된 역할 권한은 SecurityConfig 에 명시된 대로 후속 과제.
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<MediaResponse> uploadMedia(Long inspectionId, Long requesterUserId, List<MultipartFile> files) {
@@ -146,7 +152,17 @@ public class MediaService {
         if (media.getThumbnailUrl() == null) {
             throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
         }
-        return new ThumbnailFile(fileStorage.read(media.getThumbnailUrl()), THUMBNAIL_MIME_TYPE);
+        try {
+            return new ThumbnailFile(fileStorage.read(media.getThumbnailUrl()), THUMBNAIL_MIME_TYPE);
+        } catch (BusinessException e) {
+            // DB 행(Media)은 있으나 디스크 파일이 유실된 경우(리뷰 P2, FileStorageService.read()가
+            // FILE_NOT_FOUND로 구분)도 클라이언트 입장에선 위 두 케이스와 동일한 "이 미디어의 썸네일을
+            // 찾을 수 없다"는 404다 — 저장소 구현 세부를 노출하지 않고 MEDIA_NOT_FOUND로 통일한다.
+            if (e.getErrorCode() == ErrorCode.FILE_NOT_FOUND) {
+                throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
+            }
+            throw e;
+        }
     }
 
     public record ThumbnailFile(byte[] content, String mimeType) {

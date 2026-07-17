@@ -164,8 +164,10 @@ class LocalFileStorageTest {
     }
 
     @Test
-    void read_저장하지않은storageKey_FILE_UPLOAD_FAILED() {
+    void read_저장하지않은storageKey_FILE_NOT_FOUND() {
+        // 리뷰 P2: DB 행은 있으나 디스크 파일이 없는 경우(보상삭제 경합 등)는 서버 오류(500)가 아니라
+        // 리소스 없음(404)이 더 정확하다 — 이전에는 FILE_UPLOAD_FAILED(500)를 계약으로 고정했으나 이 결정으로 갱신.
         assertThatThrownBy(() -> storage.read("business-registration/does-not-exist.png"))
-                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_UPLOAD_FAILED));
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_NOT_FOUND));
     }
 }

@@ -212,6 +212,28 @@ class MediaServiceTest {
     }
 
     @Test
+    void getThumbnail_썸네일URL은있으나디스크파일유실_MEDIA_NOT_FOUND() {
+        // 리뷰 P2: DB 행은 존재하나 디스크 파일이 유실된 경우(보상삭제 경합 등) — 저장소는
+        // FILE_NOT_FOUND(404)를 던지고, getThumbnail()은 이를 다른 두 "없음" 케이스와 통일해
+        // MEDIA_NOT_FOUND로 재매핑해야 한다(구현 세부인 FILE_NOT_FOUND를 API에 그대로 노출하지 않음).
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        when(fileStorage.read("inspection-media-thumb/x.jpg"))
+                .thenThrow(new BusinessException(ErrorCode.FILE_NOT_FOUND));
+
+        assertThatThrownBy(() -> service.getThumbnail(100L, 10L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
+    }
+
+    @Test
     void getThumbnail_본인소유_썸네일바이트반환() {
         Media media = Media.builder()
                 .inspectionId(1L)

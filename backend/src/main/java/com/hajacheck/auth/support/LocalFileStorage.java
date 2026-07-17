@@ -7,6 +7,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
@@ -137,6 +138,11 @@ public class LocalFileStorage implements FileStorageService {
                 throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
             }
             return Files.readAllBytes(target);
+        } catch (NoSuchFileException e) {
+            // DB 행은 존재하나 디스크 파일이 유실/미생성된 경우(리뷰 P2) — 보상삭제 경합·스토리지
+            // 정합성 깨짐 등. 조회 실패는 정상적인 최종 상태이지 서버 오류가 아니므로 500이 아닌
+            // 404로 구분한다(썸네일은 그리드에서 병렬·빈번히 호출되어 500 스팸이 특히 부담스럽다).
+            throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
         } catch (IOException e) {
             log.error("파일 읽기 실패 storageKey={}", storageKey, e);
             throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
