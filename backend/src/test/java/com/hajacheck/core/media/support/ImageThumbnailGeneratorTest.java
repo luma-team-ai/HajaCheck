@@ -116,6 +116,54 @@ class ImageThumbnailGeneratorTest {
                 .isInstanceOf(BusinessException.class);
     }
 
+    /**
+     * EXIF Orientation 반영(리뷰 P2) — 세로로 촬영한 폰 사진이 눕혀져 나오던 문제. 실제 EXIF-JPEG
+     * 픽스처 없이도 회전 로직만 단위 테스트한다: orientation 1(그대로)/3(180도)는 가로·세로 유지,
+     * 6(시계90도)/8(반시계90도)는 가로·세로가 뒤바뀐다.
+     */
+    @Test
+    void applyOrientation_1과3은_가로세로유지() {
+        BufferedImage image = new BufferedImage(200, 100, BufferedImage.TYPE_INT_RGB);
+
+        assertThat(ImageThumbnailGenerator.applyOrientation(image, 1).getWidth()).isEqualTo(200);
+        assertThat(ImageThumbnailGenerator.applyOrientation(image, 1).getHeight()).isEqualTo(100);
+        assertThat(ImageThumbnailGenerator.applyOrientation(image, 3).getWidth()).isEqualTo(200);
+        assertThat(ImageThumbnailGenerator.applyOrientation(image, 3).getHeight()).isEqualTo(100);
+    }
+
+    @Test
+    void applyOrientation_6과8은_가로세로뒤바뀜() {
+        BufferedImage image = new BufferedImage(200, 100, BufferedImage.TYPE_INT_RGB);
+
+        BufferedImage rotated6 = ImageThumbnailGenerator.applyOrientation(image, 6);
+        assertThat(rotated6.getWidth()).isEqualTo(100);
+        assertThat(rotated6.getHeight()).isEqualTo(200);
+
+        BufferedImage rotated8 = ImageThumbnailGenerator.applyOrientation(image, 8);
+        assertThat(rotated8.getWidth()).isEqualTo(100);
+        assertThat(rotated8.getHeight()).isEqualTo(200);
+    }
+
+    /**
+     * 크기 스왑만으로는 회전 "방향"(시계 vs 반시계)이 맞는지 알 수 없다 — 모서리에 마커 픽셀을 찍어
+     * orientation=6(시계90도)이 실제로 좌상단을 우상단으로 옮기는지(반시계였다면 좌하단으로 감) 확인한다.
+     */
+    @Test
+    void applyOrientation_6은_시계방향90도() {
+        BufferedImage image = new BufferedImage(4, 2, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < 2; y++) {
+            for (int x = 0; x < 4; x++) {
+                image.setRGB(x, y, 0xFFFFFF);
+            }
+        }
+        image.setRGB(0, 0, 0xFF0000); // 좌상단 마커
+
+        BufferedImage rotated = ImageThumbnailGenerator.applyOrientation(image, 6);
+
+        // 시계 90도 회전: 좌상단 → 우상단(폭 2인 결과의 마지막 열, 0행).
+        assertThat(rotated.getRGB(1, 0) & 0xFFFFFF).isEqualTo(0xFF0000);
+    }
+
     private static byte[] craftPngWithDeclaredDimensions(int width, int height) {
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();

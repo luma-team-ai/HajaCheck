@@ -4,6 +4,8 @@ import com.drew.imaging.ImageMetadataReader;
 import com.drew.imaging.ImageProcessingException;
 import com.drew.lang.GeoLocation;
 import com.drew.metadata.Metadata;
+import com.drew.metadata.MetadataException;
+import com.drew.metadata.exif.ExifIFD0Directory;
 import com.drew.metadata.exif.ExifSubIFDDirectory;
 import com.drew.metadata.exif.GpsDirectory;
 import java.io.IOException;
@@ -31,13 +33,18 @@ public final class ExifGpsExtractor {
     // ZoneId 왕복 자체를 없애면 이 문제가 구조적으로 발생할 수 없다.
     private static final DateTimeFormatter EXIF_DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss");
 
+    // EXIF Orientation 표준값 1~8 중 "회전/반전 없음". 태그가 없거나 범위를 벗어나면 이 값으로 취급한다
+    // (PNG·스크린샷 등 EXIF 자체가 없는 흔한 정상 케이스와 동일하게 처리).
+    static final int DEFAULT_ORIENTATION = 1;
+
     private ExifGpsExtractor() {
     }
 
     public static ExifData extract(InputStream original) {
         try {
             Metadata metadata = ImageMetadataReader.readMetadata(original);
-            return new ExifData(extractCapturedAt(metadata), extractGpsLat(metadata), extractGpsLng(metadata));
+            return new ExifData(extractCapturedAt(metadata), extractGpsLat(metadata), extractGpsLng(metadata),
+                    extractOrientation(metadata));
         } catch (ImageProcessingException | IOException | RuntimeException e) {
             // 매직바이트 8바이트만 통과하면 그 뒤는 임의 바이트여도 이 경로에 도달한다(리뷰 P2).
             // metadata-extractor 는 조작·손상된 세그먼트에서 체크 예외(ImageProcessingException/
@@ -101,7 +108,22 @@ public final class ExifGpsExtractor {
         return BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP);
     }
 
-    public record ExifData(LocalDateTime capturedAt, BigDecimal gpsLat, BigDecimal gpsLng) {
-        public static final ExifData EMPTY = new ExifData(null, null, null);
+    // 대부분 스마트폰은 센서를 가로로 고정하고 촬영 방향만 Orientation 태그로 기록한다(리뷰 P2) —
+    // 이를 무시하고 썸네일을 재인코딩하면 세로로 찍은 사진이 90° 눕혀져 그리드에 노출된다.
+    private static int extractOrientation(Metadata metadata) {
+        ExifIFD0Directory ifd0 = metadata.getFirstDirectoryOfType(ExifIFD0Directory.class);
+        if (ifd0 == null || !ifd0.containsTag(ExifIFD0Directory.TAG_ORIENTATION)) {
+            return DEFAULT_ORIENTATION;
+        }
+        try {
+            int value = ifd0.getInt(ExifIFD0Directory.TAG_ORIENTATION);
+            return (value >= 1 && value <= 8) ? value : DEFAULT_ORIENTATION;
+        } catch (MetadataException e) {
+            return DEFAULT_ORIENTATION;
+        }
+    }
+
+    public record ExifData(LocalDateTime capturedAt, BigDecimal gpsLat, BigDecimal gpsLng, int orientation) {
+        public static final ExifData EMPTY = new ExifData(null, null, null, DEFAULT_ORIENTATION);
     }
 }

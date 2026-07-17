@@ -106,22 +106,26 @@ public class MediaService {
         // byte[] 전체를 앱 힙에 올리지 않고 스트리밍으로 처리 — 각 유틸이 필요한 만큼만 읽는다
         // (최대 20개 파일 배치 업로드에서 힙 압박을 줄이기 위함). MultipartFile은 임시 저장소
         // 기반이라 getInputStream()을 여러 번 독립적으로 호출해도 매번 처음부터 읽힌다.
-        byte[] thumbnailBytes;
-        try (InputStream in = file.getInputStream()) {
-            thumbnailBytes = ImageThumbnailGenerator.generate(in, properties.getThumbnailMaxDimension());
-        } catch (IOException e) {
-            throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
-        }
-        StoredFile thumbnail = fileStorage.storeBytes(thumbnailBytes, THUMBNAIL_MIME_TYPE, THUMBNAIL_CATEGORY,
-                THUMBNAIL_CONTENT_TYPES, THUMBNAIL_MAX_BYTES);
-        storedKeys.add(thumbnail.storageKey());
-
+        // EXIF를 먼저 읽는 이유: Orientation 태그를 썸네일 재인코딩에 반영해야 한다(리뷰 P2) —
+        // 대부분 스마트폰은 센서를 가로로 고정하고 촬영 방향만 Orientation으로 기록하므로, 이를
+        // 무시하면 세로로 찍은 사진의 썸네일이 90° 눕혀진 채로 그리드에 노출된다.
         ExifData exif;
         try (InputStream in = file.getInputStream()) {
             exif = ExifGpsExtractor.extract(in);
         } catch (IOException e) {
             throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
         }
+
+        byte[] thumbnailBytes;
+        try (InputStream in = file.getInputStream()) {
+            thumbnailBytes = ImageThumbnailGenerator.generate(
+                    in, properties.getThumbnailMaxDimension(), exif.orientation());
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
+        }
+        StoredFile thumbnail = fileStorage.storeBytes(thumbnailBytes, THUMBNAIL_MIME_TYPE, THUMBNAIL_CATEGORY,
+                THUMBNAIL_CONTENT_TYPES, THUMBNAIL_MAX_BYTES);
+        storedKeys.add(thumbnail.storageKey());
 
         return Media.builder()
                 .inspectionId(inspectionId)

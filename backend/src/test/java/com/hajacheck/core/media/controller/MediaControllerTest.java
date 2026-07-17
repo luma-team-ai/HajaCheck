@@ -5,6 +5,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.hajacheck.auth.entity.Role;
@@ -75,6 +76,34 @@ class MediaControllerTest extends PostgresTestSupport {
     void 썸네일조회_미인증_401() throws Exception {
         mockMvc.perform(get("/api/media/{id}/thumbnail", 1L))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * @RequestParam("files") 는 기본 required=true 라, multipart 요청에 "files" 파트 자체가 아예
+     * 없으면 컨트롤러 진입 전에 Spring이 MissingServletRequestPartException을 던진다(리뷰 P2).
+     * GlobalExceptionHandler.handleMissingPart가 이를 FILE_REQUIRED(400)로 매핑하는지, 실제
+     * ApiResponse 스키마로 응답하는지 실제 컨테이너 요청으로 고정한다(서비스 계층의
+     * files==null||isEmpty 분기와는 별개 경로 — 이쪽은 파트 자체가 없는 경우).
+     */
+    @Test
+    void 업로드_files파트누락_400_FILE_REQUIRED() throws Exception {
+        User owner = userRepository.save(User.builder()
+                .email("no-files-owner@haja.com")
+                .name("소유자")
+                .role(Role.USER)
+                .passwordHash("$2a$10$hashed")
+                .status(UserStatus.ACTIVE)
+                .build());
+        LoginUser principal = new LoginUser(owner);
+        UsernamePasswordAuthenticationToken auth =
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+
+        mockMvc.perform(multipart("/api/inspections/{id}/media", 1L)
+                        .with(csrf())
+                        .with(authentication(auth)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("FILE_REQUIRED"));
     }
 
     /**

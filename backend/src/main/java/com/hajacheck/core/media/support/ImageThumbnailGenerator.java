@@ -5,6 +5,7 @@ import com.hajacheck.global.exception.ErrorCode;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -40,7 +41,14 @@ public final class ImageThumbnailGenerator {
     private ImageThumbnailGenerator() {
     }
 
+    // 태그가 없거나(EXIF 자체가 없는 PNG 등) 파싱에 실패하면 이 값 — "회전/반전 없음".
+    static final int DEFAULT_ORIENTATION = 1;
+
     public static byte[] generate(InputStream original, int maxDimension) {
+        return generate(original, maxDimension, DEFAULT_ORIENTATION);
+    }
+
+    public static byte[] generate(InputStream original, int maxDimension, int orientation) {
         try (ImageInputStream iis = ImageIO.createImageInputStream(original)) {
             if (iis == null) {
                 throw new BusinessException(ErrorCode.FILE_INVALID_TYPE);
@@ -55,7 +63,8 @@ public final class ImageThumbnailGenerator {
                     throw new BusinessException(ErrorCode.FILE_INVALID_TYPE);
                 }
                 BufferedImage image = reader.read(0, subsamplingParam(reader, width, height, maxDimension));
-                return resizeToJpeg(image, maxDimension);
+                BufferedImage oriented = applyOrientation(image, orientation);
+                return resizeToJpeg(oriented, maxDimension);
             } catch (BusinessException e) {
                 throw e;
             } catch (RuntimeException e) {
@@ -85,6 +94,71 @@ public final class ImageThumbnailGenerator {
         int subsampling = Math.max(1, longerSide / Math.max(1, maxDimension));
         param.setSourceSubsampling(subsampling, subsampling, 0, 0);
         return param;
+    }
+
+    // 대부분 스마트폰은 센서를 가로로 고정하고 촬영 방향만 EXIF Orientation(1~8)으로 기록한다
+    // (리뷰 P2) — 반영하지 않으면 세로로 찍은 사진의 썸네일이 90° 눕혀진 채로 그리드에 노출된다.
+    // 표준 EXIF Orientation 값과 필요한 변환(TIFF6.0 Section F 정의):
+    // 1=그대로, 2=좌우반전, 3=180도, 4=상하반전, 5=좌우반전+시계90도, 6=시계90도,
+    // 7=좌우반전+반시계90도, 8=반시계90도(=시계270도). 5~8은 가로·세로가 뒤바뀐다.
+    static BufferedImage applyOrientation(BufferedImage image, int orientation) {
+        if (orientation <= 1 || orientation > 8) {
+            return image;
+        }
+        int width = image.getWidth();
+        int height = image.getHeight();
+        boolean swapDimensions = orientation >= 5;
+        int newWidth = swapDimensions ? height : width;
+        int newHeight = swapDimensions ? width : height;
+
+        AffineTransform t = new AffineTransform();
+        switch (orientation) {
+            case 2 -> {
+                t.concatenate(AffineTransform.getScaleInstance(-1.0, 1.0));
+                t.concatenate(AffineTransform.getTranslateInstance(-width, 0));
+            }
+            case 3 -> {
+                t.concatenate(AffineTransform.getTranslateInstance(width, height));
+                t.concatenate(AffineTransform.getRotateInstance(Math.PI));
+            }
+            case 4 -> {
+                t.concatenate(AffineTransform.getScaleInstance(1.0, -1.0));
+                t.concatenate(AffineTransform.getTranslateInstance(0, -height));
+            }
+            case 5 -> {
+                t.concatenate(AffineTransform.getRotateInstance(Math.PI / 2));
+                t.concatenate(AffineTransform.getScaleInstance(1.0, -1.0));
+            }
+            case 6 -> {
+                t.concatenate(AffineTransform.getTranslateInstance(height, 0));
+                t.concatenate(AffineTransform.getRotateInstance(Math.PI / 2));
+            }
+            case 7 -> {
+                t.concatenate(AffineTransform.getScaleInstance(-1.0, 1.0));
+                t.concatenate(AffineTransform.getTranslateInstance(-height, 0));
+                t.concatenate(AffineTransform.getTranslateInstance(0, width));
+                t.concatenate(AffineTransform.getRotateInstance(3 * Math.PI / 2));
+            }
+            case 8 -> {
+                t.concatenate(AffineTransform.getTranslateInstance(0, width));
+                t.concatenate(AffineTransform.getRotateInstance(3 * Math.PI / 2));
+            }
+            default -> {
+                // orientation == 1 은 위에서 이미 반환 — 도달하지 않음.
+            }
+        }
+
+        BufferedImage rotated = new BufferedImage(newWidth, newHeight, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = rotated.createGraphics();
+        try {
+            g.setColor(Color.WHITE);
+            g.fillRect(0, 0, newWidth, newHeight);
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(image, t, null);
+        } finally {
+            g.dispose();
+        }
+        return rotated;
     }
 
     private static ImageReader firstReader(ImageInputStream iis) {
