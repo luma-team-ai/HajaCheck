@@ -3,6 +3,7 @@ package com.hajacheck.core.report.entity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.hajacheck.global.exception.DomainValidationException;
 import org.junit.jupiter.api.Test;
 
 class ReportTest {
@@ -22,7 +23,7 @@ class ReportTest {
         Report report = Report.draft(10L, 1, "{}", 20L);
 
         report.updateContent("{\"result\":true}", 30L);
-        report.recordGroundingResult(grounding(false, "[\"근거 확인 필요\"]"), 30L);
+        report.recordGroundingResult(grounding(report, false, "[\"근거 확인 필요\"]"), 30L);
 
         assertThat(report.getContentJson()).isEqualTo("{\"result\":true}");
         assertThat(report.getGroundingCheckPassed()).isFalse();
@@ -33,7 +34,7 @@ class ReportTest {
     @Test
     void finalizeReport_근거검증통과후PDF와확정상태를기록() {
         Report report = Report.draft(10L, 1, "{}", 20L);
-        report.recordGroundingResult(grounding(true, null), 30L);
+        report.recordGroundingResult(grounding(report, true, null), 30L);
 
         report.finalizeReport("https://files.example/report.pdf", 30L);
 
@@ -45,7 +46,7 @@ class ReportTest {
     @Test
     void finalizeReport_확정후재확정하거나수정하면예외() {
         Report report = Report.draft(10L, 1, "{}", 20L);
-        report.recordGroundingResult(grounding(true, null), 30L);
+        report.recordGroundingResult(grounding(report, true, null), 30L);
         report.finalizeReport("https://files.example/report.pdf", 30L);
 
         assertThatThrownBy(() -> report.finalizeReport("https://files.example/other.pdf", 31L))
@@ -58,7 +59,7 @@ class ReportTest {
     void finalizeReport_근거검증미통과또는미수행이면예외() {
         Report unchecked = Report.draft(10L, 1, "{}", 20L);
         Report failed = Report.draft(10L, 2, "{}", 20L);
-        failed.recordGroundingResult(grounding(false, "[\"근거 확인 필요\"]"), 30L);
+        failed.recordGroundingResult(grounding(failed, false, "[\"근거 확인 필요\"]"), 30L);
 
         assertThatThrownBy(() -> unchecked.finalizeReport("https://files.example/unchecked.pdf", 30L))
                 .isInstanceOf(IllegalStateException.class);
@@ -87,9 +88,9 @@ class ReportTest {
     @Test
     void finalizeReport_PDF주소가없으면초안상태를유지하고예외() {
         Report nullUrl = Report.draft(10L, 1, "{}", 20L);
-        nullUrl.recordGroundingResult(grounding(true, null), 30L);
+        nullUrl.recordGroundingResult(grounding(nullUrl, true, null), 30L);
         Report blankUrl = Report.draft(10L, 2, "{}", 20L);
-        blankUrl.recordGroundingResult(grounding(true, null), 30L);
+        blankUrl.recordGroundingResult(grounding(blankUrl, true, null), 30L);
 
         assertThatThrownBy(() -> nullUrl.finalizeReport(null, 30L))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -120,13 +121,17 @@ class ReportTest {
 
     @Test
     void groundingResult_근거경고가유효한JSON이아니면예외() {
-        assertThatThrownBy(() -> grounding(false, "not-json"))
+        Report report = Report.draft(10L, 1, "{}", 20L);
+
+        assertThatThrownBy(() -> grounding(report, false, "not-json"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void groundingResult_통과와동시에불일치경고가있으면예외() {
-        assertThatThrownBy(() -> grounding(true, "[\"근거 확인 필요\"]"))
+        Report report = Report.draft(10L, 1, "{}", 20L);
+
+        assertThatThrownBy(() -> grounding(report, true, "[\"근거 확인 필요\"]"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -134,7 +139,7 @@ class ReportTest {
     void groundingResult_공백경고는null로정규화() {
         Report report = Report.draft(10L, 1, "{}", 20L);
 
-        report.recordGroundingResult(grounding(true, "   "), 30L);
+        report.recordGroundingResult(grounding(report, true, "   "), 30L);
 
         assertThat(report.getGroundingWarnings()).isNull();
     }
@@ -143,7 +148,7 @@ class ReportTest {
     void groundingResult_통과와빈배열경고는허용() {
         Report report = Report.draft(10L, 1, "{}", 20L);
 
-        report.recordGroundingResult(grounding(true, "[]"), 30L);
+        report.recordGroundingResult(grounding(report, true, "[]"), 30L);
 
         assertThat(report.getGroundingCheckPassed()).isTrue();
         assertThat(report.getGroundingWarnings()).isEqualTo("[]");
@@ -152,7 +157,7 @@ class ReportTest {
     @Test
     void updateContent_기존grounding판정을무효화() {
         Report report = Report.draft(10L, 1, "{}", 20L);
-        report.recordGroundingResult(grounding(true, null), 20L);
+        report.recordGroundingResult(grounding(report, true, null), 20L);
 
         report.updateContent("{\"changed\":true}", 30L);
 
@@ -162,9 +167,47 @@ class ReportTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
-    private static GroundingCheckResult grounding(boolean passed, String warnings) {
+    @Test
+    void recordGroundingResult_수정전콘텐츠의늦게도착한결과를거부() {
+        Report report = Report.draft(10L, 1, "{\"content\":\"A\"}", 20L);
+        GroundingCheckTarget contentATarget = report.captureGroundingTarget();
+        GroundingCheckResult contentAResult = GroundingCheckResult.passed(contentATarget, null);
+
+        report.updateContent("{\"content\":\"B\"}", 30L);
+
+        assertThatThrownBy(() -> report.recordGroundingResult(contentAResult, 30L))
+                .isInstanceOf(DomainValidationException.class)
+                .hasMessageContaining("현재 보고서 버전 또는 콘텐츠");
+        assertThat(report.getGroundingCheckPassed()).isNull();
+        assertThat(report.getGroundingWarnings()).isNull();
+    }
+
+    @Test
+    void recordGroundingResult_다른보고서버전의결과를거부() {
+        Report versionOne = Report.draft(10L, 1, "{}", 20L);
+        Report versionTwo = Report.draft(10L, 2, "{}", 20L);
+        GroundingCheckResult versionOneResult = grounding(versionOne, true, null);
+
+        assertThatThrownBy(() -> versionTwo.recordGroundingResult(versionOneResult, 30L))
+                .isInstanceOf(DomainValidationException.class);
+        assertThat(versionTwo.getGroundingCheckPassed()).isNull();
+    }
+
+    @Test
+    void recordGroundingResult_JSON공백과객체키순서가달라도같은콘텐츠로인정() {
+        Report report = Report.draft(10L, 1, "{\"b\":2,\"a\":1}", 20L);
+        GroundingCheckResult result = grounding(report, true, null);
+
+        report.updateContent("{ \"a\" : 1, \"b\" : 2 }", 30L);
+        report.recordGroundingResult(result, 30L);
+
+        assertThat(report.getGroundingCheckPassed()).isTrue();
+    }
+
+    private static GroundingCheckResult grounding(Report report, boolean passed, String warnings) {
+        GroundingCheckTarget target = report.captureGroundingTarget();
         return passed
-                ? GroundingCheckResult.passed(warnings)
-                : GroundingCheckResult.failed(warnings);
+                ? GroundingCheckResult.passed(target, warnings)
+                : GroundingCheckResult.failed(target, warnings);
     }
 }
