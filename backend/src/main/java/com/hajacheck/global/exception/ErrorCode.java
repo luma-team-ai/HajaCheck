@@ -68,7 +68,10 @@ public enum ErrorCode {
     // AI 서버(FastAPI) 인증 프록시(#228) — 연결/타임아웃/응답형식 3종
     AI_SERVER_UNREACHABLE(HttpStatus.SERVICE_UNAVAILABLE, "AI 서버에 연결할 수 없습니다."),
     AI_SERVER_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "AI 서버 응답이 지연되고 있습니다."),
-    AI_INVALID_RESPONSE(HttpStatus.BAD_GATEWAY, "AI 서버 응답을 처리할 수 없습니다.");
+    AI_INVALID_RESPONSE(HttpStatus.BAD_GATEWAY, "AI 서버 응답을 처리할 수 없습니다."),
+    // AI 서버 응답 4xx/5xx 구분(#334 P3) — 4xx 는 요청 자체가 거부된 것으로 보아 400, 5xx 는 업스트림 장애로 502.
+    AI_REQUEST_REJECTED(HttpStatus.BAD_REQUEST, "AI 서버가 요청을 거부했습니다."),
+    AI_SERVER_ERROR(HttpStatus.BAD_GATEWAY, "AI 서버에서 오류가 발생했습니다.");
 
     private final HttpStatus status;
     private final String message;
