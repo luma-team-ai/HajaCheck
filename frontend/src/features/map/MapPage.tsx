@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { mapApi } from './api/mapApi';
 import { FacilityListPanel } from './components/FacilityListPanel';
-import { MapControls } from './components/MapControls';
+import { MapControls, type MapDisplayType } from './components/MapControls';
 import { MapLegend } from './components/MapLegend';
 import { SelectedFacilityPopup } from './components/SelectedFacilityPopup';
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_LEVEL, ERROR_TEXT_COLOR, MAX_MAP_LEVEL, MIN_MAP_LEVEL } from './constants';
@@ -34,6 +34,7 @@ export default function MapPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('전체');
   const [selectedFacilityId, setSelectedFacilityId] = useState<number | null>(null);
+  const [mapType, setMapType] = useState<MapDisplayType>('roadmap');
 
   const {
     data: facilities,
@@ -148,7 +149,16 @@ export default function MapPage() {
     };
   }, [markerFacilities, sdkStatus]);
 
-  // 선택된 시설물 변경 시 카카오맵 CustomOverlay 동기화
+  // 지도/위성 토글 상태를 실제 카카오맵 인스턴스에 반영
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (sdkStatus !== 'ready' || !map) return;
+    const typeId =
+      mapType === 'hybrid' ? window.kakao.maps.MapTypeId.HYBRID : window.kakao.maps.MapTypeId.ROADMAP;
+    map.setMapTypeId(typeId);
+  }, [mapType, sdkStatus]);
+
+  // 선택된 시설물 변경 시 카카오맵 CustomOverlay 동기화 + 지도 시점을 부드럽게 이동(panTo)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (sdkStatus !== 'ready' || !map) return;
@@ -164,6 +174,8 @@ export default function MapPage() {
       selectedFacility.latitude,
       selectedFacility.longitude
     );
+
+    map.panTo(position);
 
     const overlay = new window.kakao.maps.CustomOverlay({
       position,
@@ -181,6 +193,10 @@ export default function MapPage() {
       }
     };
   }, [selectedFacility, sdkStatus, overlayContainer]);
+
+  const handleChangeMapType = (nextType: MapDisplayType) => {
+    setMapType(nextType);
+  };
 
   const handleZoomIn = () => {
     const map = mapInstanceRef.current;
@@ -203,7 +219,7 @@ export default function MapPage() {
           position.coords.latitude,
           position.coords.longitude,
         );
-        map.setCenter(center);
+        map.panTo(center);
       },
       () => {
         // 위치 권한 거부/실패 시 조용히 무시 — 지도 기본 중심을 그대로 유지
@@ -230,7 +246,13 @@ export default function MapPage() {
       />
       <div className="relative flex-1 overflow-hidden bg-white">
         <div ref={mapContainerRef} className="h-full w-full" />
-        <MapControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} onMyLocation={handleMyLocation} />
+        <MapControls
+          mapType={mapType}
+          onChangeMapType={handleChangeMapType}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onMyLocation={handleMyLocation}
+        />
         <MapLegend />
         {selectedFacility && createPortal(
           <SelectedFacilityPopup

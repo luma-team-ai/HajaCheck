@@ -52,16 +52,19 @@ function stubKakaoMaps() {
   let currentLevel = 7;
   const mapInstance = {
     setCenter: vi.fn(),
+    panTo: vi.fn(),
     setLevel: vi.fn((level: number) => {
       currentLevel = level;
     }),
     getLevel: vi.fn(() => currentLevel),
     relayout: vi.fn(),
+    setMapTypeId: vi.fn(),
   };
 
   (window as unknown as { kakao: unknown }).kakao = {
     maps: {
       load: (cb: () => void) => cb(),
+      MapTypeId: { ROADMAP: 0, SKYVIEW: 1, HYBRID: 2 },
       LatLng: vi.fn(function LatLng(this: Record<string, unknown>, lat: number, lng: number) {
         this.lat = lat;
         this.lng = lng;
@@ -168,9 +171,9 @@ describe('MapPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '내 위치로 이동' }));
 
     const map = window.kakao.maps.Map as unknown as ReturnType<typeof vi.fn>;
-    const mapInstance = map.mock.results[0].value as { setCenter: ReturnType<typeof vi.fn> };
+    const mapInstance = map.mock.results[0].value as { panTo: ReturnType<typeof vi.fn> };
     expect(getCurrentPosition).toHaveBeenCalled();
-    expect(mapInstance.setCenter).toHaveBeenCalled();
+    expect(mapInstance.panTo).toHaveBeenCalled();
   });
 
   it('내 위치 이동 실패(권한 거부 등) 시 예외 없이 조용히 무시한다', async () => {
@@ -204,5 +207,40 @@ describe('MapPage', () => {
 
     expect(screen.queryByText('상세 보기')).toBeNull();
     expect(screen.queryByText('한강대교 북단')).toBeNull();
+  });
+
+  it('위성 버튼 클릭 시 지도 타입이 HYBRID로 전환되고 aria-pressed가 반영된다', async () => {
+    renderMapPage();
+    await screen.findByText('한강대교 북단');
+
+    const map = window.kakao.maps.Map as unknown as ReturnType<typeof vi.fn>;
+    const mapInstance = map.mock.results[0].value as { setMapTypeId: ReturnType<typeof vi.fn> };
+
+    const satelliteButton = screen.getByRole('button', { name: '위성' });
+    const roadmapButton = screen.getByRole('button', { name: '지도' });
+    expect(roadmapButton.getAttribute('aria-pressed')).toBe('true');
+    expect(satelliteButton.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(satelliteButton);
+
+    expect(mapInstance.setMapTypeId).toHaveBeenCalledWith(window.kakao.maps.MapTypeId.HYBRID);
+    expect(satelliteButton.getAttribute('aria-pressed')).toBe('true');
+    expect(roadmapButton.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(roadmapButton);
+    expect(mapInstance.setMapTypeId).toHaveBeenCalledWith(window.kakao.maps.MapTypeId.ROADMAP);
+  });
+
+  it('목록에서 시설물을 선택하면 지도가 panTo로 부드럽게 이동한다', async () => {
+    renderMapPage();
+    await screen.findByText('한강대교 북단');
+
+    const map = window.kakao.maps.Map as unknown as ReturnType<typeof vi.fn>;
+    const mapInstance = map.mock.results[0].value as { panTo: ReturnType<typeof vi.fn> };
+
+    fireEvent.click(screen.getByText('한강대교 북단'));
+
+    expect(await screen.findByText('상세 보기')).not.toBeNull();
+    expect(mapInstance.panTo).toHaveBeenCalled();
   });
 });
