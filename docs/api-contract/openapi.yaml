@@ -4,6 +4,7 @@ info:
   version: "0.4.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    2026-07-18 미릴리스 draft baseline을 현재 구현에 맞게 정정했다.
     구현된 엔드포인트(ai-server)는 실행 후 /docs(Swagger UI)에서 최신본 재확인 가능.
     나머지(Spring Boot)는 각 담당자가 이 파일에 스펙을 채워나감 — 임의로 필드명·구조를 바꾸지 말 것.
 servers:
@@ -98,9 +99,15 @@ paths:
     post:
       summary: AI 보고서 4개 섹션 병렬 생성 및 Grounding Check (FR-5, 로그인/보고서 담당)
       description: >
-        (계획/미구현) `ai-server/routers/ai_router.py`에 아직 라우트가 없다 — 설계만 완료된 상태
-        (`docs/design/ai/report-chain-design.md` 참조). 아래 requestBody/responses는 계획 스펙이며,
-        구현 시 실제 코드 기준으로 갱신할 것.
+        구현된 내부 전용 FastAPI 라우트다. 외부 클라이언트는 인증된 Spring `/api/ai/report`
+        프록시를 경유한다. grounding_request_id, inspection_id, report_version은 모두 제공하거나
+        모두 생략해야 한다. 모두 생략하면 기존 호환 경로로 처리되어 응답의 correlation 필드와
+        content_hash도 생략된다. 모두 제공하면 같은 correlation 값과 보고서 본문의 canonical JSON
+        SHA-256 content_hash를 반환한다. 현재 Spring 프록시는 이 값을 서버에서 강제 생성하지 않고
+        요청 값을 전달하므로, correlation은 선택적 무결성 대조 계약이며 권한·귀속 보장은 아니다.
+      x-internal: true
+      security:
+        - InternalKey: []
       tags: [ai]
       requestBody:
         required: true
@@ -109,10 +116,17 @@ paths:
             schema: { $ref: "#/components/schemas/ReportGenerateRequest" }
       responses:
         "200":
-          description: 성공/실패 모두 200 — success 필드로 구분
+          description: 성공 또는 AI/보고서 검증 실패 — success 필드로 구분
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/AIResponse" }
+              schema: { $ref: "#/components/schemas/ReportAIResponse" }
+        "422":
+          description: >
+            요청 모델 검증 실패. correlation 필드 일부 입력, 빈 grounding_request_id,
+            1 미만 inspection_id/report_version 등이 해당하며 FastAPI detail[] 형식으로 반환한다.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FastApiValidationError" }
 
   /ai/rag-chat:
     post:
@@ -753,6 +767,11 @@ paths:
 
 components:
   securitySchemes:
+    InternalKey:
+      type: apiKey
+      in: header
+      name: X-Internal-Key
+      description: Spring Boot가 FastAPI 내부 호출에 부착하는 AI_INTERNAL_KEY
     InternalServiceToken:
       type: apiKey
       in: header
@@ -1206,10 +1225,14 @@ components:
 
     ReportGenerateRequest:
       type: object
+      description: >
+        correlation 필드 3개는 모두 함께 제공하거나 모두 생략한다. 모두 생략하면 기존 호환 경로이며,
+        모두 제공하면 응답에 같은 값과 content_hash가 포함된다. 현재 값의 서버 발급·점검 귀속은 강제되지 않는다.
       required: [facility_info, confirmed_defects]
       properties:
         facility_info:
           type: object
+          required: [name, location]
           properties:
             name: { type: string, example: Haja APT }
             location: { type: string, example: 서울시 }
@@ -1222,6 +1245,133 @@ components:
           type: string
           enum: [regenerate, warn]
           default: regenerate
+        grounding_request_id:
+          type: string
+          minLength: 1
+          description: 선택적 correlation 요청 ID. inspection_id, report_version과 함께 제공해야 한다.
+          example: rpt-01J2Y8A7M6
+        inspection_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: 선택적 점검 ID. 다른 correlation 필드와 함께 제공해야 한다.
+          example: 42
+        report_version:
+          type: integer
+          minimum: 1
+          description: 선택적 보고서 업무 버전. 다른 correlation 필드와 함께 제공해야 한다.
+          example: 3
+
+    ReportOverview:
+      type: object
+      required: [purpose, facility_summary, scope]
+      properties:
+        purpose: { type: string }
+        facility_summary: { type: string }
+        scope: { type: string }
+
+    ReportSummary:
+      type: object
+      required: [overall_opinion, total_count, count_by_grade, key_findings]
+      properties:
+        overall_opinion: { type: string }
+        total_count: { type: integer, minimum: 0 }
+        count_by_grade:
+          type: object
+          additionalProperties: { type: integer, minimum: 0 }
+        key_findings:
+          type: array
+          items: { type: string }
+
+    ReportDetailItem:
+      type: object
+      required: [defect_type, location, severity_grade, description, cause]
+      properties:
+        defect_type: { type: string }
+        location: { type: string }
+        severity_grade: { type: string, enum: [A, B, C, D, E] }
+        description: { type: string }
+        cause: { type: string }
+
+    ReportRecommendationItem:
+      type: object
+      required: [target, method, priority, legal_basis, legal_basis_verified]
+      properties:
+        target: { type: string }
+        method: { type: string }
+        priority: { type: string }
+        legal_basis: { type: string }
+        legal_basis_verified: { type: boolean }
+
+    ReportGenerateData:
+      type: object
+      required: [overview, summary, detail, recommendation, grounding_ok]
+      properties:
+        overview: { $ref: "#/components/schemas/ReportOverview" }
+        summary: { $ref: "#/components/schemas/ReportSummary" }
+        detail:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/ReportDetailItem" }
+        recommendation:
+          type: object
+          required: [items, monitoring_points]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/ReportRecommendationItem" }
+            monitoring_points:
+              type: array
+              items: { type: string }
+        grounding_ok: { type: boolean }
+        grounding_request_id:
+          type: string
+          minLength: 1
+          description: correlation 요청에서 세 필드를 모두 제공한 경우에만 존재한다.
+        inspection_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: correlation 요청에서 세 필드를 모두 제공한 경우에만 존재한다.
+        report_version:
+          type: integer
+          minimum: 1
+          description: correlation 요청에서 세 필드를 모두 제공한 경우에만 존재한다.
+        content_hash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: correlation 필드를 제외한 보고서 본문 canonical JSON의 SHA-256 hex.
+
+    ReportAIResponse:
+      type: object
+      required: [success, data, usage, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          allOf:
+            - { $ref: "#/components/schemas/ReportGenerateData" }
+        usage:
+          nullable: true
+          allOf:
+            - { $ref: "#/components/schemas/AIUsage" }
+        error:
+          nullable: true
+          allOf:
+            - { $ref: "#/components/schemas/AIError" }
+
+    FastApiValidationError:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
 
     # ── grounding-check (구현됨, ai-server/ai/core/grounding.py) ──
     GroundingDefect:
