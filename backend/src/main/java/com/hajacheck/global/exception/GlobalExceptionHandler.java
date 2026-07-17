@@ -2,6 +2,7 @@ package com.hajacheck.global.exception;
 
 import com.hajacheck.global.common.ApiResponse;
 import jakarta.validation.ConstraintViolationException;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.AuthenticationException;
@@ -16,6 +17,9 @@ import org.springframework.validation.BindException;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    /** 로그 위조 방지용 — CR/LF 및 기타 제어문자(#330). */
+    private static final Pattern CONTROL_CHARS = Pattern.compile("\\p{Cntrl}");
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {
@@ -97,9 +101,21 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(NoResourceFoundException e) {
-        log.warn("존재하지 않는 리소스 요청: {} {}", e.getHttpMethod(), e.getResourcePath());
+        log.warn("존재하지 않는 리소스 요청: {} {}", e.getHttpMethod(), sanitizeForLog(e.getResourcePath()));
         return ResponseEntity.status(ErrorCode.RESOURCE_NOT_FOUND.getStatus())
                 .body(ApiResponse.fail(ErrorCode.RESOURCE_NOT_FOUND));
+    }
+
+    /**
+     * 로그 위조(CWE-117) 방지 — 사용자 입력 경로는 URL 디코딩된 값이라 %0d%0a 로 CR/LF 를 실어 보낼 수 있고,
+     * Logback 은 파라미터의 제어문자를 이스케이프하지 않아 가짜 로그 라인이 주입될 수 있다.
+     * 직접 단위 테스트하기 위해 package-private.
+     */
+    static String sanitizeForLog(String value) {
+        if (value == null) {
+            return null;
+        }
+        return CONTROL_CHARS.matcher(value).replaceAll("_");
     }
 
     @ExceptionHandler(Exception.class)

@@ -37,6 +37,32 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("로그용 살균이 CR/LF 등 제어문자를 제거해 로그 위조를 막는다(CWE-117)")
+    void sanitizeForLog_stripsControlChars() {
+        // %0d%0a 는 디코딩되어 실제 CR/LF 로 도달 — 그대로 찍으면 가짜 로그 라인이 주입된다.
+        String malicious = "/api/x\r\n2026-07-17 INFO 위조된-로그-라인\tTAB";
+
+        String sanitized = GlobalExceptionHandler.sanitizeForLog(malicious);
+
+        assertThat(sanitized).doesNotContain("\r").doesNotContain("\n").doesNotContain("\t");
+        assertThat(sanitized).isEqualTo("/api/x__2026-07-17 INFO 위조된-로그-라인_TAB");
+        assertThat(GlobalExceptionHandler.sanitizeForLog(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("경로에 CRLF 가 실려도 404 응답은 유지된다")
+    void handleNoResourceFound_crlfInPath_stillReturns404() {
+        NoResourceFoundException e = new NoResourceFoundException(
+                HttpMethod.GET, "/api/x\r\nINFO 위조");
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleNoResourceFound(e);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().error().code()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND.name());
+    }
+
+    @Test
     @DisplayName("포괄 핸들러는 기존대로 500 INTERNAL_ERROR 를 유지한다")
     void handleException_returns500() {
         ResponseEntity<ApiResponse<Void>> response = handler.handleException(new IllegalStateException("boom"));
