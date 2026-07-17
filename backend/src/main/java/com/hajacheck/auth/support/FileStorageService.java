@@ -37,7 +37,10 @@ public interface FileStorageService {
     void delete(String storageKey);
 
     /**
-     * 저장키로 파일 바이트를 읽는다(인가된 다운로드/서빙 엔드포인트용). 미존재/IO 실패는 FILE_UPLOAD_FAILED.
+     * 저장키로 파일 바이트를 읽는다(인가된 다운로드/서빙 엔드포인트용).
+     * 파일 미존재는 FILE_NOT_FOUND(404), 그 외 IO 실패는 FILE_UPLOAD_FAILED(500)로 던진다
+     * (리뷰 P2: 호출부가 미존재를 404로 통일 응답하는 데 이 구분에 의존하므로, 구현을 교체·추가할
+     * 때도 이 계약을 반드시 지켜야 한다 — {@link LocalFileStorage#read} 참조).
      */
     byte[] read(String storageKey);
 

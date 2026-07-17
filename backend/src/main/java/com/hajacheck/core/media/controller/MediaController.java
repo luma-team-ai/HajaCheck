@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -47,7 +48,11 @@ public class MediaController {
     public ResponseEntity<byte[]> getThumbnail(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
         ThumbnailFile thumbnail = mediaService.getThumbnail(loginUser.getUserId(), id);
+        // 사용자별로 소유권 검증을 거쳐 다른 콘텐츠를 반환하는 사적(private) 이미지라(현장 GPS 결부),
+        // 동일 URL이 공유 캐시(프록시/CDN)나 브라우저 캐시에 남아 다른 사용자·로그아웃 후 노출되면
+        // 안 된다(리뷰 P2).
         return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore().cachePrivate())
                 .contentType(MediaType.parseMediaType(thumbnail.mimeType()))
                 .body(thumbnail.content());
     }
