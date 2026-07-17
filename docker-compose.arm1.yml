@@ -25,6 +25,9 @@ volumes:
   pgdata:
   redisdata:
   chroma_data:
+  # application-docker.yml의 app.file-storage.base-dir 대응 — 미마운트 시 컨테이너 임시 FS에 저장되어
+  # deploy.sh의 매 배포 컨테이너 재생성마다 업로드 파일(사업자등록증 등)이 유실되고 DB 행만 남는다(#323).
+  uploads:
 
 services:
   postgres:
@@ -114,6 +117,8 @@ services:
       MAIL_FROM: ${MAIL_FROM:?MAIL_FROM이 .env에 설정되어야 합니다}
       # 재설정 링크 base. 요청 Host에서 유도하지 않으므로(poisoning 방어) 이 값이 유일한 출처 — 미설정 시 기동 실패.
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:?FRONTEND_BASE_URL이 .env에 설정되어야 합니다}
+    volumes:
+      - uploads:/app/uploads/hajacheck-files
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
       interval: 15s
@@ -162,6 +167,9 @@ services:
       dockerfile: Dockerfile
       args:
         NGINX_CONF_FILE: nginx/arm1.conf
+        # Vite가 빌드 시점에 인라인하는 카카오맵 키(#323) — 운영은 강제(:?). 미설정 시 지도 페이지가
+        # 빌드·헬스체크 전부 통과한 뒤 런타임에만 KakaoMapKeyMissingError로 조용히 깨진다.
+        VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:?VITE_KAKAO_MAP_APP_KEY가 .env에 설정되어야 합니다}
     # latest 금지(PRD §6.1) — deploy.sh가 IMAGE_TAG(날짜+커밋SHA)를 주입해 태깅. 수동 실행 시 local.
     image: hajacheck-arm1-frontend:${IMAGE_TAG:-local}
     restart: unless-stopped

@@ -47,3 +47,9 @@ services:
   nginx:
     image: hajacheck-nginx:${IMAGE_TAG:?IMAGE_TAG(버전+커밋 SHA)가 필요합니다 — latest 금지}
     restart: unless-stopped
+    build:
+      # base(docker-compose.yml)의 nginx build.context/dockerfile과 병합됨 — args만 추가.
+      # Vite가 빌드 시점에 인라인하는 카카오맵 키(#323) — 운영은 강제(:?), arm1.yml과 동일 패턴
+      # (한쪽만 가드하면 다른 쪽 배포가 조용히 뚫린다 — 아래 spring 서비스 SMTP 주석과 같은 근거).
+      args:
+        VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:?VITE_KAKAO_MAP_APP_KEY가 .env에 설정되어야 합니다}
