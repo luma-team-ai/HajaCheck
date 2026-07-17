@@ -99,6 +99,21 @@ services:
       KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:?KAKAO_CLIENT_SECRET이 .env에 설정되어야 합니다}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID가 .env에 설정되어야 합니다}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET이 .env에 설정되어야 합니다}
+      # 비밀번호 재설정 메일 발송(#194) — 값은 서버 .env(미커밋)에만.
+      # 운영은 강제(:?): SMTP_HOST가 비면 앱이 "로그 폴백"으로 조용히 전환돼, 재설정 링크가 사용자에게
+      # 안 가고 서버 로그에만 찍힌다(무증상 장애 + 토큰이 로그에 남음). 프로파일로는 막을 수 없다 —
+      # arm1과 로컬이 둘 다 SPRING_PROFILES_ACTIVE=docker라서. 그래서 AI_INTERNAL_KEY와 동일하게 :? 가드로 막는다.
+      # ⚠️ 승격 순서: 서버 .env에 값 주입 → 그 다음 main 승격(가드가 의도적으로 배포를 멈춘다).
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST가 .env에 설정되어야 합니다}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      # 465(SMTPS, 암묵적 TLS)를 쓸 때만 true — 587(STARTTLS)이 기본이며 포트와 세트로 설정할 것.
+      # (전달하지 않으면 .env에 넣어도 컨테이너에 반영되지 않는다.)
+      SMTP_SSL_ENABLE: ${SMTP_SSL_ENABLE:-false}
+      SMTP_USERNAME: ${SMTP_USERNAME:?SMTP_USERNAME이 .env에 설정되어야 합니다}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD가 .env에 설정되어야 합니다}
+      MAIL_FROM: ${MAIL_FROM:?MAIL_FROM이 .env에 설정되어야 합니다}
+      # 재설정 링크 base. 요청 Host에서 유도하지 않으므로(poisoning 방어) 이 값이 유일한 출처 — 미설정 시 기동 실패.
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:?FRONTEND_BASE_URL이 .env에 설정되어야 합니다}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
       interval: 15s

@@ -20,6 +20,39 @@ spring:
       # 사업자등록증 업로드 한도(계약: ≤10MB). request 는 파일+폼필드 여유로 12MB.
       max-file-size: 10MB
       max-request-size: 12MB
+  # 비밀번호 재설정 메일 발송(#194) — 시크릿은 전부 env 참조, 커밋된 값 없음.
+  # ⚠️ SMTP_HOST 미설정 시 값이 "빈 문자열로 존재"한다 → 스프링은 JavaMailSender 빈을 만들지만,
+  #    발송 구현체 선택은 SmtpConfiguredCondition(빈값 배제)이 하므로 로컬/dev 는 로그 폴백으로 간다.
+  #    운영(arm1·vm)은 compose 의 ${SMTP_HOST:?} 가드가 미설정 기동 자체를 막는다(프로파일 분기 불가 —
+  #    arm1 과 로컬이 둘 다 SPRING_PROFILES_ACTIVE=docker 라서).
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      # ⚠️ TLS 다운그레이드 차단(fail-close). enable 만 켜면 "기회주의적 TLS"라, 서버가 STARTTLS 를 광고하지
+      #    않거나 MITM 이 광고를 스트립하면 예외 없이 평문 SMTP 로 폴백한다 → 재설정 링크(=1회용 토큰,
+      #    사실상 계정 탈취 수단)가 앱→릴레이 구간에 평문으로 흐른다. 이 기능은 토큰 평문 노출 금지가 전제이므로
+      #    (sha256 저장 키·로그 마스킹·응답 DTO 봉인) 전송 구간만 열어둘 수 없다.
+      #    required=true 면 STARTTLS 협상 실패 시 발송이 실패한다("STARTTLS is required but host does not
+      #    support STARTTLS" — Angus Mail 2.0.3 SMTPTransport 확인). 발송 실패는 응답에 반영되지 않는다(@Async).
+      mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: true
+      # 호스트명 검증 — 꺼져 있으면 TLS 를 써도 MITM 이 성립한다(아무 유효 인증서나 통과).
+      # Angus Mail 2.0.3 의 기본값이 true 임을 바이트코드로 확인했으나(SocketFetcher 가 default=true 로 조회),
+      # 구현체 교체·업그레이드로 기본값이 조용히 바뀌어도 안전하도록 명시 고정한다.
+      mail.smtp.ssl.checkserveridentity: true
+      # 465(SMTPS, 암묵적 TLS) 사용 시에만 true — 465 는 STARTTLS 를 쓰지 않는다. 587(STARTTLS)이 기본.
+      # ⚠️ 465 에서도 위 starttls.required 는 무해하다: 이미 SSLSocket 이면 SMTPTransport 가
+      #    "STARTTLS requested but already using SSL" 로 건너뛰고 예외를 던지지 않는다(2.0.3 바이트코드 확인).
+      #    이 값을 켜지 않고 포트만 465 로 두면 평문으로 말을 걸어 발송이 실패하니 세트로 설정할 것.
+      mail.smtp.ssl.enable: ${SMTP_SSL_ENABLE:false}
+      # SMTP 왕복이 늘어져도 발송 스레드만 묶이고 응답엔 영향이 없지만(@Async), 스레드 고갈은 막는다.
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
 
 # 기업 인증(회원가입·아이디/비번 찾기) 설정 — 시크릿 아님(SpringBoot_코드_컨벤션.md §9 @ConfigurationProperties).
 app:
@@ -39,6 +72,20 @@ app:
   auth:
     password-reset-ttl: 10m
     signup-status-ttl: 30d
+    # 비밀번호 재설정 1단계 rate-limit(2단계엔 걸지 않음 — 계약 §Rate-limit).
+    password-reset-rate-limit:
+      # 대상 이메일 축 — 사용자 단위 실질 방어(특정 피해자 메일 폭탄 차단).
+      email-limit: 3
+      email-window: 5m
+      # 전역 상한 — SMTP 제공자 쿼터·발신 평판 보호용 "천장"이지 사용자 단위 방어가 아니다.
+      # 정상 트래픽(하루 한 자릿수)이 절대 닿지 않을 만큼 크게 잡는다. 근거는 AuthProperties javadoc 참조.
+      # ⚠️ 작게 잡으면 공격자가 상한을 채워 정상 사용자를 429로 막는 DoS 킬스위치가 된다(IP 축 미사용).
+      global-limit: 60
+      global-window: 1m
+  # 재설정 메일 발신 주소 + 링크 base. ⚠️ 링크 base 는 반드시 설정값 — 요청 Host 에서 유도 금지(poisoning).
+  mail:
+    from: ${MAIL_FROM:no-reply@hajacheck.local}
+    frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:5173}
 
 # AI 서버(FastAPI) 인증 프록시 설정(#228) — 시크릿(internal-key)은 env 참조, 커밋값 없음.
 ai:
