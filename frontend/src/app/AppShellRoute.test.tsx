@@ -4,9 +4,23 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MYPAGE_PLAN_ROUTE } from '../features/auth/constants';
+import { useAuthStore } from '../features/auth/store/authStore';
+import type { User } from '../features/auth/types';
 import { AppShellRoute } from './AppShellRoute';
 
-afterEach(cleanup);
+const baseUser: User = {
+  id: 1,
+  email: 'hajacheck@example.com',
+  name: '하자체크 담당자',
+  role: 'USER',
+  companyId: 1,
+  profileImageUrl: null,
+};
+
+afterEach(() => {
+  cleanup();
+  useAuthStore.setState({ user: null });
+});
 
 // useMatches()는 data router(createMemoryRouter/RouterProvider)에서만 동작하므로
 // MemoryRouter + Routes 조합이 아니라 실제 router.tsx와 동일한 방식으로 렌더링한다.
@@ -75,5 +89,23 @@ describe('AppShellRoute', () => {
     fireEvent.click(screen.getByRole('button', { name: '내 프로필' }));
 
     expect(screen.getByText('마이페이지 이용권 페이지')).not.toBeNull();
+  });
+
+  it('로그인 사용자의 role이 ADMIN이면 관리자 메뉴와 사이드바 프로필이 노출된다(HAJA-167, #184)', () => {
+    useAuthStore.setState({ user: { ...baseUser, role: 'ADMIN' } });
+
+    renderAt('/dashboard');
+
+    expect(screen.getByText('관리자 페이지')).not.toBeNull();
+    expect(screen.getByText('하자체크 담당자')).not.toBeNull();
+  });
+
+  it('로그인 사용자의 role이 ADMIN이 아니면 관리자 메뉴와 사이드바 프로필이 노출되지 않는다(HAJA-167, #184)', () => {
+    useAuthStore.setState({ user: { ...baseUser, role: 'USER' } });
+
+    renderAt('/dashboard');
+
+    expect(screen.queryByText('관리자 페이지')).toBeNull();
+    expect(screen.queryByText('하자체크 담당자')).toBeNull();
   });
 });
