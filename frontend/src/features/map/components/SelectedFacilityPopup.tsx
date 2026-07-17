@@ -33,7 +33,9 @@ export function SelectedFacilityPopup({
   return (
     // border-[#d4d4d8]: Figma 팝업 전용 보더 색상 — styles/tokens.css의 --color-border(#e4e4e7)와
     // 값이 달라 시맨틱 토큰으로 치환하지 않고 유지(P3, 2026-07-16 검토)
-    <div className="w-[290px] rounded-[24px] border border-[#d4d4d8] bg-white p-4 shadow-[0px_8px_24px_rgba(0,0,0,0.08)] z-10">
+    // 글라스(반투명+블러) 효과 — Figma 시안 대조 결과 누락돼 있던 부분 추가(2026-07-17):
+    // bg-white/70 + backdrop-blur로 지도 위에 떠 있는 느낌을 재현. Safari 대응 -webkit- 접두사 병기.
+    <div className="w-[290px] rounded-[24px] border border-[#d4d4d8] bg-white/70 p-4 shadow-[0px_8px_24px_rgba(0,0,0,0.08)] backdrop-blur-[10px] backdrop-brightness-[100%] [-webkit-backdrop-filter:blur(10px)_brightness(100%)] z-10">
       <div className="flex items-start gap-3">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-100">
           {facility.thumbnailUrl ? (

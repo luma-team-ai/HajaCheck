@@ -92,15 +92,15 @@ export function FacilityListPanel({
                     )}
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="truncate text-sm font-semibold text-heading">
-                      {facility.name}
+                    <span className="flex items-start justify-between gap-2">
+                      <span className="truncate text-sm font-semibold text-heading">
+                        {facility.name}
+                      </span>
+                      <GradeBadge grade={facility.highestGrade} />
                     </span>
                     <span className="truncate text-xs text-text-muted">{facility.address}</span>
-                    <span className="flex items-center gap-2">
-                      <GradeBadge grade={facility.highestGrade} />
-                      <span className="text-[11px] text-text-muted">
-                        결함 {facility.warningCount} · 주의 {facility.cautionCount}
-                      </span>
+                    <span className="text-[11px] text-text-muted">
+                      결함 {facility.warningCount} · 주의 {facility.cautionCount}
                     </span>
                   </span>
                 </button>
