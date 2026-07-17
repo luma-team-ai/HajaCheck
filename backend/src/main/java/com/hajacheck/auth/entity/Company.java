@@ -1,6 +1,7 @@
 package com.hajacheck.auth.entity;
 
 import com.hajacheck.global.common.BaseTimeEntity;
+import com.hajacheck.global.exception.DomainStateTransitionException;
 import com.hajacheck.global.util.JsonValidator;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -155,7 +156,7 @@ public class Company extends BaseTimeEntity {
     public void approve(Long reviewerUserId) {
         requirePendingReview("approve");
         if (this.verificationStatus != BusinessVerificationStatus.VERIFIED) {
-            throw new IllegalStateException(
+            throw new DomainStateTransitionException(
                     "approve 불가: 사업자등록정보 검증이 완료된 회사만 승인할 수 있다");
         }
         this.status = CompanyStatus.APPROVED;
@@ -189,7 +190,7 @@ public class Company extends BaseTimeEntity {
 
     private void requirePendingReview(String action) {
         if (this.status != CompanyStatus.PENDING_REVIEW) {
-            throw new IllegalStateException(
+            throw new DomainStateTransitionException(
                     "%s 불가: 현재 회사 상태=%s, 심사 대기 상태에서만 처리할 수 있다"
                             .formatted(action, this.status));
         }

@@ -3,11 +3,12 @@ package com.hajacheck.global.util;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hajacheck.global.exception.DomainValidationException;
 
 /**
  * jsonb 컬럼에 저장되는 String 값의 JSON 문법을 애플리케이션 경계에서 선검증한다.
  * PostgreSQL jsonb 타입도 쓰기 시점에 문법을 검증하지만 그 실패는 flush/commit 단계에서
- * 원시 SQL 예외로 표면화된다 — 여기서 먼저 걸러 명확한 {@link IllegalArgumentException}으로 대체한다.
+ * 원시 SQL 예외로 표면화된다 — 여기서 먼저 걸러 명확한 {@link DomainValidationException}으로 대체한다.
  */
 public final class JsonValidator {
 
@@ -29,7 +30,7 @@ public final class JsonValidator {
         try {
             MAPPER.readTree(json);
         } catch (JsonProcessingException e) {
-            throw new IllegalArgumentException(fieldName + "는 유효한 JSON이어야 한다: " + e.getOriginalMessage());
+            throw new DomainValidationException(fieldName + ": 유효한 JSON이어야 한다");
         }
     }
 

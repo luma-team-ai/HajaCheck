@@ -197,30 +197,37 @@ where u.id = c.owner_user_id
   and c.verification_status = 'VERIFIED'::business_verification_status_type
   and u.company_id is distinct from c.id;
 
--- 비오너의 기존 company_id는 승인 감사 근거가 아니므로 PENDING으로 격리한다.
+-- 비오너의 기존 company_id는 승인 감사 근거가 아니므로 먼저 PENDING 후보로 격리한다.
 insert into company_memberships (company_id, user_id, status)
 select u.company_id, u.id, 'PENDING'::company_membership_status_type
 from users u
 where u.company_id is not null
 on conflict (company_id, user_id) do nothing;
 
--- company_memberships가 소속·권한의 새 권위 원천이 된 이후에는, 유효한 APPROVED 멤버십이 없는
--- 사용자의 레거시 company_id를 그대로 두지 않는다. AuthService.validateAssignableInspector 등
--- 기존 인가 경로가 users.company_id 동일 여부만으로 "같은 회사"를 판정하므로, 격리된 PENDING
--- 사용자가 company_id를 계속 보유하면 승인 없이 회사 소속으로 오인되는 권한 우회 경로가 남는다.
-update users u
-set company_id = null,
-    updated_at = now()
-where u.company_id is not null
-  and not exists (
-      select 1
-      from company_memberships cm
-      where cm.company_id = u.company_id
-        and cm.user_id = u.id
-        and cm.status = 'APPROVED'::company_membership_status_type
-        and cm.revoked_at is null
-        and (cm.expires_at is null or cm.expires_at > now())
-  );
+-- 레거시 비오너를 자동 승인하면 초대 승인 감사를 우회하고, 자동 NULL 처리하면 정상 구성원의
+-- 접근권을 조용히 회수한다. 둘 다 하지 않고 운영자가 README 절차로 각 후보를 명시적으로
+-- APPROVED 백필하거나 company_id를 제거할 때까지 expand를 중단한다.
+do $migration$
+begin
+    if exists (
+        select 1
+        from users u
+        where u.company_id is not null
+          and not exists (
+              select 1
+              from company_memberships cm
+              where cm.company_id = u.company_id
+                and cm.user_id = u.id
+                and cm.status = 'APPROVED'::company_membership_status_type
+                and cm.approved_at is not null
+                and cm.revoked_at is null
+                and (cm.expires_at is null or cm.expires_at > now())
+          )
+    ) then
+        raise exception 'HAJA-25 expand blocked: legacy company members require explicit APPROVED backfill or company_id removal (see migrations/README.md)';
+    end if;
+end
+$migration$;
 
 alter table inspections
     add column if not exists assigned_inspector_id bigint;

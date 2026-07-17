@@ -1,6 +1,8 @@
 package com.hajacheck.auth.entity;
 
 import com.hajacheck.global.common.BaseTimeEntity;
+import com.hajacheck.global.exception.DomainStateTransitionException;
+import com.hajacheck.global.exception.DomainValidationException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -172,13 +174,13 @@ public class CompanyMembership extends BaseTimeEntity {
                 return;
             }
         }
-        throw new IllegalStateException(
+        throw new DomainStateTransitionException(
                 "%s 불가: 현재 상태=%s, 허용 상태=%s".formatted(action, this.status, Arrays.toString(allowed)));
     }
 
     private static void requireFutureExpiration(Instant expiresAt, Instant reference) {
         if (expiresAt != null && !expiresAt.isAfter(reference)) {
-            throw new IllegalArgumentException("멤버십 만료 시각은 현재보다 이후여야 한다");
+            throw new DomainValidationException("멤버십 만료 시각은 현재보다 이후여야 한다");
         }
     }
 

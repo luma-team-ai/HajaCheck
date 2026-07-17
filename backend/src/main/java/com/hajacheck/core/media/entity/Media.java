@@ -1,6 +1,7 @@
 package com.hajacheck.core.media.entity;
 
 import com.hajacheck.core.inspection.entity.Inspection;
+import com.hajacheck.global.exception.DomainStateTransitionException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -141,7 +142,7 @@ public class Media {
      */
     public void markMimeSignatureVerified() {
         if (mimeType == null || mimeType.isBlank()) {
-            throw new IllegalStateException("MIME type is required before signature verification");
+            throw new DomainStateTransitionException("MIME type is required before signature verification");
         }
         this.mimeSignatureVerified = true;
     }

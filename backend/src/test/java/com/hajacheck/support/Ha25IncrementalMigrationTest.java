@@ -196,6 +196,21 @@ class Ha25IncrementalMigrationTest {
             set locator = '제1조', snippet = 'legacy snippet'
             where locator is null or snippet is null;
             """;
+    private static final String LEGACY_MEMBERSHIP_RECONCILIATION_SQL = """
+            update company_memberships cm
+            set status = 'APPROVED'::company_membership_status_type,
+                approved_at = now(),
+                invited_by = c.owner_user_id,
+                updated_at = now()
+            from companies c
+            join users u on u.email = 'legacy-member@ha25.test'
+            where cm.company_id = c.id
+              and cm.user_id = u.id
+              and c.name = 'approved company'
+              and c.status = 'APPROVED'::company_status_type
+              and c.verification_status = 'VERIFIED'::business_verification_status_type
+              and cm.status = 'PENDING'::company_membership_status_type;
+            """;
 
     private static final String EXTERNAL_URL = System.getenv("HA25_MIGRATION_POSTGRES_URL");
     private static final String EXTERNAL_USERNAME = System.getenv("HA25_MIGRATION_POSTGRES_USERNAME");
@@ -235,11 +250,11 @@ class Ha25IncrementalMigrationTest {
                 order by u.email
                 """)).isEqualTo("""
                 approved-owner@ha25.test:APPROVED
-                legacy-member@ha25.test:PENDING
+                legacy-member@ha25.test:APPROVED
                 pending-owner@ha25.test:PENDING""");
 
-        // HAJA-25 P2: 유효한 APPROVED 멤버십이 없는 사용자는 레거시 company_id가 정리되어야
-        // AuthService.validateAssignableInspector 등 "같은 회사" 판정이 인가 우회로 이어지지 않는다.
+        // HAJA-25 P2: 감사 근거로 확인된 기존 구성원은 APPROVED 백필 후 company_id와 접근권을 보존한다.
+        // 근거 없는 후보는 PENDING + company_id NULL이어야 하며 포인터만으로 권한을 얻지 못한다.
         String approvedCompanyId = query(postgres(),
                 "select id::text from companies where name = 'approved company'");
         assertThat(query(postgres(), """
@@ -248,8 +263,8 @@ class Ha25IncrementalMigrationTest {
                 order by email
                 """)).isEqualTo("""
                 approved-owner@ha25.test:%s
-                legacy-member@ha25.test:NULL
-                pending-owner@ha25.test:NULL""".formatted(approvedCompanyId));
+                legacy-member@ha25.test:%s
+                pending-owner@ha25.test:NULL""".formatted(approvedCompanyId, approvedCompanyId));
     }
 
     private static boolean useExternalDatabase() {
@@ -293,6 +308,10 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
         assertV03BaselineContract(postgres);
         runSql(postgres, "legacy fixture", LEGACY_FIXTURE_SQL);
+        runPsqlExpectFailure(
+                postgres, "20260716_01_ha25_expand.sql",
+                "legacy company members require explicit APPROVED backfill or company_id removal");
+        runSql(postgres, "legacy membership reconciliation", LEGACY_MEMBERSHIP_RECONCILIATION_SQL);
         runPsql(postgres, "20260716_01_ha25_expand.sql");
         runPsql(postgres, "20260716_01_ha25_expand.sql");
         assertLockVersionBackfill(postgres);
@@ -304,7 +323,7 @@ class Ha25IncrementalMigrationTest {
                 order by u.email
                 """, """
                 approved-owner@ha25.test:APPROVED
-                legacy-member@ha25.test:PENDING
+                legacy-member@ha25.test:APPROVED
                 pending-owner@ha25.test:PENDING""");
         runPsqlExpectFailure(
                 postgres, "20260716_02_ha25_finalize.sql", "assigned_inspector_id backfill");

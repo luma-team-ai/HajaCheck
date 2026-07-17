@@ -272,8 +272,10 @@ Entity에 노출하지 않는다.
 절차를 수동으로 재현했다 — **자동화된 테스트 통과가 아니라 사람이 명령을 하나씩 실행하고 결과를
 눈으로 확인한 것**이다.
 
-- PostgreSQL 17에서 v0.3 → expand 2회 → finalize 2회 → verify(`ha25_schema_ready=true`) 확인
-  (2026-07-16 최초 검증)
+- PostgreSQL 17의 v0.3 fixture에서 미분류 레거시 비오너 때문에 첫 expand가 중단되는지 확인하고,
+  명시적 `APPROVED` 백필 후 expand 재실행 → finalize → verify(`ha25_schema_ready=true`)와
+  `users.company_id = company_memberships.company_id` 보존을 Docker CLI로 수동 검증했다
+  (2026-07-17). 자동화 테스트도 같은 차단·분류 경로를 재현하도록 보강했다.
 - 캐노니컬 DDL만 적용한 신규설치 DB와 `v0.3 + HAJA-25 증분` 전체 경로를 거친 DB의 정규화된
   카탈로그 서명(enum/table/column/constraint/index/trigger/sequence/function)을 직접 `diff` —
   완전 일치 확인(2026-07-17, 회사 경계 트리거를 캐노니컬 DDL에 반영한 뒤 재검증)

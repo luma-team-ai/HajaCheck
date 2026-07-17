@@ -1,5 +1,7 @@
 package com.hajacheck.core.rag.entity;
 
+import com.hajacheck.global.exception.DomainStateTransitionException;
+import com.hajacheck.global.exception.DomainValidationException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -126,7 +128,7 @@ public class RagDocument {
     public void completeEmbedding(int chunkCount) {
         requireEmbeddingStatus("completeEmbedding", RagEmbeddingStatus.EMBEDDING);
         if (chunkCount < 0) {
-            throw new IllegalArgumentException("completeEmbedding 불가: 청크 수는 0 이상이어야 한다");
+            throw new DomainValidationException("completeEmbedding 불가: 청크 수는 0 이상이어야 한다");
         }
         this.embeddingStatus = RagEmbeddingStatus.DONE;
         this.chunkCount = chunkCount;
@@ -144,7 +146,7 @@ public class RagDocument {
                 return;
             }
         }
-        throw new IllegalStateException(
+        throw new DomainStateTransitionException(
                 "%s 불가: 현재 임베딩 상태=%s, 허용 상태=%s"
                         .formatted(action, this.embeddingStatus, Arrays.toString(allowed)));
     }
