@@ -1,4 +1,6 @@
 export { BarChart } from './BarChart';
+export { DistributionBar } from './DistributionBar';
+export type { DistributionSegment } from './DistributionBar';
 export { LineChart } from './LineChart';
 export {
   CHART_AXIS_TICK_STYLE,

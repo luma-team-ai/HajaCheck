@@ -22,6 +22,8 @@ export const CHART_COLORS = {
   border: '#e4e4e7',
   textDefault: '#494551',
   textMuted: '#7a7582',
+  /** 분포 바(DistributionBar) 트랙 배경 — features/dashboard/components/GradeDistributionCard.tsx와 동일 값. */
+  track: '#f0f1f3',
 } as const;
 
 /** 하자 등급별 색상 — features/dashboard/colors.ts GRADE_BG_CLASS와 동일 값(A=양호 ~ E=중대). */
