@@ -309,7 +309,13 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 MIGRATION_ROOT + "20260719_01_ap020_notification_history_index.sql"),
-                        CONTAINER_ROOT + "20260719_01_ap020_notification_history_index.sql");
+                        CONTAINER_ROOT + "20260719_01_ap020_notification_history_index.sql")
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(MIGRATION_ROOT + "20260716_04_menu_schema_expand.sql"),
+                        CONTAINER_ROOT + "20260716_04_menu_schema_expand.sql")
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(MIGRATION_ROOT + "20260716_05_menu_schema_verify.sql"),
+                        CONTAINER_ROOT + "20260716_05_menu_schema_verify.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -366,6 +372,8 @@ class Ha25IncrementalMigrationTest {
         // EXISTS)하므로 두 번 실행해도 안전하다는 점까지 함께 확인한다.
         runPsql(postgres, "20260719_01_ap020_notification_history_index.sql");
         runPsql(postgres, "20260719_01_ap020_notification_history_index.sql");
+        runPsql(postgres, "20260716_04_menu_schema_expand.sql");
+        runPsql(postgres, "20260716_05_menu_schema_verify.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }
