@@ -156,7 +156,7 @@ public class DashboardService {
         }
 
         List<Inspection> recent =
-                inspectionRepository.findTop10ByFacilityIdInOrderByInspectionDateDescIdDesc(facilityIds);
+                inspectionRepository.findRecentByFacilityIds(facilityIds, PageRequest.of(0, RECENT_LIMIT));
         if (recent.isEmpty()) {
             return List.of();
         }

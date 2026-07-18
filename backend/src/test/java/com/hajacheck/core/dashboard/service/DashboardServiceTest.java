@@ -194,7 +194,9 @@ class DashboardServiceTest {
         when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "내시설")));
         Inspection insp =
                 inspection(400L, FACILITY_ID, 99L, LocalDate.of(2026, 7, 10), InspectionStatus.REPORTED);
-        when(inspectionRepository.findTop10ByFacilityIdInOrderByInspectionDateDescIdDesc(List.of(FACILITY_ID)))
+        // 건수 제한이 Pageable 로 넘어가므로(#351) PageRequest.of(0, RECENT_LIMIT=10) 을 그대로 단언한다
+        // — 상수가 다시 죽는(호출부와 어긋나는) 회귀를 여기서 잡는다.
+        when(inspectionRepository.findRecentByFacilityIds(List.of(FACILITY_ID), PageRequest.of(0, 10)))
                 .thenReturn(List.of(insp));
         when(defectRepository.countGroupByInspectionId(List.of(400L)))
                 .thenReturn(List.of(inspectionCount(400L, 6L)));
