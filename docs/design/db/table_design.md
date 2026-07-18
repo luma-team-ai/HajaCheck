@@ -1,6 +1,6 @@
 # hajaCheck 테이블 디자인 설계
 
-> **문서 버전:** v0.4 · **최종 수정:** 2026-07-17 · 이전 버전 `archive/`
+> **문서 버전:** v0.4 · **최종 수정:** 2026-07-18 · 이전 버전 `archive/`
 
 - 대상 스키마 파일: [HajaCheck_script.sql](HajaCheck_script.sql)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
@@ -236,7 +236,7 @@ FR·API·플로우 동기화는 이번 범위에서 **제외**하고, ERD(DB 설
 | 보안과의 관계 | 메뉴 노출은 편의 기능일 뿐 보안 권한이 아니다. 현재 `SecurityConfig.java`(line 60)는 `anyRequest().authenticated()`로 로그인 여부만 검사하므로, 관리자 API에는 메뉴 테이블과 별개로 `@PreAuthorize`(역할) + 소유권·회사 멤버십 검증을 반드시 병행해야 한다(§2.4.2 "권한 집행 원칙"과 동일 원칙) |
 | 향후 확장(범위 밖) | PRD의 ADMIN+COUNSELOR 겸임(`PRD_hajaCheck.md`: "COUNSELOR는 별도 축, 관리자 겸임 가능")까지 반영하려면 현재 단일 `users.role`로는 부족하다. 그 단계에서는 `user_roles(user_id, role)` 테이블 도입이 맞으며, 이번 범위에는 포함하지 않는다 |
 
-**반영 내용**: `menu_node_type` enum(`GROUP`/`INTERNAL`/`EXTERNAL`) 신규, `menus`·`menu_role_access` 테이블 신설, `trg_menus_set_updated_at` 트리거 연결. 상세는 §4, §5.7 참조. 신규 DB SQL은 `HajaCheck_script.sql`, 기존 v0.3 DB 적용본은 `migrations/20260716_04_menu_schema_expand.sql`, 배포 검증본은 `migrations/20260716_05_menu_schema_verify.sql`이다. 이 스키마는 아직 main에 릴리스되지 않은 미배포 v0.3 범위라 별도 archive 스냅샷·버전 bump 없이 추가했다(`docs/README.md` §2 "아직 릴리스 전이면 bump 없이 유지").
+**반영 내용**: `menu_node_type` enum(`GROUP`/`INTERNAL`/`EXTERNAL`) 신규, `menus`·`menu_role_access` 테이블 신설, `trg_menus_set_updated_at` 트리거 연결. 상세는 §4, §5.7 참조. 신규 DB SQL은 `HajaCheck_script.sql`, 기존 v0.3 DB 적용본은 `migrations/20260716_04_menu_schema_expand.sql`, 배포 검증본은 `migrations/20260716_05_menu_schema_verify.sql`이다. 이 스키마는 아직 main에 릴리스되지 않은 미배포 v0.4 범위라 별도 archive 스냅샷·버전 bump 없이 추가했다(`docs/README.md` §2 "아직 릴리스 전이면 bump 없이 유지").
 
 ---
 
