@@ -1,6 +1,6 @@
 # hajaCheck — Spring Boot(Java) 코드 컨벤션
 
-> **문서 버전:** v0.3 · **최종 수정:** 2026-07-18 · 이전 버전 `archive/`
+> **문서 버전:** v0.2 · **최종 수정:** 2026-07-16 · 이전 버전 `archive/`
 
 > 대상: 백엔드 코드를 작성하는 전체 팀원 (메뉴 담당제 — 전원이 API를 직접 구현)
 > 관리: Backend 리드 (프로젝트 구조·API 계약 총괄, 리뷰 시 준수 점검)
@@ -140,15 +140,6 @@ POST   /api/inspections/{id}/analysis       # 행위성 리소스는 명사로
   실행하거나, transactional outbox·멱등성 키로 재실행 안전성을 보장한다.
 - DTO 변환은 DTO 클래스의 정적 팩토리 `from(entity)` / `toEntity()` 사용 (MapStruct 도입 안 함)
 - record 사용 권장: 요청/응답 DTO는 Java record로 작성
-
-## 6-1. 배정 정책 — 점검자 배정 범위
-
-- 점검자 배정은 요청자·배정 대상 모두 APPROVED+VERIFIED 상태인 회사의 APPROVED 멤버십을 가진
-  사용자로 한정한다(무소속/개인 배정 불가). 애플리케이션 레벨(`AuthService.validateAssignableInspector`)과
-  DB 트리거(`trg_inspections_check_assigned_inspector_company`) 양쪽에서 강제한다.
-- 근거: PRD §2.4 조직 모델(계정 소유자 = 플랜 보유자, 소유자가 점검자를 좌석 한도 내 초대) —
-  무소속 개인 점검자 배정은 설계 범위 밖이다.
-- 관련 테스트: `InspectionAssignedInspectorCompanyBoundaryTest`
 
 ## 7. Lombok 허용 범위
 

@@ -20,6 +20,12 @@ class GroundingCheckResultFactoryTest {
     private static final String REPORT_CONTENT_HASH_LEGAL_BASIS_UNVERIFIED =
             "0f99c606207c20c65edb341fd60bb9b927fb50e60cecc234d529a6cd236e17ee";
 
+    // 크로스 언어(한국어 실데이터) 콘텐츠 해시 패리티 — Python _canonical_content_hash로
+    // 동일 payload를 직접 실행해 구한 실제 해시값(ai-server/tests/test_report.py의
+    // test_canonical_content_hash_matches_backend_canonical_sample_korean_real_data와 동일).
+    private static final String REPORT_CONTENT_HASH_KOREAN_REAL_DATA =
+            "46be3c0fda0f8657d70702dde257dfbf000cf0f23596275fc21dcd494270cb89";
+
     @Test
     void fromAiReport_Python전체payload를DTO왕복한뒤공식저장JSON해시를검증() throws Exception {
         GroundingRequestContext context = new GroundingRequestContext("request-123", 10L, 3);
@@ -75,6 +81,39 @@ class GroundingCheckResultFactoryTest {
         assertThat(storedContent).contains("\"legal_basis_verified\":false");
         assertThat(storedContent).doesNotContain("grounding_request_id", "content_hash", "report_version");
         assertThat(result.target().contentHash()).isEqualTo(REPORT_CONTENT_HASH_LEGAL_BASIS_UNVERIFIED);
+        assertThat(result.passed()).isTrue();
+    }
+
+    @Test
+    void fromAiReport_한국어실데이터payload를DTO왕복한뒤Python과동일한공식저장JSON해시를검증() throws Exception {
+        GroundingRequestContext context = new GroundingRequestContext("request-123", 10L, 3);
+        String aiDataJson = """
+                {
+                  "overview":{"purpose":"정기 안전점검","facility_summary":"철근콘크리트 구조의 5층 근린생활시설",
+                    "scope":"전체 구조부 및 마감재"},
+                  "summary":{"overall_opinion":"주의","total_count":2,
+                    "count_by_grade":{"A":0,"B":1,"C":1,"D":0,"E":0},
+                    "key_findings":["건조 수축에 의한 미세 균열","누수 흔적 발견"]},
+                  "detail":{"items":[
+                    {"defect_type":"균열","location":"지하 1층 주차장 벽체","severity_grade":"B",
+                      "description":"건조 수축에 의한 미세 균열이 관찰되었습니다","cause":"콘크리트 양생 중 수분 증발"},
+                    {"defect_type":"누수","location":"옥상 방수층","severity_grade":"C",
+                      "description":"우천 시 누수가 발생할 우려가 있습니다","cause":"방수층 노후화"}]},
+                  "recommendation":{"items":[{"target":"균열","method":"에폭시 주입 보수","priority":"중간",
+                    "legal_basis":"건축물관리법 제13조","legal_basis_verified":true}],
+                    "monitoring_points":["지하 1층 벽체 균열 진행 여부 정기 관찰"]},
+                  "grounding_ok":true,"grounding_request_id":"request-123","inspection_id":10,
+                  "report_version":3,"content_hash":"46be3c0fda0f8657d70702dde257dfbf000cf0f23596275fc21dcd494270cb89"
+                }
+                """;
+        ReportResponse response = new ObjectMapper().readValue(aiDataJson, ReportResponse.class);
+
+        String storedContent = GroundingReportContentSerializer.serialize(response);
+        GroundingCheckResult result = GroundingCheckResultFactory.fromAiReport(
+                context, response, "[]");
+
+        assertThat(storedContent).contains("건조 수축에 의한 미세 균열이 관찰되었습니다");
+        assertThat(result.target().contentHash()).isEqualTo(REPORT_CONTENT_HASH_KOREAN_REAL_DATA);
         assertThat(result.passed()).isTrue();
     }
 

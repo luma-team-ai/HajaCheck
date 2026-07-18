@@ -121,6 +121,61 @@ def test_canonical_content_hash_matches_backend_canonical_sample_legal_basis_unv
     )
 
 
+def test_canonical_content_hash_matches_backend_canonical_sample_korean_real_data():
+    """ASCII 고정 샘플만으로는 검증되지 않던 실제 운영 데이터(한국어 결함 설명 등) 크로스 언어
+    해시 정합성을 검증한다 — Java GroundingCheckResultFactoryTest의
+    fromAiReport_한국어실데이터payload를DTO왕복한뒤Python과동일한공식저장JSON해시를검증
+    테스트와 동일 payload/해시값을 공유한다."""
+    content = {
+        "overview": {
+            "purpose": "정기 안전점검",
+            "facility_summary": "철근콘크리트 구조의 5층 근린생활시설",
+            "scope": "전체 구조부 및 마감재",
+        },
+        "summary": {
+            "overall_opinion": "주의",
+            "total_count": 2,
+            "count_by_grade": {"A": 0, "B": 1, "C": 1, "D": 0, "E": 0},
+            "key_findings": ["건조 수축에 의한 미세 균열", "누수 흔적 발견"],
+        },
+        "detail": {
+            "items": [
+                {
+                    "defect_type": "균열",
+                    "location": "지하 1층 주차장 벽체",
+                    "severity_grade": "B",
+                    "description": "건조 수축에 의한 미세 균열이 관찰되었습니다",
+                    "cause": "콘크리트 양생 중 수분 증발",
+                },
+                {
+                    "defect_type": "누수",
+                    "location": "옥상 방수층",
+                    "severity_grade": "C",
+                    "description": "우천 시 누수가 발생할 우려가 있습니다",
+                    "cause": "방수층 노후화",
+                },
+            ]
+        },
+        "recommendation": {
+            "items": [
+                {
+                    "target": "균열",
+                    "method": "에폭시 주입 보수",
+                    "priority": "중간",
+                    "legal_basis": "건축물관리법 제13조",
+                    "legal_basis_verified": True,
+                }
+            ],
+            "monitoring_points": ["지하 1층 벽체 균열 진행 여부 정기 관찰"],
+        },
+        "grounding_ok": True,
+    }
+
+    assert _canonical_content_hash(content) == (
+        "46be3c0fda0f8657d70702dde257dfbf000cf0f23596275fc21dcd494270cb89"
+    )
+
+
 def _sample_facility_info() -> dict:
     return {"name": "Haja APT", "location": "서울시"}
 
