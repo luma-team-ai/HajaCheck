@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { FOOTER_LINKS, NAV_ITEMS, PARTNERS, PRICING_TIERS } from './constants';
 import heroVisualImage from '../../assets/brand/landing-hero-ai-scan.svg';
+import brandLogo from '../../assets/brand/sidenav-brand-logo.png';
 import './landing.css';
 
 function scrollToTop() {
@@ -35,7 +36,9 @@ export default function LandingPage() {
   return (
     <div className="landing">
       <header className="landing-header">
-        <span className="landing-logo">HajaCheck</span>
+        <button type="button" className="landing-logo-button" onClick={scrollToTop} aria-label="HajaCheck 홈으로">
+          <img className="landing-logo-image" src={brandLogo} alt="HajaCheck" />
+        </button>
         <nav className="landing-nav">
           {NAV_ITEMS.map((item) => (
             <button key={item.label} type="button" onClick={() => scrollToSection(item.targetId)}>
@@ -190,7 +193,7 @@ export default function LandingPage() {
       <footer className="landing-footer">
         <div className="landing-footer-top">
           <div>
-            <span className="landing-logo">HajaCheck</span>
+            <img className="landing-logo-image" src={brandLogo} alt="HajaCheck" />
             <p className="landing-footer-tagline">
               데이터와 AI 기술로 시설물 관리의 새로운
               <br />

@@ -14,10 +14,19 @@
   border-bottom: 1px solid #eee;
 }
 
-.landing-logo {
-  font-weight: 800;
-  font-size: 20px;
-  color: #000;
+.landing-logo-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.landing-logo-image {
+  height: 28px;
+  width: auto;
+  object-fit: contain;
 }
 
 .landing-nav {
