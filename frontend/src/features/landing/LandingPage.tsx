@@ -116,7 +116,7 @@ export default function LandingPage() {
           정기, 수시 점검 일정을 누락 없이 관리하고, 현장에서 모바일로 즉시 결과를 입력하세요.
           데이터는 클라우드에 안전하게 동기화됩니다.
         </p>
-        <div className="landing-visual landing-visual--dark" />
+        <div className="landing-visual" />
       </section>
 
       <section id="ai-analysis" className="landing-section">
@@ -131,8 +131,12 @@ export default function LandingPage() {
           하자를 자동으로 탐지하고 심각도를 분류합니다.
         </p>
         <div className="landing-badge-row">
-          <span className="landing-pill landing-pill--danger">균열 심각도 High</span>
-          <span className="landing-pill landing-pill--warning">누수 징후 Medium</span>
+          <span className="landing-pill landing-pill--danger">
+            <span className="landing-pill-dot" aria-hidden="true">●</span> 균열 심각도 High
+          </span>
+          <span className="landing-pill landing-pill--warning">
+            <span className="landing-pill-dot" aria-hidden="true">●</span> 누수 징후 Medium
+          </span>
         </div>
         <div className="landing-visual" />
       </section>
