@@ -52,7 +52,9 @@ export default function LandingPage() {
       </header>
 
       <section className="landing-hero">
-        <span className="landing-badge">● AI FACILITY MANAGEMENT</span>
+        <span className="landing-badge">
+          <span className="landing-badge-dot" aria-hidden="true">●</span> AI FACILITY MANAGEMENT
+        </span>
         <h1>
           데이터 기반 시설물 안전,
           <br />

@@ -71,6 +71,10 @@
   margin-bottom: 24px;
 }
 
+.landing-badge-dot {
+  color: rgba(79, 70, 229, 0.8); /* #4F46E5 @ 80% opacity */
+}
+
 .landing-hero h1 {
   font-size: 72px;
   font-weight: 800;
@@ -79,7 +83,7 @@
 }
 
 .landing-hero p {
-  color: #666;
+  color: #47464b;
   font-size: 17px;
   line-height: 1.6;
   max-width: 500px;
@@ -147,7 +151,7 @@
 }
 
 .landing-partners-label {
-  color: #999;
+  color: #47464b;
   font-size: 13px;
   margin-bottom: 24px;
 }
@@ -174,7 +178,7 @@
 }
 
 .landing-eyebrow {
-  color: #4a5cff;
+  color: rgba(79, 70, 229, 0.8); /* #4F46E5 @ 80% opacity */
   font-weight: 700;
   font-size: 13px;
   letter-spacing: 0.06em;
@@ -188,8 +192,8 @@
   margin: 0 0 16px;
 }
 
-.landing-section p {
-  color: #666;
+.landing-section p:not(.landing-eyebrow) {
+  color: #47464b;
   font-size: 16px;
   line-height: 1.6;
   margin: 0 auto;
@@ -275,7 +279,7 @@
   margin: 0 0 16px;
 }
 
-.landing-pricing > p {
+.landing-pricing > p:not(.landing-eyebrow) {
   color: #666;
   font-size: 16px;
   line-height: 1.6;
