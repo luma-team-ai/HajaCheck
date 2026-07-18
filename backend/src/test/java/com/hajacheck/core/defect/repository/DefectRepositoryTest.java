@@ -25,8 +25,10 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
+import java.util.Optional;
 
 // 실 PG DDL(defects) 대조를 위해 Testcontainers PostgreSQL 사용.
 // users → facilities → inspections → defects 순으로 FK 를 충족하며 시드한다(HAJA-17 대시보드 집계).
@@ -289,5 +291,123 @@ class DefectRepositoryTest extends PostgresTestSupport {
                 .filteredOn(p -> p.getInspectionId().equals(inspectionA))
                 .extracting(InspectionDefectCountProjection::getCnt)
                 .containsExactly(2L);
+    }
+
+    // ── HAJA-30: 하자 목록·상세 조회 ──
+
+    @Test
+    void findPageByOwnerIdAndFilters_owner스코프_본인시설하자만조회() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long strangerId = seedOwner("owner-b@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long strangerFacilityId = seedFacility(strangerId, "타인빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+        Long strangerInspectionId = seedInspection(strangerFacilityId, strangerId, 1);
+        defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(strangerInspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
+
+        Page<Defect> result = defectRepository.findPageByOwnerIdAndFilters(
+                ownerId, null, null, null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
+    void findPageByOwnerIdAndFilters_삭제된하자는제외() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+        defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, true));
+
+        Page<Defect> result = defectRepository.findPageByOwnerIdAndFilters(
+                ownerId, null, null, null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).hasSize(1);
+    }
+
+    @Test
+    void findPageByOwnerIdAndFilters_유형등급상태필터적용() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+        defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+
+        Page<Defect> gradeFiltered = defectRepository.findPageByOwnerIdAndFilters(
+                ownerId, null, DefectGrade.E, null, PageRequest.of(0, 10));
+        Page<Defect> statusFiltered = defectRepository.findPageByOwnerIdAndFilters(
+                ownerId, null, null, DefectStatus.DETECTED, PageRequest.of(0, 10));
+        Page<Defect> typeFiltered = defectRepository.findPageByOwnerIdAndFilters(
+                ownerId, DefectType.CRACK, null, null, PageRequest.of(0, 10));
+
+        assertThat(gradeFiltered.getContent()).extracting(Defect::getGrade).containsExactly(DefectGrade.E);
+        assertThat(statusFiltered.getContent()).extracting(Defect::getStatus)
+                .containsExactly(DefectStatus.DETECTED);
+        assertThat(typeFiltered.getContent()).hasSize(2); // 둘 다 CRACK(newDefect 고정값)이라 전부 매치
+    }
+
+    @Test
+    void findPageByOwnerIdAndFilters_최신순정렬() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+        Defect older = defectRepository.save(
+                newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
+        Defect newer = defectRepository.save(
+                newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
+        em.flush();
+        LocalDateTime base = LocalDateTime.of(2026, 7, 1, 0, 0);
+        updateCreatedAt(older.getId(), base);
+        updateCreatedAt(newer.getId(), base.plusMinutes(10));
+        em.clear();
+
+        Page<Defect> result = defectRepository.findPageByOwnerIdAndFilters(
+                ownerId, null, null, null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Defect::getId)
+                .containsExactly(newer.getId(), older.getId());
+    }
+
+    @Test
+    void findByIdAndOwnerId_본인소유하자_조회됨() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+        Defect saved = defectRepository.save(
+                newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
+
+        Optional<Defect> result = defectRepository.findByIdAndOwnerId(saved.getId(), ownerId);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().getInspection().getFacility().getId()).isEqualTo(facilityId);
+    }
+
+    @Test
+    void findByIdAndOwnerId_타인소유하자_빈값() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long strangerId = seedOwner("owner-b@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+        Defect saved = defectRepository.save(
+                newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
+
+        Optional<Defect> result = defectRepository.findByIdAndOwnerId(saved.getId(), strangerId);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void findByIdAndOwnerId_삭제된하자_빈값() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+        Defect saved = defectRepository.save(
+                newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, true));
+
+        Optional<Defect> result = defectRepository.findByIdAndOwnerId(saved.getId(), ownerId);
+
+        assertThat(result).isEmpty();
     }
 }

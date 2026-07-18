@@ -1,16 +1,50 @@
 package com.hajacheck.core.defect.repository;
 
 import com.hajacheck.core.defect.entity.Defect;
+import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectStatus;
+import com.hajacheck.core.defect.entity.DefectType;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface DefectRepository extends JpaRepository<Defect, Long> {
+
+    // 하자 목록·상세 조회(HAJA-30) — owner 스코프는 Defect.inspectionId → Inspection.facilityId →
+    // Facility.ownerId 체인을 이미 매핑된 연관관계(d.inspection/i.facility)로 조인해 검증한다.
+    // join fetch로 목록 응답(DefectResponse)이 필요로 하는 시설물 정보를 N+1 없이 한 번에 가져온다
+    // (Inspection/Facility 모두 단건(@ManyToOne) 연관관계라 fetch join + Pageable 조합이 안전하다 —
+    // 컬렉션 fetch join과 달리 페이지네이션이 메모리가 아닌 SQL LIMIT/OFFSET으로 동작).
+    // 유형/등급/상태 필터는 파라미터가 null이면 조건을 건너뛴다(PRD FR-4 §187).
+    @Query(value = "select d from Defect d join fetch d.inspection i join fetch i.facility f "
+            + "where f.ownerId = :ownerId and d.deleted = false "
+            + "and (:type is null or d.type = :type) "
+            + "and (:grade is null or d.grade = :grade) "
+            + "and (:status is null or d.status = :status) "
+            + "order by d.createdAt desc",
+            countQuery = "select count(d) from Defect d join d.inspection i join i.facility f "
+                    + "where f.ownerId = :ownerId and d.deleted = false "
+                    + "and (:type is null or d.type = :type) "
+                    + "and (:grade is null or d.grade = :grade) "
+                    + "and (:status is null or d.status = :status)")
+    Page<Defect> findPageByOwnerIdAndFilters(
+            @Param("ownerId") Long ownerId,
+            @Param("type") DefectType type,
+            @Param("grade") DefectGrade grade,
+            @Param("status") DefectStatus status,
+            Pageable pageable);
+
+    // 상세 조회 — id + owner 스코프 단건. 미존재/타인 소유 모두 빈 Optional(cross-owner IDOR 방지,
+    // FacilityRepository.findByIdAndOwnerId 와 동일 원칙).
+    @Query("select d from Defect d join fetch d.inspection i join fetch i.facility f "
+            + "where d.id = :id and f.ownerId = :ownerId and d.deleted = false")
+    Optional<Defect> findByIdAndOwnerId(@Param("id") Long id, @Param("ownerId") Long ownerId);
 
     // 대시보드 조치대기 우선순위 목록(HAJA-17) — 등급(E→A) 우선, 미분류(grade=null)는 최하단, 동일 등급
     // 내에서는 최신순. PostgreSQL은 "ORDER BY ... DESC" 시 기본이 NULLS FIRST라, 파생 쿼리
