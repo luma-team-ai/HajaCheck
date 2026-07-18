@@ -233,7 +233,7 @@ FR·API·플로우 동기화는 이번 범위에서 **제외**하고, ERD(DB 설
 | 역할 계층 판단 방식 | `role_type` 선언 순서(`ADMIN`, `INSPECTOR`, `USER`, `COUNSELOR`)로 권한 계층을 추론하지 않는다. enum ordinal 비교(`role >= 'INSPECTOR'` 식)에 기대지 않고, 메뉴마다 `menu_role_access`에 허용 역할을 명시적으로 매핑한다(예: `FACILITY_LIST`는 `USER`/`INSPECTOR`/`ADMIN` 세 행이 각각 필요) |
 | 권한 변경 방식 | 권한 해제는 행 삭제, 권한 부여는 행 추가로 처리한다 — 별도 상태(`is_active` 등) 컬럼을 두지 않는다 |
 | 낙관적 락(`lock_version`) 미적용 | HAJA-25(§2.6, `migrations/README.md`)가 붙인 `lock_version`은 상태 전이 동시성이 있는 6개 테이블(companies, company_memberships, defects, reports, counsel_tickets, rag_documents)에만 적용된 것으로, 메뉴는 소수 관리자가 드물게 편집하는 설정 테이블이라 동시 갱신 충돌 위험이 낮아 의도적으로 생략했다. 필요해지면 후속으로 추가한다 |
-| 보안과의 관계 | 메뉴 노출은 편의 기능일 뿐 보안 권한이 아니다. 현재 `SecurityConfig.java`(line 60)는 `anyRequest().authenticated()`로 로그인 여부만 검사하므로, 관리자 API에는 메뉴 테이블과 별개로 `@PreAuthorize`(역할) + 소유권·회사 멤버십 검증을 반드시 병행해야 한다(§2.4.2 "권한 집행 원칙"과 동일 원칙) |
+| 보안과의 관계 | 메뉴 노출은 편의 기능일 뿐 보안 권한이 아니다. 현재 `SecurityConfig.java`(line 71)는 `anyRequest().authenticated()`로 로그인 여부만 검사하므로, 관리자 API에는 메뉴 테이블과 별개로 `@PreAuthorize`(역할) + 소유권·회사 멤버십 검증을 반드시 병행해야 한다(§2.4.2 "권한 집행 원칙"과 동일 원칙) |
 | 향후 확장(범위 밖) | PRD의 ADMIN+COUNSELOR 겸임(`PRD_hajaCheck.md`: "COUNSELOR는 별도 축, 관리자 겸임 가능")까지 반영하려면 현재 단일 `users.role`로는 부족하다. 그 단계에서는 `user_roles(user_id, role)` 테이블 도입이 맞으며, 이번 범위에는 포함하지 않는다 |
 
 **반영 내용**: `menu_node_type` enum(`GROUP`/`INTERNAL`/`EXTERNAL`) 신규, `menus`·`menu_role_access` 테이블 신설, `trg_menus_set_updated_at` 트리거 연결. 상세는 §4, §5.7 참조. 신규 DB SQL은 `HajaCheck_script.sql`, 기존 v0.3 DB 적용본은 `migrations/20260716_04_menu_schema_expand.sql`, 배포 검증본은 `migrations/20260716_05_menu_schema_verify.sql`이다. 이 스키마는 아직 main에 릴리스되지 않은 미배포 v0.4 범위라 별도 archive 스냅샷·버전 bump 없이 추가했다(`docs/README.md` §2 "아직 릴리스 전이면 bump 없이 유지").
