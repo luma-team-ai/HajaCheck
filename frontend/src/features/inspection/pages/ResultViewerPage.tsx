@@ -32,10 +32,10 @@ export function ResultViewerPage() {
     return <div className="p-5">탐지된 하자가 없습니다.</div>;
 
   const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
-  const selected =
-    selectedDefectId && visibleDefects.find((d) => d.id === selectedDefectId)
-      ? visibleDefects.find((d) => d.id === selectedDefectId)
-      : visibleDefects[0];
+  const found = selectedDefectId
+    ? visibleDefects.find((d) => d.id === selectedDefectId)
+    : undefined;
+  const selected = found ?? visibleDefects[0];
 
   const handleThresholdChange = (event: ChangeEvent<HTMLInputElement>) => {
     setConfidenceThreshold(Number(event.target.value));
@@ -47,7 +47,7 @@ export function ResultViewerPage() {
     );
   };
 
-  const progressPercent = (data.reviewedCount / data.totalCount) * 100;
+  const progressPercent = data.totalCount > 0 ? (data.reviewedCount / data.totalCount) * 100 : 0;
 
   return (
     <div className="flex h-full flex-col">
@@ -110,7 +110,7 @@ export function ResultViewerPage() {
             <DefectOverlay
               media={data.media}
               defects={visibleDefects}
-              selectedId={selectedDefectId}
+              selectedId={selected?.id}
               onSelect={setSelectedDefectId}
             />
 
@@ -131,9 +131,11 @@ export function ResultViewerPage() {
             </div>
 
             {/* Button */}
-            <Button type="button" variant="primary" size="lg" className="w-full">
-              이 이미지 검수 확정
-            </Button>
+            {visibleDefects.length > 0 && (
+              <Button type="button" variant="primary" size="lg" className="w-full">
+                이 이미지 검수 확정
+              </Button>
+            )}
           </div>
         </div>
 
