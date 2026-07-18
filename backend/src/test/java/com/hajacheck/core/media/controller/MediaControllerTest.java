@@ -8,9 +8,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.hajacheck.auth.entity.Company;
+import com.hajacheck.auth.entity.CompanyMembership;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyMembershipRepository;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.auth.support.FileStorageService;
@@ -57,6 +61,10 @@ class MediaControllerTest extends PostgresTestSupport {
     @Autowired
     private UserRepository userRepository;
     @Autowired
+    private CompanyRepository companyRepository;
+    @Autowired
+    private CompanyMembershipRepository companyMembershipRepository;
+    @Autowired
     private FacilityRepository facilityRepository;
     @Autowired
     private InspectionRepository inspectionRepository;
@@ -67,11 +75,39 @@ class MediaControllerTest extends PostgresTestSupport {
 
     @AfterEach
     void tearDown() {
-        // 커밋된 픽스처를 FK 안전 순서(media → inspection → facility → user)로 정리한다.
+        // 커밋된 픽스처를 FK 안전 순서로 정리한다: media → inspection → facility → membership →
+        // (users.company_id 해제) → company → user. users.company_id↔companies.owner_user_id 순환 FK 때문에
+        // 회사·사용자를 지우기 전에 company_id 를 먼저 끊는다.
         mediaRepository.deleteAll();
         inspectionRepository.deleteAll();
         facilityRepository.deleteAll();
+        companyMembershipRepository.deleteAll();
+        java.util.List<User> users = userRepository.findAll();
+        users.forEach(u -> u.assignToCompany(null));
+        userRepository.saveAll(users);
+        companyRepository.deleteAll();
         userRepository.deleteAll();
+    }
+
+    // HAJA-25 배정 검증 트리거를 통과하는 담당자(=승인+검증 회사의 유효한 APPROVED INSPECTOR 멤버)를 시드한다.
+    // owner 를 created_by·assigned_inspector 로 함께 재사용하므로 INSPECTOR 역할 + approvedOwner 멤버십을 준다.
+    private User seedApprovedInspector(String email) {
+        User owner = userRepository.save(User.builder()
+                .email(email)
+                .name("소유자")
+                .role(Role.INSPECTOR)
+                .passwordHash("$2a$10$hashed")
+                .status(UserStatus.ACTIVE)
+                .build());
+        Company company = companyRepository.save(Company.createPendingReview(
+                owner.getId(), "썸네일테스트회사", "REG-" + owner.getId(), "대표자",
+                "서울시", null, "https://files.example/business.pdf", "{}"));
+        company.markBusinessVerified();
+        company.approve(owner.getId());
+        companyRepository.save(company);
+        companyMembershipRepository.save(CompanyMembership.approvedOwner(company.getId(), owner.getId()));
+        owner.assignToCompany(company.getId());
+        return userRepository.save(owner);
     }
 
     @Test
@@ -126,13 +162,7 @@ class MediaControllerTest extends PostgresTestSupport {
      */
     @Test
     void 썸네일조회_인증됨_CacheControl_noStore_private() throws Exception {
-        User owner = userRepository.save(User.builder()
-                .email("thumb-owner@haja.com")
-                .name("소유자")
-                .role(Role.USER)
-                .passwordHash("$2a$10$hashed")
-                .status(UserStatus.ACTIVE)
-                .build());
+        User owner = seedApprovedInspector("thumb-owner@haja.com");
         Facility facility = facilityRepository.save(Facility.builder()
                 .ownerId(owner.getId())
                 .name("테스트빌딩")

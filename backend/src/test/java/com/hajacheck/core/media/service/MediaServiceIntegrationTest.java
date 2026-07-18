@@ -3,9 +3,11 @@ package com.hajacheck.core.media.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.auth.entity.Company;
+import com.hajacheck.auth.entity.CompanyMembership;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.core.facility.entity.Facility;
@@ -49,6 +51,8 @@ class MediaServiceIntegrationTest extends PostgresTestSupport {
     @Autowired
     private CompanyRepository companyRepository;
     @Autowired
+    private CompanyMembershipRepository companyMembershipRepository;
+    @Autowired
     private FacilityRepository facilityRepository;
     @Autowired
     private InspectionRepository inspectionRepository;
@@ -74,6 +78,10 @@ class MediaServiceIntegrationTest extends PostgresTestSupport {
         String brn = "brn-" + (System.nanoTime() % 10_000_000_000L);
         Company company = companyRepository.save(Company.createPendingReview(
                 owner.getId(), "(주)미디어테스트", brn, "김대표", "서울시 강남구", null, "http://files/brn.png", "{}"));
+        // HAJA-25 배정 검증 트리거는 승인+검증된 회사만 허용하므로 사업자 검증·승인까지 진행한다.
+        company.markBusinessVerified();
+        company.approve(owner.getId());
+        companyRepository.save(company);
         owner.assignToCompany(company.getId());
         userRepository.save(owner);
 
@@ -85,6 +93,13 @@ class MediaServiceIntegrationTest extends PostgresTestSupport {
                 .companyId(company.getId())
                 .status(UserStatus.ACTIVE)
                 .build());
+
+        // created_by(owner)·assigned_inspector(inspector) 모두 회사의 유효한 APPROVED 멤버십을 가져야 한다.
+        companyMembershipRepository.save(CompanyMembership.approvedOwner(company.getId(), owner.getId()));
+        CompanyMembership inspectorMembership =
+                CompanyMembership.invite(company.getId(), inspector.getId(), owner.getId(), null);
+        inspectorMembership.approve();
+        companyMembershipRepository.save(inspectorMembership);
 
         Facility facility = facilityRepository.save(
                 Facility.builder().ownerId(owner.getId()).name("미디어테스트시설").type("BUILDING").build());
@@ -112,6 +127,10 @@ class MediaServiceIntegrationTest extends PostgresTestSupport {
                 .forEach(mediaRepository::delete);
         inspectionRepository.deleteById(inspectionId);
         facilityRepository.deleteById(facilityId);
+
+        companyMembershipRepository.findAll().stream()
+                .filter(m -> m.getCompanyId().equals(companyId))
+                .forEach(companyMembershipRepository::delete);
 
         User owner = userRepository.findById(ownerId).orElseThrow();
         owner.assignToCompany(null);
