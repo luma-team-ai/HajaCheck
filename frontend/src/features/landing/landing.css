@@ -1,5 +1,8 @@
 .landing {
   color: #111;
+  --landing-text-secondary: #47464b;
+  --landing-accent: rgba(79, 70, 229, 0.8); /* #4F46E5 @ 80% opacity */
+  --landing-border: #e4e4e7;
 }
 
 .landing-header {
@@ -72,21 +75,21 @@
 }
 
 .landing-badge-dot {
-  color: rgba(79, 70, 229, 0.8); /* #4F46E5 @ 80% opacity */
+  color: var(--landing-accent);
 }
 
 .landing-hero h1 {
-  font-size: 72px;
+  font-size: 88px;
   font-weight: 800;
   line-height: 1.3;
   margin: 0 0 20px;
 }
 
 .landing-hero p {
-  color: #47464b;
-  font-size: 17px;
+  color: var(--landing-text-secondary);
+  font-size: 20px;
   line-height: 1.6;
-  max-width: 500px;
+  max-width: 600px;
   margin: 0 auto 32px;
 }
 
@@ -151,7 +154,7 @@
 }
 
 .landing-partners-label {
-  color: #47464b;
+  color: var(--landing-text-secondary);
   font-size: 13px;
   margin-bottom: 24px;
 }
@@ -178,26 +181,28 @@
 }
 
 .landing-eyebrow {
-  color: rgba(79, 70, 229, 0.8); /* #4F46E5 @ 80% opacity */
+  color: var(--landing-accent);
   font-weight: 700;
   font-size: 13px;
   letter-spacing: 0.06em;
   margin-bottom: 16px;
 }
 
-.landing-section h2 {
-  font-size: 34px;
+.landing-section h2,
+.landing-pricing h2,
+.landing-banner h2 {
+  font-size: 48px;
   font-weight: 800;
   line-height: 1.35;
   margin: 0 0 16px;
 }
 
 .landing-section p:not(.landing-eyebrow) {
-  color: #47464b;
-  font-size: 16px;
+  color: var(--landing-text-secondary);
+  font-size: 20px;
   line-height: 1.6;
   margin: 0 auto;
-  max-width: 540px;
+  max-width: 680px;
 }
 
 .landing-badge-row {
@@ -272,19 +277,12 @@
   text-align: center;
 }
 
-.landing-pricing h2 {
-  font-size: 34px;
-  font-weight: 800;
-  line-height: 1.35;
-  margin: 0 0 16px;
-}
-
 .landing-pricing > p:not(.landing-eyebrow) {
-  color: #666;
-  font-size: 16px;
+  color: var(--landing-text-secondary);
+  font-size: 20px;
   line-height: 1.6;
   margin: 0 auto;
-  max-width: 620px;
+  max-width: 680px;
 }
 
 .landing-pricing-cards {
@@ -299,7 +297,7 @@
 .landing-pricing-card {
   width: 300px;
   border-radius: 28px;
-  border: 1px solid #e4e4e7;
+  border: 1px solid var(--landing-border);
   padding: 32px 28px;
   text-align: left;
   background: #faf9f6;
@@ -317,7 +315,7 @@
   position: absolute;
   top: -14px;
   right: 24px;
-  background: rgba(79, 70, 229, 0.8);
+  background: var(--landing-accent);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -333,7 +331,7 @@
 }
 
 .landing-pricing-subtitle {
-  color: #47464b;
+  color: var(--landing-text-secondary);
   font-size: 13px;
   margin: 0 0 20px;
 }
@@ -382,8 +380,8 @@
   width: 18px;
   height: 18px;
   border-radius: 999px;
-  border: 1.5px solid rgba(79, 70, 229, 0.8);
-  color: rgba(79, 70, 229, 0.8);
+  border: 1.5px solid var(--landing-accent);
+  color: var(--landing-accent);
   font-size: 11px;
   line-height: 1;
 }
@@ -433,16 +431,9 @@
   border-radius: 32px;
 }
 
-.landing-banner h2 {
-  font-size: 32px;
-  font-weight: 800;
-  line-height: 1.35;
-  margin: 0 0 16px;
-}
-
 .landing-banner p {
-  color: #47464b;
-  font-size: 16px;
+  color: var(--landing-text-secondary);
+  font-size: 20px;
 }
 
 .landing-floating-controls {
@@ -469,7 +460,7 @@
   background: #f7f7f8;
   padding: 56px 40px 32px;
   margin-top: 80px;
-  border-top: 1px solid #e4e4e7;
+  border-top: 1px solid var(--landing-border);
 }
 
 .landing-footer-top {
@@ -482,7 +473,7 @@
 }
 
 .landing-footer-tagline {
-  color: #47464b;
+  color: var(--landing-text-secondary);
   font-size: 13px;
   margin-top: 8px;
   max-width: 260px;
@@ -511,7 +502,7 @@
 }
 
 .landing-footer-column a {
-  color: #47464b;
+  color: var(--landing-text-secondary);
   font-size: 13px;
   text-decoration: none;
 }
