@@ -41,6 +41,7 @@ import com.hajacheck.notification.repository.NotificationRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -103,9 +104,14 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
         User owner = seedInspectorOwner("inspection-owner@haja.com");
         Inspection inspection = seedInspection(owner, "통합검증 시설");
 
-        Media media = Media.create(
-                inspection.getId(), MediaFileType.IMAGE, "https://files.example/image.jpg",
-                null, Instant.now(), null, null, "image/jpeg");
+        Media media = Media.builder()
+                .inspectionId(inspection.getId())
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("https://files.example/image.jpg")
+                .capturedAt(LocalDateTime.now())
+                .mimeSignatureVerified(true)
+                .mimeType("image/jpeg")
+                .build();
         em.persist(media);
 
         Defect defect = Defect.builder()
