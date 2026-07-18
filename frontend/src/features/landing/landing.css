@@ -289,6 +289,7 @@
 
 .landing-pricing-cards {
   display: flex;
+  align-items: flex-start;
   justify-content: center;
   gap: 24px;
   margin-top: 48px;
@@ -297,11 +298,11 @@
 
 .landing-pricing-card {
   width: 300px;
-  border-radius: 20px;
-  border: 1px solid #e6e6e6;
+  border-radius: 28px;
+  border: 1px solid #e4e4e7;
   padding: 32px 28px;
   text-align: left;
-  background: #fff;
+  background: #faf9f6;
   position: relative;
 }
 
@@ -309,14 +310,14 @@
   background: #111;
   color: #fff;
   border: none;
+  margin-top: -16px;
 }
 
 .landing-pricing-badge {
   position: absolute;
   top: -14px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #4a5cff;
+  right: 24px;
+  background: rgba(79, 70, 229, 0.8);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -328,7 +329,17 @@
 .landing-pricing-name {
   font-weight: 700;
   font-size: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 4px;
+}
+
+.landing-pricing-subtitle {
+  color: #47464b;
+  font-size: 13px;
+  margin: 0 0 20px;
+}
+
+.landing-pricing-card--inverted .landing-pricing-subtitle {
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .landing-pricing-price {
@@ -356,6 +367,46 @@
   font-size: 14px;
 }
 
+.landing-pricing-feature {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.landing-pricing-feature::before {
+  content: '✓';
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(79, 70, 229, 0.8);
+  color: rgba(79, 70, 229, 0.8);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.landing-pricing-card--inverted .landing-pricing-feature::before {
+  border-color: #e2dfff;
+  color: #e2dfff;
+}
+
+.landing-pricing-feature--excluded {
+  color: #aaa;
+}
+
+.landing-pricing-feature--excluded::before {
+  content: '✕';
+  border-color: #ccc;
+  color: #ccc;
+}
+
+.landing-pricing-feature--excluded .landing-pricing-feature-label {
+  text-decoration: line-through;
+}
+
 .landing-pricing-cta {
   display: block;
   text-align: center;
@@ -364,7 +415,7 @@
   font-size: 14px;
   font-weight: 600;
   text-decoration: none;
-  border: 1px solid #ccc;
+  border: 1px solid #000;
   color: #111;
 }
 

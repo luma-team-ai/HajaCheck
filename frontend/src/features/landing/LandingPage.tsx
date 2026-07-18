@@ -150,13 +150,19 @@ export default function LandingPage() {
             >
               {tier.badge && <span className="landing-pricing-badge">{tier.badge}</span>}
               <p className="landing-pricing-name">{tier.name}</p>
+              <p className="landing-pricing-subtitle">{tier.subtitle}</p>
               <p>
                 <span className="landing-pricing-price">{tier.price}</span>
                 {tier.period && <span className="landing-pricing-period"> {tier.period}</span>}
               </p>
               <ul className="landing-pricing-features">
                 {tier.features.map((feature) => (
-                  <li key={feature}>{feature}</li>
+                  <li
+                    key={feature.label}
+                    className={`landing-pricing-feature${feature.included === false ? ' landing-pricing-feature--excluded' : ''}`}
+                  >
+                    <span className="landing-pricing-feature-label">{feature.label}</span>
+                  </li>
                 ))}
               </ul>
               <a
