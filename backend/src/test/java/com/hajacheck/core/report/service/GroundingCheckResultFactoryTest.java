@@ -17,6 +17,9 @@ class GroundingCheckResultFactoryTest {
     private static final String REPORT_CONTENT_HASH =
             "4a1bb364dd04353d066273d3347a7a6702b98150d0a24d1a21f3229be6ccfdcd";
 
+    private static final String REPORT_CONTENT_HASH_LEGAL_BASIS_UNVERIFIED =
+            "0f99c606207c20c65edb341fd60bb9b927fb50e60cecc234d529a6cd236e17ee";
+
     @Test
     void fromAiReport_Python전체payload를DTO왕복한뒤공식저장JSON해시를검증() throws Exception {
         GroundingRequestContext context = new GroundingRequestContext("request-123", 10L, 3);
@@ -43,6 +46,35 @@ class GroundingCheckResultFactoryTest {
         assertThat(storedContent).contains("\"legal_basis_verified\":true");
         assertThat(storedContent).doesNotContain("grounding_request_id", "content_hash", "report_version");
         assertThat(result.target().contentHash()).isEqualTo(REPORT_CONTENT_HASH);
+        assertThat(result.passed()).isTrue();
+    }
+
+    @Test
+    void fromAiReport_legalBasisVerifiedFalse샘플payload를DTO왕복한뒤공식저장JSON해시를검증() throws Exception {
+        GroundingRequestContext context = new GroundingRequestContext("request-123", 10L, 3);
+        String aiDataJson = """
+                {
+                  "overview":{"purpose":"purpose","facility_summary":"facility","scope":"all"},
+                  "summary":{"overall_opinion":"caution","total_count":1,
+                    "count_by_grade":{"A":0,"B":1,"C":0,"D":0,"E":0},"key_findings":["crack"]},
+                  "detail":{"items":[{"defect_type":"crack","location":"floor-1","severity_grade":"B",
+                    "description":"micro crack","cause":"shrinkage"}]},
+                  "recommendation":{"items":[{"target":"crack","method":"epoxy","priority":"medium",
+                    "legal_basis":"article-1","legal_basis_verified":false}],"monitoring_points":["crack area"]},
+                  "grounding_ok":true,"grounding_request_id":"request-123","inspection_id":10,
+                  "report_version":3,"content_hash":"0f99c606207c20c65edb341fd60bb9b927fb50e60cecc234d529a6cd236e17ee"
+                }
+                """;
+        ReportResponse response = new ObjectMapper().readValue(aiDataJson, ReportResponse.class);
+
+        String storedContent = GroundingReportContentSerializer.serialize(response);
+        GroundingCheckResult result = GroundingCheckResultFactory.fromAiReport(
+                context, response, "[]");
+
+        assertThat(response.recommendation().items().get(0).legalBasisVerified()).isFalse();
+        assertThat(storedContent).contains("\"legal_basis_verified\":false");
+        assertThat(storedContent).doesNotContain("grounding_request_id", "content_hash", "report_version");
+        assertThat(result.target().contentHash()).isEqualTo(REPORT_CONTENT_HASH_LEGAL_BASIS_UNVERIFIED);
         assertThat(result.passed()).isTrue();
     }
 

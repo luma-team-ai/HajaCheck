@@ -81,6 +81,46 @@ def test_canonical_content_hash_matches_backend_canonical_sample():
     )
 
 
+def test_canonical_content_hash_matches_backend_canonical_sample_legal_basis_unverified():
+    content = {
+        "overview": {"purpose": "purpose", "facility_summary": "facility", "scope": "all"},
+        "summary": {
+            "overall_opinion": "caution",
+            "total_count": 1,
+            "count_by_grade": {"A": 0, "B": 1, "C": 0, "D": 0, "E": 0},
+            "key_findings": ["crack"],
+        },
+        "detail": {
+            "items": [
+                {
+                    "defect_type": "crack",
+                    "location": "floor-1",
+                    "severity_grade": "B",
+                    "description": "micro crack",
+                    "cause": "shrinkage",
+                }
+            ]
+        },
+        "recommendation": {
+            "items": [
+                {
+                    "target": "crack",
+                    "method": "epoxy",
+                    "priority": "medium",
+                    "legal_basis": "article-1",
+                    "legal_basis_verified": False,
+                }
+            ],
+            "monitoring_points": ["crack area"],
+        },
+        "grounding_ok": True,
+    }
+
+    assert _canonical_content_hash(content) == (
+        "0f99c606207c20c65edb341fd60bb9b927fb50e60cecc234d529a6cd236e17ee"
+    )
+
+
 def _sample_facility_info() -> dict:
     return {"name": "Haja APT", "location": "서울시"}
 

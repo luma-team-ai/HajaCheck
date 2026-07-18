@@ -13,7 +13,9 @@ begin
        or to_regclass('public.inspections') is null
        or to_regclass('public.media') is null
        or to_regclass('public.rag_documents') is null
-       or to_regclass('public.chat_message_citations') is null then
+       or to_regclass('public.chat_message_citations') is null
+       or to_regclass('public.usage_counters') is null
+       or to_regclass('public.reports') is null then
         raise exception 'HAJA-25 migration requires the v0.3 baseline tables';
     end if;
 end
@@ -53,6 +55,38 @@ begin
           ) = array['facility_id', 'round_no']
     ) then
         raise exception 'HAJA-25 migration requires v0.3 UNIQUE inspections(facility_id, round_no)';
+    end if;
+
+    if not exists (
+        select 1
+        from pg_constraint c
+        where c.conrelid = 'usage_counters'::regclass
+          and c.contype = 'u'
+          and (
+              select array_agg(a.attname::text order by k.ordinality)
+              from unnest(c.conkey) with ordinality as k(attnum, ordinality)
+              join pg_attribute a
+                on a.attrelid = c.conrelid
+               and a.attnum = k.attnum
+          ) = array['user_plan_id', 'period']
+    ) then
+        raise exception 'HAJA-25 migration requires v0.3 UNIQUE usage_counters(user_plan_id, period)';
+    end if;
+
+    if not exists (
+        select 1
+        from pg_constraint c
+        where c.conrelid = 'reports'::regclass
+          and c.contype = 'u'
+          and (
+              select array_agg(a.attname::text order by k.ordinality)
+              from unnest(c.conkey) with ordinality as k(attnum, ordinality)
+              join pg_attribute a
+                on a.attrelid = c.conrelid
+               and a.attnum = k.attnum
+          ) = array['inspection_id', 'version']
+    ) then
+        raise exception 'HAJA-25 migration requires v0.3 UNIQUE reports(inspection_id, version)';
     end if;
 
     if not exists (
