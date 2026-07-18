@@ -1,14 +1,16 @@
 import { Cell, Legend, Pie, PieChart as RechartsPieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { ChartEmptyState } from './ChartEmptyState';
 import { CHART_LEGEND_STYLE, CHART_SERIES_COLORS, CHART_TOOLTIP_STYLE } from './palette';
-import type { ChartBaseProps } from './types';
+import type { ChartBaseProps, ChartCategoryKey, ChartNumericKey } from './types';
 
 interface PieChartProps<T extends object> extends ChartBaseProps {
   data: T[];
   /** 조각 값으로 사용할 필드명 */
-  dataKey: keyof T & string;
+  dataKey: ChartNumericKey<T>;
   /** 조각 라벨(범례/툴팁)로 사용할 필드명 */
-  nameKey: keyof T & string;
+  nameKey: ChartCategoryKey<T>;
+  /** React 조각 key로 사용할 항목 내 고유 필드명 */
+  itemKey: ChartCategoryKey<T>;
   /** 조각 색상 오버라이드 (미지정 시 CHART_SERIES_COLORS 순환 배정) */
   colors?: readonly string[];
   /** 0보다 크면 도넛 차트로 표시 */
@@ -25,6 +27,7 @@ export function PieChart<T extends object>({
   data,
   dataKey,
   nameKey,
+  itemKey,
   ariaLabel,
   height = DEFAULT_HEIGHT,
   emptyMessage = DEFAULT_EMPTY_MESSAGE,
@@ -33,7 +36,12 @@ export function PieChart<T extends object>({
   innerRadius = 0,
   showLegend = true,
 }: PieChartProps<T>) {
-  if (data.length === 0) {
+  const hasRenderableValue = data.some((item) => {
+    const value = item[dataKey];
+    return typeof value === 'number' && Number.isFinite(value) && value > 0;
+  });
+
+  if (data.length === 0 || !hasRenderableValue) {
     return <ChartEmptyState ariaLabel={ariaLabel} height={height} message={emptyMessage} />;
   }
 
@@ -55,7 +63,7 @@ export function PieChart<T extends object>({
             isAnimationActive={false}
           >
             {data.map((item, index) => (
-              <Cell key={`${String(item[nameKey])}-${String(item[dataKey])}`} fill={palette[index % palette.length]} />
+              <Cell key={String(item[itemKey])} fill={palette[index % palette.length]} />
             ))}
           </Pie>
           <Tooltip

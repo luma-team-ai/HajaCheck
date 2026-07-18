@@ -72,6 +72,7 @@ export function ChartShowcasePage() {
               data={statusDistribution}
               dataKey="count"
               nameKey="status"
+              itemKey="status"
               colors={STATUS_COLORS}
               innerRadius="48%"
               ariaLabel="점검 처리 상태별 건수 도넛 차트"
@@ -88,6 +89,7 @@ export function ChartShowcasePage() {
               data={gradeDistribution}
               dataKey="percent"
               nameKey="grade"
+              itemKey="grade"
               colors={GRADE_COLORS}
               ariaLabel="공용 등급 팔레트를 적용한 하자 등급 비율 파이 차트"
               valueFormatter={(value) => `${value}%`}
@@ -97,7 +99,7 @@ export function ChartShowcasePage() {
           <article className={CARD_CLASS}>
             <h2 className="mb-1 mt-0 text-lg font-semibold text-heading">빈 데이터</h2>
             <p className="mb-5 mt-0 text-sm text-text-muted">조회 결과가 없을 때 공통 안내 상태</p>
-            <LineChart
+            <LineChart<InspectionTrendChartItem>
               data={[]}
               xKey="inspectedAt"
               series={[{ dataKey: 'defectCount', name: '발견 하자' }]}

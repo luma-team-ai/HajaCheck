@@ -54,4 +54,13 @@ describe('LineChart', () => {
 
     expect(invalidSeries).toHaveLength(1);
   });
+
+  it('문자열 필드는 값 시리즈로 지정할 수 없다', () => {
+    const invalidSeries: ChartSeries<MonthlyCount>[] = [
+      // @ts-expect-error month는 숫자 필드가 아니므로 값 시리즈로 사용할 수 없다.
+      { dataKey: 'month' },
+    ];
+
+    expect(invalidSeries).toHaveLength(1);
+  });
 });

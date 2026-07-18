@@ -17,6 +17,19 @@ describe('chartShowcase adapters', () => {
     expect(result.some((item) => item.defectCount === 0)).toBe(true);
   });
 
+  it('같은 날짜의 여러 점검은 날짜별 하자 건수로 합산한다', () => {
+    const duplicatedDate: RecentInspectionItem[] = [
+      showcaseRecentInspections[0],
+      {
+        ...showcaseRecentInspections[1],
+        inspectedAt: showcaseRecentInspections[0].inspectedAt,
+        defectCount: 4,
+      },
+    ];
+
+    expect(toInspectionTrendChartData(duplicatedDate)).toEqual([{ inspectedAt: '2026-07-01', defectCount: 7 }]);
+  });
+
   it('등급 분포 DTO에서 차트에 필요한 필드만 복사한다', () => {
     expect(toGradeDistributionChartData(showcaseGradeDistribution)).toEqual(showcaseGradeDistribution);
   });

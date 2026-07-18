@@ -23,9 +23,15 @@ export interface StatusDistributionChartItem {
 const INSPECTION_STATUS_ORDER: readonly InspectionStatus[] = ['분석중', '검수대기', '조치대기', '완료'];
 
 export function toInspectionTrendChartData(items: readonly RecentInspectionItem[]): InspectionTrendChartItem[] {
-  return [...items]
-    .sort((a, b) => a.inspectedAt.localeCompare(b.inspectedAt))
-    .map(({ inspectedAt, defectCount }) => ({ inspectedAt, defectCount }));
+  const defectCountByDate = new Map<string, number>();
+
+  items.forEach(({ inspectedAt, defectCount }) => {
+    defectCountByDate.set(inspectedAt, (defectCountByDate.get(inspectedAt) ?? 0) + defectCount);
+  });
+
+  return [...defectCountByDate]
+    .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+    .map(([inspectedAt, defectCount]) => ({ inspectedAt, defectCount }));
 }
 
 export function toGradeDistributionChartData(items: readonly GradeDistributionItem[]): GradeDistributionChartItem[] {

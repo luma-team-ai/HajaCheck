@@ -17,12 +17,12 @@ import {
   CHART_SERIES_COLORS,
   CHART_TOOLTIP_STYLE,
 } from './palette';
-import type { ChartBaseProps, ChartSeries } from './types';
+import type { ChartBaseProps, ChartCategoryKey, ChartSeries } from './types';
 
 interface LineChartProps<T extends object> extends ChartBaseProps {
   data: T[];
   /** X축(가로) 카테고리로 사용할 필드명 */
-  xKey: keyof T & string;
+  xKey: ChartCategoryKey<T>;
   series: readonly ChartSeries<T>[];
   /** 배경 격자 표시 여부 */
   showGrid?: boolean;
