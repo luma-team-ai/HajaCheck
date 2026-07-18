@@ -66,6 +66,24 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(screen.queryByText('콘크리트 표면 박리 영역 확대 중. 즉시 조치 필요.')).toBeNull();
   });
 
+  it('필터 결과가 0건이면(원본 데이터는 있음) 안내 메시지를 표시한다(#368)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0192');
+
+    // 신뢰도 threshold를 최대로 올려 모든 하자(최고 confidence 0.98)를 필터에서 제외
+    fireEvent.change(screen.getByRole('slider'), { target: { value: '1' } });
+
+    expect(await screen.findByText('조건에 맞는 하자가 없습니다.')).not.toBeNull();
+  });
+
+  it('"검수 확정" 버튼은 백엔드 미구현으로 비활성화되어 있다(#368, #16/#17 완료 시 활성화)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0192');
+
+    const button = screen.getByRole('button', { name: '이 이미지 검수 확정' });
+    expect(button.hasAttribute('disabled')).toBe(true);
+  });
+
   it('빈 데이터: 탐지된 하자가 없으면 해당 메시지를 표시한다', async () => {
     // 빈 defects 배열 응답으로 오버라이드
     server.use(
