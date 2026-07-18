@@ -441,7 +441,7 @@
 }
 
 .landing-banner p {
-  color: #666;
+  color: #47464b;
   font-size: 16px;
 }
 
@@ -468,6 +468,8 @@
 .landing-footer {
   background: #f7f7f8;
   padding: 56px 40px 32px;
+  margin-top: 80px;
+  border-top: 1px solid #e4e4e7;
 }
 
 .landing-footer-top {
@@ -480,7 +482,7 @@
 }
 
 .landing-footer-tagline {
-  color: #777;
+  color: #47464b;
   font-size: 13px;
   margin-top: 8px;
   max-width: 260px;
@@ -494,6 +496,7 @@
 }
 
 .landing-footer-column h4 {
+  color: #000;
   font-size: 13px;
   margin: 0 0 12px;
 }
@@ -508,7 +511,7 @@
 }
 
 .landing-footer-column a {
-  color: #666;
+  color: #47464b;
   font-size: 13px;
   text-decoration: none;
 }
@@ -518,6 +521,6 @@
   margin: 40px auto 0;
   padding-top: 20px;
   border-top: 1px solid #e3e3e5;
-  color: #999;
+  color: #858387;
   font-size: 12px;
 }
