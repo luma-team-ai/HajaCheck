@@ -151,11 +151,15 @@
 .landing-partners {
   text-align: center;
   padding: 56px 24px;
+  background-color: #fafafa;
+  border: none;
+  border-radius: 0;
 }
 
 .landing-partners-label {
   color: var(--landing-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
+  letter-spacing: 1.4px;
   margin-bottom: 24px;
 }
 
