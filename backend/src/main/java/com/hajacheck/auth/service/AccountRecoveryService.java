@@ -20,8 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>계정 열거 방지: 무매칭은 AUTH_ACCOUNT_NOT_FOUND(404) 로 통일한다(어느 항목이 틀렸는지 노출하지 않음).
  * 검증 실패는 절대 401 금지.
  *
- * <p>⚠️ 비밀번호 찾기(이메일+사업자번호만으로 재설정 토큰 발급)는 계정 탈취 위험(P1)으로 이번 범위에서 제외됐다.
- * SMTP 미사용 결정에 따라 보안질문 방식으로 후속 처리(#194 / HAJA-172).
+ * <p>비밀번호 찾기는 이메일 링크 방식으로 별도 구현됐다 — {@link PasswordResetService}(#194 / HAJA-172).
+ * (이메일+사업자번호만으로 재설정 토큰을 발급하던 최초 설계는 계정 탈취 P1 으로 폐기됐다.)
  */
 @Service
 @Transactional(readOnly = true)

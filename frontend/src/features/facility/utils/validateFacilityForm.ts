@@ -34,6 +34,13 @@ const MIN_LATITUDE = -90;
 const MAX_LATITUDE = 90;
 const MIN_LONGITUDE = -180;
 const MAX_LONGITUDE = 180;
+const MIN_BUILT_YEAR = 1900;
+
+// 준공년도 상한 — 준공이 미래일 수는 없으므로 현재연도가 기준이나, "내년 준공 예정" 등록을 허용해 +1 까지 받는다.
+// 해가 바뀌어도 따라가도록 호출 시점에 산출한다(연도 하드코딩 금지).
+function maxBuiltYear(): number {
+  return new Date().getFullYear() + 1;
+}
 
 // 백엔드 계약(name/type 필수, 각 필드 길이·범위 제약)과 1:1 — API 왕복 없이 즉시 피드백 제공
 export function validateFacilityForm(values: FacilityFormValues): FacilityFormErrors {
@@ -71,8 +78,12 @@ export function validateFacilityForm(values: FacilityFormValues): FacilityFormEr
 
   if (values.builtYear.trim()) {
     const builtYear = Number(values.builtYear);
+    const maxYear = maxBuiltYear();
     if (!Number.isInteger(builtYear)) {
       errors.builtYear = '준공년도는 정수로 입력해 주세요.';
+    } else if (builtYear < MIN_BUILT_YEAR || builtYear > maxYear) {
+      // 정수 검사만 있으면 -100·999999 같은 값이 그대로 서버로 전송된다(#224 P2 → #352).
+      errors.builtYear = `준공년도는 ${MIN_BUILT_YEAR} ~ ${maxYear} 사이로 입력해 주세요.`;
     }
   }
 

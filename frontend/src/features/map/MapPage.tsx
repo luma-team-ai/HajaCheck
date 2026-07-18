@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { mapApi } from './api/mapApi';
 import { FacilityListPanel } from './components/FacilityListPanel';
-import { MapControls } from './components/MapControls';
+import { MapControls, type MapDisplayType } from './components/MapControls';
 import { MapLegend } from './components/MapLegend';
 import { SelectedFacilityPopup } from './components/SelectedFacilityPopup';
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_LEVEL, ERROR_TEXT_COLOR, MAX_MAP_LEVEL, MIN_MAP_LEVEL } from './constants';
@@ -25,6 +25,8 @@ export default function MapPage() {
   const mapInstanceRef = useRef<KakaoMap | null>(null);
   const markersRef = useRef<KakaoMarker[]>([]);
   const overlayRef = useRef<KakaoCustomOverlay | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const hasCenteredRef = useRef(false);
 
   const [overlayContainer] = useState(() => document.createElement('div'));
 
@@ -34,6 +36,7 @@ export default function MapPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('전체');
   const [selectedFacilityId, setSelectedFacilityId] = useState<number | null>(null);
+  const [mapType, setMapType] = useState<MapDisplayType>('roadmap');
 
   const {
     data: facilities,
@@ -89,23 +92,36 @@ export default function MapPage() {
         setSdkStatus('ready');
 
         // 초기 렌더링 시 flex 레이아웃 계산 타이밍 불일치로 인한 타일 미로드/오버레이 깨짐 방지.
-        // 100ms는 실측 기반 값 — 로컬/CI 크롬에서 flex 자식(지도 컨테이너) 레이아웃 계산이
-        // 마운트 직후 프레임 내에 끝나지 않아 relayout() 호출 없이는 초기 타일이 잘리는 현상을
-        // 재현했고, 60ms 이하에서는 간헐적으로 재현되어 여유를 둔 100ms로 고정함(2026-07-16).
-        // ResizeObserver로 컨테이너 크기 변화를 감지해 대체하는 방안도 검토했으나, 이 문제는
-        // "최초 1회, 마운트 직후"에만 발생하는 타이밍 이슈라 상시 관찰자를 두는 것은 과설계로 판단.
-        setTimeout(() => {
-          if (!cancelled && mapInstanceRef.current) {
-            mapInstanceRef.current.relayout();
+        // 과거에는 100ms 고정 setTimeout으로 우회했으나(실측 기반이라도 매직넘버 워크어라운드,
+        // P3, PR #265/#130 리뷰), 실제로 필요한 건 "지도 컨테이너의 레이아웃(크기)이 확정된 시점"이므로
+        // ResizeObserver로 컨테이너 크기 변화를 직접 감지해 그 시점에 relayout()을 호출한다.
+        // 크기가 0이면 아직 flex 레이아웃 계산 전이므로 건너뛰고, 유효한 크기가 처음 관측될 때만
+        // relayout을 실행한다(이후 실제 리사이즈에도 relayout을 다시 호출하는 것은 카카오맵 SDK가
+        // 컨테이너 크기 변경에 자동 대응하지 못하는 문제를 함께 방지하는 부가 효과).
+        // setCenter(center)는 "최초 유효 레이아웃" 시점 딱 1회만 호출한다 — 이후 리사이즈(예: 사용자가
+        // 지도를 팬/줌한 뒤 브라우저 창 크기가 바뀌는 경우)마다 호출하면 사용자가 옮긴 현재 중심을
+        // 매번 초기 DEFAULT_MAP_CENTER로 되돌려버리는 회귀가 생긴다(code-reviewer P1, #335).
+        const container = mapContainerRef.current;
+        const observer = new ResizeObserver((entries) => {
+          if (cancelled || !mapInstanceRef.current) return;
+          const entry = entries[0];
+          if (!entry) return;
+          const { width, height } = entry.contentRect;
+          if (width === 0 || height === 0) return;
+          mapInstanceRef.current.relayout();
+          if (!hasCenteredRef.current) {
+            hasCenteredRef.current = true;
             mapInstanceRef.current.setCenter(center);
           }
-        }, 100);
+        });
+        observer.observe(container);
+        resizeObserverRef.current = observer;
       })
       .catch((error: unknown) => {
         if (cancelled) return;
         const message =
           error instanceof KakaoMapKeyMissingError
-            ? 'Kakao Map API 키가 설정되지 않았습니다. frontend/.env.local 에 VITE_KAKAO_MAP_APP_KEY 값을 설정해 주세요.'
+            ? 'Kakao Map API 키가 설정되지 않았습니다. VITE_KAKAO_MAP_APP_KEY 를 설정하세요 (도커: 루트 .env / 네이티브: frontend/.env.local).'
             : 'Kakao Map을 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.';
         setSdkError(message);
         setSdkStatus('error');
@@ -113,6 +129,9 @@ export default function MapPage() {
 
     return () => {
       cancelled = true;
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      hasCenteredRef.current = false;
       markersRef.current.forEach((marker) => marker.setMap(null));
       markersRef.current = [];
       mapInstanceRef.current = null;
@@ -148,7 +167,16 @@ export default function MapPage() {
     };
   }, [markerFacilities, sdkStatus]);
 
-  // 선택된 시설물 변경 시 카카오맵 CustomOverlay 동기화
+  // 지도/위성 토글 상태를 실제 카카오맵 인스턴스에 반영
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (sdkStatus !== 'ready' || !map) return;
+    const typeId =
+      mapType === 'hybrid' ? window.kakao.maps.MapTypeId.HYBRID : window.kakao.maps.MapTypeId.ROADMAP;
+    map.setMapTypeId(typeId);
+  }, [mapType, sdkStatus]);
+
+  // 선택된 시설물 변경 시 카카오맵 CustomOverlay 동기화 + 지도 시점을 부드럽게 이동(panTo)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (sdkStatus !== 'ready' || !map) return;
@@ -164,6 +192,8 @@ export default function MapPage() {
       selectedFacility.latitude,
       selectedFacility.longitude
     );
+
+    map.panTo(position);
 
     const overlay = new window.kakao.maps.CustomOverlay({
       position,
@@ -181,6 +211,10 @@ export default function MapPage() {
       }
     };
   }, [selectedFacility, sdkStatus, overlayContainer]);
+
+  const handleChangeMapType = (nextType: MapDisplayType) => {
+    setMapType(nextType);
+  };
 
   const handleZoomIn = () => {
     const map = mapInstanceRef.current;
@@ -203,7 +237,7 @@ export default function MapPage() {
           position.coords.latitude,
           position.coords.longitude,
         );
-        map.setCenter(center);
+        map.panTo(center);
       },
       () => {
         // 위치 권한 거부/실패 시 조용히 무시 — 지도 기본 중심을 그대로 유지
@@ -230,7 +264,13 @@ export default function MapPage() {
       />
       <div className="relative flex-1 overflow-hidden bg-white">
         <div ref={mapContainerRef} className="h-full w-full" />
-        <MapControls onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} onMyLocation={handleMyLocation} />
+        <MapControls
+          mapType={mapType}
+          onChangeMapType={handleChangeMapType}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onMyLocation={handleMyLocation}
+        />
         <MapLegend />
         {selectedFacility && createPortal(
           <SelectedFacilityPopup

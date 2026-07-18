@@ -43,6 +43,8 @@ export const DASHBOARD_COLOR_CLASS = {
   statusBadgeBlue: 'bg-[#e6ecff] text-[#3452e0]',
   statusBadgeOrange: 'bg-[#fdf0d5] text-[#b5670a]',
   statusBadgeGreen: 'bg-[#e3f5e6] text-[#16a34a]',
+  /** 등급 미분류 배지 배경 — BE PendingPriorityResponse.grade가 null일 때(HAJA-17 dev-03-01 DTO 정합) */
+  gradeUnknownBg: 'bg-[#9ca3af]',
 } as const;
 
 /**

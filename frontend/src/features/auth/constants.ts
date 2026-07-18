@@ -7,7 +7,9 @@ export const EMAIL_AVAILABILITY_PATH = '/auth/email-availability';
 export const COMPANY_SIGNUP_PATH = '/auth/companies';
 export const COMPANY_SIGNUP_STATUS_PATH = '/auth/companies/status';
 export const ID_INQUIRY_PATH = '/auth/id-inquiry';
-// 비밀번호 찾기 경로는 계정 탈취 P1(보안 리뷰)로 범위 제외 — #194(HAJA-172)에서 보안질문 방식으로 재설계
+// 비밀번호 찾기 — 이메일 링크 방식(#301, HAJA-224) — docs/api-contract/contract.md "비밀번호 찾기 1·2단계"
+export const PASSWORD_RESET_REQUEST_PATH = '/auth/password-reset-request';
+export const PASSWORD_RESET_PATH = '/auth/password-reset';
 
 // 세션 확인(getMe) 공유 쿼리 — AuthGate(app/AuthGate.tsx)와 LoginPage가 동일 키/옵션을 사용해야
 // react-query 캐시를 공유한다(중복 호출 방지). staleTime은 로그아웃 직후(useLogout이
@@ -23,6 +25,10 @@ export const LOGIN_ROUTE = '/login';
 export const COMPANY_SIGNUP_ROUTE = '/signup/company';
 export const COMPANY_SIGNUP_PENDING_ROUTE = '/signup/company/pending';
 export const FIND_ID_ROUTE = '/find-id';
+// 비밀번호 찾기 — 이메일 링크 방식(#301, HAJA-224) — RESET_PASSWORD_ROUTE는 메일 링크(계약
+// "{FRONTEND_BASE_URL}/reset-password?token=...")와 경로가 반드시 일치해야 한다(하드코딩 금지 방지).
+export const FIND_PASSWORD_ROUTE = '/find-password';
+export const RESET_PASSWORD_ROUTE = '/reset-password';
 // 프로필 클릭 이동 경로(app/AppShellRoute.tsx와 공유, 하드코딩 방지 — #280 P3)
 export const MYPAGE_PLAN_ROUTE = '/mypage/plan';
 

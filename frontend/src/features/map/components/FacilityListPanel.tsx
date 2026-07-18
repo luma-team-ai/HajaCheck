@@ -1,7 +1,16 @@
 // 검색 + 카테고리 필터 + 시설물 목록 패널 (지도 뷰 좌측) — HAJA-150(#129) 재오픈 컨벤션 준수 작업
-import { FACILITY_CATEGORY_FILTERS } from '../constants';
+import { FACILITY_CATEGORY_FILTERS, GRADE_COLOR } from '../constants';
 import type { FacilityLocation } from '../types';
 import { GradeBadge } from './GradeBadge';
+
+// 결함/주의 건수 심각도 색상 — 등급 범례(MapLegend)와 동일한 GRADE_COLOR 팔레트를 재사용해
+// 신호등(빨강/노랑/초록) 3단계로 단순화. Figma 대조로 임계값 확인(2026-07-17).
+// export: 단위 테스트에서 경계값(3, 10)을 직접 검증하기 위해(code-reviewer P2).
+export function getCountSeverityColor(count: number): string {
+  if (count >= 10) return GRADE_COLOR.E; // 빨강
+  if (count >= 3) return GRADE_COLOR.C; // 노랑
+  return GRADE_COLOR.A; // 초록
+}
 
 interface FacilityListPanelProps {
   facilities: FacilityLocation[];
@@ -73,11 +82,12 @@ export function FacilityListPanel({
           <ul>
             {facilities.map((facility) => (
               <li key={facility.id}>
+                {/* 카드 간 구분선(border-b) 제거 및 호버 밝아짐 효과 제거 — Figma 시안 정합성 준수(2026-07-17) */}
                 <button
                   type="button"
                   onClick={() => onSelectFacility(facility.id)}
-                  className={`flex w-full items-start gap-3 border-b border-border px-3 py-3 text-left transition hover:bg-white ${
-                    selectedFacilityId === facility.id ? 'bg-white' : ''
+                  className={`flex w-full items-start gap-3 px-3 py-3 text-left transition ${
+                    selectedFacilityId === facility.id ? 'bg-primary/5' : ''
                   }`}
                 >
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-md bg-neutral-100 text-text-muted">
@@ -92,14 +102,27 @@ export function FacilityListPanel({
                     )}
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="truncate text-sm font-semibold text-heading">
-                      {facility.name}
+                    <span className="flex items-start justify-between gap-2">
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-heading">
+                        {facility.name}
+                      </span>
+                      <GradeBadge grade={facility.highestGrade} />
                     </span>
                     <span className="truncate text-xs text-text-muted">{facility.address}</span>
-                    <span className="flex items-center gap-2">
-                      <GradeBadge grade={facility.highestGrade} />
-                      <span className="text-[11px] text-text-muted">
-                        결함 {facility.warningCount} · 주의 {facility.cautionCount}
+                    <span className="flex items-center gap-3 text-[11px] text-text-muted">
+                      <span className="flex items-center gap-1">
+                        <span
+                          className="inline-block h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: getCountSeverityColor(facility.warningCount) }}
+                        />
+                        결함 {facility.warningCount}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span
+                          className="inline-block h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: getCountSeverityColor(facility.cautionCount) }}
+                        />
+                        주의 {facility.cautionCount}
                       </span>
                     </span>
                   </span>

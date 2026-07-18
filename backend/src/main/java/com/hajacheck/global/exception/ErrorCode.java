@@ -15,6 +15,9 @@ public enum ErrorCode {
     INVALID_INPUT(HttpStatus.BAD_REQUEST, "입력값이 올바르지 않습니다."),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
+    // 매핑되지 않은 경로/정적 리소스(NoResourceFoundException) 전용 — 도메인 리소스 미존재는
+    // 각 도메인의 {도메인}_NOT_FOUND 를 쓴다. 내부 경로 유추를 막기 위해 메시지에 경로를 담지 않는다.
+    RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청하신 리소스를 찾을 수 없습니다."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 발생했습니다."),
 
     // 인증(auth)
@@ -28,9 +31,12 @@ public enum ErrorCode {
     AUTH_BUSINESS_NUMBER_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 사업자등록번호입니다."),
     // 계정 열거 방지: 아이디 찾기 무매칭은 이 코드로 통일.
     AUTH_ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "일치하는 계정을 찾을 수 없습니다."),
-    // 비밀번호 찾기 관련 — 현재 미사용(엔드포인트 P1 제외). 보안질문 방식 후속에서 재사용 예정(#194 / HAJA-172).
+    // ⚠️ 보안질문 방식 폐기(#194 이메일 링크 전환)로 참조 0건 — 제거 대상(후속 정리). 이번 PR 범위 아님.
     AUTH_VERIFICATION_FAILED(HttpStatus.BAD_REQUEST, "입력하신 정보와 일치하는 계정을 찾을 수 없습니다."),
+    // 비밀번호 재설정 2단계 — 토큰 무효/만료/사용됨을 구분하지 않는 통일 메시지(어느 쪽인지 노출 시 열거 단서가 된다).
     AUTH_RESET_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "유효하지 않거나 만료된 재설정 토큰입니다."),
+    // 비밀번호 재설정 1단계 rate-limit(이메일 축·전역 상한) 초과 — 계정 존재 여부와 무관하게 동일 조건으로 건다.
+    AUTH_TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."),
     AUTH_SIGNUP_TOKEN_INVALID(HttpStatus.NOT_FOUND, "유효하지 않은 가입 상태 토큰입니다."),
     // 점검 담당자 배정(dev-05-02) — 미존재/정지/역할 불충족 모두 통일 응답(리소스 열거 방지).
     AUTH_INVALID_INSPECTOR(HttpStatus.BAD_REQUEST, "담당자로 배정할 수 없는 사용자입니다."),
@@ -65,7 +71,10 @@ public enum ErrorCode {
     // AI 서버(FastAPI) 인증 프록시(#228) — 연결/타임아웃/응답형식 3종
     AI_SERVER_UNREACHABLE(HttpStatus.SERVICE_UNAVAILABLE, "AI 서버에 연결할 수 없습니다."),
     AI_SERVER_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "AI 서버 응답이 지연되고 있습니다."),
-    AI_INVALID_RESPONSE(HttpStatus.BAD_GATEWAY, "AI 서버 응답을 처리할 수 없습니다.");
+    AI_INVALID_RESPONSE(HttpStatus.BAD_GATEWAY, "AI 서버 응답을 처리할 수 없습니다."),
+    // AI 서버 응답 4xx/5xx 구분(#334 P3) — 4xx 는 요청 자체가 거부된 것으로 보아 400, 5xx 는 업스트림 장애로 502.
+    AI_REQUEST_REJECTED(HttpStatus.BAD_REQUEST, "AI 서버가 요청을 거부했습니다."),
+    AI_SERVER_ERROR(HttpStatus.BAD_GATEWAY, "AI 서버에서 오류가 발생했습니다.");
 
     private final HttpStatus status;
     private final String message;

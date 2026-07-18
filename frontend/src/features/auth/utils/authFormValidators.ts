@@ -27,5 +27,7 @@ export function isValidBusinessNumber(value: string): boolean {
   return normalizeBusinessNumber(value).length === 10;
 }
 
-// getPasswordStrength(비밀번호 강도미터)는 새 비밀번호 설정 화면 전용이었으나 해당 화면이
-// 계정 탈취 P1(보안 리뷰)로 범위 제외되며 함께 제거됨 — #194(HAJA-172)
+// getPasswordStrength(비밀번호 강도미터)는 과거 새 비밀번호 설정 화면 전용이었으나 그 화면이
+// 계정 탈취 P1로 배포에서 빠지면서 함께 제거됐다. 화면은 이메일 링크 방식으로 되살아났지만
+// (ResetPasswordPage, #301/HAJA-224) 강도미터는 시안·제품 결정이 없어 복원하지 않았다.
+// 필요해지면 별도 이슈로 다룬다 — 지금 없는 것은 의도된 상태다.

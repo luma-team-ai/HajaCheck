@@ -60,13 +60,13 @@ export interface Partner {
 
 export const PARTNERS: Partner[] = [
   { name: 'HUG', logo: partnerLogo1 },
-  { name: '한국공인중개사협회', logo: partnerLogo2 },
+  { name: '한국도로공사', logo: partnerLogo2 },
   { name: '국토교통부', logo: partnerLogo3 },
-  { name: '한국시설안전관리원', logo: partnerLogo4 },
+  { name: '한국시설안전공단', logo: partnerLogo4 },
 ];
 
 export const FOOTER_LINKS = [
-  { title: '제품', links: ['시설물 관리', '점검 관리', 'AI 분석'] },
-  { title: '회사', links: ['회사 소개', '블로그', '채용'] },
+  { title: '제품', links: ['시설물 정보 관리', '검사(점검) 관리', 'AI 하자 분석', '요금제'] },
+  { title: '회사', links: ['소개', '블로그', '채용', '문의하기'] },
   { title: '법적 고지', links: ['이용약관', '개인정보처리방침'] },
 ];

@@ -194,4 +194,228 @@ describe('SideNavBar', () => {
       expect(screen.queryByRole('status')).toBeNull();
     });
   });
+
+  describe('접힌 상태 hover 펼침(HAJA-167, #184)', () => {
+    // mouseenter/mouseleave 핸들러는 SideNavBar 최상위 wrapper(<div>)에 달려 있다.
+    // 접기/펼치기 토글 버튼은 항상 렌더링되므로 그 버튼의 aside 조상 → 그 부모(wrapper)를 찾는다.
+    function getSideNavWrapper() {
+      const toggleButton = screen.getByLabelText(/사이드바 (펼치기|접기)/);
+      const aside = toggleButton.closest('aside');
+      if (!aside || !aside.parentElement) {
+        throw new Error('SideNavBar wrapper element not found');
+      }
+      return aside.parentElement;
+    }
+
+    it('접힌 상태에서 마우스를 올리면 라벨이 보이고, 벗어나면 다시 숨는다', () => {
+      render(<SideNavBar defaultCollapsed />, { wrapper: MemoryRouter });
+
+      expect(screen.queryByText('대시보드')).toBeNull();
+
+      fireEvent.mouseEnter(getSideNavWrapper());
+      expect(screen.getByText('대시보드')).not.toBeNull();
+
+      fireEvent.mouseLeave(getSideNavWrapper());
+      expect(screen.queryByText('대시보드')).toBeNull();
+    });
+
+    it('hover로 시각적으로 펼쳐져도 실제 collapsed 상태는 바뀌지 않아 onCollapseToggle이 호출되지 않는다', () => {
+      const handleToggle = vi.fn();
+      render(<SideNavBar defaultCollapsed onCollapseToggle={handleToggle} />, {
+        wrapper: MemoryRouter,
+      });
+
+      fireEvent.mouseEnter(getSideNavWrapper());
+
+      // 토글 버튼은 여전히 "펼치기"로 표시된다 — 실제로는 접힌 상태 그대로이기 때문
+      expect(screen.getByLabelText('사이드바 펼치기')).not.toBeNull();
+      expect(handleToggle).not.toHaveBeenCalled();
+
+      fireEvent.mouseLeave(getSideNavWrapper());
+      expect(handleToggle).not.toHaveBeenCalled();
+    });
+
+    it('접기 버튼은 hover 상태와 무관하게 항상 정상 동작한다', () => {
+      const handleToggle = vi.fn();
+      render(<SideNavBar onCollapseToggle={handleToggle} />, { wrapper: MemoryRouter });
+
+      fireEvent.mouseEnter(getSideNavWrapper());
+      fireEvent.click(screen.getByLabelText('사이드바 접기'));
+
+      expect(handleToggle).toHaveBeenCalledWith(true);
+    });
+
+    it('마우스가 여전히 사이드바 위에 있어도 접기 버튼을 누르면 즉시 시각적으로 접힌다(hover 중 토글 회귀 방지)', () => {
+      render(<SideNavBar />, { wrapper: MemoryRouter });
+
+      // 클릭하려면 이미 사이드바 위에 마우스가 있어야 하므로 hoverExpanded는 true인 상태
+      fireEvent.mouseEnter(getSideNavWrapper());
+      expect(screen.getByText('대시보드')).not.toBeNull();
+
+      // mouseLeave 없이(=여전히 hover 중) 접기 버튼을 눌러도 즉시 접힌 모습으로 바뀌어야 한다.
+      // setHoverExpanded(false) 리셋이 없으면 hoverExpanded가 true로 남아 라벨이 계속 보인다.
+      fireEvent.click(screen.getByLabelText('사이드바 접기'));
+
+      expect(screen.queryByText('대시보드')).toBeNull();
+      expect(screen.getByLabelText('사이드바 펼치기')).not.toBeNull();
+    });
+
+    it('접힌 상태에서 hover로 펼친 뒤 하위 메뉴를 클릭하면 실제로 이동한다', () => {
+      function LocationProbe() {
+        const location = useLocation();
+        return <div data-testid="location-probe">{location.pathname}</div>;
+      }
+
+      render(
+        <MemoryRouter initialEntries={['/facilities']}>
+          <SideNavBar defaultCollapsed />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.mouseEnter(getSideNavWrapper());
+
+      fireEvent.click(screen.getByText('대시보드'));
+      fireEvent.click(screen.getByText('전체 시설물 현황'));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/dashboard');
+    });
+  });
+
+  describe('펼쳐진 상태 드래그 리사이즈(HAJA-167, #184)', () => {
+    function getResizeHandle() {
+      return screen.getByRole('separator', { name: '사이드바 너비 조절' });
+    }
+
+    function getAsideWidth() {
+      return getResizeHandle().closest('aside')?.style.width;
+    }
+
+    it('기본 폭은 240px이고, 오른쪽으로 드래그하면 폭이 늘어난다', () => {
+      render(<SideNavBar />, { wrapper: MemoryRouter });
+
+      expect(getAsideWidth()).toBe('240px');
+
+      fireEvent.mouseDown(getResizeHandle(), { clientX: 240 });
+      fireEvent.mouseMove(window, { clientX: 300 });
+
+      expect(getAsideWidth()).toBe('300px');
+
+      fireEvent.mouseUp(window);
+    });
+
+    it('왼쪽으로 드래그하면 폭이 줄어든다', () => {
+      render(<SideNavBar />, { wrapper: MemoryRouter });
+
+      fireEvent.mouseDown(getResizeHandle(), { clientX: 240 });
+      fireEvent.mouseMove(window, { clientX: 210 });
+
+      expect(getAsideWidth()).toBe('210px');
+
+      fireEvent.mouseUp(window);
+    });
+
+    it('MAX_WIDTH(320px)를 넘어가지 않도록 clamp된다', () => {
+      render(<SideNavBar />, { wrapper: MemoryRouter });
+
+      fireEvent.mouseDown(getResizeHandle(), { clientX: 240 });
+      fireEvent.mouseMove(window, { clientX: 1000 });
+
+      expect(getAsideWidth()).toBe('320px');
+
+      fireEvent.mouseUp(window);
+    });
+
+    it('MIN_WIDTH(200px) 밑으로 내려가지 않도록 clamp된다', () => {
+      render(<SideNavBar />, { wrapper: MemoryRouter });
+
+      fireEvent.mouseDown(getResizeHandle(), { clientX: 240 });
+      fireEvent.mouseMove(window, { clientX: -1000 });
+
+      expect(getAsideWidth()).toBe('200px');
+
+      fireEvent.mouseUp(window);
+    });
+
+    it('mouseup 이후에는 mousemove가 더 이상 폭에 반영되지 않는다', () => {
+      render(<SideNavBar />, { wrapper: MemoryRouter });
+
+      fireEvent.mouseDown(getResizeHandle(), { clientX: 240 });
+      fireEvent.mouseMove(window, { clientX: 260 });
+      expect(getAsideWidth()).toBe('260px');
+
+      fireEvent.mouseUp(window);
+      fireEvent.mouseMove(window, { clientX: 500 });
+
+      expect(getAsideWidth()).toBe('260px');
+    });
+
+    it('드래그로 조절된 폭이 바뀔 때마다 onWidthChange가 호출된다', () => {
+      const handleWidthChange = vi.fn();
+      render(<SideNavBar onWidthChange={handleWidthChange} />, { wrapper: MemoryRouter });
+
+      fireEvent.mouseDown(getResizeHandle(), { clientX: 240 });
+      fireEvent.mouseMove(window, { clientX: 280 });
+      fireEvent.mouseUp(window);
+
+      expect(handleWidthChange).toHaveBeenCalledWith(280);
+    });
+
+    it('접힌 상태에서는 드래그 핸들이 렌더링되지 않는다', () => {
+      render(<SideNavBar defaultCollapsed />, { wrapper: MemoryRouter });
+
+      expect(screen.queryByRole('separator', { name: '사이드바 너비 조절' })).toBeNull();
+    });
+
+    it('첫 번째 드래그의 mouseup 없이 두 번째 mousedown이 발생해도 이전 mousemove 리스너가 남지 않는다(PR머신 리뷰 P2 회귀 방지)', () => {
+      const handleWidthChange = vi.fn();
+      render(<SideNavBar onWidthChange={handleWidthChange} />, { wrapper: MemoryRouter });
+
+      // 첫 번째 드래그를 시작만 하고 mouseup 없이 방치(브라우저 창 밖에서 놓친 상황 재현)
+      fireEvent.mouseDown(getResizeHandle(), { clientX: 240 });
+      fireEvent.mouseMove(window, { clientX: 260 });
+      expect(handleWidthChange).toHaveBeenCalledTimes(1);
+
+      // 두 번째 드래그 시작 — 이전 리스너가 정리되지 않았다면 이후 mousemove마다
+      // 두 개의 핸들러가 중복으로 onWidthChange를 호출하게 된다
+      fireEvent.mouseDown(getResizeHandle(), { clientX: 260 });
+      handleWidthChange.mockClear();
+      fireEvent.mouseMove(window, { clientX: 300 });
+
+      expect(handleWidthChange).toHaveBeenCalledTimes(1);
+      expect(handleWidthChange).toHaveBeenCalledWith(300);
+
+      fireEvent.mouseUp(window);
+    });
+
+    it('리사이즈 핸들에 포커스 가능하고 ArrowRight/ArrowLeft로 폭이 조절된다(키보드 접근성, PR머신 리뷰 P2)', () => {
+      const handleWidthChange = vi.fn();
+      render(<SideNavBar onWidthChange={handleWidthChange} />, { wrapper: MemoryRouter });
+
+      const handle = getResizeHandle();
+      expect(handle.getAttribute('tabindex')).toBe('0');
+      expect(handle.getAttribute('aria-valuenow')).toBe('240');
+      expect(handle.getAttribute('aria-valuemin')).toBe('200');
+      expect(handle.getAttribute('aria-valuemax')).toBe('320');
+
+      fireEvent.keyDown(handle, { key: 'ArrowRight' });
+      expect(getAsideWidth()).toBe('256px');
+      expect(handleWidthChange).toHaveBeenCalledWith(256);
+
+      fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+      fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+      expect(getAsideWidth()).toBe('224px');
+    });
+
+    it('키보드 ArrowRight를 반복해도 MAX_WIDTH(320px)를 넘지 않도록 clamp된다', () => {
+      render(<SideNavBar />, { wrapper: MemoryRouter });
+      const handle = getResizeHandle();
+
+      for (let i = 0; i < 10; i += 1) {
+        fireEvent.keyDown(handle, { key: 'ArrowRight' });
+      }
+
+      expect(getAsideWidth()).toBe('320px');
+    });
+  });
 });

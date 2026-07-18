@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
 import { AuthGate } from './AuthGate';
 import { router } from './router';
+import { DevModeBadge } from '../shared/components/DevModeBadge';
 import { shouldEnableMocking } from '../shared/utils/shouldEnableMocking';
 import '../styles/global.css';
 
@@ -31,6 +32,9 @@ function renderApp(): void {
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>
+        {/* AuthGate 바깥 — 스플래시/세션체크 에러 화면에서도 개발 모드가 보이게(#302, #311).
+            그 화면들이야말로 목 때문에 깨졌을 때 사용자가 마주하는 화면이다. */}
+        <DevModeBadge />
         <AuthGate>
           <RouterProvider router={router} />
         </AuthGate>

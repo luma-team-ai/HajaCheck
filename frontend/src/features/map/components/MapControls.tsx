@@ -1,29 +1,45 @@
-// 지도 우상단 컨트롤 — 지도/위성 토글(위성 기능 미지원, 표시만 단순화) + 확대/축소/내 위치 버튼
+// 지도 우상단 컨트롤 — 지도/위성 토글(HYBRID) + 확대/축소/내 위치 버튼
+export type MapDisplayType = 'roadmap' | 'hybrid';
+
 interface MapControlsProps {
+  mapType: MapDisplayType;
+  onChangeMapType: (mapType: MapDisplayType) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onMyLocation: () => void;
 }
 
-export function MapControls({ onZoomIn, onZoomOut, onMyLocation }: MapControlsProps) {
+export function MapControls({
+  mapType,
+  onChangeMapType,
+  onZoomIn,
+  onZoomOut,
+  onMyLocation,
+}: MapControlsProps) {
   return (
     <div className="absolute right-4 top-4 z-10 flex flex-col items-end gap-2">
       <div className="flex overflow-hidden rounded-full border border-border bg-white shadow-sm">
-        <button
-          type="button"
-          aria-pressed="true"
-          className="bg-primary px-3 py-1.5 text-xs font-semibold text-surface"
-        >
-          지도
-        </button>
-        <button
-          type="button"
-          aria-pressed="false"
-          disabled
-          className="cursor-not-allowed px-3 py-1.5 text-xs font-medium text-text-muted"
-        >
-          위성
-        </button>
+        {([
+          { type: 'roadmap', label: '지도' },
+          { type: 'hybrid', label: '위성' },
+        ] as const).map(({ type, label }) => {
+          const isActive = mapType === type;
+          return (
+            <button
+              key={type}
+              type="button"
+              aria-pressed={isActive}
+              onClick={() => onChangeMapType(type)}
+              className={
+                isActive
+                  ? 'bg-primary px-3 py-1.5 text-xs font-semibold text-surface'
+                  : 'px-3 py-1.5 text-xs font-medium text-text-muted hover:bg-surface-muted'
+              }
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-white shadow-sm">

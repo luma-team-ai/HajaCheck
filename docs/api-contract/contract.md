@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.4 · **최종 수정:** 2026-07-16 · 이전 버전 `archive/`
+> **문서 버전:** v0.5 · **최종 수정:** 2026-07-17 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -315,9 +315,80 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 **성공 200** `data`: `{ "maskedEmail": "haja***@check.com" }`
 **실패**: `404 AUTH_ACCOUNT_NOT_FOUND` (무매칭 통일 "일치하는 계정을 찾을 수 없습니다.")
 
-## ~~비밀번호 찾기 1·2단계~~ — **이번 배포 제외, 후속(#194 / HAJA-172)**
-> ⚠️ 최초 설계(이메일 + 사업자번호만으로 resetToken 반환)는 **계정 탈취 P1**(PR머신·security-reviewer 지적)으로 판정됨: 이메일·사업자번호 둘 다 준공개 정보라 out-of-band 소유 증명이 없으면 안전한 재설정 불가. SMTP 미사용 결정에 따라 **비밀번호 찾기·새 비밀번호 설정 2화면은 이번 범위에서 제외**하고, **보안질문/PIN(가입 시 비공개 비밀값 저장) 방식**으로 후속 구현한다(DB 컬럼 추가 동반). → **#194 / HAJA-172**.
-> 관련 ErrorCode(`AUTH_VERIFICATION_FAILED`, `AUTH_RESET_TOKEN_INVALID`)와 password-reset 토큰 네임스페이스는 후속에서 사용.
+## 비밀번호 찾기 1·2단계 — **이메일 링크 방식** (2026-07-17 확정, #194 / HAJA-172)
+> **이력**: 최초 설계(이메일 + 사업자번호만으로 resetToken 반환)는 **계정 탈취 P1**(PR머신·security-reviewer 지적)으로 판정 — 이메일·사업자번호 둘 다 준공개 정보라 out-of-band 소유 증명이 없으면 안전한 재설정 불가. 당시 SMTP 미사용 결정에 따라 보안질문/PIN 방식으로 후속 예정이었으나, **팀이 SMTP 확보를 결정하면서 이메일 링크 방식으로 전환**한다(원 결정이 "향후 SMTP/SMS 확보 시 이메일 링크로 대체 가능"으로 열어둔 경로). **보안질문/PIN 방식은 폐기** → 가입 화면 비밀값 필드·DB 컬럼 추가 **불필요**.
+>
+> **핵심 보안 요건**: 이메일 링크 방식의 안전성은 **"메일함 소유 증명"**에서 나온다. 따라서 ①resetToken은 **메일로만** 전달하고 **응답 바디·로그·에러에 절대 포함하지 않는다**(최초 P1의 재발 방지) ②1단계는 계정 존재 여부와 무관하게 **동일 응답 + 동일 응답시간**(계정 열거 방지) ③토큰은 1회용·단기·추측 불가.
+
+### POST /api/auth/password-reset-request — 1단계: 재설정 링크 발송 요청 (application/json)
+**요청**: `{ "email": "haja@check.com" }` — @NotBlank @Email
+
+**성공 200** `data`: `{ "requested": true }`
+- 계정 존재 여부와 **무관하게 항상 200 + 동일 바디**(계정 열거 방지). 존재할 때만 실제 메일을 발송한다.
+- **응답에 resetToken을 포함하지 않는다**(포함 시 최초 P1 재현 — 준공개 정보만으로 토큰 획득 가능해짐).
+- ⚠️ **메일 발송은 비동기로 처리하고 응답은 즉시 반환한다.** 동기 발송하면 존재하는 계정만 SMTP 왕복(수백 ms~초)만큼 느려져 **바디가 같아도 응답시간 차이로 계정 열거가 가능**하다. 발송 실패도 응답에 반영하지 않는다(반영하면 그 자체가 존재 단서).
+- 토큰: **전용 `PasswordResetTokenStore`**(재설정 전용 인터페이스, Redis 구현은 `RedisPasswordResetTokenStore`). TTL은 `AuthProperties.passwordResetTtl`(기본 10분, `app.auth.password-reset-ttl`로 조정).
+  > **왜 `TokenStore`를 재사용하지 않는가** (2026-07-17 정정): 초안은 "`TokenStore.issue(PASSWORD_RESET, …)` 재사용"과 "발급 ①②③을 Lua로 원자화"를 **동시에** 요구했는데 **두 조항은 양립 불가능**하다 — `issue`로 ①을 하면 별도 왕복이라 ①②③을 한 스크립트에 넣을 수 없다. 원자성(보안·정합성)을 택해 재설정 경로를 전용 인터페이스로 분리했다. `TokenStore`는 **가입 상태 토큰 전용**으로 남고 시그니처·동작 모두 불변이다(원문 키 유지 — TTL 30일 in-flight 토큰 보호).
+  - **Redis 저장 키는 토큰 원문이 아니라 `sha256(token)`을 쓴다** — Redis 덤프·스냅샷 유출 시 토큰 평문이 곧 계정 탈취가 되는 것을 막는 심층방어. 이 해시는 **재설정 경로에만** 적용된다(가입 상태 토큰은 원문 키 그대로).
+- **재발급 시 해당 사용자의 이전 토큰 무효화**(동시 다발 링크 방지). `key=토큰해시 → value=userId`는 단방향이라 역추적이 불가능하므로, **보조 인덱스 `auth:password-reset:user:{userId} → 현재 토큰해시`를 둔다.** ⚠️ `KEYS`/`SCAN` 순회 금지(운영 Redis 블로킹).
+  - **인덱스 TTL = 토큰 TTL과 동일하게** 건다. 안 걸면 토큰은 10분 뒤 사라지는데 인덱스만 영구 잔존해 Redis 키가 샌다.
+  - **발급은 단일 Lua로 원자화한다** — ①이전 토큰 삭제 ②새 토큰 저장 ③인덱스 갱신을 **한 스크립트**에서. 쪼개면 동시 요청 인터리브 시 이전 토큰이 살아남거나(무효화 실패) **방금 발급한 토큰이 지워진다** — 후자는 "**나중에 보낸 메일의 링크가 죽고 먼저 온 링크가 사는**" 사용자 체감 버그다(발송 버튼 더블클릭으로 재현). 단일 스크립트면 마지막에 실행된 요청이 이기고 그 요청이 메일도 나중에 보내므로 **"최신 메일 = 유효한 링크"가 구조적으로 보장**된다.
+  - **consume도 단일 Lua** — 조회·삭제 + 인덱스 정리를 한 스크립트에서. 인덱스 정리는 **compare-and-delete**: 인덱스가 가리키는 값이 **방금 소비한 토큰해시일 때만** 삭제한다. 무조건 지우면, 아직 안 지워진 구토큰을 소비할 때 현재 유효 토큰의 인덱스가 날아가 다음 발급의 무효화가 실패한다.
+  - Lua가 여러 키를 다루므로 **단일 노드 Redis 전제**다(현 compose `redis` 서비스). 클러스터 전환 시 hash tag로 같은 슬롯에 묶어야 한다.
+- 메일 링크: `{FRONTEND_BASE_URL}/reset-password?token={resetToken}`
+  - ⚠️ **링크 base는 설정값 `FRONTEND_BASE_URL`만 쓴다. 요청에서 유도 금지**(`ServletUriComponentsBuilder.fromCurrentRequest()`, `Host`/`X-Forwarded-Host` 헤더 등). nginx가 `Host`를 그대로 통과시키므로, 요청에서 유도하면 공격자가 Host를 조작해 **피해자 메일에 공격자 도메인 링크**를 심는 password-reset poisoning이 성립한다.
+  - 메일 제목·본문에 **사용자 입력을 삽입하지 않는다**(헤더 인젝션 표면 제거).
+
+**실패**: `429 AUTH_TOO_MANY_REQUESTS` (rate-limit 초과 — 아래 §Rate-limit)
+
+### POST /api/auth/password-reset — 2단계: 새 비밀번호 설정 (application/json)
+**요청**: `{ "token": "...", "newPassword": "..." }` — `newPassword`는 가입과 **동일 정책**(@NotBlank @Size(min=8), 영문+숫자 포함)
+
+**성공 200** `data`: `{ "reset": true }`
+- `PasswordResetTokenStore.consume(token)` — 조회·삭제·**보조 인덱스 CAD**를 **단일 Lua로 원자 처리**(1회용). 성공 후 재사용 불가. 동시 소비 2건도 Redis 단일 스레드 직렬화로 **1건만 성공**한다.
+  > ⚠️ `TokenStore.consume(PASSWORD_RESET, …)`를 쓰면 **안 된다.** `TokenStore`는 원문 키(`auth:password-reset:{원문}`)를 조회하는데 재설정 토큰은 `auth:password-reset:{sha256}`에 저장되므로 **영원히 empty를 반환해 2단계가 100% 실패**한다. 위 §토큰의 전용 인터페이스 분리와 세트다.
+
+**실패**: `400 AUTH_RESET_TOKEN_INVALID` (토큰 무효·만료·사용됨 — 세 경우 **메시지 통일**, 어느 쪽인지 노출 금지) · `400 INVALID_INPUT` (비밀번호 정책 위반)
+
+> **세션 무효화는 이번 범위에서 제외한다** — 현 설정은 non-indexed 세션(`repository-type: indexed`·`@EnableRedisIndexedHttpSession` 부재)이라 `FindByIndexNameSessionRepository` 빈이 없고, 주입하면 기동이 실패한다. indexed 전환은 Redis `notify-keyspace-events` 설정 변경 + 배포 시 기존 로그인 세션 일괄 무효화 위험을 동반하므로 **별도 이슈**로 분리한다. → 후속. 그때까지는 "비밀번호를 바꿔도 기존 세션은 살아있다"가 알려진 한계다.
+
+### Rate-limit
+전역 rate-limit은 미도입(#185 P2 후속)이므로 **1단계에만 최소 구현**한다. Redis 카운터 기반.
+
+- **대상 이메일 기준**: 예 이메일당 5분 3회 — 특정 피해자 메일 폭탄 방어. **사용자 단위 실질 방어는 이 축이 담당한다.** 값은 설정으로.
+- **전역 상한**: 전체 합쳐 분당 N건 — 발송 남용(발신 도메인 평판 훼손·SMTP 제공자 차단)에 천장. 값은 설정으로.
+  - ⚠️ **N의 성격**: **"SMTP 제공자 한도·발신 평판을 보호하는 천장"**이지 사용자 단위 방어가 아니다. **정상 트래픽이 절대 닿지 않을 만큼 크게** 잡고, 제공자 쿼터를 기준으로 산정한다. 정상 트래픽 수준에 맞춰 작게 잡으면 안 된다.
+- 초과 시 `429 AUTH_TOO_MANY_REQUESTS`. **1단계의 429는 계정 열거 단서가 되지 않도록** 이메일 존재 여부와 무관하게 동일 조건으로 건다.
+
+> ⚠️ **알려진 한계 — 전역 상한은 DoS로 역이용될 수 있다.** IP 축을 쓰지 않으므로 공격자와 정상 사용자를 구분할 수단이 없다. 공격자가 임의 이메일로 전역 상한을 채우면 그 시간 창의 **정상 사용자 재설정 요청도 429로 막힌다**(비인증 엔드포인트라 비용이 사실상 0). N을 크게 잡는 것은 이 역이용의 실익을 줄이기 위함이기도 하다. 근본 해결(XFF 신뢰경계 정리 후 IP 축 도입, 또는 CAPTCHA)은 **후속 이슈**다.
+
+> **IP 기준 rate-limit은 쓰지 않는다**(2026-07-17 결정). nginx가 `X-Forwarded-For $proxy_add_x_forwarded_for`로 **클라이언트 제공값에 덧붙이고**(`frontend/nginx/arm1.conf:33`) 스프링이 `forward-headers-strategy: framework`로 **첫 항목을 클라 IP로 채택**하므로, 헤더 위조로 IP 카운터가 무력화된다. 실제 외부 엣지가 레포 밖 host nginx라 레포만 고쳐선 완결되지 않아 **IP 축 자체를 채택하지 않고** 이메일 축 + 전역 상한으로 간다. → XFF 신뢰경계 정리는 후속(ops 동반).
+> ⚠️ 따라서 **감사 로그의 IP는 위조 가능한 값**이다. 추적 근거로 신뢰하지 말 것.
+
+- 감사 로그: 대상 이메일 **해시**·성공/실패·시각. **이메일 원문·토큰 평문 로깅 금지.**
+
+> **2단계에는 rate-limit을 걸지 않는다.** 토큰 기준 카운터는 공격자가 매 시도 다른 토큰을 쓰므로 항상 1이라 무의미하고, IP 기준은 위 사유로 무력하다. 2단계의 실제 방어는 **토큰 엔트로피**(32바이트 `SecureRandom`, `RedisPasswordResetTokenStore.generateToken()`)이며 이는 rate-limit으로 보강할 성질이 아니다. 애플리케이션 레벨 요청 폭주(리소스 소모)는 인프라(nginx `limit_req` 등) 몫으로 남긴다.
+
+### SMTP 설정 (env)
+| env | 용도 |
+|---|---|
+| `SMTP_HOST` · `SMTP_PORT` · `SMTP_USERNAME` · `SMTP_PASSWORD` | 발송 서버 |
+| `MAIL_FROM` | 발신 주소 |
+| `FRONTEND_BASE_URL` | 재설정 링크 base (`{BASE}/reset-password?token=...`) |
+
+- **운영 강제는 compose `:?` 가드로 한다** — `docker-compose.arm1.yml`에서 `${SMTP_HOST:?}` 형태로 미설정 시 컨테이너 기동을 막는다. **`AI_INTERNAL_KEY`(`docker-compose.arm1.yml:95`)와 동일한 방식**이며, 앱 레벨 프로파일 분기는 쓰지 않는다 — **arm1(실운영)과 로컬이 둘 다 `SPRING_PROFILES_ACTIVE: docker`라 프로파일로 운영/로컬을 구분할 수 없다.**
+- **로컬/dev**: env 미설정 시 발송 대신 **재설정 링크를 로그로 출력**하는 구현체로 폴백해 개발 가능하게 한다(인터페이스 + 구현체 2개, 설정 유무로 선택).
+- `.env.example`에 **키 이름만** 추가(값 금지).
+- ✅ **아웃바운드 확인 완료**(2026-07-17): arm1은 **587/465 열림**(OCI가 인프라 레벨에서 막는 건 25번뿐). SMTP 방식 그대로 간다 — HTTPS API(SES/SendGrid) 전환은 **불필요**.
+- ⚠️ **승격 순서**: 서버 `.env`에 SMTP 값 주입 → 그 다음 main 승격. (`:?` 가드는 의도적으로 배포를 멈추므로, 순서를 어기면 기동 실패한다. `AI_INTERNAL_KEY`와 동일 유형의 전제조건.)
+
+### ErrorCode
+`AUTH_RESET_TOKEN_INVALID`(기존 예약분 사용) · `AUTH_TOO_MANY_REQUESTS`(신규). `AUTH_VERIFICATION_FAILED`는 보안질문 방식 폐기로 **참조 0건** → 제거 대상(후속 정리).
+
+### 프론트 규약 (별도 PR이지만 계약에 고정)
+토큰이 URL 쿼리(`?token=`)에 실리므로 프론트는 아래를 지킨다:
+- 재설정 페이지에 `Referrer-Policy: no-referrer` — 외부 리소스 요청 시 Referer로 토큰이 새는 것 방지.
+- 토큰 소비 후 `history.replaceState`로 URL에서 토큰 제거(브라우저 히스토리·공유 유출 방지).
 
 ## GET /api/auth/companies/status?token={signupToken} — 가입 상태 조회(승인 대기 새로고침)
 **성공 200** `data`: `{ "status": "PENDING_REVIEW" , "companyName": "(주)하자체크", "rejectionReason": null }`
@@ -331,4 +402,5 @@ AI 보고서 4개 섹션(개요·요약·상세·권고) 병렬 생성 및 Groun
 
 ### 추가 ErrorCode (Spring `ErrorCode`)
 이번 배포: `AUTH_EMAIL_DUPLICATED`(409) · `AUTH_BUSINESS_NUMBER_DUPLICATED`(409) · `AUTH_ACCOUNT_NOT_FOUND`(404) · `AUTH_SIGNUP_TOKEN_INVALID`(404) · `FILE_REQUIRED`(400) · `FILE_INVALID_TYPE`(400) · `FILE_TOO_LARGE`(400) · `FILE_UPLOAD_FAILED`(500)
-후속(#194): `AUTH_VERIFICATION_FAILED`(400) · `AUTH_RESET_TOKEN_INVALID`(400)
+비밀번호 찾기(#194, 이메일 링크 방식): `AUTH_RESET_TOKEN_INVALID`(400, 기존 예약분) · `AUTH_TOO_MANY_REQUESTS`(429, 신규)
+> `AUTH_VERIFICATION_FAILED`(400)는 보안질문 방식 전용으로 예약됐으나 그 방식이 폐기돼 **참조 0건** — 제거 대상(후속 정리). 이번 PR에서는 건드리지 않는다.

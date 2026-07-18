@@ -21,6 +21,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 
 // 실 PG DDL(defects) 대조를 위해 Testcontainers PostgreSQL 사용.
@@ -114,23 +115,78 @@ class DefectRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void findTop10ByInspectionIdInAndStatusAndDeletedFalseOrderByGradeDescCreatedAtDesc_등급내림차순() {
+    void findPendingPriorityDefects_미분류는최하단_등급E부터A까지내림차순() {
+        // #327 회귀 방지 — PostgreSQL은 "ORDER BY ... DESC" 시 기본이 NULLS FIRST라, 파생 쿼리
+        // 시절엔 미분류(grade=null) 하자가 등급 E보다 위(최상단)로 노출됐다. nulls last 적용 후
+        // 정상 순서(E→D→C→B→A→미분류)를 검증한다.
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
         defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.ACTION_PENDING, false));
+        defectRepository.save(newDefect(inspectionId, null, DefectStatus.ACTION_PENDING, false)); // 미분류
         defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
         defectRepository.save(newDefect(inspectionId, DefectGrade.D, DefectStatus.ACTION_PENDING, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.B, DefectStatus.ACTION_PENDING, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.A, DefectStatus.ACTION_PENDING, false));
         // 다른 상태(RESOLVED)와 삭제된 결함은 우선순위 목록에서 제외되어야 한다.
         defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.RESOLVED, false));
         defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, true));
 
-        List<Defect> result = defectRepository
-                .findTop10ByInspectionIdInAndStatusAndDeletedFalseOrderByGradeDescCreatedAtDesc(
-                        List.of(inspectionId), DefectStatus.ACTION_PENDING);
+        List<Defect> result = defectRepository.findPendingPriorityDefects(
+                List.of(inspectionId), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10));
 
         assertThat(result).extracting(Defect::getGrade)
-                .containsExactly(DefectGrade.E, DefectGrade.D, DefectGrade.C);
+                .containsExactly(
+                        DefectGrade.E, DefectGrade.D, DefectGrade.C, DefectGrade.B, DefectGrade.A, null);
+    }
+
+    @Test
+    void findPendingPriorityDefects_동일등급내createdAt최신순() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+
+        Defect older = defectRepository.save(
+                newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+        Defect newer = defectRepository.save(
+                newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+        em.flush();
+
+        // @CreatedDate 는 persist 시점에 auditing 이 "now" 로 덮어써 저장 순서만으로는 createdAt
+        // 역전 여부를 신뢰성 있게 검증하기 어렵다 — 저장 후 네이티브 UPDATE 로 명시적으로 지정한다.
+        LocalDateTime base = LocalDateTime.of(2026, 7, 1, 0, 0);
+        updateCreatedAt(older.getId(), base);
+        updateCreatedAt(newer.getId(), base.plusMinutes(10));
+        em.clear();
+
+        List<Defect> result = defectRepository.findPendingPriorityDefects(
+                List.of(inspectionId), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10));
+
+        assertThat(result).extracting(Defect::getId).containsExactly(newer.getId(), older.getId());
+    }
+
+    @Test
+    void findPendingPriorityDefects_Top10건제한유지() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+        for (int i = 0; i < 12; i++) {
+            defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+        }
+
+        List<Defect> result = defectRepository.findPendingPriorityDefects(
+                List.of(inspectionId), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10));
+
+        // @Query + Pageable 전환 후에도 findTop10 파생 쿼리와 동등한 상위 10건 제한이 유지돼야 한다.
+        assertThat(result).hasSize(10);
+    }
+
+    private void updateCreatedAt(Long defectId, LocalDateTime createdAt) {
+        em.getEntityManager()
+                .createNativeQuery("update defects set created_at = ?1 where id = ?2")
+                .setParameter(1, createdAt)
+                .setParameter(2, defectId)
+                .executeUpdate();
     }
 
     @Test

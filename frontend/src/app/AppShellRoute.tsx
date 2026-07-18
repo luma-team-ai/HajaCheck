@@ -35,6 +35,9 @@ export function AppShellRoute() {
   const matches = useMatches();
   const navigate = useNavigate();
   const authUser = useAuthStore((state) => state.user);
+  // 관리자 메뉴/사이드바 프로필 노출 여부 — role 기반(HAJA-167, #184).
+  // AppLayout이 isAdmin일 때만 SideNavBar에 user를 전달하도록 내부에서 필터링한다.
+  const isAdmin = authUser?.role === 'ADMIN';
   const { logout } = useLogout();
   // 가장 깊은(마지막) match부터 breadcrumb/activeHref를 선언한 handle을 찾는다.
   const current = [...matches].reverse().find((match) => hasAppShellHandle(match.handle));
@@ -45,6 +48,7 @@ export function AppShellRoute() {
       breadcrumb={handle?.breadcrumb ?? []}
       activeHref={handle?.activeHref}
       isRouteImplemented={isRouteImplemented}
+      isAdmin={isAdmin}
       user={
         authUser
           ? { name: authUser.name, avatarUrl: authUser.profileImageUrl ?? undefined }

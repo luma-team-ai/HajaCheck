@@ -86,4 +86,30 @@ describe('AppLayout', () => {
     expect(onNotificationClick).toHaveBeenCalledTimes(1);
     expect(onProfileClick).toHaveBeenCalledTimes(1);
   });
+
+  it('isAdmin=true면 관리자 메뉴와 사이드바 하단 프로필이 함께 노출된다(HAJA-167, #184)', () => {
+    render(
+      <MemoryRouter>
+        <AppLayout breadcrumb={[]} isAdmin user={{ name: '김관리' }}>
+          <p>콘텐츠</p>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('관리자 페이지')).not.toBeNull();
+    expect(screen.getByText('김관리')).not.toBeNull();
+  });
+
+  it('isAdmin이 아니면 user가 있어도 관리자 메뉴와 사이드바 프로필 둘 다 노출되지 않는다(HAJA-167, #184)', () => {
+    render(
+      <MemoryRouter>
+        <AppLayout breadcrumb={[]} user={{ name: '김일반' }}>
+          <p>콘텐츠</p>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText('관리자 페이지')).toBeNull();
+    expect(screen.queryByText('김일반')).toBeNull();
+  });
 });

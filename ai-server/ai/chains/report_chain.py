@@ -11,6 +11,7 @@
   실패 시(0건 검색과 동일하게) legal_basis를 "관련 근거 없음"으로 고정하고 체인 전체는 정상 진행한다
 """
 import logging
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -135,8 +136,13 @@ def _sanitize_untrusted(text: str) -> str:
     LLM에게 신뢰할 수 있는 프롬프트 내용처럼 보일 수 있었다). 대시 3개+공백 패턴만 깨뜨려도
     정확한 마커 문자열 재구성이 불가능해지므로, 마커 리터럴 자체가 아니라 그 구성요소인
     `---`를 전각 대시로 치환한다 — 부분 문자열이 변형되어 원본 마커와 더 이상 일치하지 않는다.
+
+    단순 `str.replace("---", "—--")`는 하이픈 개수가 3의 배수가 아닌 연속 런(예: 4개, 5개)에서
+    치환 후에도 하이픈이 leftover로 남아, 인접 텍스트와 결합하면 원본 마커의 부분 문자열이
+    그대로 재구성될 수 있었다(PR #240 리뷰 P2). 정규식으로 하이픈 3개 이상 연속된 런 전체를
+    한 번에 매칭해 치환하므로 길이에 상관없이 leftover 하이픈이 남지 않는다.
     """
-    return text.replace("---", "—--")
+    return re.sub(r"-{3,}", lambda m: "—" * (len(m.group(0)) - 1) + "-", text)
 
 
 def _wrap_untrusted(text: str) -> str:
