@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
@@ -49,8 +50,9 @@ class GlobalExceptionHandlerTest {
         assertThat(GlobalExceptionHandler.sanitizeForLog(null)).isNull();
 
         // 일부 로그 뷰어가 개행으로 렌더링하는 유니코드 줄바꿈도 제거한다(\p{Cntrl} 는 ASCII 만 잡음).
-        // U+0085 NEL / U+2028 LINE SEPARATOR / U+2029 PARAGRAPH SEPARATOR
-        assertThat(GlobalExceptionHandler.sanitizeForLog("/ab c d"))
+        // U+0085 NEL / U+2028 LINE SEPARATOR / U+2029 PARAGRAPH SEPARATOR.
+        // 비가시 문자를 소스에 직접 넣으면 에디터가 공백으로 정규화해버리므로 명시적 이스케이프로 고정한다.
+        assertThat(GlobalExceptionHandler.sanitizeForLog("/a\u0085b\u2028c\u2029d"))
                 .isEqualTo("/a_b_c_d");
     }
 
@@ -75,5 +77,23 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().success()).isFalse();
+    }
+
+    /**
+     * multipart 전역 한도(max-file-size 20MB/max-request-size 205MB, 리뷰 P2) 상향 이후에도, 한도
+     * 초과 업로드가 서블릿 단계에서 raw 500이 아니라 FILE_TOO_LARGE(400)의 ApiResponse 계약으로
+     * 매핑되는지 고정한다. MockMvc의 MockMultipartHttpServletRequest는 실 컨테이너의
+     * MultipartConfigElement 크기 검증을 거치지 않아 대용량 업로드로 이 예외를 실제 재현할 수 없으므로,
+     * 핸들러 매핑 자체를 직접 검증한다.
+     */
+    @Test
+    void handleMaxUploadSize_FILE_TOO_LARGE_400_ApiResponse계약으로매핑() {
+        MaxUploadSizeExceededException e = new MaxUploadSizeExceededException(20_971_520L);
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleMaxUploadSize(e);
+
+        assertThat(response.getStatusCode()).isEqualTo(ErrorCode.FILE_TOO_LARGE.getStatus());
+        assertThat(response.getBody().success()).isFalse();
+        assertThat(response.getBody().error().code()).isEqualTo(ErrorCode.FILE_TOO_LARGE.name());
     }
 }
