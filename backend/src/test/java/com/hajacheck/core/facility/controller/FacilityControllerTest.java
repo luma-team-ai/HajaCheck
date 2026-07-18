@@ -3,6 +3,7 @@ package com.hajacheck.core.facility.controller;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,9 +13,11 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
-import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.repository.FacilityRepository;
+import com.hajacheck.core.facility.dto.FacilityCreateRequest;
+import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
+import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
@@ -143,6 +146,80 @@ class FacilityControllerTest extends PostgresTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
+    }
+
+    // ── 시설물 등록/수정 입력값 범위 검증(#351) ──
+    // BuiltYearValidatorTest 는 밸리데이터를 직접 호출할 뿐이라 @ValidBuiltYear 가 DTO 에 실제로
+    // 걸려 400 이 나오는지는 검증하지 못한다. @Valid 누락 같은 회귀를 여기서 잡는다
+    // (위 점검주기설정_유효성실패_상한초과_400 과 동일 취지).
+
+    @Test
+    void 시설물등록_유효성실패_준공년도_미래_400() throws Exception {
+        User owner = saveUser("owner6@haja.com");
+        FacilityCreateRequest request = createRequestWith(999999, 6);
+
+        mockMvc.perform(post("/api/facilities")
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 시설물등록_유효성실패_준공년도_1900미만_400() throws Exception {
+        User owner = saveUser("owner7@haja.com");
+        FacilityCreateRequest request = createRequestWith(-100, 6);
+
+        mockMvc.perform(post("/api/facilities")
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 시설물등록_유효성실패_점검주기_상한초과_400() throws Exception {
+        User owner = saveUser("owner8@haja.com");
+        FacilityCreateRequest request = createRequestWith(2008, 200);
+
+        mockMvc.perform(post("/api/facilities")
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 시설물등록_경계값_준공년도1900_점검주기0_201() throws Exception {
+        // 제약이 과해 정상 입력을 막지 않는지 — 하한 1900 과 "주기 미설정"(0)은 통과해야 한다.
+        User owner = saveUser("owner9@haja.com");
+        FacilityCreateRequest request = createRequestWith(1900, 0);
+
+        mockMvc.perform(post("/api/facilities")
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void 시설물수정_유효성실패_준공년도_미래_400() throws Exception {
+        // PUT 은 전체 교체라 등록과 동일 제약이어야 한다(FacilityUpdateRequest).
+        User owner = saveUser("owner10@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        FacilityUpdateRequest request = new FacilityUpdateRequest(
+                "수정빌딩", "BUILDING", null, null, null, 999999, null, 6, null);
+
+        mockMvc.perform(put("/api/facilities/{id}", facility.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    private FacilityCreateRequest createRequestWith(Integer builtYear, Integer inspectionCycleMonths) {
+        return new FacilityCreateRequest(
+                "검증빌딩", "BUILDING", null, null, null, builtYear, null, inspectionCycleMonths, null);
     }
 
     @Test
