@@ -426,9 +426,11 @@
 }
 
 .landing-banner {
-  background: #f4f1ea;
+  background: #f7f3f2;
   text-align: center;
   padding: 96px 24px;
+  margin: 0 40px;
+  border-radius: 32px;
 }
 
 .landing-banner h2 {
