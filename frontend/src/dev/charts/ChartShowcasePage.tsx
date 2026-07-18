@@ -1,4 +1,11 @@
-import { BarChart, CHART_COLORS, CHART_GRADE_COLORS, LineChart, PieChart } from '../../shared/components/charts';
+import {
+  BarChart,
+  CHART_COLORS,
+  CHART_GRADE_COLORS,
+  DistributionBar,
+  LineChart,
+  PieChart,
+} from '../../shared/components/charts';
 import {
   toGradeDistributionChartData,
   toInspectionTrendChartData,
@@ -65,6 +72,23 @@ export function ChartShowcasePage() {
             />
           </article>
 
+          <article className={`${CARD_CLASS} lg:col-span-2`}>
+            <h2 className="mb-1 mt-0 text-lg font-semibold text-heading">하자 등급 분포 (DistributionBar)</h2>
+            <p className="mb-5 mt-0 text-sm text-text-muted">
+              GradeDistributionItem DTO를 세그먼트 바로 표현 — 대시보드 GradeDistributionCard와 동일 시각을
+              등급에 종속되지 않는 범용 컴포넌트로 일반화
+            </p>
+            <DistributionBar
+              ariaLabel="A부터 E까지 하자 등급별 비율 분포 바"
+              segments={gradeDistribution.map((item) => ({
+                key: item.grade,
+                label: `${item.grade} 등급`,
+                percent: item.percent,
+                color: CHART_GRADE_COLORS[item.grade],
+              }))}
+            />
+          </article>
+
           <article className={CARD_CLASS}>
             <h2 className="mb-1 mt-0 text-lg font-semibold text-heading">점검 처리 상태</h2>
             <p className="mb-5 mt-0 text-sm text-text-muted">RecentInspectionItem DTO를 상태별 건수로 집계</p>
@@ -106,6 +130,12 @@ export function ChartShowcasePage() {
               ariaLabel="빈 점검 추이 차트"
               emptyMessage="선택한 기간에 점검 데이터가 없습니다."
             />
+          </article>
+
+          <article className={CARD_CLASS}>
+            <h2 className="mb-1 mt-0 text-lg font-semibold text-heading">빈 분포 바</h2>
+            <p className="mb-5 mt-0 text-sm text-text-muted">등급 분포 데이터가 없을 때 공통 안내 상태</p>
+            <DistributionBar ariaLabel="빈 등급 분포 바" segments={[]} />
           </article>
         </section>
       </div>
