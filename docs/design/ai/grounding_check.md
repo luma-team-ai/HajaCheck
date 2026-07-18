@@ -1,6 +1,6 @@
 # Grounding Check (사실 검증) 로직 설계 — HAJA-117
 
-> **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+> **문서 버전:** v0.2 · **최종 수정:** 2026-07-16 · 이전 버전 `archive/`
 
 > 에픽: HAJA-103 [AI 설계] · 담당: 허남 · 관련 요구: PRD_hajaCheck_v0.41 §6.2 (line 274)
 > 구현: `ai-server/ai/core/grounding.py` · 엔드포인트: `POST /ai/grounding-check` · 테스트: `ai-server/tests/test_grounding.py`
@@ -21,7 +21,7 @@ Grounding Check는 생성 체인의 **마지막 후처리 단계**로서, LLM이
 | **LLM 호출 없음 (순수 코드)** | 검증기 자체가 환각하면 안 됨. 결정론적·재현 가능·크레딧 0. |
 | **공통 `ai/core/` 모듈** | 특정 체인 전용이 아니라 보고서·브리핑 등 모든 생성 체인이 재사용 (AI_개발_컨벤션 §0). |
 | **실측치가 유일한 진실(SOT)** | `defects`(유형·등급) 실측 집계가 기준. 생성물은 이 기준에 "맞춰야" 통과. |
-| **조치는 호출 측이 선택** | 불일치 시 `REGENERATE`(섹션 재생성) 또는 `WARN`(경고 배지) — 체인이 정책 지정. |
+| **조치는 호출 측이 선택** | 불일치 시 `REGENERATE`(섹션 재생성) 또는 `WARN`(초안 경고 배지) — 체인이 정책 지정. 확정 PDF는 `PASS`만 허용. |
 
 ## 3. 로직 흐름
 
@@ -38,8 +38,12 @@ GroundingResult(grounded, action, checks, mismatches, ground_truth)
    │
    ├─ action=PASS        → 그대로 확정
    ├─ action=REGENERATE  → 해당 섹션 재생성 (기본)
-   └─ action=WARN        → 프론트 경고 배지 표시
+   └─ action=WARN        → 편집 가능한 초안에 경고 배지 표시(확정·PDF 내보내기 불가)
 ```
+
+`WARN`은 생성 결과를 버리지 않고 사용자가 확인할 수 있게 하는 **초안/미리보기 정책**이다. 보고서 Entity의
+`FINALIZED` 전이와 PDF 내보내기는 `grounding_check_passed=true`, 즉 최종 `PASS`가 확인된 경우에만 허용한다.
+`WARN` 결과는 수정 또는 재생성 후 다시 검증해야 한다.
 
 입력 `claims` 는 생성 체인의 **structured output**(Pydantic)에서 채운다 — 자유 텍스트 정규식 파싱 금지
 (AI_개발_컨벤션.md §4). 서술형 텍스트에서 수치를 추출하는 경로는 **후속 이슈 + AI 코치 협의**로 분리(§7).

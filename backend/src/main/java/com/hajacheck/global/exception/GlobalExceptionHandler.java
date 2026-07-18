@@ -2,9 +2,13 @@ package com.hajacheck.global.exception;
 
 import com.hajacheck.global.common.ApiResponse;
 import jakarta.validation.ConstraintViolationException;
+import java.lang.reflect.InvocationTargetException;
+import java.util.Map;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -24,6 +28,13 @@ public class GlobalExceptionHandler {
      * 렌더링하는 유니코드 줄바꿈(U+2028/U+2029/U+0085)을 함께 포함한다.
      */
     private static final Pattern CONTROL_CHARS = Pattern.compile("[\\p{Cntrl}\\u0085\\u2028\\u2029]");
+    private static final Pattern POSTGRES_QUOTED_CONSTRAINT =
+            Pattern.compile("(?i)\\bconstraint\\s+\"([^\"]+)\"");
+    private static final Map<String, ErrorCode> EXPECTED_INTEGRITY_CONFLICTS = Map.of(
+            "uq_company_memberships_approved_user", ErrorCode.AUTH_APPROVED_MEMBERSHIP_CONFLICT,
+            "uq_user_plans_active_user", ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT,
+            "uq_user_plans_active_company", ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT,
+            "uq_counsel_tickets_session", ErrorCode.COUNSEL_SESSION_ASSIGNMENT_CONFLICT);
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {
@@ -120,6 +131,115 @@ public class GlobalExceptionHandler {
             return null;
         }
         return CONTROL_CHARS.matcher(value).replaceAll("_");
+    }
+
+    /**
+     * 상태 전이 엔티티(@Version 낙관적 락 — HAJA-25)의 동시 갱신 충돌 통일 처리.
+     * 이 필드가 도입되기 전에는 read-check-write 경쟁이 조용히 덮어써졌으나(last-write-wins),
+     * 이제 동시 갱신은 이 예외로 표면화된다. 500으로 새지 않도록 재시도 유도가 가능한 409로 변환한다.
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiResponse<Void>> handleOptimisticLockingFailure(
+            ObjectOptimisticLockingFailureException e) {
+        log.warn("낙관적 락 충돌: {}", e.getMessage());
+        return ResponseEntity.status(ErrorCode.CONCURRENT_UPDATE_CONFLICT.getStatus())
+                .body(ApiResponse.fail(ErrorCode.CONCURRENT_UPDATE_CONFLICT));
+    }
+
+    /**
+     * HAJA-25에서 추가된 부분 유니크 인덱스 위반 중 사용자 경합으로 예상 가능한 제약만 409로 변환한다.
+     * 그 밖의 무결성 위반은 데이터/프로그래밍 오류일 수 있으므로 무차별 409로 숨기지 않고 기존 500을 유지한다.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(DataIntegrityViolationException e) {
+        ErrorCode errorCode = findExpectedIntegrityConflict(e);
+        if (errorCode == null) {
+            log.error("처리되지 않은 데이터 무결성 위반", e);
+            return ResponseEntity.status(ErrorCode.INTERNAL_ERROR.getStatus())
+                    .body(ApiResponse.fail(ErrorCode.INTERNAL_ERROR));
+        }
+
+        log.warn("예상 가능한 데이터 무결성 충돌: {}", errorCode.name());
+        return ResponseEntity.status(errorCode.getStatus())
+                .body(ApiResponse.fail(errorCode));
+    }
+
+    private ErrorCode findExpectedIntegrityConflict(DataIntegrityViolationException exception) {
+        Throwable cause = exception;
+        while (cause != null) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException constraintViolation) {
+                String constraintName = constraintViolation.getConstraintName();
+                if (constraintName != null) {
+                    return EXPECTED_INTEGRITY_CONFLICTS.get(constraintName);
+                }
+            }
+            if (isPostgresSqlException(cause)) {
+                String constraintName = getPostgresConstraintName(cause);
+                if (constraintName != null) {
+                    return EXPECTED_INTEGRITY_CONFLICTS.get(constraintName);
+                }
+            }
+            cause = cause.getCause();
+        }
+
+        String message = exception.getMostSpecificCause().getMessage();
+        if (message == null) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = POSTGRES_QUOTED_CONSTRAINT.matcher(message);
+        return matcher.find() ? EXPECTED_INTEGRITY_CONFLICTS.get(matcher.group(1)) : null;
+    }
+
+    private boolean isPostgresSqlException(Throwable cause) {
+        Class<?> type = cause.getClass();
+        while (type != null) {
+            if ("org.postgresql.util.PSQLException".equals(type.getName())) {
+                return true;
+            }
+            type = type.getSuperclass();
+        }
+        return false;
+    }
+
+    /**
+     * PostgreSQL JDBC 드라이버는 runtimeOnly 의존성이므로 컴파일 타임 결합 없이 구조화된 constraint 필드를 읽는다.
+     */
+    private String getPostgresConstraintName(Throwable postgresException) {
+        try {
+            Object serverErrorMessage = postgresException.getClass()
+                    .getMethod("getServerErrorMessage")
+                    .invoke(postgresException);
+            if (serverErrorMessage == null) {
+                return null;
+            }
+            return (String) serverErrorMessage.getClass().getMethod("getConstraint").invoke(serverErrorMessage);
+        } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException | ClassCastException e) {
+            log.debug("PostgreSQL 구조화 제약명을 읽지 못함", e);
+            return null;
+        }
+    }
+
+    /**
+     * Entity 도메인 메서드의 명시적인 입력 검증 실패만 400으로 변환한다.
+     * 표준 IllegalArgumentException은 프로그래밍 오류일 수 있으므로 이 핸들러가 잡지 않으며 500으로 처리한다.
+     * 민감한 입력 조각이 로그에 남지 않도록 예외 메시지 자체도 기록하지 않는다.
+     */
+    @ExceptionHandler(DomainValidationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDomainValidationException(DomainValidationException e) {
+        log.warn("도메인 입력값 검증 실패: {}", e.getClass().getSimpleName());
+        return ResponseEntity.status(ErrorCode.INVALID_INPUT.getStatus())
+                .body(ApiResponse.fail(ErrorCode.INVALID_INPUT));
+    }
+
+    /**
+     * Entity 도메인 메서드의 명시적인 상태 전이 가드 위반만 409로 변환한다.
+     * 표준 IllegalStateException은 프로그래밍 오류일 수 있으므로 이 핸들러가 잡지 않으며 500으로 처리한다.
+     */
+    @ExceptionHandler(DomainStateTransitionException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDomainStateTransitionException(DomainStateTransitionException e) {
+        log.warn("잘못된 상태 전이 요청: {}", e.getMessage());
+        return ResponseEntity.status(ErrorCode.INVALID_STATE_TRANSITION.getStatus())
+                .body(ApiResponse.fail(ErrorCode.INVALID_STATE_TRANSITION));
     }
 
     @ExceptionHandler(Exception.class)

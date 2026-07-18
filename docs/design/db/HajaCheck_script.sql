@@ -196,6 +196,7 @@ create table companies
 (
     id                              bigint generated always as identity
         primary key,
+    lock_version                    bigint                            default 0                                          not null,
     owner_user_id                   bigint                                                                  not null
         references users,
     name                            varchar(200)                                                            not null,
@@ -220,6 +221,8 @@ create table companies
 comment on table companies is '기업 회원가입으로 생성된 회사(기업) 계정 정보를 관리한다.';
 
 comment on column companies.id is '기업 계정 식별자';
+
+comment on column companies.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column companies.owner_user_id is '기업 가입을 신청하고 계정을 소유·관리하는 사용자 식별자(플랜 보유자, 협업자 초대 권한)';
 
@@ -270,6 +273,7 @@ create table company_memberships
 (
     id          bigint generated always as identity
         primary key,
+    lock_version bigint                            default 0                            not null,
     company_id  bigint                                                                     not null
         references companies,
     user_id     bigint                                                                     not null
@@ -293,6 +297,8 @@ create table company_memberships
 );
 
 comment on table company_memberships is '기업 초대·승인·회수·만료 이력과 현재 소속 판정의 기준을 관리한다.';
+
+comment on column company_memberships.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column company_memberships.company_id is '소속 회사 식별자';
 
@@ -563,6 +569,7 @@ create table inspections
     created_by      bigint                                                             not null
         references users,
     assigned_inspector_id bigint                                                        not null
+        constraint fk_inspections_assigned_inspector
         references users,
     round_no        integer                                                            not null,
     inspection_date date                                                               not null,
@@ -655,6 +662,7 @@ create table defects
 (
     id              bigint generated always as identity
         primary key,
+    lock_version    bigint                   default 0                              not null,
     inspection_id   bigint                                                          not null
         references inspections,
     type            defect_type                                                     not null,
@@ -675,6 +683,8 @@ create table defects
 comment on table defects is '점검 이미지에서 탐지되거나 검토된 시설 결함 정보를 관리한다.';
 
 comment on column defects.id is '결함 식별자';
+
+comment on column defects.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column defects.inspection_id is '결함이 발견된 점검 식별자';
 
@@ -753,6 +763,7 @@ create table reports
 (
     id                     bigint generated always as identity
         primary key,
+    lock_version           bigint                   default 0                           not null,
     inspection_id          bigint                                                       not null
         references inspections,
     version                integer                  default 1                           not null,
@@ -774,6 +785,8 @@ create table reports
 comment on table reports is '점검 결과를 기반으로 생성한 버전별 보고서를 관리한다.';
 
 comment on column reports.id is '보고서 식별자';
+
+comment on column reports.lock_version is '보고서 업무 버전과 별개인 상태 전이 낙관적 락 버전';
 
 comment on column reports.inspection_id is '보고서 대상 점검 식별자';
 
@@ -871,6 +884,7 @@ create table counsel_tickets
 (
     id             bigint generated always as identity
         primary key,
+    lock_version   bigint                            default 0                                 not null,
     user_id        bigint                                                                   not null
         references users,
     counselor_id   bigint
@@ -886,6 +900,8 @@ create table counsel_tickets
 comment on table counsel_tickets is '사용자의 전문 상담 요청과 상담 진행 상태를 관리한다.';
 
 comment on column counsel_tickets.id is '상담 티켓 식별자';
+
+comment on column counsel_tickets.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column counsel_tickets.user_id is '상담을 요청한 사용자 식별자';
 
@@ -912,6 +928,13 @@ create index idx_counsel_tickets_user
 
 create index idx_counsel_tickets_session
     on counsel_tickets (session_id);
+
+create unique index uq_counsel_tickets_session
+    on counsel_tickets (session_id)
+    where (session_id is not null);
+
+comment on index uq_counsel_tickets_session is
+    '하나의 전문상담 세션이 여러 상담 티켓에 중복 배정되는 것을 방지한다.';
 
 create table bot_scenarios
 (
@@ -969,6 +992,7 @@ create table rag_documents
 (
     id                 bigint generated always as identity
         primary key,
+    lock_version       bigint                            default 0                                not null,
     title              varchar(300)                                                           not null,
     source_type        rag_doc_source_type                                                    not null,
     target_collection  rag_target_collection_type                                            not null,
@@ -986,6 +1010,8 @@ create table rag_documents
 comment on table rag_documents is '검색 증강 생성에 사용하는 법령 및 지침 문서를 관리한다.';
 
 comment on column rag_documents.id is 'RAG 문서 식별자';
+
+comment on column rag_documents.lock_version is '임베딩·검증 상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column rag_documents.title is '문서 제목';
 
@@ -1013,6 +1039,12 @@ comment on column rag_documents.created_at is '문서 업로드 시작 시각';
 
 alter table rag_documents
     owner to postgres;
+
+create index idx_rag_documents_embedding_status
+    on rag_documents (embedding_status);
+
+create index idx_rag_documents_target_collection
+    on rag_documents (target_collection);
 
 create table chat_message_citations
 (
@@ -1059,6 +1091,7 @@ create table notifications
 (
     id           bigint generated always as identity
         primary key,
+    lock_version bigint                   default 0    not null,
     user_id      bigint                                 not null
         references users,
     type         notification_type                      not null,
@@ -1070,6 +1103,8 @@ create table notifications
 comment on table notifications is '사용자에게 전달되는 서비스 알림을 관리한다.';
 
 comment on column notifications.id is '알림 식별자';
+
+comment on column notifications.lock_version is '동시 갱신 충돌 감지용 낙관적 락 버전(상태 머신은 아니나 다른 가변 Entity와의 일관성을 위해 적용)';
 
 comment on column notifications.user_id is '알림 수신 사용자 식별자';
 
@@ -1157,3 +1192,59 @@ create trigger trg_bot_scenarios_set_updated_at
 execute procedure set_updated_at();
 
 comment on trigger trg_bot_scenarios_set_updated_at on bot_scenarios is 'bot_scenarios 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
+
+create function check_inspection_assigned_inspector_company() returns trigger
+    language plpgsql
+as
+$$
+declare
+    assignment_company_id bigint;
+begin
+    select c.id into assignment_company_id
+    from users creator
+    join users inspector on inspector.id = new.assigned_inspector_id
+    join companies c
+      on c.id = creator.company_id
+     and c.id = inspector.company_id
+    join company_memberships creator_membership
+      on creator_membership.company_id = c.id
+     and creator_membership.user_id = creator.id
+    join company_memberships inspector_membership
+      on inspector_membership.company_id = c.id
+     and inspector_membership.user_id = inspector.id
+    where creator.id = new.created_by
+      and creator.status = 'ACTIVE'::user_status_type
+      and inspector.status = 'ACTIVE'::user_status_type
+      and inspector.role in ('INSPECTOR'::role_type, 'ADMIN'::role_type)
+      and c.status = 'APPROVED'::company_status_type
+      and c.verification_status = 'VERIFIED'::business_verification_status_type
+      and creator_membership.status = 'APPROVED'::company_membership_status_type
+      and creator_membership.approved_at is not null
+      and creator_membership.revoked_at is null
+      and (creator_membership.expires_at is null or creator_membership.expires_at > now())
+      and inspector_membership.status = 'APPROVED'::company_membership_status_type
+      and inspector_membership.approved_at is not null
+      and inspector_membership.revoked_at is null
+      and (inspector_membership.expires_at is null or inspector_membership.expires_at > now())
+    limit 1;
+
+    if assignment_company_id is null then
+        raise exception
+            'assigned_inspector_id % must be an active inspector with an effective membership in the approved company of created_by %',
+            new.assigned_inspector_id, new.created_by;
+    end if;
+    return new;
+end;
+$$;
+
+alter function check_inspection_assigned_inspector_company() owner to postgres;
+
+comment on function check_inspection_assigned_inspector_company() is 'AuthService.validateAssignableInspector와 동일하게 활성 사용자, 담당자 역할, APPROVED+VERIFIED 회사, 양쪽 유효 멤버십과 company_id 일치를 강제한다(HAJA-25 P2 DB 레벨 방어).';
+
+create trigger trg_inspections_check_assigned_inspector_company
+    before insert or update of assigned_inspector_id, created_by
+    on inspections
+    for each row
+execute procedure check_inspection_assigned_inspector_company();
+
+comment on trigger trg_inspections_check_assigned_inspector_company on inspections is 'assigned_inspector_id 배정 시 애플리케이션과 동일한 담당자·회사·멤버십 인가 불변식을 강제한다(HAJA-25 P2 — DB 레벨 방어).';

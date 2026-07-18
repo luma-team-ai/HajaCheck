@@ -2,7 +2,11 @@ package com.hajacheck.core.media.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hajacheck.auth.entity.Company;
+import com.hajacheck.auth.entity.CompanyMembership;
+import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
@@ -35,7 +39,30 @@ class MediaRepositoryTest extends PostgresTestSupport {
     private TestEntityManager em;
 
     private Long seedInspection() {
-        User owner = User.createCompanyOwner("owner-a@haja.com", "소유자", "$2a$10$testtesttesttesttesttes");
+        // HAJA-25 배정 검증 트리거: created_by·assigned_inspector 는 승인+검증된 회사의 유효한 APPROVED
+        // 멤버여야 하고 담당자는 INSPECTOR/ADMIN 역할이어야 한다. owner 를 두 역할로 함께 재사용하므로
+        // INSPECTOR 역할 + 승인/검증 회사 + approvedOwner 멤버십 + company_id 를 함께 시드한다.
+        User owner = User.builder()
+                .email("owner-a@haja.com")
+                .name("소유자")
+                .role(Role.INSPECTOR)
+                .passwordHash("$2a$10$testtesttesttesttesttes")
+                .status(UserStatus.ACTIVE)
+                .build();
+        em.persist(owner);
+        em.flush();
+
+        Company company = Company.createPendingReview(
+                owner.getId(), "미디어테스트회사", "REG-" + owner.getId(), "대표자",
+                "서울시", null, "https://files.example/business.pdf", "{}");
+        em.persist(company);
+        em.flush();
+        company.markBusinessVerified();
+        company.approve(owner.getId());
+        em.flush();
+
+        em.persist(CompanyMembership.approvedOwner(company.getId(), owner.getId()));
+        owner.assignToCompany(company.getId());
         em.persist(owner);
         em.flush();
 

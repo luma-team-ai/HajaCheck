@@ -1,5 +1,6 @@
 package com.hajacheck.core.ai.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -19,7 +20,20 @@ public record ReportRequest(
         @NotEmpty @Valid @JsonProperty("confirmed_defects") List<ConfirmedDefect> confirmedDefects,
         // 허용값은 계약(docs/api-contract/openapi.yaml "on_mismatch" enum)의 regenerate/warn 2종뿐(#334 P3).
         @Pattern(regexp = "^(regenerate|warn)$", message = "on_mismatch 는 regenerate 또는 warn 만 허용됩니다.")
-        @JsonProperty("on_mismatch") String onMismatch) {
+        @JsonProperty("on_mismatch") String onMismatch,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @JsonProperty("grounding_request_id") String groundingRequestId,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @JsonProperty("inspection_id") Long inspectionId,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @JsonProperty("report_version") Integer reportVersion) {
+
+    public ReportRequest(
+            FacilityInfo facilityInfo,
+            List<ConfirmedDefect> confirmedDefects,
+            String onMismatch) {
+        this(facilityInfo, confirmedDefects, onMismatch, null, null, null);
+    }
 
     /** on_mismatch 미지정 시 계약 기본값 "regenerate" 로 채운다. */
     public ReportRequest {

@@ -3,10 +3,12 @@ package com.hajacheck.core.inspection.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.auth.entity.Company;
+import com.hajacheck.auth.entity.CompanyMembership;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyRepository;
+import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.repository.FacilityRepository;
@@ -49,6 +51,8 @@ class InspectionServiceConcurrencyTest extends PostgresTestSupport {
     @Autowired
     private CompanyRepository companyRepository;
     @Autowired
+    private CompanyMembershipRepository companyMembershipRepository;
+    @Autowired
     private FacilityRepository facilityRepository;
     @Autowired
     private InspectionRepository inspectionRepository;
@@ -57,6 +61,8 @@ class InspectionServiceConcurrencyTest extends PostgresTestSupport {
     private Long inspectorId;
     private Long facilityId;
     private Long companyId;
+    private Long ownerMembershipId;
+    private Long inspectorMembershipId;
 
     @BeforeEach
     void setUp() {
@@ -73,6 +79,9 @@ class InspectionServiceConcurrencyTest extends PostgresTestSupport {
         Company company = companyRepository.save(Company.createPendingReview(
                 owner.getId(), "(주)동시성테스트", brn,
                 "김대표", "서울시 강남구", null, "http://files/brn.png", "{}"));
+        company.markBusinessVerified();
+        company.approve(owner.getId());
+        company = companyRepository.save(company);
         owner.assignToCompany(company.getId());
         userRepository.save(owner);
 
@@ -85,6 +94,13 @@ class InspectionServiceConcurrencyTest extends PostgresTestSupport {
                 .status(UserStatus.ACTIVE)
                 .build());
 
+        CompanyMembership ownerMembership = companyMembershipRepository.save(
+                CompanyMembership.approvedOwner(company.getId(), owner.getId()));
+        CompanyMembership inspectorMembership = CompanyMembership.invite(
+                company.getId(), inspector.getId(), owner.getId(), null);
+        inspectorMembership.approve();
+        inspectorMembership = companyMembershipRepository.save(inspectorMembership);
+
         Facility facility = facilityRepository.save(
                 Facility.builder().ownerId(owner.getId()).name("동시성테스트시설").type("BUILDING").build());
 
@@ -92,12 +108,17 @@ class InspectionServiceConcurrencyTest extends PostgresTestSupport {
         this.inspectorId = inspector.getId();
         this.facilityId = facility.getId();
         this.companyId = company.getId();
+        this.ownerMembershipId = ownerMembership.getId();
+        this.inspectorMembershipId = inspectorMembership.getId();
     }
 
     @AfterEach
     void tearDown() {
         inspectionRepository.findByFacilityIdIn(List.of(facilityId)).forEach(inspectionRepository::delete);
         facilityRepository.deleteById(facilityId);
+
+        companyMembershipRepository.deleteById(inspectorMembershipId);
+        companyMembershipRepository.deleteById(ownerMembershipId);
 
         // circular FK(companies.owner_user_id ↔ users.company_id) — company_id 를 먼저 끊어야 순서대로 지운다.
         User owner = userRepository.findById(ownerId).orElseThrow();

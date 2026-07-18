@@ -3,6 +3,7 @@ package com.hajacheck.core.ai.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
@@ -10,6 +11,8 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.ReportRequest;
+import com.hajacheck.core.report.entity.GroundingRequestContext;
+import com.hajacheck.core.report.service.GroundingReportRequestFactory;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -34,7 +37,9 @@ class AiProxyServiceReportTest {
     private MockRestServiceServer mockServer;
     private AiProxyService aiProxyService;
 
-    private static final ReportRequest REQUEST = new ReportRequest(
+    private static final GroundingRequestContext CONTEXT = GroundingRequestContext.capture(10L, 1);
+    private static final ReportRequest REQUEST = GroundingReportRequestFactory.from(
+            CONTEXT,
             new ReportRequest.FacilityInfo("Haja APT", "서울시"),
             List.of(new ReportRequest.ConfirmedDefect("균열", "1동 1층 기둥", "B", "기둥 표면 수평 균열")),
             "regenerate");
@@ -58,6 +63,9 @@ class AiProxyServiceReportTest {
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("X-Internal-Key", "test-internal-key"))
+                .andExpect(jsonPath("$.grounding_request_id").value(CONTEXT.groundingRequestId()))
+                .andExpect(jsonPath("$.inspection_id").value(10))
+                .andExpect(jsonPath("$.report_version").value(1))
                 .andRespond(withStatus(HttpStatus.OK)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("""
@@ -83,11 +91,15 @@ class AiProxyServiceReportTest {
                                       ],
                                       "monitoring_points": ["지하주차장"]
                                     },
-                                    "grounding_ok": true
+                                    "grounding_ok": true,
+                                    "grounding_request_id": "%s",
+                                    "inspection_id": 10,
+                                    "report_version": 1,
+                                    "content_hash": "%s"
                                   },
                                   "usage": {"tokens": 850}
                                 }
-                                """));
+                                """.formatted(CONTEXT.groundingRequestId(), "ai-computed-content-hash")));
 
         ApiResponse<?> response = aiProxyService.generateReport(REQUEST);
 

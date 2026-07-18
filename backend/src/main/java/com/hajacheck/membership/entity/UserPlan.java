@@ -2,9 +2,13 @@ package com.hajacheck.membership.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import lombok.AccessLevel;
@@ -15,8 +19,8 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * 개인/회사 구독 — DDL user_plans 테이블 대응(v0.3, 323행~). 연관관계 금지 원칙에 따라
- * userId/companyId/planId 는 모두 Long 값 컬럼으로만 보유한다(User/Company/Plan 엔티티 결합 금지).
+ * 개인/회사 구독 — DDL user_plans 테이블 대응. auth 도메인의 사용자·회사는 식별자로 유지하고,
+ * 같은 membership 도메인의 Plan은 지연 로딩 관계를 함께 제공한다.
  *
  * <p>owner XOR(userId 또는 companyId 중 정확히 하나)는 DB 제약({@code ck_user_plans_owner_xor})이 보장하며,
  * 이 엔티티는 팩토리 메서드 {@link #forUser}/{@link #forCompany} 로만 생성해 애플리케이션 레벨에서도 XOR 을 강제한다.
@@ -25,7 +29,10 @@ import org.hibernate.type.SqlTypes;
  */
 @Entity
 @Getter
-@Table(name = "user_plans")
+@Table(name = "user_plans", indexes = {
+        @Index(name = "idx_user_plans_user", columnList = "user_id"),
+        @Index(name = "idx_user_plans_company", columnList = "company_id")
+})
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class UserPlan {
 
@@ -41,6 +48,10 @@ public class UserPlan {
 
     @Column(name = "plan_id", nullable = false)
     private Long planId;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "plan_id", insertable = false, updatable = false)
+    private Plan plan;
 
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(columnDefinition = "user_plan_status_type", nullable = false)

@@ -3,10 +3,14 @@ package com.hajacheck.membership.entity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
@@ -18,14 +22,25 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 /**
  * 구독(개인/회사)별 월간 사용량 집계 — DDL usage_counters 테이블 대응(v0.3, 365행~).
- * userPlanId 는 FK 값 컬럼으로만 보유(연관관계 금지 원칙).
+ * userPlanId 호환 필드와 같은 membership 도메인의 UserPlan 지연 로딩 관계를 함께 제공한다.
  *
  * <p>DDL 에 updated_at 컬럼이 없어 BaseTimeEntity 를 상속하지 않고 createdAt 만 자체 관리한다.
  * period 는 항상 해당 월 1일로 저장(DB 제약 ck_usage_counters_period_month_start).
+ *
+ * <p>⚠️ 이 Entity에는 의도적으로 {@code @Version}을 두지 않는다. 카운터 증가는 JPA 낙관적 락(읽기→증가→저장)이
+ * 아니라 table_design.md §usage_counters "동시성 정책 확정"이 규정한 **원자적 조건부 UPDATE**
+ * (예: {@code UPDATE ... SET count = count + 1 WHERE ... AND count < :limit RETURNING ...})로만
+ * 수행해야 한다 — 갱신 행 수 0이 곧 한도 초과 판정이며, period 최초 생성 경합은 UNIQUE 기반 UPSERT로 흡수한다.
+ * 향후 이 카운터를 증가시키는 서비스(QuotaInterceptor 등)를 구현할 때 read-modify-write 패턴으로
+ * 되돌리지 않도록 주의한다(jpa_entity_implementation_audit.md §3.7 참조).
  */
 @Entity
 @Getter
-@Table(name = "usage_counters")
+@Table(
+        name = "usage_counters",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_usage_counters_user_plan_period",
+                columnNames = {"user_plan_id", "period"}))
 @EntityListeners(AuditingEntityListener.class)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class UsageCounter {
@@ -36,6 +51,10 @@ public class UsageCounter {
 
     @Column(name = "user_plan_id", nullable = false)
     private Long userPlanId;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_plan_id", insertable = false, updatable = false)
+    private UserPlan userPlan;
 
     @Column(nullable = false)
     private LocalDate period;
