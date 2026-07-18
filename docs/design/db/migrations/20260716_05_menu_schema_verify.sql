@@ -259,6 +259,61 @@ begin
         raise exception 'trg_menus_set_updated_at is missing or misconfigured';
     end if;
 
+    -- GROUP 메뉴에 대한 직접 role 매핑을 쓰기 시점에 차단하는 함수가 캐노니컬 본문·속성으로 설치되어 있는지 확인한다.
+    if not exists (
+        select 1
+        from pg_proc proc_meta
+        join pg_language language_meta on language_meta.oid = proc_meta.prolang
+        where proc_meta.oid = to_regprocedure('public.check_menu_role_access_not_group()')
+          and proc_meta.prokind = 'f'
+          and pg_get_function_identity_arguments(proc_meta.oid) = ''
+          and pg_get_function_result(proc_meta.oid) = 'trigger'
+          and language_meta.lanname = 'plpgsql'
+          and proc_meta.provolatile = 'v'
+          and not proc_meta.prosecdef
+          and regexp_replace(btrim(proc_meta.prosrc), '[[:space:]]+', ' ', 'g') =
+              regexp_replace(btrim($expected_function$
+              declare
+                  target_menu_type menu_node_type;
+              begin
+                  select menu_type into target_menu_type
+                  from menus
+                  where id = new.menu_id;
+
+                  if target_menu_type = 'GROUP'::menu_node_type then
+                      raise exception
+                          'menu_role_access.menu_id % refers to a GROUP menu; GROUP menus must not have direct menu_role_access rows',
+                          new.menu_id;
+                  end if;
+                  return new;
+              end;
+              $expected_function$), '[[:space:]]+', ' ', 'g')
+    ) then
+        raise exception 'check_menu_role_access_not_group function is missing or misconfigured';
+    end if;
+
+    if not exists (
+        select 1
+        from pg_trigger trigger_meta
+        where trigger_meta.tgname = 'trg_menu_role_access_reject_group'
+          and trigger_meta.tgrelid = 'public.menu_role_access'::regclass
+          and trigger_meta.tgfoid = to_regprocedure('public.check_menu_role_access_not_group()')
+          and trigger_meta.tgtype = 23
+          and (
+              select array_agg(attribute.attname::text order by attribute.attname)
+              from unnest(trigger_meta.tgattr::smallint[]) as trigger_column(attnum)
+              join pg_attribute attribute
+                on attribute.attrelid = trigger_meta.tgrelid
+               and attribute.attnum = trigger_column.attnum
+          ) = array['menu_id']
+          and trigger_meta.tgenabled in ('O', 'A')
+          and not trigger_meta.tgisinternal
+    ) then
+        raise exception 'trg_menu_role_access_reject_group trigger is missing or misconfigured';
+    end if;
+
+    -- 트리거가 신규 삽입을 실시간으로 차단하므로 이 시점엔 절대 참이 아니어야 하지만,
+    -- 트리거 설치 전에 유입된 과거 데이터의 의미 드리프트를 잡기 위한 방어선으로 남겨둔다.
     if exists (
         select 1
         from public.menu_role_access access_rule

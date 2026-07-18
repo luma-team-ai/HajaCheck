@@ -159,4 +159,28 @@ $migration$;
 
 comment on trigger trg_menus_set_updated_at on public.menus is 'menus 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
 
+create or replace function public.check_menu_role_access_not_group() returns trigger as $check$
+declare
+    target_menu_type menu_node_type;
+begin
+    select menu_type into target_menu_type
+    from menus
+    where id = new.menu_id;
+
+    if target_menu_type = 'GROUP'::menu_node_type then
+        raise exception
+            'menu_role_access.menu_id % refers to a GROUP menu; GROUP menus must not have direct menu_role_access rows',
+            new.menu_id;
+    end if;
+    return new;
+end;
+$check$ language plpgsql;
+
+create or replace trigger trg_menu_role_access_reject_group
+    before insert or update of menu_id on public.menu_role_access
+    for each row execute procedure public.check_menu_role_access_not_group();
+
+comment on function public.check_menu_role_access_not_group() is 'GROUP 메뉴는 허용된 자식이 있으면 서비스 로직이 자동으로 노출시키므로 menu_role_access에 직접 매핑을 추가할 수 없도록 강제한다(메뉴 스키마 DB 레벨 방어).';
+comment on trigger trg_menu_role_access_reject_group on public.menu_role_access is 'menu_id가 GROUP 타입 메뉴를 가리키면 매핑 삽입/변경을 거부한다.';
+
 select pg_advisory_unlock(hashtext('hajacheck:menu-schema:migration'));

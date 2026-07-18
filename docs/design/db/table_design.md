@@ -786,6 +786,7 @@ users ──< menu_role_access (created_by)
 
 - **PK**: `(menu_id, role)` — 매핑 행이 존재하면 해당 역할에 노출되는 방식이라 별도 `can_view` 컬럼을 두지 않는다.
 - 인덱스: `idx_menu_role_access_role (role, menu_id)`
+- 트리거: `trg_menu_role_access_reject_group` — `menu_id`가 가리키는 메뉴가 `GROUP` 타입이면 삽입/변경을 즉시 거부한다(`check_menu_role_access_not_group()`). 마이그레이션 검증(`20260716_05_menu_schema_verify.sql`)의 데이터 대조는 이 트리거 도입 이전에 유입됐을 수 있는 과거 데이터용 방어선으로 남겨둔다.
 - `GROUP` 메뉴에는 매핑 행을 넣지 않는다(§2.9) — 허용된 자식이 하나라도 있으면 부모 GROUP은 자동 포함.
 - role 계층은 `role_type` enum 선언 순서로 추론하지 않는다 — 메뉴마다 명시적으로 매핑한다(§2.9).
 - 권한 해제는 행 삭제, 권한 부여는 행 추가로 처리한다. 별도 상태 컬럼은 없다.

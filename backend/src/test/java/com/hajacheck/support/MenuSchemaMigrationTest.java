@@ -98,15 +98,21 @@ class MenuSchemaMigrationTest {
                     """, "0");
             runPsql(postgres, VERIFY);
 
-            runSql(postgres, "tamper GROUP access invariant", """
+            runSqlExpectFailure(postgres, "direct role mapping on GROUP menu", """
                     insert into menu_role_access (menu_id, role)
-                    select id, 'ADMIN' from menus where code = 'TEST_GROUP';
+                    select id, 'ADMIN' from menus where code = 'TEST_GROUP'
+                    """, "GROUP menus must not have direct menu_role_access rows");
+
+            runSql(postgres, "tamper away GROUP role mapping trigger", """
+                    drop trigger trg_menu_role_access_reject_group on menu_role_access
                     """);
-            runPsqlExpectFailure(postgres, VERIFY, "GROUP menus must not have direct menu_role_access rows");
-            runSql(postgres, "restore GROUP access invariant", """
-                    delete from menu_role_access
-                    where menu_id = (select id from menus where code = 'TEST_GROUP');
+            runPsqlExpectFailure(postgres, VERIFY, "trg_menu_role_access_reject_group trigger is missing or misconfigured");
+            runSql(postgres, "restore GROUP role mapping trigger", """
+                    create trigger trg_menu_role_access_reject_group
+                        before insert or update of menu_id on menu_role_access
+                        for each row execute procedure check_menu_role_access_not_group();
                     """);
+            runPsql(postgres, VERIFY);
 
             runSql(postgres, "tamper created-by foreign key", """
                     alter table menus drop constraint menus_created_by_fkey;
