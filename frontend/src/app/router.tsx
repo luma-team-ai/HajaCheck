@@ -56,6 +56,12 @@ const DefectDetailPage = lazy(() =>
   })),
 );
 
+const DefectListPage = lazy(() =>
+  import('../features/defect/pages/DefectListPage').then((m) => ({
+    default: m.DefectListPage,
+  })),
+);
+
 // 마이페이지 — 내 플랜 (HAJA-185, #212)
 const MyPlanPage = lazy(() =>
   import('../features/mypage/pages/MyPlanPage').then((m) => ({ default: m.MyPlanPage })),
@@ -155,6 +161,21 @@ export const router = createBrowserRouter([
         handle: { breadcrumb: [{ label: '홈' }, { label: '대시보드' }], activeHref: '/dashboard' },
       }, // — features/dashboard (HAJA-17)
       {
+        // 정적 경로라 SideNavBar href('/defects/list')와 동일하게 맞춰 activeHref 매핑 없이도
+        // 사이드바 클릭이 그대로 동작한다(하위 :id 상세는 동적 세그먼트라 SideNavBar 플레이스홀더
+        // href와 다를 수밖에 없어 handle.activeHref로 매핑하는 것과 대조 — HAJA-30).
+        path: '/defects/list',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <DefectListPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '하자 관리' }, { label: '하자 목록' }],
+          activeHref: '/defects/list',
+        },
+      }, // — features/defect (HAJA-30)
+      {
         path: '/defects/:id',
         element: (
           <Suspense fallback={<div>불러오는 중...</div>}>
@@ -204,7 +225,7 @@ export const router = createBrowserRouter([
       </ProtectedRoute>
     ),
   }, // — features/facility (dev-04-01, FR-003)
-  // { path: '/defects', ... }                  — features/defect
+  // '/defects/list' 는 AppShellRoute 자식(위 children 배열)으로 등록됨 — features/defect (HAJA-30)
   // { path: '/reports', ... }                  — features/report
   // { path: '/support', ... }                  — features/support
   // { path: '/admin/*', ... }                  — features/admin (AdminRoute)
