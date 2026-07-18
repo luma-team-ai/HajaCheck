@@ -1,6 +1,6 @@
 # JPA Entity 구현 사전 감사
 
-> **문서 버전:** v0.1 · **최종 수정:** 2026-07-18 · 이전 버전 `archive/`
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-19 · 이전 버전 `archive/`
 > 대상: HAJA-25 및 하위 작업 HAJA-198~206
 > 기준일: 2026-07-16
 > 기준 파일: `docs/design/db/HajaCheck_script.sql`, `docs/design/db/table_design.md`,
