@@ -66,6 +66,26 @@ class MenuSchemaMigrationTest {
                     insert into menus (code, name, menu_type, path)
                     values ('INVALID_LEAF_ICON', 'invalid', 'INTERNAL', '/invalid')
                     """, "ck_menus_icon_single");
+            runSqlExpectFailure(postgres, "GROUP with a path", """
+                    insert into menus (code, name, menu_type, path)
+                    values ('INVALID_GROUP_PATH', 'invalid', 'GROUP', '/invalid')
+                    """, "ck_menus_path_by_type");
+            runSqlExpectFailure(postgres, "leaf without path", """
+                    insert into menus (code, name, menu_type, icon_key)
+                    values ('INVALID_LEAF_PATH', 'invalid', 'INTERNAL', 'test-icon')
+                    """, "ck_menus_path_by_type");
+            runSqlExpectFailure(postgres, "negative sort_order", """
+                    insert into menus (code, name, menu_type, sort_order)
+                    values ('INVALID_SORT_ORDER', 'invalid', 'GROUP', -1)
+                    """, "ck_menus_sort_order_nonnegative");
+            runSqlExpectFailure(postgres, "duplicate code", """
+                    insert into menus (code, name, menu_type)
+                    values ('TEST_GROUP', 'duplicate', 'GROUP')
+                    """, "menus_code_key");
+            runSqlExpectFailure(postgres, "duplicate role mapping", """
+                    insert into menu_role_access (menu_id, role)
+                    select id, 'ADMIN' from menus where code = 'TEST_CHILD'
+                    """, "menu_role_access_pkey");
             runSqlExpectFailure(postgres, "delete parent with child", """
                     delete from menus where code = 'TEST_GROUP'
                     """, "fk_menus_parent");
