@@ -48,6 +48,14 @@ function renderAt(initialPath: string) {
             path: MYPAGE_PLAN_ROUTE,
             element: <div>마이페이지 이용권 페이지</div>,
           },
+          {
+            path: '/inspections/:id/viewer',
+            element: <div>분석 결과 뷰어 페이지</div>,
+            handle: {
+              breadcrumb: [{ label: '홈' }, { label: '점검 관리' }, { label: '분석 결과 뷰어' }],
+              activeHref: '/inspections/1/viewer',
+            },
+          },
         ],
       },
     ],
@@ -107,5 +115,15 @@ describe('AppShellRoute', () => {
 
     expect(screen.queryByText('관리자 페이지')).toBeNull();
     expect(screen.queryByText('하자체크 담당자')).toBeNull();
+  });
+
+  it('id=1이 아닌 동적 라우트로 진입해도 사이드바 "분석 결과 뷰어"가 활성 표시된다(#368)', () => {
+    // activeHref는 handle(정적 선언)에서 오지 params가 아니라서, id 값과 무관하게
+    // 이 라우트로 매치되면 항상 같은 activeHref가 SideNavBar에 전달된다.
+    renderAt('/inspections/999/viewer');
+
+    expect(screen.getByText('분석 결과 뷰어 페이지')).not.toBeNull();
+    const link = screen.getByRole('link', { name: '분석 결과 뷰어' });
+    expect(link.getAttribute('aria-current')).toBe('page');
   });
 });

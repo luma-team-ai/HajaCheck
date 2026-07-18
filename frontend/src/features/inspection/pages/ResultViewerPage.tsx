@@ -107,12 +107,18 @@ export function ResultViewerPage() {
 
           {/* Image Card */}
           <div className="flex flex-1 flex-col gap-6 rounded-[48px] bg-[#f4f4f5] p-6">
-            <DefectOverlay
-              media={data.media}
-              defects={visibleDefects}
-              selectedId={selected?.id}
-              onSelect={setSelectedDefectId}
-            />
+            {visibleDefects.length === 0 ? (
+              <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
+                조건에 맞는 하자가 없습니다.
+              </div>
+            ) : (
+              <DefectOverlay
+                media={data.media}
+                defects={visibleDefects}
+                selectedId={selected?.id}
+                onSelect={setSelectedDefectId}
+              />
+            )}
 
             {/* Progress Bar */}
             <div className="flex flex-col gap-3">
@@ -131,8 +137,10 @@ export function ResultViewerPage() {
             </div>
 
             {/* Button */}
+            {/* TODO: 검수 확정 백엔드(#16 오탐 수정·등급 조정, #17 하자 상태머신)가 구현되면 활성화 —
+                현재는 해당 엔드포인트가 없어(HAJA-41 MSW 프로토타입 스코프) 클릭해도 처리할 대상이 없음 */}
             {visibleDefects.length > 0 && (
-              <Button type="button" variant="primary" size="lg" className="w-full">
+              <Button type="button" variant="primary" size="lg" className="w-full" disabled>
                 이 이미지 검수 확정
               </Button>
             )}
