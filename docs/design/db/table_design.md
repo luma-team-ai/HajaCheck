@@ -1,6 +1,6 @@
 # hajaCheck 테이블 디자인 설계
 
-> **문서 버전:** v0.4 · **최종 수정:** 2026-07-18 · 이전 버전 `archive/`
+> **문서 버전:** v0.4 · **최종 수정:** 2026-07-19 · 이전 버전 `archive/`
 
 - 대상 스키마 파일: [HajaCheck_script.sql](HajaCheck_script.sql)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
@@ -224,11 +224,11 @@ FR·API·플로우 동기화는 이번 범위에서 **제외**하고, ERD(DB 설
 | 결정 항목 | 확정 내용 |
 |---|---|
 | 테이블 분리 | `menus`(메뉴 노드 트리) + `menu_role_access`(메뉴×역할 N:M) — 메뉴 하나가 여러 역할에 동시에 노출되거나 특정 역할 전용 하위 메뉴를 가지는 경우를 단일 컬럼으로는 표현할 수 없음 |
-| 트리 구조 | `parent_id` 자기참조(`bot_scenarios`와 동일 패턴). `depth`는 저장하지 않음 — `parent_id`로 계산 가능하고, 둘 다 저장하면 부모 이동 시 값이 어긋날 수 있음. 현재 프론트도 2단계 구조([`SideNavBar.tsx:18`](../../../frontend/src/shared/components/SideNavBar/SideNavBar.tsx)) |
+| 트리 구조 | `parent_id` 자기참조(`bot_scenarios`와 동일 패턴). `depth`는 저장하지 않음 — `parent_id`로 계산 가능하고, 둘 다 저장하면 부모 이동 시 값이 어긋날 수 있음. 현재 프론트도 2단계 구조(`SideNavItem`/`SideNavSubItem`, [`SideNavBar.tsx:19-28`](../../../frontend/src/shared/components/SideNavBar/SideNavBar.tsx)) |
 | 부모 삭제 정책 | `ON DELETE RESTRICT` — 하위 메뉴가 있는 GROUP은 삭제할 수 없다. 실제 삭제 대신 `is_visible=false`/`is_enabled=false`로 숨기는 것을 원칙으로 한다 |
 | 간접 순환 방지 | `parent_id <> id`(직접 자기참조)는 CHECK로 차단하지만, `A → B → A` 같은 간접 순환은 CHECK로 표현할 수 없어 서비스 또는 재귀 CTE 트리거에서 차단한다 |
-| 경로 컬럼 분리 | `path`(이동 경로)와 `active_path_pattern`(활성 메뉴 판정용 동적 패턴)을 분리 — 메뉴 경로와 실제 라우트가 다른 경우가 이미 있다(메뉴 `/facilities/list` vs 실제 라우트 `/facilities`, 상세 라우트 `/defects/:id`, [`router.tsx:121`](../../../frontend/src/app/router.tsx)). `path`는 여러 메뉴가 같은 라우트를 가리킬 수 있어 UNIQUE로 두지 않고, 변경되지 않는 `code`를 UNIQUE로 둔다 |
-| 아이콘 저장 방식 | `icon_key`(프론트 번들 아이콘 키)를 우선하고 `icon_url`(CDN)은 보조 — 현재 프론트가 SVG를 번들 import하는 방식([`SideNavBar.tsx:4`](../../../frontend/src/shared/components/SideNavBar/SideNavBar.tsx))이라 `icon_key`가 실제 구현과 맞음. `GROUP`은 0~1개, `INTERNAL`/`EXTERNAL`은 정확히 1개를 CHECK로 강제(프론트 `SideNavItem.icon`이 필수 문자열이라 렌더되는 항목은 아이콘이 반드시 있어야 함) |
+| 경로 컬럼 분리 | `path`(이동 경로)와 `active_path_pattern`(활성 메뉴 판정용 동적 패턴)을 분리 — 메뉴 경로와 실제 라우트가 다른 경우가 이미 있다(메뉴 `/facilities/list` vs 실제 라우트 [`/facilities`](../../../frontend/src/app/router.tsx#L200), 상세 라우트 [`/defects/:id`](../../../frontend/src/app/router.tsx#L148)). `path`는 여러 메뉴가 같은 라우트를 가리킬 수 있어 UNIQUE로 두지 않고, 변경되지 않는 `code`를 UNIQUE로 둔다 |
+| 아이콘 저장 방식 | `icon_key`(프론트 번들 아이콘 키)를 우선하고 `icon_url`(CDN)은 보조 — 현재 프론트가 SVG를 번들 import하는 방식([`SideNavBar.tsx:7`](../../../frontend/src/shared/components/SideNavBar/SideNavBar.tsx))이라 `icon_key`가 실제 구현과 맞음. `GROUP`은 0~1개, `INTERNAL`/`EXTERNAL`은 정확히 1개를 CHECK로 강제(프론트 `SideNavItem.icon`이 필수 문자열([`SideNavBar.tsx:27`](../../../frontend/src/shared/components/SideNavBar/SideNavBar.tsx))이라 렌더되는 항목은 아이콘이 반드시 있어야 함) |
 | 역할 매핑 | 매핑 행이 존재하면 해당 역할에 노출되는 방식이며 별도 `can_view` 컬럼은 두지 않는다. `GROUP` 메뉴에는 매핑 행을 넣지 않는다 — 허용된 자식이 하나라도 있으면 부모 GROUP은 서비스 로직이 자동으로 포함시킨다 |
 | 역할 계층 판단 방식 | `role_type` 선언 순서(`ADMIN`, `INSPECTOR`, `USER`, `COUNSELOR`)로 권한 계층을 추론하지 않는다. enum ordinal 비교(`role >= 'INSPECTOR'` 식)에 기대지 않고, 메뉴마다 `menu_role_access`에 허용 역할을 명시적으로 매핑한다(예: `FACILITY_LIST`는 `USER`/`INSPECTOR`/`ADMIN` 세 행이 각각 필요) |
 | 권한 변경 방식 | 권한 해제는 행 삭제, 권한 부여는 행 추가로 처리한다 — 별도 상태(`is_active` 등) 컬럼을 두지 않는다 |
