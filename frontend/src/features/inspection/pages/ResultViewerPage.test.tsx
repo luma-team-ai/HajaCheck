@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -15,7 +15,8 @@ const server = setupServer(...inspectionHandlers);
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   server.resetHandlers();
-  // cleanup은 React Testing Library 자동 처리
+  // vitest globals 미설정 환경이라 RTL 자동 cleanup이 안 걸림 — 명시 호출 필요
+  cleanup();
 });
 afterAll(() => server.close());
 
@@ -45,6 +46,24 @@ describe('ResultViewerPage (통합 테스트)', () => {
     // mock 데이터에서 실제 값 확인
     expect(await screen.findByText('DEF-0192')).not.toBeNull();
     expect(await screen.findByText('강남 오피스타워 A동')).not.toBeNull();
+  });
+
+  it('선택된 하자가 필터로 제외되면 목록의 첫 항목으로 자동 대체된다', async () => {
+    renderPage();
+    await screen.findByText('DEF-0192');
+
+    // id=2(박리박락, confidence 0.81)를 선택
+    fireEvent.click(screen.getByTitle(/박리박락/));
+    expect(await screen.findByText('콘크리트 표면 박리 영역 확대 중. 즉시 조치 필요.')).not.toBeNull();
+
+    // 신뢰도 threshold를 0.9로 올려 id=2를 필터에서 제외
+    fireEvent.change(screen.getByRole('slider'), { target: { value: '0.9' } });
+
+    // 선택이 남아있는 첫 항목(id=1, 균열)으로 자동 대체된다
+    expect(
+      await screen.findByText('수평 방향의 구조적 균열로 판단됨. 보수 권장.'),
+    ).not.toBeNull();
+    expect(screen.queryByText('콘크리트 표면 박리 영역 확대 중. 즉시 조치 필요.')).toBeNull();
   });
 
   it('빈 데이터: 탐지된 하자가 없으면 해당 메시지를 표시한다', async () => {

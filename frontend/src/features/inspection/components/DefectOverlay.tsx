@@ -7,6 +7,8 @@ interface DefectOverlayProps {
   onSelect?: (id: number) => void;
 }
 
+// 등급별(A~E) 박스 색상 구분은 Figma 시안 반영으로 제거됨 — 이전 ponytail 임시 색상(GRADE_COLOR)을
+// 확정 디자인(선택 시 마젠타 #d946ef 하이라이트)으로 교체 완료. 회귀 아님(#367 QA 확인).
 export function DefectOverlay({ media, defects, selectedId, onSelect }: DefectOverlayProps) {
   return (
     <div className="relative w-full" style={{ maxWidth: media.width }}>
