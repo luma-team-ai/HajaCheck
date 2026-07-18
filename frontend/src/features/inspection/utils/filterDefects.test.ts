@@ -4,11 +4,11 @@ import type { Defect } from '../types';
 
 describe('filterDefects', () => {
   const mockDefects: Defect[] = [
-    { id: 1, type: '균열', grade: 'A', status: '신규', confidence: 0.9, bbox: { x: 0, y: 0, width: 0.1, height: 0.1 } },
-    { id: 2, type: '박리박락', grade: 'B', status: '신규', confidence: 0.7, bbox: { x: 0, y: 0, width: 0.1, height: 0.1 } },
-    { id: 3, type: '누수백태', grade: 'C', status: '신규', confidence: 0.5, bbox: { x: 0, y: 0, width: 0.1, height: 0.1 } },
-    { id: 4, type: '철근노출', grade: 'D', status: '신규', confidence: 0.3, bbox: { x: 0, y: 0, width: 0.1, height: 0.1 } },
-    { id: 5, type: '도장손상', grade: 'E', status: '신규', confidence: 0.1, bbox: { x: 0, y: 0, width: 0.1, height: 0.1 } },
+    { id: 1, type: '균열', grade: 'A', status: '신규', confidence: 0.9, bbox: { x: 0, y: 0, width: 0.1, height: 0.1 }, depthMm: 10, widthMm: 2, summary: '균열 요약 1' },
+    { id: 2, type: '박리박락', grade: 'B', status: '신규', confidence: 0.7, bbox: { x: 0, y: 0, width: 0.1, height: 0.1 }, depthMm: 8, widthMm: 1.5, summary: '박리박락 요약 2' },
+    { id: 3, type: '누수백태', grade: 'C', status: '신규', confidence: 0.5, bbox: { x: 0, y: 0, width: 0.1, height: 0.1 }, depthMm: 5, widthMm: 1, summary: '누수백태 요약 3' },
+    { id: 4, type: '철근노출', grade: 'D', status: '신규', confidence: 0.3, bbox: { x: 0, y: 0, width: 0.1, height: 0.1 }, depthMm: 15, widthMm: 0.5, summary: '철근노출 요약 4' },
+    { id: 5, type: '도장손상', grade: 'E', status: '신규', confidence: 0.1, bbox: { x: 0, y: 0, width: 0.1, height: 0.1 }, depthMm: 2, widthMm: 0.5, summary: '도장손상 요약 5' },
   ];
 
   it('confidence 임계값 이상의 하자만 필터링한다', () => {

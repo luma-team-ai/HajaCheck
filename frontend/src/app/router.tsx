@@ -77,16 +77,6 @@ export const router = createBrowserRouter([
     ),
   },
   {
-    path: '/inspections/:id/viewer',
-    element: (
-      <ProtectedRoute>
-        <Suspense fallback={<div>불러오는 중...</div>}>
-          <ResultViewerPage />
-        </Suspense>
-      </ProtectedRoute>
-    ),
-  },
-  {
     path: '/login',
     element: (
       <Suspense fallback={<div>불러오는 중...</div>}>
@@ -190,6 +180,18 @@ export const router = createBrowserRouter([
           activeHref: '/facilities/map',
         },
       }, // — features/map (#28, HAJA-150 §129 재오픈: 공용 셸 편입 + SideNavBar 경로 버그 수정)
+      {
+        path: '/inspections/:id/viewer',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <ResultViewerPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '점검 관리' }, { label: '분석 결과 뷰어' }],
+          activeHref: '/inspections/1/viewer',
+        },
+      }, // — features/inspection FR-4 (HAJA-249, #249)
     ],
   },
   {
