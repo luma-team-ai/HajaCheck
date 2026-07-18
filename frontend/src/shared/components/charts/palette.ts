@@ -72,3 +72,10 @@ export const CHART_TOOLTIP_STYLE = {
     color: CHART_COLORS.textDefault,
   },
 } as const;
+
+/** 공통 범례 스타일 — Line/Bar/Pie 차트에 동일하게 적용한다. */
+export const CHART_LEGEND_STYLE = {
+  fontFamily: CHART_FONT_FAMILY,
+  fontSize: 12,
+  color: CHART_COLORS.textDefault,
+} as const;

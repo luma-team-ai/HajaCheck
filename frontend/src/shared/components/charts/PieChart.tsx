@@ -1,51 +1,70 @@
 import { Cell, Legend, Pie, PieChart as RechartsPieChart, ResponsiveContainer, Tooltip } from 'recharts';
-import { CHART_COLORS, CHART_FONT_FAMILY, CHART_SERIES_COLORS, CHART_TOOLTIP_STYLE } from './palette';
+import { ChartEmptyState } from './ChartEmptyState';
+import { CHART_LEGEND_STYLE, CHART_SERIES_COLORS, CHART_TOOLTIP_STYLE } from './palette';
+import type { ChartBaseProps } from './types';
 
-interface PieChartProps<T extends object> {
+interface PieChartProps<T extends object> extends ChartBaseProps {
   data: T[];
   /** 조각 값으로 사용할 필드명 */
   dataKey: keyof T & string;
   /** 조각 라벨(범례/툴팁)로 사용할 필드명 */
   nameKey: keyof T & string;
-  /** 차트 높이(px) — 너비는 부모 컨테이너에 맞춰 자동(ResponsiveContainer) */
-  height?: number;
   /** 조각 색상 오버라이드 (미지정 시 CHART_SERIES_COLORS 순환 배정) */
   colors?: readonly string[];
+  /** 0보다 크면 도넛 차트로 표시 */
+  innerRadius?: number | string;
+  /** 범례 표시 여부 */
+  showLegend?: boolean;
 }
 
 const DEFAULT_HEIGHT = 300;
+const DEFAULT_EMPTY_MESSAGE = '표시할 데이터가 없습니다.';
 
 /** 공통 스타일(색상 팔레트·툴팁·폰트)이 적용된 얇은 recharts PieChart 래퍼. */
 export function PieChart<T extends object>({
   data,
   dataKey,
   nameKey,
+  ariaLabel,
   height = DEFAULT_HEIGHT,
+  emptyMessage = DEFAULT_EMPTY_MESSAGE,
+  valueFormatter,
   colors,
+  innerRadius = 0,
+  showLegend = true,
 }: PieChartProps<T>) {
-  const palette = colors ?? CHART_SERIES_COLORS;
+  if (data.length === 0) {
+    return <ChartEmptyState ariaLabel={ariaLabel} height={height} message={emptyMessage} />;
+  }
+
+  const palette = colors && colors.length > 0 ? colors : CHART_SERIES_COLORS;
 
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <RechartsPieChart>
-        {/* 파이/도넛류 요약 위젯은 값이 바로 눈에 들어오는 게 중요해 진입 애니메이션 없이 즉시 렌더링한다 */}
-        <Pie
-          data={data}
-          dataKey={dataKey}
-          nameKey={nameKey}
-          cx="50%"
-          cy="50%"
-          outerRadius="80%"
-          isAnimationActive={false}
-        >
-          {data.map((_, index) => (
-            // 조각은 순서만 있고 별도 id가 없어 index를 key로 사용 (Pagination의 DOTS 처리와 동일 패턴)
-            <Cell key={`cell-${index}`} fill={palette[index % palette.length]} />
-          ))}
-        </Pie>
-        <Tooltip {...CHART_TOOLTIP_STYLE} />
-        <Legend wrapperStyle={{ fontFamily: CHART_FONT_FAMILY, fontSize: 12, color: CHART_COLORS.textDefault }} />
-      </RechartsPieChart>
-    </ResponsiveContainer>
+    <div className="w-full" style={{ height }} role="img" aria-label={ariaLabel}>
+      <ResponsiveContainer width="100%" height="100%">
+        <RechartsPieChart>
+          {/* 파이/도넛류 요약 위젯은 값이 바로 눈에 들어오는 게 중요해 진입 애니메이션 없이 즉시 렌더링한다 */}
+          <Pie
+            data={data}
+            dataKey={dataKey}
+            nameKey={nameKey}
+            cx="50%"
+            cy="50%"
+            innerRadius={innerRadius}
+            outerRadius="80%"
+            isAnimationActive={false}
+          >
+            {data.map((item, index) => (
+              <Cell key={`${String(item[nameKey])}-${String(item[dataKey])}`} fill={palette[index % palette.length]} />
+            ))}
+          </Pie>
+          <Tooltip
+            {...CHART_TOOLTIP_STYLE}
+            formatter={valueFormatter ? (value) => (value === undefined ? '' : valueFormatter(value)) : undefined}
+          />
+          {showLegend && <Legend wrapperStyle={CHART_LEGEND_STYLE} />}
+        </RechartsPieChart>
+      </ResponsiveContainer>
+    </div>
   );
 }

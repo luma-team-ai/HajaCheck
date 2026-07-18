@@ -22,16 +22,27 @@ describe('PieChart', () => {
       { grade: 'B', ratio: 40 },
     ];
 
-    const { container } = render(<PieChart data={data} dataKey="ratio" nameKey="grade" />);
+    const { container } = render(<PieChart data={data} dataKey="ratio" nameKey="grade" ariaLabel="등급별 비율" />);
 
+    expect(container.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('등급별 비율');
     expect(container.querySelector('svg')).not.toBeNull();
     expect(container.querySelectorAll('.recharts-pie-sector').length).toBe(2);
   });
 
-  it('data가 빈 배열이어도 에러 없이 svg를 렌더링한다', () => {
-    const { container } = render(<PieChart<GradeShare> data={[]} dataKey="ratio" nameKey="grade" />);
+  it('data가 빈 배열이면 공통 빈 상태를 렌더링한다', () => {
+    const { getByRole } = render(
+      <PieChart<GradeShare> data={[]} dataKey="ratio" nameKey="grade" ariaLabel="빈 등급별 비율" />,
+    );
 
-    expect(container.querySelector('svg')).not.toBeNull();
-    expect(container.querySelectorAll('.recharts-pie-sector').length).toBe(0);
+    expect(getByRole('status', { name: '빈 등급별 비율' })).not.toBeNull();
+  });
+
+  it('빈 사용자 색상 배열은 기본 팔레트로 대체한다', () => {
+    const data: GradeShare[] = [{ grade: 'A', ratio: 100 }];
+    const { container } = render(
+      <PieChart data={data} dataKey="ratio" nameKey="grade" colors={[]} ariaLabel="기본 팔레트 파이" />,
+    );
+
+    expect(container.querySelector('.recharts-pie-sector')).not.toBeNull();
   });
 });
