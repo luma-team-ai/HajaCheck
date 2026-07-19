@@ -7,7 +7,7 @@
   LLM에는 "그대로 옮겨 적기"만 지시한다 (LLM이 수치를 직접 계산·창작하지 않도록 — 환각 방지 원칙)
 - Grounding Check(ai.core.grounding)는 그대로 재사용 — 자체 대조 로직을 새로 만들지 않는다 (design §5)
 - detail 섹션의 items 개수 대조는 grounding 공통 모듈의 범위 밖이므로 이 파일에서 별도로 검증한다 (design §5-4)
-- recommendation 섹션의 RAG 조회(ai.core.vectorstore.get_vectorstore)는 아직 NotImplementedError 스텁이므로,
+- recommendation 섹션의 RAG 조회(ai.core.vectorstore.get_vectorstore)는 LangChain Chroma 기반으로 구현됨.
   실패 시(0건 검색과 동일하게) legal_basis를 "관련 근거 없음"으로 고정하고 체인 전체는 정상 진행한다
 """
 import logging
