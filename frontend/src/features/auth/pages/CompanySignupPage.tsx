@@ -4,6 +4,7 @@ import { Button } from '../../../shared/components/Button';
 import { BusinessLicenseUpload } from '../components/BusinessLicenseUpload';
 import { CompanyAddressField } from '../components/CompanyAddressField';
 import { CompanySignupHeroPanel } from '../components/CompanySignupHeroPanel';
+import { EmailDomainField } from '../components/EmailDomainField';
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
 import { LOGIN_ROUTE } from '../constants';
 import {
@@ -40,7 +41,9 @@ const INLINE_BTN_CLASSES =
   'shrink-0 cursor-pointer whitespace-nowrap rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-text-default enabled:hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-text-muted';
 
 export function CompanySignupPage() {
-  const [email, setEmail] = useState('');
+  const [emailLocal, setEmailLocal] = useState('');
+  const [emailDomain, setEmailDomain] = useState('');
+  const [isCustomDomain, setIsCustomDomain] = useState(true);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -63,6 +66,10 @@ export function CompanySignupPage() {
   } = useEmailAvailability();
   const { signup, isPending, error } = useCompanySignup();
 
+  // 로컬파트 + '@' + 도메인 조합 — 기존 email 흐름(중복확인·검증·제출)이 이 파생값을 그대로
+  // 사용한다(#417, EmailDomainField). 둘 다 비면 '@'만 남아 isValidEmail이 false로 판정한다.
+  const email = `${emailLocal.trim()}@${emailDomain.trim()}`;
+
   const handleCheckEmail = () => {
     if (!isValidEmail(email)) return;
     checkEmailAvailability(email.trim());
@@ -70,8 +77,18 @@ export function CompanySignupPage() {
 
   // 이메일을 바꾸면 이전 중복확인 결과(stale)를 즉시 무효화 — A로 확인 후 B로 바꿔도
   // A의 "사용 가능" 결과가 남아 잘못된 메시지·제출 판정으로 이어지는 것 방지(PR머신 P2)
-  const handleEmailChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setEmail(event.target.value);
+  const handleEmailLocalChange = (value: string) => {
+    setEmailLocal(value);
+    if (emailCheckResult) resetEmailCheck();
+  };
+
+  const handleEmailDomainChange = (value: string) => {
+    setEmailDomain(value);
+    if (emailCheckResult) resetEmailCheck();
+  };
+
+  const handleEmailCustomModeChange = (isCustom: boolean) => {
+    setIsCustomDomain(isCustom);
     if (emailCheckResult) resetEmailCheck();
   };
 
@@ -130,34 +147,32 @@ export function CompanySignupPage() {
               <label className={LABEL_CLASSES} htmlFor="signup-email">
                 아이디(이메일)
               </label>
-              <div className="flex gap-2">
-                <input
-                  id="signup-email"
-                  type="email"
-                  className={INPUT_CLASSES}
-                  value={email}
-                  onChange={handleEmailChange}
-                  autoComplete="username"
-                  placeholder="HajaCheck@check.com"
-                />
-                <button
-                  type="button"
-                  className={INLINE_BTN_CLASSES}
-                  onClick={handleCheckEmail}
-                  disabled={isCheckingEmail || !isValidEmail(email)}
-                >
-                  중복확인
-                </button>
-              </div>
+              <EmailDomainField
+                localPart={emailLocal}
+                domain={emailDomain}
+                isCustomDomain={isCustomDomain}
+                onLocalPartChange={handleEmailLocalChange}
+                onDomainChange={handleEmailDomainChange}
+                onCustomModeChange={handleEmailCustomModeChange}
+              />
+              <button
+                type="button"
+                className={`${INLINE_BTN_CLASSES} self-start`}
+                onClick={handleCheckEmail}
+                disabled={isCheckingEmail || !isValidEmail(email)}
+              >
+                중복확인
+              </button>
               {emailCheckResult && (
                 <p className={emailCheckResult.available ? SUCCESS_CLASSES : ERROR_CLASSES}>
                   {emailCheckResult.available ? '사용 가능한 이메일입니다.' : '이미 가입된 이메일입니다.'}
                 </p>
               )}
-              {/* 실시간 인라인 검증(#424) — 입력 중(비어있지 않음)엔 즉시, 제출 시엔 빈 값도 안내 */}
-              {(email.length > 0 || showValidation) && !isValidEmail(email) && (
-                <p className={ERROR_CLASSES}>올바른 이메일 형식을 입력해 주세요.</p>
-              )}
+              {/* 실시간 인라인 검증(#424) — 입력 중(로컬파트·도메인 중 하나라도 입력)엔 즉시,
+                  제출 시엔 빈 값도 안내. 조합 이메일은 항상 '@'를 포함해 length>0이므로
+                  로컬파트/도메인 각각의 입력 여부로 판정한다(#417). */}
+              {(emailLocal.length > 0 || emailDomain.length > 0 || showValidation) &&
+                !isValidEmail(email) && <p className={ERROR_CLASSES}>올바른 이메일 형식을 입력해 주세요.</p>}
             </div>
 
             <div className="flex flex-col gap-1.5">
