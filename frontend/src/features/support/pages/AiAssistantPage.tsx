@@ -45,8 +45,8 @@ export function AiAssistantPage() {
     event.preventDefault();
     // 조합 중 Enter(한글 확정)는 전송하지 않는다 — 조기/중복 전송 방지
     if (composingRef.current) return;
-    send(input);
-    setInput('');
+    // 실제로 전송된 경우에만 입력창을 비운다 — 전송 중(no-op)에 타이핑한 질문 유실 방지
+    if (send(input)) setInput('');
   }
 
   return (
@@ -60,48 +60,58 @@ export function AiAssistantPage() {
           </p>
         </div>
 
-        {/* 메시지 영역 — role=log + aria-live로 새 답변을 스크린리더가 안내 */}
-        <div
-          ref={scrollRef}
-          role="log"
-          aria-live="polite"
-          className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-6"
-        >
-          {messages.length === 0 && !loading && (
-            <p className="m-0 text-sm text-text-muted">
-              점검 기준이나 법규를 물어보세요. 답변에는 근거 출처가 함께 표시됩니다.
-            </p>
-          )}
+        {/* 대화 영역: 로그(스크롤) + 상태(로딩/에러)를 분리해 live region 중첩을 피한다 */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          {/* 메시지 로그 — role=log(암묵 aria-live=polite)로 새 답변을 스크린리더가 안내 */}
+          <div
+            ref={scrollRef}
+            role="log"
+            className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 pt-6 pb-2"
+          >
+            {messages.length === 0 && !loading && (
+              <p className="m-0 text-sm text-text-muted">
+                점검 기준이나 법규를 물어보세요. 답변에는 근거 출처가 함께 표시됩니다.
+              </p>
+            )}
 
-          {messages.map((message) =>
-            message.role === 'user' ? (
-              <div key={message.id} className="flex justify-end">
-                <div className="max-w-[768px] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-surface-sunken px-5 pt-2.5 pb-3 text-base font-medium text-primary">
-                  {message.text}
-                </div>
-              </div>
-            ) : (
-              <div key={message.id} className="flex flex-col items-start gap-3">
-                <div className="max-w-[816px] whitespace-pre-wrap rounded-2xl rounded-tl-sm border border-border bg-white px-5 py-4 text-base font-medium text-primary">
-                  {message.text}
-                </div>
-                {message.sources && message.sources.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    {message.sources.map((source) => (
-                      <SourceChip key={`${source.collection}-${source.chunk_ref}`} source={source} />
-                    ))}
+            {messages.map((message) =>
+              message.role === 'user' ? (
+                <div key={message.id} className="flex justify-end">
+                  <div className="max-w-[768px] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-surface-sunken px-5 pt-2.5 pb-3 text-base font-medium text-primary">
+                    {message.text}
                   </div>
-                )}
-              </div>
-            ),
-          )}
+                </div>
+              ) : (
+                <div key={message.id} className="flex flex-col items-start gap-3">
+                  <div className="max-w-[816px] whitespace-pre-wrap rounded-2xl rounded-tl-sm border border-border bg-white px-5 py-4 text-base font-medium text-primary">
+                    {message.text}
+                  </div>
+                  {message.sources && message.sources.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {message.sources.map((source) => (
+                        <SourceChip
+                          key={`${source.collection}-${source.chunk_ref}`}
+                          source={source}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ),
+            )}
+          </div>
 
-          {loading && <AILoadingIndicator message="답변을 생성하고 있습니다..." />}
-          {error && <AIErrorFallback onRetry={retry} />}
+          {/* 상태 영역 — 로그(live region) 밖에 두어 중첩 announce 방지. AILoadingIndicator는 자체 role=status */}
+          {(loading || error) && (
+            <div className="px-6 pb-2">
+              {loading && <AILoadingIndicator message="답변을 생성하고 있습니다..." />}
+              {error && <AIErrorFallback onRetry={retry} />}
+            </div>
+          )}
         </div>
 
         {/* 입력 — Figma: 반투명 알약 + 다크 원형 전송 버튼 */}
-        <div className="flex justify-center px-6 pb-6">
+        <div className="flex justify-center px-6 pb-6 pt-2">
           <form
             onSubmit={handleSubmit}
             className="flex w-full max-w-[600px] items-center gap-2 rounded-full border border-border bg-white/70 p-2 shadow-[0px_4px_6px_-4px_rgba(0,0,0,0.1)] backdrop-blur-[10px] transition-colors focus-within:border-point focus-within:ring-2 focus-within:ring-point/30"
