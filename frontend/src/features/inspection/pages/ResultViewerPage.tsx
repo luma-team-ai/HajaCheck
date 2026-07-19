@@ -50,63 +50,63 @@ export function ResultViewerPage() {
   const progressPercent = data.totalCount > 0 ? (data.reviewedCount / data.totalCount) * 100 : 0;
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Top Bar */}
-      <div className="flex items-center justify-between border-b border-border px-6 py-4">
-        <div className="flex items-center gap-2 text-sm text-text-muted">
-          <span className="text-text-default font-medium">{data.defectCode}</span>
-          <span>/</span>
-          <span className="text-text-default font-medium">{data.facilityName}</span>
+    <div className="flex h-full flex-col gap-4 py-6 pl-6 pr-28">
+      {/* Filter Controls — Top Level */}
+      <div className="flex gap-4">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-text-muted">신뢰도:</label>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={confidenceThreshold}
+            onChange={handleThresholdChange}
+            className="h-1 w-24 cursor-pointer"
+          />
+          <span className="text-xs font-medium">{confidenceThreshold.toFixed(2)}</span>
         </div>
-        <div className="flex items-center gap-2 rounded-full bg-[#eff6ff] px-3 py-1.5">
-          <div className="h-1.5 w-1.5 rounded-full bg-[#2563eb]" />
-          <span className="text-xs font-medium text-[#2563eb]">{data.status}</span>
+        <div className="flex gap-2">
+          {ALL_GRADES.map((grade) => (
+            <label
+              key={grade}
+              className={`cursor-pointer rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                gradeFilter.includes(grade)
+                  ? 'bg-primary text-surface'
+                  : 'border border-border bg-white text-text-default'
+              } peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:outline-none`}
+            >
+              <input
+                type="checkbox"
+                checked={gradeFilter.includes(grade)}
+                onChange={() => handleGradeToggle(grade)}
+                className="sr-only peer"
+              />
+              {grade}
+            </label>
+          ))}
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex flex-1 gap-6 p-6">
-        {/* Left: Image Viewer */}
-        <div className="flex flex-1 flex-col gap-6">
-          {/* Filter Controls */}
-          <div className="flex gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-text-muted">신뢰도:</label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={confidenceThreshold}
-                onChange={handleThresholdChange}
-                className="h-1 w-24 cursor-pointer"
-              />
-              <span className="text-xs font-medium">{confidenceThreshold.toFixed(2)}</span>
+      {/* Unified Card */}
+      <div className="flex flex-1 overflow-hidden rounded-3xl border border-border">
+        {/* Left: Image Viewer Section */}
+        <div className="flex flex-1 flex-col">
+          {/* Card Header */}
+          <div className="flex items-center justify-between border-b border-border px-6 py-4">
+            <div className="flex items-center gap-2 text-sm text-text-muted">
+              <span className="text-text-default font-medium">{data.defectCode}</span>
+              <span>/</span>
+              <span className="text-text-default font-medium">{data.facilityName}</span>
             </div>
-            <div className="flex gap-2">
-              {ALL_GRADES.map((grade) => (
-                <label
-                  key={grade}
-                  className={`cursor-pointer rounded-full px-2.5 py-1 text-xs font-medium transition ${
-                    gradeFilter.includes(grade)
-                      ? 'bg-primary text-surface'
-                      : 'border border-border bg-white text-text-default'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={gradeFilter.includes(grade)}
-                    onChange={() => handleGradeToggle(grade)}
-                    className="hidden"
-                  />
-                  {grade}
-                </label>
-              ))}
+            <div className="flex items-center gap-2 rounded-full bg-info-soft-bg px-3 py-1.5">
+              <div className="h-1.5 w-1.5 rounded-full bg-info-soft-fg" />
+              <span className="text-xs font-medium text-info-soft-fg">{data.status}</span>
             </div>
           </div>
 
-          {/* Image Card */}
-          <div className="flex flex-1 flex-col gap-6 rounded-[48px] bg-[#f4f4f5] p-6">
+          {/* Image Viewer Content */}
+          <div className="flex flex-1 flex-col gap-6 bg-surface-sunken p-6">
             {visibleDefects.length === 0 ? (
               <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
                 조건에 맞는 하자가 없습니다.
@@ -128,7 +128,7 @@ export function ResultViewerPage() {
                   검수 {data.reviewedCount} / {data.totalCount}
                 </span>
               </div>
-              <div className="h-1 overflow-hidden rounded-full bg-[#e4e4e7]">
+              <div className="h-1 overflow-hidden rounded-full bg-border">
                 <div
                   className="h-full bg-primary transition-all duration-300"
                   style={{ width: `${progressPercent}%` }}
@@ -136,14 +136,28 @@ export function ResultViewerPage() {
               </div>
             </div>
 
-            {/* Button */}
-            {/* TODO: 검수 확정 백엔드(#16 오탐 수정·등급 조정, #17 하자 상태머신)가 구현되면 활성화 —
-                현재는 해당 엔드포인트가 없어(HAJA-41 MSW 프로토타입 스코프) 클릭해도 처리할 대상이 없음 */}
-            {visibleDefects.length > 0 && (
-              <Button type="button" variant="primary" size="lg" className="w-full" disabled>
-                이 이미지 검수 확정
+            {/* Action Buttons */}
+            {/* TODO: 백엔드 구현(#16 오탐 수정·등급 조정, #17 하자 상태머신) 후 활성화 — #249 후속 이슈 */}
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                size="lg"
+                className="flex-[3] border border-danger-soft-border bg-danger-soft-bg text-text-default hover:bg-danger-soft-hover"
+                disabled
+              >
+                오탐 삭제
               </Button>
-            )}
+              {visibleDefects.length > 0 ? (
+                <Button type="button" variant="primary" size="lg" className="flex-[7]" disabled>
+                  이 이미지 검수 확정
+                </Button>
+              ) : (
+                <Button type="button" variant="primary" size="lg" className="flex-[7]" disabled>
+                  이 이미지 검수 확정
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -156,29 +170,52 @@ export function ResultViewerPage() {
             <div className="flex-1 overflow-y-auto px-5 py-5">
               {/* Metadata Cards */}
               <div className="mb-6 flex gap-3">
-                <div className="flex-1 rounded-[12px] border border-border bg-[#fafafa] p-4">
+                <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
                   <div className="mb-2 text-xs text-text-muted">신뢰도</div>
                   <div className="text-xl font-bold text-text-default">
                     {Math.round(selected.confidence * 100)}%
                   </div>
                 </div>
-                <div className="flex-1 rounded-[12px] border border-border bg-[#fafafa] p-4">
+                <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
                   <div className="mb-2 text-xs text-text-muted">예상 깊이</div>
                   <div className="text-xl font-bold text-text-default">{selected.depthMm}mm</div>
                 </div>
               </div>
 
               {/* Summary Note */}
-              <div>
+              <div className="mb-6">
                 <div className="mb-3 flex items-center gap-2">
                   <svg className="h-[13px] w-[10px]" fill="currentColor" viewBox="0 0 10 13">
                     <path d="M5 0L6 3H10L7 5L8 8L5 6L2 8L3 5L0 3H4L5 0Z" />
                   </svg>
                   <span className="text-xs font-medium text-text-default">분석 요약</span>
                 </div>
-                <div className="rounded-xl border border-[#fef9c3] bg-[#fefce8] p-4 text-sm text-[#854d0e]">
+                <div className="rounded-xl border border-warning-soft-border bg-warning-soft-bg p-4 text-sm text-warning-soft-fg">
                   {selected.summary}
                 </div>
+              </div>
+
+              {/* Action Buttons */}
+              {/* TODO: 백엔드 구현(#16 오탐 수정·등급 조정, #17 하자 상태머신) 후 활성화 — #249 후속 이슈 */}
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  className="flex-1"
+                  disabled
+                >
+                  등급 수정
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  className="flex-1"
+                  disabled
+                >
+                  누락 추가
+                </Button>
               </div>
             </div>
           </div>
