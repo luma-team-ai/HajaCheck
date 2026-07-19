@@ -19,6 +19,7 @@ import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.DomainStateTransitionException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
 import java.util.List;
@@ -140,6 +141,38 @@ class DefectServiceTest {
         when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> defectService.get(OWNER_ID, 10L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
+    }
+
+    @Test
+    void updateStatus_정상전이_다음상태로변경() {
+        Defect defect = existingDefect(5L);
+        when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(defect));
+
+        DefectResponse response = defectService.updateStatus(OWNER_ID, 10L, DefectStatus.CONFIRMED);
+
+        assertThat(response.status()).isEqualTo(DefectStatus.CONFIRMED);
+        assertThat(defect.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+    }
+
+    @Test
+    void updateStatus_역행요청_DomainStateTransitionException() {
+        // existingDefect 는 DETECTED 상태 — CONFIRMED를 건너뛰고 ACTION_PENDING을 요청하면 스킵 전이라 거부된다.
+        Defect defect = existingDefect(5L);
+        when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(defect));
+
+        assertThatThrownBy(() -> defectService.updateStatus(OWNER_ID, 10L, DefectStatus.ACTION_PENDING))
+                .isInstanceOf(DomainStateTransitionException.class);
+        assertThat(defect.getStatus()).isEqualTo(DefectStatus.DETECTED);
+    }
+
+    @Test
+    void updateStatus_타인소유하자_DEFECT_NOT_FOUND예외() {
+        when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> defectService.updateStatus(OWNER_ID, 10L, DefectStatus.CONFIRMED))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
