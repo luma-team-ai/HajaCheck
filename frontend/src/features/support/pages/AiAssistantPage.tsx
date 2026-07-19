@@ -34,6 +34,8 @@ export function AiAssistantPage() {
   const { messages, loading, error, send, retry } = useRagChat();
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  // IME(한글) 조합 중 Enter는 조합 확정용 — 전송과 구분하기 위한 플래그
+  const composingRef = useRef(false);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -41,6 +43,8 @@ export function AiAssistantPage() {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    // 조합 중 Enter(한글 확정)는 전송하지 않는다 — 조기/중복 전송 방지
+    if (composingRef.current) return;
     send(input);
     setInput('');
   }
@@ -56,9 +60,11 @@ export function AiAssistantPage() {
           </p>
         </div>
 
-        {/* 메시지 영역 */}
+        {/* 메시지 영역 — role=log + aria-live로 새 답변을 스크린리더가 안내 */}
         <div
           ref={scrollRef}
+          role="log"
+          aria-live="polite"
           className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-6"
         >
           {messages.length === 0 && !loading && (
@@ -82,7 +88,7 @@ export function AiAssistantPage() {
                 {message.sources && message.sources.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
                     {message.sources.map((source) => (
-                      <SourceChip key={source.chunk_ref} source={source} />
+                      <SourceChip key={`${source.collection}-${source.chunk_ref}`} source={source} />
                     ))}
                   </div>
                 )}
@@ -104,6 +110,12 @@ export function AiAssistantPage() {
               type="text"
               value={input}
               onChange={(event) => setInput(event.target.value)}
+              onCompositionStart={() => {
+                composingRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                composingRef.current = false;
+              }}
               placeholder="점검 기준이나 법규를 물어보세요"
               aria-label="질문 입력"
               className="min-w-0 flex-1 border-none bg-transparent px-4 py-2.5 text-base text-primary caret-point outline-none placeholder:text-text-muted focus:outline-none"

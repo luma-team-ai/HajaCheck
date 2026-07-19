@@ -6,7 +6,8 @@ import type { RagAnswerData, RagChatRequest } from '../types';
 // 개발 편의: query 내용으로 3상태를 유도(정상 / 0건 / 에러) — 실 계약은 설계 §7/§9 확정 후 정리.
 export const supportHandlers = [
   http.post('/api/ai/rag-chat', async ({ request }) => {
-    const { query } = (await request.json()) as RagChatRequest;
+    const reqBody = (await request.json()) as Partial<RagChatRequest>;
+    const query = reqBody?.query ?? '';
 
     // 에러 상태 — aiClient 인터셉터가 success:false를 ApiError로 reject
     if (query.includes('에러')) {
