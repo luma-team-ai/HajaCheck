@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
 import { BusinessLicenseUpload } from '../components/BusinessLicenseUpload';
 import { CompanyAddressField } from '../components/CompanyAddressField';
 import { CompanySignupHeroPanel } from '../components/CompanySignupHeroPanel';
+import { EmailDomainField } from '../components/EmailDomainField';
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
 import { LOGIN_ROUTE } from '../constants';
 import {
@@ -40,7 +41,18 @@ const INLINE_BTN_CLASSES =
   'shrink-0 cursor-pointer whitespace-nowrap rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-text-default enabled:hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-text-muted';
 
 export function CompanySignupPage() {
-  const [email, setEmail] = useState('');
+  const [emailLocal, setEmailLocal] = useState('');
+  const [emailDomain, setEmailDomain] = useState('');
+  const [isCustomDomain, setIsCustomDomain] = useState(true);
+  // 직접입력 모드에서 마지막으로 입력한 도메인 값 — 프리셋으로 갔다가 다시 직접입력으로
+  // 돌아올 때 emailDomain을 이 값으로 복원해 재입력 마찰을 없앤다(code-reviewer P2, #417).
+  const [lastCustomDomain, setLastCustomDomain] = useState('');
+  // EmailDomainField의 select onChange 한 번에서 onCustomModeChange→onDomainChange가 연달아
+  // 호출되는데, 둘 다 같은 렌더의 클로저를 참조해 isCustomDomain state를 읽으면 stale 값이
+  // 잡힌다(프리셋 선택 시 방금 false로 바뀐 모드를 아직 true로 봐서 lastCustomDomain을 프리셋
+  // 값으로 덮어쓰는 버그). ref는 즉시(동기) 갱신되므로 handleEmailDomainChange가 항상 최신
+  // 모드를 보도록 상태와 함께 유지한다.
+  const isCustomDomainRef = useRef(true);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -63,6 +75,10 @@ export function CompanySignupPage() {
   } = useEmailAvailability();
   const { signup, isPending, error } = useCompanySignup();
 
+  // 로컬파트 + '@' + 도메인 조합 — 기존 email 흐름(중복확인·검증·제출)이 이 파생값을 그대로
+  // 사용한다(#417, EmailDomainField). 둘 다 비면 '@'만 남아 isValidEmail이 false로 판정한다.
+  const email = `${emailLocal.trim()}@${emailDomain.trim()}`;
+
   const handleCheckEmail = () => {
     if (!isValidEmail(email)) return;
     checkEmailAvailability(email.trim());
@@ -70,8 +86,25 @@ export function CompanySignupPage() {
 
   // 이메일을 바꾸면 이전 중복확인 결과(stale)를 즉시 무효화 — A로 확인 후 B로 바꿔도
   // A의 "사용 가능" 결과가 남아 잘못된 메시지·제출 판정으로 이어지는 것 방지(PR머신 P2)
-  const handleEmailChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setEmail(event.target.value);
+  const handleEmailLocalChange = (value: string) => {
+    setEmailLocal(value);
+    if (emailCheckResult) resetEmailCheck();
+  };
+
+  const handleEmailDomainChange = (value: string) => {
+    setEmailDomain(value);
+    // 직접입력 모드에서 친 값만 "마지막 커스텀 도메인"으로 보존 — 프리셋 선택으로 인한
+    // onDomainChange(프리셋값) 호출은 커스텀 값을 덮어쓰면 안 된다. isCustomDomain state가
+    // 아니라 ref를 봐야 같은 이벤트 내 onCustomModeChange(false) 직후에도 최신값을 읽는다.
+    if (isCustomDomainRef.current) setLastCustomDomain(value);
+    if (emailCheckResult) resetEmailCheck();
+  };
+
+  const handleEmailCustomModeChange = (isCustom: boolean) => {
+    isCustomDomainRef.current = isCustom;
+    setIsCustomDomain(isCustom);
+    // 직접입력으로 재전환 시 빈 문자열이 아니라 마지막으로 입력했던 커스텀 도메인으로 복원.
+    if (isCustom) setEmailDomain(lastCustomDomain);
     if (emailCheckResult) resetEmailCheck();
   };
 
@@ -130,34 +163,32 @@ export function CompanySignupPage() {
               <label className={LABEL_CLASSES} htmlFor="signup-email">
                 아이디(이메일)
               </label>
-              <div className="flex gap-2">
-                <input
-                  id="signup-email"
-                  type="email"
-                  className={INPUT_CLASSES}
-                  value={email}
-                  onChange={handleEmailChange}
-                  autoComplete="username"
-                  placeholder="HajaCheck@check.com"
-                />
-                <button
-                  type="button"
-                  className={INLINE_BTN_CLASSES}
-                  onClick={handleCheckEmail}
-                  disabled={isCheckingEmail || !isValidEmail(email)}
-                >
-                  중복확인
-                </button>
-              </div>
+              <EmailDomainField
+                localPart={emailLocal}
+                domain={emailDomain}
+                isCustomDomain={isCustomDomain}
+                onLocalPartChange={handleEmailLocalChange}
+                onDomainChange={handleEmailDomainChange}
+                onCustomModeChange={handleEmailCustomModeChange}
+              />
+              <button
+                type="button"
+                className={`${INLINE_BTN_CLASSES} self-start`}
+                onClick={handleCheckEmail}
+                disabled={isCheckingEmail || !isValidEmail(email)}
+              >
+                중복확인
+              </button>
               {emailCheckResult && (
                 <p className={emailCheckResult.available ? SUCCESS_CLASSES : ERROR_CLASSES}>
                   {emailCheckResult.available ? '사용 가능한 이메일입니다.' : '이미 가입된 이메일입니다.'}
                 </p>
               )}
-              {/* 실시간 인라인 검증(#424) — 입력 중(비어있지 않음)엔 즉시, 제출 시엔 빈 값도 안내 */}
-              {(email.length > 0 || showValidation) && !isValidEmail(email) && (
-                <p className={ERROR_CLASSES}>올바른 이메일 형식을 입력해 주세요.</p>
-              )}
+              {/* 실시간 인라인 검증(#424) — 입력 중(로컬파트·도메인 중 하나라도 입력)엔 즉시,
+                  제출 시엔 빈 값도 안내. 조합 이메일은 항상 '@'를 포함해 length>0이므로
+                  로컬파트/도메인 각각의 입력 여부로 판정한다(#417). */}
+              {(emailLocal.length > 0 || emailDomain.length > 0 || showValidation) &&
+                !isValidEmail(email) && <p className={ERROR_CLASSES}>올바른 이메일 형식을 입력해 주세요.</p>}
             </div>
 
             <div className="flex flex-col gap-1.5">
