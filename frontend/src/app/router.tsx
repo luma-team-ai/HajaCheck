@@ -2,6 +2,7 @@
 // 경로: kebab-case / 인증 가드: ProtectedRoute, AdminRoute / 페이지 lazy loading 기본
 import { lazy, Suspense } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
+import { AdminRoute } from '../shared/components/AdminRoute';
 import { ProtectedRoute } from '../shared/components/ProtectedRoute';
 import { AppShellRoute } from './AppShellRoute';
 
@@ -67,9 +68,23 @@ const MyPlanPage = lazy(() =>
   import('../features/mypage/pages/MyPlanPage').then((m) => ({ default: m.MyPlanPage })),
 );
 
+// 관리자 > 사용자 관리 (Figma node 177-2017)
+const AdminUsersPage = lazy(() =>
+  import('../features/admin/pages/AdminUsersPage').then((m) => ({
+    default: m.AdminUsersPage,
+  })),
+);
+
 const FacilityListPage = lazy(() =>
   import('../features/facility/pages/FacilityListPage').then((m) => ({
     default: m.FacilityListPage,
+  })),
+);
+
+// 고객지원 > AI 어시스턴트 (dev-08-01, HAJA-32, FR-6 RAG 법규 Q&A)
+const AiAssistantPage = lazy(() =>
+  import('../features/support/pages/AiAssistantPage').then((m) => ({
+    default: m.AiAssistantPage,
   })),
 );
 
@@ -80,16 +95,6 @@ export const router = createBrowserRouter([
       <Suspense fallback={<div>불러오는 중...</div>}>
         <LandingPage />
       </Suspense>
-    ),
-  },
-  {
-    path: '/inspections/:id/viewer',
-    element: (
-      <ProtectedRoute>
-        <Suspense fallback={<div>불러오는 중...</div>}>
-          <ResultViewerPage />
-        </Suspense>
-      </ProtectedRoute>
     ),
   },
   {
@@ -211,6 +216,45 @@ export const router = createBrowserRouter([
           activeHref: '/facilities/map',
         },
       }, // — features/map (#28, HAJA-150 §129 재오픈: 공용 셸 편입 + SideNavBar 경로 버그 수정)
+      {
+        path: '/inspections/:id/viewer',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <ResultViewerPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '점검 관리' }, { label: '분석 결과 뷰어' }],
+          activeHref: '/inspections/1/viewer',
+        },
+      }, // — features/inspection FR-4 (HAJA-249, #249)
+      {
+        path: '/admin/users',
+        // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#378, 컨벤션 §7)
+        element: (
+          <AdminRoute>
+            <Suspense fallback={<div>불러오는 중...</div>}>
+              <AdminUsersPage />
+            </Suspense>
+          </AdminRoute>
+        ),
+        handle: {
+          breadcrumb: [{ label: '관리자' }, { label: '사용자 관리' }],
+          activeHref: '/admin/users',
+        },
+      }, // — features/admin (Figma node 177-2017)
+      {
+        path: '/support/ai-assistant',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <AiAssistantPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '고객지원' }, { label: 'AI 어시스턴트' }],
+          activeHref: '/support/ai-assistant',
+        },
+      }, // — features/support (dev-08-01, HAJA-32, FR-6)
     ],
   },
   {
@@ -228,5 +272,5 @@ export const router = createBrowserRouter([
   // '/defects/list' 는 AppShellRoute 자식(위 children 배열)으로 등록됨 — features/defect (HAJA-30)
   // { path: '/reports', ... }                  — features/report
   // { path: '/support', ... }                  — features/support
-  // { path: '/admin/*', ... }                  — features/admin (AdminRoute)
+  // 관리자: /admin/users 구현 완료(위 AppShell children) — 나머지 관리자 화면은 #21 하위 이슈로 분리
 ]);

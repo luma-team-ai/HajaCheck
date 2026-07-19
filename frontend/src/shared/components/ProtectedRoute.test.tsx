@@ -32,6 +32,15 @@ function renderAt(path: string) {
             </ProtectedRoute>
           }
         />
+        {/* allowedRoles 자체의 동작은 여기서, 관리자 가드(AdminRoute)는 AdminRoute.test.tsx에서 검증 */}
+        <Route
+          path="/inspector-only"
+          element={
+            <ProtectedRoute allowedRoles={['INSPECTOR']}>
+              <div>점검자 콘텐츠</div>
+            </ProtectedRoute>
+          }
+        />
         <Route path="/login" element={<div>로그인 페이지</div>} />
       </Routes>
     </MemoryRouter>,
@@ -53,5 +62,32 @@ describe('ProtectedRoute', () => {
 
     expect(screen.getByText('대시보드 콘텐츠')).not.toBeNull();
     expect(screen.queryByText('로그인 페이지')).toBeNull();
+  });
+
+  // allowedRoles (#378) — 지정 시 인증만으로는 통과되지 않는다. ADMIN 전용 래퍼는 AdminRoute.test.tsx 참조
+  it('allowedRoles 불충족이면 렌더하지 않고 대시보드로 돌려보낸다', () => {
+    useAuthStore.setState({ user: mockUser }); // role: USER
+
+    renderAt('/inspector-only');
+
+    expect(screen.queryByText('점검자 콘텐츠')).toBeNull();
+    // 권한 부족은 /login이 아니라 대시보드로 — 로그인한 사용자를 로그인 화면으로 보내지 않는다
+    expect(screen.getByText('대시보드 콘텐츠')).not.toBeNull();
+    expect(screen.queryByText('로그인 페이지')).toBeNull();
+  });
+
+  it('allowedRoles 충족이면 children을 렌더한다', () => {
+    useAuthStore.setState({ user: { ...mockUser, role: 'INSPECTOR' } });
+
+    renderAt('/inspector-only');
+
+    expect(screen.getByText('점검자 콘텐츠')).not.toBeNull();
+  });
+
+  it('미인증이면 role 검사보다 먼저 /login으로 보낸다', () => {
+    renderAt('/inspector-only');
+
+    expect(screen.getByText('로그인 페이지')).not.toBeNull();
+    expect(screen.queryByText('점검자 콘텐츠')).toBeNull();
   });
 });

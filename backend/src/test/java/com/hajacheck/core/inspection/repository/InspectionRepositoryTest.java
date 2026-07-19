@@ -19,6 +19,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 
 // 실 PG DDL(inspections) 대조 + facility_id/round_no unique·FK 정합 검증을 위해 Testcontainers PostgreSQL 사용.
@@ -137,7 +138,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void findTop10ByFacilityIdInOrderByInspectionDateDescIdDesc_최신순정렬() {
+    void findRecentByFacilityIds_최신순정렬_Pageable로건수제한() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         inspectionRepository.save(
@@ -148,8 +149,14 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 newInspection(facilityId, ownerId, ownerId, 3, LocalDate.of(2026, 7, 5), InspectionStatus.CREATED));
 
         List<Inspection> result =
-                inspectionRepository.findTop10ByFacilityIdInOrderByInspectionDateDescIdDesc(List.of(facilityId));
+                inspectionRepository.findRecentByFacilityIds(List.of(facilityId), PageRequest.of(0, 10));
 
         assertThat(result).extracting(Inspection::getRoundNo).containsExactly(2, 3, 1);
+
+        // Pageable 이 실제로 건수를 제한하는지 — 제한이 안 먹으면 RECENT_LIMIT 이 다시 무의미해진다(#351).
+        List<Inspection> limited =
+                inspectionRepository.findRecentByFacilityIds(List.of(facilityId), PageRequest.of(0, 2));
+
+        assertThat(limited).extracting(Inspection::getRoundNo).containsExactly(2, 3);
     }
 }

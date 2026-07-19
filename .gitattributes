@@ -1,0 +1,4 @@
+# Windows(core.autocrlf=true)로 체크아웃하면 셔뱅(#!/bin/sh) 스크립트가 CRLF로 깨져서
+# 컨테이너 안에서 실행 시 "not found"(exit 127)가 난다 — 실제로 겪은 문제(gradlew, deploy.sh).
+gradlew text eol=lf
+*.sh text eol=lf

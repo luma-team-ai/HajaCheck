@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
-type ButtonVariant = 'primary' | 'secondary' | 'danger';
+type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'danger-soft';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type'> {
@@ -25,6 +25,8 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   primary: 'bg-primary text-surface',
   secondary: 'bg-secondary-bg text-secondary-fg border border-border',
   danger: 'bg-danger text-surface',
+  'danger-soft':
+    'border border-danger-soft-border bg-danger-soft-bg text-text-default hover:bg-danger-soft-hover',
 };
 
 export function Button({

@@ -1,4 +1,3 @@
-import { AuthFooterLinks } from './AuthFooterLinks';
 import { GOOGLE_OAUTH_PATH, KAKAO_OAUTH_PATH } from '../constants';
 
 export function PersonalLoginTab() {
@@ -30,8 +29,6 @@ export function PersonalLoginTab() {
       >
         Google로 계속하기
       </button>
-
-      <AuthFooterLinks />
     </div>
   );
 }

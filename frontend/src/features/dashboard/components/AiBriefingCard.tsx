@@ -19,16 +19,18 @@ export function AiBriefingCard() {
 
   return (
     <section className={`dashboard-card ${AI_BRIEFING_CARD_CLASS}`}>
-      <div className="flex items-center gap-2 mb-3">
-        <span className="text-base" aria-hidden="true">
-          ✨
-        </span>
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-base" aria-hidden="true">
+            ✨
+          </span>
+          <h3 className="dashboard-card-title m-0!">AI 주간 브리핑</h3>
+        </div>
         <span
-          className={`${DASHBOARD_COLOR_CLASS.accentBg} text-white text-[11px] font-bold py-0.5 px-2 rounded-full`}
+          className={`${DASHBOARD_COLOR_CLASS.accentBg} shrink-0 text-white text-[11px] font-bold py-0.5 px-2 rounded-full`}
         >
-          AI
+          AI 생성
         </span>
-        <h3 className="dashboard-card-title m-0!">이번 주 브리핑</h3>
       </div>
 
       {isLoading && <AILoadingIndicator message="AI가 이번 주 현황을 분석하고 있습니다..." />}
