@@ -8,7 +8,7 @@ import com.hajacheck.notification.entity.Notification;
 import java.time.LocalDateTime;
 
 /**
- * 알림 목록 응답(AP-020, HAJA-25 FR-9). payload(jsonb)는 이중 이스케이프된 문자열이 아니라
+ * 알림 목록 응답(AP-020, #25 / HAJA-38 FR-9). payload(jsonb)는 이중 이스케이프된 문자열이 아니라
  * 구조화된 JSON 객체로 노출한다 — 이 레포에서 jsonb 문자열을 다루는 확립된 방식(JsonValidator,
  * GroundingCheckTarget.hash())과 동일하게 Jackson {@link JsonNode}로 파싱한다.
  */

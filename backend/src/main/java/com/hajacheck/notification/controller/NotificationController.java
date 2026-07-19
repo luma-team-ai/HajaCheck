@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 알림 목록 조회 API(AP-020, HAJA-25 FR-9). 수신자(userId)는 인증 사용자
+ * 알림 목록 조회 API(AP-020, #25 / HAJA-38 FR-9). 수신자(userId)는 인증 사용자
  * (@AuthenticationPrincipal)에서만 취득 — 요청 바디/파라미터로 userId를 받지 않는다
  * (cross-owner IDOR 방지, DashboardController/FacilityController와 동일 원칙).
  *
