@@ -84,6 +84,24 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(button.hasAttribute('disabled')).toBe(true);
   });
 
+  it('하자 마커 클릭 → AI 패널 요약 텍스트가 선택된 하자로 갱신된다', async () => {
+    renderPage();
+    await screen.findByText('DEF-0192');
+
+    // 초기 상태: id=1(균열)의 요약 표시
+    expect(await screen.findByText('수평 방향의 구조적 균열로 판단됨. 보수 권장.')).not.toBeNull();
+
+    // id=2(박리박락) 마커 클릭
+    const secondDefectButton = screen.getByTitle(/박리박락/);
+    fireEvent.click(secondDefectButton);
+
+    // AI 패널의 요약이 id=2로 갱신됨
+    expect(
+      await screen.findByText('콘크리트 표면 박리 영역 확대 중. 즉시 조치 필요.'),
+    ).not.toBeNull();
+    expect(screen.queryByText('수평 방향의 구조적 균열로 판단됨. 보수 권장.')).toBeNull();
+  });
+
   it('빈 데이터: 탐지된 하자가 없으면 해당 메시지를 표시한다', async () => {
     // 빈 defects 배열 응답으로 오버라이드
     server.use(
