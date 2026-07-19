@@ -9,6 +9,9 @@
   --color-primary: #18181b; /* Figma 버튼(로그인/결과 보기/필터 액티브) 배경 — 순수 black 아님 */
   --color-surface: #fff; /* 밝은 표면/전경 — Button primary 전경, Pagination 활성 전경 */
   --color-danger: #d92d20; /* Button danger 배경 — Figma 시안에 danger 버튼 없어 기존 값 유지 */
+  --color-danger-soft-bg: #fef2f2; /* 분석결과뷰어 오탐삭제 등 연한 danger 필 배경(#249 후속) */
+  --color-danger-soft-border: #fecaca; /* 연한 danger 필 테두리 */
+  --color-danger-soft-hover: #fee2e2; /* 연한 danger 필 hover 배경 */
   --color-accent: #4a4aff; /* AILoadingIndicator 스피너 강조색 — Figma 시안 범위 밖, 기존 값 유지 */
 
   /* Neutral */

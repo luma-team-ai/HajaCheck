@@ -11,6 +11,10 @@ import { filterDefects } from '../utils/filterDefects';
 
 const ALL_GRADES: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
 
+// ponytail: 하자 편집 액션(오탐삭제/등급수정/누락추가) 목업 스타일 — 백엔드 미구현이라 onClick 없음, #249 후속 이슈에서 연동
+const DANGER_PILL_CLASSES =
+  'inline-flex items-center justify-center gap-1.5 rounded-full border border-danger-soft-border bg-danger-soft-bg px-6 py-3.5 text-base font-semibold text-danger transition hover:bg-danger-soft-hover';
+
 export function ResultViewerPage() {
   const { id } = useParams<{ id: string }>();
   const inspectionId = Number(id);
@@ -50,63 +54,62 @@ export function ResultViewerPage() {
   const progressPercent = (data.reviewedCount / data.totalCount) * 100;
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Top Bar */}
-      <div className="flex items-center justify-between border-b border-border px-6 py-4">
-        <div className="flex items-center gap-2 text-sm text-text-muted">
-          <span className="text-text-default font-medium">{data.defectCode}</span>
-          <span>/</span>
-          <span className="text-text-default font-medium">{data.facilityName}</span>
+    <div className="flex h-full flex-col gap-4 py-6 pl-6 pr-28">
+      {/* Filter Controls */}
+      <div className="flex gap-4">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-text-muted">신뢰도:</label>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={confidenceThreshold}
+            onChange={handleThresholdChange}
+            className="h-1 w-24 cursor-pointer"
+          />
+          <span className="text-xs font-medium">{confidenceThreshold.toFixed(2)}</span>
         </div>
-        <div className="flex items-center gap-2 rounded-full bg-[#eff6ff] px-3 py-1.5">
-          <div className="h-1.5 w-1.5 rounded-full bg-[#2563eb]" />
-          <span className="text-xs font-medium text-[#2563eb]">{data.status}</span>
+        <div className="flex gap-2">
+          {ALL_GRADES.map((grade) => (
+            <label
+              key={grade}
+              className={`cursor-pointer rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                gradeFilter.includes(grade)
+                  ? 'bg-primary text-surface'
+                  : 'border border-border bg-white text-text-default'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={gradeFilter.includes(grade)}
+                onChange={() => handleGradeToggle(grade)}
+                className="hidden"
+              />
+              {grade}
+            </label>
+          ))}
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex flex-1 gap-6 p-6">
-        {/* Left: Image Viewer */}
-        <div className="flex flex-1 flex-col gap-6">
-          {/* Filter Controls */}
-          <div className="flex gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-text-muted">신뢰도:</label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={confidenceThreshold}
-                onChange={handleThresholdChange}
-                className="h-1 w-24 cursor-pointer"
-              />
-              <span className="text-xs font-medium">{confidenceThreshold.toFixed(2)}</span>
-            </div>
-            <div className="flex gap-2">
-              {ALL_GRADES.map((grade) => (
-                <label
-                  key={grade}
-                  className={`cursor-pointer rounded-full px-2.5 py-1 text-xs font-medium transition ${
-                    gradeFilter.includes(grade)
-                      ? 'bg-primary text-surface'
-                      : 'border border-border bg-white text-text-default'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={gradeFilter.includes(grade)}
-                    onChange={() => handleGradeToggle(grade)}
-                    className="hidden"
-                  />
-                  {grade}
-                </label>
-              ))}
-            </div>
+      {/* Unified Card: header + image viewer + AI panel share one rounded border (Figma 참조 — 카드 하나로 연결) */}
+      <div className="flex flex-1 flex-col overflow-hidden rounded-3xl border border-border">
+        {/* Header — 이미지/AI패널 두 컬럼 위에 걸치는 공통 헤더(Figma에서 한 줄로 이어짐) */}
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <div className="flex items-center gap-2 text-sm text-text-muted">
+            <span className="text-text-default font-medium">{data.defectCode}</span>
+            <span>/</span>
+            <span className="text-text-default font-medium">{data.facilityName}</span>
           </div>
+          <div className="flex items-center gap-2 rounded-full bg-[#eff6ff] px-3 py-1.5">
+            <div className="h-1.5 w-1.5 rounded-full bg-[#2563eb]" />
+            <span className="text-xs font-medium text-[#2563eb]">{data.status}</span>
+          </div>
+        </div>
 
-          {/* Image Card */}
-          <div className="flex flex-1 flex-col gap-6 rounded-[48px] bg-[#f4f4f5] p-6">
+        <div className="flex flex-1">
+          {/* Left: Image Viewer */}
+          <div className="flex flex-1 flex-col gap-6 bg-[#f4f4f5] p-6">
             <DefectOverlay
               media={data.media}
               defects={visibleDefects}
@@ -130,49 +133,64 @@ export function ResultViewerPage() {
               </div>
             </div>
 
-            {/* Button */}
-            <Button type="button" variant="primary" size="lg" className="w-full">
-              이 이미지 검수 확정
-            </Button>
-          </div>
-        </div>
-
-        {/* Right: Analysis Panel */}
-        {selected && (
-          <div className="flex w-80 flex-col border-l border-border">
-            <div className="border-b border-border px-5 py-5">
-              <h3 className="font-medium text-text-default">AI 분석 결과</h3>
+            {/* Actions — 오탐삭제:검수확정 = 3:7 비율 */}
+            <div className="flex items-center gap-3">
+              <button type="button" className={`flex-[3] ${DANGER_PILL_CLASSES}`}>
+                오탐 삭제
+              </button>
+              <Button type="button" variant="primary" size="lg" className="flex-[7]">
+                이 이미지 검수 확정
+              </Button>
             </div>
-            <div className="flex-1 overflow-y-auto px-5 py-5">
-              {/* Metadata Cards */}
-              <div className="mb-6 flex gap-3">
-                <div className="flex-1 rounded-[12px] border border-border bg-[#fafafa] p-4">
-                  <div className="mb-2 text-xs text-text-muted">신뢰도</div>
-                  <div className="text-xl font-bold text-text-default">
-                    {Math.round(selected.confidence * 100)}%
+          </div>
+
+          {/* Right: Analysis Panel */}
+          {selected && (
+            <div className="flex w-1/4 min-w-[260px] flex-col border-l border-border bg-white">
+              <div className="border-b border-border px-5 py-5">
+                <h3 className="font-medium text-text-default">AI 분석 결과</h3>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5 py-5">
+                {/* Metadata Cards */}
+                <div className="mb-6 flex gap-3">
+                  <div className="flex-1 rounded-[12px] border border-border bg-[#fafafa] p-4">
+                    <div className="mb-2 text-xs text-text-muted">신뢰도</div>
+                    <div className="text-xl font-bold text-text-default">
+                      {Math.round(selected.confidence * 100)}%
+                    </div>
+                  </div>
+                  <div className="flex-1 rounded-[12px] border border-border bg-[#fafafa] p-4">
+                    <div className="mb-2 text-xs text-text-muted">예상 깊이</div>
+                    <div className="text-xl font-bold text-text-default">{selected.depthMm}mm</div>
                   </div>
                 </div>
-                <div className="flex-1 rounded-[12px] border border-border bg-[#fafafa] p-4">
-                  <div className="mb-2 text-xs text-text-muted">예상 깊이</div>
-                  <div className="text-xl font-bold text-text-default">{selected.depthMm}mm</div>
+
+                {/* Summary Note */}
+                <div>
+                  <div className="mb-3 flex items-center gap-2">
+                    <svg className="h-[13px] w-[10px]" fill="currentColor" viewBox="0 0 10 13">
+                      <path d="M5 0L6 3H10L7 5L8 8L5 6L2 8L3 5L0 3H4L5 0Z" />
+                    </svg>
+                    <span className="text-xs font-medium text-text-default">분석 요약</span>
+                  </div>
+                  <div className="rounded-xl border border-[#fef9c3] bg-[#fefce8] p-4 text-sm text-[#854d0e]">
+                    {selected.summary}
+                  </div>
                 </div>
               </div>
 
-              {/* Summary Note */}
-              <div>
-                <div className="mb-3 flex items-center gap-2">
-                  <svg className="h-[13px] w-[10px]" fill="currentColor" viewBox="0 0 10 13">
-                    <path d="M5 0L6 3H10L7 5L8 8L5 6L2 8L3 5L0 3H4L5 0Z" />
-                  </svg>
-                  <span className="text-xs font-medium text-text-default">분석 요약</span>
-                </div>
-                <div className="rounded-xl border border-[#fef9c3] bg-[#fefce8] p-4 text-sm text-[#854d0e]">
-                  {selected.summary}
-                </div>
+              {/* 하자 편집 액션 — 선택된 하자 컨텍스트라 AI 분석 결과 패널 하단에 배치 */}
+              <div className="flex gap-3 px-5 pt-4 pb-6">
+                <Button type="button" variant="secondary" size="lg" className="flex-1">
+                  등급 수정
+                </Button>
+                <Button type="button" variant="secondary" size="lg" className="flex-1">
+                  누락 추가
+                </Button>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
