@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import brandMark from '../../../assets/brand/brand-mark.png';
+import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import heroBackground from '../../../assets/brand/landing-hero-ai-scan.svg';
 import { LANDING_ROUTE } from '../constants';
 
@@ -20,10 +20,10 @@ export function CompanySignupHeroPanel() {
         aria-hidden="true"
       />
 
-      {/* 로고 클릭 → 랜딩(홈) 이동(#424, 로그인 화면과 동일). w-fit으로 클릭 영역을 로고 폭으로 제한 */}
-      <Link to={LANDING_ROUTE} className="relative flex w-fit items-center gap-2" aria-label="HajaCheck 홈으로">
-        <img src={brandMark} alt="" className="h-[25px] w-[25px] object-contain" />
-        <span className="text-[28px] font-semibold tracking-tight text-white">HajaCheck</span>
+      {/* 통합 브랜드 로고(#429) — 클릭 시 랜딩(홈) 이동. relative로 스크림 위, w-fit으로 로고 폭 제한 */}
+      <Link to={LANDING_ROUTE} className="relative w-fit" aria-label="HajaCheck 홈으로">
+        {/* 어두운 배경이라 로고를 흰색으로 반전(brightness-0 invert) — 회색 텍스트 대비 확보(#429) */}
+        <img src={brandLogo} alt="HajaCheck" className="h-8 w-auto object-contain brightness-0 invert" />
       </Link>
       <p className="relative m-0 mt-3 text-base font-medium text-white/80">
         AI 기반 시설물 결함 검수 플랫폼

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import brandMark from '../../../assets/brand/brand-mark.png';
+import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import loginHeroImage from '../../../assets/brand/login-hero-illustration.svg';
 import { AuthSignupCta } from './AuthSignupCta';
 import { LANDING_ROUTE } from '../constants';
@@ -10,10 +10,9 @@ export function LoginHeroPanel() {
   return (
     <section className="hidden w-1/2 flex-col justify-between gap-8 border-r border-border p-12 lg:flex">
       <div className="flex flex-col gap-6">
-        {/* 로고 클릭 → 랜딩(홈) 이동(#421). w-fit으로 클릭 영역을 로고 폭으로 제한 */}
-        <Link to={LANDING_ROUTE} className="flex w-fit items-center gap-2" aria-label="HajaCheck 홈으로">
-          <img src={brandMark} alt="" className="h-[25px] w-[25px] object-contain" />
-          <span className="text-[15px] font-semibold text-heading">HajaCheck</span>
+        {/* 통합 브랜드 로고(#429) — 클릭 시 랜딩(홈) 이동. w-fit으로 클릭 영역을 로고 폭으로 제한 */}
+        <Link to={LANDING_ROUTE} className="w-fit" aria-label="HajaCheck 홈으로">
+          <img src={brandLogo} alt="HajaCheck" className="h-7 w-auto object-contain" />
         </Link>
         <h1 className="m-0 text-[32px] font-semibold leading-[41.6px] tracking-[-0.8px] text-heading">
           하나의 로그인으로
