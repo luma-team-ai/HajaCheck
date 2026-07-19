@@ -61,7 +61,7 @@ describe('EmailDomainField', () => {
     expect(screen.getByText('naver.com')).not.toBeNull();
   });
 
-  it('프리셋에서 직접입력으로 재전환하면 도메인 input이 다시 노출된다', () => {
+  it('프리셋에서 직접입력으로 재전환하면 도메인 input이 다시 노출된다 (도메인 값 복원은 페이지 책임)', () => {
     const onDomainChange = vi.fn();
     const onCustomModeChange = vi.fn();
 
@@ -82,13 +82,17 @@ describe('EmailDomainField', () => {
       target: { value: '__custom__' },
     });
 
+    // 컴포넌트는 모드 전환만 알린다 — 도메인 값을 임의로 비우지 않는다(code-reviewer P2, #417).
+    // 실제 도메인 값 복원(직전 커스텀 값 vs 빈 문자열)은 페이지의 onCustomModeChange(true)
+    // 핸들러 책임이라 여기서는 onDomainChange가 호출되지 않는 것만 확인한다.
     expect(onCustomModeChange).toHaveBeenCalledWith(true);
-    expect(onDomainChange).toHaveBeenCalledWith('');
+    expect(onDomainChange).not.toHaveBeenCalled();
 
+    // 페이지가 이전에 입력했던 커스텀 도메인(mycompany.io)으로 복원해 내려준 경우를 시뮬레이션.
     rerender(
       <EmailDomainField
         localPart="new-company"
-        domain=""
+        domain="mycompany.io"
         isCustomDomain
         onLocalPartChange={vi.fn()}
         onDomainChange={onDomainChange}
@@ -96,6 +100,7 @@ describe('EmailDomainField', () => {
       />,
     );
 
-    expect(screen.getByLabelText('이메일 도메인 직접입력')).not.toBeNull();
+    const restoredInput = screen.getByLabelText('이메일 도메인 직접입력') as HTMLInputElement;
+    expect(restoredInput.value).toBe('mycompany.io');
   });
 });

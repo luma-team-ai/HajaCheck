@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
 import { BusinessLicenseUpload } from '../components/BusinessLicenseUpload';
@@ -44,6 +44,15 @@ export function CompanySignupPage() {
   const [emailLocal, setEmailLocal] = useState('');
   const [emailDomain, setEmailDomain] = useState('');
   const [isCustomDomain, setIsCustomDomain] = useState(true);
+  // 직접입력 모드에서 마지막으로 입력한 도메인 값 — 프리셋으로 갔다가 다시 직접입력으로
+  // 돌아올 때 emailDomain을 이 값으로 복원해 재입력 마찰을 없앤다(code-reviewer P2, #417).
+  const [lastCustomDomain, setLastCustomDomain] = useState('');
+  // EmailDomainField의 select onChange 한 번에서 onCustomModeChange→onDomainChange가 연달아
+  // 호출되는데, 둘 다 같은 렌더의 클로저를 참조해 isCustomDomain state를 읽으면 stale 값이
+  // 잡힌다(프리셋 선택 시 방금 false로 바뀐 모드를 아직 true로 봐서 lastCustomDomain을 프리셋
+  // 값으로 덮어쓰는 버그). ref는 즉시(동기) 갱신되므로 handleEmailDomainChange가 항상 최신
+  // 모드를 보도록 상태와 함께 유지한다.
+  const isCustomDomainRef = useRef(true);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -84,11 +93,18 @@ export function CompanySignupPage() {
 
   const handleEmailDomainChange = (value: string) => {
     setEmailDomain(value);
+    // 직접입력 모드에서 친 값만 "마지막 커스텀 도메인"으로 보존 — 프리셋 선택으로 인한
+    // onDomainChange(프리셋값) 호출은 커스텀 값을 덮어쓰면 안 된다. isCustomDomain state가
+    // 아니라 ref를 봐야 같은 이벤트 내 onCustomModeChange(false) 직후에도 최신값을 읽는다.
+    if (isCustomDomainRef.current) setLastCustomDomain(value);
     if (emailCheckResult) resetEmailCheck();
   };
 
   const handleEmailCustomModeChange = (isCustom: boolean) => {
+    isCustomDomainRef.current = isCustom;
     setIsCustomDomain(isCustom);
+    // 직접입력으로 재전환 시 빈 문자열이 아니라 마지막으로 입력했던 커스텀 도메인으로 복원.
+    if (isCustom) setEmailDomain(lastCustomDomain);
     if (emailCheckResult) resetEmailCheck();
   };
 

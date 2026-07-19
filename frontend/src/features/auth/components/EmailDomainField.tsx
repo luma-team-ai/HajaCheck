@@ -35,8 +35,9 @@ export function EmailDomainField({
   const handleSelectChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const value = event.target.value;
     if (value === CUSTOM_DOMAIN_VALUE) {
+      // 도메인 값 복원/초기화는 페이지의 onCustomModeChange(true)가 책임진다(code-reviewer
+      // P2, #417) — 이 컴포넌트는 모드 전환 사실만 알리고 도메인 값을 임의로 비우지 않는다.
       onCustomModeChange(true);
-      onDomainChange('');
       return;
     }
     onCustomModeChange(false);

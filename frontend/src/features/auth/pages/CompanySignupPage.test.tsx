@@ -136,6 +136,51 @@ describe('CompanySignupPage — 제출 버튼 계약(shared Button)', () => {
     });
   });
 
+  it('직접입력 도메인을 입력한 뒤 프리셋 선택 → 직접입력 재전환 시 이전 도메인 값이 복원된다', async () => {
+    // code-reviewer P2(#417) — 직접입력→프리셋→직접입력 왕복 시 이전 커스텀 도메인 값이
+    // 소실되지 않고 복원되는지 고정한다(복원 확인 후 그 값 그대로 제출까지 검증).
+    const signupSpy = vi.spyOn(authApi, 'signupCompany').mockResolvedValue({
+      data: {
+        companyId: 14,
+        maskedEmail: 'ne***@mycompany.io',
+        status: 'PENDING_REVIEW',
+        signupToken: 'token',
+      },
+    } as Awaited<ReturnType<typeof authApi.signupCompany>>);
+
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('아이디(이메일)'), {
+      target: { value: 'new-company' },
+    });
+    fireEvent.change(screen.getByLabelText('이메일 도메인 직접입력'), {
+      target: { value: 'mycompany.io' },
+    });
+
+    // 실수로 프리셋 선택
+    fireEvent.change(screen.getByLabelText('이메일 도메인 선택'), {
+      target: { value: 'naver.com' },
+    });
+    expect(screen.queryByLabelText('이메일 도메인 직접입력')).toBeNull();
+
+    // 다시 직접입력으로 전환 — 이전에 입력했던 mycompany.io가 빈 값이 아니라 복원되어야 한다
+    fireEvent.change(screen.getByLabelText('이메일 도메인 선택'), {
+      target: { value: '__custom__' },
+    });
+    const restoredInput = screen.getByLabelText('이메일 도메인 직접입력') as HTMLInputElement;
+    expect(restoredInput.value).toBe('mycompany.io');
+
+    fillNonEmailFields();
+    fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
+
+    await waitFor(() => {
+      expect(signupSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(signupSpy.mock.calls[0][0]).toMatchObject({
+      email: 'new-company@mycompany.io',
+    });
+  });
+
   it('제출 버튼은 type="submit"으로 렌더되고, isPending 동안 disabled라 중복 클릭이 발화하지 않는다', async () => {
     // 절대 resolve되지 않는 프라미스로 isPending 상태를 고정해 두 번째 클릭이 막히는지 확인
     const signupSpy = vi.spyOn(authApi, 'signupCompany').mockReturnValue(new Promise(() => {}));
