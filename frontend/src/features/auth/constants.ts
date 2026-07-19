@@ -21,7 +21,9 @@ export const AUTH_ME_QUERY_KEY = ['auth', 'me'] as const;
 export const AUTH_ME_QUERY_STALE_TIME_MS = 5000;
 
 // 기업 인증 플로우 — 라우트 경로(app/router.tsx와 공유, 하드코딩 방지)
-export const LOGIN_ROUTE = '/login';
+// LOGIN_ROUTE는 shared/components/ProtectedRoute도 참조하므로 shared/constants/routes로 승격했다
+// (React_코드_컨벤션.md §1). auth 내부 사용처(7곳)의 import 경로 유지를 위해 재export한다.
+export { LOGIN_ROUTE } from '../../shared/constants/routes';
 export const COMPANY_SIGNUP_ROUTE = '/signup/company';
 export const COMPANY_SIGNUP_PENDING_ROUTE = '/signup/company/pending';
 export const FIND_ID_ROUTE = '/find-id';

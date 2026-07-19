@@ -2,6 +2,7 @@
 // 경로: kebab-case / 인증 가드: ProtectedRoute, AdminRoute / 페이지 lazy loading 기본
 import { lazy, Suspense } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
+import { AdminRoute } from '../shared/components/AdminRoute';
 import { ProtectedRoute } from '../shared/components/ProtectedRoute';
 import { AppShellRoute } from './AppShellRoute';
 
@@ -59,6 +60,13 @@ const DefectDetailPage = lazy(() =>
 // 마이페이지 — 내 플랜 (HAJA-185, #212)
 const MyPlanPage = lazy(() =>
   import('../features/mypage/pages/MyPlanPage').then((m) => ({ default: m.MyPlanPage })),
+);
+
+// 관리자 > 사용자 관리 (Figma node 177-2017)
+const AdminUsersPage = lazy(() =>
+  import('../features/admin/pages/AdminUsersPage').then((m) => ({
+    default: m.AdminUsersPage,
+  })),
 );
 
 const FacilityListPage = lazy(() =>
@@ -192,6 +200,21 @@ export const router = createBrowserRouter([
           activeHref: '/inspections/1/viewer',
         },
       }, // — features/inspection FR-4 (HAJA-249, #249)
+      {
+        path: '/admin/users',
+        // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#378, 컨벤션 §7)
+        element: (
+          <AdminRoute>
+            <Suspense fallback={<div>불러오는 중...</div>}>
+              <AdminUsersPage />
+            </Suspense>
+          </AdminRoute>
+        ),
+        handle: {
+          breadcrumb: [{ label: '관리자' }, { label: '사용자 관리' }],
+          activeHref: '/admin/users',
+        },
+      }, // — features/admin (Figma node 177-2017)
     ],
   },
   {
@@ -209,5 +232,5 @@ export const router = createBrowserRouter([
   // { path: '/defects', ... }                  — features/defect
   // { path: '/reports', ... }                  — features/report
   // { path: '/support', ... }                  — features/support
-  // { path: '/admin/*', ... }                  — features/admin (AdminRoute)
+  // 관리자: /admin/users 구현 완료(위 AppShell children) — 나머지 관리자 화면은 #21 하위 이슈로 분리
 ]);

@@ -7,9 +7,9 @@ import { formatLimit } from '../utils/planFormat';
 // SeatMemberRole/SeatMemberStatus 유니온 기준 Record — 백엔드 enum에 값이 추가되면 여기서 컴파일 에러로 드러남
 const ROLE_LABEL: Record<SeatMemberRole, string> = {
   ADMIN: '관리자',
-  INSPECTOR: '검사자',
+  INSPECTOR: '점검자',
   USER: '일반',
-  COUNSELOR: '상담사',
+  COUNSELOR: '상담원',
 };
 
 const STATUS_LABEL: Record<SeatMemberStatus, string> = {
