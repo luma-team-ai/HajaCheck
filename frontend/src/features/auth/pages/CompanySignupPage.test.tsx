@@ -40,15 +40,8 @@ function renderPage() {
   );
 }
 
-function fillValidForm() {
-  // 기본 상태는 도메인 직접입력 모드(#417) — 로컬파트 라벨(기존 계약 유지) + 직접입력 도메인 input
-  // 두 곳을 채워야 기존과 동일한 'new-company@check.com' 조합 이메일이 만들어진다.
-  fireEvent.change(screen.getByLabelText('아이디(이메일)'), {
-    target: { value: 'new-company' },
-  });
-  fireEvent.change(screen.getByLabelText('이메일 도메인 직접입력'), {
-    target: { value: 'check.com' },
-  });
+// 이메일 이외 필드(비밀번호~약관 동의) — 직접입력/프리셋 두 이메일 경로 테스트가 공유한다.
+function fillNonEmailFields() {
   fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'abcd1234' } });
   fireEvent.change(screen.getByLabelText('비밀번호 재입력'), { target: { value: 'abcd1234' } });
 
@@ -63,6 +56,31 @@ function fillValidForm() {
 
   fireEvent.click(screen.getByLabelText(/이용약관에 동의합니다/));
   fireEvent.click(screen.getByLabelText(/개인정보 수집 및 이용에 동의합니다/));
+}
+
+function fillValidForm() {
+  // 기본 상태는 도메인 직접입력 모드(#417) — 로컬파트 라벨(기존 계약 유지) + 직접입력 도메인 input
+  // 두 곳을 채워야 기존과 동일한 'new-company@check.com' 조합 이메일이 만들어진다.
+  fireEvent.change(screen.getByLabelText('아이디(이메일)'), {
+    target: { value: 'new-company' },
+  });
+  fireEvent.change(screen.getByLabelText('이메일 도메인 직접입력'), {
+    target: { value: 'check.com' },
+  });
+  fillNonEmailFields();
+}
+
+// PR머신 P3 회귀 위험 대응(#417) — 프리셋 도메인 select 경로도 조합 이메일이 올바르게 만들어지는지
+// 통합 테스트로 고정한다(EmailDomainField 단위 테스트는 콜백 발화만 확인, 실제 제출 페이로드는
+// 여기서 검증). 프리셋 선택 시 도메인 직접입력 input은 사라지므로 건드리지 않는다.
+function fillValidFormWithPresetDomain(presetDomain: string) {
+  fireEvent.change(screen.getByLabelText('아이디(이메일)'), {
+    target: { value: 'new-company' },
+  });
+  fireEvent.change(screen.getByLabelText('이메일 도메인 선택'), {
+    target: { value: presetDomain },
+  });
+  fillNonEmailFields();
 }
 
 describe('CompanySignupPage — 제출 버튼 계약(shared Button)', () => {
@@ -92,6 +110,29 @@ describe('CompanySignupPage — 제출 버튼 계약(shared Button)', () => {
       representativeName: '김대표',
       agreeTermsOfService: true,
       agreePrivacyPolicy: true,
+    });
+  });
+
+  it('프리셋 도메인(naver.com)을 선택해 제출하면 로컬파트+선택값이 조합된 이메일로 signup이 발화한다', async () => {
+    const signupSpy = vi.spyOn(authApi, 'signupCompany').mockResolvedValue({
+      data: {
+        companyId: 13,
+        maskedEmail: 'ne***@naver.com',
+        status: 'PENDING_REVIEW',
+        signupToken: 'token',
+      },
+    } as Awaited<ReturnType<typeof authApi.signupCompany>>);
+
+    renderPage();
+    fillValidFormWithPresetDomain('naver.com');
+
+    fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
+
+    await waitFor(() => {
+      expect(signupSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(signupSpy.mock.calls[0][0]).toMatchObject({
+      email: 'new-company@naver.com',
     });
   });
 
