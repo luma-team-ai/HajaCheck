@@ -116,7 +116,9 @@ export function CompanySignupPage() {
       <CompanySignupHeroPanel />
 
       <section className="flex flex-1 justify-center overflow-y-auto px-6 py-14 sm:px-10 lg:px-16">
-        <div className="w-full max-w-[440px]">
+        {/* 오른쪽 입력 폼을 테두리 카드로 감싼다(#424) — 왼쪽 히어로(이미지)는 테두리 없음.
+            내부 콘텐츠 폭 유지를 위해 max-w를 패딩만큼 넓힌다. */}
+        <div className="h-fit w-full max-w-[504px] rounded-2xl border border-border bg-white p-8 shadow-sm">
           <p className="m-0 text-sm font-medium text-text-muted">기업 회원가입</p>
           <h1 className="m-0 mt-1.5 text-2xl font-bold text-heading">회사 계정을 만들어 주세요</h1>
           <p className="m-0 mt-2 text-sm text-text-muted">
@@ -152,7 +154,8 @@ export function CompanySignupPage() {
                   {emailCheckResult.available ? '사용 가능한 이메일입니다.' : '이미 가입된 이메일입니다.'}
                 </p>
               )}
-              {showValidation && !isValidEmail(email) && (
+              {/* 실시간 인라인 검증(#424) — 입력 중(비어있지 않음)엔 즉시, 제출 시엔 빈 값도 안내 */}
+              {(email.length > 0 || showValidation) && !isValidEmail(email) && (
                 <p className={ERROR_CLASSES}>올바른 이메일 형식을 입력해 주세요.</p>
               )}
             </div>
@@ -184,7 +187,8 @@ export function CompanySignupPage() {
                 </button>
               </div>
               <PasswordStrengthMeter strength={getPasswordStrength(password)} />
-              {showValidation && !isValidPassword(password) && (
+              {/* 실시간 인라인 검증(#424) — 입력 중(비어있지 않음)엔 즉시, 제출 시엔 빈 값도 안내 */}
+              {(password.length > 0 || showValidation) && !isValidPassword(password) && (
                 <p className={ERROR_CLASSES}>8자 이상, 영문+숫자를 포함해 주세요.</p>
               )}
             </div>
