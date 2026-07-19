@@ -13,6 +13,7 @@ const IMPLEMENTED_ROUTES = new Set([
   '/inspections/1/viewer',
   '/facilities/map',
   '/admin/users',
+  '/support/ai-assistant',
 ]);
 
 export function isRouteImplemented(href: string): boolean {

@@ -10,6 +10,7 @@
   --color-surface: #fff; /* 밝은 표면/전경 — Button primary 전경, Pagination 활성 전경 */
   --color-danger: #d92d20; /* Button danger 배경 — Figma 시안에 danger 버튼 없어 기존 값 유지 */
   --color-accent: #4a4aff; /* AILoadingIndicator 스피너 강조색 — Figma 시안 범위 밖, 기존 값 유지 */
+  --color-point: #4f46e5; /* 브랜드 포인트 색상(indigo-600) — 주요 액션(전송 버튼 등)·입력 포커스 강조 */
 
   /* Neutral */
   --color-secondary-bg: #fff; /* Button secondary(outline) 배경 — Figma "서비스 이용 방법" 등 흰 배경+보더 버튼 */
