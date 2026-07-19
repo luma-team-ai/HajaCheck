@@ -149,6 +149,33 @@ describe('RecentInspectionsTable', () => {
     expect(rowOf('B동').getAttribute('aria-selected')).toBe('false');
   });
 
+  it('행 수가 줄어도 항상 한 행은 Tab 정지점(0)을 유지한다(회귀 방지)', () => {
+    const THREE: RecentInspectionItem[] = [
+      ...SAMPLE,
+      { id: 3, facilityName: 'C동', inspectedAt: '2026-07-03', inspector: '이영희', defectCount: 1, status: '검수대기' },
+    ];
+    mockData(THREE);
+    const { rerender } = render(<RecentInspectionsTable />);
+
+    // 마지막 행으로 포커스 이동(focusedIndex=2)
+    fireEvent.keyDown(rowOf('A동'), { key: 'End' });
+    expect(rowOf('C동').getAttribute('tabindex')).toBe('0');
+
+    // 데이터가 2행으로 줄어들면 어떤 행이든 tabIndex=0 이 정확히 하나 존재해야 함(도달 불가 방지)
+    mockData(SAMPLE);
+    rerender(<RecentInspectionsTable />);
+    const tabbable = [rowOf('A동'), rowOf('B동')].filter((r) => r.getAttribute('tabindex') === '0');
+    expect(tabbable.length).toBe(1);
+  });
+
+  it('완전한 grid 상호작용 패턴이므로 role=grid/gridcell을 노출한다', () => {
+    mockData(SAMPLE);
+    render(<RecentInspectionsTable />);
+
+    expect(screen.getByRole('grid')).toBeTruthy();
+    expect(screen.getAllByRole('gridcell').length).toBe(SAMPLE.length * 5);
+  });
+
   it('데이터가 비어 있으면 안내 문구를 렌더링한다', () => {
     mockData([]);
     render(<RecentInspectionsTable />);
