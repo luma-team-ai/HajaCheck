@@ -19,6 +19,7 @@ function scrollToSection(targetId: string) {
 export default function LandingPage() {
   const [isAtTop, setIsAtTop] = useState(true);
   const [isAtBottom, setIsAtBottom] = useState(false);
+  const [aiAnalysisPercent, setAiAnalysisPercent] = useState(0);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -31,6 +32,13 @@ export default function LandingPage() {
     handleScroll();
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAiAnalysisPercent((prev) => (prev + 1) % 101);
+    }, 40);
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -75,9 +83,31 @@ export default function LandingPage() {
             alt=""
             aria-hidden="true"
           />
-          <div className="landing-chip landing-chip--1">균열 · E · 0.94</div>
-          <div className="landing-chip landing-chip--2">박리·박락 · D</div>
-          <div className="landing-chip landing-chip--3">AI 분석 중 · 68%</div>
+          <div className="landing-scan-line" aria-hidden="true" />
+          <svg
+            className="landing-crack-line"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <polyline
+              points="26,32 27.8,37.25 26.3,42.5 28.8,47.75 28,53"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+          <div className="landing-bbox landing-bbox--1" aria-hidden="true" />
+          <div className="landing-chip landing-chip--1">
+            <span className="landing-chip-dot landing-chip-dot--danger" aria-hidden="true">●</span>
+            균열 · E · 0.94
+          </div>
+          <div className="landing-chip landing-chip--2">
+            <span className="landing-chip-dot landing-chip-dot--d" aria-hidden="true">●</span>
+            박리·박락 · D
+          </div>
+          <div className="landing-chip landing-chip--3">
+            <span className="landing-chip-spin" aria-hidden="true">↻</span>
+            AI 분석 중 · {aiAnalysisPercent}%
+          </div>
         </div>
       </section>
 
@@ -134,7 +164,7 @@ export default function LandingPage() {
         </p>
         <div className="landing-badge-row">
           <span className="landing-pill landing-pill--danger">
-            <span className="landing-pill-dot" aria-hidden="true">●</span> 균열 심각도 High
+            <span className="landing-pill-dot" aria-hidden="true">●</span> 크랙 심각도 High
           </span>
           <span className="landing-pill landing-pill--warning">
             <span className="landing-pill-dot" aria-hidden="true">●</span> 누수 징후 Medium
