@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.5.0-draft"
+  version: "0.4.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
     2026-07-18 미릴리스 draft baseline을 현재 구현에 맞게 정정했다.
@@ -936,10 +936,7 @@ components:
 
     DefectTypeCode:
       type: string
-      description: >-
-        탐지 클래스 3종 확정(PRD v0.42, 2026-07-13) — LEAK_EFFLORESCENCE(누수·백태)·PAINT_DAMAGE(도장손상)는
-        데이터 확보 상황상 이번 범위에서 제외됨. DB `defect_type` enum·프론트 DefectType은 별도 확인·정합 필요.
-      enum: [CRACK, SPALLING, REBAR_EXPOSURE]
+      enum: [CRACK, SPALLING, LEAK_EFFLORESCENCE, REBAR_EXPOSURE, PAINT_DAMAGE]
 
     DefectGradeCode:
       type: string

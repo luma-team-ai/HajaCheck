@@ -22,8 +22,8 @@ const defects: Defect[] = [
     status: '신규',
     confidence: 0.98,
     bbox: { x: 0.12, y: 0.3, width: 0.18, height: 0.08 },
-    depthMm: 12,
     widthMm: 3.2,
+    lengthMm: 45,
     summary: '수평 방향의 구조적 균열로 판단됨.',
   },
   {
@@ -33,8 +33,7 @@ const defects: Defect[] = [
     status: '신규',
     confidence: 0.81,
     bbox: { x: 0.55, y: 0.42, width: 0.12, height: 0.15 },
-    depthMm: 8,
-    widthMm: 2.5,
+    areaRatio: 0.08,
     summary: '콘크리트 표면 박리 영역 확대 중.',
   },
 ];
@@ -52,14 +51,14 @@ describe('DefectOverlay', () => {
   it('selectedId와 일치하는 박스에만 라벨이 노출된다', () => {
     render(<DefectOverlay media={media} defects={defects} selectedId={2} onSelect={vi.fn()} />);
 
-    expect(screen.getByText('박리박락 2.5mm')).not.toBeNull();
-    expect(screen.queryByText('균열 3.2mm')).toBeNull();
+    expect(screen.getByText('박리박락 B등급')).not.toBeNull();
+    expect(screen.queryByText('균열 C등급')).toBeNull();
   });
 
   it('selectedId가 없으면 어떤 박스에도 라벨이 노출되지 않는다', () => {
     render(<DefectOverlay media={media} defects={defects} onSelect={vi.fn()} />);
 
-    expect(screen.queryByText('박리박락 2.5mm')).toBeNull();
-    expect(screen.queryByText('균열 3.2mm')).toBeNull();
+    expect(screen.queryByText('박리박락 B등급')).toBeNull();
+    expect(screen.queryByText('균열 C등급')).toBeNull();
   });
 });

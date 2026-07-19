@@ -74,13 +74,13 @@ export function ResultViewerPage() {
                 gradeFilter.includes(grade)
                   ? 'bg-primary text-surface'
                   : 'border border-border bg-white text-text-default'
-              } peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:outline-none`}
+              } has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary has-[:focus-visible]:outline-none`}
             >
               <input
                 type="checkbox"
                 checked={gradeFilter.includes(grade)}
                 onChange={() => handleGradeToggle(grade)}
-                className="sr-only peer"
+                className="sr-only"
               />
               {grade}
             </label>
@@ -88,37 +88,36 @@ export function ResultViewerPage() {
         </div>
       </div>
 
-      {/* Unified Card */}
-      <div className="flex flex-1 overflow-hidden rounded-3xl border border-border">
-        {/* Left: Image Viewer Section */}
-        <div className="flex flex-1 flex-col">
-          {/* Card Header */}
-          <div className="flex items-center justify-between border-b border-border px-6 py-4">
-            <div className="flex items-center gap-2 text-sm text-text-muted">
-              <span className="text-text-default font-medium">{data.defectCode}</span>
-              <span>/</span>
-              <span className="text-text-default font-medium">{data.facilityName}</span>
-            </div>
-            <div className="flex items-center gap-2 rounded-full bg-info-soft-bg px-3 py-1.5">
-              <div className="h-1.5 w-1.5 rounded-full bg-info-soft-fg" />
-              <span className="text-xs font-medium text-info-soft-fg">{data.status}</span>
-            </div>
+      {/* Unified Card — 헤더가 좌(이미지)/우(AI패널) 두 컬럼 위에 한 줄로 걸침(Figma 정합) */}
+      <div className="flex flex-1 flex-col overflow-hidden rounded-3xl border border-border">
+        {/* Card Header */}
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <div className="flex items-center gap-2 text-sm text-text-muted">
+            <span className="text-text-default font-medium">{data.defectCode}</span>
+            <span>/</span>
+            <span className="text-text-default font-medium">{data.facilityName}</span>
           </div>
+          <div className="flex items-center gap-2 rounded-full bg-info-soft-bg px-3 py-1.5">
+            <div className="h-1.5 w-1.5 rounded-full bg-info-soft-fg" />
+            <span className="text-xs font-medium text-info-soft-fg">{data.status}</span>
+          </div>
+        </div>
 
-          {/* Image Viewer Content */}
+        <div className="flex flex-1">
+          {/* Left: Image Viewer Section */}
           <div className="flex flex-1 flex-col gap-6 bg-surface-sunken p-6">
-            {visibleDefects.length === 0 ? (
-              <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
-                조건에 맞는 하자가 없습니다.
-              </div>
-            ) : (
-              <DefectOverlay
-                media={data.media}
-                defects={visibleDefects}
-                selectedId={selected?.id}
-                onSelect={setSelectedDefectId}
-              />
-            )}
+            <div className="flex flex-1 items-center justify-center">
+              {visibleDefects.length === 0 ? (
+                <div className="text-sm text-text-muted">조건에 맞는 하자가 없습니다.</div>
+              ) : (
+                <DefectOverlay
+                  media={data.media}
+                  defects={visibleDefects}
+                  selectedId={selected?.id}
+                  onSelect={setSelectedDefectId}
+                />
+              )}
+            </div>
 
             {/* Progress Bar */}
             <div className="flex flex-col gap-3">
@@ -136,86 +135,80 @@ export function ResultViewerPage() {
               </div>
             </div>
 
-            {/* Action Buttons */}
+            {/* Action Buttons — 우측 패널의 등급수정/누락추가와 동일 높이로 하단 정렬 */}
             {/* TODO: 백엔드 구현(#16 오탐 수정·등급 조정, #17 하자 상태머신) 후 활성화 — #249 후속 이슈 */}
-            <div className="flex items-center gap-3">
-              <Button
-                type="button"
-                variant="secondary"
-                size="lg"
-                className="flex-[3] border border-danger-soft-border bg-danger-soft-bg text-text-default hover:bg-danger-soft-hover"
-                disabled
-              >
-                오탐 삭제
-              </Button>
-              {visibleDefects.length > 0 && (
+            {visibleDefects.length > 0 && (
+              <div className="flex items-center gap-3">
+                <Button type="button" variant="danger-soft" size="lg" className="flex-[3]" disabled>
+                  오탐 삭제
+                </Button>
                 <Button type="button" variant="primary" size="lg" className="flex-[7]" disabled>
                   이 이미지 검수 확정
                 </Button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
-        </div>
 
-        {/* Right: Analysis Panel */}
-        {selected && (
-          <div className="flex w-80 flex-col border-l border-border">
-            <div className="border-b border-border px-5 py-5">
-              <h3 className="font-medium text-text-default">AI 분석 결과</h3>
-            </div>
-            <div className="flex-1 overflow-y-auto px-5 py-5">
-              {/* Metadata Cards */}
-              <div className="mb-6 flex gap-3">
-                <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
-                  <div className="mb-2 text-xs text-text-muted">신뢰도</div>
-                  <div className="text-xl font-bold text-text-default">
-                    {Math.round(selected.confidence * 100)}%
+          {/* Right: Analysis Panel */}
+          {selected && (
+            <div className="flex w-80 flex-col border-l border-border">
+              <div className="px-5 py-5">
+                <h3 className="font-medium text-text-default">AI 분석 결과</h3>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5">
+                {/* Metadata Cards */}
+                <div className="mb-6 flex gap-3">
+                  <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
+                    <div className="mb-2 text-xs text-text-muted">신뢰도</div>
+                    <div className="text-xl font-bold text-text-default">
+                      {Math.round(selected.confidence * 100)}%
+                    </div>
+                  </div>
+                  {/* 유형별 정량 실측 지표 — 균열은 선형(폭/길이 mm), 박리박락·철근노출은 면적형(마스크 면적 비율)
+                      (하자_심각도_등급_규칙.md §3.2, PRD v0.42 탐지 클래스 3종 확정) */}
+                  {selected.type === '균열' ? (
+                    <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
+                      <div className="mb-2 text-xs text-text-muted">예상 길이</div>
+                      <div className="text-xl font-bold text-text-default">{selected.lengthMm}mm</div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
+                      <div className="mb-2 text-xs text-text-muted">면적 비율</div>
+                      <div className="text-xl font-bold text-text-default">
+                        {Math.round((selected.areaRatio ?? 0) * 100)}%
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Summary Note */}
+                <div>
+                  <div className="mb-3 flex items-center gap-2">
+                    <svg className="h-[13px] w-[10px]" fill="currentColor" viewBox="0 0 10 13">
+                      <path d="M5 0L6 3H10L7 5L8 8L5 6L2 8L3 5L0 3H4L5 0Z" />
+                    </svg>
+                    <span className="text-xs font-medium text-text-default">분석 요약</span>
+                  </div>
+                  <div className="rounded-xl border border-warning-soft-border bg-warning-soft-bg p-4 text-sm text-warning-soft-fg">
+                    {selected.summary}
                   </div>
                 </div>
-                <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
-                  <div className="mb-2 text-xs text-text-muted">예상 깊이</div>
-                  <div className="text-xl font-bold text-text-default">{selected.depthMm}mm</div>
-                </div>
               </div>
 
-              {/* Summary Note */}
-              <div className="mb-6">
-                <div className="mb-3 flex items-center gap-2">
-                  <svg className="h-[13px] w-[10px]" fill="currentColor" viewBox="0 0 10 13">
-                    <path d="M5 0L6 3H10L7 5L8 8L5 6L2 8L3 5L0 3H4L5 0Z" />
-                  </svg>
-                  <span className="text-xs font-medium text-text-default">분석 요약</span>
-                </div>
-                <div className="rounded-xl border border-warning-soft-border bg-warning-soft-bg p-4 text-sm text-warning-soft-fg">
-                  {selected.summary}
-                </div>
-              </div>
-
-              {/* Action Buttons */}
+              {/* Action Buttons — 스크롤 영역 밖 하단 고정, 좌측 "검수 확정" 버튼과 동일 높이 */}
               {/* TODO: 백엔드 구현(#16 오탐 수정·등급 조정, #17 하자 상태머신) 후 활성화 — #249 후속 이슈 */}
-              <div className="flex gap-3">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="md"
-                  className="flex-1"
-                  disabled
-                >
+              {/* 좌측 컬럼(p-6=24px 하단 여백)과 하단 정렬 맞추려 pb-6 사용, py-5 아님 */}
+              <div className="flex gap-3 px-5 pt-5 pb-6">
+                <Button type="button" variant="secondary" size="lg" className="flex-1" disabled>
                   등급 수정
                 </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="md"
-                  className="flex-1"
-                  disabled
-                >
+                <Button type="button" variant="secondary" size="lg" className="flex-1" disabled>
                   누락 추가
                 </Button>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

@@ -34,7 +34,7 @@ export function DefectOverlay({ media, defects, selectedId, onSelect }: DefectOv
           >
             {isSelected && (
               <span className="absolute left-0 top-0 -translate-y-full whitespace-nowrap bg-selection px-[8px] py-[4px] text-[12px] font-semibold text-white">
-                {defect.type} {defect.widthMm}mm
+                {defect.type} {defect.grade}등급
               </span>
             )}
           </button>
