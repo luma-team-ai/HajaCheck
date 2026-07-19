@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { FOOTER_LINKS, NAV_ITEMS, PARTNERS, PRICING_TIERS } from './constants';
+import { useLocation } from 'react-router-dom';
+import { LandingFooter } from './components/LandingFooter';
+import { LandingHeader } from './components/LandingHeader';
+import { PARTNERS, PRICING_TIERS } from './constants';
 import heroVisualImage from '../../assets/brand/landing-hero-ai-scan.svg';
-import brandLogo from '../../assets/brand/sidenav-brand-logo.png';
 import './landing.css';
 
 function scrollToTop() {
@@ -12,11 +14,8 @@ function scrollToBottom() {
   window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 }
 
-function scrollToSection(targetId: string) {
-  document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth' });
-}
-
 export default function LandingPage() {
+  const location = useLocation();
   const [isAtTop, setIsAtTop] = useState(true);
   const [isAtBottom, setIsAtBottom] = useState(false);
   const [aiAnalysisPercent, setAiAnalysisPercent] = useState(0);
@@ -41,23 +40,19 @@ export default function LandingPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // 다른 페이지(예: 정책 페이지)의 헤더 nav에서 /#섹션id로 넘어온 경우, 마운트 후 해당 섹션까지 스크롤
+  useEffect(() => {
+    if (location.hash) {
+      const id = location.hash.slice(1);
+      requestAnimationFrame(() => {
+        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+      });
+    }
+  }, [location.hash]);
+
   return (
     <div className="landing">
-      <header className="landing-header">
-        <button type="button" className="landing-logo-button" onClick={scrollToTop} aria-label="HajaCheck 홈으로">
-          <img className="landing-logo-image" src={brandLogo} alt="HajaCheck" />
-        </button>
-        <nav className="landing-nav">
-          {NAV_ITEMS.map((item) => (
-            <button key={item.label} type="button" onClick={() => scrollToSection(item.targetId)}>
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <a className="landing-login" href="/login">
-          로그인
-        </a>
-      </header>
+      <LandingHeader />
 
       <section className="landing-hero">
         <span className="landing-badge">
@@ -234,33 +229,7 @@ export default function LandingPage() {
         )}
       </div>
 
-      <footer className="landing-footer">
-        <div className="landing-footer-top">
-          <div>
-            <img className="landing-logo-image" src={brandLogo} alt="HajaCheck" />
-            <p className="landing-footer-tagline">
-              데이터와 AI 기술로 시설물 관리의 새로운
-              <br />
-              기준을 제시합니다.
-            </p>
-          </div>
-          <div className="landing-footer-columns">
-            {FOOTER_LINKS.map((column) => (
-              <div key={column.title} className="landing-footer-column">
-                <h4>{column.title}</h4>
-                <ul>
-                  {column.links.map((link) => (
-                    <li key={link}>
-                      <a href="#">{link}</a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="landing-footer-bottom">© 2026 HAJA. All rights reserved.</div>
-      </footer>
+      <LandingFooter />
     </div>
   );
 }
