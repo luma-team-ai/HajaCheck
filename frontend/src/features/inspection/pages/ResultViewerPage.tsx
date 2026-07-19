@@ -198,10 +198,10 @@ export function ResultViewerPage() {
               {/* Action Buttons — 스크롤 영역 밖 하단 고정, 좌측 "검수 확정" 버튼과 동일 높이 */}
               {/* TODO: 백엔드 구현(#16 오탐 수정·등급 조정, #17 하자 상태머신) 후 활성화 — #249 후속 이슈 */}
               <div className="flex gap-3 px-5 py-5">
-                <Button type="button" variant="secondary" size="md" className="flex-1" disabled>
+                <Button type="button" variant="secondary" size="lg" className="flex-1" disabled>
                   등급 수정
                 </Button>
-                <Button type="button" variant="secondary" size="md" className="flex-1" disabled>
+                <Button type="button" variant="secondary" size="lg" className="flex-1" disabled>
                   누락 추가
                 </Button>
               </div>
