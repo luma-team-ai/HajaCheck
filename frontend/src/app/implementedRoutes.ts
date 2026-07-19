@@ -12,6 +12,7 @@ const IMPLEMENTED_ROUTES = new Set([
   '/mypage/plan',
   '/inspections/1/viewer',
   '/facilities/map',
+  '/admin/users',
 ]);
 
 export function isRouteImplemented(href: string): boolean {

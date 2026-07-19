@@ -9,6 +9,7 @@ import { MYPAGE_PLAN_ROUTE } from '../features/auth/constants';
 import { useAuthStore } from '../features/auth/store/authStore';
 import type { BreadcrumbItem } from '../shared/components/Header';
 import { AppLayout } from '../shared/components/AppLayout';
+import { isAdminRole } from '../shared/constants/roles';
 import { isRouteImplemented } from './implementedRoutes';
 
 export interface AppShellHandle {
@@ -37,7 +38,9 @@ export function AppShellRoute() {
   const authUser = useAuthStore((state) => state.user);
   // 관리자 메뉴/사이드바 프로필 노출 여부 — role 기반(HAJA-167, #184).
   // AppLayout이 isAdmin일 때만 SideNavBar에 user를 전달하도록 내부에서 필터링한다.
-  const isAdmin = authUser?.role === 'ADMIN';
+  // AdminRoute(shared/components/AdminRoute.tsx)의 실제 접근 차단과 같은 기준(isAdminRole)을 쓴다
+  // — 각자 role === 'ADMIN'을 따로 비교하면 한쪽만 바뀌었을 때 메뉴·접근 판정이 어긋난다(#378).
+  const isAdmin = isAdminRole(authUser?.role);
   const { logout } = useLogout();
   // 가장 깊은(마지막) match부터 breadcrumb/activeHref를 선언한 handle을 찾는다.
   const current = [...matches].reverse().find((match) => hasAppShellHandle(match.handle));
