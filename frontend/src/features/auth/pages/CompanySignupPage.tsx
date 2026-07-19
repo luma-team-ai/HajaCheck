@@ -4,6 +4,7 @@ import { Button } from '../../../shared/components/Button';
 import { BusinessLicenseUpload } from '../components/BusinessLicenseUpload';
 import { CompanyAddressField } from '../components/CompanyAddressField';
 import { CompanySignupHeroPanel } from '../components/CompanySignupHeroPanel';
+import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
 import { LOGIN_ROUTE } from '../constants';
 import {
   ERROR_CLASSES,
@@ -14,7 +15,13 @@ import {
 } from '../formClasses';
 import { useCompanySignup } from '../hooks/useCompanySignup';
 import { useEmailAvailability } from '../hooks/useEmailAvailability';
-import { isValidBusinessNumber, isValidEmail, isValidPassword, doPasswordsMatch } from '../utils/authFormValidators';
+import {
+  doPasswordsMatch,
+  getPasswordStrength,
+  isValidBusinessNumber,
+  isValidEmail,
+  isValidPassword,
+} from '../utils/authFormValidators';
 import { validateBusinessLicenseFile } from '../utils/validateBusinessLicenseFile';
 import { isCompanySignupFormValid } from '../utils/validateCompanySignupForm';
 
@@ -129,6 +136,7 @@ export function CompanySignupPage() {
                   value={email}
                   onChange={handleEmailChange}
                   autoComplete="username"
+                  placeholder="HajaCheck@check.com"
                 />
                 <button
                   type="button"
@@ -175,6 +183,7 @@ export function CompanySignupPage() {
                   {isPasswordVisible ? '🙈' : '👁'}
                 </button>
               </div>
+              <PasswordStrengthMeter strength={getPasswordStrength(password)} />
               {showValidation && !isValidPassword(password) && (
                 <p className={ERROR_CLASSES}>8자 이상, 영문+숫자를 포함해 주세요.</p>
               )}

@@ -66,6 +66,7 @@ export function FindPasswordPage() {
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 autoComplete="email"
+                placeholder="HajaCheck@check.com"
               />
               {showValidation && !isValidEmail(email) && (
                 <p className={ERROR_CLASSES}>올바른 이메일 형식을 입력해 주세요.</p>
