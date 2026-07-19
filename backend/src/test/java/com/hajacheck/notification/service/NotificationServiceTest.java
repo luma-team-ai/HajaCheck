@@ -3,6 +3,7 @@ package com.hajacheck.notification.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.notification.dto.NotificationResponse;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
 @ExtendWith(MockitoExtension.class)
@@ -39,7 +41,7 @@ class NotificationServiceTest {
         Notification unread = Notification.create(20L, NotificationType.ANALYSIS_DONE, "{\"inspectionId\":1}");
         Notification read = Notification.create(20L, NotificationType.REVIEW_PENDING, null);
         read.markAsRead();
-        when(notificationRepository.findAllByUserIdOrderByCreatedAtDesc(eq(20L), any(Pageable.class)))
+        when(notificationRepository.findAllByUserIdOrderByCreatedAtDescIdDesc(eq(20L), any(Pageable.class)))
                 .thenReturn(List.of(unread, read));
 
         List<NotificationResponse> result = notificationService.getNotifications(20L);
@@ -55,9 +57,24 @@ class NotificationServiceTest {
 
     @Test
     void getNotifications_알림없음_빈목록반환() {
-        when(notificationRepository.findAllByUserIdOrderByCreatedAtDesc(eq(20L), any(Pageable.class)))
+        when(notificationRepository.findAllByUserIdOrderByCreatedAtDescIdDesc(eq(20L), any(Pageable.class)))
                 .thenReturn(List.of());
 
         assertThat(notificationService.getNotifications(20L)).isEmpty();
+    }
+
+    /**
+     * 리뷰 P2-2: any(Pageable.class) 스텁만으로는 실제 페이지 크기(상위 30건)를 검증하지 못한다
+     * — repository에 정확히 PageRequest.of(0, 30)이 전달되는지 직접 고정한다.
+     */
+    @Test
+    void getNotifications_페이지요청은0페이지_30건상한() {
+        when(notificationRepository.findAllByUserIdOrderByCreatedAtDescIdDesc(eq(20L), any(Pageable.class)))
+                .thenReturn(List.of());
+
+        notificationService.getNotifications(20L);
+
+        verify(notificationRepository)
+                .findAllByUserIdOrderByCreatedAtDescIdDesc(eq(20L), eq(PageRequest.of(0, 30)));
     }
 }

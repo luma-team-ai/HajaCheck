@@ -14,6 +14,8 @@ import com.hajacheck.notification.entity.Notification;
 import com.hajacheck.notification.entity.NotificationType;
 import com.hajacheck.notification.repository.NotificationRepository;
 import com.hajacheck.support.PostgresTestSupport;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -24,7 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * GET /api/notifications MVC 통합 테스트(AP-020, HAJA-25 FR-9).
+ * GET /api/notifications MVC 통합 테스트(AP-020, #25 / HAJA-38 FR-9).
  * FacilityControllerTest/MediaControllerTest 와 동일하게 전역 시큐리티 필터체인이
  * ClientRegistrationRepository 를 요구해 @SpringBootTest+MockMvc(+PostgresTestSupport) 로 검증한다.
  */
@@ -96,5 +98,28 @@ class NotificationControllerTest extends PostgresTestSupport {
     void 알림목록조회_미인증_401() throws Exception {
         mockMvc.perform(get("/api/notifications"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * 리뷰 P2-2: 31건을 시드해 정확히 상위 30건만 반환되는지, 최신순(=id desc, P3-1 tie-break)으로
+     * 가장 오래된 1건만 컷되는지 결정적으로 확인한다(createdAt 동률이어도 id desc로 순서가 고정된다).
+     */
+    @Test
+    void 알림목록조회_31건시드_정확히30건_최신순컷() throws Exception {
+        User user = saveUser("notif-owner3@haja.com");
+        List<Long> ids = new ArrayList<>();
+        for (int i = 0; i < 31; i++) {
+            Notification notification = notificationRepository.saveAndFlush(
+                    Notification.create(user.getId(), NotificationType.INSPECTION_DUE, null));
+            ids.add(notification.getId());
+        }
+        long newestId = ids.get(30);
+        long secondOldestId = ids.get(1);
+
+        mockMvc.perform(get("/api/notifications").with(authentication(authOf(user))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(30))
+                .andExpect(jsonPath("$.data[0].id").value(newestId))
+                .andExpect(jsonPath("$.data[29].id").value(secondOldestId));
     }
 }
