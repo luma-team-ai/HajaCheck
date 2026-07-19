@@ -16,6 +16,7 @@ public class NotificationService {
     // 알림 센터는 별도 페이지네이션 UI 없이 최근 이력만 보여주면 되므로(AP-020, PRD FR-9 인앱 폴링
     // 목록), 대시보드 위젯들과 동일하게 상한을 고정한 상위 N건 조회로 충분하다(DashboardService의
     // RECENT_LIMIT 패턴과 동일).
+    // openapi.yaml "GET /api/notifications" 설명의 "상위 30건"과 동기화 유지 — 이 값을 바꾸면 계약도 함께 갱신.
     private static final int LIST_LIMIT = 30;
 
     private final NotificationRepository notificationRepository;
@@ -23,7 +24,7 @@ public class NotificationService {
     /** 로그인 사용자에게 온 알림을 읽음/미읽음 모두 포함해 최신순 상위 {@value #LIST_LIMIT}건 반환한다(AP-020). */
     public List<NotificationResponse> getNotifications(Long userId) {
         return notificationRepository
-                .findAllByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, LIST_LIMIT))
+                .findAllByUserIdOrderByCreatedAtDescIdDesc(userId, PageRequest.of(0, LIST_LIMIT))
                 .stream()
                 .map(NotificationResponse::from)
                 .toList();
