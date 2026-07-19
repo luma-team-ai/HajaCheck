@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   doPasswordsMatch,
+  getPasswordStrength,
   isValidBusinessNumber,
   isValidEmail,
   isValidPassword,
@@ -50,6 +51,30 @@ describe('doPasswordsMatch', () => {
 
   it('둘 다 빈 값이면 false를 반환한다(일치 표시 방지)', () => {
     expect(doPasswordsMatch('', '')).toBe(false);
+  });
+});
+
+describe('getPasswordStrength', () => {
+  it('빈 값이면 null을 반환한다(미표시)', () => {
+    expect(getPasswordStrength('')).toBeNull();
+  });
+
+  it('최소 요건(8자+영문+숫자) 미충족이면 weak를 반환한다', () => {
+    expect(getPasswordStrength('abc123')).toBe('weak'); // 8자 미만
+    expect(getPasswordStrength('abcdefgh')).toBe('weak'); // 숫자 없음
+    expect(getPasswordStrength('12345678')).toBe('weak'); // 영문 없음
+  });
+
+  it('최소 요건 충족·특수문자 없음·12자 미만이면 medium을 반환한다', () => {
+    expect(getPasswordStrength('abcd1234')).toBe('medium');
+  });
+
+  it('12자 이상이면 strong을 반환한다', () => {
+    expect(getPasswordStrength('abcdefgh1234')).toBe('strong');
+  });
+
+  it('특수문자를 포함하면 strong을 반환한다', () => {
+    expect(getPasswordStrength('abcd123!')).toBe('strong');
   });
 });
 

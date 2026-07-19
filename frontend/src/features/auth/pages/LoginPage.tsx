@@ -78,12 +78,13 @@ export function LoginPage() {
         <LoginHeroPanel />
 
         <section className="flex w-full flex-col justify-center gap-8 p-12 lg:w-1/2">
-          <div className="flex gap-8 border-b border-border" role="tablist">
+          {/* 개인/기업 탭 좌우 50/50 분할(#414, Figma #42) — 각 탭이 절반 폭을 차지하고 라벨 중앙정렬 */}
+          <div className="flex border-b border-border" role="tablist">
             <button
               type="button"
               role="tab"
               aria-selected={activeTab === 'personal'}
-              className={`-mb-px border-b-2 px-1 py-3 text-base font-semibold ${
+              className={`-mb-px flex-1 border-b-2 py-3 text-center text-base font-semibold ${
                 activeTab === 'personal' ? 'border-primary text-heading' : 'border-transparent text-text-muted'
               }`}
               onClick={() => setActiveTab('personal')}
@@ -94,7 +95,7 @@ export function LoginPage() {
               type="button"
               role="tab"
               aria-selected={activeTab === 'company'}
-              className={`-mb-px border-b-2 px-1 py-3 text-base font-semibold ${
+              className={`-mb-px flex-1 border-b-2 py-3 text-center text-base font-semibold ${
                 activeTab === 'company' ? 'border-primary text-heading' : 'border-transparent text-text-muted'
               }`}
               onClick={() => setActiveTab('company')}

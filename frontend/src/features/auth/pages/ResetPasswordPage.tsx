@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
+import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
 import { FIND_PASSWORD_ROUTE, LOGIN_ROUTE } from '../constants';
 import {
   ERROR_CLASSES,
@@ -11,7 +12,7 @@ import {
 import { useCsrfPrime } from '../hooks/useCsrfPrime';
 import { useNoReferrer } from '../hooks/useNoReferrer';
 import { usePasswordReset } from '../hooks/usePasswordReset';
-import { doPasswordsMatch, isValidPassword } from '../utils/authFormValidators';
+import { doPasswordsMatch, getPasswordStrength, isValidPassword } from '../utils/authFormValidators';
 import { isResetPasswordFormValid } from '../utils/validateResetPasswordForm';
 
 // 토큰 무효·만료·사용됨 3가지는 계약상 메시지를 통일한다(어느 쪽인지 노출 금지)
@@ -127,6 +128,7 @@ export function ResetPasswordPage() {
                   {isPasswordVisible ? '🙈' : '👁'}
                 </button>
               </div>
+              <PasswordStrengthMeter strength={getPasswordStrength(newPassword)} />
               {showValidation && !isValidPassword(newPassword) && (
                 <p className={ERROR_CLASSES}>8자 이상, 영문+숫자를 포함해 주세요.</p>
               )}
@@ -163,7 +165,7 @@ export function ResetPasswordPage() {
             {errorMessage && <p className={ERROR_CLASSES}>{errorMessage}</p>}
 
             <Button type="submit" size="lg" className="w-full" disabled={isPending}>
-              {isPending ? '변경 중...' : '비밀번호 변경'}
+              {isPending ? '변경 중...' : '변경'}
             </Button>
           </form>
         )}

@@ -3,8 +3,10 @@ import loginHeroImage from '../../../assets/brand/login-hero-illustration.svg';
 import { AuthSignupCta } from './AuthSignupCta';
 
 export function LoginHeroPanel() {
+  // gap-8 — 콘텐츠가 패널 높이를 거의 채워 justify-between만으론 이미지와 하단 가입 CTA가 붙어버린다.
+  // gap으로 최소 간격(32px)을 보장해 이미지 ↔ "기업 통합회원 가입" 사이 공백을 확보한다(#414, Figma #39).
   return (
-    <section className="hidden w-1/2 flex-col justify-between border-r border-border p-12 lg:flex">
+    <section className="hidden w-1/2 flex-col justify-between gap-8 border-r border-border p-12 lg:flex">
       <div className="flex flex-col gap-6">
         <div className="flex items-center gap-2">
           <img src={brandMark} alt="" className="h-[25px] w-[25px] object-contain" />
