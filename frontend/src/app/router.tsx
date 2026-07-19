@@ -75,6 +75,13 @@ const FacilityListPage = lazy(() =>
   })),
 );
 
+// 고객지원 > AI 어시스턴트 (dev-08-01, HAJA-32, FR-6 RAG 법규 Q&A)
+const AiAssistantPage = lazy(() =>
+  import('../features/support/pages/AiAssistantPage').then((m) => ({
+    default: m.AiAssistantPage,
+  })),
+);
+
 export const router = createBrowserRouter([
   {
     path: '/',
@@ -215,6 +222,18 @@ export const router = createBrowserRouter([
           activeHref: '/admin/users',
         },
       }, // — features/admin (Figma node 177-2017)
+      {
+        path: '/support/ai-assistant',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <AiAssistantPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '고객지원' }, { label: 'AI 어시스턴트' }],
+          activeHref: '/support/ai-assistant',
+        },
+      }, // — features/support (dev-08-01, HAJA-32, FR-6)
     ],
   },
   {
