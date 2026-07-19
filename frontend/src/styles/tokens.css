@@ -24,6 +24,27 @@
   --color-neutral-100: #e4e4e7; /* Figma 공통 보더 컬러 */
   --color-border: #e4e4e7; /* Figma 공통 보더 컬러 (Pagination, 카드 등) */
 
+  /* Status & Info — soft 시리즈 (분석뷰어 #249) */
+  --color-info-soft-bg: #eff6ff; /* 상태 pill 배경 */
+  --color-info-soft-fg: #2563eb; /* 상태 pill 텍스트/점 */
+
+  /* Surface variations — 분석뷰어 (#249) */
+  --color-surface-sunken: #f4f4f5; /* 이미지뷰어 배경 */
+
+  /* Warning — soft 시리즈 (#249 분석요약 노트) */
+  --color-warning-soft-border: #fef9c3; /* 분석요약 노트 보더 */
+  --color-warning-soft-bg: #fefce8; /* 분석요약 노트 배경 */
+  --color-warning-soft-fg: #854d0e; /* 분석요약 노트 텍스트 */
+
+  /* Danger — soft 시리즈 (#249 오탐삭제 버튼) */
+  --color-danger-soft-bg: #fef2f2; /* 오탐삭제 버튼 배경 */
+  --color-danger-soft-border: #fecaca; /* 오탐삭제 버튼 보더 */
+  --color-danger-soft-hover: #fee2e2; /* 오탐삭제 버튼 호버 배경 */
+
+  /* Selection — 분석뷰어 마커 하이라이트 (#249 DefectOverlay) */
+  --color-selection: #d946ef; /* 하자 선택 마커 */
+  --color-selection-soft-bg: rgba(217, 70, 239, 0.1); /* 하자 선택 배경 */
+
   /* Overlay */
   --color-overlay: rgba(0, 0, 0, 0.5); /* Modal 오버레이 배경 */
 }

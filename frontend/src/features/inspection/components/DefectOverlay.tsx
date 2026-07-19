@@ -22,18 +22,18 @@ export function DefectOverlay({ media, defects, selectedId, onSelect }: DefectOv
             onClick={() => onSelect?.(defect.id)}
             title={`${defect.type} · ${defect.grade}등급 · confidence ${Math.round(defect.confidence * 100)}%`}
             className={`absolute box-border cursor-pointer rounded-sm transition-all ${
-              isSelected ? 'border-2 border-[#d946ef] ring-2 ring-[#d946ef] ring-opacity-30' : 'border-2 border-[#d946ef]'
+              isSelected ? 'border-2 border-selection ring-2 ring-selection ring-opacity-30' : 'border-2 border-selection'
             }`}
             style={{
               left: `${defect.bbox.x * 100}%`,
               top: `${defect.bbox.y * 100}%`,
               width: `${defect.bbox.width * 100}%`,
               height: `${defect.bbox.height * 100}%`,
-              backgroundColor: 'rgba(217,70,239,0.1)',
+              backgroundColor: 'var(--color-selection-soft-bg)',
             }}
           >
             {isSelected && (
-              <span className="absolute left-0 top-0 -translate-y-full whitespace-nowrap bg-[#d946ef] px-[8px] py-[4px] text-[12px] font-semibold text-white">
+              <span className="absolute left-0 top-0 -translate-y-full whitespace-nowrap bg-selection px-[8px] py-[4px] text-[12px] font-semibold text-white">
                 {defect.type} {defect.widthMm}mm
               </span>
             )}
