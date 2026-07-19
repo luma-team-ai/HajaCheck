@@ -16,9 +16,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 하자 목록·상세 조회(HAJA-30, 1단계 read only) — 모든 조회는 owner(로그인 사용자)가 소유한
+ * 하자 목록·상세 조회 및 상태 전이(HAJA-30) — 모든 조회/변경은 owner(로그인 사용자)가 소유한
  * facilities.owner_id 범위로만 제한한다(cross-owner IDOR 방지, facility 도메인과 동일 원칙).
- * 상태 전이(changeStatus)는 이번 범위 밖 — 별도 이슈에서 다룬다.
+ * 상태 전이 순서(신규→검수확정→조치대기→조치중→조치완료) 강제는 Defect#changeStatus 가 담당한다.
  */
 @Service
 @Transactional(readOnly = true)
@@ -36,6 +36,14 @@ public class DefectService {
     public DefectResponse get(Long ownerId, Long defectId) {
         Defect defect = defectRepository.findByIdAndOwnerId(defectId, ownerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
+        return DefectResponse.from(defect);
+    }
+
+    @Transactional
+    public DefectResponse updateStatus(Long ownerId, Long defectId, DefectStatus status) {
+        Defect defect = defectRepository.findByIdAndOwnerId(defectId, ownerId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
+        defect.changeStatus(status);
         return DefectResponse.from(defect);
     }
 }
