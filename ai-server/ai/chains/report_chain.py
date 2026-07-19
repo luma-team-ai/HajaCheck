@@ -258,18 +258,17 @@ def _run_detail_chain(confirmed_defects: list[dict]) -> ReportDetail:
 # ── recommendation (+ RAG, vectorstore 미구현 시 "관련 근거 없음" 폴백) ──
 
 def _retrieve_legal_basis_context(confirmed_defects: list[dict]) -> str:
-    """Chroma regulations 컬렉션 검색. get_vectorstore()가 아직 NotImplementedError 스텁이거나
-    그 어떤 이유로든 검색 경로가 실패하면, design 문서가 이미 정의한 "0건 검색" 케이스와
+    """Chroma regulations 컬렉션 LangChain similarity_search로 검색.
+    검색 경로가 어떤 이유로든 실패하면, design 문서가 이미 정의한 "0건 검색" 케이스와
     동일하게 취급 — 빈 컨텍스트를 반환하고 체인은 정상 진행한다(요청 전체를 실패시키지 않음).
-    vectorstore.py가 나중에 실제 구현되면 이 함수는 코드 변경 없이 실제 검색 결과를 그대로 흘려보낸다.
     """
     try:
         vectorstore = get_vectorstore(COLLECTION_REGULATIONS)
         query = " ".join(sorted({str(d.get("defect_type", "")) for d in confirmed_defects if d.get("defect_type")}))
         docs = vectorstore.similarity_search(query, k=3)
     except NotImplementedError as e:
-        # 현재 예상된 상태(vectorstore.py 미구현) — 소음 방지 위해 info, 하지만 로그는 남긴다
-        logger.info("vectorstore 미구현(NotImplementedError) — 검색 결과 없음으로 폴백: %s", e)
+        # 방어적 코드 — vectorstore 구현 이후 발생 가능성은 낮지만 폴백 처리
+        logger.info("vectorstore NotImplementedError — 검색 결과 없음으로 폴백: %s", e)
         return ""
     except Exception as e:  # noqa: BLE001 — vectorstore 실구현 이후의 검색/연결 실패까지 폴백 대상으로 폭넓게 잡되,
         # 아래 프로그래밍 오류(잘못된 인자·타입·존재하지 않는 속성 등)는 "검색 실패"가 아니라 코드 버그일
