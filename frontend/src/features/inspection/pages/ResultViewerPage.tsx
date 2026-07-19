@@ -74,13 +74,13 @@ export function ResultViewerPage() {
                 gradeFilter.includes(grade)
                   ? 'bg-primary text-surface'
                   : 'border border-border bg-white text-text-default'
-              } peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:outline-none`}
+              } has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary has-[:focus-visible]:outline-none`}
             >
               <input
                 type="checkbox"
                 checked={gradeFilter.includes(grade)}
                 onChange={() => handleGradeToggle(grade)}
-                className="sr-only peer"
+                className="sr-only"
               />
               {grade}
             </label>
@@ -138,22 +138,16 @@ export function ResultViewerPage() {
 
             {/* Action Buttons */}
             {/* TODO: 백엔드 구현(#16 오탐 수정·등급 조정, #17 하자 상태머신) 후 활성화 — #249 후속 이슈 */}
-            <div className="flex items-center gap-3">
-              <Button
-                type="button"
-                variant="secondary"
-                size="lg"
-                className="flex-[3] border border-danger-soft-border bg-danger-soft-bg text-text-default hover:bg-danger-soft-hover"
-                disabled
-              >
-                오탐 삭제
-              </Button>
-              {visibleDefects.length > 0 && (
+            {visibleDefects.length > 0 && (
+              <div className="flex items-center gap-3">
+                <Button type="button" variant="danger-soft" size="lg" className="flex-[3]" disabled>
+                  오탐 삭제
+                </Button>
                 <Button type="button" variant="primary" size="lg" className="flex-[7]" disabled>
                   이 이미지 검수 확정
                 </Button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
 
