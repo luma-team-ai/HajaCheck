@@ -41,8 +41,13 @@ function renderPage() {
 }
 
 function fillValidForm() {
+  // 기본 상태는 도메인 직접입력 모드(#417) — 로컬파트 라벨(기존 계약 유지) + 직접입력 도메인 input
+  // 두 곳을 채워야 기존과 동일한 'new-company@check.com' 조합 이메일이 만들어진다.
   fireEvent.change(screen.getByLabelText('아이디(이메일)'), {
-    target: { value: 'new-company@check.com' },
+    target: { value: 'new-company' },
+  });
+  fireEvent.change(screen.getByLabelText('이메일 도메인 직접입력'), {
+    target: { value: 'check.com' },
   });
   fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'abcd1234' } });
   fireEvent.change(screen.getByLabelText('비밀번호 재입력'), { target: { value: 'abcd1234' } });
