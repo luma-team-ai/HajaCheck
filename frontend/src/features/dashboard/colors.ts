@@ -45,6 +45,14 @@ export const DASHBOARD_COLOR_CLASS = {
   statusBadgeGreen: 'bg-[#e3f5e6] text-[#16a34a]',
   /** 등급 미분류 배지 배경 — BE PendingPriorityResponse.grade가 null일 때(HAJA-17 dev-03-01 DTO 정합) */
   gradeUnknownBg: 'bg-[#9ca3af]',
+  /** 최근 점검 테이블 행 hover — 시안 rose #F8F2FA (선택 안 된 행에만, zebra even:bg 위에 얹힘) */
+  rowHoverBg: 'hover:bg-[#f8f2fa]',
+  /** 선택된 행 배경 — hover와 동일 rose #F8F2FA (선택 행엔 zebra even:bg 미적용) */
+  rowSelectedBg: 'bg-[#f8f2fa]',
+  /** 선택 행 좌측 강조 바 — 첫 칸 inset box-shadow #9333ea */
+  rowSelectedBar: 'shadow-[inset_3px_0_0_#9333ea]',
+  /** 행 키보드 포커스 아웃라인 #9333ea (focus-visible, 임의 프로퍼티 리터럴) */
+  rowFocusOutline: 'focus-visible:[outline:2px_solid_#9333ea] focus-visible:[outline-offset:-2px]',
 } as const;
 
 /**
