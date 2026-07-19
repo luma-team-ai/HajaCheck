@@ -148,11 +148,7 @@ export function ResultViewerPage() {
               >
                 오탐 삭제
               </Button>
-              {visibleDefects.length > 0 ? (
-                <Button type="button" variant="primary" size="lg" className="flex-[7]" disabled>
-                  이 이미지 검수 확정
-                </Button>
-              ) : (
+              {visibleDefects.length > 0 && (
                 <Button type="button" variant="primary" size="lg" className="flex-[7]" disabled>
                   이 이미지 검수 확정
                 </Button>
