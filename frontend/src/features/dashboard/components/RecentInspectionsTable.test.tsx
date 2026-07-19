@@ -168,12 +168,13 @@ describe('RecentInspectionsTable', () => {
     expect(tabbable.length).toBe(1);
   });
 
-  it('완전한 grid 상호작용 패턴이므로 role=grid/gridcell을 노출한다', () => {
+  it('표에 접근성 이름(aria-label)을 부여한다', () => {
     mockData(SAMPLE);
     render(<RecentInspectionsTable />);
 
-    expect(screen.getByRole('grid')).toBeTruthy();
-    expect(screen.getAllByRole('gridcell').length).toBe(SAMPLE.length * 5);
+    // 행 단위 roving + aria-selected와 일치하도록 암시적 table role 유지(grid 승격 안 함)
+    expect(screen.getByRole('table', { name: '최근 점검 목록' })).toBeTruthy();
+    expect(screen.queryByRole('grid')).toBeNull();
   });
 
   it('데이터가 비어 있으면 안내 문구를 렌더링한다', () => {

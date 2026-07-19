@@ -75,7 +75,7 @@ export function RecentInspectionsTable() {
 
       {!isLoading && !isError && data && data.length > 0 && (
         <div className="overflow-x-auto">
-          <table role="grid" aria-label="최근 점검 목록" className="w-full border-collapse text-[13px]">
+          <table aria-label="최근 점검 목록" className="w-full border-collapse text-[13px]">
             <thead>
               <tr>
                 <th className={`${TH_BASE_CLASS} rounded-tl-lg rounded-bl-lg`}>시설물</th>
@@ -106,17 +106,16 @@ export function RecentInspectionsTable() {
                     onKeyDown={(e) => handleRowKeyDown(e, index, item.id)}
                   >
                     <td
-                      role="gridcell"
                       className={`${TD_CLASS}${
                         isSelected ? ` ${DASHBOARD_COLOR_CLASS.rowSelectedBar}` : ''
                       }`}
                     >
                       {item.facilityName}
                     </td>
-                    <td role="gridcell" className={TD_CLASS}>{item.inspectedAt}</td>
-                    <td role="gridcell" className={TD_CLASS}>{item.inspector}</td>
-                    <td role="gridcell" className={TD_CLASS}>{item.defectCount}건</td>
-                    <td role="gridcell" className={TD_CLASS}>
+                    <td className={TD_CLASS}>{item.inspectedAt}</td>
+                    <td className={TD_CLASS}>{item.inspector}</td>
+                    <td className={TD_CLASS}>{item.defectCount}건</td>
+                    <td className={TD_CLASS}>
                       <StatusBadge status={item.status} />
                     </td>
                   </tr>
