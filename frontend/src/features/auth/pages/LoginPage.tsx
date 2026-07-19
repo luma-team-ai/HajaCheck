@@ -77,6 +77,9 @@ export function LoginPage() {
       <div className="flex w-full max-w-[1080px] overflow-hidden rounded-[20px] border border-border bg-surface shadow-sm">
         <LoginHeroPanel />
 
+        {/* justify-center로 탭+폼+하단링크 뭉텡이를 세로 중앙(상단보다 아래)에 두되, 탭 콘텐츠에
+            min-h를 줘 개인(소셜)·기업(폼) 두 탭의 높이를 동일하게 맞춘다 — 높이 차로 블록이
+            재중앙정렬돼 탭 위치가 흔들리던 문제를 막는다(#421, 최초 요청 "탭 위치 고정"). */}
         <section className="flex w-full flex-col justify-center gap-8 p-12 lg:w-1/2">
           {/* 개인/기업 탭 좌우 50/50 분할(#414, Figma #42) — 각 탭이 절반 폭을 차지하고 라벨 중앙정렬 */}
           <div className="flex border-b border-border" role="tablist">
@@ -104,7 +107,11 @@ export function LoginPage() {
             </button>
           </div>
 
-          {activeTab === 'personal' ? <PersonalLoginTab /> : <CompanyLoginTab />}
+          {/* min-h로 두 탭 콘텐츠 높이를 통일(개인 182 / 기업 304 실측 → 기업 기준) — 탭 전환 시
+              블록 높이가 고정돼 탭 위치가 흔들리지 않는다(#421). 하단 링크는 폼에 붙어 함께 내려간다. */}
+          <div className="min-h-[304px]">
+            {activeTab === 'personal' ? <PersonalLoginTab /> : <CompanyLoginTab />}
+          </div>
 
           {/* lg 미만(1024px 미만)에서는 LoginHeroPanel 전체가 hidden이라, 그 안에만 있는
               "기업 통합회원 가입"·"개인 회원가입" 진입점이 화면에서 완전히 사라진다(PR #297 P2).
