@@ -98,12 +98,13 @@ export default function LandingPage() {
       <section id="facility-info" className="landing-section">
         <p className="landing-eyebrow">FACILITY INFORMATION MANAGEMENT</p>
         <h2>
-          모든 시설물 데이터를 한 곳에서 완벽
+          모든 시설물 데이터를 한 곳에서
           <br />
-          하게
+          완벽하게
         </h2>
-        <p>
-          도면, 센서 데이터, 점검 이력 등 흩어져 있는 시설물 정보를 한 곳에 통합해 언제든 쉽게
+        <p style={{ maxWidth: 760 }}>
+          도면, 센서 데이터, 점검 이력 등 흩어져 있는 시설물 정보를 중앙 집중화하여 언제 어디서나 쉽게
+          <br />
           접근하고 관리하세요. 최신 BIM 연동을 지원합니다.
         </p>
         <div className="landing-visual" />
@@ -127,8 +128,9 @@ export default function LandingPage() {
           미세한 결함
         </h2>
         <p>
-          드론 촬영 이미지나 현장 사진을 업로드하면, AI 비전 기술이 균열, 누수, 박락 등 미세한
-          하자를 자동으로 탐지하고 심각도를 분류합니다.
+          드론 촬영 이미지나 현장 사진을 업로드하면, AI 비전 기술이 균열, 누수, 박락 등{' '}
+          <span style={{ whiteSpace: 'nowrap' }}>육안으로 놓치기</span> 쉬운 하자를 자동으로
+          분석하고 심각도를 분류합니다.
         </p>
         <div className="landing-badge-row">
           <span className="landing-pill landing-pill--danger">
