@@ -3,6 +3,11 @@
   --landing-text-secondary: #47464b;
   --landing-accent: rgba(79, 70, 229, 0.8); /* #4F46E5 @ 80% opacity */
   --landing-border: #e4e4e7;
+  --landing-radius-pill: 999px;
+  /* 대시보드/지도뷰 GRADE_BG_CLASS(dashboard/colors.ts) E·C 등급과 동일한 값 — 공용 토큰 승격은
+     프로젝트 컨벤션상 금지(colors.ts 주석 참조)이므로 랜딩 내에서만 로컬로 명명해 재사용 */
+  --landing-grade-high: #dc2626;
+  --landing-grade-medium: #eab308;
 }
 
 .landing-header {
@@ -49,7 +54,7 @@
 .landing-login {
   background: #000;
   color: #fff;
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   padding: 12px 24px;
   font-size: 16px;
   font-weight: 600;
@@ -66,7 +71,7 @@
 .landing-badge {
   display: inline-block;
   padding: 6px 16px;
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   background: #f2f2f2;
   font-size: 13px;
   font-weight: 600;
@@ -97,7 +102,7 @@
   display: inline-block;
   background: #000;
   color: #fff;
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   padding: 17px 48px;
   font-size: 18px;
   font-weight: 600;
@@ -202,12 +207,22 @@
 }
 
 .landing-section p:not(.landing-eyebrow),
-.landing-pricing > p:not(.landing-eyebrow) {
+.landing-pricing > p:not(.landing-eyebrow),
+.landing-banner p {
   color: var(--landing-text-secondary);
   font-size: 20px;
   line-height: 1.6;
   margin: 0 auto;
   max-width: 680px;
+}
+
+.landing-section p.landing-p--wide {
+  max-width: 760px;
+}
+
+/* 한글은 UAX#14 줄바꿈 규칙상 nbsp만으로 단어 사이 줄바꿈을 막을 수 없어 nowrap을 강제한다 */
+.landing-nowrap {
+  white-space: nowrap;
 }
 
 .landing-badge-row {
@@ -218,7 +233,7 @@
 }
 
 .landing-pill {
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   padding: 6px 14px;
   font-size: 13px;
   font-weight: 600;
@@ -236,11 +251,11 @@
 }
 
 .landing-pill--danger .landing-pill-dot {
-  color: #dc2626;
+  color: var(--landing-grade-high);
 }
 
 .landing-pill--warning .landing-pill-dot {
-  color: #eab308;
+  color: var(--landing-grade-medium);
 }
 
 .landing-visual {
@@ -293,7 +308,7 @@
   font-size: 11px;
   font-weight: 700;
   padding: 6px 14px;
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   white-space: nowrap;
 }
 
@@ -352,7 +367,7 @@
   justify-content: center;
   width: 18px;
   height: 18px;
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   border: 1.5px solid var(--landing-accent);
   color: var(--landing-accent);
   font-size: 11px;
@@ -381,7 +396,7 @@
 .landing-pricing-cta {
   display: block;
   text-align: center;
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   padding: 12px;
   font-size: 14px;
   font-weight: 600;
@@ -404,11 +419,6 @@
   border-radius: 32px;
 }
 
-.landing-banner p {
-  color: var(--landing-text-secondary);
-  font-size: 20px;
-}
-
 .landing-floating-controls {
   position: fixed;
   right: 32px;
@@ -422,7 +432,7 @@
 .landing-floating-controls button {
   width: 36px;
   height: 36px;
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   border: none;
   background: #000;
   color: #fff;

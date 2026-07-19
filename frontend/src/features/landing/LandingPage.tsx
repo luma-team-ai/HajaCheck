@@ -102,7 +102,7 @@ export default function LandingPage() {
           <br />
           완벽하게
         </h2>
-        <p style={{ maxWidth: 760 }}>
+        <p className="landing-p--wide">
           도면, 센서 데이터, 점검 이력 등 흩어져 있는 시설물 정보를 중앙 집중화하여 언제 어디서나 쉽게
           <br />
           접근하고 관리하세요. 최신 BIM 연동을 지원합니다.
@@ -129,7 +129,7 @@ export default function LandingPage() {
         </h2>
         <p>
           드론 촬영 이미지나 현장 사진을 업로드하면, AI 비전 기술이 균열, 누수, 박락 등{' '}
-          <span style={{ whiteSpace: 'nowrap' }}>육안으로 놓치기</span> 쉬운 하자를 자동으로
+          <span className="landing-nowrap">육안으로 놓치기</span> 쉬운 하자를 자동으로
           분석하고 심각도를 분류합니다.
         </p>
         <div className="landing-badge-row">
