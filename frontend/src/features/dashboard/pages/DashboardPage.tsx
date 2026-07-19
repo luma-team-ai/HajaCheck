@@ -21,7 +21,7 @@ export function DashboardPage() {
         <h1 className="dashboard-page-title">대시보드</h1>
         <button
           type="button"
-          className="bg-[#111] text-white border-none rounded-[10px] py-2.5 px-4.5 text-sm font-semibold cursor-pointer"
+          className="bg-[#111] text-white border-none rounded-full py-2.5 px-4.5 text-sm font-semibold cursor-pointer"
           onClick={handleStartNewInspection}
         >
           + 새 점검 시작
