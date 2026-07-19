@@ -13,3 +13,6 @@ export const LOGIN_ROUTE = '/login';
 
 /** 인증은 됐으나 권한이 없을 때(AdminRoute·ProtectedRoute allowedRoles 불충족) 되돌려보낼 기본 화면 */
 export const DASHBOARD_ROUTE = '/dashboard';
+
+/** 랜딩(홈) — 로그인 화면 로고 클릭 등 공개 진입점(#421). router.tsx 루트 경로와 일치 */
+export const LANDING_ROUTE = '/';
