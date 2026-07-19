@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { DASHBOARD_COLOR_CLASS } from '../colors';
 import { useRecentInspections } from '../hooks/useRecentInspections';
 import { StatusBadge } from './StatusBadge';
@@ -18,6 +18,43 @@ export function RecentInspectionsTable() {
   // 선택된 행 id — 같은 행을 다시 선택하면 해제(토글)
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const toggleSelect = (id: number) => setSelectedId((prev) => (prev === id ? null : id));
+
+  // 키보드 내비게이션(roving tabindex) — 행 그룹의 Tab 정지점을 1개로 유지하고 방향키로 이동.
+  const rowCount = data?.length ?? 0;
+  const [focusedIndex, setFocusedIndex] = useState(0);
+  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  const focusRow = (index: number) => {
+    const clamped = Math.max(0, Math.min(index, rowCount - 1));
+    setFocusedIndex(clamped);
+    rowRefs.current[clamped]?.focus();
+  };
+  const handleRowKeyDown = (e: React.KeyboardEvent<HTMLTableRowElement>, index: number, id: number) => {
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        focusRow(index + 1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        focusRow(index - 1);
+        break;
+      case 'Home':
+        e.preventDefault();
+        focusRow(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        focusRow(rowCount - 1);
+        break;
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        toggleSelect(id);
+        break;
+      default:
+        break;
+    }
+  };
 
   return (
     <section className="dashboard-card">
@@ -47,23 +84,24 @@ export function RecentInspectionsTable() {
               </tr>
             </thead>
             <tbody>
-              {data.map((item) => {
+              {data.map((item, index) => {
                 const isSelected = selectedId === item.id;
                 return (
                   <tr
                     key={item.id}
+                    ref={(el) => {
+                      rowRefs.current[index] = el;
+                    }}
                     className={`${ROW_BASE_CLASS} ${
                       isSelected ? ROW_SELECTED_CLASS : ROW_UNSELECTED_CLASS
                     }`}
                     aria-selected={isSelected}
-                    tabIndex={0}
-                    onClick={() => toggleSelect(item.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        toggleSelect(item.id);
-                      }
+                    tabIndex={index === focusedIndex ? 0 : -1}
+                    onClick={() => {
+                      setFocusedIndex(index);
+                      toggleSelect(item.id);
                     }}
+                    onKeyDown={(e) => handleRowKeyDown(e, index, item.id)}
                   >
                     <td
                       className={`${TD_CLASS}${

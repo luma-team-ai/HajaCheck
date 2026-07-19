@@ -103,11 +103,50 @@ describe('RecentInspectionsTable', () => {
     expect(rowOf('B동').getAttribute('aria-selected')).toBe('true');
   });
 
-  it('각 행은 키보드 포커스가 가능하다(tabIndex=0)', () => {
+  it('roving tabindex — 초기엔 첫 행만 Tab 정지점(0), 나머지는 -1', () => {
     mockData(SAMPLE);
     render(<RecentInspectionsTable />);
 
     expect(rowOf('A동').getAttribute('tabindex')).toBe('0');
+    expect(rowOf('B동').getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('ArrowDown으로 포커스가 다음 행으로 이동한다(roving)', () => {
+    mockData(SAMPLE);
+    render(<RecentInspectionsTable />);
+
+    fireEvent.keyDown(rowOf('A동'), { key: 'ArrowDown' });
+
+    expect(rowOf('A동').getAttribute('tabindex')).toBe('-1');
+    expect(rowOf('B동').getAttribute('tabindex')).toBe('0');
+  });
+
+  it('ArrowUp/Home/End로 포커스 행이 이동하며 경계를 넘지 않는다', () => {
+    mockData(SAMPLE);
+    render(<RecentInspectionsTable />);
+
+    // End → 마지막 행
+    fireEvent.keyDown(rowOf('A동'), { key: 'End' });
+    expect(rowOf('B동').getAttribute('tabindex')).toBe('0');
+    // 마지막에서 ArrowDown → 그대로 유지(경계)
+    fireEvent.keyDown(rowOf('B동'), { key: 'ArrowDown' });
+    expect(rowOf('B동').getAttribute('tabindex')).toBe('0');
+    // Home → 첫 행
+    fireEvent.keyDown(rowOf('B동'), { key: 'Home' });
+    expect(rowOf('A동').getAttribute('tabindex')).toBe('0');
+    // 첫 행에서 ArrowUp → 그대로 유지(경계)
+    fireEvent.keyDown(rowOf('A동'), { key: 'ArrowUp' });
+    expect(rowOf('A동').getAttribute('tabindex')).toBe('0');
+  });
+
+  it('방향키 이동은 선택 상태를 바꾸지 않는다(포커스와 선택 분리)', () => {
+    mockData(SAMPLE);
+    render(<RecentInspectionsTable />);
+
+    fireEvent.keyDown(rowOf('A동'), { key: 'ArrowDown' });
+
+    expect(rowOf('A동').getAttribute('aria-selected')).toBe('false');
+    expect(rowOf('B동').getAttribute('aria-selected')).toBe('false');
   });
 
   it('데이터가 비어 있으면 안내 문구를 렌더링한다', () => {
