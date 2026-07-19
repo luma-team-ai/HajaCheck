@@ -1,7 +1,14 @@
 import { Cell, Legend, Pie, PieChart as RechartsPieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { ChartEmptyState } from './ChartEmptyState';
 import { CHART_LEGEND_STYLE, CHART_SERIES_COLORS, CHART_TOOLTIP_STYLE } from './palette';
-import type { ChartBaseProps, ChartCategoryKey, ChartNumericKey } from './types';
+import {
+  DEFAULT_CHART_EMPTY_MESSAGE,
+  DEFAULT_CHART_HEIGHT,
+  wrapTooltipFormatter,
+  type ChartBaseProps,
+  type ChartCategoryKey,
+  type ChartNumericKey,
+} from './types';
 
 interface PieChartProps<T extends object> extends ChartBaseProps {
   data: T[];
@@ -19,9 +26,6 @@ interface PieChartProps<T extends object> extends ChartBaseProps {
   showLegend?: boolean;
 }
 
-const DEFAULT_HEIGHT = 300;
-const DEFAULT_EMPTY_MESSAGE = '표시할 데이터가 없습니다.';
-
 /** 공통 스타일(색상 팔레트·툴팁·폰트)이 적용된 얇은 recharts PieChart 래퍼. */
 export function PieChart<T extends object>({
   data,
@@ -29,8 +33,8 @@ export function PieChart<T extends object>({
   nameKey,
   itemKey,
   ariaLabel,
-  height = DEFAULT_HEIGHT,
-  emptyMessage = DEFAULT_EMPTY_MESSAGE,
+  height = DEFAULT_CHART_HEIGHT,
+  emptyMessage = DEFAULT_CHART_EMPTY_MESSAGE,
   valueFormatter,
   colors,
   innerRadius = 0,
@@ -66,10 +70,7 @@ export function PieChart<T extends object>({
               <Cell key={String(item[itemKey])} fill={palette[index % palette.length]} />
             ))}
           </Pie>
-          <Tooltip
-            {...CHART_TOOLTIP_STYLE}
-            formatter={valueFormatter ? (value) => (value === undefined ? '' : valueFormatter(value)) : undefined}
-          />
+          <Tooltip {...CHART_TOOLTIP_STYLE} formatter={wrapTooltipFormatter(valueFormatter)} />
           {showLegend && <Legend wrapperStyle={CHART_LEGEND_STYLE} />}
         </RechartsPieChart>
       </ResponsiveContainer>

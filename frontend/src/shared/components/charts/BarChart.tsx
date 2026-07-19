@@ -17,7 +17,14 @@ import {
   CHART_SERIES_COLORS,
   CHART_TOOLTIP_STYLE,
 } from './palette';
-import type { ChartBaseProps, ChartCategoryKey, ChartSeries } from './types';
+import {
+  DEFAULT_CHART_EMPTY_MESSAGE,
+  DEFAULT_CHART_HEIGHT,
+  wrapTooltipFormatter,
+  type ChartBaseProps,
+  type ChartCategoryKey,
+  type ChartSeries,
+} from './types';
 
 interface BarChartProps<T extends object> extends ChartBaseProps {
   data: T[];
@@ -30,17 +37,14 @@ interface BarChartProps<T extends object> extends ChartBaseProps {
   showLegend?: boolean;
 }
 
-const DEFAULT_HEIGHT = 300;
-const DEFAULT_EMPTY_MESSAGE = '표시할 데이터가 없습니다.';
-
 /** 공통 스타일(색상 팔레트·툴팁·폰트)이 적용된 얇은 recharts BarChart 래퍼. */
 export function BarChart<T extends object>({
   data,
   xKey,
   series,
   ariaLabel,
-  height = DEFAULT_HEIGHT,
-  emptyMessage = DEFAULT_EMPTY_MESSAGE,
+  height = DEFAULT_CHART_HEIGHT,
+  emptyMessage = DEFAULT_CHART_EMPTY_MESSAGE,
   valueFormatter,
   showGrid = true,
   showLegend = true,
@@ -66,7 +70,7 @@ export function BarChart<T extends object>({
           <Tooltip
             {...CHART_TOOLTIP_STYLE}
             cursor={{ fill: CHART_COLORS.surfaceMuted }}
-            formatter={valueFormatter ? (value) => (value === undefined ? '' : valueFormatter(value)) : undefined}
+            formatter={wrapTooltipFormatter(valueFormatter)}
           />
           {showLegend && <Legend wrapperStyle={CHART_LEGEND_STYLE} />}
           {series.map((s, index) => (

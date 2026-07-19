@@ -1,5 +1,6 @@
 import { ChartEmptyState } from './ChartEmptyState';
 import { CHART_COLORS } from './palette';
+import { DEFAULT_CHART_EMPTY_MESSAGE } from './types';
 
 export interface DistributionSegment {
   /** React key 및 범례 매칭용 고유 식별자 */
@@ -24,7 +25,6 @@ interface DistributionBarProps {
 }
 
 const DEFAULT_HEIGHT = 14;
-const DEFAULT_EMPTY_MESSAGE = '표시할 데이터가 없습니다.';
 
 /**
  * 등급 분포 등 "전체 대비 비율"을 하나의 가로 바로 보여주는 공용 세그먼트 바.
@@ -36,7 +36,7 @@ export function DistributionBar({
   ariaLabel,
   height = DEFAULT_HEIGHT,
   showLegend = true,
-  emptyMessage = DEFAULT_EMPTY_MESSAGE,
+  emptyMessage = DEFAULT_CHART_EMPTY_MESSAGE,
 }: DistributionBarProps) {
   const hasRenderableValue = segments.some((segment) => segment.percent > 0);
 
