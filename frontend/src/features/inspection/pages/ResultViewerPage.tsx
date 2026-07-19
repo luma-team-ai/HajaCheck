@@ -172,10 +172,21 @@ export function ResultViewerPage() {
                     {Math.round(selected.confidence * 100)}%
                   </div>
                 </div>
-                <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
-                  <div className="mb-2 text-xs text-text-muted">예상 깊이</div>
-                  <div className="text-xl font-bold text-text-default">{selected.depthMm}mm</div>
-                </div>
+                {/* 유형별 정량 실측 지표 — 균열은 선형(폭/길이 mm), 박리박락·철근노출은 면적형(마스크 면적 비율)
+                    (하자_심각도_등급_규칙.md §3.2, PRD v0.42 탐지 클래스 3종 확정) */}
+                {selected.type === '균열' ? (
+                  <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
+                    <div className="mb-2 text-xs text-text-muted">예상 길이</div>
+                    <div className="text-xl font-bold text-text-default">{selected.lengthMm}mm</div>
+                  </div>
+                ) : (
+                  <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
+                    <div className="mb-2 text-xs text-text-muted">면적 비율</div>
+                    <div className="text-xl font-bold text-text-default">
+                      {Math.round((selected.areaRatio ?? 0) * 100)}%
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Summary Note */}
