@@ -15,7 +15,9 @@ public class AiServerProperties {
     private String baseUrl;
     private String internalKey;
     private long connectTimeoutMs = 3000;
-    private long readTimeoutMs = 60000;
+    // HF Inference(Qwen3 reasoning) 정상 응답이 최대 HF_TIMEOUT(기본 120s)까지 걸릴 수 있어
+    // application.yml 미설정 시 기본 폴백도 그보다 크게 유지한다(#448 P1). 실제값은 application.yml.
+    private long readTimeoutMs = 150000;
 
     public String getBaseUrl() {
         return baseUrl;

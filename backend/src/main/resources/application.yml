@@ -102,7 +102,9 @@ ai:
     base-url: ${AI_SERVER_BASE_URL:http://localhost:8000}
     internal-key: ${AI_SERVER_INTERNAL_KEY:}
     connect-timeout-ms: 3000
-    read-timeout-ms: 60000
+    # HF Inference(Qwen3 reasoning)는 정상 응답에도 최대 HF_TIMEOUT(기본 120s)까지 걸릴 수 있어,
+    # read-timeout이 그보다 작으면 Spring이 먼저 끊어 정상 응답조차 실패 처리된다(#448 P1). 여유분 포함 150s.
+    read-timeout-ms: 150000
 
 management:
   endpoints:
