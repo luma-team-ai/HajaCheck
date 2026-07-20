@@ -7,6 +7,10 @@ export interface PolicyTabDef {
   mdPath: string;
 }
 
+// 약관 페이지 라우트 — 랜딩 푸터·회원가입 약관 동의 링크가 공유하는 단일 소스
+export const TERMS_OF_SERVICE_ROUTE = '/policy/terms-of-service';
+export const PRIVACY_POLICY_ROUTE = '/policy/privacy';
+
 export const POLICY_TABS: PolicyTabDef[] = [
   {
     docType: 'terms',

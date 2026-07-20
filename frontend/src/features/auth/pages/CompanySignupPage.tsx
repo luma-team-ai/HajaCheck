@@ -7,6 +7,7 @@ import { CompanySignupHeroPanel } from '../components/CompanySignupHeroPanel';
 import { EmailDomainField } from '../components/EmailDomainField';
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
 import { LOGIN_ROUTE } from '../constants';
+import { PRIVACY_POLICY_ROUTE, TERMS_OF_SERVICE_ROUTE } from '../../policy/constants';
 import {
   ERROR_CLASSES,
   INPUT_CLASSES,
@@ -324,7 +325,18 @@ export function CompanySignupPage() {
                   checked={agreeTermsOfService}
                   onChange={(event) => setAgreeTermsOfService(event.target.checked)}
                 />
-                (필수) 이용약관에 동의합니다.
+                <span>
+                  (필수){' '}
+                  <Link
+                    to={TERMS_OF_SERVICE_ROUTE}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-heading underline"
+                  >
+                    이용약관
+                  </Link>
+                  에 동의합니다.
+                </span>
               </label>
               {showValidation && !agreeTermsOfService && (
                 <p className={ERROR_CLASSES}>이용약관에 동의해야 가입할 수 있습니다.</p>
@@ -338,7 +350,18 @@ export function CompanySignupPage() {
                   checked={agreePrivacyPolicy}
                   onChange={(event) => setAgreePrivacyPolicy(event.target.checked)}
                 />
-                (필수) 개인정보 수집 및 이용에 동의합니다.
+                <span>
+                  (필수){' '}
+                  <Link
+                    to={PRIVACY_POLICY_ROUTE}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-heading underline"
+                  >
+                    개인정보 수집 및 이용
+                  </Link>
+                  에 동의합니다.
+                </span>
               </label>
               {showValidation && !agreePrivacyPolicy && (
                 <p className={ERROR_CLASSES}>개인정보 수집·이용에 동의해야 가입할 수 있습니다.</p>
