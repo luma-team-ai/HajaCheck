@@ -35,7 +35,8 @@ public class GlobalExceptionHandler {
             "uq_user_plans_active_user", ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT,
             "uq_user_plans_active_company", ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT,
             "uq_counsel_tickets_session", ErrorCode.COUNSEL_SESSION_ASSIGNMENT_CONFLICT,
-            "uk_reports_inspection_version", ErrorCode.REPORT_VERSION_CONFLICT);
+            "uk_reports_inspection_version", ErrorCode.REPORT_VERSION_CONFLICT,
+            "reports_inspection_id_version_key", ErrorCode.REPORT_VERSION_CONFLICT);
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {

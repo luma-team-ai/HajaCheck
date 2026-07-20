@@ -785,7 +785,7 @@ create table reports
         constraint fk_reports_created_by
             references users,
     updated_at             timestamp with time zone default now()                       not null,
-    constraint uk_reports_inspection_version unique (inspection_id, version)
+    unique (inspection_id, version)
 );
 
 comment on table reports is '점검 결과를 기반으로 생성한 버전별 보고서를 관리한다.';
