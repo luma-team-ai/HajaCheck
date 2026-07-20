@@ -113,8 +113,20 @@ public class ReportService {
     @Transactional
     public ReportDetailResponse finalizeReport(Long reportId, String pdfUrl, Long userId) {
         Report report = findOwnedReport(reportId, userId);
+        requireOwnPdfUrl(reportId, pdfUrl);
         report.finalizeReport(pdfUrl, userId);
         return ReportDetailResponse.from(report);
+    }
+
+    /**
+     * pdfUrl이 이 보고서의 업로드 엔드포인트(/api/reports/{id}/pdf/{storageKey})를 가리키는지 확인한다
+     * (#455 P2-2) — 임의 문자열이나 타 보고서의 pdfUrl을 finalize에 그대로 실어 확정하는 것을 차단한다.
+     */
+    private void requireOwnPdfUrl(Long reportId, String pdfUrl) {
+        String expectedPrefix = "/api/reports/%d/pdf/".formatted(reportId);
+        if (pdfUrl == null || !pdfUrl.startsWith(expectedPrefix) || pdfUrl.length() == expectedPrefix.length()) {
+            throw new BusinessException(ErrorCode.REPORT_PDF_URL_INVALID);
+        }
     }
 
     private int nextVersion(Long inspectionId) {

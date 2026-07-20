@@ -292,9 +292,45 @@ class ReportServiceTest {
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
 
-        ReportDetailResponse response = reportService.finalizeReport(5L, "https://files.example/r.pdf", 100L);
+        ReportDetailResponse response = reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L);
 
         assertThat(response.status()).isEqualTo(com.hajacheck.core.report.entity.ReportStatus.FINALIZED);
-        assertThat(response.pdfUrl()).isEqualTo("https://files.example/r.pdf");
+        assertThat(response.pdfUrl()).isEqualTo("/api/reports/5/pdf/r.pdf");
+    }
+
+    @Test
+    void finalizeReport_다른보고서용pdfUrl이면REPORT_PDF_URL_INVALID() {
+        Report report = Report.draft(1L, 1, "{}", 100L);
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+
+        assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/999/pdf/r.pdf", 100L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.REPORT_PDF_URL_INVALID);
+    }
+
+    @Test
+    void finalizeReport_임의문자열pdfUrl이면REPORT_PDF_URL_INVALID() {
+        Report report = Report.draft(1L, 1, "{}", 100L);
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+
+        assertThatThrownBy(() -> reportService.finalizeReport(5L, "https://evil.example/r.pdf", 100L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.REPORT_PDF_URL_INVALID);
     }
 }
