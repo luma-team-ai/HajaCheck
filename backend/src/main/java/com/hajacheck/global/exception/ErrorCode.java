@@ -90,7 +90,14 @@ public enum ErrorCode {
     AI_INVALID_RESPONSE(HttpStatus.BAD_GATEWAY, "AI 서버 응답을 처리할 수 없습니다."),
     // AI 서버 응답 4xx/5xx 구분(#334 P3) — 4xx 는 요청 자체가 거부된 것으로 보아 400, 5xx 는 업스트림 장애로 502.
     AI_REQUEST_REJECTED(HttpStatus.BAD_REQUEST, "AI 서버가 요청을 거부했습니다."),
-    AI_SERVER_ERROR(HttpStatus.BAD_GATEWAY, "AI 서버에서 오류가 발생했습니다.");
+    AI_SERVER_ERROR(HttpStatus.BAD_GATEWAY, "AI 서버에서 오류가 발생했습니다."),
+
+    // 보고서(report) — #446 / HAJA-283
+    // 미존재/타인 소유(점검 소유권 불일치) 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.
+    REPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "보고서를 찾을 수 없습니다."),
+    // AI 서버 연결/타임아웃/형식 오류는 AiProxyService가 이미 BusinessException으로 던지므로 이 코드로
+    // 매핑될 일이 없다 — envelope.success()=false(AI 서버가 응답은 했으나 보고서 생성 자체를 거부한 경우)만 해당.
+    REPORT_GENERATION_FAILED(HttpStatus.BAD_GATEWAY, "보고서 생성에 실패했습니다.");
 
     private final HttpStatus status;
     private final String message;
