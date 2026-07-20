@@ -1,13 +1,17 @@
 package com.hajacheck.core.report.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.CompanyMembership;
@@ -34,6 +38,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -218,5 +223,36 @@ class ReportControllerTest extends PostgresTestSupport {
     void 초안생성_미인증_401() throws Exception {
         mockMvc.perform(post("/api/inspections/{id}/reports", 1L).with(csrf()))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * PDF 업로드(POST /api/reports/{id}/pdf) 후 반환된 pdfUrl 을 실제로 GET 해서 200 과 원본 바이트가
+     * 서빙되는지 검증(PR #455 P1-2). baseUrlPath(/report-files) 를 서빙하는 ReportPdfStaticResourceConfig
+     * 정적 핸들러가 없으면(또는 /files/** 와 겹치면) 여기서 404 가 난다.
+     */
+    @Test
+    void PDF업로드후_pdfUrl로_GET하면_200과원본바이트() throws Exception {
+        User owner = seedOwner("report-pdf-owner@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        byte[] pdfBytes = "%PDF-1.4 test-report-body".getBytes();
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "report.pdf", MediaType.APPLICATION_PDF_VALUE, pdfBytes);
+
+        String uploadResponse = mockMvc.perform(multipart("/api/reports/{id}/pdf", report.getId())
+                        .file(file)
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.pdfUrl").exists())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode json = objectMapper.readTree(uploadResponse);
+        String pdfUrl = json.path("data").path("pdfUrl").asText();
+        assertThat(pdfUrl).startsWith("/report-files/");
+
+        mockMvc.perform(get(pdfUrl).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(pdfBytes));
     }
 }

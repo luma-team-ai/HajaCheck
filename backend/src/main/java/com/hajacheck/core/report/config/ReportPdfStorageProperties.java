@@ -13,8 +13,12 @@ public class ReportPdfStorageProperties {
     /** PDF 저장 루트 디렉터리(절대경로). */
     private String baseDir = System.getProperty("java.io.tmpdir") + "/hajacheck-report-pdf";
 
-    /** 저장 파일 조회 URL 접두(정적 리소스 매핑 대상). */
-    private String baseUrlPath = "/files/reports";
+    /**
+     * 저장 파일 조회 URL 접두(정적 리소스 매핑 대상).
+     * 사업자등록증 정적 핸들러(FileStaticResourceConfig)가 선점한 /files/** 와 겹치지 않도록 별도 접두를 쓴다.
+     * 겹치면 Spring 패턴 매칭 우선순위에 의존해 엉뚱한 디렉터리를 뒤져 404 가 나므로 접두를 분리한다.
+     */
+    private String baseUrlPath = "/report-files";
 
     /** 개별 파일 최대 용량(bytes). 기본 20MB(보고서 PDF는 이미지·표가 많아 사업자등록증보다 큼). */
     private long maxSizeBytes = 20_971_520L;
