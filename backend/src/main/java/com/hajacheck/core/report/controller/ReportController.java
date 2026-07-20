@@ -94,7 +94,7 @@ public class ReportController {
             @AuthenticationPrincipal LoginUser loginUser) {
         // 소유권 검증 — 존재하지 않거나 타인 소유 보고서에 대한 PDF 업로드를 차단(IDOR 방지).
         reportService.getReport(id, loginUser.getUserId());
-        String storageKey = reportPdfStorage.store(file);
+        String storageKey = reportPdfStorage.store(id, file);
         String pdfUrl = "/api/reports/%d/pdf/%s".formatted(id, storageKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(new ReportPdfResponse(pdfUrl)));
     }
@@ -108,7 +108,7 @@ public class ReportController {
         // 소유권 검증 — 존재하지 않거나 타인 소유 보고서의 PDF 열람을 차단(IDOR 방지). 정적 리소스
         // 핸들러로 직접 서빙하지 않는 이유(#455 P2-1)가 바로 이 검증을 강제하기 위함이다.
         reportService.getReport(id, loginUser.getUserId());
-        Resource resource = reportPdfStorage.load(storageKey);
+        Resource resource = reportPdfStorage.load(id, storageKey);
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF).body(resource);
     }
 }

@@ -333,4 +333,69 @@ class ReportControllerTest extends PostgresTestSupport {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("REPORT_PDF_URL_INVALID"));
     }
+
+    /**
+     * B가 자신이 소유한 report_B.id와 A가 업로드한 report_A의 storageKey를 조합해
+     * GET /api/reports/{report_B.id}/pdf/{storageKey_of_A} 호출 시 404 (IDOR 및 storageKey 혼용 차단 — P1 필수 회귀 테스트).
+     */
+    @Test
+    void PDF다운로드_본인reportId와_타인storageKey조합시_404() throws Exception {
+        User userA = seedOwner("report-pdf-ownerA@haja.com");
+        User userB = seedOwner("report-pdf-ownerB@haja.com");
+
+        Inspection inspectionA = seedInspection(userA);
+        Inspection inspectionB = seedInspection(userB);
+
+        Report reportA = reportRepository.save(Report.draft(inspectionA.getId(), 1, "{}", userA.getId()));
+        Report reportB = reportRepository.save(Report.draft(inspectionB.getId(), 1, "{}", userB.getId()));
+
+        byte[] pdfBytesA = "%PDF-1.4 test-report-body-A".getBytes();
+        MockMultipartFile fileA = new MockMultipartFile(
+                "file", "reportA.pdf", MediaType.APPLICATION_PDF_VALUE, pdfBytesA);
+
+        // A가 자신의 보고서 reportA에 PDF 업로드
+        String uploadResponseA = mockMvc.perform(multipart("/api/reports/{id}/pdf", reportA.getId())
+                        .file(fileA)
+                        .with(csrf())
+                        .with(authentication(authOf(userA))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode jsonA = objectMapper.readTree(uploadResponseA);
+        String pdfUrlA = jsonA.path("data").path("pdfUrl").asText();
+        String storageKeyA = pdfUrlA.substring(pdfUrlA.lastIndexOf('/') + 1);
+
+        // B가 자신의 보고서 reportB.getId() + A의 storageKeyA로 조합하여 다운로드 시도 -> 404
+        mockMvc.perform(get("/api/reports/{id}/pdf/{storageKey}", reportB.getId(), storageKeyA)
+                        .with(authentication(authOf(userB))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("FILE_NOT_FOUND"));
+    }
+
+    /**
+     * 동일 inspectionId + version으로 DB에 두 번 저장 시도 시 실제 PostgreSQL uk_reports_inspection_version
+     * 유니크 제약 충돌 예외가 발생하고 GlobalExceptionHandler가 409 REPORT_VERSION_CONFLICT 로 매핑하는지 검증 (P2).
+     */
+    @Test
+    void 동일_inspectionId와_version으로_중복저장시_실제DB제약충돌로_REPORT_VERSION_CONFLICT_409매핑() {
+        User owner = seedOwner("report-dup-owner@haja.com");
+        Inspection inspection = seedInspection(owner);
+
+        reportRepository.saveAndFlush(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+
+        org.springframework.dao.DataIntegrityViolationException ex =
+                org.assertj.core.api.Assertions.catchThrowableOfType(
+                        () -> reportRepository.saveAndFlush(Report.draft(inspection.getId(), 1, "{}", owner.getId())),
+                        org.springframework.dao.DataIntegrityViolationException.class);
+
+        assertThat(ex).isNotNull();
+
+        com.hajacheck.global.exception.GlobalExceptionHandler handler =
+                new com.hajacheck.global.exception.GlobalExceptionHandler();
+        org.springframework.http.ResponseEntity<com.hajacheck.global.common.ApiResponse<Void>> response =
+                handler.handleDataIntegrityViolation(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+        assertThat(response.getBody().error().code()).isEqualTo("REPORT_VERSION_CONFLICT");
+    }
 }

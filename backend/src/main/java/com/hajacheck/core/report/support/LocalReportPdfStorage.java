@@ -46,7 +46,8 @@ public class LocalReportPdfStorage implements ReportPdfStorage {
     }
 
     @Override
-    public String store(MultipartFile file) {
+    public String store(Long reportId, MultipartFile file) {
+        requireValidReportId(reportId);
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.FILE_REQUIRED);
         }
@@ -69,10 +70,11 @@ public class LocalReportPdfStorage implements ReportPdfStorage {
         }
 
         String storageKey = UUID.randomUUID() + ".pdf";
-        Path target = resolveWithinBaseDir(storageKey);
+        Path reportDir = resolveReportDir(reportId);
+        Path target = resolveWithinReportDir(reportDir, storageKey);
 
         try {
-            Files.createDirectories(baseDir);
+            Files.createDirectories(reportDir);
             Files.write(target, bytes);
         } catch (IOException e) {
             log.error("보고서 PDF 저장 실패", e);
@@ -83,13 +85,15 @@ public class LocalReportPdfStorage implements ReportPdfStorage {
     }
 
     @Override
-    public Resource load(String storageKey) {
+    public Resource load(Long reportId, String storageKey) {
+        requireValidReportId(reportId);
         // storageKey 는 단일 경로 세그먼트만 허용 — "/", ".." 포함 시 트래버설 시도로 간주한다.
         if (storageKey == null || storageKey.isBlank()
                 || storageKey.contains("/") || storageKey.contains("\\") || storageKey.contains("..")) {
             throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
         }
-        Path target = resolveWithinBaseDir(storageKey);
+        Path reportDir = resolveReportDir(reportId);
+        Path target = resolveWithinReportDir(reportDir, storageKey);
         if (!Files.isRegularFile(target) || !Files.isReadable(target)) {
             throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
         }
@@ -100,12 +104,26 @@ public class LocalReportPdfStorage implements ReportPdfStorage {
         }
     }
 
-    private Path resolveWithinBaseDir(String storageKey) {
-        Path target = baseDir.resolve(storageKey).normalize();
-        if (!target.startsWith(baseDir)) {
+    private Path resolveReportDir(Long reportId) {
+        Path reportDir = baseDir.resolve(String.valueOf(reportId)).normalize();
+        if (!reportDir.startsWith(baseDir)) {
+            throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
+        }
+        return reportDir;
+    }
+
+    private Path resolveWithinReportDir(Path reportDir, String storageKey) {
+        Path target = reportDir.resolve(storageKey).normalize();
+        if (!target.startsWith(reportDir)) {
             throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
         }
         return target;
+    }
+
+    private static void requireValidReportId(Long reportId) {
+        if (reportId == null || reportId <= 0) {
+            throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
+        }
     }
 
     private static boolean startsWithPdfMagicNumber(byte[] bytes) {

@@ -13,16 +13,16 @@ import org.springframework.web.multipart.MultipartFile;
 public interface ReportPdfStorage {
 
     /**
-     * PDF 파일을 저장하고 저장 식별자(storageKey — 단일 경로 세그먼트)를 반환한다.
+     * PDF 파일을 지정된 reportId 하위에 저장하고 저장 식별자(storageKey — 단일 경로 세그먼트)를 반환한다.
      * 검증 실패는 BusinessException(FILE_REQUIRED/FILE_INVALID_TYPE/FILE_TOO_LARGE),
      * IO 실패는 FILE_UPLOAD_FAILED 로 던진다.
      */
-    String store(MultipartFile file);
+    String store(Long reportId, MultipartFile file);
 
     /**
-     * storageKey 에 해당하는 저장 파일을 Resource 로 로드한다.
+     * reportId 하위의 storageKey 에 해당하는 저장 파일을 Resource 로 로드한다.
      * storageKey 가 경로 트래버설을 시도하거나 파일이 존재하지 않으면 FILE_NOT_FOUND 로 던진다
      * (존재 여부 열거 방지를 위해 트래버설/미존재 모두 동일 응답).
      */
-    Resource load(String storageKey);
+    Resource load(Long reportId, String storageKey);
 }
