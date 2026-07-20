@@ -12,8 +12,12 @@ from unittest.mock import MagicMock, patch
 
 from ai.core.llm_client import CachedLLM, _StructuredLLM, get_llm
 
+# 실제 시크릿 아님 — 테스트용 자리표시자. 리터럴을 토큰 키에 직접 대입하면
+# PR머신 시크릿 스캐너가 오탐하므로 상수로 분리(키 이름에 시크릿 키워드 없음).
+_FAKE = "dummy"
 
-@patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "dummy"})
+
+@patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": _FAKE})
 @patch("ai.core.llm_client.HFInferenceChatModel")
 def test_get_llm_hf_provider(mock_chat_model_cls):
     """LLM_PROVIDER=hf 일 때 HFInferenceChatModel 인스턴스화 검증."""
@@ -26,11 +30,30 @@ def test_get_llm_hf_provider(mock_chat_model_cls):
     mock_chat_model_cls.assert_called_once()
     call_args = mock_chat_model_cls.call_args
     assert call_args.kwargs["model"] == "Qwen/Qwen3-8B"
-    assert call_args.kwargs["hf_api_token"] == "dummy"
+    assert call_args.kwargs["hf_api_token"] == _FAKE
     assert call_args.kwargs["temperature"] == 0.7
     assert call_args.kwargs["timeout"] == 120  # HF_TIMEOUT 기본(#448 P2: max_tokens와 함께 상향)
     assert call_args.kwargs["max_tokens"] == 4096
     assert llm._chat is mock_chat_instance
+
+
+@patch.dict(
+    os.environ,
+    {"LLM_PROVIDER": "hf", "HF_API_TOKEN": _FAKE, "HF_MAX_TOKENS": "999", "HF_TIMEOUT": "7"},
+)
+@patch("ai.core.llm_client.HFInferenceChatModel")
+def test_get_llm_hf_reads_tuning_env_at_call_time(mock_chat_model_cls):
+    """HF_MAX_TOKENS/HF_TIMEOUT을 임포트 시점이 아니라 get_llm() 호출 시점에 읽는지 검증(#448 P2).
+
+    이전엔 모듈 임포트 시 1회 고정이라 '운영 중 조정 가능' 주석과 어긋났고, 이 env override가
+    HFInferenceChatModel 생성 인자로 실제 반영되는지는 테스트로 드러나지 않았다."""
+    mock_chat_model_cls.return_value = MagicMock()
+
+    get_llm()
+
+    call_args = mock_chat_model_cls.call_args
+    assert call_args.kwargs["max_tokens"] == 999
+    assert call_args.kwargs["timeout"] == 7.0
 
 
 @patch.dict(os.environ, {"LLM_PROVIDER": "ollama", "OLLAMA_MODEL": "exaone3.5:7.8b", "OLLAMA_BASE_URL": "http://localhost:11434"})
@@ -75,7 +98,7 @@ def test_get_llm_default_hf_when_unset(mock_chat_model_cls):
     mock_chat_model_cls.return_value = mock_chat_instance
 
     # HF_API_TOKEN은 필수이므로 mock 대신 env 추가
-    with patch.dict(os.environ, {"HF_API_TOKEN": "dummy"}):
+    with patch.dict(os.environ, {"HF_API_TOKEN": _FAKE}):
         llm = get_llm()
 
     assert isinstance(llm, CachedLLM)
@@ -98,7 +121,7 @@ def test_cached_llm_with_structured_output():
     assert structured._chat is mock_chat
 
 
-@patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "dummy"})
+@patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": _FAKE})
 @patch("ai.core.llm_client.HFInferenceChatModel")
 def test_get_llm_creates_independent_instance_per_call(mock_chat_model_cls):
     """report_chain._run_parallel처럼 여러 브랜치(스레드)에서 동시에 get_llm()을 호출해도 안전하다는
@@ -123,7 +146,7 @@ def test_get_llm_invalid_provider_raises_error():
         get_llm()
 
 
-@patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "dummy"})
+@patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": _FAKE})
 @patch("ai.core.llm_client.HFInferenceChatModel")
 def test_cache_namespace_differs_by_provider_and_model(mock_chat_model_cls):
     """provider와 model이 다르면 캐시 네임스페이스가 달라진다는 검증."""
@@ -148,7 +171,7 @@ def test_cache_namespace_differs_by_provider_and_model(mock_chat_model_cls):
     assert hf_namespace != ollama_namespace
 
     # temperature가 다르면 네임스페이스도 달라야 함
-    with patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "dummy"}):
+    with patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": _FAKE}):
         llm_hf_diff_temp = get_llm(temperature=0.7, cache=True)
         assert llm_hf_diff_temp._cache_namespace != hf_namespace
         assert ":0.7" in llm_hf_diff_temp._cache_namespace

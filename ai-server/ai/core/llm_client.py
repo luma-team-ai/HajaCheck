@@ -17,13 +17,6 @@ from ai.core.hf_chat_model import HFInferenceChatModel
 DEFAULT_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-8B")
 MAX_RETRIES = 2
 CACHE_TTL_SECONDS = 60 * 60 * 24  # 1일 — 개발 중 반복 질의 크레딧 절약용
-# Qwen3-8B는 reasoning(사고 과정) 이후 최종 답을 내는 모델이라 max_tokens가 작으면 content가
-# None으로 잘릴 수 있다(GitHub #438 / HAJA-279, 컨테이너 실측) — 기본값을 충분히 크게 잡는다.
-# HF Inference 튜닝 env(운영 중 조정 가능, 기본값으로 동작):
-#   HF_MAX_TOKENS — chat_completion 응답 토큰 상한(Qwen3 reasoning 모델은 사고 과정 후 최종답을
-#     내므로 충분히 크게). HF_TIMEOUT — 응답 대기 상한(초). max_tokens를 키우면 함께 상향 필요.
-HF_MAX_TOKENS = int(os.getenv("HF_MAX_TOKENS", "4096"))
-HF_TIMEOUT = float(os.getenv("HF_TIMEOUT", "120"))
 
 
 @lru_cache
@@ -135,6 +128,14 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
     else:  # default "hf"
         # OLLAMA_MODEL과 동일하게 호출 시점에 LLM_MODEL을 읽어 provider 간 일관성 유지
         model_name = os.getenv("LLM_MODEL", DEFAULT_MODEL)
+        # HF Inference 튜닝 env도 model_name과 동일하게 호출 시점에 읽어, 프로세스 재시작 없이 반영되게
+        # 한다(운영 중 조정 가능, #448 P2 — 이전엔 임포트 시점 1회 고정이라 주석과 실동작이 어긋났음).
+        #   HF_MAX_TOKENS: 응답 토큰 상한 — Qwen3-8B는 reasoning 이후 최종답을 내므로 작으면 content가
+        #     None으로 잘림(#438, 컨테이너 실측) → 기본값 크게(4096).
+        #   HF_TIMEOUT: 응답 대기 상한(초, 기본 120). max_tokens를 키우면 함께 상향하되, Spring
+        #     ai.server.read-timeout-ms(150000)보다 작게 유지할 것(#448 P1 — 역전 시 Spring이 먼저 끊음).
+        hf_max_tokens = int(os.getenv("HF_MAX_TOKENS", "4096"))
+        hf_timeout = float(os.getenv("HF_TIMEOUT", "120"))
         # langchain_huggingface의 HuggingFaceEndpoint/ChatHuggingFace는 HF Inference Providers
         # 전환 이후 construction 단계에서 항상 인증 실패한다(GitHub #438 / HAJA-279, 컨테이너
         # 실측 — task를 바꿔도 해결 안 됨. 상세: ai/core/hf_chat_model.py 모듈 docstring).
@@ -144,8 +145,8 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
             model=model_name,
             hf_api_token=os.environ["HF_API_TOKEN"],
             temperature=temperature,
-            timeout=HF_TIMEOUT,
-            max_tokens=HF_MAX_TOKENS,
+            timeout=hf_timeout,
+            max_tokens=hf_max_tokens,
         )
 
     cache_namespace = f"{llm_provider}:{model_name}:{temperature}"
