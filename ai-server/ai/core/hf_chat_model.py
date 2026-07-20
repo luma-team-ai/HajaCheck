@@ -26,7 +26,7 @@ from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from pydantic import Field
+from pydantic import Field, SecretStr
 
 # chat_completion()에 그대로 통과시켜도 안전한 선택적 인자 — 현재 체인들은 아무도 넘기지 않지만
 # (구조화 출력은 프롬프트 지시 방식이라 필요 없음) 향후 호출자가 invoke(..., response_format=...)
@@ -65,7 +65,9 @@ class HFInferenceChatModel(BaseChatModel):
     """
 
     model_name: str = Field(alias="model")
-    hf_api_token: str
+    # SecretStr: repr/dumpd(LangSmith 트레이싱 직렬화)에서 토큰이 평문 노출되지 않도록 마스킹.
+    # (대체 대상이던 HuggingFaceEndpoint의 huggingfacehub_api_token: SecretStr 보호를 유지 — #438)
+    hf_api_token: SecretStr
     temperature: float = 0.1
     timeout: float = 30
     # Qwen3-8B는 reasoning(사고 과정) 이후에 최종 답을 내는 모델이라 max_tokens가 작으면
@@ -85,7 +87,7 @@ class HFInferenceChatModel(BaseChatModel):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> ChatResult:
-        client = InferenceClient(token=self.hf_api_token, timeout=self.timeout)
+        client = InferenceClient(token=self.hf_api_token.get_secret_value(), timeout=self.timeout)
         extra = {k: v for k, v in kwargs.items() if k in _PASSTHROUGH_KWARGS and v is not None}
         response = client.chat_completion(
             messages=_to_hf_messages(messages),
