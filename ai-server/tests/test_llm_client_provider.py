@@ -28,7 +28,7 @@ def test_get_llm_hf_provider(mock_chat_model_cls):
     assert call_args.kwargs["model"] == "Qwen/Qwen3-8B"
     assert call_args.kwargs["hf_api_token"] == "dummy"
     assert call_args.kwargs["temperature"] == 0.7
-    assert call_args.kwargs["timeout"] == 30
+    assert call_args.kwargs["timeout"] == 120  # HF_TIMEOUT 기본(#448 P2: max_tokens와 함께 상향)
     assert call_args.kwargs["max_tokens"] == 4096
     assert llm._chat is mock_chat_instance
 

@@ -55,6 +55,18 @@ def test_invoke_uses_content_when_present():
         assert result.usage_metadata == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
 
 
+def test_invoke_strips_think_block_embedded_in_content():
+    # reasoning 필드 분리 없이 content에 <think>사고</think>답 통째로 오는 provider 대응(#448 P2).
+    model = _make_model()
+    with patch("ai.core.hf_chat_model.InferenceClient") as mock_client_cls:
+        mock_client = mock_client_cls.return_value
+        mock_client.chat_completion.return_value = _fake_response(content="<think>고민</think>진짜답")
+
+        result = model.invoke("hello")
+
+        assert result.content == "진짜답"
+
+
 def test_invoke_calls_chat_completion_with_expected_args():
     model = _make_model(temperature=0.3)
     with patch("ai.core.hf_chat_model.InferenceClient") as mock_client_cls:

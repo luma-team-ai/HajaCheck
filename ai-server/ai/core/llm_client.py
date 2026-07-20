@@ -19,7 +19,11 @@ MAX_RETRIES = 2
 CACHE_TTL_SECONDS = 60 * 60 * 24  # 1일 — 개발 중 반복 질의 크레딧 절약용
 # Qwen3-8B는 reasoning(사고 과정) 이후 최종 답을 내는 모델이라 max_tokens가 작으면 content가
 # None으로 잘릴 수 있다(GitHub #438 / HAJA-279, 컨테이너 실측) — 기본값을 충분히 크게 잡는다.
+# HF Inference 튜닝 env(운영 중 조정 가능, 기본값으로 동작):
+#   HF_MAX_TOKENS — chat_completion 응답 토큰 상한(Qwen3 reasoning 모델은 사고 과정 후 최종답을
+#     내므로 충분히 크게). HF_TIMEOUT — 응답 대기 상한(초). max_tokens를 키우면 함께 상향 필요.
 HF_MAX_TOKENS = int(os.getenv("HF_MAX_TOKENS", "4096"))
+HF_TIMEOUT = float(os.getenv("HF_TIMEOUT", "120"))
 
 
 @lru_cache
@@ -92,10 +96,12 @@ class _StructuredLLM:
         full_prompt = f"{prompt}\n\n{self._parser.get_format_instructions()}"
         last_error: Exception | None = None
         for _ in range(MAX_RETRIES + 1):
-            response = self._chat.invoke(full_prompt)
             try:
+                # invoke를 try 안에 둬 LLM 호출 실패(빈 응답 RuntimeError·타임아웃 등)도 파싱 실패와
+                # 동일하게 재시도 대상에 포함(#448 P2: 일시적 truncation을 구조화 출력 경로에서도 흡수).
+                response = self._chat.invoke(full_prompt)
                 return self._parser.parse(response.content)
-            except Exception as e:  # noqa: BLE001 — 파싱 실패(형식 어긋난 출력)는 재시도 대상
+            except Exception as e:  # noqa: BLE001 — LLM 호출·파싱 실패 모두 재시도
                 last_error = e
         raise last_error
 
@@ -138,7 +144,7 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
             model=model_name,
             hf_api_token=os.environ["HF_API_TOKEN"],
             temperature=temperature,
-            timeout=30,
+            timeout=HF_TIMEOUT,
             max_tokens=HF_MAX_TOKENS,
         )
 

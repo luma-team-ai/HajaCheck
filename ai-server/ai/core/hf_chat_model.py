@@ -75,7 +75,9 @@ class HFInferenceChatModel(BaseChatModel):
     # (대체 대상이던 HuggingFaceEndpoint의 huggingfacehub_api_token: SecretStr 보호를 유지 — #438)
     hf_api_token: SecretStr
     temperature: float = 0.1
-    timeout: float = 30
+    # Qwen3-8B는 사고 과정을 먼저 길게 생성 후 최종 답을 내므로, max_tokens(4096)에 맞춰 대기
+    # 상한을 넉넉히 둔다(#448 P2: 30s면 reasoning 생성 중 InferenceTimeoutError 반복 위험).
+    timeout: float = 120
     # Qwen3-8B는 reasoning(사고 과정) 이후에 최종 답을 내는 모델이라 max_tokens가 작으면
     # 사고 과정만 채우고 content가 None으로 잘릴 수 있다(컨테이너 실측) — 충분히 크게 설정.
     max_tokens: int = 4096
@@ -104,13 +106,13 @@ class HFInferenceChatModel(BaseChatModel):
             **extra,
         )
         message = response.choices[0].message
-        content = message.content
-        if not content:
-            # 원본 API 응답이 "reasoning_content" 키를 그대로 내려주면 huggingface_hub가
-            # 선언된 필드가 아니라 extra 속성으로 그대로 노출한다(base.py의 parse_obj 참고).
-            # HF가 이를 "reasoning"으로 매핑해 내려주는 경우도 있어 둘 다 확인한다.
-            reasoning_text = getattr(message, "reasoning_content", None) or getattr(message, "reasoning", None)
-            content = extract_final_answer(reasoning_text) if reasoning_text else ""
+        # content가 비면 reasoning 필드에서 받고, content가 있어도 <think>가 섞여 올 수 있어
+        # 항상 extract_final_answer로 스트립한다(#448 P2: content에 <think>사고</think>답 통째로
+        # 오는 provider/버전 대응 — reasoning 필드 분리 없이 content로 내려오는 경우 사고과정 누출 방지).
+        # reasoning_content: 원본 API가 이 키를 내려주면 huggingface_hub가 extra 속성으로 노출.
+        # reasoning: huggingface_hub가 선언 필드로 매핑해 내려주는 경우. 둘 다 확인.
+        raw = message.content or getattr(message, "reasoning_content", None) or getattr(message, "reasoning", None) or ""
+        content = extract_final_answer(raw)
 
         if not content or not content.strip():
             # 빈 최종답을 정상값으로 반환하면 CachedLLM이 빈 문자열을 24h 캐싱해 캐시 오염·불투명
