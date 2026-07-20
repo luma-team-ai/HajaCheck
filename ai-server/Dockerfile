@@ -42,6 +42,10 @@ COPY --chown=fastapi:fastapi ai ./ai
 # chroma_data는 볼륨 마운트 대상 — 컨테이너 내 소유권 미리 부여
 RUN mkdir -p /app/chroma_data && chown -R fastapi:fastapi /app/chroma_data
 
+# hf_cache도 named volume 마운트 대상(HF_HOME=/app/hf_cache) — bge-m3 등 임베딩 모델 캐시(#439).
+# 최초 마운트 시점 UID로 초기화되므로 chroma_data와 동일하게 fastapi(999) 소유권을 미리 부여한다.
+RUN mkdir -p /app/hf_cache && chown -R fastapi:fastapi /app/hf_cache
+
 USER fastapi
 EXPOSE 8000
 
