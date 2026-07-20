@@ -1,6 +1,8 @@
 """LLM provider 분기 및 인스턴스화 검증.
 
-- LLM_PROVIDER=hf 일 때 HuggingFaceEndpoint + ChatHuggingFace 생성
+- LLM_PROVIDER=hf 일 때 HFInferenceChatModel 생성(GitHub #438 / HAJA-279 — HF Inference
+  Providers 전환으로 HuggingFaceEndpoint/ChatHuggingFace가 항상 인증 실패해 대체됨.
+  상세 배경: ai/core/hf_chat_model.py 모듈 docstring)
 - LLM_PROVIDER=ollama 일 때 ChatOllama 생성
 - 각 provider의 chat 모델이 CachedLLM으로 정상 감싸기
 - with_structured_output() 이 provider 상관없이 _StructuredLLM 반환
@@ -12,24 +14,23 @@ from ai.core.llm_client import CachedLLM, _StructuredLLM, get_llm
 
 
 @patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "test-token"})
-@patch("ai.core.llm_client.HuggingFaceEndpoint")
-@patch("ai.core.llm_client.ChatHuggingFace")
-def test_get_llm_hf_provider(mock_chat_hf, mock_endpoint):
-    """LLM_PROVIDER=hf 일 때 HF 클라이언트 인스턴스화 검증."""
-    mock_endpoint_instance = MagicMock()
-    mock_endpoint.return_value = mock_endpoint_instance
+@patch("ai.core.llm_client.HFInferenceChatModel")
+def test_get_llm_hf_provider(mock_chat_model_cls):
+    """LLM_PROVIDER=hf 일 때 HFInferenceChatModel 인스턴스화 검증."""
     mock_chat_instance = MagicMock()
-    mock_chat_hf.return_value = mock_chat_instance
+    mock_chat_model_cls.return_value = mock_chat_instance
 
     llm = get_llm(temperature=0.7, cache=False)
 
     assert isinstance(llm, CachedLLM)
-    mock_endpoint.assert_called_once()
-    call_args = mock_endpoint.call_args
-    assert call_args.kwargs["huggingfacehub_api_token"] == "test-token"
+    mock_chat_model_cls.assert_called_once()
+    call_args = mock_chat_model_cls.call_args
+    assert call_args.kwargs["model"] == "Qwen/Qwen3-8B"
+    assert call_args.kwargs["hf_api_token"] == "test-token"
     assert call_args.kwargs["temperature"] == 0.7
     assert call_args.kwargs["timeout"] == 30
-    mock_chat_hf.assert_called_once_with(llm=mock_endpoint_instance)
+    assert call_args.kwargs["max_tokens"] == 4096
+    assert llm._chat is mock_chat_instance
 
 
 @patch.dict(os.environ, {"LLM_PROVIDER": "ollama", "OLLAMA_MODEL": "exaone3.5:7.8b", "OLLAMA_BASE_URL": "http://localhost:11434"})
@@ -67,22 +68,18 @@ def test_get_llm_ollama_defaults(mock_chat_ollama):
 
 
 @patch.dict(os.environ, {}, clear=True)  # LLM_PROVIDER 미설정 → 기본값 "hf"
-@patch("ai.core.llm_client.HuggingFaceEndpoint")
-@patch("ai.core.llm_client.ChatHuggingFace")
-def test_get_llm_default_hf_when_unset(mock_chat_hf, mock_endpoint):
+@patch("ai.core.llm_client.HFInferenceChatModel")
+def test_get_llm_default_hf_when_unset(mock_chat_model_cls):
     """LLM_PROVIDER 미설정 시 기본값 'hf' 사용 검증."""
-    mock_endpoint_instance = MagicMock()
-    mock_endpoint.return_value = mock_endpoint_instance
     mock_chat_instance = MagicMock()
-    mock_chat_hf.return_value = mock_chat_instance
+    mock_chat_model_cls.return_value = mock_chat_instance
 
     # HF_API_TOKEN은 필수이므로 mock 대신 env 추가
     with patch.dict(os.environ, {"HF_API_TOKEN": "test-token"}):
         llm = get_llm()
 
     assert isinstance(llm, CachedLLM)
-    mock_endpoint.assert_called_once()
-    mock_chat_hf.assert_called_once()
+    mock_chat_model_cls.assert_called_once()
 
 
 def test_cached_llm_with_structured_output():
@@ -102,21 +99,19 @@ def test_cached_llm_with_structured_output():
 
 
 @patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "dummy"})
-@patch("ai.core.llm_client.HuggingFaceEndpoint")
-@patch("ai.core.llm_client.ChatHuggingFace")
-def test_get_llm_creates_independent_instance_per_call(mock_chat_hf, mock_endpoint):
-    """report_chain._run_parallel처럼 여러 브랜치(스레드)에서 동시에 get_llm()을 호출필도 안전하다는
-    근거: get_llm()에 @lru_cache/싱글턴이 없어 매 호출마다 새 ChatHuggingFace/CachedLLM 인스턴스를
+@patch("ai.core.llm_client.HFInferenceChatModel")
+def test_get_llm_creates_independent_instance_per_call(mock_chat_model_cls):
+    """report_chain._run_parallel처럼 여러 브랜치(스레드)에서 동시에 get_llm()을 호출해도 안전하다는
+    근거: get_llm()에 @lru_cache/싱글턴이 없어 매 호출마다 새 HFInferenceChatModel/CachedLLM 인스턴스를
     만들고 어떤 클라이언트 상태도 호출 간 공유하지 않는다(PR머신 P2 후속)."""
-    mock_endpoint.side_effect = lambda **kwargs: MagicMock()
-    mock_chat_hf.side_effect = lambda **kwargs: MagicMock()
+    mock_chat_model_cls.side_effect = lambda **kwargs: MagicMock()
 
     first = get_llm()
     second = get_llm()
 
     assert first is not second
     assert first._chat is not second._chat
-    assert mock_chat_hf.call_count == 2
+    assert mock_chat_model_cls.call_count == 2
 
 
 @patch.dict(os.environ, {"LLM_PROVIDER": "invalid_provider"})
@@ -129,12 +124,10 @@ def test_get_llm_invalid_provider_raises_error():
 
 
 @patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "test-token"})
-@patch("ai.core.llm_client.HuggingFaceEndpoint")
-@patch("ai.core.llm_client.ChatHuggingFace")
-def test_cache_namespace_differs_by_provider_and_model(mock_chat_hf, mock_endpoint):
+@patch("ai.core.llm_client.HFInferenceChatModel")
+def test_cache_namespace_differs_by_provider_and_model(mock_chat_model_cls):
     """provider와 model이 다르면 캐시 네임스페이스가 달라진다는 검증."""
-    mock_endpoint.return_value = MagicMock()
-    mock_chat_hf.return_value = MagicMock()
+    mock_chat_model_cls.return_value = MagicMock()
 
     # HF provider의 기본 모델로 캐시 네임스페이스 생성
     llm_hf = get_llm(temperature=0.1, cache=True)
