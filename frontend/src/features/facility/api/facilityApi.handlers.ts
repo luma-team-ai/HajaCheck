@@ -8,6 +8,7 @@ import type {
   SetFacilityScheduleResponse,
 } from '../types';
 import { computeNextInspectionDueAt } from '../utils/computeNextInspectionDueAt';
+import { computeDemoNextInspectionDueAt } from '../utils/inspectionCycleStatus';
 
 // 메모리 목 저장소 — POST로 생성한 시설물이 이후 GET 목록 조회에 즉시 반영되도록 모듈 스코프에서 유지
 // (dashboardApi.handlers.ts처럼 고정 응답만으로는 등록 폼 E2E 확인이 불가능해 facility만 mutable로 구성)
@@ -115,7 +116,10 @@ export const facilityHandlers = [
       return HttpResponse.json(failure, { status: 400 });
     }
 
-    const nextInspectionDueAt = computeNextInspectionDueAt(reqBody.inspectionCycleMonths);
+    // 점검 주기 설정 화면은 데모 기준일(INSPECTION_CYCLE_DEMO_TODAY)로 상태 뱃지를 파생하므로,
+    // 저장 다음점검일도 같은 기준일로 산정해 저장 후 좌/우 뱃지가 어긋나지 않게 한다.
+    // (등록 플로우 POST /facilities는 실제 오늘 기준 computeNextInspectionDueAt을 그대로 사용.)
+    const nextInspectionDueAt = computeDemoNextInspectionDueAt(reqBody.inspectionCycleMonths);
     facilities = facilities.map((facility) =>
       facility.id === id
         ? {
