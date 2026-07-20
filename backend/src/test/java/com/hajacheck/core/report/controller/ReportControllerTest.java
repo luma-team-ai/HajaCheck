@@ -227,8 +227,8 @@ class ReportControllerTest extends PostgresTestSupport {
 
     /**
      * PDF 업로드(POST /api/reports/{id}/pdf) 후 반환된 pdfUrl 을 실제로 GET 해서 200 과 원본 바이트가
-     * 서빙되는지 검증(PR #455 P1-2). baseUrlPath(/report-files) 를 서빙하는 ReportPdfStaticResourceConfig
-     * 정적 핸들러가 없으면(또는 /files/** 와 겹치면) 여기서 404 가 난다.
+     * 서빙되는지 검증(PR #455 P2-1). 정적 리소스 핸들러가 아니라 소유권 검증을 거치는
+     * GET /api/reports/{id}/pdf/{storageKey} 다운로드 엔드포인트를 사용한다.
      */
     @Test
     void PDF업로드후_pdfUrl로_GET하면_200과원본바이트() throws Exception {
@@ -249,10 +249,88 @@ class ReportControllerTest extends PostgresTestSupport {
 
         JsonNode json = objectMapper.readTree(uploadResponse);
         String pdfUrl = json.path("data").path("pdfUrl").asText();
-        assertThat(pdfUrl).startsWith("/report-files/");
+        assertThat(pdfUrl).startsWith("/api/reports/%d/pdf/".formatted(report.getId()));
 
         mockMvc.perform(get(pdfUrl).with(authentication(authOf(owner))))
                 .andExpect(status().isOk())
                 .andExpect(content().bytes(pdfBytes));
+    }
+
+    /**
+     * 업로드한 PDF를 타인이 pdfUrl만 알고 GET 시도하면 404 — 정적 리소스 서빙 시절에는 걸리지 않던
+     * 소유권 검증이 다운로드 엔드포인트 전환(#455 P2-1)으로 적용되는지 확인하는 핵심 회귀 테스트다.
+     */
+    @Test
+    void PDF업로드후_타인이pdfUrl로_GET하면_404() throws Exception {
+        User owner = seedOwner("report-pdf-owner2@haja.com");
+        User stranger = seedOwner("report-pdf-stranger@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        byte[] pdfBytes = "%PDF-1.4 test-report-body".getBytes();
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "report.pdf", MediaType.APPLICATION_PDF_VALUE, pdfBytes);
+
+        String uploadResponse = mockMvc.perform(multipart("/api/reports/{id}/pdf", report.getId())
+                        .file(file)
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode json = objectMapper.readTree(uploadResponse);
+        String pdfUrl = json.path("data").path("pdfUrl").asText();
+
+        mockMvc.perform(get(pdfUrl).with(authentication(authOf(stranger))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("REPORT_NOT_FOUND"));
+    }
+
+    /**
+     * content-type 헤더는 application/pdf 지만 실제 바이트가 PDF 매직넘버(%PDF-)로 시작하지 않으면
+     * 거부한다(#455 P2-3, content-type 헤더 스푸핑 방지).
+     */
+    @Test
+    void PDF업로드_매직넘버아닌바이트면_FILE_INVALID_TYPE() throws Exception {
+        User owner = seedOwner("report-pdf-owner3@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "fake.pdf", MediaType.APPLICATION_PDF_VALUE, "not-a-real-pdf-body".getBytes());
+
+        mockMvc.perform(multipart("/api/reports/{id}/pdf", report.getId())
+                        .file(file)
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("FILE_INVALID_TYPE"));
+    }
+
+    /**
+     * finalize 요청의 pdfUrl 이 이 보고서의 업로드 엔드포인트 형식을 따르지 않으면 거부한다
+     * (#455 P2-2, 임의 문자열/타 보고서 pdfUrl 로 확정 시도 차단).
+     */
+    @Test
+    void 확정_임의문자열pdfUrl이면_REPORT_PDF_URL_INVALID() throws Exception {
+        User owner = seedOwner("report-finalize-owner@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                owner.getId());
+        reportRepository.save(report);
+
+        String body = objectMapper.writeValueAsString(
+                new com.hajacheck.core.report.dto.FinalizeReportRequest("https://evil.example/r.pdf"));
+
+        mockMvc.perform(post("/api/reports/{id}/finalize", report.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REPORT_PDF_URL_INVALID"));
     }
 }

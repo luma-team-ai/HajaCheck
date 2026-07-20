@@ -14,7 +14,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -92,7 +94,21 @@ public class ReportController {
             @AuthenticationPrincipal LoginUser loginUser) {
         // 소유권 검증 — 존재하지 않거나 타인 소유 보고서에 대한 PDF 업로드를 차단(IDOR 방지).
         reportService.getReport(id, loginUser.getUserId());
-        String pdfUrl = reportPdfStorage.store(file);
+        String storageKey = reportPdfStorage.store(file);
+        String pdfUrl = "/api/reports/%d/pdf/%s".formatted(id, storageKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(new ReportPdfResponse(pdfUrl)));
+    }
+
+    @Operation(summary = "보고서 PDF 다운로드", description = "업로드된 보고서 PDF를 소유권 검증 후 스트리밍한다")
+    @GetMapping("/api/reports/{id}/pdf/{storageKey}")
+    public ResponseEntity<Resource> downloadPdf(
+            @PathVariable Long id,
+            @PathVariable String storageKey,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        // 소유권 검증 — 존재하지 않거나 타인 소유 보고서의 PDF 열람을 차단(IDOR 방지). 정적 리소스
+        // 핸들러로 직접 서빙하지 않는 이유(#455 P2-1)가 바로 이 검증을 강제하기 위함이다.
+        reportService.getReport(id, loginUser.getUserId());
+        Resource resource = reportPdfStorage.load(storageKey);
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF).body(resource);
     }
 }
