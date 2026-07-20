@@ -47,6 +47,21 @@ describe('useRagChat (통합 테스트)', () => {
     expect(ragRequestCount).toBe(1);
   });
 
+  it('회귀 방지(#433/#444): "없음"/"에러"를 문장 중간에 포함해도 전용 트리거가 아니면 정상 응답을 받는다', async () => {
+    const { result } = renderHook(() => useRagChat());
+
+    act(() => {
+      result.current.send('안전점검 사각지대가 없음을 어떻게 증명하나요?');
+    });
+
+    await waitFor(() => expect(assistantOf(result.current.messages)).toBeDefined());
+
+    const assistant = assistantOf(result.current.messages);
+    expect(assistant?.text).toBe(mockRagAnswer.answer);
+    expect(assistant?.text).not.toBe(RAG_NO_RESULT_TEXT);
+    expect(result.current.error).toBeNull();
+  });
+
   it('인플라이트 가드: 빠른 연속 send는 서버 요청·사용자 말풍선을 1개로 제한한다', async () => {
     const { result } = renderHook(() => useRagChat());
 
