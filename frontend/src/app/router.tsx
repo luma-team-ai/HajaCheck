@@ -19,6 +19,18 @@ const LoginPage = lazy(() =>
   import('../features/auth/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
 );
 
+// 이용약관 / 개인정보처리방침 — 랜딩 푸터 "법적 고지" 연결
+const TermsOfServicePage = lazy(() =>
+  import('../features/policy/pages/TermsOfServicePage').then((m) => ({
+    default: m.TermsOfServicePage,
+  })),
+);
+const PrivacyPolicyPage = lazy(() =>
+  import('../features/policy/pages/PrivacyPolicyPage').then((m) => ({
+    default: m.PrivacyPolicyPage,
+  })),
+);
+
 // 기업 인증 플로우 — HAJA-170(#187)
 const CompanySignupPage = lazy(() =>
   import('../features/auth/pages/CompanySignupPage').then((m) => ({
@@ -99,6 +111,22 @@ export const router = createBrowserRouter([
       </Suspense>
     ),
   }, // — features/auth (HAJA-160, #157)
+  {
+    path: '/policy/terms-of-service',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <TermsOfServicePage />
+      </Suspense>
+    ),
+  },
+  {
+    path: '/policy/privacy',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <PrivacyPolicyPage />
+      </Suspense>
+    ),
+  },
   {
     path: '/signup/company',
     element: (
