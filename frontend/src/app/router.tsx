@@ -87,6 +87,13 @@ const FacilityListPage = lazy(() =>
   })),
 );
 
+// 점검 주기 설정 — dev-04-03, FR-019
+const InspectionCycleSettingsPage = lazy(() =>
+  import('../features/facility/pages/InspectionCycleSettingsPage').then((m) => ({
+    default: m.InspectionCycleSettingsPage,
+  })),
+);
+
 // 고객지원 > AI 어시스턴트 (dev-08-01, HAJA-32, FR-6 RAG 법규 Q&A)
 const AiAssistantPage = lazy(() =>
   import('../features/support/pages/AiAssistantPage').then((m) => ({
@@ -235,6 +242,22 @@ export const router = createBrowserRouter([
           activeHref: '/inspections/1/viewer',
         },
       }, // — features/inspection FR-4 (HAJA-249, #249)
+      {
+        path: '/facilities/inspection-cycle',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <InspectionCycleSettingsPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [
+            { label: '시설물 관리' },
+            { label: '강남 오피스타워 A동' },
+            { label: '점검 주기' },
+          ],
+          activeHref: '/facilities/inspection-cycle',
+        },
+      }, // — features/facility 점검 주기 설정 (dev-04-03, FR-019)
       {
         path: '/admin/users',
         // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#378, 컨벤션 §7)
