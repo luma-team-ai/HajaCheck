@@ -12,6 +12,13 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     List<Notification> findAllByUserIdAndReadFalseOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
+    /**
+     * 알림 센터 목록 조회(AP-020) — 읽음/미읽음 모두 포함한 이력 표시용, 최신순.
+     * created_at 동률 시 id desc로 결정적 정렬(P3-1) — idx_notifications_user_history
+     * (user_id, created_at desc, id desc)가 이 정렬을 그대로 커버한다.
+     */
+    List<Notification> findAllByUserIdOrderByCreatedAtDescIdDesc(Long userId, Pageable pageable);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update Notification n

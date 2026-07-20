@@ -1123,6 +1123,12 @@ create index idx_notifications_user_unread
     on notifications (user_id)
     where (is_read = false);
 
+-- AP-020(#25 / HAJA-38) 알림 센터 목록 조회: 읽음/미읽음 전체를 user_id로 좁힌 뒤 생성일 최신순(동률 시
+-- id desc)으로 정렬해 상위 N건만 뽑는다. 위 partial 인덱스는 is_read=false 행만 커버해 이 전체 이력
+-- 조회(폴링마다 실행)는 seq scan+sort로 빠진다 — 정렬 컬럼까지 포함한 일반 인덱스로 별도 커버한다.
+create index idx_notifications_user_history
+    on notifications (user_id, created_at desc, id desc);
+
 create function set_updated_at() returns trigger
     language plpgsql
 as

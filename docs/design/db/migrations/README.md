@@ -1,6 +1,6 @@
 # HAJA-25 기존 PostgreSQL 증분 반영 절차
 
-> **문서 버전:** v0.1 · **최종 수정:** 2026-07-17 · 이전 버전 `archive/`
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-19 · 이전 버전 `archive/`
 
 이 디렉터리는 이미 운영 중인 v0.3 계열 PostgreSQL을 현재
 [`HajaCheck_script.sql`](../HajaCheck_script.sql) 스키마로 올리는 수동 증분 SQL을 보관한다.
@@ -250,6 +250,11 @@ where namespace.nspname = 'public'
 -- 예: INVALID로 확인된 이름만 지정한다.
 drop index concurrently if exists public.idx_rag_documents_target_collection;
 ```
+
+## 그 밖의 독립 마이그레이션
+
+`20260719_01_ap020_notification_history_index.sql`은 위 HAJA-25 expand/finalize/verify 체인과 무관한
+단일 목적 파일이다(AP-020 알림 센터 조회용 인덱스 추가) — 파일 상단 안내에 따라 단독으로 적용한다.
 
 ## 롤백 원칙
 

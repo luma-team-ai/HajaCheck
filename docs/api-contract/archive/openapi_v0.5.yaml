@@ -1,10 +1,9 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.6.0-draft"
+  version: "0.5.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
-    2026-07-19 GET /api/notifications(AP-020, #25 / HAJA-38 FR-9) 계약 추가.
     2026-07-18 미릴리스 draft baseline을 현재 구현에 맞게 정정했다.
     구현된 엔드포인트(ai-server)는 실행 후 /docs(Swagger UI)에서 최신본 재확인 가능.
     나머지(Spring Boot)는 각 담당자가 이 파일에 스펙을 채워나감 — 임의로 필드명·구조를 바꾸지 말 것.
@@ -834,29 +833,6 @@ paths:
               schema: { type: string, format: binary }
         "404":
           description: 보고서 또는 PDF 파일을 찾을 수 없음
-
-  /api/notifications:
-    get:
-      summary: 알림 목록 조회
-      description: >
-        AP-020(#25 / HAJA-38 FR-9). 로그인 사용자에게 온 알림을 읽음/미읽음 모두 포함해(센터는 이력 표시)
-        생성일 최신순(동률 시 id desc) 상위 30건으로 반환한다. 수신자(userId)는 인증 주체에서만 취득하며
-        요청 파라미터/바디로 받지 않는다(cross-owner IDOR 방지). 이벤트 발행(트리거)·읽음처리
-        PATCH는 별도 계약(후속) — 이 엔드포인트는 조회만 다룬다.
-      security:
-        - SessionCookie: []
-      tags: [notification]
-      responses:
-        "200":
-          description: 조회 성공(알림이 없으면 빈 배열)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/NotificationListApiResponse" }
-        "401":
-          description: 미인증 (UNAUTHORIZED)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
 components:
   securitySchemes:
@@ -1719,40 +1695,3 @@ components:
         success: { type: boolean, example: true }
         data: { $ref: "#/components/schemas/FindIdResponse" }
         error: { type: object, nullable: true, example: null }
-
-    # ── notification 도메인 (AP-020, #25 / HAJA-38 FR-9) ──
-    NotificationTypeCode:
-      type: string
-      enum: [ANALYSIS_DONE, REVIEW_PENDING, COUNSEL_REPLIED, INSPECTION_DUE]
-
-    NotificationResponse:
-      type: object
-      additionalProperties: false
-      required: [id, type, isRead, createdAt]
-      description: >
-        payload는 jsonb 원본을 이스케이프된 문자열이 아니라 구조화된 JSON 객체로 그대로 노출한다
-        (알림 유형별로 표시·이동에 쓰는 부가 데이터 — 스키마는 유형마다 달라 자유 객체로 둔다).
-      properties:
-        id: { type: integer, format: int64, example: 1 }
-        type: { $ref: "#/components/schemas/NotificationTypeCode" }
-        payload:
-          type: object
-          nullable: true
-          additionalProperties: true
-          example: { inspectionId: 10 }
-        isRead: { type: boolean, example: false }
-        createdAt: { type: string, format: date-time }
-
-    NotificationListApiResponse:
-      type: object
-      required: [success, data, error]
-      properties:
-        success: { type: boolean }
-        data:
-          nullable: true
-          type: array
-          items: { $ref: "#/components/schemas/NotificationResponse" }
-        error:
-          nullable: true
-          oneOf:
-            - { $ref: "#/components/schemas/ApiError" }
