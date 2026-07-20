@@ -1,86 +1,89 @@
 // @vitest-environment jsdom
 // DefectListPage 통합 테스트 — 실제 useDefects 훅 + MSW defectHandlers를 통해 목록 렌더링과
-// 필터 적용을 검증한다(HAJA-30, FacilityListPage.test.tsx와 동일 패턴).
-// 필터 드롭다운 옵션 라벨(예: "균열", "철근 노출")이 테이블 셀 텍스트와 동일해 화면 전체 대상
-// screen.getByText는 모호하게 매치될 수 있다 — 모든 데이터 검증은 within(table)로 범위를 좁힌다.
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { setupServer } from 'msw/node';
-import { MemoryRouter } from 'react-router-dom';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { defectHandlers } from '../api/defectApi.handlers';
-import { DefectListPage } from './DefectListPage';
+// 초기 렌더링을 검증한다(HAJA-30, FacilityListPage.test.tsx와 동일 패턴).
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { setupServer } from "msw/node";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { defectHandlers } from "../api/defectApi.handlers";
+import { DefectListPage } from "./DefectListPage";
 
 const server = setupServer(...defectHandlers);
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();
 });
 afterAll(() => server.close());
 
+// 목록→상세 이동(HAJA-17)을 검증하기 위해 /defects/:id에 마커를 렌더링하는 스텁 라우트를 둔다
+// (DefectDetailPage 전체를 렌더링할 필요 없이 navigate 대상만 확인하면 충분).
 function renderPage(): void {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
 
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <DefectListPage />
+      <MemoryRouter initialEntries={["/defects/list"]}>
+        <Routes>
+          <Route path="/defects/list" element={<DefectListPage />} />
+          <Route path="/defects/:id" element={<div>하자 상세 스텁</div>} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
-describe('DefectListPage (통합 테스트)', () => {
-  it('초기 목록: MSW 목 데이터를 불러와 테이블에 렌더링한다', async () => {
+describe("DefectListPage (통합 테스트)", () => {
+  it("초기 목록: MSW 목 데이터를 불러와 테이블에 렌더링한다", async () => {
     renderPage();
 
-    const table = await screen.findByRole('table');
-    expect(within(table).getByText('철근 노출')).not.toBeNull();
-    expect(within(table).getByText('균열')).not.toBeNull();
-    expect(within(table).getByText('박리·박락')).not.toBeNull();
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("철근 노출")).not.toBeNull();
+    expect(within(table).getByText("균열")).not.toBeNull();
+    expect(within(table).getByText("박리·박락")).not.toBeNull();
   });
 
-  it('등급 필터 적용: 선택한 등급의 하자만 남는다', async () => {
+  it("LLM 검색 조건이 없으면 적용된 필터 영역을 표시하지 않는다", async () => {
     renderPage();
-    await screen.findByRole('table');
+    await screen.findByRole("table");
 
-    fireEvent.change(screen.getByLabelText('등급 필터'), { target: { value: 'D' } });
-
-    await waitFor(() => {
-      const table = screen.getByRole('table');
-      expect(within(table).getByText('철근 노출')).not.toBeNull();
-      expect(within(table).queryByText('균열')).toBeNull();
-    });
+    expect(screen.queryByText("적용된 필터:")).toBeNull();
+    expect(screen.queryByRole("button", { name: "필터 초기화" })).toBeNull();
   });
 
-  it('필터 초기화: 다시 전체 목록이 보인다', async () => {
+  it("상세보기 링크가 각 행에 렌더링된다", async () => {
     renderPage();
-    await screen.findByRole('table');
+    const table = await screen.findByRole("table");
 
-    fireEvent.change(screen.getByLabelText('유형 필터'), { target: { value: 'CRACK' } });
-    await waitFor(() => {
-      const table = screen.getByRole('table');
-      expect(within(table).getByText('균열')).not.toBeNull();
-      expect(within(table).queryByText('철근 노출')).toBeNull();
+    const detailLinks = within(table).getAllByRole("link", {
+      name: "상세보기",
     });
-
-    fireEvent.click(screen.getByRole('button', { name: '필터 초기화' }));
-
-    await waitFor(() => {
-      const table = screen.getByRole('table');
-      expect(within(table).getByText('철근 노출')).not.toBeNull();
-      expect(within(table).getByText('균열')).not.toBeNull();
-    });
-  });
-
-  it('상세보기 링크가 각 행에 렌더링된다', async () => {
-    renderPage();
-    const table = await screen.findByRole('table');
-
-    const detailLinks = within(table).getAllByRole('link', { name: '상세보기' });
     expect(detailLinks.length).toBeGreaterThan(0);
-    expect(detailLinks[0].getAttribute('href')).toMatch(/^\/defects\/\d+$/);
+    expect(detailLinks[0].getAttribute("href")).toMatch(/^\/defects\/\d+$/);
+  });
+
+  it("행을 클릭하면 해당 하자의 상세 페이지로 이동한다", async () => {
+    renderPage();
+    const table = await screen.findByRole("table");
+    const rows = within(table).getAllByRole("row");
+
+    // rows[0]은 헤더 행 — 첫 데이터 행을 클릭한다.
+    fireEvent.click(rows[1]);
+
+    expect(await screen.findByText("하자 상세 스텁")).not.toBeNull();
+  });
+
+  it("체크박스를 클릭해도 상세 페이지로 이동하지 않는다", async () => {
+    renderPage();
+    const table = await screen.findByRole("table");
+    const checkbox = within(table).getAllByRole("checkbox")[0];
+
+    fireEvent.click(checkbox);
+
+    expect(screen.queryByText("하자 상세 스텁")).toBeNull();
   });
 });

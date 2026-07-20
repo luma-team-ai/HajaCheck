@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Table, type TableColumn } from './Table';
 
 afterEach(cleanup);
@@ -35,5 +35,24 @@ describe('Table', () => {
     render(<Table columns={columns} data={[]} emptyMessage="결과 없음" />);
 
     expect(screen.getByText('결과 없음')).not.toBeNull();
+  });
+
+  it('onRowClick이 있으면 행 클릭 시 해당 row로 호출된다', () => {
+    const data: DefectRow[] = [{ id: 1, type: '균열', grade: 'A' }];
+    const onRowClick = vi.fn();
+
+    render(<Table columns={columns} data={data} onRowClick={onRowClick} />);
+
+    fireEvent.click(screen.getByText('균열').closest('tr')!);
+
+    expect(onRowClick).toHaveBeenCalledWith(data[0]);
+  });
+
+  it('onRowClick이 없으면 행 클릭이 아무 효과가 없다', () => {
+    const data: DefectRow[] = [{ id: 1, type: '균열', grade: 'A' }];
+
+    render(<Table columns={columns} data={data} />);
+
+    expect(() => fireEvent.click(screen.getByText('균열').closest('tr')!)).not.toThrow();
   });
 });

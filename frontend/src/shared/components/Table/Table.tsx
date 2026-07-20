@@ -10,12 +10,14 @@ interface TableProps<T extends { id: string | number }> {
   columns: TableColumn<T>[];
   data: T[];
   emptyMessage?: string;
+  onRowClick?: (row: T) => void;
 }
 
 export function Table<T extends { id: string | number }>({
   columns,
   data,
   emptyMessage = '데이터가 없습니다',
+  onRowClick,
 }: TableProps<T>) {
   return (
     <table className="w-full border-collapse text-sm">
@@ -40,7 +42,11 @@ export function Table<T extends { id: string | number }>({
           </tr>
         ) : (
           data.map((row) => (
-            <tr key={row.id}>
+            <tr
+              key={row.id}
+              className={onRowClick ? 'cursor-pointer hover:bg-surface-muted' : undefined}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+            >
               {columns.map((column) => (
                 <td key={column.key} className="border-b border-neutral-100 px-4 py-3">
                   {column.render ? column.render(row) : String(row[column.key] ?? '')}
