@@ -93,8 +93,8 @@ describe('useRagChat (통합 테스트)', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('방어 분기: 백엔드가 0건을 success:false(RAG_NO_RESULT)로 줘도 에러가 아닌 안내로 표시한다', async () => {
-    // 설계 §9 미확정 대비 — envelope가 (a) success:false+RAG_NO_RESULT 로 와도 "근거 없음"으로 흡수.
+  it('확정 계약(설계 §4.3/§9): 백엔드가 0건을 success:false(RAG_NO_RESULT)로 줘도 에러가 아닌 안내로 표시한다', async () => {
+    // 기본 핸들러도 이제 동일 형태(success:false+RAG_NO_RESULT)를 반환하지만, 계약을 명시적으로 고정해두기 위해 오버라이드로 재확인.
     server.use(
       http.post('/api/ai/rag-chat', () =>
         HttpResponse.json({
