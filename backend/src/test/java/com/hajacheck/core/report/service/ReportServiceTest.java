@@ -29,11 +29,14 @@ import com.hajacheck.core.report.repository.ReportRepository;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.lang.reflect.Method;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -96,6 +99,23 @@ class ReportServiceTest {
         return new ReportResponse(
                 base.overview(), base.summary(), base.detail(), base.recommendation(), base.groundingOk(),
                 target.groundingRequestId(), target.inspectionId(), target.reportVersion(), target.contentHash());
+    }
+
+    /**
+     * 슬로우-AI 커넥션 풀 고갈 회귀 방지(PR #455 P1-1) — generateDraft 는 AI 서버 동기 호출을 포함하므로
+     * 트랜잭션 밖(Propagation.NOT_SUPPORTED)에서 실행되어야 한다. 클래스 기본값 @Transactional(readOnly=true)
+     * 를 상속해 AI 왕복 동안 DB 커넥션을 점유하면 풀 고갈 위험이 있어, 애노테이션 자체를 리플렉션으로 확정한다.
+     * (풀 통합 슬로우-AI 시나리오는 Testcontainers 의존이라 이 단위 테스트로 계약만 고정.)
+     */
+    @Test
+    void generateDraft_트랜잭션밖실행_NOT_SUPPORTED() throws NoSuchMethodException {
+        Method method = ReportService.class.getMethod("generateDraft", Long.class, Long.class);
+        Transactional transactional = method.getAnnotation(Transactional.class);
+
+        assertThat(transactional).as("generateDraft 는 @Transactional 애노테이션을 명시해야 한다").isNotNull();
+        assertThat(transactional.propagation())
+                .as("AI 동기 호출이 DB 커넥션을 트랜잭션에 묶지 않도록 NOT_SUPPORTED 여야 한다")
+                .isEqualTo(Propagation.NOT_SUPPORTED);
     }
 
     @Test
