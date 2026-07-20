@@ -315,11 +315,6 @@ export function CompanySignupPage() {
               </div>
             </div>
 
-            <div className="flex items-start gap-2 rounded-lg bg-surface-muted px-3.5 py-3 text-xs text-text-muted">
-              <span aria-hidden="true">ⓘ</span>
-              <span>기업 회원가입은 관리자 승인 후 완료되며, 영업일 기준 2-3일이 소요될 수 있습니다.</span>
-            </div>
-
             {/* 이용약관 동의·개인정보 수집·이용 동의는 개인정보보호법상 별도 동의 대상이라 체크박스를
                 분리한다(PR머신 P2) — 시안은 1개 통합 체크박스이나 법적 요건상 2개 분리를 유지한다(#292) */}
             <div className="flex flex-col gap-1.5">
