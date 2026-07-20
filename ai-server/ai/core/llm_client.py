@@ -11,11 +11,15 @@ from functools import lru_cache
 
 import redis
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+
+from ai.core.hf_chat_model import HFInferenceChatModel
 
 DEFAULT_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-8B")
 MAX_RETRIES = 2
 CACHE_TTL_SECONDS = 60 * 60 * 24  # 1일 — 개발 중 반복 질의 크레딧 절약용
+# Qwen3-8B는 reasoning(사고 과정) 이후 최종 답을 내는 모델이라 max_tokens가 작으면 content가
+# None으로 잘릴 수 있다(GitHub #438 / HAJA-279, 컨테이너 실측) — 기본값을 충분히 크게 잡는다.
+HF_MAX_TOKENS = int(os.getenv("HF_MAX_TOKENS", "4096"))
 
 
 @lru_cache
@@ -125,13 +129,18 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
     else:  # default "hf"
         # OLLAMA_MODEL과 동일하게 호출 시점에 LLM_MODEL을 읽어 provider 간 일관성 유지
         model_name = os.getenv("LLM_MODEL", DEFAULT_MODEL)
-        endpoint = HuggingFaceEndpoint(
-            repo_id=model_name,
-            huggingfacehub_api_token=os.environ["HF_API_TOKEN"],
+        # langchain_huggingface의 HuggingFaceEndpoint/ChatHuggingFace는 HF Inference Providers
+        # 전환 이후 construction 단계에서 항상 인증 실패한다(GitHub #438 / HAJA-279, 컨테이너
+        # 실측 — task를 바꿔도 해결 안 됨. 상세: ai/core/hf_chat_model.py 모듈 docstring).
+        # huggingface_hub.InferenceClient.chat_completion()은 정상 동작하므로 이를 감싸는
+        # 커스텀 BaseChatModel(HFInferenceChatModel)로 대체한다.
+        chat_model = HFInferenceChatModel(
+            model=model_name,
+            hf_api_token=os.environ["HF_API_TOKEN"],
             temperature=temperature,
             timeout=30,
+            max_tokens=HF_MAX_TOKENS,
         )
-        chat_model = ChatHuggingFace(llm=endpoint)
 
     cache_namespace = f"{llm_provider}:{model_name}:{temperature}"
     return CachedLLM(chat_model, cache=cache, cache_namespace=cache_namespace)
