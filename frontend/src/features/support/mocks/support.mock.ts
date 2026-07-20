@@ -1,4 +1,3 @@
-import { RAG_NO_RESULT_TEXT } from '../hooks/useRagChat';
 import type { RagAnswerData } from '../types';
 
 // 정상 응답(근거 있음) — 설계 §2/§4.2 매핑 예시(합성 데이터)
@@ -23,9 +22,3 @@ export const mockRagAnswer: RagAnswerData = {
   ],
 };
 
-// 검색 0건 — 설계 §4.3: 임의 생성 금지. 안내 문구는 훅과 공유(RAG_NO_RESULT_TEXT, 단일 출처).
-// ※ 백엔드가 0건을 success:false(RAG_NO_RESULT)로 줄지, 빈 sources 정상 응답으로 줄지는 설계 §9 확정 후 조정.
-export const mockRagNoResult: RagAnswerData = {
-  answer: RAG_NO_RESULT_TEXT,
-  sources: [],
-};
