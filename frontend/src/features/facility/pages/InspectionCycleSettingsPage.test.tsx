@@ -69,6 +69,15 @@ describe('InspectionCycleSettingsPage', () => {
     expect(await screen.findByText('2027-01-20')).toBeTruthy();
   });
 
+  it('데모 기준일(2026-11-09) 기준으로 기본 시설물(다음점검 2026-12-21)의 뱃지를 "D-42"로 표시한다', () => {
+    // 실제 오늘이 아니라 고정 데모 기준일로 상태를 파생하므로, 154일 뒤라 "여유"로만 보이던 문제 없이
+    // Figma 디자인과 동일하게 D-42가 카드·현황 테이블 양쪽에 표시된다.
+    renderPage();
+
+    expect(screen.getAllByText('D-42').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('여유')).toBeNull();
+  });
+
   it('+ 스테퍼로 개월 수를 올린 뒤 저장하면 변경된 개월 수로 호출된다', async () => {
     mockSetSchedule.mockResolvedValue({ nextInspectionDueAt: '2027-02-21' });
     renderPage();

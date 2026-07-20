@@ -5,6 +5,7 @@ import { InspectionCycleSettingsCard } from '../components/InspectionCycleSettin
 import { InspectionCycleStatusTable } from '../components/InspectionCycleStatusTable';
 import { useInspectionCycleStatusRows } from '../hooks/useInspectionCycleStatusRows';
 import { useSetInspectionSchedule } from '../hooks/useSetInspectionSchedule';
+import { INSPECTION_CYCLE_DEMO_TODAY } from '../utils/inspectionCycleStatus';
 import type { InspectionCycleStatusRow, InspectionCycleType } from '../types';
 
 // 라우트에 시설물 컨텍스트가 없어(handoff §5) 쿼리파라미터(?facilityId=)로 대상 지정,
@@ -96,20 +97,29 @@ function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: Content
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <InspectionCycleSettingsCard
-          cycleType={cycleType}
-          onCycleTypeChange={setCycleType}
-          months={months}
-          onMonthsChange={setMonths}
-          lastInspectedAt={selectedRow.lastInspectedAt}
-          nextInspectionDueAt={nextDueAt}
-          notifyBeforeEnabled={notifyBeforeEnabled}
-          onNotifyBeforeChange={setNotifyBeforeEnabled}
-          warnOnOverdueEnabled={warnOnOverdueEnabled}
-          onWarnOnOverdueChange={setWarnOnOverdueEnabled}
+      {/* 카드(폭 제한) 위 → 현황 테이블 전체 너비 아래로 스택. Figma 'Table Content'처럼 7컬럼이
+          가로 스크롤 없이 모두 보이도록 테이블을 컨테이너 전체 폭으로 배치한다. */}
+      <div className="flex flex-col gap-6">
+        <div className="w-full lg:max-w-2xl">
+          <InspectionCycleSettingsCard
+            cycleType={cycleType}
+            onCycleTypeChange={setCycleType}
+            months={months}
+            onMonthsChange={setMonths}
+            lastInspectedAt={selectedRow.lastInspectedAt}
+            nextInspectionDueAt={nextDueAt}
+            notifyBeforeEnabled={notifyBeforeEnabled}
+            onNotifyBeforeChange={setNotifyBeforeEnabled}
+            warnOnOverdueEnabled={warnOnOverdueEnabled}
+            onWarnOnOverdueChange={setWarnOnOverdueEnabled}
+            today={INSPECTION_CYCLE_DEMO_TODAY}
+          />
+        </div>
+        <InspectionCycleStatusTable
+          selectedId={selectedRow.id}
+          onSelectRow={handleSelectRow}
+          today={INSPECTION_CYCLE_DEMO_TODAY}
         />
-        <InspectionCycleStatusTable selectedId={selectedRow.id} onSelectRow={handleSelectRow} />
       </div>
     </div>
   );
