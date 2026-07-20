@@ -156,6 +156,17 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void handleDataIntegrityViolation_보고서버전제약명_REPORT충돌로매핑() {
+        // 동시 초안 생성이 같은 버전으로 저장을 시도하면 uk_reports_inspection_version 유니크 제약이 막는다 —
+        // 500(INTERNAL_ERROR)이 아니라 재시도 유도가 가능한 409(REPORT_VERSION_CONFLICT)로 매핑돼야 한다(#455 P2-1).
+        DataIntegrityViolationException exception = constraintViolation("uk_reports_inspection_version");
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleDataIntegrityViolation(exception);
+
+        assertConflict(response, ErrorCode.REPORT_VERSION_CONFLICT);
+    }
+
+    @Test
     void handleDataIntegrityViolation_알수없는구조화제약의Detail에허용이름포함_INTERNAL_ERROR유지() {
         DataIntegrityViolationException exception = new DataIntegrityViolationException(
                 "could not execute statement",

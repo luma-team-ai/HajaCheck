@@ -97,7 +97,10 @@ public enum ErrorCode {
     REPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "보고서를 찾을 수 없습니다."),
     // AI 서버 연결/타임아웃/형식 오류는 AiProxyService가 이미 BusinessException으로 던지므로 이 코드로
     // 매핑될 일이 없다 — envelope.success()=false(AI 서버가 응답은 했으나 보고서 생성 자체를 거부한 경우)만 해당.
-    REPORT_GENERATION_FAILED(HttpStatus.BAD_GATEWAY, "보고서 생성에 실패했습니다.");
+    REPORT_GENERATION_FAILED(HttpStatus.BAD_GATEWAY, "보고서 생성에 실패했습니다."),
+    // 같은 inspectionId에 대한 동시 초안 생성이 같은 nextVersion을 계산해 저장을 시도하면 uk_reports_inspection_version
+    // 유니크 제약이 두 번째 저장을 막는다 — 이 경합은 재시도로 해소 가능하므로 500이 아닌 409로 표면화한다(#455 P2-1).
+    REPORT_VERSION_CONFLICT(HttpStatus.CONFLICT, "이미 동일 버전의 보고서가 생성 중입니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;
