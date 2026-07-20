@@ -90,7 +90,20 @@ public enum ErrorCode {
     AI_INVALID_RESPONSE(HttpStatus.BAD_GATEWAY, "AI 서버 응답을 처리할 수 없습니다."),
     // AI 서버 응답 4xx/5xx 구분(#334 P3) — 4xx 는 요청 자체가 거부된 것으로 보아 400, 5xx 는 업스트림 장애로 502.
     AI_REQUEST_REJECTED(HttpStatus.BAD_REQUEST, "AI 서버가 요청을 거부했습니다."),
-    AI_SERVER_ERROR(HttpStatus.BAD_GATEWAY, "AI 서버에서 오류가 발생했습니다.");
+    AI_SERVER_ERROR(HttpStatus.BAD_GATEWAY, "AI 서버에서 오류가 발생했습니다."),
+
+    // 보고서(report) — #446 / HAJA-283
+    // 미존재/타인 소유(점검 소유권 불일치) 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.
+    REPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "보고서를 찾을 수 없습니다."),
+    // AI 서버 연결/타임아웃/형식 오류는 AiProxyService가 이미 BusinessException으로 던지므로 이 코드로
+    // 매핑될 일이 없다 — envelope.success()=false(AI 서버가 응답은 했으나 보고서 생성 자체를 거부한 경우)만 해당.
+    REPORT_GENERATION_FAILED(HttpStatus.BAD_GATEWAY, "보고서 생성에 실패했습니다."),
+    // 같은 inspectionId에 대한 동시 초안 생성이 같은 nextVersion을 계산해 저장을 시도하면 uk_reports_inspection_version
+    // 유니크 제약이 두 번째 저장을 막는다 — 이 경합은 재시도로 해소 가능하므로 500이 아닌 409로 표면화한다(#455 P2-1).
+    REPORT_VERSION_CONFLICT(HttpStatus.CONFLICT, "이미 동일 버전의 보고서가 생성 중입니다. 잠시 후 다시 시도해 주세요."),
+    // finalize 요청의 pdfUrl이 이 보고서용 업로드 엔드포인트 형식(/api/reports/{id}/pdf/{storageKey})을
+    // 따르지 않으면 거부 — 임의 문자열/타 보고서 pdfUrl로 확정을 시도하는 것을 차단한다(#455 P2-2).
+    REPORT_PDF_URL_INVALID(HttpStatus.BAD_REQUEST, "유효하지 않은 보고서 PDF 경로입니다.");
 
     private final HttpStatus status;
     private final String message;

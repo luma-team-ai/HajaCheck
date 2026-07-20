@@ -62,4 +62,9 @@ public interface DefectRepository extends JpaRepository<Defect, Long> {
             + "group by d.type order by cnt desc, d.type asc")
     List<DefectTypeCountProjection> countGroupByTypeOrderByCntDesc(
             @Param("inspectionIds") Collection<Long> inspectionIds);
+
+    // 보고서 생성(#446) — 확정된(검토 완료) 하자만 AI 보고서 입력으로 사용한다. DETECTED(AI 자동탐지 직후,
+    // 사람 검토 전)는 제외하고 CONFIRMED/ACTION_PENDING/IN_PROGRESS/RESOLVED 만 포함한다.
+    List<Defect> findByInspectionIdAndStatusInAndDeletedFalse(
+            Long inspectionId, Collection<DefectStatus> statuses);
 }

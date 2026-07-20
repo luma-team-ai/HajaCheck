@@ -64,3 +64,8 @@ app:
   #   (미마운트 시 컨테이너 임시 FS 에 저장되어 재시작 시 소실 — 인프라 오너 후속 배선.)
   file-storage:
     base-dir: /app/uploads/hajacheck-files
+  # 보고서 PDF 저장 루트 — 오버라이드가 없으면 컨테이너의 java.io.tmpdir 로 떨어져 재시작 시 유실된다(#455 P2-2).
+  # ⚠️ 인프라: file-storage 와 별개 도메인이라 file-storage 볼륨(uploads → hajacheck-files)에 담기지 않으므로,
+  #   docker-compose(arm1) spring 서비스에 이 경로로 전용 볼륨(report_uploads)을 마운트해야 유실되지 않는다.
+  report-pdf-storage:
+    base-dir: /app/uploads/hajacheck-report-pdf
