@@ -32,3 +32,31 @@ export interface CreateFacilityRequest {
   // 백엔드가 자동계산하지 않으므로 FE가 보내지 않으면 항상 null로 저장된다.
   nextInspectionDueAt?: string | null;
 }
+
+// 점검 주기 설정(dev-04-03, FR-019) — POST /api/facilities/{id}/schedule 실 계약
+export interface SetFacilityScheduleRequest {
+  inspectionCycleMonths: number;
+}
+
+export interface SetFacilityScheduleResponse {
+  nextInspectionDueAt: string | null;
+}
+
+// 전체 시설물 점검 주기 현황 — 우측 테이블 전용 타입.
+// name/cycleMonths/nextInspectionDueAt은 Facility 실필드와 매핑 가능하지만,
+// type(점검유형 정기/정밀/긴급)·lastInspectedAt·assigneeName은 백엔드 계약에 없어 MSW 목 전용이다.
+// 실연동 시 Facility 계약 확장 필요(핸드오프 §8 — [CONTRACT-CHANGE-REQUEST]로 A에 요청 예정).
+export type InspectionCycleType = '정기' | '정밀' | '긴급';
+
+export interface InspectionCycleStatusRow {
+  id: number;
+  name: string;
+  type: InspectionCycleType;
+  cycleMonths: number;
+  /** YYYY-MM-DD — 목 전용(백엔드 미보유) */
+  lastInspectedAt: string;
+  /** YYYY-MM-DD */
+  nextInspectionDueAt: string;
+  /** 목 전용(백엔드 미보유) */
+  assigneeName: string;
+}
