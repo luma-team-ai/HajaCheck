@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 from ai.core.llm_client import CachedLLM, _StructuredLLM, get_llm
 
 
-@patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "test-token"})
+@patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "dummy"})
 @patch("ai.core.llm_client.HFInferenceChatModel")
 def test_get_llm_hf_provider(mock_chat_model_cls):
     """LLM_PROVIDER=hf 일 때 HFInferenceChatModel 인스턴스화 검증."""
@@ -26,7 +26,7 @@ def test_get_llm_hf_provider(mock_chat_model_cls):
     mock_chat_model_cls.assert_called_once()
     call_args = mock_chat_model_cls.call_args
     assert call_args.kwargs["model"] == "Qwen/Qwen3-8B"
-    assert call_args.kwargs["hf_api_token"] == "test-token"
+    assert call_args.kwargs["hf_api_token"] == "dummy"
     assert call_args.kwargs["temperature"] == 0.7
     assert call_args.kwargs["timeout"] == 30
     assert call_args.kwargs["max_tokens"] == 4096
@@ -75,7 +75,7 @@ def test_get_llm_default_hf_when_unset(mock_chat_model_cls):
     mock_chat_model_cls.return_value = mock_chat_instance
 
     # HF_API_TOKEN은 필수이므로 mock 대신 env 추가
-    with patch.dict(os.environ, {"HF_API_TOKEN": "test-token"}):
+    with patch.dict(os.environ, {"HF_API_TOKEN": "dummy"}):
         llm = get_llm()
 
     assert isinstance(llm, CachedLLM)
@@ -123,7 +123,7 @@ def test_get_llm_invalid_provider_raises_error():
         get_llm()
 
 
-@patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "test-token"})
+@patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "dummy"})
 @patch("ai.core.llm_client.HFInferenceChatModel")
 def test_cache_namespace_differs_by_provider_and_model(mock_chat_model_cls):
     """provider와 model이 다르면 캐시 네임스페이스가 달라진다는 검증."""
@@ -148,7 +148,7 @@ def test_cache_namespace_differs_by_provider_and_model(mock_chat_model_cls):
     assert hf_namespace != ollama_namespace
 
     # temperature가 다르면 네임스페이스도 달라야 함
-    with patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "test-token"}):
+    with patch.dict(os.environ, {"LLM_PROVIDER": "hf", "HF_API_TOKEN": "dummy"}):
         llm_hf_diff_temp = get_llm(temperature=0.7, cache=True)
         assert llm_hf_diff_temp._cache_namespace != hf_namespace
         assert ":0.7" in llm_hf_diff_temp._cache_namespace

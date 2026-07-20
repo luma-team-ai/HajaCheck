@@ -33,6 +33,7 @@ from pydantic import Field, SecretStr
 # 형태로 넘기면 그대로 HF Inference에 전달되도록 화이트리스트로 통과시킨다.
 _PASSTHROUGH_KWARGS = ("response_format", "tools", "tool_choice", "top_p", "seed")
 
+_THINK_OPEN_TAG = "<think>"
 _THINK_CLOSE_TAG = "</think>"
 
 _ROLE_MAP = {
@@ -45,12 +46,17 @@ _ROLE_MAP = {
 
 
 def extract_final_answer(reasoning_text: str) -> str:
-    """reasoning 텍스트에 `<think>...</think>` 블록이 있으면 그 이후 텍스트를,
-    없으면 reasoning 텍스트 전체를 최종 답으로 반환한다(Qwen3 reasoning 모델 대응)."""
+    """Qwen3 reasoning 모델의 reasoning 텍스트에서 최종 답만 뽑는다.
+    - `</think>`가 있으면 그 이후(=최종 답)를 반환
+    - `<think>`만 있고 `</think>`가 없으면(사고 과정이 잘려 최종 답 미완성) 빈 문자열 반환
+      — 사고 과정 원문이 최종 답으로 새지 않도록(#448 P3)
+    - think 태그가 전혀 없으면 전체를 최종 답으로 반환(비-reasoning 응답)"""
     idx = reasoning_text.find(_THINK_CLOSE_TAG)
-    if idx == -1:
-        return reasoning_text.strip()
-    return reasoning_text[idx + len(_THINK_CLOSE_TAG):].strip()
+    if idx != -1:
+        return reasoning_text[idx + len(_THINK_CLOSE_TAG):].strip()
+    if _THINK_OPEN_TAG in reasoning_text:
+        return ""
+    return reasoning_text.strip()
 
 
 def _to_hf_messages(messages: list[BaseMessage]) -> list[dict]:
@@ -105,6 +111,14 @@ class HFInferenceChatModel(BaseChatModel):
             # HF가 이를 "reasoning"으로 매핑해 내려주는 경우도 있어 둘 다 확인한다.
             reasoning_text = getattr(message, "reasoning_content", None) or getattr(message, "reasoning", None)
             content = extract_final_answer(reasoning_text) if reasoning_text else ""
+
+        if not content or not content.strip():
+            # 빈 최종답을 정상값으로 반환하면 CachedLLM이 빈 문자열을 24h 캐싱해 캐시 오염·불투명
+            # 실패를 낳는다(#448 P2). 조용히 삼키지 말고 표면화 → CachedLLM 재시도 루프가 처리.
+            raise RuntimeError(
+                "HF chat_completion이 빈 최종 응답을 반환했습니다(content·reasoning 모두 비었거나 사고 과정만 잘림). "
+                f"model={self.model_name}, finish_reason={getattr(response.choices[0], 'finish_reason', None)}"
+            )
 
         usage = response.usage
         usage_metadata = None
