@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { INSPECTION_CYCLE_COLOR_CLASS } from '../inspectionCycleColors';
 import { useInspectionCycleStatusRows } from '../hooks/useInspectionCycleStatusRows';
 import type { InspectionCycleStatusRow } from '../types';
@@ -38,6 +39,49 @@ export function InspectionCycleStatusTable({ selectedId, onSelectRow }: Props) {
     () => (data ?? []).filter((row) => matchesFilter(row, filter)),
     [data, filter],
   );
+
+  // 키보드 내비게이션(roving tabindex) — RecentInspectionsTable.tsx와 동일 패턴(react-reviewer P2):
+  // 행 그룹의 Tab 정지점을 1개로 유지하고 방향키로 이동. 필터로 행 수가 줄어도 항상 한 행만 tabIndex=0.
+  const rowCount = filteredRows.length;
+  const [focusedIndex, setFocusedIndex] = useState(0);
+  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  const safeFocusedIndex = Math.min(focusedIndex, rowCount - 1);
+  const focusRow = (index: number) => {
+    const clamped = Math.max(0, Math.min(index, rowCount - 1));
+    setFocusedIndex(clamped);
+    rowRefs.current[clamped]?.focus();
+  };
+  const handleRowKeyDown = (
+    event: KeyboardEvent<HTMLTableRowElement>,
+    index: number,
+    row: InspectionCycleStatusRow,
+  ) => {
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        focusRow(index + 1);
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        focusRow(index - 1);
+        break;
+      case 'Home':
+        event.preventDefault();
+        focusRow(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        focusRow(rowCount - 1);
+        break;
+      case 'Enter':
+      case ' ':
+        event.preventDefault();
+        onSelectRow(row);
+        break;
+      default:
+        break;
+    }
+  };
 
   return (
     <section className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-6">
@@ -89,7 +133,7 @@ export function InspectionCycleStatusTable({ selectedId, onSelectRow }: Props) {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((row) => {
+              {filteredRows.map((row, index) => {
                 const isSelected = row.id === selectedId;
                 const status = deriveInspectionCycleStatus(row.nextInspectionDueAt);
                 const rowBg =
@@ -97,15 +141,16 @@ export function InspectionCycleStatusTable({ selectedId, onSelectRow }: Props) {
                 return (
                   <tr
                     key={row.id}
-                    tabIndex={0}
-                    aria-selected={isSelected}
-                    onClick={() => onSelectRow(row)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        onSelectRow(row);
-                      }
+                    ref={(el) => {
+                      rowRefs.current[index] = el;
                     }}
+                    tabIndex={index === safeFocusedIndex ? 0 : -1}
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      setFocusedIndex(index);
+                      onSelectRow(row);
+                    }}
+                    onKeyDown={(event) => handleRowKeyDown(event, index, row)}
                     className={`cursor-pointer transition-colors ${INSPECTION_CYCLE_COLOR_CLASS.rowFocusOutline} ${
                       isSelected
                         ? INSPECTION_CYCLE_COLOR_CLASS.rowSelectedBg

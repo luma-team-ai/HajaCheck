@@ -23,7 +23,8 @@ export function InspectionCycleStepper({ months, onChange }: Props) {
     if (Number.isNaN(parsed)) {
       return;
     }
-    onChange(Math.min(MAX_MONTHS, Math.max(MIN_MONTHS, parsed)));
+    // 소수 입력(예: 6.5)이 그대로 저장 요청 개월수로 전송되지 않도록 정수로 반올림(react-reviewer P3).
+    onChange(Math.min(MAX_MONTHS, Math.max(MIN_MONTHS, Math.round(parsed))));
   };
 
   return (
