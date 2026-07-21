@@ -160,7 +160,7 @@ class CompanySignupServiceTest {
         assertThat(response.companyId()).isEqualTo(12L);
         assertThat(response.status()).isEqualTo("PENDING_REVIEW");
         assertThat(response.signupToken()).isEqualTo("signup-tok");
-        assertThat(response.maskedEmail()).isEqualTo("haja***@check.com");
+        assertThat(response.maskedEmail()).isEqualTo("h***@c***.com");
 
         // writer 에 정규화 brn·대표자명(=user.name)·해시가 전달됐는지 검증.
         ArgumentCaptor<String> emailCap = ArgumentCaptor.forClass(String.class);
