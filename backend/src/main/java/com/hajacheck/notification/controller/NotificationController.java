@@ -2,6 +2,8 @@ package com.hajacheck.notification.controller;
 
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.global.common.ApiResponse;
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.notification.dto.NotificationResponse;
 import com.hajacheck.notification.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -11,6 +13,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -19,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  * (@AuthenticationPrincipal)에서만 취득 — 요청 바디/파라미터로 userId를 받지 않는다
  * (cross-owner IDOR 방지, DashboardController/FacilityController와 동일 원칙).
  *
- * <p>이벤트 발행(트리거)·읽음처리 PATCH는 이 PR 범위 밖이다.
+ * <p>읽음처리(PATCH /{id}/read)는 HAJA-274에서 추가. 이벤트 발행(트리거)은 이 범위 밖이다.
  */
 @Tag(name = "Notification", description = "알림 API")
 @RestController
@@ -35,5 +39,17 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<List<NotificationResponse>>> getNotifications(
             @AuthenticationPrincipal LoginUser loginUser) {
         return ResponseEntity.ok(ApiResponse.ok(notificationService.getNotifications(loginUser.getUserId())));
+    }
+
+    @Operation(summary = "알림 읽음 처리",
+            description = "로그인 사용자 소유의 알림을 읽음 상태로 전환한다(멱등). 미존재/타인 소유는 404")
+    @PatchMapping("/{id}/read")
+    public ResponseEntity<ApiResponse<Void>> markAsRead(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long id) {
+        if (!notificationService.markAsRead(id, loginUser.getUserId())) {
+            throw new BusinessException(ErrorCode.NOTIFICATION_NOT_FOUND);
+        }
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 }
