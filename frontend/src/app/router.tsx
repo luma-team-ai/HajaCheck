@@ -217,6 +217,20 @@ export const router = createBrowserRouter([
         handle: { breadcrumb: [{ label: '홈' }, { label: '대시보드' }], activeHref: '/dashboard' },
       }, // — features/dashboard (HAJA-17)
       {
+        path: '/dashboard/ai-weekly-briefing',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <DashboardPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '대시보드' }, { label: 'AI 주간 브리핑 카드' }],
+          activeHref: '/dashboard/ai-weekly-briefing',
+        },
+      }, // — 사이드바 "AI 주간 브리핑 카드"가 가리키던 미구현 라우트(#478). AiBriefingCard는 별도 화면이
+      // 아니라 /dashboard 인라인 위젯이라 같은 DashboardPage를 렌더링하고 위젯 위치로 스크롤한다
+      // (DashboardPage.tsx 참조) — #472와 동일한 라우트-메뉴 불일치 유형.
+      {
         path: '/defects/:id',
         element: (
           <Suspense fallback={<div>불러오는 중...</div>}>
