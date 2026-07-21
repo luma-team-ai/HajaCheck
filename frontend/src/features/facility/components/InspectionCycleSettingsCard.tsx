@@ -15,6 +15,8 @@ type Props = {
   onNotifyBeforeChange: (checked: boolean) => void;
   warnOnOverdueEnabled: boolean;
   onWarnOnOverdueChange: (checked: boolean) => void;
+  /** 다음 점검일 뱃지 계산 기준일 — 미지정 시 실제 오늘. 데모 화면은 고정 기준일을 주입한다. */
+  today?: Date;
 };
 
 // "이 시설물 주기 설정" 카드 — 순수 프레젠테이셔널(상태·저장 뮤테이션은 페이지가 소유, container/presentational split)
@@ -29,6 +31,7 @@ export function InspectionCycleSettingsCard({
   onNotifyBeforeChange,
   warnOnOverdueEnabled,
   onWarnOnOverdueChange,
+  today,
 }: Props) {
   return (
     <section className="flex flex-col gap-6 rounded-2xl border border-border bg-surface p-6">
@@ -55,7 +58,7 @@ export function InspectionCycleSettingsCard({
           <span className="text-sm text-text-muted">다음 점검일</span>
           <div className="flex items-center gap-2">
             <span className="text-2xl font-bold text-heading">{nextInspectionDueAt ?? '미정'}</span>
-            <InspectionCycleStatusBadge nextInspectionDueAt={nextInspectionDueAt} />
+            <InspectionCycleStatusBadge nextInspectionDueAt={nextInspectionDueAt} today={today} />
           </div>
         </div>
       </div>

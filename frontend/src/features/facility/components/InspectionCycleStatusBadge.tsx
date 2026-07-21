@@ -3,6 +3,8 @@ import { deriveInspectionCycleStatus } from '../utils/inspectionCycleStatus';
 
 type Props = {
   nextInspectionDueAt: string | null;
+  /** 상태 계산 기준일 — 미지정 시 실제 오늘(new Date()). 데모 화면은 고정 기준일(INSPECTION_CYCLE_DEMO_TODAY)을 주입한다. */
+  today?: Date;
 };
 
 const BADGE_CLASS_BY_KIND = {
@@ -20,8 +22,8 @@ const DOT_CLASS_BY_KIND = {
 } as const;
 
 // 다음점검일 기준 D-day 뱃지 — 상태 파생은 utils/inspectionCycleStatus.ts 단일 소스(handoff §2)
-export function InspectionCycleStatusBadge({ nextInspectionDueAt }: Props) {
-  const status = deriveInspectionCycleStatus(nextInspectionDueAt);
+export function InspectionCycleStatusBadge({ nextInspectionDueAt, today }: Props) {
+  const status = deriveInspectionCycleStatus(nextInspectionDueAt, today);
 
   return (
     <span

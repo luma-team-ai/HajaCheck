@@ -47,3 +47,7 @@ export function deriveInspectionCycleStatus(
   }
   return { kind: 'safe', label: '여유', diffDays };
 }
+
+// 데모(MSW 목) 전용 고정 기준일(INSPECTION_CYCLE_DEMO_TODAY)·computeDemoNextInspectionDueAt는
+// react-reviewer P2에 따라 utils/inspectionCycleDemo.ts 로 분리했다(프로덕션 침묵 누출 방지 —
+// 호출부는 env 가드를 거쳐야 함). 이 파일에는 순수 상태 파생 로직만 남긴다.

@@ -21,23 +21,25 @@ const TD_CLASS = 'p-3 border-b border-[#f4f4f4] whitespace-nowrap';
 type Props = {
   selectedId: number | null;
   onSelectRow: (row: InspectionCycleStatusRow) => void;
+  /** 상태 계산 기준일 — 미지정 시 실제 오늘. 데모 화면은 고정 기준일(INSPECTION_CYCLE_DEMO_TODAY)을 주입한다. */
+  today?: Date;
 };
 
-function matchesFilter(row: InspectionCycleStatusRow, filter: FilterKey): boolean {
+function matchesFilter(row: InspectionCycleStatusRow, filter: FilterKey, today?: Date): boolean {
   if (filter === 'all') {
     return true;
   }
-  const status = deriveInspectionCycleStatus(row.nextInspectionDueAt);
+  const status = deriveInspectionCycleStatus(row.nextInspectionDueAt, today);
   return status.kind === filter;
 }
 
-export function InspectionCycleStatusTable({ selectedId, onSelectRow }: Props) {
+export function InspectionCycleStatusTable({ selectedId, onSelectRow, today }: Props) {
   const { data, isLoading, isError } = useInspectionCycleStatusRows();
   const [filter, setFilter] = useState<FilterKey>('all');
 
   const filteredRows = useMemo(
-    () => (data ?? []).filter((row) => matchesFilter(row, filter)),
-    [data, filter],
+    () => (data ?? []).filter((row) => matchesFilter(row, filter, today)),
+    [data, filter, today],
   );
 
   // 키보드 내비게이션(roving tabindex) — RecentInspectionsTable.tsx와 동일 패턴(react-reviewer P2):
@@ -135,7 +137,7 @@ export function InspectionCycleStatusTable({ selectedId, onSelectRow }: Props) {
             <tbody>
               {filteredRows.map((row, index) => {
                 const isSelected = row.id === selectedId;
-                const status = deriveInspectionCycleStatus(row.nextInspectionDueAt);
+                const status = deriveInspectionCycleStatus(row.nextInspectionDueAt, today);
                 const rowBg =
                   status.kind === 'overdue' && !isSelected ? INSPECTION_CYCLE_COLOR_CLASS.overdueRowBg : '';
                 return (
@@ -169,7 +171,7 @@ export function InspectionCycleStatusTable({ selectedId, onSelectRow }: Props) {
                     <td className={TD_CLASS}>{row.lastInspectedAt}</td>
                     <td className={TD_CLASS}>{row.nextInspectionDueAt}</td>
                     <td className={TD_CLASS}>
-                      <InspectionCycleStatusBadge nextInspectionDueAt={row.nextInspectionDueAt} />
+                      <InspectionCycleStatusBadge nextInspectionDueAt={row.nextInspectionDueAt} today={today} />
                     </td>
                     <td className={TD_CLASS}>{row.assigneeName}</td>
                   </tr>
