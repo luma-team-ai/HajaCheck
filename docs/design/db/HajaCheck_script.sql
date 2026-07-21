@@ -1296,6 +1296,17 @@ execute procedure set_updated_at();
 
 comment on trigger trg_plans_set_updated_at on plans is 'plans 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
 
+-- 구독 요금제 시드(#517 / HAJA-308) — PRD §2.4(v0.44 확정) 요금제 표. 신규 설치 전용이며,
+-- 기존 운영 DB는 대신 docs/design/db/migrations/20260721_01_plans_seed_free_assign.sql 을 사용한다.
+-- max_seats 는 NOT NULL 컬럼이라 Enterprise "무제한"은 sentinel 1000000 으로 표현한다.
+insert into plans (name, max_facilities, max_monthly_analyses, max_seats,
+                   has_pdf_watermark, has_counselor_access, has_ai_addon, price_monthly)
+values
+    ('FREE'::plan_name_type, 1, 50, 1, true, false, false, 0.00),
+    ('STANDARD'::plan_name_type, 10, 1000, 3, false, true, true, 29000.00),
+    ('ENTERPRISE'::plan_name_type, null, null, 1000000, false, true, true, 59000.00)
+on conflict (name) do nothing;
+
 create trigger trg_facilities_set_updated_at
     before update
     on facilities
