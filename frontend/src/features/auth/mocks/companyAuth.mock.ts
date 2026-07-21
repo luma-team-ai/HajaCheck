@@ -18,7 +18,7 @@ export const MOCK_DUPLICATED_BUSINESS_NUMBER = '9999999999';
 export const MOCK_FIND_ID_BUSINESS_NUMBER = '1234567890';
 export const MOCK_FIND_ID_COMPANY_NAME = '(주)하자체크';
 export const MOCK_FIND_ID_REPRESENTATIVE_NAME = '김민수';
-export const MOCK_FIND_ID_MASKED_EMAIL = 'ha***@check.com';
+export const MOCK_FIND_ID_MASKED_EMAIL = 'h***@c***.com';
 
 export const MOCK_SIGNUP_TOKEN = 'mock-signup-token';
 
@@ -26,11 +26,27 @@ function normalizeDigits(value: string): string {
   return value.replace(/\D/g, '');
 }
 
+// 백엔드 EmailMasker(backend/src/main/java/com/hajacheck/global/util/EmailMasker.java)와
+// 동일 규칙 — 로컬파트 첫 1자+"***", 도메인은 마지막 '.' 기준 host/TLD 분리 후 host 첫 1자+"***"+".TLD".
+// 예) haja@check.com → h***@c***.com (#523, HAJA-312 — 백엔드 규칙 강화 #524 정합)
+const MASK = '***';
+const REVEAL = 1;
+
+function maskDomain(domain: string): string {
+  const dot = domain.lastIndexOf('.');
+  if (dot <= 0 || dot === domain.length - 1) return MASK;
+  const host = domain.slice(0, dot);
+  const tld = domain.slice(dot + 1);
+  return `${host.slice(0, REVEAL)}${MASK}.${tld}`;
+}
+
 function maskEmail(email: string): string {
-  const [local, domain] = email.split('@');
-  if (!domain) return email;
-  const visible = local.slice(0, 2);
-  return `${visible}${'*'.repeat(Math.max(local.length - visible.length, 3))}@${domain}`;
+  const at = email.lastIndexOf('@');
+  if (at <= 0) return MASK;
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  if (!domain) return MASK;
+  return `${local.slice(0, REVEAL)}${MASK}@${maskDomain(domain)}`;
 }
 
 export const companyAuthHandlers = [
