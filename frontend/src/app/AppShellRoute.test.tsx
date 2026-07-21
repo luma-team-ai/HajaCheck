@@ -176,4 +176,27 @@ describe('AppShellRoute', () => {
 
     expect(screen.queryByRole('menu', { name: '알림' })).toBeNull();
   });
+
+  // PR머신 P2(react-reviewer P1-1 수정의 부작용): 위 250ms 시간 가드는 onClose가 불리는 모든 경우를
+  // 뭉뚱그려 막아서, 패널 밖 다른 요소를 클릭해 닫은 직후 벨을 눌러도 안 열리는 과잉 차단이 있었다.
+  // "벨 자신에게 온 mousedown"만 좁혀서 표시하는 새 가드가 이 경우엔 정상 재오픈되는지 검증한다.
+  it('패널 밖 다른 요소를 클릭해 닫힌 뒤 벨을 클릭하면 패널이 다시 열린다(PR머신 P2)', async () => {
+    useAuthStore.setState({ user: baseUser });
+
+    renderAt('/dashboard');
+
+    const bell = await screen.findByRole('button', { name: '알림 (미읽음 3건)' });
+    fireEvent.click(bell);
+    expect(await screen.findByRole('menu', { name: '알림' })).not.toBeNull();
+
+    // 패널 밖의 다른 요소(벨이 아님)를 mousedown+click — NotificationDropdown의 바깥클릭 감지로 닫힌다.
+    const pageContent = screen.getByText('대시보드 페이지');
+    fireEvent.mouseDown(pageContent);
+    fireEvent.click(pageContent);
+    expect(screen.queryByRole('menu', { name: '알림' })).toBeNull();
+
+    // 곧바로 벨을 클릭하면 (구 가드처럼 무시되지 않고) 정상적으로 다시 열려야 한다.
+    fireEvent.click(bell);
+    expect(await screen.findByRole('menu', { name: '알림' })).not.toBeNull();
+  });
 });

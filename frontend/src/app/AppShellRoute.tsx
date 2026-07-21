@@ -4,6 +4,7 @@
 // 그 라우트의 `handle`에 breadcrumb/activeHref를 선언하기만 하면 된다 — 페이지 컴포넌트 자체는
 // AppLayout을 몰라도 됨(react-router v6 표준 패턴: useMatches() + handle).
 import { useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Outlet, useMatches, useNavigate } from 'react-router-dom';
 import { useLogout } from '../features/auth/hooks/useLogout';
 import { MYPAGE_PLAN_ROUTE } from '../features/auth/constants';
@@ -58,27 +59,39 @@ export function AppShellRoute() {
   const { data: notifications } = useNotifications(isAuthenticated);
   const unreadCount = notifications?.filter((item) => !item.isRead).length ?? 0;
 
-  // 벨 재클릭 토글 경합(react-reviewer P1) 가드: shared NotificationDropdown은 document
-  // mousedown으로 바깥 클릭을 감지해 onClose를 부른다. 벨 버튼은 그 rootRef 바깥이라, 패널이 열린
-  // 상태에서 벨을 다시 클릭하면 mousedown(→onClose로 false)이 먼저, click(→토글로 true)이 그다음
-  // React 18 배칭 안에서 순서대로 적용돼 최종 상태가 true(안 닫힘)가 되어버린다.
-  // → 바깥클릭으로 방금(250ms 이내) 닫혔다면 그 직후의 벨 클릭은 "재오픈"이 아니라 같은 제스처의
-  // 일부로 취급해 무시한다.
-  const lastClosedByOutsideRef = useRef(0);
+  // 벨 재클릭 토글 경합(react-reviewer P1, PR머신 P2로 범위 좁힘) 가드: shared NotificationDropdown은
+  // document mousedown으로 바깥 클릭을 감지해 onClose를 부른다. 벨 버튼은 그 rootRef 바깥이라, 패널이
+  // 열린 상태에서 벨을 다시 클릭하면 mousedown(→onClose로 닫힘)이 먼저, click(→토글로 재오픈)이 그
+  // 다음 순서로 적용돼 결국 안 닫힌다.
+  // (구) 시간 기반 250ms 가드는 onClose가 불리는 모든 경우(ESC·패널 밖 다른 요소 클릭 포함)를 뭉뚱그려
+  // 막아버려서, ESC로 닫거나 다른 요소를 클릭해 닫은 직후 벨을 눌러도 안 열리는 과잉 차단 버그가
+  // 있었다(PR머신 P2). → "패널이 열려 있는 동안 벨 자신에게 mousedown이 온 경우"만 좁혀서 표시한다.
+  // Header 벨 버튼은 shared(미터치)라 onMouseDown prop을 못 받으므로, AppLayout을 감싸는 아래
+  // 래퍼의 capture 단계에서 이벤트 대상을 aria-label로 식별한다(Header.tsx: aria-label={unreadCount
+  // > 0 ? `알림 (미읽음 ${unreadCount}건)` : '알림'} — '알림' 접두는 Header 내 벨 버튼에만 쓰인다).
+  const suppressNextBellClickRef = useRef(false);
   const handleNotificationClose = () => {
-    lastClosedByOutsideRef.current = Date.now();
     setNotificationOpen(false);
   };
   const handleNotificationClick = () => {
-    if (Date.now() - lastClosedByOutsideRef.current < 250) {
-      lastClosedByOutsideRef.current = 0;
+    if (suppressNextBellClickRef.current) {
+      suppressNextBellClickRef.current = false;
       return;
     }
     setNotificationOpen((prev) => !prev);
   };
+  const handleShellMouseDownCapture = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!notificationOpen) {
+      return;
+    }
+    const target = event.target as Element | null;
+    if (target?.closest('button[aria-label^="알림"]')) {
+      suppressNextBellClickRef.current = true;
+    }
+  };
 
   return (
-    <>
+    <div onMouseDownCapture={handleShellMouseDownCapture}>
       <AppLayout
         breadcrumb={handle?.breadcrumb ?? []}
         activeHref={handle?.activeHref}
@@ -97,6 +110,6 @@ export function AppShellRoute() {
         <Outlet />
       </AppLayout>
       <NotificationCenter open={notificationOpen} onClose={handleNotificationClose} enabled={isAuthenticated} />
-    </>
+    </div>
   );
 }
