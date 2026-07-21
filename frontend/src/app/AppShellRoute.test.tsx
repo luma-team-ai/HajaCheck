@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { setupServer } from 'msw/node';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { notificationHandlers } from '../features/notification/api/notificationApi.handlers';
 import { MYPAGE_PLAN_ROUTE } from '../features/auth/constants';
 import { useAuthStore } from '../features/auth/store/authStore';
 import type { User } from '../features/auth/types';
@@ -17,7 +19,14 @@ const baseUser: User = {
   profileImageUrl: null,
 };
 
+// 알림 센터(HAJA-38) 연결 후 로그인 사용자 렌더 시 useNotifications가 GET /api/notifications를
+// 실제로 호출하므로, 이 파일의 모든 로그인 케이스가 안정적으로 돌게 알림 목 핸들러를 함께 띄운다.
+const server = setupServer(...notificationHandlers);
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+afterAll(() => server.close());
+
 afterEach(() => {
+  server.resetHandlers();
   cleanup();
   useAuthStore.setState({ user: null });
 });
@@ -26,7 +35,7 @@ afterEach(() => {
 // MemoryRouter + Routes 조합이 아니라 실제 router.tsx와 동일한 방식으로 렌더링한다.
 // AppShellRoute가 useLogout(useQueryClient 필요)을 사용하므로 QueryClientProvider로 감싼다(#231).
 function renderAt(initialPath: string) {
-  const queryClient = new QueryClient();
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = createMemoryRouter(
     [
       {
@@ -125,5 +134,25 @@ describe('AppShellRoute', () => {
     expect(screen.getByText('분석 결과 뷰어 페이지')).not.toBeNull();
     const link = screen.getByRole('link', { name: '분석 결과 뷰어' });
     expect(link.getAttribute('aria-current')).toBe('page');
+  });
+
+  it('로그인 사용자는 벨 배지에 미읽음 수가 표시되고 클릭 시 알림 패널이 열린다(HAJA-38)', async () => {
+    useAuthStore.setState({ user: baseUser });
+
+    renderAt('/dashboard');
+
+    // 목 데이터 5건 중 미읽음 3건 — Header 벨 aria-label로 배지 반영을 확인
+    expect(await screen.findByRole('button', { name: '알림 (미읽음 3건)' })).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '알림 (미읽음 3건)' }));
+
+    expect(await screen.findByRole('menu', { name: '알림' })).not.toBeNull();
+  });
+
+  it('미인증 상태에서는 알림을 조회하지 않아 벨에 미읽음 배지가 없다(HAJA-38)', () => {
+    renderAt('/dashboard');
+
+    const bell = screen.getByRole('button', { name: '알림' });
+    expect(bell.getAttribute('aria-label')).toBe('알림');
   });
 });

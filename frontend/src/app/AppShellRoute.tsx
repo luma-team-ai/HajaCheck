@@ -3,10 +3,13 @@
 // 새 페이지를 이 셸에 포함하려면 router.tsx의 children 배열에 라우트를 추가하고,
 // 그 라우트의 `handle`에 breadcrumb/activeHref를 선언하기만 하면 된다 — 페이지 컴포넌트 자체는
 // AppLayout을 몰라도 됨(react-router v6 표준 패턴: useMatches() + handle).
+import { useState } from 'react';
 import { Outlet, useMatches, useNavigate } from 'react-router-dom';
 import { useLogout } from '../features/auth/hooks/useLogout';
 import { MYPAGE_PLAN_ROUTE } from '../features/auth/constants';
 import { useAuthStore } from '../features/auth/store/authStore';
+import { NotificationCenter } from '../features/notification/components/NotificationCenter';
+import { useNotifications } from '../features/notification/hooks/useNotifications';
 import type { BreadcrumbItem } from '../shared/components/Header';
 import { AppLayout } from '../shared/components/AppLayout';
 import { isAdminRole } from '../shared/constants/roles';
@@ -46,21 +49,39 @@ export function AppShellRoute() {
   const current = [...matches].reverse().find((match) => hasAppShellHandle(match.handle));
   const handle = current?.handle as AppShellHandle | undefined;
 
+  // 알림 센터(HAJA-38) — Header 벨 버튼은 AppLayout 내부(shared, 미터치)라 열림 상태와 unreadCount는
+  // 이 통합지점(app/)이 들고 NotificationCenter(컨테이너)에 boolean으로만 내려준다.
+  // useNotifications는 NotificationCenter 안에서도 같은 쿼리 키로 호출되므로 TanStack Query 캐시가
+  // 공유되어 벨 배지용으로 별도 네트워크 요청이 추가되지는 않는다.
+  const isAuthenticated = Boolean(authUser);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const { data: notifications } = useNotifications(isAuthenticated);
+  const unreadCount = notifications?.filter((item) => !item.isRead).length ?? 0;
+
   return (
-    <AppLayout
-      breadcrumb={handle?.breadcrumb ?? []}
-      activeHref={handle?.activeHref}
-      isRouteImplemented={isRouteImplemented}
-      isAdmin={isAdmin}
-      user={
-        authUser
-          ? { name: authUser.name, avatarUrl: authUser.profileImageUrl ?? undefined }
-          : undefined
-      }
-      onLogout={() => void logout()}
-      onProfileClick={() => navigate(MYPAGE_PLAN_ROUTE)}
-    >
-      <Outlet />
-    </AppLayout>
+    <>
+      <AppLayout
+        breadcrumb={handle?.breadcrumb ?? []}
+        activeHref={handle?.activeHref}
+        isRouteImplemented={isRouteImplemented}
+        isAdmin={isAdmin}
+        user={
+          authUser
+            ? { name: authUser.name, avatarUrl: authUser.profileImageUrl ?? undefined }
+            : undefined
+        }
+        onLogout={() => void logout()}
+        onProfileClick={() => navigate(MYPAGE_PLAN_ROUTE)}
+        unreadCount={unreadCount}
+        onNotificationClick={() => setNotificationOpen((prev) => !prev)}
+      >
+        <Outlet />
+      </AppLayout>
+      <NotificationCenter
+        open={notificationOpen}
+        onClose={() => setNotificationOpen(false)}
+        enabled={isAuthenticated}
+      />
+    </>
   );
 }
