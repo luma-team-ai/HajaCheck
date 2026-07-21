@@ -377,6 +377,11 @@ class DefectRepositoryTest extends PostgresTestSupport {
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
         Defect saved = defectRepository.save(
                 newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
+        // 저장 직후 같은 영속성 컨텍스트에서 곧바로 조회하면, join fetch로 가져온 연관관계를 Hibernate가
+        // 이미 관리 중인(managed) 엔티티에 재적용하지 않아 inspection이 null로 남는다 — flush+clear로
+        // 컨텍스트를 비워 이후 조회가 DB에서 fresh하게 join fetch되도록 한다.
+        em.flush();
+        em.clear();
 
         Optional<Defect> result = defectRepository.findByIdAndOwnerId(saved.getId(), ownerId);
 

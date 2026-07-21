@@ -28,6 +28,8 @@ import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.support.PostgresTestSupport;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.time.LocalDate;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -55,6 +57,8 @@ class DefectControllerTest extends PostgresTestSupport {
     private MockMvc mockMvc;
     @Autowired
     private ObjectMapper objectMapper;
+    @PersistenceContext
+    private EntityManager entityManager;
     @Autowired
     private UserRepository userRepository;
     @Autowired
@@ -71,7 +75,10 @@ class DefectControllerTest extends PostgresTestSupport {
     // HAJA-25 배정 검증 트리거(trg_inspections_check_assigned_inspector_company)가 assigned_inspector_id에
     // 승인+검증된 회사 소속 INSPECTOR/ADMIN 역할을 요구한다(DefectRepositoryTest.seedOwner 와 동일 픽스처).
     private User saveOwner(String email) {
-        User owner = userRepository.save(User.builder()
+        // saveAndFlush로 각 단계를 즉시 반영한다 — 그렇지 않으면 Hibernate가 한 플러시에서 INSERT를
+        // UPDATE보다 먼저 실행해(inspections INSERT가 company/user UPDATE보다 앞서 큐잉됨) HAJA-25
+        // 배정 검증 트리거가 아직 반영되지 않은(PENDING_REVIEW/company_id=null) 상태로 검증해 실패한다.
+        User owner = userRepository.saveAndFlush(User.builder()
                 .email(email)
                 .name("소유자")
                 .role(Role.INSPECTOR)
@@ -82,14 +89,14 @@ class DefectControllerTest extends PostgresTestSupport {
         Company company = Company.createPendingReview(
                 owner.getId(), "테스트회사-" + owner.getId(), "REG-" + owner.getId(), "대표자",
                 "서울시 강남구", null, "https://files.example.com/registration.png", "{}");
-        companyRepository.save(company);
+        companyRepository.saveAndFlush(company);
         company.markBusinessVerified();
         company.approve(owner.getId());
-        companyRepository.save(company);
+        companyRepository.saveAndFlush(company);
 
-        companyMembershipRepository.save(CompanyMembership.approvedOwner(company.getId(), owner.getId()));
+        companyMembershipRepository.saveAndFlush(CompanyMembership.approvedOwner(company.getId(), owner.getId()));
         owner.assignToCompany(company.getId());
-        userRepository.save(owner);
+        userRepository.saveAndFlush(owner);
 
         return owner;
     }
@@ -115,7 +122,7 @@ class DefectControllerTest extends PostgresTestSupport {
     }
 
     private Defect saveDefect(Long inspectionId, DefectGrade grade, DefectStatus status) {
-        return defectRepository.save(Defect.builder()
+        Defect saved = defectRepository.save(Defect.builder()
                 .inspectionId(inspectionId)
                 .type(DefectType.CRACK)
                 .confidence(0.9)
@@ -124,6 +131,12 @@ class DefectControllerTest extends PostgresTestSupport {
                 .reviewed(false)
                 .deleted(false)
                 .build());
+        // 저장 직후 같은 영속성 컨텍스트에서 MockMvc가 곧바로 조회하면, join fetch로 가져온 연관관계를
+        // Hibernate가 이미 관리 중인 엔티티에 재적용하지 않아 inspection이 null로 남는다 — flush+clear로
+        // 컨텍스트를 비워 이후 컨트롤러 호출이 DB에서 fresh하게 join fetch되도록 한다.
+        entityManager.flush();
+        entityManager.clear();
+        return saved;
     }
 
     private UsernamePasswordAuthenticationToken authOf(User user) {
