@@ -70,4 +70,11 @@ class EmailMaskerTest {
     void mask_blank_그대로반환() {
         assertThat(EmailMasker.mask("   ")).isEqualTo("   ");
     }
+
+    @Test
+    void mask_at다중포함_마지막at기준으로분리() {
+        // quoted-local 등에서 로컬파트에 '@' 가 섞여 들어오는 극단 케이스 — 마지막 '@' 를 구분자로 삼아야
+        // "b@check.com" 을 도메인으로 오인하지 않고 실제 도메인(check.com)을 정확히 분리한다.
+        assertThat(EmailMasker.mask("a@b@check.com")).isEqualTo("a***@c***.com");
+    }
 }
