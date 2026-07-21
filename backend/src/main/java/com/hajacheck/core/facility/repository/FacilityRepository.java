@@ -16,6 +16,10 @@ public interface FacilityRepository extends JpaRepository<Facility, Long> {
 
     List<Facility> findByOwnerId(Long ownerId);
 
+    // 시설물 목록 조회 상한(#484) — FacilityService.list() 전용. 계약(응답=배열) 은 유지한 채
+    // 무제한 반환을 막는 방어적 상한이라 정렬은 id asc(등록순, 결정적) 로 고정한다.
+    List<Facility> findByOwnerIdOrderByIdAsc(Long ownerId, Pageable pageable);
+
     Optional<Facility> findByIdAndOwnerId(Long id, Long ownerId);
 
     long countByOwnerId(Long ownerId);
