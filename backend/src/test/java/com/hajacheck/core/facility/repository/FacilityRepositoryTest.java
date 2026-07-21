@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.support.PostgresTestSupport;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 
 // 실 PG DDL(facilities) 대조를 위해 임베디드 교체를 끄고 Testcontainers PostgreSQL 사용 (리뷰 P2).
@@ -42,6 +44,17 @@ class FacilityRepositoryTest extends PostgresTestSupport {
                 .name(name)
                 .type("BUILDING")
                 .address("서울시 강남구")
+                .build();
+    }
+
+    private Facility newFacilityWithDueAt(Long ownerId, String name, LocalDate nextInspectionDueAt) {
+        return Facility.builder()
+                .ownerId(ownerId)
+                .name(name)
+                .type("BUILDING")
+                .address("서울시 강남구")
+                .inspectionCycleMonths(6)
+                .nextInspectionDueAt(nextInspectionDueAt)
                 .build();
     }
 
@@ -117,6 +130,67 @@ class FacilityRepositoryTest extends PostgresTestSupport {
     @Test
     void findByIdForUpdate_없는id_빈값() {
         Optional<Facility> found = facilityRepository.findByIdForUpdate(999L);
+
+        assertThat(found).isEmpty();
+    }
+
+    // 다가오는 점검 예정 조회(dev-03-02) — owner_id 단일 스코프, 범위 밖·null·타인소유 제외, 정렬·limit 확인.
+    @Test
+    void findUpcomingByOwnerId_범위내만_오름차순_반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        LocalDate today = LocalDate.now();
+        facilityRepository.save(newFacilityWithDueAt(ownerId, "10일후", today.plusDays(10)));
+        facilityRepository.save(newFacilityWithDueAt(ownerId, "3일후", today.plusDays(3)));
+        facilityRepository.save(newFacilityWithDueAt(ownerId, "40일후_범위밖", today.plusDays(40)));
+        facilityRepository.save(newFacility(ownerId, "예정일없음"));
+
+        List<Facility> found = facilityRepository.findUpcomingByOwnerId(
+                ownerId, today, today.plusDays(30), PageRequest.of(0, 10));
+
+        assertThat(found).hasSize(2)
+                .extracting(Facility::getName)
+                .containsExactly("3일후", "10일후");
+    }
+
+    @Test
+    void findUpcomingByOwnerId_타인소유는제외() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long otherOwnerId = seedOwner("owner-b@haja.com");
+        LocalDate today = LocalDate.now();
+        facilityRepository.save(newFacilityWithDueAt(ownerId, "본인시설", today.plusDays(5)));
+        facilityRepository.save(newFacilityWithDueAt(otherOwnerId, "타인시설", today.plusDays(5)));
+
+        List<Facility> found = facilityRepository.findUpcomingByOwnerId(
+                ownerId, today, today.plusDays(30), PageRequest.of(0, 10));
+
+        assertThat(found).hasSize(1)
+                .extracting(Facility::getName)
+                .containsExactly("본인시설");
+    }
+
+    @Test
+    void findUpcomingByOwnerId_limit건수만큼만_반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        LocalDate today = LocalDate.now();
+        facilityRepository.save(newFacilityWithDueAt(ownerId, "1일후", today.plusDays(1)));
+        facilityRepository.save(newFacilityWithDueAt(ownerId, "2일후", today.plusDays(2)));
+        facilityRepository.save(newFacilityWithDueAt(ownerId, "3일후", today.plusDays(3)));
+
+        List<Facility> found = facilityRepository.findUpcomingByOwnerId(
+                ownerId, today, today.plusDays(30), PageRequest.of(0, 2));
+
+        assertThat(found).hasSize(2)
+                .extracting(Facility::getName)
+                .containsExactly("1일후", "2일후");
+    }
+
+    @Test
+    void findUpcomingByOwnerId_소유시설없으면_빈목록() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        LocalDate today = LocalDate.now();
+
+        List<Facility> found = facilityRepository.findUpcomingByOwnerId(
+                ownerId, today, today.plusDays(30), PageRequest.of(0, 10));
 
         assertThat(found).isEmpty();
     }
