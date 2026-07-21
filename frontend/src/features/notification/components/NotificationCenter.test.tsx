@@ -115,4 +115,30 @@ describe('NotificationCenter', () => {
       expect(screen.getByText('미읽음 3')).toBeTruthy();
     });
   });
+
+  // PR머신 P1: BE NotificationType이 constants.ts의 4종 밖의 값을 내려주면(예: enum이 FE 배포보다
+  // 먼저 확장된 경우) NOTIFICATION_TYPE_META 조회가 undefined가 되어 렌더링이 크래시했다 — 레포 전체에
+  // ErrorBoundary가 없어 AppShellRoute(로그인 후 전체 공통 셸)까지 죽을 수 있었다.
+  it('알 수 없는 notification.type이 섞여 있어도 크래시 없이 나머지 알림을 정상 렌더링한다(PR머신 P1)', async () => {
+    server.use(
+      http.get('/api/notifications', () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            { id: 1, type: 'ANALYSIS_DONE', payload: null, isRead: false, createdAt: new Date().toISOString() },
+            { id: 99, type: 'UNKNOWN_TYPE', payload: null, isRead: false, createdAt: new Date().toISOString() },
+          ],
+        }),
+      ),
+    );
+
+    renderHarness();
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+
+    // 알려진 항목은 정상 렌더링되고, 폴백 메타("새 알림")로 표시된 미지의 항목도 함께 렌더링된다 —
+    // 둘 다 미읽음이라 unreadCount(2)에도 반영된다.
+    expect(await screen.findByText('AI 분석 완료')).toBeTruthy();
+    expect(screen.getByText('새 알림')).toBeTruthy();
+    expect(screen.getByText('미읽음 2')).toBeTruthy();
+  });
 });

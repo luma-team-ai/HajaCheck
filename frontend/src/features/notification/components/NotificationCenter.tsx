@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { NotificationItem } from '../../../shared/components/NotificationDropdown';
 import { NotificationDropdown } from '../../../shared/components/NotificationDropdown';
-import { NOTIFICATION_ALL_FILTER_KEY, NOTIFICATION_FILTERS, NOTIFICATION_TYPE_META } from '../constants';
+import { NOTIFICATION_ALL_FILTER_KEY, NOTIFICATION_FILTERS, getNotificationTypeMeta } from '../constants';
 import { useMarkNotificationsAsRead, useNotifications } from '../hooks/useNotifications';
 import type { NotificationApiItem } from '../types';
 import { formatElapsedTime } from '../utils/formatElapsedTime';
@@ -32,7 +32,7 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
   // markAsRead(useMutation.mutate 래퍼)는 렌더마다 identity가 바뀌어 useMemo 의존성으로 써도
   // 매 렌더 재계산됐다(P2) — 목록 규모가 작아(최대 30건, BE 컷 기준) 순수 계산으로 충분하다.
   const items: NotificationItem[] = notifications.map((raw) => {
-    const meta = NOTIFICATION_TYPE_META[raw.type];
+    const meta = getNotificationTypeMeta(raw.type);
     return {
       id: raw.id,
       category: meta.category,
@@ -40,8 +40,8 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
       description: extractDescription(raw.payload),
       timestamp: formatElapsedTime(raw.createdAt),
       read: raw.isRead,
-      actionLabel: meta.actionLabel,
-      onAction: () => markAsRead(raw.id),
+      // 폴백(미지의 type) 메타는 actionLabel이 없다 — 의미를 모르는 액션 버튼을 노출하지 않는다.
+      ...(meta.actionLabel ? { actionLabel: meta.actionLabel, onAction: () => markAsRead(raw.id) } : {}),
     };
   });
 
