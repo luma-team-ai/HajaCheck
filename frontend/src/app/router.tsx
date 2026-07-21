@@ -259,6 +259,19 @@ export const router = createBrowserRouter([
         },
       }, // — features/facility 점검 주기 설정 (dev-04-03, FR-019)
       {
+        path: '/facilities/list',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <FacilityListPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '시설물 관리' }, { label: '시설물 목록/등록' }],
+          activeHref: '/facilities/list',
+        },
+      }, // — features/facility 시설물 목록/등록 (dev-04-01, FR-003). SideNavBar href('/facilities/list')와
+      // 불일치하던 구 경로('/facilities', 셸 밖)를 셸 안으로 이동해 정정(#472).
+      {
         path: '/admin/users',
         // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#378, 컨벤션 §7)
         element: (
@@ -287,18 +300,7 @@ export const router = createBrowserRouter([
       }, // — features/support (dev-08-01, HAJA-32, FR-6)
     ],
   },
-  {
-    // 셸(AppShellRoute) 중첩 밖 업무 라우트 — 인증 가드는 적용하되 AppLayout 셸 미포함(#231 관찰,
-    // 셸 포함은 별도 후속 스코프).
-    path: '/facilities',
-    element: (
-      <ProtectedRoute>
-        <Suspense fallback={<div>불러오는 중...</div>}>
-          <FacilityListPage />
-        </Suspense>
-      </ProtectedRoute>
-    ),
-  }, // — features/facility (dev-04-01, FR-003)
+  // 구 '/facilities'(셸 밖) 라우트는 '/facilities/list'(셸 안, 위 AppShellRoute children)로 이동됨(#472).
   // { path: '/defects', ... }                  — features/defect
   // { path: '/reports', ... }                  — features/report
   // { path: '/support', ... }                  — features/support
