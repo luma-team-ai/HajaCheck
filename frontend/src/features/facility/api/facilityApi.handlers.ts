@@ -8,7 +8,7 @@ import type {
   SetFacilityScheduleResponse,
 } from '../types';
 import { computeNextInspectionDueAt } from '../utils/computeNextInspectionDueAt';
-import { computeDemoNextInspectionDueAt } from '../utils/inspectionCycleStatus';
+import { computeDemoNextInspectionDueAt } from '../utils/inspectionCycleDemo';
 
 // 메모리 목 저장소 — POST로 생성한 시설물이 이후 GET 목록 조회에 즉시 반영되도록 모듈 스코프에서 유지
 // (dashboardApi.handlers.ts처럼 고정 응답만으로는 등록 폼 E2E 확인이 불가능해 facility만 mutable로 구성)
