@@ -13,6 +13,7 @@ import {
   MOCK_DUPLICATED_EMAIL,
   MOCK_FIND_ID_BUSINESS_NUMBER,
   MOCK_FIND_ID_COMPANY_NAME,
+  MOCK_FIND_ID_MASKED_EMAIL,
   companyAuthHandlers,
 } from '../mocks/companyAuth.mock';
 import { authApi } from './authApi';
@@ -42,7 +43,7 @@ describe('authApi.findLoginId', () => {
       companyName: MOCK_FIND_ID_COMPANY_NAME,
       representativeName: '',
     });
-    expect(res.data.maskedEmail).toContain('@check.com');
+    expect(res.data.maskedEmail).toBe(MOCK_FIND_ID_MASKED_EMAIL);
   });
 
   it('무매칭이면 AUTH_ACCOUNT_NOT_FOUND로 reject된다', async () => {
