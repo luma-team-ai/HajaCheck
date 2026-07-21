@@ -1,6 +1,8 @@
 package com.hajacheck.notification.repository;
 
 import com.hajacheck.notification.entity.Notification;
+import com.hajacheck.notification.entity.NotificationType;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -32,4 +34,11 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
             @Param("userId") Long userId);
 
     boolean existsByIdAndUserIdAndReadTrue(Long notificationId, Long userId);
+
+    /**
+     * 특정 사용자·알림 유형·생성 시각 구간의 알림 이력 조회. INSPECTION_DUE 배치(NOTI-01, #425)의
+     * 하루 단위 멱등성 체크에 쓰이며, 유형/구간을 파라미터로 받아 다른 트리거의 멱등성 체크에도 재사용 가능하게 둔다.
+     */
+    List<Notification> findAllByUserIdAndTypeAndCreatedAtBetween(
+            Long userId, NotificationType type, LocalDateTime from, LocalDateTime to);
 }

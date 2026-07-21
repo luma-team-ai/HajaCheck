@@ -42,4 +42,8 @@ public interface FacilityRepository extends JpaRepository<Facility, Long> {
             + "order by f.nextInspectionDueAt asc")
     List<Facility> findUpcomingByOwnerId(@Param("ownerId") Long ownerId, @Param("from") LocalDate from,
                                           @Param("to") LocalDate to, Pageable pageable);
+
+    // INSPECTION_DUE 알림 배치(NOTI-01, #425) — findUpcomingByOwnerId 와 달리 owner 스코프가 없는 전역 쿼리.
+    // 배치가 모든 owner의 마감 도래(overdue 포함, 오늘 이하) 시설물을 순회해야 하므로 의도적으로 unscoped 다.
+    List<Facility> findAllByNextInspectionDueAtLessThanEqual(LocalDate date);
 }
