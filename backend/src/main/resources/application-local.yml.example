@@ -68,6 +68,15 @@ app:
     success-redirect: http://localhost:5173/dashboard
     failure-redirect: http://localhost:5173/login?error=oauth
 
+# plans 시드 부팅 가드(#517/#518) — 기본 true(안전측 fail-closed)지만, 로컬은 ddl-auto=update 로
+# 빈 DB에서 최초 기동하면 시드 SQL이 아직 적용되지 않은 게 정상이라(docs/conventions/로컬_개발_가이드.md §4)
+# 여기서 명시적으로 꺼둔다. plans 시드까지 재현하려면 docs/design/db/HajaCheck_script.sql 의 plans insert
+# 구문만 로컬 PG에 수동 적용해도 된다(선택).
+hajacheck:
+  membership:
+    seed-guard:
+      enabled: false
+
 ai:
   server:
     base-url: http://localhost:8000
