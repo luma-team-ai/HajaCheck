@@ -32,10 +32,12 @@ import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 @ExtendWith(MockitoExtension.class)
 class DashboardServiceTest {
@@ -299,6 +301,20 @@ class DashboardServiceTest {
         dashboardService.getUpcomingInspections(OWNER_ID, 7, 3);
 
         verify(facilityRepository).findUpcomingByOwnerId(eq(OWNER_ID), any(), any(), eq(PageRequest.of(0, 3)));
+    }
+
+    @Test
+    void getUpcomingInspections_limit이상한초과하면_50건으로캡() {
+        // DashboardService.UPCOMING_INSPECTIONS_MAX_LIMIT(50) 방어로직(Math.min(limit, 50))이
+        // 실제로 Pageable 에 반영되는지 — limit=100 요청이 그대로 repository 에 전달되면 과다조회다.
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        when(facilityRepository.findUpcomingByOwnerId(eq(OWNER_ID), any(), any(), any()))
+                .thenReturn(List.of());
+
+        dashboardService.getUpcomingInspections(OWNER_ID, 30, 100);
+
+        verify(facilityRepository).findUpcomingByOwnerId(eq(OWNER_ID), any(), any(), pageableCaptor.capture());
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(50);
     }
 
     private GradeCountProjection gradeCount(DefectGrade grade, long cnt) {

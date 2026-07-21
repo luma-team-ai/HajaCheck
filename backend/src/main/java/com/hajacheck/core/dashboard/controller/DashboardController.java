@@ -10,6 +10,7 @@ import com.hajacheck.core.dashboard.service.DashboardService;
 import com.hajacheck.global.common.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -67,7 +68,7 @@ public class DashboardController {
     @GetMapping("/upcoming-inspections")
     public ResponseEntity<ApiResponse<List<UpcomingInspectionResponse>>> getUpcomingInspections(
             @AuthenticationPrincipal LoginUser loginUser,
-            @RequestParam(defaultValue = "30") @Min(1) int days,
+            @RequestParam(defaultValue = "30") @Min(1) @Max(365) int days,
             @RequestParam(defaultValue = "5") @Min(1) int limit) {
         return ResponseEntity.ok(ApiResponse.ok(
                 dashboardService.getUpcomingInspections(loginUser.getUserId(), days, limit)));

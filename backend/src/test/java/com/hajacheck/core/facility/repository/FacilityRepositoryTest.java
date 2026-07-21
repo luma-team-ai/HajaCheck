@@ -185,6 +185,36 @@ class FacilityRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
+    void findUpcomingByOwnerId_from경계값_오늘포함() {
+        // from(오늘) 자체와 같은 nextInspectionDueAt 도 포함돼야 한다(inclusive, dDay=0).
+        Long ownerId = seedOwner("owner-a@haja.com");
+        LocalDate today = LocalDate.now();
+        facilityRepository.save(newFacilityWithDueAt(ownerId, "오늘마감", today));
+
+        List<Facility> found = facilityRepository.findUpcomingByOwnerId(
+                ownerId, today, today.plusDays(30), PageRequest.of(0, 10));
+
+        assertThat(found).hasSize(1)
+                .extracting(Facility::getName)
+                .containsExactly("오늘마감");
+    }
+
+    @Test
+    void findUpcomingByOwnerId_to경계값_범위끝포함() {
+        // to(오늘+days) 자체와 같은 nextInspectionDueAt 도 포함돼야 한다(inclusive).
+        Long ownerId = seedOwner("owner-a@haja.com");
+        LocalDate today = LocalDate.now();
+        facilityRepository.save(newFacilityWithDueAt(ownerId, "범위끝마감", today.plusDays(30)));
+
+        List<Facility> found = facilityRepository.findUpcomingByOwnerId(
+                ownerId, today, today.plusDays(30), PageRequest.of(0, 10));
+
+        assertThat(found).hasSize(1)
+                .extracting(Facility::getName)
+                .containsExactly("범위끝마감");
+    }
+
+    @Test
     void findUpcomingByOwnerId_소유시설없으면_빈목록() {
         Long ownerId = seedOwner("owner-a@haja.com");
         LocalDate today = LocalDate.now();
