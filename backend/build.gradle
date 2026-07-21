@@ -7,6 +7,10 @@ plugins {
 group = 'com.hajacheck'
 version = '0.0.1-SNAPSHOT'
 
+// Docker Engine 29(API 1.44+) 호환 — Spring Boot 3.3.5 BOM이 관리하는 Testcontainers 1.19.8(docker-java 3.3.6)은
+// Docker Engine 29의 최소 API 버전 요구를 충족하지 못해 컨테이너 기동이 400으로 실패한다(#485).
+ext['testcontainers.version'] = '1.21.3'
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
