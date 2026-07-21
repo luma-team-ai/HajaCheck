@@ -57,9 +57,28 @@ describe('DefectDetailPage (통합 테스트)', () => {
 
     expect(await screen.findByText('철근 노출')).not.toBeNull();
     expect(screen.getByText('D · 경고')).not.toBeNull();
-    expect(screen.getByText('강남 오피스타워 A동')).not.toBeNull();
+    // 위치는 요약 칩(defect-summary-chips)에 시각적으로 노출되어야 한다 — sr-only에만
+    // 남아 화면에서 사라지는 회귀를 잡기 위해 className으로 실제 노출 여부까지 확인한다.
+    const locationEl = screen.getByText('강남 오피스타워 A동');
+    expect(locationEl.className).toContain('defect-chip');
     // '조치대기'는 상태 요약(dd)과 상태 전이 스텝퍼(HAJA-30 2단계)에 중복 노출되므로 dd로 범위를 좁힌다.
     expect(screen.getByText('상태').nextElementSibling?.textContent).toBe('조치대기');
+  });
+
+  it('균열폭/길이 정보가 없으면(id=1, null) "정보 없음"을 표시한다', async () => {
+    renderPage('1');
+
+    await screen.findByText('철근 노출');
+    expect(screen.getByText('정보 없음')).not.toBeNull();
+  });
+
+  it('균열폭/길이 실값이 있으면(id=2) mm 단위와 함께 표시한다', async () => {
+    renderPage('2');
+
+    await screen.findByText('균열');
+    expect(screen.getByText('1.2mm')).not.toBeNull();
+    expect(screen.getByText(/45mm/)).not.toBeNull();
+    expect(screen.queryByText('정보 없음')).toBeNull();
   });
 
   it('존재하지 않는 id: 에러 폴백을 표시한다', async () => {
