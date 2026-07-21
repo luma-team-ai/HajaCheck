@@ -4,6 +4,8 @@ import { adminPlanHandlers } from '../features/admin/api/adminPlanApi.handlers';
 import { planQuotaHandlers } from '../features/admin/api/planQuotaApi.handlers';
 import { authHandlers } from '../features/auth/api/authApi.handlers';
 import { dashboardHandlers } from '../features/dashboard/api/dashboardApi.handlers';
+import { facilityComparisonHandlers } from '../features/facility/api/facilityComparisonApi.handlers';
+import { facilityDefectHandlers } from '../features/facility/api/facilityDefectApi.handlers';
 import { facilityHandlers } from '../features/facility/api/facilityApi.handlers';
 import { inspectionHandlers } from '../features/inspection/api/inspectionApi.handlers';
 import { mypageHandlers } from '../features/mypage/api/mypageApi.handlers';
@@ -16,6 +18,8 @@ export const handlers = [
   ...dashboardHandlers,
   ...mypageHandlers,
   ...facilityHandlers,
+  ...facilityDefectHandlers,
+  ...facilityComparisonHandlers,
   ...adminHandlers,
   ...adminPlanHandlers,
   ...planQuotaHandlers,

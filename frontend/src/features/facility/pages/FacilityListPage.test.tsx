@@ -1,10 +1,11 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 // FacilityListPage 통합 테스트 — 실제 useFacilities/useCreateFacility 훅 + MSW facilityHandlers를 통해
 // "등록 성공 시 목록 반영(invalidateQueries)"과 "등록 실패 시 모달 유지·폼 값 보존"을 검증한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import { facilityHandlers, resetFacilityMockStore } from '../api/facilityApi.handlers';
@@ -32,7 +33,12 @@ function renderPage(): void {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <FacilityListPage />
+      <MemoryRouter initialEntries={['/facilities/list']}>
+        <Routes>
+          <Route path="/facilities/list" element={<FacilityListPage />} />
+          <Route path="/facilities/:id" element={<div>시설물 상세 화면</div>} />
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -95,5 +101,14 @@ describe('FacilityListPage (통합 테스트)', () => {
     // 모달은 여전히 열려 있고, 입력값도 초기화되지 않아야 한다
     expect(screen.queryByRole('dialog')).not.toBeNull();
     expect((screen.getByLabelText(/시설물명/) as HTMLInputElement).value).toBe('실패할 시설물');
+  });
+
+  it('시설물 이름 클릭 시 /facilities/:id(하자 정보 패널)로 이동한다(#489)', async () => {
+    renderPage();
+    await screen.findByText('강남 오피스타워 A동');
+
+    fireEvent.click(screen.getByRole('button', { name: '강남 오피스타워 A동' }));
+
+    expect(await screen.findByText('시설물 상세 화면')).not.toBeNull();
   });
 });
