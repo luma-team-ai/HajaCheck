@@ -185,15 +185,19 @@ class AdminPlanControllerTest extends PostgresTestSupport {
     void 플랜쿼터목록조회_활성구독있음_멤버별플랜값과stats() throws Exception {
         Fixture fx = approvedCompanyAdminWithPlan(PlanName.STANDARD);
         User member = saveUser(Role.USER, fx.company().getId());
+        // HajaCheck_script.sql(#517/HAJA-308)이 신규 설치 시드를 이미 심어두므로 seedPlans()는
+        // no-op이다 — 값을 하드코딩하면 시드가 바뀔 때마다 깨지니 실제 값을 조회해 비교한다.
+        Integer standardQuotaLimit = planRepository.findByName(PlanName.STANDARD)
+                .orElseThrow().getMaxMonthlyAnalyses();
 
         mockMvc.perform(get("/api/admin/plan-quota").with(authentication(authOf(fx.admin()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(2))
                 .andExpect(jsonPath("$.data.content[0].plan").value("STANDARD"))
-                .andExpect(jsonPath("$.data.content[0].quotaLimit").value(300))
+                .andExpect(jsonPath("$.data.content[0].quotaLimit").value(standardQuotaLimit))
                 .andExpect(jsonPath("$.data.content[1].email").value(member.getEmail()))
                 .andExpect(jsonPath("$.data.content[1].plan").value("STANDARD"))
-                .andExpect(jsonPath("$.data.content[1].quotaLimit").value(300))
+                .andExpect(jsonPath("$.data.content[1].quotaLimit").value(standardQuotaLimit))
                 .andExpect(jsonPath("$.data.totalElements").value(2))
                 .andExpect(jsonPath("$.data.stats.activeUsers").value(2))
                 .andExpect(jsonPath("$.data.stats.companyPlan").value("STANDARD"));
