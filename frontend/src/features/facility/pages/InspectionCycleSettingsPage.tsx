@@ -52,13 +52,10 @@ type ContentProps = {
 
 function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: ContentProps) {
   // selectedRow·cycleType 둘 다 최초 선택행에서 파생 — cycleType만 항상 '정기'로 고정되면
-  // 세그먼트 토글이 실제 선택 행의 점검유형과 어긋난다(#462 P2).
-  const [selectedRow, setSelectedRow] = useState<InspectionCycleStatusRow>(() =>
-    findRow(rows, initialFacilityId),
-  );
-  const [cycleType, setCycleType] = useState<InspectionCycleType>(
-    () => findRow(rows, initialFacilityId).type,
-  );
+  // 세그먼트 토글이 실제 선택 행의 점검유형과 어긋난다(#462 P2). findRow는 한 번만 계산해 재사용.
+  const initialRow = findRow(rows, initialFacilityId);
+  const [selectedRow, setSelectedRow] = useState<InspectionCycleStatusRow>(initialRow);
+  const [cycleType, setCycleType] = useState<InspectionCycleType>(initialRow.type);
   const [months, setMonths] = useState(selectedRow.cycleMonths);
   const [nextDueAt, setNextDueAt] = useState<string | null>(selectedRow.nextInspectionDueAt);
   const [notifyBeforeEnabled, setNotifyBeforeEnabled] = useState(true);
