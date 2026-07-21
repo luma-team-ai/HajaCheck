@@ -9,12 +9,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { MemoryRouter } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { adminPlanHandlers } from '../api/adminPlanApi.handlers';
 import { planQuotaHandlers } from '../api/planQuotaApi.handlers';
 import { PLAN_QUOTA_KPI_TEST_ID } from '../components/PlanQuotaKpiCards';
 import { PlanQuotaPage } from './PlanQuotaPage';
 
-const server = setupServer(...planQuotaHandlers);
+const server = setupServer(...planQuotaHandlers, ...adminPlanHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
@@ -30,7 +32,9 @@ function renderPage(): void {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <PlanQuotaPage />
+      <MemoryRouter>
+        <PlanQuotaPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }

@@ -74,8 +74,9 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**")
                         .permitAll()
-                        // 관리자 콘솔(#405) — ADMIN role 만 허용. 프론트 AdminRoute 가드는 UX용이며
-                        // 실제 차단은 이 매처가 담당한다.
+                        // 관리자 콘솔(#405 사용자 관리, #507 플랜·쿼터 관리) — 엔드포인트 레벨에서 ADMIN role 을
+                        // 강제한다. 프론트 AdminRoute 는 UX 가드일 뿐 실제 차단은 이 경계가 최종 방어선이다.
+                        // 회사 스코프·데이터 소유권은 각 서비스가 company_id 로 추가 필터링한다.
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         // 그 밖은 "인증됨"만 요구. 소셜 셀프가입 계정(companyId=null·role=USER)에 대한
                         // companyId/role 기반 리소스 권한 경계는 각 도메인 엔드포인트에서 후속 과제로 부여한다.

@@ -73,3 +73,24 @@ export interface PlanDetail {
   /** 카드 하단 CTA 버튼 라벨 */
   ctaLabel: string;
 }
+
+// GET /api/admin/plans 응답 — plans 테이블 원본(요금·한도)을 그대로 반환한다. "현재 플랜" 카드는
+// 이 값으로 가격·기능 한도를 렌더링해, 프론트에 요금 하드코딩을 두지 않는다(계약: AdminPlanItem 1:1).
+export interface AdminPlanCatalogItem {
+  id: number;
+  name: AdminUserPlan;
+  /** null = 무제한 */
+  maxFacilities: number | null;
+  /** null = 무제한 */
+  maxMonthlyAnalyses: number | null;
+  /** 0 = 좌석 없음(1인 계정) */
+  maxSeats: number;
+  hasPdfWatermark: boolean;
+  hasCounselorAccess: boolean;
+  hasAiAddon: boolean;
+  priceMonthly: number;
+}
+
+export interface AdminPlanCatalogResponse {
+  plans: AdminPlanCatalogItem[];
+}
