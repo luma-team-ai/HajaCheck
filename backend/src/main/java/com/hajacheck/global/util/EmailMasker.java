@@ -17,6 +17,9 @@ public final class EmailMasker {
         if (email == null || email.isBlank()) {
             return email;
         }
+        // 로컬/도메인 분리는 마지막 '@' 기준 — RFC 5321/5322 상 도메인 부분엔 '@'가 올 수 없으므로
+        // (quoted-string 로컬파트에 '@'가 포함된 극단 케이스 포함) 마지막 '@'를 구분자로 삼는 것이
+        // 항상 안전하다(첫 '@' 기준이면 그런 입력에서 도메인 일부가 로컬파트로 잘못 편입될 수 있음).
         int at = email.lastIndexOf('@');
         // '@' 가 없거나 로컬파트가 비면 전체를 마스킹 처리.
         if (at <= 0) {
