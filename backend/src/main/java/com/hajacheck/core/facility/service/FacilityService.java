@@ -11,6 +11,7 @@ import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +22,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
 public class FacilityService {
+
+    // 시설물 목록 조회 상한(#484) — 계약(응답 배열) 은 그대로 유지한 채 무제한 반환을 막는 방어적 상한.
+    // 대시보드 RECENT_LIMIT(10)·알림 LIST_LIMIT(30)·다가오는점검 UPCOMING_INSPECTIONS_MAX_LIMIT(50) 은
+    // "요약/미리보기" 목적이라 작지만, 시설물 목록은 관리 대상 자산 전체를 보여주는 화면이라 그보다
+    // 훨씬 크게 잡는다. 진짜 페이지네이션(Page 응답) 전환 전까지의 임시 방어값.
+    private static final int FACILITY_LIST_MAX = 500;
 
     private final FacilityRepository facilityRepository;
 
@@ -42,7 +49,7 @@ public class FacilityService {
     }
 
     public List<FacilityResponse> list(Long ownerId) {
-        return facilityRepository.findByOwnerId(ownerId).stream()
+        return facilityRepository.findByOwnerIdOrderByIdAsc(ownerId, PageRequest.of(0, FACILITY_LIST_MAX)).stream()
                 .map(FacilityResponse::from)
                 .toList();
     }
