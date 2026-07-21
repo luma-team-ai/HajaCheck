@@ -1,11 +1,13 @@
 package com.hajacheck.notification.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.notification.dto.NotificationResponse;
 import com.hajacheck.notification.entity.Notification;
 import com.hajacheck.notification.entity.NotificationType;
@@ -29,11 +31,31 @@ class NotificationServiceTest {
     private NotificationService notificationService;
 
     @Test
-    void markAsRead_이미읽은알림도성공() {
+    void markAsRead_미읽음알림_읽음처리성공() {
+        when(notificationRepository.markAsReadIfUnread(10L, 20L)).thenReturn(1);
+
+        notificationService.markAsRead(10L, 20L);
+
+        verify(notificationRepository).markAsReadIfUnread(10L, 20L);
+    }
+
+    @Test
+    void markAsRead_이미읽은알림_멱등_예외없음() {
         when(notificationRepository.markAsReadIfUnread(10L, 20L)).thenReturn(0);
         when(notificationRepository.existsByIdAndUserIdAndReadTrue(10L, 20L)).thenReturn(true);
 
-        assertThat(notificationService.markAsRead(10L, 20L)).isTrue();
+        notificationService.markAsRead(10L, 20L);
+
+        verify(notificationRepository).existsByIdAndUserIdAndReadTrue(10L, 20L);
+    }
+
+    @Test
+    void markAsRead_없는알림또는타인소유_NOTIFICATION_NOT_FOUND() {
+        when(notificationRepository.markAsReadIfUnread(10L, 20L)).thenReturn(0);
+        when(notificationRepository.existsByIdAndUserIdAndReadTrue(10L, 20L)).thenReturn(false);
+
+        assertThatThrownBy(() -> notificationService.markAsRead(10L, 20L))
+                .isInstanceOf(BusinessException.class);
     }
 
     @Test

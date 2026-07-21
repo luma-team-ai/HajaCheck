@@ -1,7 +1,10 @@
 package com.hajacheck.notification.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -121,5 +124,64 @@ class NotificationControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data.length()").value(30))
                 .andExpect(jsonPath("$.data[0].id").value(newestId))
                 .andExpect(jsonPath("$.data[29].id").value(secondOldestId));
+    }
+
+    @Test
+    void 알림읽음처리_본인미읽음알림_200_읽음전환() throws Exception {
+        User user = saveUser("notif-read1@haja.com");
+        Notification notification = notificationRepository.saveAndFlush(
+                Notification.create(user.getId(), NotificationType.INSPECTION_DUE, null));
+
+        mockMvc.perform(patch("/api/notifications/{id}/read", notification.getId())
+                        .with(csrf()).with(authentication(authOf(user))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        assertThat(notificationRepository.findById(notification.getId()).orElseThrow().isRead()).isTrue();
+    }
+
+    @Test
+    void 알림읽음처리_이미읽은알림_멱등_200() throws Exception {
+        User user = saveUser("notif-read2@haja.com");
+        Notification notification = notificationRepository.saveAndFlush(
+                Notification.create(user.getId(), NotificationType.INSPECTION_DUE, null));
+        notification.markAsRead();
+        notificationRepository.saveAndFlush(notification);
+
+        mockMvc.perform(patch("/api/notifications/{id}/read", notification.getId())
+                        .with(csrf()).with(authentication(authOf(user))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+    }
+
+    @Test
+    void 알림읽음처리_없는알림_404_NOTIFICATION_NOT_FOUND() throws Exception {
+        User user = saveUser("notif-read3@haja.com");
+
+        mockMvc.perform(patch("/api/notifications/{id}/read", 999999L)
+                        .with(csrf()).with(authentication(authOf(user))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("NOTIFICATION_NOT_FOUND"));
+    }
+
+    @Test
+    void 알림읽음처리_타인알림_404_IDOR방지() throws Exception {
+        User owner = saveUser("notif-read-owner@haja.com");
+        User stranger = saveUser("notif-read-stranger@haja.com");
+        Notification notification = notificationRepository.saveAndFlush(
+                Notification.create(owner.getId(), NotificationType.INSPECTION_DUE, null));
+
+        mockMvc.perform(patch("/api/notifications/{id}/read", notification.getId())
+                        .with(csrf()).with(authentication(authOf(stranger))))
+                .andExpect(status().isNotFound());
+
+        assertThat(notificationRepository.findById(notification.getId()).orElseThrow().isRead()).isFalse();
+    }
+
+    @Test
+    void 알림읽음처리_미인증_401() throws Exception {
+        mockMvc.perform(patch("/api/notifications/{id}/read", 1L).with(csrf()))
+                .andExpect(status().isUnauthorized());
     }
 }
