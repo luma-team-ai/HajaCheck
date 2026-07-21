@@ -6,7 +6,10 @@ import com.hajacheck.notification.entity.NotificationType;
 import com.hajacheck.notification.repository.NotificationRepository;
 import com.hajacheck.notification.service.NotificationService;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -26,6 +29,11 @@ import org.springframework.stereotype.Component;
  *
  * <p>⚠️ 이 메서드/클래스에는 {@code @Transactional}을 붙이지 않는다 —
  * {@link NotificationService#notify}가 자체 트랜잭션을 가져 시설물별로 독립 커밋되게 하려는 의도적 설계다.
+ *
+ * <p>⚠️ <b>단일 인스턴스 실행 전제</b>: 멱등성은 DB 유니크 제약이 아니라 애플리케이션 레벨 read-then-write
+ * (기존 알림 조회 → 없는 것만 발행)로 보장된다. 따라서 다중 인스턴스로 스케일아웃하면 레플리카마다 각자 발화해
+ * <b>확정적으로 중복 발행</b>된다. 스케일아웃 시점에는 ShedLock 같은 분산 락 또는 (user_id, type, facility_id, 날짜)
+ * DB 유니크 제약 도입이 선행돼야 한다.
  */
 @Slf4j
 @Component
@@ -42,6 +50,18 @@ public class InspectionDueNotificationScheduler {
         LocalDate today = LocalDate.now(clock);
         List<Facility> due = facilityRepository.findAllByNextInspectionDueAtLessThanEqual(today);
 
+        // 멱등성 조회 창을 "KST 달력일의 시작/끝"으로 잡되, JPA auditing이 createdAt을 실제 저장하는 존
+        // (= JVM 기본 존)의 LocalDateTime으로 변환해서 넘긴다. 커스텀 DateTimeProvider가 없어 createdAt은
+        // LocalDateTime.now() 즉 ZoneId.systemDefault() 로 저장되는데(Docker=UTC, 로컬 Windows=KST 등 환경마다 다름),
+        // 이를 KST 벽시계 그대로 비교하면 06:00 KST 발행분의 createdAt(UTC=전날 21:00)이 [KST오늘,KST내일) 창을
+        // 벗어나 alreadyNotified가 비고 → 같은 날 재실행 시 동일 owner+facility 중복 발행된다. 존 변환으로 이 환경
+        // 의존 버그를 근본 차단한다.
+        ZoneId scheduleZone = clock.getZone();
+        Instant startOfTodayInstant = today.atStartOfDay(scheduleZone).toInstant();
+        Instant startOfTomorrowInstant = today.plusDays(1).atStartOfDay(scheduleZone).toInstant();
+        LocalDateTime from = LocalDateTime.ofInstant(startOfTodayInstant, ZoneId.systemDefault());
+        LocalDateTime to = LocalDateTime.ofInstant(startOfTomorrowInstant, ZoneId.systemDefault());
+
         int published = 0;
         int skipped = 0;
         int failed = 0;
@@ -57,8 +77,7 @@ public class InspectionDueNotificationScheduler {
             try {
                 alreadyNotified = notificationRepository
                         .findAllByUserIdAndTypeAndCreatedAtBetween(
-                                ownerId, NotificationType.INSPECTION_DUE,
-                                today.atStartOfDay(), today.plusDays(1).atStartOfDay())
+                                ownerId, NotificationType.INSPECTION_DUE, from, to)
                         .stream()
                         .map(n -> InspectionDueNotificationPayload.extractFacilityId(n.getPayloadJson()))
                         .filter(Objects::nonNull)

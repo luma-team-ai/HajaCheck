@@ -23,6 +23,7 @@ import com.hajacheck.notification.service.NotificationService;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -154,5 +155,30 @@ class InspectionDueNotificationSchedulerTest {
         ArgumentCaptor<LocalDate> captor = ArgumentCaptor.forClass(LocalDate.class);
         verify(facilityRepository).findAllByNextInspectionDueAtLessThanEqual(captor.capture());
         assertThat(captor.getValue()).isEqualTo(TODAY);
+    }
+
+    @Test
+    @DisplayName("멱등성 조회 창은 KST 달력일 경계를, createdAt 저장 존(JVM 기본 존)의 LocalDateTime으로 변환해 넘긴다")
+    void 멱등성조회창_KST달력일경계_저장존으로변환() {
+        // due 시설물이 있어야 owner별 멱등성 조회(findAllByUserIdAndTypeAndCreatedAtBetween)가 실행된다.
+        Facility f = dueFacility(1L, OWNER, "시설A");
+        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqual(any())).thenReturn(List.of(f));
+        stubNoExistingNotifications();
+
+        scheduler.notifyFacilitiesDueToday();
+
+        ArgumentCaptor<LocalDateTime> fromCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        ArgumentCaptor<LocalDateTime> toCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(notificationRepository).findAllByUserIdAndTypeAndCreatedAtBetween(
+                eq(OWNER), eq(NotificationType.INSPECTION_DUE), fromCaptor.capture(), toCaptor.capture());
+
+        // 넘어간 from/to 는 "저장 존(JVM 기본 존)의 벽시계값"이므로, 그 존으로 다시 Instant 환산하면 KST 달력일
+        // 경계(오늘 00:00 KST ~ 내일 00:00 KST)의 절대 시각과 정확히 일치해야 한다. 이 검증은 JVM 기본 존과
+        // 무관하게 성립하며, 특히 CI/Docker(UTC)처럼 기본 존이 KST가 아닌 곳에서 naive한 today.atStartOfDay()
+        // 회귀가 들어오면 즉시 실패한다(2026-07-21T00:00Z ≠ 2026-07-20T15:00Z).
+        Instant fromInstant = fromCaptor.getValue().atZone(ZoneId.systemDefault()).toInstant();
+        Instant toInstant = toCaptor.getValue().atZone(ZoneId.systemDefault()).toInstant();
+        assertThat(fromInstant).isEqualTo(Instant.parse("2026-07-20T15:00:00Z")); // 2026-07-21T00:00 KST
+        assertThat(toInstant).isEqualTo(Instant.parse("2026-07-21T15:00:00Z"));   // 2026-07-22T00:00 KST
     }
 }
