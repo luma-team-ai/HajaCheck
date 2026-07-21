@@ -87,7 +87,7 @@ export function LoginPage() {
               type="button"
               role="tab"
               aria-selected={activeTab === 'personal'}
-              className={`-mb-px flex-1 border-b-2 py-3 text-center text-base font-semibold ${
+              className={`-mb-px flex-1 cursor-pointer border-b-2 py-3 text-center text-base font-semibold ${
                 activeTab === 'personal' ? 'border-primary text-heading' : 'border-transparent text-text-muted'
               }`}
               onClick={() => setActiveTab('personal')}
@@ -98,7 +98,7 @@ export function LoginPage() {
               type="button"
               role="tab"
               aria-selected={activeTab === 'company'}
-              className={`-mb-px flex-1 border-b-2 py-3 text-center text-base font-semibold ${
+              className={`-mb-px flex-1 cursor-pointer border-b-2 py-3 text-center text-base font-semibold ${
                 activeTab === 'company' ? 'border-primary text-heading' : 'border-transparent text-text-muted'
               }`}
               onClick={() => setActiveTab('company')}
