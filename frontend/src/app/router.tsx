@@ -115,6 +115,20 @@ const InspectionCycleSettingsPage = lazy(() =>
   })),
 );
 
+// 시설물 상세 하위 드릴다운 — 하자 정보 패널 + 회차 간 비교 (dev-04-02, #489).
+// /facilities/:id(시설물 개요, dev-05-02·#504)에서 특정 하자로 드릴다운하는 화면이라
+// /facilities/:id/defects/:defectId 하위 경로를 쓴다(#504와의 라우트 충돌 회피).
+const FacilityDefectDetailPage = lazy(() =>
+  import('../features/facility/pages/FacilityDefectDetailPage').then((m) => ({
+    default: m.FacilityDefectDetailPage,
+  })),
+);
+const FacilityInspectionComparePage = lazy(() =>
+  import('../features/facility/pages/FacilityInspectionComparePage').then((m) => ({
+    default: m.FacilityInspectionComparePage,
+  })),
+);
+
 // 고객지원 > AI 어시스턴트 (dev-08-01, HAJA-32, FR-6 RAG 법규 Q&A)
 const AiAssistantPage = lazy(() =>
   import('../features/support/pages/AiAssistantPage').then((m) => ({
@@ -323,6 +337,36 @@ export const router = createBrowserRouter([
           activeHref: '/facilities/detail',
         },
       }, // — features/facility 시설물 상세 (Figma node-id 1-1401)
+      {
+        path: '/facilities/:id/defects/:defectId',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <FacilityDefectDetailPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '시설물 관리' }],
+          activeHref: '/facilities/detail',
+        },
+      }, // — features/facility 하자 정보 패널 (dev-04-02, #489). 위 시설물 개요(/facilities/:id,
+      // #504)에서 특정 하자를 드릴다운하는 하위 화면 — 같은 :id로는 #504와 라우트가 겹쳐
+      // :defectId를 추가한 하위 경로를 쓴다.
+      {
+        path: '/facilities/:id/defects/:defectId/compare',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <FacilityInspectionComparePage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [
+            { label: '시설물 상세' },
+            { label: '강남 오피스타워 A동' },
+            { label: '회차 간 비교' },
+          ],
+          activeHref: '/facilities/detail',
+        },
+      }, // — features/facility 회차 간 비교 (dev-04-02, #489). 부모(하자 상세)와 동일 사이드바 하이라이트 유지.
       {
         path: '/facilities/inspection-cycle',
         element: (

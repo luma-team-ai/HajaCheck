@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
 import { FacilityFormModal } from '../components/FacilityFormModal';
 import { FacilityTable } from '../components/FacilityTable';
@@ -8,6 +9,7 @@ import type { CreateFacilityRequest } from '../types';
 
 export function FacilityListPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const navigate = useNavigate();
   const { data: facilities, isLoading, isError, refetch } = useFacilities();
   const { createFacility, isPending, error, resetError } = useCreateFacility();
 
@@ -17,6 +19,11 @@ export function FacilityListPage() {
     // 모달을 닫을 때(성공/실패/취소/Escape 등 어떤 경로든) 이전 실패의 에러를 초기화 —
     // 그러지 않으면 재오픈 시 지난 세션의 에러 메시지가 즉시 다시 노출된다.
     resetError();
+  };
+
+  // 시설물 이름 클릭 → 하자 정보 패널(/facilities/:id, dev-04-02, #489)로 이동
+  const handleSelectFacility = (id: number) => {
+    navigate(`/facilities/${id}`);
   };
 
   const handleSubmit = async (payload: CreateFacilityRequest) => {
@@ -45,6 +52,7 @@ export function FacilityListPage() {
           isLoading={isLoading}
           isError={isError}
           onRetry={refetch}
+          onSelectFacility={handleSelectFacility}
         />
       </div>
 
