@@ -3,6 +3,7 @@ package com.hajacheck.core.defect.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
@@ -14,12 +15,13 @@ import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectStatus;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.repository.DefectRevisionRepository;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
-import com.hajacheck.global.exception.DomainStateTransitionException;
+import com.hajacheck.global.exception.DomainValidationException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
 import java.util.List;
@@ -40,6 +42,9 @@ class DefectServiceTest {
 
     @Mock
     private DefectRepository defectRepository;
+
+    @Mock
+    private DefectRevisionRepository defectRevisionRepository;
 
     @InjectMocks
     private DefectService defectService;
@@ -151,28 +156,49 @@ class DefectServiceTest {
         Defect defect = existingDefect(5L);
         when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(defect));
 
-        DefectResponse response = defectService.updateStatus(OWNER_ID, 10L, DefectStatus.CONFIRMED);
+        DefectResponse response = defectService.updateStatus(OWNER_ID, 10L, DefectStatus.CONFIRMED, null);
 
         assertThat(response.status()).isEqualTo(DefectStatus.CONFIRMED);
         assertThat(defect.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+        verify(defectRevisionRepository).save(argThat(revision ->
+                revision.getDefectId().equals(10L)
+                        && revision.getRevisedBy().equals(OWNER_ID)
+                        && revision.getFieldChanged().equals("status")
+                        && revision.getOldValue().equals("DETECTED")
+                        && revision.getNewValue().equals("CONFIRMED")));
     }
 
     @Test
-    void updateStatus_역행요청_DomainStateTransitionException() {
-        // existingDefect 는 DETECTED 상태 — CONFIRMED를 건너뛰고 ACTION_PENDING을 요청하면 스킵 전이라 거부된다.
+    void updateStatus_사유없는건너뛰기요청_DomainValidationException() {
+        // existingDefect 는 DETECTED 상태 — CONFIRMED를 건너뛰고 ACTION_PENDING을 사유 없이 요청하면 거부된다.
         Defect defect = existingDefect(5L);
         when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(defect));
 
-        assertThatThrownBy(() -> defectService.updateStatus(OWNER_ID, 10L, DefectStatus.ACTION_PENDING))
-                .isInstanceOf(DomainStateTransitionException.class);
+        assertThatThrownBy(() -> defectService.updateStatus(OWNER_ID, 10L, DefectStatus.ACTION_PENDING, null))
+                .isInstanceOf(DomainValidationException.class);
         assertThat(defect.getStatus()).isEqualTo(DefectStatus.DETECTED);
+    }
+
+    @Test
+    void updateStatus_사유있는건너뛰기요청_허용및이력기록() {
+        Defect defect = existingDefect(5L);
+        when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(defect));
+
+        DefectResponse response =
+                defectService.updateStatus(OWNER_ID, 10L, DefectStatus.ACTION_PENDING, "경미한 하자라 검수확정 생략");
+
+        assertThat(response.status()).isEqualTo(DefectStatus.ACTION_PENDING);
+        verify(defectRevisionRepository).save(argThat(revision ->
+                revision.getOldValue().equals("DETECTED")
+                        && revision.getNewValue().equals("ACTION_PENDING")
+                        && revision.getReason().equals("경미한 하자라 검수확정 생략")));
     }
 
     @Test
     void updateStatus_타인소유하자_DEFECT_NOT_FOUND예외() {
         when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> defectService.updateStatus(OWNER_ID, 10L, DefectStatus.CONFIRMED))
+        assertThatThrownBy(() -> defectService.updateStatus(OWNER_ID, 10L, DefectStatus.CONFIRMED, null))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));

@@ -60,14 +60,16 @@ public class DefectController {
     }
 
     @Operation(summary = "하자 상태 전이",
-            description = "신규→검수확정→조치대기→조치중→조치완료 순서로만 상태를 전이한다. "
-                    + "역행/스킵 요청은 409(INVALID_STATE_TRANSITION)로 거부된다")
+            description = "신규→검수확정→조치대기→조치중→조치완료 순서의 정방향 한 단계 전이는 사유 없이 허용한다. "
+                    + "역행/건너뛰기 전이는 reason이 있어야 허용되며(없으면 400 INVALID_INPUT), "
+                    + "조치완료(RESOLVED) 상태에서의 이탈은 사유 유무와 무관하게 409(INVALID_STATE_TRANSITION)로 거부된다")
     @PatchMapping("/{id}/status")
     public ResponseEntity<ApiResponse<DefectResponse>> updateStatus(
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long id,
             @Valid @RequestBody DefectStatusUpdateRequest request) {
-        DefectResponse response = defectService.updateStatus(loginUser.getUserId(), id, request.status());
+        DefectResponse response =
+                defectService.updateStatus(loginUser.getUserId(), id, request.status(), request.reason());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 }

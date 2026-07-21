@@ -271,17 +271,49 @@ class DefectControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 하자상태전이_역행요청_409_INVALID_STATE_TRANSITION() throws Exception {
+    void 하자상태전이_사유없는건너뛰기요청_400_INVALID_INPUT() throws Exception {
         User owner = saveOwner("owner10@haja.com");
         Facility facility = saveFacility(owner.getId());
         Inspection inspection = saveInspection(facility.getId(), owner.getId());
-        // DETECTED → ACTION_PENDING 은 CONFIRMED 단계를 건너뛰는 스킵 전이라 거부되어야 한다.
+        // DETECTED → ACTION_PENDING 은 CONFIRMED 단계를 건너뛰는 스킵 전이라 사유 없이는 거부되어야 한다.
         Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
 
         mockMvc.perform(patch("/api/defects/{id}/status", defect.getId())
                         .with(csrf()).with(authentication(authOf(owner)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of("status", "ACTION_PENDING"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void 하자상태전이_사유있는건너뛰기요청_200() throws Exception {
+        User owner = saveOwner("owner12@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(patch("/api/defects/{id}/status", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("status", "ACTION_PENDING", "reason", "경미한 하자라 검수확정 생략"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ACTION_PENDING"));
+    }
+
+    @Test
+    void 하자상태전이_해결상태이탈요청_409_INVALID_STATE_TRANSITION() throws Exception {
+        User owner = saveOwner("owner13@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.RESOLVED);
+
+        mockMvc.perform(patch("/api/defects/{id}/status", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("status", "IN_PROGRESS", "reason", "재검토 필요"))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("INVALID_STATE_TRANSITION"));
     }
