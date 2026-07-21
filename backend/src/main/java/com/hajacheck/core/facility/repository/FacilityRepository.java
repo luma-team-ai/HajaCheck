@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -45,5 +46,6 @@ public interface FacilityRepository extends JpaRepository<Facility, Long> {
 
     // INSPECTION_DUE 알림 배치(NOTI-01, #425) — findUpcomingByOwnerId 와 달리 owner 스코프가 없는 전역 쿼리.
     // 배치가 모든 owner의 마감 도래(overdue 포함, 오늘 이하) 시설물을 순회해야 하므로 의도적으로 unscoped 다.
-    List<Facility> findAllByNextInspectionDueAtLessThanEqual(LocalDate date);
+    // 전역 대상이라 미페이징 로딩은 메모리 위험 — 반드시 Pageable 로 페이지 단위 순회한다(스케줄러가 hasNext 로 반복).
+    Page<Facility> findAllByNextInspectionDueAtLessThanEqual(LocalDate date, Pageable pageable);
 }

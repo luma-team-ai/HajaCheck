@@ -3,6 +3,7 @@ package com.hajacheck.core.facility.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
@@ -23,13 +24,15 @@ import com.hajacheck.notification.service.NotificationService;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
 /**
  * InspectionDueNotificationScheduler 단위 테스트(NOTI-01, #425). BuiltYearValidatorTest 와 같이
@@ -58,25 +61,41 @@ class InspectionDueNotificationSchedulerTest {
     }
 
     private Facility dueFacility(long id, long ownerId, String name) {
+        return dueFacility(id, ownerId, name, TODAY);
+    }
+
+    private Facility dueFacility(long id, long ownerId, String name, LocalDate dueAt) {
         Facility f = mock(Facility.class);
         lenient().when(f.getId()).thenReturn(id);
         lenient().when(f.getOwnerId()).thenReturn(ownerId);
         lenient().when(f.getName()).thenReturn(name);
-        lenient().when(f.getNextInspectionDueAt()).thenReturn(TODAY);
+        lenient().when(f.getNextInspectionDueAt()).thenReturn(dueAt);
         return f;
     }
 
+    private Page<Facility> singlePage(List<Facility> content) {
+        return new PageImpl<>(content);
+    }
+
+    private void stubDuePage(List<Facility> content) {
+        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqual(any(), any()))
+                .thenReturn(singlePage(content));
+    }
+
     private void stubNoExistingNotifications() {
-        when(notificationRepository.findAllByUserIdAndTypeAndCreatedAtBetween(
-                anyLong(), any(), any(), any())).thenReturn(List.of());
+        when(notificationRepository.findAllByUserIdInAndType(anySet(), any())).thenReturn(List.of());
+    }
+
+    /** 시설물 자신을 직렬화한 payload로 "이미 발행된 알림"을 만든다(도래일 포함 dedupe 키가 정확히 일치). */
+    private Notification existingNotificationFor(Facility facility) {
+        return Notification.create(OWNER, NotificationType.INSPECTION_DUE,
+                InspectionDueNotificationPayload.serialize(facility));
     }
 
     @Test
     @DisplayName("오늘 마감 시설물에 INSPECTION_DUE 알림을 발행한다")
     void 오늘마감시설_알림발행() {
-        Facility f = dueFacility(1L, OWNER, "시설A");
-        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqual(any()))
-                .thenReturn(List.of(f));
+        stubDuePage(List.of(dueFacility(1L, OWNER, "시설A")));
         stubNoExistingNotifications();
 
         scheduler.notifyFacilitiesDueToday();
@@ -85,13 +104,12 @@ class InspectionDueNotificationSchedulerTest {
     }
 
     @Test
-    @DisplayName("같은 날 같은 facilityId 알림이 이미 있으면 발행하지 않는다(멱등)")
+    @DisplayName("현재 도래일로 이미 발행된 알림이 있으면 발행하지 않는다(멱등)")
     void 이미알림존재_스킵() {
         Facility f = dueFacility(1L, OWNER, "시설A");
-        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqual(any()))
-                .thenReturn(List.of(f));
-        Notification existing = Notification.create(OWNER, NotificationType.INSPECTION_DUE, "{\"facilityId\":1}");
-        when(notificationRepository.findAllByUserIdAndTypeAndCreatedAtBetween(anyLong(), any(), any(), any()))
+        stubDuePage(List.of(f));
+        Notification existing = existingNotificationFor(f);
+        when(notificationRepository.findAllByUserIdInAndType(anySet(), any()))
                 .thenReturn(List.of(existing));
 
         scheduler.notifyFacilitiesDueToday();
@@ -104,11 +122,10 @@ class InspectionDueNotificationSchedulerTest {
     void 일부만알림존재_나머지만발행() {
         Facility f1 = dueFacility(1L, OWNER, "시설1");
         Facility f2 = dueFacility(2L, OWNER, "시설2");
-        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqual(any()))
-                .thenReturn(List.of(f1, f2));
-        Notification existing = Notification.create(OWNER, NotificationType.INSPECTION_DUE, "{\"facilityId\":1}");
-        when(notificationRepository.findAllByUserIdAndTypeAndCreatedAtBetween(anyLong(), any(), any(), any()))
-                .thenReturn(List.of(existing));
+        stubDuePage(List.of(f1, f2));
+        Notification existingForF1 = existingNotificationFor(f1);
+        when(notificationRepository.findAllByUserIdInAndType(anySet(), any()))
+                .thenReturn(List.of(existingForF1));
 
         scheduler.notifyFacilitiesDueToday();
 
@@ -120,10 +137,7 @@ class InspectionDueNotificationSchedulerTest {
     @Test
     @DisplayName("한 시설물의 notify가 예외를 던져도 같은 owner의 다음 시설물은 계속 처리한다")
     void notify예외_격리_다음시설계속() {
-        Facility f1 = dueFacility(1L, OWNER, "시설1");
-        Facility f2 = dueFacility(2L, OWNER, "시설2");
-        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqual(any()))
-                .thenReturn(List.of(f1, f2));
+        stubDuePage(List.of(dueFacility(1L, OWNER, "시설1"), dueFacility(2L, OWNER, "시설2")));
         stubNoExistingNotifications();
         doThrow(new RuntimeException("발행 실패")).doNothing()
                 .when(notificationService).notify(anyLong(), any(), anyString());
@@ -138,7 +152,7 @@ class InspectionDueNotificationSchedulerTest {
     @Test
     @DisplayName("대상 시설물이 없으면 notify를 전혀 호출하지 않는다")
     void 대상없음_notify미호출() {
-        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqual(any())).thenReturn(List.of());
+        stubDuePage(List.of());
 
         scheduler.notifyFacilitiesDueToday();
 
@@ -148,37 +162,82 @@ class InspectionDueNotificationSchedulerTest {
     @Test
     @DisplayName("마감 조회는 주입된 Clock 기준 오늘 날짜로 호출된다")
     void 마감조회_주입Clock기준_오늘날짜() {
-        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqual(any())).thenReturn(List.of());
+        stubDuePage(List.of());
 
         scheduler.notifyFacilitiesDueToday();
 
         ArgumentCaptor<LocalDate> captor = ArgumentCaptor.forClass(LocalDate.class);
-        verify(facilityRepository).findAllByNextInspectionDueAtLessThanEqual(captor.capture());
+        verify(facilityRepository).findAllByNextInspectionDueAtLessThanEqual(captor.capture(), any());
         assertThat(captor.getValue()).isEqualTo(TODAY);
     }
 
     @Test
-    @DisplayName("멱등성 조회 창은 KST 달력일 경계를, createdAt 저장 존(JVM 기본 존)의 LocalDateTime으로 변환해 넘긴다")
-    void 멱등성조회창_KST달력일경계_저장존으로변환() {
-        // due 시설물이 있어야 owner별 멱등성 조회(findAllByUserIdAndTypeAndCreatedAtBetween)가 실행된다.
-        Facility f = dueFacility(1L, OWNER, "시설A");
-        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqual(any())).thenReturn(List.of(f));
+    @DisplayName("도래일이 그대로인 overdue 시설물은 재실행해도 두 번째엔 스킵된다(스팸 방지)")
+    void overdue_도래일불변_재실행시_스킵() {
+        // overdue(어제 마감) 시설물 — 도래일 값은 재스케줄 전까지 바뀌지 않는다.
+        Facility f = dueFacility(1L, OWNER, "연체시설", TODAY.minusDays(1));
+        stubDuePage(List.of(f));
+
+        // 1회차: 기존 알림 없음 → 발행
+        when(notificationRepository.findAllByUserIdInAndType(anySet(), any())).thenReturn(List.of());
+        scheduler.notifyFacilitiesDueToday();
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), payloadCaptor.capture());
+
+        // 2회차(재실행): 1회차에 발행된 알림이 이미 존재(도래일 불변) → 재발행 없음
+        Notification firstRun = Notification.create(OWNER, NotificationType.INSPECTION_DUE, payloadCaptor.getValue());
+        when(notificationRepository.findAllByUserIdInAndType(anySet(), any())).thenReturn(List.of(firstRun));
+        scheduler.notifyFacilitiesDueToday();
+
+        // 총 발행은 여전히 1회 — overdue라고 매일 재알림되지 않는다.
+        verify(notificationService, times(1)).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), anyString());
+    }
+
+    @Test
+    @DisplayName("owner가 3명이어도 기존 알림 조회는 정확히 1회만 호출된다(N+1 방지)")
+    void owner3명_기존알림조회_1회만() {
+        stubDuePage(List.of(
+                dueFacility(1L, 100L, "A시설"),
+                dueFacility(2L, 200L, "B시설"),
+                dueFacility(3L, 300L, "C시설")));
         stubNoExistingNotifications();
 
         scheduler.notifyFacilitiesDueToday();
 
-        ArgumentCaptor<LocalDateTime> fromCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
-        ArgumentCaptor<LocalDateTime> toCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
-        verify(notificationRepository).findAllByUserIdAndTypeAndCreatedAtBetween(
-                eq(OWNER), eq(NotificationType.INSPECTION_DUE), fromCaptor.capture(), toCaptor.capture());
+        verify(notificationRepository, times(1))
+                .findAllByUserIdInAndType(anySet(), eq(NotificationType.INSPECTION_DUE));
+        verify(notificationService, times(3))
+                .notify(anyLong(), eq(NotificationType.INSPECTION_DUE), anyString());
+    }
 
-        // 넘어간 from/to 는 "저장 존(JVM 기본 존)의 벽시계값"이므로, 그 존으로 다시 Instant 환산하면 KST 달력일
-        // 경계(오늘 00:00 KST ~ 내일 00:00 KST)의 절대 시각과 정확히 일치해야 한다. 이 검증은 JVM 기본 존과
-        // 무관하게 성립하며, 특히 CI/Docker(UTC)처럼 기본 존이 KST가 아닌 곳에서 naive한 today.atStartOfDay()
-        // 회귀가 들어오면 즉시 실패한다(2026-07-21T00:00Z ≠ 2026-07-20T15:00Z).
-        Instant fromInstant = fromCaptor.getValue().atZone(ZoneId.systemDefault()).toInstant();
-        Instant toInstant = toCaptor.getValue().atZone(ZoneId.systemDefault()).toInstant();
-        assertThat(fromInstant).isEqualTo(Instant.parse("2026-07-20T15:00:00Z")); // 2026-07-21T00:00 KST
-        assertThat(toInstant).isEqualTo(Instant.parse("2026-07-21T15:00:00Z"));   // 2026-07-22T00:00 KST
+    @Test
+    @DisplayName("결과가 여러 페이지에 걸쳐도 모든 페이지가 처리된다")
+    void 여러페이지_전부처리() {
+        Facility p0 = dueFacility(1L, OWNER, "1페이지시설");
+        Facility p1 = dueFacility(2L, OWNER, "2페이지시설");
+        // pageSize=1, total=2 → page0.hasNext()=true, page1.hasNext()=false 로 강제.
+        Page<Facility> page0 = new PageImpl<>(List.of(p0), PageRequest.of(0, 1), 2);
+        Page<Facility> page1 = new PageImpl<>(List.of(p1), PageRequest.of(1, 1), 2);
+        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqual(any(), any()))
+                .thenReturn(page0, page1);
+        stubNoExistingNotifications();
+
+        scheduler.notifyFacilitiesDueToday();
+
+        verify(facilityRepository, times(2)).findAllByNextInspectionDueAtLessThanEqual(any(), any());
+        verify(notificationService, times(2))
+                .notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), anyString());
+    }
+
+    @Test
+    @DisplayName("기존 알림 배치 조회가 실패하면 그 페이지는 스킵하고 발행하지 않는다")
+    void 배치조회실패_페이지스킵() {
+        stubDuePage(List.of(dueFacility(1L, OWNER, "시설A")));
+        when(notificationRepository.findAllByUserIdInAndType(anySet(), any()))
+                .thenThrow(new RuntimeException("DB 오류"));
+
+        scheduler.notifyFacilitiesDueToday();
+
+        verify(notificationService, never()).notify(anyLong(), any(), anyString());
     }
 }

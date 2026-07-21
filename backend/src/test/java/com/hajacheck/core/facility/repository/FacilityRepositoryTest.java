@@ -14,6 +14,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -240,7 +241,7 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         assertThat(found).isEmpty();
     }
 
-    // INSPECTION_DUE 알림 배치(NOTI-01) — owner 스코프 없는 전역 쿼리: 오늘 이하(overdue 포함)만, 미래 제외.
+    // INSPECTION_DUE 알림 배치(NOTI-01) — owner 스코프 없는 전역 페이징 쿼리: 오늘 이하(overdue 포함)만, 미래 제외.
     @Test
     void findAllByNextInspectionDueAtLessThanEqual_오늘과overdue포함_미래제외() {
         Long ownerId = seedOwner("owner-a@haja.com");
@@ -250,9 +251,10 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         facilityRepository.save(newFacilityWithDueAt(ownerId, "내일마감_미래", today.plusDays(1)));
         facilityRepository.save(newFacility(ownerId, "예정일없음"));
 
-        List<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqual(today);
+        Page<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqual(
+                today, PageRequest.of(0, 200));
 
-        assertThat(found)
+        assertThat(found.getContent())
                 .extracting(Facility::getName)
                 .containsExactlyInAnyOrder("오늘마감", "어제마감_overdue");
     }
@@ -265,10 +267,38 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         facilityRepository.save(newFacilityWithDueAt(ownerId, "A소유_오늘마감", today));
         facilityRepository.save(newFacilityWithDueAt(otherOwnerId, "B소유_오늘마감", today));
 
-        List<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqual(today);
+        Page<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqual(
+                today, PageRequest.of(0, 200));
 
-        assertThat(found)
+        assertThat(found.getContent())
                 .extracting(Facility::getName)
                 .containsExactlyInAnyOrder("A소유_오늘마감", "B소유_오늘마감");
+    }
+
+    // PR머신 요청 회귀: 결과가 한 페이지를 넘으면 여러 페이지에 걸쳐 전부 조회돼야 한다(미페이징 전량 로딩 방지).
+    @Test
+    void findAllByNextInspectionDueAtLessThanEqual_페이지초과시_여러페이지로전부조회() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        LocalDate today = LocalDate.now();
+        int total = 5;
+        for (int i = 0; i < total; i++) {
+            facilityRepository.save(newFacilityWithDueAt(ownerId, "마감시설" + i, today.minusDays(i)));
+        }
+
+        int pageSize = 2;
+        List<String> collected = new java.util.ArrayList<>();
+        int pageNumber = 0;
+        Page<Facility> page;
+        do {
+            page = facilityRepository.findAllByNextInspectionDueAtLessThanEqual(
+                    today, PageRequest.of(pageNumber, pageSize));
+            page.getContent().forEach(f -> collected.add(f.getName()));
+            pageNumber++;
+        } while (page.hasNext());
+
+        // 5건 / 페이지 2 → 3페이지(2+2+1)에 걸쳐 전부 수집돼야 한다.
+        assertThat(pageNumber).isEqualTo(3);
+        assertThat(collected).hasSize(total)
+                .containsExactlyInAnyOrder("마감시설0", "마감시설1", "마감시설2", "마감시설3", "마감시설4");
     }
 }

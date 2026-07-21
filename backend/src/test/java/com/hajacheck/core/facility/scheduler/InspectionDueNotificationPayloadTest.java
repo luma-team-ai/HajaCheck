@@ -62,4 +62,53 @@ class InspectionDueNotificationPayloadTest {
         assertThat(InspectionDueNotificationPayload.extractFacilityId("{invalid json")).isNull();
         assertThat(InspectionDueNotificationPayload.extractFacilityId("{\"other\":1}")).isNull();
     }
+
+    @Test
+    @DisplayName("extractDedupeKey 는 정상 payload 에서 facilityId|nextInspectionDueAt 키를 추출한다")
+    void extractDedupeKey_정상추출() {
+        String json = InspectionDueNotificationPayload.serialize(
+                facility(7L, "강남빌딩", LocalDate.of(2026, 7, 21)));
+
+        assertThat(InspectionDueNotificationPayload.extractDedupeKey(json)).isEqualTo("7|2026-07-21");
+    }
+
+    @Test
+    @DisplayName("dedupeKeyOf(Facility) 는 serialize/extract 와 동일 형식의 키를 만든다")
+    void dedupeKeyOf_serialize와일치() {
+        Facility f = facility(42L, "테스트시설", LocalDate.of(2026, 7, 21));
+
+        String fromFacility = InspectionDueNotificationPayload.dedupeKeyOf(f);
+        String fromPayload = InspectionDueNotificationPayload.extractDedupeKey(
+                InspectionDueNotificationPayload.serialize(f));
+
+        assertThat(fromFacility).isEqualTo("42|2026-07-21");
+        assertThat(fromFacility).isEqualTo(fromPayload);
+    }
+
+    @Test
+    @DisplayName("substring 오탐 회귀: 1|날짜 와 10|날짜 를 구분한다(도래일 포함 키라 오탐 위험 더 큼)")
+    void extractDedupeKey_유사키구분() {
+        // "1|2026-07-21" 은 "10|2026-07-21" 의 부분 문자열이라 contains() 매칭이면 오탐 — 구조적 파싱은 정확히 구분.
+        String k1 = InspectionDueNotificationPayload.extractDedupeKey(
+                "{\"facilityId\":1,\"nextInspectionDueAt\":\"2026-07-21\"}");
+        String k10 = InspectionDueNotificationPayload.extractDedupeKey(
+                "{\"facilityId\":10,\"nextInspectionDueAt\":\"2026-07-21\"}");
+
+        assertThat(k1).isEqualTo("1|2026-07-21");
+        assertThat(k10).isEqualTo("10|2026-07-21");
+        assertThat(k1).isNotEqualTo(k10);
+    }
+
+    @Test
+    @DisplayName("extractDedupeKey 는 null·파싱실패·필드누락(facilityId 또는 도래일) 시 null 을 반환한다")
+    void extractDedupeKey_실패시null() {
+        assertThat(InspectionDueNotificationPayload.extractDedupeKey(null)).isNull();
+        assertThat(InspectionDueNotificationPayload.extractDedupeKey("")).isNull();
+        assertThat(InspectionDueNotificationPayload.extractDedupeKey("{invalid json")).isNull();
+        // facilityId 만 있고 도래일 없음 → null
+        assertThat(InspectionDueNotificationPayload.extractDedupeKey("{\"facilityId\":1}")).isNull();
+        // 도래일만 있고 facilityId 없음 → null
+        assertThat(InspectionDueNotificationPayload.extractDedupeKey(
+                "{\"nextInspectionDueAt\":\"2026-07-21\"}")).isNull();
+    }
 }
