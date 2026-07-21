@@ -36,6 +36,10 @@ import org.springframework.stereotype.Component;
  * (기존 알림 조회 → 없는 것만 발행)로 보장된다. 따라서 다중 인스턴스로 스케일아웃하면 레플리카마다 각자 발화해
  * <b>확정적으로 중복 발행</b>된다. 스케일아웃 시점에는 ShedLock 같은 분산 락 또는 (user_id, type, facility_id, 도래일)
  * DB 유니크 제약 도입이 선행돼야 한다.
+ *
+ * <p>⚠️ <b>스캔 비용 증가(후속 이슈)</b>: {@code next_inspection_due_at} 무인덱스 + overdue 시설물이
+ * 재스케줄 전까지 매일 재조회 대상에 영구 잔류해, 배치 스캔 비용이 시간에 따라 증가한다. 근본 해결은 DB 인덱스
+ * (부분 인덱스 권장) 또는 keyset 페이징 — DDL 소유자 조율이 필요해 이번 PR 범위 밖, 후속 이슈로 분리한다.
  */
 @Slf4j
 @Component
@@ -60,7 +64,7 @@ public class InspectionDueNotificationScheduler {
         int pageNumber = 0;
         Page<Facility> page;
         do {
-            page = facilityRepository.findAllByNextInspectionDueAtLessThanEqual(
+            page = facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(
                     today, PageRequest.of(pageNumber, PAGE_SIZE));
             List<Facility> facilities = page.getContent();
             totalTargets += facilities.size();

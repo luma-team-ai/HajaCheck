@@ -251,7 +251,7 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         facilityRepository.save(newFacilityWithDueAt(ownerId, "내일마감_미래", today.plusDays(1)));
         facilityRepository.save(newFacility(ownerId, "예정일없음"));
 
-        Page<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqual(
+        Page<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(
                 today, PageRequest.of(0, 200));
 
         assertThat(found.getContent())
@@ -267,7 +267,7 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         facilityRepository.save(newFacilityWithDueAt(ownerId, "A소유_오늘마감", today));
         facilityRepository.save(newFacilityWithDueAt(otherOwnerId, "B소유_오늘마감", today));
 
-        Page<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqual(
+        Page<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(
                 today, PageRequest.of(0, 200));
 
         assertThat(found.getContent())
@@ -275,30 +275,51 @@ class FacilityRepositoryTest extends PostgresTestSupport {
                 .containsExactlyInAnyOrder("A소유_오늘마감", "B소유_오늘마감");
     }
 
-    // PR머신 요청 회귀: 결과가 한 페이지를 넘으면 여러 페이지에 걸쳐 전부 조회돼야 한다(미페이징 전량 로딩 방지).
+    // PR머신 요청 회귀: 여러 페이지를 순회해도 중복·누락 없이 정확히 N건이 조회돼야 한다.
+    // OrderByIdAsc 가 없으면 Postgres 는 페이지 간 행 순서를 보장하지 않아, 물리 저장 순서가 흔들릴 때
+    // 같은 행이 두 페이지에 중복되거나 어느 페이지에도 안 나오는 누락이 발생한다. 그래서 삽입 후 update 로
+    // 힙 저장 순서를 일부러 흔들어(MVCC: update 된 튜플이 새 힙 위치로 이동) 무정렬이었다면 실패하도록 구성한다.
     @Test
-    void findAllByNextInspectionDueAtLessThanEqual_페이지초과시_여러페이지로전부조회() {
+    void findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc_여러페이지_중복누락없이_전부조회() {
         Long ownerId = seedOwner("owner-a@haja.com");
         LocalDate today = LocalDate.now();
-        int total = 5;
+        int total = 7;
+        List<Long> savedIds = new java.util.ArrayList<>();
         for (int i = 0; i < total; i++) {
-            facilityRepository.save(newFacilityWithDueAt(ownerId, "마감시설" + i, today.minusDays(i)));
+            Facility saved = facilityRepository.save(
+                    newFacilityWithDueAt(ownerId, "마감시설" + i, today.minusDays(i)));
+            savedIds.add(saved.getId());
         }
+        em.flush();
+        em.clear();
+
+        // 짝수 인덱스 시설물을 재저장(update)해 물리 저장 순서를 id 순서와 어긋나게 흔든다.
+        for (int i = 0; i < total; i += 2) {
+            Facility f = facilityRepository.findById(savedIds.get(i)).orElseThrow();
+            f.updateInfo(f.getName() + "_수정", f.getType(), f.getAddress(),
+                    f.getLatitude(), f.getLongitude(), f.getBuiltYear(),
+                    f.getScale(), f.getInspectionCycleMonths(), f.getNextInspectionDueAt());
+            facilityRepository.save(f);
+        }
+        em.flush();
+        em.clear();
 
         int pageSize = 2;
-        List<String> collected = new java.util.ArrayList<>();
+        List<Long> collectedIds = new java.util.ArrayList<>();
         int pageNumber = 0;
         Page<Facility> page;
         do {
-            page = facilityRepository.findAllByNextInspectionDueAtLessThanEqual(
+            page = facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(
                     today, PageRequest.of(pageNumber, pageSize));
-            page.getContent().forEach(f -> collected.add(f.getName()));
+            page.getContent().forEach(f -> collectedIds.add(f.getId()));
             pageNumber++;
         } while (page.hasNext());
 
-        // 5건 / 페이지 2 → 3페이지(2+2+1)에 걸쳐 전부 수집돼야 한다.
-        assertThat(pageNumber).isEqualTo(3);
-        assertThat(collected).hasSize(total)
-                .containsExactlyInAnyOrder("마감시설0", "마감시설1", "마감시설2", "마감시설3", "마감시설4");
+        // 7건 / 페이지 2 → 4페이지(2+2+2+1). 중복·누락 없이 정확히 id 오름차순으로 전부 수집돼야 한다.
+        assertThat(pageNumber).isEqualTo(4);
+        assertThat(collectedIds)
+                .hasSize(total)
+                .doesNotHaveDuplicates()
+                .containsExactlyElementsOf(savedIds.stream().sorted().toList());
     }
 }

@@ -78,7 +78,7 @@ class InspectionDueNotificationSchedulerTest {
     }
 
     private void stubDuePage(List<Facility> content) {
-        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqual(any(), any()))
+        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(any(), any()))
                 .thenReturn(singlePage(content));
     }
 
@@ -167,7 +167,7 @@ class InspectionDueNotificationSchedulerTest {
         scheduler.notifyFacilitiesDueToday();
 
         ArgumentCaptor<LocalDate> captor = ArgumentCaptor.forClass(LocalDate.class);
-        verify(facilityRepository).findAllByNextInspectionDueAtLessThanEqual(captor.capture(), any());
+        verify(facilityRepository).findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(captor.capture(), any());
         assertThat(captor.getValue()).isEqualTo(TODAY);
     }
 
@@ -218,13 +218,13 @@ class InspectionDueNotificationSchedulerTest {
         // pageSize=1, total=2 → page0.hasNext()=true, page1.hasNext()=false 로 강제.
         Page<Facility> page0 = new PageImpl<>(List.of(p0), PageRequest.of(0, 1), 2);
         Page<Facility> page1 = new PageImpl<>(List.of(p1), PageRequest.of(1, 1), 2);
-        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqual(any(), any()))
+        when(facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(any(), any()))
                 .thenReturn(page0, page1);
         stubNoExistingNotifications();
 
         scheduler.notifyFacilitiesDueToday();
 
-        verify(facilityRepository, times(2)).findAllByNextInspectionDueAtLessThanEqual(any(), any());
+        verify(facilityRepository, times(2)).findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(any(), any());
         verify(notificationService, times(2))
                 .notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), anyString());
     }

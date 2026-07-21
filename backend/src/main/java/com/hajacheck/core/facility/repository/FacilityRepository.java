@@ -47,5 +47,7 @@ public interface FacilityRepository extends JpaRepository<Facility, Long> {
     // INSPECTION_DUE 알림 배치(NOTI-01, #425) — findUpcomingByOwnerId 와 달리 owner 스코프가 없는 전역 쿼리.
     // 배치가 모든 owner의 마감 도래(overdue 포함, 오늘 이하) 시설물을 순회해야 하므로 의도적으로 unscoped 다.
     // 전역 대상이라 미페이징 로딩은 메모리 위험 — 반드시 Pageable 로 페이지 단위 순회한다(스케줄러가 hasNext 로 반복).
-    Page<Facility> findAllByNextInspectionDueAtLessThanEqual(LocalDate date, Pageable pageable);
+    // ⚠️ OrderByIdAsc 필수: ORDER BY 없이는 Postgres 가 페이지 요청 간 행 순서를 보장하지 않아 페이지 순회 중
+    // 행 중복 노출/누락(그 시설물 owner가 알림 미수신)이 발생한다. id asc 결정적 정렬로 안정 페이징을 강제한다.
+    Page<Facility> findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(LocalDate date, Pageable pageable);
 }
