@@ -101,7 +101,29 @@ const AiAssistantPage = lazy(() =>
   })),
 );
 
+const ChartShowcasePage = import.meta.env.DEV
+  ? lazy(() =>
+      import('../dev/charts/ChartShowcasePage').then((m) => ({
+        default: m.ChartShowcasePage,
+      })),
+    )
+  : null;
+
+const DEV_ONLY_ROUTES = ChartShowcasePage
+  ? [
+      {
+        path: '/dev/charts',
+        element: (
+          <Suspense fallback={<div>차트 쇼케이스를 불러오는 중...</div>}>
+            <ChartShowcasePage />
+          </Suspense>
+        ),
+      },
+    ]
+  : [];
+
 export const router = createBrowserRouter([
+  ...DEV_ONLY_ROUTES,
   {
     path: '/',
     element: (
