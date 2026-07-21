@@ -15,6 +15,8 @@ import mypageIcon from '../../../assets/brand/sidenav-mypage.svg';
 import settingsIcon from '../../../assets/brand/sidenav-settings.svg';
 import logoutIcon from '../../../assets/brand/sidenav-logout.svg';
 import adminIcon from '../../../assets/brand/sidenav-admin.svg';
+import statisticsIcon from '../../../assets/brand/sidenav-statistics.svg';
+import defaultAvatarIcon from '../../../assets/brand/sidenav-default-avatar.svg';
 
 export interface SideNavSubItem {
   label: string;
@@ -58,10 +60,14 @@ interface SideNavBarProps {
 const NOTICE_AUTO_DISMISS_MS = 2500;
 const NOT_IMPLEMENTED_MESSAGE = '아직 구현되지 않은 페이지입니다';
 
-// 접힌 상태 고정 폭(w-18 = 18*4px) / 펼친 상태 기본 폭(w-60 = 60*4px) — 드래그 리사이즈 clamp 범위(HAJA-167, #184)
+// 접힌 상태 고정 폭(w-18 = 18*4px) / 펼친 상태 기본 폭 — 드래그 리사이즈 clamp 범위(HAJA-167, #184)
 const COLLAPSED_WIDTH = 72;
-const DEFAULT_WIDTH = 240;
-const MIN_WIDTH = 200;
+// MIN_WIDTH(및 DEFAULT_WIDTH)는 현재 메뉴 라벨 중 가장 긴 문자열("보고서 목록/이력 관리")이
+// 2줄로 줄바꿈되지 않는 최소 너비를 실측(약 240px 경계 + 여유 4px)해 정한 값이다(#499).
+// 라벨이 더 길어지면(관리자 메뉴 포함 실측 결과 현재는 이보다 짧음) 이 상수도 같이 검토할 것 —
+// whitespace-nowrap/truncate로 자르는 대신 "2줄이 되기 전에 리사이즈를 멈추는" 방식을 택함(요청 사항).
+const DEFAULT_WIDTH = 244;
+const MIN_WIDTH = 244;
 const MAX_WIDTH = 320;
 
 function clamp(value: number, min: number, max: number) {
@@ -86,7 +92,6 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     icon: facilitiesIcon,
     subItems: [
       { label: '시설물 목록/등록', href: '/facilities/list' },
-      { label: '시설물 상세', href: '/facilities/detail' },
       { label: '점검 주기 설정', href: '/facilities/inspection-cycle' },
       { label: '지도 뷰', href: '/facilities/map' },
     ],
@@ -103,15 +108,10 @@ const DEFAULT_ITEMS: SideNavItem[] = [
       { label: '보고서 생성 진입점', href: '/inspections/report-entry' },
     ],
   },
-  {
-    label: '하자 관리',
-    href: '/defects',
-    icon: defectsIcon,
-    subItems: [
-      { label: '하자 목록', href: '/defects/list' },
-      { label: '하자 상세', href: '/defects/detail' },
-    ],
-  },
+  // '하자 상세'는 목록에서 항목을 눌러 실제 id로 /defects/:id에 진입하는 방식이라 사이드바에
+  // 별도 진입점이 필요 없다(#499, 사용자 요청) — 남은 하위 항목이 '하자 목록' 하나뿐이라
+  // 통계/설정과 같이 하위메뉴 없는 단일 항목으로 정리.
+  { label: '하자 관리', href: '/defects/list', icon: defectsIcon },
   {
     label: '보고서',
     href: '/reports',
@@ -148,9 +148,7 @@ const DEFAULT_ITEMS: SideNavItem[] = [
       { label: '내 상담 내역', href: '/mypage/counsels' },
     ],
   },
-  // TODO: "통계" 전용 아이콘이 Figma에서 아직 안 나와서 보고서(reportsIcon)를 임시로 재사용 중 —
-  // 실제 아이콘 나오면 교체 필요
-  { label: '통계', href: '/statistics', icon: reportsIcon },
+  { label: '통계', href: '/statistics', icon: statisticsIcon },
   { label: '설정', href: '/settings', icon: settingsIcon },
 ];
 
@@ -171,8 +169,10 @@ const DEFAULT_ADMIN_ITEM: SideNavItem = {
 const LINK_BASE =
   'flex w-full items-center rounded-full border-none bg-none text-base font-medium text-text-default no-underline cursor-pointer hover:bg-surface-muted hover:text-primary';
 
+// w-full: 다른 메뉴 링크(LINK_BASE)와 동일하게 전체 폭을 채운 뒤 justify-center로 가운데 정렬—
+// 이전엔 w-fit이라 폭을 안 채워 접힘 상태에서 justify-center가 먹지 않고 왼쪽으로 치우쳐 보였다(#499).
 const LOGOUT_BASE =
-  'inline-flex w-fit items-center gap-3 border-none bg-none text-sm font-medium text-[#3f3f46] cursor-pointer';
+  'flex w-full items-center gap-3 whitespace-nowrap border-none bg-none text-sm font-medium text-[#3f3f46] cursor-pointer';
 
 export function SideNavBar({
   items = DEFAULT_ITEMS,
@@ -332,13 +332,18 @@ export function SideNavBar({
 
   return (
     <div
-      className="relative flex-shrink-0"
+      // 바깥 wrapper(레이아웃 공간을 실제로 차지)가 안쪽 aside(시각적 박스)와 같은 트랜지션 없이
+      // 너비를 즉시 바꾸면, aside가 아직 줄어드는 중인 동안 본문(main)이 이미 넓어진 자리를
+      // 차지해버려 서로 겹쳐 보이는 버그가 있었다 — 동일한 transition으로 동기화(#499).
+      className="relative flex-shrink-0 transition-[width] duration-150"
       style={{ width: collapsed ? COLLAPSED_WIDTH : width }}
       onMouseEnter={() => setHoverExpanded(true)}
       onMouseLeave={() => setHoverExpanded(false)}
     >
       <aside
-        className={`flex min-h-full flex-col border-r border-border bg-surface text-sm transition-[width] duration-150 ${
+        // overflow-hidden: 펼침 애니메이션 도중(너비가 아직 좁을 때) 줄바꿈을 막은 라벨 텍스트가
+        // 옆으로 넘치더라도 본문(main) 위로 삐져나오지 않고 잘리게 한다(#499 펼침 애니메이션 정리).
+        className={`flex min-h-full flex-col overflow-hidden border-r border-border bg-surface text-sm transition-[width] duration-150 ${
           isOverlay ? 'absolute inset-y-0 left-0 z-50 shadow-lg' : 'relative'
         } ${visuallyExpanded ? 'p-4' : 'px-2 py-4'}`}
         style={{ width: visuallyExpanded ? width : COLLAPSED_WIDTH }}
@@ -392,7 +397,7 @@ export function SideNavBar({
                   title={!visuallyExpanded ? item.label : undefined}
                 >
                   <span
-                    className={`inline-flex items-center ${visuallyExpanded ? 'gap-3' : 'gap-0'}`}
+                    className={`inline-flex items-center whitespace-nowrap ${visuallyExpanded ? 'gap-3' : 'gap-0'}`}
                   >
                     <img className="h-[18px] w-[18px] object-contain" src={item.icon} alt="" />
                     {visuallyExpanded && item.label}
@@ -414,7 +419,7 @@ export function SideNavBar({
                         key={sub.href}
                         to={sub.href}
                         onClick={(event) => handleNavClick(event, sub.href)}
-                        className={`rounded-full px-4 py-[6px] text-[13px] no-underline hover:text-primary ${
+                        className={`whitespace-nowrap rounded-full px-4 py-[6px] text-[13px] no-underline hover:text-primary ${
                           sub.href === activeHref
                             ? 'bg-surface text-primary ring-1 ring-border'
                             : 'text-[#71717a]'
@@ -437,7 +442,7 @@ export function SideNavBar({
                 title={!visuallyExpanded ? item.label : undefined}
               >
                 <span
-                  className={`inline-flex items-center ${visuallyExpanded ? 'gap-3' : 'gap-0'}`}
+                  className={`inline-flex items-center whitespace-nowrap ${visuallyExpanded ? 'gap-3' : 'gap-0'}`}
                 >
                   <img className="h-[18px] w-[18px] object-contain" src={item.icon} alt="" />
                   {visuallyExpanded && item.label}
@@ -465,25 +470,33 @@ export function SideNavBar({
         )}
 
         {user && (
-          <div className="border-t border-[#cbc4d2]/30 px-4 pt-[17px] pb-2.5">
+          <div
+            // 접힘 상태에서도 px-4를 그대로 쓰면(72px 폭 - aside 자체 padding까지 겹쳐) 아바타(32px)가
+            // 들어갈 공간이 부족해 flex-shrink로 폭만 눌려 타원으로 보였다 — 다른 nav 항목처럼
+            // 접힘 상태 전용 패딩(px-2)으로 분기(#499).
+            className={`border-t border-[#cbc4d2]/30 pt-[17px] pb-2.5 ${visuallyExpanded ? 'px-4' : 'px-2'}`}
+          >
             <div className={`flex items-center gap-2 ${visuallyExpanded ? '' : 'justify-center'}`}>
               {user.avatarUrl ? (
                 <img
-                  className="h-8 w-8 rounded-full bg-[#cbc4d2] object-cover"
+                  className="h-8 w-8 flex-shrink-0 rounded-full bg-[#cbc4d2] object-cover"
                   src={user.avatarUrl}
                   alt=""
                 />
               ) : (
+                // 사진 없을 때 빈 원이 아니라 기본 아이콘(건물 모양)을 넣는다 — Figma node 163-663 기준(#499)
                 <span
-                  className="inline-block h-8 w-8 rounded-full bg-[#cbc4d2] object-cover"
+                  className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#cbc4d2]"
                   aria-hidden="true"
-                />
+                >
+                  <img className="h-[27px] w-[27px] object-contain" src={defaultAvatarIcon} alt="" />
+                </span>
               )}
               {visuallyExpanded && (
-                <span className="flex flex-col">
-                  <span className="text-sm text-heading">{user.name}</span>
+                <span className="flex flex-col overflow-hidden">
+                  <span className="truncate text-sm text-heading">{user.name}</span>
                   {user.plan && (
-                    <span className="text-[11px] tracking-[0.05em] text-text-default">
+                    <span className="truncate text-[11px] tracking-[0.05em] text-text-default">
                       {user.plan}
                     </span>
                   )}
