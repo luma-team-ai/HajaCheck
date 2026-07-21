@@ -58,6 +58,12 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+    testLogging {
+        exceptionFormat = 'full'
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+    }
     // 로컬 Docker Desktop(API 프록시 소켓)에서 Testcontainers 가 전략 고정으로 DOCKER_HOST 를 무시할 때만
     // 오버라이드용(기본 미설정 → CI/기본 환경엔 영향 없음): ./gradlew test -PdockerStrategy=...
     if (project.hasProperty('dockerStrategy')) {
