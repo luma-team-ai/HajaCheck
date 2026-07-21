@@ -45,3 +45,6 @@ mlruns/
 # --- Docker/배포 ---
 .last_good_tag
 /.metadata/
+
+# RAG 원본 법규 문서 (대용량 바이너리·파생 텍스트, git 추적 제외 — 목록은 docs/data/regulations_source_list.md 참고)
+ai-server/data/regulations/
