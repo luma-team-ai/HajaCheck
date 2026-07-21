@@ -184,4 +184,22 @@ class MembershipRepositoryTest extends PostgresTestSupport {
         assertThat(activeMembers).extracting(User::getEmail)
                 .containsExactlyInAnyOrder("member1@haja.com", "member2@haja.com");
     }
+
+    // 좌석 목록 조회 상한(#484) — 상한 초과 데이터 시 limit(Pageable) 건수만 반환되고,
+    // count 쿼리는 truncation 과 무관하게 실제 총원 수를 정확히 반환하는지 확인.
+    @Test
+    void user_회사소속_활성사용자_목록상한초과시_limit건수만_count는실제총원() {
+        Company company = saveCompany("seats-cap-owner@haja.com", "3333333333");
+        Long companyId = company.getId();
+        for (int i = 0; i < 5; i++) {
+            saveUser("member" + i + "@haja.com", companyId);
+        }
+
+        long totalActive = userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE);
+        List<User> capped = userRepository.findByCompanyIdAndStatusOrderByIdAsc(
+                companyId, UserStatus.ACTIVE, org.springframework.data.domain.PageRequest.of(0, 3));
+
+        assertThat(totalActive).isEqualTo(5);
+        assertThat(capped).hasSize(3);
+    }
 }
