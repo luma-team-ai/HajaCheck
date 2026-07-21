@@ -176,7 +176,8 @@ class MembershipServiceTest {
         when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
                 .thenReturn(Optional.of(userPlan));
         when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
-        when(userRepository.findByCompanyIdAndStatus(COMPANY_ID, UserStatus.ACTIVE))
+        when(userRepository.countByCompanyIdAndStatus(COMPANY_ID, UserStatus.ACTIVE)).thenReturn(2L);
+        when(userRepository.findByCompanyIdAndStatusOrderByIdAsc(eq(COMPANY_ID), eq(UserStatus.ACTIVE), any()))
                 .thenReturn(List.of(companyUser, member2));
 
         SeatsResponse response = service.getSeats(USER_ID);
@@ -194,15 +195,37 @@ class MembershipServiceTest {
         when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
                 .thenReturn(Optional.of(userPlan));
         when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
-        // findByCompanyIdAndStatus(..., ACTIVE) 자체가 정지 구성원을 제외한 결과를 반환한다는 전제 —
-        // 리포지토리가 활성 사용자만 돌려주므로 서비스가 이를 그대로 신뢰함을 검증.
-        when(userRepository.findByCompanyIdAndStatus(COMPANY_ID, UserStatus.ACTIVE))
+        // findByCompanyIdAndStatusOrderByIdAsc(..., ACTIVE, ...) 자체가 정지 구성원을 제외한 결과를 반환한다는
+        // 전제 — 리포지토리가 활성 사용자만 돌려주므로 서비스가 이를 그대로 신뢰함을 검증.
+        when(userRepository.countByCompanyIdAndStatus(COMPANY_ID, UserStatus.ACTIVE)).thenReturn(1L);
+        when(userRepository.findByCompanyIdAndStatusOrderByIdAsc(eq(COMPANY_ID), eq(UserStatus.ACTIVE), any()))
                 .thenReturn(List.of(companyUser));
 
         SeatsResponse response = service.getSeats(USER_ID);
 
         assertThat(response.used()).isEqualTo(1);
         assertThat(response.members()).hasSize(1);
+    }
+
+    @Test
+    void 좌석조회_상한초과시_목록은상한만_used는실제총원() {
+        // 좌석 목록 조회 상한(#484) — members 목록은 방어적으로 잘리지만 used(총원 수) 는
+        // 실제 활성 인원 수를 정확히 반영해야 한다(목록 truncation 이 used 집계를 왜곡하면 안 됨).
+        UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+        User member2 = user(2L, COMPANY_ID);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
+        when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        when(userRepository.countByCompanyIdAndStatus(COMPANY_ID, UserStatus.ACTIVE)).thenReturn(250L);
+        when(userRepository.findByCompanyIdAndStatusOrderByIdAsc(eq(COMPANY_ID), eq(UserStatus.ACTIVE), any()))
+                .thenReturn(List.of(companyUser, member2));
+
+        SeatsResponse response = service.getSeats(USER_ID);
+
+        assertThat(response.used()).isEqualTo(250);
+        assertThat(response.members()).hasSize(2);
     }
 
     @Test

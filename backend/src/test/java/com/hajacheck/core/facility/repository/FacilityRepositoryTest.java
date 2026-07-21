@@ -84,6 +84,21 @@ class FacilityRepositoryTest extends PostgresTestSupport {
                 .containsExactlyInAnyOrder("1번소유자시설A", "1번소유자시설B");
     }
 
+    // 시설물 목록 조회 상한(#484) — 상한 초과 데이터 시 limit(Pageable) 건수만 반환되는지 확인.
+    @Test
+    void findByOwnerIdOrderByIdAsc_상한초과시_limit건수만_id오름차순반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        for (int i = 0; i < 5; i++) {
+            facilityRepository.save(newFacility(ownerId, "시설" + i));
+        }
+
+        List<Facility> found = facilityRepository.findByOwnerIdOrderByIdAsc(ownerId, PageRequest.of(0, 3));
+
+        assertThat(found).hasSize(3)
+                .extracting(Facility::getName)
+                .containsExactly("시설0", "시설1", "시설2");
+    }
+
     @Test
     void findByIdAndOwnerId_본인소유_반환() {
         Long ownerId = seedOwner("owner-a@haja.com");

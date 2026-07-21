@@ -3,6 +3,7 @@ package com.hajacheck.core.facility.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -25,6 +26,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 
 @ExtendWith(MockitoExtension.class)
 class FacilityServiceTest {
@@ -67,13 +69,28 @@ class FacilityServiceTest {
 
     @Test
     void list_목록조회_소유자스코프로위임() {
-        when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of(existingFacility()));
+        when(facilityRepository.findByOwnerIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(existingFacility()));
 
         List<FacilityResponse> result = facilityService.list(OWNER_ID);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).name()).isEqualTo("기존시설");
-        verify(facilityRepository).findByOwnerId(OWNER_ID);
+        verify(facilityRepository).findByOwnerIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class));
+    }
+
+    @Test
+    void list_목록조회_상한초과시상한개수만반환() {
+        List<Facility> capped = List.of(existingFacility(), existingFacility());
+        when(facilityRepository.findByOwnerIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(capped);
+
+        List<FacilityResponse> result = facilityService.list(OWNER_ID);
+
+        assertThat(result).hasSize(2);
+        ArgumentCaptor<PageRequest> pageableCaptor = ArgumentCaptor.forClass(PageRequest.class);
+        verify(facilityRepository).findByOwnerIdOrderByIdAsc(eq(OWNER_ID), pageableCaptor.capture());
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(500);
     }
 
     @Test
