@@ -6,8 +6,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -49,5 +49,8 @@ public interface FacilityRepository extends JpaRepository<Facility, Long> {
     // 전역 대상이라 미페이징 로딩은 메모리 위험 — 반드시 Pageable 로 페이지 단위 순회한다(스케줄러가 hasNext 로 반복).
     // ⚠️ OrderByIdAsc 필수: ORDER BY 없이는 Postgres 가 페이지 요청 간 행 순서를 보장하지 않아 페이지 순회 중
     // 행 중복 노출/누락(그 시설물 owner가 알림 미수신)이 발생한다. id asc 결정적 정렬로 안정 페이징을 강제한다.
-    Page<Facility> findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(LocalDate date, Pageable pageable);
+    // 반환 타입은 Page 대신 Slice(#510 P2) — 스케줄러는 getContent/hasNext 만 쓰고 총 건수는 쓰지 않는데,
+    // Page 는 페이지마다 별도 COUNT(*) 쿼리를 실행한다. next_inspection_due_at 무인덱스라 이 COUNT 도 전체
+    // 스캔이 돼 스캔 비용을 배가시킨다 — Slice 는 COUNT 없이 limit+1 조회만으로 hasNext 를 판정한다.
+    Slice<Facility> findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(LocalDate date, Pageable pageable);
 }

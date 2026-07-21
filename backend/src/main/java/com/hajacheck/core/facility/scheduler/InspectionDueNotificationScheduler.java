@@ -15,8 +15,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -62,7 +62,7 @@ public class InspectionDueNotificationScheduler {
         BatchCounts totals = BatchCounts.ZERO;
 
         int pageNumber = 0;
-        Page<Facility> page;
+        Slice<Facility> page;
         do {
             page = facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(
                     today, PageRequest.of(pageNumber, PAGE_SIZE));
