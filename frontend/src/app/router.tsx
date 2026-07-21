@@ -13,6 +13,13 @@ const ResultViewerPage = lazy(() =>
   })),
 );
 
+// 점검(회차) 생성 — API 명세서 v0.3 AP-004
+const InspectionCreatePage = lazy(() =>
+  import('../features/inspection/pages/InspectionCreatePage').then((m) => ({
+    default: m.InspectionCreatePage,
+  })),
+);
+
 const LandingPage = lazy(() => import('../features/landing/LandingPage'));
 
 const LoginPage = lazy(() =>
@@ -84,6 +91,13 @@ const AdminUsersPage = lazy(() =>
 const FacilityListPage = lazy(() =>
   import('../features/facility/pages/FacilityListPage').then((m) => ({
     default: m.FacilityListPage,
+  })),
+);
+
+// 시설물 상세 — Figma "hajaCheck Facility Detail - Fixed Images"(node-id 1-1401)
+const FacilityDetailPage = lazy(() =>
+  import('../features/facility/pages/FacilityDetailPage').then((m) => ({
+    default: m.FacilityDetailPage,
   })),
 );
 
@@ -267,6 +281,18 @@ export const router = createBrowserRouter([
         },
       }, // — features/map (#28, HAJA-150 §129 재오픈: 공용 셸 편입 + SideNavBar 경로 버그 수정)
       {
+        path: '/inspections/create',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <InspectionCreatePage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '점검 관리' }, { label: '점검(회차) 생성' }],
+          activeHref: '/inspections/create',
+        },
+      }, // — features/inspection 점검(회차) 생성 (API 명세서 v0.3 AP-004)
+      {
         path: '/inspections/:id/viewer',
         element: (
           <Suspense fallback={<div>불러오는 중...</div>}>
@@ -278,6 +304,18 @@ export const router = createBrowserRouter([
           activeHref: '/inspections/1/viewer',
         },
       }, // — features/inspection FR-4 (HAJA-249, #249)
+      {
+        path: '/facilities/:id',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <FacilityDetailPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '시설물 관리' }, { label: '강남 오피스타워 A동' }],
+          activeHref: '/facilities/detail',
+        },
+      }, // — features/facility 시설물 상세 (Figma node-id 1-1401)
       {
         path: '/facilities/inspection-cycle',
         element: (
