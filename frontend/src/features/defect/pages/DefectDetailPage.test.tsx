@@ -11,7 +11,18 @@ import { defectHandlers } from '../api/defectApi.handlers';
 import { mockDefects } from '../mocks/defect.mock';
 import { DefectDetailPage } from './DefectDetailPage';
 
-const server = setupServer(...defectHandlers);
+const explainHandler = http.post('/api/ai/defect-explain', () =>
+  HttpResponse.json({
+    success: true,
+    data: {
+      cause: '구조 응력과 미세한 재료 수축이 복합적으로 작용한 것으로 추정됩니다.',
+      risk: '방치 시 균열과 부식이 진행될 수 있습니다.',
+      action: '에폭시 주입 후 표면 도포를 권장합니다.',
+    },
+  }),
+);
+
+const server = setupServer(...defectHandlers, explainHandler);
 // PATCH 핸들러가 mockDefects를 in-place로 변경한다(재조회 시 최신 상태를 반영하기 위함) — 상태
 // 전이 테스트가 이 모듈 싱글턴을 다음 테스트로 오염시키지 않도록 매 테스트 후 스냅샷으로 복원한다.
 const mockDefectsSnapshot = JSON.parse(JSON.stringify(mockDefects)) as typeof mockDefects;
