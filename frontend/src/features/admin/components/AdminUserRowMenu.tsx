@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AdminUser } from '../types';
-import { DiamondIcon } from './icons/DiamondIcon';
-import { HistoryIcon } from './icons/HistoryIcon';
 import { MoreIcon } from './icons/MoreIcon';
 import { ShieldIcon } from './icons/ShieldIcon';
+import { StatusIcon } from './icons/StatusIcon';
 
-export type AdminUserRowAction = 'CHANGE_ROLE' | 'CHANGE_PLAN' | 'VIEW_HISTORY';
+export type AdminUserRowAction = 'CHANGE_ROLE' | 'CHANGE_STATUS';
 
 interface AdminUserRowMenuProps {
   user: AdminUser;
@@ -42,9 +41,8 @@ export function AdminUserRowMenu({ user, onAction }: AdminUserRowMenuProps) {
   }, [isOpen]);
 
   const menuItems: { action: AdminUserRowAction; label: string; icon: ReactNode }[] = [
-    { action: 'CHANGE_ROLE', label: '권한 변경', icon: <ShieldIcon /> },
-    { action: 'CHANGE_PLAN', label: '플랜 변경', icon: <DiamondIcon /> },
-    { action: 'VIEW_HISTORY', label: '이력 보기', icon: <HistoryIcon /> },
+    { action: 'CHANGE_ROLE', label: '역할 변경', icon: <ShieldIcon /> },
+    { action: 'CHANGE_STATUS', label: '상태 변경', icon: <StatusIcon /> },
   ];
 
   return (

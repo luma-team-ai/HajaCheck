@@ -42,4 +42,7 @@ EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=45s --retries=6 \
     CMD curl -fsS http://127.0.0.1:8080/actuator/health | grep -q '"status":"UP"' || exit 1
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# -Duser.timezone: TZ 환경변수(docker-compose)와 별개로 JVM 기본 타임존을 확실히 고정한다 —
+# 베이스 이미지에 /etc/localtime이 없으면 TZ 환경변수만으로는 JVM이 못 잡아채는 경우가 있어
+# 이중으로 명시(LocalDateTime.now() 기반 createdAt 등이 UTC로 찍히는 문제 재발 방지).
+ENTRYPOINT ["java", "-Duser.timezone=Asia/Seoul", "-jar", "app.jar"]
