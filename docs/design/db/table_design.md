@@ -866,7 +866,7 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 | error_code | varchar(100) | Y | - | | 애플리케이션 공통 오류 코드 |
 | message | varchar(500) | Y | - | CK | ErrorCode 기반 고정·정제 오류 요약. control 문자는 허용하지 않음 |
 | exception_type | varchar(255) | Y | - | | 오류를 발생시킨 예외 클래스명 |
-| user_id | bigint | Y | - | 논리 참조→users(FK 없음) | 로그인 사용자 식별자. 비로그인 요청은 NULL |
+| user_id | bigint | Y | - | 논리 참조→users(FK 없음) | 로그인 사용자 식별자. 비로그인 요청은 NULL이며, 탈퇴·익명화 시 `user_id=NULL`로 갱신하고 로그 행은 `created_at` 기준 최대 30일 보존 |
 | duration_ms | bigint | N | - | CK | API 요청 처리 시간(밀리초) |
 | client_ip | inet | Y | - | CK | 직접 peer/신뢰 프록시 체인에서 판정 후 IPv4 `/24`·IPv6 `/48` 네트워크로 축약한 주소 |
 | created_at | timestamptz | N | now() | | API 시스템 로그 생성 시각 |

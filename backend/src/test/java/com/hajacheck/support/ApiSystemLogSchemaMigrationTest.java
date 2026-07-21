@@ -185,6 +185,19 @@ class ApiSystemLogSchemaMigrationTest {
                     """);
             runPsql(postgres, MIGRATION);
 
+            runSql(postgres, "tamper request-id index operator class", """
+                    drop index idx_api_system_logs_request_id;
+                    create index idx_api_system_logs_request_id
+                        on api_system_logs (request_id varchar_pattern_ops);
+                    """);
+            runPsqlExpectFailure(
+                    postgres, MIGRATION, "api_system_logs indexes differ from canonical DDL");
+            runSql(postgres, "restore request-id default operator class", """
+                    drop index idx_api_system_logs_request_id;
+                    create index idx_api_system_logs_request_id on api_system_logs (request_id);
+                    """);
+            runPsql(postgres, MIGRATION);
+
             runSql(postgres, "add unexpected expression index", """
                     create index idx_api_system_logs_unexpected_expression
                         on api_system_logs (lower(http_method));

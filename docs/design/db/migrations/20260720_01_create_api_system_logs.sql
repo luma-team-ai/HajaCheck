@@ -230,7 +230,7 @@ comment on column public.api_system_logs.http_status is '최종 HTTP 응답 상�
 comment on column public.api_system_logs.error_code is '애플리케이션 공통 오류 코드';
 comment on column public.api_system_logs.message is 'ErrorCode 기반 고정·정제 오류 요약 메시지. control 문자는 허용하지 않는다';
 comment on column public.api_system_logs.exception_type is '오류를 발생시킨 예외 클래스명';
-comment on column public.api_system_logs.user_id is '요청 사용자 식별자. 사용자 삭제 후에도 로그를 보존하기 위해 users 외래키를 두지 않는다';
+comment on column public.api_system_logs.user_id is '로그인 사용자 식별자. 탈퇴·익명화 시 user_id=NULL로 갱신하고 로그 행은 created_at 기준 최대 30일 보존한다. users 외래키는 두지 않는다';
 comment on column public.api_system_logs.duration_ms is 'API 요청 처리 시간(밀리초)';
 comment on column public.api_system_logs.client_ip is '직접 peer 또는 신뢰 프록시 체인에서 판정해 IPv4 /24·IPv6 /48 네트워크 주소로 축약한 클라이언트 IP. 원본 IP와 신뢰되지 않은 forwarded 값은 저장하지 않는다';
 comment on column public.api_system_logs.created_at is 'API 시스템 로그 생성 시각';
@@ -248,37 +248,23 @@ do $migration$
 declare
     mismatch_count integer;
 begin
-    with expected(
-        index_name,
-        is_unique,
-        is_valid,
-        is_ready,
-        access_method,
-        all_columns,
-        key_count,
-        attribute_count,
-        index_options,
-        predicate,
-        expressions,
-        is_exclusion,
-        is_immediate,
-        is_replica_identity
-    ) as (
-        values
-            (
-                'idx_api_system_logs_created_at', false, true, true, 'btree',
-                array['created_at'], 1, 1, '3', null::text, null::text, false, true, false
-            ),
-            (
-                'idx_api_system_logs_level_created_at', false, true, true, 'btree',
-                array['level', 'created_at'], 2, 2, '0 3', null::text, null::text, false, true, false
-            ),
-            (
-                'idx_api_system_logs_request_id', false, true, true, 'btree',
-                array['request_id'], 1, 1, '0', null::text, null::text, false, true, false
-            )
-    ), actual as (
+    create temporary table expected_api_system_logs_indexes
+    (
+        level      varchar(10),
+        request_id varchar(100),
+        created_at timestamp with time zone
+    ) on commit drop;
+
+    create index expected_idx_api_system_logs_created_at
+        on expected_api_system_logs_indexes (created_at desc);
+    create index expected_idx_api_system_logs_level_created_at
+        on expected_api_system_logs_indexes (level, created_at desc);
+    create index expected_idx_api_system_logs_request_id
+        on expected_api_system_logs_indexes (request_id);
+
+    with index_signatures as (
         select index_class.relname::text as index_name,
+               table_meta.oid as table_oid,
                index_meta.indisunique as is_unique,
                index_meta.indisvalid as is_valid,
                index_meta.indisready as is_ready,
@@ -299,6 +285,35 @@ begin
                index_meta.indnkeyatts as key_count,
                index_meta.indnatts as attribute_count,
                index_meta.indoption::text as index_options,
+               (
+                   select array_agg(
+                       case
+                           when opclass_key.opclass_oid = 0 then null
+                           else opclass_namespace.nspname::text || '.' || opclass_meta.opcname::text
+                       end
+                       order by opclass_key.ordinality
+                   )
+                   from unnest(index_meta.indclass::oid[]) with ordinality
+                       as opclass_key(opclass_oid, ordinality)
+                   left join pg_opclass opclass_meta on opclass_meta.oid = opclass_key.opclass_oid
+                   left join pg_namespace opclass_namespace
+                     on opclass_namespace.oid = opclass_meta.opcnamespace
+               ) as operator_classes,
+               (
+                   select array_agg(
+                       case
+                           when collation_key.collation_oid = 0 then null
+                           else collation_namespace.nspname::text || '.' || collation_meta.collname::text
+                       end
+                       order by collation_key.ordinality
+                   )
+                   from unnest(index_meta.indcollation::oid[]) with ordinality
+                       as collation_key(collation_oid, ordinality)
+                   left join pg_collation collation_meta
+                     on collation_meta.oid = collation_key.collation_oid
+                   left join pg_namespace collation_namespace
+                     on collation_namespace.oid = collation_meta.collnamespace
+               ) as collations,
                pg_get_expr(index_meta.indpred, index_meta.indrelid, true) as predicate,
                pg_get_expr(index_meta.indexprs, index_meta.indrelid, true) as expressions,
                index_meta.indisexclusion as is_exclusion,
@@ -308,8 +323,49 @@ begin
         join pg_class index_class on index_class.oid = index_meta.indexrelid
         join pg_class table_meta on table_meta.oid = index_meta.indrelid
         join pg_am access_method on access_method.oid = index_class.relam
-        where table_meta.oid = 'public.api_system_logs'::regclass
+        where table_meta.oid in (
+                  'public.api_system_logs'::regclass,
+                  'expected_api_system_logs_indexes'::regclass
+              )
           and not index_meta.indisprimary
+    ), expected as (
+        select replace(index_name, 'expected_', '') as index_name,
+               is_unique,
+               is_valid,
+               is_ready,
+               access_method,
+               all_columns,
+               key_count,
+               attribute_count,
+               index_options,
+               operator_classes,
+               collations,
+               predicate,
+               expressions,
+               is_exclusion,
+               is_immediate,
+               is_replica_identity
+        from index_signatures
+        where table_oid = 'expected_api_system_logs_indexes'::regclass
+    ), actual as (
+        select index_name,
+               is_unique,
+               is_valid,
+               is_ready,
+               access_method,
+               all_columns,
+               key_count,
+               attribute_count,
+               index_options,
+               operator_classes,
+               collations,
+               predicate,
+               expressions,
+               is_exclusion,
+               is_immediate,
+               is_replica_identity
+        from index_signatures
+        where table_oid = 'public.api_system_logs'::regclass
     )
     select count(*) into mismatch_count
     from (
