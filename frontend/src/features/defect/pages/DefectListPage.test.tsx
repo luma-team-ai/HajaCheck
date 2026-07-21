@@ -2,7 +2,13 @@
 // DefectListPage 통합 테스트 — 실제 useDefects 훅 + MSW defectHandlers를 통해 목록 렌더링과
 // 초기 렌더링을 검증한다(HAJA-30, FacilityListPage.test.tsx와 동일 패턴).
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { setupServer } from "msw/node";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -77,13 +83,48 @@ describe("DefectListPage (통합 테스트)", () => {
     expect(await screen.findByText("하자 상세 스텁")).not.toBeNull();
   });
 
-  it("체크박스를 클릭해도 상세 페이지로 이동하지 않는다", async () => {
+  it("행 선택을 클릭해도 상세 페이지로 이동하지 않는다", async () => {
     renderPage();
     const table = await screen.findByRole("table");
-    const checkbox = within(table).getAllByRole("checkbox")[0];
+    const checkbox = within(table).getByRole("checkbox", {
+      name: "DEF-0001 선택",
+    });
 
     fireEvent.click(checkbox);
 
     expect(screen.queryByText("하자 상세 스텁")).toBeNull();
+  });
+
+  it("헤더에서 현재 페이지의 하자를 전체 선택하고 해제한다", async () => {
+    renderPage();
+    const table = await screen.findByRole("table");
+    const selectAll = within(table).getByRole("checkbox", {
+      name: "현재 페이지 하자 전체 선택",
+    });
+    const rowSelections = within(table)
+      .getAllByRole("checkbox")
+      .filter((checkbox) => checkbox !== selectAll) as HTMLInputElement[];
+
+    fireEvent.click(selectAll);
+    expect(rowSelections.every((checkbox) => checkbox.checked)).toBe(true);
+
+    fireEvent.click(selectAll);
+    expect(rowSelections.every((checkbox) => !checkbox.checked)).toBe(true);
+  });
+
+  it("일부 행만 선택하면 헤더 선택에 중간 상태를 표시한다", async () => {
+    renderPage();
+    const table = await screen.findByRole("table");
+    const selectAll = within(table).getByRole("checkbox", {
+      name: "현재 페이지 하자 전체 선택",
+    }) as HTMLInputElement;
+    const rowSelection = within(table).getByRole("checkbox", {
+      name: "DEF-0001 선택",
+    });
+
+    fireEvent.click(rowSelection);
+
+    expect(selectAll.checked).toBe(false);
+    expect(selectAll.indeterminate).toBe(true);
   });
 });
