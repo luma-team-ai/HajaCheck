@@ -17,14 +17,15 @@ export function ResultViewerPage() {
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [gradeFilter, setGradeFilter] = useState<DefectGrade[]>(ALL_GRADES);
   const [selectedDefectId, setSelectedDefectId] = useState<number | undefined>();
+  // rules-of-hooks: 훅은 조건부 return 이전에 호출해야 한다. 훅 내부 enabled 플래그가
+  // 유효하지 않은 inspectionId일 때 쿼리를 스킵하므로, ID 검증 return은 훅 호출 다음에 둔다.
+  const { data, isLoading, isError, refetch } = useInspectionResult(inspectionId);
 
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
     return (
       <div className="p-5 text-red-600">잘못된 접근입니다. 유효한 검사 ID를 확인하세요.</div>
     );
   }
-
-  const { data, isLoading, isError, refetch } = useInspectionResult(inspectionId);
 
   if (isLoading) return <AILoadingIndicator message="점검 결과를 분석 중입니다..." />;
   if (isError) return <AIErrorFallback onRetry={() => void refetch()} />;
