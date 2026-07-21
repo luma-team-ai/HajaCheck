@@ -1,7 +1,6 @@
 import { api } from '../../../shared/api/axios';
 import {
   COMPANY_SIGNUP_PATH,
-  COMPANY_SIGNUP_STATUS_PATH,
   EMAIL_AVAILABILITY_PATH,
   ID_INQUIRY_PATH,
   PASSWORD_RESET_PATH,
@@ -18,7 +17,6 @@ import type {
   PasswordResetLinkResponse,
   PasswordResetRequest,
   PasswordResetResponse,
-  SignupStatusResponse,
   UserResponse,
 } from '../types';
 
@@ -54,8 +52,6 @@ export const authApi = {
     api.get<EmailAvailabilityResponse>(EMAIL_AVAILABILITY_PATH, { params: { email } }),
   signupCompany: (body: CompanySignupRequest) =>
     api.post<CompanySignupResponse>(COMPANY_SIGNUP_PATH, toCompanySignupFormData(body)),
-  getSignupStatus: (signupToken: string) =>
-    api.get<SignupStatusResponse>(COMPANY_SIGNUP_STATUS_PATH, { params: { token: signupToken } }),
   findLoginId: (body: IdInquiryRequest) => api.post<IdInquiryResponse>(ID_INQUIRY_PATH, body),
   // 비밀번호 찾기 — 이메일 링크 방식(#301, HAJA-224)
   requestPasswordReset: (body: PasswordResetLinkRequest) =>

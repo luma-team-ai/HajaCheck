@@ -7,14 +7,18 @@ import { isRouteImplemented } from './implementedRoutes';
 describe('isRouteImplemented', () => {
   it.each([
     '/dashboard',
+    '/dashboard/ai-weekly-briefing',
     '/defects/list',
     '/defects/detail',
     '/mypage/plan',
     '/inspections/1/viewer',
     '/facilities/list',
-  ])('실제 라우터에 연결된 정확한 경로 %s는 true를 반환한다', (href) => {
-    expect(isRouteImplemented(href)).toBe(true);
-  });
+  ])(
+    '실제 라우터에 연결된 정확한 경로 %s는 true를 반환한다',
+    (href) => {
+      expect(isRouteImplemented(href)).toBe(true);
+    },
+  );
 
   it.each(['/statistics', '/settings', '/mypage/profile'])(
     '아직 라우터에 없는 경로 %s는 false를 반환한다',

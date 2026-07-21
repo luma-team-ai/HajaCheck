@@ -77,9 +77,3 @@ export interface PasswordResetRequest {
 export interface PasswordResetResponse {
   reset: boolean;
 }
-
-export interface SignupStatusResponse {
-  status: CompanyStatus;
-  companyName: string;
-  rejectionReason: string | null;
-}
