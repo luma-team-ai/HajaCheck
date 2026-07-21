@@ -51,6 +51,10 @@ class MembershipRepositoryTest extends PostgresTestSupport {
     private TestEntityManager em;
 
     private Plan savePlan(PlanName name) {
+        // #517 시드로 FREE/STANDARD/ENTERPRISE 가 이미 존재 — 고정 테스트 값을 쓰기 위해
+        // 시드 행을 지우고 이 fixture 로 대체한다(트랜잭션 롤백으로 테스트 간 격리 유지).
+        planRepository.findByName(name).ifPresent(planRepository::delete);
+        planRepository.flush();
         return planRepository.save(Plan.create(name, 10, 1000, 3, false, true, false, BigDecimal.valueOf(99000)));
     }
 
@@ -91,6 +95,9 @@ class MembershipRepositoryTest extends PostgresTestSupport {
 
     @Test
     void plan_무제한한도는_null그대로저장() {
+        // #517 시드로 ENTERPRISE 가 이미 존재 — 지우고 이 fixture 로 대체(트랜잭션 롤백으로 격리).
+        planRepository.findByName(PlanName.ENTERPRISE).ifPresent(planRepository::delete);
+        planRepository.flush();
         Plan enterprise = planRepository.save(
                 Plan.create(PlanName.ENTERPRISE, null, null, 100, false, true, true, BigDecimal.valueOf(500000)));
 

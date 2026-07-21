@@ -100,6 +100,10 @@ class AdminUserRepositoryTest extends PostgresTestSupport {
     }
 
     private Plan savePlan(PlanName name) {
+        // #517 시드로 FREE/STANDARD/ENTERPRISE 가 이미 존재 — 고정 테스트 값을 쓰기 위해
+        // 시드 행을 지우고 이 fixture 로 대체한다(트랜잭션 롤백으로 테스트 간 격리 유지).
+        planRepository.findByName(name).ifPresent(planRepository::delete);
+        planRepository.flush();
         return planRepository.save(Plan.create(name, 10, 1000, 3, false, true, false, BigDecimal.valueOf(9900)));
     }
 
