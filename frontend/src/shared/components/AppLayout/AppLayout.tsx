@@ -1,10 +1,16 @@
 import type { ReactNode } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from '../Header';
 import type { BreadcrumbItem } from '../Header';
 import { SideNavBar } from '../SideNavBar';
 import type { SideNavItem } from '../SideNavBar';
-import { ChatbotButton } from './ChatbotButton';
+import { BottomNavBarFab } from '../BottomNavBarFab';
+import { FloatingPopup } from '../FloatingPopup';
+
+// 고객지원 퀵링크 패널 진입점 — 아직 실제로 구현된 지원 페이지는 AI 어시스턴트(/support/ai-assistant)
+// 뿐이라(상담 챗봇·상담 이력은 미구현 placeholder), 모든 항목이 그 페이지로 이동한다(#499, 사용자 결정).
+const SUPPORT_ENTRY_HREF = '/support/ai-assistant';
 
 interface AppLayoutUser {
   name: string;
@@ -57,7 +63,14 @@ export function AppLayout({
   onProfileClick,
 }: AppLayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const resolvedActiveHref = activeHref ?? location.pathname;
+  const [isSupportPopupOpen, setIsSupportPopupOpen] = useState(false);
+
+  function goToSupportEntry() {
+    setIsSupportPopupOpen(false);
+    navigate(SUPPORT_ENTRY_HREF);
+  }
 
   return (
     <div className="flex min-h-screen bg-white text-text-default">
@@ -79,7 +92,18 @@ export function AppLayout({
         />
         <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
       </div>
-      <ChatbotButton />
+      <BottomNavBarFab onClick={() => setIsSupportPopupOpen((open) => !open)} />
+      {isSupportPopupOpen && (
+        <FloatingPopup
+          onClose={() => setIsSupportPopupOpen(false)}
+          links={[
+            { label: '서비스 이용 방법', onClick: goToSupportEntry },
+            { label: '분석 결과 문의', onClick: goToSupportEntry },
+            { label: '요금·기타', onClick: goToSupportEntry },
+          ]}
+          onConnectAgent={goToSupportEntry}
+        />
+      )}
     </div>
   );
 }
