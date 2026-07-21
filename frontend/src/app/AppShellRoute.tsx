@@ -69,6 +69,11 @@ export function AppShellRoute() {
   // Header 벨 버튼은 shared(미터치)라 onMouseDown prop을 못 받으므로, AppLayout을 감싸는 아래
   // 래퍼의 capture 단계에서 이벤트 대상을 aria-label로 식별한다(Header.tsx: aria-label={unreadCount
   // > 0 ? `알림 (미읽음 ${unreadCount}건)` : '알림'} — '알림' 접두는 Header 내 벨 버튼에만 쓰인다).
+  // PR머신 P2(이슈 #474): 위 가드는 "mousedown 이후 반드시 벨에서 click이 뒤따른다"고 가정했다.
+  // 우클릭(mousedown만 발생, click 대신 컨텍스트 메뉴)이나 벨을 누른 채 커서를 밖으로 빼서 뗀 경우
+  // (mouseup이 벨 밖이라 click이 벨에 도달하지 않음)에는 대응하는 click이 오지 않아 플래그가 true로
+  // 고정된 채 남고, 그 다음 정상 클릭까지 삼켜버렸다. → "소비 시에만 리셋"이 아니라 패널이 닫힌 상태의
+  // mousedown마다 매번 최신값으로 덮어써(닫혀 있으면 무조건 false) 이전 mousedown의 결과가 새지 않게 한다.
   const suppressNextBellClickRef = useRef(false);
   const handleNotificationClose = () => {
     setNotificationOpen(false);
@@ -82,12 +87,11 @@ export function AppShellRoute() {
   };
   const handleShellMouseDownCapture = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (!notificationOpen) {
+      suppressNextBellClickRef.current = false;
       return;
     }
     const target = event.target as Element | null;
-    if (target?.closest('button[aria-label^="알림"]')) {
-      suppressNextBellClickRef.current = true;
-    }
+    suppressNextBellClickRef.current = Boolean(target?.closest('button[aria-label^="알림"]'));
   };
 
   return (

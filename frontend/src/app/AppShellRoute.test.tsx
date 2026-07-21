@@ -218,4 +218,30 @@ describe('AppShellRoute', () => {
     fireEvent.click(bell);
     expect(await screen.findByRole('menu', { name: '알림' })).not.toBeNull();
   });
+
+  // 이슈 #474(PR #471 P2 후속): 우클릭·드래그아웃 등으로 벨에 mousedown만 발생하고 대응하는 click이
+  // 뒤따르지 않으면(컨텍스트 메뉴가 뜨거나 mouseup이 벨 밖에서 일어남), 억제 플래그가 true로 고정된 채
+  // 남아 그 다음 "정상" 클릭(자신의 mousedown+click 쌍을 갖춘 완전한 클릭)까지 삼켜버렸다.
+  // 패널이 이미 닫힌 상태의 모든 mousedown에서 플래그를 무조건 리셋하도록 고쳐, 다음 정상 클릭이
+  // 첫 시도에 바로 열리는지 검증한다.
+  it('벨에 mousedown만 발생하고 click이 뒤따르지 않은 뒤에도, 다음 정상 클릭에서 패널이 바로 열린다(#474)', async () => {
+    useAuthStore.setState({ user: baseUser });
+
+    renderAt('/dashboard');
+
+    const bell = await screen.findByRole('button', { name: '알림 (미읽음 3건)' });
+    fireEvent.click(bell);
+    expect(await screen.findByRole('menu', { name: '알림' })).not.toBeNull();
+
+    // 우클릭 시나리오 재현: 벨에 mousedown만 발생(NotificationDropdown의 바깥클릭 감지로 먼저 닫힘),
+    // 대응하는 click은 오지 않는다(컨텍스트 메뉴가 떴다고 가정).
+    fireEvent.mouseDown(bell);
+    expect(screen.queryByRole('menu', { name: '알림' })).toBeNull();
+
+    // 뒤이은 완전한 정상 클릭(자신의 mousedown+click 쌍) — 이전에는 stale 플래그 때문에 무시되고
+    // 한 번 더 클릭해야 열렸다. 첫 시도에 바로 열려야 한다.
+    fireEvent.mouseDown(bell);
+    fireEvent.click(bell);
+    expect(await screen.findByRole('menu', { name: '알림' })).not.toBeNull();
+  });
 });
