@@ -3,9 +3,11 @@ package com.hajacheck.admin.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.admin.dto.AdminUserProjection;
+import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
@@ -16,6 +18,8 @@ import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -30,28 +34,54 @@ import org.springframework.test.context.ActiveProfiles;
  * 관리자 사용자 관리(#405) — 검색/필터/페이징 JPQL 쿼리 + 통계 집계 쿼리 검증.
  * MembershipRepositoryTest 와 동일 패턴(PostgresTestSupport, ddl-auto=validate).
  *
- * <p>기업 관리자 전용 화면이라 모든 조회는 companyId로 스코핑된다 — 기본 companyId(COMPANY_A)로
- * 사용자를 저장하고, 크로스 테넌트 격리를 확인하는 테스트만 별도 companyId(COMPANY_B)를 쓴다.
+ * <p>기업 관리자 전용 화면이라 모든 조회는 companyId로 스코핑된다 — 기본 companyId(companyA)로
+ * 사용자를 저장하고, 크로스 테넌트 격리를 확인하는 테스트만 별도 companyId(companyB)를 쓴다.
+ * users.company_id / companies.business_registration_number 는 DDL 상 FK/unique 이므로 리터럴
+ * id 대신 매 테스트마다 실제 Company 행을 저장하고 그 id 를 쓴다(FK 위반 방지).
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)
 @ActiveProfiles("test")
 class AdminUserRepositoryTest extends PostgresTestSupport {
 
-    private static final Long COMPANY_A = 1L;
-    private static final Long COMPANY_B = 2L;
+    private static final AtomicLong BRN_SEQ = new AtomicLong(9_100_000_000L);
 
     @Autowired
     private AdminUserRepository adminUserRepository;
     @Autowired
     private UserRepository userRepository;
     @Autowired
+    private CompanyRepository companyRepository;
+    @Autowired
     private PlanRepository planRepository;
     @Autowired
     private UserPlanRepository userPlanRepository;
 
+    private Long companyA;
+    private Long companyB;
+
+    @BeforeEach
+    void setUpCompanies() {
+        companyA = saveCompany().getId();
+        companyB = saveCompany().getId();
+    }
+
+    private Company saveCompany() {
+        long brn = BRN_SEQ.getAndIncrement();
+        User owner = userRepository.save(User.builder()
+                .email("owner" + brn + "@haja.com")
+                .name("대표")
+                .role(Role.ADMIN)
+                .passwordHash("$2a$10$hashed")
+                .status(UserStatus.ACTIVE)
+                .build());
+        return companyRepository.save(Company.createPendingReview(
+                owner.getId(), "(주)테스트", String.valueOf(brn), "김대표",
+                "서울시 강남구", null, "http://files/brn.png", "{}"));
+    }
+
     private User saveUser(String name, String email, Role role, UserStatus status) {
-        return saveUser(name, email, role, status, COMPANY_A);
+        return saveUser(name, email, role, status, companyA);
     }
 
     private User saveUser(String name, String email, Role role, UserStatus status, Long companyId) {
@@ -70,10 +100,10 @@ class AdminUserRepositoryTest extends PostgresTestSupport {
     }
 
     // AdminUserRepository#search 의 has* 플래그(PG enum 파라미터 IS NULL 단독사용 회피용)를
-    // 테스트 가독성을 위해 null 값 하나로 감춘 얇은 래퍼. companyId는 기본으로 COMPANY_A를 쓴다.
+    // 테스트 가독성을 위해 null 값 하나로 감춘 얇은 래퍼. companyId는 기본으로 companyA를 쓴다.
     private Page<AdminUserProjection> search(String keyword, Role role, UserStatus status, PlanName plan,
                                               Pageable pageable) {
-        return search(COMPANY_A, keyword, role, status, plan, pageable);
+        return search(companyA, keyword, role, status, plan, pageable);
     }
 
     private Page<AdminUserProjection> search(Long companyId, String keyword, Role role, UserStatus status,
@@ -97,10 +127,10 @@ class AdminUserRepositoryTest extends PostgresTestSupport {
 
     @Test
     void search_다른회사사용자는_결과에서_제외한다() {
-        saveUser("같은회사", "same-company@haja.com", Role.USER, UserStatus.ACTIVE, COMPANY_A);
-        saveUser("다른회사", "other-company@haja.com", Role.USER, UserStatus.ACTIVE, COMPANY_B);
+        saveUser("같은회사", "same-company@haja.com", Role.USER, UserStatus.ACTIVE, companyA);
+        saveUser("다른회사", "other-company@haja.com", Role.USER, UserStatus.ACTIVE, companyB);
 
-        Page<AdminUserProjection> page = search(COMPANY_A, null, null, null, null, PageRequest.of(0, 10));
+        Page<AdminUserProjection> page = search(companyA, null, null, null, null, PageRequest.of(0, 10));
 
         assertThat(page.getContent()).extracting(AdminUserProjection::email)
                 .containsExactly("same-company@haja.com");
@@ -191,26 +221,26 @@ class AdminUserRepositoryTest extends PostgresTestSupport {
 
     @Test
     void countByCompanyIdAndStatus_회사내_상태별_사용자수() {
-        saveUser("활성1", "active1@haja.com", Role.USER, UserStatus.ACTIVE, COMPANY_A);
-        saveUser("활성2", "active2@haja.com", Role.USER, UserStatus.ACTIVE, COMPANY_A);
-        saveUser("정지1", "suspended1@haja.com", Role.USER, UserStatus.SUSPENDED, COMPANY_A);
-        saveUser("다른회사활성", "other-active@haja.com", Role.USER, UserStatus.ACTIVE, COMPANY_B);
+        saveUser("활성1", "active1@haja.com", Role.USER, UserStatus.ACTIVE, companyA);
+        saveUser("활성2", "active2@haja.com", Role.USER, UserStatus.ACTIVE, companyA);
+        saveUser("정지1", "suspended1@haja.com", Role.USER, UserStatus.SUSPENDED, companyA);
+        saveUser("다른회사활성", "other-active@haja.com", Role.USER, UserStatus.ACTIVE, companyB);
 
-        assertThat(adminUserRepository.countByCompanyIdAndStatus(COMPANY_A, UserStatus.ACTIVE)).isEqualTo(2);
-        assertThat(adminUserRepository.countByCompanyIdAndStatus(COMPANY_A, UserStatus.SUSPENDED)).isEqualTo(1);
-        assertThat(adminUserRepository.countByCompanyIdAndStatus(COMPANY_B, UserStatus.ACTIVE)).isEqualTo(1);
+        assertThat(adminUserRepository.countByCompanyIdAndStatus(companyA, UserStatus.ACTIVE)).isEqualTo(2);
+        assertThat(adminUserRepository.countByCompanyIdAndStatus(companyA, UserStatus.SUSPENDED)).isEqualTo(1);
+        assertThat(adminUserRepository.countByCompanyIdAndStatus(companyB, UserStatus.ACTIVE)).isEqualTo(1);
     }
 
     @Test
     void countByCompanyIdAndCreatedAtBetween_회사내_기간내_가입자수() {
-        saveUser("이번주가입", "thisweek@haja.com", Role.USER, UserStatus.ACTIVE, COMPANY_A);
-        saveUser("다른회사가입", "other-thisweek@haja.com", Role.USER, UserStatus.ACTIVE, COMPANY_B);
+        saveUser("이번주가입", "thisweek@haja.com", Role.USER, UserStatus.ACTIVE, companyA);
+        saveUser("다른회사가입", "other-thisweek@haja.com", Role.USER, UserStatus.ACTIVE, companyB);
 
         LocalDateTime from = LocalDateTime.now().minusDays(7);
         LocalDateTime to = LocalDateTime.now().plusMinutes(1);
 
-        assertThat(adminUserRepository.countByCompanyIdAndCreatedAtBetween(COMPANY_A, from, to)).isEqualTo(1);
-        assertThat(adminUserRepository.countByCompanyIdAndCreatedAtBetween(COMPANY_A, from.minusDays(30), from))
+        assertThat(adminUserRepository.countByCompanyIdAndCreatedAtBetween(companyA, from, to)).isEqualTo(1);
+        assertThat(adminUserRepository.countByCompanyIdAndCreatedAtBetween(companyA, from.minusDays(30), from))
                 .isEqualTo(0);
     }
 }

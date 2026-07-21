@@ -13,12 +13,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hajacheck.admin.dto.AdminUserCreateRequest;
 import com.hajacheck.admin.dto.AdminUserRoleUpdateRequest;
 import com.hajacheck.admin.dto.AdminUserStatusUpdateRequest;
+import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.support.PostgresTestSupport;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -35,7 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
  * @SpringBootTest+MockMvc(+PostgresTestSupport) 로 검증한다.
  *
  * <p>이 화면은 기업 관리자 전용이라(플랫폼 관리자 화면은 별도 예정) 모든 조회/변경은 요청 관리자와
- * 같은 회사(companyId) 소속으로 스코핑된다 — 관련 테스트는 회사별로 별도 companyId를 명시한다.
+ * 같은 회사(companyId) 소속으로 스코핑된다 — 관련 테스트는 회사별로 별도 Company 행을 만들어 검증한다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -48,7 +51,22 @@ class AdminUserControllerTest extends PostgresTestSupport {
     @Autowired
     private UserRepository userRepository;
     @Autowired
+    private CompanyRepository companyRepository;
+    @Autowired
     private ObjectMapper objectMapper;
+
+    // users.company_id / companies.business_registration_number 는 DDL 상 FK/unique 이므로
+    // 리터럴 companyId 대신 실제 Company 행을 먼저 저장하고 그 id 를 써야 한다(FK 위반 방지,
+    // MembershipRepositoryTest.saveCompany 와 동일 패턴). 사업자번호는 호출마다 겹치지 않도록 시퀀스로 발급.
+    private static final AtomicLong BRN_SEQ = new AtomicLong(9_000_000_000L);
+
+    private Company saveCompany() {
+        long brn = BRN_SEQ.getAndIncrement();
+        User owner = saveUser("대표", "owner" + brn + "@haja.com", Role.ADMIN);
+        return companyRepository.save(Company.createPendingReview(
+                owner.getId(), "(주)테스트", String.valueOf(brn), "김대표",
+                "서울시 강남구", null, "http://files/brn.png", "{}"));
+    }
 
     private User saveUser(String name, String email, Role role) {
         return saveUser(name, email, role, null);
@@ -72,8 +90,9 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 사용자목록조회_관리자_200_같은회사통계와함께반환() throws Exception {
-        User admin = saveUser("관리자", "admin@haja.com", Role.ADMIN, 10L);
-        saveUser("일반사용자", "user1@haja.com", Role.USER, 10L);
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin@haja.com", Role.ADMIN, company.getId());
+        saveUser("일반사용자", "user1@haja.com", Role.USER, company.getId());
 
         mockMvc.perform(get("/api/admin/users").with(authentication(authOf(admin))))
                 .andExpect(status().isOk())
@@ -86,9 +105,11 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 사용자목록조회_다른회사사용자는보이지않는다() throws Exception {
-        User admin = saveUser("관리자", "admin-a@haja.com", Role.ADMIN, 11L);
-        saveUser("같은회사", "same-company@haja.com", Role.USER, 11L);
-        saveUser("다른회사", "other-company@haja.com", Role.USER, 99L);
+        Company company = saveCompany();
+        Company otherCompany = saveCompany();
+        User admin = saveUser("관리자", "admin-a@haja.com", Role.ADMIN, company.getId());
+        saveUser("같은회사", "same-company@haja.com", Role.USER, company.getId());
+        saveUser("다른회사", "other-company@haja.com", Role.USER, otherCompany.getId());
 
         mockMvc.perform(get("/api/admin/users").with(authentication(authOf(admin))))
                 .andExpect(status().isOk())
@@ -107,9 +128,10 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 사용자목록조회_키워드검색() throws Exception {
-        User admin = saveUser("관리자", "admin@haja.com", Role.ADMIN, 12L);
-        saveUser("박지민", "jimin@haja.com", Role.USER, 12L);
-        saveUser("최서준", "seojun@haja.com", Role.USER, 12L);
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin@haja.com", Role.ADMIN, company.getId());
+        saveUser("박지민", "jimin@haja.com", Role.USER, company.getId());
+        saveUser("최서준", "seojun@haja.com", Role.USER, company.getId());
 
         mockMvc.perform(get("/api/admin/users")
                         .param("keyword", "지민")
@@ -121,8 +143,9 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 사용자목록조회_활성구독없으면_plan_FREE로_표시() throws Exception {
-        User admin = saveUser("관리자", "admin2@haja.com", Role.ADMIN, 13L);
-        saveUser("무구독자", "nosub@haja.com", Role.USER, 13L);
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin2@haja.com", Role.ADMIN, company.getId());
+        saveUser("무구독자", "nosub@haja.com", Role.USER, company.getId());
 
         mockMvc.perform(get("/api/admin/users")
                         .param("keyword", "무구독자")
@@ -133,11 +156,12 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 사용자목록조회_키워드의_LIKE와일드카드는_리터럴로_취급된다() throws Exception {
-        User admin = saveUser("관리자", "admin-wildcard@haja.com", Role.ADMIN, 14L);
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin-wildcard@haja.com", Role.ADMIN, company.getId());
         // 언더바(_)는 LIKE에서 "임의의 한 글자" 와일드카드다 — 이스케이프하지 않으면 아래 두 계정이
         // 모두 "jimin_kim" 검색에 매칭된다(jiminXkim의 X가 _와 매칭).
-        saveUser("검색대상", "jimin_kim@haja.com", Role.USER, 14L);
-        saveUser("오탐후보", "jiminXkim@haja.com", Role.USER, 14L);
+        saveUser("검색대상", "jimin_kim@haja.com", Role.USER, company.getId());
+        saveUser("오탐후보", "jiminXkim@haja.com", Role.USER, company.getId());
 
         mockMvc.perform(get("/api/admin/users")
                         .param("keyword", "jimin_kim")
@@ -166,7 +190,8 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 사용자등록_관리자_201과등록한관리자의company로배선() throws Exception {
-        User admin = saveUser("관리자", "admin7@haja.com", Role.ADMIN, 42L);
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin7@haja.com", Role.ADMIN, company.getId());
         AdminUserCreateRequest request =
                 new AdminUserCreateRequest("newbie@haja.com", "password1", "새사용자", Role.USER);
 
@@ -182,7 +207,7 @@ class AdminUserControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data.plan").value("FREE"));
 
         User saved = userRepository.findByEmail("newbie@haja.com").orElseThrow();
-        assertThat(saved.getCompanyId()).isEqualTo(42L);
+        assertThat(saved.getCompanyId()).isEqualTo(company.getId());
     }
 
     @Test
@@ -201,7 +226,8 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 사용자등록_이메일중복이면_409() throws Exception {
-        User admin = saveUser("관리자", "admin8@haja.com", Role.ADMIN, 1L);
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin8@haja.com", Role.ADMIN, company.getId());
         saveUser("기존사용자", "dup@haja.com", Role.USER);
         AdminUserCreateRequest request =
                 new AdminUserCreateRequest("dup@haja.com", "password1", "중복사용자", Role.USER);
@@ -216,7 +242,8 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 사용자등록_비밀번호형식불충족이면_400() throws Exception {
-        User admin = saveUser("관리자", "admin9@haja.com", Role.ADMIN, 1L);
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin9@haja.com", Role.ADMIN, company.getId());
         AdminUserCreateRequest request =
                 new AdminUserCreateRequest("weakpw@haja.com", "short", "약한비번", Role.USER);
 
@@ -242,8 +269,9 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 역할변경_관리자_200과변경된역할반환() throws Exception {
-        User admin = saveUser("관리자", "admin3@haja.com", Role.ADMIN, 20L);
-        User target = saveUser("일반사용자", "target1@haja.com", Role.USER, 20L);
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin3@haja.com", Role.ADMIN, company.getId());
+        User target = saveUser("일반사용자", "target1@haja.com", Role.USER, company.getId());
         String body = objectMapper.writeValueAsString(new AdminUserRoleUpdateRequest(Role.INSPECTOR));
 
         mockMvc.perform(patch("/api/admin/users/{id}/role", target.getId())
@@ -258,7 +286,8 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 역할변경_대상사용자없으면_404() throws Exception {
-        User admin = saveUser("관리자", "admin4@haja.com", Role.ADMIN, 21L);
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin4@haja.com", Role.ADMIN, company.getId());
         String body = objectMapper.writeValueAsString(new AdminUserRoleUpdateRequest(Role.INSPECTOR));
 
         mockMvc.perform(patch("/api/admin/users/{id}/role", 999_999L)
@@ -271,8 +300,10 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 역할변경_다른회사소속이면_404_USER_NOT_FOUND() throws Exception {
-        User admin = saveUser("관리자", "admin-role-cross@haja.com", Role.ADMIN, 22L);
-        User otherCompanyTarget = saveUser("타회사사용자", "other-role-target@haja.com", Role.USER, 88L);
+        Company company = saveCompany();
+        Company otherCompany = saveCompany();
+        User admin = saveUser("관리자", "admin-role-cross@haja.com", Role.ADMIN, company.getId());
+        User otherCompanyTarget = saveUser("타회사사용자", "other-role-target@haja.com", Role.USER, otherCompany.getId());
         String body = objectMapper.writeValueAsString(new AdminUserRoleUpdateRequest(Role.INSPECTOR));
 
         mockMvc.perform(patch("/api/admin/users/{id}/role", otherCompanyTarget.getId())
@@ -301,8 +332,9 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 상태변경_관리자_200과변경된상태반환() throws Exception {
-        User admin = saveUser("관리자", "admin5@haja.com", Role.ADMIN, 23L);
-        User target = saveUser("정지대상", "target3@haja.com", Role.USER, 23L);
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin5@haja.com", Role.ADMIN, company.getId());
+        User target = saveUser("정지대상", "target3@haja.com", Role.USER, company.getId());
         String body = objectMapper.writeValueAsString(new AdminUserStatusUpdateRequest(UserStatus.SUSPENDED));
 
         mockMvc.perform(patch("/api/admin/users/{id}/status", target.getId())
@@ -316,8 +348,10 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 상태변경_다른회사소속이면_404_USER_NOT_FOUND() throws Exception {
-        User admin = saveUser("관리자", "admin-status-cross@haja.com", Role.ADMIN, 24L);
-        User otherCompanyTarget = saveUser("타회사사용자2", "other-status-target@haja.com", Role.USER, 89L);
+        Company company = saveCompany();
+        Company otherCompany = saveCompany();
+        User admin = saveUser("관리자", "admin-status-cross@haja.com", Role.ADMIN, company.getId());
+        User otherCompanyTarget = saveUser("타회사사용자2", "other-status-target@haja.com", Role.USER, otherCompany.getId());
         String body = objectMapper.writeValueAsString(new AdminUserStatusUpdateRequest(UserStatus.SUSPENDED));
 
         mockMvc.perform(patch("/api/admin/users/{id}/status", otherCompanyTarget.getId())
@@ -333,8 +367,9 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
     @Test
     void 상태변경_status값없으면_400() throws Exception {
-        User admin = saveUser("관리자", "admin6@haja.com", Role.ADMIN, 25L);
-        User target = saveUser("대상", "target4@haja.com", Role.USER, 25L);
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin6@haja.com", Role.ADMIN, company.getId());
+        User target = saveUser("대상", "target4@haja.com", Role.USER, company.getId());
 
         mockMvc.perform(patch("/api/admin/users/{id}/status", target.getId())
                         .with(authentication(authOf(admin))).with(csrf())
