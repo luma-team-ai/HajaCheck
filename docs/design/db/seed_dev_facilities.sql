@@ -28,3 +28,34 @@ SELECT v.* FROM (VALUES
   (18::bigint, '상암 월드컵로 고가',     '도로', '서울시 마포구 월드컵로',            37.568326::numeric(9,6), 126.897608::numeric(9,6), 2001, '고가 연장 640m',    24, NULL)
 ) AS v(owner_id, name, type, address, latitude, longitude, built_year, scale, inspection_cycle_months, next_inspection_due_at)
 WHERE NOT EXISTS (SELECT 1 FROM facilities f WHERE f.name = v.name);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- §2. 전 팀원 복제 (2026-07-22 추가) — 시설물 조회가 owner 스코프라(FacilityService
+-- "모든 조회는 owner 제한") 위 12건은 소유자 본인에게만 보인다. 팀원 누구나 로그인해
+-- 같은 목록을 보도록, 위 12건(이름 기준)을 팀원 각 계정 소유로 복제한다.
+-- ※ 임시 조치 — 회사(company) 단위 공유 모델 전환은 팀 협의 예정(2026-07-23).
+-- 대상: 실제 팀원 계정(소셜 로그인 중복 계정 포함). 테스트 잡계정(4,15,17,19)·SUSPENDED(7) 제외.
+-- 멱등: (owner_id, name) 기준 NOT EXISTS — 재실행/신규 원본과 중복 없음.
+
+WITH seed_names(name) AS (VALUES
+  ('판교 테크밸리 오피스 B동'), ('야탑 물류센터'), ('탄천 보행교'),
+  ('역삼 스퀘어 타워'), ('성수 리모델링 현장동'),
+  ('남산 1호 터널 접속부'), ('올림픽대로 잠실 구간'),
+  ('한강 성수대교 남단'), ('서울숲 옹벽 구간'),
+  ('강남역 지하상가 통로'), ('마포 상암 DMC 별관'), ('상암 월드컵로 고가')
+),
+seed_rows AS (
+  -- 이름당 1행(최소 id = 원본)만 복제 원본으로 사용
+  SELECT DISTINCT ON (f.name) f.*
+  FROM facilities f JOIN seed_names s ON s.name = f.name
+  ORDER BY f.name, f.id
+),
+team AS (
+  SELECT id FROM users
+  WHERE status = 'ACTIVE'
+    AND id IN (1,2,3,5,6,8,9,10,11,12,13,14,16,18,20)
+)
+INSERT INTO facilities (owner_id, name, type, address, latitude, longitude, built_year, scale, inspection_cycle_months, next_inspection_due_at)
+SELECT t.id, r.name, r.type, r.address, r.latitude, r.longitude, r.built_year, r.scale, r.inspection_cycle_months, r.next_inspection_due_at
+FROM seed_rows r CROSS JOIN team t
+WHERE NOT EXISTS (SELECT 1 FROM facilities f WHERE f.owner_id = t.id AND f.name = r.name);

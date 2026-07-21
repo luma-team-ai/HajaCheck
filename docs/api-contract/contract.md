@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.5 · **최종 수정:** 2026-07-18 · 이전 버전 `archive/`
+> **문서 버전:** v0.5 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -329,7 +329,7 @@ FastAPI validation error(`detail[]`)를 반환한다.
 
 > 약관 버전은 클라이언트가 보내지 않음(서버 소유). OCR 필드(사업자번호/상호/대표)는 현재 사용자가 수동 입력한 값을 그대로 저장.
 
-**성공 201** `data` 필드: `companyId`(number), `maskedEmail`(string, 예 `haja***@check.com`), `status`(`PENDING_REVIEW`), `signupToken`(string). `signupToken`은 승인 대기 화면 상태조회에 쓰는 **불투명 랜덤 문자열**(서버 발급, PK 노출 금지) — 예시값은 문서에 싣지 않는다.
+**성공 201** `data` 필드: `companyId`(number), `maskedEmail`(string, 예 `h***@c***.com`), `status`(`PENDING_REVIEW`), `signupToken`(string). `signupToken`은 승인 대기 화면 상태조회에 쓰는 **불투명 랜덤 문자열**(서버 발급, PK 노출 금지) — 예시값은 문서에 싣지 않는다.
 
 **실패**: `409 AUTH_EMAIL_DUPLICATED` · `409 AUTH_BUSINESS_NUMBER_DUPLICATED` · `400 FILE_REQUIRED|FILE_INVALID_TYPE|FILE_TOO_LARGE` · `400 INVALID_INPUT` · `500 FILE_UPLOAD_FAILED`
 
@@ -338,7 +338,7 @@ FastAPI validation error(`detail[]`)를 반환한다.
 
 ## POST /api/auth/id-inquiry — 아이디 찾기 (application/json)
 **요청**: `{ "businessRegistrationNumber": "123-45-67890", "representativeName": "김민수", "companyName": "(주)하자체크" }` — repName·companyName 중 **최소 1개** 필수.
-**성공 200** `data`: `{ "maskedEmail": "haja***@check.com" }`
+**성공 200** `data`: `{ "maskedEmail": "h***@c***.com" }`
 **실패**: `404 AUTH_ACCOUNT_NOT_FOUND` (무매칭 통일 "일치하는 계정을 찾을 수 없습니다.")
 
 ## 비밀번호 찾기 1·2단계 — **이메일 링크 방식** (2026-07-17 확정, #194 / HAJA-172)

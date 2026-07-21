@@ -67,7 +67,7 @@ class CompanyAuthIntegrationTest extends PostgresTestSupport {
         JsonNode data = objectMapper.readTree(result.getResponse().getContentAsString()).get("data");
         org.assertj.core.api.Assertions.assertThat(data.get("companyId").asLong()).isPositive();
         org.assertj.core.api.Assertions.assertThat(data.get("status").asText()).isEqualTo("PENDING_REVIEW");
-        org.assertj.core.api.Assertions.assertThat(data.get("maskedEmail").asText()).isEqualTo("owne***@haja.com");
+        org.assertj.core.api.Assertions.assertThat(data.get("maskedEmail").asText()).isEqualTo("o***@h***.com");
         String signupToken = data.get("signupToken").asText();
         org.assertj.core.api.Assertions.assertThat(signupToken).isNotBlank();
 
@@ -128,7 +128,7 @@ class CompanyAuthIntegrationTest extends PostgresTestSupport {
         mockMvc.perform(post("/api/auth/id-inquiry").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.maskedEmail").value("find***@haja.com"));
+                .andExpect(jsonPath("$.data.maskedEmail").value("f***@h***.com"));
     }
 
     @Test
