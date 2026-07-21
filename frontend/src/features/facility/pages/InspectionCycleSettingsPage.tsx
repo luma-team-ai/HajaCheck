@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
+import { shouldEnableMocking } from '../../../shared/utils/shouldEnableMocking';
 import { InspectionCycleSettingsCard } from '../components/InspectionCycleSettingsCard';
 import { InspectionCycleStatusTable } from '../components/InspectionCycleStatusTable';
 import { useInspectionCycleStatusRows } from '../hooks/useInspectionCycleStatusRows';
 import { useSetInspectionSchedule } from '../hooks/useSetInspectionSchedule';
-import { INSPECTION_CYCLE_DEMO_TODAY } from '../utils/inspectionCycleStatus';
+import { INSPECTION_CYCLE_DEMO_TODAY } from '../utils/inspectionCycleDemo';
 import type { InspectionCycleStatusRow, InspectionCycleType } from '../types';
 
 // 라우트에 시설물 컨텍스트가 없어(handoff §5) 쿼리파라미터(?facilityId=)로 대상 지정,
@@ -50,10 +51,14 @@ type ContentProps = {
 };
 
 function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: ContentProps) {
+  // selectedRow·cycleType 둘 다 최초 선택행에서 파생 — cycleType만 항상 '정기'로 고정되면
+  // 세그먼트 토글이 실제 선택 행의 점검유형과 어긋난다(#462 P2).
   const [selectedRow, setSelectedRow] = useState<InspectionCycleStatusRow>(() =>
     findRow(rows, initialFacilityId),
   );
-  const [cycleType, setCycleType] = useState<InspectionCycleType>('정기');
+  const [cycleType, setCycleType] = useState<InspectionCycleType>(
+    () => findRow(rows, initialFacilityId).type,
+  );
   const [months, setMonths] = useState(selectedRow.cycleMonths);
   const [nextDueAt, setNextDueAt] = useState<string | null>(selectedRow.nextInspectionDueAt);
   const [notifyBeforeEnabled, setNotifyBeforeEnabled] = useState(true);
@@ -61,8 +66,13 @@ function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: Content
 
   const { setSchedule, isPending, error, resetError } = useSetInspectionSchedule();
 
+  // 데모 기준일은 MSW 목이 실제로 켜져 있을 때만 주입한다 — 프로덕션(실 백엔드) 빌드에서
+  // 고정 과거/미래 날짜가 새어 들어가 D-day가 잘못 계산되는 침묵 버그를 막는다(react-reviewer P2).
+  const demoToday = shouldEnableMocking(import.meta.env) ? INSPECTION_CYCLE_DEMO_TODAY : undefined;
+
   const handleSelectRow = (row: InspectionCycleStatusRow) => {
     setSelectedRow(row);
+    setCycleType(row.type);
     setMonths(row.cycleMonths);
     setNextDueAt(row.nextInspectionDueAt);
     // 다른 시설물로 선택을 옮기면 이전 시설물 저장 실패 메시지가 그대로 남아있으면 안 된다(react-reviewer P2).
@@ -70,11 +80,15 @@ function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: Content
   };
 
   const handleSave = async () => {
-    const result = await setSchedule({
-      facilityId: selectedRow.id,
-      body: { inspectionCycleMonths: months },
-    });
-    setNextDueAt(result.nextInspectionDueAt);
+    try {
+      const result = await setSchedule({
+        facilityId: selectedRow.id,
+        body: { inspectionCycleMonths: months },
+      });
+      setNextDueAt(result.nextInspectionDueAt);
+    } catch {
+      // 에러는 useSetInspectionSchedule.error → 상단 배너로 이미 노출됨. 여기선 unhandled rejection만 방지.
+    }
   };
 
   return (
@@ -112,13 +126,13 @@ function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: Content
             onNotifyBeforeChange={setNotifyBeforeEnabled}
             warnOnOverdueEnabled={warnOnOverdueEnabled}
             onWarnOnOverdueChange={setWarnOnOverdueEnabled}
-            today={INSPECTION_CYCLE_DEMO_TODAY}
+            today={demoToday}
           />
         </div>
         <InspectionCycleStatusTable
           selectedId={selectedRow.id}
           onSelectRow={handleSelectRow}
-          today={INSPECTION_CYCLE_DEMO_TODAY}
+          today={demoToday}
         />
       </div>
     </div>
