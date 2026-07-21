@@ -88,3 +88,97 @@ export interface FacilityInspectionOverview {
   unresolvedDefectCount: number;
   history: FacilityInspectionHistoryItem[];
 }
+
+// 시설물 상세 하위 드릴다운 — 하자 정보 패널 + 회차 간 비교 (dev-04-02, #489). 위 dev-05-02 타입과는
+// 별개 화면(하자 드릴다운/회차비교)의 로컬 타입 — 이름 접두 Facility로 겹치지만 다른 라우트/목적.
+// openapi.yaml FacilityDetailResponse는 "계획안·미구현" 상태라 전부 MSW 목 전용이다.
+// feature 간 직접 import 금지(React_코드_컨벤션.md §1) — dashboard의 DefectGrade와 별개로 로컬 정의.
+export type FacilityDefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
+
+// 백엔드 DefectStatus(backend/.../defect/entity/DefectStatus.java: DETECTED/CONFIRMED/
+// ACTION_PENDING/IN_PROGRESS/RESOLVED)와 이름을 그대로 정합시킨 조치 상태.
+export type FacilityDefectStatus =
+  | 'DETECTED'
+  | 'CONFIRMED'
+  | 'ACTION_PENDING'
+  | 'IN_PROGRESS'
+  | 'RESOLVED';
+
+export interface FacilityDefectDetail {
+  id: number;
+  facilityId: number;
+  facilityName: string;
+  defectType: string;
+  grade: FacilityDefectGrade;
+  confidencePercent: number;
+  widthMm: number;
+  lengthM: number;
+  foundCycle: number;
+  /** YYYY-MM-DD */
+  foundAt: string;
+  location: string;
+  assigneeName: string;
+  status: FacilityDefectStatus;
+  imageUrl: string;
+}
+
+export interface FacilityDefectActivityLogItem {
+  id: number;
+  message: string;
+  /** 화면 표시용 축약 날짜(예: "6.22") — Figma 표기와 1:1 */
+  occurredAtLabel: string;
+}
+
+export interface FacilityDefectAiExplanation {
+  diagnosis: string;
+  recommendedAction: string;
+}
+
+// 회차 간 비교 화면 전용 타입.
+export interface InspectionCycleOption {
+  cycle: number;
+  /** YYYY-MM-DD */
+  date: string;
+}
+
+export type ComparisonKpiKey = 'newDefects' | 'worsening' | 'resolved' | 'gradeEscalated';
+
+export interface ComparisonKpi {
+  key: ComparisonKpiKey;
+  label: string;
+  value: number;
+  /** 증감(부호 포함) — 양수=악화/증가 방향, 음수=개선/감소 방향. 색상 규칙은 utils/formatComparisonChange.ts */
+  changeValue: number;
+}
+
+export interface CrackTrendPoint {
+  /** X축 라벨(예: "5회차") */
+  cycleLabel: string;
+  avgWidthMm: number;
+}
+
+export type DefectChangeType = 'worsened' | 'new' | 'unchanged' | 'resolved';
+
+export interface DefectChangeRow {
+  id: number;
+  location: string;
+  defectType: string;
+  gradeBefore: FacilityDefectGrade | null;
+  gradeAfter: FacilityDefectGrade | null;
+  changeType: DefectChangeType;
+  note: string;
+}
+
+export interface InspectionComparisonResult {
+  facilityId: number;
+  facilityName: string;
+  beforeCycle: InspectionCycleOption;
+  afterCycle: InspectionCycleOption;
+  beforeImageUrl: string;
+  afterImageUrl: string;
+  kpis: ComparisonKpi[];
+  crackTrend: CrackTrendPoint[];
+  changes: DefectChangeRow[];
+  /** 회차 선택 드롭다운에 노출할 전체 선택지 */
+  availableCycles: InspectionCycleOption[];
+}
