@@ -14,6 +14,7 @@ import com.hajacheck.core.dashboard.dto.DashboardSummaryResponse;
 import com.hajacheck.core.dashboard.dto.GradeDistributionResponse;
 import com.hajacheck.core.dashboard.dto.PendingPriorityResponse;
 import com.hajacheck.core.dashboard.dto.RecentInspectionResponse;
+import com.hajacheck.core.dashboard.dto.UpcomingInspectionResponse;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectStatus;
@@ -31,10 +32,12 @@ import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 @ExtendWith(MockitoExtension.class)
 class DashboardServiceTest {
@@ -60,6 +63,15 @@ class DashboardServiceTest {
 
     private Facility facility(Long id, Long ownerId, String name) {
         Facility facility = Facility.builder().ownerId(ownerId).name(name).type("BUILDING").build();
+        setId(facility, "id", id);
+        return facility;
+    }
+
+    private Facility facilityWithDueAt(Long id, Long ownerId, String name, LocalDate nextInspectionDueAt) {
+        Facility facility = Facility.builder()
+                .ownerId(ownerId).name(name).type("BUILDING")
+                .inspectionCycleMonths(6).nextInspectionDueAt(nextInspectionDueAt)
+                .build();
         setId(facility, "id", id);
         return facility;
     }
@@ -249,6 +261,60 @@ class DashboardServiceTest {
         assertThat(item.inspector()).isEqualTo("김검사");
         assertThat(item.defectCount()).isEqualTo(6L);
         assertThat(item.status()).isEqualTo("완료");
+    }
+
+    @Test
+    void getUpcomingInspections_dDay산출_오름차순유지() {
+        java.time.ZoneId kst = java.time.ZoneId.of("Asia/Seoul");
+        LocalDate today = LocalDate.now(kst);
+        Facility soon = facilityWithDueAt(FACILITY_ID, OWNER_ID, "3일후시설", today.plusDays(3));
+        Facility later = facilityWithDueAt(20L, OWNER_ID, "10일후시설", today.plusDays(10));
+        when(facilityRepository.findUpcomingByOwnerId(
+                eq(OWNER_ID), eq(today), eq(today.plusDays(30)), eq(PageRequest.of(0, 5))))
+                .thenReturn(List.of(soon, later));
+
+        List<UpcomingInspectionResponse> result = dashboardService.getUpcomingInspections(OWNER_ID, 30, 5);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).facilityName()).isEqualTo("3일후시설");
+        assertThat(result.get(0).dDay()).isEqualTo(3L);
+        assertThat(result.get(0).inspectionCycleMonths()).isEqualTo(6);
+        assertThat(result.get(1).facilityName()).isEqualTo("10일후시설");
+        assertThat(result.get(1).dDay()).isEqualTo(10L);
+    }
+
+    @Test
+    void getUpcomingInspections_대상없으면_빈목록() {
+        when(facilityRepository.findUpcomingByOwnerId(eq(OWNER_ID), any(), any(), any()))
+                .thenReturn(List.of());
+
+        List<UpcomingInspectionResponse> result = dashboardService.getUpcomingInspections(OWNER_ID, 30, 5);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void getUpcomingInspections_limit이repository로그대로전달() {
+        when(facilityRepository.findUpcomingByOwnerId(eq(OWNER_ID), any(), any(), eq(PageRequest.of(0, 3))))
+                .thenReturn(List.of());
+
+        dashboardService.getUpcomingInspections(OWNER_ID, 7, 3);
+
+        verify(facilityRepository).findUpcomingByOwnerId(eq(OWNER_ID), any(), any(), eq(PageRequest.of(0, 3)));
+    }
+
+    @Test
+    void getUpcomingInspections_limit이상한초과하면_50건으로캡() {
+        // DashboardService.UPCOMING_INSPECTIONS_MAX_LIMIT(50) 방어로직(Math.min(limit, 50))이
+        // 실제로 Pageable 에 반영되는지 — limit=100 요청이 그대로 repository 에 전달되면 과다조회다.
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        when(facilityRepository.findUpcomingByOwnerId(eq(OWNER_ID), any(), any(), any()))
+                .thenReturn(List.of());
+
+        dashboardService.getUpcomingInspections(OWNER_ID, 30, 100);
+
+        verify(facilityRepository).findUpcomingByOwnerId(eq(OWNER_ID), any(), any(), pageableCaptor.capture());
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(50);
     }
 
     private GradeCountProjection gradeCount(DefectGrade grade, long cnt) {

@@ -28,6 +28,11 @@ volumes:
   # application-docker.yml의 app.file-storage.base-dir 대응 — 미마운트 시 컨테이너 임시 FS에 저장되어
   # deploy.sh의 매 배포 컨테이너 재생성마다 업로드 파일(사업자등록증 등)이 유실되고 DB 행만 남는다(#323).
   uploads:
+  # application-docker.yml의 app.report-pdf-storage.base-dir 대응 — 보고서 PDF는 file-storage와 별개 도메인이라
+  # uploads 볼륨(hajacheck-files 마운트)에 담기지 않으므로 전용 볼륨으로 분리 마운트한다(#455 P2-2, uploads와 동일 구조).
+  report_uploads:
+  # HF 임베딩 모델(bge-m3 ~2GB) 캐시 — 미마운트 시 deploy.sh 재배포마다 재다운로드(#439, uploads와 동일 구조).
+  hf_cache:
 
 services:
   postgres:
@@ -119,6 +124,7 @@ services:
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:?FRONTEND_BASE_URL이 .env에 설정되어야 합니다}
     volumes:
       - uploads:/app/uploads/hajacheck-files
+      - report_uploads:/app/uploads/hajacheck-report-pdf
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
       interval: 15s
@@ -151,8 +157,11 @@ services:
       AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
       # 프로덕션 신호 — main.py가 이 값으로 /docs·/redoc·/openapi.json을 비활성화(무인증 스키마 노출 차단)
       APP_ENV: prod
+      # HF 캐시를 named volume(hf_cache) 경로로 고정 — bge-m3 모델 캐시 영속화(#439).
+      HF_HOME: /app/hf_cache
     volumes:
       - chroma_data:/app/chroma_data
+      - hf_cache:/app/hf_cache
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 15s

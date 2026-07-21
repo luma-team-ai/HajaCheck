@@ -205,3 +205,31 @@ describe('CompanySignupPage — 제출 버튼 계약(shared Button)', () => {
     expect(signupSpy).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('CompanySignupPage — 약관 동의 링크(#453)', () => {
+  it('이용약관·개인정보 링크가 랜딩과 동일한 약관 페이지로 새 탭 연결된다', () => {
+    renderPage();
+
+    const termsLink = screen.getByRole('link', { name: '이용약관' }) as HTMLAnchorElement;
+    expect(termsLink.getAttribute('href')).toBe('/policy/terms-of-service');
+    expect(termsLink.target).toBe('_blank');
+    expect(termsLink.rel).toContain('noopener');
+
+    const privacyLink = screen.getByRole('link', {
+      name: '개인정보 수집 및 이용',
+    }) as HTMLAnchorElement;
+    expect(privacyLink.getAttribute('href')).toBe('/policy/privacy');
+    expect(privacyLink.target).toBe('_blank');
+    expect(privacyLink.rel).toContain('noopener');
+  });
+
+  it('약관 링크 클릭은 동의 체크박스를 토글하지 않는다', () => {
+    renderPage();
+
+    const termsCheckbox = screen.getByLabelText(/이용약관에 동의합니다/) as HTMLInputElement;
+    expect(termsCheckbox.checked).toBe(false);
+
+    fireEvent.click(screen.getByRole('link', { name: '이용약관' }));
+    expect(termsCheckbox.checked).toBe(false);
+  });
+});

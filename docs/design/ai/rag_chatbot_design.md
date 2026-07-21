@@ -1,6 +1,6 @@
 # 고객지원 RAG 챗봇 설계 — RetrievalQA·출처표시 규약 (design-03-20)
 
-> **문서 버전:** v0.1 · **최종 수정:** 2026-07-19 · 이전 버전 `archive/`
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-20 · 이전 버전 `archive/`
 
 > 담당: 이은석(주, 직접 구현) / 김승현(챕터7 RAG 코치) · 관련 WBS: `design-03-20`(설계)·`dev-08-01`(구현) · 관련 FR: FR-6
 > 관련 이슈: GitHub #386 · Jira HAJA-122(에픽 HAJA-103 [AI 설계])
@@ -69,6 +69,8 @@ retriever가 준 청크 metadata를 아래로 매핑한다(`rag_chroma_schema.md
 
 ### 4.3 검색 0건 처리
 - 컨벤션 §6·§5 준수: **임의 생성 금지**. `AIErrorCode.RAG_NO_RESULT`를 그대로 사용(신규 에러코드 불필요)하고, 답변 문구는 "관련 근거를 찾지 못했습니다".
+- **확정(#431): envelope는 `success:false`.** `AIResponse.fail(AIErrorCode.RAG_NO_RESULT, "관련 근거를 찾지 못했습니다")` → `{success: false, error: {code: "RAG_NO_RESULT", message: "..."}}`. (`AIResponse.ok()`는 에러코드를 실을 방법이 없어 `success:true`+빈 `sources` 형태는 구조적으로 불가능 — `.fail()` 경로만 유효.)
+- Spring 프록시(`AiProxyService`)는 기존 defect-explain/report/briefing 프록시와 동일 패턴으로 `error`를 그대로 `ApiResponse.fail(error.code(), error.message())`에 패스스루한다. **신규 매핑 불필요.**
 
 ## 5. 화면 표시·이력 저장 규약 (FE 협업)
 

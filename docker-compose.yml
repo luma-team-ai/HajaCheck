@@ -14,6 +14,8 @@ volumes:
   pgdata:
   redisdata:
   chroma_data:
+  # HF 임베딩 모델(bge-m3 ~2GB) 캐시 — 미마운트 시 컨테이너 재생성마다 재다운로드(#439).
+  hf_cache:
   certbot:
 
 services:
@@ -105,8 +107,12 @@ services:
       # 스프링이 부착하는 X-Internal-Key 검증용 공유키(동일 ${AI_INTERNAL_KEY} 소스).
       # 미설정(빈값) 시 FastAPI 검증 비활성 — 로컬/dev 편의(nginx 폐쇄가 1차 방어).
       AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:-}
+      # HF 캐시를 named volume(hf_cache) 경로로 고정 — transformers/hub/sentence-transformers가
+      # 모두 HF_HOME 하위를 쓰므로 이 한 줄로 bge-m3 모델 캐시가 영속화된다(#439).
+      HF_HOME: /app/hf_cache
     volumes:
       - chroma_data:/app/chroma_data
+      - hf_cache:/app/hf_cache
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 15s

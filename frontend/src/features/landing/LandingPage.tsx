@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
-import { FOOTER_LINKS, NAV_ITEMS, PARTNERS, PRICING_TIERS } from './constants';
+import { useLocation } from 'react-router-dom';
+import { LandingFooter } from './components/LandingFooter';
+import { LandingHeader } from './components/LandingHeader';
+import { PARTNERS, PRICING_TIERS } from './constants';
 import heroVisualImage from '../../assets/brand/landing-hero-ai-scan.svg';
 import './landing.css';
 
@@ -11,13 +14,11 @@ function scrollToBottom() {
   window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 }
 
-function scrollToSection(targetId: string) {
-  document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth' });
-}
-
 export default function LandingPage() {
+  const location = useLocation();
   const [isAtTop, setIsAtTop] = useState(true);
   const [isAtBottom, setIsAtBottom] = useState(false);
+  const [aiAnalysisPercent, setAiAnalysisPercent] = useState(0);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -32,24 +33,31 @@ export default function LandingPage() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAiAnalysisPercent((prev) => (prev + 1) % 101);
+    }, 40);
+    return () => clearInterval(interval);
+  }, []);
+
+  // 다른 페이지(예: 정책 페이지)의 헤더 nav에서 /#섹션id로 넘어온 경우, 마운트 후 해당 섹션까지 스크롤
+  useEffect(() => {
+    if (location.hash) {
+      const id = location.hash.slice(1);
+      requestAnimationFrame(() => {
+        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+      });
+    }
+  }, [location.hash]);
+
   return (
     <div className="landing">
-      <header className="landing-header">
-        <span className="landing-logo">HajaCheck</span>
-        <nav className="landing-nav">
-          {NAV_ITEMS.map((item) => (
-            <button key={item.label} type="button" onClick={() => scrollToSection(item.targetId)}>
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <a className="landing-login" href="/login">
-          로그인
-        </a>
-      </header>
+      <LandingHeader />
 
       <section className="landing-hero">
-        <span className="landing-badge">● AI FACILITY MANAGEMENT</span>
+        <span className="landing-badge">
+          <span className="landing-badge-dot" aria-hidden="true">●</span> AI FACILITY MANAGEMENT
+        </span>
         <h1>
           데이터 기반 시설물 안전,
           <br />
@@ -70,9 +78,31 @@ export default function LandingPage() {
             alt=""
             aria-hidden="true"
           />
-          <div className="landing-chip landing-chip--1">균열 · E · 0.94</div>
-          <div className="landing-chip landing-chip--2">박리·박락 · D</div>
-          <div className="landing-chip landing-chip--3">AI 분석 중 · 68%</div>
+          <div className="landing-scan-line" aria-hidden="true" />
+          <svg
+            className="landing-crack-line"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <polyline
+              points="26,32 27.8,37.25 26.3,42.5 28.8,47.75 28,53"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+          <div className="landing-bbox landing-bbox--1" aria-hidden="true" />
+          <div className="landing-chip landing-chip--1">
+            <span className="landing-chip-dot landing-chip-dot--danger" aria-hidden="true">●</span>
+            균열 · E · 0.94
+          </div>
+          <div className="landing-chip landing-chip--2">
+            <span className="landing-chip-dot landing-chip-dot--d" aria-hidden="true">●</span>
+            박리·박락 · D
+          </div>
+          <div className="landing-chip landing-chip--3">
+            <span className="landing-chip-spin" aria-hidden="true">↻</span>
+            AI 분석 중 · {aiAnalysisPercent}%
+          </div>
         </div>
       </section>
 
@@ -93,12 +123,13 @@ export default function LandingPage() {
       <section id="facility-info" className="landing-section">
         <p className="landing-eyebrow">FACILITY INFORMATION MANAGEMENT</p>
         <h2>
-          모든 시설물 데이터를 한 곳에서 완벽
+          모든 시설물 데이터를 한 곳에서
           <br />
-          하게
+          완벽하게
         </h2>
-        <p>
-          도면, 센서 데이터, 점검 이력 등 흩어져 있는 시설물 정보를 한 곳에 통합해 언제든 쉽게
+        <p className="landing-p--wide">
+          도면, 센서 데이터, 점검 이력 등 흩어져 있는 시설물 정보를 중앙 집중화하여 언제 어디서나 쉽게
+          <br />
           접근하고 관리하세요. 최신 BIM 연동을 지원합니다.
         </p>
         <div className="landing-visual" />
@@ -111,7 +142,7 @@ export default function LandingPage() {
           정기, 수시 점검 일정을 누락 없이 관리하고, 현장에서 모바일로 즉시 결과를 입력하세요.
           데이터는 클라우드에 안전하게 동기화됩니다.
         </p>
-        <div className="landing-visual landing-visual--dark" />
+        <div className="landing-visual" />
       </section>
 
       <section id="ai-analysis" className="landing-section">
@@ -122,12 +153,17 @@ export default function LandingPage() {
           미세한 결함
         </h2>
         <p>
-          드론 촬영 이미지나 현장 사진을 업로드하면, AI 비전 기술이 균열, 누수, 박락 등 미세한
-          하자를 자동으로 탐지하고 심각도를 분류합니다.
+          드론 촬영 이미지나 현장 사진을 업로드하면, AI 비전 기술이 균열, 누수, 박락 등{' '}
+          <span className="landing-nowrap">육안으로 놓치기</span> 쉬운 하자를 자동으로
+          분석하고 심각도를 분류합니다.
         </p>
         <div className="landing-badge-row">
-          <span className="landing-pill landing-pill--danger">균열 심각도 High</span>
-          <span className="landing-pill landing-pill--warning">누수 징후 Medium</span>
+          <span className="landing-pill landing-pill--danger">
+            <span className="landing-pill-dot" aria-hidden="true">●</span> 크랙 심각도 High
+          </span>
+          <span className="landing-pill landing-pill--warning">
+            <span className="landing-pill-dot" aria-hidden="true">●</span> 누수 징후 Medium
+          </span>
         </div>
         <div className="landing-visual" />
       </section>
@@ -145,13 +181,19 @@ export default function LandingPage() {
             >
               {tier.badge && <span className="landing-pricing-badge">{tier.badge}</span>}
               <p className="landing-pricing-name">{tier.name}</p>
+              <p className="landing-pricing-subtitle">{tier.subtitle}</p>
               <p>
                 <span className="landing-pricing-price">{tier.price}</span>
                 {tier.period && <span className="landing-pricing-period"> {tier.period}</span>}
               </p>
               <ul className="landing-pricing-features">
                 {tier.features.map((feature) => (
-                  <li key={feature}>{feature}</li>
+                  <li
+                    key={feature.label}
+                    className={`landing-pricing-feature${feature.included === false ? ' landing-pricing-feature--excluded' : ''}`}
+                  >
+                    <span className="landing-pricing-feature-label">{feature.label}</span>
+                  </li>
                 ))}
               </ul>
               <a
@@ -187,33 +229,7 @@ export default function LandingPage() {
         )}
       </div>
 
-      <footer className="landing-footer">
-        <div className="landing-footer-top">
-          <div>
-            <span className="landing-logo">HajaCheck</span>
-            <p className="landing-footer-tagline">
-              데이터와 AI 기술로 시설물 관리의 새로운
-              <br />
-              기준을 제시합니다.
-            </p>
-          </div>
-          <div className="landing-footer-columns">
-            {FOOTER_LINKS.map((column) => (
-              <div key={column.title} className="landing-footer-column">
-                <h4>{column.title}</h4>
-                <ul>
-                  {column.links.map((link) => (
-                    <li key={link}>
-                      <a href="#">{link}</a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="landing-footer-bottom">© 2026 HAJA. All rights reserved.</div>
-      </footer>
+      <LandingFooter />
     </div>
   );
 }

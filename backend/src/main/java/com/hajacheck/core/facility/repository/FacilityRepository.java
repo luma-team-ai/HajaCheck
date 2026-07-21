@@ -2,9 +2,11 @@ package com.hajacheck.core.facility.repository;
 
 import com.hajacheck.core.facility.entity.Facility;
 import jakarta.persistence.LockModeType;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -27,4 +29,13 @@ public interface FacilityRepository extends JpaRepository<Facility, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select f from Facility f where f.id = :id")
     Optional<Facility> findByIdForUpdate(@Param("id") Long id);
+
+    // 다가오는 점검 예정 조회(dev-03-02, HAJA-대시보드 위젯) — owner_id 단일 스코프,
+    // next_inspection_due_at is not null 이며 [from, to] 범위(오늘~오늘+days) 내인 시설물만,
+    // nextInspectionDueAt 오름차순으로 최대 limit(Pageable) 건 반환.
+    @Query("select f from Facility f where f.ownerId = :ownerId and f.nextInspectionDueAt is not null "
+            + "and f.nextInspectionDueAt >= :from and f.nextInspectionDueAt <= :to "
+            + "order by f.nextInspectionDueAt asc")
+    List<Facility> findUpcomingByOwnerId(@Param("ownerId") Long ownerId, @Param("from") LocalDate from,
+                                          @Param("to") LocalDate to, Pageable pageable);
 }

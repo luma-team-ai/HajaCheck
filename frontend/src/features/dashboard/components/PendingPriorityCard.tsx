@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { DASHBOARD_COLOR_CLASS } from '../colors';
-import { inspectionReviewPath } from '../constants';
+import { defectDetailPath } from '../constants';
 import { usePendingPriority } from '../hooks/usePendingPriority';
 import { formatElapsedTime } from '../utils/formatElapsedTime';
 import { GradeBadge } from './GradeBadge';
@@ -9,9 +9,9 @@ export function PendingPriorityCard() {
   const { data, isLoading, isError } = usePendingPriority();
   const navigate = useNavigate();
 
-  // 스토리보드 DASH-01 A2: "검수하기" → 처리 대기 하자의 수동 검수 화면(FR-4-02)으로 이동
-  const handleReview = (id: number) => {
-    navigate(inspectionReviewPath(id));
+  // DASH-01 A2: "검수하기" → 해당 하자의 상세(하자 상세, /defects/:id)로 이동 (Figma node 1-1588 동기화)
+  const handleReview = (defectId: number) => {
+    navigate(defectDetailPath(defectId));
   };
 
   return (

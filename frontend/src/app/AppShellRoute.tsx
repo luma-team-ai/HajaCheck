@@ -3,10 +3,14 @@
 // 새 페이지를 이 셸에 포함하려면 router.tsx의 children 배열에 라우트를 추가하고,
 // 그 라우트의 `handle`에 breadcrumb/activeHref를 선언하기만 하면 된다 — 페이지 컴포넌트 자체는
 // AppLayout을 몰라도 됨(react-router v6 표준 패턴: useMatches() + handle).
+import { useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Outlet, useMatches, useNavigate } from 'react-router-dom';
 import { useLogout } from '../features/auth/hooks/useLogout';
 import { MYPAGE_PLAN_ROUTE } from '../features/auth/constants';
 import { useAuthStore } from '../features/auth/store/authStore';
+import { NotificationCenter } from '../features/notification/components/NotificationCenter';
+import { useNotifications } from '../features/notification/hooks/useNotifications';
 import type { BreadcrumbItem } from '../shared/components/Header';
 import { AppLayout } from '../shared/components/AppLayout';
 import { isAdminRole } from '../shared/constants/roles';
@@ -46,21 +50,70 @@ export function AppShellRoute() {
   const current = [...matches].reverse().find((match) => hasAppShellHandle(match.handle));
   const handle = current?.handle as AppShellHandle | undefined;
 
+  // 알림 센터(HAJA-38) — Header 벨 버튼은 AppLayout 내부(shared, 미터치)라 열림 상태와 unreadCount는
+  // 이 통합지점(app/)이 들고 NotificationCenter(컨테이너)에 boolean으로만 내려준다.
+  // useNotifications는 NotificationCenter 안에서도 같은 쿼리 키로 호출되므로 TanStack Query 캐시가
+  // 공유되어 벨 배지용으로 별도 네트워크 요청이 추가되지는 않는다.
+  const isAuthenticated = Boolean(authUser);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const { data: notifications } = useNotifications(isAuthenticated);
+  const unreadCount = notifications?.filter((item) => !item.isRead).length ?? 0;
+
+  // 벨 재클릭 토글 경합(react-reviewer P1, PR머신 P2로 범위 좁힘) 가드: shared NotificationDropdown은
+  // document mousedown으로 바깥 클릭을 감지해 onClose를 부른다. 벨 버튼은 그 rootRef 바깥이라, 패널이
+  // 열린 상태에서 벨을 다시 클릭하면 mousedown(→onClose로 닫힘)이 먼저, click(→토글로 재오픈)이 그
+  // 다음 순서로 적용돼 결국 안 닫힌다.
+  // (구) 시간 기반 250ms 가드는 onClose가 불리는 모든 경우(ESC·패널 밖 다른 요소 클릭 포함)를 뭉뚱그려
+  // 막아버려서, ESC로 닫거나 다른 요소를 클릭해 닫은 직후 벨을 눌러도 안 열리는 과잉 차단 버그가
+  // 있었다(PR머신 P2). → "패널이 열려 있는 동안 벨 자신에게 mousedown이 온 경우"만 좁혀서 표시한다.
+  // Header 벨 버튼은 shared(미터치)라 onMouseDown prop을 못 받으므로, AppLayout을 감싸는 아래
+  // 래퍼의 capture 단계에서 이벤트 대상을 aria-label로 식별한다(Header.tsx: aria-label={unreadCount
+  // > 0 ? `알림 (미읽음 ${unreadCount}건)` : '알림'} — '알림' 접두는 Header 내 벨 버튼에만 쓰인다).
+  // PR머신 P2(이슈 #474): 위 가드는 "mousedown 이후 반드시 벨에서 click이 뒤따른다"고 가정했다.
+  // 우클릭(mousedown만 발생, click 대신 컨텍스트 메뉴)이나 벨을 누른 채 커서를 밖으로 빼서 뗀 경우
+  // (mouseup이 벨 밖이라 click이 벨에 도달하지 않음)에는 대응하는 click이 오지 않아 플래그가 true로
+  // 고정된 채 남고, 그 다음 정상 클릭까지 삼켜버렸다. → "소비 시에만 리셋"이 아니라 패널이 닫힌 상태의
+  // mousedown마다 매번 최신값으로 덮어써(닫혀 있으면 무조건 false) 이전 mousedown의 결과가 새지 않게 한다.
+  const suppressNextBellClickRef = useRef(false);
+  const handleNotificationClose = () => {
+    setNotificationOpen(false);
+  };
+  const handleNotificationClick = () => {
+    if (suppressNextBellClickRef.current) {
+      suppressNextBellClickRef.current = false;
+      return;
+    }
+    setNotificationOpen((prev) => !prev);
+  };
+  const handleShellMouseDownCapture = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!notificationOpen) {
+      suppressNextBellClickRef.current = false;
+      return;
+    }
+    const target = event.target as Element | null;
+    suppressNextBellClickRef.current = Boolean(target?.closest('button[aria-label^="알림"]'));
+  };
+
   return (
-    <AppLayout
-      breadcrumb={handle?.breadcrumb ?? []}
-      activeHref={handle?.activeHref}
-      isRouteImplemented={isRouteImplemented}
-      isAdmin={isAdmin}
-      user={
-        authUser
-          ? { name: authUser.name, avatarUrl: authUser.profileImageUrl ?? undefined }
-          : undefined
-      }
-      onLogout={() => void logout()}
-      onProfileClick={() => navigate(MYPAGE_PLAN_ROUTE)}
-    >
-      <Outlet />
-    </AppLayout>
+    <div onMouseDownCapture={handleShellMouseDownCapture}>
+      <AppLayout
+        breadcrumb={handle?.breadcrumb ?? []}
+        activeHref={handle?.activeHref}
+        isRouteImplemented={isRouteImplemented}
+        isAdmin={isAdmin}
+        user={
+          authUser
+            ? { name: authUser.name, avatarUrl: authUser.profileImageUrl ?? undefined }
+            : undefined
+        }
+        onLogout={() => void logout()}
+        onProfileClick={() => navigate(MYPAGE_PLAN_ROUTE)}
+        unreadCount={unreadCount}
+        onNotificationClick={handleNotificationClick}
+      >
+        <Outlet />
+      </AppLayout>
+      <NotificationCenter open={notificationOpen} onClose={handleNotificationClose} enabled={isAuthenticated} />
+    </div>
   );
 }

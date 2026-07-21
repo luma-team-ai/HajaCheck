@@ -6,6 +6,7 @@ import com.hajacheck.core.dashboard.dto.DashboardSummaryResponse;
 import com.hajacheck.core.dashboard.dto.GradeDistributionResponse;
 import com.hajacheck.core.dashboard.dto.PendingPriorityResponse;
 import com.hajacheck.core.dashboard.dto.RecentInspectionResponse;
+import com.hajacheck.core.dashboard.dto.UpcomingInspectionResponse;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectStatus;
@@ -55,6 +56,7 @@ public class DashboardService {
     private static final Set<InspectionStatus> PENDING_REVIEW_STATUSES = EnumSet.of(InspectionStatus.ANALYZED);
     private static final int RECENT_LIMIT = 10;
     private static final int PENDING_PRIORITY_LIMIT = 10;
+    private static final int UPCOMING_INSPECTIONS_MAX_LIMIT = 50;
 
     private final FacilityRepository facilityRepository;
     private final InspectionRepository inspectionRepository;
@@ -187,6 +189,25 @@ public class DashboardService {
                         facilityNameById.getOrDefault(inspection.getFacilityId(), "-"),
                         creatorNameById.getOrDefault(inspection.getCreatedBy(), "-"),
                         defectCountByInspectionId.getOrDefault(inspection.getId(), 0L)))
+                .toList();
+    }
+
+    /**
+     * 다가오는 점검 예정 시설물 조회(dev-03-02) — owner_id 단일 스코프(기존 대시보드 엔드포인트와
+     * 동일 원칙), nextInspectionDueAt 이 오늘~오늘+days 이내이며 null 이 아닌 시설물만
+     * nextInspectionDueAt 오름차순으로 최대 limit 건 반환한다.
+     */
+    public List<UpcomingInspectionResponse> getUpcomingInspections(Long ownerId, int days, int limit) {
+        LocalDate today = LocalDate.now(KST);
+        LocalDate from = today;
+        LocalDate to = today.plusDays(days);
+        int safeLimit = Math.min(limit, UPCOMING_INSPECTIONS_MAX_LIMIT);
+
+        List<Facility> facilities = facilityRepository.findUpcomingByOwnerId(
+                ownerId, from, to, PageRequest.of(0, safeLimit));
+
+        return facilities.stream()
+                .map(facility -> UpcomingInspectionResponse.from(facility, today))
                 .toList();
     }
 

@@ -302,7 +302,20 @@ class Ha25IncrementalMigrationTest {
                         CONTAINER_ROOT + "20260716_02_ha25_finalize.sql")
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(MIGRATION_ROOT + "20260716_03_ha25_verify.sql"),
-                        CONTAINER_ROOT + "20260716_03_ha25_verify.sql");
+                        CONTAINER_ROOT + "20260716_03_ha25_verify.sql")
+                // AP-020(#25 / HAJA-38) — HAJA-25 체인과 무관한 별도 증분 파일이지만, 아래
+                // assertCanonicalSchemaParity가 "v0.3 + 모든 증분 스크립트 적용 후" 카탈로그를
+                // canonical DDL 신규 설치와 전체 대조하므로 이 파일도 같은 경로에 적용해야 한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                MIGRATION_ROOT + "20260719_01_ap020_notification_history_index.sql"),
+                        CONTAINER_ROOT + "20260719_01_ap020_notification_history_index.sql")
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(MIGRATION_ROOT + "20260716_04_menu_schema_expand.sql"),
+                        CONTAINER_ROOT + "20260716_04_menu_schema_expand.sql")
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(MIGRATION_ROOT + "20260716_05_menu_schema_verify.sql"),
+                        CONTAINER_ROOT + "20260716_05_menu_schema_verify.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -355,6 +368,12 @@ class Ha25IncrementalMigrationTest {
 
         assertVerifierRejectsSemanticDrift(postgres);
         runPsql(postgres, "20260716_03_ha25_verify.sql");
+        // AP-020(#25 / HAJA-38) — HAJA-25 체인과 별개인 단일 목적 증분 파일. 재실행 가능(IF NOT
+        // EXISTS)하므로 두 번 실행해도 안전하다는 점까지 함께 확인한다.
+        runPsql(postgres, "20260719_01_ap020_notification_history_index.sql");
+        runPsql(postgres, "20260719_01_ap020_notification_history_index.sql");
+        runPsql(postgres, "20260716_04_menu_schema_expand.sql");
+        runPsql(postgres, "20260716_05_menu_schema_verify.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

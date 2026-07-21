@@ -19,6 +19,18 @@ const LoginPage = lazy(() =>
   import('../features/auth/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
 );
 
+// 이용약관 / 개인정보처리방침 — 랜딩 푸터 "법적 고지" 연결
+const TermsOfServicePage = lazy(() =>
+  import('../features/policy/pages/TermsOfServicePage').then((m) => ({
+    default: m.TermsOfServicePage,
+  })),
+);
+const PrivacyPolicyPage = lazy(() =>
+  import('../features/policy/pages/PrivacyPolicyPage').then((m) => ({
+    default: m.PrivacyPolicyPage,
+  })),
+);
+
 // 기업 인증 플로우 — HAJA-170(#187)
 const CompanySignupPage = lazy(() =>
   import('../features/auth/pages/CompanySignupPage').then((m) => ({
@@ -81,6 +93,13 @@ const FacilityListPage = lazy(() =>
   })),
 );
 
+// 점검 주기 설정 — dev-04-03, FR-019
+const InspectionCycleSettingsPage = lazy(() =>
+  import('../features/facility/pages/InspectionCycleSettingsPage').then((m) => ({
+    default: m.InspectionCycleSettingsPage,
+  })),
+);
+
 // 고객지원 > AI 어시스턴트 (dev-08-01, HAJA-32, FR-6 RAG 법규 Q&A)
 const AiAssistantPage = lazy(() =>
   import('../features/support/pages/AiAssistantPage').then((m) => ({
@@ -88,7 +107,29 @@ const AiAssistantPage = lazy(() =>
   })),
 );
 
+const ChartShowcasePage = import.meta.env.DEV
+  ? lazy(() =>
+      import('../dev/charts/ChartShowcasePage').then((m) => ({
+        default: m.ChartShowcasePage,
+      })),
+    )
+  : null;
+
+const DEV_ONLY_ROUTES = ChartShowcasePage
+  ? [
+      {
+        path: '/dev/charts',
+        element: (
+          <Suspense fallback={<div>차트 쇼케이스를 불러오는 중...</div>}>
+            <ChartShowcasePage />
+          </Suspense>
+        ),
+      },
+    ]
+  : [];
+
 export const router = createBrowserRouter([
+  ...DEV_ONLY_ROUTES,
   {
     path: '/',
     element: (
@@ -105,6 +146,22 @@ export const router = createBrowserRouter([
       </Suspense>
     ),
   }, // — features/auth (HAJA-160, #157)
+  {
+    path: '/policy/terms-of-service',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <TermsOfServicePage />
+      </Suspense>
+    ),
+  },
+  {
+    path: '/policy/privacy',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <PrivacyPolicyPage />
+      </Suspense>
+    ),
+  },
   {
     path: '/signup/company',
     element: (
@@ -229,6 +286,35 @@ export const router = createBrowserRouter([
         },
       }, // — features/inspection FR-4 (HAJA-249, #249)
       {
+        path: '/facilities/inspection-cycle',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <InspectionCycleSettingsPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [
+            { label: '시설물 관리' },
+            { label: '강남 오피스타워 A동' },
+            { label: '점검 주기' },
+          ],
+          activeHref: '/facilities/inspection-cycle',
+        },
+      }, // — features/facility 점검 주기 설정 (dev-04-03, FR-019)
+      {
+        path: '/facilities/list',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <FacilityListPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '시설물 관리' }, { label: '시설물 목록/등록' }],
+          activeHref: '/facilities/list',
+        },
+      }, // — features/facility 시설물 목록/등록 (dev-04-01, FR-003). SideNavBar href('/facilities/list')와
+      // 불일치하던 구 경로('/facilities', 셸 밖)를 셸 안으로 이동해 정정(#472).
+      {
         path: '/admin/users',
         // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#378, 컨벤션 §7)
         element: (
@@ -257,18 +343,7 @@ export const router = createBrowserRouter([
       }, // — features/support (dev-08-01, HAJA-32, FR-6)
     ],
   },
-  {
-    // 셸(AppShellRoute) 중첩 밖 업무 라우트 — 인증 가드는 적용하되 AppLayout 셸 미포함(#231 관찰,
-    // 셸 포함은 별도 후속 스코프).
-    path: '/facilities',
-    element: (
-      <ProtectedRoute>
-        <Suspense fallback={<div>불러오는 중...</div>}>
-          <FacilityListPage />
-        </Suspense>
-      </ProtectedRoute>
-    ),
-  }, // — features/facility (dev-04-01, FR-003)
+  // 구 '/facilities'(셸 밖) 라우트는 '/facilities/list'(셸 안, 위 AppShellRoute children)로 이동됨(#472).
   // '/defects/list' 는 AppShellRoute 자식(위 children 배열)으로 등록됨 — features/defect (HAJA-30)
   // { path: '/reports', ... }                  — features/report
   // { path: '/support', ... }                  — features/support

@@ -38,8 +38,8 @@ export function useRagChat() {
         { id: nextId(), role: 'assistant', text: res.data.answer, sources: res.data.sources },
       ]);
     } catch (err) {
-      // 방어(설계 §9 확정 전): 백엔드가 0건을 success:false(RAG_NO_RESULT)로 주더라도
-      // 에러가 아니라 "근거 없음" 안내로 표시(빈 sources 정상응답 케이스와 양쪽 안전).
+      // 확정 계약(설계 §9/§4.3): 백엔드가 0건을 success:false(RAG_NO_RESULT)로 준다 —
+      // 이를 에러가 아니라 "근거 없음" 안내로 표시한다.
       if (isApiError(err) && err.code === 'RAG_NO_RESULT') {
         setMessages((prev) => [
           ...prev,
