@@ -18,6 +18,9 @@ public enum ErrorCode {
     // 매핑되지 않은 경로/정적 리소스(NoResourceFoundException) 전용 — 도메인 리소스 미존재는
     // 각 도메인의 {도메인}_NOT_FOUND 를 쓴다. 내부 경로 유추를 막기 위해 메시지에 경로를 담지 않는다.
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청하신 리소스를 찾을 수 없습니다."),
+    // 경로는 존재하나 그 경로가 지원하지 않는 HTTP 메서드로 호출된 경우(HttpRequestMethodNotSupportedException) 전용.
+    // RESOURCE_NOT_FOUND와 같은 이유로 분리 — 전용 핸들러가 없으면 아래 포괄 핸들러가 500으로 처리한다.
+    METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 요청 방식입니다."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 발생했습니다."),
     // 상태 전이 엔티티(@Version 낙관적 락 — HAJA-25)의 동시 갱신 충돌 통일 응답.
     CONCURRENT_UPDATE_CONFLICT(HttpStatus.CONFLICT, "다른 요청과 충돌하여 처리하지 못했습니다. 다시 시도해 주세요."),

@@ -11,6 +11,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -38,6 +39,22 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody().error().code()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND.name());
         // 요청 경로가 응답 메시지로 새어나가지 않아야 한다(내부 경로 유추 방지).
         assertThat(response.getBody().error().message()).doesNotContain("/api/does-not-exist");
+    }
+
+    @Test
+    @DisplayName("지원하지 않는 HTTP 메서드 요청은 500이 아니라 405 + METHOD_NOT_ALLOWED 로 응답한다")
+    void handleMethodNotSupported_returns405() {
+        // GET /api/inspections(목록 조회는 미구현, POST만 존재) 재현 — 실사용자가 겪은 회귀.
+        HttpRequestMethodNotSupportedException e = new HttpRequestMethodNotSupportedException("GET");
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleMethodNotSupported(e);
+
+        // 포괄 handleException 이 가로채면 500(INTERNAL_ERROR) 이 된다 — 그 회귀를 막는다.
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().success()).isFalse();
+        assertThat(response.getBody().data()).isNull();
+        assertThat(response.getBody().error().code()).isEqualTo(ErrorCode.METHOD_NOT_ALLOWED.name());
     }
 
     @Test

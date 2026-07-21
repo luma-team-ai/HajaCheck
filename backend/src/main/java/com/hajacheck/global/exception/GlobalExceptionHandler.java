@@ -10,6 +10,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -121,6 +122,20 @@ public class GlobalExceptionHandler {
         log.warn("존재하지 않는 리소스 요청: {} {}", e.getHttpMethod(), sanitizeForLog(e.getResourcePath()));
         return ResponseEntity.status(ErrorCode.RESOURCE_NOT_FOUND.getStatus())
                 .body(ApiResponse.fail(ErrorCode.RESOURCE_NOT_FOUND));
+    }
+
+    /**
+     * 매핑은 존재하나 그 경로가 지원하지 않는 HTTP 메서드로 호출된 경우(#330과 동일 유형 — 그때는
+     * NoResourceFoundException만 고치고 이 예외는 빠뜨렸었다). 전용 핸들러가 없으면 아래 포괄
+     * handleException이 가로채 405가 500 + 전체 스택트레이스로 둔갑한다. 그래서 405로 정정하고,
+     * 스택트레이스 없이 WARN 단일 라인만 남긴다.
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException e) {
+        log.warn("지원하지 않는 요청 방식: {}", sanitizeForLog(e.getMethod()));
+        return ResponseEntity.status(ErrorCode.METHOD_NOT_ALLOWED.getStatus())
+                .body(ApiResponse.fail(ErrorCode.METHOD_NOT_ALLOWED));
     }
 
     /**
