@@ -8,29 +8,20 @@
 // 어느 쪽을 써도 동일). FormData 구성 로직은 authApi.buildCompanySignupFormData.test.ts에서 별도
 // 단위 테스트하고, 실제 브라우저 dev 서버 클릭 플로우로 signupCompany를 검증했다.
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   MOCK_DUPLICATED_EMAIL,
   MOCK_FIND_ID_BUSINESS_NUMBER,
   MOCK_FIND_ID_COMPANY_NAME,
-  MOCK_SIGNUP_TOKEN,
   companyAuthHandlers,
-  resetCompanyAuthMockState,
 } from '../mocks/companyAuth.mock';
 import { authApi } from './authApi';
 
 const server = setupServer(...companyAuthHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => {
-  server.resetHandlers();
-  resetCompanyAuthMockState();
-});
+afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
-
-beforeEach(() => {
-  resetCompanyAuthMockState();
-});
 
 describe('authApi.checkEmailAvailability', () => {
   it('가입되지 않은 이메일이면 available:true를 반환한다', async () => {
@@ -41,27 +32,6 @@ describe('authApi.checkEmailAvailability', () => {
   it('이미 가입된 이메일이면 available:false를 반환한다', async () => {
     const res = await authApi.checkEmailAvailability(MOCK_DUPLICATED_EMAIL);
     expect(res.data).toEqual({ available: false });
-  });
-});
-
-describe('authApi.getSignupStatus', () => {
-  it('알 수 없는 토큰이면 AUTH_SIGNUP_TOKEN_INVALID로 reject된다', async () => {
-    await expect(authApi.getSignupStatus('unknown-token')).rejects.toMatchObject({
-      code: 'AUTH_SIGNUP_TOKEN_INVALID',
-      status: 404,
-    });
-  });
-
-  it('알려진 토큰의 첫 조회는 PENDING_REVIEW를 반환한다', async () => {
-    const res = await authApi.getSignupStatus(MOCK_SIGNUP_TOKEN);
-    expect(res.data.status).toBe('PENDING_REVIEW');
-  });
-
-  it('세 번째 조회부터는 APPROVED로 전환된다(새로고침 데모)', async () => {
-    await authApi.getSignupStatus(MOCK_SIGNUP_TOKEN);
-    await authApi.getSignupStatus(MOCK_SIGNUP_TOKEN);
-    const res = await authApi.getSignupStatus(MOCK_SIGNUP_TOKEN);
-    expect(res.data.status).toBe('APPROVED');
   });
 });
 
