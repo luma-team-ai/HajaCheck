@@ -11,6 +11,7 @@ const IMPLEMENTED_ROUTES = new Set([
   '/defects/detail',
   '/mypage/plan',
   '/inspections/1/viewer',
+  '/facilities/list',
   '/facilities/map',
   '/facilities/inspection-cycle',
   '/admin/users',
