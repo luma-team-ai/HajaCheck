@@ -42,7 +42,7 @@ export function DefectExplainPanel({
       {!isLoading && !isError && data && (
         <div className="defect-explain-content">
           <div className="defect-explain-section">
-            <h3><span className="sr-only">추정 원인</span>예상 원인</h3>
+            <h3>예상 원인</h3>
             <p>{data.cause}</p>
           </div>
           <div className="defect-explain-section">
@@ -50,7 +50,7 @@ export function DefectExplainPanel({
             <p>{data.risk}</p>
           </div>
           <div className="defect-explain-section">
-            <h3><span className="sr-only">조치 방안</span>조치 계획</h3>
+            <h3>조치 계획</h3>
             <p>{data.action}</p>
           </div>
         </div>
