@@ -43,6 +43,19 @@ describe('Modal', () => {
     expect(handleClose).toHaveBeenCalledTimes(1);
   });
 
+  it('closeOnOverlayClick=false이면 배경 클릭해도 onClose가 호출되지 않는다(#500)', () => {
+    const handleClose = vi.fn();
+    render(
+      <Modal open onClose={handleClose} closeOnOverlayClick={false}>
+        모달 내용
+      </Modal>,
+    );
+
+    fireEvent.click(screen.getByRole('presentation'));
+
+    expect(handleClose).not.toHaveBeenCalled();
+  });
+
   it('모달 컨텐츠 클릭 시에는 onClose가 호출되지 않는다', () => {
     const handleClose = vi.fn();
     render(
