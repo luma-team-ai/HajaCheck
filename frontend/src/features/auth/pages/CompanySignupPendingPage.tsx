@@ -49,7 +49,7 @@ export function CompanySignupPendingPage() {
         <div className="mt-8 flex justify-center" aria-hidden="true">
           <div className="flex h-32 w-32 items-center justify-center rounded-full bg-[#f4f1fb] ring-1 ring-[#e6e0e9]">
             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-[#ece7f7] ring-1 ring-[#dcd4ee]">
-              <span className="text-4xl">⏳</span>
+              <span className="text-4xl">✅</span>
             </div>
           </div>
         </div>
