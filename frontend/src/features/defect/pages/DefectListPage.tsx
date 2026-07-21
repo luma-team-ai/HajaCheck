@@ -1,18 +1,22 @@
-import { useState } from 'react';
-import '../../../shared/styles/layout.css';
-import { TableFooterPagination } from '../../../shared/components/TableFooterPagination';
-import { DefectFilterBar } from '../components/DefectFilterBar';
-import { DefectTable } from '../components/DefectTable';
-import { useDefects } from '../hooks/useDefects';
-import type { DefectListFilters } from '../types';
+import { useState } from "react";
+import { Button } from "../../../shared/components/Button";
+import { TableFooterPagination } from "../../../shared/components/TableFooterPagination";
+import { DefectFilterBar } from "../components/DefectFilterBar";
+import { DefectTable } from "../components/DefectTable";
+import { useDefects } from "../hooks/useDefects";
+import type { DefectListFilters } from "../types";
+import "./DefectListPage.css";
 
-const DEFAULT_SIZE = 20;
+const DEFAULT_SIZE = 10;
 
 // 하자 목록 — HAJA-30. FacilityListPage(features/facility)와 동일하게 목록 조회 훅 + 테이블 +
 // (신규) 필터·페이지네이션 조합으로 구성한다. AppShellRoute 자식(셸 포함) — /defects/:id(상세)와
 // 동일한 셸 아래 목록→상세 이동 흐름을 유지한다.
 export function DefectListPage() {
-  const [filters, setFilters] = useState<DefectListFilters>({ page: 0, size: DEFAULT_SIZE });
+  const [filters, setFilters] = useState<DefectListFilters>({
+    page: 0,
+    size: DEFAULT_SIZE,
+  });
   const { data, isLoading, isError, refetch } = useDefects(filters);
 
   const size = filters.size ?? DEFAULT_SIZE;
@@ -29,26 +33,63 @@ export function DefectListPage() {
   };
 
   return (
-    <div className="dashboard-content">
-      <div className="dashboard-page-header">
-        <h1 className="dashboard-page-title">
-          하자 목록
-          {data && <span className="ml-2 text-base font-normal text-text-muted">{totalElements}</span>}
-        </h1>
-      </div>
+    <section className="defect-list-page" aria-labelledby="defect-list-title">
+      <header className="defect-list-page__header">
+        <nav
+          className="defect-list-page__breadcrumb"
+          aria-label="하자 관리 현재 위치"
+        >
+          <span>HajaCheck</span>
+          <span aria-hidden="true">›</span>
+          <span className="defect-list-page__breadcrumb-current">
+            하자 관리
+          </span>
+        </nav>
 
-      <div className="flex flex-col gap-4">
+        <div className="defect-list-page__title-row">
+          <div className="defect-list-page__title-group">
+            <h1 id="defect-list-title">하자 관리</h1>
+            <span className="defect-list-page__count">
+              총 {totalElements.toLocaleString()}건
+            </span>
+          </div>
+
+          <div
+            className="defect-list-page__actions"
+            aria-label="하자 목록 작업"
+          >
+            <Button
+              variant="secondary"
+              size="md"
+              title="내보내기 기능 연동 예정"
+            >
+              내보내기
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              title="보고서 생성 기능 연동 예정"
+            >
+              보고서 생성
+            </Button>
+          </div>
+        </div>
+
         <DefectFilterBar filters={filters} onChange={setFilters} />
+      </header>
 
-        <div className="overflow-hidden rounded-2xl border border-border bg-surface">
+      <div className="defect-list-page__table-region">
+        <div className="defect-list-page__table-scroll">
           <DefectTable
             defects={data?.content}
             isLoading={isLoading}
             isError={isError}
             onRetry={refetch}
           />
+        </div>
 
-          {!isLoading && !isError && (
+        {!isLoading && !isError && (
+          <div className="defect-list-page__pagination">
             <TableFooterPagination
               pageSize={size}
               onPageSizeChange={handlePageSizeChange}
@@ -57,9 +98,9 @@ export function DefectListPage() {
               totalItems={totalElements}
               onPageChange={handlePageChange}
             />
-          )}
-        </div>
+          </div>
+        )}
       </div>
-    </div>
+    </section>
   );
 }
