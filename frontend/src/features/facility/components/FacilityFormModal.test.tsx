@@ -13,6 +13,32 @@ function fillRequiredFields() {
 }
 
 describe('FacilityFormModal', () => {
+  // X 버튼이 아닌 배경(오버레이) 클릭으로 입력 중이던 값이 유실되던 문제(#500) — 이 모달은
+  // closeOnOverlayClick={false}로 배경 클릭 시 닫히지 않아야 한다.
+  it('배경(오버레이)을 클릭해도 모달이 닫히지 않는다(#500)', () => {
+    const handleClose = vi.fn();
+
+    render(
+      <FacilityFormModal open onClose={handleClose} onSubmit={vi.fn()} isSubmitting={false} />,
+    );
+
+    fireEvent.click(screen.getByRole('presentation'));
+
+    expect(handleClose).not.toHaveBeenCalled();
+  });
+
+  it('X 버튼을 클릭하면 모달이 닫힌다', () => {
+    const handleClose = vi.fn();
+
+    render(
+      <FacilityFormModal open onClose={handleClose} onSubmit={vi.fn()} isSubmitting={false} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+
+    expect(handleClose).toHaveBeenCalledTimes(1);
+  });
+
   it('등록 실패 시 사용자가 입력한 폼 값을 초기화하지 않고 유지한다', async () => {
     const handleSubmit = vi.fn().mockRejectedValue(new Error('등록 실패'));
 
