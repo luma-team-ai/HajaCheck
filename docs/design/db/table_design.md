@@ -1,6 +1,6 @@
 # hajaCheck 테이블 디자인 설계
 
-> **문서 버전:** v0.5 · **최종 수정:** 2026-07-21 · 이전 버전 `archive/`
+> **문서 버전:** v0.4 · **최종 수정:** 2026-07-21 · 이전 버전 `archive/`
 
 - 대상 스키마 파일: [HajaCheck_script.sql](HajaCheck_script.sql)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
@@ -257,13 +257,37 @@ FR·API·플로우 동기화는 이번 범위에서 **제외**하고, ERD(DB 설
 | 요청 추적 | `request_id`, HTTP 메서드, 식별자를 제거한 엔드포인트 패턴, 최종 상태 코드, 처리 시간과 선택적 오류 정보를 저장한다 |
 | 사용자 참조 | `user_id`는 로그인 사용자를 식별하는 논리 참조이며 FK를 두지 않는다. 사용자 삭제나 익명화 이후에도 운영 로그를 보존하기 위함이다 |
 | 민감정보 | 요청·응답 본문, 스택 트레이스, 인증 헤더·쿠키·토큰은 저장하지 않는다. `message`와 `endpoint`에도 개인정보·원본 식별자가 포함되지 않도록 애플리케이션에서 정제한다 |
-| DB 강제 범위 | `level` 허용값, `WARN=4xx`/`ERROR=5xx` 일치, `duration_ms >= 0`만 CHECK로 강제한다. 요청당 한 행 정책은 DB UNIQUE가 아니라 수집 필터에서 보장한다 |
-| 변경 정책 | 시스템 로그는 append-only로 사용하고 `updated_at` 및 갱신 트리거를 두지 않는다. 삭제·보존 기간 자동화는 운영 정책 확정 후 별도 작업으로 다룬다 |
+| IP 최소화 | 직접 peer 또는 신뢰 프록시 체인에서 판정한 주소만 IPv4 `/24`, IPv6 `/48` 네트워크 주소로 축약해 저장한다. 원본 IP와 신뢰되지 않은 forwarded 값을 저장하지 않는다 |
+| 보존·익명화 | 기본 보존기간은 30일이다. `created_at` 기준 일일 batch가 만료 행을 삭제하고, 탈퇴·익명화 대상 사용자의 보존 중 로그는 `user_id=NULL`로 익명화한다. DB 백업도 30일 이내 수명주기 삭제를 적용한다 |
+| DB 강제 범위 | 로그 레벨·HTTP 상태·처리시간 외에 서버 생성 request ID 형식, endpoint의 query/fragment/control 문자 부재, message control 문자 부재, IP 축약 형식을 CHECK로 강제한다. 요청당 한 행 정책은 DB UNIQUE가 아니라 수집 필터에서 보장한다 |
+| 변경 정책 | 정상 수집은 INSERT-only다. 개인정보 익명화를 위한 `user_id=NULL` UPDATE와 `created_at` 기준 retention DELETE만 예외로 허용한다. 그 밖의 UPDATE/DELETE와 `updated_at`은 사용하지 않는다 |
+| 소유권·권한 | SQL은 환경별 역할명을 하드코딩하거나 존재하지 않는 `postgres` 역할로 소유권을 바꾸지 않는다. 실행 계정이 테이블을 소유하되, 수집 활성화 전 별도 owner/writer/reader/retention 역할로 권한을 분리해야 한다 |
 
 **반영 내용**: `api_system_logs` 테이블과 조회 기본 인덱스 3개(`created_at DESC`,
 `level, created_at DESC`, `request_id`)를 추가한다. 신규 DB는 `HajaCheck_script.sql`, 기존 DB는 독립 수동
 마이그레이션 `migrations/20260720_01_create_api_system_logs.sql`을 사용한다. Entity와 API 요청 로그 저장
 필터·서비스는 후속 구현 범위다.
+
+#### 수집 활성화 전 필수 운영 게이트
+
+1. **DB 역할 분리**: 현재 애플리케이션이 동일 DB superuser/owner로 접속하는 구성에서는 append-only를 DB가
+   강제할 수 없다. 운영 환경에 맞는 이름으로 owner(DDL), writer(INSERT), reader(SELECT),
+   retention(`user_id` 익명화 UPDATE + 만료 DELETE) 역할을 분리하고 애플리케이션 런타임 계정에서 owner와
+   retention 권한을 제거해야 한다. 환경별 역할명은 배포 설정이 소유하므로 이 참조 SQL은 실행 불가능한
+   `GRANT`/`REVOKE`를 가장하지 않는다. 역할 분리와 실제 권한 실측이 끝나기 전에는 수집 기능을 켜지 않는다.
+2. **보존 작업**: 매일 `created_at < now() - interval '30 days'` 조건으로 작은 batch DELETE를 반복하고,
+   실행 건수·실패를 별도 운영 지표로 남긴다. DB 스냅샷·덤프·복제본에도 30일 이내 삭제 수명주기를 적용해
+   원본 테이블만 정리되고 백업에 개인정보가 장기 잔존하는 경로를 막는다.
+3. **탈퇴·익명화 연동**: 사용자 탈퇴·법적 익명화 처리와 같은 워크플로에서 보존기간이 남은
+   `api_system_logs.user_id`를 NULL로 바꾼다. 이 UPDATE와 30일 retention DELETE만 정상 INSERT-only 정책의
+   예외이며, 메시지·endpoint 등에 사용자 식별자가 들어가지 않는 정제 계약도 함께 검증한다.
+4. **신뢰 프록시 설정**: trusted proxy CIDR과 hop 수가 설정·검증되기 전에는 `Forwarded`/
+   `X-Forwarded-For`를 클라이언트 IP로 사용하지 않는다. 기본값은 연결의 직접 peer이며, 신뢰 프록시에서 온
+   요청에만 신뢰 체인을 오른쪽부터 검증해 최초 비신뢰 peer를 선택한다. 저장 직전 IPv4 `/24`·IPv6 `/48`로
+   축약하며 이 값은 사용자 감사·차단의 단독 근거로 사용하지 않는다.
+5. **수집 필터 테스트**: 후속 필터 구현은 request ID 생성·외부값 거부, route pattern 사용, 메시지 정제,
+   trusted proxy 판정·IP 축약, 요청당 최대 한 행, 30일 retention과 익명화 권한 경계를 자동 테스트한 뒤에만
+   활성화한다.
 
 ---
 
@@ -835,34 +859,52 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 |---|---|---|---|---|---|
 | id | bigint (identity) | N | - | **PK** | API 시스템 로그 식별자 |
 | level | varchar(10) | N | - | CK | HTTP 응답 상태에 따른 로그 레벨(`WARN`/`ERROR`) |
-| request_id | varchar(100) | N | - | | 요청 추적 식별자. 요청당 최대 한 행은 애플리케이션 정책이며 UQ가 아님 |
+| request_id | varchar(100) | N | - | CK | 서버가 생성·검증한 UUID 또는 ULID. 요청당 최대 한 행은 애플리케이션 정책이며 UQ가 아님 |
 | http_method | varchar(10) | N | - | | API 요청 HTTP 메서드 |
-| endpoint | varchar(500) | N | - | | 식별자와 개인정보를 제거한 API 엔드포인트 패턴 |
+| endpoint | varchar(500) | N | - | CK | 서버 route pattern. raw URI·query·fragment·control 문자는 허용하지 않음 |
 | http_status | smallint | N | - | CK | 최종 HTTP 응답 상태 코드(400~599) |
 | error_code | varchar(100) | Y | - | | 애플리케이션 공통 오류 코드 |
-| message | varchar(500) | Y | - | | 민감정보를 제거한 오류 요약 메시지 |
+| message | varchar(500) | Y | - | CK | ErrorCode 기반 고정·정제 오류 요약. control 문자는 허용하지 않음 |
 | exception_type | varchar(255) | Y | - | | 오류를 발생시킨 예외 클래스명 |
 | user_id | bigint | Y | - | 논리 참조→users(FK 없음) | 로그인 사용자 식별자. 비로그인 요청은 NULL |
 | duration_ms | bigint | N | - | CK | API 요청 처리 시간(밀리초) |
-| client_ip | inet | Y | - | | 요청 클라이언트 IP 주소 |
+| client_ip | inet | Y | - | CK | 직접 peer/신뢰 프록시 체인에서 판정 후 IPv4 `/24`·IPv6 `/48` 네트워크로 축약한 주소 |
 | created_at | timestamptz | N | now() | | API 시스템 로그 생성 시각 |
 
 - **CK** `ck_api_system_logs_level`: `level IN ('WARN', 'ERROR')`.
 - **CK** `ck_api_system_logs_level_http_status`: `WARN`은 400~499, `ERROR`는 500~599와 반드시 일치한다.
 - **CK** `ck_api_system_logs_duration`: `duration_ms >= 0`.
+- **CK** `ck_api_system_logs_request_id_format`: 소문자 UUID 또는 대문자 Crockford Base32 ULID만 허용한다.
+- **CK** `ck_api_system_logs_endpoint_pattern`: `/`로 시작하고 query(`?`)·fragment(`#`)·control 문자가 없는
+  endpoint만 허용한다.
+- **CK** `ck_api_system_logs_message_no_control`: `message`에 CR/LF 등 control 문자가 없어야 한다.
+- **CK** `ck_api_system_logs_client_ip_masked`: IPv4는 `/24`, IPv6는 `/48`이고 host bit가 0인 네트워크
+  주소만 허용한다.
 - 인덱스: `idx_api_system_logs_created_at (created_at DESC)`,
   `idx_api_system_logs_level_created_at (level, created_at DESC)`,
   `idx_api_system_logs_request_id (request_id)`.
-- `request_id`는 수집 필터가 요청당 최대 한 행을 기록하는 데 사용하지만 UNIQUE로 두지 않는다. 운영 중
-  보정·재처리나 여러 서비스가 같은 요청 식별자를 이어받는 상황까지 DB가 거부하지 않도록 하기 위함이다.
+- `request_id` 기본값은 서버 생성 UUID 또는 ULID다. 외부 헤더값은 길이·문자 allowlist와 UUID/ULID 형식을
+  모두 만족할 때만 이어받고, 실패하면 외부값을 저장하지 않고 새 값을 생성한다. 수집 필터가 요청당 최대 한
+  행을 기록하는 데 사용하지만 UNIQUE로 두지 않는다. 운영 중 보정·재처리나 여러 서비스가 같은 요청
+  식별자를 이어받는 상황까지 DB가 거부하지 않도록 하기 위함이다.
 - `user_id`에는 의도적으로 FK를 두지 않는다. 사용자 행이 물리 삭제되거나 익명화되어도 장애 대응에 필요한
   API 시스템 로그가 함께 삭제되거나 삽입이 막혀서는 안 된다.
-- 요청·응답 본문, 스택 트레이스, 인증 헤더·쿠키·토큰은 저장하지 않는다. `endpoint`는 실제 URI 대신
-  식별자를 제거한 매핑 패턴을 사용하고, `message`에는 개인정보를 포함하지 않는다.
+- 요청·응답 본문, 스택 트레이스, 인증 헤더·쿠키·토큰은 저장하지 않는다. `endpoint`는 raw URI나
+  request URI가 아니라 서버 라우터가 확정한 route pattern만 사용한다. 매칭 route가 없으면 원문 경로 대신
+  정해진 `/__unmatched__` 패턴을 사용한다.
+- `message`는 요청/예외 원문을 이어 붙이지 않고 `ErrorCode`별 고정 문구 또는 중앙 sanitizer가 허용한 문구만
+  사용한다. sanitizer는 CRLF/control 문자와 이메일, `Authorization`, `Cookie`, password/token/secret/API key
+  패턴을 차단한다. `error_code`와 `exception_type`도 요청값이 아니라 서버 내부 enum·예외 타입에서만 얻는다.
+- `client_ip`는 trusted proxy CIDR/hop 설정이 검증되기 전에는 연결의 직접 peer만 후보로 사용한다.
+  신뢰되지 않은 `Forwarded`/`X-Forwarded-For`는 무시하며, 판정한 주소도 IPv4 `/24`·IPv6 `/48`로 축약해
+  저장한다. 프록시 오설정 가능성이 있으므로 이 필드는 사용자 감사·차단의 단독 근거가 아니다.
 - API 내부의 개별 `log.warn()`/`log.error()` 호출을 수집하는 테이블이 아니다. 최종 HTTP 상태를 기준으로
   4xx/5xx 요청을 최대 한 행 기록하며, Entity와 수집 필터·서비스는 후속 작업에서 구현한다.
-- append-only 테이블이므로 `updated_at`과 갱신 트리거를 두지 않는다. 보존 기간과 자동 삭제는 운영 정책
-  확정 후 별도 마이그레이션으로 도입한다.
+- 정상 수집 경로는 INSERT-only이며 `updated_at`과 갱신 트리거를 두지 않는다. 예외는 탈퇴·익명화 시
+  `user_id=NULL` UPDATE와 기본 30일 보존을 위한 `created_at` 기준 일일 batch DELETE뿐이다. 백업·덤프에도
+  30일 이내 삭제 수명주기를 적용한다.
+- 수집 활성화 전 DB owner/writer/reader/retention 역할을 분리하고 실제 권한을 점검한다. 현재처럼 동일 DB
+  superuser/owner를 애플리케이션이 쓰면 INSERT-only를 강제할 수 없으므로 해당 구성에서는 수집을 켜지 않는다.
 
 ---
 
