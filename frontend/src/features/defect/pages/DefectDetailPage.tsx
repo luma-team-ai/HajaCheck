@@ -31,10 +31,13 @@ export function DefectDetailPage() {
 
       {!isLoading && !isError && defect && (
         <>
+          <h1 className="sr-only">하자 상세</h1>
+
           <div className="defect-summary-chips" aria-label="하자 요약">
             <span className="defect-chip defect-chip--danger"><i aria-hidden="true" />{defect.typeLabel}</span>
             <span className="defect-chip">{defect.grade ? `${defect.grade}등급` : '미분류'}</span>
             <span className="defect-chip defect-chip--warning"><i aria-hidden="true" />{DEFECT_STATUS_LABEL[defect.status]}</span>
+            <span className="defect-chip">{defect.facilityName}</span>
           </div>
 
           <dl className="sr-only">
@@ -42,8 +45,6 @@ export function DefectDetailPage() {
             <dd>
               {defect.grade ? `${defect.grade} · ${DEFECT_GRADE_LABEL[defect.grade]}` : '미분류'}
             </dd>
-            <dt>위치</dt>
-            <dd>{defect.facilityName}</dd>
             <dt>상태</dt>
             <dd>{DEFECT_STATUS_LABEL[defect.status]}</dd>
           </dl>
@@ -68,7 +69,7 @@ export function DefectDetailPage() {
                   <span>가로 · 세로</span>
                   {defect.crackWidthMm != null && defect.crackLengthMm != null ? (
                     <>
-                      <strong>{defect.crackWidthMm}</strong>
+                      <strong>{defect.crackWidthMm}mm</strong>
                       <em>· &nbsp;&nbsp;{defect.crackLengthMm}mm</em>
                     </>
                   ) : (
