@@ -30,9 +30,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
+import org.springframework.data.domain.SliceImpl;
 
 /**
  * InspectionDueNotificationScheduler 단위 테스트(NOTI-01, #425). BuiltYearValidatorTest 와 같이
@@ -73,8 +73,8 @@ class InspectionDueNotificationSchedulerTest {
         return f;
     }
 
-    private Page<Facility> singlePage(List<Facility> content) {
-        return new PageImpl<>(content);
+    private Slice<Facility> singlePage(List<Facility> content) {
+        return new SliceImpl<>(content);
     }
 
     private void stubDuePage(List<Facility> content) {
@@ -215,9 +215,9 @@ class InspectionDueNotificationSchedulerTest {
     void 여러페이지_전부처리() {
         Facility p0 = dueFacility(1L, OWNER, "1페이지시설");
         Facility p1 = dueFacility(2L, OWNER, "2페이지시설");
-        // pageSize=1, total=2 → page0.hasNext()=true, page1.hasNext()=false 로 강제.
-        Page<Facility> page0 = new PageImpl<>(List.of(p0), PageRequest.of(0, 1), 2);
-        Page<Facility> page1 = new PageImpl<>(List.of(p1), PageRequest.of(1, 1), 2);
+        // pageSize=1 → page0.hasNext()=true(다음 페이지 있음), page1.hasNext()=false(마지막) 로 강제.
+        Slice<Facility> page0 = new SliceImpl<>(List.of(p0), PageRequest.of(0, 1), true);
+        Slice<Facility> page1 = new SliceImpl<>(List.of(p1), PageRequest.of(1, 1), false);
         when(facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(any(), any()))
                 .thenReturn(page0, page1);
         stubNoExistingNotifications();

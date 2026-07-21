@@ -14,8 +14,8 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import org.springframework.test.context.ActiveProfiles;
 
 // 실 PG DDL(facilities) 대조를 위해 임베디드 교체를 끄고 Testcontainers PostgreSQL 사용 (리뷰 P2).
@@ -251,7 +251,7 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         facilityRepository.save(newFacilityWithDueAt(ownerId, "내일마감_미래", today.plusDays(1)));
         facilityRepository.save(newFacility(ownerId, "예정일없음"));
 
-        Page<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(
+        Slice<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(
                 today, PageRequest.of(0, 200));
 
         assertThat(found.getContent())
@@ -267,7 +267,7 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         facilityRepository.save(newFacilityWithDueAt(ownerId, "A소유_오늘마감", today));
         facilityRepository.save(newFacilityWithDueAt(otherOwnerId, "B소유_오늘마감", today));
 
-        Page<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(
+        Slice<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(
                 today, PageRequest.of(0, 200));
 
         assertThat(found.getContent())
@@ -307,7 +307,7 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         int pageSize = 2;
         List<Long> collectedIds = new java.util.ArrayList<>();
         int pageNumber = 0;
-        Page<Facility> page;
+        Slice<Facility> page;
         do {
             page = facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(
                     today, PageRequest.of(pageNumber, pageSize));
