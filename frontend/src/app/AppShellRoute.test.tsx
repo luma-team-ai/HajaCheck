@@ -155,4 +155,25 @@ describe('AppShellRoute', () => {
     const bell = screen.getByRole('button', { name: '알림' });
     expect(bell.getAttribute('aria-label')).toBe('알림');
   });
+
+  // react-reviewer P1-1: shared NotificationDropdown은 document mousedown으로 바깥 클릭을 감지해
+  // onClose를 부른다. 벨 버튼은 그 rootRef 바깥이라, 패널이 열린 상태에서 벨을 다시 클릭하면
+  // mousedown(→onClose)이 click(→토글)보다 먼저 발생 — 가드가 없으면 닫혔다가 곧바로 다시 열려버린다.
+  // 실제 브라우저 이벤트 순서(mousedown → click)를 그대로 재현해 검증한다.
+  it('패널이 열린 상태에서 벨을 다시 클릭하면(mousedown→click) 닫힌 채로 유지된다(react-reviewer P1-1)', async () => {
+    useAuthStore.setState({ user: baseUser });
+
+    renderAt('/dashboard');
+
+    const bell = await screen.findByRole('button', { name: '알림 (미읽음 3건)' });
+    fireEvent.click(bell);
+    expect(await screen.findByRole('menu', { name: '알림' })).not.toBeNull();
+
+    // 벨 재클릭의 실제 이벤트 시퀀스 — mousedown이 NotificationDropdown의 바깥클릭 감지를 먼저 트리거하고,
+    // 뒤이어 click이 벨의 onNotificationClick을 트리거한다(userEvent.click도 내부적으로 이 순서로 발행).
+    fireEvent.mouseDown(bell);
+    fireEvent.click(bell);
+
+    expect(screen.queryByRole('menu', { name: '알림' })).toBeNull();
+  });
 });

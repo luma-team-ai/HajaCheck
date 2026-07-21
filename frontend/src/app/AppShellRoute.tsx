@@ -3,7 +3,7 @@
 // 새 페이지를 이 셸에 포함하려면 router.tsx의 children 배열에 라우트를 추가하고,
 // 그 라우트의 `handle`에 breadcrumb/activeHref를 선언하기만 하면 된다 — 페이지 컴포넌트 자체는
 // AppLayout을 몰라도 됨(react-router v6 표준 패턴: useMatches() + handle).
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Outlet, useMatches, useNavigate } from 'react-router-dom';
 import { useLogout } from '../features/auth/hooks/useLogout';
 import { MYPAGE_PLAN_ROUTE } from '../features/auth/constants';
@@ -58,6 +58,25 @@ export function AppShellRoute() {
   const { data: notifications } = useNotifications(isAuthenticated);
   const unreadCount = notifications?.filter((item) => !item.isRead).length ?? 0;
 
+  // 벨 재클릭 토글 경합(react-reviewer P1) 가드: shared NotificationDropdown은 document
+  // mousedown으로 바깥 클릭을 감지해 onClose를 부른다. 벨 버튼은 그 rootRef 바깥이라, 패널이 열린
+  // 상태에서 벨을 다시 클릭하면 mousedown(→onClose로 false)이 먼저, click(→토글로 true)이 그다음
+  // React 18 배칭 안에서 순서대로 적용돼 최종 상태가 true(안 닫힘)가 되어버린다.
+  // → 바깥클릭으로 방금(250ms 이내) 닫혔다면 그 직후의 벨 클릭은 "재오픈"이 아니라 같은 제스처의
+  // 일부로 취급해 무시한다.
+  const lastClosedByOutsideRef = useRef(0);
+  const handleNotificationClose = () => {
+    lastClosedByOutsideRef.current = Date.now();
+    setNotificationOpen(false);
+  };
+  const handleNotificationClick = () => {
+    if (Date.now() - lastClosedByOutsideRef.current < 250) {
+      lastClosedByOutsideRef.current = 0;
+      return;
+    }
+    setNotificationOpen((prev) => !prev);
+  };
+
   return (
     <>
       <AppLayout
@@ -73,15 +92,11 @@ export function AppShellRoute() {
         onLogout={() => void logout()}
         onProfileClick={() => navigate(MYPAGE_PLAN_ROUTE)}
         unreadCount={unreadCount}
-        onNotificationClick={() => setNotificationOpen((prev) => !prev)}
+        onNotificationClick={handleNotificationClick}
       >
         <Outlet />
       </AppLayout>
-      <NotificationCenter
-        open={notificationOpen}
-        onClose={() => setNotificationOpen(false)}
-        enabled={isAuthenticated}
-      />
+      <NotificationCenter open={notificationOpen} onClose={handleNotificationClose} enabled={isAuthenticated} />
     </>
   );
 }
