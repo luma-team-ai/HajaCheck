@@ -83,7 +83,7 @@ public class AdminUserController {
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long id, @Valid @RequestBody AdminUserRoleUpdateRequest request) {
         AdminUserRoleUpdateResponse response =
-                adminUserService.changeRole(id, request.role(), loginUser.getCompanyId());
+                adminUserService.changeRole(id, request.role(), loginUser.getCompanyId(), loginUser.getUserId());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
@@ -93,7 +93,7 @@ public class AdminUserController {
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long id, @Valid @RequestBody AdminUserStatusUpdateRequest request) {
         AdminUserStatusUpdateResponse response =
-                adminUserService.changeStatus(id, request.status(), loginUser.getCompanyId());
+                adminUserService.changeStatus(id, request.status(), loginUser.getCompanyId(), loginUser.getUserId());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 }

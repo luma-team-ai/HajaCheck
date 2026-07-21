@@ -16,6 +16,8 @@ import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.support.PostgresTestSupport;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.concurrent.atomic.AtomicLong;
@@ -56,6 +58,8 @@ class AdminUserRepositoryTest extends PostgresTestSupport {
     private PlanRepository planRepository;
     @Autowired
     private UserPlanRepository userPlanRepository;
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private Long companyA;
     private Long companyB;
@@ -232,15 +236,44 @@ class AdminUserRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void countByCompanyIdAndCreatedAtBetween_회사내_기간내_가입자수() {
+    void countByCompanyIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan_회사내_기간내_가입자수() {
         saveUser("이번주가입", "thisweek@haja.com", Role.USER, UserStatus.ACTIVE, companyA);
         saveUser("다른회사가입", "other-thisweek@haja.com", Role.USER, UserStatus.ACTIVE, companyB);
 
         LocalDateTime from = LocalDateTime.now().minusDays(7);
         LocalDateTime to = LocalDateTime.now().plusMinutes(1);
 
-        assertThat(adminUserRepository.countByCompanyIdAndCreatedAtBetween(companyA, from, to)).isEqualTo(1);
-        assertThat(adminUserRepository.countByCompanyIdAndCreatedAtBetween(companyA, from.minusDays(30), from))
+        assertThat(adminUserRepository
+                .countByCompanyIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(companyA, from, to))
+                .isEqualTo(1);
+        assertThat(adminUserRepository
+                .countByCompanyIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(companyA, from.minusDays(30), from))
                 .isEqualTo(0);
+    }
+
+    // 상한이 배타적(LessThan)이라 경계 시각(boundary)에 걸친 사용자가 두 인접 윈도우 양쪽에 이중 계상되지
+    // 않는지 확인한다(리뷰 P3 — 기존 Between 양끝 inclusive였을 때의 회귀 재발 방지).
+    @Test
+    void countByCompanyIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan_경계시각은_상한윈도우에서_제외된다() {
+        LocalDateTime boundary = LocalDateTime.now().minusDays(7);
+        User boundaryUser = saveUser("경계가입", "boundary@haja.com", Role.USER, UserStatus.ACTIVE, companyA);
+        userRepository.flush();
+        setCreatedAt(boundaryUser.getId(), boundary);
+
+        long previousWindow = adminUserRepository.countByCompanyIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                companyA, boundary.minusDays(7), boundary);
+        long currentWindow = adminUserRepository.countByCompanyIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                companyA, boundary, boundary.plusDays(7));
+
+        assertThat(previousWindow).isEqualTo(0);
+        assertThat(currentWindow).isEqualTo(1);
+    }
+
+    private void setCreatedAt(Long userId, LocalDateTime createdAt) {
+        entityManager.createQuery("update User u set u.createdAt = :createdAt where u.id = :id")
+                .setParameter("createdAt", createdAt)
+                .setParameter("id", userId)
+                .executeUpdate();
+        entityManager.clear();
     }
 }

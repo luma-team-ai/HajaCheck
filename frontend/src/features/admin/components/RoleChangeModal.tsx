@@ -42,7 +42,7 @@ export function RoleChangeModal({
   }
 
   return (
-    <Modal open={Boolean(user)} onClose={onClose} title="역할 변경">
+    <Modal open={Boolean(user)} onClose={onClose} title="역할 변경" closeOnOverlayClick={false}>
       <div className="flex w-105 max-w-full flex-col gap-6">
         <div className="flex items-center gap-4 rounded-[20px] border border-border bg-surface-muted p-3.5">
           <UserAvatar user={user} size="lg" />

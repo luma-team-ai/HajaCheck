@@ -268,6 +268,23 @@ class AdminUserControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void 사용자등록_화이트리스트밖역할이면_400_ADMIN_ROLE_NOT_ASSIGNABLE() throws Exception {
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin10@haja.com", Role.ADMIN, company.getId());
+        AdminUserCreateRequest request =
+                new AdminUserCreateRequest("counselor@haja.com", "password1", "상담원시도", Role.COUNSELOR);
+
+        mockMvc.perform(post("/api/admin/users")
+                        .with(authentication(authOf(admin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("ADMIN_ROLE_NOT_ASSIGNABLE"));
+
+        assertThat(userRepository.findByEmail("counselor@haja.com")).isEmpty();
+    }
+
+    @Test
     void 역할변경_관리자_200과변경된역할반환() throws Exception {
         Company company = saveCompany();
         User admin = saveUser("관리자", "admin3@haja.com", Role.ADMIN, company.getId());
@@ -318,6 +335,62 @@ class AdminUserControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void 역할변경_화이트리스트밖역할이면_400_ADMIN_ROLE_NOT_ASSIGNABLE() throws Exception {
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin-role-wl@haja.com", Role.ADMIN, company.getId());
+        User target = saveUser("대상", "target-role-wl@haja.com", Role.USER, company.getId());
+        String body = objectMapper.writeValueAsString(new AdminUserRoleUpdateRequest(Role.COUNSELOR));
+
+        mockMvc.perform(patch("/api/admin/users/{id}/role", target.getId())
+                        .with(authentication(authOf(admin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("ADMIN_ROLE_NOT_ASSIGNABLE"));
+
+        User unchanged = userRepository.findById(target.getId()).orElseThrow();
+        assertThat(unchanged.getRole()).isEqualTo(Role.USER);
+    }
+
+    @Test
+    void 역할변경_관리자가_자기자신을_강등시도하면_409_ADMIN_PROTECTED_ACCOUNT() throws Exception {
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin-self-demote@haja.com", Role.ADMIN, company.getId());
+        String body = objectMapper.writeValueAsString(new AdminUserRoleUpdateRequest(Role.USER));
+
+        mockMvc.perform(patch("/api/admin/users/{id}/role", admin.getId())
+                        .with(authentication(authOf(admin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ADMIN_PROTECTED_ACCOUNT"));
+
+        User unchanged = userRepository.findById(admin.getId()).orElseThrow();
+        assertThat(unchanged.getRole()).isEqualTo(Role.ADMIN);
+    }
+
+    @Test
+    void 역할변경_회사에_활성ADMIN이_요청자뿐이면_다른관리자강등도_409() throws Exception {
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin-last-active@haja.com", Role.ADMIN, company.getId());
+        // 이미 SUSPENDED라 실질적으로 콘솔에 접근 못 하는 관리자 — 그래도 강등 순간엔 활성 ADMIN이 0명이 된다.
+        User suspendedAdmin = saveUser("정지된관리자", "admin-suspended@haja.com", Role.ADMIN, company.getId());
+        suspendedAdmin.changeStatus(UserStatus.SUSPENDED);
+        userRepository.saveAndFlush(suspendedAdmin);
+        String body = objectMapper.writeValueAsString(new AdminUserRoleUpdateRequest(Role.USER));
+
+        mockMvc.perform(patch("/api/admin/users/{id}/role", suspendedAdmin.getId())
+                        .with(authentication(authOf(admin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ADMIN_PROTECTED_ACCOUNT"));
+
+        User unchanged = userRepository.findById(suspendedAdmin.getId()).orElseThrow();
+        assertThat(unchanged.getRole()).isEqualTo(Role.ADMIN);
+    }
+
+    @Test
     void 역할변경_일반사용자면_403_FORBIDDEN() throws Exception {
         User normalUser = saveUser("일반사용자", "notadmin2@haja.com", Role.USER);
         User target = saveUser("대상", "target2@haja.com", Role.USER);
@@ -344,6 +417,23 @@ class AdminUserControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value(target.getId()))
                 .andExpect(jsonPath("$.data.status").value("SUSPENDED"));
+    }
+
+    @Test
+    void 상태변경_관리자가_자기자신을_정지시도하면_409_ADMIN_PROTECTED_ACCOUNT() throws Exception {
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin-self-suspend@haja.com", Role.ADMIN, company.getId());
+        String body = objectMapper.writeValueAsString(new AdminUserStatusUpdateRequest(UserStatus.SUSPENDED));
+
+        mockMvc.perform(patch("/api/admin/users/{id}/status", admin.getId())
+                        .with(authentication(authOf(admin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ADMIN_PROTECTED_ACCOUNT"));
+
+        User unchanged = userRepository.findById(admin.getId()).orElseThrow();
+        assertThat(unchanged.getStatus()).isEqualTo(UserStatus.ACTIVE);
     }
 
     @Test

@@ -41,7 +41,7 @@ export function StatusChangeModal({
   }
 
   return (
-    <Modal open={Boolean(user)} onClose={onClose} title="상태 변경">
+    <Modal open={Boolean(user)} onClose={onClose} title="상태 변경" closeOnOverlayClick={false}>
       <div className="flex w-105 max-w-full flex-col gap-6">
         <div className="flex items-center justify-between rounded-[20px] border border-border bg-surface-muted p-4">
           <div className="flex items-center gap-4">

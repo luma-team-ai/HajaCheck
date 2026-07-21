@@ -86,6 +86,12 @@ public enum ErrorCode {
     // 알림(notification) — FR-9, HAJA-274. 미존재/타인 소유 모두 통일 응답(cross-user IDOR 방지).
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "알림을 찾을 수 없습니다."),
 
+    // 관리자 콘솔 — 사용자 관리(#405, 리뷰 P2)
+    // 자기 자신을 강등/정지하거나, 회사에 남은 마지막 ADMIN을 강등/정지하려는 시도를 통일 응답으로 차단.
+    ADMIN_PROTECTED_ACCOUNT(HttpStatus.CONFLICT, "자기 자신 또는 회사의 마지막 관리자는 변경할 수 없습니다."),
+    // 프론트 역할 선택지(USER/INSPECTOR/ADMIN) 밖의 Role(예: COUNSELOR)을 서버가 그대로 수락하지 않도록 화이트리스트 강제.
+    ADMIN_ROLE_NOT_ASSIGNABLE(HttpStatus.BAD_REQUEST, "부여할 수 없는 역할입니다."),
+
     // 도메인별 예시 — 각 담당이 추가
     DEFECT_NOT_FOUND(HttpStatus.NOT_FOUND, "하자를 찾을 수 없습니다."),
     AI_JOB_TIMEOUT(HttpStatus.INTERNAL_SERVER_ERROR, "AI 분석 요청이 시간 초과되었습니다."),

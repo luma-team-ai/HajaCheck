@@ -58,7 +58,13 @@ public interface AdminUserRepository extends JpaRepository<User, Long> {
 
     long countByCompanyIdAndStatus(Long companyId, UserStatus status);
 
-    long countByCompanyIdAndCreatedAtBetween(Long companyId, LocalDateTime from, LocalDateTime to);
+    // 회사 내 마지막 ADMIN 보호(리뷰 P2) — 강등/정지 시도 시 남는 활성 ADMIN 수를 센다.
+    long countByCompanyIdAndRoleAndStatus(Long companyId, Role role, UserStatus status);
+
+    // Between은 양끝 inclusive라 두 윈도우가 경계 시각(from)을 공유하면 이중 계상된다 —
+    // GreaterThanEqual+LessThan으로 상한을 배타적으로 분리해 정확히 한 윈도우에만 집계되게 한다(리뷰 P3).
+    long countByCompanyIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+            Long companyId, LocalDateTime from, LocalDateTime to);
 
     boolean existsByEmail(String email);
 }

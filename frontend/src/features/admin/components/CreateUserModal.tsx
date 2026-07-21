@@ -74,7 +74,7 @@ export function CreateUserModal({
   }
 
   return (
-    <Modal open={open} onClose={handleClose} title="사용자 등록">
+    <Modal open={open} onClose={handleClose} title="사용자 등록" closeOnOverlayClick={false}>
       <form onSubmit={handleSubmit} className="flex w-105 max-w-full flex-col gap-6">
         <div className="flex flex-col gap-2">
           <label htmlFor="create-user-email" className={LABEL_CLASS}>

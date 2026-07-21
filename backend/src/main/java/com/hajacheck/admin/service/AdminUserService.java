@@ -16,7 +16,9 @@ import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -32,6 +34,10 @@ public class AdminUserService {
 
     private final AdminUserRepository adminUserRepository;
     private final PasswordEncoder passwordEncoder;
+
+    // 관리자 콘솔이 프론트에 노출하는 배정 가능 역할(ROLE_CHANGE_OPTIONS: USER/INSPECTOR/ADMIN)과 동일한
+    // 화이트리스트 — COUNSELOR 등 이 화면 밖의 Role은 요청을 크래프팅해도 서버가 거부한다(리뷰 P2).
+    private static final Set<Role> ASSIGNABLE_ROLES = EnumSet.of(Role.ADMIN, Role.INSPECTOR, Role.USER);
 
     public AdminUserListResponse list(Long companyId, String keyword, Role role, PlanName plan, UserStatus status,
                                        Pageable pageable) {
@@ -54,6 +60,7 @@ public class AdminUserService {
     @Transactional
     public AdminUserResponse createUser(AdminUserCreateRequest request, Long companyId) {
         requireCompanyId(companyId);
+        requireAssignableRole(request.role());
         // 선검사 — 명확한 중복은 저장 전에 조기 차단(CompanySignupService와 동일 패턴).
         if (adminUserRepository.existsByEmail(request.email())) {
             throw new BusinessException(ErrorCode.AUTH_EMAIL_DUPLICATED);
@@ -72,17 +79,42 @@ public class AdminUserService {
     }
 
     @Transactional
-    public AdminUserRoleUpdateResponse changeRole(Long userId, Role role, Long companyId) {
+    public AdminUserRoleUpdateResponse changeRole(Long userId, Role role, Long companyId, Long requestingUserId) {
+        requireAssignableRole(role);
         User user = findUser(userId, companyId);
+        if (user.getRole() == Role.ADMIN && role != Role.ADMIN) {
+            requireNotLastOrSelfAdmin(userId, companyId, requestingUserId);
+        }
         user.changeRole(role);
         return new AdminUserRoleUpdateResponse(user.getId(), user.getRole());
     }
 
     @Transactional
-    public AdminUserStatusUpdateResponse changeStatus(Long userId, UserStatus status, Long companyId) {
+    public AdminUserStatusUpdateResponse changeStatus(Long userId, UserStatus status, Long companyId,
+                                                        Long requestingUserId) {
         User user = findUser(userId, companyId);
+        if (user.getRole() == Role.ADMIN && status == UserStatus.SUSPENDED) {
+            requireNotLastOrSelfAdmin(userId, companyId, requestingUserId);
+        }
         user.changeStatus(status);
         return new AdminUserStatusUpdateResponse(user.getId(), user.getStatus());
+    }
+
+    // 자기 자신의 ADMIN 권한을 스스로 내려놓거나(회사가 ADMIN 콘솔 접근 수단을 즉시 잃음), 회사에 남은
+    // 마지막 ACTIVE ADMIN을 강등/정지하려는 시도를 막는다 — 둘 다 되돌릴 수 없는 회사 잠금으로 이어진다(리뷰 P2).
+    private void requireNotLastOrSelfAdmin(Long targetUserId, Long companyId, Long requestingUserId) {
+        boolean isSelf = targetUserId.equals(requestingUserId);
+        long remainingActiveAdmins =
+                adminUserRepository.countByCompanyIdAndRoleAndStatus(companyId, Role.ADMIN, UserStatus.ACTIVE);
+        if (isSelf || remainingActiveAdmins <= 1) {
+            throw new BusinessException(ErrorCode.ADMIN_PROTECTED_ACCOUNT);
+        }
+    }
+
+    private void requireAssignableRole(Role role) {
+        if (!ASSIGNABLE_ROLES.contains(role)) {
+            throw new BusinessException(ErrorCode.ADMIN_ROLE_NOT_ASSIGNABLE);
+        }
     }
 
     // 다른 회사 소속 userId를 넘겨도 "존재하지 않음"과 동일하게 응답한다 — 리소스 존재 여부 열거
@@ -126,8 +158,10 @@ public class AdminUserService {
         LocalDateTime weekAgo = now.minusDays(7);
         LocalDateTime twoWeeksAgo = now.minusDays(14);
 
-        long newThisWeek = adminUserRepository.countByCompanyIdAndCreatedAtBetween(companyId, weekAgo, now);
-        long newLastWeek = adminUserRepository.countByCompanyIdAndCreatedAtBetween(companyId, twoWeeksAgo, weekAgo);
+        long newThisWeek = adminUserRepository
+                .countByCompanyIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(companyId, weekAgo, now);
+        long newLastWeek = adminUserRepository
+                .countByCompanyIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(companyId, twoWeeksAgo, weekAgo);
 
         double growthRate = calculateGrowthRate(newThisWeek, newLastWeek);
 
