@@ -5,6 +5,7 @@ import { dashboardHandlers } from '../features/dashboard/api/dashboardApi.handle
 import { facilityHandlers } from '../features/facility/api/facilityApi.handlers';
 import { inspectionHandlers } from '../features/inspection/api/inspectionApi.handlers';
 import { mypageHandlers } from '../features/mypage/api/mypageApi.handlers';
+import { notificationHandlers } from '../features/notification/api/notificationApi.handlers';
 import { supportHandlers } from '../features/support/api/supportApi.handlers';
 
 export const handlers = [
@@ -15,4 +16,5 @@ export const handlers = [
   ...facilityHandlers,
   ...adminHandlers,
   ...supportHandlers,
+  ...notificationHandlers,
 ];
