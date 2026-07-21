@@ -88,6 +88,13 @@ const AdminUsersPage = lazy(() =>
   })),
 );
 
+// 관리자 > 플랜·쿼터 관리 (Figma node 1197-3519)
+const PlanQuotaPage = lazy(() =>
+  import('../features/admin/pages/PlanQuotaPage').then((m) => ({
+    default: m.PlanQuotaPage,
+  })),
+);
+
 const FacilityListPage = lazy(() =>
   import('../features/facility/pages/FacilityListPage').then((m) => ({
     default: m.FacilityListPage,
@@ -360,6 +367,21 @@ export const router = createBrowserRouter([
           activeHref: '/admin/users',
         },
       }, // — features/admin (Figma node 177-2017)
+      {
+        path: '/admin/plans-quota',
+        // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#508, 컨벤션 §7)
+        element: (
+          <AdminRoute>
+            <Suspense fallback={<div>불러오는 중...</div>}>
+              <PlanQuotaPage />
+            </Suspense>
+          </AdminRoute>
+        ),
+        handle: {
+          breadcrumb: [{ label: '관리자' }, { label: '플랜·쿼터 관리' }],
+          activeHref: '/admin/plans-quota',
+        },
+      }, // — features/admin 플랜·쿼터 관리 (Figma node 1197-3519)
       {
         path: '/support/ai-assistant',
         element: (

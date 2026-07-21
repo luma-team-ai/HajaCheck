@@ -11,6 +11,7 @@ describe('isRouteImplemented', () => {
     '/mypage/plan',
     '/inspections/1/viewer',
     '/facilities/list',
+    '/admin/plans-quota',
   ])(
     '실제 라우터에 연결된 정확한 경로 %s는 true를 반환한다',
     (href) => {
