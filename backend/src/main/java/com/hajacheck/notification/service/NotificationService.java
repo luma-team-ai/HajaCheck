@@ -3,6 +3,8 @@ package com.hajacheck.notification.service;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.notification.dto.NotificationResponse;
+import com.hajacheck.notification.entity.Notification;
+import com.hajacheck.notification.entity.NotificationType;
 import com.hajacheck.notification.repository.NotificationRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -44,5 +46,18 @@ public class NotificationService {
         if (!notificationRepository.existsByIdAndUserIdAndReadTrue(notificationId, userId)) {
             throw new BusinessException(ErrorCode.NOTIFICATION_NOT_FOUND);
         }
+    }
+
+    /**
+     * 사용자에게 알림 1건을 발행한다(NOTI-01, #425). {@code Facility}·{@code INSPECTION_DUE} 같은 특정
+     * 도메인/유형을 몰라도 되는 범용 진입점으로, 다른 도메인·다른 알림 유형도 그대로 호출할 수 있게 설계했다.
+     * 시설물별 독립 커밋을 위해 클래스 기본값 대신 이 메서드에만 쓰기 트랜잭션을 건다(markAsRead 와 동일 패턴).
+     *
+     * <p>⚠️ 이 메서드는 인가/소유권 검증이 없는 <b>시스템 전용 진입점</b>이다 — 사용자 입력을 직접 이 메서드에
+     * 배선하지 말 것(향후 컨트롤러 등에서 임의 userId로 호출하면 알림 위조/IDOR가 된다).
+     */
+    @Transactional
+    public void notify(Long userId, NotificationType type, String payloadJson) {
+        notificationRepository.save(Notification.create(userId, type, payloadJson));
     }
 }
