@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { NotificationItem } from '../../../shared/components/NotificationDropdown';
 import { NotificationDropdown } from '../../../shared/components/NotificationDropdown';
 import { NOTIFICATION_ALL_FILTER_KEY, NOTIFICATION_FILTERS, NOTIFICATION_TYPE_META } from '../constants';
@@ -27,25 +27,23 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
   const { data } = useNotifications(enabled);
   const { markAsRead, markAllAsRead } = useMarkNotificationsAsRead();
 
-  const notifications = useMemo(() => data ?? [], [data]);
+  const notifications = data ?? [];
 
-  const items: NotificationItem[] = useMemo(
-    () =>
-      notifications.map((raw) => {
-        const meta = NOTIFICATION_TYPE_META[raw.type];
-        return {
-          id: raw.id,
-          category: meta.category,
-          title: meta.title,
-          description: extractDescription(raw.payload),
-          timestamp: formatElapsedTime(raw.createdAt),
-          read: raw.isRead,
-          actionLabel: meta.actionLabel,
-          onAction: () => markAsRead(raw.id),
-        };
-      }),
-    [notifications, markAsRead],
-  );
+  // markAsRead(useMutation.mutate 래퍼)는 렌더마다 identity가 바뀌어 useMemo 의존성으로 써도
+  // 매 렌더 재계산됐다(P2) — 목록 규모가 작아(최대 30건, BE 컷 기준) 순수 계산으로 충분하다.
+  const items: NotificationItem[] = notifications.map((raw) => {
+    const meta = NOTIFICATION_TYPE_META[raw.type];
+    return {
+      id: raw.id,
+      category: meta.category,
+      title: meta.title,
+      description: extractDescription(raw.payload),
+      timestamp: formatElapsedTime(raw.createdAt),
+      read: raw.isRead,
+      actionLabel: meta.actionLabel,
+      onAction: () => markAsRead(raw.id),
+    };
+  });
 
   const unreadCount = notifications.filter((item) => !item.isRead).length;
 
