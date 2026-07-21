@@ -43,3 +43,66 @@ export interface InspectionResult {
   reviewedCount: number; // 예: 128
   totalCount: number; // 예: 214
 }
+
+// 점검(회차) 생성 — API 명세서 v0.3 AP-004, POST /api/inspections.
+// backend InspectionCreateRequest(facilityId/inspectionDate/assignedInspectorId)와 1:1.
+export interface InspectionCreateRequest {
+  facilityId: number;
+  /** YYYY-MM-DD */
+  inspectionDate: string;
+  assignedInspectorId: number;
+}
+
+// backend InspectionResponse와 1:1
+export interface InspectionCreateResponse {
+  id: number;
+  facilityId: number;
+  createdBy: number;
+  assignedInspectorId: number;
+  roundNo: number;
+  inspectionDate: string;
+  status: string;
+  createdAt: string;
+}
+
+// 시설물 선택 셀렉트 전용 — feature 간 직접 import 금지(React_코드_컨벤션.md §1)라
+// facility feature의 Facility 타입을 재사용하지 않고 이 화면에 필요한 필드만 로컬로 정의한다.
+export interface FacilityOption {
+  id: number;
+  name: string;
+}
+
+// 점검(회차) 생성 화면 상단의 시설물 개요 패널(shared/FacilityOverviewPanel) 전용 — facility
+// feature의 Facility/FacilityInspectionOverview 타입과 같은 이유로 로컬 정의(cross-feature import 금지).
+export interface FacilityDetail {
+  id: number;
+  name: string;
+  type: string;
+  address: string | null;
+  builtYear: number | null;
+  scale: string | null;
+  nextInspectionDueAt: string | null;
+}
+
+export type DefectGradeLetter = 'A' | 'B' | 'C' | 'D' | 'E';
+
+export interface FacilityOverviewHistoryEntry {
+  id: number;
+  roundNo: number;
+  /** YYYY-MM-DD */
+  inspectionDate: string;
+  inspectorName: string;
+  status: string;
+  imageCount: number;
+  defectGradeBreakdown: { grade: DefectGradeLetter; count: number }[];
+  changeNote?: string;
+  additionalImageCount?: number;
+}
+
+export interface FacilityOverview {
+  overallGrade: DefectGradeLetter | null;
+  totalRounds: number;
+  cumulativeDefectCount: number;
+  unresolvedDefectCount: number;
+  history: FacilityOverviewHistoryEntry[];
+}
