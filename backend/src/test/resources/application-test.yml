@@ -50,3 +50,11 @@ app:
   oauth2:
     success-redirect: http://localhost:5173/dashboard
     failure-redirect: http://localhost:5173/login?error=oauth
+
+# plans 시드 부팅 가드(#517/#518) 비활성 — H2(create-drop)는 엔티티 기반 빈 스키마만 만들고 SQL 시드는
+# 적용하지 않는다(PostgresTestSupport 기반 Testcontainers PG 는 HajaCheck_script.sql 로 이미 시드돼 있어
+# 이 토글과 무관하게 통과하지만, 순수 H2 @SpringBootTest 는 시드가 없는 게 정상이라 꺼야 한다).
+hajacheck:
+  membership:
+    seed-guard:
+      enabled: false

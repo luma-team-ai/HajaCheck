@@ -58,6 +58,10 @@ class MembershipControllerTest extends PostgresTestSupport {
     private UsageCounterRepository usageCounterRepository;
 
     private Plan savePlan() {
+        // #517 시드로 STANDARD 가 이미 존재 — 고정 테스트 값(maxSeats=3, price=99000)을 쓰기 위해
+        // 시드 행을 지우고 이 fixture 로 대체한다(트랜잭션 롤백으로 테스트 간 격리 유지).
+        planRepository.findByName(PlanName.STANDARD).ifPresent(planRepository::delete);
+        planRepository.flush();
         return planRepository.save(Plan.create(PlanName.STANDARD, 10, 1000, 3, false, true, false,
                 BigDecimal.valueOf(99000)));
     }

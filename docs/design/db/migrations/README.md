@@ -1,6 +1,6 @@
 # 기존 PostgreSQL 수동 증분 반영 절차
 
-> **문서 버전:** v0.1 · **최종 수정:** 2026-07-19 · 이전 버전 `archive/`
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-21 · 이전 버전 `archive/`
 
 이 디렉터리는 이미 운영 중인 v0.3 계열 PostgreSQL을 현재
 [`HajaCheck_script.sql`](../HajaCheck_script.sql) 스키마로 올리는 수동 증분 SQL을 보관한다.
@@ -280,6 +280,12 @@ drop index concurrently if exists public.idx_rag_documents_target_collection;
 
 `20260719_01_ap020_notification_history_index.sql`은 위 HAJA-25 expand/finalize/verify 체인과 무관한
 단일 목적 파일이다(AP-020 알림 센터 조회용 인덱스 추가) — 파일 상단 안내에 따라 단독으로 적용한다.
+
+`20260721_01_plans_seed_free_assign.sql`도 마찬가지로 독립 파일이다(#517 / HAJA-308 가입 시 FREE 플랜
+자동 배정) — `plans` 시드 3건(FREE/STANDARD/ENTERPRISE, `ON CONFLICT DO NOTHING`)과, 기존 회사·무소속
+개인 활성 사용자 중 ACTIVE/UPGRADE_REQUESTED `user_plans`이 없는 대상에 FREE `ACTIVE` 행을 채우는 백필을
+함께 수행한다. 신규 설치는 `HajaCheck_script.sql`에 이미 반영된 동일 시드를 사용하므로 이 파일이 필요
+없고, 기존 운영 DB만 파일 상단 안내에 따라 단독으로 적용한다.
 
 ## 롤백 원칙
 
