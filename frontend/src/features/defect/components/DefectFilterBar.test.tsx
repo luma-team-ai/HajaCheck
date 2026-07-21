@@ -32,7 +32,31 @@ describe("DefectFilterBar", () => {
     expect(
       screen.getByRole("button", { name: "상태: 조치대기 필터 제거" }),
     ).not.toBeNull();
-    expect(screen.queryByRole("combobox")).toBeNull();
+    const typeSelect = screen.getByRole(
+      "combobox",
+      { name: "유형 필터" },
+    ) as HTMLSelectElement;
+    expect(typeSelect.value).toBe("CRACK");
+  });
+
+  it("select로 유형 필터를 직접 설정할 수 있다", () => {
+    const onChange = vi.fn();
+    render(
+      <DefectFilterBar
+        filters={{ page: 0, size: 20 }}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: "유형 필터" }), {
+      target: { value: "CRACK" },
+    });
+
+    expect(onChange).toHaveBeenCalledWith({
+      type: "CRACK",
+      page: 0,
+      size: 20,
+    });
   });
 
   it("개별 필터 제거와 전체 초기화를 상위 상태로 전달한다", () => {

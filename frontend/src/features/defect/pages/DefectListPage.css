@@ -184,6 +184,25 @@
   font-weight: 600;
 }
 
+.defect-filter-bar__manual {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.defect-filter-bar__select {
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  background: var(--color-surface-muted);
+  padding: 6px 12px;
+  color: var(--color-text-default);
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .defect-filter-bar__controls {
   display: flex;
   flex-wrap: wrap;

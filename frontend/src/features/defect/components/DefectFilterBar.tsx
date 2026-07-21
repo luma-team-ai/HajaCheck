@@ -1,8 +1,13 @@
+import type { ChangeEvent } from "react";
 import { Button } from "../../../shared/components/Button";
 import {
+  DEFECT_GRADE_LABEL,
   DEFECT_STATUS_LABEL,
   DEFECT_TYPE_LABEL,
+  type DefectGrade,
   type DefectListFilters,
+  type DefectStatus,
+  type DefectType,
 } from "../types";
 
 type Props = {
@@ -11,6 +16,21 @@ type Props = {
 };
 
 export function DefectFilterBar({ filters, onChange }: Props) {
+  function handleTypeChange(event: ChangeEvent<HTMLSelectElement>) {
+    const value = event.target.value as DefectType | "";
+    onChange({ ...filters, type: value === "" ? undefined : value, page: 0 });
+  }
+
+  function handleGradeChange(event: ChangeEvent<HTMLSelectElement>) {
+    const value = event.target.value as DefectGrade | "";
+    onChange({ ...filters, grade: value === "" ? undefined : value, page: 0 });
+  }
+
+  function handleStatusChange(event: ChangeEvent<HTMLSelectElement>) {
+    const value = event.target.value as DefectStatus | "";
+    onChange({ ...filters, status: value === "" ? undefined : value, page: 0 });
+  }
+
   const appliedFilters = [
     filters.type
       ? {
@@ -61,6 +81,56 @@ export function DefectFilterBar({ filters, onChange }: Props) {
         >
           <span aria-hidden="true">➤</span>
         </button>
+      </div>
+
+      <div className="defect-filter-bar__manual" aria-label="상세 필터">
+        <select
+          className="defect-filter-bar__select"
+          aria-label="유형 필터"
+          value={filters.type ?? ""}
+          onChange={handleTypeChange}
+        >
+          <option value="">전체 유형</option>
+          {(Object.entries(DEFECT_TYPE_LABEL) as [DefectType, string][]).map(
+            ([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ),
+          )}
+        </select>
+
+        <select
+          className="defect-filter-bar__select"
+          aria-label="등급 필터"
+          value={filters.grade ?? ""}
+          onChange={handleGradeChange}
+        >
+          <option value="">전체 등급</option>
+          {(Object.entries(DEFECT_GRADE_LABEL) as [DefectGrade, string][]).map(
+            ([value, label]) => (
+              <option key={value} value={value}>
+                {value} · {label}
+              </option>
+            ),
+          )}
+        </select>
+
+        <select
+          className="defect-filter-bar__select"
+          aria-label="상태 필터"
+          value={filters.status ?? ""}
+          onChange={handleStatusChange}
+        >
+          <option value="">전체 상태</option>
+          {(Object.entries(DEFECT_STATUS_LABEL) as [DefectStatus, string][]).map(
+            ([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ),
+          )}
+        </select>
       </div>
 
       {appliedFilters.length > 0 && (
