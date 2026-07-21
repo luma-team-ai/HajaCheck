@@ -33,10 +33,31 @@ begin
                     or (level = 'ERROR' and http_status between 500 and 599)
                 ),
             constraint ck_api_system_logs_duration
-                check (duration_ms >= 0)
+                check (duration_ms >= 0),
+            constraint ck_api_system_logs_request_id_format
+                check (
+                    request_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                    or request_id ~ '^[0-9A-HJKMNP-TV-Z]{26}$'
+                ),
+            constraint ck_api_system_logs_endpoint_pattern
+                check (endpoint ~ '^/' and endpoint !~ '[?#[:cntrl:]]'),
+            constraint ck_api_system_logs_message_no_control
+                check (message is null or message !~ '[[:cntrl:]]'),
+            constraint ck_api_system_logs_client_ip_masked
+                check (
+                    client_ip is null
+                    or (
+                        family(client_ip) = 4
+                        and masklen(client_ip) = 24
+                        and client_ip = network(client_ip)::inet
+                    )
+                    or (
+                        family(client_ip) = 6
+                        and masklen(client_ip) = 48
+                        and client_ip = network(client_ip)::inet
+                    )
+                )
         );
-
-        alter table public.api_system_logs owner to postgres;
     end if;
 end
 $migration$;
@@ -44,7 +65,6 @@ $migration$;
 do $migration$
 declare
     mismatch_count integer;
-    actual_owner text;
     actual_primary_key text[];
 begin
     if not exists (
@@ -57,15 +77,6 @@ begin
           and table_meta.relpersistence = 'p'
     ) then
         raise exception 'public.api_system_logs must be a permanent ordinary table';
-    end if;
-
-    select pg_get_userbyid(table_meta.relowner)
-    into actual_owner
-    from pg_class table_meta
-    where table_meta.oid = 'public.api_system_logs'::regclass;
-
-    if actual_owner is distinct from 'postgres' then
-        raise exception 'public.api_system_logs owner differs from canonical DDL: %', actual_owner;
     end if;
 
     with expected(column_name, data_type, is_not_null, default_expression, identity_kind) as (
@@ -127,8 +138,12 @@ begin
     create temporary table expected_api_system_logs_checks
     (
         level       varchar(10),
+        request_id  varchar(100),
+        endpoint    varchar(500),
         http_status smallint,
+        message     varchar(500),
         duration_ms bigint,
+        client_ip   inet,
         constraint ck_api_system_logs_level
             check (level in ('WARN', 'ERROR')),
         constraint ck_api_system_logs_level_http_status
@@ -137,7 +152,30 @@ begin
                 or (level = 'ERROR' and http_status between 500 and 599)
             ),
         constraint ck_api_system_logs_duration
-            check (duration_ms >= 0)
+            check (duration_ms >= 0),
+        constraint ck_api_system_logs_request_id_format
+            check (
+                request_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                or request_id ~ '^[0-9A-HJKMNP-TV-Z]{26}$'
+            ),
+        constraint ck_api_system_logs_endpoint_pattern
+            check (endpoint ~ '^/' and endpoint !~ '[?#[:cntrl:]]'),
+        constraint ck_api_system_logs_message_no_control
+            check (message is null or message !~ '[[:cntrl:]]'),
+        constraint ck_api_system_logs_client_ip_masked
+            check (
+                client_ip is null
+                or (
+                    family(client_ip) = 4
+                    and masklen(client_ip) = 24
+                    and client_ip = network(client_ip)::inet
+                )
+                or (
+                    family(client_ip) = 6
+                    and masklen(client_ip) = 48
+                    and client_ip = network(client_ip)::inet
+                )
+            )
     ) on commit drop;
 
     with expected as (
@@ -176,7 +214,7 @@ begin
         select count(*)
         from pg_constraint constraint_meta
         where constraint_meta.conrelid = 'public.api_system_logs'::regclass
-    ) <> 4 then
+    ) <> 8 then
         raise exception 'public.api_system_logs has unexpected constraints';
     end if;
 end
@@ -185,16 +223,16 @@ $migration$;
 comment on table public.api_system_logs is 'API 호출 결과가 4xx 또는 5xx인 요청의 시스템 로그를 요청당 최대 한 행으로 기록한다.';
 comment on column public.api_system_logs.id is 'API 시스템 로그 식별자';
 comment on column public.api_system_logs.level is 'HTTP 응답 상태에 따른 로그 레벨(WARN=4xx, ERROR=5xx)';
-comment on column public.api_system_logs.request_id is 'API 요청 추적 식별자. 애플리케이션은 요청당 최대 한 로그 행만 기록하되 DB UNIQUE로 강제하지 않는다';
+comment on column public.api_system_logs.request_id is '서버가 생성하거나 allowlist 검증한 UUID/ULID 요청 추적 식별자. 요청당 최대 한 행은 애플리케이션 정책이며 DB UNIQUE로 강제하지 않는다';
 comment on column public.api_system_logs.http_method is 'API 요청 HTTP 메서드';
-comment on column public.api_system_logs.endpoint is '식별자와 개인정보를 제거한 API 엔드포인트 패턴';
+comment on column public.api_system_logs.endpoint is 'raw URI가 아닌 서버 route pattern. query·fragment·control 문자는 허용하지 않는다';
 comment on column public.api_system_logs.http_status is '최종 HTTP 응답 상태 코드';
 comment on column public.api_system_logs.error_code is '애플리케이션 공통 오류 코드';
-comment on column public.api_system_logs.message is '민감정보를 제거한 오류 요약 메시지';
+comment on column public.api_system_logs.message is 'ErrorCode 기반 고정·정제 오류 요약 메시지. control 문자는 허용하지 않는다';
 comment on column public.api_system_logs.exception_type is '오류를 발생시킨 예외 클래스명';
 comment on column public.api_system_logs.user_id is '요청 사용자 식별자. 사용자 삭제 후에도 로그를 보존하기 위해 users 외래키를 두지 않는다';
 comment on column public.api_system_logs.duration_ms is 'API 요청 처리 시간(밀리초)';
-comment on column public.api_system_logs.client_ip is '요청 클라이언트 IP 주소';
+comment on column public.api_system_logs.client_ip is '직접 peer 또는 신뢰 프록시 체인에서 판정해 IPv4 /24·IPv6 /48 네트워크 주소로 축약한 클라이언트 IP. 원본 IP와 신뢰되지 않은 forwarded 값은 저장하지 않는다';
 comment on column public.api_system_logs.created_at is 'API 시스템 로그 생성 시각';
 
 create index if not exists idx_api_system_logs_created_at
@@ -210,33 +248,68 @@ do $migration$
 declare
     mismatch_count integer;
 begin
-    with expected(index_name, key_columns, index_options) as (
+    with expected(
+        index_name,
+        is_unique,
+        is_valid,
+        is_ready,
+        access_method,
+        all_columns,
+        key_count,
+        attribute_count,
+        index_options,
+        predicate,
+        expressions,
+        is_exclusion,
+        is_immediate,
+        is_replica_identity
+    ) as (
         values
-            ('idx_api_system_logs_created_at', array['created_at'], '3'),
-            ('idx_api_system_logs_level_created_at', array['level', 'created_at'], '0 3'),
-            ('idx_api_system_logs_request_id', array['request_id'], '0')
+            (
+                'idx_api_system_logs_created_at', false, true, true, 'btree',
+                array['created_at'], 1, 1, '3', null::text, null::text, false, true, false
+            ),
+            (
+                'idx_api_system_logs_level_created_at', false, true, true, 'btree',
+                array['level', 'created_at'], 2, 2, '0 3', null::text, null::text, false, true, false
+            ),
+            (
+                'idx_api_system_logs_request_id', false, true, true, 'btree',
+                array['request_id'], 1, 1, '0', null::text, null::text, false, true, false
+            )
     ), actual as (
         select index_class.relname::text as index_name,
-               array_agg(attribute.attname::text order by key.ordinality) as key_columns,
-               index_meta.indoption::text as index_options
+               index_meta.indisunique as is_unique,
+               index_meta.indisvalid as is_valid,
+               index_meta.indisready as is_ready,
+               access_method.amname::text as access_method,
+               (
+                   select array_agg(
+                       coalesce(
+                           attribute.attname::text,
+                           pg_get_indexdef(index_meta.indexrelid, key.ordinality::integer, true)
+                       )
+                       order by key.ordinality
+                   )
+                   from unnest(index_meta.indkey) with ordinality as key(attnum, ordinality)
+                   left join pg_attribute attribute
+                     on attribute.attrelid = index_meta.indrelid
+                    and attribute.attnum = key.attnum
+               ) as all_columns,
+               index_meta.indnkeyatts as key_count,
+               index_meta.indnatts as attribute_count,
+               index_meta.indoption::text as index_options,
+               pg_get_expr(index_meta.indpred, index_meta.indrelid, true) as predicate,
+               pg_get_expr(index_meta.indexprs, index_meta.indrelid, true) as expressions,
+               index_meta.indisexclusion as is_exclusion,
+               index_meta.indimmediate as is_immediate,
+               index_meta.indisreplident as is_replica_identity
         from pg_index index_meta
         join pg_class index_class on index_class.oid = index_meta.indexrelid
         join pg_class table_meta on table_meta.oid = index_meta.indrelid
         join pg_am access_method on access_method.oid = index_class.relam
-        cross join lateral unnest(index_meta.indkey) with ordinality as key(attnum, ordinality)
-        join pg_attribute attribute
-          on attribute.attrelid = table_meta.oid
-         and attribute.attnum = key.attnum
         where table_meta.oid = 'public.api_system_logs'::regclass
           and not index_meta.indisprimary
-          and not index_meta.indisunique
-          and index_meta.indisvalid
-          and index_meta.indisready
-          and index_meta.indpred is null
-          and index_meta.indexprs is null
-          and index_meta.indnkeyatts = index_meta.indnatts
-          and access_method.amname = 'btree'
-        group by index_class.relname, index_meta.indoption
     )
     select count(*) into mismatch_count
     from (
