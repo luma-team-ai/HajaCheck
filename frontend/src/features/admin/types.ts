@@ -1,6 +1,7 @@
 // 관리자 > 사용자 관리 도메인 타입 — Figma node-id 177-2017 "hajaCheck Admin - 사용자 관리 워크스페이스" 기준.
-// 백엔드 계약(docs/api-contract/contract.md)에 아직 /admin/users 스펙이 없어, 아래 코드값은
-// 화면 요구사항 기준의 선제 정의다. 계약 확정 시 이 파일과 adminApi.handlers.ts를 함께 맞출 것.
+// 백엔드 GET /api/admin/users(#405) 구현 완료 — 아래 타입은 실 응답 DTO(AdminUserResponse/
+// AdminUserStatsResponse/AdminUserListResponse)와 1:1로 맞춰뒀다. 필드가 바뀌면 이 파일과
+// adminApi.handlers.ts(MSW 목)를 함께 맞출 것 — docs/api-contract/contract.md는 별도 담당자 관리.
 
 import type { Role } from '../../shared/constants/roles';
 

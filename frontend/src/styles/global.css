@@ -10,3 +10,21 @@ body {
   margin: 0;
   font-family: 'Pretendard', -apple-system, sans-serif;
 }
+
+/* 사용자 목록 PDF 내보내기(관리자 > 사용자 관리) — 인쇄 시 사이드바·헤더·챗봇 버튼 등
+   AppLayout 전체를 숨기고 #admin-user-print-area만 보이게 한다. 이 영역은 AdminUsersPage
+   내부(AppLayout의 children)에 있어 페이지 쪽 print:hidden만으로는 형제 트리인 사이드바/헤더를
+   가릴 수 없다 — body 전체를 숨긴 뒤 인쇄 영역만 다시 보이는 표준 "print this div only" 패턴. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #admin-user-print-area,
+  #admin-user-print-area * {
+    visibility: visible;
+  }
+  #admin-user-print-area {
+    position: absolute;
+    inset: 0;
+  }
+}

@@ -1,13 +1,6 @@
 import type { ChangeEvent } from 'react';
-import {
-  PLAN_FILTER_OPTIONS,
-  PLAN_LABEL,
-  ROLE_FILTER_OPTIONS,
-  ROLE_LABEL,
-  STATUS_FILTER_OPTIONS,
-  STATUS_LABEL,
-} from '../constants';
-import type { AdminUserPlan, AdminUserRole, AdminUserStatus } from '../types';
+import { ROLE_FILTER_OPTIONS, ROLE_LABEL, STATUS_FILTER_OPTIONS, STATUS_LABEL } from '../constants';
+import type { AdminUserRole, AdminUserStatus } from '../types';
 import { FilterIcon } from './icons/FilterIcon';
 import { SearchIcon } from './icons/SearchIcon';
 
@@ -17,11 +10,9 @@ export type FilterValue<T> = T | '';
 interface AdminUserFilterBarProps {
   keyword: string;
   role: FilterValue<AdminUserRole>;
-  plan: FilterValue<AdminUserPlan>;
   status: FilterValue<AdminUserStatus>;
   onKeywordChange: (keyword: string) => void;
   onRoleChange: (role: FilterValue<AdminUserRole>) => void;
-  onPlanChange: (plan: FilterValue<AdminUserPlan>) => void;
   onStatusChange: (status: FilterValue<AdminUserStatus>) => void;
   onReset: () => void;
 }
@@ -38,19 +29,17 @@ const SELECT_ARROW_STYLE = {
 };
 
 // 사용자 관리 검색·필터 바 — Figma node-id 177-2017.
-// 좌측 검색창(pill), 우측 역할/플랜/상태 드롭다운 + 필터 초기화 버튼.
+// 좌측 검색창(pill), 우측 역할/상태 드롭다운 + 필터 초기화 버튼(플랜 필터는 제거 — 사용자 지시).
 export function AdminUserFilterBar({
   keyword,
   role,
-  plan,
   status,
   onKeywordChange,
   onRoleChange,
-  onPlanChange,
   onStatusChange,
   onReset,
 }: AdminUserFilterBarProps) {
-  const hasActiveFilter = Boolean(keyword || role || plan || status);
+  const hasActiveFilter = Boolean(keyword || role || status);
 
   function handleKeywordChange(event: ChangeEvent<HTMLInputElement>) {
     onKeywordChange(event.target.value);
@@ -87,21 +76,6 @@ export function AdminUserFilterBar({
           {ROLE_FILTER_OPTIONS.map((option) => (
             <option key={option} value={option}>
               {ROLE_LABEL[option]}
-            </option>
-          ))}
-        </select>
-
-        <select
-          className={SELECT_CLASS}
-          style={SELECT_ARROW_STYLE}
-          value={plan}
-          onChange={(event) => onPlanChange(event.target.value as FilterValue<AdminUserPlan>)}
-          aria-label="플랜 필터"
-        >
-          <option value="">플랜</option>
-          {PLAN_FILTER_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {PLAN_LABEL[option]}
             </option>
           ))}
         </select>

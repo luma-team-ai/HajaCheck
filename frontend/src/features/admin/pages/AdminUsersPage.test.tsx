@@ -37,21 +37,23 @@ describe('AdminUsersPage (통합 테스트)', () => {
 
     expect(await screen.findByText('김지수')).toBeTruthy();
     expect(screen.getByText('jisoo.kim@example.com')).toBeTruthy();
-    // 가입일 포맷(YYYY.MM.DD)
-    expect(screen.getByText('2023.10.12')).toBeTruthy();
-    // 역할·플랜 배지 라벨
+    // 가입일 포맷(YYYY-MM-DD HH:mm:ss) — mock joinedAt은 시각 없는 날짜라 00:00:00으로 채워진다
+    expect(screen.getByText('2023-10-12 00:00:00')).toBeTruthy();
+    // 역할 배지 라벨
     expect(screen.getAllByText('관리자').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Enterprise').length).toBeGreaterThan(0);
   });
 
   // DB users 테이블에는 초대 대기(PENDING) 상태가 없다 — user_status_type = ACTIVE/SUSPENDED뿐이고
   // name/created_at도 NOT NULL이라 "대기 중" 표시는 성립하지 않는다(#378). 대신 실제로 비어 있을 수
-  // 있는 값(활성 구독 없음 plan=null, 미접속 last_login_at=null)이 "-"로 표시되는지 확인한다.
-  it('활성 구독이 없거나 접속 이력이 없는 사용자는 해당 셀을 "-"로 표시한다', async () => {
+  // 있는 값(미접속 last_login_at=null)이 "-"로 표시되는지 확인한다.
+  it('접속 이력이 없는 사용자는 최근 접속 셀을 "-"로 표시한다', async () => {
     renderPage();
 
-    // 배시온(id 5, plan=null)은 1페이지에 있다 — 미접속 사례(서도윤 id 14)는 2페이지라 여기선 제외
-    expect(await screen.findByText('배시온')).toBeTruthy();
+    await screen.findByText('김지수');
+    // 미접속 사례(서도윤 id 14)는 2페이지에 있다
+    fireEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
+
+    expect(await screen.findByText('서도윤')).toBeTruthy();
     expect(screen.getAllByText('-').length).toBeGreaterThan(0);
   });
 
@@ -133,14 +135,44 @@ describe('AdminUsersPage (통합 테스트)', () => {
     }
   });
 
-  it('행 액션 메뉴는 아직 준비 중임을 안내한다', async () => {
+  it('역할 변경 메뉴는 역할 변경 모달을 열고, 저장하면 실제로 역할이 바뀐다', async () => {
     renderPage();
 
     await screen.findByText('김지수');
     fireEvent.click(screen.getByRole('button', { name: '김지수 관리 메뉴' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: '권한 변경' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '역할 변경' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('역할 변경')).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole('radio', { name: /점검자/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '변경 내용 저장' }));
 
     expect(await screen.findByRole('status')).toBeTruthy();
-    expect(screen.getByText(/권한 변경은 준비 중입니다/)).toBeTruthy();
+    expect(screen.getByText(/역할이 점검자\(으\)로 변경되었습니다/)).toBeTruthy();
+    // 모달이 닫히고, 목록 쿼리 무효화로 배지가 갱신됐는지 확인
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('상태 변경 메뉴는 상태 변경 모달을 열고, 저장하면 실제로 상태가 바뀐다', async () => {
+    renderPage();
+
+    await screen.findByText('김지수');
+    fireEvent.click(screen.getByRole('button', { name: '김지수 관리 메뉴' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '상태 변경' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('상태 변경')).toBeTruthy();
+    const saveButton = within(dialog).getByRole('button', {
+      name: '변경 내용 저장',
+    }) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(false);
+
+    fireEvent.click(within(dialog).getByRole('radio', { name: /정지/ }));
+    fireEvent.click(saveButton);
+
+    expect(await screen.findByRole('status')).toBeTruthy();
+    expect(screen.getByText(/상태가 정지\(으\)로 변경되었습니다/)).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });

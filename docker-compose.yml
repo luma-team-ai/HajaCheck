@@ -67,6 +67,10 @@ services:
       redis:
         condition: service_healthy
     environment:
+      # JVM 기본 타임존이 컨테이너 기본값(UTC)로 남아 있으면 LocalDateTime.now()(가입일 등
+      # @CreatedDate 포함)가 UTC 벽시계 값으로 찍혀, 프론트가 그 값을 그대로(타임존 변환 없이)
+      # 표시하는 formatJoinedAt과 만나 한국시간보다 9시간 느리게 보인다(가입일이 05시로 보이던 원인).
+      TZ: Asia/Seoul
       SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-hajacheck_dev}
       SPRING_DATASOURCE_USERNAME: ${DB_USER:-hajacheck}
