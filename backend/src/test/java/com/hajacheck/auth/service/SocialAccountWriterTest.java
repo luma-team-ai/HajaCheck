@@ -14,6 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * 신규 소셜 가입 User 저장 + FREE 개인 플랜 배정(#517) 연결 검증.
@@ -30,15 +31,18 @@ class SocialAccountWriterTest {
     private SocialAccountWriter socialAccountWriter;
 
     @Test
-    void registerWithFreePlan_유저저장후_FREE개인플랜배정호출() {
+    void registerWithFreePlan_유저저장후_채워진id로_FREE개인플랜배정호출() {
         User newUser = User.createSocialUser(SocialProvider.KAKAO, "1", "kakao@haja.com", "홍길동");
         User saved = User.createSocialUser(SocialProvider.KAKAO, "1", "kakao@haja.com", "홍길동");
+        // save() 는 IDENTITY 생성 전략이라 실제로는 id 가 채워진 채 반환된다 — 그 채워진 id 가
+        // 그대로 플랜 배정에 전달되는지 계약을 고정한다(#518 P3, 78L 이 아니라 save 반환값의 id).
+        ReflectionTestUtils.setField(saved, "id", 77L);
         when(userRepository.save(any(User.class))).thenReturn(saved);
 
         User result = socialAccountWriter.registerWithFreePlan(newUser);
 
         assertThat(result).isEqualTo(saved);
         verify(userRepository).save(newUser);
-        verify(planProvisioningService).ensureFreePlanForUser(any());
+        verify(planProvisioningService).ensureFreePlanForUser(77L);
     }
 }

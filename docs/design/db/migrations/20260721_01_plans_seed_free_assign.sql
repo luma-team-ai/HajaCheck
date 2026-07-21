@@ -36,11 +36,18 @@ values
     ('ENTERPRISE'::plan_name_type, null, null, 1000000, false, true, true, 59000.00)
 on conflict (name) do nothing;
 
--- 2) 백필 — 회사 귀속. ACTIVE 부분 유니크 인덱스(uq_user_plans_active_company)가 최종 방어.
+-- 2) 백필 — 회사 귀속. company_status_type 은 PENDING_REVIEW/APPROVED/REJECTED 3값뿐이고 탈퇴·삭제
+-- 상태 컬럼은 없다(HajaCheck_script.sql companies 정의 확인). PENDING_REVIEW 는 포함이 맞다 — PRD
+-- §2.4(v0.47) "Free 즉시 체험"이 승인 대기와 무관하게 가입 즉시 활성화를 명시하고, 애플리케이션 경로
+-- (CompanyAccountWriter)도 심사 승인 이전에 FREE를 배정한다. REJECTED 는 개인 백필의
+-- status = ACTIVE 필터(정지 계정 제외)와 정합을 맞춰 제외한다 — 반려된 회사에 새로 구독을 열어줄
+-- 이유가 없고, table_design.md §2.6 도 반려 회사는 회사 귀속 플랜을 ACTIVE로 둘 수 없다고 명시한다.
+-- ACTIVE 부분 유니크 인덱스(uq_user_plans_active_company)가 최종 방어.
 insert into user_plans (company_id, plan_id, status, started_at)
 select c.id, (select id from plans where name = 'FREE'::plan_name_type), 'ACTIVE'::user_plan_status_type, now()
 from companies c
-where not exists (
+where c.status <> 'REJECTED'::company_status_type
+  and not exists (
     select 1 from user_plans up
     where up.company_id = c.id
       and up.status in ('ACTIVE'::user_plan_status_type, 'UPGRADE_REQUESTED'::user_plan_status_type)
