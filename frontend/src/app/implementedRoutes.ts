@@ -18,6 +18,7 @@ const IMPLEMENTED_ROUTES = new Set([
   '/facilities/detail',
   '/facilities/inspection-cycle',
   '/admin/users',
+  '/admin/plans-quota',
   '/support/ai-assistant',
 ]);
 
