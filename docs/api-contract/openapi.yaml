@@ -2389,7 +2389,7 @@ components:
       description: signupToken 은 승인 대기 화면 상태조회용 불투명 랜덤 문자열(PK 비노출)
       properties:
         companyId: { type: integer, format: int64, example: 1 }
-        maskedEmail: { type: string, example: "haja***@check.com" }
+        maskedEmail: { type: string, example: "h***@c***.com" }
         status: { type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED], example: PENDING_REVIEW }
         signupToken: { type: string }
 
@@ -2439,7 +2439,7 @@ components:
     FindIdResponse:
       type: object
       properties:
-        maskedEmail: { type: string, example: "haja***@check.com" }
+        maskedEmail: { type: string, example: "h***@c***.com" }
 
     FindIdApiResponse:
       type: object
