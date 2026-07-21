@@ -6,7 +6,8 @@
 // 검증한다(AppShellRoute.test.tsx가 실제 Header까지 포함한 배선을 별도로 검증).
 import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { notificationHandlers } from '../api/notificationApi.handlers';
@@ -77,5 +78,41 @@ describe('NotificationCenter', () => {
     fireEvent.click(screen.getByRole('button', { name: '모두 읽음' }));
 
     expect(await screen.findByText('미읽음 0')).toBeTruthy();
+  });
+
+  // react-reviewer P1-2: PATCH가 실패하면 onMutate의 낙관적 갱신(전부 읽음 처리)이 onError에서
+  // 원복되어야 한다. 이전에는 mutationFn이 Promise.allSettled를 써서 개별 PATCH가 다 실패해도 항상
+  // fulfilled 처리돼 onError가 호출되지 않고(데드코드), 낙관적 갱신이 영구 고정되는 버그가 있었다.
+  it('읽음 처리 PATCH가 실패하면 낙관적으로 반영했던 미읽음 수가 원복된다(react-reviewer P1-2)', async () => {
+    // PATCH 응답을 게이트로 걸어(resolvePatch 호출 전까지 대기) 낙관적 갱신(0)과 실패 후 롤백(3)을
+    // 서로 다른 시점으로 강제 분리한다 — 게이트 없이 즉시 실패시키면 onMutate의 setQueryData(0)와
+    // onError의 setQueryData(3)가 React 18 배칭으로 같은 커밋에 묶여 중간 "0" 프레임이 관측되지 않고,
+    // 그러면 waitFor의 첫 동기 체크가 클릭 직후의 "3"(아직 안 바뀐 값)을 그대로 통과시켜버려
+    // 롤백을 실제로 검증하지 못하는 거짓 통과가 생긴다.
+    let resolvePatch!: () => void;
+    const patchGate = new Promise<void>((resolve) => {
+      resolvePatch = resolve;
+    });
+    server.use(
+      http.patch('/api/notifications/:id/read', async () => {
+        await patchGate;
+        return HttpResponse.json({ success: false }, { status: 500 });
+      }),
+    );
+
+    renderHarness();
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    await screen.findByText('미읽음 3');
+
+    fireEvent.click(screen.getByRole('button', { name: '모두 읽음' }));
+
+    // 1) PATCH가 아직 게이트에 막혀 있는 동안 onMutate의 낙관적 갱신(0)이 실제로 반영되는지 확인.
+    expect(await screen.findByText('미읽음 0')).toBeTruthy();
+
+    // 2) 게이트를 풀어 PATCH를 실패시키고, onError가 원래 값(3)으로 되돌리는지 확인.
+    resolvePatch();
+    await waitFor(() => {
+      expect(screen.getByText('미읽음 3')).toBeTruthy();
+    });
   });
 });
