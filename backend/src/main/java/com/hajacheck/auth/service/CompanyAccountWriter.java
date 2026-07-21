@@ -7,6 +7,7 @@ import com.hajacheck.auth.entity.UserConsent;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserConsentRepository;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.membership.service.PlanProvisioningService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -17,8 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
  * (같은 클래스 내부 호출은 @Transactional 프록시가 안 걸리므로, 트랜잭션 경계를 별도 빈으로 확보).
  *
  * <p>저장 순서(FK 정합): users.company_id 는 nullable → 유저 먼저 저장(company_id=null) →
- * 회사 저장(owner_user_id=user.id) → user.assignToCompany(company.id)(dirty flush) → 동의 이력 saveAll.
- * users↔companies 상호 FK 를 유저 선삽입 + 사후 업데이트로 순환 없이 해소한다.
+ * 회사 저장(owner_user_id=user.id) → user.assignToCompany(company.id)(dirty flush) → 동의 이력 saveAll →
+ * FREE 플랜 배정(#517, 같은 트랜잭션). users↔companies 상호 FK 를 유저 선삽입 + 사후 업데이트로 순환 없이 해소한다.
  *
  * <p>이메일/사업자번호 unique 위반은 여기서 DataIntegrityViolationException 으로 전파되고,
  * 호출부(CompanySignupService)가 파일 보상삭제 + 409 매핑을 담당한다.
@@ -30,6 +31,7 @@ public class CompanyAccountWriter {
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
     private final UserConsentRepository userConsentRepository;
+    private final PlanProvisioningService planProvisioningService;
 
     /**
      * @return 저장된 Company(관리 상태, id 채워짐)
@@ -55,6 +57,8 @@ public class CompanyAccountWriter {
                 UserConsent.of(user.getId(), ConsentPolicyType.TERMS_OF_SERVICE, termsVersion),
                 UserConsent.of(user.getId(), ConsentPolicyType.PRIVACY_POLICY, privacyVersion)
         ));
+
+        planProvisioningService.ensureFreePlanForCompany(company.getId());
 
         return company;
     }

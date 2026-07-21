@@ -3,6 +3,7 @@ package com.hajacheck.auth.security;
 import com.hajacheck.auth.entity.SocialProvider;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.auth.service.SocialAccountWriter;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -21,6 +22,8 @@ import org.springframework.stereotype.Service;
  * 메서드 전체를 감싸는 @Transactional 을 두지 않는다(외부 HTTP 를 트랜잭션에 포함시키지 않기 위함,
  * 또한 self-invocation 으로 무효화되던 기존 @Transactional 제거). 각 JpaRepository 호출이 개별
  * 트랜잭션이라, 동시 가입 경합으로 save 가 실패해도 그 트랜잭션만 롤백되고 재조회는 오염되지 않는다.
+ * 신규 가입(register)만 예외 — {@link SocialAccountWriter} 를 통해 "유저 저장 + FREE 플랜 배정"을
+ * 하나의 짧은 트랜잭션으로 묶는다(#517, 기존 유저 로그인 경로는 배정하지 않음).
  *
  * attribute 파싱·upsert 로직은 {@link #processOAuth2User}로 분리해 단위 테스트 가능하게 함.
  */
@@ -29,6 +32,7 @@ import org.springframework.stereotype.Service;
 public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     private final UserRepository userRepository;
+    private final SocialAccountWriter socialAccountWriter;
 
     @Override
     public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
@@ -63,7 +67,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     private User register(OAuth2Attributes parsed) {
         try {
-            return userRepository.save(User.createSocialUser(
+            return socialAccountWriter.registerWithFreePlan(User.createSocialUser(
                     parsed.provider(), parsed.socialId(), parsed.email(), parsed.name()));
         } catch (DataIntegrityViolationException e) {
             // (provider, socialId) 재조회로 원인 구분:
