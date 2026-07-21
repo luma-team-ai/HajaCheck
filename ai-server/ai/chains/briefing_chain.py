@@ -9,6 +9,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from ai.core.llm_client import get_llm
+from ai.core.prompt_safety import wrap_untrusted
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -77,7 +78,10 @@ def _build_prompt(stats: DashboardStats, facts: BriefingFacts) -> str:
         last_week_defects=stats.last_week_defects,
         change_text=_change_text(facts),
         trend=facts.trend,
-        top_defect_type=stats.top_defect_type,
+        # top_defect_type은 집계 파이프라인상 사용자 입력(하자 유형 문자열)에서 유래하는 유일한
+        # 자유 문자열 필드라 wrap_untrusted로 감싼다 — 나머지 필드는 전부 코드가 계산한 수치라
+        # 마커가 필요 없다(PR머신 검수 P3: 마커 없이 직삽입되던 방어 구멍).
+        top_defect_type_text=wrap_untrusted(stats.top_defect_type),
         critical_defects=stats.critical_defects,
     )
     return f"{system}\n\n{filled}"
