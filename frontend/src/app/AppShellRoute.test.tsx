@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -149,11 +150,29 @@ describe('AppShellRoute', () => {
     expect(await screen.findByRole('menu', { name: '알림' })).not.toBeNull();
   });
 
-  it('미인증 상태에서는 알림을 조회하지 않아 벨에 미읽음 배지가 없다(HAJA-38)', () => {
+  // PR머신 P3: 이전에는 동기적으로 aria-label만 확인해서 enabled=false든 true든 항상 통과했다(실제
+  // GET /api/notifications 호출 여부를 검증하지 않음) — 호출 횟수를 스파이로 세어 0회임을 확인한다.
+  it('미인증 상태에서는 알림을 조회하지 않아 벨에 미읽음 배지가 없다(HAJA-38, PR머신 P3)', async () => {
+    let getNotificationsCallCount = 0;
+    server.use(
+      http.get('/api/notifications', () => {
+        getNotificationsCallCount += 1;
+        return HttpResponse.json({ success: true, data: [] });
+      }),
+    );
+
     renderAt('/dashboard');
 
     const bell = screen.getByRole('button', { name: '알림' });
     expect(bell.getAttribute('aria-label')).toBe('알림');
+
+    // enabled=false인 useNotifications는 queryFn을 절대 호출하지 않아야 한다. waitFor의 즉시 통과와
+    // "영원히 호출 안 됨"을 구분하기 위해 짧은 유예 뒤에도 여전히 0회인지 다시 확인한다.
+    await waitFor(() => {
+      expect(getNotificationsCallCount).toBe(0);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(getNotificationsCallCount).toBe(0);
   });
 
   // react-reviewer P1-1: shared NotificationDropdown은 document mousedown으로 바깥 클릭을 감지해
