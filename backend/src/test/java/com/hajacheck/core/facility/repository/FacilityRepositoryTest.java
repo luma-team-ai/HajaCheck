@@ -239,4 +239,36 @@ class FacilityRepositoryTest extends PostgresTestSupport {
 
         assertThat(found).isEmpty();
     }
+
+    // INSPECTION_DUE 알림 배치(NOTI-01) — owner 스코프 없는 전역 쿼리: 오늘 이하(overdue 포함)만, 미래 제외.
+    @Test
+    void findAllByNextInspectionDueAtLessThanEqual_오늘과overdue포함_미래제외() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        LocalDate today = LocalDate.now();
+        facilityRepository.save(newFacilityWithDueAt(ownerId, "오늘마감", today));
+        facilityRepository.save(newFacilityWithDueAt(ownerId, "어제마감_overdue", today.minusDays(1)));
+        facilityRepository.save(newFacilityWithDueAt(ownerId, "내일마감_미래", today.plusDays(1)));
+        facilityRepository.save(newFacility(ownerId, "예정일없음"));
+
+        List<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqual(today);
+
+        assertThat(found)
+                .extracting(Facility::getName)
+                .containsExactlyInAnyOrder("오늘마감", "어제마감_overdue");
+    }
+
+    @Test
+    void findAllByNextInspectionDueAtLessThanEqual_owner스코프없이_모든owner반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long otherOwnerId = seedOwner("owner-b@haja.com");
+        LocalDate today = LocalDate.now();
+        facilityRepository.save(newFacilityWithDueAt(ownerId, "A소유_오늘마감", today));
+        facilityRepository.save(newFacilityWithDueAt(otherOwnerId, "B소유_오늘마감", today));
+
+        List<Facility> found = facilityRepository.findAllByNextInspectionDueAtLessThanEqual(today);
+
+        assertThat(found)
+                .extracting(Facility::getName)
+                .containsExactlyInAnyOrder("A소유_오늘마감", "B소유_오늘마감");
+    }
 }

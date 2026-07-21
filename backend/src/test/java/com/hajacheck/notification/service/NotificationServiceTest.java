@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.DomainValidationException;
 import com.hajacheck.notification.dto.NotificationResponse;
 import com.hajacheck.notification.entity.Notification;
 import com.hajacheck.notification.entity.NotificationType;
@@ -15,6 +17,7 @@ import com.hajacheck.notification.repository.NotificationRepository;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -98,5 +101,28 @@ class NotificationServiceTest {
 
         verify(notificationRepository)
                 .findAllByUserIdOrderByCreatedAtDescIdDesc(eq(20L), eq(PageRequest.of(0, 30)));
+    }
+
+    @Test
+    void notify_알림생성_repository_save에_위임() {
+        notificationService.notify(20L, NotificationType.INSPECTION_DUE, "{\"facilityId\":7}");
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository).save(captor.capture());
+        Notification saved = captor.getValue();
+        assertThat(saved.getUserId()).isEqualTo(20L);
+        assertThat(saved.getType()).isEqualTo(NotificationType.INSPECTION_DUE);
+        assertThat(saved.getPayloadJson()).isEqualTo("{\"facilityId\":7}");
+        assertThat(saved.isRead()).isFalse();
+    }
+
+    @Test
+    void notify_잘못된JSON_payload_DomainValidationException_전파() {
+        // Notification.create 의 JSON 검증 실패가 서비스에서 삼켜지지 않고 그대로 전파돼야 한다.
+        assertThatThrownBy(() ->
+                notificationService.notify(20L, NotificationType.INSPECTION_DUE, "{invalid json"))
+                .isInstanceOf(DomainValidationException.class);
+
+        verify(notificationRepository, never()).save(any());
     }
 }
