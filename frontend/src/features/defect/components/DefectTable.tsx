@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ErrorFallback } from "../../../shared/components/ErrorFallback";
 import type { TableColumn } from "../../../shared/components/Table";
@@ -59,90 +60,153 @@ const STATUS_PRESENTATION: Record<
   },
 };
 
-const COLUMNS: TableColumn<DefectTableRow>[] = [
-  {
-    key: "selection",
-    header: "",
-    render: (row) => (
-      <input
-        type="checkbox"
-        aria-label={`${row.defectCode} 선택`}
-        onClick={(e) => e.stopPropagation()}
-      />
-    ),
-  },
-  {
-    key: "defectCode",
-    header: "하자 ID",
-    render: (row) => (
-      <Link
-        aria-label="상세보기"
-        className="defect-list-table__id"
-        to={`/defects/${row.id}`}
-      >
-        {row.defectCode}
-      </Link>
-    ),
-  },
-  {
-    key: "thumbnail",
-    header: "썸네일",
-    render: (row) => (
-      <span
-        className="defect-list-table__thumbnail"
-        aria-label={`${row.typeLabel} 썸네일 준비 중`}
-      >
-        {row.typeLabel.slice(0, 1)}
-      </span>
-    ),
-  },
-  { key: "typeLabel", header: "유형" },
-  {
-    key: "grade",
-    header: "등급",
-    render: (row) =>
-      row.grade ? (
-        <span
-          className={`defect-list-table__grade ${GRADE_CLASSES[row.grade]}`}
-        >
-          {row.grade}
-        </span>
-      ) : (
-        <span className="defect-list-table__empty">-</span>
+type SelectionCheckboxProps = {
+  ariaLabel: string;
+  checked: boolean;
+  disabled?: boolean;
+  indeterminate?: boolean;
+  onChange: () => void;
+};
+
+function SelectionCheckbox({
+  ariaLabel,
+  checked,
+  disabled = false,
+  indeterminate = false,
+  onChange,
+}: SelectionCheckboxProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.indeterminate = indeterminate;
+    }
+  }, [indeterminate]);
+
+  return (
+    <input
+      ref={inputRef}
+      className="defect-list-table__select"
+      type="checkbox"
+      aria-label={ariaLabel}
+      checked={checked}
+      disabled={disabled}
+      onChange={onChange}
+      onClick={(event) => event.stopPropagation()}
+    />
+  );
+}
+
+function createColumns({
+  isAllSelected,
+  isPartiallySelected,
+  selectedIds,
+  hasRows,
+  onToggleAll,
+  onToggleRow,
+}: {
+  isAllSelected: boolean;
+  isPartiallySelected: boolean;
+  selectedIds: Set<number>;
+  hasRows: boolean;
+  onToggleAll: () => void;
+  onToggleRow: (id: number) => void;
+}): TableColumn<DefectTableRow>[] {
+  return [
+    {
+      key: "selection",
+      header: (
+        <SelectionCheckbox
+          ariaLabel="현재 페이지 하자 전체 선택"
+          checked={isAllSelected}
+          disabled={!hasRows}
+          indeterminate={isPartiallySelected}
+          onChange={onToggleAll}
+        />
       ),
-  },
-  { key: "facilityName", header: "시설물" },
-  { key: "location", header: "위치" },
-  {
-    key: "status",
-    header: "상태",
-    render: (row) => {
-      const presentation = STATUS_PRESENTATION[row.status];
-      return (
-        <span className={`defect-list-table__status ${presentation.className}`}>
-          <span aria-hidden="true" />
-          {presentation.label}
-        </span>
-      );
+      render: (row) => (
+        <SelectionCheckbox
+          ariaLabel={`${row.defectCode} 선택`}
+          checked={selectedIds.has(row.id)}
+          onChange={() => onToggleRow(row.id)}
+        />
+      ),
     },
-  },
-  {
-    key: "createdAt",
-    header: "발견일",
-  },
-  {
-    key: "assignee",
-    header: "담당자",
-    render: () => (
-      <span
-        className="defect-list-table__assignee"
-        title="담당자 정보 API 연동 예정"
-      >
-        -
-      </span>
-    ),
-  },
-];
+    {
+      key: "defectCode",
+      header: "하자 ID",
+      render: (row) => (
+        <Link
+          aria-label="상세보기"
+          className="defect-list-table__id"
+          to={`/defects/${row.id}`}
+        >
+          {row.defectCode}
+        </Link>
+      ),
+    },
+    {
+      key: "thumbnail",
+      header: "썸네일",
+      render: (row) => (
+        <span
+          className="defect-list-table__thumbnail"
+          aria-label={`${row.typeLabel} 썸네일 준비 중`}
+        >
+          {row.typeLabel.slice(0, 1)}
+        </span>
+      ),
+    },
+    { key: "typeLabel", header: "유형" },
+    {
+      key: "grade",
+      header: "등급",
+      render: (row) =>
+        row.grade ? (
+          <span
+            className={`defect-list-table__grade ${GRADE_CLASSES[row.grade]}`}
+          >
+            {row.grade}
+          </span>
+        ) : (
+          <span className="defect-list-table__empty">-</span>
+        ),
+    },
+    { key: "facilityName", header: "시설물" },
+    { key: "location", header: "위치" },
+    {
+      key: "status",
+      header: "상태",
+      render: (row) => {
+        const presentation = STATUS_PRESENTATION[row.status];
+        return (
+          <span
+            className={`defect-list-table__status ${presentation.className}`}
+          >
+            <span aria-hidden="true" />
+            {presentation.label}
+          </span>
+        );
+      },
+    },
+    {
+      key: "createdAt",
+      header: "발견일",
+    },
+    {
+      key: "assignee",
+      header: "담당자",
+      render: () => (
+        <span
+          className="defect-list-table__assignee"
+          title="담당자 정보 API 연동 예정"
+        >
+          -
+        </span>
+      ),
+    },
+  ];
+}
 
 function toTableRow(defect: Defect): DefectTableRow {
   return {
@@ -165,6 +229,52 @@ function toTableRow(defect: Defect): DefectTableRow {
 // 진입 경로가 이 행 클릭(및 하자 ID 링크)만 남기 때문. 체크박스는 onClick stopPropagation으로 예외 처리.
 export function DefectTable({ defects, isLoading, isError, onRetry }: Props) {
   const navigate = useNavigate();
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  const rows = useMemo(() => (defects ?? []).map(toTableRow), [defects]);
+  const visibleIds = useMemo(() => rows.map((row) => row.id), [rows]);
+  const selectedVisibleCount = visibleIds.filter((id) =>
+    selectedIds.has(id),
+  ).length;
+  const isAllSelected =
+    visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
+  const isPartiallySelected = selectedVisibleCount > 0 && !isAllSelected;
+
+  const handleToggleAll = () => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+
+      if (visibleIds.every((id) => next.has(id))) {
+        visibleIds.forEach((id) => next.delete(id));
+      } else {
+        visibleIds.forEach((id) => next.add(id));
+      }
+
+      return next;
+    });
+  };
+
+  const handleToggleRow = (id: number) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+
+      return next;
+    });
+  };
+
+  const columns = createColumns({
+    isAllSelected,
+    isPartiallySelected,
+    selectedIds,
+    hasRows: rows.length > 0,
+    onToggleAll: handleToggleAll,
+    onToggleRow: handleToggleRow,
+  });
 
   if (isLoading) {
     return (
@@ -187,8 +297,8 @@ export function DefectTable({ defects, isLoading, isError, onRetry }: Props) {
   return (
     <div className="defect-list-table">
       <Table
-        columns={COLUMNS}
-        data={(defects ?? []).map(toTableRow)}
+        columns={columns}
+        data={rows}
         emptyMessage="조회된 하자가 없습니다. 필터 조건을 변경해 보세요."
         onRowClick={(row) => navigate(`/defects/${row.id}`)}
       />
