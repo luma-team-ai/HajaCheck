@@ -1,5 +1,7 @@
 package com.hajacheck.notification.service;
 
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.notification.dto.NotificationResponse;
 import com.hajacheck.notification.repository.NotificationRepository;
 import java.util.List;
@@ -30,12 +32,17 @@ public class NotificationService {
                 .toList();
     }
 
-    /** 이미 읽은 알림에 대한 재호출도 성공으로 처리하는 멱등 연산. */
+    /**
+     * 알림을 읽음 처리한다(멱등). 이미 읽은 본인 알림 재호출도 성공 처리하며, 미존재 또는 타인 소유
+     * 알림은 리소스 존재 열거(cross-user IDOR)를 막기 위해 NOTIFICATION_NOT_FOUND(404)로 통일한다.
+     */
     @Transactional
-    public boolean markAsRead(Long notificationId, Long userId) {
+    public void markAsRead(Long notificationId, Long userId) {
         if (notificationRepository.markAsReadIfUnread(notificationId, userId) > 0) {
-            return true;
+            return;
         }
-        return notificationRepository.existsByIdAndUserIdAndReadTrue(notificationId, userId);
+        if (!notificationRepository.existsByIdAndUserIdAndReadTrue(notificationId, userId)) {
+            throw new BusinessException(ErrorCode.NOTIFICATION_NOT_FOUND);
+        }
     }
 }

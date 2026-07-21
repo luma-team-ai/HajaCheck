@@ -2,8 +2,6 @@ package com.hajacheck.notification.controller;
 
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.global.common.ApiResponse;
-import com.hajacheck.global.exception.BusinessException;
-import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.notification.dto.NotificationResponse;
 import com.hajacheck.notification.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -47,9 +45,7 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<Void>> markAsRead(
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long id) {
-        if (!notificationService.markAsRead(id, loginUser.getUserId())) {
-            throw new BusinessException(ErrorCode.NOTIFICATION_NOT_FOUND);
-        }
+        notificationService.markAsRead(id, loginUser.getUserId());
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 }
