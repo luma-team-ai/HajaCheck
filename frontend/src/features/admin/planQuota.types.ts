@@ -67,8 +67,8 @@ export interface PlanDetail {
   name: AdminUserPlan;
   /** 플랜 부제(예: "체험·개인 사용자") */
   tagline: string;
-  /** 월 요금(원). 0이면 무료 */
-  priceMonthly: number;
+  /** 월 요금(원). 0이면 무료, null이면 가격 미정(plans.price_monthly가 DDL상 nullable) */
+  priceMonthly: number | null;
   features: PlanFeature[];
   /** 카드 하단 CTA 버튼 라벨 */
   ctaLabel: string;
@@ -88,7 +88,8 @@ export interface AdminPlanCatalogItem {
   hasPdfWatermark: boolean;
   hasCounselorAccess: boolean;
   hasAiAddon: boolean;
-  priceMonthly: number;
+  /** plans.price_monthly는 DDL상 nullable — null이면 가격 미정(openapi AdminPlanItem과 1:1) */
+  priceMonthly: number | null;
 }
 
 export interface AdminPlanCatalogResponse {

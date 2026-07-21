@@ -81,6 +81,36 @@ describe('PlanQuotaPage (통합 테스트)', () => {
     expect(screen.getByText('Standard')).toBeTruthy();
   });
 
+  it('카탈로그의 priceMonthly가 null이어도 현재 플랜 카드가 크래시 없이 렌더된다', async () => {
+    // plans.price_monthly는 DDL상 nullable — PR머신 리뷰 P2(카드가 detail.priceMonthly.toLocaleString()로
+    // 크래시하던 계약 불일치)의 회귀 테스트.
+    server.use(
+      http.get('/api/admin/plans', () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            plans: [
+              {
+                id: 2,
+                name: 'STANDARD',
+                maxFacilities: 10,
+                maxMonthlyAnalyses: 1000,
+                maxSeats: 3,
+                hasPdfWatermark: false,
+                hasCounselorAccess: true,
+                hasAiAddon: true,
+                priceMonthly: null,
+              },
+            ],
+          },
+        }),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByText('가격 문의')).toBeTruthy();
+  });
+
   it('회사에 활성 구독이 없으면 현재 플랜 카드에 안내 문구를 보여준다', async () => {
     server.use(
       http.get('/api/admin/plan-quota', () =>

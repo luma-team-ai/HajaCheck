@@ -98,7 +98,7 @@ class AdminPlanControllerTest extends PostgresTestSupport {
     @Test
     void 현재플랜조회_승인된회사관리자_200() throws Exception {
         Fixture fx = approvedCompanyAdminWithPlan(PlanName.FREE);
-        mockMvc.perform(get("/api/admin/plan").with(authentication(authOf(fx.admin))))
+        mockMvc.perform(get("/api/admin/plan").with(authentication(authOf(fx.admin()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.plan.name").value("FREE"))
                 .andExpect(jsonPath("$.data.status").value("ACTIVE"))
@@ -133,7 +133,7 @@ class AdminPlanControllerTest extends PostgresTestSupport {
         Fixture fx = approvedCompanyAdminWithPlan(PlanName.FREE);
 
         mockMvc.perform(patch("/api/admin/plan")
-                        .with(csrf()).with(authentication(authOf(fx.admin)))
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"planName\":\"STANDARD\"}"))
                 .andExpect(status().isOk())
@@ -141,7 +141,7 @@ class AdminPlanControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data.status").value("ACTIVE"));
 
         // 변경 이력: 최신순 = STANDARD(ACTIVE) → FREE(EXPIRED)
-        mockMvc.perform(get("/api/admin/plan/history").with(authentication(authOf(fx.admin))))
+        mockMvc.perform(get("/api/admin/plan/history").with(authentication(authOf(fx.admin()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.history.length()").value(2))
                 .andExpect(jsonPath("$.data.history[0].planName").value("STANDARD"))
@@ -157,14 +157,14 @@ class AdminPlanControllerTest extends PostgresTestSupport {
         Fixture fx = approvedCompanyAdminWithPlan(PlanName.STANDARD);
 
         mockMvc.perform(patch("/api/admin/plan")
-                        .with(csrf()).with(authentication(authOf(fx.admin)))
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"planName\":\"STANDARD\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.plan.name").value("STANDARD"));
 
         // 동일 요금제 재지정은 no-op → 이력은 여전히 1건(초기 ACTIVE)만.
-        mockMvc.perform(get("/api/admin/plan/history").with(authentication(authOf(fx.admin))))
+        mockMvc.perform(get("/api/admin/plan/history").with(authentication(authOf(fx.admin()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.history.length()").value(1));
     }
@@ -176,6 +176,79 @@ class AdminPlanControllerTest extends PostgresTestSupport {
                         .with(csrf()).with(authentication(authOf(user)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"planName\":\"STANDARD\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    // ── 회사 멤버별 쿼터 목록(#525 팔로우업 — PR머신 P2: 이 엔드포인트가 테스트에서 전혀 검증되지 않았음) ──
+
+    @Test
+    void 플랜쿼터목록조회_활성구독있음_멤버별플랜값과stats() throws Exception {
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.STANDARD);
+        User member = saveUser(Role.USER, fx.company().getId());
+
+        mockMvc.perform(get("/api/admin/plan-quota").with(authentication(authOf(fx.admin()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(2))
+                .andExpect(jsonPath("$.data.content[0].plan").value("STANDARD"))
+                .andExpect(jsonPath("$.data.content[0].quotaLimit").value(300))
+                .andExpect(jsonPath("$.data.content[1].email").value(member.getEmail()))
+                .andExpect(jsonPath("$.data.content[1].plan").value("STANDARD"))
+                .andExpect(jsonPath("$.data.content[1].quotaLimit").value(300))
+                .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.stats.activeUsers").value(2))
+                .andExpect(jsonPath("$.data.stats.companyPlan").value("STANDARD"));
+    }
+
+    @Test
+    void 플랜쿼터목록조회_활성구독없음_plan과quotaLimit이null이어도200() throws Exception {
+        // 회사·멤버십은 유효하지만 user_plans 자체가 없는 상태(getCurrentPlan과 달리 404로 실패시키지 않는다).
+        Company company = saveApprovedCompany();
+        User admin = saveUser(Role.ADMIN, company.getId());
+        companyMembershipRepository.save(CompanyMembership.approvedOwner(company.getId(), admin.getId()));
+
+        mockMvc.perform(get("/api/admin/plan-quota").with(authentication(authOf(admin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].plan").doesNotExist())
+                .andExpect(jsonPath("$.data.content[0].quotaLimit").doesNotExist())
+                .andExpect(jsonPath("$.data.stats.companyPlan").doesNotExist());
+    }
+
+    @Test
+    void 플랜쿼터목록조회_keyword로_이름검색() throws Exception {
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.FREE);
+        User target = userRepository.save(User.builder()
+                .email("target-member@haja.com")
+                .name("검색대상")
+                .role(Role.USER)
+                .passwordHash("$2a$10$hashed")
+                .companyId(fx.company().getId())
+                .status(UserStatus.ACTIVE)
+                .build());
+
+        mockMvc.perform(get("/api/admin/plan-quota")
+                        .param("keyword", "검색대상")
+                        .with(authentication(authOf(fx.admin()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].email").value(target.getEmail()))
+                // stats는 검색어와 무관하게 회사 전체 기준(관리자 포함 2명)이어야 한다.
+                .andExpect(jsonPath("$.data.stats.activeUsers").value(2));
+    }
+
+    @Test
+    void 플랜쿼터목록조회_size0이면400() throws Exception {
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.FREE);
+        mockMvc.perform(get("/api/admin/plan-quota")
+                        .param("size", "0")
+                        .with(authentication(authOf(fx.admin()))))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 플랜쿼터목록조회_일반사용자_403() throws Exception {
+        User user = saveUser(Role.USER, null);
+        mockMvc.perform(get("/api/admin/plan-quota").with(authentication(authOf(user))))
                 .andExpect(status().isForbidden());
     }
 

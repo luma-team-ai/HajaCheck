@@ -59,7 +59,12 @@ export function CurrentPlanCard({ plan, catalog }: CurrentPlanCardProps) {
   }
 
   const detail = buildPlanDetail(catalogItem);
-  const priceText = detail.priceMonthly === 0 ? '₩0' : `₩${detail.priceMonthly.toLocaleString('ko-KR')}`;
+  const priceText =
+    detail.priceMonthly === null
+      ? '가격 문의'
+      : detail.priceMonthly === 0
+        ? '₩0'
+        : `₩${detail.priceMonthly.toLocaleString('ko-KR')}`;
 
   return (
     <div className="flex flex-col gap-4 rounded-[20px] border border-border bg-surface p-5">
@@ -70,7 +75,7 @@ export function CurrentPlanCard({ plan, catalog }: CurrentPlanCardProps) {
 
       <p className="flex items-baseline gap-1">
         <span className="text-3xl font-bold text-heading">{priceText}</span>
-        <span className="text-sm text-text-muted">/월</span>
+        {detail.priceMonthly !== null && <span className="text-sm text-text-muted">/월</span>}
       </p>
 
       <ul className="m-0 flex list-none flex-col gap-2.5 p-0">

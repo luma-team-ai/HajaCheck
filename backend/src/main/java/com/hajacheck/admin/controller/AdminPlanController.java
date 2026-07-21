@@ -11,9 +11,12 @@ import com.hajacheck.global.common.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -30,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
+@Validated
 public class AdminPlanController {
 
     private final AdminPlanService adminPlanService;
@@ -69,8 +73,8 @@ public class AdminPlanController {
     @GetMapping("/plan-quota")
     public ResponseEntity<ApiResponse<AdminPlanQuotaResponse>> getPlanQuota(
             @AuthenticationPrincipal LoginUser loginUser,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "1") @Min(1) int page,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size,
             @RequestParam(required = false) String keyword) {
         return ResponseEntity.ok(ApiResponse.ok(
                 adminPlanService.getPlanQuota(loginUser.getUserId(), page, size, keyword)));
