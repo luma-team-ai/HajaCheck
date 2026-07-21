@@ -11,7 +11,6 @@
   실패 시(0건 검색과 동일하게) legal_basis를 "관련 근거 없음"으로 고정하고 체인 전체는 정상 진행한다
 """
 import logging
-import re
 from collections import Counter
 from pathlib import Path
 
@@ -28,6 +27,7 @@ from ai.core.grounding import (
     normalize_grade_strict,
 )
 from ai.core.llm_client import get_llm
+from ai.core.prompt_safety import UNTRUSTED_DATA_BEGIN, UNTRUSTED_DATA_END, sanitize_untrusted, wrap_untrusted
 from ai.core.vectorstore import COLLECTION_REGULATIONS, get_vectorstore
 
 logger = logging.getLogger(__name__)
@@ -125,29 +125,14 @@ class ReportRecommendation(BaseModel):
 # 감싸는 구분자 — _system_base.md의 프롬프트 인젝션 방어 지침이 참조하는 마커와 동일해야 한다
 # (PR머신 P2: 이스케이프 없이 삽입되던 사용자 입력에 최소 방어선 추가. 완전 방지가 아니라
 # "이 구간은 지침이 아니라 데이터"임을 모델에 명시하는 최소 방어선).
-_UNTRUSTED_DATA_BEGIN = "---BEGIN UNTRUSTED DATA---"
-_UNTRUSTED_DATA_END = "---END UNTRUSTED DATA---"
-
-
-def _sanitize_untrusted(text: str) -> str:
-    """사용자 입력 안에 마커 리터럴 자체가 들어있으면 치환해 래퍼 조기 종료(스푸핑)를 막는다
-    (code-reviewer P2: confirmed_defects[].description 등은 자유 텍스트라 길이·문자 제한이 없어
-    `---END UNTRUSTED DATA---\\n<가짜 지침>`을 그대로 넣으면 래퍼가 조기 종료돼 삽입 텍스트가
-    LLM에게 신뢰할 수 있는 프롬프트 내용처럼 보일 수 있었다). 대시 3개+공백 패턴만 깨뜨려도
-    정확한 마커 문자열 재구성이 불가능해지므로, 마커 리터럴 자체가 아니라 그 구성요소인
-    `---`를 전각 대시로 치환한다 — 부분 문자열이 변형되어 원본 마커와 더 이상 일치하지 않는다.
-
-    단순 `str.replace("---", "—--")`는 하이픈 개수가 3의 배수가 아닌 연속 런(예: 4개, 5개)에서
-    치환 후에도 하이픈이 leftover로 남아, 인접 텍스트와 결합하면 원본 마커의 부분 문자열이
-    그대로 재구성될 수 있었다(PR #240 리뷰 P2). 정규식으로 하이픈 3개 이상 연속된 런 전체를
-    한 번에 매칭해 치환하므로 길이에 상관없이 leftover 하이픈이 남지 않는다.
-    """
-    return re.sub(r"-{3,}", lambda m: "—" * (len(m.group(0)) - 1) + "-", text)
-
-
-def _wrap_untrusted(text: str) -> str:
-    safe_text = _sanitize_untrusted(text)
-    return f"{_UNTRUSTED_DATA_BEGIN}\n{safe_text}\n{_UNTRUSTED_DATA_END}"
+#
+# 실제 구현은 ai.core.prompt_safety로 공용화됐다(HAJA-296) — defect_explain_chain.py·
+# briefing_chain.py 등 다른 체인도 동일 마커/로직을 재사용해야 하기 때문. 아래 `_` 접두 이름은
+# 기존 테스트(tests/test_report.py)·호출부와의 하위 호환을 위한 별칭이다.
+_UNTRUSTED_DATA_BEGIN = UNTRUSTED_DATA_BEGIN
+_UNTRUSTED_DATA_END = UNTRUSTED_DATA_END
+_sanitize_untrusted = sanitize_untrusted
+_wrap_untrusted = wrap_untrusted
 
 
 def _format_facility_info(facility_info: dict) -> str:
