@@ -1135,6 +1135,73 @@ create index idx_notifications_user_unread
 create index idx_notifications_user_history
     on notifications (user_id, created_at desc, id desc);
 
+create table api_system_logs
+(
+    id             bigint generated always as identity
+        primary key,
+    level          varchar(10)                            not null,
+    request_id     varchar(100)                           not null,
+    http_method    varchar(10)                            not null,
+    endpoint       varchar(500)                           not null,
+    http_status    smallint                               not null,
+    error_code     varchar(100),
+    message        varchar(500),
+    exception_type varchar(255),
+    user_id        bigint,
+    duration_ms    bigint                                 not null,
+    client_ip      inet,
+    created_at     timestamp with time zone default now() not null,
+    constraint ck_api_system_logs_level
+        check (level in ('WARN', 'ERROR')),
+    constraint ck_api_system_logs_level_http_status
+        check (
+            (level = 'WARN' and http_status between 400 and 499)
+            or (level = 'ERROR' and http_status between 500 and 599)
+        ),
+    constraint ck_api_system_logs_duration
+        check (duration_ms >= 0)
+);
+
+comment on table api_system_logs is 'API 호출 결과가 4xx 또는 5xx인 요청의 시스템 로그를 요청당 최대 한 행으로 기록한다.';
+
+comment on column api_system_logs.id is 'API 시스템 로그 식별자';
+
+comment on column api_system_logs.level is 'HTTP 응답 상태에 따른 로그 레벨(WARN=4xx, ERROR=5xx)';
+
+comment on column api_system_logs.request_id is 'API 요청 추적 식별자. 애플리케이션은 요청당 최대 한 로그 행만 기록하되 DB UNIQUE로 강제하지 않는다';
+
+comment on column api_system_logs.http_method is 'API 요청 HTTP 메서드';
+
+comment on column api_system_logs.endpoint is '식별자와 개인정보를 제거한 API 엔드포인트 패턴';
+
+comment on column api_system_logs.http_status is '최종 HTTP 응답 상태 코드';
+
+comment on column api_system_logs.error_code is '애플리케이션 공통 오류 코드';
+
+comment on column api_system_logs.message is '민감정보를 제거한 오류 요약 메시지';
+
+comment on column api_system_logs.exception_type is '오류를 발생시킨 예외 클래스명';
+
+comment on column api_system_logs.user_id is '요청 사용자 식별자. 사용자 삭제 후에도 로그를 보존하기 위해 users 외래키를 두지 않는다';
+
+comment on column api_system_logs.duration_ms is 'API 요청 처리 시간(밀리초)';
+
+comment on column api_system_logs.client_ip is '요청 클라이언트 IP 주소';
+
+comment on column api_system_logs.created_at is 'API 시스템 로그 생성 시각';
+
+alter table api_system_logs
+    owner to postgres;
+
+create index idx_api_system_logs_created_at
+    on api_system_logs (created_at desc);
+
+create index idx_api_system_logs_level_created_at
+    on api_system_logs (level, created_at desc);
+
+create index idx_api_system_logs_request_id
+    on api_system_logs (request_id);
+
 create table menus
 (
     id                  bigint generated always as identity
