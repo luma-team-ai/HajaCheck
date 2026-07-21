@@ -6,6 +6,7 @@ import com.hajacheck.auth.security.OAuth2FailureHandler;
 import com.hajacheck.auth.security.OAuth2SuccessHandler;
 import com.hajacheck.auth.security.RestAccessDeniedHandler;
 import com.hajacheck.auth.security.RestAuthenticationEntryPoint;
+import com.hajacheck.auth.security.SessionUserRevalidationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -18,6 +19,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.ExceptionTranslationFilter;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -44,6 +46,7 @@ public class SecurityConfig {
     private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
     private final RestAccessDeniedHandler restAccessDeniedHandler;
     private final CsrfCookieFilter csrfCookieFilter;
+    private final SessionUserRevalidationFilter sessionUserRevalidationFilter;
 
     // securityContextRepository 는 아래 @Bean 으로 정의 — 순환 생성을 피하려 메서드 파라미터로 주입받는다.
     @Bean
@@ -59,6 +62,9 @@ public class SecurityConfig {
                         .csrfTokenRequestHandler(csrfHandler))
                 // CsrfFilter 직후 토큰을 강제 로드해 XSRF-TOKEN 쿠키를 응답에 심는다.
                 .addFilterAfter(csrfCookieFilter, CsrfFilter.class)
+                // ExceptionTranslationFilter 직후(=AuthorizationFilter 직전)에 둔다 — 강등된 role이
+                // 뒤이은 hasRole 판정에 곧바로 반영되고, 정지 계정은 그 판정까지 가기 전에 401로 끊긴다(#405 리뷰 P1).
+                .addFilterAfter(sessionUserRevalidationFilter, ExceptionTranslationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/api/auth/**",

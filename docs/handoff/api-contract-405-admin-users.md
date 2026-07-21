@@ -7,6 +7,7 @@
 - 구현 완료: `AdminUserController`/`AdminUserService`/`AdminUserRepository` (`backend/src/main/java/com/hajacheck/admin/**`)
 - 테스트: `AdminUserControllerTest`, `AdminUserRepositoryTest`
 - **2026-07-21 갱신**: 최초 설계는 전사(全社) 조회였으나, 이 화면이 "기업 관리자 콘솔"로 확정되면서 **요청 관리자의 `companyId` 소속 사용자만** 조회·등록·변경 가능하도록 전체 엔드포인트에 회사 스코프를 적용했다(사용자 지시). `companyId`가 없는 관리자(개인 회원 등)는 이 화면 대상이 아니며 `403 FORBIDDEN`. 플랫폼 전체 관리자용 전사 조회는 별도 화면/엔드포인트로 예정(이번 범위 아님).
+- **2026-07-21 갱신(시스템 전역 영향, API 계약 아님)**: PR 리뷰 P1로 `SessionUserRevalidationFilter`(`backend/src/main/java/com/hajacheck/auth/security/`)를 신설했다. 관리자가 사용자를 정지/강등해도 대상의 기존 로그인 세션이 세션 TTL까지 예전 권한을 유지하던 문제(정지해도 계속 서비스 이용 가능, 강등된 ADMIN이 스테일 세션으로 이 화면의 자기/마지막 ADMIN 보호 가드를 우회 가능)를 막기 위해, **이 화면뿐 아니라 인증이 필요한 모든 API 요청마다** 세션 principal을 DB 최신 상태와 대조한다 — 정지 계정은 401, role/companyId 변경은 다음 인가 판정에 즉시 반영. `/api/admin/users` 전용 로직이 아니므로 계약 문서에는 별도 반영 불필요하지만, 요청당 `SELECT ... FROM users WHERE id = ?` 1회가 전역적으로 추가된다는 점은 담당자가 인지해 두면 좋다.
 
 ---
 

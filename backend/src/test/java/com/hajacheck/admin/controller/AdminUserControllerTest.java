@@ -467,4 +467,46 @@ class AdminUserControllerTest extends PostgresTestSupport {
                         .content("{}"))
                 .andExpect(status().isBadRequest());
     }
+
+    // SessionUserRevalidationFilter(#405 리뷰 P1) — 정지/강등이 DB에는 반영돼도, 대상이 들고 있던
+    // "이전" Authentication(=정지/강등 전 스냅샷, 실제 서비스에서는 Redis에 저장된 기존 세션에 해당)을
+    // 그대로 재사용하면 필터가 요청 시점에 DB 최신 상태로 재검증해 즉시 차단해야 한다.
+
+    @Test
+    void 세션재검증_정지된계정의_기존세션은_401로_차단된다() throws Exception {
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin-revalidate1@haja.com", Role.ADMIN, company.getId());
+        User target = saveUser("정지대상세션", "target-revalidate1@haja.com", Role.ADMIN, company.getId());
+        UsernamePasswordAuthenticationToken staleAuth = authOf(target); // 정지되기 전 스냅샷
+
+        String suspendBody = objectMapper.writeValueAsString(new AdminUserStatusUpdateRequest(UserStatus.SUSPENDED));
+        mockMvc.perform(patch("/api/admin/users/{id}/status", target.getId())
+                        .with(authentication(authOf(admin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(suspendBody))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/admin/users").with(authentication(staleAuth)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void 세션재검증_강등된관리자의_기존세션은_403으로_차단된다() throws Exception {
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin-revalidate2@haja.com", Role.ADMIN, company.getId());
+        User target = saveUser("강등대상세션", "target-revalidate2@haja.com", Role.ADMIN, company.getId());
+        UsernamePasswordAuthenticationToken staleAuth = authOf(target); // 아직 ADMIN이던 시절 스냅샷
+
+        String demoteBody = objectMapper.writeValueAsString(new AdminUserRoleUpdateRequest(Role.USER));
+        mockMvc.perform(patch("/api/admin/users/{id}/role", target.getId())
+                        .with(authentication(authOf(admin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(demoteBody))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/admin/users").with(authentication(staleAuth)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    }
 }
