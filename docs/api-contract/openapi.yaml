@@ -1,9 +1,11 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.7.0-draft"
+  version: "0.8.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    2026-07-22 사업자등록증 OCR 실구현(#552 / HAJA-321) — /ai/business-license-ocr 를 stub 에서
+    RapidOCR(한국어 인식)+LLM 파싱 실동작으로 교체(image_base64 필수·max_length, raw=집계값, stub=false).
     2026-07-22 관리자 플랜·쿼터 관리 API(#507) 추가 — /api/admin/plans, /api/admin/plan,
     /api/admin/plan/history, /api/admin/plan-quota 및 AdminPlan* 스키마.
     /api/admin/plan/history 에 page/size 페이지네이션 추가(PR#525 머신 리뷰 P3).
@@ -201,13 +203,16 @@ paths:
 
   /ai/business-license-ocr:
     post:
-      summary: 사업자등록증 OCR (stub, HAJA-169)
+      summary: 사업자등록증 OCR (RapidOCR 실구현, #552 / HAJA-321)
       description: >
-        실제 OCR 미구현 — `ai-server/routers/ai_router.py`(약 231~245행) 는 입력(image_base64/file_ref)을
-        사용하지 않고 고정 stub 응답(모든 필드 null, stub=true)만 반환한다(seam only, 향후 실제 OCR 교체 예정).
-        내부 전용이며 Spring `/api/ai/*` 프록시 계열과 동일하게 X-Internal-Key 검증 대상이다.
+        `image_base64`(사업자등록증 이미지)를 RapidOCR(ONNXRuntime, 한국어 PP-OCR 인식 모델)로
+        텍스트 추출 후 LLM structured output 으로 {businessRegistrationNumber, companyName,
+        representativeName} 을 파싱해 반환한다. `image_base64` 필수(없으면 VALIDATION_ERROR),
+        `file_ref` 는 아직 미구현(값이 와도 무시). OCR/모델로드/LLM 파싱 실패는 예외를 삼키지 않고
+        서버 로그에 스택만 남긴 뒤(OCR 원문·개인정보는 로깅하지 않음) LLM_INVALID_OUTPUT 으로 반환 →
+        클라이언트는 수동 입력으로 폴백한다. 내부 전용이며 X-Internal-Key 검증 대상이다.
       x-internal: true
-      x-status: stub
+      x-status: implemented
       security:
         - InternalKey: []
       tags: [ai]
@@ -218,7 +223,9 @@ paths:
             schema: { $ref: "#/components/schemas/BusinessLicenseOcrRequest" }
       responses:
         "200":
-          description: 항상 stub 고정 응답(성공/실패 구분 없음)
+          description: >
+            OCR 성공 시 success=true + 추출 필드(인식 실패한 필드는 null). 입력 검증/처리 실패 시
+            success=false + error(VALIDATION_ERROR·LLM_INVALID_OUTPUT).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BusinessLicenseOcrAIResponse" }
@@ -2814,28 +2821,35 @@ components:
           oneOf:
             - { $ref: "#/components/schemas/ApiError" }
 
-    # ── ai-server OCR stub (구현됨, ai-server/routers/ai_router.py 약 224~245행, HAJA-169) ──
+    # ── ai-server OCR (실구현, ai-server/routers/ai_router.py, #552 / HAJA-321) ──
     BusinessLicenseOcrRequest:
       type: object
-      description: 둘 다 stub 단계는 사용하지 않는다(seam only) — 향후 실제 OCR 교체 시 채택.
+      description: >
+        image_base64 필수(사업자등록증 이미지의 base64). max_length=14000000 —
+        FE 업로드 상한 10MB 의 base64 인코딩 상당치(초과 시 요청 파싱 단계 422). file_ref 는 미구현(seam only).
+      required: [image_base64]
       properties:
-        image_base64: { type: string, nullable: true }
+        image_base64: { type: string, nullable: true, maxLength: 14000000 }
         file_ref: { type: string, nullable: true }
 
     BusinessLicenseOcrData:
       type: object
-      description: AIResponse.data 의 실제 형태 — stub 은 항상 이 고정값을 반환한다.
+      description: >
+        AIResponse.data 형태. 인식 실패한 필드는 null. raw 는 개인정보 노출 방지를 위해 OCR 원문 대신
+        집계값(lineCount·avgConfidence)만 담는다. stub 은 실구현 후 항상 false.
       required: [businessRegistrationNumber, companyName, representativeName, raw, stub]
       properties:
-        businessRegistrationNumber: { type: string, nullable: true, example: null }
-        companyName: { type: string, nullable: true, example: null }
-        representativeName: { type: string, nullable: true, example: null }
-        raw: { type: object, example: {} }
-        stub: { type: boolean, example: true }
+        businessRegistrationNumber: { type: string, nullable: true, example: "123-45-67890" }
+        companyName: { type: string, nullable: true, example: "하자첵 주식회사" }
+        representativeName: { type: string, nullable: true, example: "홍길동" }
+        raw:
+          type: object
+          example: { lineCount: 12, avgConfidence: 0.93 }
+        stub: { type: boolean, example: false }
 
     BusinessLicenseOcrAIResponse:
       type: object
-      description: 내부 /ai/business-license-ocr 전용 AIResponse envelope(stub 은 항상 success=true)
+      description: 내부 /ai/business-license-ocr 전용 AIResponse envelope(성공 시 success=true, 실패 시 error)
       required: [success, data, error]
       properties:
         success: { type: boolean, example: true }
