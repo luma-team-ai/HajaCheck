@@ -2,7 +2,7 @@
 // 탐지 클래스 3종 확정(PRD v0.42, 2026-07-13) — 누수백태·도장손상은 데이터 확보 상황상 범위 제외
 export type DefectType = '균열' | '박리박락' | '철근노출';
 export type DefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
-export type DefectStatus = '신규' | '검수확정' | '조치대기' | '조치중' | '조치완료';
+export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'ACTION_PENDING' | 'IN_PROGRESS' | 'RESOLVED';
 
 export interface DefectBoundingBox {
   x: number; // 0~1 정규화 좌표 (이미지 너비 기준)

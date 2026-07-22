@@ -73,7 +73,7 @@ export function useInspectionResultReal(inspectionId: number) {
     summary: `${d.type} 하자 — 신뢰도 ${Math.round(d.confidence * 100)}%`,
   }));
 
-  const reviewedCount = transformedDefects.filter((d) => d.status === '검수확정').length;
+  const reviewedCount = (defectsData || []).filter((d) => d.isReviewed).length;
   const totalCount = transformedDefects.length;
 
   // 모든 데이터 준비 완료

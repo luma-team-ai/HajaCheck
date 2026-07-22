@@ -1,7 +1,7 @@
 // Backend API response types — DO NOT import from ../types (that's for component state)
 export type DefectType = '균열' | '박리박락' | '철근노출';
 export type DefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
-export type DefectStatus = '신규' | '검수확정' | '조치대기' | '조치중' | '조치완료';
+export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'ACTION_PENDING' | 'IN_PROGRESS' | 'RESOLVED';
 
 export interface DefectDetailItem {
   id: number;
