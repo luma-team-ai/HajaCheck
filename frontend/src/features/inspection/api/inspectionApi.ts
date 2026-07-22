@@ -10,6 +10,7 @@ import type { InspectionResponse, DefectDetailItem, DefectGrade } from './inspec
 interface DefectRevisionRequest {
   grade?: DefectGrade;
   isDeleted?: boolean;
+  reason?: string;
 }
 
 export const inspectionApi = {

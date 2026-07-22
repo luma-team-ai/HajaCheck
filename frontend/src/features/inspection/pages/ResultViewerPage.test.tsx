@@ -120,6 +120,18 @@ const testHandlers = [
     };
     return HttpResponse.json(body);
   }),
+  http.patch('/api/defects/:id', async ({ request }) => {
+    const body = (await request.json()) as any;
+    // reason은 필수 필드 (1-500자)
+    if (!body.reason || body.reason.trim().length === 0 || body.reason.trim().length > 500) {
+      return HttpResponse.json(
+        { success: false, error: { code: 'INVALID_INPUT', message: 'reason은 필수이고 1-500자여야 합니다.' } },
+        { status: 400 },
+      );
+    }
+    const updatedDefect: DefectDetailItem = mockDefects[0];
+    return HttpResponse.json({ success: true, data: updatedDefect });
+  }),
 ];
 
 const server = setupServer(...testHandlers);
