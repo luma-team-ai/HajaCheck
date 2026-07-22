@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import {
   MOCK_OCR_BUSINESS_NUMBER,
+  MOCK_OCR_BUSINESS_START_DATE,
   MOCK_OCR_COMPANY_NAME,
   MOCK_OCR_REPRESENTATIVE_NAME,
   companyAuthHandlers,
@@ -27,25 +28,32 @@ function makeFile(type = 'image/png') {
 }
 
 describe('authApi.businessLicenseOcr', () => {
-  it('성공 시 3필드를 반환한다', async () => {
+  it('성공 시 4필드를 반환한다', async () => {
     const res = await authApi.businessLicenseOcr(makeFile());
     expect(res.data).toEqual({
       businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER,
       companyName: MOCK_OCR_COMPANY_NAME,
       representativeName: MOCK_OCR_REPRESENTATIVE_NAME,
+      businessStartDate: MOCK_OCR_BUSINESS_START_DATE,
     });
   });
 
-  it('일부 필드 인식 실패 시 해당 필드만 null로 내려온다', async () => {
+  it('일부 필드 인식 실패 시 해당 필드만 null로 내려온다(개업일자 포함, #600)', async () => {
     server.use(
       http.post('/api/auth/business-license/ocr', () => {
         const partial: ApiResponse<{
           businessRegistrationNumber: string | null;
           companyName: string | null;
           representativeName: string | null;
+          businessStartDate: string | null;
         }> = {
           success: true,
-          data: { businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER, companyName: null, representativeName: null },
+          data: {
+            businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER,
+            companyName: null,
+            representativeName: null,
+            businessStartDate: null,
+          },
         };
         return HttpResponse.json(partial);
       }),
@@ -56,6 +64,7 @@ describe('authApi.businessLicenseOcr', () => {
       businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER,
       companyName: null,
       representativeName: null,
+      businessStartDate: null,
     });
   });
 
