@@ -1,4 +1,5 @@
 import { Button } from '../../../shared/components/Button/Button';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { useSeats } from '../hooks/useSeats';
 import { SEAT_ROLE_BADGE_CLASS, SEAT_STATUS_DOT_CLASS } from '../statusClasses';
 import { MYPAGE_ERROR_CODE, type SeatMemberRole, type SeatMemberStatus } from '../types';
@@ -37,7 +38,7 @@ export function SeatsSection() {
         </Button>
       </div>
 
-      {isLoading && <p className="text-sm text-text-muted">불러오는 중...</p>}
+      {isLoading && <LoadingSpinner className="flex items-center justify-start gap-2" />}
 
       {isError && errorCode === MYPAGE_ERROR_CODE.PLAN_NOT_FOUND && (
         <p className="text-sm text-text-muted">활성 구독이 없어 좌석 정보를 표시할 수 없습니다.</p>

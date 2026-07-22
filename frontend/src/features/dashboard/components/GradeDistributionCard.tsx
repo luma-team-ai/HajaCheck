@@ -1,5 +1,6 @@
 import { DASHBOARD_COLOR_CLASS } from '../colors';
 import { useGradeDistribution } from '../hooks/useGradeDistribution';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import {
   getGradeBgClass,
   isGradeTotalValid,
@@ -23,7 +24,7 @@ export function GradeDistributionCard() {
     <section className="dashboard-card">
       <h3 className="dashboard-card-title">하자 등급 분포</h3>
 
-      {isLoading && <p className="dashboard-card-status">불러오는 중...</p>}
+      {isLoading && <LoadingSpinner />}
       {isError && <p className="dashboard-card-status">등급 분포를 불러오지 못했습니다.</p>}
       {!isLoading && !isError && sorted.length === 0 && (
         <p className="dashboard-card-status">등록된 하자 등급 데이터가 없습니다.</p>

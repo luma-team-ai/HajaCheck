@@ -3,6 +3,7 @@ import { DASHBOARD_COLOR_CLASS } from '../colors';
 import { defectDetailPath } from '../constants';
 import { usePendingPriority } from '../hooks/usePendingPriority';
 import { formatElapsedTime } from '../utils/formatElapsedTime';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { GradeBadge } from './GradeBadge';
 
 export function PendingPriorityCard() {
@@ -21,7 +22,7 @@ export function PendingPriorityCard() {
         <span className={`text-[13px] font-semibold ${DASHBOARD_COLOR_CLASS.mutedText}`}>우선순위</span>
       </div>
 
-      {isLoading && <p className="dashboard-card-status">불러오는 중...</p>}
+      {isLoading && <LoadingSpinner />}
       {isError && <p className="dashboard-card-status">처리 대기 목록을 불러오지 못했습니다.</p>}
       {!isLoading && !isError && (!data || data.length === 0) && (
         <p className="dashboard-card-status">처리 대기 중인 하자가 없습니다.</p>

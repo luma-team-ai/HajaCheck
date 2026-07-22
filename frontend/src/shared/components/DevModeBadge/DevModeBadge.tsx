@@ -30,7 +30,7 @@ export function DevModeBadge() {
 
   return (
     <div
-      // 우하단은 ChatbotButton(FAB)이 쓰므로 좌하단. 단 좌하단엔 SideNavBar 로그아웃 버튼이 겹치므로
+      // 우하단은 BottomNavBarFab(퀵상담 FAB)이 쓰므로 좌하단. 단 좌하단엔 SideNavBar 로그아웃 버튼이 겹치므로
       // pointer-events-none 으로 클릭을 통과시키고, 작게·반투명으로 시각적 방해를 줄인다.
       // (pointer-events-none 이라 hover·title 툴팁은 동작하지 않는다 — 설명은 이 주석과 가이드에 둔다)
       className={`pointer-events-none fixed bottom-1 left-1 z-[9999] flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold text-white opacity-70 shadow-sm ${

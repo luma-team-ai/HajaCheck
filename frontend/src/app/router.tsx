@@ -4,6 +4,8 @@ import { lazy, Suspense } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { AdminRoute } from '../shared/components/AdminRoute';
 import { ProtectedRoute } from '../shared/components/ProtectedRoute';
+import { LoadingSpinner } from '../shared/components/LoadingSpinner';
+import LandingPage from '../features/landing/LandingPage';
 import { AppShellRoute } from './AppShellRoute';
 
 const MapPage = lazy(() => import('../features/map/MapPage'));
@@ -19,8 +21,6 @@ const InspectionCreatePage = lazy(() =>
     default: m.InspectionCreatePage,
   })),
 );
-
-const LandingPage = lazy(() => import('../features/landing/LandingPage'));
 
 const LoginPage = lazy(() =>
   import('../features/auth/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
@@ -167,16 +167,12 @@ export const router = createBrowserRouter([
   ...DEV_ONLY_ROUTES,
   {
     path: '/',
-    element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
-        <LandingPage />
-      </Suspense>
-    ),
+    element: <LandingPage />,
   },
   {
     path: '/login',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <LoginPage />
       </Suspense>
     ),
@@ -184,7 +180,7 @@ export const router = createBrowserRouter([
   {
     path: '/policy/terms-of-service',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <TermsOfServicePage />
       </Suspense>
     ),
@@ -192,7 +188,7 @@ export const router = createBrowserRouter([
   {
     path: '/policy/privacy',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <PrivacyPolicyPage />
       </Suspense>
     ),
@@ -200,7 +196,7 @@ export const router = createBrowserRouter([
   {
     path: '/signup/company',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <CompanySignupPage />
       </Suspense>
     ),
@@ -208,7 +204,7 @@ export const router = createBrowserRouter([
   {
     path: '/signup/company/pending',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <CompanySignupPendingPage />
       </Suspense>
     ),
@@ -216,7 +212,7 @@ export const router = createBrowserRouter([
   {
     path: '/find-id',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <FindIdPage />
       </Suspense>
     ),
@@ -224,7 +220,7 @@ export const router = createBrowserRouter([
   {
     path: '/find-password',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <FindPasswordPage />
       </Suspense>
     ),
@@ -232,7 +228,7 @@ export const router = createBrowserRouter([
   {
     path: '/reset-password',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <ResetPasswordPage />
       </Suspense>
     ),
@@ -251,7 +247,7 @@ export const router = createBrowserRouter([
       {
         path: '/dashboard',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <DashboardPage />
           </Suspense>
         ),
@@ -263,7 +259,7 @@ export const router = createBrowserRouter([
         // href와 다를 수밖에 없어 handle.activeHref로 매핑하는 것과 대조 — HAJA-30).
         path: '/defects/list',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <DefectListPage />
           </Suspense>
         ),
@@ -275,7 +271,7 @@ export const router = createBrowserRouter([
       {
         path: '/dashboard/ai-weekly-briefing',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <DashboardPage />
           </Suspense>
         ),
@@ -289,19 +285,22 @@ export const router = createBrowserRouter([
       {
         path: '/defects/:id',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <DefectDetailPage />
           </Suspense>
         ),
         handle: {
           breadcrumb: [{ label: '홈' }, { label: '하자 관리' }, { label: '하자 상세' }],
-          activeHref: '/defects/detail',
+          // '하자 관리'는 하위메뉴 없는 단일 링크(href='/defects/list')로 정리돼(#499) 더 이상
+          // '/defects/detail' href를 가진 항목이 없다 — 그 값을 쓰면 사이드바가 하이라이트되지
+          // 않는 회귀가 생겨 '/defects/list'로 맞춘다(코드 리뷰 P1 지적).
+          activeHref: '/defects/list',
         },
       }, // — features/defect (HAJA-171)
       {
         path: '/mypage/plan',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <MyPlanPage />
           </Suspense>
         ),
@@ -313,7 +312,7 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/map',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <MapPage />
           </Suspense>
         ),
@@ -325,7 +324,7 @@ export const router = createBrowserRouter([
       {
         path: '/inspections/create',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <InspectionCreatePage />
           </Suspense>
         ),
@@ -337,7 +336,7 @@ export const router = createBrowserRouter([
       {
         path: '/inspections/:id/viewer',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <ResultViewerPage />
           </Suspense>
         ),
@@ -349,25 +348,31 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/:id',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <FacilityDetailPage />
           </Suspense>
         ),
         handle: {
           breadcrumb: [{ label: '시설물 관리' }, { label: '강남 오피스타워 A동' }],
-          activeHref: '/facilities/detail',
+          // SideNavBar '시설물 관리' 그룹엔 '/facilities/detail' href를 가진 항목이 없다(항상 없었음) —
+          // '시설물 목록/등록'(href='/facilities/list')과 맞춰 그룹이 자동으로 펼쳐지고 하이라이트되게
+          // 한다(코드 리뷰 P1 지적, #499와 함께 정리).
+          activeHref: '/facilities/list',
         },
       }, // — features/facility 시설물 상세 (Figma node-id 1-1401)
       {
         path: '/facilities/:id/defects/:defectId',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <FacilityDefectDetailPage />
           </Suspense>
         ),
         handle: {
           breadcrumb: [{ label: '시설물 목록' }, { label: '시설물 상세' }, { label: '하자 상세' }],
-          activeHref: '/facilities/detail',
+          // SideNavBar '시설물 관리' 그룹엔 '/facilities/detail' href를 가진 항목이 없다(항상 없었음) —
+          // '시설물 목록/등록'(href='/facilities/list')과 맞춰 그룹이 자동으로 펼쳐지고 하이라이트되게
+          // 한다(코드 리뷰 P1 지적, #499와 함께 정리).
+          activeHref: '/facilities/list',
         },
       }, // — features/facility 하자 정보 패널 (dev-04-02, #489). 위 시설물 개요(/facilities/:id,
       // #504)에서 특정 하자를 드릴다운하는 하위 화면 — 같은 :id로는 #504와 라우트가 겹쳐
@@ -375,7 +380,7 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/:id/defects/:defectId/compare',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <FacilityInspectionComparePage />
           </Suspense>
         ),
@@ -385,13 +390,16 @@ export const router = createBrowserRouter([
             { label: '시설물 상세' },
             { label: '회차 비교' },
           ],
-          activeHref: '/facilities/detail',
+          // SideNavBar '시설물 관리' 그룹엔 '/facilities/detail' href를 가진 항목이 없다(항상 없었음) —
+          // '시설물 목록/등록'(href='/facilities/list')과 맞춰 그룹이 자동으로 펼쳐지고 하이라이트되게
+          // 한다(코드 리뷰 P1 지적, #499와 함께 정리).
+          activeHref: '/facilities/list',
         },
       }, // — features/facility 회차 간 비교 (dev-04-02, #489). 부모(하자 상세)와 동일 사이드바 하이라이트 유지.
       {
         path: '/facilities/inspection-cycle',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <InspectionCycleSettingsPage />
           </Suspense>
         ),
@@ -407,7 +415,7 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/list',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <FacilityListPage />
           </Suspense>
         ),
@@ -422,7 +430,7 @@ export const router = createBrowserRouter([
         // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#378, 컨벤션 §7)
         element: (
           <AdminRoute>
-            <Suspense fallback={<div>불러오는 중...</div>}>
+            <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
               <AdminUsersPage />
             </Suspense>
           </AdminRoute>
@@ -437,7 +445,7 @@ export const router = createBrowserRouter([
         // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#508, 컨벤션 §7)
         element: (
           <AdminRoute>
-            <Suspense fallback={<div>불러오는 중...</div>}>
+            <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
               <PlanQuotaPage />
             </Suspense>
           </AdminRoute>
@@ -450,7 +458,7 @@ export const router = createBrowserRouter([
       {
         path: '/support/ai-assistant',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <AiAssistantPage />
           </Suspense>
         ),

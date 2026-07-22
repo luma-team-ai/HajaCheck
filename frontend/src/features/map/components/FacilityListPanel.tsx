@@ -1,6 +1,7 @@
 // 검색 + 카테고리 필터 + 시설물 목록 패널 (지도 뷰 좌측) — HAJA-150(#129) 재오픈 컨벤션 준수 작업
 import { FACILITY_CATEGORY_FILTERS, GRADE_COLOR } from '../constants';
 import type { FacilityLocation } from '../types';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { GradeBadge } from './GradeBadge';
 
 // 결함/주의 건수 심각도 색상 — 등급 범례(MapLegend)와 동일한 GRADE_COLOR 팔레트를 재사용해
@@ -69,9 +70,7 @@ export function FacilityListPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {isLoading && (
-          <p className="p-4 text-center text-sm text-text-muted">불러오는 중...</p>
-        )}
+        {isLoading && <LoadingSpinner className="flex items-center justify-center gap-2 p-4" />}
         {!isLoading && isError && (
           <p className="p-4 text-center text-sm text-danger">시설물 위치를 불러오지 못했습니다.</p>
         )}

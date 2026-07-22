@@ -1,4 +1,5 @@
 import { useDashboardSummary } from '../hooks/useDashboardSummary';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { KpiCard } from './KpiCard';
 
 // dashboard-card의 기본 padding(20px 24px)을 대신해 시안값(4px 0)을 강제 적용 —
@@ -10,7 +11,7 @@ const KPI_CARD_GROUP_CLASS =
 export function KpiSection() {
   const { data, isLoading, isError } = useDashboardSummary();
 
-  if (isLoading) return <p className="dashboard-card-status">불러오는 중...</p>;
+  if (isLoading) return <LoadingSpinner />;
   if (isError || !data) return <p className="dashboard-card-status">요약 정보를 불러오지 못했습니다.</p>;
 
   return (

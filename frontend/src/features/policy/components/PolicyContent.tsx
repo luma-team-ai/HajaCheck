@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 
 interface PolicyContentProps {
   mdPath: string;
@@ -37,7 +38,7 @@ export function PolicyContent({ mdPath }: PolicyContentProps) {
   }
 
   if (markdown === null) {
-    return <p className="policy-content-loading">불러오는 중...</p>;
+    return <LoadingSpinner />;
   }
 
   return (
