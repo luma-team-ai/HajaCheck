@@ -91,6 +91,23 @@ class FacilityServiceTest {
         ArgumentCaptor<PageRequest> pageableCaptor = ArgumentCaptor.forClass(PageRequest.class);
         verify(facilityRepository).findByOwnerIdOrderByIdAsc(eq(OWNER_ID), pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(500);
+        // 상한 미도달이면 무고지 truncation 감지용 countByOwnerId 를 호출할 필요가 없다(#502 P2).
+        verify(facilityRepository, never()).countByOwnerId(any());
+    }
+
+    @Test
+    void list_상한정확히도달시_실제보유건수를조회해WARN로그근거를남긴다() {
+        List<Facility> maxed = java.util.Collections.nCopies(500, existingFacility());
+        when(facilityRepository.findByOwnerIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(maxed);
+        when(facilityRepository.countByOwnerId(OWNER_ID)).thenReturn(650L);
+
+        List<FacilityResponse> result = facilityService.list(OWNER_ID);
+
+        assertThat(result).hasSize(500);
+        // 응답 계약(List)은 그대로 500건 — 무고지 truncation 감지는 로그로만 이뤄지므로, 최소한 실제
+        // 보유 건수(countByOwnerId)를 조회했는지로 "감지 로직이 탔다"를 검증한다(#502 P2).
+        verify(facilityRepository).countByOwnerId(OWNER_ID);
     }
 
     @Test

@@ -95,14 +95,19 @@ def ha25MigrationScripts = rootProject.files(
 // 같은 방식으로 classpath에 포함해야 두 경로가 계속 일치한다.
 def ap020MigrationScript = rootProject.file(
         '../docs/design/db/migrations/20260719_01_ap020_notification_history_index.sql')
+// #497 / HAJA-299 API 시스템 로그 테이블도 독립 증분 파일이지만, 전체 증분 경로와 canonical DDL의
+// 카탈로그 대조 대상이므로 테스트 classpath에 함께 포함한다.
+def apiSystemLogsMigrationScript = rootProject.file(
+        '../docs/design/db/migrations/20260720_01_create_api_system_logs.sql')
 def ha25SchemaInputs = rootProject.files(
-        canonicalDdl, v03BaselineDdl, ha25MigrationScripts, ap020MigrationScript)
+        canonicalDdl, v03BaselineDdl, ha25MigrationScripts, ap020MigrationScript,
+        apiSystemLogsMigrationScript)
 
 // The released v0.3 archive is a tracked migration input even when it is not part of a PR diff.
 // Fail before test-resource processing so CI cannot silently validate only the canonical DDL.
 def verifyHa25SchemaInputs = tasks.register('verifyHa25SchemaInputs') {
     group = 'verification'
-    description = 'Verifies the canonical DDL, tracked v0.3 baseline, and HAJA-25/AP-020/menu-schema migration scripts.'
+    description = 'Verifies canonical, v0.3, and all HAJA-25/AP-020/menu/API-log migration inputs.'
     inputs.files(ha25SchemaInputs)
     doLast {
         ha25SchemaInputs.files.each { ddlFile ->
@@ -127,6 +132,9 @@ tasks.named('processTestResources') {
         into 'db/migrations'
     }
     from(ap020MigrationScript) {
+        into 'db/migrations'
+    }
+    from(apiSystemLogsMigrationScript) {
         into 'db/migrations'
     }
 }

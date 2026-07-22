@@ -315,7 +315,11 @@ class Ha25IncrementalMigrationTest {
                         CONTAINER_ROOT + "20260716_04_menu_schema_expand.sql")
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(MIGRATION_ROOT + "20260716_05_menu_schema_verify.sql"),
-                        CONTAINER_ROOT + "20260716_05_menu_schema_verify.sql");
+                        CONTAINER_ROOT + "20260716_05_menu_schema_verify.sql")
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                MIGRATION_ROOT + "20260720_01_create_api_system_logs.sql"),
+                        CONTAINER_ROOT + "20260720_01_create_api_system_logs.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -374,6 +378,8 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "20260719_01_ap020_notification_history_index.sql");
         runPsql(postgres, "20260716_04_menu_schema_expand.sql");
         runPsql(postgres, "20260716_05_menu_schema_verify.sql");
+        runPsql(postgres, "20260720_01_create_api_system_logs.sql");
+        runPsql(postgres, "20260720_01_create_api_system_logs.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }
