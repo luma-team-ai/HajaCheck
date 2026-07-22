@@ -1,9 +1,11 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.9.0-draft"
+  version: "0.10.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    2026-07-22 기업가입에 businessStartDate(개업일자, 필수) 추가(#596 / HAJA-337) — 국세청 진위확인
+    (번호+대표자명+개업일자) 연동. verificationStatus 실제 배선(VERIFIED/PENDING).
     2026-07-22 사업자등록증 OCR 공개 프록시(#557 / HAJA-324) — /api/auth/business-license/ocr(비로그인
     multipart) 추가: 파일검증(jpeg/png·10MB·매직바이트)→base64→ai-server 프록시, rate-limit(분당+일일 절대캡).
     2026-07-22 사업자등록증 OCR 실구현(#552 / HAJA-321) — /ai/business-license-ocr 를 stub 에서
@@ -2749,6 +2751,7 @@ components:
           companyName,
           businessRegistrationNumber,
           representativeName,
+          businessStartDate,
           address,
           agreeTermsOfService,
           agreePrivacyPolicy,
@@ -2759,6 +2762,11 @@ components:
         companyName: { type: string, maxLength: 200, example: "(주)하자체크" }
         businessRegistrationNumber: { type: string, pattern: '\d{3}-?\d{2}-?\d{5}', example: "123-45-67890" }
         representativeName: { type: string, maxLength: 100, example: 김민수 }
+        businessStartDate:
+          type: string
+          format: date
+          description: "개업일자(ISO yyyy-MM-dd). 국세청 진위확인(번호+대표자명+개업일자)에 사용. OCR 자동채움 또는 수기 입력."
+          example: "2020-01-15"
         address: { type: string, maxLength: 300, example: 서울시 강남구 ... }
         addressDetail: { type: string, maxLength: 200, nullable: true }
         agreeTermsOfService: { type: boolean }
