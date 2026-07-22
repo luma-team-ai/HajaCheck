@@ -33,23 +33,23 @@ export function useInspectionResultReal(inspectionId: number) {
   const inspection = inspectionQuery.data;
   const defectsData = defectsQuery.data;
 
-  // 시설물 조회는 inspection.facilityId를 알아야만 실행 가능
-  const facilityQuery = useQueries({
-    queries:
-      inspection && isValidId
-        ? [
-            {
-              queryKey: ['facility', inspection.facilityId],
-              queryFn: () =>
-                inspectionApi.getFacilityDetail(inspection.facilityId).then((res) => res.data),
-              enabled: true,
-            },
-          ]
-        : [],
-  })[0];
+  // ponytail: useQueries는 튜플 타입 추론이 고정 크기를 요구하므로 조건부 배열 대신
+  // 고정 크기 배열 + enabled 플래그로 제어 (inspection이 없으면 쿼리 스킵)
+  const [facilityQuery] = useQueries({
+    queries: [
+      {
+        queryKey: ['facility', inspection?.facilityId ?? 0],
+        queryFn: () =>
+          inspection
+            ? inspectionApi.getFacilityDetail(inspection.facilityId).then((res) => res.data)
+            : Promise.resolve(null),
+        enabled: !!(inspection && isValidId),
+      },
+    ],
+  });
 
-  const isLoading = inspectionQuery.isLoading || defectsQuery.isLoading || facilityQuery?.isLoading;
-  const isError = inspectionQuery.isError || defectsQuery.isError || facilityQuery?.isError;
+  const isLoading = inspectionQuery.isLoading || defectsQuery.isLoading || facilityQuery.isLoading;
+  const isError = inspectionQuery.isError || defectsQuery.isError || facilityQuery.isError;
 
   // defectCode: 데이터 없거나 시뮬레이션용. 백엔드에서 제공하지 않으면 inspection.id로 임시 구성.
   const defectCode = inspection ? `DEF-${String(inspection.id).padStart(4, '0')}` : '';
@@ -78,7 +78,7 @@ export function useInspectionResultReal(inspectionId: number) {
 
   // 모든 데이터 준비 완료
   const data: InspectionResult | null =
-    inspection && isValidId && facilityQuery?.data
+    inspection && isValidId && facilityQuery.data
       ? {
           inspectionId: inspection.id,
           // ponytail: 백엔드에서 media list 엔드포인트 미제공. 실제 이미지 URL은 추가 구현 필요.
@@ -106,7 +106,7 @@ export function useInspectionResultReal(inspectionId: number) {
     refetch: () => {
       inspectionQuery.refetch();
       defectsQuery.refetch();
-      if (facilityQuery) facilityQuery.refetch();
+      facilityQuery.refetch();
     },
   };
 }

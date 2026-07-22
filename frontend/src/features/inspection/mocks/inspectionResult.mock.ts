@@ -20,6 +20,7 @@ export const mockInspectionResult: InspectionResult = {
   },
   defectCode: 'DEF-0192',
   facilityName: '강남 오피스타워 A동',
+  facilityType: '건물',
   status: 'AI 검수중',
   reviewedCount: 128,
   totalCount: 214,

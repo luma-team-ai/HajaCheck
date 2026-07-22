@@ -9,7 +9,6 @@ import type { ApiResponse } from '../../../shared/api/types';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
 import type { InspectionResponse } from '../api/inspectionApi.types';
 import type { DefectDetailItem } from '../api/inspectionApi.types';
-import type { FacilityDetail } from '../types';
 import { ResultViewerPage } from './ResultViewerPage';
 
 // 테스트용 목 데이터
@@ -98,16 +97,6 @@ const mockDefects: DefectDetailItem[] = [
     createdAt: '2026-07-22T10:00:00Z',
   },
 ];
-
-const mockFacility: FacilityDetail = {
-  id: 1,
-  name: '강남 오피스타워 A동',
-  type: '건물',
-  address: '서울 강남구 테헤란로 123',
-  builtYear: 2008,
-  scale: '지상 20층, 지하 5층',
-  nextInspectionDueAt: '2026-09-15',
-};
 
 // 새로운 API 엔드포인트 mock
 const testHandlers = [
