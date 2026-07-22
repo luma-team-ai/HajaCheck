@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useOutsideDismiss } from '../../hooks/useOutsideDismiss';
 import titleIcon from '../../../assets/brand/popup-title-icon.svg';
 import closeIcon from '../../../assets/brand/popup-close-icon.svg';
 import arrowIcon from '../../../assets/brand/popup-arrow-icon.svg';
@@ -30,30 +30,7 @@ export function FloatingPopup({
   waitingLabel,
   fixedPosition = true,
 }: FloatingPopupProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    function handlePointerDown(event: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        onCloseRef.current();
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onCloseRef.current();
-      }
-    }
-
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
+  const rootRef = useOutsideDismiss<HTMLDivElement>(onClose);
 
   return (
     <div

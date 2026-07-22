@@ -3,21 +3,27 @@ import type { AdminUser, AdminUserStats } from '../types';
 // 사용자 관리 예제 데이터 — Figma node-id 177-2017 표에 나온 행을 그대로 옮기고, 페이지네이션 동작을
 // 확인할 수 있도록 24건으로 늘렸다. 계정은 전부 example.com 합성값(실데이터 아님).
 //
-// 최근 접속은 "2시간 전"처럼 상대 표기라 고정 ISO 문자열을 박으면 시간이 지날수록 라벨이 틀어진다.
-// 모듈 로드 시각 기준 오프셋으로 생성해 목 데이터가 항상 시안과 같은 라벨을 내도록 한다.
-const NOW = Date.now();
+// 최근 접속은 "2시간 전"처럼 상대 표기라 고정 ISO 문자열을 한 번만 구워두면(모듈 로드 시각 기준) 개발
+// 서버 탭을 오래 열어둘수록 실제 렌더 시점(formatRelativeAccess가 매번 참조하는 실시간 Date.now())과
+// 어긋난다(#398). "지금으로부터 n만큼 전"이라는 오프셋만 값으로 갖고, lastAccessAt은 매 접근 시점의
+// Date.now() 기준으로 계산되는 getter로 둬 언제 읽어도 "2시간 전"이 그대로 유지되게 한다.
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
-function hoursAgo(hours: number): string {
-  return new Date(NOW - hours * HOUR).toISOString();
+type MockAdminUserSeed = Omit<AdminUser, 'lastAccessAt'> & { lastAccessOffsetMs: number | null };
+
+function toAdminUser({ lastAccessOffsetMs, ...rest }: MockAdminUserSeed): AdminUser {
+  const user = rest as AdminUser;
+  Object.defineProperty(user, 'lastAccessAt', {
+    enumerable: true,
+    get(): string | null {
+      return lastAccessOffsetMs === null ? null : new Date(Date.now() - lastAccessOffsetMs).toISOString();
+    },
+  });
+  return user;
 }
 
-function daysAgo(days: number): string {
-  return new Date(NOW - days * DAY).toISOString();
-}
-
-export const mockAdminUsers: AdminUser[] = [
+const mockAdminUserSeeds: MockAdminUserSeed[] = [
   {
     id: 1,
     name: '김지수',
@@ -25,7 +31,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'USER',
     plan: 'FREE',
     joinedAt: '2023-10-12',
-    lastAccessAt: hoursAgo(2),
+    lastAccessOffsetMs: 2 * HOUR,
     status: 'ACTIVE',
   },
   {
@@ -35,7 +41,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'ADMIN',
     plan: 'ENTERPRISE',
     joinedAt: '2022-01-05',
-    lastAccessAt: hoursAgo(0.2),
+    lastAccessOffsetMs: 0.2 * HOUR,
     status: 'ACTIVE',
   },
   {
@@ -45,7 +51,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'INSPECTOR',
     plan: 'STANDARD',
     joinedAt: '2023-05-20',
-    lastAccessAt: daysAgo(31),
+    lastAccessOffsetMs: 31 * DAY,
     status: 'SUSPENDED',
   },
   {
@@ -55,7 +61,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'COUNSELOR',
     plan: 'STANDARD',
     joinedAt: '2023-11-01',
-    lastAccessAt: daysAgo(1),
+    lastAccessOffsetMs: 1 * DAY,
     status: 'ACTIVE',
   },
   {
@@ -66,7 +72,7 @@ export const mockAdminUsers: AdminUser[] = [
     // 활성 구독(user_plans) 행이 없는 사용자 — 플랜 셀 빈 값 표시 확인용
     plan: null,
     joinedAt: '2024-05-09',
-    lastAccessAt: daysAgo(3),
+    lastAccessOffsetMs: 3 * DAY,
     status: 'ACTIVE',
   },
   {
@@ -76,7 +82,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'USER',
     plan: 'FREE',
     joinedAt: '2023-12-05',
-    lastAccessAt: hoursAgo(3),
+    lastAccessOffsetMs: 3 * HOUR,
     status: 'ACTIVE',
   },
   {
@@ -86,7 +92,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'ADMIN',
     plan: 'ENTERPRISE',
     joinedAt: '2021-08-15',
-    lastAccessAt: daysAgo(1),
+    lastAccessOffsetMs: 1 * DAY,
     status: 'ACTIVE',
   },
   {
@@ -96,7 +102,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'INSPECTOR',
     plan: 'STANDARD',
     joinedAt: '2023-09-22',
-    lastAccessAt: daysAgo(5),
+    lastAccessOffsetMs: 5 * DAY,
     status: 'ACTIVE',
   },
   {
@@ -106,7 +112,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'COUNSELOR',
     plan: 'STANDARD',
     joinedAt: '2023-08-11',
-    lastAccessAt: daysAgo(8),
+    lastAccessOffsetMs: 8 * DAY,
     status: 'ACTIVE',
   },
   {
@@ -116,7 +122,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'USER',
     plan: 'FREE',
     joinedAt: '2024-01-10',
-    lastAccessAt: daysAgo(1),
+    lastAccessOffsetMs: 1 * DAY,
     status: 'ACTIVE',
   },
   {
@@ -126,7 +132,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'USER',
     plan: 'STANDARD',
     joinedAt: '2024-02-18',
-    lastAccessAt: hoursAgo(6),
+    lastAccessOffsetMs: 6 * HOUR,
     status: 'ACTIVE',
   },
   {
@@ -136,7 +142,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'INSPECTOR',
     plan: 'ENTERPRISE',
     joinedAt: '2022-06-30',
-    lastAccessAt: daysAgo(3),
+    lastAccessOffsetMs: 3 * DAY,
     status: 'ACTIVE',
   },
   {
@@ -146,7 +152,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'COUNSELOR',
     plan: 'FREE',
     joinedAt: '2024-03-02',
-    lastAccessAt: daysAgo(14),
+    lastAccessOffsetMs: 14 * DAY,
     status: 'SUSPENDED',
   },
   {
@@ -157,7 +163,7 @@ export const mockAdminUsers: AdminUser[] = [
     plan: 'FREE',
     joinedAt: '2024-05-21',
     // 가입 후 한 번도 로그인하지 않은 계정(last_login_at IS NULL) — 최근 접속 빈 값 확인용
-    lastAccessAt: null,
+    lastAccessOffsetMs: null,
     status: 'ACTIVE',
   },
   {
@@ -167,7 +173,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'USER',
     plan: 'STANDARD',
     joinedAt: '2023-04-14',
-    lastAccessAt: hoursAgo(9),
+    lastAccessOffsetMs: 9 * HOUR,
     status: 'ACTIVE',
   },
   {
@@ -177,7 +183,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'ADMIN',
     plan: 'ENTERPRISE',
     joinedAt: '2021-11-23',
-    lastAccessAt: hoursAgo(1),
+    lastAccessOffsetMs: 1 * HOUR,
     status: 'ACTIVE',
   },
   {
@@ -187,7 +193,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'INSPECTOR',
     plan: 'STANDARD',
     joinedAt: '2023-07-08',
-    lastAccessAt: daysAgo(21),
+    lastAccessOffsetMs: 21 * DAY,
     status: 'ACTIVE',
   },
   {
@@ -197,7 +203,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'USER',
     plan: 'FREE',
     joinedAt: '2024-04-01',
-    lastAccessAt: daysAgo(2),
+    lastAccessOffsetMs: 2 * DAY,
     status: 'ACTIVE',
   },
   {
@@ -207,7 +213,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'COUNSELOR',
     plan: 'STANDARD',
     joinedAt: '2023-02-27',
-    lastAccessAt: daysAgo(45),
+    lastAccessOffsetMs: 45 * DAY,
     status: 'SUSPENDED',
   },
   {
@@ -217,7 +223,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'USER',
     plan: 'FREE',
     joinedAt: '2024-05-19',
-    lastAccessAt: hoursAgo(4),
+    lastAccessOffsetMs: 4 * HOUR,
     status: 'ACTIVE',
   },
   {
@@ -227,7 +233,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'INSPECTOR',
     plan: 'ENTERPRISE',
     joinedAt: '2022-09-09',
-    lastAccessAt: daysAgo(6),
+    lastAccessOffsetMs: 6 * DAY,
     status: 'ACTIVE',
   },
   {
@@ -237,7 +243,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'COUNSELOR',
     plan: null,
     joinedAt: '2024-06-03',
-    lastAccessAt: daysAgo(19),
+    lastAccessOffsetMs: 19 * DAY,
     status: 'ACTIVE',
   },
   {
@@ -247,7 +253,7 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'USER',
     plan: 'STANDARD',
     joinedAt: '2023-01-16',
-    lastAccessAt: daysAgo(10),
+    lastAccessOffsetMs: 10 * DAY,
     status: 'ACTIVE',
   },
   {
@@ -257,10 +263,12 @@ export const mockAdminUsers: AdminUser[] = [
     role: 'ADMIN',
     plan: 'ENTERPRISE',
     joinedAt: '2022-03-25',
-    lastAccessAt: hoursAgo(12),
+    lastAccessOffsetMs: 12 * HOUR,
     status: 'ACTIVE',
   },
 ];
+
+export const mockAdminUsers: AdminUser[] = mockAdminUserSeeds.map(toAdminUser);
 
 // 통계는 목 배열에서 파생시켜 표(24건)와 카드 숫자가 어긋나지 않게 한다 — Figma의 1,284명은
 // 시안용 더미 수치이므로 그대로 박지 않는다. 실제 값은 백엔드 집계로 대체된다.
