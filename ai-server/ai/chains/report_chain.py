@@ -452,5 +452,8 @@ def run_report_chain(
         "summary": summary.model_dump(),
         "detail": detail.model_dump(),
         "recommendation": recommendation.model_dump(),
-        "grounding_ok": grounding_result.grounded,
+        # grounded 단독이 아니라 action==PASS 로 판정(#125 P2) — UNVERIFIABLE(근거 부재)만 있어도
+        # grounded=True 가 될 수 있어, 이걸 그대로 쓰면 사람 확인이 필요한 보고서가 완전 검증됐다고
+        # 오판정된다(backend Report.finalizeReport() 가 grounding_ok=True 를 확정 게이트로 신뢰하므로 실제 위험).
+        "grounding_ok": grounding_result.action is GroundingAction.PASS,
     }
