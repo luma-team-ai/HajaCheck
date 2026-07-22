@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ApiResponse } from '../../../shared/api/types';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
+import type { DefectRevisionRequest } from '../api/inspectionApi';
 import type { InspectionResponse } from '../api/inspectionApi.types';
 import type { DefectDetailItem } from '../api/inspectionApi.types';
 import { ResultViewerPage } from './ResultViewerPage';
@@ -121,7 +122,7 @@ const testHandlers = [
     return HttpResponse.json(body);
   }),
   http.patch('/api/defects/:id', async ({ request }) => {
-    const body = (await request.json()) as any;
+    const body = (await request.json()) as DefectRevisionRequest;
     // reason은 필수 필드 (1-500자)
     if (!body.reason || body.reason.trim().length === 0 || body.reason.trim().length > 500) {
       return HttpResponse.json(

@@ -7,7 +7,7 @@ import type {
 } from '../types';
 import type { InspectionResponse, DefectDetailItem, DefectGrade } from './inspectionApi.types';
 
-interface DefectRevisionRequest {
+export interface DefectRevisionRequest {
   grade?: DefectGrade;
   isDeleted?: boolean;
   reason?: string;
