@@ -116,6 +116,8 @@ declare global {
   interface KakaoMarker {
     setMap(map: KakaoMap | null): void;
     getPosition(): KakaoLatLng;
+    setImage(image: KakaoMarkerImage): void;
+    setZIndex(zIndex: number): void;
   }
 
   interface KakaoInfoWindowOptions {

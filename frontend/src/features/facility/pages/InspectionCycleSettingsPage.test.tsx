@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InspectionCycleSettingsPage } from './InspectionCycleSettingsPage';
+import { resetInspectionCycleStatusMockStore } from '../mocks/inspectionCycle.mock';
 
 const mockSetSchedule = vi.fn();
 vi.mock('../hooks/useSetInspectionSchedule', () => ({
@@ -49,9 +50,15 @@ function renderPage() {
   );
 }
 
+beforeEach(() => {
+  vi.stubEnv('VITE_ENABLE_MSW', 'true');
+});
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
+  resetInspectionCycleStatusMockStore();
 });
 
 describe('InspectionCycleSettingsPage', () => {
