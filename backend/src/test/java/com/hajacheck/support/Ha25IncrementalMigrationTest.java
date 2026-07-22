@@ -324,7 +324,12 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 MIGRATION_ROOT + "20260722_01_platform_admin_role.sql"),
-                        CONTAINER_ROOT + "20260722_01_platform_admin_role.sql");
+                        CONTAINER_ROOT + "20260722_01_platform_admin_role.sql")
+                // #596 — companies.business_start_date 컬럼 추가(국세청 진위확인 개업일자).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                MIGRATION_ROOT + "20260722_02_add_business_start_date.sql"),
+                        CONTAINER_ROOT + "20260722_02_add_business_start_date.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -388,6 +393,9 @@ class Ha25IncrementalMigrationTest {
         // #534 — role_type PLATFORM_ADMIN 라벨(IF NOT EXISTS로 재실행 가능).
         runPsql(postgres, "20260722_01_platform_admin_role.sql");
         runPsql(postgres, "20260722_01_platform_admin_role.sql");
+        // #596 — companies.business_start_date 컬럼(ADD COLUMN IF NOT EXISTS로 재실행 가능).
+        runPsql(postgres, "20260722_02_add_business_start_date.sql");
+        runPsql(postgres, "20260722_02_add_business_start_date.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

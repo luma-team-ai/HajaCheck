@@ -19,6 +19,9 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       # 운영(VM)은 내부키 강제 — arm1과 동일 패턴(fail-open 방지, 동일 ${AI_INTERNAL_KEY} 소스)
       AI_SERVER_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
+      # 국세청 사업자 진위확인(#596) serviceKey — spring bizverify가 읽음. fail-open이라 미설정 시
+      # 진위확인 SKIP(가입은 됨). :- 소프트 — 이 키는 기동을 막지 않는다.
+      BUSINESS_REGISTRATION_API_KEY: ${BUSINESS_REGISTRATION_API_KEY:-}
       # 비밀번호 재설정 메일 발송(#194) — arm1과 동일 패턴으로 운영 강제.
       # 미설정 시 spring.mail.host가 빈 문자열이 되어 앱이 로그 폴백(LoggingPasswordResetMailSender)을 선택한다
       # → 메일 미발송(무증상 장애) + 재설정 링크(=토큰 원문)가 서버 로그에 평문으로 남는다. 그래서 :? 로 막는다.

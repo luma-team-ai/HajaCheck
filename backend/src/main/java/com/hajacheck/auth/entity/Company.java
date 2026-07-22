@@ -14,6 +14,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
+import java.time.LocalDate;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -65,6 +66,10 @@ public class Company extends BaseTimeEntity {
     @Column(name = "representative_name", nullable = false, length = 100)
     private String representativeName;
 
+    // 개업일자(국세청 진위확인 파라미터). 기존 회사 backfill 을 위해 nullable(신규 가입은 항상 채워진다).
+    @Column(name = "business_start_date")
+    private LocalDate businessStartDate;
+
     @Column(nullable = false, length = 300)
     private String address;
 
@@ -106,13 +111,14 @@ public class Company extends BaseTimeEntity {
 
     @Builder(access = AccessLevel.PRIVATE)
     private Company(Long ownerUserId, String name, String businessRegistrationNumber,
-                    String representativeName, String address, String addressDetail,
+                    String representativeName, LocalDate businessStartDate, String address, String addressDetail,
                     String businessRegistrationFileUrl, String businessRegistrationOcrRaw,
                     BusinessVerificationStatus verificationStatus, CompanyStatus status) {
         this.ownerUserId = ownerUserId;
         this.name = name;
         this.businessRegistrationNumber = businessRegistrationNumber;
         this.representativeName = representativeName;
+        this.businessStartDate = businessStartDate;
         this.address = address;
         this.addressDetail = addressDetail;
         this.businessRegistrationFileUrl = businessRegistrationFileUrl;
@@ -122,12 +128,26 @@ public class Company extends BaseTimeEntity {
     }
 
     /**
-     * 가입 신청 팩토리 — 진위확인 PENDING, 승인 PENDING_REVIEW 로 생성.
-     * OCR 은 stub 값(호출부에서 {@code {"source":"MANUAL_INPUT"}} 전달).
+     * 가입 신청 팩토리(개업일자 미보유 오버로드 — 테스트 픽스처·기존 호출부 호환).
+     * 진위확인 PENDING, 승인 PENDING_REVIEW 로 생성.
      */
     public static Company createPendingReview(Long ownerUserId, String name, String businessRegistrationNumber,
                                               String representativeName, String address, String addressDetail,
                                               String businessRegistrationFileUrl, String businessRegistrationOcrRaw) {
+        return createPendingReview(ownerUserId, name, businessRegistrationNumber, representativeName,
+                address, addressDetail, businessRegistrationFileUrl, businessRegistrationOcrRaw, null);
+    }
+
+    /**
+     * 가입 신청 팩토리 — 진위확인 PENDING, 승인 PENDING_REVIEW 로 생성.
+     * OCR 은 stub 값(호출부에서 {@code {"source":"MANUAL_INPUT"}} 전달). {@code businessStartDate} 는
+     * 국세청 진위확인 파라미터로 신규 가입 시 항상 전달된다(#596). 진위 성공 시 호출부가 생성 직후
+     * {@link #markBusinessVerified()} 로 VERIFIED 전이시킨다.
+     */
+    public static Company createPendingReview(Long ownerUserId, String name, String businessRegistrationNumber,
+                                              String representativeName, String address, String addressDetail,
+                                              String businessRegistrationFileUrl, String businessRegistrationOcrRaw,
+                                              LocalDate businessStartDate) {
         String normalizedOcrRaw = JsonValidator.normalizeOrRequireValid(
                 businessRegistrationOcrRaw, "OCR 원본(businessRegistrationOcrRaw)");
         return Company.builder()
@@ -135,6 +155,7 @@ public class Company extends BaseTimeEntity {
                 .name(name)
                 .businessRegistrationNumber(businessRegistrationNumber)
                 .representativeName(representativeName)
+                .businessStartDate(businessStartDate)
                 .address(address)
                 .addressDetail(addressDetail)
                 .businessRegistrationFileUrl(businessRegistrationFileUrl)

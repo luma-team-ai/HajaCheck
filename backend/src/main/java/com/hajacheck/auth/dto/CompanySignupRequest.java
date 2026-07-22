@@ -3,8 +3,11 @@ package com.hajacheck.auth.dto;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import java.time.LocalDate;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
@@ -34,6 +37,12 @@ public record CompanySignupRequest(
         @NotBlank(message = "대표자명은 필수입니다.")
         @Size(max = 100, message = "대표자명은 100자 이하여야 합니다.")
         String representativeName,
+
+        // 개업일자(ISO yyyy-MM-dd) — 국세청 진위확인 파라미터(#596). OCR 자동채움 또는 수기 입력으로
+        // 프론트가 항상 보낸다. 형식 불량은 LocalDate 바인딩 실패(400)로, 누락은 @NotNull(400)로 거른다.
+        @NotNull(message = "개업일자는 필수입니다.")
+        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+        LocalDate businessStartDate,
 
         @NotBlank(message = "주소는 필수입니다.")
         @Size(max = 300, message = "주소는 300자 이하여야 합니다.")
