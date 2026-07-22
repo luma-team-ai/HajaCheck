@@ -24,7 +24,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 /**
- * AiProxyService.ocrBusinessLicense 단위테스트(#557 / HAJA-169) — RestClient 는 MockRestServiceServer 로
+ * AiProxyService.ocrBusinessLicense 단위테스트(#557 / HAJA-324) — RestClient 는 MockRestServiceServer 로
  * 스텁(AiProxyServiceTest/AiProxyServiceBriefingTest 와 동일 패턴).
  */
 class AiProxyServiceBusinessLicenseOcrTest {

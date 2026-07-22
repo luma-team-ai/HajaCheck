@@ -171,7 +171,7 @@ public class AiProxyService {
     }
 
     /**
-     * 사업자등록증 OCR 공개 프록시(#557 / HAJA-169) — 기업 가입 전(비로그인) 화면에서 호출된다.
+     * 사업자등록증 OCR 공개 프록시(#557 / HAJA-324) — 기업 가입 전(비로그인) 화면에서 호출된다.
      * 인가는 없지만 {@link #attachInternalKeyIfPresent}로 내부키를 부착해 AI 서버 강제 경유 원칙(#228)은
      * 그대로 유지한다. 호출부(BusinessLicenseOcrService)가 파일 검증·rate-limit·base64 인코딩을 마친
      * 문자열만 여기로 넘긴다 — 이 메서드는 순수 프록시 역할만 한다(다른 ocr/explain/report와 동일 스켈레톤).

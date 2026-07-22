@@ -3,7 +3,7 @@ package com.hajacheck.core.ai.dto;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 /**
- * FastAPI {@code POST /ai/business-license-ocr} 원본 응답 envelope(#557 / HAJA-169, HTTP 200 고정,
+ * FastAPI {@code POST /ai/business-license-ocr} 원본 응답 envelope(#557 / HAJA-324, HTTP 200 고정,
  * success 플래그로 성공/실패 구분).
  * <pre>
  * 성공:   { "success": true,  "data": {businessRegistrationNumber,companyName,representativeName,raw,stub} }

@@ -22,7 +22,7 @@ public class AuthProperties {
     /** 비밀번호 재설정 1단계 rate-limit(2단계엔 걸지 않는다 — 계약 §Rate-limit). */
     private PasswordResetRateLimit passwordResetRateLimit = new PasswordResetRateLimit();
 
-    /** 사업자등록증 OCR 공개 프록시 rate-limit(#557 / HAJA-169). */
+    /** 사업자등록증 OCR 공개 프록시 rate-limit(#557 / HAJA-324). */
     private BusinessLicenseOcrRateLimit businessLicenseOcrRateLimit = new BusinessLicenseOcrRateLimit();
 
     /**
@@ -93,7 +93,7 @@ public class AuthProperties {
     }
 
     /**
-     * 사업자등록증 OCR 공개 프록시 rate-limit 설정(#557 / HAJA-169) — 비로그인(가입 전) 엔드포인트라
+     * 사업자등록증 OCR 공개 프록시 rate-limit 설정(#557 / HAJA-324) — 비로그인(가입 전) 엔드포인트라
      * PasswordResetRateLimit 처럼 사용자 축(이메일)이 존재하지 않는다. 축은 <b>전역 상한</b> 하나뿐이다.
      *
      * <p>⚠️ <b>IP 축을 쓰지 않는 이유는 PasswordResetRateLimit 과 동일</b>(2026-07-17 A 결정) —

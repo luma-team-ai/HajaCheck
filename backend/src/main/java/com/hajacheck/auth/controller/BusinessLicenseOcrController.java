@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 사업자등록증 OCR 공개 프록시(#557 / HAJA-169) — 기업 가입 전(비로그인) 화면 전용. 경로가
+ * 사업자등록증 OCR 공개 프록시(#557 / HAJA-324) — 기업 가입 전(비로그인) 화면 전용. 경로가
  * {@code /api/auth/**} 라 SecurityConfig 의 permitAll 목록에 이미 포함돼 있어 별도 화이트리스트
  * 추가가 필요 없다(CompanySignupController 와 동일 근거).
  */
