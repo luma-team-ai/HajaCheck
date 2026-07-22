@@ -179,6 +179,26 @@ class AdminPlanControllerTest extends PostgresTestSupport {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void 플랜변경_비소유자ADMIN멤버_403_결제게이트우회차단() throws Exception {
+        // PR#525 머신 리뷰 P1: 승인된 멤버십만으로는 changePlan(즉시 ACTIVE 발급, 무결제)을 허용해선
+        // 안 된다 — requestUpgrade 와 동일하게 회사 소유자(owner)만 허용해야 한다.
+        Company company = saveApprovedCompany();
+        User nonOwnerAdmin = saveUser(Role.ADMIN, company.getId());
+        CompanyMembership membership = CompanyMembership.invite(
+                company.getId(), nonOwnerAdmin.getId(), company.getOwnerUserId(), null);
+        membership.approve();
+        companyMembershipRepository.save(membership);
+        seedPlans();
+        userPlanRepository.save(UserPlan.forCompany(company.getId(), planId(PlanName.FREE)));
+
+        mockMvc.perform(patch("/api/admin/plan")
+                        .with(csrf()).with(authentication(authOf(nonOwnerAdmin)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"ENTERPRISE\"}"))
+                .andExpect(status().isForbidden());
+    }
+
     // ── 회사 멤버별 쿼터 목록(#525 팔로우업 — PR머신 P2: 이 엔드포인트가 테스트에서 전혀 검증되지 않았음) ──
 
     @Test
@@ -261,9 +281,19 @@ class AdminPlanControllerTest extends PostgresTestSupport {
     private record Fixture(User admin, Company company) {
     }
 
+    // fx.admin() 은 changePlan(owner 한정, PR#525 P1 픽스) 테스트에도 재사용되므로 실제 company.ownerUserId
+    // 와 동일한 사용자로 만든다 — owner 아닌 승인 멤버는 별도 픽스처(플랜변경_비소유자ADMIN멤버_403...)로 다룬다.
     private Fixture approvedCompanyAdminWithPlan(PlanName planName) {
-        Company company = saveApprovedCompany();
-        User admin = saveUser(Role.ADMIN, company.getId());
+        int n = SEQ.incrementAndGet();
+        User admin = saveUser(Role.ADMIN, null);
+        Company company = Company.createPendingReview(
+                admin.getId(), "회사" + n, "BRN-507-" + n, "대표", "서울", null,
+                "https://files.example/brn.pdf", "{\"source\":\"MANUAL_INPUT\"}");
+        company.markBusinessVerified();
+        company.approve(admin.getId());
+        company = companyRepository.save(company);
+        admin.assignToCompany(company.getId());
+        admin = userRepository.save(admin);
         companyMembershipRepository.save(
                 CompanyMembership.approvedOwner(company.getId(), admin.getId()));
         seedPlans();

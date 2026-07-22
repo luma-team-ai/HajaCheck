@@ -8,8 +8,10 @@ import static org.mockito.Mockito.when;
 
 import com.hajacheck.admin.repository.AdminPlanRepository;
 import com.hajacheck.admin.repository.AdminUserRepository;
+import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.CompanyMembershipRepository;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
@@ -54,6 +56,8 @@ class AdminPlanServiceTest {
     @Mock
     private CompanyMembershipRepository companyMembershipRepository;
     @Mock
+    private CompanyRepository companyRepository;
+    @Mock
     private MediaRepository mediaRepository;
 
     @InjectMocks
@@ -69,9 +73,13 @@ class AdminPlanServiceTest {
         Plan targetPlan = Plan.create(PlanName.STANDARD, 10, 1000, 3, false, true, true,
                 new BigDecimal("29000.00"));
 
+        Company company = Company.createPendingReview(adminUserId, "회사", "123-45-67890",
+                "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+
         when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
         when(companyMembershipRepository.existsEffectiveApprovedMembership(anyLong(), anyLong(), any()))
                 .thenReturn(true);
+        when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
         when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
                 companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
         when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(targetPlan));
@@ -84,5 +92,28 @@ class AdminPlanServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT));
+    }
+
+    @Test
+    void 플랜변경_비소유자ADMIN멤버_PLAN_FORBIDDEN으로거부() {
+        // PR#525 머신 리뷰 P1 지적: 승인된 멤버십만으로는 changePlan(즉시 ACTIVE 발급)을 허용해선 안
+        // 된다 — requestUpgrade 와 동일하게 회사 소유자(owner)만 허용해야 결제/승인 게이트 우회를 막는다.
+        Long adminUserId = 1L;
+        Long ownerUserId = 2L;
+        Long companyId = 10L;
+        User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
+                .passwordHash("hash").build();
+        Company company = Company.createPendingReview(ownerUserId, "회사", "123-45-67890",
+                "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+
+        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(companyMembershipRepository.existsEffectiveApprovedMembership(anyLong(), anyLong(), any()))
+                .thenReturn(true);
+        when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+
+        assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.STANDARD))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_FORBIDDEN));
     }
 }

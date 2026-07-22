@@ -8,9 +8,11 @@ import com.hajacheck.admin.dto.AdminPlanQuotaStats;
 import com.hajacheck.admin.dto.AdminPlanResponse;
 import com.hajacheck.admin.repository.AdminPlanRepository;
 import com.hajacheck.admin.repository.AdminUserRepository;
+import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyMembershipRepository;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
@@ -67,6 +69,7 @@ public class AdminPlanService {
     private final UsageCounterRepository usageCounterRepository;
     private final UserRepository userRepository;
     private final CompanyMembershipRepository companyMembershipRepository;
+    private final CompanyRepository companyRepository;
     private final MediaRepository mediaRepository;
 
     /** 제공 요금제 카탈로그(변경 선택지) — 회사 스코프와 무관한 참조 데이터라 ADMIN 이면 조회 가능. */
@@ -91,10 +94,15 @@ public class AdminPlanService {
     /**
      * 회사 구독의 요금제 변경 — 기존 ACTIVE(또는 UPGRADE_REQUESTED) 구독을 EXPIRED 로 내리고 새 ACTIVE 구독을
      * 발급한다(단일 트랜잭션). 대상 요금제가 현재와 같고 이미 ACTIVE 면 멱등 no-op(200).
+     *
+     * <p><b>인가</b>: 회사 플랜을 즉시 발급(결제·플랫폼 승인 없이)하는 동작이라, {@link
+     * com.hajacheck.membership.service.MembershipService#requestUpgrade} 와 동일하게 <b>회사 소유자(owner)</b>
+     * 로 한정한다 — 승인된 멤버십만으로는 허용하지 않는다(그 외 ADMIN 멤버는 요청/조회만 가능).
      */
     @Transactional
     public AdminPlanResponse changePlan(Long adminUserId, PlanName targetPlanName) {
         Long companyId = resolveInheritedCompanyId(adminUserId);
+        requireCompanyOwner(companyId, adminUserId);
         UserPlan current = resolveCurrentCompanyPlan(companyId);
         Plan targetPlan = planRepository.findByName(targetPlanName)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
@@ -201,6 +209,15 @@ public class AdminPlanService {
             throw new BusinessException(ErrorCode.PLAN_NOT_FOUND);
         }
         return companyId;
+    }
+
+    // 요금제 즉시 변경(무결제 발급)은 회사 소유자만 허용 — requestUpgrade 와 인가 기준을 일치시킨다.
+    private void requireCompanyOwner(Long companyId, Long adminUserId) {
+        Company company = companyRepository.findById(companyId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_FORBIDDEN));
+        if (!adminUserId.equals(company.getOwnerUserId())) {
+            throw new BusinessException(ErrorCode.PLAN_FORBIDDEN);
+        }
     }
 
     private UserPlan resolveCurrentCompanyPlan(Long companyId) {
