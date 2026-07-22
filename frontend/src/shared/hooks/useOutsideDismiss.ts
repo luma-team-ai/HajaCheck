@@ -10,7 +10,7 @@ import type { RefObject } from 'react';
 export function useOutsideDismiss<T extends HTMLElement>(
   onDismiss: (() => void) | undefined,
   enabled = true,
-): RefObject<T | null> {
+): RefObject<T> {
   const containerRef = useRef<T>(null);
   const onDismissRef = useRef(onDismiss);
   onDismissRef.current = onDismiss;
