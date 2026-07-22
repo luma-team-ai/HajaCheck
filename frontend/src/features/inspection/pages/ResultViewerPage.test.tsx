@@ -7,10 +7,122 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ApiResponse } from '../../../shared/api/types';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
-import type { InspectionResult } from '../types';
+import type { InspectionResponse } from '../api/inspectionApi.types';
+import type { DefectDetailItem } from '../api/inspectionApi.types';
+import type { FacilityDetail } from '../types';
 import { ResultViewerPage } from './ResultViewerPage';
 
-const server = setupServer(...inspectionHandlers);
+// 테스트용 목 데이터
+const mockInspection: InspectionResponse = {
+  id: 1,
+  facilityId: 1,
+  createdBy: 1,
+  assignedInspectorId: 1,
+  roundNo: 1,
+  inspectionDate: '2026-07-22',
+  status: 'ANALYZED',
+  createdAt: '2026-07-22T10:00:00Z',
+};
+
+const mockDefects: DefectDetailItem[] = [
+  {
+    id: 1,
+    inspectionId: 1,
+    type: '균열',
+    grade: 'C',
+    status: '신규',
+    confidence: 0.98,
+    isReviewed: false,
+    bboxX: 0.12,
+    bboxY: 0.3,
+    bboxW: 0.18,
+    bboxH: 0.08,
+    crackWidthMm: 3.2,
+    crackLengthMm: 45,
+    createdAt: '2026-07-22T10:00:00Z',
+  },
+  {
+    id: 2,
+    inspectionId: 1,
+    type: '박리박락',
+    grade: 'B',
+    status: '신규',
+    confidence: 0.81,
+    isReviewed: false,
+    bboxX: 0.55,
+    bboxY: 0.42,
+    bboxW: 0.12,
+    bboxH: 0.15,
+    createdAt: '2026-07-22T10:00:00Z',
+  },
+  {
+    id: 3,
+    inspectionId: 1,
+    type: '철근노출',
+    grade: 'D',
+    status: '검수확정',
+    confidence: 0.67,
+    isReviewed: true,
+    bboxX: 0.3,
+    bboxY: 0.6,
+    bboxW: 0.25,
+    bboxH: 0.1,
+    createdAt: '2026-07-22T10:00:00Z',
+  },
+  {
+    id: 4,
+    inspectionId: 1,
+    type: '철근노출',
+    grade: 'E',
+    status: '신규',
+    confidence: 0.58,
+    isReviewed: false,
+    bboxX: 0.7,
+    bboxY: 0.15,
+    bboxW: 0.1,
+    bboxH: 0.1,
+    createdAt: '2026-07-22T10:00:00Z',
+  },
+  {
+    id: 5,
+    inspectionId: 1,
+    type: '박리박락',
+    grade: 'A',
+    status: '조치완료',
+    confidence: 0.45,
+    isReviewed: true,
+    bboxX: 0.05,
+    bboxY: 0.75,
+    bboxW: 0.2,
+    bboxH: 0.08,
+    createdAt: '2026-07-22T10:00:00Z',
+  },
+];
+
+const mockFacility: FacilityDetail = {
+  id: 1,
+  name: '강남 오피스타워 A동',
+  type: '건물',
+  address: '서울 강남구 테헤란로 123',
+  builtYear: 2008,
+  scale: '지상 20층, 지하 5층',
+  nextInspectionDueAt: '2026-09-15',
+};
+
+// 새로운 API 엔드포인트 mock
+const testHandlers = [
+  ...inspectionHandlers,
+  http.get('/api/inspections/:id', () => {
+    const body: ApiResponse<InspectionResponse> = { success: true, data: mockInspection };
+    return HttpResponse.json(body);
+  }),
+  http.get('/api/inspections/:id/defects', () => {
+    const body: ApiResponse<DefectDetailItem[]> = { success: true, data: mockDefects };
+    return HttpResponse.json(body);
+  }),
+];
+
+const server = setupServer(...testHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
@@ -43,32 +155,31 @@ describe('ResultViewerPage (통합 테스트)', () => {
   it('정상 렌더: 점검 결과 데이터(결함코드, 시설물명)를 로드해 표시한다', async () => {
     renderPage();
 
-    // mock 데이터에서 실제 값 확인
-    expect(await screen.findByText('DEF-0192')).not.toBeNull();
+    // mock 데이터에서 실제 값 확인 (defectCode는 이제 DEF-{id} 형식)
+    expect(await screen.findByText('DEF-0001')).not.toBeNull();
     expect(await screen.findByText('강남 오피스타워 A동')).not.toBeNull();
   });
 
   it('선택된 하자가 필터로 제외되면 목록의 첫 항목으로 자동 대체된다', async () => {
     renderPage();
-    await screen.findByText('DEF-0192');
+    await screen.findByText('DEF-0001');
 
     // id=2(박리박락, confidence 0.81)를 선택
     fireEvent.click(screen.getByTitle(/박리박락/));
-    expect(await screen.findByText('콘크리트 표면 박리 영역 확대 중. 즉시 조치 필요.')).not.toBeNull();
+    // 요약은 이제 생성됨: "{type} 하자 — 신뢰도 81%"
+    expect(await screen.findByText(/박리박락 하자 — 신뢰도 81%/)).not.toBeNull();
 
     // 신뢰도 threshold를 0.9로 올려 id=2를 필터에서 제외
     fireEvent.change(screen.getByRole('slider'), { target: { value: '0.9' } });
 
     // 선택이 남아있는 첫 항목(id=1, 균열)으로 자동 대체된다
-    expect(
-      await screen.findByText('수평 방향의 구조적 균열로 판단됨. 보수 권장.'),
-    ).not.toBeNull();
-    expect(screen.queryByText('콘크리트 표면 박리 영역 확대 중. 즉시 조치 필요.')).toBeNull();
+    expect(await screen.findByText(/균열 하자 — 신뢰도 98%/)).not.toBeNull();
+    expect(screen.queryByText(/박리박락 하자 — 신뢰도 81%/)).toBeNull();
   });
 
   it('필터 결과가 0건이면(원본 데이터는 있음) 안내 메시지를 표시한다(#368)', async () => {
     renderPage();
-    await screen.findByText('DEF-0192');
+    await screen.findByText('DEF-0001');
 
     // 신뢰도 threshold를 최대로 올려 모든 하자(최고 confidence 0.98)를 필터에서 제외
     fireEvent.change(screen.getByRole('slider'), { target: { value: '1' } });
@@ -76,54 +187,51 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(await screen.findByText('조건에 맞는 하자가 없습니다.')).not.toBeNull();
   });
 
-  it('"검수 확정" 버튼은 백엔드 미구현으로 비활성화되어 있다(#368, #16/#17 완료 시 활성화)', async () => {
+  it('"검수 확정" 버튼은 백엔드 미구현으로 비활성화되어 있다(#553, inspection 상태 transition API 확인 필요)', async () => {
     renderPage();
-    await screen.findByText('DEF-0192');
+    await screen.findByText('DEF-0001');
 
     const button = screen.getByRole('button', { name: '이 이미지 검수 확정' });
     expect(button.hasAttribute('disabled')).toBe(true);
   });
 
+  it('오탐 삭제 버튼이 활성화되어 있다(#553)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const button = screen.getByRole('button', { name: '오탐 삭제' });
+    expect(button.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('등급 수정 버튼이 활성화되어 있다(#553)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const button = screen.getByRole('button', { name: '등급 수정' });
+    expect(button.hasAttribute('disabled')).toBe(false);
+  });
+
   it('하자 마커 클릭 → AI 패널 요약 텍스트가 선택된 하자로 갱신된다', async () => {
     renderPage();
-    await screen.findByText('DEF-0192');
+    await screen.findByText('DEF-0001');
 
     // 초기 상태: id=1(균열)의 요약 표시
-    expect(await screen.findByText('수평 방향의 구조적 균열로 판단됨. 보수 권장.')).not.toBeNull();
+    expect(await screen.findByText(/균열 하자 — 신뢰도 98%/)).not.toBeNull();
 
     // id=2(박리박락) 마커 클릭
     const secondDefectButton = screen.getByTitle(/박리박락/);
     fireEvent.click(secondDefectButton);
 
     // AI 패널의 요약이 id=2로 갱신됨
-    expect(
-      await screen.findByText('콘크리트 표면 박리 영역 확대 중. 즉시 조치 필요.'),
-    ).not.toBeNull();
-    expect(screen.queryByText('수평 방향의 구조적 균열로 판단됨. 보수 권장.')).toBeNull();
+    expect(await screen.findByText(/박리박락 하자 — 신뢰도 81%/)).not.toBeNull();
+    expect(screen.queryByText(/균열 하자 — 신뢰도 98%/)).toBeNull();
   });
 
   it('빈 데이터: 탐지된 하자가 없으면 해당 메시지를 표시한다', async () => {
     // 빈 defects 배열 응답으로 오버라이드
     server.use(
-      http.get('/api/inspections/:id/result', () => {
-        const emptyResult: ApiResponse<InspectionResult> = {
-          success: true,
-          data: {
-            inspectionId: 1,
-            media: {
-              id: 1,
-              imageUrl: 'data:image/svg+xml;utf8,...',
-              width: 1600,
-              height: 1200,
-            },
-            defectCode: 'DEF-TEST',
-            facilityName: '테스트 시설',
-            status: 'AI 검수중',
-            reviewedCount: 10,
-            totalCount: 100,
-            defects: [], // 빈 배열 = 탐지된 하자가 없음
-          },
-        };
+      http.get('/api/inspections/:id/defects', () => {
+        const emptyResult: ApiResponse<DefectDetailItem[]> = { success: true, data: [] };
         return HttpResponse.json(emptyResult);
       }),
     );

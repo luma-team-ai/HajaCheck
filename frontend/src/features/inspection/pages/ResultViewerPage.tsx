@@ -1,11 +1,12 @@
 import type { ChangeEvent } from 'react';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
 import { DefectOverlay } from '../components/DefectOverlay';
 import { useInspectionResult } from '../hooks/useInspectionResult';
+import { inspectionApi } from '../api/inspectionApi';
 import type { DefectGrade } from '../types';
 import { filterDefects } from '../utils/filterDefects';
 
@@ -20,6 +21,7 @@ export function ResultViewerPage() {
   // rules-of-hooks: 훅은 조건부 return 이전에 호출해야 한다. 훅 내부 enabled 플래그가
   // 유효하지 않은 inspectionId일 때 쿼리를 스킵하므로, ID 검증 return은 훅 호출 다음에 둔다.
   const { data, isLoading, isError, refetch } = useInspectionResult(inspectionId);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
     return (
@@ -49,6 +51,43 @@ export function ResultViewerPage() {
   };
 
   const progressPercent = data.totalCount > 0 ? (data.reviewedCount / data.totalCount) * 100 : 0;
+
+  // 오탐 삭제: 선택된 하자를 isDeleted: true로 마크
+  const handleDeleteFalsePositive = useCallback(async () => {
+    if (!selected || isUpdating) return;
+    setIsUpdating(true);
+    try {
+      await inspectionApi.reviewDefect(selected.id, { isDeleted: true });
+      // 성공 후 데이터 갱신
+      await refetch();
+    } catch (error) {
+      console.error('오탐 삭제 실패:', error);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [selected, isUpdating, refetch]);
+
+  // 등급 수정: 선택된 하자의 등급을 다음 단계로 변경(간단한 UI가 없으므로 +1단계 예시)
+  // TODO: 등급 선택 모달 UI 필요
+  const handleUpdateGrade = useCallback(async () => {
+    if (!selected || isUpdating) return;
+    setIsUpdating(true);
+    try {
+      // ponytail: 임시로 등급을 한 단계 내림 (A→B→...→E)
+      // 실제로는 사용자가 선택한 등급을 받아야 함
+      const grades: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
+      const currentIndex = grades.indexOf(selected.grade);
+      const nextGrade = currentIndex < grades.length - 1 ? grades[currentIndex + 1] : 'E';
+
+      await inspectionApi.reviewDefect(selected.id, { grade: nextGrade });
+      // 성공 후 데이터 갱신
+      await refetch();
+    } catch (error) {
+      console.error('등급 수정 실패:', error);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [selected, isUpdating, refetch]);
 
   return (
     <div className="flex h-full flex-col gap-4 py-6 pl-6 pr-28">
@@ -137,12 +176,19 @@ export function ResultViewerPage() {
             </div>
 
             {/* Action Buttons — 우측 패널의 등급수정/누락추가와 동일 높이로 하단 정렬 */}
-            {/* TODO: 백엔드 구현(#16 오탐 수정·등급 조정, #17 하자 상태머신) 후 활성화 — #249 후속 이슈 */}
             {visibleDefects.length > 0 && (
               <div className="flex items-center gap-3">
-                <Button type="button" variant="danger-soft" size="lg" className="flex-[3]" disabled>
+                <Button
+                  type="button"
+                  variant="danger-soft"
+                  size="lg"
+                  className="flex-[3]"
+                  onClick={handleDeleteFalsePositive}
+                  disabled={isUpdating || !selected}
+                >
                   오탐 삭제
                 </Button>
+                {/* TODO: 검수 확정 → 검수 API 확정 또는 inspection 상태 transition API 필요 (#17/PR #372 검토 필요) */}
                 <Button type="button" variant="primary" size="lg" className="flex-[7]" disabled>
                   이 이미지 검수 확정
                 </Button>
@@ -197,12 +243,19 @@ export function ResultViewerPage() {
               </div>
 
               {/* Action Buttons — 스크롤 영역 밖 하단 고정, 좌측 "검수 확정" 버튼과 동일 높이 */}
-              {/* TODO: 백엔드 구현(#16 오탐 수정·등급 조정, #17 하자 상태머신) 후 활성화 — #249 후속 이슈 */}
               {/* 좌측 컬럼(p-6=24px 하단 여백)과 하단 정렬 맞추려 pb-6 사용, py-5 아님 */}
               <div className="flex gap-3 px-5 pt-5 pb-6">
-                <Button type="button" variant="secondary" size="lg" className="flex-1" disabled>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="lg"
+                  className="flex-1"
+                  onClick={handleUpdateGrade}
+                  disabled={isUpdating || !selected}
+                >
                   등급 수정
                 </Button>
+                {/* TODO: 누락 추가 → defect 생성 API 미구현 (#249 후속) */}
                 <Button type="button" variant="secondary" size="lg" className="flex-1" disabled>
                   누락 추가
                 </Button>
