@@ -17,6 +17,7 @@ RUN apt-get update \
 COPY requirements.txt ./
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/venv/bin/pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
     && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # ---- Runtime stage ----

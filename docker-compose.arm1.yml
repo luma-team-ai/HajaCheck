@@ -148,11 +148,8 @@ services:
         condition: service_healthy
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}@redis:6379/${REDIS_DB_INDEX:-1}
-      LLM_PROVIDER: ${LLM_PROVIDER:-hf}
       LLM_MODEL: ${LLM_MODEL:-Qwen/Qwen3-8B}
       HF_API_TOKEN: ${HF_API_TOKEN:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
       # X-Internal-Key 검증용 공유키(스프링 AI_SERVER_INTERNAL_KEY와 동일 소스). 운영은 강제(:?).
       AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
       # 프로덕션 신호 — main.py가 이 값으로 /docs·/redoc·/openapi.json을 비활성화(무인증 스키마 노출 차단)
