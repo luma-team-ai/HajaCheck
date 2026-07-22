@@ -40,6 +40,9 @@ interface SideNavBarProps {
   items?: SideNavItem[];
   adminItem?: SideNavItem;
   isAdmin?: boolean;
+  /** 상단 브랜드 로고 클릭 시 이동 대상. 미지정 시 기존 동작대로 '/dashboard'(#535 플랫폼 관리자
+   * 콘솔처럼 일반 대시보드가 없는 셸에서 override) */
+  brandHref?: string;
   activeHref?: string;
   user?: SideNavBarUser;
   onLogout?: () => void;
@@ -178,6 +181,7 @@ export function SideNavBar({
   items = DEFAULT_ITEMS,
   adminItem = DEFAULT_ADMIN_ITEM,
   isAdmin = false,
+  brandHref = '/dashboard',
   activeHref,
   user,
   onLogout,
@@ -356,12 +360,14 @@ export function SideNavBar({
           }`}
         >
           <Link
-            to="/dashboard"
-            onClick={(event) => handleNavClick(event, '/dashboard')}
+            to={brandHref}
+            onClick={(event) => handleNavClick(event, brandHref)}
             className={`flex w-full items-center gap-1.5 no-underline ${
               visuallyExpanded ? '' : 'justify-center'
             }`}
-            aria-label="HajaCheck 대시보드로 이동"
+            // brandHref override(#535 플랫폼 관리자 콘솔)에서도 문구가 어긋나지 않도록 "대시보드"
+            // 특정 문구 대신 범용 문구를 쓴다.
+            aria-label="HajaCheck 홈으로 이동"
           >
             {visuallyExpanded ? (
               <img className="h-7 w-auto object-contain" src={brandLogo} alt="HajaCheck" />

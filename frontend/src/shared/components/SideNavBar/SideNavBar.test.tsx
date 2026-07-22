@@ -83,6 +83,20 @@ describe('SideNavBar', () => {
     expect(screen.queryByText('관리자 페이지')).toBeNull();
   });
 
+  it('brandHref 미지정 시 로고는 /dashboard로 링크된다(기존 동작 불변)', () => {
+    render(<SideNavBar />, { wrapper: MemoryRouter });
+
+    expect(screen.getByLabelText('HajaCheck 홈으로 이동').getAttribute('href')).toBe('/dashboard');
+  });
+
+  it('brandHref 지정 시 로고 링크가 override된다(#535 플랫폼 관리자 콘솔)', () => {
+    render(<SideNavBar brandHref="/platform-admin" />, { wrapper: MemoryRouter });
+
+    expect(screen.getByLabelText('HajaCheck 홈으로 이동').getAttribute('href')).toBe(
+      '/platform-admin',
+    );
+  });
+
   it('user 정보가 있으면 이름/플랜을 표시하고, 로그아웃 클릭 시 onLogout이 호출된다', () => {
     const handleLogout = vi.fn();
     render(<SideNavBar user={{ name: '김관리', plan: 'Standard' }} onLogout={handleLogout} />, {
