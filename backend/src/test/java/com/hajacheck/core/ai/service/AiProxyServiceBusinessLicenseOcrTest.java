@@ -63,6 +63,7 @@ class AiProxyServiceBusinessLicenseOcrTest {
                                     "businessRegistrationNumber": "123-45-67890",
                                     "companyName": "하자체크",
                                     "representativeName": "김대표",
+                                    "businessStartDate": "2020-01-15",
                                     "raw": {"lineCount": 12, "avgConfidence": 0.93},
                                     "stub": false
                                   }
@@ -77,7 +78,36 @@ class AiProxyServiceBusinessLicenseOcrTest {
         assertThat(response.data().businessRegistrationNumber()).isEqualTo("123-45-67890");
         assertThat(response.data().companyName()).isEqualTo("하자체크");
         assertThat(response.data().representativeName()).isEqualTo("김대표");
+        assertThat(response.data().businessStartDate()).isEqualTo("2020-01-15");
         mockServer.verify();
+    }
+
+    @Test
+    void ocrBusinessLicense_개업일자_인식실패시_null_그대로전달() {
+        // AI 서버가 businessStartDate 를 못 뽑으면 null 로 내려온다(#598) — 프록시는 별도 가공 없이
+        // 그대로 통과시켜야 하고(허위 값을 만들어내지 않음), FE가 이를 보고 수동 입력으로 폴백한다.
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {
+                                  "success": true,
+                                  "data": {
+                                    "businessRegistrationNumber": "123-45-67890",
+                                    "companyName": "하자체크",
+                                    "representativeName": "김대표",
+                                    "businessStartDate": null,
+                                    "raw": {"lineCount": 12, "avgConfidence": 0.93},
+                                    "stub": false
+                                  }
+                                }
+                                """));
+
+        ApiResponse<BusinessLicenseOcrResponse> response =
+                aiProxyService.ocrBusinessLicense("ZmFrZS1pbWFnZS1ieXRlcw==");
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data().businessStartDate()).isNull();
     }
 
     @Test

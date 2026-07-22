@@ -1,9 +1,11 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.10.0-draft"
+  version: "0.11.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    2026-07-22 OCR 개업일자 추출(#598 / HAJA-338) — /ai/business-license-ocr 및 공개 프록시 응답에
+    businessStartDate(ISO date, nullable) 추가. 국세청 진위확인(#596)에 사용.
     2026-07-22 기업가입에 businessStartDate(개업일자, 필수) 추가(#596 / HAJA-337) — 국세청 진위확인
     (번호+대표자명+개업일자) 연동. verificationStatus 실제 배선(VERIFIED/PENDING).
     2026-07-22 사업자등록증 OCR 공개 프록시(#557 / HAJA-324) — /api/auth/business-license/ocr(비로그인
@@ -2807,12 +2809,13 @@ components:
     BusinessLicenseOcrProxyResponse:
       type: object
       description: >
-        공개 프록시가 FE에 반환하는 3필드(ai-server raw 신뢰도·stub 등 부가필드는 화이트리스트로 제거).
+        공개 프록시가 FE에 반환하는 4필드(ai-server raw 신뢰도·stub 등 부가필드는 화이트리스트로 제거).
         인식 실패한 필드는 null — FE는 수동 입력으로 폴백.
       properties:
         businessRegistrationNumber: { type: string, nullable: true, example: "123-45-67890" }
         companyName: { type: string, nullable: true, example: "하자첵 주식회사" }
         representativeName: { type: string, nullable: true, example: "홍길동" }
+        businessStartDate: { type: string, format: date, nullable: true, description: "개업일자(ISO yyyy-MM-dd). 국세청 진위확인(#596)용. 인식 실패 시 null.", example: "2020-01-15" }
 
     BusinessLicenseOcrProxyApiResponse:
       type: object
@@ -2915,6 +2918,7 @@ components:
         businessRegistrationNumber: { type: string, nullable: true, example: "123-45-67890" }
         companyName: { type: string, nullable: true, example: "하자첵 주식회사" }
         representativeName: { type: string, nullable: true, example: "홍길동" }
+        businessStartDate: { type: string, format: date, nullable: true, example: "2020-01-15" }
         raw:
           type: object
           example: { lineCount: 12, avgConfidence: 0.93 }

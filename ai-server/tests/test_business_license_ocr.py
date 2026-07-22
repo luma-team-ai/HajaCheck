@@ -20,6 +20,7 @@ from ai.chains.business_license_ocr_chain import (
     _extract_text_lines,
     _find_business_reg_number,
     _normalize_reg_number,
+    _normalize_start_date,
     run_business_license_ocr_chain,
 )
 from main import app
@@ -67,6 +68,7 @@ def test_business_license_ocr_endpoint_success(mock_run_chain):
         business_registration_number="123-45-67890",
         company_name="하자체크 주식회사",
         representative_name="홍길동",
+        business_start_date="2020-01-15",
         line_count=4,
         avg_confidence=0.95,
     )
@@ -81,12 +83,14 @@ def test_business_license_ocr_endpoint_success(mock_run_chain):
         "businessRegistrationNumber",
         "companyName",
         "representativeName",
+        "businessStartDate",
         "raw",
         "stub",
     }
     assert data["businessRegistrationNumber"] == "123-45-67890"
     assert data["companyName"] == "하자체크 주식회사"
     assert data["representativeName"] == "홍길동"
+    assert data["businessStartDate"] == "2020-01-15"
     assert data["raw"] == {"lineCount": 4, "avgConfidence": 0.95}
     assert data["stub"] is False
 
@@ -137,6 +141,22 @@ def test_find_business_reg_number_scans_lines():
     lines = ["사업자등록증", "등록번호:123-45-67890", "상호:하자체크"]
     assert _find_business_reg_number(lines) == "123-45-67890"
     assert _find_business_reg_number(["관련 숫자 없음"]) is None
+
+
+def test_normalize_start_date_handles_various_notations():
+    """사업자등록증 개업연월일 표기 다양성(#598) — 년/월/일, 점, 하이픈 구분자 모두 ISO로 정규화."""
+    assert _normalize_start_date("2020 년 01 월 15 일") == "2020-01-15"
+    assert _normalize_start_date("2020.01.15") == "2020-01-15"
+    assert _normalize_start_date("2020-01-15") == "2020-01-15"
+    assert _normalize_start_date("2020.1.5") == "2020-01-05"
+
+
+def test_normalize_start_date_returns_none_on_missing_or_invalid():
+    assert _normalize_start_date(None) is None
+    assert _normalize_start_date("") is None
+    assert _normalize_start_date("확인불가") is None
+    # 정규식은 매칭되지만 존재하지 않는 날짜(13월) — datetime.date에서 ValueError로 거부
+    assert _normalize_start_date("2020년 13월 01일") is None
 
 
 @patch("ai.chains.business_license_ocr_chain.get_ocr_engine")
@@ -234,6 +254,60 @@ def test_run_chain_falls_back_to_llm_number_when_regex_finds_none(
     assert result.business_registration_number == "123-45-67890"  # 정규화됨
     assert result.company_name is None
     assert result.representative_name is None
+
+
+@patch("ai.chains.business_license_ocr_chain.get_llm")
+@patch("ai.chains.business_license_ocr_chain.get_ocr_engine")
+def test_run_chain_normalizes_business_start_date_from_llm(mock_get_engine, mock_get_llm):
+    """LLM이 원문 그대로("2020.01.15") 넘긴 개업연월일을 체인이 ISO로 정규화해 반환한다(#598)."""
+    mock_engine = MagicMock()
+    mock_engine.return_value = (
+        [[[[0, 0], [1, 0], [1, 1], [0, 1]], "개업연월일:2020.01.15", 0.9]],
+        None,
+    )
+    mock_get_engine.return_value = mock_engine
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.return_value.invoke.return_value = BusinessLicenseOcrExtract(
+        business_registration_number=None,
+        company_name=None,
+        representative_name=None,
+        business_start_date="2020.01.15",
+    )
+    mock_get_llm.return_value = mock_llm
+
+    import base64
+
+    result = run_business_license_ocr_chain(base64.b64encode(b"fake").decode())
+
+    assert result.business_start_date == "2020-01-15"
+
+
+@patch("ai.chains.business_license_ocr_chain.get_llm")
+@patch("ai.chains.business_license_ocr_chain.get_ocr_engine")
+def test_run_chain_business_start_date_null_when_llm_gives_nothing(mock_get_engine, mock_get_llm):
+    """LLM이 개업연월일을 못 찾으면(None) 체인 결과도 None — 허위 값을 만들어내지 않는다."""
+    mock_engine = MagicMock()
+    mock_engine.return_value = (
+        [[[[0, 0], [1, 0], [1, 1], [0, 1]], "사업자등록증", 0.9]],
+        None,
+    )
+    mock_get_engine.return_value = mock_engine
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.return_value.invoke.return_value = BusinessLicenseOcrExtract(
+        business_registration_number=None,
+        company_name=None,
+        representative_name=None,
+        business_start_date=None,
+    )
+    mock_get_llm.return_value = mock_llm
+
+    import base64
+
+    result = run_business_license_ocr_chain(base64.b64encode(b"fake").decode())
+
+    assert result.business_start_date is None
 
 
 @patch("ai.chains.business_license_ocr_chain.get_ocr_engine")

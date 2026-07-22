@@ -1,7 +1,7 @@
-"""사업자등록증 OCR 체인 (HAJA-169/#552) — AI_개발_컨벤션.md §8 절차를 따름.
+"""사업자등록증 OCR 체인 (HAJA-169/#552, 개업일자 추출 #598) — AI_개발_컨벤션.md §8 절차를 따름.
 
 RapidOCR(`ai/core/ocr_client.py`, 한국어 인식 wiring)로 이미지에서 텍스트 라인을 추출한 뒤,
-LLM structured output으로 사업자등록번호/상호/대표자명 3필드를 파싱한다.
+LLM structured output으로 사업자등록번호/상호/대표자명/개업연월일 4필드를 파싱한다.
 
 사업자등록번호는 OCR 원문에서 정규식으로도 탐지해 LLM이 놓치거나 하이픈 표기를 다르게 한
 경우를 보정한다 — 숫자는 OCR 자체 신뢰도가 높고 포맷이 고정(3-2-5자리)이라 결정론적 정규식
@@ -9,6 +9,11 @@ LLM structured output으로 사업자등록번호/상호/대표자명 3필드를
 *응답*을 정규식/split으로 파싱하는 것을 금지하는 규칙 — 여기서는 LLM 응답이 아니라 OCR 원문에
 대한 후처리 보정이라 해당하지 않는다. LLM은 여전히 structured output(BusinessLicenseOcrExtract)
 으로만 응답을 준다).
+
+개업연월일(business_start_date, #598)도 같은 이유로 후처리 정규화를 거친다 — 등록증 표기가
+"2020 년 01 월 15 일"/"2020.01.15"/"2020-01-15" 등 제각각이라, LLM이 준 원문을 정규식으로
+연/월/일을 분리한 뒤 실제 존재하는 날짜인지까지 검증해 ISO YYYY-MM-DD로 정규화한다(`_normalize_start_date`).
+국세청 진위확인(#596)이 이 필드를 요구해 FE가 별도 입력 없이 자동채움할 수 있도록 한다.
 
 개인정보 보호(#552 요구사항): OCR 원문(대표자명·주소 등 개인정보 포함)은 로그에 평문으로
 남기지 않는다 — 이 파일은 어떤 로그도 남기지 않는다(체인 자체는 로거를 두지 않음). 예외는
@@ -18,6 +23,7 @@ LLM structured output으로 사업자등록번호/상호/대표자명 3필드를
 import base64
 import binascii
 import re
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -32,6 +38,13 @@ PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 # 사업자등록번호 포맷: 3-2-5자리 숫자(하이픈 유무 무관) — 국세청 표준 포맷
 BUSINESS_REG_NUMBER_PATTERN = re.compile(r"(\d{3})-?(\d{2})-?(\d{5})")
 
+# 개업연월일 포맷(#598): 연-월-일 구분자가 "년/월/일"·"."·"-" 중 하나(공백 유무 무관)인 표기를
+# 폭넓게 허용한다 — 사업자등록증 표기가 "2020 년 01 월 15 일"/"2020.01.15"/"2020-01-15" 등
+# 발급 시기·양식에 따라 제각각이라 단일 구분자만 가정하면 놓친다.
+BUSINESS_START_DATE_PATTERN = re.compile(
+    r"(\d{4})\s*[-./년]\s*(\d{1,2})\s*[-./월]\s*(\d{1,2})\s*일?"
+)
+
 # FE 사업자등록증 업로드 상한 10MB(frontend/src/features/auth/constants.ts
 # BUSINESS_LICENSE_MAX_SIZE_BYTES)의 base64 인코딩 상당치 — base64는 원본 대비 약 +33% 커지므로
 # 10MB ≈ 13.4M자. 여유를 두고 14,000,000자로 설정(코드 리뷰 P2 — 상한 없이 base64 디코드/PIL
@@ -45,6 +58,8 @@ class BusinessLicenseOcrExtract(BaseModel):
     business_registration_number: Optional[str] = None
     company_name: Optional[str] = None
     representative_name: Optional[str] = None
+    # 개업연월일(#598) — 등록증 표기 그대로("2020.01.15" 등) 반환받아 아래에서 정규화한다.
+    business_start_date: Optional[str] = None
 
 
 class BusinessLicenseOcrResult(BaseModel):
@@ -53,6 +68,7 @@ class BusinessLicenseOcrResult(BaseModel):
     business_registration_number: Optional[str] = None
     company_name: Optional[str] = None
     representative_name: Optional[str] = None
+    business_start_date: Optional[str] = None
     line_count: int = 0
     avg_confidence: Optional[float] = None
 
@@ -104,6 +120,26 @@ def _find_business_reg_number(lines: list[str]) -> Optional[str]:
     return None
 
 
+def _normalize_start_date(candidate: Optional[str]) -> Optional[str]:
+    """LLM이 추출한 개업연월일 원문을 ISO YYYY-MM-DD로 정규화한다(#598).
+
+    등록증 표기가 "2020 년 01 월 15 일"/"2020.01.15"/"2020-01-15" 등 제각각이라 정규식으로
+    연/월/일을 분리한 뒤, `datetime.date`로 실제 존재하는 날짜인지까지 검증한다. 포맷이
+    맞지 않거나(라벨은 찾았지만 값이 깨짐) 존재하지 않는 날짜(예: 13월)면 None으로 폴백해
+    FE가 수동 입력으로 전환할 수 있게 한다(허위 값을 만들어내지 않음).
+    """
+    if not candidate:
+        return None
+    m = BUSINESS_START_DATE_PATTERN.search(candidate)
+    if not m:
+        return None
+    year, month, day = (int(group) for group in m.groups())
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return None
+
+
 def _build_prompt(ocr_text_block: str) -> str:
     system = (PROMPTS_DIR / "_system_base.md").read_text(encoding="utf-8")
     template = (PROMPTS_DIR / "business_license_ocr.md").read_text(encoding="utf-8")
@@ -137,6 +173,7 @@ def run_business_license_ocr_chain(image_base64: str) -> BusinessLicenseOcrResul
         business_registration_number=business_registration_number,
         company_name=llm_result.company_name,
         representative_name=llm_result.representative_name,
+        business_start_date=_normalize_start_date(llm_result.business_start_date),
         line_count=len(texts),
         avg_confidence=round(avg_confidence, 4),
     )

@@ -70,7 +70,8 @@ class BusinessLicenseOcrControllerTest extends PostgresTestSupport {
     void OCR_비로그인_성공_200과데이터반환() throws Exception {
         // permitAll 회귀 방지(리뷰 P2 관례) — 이 요청은 인증 헤더/세션 없이 그대로 통과해야 한다.
         when(aiProxyService.ocrBusinessLicense(any()))
-                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("123-45-67890", "하자체크", "김대표")));
+                .thenReturn(ApiResponse.ok(
+                        new BusinessLicenseOcrResponse("123-45-67890", "하자체크", "김대표", "2020-01-15")));
 
         mockMvc.perform(multipart("/api/auth/business-license/ocr")
                         .file(pngPart())
@@ -79,7 +80,8 @@ class BusinessLicenseOcrControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.businessRegistrationNumber").value("123-45-67890"))
                 .andExpect(jsonPath("$.data.companyName").value("하자체크"))
-                .andExpect(jsonPath("$.data.representativeName").value("김대표"));
+                .andExpect(jsonPath("$.data.representativeName").value("김대표"))
+                .andExpect(jsonPath("$.data.businessStartDate").value("2020-01-15"));
     }
 
     @Test
@@ -148,7 +150,7 @@ class BusinessLicenseOcrControllerTest extends PostgresTestSupport {
     @Test
     void OCR_전역상한초과시_429() throws Exception {
         when(aiProxyService.ocrBusinessLicense(any()))
-                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3")));
+                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3", "2020-01-15")));
         int limit = authProperties.getBusinessLicenseOcrRateLimit().getGlobalLimit();
         for (int i = 0; i < limit; i++) {
             mockMvc.perform(multipart("/api/auth/business-license/ocr")

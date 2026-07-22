@@ -263,6 +263,7 @@ def business_license_ocr(req: BusinessLicenseOcrRequest) -> AIResponse:
             "businessRegistrationNumber": result.business_registration_number,
             "companyName": result.company_name,
             "representativeName": result.representative_name,
+            "businessStartDate": result.business_start_date,
             "raw": {
                 "lineCount": result.line_count,
                 "avgConfidence": result.avg_confidence,
