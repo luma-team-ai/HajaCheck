@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import { Button } from '../../../shared/components/Button';
-import { LOGIN_ROUTE } from '../constants';
+import { LANDING_ROUTE, LOGIN_ROUTE } from '../constants';
 import { ERROR_CLASSES, LABEL_CLASSES, LOGIN_INPUT_CLASSES } from '../formClasses';
 import { useCsrfPrime } from '../hooks/useCsrfPrime';
 import { usePasswordResetRequest } from '../hooks/usePasswordResetRequest';
@@ -40,6 +41,13 @@ export function FindPasswordPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-surface-muted p-6">
       <div className="w-full max-w-[440px] rounded-[20px] border border-border bg-surface p-10 shadow-sm">
+        <Link
+          to={LANDING_ROUTE}
+          className="mb-6 flex justify-center"
+          aria-label="HajaCheck 홈으로"
+        >
+          <img src={brandLogo} alt="HajaCheck" className="h-8 w-auto object-contain" />
+        </Link>
         <h1 className="m-0 text-2xl font-bold text-heading">비밀번호 찾기</h1>
 
         {isSuccess ? (
