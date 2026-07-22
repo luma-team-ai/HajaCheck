@@ -1,11 +1,6 @@
-# 기존 PostgreSQL 수동 증분 반영 절차 (Flyway 이전 — 보관)
+# 기존 PostgreSQL 수동 증분 반영 절차
 
-> **문서 버전:** v0.2 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
-
-> ⚠️ **Flyway 도입(#359) 이후 보관 문서.** 신규 마이그레이션은 더 이상 이 디렉터리에 수동 SQL로
-> 추가하지 않는다 — `backend/src/main/resources/db/migration/`의 Flyway 버전 파일(`V{n}__*.sql`)이
-> 유일한 진실 소스다. 이 디렉터리와 아래 절차는 Flyway 도입 이전에 arm1 프로덕션 등 기존 DB를
-> 현재 스키마로 수동 정합했던 이력의 기록으로만 남긴다(신규 DB에는 적용하지 않는다).
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
 
 이 디렉터리는 이미 운영 중인 v0.3 계열 PostgreSQL을 현재
 [`HajaCheck_script.sql`](../HajaCheck_script.sql) 스키마로 올리는 수동 증분 SQL을 보관한다.

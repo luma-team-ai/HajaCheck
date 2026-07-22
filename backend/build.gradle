@@ -44,6 +44,11 @@ dependencies {
     // 점검 미디어 업로드(dev-05-03) — EXIF/GPS 추출(순수 Java, 네이티브 의존성 없음)
     implementation 'com.drewnoakes:metadata-extractor:2.19.0'
 
+    // Flyway 스키마 마이그레이션(#359) — Spring Boot 3.3.5 BOM이 버전을 관리(명시 불필요).
+    // Flyway 10+ 부터 PostgreSQL 드라이버 지원이 별도 아티팩트로 분리됐다.
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+
     runtimeOnly 'org.postgresql:postgresql'
     // 로컬 Docker 개발(docker-compose.override.yml) 핫리로드 전용 — 프로덕션 fat jar 실행 시 자동 비활성화
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
