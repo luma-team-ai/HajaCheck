@@ -9,6 +9,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from ai.chains.business_license_ocr_chain import (
@@ -261,9 +262,14 @@ def test_extract_text_lines_smoke_with_real_fixture_image(mock_get_engine):
     기록된 로컬 실측(#552 조사)으로 별도 확인됨 — 다운로드가 필요한 한국어 모델까지 CI에서
     매번 검증하면 테스트가 네트워크에 종속되어 컨벤션(HF 모델 관련 테스트는 항상 모킹)에 어긋난다.
     """
-    from rapidocr_onnxruntime import RapidOCR
+    # rapidocr(→cv2)는 헤드리스 환경(libGL 부재)에서 import가 실패할 수 있다 → 그 경우 skip.
+    # 앱/체인 import 자체는 지연 import(#573)로 cv2를 요구하지 않으므로 수집엔 영향 없다.
+    rapidocr = pytest.importorskip(
+        "rapidocr_onnxruntime",
+        reason="rapidocr/cv2(→libGL) 미가용 환경에서는 실제 OCR 스모크 skip (#573)",
+    )
 
-    mock_get_engine.return_value = RapidOCR()
+    mock_get_engine.return_value = rapidocr.RapidOCR()
 
     image_bytes = (FIXTURES_DIR / "business_license_sample.png").read_bytes()
     lines = _extract_text_lines(image_bytes)
