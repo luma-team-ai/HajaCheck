@@ -50,6 +50,13 @@ export interface EmailAvailabilityResponse {
   available: boolean;
 }
 
+// 사업자등록증 OCR 자동채움(#587) — docs/api-contract 계약: 각 필드는 인식 실패 시 null.
+export interface BusinessLicenseOcrResponse {
+  businessRegistrationNumber: string | null;
+  companyName: string | null;
+  representativeName: string | null;
+}
+
 export interface IdInquiryRequest {
   businessRegistrationNumber: string;
   companyName: string;

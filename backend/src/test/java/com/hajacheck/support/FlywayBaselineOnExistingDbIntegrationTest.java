@@ -74,12 +74,15 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 "select type from flyway_schema_history where version = '1'", String.class);
         assertThat(v1Type).isEqualTo("BASELINE");
 
-        // V2(seed_plans)·V3(api_system_logs)·V4(defects.media_id, #527/HAJA-314)만 실제 versioned
-        // 마이그레이션으로 성공 적용된다.
+        // V2(seed_plans)·V3(api_system_logs)·V4(add_platform_admin_role)·V5(defects.media_id, #527/HAJA-314)만
+        // 실제 versioned 마이그레이션으로 성공 적용된다. 캐노니컬 DDL(HajaCheck_script.sql)은 이미
+        // role_type에 PLATFORM_ADMIN과 defects.media_id를 포함하므로 V4·V5는 IF NOT EXISTS로 no-op
+        // 성공한다 — 기존 DB(캐노니컬 DDL을 아직 못 받은 실제 arm1/팀원 로컬)에서는 이 V4·V5가 실제로
+        // 스키마를 채우는 경로다.
         Integer appliedVersioned = jdbcTemplate.queryForObject(
-                "select count(*) from flyway_schema_history where success = true and version in ('2', '3', '4')",
+                "select count(*) from flyway_schema_history where success = true and version in ('2', '3', '4', '5')",
                 Integer.class);
-        assertThat(appliedVersioned).isEqualTo(3);
+        assertThat(appliedVersioned).isEqualTo(4);
 
         // 실패 기록이 남지 않아야 한다(V3가 if not exists로 skip되어 'relation already exists'가 나지 않음).
         Integer failed = jdbcTemplate.queryForObject(
@@ -93,7 +96,7 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 """, Long.class);
         assertThat(apiLogsTables).isEqualTo(1L);
 
-        // 기존 DB에 있던 defects.media_id 도 그대로 유지된다(V4 재실행이 깨거나 중복 생성하지 않음, #527/HAJA-314).
+        // 기존 DB에 있던 defects.media_id 도 그대로 유지된다(V5 재실행이 깨거나 중복 생성하지 않음, #527/HAJA-314).
         Long mediaIdColumns = jdbcTemplate.queryForObject("""
                 select count(*) from information_schema.columns
                 where table_schema = 'public' and table_name = 'defects' and column_name = 'media_id'
@@ -107,5 +110,13 @@ class FlywayBaselineOnExistingDbIntegrationTest {
 
         Long planCount = jdbcTemplate.queryForObject("select count(*) from plans", Long.class);
         assertThat(planCount).isEqualTo(3L);
+
+        // role_type에 PLATFORM_ADMIN 라벨이 존재한다(#534 P1 회귀 고정).
+        Long platformAdminLabelExists = jdbcTemplate.queryForObject("""
+                select count(*) from pg_enum e
+                join pg_type t on e.enumtypid = t.oid
+                where t.typname = 'role_type' and e.enumlabel = 'PLATFORM_ADMIN'
+                """, Long.class);
+        assertThat(platformAdminLabelExists).isEqualTo(1L);
     }
 }

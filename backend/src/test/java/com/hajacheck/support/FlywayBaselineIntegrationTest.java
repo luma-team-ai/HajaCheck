@@ -61,14 +61,15 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1baseline_V2plans시드_V3apiSystemLogs_V4defectsMedia가_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1baseline_V2plans시드_V3apiSystemLogs_V4platformAdmin_V5defectsMedia가_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
         Integer appliedMigrations = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where success = true", Integer.class);
-        // V1(baseline_schema) + V2(seed_plans) + V3(api_system_logs) + V4(defects.media_id, #527/HAJA-314)
-        assertThat(appliedMigrations).isEqualTo(4);
+        // V1(baseline_schema) + V2(seed_plans) + V3(api_system_logs) + V4(add_platform_admin_role)
+        // + V5(defects.media_id, #527/HAJA-314)
+        assertThat(appliedMigrations).isEqualTo(5);
 
         assertThat(planRepository.findByName(PlanName.FREE)).isPresent();
         assertThat(planRepository.findByName(PlanName.STANDARD)).isPresent();
@@ -84,7 +85,15 @@ class FlywayBaselineIntegrationTest {
                 """, Long.class);
         assertThat(tableExists).isEqualTo(1L);
 
-        // V4가 실제로 defects.media_id 컬럼(#527/HAJA-314)을 만들었는지 확인.
+        // V4가 role_type PG enum에 PLATFORM_ADMIN 라벨을 실제로 추가했는지 확인(#534 P1 회귀 고정).
+        Long platformAdminLabelExists = jdbcTemplate.queryForObject("""
+                select count(*) from pg_enum e
+                join pg_type t on e.enumtypid = t.oid
+                where t.typname = 'role_type' and e.enumlabel = 'PLATFORM_ADMIN'
+                """, Long.class);
+        assertThat(platformAdminLabelExists).isEqualTo(1L);
+
+        // V5가 실제로 defects.media_id 컬럼(#527/HAJA-314)을 만들었는지 확인.
         Long columnExists = jdbcTemplate.queryForObject("""
                 select count(*) from information_schema.columns
                 where table_schema = 'public' and table_name = 'defects' and column_name = 'media_id'

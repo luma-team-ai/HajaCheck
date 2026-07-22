@@ -1,4 +1,5 @@
--- Flyway V4 — defects.media_id 컬럼 + 인덱스 추가(#527/HAJA-314 forward migration).
+-- Flyway V5 — defects.media_id 컬럼 + 인덱스 추가(#527/HAJA-314 forward migration).
+-- (V4는 병렬로 머지된 #534/PLATFORM_ADMIN role 마이그레이션이 선점했다.)
 --
 -- defects는 bbox_x/y/w/h로 결함 위치를 표시하지만, 그 좌표가 어느 촬영 이미지(media) 위의 것인지
 -- 연결할 컬럼이 없어 하자 상세 화면에 실제 사진을 띄울 방법이 없었다. AI 탐지 파이프라인이 아직

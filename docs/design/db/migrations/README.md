@@ -342,6 +342,12 @@ HAJA-25와 메뉴 스키마를 이미 적용한 DB에는 이 파일만 단독으
 함께 수행한다. 신규 설치는 `HajaCheck_script.sql`에 이미 반영된 동일 시드를 사용하므로 이 파일이 필요
 없고, 기존 운영 DB만 파일 상단 안내에 따라 단독으로 적용한다.
 
+`20260722_01_platform_admin_role.sql`도 독립 파일이다(#534 / #535 플랫폼 관리자 콘솔 선행 작업) —
+`role_type` PG enum에 `PLATFORM_ADMIN` 라벨을 추가한다(`ALTER TYPE ... ADD VALUE IF NOT EXISTS`,
+autocommit 필요·재실행 안전). 신규 설치는 `HajaCheck_script.sql`에 이미 반영돼 있어 이 파일이 필요
+없고, 기존 운영/개발 DB만 단독으로 적용한다. 이 값이 없는 상태에서 `role='PLATFORM_ADMIN'` 사용자가
+로그인하면 `InternalAuthenticationServiceException`(No enum constant Role.PLATFORM_ADMIN)이 발생한다.
+
 ## 롤백 원칙
 
 expand 단계는 기존 컬럼을 삭제하거나 값을 변환하지 않는다. finalize 이후에는 새 애플리케이션이 신규
