@@ -218,4 +218,30 @@ describe("DefectListPage (통합 테스트)", () => {
     expect(calledDefects).toHaveLength(1);
     expect(calledDefects[0].id).toBe(1);
   });
+
+  it("PDF 내보내기가 실패해도 버튼이 다시 클릭 가능한 상태로 복원된다", async () => {
+    mockExportDefectsToPdf.mockRejectedValueOnce(new Error("font fetch failed"));
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    renderPage();
+    const table = await screen.findByRole("table");
+
+    fireEvent.click(within(table).getByRole("checkbox", { name: "DEF-0001 선택" }));
+
+    const exportButton = screen.getByRole("button", {
+      name: "내보내기",
+    }) as HTMLButtonElement;
+    fireEvent.click(exportButton);
+
+    await screen.findByRole("button", { name: "내보내기" });
+    expect(exportButton.disabled).toBe(false);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "하자 목록 PDF 내보내기 실패",
+      expect.any(Error),
+    );
+
+    consoleErrorSpy.mockRestore();
+  });
 });

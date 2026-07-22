@@ -1,6 +1,7 @@
 import pretendardRegularUrl from 'pretendard/dist/public/static/alternative/Pretendard-Regular.ttf?url';
 import { STATUS_PRESENTATION } from '../components/DefectTable';
 import type { Defect } from '../types';
+import { formatDefectCode, formatDefectDate } from './defectFormat';
 
 const FONT_FILE_NAME = 'Pretendard-Regular.ttf';
 const FONT_NAME = 'Pretendard';
@@ -31,12 +32,12 @@ function buildFileName(): string {
 
 export function buildDefectExportRows(defects: Defect[]): string[][] {
   return defects.map((defect) => [
-    `DEF-${String(defect.id).padStart(4, '0')}`,
+    formatDefectCode(defect.id),
     defect.typeLabel,
     defect.grade ?? '-',
     defect.facilityName,
     STATUS_PRESENTATION[defect.status].label,
-    defect.createdAt.slice(2, 10).replaceAll('-', '.'),
+    formatDefectDate(defect.createdAt),
   ]);
 }
 

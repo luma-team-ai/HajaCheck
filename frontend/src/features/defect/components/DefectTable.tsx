@@ -4,6 +4,7 @@ import { ErrorFallback } from "../../../shared/components/ErrorFallback";
 import type { TableColumn } from "../../../shared/components/Table";
 import { Table } from "../../../shared/components/Table";
 import type { Defect, DefectGrade, DefectStatus } from "../types";
+import { formatDefectCode, formatDefectDate } from "../utils/defectFormat";
 
 type Props = {
   defects: Defect[] | undefined;
@@ -215,14 +216,14 @@ function toTableRow(defect: Defect): DefectTableRow {
   return {
     id: defect.id,
     selection: "",
-    defectCode: `DEF-${String(defect.id).padStart(4, "0")}`,
+    defectCode: formatDefectCode(defect.id),
     thumbnail: "",
     typeLabel: defect.typeLabel,
     grade: defect.grade,
     facilityName: defect.facilityName,
     location: "-",
     status: defect.status,
-    createdAt: defect.createdAt.slice(2, 10).replaceAll("-", "."),
+    createdAt: formatDefectDate(defect.createdAt),
     assignee: "-",
   };
 }
