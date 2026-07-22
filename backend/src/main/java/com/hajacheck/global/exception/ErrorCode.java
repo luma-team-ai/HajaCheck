@@ -113,6 +113,8 @@ public enum ErrorCode {
     NTS_SERVER_UNREACHABLE(HttpStatus.SERVICE_UNAVAILABLE, "국세청 진위확인 서버에 연결할 수 없습니다."),
     NTS_SERVER_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "국세청 진위확인 서버 응답이 지연되고 있습니다."),
     NTS_INVALID_RESPONSE(HttpStatus.BAD_GATEWAY, "국세청 진위확인 서버 응답을 처리할 수 없습니다."),
+    // 국세청이 HTTP 4xx/5xx로 응답(서버에 도달했으나 거부 — 예: 인증키 만료/오류). "서버 다운"과 구분한다.
+    NTS_REQUEST_REJECTED(HttpStatus.BAD_GATEWAY, "국세청 진위확인 서버가 요청을 거부했습니다."),
 
     // 보고서(report) — #446 / HAJA-283
     // 미존재/타인 소유(점검 소유권 불일치) 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.

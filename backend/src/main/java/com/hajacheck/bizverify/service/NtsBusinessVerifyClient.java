@@ -69,29 +69,34 @@ public class NtsBusinessVerifyClient {
 
         try {
             NtsValidateResponse response = bizVerifyRestClient.post()
+                    // serviceKey 는 반드시 percent-encoding 되어야 한다(data.go.kr "Decoding" 키는 +,/,= 를
+                    // 포함할 수 있고, 미인코딩 시 서버가 + 를 공백으로 해석 → 인증실패 → 조용한 no-op). 리터럴
+                    // queryParam 값은 DefaultUriBuilderFactory(TEMPLATE_AND_VALUES)가 인코딩하지 않으므로,
+                    // URI 템플릿 변수({serviceKey})로 넘겨 변수값 인코딩을 강제한다.
                     .uri(uriBuilder -> uriBuilder.path(VALIDATE_PATH)
-                            // serviceKey 는 data.go.kr "Decoding" 키 — queryParam 이 URL 인코딩한다.
-                            .queryParam("serviceKey", bizVerifyProperties.getServiceKey())
-                            .build())
+                            .queryParam("serviceKey", "{serviceKey}")
+                            .build(bizVerifyProperties.getServiceKey()))
                     .body(body)
                     .retrieve()
                     .body(NtsValidateResponse.class);
             return interpret(response);
         } catch (ResourceAccessException e) {
             // 연결 실패/타임아웃 — 원인으로 UNREACHABLE/TIMEOUT 구분(로깅용). 모두 fail-open.
+            // (ResourceAccessException 메시지엔 쿼리·응답바디가 실리지 않아 e 스택 로깅 무방.)
             ErrorCode code = classifyConnectionFailure(e);
             log.warn("사업자 진위확인 외부 호출 실패: {} — fail-open 가입 진행(PENDING)", code, e);
             return NtsVerificationOutcome.SKIPPED;
         } catch (RestClientResponseException e) {
-            // 국세청이 HTTP 오류(4xx/5xx)로 응답 — 사용 가능한 판정이 없으므로 fail-open.
+            // 국세청이 HTTP 오류(4xx/5xx)로 응답 — 서버에 도달했으나 거부(예: 키 만료)된 것이므로
+            // "서버 다운(UNREACHABLE)"이 아닌 NTS_REQUEST_REJECTED 로 로깅한다. 판정 불가라 fail-open.
             log.warn("사업자 진위확인 HTTP 오류: {} (status={}) — fail-open 가입 진행(PENDING)",
-                    ErrorCode.NTS_SERVER_UNREACHABLE, e.getStatusCode().value());
+                    ErrorCode.NTS_REQUEST_REJECTED, e.getStatusCode().value());
             return NtsVerificationOutcome.SKIPPED;
         } catch (RestClientException e) {
-            // 응답 역직렬화 실패 등 형식 불량 — fail-open. (개인정보가 예외 메시지에 실리지 않도록 e 는 로깅하되
-            // 국세청 응답 바디를 별도로 찍지 않는다.)
-            log.warn("사업자 진위확인 응답 처리 실패: {} — fail-open 가입 진행(PENDING)",
-                    ErrorCode.NTS_INVALID_RESPONSE, e);
+            // 응답 역직렬화 실패 등 형식 불량 — fail-open. ⚠️ Jackson 예외 메시지엔 원본 응답바디
+            // 스니펫(b_no=사업자번호 등 개인정보)이 실릴 수 있으므로 e 스택을 로깅하지 않고 예외 클래스명만 남긴다.
+            log.warn("사업자 진위확인 응답 처리 실패: {} (cause={}) — fail-open 가입 진행(PENDING)",
+                    ErrorCode.NTS_INVALID_RESPONSE, e.getClass().getSimpleName());
             return NtsVerificationOutcome.SKIPPED;
         }
     }

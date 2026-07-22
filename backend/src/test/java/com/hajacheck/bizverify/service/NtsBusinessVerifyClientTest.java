@@ -74,6 +74,23 @@ class NtsBusinessVerifyClientTest {
     }
 
     @Test
+    void validate_serviceKey특수문자_percent인코딩되어_전송된다() {
+        // data.go.kr "Decoding" 키는 +,/,= 를 포함할 수 있다. 미인코딩 시 서버가 + 를 공백으로 해석해
+        // 인증 실패 → 조용한 no-op 가 되므로, 요청 URI 의 serviceKey 는 반드시 percent-encoding 돼야 한다.
+        properties.setServiceKey("ab+c/d=e");
+        mockServer.expect(requestTo(containsString("serviceKey=ab%2Bc%2Fd%3De")))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"data":[{"b_no":"1234567890","valid":"01","status":{"b_stt_cd":"01"}}]}
+                                """));
+
+        assertThat(client().validate(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.VERIFIED);
+        mockServer.verify();
+    }
+
+    @Test
     void validate_진위불일치_MISMATCH() {
         expectValidate().andRespond(withStatus(HttpStatus.OK)
                 .contentType(MediaType.APPLICATION_JSON)
