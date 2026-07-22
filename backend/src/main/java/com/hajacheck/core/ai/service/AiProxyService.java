@@ -4,6 +4,9 @@ import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.BriefingAiEnvelope;
 import com.hajacheck.core.ai.dto.BriefingResponse;
 import com.hajacheck.core.ai.dto.BriefingStatsRequest;
+import com.hajacheck.core.ai.dto.BusinessLicenseOcrAiEnvelope;
+import com.hajacheck.core.ai.dto.BusinessLicenseOcrAiRequest;
+import com.hajacheck.core.ai.dto.BusinessLicenseOcrResponse;
 import com.hajacheck.core.ai.dto.DefectExplainAiEnvelope;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
@@ -39,6 +42,7 @@ public class AiProxyService {
     private static final String DEFECT_EXPLAIN_PATH = "/ai/defect-explain";
     private static final String REPORT_PATH = "/ai/report";
     private static final String BRIEFING_PATH = "/ai/briefing";
+    private static final String BUSINESS_LICENSE_OCR_PATH = "/ai/business-license-ocr";
     private static final String INTERNAL_KEY_HEADER = "X-Internal-Key";
 
     private final RestClient aiServerRestClient;
@@ -161,6 +165,52 @@ public class AiProxyService {
         } catch (RestClientResponseException e) {
             throw mapResponseStatusFailure(e);
         } catch (RestClientException e) {
+            log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    /**
+     * 사업자등록증 OCR 공개 프록시(#557 / HAJA-169) — 기업 가입 전(비로그인) 화면에서 호출된다.
+     * 인가는 없지만 {@link #attachInternalKeyIfPresent}로 내부키를 부착해 AI 서버 강제 경유 원칙(#228)은
+     * 그대로 유지한다. 호출부(BusinessLicenseOcrService)가 파일 검증·rate-limit·base64 인코딩을 마친
+     * 문자열만 여기로 넘긴다 — 이 메서드는 순수 프록시 역할만 한다(다른 ocr/explain/report와 동일 스켈레톤).
+     */
+    public ApiResponse<BusinessLicenseOcrResponse> ocrBusinessLicense(String imageBase64) {
+        BusinessLicenseOcrAiEnvelope envelope = callAiServer(new BusinessLicenseOcrAiRequest(imageBase64));
+        if (envelope == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+
+        if (!envelope.success()) {
+            BusinessLicenseOcrAiEnvelope.ErrorBody error = envelope.error();
+            if (error == null) {
+                throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+            }
+            return ApiResponse.fail(error.code(), error.message());
+        }
+
+        if (envelope.data() == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        return ApiResponse.ok(BusinessLicenseOcrResponse.from(envelope.data()));
+    }
+
+    private BusinessLicenseOcrAiEnvelope callAiServer(BusinessLicenseOcrAiRequest request) {
+        try {
+            return aiServerRestClient.post()
+                    .uri(BUSINESS_LICENSE_OCR_PATH)
+                    .headers(this::attachInternalKeyIfPresent)
+                    .body(request)
+                    .retrieve()
+                    .body(BusinessLicenseOcrAiEnvelope.class);
+        } catch (ResourceAccessException e) {
+            throw mapConnectionFailure(e);
+        } catch (RestClientResponseException e) {
+            throw mapResponseStatusFailure(e);
+        } catch (RestClientException e) {
+            // OCR 원문/개인정보는 예외 메시지에 포함되지 않는다 — AI 서버가 그런 값을 던지지 않고,
+            // 이 catch는 envelope 역직렬화 실패 등 형식 불량만 다룬다(다른 endpoint와 동일 패턴).
             log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
         }
