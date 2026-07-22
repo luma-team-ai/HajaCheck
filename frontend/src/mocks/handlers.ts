@@ -2,6 +2,7 @@
 import { adminHandlers } from '../features/admin/api/adminApi.handlers';
 import { adminPlanHandlers } from '../features/admin/api/adminPlanApi.handlers';
 import { planQuotaHandlers } from '../features/admin/api/planQuotaApi.handlers';
+import { ragDocumentHandlers } from '../features/admin/api/ragDocumentApi.handlers';
 import { authHandlers } from '../features/auth/api/authApi.handlers';
 import { dashboardHandlers } from '../features/dashboard/api/dashboardApi.handlers';
 import { facilityComparisonHandlers } from '../features/facility/api/facilityComparisonApi.handlers';
@@ -33,6 +34,7 @@ export const handlers = [
   ...platformAdminPlanQuotaHandlers,
   ...platformAdminCompanyHandlers,
   ...reportHandlers,
+  ...ragDocumentHandlers,
   ...supportHandlers,
   ...notificationHandlers,
 ];
