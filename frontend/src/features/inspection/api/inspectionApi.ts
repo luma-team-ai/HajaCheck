@@ -5,11 +5,16 @@ import type {
   InspectionCreateRequest,
   InspectionCreateResponse,
 } from '../types';
-import type { InspectionResponse, DefectDetailItem, DefectGrade } from './inspectionApi.types';
+import type { InspectionResponse, DefectDetailItem, DefectGrade, DefectStatus } from './inspectionApi.types';
 
 export interface DefectRevisionRequest {
   grade?: DefectGrade;
   isDeleted?: boolean;
+  reason?: string;
+}
+
+export interface DefectStatusUpdateRequest {
+  status: DefectStatus;
   reason?: string;
 }
 
@@ -23,6 +28,9 @@ export const inspectionApi = {
   // 하자 검수: 오탐 삭제 또는 등급 조정 (DefectRevisionController.reviewDefect)
   reviewDefect: (defectId: number, request: DefectRevisionRequest) =>
     api.patch<DefectDetailItem>(`/defects/${defectId}`, request),
+  // 하자 상태 전환 (DefectController.updateStatus)
+  updateDefectStatus: (defectId: number, request: DefectStatusUpdateRequest) =>
+    api.patch<DefectDetailItem>(`/defects/${defectId}/status`, request),
   // 점검(회차) 생성
   create: (body: InspectionCreateRequest) =>
     api.post<InspectionCreateResponse>('/inspections', body),
