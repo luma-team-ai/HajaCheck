@@ -319,7 +319,11 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 MIGRATION_ROOT + "20260720_01_create_api_system_logs.sql"),
-                        CONTAINER_ROOT + "20260720_01_create_api_system_logs.sql");
+                        CONTAINER_ROOT + "20260720_01_create_api_system_logs.sql")
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                MIGRATION_ROOT + "20260722_01_defects_add_media.sql"),
+                        CONTAINER_ROOT + "20260722_01_defects_add_media.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -380,6 +384,9 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "20260716_05_menu_schema_verify.sql");
         runPsql(postgres, "20260720_01_create_api_system_logs.sql");
         runPsql(postgres, "20260720_01_create_api_system_logs.sql");
+        // #527 / HAJA-314 — 독립 단일 목적 증분 파일. 재실행 가능(IF NOT EXISTS)함도 함께 확인한다.
+        runPsql(postgres, "20260722_01_defects_add_media.sql");
+        runPsql(postgres, "20260722_01_defects_add_media.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

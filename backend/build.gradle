@@ -110,9 +110,13 @@ def ap020MigrationScript = rootProject.file(
 // 카탈로그 대조 대상이므로 테스트 classpath에 함께 포함한다.
 def apiSystemLogsMigrationScript = rootProject.file(
         '../docs/design/db/migrations/20260720_01_create_api_system_logs.sql')
+// #527 / HAJA-314 defects.media_id 컬럼도 독립 증분 파일이지만 canonical DDL에 실제 컬럼/인덱스를
+// 추가하므로, 위와 동일한 이유로 전체 증분 경로 카탈로그 대조에 포함해야 한다.
+def defectsAddMediaMigrationScript = rootProject.file(
+        '../docs/design/db/migrations/20260722_01_defects_add_media.sql')
 def ha25SchemaInputs = rootProject.files(
         canonicalDdl, v03BaselineDdl, ha25MigrationScripts, ap020MigrationScript,
-        apiSystemLogsMigrationScript)
+        apiSystemLogsMigrationScript, defectsAddMediaMigrationScript)
 
 // The released v0.3 archive is a tracked migration input even when it is not part of a PR diff.
 // Fail before test-resource processing so CI cannot silently validate only the canonical DDL.
@@ -146,6 +150,9 @@ tasks.named('processTestResources') {
         into 'db/migrations'
     }
     from(apiSystemLogsMigrationScript) {
+        into 'db/migrations'
+    }
+    from(defectsAddMediaMigrationScript) {
         into 'db/migrations'
     }
 }
