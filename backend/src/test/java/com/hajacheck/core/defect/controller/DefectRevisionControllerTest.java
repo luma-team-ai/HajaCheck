@@ -89,29 +89,21 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 tempOwner.getId(), name, String.valueOf(brn), "대표",
                 "서울시", null, "http://files/brn.png", "{}"));
 
-        // 3-4. trigger 비활성화 후 Company/User 상태 업데이트
-        java.time.Instant now = java.time.Instant.now();
+        // 3-4. Company/User 상태 업데이트 (enum 컬럼은 명시적 캐스트 필요, timestamptz는 java.sql.Timestamp로 바인딩)
+        java.sql.Timestamp now = java.sql.Timestamp.from(java.time.Instant.now());
         userRepository.flush();
         companyRepository.flush();
 
-        // trigger 비활성화
-        jdbcTemplate.execute("ALTER TABLE inspections DISABLE TRIGGER trg_inspections_check_assigned_inspector_company");
+        // owner.company_id 업데이트
+        jdbcTemplate.update("UPDATE users SET company_id = ? WHERE id = ?",
+                company.getId(), tempOwner.getId());
 
-        try {
-            // owner.company_id 업데이트
-            jdbcTemplate.update("UPDATE users SET company_id = ? WHERE id = ?",
-                    company.getId(), tempOwner.getId());
-
-            // Company 상태 업데이트
-            jdbcTemplate.update(
-                    "UPDATE companies SET status = ?, " +
-                    "verification_status = ?, " +
-                    "verified_at = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?",
-                    "APPROVED", "VERIFIED", now, tempOwner.getId(), now, company.getId());
-        } finally {
-            // trigger 다시 활성화
-            jdbcTemplate.execute("ALTER TABLE inspections ENABLE TRIGGER trg_inspections_check_assigned_inspector_company");
-        }
+        // Company 상태 업데이트
+        jdbcTemplate.update(
+                "UPDATE companies SET status = ?::company_status_type, " +
+                "verification_status = ?::business_verification_status_type, " +
+                "verified_at = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?",
+                "APPROVED", "VERIFIED", now, tempOwner.getId(), now, company.getId());
 
         // 5. owner의 멤버십 생성
         companyMembershipRepository.save(CompanyMembership.approvedOwner(company.getId(), tempOwner.getId()));
