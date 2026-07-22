@@ -89,6 +89,18 @@ def test_nl_search_endpoint_missing_query_returns_validation_error():
     assert body["error"]["code"] == "VALIDATION_ERROR"
 
 
+def test_nl_search_endpoint_non_string_query_returns_validation_envelope_not_422():
+    # 리뷰 P2: query가 문자열이 아닌 값(숫자 등)이어도 FastAPI 기본 422가 아니라 동일한
+    # AIResponse.fail(VALIDATION_ERROR) envelope으로 응답해야 한다(설계 §2.1).
+    with patch("ai.chains.nl_search_chain.get_llm") as mock_get_llm:
+        res = client.post("/ai/nl-search", json={"query": 12345})
+        assert res.status_code == 200
+        body = res.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        mock_get_llm.assert_not_called()
+
+
 def test_nl_search_endpoint_query_too_long_returns_validation_error_without_llm_call():
     with patch("ai.chains.nl_search_chain.get_llm") as mock_get_llm:
         res = client.post("/ai/nl-search", json={"query": "가" * 501})

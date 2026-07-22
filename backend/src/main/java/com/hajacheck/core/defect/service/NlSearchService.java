@@ -24,7 +24,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -39,10 +38,16 @@ import org.springframework.web.client.RestClientResponseException;
  *
  * <p>플랜 게이트는 X-Internal-Service-Token(AiProxyService의 X-Internal-Key와 별개, contract.md
  * InternalServiceToken)으로 FastAPI에 별도 신뢰 경계를 둔다.
+ *
+ * <p>⚠️ 클래스 레벨 {@code @Transactional} 금지 — requireAiAddon()의 단순 조회는 Spring Data
+ * 리포지토리 메서드 자체가 이미 개별 트랜잭션을 갖는다(RepositoryFactorySupport 기본 동작).
+ * 여기에 감싸는 트랜잭션을 씌우면 뒤이은 callAiServer()의 외부 HTTP 호출(최대
+ * ai.server.read-timeout-ms=150s)까지 같은 트랜잭션 경계에 묶여 그 시간만큼 HikariCP 커넥션을
+ * 점유하게 된다 — 동시 요청 시 커넥션 풀 고갈로 이어질 수 있다(AiProxyService가 DB 접근이 없어도
+ * @Transactional을 붙이지 않는 것과 같은 이유, 리뷰 P1).
  */
 @Slf4j
 @Service
-@Transactional(readOnly = true)
 @RequiredArgsConstructor
 public class NlSearchService {
 
@@ -109,9 +114,13 @@ public class NlSearchService {
                     userId, UserPlanStatus.ACTIVE);
         }
 
-        Plan plan = userPlan
-                .flatMap(up -> planRepository.findById(up.getPlanId()))
-                .orElseThrow(() -> new BusinessException(ErrorCode.AI_ADDON_REQUIRED));
+        if (userPlan.isEmpty()) {
+            throw new BusinessException(ErrorCode.AI_ADDON_REQUIRED);
+        }
+        // 활성 플랜은 있는데 참조 Plan 행이 없으면(FK 정합성 깨짐) "플랜 없음"이 아니라 서버측
+        // 데이터 오류다 — MembershipService.findPlan과 동일 기준으로 구분(리뷰 P3).
+        Plan plan = planRepository.findById(userPlan.get().getPlanId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
         if (!plan.isHasAiAddon()) {
             throw new BusinessException(ErrorCode.AI_ADDON_REQUIRED);
         }

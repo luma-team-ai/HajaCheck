@@ -169,6 +169,21 @@ class NlSearchServiceTest {
     }
 
     @Test
+    void 검색_활성플랜은있으나_참조Plan행없음_PLAN_DATA_INVALID_내부호출없음() {
+        // 리뷰 P3: "플랜 없음"(AI_ADDON_REQUIRED)과 FK 정합성 깨짐(PLAN_DATA_INVALID)을 구분.
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L)));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.search(USER_ID, "균열만 보여줘"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.PLAN_DATA_INVALID);
+        mockServer.verify();
+    }
+
+    @Test
     void 검색_개인_활성플랜있으나_addon없음_AI_ADDON_REQUIRED_내부호출없음() {
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
         when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
