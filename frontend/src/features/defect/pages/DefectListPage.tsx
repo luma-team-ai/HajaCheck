@@ -18,6 +18,7 @@ export function DefectListPage() {
     size: DEFAULT_SIZE,
   });
   const { data, isLoading, isError, refetch } = useDefects(filters);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
 
   const size = filters.size ?? DEFAULT_SIZE;
   const currentPage = (filters.page ?? 0) + 1; // TableFooterPagination/Pagination은 1-based
@@ -85,6 +86,8 @@ export function DefectListPage() {
             isLoading={isLoading}
             isError={isError}
             onRetry={refetch}
+            selectedIds={selectedIds}
+            onSelectionChange={setSelectedIds}
           />
         </div>
 
