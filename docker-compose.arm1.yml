@@ -101,6 +101,9 @@ services:
       # 스프링→FastAPI 프록시가 부착하는 내부키. FastAPI의 AI_INTERNAL_KEY와 동일 소스여야 검증 통과.
       # 운영(arm1)은 강제(:?).
       AI_SERVER_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
+      # 국세청 사업자 진위확인(#596) serviceKey — spring bizverify가 읽음. fail-open이라 미설정 시
+      # 진위확인 SKIP(가입은 됨). :- 소프트 — 이 키는 기동을 막지 않는다(AI_INTERNAL_KEY와 달리 :? 아님).
+      BUSINESS_REGISTRATION_API_KEY: ${BUSINESS_REGISTRATION_API_KEY:-}
       # OAuth2 registration — 값은 서버 .env(미커밋)에만. 미설정 시 기동 실패(:? 가드)로 조기 차단.
       # (registration.{provider}.client-id 키가 빈 문자열로만 존재해도 기동 실패 — base 주석 참조.)
       KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:?KAKAO_CLIENT_ID가 .env에 설정되어야 합니다}
