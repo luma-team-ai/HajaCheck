@@ -7,11 +7,17 @@
 -- 이 테이블을 갖게 된다.
 --
 -- 원본: docs/design/db/HajaCheck_script.sql의 api_system_logs 정의(캐노니컬 DDL, #528로 추가됨) —
--- owner 문·CONCURRENTLY 없이 이미 Flyway-safe라 그대로 옮겼다. 상세 재실행 검증 로직(advisory lock,
--- 카탈로그 대조 등)은 docs/design/db/migrations/20260720_01_create_api_system_logs.sql(수동 마이그레이션
--- 절차, Flyway 이전 보관 문서)에만 있고 이 파일에는 필요 없다 — Flyway가 각 버전을 정확히 한 번만
--- 적용하는 것을 자체 보장한다.
-create table api_system_logs
+-- owner 문·CONCURRENTLY 없이 이미 Flyway-safe라 그대로 옮겼다.
+--
+-- ⚠️ if not exists 가드(#544 P1): 신규 DB(V1→V2→V3)에서는 Flyway가 V3를 한 번만 적용하지만,
+-- baseline-on-migrate로 스탬프되는 기존 DB 중 일부(README 보관 절차대로 수동 마이그레이션
+-- 20260720_01_create_api_system_logs.sql을 이미 적용한 팀원 로컬)에는 api_system_logs가 이미 존재한다.
+-- 그런 DB에서 baseline(V1 스탬프) 후 V3가 처음 실행되면 무가드 create table은 'relation already exists'로
+-- 실패해 Flyway 마이그레이션 실패 → 앱 기동 불가가 된다. 따라서 table·index를 if not exists로 idempotent하게
+-- 둔다. 존재 시 컬럼/제약이 캐노니컬과 일치하는지는 정규 생성 경로(20260720_01_create_api_system_logs.sql의
+-- 자체 parity 가드 — 컬럼·check/pk/fk·인덱스를 전수 대조하고 어긋나면 raise exception)가 보장한다.
+-- (api_system_logs는 JPA 엔티티가 없어 Hibernate ddl-auto=validate 대상이 아니므로 validate에 기대지 않는다.)
+create table if not exists api_system_logs
 (
     id             bigint generated always as identity
         primary key,
@@ -89,11 +95,11 @@ comment on column api_system_logs.client_ip is '직접 peer 또는 신뢰 프록
 
 comment on column api_system_logs.created_at is 'API 시스템 로그 생성 시각';
 
-create index idx_api_system_logs_created_at
+create index if not exists idx_api_system_logs_created_at
     on api_system_logs (created_at desc);
 
-create index idx_api_system_logs_level_created_at
+create index if not exists idx_api_system_logs_level_created_at
     on api_system_logs (level, created_at desc);
 
-create index idx_api_system_logs_request_id
+create index if not exists idx_api_system_logs_request_id
     on api_system_logs (request_id);
