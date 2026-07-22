@@ -36,3 +36,9 @@ export const MYPAGE_PLAN_ROUTE = '/mypage/plan';
 // 사업자등록증 업로드 제약 — 계약(contract.md) FILE_INVALID_TYPE/FILE_TOO_LARGE와 정합
 export const BUSINESS_LICENSE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
 export const BUSINESS_LICENSE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
+
+// 사업자등록증 OCR 자동채움(#587) — 백엔드 OCR은 jpeg/png만 지원(PDF 미지원)이라 이 목록으로
+// 호출 여부를 판정한다. 공개 엔드포인트(비로그인), 파일 파라미터명은 가입 API와 동일하게
+// businessRegistrationFile을 그대로 재사용한다.
+export const BUSINESS_LICENSE_OCR_PATH = '/auth/business-license/ocr';
+export const BUSINESS_LICENSE_OCR_SUPPORTED_TYPES = ['image/jpeg', 'image/png'];
