@@ -111,6 +111,27 @@ describe('PlanQuotaPage (통합 테스트)', () => {
     expect(await screen.findByText('가격 문의')).toBeTruthy();
   });
 
+  it('ENTERPRISE의 maxSeats가 null이면 무제한 좌석을 포함 기능으로 렌더링한다', async () => {
+    server.use(
+      http.get('/api/admin/plan-quota', () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            content: [],
+            page: 1,
+            size: 4,
+            totalElements: 0,
+            stats: { activeUsers: 0, totalQuotaUsagePercent: 0, companyPlan: 'ENTERPRISE' },
+          },
+        }),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByText('Enterprise')).toBeTruthy();
+    expect(screen.getByText('점검자 좌석 무제한')).toBeTruthy();
+  });
+
   it('회사에 활성 구독이 없으면 현재 플랜 카드에 안내 문구를 보여준다', async () => {
     server.use(
       http.get('/api/admin/plan-quota', () =>

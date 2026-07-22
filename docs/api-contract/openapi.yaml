@@ -1919,7 +1919,7 @@ components:
         id: { type: integer, format: int64, example: 1 }
         email: { type: string, example: company@haja.com }
         name: { type: string, example: 기업사용자 }
-        role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR], example: USER }
+        role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR, PLATFORM_ADMIN], example: USER }
         companyId: { type: integer, format: int64, nullable: true, example: 10 }
         profileImageUrl: { type: string, nullable: true, example: "https://.../p.png" }
 
@@ -3049,7 +3049,7 @@ components:
               userId: { type: integer, format: int64, example: 1 }
               name: { type: string, example: 김민수 }
               email: { type: string, example: member@haja.com }
-              role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR], example: USER }
+              role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR, PLATFORM_ADMIN], example: USER }
               status: { type: string, enum: [ACTIVE, SUSPENDED, WITHDRAWN], example: ACTIVE }
 
     SeatsApiResponse:
@@ -3090,7 +3090,7 @@ components:
         name: { type: string, enum: [FREE, STANDARD, ENTERPRISE], example: STANDARD }
         maxFacilities: { type: integer, nullable: true, example: 10 }
         maxMonthlyAnalyses: { type: integer, nullable: true, example: 300 }
-        maxSeats: { type: integer, example: 5 }
+        maxSeats: { type: integer, nullable: true, example: 5 }
         hasPdfWatermark: { type: boolean, example: false }
         hasCounselorAccess: { type: boolean, example: true }
         hasAiAddon: { type: boolean, example: true }

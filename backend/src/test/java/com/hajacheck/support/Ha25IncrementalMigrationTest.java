@@ -285,7 +285,7 @@ class Ha25IncrementalMigrationTest {
     }
 
     private static PostgreSQLContainer<?> createMigratedContainer() {
-        PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17")
+        PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16")
                 .withDatabaseName("hajacheck")
                 .withUsername("postgres")
                 .withCopyFileToContainer(
@@ -329,7 +329,13 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 MIGRATION_ROOT + "20260722_02_add_business_start_date.sql"),
-                        CONTAINER_ROOT + "20260722_02_add_business_start_date.sql");
+                        CONTAINER_ROOT + "20260722_02_add_business_start_date.sql")
+                // Flyway 도입 이후의 변경은 수동 migrations archive가 아니라 버전 파일을 이어 적용한다.
+                // V7 — #568 점검 관리자 스키마(V6은 #583이 선점 예정이라 비워둔다).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V7__inspection_admin_schema.sql"),
+                        CONTAINER_ROOT + "V7__inspection_admin_schema.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -396,6 +402,7 @@ class Ha25IncrementalMigrationTest {
         // #596 — companies.business_start_date 컬럼(ADD COLUMN IF NOT EXISTS로 재실행 가능).
         runPsql(postgres, "20260722_02_add_business_start_date.sql");
         runPsql(postgres, "20260722_02_add_business_start_date.sql");
+        runPsql(postgres, "V7__inspection_admin_schema.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

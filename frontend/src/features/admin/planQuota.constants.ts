@@ -38,11 +38,8 @@ const PLAN_CTA_LABEL: Record<AdminPlanCatalogItem['name'], string> = {
   ENTERPRISE: '플랜 관리',
 };
 
-// max_seats DDL 컬럼은 NOT NULL이라 "무제한"을 null로 표현할 수 없다 — 이 값 이상이면 무제한으로 표시한다
-// (실제 시드값 1,000,000 — docs/design/db/migrations/20260721_01_plans_seed_free_assign.sql 참고).
-const UNLIMITED_SEAT_THRESHOLD = 9999;
-// FREE 시드값은 0이 아니라 1(계정 소유자 본인 1석) — "점검자 초대 좌석 없음"은 <=1로 판정한다
-// (같은 마이그레이션: ('FREE', ..., max_seats=1, ...)).
+// FREE 시드값은 1(계정 소유자 본인 1석) — "점검자 초대 좌석 없음"은 <=1로 판정한다.
+// ENTERPRISE의 null은 DB/API 계약에서 무제한을 뜻한다.
 const NO_ADDITIONAL_SEAT_THRESHOLD = 1;
 
 function formatFacilityAndAnalysisLimit(item: AdminPlanCatalogItem): string {
@@ -53,15 +50,15 @@ function formatFacilityAndAnalysisLimit(item: AdminPlanCatalogItem): string {
 }
 
 function hasAdditionalSeats(item: AdminPlanCatalogItem): boolean {
-  return item.maxSeats > NO_ADDITIONAL_SEAT_THRESHOLD;
+  return item.maxSeats === null || item.maxSeats > NO_ADDITIONAL_SEAT_THRESHOLD;
 }
 
 function formatSeatLimit(item: AdminPlanCatalogItem): string {
+  if (item.maxSeats === null) {
+    return '점검자 좌석 무제한';
+  }
   if (!hasAdditionalSeats(item)) {
     return '점검자 좌석 없음(1인 계정)';
-  }
-  if (item.maxSeats >= UNLIMITED_SEAT_THRESHOLD) {
-    return '점검자 좌석 무제한';
   }
   return `점검자 좌석 ${item.maxSeats}명`;
 }

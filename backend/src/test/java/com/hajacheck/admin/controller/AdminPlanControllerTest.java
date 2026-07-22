@@ -1,5 +1,6 @@
 package com.hajacheck.admin.controller;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -90,7 +91,9 @@ class AdminPlanControllerTest extends PostgresTestSupport {
         mockMvc.perform(get("/api/admin/plans").with(authentication(authOf(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.plans.length()").value(3));
+                .andExpect(jsonPath("$.data.plans.length()").value(3))
+                .andExpect(jsonPath("$.data.plans[2].name").value("ENTERPRISE"))
+                .andExpect(jsonPath("$.data.plans[2].maxSeats").value(nullValue()));
     }
 
     // ── 회사 스코프 + 상속 ──
