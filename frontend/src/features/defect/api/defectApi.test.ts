@@ -4,7 +4,9 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
+import { mockDefects } from '../mocks/defect.mock';
 import { defectApi } from './defectApi';
+import { defectHandlers } from './defectApi.handlers';
 
 const mockDefectExplain = {
   cause: '바닥재 수분 침투 및 시간 경과에 따른 자연 박리',
@@ -46,7 +48,7 @@ const handlers = [
   }),
 ];
 
-const server = setupServer(...handlers);
+const server = setupServer(...handlers, ...defectHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => server.resetHandlers());
@@ -125,6 +127,43 @@ describe('defectApi.getExplanation', () => {
       }),
     ).rejects.toMatchObject({
       code: 'NETWORK_ERROR',
+    });
+  });
+});
+
+describe('defectApi.getList', () => {
+  it('필터 없이 요청하면 전체 하자 목록을 페이지 응답으로 반환한다', async () => {
+    const res = await defectApi.getList();
+
+    expect(res.data.content).toHaveLength(mockDefects.length);
+    expect(res.data.totalElements).toBe(mockDefects.length);
+  });
+
+  it('grade 필터를 적용하면 해당 등급만 반환한다', async () => {
+    const res = await defectApi.getList({ grade: 'D' });
+
+    expect(res.data.content).toHaveLength(1);
+    expect(res.data.content[0].grade).toBe('D');
+  });
+
+  it('type 필터를 적용하면 해당 유형만 반환한다', async () => {
+    const res = await defectApi.getList({ type: 'CRACK' });
+
+    expect(res.data.content.every((defect) => defect.type === 'CRACK')).toBe(true);
+  });
+});
+
+describe('defectApi.getDetail', () => {
+  it('존재하는 id로 요청하면 하자 상세를 반환한다', async () => {
+    const res = await defectApi.getDetail(1);
+
+    expect(res.data.id).toBe(1);
+    expect(res.data.facilityName).toBe('강남 오피스타워 A동');
+  });
+
+  it('존재하지 않는 id로 요청하면 DEFECT_NOT_FOUND 에러로 reject된다', async () => {
+    await expect(defectApi.getDetail(999999)).rejects.toMatchObject({
+      code: 'DEFECT_NOT_FOUND',
     });
   });
 });

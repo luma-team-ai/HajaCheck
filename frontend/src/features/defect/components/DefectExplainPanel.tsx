@@ -29,13 +29,12 @@ export function DefectExplainPanel({
   };
 
   return (
-    <section className="defect-explain-panel">
+    <section className="defect-card defect-explain-panel">
       <div className="defect-explain-header">
         <span className="ai-icon" aria-hidden="true">
           ✨
         </span>
-        <span className="ai-badge">AI 생성</span>
-        <h3>AI 설명</h3>
+        <h2>AI 분석 설명</h2>
       </div>
 
       {isLoading && <AILoadingIndicator message="AI가 하자 원인과 조치 방안을 분석하고 있습니다..." />}
@@ -43,15 +42,15 @@ export function DefectExplainPanel({
       {!isLoading && !isError && data && (
         <div className="defect-explain-content">
           <div className="defect-explain-section">
-            <h4>추정 원인</h4>
+            <h3>예상 원인</h3>
             <p>{data.cause}</p>
           </div>
           <div className="defect-explain-section">
-            <h4>방치 시 위험</h4>
+            <h3 className="defect-risk-title">⚠ 방치 시 위험</h3>
             <p>{data.risk}</p>
           </div>
           <div className="defect-explain-section">
-            <h4>조치 방안</h4>
+            <h3>조치 계획</h3>
             <p>{data.action}</p>
           </div>
         </div>
