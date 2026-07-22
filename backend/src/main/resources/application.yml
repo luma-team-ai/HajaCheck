@@ -9,6 +9,16 @@ spring:
     name: hajacheck
   profiles:
     active: local
+  # Flyway가 스키마를 관리하고 Hibernate는 검증만 한다(#359 — arm1 승격 #531 스키마 드리프트 재발 방지).
+  # baseline-on-migrate: 이미 전체 스키마가 있는 기존 DB(arm1 프로덕션, 팀원 로컬)는 V1 실행 없이
+  # "이미 적용됨"으로 스탬프만 하고, V2(plans 시드)부터 정상 적용한다. 빈 새 DB는 V1부터 순서대로 적용된다.
+  # ⚠️ V1(db/migration/V1__baseline_schema.sql)은 반드시 docs/design/db/HajaCheck_script.sql과
+  # 스키마가 일치해야 한다 — 불일치 시 baseline된 기존 DB에서 향후 validate가 실패한다.
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+    baseline-description: "reconciled schema 2026-07-22"
   jpa:
     hibernate:
       ddl-auto: validate
