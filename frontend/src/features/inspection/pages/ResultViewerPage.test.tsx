@@ -246,6 +246,48 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(await screen.findByText(/검수 확정에 실패했습니다/)).not.toBeNull();
   });
 
+  it('status가 CONFIRMED면 "검수 확정" 버튼이 비활성화된다(#575)', async () => {
+    // 첫 번째 defect를 CONFIRMED로 변경한 mock data
+    const confirmedDefectsMock = [
+      { ...mockDefects[0], status: 'CONFIRMED' as const }, // id=1을 CONFIRMED로
+      ...mockDefects.slice(1),
+    ] as DefectDetailItem[];
+
+    server.use(
+      http.get('/api/inspections/:id/defects', () => {
+        const body: ApiResponse<DefectDetailItem[]> = { success: true, data: confirmedDefectsMock };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const button = screen.getByRole('button', { name: '이 이미지 검수 확정' });
+    expect(button.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('status가 RESOLVED면 "검수 확정" 버튼이 비활성화된다(#575)', async () => {
+    // 첫 번째 defect를 RESOLVED로 변경한 mock data
+    const resolvedDefectsMock = [
+      { ...mockDefects[0], status: 'RESOLVED' as const }, // id=1을 RESOLVED로
+      ...mockDefects.slice(1),
+    ] as DefectDetailItem[];
+
+    server.use(
+      http.get('/api/inspections/:id/defects', () => {
+        const body: ApiResponse<DefectDetailItem[]> = { success: true, data: resolvedDefectsMock };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const button = screen.getByRole('button', { name: '이 이미지 검수 확정' });
+    expect(button.hasAttribute('disabled')).toBe(true);
+  });
+
   it('오탐 삭제 버튼이 활성화되어 있다(#553)', async () => {
     renderPage();
     await screen.findByText('DEF-0001');
