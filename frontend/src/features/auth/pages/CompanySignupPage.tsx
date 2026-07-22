@@ -118,13 +118,27 @@ export function CompanySignupPage() {
   // 한다(요구사항 #587). 단, 이 규칙 때문에 파일을 다른 것으로 교체해도 이미 자동채움된
   // 값은 재덮어쓰기 되지 않는다 — 재인식이 필요하면 사용자가 해당 필드를 직접 비우고 다시
   // 채워야 한다(알려진 트레이드오프, 후속 개선은 별도 이슈로 분리 가능).
+  //
+  // stale 응답 가드(P1, 리뷰어 픽스) — 파일 A 선택 후 OCR 진행 중 파일을 삭제하거나 B로 빠르게
+  // 교체하면, 뒤늦게 도착한 A의 OCR 응답이 "지금 선택과 무관한" 값을 필드에 주입할 수 있다.
+  // 단조 증가 request-id로 "이 응답이 아직 최신 선택에 대한 것인지"를 onSuccess에서 확인하고,
+  // 아니면 무시한다. 파일 삭제·미지원 타입 등 OCR을 호출하지 않는 경로도 id를 반드시 증가시켜야
+  // 직전에 진행 중이던(아직 응답 안 온) OCR의 결과가 새 선택 상태에 적용되지 않는다.
+  const ocrRequestIdRef = useRef(0);
+
   const handleFileSelect = (selected: File | null) => {
     setFile(selected);
+    const requestId = ++ocrRequestIdRef.current;
     if (!selected) return;
     if (!BUSINESS_LICENSE_OCR_SUPPORTED_TYPES.includes(selected.type)) return;
+    // rate-limit 낭비 방지(P2, 리뷰어 픽스) — 오버사이즈·무효 파일은 어차피 폼 검증에서 걸러지므로
+    // 백엔드 OCR(분당+일일 캡)을 호출하지 않는다. 파일 자체는 그대로 state에 세팅해 기존 제출 시
+    // 검증(validateBusinessLicenseFile) 흐름을 그대로 탄다.
+    if (validateBusinessLicenseFile(selected) !== null) return;
 
     runOcr(selected, {
       onSuccess: (data) => {
+        if (requestId !== ocrRequestIdRef.current) return; // stale 응답 — 이후 선택으로 이미 무효화됨
         setBusinessRegistrationNumber((prev) =>
           prev.trim() ? prev : (data.businessRegistrationNumber ?? prev),
         );
