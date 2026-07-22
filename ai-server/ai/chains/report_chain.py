@@ -336,7 +336,7 @@ def _run_recommendation_chain(confirmed_defects: list[dict]) -> ReportRecommenda
 
 def _run_parallel(facility_info: dict, confirmed_defects: list[dict]) -> dict:
     """4개 RunnableLambda는 각자 내부에서 get_llm()을 직접 호출한다(각 _run_*_chain 참고) — 스레드풀에서
-    동시 실행돼도 get_llm()이 매 호출마다 새 HuggingFaceEndpoint/ChatOllama + CachedLLM 인스턴스를
+    동시 실행돼도 get_llm()이 매 호출마다 새 HuggingFaceEndpoint + CachedLLM 인스턴스를
     생성하므로(ai.core.llm_client.get_llm, @lru_cache 없음) 4개 브랜치가 클라이언트 상태를 공유하지
     않는다(PR머신 P2 후속 확인 — 유일한 모듈 레벨 공유 상태는 get_llm() 내부가 아니라 llm_client._redis()의
     lru_cache 싱글턴인데, redis-py Redis 클라이언트는 커넥션 풀 기반으로 스레드 안전하다)."""
