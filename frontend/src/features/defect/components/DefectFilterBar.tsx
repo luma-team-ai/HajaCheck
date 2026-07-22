@@ -17,12 +17,29 @@ type Props = {
   onChange: (filters: DefectListFilters) => void;
 };
 
+// 백엔드 GET /api/defects의 grade 파라미터는 `>=`(이상) 의미로 이미 구현돼 있다
+// (DefectRepositoryImpl.java의 greaterThanOrEqualTo). 따라서 배열이 E로 끝나는 "~이상" 범위는
+// grade[0]만 보내도 정확하지만, E로 끝나지 않는 "~이하" 범위(예: A~B)는 `<=` 필터가 없어
+// 프론트만으로는 정확히 표현할 수 없다 — 이 경우 필터를 적용하지 않고 안내만 한다(리뷰 P2).
+function resolveGradeFilter(grade: DefectGrade[]): { value: DefectGrade | undefined; notice: string | null } {
+  if (grade.length <= 1) {
+    return { value: grade[0], notice: null };
+  }
+  if (grade[grade.length - 1] === "E") {
+    return { value: grade[0], notice: null };
+  }
+  return {
+    value: undefined,
+    notice: `등급 ${grade.join(", ")} 이하 조건은 아직 목록 필터에 적용할 수 없어 제외했어요`,
+  };
+}
+
 // NlSearchFilters는 다중 선택(배열)을 반환하지만 GET /api/defects(DefectListFilters)는 아직 단일값
 // 파라미터만 지원한다(백엔드 확장은 이번 범위 밖) — 배열의 첫 값만 적용해 기존 단일 필터에 맞춘다.
 function toDefectListFilters(nlFilters: NlSearchFilters): Partial<DefectListFilters> {
   return {
     type: nlFilters.type[0],
-    grade: nlFilters.grade[0],
+    grade: resolveGradeFilter(nlFilters.grade).value,
     status: nlFilters.status[0],
   };
 }
@@ -36,12 +53,18 @@ function describeTruncatedFilters(nlFilters: NlSearchFilters): string[] {
     const skipped = nlFilters.type.slice(1).map((value) => DEFECT_TYPE_LABEL[value]).join(", ");
     messages.push(`유형 ${skipped}은(는) 아직 함께 적용할 수 없어 제외했어요`);
   }
-  if (nlFilters.grade.length > 1) {
-    messages.push(`등급 ${nlFilters.grade.slice(1).join(", ")}은(는) 아직 함께 적용할 수 없어 제외했어요`);
+  const gradeNotice = resolveGradeFilter(nlFilters.grade).notice;
+  if (gradeNotice) {
+    messages.push(gradeNotice);
   }
   if (nlFilters.status.length > 1) {
     const skipped = nlFilters.status.slice(1).map((value) => DEFECT_STATUS_LABEL[value]).join(", ");
     messages.push(`상태 ${skipped}은(는) 아직 함께 적용할 수 없어 제외했어요`);
+  }
+  if (nlFilters.confidenceMin !== null) {
+    messages.push(
+      `신뢰도 ${Math.round(nlFilters.confidenceMin * 100)}% 이상 조건은 아직 목록 필터에 적용할 수 없어 제외했어요`,
+    );
   }
   return messages;
 }

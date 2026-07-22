@@ -106,6 +106,68 @@ describe("DefectFilterBar", () => {
         status: "ACTION_PENDING",
       }),
     );
+    expect(screen.queryByText(/등급 E/)).toBeNull();
+  });
+
+  it("confidenceMin 인식 조건은 적용 없이 안내만 한다", async () => {
+    server.use(
+      http.post("/api/defects/nl-search", () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            filters: { type: [], grade: [], status: [], confidenceMin: 0.8 },
+            unsupported_terms: [],
+            clarifying_question: null,
+            interpretation_confidence: 0.9,
+          },
+        }),
+      ),
+    );
+    renderFilterBar({ page: 0, size: 20 });
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "신뢰도 80% 이상인 하자만 보여줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+
+    expect(
+      await screen.findByText("신뢰도 80% 이상 조건은 아직 목록 필터에 적용할 수 없어 제외했어요"),
+    ).not.toBeNull();
+  });
+
+  it("등급 이하 범위는 적용하지 않고 안내한다", async () => {
+    server.use(
+      http.post("/api/defects/nl-search", () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            filters: { type: [], grade: ["A", "B"], status: [], confidenceMin: null },
+            unsupported_terms: [],
+            clarifying_question: null,
+            interpretation_confidence: 0.9,
+          },
+        }),
+      ),
+    );
+    const { onChange } = renderFilterBar({ page: 0, size: 20 });
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "B등급 이하 하자 보여줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({
+        page: 0,
+        size: 20,
+        type: undefined,
+        grade: undefined,
+        status: undefined,
+      }),
+    );
+    expect(
+      await screen.findByText("등급 A, B 이하 조건은 아직 목록 필터에 적용할 수 없어 제외했어요"),
+    ).not.toBeNull();
   });
 
   it("되묻는 질문이 오면 필터를 적용하지 않고 질문만 보여준다", async () => {
