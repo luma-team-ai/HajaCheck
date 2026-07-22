@@ -26,6 +26,8 @@ import org.springframework.web.multipart.MultipartFile;
  * <p>비로그인 + CPU 무거운 다운스트림(RapidOCR+LLM)이라 rate-limit이 필수다. 이 레포는 IP 축을 쓰지
  * 않는다는 기존 결정(AuthProperties.PasswordResetRateLimit 문서 — X-Forwarded-For가 host nginx
  * 통과값이라 위조 가능)을 그대로 따라, 전역 고정창 상한만 적용한다(알려진 한계는 AuthProperties 참고).
+ * 축은 두 개다 — <b>분당 상한</b>(순간 CPU 방어)과 <b>일일 절대 캡</b>(security-reviewer P1, #557 —
+ * 분당 상한만으로는 지속 반복 시 일일 LLM 호출/과금이 무제한이 된다). 둘 다 전역(요청자 축 없음).
  *
  * <p>Fail-safe: AI 서버 실패(BusinessException)·OCR/LLM 거부(ApiResponse.fail)는 예외를 삼키지 않고
  * 그대로 표면화한다 — 프론트가 이를 받아 수동 입력 폴백으로 전환할 수 있고, 이 실패가 회원가입 자체를
@@ -42,6 +44,7 @@ public class BusinessLicenseOcrService {
     // 검증도, OCR 디코딩도 지원하지 않는다(ImageSignatureValidator 는 JPEG/PNG 시그니처만 대조).
     private static final Set<String> OCR_ALLOWED_CONTENT_TYPES = Set.of("image/jpeg", "image/png");
     private static final String RATE_LIMIT_GLOBAL_KEY = "rate:business-license-ocr:global";
+    private static final String RATE_LIMIT_DAILY_KEY = "rate:business-license-ocr:daily";
 
     private final AiProxyService aiProxyService;
     private final RateLimiter rateLimiter;
@@ -50,7 +53,7 @@ public class BusinessLicenseOcrService {
 
     /**
      * ①파일 검증(형식·신뢰 금지 원칙 — Content-Type 헤더는 조작 가능하므로 매직바이트로 재확인)
-     * ②rate-limit(전역 고정창) ③base64 인코딩 후 {@link AiProxyService}로 위임.
+     * ②rate-limit(전역 고정창, 분당+일일 두 축) ③base64 인코딩 후 {@link AiProxyService}로 위임.
      */
     public ApiResponse<BusinessLicenseOcrResponse> ocr(MultipartFile file) {
         validate(file);
@@ -88,16 +91,26 @@ public class BusinessLicenseOcrService {
     }
 
     /**
-     * 비로그인 엔드포인트라 이메일/사용자 축이 없다 — 전역 고정창 상한만 적용한다
-     * (AuthProperties.BusinessLicenseOcrRateLimit 참고, 알려진 한계 포함).
+     * 비로그인 엔드포인트라 이메일/사용자 축이 없다 — 전역 고정창 상한 두 개(분당 → 일일)를 순서대로
+     * 적용한다(AuthProperties.BusinessLicenseOcrRateLimit 참고, 알려진 한계 포함). 분당 축에서 먼저
+     * 막히면 일일 카운터는 소모하지 않는다(PasswordResetService의 "먼저 막힌 축은 다음 축을 소모하지
+     * 않는다" 원칙과 동일 — {@link RateLimiter#tryAcquire}는 허용 여부와 무관하게 호출 시 카운터를
+     * 증가시키므로, 순서가 뒤집히면 한 축에서 막힌 요청이 다른 축의 예산을 갉아먹는다).
      */
     private void enforceRateLimit() {
         AuthProperties.BusinessLicenseOcrRateLimit limit = authProperties.getBusinessLicenseOcrRateLimit();
         if (!rateLimiter.tryAcquire(RATE_LIMIT_GLOBAL_KEY, limit.getGlobalLimit(), limit.getGlobalWindow())) {
             // ⚠️ 이 WARN 이 유일한 경보 축이다 — 전역 상한에 닿으면 정상 사용자도 429 를 맞는데
             // (IP 축 미사용), 로그가 없으면 아무도 모른 채 OCR 보조기능이 무증상으로 죽는다.
-            log.warn("사업자등록증 OCR rate-limit 초과(전역) — limit={}/{}",
+            log.warn("사업자등록증 OCR rate-limit 초과(분당 전역) — limit={}/{}",
                     limit.getGlobalLimit(), limit.getGlobalWindow());
+            throw new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);
+        }
+        if (!rateLimiter.tryAcquire(RATE_LIMIT_DAILY_KEY, limit.getDailyLimit(), limit.getDailyWindow())) {
+            // 일일 절대 캡(security-reviewer P1) — 분당 캡만으로는 지속 반복 시 일일 LLM 호출/과금이
+            // 무제한이 된다(20/분 × 1440분 = 최대 28,800/일). 유료 LLM 다운스트림 총량 방어선.
+            log.warn("사업자등록증 OCR rate-limit 초과(일일 캡) — limit={}/{}",
+                    limit.getDailyLimit(), limit.getDailyWindow());
             throw new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);
         }
     }
