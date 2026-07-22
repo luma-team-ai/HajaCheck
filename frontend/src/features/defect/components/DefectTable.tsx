@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ErrorFallback } from "../../../shared/components/ErrorFallback";
 import type { TableColumn } from "../../../shared/components/Table";
 import { Table } from "../../../shared/components/Table";
 import type { Defect, DefectGrade, DefectStatus } from "../types";
+import { formatDefectCode, formatDefectDate } from "../utils/defectFormat";
 
 type Props = {
   defects: Defect[] | undefined;
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
+  selectedIds: Set<number>;
+  onSelectionChange: (ids: Set<number>) => void;
 };
 
 interface DefectTableRow {
@@ -34,7 +37,8 @@ const GRADE_CLASSES: Record<DefectGrade, string> = {
   E: "border-red-200 bg-red-50 text-red-500",
 };
 
-const STATUS_PRESENTATION: Record<
+// PDF 내보내기(exportDefectsToPdf)에서도 화면에 보이는 상태 라벨과 동일하게 표기하기 위해 export
+export const STATUS_PRESENTATION: Record<
   DefectStatus,
   { label: string; className: string }
 > = {
@@ -212,14 +216,14 @@ function toTableRow(defect: Defect): DefectTableRow {
   return {
     id: defect.id,
     selection: "",
-    defectCode: `DEF-${String(defect.id).padStart(4, "0")}`,
+    defectCode: formatDefectCode(defect.id),
     thumbnail: "",
     typeLabel: defect.typeLabel,
     grade: defect.grade,
     facilityName: defect.facilityName,
     location: "-",
     status: defect.status,
-    createdAt: defect.createdAt.slice(2, 10).replaceAll("-", "."),
+    createdAt: formatDefectDate(defect.createdAt),
     assignee: "-",
   };
 }
@@ -227,9 +231,15 @@ function toTableRow(defect: Defect): DefectTableRow {
 // 로딩/에러 상태는 Table 바깥에서 처리하고, 빈 데이터는 Table의 emptyMessage로 위임(FacilityTable과 동일 패턴)
 // 행 전체를 클릭하면 상세로 이동한다(HAJA-17) — 사이드바에서 "하자 상세" 항목이 빠지면서 목록→상세
 // 진입 경로가 이 행 클릭(및 하자 ID 링크)만 남기 때문. 체크박스는 onClick stopPropagation으로 예외 처리.
-export function DefectTable({ defects, isLoading, isError, onRetry }: Props) {
+export function DefectTable({
+  defects,
+  isLoading,
+  isError,
+  onRetry,
+  selectedIds,
+  onSelectionChange,
+}: Props) {
   const navigate = useNavigate();
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const rows = useMemo(() => (defects ?? []).map(toTableRow), [defects]);
   const visibleIds = useMemo(() => rows.map((row) => row.id), [rows]);
   const selectedVisibleCount = visibleIds.filter((id) =>
@@ -240,31 +250,27 @@ export function DefectTable({ defects, isLoading, isError, onRetry }: Props) {
   const isPartiallySelected = selectedVisibleCount > 0 && !isAllSelected;
 
   const handleToggleAll = () => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
+    const next = new Set(selectedIds);
 
-      if (visibleIds.every((id) => next.has(id))) {
-        visibleIds.forEach((id) => next.delete(id));
-      } else {
-        visibleIds.forEach((id) => next.add(id));
-      }
+    if (visibleIds.every((id) => next.has(id))) {
+      visibleIds.forEach((id) => next.delete(id));
+    } else {
+      visibleIds.forEach((id) => next.add(id));
+    }
 
-      return next;
-    });
+    onSelectionChange(next);
   };
 
   const handleToggleRow = (id: number) => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
+    const next = new Set(selectedIds);
 
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
 
-      return next;
-    });
+    onSelectionChange(next);
   };
 
   const columns = createColumns({
