@@ -15,6 +15,9 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 const DEFAULT_ERROR_MESSAGE = '로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.';
 const ROLE_DENIED_MESSAGE = '플랫폼 관리자 계정이 아닙니다.';
+// logout() 실패로 서버 세션이 남아있을 수 있는 경우 — 일반 role 불일치 메시지와 구분해 안내한다
+// (PR머신 리뷰 P3, #558 — 실패를 조용히 삼키면 관측 불가능).
+const LOGOUT_FAILED_MESSAGE = '플랫폼 관리자 계정이 아닙니다. 세션 정리에 실패했으니 브라우저를 종료한 뒤 다시 시도해 주세요.';
 
 // 플랫폼 관리자 전용 로그인(#535, Figma node 973-2520) — 기업회원 로그인(LoginPage)의 개인/기업
 // 탭 없이 아이디/비밀번호 단일 폼. authApi.login()은 재사용하되 role 검사·세션 무효화는
@@ -24,7 +27,7 @@ export function PlatformAdminLoginPage() {
   const [password, setPassword] = useState('');
   const navigate = useNavigate();
   const currentUser = useAuthStore((state) => state.user);
-  const { login, isPending, error, roleDenied } = usePlatformAdminLogin();
+  const { login, isPending, error, roleDenied, logoutFailed } = usePlatformAdminLogin();
 
   // 회원가입 외 인증 폼과 동일하게 마운트 시 CSRF 쿠키를 프라이밍한다(POST /auth/login 전 필요).
   useCsrfPrime();
@@ -44,7 +47,7 @@ export function PlatformAdminLoginPage() {
   };
 
   const errorMessage = roleDenied
-    ? ROLE_DENIED_MESSAGE
+    ? (logoutFailed ? LOGOUT_FAILED_MESSAGE : ROLE_DENIED_MESSAGE)
     : error
       ? (ERROR_MESSAGES[error.code] ?? DEFAULT_ERROR_MESSAGE)
       : null;

@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import { useAuthStore } from '../../auth/store/authStore';
 import type { EmailAvailabilityResponse, User } from '../../auth/types';
@@ -130,6 +130,33 @@ describe('PlatformAdminLoginPage', () => {
     expect(logoutCallCount).toBe(1);
     // 페이지 이동 없이 로그인 화면에 그대로 머문다.
     expect(screen.getByTestId('location').textContent).toBe('/platform-admin/login');
+  });
+
+  // PR머신 리뷰 P3(#558) — role 불일치 시 서버 세션 무효화(logout) 실패를 조용히 삼키면 안 된다.
+  // 클라이언트 상태(authStore)는 항상 정리하되, 실패는 별도 메시지+로깅으로 관측 가능해야 한다.
+  it('role 불일치 처리 중 logout API가 실패해도 authStore는 정리되고, 실패가 별도 메시지로 안내된다', async () => {
+    mockLoginSuccess(nonPlatformAdminUser);
+    server.use(
+      http.post('/api/auth/logout', () => HttpResponse.json({ success: false }, { status: 500 })),
+    );
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      renderPage();
+      fillAndSubmit();
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            '플랫폼 관리자 계정이 아닙니다. 세션 정리에 실패했으니 브라우저를 종료한 뒤 다시 시도해 주세요.',
+          ),
+        ).not.toBeNull();
+      });
+      expect(useAuthStore.getState().user).toBeNull();
+      expect(errorSpy).toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('잘못된 자격증명(401)이면 안내 메시지를 표시한다', async () => {

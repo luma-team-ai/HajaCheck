@@ -17,20 +17,31 @@ export function usePlatformAdminLogin() {
   const setUser = useAuthStore((state) => state.setUser);
   const clearUser = useAuthStore((state) => state.clearUser);
   const [roleDenied, setRoleDenied] = useState(false);
+  // logout() 실패는 서버 세션이 살아있는 채로 남을 수 있는 경우다 — authStore엔 커밋되지 않으니
+  // 이 브라우저에서 즉시 권한 상승으로 이어지진 않지만, "세션을 살려두지 않는다"는 요구사항이
+  // 깨질 수 있어 조용히 무시하지 않고 관측 가능하게 만든다(PR머신 리뷰 P3, #558).
+  const [logoutFailed, setLogoutFailed] = useState(false);
 
   const mutation = useMutation<UserResponse, ApiError, LoginRequest>({
     mutationFn: (body) => authApi.login(body).then((res) => res.data),
     onMutate: () => {
       setRoleDenied(false);
+      setLogoutFailed(false);
     },
     onSuccess: async (user) => {
       if (!isPlatformAdminRole(user.role)) {
         setRoleDenied(true);
         try {
           await authApi.logout();
-        } catch {
-          // 무시 — 클라이언트는 어차피 setUser를 호출하지 않아 인증 상태로 취급되지 않는다
+        } catch (logoutError) {
+          setLogoutFailed(true);
+          console.error(
+            '[usePlatformAdminLogin] role 불일치 사용자의 세션 무효화(logout)에 실패했습니다 — 서버 세션이 남아있을 수 있습니다.',
+            logoutError,
+          );
         }
+        // 클라이언트는 setUser를 호출하지 않아 authStore 기준으로는 인증 상태로 취급되지 않는다.
+        // logout 실패 여부와 무관하게 클라이언트 상태는 항상 정리한다.
         clearUser();
         return;
       }
@@ -44,5 +55,6 @@ export function usePlatformAdminLogin() {
     isPending: mutation.isPending,
     error: mutation.error,
     roleDenied,
+    logoutFailed,
   };
 }

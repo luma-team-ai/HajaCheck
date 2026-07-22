@@ -1,7 +1,7 @@
 // 공통 axios 인스턴스 — 컴포넌트에서 axios 직접 import 금지 (React_코드_컨벤션.md §3)
 // 백엔드 envelope({ success, data, error })은 인터셉터에서 해제 — 컴포넌트/훅은 data만 다룬다
 import axios from 'axios';
-import { LOGIN_PATH, PLATFORM_ADMIN_LOGIN_PATH } from '../constants/authPaths';
+import { LOGIN_PATH, PLATFORM_ADMIN_LOGIN_PATH, PLATFORM_ADMIN_PATH_PREFIX } from '../constants/authPaths';
 import type { ApiError, ApiResponse } from './types';
 
 // 세션 탐지용 요청(getMe 등)은 401을 "미로그인"이라는 정상 신호로 받으므로 전역 하드 리다이렉트에서
@@ -38,7 +38,9 @@ api.interceptors.response.use(
     const skipAuthRedirect = error.config?.skipAuthRedirect === true;
     // 플랫폼 관리자 콘솔(#535)은 별도 로그인 경로를 쓴다 — /platform-admin 하위에서 401이 나면
     // 기업회원 로그인(LOGIN_PATH)이 아니라 플랫폼 관리자 로그인으로 리다이렉트한다.
-    const redirectTarget = window.location.pathname.startsWith('/platform-admin')
+    // PLATFORM_ADMIN_PATH_PREFIX는 BASE_URL을 반영한 경로라 basename 배포에서도 정확히 매칭된다
+    // (raw '/platform-admin' 비교는 basename 배포에서 항상 false — PR머신 리뷰 P2, #558).
+    const redirectTarget = window.location.pathname.startsWith(PLATFORM_ADMIN_PATH_PREFIX)
       ? PLATFORM_ADMIN_LOGIN_PATH
       : LOGIN_PATH;
     // 이미 로그인 경로면 리다이렉트 스킵 — 로그인 화면 세션체크·로그인 실패 401이 무한 리로드로 이어지는 것 방지

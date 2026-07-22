@@ -9,5 +9,11 @@ function normalizePath(path: string): string {
 export const LOGIN_PATH = normalizePath(`${import.meta.env.BASE_URL}login`);
 
 // 플랫폼 관리자 콘솔(#535) 전용 401 리다이렉트 대상 — axios.ts 인터셉터가 pathname이
-// '/platform-admin'으로 시작하면 LOGIN_PATH 대신 이 값으로 리다이렉트한다.
+// PLATFORM_ADMIN_PATH_PREFIX로 시작하면 LOGIN_PATH 대신 이 값으로 리다이렉트한다.
 export const PLATFORM_ADMIN_LOGIN_PATH = normalizePath(`${import.meta.env.BASE_URL}platform-admin/login`);
+
+// axios.ts 인터셉터가 "이 요청이 플랫폼 관리자 콘솔 경로에서 발생했는가"를 판별하는 접두사.
+// basename 배포(예: vite base='/app/')에서 BASE_URL을 반영하지 않고 raw '/platform-admin'으로만
+// 비교하면, 실제 pathname은 '/app/platform-admin/...'이라 startsWith가 항상 false가 되어 401 시
+// 기업회원 로그인(LOGIN_PATH)으로 잘못 리다이렉트된다(PR머신 리뷰 P2, #558).
+export const PLATFORM_ADMIN_PATH_PREFIX = normalizePath(`${import.meta.env.BASE_URL}platform-admin`);
