@@ -65,6 +65,7 @@ class FreePlanProvisioningIntegrationTest extends PostgresTestSupport {
                         .param("companyName", "(주)하자체크")
                         .param("businessRegistrationNumber", brn)
                         .param("representativeName", "김민수")
+                        .param("businessStartDate", "2020-01-01")
                         .param("address", "서울시 강남구 테헤란로 1")
                         .param("addressDetail", "10층")
                         .param("agreeTermsOfService", "true")

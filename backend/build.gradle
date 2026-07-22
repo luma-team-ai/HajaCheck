@@ -114,9 +114,14 @@ def apiSystemLogsMigrationScript = rootProject.file(
 // 카탈로그 대조 대상이므로 테스트 classpath에 함께 포함한다.
 def platformAdminRoleMigrationScript = rootProject.file(
         '../docs/design/db/migrations/20260722_01_platform_admin_role.sql')
+// #596 companies.business_start_date도 독립 증분 파일이지만, 전체 증분 경로와 canonical DDL의
+// 카탈로그 대조 대상이므로 테스트 classpath에 함께 포함한다.
+def businessStartDateMigrationScript = rootProject.file(
+        '../docs/design/db/migrations/20260722_02_add_business_start_date.sql')
 def ha25SchemaInputs = rootProject.files(
         canonicalDdl, v03BaselineDdl, ha25MigrationScripts, ap020MigrationScript,
-        apiSystemLogsMigrationScript, platformAdminRoleMigrationScript)
+        apiSystemLogsMigrationScript, platformAdminRoleMigrationScript,
+        businessStartDateMigrationScript)
 
 // The released v0.3 archive is a tracked migration input even when it is not part of a PR diff.
 // Fail before test-resource processing so CI cannot silently validate only the canonical DDL.
@@ -153,6 +158,9 @@ tasks.named('processTestResources') {
         into 'db/migrations'
     }
     from(platformAdminRoleMigrationScript) {
+        into 'db/migrations'
+    }
+    from(businessStartDateMigrationScript) {
         into 'db/migrations'
     }
 }
