@@ -1,60 +1,61 @@
-"""공통 OCR 엔진 — RapidOCR(ONNXRuntime) 초기화를 한 곳에서 관리 (AI_개발_컨벤션.md §0 공통 기반
-원칙, llm_client.py/embeddings.py와 동일 패턴 — 체인에서 RapidOCR을 직접 생성하지 않는다).
+"""공통 OCR 엔진 — EasyOCR 초기화를 한 곳에서 관리 (AI_개발_컨벤션.md §0 공통 기반
+원칙, llm_client.py/embeddings.py와 동일 패턴 — 체인에서 EasyOCR을 직접 생성하지 않는다).
 
-## 한국어 인식 wiring (HAJA-169/#552)
+## RapidOCR → EasyOCR 교체 (#605)
 
-RapidOCR 기본 인식 모델(`ch_PP-OCRv4_rec`)은 중국어·영어 위주로 학습돼 있어 사업자등록증의
-한글 상호명·대표자명을 인식하지 못한다(실측: 한글 라인이 통째로 유사 한자로 오인식되거나
-신뢰도 미달로 드롭됨). 검출(Det)·분류(Cls) 모델은 언어 비의존적(문자 영역 vs 배경 판별)이라
-기본 다국어 모델을 그대로 쓰고, **인식(Rec) 모델만 한국어 전용으로 교체**한다.
+RapidOCR(PP-OCRv1/v4 한국어 인식 wiring, #552)는 실측 결과 사업자등록증의 한글 상호명·
+대표자명을 여전히 심하게 오인식했다(예: 법인명이 유사 한자로 깨지거나 대표자명이 다른
+글자로 대체됨). 반면 **EasyOCR(한국어 모델)은 동일 문서에서 한글을 확연히 더 정확히
+읽는다**(실측: 법인명 "(주)글로벌다이터로드", 대표자 "이삼욕", 개업일 "2024년 06린 24일"
+수준의 미세 오탈자만 남고 문자 자체는 정상 한글로 인식됨 — 나머지는 LLM 오탈자 교정
+(`ai/prompts/business_license_ocr.md`)으로 보정한다).
 
-- 모델: PaddleOCR PP-OCRv1 한국어 인식 모델을 RapidOCR 관리자가 ONNX로 변환해 배포한 것
-  (`huggingface.co/SWHL/RapidOCR` 저장소의 `PP-OCRv1/korean_mobile_v2.0_rec_infer.onnx`).
-  문자 딕셔너리(3688자, PaddleOCR `korean_dict.txt`와 일치)가 ONNX 모델 메타데이터에 이미
-  내장돼 있어(`custom_metadata_map["character"]`) 별도 `rec_keys_path` 지정이 불필요하다
-  (RapidOCR 자체 변환 모델과 동일한 배포 관례).
-- `rec_img_shape=[3, 32, 320]`: PP-OCRv1 계열은 32px 높이로 학습됨(PaddleOCR
-  `configs/rec/multi_language/rec_korean_lite_train.yml` 확인) — RapidOCR 기본 config.yaml의
-  48px(PP-OCRv4용) 그대로 쓰면 인식률이 떨어진다.
-- 모델 파일(3.3MB)은 저장소에 커밋하지 않는다 — `embeddings.py`의 bge-m3와 동일하게
-  `huggingface_hub.hf_hub_download()`로 런타임 최초 호출 시 1회 다운로드해 `HF_HOME`
-  (도커 named volume `/app/hf_cache`, `#439`)에 캐시한다. 컨테이너 재시작 후에도 재다운로드하지
-  않는다. 다운로드 실패(네트워크 장애 등)는 호출부(체인)에서 그대로 예외로 전파되며,
-  라우터가 표준 폴백(`AIResponse.fail`)으로 흡수한다.
-- 실측(로컬): 기본 ch 모델은 "등록번호:123-45-67890" 라인을 "号世豆：123-45-67890"으로 오인식.
-  한국어 wiring 적용 후 동일 라인 신뢰도 0.97로 정확히 인식.
+torch는 `sentence-transformers` 임베딩 파이프라인용으로 이미 이미지에 포함돼 있어(#439
+hf_cache 볼륨과 동일 계열), EasyOCR 추가로 인한 이미지 무게 부담은 크지 않다.
+
+- 모델: EasyOCR 공식 한국어(`ko`) + 영어(`en`) 인식 모델. `easyocr.Reader(['ko', 'en'])`
+  최초 호출 시 EasyOCR이 자체적으로 다운로드해 로드한다(RapidOCR처럼 개별 rec 모델 경로를
+  수동 지정할 필요 없음 — EasyOCR이 언어팩 단위로 관리).
+- **모델 캐시 영속화**: 컨테이너 재기동 시 재다운로드를 피하기 위해 EasyOCR 모델 저장 경로를
+  기존 `HF_HOME`(도커 named volume `/app/hf_cache`, `#439`) 하위 `easyocr/` 서브디렉터리로
+  지정한다(`EASYOCR_MODEL_DIR`). 별도 named volume을 새로 만들지 않고 기존 볼륨에 얹어
+  운영 배포 변경을 최소화한다.
+- GPU 미사용(`gpu=False`) — arm1 런타임은 GPU가 없고, CPU 추론으로 충분한 처리량을 낸다.
 """
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
-from huggingface_hub import hf_hub_download
+if TYPE_CHECKING:  # 타입 체커 전용 — 런타임 import 아님(torch/cv2 로드 회피)
+    from easyocr import Reader
 
-if TYPE_CHECKING:  # 타입 체커 전용 — 런타임 import 아님(cv2 로드 회피)
-    from rapidocr_onnxruntime import RapidOCR
-
-KOREAN_REC_REPO_ID = "SWHL/RapidOCR"
-KOREAN_REC_FILENAME = "PP-OCRv1/korean_mobile_v2.0_rec_infer.onnx"
-KOREAN_REC_IMG_SHAPE = [3, 32, 320]
+# HF_HOME(기존 hf_cache 볼륨, #439) 하위에 EasyOCR 전용 서브디렉터리를 둔다 — 컨테이너
+# 재기동 시 재다운로드 방지, 볼륨 신규 생성 없이 기존 마운트를 재사용.
+EASYOCR_MODEL_DIR = os.path.join(os.getenv("HF_HOME", "/app/hf_cache"), "easyocr")
 
 
 @lru_cache
-def get_ocr_engine() -> "RapidOCR":
-    """모든 OCR 체인의 시작점. `RapidOCR()`을 직접 생성하지 않고 이 함수를 거친다.
+def get_ocr_engine() -> "Reader":
+    """모든 OCR 체인의 시작점. `easyocr.Reader()`를 직접 생성하지 않고 이 함수를 거친다.
 
-    lru_cache로 프로세스당 1회만 모델을 로드(다운로드+ONNX 세션 초기화 비용 상각).
+    lru_cache로 프로세스당 1회만 모델을 로드(다운로드+추론 세션 초기화 비용 상각).
 
-    ## rapidocr(→cv2) 지연 import 이유 (#573)
-    `rapidocr_onnxruntime`는 import 시 `cv2`(opencv)를 로드하는데, 헤드리스 환경
-    (CI/PR머신/도커 최소 이미지)에 `libGL`이 없으면 `import cv2`가 실패한다. 이 import를
-    모듈 최상단에 두면 `main.app` import만으로(라우터→체인→이 모듈) 전체 테스트 수집이
-    폭발했다(#552/#555 fallout). 실제 OCR을 수행하는 이 함수 내부로 지연시켜 앱 import
-    경로가 cv2를 요구하지 않게 한다. (arm1 런타임은 Dockerfile에 libgl1 설치로 해소.)
+    ## easyocr(→torch/cv2) 지연 import 이유 (#573 패턴 유지)
+    `easyocr`는 import 시 `torch`·`cv2`(opencv)를 로드한다. 헤드리스 환경(CI/PR머신/도커
+    최소 이미지)에서 `libGL`이 없으면 `import cv2`가 실패할 수 있다. 이 import를 모듈
+    최상단에 두면 `main.app` import만으로(라우터→체인→이 모듈) 전체 테스트 수집이
+    폭발한다(#552/#555 fallout과 동일 문제). 실제 OCR을 수행하는 이 함수 내부로
+    지연시켜 앱 import 경로가 torch/cv2를 요구하지 않게 한다. (arm1 런타임은 Dockerfile에
+    libgl1 설치로 해소.)
     """
-    from rapidocr_onnxruntime import RapidOCR  # noqa: E402,PLC0415 — cv2 로드 지연
+    import easyocr  # noqa: PLC0415 — torch/cv2 로드 지연(헤드리스 테스트 수집 폭발 방지)
 
-    rec_model_path = hf_hub_download(
-        repo_id=KOREAN_REC_REPO_ID, filename=KOREAN_REC_FILENAME
+    os.makedirs(EASYOCR_MODEL_DIR, exist_ok=True)
+    return easyocr.Reader(
+        ["ko", "en"],
+        gpu=False,
+        model_storage_directory=EASYOCR_MODEL_DIR,
+        download_enabled=True,
     )
-    return RapidOCR(rec_model_path=rec_model_path, rec_img_shape=KOREAN_REC_IMG_SHAPE)
