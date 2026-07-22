@@ -24,6 +24,13 @@ def _redis() -> redis.Redis:
     return redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
 
 
+def get_redis_client() -> redis.Redis:
+    """다른 체인이 동일 Redis 커넥션을 재사용할 공개 통로 (AI_개발_컨벤션.md §0 —
+    공통 기반 위에서만 개발). `_redis()`는 모듈 프라이빗이라 이 파일 밖에서 직접 호출할
+    수 없으므로, 새 커넥션 로직을 만들지 않고 그대로 노출한다."""
+    return _redis()
+
+
 def _prompt_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
