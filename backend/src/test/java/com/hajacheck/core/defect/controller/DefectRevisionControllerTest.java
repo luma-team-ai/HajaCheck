@@ -1,6 +1,7 @@
 package com.hajacheck.core.defect.controller;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -241,7 +242,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .with(authentication(authOf(stranger))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.error.code").value("INSPECTION_NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("FACILITY_NOT_FOUND"));
     }
 
     @Test
@@ -278,6 +279,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build();
 
         mockMvc.perform(patch("/api/defects/{id}", defect.getId())
+                .with(csrf())
                 .with(authentication(authOf(owner)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -303,6 +305,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build();
 
         mockMvc.perform(patch("/api/defects/{id}", defect.getId())
+                .with(csrf())
                 .with(authentication(authOf(owner)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -327,6 +330,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build();
 
         mockMvc.perform(patch("/api/defects/{id}", defect.getId())
+                .with(csrf())
                 .with(authentication(authOf(owner)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -349,6 +353,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build();
 
         mockMvc.perform(patch("/api/defects/{id}", defect.getId())
+                .with(csrf())
                 .with(authentication(authOf(owner)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -372,6 +377,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build();
 
         mockMvc.perform(patch("/api/defects/{id}", defect.getId())
+                .with(csrf())
                 .with(authentication(authOf(owner)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -395,6 +401,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build();
 
         mockMvc.perform(patch("/api/defects/{id}", defect.getId())
+                .with(csrf())
                 .with(authentication(authOf(owner)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -417,6 +424,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build();
 
         mockMvc.perform(patch("/api/defects/{id}", defect.getId())
+                .with(csrf())
                 .with(authentication(authOf(owner)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -442,6 +450,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build();
 
         mockMvc.perform(patch("/api/defects/{id}", defect.getId())
+                .with(csrf())
                 .with(authentication(authOf(owner)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(deleteRequest)))
@@ -449,6 +458,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
         // 두 번째 재삭제 요청 — 409 INVALID_STATE_TRANSITION 기대
         mockMvc.perform(patch("/api/defects/{id}", defect.getId())
+                .with(csrf())
                 .with(authentication(authOf(owner)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(deleteRequest)))
@@ -466,6 +476,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build();
 
         mockMvc.perform(patch("/api/defects/{id}", 999999L)
+                .with(csrf())
                 .with(authentication(authOf(owner)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -490,11 +501,12 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build();
 
         mockMvc.perform(patch("/api/defects/{id}", defect.getId())
+                .with(csrf())
                 .with(authentication(authOf(stranger)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("DEFECT_NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("FACILITY_NOT_FOUND"));
     }
 
     @Test
@@ -505,6 +517,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build();
 
         mockMvc.perform(patch("/api/defects/{id}", 1L)
+                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnauthorized());
