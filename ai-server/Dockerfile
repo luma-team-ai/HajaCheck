@@ -24,7 +24,9 @@ FROM python:3.11-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    # libgl1/libglib2.0-0 — rapidocr-onnxruntime의 opencv-python(cv2)이 요구하는 libGL.so.1 등 공유
+    # 라이브러리가 slim 이미지엔 없어 임포트 시 ImportError 발생(#552)
+    && apt-get install -y --no-install-recommends curl libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/* \
     # UID/GID를 999로 명시 고정(#345) — useradd -r의 자동 할당값이었던 999를 그대로 박은 것.
     # chroma_data는 named volume 마운트 대상이라 최초 마운트 시점의 UID로 초기화되므로, 베이스
