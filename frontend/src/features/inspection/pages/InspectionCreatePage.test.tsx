@@ -137,6 +137,74 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     expect(screen.getByTestId('location-probe').textContent).toBe('/facilities/1');
   });
 
+  it('점검 생성 성공 후 업로드만 실패하면, 재제출 시 회차를 다시 만들지 않고 업로드만 재시도한다(P1 회귀 방지)', async () => {
+    let createCallCount = 0;
+    server.use(
+      http.post('/api/inspections', async ({ request }) => {
+        createCallCount += 1;
+        const reqBody = (await request.json()) as { facilityId: number; assignedInspectorId: number; inspectionDate: string };
+        const body = {
+          success: true,
+          data: {
+            id: 100,
+            facilityId: reqBody.facilityId,
+            createdBy: 1,
+            assignedInspectorId: reqBody.assignedInspectorId,
+            roundNo: 1,
+            inspectionDate: reqBody.inspectionDate,
+            status: 'SCHEDULED',
+            createdAt: new Date().toISOString(),
+          },
+        };
+        return HttpResponse.json(body, { status: 201 });
+      }),
+    );
+
+    const mockMedia: Media[] = [
+      {
+        id: 1,
+        inspectionId: 100,
+        fileType: 'IMAGE',
+        thumbnailUrl: '/api/media/1/thumbnail',
+        mimeType: 'image/jpeg',
+        capturedAt: null,
+        gpsLat: null,
+        gpsLng: null,
+        createdAt: '2026-07-22T00:00:00',
+      },
+    ];
+    const uploadSpy = vi
+      .spyOn(mediaApi, 'upload')
+      .mockRejectedValueOnce({ code: 'NETWORK_ERROR', message: '업로드에 실패했습니다.' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockResolvedValueOnce({ data: mockMedia } as any);
+
+    renderPage();
+    await fillRequiredFields();
+    const file = new File(['a'], 'a.jpg', { type: 'image/jpeg' });
+    selectFiles([file]);
+    await screen.findByText('대기 중');
+
+    // 1차 제출 — 회차 생성은 성공, 업로드는 실패
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
+    });
+    expect(await screen.findByText('업로드에 실패했습니다.')).not.toBeNull();
+    expect(createCallCount).toBe(1);
+
+    // 시설물 필드가 잠겨(이미 생성된 회차 재사용) 더 이상 수정할 수 없어야 한다
+    expect((screen.getByLabelText('시설물') as HTMLSelectElement).disabled).toBe(true);
+
+    // 2차 제출(재시도) — 회차는 다시 만들지 않고 업로드만 재실행
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
+    });
+
+    expect(createCallCount).toBe(1); // 회차 생성은 여전히 1회만
+    expect(uploadSpy).toHaveBeenCalledTimes(2); // 업로드는 재시도로 2회
+    expect(await screen.findByText('시설물 상세')).not.toBeNull();
+  });
+
   it('점검 생성 실패 시 에러 메시지를 표시하고 입력값을 유지한다', async () => {
     server.use(
       http.post('/api/inspections', () => {

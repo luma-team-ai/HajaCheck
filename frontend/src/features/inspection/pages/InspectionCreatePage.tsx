@@ -7,6 +7,7 @@ import { InspectionMediaUploadPanel } from '../components/InspectionMediaUploadP
 import { useCreateInspection } from '../hooks/useCreateInspection';
 import { useFacilityOptions } from '../hooks/useFacilityOptions';
 import { useUploadMedia } from '../hooks/useUploadMedia';
+import type { InspectionCreateResponse } from '../types';
 import {
   classifyMediaFile,
   exceedsMaxFileCount,
@@ -62,10 +63,18 @@ export function InspectionCreatePage() {
   const [mediaFiles, setMediaFiles] = useState<StagedMediaFile[]>([]);
   const [uploadDone, setUploadDone] = useState(false);
   const [fileCountError, setFileCountError] = useState<string | null>(null);
+  // 회차 생성(POST /api/inspections)이 성공한 뒤 업로드가 실패하면 여기 보관해둔다 — 재제출 시
+  // createInspection을 다시 호출하지 않고 이 id로 업로드만 재시도해 회차 중복 생성을 막는다(P1).
+  const [createdInspection, setCreatedInspection] = useState<InspectionCreateResponse | null>(
+    null,
+  );
 
   const isSubmitting = isCreating || isUploading;
   const hasFileErrors = mediaFiles.some((entry) => entry.error !== null);
   const totalSize = mediaFiles.reduce((sum, entry) => sum + entry.file.size, 0);
+  // 회차가 이미 생성된 뒤에는 점검 정보를 바꿔도 반영되지 않는다(재시도는 업로드만 재실행) —
+  // 혼동을 막기 위해 입력을 잠근다.
+  const isFieldsLocked = isSubmitting || createdInspection !== null;
 
   const handleFieldChange =
     (field: keyof InspectionCreateFormValues) =>
@@ -108,7 +117,13 @@ export function InspectionCreatePage() {
     }
 
     try {
-      const inspection = await createInspection(toInspectionCreateRequest(values));
+      // 이미 생성된 회차가 있으면(직전 시도에서 업로드만 실패) 재생성하지 않고 재사용 — 안 그러면
+      // 재제출마다 같은 시설물/점검일/담당자로 orphan 점검 회차가 계속 쌓인다.
+      const inspection =
+        createdInspection ?? (await createInspection(toInspectionCreateRequest(values)));
+      if (!createdInspection) {
+        setCreatedInspection(inspection);
+      }
 
       const imageFiles = mediaFiles
         .filter((entry) => entry.kind === 'image' && !entry.error)
@@ -121,6 +136,7 @@ export function InspectionCreatePage() {
       navigate(`/facilities/${inspection.facilityId}`);
     } catch {
       // 실패 사유는 error로 아래에 표시 — 입력값·선택 파일은 유지해 재시도 가능하게 둔다.
+      // 회차 생성까지는 성공했다면 createdInspection에 남아있어 다음 제출은 업로드만 재시도한다.
     }
   };
 
@@ -139,7 +155,7 @@ export function InspectionCreatePage() {
                 value={values.facilityId}
                 onChange={handleFieldChange('facilityId')}
                 className={INPUT_CLASSES}
-                disabled={isFacilitiesLoading || isSubmitting}
+                disabled={isFacilitiesLoading || isFieldsLocked}
                 aria-invalid={Boolean(errors.facilityId)}
                 aria-describedby={errors.facilityId ? 'inspection-facility-error' : undefined}
               >
@@ -169,7 +185,7 @@ export function InspectionCreatePage() {
                 value={values.inspectionDate}
                 onChange={handleFieldChange('inspectionDate')}
                 className={INPUT_CLASSES}
-                disabled={isSubmitting}
+                disabled={isFieldsLocked}
                 aria-invalid={Boolean(errors.inspectionDate)}
                 aria-describedby={errors.inspectionDate ? 'inspection-date-error' : undefined}
               />
@@ -192,7 +208,7 @@ export function InspectionCreatePage() {
                 value={values.assignedInspectorId}
                 onChange={handleFieldChange('assignedInspectorId')}
                 className={INPUT_CLASSES}
-                disabled={isSubmitting}
+                disabled={isFieldsLocked}
                 aria-invalid={Boolean(errors.assignedInspectorId)}
                 aria-describedby={
                   errors.assignedInspectorId ? 'inspection-assignee-error' : undefined
@@ -216,7 +232,7 @@ export function InspectionCreatePage() {
                 value={memo}
                 onChange={(event) => setMemo(event.target.value)}
                 className={INPUT_CLASSES}
-                disabled={isSubmitting}
+                disabled={isFieldsLocked}
               />
             </div>
           </div>
