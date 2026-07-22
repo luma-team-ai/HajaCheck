@@ -6,6 +6,8 @@ import type {
   InspectionCreateRequest,
   InspectionCreateResponse,
 } from '../types';
+import type { DefectStatusUpdateRequest } from './inspectionApi';
+import type { DefectDetailItem } from './inspectionApi.types';
 
 // ponytail: /api/inspections/:id/result 목은 제거됨 — 실제 백엔드는
 // /api/inspections/{id} + /api/inspections/{id}/defects 로 분리되어 있음.
@@ -55,6 +57,35 @@ export const inspectionHandlers = [
 
     const body: ApiResponse<FacilityDetail> = { success: true, data: found };
     return HttpResponse.json(body);
+  }),
+
+  http.patch('/api/defects/:id/status', async ({ params, request }) => {
+    const defectId = Number(params.id);
+    const reqBody = (await request.json()) as DefectStatusUpdateRequest;
+
+    // Mock handler: allow all valid status transitions except for testing edge cases
+    // In tests, specific scenarios (e.g., already-reviewed defect) can override this handler
+    const data: DefectDetailItem = {
+      id: defectId,
+      status: reqBody.status,
+      // Return a minimal defect object to satisfy the type contract
+      inspectionId: 1,
+      type: '균열',
+      grade: 'A',
+      confidence: 0.95,
+      isReviewed: true,
+      bboxX: 100,
+      bboxY: 100,
+      bboxW: 50,
+      bboxH: 50,
+      crackLengthMm: 150,
+      createdAt: new Date().toISOString(),
+    };
+    const result: ApiResponse<DefectDetailItem> = {
+      success: true,
+      data,
+    };
+    return HttpResponse.json(result);
   }),
 
   http.post('/api/inspections', async ({ request }) => {
