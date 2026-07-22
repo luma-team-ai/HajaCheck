@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1
 # HajaCheck ai-server (FastAPI) — 멀티스테이지 빌드
 # requirements.txt는 그대로 install(버전 고정, 수정 금지 — AI_개발_컨벤션.md §7).
-# torch/onnxruntime 등은 requirements.txt에 직접 명시되지 않고 langchain/chromadb/sentence-transformers의
-# 전이 의존성으로 설치되며, PyPI에 aarch64(manylinux) 사전빌드 휠이 있어 OCI Ampere A1(ARM)에서도
-# 소스 빌드 없이 설치된다(현재 requirements.txt에는 YOLO 추론용 패키지가 아직 없음 — 추가 시에도 동일).
+# torch는 아래에서 CPU 전용 인덱스로 미리 설치(sentence-transformers·easyocr #605 공용).
+# torchvision 등 나머지 전이 의존성(easyocr/sentence-transformers)은 requirements.txt install
+# 단계에서 PyPI aarch64(manylinux) 사전빌드 휠로 설치되어 OCI Ampere A1(ARM)에서도 소스 빌드가
+# 필요 없다.
 
 # ---- Build stage ----
 FROM python:3.11-slim AS build
@@ -25,8 +26,10 @@ FROM python:3.11-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update \
-    # curl=헬스체크. libgl1·libglib2.0-0=opencv(cv2) 런타임 공유 라이브러리 — rapidocr(사업자등록증
-    # OCR, #552)가 cv2를 로드하며, 이게 없으면 실제 OCR 호출 시 `libGL.so.1` import 에러가 난다(#573).
+    # curl=헬스체크. libgl1·libglib2.0-0=opencv(cv2) 런타임 공유 라이브러리 — 사업자등록증
+    # OCR(#552, RapidOCR→EasyOCR 교체 #605)이 cv2를 로드하며, 이게 없으면 실제 OCR 호출 시
+    # `libGL.so.1` import 에러가 난다(#573). EasyOCR 교체 후에도 내부적으로 cv2를 그대로
+    # 쓰므로 동일하게 필요하다.
     # (앱 import 경로는 지연 import로 cv2를 요구하지 않지만, 런타임 OCR 실행에는 필요.)
     && apt-get install -y --no-install-recommends curl libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/* \
@@ -48,6 +51,9 @@ RUN mkdir -p /app/chroma_data && chown -R fastapi:fastapi /app/chroma_data
 
 # hf_cache도 named volume 마운트 대상(HF_HOME=/app/hf_cache) — bge-m3 등 임베딩 모델 캐시(#439).
 # 최초 마운트 시점 UID로 초기화되므로 chroma_data와 동일하게 fastapi(999) 소유권을 미리 부여한다.
+# EasyOCR 모델(#605)도 이 볼륨 하위 `easyocr/` 서브디렉터리에 캐시한다(ai/core/ocr_client.py
+# EASYOCR_MODEL_DIR) — 별도 볼륨 없이 기존 마운트를 재사용하므로 여기서 별도 mkdir 불필요
+# (하위 디렉터리는 fastapi 유저가 런타임에 os.makedirs로 생성, 상위 디렉터리 소유권만 있으면 충분).
 RUN mkdir -p /app/hf_cache && chown -R fastapi:fastapi /app/hf_cache
 
 USER fastapi
