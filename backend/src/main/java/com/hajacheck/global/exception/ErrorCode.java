@@ -133,7 +133,12 @@ public enum ErrorCode {
     REPORT_VERSION_CONFLICT(HttpStatus.CONFLICT, "이미 동일 버전의 보고서가 생성 중입니다. 잠시 후 다시 시도해 주세요."),
     // finalize 요청의 pdfUrl이 이 보고서용 업로드 엔드포인트 형식(/api/reports/{id}/pdf/{storageKey})을
     // 따르지 않으면 거부 — 임의 문자열/타 보고서 pdfUrl로 확정을 시도하는 것을 차단한다(#455 P2-2).
-    REPORT_PDF_URL_INVALID(HttpStatus.BAD_REQUEST, "유효하지 않은 보고서 PDF 경로입니다.");
+    REPORT_PDF_URL_INVALID(HttpStatus.BAD_REQUEST, "유효하지 않은 보고서 PDF 경로입니다."),
+
+    // RAG 문서 관리(#22 / HAJA-35) — 플랫폼 관리자 콘솔 법규·지침 PDF 업로드 + 임베딩 파이프라인
+    RAG_DOCUMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "RAG 문서를 찾을 수 없습니다."),
+    // PDF가 손상되었거나(스캔 이미지만 있는 등) 텍스트 레이어가 없어 PDFBox가 본문을 추출하지 못한 경우.
+    RAG_TEXT_EXTRACTION_FAILED(HttpStatus.BAD_REQUEST, "PDF에서 텍스트를 추출할 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;

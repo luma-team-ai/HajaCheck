@@ -10,6 +10,9 @@ import com.hajacheck.core.ai.dto.BusinessLicenseOcrResponse;
 import com.hajacheck.core.ai.dto.DefectExplainAiEnvelope;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
+import com.hajacheck.core.ai.dto.RagEmbedAiEnvelope;
+import com.hajacheck.core.ai.dto.RagEmbedRequest;
+import com.hajacheck.core.ai.dto.RagEmbedResponse;
 import com.hajacheck.core.ai.dto.ReportAiEnvelope;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
@@ -44,6 +47,7 @@ public class AiProxyService {
     private static final String REPORT_PATH = "/ai/report";
     private static final String BRIEFING_PATH = "/ai/briefing";
     private static final String BUSINESS_LICENSE_OCR_PATH = "/ai/business-license-ocr";
+    private static final String RAG_EMBED_PATH = "/ai/rag-documents/embed";
     private static final String INTERNAL_KEY_HEADER = "X-Internal-Key";
 
     private final RestClient aiServerRestClient;
@@ -227,6 +231,49 @@ public class AiProxyService {
         } catch (RestClientException e) {
             // OCR 원문/개인정보는 예외 메시지에 포함되지 않는다 — AI 서버가 그런 값을 던지지 않고,
             // 이 catch는 envelope 역직렬화 실패 등 형식 불량만 다룬다(다른 endpoint와 동일 패턴).
+            log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    /**
+     * RAG 문서 임베딩 프록시(#22/HAJA-35) — RagDocumentService가 PDF에서 추출한 텍스트를 실어
+     * FastAPI {@code /ai/rag-documents/embed}를 호출한다. 다른 프록시 메서드와 동일한
+     * try/catch(ResourceAccessException/RestClientResponseException/RestClientException) 패턴.
+     */
+    public ApiResponse<RagEmbedResponse> embedRagDocument(RagEmbedRequest request) {
+        RagEmbedAiEnvelope envelope = callAiServer(request);
+        if (envelope == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+
+        if (!envelope.success()) {
+            RagEmbedAiEnvelope.ErrorBody error = envelope.error();
+            if (error == null) {
+                throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+            }
+            return ApiResponse.fail(error.code(), error.message());
+        }
+
+        if (envelope.data() == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        return ApiResponse.ok(envelope.data());
+    }
+
+    private RagEmbedAiEnvelope callAiServer(RagEmbedRequest request) {
+        try {
+            return aiServerRestClient.post()
+                    .uri(RAG_EMBED_PATH)
+                    .headers(this::attachInternalKeyIfPresent)
+                    .body(request)
+                    .retrieve()
+                    .body(RagEmbedAiEnvelope.class);
+        } catch (ResourceAccessException e) {
+            throw mapConnectionFailure(e);
+        } catch (RestClientResponseException e) {
+            throw mapResponseStatusFailure(e);
+        } catch (RestClientException e) {
             log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
         }

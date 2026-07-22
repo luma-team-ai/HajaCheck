@@ -151,6 +151,17 @@ public class RagDocument {
                         .formatted(action, this.embeddingStatus, Arrays.toString(allowed)));
     }
 
+    /**
+     * 재임베딩(관리자 명시적 액션, #22/HAJA-35) 트리거 직전 상태 리셋 — DONE/FAILED 문서를 PENDING으로
+     * 되돌려 {@link #startEmbedding()}이 다시 허용되게 한다. EMBEDDING 진행 중에는 거부해 동시 재임베딩
+     * 레이스를 막는다(재임베딩은 "명시적 배치 잡"으로 한정 — 진행 중인 잡 위에 또 트리거되지 않게).
+     */
+    public void resetForReEmbed() {
+        requireEmbeddingStatus("resetForReEmbed",
+                RagEmbeddingStatus.PENDING, RagEmbeddingStatus.DONE, RagEmbeddingStatus.FAILED);
+        this.embeddingStatus = RagEmbeddingStatus.PENDING;
+    }
+
     public void verify() {
         if (this.verificationStatus == RagDocumentVerificationStatus.VERIFIED) {
             return;
