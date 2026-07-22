@@ -52,6 +52,21 @@ public interface AdminUserRepository extends JpaRepository<User, Long> {
             @Param("activeStatus") UserPlanStatus activeStatus,
             Pageable pageable);
 
+    // 관리자 플랜·쿼터 관리(#507) — 표는 회사 소속 "활성" 멤버만 나열한다(#405 search()의 role/plan
+    // 필터·개인 구독 조인은 이 화면 요구사항에 없어 재사용하지 않고 단순 검색 쿼리를 별도로 둔다).
+    @Query("""
+            select u from User u
+            where u.companyId = :companyId
+              and u.status = :status
+              and (:keyword is null or lower(u.name) like :keyword escape '\\' or lower(u.email) like :keyword escape '\\')
+            order by u.id asc
+            """)
+    Page<User> searchActiveMembers(
+            @Param("companyId") Long companyId,
+            @Param("status") UserStatus status,
+            @Param("keyword") String keyword,
+            Pageable pageable);
+
     Optional<User> findByIdAndCompanyId(Long id, Long companyId);
 
     long countByCompanyId(Long companyId);

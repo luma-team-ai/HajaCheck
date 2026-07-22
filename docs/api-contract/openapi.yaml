@@ -4,6 +4,9 @@ info:
   version: "0.7.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    2026-07-22 관리자 플랜·쿼터 관리 API(#507) 추가 — /api/admin/plans, /api/admin/plan,
+    /api/admin/plan/history, /api/admin/plan-quota 및 AdminPlan* 스키마.
+    /api/admin/plan/history 에 page/size 페이지네이션 추가(PR#525 머신 리뷰 P3).
     2026-07-21 명세-구현 동기화 — 멤버십·계정복구·대시보드·AI프록시·OCR 추가, 보고서 API를 #455 구현 기준으로
     재작성(#498).
     2026-07-19 GET /api/notifications(AP-020, #25 / HAJA-38 FR-9) 계약 추가.
@@ -662,6 +665,202 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "404":
           description: 활성 구독 없음 (PLAN_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/admin/plans:
+    get:
+      summary: 요금제 카탈로그 조회 (관리자 플랜·쿼터, FR-8-A #507)
+      description: >
+        제공 중인 전체 요금제 목록(플랜 변경 선택지). ADMIN 전용 — `/api/admin/**` 는 SecurityConfig 필터에서
+        hasRole(ADMIN) 로 강제한다. `AdminPlanController.getPlanCatalog` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [admin]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminPlanCatalogApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/admin/plan:
+    get:
+      summary: 현재 회사 플랜 + 사용량 조회 (관리자 플랜·쿼터, FR-8-A #507)
+      description: >
+        요청 관리자 회사(company_id)의 현재 구독 요금제·한도와 이번 달 사용량(월 분석 장수 등). 회사 스코프는
+        서비스가 company_id 로 강제하며, 그 회사에 유효한 승인 멤버십이 없으면(§2.6 미승인 멤버십은 상속 대상
+        아님) 회사 플랜을 상속하지 않아 PLAN_NOT_FOUND(404)다. companyId 없는 관리자는 PLAN_FORBIDDEN(403).
+        `AdminPlanController.getCurrentPlan` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [admin]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminPlanApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: ADMIN 아님 / 회사 없는 관리자 (FORBIDDEN / PLAN_FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 상속 가능한 활성 구독 없음 (PLAN_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+    patch:
+      summary: 회사 플랜 변경 (관리자 플랜·쿼터, FR-8-A #507)
+      description: >
+        요청 관리자 회사의 구독 요금제를 변경한다 — 기존 ACTIVE(또는 UPGRADE_REQUESTED) 구독을 EXPIRED 로
+        내리고 신규 ACTIVE 구독을 발급하는 단일 트랜잭션 전이(table_design.md §user_plans). 변경 이력은
+        user_plans 행으로 보존되어 `/api/admin/plan/history` 로 조회한다. 대상이 현재와 같고 이미 ACTIVE 면
+        멱등 no-op(200, 이력 추가 없음). 동시 변경 경합은 PLAN_ACTIVE_SUBSCRIPTION_CONFLICT(409).
+        `AdminPlanController.changePlan` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminPlanChangeRequest" }
+      responses:
+        "200":
+          description: 변경 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminPlanApiResponse" }
+        "400":
+          description: 잘못된 요금제명 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: ADMIN 아님 / 회사 없는 관리자 (FORBIDDEN / PLAN_FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 상속 가능한 활성 구독 없음 (PLAN_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: 동시 변경 경합 (PLAN_ACTIVE_SUBSCRIPTION_CONFLICT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/admin/plan/history:
+    get:
+      summary: 회사 플랜 변경 이력 조회 (관리자 플랜·쿼터, FR-8-A #507)
+      description: >
+        요청 관리자 회사의 구독 변경 이력(요금제·기간·상태)을 최신 순으로 반환한다 — 각 항목이 user_plans 행
+        하나이며 startedAt/endedAt·planName·status 로 "이전값→이후값·언제"를 표현한다.
+        `AdminPlanController.getHistory` 구현됨. page 는 1부터 시작(PR#525 머신 리뷰 P3 반영 — 이력이
+        무한정 누적되는 문제로 plan-quota 와 동일한 페이지네이션 계약을 추가했다).
+      security:
+        - SessionCookie: []
+      tags: [admin]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1, minimum: 1 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminPlanHistoryApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: ADMIN 아님 / 회사 없는 관리자 (FORBIDDEN / PLAN_FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 상속 가능한 활성 구독 없음 (PLAN_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/admin/plan-quota:
+    get:
+      summary: 회사 멤버별 쿼터 사용 현황 조회 (관리자 플랜·쿼터, FR-8-A #507, frontend #508)
+      description: >
+        요청 관리자 회사에 소속된 활성(status=ACTIVE) 멤버별 이번 달 쿼터 사용량과 KPI 통계를 반환한다.
+        plan/quotaLimit 은 회사가 구독한 단일 플랜값이라 모든 행에서 동일하고(company_memberships 상속
+        아님 — user_plans 는 회사 단위 1건), 활성 구독이 없으면(PLAN_NOT_FOUND 상황) 목록 조회 자체는
+        실패시키지 않고 plan/quotaLimit/companyPlan 을 전부 null 로 반환한다 — `/api/admin/plan`·
+        `/api/admin/plan/history` 와 달리 "구독 없음"도 정상 상태로 보여줘야 하는 목록 뷰이기 때문이다.
+        quotaUsed 는 담당 점검자(inspections.assigned_inspector_id) 단위 media 집계 근사치(멤버별 실제
+        업로더 FK 부재 — MediaRepository 문서 참고). stats(activeUsers/totalQuotaUsagePercent/companyPlan)는
+        검색어(keyword)와 무관하게 회사 전체 기준으로 집계한다. page 는 1부터 시작.
+        `AdminPlanController.getPlanQuota` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [admin]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1, minimum: 1 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 10, minimum: 1 }
+        - name: keyword
+          in: query
+          description: 멤버 이름·이메일 부분일치 검색(대소문자 무시)
+          schema: { type: string }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminPlanQuotaApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: ADMIN 아님 / 회사 없는 관리자 (FORBIDDEN / PLAN_FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 요청 관리자 본인의 회사 멤버십이 유효 승인 상태가 아님 (PLAN_NOT_FOUND) — 회사 자체의 구독 유무와는 별개
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
@@ -2658,6 +2857,170 @@ components:
         success: { type: boolean, example: true }
         data: { $ref: "#/components/schemas/UpgradeInquiryResponse" }
         error: { type: object, nullable: true, example: null }
+
+    # ── 관리자 플랜·쿼터 관리 (구현됨, backend/admin, FR-8-A #507 / HAJA-258) ──
+    AdminPlanItem:
+      type: object
+      description: 요금제 카탈로그 항목. max_* 는 무제한이면 null.
+      required:
+        [id, name, maxFacilities, maxMonthlyAnalyses, maxSeats, hasPdfWatermark, hasCounselorAccess, hasAiAddon, priceMonthly]
+      properties:
+        id: { type: integer, format: int64, example: 2 }
+        name: { type: string, enum: [FREE, STANDARD, ENTERPRISE], example: STANDARD }
+        maxFacilities: { type: integer, nullable: true, example: 10 }
+        maxMonthlyAnalyses: { type: integer, nullable: true, example: 300 }
+        maxSeats: { type: integer, example: 5 }
+        hasPdfWatermark: { type: boolean, example: false }
+        hasCounselorAccess: { type: boolean, example: true }
+        hasAiAddon: { type: boolean, example: true }
+        priceMonthly: { type: number, nullable: true, example: 29000 }
+
+    AdminPlanCatalogResponse:
+      type: object
+      required: [plans]
+      properties:
+        plans:
+          type: array
+          items: { $ref: "#/components/schemas/AdminPlanItem" }
+
+    AdminPlanCatalogApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/AdminPlanCatalogResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    AdminPlanResponse:
+      type: object
+      description: >
+        회사 귀속 현재 구독의 요금제·상태·이번 달 사용량. usage 는 usage_counters 를 읽기만 하며(집계 증가는
+        QuotaInterceptor 책임) 당월 집계 행이 없으면 0.
+      required: [subscriptionId, plan, status, startedAt, usage]
+      properties:
+        subscriptionId: { type: integer, format: int64, example: 41 }
+        plan: { $ref: "#/components/schemas/AdminPlanItem" }
+        status: { type: string, enum: [ACTIVE, EXPIRED, UPGRADE_REQUESTED], example: ACTIVE }
+        startedAt: { type: string, format: date-time, example: "2026-07-21T09:00:00Z" }
+        usage:
+          type: object
+          required: [analyzedImageCount, analysisRequestCount, facilityCount, seatCount, period]
+          properties:
+            analyzedImageCount: { type: integer, example: 12 }
+            analysisRequestCount: { type: integer, example: 8 }
+            facilityCount: { type: integer, example: 3 }
+            seatCount: { type: integer, example: 2 }
+            period: { type: string, format: date, description: "집계 기준월 1일(KST)", example: "2026-07-01" }
+
+    AdminPlanApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/AdminPlanResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    AdminPlanChangeRequest:
+      type: object
+      required: [planName]
+      properties:
+        planName: { type: string, enum: [FREE, STANDARD, ENTERPRISE], example: STANDARD }
+
+    AdminPlanHistoryEntry:
+      type: object
+      description: 회사 구독 변경 이력 1건(user_plans 행 하나). endedAt 이 null 이면 현재 유효 구독.
+      required: [subscriptionId, planName, status, startedAt, endedAt]
+      properties:
+        subscriptionId: { type: integer, format: int64, example: 41 }
+        planName: { type: string, enum: [FREE, STANDARD, ENTERPRISE], example: STANDARD }
+        status: { type: string, enum: [ACTIVE, EXPIRED, UPGRADE_REQUESTED], example: ACTIVE }
+        startedAt: { type: string, format: date-time, example: "2026-07-21T09:00:00Z" }
+        endedAt: { type: string, format: date-time, nullable: true, example: null }
+
+    AdminPlanHistoryResponse:
+      type: object
+      required: [history, page, size, totalElements]
+      properties:
+        history:
+          type: array
+          items: { $ref: "#/components/schemas/AdminPlanHistoryEntry" }
+        page: { type: integer, example: 1 }
+        size: { type: integer, example: 20 }
+        totalElements: { type: integer, format: int64, example: 3 }
+
+    AdminPlanHistoryApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/AdminPlanHistoryResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    AdminPlanQuotaMember:
+      type: object
+      description: 회사 소속 멤버(개인 계정) 1명의 이번 달 쿼터 사용 현황 한 행. plan/quotaLimit 은 회사 단위
+        구독값이라 모든 행에서 동일(활성 구독 없으면 둘 다 null). quotaUsed 만 멤버별로 다르다(근사치).
+      required: [id, name, email, plan, quotaUsed, quotaLimit]
+      properties:
+        id: { type: integer, format: int64, example: 12 }
+        name: { type: string, example: "김민준" }
+        email: { type: string, example: "minjun.kim@company.com" }
+        plan: { type: string, enum: [FREE, STANDARD, ENTERPRISE], nullable: true, example: STANDARD }
+        quotaUsed: { type: integer, example: 145 }
+        quotaLimit: { type: integer, nullable: true, example: 1000 }
+
+    AdminPlanQuotaStats:
+      type: object
+      description: KPI 카드·"현재 플랜" 카드 값 — 검색어(keyword)와 무관하게 회사 전체 기준으로 집계.
+      required: [activeUsers, totalQuotaUsagePercent, companyPlan]
+      properties:
+        activeUsers: { type: integer, format: int64, example: 7 }
+        totalQuotaUsagePercent: { type: integer, example: 72 }
+        companyPlan: { type: string, enum: [FREE, STANDARD, ENTERPRISE], nullable: true, example: STANDARD }
+
+    AdminPlanQuotaResponse:
+      type: object
+      required: [content, page, size, totalElements, stats]
+      properties:
+        content:
+          type: array
+          items: { $ref: "#/components/schemas/AdminPlanQuotaMember" }
+        page: { type: integer, example: 1 }
+        size: { type: integer, example: 10 }
+        totalElements: { type: integer, format: int64, example: 8 }
+        stats: { $ref: "#/components/schemas/AdminPlanQuotaStats" }
+
+    AdminPlanQuotaApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/AdminPlanQuotaResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
 
     # ── 대시보드 개요 집계 (구현됨, backend/core/dashboard, HAJA-17 / dev-03-01) ──
     DashboardSummaryResponse:

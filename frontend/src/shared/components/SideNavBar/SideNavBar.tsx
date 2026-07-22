@@ -154,6 +154,10 @@ const DEFAULT_ITEMS: SideNavItem[] = [
   { label: '설정', href: '/settings', icon: settingsIcon },
 ];
 
+// 기업 관리자(자기 회사 스코프) 메뉴 — 플랫폼 관리자(전사 스코프) 기능은 별도 메뉴로 분리 예정.
+// 정리 전 7개 항목 원본 구성은 docs/design/admin-menu-structure-snapshot.md 참고
+// (하자 유형·등급 관리/상담 관리/RAG 문서 관리/서비스 통계/시스템 모니터링은 구현된 적 없는
+// placeholder였고, 플랫폼 관리자 메뉴 설계 시 스코프 재검토 대상).
 const DEFAULT_ADMIN_ITEM: SideNavItem = {
   label: '관리자 페이지',
   href: '/admin',
@@ -161,11 +165,6 @@ const DEFAULT_ADMIN_ITEM: SideNavItem = {
   subItems: [
     { label: '사용자 관리', href: '/admin/users' },
     { label: '플랜·쿼터 관리', href: '/admin/plans-quota' },
-    { label: '하자 유형·등급 관리', href: '/admin/defect-types' },
-    { label: '상담 관리', href: '/admin/counsels' },
-    { label: 'RAG 문서 관리', href: '/admin/rag-documents' },
-    { label: '서비스 통계', href: '/admin/stats' },
-    { label: '시스템 모니터링', href: '/admin/monitoring' },
   ],
 };
 
@@ -381,7 +380,7 @@ export function SideNavBar({
           </button>
         </div>
 
-        <nav className="flex flex-1 flex-col gap-2 pt-1" aria-label="사이드 메뉴">
+        <nav className="flex flex-col gap-2 pt-1" aria-label="사이드 메뉴">
           {allItems.map((item) =>
             item.subItems ? (
               <div key={item.href}>
@@ -447,6 +446,11 @@ export function SideNavBar({
             ),
           )}
         </nav>
+
+        {/* 메뉴 항목 수와 무관하게 프로필·로그아웃을 사이드바 맨 아래에 고정한다 — 예전엔 nav 자체가
+            flex-1이라 항목이 적을 때(관리자 메뉴 축소 등) 아코디언 바로 아래에 거대한 빈 공간이
+            생겼다(#525 팔로우업). 남는 공간은 nav가 아니라 이 스페이서가 흡수한다. */}
+        <div className="flex-1" aria-hidden="true" />
 
         {notice && (
           <div className="pointer-events-none fixed inset-0 z-[1000] flex items-center justify-center">
