@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1
 # HajaCheck ai-server (FastAPI) — 멀티스테이지 빌드
 # requirements.txt는 그대로 install(버전 고정, 수정 금지 — AI_개발_컨벤션.md §7).
-# torch는 아래에서 CPU 전용 인덱스로 미리 설치(sentence-transformers·easyocr #605 공용).
-# torchvision 등 나머지 전이 의존성(easyocr/sentence-transformers)은 requirements.txt install
-# 단계에서 PyPI aarch64(manylinux) 사전빌드 휠로 설치되어 OCI Ampere A1(ARM)에서도 소스 빌드가
-# 필요 없다.
+# torch·torchvision은 아래에서 **같은 CPU 전용 인덱스**로 함께 설치(sentence-transformers·easyocr #605 공용).
+# ⚠️ torchvision을 PyPI 기본 인덱스에서 설치하면 torch(+cpu)와 빌드 변형이 달라
+# `RuntimeError: operator torchvision::nms does not exist`(ABI 불일치)로 easyocr import가 런타임 크래시한다(#605 실측).
+# 반드시 torch와 동일 index-url(cpu)로 torchvision을 설치해 +cpu 매칭 휠을 받는다. 나머지 전이 의존성은
+# requirements.txt install 단계에서 PyPI aarch64(manylinux) 휠로 설치(ARM 소스 빌드 불필요).
 
 # ---- Build stage ----
 FROM python:3.11-slim AS build
@@ -18,7 +19,7 @@ RUN apt-get update \
 COPY requirements.txt ./
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
-    && /opt/venv/bin/pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+    && /opt/venv/bin/pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
     && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # ---- Runtime stage ----
