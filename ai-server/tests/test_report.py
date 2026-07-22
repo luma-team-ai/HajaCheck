@@ -597,6 +597,24 @@ def test_grounding_mismatch_persists_sets_grounding_ok_false_but_still_returns_r
 
 @patch("ai.chains.report_chain.get_vectorstore")
 @patch("ai.chains.report_chain.get_llm")
+def test_grounding_all_unverifiable_sets_grounding_ok_false(mock_get_llm, mock_get_vectorstore):
+    """대조할 실측 defects가 전혀 없으면(UNVERIFIABLE 만) grounded=True이지만 action=WARN — grounding_ok는
+    action==PASS 기준이라 False여야 한다(#125 P2 — grounded 단독 판정 시 여기서 오판정 True가 나던 버그).
+    backend Report.finalizeReport()가 grounding_ok=True를 확정 게이트로 신뢰하므로, 근거 없는 보고서가
+    잘못 확정 가능해지는 실제 위험을 막는 회귀 테스트."""
+    mock_get_vectorstore.side_effect = NotImplementedError("stub")
+    # detail 도 confirmed_defects=[] 와 맞춰 비워야 한다 — 그렇지 않으면 grounding 판정(이 테스트가
+    # 검증할 로직) 전에 _detail_matches_confirmed 불일치로 ValueError 가 먼저 터진다(PR머신 P2 지적).
+    _patch_all_sections(mock_get_llm, detail=ReportDetail(items=[]))  # summary는 기본값: total_count=1, grade B=1
+
+    result = run_report_chain(_sample_facility_info(), [], on_mismatch="regenerate")
+
+    assert result["grounding_ok"] is False
+    assert result["summary"]["total_count"] == 1  # 보고서 생성 자체는 막지 않음(UNVERIFIABLE도 WARN 성격)
+
+
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
 def test_regenerate_loop_output_parser_exception_propagates_as_llm_invalid_output(
     mock_get_llm, mock_get_vectorstore
 ):

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useOutsideDismiss } from '../../hooks/useOutsideDismiss';
 
 export interface NotificationFilter {
   key: string;
@@ -40,34 +40,7 @@ export function NotificationDropdown({
   onViewAll,
   onClose,
 }: NotificationDropdownProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    if (!onCloseRef.current) {
-      return;
-    }
-
-    function handlePointerDown(event: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        onCloseRef.current?.();
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onCloseRef.current?.();
-      }
-    }
-
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
+  const rootRef = useOutsideDismiss<HTMLDivElement>(onClose);
 
   const visibleNotifications =
     !activeFilter || activeFilter === 'all'

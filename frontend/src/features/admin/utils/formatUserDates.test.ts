@@ -28,6 +28,14 @@ describe('formatJoinedAt', () => {
   it('형식이 깨진 값은 "-"로 떨어뜨린다', () => {
     expect(formatJoinedAt('2023-10')).toBe('-');
   });
+
+  // #404 — created_at이 date-only가 아니라 오프셋 있는 ISO datetime(Instant 직렬화, 예: "...Z"/
+  // "+09:00")으로 와도 split('-') 방식처럼 day 조각에 시각이 섞여 들어가지 않아야 한다.
+  // DATE_TIME_PATTERN이 시작부터 날짜·시각만 추출하고 뒤에 남는 오프셋 표기는 무시하므로 통과한다.
+  it('오프셋이 붙은 ISO datetime(Z/+09:00)도 날짜와 시각만 추출한다', () => {
+    expect(formatJoinedAt('2023-10-12T09:00:00Z')).toBe('2023-10-12 09:00:00');
+    expect(formatJoinedAt('2023-10-12T09:00:00+09:00')).toBe('2023-10-12 09:00:00');
+  });
 });
 
 describe('formatAbsoluteAccess', () => {

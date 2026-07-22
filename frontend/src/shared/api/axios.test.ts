@@ -153,4 +153,53 @@ describe('axios 401 인터셉터 — basename 배포(base=/app/)', () => {
       restore();
     }
   });
+
+  // PR머신 리뷰 P2(#558) — 플랫폼 관리자 경로 판별이 raw '/platform-admin'만 비교하면 basename
+  // 배포에서 항상 false가 되어 기업회원 /app/login으로 잘못 리다이렉트되던 회귀를 고정한다.
+  it('/app/platform-admin/users면 /app/platform-admin/login으로 리다이렉트한다(basename 반영)', async () => {
+    vi.stubEnv('BASE_URL', '/app/');
+    const api = await importFreshApi();
+    const { hrefSetter, restore } = mockLocation('/app/platform-admin/users');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(hrefSetter).toHaveBeenCalledWith('/app/platform-admin/login');
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('axios 401 인터셉터 — 플랫폼 관리자 콘솔(#535, base=/)', () => {
+  it('/platform-admin 하위 경로에서 401이면 /platform-admin/login으로 리다이렉트한다(일반 /login이 아님)', async () => {
+    const api = await importFreshApi();
+    const { hrefSetter, restore } = mockLocation('/platform-admin/users');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(hrefSetter).toHaveBeenCalledWith('/platform-admin/login');
+    } finally {
+      restore();
+    }
+  });
+
+  it('/platform-admin/login 경로면 401이어도 재대입하지 않는다(무한 리로드 방지)', async () => {
+    const api = await importFreshApi();
+    const { hrefSetter, restore } = mockLocation('/platform-admin/login');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(hrefSetter).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('일반 경로(/dashboard)는 여전히 기업회원 /login으로 리다이렉트한다(회귀 방지)', async () => {
+    const api = await importFreshApi();
+    const { hrefSetter, restore } = mockLocation('/dashboard');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(hrefSetter).toHaveBeenCalledWith('/login');
+    } finally {
+      restore();
+    }
+  });
 });

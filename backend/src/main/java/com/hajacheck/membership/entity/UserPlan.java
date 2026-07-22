@@ -101,6 +101,18 @@ public class UserPlan {
         this.status = UserPlanStatus.UPGRADE_REQUESTED;
     }
 
+    /**
+     * 구독 만료 전이(플랜 변경 시 사용) — table_design.md §user_plans "구독 업그레이드/갱신은 단일 트랜잭션 내에서
+     * 기존 ACTIVE를 EXPIRED로 내리고 신규를 ACTIVE로 올리는 순서로 처리한다"에 따라, 관리자 플랜 변경(#507)은
+     * 기존 활성 구독을 이 메서드로 EXPIRED 로 내린 뒤 신규 ACTIVE 행을 발급한다. endedAt 을 종료 시각으로 기록해
+     * user_plans 행 자체가 "언제 어느 플랜에서 어느 플랜으로 바뀌었는지"의 변경 이력이 된다(부분 UQ
+     * uq_user_plans_active_company 와 정합 — ACTIVE 는 항상 최대 1건).
+     */
+    public void expire() {
+        this.status = UserPlanStatus.EXPIRED;
+        this.endedAt = Instant.now();
+    }
+
     public boolean isOwnedByUser(Long candidateUserId) {
         return this.userId != null && this.userId.equals(candidateUserId);
     }

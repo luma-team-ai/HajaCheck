@@ -134,10 +134,29 @@ public class Defect {
     }
 
     public void changeStatus(DefectStatus status) {
+        changeStatus(status, null);
+    }
+
+    /**
+     * 상태 전이(HAJA-26 2차: 역행/건너뛰기 허용). 정방향 한 단계 전이는 사유 없이 허용하고,
+     * 그 외(역행·건너뛰기) 전이는 {@code reason}이 있어야만 허용한다(PRD FR-4 "역행·건너뛰기는
+     * 사유 기록 필수"). 단, 조치완료(RESOLVED)는 사유 유무와 무관하게 이탈(다른 상태로 재전이)이
+     * 불가한 종료 상태로 유지한다 — 완료 처리 자체를 되돌리는 것은 별도 스코프.
+     */
+    public void changeStatus(DefectStatus status, String reason) {
         if (status == null) {
             throw new DomainValidationException("changeStatus 불가: 변경할 상태는 필수다");
         }
         requireNotDeleted("changeStatus");
+
+        if (this.status == DefectStatus.RESOLVED) {
+            throw new DomainStateTransitionException(
+                    "changeStatus 불가: 조치완료(RESOLVED)는 종료 상태라 다른 상태로 전이할 수 없다");
+        }
+        if (status == this.status) {
+            throw new DomainStateTransitionException(
+                    "changeStatus 불가: 현재 상태와 동일한 상태로는 전이할 수 없다 (상태=%s)".formatted(status));
+        }
 
         DefectStatus expectedNext = switch (this.status) {
             case DETECTED -> DefectStatus.CONFIRMED;
@@ -147,10 +166,11 @@ public class Defect {
             case RESOLVED -> null;
         };
 
-        if (status != expectedNext) {
-            throw new DomainStateTransitionException(
-                    "changeStatus 불가: 현재 상태=%s, 허용되는 다음 상태=%s, 요청 상태=%s"
-                            .formatted(this.status, expectedNext, status));
+        boolean isForwardStep = status == expectedNext;
+        if (!isForwardStep && (reason == null || reason.isBlank())) {
+            throw new DomainValidationException(
+                    "changeStatus 불가: 역행/건너뛰기 전이는 사유가 필요하다 (현재 상태=%s, 요청 상태=%s)"
+                            .formatted(this.status, status));
         }
         this.status = status;
     }

@@ -21,14 +21,14 @@ import org.springframework.stereotype.Component;
  * 차단한다 — 앱이 아예 뜨지 않으면 배포 파이프라인/헬스체크가 먼저 잡아낸다.
  *
  * <p>토글: {@code hajacheck.membership.seed-guard.enabled}(기본 true — 안전측 fail-closed).
- * 아래 두 경우만 명시적으로 false 로 끈다(시드가 없는 상태 자체가 정상 시나리오이기 때문):
+ * Flyway 도입(#359) 이후로는 신규 빈 DB(V1이 plans insert 포함)든 baseline된 기존 DB(V2가 채움)든
+ * 정상 기동 경로에서 plans 시드가 항상 존재하므로, 로컬(application-local.yml.example)에서 이 가드를
+ * 끄는 예외는 더 이상 필요 없다. 아래 한 경우만 명시적으로 false 로 끈다(시드가 없는 상태 자체가
+ * 정상 시나리오이기 때문):
  * <ul>
  *   <li>테스트 프로파일({@code application-test.yml}) — H2(ddl-auto=create-drop)로 붙는
- *       {@code @SpringBootTest} 는 엔티티 기반 빈 스키마만 생성하고 SQL 시드는 적용하지 않는다.</li>
- *   <li>로컬 최초 부트스트랩({@code application-local.yml.example}) — ddl-auto=update 로 빈 로컬 PG에서
- *       시작하는 첫 기동은 시드가 없는 게 정상이다(docs/conventions/로컬_개발_가이드.md §4).
- *       {@link com.hajacheck.auth.init.LocalUserSeeder} 의 옵트인 스위치와 같은 이유:
- *       "안전한 기본값 + 예외적 상황만 명시적으로 끔".</li>
+ *       {@code @SpringBootTest} 는 Flyway가 비활성화돼 있어 엔티티 기반 빈 스키마만 생성하고
+ *       SQL 시드는 적용하지 않는다.</li>
  * </ul>
  */
 @Slf4j

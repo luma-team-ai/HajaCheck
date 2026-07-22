@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
+import { useOutsideDismiss } from '../../../shared/hooks/useOutsideDismiss';
 import type { AdminUser } from '../types';
 import { MoreIcon } from './icons/MoreIcon';
 import { ShieldIcon } from './icons/ShieldIcon';
@@ -16,29 +17,7 @@ interface AdminUserRowMenuProps {
 // 바깥 클릭·Escape로 닫히고, 열려 있는 동안 트리거에 aria-expanded를 노출한다.
 export function AdminUserRowMenu({ user, onAction }: AdminUserRowMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    function handlePointerDown(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
+  const containerRef = useOutsideDismiss<HTMLDivElement>(() => setIsOpen(false), isOpen);
 
   const menuItems: { action: AdminUserRowAction; label: string; icon: ReactNode }[] = [
     { action: 'CHANGE_ROLE', label: '역할 변경', icon: <ShieldIcon /> },

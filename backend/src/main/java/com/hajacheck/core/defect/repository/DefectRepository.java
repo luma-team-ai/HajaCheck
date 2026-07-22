@@ -5,12 +5,26 @@ import com.hajacheck.core.defect.entity.DefectStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface DefectRepository extends JpaRepository<Defect, Long> {
+public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRepositoryCustom {
+
+    // 하자 목록 조회(HAJA-30)는 DefectRepositoryCustom/DefectRepositoryImpl(Criteria API)로 이전됨 —
+    // JPQL "( :param is null or col = :param )" 패턴이 PostgreSQL named enum(defect_type 등)
+    // null 바인딩 시 "could not determine data type of parameter"를 일으켜, 필터를 하나도 선택하지
+    // 않은 기본 목록 조회가 항상 실패하는 버그가 있었다. Criteria API로 필터 미지정 시 predicate
+    // 자체를 생성하지 않도록 전환.
+
+    // 상세 조회 — id + owner 스코프 단건. 미존재/타인 소유 모두 빈 Optional(cross-owner IDOR 방지,
+    // FacilityRepository.findByIdAndOwnerId 와 동일 원칙).
+    @Query("select d from Defect d join fetch d.inspection i join fetch i.facility f "
+            + "where d.id = :id and f.ownerId = :ownerId and d.deleted = false")
+    Optional<Defect> findByIdAndOwnerId(@Param("id") Long id, @Param("ownerId") Long ownerId);
 
     // 대시보드 조치대기 우선순위 목록(HAJA-17) — 등급(E→A) 우선, 미분류(grade=null)는 최하단, 동일 등급
     // 내에서는 최신순. PostgreSQL은 "ORDER BY ... DESC" 시 기본이 NULLS FIRST라, 파생 쿼리
@@ -67,4 +81,9 @@ public interface DefectRepository extends JpaRepository<Defect, Long> {
     // 사람 검토 전)는 제외하고 CONFIRMED/ACTION_PENDING/IN_PROGRESS/RESOLVED 만 포함한다.
     List<Defect> findByInspectionIdAndStatusInAndDeletedFalse(
             Long inspectionId, Collection<DefectStatus> statuses);
+
+    // 점검 회차별 하자 목록 조회(검수·뷰어 공용) — deleted=false만, id 오름차순 정렬
+    @Query("select d from Defect d where d.inspectionId = :inspectionId and d.deleted = false "
+            + "order by d.id asc")
+    List<Defect> findByInspectionIdAndNotDeleted(@Param("inspectionId") Long inspectionId);
 }

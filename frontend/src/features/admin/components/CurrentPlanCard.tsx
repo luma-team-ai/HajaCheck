@@ -1,11 +1,12 @@
-import { PLAN_DETAILS, PLAN_LABEL } from '../planQuota.constants';
-import type { AdminUserPlan } from '../planQuota.types';
+import { useNavigate } from 'react-router-dom';
+import { buildPlanDetail, PLAN_LABEL } from '../planQuota.constants';
+import type { AdminPlanCatalogItem, AdminUserPlan } from '../planQuota.types';
 
 interface CurrentPlanCardProps {
   /** 로그인한 관리자 소속 회사(company_id)의 현재 플랜 — 표의 행 선택과 무관하게 고정값(#508 확정) */
   plan?: AdminUserPlan | null;
-  /** 플랜 CTA 클릭 — 실제 플랜 변경은 백엔드 미구현이라 상위에서 안내 메시지로 처리 */
-  onPlanAction: () => void;
+  /** GET /api/admin/plans 카탈로그 — 가격·기능 한도를 여기서 조회해 렌더한다(plans 테이블이 SOT). */
+  catalog?: AdminPlanCatalogItem[];
 }
 
 function CheckIcon({ muted }: { muted: boolean }) {
@@ -35,8 +36,10 @@ function CheckIcon({ muted }: { muted: boolean }) {
 // 로그인한 관리자의 회사 플랜(PlanQuotaStats.companyPlan)을 그대로 렌더한다 — 표에서 어느 멤버를
 // 보고 있는지와는 무관하다(#508 확정: "현재 플랜은 company_id 기준 하나만"). 조회 전(undefined)엔
 // 로딩 자리, 활성 구독이 없으면(null) 안내만 표시.
-export function CurrentPlanCard({ plan, onPlanAction }: CurrentPlanCardProps) {
-  if (plan === undefined) {
+export function CurrentPlanCard({ plan, catalog }: CurrentPlanCardProps) {
+  const navigate = useNavigate();
+
+  if (plan === undefined || catalog === undefined) {
     return (
       <div className="flex h-full items-center justify-center rounded-[20px] border border-dashed border-border p-6 text-center text-sm text-text-muted">
         불러오는 중...
@@ -44,7 +47,9 @@ export function CurrentPlanCard({ plan, onPlanAction }: CurrentPlanCardProps) {
     );
   }
 
-  if (!plan) {
+  const catalogItem = plan ? catalog.find((item) => item.name === plan) : undefined;
+
+  if (!plan || !catalogItem) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-1 rounded-[20px] border border-border bg-surface-muted p-6 text-center">
         <span className="text-sm font-semibold text-heading">활성 구독 없음</span>
@@ -53,8 +58,13 @@ export function CurrentPlanCard({ plan, onPlanAction }: CurrentPlanCardProps) {
     );
   }
 
-  const detail = PLAN_DETAILS[plan];
-  const priceText = detail.priceMonthly === 0 ? '₩0' : `₩${detail.priceMonthly.toLocaleString('ko-KR')}`;
+  const detail = buildPlanDetail(catalogItem);
+  const priceText =
+    detail.priceMonthly === null
+      ? '가격 문의'
+      : detail.priceMonthly === 0
+        ? '₩0'
+        : `₩${detail.priceMonthly.toLocaleString('ko-KR')}`;
 
   return (
     <div className="flex flex-col gap-4 rounded-[20px] border border-border bg-surface p-5">
@@ -65,7 +75,7 @@ export function CurrentPlanCard({ plan, onPlanAction }: CurrentPlanCardProps) {
 
       <p className="flex items-baseline gap-1">
         <span className="text-3xl font-bold text-heading">{priceText}</span>
-        <span className="text-sm text-text-muted">/월</span>
+        {detail.priceMonthly !== null && <span className="text-sm text-text-muted">/월</span>}
       </p>
 
       <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
@@ -85,7 +95,7 @@ export function CurrentPlanCard({ plan, onPlanAction }: CurrentPlanCardProps) {
       <button
         type="button"
         className="mt-1 w-full rounded-full border border-border bg-surface py-2.5 text-[13px] font-semibold text-text-default hover:border-primary hover:text-primary"
-        onClick={onPlanAction}
+        onClick={() => navigate('/mypage/plan')}
       >
         {detail.ctaLabel}
       </button>

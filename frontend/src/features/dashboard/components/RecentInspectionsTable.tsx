@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { DASHBOARD_COLOR_CLASS } from '../colors';
 import { useRecentInspections } from '../hooks/useRecentInspections';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { StatusBadge } from './StatusBadge';
 
 const TH_BASE_CLASS =
@@ -62,12 +63,13 @@ export function RecentInspectionsTable() {
     <section className="dashboard-card">
       <div className="dashboard-card-header">
         <h3 className="dashboard-card-title">최근 점검</h3>
-        <button type="button" className="dashboard-card-link">
+        {/* Figma 시안 대비 카드 우측 끝에 딱 붙지 않고 살짝 안쪽에 위치(#556) */}
+        <button type="button" className="dashboard-card-link mr-2">
           전체보기
         </button>
       </div>
 
-      {isLoading && <p className="dashboard-card-status">불러오는 중...</p>}
+      {isLoading && <LoadingSpinner />}
       {isError && <p className="dashboard-card-status">최근 점검 목록을 불러오지 못했습니다.</p>}
       {!isLoading && !isError && (!data || data.length === 0) && (
         <p className="dashboard-card-status">최근 점검 이력이 없습니다.</p>

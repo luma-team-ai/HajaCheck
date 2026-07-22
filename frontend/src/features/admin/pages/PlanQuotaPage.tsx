@@ -4,11 +4,11 @@ import { CurrentPlanCard } from '../components/CurrentPlanCard';
 import { PlanQuotaKpiCards } from '../components/PlanQuotaKpiCards';
 import { PlanQuotaTable } from '../components/PlanQuotaTable';
 import { SearchIcon } from '../components/icons/SearchIcon';
+import { useAdminPlanCatalog } from '../hooks/useAdminPlanCatalog';
 import { usePlanQuotaUsers } from '../hooks/usePlanQuotaUsers';
 import { PLAN_QUOTA_DEFAULT_PAGE_SIZE } from '../planQuota.constants';
 
 const KEYWORD_DEBOUNCE_MS = 300;
-const NOTICE_AUTO_DISMISS_MS = 2500;
 
 // 관리자 > 플랜·쿼터 관리 — Figma node-id 1197-3519 "hajaCheck Business Admin - 플랜·쿼터 관리 워크스페이스".
 // 헤더(브레드크럼)·사이드바는 AppShellRoute → AppLayout이 담당하므로 이 페이지는 CONTENT 영역만 그린다.
@@ -20,7 +20,6 @@ export function PlanQuotaPage() {
   const [keywordInput, setKeywordInput] = useState('');
   const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(1);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const pageSize = PLAN_QUOTA_DEFAULT_PAGE_SIZE;
 
@@ -37,20 +36,13 @@ export function PlanQuotaPage() {
     setPage(1);
   }
 
-  useEffect(() => {
-    if (!notice) {
-      return;
-    }
-    const timer = setTimeout(() => setNotice(null), NOTICE_AUTO_DISMISS_MS);
-    return () => clearTimeout(timer);
-  }, [notice]);
-
   const params = useMemo(
     () => ({ page, size: pageSize, ...(keyword ? { keyword } : {}) }),
     [page, pageSize, keyword],
   );
 
   const { data, isLoading, isError, refetch } = usePlanQuotaUsers(params);
+  const { data: catalogData } = useAdminPlanCatalog();
 
   const users = data?.content ?? [];
   const totalElements = data?.totalElements ?? 0;
@@ -61,10 +53,6 @@ export function PlanQuotaPage() {
 
   const rangeStart = totalElements === 0 ? 0 : (page - 1) * pageSize + 1;
   const rangeEnd = Math.min(page * pageSize, totalElements);
-
-  function handlePlanAction() {
-    setNotice('플랜 변경은 준비 중입니다');
-  }
 
   return (
     <div className="flex min-h-full flex-col bg-surface-muted p-6 sm:p-8">
@@ -107,7 +95,7 @@ export function PlanQuotaPage() {
           />
           <div className="flex flex-col gap-3">
             <p className="px-4 py-3 text-xs font-medium text-text-muted">현재 플랜</p>
-            <CurrentPlanCard plan={companyPlan} onPlanAction={handlePlanAction} />
+            <CurrentPlanCard plan={companyPlan} catalog={catalogData?.plans} />
           </div>
         </div>
 
@@ -119,27 +107,6 @@ export function PlanQuotaPage() {
           <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
         </div>
       </div>
-
-      {/* 지원 요청 FAB — 실제 문의 연동은 후속(고객지원), 지금은 안내만 */}
-      <button
-        type="button"
-        className="fixed right-8 bottom-8 z-40 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-medium text-surface shadow-lg hover:opacity-90"
-        onClick={() => setNotice('지원 요청은 준비 중입니다')}
-      >
-        지원 요청
-      </button>
-
-      {notice && (
-        <div className="pointer-events-none fixed inset-0 z-[1000] flex items-center justify-center">
-          <div
-            role="status"
-            aria-live="polite"
-            className="rounded-[20px] border border-border bg-white/90 px-6 py-4 text-sm font-medium text-text-default shadow-[0px_20px_25px_-5px_rgba(0,0,0,0.1),0px_8px_10px_-6px_rgba(0,0,0,0.1)] backdrop-blur-[10px]"
-          >
-            {notice}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
