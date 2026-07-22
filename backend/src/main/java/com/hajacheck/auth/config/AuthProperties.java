@@ -115,6 +115,19 @@ public class AuthProperties {
         /** 전역 상한 창 길이. */
         private Duration globalWindow = Duration.ofMinutes(1);
 
+        /**
+         * 일일 절대 캡(security-reviewer P1, #557) — 분당 상한만으로는 <b>지속 반복 시 일일 LLM 호출량이
+         * 무제한</b>이다(20/분 × 1440분 = 최대 28,800/일). 비로그인·무마찰 엔드포인트가 유료 LLM
+         * 다운스트림을 호출하므로, 순간 CPU를 캡하는 분당 축과 별개로 <b>일일 과금 총량</b>을 캡하는
+         * 축을 하나 더 둔다. 분당 캡과 마찬가지로 전역(요청자 구분 없음) — 이유는 위 globalLimit 문서와
+         * 동일(IP 축 미사용). 기본 500/일 — 정상 가입 트래픽(하루 두 자릿수 수준 추정) 대비 여유를 두되,
+         * 무제한 방지가 목적이라 크게 잡지 않는다.
+         */
+        private int dailyLimit = 500;
+
+        /** 일일 캡 창 길이. */
+        private Duration dailyWindow = Duration.ofDays(1);
+
         public int getGlobalLimit() {
             return globalLimit;
         }
@@ -129,6 +142,22 @@ public class AuthProperties {
 
         public void setGlobalWindow(Duration globalWindow) {
             this.globalWindow = globalWindow;
+        }
+
+        public int getDailyLimit() {
+            return dailyLimit;
+        }
+
+        public void setDailyLimit(int dailyLimit) {
+            this.dailyLimit = dailyLimit;
+        }
+
+        public Duration getDailyWindow() {
+            return dailyWindow;
+        }
+
+        public void setDailyWindow(Duration dailyWindow) {
+            this.dailyWindow = dailyWindow;
         }
     }
 
