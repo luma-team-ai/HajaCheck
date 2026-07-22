@@ -114,7 +114,7 @@ export function ResultViewerPage() {
     setIsUpdating(true);
     setErrorMessage('');
     try {
-      await inspectionApi.updateDefectStatus(selected.id, { status: '검수확정' });
+      await inspectionApi.updateDefectStatus(selected.id, { status: 'CONFIRMED' });
       await refetch();
     } catch (error) {
       const msg = error instanceof Error ? error.message : '검수 확정에 실패했습니다.';
