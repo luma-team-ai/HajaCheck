@@ -423,6 +423,38 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void PATCH_이미삭제된하자_재삭제_409() throws Exception {
+        // 이미 deleted=true인 하자에 isDeleted:true 재요청 시 409 회귀 테스트
+        Company company = saveCompany("회사14");
+        User owner = saveUser("owner14@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector14@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+        Defect defect = saveDefect(inspection, DefectGrade.B, DefectStatus.DETECTED);
+
+        // 첫 번째 삭제 요청 — 200 성공
+        DefectRevisionRequest deleteRequest = DefectRevisionRequest.builder()
+                .deleted(true)
+                .reason("오탐이므로 삭제")
+                .build();
+
+        mockMvc.perform(patch("/api/defects/{id}", defect.getId())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(deleteRequest)))
+                .andExpect(status().isOk());
+
+        // 두 번째 재삭제 요청 — 409 INVALID_STATE_TRANSITION 기대
+        mockMvc.perform(patch("/api/defects/{id}", defect.getId())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(deleteRequest)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATE_TRANSITION"));
+    }
+
+    @Test
     void PATCH_미존재하자_404() throws Exception {
         User owner = saveUser("owner12@haja.com");
 
