@@ -20,6 +20,7 @@ from pydantic import ValidationError as PydanticValidationError
 from deps import verify_internal_key
 
 from ai.chains.briefing_chain import DashboardStats, run_briefing_chain
+from ai.chains.business_license_ocr_chain import run_business_license_ocr_chain
 from ai.chains.defect_explain_chain import run_defect_explain_chain
 from ai.chains.report_chain import FACILITY_FIELD_LABELS, run_report_chain
 from ai.core.grounding import (
@@ -222,7 +223,7 @@ def report(req: ReportRequest) -> AIResponse:
 
 
 class BusinessLicenseOcrRequest(BaseModel):
-    """사업자등록증 OCR 요청 — stub 단계는 내용 미사용(seam only)."""
+    """사업자등록증 OCR 요청 — image_base64 경로만 구현(HAJA-169/#552). file_ref는 seam only(미구현)."""
 
     image_base64: Optional[str] = None
     file_ref: Optional[str] = None
@@ -230,16 +231,34 @@ class BusinessLicenseOcrRequest(BaseModel):
 
 @router.post("/business-license-ocr")
 def business_license_ocr(req: BusinessLicenseOcrRequest) -> AIResponse:
-    """사업자등록증 OCR — stub. 실제 OCR 미구현, 향후 교체 예정(HAJA-169).
+    """사업자등록증 OCR (HAJA-169/#552) — RapidOCR(한국어 인식 wiring) + LLM structured output.
 
-    입력(image_base64/file_ref)은 현재 사용하지 않으며, 계약된 고정 stub 응답만 반환한다.
+    image_base64만 지원한다(file_ref는 아직 미구현 — 값이 와도 무시). 이미지가 없으면
+    VALIDATION_ERROR. OCR 디코딩 실패·모델 로드 실패·LLM 파싱 실패 등은 예외를 삼키지 않고
+    서버 로그에 스택을 남긴 뒤(OCR 원문·개인정보는 로그에 남기지 않음) 클라이언트에는 고정
+    메시지로 LLM_INVALID_OUTPUT을 반환한다 — 클라이언트는 수동 입력으로 폴백 가능해야 한다.
     """
+    if not req.image_base64:
+        return AIResponse.fail(
+            AIErrorCode.VALIDATION_ERROR,
+            "image_base64가 필요합니다(file_ref는 아직 지원하지 않습니다)",
+        )
+    try:
+        result = run_business_license_ocr_chain(req.image_base64)
+    except Exception:  # noqa: BLE001 — OCR/LLM 실패 전반의 표준 폴백(다른 엔드포인트와 동일 패턴)
+        logger.exception("POST /ai/business-license-ocr 처리 중 예상치 못한 예외 발생")
+        return AIResponse.fail(
+            AIErrorCode.LLM_INVALID_OUTPUT, "사업자등록증 인식 중 오류가 발생했습니다"
+        )
     return AIResponse.ok(
         {
-            "businessRegistrationNumber": None,
-            "companyName": None,
-            "representativeName": None,
-            "raw": {},
-            "stub": True,
+            "businessRegistrationNumber": result.business_registration_number,
+            "companyName": result.company_name,
+            "representativeName": result.representative_name,
+            "raw": {
+                "lineCount": result.line_count,
+                "avgConfidence": result.avg_confidence,
+            },
+            "stub": False,
         }
     )
