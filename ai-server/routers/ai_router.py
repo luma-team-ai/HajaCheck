@@ -20,7 +20,10 @@ from pydantic import ValidationError as PydanticValidationError
 from deps import verify_internal_key
 
 from ai.chains.briefing_chain import DashboardStats, run_briefing_chain
-from ai.chains.business_license_ocr_chain import run_business_license_ocr_chain
+from ai.chains.business_license_ocr_chain import (
+    MAX_IMAGE_BASE64_LENGTH,
+    run_business_license_ocr_chain,
+)
 from ai.chains.defect_explain_chain import run_defect_explain_chain
 from ai.chains.report_chain import FACILITY_FIELD_LABELS, run_report_chain
 from ai.core.grounding import (
@@ -225,7 +228,12 @@ def report(req: ReportRequest) -> AIResponse:
 class BusinessLicenseOcrRequest(BaseModel):
     """사업자등록증 OCR 요청 — image_base64 경로만 구현(HAJA-169/#552). file_ref는 seam only(미구현)."""
 
-    image_base64: Optional[str] = None
+    # max_length=MAX_IMAGE_BASE64_LENGTH(14_000_000): FE 업로드 상한 10MB
+    # (BUSINESS_LICENSE_MAX_SIZE_BYTES)의 base64 인코딩 상당치(원본 대비 약 +33%, 여유 포함) —
+    # 상한 없이 대형 페이로드를 받으면 디코드/OCR 단계에서 CPU·메모리를 고갈시킬 수 있다
+    # (코드 리뷰 P2, DoS 방지). 초과 시 FastAPI가 요청 파싱 단계에서 422로 거부한다(다른 필드의
+    # Field(min_length=...) 검증과 동일한 계층 — ConfirmedDefectInput 참고).
+    image_base64: Optional[str] = Field(default=None, max_length=MAX_IMAGE_BASE64_LENGTH)
     file_ref: Optional[str] = None
 
 

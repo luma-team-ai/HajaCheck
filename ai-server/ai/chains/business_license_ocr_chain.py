@@ -32,6 +32,12 @@ PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 # 사업자등록번호 포맷: 3-2-5자리 숫자(하이픈 유무 무관) — 국세청 표준 포맷
 BUSINESS_REG_NUMBER_PATTERN = re.compile(r"(\d{3})-?(\d{2})-?(\d{5})")
 
+# FE 사업자등록증 업로드 상한 10MB(frontend/src/features/auth/constants.ts
+# BUSINESS_LICENSE_MAX_SIZE_BYTES)의 base64 인코딩 상당치 — base64는 원본 대비 약 +33% 커지므로
+# 10MB ≈ 13.4M자. 여유를 두고 14,000,000자로 설정(코드 리뷰 P2 — 상한 없이 base64 디코드/PIL
+# open을 태우면 대형 페이로드로 CPU/메모리를 고갈시킬 수 있음, DoS 방지).
+MAX_IMAGE_BASE64_LENGTH = 14_000_000
+
 
 class BusinessLicenseOcrExtract(BaseModel):
     """LLM 응답은 structured output 으로만 수신 — 자유 텍스트 파싱 금지 (AI_개발_컨벤션.md §4)"""
@@ -56,6 +62,14 @@ class BusinessLicenseOcrError(Exception):
 
 
 def _decode_image(image_base64: str) -> bytes:
+    # 방어심층(defense-in-depth) — 정상 HTTP 경로는 BusinessLicenseOcrRequest.image_base64의
+    # Field(max_length=...)에서 이미 걸러지지만, 이 함수가 라우터 검증을 거치지 않고 직접 호출될
+    # 가능성(다른 체인·백그라운드 잡 등 향후 호출부)에 대비해 디코드 이전에 문자열 길이로 먼저
+    # 컷한다 — base64.b64decode/PIL.Image.open에 대형 페이로드를 태우지 않는다(코드 리뷰 P2).
+    if len(image_base64) > MAX_IMAGE_BASE64_LENGTH:
+        raise BusinessLicenseOcrError(
+            "이미지 크기가 허용 상한(10MB)을 초과했습니다"
+        )
     try:
         return base64.b64decode(image_base64, validate=True)
     except (binascii.Error, ValueError) as e:

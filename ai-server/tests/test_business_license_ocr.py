@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from ai.chains.business_license_ocr_chain import (
+    MAX_IMAGE_BASE64_LENGTH,
     BusinessLicenseOcrError,
     BusinessLicenseOcrExtract,
     _decode_image,
@@ -36,6 +37,16 @@ def test_business_license_ocr_requires_image_base64():
     body = res.json()
     assert body["success"] is False
     assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_business_license_ocr_rejects_oversized_image_base64():
+    """코드 리뷰 P2 — image_base64에 크기 상한(FE 10MB 업로드 상한의 base64 상당치)이 없으면
+    대형 페이로드로 디코드/OCR 단계 CPU·메모리를 고갈시킬 수 있다(DoS). Field(max_length=...)로
+    FastAPI 요청 파싱 단계에서 거부되는지 확인 — 체인/OCR까지 도달하지 않고 422로 즉시 컷된다
+    (다른 필드의 Field(min_length=...) 검증과 동일한 계층, ConfirmedDefectInput 참고)."""
+    oversized = "a" * (MAX_IMAGE_BASE64_LENGTH + 1)
+    res = client.post("/ai/business-license-ocr", json={"image_base64": oversized})
+    assert res.status_code == 422
 
 
 def test_business_license_ocr_requires_image_base64_when_only_file_ref_given():
@@ -101,6 +112,17 @@ def test_decode_image_rejects_invalid_base64():
         assert False, "예외가 발생해야 한다"
     except BusinessLicenseOcrError:
         pass
+
+
+def test_decode_image_rejects_oversized_input_before_decoding():
+    """방어심층(defense-in-depth) — 라우터의 Field(max_length=...) 검증을 우회해 이 함수가
+    직접 호출되더라도(예: 향후 비-HTTP 호출부) 디코드 전에 길이로 먼저 거부해야 한다."""
+    oversized = "a" * (MAX_IMAGE_BASE64_LENGTH + 1)
+    try:
+        _decode_image(oversized)
+        assert False, "예외가 발생해야 한다"
+    except BusinessLicenseOcrError as e:
+        assert "10MB" in str(e)
 
 
 def test_normalize_reg_number_handles_dash_and_no_dash():
