@@ -1,7 +1,7 @@
 import { aiClient } from '../../../shared/api/aiClient';
 import { api } from '../../../shared/api/axios';
 import type { PageResponse } from '../../../shared/api/types';
-import type { Defect, DefectListFilters, DefectStatus } from '../types';
+import type { Defect, DefectListFilters, DefectRevision, DefectStatus } from '../types';
 
 type DefectExplainRequest = {
   defect_type: string;
@@ -28,4 +28,7 @@ export const defectApi = {
   // PATCH /api/defects/{id}/status — 하자 상태 전이(신규→검수확정→조치대기→조치중→조치완료 순서만 허용)
   updateStatus: (id: number, status: DefectStatus) =>
     api.patch<Defect>(`/defects/${id}/status`, { status }),
+  // GET /api/defects/{id}/revisions — 하자 활동 기록(상태 변경 이력) 페이지 조회
+  getRevisions: (id: number, page = 0) =>
+    api.get<PageResponse<DefectRevision>>(`/defects/${id}/revisions`, { params: { page } }),
 };

@@ -1,7 +1,7 @@
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse, PageResponse } from '../../../shared/api/types';
-import { mockDefects } from '../mocks/defect.mock';
-import type { Defect, DefectStatus } from '../types';
+import { mockDefectRevisions, mockDefects } from '../mocks/defect.mock';
+import type { Defect, DefectRevision, DefectStatus } from '../types';
 
 const DEFAULT_SIZE = 20;
 
@@ -82,6 +82,30 @@ export const defectHandlers = [
 
     found.status = status;
     const body: ApiResponse<Defect> = { success: true, data: found };
+    return HttpResponse.json(body);
+  }),
+
+  http.get('/api/defects/:id/revisions', ({ params, request }) => {
+    const id = Number(params.id);
+    const found = mockDefects.find((defect) => defect.id === id);
+
+    if (!found) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'DEFECT_NOT_FOUND', message: '하자를 찾을 수 없습니다.' },
+      };
+      return HttpResponse.json(failure, { status: 404 });
+    }
+
+    const url = new URL(request.url);
+    const page = Number(url.searchParams.get('page') ?? '0');
+    const revisions = mockDefectRevisions[id] ?? [];
+    const content = revisions.slice(page * DEFAULT_SIZE, page * DEFAULT_SIZE + DEFAULT_SIZE);
+    const body: ApiResponse<PageResponse<DefectRevision>> = {
+      success: true,
+      data: { content, page, totalElements: revisions.length },
+    };
     return HttpResponse.json(body);
   }),
 ];
