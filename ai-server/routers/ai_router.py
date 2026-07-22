@@ -34,6 +34,7 @@ from ai.core.grounding import (
     MismatchPolicy,
     check_grounding,
 )
+from ai.core.rag_ingest import delete_document, ingest_document
 from ai.core.schemas import AIErrorCode, AIResponse
 
 logger = logging.getLogger(__name__)
@@ -253,6 +254,52 @@ def report(req: ReportRequest) -> AIResponse:
             "content_hash": _canonical_content_hash(result),
         }
     return AIResponse.ok(result)
+
+
+class RagDocumentEmbedRequest(BaseModel):
+    """RAG 문서 임베딩 요청(#22/HAJA-35) — Spring RagDocumentService가 PDF에서 추출한 텍스트와
+    rag_documents 메타데이터를 그대로 실어 보낸다(docs/design/ai/rag_chroma_schema.md §4/§5 필드 정의).
+    """
+
+    doc_id: str = Field(min_length=1, pattern=r"^[1-9][0-9]*$")
+    title: str = Field(min_length=1)
+    doc_type: str = Field(min_length=1)
+    target_collection: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    effective_date: Optional[str] = None
+    publisher: Optional[str] = None
+    authored_at: Optional[str] = None
+    verification_status: Optional[str] = None
+
+
+@router.post("/rag-documents/embed")
+def rag_documents_embed(req: RagDocumentEmbedRequest) -> AIResponse:
+    """RAG 문서 임베딩(#22/HAJA-35, PRD FR-8-B) — 동일 doc_id의 기존 청크를 먼저 삭제한 뒤(재임베딩
+    시 중복 방지, 최초 업로드는 no-op) 청킹+적재한다. LLM 호출이 없는 결정론적 데이터 처리라 grounding-
+    check와 같은 계열이지만, 이 레포 catch-all 관례(ValueError→VALIDATION_ERROR, 나머지→고정 메시지
+    폴백)를 그대로 재사용한다 — 임베딩 모델 로드 실패 등 예측 어려운 실패도 스택은 서버 로그로만 남기고
+    클라이언트에는 내부 정보를 노출하지 않는다.
+    """
+    try:
+        delete_document(req.doc_id, req.target_collection)
+        chunk_count = ingest_document(
+            req.doc_id,
+            req.title,
+            req.doc_type,
+            req.target_collection,
+            req.text,
+            effective_date=req.effective_date,
+            publisher=req.publisher,
+            authored_at=req.authored_at,
+            verification_status=req.verification_status,
+        )
+    except ValueError as e:
+        # target_collection이 regulations/defect_kb가 아닌 경우 등 — 내부 경로/모델명 노출 없는 메시지.
+        return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, str(e))
+    except Exception:  # noqa: BLE001 — Chroma 쓰기 실패·임베딩 모델 오류 등 표준 폴백(다른 엔드포인트와 동일 패턴)
+        logger.exception("POST /ai/rag-documents/embed 처리 중 예상치 못한 예외 발생")
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "문서 임베딩 중 오류가 발생했습니다")
+    return AIResponse.ok({"chunk_count": chunk_count})
 
 
 class BusinessLicenseOcrRequest(BaseModel):
