@@ -100,8 +100,9 @@ export const defectHandlers = [
 
     const url = new URL(request.url);
     const page = Number(url.searchParams.get('page') ?? '0');
+    const size = Number(url.searchParams.get('size') ?? String(DEFAULT_SIZE));
     const revisions = mockDefectRevisions[id] ?? [];
-    const content = revisions.slice(page * DEFAULT_SIZE, page * DEFAULT_SIZE + DEFAULT_SIZE);
+    const content = revisions.slice(page * size, page * size + size);
     const body: ApiResponse<PageResponse<DefectRevision>> = {
       success: true,
       data: { content, page, totalElements: revisions.length },

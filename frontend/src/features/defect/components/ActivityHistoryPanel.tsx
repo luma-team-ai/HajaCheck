@@ -1,4 +1,7 @@
+import { useState } from 'react';
 import { ErrorFallback } from '../../../shared/components/ErrorFallback';
+import { Pagination } from '../../../shared/components/Pagination/Pagination';
+import { DEFECT_REVISIONS_PAGE_SIZE } from '../api/defectApi';
 import { useDefectRevisions } from '../hooks/useDefectRevisions';
 import { DEFECT_STATUS_LABEL } from '../types';
 import type { DefectStatus } from '../types';
@@ -23,7 +26,9 @@ function describeChange(fieldChanged: string, oldValue: string | null, newValue:
 // 하자 상세 화면 활동 기록 타임라인(HAJA-314) — DefectExplainPanel과 동일하게 이 패널이 자체적으로
 // 로딩/에러를 처리해, 활동 기록 조회 실패가 페이지의 다른 기능(이미지·상태 전이 등)을 막지 않게 한다.
 export function ActivityHistoryPanel({ defectId }: Props) {
-  const { data, isLoading, isError, refetch } = useDefectRevisions(defectId);
+  const [page, setPage] = useState(0);
+  const { data, isLoading, isError, refetch } = useDefectRevisions(defectId, page);
+  const totalPages = data ? Math.max(1, Math.ceil(data.totalElements / DEFECT_REVISIONS_PAGE_SIZE)) : 1;
 
   return (
     <section className="defect-card defect-activity-panel">
@@ -58,6 +63,16 @@ export function ActivityHistoryPanel({ defectId }: Props) {
             </li>
           ))}
         </ol>
+      )}
+
+      {!isLoading && !isError && data && totalPages > 1 && (
+        <div className="defect-activity-pagination">
+          <Pagination
+            currentPage={page + 1}
+            totalPages={totalPages}
+            onPageChange={(nextPage) => setPage(nextPage - 1)}
+          />
+        </div>
       )}
     </section>
   );

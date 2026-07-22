@@ -97,7 +97,9 @@ export function DefectDetailPage() {
                 location={defect.facilityName}
                 facility_type={defect.facilityType}
               />
-              <ActivityHistoryPanel defectId={defect.id} />
+              {/* key로 defect.id 변경 시 재마운트 — ActivityHistoryPanel 내부 page state가
+                  다른 하자로 넘어갈 때도 남아있으면 존재하지 않는 페이지를 조회하게 된다. */}
+              <ActivityHistoryPanel key={defect.id} defectId={defect.id} />
             </aside>
           </div>
         </>
