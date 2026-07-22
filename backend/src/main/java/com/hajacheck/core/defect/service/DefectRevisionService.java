@@ -99,7 +99,11 @@ public class DefectRevisionService {
             defect.review(request.getGrade());
         } else {
             // 오탐 삭제
-            oldValue = "false";
+            oldValue = String.valueOf(defect.isDeleted());
+            // 이미 삭제된 경우 중복 삭제 요청은 INVALID_STATE_TRANSITION
+            if (defect.isDeleted()) {
+                throw new BusinessException(ErrorCode.INVALID_STATE_TRANSITION);
+            }
             newValue = "true";
             fieldChanged = "is_deleted";
 

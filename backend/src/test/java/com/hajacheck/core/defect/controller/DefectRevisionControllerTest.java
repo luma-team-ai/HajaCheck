@@ -7,9 +7,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hajacheck.auth.entity.Company;
+import com.hajacheck.auth.entity.CompanyMembership;
+import com.hajacheck.auth.entity.CompanyMembershipStatus;
+import com.hajacheck.auth.entity.CompanyStatus;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyMembershipRepository;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.defect.dto.DefectRevisionRequest;
@@ -23,6 +29,8 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.support.PostgresTestSupport;
+import java.time.LocalDateTime;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -50,11 +58,56 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     @Autowired
     private UserRepository userRepository;
     @Autowired
+    private CompanyRepository companyRepository;
+    @Autowired
+    private CompanyMembershipRepository companyMembershipRepository;
+    @Autowired
     private FacilityRepository facilityRepository;
     @Autowired
     private InspectionRepository inspectionRepository;
     @Autowired
     private DefectRepository defectRepository;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    private static final java.util.concurrent.atomic.AtomicLong BRN_SEQ = new java.util.concurrent.atomic.AtomicLong(10_000_000_000L);
+
+    private Company saveCompany(String name) {
+        long brn = BRN_SEQ.getAndIncrement();
+        String ownerEmail = "owner" + brn + "@haja.com";
+        // 1. owner 사용자를 companyId 없이 생성 (ID 생성용)
+        User tempOwner = userRepository.save(User.builder()
+                .email(ownerEmail)
+                .name("회사소유자")
+                .role(Role.ADMIN)
+                .passwordHash("$2a$10$hashed")
+                .status(UserStatus.ACTIVE)
+                .build());
+
+        // 2. Company 생성 (owner ID = tempOwner.id)
+        Company company = companyRepository.save(Company.createPendingReview(
+                tempOwner.getId(), name, String.valueOf(brn), "대표",
+                "서울시", null, "http://files/brn.png", "{}"));
+
+        // 3. owner.company_id를 UPDATE (JdbcTemplate으로 직접 SQL 실행)
+        userRepository.flush();
+        jdbcTemplate.update("UPDATE users SET company_id = ? WHERE id = ?",
+                company.getId(), tempOwner.getId());
+
+        // 4. Company 상태를 APPROVED+VERIFIED로 업데이트 (trigger 통과용)
+        companyRepository.flush();
+        java.time.Instant now = java.time.Instant.now();
+        jdbcTemplate.update(
+                "UPDATE companies SET status = ?, " +
+                "verification_status = ?, " +
+                "verified_at = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?",
+                "APPROVED", "VERIFIED", now, tempOwner.getId(), now, company.getId());
+
+        // 5. owner의 멤버십 생성
+        companyMembershipRepository.save(CompanyMembership.approvedOwner(company.getId(), tempOwner.getId()));
+
+        return company;
+    }
 
     private User saveUser(String email) {
         return userRepository.save(User.builder()
@@ -66,6 +119,31 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build());
     }
 
+    private User saveInspector(String email, Company company) {
+        User inspector = userRepository.save(User.builder()
+                .email(email)
+                .name("테스트점검자")
+                .role(Role.INSPECTOR)
+                .passwordHash("$2a$10$hashed")
+                .status(UserStatus.ACTIVE)
+                .companyId(company.getId())
+                .build());
+
+        companyMembershipRepository.save(CompanyMembership.approvedOwner(company.getId(), inspector.getId()));
+
+        return inspector;
+    }
+
+    private void addCompanyMembership(User user, Company company) {
+        // JdbcTemplate으로 user.company_id 업데이트
+        userRepository.flush();
+        jdbcTemplate.update("UPDATE users SET company_id = ? WHERE id = ?",
+                company.getId(), user.getId());
+
+        // 멤버십 생성
+        companyMembershipRepository.save(CompanyMembership.approvedOwner(company.getId(), user.getId()));
+    }
+
     private Facility saveFacility(User owner) {
         return facilityRepository.save(Facility.builder()
                 .ownerId(owner.getId())
@@ -74,10 +152,13 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build());
     }
 
-    private Inspection saveInspection(Facility facility, User assignedInspector) {
+    private Inspection saveInspection(Facility facility, User createdBy, User assignedInspector) {
         return inspectionRepository.save(Inspection.builder()
                 .facilityId(facility.getId())
+                .createdBy(createdBy.getId())
                 .assignedInspectorId(assignedInspector.getId())
+                .roundNo(1)
+                .inspectionDate(java.time.LocalDate.now())
                 .build());
     }
 
@@ -102,10 +183,12 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
     @Test
     void GET_정상조회_200() throws Exception {
+        Company company = saveCompany("회사1");
         User owner = saveUser("facility-owner@haja.com");
-        User inspector = saveUser("inspector@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector@haja.com", company);
         Facility facility = saveFacility(owner);
-        Inspection inspection = saveInspection(facility, inspector);
+        Inspection inspection = saveInspection(facility, owner, inspector);
         Defect defect1 = saveDefect(inspection, DefectGrade.C, DefectStatus.DETECTED);
         Defect defect2 = saveDefect(inspection, DefectGrade.B, DefectStatus.DETECTED);
 
@@ -123,10 +206,12 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
     @Test
     void GET_삭제된하자제외_200() throws Exception {
+        Company company = saveCompany("회사2");
         User owner = saveUser("owner2@haja.com");
-        User inspector = saveUser("inspector2@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector2@haja.com", company);
         Facility facility = saveFacility(owner);
-        Inspection inspection = saveInspection(facility, inspector);
+        Inspection inspection = saveInspection(facility, owner, inspector);
         Defect notDeleted = saveDefect(inspection, DefectGrade.C, DefectStatus.DETECTED);
         Defect deleted = saveDefect(inspection, DefectGrade.B, DefectStatus.DETECTED);
         deleted.softDelete();
@@ -141,11 +226,13 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
     @Test
     void GET_타인점검_404() throws Exception {
+        Company company = saveCompany("회사3");
         User owner = saveUser("owner3@haja.com");
+        addCompanyMembership(owner, company);
         User stranger = saveUser("stranger@haja.com");
-        User inspector = saveUser("inspector3@haja.com");
+        User inspector = saveInspector("inspector3@haja.com", company);
         Facility facility = saveFacility(owner);
-        Inspection inspection = saveInspection(facility, inspector);
+        Inspection inspection = saveInspection(facility, owner, inspector);
         saveDefect(inspection, DefectGrade.C, DefectStatus.DETECTED);
 
         mockMvc.perform(get("/api/inspections/{id}/defects", inspection.getId())
@@ -175,10 +262,12 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
     @Test
     void PATCH_등급변경_정상() throws Exception {
+        Company company = saveCompany("회사5");
         User owner = saveUser("owner5@haja.com");
-        User inspector = saveUser("inspector5@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector5@haja.com", company);
         Facility facility = saveFacility(owner);
-        Inspection inspection = saveInspection(facility, inspector);
+        Inspection inspection = saveInspection(facility, owner, inspector);
         Defect defect = saveDefect(inspection, DefectGrade.C, DefectStatus.DETECTED);
 
         DefectRevisionRequest request = DefectRevisionRequest.builder()
@@ -198,10 +287,12 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
     @Test
     void PATCH_오탐삭제_정상() throws Exception {
+        Company company = saveCompany("회사6");
         User owner = saveUser("owner6@haja.com");
-        User inspector = saveUser("inspector6@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector6@haja.com", company);
         Facility facility = saveFacility(owner);
-        Inspection inspection = saveInspection(facility, inspector);
+        Inspection inspection = saveInspection(facility, owner, inspector);
         Defect defect = saveDefect(inspection, DefectGrade.B, DefectStatus.DETECTED);
 
         DefectRevisionRequest request = DefectRevisionRequest.builder()
@@ -219,10 +310,12 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
     @Test
     void PATCH_gradeAndDeleted둘다_400() throws Exception {
+        Company company = saveCompany("회사7");
         User owner = saveUser("owner7@haja.com");
-        User inspector = saveUser("inspector7@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector7@haja.com", company);
         Facility facility = saveFacility(owner);
-        Inspection inspection = saveInspection(facility, inspector);
+        Inspection inspection = saveInspection(facility, owner, inspector);
         Defect defect = saveDefect(inspection, DefectGrade.B, DefectStatus.DETECTED);
 
         DefectRevisionRequest request = DefectRevisionRequest.builder()
@@ -241,10 +334,12 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
     @Test
     void PATCH_둘다아님_400() throws Exception {
+        Company company = saveCompany("회사8");
         User owner = saveUser("owner8@haja.com");
-        User inspector = saveUser("inspector8@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector8@haja.com", company);
         Facility facility = saveFacility(owner);
-        Inspection inspection = saveInspection(facility, inspector);
+        Inspection inspection = saveInspection(facility, owner, inspector);
         Defect defect = saveDefect(inspection, DefectGrade.B, DefectStatus.DETECTED);
 
         DefectRevisionRequest request = DefectRevisionRequest.builder()
@@ -261,10 +356,12 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
     @Test
     void PATCH_deletedFalse_400() throws Exception {
+        Company company = saveCompany("회사9");
         User owner = saveUser("owner9@haja.com");
-        User inspector = saveUser("inspector9@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector9@haja.com", company);
         Facility facility = saveFacility(owner);
-        Inspection inspection = saveInspection(facility, inspector);
+        Inspection inspection = saveInspection(facility, owner, inspector);
         Defect defect = saveDefect(inspection, DefectGrade.B, DefectStatus.DETECTED);
 
         DefectRevisionRequest request = DefectRevisionRequest.builder()
@@ -282,10 +379,12 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
     @Test
     void PATCH_reasonBlank_400() throws Exception {
+        Company company = saveCompany("회사10");
         User owner = saveUser("owner10@haja.com");
-        User inspector = saveUser("inspector10@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector10@haja.com", company);
         Facility facility = saveFacility(owner);
-        Inspection inspection = saveInspection(facility, inspector);
+        Inspection inspection = saveInspection(facility, owner, inspector);
         Defect defect = saveDefect(inspection, DefectGrade.B, DefectStatus.DETECTED);
 
         DefectRevisionRequest request = DefectRevisionRequest.builder()
@@ -302,10 +401,12 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
     @Test
     void PATCH_RESOLVED상태_409() throws Exception {
+        Company company = saveCompany("회사11");
         User owner = saveUser("owner11@haja.com");
-        User inspector = saveUser("inspector11@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector11@haja.com", company);
         Facility facility = saveFacility(owner);
-        Inspection inspection = saveInspection(facility, inspector);
+        Inspection inspection = saveInspection(facility, owner, inspector);
         Defect defect = saveDefect(inspection, DefectGrade.C, DefectStatus.RESOLVED);
 
         DefectRevisionRequest request = DefectRevisionRequest.builder()
@@ -340,11 +441,13 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
     @Test
     void PATCH_타인점검_404() throws Exception {
+        Company company = saveCompany("회사13");
         User owner = saveUser("owner13@haja.com");
+        addCompanyMembership(owner, company);
         User stranger = saveUser("stranger2@haja.com");
-        User inspector = saveUser("inspector13@haja.com");
+        User inspector = saveInspector("inspector13@haja.com", company);
         Facility facility = saveFacility(owner);
-        Inspection inspection = saveInspection(facility, inspector);
+        Inspection inspection = saveInspection(facility, owner, inspector);
         Defect defect = saveDefect(inspection, DefectGrade.B, DefectStatus.DETECTED);
 
         DefectRevisionRequest request = DefectRevisionRequest.builder()
