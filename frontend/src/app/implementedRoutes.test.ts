@@ -8,6 +8,7 @@ describe('isRouteImplemented', () => {
   it.each([
     '/dashboard',
     '/dashboard/ai-weekly-briefing',
+    '/dashboard/upcoming-inspections',
     '/defects/list',
     '/mypage/plan',
     '/inspections/1/viewer',

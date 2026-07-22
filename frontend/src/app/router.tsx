@@ -85,6 +85,13 @@ const DashboardPage = lazy(() =>
   })),
 );
 
+// 다음 점검일 도래(dev-03-02, #543) — AI 주간 브리핑과 달리 실제 화면 자체가 없었던 독립 페이지
+const UpcomingInspectionsPage = lazy(() =>
+  import('../features/dashboard/pages/UpcomingInspectionsPage').then((m) => ({
+    default: m.UpcomingInspectionsPage,
+  })),
+);
+
 const DefectDetailPage = lazy(() =>
   import('../features/defect/pages/DefectDetailPage').then((m) => ({
     default: m.DefectDetailPage,
@@ -276,6 +283,18 @@ export const router = createBrowserRouter([
         ),
         handle: { breadcrumb: [{ label: '홈' }, { label: '대시보드' }], activeHref: '/dashboard' },
       }, // — features/dashboard (HAJA-17)
+      {
+        path: '/dashboard/upcoming-inspections',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <UpcomingInspectionsPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '대시보드' }, { label: '다음 점검일 도래' }],
+          activeHref: '/dashboard/upcoming-inspections',
+        },
+      }, // — features/dashboard 다음 점검일 도래 (dev-03-02, #543)
       {
         // 정적 경로라 SideNavBar href('/defects/list')와 동일하게 맞춰 activeHref 매핑 없이도
         // 사이드바 클릭이 그대로 동작한다(하위 :id 상세는 동적 세그먼트라 SideNavBar 플레이스홀더
