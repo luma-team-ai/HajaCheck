@@ -1,10 +1,12 @@
-"""business-license-ocr 실제 구현 검증 (HAJA-169/#552).
+"""business-license-ocr 실제 구현 검증 (HAJA-169/#552, RapidOCR→EasyOCR 교체 #605).
 
 - 라우터: 입력 검증(image_base64 필수) + 성공/실패 envelope (체인은 모킹)
 - 체인: OCR 결과 없음 폴백, 정규식 사업자등록번호 보정, LLM 실패 시 예외 전파 확인 (get_ocr_engine/
-  get_llm 모킹 — 실제 RapidOCR/HF 호출 없음)
-- 스모크: 실제 RapidOCR(기본 번들 모델, 네트워크 불필요)로 작은 실제 이미지 픽스처를 OCR해
-  파이프라인 전체(det+cls+rec)가 오프라인으로 정상 동작하는지 확인
+  get_llm 모킹 — 실제 EasyOCR/HF 호출 없음)
+- 스모크: EasyOCR `readtext()` 응답 형식(`[(box, text, conf), ...]`)을 모킹해 `_extract_text_lines`가
+  실제 이미지 픽스처 경로로도 정상 파싱하는지 확인. (RapidOCR 시절과 달리 EasyOCR는 항상 언어
+  모델을 네트워크에서 다운로드해야 해서 "번들 모델로 오프라인 실 파이프라인 검증"이 불가능하다
+  — AI_개발_컨벤션 "HF 모델 관련 테스트는 항상 모킹" 원칙에 따라 여기서도 모킹으로 대체한다.)
 """
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -162,7 +164,7 @@ def test_normalize_start_date_returns_none_on_missing_or_invalid():
 @patch("ai.chains.business_license_ocr_chain.get_ocr_engine")
 def test_extract_text_lines_returns_empty_when_ocr_finds_nothing(mock_get_engine):
     mock_engine = MagicMock()
-    mock_engine.return_value = (None, None)
+    mock_engine.readtext.return_value = []
     mock_get_engine.return_value = mock_engine
 
     assert _extract_text_lines(b"fake-image-bytes") == []
@@ -174,7 +176,7 @@ def test_run_chain_returns_empty_result_without_llm_call_when_ocr_empty(
     mock_get_engine, mock_get_llm
 ):
     mock_engine = MagicMock()
-    mock_engine.return_value = (None, None)
+    mock_engine.readtext.return_value = []
     mock_get_engine.return_value = mock_engine
 
     import base64
@@ -193,14 +195,11 @@ def test_run_chain_prefers_regex_reg_number_over_llm_guess(mock_get_engine, mock
     """OCR 원문에 정규식으로 잡히는 등록번호가 있으면, LLM이 다른 값을 내놓아도 OCR 기반 값을 우선한다
     (숫자는 결정론적 후처리가 LLM 자유 파싱보다 신뢰도가 높다는 설계 의도 검증)."""
     mock_engine = MagicMock()
-    mock_engine.return_value = (
-        [
-            [[[0, 0], [1, 0], [1, 1], [0, 1]], "등록번호:123-45-67890", 0.97],
-            [[[0, 1], [1, 1], [1, 2], [0, 2]], "상호:하자체크 주식회사", 0.99],
-            [[[0, 2], [1, 2], [1, 3], [0, 3]], "대표자: 홍길동", 0.86],
-        ],
-        None,
-    )
+    mock_engine.readtext.return_value = [
+        [[[0, 0], [1, 0], [1, 1], [0, 1]], "등록번호:123-45-67890", 0.97],
+        [[[0, 1], [1, 1], [1, 2], [0, 2]], "상호:하자체크 주식회사", 0.99],
+        [[[0, 2], [1, 2], [1, 3], [0, 3]], "대표자: 홍길동", 0.86],
+    ]
     mock_get_engine.return_value = mock_engine
 
     mock_llm = MagicMock()
@@ -231,10 +230,9 @@ def test_run_chain_falls_back_to_llm_number_when_regex_finds_none(
 ):
     """등록번호 라인이 OCR 오인식으로 깨져 정규식이 못 잡으면 LLM 파싱 결과(정규화 적용)를 쓴다."""
     mock_engine = MagicMock()
-    mock_engine.return_value = (
-        [[[[0, 0], [1, 0], [1, 1], [0, 1]], "등록번호 확인불가", 0.4]],
-        None,
-    )
+    mock_engine.readtext.return_value = [
+        [[[0, 0], [1, 0], [1, 1], [0, 1]], "등록번호 확인불가", 0.4]
+    ]
     mock_get_engine.return_value = mock_engine
 
     mock_llm = MagicMock()
@@ -261,10 +259,9 @@ def test_run_chain_falls_back_to_llm_number_when_regex_finds_none(
 def test_run_chain_normalizes_business_start_date_from_llm(mock_get_engine, mock_get_llm):
     """LLM이 원문 그대로("2020.01.15") 넘긴 개업연월일을 체인이 ISO로 정규화해 반환한다(#598)."""
     mock_engine = MagicMock()
-    mock_engine.return_value = (
-        [[[[0, 0], [1, 0], [1, 1], [0, 1]], "개업연월일:2020.01.15", 0.9]],
-        None,
-    )
+    mock_engine.readtext.return_value = [
+        [[[0, 0], [1, 0], [1, 1], [0, 1]], "개업연월일:2020.01.15", 0.9]
+    ]
     mock_get_engine.return_value = mock_engine
 
     mock_llm = MagicMock()
@@ -288,10 +285,9 @@ def test_run_chain_normalizes_business_start_date_from_llm(mock_get_engine, mock
 def test_run_chain_business_start_date_null_when_llm_gives_nothing(mock_get_engine, mock_get_llm):
     """LLM이 개업연월일을 못 찾으면(None) 체인 결과도 None — 허위 값을 만들어내지 않는다."""
     mock_engine = MagicMock()
-    mock_engine.return_value = (
-        [[[[0, 0], [1, 0], [1, 1], [0, 1]], "사업자등록증", 0.9]],
-        None,
-    )
+    mock_engine.readtext.return_value = [
+        [[[0, 0], [1, 0], [1, 1], [0, 1]], "사업자등록증", 0.9]
+    ]
     mock_get_engine.return_value = mock_engine
 
     mock_llm = MagicMock()
@@ -324,26 +320,34 @@ def test_run_chain_propagates_ocr_engine_failure(mock_get_engine):
         pass
 
 
-# ── 스모크: 실제 RapidOCR 기본 모델(오프라인, 네트워크 불필요) + 실제 이미지 픽스처 ──────
+# ── 스모크: EasyOCR 응답 형식 모킹 + 실제 이미지 픽스처 경로 ──────────────────────
 
 
 @patch("ai.chains.business_license_ocr_chain.get_ocr_engine")
 def test_extract_text_lines_smoke_with_real_fixture_image(mock_get_engine):
-    """운영 코드는 한국어 wiring된 엔진(get_ocr_engine)을 쓰지만, 이 스모크 테스트는 네트워크
-    다운로드 없이 CI에서 안정적으로 돌아가도록 RapidOCR 기본 번들 모델(pip 패키지에 이미 포함된
-    det+cls+rec ONNX)로 대체해 실제 이미지 파이프라인(디코딩→검출→인식)이 오프라인에서 정상
-    동작하는지만 확인한다. 한국어 인식 자체의 정확도는 ai/core/ocr_client.py 모듈 docstring에
-    기록된 로컬 실측(#552 조사)으로 별도 확인됨 — 다운로드가 필요한 한국어 모델까지 CI에서
-    매번 검증하면 테스트가 네트워크에 종속되어 컨벤션(HF 모델 관련 테스트는 항상 모킹)에 어긋난다.
+    """`_extract_text_lines`가 실제 이미지 픽스처를 읽어 EasyOCR `readtext()` 응답 형식
+    (`[(box, text, conf), ...]`, `detail=1, paragraph=False`)을 올바르게 파싱하는지 확인한다.
+
+    EasyOCR는 RapidOCR과 달리 pip 패키지에 오프라인 번들 모델이 없고 최초 호출 시 항상
+    네트워크에서 한국어/영어 모델을 다운로드한다 — CI/헤드리스 환경에서 매번 이 다운로드를
+    태우면 테스트가 네트워크에 종속되어 AI_개발_컨벤션 "HF 모델 관련 테스트는 항상 모킹"
+    원칙에 어긋난다. 그래서 실제 엔진 호출 대신 `readtext()`가 반환할 형식을 모킹하되, 이미지
+    픽스처 파일 자체는 실제로 읽어(디코딩 단계까지는 실경로) 파싱 로직을 검증한다. 한국어
+    인식 자체의 정확도는 이 작업(#605) 배경 조사의 로컬 실측으로 별도 확인됨.
     """
-    # rapidocr(→cv2)는 헤드리스 환경(libGL 부재)에서 import가 실패할 수 있다 → 그 경우 skip.
-    # 앱/체인 import 자체는 지연 import(#573)로 cv2를 요구하지 않으므로 수집엔 영향 없다.
-    rapidocr = pytest.importorskip(
-        "rapidocr_onnxruntime",
-        reason="rapidocr/cv2(→libGL) 미가용 환경에서는 실제 OCR 스모크 skip (#573)",
+    # easyocr(→torch/cv2)는 헤드리스 환경(libGL 부재 등)에서 import가 실패할 수 있다 → skip.
+    # 앱/체인 import 자체는 지연 import(#573 패턴 유지)로 torch/cv2를 요구하지 않으므로
+    # 수집(collection)엔 영향 없다.
+    pytest.importorskip(
+        "easyocr",
+        reason="easyocr/torch/cv2(→libGL) 미가용 환경에서는 이 스모크 skip (#573 패턴)",
     )
 
-    mock_get_engine.return_value = rapidocr.RapidOCR()
+    mock_engine = MagicMock()
+    mock_engine.readtext.return_value = [
+        [[[0, 0], [1, 0], [1, 1], [0, 1]], "등록번호:123-45-67890", 0.97],
+    ]
+    mock_get_engine.return_value = mock_engine
 
     image_bytes = (FIXTURES_DIR / "business_license_sample.png").read_bytes()
     lines = _extract_text_lines(image_bytes)
