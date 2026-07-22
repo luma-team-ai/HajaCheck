@@ -252,6 +252,11 @@ public class AdminPlanService {
 
     // 페이지에 표시할 멤버들의 "이번 달 분석 이미지 장수" 근사치 — MediaRepository 문서 참고(정확한 값은
     // usage_counters 회사 단위 집계뿐이라, 여기서는 화면 표의 멤버별 분포 표시용으로만 쓴다).
+    // PR#525 머신 리뷰 P3: 아래 창은 currentPeriod()로 KST 기준 월 경계를 명시적으로 고정하는데,
+    // Media.createdAt(@CreatedDate LocalDateTime, 무존)은 JVM 기본 타임존으로 기록된다 — 배포
+    // 환경(backend/Dockerfile:48 `-Duser.timezone=Asia/Seoul`)이 JVM 기본존을 KST로 고정하므로
+    // 두 값은 실제로 같은 기준(KST)이다. 이 고정이 깨지면(예: Dockerfile 없이 로컬/다른 배포 방식으로
+    // 기동) 월 경계에서 근사치가 최대 수 시간 어긋날 수 있다.
     private Map<Long, Long> mediaUsageByInspector(List<User> members) {
         if (members.isEmpty()) {
             return Map.of();

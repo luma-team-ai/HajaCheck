@@ -4,6 +4,8 @@ info:
   version: "0.7.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    2026-07-22 관리자 플랜·쿼터 관리 API(#507) 추가 — /api/admin/plans, /api/admin/plan,
+    /api/admin/plan/history, /api/admin/plan-quota 및 AdminPlan* 스키마.
     2026-07-21 명세-구현 동기화 — 멤버십·계정복구·대시보드·AI프록시·OCR 추가, 보고서 API를 #455 구현 기준으로
     재작성(#498).
     2026-07-19 GET /api/notifications(AP-020, #25 / HAJA-38 FR-9) 계약 추가.
