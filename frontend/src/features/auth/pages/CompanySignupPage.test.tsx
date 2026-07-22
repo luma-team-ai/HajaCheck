@@ -88,7 +88,7 @@ describe('CompanySignupPage — 제출 버튼 계약(shared Button)', () => {
     const signupSpy = vi.spyOn(authApi, 'signupCompany').mockResolvedValue({
       data: {
         companyId: 12,
-        maskedEmail: 'ne***@check.com',
+        maskedEmail: 'n***@c***.com',
         status: 'PENDING_REVIEW',
         signupToken: 'token',
       },
@@ -117,7 +117,7 @@ describe('CompanySignupPage — 제출 버튼 계약(shared Button)', () => {
     const signupSpy = vi.spyOn(authApi, 'signupCompany').mockResolvedValue({
       data: {
         companyId: 13,
-        maskedEmail: 'ne***@naver.com',
+        maskedEmail: 'n***@n***.com',
         status: 'PENDING_REVIEW',
         signupToken: 'token',
       },
@@ -142,7 +142,7 @@ describe('CompanySignupPage — 제출 버튼 계약(shared Button)', () => {
     const signupSpy = vi.spyOn(authApi, 'signupCompany').mockResolvedValue({
       data: {
         companyId: 14,
-        maskedEmail: 'ne***@mycompany.io',
+        maskedEmail: 'n***@m***.io',
         status: 'PENDING_REVIEW',
         signupToken: 'token',
       },

@@ -16,13 +16,13 @@ describe('companySignupSession', () => {
     saveCompanySignupSession({
       signupToken: 'mock-signup-token',
       companyName: '(주)하자체크',
-      maskedEmail: 'haja***@check.com',
+      maskedEmail: 'h***@c***.com',
     });
 
     expect(getCompanySignupSession()).toEqual({
       signupToken: 'mock-signup-token',
       companyName: '(주)하자체크',
-      maskedEmail: 'haja***@check.com',
+      maskedEmail: 'h***@c***.com',
     });
   });
 
