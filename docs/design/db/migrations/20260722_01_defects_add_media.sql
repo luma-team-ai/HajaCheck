@@ -6,7 +6,13 @@
 -- Defect 생성 경로가 프로덕션 코드에 없음) 기존 행은 전부 NULL로 남고, 이번 파일이 값을 백필하지도
 -- 않는다. NOT NULL 강제는 하지 않는다.
 --
--- Run this file with autocommit enabled (psql default). 재실행 가능(IF NOT EXISTS).
+-- defects는 이미 데이터가 있는 기존 테이블이라(신규 빈 테이블이 아님) 인덱스 생성은
+-- CREATE INDEX CONCURRENTLY를 사용한다(README.md "v0.3 기준선 제약과 신규 테이블" 절 원칙 —
+-- 20260719_01_ap020_notification_history_index.sql과 동일 패턴). CONCURRENTLY는 명시적
+-- 트랜잭션 안에서 실행할 수 없으므로 psql autocommit(기본값)으로만 실행한다.
+--
+-- Run this file with autocommit enabled (psql default). CREATE INDEX CONCURRENTLY must not run
+-- inside an explicit transaction block. 재실행 가능(IF NOT EXISTS).
 --
 --   psql -X --set ON_ERROR_STOP=1 --dbname "$DATABASE_URL" \
 --     --file docs/design/db/migrations/20260722_01_defects_add_media.sql
@@ -28,7 +34,7 @@ alter table defects
 
 comment on column defects.media_id is '결함이 탐지된 촬영 이미지 식별자(HAJA-314, nullable — AI 탐지 파이프라인 도입 전 기존 행은 NULL)';
 
-create index if not exists idx_defects_media
+create index concurrently if not exists idx_defects_media
     on defects (media_id);
 
 select pg_advisory_unlock(hashtext('hajacheck:HAJA-314:defects-add-media'));
