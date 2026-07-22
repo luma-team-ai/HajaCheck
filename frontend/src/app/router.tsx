@@ -1,12 +1,15 @@
 // 라우트 정의는 이 파일 한 곳에 집중 — React_코드_컨벤션.md §7
 // 경로: kebab-case / 인증 가드: ProtectedRoute, AdminRoute / 페이지 lazy loading 기본
 import { lazy, Suspense } from 'react';
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AdminRoute } from '../shared/components/AdminRoute';
+import { PlatformAdminRoute } from '../shared/components/PlatformAdminRoute';
 import { ProtectedRoute } from '../shared/components/ProtectedRoute';
 import { LoadingSpinner } from '../shared/components/LoadingSpinner';
 import LandingPage from '../features/landing/LandingPage';
+import { PLATFORM_ADMIN_ROUTE } from '../shared/constants/routes';
 import { AppShellRoute } from './AppShellRoute';
+import { PlatformAdminShellRoute } from './PlatformAdminShellRoute';
 
 const MapPage = lazy(() => import('../features/map/MapPage'));
 const ResultViewerPage = lazy(() =>
@@ -24,6 +27,18 @@ const InspectionCreatePage = lazy(() =>
 
 const LoginPage = lazy(() =>
   import('../features/auth/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
+);
+
+// 플랫폼 관리자 콘솔 — 라우팅/로그인 게이트/nav 뼈대(#535, Figma node 973-2520)
+const PlatformAdminLoginPage = lazy(() =>
+  import('../features/platform-admin/pages/PlatformAdminLoginPage').then((m) => ({
+    default: m.PlatformAdminLoginPage,
+  })),
+);
+const PlatformAdminPlaceholderPage = lazy(() =>
+  import('../features/platform-admin/pages/PlatformAdminPlaceholderPage').then((m) => ({
+    default: m.PlatformAdminPlaceholderPage,
+  })),
 );
 
 // 이용약관 / 개인정보처리방침 — 랜딩 푸터 "법적 고지" 연결
@@ -177,6 +192,14 @@ export const router = createBrowserRouter([
       </Suspense>
     ),
   }, // — features/auth (HAJA-160, #157)
+  {
+    path: '/platform-admin/login',
+    element: (
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+        <PlatformAdminLoginPage />
+      </Suspense>
+    ),
+  }, // — features/platform-admin 플랫폼 관리자 전용 로그인, 기업회원 /login과 분리(#535)
   {
     path: '/policy/terms-of-service',
     element: (
@@ -469,6 +492,105 @@ export const router = createBrowserRouter([
       }, // — features/support (dev-08-01, HAJA-32, FR-6)
     ],
   },
+  {
+    // 플랫폼 관리자 콘솔 전용 셸 — 일반 사용자 AppShellRoute와 별개(#535). PlatformAdminRoute가
+    // 미인증→/platform-admin/login, role≠PLATFORM_ADMIN→/dashboard로 부모 단계에서 차단한다.
+    element: (
+      <PlatformAdminRoute>
+        <PlatformAdminShellRoute />
+      </PlatformAdminRoute>
+    ),
+    children: [
+      {
+        path: PLATFORM_ADMIN_ROUTE,
+        element: <Navigate to="/platform-admin/users" replace />,
+      },
+      {
+        path: '/platform-admin/users',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="사용자 관리" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '사용자 관리' }],
+          activeHref: '/platform-admin/users',
+        },
+      },
+      {
+        path: '/platform-admin/plans-quota',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="플랜·쿼터 관리" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '플랜·쿼터 관리' }],
+          activeHref: '/platform-admin/plans-quota',
+        },
+      },
+      {
+        path: '/platform-admin/defect-types',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="하자 유형·등급 관리" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '하자 유형·등급 관리' }],
+          activeHref: '/platform-admin/defect-types',
+        },
+      },
+      {
+        path: '/platform-admin/counsels',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="상담 관리" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '상담 관리' }],
+          activeHref: '/platform-admin/counsels',
+        },
+      },
+      {
+        path: '/platform-admin/rag-documents',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="RAG 문서 관리" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: 'RAG 문서 관리' }],
+          activeHref: '/platform-admin/rag-documents',
+        },
+      },
+      {
+        path: '/platform-admin/stats',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="서비스 통계" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '서비스 통계' }],
+          activeHref: '/platform-admin/stats',
+        },
+      },
+      {
+        path: '/platform-admin/monitoring',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="시스템 모니터링" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '시스템 모니터링' }],
+          activeHref: '/platform-admin/monitoring',
+        },
+      },
+    ],
+  }, // — features/platform-admin (#535). 각 메뉴 실 기능은 후속 이슈.
   // 구 '/facilities'(셸 밖) 라우트는 '/facilities/list'(셸 안, 위 AppShellRoute children)로 이동됨(#472).
   // '/defects/list' 는 AppShellRoute 자식(위 children 배열)으로 등록됨 — features/defect (HAJA-30)
   // { path: '/reports', ... }                  — features/report

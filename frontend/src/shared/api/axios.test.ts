@@ -154,3 +154,38 @@ describe('axios 401 인터셉터 — basename 배포(base=/app/)', () => {
     }
   });
 });
+
+describe('axios 401 인터셉터 — 플랫폼 관리자 콘솔(#535, base=/)', () => {
+  it('/platform-admin 하위 경로에서 401이면 /platform-admin/login으로 리다이렉트한다(일반 /login이 아님)', async () => {
+    const api = await importFreshApi();
+    const { hrefSetter, restore } = mockLocation('/platform-admin/users');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(hrefSetter).toHaveBeenCalledWith('/platform-admin/login');
+    } finally {
+      restore();
+    }
+  });
+
+  it('/platform-admin/login 경로면 401이어도 재대입하지 않는다(무한 리로드 방지)', async () => {
+    const api = await importFreshApi();
+    const { hrefSetter, restore } = mockLocation('/platform-admin/login');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(hrefSetter).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('일반 경로(/dashboard)는 여전히 기업회원 /login으로 리다이렉트한다(회귀 방지)', async () => {
+    const api = await importFreshApi();
+    const { hrefSetter, restore } = mockLocation('/dashboard');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(hrefSetter).toHaveBeenCalledWith('/login');
+    } finally {
+      restore();
+    }
+  });
+});

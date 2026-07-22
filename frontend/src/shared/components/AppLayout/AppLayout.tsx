@@ -30,12 +30,17 @@ interface AppLayoutProps {
   activeHref?: string;
   /** SideNavBar 메뉴 항목. 미지정 시 SideNavBar 기본 전체 메뉴(DEFAULT_ITEMS) 사용 */
   items?: SideNavItem[];
+  /** SideNavBar isAdmin=true일 때 items에 덧붙는 관리자 그룹. 미지정 시 SideNavBar 기본값(DEFAULT_ADMIN_ITEM,
+   * 기업 관리자 콘솔) — 플랫폼 관리자 콘솔(#535)은 이 값을 override해 별도 그룹을 노출한다. */
+  adminItem?: SideNavItem;
   /**
    * SideNavBar 메뉴 href가 실제로 이동 가능한 라우트인지 판별하는 함수. shared는 라우터 전체 구조를
    * 몰라야 하므로 호출부(app/AppShellRoute)가 주입 — 미지정 시 전부 구현된 것으로 간주(SideNavBar 기본값과 동일).
    */
   isRouteImplemented?: (href: string) => boolean;
   isAdmin?: boolean;
+  /** SideNavBar 브랜드 로고 링크 override(#535 플랫폼 관리자 콘솔). 미지정 시 SideNavBar 기본값('/dashboard') */
+  brandHref?: string;
   /** 사이드바 하단 프로필. 미지정 시 프로필 블록 미표시 */
   user?: AppLayoutUser;
   /** 로그아웃 핸들러. 미지정 시 로그아웃 버튼 자체가 렌더링되지 않음 */
@@ -54,8 +59,10 @@ export function AppLayout({
   children,
   activeHref,
   items,
+  adminItem,
   isRouteImplemented,
   isAdmin,
+  brandHref,
   user,
   onLogout,
   unreadCount,
@@ -104,9 +111,11 @@ export function AppLayout({
     >
       <SideNavBar
         items={items}
+        adminItem={adminItem}
         activeHref={resolvedActiveHref}
         isRouteImplemented={isRouteImplemented}
         isAdmin={isAdmin}
+        brandHref={brandHref}
         // 사이드바 하단 프로필은 관리자에게만 노출 — 일반 사용자 프로필은 별도 이슈에서 헤더에 붙일 예정(HAJA-167, #184)
         user={isAdmin ? user : undefined}
         onLogout={onLogout}

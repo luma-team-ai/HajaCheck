@@ -7,3 +7,7 @@ function normalizePath(path: string): string {
 }
 
 export const LOGIN_PATH = normalizePath(`${import.meta.env.BASE_URL}login`);
+
+// 플랫폼 관리자 콘솔(#535) 전용 401 리다이렉트 대상 — axios.ts 인터셉터가 pathname이
+// '/platform-admin'으로 시작하면 LOGIN_PATH 대신 이 값으로 리다이렉트한다.
+export const PLATFORM_ADMIN_LOGIN_PATH = normalizePath(`${import.meta.env.BASE_URL}platform-admin/login`);
