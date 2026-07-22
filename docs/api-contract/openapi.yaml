@@ -788,6 +788,33 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
   /api/defects/{id}:
+    get:
+      summary: 하자 단건 조회 (FR-08-01 / HAJA-20)
+      description: >
+        로그인 사용자가 소유한 시설물에 속하는 하자만 조회 가능(시설물 소유권 검증).
+        다른 사용자의 시설물 하자는 404 FACILITY_NOT_FOUND 반환.
+        논리 삭제 하자(deleted=true)는 포함하지 않음.
+      security:
+        - SessionCookie: []
+      tags: [defect]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: 하자 단건 상세 정보
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DefectDetailApiResponse" }
+        "401":
+          description: 미인증
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 하자를 찾을 수 없음(DEFECT_NOT_FOUND) 또는 시설물 소유권 검증 실패(FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
     patch:
       summary: 검수 — 오탐 수정·등급 조정 (defect_revisions append-only)
       tags: [defect]
@@ -1213,6 +1240,43 @@ components:
           nullable: true
           oneOf:
             - { $ref: "#/components/schemas/DefectPage" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    DefectDetail:
+      type: object
+      additionalProperties: false
+      required: [id, inspectionId, type, bboxX, bboxY, bboxW, bboxH, confidence, grade, status, reviewed, deleted, crackWidthMm, crackLengthMm, createdAt, facilityType]
+      properties:
+        id: { type: integer, format: int64 }
+        inspectionId: { type: integer, format: int64 }
+        type: { $ref: "#/components/schemas/DefectTypeCode" }
+        bboxX: { type: number, format: double, nullable: true, description: "바운딩박스 X좌표(pixel)" }
+        bboxY: { type: number, format: double, nullable: true, description: "바운딩박스 Y좌표(pixel)" }
+        bboxW: { type: number, format: double, nullable: true, description: "바운딩박스 너비(pixel)" }
+        bboxH: { type: number, format: double, nullable: true, description: "바운딩박스 높이(pixel)" }
+        confidence: { type: number, format: double, minimum: 0, maximum: 1, description: "AI 탐지 신뢰도" }
+        grade: { $ref: "#/components/schemas/NullableDefectGradeCode" }
+        status: { $ref: "#/components/schemas/DefectStatusCode" }
+        reviewed: { type: boolean, description: "검수 완료 여부" }
+        deleted: { type: boolean, description: "논리 삭제 여부" }
+        crackWidthMm: { type: number, format: double, nullable: true, description: "균열 너비(mm)" }
+        crackLengthMm: { type: number, format: double, nullable: true, description: "균열 길이(mm)" }
+        createdAt: { type: string, format: date-time }
+        facilityType: { type: string, example: "BUILDING", description: "시설물 유형 코드" }
+
+    DefectDetailApiResponse:
+      type: object
+      description: GET /api/defects/{id} 전용 Spring ApiResponse envelope
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/DefectDetail" }
         error:
           nullable: true
           oneOf:
