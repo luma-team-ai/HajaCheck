@@ -32,6 +32,8 @@ export interface CompanySignupRequest {
   companyName: string;
   businessRegistrationNumber: string;
   representativeName: string;
+  // 개업일자 — 국세청 진위확인(#596)이 요구하는 필수값(ISO `yyyy-MM-dd`). #600.
+  businessStartDate: string;
   address: string;
   addressDetail: string;
   agreeTermsOfService: boolean;
@@ -51,10 +53,12 @@ export interface EmailAvailabilityResponse {
 }
 
 // 사업자등록증 OCR 자동채움(#587) — docs/api-contract 계약: 각 필드는 인식 실패 시 null.
+// 개업일자(businessStartDate)는 #598에서 4번째 자동채움 필드로 추가됨(ISO `yyyy-MM-dd`, nullable) — #600.
 export interface BusinessLicenseOcrResponse {
   businessRegistrationNumber: string | null;
   companyName: string | null;
   representativeName: string | null;
+  businessStartDate: string | null;
 }
 
 export interface IdInquiryRequest {
