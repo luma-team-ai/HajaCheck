@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { FIND_PASSWORD_ROUTE, LOGIN_ROUTE } from '../constants';
+import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
+import { FIND_PASSWORD_ROUTE, LANDING_ROUTE, LOGIN_ROUTE } from '../constants';
 import { useCsrfPrime } from '../hooks/useCsrfPrime';
 import { useFindLoginId } from '../hooks/useFindLoginId';
 import { isFindIdFormValid } from '../utils/validateFindIdForm';
@@ -41,6 +42,13 @@ export function FindIdPage() {
   return (
     <div className="auth-standalone-page">
       <section className="auth-standalone-panel">
+        <Link
+          to={LANDING_ROUTE}
+          className="mb-6 flex justify-center"
+          aria-label="HajaCheck 홈으로"
+        >
+          <img src={brandLogo} alt="HajaCheck" className="h-8 w-auto object-contain" />
+        </Link>
         <h1 className="auth-standalone-title">기업 아이디 찾기</h1>
 
         {result ? (
