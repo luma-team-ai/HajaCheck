@@ -53,11 +53,15 @@ export const DASHBOARD_COLOR_CLASS = {
   rowSelectedBar: 'shadow-[inset_3px_0_0_#9333ea]',
   /** 행 키보드 포커스 아웃라인 #9333ea (focus-visible, 임의 프로퍼티 리터럴) */
   rowFocusOutline: 'focus-visible:[outline:2px_solid_#9333ea] focus-visible:[outline-offset:-2px]',
+  /** KPI 카드 구분선 — 공용 dividerBorder(#ececec)보다 진해서 Figma 시안처럼 경계가 보인다(#556) */
+  kpiDividerBorder: 'border-[#d4d4d8]',
 } as const;
 
 /**
  * 하자 등급별 배경색 — A(양호,초록) → E(중대,빨강) 그라데이션 (docs 시안 기준).
  * 접근자는 utils/gradeDistribution.ts의 getGradeBgClass.
+ * ⚠️ GradeBadge(흰 텍스트 배지)도 이 팔레트를 쓰므로 여기는 대비 유지가 필요해 밝게 바꾸지 않는다 —
+ *    등급분포 막대 전용 연한 팔레트는 아래 GRADE_BG_CLASS_LIGHT로 별도 관리(#556).
  */
 export const GRADE_BG_CLASS: Record<DefectGrade, string> = {
   A: 'bg-[#16a34a]',
@@ -65,4 +69,13 @@ export const GRADE_BG_CLASS: Record<DefectGrade, string> = {
   C: 'bg-[#eab308]',
   D: 'bg-[#f97316]',
   E: 'bg-[#dc2626]',
+};
+
+/** 하자 등급 분포 막대·범례 전용 연한 팔레트(Figma 시안 기준, #556) — GradeBadge와는 분리 관리 */
+export const GRADE_BG_CLASS_LIGHT: Record<DefectGrade, string> = {
+  A: 'bg-[#86efac]',
+  B: 'bg-[#bef264]',
+  C: 'bg-[#fde047]',
+  D: 'bg-[#fdba74]',
+  E: 'bg-[#fca5a5]',
 };
