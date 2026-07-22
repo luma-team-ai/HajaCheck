@@ -1,10 +1,13 @@
 -- Flyway V1 baseline — 신규(빈) DB 전체 스키마 정본(#359).
--- 원본: docs/design/db/HajaCheck_script.sql (설계 기준 DDL, 그대로 유지되며 계속 최신 상태를 반영한다).
--- 이 파일은 원본에서 `alter ... owner to postgres` 소유권 문장만 제거한 사본이다(Flyway 실행 계정이
--- 소유하도록 이식성 확보). 그 외 스키마 정의(타입/테이블/인덱스/트리거/함수/plans 초기 시드)는 동일하다.
--- ⚠️ 기존 DB(arm1 프로덕션, 팀원 로컬)는 baseline-on-migrate(baseline-version=1)로 이 파일 실행 없이
---    "이미 적용됨"으로 스탬프만 된다 — 반드시 원본과 스키마가 일치해야 한다(불일치 시 향후 validate 실패).
---    plans 시드는 baseline된 기존 DB에는 적용되지 않으므로 V2__seed_plans.sql이 별도로 채운다.
+-- 원본: docs/design/db/HajaCheck_script.sql의 2026-07-22 baseline 시점 스냅샷(arm1 프로덕션을 그
+-- 시점에 수동 정합한 스키마와 동일). 이 파일에서 원본과 다른 부분은 `alter ... owner to postgres`
+-- 소유권 문장 제거뿐이다(Flyway 실행 계정이 소유하도록 이식성 확보).
+-- ⚠️ V1은 이후 고정(frozen)이다 — docs/design/db/HajaCheck_script.sql이 나중에 더 진화해도(신규
+-- 테이블·컬럼 추가 등) V1에는 소급 반영하지 않는다. baseline-on-migrate(baseline-version=1)로
+-- 기존 DB(arm1 프로덕션, 팀원 로컬)는 이 파일 실행 없이 "이미 적용됨"으로 스탬프만 되므로, V1 이후의
+-- 모든 스키마 변경은 반드시 forward migration(V3, V4, …)으로 추가해야 기존 DB와 신규 DB 둘 다 받는다
+-- (예: api_system_logs는 V1 이후 캐노니컬 DDL에 추가됐지만 V1이 아닌 V3__create_api_system_logs.sql로
+-- 들어갔다). plans 시드도 같은 이유로 V2__seed_plans.sql이 별도로 채운다.
 
 -- 신규 DB를 현재 최종 스키마로 생성하기 위한 설계 기준 DDL이다.
 -- 운영 DB 증분 마이그레이션에는 직접 실행하지 말고 별도 버전 마이그레이션을 사용한다.

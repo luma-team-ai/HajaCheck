@@ -16,8 +16,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Flyway가 "완전히 빈" PostgreSQL(#359)에서 V1(baseline_schema)→V2(seed_plans)를 순서대로 적용하고,
- * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
+ * Flyway가 "완전히 빈" PostgreSQL(#359)에서 V1(baseline_schema)→V2(seed_plans)→
+ * V3(create_api_system_logs)를 순서대로 적용하고, Hibernate ddl-auto=validate + PlanSeedGuard
+ * 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
  * 만들고 Flyway는 application-test.yml에서 꺼둠)를 쓴다. 이 클래스만 예외적으로 initScript 없는 컨테이너 +
@@ -60,13 +61,13 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1baseline과_V2plans시드가_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1baseline_V2plans시드_V3apiSystemLogs가_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
         Integer appliedMigrations = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where success = true", Integer.class);
-        assertThat(appliedMigrations).isEqualTo(2); // V1(baseline_schema) + V2(seed_plans)
+        assertThat(appliedMigrations).isEqualTo(3); // V1(baseline_schema) + V2(seed_plans) + V3(api_system_logs)
 
         assertThat(planRepository.findByName(PlanName.FREE)).isPresent();
         assertThat(planRepository.findByName(PlanName.STANDARD)).isPresent();
@@ -74,5 +75,12 @@ class FlywayBaselineIntegrationTest {
 
         Long planCount = jdbcTemplate.queryForObject("select count(*) from plans", Long.class);
         assertThat(planCount).isEqualTo(3L);
+
+        // V3가 실제로 api_system_logs 테이블(#528 canonical DDL, 아직 JPA 엔티티는 없음)을 만들었는지 확인.
+        Long tableExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.tables
+                where table_schema = 'public' and table_name = 'api_system_logs'
+                """, Long.class);
+        assertThat(tableExists).isEqualTo(1L);
     }
 }
