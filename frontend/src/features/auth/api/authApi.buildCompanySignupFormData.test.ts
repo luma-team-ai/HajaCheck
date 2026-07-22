@@ -13,6 +13,7 @@ function makeRequest(overrides: Partial<CompanySignupRequest> = {}): CompanySign
     companyName: '(주)하자체크',
     businessRegistrationNumber: '123-45-67890',
     representativeName: '김민수',
+    businessStartDate: '2015-03-02',
     address: '서울시 강남구',
     addressDetail: '1층',
     agreeTermsOfService: true,
@@ -32,6 +33,7 @@ describe('toCompanySignupFormData', () => {
     expect(formData.get('companyName')).toBe('(주)하자체크');
     expect(formData.get('businessRegistrationNumber')).toBe('123-45-67890');
     expect(formData.get('representativeName')).toBe('김민수');
+    expect(formData.get('businessStartDate')).toBe('2015-03-02');
     expect(formData.get('address')).toBe('서울시 강남구');
     expect(formData.get('addressDetail')).toBe('1층');
     expect(formData.get('agreeTermsOfService')).toBe('true');

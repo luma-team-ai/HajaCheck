@@ -30,6 +30,8 @@ export const MOCK_SIGNUP_TOKEN = 'mock-signup-token';
 export const MOCK_OCR_BUSINESS_NUMBER = '1234567890';
 export const MOCK_OCR_COMPANY_NAME = '(주)오씨알테스트';
 export const MOCK_OCR_REPRESENTATIVE_NAME = '박대표';
+// 개업일자 자동채움(#598 응답 확장, #600 FE 반영) — ISO `yyyy-MM-dd`
+export const MOCK_OCR_BUSINESS_START_DATE = '2015-03-02';
 
 function normalizeDigits(value: string): string {
   return value.replace(/\D/g, '');
@@ -128,6 +130,7 @@ export const companyAuthHandlers = [
         businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER,
         companyName: MOCK_OCR_COMPANY_NAME,
         representativeName: MOCK_OCR_REPRESENTATIVE_NAME,
+        businessStartDate: MOCK_OCR_BUSINESS_START_DATE,
       },
     };
     return HttpResponse.json(success);

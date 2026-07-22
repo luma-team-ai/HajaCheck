@@ -70,11 +70,13 @@ describe('BusinessLicenseUpload', () => {
     expect(screen.queryByText(/자동인식 완료 시 예상 화면/)).toBeNull();
   });
 
-  it('OCR 자동채움 구현(#587) 후 실제 동작에 맞는 안내 문구를 노출한다', () => {
+  it('OCR 자동채움 구현(#587, 개업일자 확장 #600) 후 실제 동작에 맞는 안내 문구를 노출한다', () => {
     render(<BusinessLicenseUpload file={null} onFileSelect={vi.fn()} />);
 
     expect(
-      screen.getByText(/JPG, PNG 파일은 업로드 시 사업자등록번호·상호명·대표자명이 자동으로 채워집니다/),
+      screen.getByText(
+        /JPG, PNG 파일은 업로드 시 사업자등록번호·상호명·대표자명·개업일자가 자동으로 채워집니다/,
+      ),
     ).not.toBeNull();
     expect(screen.queryByText(/준비 중입니다/)).toBeNull();
   });
