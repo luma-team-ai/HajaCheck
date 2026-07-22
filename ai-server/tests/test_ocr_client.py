@@ -9,20 +9,24 @@
 무조건 실패한다**. 이 파일은 `user_network_directory`가 항상 쓰기 가능한 경로(hf_cache 볼륨
 하위)로 지정되는지, 그리고 그 디렉터리가 실제로 사전 생성되는지를 고정한다.
 
-`easyocr`는 import 시 torch/cv2를 로드하므로(#573 패턴), 헤드리스 환경(libGL 부재 등)에서는
-이 파일 전체를 skip한다 — `ocr_client.get_ocr_engine` 자체의 지연 import 설계는 이 테스트가
-`easyocr.Reader`를 패치하기 위해 실제 `easyocr` 모듈을 import해야 하는 것과는 별개다(앱/체인
-import 경로는 여전히 torch/cv2를 요구하지 않음, `test_business_license_ocr.py`가 모킹으로 검증).
+`easyocr`는 import 시 torch/torchvision을 로드하는데, 실제 로드하면 종료 시 세그폴트를 유발하므로
+(아래 import 블록 주석 참조) 이 파일은 `sys.modules`에 가짜 easyocr를 심어 실제 로드를 회피한다.
+앱/체인 import 경로는 원래 easyocr를 요구하지 않는다(지연 import #573, `test_business_license_ocr.py`가 모킹 검증).
 """
+import sys
 from unittest.mock import MagicMock, patch
 
-import pytest
+import pytest  # noqa: F401 — fixture 데코레이터에서 사용
 
-pytest.importorskip(
-    "easyocr", reason="easyocr/torch/cv2(→libGL) 미가용 환경에서는 이 테스트 파일 skip (#573 패턴)"
-)
+# ⚠️ easyocr는 import 시 torch/torchvision을 로드하는데, 이를 실제로 로드하면 같은 프로세스의
+# chromadb/onnxruntime 등과 함께 **pytest 종료 시 Segmentation fault**(native 라이브러리 정리
+# 순서 충돌)를 유발한다 — PR머신 docker build+test에서 "167 passed … Segmentation fault"로 재현(#605 회귀).
+# 이 테스트는 get_ocr_engine()이 easyocr.Reader를 올바른 인자로 호출하는지만 검증하므로, 실제
+# easyocr를 import하지 않고 sys.modules에 가짜 모듈을 심는다(torch/torchvision 미로드 → 세그폴트 회피).
+# get_ocr_engine 내부의 지연 `import easyocr`도 이 가짜를 받는다.
+sys.modules["easyocr"] = MagicMock()
 
-from ai.core import ocr_client  # noqa: E402 — importorskip 이후 import
+from ai.core import ocr_client  # noqa: E402 — 위 sys.modules 모킹 이후 import
 
 
 @pytest.fixture(autouse=True)
