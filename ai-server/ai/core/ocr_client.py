@@ -35,6 +35,14 @@ if TYPE_CHECKING:  # 타입 체커 전용 — 런타임 import 아님(torch/cv2 
 # 재기동 시 재다운로드 방지, 볼륨 신규 생성 없이 기존 마운트를 재사용.
 EASYOCR_MODEL_DIR = os.path.join(os.getenv("HF_HOME", "/app/hf_cache"), "easyocr")
 
+# EasyOCR은 model_storage_directory와 별개로 user_network_directory(커스텀 인식 네트워크
+# 저장 경로)도 항상 사용한다. 지정하지 않으면 기본값 `~/.EasyOCR/user_network`
+# (컨테이너 fastapi 유저 HOME=/app 기준 `/app/.EasyOCR/user_network`)를 mkdir하려 시도하는데,
+# `/app`은 root:root 755라 fastapi(uid 999)가 mkdir에 실패해 **첫 OCR 요청이 PermissionError로
+# 무조건 실패한다**(리뷰어 docker 재현, P1). EASYOCR_MODEL_DIR(hf_cache 볼륨 하위, fastapi 소유)
+# 아래 서브디렉터리로 명시 지정해 쓰기 가능한 경로만 쓰도록 고정한다.
+EASYOCR_USER_NETWORK_DIR = os.path.join(EASYOCR_MODEL_DIR, "user_network")
+
 
 @lru_cache
 def get_ocr_engine() -> "Reader":
@@ -53,9 +61,11 @@ def get_ocr_engine() -> "Reader":
     import easyocr  # noqa: PLC0415 — torch/cv2 로드 지연(헤드리스 테스트 수집 폭발 방지)
 
     os.makedirs(EASYOCR_MODEL_DIR, exist_ok=True)
+    os.makedirs(EASYOCR_USER_NETWORK_DIR, exist_ok=True)
     return easyocr.Reader(
         ["ko", "en"],
         gpu=False,
         model_storage_directory=EASYOCR_MODEL_DIR,
+        user_network_directory=EASYOCR_USER_NETWORK_DIR,
         download_enabled=True,
     )

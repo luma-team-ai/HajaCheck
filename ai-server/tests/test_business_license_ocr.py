@@ -3,15 +3,16 @@
 - 라우터: 입력 검증(image_base64 필수) + 성공/실패 envelope (체인은 모킹)
 - 체인: OCR 결과 없음 폴백, 정규식 사업자등록번호 보정, LLM 실패 시 예외 전파 확인 (get_ocr_engine/
   get_llm 모킹 — 실제 EasyOCR/HF 호출 없음)
-- 스모크: EasyOCR `readtext()` 응답 형식(`[(box, text, conf), ...]`)을 모킹해 `_extract_text_lines`가
-  실제 이미지 픽스처 경로로도 정상 파싱하는지 확인. (RapidOCR 시절과 달리 EasyOCR는 항상 언어
-  모델을 네트워크에서 다운로드해야 해서 "번들 모델로 오프라인 실 파이프라인 검증"이 불가능하다
-  — AI_개발_컨벤션 "HF 모델 관련 테스트는 항상 모킹" 원칙에 따라 여기서도 모킹으로 대체한다.)
+- 파싱 유닛(실제 OCR 아님): EasyOCR `readtext()` 응답 형식(`[(box, text, conf), ...]`)을
+  모킹해 `_extract_text_lines`가 실제 이미지 픽스처 경로로도 정상 파싱하는지 확인. (RapidOCR
+  시절과 달리 EasyOCR는 항상 언어 모델을 네트워크에서 다운로드해야 해서 "번들 모델로 오프라인
+  실 파이프라인 검증"이 불가능하다 — AI_개발_컨벤션 "HF 모델 관련 테스트는 항상 모킹" 원칙에
+  따라 여기서도 모킹으로 대체한다. EasyOCR 자체의 wiring은 `tests/test_ocr_client.py`에서
+  별도 검증.)
 """
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 from ai.chains.business_license_ocr_chain import (
@@ -320,29 +321,23 @@ def test_run_chain_propagates_ocr_engine_failure(mock_get_engine):
         pass
 
 
-# ── 스모크: EasyOCR 응답 형식 모킹 + 실제 이미지 픽스처 경로 ──────────────────────
+# ── 파싱 유닛: EasyOCR 응답 형식 모킹 + 실제 이미지 픽스처 경로(디코딩 파싱 확인, 실제 OCR 아님) ──
 
 
 @patch("ai.chains.business_license_ocr_chain.get_ocr_engine")
-def test_extract_text_lines_smoke_with_real_fixture_image(mock_get_engine):
-    """`_extract_text_lines`가 실제 이미지 픽스처를 읽어 EasyOCR `readtext()` 응답 형식
+def test_extract_text_lines_parses_easyocr_format_with_real_fixture_path(mock_get_engine):
+    """`_extract_text_lines`가 실제 이미지 픽스처 파일 경로로 EasyOCR `readtext()` 응답 형식
     (`[(box, text, conf), ...]`, `detail=1, paragraph=False`)을 올바르게 파싱하는지 확인한다.
 
-    EasyOCR는 RapidOCR과 달리 pip 패키지에 오프라인 번들 모델이 없고 최초 호출 시 항상
-    네트워크에서 한국어/영어 모델을 다운로드한다 — CI/헤드리스 환경에서 매번 이 다운로드를
-    태우면 테스트가 네트워크에 종속되어 AI_개발_컨벤션 "HF 모델 관련 테스트는 항상 모킹"
-    원칙에 어긋난다. 그래서 실제 엔진 호출 대신 `readtext()`가 반환할 형식을 모킹하되, 이미지
-    픽스처 파일 자체는 실제로 읽어(디코딩 단계까지는 실경로) 파싱 로직을 검증한다. 한국어
-    인식 자체의 정확도는 이 작업(#605) 배경 조사의 로컬 실측으로 별도 확인됨.
+    코드 리뷰 P3 — 이 테스트는 **실제 OCR 파이프라인을 검증하지 않는다**(`get_ocr_engine`을
+    완전히 모킹하므로 실제 EasyOCR 모델은 전혀 호출되지 않는다). 픽스처 이미지는 `_extract_text_lines`가
+    bytes를 읽어 반환값을 파싱하는 경로만 실경로로 태우기 위해 재사용할 뿐이다(즉 "스모크
+    테스트"가 아니라 파싱 로직 유닛 테스트). 실제 EasyOCR 한국어 인식 정확도는 이 작업(#605)
+    배경 조사의 로컬 실측(모델 다운로드 포함, 이 테스트 스위트 밖에서 별도 확인)으로 검증됨 —
+    EasyOCR는 RapidOCR과 달리 pip 패키지에 오프라인 번들 모델이 없어 CI에서 매번 실제 파이프라인을
+    돌리려면 네트워크 다운로드가 필요하므로(AI_개발_컨벤션 "HF 모델 관련 테스트는 항상 모킹"
+    원칙과 상충) 여기서는 모킹으로 대체한다.
     """
-    # easyocr(→torch/cv2)는 헤드리스 환경(libGL 부재 등)에서 import가 실패할 수 있다 → skip.
-    # 앱/체인 import 자체는 지연 import(#573 패턴 유지)로 torch/cv2를 요구하지 않으므로
-    # 수집(collection)엔 영향 없다.
-    pytest.importorskip(
-        "easyocr",
-        reason="easyocr/torch/cv2(→libGL) 미가용 환경에서는 이 스모크 skip (#573 패턴)",
-    )
-
     mock_engine = MagicMock()
     mock_engine.readtext.return_value = [
         [[[0, 0], [1, 0], [1, 1], [0, 1]], "등록번호:123-45-67890", 0.97],
