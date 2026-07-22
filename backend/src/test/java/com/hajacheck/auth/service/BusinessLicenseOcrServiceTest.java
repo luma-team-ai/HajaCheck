@@ -228,12 +228,70 @@ class BusinessLicenseOcrServiceTest {
         MultipartFile invalid = new MockMultipartFile(
                 "businessRegistrationFile", "a.txt", "text/plain", "hello".getBytes());
         int limit = authProperties.getBusinessLicenseOcrRateLimit().getGlobalLimit();
+        int dailyLimit = authProperties.getBusinessLicenseOcrRateLimit().getDailyLimit();
         for (int i = 0; i < limit + 5; i++) {
             assertThatThrownBy(() -> service.ocr(invalid)).isInstanceOf(BusinessException.class);
         }
 
         assertThat(rateLimiter.tryAcquire("rate:business-license-ocr:global", limit, java.time.Duration.ofMinutes(1)))
-                .as("검증 실패 요청은 카운터를 전혀 소모하지 않았어야 한다")
+                .as("검증 실패 요청은 분당 카운터를 전혀 소모하지 않았어야 한다")
                 .isTrue();
+        assertThat(rateLimiter.tryAcquire("rate:business-license-ocr:daily", dailyLimit, java.time.Duration.ofDays(1)))
+                .as("검증 실패 요청은 일일 캡 카운터도 전혀 소모하지 않았어야 한다")
+                .isTrue();
+    }
+
+    // ---------- rate-limit(일일 절대 캡, security-reviewer P1 — #557 재보고) ----------
+
+    @Test
+    void ocr_일일캡_초과시_429_AUTH_TOO_MANY_REQUESTS() throws IOException {
+        when(aiProxyService.ocrBusinessLicense(any()))
+                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3")));
+        authProperties.getBusinessLicenseOcrRateLimit().setDailyLimit(3);
+        for (int i = 0; i < 3; i++) {
+            service.ocr(pngFile());
+        }
+
+        assertThatThrownBy(() -> service.ocr(pngFile()))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS);
+    }
+
+    @Test
+    void ocr_분당캡은_통과했지만_일일캡에서_막힌다() throws IOException {
+        // 분당 상한만으로는 지속 반복 시 일일 LLM 호출/과금이 무제한이 되는 P1 재현 — 분당 캡(기본 20)은
+        // 여유롭게 두고 일일 캡만 낮춰, "분당은 안 걸렸는데 일일에서 막히는" 케이스를 고정한다.
+        when(aiProxyService.ocrBusinessLicense(any()))
+                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3")));
+        authProperties.getBusinessLicenseOcrRateLimit().setDailyLimit(2);
+        int perMinuteLimit = authProperties.getBusinessLicenseOcrRateLimit().getGlobalLimit();
+        assertThat(perMinuteLimit).as("분당 캡이 일일 캡보다 넉넉해야 이 케이스가 성립한다").isGreaterThan(2);
+
+        service.ocr(pngFile());
+        service.ocr(pngFile());
+
+        assertThatThrownBy(() -> service.ocr(pngFile()))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS);
+        // 지금까지 분당 카운터는 3건(20 미만)뿐이라 분당 캡에는 아직 걸리지 않았어야 한다 — 이 실패가
+        // 진짜 "일일 캡"에서 난 것인지 직접 확인(분당 캡이 우연히 먼저 걸린 거짓양성 방지).
+        assertThat(rateLimiter.tryAcquire(
+                        "rate:business-license-ocr:global", perMinuteLimit, java.time.Duration.ofMinutes(1)))
+                .as("분당 캡은 아직 여유가 있어야 한다")
+                .isTrue();
+    }
+
+    @Test
+    void ocr_창이_지나면_일일캡이_리셋된다() throws IOException {
+        when(aiProxyService.ocrBusinessLicense(any()))
+                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3")));
+        authProperties.getBusinessLicenseOcrRateLimit().setDailyLimit(2);
+        service.ocr(pngFile());
+        service.ocr(pngFile());
+        assertThatThrownBy(() -> service.ocr(pngFile())).isInstanceOf(BusinessException.class);
+
+        now = now.plus(authProperties.getBusinessLicenseOcrRateLimit().getDailyWindow()).plusSeconds(1);
+
+        assertThat(service.ocr(pngFile()).success()).isTrue();
     }
 }
