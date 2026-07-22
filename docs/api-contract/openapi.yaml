@@ -6,6 +6,7 @@ info:
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
     2026-07-22 관리자 플랜·쿼터 관리 API(#507) 추가 — /api/admin/plans, /api/admin/plan,
     /api/admin/plan/history, /api/admin/plan-quota 및 AdminPlan* 스키마.
+    /api/admin/plan/history 에 page/size 페이지네이션 추가(PR#525 머신 리뷰 P3).
     2026-07-21 명세-구현 동기화 — 멤버십·계정복구·대시보드·AI프록시·OCR 추가, 보고서 API를 #455 구현 기준으로
     재작성(#498).
     2026-07-19 GET /api/notifications(AP-020, #25 / HAJA-38 FR-9) 계약 추가.
@@ -781,10 +782,18 @@ paths:
       description: >
         요청 관리자 회사의 구독 변경 이력(요금제·기간·상태)을 최신 순으로 반환한다 — 각 항목이 user_plans 행
         하나이며 startedAt/endedAt·planName·status 로 "이전값→이후값·언제"를 표현한다.
-        `AdminPlanController.getHistory` 구현됨.
+        `AdminPlanController.getHistory` 구현됨. page 는 1부터 시작(PR#525 머신 리뷰 P3 반영 — 이력이
+        무한정 누적되는 문제로 plan-quota 와 동일한 페이지네이션 계약을 추가했다).
       security:
         - SessionCookie: []
       tags: [admin]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1, minimum: 1 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
       responses:
         "200":
           description: 조회 성공
@@ -2942,11 +2951,14 @@ components:
 
     AdminPlanHistoryResponse:
       type: object
-      required: [history]
+      required: [history, page, size, totalElements]
       properties:
         history:
           type: array
           items: { $ref: "#/components/schemas/AdminPlanHistoryEntry" }
+        page: { type: integer, example: 1 }
+        size: { type: integer, example: 20 }
+        totalElements: { type: integer, format: int64, example: 3 }
 
     AdminPlanHistoryApiResponse:
       type: object

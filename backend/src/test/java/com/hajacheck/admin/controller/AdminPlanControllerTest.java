@@ -144,12 +144,42 @@ class AdminPlanControllerTest extends PostgresTestSupport {
         mockMvc.perform(get("/api/admin/plan/history").with(authentication(authOf(fx.admin()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.history.length()").value(2))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.size").value(20))
+                .andExpect(jsonPath("$.data.totalElements").value(2))
                 .andExpect(jsonPath("$.data.history[0].planName").value("STANDARD"))
                 .andExpect(jsonPath("$.data.history[0].status").value("ACTIVE"))
                 .andExpect(jsonPath("$.data.history[0].endedAt").doesNotExist())
                 .andExpect(jsonPath("$.data.history[1].planName").value("FREE"))
                 .andExpect(jsonPath("$.data.history[1].status").value("EXPIRED"))
                 .andExpect(jsonPath("$.data.history[1].endedAt").exists());
+    }
+
+    @Test
+    void 플랜변경이력조회_size로상한_totalElements는전체건수() throws Exception {
+        // PR#525 머신 리뷰 P3: 이력이 페이지 크기를 초과해도 content 는 상한만, totalElements 는 전체 수.
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.FREE);
+        mockMvc.perform(patch("/api/admin/plan")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"STANDARD\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/api/admin/plan")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"ENTERPRISE\"}"))
+                .andExpect(status().isOk());
+        // 이 시점 이력 3건(FREE→STANDARD→ENTERPRISE). size=2 로 조회하면 content 는 2건, totalElements 는 3.
+
+        mockMvc.perform(get("/api/admin/plan/history")
+                        .param("size", "2")
+                        .with(authentication(authOf(fx.admin()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.history.length()").value(2))
+                .andExpect(jsonPath("$.data.history[0].planName").value("ENTERPRISE"))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.size").value(2))
+                .andExpect(jsonPath("$.data.totalElements").value(3));
     }
 
     @Test

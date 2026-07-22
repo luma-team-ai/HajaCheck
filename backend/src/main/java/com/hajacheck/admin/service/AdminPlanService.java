@@ -1,6 +1,7 @@
 package com.hajacheck.admin.service;
 
 import com.hajacheck.admin.dto.AdminPlanCatalogResponse;
+import com.hajacheck.admin.dto.AdminPlanHistoryEntry;
 import com.hajacheck.admin.dto.AdminPlanHistoryResponse;
 import com.hajacheck.admin.dto.AdminPlanQuotaMember;
 import com.hajacheck.admin.dto.AdminPlanQuotaResponse;
@@ -128,10 +129,12 @@ public class AdminPlanService {
         }
     }
 
-    /** 회사 구독 변경 이력(최신 순). */
-    public AdminPlanHistoryResponse getHistory(Long adminUserId) {
+    /** 회사 구독 변경 이력(최신 순, 페이지 단위). */
+    public AdminPlanHistoryResponse getHistory(Long adminUserId, int page, int size) {
         Long companyId = resolveInheritedCompanyId(adminUserId);
-        return new AdminPlanHistoryResponse(adminPlanRepository.findHistoryByCompanyId(companyId));
+        Pageable pageable = PageRequest.of(Math.max(page - 1, 0), size);
+        Page<AdminPlanHistoryEntry> result = adminPlanRepository.findHistoryByCompanyId(companyId, pageable);
+        return new AdminPlanHistoryResponse(result.getContent(), page, size, result.getTotalElements());
     }
 
     /**

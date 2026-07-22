@@ -60,11 +60,16 @@ public class AdminPlanController {
                 ApiResponse.ok(adminPlanService.changePlan(loginUser.getUserId(), request.planName())));
     }
 
-    @Operation(summary = "회사 플랜 변경 이력 조회", description = "요청 관리자 회사의 구독 변경 이력(요금제·기간·상태)을 최신 순으로 반환한다(ADMIN 전용).")
+    @Operation(summary = "회사 플랜 변경 이력 조회",
+            description = "요청 관리자 회사의 구독 변경 이력(요금제·기간·상태)을 최신 순으로 반환한다"
+                    + "(page 는 1부터 시작, ADMIN 전용).")
     @GetMapping("/plan/history")
     public ResponseEntity<ApiResponse<AdminPlanHistoryResponse>> getHistory(
-            @AuthenticationPrincipal LoginUser loginUser) {
-        return ResponseEntity.ok(ApiResponse.ok(adminPlanService.getHistory(loginUser.getUserId())));
+            @AuthenticationPrincipal LoginUser loginUser,
+            @RequestParam(defaultValue = "1") @Min(1) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        return ResponseEntity.ok(
+                ApiResponse.ok(adminPlanService.getHistory(loginUser.getUserId(), page, size)));
     }
 
     @Operation(summary = "회사 멤버별 쿼터 사용 현황 조회",
