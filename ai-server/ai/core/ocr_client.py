@@ -24,10 +24,15 @@ RapidOCR 기본 인식 모델(`ch_PP-OCRv4_rec`)은 중국어·영어 위주로 
 - 실측(로컬): 기본 ch 모델은 "등록번호:123-45-67890" 라인을 "号世豆：123-45-67890"으로 오인식.
   한국어 wiring 적용 후 동일 라인 신뢰도 0.97로 정확히 인식.
 """
+from __future__ import annotations
+
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from huggingface_hub import hf_hub_download
-from rapidocr_onnxruntime import RapidOCR
+
+if TYPE_CHECKING:  # 타입 체커 전용 — 런타임 import 아님(cv2 로드 회피)
+    from rapidocr_onnxruntime import RapidOCR
 
 KOREAN_REC_REPO_ID = "SWHL/RapidOCR"
 KOREAN_REC_FILENAME = "PP-OCRv1/korean_mobile_v2.0_rec_infer.onnx"
@@ -35,11 +40,20 @@ KOREAN_REC_IMG_SHAPE = [3, 32, 320]
 
 
 @lru_cache
-def get_ocr_engine() -> RapidOCR:
+def get_ocr_engine() -> "RapidOCR":
     """모든 OCR 체인의 시작점. `RapidOCR()`을 직접 생성하지 않고 이 함수를 거친다.
 
     lru_cache로 프로세스당 1회만 모델을 로드(다운로드+ONNX 세션 초기화 비용 상각).
+
+    ## rapidocr(→cv2) 지연 import 이유 (#573)
+    `rapidocr_onnxruntime`는 import 시 `cv2`(opencv)를 로드하는데, 헤드리스 환경
+    (CI/PR머신/도커 최소 이미지)에 `libGL`이 없으면 `import cv2`가 실패한다. 이 import를
+    모듈 최상단에 두면 `main.app` import만으로(라우터→체인→이 모듈) 전체 테스트 수집이
+    폭발했다(#552/#555 fallout). 실제 OCR을 수행하는 이 함수 내부로 지연시켜 앱 import
+    경로가 cv2를 요구하지 않게 한다. (arm1 런타임은 Dockerfile에 libgl1 설치로 해소.)
     """
+    from rapidocr_onnxruntime import RapidOCR  # noqa: E402,PLC0415 — cv2 로드 지연
+
     rec_model_path = hf_hub_download(
         repo_id=KOREAN_REC_REPO_ID, filename=KOREAN_REC_FILENAME
     )
