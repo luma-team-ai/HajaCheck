@@ -59,6 +59,34 @@
   box-shadow: 0 2px 5px rgba(24, 24, 27, 0.08);
 }
 
+.defect-image-stage {
+  position: relative;
+  height: 390px;
+  overflow: hidden;
+  background: var(--color-surface-sunken);
+}
+
+.defect-image-stage > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.defect-image-empty {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.defect-detection-box {
+  position: absolute;
+  border: 2px solid #f000e8;
+  background: rgba(240, 0, 232, 0.12);
+}
+
 .defect-status-panel { padding: 26px; }
 
 .defect-status-heading {
@@ -174,6 +202,35 @@
 .defect-explain-section .defect-risk-title { color: #ff6d1f; }
 .defect-explain-section p { margin: 0; color: var(--color-text-default); font-size: 14px; line-height: 1.55; }
 
+.defect-activity-panel { padding: 26px; }
+.defect-activity-panel h2 { margin: 0 0 20px; color: var(--color-heading); font-size: 21px; font-weight: 800; }
+
+.defect-activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.defect-activity-list li {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: 10px;
+}
+
+.defect-activity-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+.defect-activity-meta time { color: var(--color-text-muted); font-size: 12px; }
+.defect-activity-list p { margin: 6px 0 0; color: var(--color-text-default); font-size: 13px; line-height: 1.5; }
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -194,4 +251,5 @@
   .defect-detail-page { padding: 20px 14px 32px; }
   .defect-metrics { grid-template-columns: 1fr; }
   .defect-status-panel { padding: 22px 16px; }
+  .defect-image-stage { height: 290px; }
 }
