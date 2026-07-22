@@ -27,14 +27,31 @@ export function isValidBusinessNumber(value: string): boolean {
   return normalizeBusinessNumber(value).length === 10;
 }
 
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+// 로컬 타임존 기준 yyyy-MM-dd 문자열 — UTC 파생(toISOString)과 달리 `<input type="date">`가
+// 사용자에게 보여주는 "오늘"과 항상 일치한다.
+function toLocalIsoDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // 개업일자 — 국세청 진위확인(#596)이 요구하는 필수값. `<input type="date">`가 넘기는 값은
 // 유효하지 않은 날짜면 빈 문자열이 되므로 필수 검증만으로 형식 오류도 함께 걸러지고,
 // 추가로 미래 날짜(아직 개업하지 않은 날짜)는 무효 처리한다(#600).
+//
+// 타임존 경계 버그 수정(PR머신 P2) — `new Date(value)`는 yyyy-MM-dd를 UTC 자정으로 해석하는데
+// 이를 `Date.now()`(로컬 순간)와 epoch 비교하면, KST(UTC+9) 사용자가 로컬 자정~09시 사이에
+// "오늘" 날짜를 입력해도 UTC 기준으론 아직 어제라 미래로 오판돼 부당하게 차단된다. ISO
+// yyyy-MM-dd 문자열은 사전순 정렬이 날짜순 정렬과 일치하므로, UTC epoch 왕복 없이 로컬 오늘
+// 문자열과 직접 비교한다.
 export function isValidBusinessStartDate(value: string): boolean {
-  if (!value.trim()) return false;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-  return date.getTime() <= Date.now();
+  const trimmed = value.trim();
+  if (!ISO_DATE_PATTERN.test(trimmed)) return false;
+  if (Number.isNaN(new Date(trimmed).getTime())) return false;
+  return trimmed <= toLocalIsoDate(new Date());
 }
 
 // 비밀번호 강도 — 새 비밀번호를 설정하는 화면(기업 회원가입·새 비밀번호 설정)에서 입력값의

@@ -101,6 +101,16 @@ describe('normalizeBusinessNumber / isValidBusinessNumber', () => {
   });
 });
 
+// 로컬 타임존 기준 yyyy-MM-dd — toISOString()(UTC 파생)을 쓰면 KST 등 UTC+ 타임존에서
+// 로컬 자정~09시 사이의 "오늘"이 UTC 기준으론 어제로 밀려 테스트가 실제 버그(PR머신 P2)를
+// 재현하지 못한다. `<input type="date">`가 실제로 넘기는 값과 동일하게 로컬 기준으로 만든다.
+function toLocalIsoDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 describe('isValidBusinessStartDate', () => {
   it('빈 값이면 false를 반환한다', () => {
     expect(isValidBusinessStartDate('')).toBe(false);
@@ -110,15 +120,20 @@ describe('isValidBusinessStartDate', () => {
     expect(isValidBusinessStartDate('2015-03-02')).toBe(true);
   });
 
-  it('오늘 날짜면 true를 반환한다', () => {
-    const today = new Date().toISOString().slice(0, 10);
-    expect(isValidBusinessStartDate(today)).toBe(true);
+  it('로컬 기준 오늘 날짜면 true를 반환한다(타임존 경계 회귀 방지, PR머신 P2)', () => {
+    expect(isValidBusinessStartDate(toLocalIsoDate(new Date()))).toBe(true);
+  });
+
+  it('로컬 기준 내일 날짜면 false를 반환한다', () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    expect(isValidBusinessStartDate(toLocalIsoDate(tomorrow))).toBe(false);
   });
 
   it('미래 날짜면 false를 반환한다', () => {
     const future = new Date();
     future.setFullYear(future.getFullYear() + 1);
-    expect(isValidBusinessStartDate(future.toISOString().slice(0, 10))).toBe(false);
+    expect(isValidBusinessStartDate(toLocalIsoDate(future))).toBe(false);
   });
 
   it('형식이 잘못된 날짜면 false를 반환한다', () => {
