@@ -4,7 +4,9 @@ import com.hajacheck.auth.security.CsrfCookieFilter;
 import com.hajacheck.auth.security.CustomOAuth2UserService;
 import com.hajacheck.auth.security.OAuth2FailureHandler;
 import com.hajacheck.auth.security.OAuth2SuccessHandler;
+import com.hajacheck.auth.security.RestAccessDeniedHandler;
 import com.hajacheck.auth.security.RestAuthenticationEntryPoint;
+import com.hajacheck.auth.security.SessionUserRevalidationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -17,6 +19,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.ExceptionTranslationFilter;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -41,7 +44,9 @@ public class SecurityConfig {
     private final OAuth2SuccessHandler oAuth2SuccessHandler;
     private final OAuth2FailureHandler oAuth2FailureHandler;
     private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
+    private final RestAccessDeniedHandler restAccessDeniedHandler;
     private final CsrfCookieFilter csrfCookieFilter;
+    private final SessionUserRevalidationFilter sessionUserRevalidationFilter;
 
     // securityContextRepository 는 아래 @Bean 으로 정의 — 순환 생성을 피하려 메서드 파라미터로 주입받는다.
     @Bean
@@ -57,6 +62,9 @@ public class SecurityConfig {
                         .csrfTokenRequestHandler(csrfHandler))
                 // CsrfFilter 직후 토큰을 강제 로드해 XSRF-TOKEN 쿠키를 응답에 심는다.
                 .addFilterAfter(csrfCookieFilter, CsrfFilter.class)
+                // ExceptionTranslationFilter 직후(=AuthorizationFilter 직전)에 둔다 — 강등된 role이
+                // 뒤이은 hasRole 판정에 곧바로 반영되고, 정지 계정은 그 판정까지 가기 전에 401로 끊긴다(#405 리뷰 P1).
+                .addFilterAfter(sessionUserRevalidationFilter, ExceptionTranslationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/api/auth/**",
@@ -66,7 +74,10 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**")
                         .permitAll()
-                        // 현재는 "인증됨"만 요구. 소셜 셀프가입 계정(companyId=null·role=USER)에 대한
+                        // 관리자 콘솔(#405) — ADMIN role 만 허용. 프론트 AdminRoute 가드는 UX용이며
+                        // 실제 차단은 이 매처가 담당한다.
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        // 그 밖은 "인증됨"만 요구. 소셜 셀프가입 계정(companyId=null·role=USER)에 대한
                         // companyId/role 기반 리소스 권한 경계는 각 도메인 엔드포인트에서 후속 과제로 부여한다.
                         .anyRequest().authenticated())
                 .oauth2Login(oauth -> oauth
@@ -74,7 +85,9 @@ public class SecurityConfig {
                         .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
                         .successHandler(oAuth2SuccessHandler)
                         .failureHandler(oAuth2FailureHandler))
-                .exceptionHandling(e -> e.authenticationEntryPoint(restAuthenticationEntryPoint))
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint(restAuthenticationEntryPoint)
+                        .accessDeniedHandler(restAccessDeniedHandler))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .securityContext(sc -> sc.securityContextRepository(securityContextRepository))
                 .formLogin(form -> form.disable())

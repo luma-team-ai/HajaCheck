@@ -6,6 +6,7 @@ import com.hajacheck.core.dashboard.dto.DashboardSummaryResponse;
 import com.hajacheck.core.dashboard.dto.GradeDistributionResponse;
 import com.hajacheck.core.dashboard.dto.PendingPriorityResponse;
 import com.hajacheck.core.dashboard.dto.RecentInspectionResponse;
+import com.hajacheck.core.dashboard.dto.UpcomingInspectionResponse;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectStatus;
@@ -55,6 +56,7 @@ public class DashboardService {
     private static final Set<InspectionStatus> PENDING_REVIEW_STATUSES = EnumSet.of(InspectionStatus.ANALYZED);
     private static final int RECENT_LIMIT = 10;
     private static final int PENDING_PRIORITY_LIMIT = 10;
+    private static final int UPCOMING_INSPECTIONS_MAX_LIMIT = 50;
 
     private final FacilityRepository facilityRepository;
     private final InspectionRepository inspectionRepository;
@@ -117,6 +119,16 @@ public class DashboardService {
             total += projection.getCnt();
         }
 
+        // 등급 분류된 하자가 한 건도 없으면 빈 목록(#347). countGroupByGrade 는 grade is not null
+        // 조건이라 total==0 은 "미분류(grade=null) 하자만 있는 경우"도 포함한다 — 어느 쪽이든
+        // 등급 막대에 그릴 것이 없다. A~E 를 0% 5건으로 채우면 프론트의 빈 상태 가드가
+        // 발동하지 못하고, 합계가 0% 라 스토리보드 DASH-01 V2("합계가 100%인지 검증")도 위반된다.
+        // 반면 하자가 있으면 집계 0 인 등급까지 5개 전부 반환한다 — 막대그래프가 A~E 를 모두 보여주고
+        // 합계 100% 가 성립해야 하므로(GradeDistributionResponse javadoc 참고).
+        if (total == 0) {
+            return List.of();
+        }
+
         long finalTotal = total;
         return Arrays.stream(DefectGrade.values())
                 .map(grade -> GradeDistributionResponse.of(grade, countByGrade.getOrDefault(grade, 0L), finalTotal))
@@ -156,7 +168,7 @@ public class DashboardService {
         }
 
         List<Inspection> recent =
-                inspectionRepository.findTop10ByFacilityIdInOrderByInspectionDateDescIdDesc(facilityIds);
+                inspectionRepository.findRecentByFacilityIds(facilityIds, PageRequest.of(0, RECENT_LIMIT));
         if (recent.isEmpty()) {
             return List.of();
         }
@@ -177,6 +189,25 @@ public class DashboardService {
                         facilityNameById.getOrDefault(inspection.getFacilityId(), "-"),
                         creatorNameById.getOrDefault(inspection.getCreatedBy(), "-"),
                         defectCountByInspectionId.getOrDefault(inspection.getId(), 0L)))
+                .toList();
+    }
+
+    /**
+     * 다가오는 점검 예정 시설물 조회(dev-03-02) — owner_id 단일 스코프(기존 대시보드 엔드포인트와
+     * 동일 원칙), nextInspectionDueAt 이 오늘~오늘+days 이내이며 null 이 아닌 시설물만
+     * nextInspectionDueAt 오름차순으로 최대 limit 건 반환한다.
+     */
+    public List<UpcomingInspectionResponse> getUpcomingInspections(Long ownerId, int days, int limit) {
+        LocalDate today = LocalDate.now(KST);
+        LocalDate from = today;
+        LocalDate to = today.plusDays(days);
+        int safeLimit = Math.min(limit, UPCOMING_INSPECTIONS_MAX_LIMIT);
+
+        List<Facility> facilities = facilityRepository.findUpcomingByOwnerId(
+                ownerId, from, to, PageRequest.of(0, safeLimit));
+
+        return facilities.stream()
+                .map(facility -> UpcomingInspectionResponse.from(facility, today))
                 .toList();
     }
 

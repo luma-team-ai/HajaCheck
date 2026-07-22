@@ -66,7 +66,7 @@ export function FacilityFormModal({
   };
 
   return (
-    <Modal open={open} onClose={handleClose}>
+    <Modal open={open} onClose={handleClose} closeOnOverlayClick={false}>
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <h2 className="m-0 text-lg font-bold text-heading">시설물 등록</h2>

@@ -11,16 +11,25 @@ import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 시설물 CRUD — 모든 조회/수정/삭제는 owner(로그인 사용자) 스코프로 제한한다.
  */
+@Slf4j
 @Service
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
 public class FacilityService {
+
+    // 시설물 목록 조회 상한(#484) — 계약(응답 배열) 은 그대로 유지한 채 무제한 반환을 막는 방어적 상한.
+    // 대시보드 RECENT_LIMIT(10)·알림 LIST_LIMIT(30)·다가오는점검 UPCOMING_INSPECTIONS_MAX_LIMIT(50) 은
+    // "요약/미리보기" 목적이라 작지만, 시설물 목록은 관리 대상 자산 전체를 보여주는 화면이라 그보다
+    // 훨씬 크게 잡는다. 진짜 페이지네이션(Page 응답) 전환 전까지의 임시 방어값.
+    private static final int FACILITY_LIST_MAX = 500;
 
     private final FacilityRepository facilityRepository;
 
@@ -42,7 +51,16 @@ public class FacilityService {
     }
 
     public List<FacilityResponse> list(Long ownerId) {
-        return facilityRepository.findByOwnerId(ownerId).stream()
+        List<Facility> facilities =
+                facilityRepository.findByOwnerIdOrderByIdAsc(ownerId, PageRequest.of(0, FACILITY_LIST_MAX));
+        // #484 상한(500건)에 걸리면 나머지가 무고지로 잘린다(#502 P2) — 운영 감지를 위해 WARN 로그를 남긴다.
+        // 응답 계약(List<FacilityResponse>)은 유지하고, 진짜 페이지네이션 전환 전까지의 임시 관측 수단이다.
+        if (facilities.size() == FACILITY_LIST_MAX) {
+            long actualCount = facilityRepository.countByOwnerId(ownerId);
+            log.warn("시설물 목록 상한({}) 도달 — ownerId={} 실제 보유 {}건, 상한 초과분 응답에서 누락",
+                    FACILITY_LIST_MAX, ownerId, actualCount);
+        }
+        return facilities.stream()
                 .map(FacilityResponse::from)
                 .toList();
     }

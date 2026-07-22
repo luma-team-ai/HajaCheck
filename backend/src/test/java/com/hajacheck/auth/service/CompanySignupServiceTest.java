@@ -3,6 +3,7 @@ package com.hajacheck.auth.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -10,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.config.AuthProperties;
+import com.hajacheck.auth.config.FileStorageProperties;
 import com.hajacheck.auth.config.PolicyProperties;
 import com.hajacheck.auth.dto.CompanySignupRequest;
 import com.hajacheck.auth.dto.CompanySignupResponse;
@@ -50,6 +52,8 @@ class CompanySignupServiceTest {
     private CompanyAccountWriter accountWriter;
     @Mock
     private FileStorageService fileStorage;
+    @Mock
+    private FileStorageProperties fileStorageProperties;
     @Mock
     private TokenStore tokenStore;
     @Mock
@@ -96,7 +100,7 @@ class CompanySignupServiceTest {
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.AUTH_EMAIL_DUPLICATED));
 
-        verify(fileStorage, never()).store(any(), anyString());
+        verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
         verify(accountWriter, never()).createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
@@ -110,14 +114,14 @@ class CompanySignupServiceTest {
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.AUTH_BUSINESS_NUMBER_DUPLICATED));
 
-        verify(fileStorage, never()).store(any(), anyString());
+        verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
     }
 
     @Test
     void signup_파일누락_FILE_REQUIRED_전파() {
         when(userRepository.existsByEmail(anyString())).thenReturn(false);
         when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
-        when(fileStorage.store(any(), eq("business-registration")))
+        when(fileStorage.store(any(), eq("business-registration"), any(), anyLong()))
                 .thenThrow(new BusinessException(ErrorCode.FILE_REQUIRED));
 
         assertThatThrownBy(() -> service.signup(request()))
@@ -131,7 +135,7 @@ class CompanySignupServiceTest {
     void signup_잘못된MIME_FILE_INVALID_TYPE_전파() {
         when(userRepository.existsByEmail(anyString())).thenReturn(false);
         when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
-        when(fileStorage.store(any(), eq("business-registration")))
+        when(fileStorage.store(any(), eq("business-registration"), any(), anyLong()))
                 .thenThrow(new BusinessException(ErrorCode.FILE_INVALID_TYPE));
 
         assertThatThrownBy(() -> service.signup(request()))
@@ -143,7 +147,7 @@ class CompanySignupServiceTest {
     void signup_해피패스_파일저장_writer호출_토큰발급_마스킹응답() {
         when(userRepository.existsByEmail(anyString())).thenReturn(false);
         when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
-        when(fileStorage.store(any(), eq("business-registration")))
+        when(fileStorage.store(any(), eq("business-registration"), any(), anyLong()))
                 .thenReturn(new StoredFile("/files/business-registration/x.png", "business-registration/x.png"));
         Company company = companyStub(12L, CompanyStatus.PENDING_REVIEW);
         when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
@@ -156,7 +160,7 @@ class CompanySignupServiceTest {
         assertThat(response.companyId()).isEqualTo(12L);
         assertThat(response.status()).isEqualTo("PENDING_REVIEW");
         assertThat(response.signupToken()).isEqualTo("signup-tok");
-        assertThat(response.maskedEmail()).isEqualTo("haja***@check.com");
+        assertThat(response.maskedEmail()).isEqualTo("h***@c***.com");
 
         // writer 에 정규화 brn·대표자명(=user.name)·해시가 전달됐는지 검증.
         ArgumentCaptor<String> emailCap = ArgumentCaptor.forClass(String.class);
@@ -181,7 +185,7 @@ class CompanySignupServiceTest {
                 .thenReturn(false)   // 선검사 통과
                 .thenReturn(true);   // 보상 후 재확인 → 이메일 충돌
         when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
-        when(fileStorage.store(any(), eq("business-registration")))
+        when(fileStorage.store(any(), eq("business-registration"), any(), anyLong()))
                 .thenReturn(new StoredFile("/files/business-registration/x.png", "business-registration/x.png"));
         when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new DataIntegrityViolationException("users_email_key"));
@@ -201,7 +205,7 @@ class CompanySignupServiceTest {
                 .thenReturn(false)   // 선검사
                 .thenReturn(false);  // 보상 후 재확인 → 이메일 아님 → brn 충돌로 판정
         when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
-        when(fileStorage.store(any(), eq("business-registration")))
+        when(fileStorage.store(any(), eq("business-registration"), any(), anyLong()))
                 .thenReturn(new StoredFile("/files/business-registration/x.png", "business-registration/x.png"));
         when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new DataIntegrityViolationException("companies_business_registration_number_key"));

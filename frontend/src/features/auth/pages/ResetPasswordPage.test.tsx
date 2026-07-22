@@ -82,7 +82,7 @@ describe('ResetPasswordPage — 토큰 있음', () => {
 
     fireEvent.change(screen.getByLabelText('새 비밀번호'), { target: { value: 'abcd1234' } });
     fireEvent.change(screen.getByLabelText('새 비밀번호 확인'), { target: { value: 'abcd9999' } });
-    fireEvent.click(screen.getByRole('button', { name: '비밀번호 변경' }));
+    fireEvent.click(screen.getByRole('button', { name: '변경' }));
 
     expect(screen.getByText('비밀번호가 일치하지 않습니다.')).not.toBeNull();
     expect(screen.queryByText('비밀번호가 변경되었습니다.')).toBeNull();
@@ -92,7 +92,7 @@ describe('ResetPasswordPage — 토큰 있음', () => {
     renderPage(`/reset-password?token=${MOCK_VALID_RESET_TOKEN}`);
 
     fillMatchingPasswords('abcd1234');
-    fireEvent.click(screen.getByRole('button', { name: '비밀번호 변경' }));
+    fireEvent.click(screen.getByRole('button', { name: '변경' }));
 
     await waitFor(() => {
       expect(screen.getByText('비밀번호가 변경되었습니다.')).not.toBeNull();
@@ -104,7 +104,7 @@ describe('ResetPasswordPage — 토큰 있음', () => {
     renderPage('/reset-password?token=expired-or-used-token');
 
     fillMatchingPasswords('abcd1234');
-    fireEvent.click(screen.getByRole('button', { name: '비밀번호 변경' }));
+    fireEvent.click(screen.getByRole('button', { name: '변경' }));
 
     await waitFor(() => {
       expect(screen.getByText('링크가 만료되었거나 이미 사용되었습니다.')).not.toBeNull();

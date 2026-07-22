@@ -7,6 +7,10 @@ plugins {
 group = 'com.hajacheck'
 version = '0.0.1-SNAPSHOT'
 
+// Docker Engine 29(API 1.44+) 호환 — Spring Boot 3.3.5 BOM이 관리하는 Testcontainers 1.19.8(docker-java 3.3.6)은
+// Docker Engine 29의 최소 API 버전 요구를 충족하지 못해 컨테이너 기동이 400으로 실패한다(#485).
+ext['testcontainers.version'] = '1.21.3'
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
@@ -37,6 +41,9 @@ dependencies {
     implementation 'org.springframework.session:spring-session-data-redis'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
 
+    // 점검 미디어 업로드(dev-05-03) — EXIF/GPS 추출(순수 Java, 네이티브 의존성 없음)
+    implementation 'com.drewnoakes:metadata-extractor:2.19.0'
+
     runtimeOnly 'org.postgresql:postgresql'
     // 로컬 Docker 개발(docker-compose.override.yml) 핫리로드 전용 — 프로덕션 fat jar 실행 시 자동 비활성화
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
@@ -60,14 +67,74 @@ tasks.named('test') {
     if (project.hasProperty('dockerStrategy')) {
         systemProperty 'docker.client.strategy', project.getProperty('dockerStrategy')
     }
-    // 최신 Docker Desktop(Server min API ≥ 1.44)에서 번들 docker-java 가 낮은 API 를 협상해 400 을 받을 때만
-    // 오버라이드용(기본 미설정 → 영향 없음): ./gradlew test -PdockerApiVersion=1.44
+    // 최신 Docker Desktop(Server min API ≥ 1.44)에서 Testcontainers 가 낮은 API(1.32 하드코딩 폴백)를 협상해
+    // 400 을 받는 문제(#485) — 기본값은 gradle.properties 의 dockerApiVersion=1.44 에서 주입된다.
     // docker-java 는 api.version 을 '시스템 프로퍼티'로만 읽으므로(포크된 test 워커엔 env 전파 안 됨) 여기서 주입.
-    if (project.hasProperty('dockerApiVersion')) {
+    // 빈 값(-PdockerApiVersion=)으로 오버라이드하면 주입을 건너뛰어 기본값을 끌 수 있다(구버전 Docker 대응).
+    if (project.hasProperty('dockerApiVersion') && project.getProperty('dockerApiVersion')) {
         systemProperty 'api.version', project.getProperty('dockerApiVersion')
     }
     // 마찬가지로 docker.host 를 워커 시스템 프로퍼티로 주입할 수 있게 한다(기본 미설정).
     if (project.hasProperty('dockerHost')) {
         systemProperty 'docker.host', project.getProperty('dockerHost')
+    }
+}
+
+def canonicalDdl = rootProject.file('../docs/design/db/HajaCheck_script.sql')
+def v03BaselineDdl = rootProject.file('../docs/design/db/archive/HajaCheck_script_v0.3.sql')
+def ha25MigrationDir = rootProject.file('../docs/design/db/migrations')
+def ha25MigrationScripts = rootProject.files(
+        new File(ha25MigrationDir, '20260716_01_ha25_expand.sql'),
+        new File(ha25MigrationDir, '20260716_02_ha25_finalize.sql'),
+        new File(ha25MigrationDir, '20260716_03_ha25_verify.sql'),
+        new File(ha25MigrationDir, '20260716_04_menu_schema_expand.sql'),
+        new File(ha25MigrationDir, '20260716_05_menu_schema_verify.sql'))
+// AP-020(#25 / HAJA-38)이 canonical DDL에 추가한 idx_notifications_user_history는 위 HAJA-25
+// expand/finalize/verify 체인과 무관한 별도 파일이지만, Ha25IncrementalMigrationTest가 "v0.3 +
+// 모든 증분 스크립트 적용 후 DB"와 canonical DDL 신규 설치 DB의 카탈로그 전체를 대조하므로 이 파일도
+// 같은 방식으로 classpath에 포함해야 두 경로가 계속 일치한다.
+def ap020MigrationScript = rootProject.file(
+        '../docs/design/db/migrations/20260719_01_ap020_notification_history_index.sql')
+// #497 / HAJA-299 API 시스템 로그 테이블도 독립 증분 파일이지만, 전체 증분 경로와 canonical DDL의
+// 카탈로그 대조 대상이므로 테스트 classpath에 함께 포함한다.
+def apiSystemLogsMigrationScript = rootProject.file(
+        '../docs/design/db/migrations/20260720_01_create_api_system_logs.sql')
+def ha25SchemaInputs = rootProject.files(
+        canonicalDdl, v03BaselineDdl, ha25MigrationScripts, ap020MigrationScript,
+        apiSystemLogsMigrationScript)
+
+// The released v0.3 archive is a tracked migration input even when it is not part of a PR diff.
+// Fail before test-resource processing so CI cannot silently validate only the canonical DDL.
+def verifyHa25SchemaInputs = tasks.register('verifyHa25SchemaInputs') {
+    group = 'verification'
+    description = 'Verifies canonical, v0.3, and all HAJA-25/AP-020/menu/API-log migration inputs.'
+    inputs.files(ha25SchemaInputs)
+    doLast {
+        ha25SchemaInputs.files.each { ddlFile ->
+            if (!ddlFile.isFile()) {
+                throw new GradleException("테스트용 DDL/마이그레이션을 찾을 수 없습니다: ${ddlFile}")
+            }
+        }
+    }
+}
+
+tasks.named('processTestResources') {
+    dependsOn verifyHa25SchemaInputs
+    // 테스트 스키마를 별도 복제하지 않고 설계 기준 DDL을 그대로 classpath에 포함한다.
+    inputs.files(ha25SchemaInputs)
+    from(canonicalDdl) {
+        into 'db'
+    }
+    from(v03BaselineDdl) {
+        into 'db/migrations'
+    }
+    from(ha25MigrationScripts) {
+        into 'db/migrations'
+    }
+    from(ap020MigrationScript) {
+        into 'db/migrations'
+    }
+    from(apiSystemLogsMigrationScript) {
+        into 'db/migrations'
     }
 }

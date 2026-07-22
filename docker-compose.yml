@@ -14,6 +14,8 @@ volumes:
   pgdata:
   redisdata:
   chroma_data:
+  # HF 임베딩 모델(bge-m3 ~2GB) 캐시 — 미마운트 시 컨테이너 재생성마다 재다운로드(#439).
+  hf_cache:
   certbot:
 
 services:
@@ -65,6 +67,10 @@ services:
       redis:
         condition: service_healthy
     environment:
+      # JVM 기본 타임존이 컨테이너 기본값(UTC)로 남아 있으면 LocalDateTime.now()(가입일 등
+      # @CreatedDate 포함)가 UTC 벽시계 값으로 찍혀, 프론트가 그 값을 그대로(타임존 변환 없이)
+      # 표시하는 formatJoinedAt과 만나 한국시간보다 9시간 느리게 보인다(가입일이 05시로 보이던 원인).
+      TZ: Asia/Seoul
       SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-hajacheck_dev}
       SPRING_DATASOURCE_USERNAME: ${DB_USER:-hajacheck}
@@ -105,8 +111,12 @@ services:
       # 스프링이 부착하는 X-Internal-Key 검증용 공유키(동일 ${AI_INTERNAL_KEY} 소스).
       # 미설정(빈값) 시 FastAPI 검증 비활성 — 로컬/dev 편의(nginx 폐쇄가 1차 방어).
       AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:-}
+      # HF 캐시를 named volume(hf_cache) 경로로 고정 — transformers/hub/sentence-transformers가
+      # 모두 HF_HOME 하위를 쓰므로 이 한 줄로 bge-m3 모델 캐시가 영속화된다(#439).
+      HF_HOME: /app/hf_cache
     volumes:
       - chroma_data:/app/chroma_data
+      - hf_cache:/app/hf_cache
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 15s

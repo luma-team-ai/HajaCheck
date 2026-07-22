@@ -3,37 +3,59 @@ import partnerLogo2 from '../../assets/brand/landing-partner-2.svg';
 import partnerLogo3 from '../../assets/brand/landing-partner-3.svg';
 import partnerLogo4 from '../../assets/brand/landing-partner-4.svg';
 
+export interface PricingFeature {
+  label: string;
+  included?: boolean;
+}
+
 export interface PricingTier {
   name: string;
+  subtitle: string;
   price: string;
   period?: string;
   badge?: string;
-  features: string[];
+  features: PricingFeature[];
   ctaLabel: string;
   inverted?: boolean;
 }
 
 export const PRICING_TIERS: PricingTier[] = [
   {
-    name: 'Starter',
+    name: 'Free',
+    subtitle: '체험·개인 사용자',
     price: '₩0',
     period: '/월',
-    features: ['기본 시설물 관리', '기본 점검 관리'],
+    features: [
+      { label: '시설물 1개 · 월 분석 50장' },
+      { label: '점검자 좌석 없음(1인 계정)' },
+      { label: 'AI 부가 기능(설명·브리핑)', included: false },
+    ],
     ctaLabel: '무료 시작',
   },
   {
-    name: 'Professional',
-    price: '₩290,000',
+    name: 'Standard',
+    subtitle: '소규모 점검 업체',
+    price: '₩29,000',
     period: '/월',
     badge: 'MOST POPULAR',
-    features: ['무제한 시설물 관리', '고급 AI 분석 및 리포트', '팀 5명까지 초대'],
-    ctaLabel: '14일 무료 체험',
+    features: [
+      { label: '시설물 10개 · 월 분석 1,000장' },
+      { label: '점검자 좌석 3명 · 정식 PDF 보고서' },
+      { label: 'AI 부가 기능 · 상담원 연결' },
+    ],
+    ctaLabel: '업그레이드 문의',
     inverted: true,
   },
   {
     name: 'Enterprise',
-    price: 'Custom',
-    features: ['Professional 모든 기능', '기업 EWM/SSO 시스템 연동', '전담 고객 매니저'],
+    subtitle: '관리업체·공공기관',
+    price: '₩59,000',
+    period: '/월',
+    features: [
+      { label: '시설물 무제한 · 월 분석 협의' },
+      { label: '점검자 좌석 무제한 · 데이터 반출' },
+      { label: 'AI 부가 기능 · 우선 응대' },
+    ],
     ctaLabel: '도입 문의',
   },
 ];

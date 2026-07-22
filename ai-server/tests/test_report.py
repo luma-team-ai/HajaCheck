@@ -7,6 +7,8 @@
 - detail 섹션 items 개수가 confirmed_defects와 다르면 실패 처리되는지
 - vectorstore.get_vectorstore()가 NotImplementedError를 던져도 recommendation이 "관련 근거 없음"으로 폴백되는지
 """
+import hashlib
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -34,8 +36,144 @@ from ai.chains.report_chain import (
 )
 from ai.core.grounding import GroundingAction
 from main import app
+from routers.ai_router import _canonical_content_hash
 
 client = TestClient(app)
+
+
+def test_canonical_content_hash_matches_backend_canonical_sample():
+    content = {
+        "overview": {"purpose": "purpose", "facility_summary": "facility", "scope": "all"},
+        "summary": {
+            "overall_opinion": "caution",
+            "total_count": 1,
+            "count_by_grade": {"A": 0, "B": 1, "C": 0, "D": 0, "E": 0},
+            "key_findings": ["crack"],
+        },
+        "detail": {
+            "items": [
+                {
+                    "defect_type": "crack",
+                    "location": "floor-1",
+                    "severity_grade": "B",
+                    "description": "micro crack",
+                    "cause": "shrinkage",
+                }
+            ]
+        },
+        "recommendation": {
+            "items": [
+                {
+                    "target": "crack",
+                    "method": "epoxy",
+                    "priority": "medium",
+                    "legal_basis": "article-1",
+                    "legal_basis_verified": True,
+                }
+            ],
+            "monitoring_points": ["crack area"],
+        },
+        "grounding_ok": True,
+    }
+
+    assert _canonical_content_hash(content) == (
+        "4a1bb364dd04353d066273d3347a7a6702b98150d0a24d1a21f3229be6ccfdcd"
+    )
+
+
+def test_canonical_content_hash_matches_backend_canonical_sample_legal_basis_unverified():
+    content = {
+        "overview": {"purpose": "purpose", "facility_summary": "facility", "scope": "all"},
+        "summary": {
+            "overall_opinion": "caution",
+            "total_count": 1,
+            "count_by_grade": {"A": 0, "B": 1, "C": 0, "D": 0, "E": 0},
+            "key_findings": ["crack"],
+        },
+        "detail": {
+            "items": [
+                {
+                    "defect_type": "crack",
+                    "location": "floor-1",
+                    "severity_grade": "B",
+                    "description": "micro crack",
+                    "cause": "shrinkage",
+                }
+            ]
+        },
+        "recommendation": {
+            "items": [
+                {
+                    "target": "crack",
+                    "method": "epoxy",
+                    "priority": "medium",
+                    "legal_basis": "article-1",
+                    "legal_basis_verified": False,
+                }
+            ],
+            "monitoring_points": ["crack area"],
+        },
+        "grounding_ok": True,
+    }
+
+    assert _canonical_content_hash(content) == (
+        "0f99c606207c20c65edb341fd60bb9b927fb50e60cecc234d529a6cd236e17ee"
+    )
+
+
+def test_canonical_content_hash_matches_backend_canonical_sample_korean_real_data():
+    """ASCII 고정 샘플만으로는 검증되지 않던 실제 운영 데이터(한국어 결함 설명 등) 크로스 언어
+    해시 정합성을 검증한다 — Java GroundingCheckResultFactoryTest의
+    fromAiReport_한국어실데이터payload를DTO왕복한뒤Python과동일한공식저장JSON해시를검증
+    테스트와 동일 payload/해시값을 공유한다."""
+    content = {
+        "overview": {
+            "purpose": "정기 안전점검",
+            "facility_summary": "철근콘크리트 구조의 5층 근린생활시설",
+            "scope": "전체 구조부 및 마감재",
+        },
+        "summary": {
+            "overall_opinion": "주의",
+            "total_count": 2,
+            "count_by_grade": {"A": 0, "B": 1, "C": 1, "D": 0, "E": 0},
+            "key_findings": ["건조 수축에 의한 미세 균열", "누수 흔적 발견"],
+        },
+        "detail": {
+            "items": [
+                {
+                    "defect_type": "균열",
+                    "location": "지하 1층 주차장 벽체",
+                    "severity_grade": "B",
+                    "description": "건조 수축에 의한 미세 균열이 관찰되었습니다",
+                    "cause": "콘크리트 양생 중 수분 증발",
+                },
+                {
+                    "defect_type": "누수",
+                    "location": "옥상 방수층",
+                    "severity_grade": "C",
+                    "description": "우천 시 누수가 발생할 우려가 있습니다",
+                    "cause": "방수층 노후화",
+                },
+            ]
+        },
+        "recommendation": {
+            "items": [
+                {
+                    "target": "균열",
+                    "method": "에폭시 주입 보수",
+                    "priority": "중간",
+                    "legal_basis": "건축물관리법 제13조",
+                    "legal_basis_verified": True,
+                }
+            ],
+            "monitoring_points": ["지하 1층 벽체 균열 진행 여부 정기 관찰"],
+        },
+        "grounding_ok": True,
+    }
+
+    assert _canonical_content_hash(content) == (
+        "46be3c0fda0f8657d70702dde257dfbf000cf0f23596275fc21dcd494270cb89"
+    )
 
 
 def _sample_facility_info() -> dict:
@@ -213,6 +351,9 @@ def test_report_endpoint_success_envelope(mock_get_llm, mock_get_vectorstore):
             "facility_info": _sample_facility_info(),
             "confirmed_defects": _sample_defects(),
             "on_mismatch": "regenerate",
+            "grounding_request_id": "request-123",
+            "inspection_id": 10,
+            "report_version": 3,
         },
     )
     assert res.status_code == 200
@@ -222,6 +363,30 @@ def test_report_endpoint_success_envelope(mock_get_llm, mock_get_vectorstore):
     assert body["data"]["summary"]["total_count"] == 1
     assert body["data"]["detail"]["items"][0]["cause"] == "건조 수축에 의한 미세 균열"
     assert body["data"]["recommendation"]["monitoring_points"] == ["지하주차장 균열 발생 부위"]
+    assert body["data"]["grounding_request_id"] == "request-123"
+    assert body["data"]["inspection_id"] == 10
+    assert body["data"]["report_version"] == 3
+    content = {
+        key: value
+        for key, value in body["data"].items()
+        if key
+        not in {"grounding_request_id", "inspection_id", "report_version", "content_hash"}
+    }
+    canonical = json.dumps(content, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    assert body["data"]["content_hash"] == hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def test_report_endpoint_rejects_partial_grounding_correlation():
+    res = client.post(
+        "/ai/report",
+        json={
+            "facility_info": _sample_facility_info(),
+            "confirmed_defects": _sample_defects(),
+            "grounding_request_id": "request-without-report-identity",
+        },
+    )
+
+    assert res.status_code == 422
 
 
 @patch("ai.chains.report_chain.get_llm")

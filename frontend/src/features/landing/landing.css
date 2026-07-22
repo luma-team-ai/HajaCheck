@@ -1,5 +1,13 @@
 .landing {
   color: #111;
+  --landing-text-secondary: #47464b;
+  --landing-accent: rgba(79, 70, 229, 0.8); /* #4F46E5 @ 80% opacity */
+  --landing-border: #e4e4e7;
+  --landing-radius-pill: 999px;
+  /* 대시보드/지도뷰 GRADE_BG_CLASS(dashboard/colors.ts) E·C 등급과 동일한 값 — 공용 토큰 승격은
+     프로젝트 컨벤션상 금지(colors.ts 주석 참조)이므로 랜딩 내에서만 로컬로 명명해 재사용 */
+  --landing-grade-high: #dc2626;
+  --landing-grade-medium: #eab308;
 }
 
 .landing-header {
@@ -14,10 +22,19 @@
   border-bottom: 1px solid #eee;
 }
 
-.landing-logo {
-  font-weight: 800;
-  font-size: 20px;
-  color: #000;
+.landing-logo-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.landing-logo-image {
+  height: 28px;
+  width: auto;
+  object-fit: contain;
 }
 
 .landing-nav {
@@ -37,7 +54,7 @@
 .landing-login {
   background: #000;
   color: #fff;
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   padding: 12px 24px;
   font-size: 16px;
   font-weight: 600;
@@ -54,7 +71,7 @@
 .landing-badge {
   display: inline-block;
   padding: 6px 16px;
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   background: #f2f2f2;
   font-size: 13px;
   font-weight: 600;
@@ -62,18 +79,22 @@
   margin-bottom: 24px;
 }
 
+.landing-badge-dot {
+  color: var(--landing-accent);
+}
+
 .landing-hero h1 {
-  font-size: 72px;
+  font-size: 88px;
   font-weight: 800;
   line-height: 1.3;
   margin: 0 0 20px;
 }
 
 .landing-hero p {
-  color: #666;
-  font-size: 17px;
+  color: var(--landing-text-secondary);
+  font-size: 20px;
   line-height: 1.6;
-  max-width: 500px;
+  max-width: 600px;
   margin: 0 auto 32px;
 }
 
@@ -81,8 +102,8 @@
   display: inline-block;
   background: #000;
   color: #fff;
-  border-radius: 999px;
-  padding: 17px 34px;
+  border-radius: var(--landing-radius-pill);
+  padding: 17px 48px;
   font-size: 18px;
   font-weight: 600;
   text-decoration: none;
@@ -90,12 +111,15 @@
 
 .landing-hero-visual {
   position: relative;
-  max-width: 1100px;
+  width: 100%;
+  max-width: 900px;
   margin: 64px auto 0;
-  aspect-ratio: 21 / 9;
+  aspect-ratio: 3 / 2;
   border-radius: 24px;
   overflow: hidden;
   background: linear-gradient(135deg, #1c1c1e 0%, #3a3a3d 60%, #232326 100%);
+  /* D등급(박리·박락) 색 — dashboard GRADE_BG_CLASS.D(#f97316)와 동일값을 랜딩 로컬로 명명 */
+  --landing-grade-d: #f97316;
 }
 
 .landing-hero-visual-image {
@@ -106,8 +130,59 @@
   object-fit: cover;
 }
 
+.landing-scan-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--landing-accent);
+  box-shadow: 0 0 12px 2px var(--landing-accent);
+  animation: landing-scan 3.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes landing-scan {
+  0%,
+  100% {
+    top: 14%;
+  }
+  50% {
+    top: 86%;
+  }
+}
+
+.landing-crack-line {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: var(--landing-grade-high);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.landing-bbox {
+  position: absolute;
+  border: 2px solid var(--landing-grade-d);
+  background: rgba(249, 115, 22, 0.15);
+  pointer-events: none;
+}
+
+.landing-bbox--1 {
+  top: 53%;
+  left: 55%;
+  width: 128px;
+  height: 128px;
+}
+
 .landing-chip {
   position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: #fff;
   border-radius: 10px;
   padding: 8px 14px;
@@ -115,31 +190,64 @@
   font-weight: 600;
   color: #222;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+}
+
+.landing-chip-dot {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.landing-chip-dot--danger {
+  color: var(--landing-grade-high);
+}
+
+.landing-chip-dot--d {
+  color: var(--landing-grade-d);
+}
+
+.landing-chip-spin {
+  display: inline-block;
+  color: var(--landing-accent);
+  animation: landing-spin 1.6s linear infinite;
+}
+
+@keyframes landing-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .landing-chip--1 {
-  top: 18%;
-  left: 8%;
+  top: 24%;
+  left: 23%;
 }
 
 .landing-chip--2 {
-  top: 55%;
-  right: 10%;
+  top: 43%;
+  left: 55%;
 }
 
 .landing-chip--3 {
-  bottom: 12%;
-  left: 20%;
+  bottom: 8%;
+  left: 2%;
 }
 
 .landing-partners {
   text-align: center;
   padding: 56px 24px;
+  background-color: #fafafa;
+  border: none;
+  border-radius: 0;
 }
 
 .landing-partners-label {
-  color: #999;
-  font-size: 13px;
+  color: var(--landing-text-secondary);
+  font-size: 14px;
+  letter-spacing: 1.4px;
   margin-bottom: 24px;
 }
 
@@ -165,26 +273,39 @@
 }
 
 .landing-eyebrow {
-  color: #4a5cff;
+  color: var(--landing-accent);
   font-weight: 700;
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: 0.06em;
   margin-bottom: 16px;
 }
 
-.landing-section h2 {
-  font-size: 34px;
+.landing-section h2,
+.landing-pricing h2,
+.landing-banner h2 {
+  font-size: 48px;
   font-weight: 800;
   line-height: 1.35;
   margin: 0 0 16px;
 }
 
-.landing-section p {
-  color: #666;
-  font-size: 16px;
+.landing-section p:not(.landing-eyebrow),
+.landing-pricing > p:not(.landing-eyebrow),
+.landing-banner p {
+  color: var(--landing-text-secondary);
+  font-size: 20px;
   line-height: 1.6;
   margin: 0 auto;
-  max-width: 540px;
+  max-width: 680px;
+}
+
+.landing-section p.landing-p--wide {
+  max-width: 760px;
+}
+
+/* 한글은 UAX#14 줄바꿈 규칙상 nbsp만으로 단어 사이 줄바꿈을 막을 수 없어 nowrap을 강제한다 */
+.landing-nowrap {
+  white-space: nowrap;
 }
 
 .landing-badge-row {
@@ -195,20 +316,29 @@
 }
 
 .landing-pill {
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   padding: 6px 14px;
   font-size: 13px;
   font-weight: 600;
 }
 
-.landing-pill--danger {
-  background: #fde2e1;
-  color: #b3261e;
+.landing-pill-dot {
+  font-size: 8px;
+  vertical-align: middle;
 }
 
+.landing-pill--danger,
 .landing-pill--warning {
-  background: #fdf0d5;
-  color: #8a5b00;
+  background: #f2f2f2;
+  color: #444;
+}
+
+.landing-pill--danger .landing-pill-dot {
+  color: var(--landing-grade-high);
+}
+
+.landing-pill--warning .landing-pill-dot {
+  color: var(--landing-grade-medium);
 }
 
 .landing-visual {
@@ -216,42 +346,10 @@
   margin: 40px auto 0;
   border-radius: 20px;
   aspect-ratio: 16 / 8;
-  background: #f0f1f3;
-  border: 1px solid #e4e5e8;
-  position: relative;
-  overflow: hidden;
-}
-
-.landing-visual::before {
-  content: '';
-  position: absolute;
-  top: 20px;
-  left: 20px;
-  right: 20px;
-  height: 24px;
-  border-radius: 6px;
-  background: #dfe1e6;
-}
-
-.landing-visual::after {
-  content: '';
-  position: absolute;
-  top: 64px;
-  left: 20px;
-  right: 20px;
-  bottom: 20px;
-  border-radius: 12px;
-  border: 1px dashed #c9cbd1;
-}
-
-.landing-visual--dark {
   background: linear-gradient(135deg, #24262b 0%, #46484f 100%);
   border: none;
-}
-
-.landing-visual--dark::before,
-.landing-visual--dark::after {
-  display: none;
+  position: relative;
+  overflow: hidden;
 }
 
 .landing-pricing {
@@ -259,23 +357,9 @@
   text-align: center;
 }
 
-.landing-pricing h2 {
-  font-size: 34px;
-  font-weight: 800;
-  line-height: 1.35;
-  margin: 0 0 16px;
-}
-
-.landing-pricing > p {
-  color: #666;
-  font-size: 16px;
-  line-height: 1.6;
-  margin: 0 auto;
-  max-width: 620px;
-}
-
 .landing-pricing-cards {
   display: flex;
+  align-items: flex-start;
   justify-content: center;
   gap: 24px;
   margin-top: 48px;
@@ -284,11 +368,11 @@
 
 .landing-pricing-card {
   width: 300px;
-  border-radius: 20px;
-  border: 1px solid #e6e6e6;
+  border-radius: 28px;
+  border: 1px solid var(--landing-border);
   padding: 32px 28px;
   text-align: left;
-  background: #fff;
+  background: #faf9f6;
   position: relative;
 }
 
@@ -301,21 +385,30 @@
 .landing-pricing-badge {
   position: absolute;
   top: -14px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #4a5cff;
+  right: 24px;
+  background: var(--landing-accent);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
   padding: 6px 14px;
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   white-space: nowrap;
 }
 
 .landing-pricing-name {
   font-weight: 700;
   font-size: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 4px;
+}
+
+.landing-pricing-subtitle {
+  color: var(--landing-text-secondary);
+  font-size: 13px;
+  margin: 0 0 20px;
+}
+
+.landing-pricing-card--inverted .landing-pricing-subtitle {
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .landing-pricing-price {
@@ -343,15 +436,55 @@
   font-size: 14px;
 }
 
+.landing-pricing-feature {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.landing-pricing-feature::before {
+  content: '✓';
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--landing-radius-pill);
+  border: 1.5px solid var(--landing-accent);
+  color: var(--landing-accent);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.landing-pricing-card--inverted .landing-pricing-feature::before {
+  border-color: #e2dfff;
+  color: #e2dfff;
+}
+
+.landing-pricing-feature--excluded {
+  color: #aaa;
+}
+
+.landing-pricing-feature--excluded::before {
+  content: '✕';
+  border-color: #ccc;
+  color: #ccc;
+}
+
+.landing-pricing-feature--excluded .landing-pricing-feature-label {
+  text-decoration: line-through;
+}
+
 .landing-pricing-cta {
   display: block;
   text-align: center;
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   padding: 12px;
   font-size: 14px;
   font-weight: 600;
   text-decoration: none;
-  border: 1px solid #ccc;
+  border: 1px solid #000;
   color: #111;
 }
 
@@ -362,21 +495,11 @@
 }
 
 .landing-banner {
-  background: #f4f1ea;
+  background: #f7f3f2;
   text-align: center;
   padding: 96px 24px;
-}
-
-.landing-banner h2 {
-  font-size: 32px;
-  font-weight: 800;
-  line-height: 1.35;
-  margin: 0 0 16px;
-}
-
-.landing-banner p {
-  color: #666;
-  font-size: 16px;
+  margin: 0 40px;
+  border-radius: 32px;
 }
 
 .landing-floating-controls {
@@ -392,7 +515,7 @@
 .landing-floating-controls button {
   width: 36px;
   height: 36px;
-  border-radius: 999px;
+  border-radius: var(--landing-radius-pill);
   border: none;
   background: #000;
   color: #fff;
@@ -402,6 +525,8 @@
 .landing-footer {
   background: #f7f7f8;
   padding: 56px 40px 32px;
+  margin-top: 80px;
+  border-top: 1px solid var(--landing-border);
 }
 
 .landing-footer-top {
@@ -414,7 +539,7 @@
 }
 
 .landing-footer-tagline {
-  color: #777;
+  color: var(--landing-text-secondary);
   font-size: 13px;
   margin-top: 8px;
   max-width: 260px;
@@ -428,6 +553,7 @@
 }
 
 .landing-footer-column h4 {
+  color: #000;
   font-size: 13px;
   margin: 0 0 12px;
 }
@@ -442,7 +568,7 @@
 }
 
 .landing-footer-column a {
-  color: #666;
+  color: var(--landing-text-secondary);
   font-size: 13px;
   text-decoration: none;
 }
@@ -452,6 +578,6 @@
   margin: 40px auto 0;
   padding-top: 20px;
   border-top: 1px solid #e3e3e5;
-  color: #999;
+  color: #858387;
   font-size: 12px;
 }

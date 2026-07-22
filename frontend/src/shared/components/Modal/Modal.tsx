@@ -5,8 +5,11 @@ import { createPortal } from 'react-dom';
 interface ModalProps {
   open: boolean;
   onClose: () => void;
-  title?: string;
+  title?: ReactNode;
   children: ReactNode;
+  /** 배경(오버레이) 클릭 시 onClose 호출 여부. 기본 true(기존 동작 유지) — 입력 유실 방지가 필요한
+   * 폼 모달(예: 시설물 등록)에서만 false로 꺼서 X 버튼으로만 닫히게 한다(#500). */
+  closeOnOverlayClick?: boolean;
 }
 
 const FOCUSABLE_SELECTOR =
@@ -16,7 +19,7 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
 }
 
-export function Modal({ open, onClose, title, children }: ModalProps) {
+export function Modal({ open, onClose, title, children, closeOnOverlayClick = true }: ModalProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
   // onClose가 부모 렌더마다 새로 생성돼도 effect가 재실행되지 않도록 ref로 최신값만 참조
@@ -78,7 +81,9 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
   }
 
   function handleOverlayClick() {
-    onClose();
+    if (closeOnOverlayClick) {
+      onClose();
+    }
   }
 
   function handleContentClick(event: MouseEvent<HTMLDivElement>) {
@@ -99,7 +104,19 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
         tabIndex={-1}
         onClick={handleContentClick}
       >
-        {title && <h2 className="m-0 mb-4 text-lg font-bold">{title}</h2>}
+        {title && (
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <h2 className="m-0 text-xl font-medium text-heading">{title}</h2>
+            <button
+              type="button"
+              aria-label="닫기"
+              onClick={onClose}
+              className="rounded-full p-1 text-text-muted hover:bg-surface-muted"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {children}
       </div>
     </div>,

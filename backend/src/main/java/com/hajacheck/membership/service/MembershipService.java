@@ -22,6 +22,7 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +37,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
 public class MembershipService {
+
+    // 좌석 목록 조회 상한(#484) — maxSeats 자체가 실질 상한 역할을 하지만, 방어적으로 목록 반환 건수도
+    // 제한한다(회사 소속 활성 사용자 전체 무제한 반환 방지). "used" 는 이 상한과 무관하게 실제 총원 수를
+    // count 쿼리로 산출해 정확성을 유지한다.
+    private static final int MEMBERSHIP_SEATS_MAX = 200;
 
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
@@ -66,8 +72,10 @@ public class MembershipService {
 
         UserPlan userPlan = resolveCurrentUserPlan(userId, companyId);
         Plan plan = findPlan(userPlan.getPlanId());
-        List<User> members = userRepository.findByCompanyIdAndStatus(companyId, UserStatus.ACTIVE);
-        return SeatsResponse.of(members.size(), members, plan.getMaxSeats());
+        long totalActive = userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE);
+        List<User> members = userRepository.findByCompanyIdAndStatusOrderByIdAsc(
+                companyId, UserStatus.ACTIVE, PageRequest.of(0, MEMBERSHIP_SEATS_MAX));
+        return SeatsResponse.of((int) totalActive, members, plan.getMaxSeats());
     }
 
     @Transactional

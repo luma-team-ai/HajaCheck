@@ -24,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
@@ -46,8 +47,14 @@ class MembershipRepositoryTest extends PostgresTestSupport {
     private UserPlanRepository userPlanRepository;
     @Autowired
     private UsageCounterRepository usageCounterRepository;
+    @Autowired
+    private TestEntityManager em;
 
     private Plan savePlan(PlanName name) {
+        // #517 시드로 FREE/STANDARD/ENTERPRISE 가 이미 존재 — 고정 테스트 값을 쓰기 위해
+        // 시드 행을 지우고 이 fixture 로 대체한다(트랜잭션 롤백으로 테스트 간 격리 유지).
+        planRepository.findByName(name).ifPresent(planRepository::delete);
+        planRepository.flush();
         return planRepository.save(Plan.create(name, 10, 1000, 3, false, true, false, BigDecimal.valueOf(99000)));
     }
 
@@ -88,6 +95,9 @@ class MembershipRepositoryTest extends PostgresTestSupport {
 
     @Test
     void plan_무제한한도는_null그대로저장() {
+        // #517 시드로 ENTERPRISE 가 이미 존재 — 지우고 이 fixture 로 대체(트랜잭션 롤백으로 격리).
+        planRepository.findByName(PlanName.ENTERPRISE).ifPresent(planRepository::delete);
+        planRepository.flush();
         Plan enterprise = planRepository.save(
                 Plan.create(PlanName.ENTERPRISE, null, null, 100, false, true, true, BigDecimal.valueOf(500000)));
 
@@ -101,13 +111,15 @@ class MembershipRepositoryTest extends PostgresTestSupport {
     void userPlan_개인구독_findFirstByUserIdAndStatus_ACTIVE조회() {
         Plan plan = savePlan(PlanName.STANDARD);
         User user = saveUser("individual@haja.com", null);
-        userPlanRepository.save(UserPlan.forUser(user.getId(), plan.getId()));
+        userPlanRepository.saveAndFlush(UserPlan.forUser(user.getId(), plan.getId()));
+        em.clear();
 
         Optional<UserPlan> found = userPlanRepository
                 .findFirstByUserIdAndStatusOrderByStartedAtDesc(user.getId(), UserPlanStatus.ACTIVE);
 
         assertThat(found).isPresent();
         assertThat(found.get().getPlanId()).isEqualTo(plan.getId());
+        assertThat(found.get().getPlan().getName()).isEqualTo(PlanName.STANDARD);
         assertThat(found.get().getCompanyId()).isNull();
     }
 
@@ -143,15 +155,17 @@ class MembershipRepositoryTest extends PostgresTestSupport {
         User user = saveUser("usage@haja.com", null);
         UserPlan userPlan = userPlanRepository.save(UserPlan.forUser(user.getId(), plan.getId()));
 
-        UsageCounter saved = usageCounterRepository.save(
+        UsageCounter saved = usageCounterRepository.saveAndFlush(
                 UsageCounter.create(userPlan.getId(), LocalDate.now(), 786, 4, 12, 1, 0, 2));
 
         assertThat(saved.getPeriod()).isEqualTo(YearMonth.now().atDay(1));
 
+        em.clear();
         Optional<UsageCounter> found = usageCounterRepository
                 .findByUserPlanIdAndPeriod(userPlan.getId(), YearMonth.now().atDay(1));
         assertThat(found).isPresent();
         assertThat(found.get().getAnalyzedImageCount()).isEqualTo(786);
+        assertThat(found.get().getUserPlan().getPlan().getName()).isEqualTo(PlanName.STANDARD);
     }
 
     @Test
@@ -176,5 +190,23 @@ class MembershipRepositoryTest extends PostgresTestSupport {
         assertThat(activeMembers).hasSize(2);
         assertThat(activeMembers).extracting(User::getEmail)
                 .containsExactlyInAnyOrder("member1@haja.com", "member2@haja.com");
+    }
+
+    // 좌석 목록 조회 상한(#484) — 상한 초과 데이터 시 limit(Pageable) 건수만 반환되고,
+    // count 쿼리는 truncation 과 무관하게 실제 총원 수를 정확히 반환하는지 확인.
+    @Test
+    void user_회사소속_활성사용자_목록상한초과시_limit건수만_count는실제총원() {
+        Company company = saveCompany("seats-cap-owner@haja.com", "3333333333");
+        Long companyId = company.getId();
+        for (int i = 0; i < 5; i++) {
+            saveUser("member" + i + "@haja.com", companyId);
+        }
+
+        long totalActive = userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE);
+        List<User> capped = userRepository.findByCompanyIdAndStatusOrderByIdAsc(
+                companyId, UserStatus.ACTIVE, org.springframework.data.domain.PageRequest.of(0, 3));
+
+        assertThat(totalActive).isEqualTo(5);
+        assertThat(capped).hasSize(3);
     }
 }

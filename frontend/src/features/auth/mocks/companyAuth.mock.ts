@@ -1,13 +1,13 @@
-// 기업 인증 플로우 MSW 목 — HAJA-170(#187), 3화면(회원가입/승인대기/아이디찾기) 클릭 플로우가
+// 기업 인증 플로우 MSW 목 — HAJA-170(#187), 회원가입/아이디찾기 클릭 플로우가
 // 끝까지 동작하도록 구성. 데이터가 많아 authApi.handlers.ts에서 분리(React_코드_컨벤션.md 지침)
 // 비밀번호 찾기·새 비밀번호 설정 목은 passwordReset.mock.ts 로 분리(#301, HAJA-224)
+// 가입 승인 대기 상태조회 목은 승인 대기 플로우 제거로 삭제(#481)
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse } from '../../../shared/api/types';
 import type {
   CompanySignupResponse,
   EmailAvailabilityResponse,
   IdInquiryResponse,
-  SignupStatusResponse,
 } from '../types';
 
 // 이미 가입된 것으로 취급할 더미 값 — 중복 시나리오 데모/테스트용
@@ -18,26 +18,35 @@ export const MOCK_DUPLICATED_BUSINESS_NUMBER = '9999999999';
 export const MOCK_FIND_ID_BUSINESS_NUMBER = '1234567890';
 export const MOCK_FIND_ID_COMPANY_NAME = '(주)하자체크';
 export const MOCK_FIND_ID_REPRESENTATIVE_NAME = '김민수';
-export const MOCK_FIND_ID_MASKED_EMAIL = 'ha***@check.com';
+export const MOCK_FIND_ID_MASKED_EMAIL = 'h***@c***.com';
 
 export const MOCK_SIGNUP_TOKEN = 'mock-signup-token';
-
-let signupStatusCheckCount = 0;
-
-// 테스트 간 모듈 스코프 상태(새로고침 시뮬레이션 카운터) 초기화용
-export function resetCompanyAuthMockState(): void {
-  signupStatusCheckCount = 0;
-}
 
 function normalizeDigits(value: string): string {
   return value.replace(/\D/g, '');
 }
 
+// 백엔드 EmailMasker(backend/src/main/java/com/hajacheck/global/util/EmailMasker.java)와
+// 동일 규칙 — 로컬파트 첫 1자+"***", 도메인은 마지막 '.' 기준 host/TLD 분리 후 host 첫 1자+"***"+".TLD".
+// 예) haja@check.com → h***@c***.com (#523, HAJA-312 — 백엔드 규칙 강화 #524 정합)
+const MASK = '***';
+const REVEAL = 1;
+
+function maskDomain(domain: string): string {
+  const dot = domain.lastIndexOf('.');
+  if (dot <= 0 || dot === domain.length - 1) return MASK;
+  const host = domain.slice(0, dot);
+  const tld = domain.slice(dot + 1);
+  return `${host.slice(0, REVEAL)}${MASK}.${tld}`;
+}
+
 function maskEmail(email: string): string {
-  const [local, domain] = email.split('@');
-  if (!domain) return email;
-  const visible = local.slice(0, 2);
-  return `${visible}${'*'.repeat(Math.max(local.length - visible.length, 3))}@${domain}`;
+  const at = email.lastIndexOf('@');
+  if (at <= 0) return MASK;
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  if (!domain) return MASK;
+  return `${local.slice(0, REVEAL)}${MASK}@${maskDomain(domain)}`;
 }
 
 export const companyAuthHandlers = [
@@ -101,30 +110,6 @@ export const companyAuthHandlers = [
       },
     };
     return HttpResponse.json(success, { status: 201 });
-  }),
-
-  http.get('/api/auth/companies/status', ({ request }) => {
-    const url = new URL(request.url);
-    const token = url.searchParams.get('token');
-
-    if (token !== MOCK_SIGNUP_TOKEN) {
-      const failure: ApiResponse<null> = {
-        success: false,
-        data: null,
-        error: { code: 'AUTH_SIGNUP_TOKEN_INVALID', message: '유효하지 않은 요청입니다.' },
-      };
-      return HttpResponse.json(failure, { status: 404 });
-    }
-
-    signupStatusCheckCount += 1;
-    // 3번째 조회부터 승인완료로 전환 — "가입 상태 새로고침" 클릭 플로우 데모용
-    const status = signupStatusCheckCount >= 3 ? 'APPROVED' : 'PENDING_REVIEW';
-
-    const success: ApiResponse<SignupStatusResponse> = {
-      success: true,
-      data: { status, companyName: MOCK_FIND_ID_COMPANY_NAME, rejectionReason: null },
-    };
-    return HttpResponse.json(success);
   }),
 
   http.post('/api/auth/id-inquiry', async ({ request }) => {

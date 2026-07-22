@@ -11,7 +11,8 @@ from functools import lru_cache
 
 import redis
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+
+from ai.core.hf_chat_model import HFInferenceChatModel
 
 DEFAULT_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-8B")
 MAX_RETRIES = 2
@@ -88,10 +89,12 @@ class _StructuredLLM:
         full_prompt = f"{prompt}\n\n{self._parser.get_format_instructions()}"
         last_error: Exception | None = None
         for _ in range(MAX_RETRIES + 1):
-            response = self._chat.invoke(full_prompt)
             try:
+                # invoke를 try 안에 둬 LLM 호출 실패(빈 응답 RuntimeError·타임아웃 등)도 파싱 실패와
+                # 동일하게 재시도 대상에 포함(#448 P2: 일시적 truncation을 구조화 출력 경로에서도 흡수).
+                response = self._chat.invoke(full_prompt)
                 return self._parser.parse(response.content)
-            except Exception as e:  # noqa: BLE001 — 파싱 실패(형식 어긋난 출력)는 재시도 대상
+            except Exception as e:  # noqa: BLE001 — LLM 호출·파싱 실패 모두 재시도
                 last_error = e
         raise last_error
 
@@ -125,13 +128,26 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
     else:  # default "hf"
         # OLLAMA_MODEL과 동일하게 호출 시점에 LLM_MODEL을 읽어 provider 간 일관성 유지
         model_name = os.getenv("LLM_MODEL", DEFAULT_MODEL)
-        endpoint = HuggingFaceEndpoint(
-            repo_id=model_name,
-            huggingfacehub_api_token=os.environ["HF_API_TOKEN"],
+        # HF Inference 튜닝 env도 model_name과 동일하게 호출 시점에 읽어, 프로세스 재시작 없이 반영되게
+        # 한다(운영 중 조정 가능, #448 P2 — 이전엔 임포트 시점 1회 고정이라 주석과 실동작이 어긋났음).
+        #   HF_MAX_TOKENS: 응답 토큰 상한 — Qwen3-8B는 reasoning 이후 최종답을 내므로 작으면 content가
+        #     None으로 잘림(#438, 컨테이너 실측) → 기본값 크게(4096).
+        #   HF_TIMEOUT: 응답 대기 상한(초, 기본 120). max_tokens를 키우면 함께 상향하되, Spring
+        #     ai.server.read-timeout-ms(150000)보다 작게 유지할 것(#448 P1 — 역전 시 Spring이 먼저 끊음).
+        hf_max_tokens = int(os.getenv("HF_MAX_TOKENS", "4096"))
+        hf_timeout = float(os.getenv("HF_TIMEOUT", "120"))
+        # langchain_huggingface의 HuggingFaceEndpoint/ChatHuggingFace는 HF Inference Providers
+        # 전환 이후 construction 단계에서 항상 인증 실패한다(GitHub #438 / HAJA-279, 컨테이너
+        # 실측 — task를 바꿔도 해결 안 됨. 상세: ai/core/hf_chat_model.py 모듈 docstring).
+        # huggingface_hub.InferenceClient.chat_completion()은 정상 동작하므로 이를 감싸는
+        # 커스텀 BaseChatModel(HFInferenceChatModel)로 대체한다.
+        chat_model = HFInferenceChatModel(
+            model=model_name,
+            hf_api_token=os.environ["HF_API_TOKEN"],
             temperature=temperature,
-            timeout=30,
+            timeout=hf_timeout,
+            max_tokens=hf_max_tokens,
         )
-        chat_model = ChatHuggingFace(llm=endpoint)
 
     cache_namespace = f"{llm_provider}:{model_name}:{temperature}"
     return CachedLLM(chat_model, cache=cache, cache_namespace=cache_namespace)

@@ -1,6 +1,6 @@
 # hajaCheck — Spring Boot(Java) 코드 컨벤션
 
-> **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+> **문서 버전:** v0.3 · **최종 수정:** 2026-07-18 · 이전 버전 `archive/`
 
 > 대상: 백엔드 코드를 작성하는 전체 팀원 (메뉴 담당제 — 전원이 API를 직접 구현)
 > 관리: Backend 리드 (프로젝트 구조·API 계약 총괄, 리뷰 시 준수 점검)
@@ -115,9 +115,40 @@ POST   /api/inspections/{id}/analysis       # 행위성 리소스는 명사로
 ## 6. Entity / DTO
 
 - Entity: `@Setter` 금지 — 상태 변경은 의도가 드러나는 메서드로 (`defect.confirmReview(grade)`)
-- 공통 필드는 `BaseTimeEntity`(`createdAt`, `updatedAt` — JPA Auditing) 상속
+- `created_at`과 `updated_at`이 모두 있는 테이블만 `BaseTimeEntity`를 상속한다. `created_at`만 있으면
+  해당 Entity에 `@CreatedDate` 필드를 선언한다.
+- 감사 시각(`createdAt`, `updatedAt`)은 기존 규약대로 `LocalDateTime`, 그 밖의 `timestamptz` 업무 시각은
+  `Instant`, 날짜 컬럼은 `LocalDate`를 사용한다.
+- FK는 `Long` 식별자 필드를 영속화의 쓰기 소스로 사용한다. 같은 도메인 내부에서 읽기 탐색이 필요하면
+  동일 FK 컬럼에 `insertable = false, updatable = false`를 지정한 읽기 전용 JPA 관계를 병행하고 기본
+  fetch는 `LAZY`로 한다. 도메인 경계를 넘는 FK는 `Long` 식별자만 유지하고 Entity를 직접 참조하지 않는다.
+- 읽기 전용 관계는 FK 식별자 필드와 메모리에서 자동 동기화되지 않는다. 신규 Entity에 FK 식별자만 넣어
+  `persist`/`flush`한 직후 같은 영속성 컨텍스트에서 관계 getter를 호출하면 `null`일 수 있으므로, 해당 경로는
+  FK 식별자를 사용한다. 관계 객체가 필요하면 `flush` 후 영속성 컨텍스트를 비우고 다시 조회한 Entity에서
+  접근하며, 생성 직후 읽기 전용 관계를 역참조하는 코드를 작성하지 않는다.
+- 목록 조회에서 읽기 전용 연관관계에 접근해야 하면 Repository 쿼리에 `fetch join`, `@EntityGraph`, 또는
+  DTO 프로젝션을 명시한다. 식별자만 필요한 경로는 `Long` FK 필드를 사용하고, 로딩 전략 없이 컬렉션을
+  순회하며 LAZY 연관관계에 접근하지 않는다.
+- PostgreSQL named enum은 `@JdbcTypeCode(SqlTypes.NAMED_ENUM)`과 실제 타입명의 `columnDefinition`을
+  함께 사용하며 Java enum 라벨과 순서를 DDL에 맞춘다.
+- `jsonb`는 `@JdbcTypeCode(SqlTypes.JSON)`과 `columnDefinition = "jsonb"`로 매핑한다. 현재 JSON 표현은
+  기존 Entity와 동일하게 유효한 JSON 문자열을 사용한다.
+- 부분 인덱스와 복잡한 CHECK 등 JPA annotation으로 정확히 표현할 수 없는 제약은
+  `docs/design/db/HajaCheck_script.sql`에서 관리한다. Hibernate는 스키마를 생성하지 않고 `validate`만 수행한다.
+- 현재 상태를 검사한 뒤 다음 상태로 전이하는 Entity는 `@Version`과 `lock_version` 컬럼으로 동시 갱신을
+  감지한다. 외부 API 호출·파일 생성·메시지 발행 같은 부작용은 낙관적 락이 반영되는 flush/commit 성공 뒤에
+  실행하거나, transactional outbox·멱등성 키로 재실행 안전성을 보장한다.
 - DTO 변환은 DTO 클래스의 정적 팩토리 `from(entity)` / `toEntity()` 사용 (MapStruct 도입 안 함)
 - record 사용 권장: 요청/응답 DTO는 Java record로 작성
+
+## 6-1. 배정 정책 — 점검자 배정 범위
+
+- 점검자 배정은 요청자·배정 대상 모두 APPROVED+VERIFIED 상태인 회사의 APPROVED 멤버십을 가진
+  사용자로 한정한다(무소속/개인 배정 불가). 애플리케이션 레벨(`AuthService.validateAssignableInspector`)과
+  DB 트리거(`trg_inspections_check_assigned_inspector_company`) 양쪽에서 강제한다.
+- 근거: PRD §2.4 조직 모델(계정 소유자 = 플랜 보유자, 소유자가 점검자를 좌석 한도 내 초대) —
+  무소속 개인 점검자 배정은 설계 범위 밖이다.
+- 관련 테스트: `InspectionAssignedInspectorCompanyBoundaryTest`
 
 ## 7. Lombok 허용 범위
 
@@ -156,6 +187,11 @@ oauth:state:{state}        # OAuth 인가 state (TTL 5m)
 
 - 필수: Service 단위 테스트 (Mockito) — 핵심 비즈니스 로직 위주, 커버리지 수치 강제 없음
 - Repository 테스트: `@DataJpaTest` (복잡한 쿼리만)
+- PostgreSQL named enum·jsonb·DB 제약을 사용하는 Repository 테스트는 `PostgresTestSupport`를 상속한다.
+  Testcontainers는 Gradle이 기준 DDL을 테스트 classpath에 복사한 `db/HajaCheck_script.sql`로 초기화한다.
+  별도의 축약 DDL 사본을 만들지 않는다.
+- Docker를 사용할 수 없는 로컬·CI 환경은 `TEST_POSTGRES_URL`, `TEST_POSTGRES_USERNAME`,
+  `TEST_POSTGRES_PASSWORD`로 이미 초기화된 격리 PostgreSQL을 지정할 수 있다.
 - 통합 테스트: 시연 시나리오 경로(업로드→분석→검수→보고서) 위주로 중간보고(7/31) 전 작성
 - 테스트 네이밍: `메서드명_조건_기대결과()` 한글 허용 — `하자검수_없는하자ID_예외발생()`
 

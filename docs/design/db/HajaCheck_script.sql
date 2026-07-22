@@ -139,6 +139,12 @@ alter type consent_policy_type owner to postgres;
 
 comment on type consent_policy_type is '약관 동의 정책 유형(서비스 이용약관/개인정보 처리방침)';
 
+create type menu_node_type as enum ('GROUP', 'INTERNAL', 'EXTERNAL');
+
+alter type menu_node_type owner to postgres;
+
+comment on type menu_node_type is '사이드바 메뉴 노드 유형(그룹/내부 링크/외부 링크)';
+
 create table users
 (
     id                bigint generated always as identity
@@ -196,6 +202,7 @@ create table companies
 (
     id                              bigint generated always as identity
         primary key,
+    lock_version                    bigint                            default 0                                          not null,
     owner_user_id                   bigint                                                                  not null
         references users,
     name                            varchar(200)                                                            not null,
@@ -220,6 +227,8 @@ create table companies
 comment on table companies is '기업 회원가입으로 생성된 회사(기업) 계정 정보를 관리한다.';
 
 comment on column companies.id is '기업 계정 식별자';
+
+comment on column companies.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column companies.owner_user_id is '기업 가입을 신청하고 계정을 소유·관리하는 사용자 식별자(플랜 보유자, 협업자 초대 권한)';
 
@@ -270,6 +279,7 @@ create table company_memberships
 (
     id          bigint generated always as identity
         primary key,
+    lock_version bigint                            default 0                            not null,
     company_id  bigint                                                                     not null
         references companies,
     user_id     bigint                                                                     not null
@@ -293,6 +303,8 @@ create table company_memberships
 );
 
 comment on table company_memberships is '기업 초대·승인·회수·만료 이력과 현재 소속 판정의 기준을 관리한다.';
+
+comment on column company_memberships.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column company_memberships.company_id is '소속 회사 식별자';
 
@@ -563,6 +575,7 @@ create table inspections
     created_by      bigint                                                             not null
         references users,
     assigned_inspector_id bigint                                                        not null
+        constraint fk_inspections_assigned_inspector
         references users,
     round_no        integer                                                            not null,
     inspection_date date                                                               not null,
@@ -655,6 +668,7 @@ create table defects
 (
     id              bigint generated always as identity
         primary key,
+    lock_version    bigint                   default 0                              not null,
     inspection_id   bigint                                                          not null
         references inspections,
     type            defect_type                                                     not null,
@@ -675,6 +689,8 @@ create table defects
 comment on table defects is '점검 이미지에서 탐지되거나 검토된 시설 결함 정보를 관리한다.';
 
 comment on column defects.id is '결함 식별자';
+
+comment on column defects.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column defects.inspection_id is '결함이 발견된 점검 식별자';
 
@@ -753,6 +769,7 @@ create table reports
 (
     id                     bigint generated always as identity
         primary key,
+    lock_version           bigint                   default 0                           not null,
     inspection_id          bigint                                                       not null
         references inspections,
     version                integer                  default 1                           not null,
@@ -774,6 +791,8 @@ create table reports
 comment on table reports is '점검 결과를 기반으로 생성한 버전별 보고서를 관리한다.';
 
 comment on column reports.id is '보고서 식별자';
+
+comment on column reports.lock_version is '보고서 업무 버전과 별개인 상태 전이 낙관적 락 버전';
 
 comment on column reports.inspection_id is '보고서 대상 점검 식별자';
 
@@ -871,6 +890,7 @@ create table counsel_tickets
 (
     id             bigint generated always as identity
         primary key,
+    lock_version   bigint                            default 0                                 not null,
     user_id        bigint                                                                   not null
         references users,
     counselor_id   bigint
@@ -886,6 +906,8 @@ create table counsel_tickets
 comment on table counsel_tickets is '사용자의 전문 상담 요청과 상담 진행 상태를 관리한다.';
 
 comment on column counsel_tickets.id is '상담 티켓 식별자';
+
+comment on column counsel_tickets.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column counsel_tickets.user_id is '상담을 요청한 사용자 식별자';
 
@@ -912,6 +934,13 @@ create index idx_counsel_tickets_user
 
 create index idx_counsel_tickets_session
     on counsel_tickets (session_id);
+
+create unique index uq_counsel_tickets_session
+    on counsel_tickets (session_id)
+    where (session_id is not null);
+
+comment on index uq_counsel_tickets_session is
+    '하나의 전문상담 세션이 여러 상담 티켓에 중복 배정되는 것을 방지한다.';
 
 create table bot_scenarios
 (
@@ -969,6 +998,7 @@ create table rag_documents
 (
     id                 bigint generated always as identity
         primary key,
+    lock_version       bigint                            default 0                                not null,
     title              varchar(300)                                                           not null,
     source_type        rag_doc_source_type                                                    not null,
     target_collection  rag_target_collection_type                                            not null,
@@ -986,6 +1016,8 @@ create table rag_documents
 comment on table rag_documents is '검색 증강 생성에 사용하는 법령 및 지침 문서를 관리한다.';
 
 comment on column rag_documents.id is 'RAG 문서 식별자';
+
+comment on column rag_documents.lock_version is '임베딩·검증 상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column rag_documents.title is '문서 제목';
 
@@ -1013,6 +1045,12 @@ comment on column rag_documents.created_at is '문서 업로드 시작 시각';
 
 alter table rag_documents
     owner to postgres;
+
+create index idx_rag_documents_embedding_status
+    on rag_documents (embedding_status);
+
+create index idx_rag_documents_target_collection
+    on rag_documents (target_collection);
 
 create table chat_message_citations
 (
@@ -1059,6 +1097,7 @@ create table notifications
 (
     id           bigint generated always as identity
         primary key,
+    lock_version bigint                   default 0    not null,
     user_id      bigint                                 not null
         references users,
     type         notification_type                      not null,
@@ -1070,6 +1109,8 @@ create table notifications
 comment on table notifications is '사용자에게 전달되는 서비스 알림을 관리한다.';
 
 comment on column notifications.id is '알림 식별자';
+
+comment on column notifications.lock_version is '동시 갱신 충돌 감지용 낙관적 락 버전(상태 머신은 아니나 다른 가변 Entity와의 일관성을 위해 적용)';
 
 comment on column notifications.user_id is '알림 수신 사용자 식별자';
 
@@ -1087,6 +1128,214 @@ alter table notifications
 create index idx_notifications_user_unread
     on notifications (user_id)
     where (is_read = false);
+
+-- AP-020(#25 / HAJA-38) 알림 센터 목록 조회: 읽음/미읽음 전체를 user_id로 좁힌 뒤 생성일 최신순(동률 시
+-- id desc)으로 정렬해 상위 N건만 뽑는다. 위 partial 인덱스는 is_read=false 행만 커버해 이 전체 이력
+-- 조회(폴링마다 실행)는 seq scan+sort로 빠진다 — 정렬 컬럼까지 포함한 일반 인덱스로 별도 커버한다.
+create index idx_notifications_user_history
+    on notifications (user_id, created_at desc, id desc);
+
+create table api_system_logs
+(
+    id             bigint generated always as identity
+        primary key,
+    level          varchar(10)                            not null,
+    request_id     varchar(100)                           not null,
+    http_method    varchar(10)                            not null,
+    endpoint       varchar(500)                           not null,
+    http_status    smallint                               not null,
+    error_code     varchar(100),
+    message        varchar(500),
+    exception_type varchar(255),
+    user_id        bigint,
+    duration_ms    bigint                                 not null,
+    client_ip      inet,
+    created_at     timestamp with time zone default now() not null,
+    constraint ck_api_system_logs_level
+        check (level in ('WARN', 'ERROR')),
+    constraint ck_api_system_logs_level_http_status
+        check (
+            (level = 'WARN' and http_status between 400 and 499)
+            or (level = 'ERROR' and http_status between 500 and 599)
+        ),
+    constraint ck_api_system_logs_duration
+        check (duration_ms >= 0),
+    constraint ck_api_system_logs_request_id_format
+        check (
+            request_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            or request_id ~ '^[0-9A-HJKMNP-TV-Z]{26}$'
+        ),
+    constraint ck_api_system_logs_endpoint_pattern
+        check (endpoint ~ '^/' and endpoint !~ '[?#[:cntrl:]]'),
+    constraint ck_api_system_logs_message_no_control
+        check (message is null or message !~ '[[:cntrl:]]'),
+    constraint ck_api_system_logs_client_ip_masked
+        check (
+            client_ip is null
+            or (
+                family(client_ip) = 4
+                and masklen(client_ip) = 24
+                and client_ip = network(client_ip)::inet
+            )
+            or (
+                family(client_ip) = 6
+                and masklen(client_ip) = 48
+                and client_ip = network(client_ip)::inet
+            )
+        )
+);
+
+comment on table api_system_logs is 'API 호출 결과가 4xx 또는 5xx인 요청의 시스템 로그를 요청당 최대 한 행으로 기록한다.';
+
+comment on column api_system_logs.id is 'API 시스템 로그 식별자';
+
+comment on column api_system_logs.level is 'HTTP 응답 상태에 따른 로그 레벨(WARN=4xx, ERROR=5xx)';
+
+comment on column api_system_logs.request_id is '서버가 생성하거나 allowlist 검증한 UUID/ULID 요청 추적 식별자. 요청당 최대 한 행은 애플리케이션 정책이며 DB UNIQUE로 강제하지 않는다';
+
+comment on column api_system_logs.http_method is 'API 요청 HTTP 메서드';
+
+comment on column api_system_logs.endpoint is 'raw URI가 아닌 서버 route pattern. query·fragment·control 문자는 허용하지 않는다';
+
+comment on column api_system_logs.http_status is '최종 HTTP 응답 상태 코드';
+
+comment on column api_system_logs.error_code is '애플리케이션 공통 오류 코드';
+
+comment on column api_system_logs.message is 'ErrorCode 기반 고정·정제 오류 요약 메시지. control 문자는 허용하지 않는다';
+
+comment on column api_system_logs.exception_type is '오류를 발생시킨 예외 클래스명';
+
+comment on column api_system_logs.user_id is '로그인 사용자 식별자. 탈퇴·익명화 시 user_id=NULL로 갱신하고 로그 행은 created_at 기준 최대 30일 보존한다. users 외래키는 두지 않는다';
+
+comment on column api_system_logs.duration_ms is 'API 요청 처리 시간(밀리초)';
+
+comment on column api_system_logs.client_ip is '직접 peer 또는 신뢰 프록시 체인에서 판정해 IPv4 /24·IPv6 /48 네트워크 주소로 축약한 클라이언트 IP. 원본 IP와 신뢰되지 않은 forwarded 값은 저장하지 않는다';
+
+comment on column api_system_logs.created_at is 'API 시스템 로그 생성 시각';
+
+create index idx_api_system_logs_created_at
+    on api_system_logs (created_at desc);
+
+create index idx_api_system_logs_level_created_at
+    on api_system_logs (level, created_at desc);
+
+create index idx_api_system_logs_request_id
+    on api_system_logs (request_id);
+
+create table menus
+(
+    id                  bigint generated always as identity
+        primary key,
+    code                varchar(100)                            not null
+        unique,
+    name                varchar(100)                            not null,
+    menu_type           menu_node_type                          not null,
+    parent_id           bigint
+        constraint fk_menus_parent
+            references menus
+            on delete restrict,
+    path                varchar(500),
+    active_path_pattern varchar(500),
+    icon_key            varchar(100),
+    icon_url            varchar(500),
+    sort_order          integer                  default 0     not null,
+    is_visible          boolean                  default true  not null,
+    is_enabled          boolean                  default true  not null,
+    opens_new_tab       boolean                  default false not null,
+    description         varchar(500),
+    created_by          bigint
+        references users,
+    updated_by          bigint
+        references users,
+    created_at          timestamp with time zone default now() not null,
+    updated_at          timestamp with time zone default now() not null,
+    constraint ck_menus_not_self_parent
+        check ((parent_id IS NULL) OR (parent_id <> id)),
+    constraint ck_menus_sort_order_nonnegative
+        check (sort_order >= 0),
+    constraint ck_menus_icon_single
+        check (
+            (menu_type = 'GROUP'::menu_node_type AND num_nonnulls(icon_key, icon_url) <= 1)
+            OR (menu_type <> 'GROUP'::menu_node_type AND num_nonnulls(icon_key, icon_url) = 1)
+        ),
+    constraint ck_menus_path_by_type
+        check (
+            (menu_type = 'GROUP'::menu_node_type AND path IS NULL)
+            OR (menu_type <> 'GROUP'::menu_node_type AND path IS NOT NULL)
+        )
+);
+
+comment on table menus is '사이드바 및 관리자 메뉴 트리를 관리한다. lock_version을 두지 않는다 — 소수 관리자가 드물게 편집하는 설정 테이블이라 동시 갱신 충돌 위험이 낮다. 필요해지면 companies/reports처럼 후속으로 추가한다.';
+
+comment on column menus.id is '메뉴 식별자';
+
+comment on column menus.code is '변경되지 않는 고유 메뉴 코드(예: DASHBOARD, ADMIN_USERS)';
+
+comment on column menus.name is '표시 메뉴명';
+
+comment on column menus.menu_type is '메뉴 노드 유형(그룹/내부 링크/외부 링크)';
+
+comment on column menus.parent_id is '상위 메뉴 식별자. 자기참조이며 하위 메뉴가 있는 상위 메뉴는 삭제할 수 없다(ON DELETE RESTRICT)';
+
+comment on column menus.path is '이동 경로. GROUP은 NULL, INTERNAL/EXTERNAL은 필수. 같은 라우트를 가리키는 여러 메뉴 항목을 허용하므로 UNIQUE로 두지 않는다';
+
+comment on column menus.active_path_pattern is '실제 라우트가 path와 다를 때(예: 메뉴 path=/facilities/list, 실제 라우트=/facilities, 상세 라우트=/defects/:id) 활성 메뉴 판정에 쓰는 동적 경로 패턴';
+
+comment on column menus.icon_key is '프론트 번들 아이콘 키(예: dashboard, facilities). 현재 프론트가 SVG를 번들 import하는 방식이라 icon_url보다 우선 사용한다';
+
+comment on column menus.icon_url is 'CDN 아이콘을 쓸 때만 채우는 URL. icon_key와 동시에 채우지 않는다';
+
+comment on column menus.sort_order is '동일 부모 하위 노출 순서. 정렬은 sort_order, id 순';
+
+comment on column menus.is_visible is '메뉴 표시 여부';
+
+comment on column menus.is_enabled is '클릭 가능 여부(아직 미구현된 메뉴 등을 표시는 하되 비활성화할 때 사용)';
+
+comment on column menus.opens_new_tab is '외부 링크를 새 창으로 여는지 여부';
+
+comment on column menus.description is '관리자용 메뉴 설명';
+
+comment on column menus.created_by is '메뉴를 생성한 관리자 사용자 식별자. 초기 시드 데이터는 NULL 허용';
+
+comment on column menus.updated_by is '메뉴를 마지막으로 수정한 관리자 사용자 식별자';
+
+comment on column menus.created_at is '메뉴 생성 시각';
+
+comment on column menus.updated_at is '메뉴 최종 수정 시각';
+
+alter table menus
+    owner to postgres;
+
+create index idx_menus_parent
+    on menus (parent_id);
+
+create table menu_role_access
+(
+    menu_id    bigint                                 not null
+        references menus
+            on delete cascade,
+    role       role_type                              not null,
+    created_by bigint
+        references users,
+    created_at timestamp with time zone default now() not null,
+    primary key (menu_id, role)
+);
+
+comment on table menu_role_access is '역할별로 노출되는 메뉴를 관리한다. 매핑 행이 존재하면 해당 역할에 노출되는 방식이라 can_view 컬럼은 두지 않는다. GROUP 메뉴에는 매핑 행을 넣지 않는다 — 허용된 자식이 하나라도 있으면 부모 GROUP은 서비스 로직이 자동으로 포함시킨다';
+
+comment on column menu_role_access.menu_id is '메뉴 식별자. 메뉴 삭제 시 매핑도 함께 삭제된다(ON DELETE CASCADE)';
+
+comment on column menu_role_access.role is '이 메뉴에 접근 가능한 역할';
+
+comment on column menu_role_access.created_by is '매핑을 등록한 관리자 사용자 식별자';
+
+comment on column menu_role_access.created_at is '매핑 등록 시각';
+
+alter table menu_role_access
+    owner to postgres;
+
+create index idx_menu_role_access_role
+    on menu_role_access (role, menu_id);
 
 create function set_updated_at() returns trigger
     language plpgsql
@@ -1134,6 +1383,17 @@ execute procedure set_updated_at();
 
 comment on trigger trg_plans_set_updated_at on plans is 'plans 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
 
+-- 구독 요금제 시드(#517 / HAJA-308) — PRD §2.4(v0.44 확정) 요금제 표. 신규 설치 전용이며,
+-- 기존 운영 DB는 대신 docs/design/db/migrations/20260721_01_plans_seed_free_assign.sql 을 사용한다.
+-- max_seats 는 NOT NULL 컬럼이라 Enterprise "무제한"은 sentinel 1000000 으로 표현한다.
+insert into plans (name, max_facilities, max_monthly_analyses, max_seats,
+                   has_pdf_watermark, has_counselor_access, has_ai_addon, price_monthly)
+values
+    ('FREE'::plan_name_type, 1, 50, 1, true, false, false, 0.00),
+    ('STANDARD'::plan_name_type, 10, 1000, 3, false, true, true, 29000.00),
+    ('ENTERPRISE'::plan_name_type, null, null, 1000000, false, true, true, 59000.00)
+on conflict (name) do nothing;
+
 create trigger trg_facilities_set_updated_at
     before update
     on facilities
@@ -1157,3 +1417,99 @@ create trigger trg_bot_scenarios_set_updated_at
 execute procedure set_updated_at();
 
 comment on trigger trg_bot_scenarios_set_updated_at on bot_scenarios is 'bot_scenarios 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
+
+create function check_inspection_assigned_inspector_company() returns trigger
+    language plpgsql
+as
+$$
+declare
+    assignment_company_id bigint;
+begin
+    select c.id into assignment_company_id
+    from users creator
+    join users inspector on inspector.id = new.assigned_inspector_id
+    join companies c
+      on c.id = creator.company_id
+     and c.id = inspector.company_id
+    join company_memberships creator_membership
+      on creator_membership.company_id = c.id
+     and creator_membership.user_id = creator.id
+    join company_memberships inspector_membership
+      on inspector_membership.company_id = c.id
+     and inspector_membership.user_id = inspector.id
+    where creator.id = new.created_by
+      and creator.status = 'ACTIVE'::user_status_type
+      and inspector.status = 'ACTIVE'::user_status_type
+      and inspector.role in ('INSPECTOR'::role_type, 'ADMIN'::role_type)
+      and c.status = 'APPROVED'::company_status_type
+      and c.verification_status = 'VERIFIED'::business_verification_status_type
+      and creator_membership.status = 'APPROVED'::company_membership_status_type
+      and creator_membership.approved_at is not null
+      and creator_membership.revoked_at is null
+      and (creator_membership.expires_at is null or creator_membership.expires_at > now())
+      and inspector_membership.status = 'APPROVED'::company_membership_status_type
+      and inspector_membership.approved_at is not null
+      and inspector_membership.revoked_at is null
+      and (inspector_membership.expires_at is null or inspector_membership.expires_at > now())
+    limit 1;
+
+    if assignment_company_id is null then
+        raise exception
+            'assigned_inspector_id % must be an active inspector with an effective membership in the approved company of created_by %',
+            new.assigned_inspector_id, new.created_by;
+    end if;
+    return new;
+end;
+$$;
+
+alter function check_inspection_assigned_inspector_company() owner to postgres;
+
+comment on function check_inspection_assigned_inspector_company() is 'AuthService.validateAssignableInspector와 동일하게 활성 사용자, 담당자 역할, APPROVED+VERIFIED 회사, 양쪽 유효 멤버십과 company_id 일치를 강제한다(HAJA-25 P2 DB 레벨 방어).';
+
+create trigger trg_inspections_check_assigned_inspector_company
+    before insert or update of assigned_inspector_id, created_by
+    on inspections
+    for each row
+execute procedure check_inspection_assigned_inspector_company();
+
+comment on trigger trg_inspections_check_assigned_inspector_company on inspections is 'assigned_inspector_id 배정 시 애플리케이션과 동일한 담당자·회사·멤버십 인가 불변식을 강제한다(HAJA-25 P2 — DB 레벨 방어).';
+
+create trigger trg_menus_set_updated_at
+    before update
+    on menus
+    for each row
+execute procedure set_updated_at();
+
+comment on trigger trg_menus_set_updated_at on menus is 'menus 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
+
+create function check_menu_role_access_not_group() returns trigger
+    language plpgsql
+as
+$$
+declare
+    target_menu_type menu_node_type;
+begin
+    select menu_type into target_menu_type
+    from menus
+    where id = new.menu_id;
+
+    if target_menu_type = 'GROUP'::menu_node_type then
+        raise exception
+            'menu_role_access.menu_id % refers to a GROUP menu; GROUP menus must not have direct menu_role_access rows',
+            new.menu_id;
+    end if;
+    return new;
+end;
+$$;
+
+alter function check_menu_role_access_not_group() owner to postgres;
+
+comment on function check_menu_role_access_not_group() is 'GROUP 메뉴는 허용된 자식이 있으면 서비스 로직이 자동으로 노출시키므로 menu_role_access에 직접 매핑을 추가할 수 없도록 강제한다(메뉴 스키마 DB 레벨 방어).';
+
+create trigger trg_menu_role_access_reject_group
+    before insert or update of menu_id
+    on menu_role_access
+    for each row
+execute procedure check_menu_role_access_not_group();
+
+comment on trigger trg_menu_role_access_reject_group on menu_role_access is 'menu_id가 GROUP 타입 메뉴를 가리키면 매핑 삽입/변경을 거부한다.';

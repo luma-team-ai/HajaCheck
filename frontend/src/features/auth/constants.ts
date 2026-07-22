@@ -5,7 +5,6 @@ export const GOOGLE_OAUTH_PATH = '/api/auth/oauth2/google';
 // 기업 인증 플로우 — HAJA-170(#187) — API 경로(axios baseURL='/api' 기준 상대경로)
 export const EMAIL_AVAILABILITY_PATH = '/auth/email-availability';
 export const COMPANY_SIGNUP_PATH = '/auth/companies';
-export const COMPANY_SIGNUP_STATUS_PATH = '/auth/companies/status';
 export const ID_INQUIRY_PATH = '/auth/id-inquiry';
 // 비밀번호 찾기 — 이메일 링크 방식(#301, HAJA-224) — docs/api-contract/contract.md "비밀번호 찾기 1·2단계"
 export const PASSWORD_RESET_REQUEST_PATH = '/auth/password-reset-request';
@@ -21,7 +20,9 @@ export const AUTH_ME_QUERY_KEY = ['auth', 'me'] as const;
 export const AUTH_ME_QUERY_STALE_TIME_MS = 5000;
 
 // 기업 인증 플로우 — 라우트 경로(app/router.tsx와 공유, 하드코딩 방지)
-export const LOGIN_ROUTE = '/login';
+// LOGIN_ROUTE는 shared/components/ProtectedRoute도 참조하므로 shared/constants/routes로 승격했다
+// (React_코드_컨벤션.md §1). auth 내부 사용처(7곳)의 import 경로 유지를 위해 재export한다.
+export { LANDING_ROUTE, LOGIN_ROUTE } from '../../shared/constants/routes';
 export const COMPANY_SIGNUP_ROUTE = '/signup/company';
 export const COMPANY_SIGNUP_PENDING_ROUTE = '/signup/company/pending';
 export const FIND_ID_ROUTE = '/find-id';

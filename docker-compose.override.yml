@@ -62,6 +62,12 @@ services:
     environment:
       # VITE_PROXY_FASTAPI 제거 — 프론트가 /api/ai/*(스프링 경유)로만 호출(#234), FastAPI 직결 폐쇄(#235)
       VITE_PROXY_SPRING: http://spring:8080
+      # VITE_* 공개 키는 루트 .env 에서 주입(#357) — 도커 흐름은 .env 단일 소스.
+      # 네이티브 npm run dev 는 frontend/.env.local 을 직접 읽지만, 도커는 이 파일이
+      # 컨테이너에 없으므로(볼륨 미마운트) 여기서 명시하지 않으면 undefined 가 된다.
+      # Vite dev 서버는 environment 를 런타임에 읽으므로 값 변경 시 재빌드 없이 재생성만 하면 된다.
+      VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:-}
+      VITE_APP_TITLE: ${VITE_APP_TITLE:-hajaCheck}
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public

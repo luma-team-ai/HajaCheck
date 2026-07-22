@@ -1,5 +1,6 @@
 package com.hajacheck.core.ai.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import java.util.Map;
@@ -13,7 +14,24 @@ public record ReportResponse(
         Summary summary,
         Detail detail,
         Recommendation recommendation,
-        @JsonProperty("grounding_ok") boolean groundingOk) {
+        @JsonProperty("grounding_ok") boolean groundingOk,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @JsonProperty("grounding_request_id") String groundingRequestId,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @JsonProperty("inspection_id") Long inspectionId,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @JsonProperty("report_version") Integer reportVersion,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @JsonProperty("content_hash") String contentHash) {
+
+    public ReportResponse(
+            Overview overview,
+            Summary summary,
+            Detail detail,
+            Recommendation recommendation,
+            boolean groundingOk) {
+        this(overview, summary, detail, recommendation, groundingOk, null, null, null, null);
+    }
 
     public record Overview(
             String purpose,
@@ -48,6 +66,12 @@ public record ReportResponse(
             String target,
             String method,
             String priority,
-            @JsonProperty("legal_basis") String legalBasis) {
+            @JsonProperty("legal_basis") String legalBasis,
+            @JsonProperty("legal_basis_verified") boolean legalBasisVerified) {
+
+        public RecommendationItem(
+                String target, String method, String priority, String legalBasis) {
+            this(target, method, priority, legalBasis, false);
+        }
     }
 }

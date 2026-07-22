@@ -1,12 +1,18 @@
 package com.hajacheck.core.inspection.entity;
 
+import com.hajacheck.core.facility.entity.Facility;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
@@ -20,8 +26,9 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 /**
  * 시설별 점검 회차와 진행 상태 — DDL inspections 테이블 대응.
- * SpringBoot_코드_컨벤션.md §6/§7: @Setter 금지, 연관관계 대신 FK 값 컬럼만 보유(도메인 간 결합 최소화 원칙,
- * Facility/User 참조 패턴과 동일 — facilityId/createdBy/assignedInspectorId 는 Long 컬럼).
+ * SpringBoot_코드_컨벤션.md §6/§7: @Setter 금지. {@code facilityId} 는 FK 값 컬럼을 실제 매핑 소스로 두고,
+ * 지연 로딩 연관관계({@code facility})는 조회 전용({@code insertable/updatable = false})으로 병행 제공한다.
+ * 도메인 경계를 넘는 {@code createdBy}/{@code assignedInspectorId}(auth 도메인 User 참조)는 Long 값만 보유한다.
  *
  * <p>⚠️ BaseTimeEntity 상속 금지: inspections 테이블에는 updated_at 컬럼이 없다(created_at 만 존재).
  * status 는 PG named enum(inspection_status_type) — @JdbcTypeCode(NAMED_ENUM) 매핑.
@@ -32,7 +39,15 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
  */
 @Entity
 @Getter
-@Table(name = "inspections")
+@Table(
+        name = "inspections",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_inspections_facility_round",
+                columnNames = {"facility_id", "round_no"}),
+        indexes = {
+                @Index(name = "idx_inspections_facility", columnList = "facility_id"),
+                @Index(name = "idx_inspections_assigned_inspector", columnList = "assigned_inspector_id")
+        })
 @EntityListeners(AuditingEntityListener.class)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Inspection {
@@ -44,6 +59,10 @@ public class Inspection {
 
     @Column(name = "facility_id", nullable = false)
     private Long facilityId;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "facility_id", insertable = false, updatable = false)
+    private Facility facility;
 
     @Column(name = "created_by", nullable = false)
     private Long createdBy;

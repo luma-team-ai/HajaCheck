@@ -24,11 +24,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 미존재 경로 라우팅 통합 테스트(#330).
+ * 미존재 경로·미지원 메서드 라우팅 통합 테스트(#330).
  *
  * <p>GlobalExceptionHandlerTest 는 핸들러 메서드 계약만 보므로, 실제 디스패처 체인에서
- * NoResourceFoundException 이 포괄 {@code @ExceptionHandler(Exception.class)} 가 아니라
- * 전용 핸들러로 도달하는지는 여기서 검증한다(= 500 회귀 차단).
+ * NoResourceFoundException/HttpRequestMethodNotSupportedException 이 포괄
+ * {@code @ExceptionHandler(Exception.class)} 가 아니라 전용 핸들러로 도달하는지는 여기서 검증한다(= 500 회귀 차단).
  *
  * <p>⚠️ 반드시 <b>인증된</b> 요청이어야 한다: SecurityConfig 가 {@code anyRequest().authenticated()} 라
  * 미인증 요청은 AuthorizationFilter 단계에서 401(UNAUTHORIZED)로 끊겨 DispatcherServlet 에 닿지 않는다.
@@ -82,5 +82,19 @@ class NotFoundRoutingIntegrationTest extends PostgresTestSupport {
         mockMvc.perform(get("/api/this-path-does-not-exist"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    @DisplayName("인증된 사용자가 지원하지 않는 메서드로 호출하면 500이 아니라 405 + METHOD_NOT_ALLOWED 로 응답한다")
+    void authenticatedRequestWithUnsupportedMethod_returns405() throws Exception {
+        // GET /api/inspections — 실사용자가 브라우저 주소창에 쳐서 겪은 회귀(POST만 존재, 목록 조회 미구현).
+        LoginUser principal = new LoginUser(seededUser);
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                principal, null, principal.getAuthorities());
+
+        mockMvc.perform(get("/api/inspections").with(authentication(auth)))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("METHOD_NOT_ALLOWED"));
     }
 }

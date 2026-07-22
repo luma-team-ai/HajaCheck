@@ -122,6 +122,22 @@ public class User extends BaseTimeEntity {
     }
 
     /**
+     * 관리자 콘솔 — 사용자 등록 팩토리(#405). email/password 로그인, status=ACTIVE.
+     * companyId는 요청을 보낸 관리자 소속으로 배선한다(호출부=AdminUserService가 LoginUser.companyId를 전달) —
+     * 이걸 비워두면 관리자가 등록한 계정이 어느 회사에도 속하지 않아 소속 회사 데이터에 접근할 수 없다.
+     */
+    public static User createByAdmin(String email, String name, Role role, String passwordHash, Long companyId) {
+        return User.builder()
+                .email(email)
+                .name(name)
+                .role(role)
+                .passwordHash(passwordHash)
+                .companyId(companyId)
+                .status(UserStatus.ACTIVE)
+                .build();
+    }
+
+    /**
      * 로그인 성공 시각 갱신 (상태 전이 메서드).
      */
     public void updateLastLogin(Instant loginAt) {
@@ -156,5 +172,19 @@ public class User extends BaseTimeEntity {
 
     public boolean isSuspended() {
         return this.status == UserStatus.SUSPENDED;
+    }
+
+    /**
+     * 관리자 콘솔 — 역할 변경 (상태 전이). 대상 검증(자기 자신 여부 등)은 호출부(AdminUserService) 책임.
+     */
+    public void changeRole(Role newRole) {
+        this.role = newRole;
+    }
+
+    /**
+     * 관리자 콘솔 — 계정 상태 변경 (상태 전이).
+     */
+    public void changeStatus(UserStatus newStatus) {
+        this.status = newStatus;
     }
 }

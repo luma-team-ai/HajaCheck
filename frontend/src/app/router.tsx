@@ -2,6 +2,7 @@
 // 경로: kebab-case / 인증 가드: ProtectedRoute, AdminRoute / 페이지 lazy loading 기본
 import { lazy, Suspense } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
+import { AdminRoute } from '../shared/components/AdminRoute';
 import { ProtectedRoute } from '../shared/components/ProtectedRoute';
 import { AppShellRoute } from './AppShellRoute';
 
@@ -12,10 +13,29 @@ const ResultViewerPage = lazy(() =>
   })),
 );
 
+// 점검(회차) 생성 — API 명세서 v0.3 AP-004
+const InspectionCreatePage = lazy(() =>
+  import('../features/inspection/pages/InspectionCreatePage').then((m) => ({
+    default: m.InspectionCreatePage,
+  })),
+);
+
 const LandingPage = lazy(() => import('../features/landing/LandingPage'));
 
 const LoginPage = lazy(() =>
   import('../features/auth/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
+);
+
+// 이용약관 / 개인정보처리방침 — 랜딩 푸터 "법적 고지" 연결
+const TermsOfServicePage = lazy(() =>
+  import('../features/policy/pages/TermsOfServicePage').then((m) => ({
+    default: m.TermsOfServicePage,
+  })),
+);
+const PrivacyPolicyPage = lazy(() =>
+  import('../features/policy/pages/PrivacyPolicyPage').then((m) => ({
+    default: m.PrivacyPolicyPage,
+  })),
 );
 
 // 기업 인증 플로우 — HAJA-170(#187)
@@ -61,29 +81,90 @@ const MyPlanPage = lazy(() =>
   import('../features/mypage/pages/MyPlanPage').then((m) => ({ default: m.MyPlanPage })),
 );
 
+// 관리자 > 사용자 관리 (Figma node 177-2017)
+const AdminUsersPage = lazy(() =>
+  import('../features/admin/pages/AdminUsersPage').then((m) => ({
+    default: m.AdminUsersPage,
+  })),
+);
+
+// 관리자 > 플랜·쿼터 관리 (Figma node 1197-3519)
+const PlanQuotaPage = lazy(() =>
+  import('../features/admin/pages/PlanQuotaPage').then((m) => ({
+    default: m.PlanQuotaPage,
+  })),
+);
+
 const FacilityListPage = lazy(() =>
   import('../features/facility/pages/FacilityListPage').then((m) => ({
     default: m.FacilityListPage,
   })),
 );
 
+// 시설물 상세 — Figma "hajaCheck Facility Detail - Fixed Images"(node-id 1-1401)
+const FacilityDetailPage = lazy(() =>
+  import('../features/facility/pages/FacilityDetailPage').then((m) => ({
+    default: m.FacilityDetailPage,
+  })),
+);
+
+// 점검 주기 설정 — dev-04-03, FR-019
+const InspectionCycleSettingsPage = lazy(() =>
+  import('../features/facility/pages/InspectionCycleSettingsPage').then((m) => ({
+    default: m.InspectionCycleSettingsPage,
+  })),
+);
+
+// 시설물 상세 하위 드릴다운 — 하자 정보 패널 + 회차 간 비교 (dev-04-02, #489).
+// /facilities/:id(시설물 개요, dev-05-02·#504)에서 특정 하자로 드릴다운하는 화면이라
+// /facilities/:id/defects/:defectId 하위 경로를 쓴다(#504와의 라우트 충돌 회피).
+const FacilityDefectDetailPage = lazy(() =>
+  import('../features/facility/pages/FacilityDefectDetailPage').then((m) => ({
+    default: m.FacilityDefectDetailPage,
+  })),
+);
+const FacilityInspectionComparePage = lazy(() =>
+  import('../features/facility/pages/FacilityInspectionComparePage').then((m) => ({
+    default: m.FacilityInspectionComparePage,
+  })),
+);
+
+// 고객지원 > AI 어시스턴트 (dev-08-01, HAJA-32, FR-6 RAG 법규 Q&A)
+const AiAssistantPage = lazy(() =>
+  import('../features/support/pages/AiAssistantPage').then((m) => ({
+    default: m.AiAssistantPage,
+  })),
+);
+
+const ChartShowcasePage = import.meta.env.DEV
+  ? lazy(() =>
+      import('../dev/charts/ChartShowcasePage').then((m) => ({
+        default: m.ChartShowcasePage,
+      })),
+    )
+  : null;
+
+const DEV_ONLY_ROUTES = ChartShowcasePage
+  ? [
+      {
+        path: '/dev/charts',
+        element: (
+          <Suspense fallback={<div>차트 쇼케이스를 불러오는 중...</div>}>
+            <ChartShowcasePage />
+          </Suspense>
+        ),
+      },
+    ]
+  : [];
+
 export const router = createBrowserRouter([
+  ...DEV_ONLY_ROUTES,
   {
     path: '/',
     element: (
       <Suspense fallback={<div>불러오는 중...</div>}>
         <LandingPage />
       </Suspense>
-    ),
-  },
-  {
-    path: '/inspections/:id/viewer',
-    element: (
-      <ProtectedRoute>
-        <Suspense fallback={<div>불러오는 중...</div>}>
-          <ResultViewerPage />
-        </Suspense>
-      </ProtectedRoute>
     ),
   },
   {
@@ -94,6 +175,22 @@ export const router = createBrowserRouter([
       </Suspense>
     ),
   }, // — features/auth (HAJA-160, #157)
+  {
+    path: '/policy/terms-of-service',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <TermsOfServicePage />
+      </Suspense>
+    ),
+  },
+  {
+    path: '/policy/privacy',
+    element: (
+      <Suspense fallback={<div>불러오는 중...</div>}>
+        <PrivacyPolicyPage />
+      </Suspense>
+    ),
+  },
   {
     path: '/signup/company',
     element: (
@@ -155,6 +252,20 @@ export const router = createBrowserRouter([
         handle: { breadcrumb: [{ label: '홈' }, { label: '대시보드' }], activeHref: '/dashboard' },
       }, // — features/dashboard (HAJA-17)
       {
+        path: '/dashboard/ai-weekly-briefing',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <DashboardPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '대시보드' }, { label: 'AI 주간 브리핑 카드' }],
+          activeHref: '/dashboard/ai-weekly-briefing',
+        },
+      }, // — 사이드바 "AI 주간 브리핑 카드"가 가리키던 미구현 라우트(#478). AiBriefingCard는 별도 화면이
+      // 아니라 /dashboard 인라인 위젯이라 같은 DashboardPage를 렌더링하고 위젯 위치로 스크롤한다
+      // (DashboardPage.tsx 참조) — #472와 동일한 라우트-메뉴 불일치 유형.
+      {
         path: '/defects/:id',
         element: (
           <Suspense fallback={<div>불러오는 중...</div>}>
@@ -190,22 +301,148 @@ export const router = createBrowserRouter([
           activeHref: '/facilities/map',
         },
       }, // — features/map (#28, HAJA-150 §129 재오픈: 공용 셸 편입 + SideNavBar 경로 버그 수정)
+      {
+        path: '/inspections/create',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <InspectionCreatePage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '점검 관리' }, { label: '점검(회차) 생성' }],
+          activeHref: '/inspections/create',
+        },
+      }, // — features/inspection 점검(회차) 생성 (API 명세서 v0.3 AP-004)
+      {
+        path: '/inspections/:id/viewer',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <ResultViewerPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '점검 관리' }, { label: '분석 결과 뷰어' }],
+          activeHref: '/inspections/1/viewer',
+        },
+      }, // — features/inspection FR-4 (HAJA-249, #249)
+      {
+        path: '/facilities/:id',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <FacilityDetailPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '시설물 관리' }, { label: '강남 오피스타워 A동' }],
+          activeHref: '/facilities/detail',
+        },
+      }, // — features/facility 시설물 상세 (Figma node-id 1-1401)
+      {
+        path: '/facilities/:id/defects/:defectId',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <FacilityDefectDetailPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '시설물 관리' }],
+          activeHref: '/facilities/detail',
+        },
+      }, // — features/facility 하자 정보 패널 (dev-04-02, #489). 위 시설물 개요(/facilities/:id,
+      // #504)에서 특정 하자를 드릴다운하는 하위 화면 — 같은 :id로는 #504와 라우트가 겹쳐
+      // :defectId를 추가한 하위 경로를 쓴다.
+      {
+        path: '/facilities/:id/defects/:defectId/compare',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <FacilityInspectionComparePage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [
+            { label: '시설물 상세' },
+            { label: '강남 오피스타워 A동' },
+            { label: '회차 간 비교' },
+          ],
+          activeHref: '/facilities/detail',
+        },
+      }, // — features/facility 회차 간 비교 (dev-04-02, #489). 부모(하자 상세)와 동일 사이드바 하이라이트 유지.
+      {
+        path: '/facilities/inspection-cycle',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <InspectionCycleSettingsPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [
+            { label: '시설물 관리' },
+            { label: '강남 오피스타워 A동' },
+            { label: '점검 주기' },
+          ],
+          activeHref: '/facilities/inspection-cycle',
+        },
+      }, // — features/facility 점검 주기 설정 (dev-04-03, FR-019)
+      {
+        path: '/facilities/list',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <FacilityListPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '시설물 관리' }, { label: '시설물 목록/등록' }],
+          activeHref: '/facilities/list',
+        },
+      }, // — features/facility 시설물 목록/등록 (dev-04-01, FR-003). SideNavBar href('/facilities/list')와
+      // 불일치하던 구 경로('/facilities', 셸 밖)를 셸 안으로 이동해 정정(#472).
+      {
+        path: '/admin/users',
+        // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#378, 컨벤션 §7)
+        element: (
+          <AdminRoute>
+            <Suspense fallback={<div>불러오는 중...</div>}>
+              <AdminUsersPage />
+            </Suspense>
+          </AdminRoute>
+        ),
+        handle: {
+          breadcrumb: [{ label: '관리자' }, { label: '사용자 관리' }],
+          activeHref: '/admin/users',
+        },
+      }, // — features/admin (Figma node 177-2017)
+      {
+        path: '/admin/plans-quota',
+        // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#508, 컨벤션 §7)
+        element: (
+          <AdminRoute>
+            <Suspense fallback={<div>불러오는 중...</div>}>
+              <PlanQuotaPage />
+            </Suspense>
+          </AdminRoute>
+        ),
+        handle: {
+          breadcrumb: [{ label: '관리자' }, { label: '플랜·쿼터 관리' }],
+          activeHref: '/admin/plans-quota',
+        },
+      }, // — features/admin 플랜·쿼터 관리 (Figma node 1197-3519)
+      {
+        path: '/support/ai-assistant',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <AiAssistantPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '고객지원' }, { label: 'AI 어시스턴트' }],
+          activeHref: '/support/ai-assistant',
+        },
+      }, // — features/support (dev-08-01, HAJA-32, FR-6)
     ],
   },
-  {
-    // 셸(AppShellRoute) 중첩 밖 업무 라우트 — 인증 가드는 적용하되 AppLayout 셸 미포함(#231 관찰,
-    // 셸 포함은 별도 후속 스코프).
-    path: '/facilities',
-    element: (
-      <ProtectedRoute>
-        <Suspense fallback={<div>불러오는 중...</div>}>
-          <FacilityListPage />
-        </Suspense>
-      </ProtectedRoute>
-    ),
-  }, // — features/facility (dev-04-01, FR-003)
+  // 구 '/facilities'(셸 밖) 라우트는 '/facilities/list'(셸 안, 위 AppShellRoute children)로 이동됨(#472).
   // { path: '/defects', ... }                  — features/defect
   // { path: '/reports', ... }                  — features/report
   // { path: '/support', ... }                  — features/support
-  // { path: '/admin/*', ... }                  — features/admin (AdminRoute)
+  // 관리자: /admin/users 구현 완료(위 AppShell children) — 나머지 관리자 화면은 #21 하위 이슈로 분리
 ]);

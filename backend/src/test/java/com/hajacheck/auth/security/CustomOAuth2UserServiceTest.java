@@ -13,6 +13,7 @@ import com.hajacheck.auth.entity.SocialProvider;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.auth.service.SocialAccountWriter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -30,6 +31,9 @@ class CustomOAuth2UserServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private SocialAccountWriter socialAccountWriter;
 
     @InjectMocks
     private CustomOAuth2UserService customOAuth2UserService;
@@ -55,12 +59,12 @@ class CustomOAuth2UserServiceTest {
     void processOAuth2User_카카오신규_가입후principal반환() {
         when(userRepository.findBySocialProviderAndSocialId(eq(SocialProvider.KAKAO), eq("4823001")))
                 .thenReturn(Optional.empty());
-        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(socialAccountWriter.registerWithFreePlan(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
         LoginUser result = customOAuth2UserService.processOAuth2User("kakao", kakaoAttributes());
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository, times(1)).save(captor.capture());
+        verify(socialAccountWriter, times(1)).registerWithFreePlan(captor.capture());
         User saved = captor.getValue();
         assertThat(saved.getSocialProvider()).isEqualTo(SocialProvider.KAKAO);
         assertThat(saved.getSocialId()).isEqualTo("4823001");
@@ -75,12 +79,12 @@ class CustomOAuth2UserServiceTest {
     void processOAuth2User_구글신규_가입후principal반환() {
         when(userRepository.findBySocialProviderAndSocialId(eq(SocialProvider.GOOGLE), eq("google-sub-999")))
                 .thenReturn(Optional.empty());
-        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(socialAccountWriter.registerWithFreePlan(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
         LoginUser result = customOAuth2UserService.processOAuth2User("google", googleAttributes());
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository).save(captor.capture());
+        verify(socialAccountWriter).registerWithFreePlan(captor.capture());
         assertThat(captor.getValue().getSocialProvider()).isEqualTo(SocialProvider.GOOGLE);
         assertThat(captor.getValue().getSocialId()).isEqualTo("google-sub-999");
         assertThat(captor.getValue().getName()).isEqualTo("구글영희");
@@ -96,7 +100,7 @@ class CustomOAuth2UserServiceTest {
 
         LoginUser result = customOAuth2UserService.processOAuth2User("kakao", kakaoAttributes());
 
-        verify(userRepository, never()).save(any(User.class));
+        verify(socialAccountWriter, never()).registerWithFreePlan(any(User.class));
         assertThat(result.getEmail()).isEqualTo("kakao@haja.com");
         assertThat(existing.getStatus()).isEqualTo(UserStatus.ACTIVE);
     }
@@ -106,7 +110,7 @@ class CustomOAuth2UserServiceTest {
         // 미검증 이메일은 신뢰하지 않고 placeholder 로 대체 → 실제 이메일 미저장(#199)
         when(userRepository.findBySocialProviderAndSocialId(eq(SocialProvider.KAKAO), eq("4823001")))
                 .thenReturn(Optional.empty());
-        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(socialAccountWriter.registerWithFreePlan(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Map<String, Object> account = new HashMap<>();
         account.put("email", "kakao@haja.com");
@@ -117,7 +121,7 @@ class CustomOAuth2UserServiceTest {
         LoginUser result = customOAuth2UserService.processOAuth2User("kakao", attributes);
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository, times(1)).save(captor.capture());
+        verify(socialAccountWriter, times(1)).registerWithFreePlan(captor.capture());
         User saved = captor.getValue();
         assertThat(saved.getEmail()).isEqualTo("kakao_4823001@social.local");
         assertThat(saved.getEmail()).isNotEqualTo("kakao@haja.com"); // 미검증 실제값은 저장 안 함
@@ -130,7 +134,7 @@ class CustomOAuth2UserServiceTest {
     void processOAuth2User_카카오이메일없음_placeholder로가입성공() {
         when(userRepository.findBySocialProviderAndSocialId(eq(SocialProvider.KAKAO), eq("4823001")))
                 .thenReturn(Optional.empty());
-        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(socialAccountWriter.registerWithFreePlan(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Map<String, Object> account = new HashMap<>();
         account.put("is_email_verified", true);
@@ -140,7 +144,7 @@ class CustomOAuth2UserServiceTest {
         LoginUser result = customOAuth2UserService.processOAuth2User("kakao", attributes);
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository, times(1)).save(captor.capture());
+        verify(socialAccountWriter, times(1)).registerWithFreePlan(captor.capture());
         User saved = captor.getValue();
         assertThat(saved.getEmail()).isEqualTo("kakao_4823001@social.local");
         assertThat(saved.getSocialProvider()).isEqualTo(SocialProvider.KAKAO);
@@ -164,7 +168,7 @@ class CustomOAuth2UserServiceTest {
 
         LoginUser result = customOAuth2UserService.processOAuth2User("kakao", attributes);
 
-        verify(userRepository, never()).save(any(User.class));
+        verify(socialAccountWriter, never()).registerWithFreePlan(any(User.class));
         assertThat(result.getEmail()).isEqualTo("kakao_4823001@social.local");
     }
 
@@ -176,7 +180,7 @@ class CustomOAuth2UserServiceTest {
         when(userRepository.findBySocialProviderAndSocialId(SocialProvider.KAKAO, "4823001"))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(winner));
-        when(userRepository.save(any(User.class)))
+        when(socialAccountWriter.registerWithFreePlan(any(User.class)))
                 .thenThrow(new DataIntegrityViolationException("uk_users_social"));
 
         LoginUser result = customOAuth2UserService.processOAuth2User("kakao", kakaoAttributes());
@@ -201,7 +205,7 @@ class CustomOAuth2UserServiceTest {
         assertThatThrownBy(() -> customOAuth2UserService.processOAuth2User("kakao", kakaoAttributes()))
                 .isInstanceOf(OAuth2AuthenticationException.class)
                 .hasMessageContaining("정지");
-        verify(userRepository, never()).save(any(User.class));
+        verify(socialAccountWriter, never()).registerWithFreePlan(any(User.class));
     }
 
     @Test
@@ -210,7 +214,7 @@ class CustomOAuth2UserServiceTest {
         when(userRepository.findBySocialProviderAndSocialId(SocialProvider.KAKAO, "4823001"))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.empty());
-        when(userRepository.save(any(User.class)))
+        when(socialAccountWriter.registerWithFreePlan(any(User.class)))
                 .thenThrow(new DataIntegrityViolationException("users_email_key"));
 
         assertThatThrownBy(() -> customOAuth2UserService.processOAuth2User("kakao", kakaoAttributes()))
@@ -230,7 +234,7 @@ class CustomOAuth2UserServiceTest {
                 .isInstanceOf(OAuth2AuthenticationException.class)
                 .satisfies(ex -> assertThat(((OAuth2AuthenticationException) ex).getError().getErrorCode())
                         .isEqualTo("invalid_request"));
-        verify(userRepository, never()).save(any(User.class));
+        verify(socialAccountWriter, never()).registerWithFreePlan(any(User.class));
     }
 
     @Test
@@ -245,7 +249,7 @@ class CustomOAuth2UserServiceTest {
                 .isInstanceOf(OAuth2AuthenticationException.class)
                 .satisfies(ex -> assertThat(((OAuth2AuthenticationException) ex).getError().getErrorCode())
                         .isEqualTo("invalid_request"));
-        verify(userRepository, never()).save(any(User.class));
+        verify(socialAccountWriter, never()).registerWithFreePlan(any(User.class));
     }
 
     @Test
@@ -260,7 +264,7 @@ class CustomOAuth2UserServiceTest {
                 .isInstanceOf(OAuth2AuthenticationException.class)
                 .satisfies(ex -> assertThat(((OAuth2AuthenticationException) ex).getError().getErrorCode())
                         .isEqualTo("invalid_request"));
-        verify(userRepository, never()).save(any(User.class));
+        verify(socialAccountWriter, never()).registerWithFreePlan(any(User.class));
     }
 
     @Test
@@ -275,7 +279,7 @@ class CustomOAuth2UserServiceTest {
                 .isInstanceOf(OAuth2AuthenticationException.class)
                 .satisfies(ex -> assertThat(((OAuth2AuthenticationException) ex).getError().getErrorCode())
                         .isEqualTo("invalid_request"));
-        verify(userRepository, never()).save(any(User.class));
+        verify(socialAccountWriter, never()).registerWithFreePlan(any(User.class));
     }
 
     @Test
@@ -283,7 +287,7 @@ class CustomOAuth2UserServiceTest {
         // 정책 공통 적용: 미검증 이메일은 신뢰하지 않고 placeholder 로 대체(#199)
         when(userRepository.findBySocialProviderAndSocialId(eq(SocialProvider.GOOGLE), eq("google-sub-999")))
                 .thenReturn(Optional.empty());
-        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(socialAccountWriter.registerWithFreePlan(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Map<String, Object> attributes = Map.of(
                 "sub", "google-sub-999",
@@ -294,7 +298,7 @@ class CustomOAuth2UserServiceTest {
         LoginUser result = customOAuth2UserService.processOAuth2User("google", attributes);
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository, times(1)).save(captor.capture());
+        verify(socialAccountWriter, times(1)).registerWithFreePlan(captor.capture());
         User saved = captor.getValue();
         assertThat(saved.getEmail()).isEqualTo("google_google-sub-999@social.local");
         assertThat(saved.getEmail()).isNotEqualTo("google@haja.com"); // 미검증 실제값은 저장 안 함

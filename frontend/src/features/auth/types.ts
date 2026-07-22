@@ -1,7 +1,10 @@
 // 로그인 화면 — HAJA-160(#157) — SpringBoot 사용자 도메인 Role enum과 값 일치
-// feature 간 직접 import 금지(React_코드_컨벤션.md §1) — auth 전용 로컬 정의
+// Role은 auth 전용이 아니게 되어(admin 사용자 관리·AdminRoute도 사용) shared/constants로 승격했다
+// (React_코드_컨벤션.md §1 "공유가 필요해지면 shared/로 승격"). 기존 import 경로 유지를 위해 재export.
+// (파일 내 User.role에서도 써야 하므로 import + 재export 두 가지를 모두 한다)
+import type { Role } from '../../shared/constants/roles';
 
-export type Role = 'ADMIN' | 'INSPECTOR' | 'USER' | 'COUNSELOR';
+export type { Role };
 
 export interface User {
   id: number;
@@ -73,10 +76,4 @@ export interface PasswordResetRequest {
 
 export interface PasswordResetResponse {
   reset: boolean;
-}
-
-export interface SignupStatusResponse {
-  status: CompanyStatus;
-  companyName: string;
-  rejectionReason: string | null;
 }

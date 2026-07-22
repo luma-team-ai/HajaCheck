@@ -7,11 +7,10 @@
   LLM에는 "그대로 옮겨 적기"만 지시한다 (LLM이 수치를 직접 계산·창작하지 않도록 — 환각 방지 원칙)
 - Grounding Check(ai.core.grounding)는 그대로 재사용 — 자체 대조 로직을 새로 만들지 않는다 (design §5)
 - detail 섹션의 items 개수 대조는 grounding 공통 모듈의 범위 밖이므로 이 파일에서 별도로 검증한다 (design §5-4)
-- recommendation 섹션의 RAG 조회(ai.core.vectorstore.get_vectorstore)는 아직 NotImplementedError 스텁이므로,
+- recommendation 섹션의 RAG 조회(ai.core.vectorstore.get_vectorstore)는 LangChain Chroma 기반으로 구현됨.
   실패 시(0건 검색과 동일하게) legal_basis를 "관련 근거 없음"으로 고정하고 체인 전체는 정상 진행한다
 """
 import logging
-import re
 from collections import Counter
 from pathlib import Path
 
@@ -28,6 +27,7 @@ from ai.core.grounding import (
     normalize_grade_strict,
 )
 from ai.core.llm_client import get_llm
+from ai.core.prompt_safety import UNTRUSTED_DATA_BEGIN, UNTRUSTED_DATA_END, sanitize_untrusted, wrap_untrusted
 from ai.core.vectorstore import COLLECTION_REGULATIONS, get_vectorstore
 
 logger = logging.getLogger(__name__)
@@ -125,29 +125,14 @@ class ReportRecommendation(BaseModel):
 # 감싸는 구분자 — _system_base.md의 프롬프트 인젝션 방어 지침이 참조하는 마커와 동일해야 한다
 # (PR머신 P2: 이스케이프 없이 삽입되던 사용자 입력에 최소 방어선 추가. 완전 방지가 아니라
 # "이 구간은 지침이 아니라 데이터"임을 모델에 명시하는 최소 방어선).
-_UNTRUSTED_DATA_BEGIN = "---BEGIN UNTRUSTED DATA---"
-_UNTRUSTED_DATA_END = "---END UNTRUSTED DATA---"
-
-
-def _sanitize_untrusted(text: str) -> str:
-    """사용자 입력 안에 마커 리터럴 자체가 들어있으면 치환해 래퍼 조기 종료(스푸핑)를 막는다
-    (code-reviewer P2: confirmed_defects[].description 등은 자유 텍스트라 길이·문자 제한이 없어
-    `---END UNTRUSTED DATA---\\n<가짜 지침>`을 그대로 넣으면 래퍼가 조기 종료돼 삽입 텍스트가
-    LLM에게 신뢰할 수 있는 프롬프트 내용처럼 보일 수 있었다). 대시 3개+공백 패턴만 깨뜨려도
-    정확한 마커 문자열 재구성이 불가능해지므로, 마커 리터럴 자체가 아니라 그 구성요소인
-    `---`를 전각 대시로 치환한다 — 부분 문자열이 변형되어 원본 마커와 더 이상 일치하지 않는다.
-
-    단순 `str.replace("---", "—--")`는 하이픈 개수가 3의 배수가 아닌 연속 런(예: 4개, 5개)에서
-    치환 후에도 하이픈이 leftover로 남아, 인접 텍스트와 결합하면 원본 마커의 부분 문자열이
-    그대로 재구성될 수 있었다(PR #240 리뷰 P2). 정규식으로 하이픈 3개 이상 연속된 런 전체를
-    한 번에 매칭해 치환하므로 길이에 상관없이 leftover 하이픈이 남지 않는다.
-    """
-    return re.sub(r"-{3,}", lambda m: "—" * (len(m.group(0)) - 1) + "-", text)
-
-
-def _wrap_untrusted(text: str) -> str:
-    safe_text = _sanitize_untrusted(text)
-    return f"{_UNTRUSTED_DATA_BEGIN}\n{safe_text}\n{_UNTRUSTED_DATA_END}"
+#
+# 실제 구현은 ai.core.prompt_safety로 공용화됐다(HAJA-296) — defect_explain_chain.py·
+# briefing_chain.py 등 다른 체인도 동일 마커/로직을 재사용해야 하기 때문. 아래 `_` 접두 이름은
+# 기존 테스트(tests/test_report.py)·호출부와의 하위 호환을 위한 별칭이다.
+_UNTRUSTED_DATA_BEGIN = UNTRUSTED_DATA_BEGIN
+_UNTRUSTED_DATA_END = UNTRUSTED_DATA_END
+_sanitize_untrusted = sanitize_untrusted
+_wrap_untrusted = wrap_untrusted
 
 
 def _format_facility_info(facility_info: dict) -> str:
@@ -258,18 +243,17 @@ def _run_detail_chain(confirmed_defects: list[dict]) -> ReportDetail:
 # ── recommendation (+ RAG, vectorstore 미구현 시 "관련 근거 없음" 폴백) ──
 
 def _retrieve_legal_basis_context(confirmed_defects: list[dict]) -> str:
-    """Chroma regulations 컬렉션 검색. get_vectorstore()가 아직 NotImplementedError 스텁이거나
-    그 어떤 이유로든 검색 경로가 실패하면, design 문서가 이미 정의한 "0건 검색" 케이스와
+    """Chroma regulations 컬렉션 LangChain similarity_search로 검색.
+    검색 경로가 어떤 이유로든 실패하면, design 문서가 이미 정의한 "0건 검색" 케이스와
     동일하게 취급 — 빈 컨텍스트를 반환하고 체인은 정상 진행한다(요청 전체를 실패시키지 않음).
-    vectorstore.py가 나중에 실제 구현되면 이 함수는 코드 변경 없이 실제 검색 결과를 그대로 흘려보낸다.
     """
     try:
         vectorstore = get_vectorstore(COLLECTION_REGULATIONS)
         query = " ".join(sorted({str(d.get("defect_type", "")) for d in confirmed_defects if d.get("defect_type")}))
         docs = vectorstore.similarity_search(query, k=3)
     except NotImplementedError as e:
-        # 현재 예상된 상태(vectorstore.py 미구현) — 소음 방지 위해 info, 하지만 로그는 남긴다
-        logger.info("vectorstore 미구현(NotImplementedError) — 검색 결과 없음으로 폴백: %s", e)
+        # 방어적 코드 — vectorstore 구현 이후 발생 가능성은 낮지만 폴백 처리
+        logger.info("vectorstore NotImplementedError — 검색 결과 없음으로 폴백: %s", e)
         return ""
     except Exception as e:  # noqa: BLE001 — vectorstore 실구현 이후의 검색/연결 실패까지 폴백 대상으로 폭넓게 잡되,
         # 아래 프로그래밍 오류(잘못된 인자·타입·존재하지 않는 속성 등)는 "검색 실패"가 아니라 코드 버그일

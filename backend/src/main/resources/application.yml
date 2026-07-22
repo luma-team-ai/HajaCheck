@@ -17,9 +17,10 @@ spring:
     store-type: redis
   servlet:
     multipart:
-      # 사업자등록증 업로드 한도(계약: ≤10MB). request 는 파일+폼필드 여유로 12MB.
-      max-file-size: 10MB
-      max-request-size: 12MB
+      # 개별 파일 한도는 두 업로드 기능 중 더 큰 쪽(점검 미디어 20MB, 사업자등록증 10MB) 기준.
+      max-file-size: 20MB
+      # 점검 미디어 다중 업로드 최악값 기준: maxFilesPerRequest(10) × maxSizeBytes(20MB) + 여유.
+      max-request-size: 205MB
   # 비밀번호 재설정 메일 발송(#194) — 시크릿은 전부 env 참조, 커밋된 값 없음.
   # ⚠️ SMTP_HOST 미설정 시 값이 "빈 문자열로 존재"한다 → 스프링은 JavaMailSender 빈을 만들지만,
   #    발송 구현체 선택은 SmtpConfiguredCondition(빈값 배제)이 하므로 로컬/dev 는 로그 폴백으로 간다.
@@ -65,6 +66,14 @@ app:
       - image/png
       - application/pdf
     max-size-bytes: 10485760
+  media-upload:
+    # 점검 촬영 데이터(이미지) 업로드(dev-05-03) — 영상은 후속 PR 범위.
+    allowed-content-types:
+      - image/jpeg
+      - image/png
+    max-size-bytes: 20971520
+    max-files-per-request: 10
+    thumbnail-max-dimension: 400
   policy:
     # 약관 버전은 서버 소유(클라이언트 미전송) — 동의 이력에 기록.
     terms-version: "1.0"
@@ -93,7 +102,9 @@ ai:
     base-url: ${AI_SERVER_BASE_URL:http://localhost:8000}
     internal-key: ${AI_SERVER_INTERNAL_KEY:}
     connect-timeout-ms: 3000
-    read-timeout-ms: 60000
+    # HF Inference(Qwen3 reasoning)는 정상 응답에도 최대 HF_TIMEOUT(기본 120s)까지 걸릴 수 있어,
+    # read-timeout이 그보다 작으면 Spring이 먼저 끊어 정상 응답조차 실패 처리된다(#448 P1). 여유분 포함 150s.
+    read-timeout-ms: 150000
 
 management:
   endpoints:

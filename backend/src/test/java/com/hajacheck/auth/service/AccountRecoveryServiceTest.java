@@ -50,7 +50,7 @@ class AccountRecoveryServiceTest {
 
         FindIdResponse response = service.findId(new FindIdRequest("123-45-67890", "김민수", null));
 
-        assertThat(response.maskedEmail()).isEqualTo("owne***@haja.com");
+        assertThat(response.maskedEmail()).isEqualTo("o***@h***.com");
     }
 
     @Test
@@ -65,7 +65,7 @@ class AccountRecoveryServiceTest {
 
         FindIdResponse response = service.findId(new FindIdRequest("123-45-67890", null, "(주)하자체크"));
 
-        assertThat(response.maskedEmail()).isEqualTo("haja***@check.com");
+        assertThat(response.maskedEmail()).isEqualTo("h***@c***.com");
     }
 
     @Test

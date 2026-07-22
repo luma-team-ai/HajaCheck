@@ -1,6 +1,7 @@
 package com.hajacheck.auth.service;
 
 import com.hajacheck.auth.config.AuthProperties;
+import com.hajacheck.auth.config.FileStorageProperties;
 import com.hajacheck.auth.config.PolicyProperties;
 import com.hajacheck.auth.dto.CompanySignupRequest;
 import com.hajacheck.auth.dto.CompanySignupResponse;
@@ -43,6 +44,7 @@ public class CompanySignupService {
     private final CompanyRepository companyRepository;
     private final CompanyAccountWriter accountWriter;
     private final FileStorageService fileStorage;
+    private final FileStorageProperties fileStorageProperties;
     private final TokenStore tokenStore;
     private final PasswordEncoder passwordEncoder;
     private final PolicyProperties policyProperties;
@@ -65,7 +67,8 @@ public class CompanySignupService {
         }
 
         // ② 파일 저장(트랜잭션 밖). 검증 실패는 FILE_* 로 던진다.
-        StoredFile stored = fileStorage.store(request.businessRegistrationFile(), FILE_CATEGORY);
+        StoredFile stored = fileStorage.store(request.businessRegistrationFile(), FILE_CATEGORY,
+                fileStorageProperties.getAllowedContentTypes(), fileStorageProperties.getMaxSizeBytes());
 
         // ③ 원자저장 — 실패 시 파일 보상삭제.
         Company company;
