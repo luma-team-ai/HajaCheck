@@ -46,13 +46,17 @@ export function GradeDistributionCard() {
           </div>
           {/* 각 라벨을 막대와 동일한 비율 너비로 배치해 해당 색상 세그먼트 바로 아래 오도록 정렬(Figma 시안, #556).
               percent=0인 등급(BE가 A~E 5개를 항상 반환)은 폭 0%가 되어 라벨이 완전히 사라지므로 최소 px 폭을
-              보장한다(#565 P2). shrink-0으로 0%가 아닌 항목의 실제 비율이 눌리지 않게 한다(재검수 반영).
+              보장한다(#565 P2). shrink-0은 0%(고정 px) 항목에만 걸어야 한다 — 전항목에 걸면 총 폭이
+              100% + (0%항목수 × 40px)가 되어도 아무것도 줄어들 수 없어 카드 밖으로 오버플로우한다(#580 P2).
+              percent>0 항목은 shrink 허용 상태로 둬서 0%항목의 고정폭만큼 비례 축소되어 총합이 100%로 맞춰진다.
               리스트 시맨틱도 유지(#565 P3). */}
           <ul className="list-none m-0 flex w-full mt-3.5 p-0">
             {sorted.map((item) => (
               <li
                 key={item.grade}
-                className="flex shrink-0 min-w-0 flex-col items-center gap-1 text-[13px] text-[#555]"
+                className={`flex min-w-0 flex-col items-center gap-1 text-[13px] text-[#555] ${
+                  item.percent > 0 ? '' : 'shrink-0'
+                }`}
                 style={
                   item.percent > 0
                     ? { width: `${item.percent}%` }
