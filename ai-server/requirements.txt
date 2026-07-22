@@ -8,7 +8,6 @@ redis==5.2.1
 langchain==0.3.13
 langchain-chroma==0.1.4  # chromadb 0.5.23과 호환, langchain-core<0.4 만족
 langchain-huggingface==0.1.2
-langchain-ollama==0.2.2
 langsmith==0.2.11  # langchain 0.3.13 종속 버전과 고정 일치 (design-03-13, 트레이싱 활성화용 명시)
 chromadb==0.5.23
 sentence-transformers==3.3.1

@@ -1,6 +1,6 @@
 # hajaCheck — AI 개발 컨벤션
 
-> **문서 버전:** v0.3 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
+> **문서 버전:** v0.2 · **최종 수정:** 2026-07-16 · 이전 버전 `archive/`
 
 > 대상: 전체 팀원 (각 메뉴 담당이 자기 메뉴의 AI 기능을 직접 구현하는 체제)
 > 관리: AI-LLM 코치 (공통 모듈·예시 체인 제공, 코드 리뷰 시 준수 점검)
@@ -48,8 +48,8 @@ ai-server/
 ## 2. 공통 LLM 클라이언트 (`ai/core/llm_client.py`)
 
 - 모델명, HF 엔드포인트, API 토큰, 타임아웃, 재시도(2회), 토큰 사용량 로깅을 **한 곳에서** 관리
-- 체인에서는 `get_llm()`만 호출한다. LLM 클라이언트를 직접 생성하지 않는다
-- **HF Serverless Inference API(Qwen3-8B) 전담** — 변경이 필요하면 이 파일 + 환경변수(`LLM_MODEL`) 수정만으로 대응
+- 체인에서는 `get_llm()`만 호출한다. `HuggingFaceEndpoint`를 직접 생성하지 않는다
+- 모델 교체(HF Serverless ↔ Ollama)는 이 파일 + 환경변수만 수정하면 되도록 유지 — `LLM_PROVIDER=hf|ollama`(기본 `hf`), Ollama 사용 시 `OLLAMA_MODEL`(기본 `qwen3:8b`)·`OLLAMA_BASE_URL`(기본 `http://localhost:11434`) 추가 설정(`.env.example` 참고, HAJA-114)
 
 ```python
 # 사용 예 — 모든 체인의 시작점
@@ -60,7 +60,7 @@ llm = get_llm(temperature=0.2)  # 파라미터만 오버라이드 가능
 ```
 
 - 토큰 사용량은 클라이언트가 자동으로 Redis에 집계 (`ai:usage:{date}` — 관리자 모니터링 연동)
-- **응답 캐시 내장**: 캐시 키 `ai:cache:hf:{model}:{temperature}:{hash}` Redis 캐시를 클라이언트가 자동 적용 — 개발 중 동일 질의 반복으로 인한 크레딧 소진 방지. 모델/temperature별로 네임스페이스 분리. 캐시 우회가 필요하면 `get_llm(cache=False)`
+- **응답 캐시 내장**: 캐시 키 `ai:cache:{provider}:{model}:{temperature}:{hash}` Redis 캐시를 클라이언트가 자동 적용 — 개발 중 동일 질의 반복으로 인한 크레딧 소진 방지. provider/모델/temperature별로 네임스페이스 분리(HAJA-114 P1 픽스 — provider 전환 시 이전 provider 캐시가 잘못 재사용되는 정합성 버그 방지). 캐시 우회가 필요하면 `get_llm(cache=False)`
 
 ## 3. 프롬프트 규약
 
