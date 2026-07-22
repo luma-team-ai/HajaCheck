@@ -9,6 +9,7 @@
 const IMPLEMENTED_ROUTES = new Set([
   '/dashboard',
   '/dashboard/ai-weekly-briefing', // AiBriefingCard 인라인 위젯 앵커 스크롤(#478)
+  '/dashboard/upcoming-inspections', // 다음 점검일 도래 독립 페이지(dev-03-02, #543)
   '/defects/list',
   '/mypage/plan',
   '/inspections/1/viewer',

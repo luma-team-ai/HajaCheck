@@ -55,6 +55,13 @@ export const DASHBOARD_COLOR_CLASS = {
   rowFocusOutline: 'focus-visible:[outline:2px_solid_#9333ea] focus-visible:[outline-offset:-2px]',
   /** KPI 카드 구분선 — 공용 dividerBorder(#ececec)보다 진해서 Figma 시안처럼 경계가 보인다(#556) */
   kpiDividerBorder: 'border-[#d4d4d8]',
+  /** 다음 점검일 D-DAY 배지(원형) — inspection feature DueDateBadge와 동일 팔레트(dev-03-02, #543) */
+  upcomingOverdueBg: 'bg-[#fee2e2] text-[#dc2626]',
+  upcomingSoonBg: 'bg-[#fef3c7] text-[#b45309]',
+  upcomingGraceBg: 'bg-[#f4f4f5] text-[#71717a]',
+  upcomingSafeBg: 'bg-[#dcfce7] text-[#16a34a]',
+  /** 다가오는 점검 알림배너 좌측 강조 보더 */
+  upcomingBannerBorder: 'border-[#fbbf24]',
 } as const;
 
 /**
