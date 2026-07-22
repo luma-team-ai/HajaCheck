@@ -10,13 +10,11 @@ const IMPLEMENTED_ROUTES = new Set([
   '/dashboard',
   '/dashboard/ai-weekly-briefing', // AiBriefingCard 인라인 위젯 앵커 스크롤(#478)
   '/defects/list',
-  '/defects/detail',
   '/mypage/plan',
   '/inspections/1/viewer',
   '/inspections/create',
   '/facilities/list',
   '/facilities/map',
-  '/facilities/detail',
   '/facilities/inspection-cycle',
   '/admin/users',
   '/admin/plans-quota',

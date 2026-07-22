@@ -9,7 +9,6 @@ describe('isRouteImplemented', () => {
     '/dashboard',
     '/dashboard/ai-weekly-briefing',
     '/defects/list',
-    '/defects/detail',
     '/mypage/plan',
     '/inspections/1/viewer',
     '/facilities/list',
