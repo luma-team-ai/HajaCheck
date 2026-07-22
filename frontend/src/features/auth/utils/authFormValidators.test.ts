@@ -3,6 +3,7 @@ import {
   doPasswordsMatch,
   getPasswordStrength,
   isValidBusinessNumber,
+  isValidBusinessStartDate,
   isValidEmail,
   isValidPassword,
   normalizeBusinessNumber,
@@ -97,5 +98,30 @@ describe('normalizeBusinessNumber / isValidBusinessNumber', () => {
 
   it('숫자가 아닌 문자만 있으면 무효하다', () => {
     expect(isValidBusinessNumber('')).toBe(false);
+  });
+});
+
+describe('isValidBusinessStartDate', () => {
+  it('빈 값이면 false를 반환한다', () => {
+    expect(isValidBusinessStartDate('')).toBe(false);
+  });
+
+  it('과거 날짜면 true를 반환한다', () => {
+    expect(isValidBusinessStartDate('2015-03-02')).toBe(true);
+  });
+
+  it('오늘 날짜면 true를 반환한다', () => {
+    const today = new Date().toISOString().slice(0, 10);
+    expect(isValidBusinessStartDate(today)).toBe(true);
+  });
+
+  it('미래 날짜면 false를 반환한다', () => {
+    const future = new Date();
+    future.setFullYear(future.getFullYear() + 1);
+    expect(isValidBusinessStartDate(future.toISOString().slice(0, 10))).toBe(false);
+  });
+
+  it('형식이 잘못된 날짜면 false를 반환한다', () => {
+    expect(isValidBusinessStartDate('not-a-date')).toBe(false);
   });
 });
