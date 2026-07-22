@@ -7,6 +7,7 @@ import com.hajacheck.core.defect.service.NlSearchService;
 import com.hajacheck.global.common.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -34,7 +35,7 @@ public class DefectSearchController {
     @PostMapping("/nl-search")
     public ResponseEntity<ApiResponse<NlSearchResult>> nlSearch(
             @AuthenticationPrincipal LoginUser loginUser,
-            @RequestBody NlSearchRequest request) {
+            @Valid @RequestBody NlSearchRequest request) {
         return ResponseEntity.ok(nlSearchService.search(loginUser.getUserId(), request.query()));
     }
 }

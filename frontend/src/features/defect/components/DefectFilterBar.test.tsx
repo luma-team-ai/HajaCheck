@@ -143,4 +143,62 @@ describe("DefectFilterBar", () => {
     ).not.toBeNull();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("다중 값 중 첫 값만 적용될 때 제외된 값을 안내한다", async () => {
+    server.use(
+      http.post("/api/defects/nl-search", () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            filters: { type: ["CRACK", "SPALLING"], grade: [], status: [], confidenceMin: null },
+            unsupported_terms: [],
+            clarifying_question: null,
+            interpretation_confidence: 0.9,
+          },
+        }),
+      ),
+    );
+    renderFilterBar({ page: 0, size: 20 });
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "균열이나 박리박락 보여줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+
+    expect(
+      await screen.findByText("유형 박리·박락은(는) 아직 함께 적용할 수 없어 제외했어요"),
+    ).not.toBeNull();
+  });
+
+  it("필터 초기화를 누르면 이전 AI 응답 배너도 함께 사라진다", async () => {
+    renderFilterBar({ type: "CRACK", page: 0, size: 20 });
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "하자 좀 보여줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+    await screen.findByText("어떤 유형·등급·상태의 하자를 찾으시나요?");
+
+    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("어떤 유형·등급·상태의 하자를 찾으시나요?")).toBeNull(),
+    );
+  });
+
+  it("개별 필터 칩을 제거하면 이전 AI 응답 배너도 함께 사라진다", async () => {
+    renderFilterBar({ type: "CRACK", page: 0, size: 20 });
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "하자 좀 보여줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+    await screen.findByText("어떤 유형·등급·상태의 하자를 찾으시나요?");
+
+    fireEvent.click(screen.getByRole("button", { name: "유형: 균열 필터 제거" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("어떤 유형·등급·상태의 하자를 찾으시나요?")).toBeNull(),
+    );
+  });
 });

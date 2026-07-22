@@ -27,6 +27,25 @@ function toDefectListFilters(nlFilters: NlSearchFilters): Partial<DefectListFilt
   };
 }
 
+// AI가 정확히 인식한 다중 값 중 첫 값만 적용될 때, unsupported_terms와 달리 조용히 사라지지
+// 않도록 잘려나간 값을 사용자에게 안내하는 문구를 만든다(리뷰 P2 — 안전점검 도구에서 인식된
+// 조건이 말없이 누락되면 안 됨).
+function describeTruncatedFilters(nlFilters: NlSearchFilters): string[] {
+  const messages: string[] = [];
+  if (nlFilters.type.length > 1) {
+    const skipped = nlFilters.type.slice(1).map((value) => DEFECT_TYPE_LABEL[value]).join(", ");
+    messages.push(`유형 ${skipped}은(는) 아직 함께 적용할 수 없어 제외했어요`);
+  }
+  if (nlFilters.grade.length > 1) {
+    messages.push(`등급 ${nlFilters.grade.slice(1).join(", ")}은(는) 아직 함께 적용할 수 없어 제외했어요`);
+  }
+  if (nlFilters.status.length > 1) {
+    const skipped = nlFilters.status.slice(1).map((value) => DEFECT_STATUS_LABEL[value]).join(", ");
+    messages.push(`상태 ${skipped}은(는) 아직 함께 적용할 수 없어 제외했어요`);
+  }
+  return messages;
+}
+
 export function DefectFilterBar({ filters, onChange }: Props) {
   const [query, setQuery] = useState("");
   const { search, data, error, isPending, reset } = useNlSearch();
@@ -88,10 +107,12 @@ export function DefectFilterBar({ filters, onChange }: Props) {
 
   function handleRemoveFilter(key: "type" | "grade" | "status") {
     onChange({ ...filters, [key]: undefined, page: 0 });
+    reset();
   }
 
   function handleReset() {
     onChange({ page: 0, size: filters.size });
+    reset();
   }
 
   const errorMessage = error
@@ -139,11 +160,21 @@ export function DefectFilterBar({ filters, onChange }: Props) {
         </div>
       )}
 
-      {!error && !data?.clarifying_question && (data?.unsupported_terms.length ?? 0) > 0 && (
-        <div className="defect-filter-bar__ai-message" role="status">
-          다음 조건은 아직 지원하지 않아 제외했어요: {data?.unsupported_terms.join(", ")}
-        </div>
-      )}
+      {!error && !data?.clarifying_question && data && (() => {
+        const notices = [
+          ...(data.unsupported_terms.length > 0
+            ? [`다음 조건은 아직 지원하지 않아 제외했어요: ${data.unsupported_terms.join(", ")}`]
+            : []),
+          ...describeTruncatedFilters(data.filters),
+        ];
+        return notices.length > 0 ? (
+          <div className="defect-filter-bar__ai-message" role="status">
+            {notices.map((notice) => (
+              <div key={notice}>{notice}</div>
+            ))}
+          </div>
+        ) : null;
+      })()}
 
       <div className="defect-filter-bar__manual" aria-label="상세 필터">
         <select
