@@ -24,10 +24,14 @@ function extractDescription(payload: NotificationApiItem['payload']): string | u
 // 미터치)을 그대로 렌더한다(HAJA-38, Figma node-id 208-2458 / Anima 파트3 NotificationPanelSection).
 export function NotificationCenter({ open, onClose, enabled }: NotificationCenterProps) {
   const [activeFilter, setActiveFilter] = useState(NOTIFICATION_ALL_FILTER_KEY);
+  // 개별 닫기(X) 로컬 상태 — 전용 삭제 API가 없어(#564) 서버엔 읽음처리만 반영하고, 화면에서
+  // 실제로 사라지는 동작은 이 클라이언트 전용 dismiss 목록으로 구현한다(재검수 반영: 읽음처리만으로는
+  // X를 눌러도 목록에 그대로 남아 "닫기"라는 라벨과 실제 동작이 어긋났었다).
+  const [dismissedIds, setDismissedIds] = useState<Set<number>>(() => new Set());
   const { data } = useNotifications(enabled);
   const { markAsRead, markAllAsRead } = useMarkNotificationsAsRead();
 
-  const notifications = data ?? [];
+  const notifications = (data ?? []).filter((raw) => !dismissedIds.has(raw.id));
 
   // markAsRead(useMutation.mutate 래퍼)는 렌더마다 identity가 바뀌어 useMemo 의존성으로 써도
   // 매 렌더 재계산됐다(P2) — 목록 규모가 작아(최대 30건, BE 컷 기준) 순수 계산으로 충분하다.
@@ -42,6 +46,10 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
       read: raw.isRead,
       // 폴백(미지의 type) 메타는 actionLabel이 없다 — 의미를 모르는 액션 버튼을 노출하지 않는다.
       ...(meta.actionLabel ? { actionLabel: meta.actionLabel, onAction: () => markAsRead(raw.id) } : {}),
+      onDismiss: () => {
+        markAsRead(raw.id);
+        setDismissedIds((prev) => new Set(prev).add(raw.id));
+      },
     };
   });
 

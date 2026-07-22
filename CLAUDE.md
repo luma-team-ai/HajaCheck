@@ -68,6 +68,25 @@
 - `backend`=Java/Spring Boot · `ai-server`=Python/FastAPI · `frontend`=React(Vite SPA, react-router).
 - 각 폴더 작업 시 전역 CLAUDE.md의 해당 스택 컨벤션·빌드/테스트 명령을 적용한다. (frontend는 Next.js가 아니라 Vite SPA이므로 전역 Next.js 컨벤션 중 App Router 전용 항목은 제외하고 공통 원칙만 적용)
 
+## Flyway 마이그레이션 워크플로우 (DB 스키마 변경 — 2026-07-22 신설, #359/#544)
+> Flyway 도입 완료(#544 dev 머지). 이제 스키마 변경은 **`V{n}__*.sql` forward migration**으로만 한다. `ddl-auto=validate`라 엔티티 변경 시 마이그레이션을 누락하면 앱 기동이 실패한다(= #531 프로덕션 다운 재발 원인). **핵심: Flyway 적용 트리거는 "머지"가 아니라 "그 코드로 spring이 부팅되는 순간"이다**(Flyway는 앱 기동 시 자동 실행 — 사람이 SQL을 손으로 돌리지 않는다).
+
+### DB 지형 (실측 2026-07-22)
+- **prod** = arm1 **전용 postgres 컨테이너**(`hajacheck-arm1-postgres-1`)의 DB `hajacheck`. arm1-spring이 붙는 실서비스. Flyway 적용 시점 = **main 승격 자동배포로 arm1-spring이 재기동될 때**.
+- **공유 dev** = arm1 **host postgres-16**(127.0.0.1:5432)의 DB `hajacheck_dev`. 팀 로컬이 `docker-compose.oci-db.yml` SSH 터널로 공유한다. Flyway 적용 시점 = **그 코드로 터널 환경 spring을 부팅할 때**(≠ dev 머지 시점 — 머지 전 테스트로도 찍힌다).
+- **일회용** = 각자 로컬 컨테이너 / testcontainer. 마이그레이션 검증 전용.
+- prod와 공유 dev는 **다른 물리 postgres**다 → 로컬(터널) 재기동은 prod에 무영향이지만, 공유 dev DB(`hajacheck_dev`)는 실제로 건드린다.
+
+### 규칙
+1. **한 기능 = 엔티티 변경 + `V{n}__*.sql` 을 같은 PR**에 담는다(둘이 따로 승격되면 validate로 터진다). 번호는 이어서 매긴다(현재 V3까지 존재 = 다음은 **V4**). 파일명 `V{번호}__{설명}.sql`.
+2. **기존 마이그레이션(V1~) 절대 수정 금지** — 이미 적용된 파일을 바꾸면 checksum 불일치로 기동 실패한다. 변경은 항상 새 번호로만.
+3. **마이그레이션 검증은 일회용 DB(testcontainer/로컬 컨테이너)에서** 한다. 파일이 확정(리뷰 통과)되기 전엔 **공유 dev DB(터널)에 찍지 않는다** — 미확정 `V{n}`을 공유 dev에 찍고 나중에 수정하면 checksum 충돌 + 팀원 간섭이 난다. (빈 DB·기존 DB 양쪽을 CI에서 자동 검증하는 testcontainer 통합테스트를 붙인다 — `FlywayBaselineOnExistingDbIntegrationTest` 참고.)
+4. **터널 프로파일(`docker-compose.oci-db.yml`)로 미확정 마이그레이션 spring 부팅 금지** — 부팅 순간 공유 dev DB에 그대로 적용된다.
+5. **prod 첫 baseline 스탬프 직전 프리플라이트(딱 1회)**: prod `hajacheck`(전용 postgres, 현재 20테이블) ↔ V1 `pg_dump` diff + 백업. baseline-on-migrate는 실스키마↔V1 정합을 **검사 없이 스탬프**하므로, 드리프트가 있으면 이후 validate/forward migration에서 터진다(#531). 이 프리플라이트 이후 승격부터는 자동.
+
+### 표준 흐름
+일회용 DB 검증(자유롭게 수정) → PR(base=dev) 리뷰·머신 검수 → **dev 머지 = 확정** → 확정본으로 공유 dev DB 반영 → dev→main 승격(사람 승인) → 자동배포 재기동 시 **prod 적용**.
+
 ## Jira 연동 (Rovo MCP 오케스트레이션, 2026-07-08 확정, 2026-07-08 사이트 정정, 2026-07-08 프로젝트 키 정정, 2026-07-11 4단계 동기화로 확장, 2026-07-13 INSPECTION CHECK 추가로 5단계 확장, 2026-07-16 GitHub 이슈 라벨/종료 세트 추가)
 - 팀 표준화로 paca → **Jira(`human2-team.atlassian.net`) + Slack**로 전환. GitHub↔Jira 양방향 동기화는 **네이티브 앱(GitHub for Jira) 설치 없이**, Claude가 워크플로우 단계마다 Atlassian Rovo MCP 도구를 직접 호출하는 방식으로 구현한다. PR머신 repo(`.github/workflows/*.yml` 등)에는 아무것도 추가하지 않는다 — PR머신은 리뷰·머지만 하고 Jira를 모른다.
 - **Jira 사이트 = `human2-team.atlassian.net`, 프로젝트 키 = `HAJA`** (프로젝트 표시명은 "haja-check"). ⚠️ 이름이 비슷한 `human-2team.atlassian.net`(프로젝트 키 `SCRUM`)은 **다른 사이트**이며 현재 claude.ai 커넥터 권한이 없음(재연결 시 `human2-team` 하나만 승인됨) — 헷갈리지 말 것. 이슈 타입: 에픽/스토리/작업/버그/Feature/Subtask. (과거 `KAN`으로 잘못 기재돼 있었음 — 2026-07-08 `jira-p2-sync.yml` 버그 조사 중 실제 라이브 데이터로 `HAJA`가 맞다는 걸 확인해 정정.)

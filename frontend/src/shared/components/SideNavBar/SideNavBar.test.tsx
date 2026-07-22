@@ -8,10 +8,10 @@ afterEach(cleanup);
 
 describe('SideNavBar', () => {
   it('기본 메뉴 항목을 렌더링하고, activeHref가 하위 항목이면 해당 그룹이 자동으로 펼쳐진다', () => {
-    render(<SideNavBar activeHref="/defects/detail" />, { wrapper: MemoryRouter });
+    render(<SideNavBar activeHref="/facilities/map" />, { wrapper: MemoryRouter });
 
     expect(screen.getByText('시설물 관리')).not.toBeNull();
-    expect(screen.getByText('하자 상세').closest('a')?.getAttribute('aria-current')).toBe('page');
+    expect(screen.getByText('지도 뷰').closest('a')?.getAttribute('aria-current')).toBe('page');
   });
 
   it('대시보드 그룹을 클릭하면 하위 항목이 펼쳐진다', () => {
@@ -66,10 +66,10 @@ describe('SideNavBar', () => {
   });
 
   it('isAdmin=true + activeHref가 다른 그룹의 하위 항목이어도, 수동으로 펼친 그룹이 스냅백되지 않는다', () => {
-    render(<SideNavBar isAdmin activeHref="/defects/detail" />, { wrapper: MemoryRouter });
+    render(<SideNavBar isAdmin activeHref="/facilities/map" />, { wrapper: MemoryRouter });
 
-    // 마운트 시 activeHref(하자 관리)의 그룹이 자동으로 펼쳐진 상태
-    expect(screen.getByText('하자 상세')).not.toBeNull();
+    // 마운트 시 activeHref(시설물 관리)의 그룹이 자동으로 펼쳐진 상태
+    expect(screen.getByText('지도 뷰')).not.toBeNull();
 
     // 다른 그룹(대시보드)을 수동으로 펼치면, activeHref는 그대로여도 대시보드가 계속 펼쳐져 있어야 한다
     fireEvent.click(screen.getByText('대시보드'));
@@ -81,6 +81,20 @@ describe('SideNavBar', () => {
     render(<SideNavBar />, { wrapper: MemoryRouter });
 
     expect(screen.queryByText('관리자 페이지')).toBeNull();
+  });
+
+  it('brandHref 미지정 시 로고는 /dashboard로 링크된다(기존 동작 불변)', () => {
+    render(<SideNavBar />, { wrapper: MemoryRouter });
+
+    expect(screen.getByLabelText('HajaCheck 홈으로 이동').getAttribute('href')).toBe('/dashboard');
+  });
+
+  it('brandHref 지정 시 로고 링크가 override된다(#535 플랫폼 관리자 콘솔)', () => {
+    render(<SideNavBar brandHref="/platform-admin" />, { wrapper: MemoryRouter });
+
+    expect(screen.getByLabelText('HajaCheck 홈으로 이동').getAttribute('href')).toBe(
+      '/platform-admin',
+    );
   });
 
   it('user 정보가 있으면 이름/플랜을 표시하고, 로그아웃 클릭 시 onLogout이 호출된다', () => {
@@ -291,26 +305,33 @@ describe('SideNavBar', () => {
       return getResizeHandle().closest('aside')?.style.width;
     }
 
-    it('기본 폭은 240px이고, 오른쪽으로 드래그하면 폭이 늘어난다', () => {
+    it('기본 폭은 244px이고, 오른쪽으로 드래그하면 폭이 늘어난다', () => {
       render(<SideNavBar />, { wrapper: MemoryRouter });
 
-      expect(getAsideWidth()).toBe('240px');
+      expect(getAsideWidth()).toBe('244px');
 
       fireEvent.mouseDown(getResizeHandle(), { clientX: 240 });
       fireEvent.mouseMove(window, { clientX: 300 });
 
-      expect(getAsideWidth()).toBe('300px');
+      expect(getAsideWidth()).toBe('304px');
 
       fireEvent.mouseUp(window);
     });
 
-    it('왼쪽으로 드래그하면 폭이 줄어든다', () => {
+    // DEFAULT_WIDTH(244)가 곧 MIN_WIDTH라, 기본 상태에서 바로 왼쪽으로 드래그하면 즉시 하한에 clamp된다
+    // (아래 'MIN_WIDTH 밑으로 내려가지 않도록' 테스트가 그 케이스를 다룬다). 이 테스트는 먼저 넓힌
+    // 뒤 다시 왼쪽으로 줄이는, MIN_WIDTH보다 넓은 상태에서의 축소 동작을 확인한다(#499).
+    it('넓힌 상태에서 왼쪽으로 드래그하면 폭이 줄어든다', () => {
       render(<SideNavBar />, { wrapper: MemoryRouter });
 
       fireEvent.mouseDown(getResizeHandle(), { clientX: 240 });
-      fireEvent.mouseMove(window, { clientX: 210 });
+      fireEvent.mouseMove(window, { clientX: 300 });
+      fireEvent.mouseUp(window);
 
-      expect(getAsideWidth()).toBe('210px');
+      fireEvent.mouseDown(getResizeHandle(), { clientX: 300 });
+      fireEvent.mouseMove(window, { clientX: 270 });
+
+      expect(getAsideWidth()).toBe('274px');
 
       fireEvent.mouseUp(window);
     });
@@ -326,13 +347,13 @@ describe('SideNavBar', () => {
       fireEvent.mouseUp(window);
     });
 
-    it('MIN_WIDTH(200px) 밑으로 내려가지 않도록 clamp된다', () => {
+    it('MIN_WIDTH(244px) 밑으로 내려가지 않도록 clamp된다', () => {
       render(<SideNavBar />, { wrapper: MemoryRouter });
 
       fireEvent.mouseDown(getResizeHandle(), { clientX: 240 });
       fireEvent.mouseMove(window, { clientX: -1000 });
 
-      expect(getAsideWidth()).toBe('200px');
+      expect(getAsideWidth()).toBe('244px');
 
       fireEvent.mouseUp(window);
     });
@@ -342,12 +363,12 @@ describe('SideNavBar', () => {
 
       fireEvent.mouseDown(getResizeHandle(), { clientX: 240 });
       fireEvent.mouseMove(window, { clientX: 260 });
-      expect(getAsideWidth()).toBe('260px');
+      expect(getAsideWidth()).toBe('264px');
 
       fireEvent.mouseUp(window);
       fireEvent.mouseMove(window, { clientX: 500 });
 
-      expect(getAsideWidth()).toBe('260px');
+      expect(getAsideWidth()).toBe('264px');
     });
 
     it('드래그로 조절된 폭이 바뀔 때마다 onWidthChange가 호출된다', () => {
@@ -358,7 +379,7 @@ describe('SideNavBar', () => {
       fireEvent.mouseMove(window, { clientX: 280 });
       fireEvent.mouseUp(window);
 
-      expect(handleWidthChange).toHaveBeenCalledWith(280);
+      expect(handleWidthChange).toHaveBeenCalledWith(284);
     });
 
     it('접힌 상태에서는 드래그 핸들이 렌더링되지 않는다', () => {
@@ -383,7 +404,7 @@ describe('SideNavBar', () => {
       fireEvent.mouseMove(window, { clientX: 300 });
 
       expect(handleWidthChange).toHaveBeenCalledTimes(1);
-      expect(handleWidthChange).toHaveBeenCalledWith(300);
+      expect(handleWidthChange).toHaveBeenCalledWith(304);
 
       fireEvent.mouseUp(window);
     });
@@ -394,17 +415,17 @@ describe('SideNavBar', () => {
 
       const handle = getResizeHandle();
       expect(handle.getAttribute('tabindex')).toBe('0');
-      expect(handle.getAttribute('aria-valuenow')).toBe('240');
-      expect(handle.getAttribute('aria-valuemin')).toBe('200');
+      expect(handle.getAttribute('aria-valuenow')).toBe('244');
+      expect(handle.getAttribute('aria-valuemin')).toBe('244');
       expect(handle.getAttribute('aria-valuemax')).toBe('320');
 
       fireEvent.keyDown(handle, { key: 'ArrowRight' });
-      expect(getAsideWidth()).toBe('256px');
-      expect(handleWidthChange).toHaveBeenCalledWith(256);
+      expect(getAsideWidth()).toBe('260px');
+      expect(handleWidthChange).toHaveBeenCalledWith(260);
 
       fireEvent.keyDown(handle, { key: 'ArrowLeft' });
       fireEvent.keyDown(handle, { key: 'ArrowLeft' });
-      expect(getAsideWidth()).toBe('224px');
+      expect(getAsideWidth()).toBe('244px');
     });
 
     it('키보드 ArrowRight를 반복해도 MAX_WIDTH(320px)를 넘지 않도록 clamp된다', () => {

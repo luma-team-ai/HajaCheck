@@ -1,5 +1,6 @@
 import { api } from '../../../shared/api/axios';
 import {
+  BUSINESS_LICENSE_OCR_PATH,
   COMPANY_SIGNUP_PATH,
   EMAIL_AVAILABILITY_PATH,
   ID_INQUIRY_PATH,
@@ -7,6 +8,7 @@ import {
   PASSWORD_RESET_REQUEST_PATH,
 } from '../constants';
 import type {
+  BusinessLicenseOcrResponse,
   CompanySignupRequest,
   CompanySignupResponse,
   EmailAvailabilityResponse,
@@ -52,6 +54,13 @@ export const authApi = {
     api.get<EmailAvailabilityResponse>(EMAIL_AVAILABILITY_PATH, { params: { email } }),
   signupCompany: (body: CompanySignupRequest) =>
     api.post<CompanySignupResponse>(COMPANY_SIGNUP_PATH, toCompanySignupFormData(body)),
+  // 사업자등록증 OCR 자동채움(#587) — 비로그인 공개 엔드포인트, 파일 파라미터명은 가입 API와
+  // 동일하게 businessRegistrationFile을 사용(계약 정합).
+  businessLicenseOcr: (file: File) => {
+    const formData = new FormData();
+    formData.append('businessRegistrationFile', file);
+    return api.post<BusinessLicenseOcrResponse>(BUSINESS_LICENSE_OCR_PATH, formData);
+  },
   findLoginId: (body: IdInquiryRequest) => api.post<IdInquiryResponse>(ID_INQUIRY_PATH, body),
   // 비밀번호 찾기 — 이메일 링크 방식(#301, HAJA-224)
   requestPasswordReset: (body: PasswordResetLinkRequest) =>

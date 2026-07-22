@@ -9,6 +9,18 @@ spring:
     name: hajacheck
   profiles:
     active: local
+  # Flyway가 스키마를 관리하고 Hibernate는 검증만 한다(#359 — arm1 승격 #531 스키마 드리프트 재발 방지).
+  # baseline-on-migrate: 이미 전체 스키마가 있는 기존 DB(arm1 프로덕션, 팀원 로컬)는 V1 실행 없이
+  # "이미 적용됨"으로 스탬프만 하고, V2(plans 시드)부터 정상 적용한다. 빈 새 DB는 V1부터 순서대로 적용된다.
+  # ⚠️ V1(db/migration/V1__baseline_schema.sql)은 2026-07-22 baseline 시점 이후 고정(frozen)이며
+  # docs/design/db/HajaCheck_script.sql과 더 이상 실시간으로 동기화되지 않는다 — 그 파일에 신규 테이블·
+  # 컬럼이 추가되면 V1이 아니라 forward migration(V3, V4, …)으로 반영한다(예: api_system_logs → V3).
+  # V1을 사후 수정하면 이미 baseline 스탬프를 찍은 기존 DB(arm1)는 그 변경을 영영 받지 못한다.
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+    baseline-description: "reconciled schema 2026-07-22"
   jpa:
     hibernate:
       ddl-auto: validate
@@ -91,6 +103,15 @@ app:
       # ⚠️ 작게 잡으면 공격자가 상한을 채워 정상 사용자를 429로 막는 DoS 킬스위치가 된다(IP 축 미사용).
       global-limit: 60
       global-window: 1m
+    # 사업자등록증 OCR 공개 프록시 rate-limit(#557 / HAJA-324) — 비로그인이라 이메일 축이 없다.
+    # 전역 상한만으로 AI 서버(RapidOCR+LLM) CPU 부하를 방어한다(IP 축 미사용 이유는 AuthProperties 참고).
+    business-license-ocr-rate-limit:
+      global-limit: 20
+      global-window: 1m
+      # 일일 절대 캡(security-reviewer P1) — 분당 캡만으로는 지속 반복 시 일일 LLM 호출/과금이
+      # 무제한(20/분 × 1440분 = 최대 28,800/일)이라, 유료 LLM 다운스트림 총량을 별도로 캡한다.
+      daily-limit: 500
+      daily-window: 1d
   # 재설정 메일 발신 주소 + 링크 base. ⚠️ 링크 base 는 반드시 설정값 — 요청 Host 에서 유도 금지(poisoning).
   mail:
     from: ${MAIL_FROM:no-reply@hajacheck.local}

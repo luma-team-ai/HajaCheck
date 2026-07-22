@@ -1,4 +1,5 @@
 import { ErrorFallback } from '../../../shared/components/ErrorFallback';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import type { TableColumn } from '../../../shared/components/Table';
 import { Table } from '../../../shared/components/Table';
 import type { Facility } from '../types';
@@ -17,12 +18,7 @@ type Props = {
 export function FacilityTable({ facilities, isLoading, isError, onRetry, onSelectFacility }: Props) {
   if (isLoading) {
     return (
-      <div
-        className="flex items-center justify-center px-4 py-12 text-sm text-text-muted"
-        role="status"
-      >
-        불러오는 중...
-      </div>
+      <LoadingSpinner className="flex items-center justify-center gap-2 px-4 py-12" />
     );
   }
 

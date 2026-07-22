@@ -44,6 +44,11 @@ dependencies {
     // 점검 미디어 업로드(dev-05-03) — EXIF/GPS 추출(순수 Java, 네이티브 의존성 없음)
     implementation 'com.drewnoakes:metadata-extractor:2.19.0'
 
+    // Flyway 스키마 마이그레이션(#359) — Spring Boot 3.3.5 BOM이 버전을 관리(명시 불필요).
+    // Flyway 10+ 부터 PostgreSQL 드라이버 지원이 별도 아티팩트로 분리됐다.
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+
     runtimeOnly 'org.postgresql:postgresql'
     // 로컬 Docker 개발(docker-compose.override.yml) 핫리로드 전용 — 프로덕션 fat jar 실행 시 자동 비활성화
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
@@ -62,6 +67,12 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+    testLogging {
+        exceptionFormat = 'full'
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+    }
     // 로컬 Docker Desktop(API 프록시 소켓)에서 Testcontainers 가 전략 고정으로 DOCKER_HOST 를 무시할 때만
     // 오버라이드용(기본 미설정 → CI/기본 환경엔 영향 없음): ./gradlew test -PdockerStrategy=...
     if (project.hasProperty('dockerStrategy')) {
@@ -99,9 +110,13 @@ def ap020MigrationScript = rootProject.file(
 // 카탈로그 대조 대상이므로 테스트 classpath에 함께 포함한다.
 def apiSystemLogsMigrationScript = rootProject.file(
         '../docs/design/db/migrations/20260720_01_create_api_system_logs.sql')
+// #534 role_type PLATFORM_ADMIN 라벨도 독립 증분 파일이지만, 전체 증분 경로와 canonical DDL의
+// 카탈로그 대조 대상이므로 테스트 classpath에 함께 포함한다.
+def platformAdminRoleMigrationScript = rootProject.file(
+        '../docs/design/db/migrations/20260722_01_platform_admin_role.sql')
 def ha25SchemaInputs = rootProject.files(
         canonicalDdl, v03BaselineDdl, ha25MigrationScripts, ap020MigrationScript,
-        apiSystemLogsMigrationScript)
+        apiSystemLogsMigrationScript, platformAdminRoleMigrationScript)
 
 // The released v0.3 archive is a tracked migration input even when it is not part of a PR diff.
 // Fail before test-resource processing so CI cannot silently validate only the canonical DDL.
@@ -135,6 +150,9 @@ tasks.named('processTestResources') {
         into 'db/migrations'
     }
     from(apiSystemLogsMigrationScript) {
+        into 'db/migrations'
+    }
+    from(platformAdminRoleMigrationScript) {
         into 'db/migrations'
     }
 }

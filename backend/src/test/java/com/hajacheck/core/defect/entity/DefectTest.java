@@ -41,19 +41,40 @@ class DefectTest {
     }
 
     @Test
-    void changeStatus_건너뛰기역행동일상태및해결상태이탈을거부() {
+    void changeStatus_사유없는건너뛰기와동일상태는거부하고해결상태는이탈불가() {
         Defect detected = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).build();
         assertThatThrownBy(() -> detected.changeStatus(DefectStatus.ACTION_PENDING))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> detected.changeStatus(DefectStatus.DETECTED))
                 .isInstanceOf(IllegalStateException.class);
 
         Defect resolved = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).status(DefectStatus.RESOLVED).build();
-        assertThatThrownBy(() -> resolved.changeStatus(DefectStatus.IN_PROGRESS))
+        assertThatThrownBy(() -> resolved.changeStatus(DefectStatus.IN_PROGRESS, "재검토 필요"))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> resolved.changeStatus(null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void changeStatus_사유가있으면건너뛰기와역행을허용() {
+        Defect detected = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).build();
+
+        detected.changeStatus(DefectStatus.ACTION_PENDING, "경미한 하자라 검수확정 생략");
+        assertThat(detected.getStatus()).isEqualTo(DefectStatus.ACTION_PENDING);
+
+        detected.changeStatus(DefectStatus.CONFIRMED, "확정 이전으로 재검토 필요");
+        assertThat(detected.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+    }
+
+    @Test
+    void changeStatus_사유가공백이면건너뛰기와역행을거부() {
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).build();
+
+        assertThatThrownBy(() -> defect.changeStatus(DefectStatus.ACTION_PENDING, "  "))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

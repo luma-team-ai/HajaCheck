@@ -17,6 +17,7 @@ RUN apt-get update \
 COPY requirements.txt ./
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/venv/bin/pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
     && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # ---- Runtime stage ----
@@ -24,7 +25,10 @@ FROM python:3.11-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    # curl=헬스체크. libgl1·libglib2.0-0=opencv(cv2) 런타임 공유 라이브러리 — rapidocr(사업자등록증
+    # OCR, #552)가 cv2를 로드하며, 이게 없으면 실제 OCR 호출 시 `libGL.so.1` import 에러가 난다(#573).
+    # (앱 import 경로는 지연 import로 cv2를 요구하지 않지만, 런타임 OCR 실행에는 필요.)
+    && apt-get install -y --no-install-recommends curl libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/* \
     # UID/GID를 999로 명시 고정(#345) — useradd -r의 자동 할당값이었던 999를 그대로 박은 것.
     # chroma_data는 named volume 마운트 대상이라 최초 마운트 시점의 UID로 초기화되므로, 베이스

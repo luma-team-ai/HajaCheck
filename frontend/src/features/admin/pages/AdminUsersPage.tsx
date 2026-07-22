@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../../shared/components/Button';
 import { TableFooterPagination } from '../../../shared/components/TableFooterPagination/TableFooterPagination';
+import { useDebouncedValue } from '../../../shared/hooks/useDebouncedValue';
 import { fetchAllAdminUsers } from '../api/adminApi';
 import { AdminUserFilterBar } from '../components/AdminUserFilterBar';
 import type { FilterValue } from '../components/AdminUserFilterBar';
@@ -27,7 +28,7 @@ const NOTICE_AUTO_DISMISS_MS = 2500;
 // 헤더(브레드크럼)·사이드바는 AppShellRoute → AppLayout이 담당하므로 이 페이지는 CONTENT 영역만 그린다.
 export function AdminUsersPage() {
   const [keywordInput, setKeywordInput] = useState('');
-  const [keyword, setKeyword] = useState('');
+  const keyword = useDebouncedValue(keywordInput, KEYWORD_DEBOUNCE_MS);
   const [role, setRole] = useState<FilterValue<AdminUserRole>>('');
   const [status, setStatus] = useState<FilterValue<AdminUserStatus>>('');
   const [page, setPage] = useState(1);
@@ -57,12 +58,6 @@ export function AdminUsersPage() {
     error: createUserError,
     resetError: resetCreateUserError,
   } = useCreateUser();
-
-  // 타이핑마다 조회하지 않도록 검색어만 디바운스한다(드롭다운 필터는 즉시 반영)
-  useEffect(() => {
-    const timer = setTimeout(() => setKeyword(keywordInput), KEYWORD_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [keywordInput]);
 
   // 필터·검색어·페이지 크기가 바뀌면 1페이지로 되돌린다 — 3페이지에서 필터를 좁혀 결과가
   // 1페이지뿐이 되면 빈 화면이 뜨기 때문.
@@ -117,7 +112,6 @@ export function AdminUsersPage() {
 
   function handleReset() {
     setKeywordInput('');
-    setKeyword('');
     setRole('');
     setStatus('');
   }

@@ -104,7 +104,7 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     });
 
     expect(await screen.findByText('시설물 상세')).not.toBeNull();
-    expect(screen.getByTestId('location-probe').textContent).toBe('/facilities/1?facilityId=1');
+    expect(screen.getByTestId('location-probe').textContent).toBe('/facilities/1');
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 

@@ -11,6 +11,7 @@ import type {
   GradeDistributionItem,
   PendingPriorityItem,
   RecentInspectionItem,
+  UpcomingInspectionItem,
 } from '../types';
 
 // MSW 응답용 예시 값 — Figma 캡처(dev-03-01) 수치 기준.
@@ -112,6 +113,36 @@ export const mockRecentInspections: RecentInspectionItem[] = [
     inspector: '정민준',
     defectCount: 2,
     status: '완료',
+  },
+];
+
+function daysFromNowIsoDate(days: number): string {
+  const date = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  return date.toISOString().slice(0, 10);
+}
+
+// Figma 시안(dev-03-02) D-7/D-1/D-42 예시값 기준 — "점검 유형"·"이전 최고등급"은 BE 미제공이라 제외(#543)
+export const mockUpcomingInspections: UpcomingInspectionItem[] = [
+  {
+    facilityId: 1,
+    facilityName: '한강대교 북단',
+    nextInspectionDueAt: daysFromNowIsoDate(7),
+    dDay: 7,
+    inspectionCycleMonths: 12,
+  },
+  {
+    facilityId: 2,
+    facilityName: '강남 오피스타워 A동',
+    nextInspectionDueAt: daysFromNowIsoDate(1),
+    dDay: 1,
+    inspectionCycleMonths: 6,
+  },
+  {
+    facilityId: 3,
+    facilityName: '판교 R&D 센터',
+    nextInspectionDueAt: daysFromNowIsoDate(42),
+    dDay: 42,
+    inspectionCycleMonths: 12,
   },
 ];
 

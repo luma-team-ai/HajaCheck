@@ -9,17 +9,26 @@
 const IMPLEMENTED_ROUTES = new Set([
   '/dashboard',
   '/dashboard/ai-weekly-briefing', // AiBriefingCard 인라인 위젯 앵커 스크롤(#478)
-  '/defects/detail',
+  '/dashboard/upcoming-inspections', // 다음 점검일 도래 독립 페이지(dev-03-02, #543)
+  '/defects/list',
   '/mypage/plan',
   '/inspections/1/viewer',
   '/inspections/create',
   '/facilities/list',
   '/facilities/map',
-  '/facilities/detail',
   '/facilities/inspection-cycle',
   '/admin/users',
   '/admin/plans-quota',
   '/support/ai-assistant',
+  // 플랫폼 관리자 콘솔(#535) — 7개 메뉴 placeholder. 여기 없으면 PlatformAdminShellRoute의
+  // SideNavBar가 "아직 구현되지 않은 페이지입니다" 토스트를 띄우며 이동을 막는다.
+  '/platform-admin/users',
+  '/platform-admin/plans-quota',
+  '/platform-admin/defect-types',
+  '/platform-admin/counsels',
+  '/platform-admin/rag-documents',
+  '/platform-admin/stats',
+  '/platform-admin/monitoring',
 ]);
 
 export function isRouteImplemented(href: string): boolean {

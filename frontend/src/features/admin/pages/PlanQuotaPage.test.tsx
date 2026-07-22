@@ -9,12 +9,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { MemoryRouter } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { adminPlanHandlers } from '../api/adminPlanApi.handlers';
 import { planQuotaHandlers } from '../api/planQuotaApi.handlers';
 import { PLAN_QUOTA_KPI_TEST_ID } from '../components/PlanQuotaKpiCards';
 import { PlanQuotaPage } from './PlanQuotaPage';
 
-const server = setupServer(...planQuotaHandlers);
+const server = setupServer(...planQuotaHandlers, ...adminPlanHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
@@ -30,7 +32,9 @@ function renderPage(): void {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <PlanQuotaPage />
+      <MemoryRouter>
+        <PlanQuotaPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -75,6 +79,36 @@ describe('PlanQuotaPage (통합 테스트)', () => {
     fireEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
     await screen.findByText('한서준');
     expect(screen.getByText('Standard')).toBeTruthy();
+  });
+
+  it('카탈로그의 priceMonthly가 null이어도 현재 플랜 카드가 크래시 없이 렌더된다', async () => {
+    // plans.price_monthly는 DDL상 nullable — PR머신 리뷰 P2(카드가 detail.priceMonthly.toLocaleString()로
+    // 크래시하던 계약 불일치)의 회귀 테스트.
+    server.use(
+      http.get('/api/admin/plans', () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            plans: [
+              {
+                id: 2,
+                name: 'STANDARD',
+                maxFacilities: 10,
+                maxMonthlyAnalyses: 1000,
+                maxSeats: 3,
+                hasPdfWatermark: false,
+                hasCounselorAccess: true,
+                hasAiAddon: true,
+                priceMonthly: null,
+              },
+            ],
+          },
+        }),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByText('가격 문의')).toBeTruthy();
   });
 
   it('회사에 활성 구독이 없으면 현재 플랜 카드에 안내 문구를 보여준다', async () => {

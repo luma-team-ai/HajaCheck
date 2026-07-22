@@ -105,16 +105,16 @@ describe('useDefectExplain (통합 테스트)', () => {
     );
 
     // 로딩 상태 확인
-    await waitFor(() => container.textContent?.includes('분석하고 있습니다') || container.textContent?.includes('추정 원인'));
+    await waitFor(() => container.textContent?.includes('분석하고 있습니다') || container.textContent?.includes('예상 원인'));
 
     // 데이터 로드 완료 대기
-    await waitFor(() => container.textContent?.includes('추정 원인'));
+    await waitFor(() => container.textContent?.includes('예상 원인'));
 
-    expect(container.textContent).toContain('추정 원인');
+    expect(container.textContent).toContain('예상 원인');
     expect(container.textContent).toContain('바닥재 수분 침투');
     expect(container.textContent).toContain('방치 시 위험');
     expect(container.textContent).toContain('낙상 위험');
-    expect(container.textContent).toContain('조치 방안');
+    expect(container.textContent).toContain('조치 계획');
     expect(container.textContent).toContain('바닥재 전체 교체');
 
     root.unmount();
@@ -154,9 +154,9 @@ describe('useDefectExplain (통합 테스트)', () => {
     resolveRequest();
 
     // 데이터 로드 완료 대기 (로딩이 완료되고 데이터가 표시됨)
-    await waitFor(() => container.textContent?.includes('추정 원인'), 2000);
+    await waitFor(() => container.textContent?.includes('예상 원인'), 2000);
 
-    expect(container.textContent).toContain('추정 원인');
+    expect(container.textContent).toContain('예상 원인');
     expect(container.textContent).not.toContain('분석하고 있습니다'); // 로딩 완료됨
 
     root.unmount();
@@ -177,7 +177,7 @@ describe('useDefectExplain (통합 테스트)', () => {
     // — 이 케이스는 필수 파라미터 검증이므로, enabled 조건을 통과하지 못한 것
     // 로딩/에러/데이터 모두 없는 상태 확인
     expect(container.textContent).not.toContain('분석하고 있습니다');
-    expect(container.textContent).not.toContain('추정 원인');
+    expect(container.textContent).not.toContain('예상 원인');
 
     root.unmount();
   });
@@ -242,9 +242,9 @@ describe('useDefectExplain (통합 테스트)', () => {
     );
 
     // 재시도 후 성공하면 데이터가 표시됨
-    await waitFor(() => container.textContent?.includes('추정 원인'), 3000);
+    await waitFor(() => container.textContent?.includes('예상 원인'), 3000);
 
-    expect(container.textContent).toContain('추정 원인');
+    expect(container.textContent).toContain('예상 원인');
     expect(callCount).toBe(2); // 초기 시도 + 재시도 1회
 
     root.unmount();

@@ -103,11 +103,8 @@ services:
         condition: service_healthy
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}@redis:6379/0
-      LLM_PROVIDER: ${LLM_PROVIDER:-hf}
       LLM_MODEL: ${LLM_MODEL:-Qwen/Qwen3-8B}
       HF_API_TOKEN: ${HF_API_TOKEN:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
       # 스프링이 부착하는 X-Internal-Key 검증용 공유키(동일 ${AI_INTERNAL_KEY} 소스).
       # 미설정(빈값) 시 FastAPI 검증 비활성 — 로컬/dev 편의(nginx 폐쇄가 1차 방어).
       AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:-}

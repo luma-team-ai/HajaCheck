@@ -10,7 +10,12 @@ import type { Role } from '../../shared/constants/roles';
 //
 // role은 로그인 사용자와 같은 값이라 shared/constants/roles의 Role을 그대로 쓴다 — 복제해두면
 // 백엔드에 값이 추가될 때 한쪽만 고치고 넘어가 라벨 Record 조회가 undefined가 된다(빈 배지).
-export type AdminUserRole = Role;
+//
+// PLATFORM_ADMIN(#535)은 제외한다 — 이 화면(GET /api/admin/users)은 기업 관리자 콘솔의
+// company_id 스코프 사용자 목록이고, PLATFORM_ADMIN은 company_id가 없는 별도 축이라
+// 이 목록에 절대 나타나지 않는다(PRD v0.47). 포함시키면 ROLE_LABEL 등 Record<AdminUserRole, ...>
+// 전부에 실사용 없는 '플랫폼 관리자' 항목을 억지로 채워야 한다.
+export type AdminUserRole = Exclude<Role, 'PLATFORM_ADMIN'>;
 export type AdminUserStatus = 'ACTIVE' | 'SUSPENDED';
 
 // plan은 users 컬럼이 아니라 user_plans → plans(plan_name_type) 조인 결과다.

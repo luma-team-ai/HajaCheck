@@ -1,8 +1,10 @@
 import { useNavigate } from 'react-router-dom';
+import userAvatar from '../../../assets/brand/header-user-outlined.svg';
 import { DASHBOARD_COLOR_CLASS } from '../colors';
 import { defectDetailPath } from '../constants';
 import { usePendingPriority } from '../hooks/usePendingPriority';
 import { formatElapsedTime } from '../utils/formatElapsedTime';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { GradeBadge } from './GradeBadge';
 
 export function PendingPriorityCard() {
@@ -18,10 +20,16 @@ export function PendingPriorityCard() {
     <section className="dashboard-card">
       <div className="dashboard-card-header">
         <h3 className="dashboard-card-title">처리 대기</h3>
-        <span className={`text-[13px] font-semibold ${DASHBOARD_COLOR_CLASS.mutedText}`}>우선순위</span>
+        <div className="flex items-center gap-2">
+          <span className={`text-[13px] font-semibold ${DASHBOARD_COLOR_CLASS.mutedText}`}>우선순위</span>
+          {/* 장식용 아바타(데이터 무관) — Figma 시안 정합(#556) */}
+          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border bg-[#ece6ee]">
+            <img className="h-3.5 w-3.5" src={userAvatar} alt="" />
+          </span>
+        </div>
       </div>
 
-      {isLoading && <p className="dashboard-card-status">불러오는 중...</p>}
+      {isLoading && <LoadingSpinner />}
       {isError && <p className="dashboard-card-status">처리 대기 목록을 불러오지 못했습니다.</p>}
       {!isLoading && !isError && (!data || data.length === 0) && (
         <p className="dashboard-card-status">처리 대기 중인 하자가 없습니다.</p>
