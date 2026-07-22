@@ -4,6 +4,7 @@ import { lazy, Suspense } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { AdminRoute } from '../shared/components/AdminRoute';
 import { ProtectedRoute } from '../shared/components/ProtectedRoute';
+import { LoadingSpinner } from '../shared/components/LoadingSpinner';
 import { AppShellRoute } from './AppShellRoute';
 
 const MapPage = lazy(() => import('../features/map/MapPage'));
@@ -168,7 +169,7 @@ export const router = createBrowserRouter([
   {
     path: '/',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner />}>
         <LandingPage />
       </Suspense>
     ),
@@ -176,7 +177,7 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner />}>
         <LoginPage />
       </Suspense>
     ),
@@ -184,7 +185,7 @@ export const router = createBrowserRouter([
   {
     path: '/policy/terms-of-service',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner />}>
         <TermsOfServicePage />
       </Suspense>
     ),
@@ -192,7 +193,7 @@ export const router = createBrowserRouter([
   {
     path: '/policy/privacy',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner />}>
         <PrivacyPolicyPage />
       </Suspense>
     ),
@@ -200,7 +201,7 @@ export const router = createBrowserRouter([
   {
     path: '/signup/company',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner />}>
         <CompanySignupPage />
       </Suspense>
     ),
@@ -208,7 +209,7 @@ export const router = createBrowserRouter([
   {
     path: '/signup/company/pending',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner />}>
         <CompanySignupPendingPage />
       </Suspense>
     ),
@@ -216,7 +217,7 @@ export const router = createBrowserRouter([
   {
     path: '/find-id',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner />}>
         <FindIdPage />
       </Suspense>
     ),
@@ -224,7 +225,7 @@ export const router = createBrowserRouter([
   {
     path: '/find-password',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner />}>
         <FindPasswordPage />
       </Suspense>
     ),
@@ -232,7 +233,7 @@ export const router = createBrowserRouter([
   {
     path: '/reset-password',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner />}>
         <ResetPasswordPage />
       </Suspense>
     ),
@@ -251,7 +252,7 @@ export const router = createBrowserRouter([
       {
         path: '/dashboard',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner />}>
             <DashboardPage />
           </Suspense>
         ),
@@ -263,7 +264,7 @@ export const router = createBrowserRouter([
         // href와 다를 수밖에 없어 handle.activeHref로 매핑하는 것과 대조 — HAJA-30).
         path: '/defects/list',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <DefectListPage />
           </Suspense>
         ),
@@ -275,7 +276,7 @@ export const router = createBrowserRouter([
       {
         path: '/dashboard/ai-weekly-briefing',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <DashboardPage />
           </Suspense>
         ),
@@ -289,7 +290,7 @@ export const router = createBrowserRouter([
       {
         path: '/defects/:id',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner />}>
             <DefectDetailPage />
           </Suspense>
         ),
@@ -301,7 +302,7 @@ export const router = createBrowserRouter([
       {
         path: '/mypage/plan',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner />}>
             <MyPlanPage />
           </Suspense>
         ),
@@ -313,7 +314,7 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/map',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner />}>
             <MapPage />
           </Suspense>
         ),
@@ -325,7 +326,7 @@ export const router = createBrowserRouter([
       {
         path: '/inspections/create',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <InspectionCreatePage />
           </Suspense>
         ),
@@ -337,7 +338,7 @@ export const router = createBrowserRouter([
       {
         path: '/inspections/:id/viewer',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner />}>
             <ResultViewerPage />
           </Suspense>
         ),
@@ -349,7 +350,7 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/:id',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <FacilityDetailPage />
           </Suspense>
         ),
@@ -361,7 +362,7 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/:id/defects/:defectId',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <FacilityDefectDetailPage />
           </Suspense>
         ),
@@ -375,7 +376,7 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/:id/defects/:defectId/compare',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <FacilityInspectionComparePage />
           </Suspense>
         ),
@@ -391,7 +392,7 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/inspection-cycle',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <InspectionCycleSettingsPage />
           </Suspense>
         ),
@@ -407,7 +408,7 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/list',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <FacilityListPage />
           </Suspense>
         ),
@@ -422,7 +423,7 @@ export const router = createBrowserRouter([
         // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#378, 컨벤션 §7)
         element: (
           <AdminRoute>
-            <Suspense fallback={<div>불러오는 중...</div>}>
+            <Suspense fallback={<LoadingSpinner />}>
               <AdminUsersPage />
             </Suspense>
           </AdminRoute>
@@ -437,7 +438,7 @@ export const router = createBrowserRouter([
         // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#508, 컨벤션 §7)
         element: (
           <AdminRoute>
-            <Suspense fallback={<div>불러오는 중...</div>}>
+            <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
               <PlanQuotaPage />
             </Suspense>
           </AdminRoute>
@@ -450,7 +451,7 @@ export const router = createBrowserRouter([
       {
         path: '/support/ai-assistant',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner />}>
             <AiAssistantPage />
           </Suspense>
         ),

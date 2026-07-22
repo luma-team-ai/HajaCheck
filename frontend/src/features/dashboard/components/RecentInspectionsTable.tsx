@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { DASHBOARD_COLOR_CLASS } from '../colors';
 import { useRecentInspections } from '../hooks/useRecentInspections';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { StatusBadge } from './StatusBadge';
 
 const TH_BASE_CLASS =
@@ -67,7 +68,7 @@ export function RecentInspectionsTable() {
         </button>
       </div>
 
-      {isLoading && <p className="dashboard-card-status">불러오는 중...</p>}
+      {isLoading && <LoadingSpinner />}
       {isError && <p className="dashboard-card-status">최근 점검 목록을 불러오지 못했습니다.</p>}
       {!isLoading && !isError && (!data || data.length === 0) && (
         <p className="dashboard-card-status">최근 점검 이력이 없습니다.</p>

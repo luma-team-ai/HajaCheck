@@ -6,6 +6,7 @@ import { AUTH_ME_QUERY_KEY, AUTH_ME_QUERY_STALE_TIME_MS } from '../features/auth
 import { useAuthStore } from '../features/auth/store/authStore';
 import type { UserResponse } from '../features/auth/types';
 import type { ApiError } from '../shared/api/types';
+import { LoadingSpinner } from '../shared/components/LoadingSpinner';
 
 type Props = {
   children: ReactNode;
@@ -81,12 +82,8 @@ export function AuthGate({ children }: Props) {
   if (!ready) {
     if (isRestoring) {
       return (
-        <div
-          className="auth-gate-splash flex min-h-screen items-center justify-center text-sm text-text-muted"
-          role="status"
-          aria-live="polite"
-        >
-          불러오는 중...
+        <div className="auth-gate-splash flex min-h-screen items-center justify-center">
+          <LoadingSpinner />
         </div>
       );
     }

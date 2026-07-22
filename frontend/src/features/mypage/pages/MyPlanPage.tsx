@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { BillingHistoryPlaceholder } from '../components/BillingHistoryPlaceholder';
 import { PlanCard } from '../components/PlanCard';
 import { SeatsSection } from '../components/SeatsSection';
@@ -19,7 +20,7 @@ export function MyPlanPage() {
       <h1 className="text-2xl font-bold text-heading">내 플랜</h1>
 
       <div className="mx-auto flex w-full max-w-5xl flex-col divide-y divide-border rounded-[20px] border border-border bg-white p-8 shadow-sm">
-        {isLoading && <p className="py-6 text-sm text-text-muted first:pt-0">불러오는 중...</p>}
+        {isLoading && <LoadingSpinner className="justify-start py-6 first:pt-0" />}
 
         {isError && errorCode === MYPAGE_ERROR_CODE.PLAN_NOT_FOUND && (
           <p className="py-6 text-sm text-danger first:pt-0" role="alert">

@@ -5,6 +5,7 @@ import { AdminUserRowMenu } from './AdminUserRowMenu';
 import type { AdminUserRowAction } from './AdminUserRowMenu';
 import { StateRow } from './StateRow';
 import { UserAvatar } from './UserAvatar';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 
 interface AdminUserTableProps {
   users: AdminUser[];
@@ -45,7 +46,7 @@ export function AdminUserTable({
       <tbody>
         {isLoading && (
           <StateRow colSpan={COLUMN_COUNT}>
-            <span className="text-text-muted">불러오는 중...</span>
+            <LoadingSpinner className="py-0" />
           </StateRow>
         )}
 
