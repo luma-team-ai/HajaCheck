@@ -1,7 +1,11 @@
-"""사업자등록증 OCR 체인 (HAJA-169/#552, 개업일자 추출 #598) — AI_개발_컨벤션.md §8 절차를 따름.
+"""사업자등록증 OCR 체인 (HAJA-169/#552, 개업일자 추출 #598, RapidOCR→EasyOCR 교체 #605)
+— AI_개발_컨벤션.md §8 절차를 따름.
 
-RapidOCR(`ai/core/ocr_client.py`, 한국어 인식 wiring)로 이미지에서 텍스트 라인을 추출한 뒤,
+EasyOCR(`ai/core/ocr_client.py`, 한국어 모델)로 이미지에서 텍스트 라인을 추출한 뒤,
 LLM structured output으로 사업자등록번호/상호/대표자명/개업연월일 4필드를 파싱한다.
+EasyOCR도 완벽하진 않아 유사 글자 오탈자(예: "다"↔"타", "0"↔"O")가 남을 수 있는데, 이는
+LLM 프롬프트(`ai/prompts/business_license_ocr.md`)의 문맥 기반 오탈자 교정 지시로 보정한다
+(단, 없는 값을 지어내진 않는다 — 인식 안 되면 null).
 
 사업자등록번호는 OCR 원문에서 정규식으로도 탐지해 LLM이 놓치거나 하이픈 표기를 다르게 한
 경우를 보정한다 — 숫자는 OCR 자체 신뢰도가 높고 포맷이 고정(3-2-5자리)이라 결정론적 정규식
@@ -93,9 +97,15 @@ def _decode_image(image_base64: str) -> bytes:
 
 
 def _extract_text_lines(image_bytes: bytes) -> list[tuple[str, float]]:
-    """RapidOCR로 (텍스트, 신뢰도) 라인 목록을 추출한다. 텍스트를 못 찾으면 빈 리스트."""
+    """EasyOCR로 (텍스트, 신뢰도) 라인 목록을 추출한다. 텍스트를 못 찾으면 빈 리스트.
+
+    EasyOCR `readtext()`는 파일 경로/numpy 배열/bytes를 모두 받아들이므로(내부
+    `reformat_input()`이 bytes를 cv2.imdecode로 직접 디코딩) 별도 PIL/np 변환 없이
+    원본 bytes를 그대로 넘긴다. `detail=1, paragraph=False`로 RapidOCR과 동일한
+    `(box, text, confidence)` 튜플 목록을 받아 하위 로직(정규식 후처리 등)을 그대로 유지한다.
+    """
     engine = get_ocr_engine()
-    result, _elapse = engine(image_bytes)
+    result = engine.readtext(image_bytes, detail=1, paragraph=False)
     if not result:
         return []
     return [(text, float(score)) for _box, text, score in result]
