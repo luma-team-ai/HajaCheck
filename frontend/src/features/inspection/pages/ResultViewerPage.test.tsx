@@ -30,7 +30,7 @@ const mockDefects: DefectDetailItem[] = [
     inspectionId: 1,
     type: '균열',
     grade: 'C',
-    status: '신규',
+    status: 'DETECTED',
     confidence: 0.98,
     isReviewed: false,
     bboxX: 0.12,
@@ -46,7 +46,7 @@ const mockDefects: DefectDetailItem[] = [
     inspectionId: 1,
     type: '박리박락',
     grade: 'B',
-    status: '신규',
+    status: 'DETECTED',
     confidence: 0.81,
     isReviewed: false,
     bboxX: 0.55,
@@ -60,7 +60,7 @@ const mockDefects: DefectDetailItem[] = [
     inspectionId: 1,
     type: '철근노출',
     grade: 'D',
-    status: '검수확정',
+    status: 'CONFIRMED',
     confidence: 0.67,
     isReviewed: true,
     bboxX: 0.3,
@@ -74,7 +74,7 @@ const mockDefects: DefectDetailItem[] = [
     inspectionId: 1,
     type: '철근노출',
     grade: 'E',
-    status: '신규',
+    status: 'DETECTED',
     confidence: 0.58,
     isReviewed: false,
     bboxX: 0.7,
@@ -88,7 +88,7 @@ const mockDefects: DefectDetailItem[] = [
     inspectionId: 1,
     type: '박리박락',
     grade: 'A',
-    status: '조치완료',
+    status: 'RESOLVED',
     confidence: 0.45,
     isReviewed: true,
     bboxX: 0.05,
@@ -136,7 +136,7 @@ const testHandlers = [
   http.patch('/api/defects/:id/status', () => {
     const updatedDefect: DefectDetailItem = {
       ...mockDefects[0],
-      status: '검수확정',
+      status: 'CONFIRMED',
     };
     return HttpResponse.json({ success: true, data: updatedDefect });
   }),
