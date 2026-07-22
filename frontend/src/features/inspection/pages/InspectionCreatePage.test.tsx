@@ -1,13 +1,18 @@
 // @vitest-environment jsdom
-// InspectionCreatePage 통합 테스트 — 시설물 개요 패널(실 API + 목 통계) 렌더링과, "+ 새 점검"
-// 모달을 통한 실제 점검 생성(POST /api/inspections, MSW inspectionHandlers) 플로우를 검증한다.
+// InspectionCreatePage 통합 테스트 — 회의 후 반영된 시안(점검 정보 + 데이터 업로드 단일 화면)을
+// 검증한다. 폼 검증은 MSW inspectionHandlers로 실제 왕복하되, 이미지 업로드는 파일(File) 파트를
+// 포함한 실제 HTTP 왕복이 msw+jsdom+undici 조합의 알려진 환경 한계로 안정 재현되지 않아
+// (authApi.company.test.ts와 동일 근거) mediaApi.upload를 스파이로
+// 대체해 발화 여부/파라미터만 검증한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
+import { mediaApi } from '../api/mediaApi';
+import type { Media } from '../types';
 import { InspectionCreatePage } from './InspectionCreatePage';
 
 const server = setupServer(...inspectionHandlers);
@@ -16,27 +21,23 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();
+  vi.restoreAllMocks();
 });
 afterAll(() => server.close());
 
 function LocationProbe() {
   const location = useLocation();
-  return (
-    <div data-testid="location-probe">
-      {location.pathname}
-      {location.search}
-    </div>
-  );
+  return <div data-testid="location-probe">{location.pathname}</div>;
 }
 
-function renderPage(initialEntry = '/inspections/create') {
+function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
 
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[initialEntry]}>
+      <MemoryRouter initialEntries={['/inspections/create']}>
         <Routes>
           <Route path="/inspections/create" element={<InspectionCreatePage />} />
           <Route path="/facilities/:id" element={<div>시설물 상세</div>} />
@@ -47,68 +48,96 @@ function renderPage(initialEntry = '/inspections/create') {
   );
 }
 
-function openModal() {
-  fireEvent.click(screen.getByRole('button', { name: '+ 새 점검' }));
-  return screen.getByRole('dialog');
+async function fillRequiredFields() {
+  await screen.findByText('판교 테크노밸리 B동');
+  fireEvent.change(screen.getByLabelText('시설물'), { target: { value: '1' } });
+  fireEvent.change(screen.getByLabelText('점검일'), { target: { value: '2026-08-01' } });
+  fireEvent.change(screen.getByLabelText('담당 점검자'), { target: { value: '5' } });
 }
 
-async function fillValidForm(dialog: HTMLElement) {
-  // 시설물 옵션 로딩 중엔 select가 disabled라 fireEvent.change가 무시된다 — 옵션이 뜬 뒤에 값을 바꾼다.
-  await within(dialog).findByText('판교 테크노밸리 B동');
-  fireEvent.change(within(dialog).getByLabelText(/점검일/), { target: { value: '2026-08-01' } });
-  fireEvent.change(within(dialog).getByLabelText(/담당자 ID/), { target: { value: '5' } });
+function selectFiles(files: File[]) {
+  fireEvent.change(screen.getByLabelText('촬영 데이터 파일 선택'), { target: { files } });
 }
 
 describe('InspectionCreatePage (통합 테스트)', () => {
-  it('시설물 개요(이름/통계/점검 이력)를 실 API + 목 데이터로 렌더링한다', async () => {
+  it('점검 정보 입력 필드와 데이터 업로드 영역을 함께 렌더링한다', async () => {
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: '강남 오피스타워 A동' })).not.toBeNull();
-    expect(screen.getByText('8')).not.toBeNull();
-    expect(screen.getByText('43')).not.toBeNull();
-    expect(screen.getByText('12')).not.toBeNull();
-    expect(screen.getByText('8회차 점검')).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '점검 정보' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '데이터 업로드' })).not.toBeNull();
+    expect(screen.getByLabelText('시설물')).not.toBeNull();
+    expect(screen.getByLabelText('점검일')).not.toBeNull();
+    expect(screen.getByLabelText('담당 점검자')).not.toBeNull();
+    expect(screen.getByLabelText('메모')).not.toBeNull();
   });
 
-  it('+ 새 점검을 누르면 현재 보고 있던 시설물이 기본 선택된 생성 모달이 열린다', async () => {
+  it('필수값 미입력 시 제출하면 에러 메시지를 보여주고 요청을 보내지 않는다', async () => {
     renderPage();
-    await screen.findByRole('heading', { name: '강남 오피스타워 A동' });
 
-    const dialog = openModal();
+    fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
 
-    const option = within(dialog).getByRole('option', {
-      name: '강남 오피스타워 A동',
-    }) as HTMLOptionElement;
-    expect(option.selected).toBe(true);
+    expect(await screen.findByText('시설물을 선택해 주세요.')).not.toBeNull();
+    expect(screen.getByText('점검일을 선택해 주세요.')).not.toBeNull();
+    expect(screen.getByText('담당자 ID를 입력해 주세요.')).not.toBeNull();
   });
 
-  it('필수값 미입력 시 제출하면 모달 안에 에러 메시지를 보여주고 요청을 보내지 않는다', async () => {
+  it('허용되지 않는 형식의 파일을 선택하면 에러를 보여주고 제출 버튼을 비활성화한다', async () => {
     renderPage();
-    await screen.findByRole('heading', { name: '강남 오피스타워 A동' });
-    const dialog = openModal();
+    await fillRequiredFields();
 
-    fireEvent.click(within(dialog).getByRole('button', { name: '점검 회차 생성' }));
+    selectFiles([new File(['a'], 'a.exe', { type: 'application/octet-stream' })]);
 
-    expect(await within(dialog).findByText('점검일을 선택해 주세요.')).not.toBeNull();
-    expect(within(dialog).getByText('담당자 ID를 입력해 주세요.')).not.toBeNull();
+    expect(await screen.findByText('지원하지 않는 형식입니다 (JPG, PNG, MP4만 가능)')).not.toBeNull();
+    expect(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' })).toHaveProperty(
+      'disabled',
+      true,
+    );
   });
 
-  it('생성 성공 시 모달이 닫히고 해당 시설물 상세 페이지로 이동한다', async () => {
+  it('영상 파일은 선택되지만 "프레임 추출 예정" 상태로만 표시되고 실제 업로드 대상에서 제외된다', async () => {
     renderPage();
-    await screen.findByRole('heading', { name: '강남 오피스타워 A동' });
-    const dialog = openModal();
-    await fillValidForm(dialog);
+    await fillRequiredFields();
+
+    selectFiles([new File(['a'], 'clip.mp4', { type: 'video/mp4' })]);
+
+    expect(await screen.findByText('영상 · 프레임 추출 예정')).not.toBeNull();
+  });
+
+  it('생성 성공 + 이미지 업로드 성공 시 mediaApi.upload를 호출하고 시설물 상세로 이동한다', async () => {
+    const mockMedia: Media[] = [
+      {
+        id: 1,
+        inspectionId: 100,
+        fileType: 'IMAGE',
+        thumbnailUrl: '/api/media/1/thumbnail',
+        mimeType: 'image/jpeg',
+        capturedAt: null,
+        gpsLat: null,
+        gpsLng: null,
+        createdAt: '2026-07-22T00:00:00',
+      },
+    ];
+    const uploadSpy = vi
+      .spyOn(mediaApi, 'upload')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockResolvedValue({ data: mockMedia } as any);
+
+    renderPage();
+    await fillRequiredFields();
+    const file = new File(['a'], 'a.jpg', { type: 'image/jpeg' });
+    selectFiles([file]);
+    await screen.findByText('대기 중');
 
     await act(async () => {
-      fireEvent.click(within(dialog).getByRole('button', { name: '점검 회차 생성' }));
+      fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
     });
 
+    expect(uploadSpy).toHaveBeenCalledWith(100, [file], expect.any(Function));
     expect(await screen.findByText('시설물 상세')).not.toBeNull();
     expect(screen.getByTestId('location-probe').textContent).toBe('/facilities/1');
-    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('생성 실패 시 모달이 열린 채 에러 메시지를 표시한다', async () => {
+  it('점검 생성 실패 시 에러 메시지를 표시하고 입력값을 유지한다', async () => {
     server.use(
       http.post('/api/inspections', () => {
         const failure = {
@@ -121,21 +150,13 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     );
 
     renderPage();
-    await screen.findByRole('heading', { name: '강남 오피스타워 A동' });
-    const dialog = openModal();
-    await fillValidForm(dialog);
+    await fillRequiredFields();
 
     await act(async () => {
-      fireEvent.click(within(dialog).getByRole('button', { name: '점검 회차 생성' }));
+      fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
     });
 
-    expect(await within(dialog).findByText('배정할 수 없는 담당자입니다.')).not.toBeNull();
-    expect(screen.getByRole('dialog')).not.toBeNull();
-  });
-
-  it('존재하지 않는 시설물이면 에러 메시지를 표시한다', async () => {
-    renderPage('/inspections/create?facilityId=999');
-
-    expect(await screen.findByText('시설물 정보를 불러오지 못했습니다.')).not.toBeNull();
+    expect(await screen.findByText('배정할 수 없는 담당자입니다.')).not.toBeNull();
+    expect((screen.getByLabelText('시설물') as HTMLSelectElement).value).toBe('1');
   });
 });
