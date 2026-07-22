@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse, PageResponse } from '../../../shared/api/types';
 import { mockDefects } from '../mocks/defect.mock';
+import type { NlSearchResult } from '../nlSearchTypes';
 import type { Defect, DefectStatus } from '../types';
 
 const DEFAULT_SIZE = 20;
@@ -82,6 +83,35 @@ export const defectHandlers = [
 
     found.status = status;
     const body: ApiResponse<Defect> = { success: true, data: found };
+    return HttpResponse.json(body);
+  }),
+
+  // "D등급 이상" 질의는 정상 필터 변환, 그 외는 되묻는 질문 응답 — 테스트 fixture 단순화(HAJA-120).
+  http.post('/api/defects/nl-search', async ({ request }) => {
+    const { query } = (await request.json()) as { query: string };
+
+    if (query.includes('D등급 이상')) {
+      const body: ApiResponse<NlSearchResult> = {
+        success: true,
+        data: {
+          filters: { type: [], grade: ['D', 'E'], status: ['ACTION_PENDING'], confidenceMin: null },
+          unsupported_terms: [],
+          clarifying_question: null,
+          interpretation_confidence: 0.92,
+        },
+      };
+      return HttpResponse.json(body);
+    }
+
+    const body: ApiResponse<NlSearchResult> = {
+      success: true,
+      data: {
+        filters: { type: [], grade: [], status: [], confidenceMin: null },
+        unsupported_terms: [],
+        clarifying_question: '어떤 유형·등급·상태의 하자를 찾으시나요?',
+        interpretation_confidence: 0.2,
+      },
+    };
     return HttpResponse.json(body);
   }),
 ];
