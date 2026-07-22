@@ -1,4 +1,4 @@
-import type { Defect } from '../types';
+import type { Defect, DefectRevision } from '../types';
 
 // HAJA-30 목록/상세 통합 테스트용 목 데이터 — 유형/등급/상태 다양화
 export const mockDefects: Defect[] = [
@@ -20,6 +20,7 @@ export const mockDefects: Defect[] = [
     bboxH: 0.15,
     crackWidthMm: null,
     crackLengthMm: null,
+    imageUrl: '/api/media/901/thumbnail',
     createdAt: '2026-07-01T09:00:00.000Z',
   },
   {
@@ -40,6 +41,7 @@ export const mockDefects: Defect[] = [
     bboxH: 0.1,
     crackWidthMm: 1.2,
     crackLengthMm: 45.0,
+    imageUrl: '/api/media/902/thumbnail',
     createdAt: '2026-07-02T09:00:00.000Z',
   },
   {
@@ -60,6 +62,32 @@ export const mockDefects: Defect[] = [
     bboxH: null,
     crackWidthMm: null,
     crackLengthMm: null,
+    // mediaId 없는 하자(HAJA-314) — 이미지 없이 조회되는 케이스를 목데이터에서도 재현.
+    imageUrl: null,
     createdAt: '2026-07-03T09:00:00.000Z',
   },
 ];
+
+// GET /api/defects/{id}/revisions 통합 테스트용 목 데이터 — id=1 하자의 상태 전이 이력(HAJA-314)
+export const mockDefectRevisions: Record<number, DefectRevision[]> = {
+  1: [
+    {
+      id: 1,
+      revisedBy: 100,
+      fieldChanged: 'status',
+      oldValue: 'DETECTED',
+      newValue: 'CONFIRMED',
+      reason: null,
+      createdAt: '2026-07-01T09:05:00.000Z',
+    },
+    {
+      id: 2,
+      revisedBy: 100,
+      fieldChanged: 'status',
+      oldValue: 'CONFIRMED',
+      newValue: 'ACTION_PENDING',
+      reason: null,
+      createdAt: '2026-07-01T09:10:00.000Z',
+    },
+  ],
+};
