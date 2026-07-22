@@ -603,7 +603,9 @@ def test_grounding_all_unverifiable_sets_grounding_ok_false(mock_get_llm, mock_g
     backend Report.finalizeReport()가 grounding_ok=True를 확정 게이트로 신뢰하므로, 근거 없는 보고서가
     잘못 확정 가능해지는 실제 위험을 막는 회귀 테스트."""
     mock_get_vectorstore.side_effect = NotImplementedError("stub")
-    _patch_all_sections(mock_get_llm)  # 기본 summary: total_count=1, grade B=1 (모두 양성 주장)
+    # detail 도 confirmed_defects=[] 와 맞춰 비워야 한다 — 그렇지 않으면 grounding 판정(이 테스트가
+    # 검증할 로직) 전에 _detail_matches_confirmed 불일치로 ValueError 가 먼저 터진다(PR머신 P2 지적).
+    _patch_all_sections(mock_get_llm, detail=ReportDetail(items=[]))  # summary는 기본값: total_count=1, grade B=1
 
     result = run_report_chain(_sample_facility_info(), [], on_mismatch="regenerate")
 
