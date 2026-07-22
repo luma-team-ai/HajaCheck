@@ -6,6 +6,7 @@ import { DefectFilterBar } from "../components/DefectFilterBar";
 import { DefectTable } from "../components/DefectTable";
 import { useDefects } from "../hooks/useDefects";
 import type { DefectListFilters } from "../types";
+import { exportDefectsToPdf } from "../utils/exportDefectsToPdf";
 import "./DefectListPage.css";
 
 const DEFAULT_SIZE = 10;
@@ -21,6 +22,7 @@ export function DefectListPage() {
   });
   const { data, isLoading, isError, refetch } = useDefects(filters);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  const [isExporting, setIsExporting] = useState(false);
 
   const size = filters.size ?? DEFAULT_SIZE;
   const currentPage = (filters.page ?? 0) + 1; // TableFooterPagination/Pagination은 1-based
@@ -43,6 +45,7 @@ export function DefectListPage() {
       : selectedInspectionIds.size > 1
         ? "같은 점검 회차의 하자만 선택하세요"
         : undefined;
+  const canExport = selectedDefects.length > 0;
 
   const handlePageChange = (page: number) => {
     setFilters((prev) => ({ ...prev, page: page - 1 }));
@@ -55,6 +58,18 @@ export function DefectListPage() {
   const handleGenerateReport = () => {
     if (!canGenerateReport) return;
     navigate(`/inspections/${selectedDefects[0].inspectionId}/viewer`);
+  };
+
+  const handleExport = async () => {
+    if (!canExport || isExporting) return;
+    setIsExporting(true);
+    try {
+      await exportDefectsToPdf(selectedDefects);
+    } catch (error) {
+      console.error("하자 목록 PDF 내보내기 실패", error);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -86,9 +101,11 @@ export function DefectListPage() {
             <Button
               variant="secondary"
               size="md"
-              title="내보내기 기능 연동 예정"
+              disabled={!canExport || isExporting}
+              title={canExport ? undefined : "내보낼 하자를 선택하세요"}
+              onClick={handleExport}
             >
-              내보내기
+              {isExporting ? "내보내는 중..." : "내보내기"}
             </Button>
             <Button
               variant="primary"

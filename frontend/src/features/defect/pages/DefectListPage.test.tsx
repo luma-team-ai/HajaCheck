@@ -11,13 +11,30 @@ import {
 } from "@testing-library/react";
 import { setupServer } from "msw/node";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { defectHandlers } from "../api/defectApi.handlers";
 import { DefectListPage } from "./DefectListPage";
+
+const mockExportDefectsToPdf = vi.fn().mockResolvedValue(undefined);
+vi.mock("../utils/exportDefectsToPdf", () => ({
+  exportDefectsToPdf: (...args: unknown[]) => mockExportDefectsToPdf(...args),
+}));
 
 const server = setupServer(...defectHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
+beforeEach(() => {
+  mockExportDefectsToPdf.mockClear();
+});
 afterEach(() => {
   server.resetHandlers();
   cleanup();
@@ -133,14 +150,18 @@ describe("DefectListPage (통합 테스트)", () => {
     expect(selectAll.indeterminate).toBe(true);
   });
 
-  it("선택된 행이 없으면 보고서 생성 버튼이 비활성화된다", async () => {
+  it("선택된 행이 없으면 보고서 생성·내보내기 버튼이 비활성화된다", async () => {
     renderPage();
     await screen.findByRole("table");
 
     const reportButton = screen.getByRole("button", {
       name: "보고서 생성",
     }) as HTMLButtonElement;
+    const exportButton = screen.getByRole("button", {
+      name: "내보내기",
+    }) as HTMLButtonElement;
     expect(reportButton.disabled).toBe(true);
+    expect(exportButton.disabled).toBe(true);
   });
 
   it("같은 점검 회차의 하자만 선택하면 보고서 생성 버튼이 활성화되고, 클릭 시 해당 점검 회차 뷰어로 이동한다", async () => {
@@ -176,5 +197,25 @@ describe("DefectListPage (통합 테스트)", () => {
     expect(reportButton.getAttribute("title")).toBe(
       "같은 점검 회차의 하자만 선택하세요",
     );
+  });
+
+  it("하자를 하나 이상 선택하면 내보내기 버튼이 활성화되고, 클릭 시 선택된 하자로 PDF 내보내기를 호출한다", async () => {
+    renderPage();
+    const table = await screen.findByRole("table");
+
+    fireEvent.click(within(table).getByRole("checkbox", { name: "DEF-0001 선택" }));
+
+    const exportButton = screen.getByRole("button", {
+      name: "내보내기",
+    }) as HTMLButtonElement;
+    expect(exportButton.disabled).toBe(false);
+
+    fireEvent.click(exportButton);
+
+    await screen.findByRole("button", { name: "내보내기" });
+    expect(mockExportDefectsToPdf).toHaveBeenCalledTimes(1);
+    const [calledDefects] = mockExportDefectsToPdf.mock.calls[0];
+    expect(calledDefects).toHaveLength(1);
+    expect(calledDefects[0].id).toBe(1);
   });
 });
