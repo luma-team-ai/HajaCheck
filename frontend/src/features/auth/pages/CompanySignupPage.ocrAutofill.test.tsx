@@ -14,6 +14,7 @@ import type { ApiResponse } from '../../../shared/api/types';
 import { authApi } from '../api/authApi';
 import {
   MOCK_OCR_BUSINESS_NUMBER,
+  MOCK_OCR_BUSINESS_START_DATE,
   MOCK_OCR_COMPANY_NAME,
   MOCK_OCR_REPRESENTATIVE_NAME,
   companyAuthHandlers,
@@ -66,7 +67,7 @@ function oversizedPngFile(name = 'big-license.png') {
 }
 
 describe('CompanySignupPage — 사업자등록증 OCR 자동채움(#587)', () => {
-  it('PNG 업로드 시 OCR이 성공하면 사업자등록번호·상호명·대표자명이 자동으로 채워진다', async () => {
+  it('PNG 업로드 시 OCR이 성공하면 사업자등록번호·상호명·대표자명·개업일자가 자동으로 채워진다(#600)', async () => {
     renderPage();
 
     fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pngFile()] } });
@@ -79,6 +80,9 @@ describe('CompanySignupPage — 사업자등록증 OCR 자동채움(#587)', () =
     expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(MOCK_OCR_COMPANY_NAME);
     expect((screen.getByLabelText('대표자명') as HTMLInputElement).value).toBe(
       MOCK_OCR_REPRESENTATIVE_NAME,
+    );
+    expect((screen.getByLabelText('개업일자') as HTMLInputElement).value).toBe(
+      MOCK_OCR_BUSINESS_START_DATE,
     );
   });
 
@@ -128,6 +132,53 @@ describe('CompanySignupPage — 사업자등록증 OCR 자동채움(#587)', () =
     });
     // 사용자가 이미 입력한 사업자등록번호는 OCR 응답으로 덮어써지지 않는다.
     expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe('9999999999');
+  });
+
+  // #600 — 개업일자도 기존 3필드와 동일한 "빈 필드만 채움" 규칙을 따라야 한다.
+  it('이미 입력된 개업일자는 OCR 결과로 덮어쓰지 않는다(#600)', async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('개업일자'), { target: { value: '2020-01-01' } });
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pngFile()] } });
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(MOCK_OCR_COMPANY_NAME);
+    });
+    expect((screen.getByLabelText('개업일자') as HTMLInputElement).value).toBe('2020-01-01');
+  });
+
+  // #600 — OCR이 개업일자를 인식하지 못해 null을 주면 다른 필드는 채워지되 개업일자는
+  // 채워지지 않고 빈 채로 남아 수기 입력을 유도해야 한다.
+  it('OCR이 개업일자를 null로 주면 해당 필드는 채워지지 않는다(#600)', async () => {
+    server.use(
+      http.post('/api/auth/business-license/ocr', () => {
+        const success: ApiResponse<{
+          businessRegistrationNumber: string | null;
+          companyName: string | null;
+          representativeName: string | null;
+          businessStartDate: string | null;
+        }> = {
+          success: true,
+          data: {
+            businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER,
+            companyName: MOCK_OCR_COMPANY_NAME,
+            representativeName: MOCK_OCR_REPRESENTATIVE_NAME,
+            businessStartDate: null,
+          },
+        };
+        return HttpResponse.json(success);
+      }),
+    );
+
+    renderPage();
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pngFile()] } });
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe(
+        MOCK_OCR_BUSINESS_NUMBER,
+      );
+    });
+    expect((screen.getByLabelText('개업일자') as HTMLInputElement).value).toBe('');
   });
 
   it('OCR이 400으로 실패해도 에러 팝업 없이 조용히 폴백되고 수동 입력이 유지된다', async () => {

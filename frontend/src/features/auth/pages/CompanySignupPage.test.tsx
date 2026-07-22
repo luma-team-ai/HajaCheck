@@ -53,6 +53,8 @@ function fillNonEmailFields() {
   fireEvent.change(screen.getByLabelText('사업자등록번호'), { target: { value: '1234567890' } });
   fireEvent.change(screen.getByLabelText('상호명'), { target: { value: '(주)하자체크' } });
   fireEvent.change(screen.getByLabelText('대표자명'), { target: { value: '김대표' } });
+  // 개업일자(#600) — 국세청 진위확인(#596)이 요구하는 필수값
+  fireEvent.change(screen.getByLabelText('개업일자'), { target: { value: '2015-03-02' } });
 
   fireEvent.click(screen.getByLabelText(/이용약관에 동의합니다/));
   fireEvent.click(screen.getByLabelText(/개인정보 수집 및 이용에 동의합니다/));
@@ -108,6 +110,7 @@ describe('CompanySignupPage — 제출 버튼 계약(shared Button)', () => {
       businessRegistrationNumber: '1234567890',
       companyName: '(주)하자체크',
       representativeName: '김대표',
+      businessStartDate: '2015-03-02',
       agreeTermsOfService: true,
       agreePrivacyPolicy: true,
     });
@@ -231,5 +234,37 @@ describe('CompanySignupPage — 약관 동의 링크(#453)', () => {
 
     fireEvent.click(screen.getByRole('link', { name: '이용약관' }));
     expect(termsCheckbox.checked).toBe(false);
+  });
+});
+
+describe('CompanySignupPage — 개업일자 필수 검증(#600)', () => {
+  it('개업일자를 비운 채 제출하면 signup이 발화하지 않고 인라인 에러가 노출된다', async () => {
+    const signupSpy = vi.spyOn(authApi, 'signupCompany');
+
+    renderPage();
+    fillValidForm();
+    // 필수값을 다시 비운다 — fillValidForm이 채운 뒤 사용자가 지운 상황을 재현.
+    fireEvent.change(screen.getByLabelText('개업일자'), { target: { value: '' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
+
+    expect(await screen.findByText('개업일자를 입력해 주세요.')).not.toBeNull();
+    expect(signupSpy).not.toHaveBeenCalled();
+  });
+
+  it('개업일자가 미래 날짜면 signup이 발화하지 않고 인라인 에러가 노출된다', async () => {
+    const signupSpy = vi.spyOn(authApi, 'signupCompany');
+    const future = new Date();
+    future.setFullYear(future.getFullYear() + 1);
+    const futureValue = future.toISOString().slice(0, 10);
+
+    renderPage();
+    fillValidForm();
+    fireEvent.change(screen.getByLabelText('개업일자'), { target: { value: futureValue } });
+
+    fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
+
+    expect(await screen.findByText('개업일자는 오늘 이전이어야 합니다.')).not.toBeNull();
+    expect(signupSpy).not.toHaveBeenCalled();
   });
 });
