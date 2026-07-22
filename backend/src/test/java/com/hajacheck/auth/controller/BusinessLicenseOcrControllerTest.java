@@ -12,6 +12,7 @@ import com.hajacheck.core.ai.dto.BusinessLicenseOcrResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.support.InMemoryRateLimiter;
+import com.hajacheck.support.PngTestFixtures;
 import com.hajacheck.support.PostgresTestSupport;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
@@ -28,7 +29,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * /api/auth/business-license/ocr MVC·시큐리티 통합 테스트(#557 / HAJA-169).
+ * /api/auth/business-license/ocr MVC·시큐리티 통합 테스트(#557 / HAJA-324).
  *
  * <p>AiProxyControllerTest(defect-explain)와 동일 패턴 — 외부 FastAPI 호출은 AiProxyService 를
  * @MockBean 으로 스텁해 네트워크 의존을 제거한다. 이 엔드포인트는 <b>비로그인 공개 API</b>라 인증
@@ -125,6 +126,23 @@ class BusinessLicenseOcrControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("LLM_INVALID_OUTPUT"));
+    }
+
+    @Test
+    void OCR_픽셀폭탄_바이트는작지만거대한선언크기_400_FILE_TOO_LARGE_AI서버미호출() throws Exception {
+        // PR머신 2차 검수 P1(#557/HAJA-324) — 바이트 크기 상한(10MB)·매직바이트만으로는 헤더에 거대한
+        // 가로×세로를 선언한 작은 파일을 막지 못한다. 실제 픽셀 디코딩 없이 헤더 단계에서 거부되어야 한다.
+        MockMultipartFile bomb = new MockMultipartFile(
+                "businessRegistrationFile", "bomb.png", "image/png",
+                PngTestFixtures.craftPngWithDeclaredDimensions(60_000, 60_000));
+
+        mockMvc.perform(multipart("/api/auth/business-license/ocr")
+                        .file(bomb)
+                        .with(csrf()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("FILE_TOO_LARGE"));
+
+        org.mockito.Mockito.verifyNoInteractions(aiProxyService);
     }
 
     @Test

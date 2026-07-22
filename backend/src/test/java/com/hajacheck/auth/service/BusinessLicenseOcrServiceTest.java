@@ -15,6 +15,7 @@ import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.support.InMemoryRateLimiter;
+import com.hajacheck.support.PngTestFixtures;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -30,7 +31,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * BusinessLicenseOcrService 단위테스트(#557 / HAJA-169) — 파일 검증·rate-limit·AiProxyService 위임을
+ * BusinessLicenseOcrService 단위테스트(#557 / HAJA-324) — 파일 검증·rate-limit·AiProxyService 위임을
  * ImageSignatureValidatorTest/PasswordResetServiceTest(rate-limit 부분)와 동일한 방식으로 고정한다.
  */
 @ExtendWith(MockitoExtension.class)
@@ -171,6 +172,31 @@ class BusinessLicenseOcrServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.FILE_TOO_LARGE);
         verifyNoInteractions(aiProxyService);
+    }
+
+    /**
+     * 디컴프레션 폭탄(픽셀 폭탄) 방어(PR머신 2차 검수 P1, #557/HAJA-324) — 바이트 크기는 수십 바이트로
+     * 작지만 IHDR에 60000×60000(36억 픽셀, OCR 상한 50MP를 훌쩍 초과)을 선언한 PNG는 실제 픽셀 디코딩
+     * 없이 헤더 단계에서 거부되어야 하고, 그 이후 단계(rate-limit·base64·AI 호출)로 전혀 진행되면 안 된다.
+     */
+    @Test
+    void ocr_픽셀폭탄_바이트는작지만거대한선언크기_FILE_TOO_LARGE_AI서버미호출_카운터미소모() {
+        byte[] bombPng = PngTestFixtures.craftPngWithDeclaredDimensions(60_000, 60_000);
+        MultipartFile bomb = new MockMultipartFile("businessRegistrationFile", "bomb.png", "image/png", bombPng);
+        int globalLimit = authProperties.getBusinessLicenseOcrRateLimit().getGlobalLimit();
+        int dailyLimit = authProperties.getBusinessLicenseOcrRateLimit().getDailyLimit();
+
+        assertThatThrownBy(() -> service.ocr(bomb))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.FILE_TOO_LARGE);
+
+        verifyNoInteractions(aiProxyService);
+        assertThat(rateLimiter.tryAcquire("rate:business-license-ocr:global", globalLimit, java.time.Duration.ofMinutes(1)))
+                .as("픽셀폭탄은 헤더 단계에서 거부되어 분당 카운터를 소모하지 않았어야 한다")
+                .isTrue();
+        assertThat(rateLimiter.tryAcquire("rate:business-license-ocr:daily", dailyLimit, java.time.Duration.ofDays(1)))
+                .as("픽셀폭탄은 헤더 단계에서 거부되어 일일 캡 카운터도 소모하지 않았어야 한다")
+                .isTrue();
     }
 
     // ---------- rate-limit(전역, 비로그인이라 이메일 축 없음) ----------
