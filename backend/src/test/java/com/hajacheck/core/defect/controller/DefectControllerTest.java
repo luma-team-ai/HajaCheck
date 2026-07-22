@@ -189,6 +189,26 @@ class DefectControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void 하자목록조회_등급필터는이상_임계값의미_더심각한등급도포함() throws Exception {
+        // PR #372 code-reviewer P2 회귀 방지 — UI 칩 "등급: D 이상"과 달리 백엔드가 grade == D
+        // 정확 일치만 반환해 더 심각한 E 등급이 누락되던 결함. grade=D 필터에 D·E 둘 다 잡히고
+        // 더 양호한 C는 제외돼야 한다.
+        User owner = saveOwner("owner3b@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+        saveDefect(inspection.getId(), DefectGrade.D, DefectStatus.DETECTED);
+        saveDefect(inspection.getId(), DefectGrade.E, DefectStatus.DETECTED);
+
+        mockMvc.perform(get("/api/defects").param("grade", "D")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(2))
+                .andExpect(jsonPath("$.data.content[*].grade")
+                        .value(org.hamcrest.Matchers.containsInAnyOrder("D", "E")));
+    }
+
+    @Test
     void 하자목록조회_잘못된필터값_400_INVALID_INPUT() throws Exception {
         User owner = saveOwner("owner4@haja.com");
 

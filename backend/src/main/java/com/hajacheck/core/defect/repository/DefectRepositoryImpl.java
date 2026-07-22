@@ -75,7 +75,10 @@ public class DefectRepositoryImpl implements DefectRepositoryCustom {
             predicates.add(cb.equal(root.get("type"), type));
         }
         if (grade != null) {
-            predicates.add(cb.equal(root.get("grade"), grade));
+            // "등급: X 이상" 필터(임계값) — X 등급 및 X보다 심각한(선언순 이후) 등급까지 전부 포함.
+            // PG named enum(defect_grade_type) 은 DDL 선언순(A<B<C<D<E)으로 네이티브 비교되므로
+            // Comparable 경로(greaterThanOrEqualTo)로 바인딩하면 그대로 임계값 비교가 성립한다.
+            predicates.add(cb.greaterThanOrEqualTo(root.<DefectGrade>get("grade"), grade));
         }
         if (status != null) {
             predicates.add(cb.equal(root.get("status"), status));

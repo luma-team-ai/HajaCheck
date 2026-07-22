@@ -335,6 +335,9 @@ class DefectRepositoryTest extends PostgresTestSupport {
         defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
         defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
 
+        // 등급 필터는 "이상"(임계값) 의미다 — grade=E(최고 등급)를 주면 E 자기 자신만 매치되므로
+        // 임계값과 정확 일치가 동일한 결과라 이 케이스만으로는 회귀를 못 잡는다. 임계값 전용
+        // 회귀 방지는 아래 findPageByOwnerIdAndFilters_등급필터는이상_임계값의미 에서 별도 검증한다.
         Page<Defect> gradeFiltered = defectRepository.findPageByOwnerIdAndFilters(
                 ownerId, null, DefectGrade.E, null, PageRequest.of(0, 10));
         Page<Defect> statusFiltered = defectRepository.findPageByOwnerIdAndFilters(
@@ -346,6 +349,37 @@ class DefectRepositoryTest extends PostgresTestSupport {
         assertThat(statusFiltered.getContent()).extracting(Defect::getStatus)
                 .containsExactly(DefectStatus.DETECTED);
         assertThat(typeFiltered.getContent()).hasSize(2); // 둘 다 CRACK(newDefect 고정값)이라 전부 매치
+    }
+
+    @Test
+    void findPageByOwnerIdAndFilters_등급필터는이상_임계값의미() {
+        // PR #372 code-reviewer P2 — "등급: X 이상" UI 라벨과 달리 백엔드가 grade == X 정확 일치만
+        // 반환해 X보다 심각한 등급이 결과에서 누락되던 결함의 회귀 방지 테스트. PG named enum
+        // (defect_grade_type)의 실제 DB측 >= 비교(A<B<C<D<E 선언순)를 Testcontainers로 검증한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+        defectRepository.save(newDefect(inspectionId, DefectGrade.A, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.B, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.D, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.DETECTED, false));
+
+        // 중간값(C) 필터 — C·D·E는 포함, A·B는 제외.
+        Page<Defect> cOrAbove = defectRepository.findPageByOwnerIdAndFilters(
+                ownerId, null, DefectGrade.C, null, PageRequest.of(0, 10));
+        // 최저 등급(A) 필터 — 전부 포함(임계값이 사실상 무필터와 동일).
+        Page<Defect> aOrAbove = defectRepository.findPageByOwnerIdAndFilters(
+                ownerId, null, DefectGrade.A, null, PageRequest.of(0, 10));
+        // 최고 등급(E) 필터 — E만 포함(정확 일치와 결과가 같아지는 경계).
+        Page<Defect> eOrAbove = defectRepository.findPageByOwnerIdAndFilters(
+                ownerId, null, DefectGrade.E, null, PageRequest.of(0, 10));
+
+        assertThat(cOrAbove.getContent()).extracting(Defect::getGrade)
+                .containsExactlyInAnyOrder(DefectGrade.C, DefectGrade.D, DefectGrade.E);
+        assertThat(aOrAbove.getContent()).extracting(Defect::getGrade)
+                .containsExactlyInAnyOrder(DefectGrade.A, DefectGrade.B, DefectGrade.C, DefectGrade.D, DefectGrade.E);
+        assertThat(eOrAbove.getContent()).extracting(Defect::getGrade).containsExactly(DefectGrade.E);
     }
 
     @Test
