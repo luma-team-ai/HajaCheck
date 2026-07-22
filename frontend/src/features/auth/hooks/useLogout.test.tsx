@@ -60,8 +60,8 @@ function LocationProbe() {
   return <span data-testid="location">{location.pathname}</span>;
 }
 
-function LogoutButton() {
-  const { logout } = useLogout();
+function LogoutButton({ redirectTo }: { redirectTo?: string }) {
+  const { logout } = useLogout(redirectTo);
   return (
     <button type="button" onClick={() => void logout()}>
       로그아웃
@@ -69,7 +69,7 @@ function LogoutButton() {
   );
 }
 
-function renderWithProviders(queryClient: QueryClient) {
+function renderWithProviders(queryClient: QueryClient, redirectTo?: string) {
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/dashboard']}>
@@ -78,7 +78,7 @@ function renderWithProviders(queryClient: QueryClient) {
             path="*"
             element={
               <>
-                <LogoutButton />
+                <LogoutButton redirectTo={redirectTo} />
                 <LocationProbe />
               </>
             }
@@ -147,5 +147,17 @@ describe('useLogout', () => {
     expect(cancelQueriesSpy).toHaveBeenCalledWith({ queryKey: AUTH_ME_QUERY_KEY });
     expect(setQueryDataSpy).toHaveBeenCalledWith(AUTH_ME_QUERY_KEY, null);
     expect(callOrder.indexOf('cancelQueries')).toBeLessThan(callOrder.indexOf('setQueryData'));
+  });
+
+  // redirectTo(#535) — 플랫폼 관리자 콘솔은 로그아웃 후 /login이 아니라 /platform-admin/login으로 돌아가야 한다.
+  it('redirectTo를 지정하면 그 경로로 이동한다(#535 플랫폼 관리자 콘솔)', async () => {
+    const queryClient = new QueryClient();
+    renderWithProviders(queryClient, '/platform-admin/login');
+
+    fireEvent.click(screen.getByText('로그아웃'));
+
+    await waitFor(() => screen.getByTestId('location').textContent === '/platform-admin/login');
+
+    expect(useAuthStore.getState().user).toBeNull();
   });
 });

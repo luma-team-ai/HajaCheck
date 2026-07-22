@@ -16,3 +16,10 @@ export const DASHBOARD_ROUTE = '/dashboard';
 
 /** 랜딩(홈) — 로그인 화면 로고 클릭 등 공개 진입점(#421). router.tsx 루트 경로와 일치 */
 export const LANDING_ROUTE = '/';
+
+// 플랫폼 관리자 콘솔(#535) — 기업회원 로그인(LOGIN_ROUTE)과 분리된 전용 로그인 경로.
+// PlatformAdminRoute가 미인증 시 이 값으로 리다이렉트한다.
+export const PLATFORM_ADMIN_LOGIN_ROUTE = '/platform-admin/login';
+
+/** 플랫폼 관리자 콘솔 진입점 — 로그인 성공 후 이동 대상(router.tsx에서 첫 메뉴로 재리다이렉트) */
+export const PLATFORM_ADMIN_ROUTE = '/platform-admin';

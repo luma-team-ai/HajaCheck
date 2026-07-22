@@ -19,6 +19,15 @@ const IMPLEMENTED_ROUTES = new Set([
   '/admin/users',
   '/admin/plans-quota',
   '/support/ai-assistant',
+  // 플랫폼 관리자 콘솔(#535) — 7개 메뉴 placeholder. 여기 없으면 PlatformAdminShellRoute의
+  // SideNavBar가 "아직 구현되지 않은 페이지입니다" 토스트를 띄우며 이동을 막는다.
+  '/platform-admin/users',
+  '/platform-admin/plans-quota',
+  '/platform-admin/defect-types',
+  '/platform-admin/counsels',
+  '/platform-admin/rag-documents',
+  '/platform-admin/stats',
+  '/platform-admin/monitoring',
 ]);
 
 export function isRouteImplemented(href: string): boolean {

@@ -7,7 +7,10 @@ import { useAuthStore } from '../store/authStore';
 // 로그아웃 — SideNavBar/Header가 공유하는 단일 훅 (React_코드_컨벤션.md §0 "공통 로직 중복 금지")
 // logout API가 실패해도 클라이언트 세션(react-query 캐시·authStore)은 항상 정리한다 —
 // 로그아웃은 사용자 관점에서 항상 성공해야 하는 액션이라, 네트워크 오류로 화면에 갇히면 안 된다.
-export function useLogout() {
+// redirectTo(#535) — 플랫폼 관리자 콘솔(PlatformAdminShellRoute)은 로그아웃 후 기업회원 /login이
+// 아니라 /platform-admin/login으로 돌아가야 한다. 기존 호출부(AppShellRoute 등)는 인자를 넘기지
+// 않으므로 기본값 LOGIN_ROUTE로 기존 동작이 그대로 유지된다.
+export function useLogout(redirectTo: string = LOGIN_ROUTE) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const clearUser = useAuthStore((state) => state.clearUser);
@@ -30,7 +33,7 @@ export function useLogout() {
       await queryClient.cancelQueries({ queryKey: AUTH_ME_QUERY_KEY });
       queryClient.setQueryData(AUTH_ME_QUERY_KEY, null);
       clearUser();
-      navigate(LOGIN_ROUTE);
+      navigate(redirectTo);
     }
   };
 
