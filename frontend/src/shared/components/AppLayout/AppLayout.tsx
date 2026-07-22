@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { useState } from 'react';
+import type { ReactNode, MouseEvent as ReactMouseEvent } from 'react';
+import { useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from '../Header';
 import type { BreadcrumbItem } from '../Header';
@@ -66,14 +66,42 @@ export function AppLayout({
   const navigate = useNavigate();
   const resolvedActiveHref = activeHref ?? location.pathname;
   const [isSupportPopupOpen, setIsSupportPopupOpen] = useState(false);
+  // 퀵상담 FAB 재클릭 토글 경합(PR머신 P2, 이슈 #546) 가드 — FloatingPopup은 useOutsideDismiss로
+  // document mousedown에서 바깥 클릭을 감지해 onClose를 부른다. FAB는 그 컨테이너 바깥이라, 팝업이
+  // 열린 상태에서 FAB를 다시 클릭하면 실제 이벤트 순서(mousedown→click)상 mousedown이 먼저 팝업을
+  // 닫고, 뒤이은 click이 다시 토글해 재오픈해버린다. AppShellRoute.tsx의 벨 버튼과 동일한 패턴
+  // (suppressNextBellClickRef, PR머신 P2 #474)으로 해소한다.
+  const suppressNextFabClickRef = useRef(false);
 
   function goToSupportEntry() {
     setIsSupportPopupOpen(false);
     navigate(SUPPORT_ENTRY_HREF);
   }
 
+  function handleFabClick() {
+    if (suppressNextFabClickRef.current) {
+      suppressNextFabClickRef.current = false;
+      return;
+    }
+    setIsSupportPopupOpen((open) => !open);
+  }
+
+  // 패널이 닫혀 있으면 무조건 false로 덮어써(벨 버튼 가드와 동일 이유 — 우클릭·드래그아웃처럼
+  // click이 뒤따르지 않는 mousedown 이후에도 플래그가 true로 고정돼 다음 정상 클릭을 삼키지 않게 함)
+  function handleShellMouseDownCapture(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!isSupportPopupOpen) {
+      suppressNextFabClickRef.current = false;
+      return;
+    }
+    const target = event.target as Element | null;
+    suppressNextFabClickRef.current = Boolean(target?.closest('button[aria-label^="고객지원 챗봇"]'));
+  }
+
   return (
-    <div className="flex min-h-screen bg-white text-text-default">
+    <div
+      className="flex min-h-screen bg-white text-text-default"
+      onMouseDownCapture={handleShellMouseDownCapture}
+    >
       <SideNavBar
         items={items}
         activeHref={resolvedActiveHref}
@@ -92,7 +120,7 @@ export function AppLayout({
         />
         <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
       </div>
-      <BottomNavBarFab onClick={() => setIsSupportPopupOpen((open) => !open)} />
+      <BottomNavBarFab onClick={handleFabClick} />
       {isSupportPopupOpen && (
         <FloatingPopup
           onClose={() => setIsSupportPopupOpen(false)}

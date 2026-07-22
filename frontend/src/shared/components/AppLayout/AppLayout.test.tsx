@@ -47,7 +47,12 @@ describe('AppLayout', () => {
     expect(screen.queryByText('HajaCheck 도우미')).toBeNull();
   });
 
-  it('퀵상담 FAB를 다시 클릭하면 팝업이 닫힌다', () => {
+  // 이슈 #546(PR머신 P2): FloatingPopup은 useOutsideDismiss로 document mousedown에서 바깥 클릭을
+  // 감지해 onClose를 부른다. FAB는 그 컨테이너 바깥이라, 팝업이 열린 상태에서 FAB를 다시 클릭하면
+  // 실제 브라우저 이벤트 순서(mousedown→click)상 mousedown이 먼저 팝업을 닫고, 뒤이은 click이
+  // 다시 토글해 재오픈해버린다 — AppShellRoute.test.tsx:182-197과 동일하게 실제 이벤트 시퀀스를
+  // 그대로 재현해 검증한다(fireEvent.click만 두 번 호출하면 이 경합이 재현되지 않아 통과해버림).
+  it('팝업이 열린 상태에서 FAB를 다시 클릭하면(mousedown→click) 닫힌 채로 유지된다', () => {
     render(
       <MemoryRouter>
         <AppLayout breadcrumb={[]}>
@@ -60,8 +65,34 @@ describe('AppLayout', () => {
     fireEvent.click(fab);
     expect(screen.getByText('HajaCheck 도우미')).not.toBeNull();
 
+    fireEvent.mouseDown(fab);
     fireEvent.click(fab);
+
     expect(screen.queryByText('HajaCheck 도우미')).toBeNull();
+  });
+
+  // PR머신 P2(위 가드의 부작용 방지) — 팝업 밖 다른 요소를 클릭해 닫은 직후 FAB를 클릭하면
+  // (과잉 차단 없이) 정상적으로 다시 열려야 한다. AppShellRoute.test.tsx:202-219와 동일한 형태.
+  it('팝업 밖 다른 요소를 클릭해 닫힌 뒤 FAB를 클릭하면 팝업이 다시 열린다', () => {
+    render(
+      <MemoryRouter>
+        <AppLayout breadcrumb={[]}>
+          <p>콘텐츠</p>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    const fab = screen.getByLabelText('고객지원 챗봇 열기');
+    fireEvent.click(fab);
+    expect(screen.getByText('HajaCheck 도우미')).not.toBeNull();
+
+    const pageContent = screen.getByText('콘텐츠');
+    fireEvent.mouseDown(pageContent);
+    fireEvent.click(pageContent);
+    expect(screen.queryByText('HajaCheck 도우미')).toBeNull();
+
+    fireEvent.click(fab);
+    expect(screen.getByText('HajaCheck 도우미')).not.toBeNull();
   });
 
   it('activeHref 미지정 시 현재 URL(useLocation) 기준으로 SideNavBar 활성 항목을 계산한다', () => {
