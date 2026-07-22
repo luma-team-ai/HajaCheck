@@ -319,7 +319,12 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 MIGRATION_ROOT + "20260720_01_create_api_system_logs.sql"),
-                        CONTAINER_ROOT + "20260720_01_create_api_system_logs.sql");
+                        CONTAINER_ROOT + "20260720_01_create_api_system_logs.sql")
+                // #534 — HAJA-25 체인과 무관한 별도 증분 파일. role_type에 PLATFORM_ADMIN 라벨을 추가한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                MIGRATION_ROOT + "20260722_01_platform_admin_role.sql"),
+                        CONTAINER_ROOT + "20260722_01_platform_admin_role.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -380,6 +385,9 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "20260716_05_menu_schema_verify.sql");
         runPsql(postgres, "20260720_01_create_api_system_logs.sql");
         runPsql(postgres, "20260720_01_create_api_system_logs.sql");
+        // #534 — role_type PLATFORM_ADMIN 라벨(IF NOT EXISTS로 재실행 가능).
+        runPsql(postgres, "20260722_01_platform_admin_role.sql");
+        runPsql(postgres, "20260722_01_platform_admin_role.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }
