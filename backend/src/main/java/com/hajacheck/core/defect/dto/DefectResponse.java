@@ -13,6 +13,11 @@ import java.time.LocalDateTime;
  *
  * <p>facilityName 은 대시보드 {@code PendingPriorityResponse}와 동일하게 "위치" 정보의 대체값이다 —
  * defects/media 스키마에 세부 위치(층·구역) 컬럼이 없어 시설물 명칭까지만 제공한다.
+ *
+ * <p>imageUrl(HAJA-314)은 defect.mediaId가 있을 때만 채워지며, 새 이미지 서빙 경로를 만들지 않고
+ * {@link com.hajacheck.core.media.dto.MediaResponse}와 동일하게 기존 인가된 썸네일 엔드포인트
+ * ({@code /api/media/{id}/thumbnail})를 재사용한다 — 원본은 직접 서빙하지 않는다는 PRD FR-2 정책을
+ * 그대로 따른다.
  */
 public record DefectResponse(
         Long id,
@@ -32,6 +37,7 @@ public record DefectResponse(
         Double bboxH,
         Double crackWidthMm,
         Double crackLengthMm,
+        String imageUrl,
         LocalDateTime createdAt
 ) {
     public static DefectResponse from(Defect defect) {
@@ -54,6 +60,7 @@ public record DefectResponse(
                 defect.getBboxH(),
                 defect.getCrackWidthMm(),
                 defect.getCrackLengthMm(),
+                defect.getMediaId() == null ? null : "/api/media/" + defect.getMediaId() + "/thumbnail",
                 defect.getCreatedAt()
         );
     }
