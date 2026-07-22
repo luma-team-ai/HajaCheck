@@ -39,6 +39,7 @@ export interface InspectionResult {
   defects: Defect[];
   defectCode: string; // 예: DEF-0192
   facilityName: string; // 예: 강남 오피스타워 A동
+  facilityType: string; // 예: 건물
   status: string; // 예: AI 검수중
   reviewedCount: number; // 예: 128
   totalCount: number; // 예: 214

@@ -5,6 +5,7 @@ import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
 import { DefectOverlay } from '../components/DefectOverlay';
+import { InspectionDefectExplainPanel } from '../components/InspectionDefectExplainPanel';
 import { useInspectionResult } from '../hooks/useInspectionResult';
 import { inspectionApi } from '../api/inspectionApi';
 import type { DefectGrade } from '../types';
@@ -18,6 +19,8 @@ export function ResultViewerPage() {
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [gradeFilter, setGradeFilter] = useState<DefectGrade[]>(ALL_GRADES);
   const [selectedDefectId, setSelectedDefectId] = useState<number | undefined>();
+  const [gradeEditId, setGradeEditId] = useState<number | undefined>();
+  const [selectedGrade, setSelectedGrade] = useState<DefectGrade | ''>('');
   // rules-of-hooks: 훅은 조건부 return 이전에 호출해야 한다. 훅 내부 enabled 플래그가
   // 유효하지 않은 inspectionId일 때 쿼리를 스킵하므로, ID 검증 return은 훅 호출 다음에 둔다.
   const { data, isLoading, isError, refetch } = useInspectionResult(inspectionId);
@@ -67,27 +70,33 @@ export function ResultViewerPage() {
     }
   }, [selected, isUpdating, refetch]);
 
-  // 등급 수정: 선택된 하자의 등급을 다음 단계로 변경(간단한 UI가 없으므로 +1단계 예시)
-  // TODO: 등급 선택 모달 UI 필요
-  const handleUpdateGrade = useCallback(async () => {
-    if (!selected || isUpdating) return;
+  // 등급 수정: 선택된 등급을 명시적으로 선택 후 저장
+  const handleOpenGradeEdit = useCallback(() => {
+    if (selected) {
+      setGradeEditId(selected.id);
+      setSelectedGrade(selected.grade);
+    }
+  }, [selected]);
+
+  const handleConfirmGrade = useCallback(async () => {
+    if (!selected || !selectedGrade || isUpdating) return;
     setIsUpdating(true);
     try {
-      // ponytail: 임시로 등급을 한 단계 내림 (A→B→...→E)
-      // 실제로는 사용자가 선택한 등급을 받아야 함
-      const grades: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
-      const currentIndex = grades.indexOf(selected.grade);
-      const nextGrade = currentIndex < grades.length - 1 ? grades[currentIndex + 1] : 'E';
-
-      await inspectionApi.reviewDefect(selected.id, { grade: nextGrade });
-      // 성공 후 데이터 갱신
+      await inspectionApi.reviewDefect(selected.id, { grade: selectedGrade as DefectGrade });
       await refetch();
+      setGradeEditId(undefined);
+      setSelectedGrade('');
     } catch (error) {
       console.error('등급 수정 실패:', error);
     } finally {
       setIsUpdating(false);
     }
-  }, [selected, isUpdating, refetch]);
+  }, [selected, selectedGrade, isUpdating, refetch]);
+
+  const handleCancelGradeEdit = useCallback(() => {
+    setGradeEditId(undefined);
+    setSelectedGrade('');
+  }, []);
 
   return (
     <div className="flex h-full flex-col gap-4 py-6 pl-6 pr-28">
@@ -228,7 +237,7 @@ export function ResultViewerPage() {
                   )}
                 </div>
 
-                {/* Summary Note */}
+                {/* AI Analysis Panel */}
                 <div>
                   <div className="mb-3 flex items-center gap-2">
                     <svg className="h-[13px] w-[10px]" fill="currentColor" viewBox="0 0 10 13">
@@ -236,30 +245,70 @@ export function ResultViewerPage() {
                     </svg>
                     <span className="text-xs font-medium text-text-default">분석 요약</span>
                   </div>
-                  <div className="rounded-xl border border-warning-soft-border bg-warning-soft-bg p-4 text-sm text-warning-soft-fg">
-                    {selected.summary}
-                  </div>
+                  {data && (
+                    <InspectionDefectExplainPanel
+                      defectType={selected.type}
+                      grade={selected.grade}
+                      facilityType={data.facilityType}
+                    />
+                  )}
                 </div>
               </div>
 
-              {/* Action Buttons — 스크롤 영역 밖 하단 고정, 좌측 "검수 확정" 버튼과 동일 높이 */}
-              {/* 좌측 컬럼(p-6=24px 하단 여백)과 하단 정렬 맞추려 pb-6 사용, py-5 아님 */}
-              <div className="flex gap-3 px-5 pt-5 pb-6">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="lg"
-                  className="flex-1"
-                  onClick={handleUpdateGrade}
-                  disabled={isUpdating || !selected}
-                >
-                  등급 수정
-                </Button>
-                {/* TODO: 누락 추가 → defect 생성 API 미구현 (#249 후속) */}
-                <Button type="button" variant="secondary" size="lg" className="flex-1" disabled>
-                  누락 추가
-                </Button>
-              </div>
+              {/* Grade Edit Mode */}
+              {gradeEditId === selected.id ? (
+                <div className="flex gap-2 px-5 pt-5 pb-6">
+                  <select
+                    value={selectedGrade}
+                    onChange={(e) => setSelectedGrade(e.target.value as DefectGrade | '')}
+                    className="flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">등급 선택</option>
+                    {ALL_GRADES.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="lg"
+                    className="flex-1"
+                    onClick={handleConfirmGrade}
+                    disabled={!selectedGrade || isUpdating}
+                  >
+                    저장
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="lg"
+                    className="flex-1"
+                    onClick={handleCancelGradeEdit}
+                    disabled={isUpdating}
+                  >
+                    취소
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-3 px-5 pt-5 pb-6">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="lg"
+                    className="flex-1"
+                    onClick={handleOpenGradeEdit}
+                    disabled={isUpdating || !selected}
+                  >
+                    등급 수정
+                  </Button>
+                  {/* TODO: 누락 추가 → defect 생성 API 미구현 (#249 후속) */}
+                  <Button type="button" variant="secondary" size="lg" className="flex-1" disabled>
+                    누락 추가
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </div>

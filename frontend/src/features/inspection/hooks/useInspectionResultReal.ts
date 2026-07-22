@@ -92,6 +92,7 @@ export function useInspectionResultReal(inspectionId: number) {
           defects: transformedDefects,
           defectCode,
           facilityName: facilityQuery.data.name,
+          facilityType: facilityQuery.data.type,
           status: inspection.status,
           reviewedCount,
           totalCount,
