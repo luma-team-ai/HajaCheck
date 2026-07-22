@@ -103,6 +103,9 @@ public enum ErrorCode {
     // AI 서버 응답 4xx/5xx 구분(#334 P3) — 4xx 는 요청 자체가 거부된 것으로 보아 400, 5xx 는 업스트림 장애로 502.
     AI_REQUEST_REJECTED(HttpStatus.BAD_REQUEST, "AI 서버가 요청을 거부했습니다."),
     AI_SERVER_ERROR(HttpStatus.BAD_GATEWAY, "AI 서버에서 오류가 발생했습니다."),
+    // 하자 자연어 검색(HAJA-120) 공개 게이트웨이 — 점검자 역할은 통과했으나 has_ai_addon=true인
+    // 활성 플랜(개인 또는 APPROVED+VERIFIED 회사와 유효한 승인 멤버십)을 만족하지 못한 요청.
+    AI_ADDON_REQUIRED(HttpStatus.FORBIDDEN, "AI 기능을 사용할 수 없는 요금제입니다."),
 
     // 보고서(report) — #446 / HAJA-283
     // 미존재/타인 소유(점검 소유권 불일치) 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.
