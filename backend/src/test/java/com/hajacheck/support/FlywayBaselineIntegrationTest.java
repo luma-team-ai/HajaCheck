@@ -67,7 +67,8 @@ class FlywayBaselineIntegrationTest {
 
         Integer appliedMigrations = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where success = true", Integer.class);
-        assertThat(appliedMigrations).isEqualTo(3); // V1(baseline_schema) + V2(seed_plans) + V3(api_system_logs)
+        // V1(baseline_schema) + V2(seed_plans) + V3(api_system_logs) + V4(add_platform_admin_role)
+        assertThat(appliedMigrations).isEqualTo(4);
 
         assertThat(planRepository.findByName(PlanName.FREE)).isPresent();
         assertThat(planRepository.findByName(PlanName.STANDARD)).isPresent();
@@ -82,5 +83,13 @@ class FlywayBaselineIntegrationTest {
                 where table_schema = 'public' and table_name = 'api_system_logs'
                 """, Long.class);
         assertThat(tableExists).isEqualTo(1L);
+
+        // V4가 role_type PG enum에 PLATFORM_ADMIN 라벨을 실제로 추가했는지 확인(#534 P1 회귀 고정).
+        Long platformAdminLabelExists = jdbcTemplate.queryForObject("""
+                select count(*) from pg_enum e
+                join pg_type t on e.enumtypid = t.oid
+                where t.typname = 'role_type' and e.enumlabel = 'PLATFORM_ADMIN'
+                """, Long.class);
+        assertThat(platformAdminLabelExists).isEqualTo(1L);
     }
 }
