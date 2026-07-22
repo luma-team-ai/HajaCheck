@@ -74,13 +74,13 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 "select type from flyway_schema_history where version = '1'", String.class);
         assertThat(v1Type).isEqualTo("BASELINE");
 
-        // V2(seed_plans)·V3(api_system_logs)·V4(add_platform_admin_role)·V5(defects.media_id, #527/HAJA-314)만
-        // 실제 versioned 마이그레이션으로 성공 적용된다. 캐노니컬 DDL(HajaCheck_script.sql)은 이미
-        // role_type에 PLATFORM_ADMIN과 defects.media_id를 포함하므로 V4·V5는 IF NOT EXISTS로 no-op
-        // 성공한다 — 기존 DB(캐노니컬 DDL을 아직 못 받은 실제 arm1/팀원 로컬)에서는 이 V4·V5가 실제로
-        // 스키마를 채우는 경로다.
+        // V2(seed_plans)·V3(api_system_logs)·V4(add_platform_admin_role)·V6(defects.media_id, #527/HAJA-314)만
+        // 실제 versioned 마이그레이션으로 성공 적용된다(V5는 아직 dev에 미병합인 PR #595가 선점 중이라
+        // 건너뜀). 캐노니컬 DDL(HajaCheck_script.sql)은 이미 role_type에 PLATFORM_ADMIN과
+        // defects.media_id를 포함하므로 V4·V6은 IF NOT EXISTS로 no-op 성공한다 — 기존 DB(캐노니컬
+        // DDL을 아직 못 받은 실제 arm1/팀원 로컬)에서는 이 V4·V6이 실제로 스키마를 채우는 경로다.
         Integer appliedVersioned = jdbcTemplate.queryForObject(
-                "select count(*) from flyway_schema_history where success = true and version in ('2', '3', '4', '5')",
+                "select count(*) from flyway_schema_history where success = true and version in ('2', '3', '4', '6')",
                 Integer.class);
         assertThat(appliedVersioned).isEqualTo(4);
 
@@ -96,7 +96,7 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 """, Long.class);
         assertThat(apiLogsTables).isEqualTo(1L);
 
-        // 기존 DB에 있던 defects.media_id 도 그대로 유지된다(V5 재실행이 깨거나 중복 생성하지 않음, #527/HAJA-314).
+        // 기존 DB에 있던 defects.media_id 도 그대로 유지된다(V6 재실행이 깨거나 중복 생성하지 않음, #527/HAJA-314).
         Long mediaIdColumns = jdbcTemplate.queryForObject("""
                 select count(*) from information_schema.columns
                 where table_schema = 'public' and table_name = 'defects' and column_name = 'media_id'

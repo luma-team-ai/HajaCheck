@@ -326,13 +326,14 @@ class Ha25IncrementalMigrationTest {
                                 MIGRATION_ROOT + "20260722_01_platform_admin_role.sql"),
                         CONTAINER_ROOT + "20260722_01_platform_admin_role.sql")
                 // #527 / HAJA-314 — Flyway 도입(#359) 이후 신규 스키마 변경은 이 레거시 폴더가 아니라
-                // Flyway forward migration(V5)으로만 추가한다. 이 테스트가 시뮬레이션하는 "기존 DB가
-                // v0.3+레거시 체인으로 V1 동등 상태에 도달한 뒤"의 실제 운영 경로는 baseline-on-migrate로
-                // V1이 스탬프되고 이어서 V2~이후가 forward-apply되는 것이므로, 여기서도 V5를 이어 적용해야
-                // canonical DDL과의 parity 비교가 성립한다.
+                // Flyway forward migration(V6)으로만 추가한다. V5는 아직 dev에 미병합인 PR #595
+                // (#568/점검·관리자 DB 스키마)이 선점 중이라 충돌을 피해 V6으로 선제 재번호했다. 이 테스트가
+                // 시뮬레이션하는 "기존 DB가 v0.3+레거시 체인으로 V1 동등 상태에 도달한 뒤"의 실제 운영
+                // 경로는 baseline-on-migrate로 V1이 스탬프되고 이어서 V2~이후가 forward-apply되는 것이므로,
+                // 여기서도 V6을 이어 적용해야 canonical DDL과의 parity 비교가 성립한다.
                 .withCopyFileToContainer(
-                        MountableFile.forClasspathResource("db/migration/V5__add_defects_media_id.sql"),
-                        CONTAINER_ROOT + "V5__add_defects_media_id.sql");
+                        MountableFile.forClasspathResource("db/migration/V6__add_defects_media_id.sql"),
+                        CONTAINER_ROOT + "V6__add_defects_media_id.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -396,10 +397,10 @@ class Ha25IncrementalMigrationTest {
         // #534 — role_type PLATFORM_ADMIN 라벨(IF NOT EXISTS로 재실행 가능).
         runPsql(postgres, "20260722_01_platform_admin_role.sql");
         runPsql(postgres, "20260722_01_platform_admin_role.sql");
-        // #527 / HAJA-314 — Flyway V5(defects.media_id + 인덱스)를 실제 운영 경로처럼 마지막에
+        // #527 / HAJA-314 — Flyway V6(defects.media_id + 인덱스)를 실제 운영 경로처럼 마지막에
         // forward-apply. Flyway 마이그레이션은 재실행을 전제하지 않으므로(스스로 1회만 적용) 레거시
         // 파일들과 달리 1회만 실행한다.
-        runPsql(postgres, "V5__add_defects_media_id.sql");
+        runPsql(postgres, "V6__add_defects_media_id.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }
