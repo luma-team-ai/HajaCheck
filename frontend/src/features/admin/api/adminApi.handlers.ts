@@ -1,6 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse } from '../../../shared/api/types';
-import { DEFAULT_PAGE_SIZE } from '../constants';
+import { DEFAULT_PAGE_SIZE, PLAN_LABEL, ROLE_LABEL, STATUS_LABEL } from '../constants';
 import { mockAdminUserStats, mockAdminUsers } from '../mocks/adminUsers.mock';
 import type {
   AdminUser,
@@ -9,6 +9,17 @@ import type {
   AdminUserRole,
   AdminUserStatus,
 } from '../types';
+
+// role/plan/status 쿼리 파라미터 화이트리스트 — AdminUserFilterBar는 항상 유효한 값만 보내지만,
+// 실 백엔드가 파라미터 이름·형식을 다르게 붙이면 as 캐스팅만으로는 잡히지 않고 "필터가 조용히
+// 안 먹힘"으로만 드러난다(#399). 라벨 맵(ROLE_LABEL 등)이 이미 유효값의 단일 진실이라 그대로 재사용.
+const VALID_ROLES = new Set(Object.keys(ROLE_LABEL));
+const VALID_PLANS = new Set(Object.keys(PLAN_LABEL));
+const VALID_STATUSES = new Set(Object.keys(STATUS_LABEL));
+
+function parseEnumParam<T extends string>(value: string | null, valid: Set<string>): T | null {
+  return value !== null && valid.has(value) ? (value as T) : null;
+}
 
 // 백엔드 GET /api/admin/users(#405) 구현 완료 — 이 핸들러는 VITE_ENABLE_MSW=false로 끄지 않은
 // 로컬 개발/테스트에서만 쓰이는 목 폴백이다. 검색·필터·페이징을 서버와 동일한 위치(서버 측)에서
@@ -33,9 +44,9 @@ export const adminHandlers = [
     const page = Number(url.searchParams.get('page') ?? 0);
     const size = Number(url.searchParams.get('size') ?? DEFAULT_PAGE_SIZE);
     const keyword = url.searchParams.get('keyword') ?? '';
-    const role = url.searchParams.get('role') as AdminUserRole | null;
-    const plan = url.searchParams.get('plan') as AdminUserPlan | null;
-    const status = url.searchParams.get('status') as AdminUserStatus | null;
+    const role = parseEnumParam<AdminUserRole>(url.searchParams.get('role'), VALID_ROLES);
+    const plan = parseEnumParam<AdminUserPlan>(url.searchParams.get('plan'), VALID_PLANS);
+    const status = parseEnumParam<AdminUserStatus>(url.searchParams.get('status'), VALID_STATUSES);
 
     const filtered = mockAdminUsers.filter(
       (user) =>
