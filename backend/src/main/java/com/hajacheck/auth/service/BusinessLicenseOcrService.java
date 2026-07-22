@@ -5,6 +5,7 @@ import com.hajacheck.auth.config.FileStorageProperties;
 import com.hajacheck.auth.support.RateLimiter;
 import com.hajacheck.core.ai.dto.BusinessLicenseOcrResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
+import com.hajacheck.core.media.support.ImageDimensionValidator;
 import com.hajacheck.core.media.support.ImageSignatureValidator;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
@@ -18,7 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 사업자등록증 OCR 공개 프록시(#557 / HAJA-169) — 기업 가입 전(비로그인) 화면에서 이미지를 올리면
+ * 사업자등록증 OCR 공개 프록시(#557 / HAJA-324) — 기업 가입 전(비로그인) 화면에서 이미지를 올리면
  * 사업자번호·상호·대표자명을 미리 채워주는 보조 기능. AI 서버 실호출은 {@link AiProxyService}에 위임해
  * 내부키 강제 경유 원칙(#228)을 그대로 유지하고, 이 서비스는 ①파일 검증 ②rate-limit ③base64 인코딩만
  * 담당한다.
@@ -43,6 +44,16 @@ public class BusinessLicenseOcrService {
     // (JPG/PNG/PDF, 회원가입 파일 저장용)과 달리 OCR에는 이미지 2종만 허용한다. PDF는 매직바이트
     // 검증도, OCR 디코딩도 지원하지 않는다(ImageSignatureValidator 는 JPEG/PNG 시그니처만 대조).
     private static final Set<String> OCR_ALLOWED_CONTENT_TYPES = Set.of("image/jpeg", "image/png");
+
+    // 디컴프레션 폭탄(픽셀 폭탄) 방어 상한(PR머신 2차 검수 P1, #557/HAJA-324) — 바이트 크기(10MB)·
+    // 매직바이트만으로는 "헤더에 거대한 가로×세로를 선언한 작은 파일"을 막지 못한다. ImageThumbnailGenerator
+    // 의 기존 상한(250MP, 최신 플래그십 카메라 원본 촬영까지 수용)보다 이 값은 더 타이트하게 잡는다 —
+    // 사업자등록증은 문서 스캔/촬영이라 그 정도 초대형 해상도가 필요 없고, 이 엔드포인트는 비로그인 공개
+    // 프록시라 공유 AI 서버(RapidOCR+LLM, report/briefing/defect-explain과 공유)를 지키는 게 우선이다.
+    // 50MP는 일반적인 최신 스마트폰 카메라 정상 촬영(예: 48MP 플래그십)은 여유롭게 통과시키면서, 픽셀
+    // 폭탄 테스트류(수천만~수십억 픽셀 선언)는 확실히 차단하는 절충값.
+    private static final long OCR_MAX_PIXELS = 50_000_000L; // 50MP
+
     private static final String RATE_LIMIT_GLOBAL_KEY = "rate:business-license-ocr:global";
     private static final String RATE_LIMIT_DAILY_KEY = "rate:business-license-ocr:daily";
 
@@ -71,9 +82,14 @@ public class BusinessLicenseOcrService {
     }
 
     /**
-     * 요청 파라미터(파일)는 신뢰하지 않는다 — 존재/크기/선언된 타입/실제 매직바이트를 모두 검증한 뒤에만
-     * 사용한다. FileStorageProperties.maxSizeBytes(10MB)는 회원가입 파일 저장 상한과 동일 값을 재사용한다
-     * (OCR도 결국 같은 사업자등록증 파일을 다루므로 상한을 이원화할 이유가 없다).
+     * 요청 파라미터(파일)는 신뢰하지 않는다 — 존재/크기/선언된 타입/실제 매직바이트/실제 픽셀 수를 모두
+     * 검증한 뒤에만 사용한다. FileStorageProperties.maxSizeBytes(10MB)는 회원가입 파일 저장 상한과 동일
+     * 값을 재사용한다(OCR도 결국 같은 사업자등록증 파일을 다루므로 상한을 이원화할 이유가 없다).
+     *
+     * <p>검사는 저비용 → 고비용 순서로 fail-fast 한다: MIME 화이트리스트 → 바이트 크기 → 매직바이트
+     * (파일 앞부분만 읽음) → 픽셀 수(ImageReader로 헤더만 읽음, 여전히 디코딩보다 훨씬 저렴). 이 순서
+     * 덕분에 잘못된 요청은 rate-limit 카운터를 소모하기 전(ocr() 호출 순서상 validate()가 먼저)에
+     * 여기서 이미 걸러진다 — base64 인코딩·AI 서버 호출까지 갈 필요가 없다.
      */
     private void validate(MultipartFile file) {
         if (file == null || file.isEmpty()) {
@@ -88,6 +104,9 @@ public class BusinessLicenseOcrService {
         }
         // 클라이언트가 보낸 Content-Type은 조작 가능 — 실제 파일 바이트 시그니처로 재검증.
         ImageSignatureValidator.validate(file);
+        // 디컴프레션 폭탄 방어(PR머신 2차 검수 P1) — 바이트 크기가 작아도 헤더에 거대한 가로×세로를
+        // 선언할 수 있어, 실제 픽셀 디코딩 전에 헤더만 읽어 상한을 넘으면 거부한다.
+        ImageDimensionValidator.ensureWithinPixelLimit(file, OCR_MAX_PIXELS);
     }
 
     /**
