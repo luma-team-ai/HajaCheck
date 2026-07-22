@@ -366,7 +366,7 @@ export const router = createBrowserRouter([
           </Suspense>
         ),
         handle: {
-          breadcrumb: [{ label: '홈' }, { label: '시설물 관리' }],
+          breadcrumb: [{ label: '시설물 목록' }, { label: '시설물 상세' }, { label: '하자 상세' }],
           activeHref: '/facilities/detail',
         },
       }, // — features/facility 하자 정보 패널 (dev-04-02, #489). 위 시설물 개요(/facilities/:id,
@@ -381,9 +381,9 @@ export const router = createBrowserRouter([
         ),
         handle: {
           breadcrumb: [
+            { label: '시설물 목록' },
             { label: '시설물 상세' },
-            { label: '강남 오피스타워 A동' },
-            { label: '회차 간 비교' },
+            { label: '회차 비교' },
           ],
           activeHref: '/facilities/detail',
         },
