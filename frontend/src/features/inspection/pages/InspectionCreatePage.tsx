@@ -62,7 +62,8 @@ export function InspectionCreatePage() {
         onCreated={(response) => {
           setIsModalOpen(false);
           // 새로 만든 회차가 곧바로 보이는 시설물 상세 화면으로 이동(점검 이력 자체는 아직 목데이터).
-          navigate(`/facilities/${response.facilityId}?facilityId=${response.facilityId}`);
+          // FacilityDetailPage는 :id 경로 파라미터로 대상을 읽으므로 ?facilityId= 중복 없음.
+          navigate(`/facilities/${response.facilityId}`);
         }}
       />
     </>

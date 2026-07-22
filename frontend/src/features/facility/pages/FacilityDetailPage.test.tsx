@@ -17,7 +17,7 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-function renderPage(initialEntry = '/facilities/detail') {
+function renderPage(initialEntry = '/facilities/1') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -25,7 +25,9 @@ function renderPage(initialEntry = '/facilities/detail') {
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
-        <FacilityDetailPage />
+        <Routes>
+          <Route path="/facilities/:id" element={<FacilityDetailPage />} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -68,7 +70,13 @@ describe('FacilityDetailPage (통합 테스트)', () => {
   });
 
   it('존재하지 않는 시설물이면 에러 메시지를 표시한다', async () => {
-    renderPage('/facilities/detail?facilityId=999');
+    renderPage('/facilities/999');
+
+    expect(await screen.findByText('시설물 정보를 불러오지 못했습니다.')).not.toBeNull();
+  });
+
+  it('id가 숫자가 아니면(예: 사이드바 플레이스홀더 /facilities/detail) 조회 없이 바로 에러 메시지를 표시한다', async () => {
+    renderPage('/facilities/detail');
 
     expect(await screen.findByText('시설물 정보를 불러오지 못했습니다.')).not.toBeNull();
   });
@@ -78,9 +86,9 @@ describe('FacilityDetailPage (통합 테스트)', () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/facilities/detail']}>
+        <MemoryRouter initialEntries={['/facilities/1']}>
           <Routes>
-            <Route path="/facilities/detail" element={<FacilityDetailPage />} />
+            <Route path="/facilities/:id" element={<FacilityDetailPage />} />
             <Route path="/inspections/create" element={<div>점검 생성 화면</div>} />
           </Routes>
         </MemoryRouter>
