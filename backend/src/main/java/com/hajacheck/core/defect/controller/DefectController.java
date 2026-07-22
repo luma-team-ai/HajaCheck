@@ -2,6 +2,7 @@ package com.hajacheck.core.defect.controller;
 
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.defect.dto.DefectResponse;
+import com.hajacheck.core.defect.dto.DefectRevisionResponse;
 import com.hajacheck.core.defect.dto.DefectStatusUpdateRequest;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectStatus;
@@ -70,6 +71,18 @@ public class DefectController {
             @Valid @RequestBody DefectStatusUpdateRequest request) {
         DefectResponse response =
                 defectService.updateStatus(loginUser.getUserId(), id, request.status(), request.reason());
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "하자 활동 기록 조회",
+            description = "로그인 사용자 소유 시설물의 하자 상태 변경 이력을 최신순으로 페이지 단위 반환한다")
+    @GetMapping("/{id}/revisions")
+    public ResponseEntity<ApiResponse<PageResponse<DefectRevisionResponse>>> getRevisions(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long id,
+            @PageableDefault(size = 20) Pageable pageable) {
+        PageResponse<DefectRevisionResponse> response =
+                defectService.getRevisions(loginUser.getUserId(), id, pageable);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 }
