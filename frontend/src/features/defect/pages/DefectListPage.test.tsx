@@ -24,8 +24,9 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-// 목록→상세 이동(HAJA-17)을 검증하기 위해 /defects/:id에 마커를 렌더링하는 스텁 라우트를 둔다
-// (DefectDetailPage 전체를 렌더링할 필요 없이 navigate 대상만 확인하면 충분).
+// 목록→상세 이동(HAJA-17) 및 보고서 생성(목록→점검 회차 뷰어) 이동을 검증하기 위해 /defects/:id,
+// /inspections/:id/viewer에 마커를 렌더링하는 스텁 라우트를 둔다(대상 페이지 전체를 렌더링할 필요
+// 없이 navigate 대상만 확인하면 충분).
 function renderPage(): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -37,6 +38,10 @@ function renderPage(): void {
         <Routes>
           <Route path="/defects/list" element={<DefectListPage />} />
           <Route path="/defects/:id" element={<div>하자 상세 스텁</div>} />
+          <Route
+            path="/inspections/:id/viewer"
+            element={<div>점검 회차 뷰어 스텁</div>}
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -126,5 +131,50 @@ describe("DefectListPage (통합 테스트)", () => {
 
     expect(selectAll.checked).toBe(false);
     expect(selectAll.indeterminate).toBe(true);
+  });
+
+  it("선택된 행이 없으면 보고서 생성 버튼이 비활성화된다", async () => {
+    renderPage();
+    await screen.findByRole("table");
+
+    const reportButton = screen.getByRole("button", {
+      name: "보고서 생성",
+    }) as HTMLButtonElement;
+    expect(reportButton.disabled).toBe(true);
+  });
+
+  it("같은 점검 회차의 하자만 선택하면 보고서 생성 버튼이 활성화되고, 클릭 시 해당 점검 회차 뷰어로 이동한다", async () => {
+    renderPage();
+    const table = await screen.findByRole("table");
+
+    // mockDefects: id 1, 2는 inspectionId 101을 공유한다.
+    fireEvent.click(within(table).getByRole("checkbox", { name: "DEF-0001 선택" }));
+    fireEvent.click(within(table).getByRole("checkbox", { name: "DEF-0002 선택" }));
+
+    const reportButton = screen.getByRole("button", {
+      name: "보고서 생성",
+    }) as HTMLButtonElement;
+    expect(reportButton.disabled).toBe(false);
+
+    fireEvent.click(reportButton);
+
+    expect(await screen.findByText("점검 회차 뷰어 스텁")).not.toBeNull();
+  });
+
+  it("서로 다른 점검 회차의 하자를 함께 선택하면 보고서 생성 버튼이 비활성화된다", async () => {
+    renderPage();
+    const table = await screen.findByRole("table");
+
+    // mockDefects: id 1은 inspectionId 101, id 3은 inspectionId 202로 서로 다른 회차다.
+    fireEvent.click(within(table).getByRole("checkbox", { name: "DEF-0001 선택" }));
+    fireEvent.click(within(table).getByRole("checkbox", { name: "DEF-0003 선택" }));
+
+    const reportButton = screen.getByRole("button", {
+      name: "보고서 생성",
+    }) as HTMLButtonElement;
+    expect(reportButton.disabled).toBe(true);
+    expect(reportButton.getAttribute("title")).toBe(
+      "같은 점검 회차의 하자만 선택하세요",
+    );
   });
 });

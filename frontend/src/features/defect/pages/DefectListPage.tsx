@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "../../../shared/components/Button";
 import { TableFooterPagination } from "../../../shared/components/TableFooterPagination";
 import { DefectFilterBar } from "../components/DefectFilterBar";
@@ -13,6 +14,7 @@ const DEFAULT_SIZE = 10;
 // (신규) 필터·페이지네이션 조합으로 구성한다. AppShellRoute 자식(셸 포함) — /defects/:id(상세)와
 // 동일한 셸 아래 목록→상세 이동 흐름을 유지한다.
 export function DefectListPage() {
+  const navigate = useNavigate();
   const [filters, setFilters] = useState<DefectListFilters>({
     page: 0,
     size: DEFAULT_SIZE,
@@ -25,12 +27,34 @@ export function DefectListPage() {
   const totalElements = data?.totalElements ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalElements / size));
 
+  const selectedDefects = useMemo(
+    () => (data?.content ?? []).filter((defect) => selectedIds.has(defect.id)),
+    [data, selectedIds],
+  );
+  const selectedInspectionIds = useMemo(
+    () => new Set(selectedDefects.map((defect) => defect.inspectionId)),
+    [selectedDefects],
+  );
+  const canGenerateReport =
+    selectedDefects.length > 0 && selectedInspectionIds.size === 1;
+  const reportButtonTitle =
+    selectedDefects.length === 0
+      ? "보고서를 생성할 하자를 선택하세요"
+      : selectedInspectionIds.size > 1
+        ? "같은 점검 회차의 하자만 선택하세요"
+        : undefined;
+
   const handlePageChange = (page: number) => {
     setFilters((prev) => ({ ...prev, page: page - 1 }));
   };
 
   const handlePageSizeChange = (nextSize: number) => {
     setFilters((prev) => ({ ...prev, size: nextSize, page: 0 }));
+  };
+
+  const handleGenerateReport = () => {
+    if (!canGenerateReport) return;
+    navigate(`/inspections/${selectedDefects[0].inspectionId}/viewer`);
   };
 
   return (
@@ -69,7 +93,9 @@ export function DefectListPage() {
             <Button
               variant="primary"
               size="md"
-              title="보고서 생성 기능 연동 예정"
+              disabled={!canGenerateReport}
+              title={reportButtonTitle}
+              onClick={handleGenerateReport}
             >
               보고서 생성
             </Button>
