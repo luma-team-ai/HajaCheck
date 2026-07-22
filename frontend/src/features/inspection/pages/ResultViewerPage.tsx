@@ -104,6 +104,26 @@ export function ResultViewerPage() {
     setSelectedGrade('');
   }, []);
 
+  const handleConfirmReview = useCallback(async () => {
+    if (!data) return;
+    const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
+    const selected = selectedDefectId
+      ? visibleDefects.find((d) => d.id === selectedDefectId)
+      : visibleDefects[0];
+    if (!selected || isUpdating) return;
+    setIsUpdating(true);
+    setErrorMessage('');
+    try {
+      await inspectionApi.updateDefectStatus(selected.id, { status: '검수확정' });
+      await refetch();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '검수 확정에 실패했습니다.';
+      setErrorMessage(msg);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [data, confidenceThreshold, gradeFilter, selectedDefectId, isUpdating, refetch]);
+
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
     return (
       <div className="p-5 text-red-600">잘못된 접근입니다. 유효한 검사 ID를 확인하세요.</div>
@@ -236,8 +256,14 @@ export function ResultViewerPage() {
                 >
                   오탐 삭제
                 </Button>
-                {/* TODO: 검수 확정 → 검수 API 확정 또는 inspection 상태 transition API 필요 (#17/PR #372 검토 필요) */}
-                <Button type="button" variant="primary" size="lg" className="flex-[7]" disabled>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="lg"
+                  className="flex-[7]"
+                  onClick={handleConfirmReview}
+                  disabled={isUpdating || !selected}
+                >
                   이 이미지 검수 확정
                 </Button>
                 </div>
