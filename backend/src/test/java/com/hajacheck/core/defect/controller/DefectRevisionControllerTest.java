@@ -89,19 +89,29 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 tempOwner.getId(), name, String.valueOf(brn), "대표",
                 "서울시", null, "http://files/brn.png", "{}"));
 
-        // 3. owner.company_id를 UPDATE (JdbcTemplate으로 직접 SQL 실행)
-        userRepository.flush();
-        jdbcTemplate.update("UPDATE users SET company_id = ? WHERE id = ?",
-                company.getId(), tempOwner.getId());
-
-        // 4. Company 상태를 APPROVED+VERIFIED로 업데이트 (trigger 통과용)
-        companyRepository.flush();
+        // 3-4. trigger 비활성화 후 Company/User 상태 업데이트
         java.time.Instant now = java.time.Instant.now();
-        jdbcTemplate.update(
-                "UPDATE companies SET status = ?, " +
-                "verification_status = ?, " +
-                "verified_at = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?",
-                "APPROVED", "VERIFIED", now, tempOwner.getId(), now, company.getId());
+        userRepository.flush();
+        companyRepository.flush();
+
+        // trigger 비활성화
+        jdbcTemplate.execute("ALTER TABLE inspections DISABLE TRIGGER trg_inspections_check_assigned_inspector_company");
+
+        try {
+            // owner.company_id 업데이트
+            jdbcTemplate.update("UPDATE users SET company_id = ? WHERE id = ?",
+                    company.getId(), tempOwner.getId());
+
+            // Company 상태 업데이트
+            jdbcTemplate.update(
+                    "UPDATE companies SET status = ?, " +
+                    "verification_status = ?, " +
+                    "verified_at = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?",
+                    "APPROVED", "VERIFIED", now, tempOwner.getId(), now, company.getId());
+        } finally {
+            // trigger 다시 활성화
+            jdbcTemplate.execute("ALTER TABLE inspections ENABLE TRIGGER trg_inspections_check_assigned_inspector_company");
+        }
 
         // 5. owner의 멤버십 생성
         companyMembershipRepository.save(CompanyMembership.approvedOwner(company.getId(), tempOwner.getId()));
