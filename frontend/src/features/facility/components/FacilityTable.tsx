@@ -18,7 +18,7 @@ type Props = {
 export function FacilityTable({ facilities, isLoading, isError, onRetry, onSelectFacility }: Props) {
   if (isLoading) {
     return (
-      <LoadingSpinner className="px-4 py-12" />
+      <LoadingSpinner className="flex items-center justify-center gap-2 px-4 py-12" />
     );
   }
 

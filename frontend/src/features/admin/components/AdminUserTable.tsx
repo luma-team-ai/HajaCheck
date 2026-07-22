@@ -46,7 +46,7 @@ export function AdminUserTable({
       <tbody>
         {isLoading && (
           <StateRow colSpan={COLUMN_COUNT}>
-            <LoadingSpinner className="py-0" />
+            <LoadingSpinner className="flex items-center justify-center gap-2" />
           </StateRow>
         )}
 

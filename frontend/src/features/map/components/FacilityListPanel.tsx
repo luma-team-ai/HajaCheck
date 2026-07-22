@@ -70,7 +70,7 @@ export function FacilityListPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {isLoading && <LoadingSpinner className="p-4" />}
+        {isLoading && <LoadingSpinner className="flex items-center justify-center gap-2 p-4" />}
         {!isLoading && isError && (
           <p className="p-4 text-center text-sm text-danger">시설물 위치를 불러오지 못했습니다.</p>
         )}

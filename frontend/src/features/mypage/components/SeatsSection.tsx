@@ -38,7 +38,7 @@ export function SeatsSection() {
         </Button>
       </div>
 
-      {isLoading && <LoadingSpinner className="justify-start py-0" />}
+      {isLoading && <LoadingSpinner className="flex items-center justify-start gap-2" />}
 
       {isError && errorCode === MYPAGE_ERROR_CODE.PLAN_NOT_FOUND && (
         <p className="text-sm text-text-muted">활성 구독이 없어 좌석 정보를 표시할 수 없습니다.</p>
