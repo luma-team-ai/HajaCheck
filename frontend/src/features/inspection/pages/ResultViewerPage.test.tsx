@@ -133,6 +133,13 @@ const testHandlers = [
     const updatedDefect: DefectDetailItem = mockDefects[0];
     return HttpResponse.json({ success: true, data: updatedDefect });
   }),
+  http.patch('/api/defects/:id/status', () => {
+    const updatedDefect: DefectDetailItem = {
+      ...mockDefects[0],
+      status: '검수확정',
+    };
+    return HttpResponse.json({ success: true, data: updatedDefect });
+  }),
 ];
 
 const server = setupServer(...testHandlers);
@@ -199,12 +206,44 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(await screen.findByText('조건에 맞는 하자가 없습니다.')).not.toBeNull();
   });
 
-  it('"검수 확정" 버튼은 백엔드 미구현으로 비활성화되어 있다(#553, inspection 상태 transition API 확인 필요)', async () => {
+  it('"검수 확정" 버튼이 활성화되어 있고 클릭하면 상태를 변경한다(#566)', async () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
     const button = screen.getByRole('button', { name: '이 이미지 검수 확정' });
+    expect(button.hasAttribute('disabled')).toBe(false);
+
+    fireEvent.click(button);
+
+    // 로딩 중 비활성화 확인 (짧은 시간이지만)
     expect(button.hasAttribute('disabled')).toBe(true);
+
+    // API 호출 완료 후 버튼 다시 활성화 확인 (refetch 완료 후)
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(button.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('"검수 확정" 실패 시 에러 메시지를 표시한다(#566)', async () => {
+    // 실패 응답을 반환하는 핸들러 설정
+    server.use(
+      http.patch('/api/defects/:id/status', () => {
+        const failure: ApiResponse<null> = {
+          success: false,
+          data: null,
+          error: { code: 'INVALID_STATUS_TRANSITION', message: '검수 실패' },
+        };
+        return HttpResponse.json(failure, { status: 400 });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const button = screen.getByRole('button', { name: '이 이미지 검수 확정' });
+    fireEvent.click(button);
+
+    // 에러 메시지 표시 확인 (기본 에러 메시지가 표시됨)
+    expect(await screen.findByText(/검수 확정에 실패했습니다/)).not.toBeNull();
   });
 
   it('오탐 삭제 버튼이 활성화되어 있다(#553)', async () => {
