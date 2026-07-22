@@ -81,4 +81,9 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
     // 사람 검토 전)는 제외하고 CONFIRMED/ACTION_PENDING/IN_PROGRESS/RESOLVED 만 포함한다.
     List<Defect> findByInspectionIdAndStatusInAndDeletedFalse(
             Long inspectionId, Collection<DefectStatus> statuses);
+
+    // 점검 회차별 하자 목록 조회(검수·뷰어 공용) — deleted=false만, id 오름차순 정렬
+    @Query("select d from Defect d where d.inspectionId = :inspectionId and d.deleted = false "
+            + "order by d.id asc")
+    List<Defect> findByInspectionIdAndNotDeleted(@Param("inspectionId") Long inspectionId);
 }
