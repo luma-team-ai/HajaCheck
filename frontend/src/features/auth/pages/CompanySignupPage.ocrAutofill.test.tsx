@@ -57,6 +57,14 @@ function pdfFile(name = 'license.pdf') {
   return new File(['%PDF-1.4'], name, { type: 'application/pdf' });
 }
 
+// 실제 11MB 콘텐츠를 만들지 않고 size만 오버라이드 — 폼 검증(validateBusinessLicenseFile)이
+// FILE_TOO_LARGE로 판정하기에 충분(P2 테스트 전용).
+function oversizedPngFile(name = 'big-license.png') {
+  const file = new File(['dummy'], name, { type: 'image/png' });
+  Object.defineProperty(file, 'size', { value: 11 * 1024 * 1024 });
+  return file;
+}
+
 describe('CompanySignupPage — 사업자등록증 OCR 자동채움(#587)', () => {
   it('PNG 업로드 시 OCR이 성공하면 사업자등록번호·상호명·대표자명이 자동으로 채워진다', async () => {
     renderPage();
@@ -178,5 +186,112 @@ describe('CompanySignupPage — 사업자등록증 OCR 자동채움(#587)', () =
     expect(ocrSpy).not.toHaveBeenCalled();
     expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe('');
     expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  // P2(리뷰어 픽스) — 오버사이즈/무효 파일은 제출 시 폼 검증에서 어차피 막히므로, 뻔히 실패할
+  // OCR 요청으로 백엔드 rate-limit(분당+일일 캡)을 낭비하지 않는다.
+  it('오버사이즈 PNG는 폼 검증에서 걸리는 파일이라 OCR을 호출하지 않는다(P2)', async () => {
+    const ocrSpy = vi.spyOn(authApi, 'businessLicenseOcr');
+
+    renderPage();
+    fireEvent.change(screen.getByLabelText('사업자등록증'), {
+      target: { files: [oversizedPngFile()] },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(ocrSpy).not.toHaveBeenCalled();
+    expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe('');
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  // P1(리뷰어 픽스) — stale 응답 가드. 파일 선택 후 OCR 진행 중 파일을 삭제하면, 뒤늦게 도착한
+  // 응답이 "첨부 파일 없는" 현재 상태에 값을 주입해서는 안 된다.
+  it('OCR 진행 중 파일을 삭제하면, 응답이 늦게 도착해도 필드를 채우지 않는다(P1 stale 가드)', async () => {
+    server.use(
+      http.post('/api/auth/business-license/ocr', async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const success: ApiResponse<{
+          businessRegistrationNumber: string | null;
+          companyName: string | null;
+          representativeName: string | null;
+        }> = {
+          success: true,
+          data: {
+            businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER,
+            companyName: MOCK_OCR_COMPANY_NAME,
+            representativeName: MOCK_OCR_REPRESENTATIVE_NAME,
+          },
+        };
+        return HttpResponse.json(success);
+      }),
+    );
+
+    renderPage();
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pngFile()] } });
+
+    // 응답(50ms) 도착 전에 사용자가 첨부 파일을 삭제 — id가 증가해 이후 응답은 stale 처리되어야 한다.
+    fireEvent.click(await screen.findByRole('button', { name: '첨부 파일 삭제' }));
+
+    // 응답 지연(50ms)보다 넉넉히 기다린 뒤에도 필드가 채워지지 않아야 한다.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('대표자명') as HTMLInputElement).value).toBe('');
+    // 파일 자체도 삭제된 상태 그대로 유지(칩 미노출 = 삭제 버튼 사라짐)
+    expect(screen.queryByRole('button', { name: '첨부 파일 삭제' })).toBeNull();
+  });
+
+  // P1(리뷰어 픽스) — A→B 빠른 교체 시 A의 응답이 늦게 도착해도 B의 응답만 반영되어야 한다.
+  it('파일 A→B로 빠르게 교체하면, A의 늦은 응답은 무시되고 B의 응답만 반영된다(P1 stale 가드)', async () => {
+    let callCount = 0;
+    server.use(
+      http.post('/api/auth/business-license/ocr', async () => {
+        callCount += 1;
+        const isFirstCall = callCount === 1;
+        // A(첫 호출)는 느리게, B(두번째 호출)는 빠르게 응답 — B가 먼저 도착해도 이후 A가
+        // 도착했을 때 무시되는지까지 함께 검증한다.
+        await new Promise((resolve) => setTimeout(resolve, isFirstCall ? 80 : 10));
+        const success: ApiResponse<{
+          businessRegistrationNumber: string | null;
+          companyName: string | null;
+          representativeName: string | null;
+        }> = {
+          success: true,
+          data: isFirstCall
+            ? {
+                businessRegistrationNumber: '1111111111',
+                companyName: 'A상호(잘못된 값)',
+                representativeName: 'A대표(잘못된 값)',
+              }
+            : {
+                businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER,
+                companyName: MOCK_OCR_COMPANY_NAME,
+                representativeName: MOCK_OCR_REPRESENTATIVE_NAME,
+              },
+        };
+        return HttpResponse.json(success);
+      }),
+    );
+
+    renderPage();
+    const fileInput = screen.getByLabelText('사업자등록증');
+
+    fireEvent.change(fileInput, { target: { files: [pngFile('a.png')] } }); // A 요청 발화(id=1)
+    fireEvent.change(fileInput, { target: { files: [pngFile('b.png')] } }); // B 요청 발화(id=2), A는 아직 진행 중
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe(
+        MOCK_OCR_BUSINESS_NUMBER,
+      );
+    });
+
+    // A의 응답(80ms)이 도착할 시점까지 기다려도 A값('1111111111' 등)으로 덮어써지지 않아야 한다.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe(
+      MOCK_OCR_BUSINESS_NUMBER,
+    );
+    expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(MOCK_OCR_COMPANY_NAME);
   });
 });
