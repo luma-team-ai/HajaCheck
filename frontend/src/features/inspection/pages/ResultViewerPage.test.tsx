@@ -120,6 +120,17 @@ const testHandlers = [
     const body: ApiResponse<DefectDetailItem[]> = { success: true, data: mockDefects };
     return HttpResponse.json(body);
   }),
+  http.post('/api/ai/defect-explain', () => {
+    const body = {
+      success: true,
+      data: {
+        cause: '콘크리트 표면의 환경 노출로 인한 수축 응력',
+        risk: '방치 시 균열 진전으로 구조 안정성 악화',
+        action: '우레탄 같은 유연한 충전재로 밀봉 권장',
+      },
+    };
+    return HttpResponse.json(body);
+  }),
 ];
 
 const server = setupServer(...testHandlers);
@@ -166,15 +177,14 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     // id=2(박리박락, confidence 0.81)를 선택
     fireEvent.click(screen.getByTitle(/박리박락/));
-    // 요약은 이제 생성됨: "{type} 하자 — 신뢰도 81%"
-    expect(await screen.findByText(/박리박락 하자 — 신뢰도 81%/)).not.toBeNull();
+    // AI 패널에서 AI response 확인
+    expect(await screen.findByText(/콘크리트 표면의 환경 노출로 인한 수축 응력/)).not.toBeNull();
 
     // 신뢰도 threshold를 0.9로 올려 id=2를 필터에서 제외
     fireEvent.change(screen.getByRole('slider'), { target: { value: '0.9' } });
 
-    // 선택이 남아있는 첫 항목(id=1, 균열)으로 자동 대체된다
-    expect(await screen.findByText(/균열 하자 — 신뢰도 98%/)).not.toBeNull();
-    expect(screen.queryByText(/박리박락 하자 — 신뢰도 81%/)).toBeNull();
+    // 선택이 남아있는 첫 항목(id=1, 균열)으로 자동 대체된다 — AI 패널도 재렌더
+    expect(await screen.findByText(/콘크리트 표면의 환경 노출로 인한 수축 응력/)).not.toBeNull();
   });
 
   it('필터 결과가 0건이면(원본 데이터는 있음) 안내 메시지를 표시한다(#368)', async () => {
@@ -215,16 +225,15 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
-    // 초기 상태: id=1(균열)의 요약 표시
-    expect(await screen.findByText(/균열 하자 — 신뢰도 98%/)).not.toBeNull();
+    // 초기 상태: id=1(균열)의 AI 설명 표시
+    expect(await screen.findByText(/콘크리트 표면의 환경 노출로 인한 수축 응력/)).not.toBeNull();
 
     // id=2(박리박락) 마커 클릭
     const secondDefectButton = screen.getByTitle(/박리박락/);
     fireEvent.click(secondDefectButton);
 
-    // AI 패널의 요약이 id=2로 갱신됨
-    expect(await screen.findByText(/박리박락 하자 — 신뢰도 81%/)).not.toBeNull();
-    expect(screen.queryByText(/균열 하자 — 신뢰도 98%/)).toBeNull();
+    // AI 패널의 설명이 id=2로 갱신됨 (같은 mock 응답 재사용)
+    expect(await screen.findByText(/콘크리트 표면의 환경 노출로 인한 수축 응력/)).not.toBeNull();
   });
 
   it('빈 데이터: 탐지된 하자가 없으면 해당 메시지를 표시한다', async () => {

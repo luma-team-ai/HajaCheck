@@ -26,6 +26,65 @@ export function ResultViewerPage() {
   const { data, isLoading, isError, refetch } = useInspectionResult(inspectionId);
   const [isUpdating, setIsUpdating] = useState(false);
 
+  // ponytail: 콜백은 훅이므로 조건부 return 이전에 정의(rules-of-hooks).
+  // 콜백 내부에서 data/selected를 참조하지만, 클로저 캡처는 실행 시점에 일어나므로 정의 시점에 존재할 필요 없음.
+  // 콜백 내부 guards가 조기 return을 처리한다.
+
+  const handleDeleteFalsePositive = useCallback(async () => {
+    if (!data) return; // data가 준비되지 않았으면 조기 return
+    const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
+    const selected = selectedDefectId
+      ? visibleDefects.find((d) => d.id === selectedDefectId)
+      : visibleDefects[0];
+    if (!selected || isUpdating) return;
+    setIsUpdating(true);
+    try {
+      await inspectionApi.reviewDefect(selected.id, { isDeleted: true });
+      await refetch();
+    } catch (error) {
+      console.error('오탐 삭제 실패:', error);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [data, confidenceThreshold, gradeFilter, selectedDefectId, isUpdating, refetch]);
+
+  const handleOpenGradeEdit = useCallback(() => {
+    if (!data) return;
+    const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
+    const selected = selectedDefectId
+      ? visibleDefects.find((d) => d.id === selectedDefectId)
+      : visibleDefects[0];
+    if (selected) {
+      setGradeEditId(selected.id);
+      setSelectedGrade(selected.grade);
+    }
+  }, [data, confidenceThreshold, gradeFilter, selectedDefectId]);
+
+  const handleConfirmGrade = useCallback(async () => {
+    if (!data) return;
+    const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
+    const selected = selectedDefectId
+      ? visibleDefects.find((d) => d.id === selectedDefectId)
+      : visibleDefects[0];
+    if (!selected || !selectedGrade || isUpdating) return;
+    setIsUpdating(true);
+    try {
+      await inspectionApi.reviewDefect(selected.id, { grade: selectedGrade as DefectGrade });
+      await refetch();
+      setGradeEditId(undefined);
+      setSelectedGrade('');
+    } catch (error) {
+      console.error('등급 수정 실패:', error);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [data, confidenceThreshold, gradeFilter, selectedDefectId, selectedGrade, isUpdating, refetch]);
+
+  const handleCancelGradeEdit = useCallback(() => {
+    setGradeEditId(undefined);
+    setSelectedGrade('');
+  }, []);
+
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
     return (
       <div className="p-5 text-red-600">잘못된 접근입니다. 유효한 검사 ID를 확인하세요.</div>
@@ -54,49 +113,6 @@ export function ResultViewerPage() {
   };
 
   const progressPercent = data.totalCount > 0 ? (data.reviewedCount / data.totalCount) * 100 : 0;
-
-  // 오탐 삭제: 선택된 하자를 isDeleted: true로 마크
-  const handleDeleteFalsePositive = useCallback(async () => {
-    if (!selected || isUpdating) return;
-    setIsUpdating(true);
-    try {
-      await inspectionApi.reviewDefect(selected.id, { isDeleted: true });
-      // 성공 후 데이터 갱신
-      await refetch();
-    } catch (error) {
-      console.error('오탐 삭제 실패:', error);
-    } finally {
-      setIsUpdating(false);
-    }
-  }, [selected, isUpdating, refetch]);
-
-  // 등급 수정: 선택된 등급을 명시적으로 선택 후 저장
-  const handleOpenGradeEdit = useCallback(() => {
-    if (selected) {
-      setGradeEditId(selected.id);
-      setSelectedGrade(selected.grade);
-    }
-  }, [selected]);
-
-  const handleConfirmGrade = useCallback(async () => {
-    if (!selected || !selectedGrade || isUpdating) return;
-    setIsUpdating(true);
-    try {
-      await inspectionApi.reviewDefect(selected.id, { grade: selectedGrade as DefectGrade });
-      await refetch();
-      setGradeEditId(undefined);
-      setSelectedGrade('');
-    } catch (error) {
-      console.error('등급 수정 실패:', error);
-    } finally {
-      setIsUpdating(false);
-    }
-  }, [selected, selectedGrade, isUpdating, refetch]);
-
-  const handleCancelGradeEdit = useCallback(() => {
-    setGradeEditId(undefined);
-    setSelectedGrade('');
-  }, []);
 
   return (
     <div className="flex h-full flex-col gap-4 py-6 pl-6 pr-28">
