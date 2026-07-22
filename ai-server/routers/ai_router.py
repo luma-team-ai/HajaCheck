@@ -1,6 +1,7 @@
 """AI 엔드포인트 — 네이밍: /ai/{기능} (AI_개발_컨벤션.md §5, v0.2)
 
 /ai/report · /ai/chat · /ai/briefing · /ai/defect-explain · /ai/nl-search · /ai/grounding-check
+/ai/rag-chat
 
 동기/비동기 경계(§5 v0.2, HAJA-208): 비동기 잡 패턴(잡 ID -> 폴링) 원칙은 클라이언트 대면
 경계(예: 백엔드 /api/reports)에 적용된다. 이 라우터의 /ai/* 는 verify_internal_key로 보호되는
@@ -21,6 +22,7 @@ from deps import verify_internal_key
 
 from ai.chains.briefing_chain import DashboardStats, run_briefing_chain
 from ai.chains.defect_explain_chain import run_defect_explain_chain
+from ai.chains.rag_chat_chain import run_rag_chat_chain
 from ai.chains.report_chain import FACILITY_FIELD_LABELS, run_report_chain
 from ai.core.grounding import (
     GroundingClaims,
@@ -65,6 +67,34 @@ def defect_explain(req: DefectExplainRequest) -> AIResponse:
         logger.exception("POST /ai/defect-explain 처리 중 예상치 못한 예외 발생")
         return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "하자 설명 생성 중 오류가 발생했습니다")
     return AIResponse.ok(result.model_dump())
+
+
+class RagChatRequest(BaseModel):
+    """고객지원 RAG 챗봇 요청 (FR-6, contract.md `POST /ai/rag-chat`)."""
+
+    question: str = Field(min_length=1)
+    # Spring이 세션 소유·session_type='RAG'를 검증한 뒤 넘기는 값(design §7) — 이관 전인
+    # 현재 파이프라인은 세션·이력 연동이 없어 미사용(후속 이슈, design §9).
+    session_id: Optional[int] = Field(default=None, ge=1)
+
+
+@router.post("/rag-chat")
+def rag_chat(req: RagChatRequest) -> AIResponse:
+    try:
+        return run_rag_chat_chain(req.question)
+    except OutputParserException:
+        # report/defect-explain과 동일 이유로 (ValueError, PydanticValidationError)절보다 먼저
+        # 잡아야 한다 — OutputParserException은 ValueError의 서브클래스.
+        logger.exception("POST /ai/rag-chat — LLM 출력 파싱 실패(OutputParserException)")
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "답변 생성 결과를 처리하지 못했습니다")
+    except (ValueError, PydanticValidationError):
+        # 비-LLM 검증 실패(예: get_vectorstore의 알 수 없는 컬렉션 ValueError 등) — LLM 호출·파싱과
+        # 무관한 코드 경로이므로 report/grounding-check와 동일하게 VALIDATION_ERROR.
+        logger.exception("POST /ai/rag-chat — 비-LLM 검증 실패(ValueError/PydanticValidationError)")
+        return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, "요청 처리 중 검증 오류가 발생했습니다")
+    except Exception:  # noqa: BLE001 — LLM 클라이언트 오류부터 Redis 장애까지 포괄하는 최종 폴백.
+        logger.exception("POST /ai/rag-chat 처리 중 예상치 못한 예외 발생")
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "답변 생성 중 오류가 발생했습니다")
 
 
 class GroundingCheckRequest(BaseModel):
