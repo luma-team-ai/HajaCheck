@@ -5,6 +5,7 @@ import { createBrowserRouter } from 'react-router-dom';
 import { AdminRoute } from '../shared/components/AdminRoute';
 import { ProtectedRoute } from '../shared/components/ProtectedRoute';
 import { LoadingSpinner } from '../shared/components/LoadingSpinner';
+import LandingPage from '../features/landing/LandingPage';
 import { AppShellRoute } from './AppShellRoute';
 
 const MapPage = lazy(() => import('../features/map/MapPage'));
@@ -20,8 +21,6 @@ const InspectionCreatePage = lazy(() =>
     default: m.InspectionCreatePage,
   })),
 );
-
-const LandingPage = lazy(() => import('../features/landing/LandingPage'));
 
 const LoginPage = lazy(() =>
   import('../features/auth/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
@@ -168,16 +167,12 @@ export const router = createBrowserRouter([
   ...DEV_ONLY_ROUTES,
   {
     path: '/',
-    element: (
-      <Suspense fallback={<LoadingSpinner />}>
-        <LandingPage />
-      </Suspense>
-    ),
+    element: <LandingPage />,
   },
   {
     path: '/login',
     element: (
-      <Suspense fallback={<LoadingSpinner />}>
+      <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
         <LoginPage />
       </Suspense>
     ),
@@ -185,7 +180,7 @@ export const router = createBrowserRouter([
   {
     path: '/policy/terms-of-service',
     element: (
-      <Suspense fallback={<LoadingSpinner />}>
+      <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
         <TermsOfServicePage />
       </Suspense>
     ),
@@ -193,7 +188,7 @@ export const router = createBrowserRouter([
   {
     path: '/policy/privacy',
     element: (
-      <Suspense fallback={<LoadingSpinner />}>
+      <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
         <PrivacyPolicyPage />
       </Suspense>
     ),
@@ -201,7 +196,7 @@ export const router = createBrowserRouter([
   {
     path: '/signup/company',
     element: (
-      <Suspense fallback={<LoadingSpinner />}>
+      <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
         <CompanySignupPage />
       </Suspense>
     ),
@@ -209,7 +204,7 @@ export const router = createBrowserRouter([
   {
     path: '/signup/company/pending',
     element: (
-      <Suspense fallback={<LoadingSpinner />}>
+      <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
         <CompanySignupPendingPage />
       </Suspense>
     ),
@@ -217,7 +212,7 @@ export const router = createBrowserRouter([
   {
     path: '/find-id',
     element: (
-      <Suspense fallback={<LoadingSpinner />}>
+      <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
         <FindIdPage />
       </Suspense>
     ),
@@ -225,7 +220,7 @@ export const router = createBrowserRouter([
   {
     path: '/find-password',
     element: (
-      <Suspense fallback={<LoadingSpinner />}>
+      <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
         <FindPasswordPage />
       </Suspense>
     ),
@@ -233,7 +228,7 @@ export const router = createBrowserRouter([
   {
     path: '/reset-password',
     element: (
-      <Suspense fallback={<LoadingSpinner />}>
+      <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
         <ResetPasswordPage />
       </Suspense>
     ),
@@ -252,7 +247,7 @@ export const router = createBrowserRouter([
       {
         path: '/dashboard',
         element: (
-          <Suspense fallback={<LoadingSpinner />}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <DashboardPage />
           </Suspense>
         ),
@@ -290,7 +285,7 @@ export const router = createBrowserRouter([
       {
         path: '/defects/:id',
         element: (
-          <Suspense fallback={<LoadingSpinner />}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <DefectDetailPage />
           </Suspense>
         ),
@@ -302,7 +297,7 @@ export const router = createBrowserRouter([
       {
         path: '/mypage/plan',
         element: (
-          <Suspense fallback={<LoadingSpinner />}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <MyPlanPage />
           </Suspense>
         ),
@@ -314,7 +309,7 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/map',
         element: (
-          <Suspense fallback={<LoadingSpinner />}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <MapPage />
           </Suspense>
         ),
@@ -338,7 +333,7 @@ export const router = createBrowserRouter([
       {
         path: '/inspections/:id/viewer',
         element: (
-          <Suspense fallback={<LoadingSpinner />}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <ResultViewerPage />
           </Suspense>
         ),
@@ -423,7 +418,7 @@ export const router = createBrowserRouter([
         // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#378, 컨벤션 §7)
         element: (
           <AdminRoute>
-            <Suspense fallback={<LoadingSpinner />}>
+            <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
               <AdminUsersPage />
             </Suspense>
           </AdminRoute>
@@ -451,7 +446,7 @@ export const router = createBrowserRouter([
       {
         path: '/support/ai-assistant',
         element: (
-          <Suspense fallback={<LoadingSpinner />}>
+          <Suspense fallback={<LoadingSpinner className="min-h-[50vh]" />}>
             <AiAssistantPage />
           </Suspense>
         ),
