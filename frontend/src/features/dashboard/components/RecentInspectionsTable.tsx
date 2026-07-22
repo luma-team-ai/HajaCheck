@@ -63,7 +63,8 @@ export function RecentInspectionsTable() {
     <section className="dashboard-card">
       <div className="dashboard-card-header">
         <h3 className="dashboard-card-title">최근 점검</h3>
-        <button type="button" className="dashboard-card-link">
+        {/* Figma 시안 대비 카드 우측 끝에 딱 붙지 않고 살짝 안쪽에 위치(#556) */}
+        <button type="button" className="dashboard-card-link mr-2">
           전체보기
         </button>
       </div>

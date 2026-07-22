@@ -1,12 +1,7 @@
-import { DASHBOARD_COLOR_CLASS } from '../colors';
+import { DASHBOARD_COLOR_CLASS, GRADE_BG_CLASS_LIGHT } from '../colors';
 import { useGradeDistribution } from '../hooks/useGradeDistribution';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
-import {
-  getGradeBgClass,
-  isGradeTotalValid,
-  sortGradeDistribution,
-  sumGradePercent,
-} from '../utils/gradeDistribution';
+import { isGradeTotalValid, sortGradeDistribution, sumGradePercent } from '../utils/gradeDistribution';
 
 // `dashboard-card-status`(layout.css, un-layered)가 color:#999 / font-size:14px를 지정하므로,
 // 경고 문구의 빨강·13px을 살리려면 두 유틸리티 모두 `!`가 필요하다(Cascade Layers — colors.ts 주석 참고).
@@ -40,19 +35,27 @@ export function GradeDistributionCard() {
             {sorted.map((item) => (
               <div
                 key={item.grade}
-                className={`h-full ${getGradeBgClass(item.grade)}`}
+                className={`h-full ${GRADE_BG_CLASS_LIGHT[item.grade]}`}
                 style={{ width: `${item.percent}%` }}
               />
             ))}
           </div>
-          <ul className="list-none mt-3.5 mb-0 mx-0 p-0 flex flex-nowrap gap-2.5 max-[1100px]:flex-wrap">
+          {/* 각 라벨을 막대와 동일한 비율 너비로 배치해 해당 색상 세그먼트 바로 아래 오도록 정렬(Figma 시안, #556) */}
+          <div className="flex w-full mt-3.5">
             {sorted.map((item) => (
-              <li key={item.grade} className="flex items-center gap-1.5 text-[13px] text-[#555]">
-                <span className={`inline-block w-2 h-2 rounded-full ${getGradeBgClass(item.grade)}`} />
-                {item.grade} 등급 ({item.percent}%)
-              </li>
+              <div
+                key={item.grade}
+                className="flex min-w-0 flex-col items-center gap-1 text-[13px] text-[#555]"
+                style={{ width: `${item.percent}%` }}
+              >
+                <span className={`inline-block w-2 h-2 rounded-full ${GRADE_BG_CLASS_LIGHT[item.grade]}`} />
+                {/* 세그먼트 폭이 라벨보다 좁을 수 있어(예: E 5%) 말줄임으로 정렬을 유지한다(#556 리뷰 반영) */}
+                <span className="w-full overflow-hidden text-ellipsis whitespace-nowrap text-center">
+                  {item.grade} 등급 ({item.percent}%)
+                </span>
+              </div>
             ))}
-          </ul>
+          </div>
           {!isTotalValid && (
             <p className={WARNING_CLASS} role="alert">
               등급 분포 합계가 100%가 아닙니다 (현재 {totalPercent.toFixed(1)}%) — 데이터를 확인해 주세요.
