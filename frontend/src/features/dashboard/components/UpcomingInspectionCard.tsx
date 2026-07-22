@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { DASHBOARD_COLOR_CLASS } from '../colors';
+import { INSPECTION_NEW_PATH } from '../constants';
 import type { UpcomingInspectionItem } from '../types';
 import { deriveUpcomingInspectionStatusKind } from '../utils/upcomingInspectionStatus';
 
@@ -21,7 +22,7 @@ export function UpcomingInspectionCard({ item }: Props) {
   const dDayLabel = item.dDay === 0 ? 'D-DAY' : `D-${item.dDay}`;
 
   const handleCreateInspection = () => {
-    navigate(`/inspections/create?facilityId=${item.facilityId}`);
+    navigate(`${INSPECTION_NEW_PATH}?facilityId=${item.facilityId}`);
   };
 
   return (
