@@ -32,7 +32,9 @@ export function DashboardPage() {
   }, [location.pathname]);
 
   return (
-    <div className="dashboard-content">
+    // 공용 .dashboard-content는 다른 feature(마이페이지 등)도 재사용하므로 모서리는 이 페이지에만
+    // rounded-none!(un-layered CSS override, colors.ts 관례와 동일)로 국소 적용(Figma 정합, #556 후속)
+    <div className="dashboard-content rounded-none!">
       <div className="dashboard-page-header">
         <h1 className="dashboard-page-title">대시보드</h1>
         <button
@@ -46,8 +48,9 @@ export function DashboardPage() {
 
       <KpiSection />
 
-      {/* 시안: KPI 아래는 2단 컬럼 — 좌(넓음)=등급분포+최근점검 / 우(좁음)=처리대기+AI 브리핑 */}
-      <div className="grid grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] gap-4 items-start max-[1100px]:grid-cols-1">
+      {/* 시안: KPI 아래는 2단 컬럼 — 좌(넓음)=등급분포+최근점검 / 우(좁음)=처리대기+AI 브리핑.
+          mt-3은 KPI 섹션과의 간격을 Figma 시안처럼 더 넓게 벌리기 위한 추가 여백(#556 후속) */}
+      <div className="mt-3 grid grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] gap-4 items-start max-[1100px]:grid-cols-1">
         <div className="flex flex-col gap-4 min-w-0">
           <GradeDistributionCard />
           <RecentInspectionsTable />

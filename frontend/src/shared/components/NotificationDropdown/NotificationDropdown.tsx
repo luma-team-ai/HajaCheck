@@ -1,3 +1,4 @@
+import closeIcon from '../../../assets/brand/popup-close-icon.svg';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss';
 
 export interface NotificationFilter {
@@ -14,6 +15,8 @@ export interface NotificationItem {
   read: boolean;
   actionLabel?: string;
   onAction?: () => void;
+  /** 개별 알림 닫기(X) — 미지정 시 X 버튼 자체가 렌더되지 않음 */
+  onDismiss?: () => void;
 }
 
 interface NotificationDropdownProps {
@@ -59,15 +62,27 @@ export function NotificationDropdown({
           <h2 className="m-0 text-base font-semibold text-primary">알림</h2>
           <span className="text-sm text-text-muted">미읽음 {unreadCount}</span>
         </div>
-        {onMarkAllRead && (
-          <button
-            type="button"
-            className="cursor-pointer border-none bg-none p-0 text-sm text-text-muted"
-            onClick={onMarkAllRead}
-          >
-            모두 읽음
-          </button>
-        )}
+        <div className="flex items-center gap-2.5">
+          {onMarkAllRead && (
+            <button
+              type="button"
+              className="cursor-pointer border-none bg-none p-0 text-sm text-text-muted"
+              onClick={onMarkAllRead}
+            >
+              모두 읽음
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              className="inline-flex cursor-pointer items-center justify-center border-none bg-none p-0"
+              onClick={onClose}
+              aria-label="알림 패널 닫기"
+            >
+              <img className="h-3.5 w-3.5" src={closeIcon} alt="" />
+            </button>
+          )}
+        </div>
       </div>
 
       {filters && filters.length > 0 && (
@@ -106,7 +121,19 @@ export function NotificationDropdown({
             <div className="flex min-w-0 flex-1 flex-col gap-1 pl-[14px]">
               <div className="flex items-start justify-between gap-2">
                 <span className="text-sm font-medium text-primary">{item.title}</span>
-                <span className="text-xs whitespace-nowrap text-text-muted">{item.timestamp}</span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-xs whitespace-nowrap text-text-muted">{item.timestamp}</span>
+                  {item.onDismiss && (
+                    <button
+                      type="button"
+                      className="inline-flex cursor-pointer items-center justify-center border-none bg-none p-0"
+                      onClick={item.onDismiss}
+                      aria-label="알림 닫기"
+                    >
+                      <img className="h-2.5 w-2.5" src={closeIcon} alt="" />
+                    </button>
+                  )}
+                </span>
               </div>
               {item.description && (
                 <p className="m-0 text-[13px] text-text-default">{item.description}</p>

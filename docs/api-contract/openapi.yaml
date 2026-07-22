@@ -1,9 +1,11 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.8.0-draft"
+  version: "0.9.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    2026-07-22 사업자등록증 OCR 공개 프록시(#557 / HAJA-324) — /api/auth/business-license/ocr(비로그인
+    multipart) 추가: 파일검증(jpeg/png·10MB·매직바이트)→base64→ai-server 프록시, rate-limit(분당+일일 절대캡).
     2026-07-22 사업자등록증 OCR 실구현(#552 / HAJA-321) — /ai/business-license-ocr 를 stub 에서
     RapidOCR(한국어 인식)+LLM 파싱 실동작으로 교체(image_base64 필수·max_length, raw=집계값, stub=false).
     2026-07-22 관리자 플랜·쿼터 관리 API(#507) 추가 — /api/admin/plans, /api/admin/plan,
@@ -392,6 +394,52 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "400":
           description: FILE_REQUIRED | FILE_INVALID_TYPE | FILE_TOO_LARGE | INVALID_INPUT
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/auth/business-license/ocr:
+    post:
+      summary: 사업자등록증 OCR (공개 프록시, multipart/form-data)
+      description: >
+        기업 가입 전(비로그인) 화면에서 사업자등록증 이미지를 업로드하면 사업자번호·상호·대표자명을 인식해
+        자동채움용으로 반환한다. 파일검증(jpeg/png 매직바이트·10MB) 후 base64로 내부 ai-server
+        `/ai/business-license-ocr`(X-Internal-Key)에 프록시한다. `BusinessLicenseOcrController.ocr` 구현됨.
+        보조 기능이라 인식 실패해도 가입은 수동 입력으로 진행 가능. `/api/auth/**` permitAll(비로그인).
+        rate-limit(전역 분당 + 일일 절대캡) 적용.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [businessRegistrationFile]
+              properties:
+                businessRegistrationFile:
+                  type: string
+                  format: binary
+                  description: 사업자등록증 이미지(jpeg/png, 최대 10MB)
+      responses:
+        "200":
+          description: 인식 성공(인식 실패한 필드는 null — FE 수동 입력 폴백)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BusinessLicenseOcrProxyApiResponse" }
+        "400":
+          description: FILE_REQUIRED | FILE_INVALID_TYPE | FILE_TOO_LARGE
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "429":
+          description: AUTH_TOO_MANY_REQUESTS (분당/일일 rate-limit 초과)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "5XX":
+          description: >
+            ai-server 실패 — AI_INVALID_RESPONSE·AI_SERVER_ERROR(502) | AI_SERVER_UNREACHABLE(503)
+            | AI_SERVER_TIMEOUT(504). FE 수동 입력 폴백.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
@@ -2746,6 +2794,23 @@ components:
       properties:
         success: { type: boolean, example: true }
         data: { $ref: "#/components/schemas/EmailAvailabilityResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    BusinessLicenseOcrProxyResponse:
+      type: object
+      description: >
+        공개 프록시가 FE에 반환하는 3필드(ai-server raw 신뢰도·stub 등 부가필드는 화이트리스트로 제거).
+        인식 실패한 필드는 null — FE는 수동 입력으로 폴백.
+      properties:
+        businessRegistrationNumber: { type: string, nullable: true, example: "123-45-67890" }
+        companyName: { type: string, nullable: true, example: "하자첵 주식회사" }
+        representativeName: { type: string, nullable: true, example: "홍길동" }
+
+    BusinessLicenseOcrProxyApiResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/BusinessLicenseOcrProxyResponse" }
         error: { type: object, nullable: true, example: null }
 
     SignupStatusResponse:
