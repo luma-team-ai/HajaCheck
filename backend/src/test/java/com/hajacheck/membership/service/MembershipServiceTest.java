@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.entity.Company;
@@ -27,19 +30,23 @@ import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -62,10 +69,12 @@ class MembershipServiceTest {
     private static final Long USER_ID = 1L;
     private static final Long COMPANY_ID = 10L;
     private static final Long PLAN_ID = 100L;
+    private static final Long ENTERPRISE_PLAN_ID = 101L;
 
     private User individualUser;
     private User companyUser;
     private Plan standardPlan;
+    private Plan enterprisePlan;
 
     @BeforeEach
     void setUp() {
@@ -73,6 +82,10 @@ class MembershipServiceTest {
         companyUser = user(USER_ID, COMPANY_ID);
         standardPlan = Plan.create(PlanName.STANDARD, 10, 1000, 3, false, true, false,
                 BigDecimal.valueOf(99000));
+        setId(standardPlan, PLAN_ID);
+        enterprisePlan = Plan.create(PlanName.ENTERPRISE, null, null, null, false, true, true,
+                BigDecimal.valueOf(299000));
+        setId(enterprisePlan, ENTERPRISE_PLAN_ID);
     }
 
     // ── getMyPlan ──
@@ -163,6 +176,72 @@ class MembershipServiceTest {
         MyPlanResponse response = service.getMyPlan(USER_ID);
 
         assertThat(response.plan().name()).isEqualTo("STANDARD");
+    }
+
+    @Test
+    void 내플랜조회_유료플랜_다음결제일은_startedAt_KST에서_한달후() {
+        Instant startedAt = ZonedDateTime.of(2026, 1, 15, 10, 0, 0, 0, ZoneId.of("Asia/Seoul")).toInstant();
+        UserPlan userPlan = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
+        setStartedAt(userPlan, startedAt);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(500L), any())).thenReturn(Optional.empty());
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().nextBillingDate()).isEqualTo(LocalDate.of(2026, 2, 15));
+    }
+
+    @Test
+    void 내플랜조회_FREE플랜은_다음결제일_null() {
+        Plan freePlan = Plan.create(PlanName.FREE, 1, 50, 1, true, false, false, BigDecimal.ZERO);
+        UserPlan userPlan = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(freePlan));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(500L), any())).thenReturn(Optional.empty());
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().nextBillingDate()).isNull();
+    }
+
+    @Test
+    void 내플랜조회_회사구독_VERIFIED면_businessVerified_true() {
+        UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+        Company company = company(COMPANY_ID, USER_ID);
+        company.markBusinessVerified();
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
+        when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        when(companyRepository.findById(COMPANY_ID)).thenReturn(Optional.of(company));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(501L), any())).thenReturn(Optional.empty());
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().businessVerified()).isTrue();
+    }
+
+    @Test
+    void 내플랜조회_개인구독은_businessVerified_null() {
+        UserPlan userPlan = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(500L), any())).thenReturn(Optional.empty());
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().businessVerified()).isNull();
     }
 
     // ── getSeats ──
@@ -320,6 +399,93 @@ class MembershipServiceTest {
         assertThat(response.status()).isEqualTo("UPGRADE_REQUESTED");
     }
 
+    // ── checkout(모의 결제, #711) ──
+
+    @Test
+    void 모의결제_개인구독_소유자_성공_기존만료후_신규ACTIVE발급() {
+        UserPlan current = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.ENTERPRISE)).thenReturn(Optional.of(enterprisePlan));
+        when(userPlanRepository.saveAndFlush(any(UserPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(any(), any())).thenReturn(Optional.empty());
+
+        MyPlanResponse response = service.checkout(USER_ID, PlanName.ENTERPRISE);
+
+        ArgumentCaptor<UserPlan> captor = ArgumentCaptor.forClass(UserPlan.class);
+        verify(userPlanRepository, times(2)).saveAndFlush(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(UserPlan::getStatus)
+                .containsExactly(UserPlanStatus.EXPIRED, UserPlanStatus.ACTIVE);
+        assertThat(current.getStatus()).isEqualTo(UserPlanStatus.EXPIRED);
+        assertThat(response.plan().name()).isEqualTo("ENTERPRISE");
+        assertThat(response.plan().status()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void 모의결제_회사구독_소유자아니면_PLAN_FORBIDDEN() {
+        UserPlan current = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+        Company company = company(COMPANY_ID, 999L); // 다른 사람이 오너
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
+        when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(current));
+        when(companyRepository.findById(COMPANY_ID)).thenReturn(Optional.of(company));
+
+        assertThatThrownBy(() -> service.checkout(USER_ID, PlanName.ENTERPRISE))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.PLAN_FORBIDDEN);
+        assertThat(current.getStatus()).isEqualTo(UserPlanStatus.ACTIVE);
+        verify(userPlanRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void 모의결제_대상이_현재ACTIVE와_동일하면_멱등_변경없음() {
+        UserPlan current = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(standardPlan));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(any(), any())).thenReturn(Optional.empty());
+
+        MyPlanResponse response = service.checkout(USER_ID, PlanName.STANDARD);
+
+        assertThat(current.getStatus()).isEqualTo(UserPlanStatus.ACTIVE);
+        assertThat(response.plan().name()).isEqualTo("STANDARD");
+        assertThat(response.plan().status()).isEqualTo("ACTIVE");
+        verify(userPlanRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void 모의결제_FREE대상은_INVALID_INPUT() {
+        assertThatThrownBy(() -> service.checkout(USER_ID, PlanName.FREE))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_INPUT);
+    }
+
+    @Test
+    void 모의결제_동시경합시_PLAN_ACTIVE_SUBSCRIPTION_CONFLICT() {
+        UserPlan current = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.ENTERPRISE)).thenReturn(Optional.of(enterprisePlan));
+        when(userPlanRepository.saveAndFlush(any(UserPlan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0))
+                .thenThrow(new DataIntegrityViolationException("duplicate active subscription"));
+
+        assertThatThrownBy(() -> service.checkout(USER_ID, PlanName.ENTERPRISE))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
+    }
+
     // ── fixtures ──
 
     private static User user(Long id, Long companyId) {
@@ -353,6 +519,17 @@ class MembershipServiceTest {
             Field field = entity.getClass().getDeclaredField("id");
             field.setAccessible(true);
             field.set(entity, id);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** 테스트 전용 — nextBillingDate(startedAt 기준 파생 계산) 검증을 위해 고정 시각을 세팅. */
+    private static void setStartedAt(UserPlan userPlan, Instant startedAt) {
+        try {
+            Field field = UserPlan.class.getDeclaredField("startedAt");
+            field.setAccessible(true);
+            field.set(userPlan, startedAt);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(e);
         }
