@@ -104,6 +104,10 @@ function stubKakaoMaps() {
       }),
       MarkerImage: vi.fn(function MarkerImage() {}),
       Size: vi.fn(function Size() {}),
+      Point: vi.fn(function Point(this: Record<string, unknown>, x: number, y: number) {
+        this.x = x;
+        this.y = y;
+      }),
       // CustomOverlay는 실 SDK처럼 content DOM을 지도 레이어에 붙이는 것을 흉내내
       // React Portal로 렌더링된 SelectedFacilityPopup을 RTL이 document에서 찾을 수 있게 한다.
       CustomOverlay: vi.fn(function CustomOverlay(
@@ -214,6 +218,20 @@ describe('MapPage', () => {
     unmount();
 
     expect(observer.disconnect).toHaveBeenCalled();
+  });
+
+  // 회귀 방지(#570): 페이지 루트가 h-full(퍼센트 높이)만 쓰면, AppShellRoute 공용 셸이
+  // min-h-screen이라 시설물 목록이 길 때 조상 체인에 확정 높이가 없어 문서 전체가 뷰포트보다
+  // 커지고, 그 안의 absolute 배치 요소(범례 등)가 뷰포트 밖으로 밀려난다. 루트는 실측 px 높이로
+  // 고정되어야 한다.
+  it('페이지 루트 높이가 뷰포트 실측값(px)으로 고정되어, 문서가 뷰포트보다 커지지 않는다(회귀 방지, #570)', async () => {
+    const { container } = renderMapPage();
+    await screen.findByText('한강대교 북단');
+
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.style.height).not.toBe('');
+    expect(root.style.height).not.toBe('100%');
+    expect(root.style.height.endsWith('px')).toBe(true);
   });
 
   it('확대 버튼 클릭 시 레벨이 감소하고 MIN_MAP_LEVEL(1) 아래로 내려가지 않는다', async () => {
