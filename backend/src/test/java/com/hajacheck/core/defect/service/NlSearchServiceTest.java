@@ -13,8 +13,11 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.auth.support.RateLimiter;
 import com.hajacheck.core.ai.config.AiServerProperties;
+import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.core.defect.dto.NlSearchResult;
+import com.hajacheck.support.InMemoryRateLimiter;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -66,6 +69,8 @@ class NlSearchServiceTest {
     private CompanyMembershipRepository companyMembershipRepository;
 
     private MockRestServiceServer mockServer;
+    private RestClient.Builder builder;
+    private AiServerProperties properties;
     private NlSearchService service;
 
     private User individualUser;
@@ -80,16 +85,21 @@ class NlSearchServiceTest {
         addonPlan = Plan.create(PlanName.STANDARD, 10, 1000, 3, false, true, true, BigDecimal.valueOf(99000));
         noAddonPlan = Plan.create(PlanName.FREE, 3, 10, 1, true, false, false, BigDecimal.ZERO);
 
-        AiServerProperties properties = new AiServerProperties();
+        properties = new AiServerProperties();
         properties.setBaseUrl("http://ai-server-test");
         properties.setInternalServiceToken("test-service-token");
         properties.setConnectTimeoutMs(3000);
         properties.setReadTimeoutMs(60000);
 
-        RestClient.Builder builder = RestClient.builder().baseUrl(properties.getBaseUrl());
+        builder = RestClient.builder().baseUrl(properties.getBaseUrl());
         mockServer = MockRestServiceServer.bindTo(builder).build();
-        service = new NlSearchService(builder.build(), properties, userRepository, userPlanRepository,
-                planRepository, companyMembershipRepository);
+        // 실 구현(RedisRateLimiter)은 @Profile("!test")라 in-memory fake 로 대체(한도 내 통과).
+        service = newService(new InMemoryRateLimiter());
+    }
+
+    private NlSearchService newService(RateLimiter rateLimiter) {
+        return new NlSearchService(builder.build(), properties, userRepository, userPlanRepository,
+                planRepository, companyMembershipRepository, new AiProxyRateLimiter(rateLimiter));
     }
 
     // ── 성공 경로 ──
@@ -216,6 +226,26 @@ class NlSearchServiceTest {
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.INVALID_INPUT);
         mockServer.verify();
+    }
+
+    // ── rate-limit 가드(스레드풀 보호, #582 Critical) ──
+
+    @Test
+    void 검색_rate_limit초과_AUTH_TOO_MANY_REQUESTS_내부호출없음() {
+        // 플랜 게이트는 통과시키고(rate-limit 은 requireAiAddon 이후에 적용된다), rate-limiter 만 거부하게 해
+        // 429 가 던져지고 그 뒤 FastAPI 호출이 발생하지 않음을 검증한다.
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L)));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(addonPlan));
+
+        NlSearchService limited = newService((key, limit, window) -> false); // 항상 초과(거부)
+
+        assertThatThrownBy(() -> limited.search(USER_ID, "균열만 보여줘"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS);
+        mockServer.verify(); // 기대치 없음 = 어떤 FastAPI 요청도 발생하지 않아야 통과
     }
 
     // ── FastAPI 응답 전파/장애 ──

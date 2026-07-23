@@ -13,6 +13,7 @@ import com.hajacheck.core.ai.dto.DefectExplainResponse;
 import com.hajacheck.core.ai.dto.ReportAiEnvelope;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
+import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -48,8 +49,11 @@ public class AiProxyService {
     private final RestClient aiServerRestClient;
     private final AiServerProperties aiServerProperties;
     private final BriefingStatsService briefingStatsService;
+    private final AiProxyRateLimiter aiProxyRateLimiter;
 
     public ApiResponse<DefectExplainResponse> explainDefect(DefectExplainRequest request) {
+        // 로그인 사용자 축이 없는 경로라 전역 축만 적용(스레드풀 보호, 초과 시 429·호출 없이 중단).
+        aiProxyRateLimiter.checkGlobal();
         DefectExplainAiEnvelope envelope = callAiServer(request);
         if (envelope == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
@@ -89,6 +93,8 @@ public class AiProxyService {
     }
 
     public ApiResponse<ReportResponse> generateReport(ReportRequest request) {
+        // 로그인 사용자 축이 없는 경로라 전역 축만 적용(스레드풀 보호, 초과 시 429·호출 없이 중단).
+        aiProxyRateLimiter.checkGlobal();
         ReportAiEnvelope envelope = callAiServer(request);
         if (envelope == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);

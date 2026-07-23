@@ -8,11 +8,14 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
+import com.hajacheck.auth.support.RateLimiter;
 import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
+import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.support.InMemoryRateLimiter;
 import java.net.ConnectException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
@@ -32,6 +35,8 @@ class AiProxyServiceTest {
     private static final String AI_SERVER_URL = "http://ai-server-test/ai/defect-explain";
 
     private MockRestServiceServer mockServer;
+    private RestClient.Builder builder;
+    private AiServerProperties properties;
     private AiProxyService aiProxyService;
 
     private static final DefectExplainRequest REQUEST =
@@ -39,16 +44,21 @@ class AiProxyServiceTest {
 
     @BeforeEach
     void setUp() {
-        AiServerProperties properties = new AiServerProperties();
+        properties = new AiServerProperties();
         properties.setBaseUrl("http://ai-server-test");
         properties.setInternalKey("test-internal-key");
         properties.setConnectTimeoutMs(3000);
         properties.setReadTimeoutMs(60000);
 
-        RestClient.Builder builder = RestClient.builder().baseUrl(properties.getBaseUrl());
+        builder = RestClient.builder().baseUrl(properties.getBaseUrl());
         mockServer = MockRestServiceServer.bindTo(builder).build();
         // briefingStatsService 는 defect-explain 테스트에서 사용하지 않아 null(#248 추가 의존성).
-        aiProxyService = new AiProxyService(builder.build(), properties, null);
+        // rate-limiter 는 in-memory fake(한도 내 통과) 주입 — 실 구현은 @Profile("!test").
+        aiProxyService = newService(new InMemoryRateLimiter());
+    }
+
+    private AiProxyService newService(RateLimiter rateLimiter) {
+        return new AiProxyService(builder.build(), properties, null, new AiProxyRateLimiter(rateLimiter));
     }
 
     @Test
@@ -152,6 +162,18 @@ class AiProxyServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_REQUEST_REJECTED));
+    }
+
+    @Test
+    void explainDefect_rate_limit초과_AUTH_TOO_MANY_REQUESTS_내부호출없음() {
+        // 전역 축 초과 시 429 를 던지고 그 뒤 FastAPI 호출이 발생하지 않아야 한다(#582 Critical).
+        AiProxyService limited = newService((key, limit, window) -> false); // 항상 초과(거부)
+
+        assertThatThrownBy(() -> limited.explainDefect(REQUEST))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS));
+        mockServer.verify(); // 기대치 없음 = 어떤 FastAPI 요청도 발생하지 않아야 통과
     }
 
     @Test

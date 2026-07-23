@@ -4,6 +4,7 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.core.ai.config.AiServerProperties;
+import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.core.defect.dto.NlSearchAiEnvelope;
 import com.hajacheck.core.defect.dto.NlSearchResult;
 import com.hajacheck.global.common.ApiResponse;
@@ -61,10 +62,16 @@ public class NlSearchService {
     private final UserPlanRepository userPlanRepository;
     private final PlanRepository planRepository;
     private final CompanyMembershipRepository companyMembershipRepository;
+    private final AiProxyRateLimiter aiProxyRateLimiter;
 
     public ApiResponse<NlSearchResult> search(Long userId, String rawQuery) {
         String query = validateQuery(rawQuery);
         requireAiAddon(userId);
+
+        // 플랜 게이트 통과 후, FastAPI 호출 전에 스레드풀 보호 가드 적용(초과 시 429, 호출 없이 중단).
+        // 사용자 축 → 전역 축 순서(먼저 막힌 축은 다른 축 예산을 소모하지 않음, AiProxyRateLimiter 참고).
+        aiProxyRateLimiter.checkUser(userId);
+        aiProxyRateLimiter.checkGlobal();
 
         NlSearchAiEnvelope envelope = callAiServer(query);
         if (envelope == null) {
