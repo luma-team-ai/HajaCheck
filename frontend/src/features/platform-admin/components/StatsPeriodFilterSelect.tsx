@@ -25,7 +25,13 @@ export function StatsPeriodFilterSelect({ value, onChange }: StatsPeriodFilterSe
 
   return (
     <select
-      className="cursor-pointer rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-text-default"
+      className="cursor-pointer appearance-none rounded-full border border-border bg-surface py-2 pr-8 pl-4 text-sm font-medium text-text-default focus:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+      style={{
+        backgroundImage:
+          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2371717a' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'right 12px center',
+      }}
       value={value}
       onChange={handleChange}
       aria-label="조회 기간"
