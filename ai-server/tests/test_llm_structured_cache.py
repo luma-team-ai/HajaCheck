@@ -7,8 +7,10 @@ OCR 교정 등)는 캐시가 없어 매번 신규 호출됐다 — 이 파일은
 - raw 응답 문자열만 캐시하고, 캐시 히트여도 `PydanticOutputParser.parse()`는 매번 수행
 - 캐시 키에 스키마명이 포함돼 같은 프롬프트라도 스키마가 다르면 캐시가 분리됨
 - LLM 호출 실패·파싱 실패 시 캐시에 저장하지 않음
-- ttl 파라미터가 `setex`에 그대로 반영됨(OCR 등 짧은 TTL 훅)
+- ttl 파라미터가 `setex`에 그대로 반영됨(OCR/report/briefing 등 짧은 TTL 훅)
 - Redis 조회/저장 오류가 응답 자체를 막지 않음(캐시 미스/미저장으로 폴백)
+- 캐시 히트값이 현재 스키마와 안 맞는 stale 값이면(예: 스키마 변경 배포 후) parse 예외를 삼키고
+  LLM 재호출로 폴백 + 캐시 갱신(#623 P2 픽스 — 무방비였던 캐시 히트 파싱이 500 크래시를 내던 문제)
 """
 from unittest.mock import MagicMock, patch
 
@@ -239,3 +241,56 @@ def test_structured_cache_disabled_never_touches_redis(mock_redis_factory):
 
     assert chat.invoke.call_count == 2  # 캐시 비활성 — 매번 실제 호출
     assert fake.store == {}
+
+
+@patch("ai.core.llm_client._redis")
+def test_structured_cache_stale_value_falls_back_to_llm_call_and_refreshes(mock_redis_factory):
+    """캐시에 현재 스키마와 맞지 않는 stale 값(예: 스키마 변경 배포 후 남은 옛 캐시)이 있으면,
+    parse() 예외를 삼키고 캐시 미스와 동일하게 LLM을 재호출해 정상 결과를 반환한다(#623 P2 픽스).
+
+    수정 전에는 캐시 히트 경로의 parse()가 무방비라 여기서 예외가 그대로 전파돼 500 크래시였다.
+    손상된 키는 delete로 정리되고, 재호출 성공 시 새 값으로 다시 setex되어 캐시가 갱신된다.
+    """
+    fake = _FakeRedis()
+    mock_redis_factory.return_value = fake
+
+    structured = _StructuredLLM(MagicMock(), _Schema, cache=True, cache_namespace="ns")
+    cache_key = structured._cache_key(f"prompt\n\n{structured._parser.get_format_instructions()}")
+
+    # 현재 스키마(_Schema: field1)와 맞지 않는 stale 값을 캐시에 직접 심어둔다(예: 예전 스키마 응답).
+    fake.store[cache_key] = '{"field1_old_name": "stale"}'
+
+    chat = MagicMock()
+    chat.invoke.return_value = _make_response('{"field1": "fresh"}')
+    structured._chat = chat
+
+    result = structured.invoke("prompt")
+
+    assert result == _Schema(field1="fresh")
+    chat.invoke.assert_called_once()  # stale 캐시를 버리고 실제로 재호출했다
+    assert fake.store[cache_key] == '{"field1": "fresh"}'  # 캐시가 새 값으로 갱신됨(delete 후 재-setex)
+
+
+@patch("ai.core.llm_client._redis")
+def test_structured_cache_stale_value_survives_delete_failure(mock_redis_factory):
+    """stale 캐시 정리(delete)가 redis 오류로 실패해도, LLM 재호출·정상 응답 반환은 막히지 않는다."""
+
+    class _DeleteBrokenRedis(_FakeRedis):
+        def delete(self, *keys):
+            raise redis.RedisError("delete 실패")
+
+    fake = _DeleteBrokenRedis()
+    mock_redis_factory.return_value = fake
+
+    structured = _StructuredLLM(MagicMock(), _Schema, cache=True, cache_namespace="ns")
+    cache_key = structured._cache_key(f"prompt\n\n{structured._parser.get_format_instructions()}")
+    fake.store[cache_key] = "not-json-at-all"
+
+    chat = MagicMock()
+    chat.invoke.return_value = _make_response('{"field1": "fresh"}')
+    structured._chat = chat
+
+    result = structured.invoke("prompt")
+
+    assert result == _Schema(field1="fresh")
+    chat.invoke.assert_called_once()

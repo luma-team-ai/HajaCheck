@@ -8,7 +8,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from ai.core.llm_client import get_llm
+from ai.core.llm_client import SHORT_CACHE_TTL_SECONDS, get_llm
 from ai.core.prompt_safety import wrap_untrusted
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
@@ -91,5 +91,6 @@ def run_briefing_chain(stats: DashboardStats) -> tuple[WeeklyBriefing, BriefingF
     """현황 데이터로 주간 브리핑 생성. (브리핑 자연어, 코드 계산 파생사실) 반환."""
     facts = derive_facts(stats)
     prompt = _build_prompt(stats, facts)
-    briefing = get_llm().with_structured_output(WeeklyBriefing).invoke(prompt)
+    # stats(회사 현황 수치·주요 하자유형)가 프롬프트에 섞이므로 캐시 TTL을 짧게 둔다(#623 P2 픽스).
+    briefing = get_llm().with_structured_output(WeeklyBriefing, ttl=SHORT_CACHE_TTL_SECONDS).invoke(prompt)
     return briefing, facts

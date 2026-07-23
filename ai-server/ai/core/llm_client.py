@@ -17,6 +17,11 @@ from ai.core.hf_chat_model import HFInferenceChatModel
 DEFAULT_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-8B")
 MAX_RETRIES = 2
 CACHE_TTL_SECONDS = 60 * 60 * 24  # 1일 — 개발 중 반복 질의 크레딧 절약용
+# 개인정보/회사정보성 프롬프트(구조화 출력)의 캐시 잔존 기간을 줄이기 위한 공용 짧은 TTL(#623 P2 픽스).
+# 사업자등록증 OCR(대표자명 등)·report_chain(시설명·위치·하자내용)·briefing_chain(현황 수치) 등
+# `with_structured_output(schema, ttl=SHORT_CACHE_TTL_SECONDS)` 호출부가 함께 사용한다 — 기본
+# CACHE_TTL_SECONDS(24h)보다 짧게 둬 공유 Redis(OCI dev/arm1 prod) 잔존 기간을 줄인다.
+SHORT_CACHE_TTL_SECONDS = 60 * 60  # 1시간
 
 
 @lru_cache
@@ -129,7 +134,16 @@ class _StructuredLLM:
             except redis.RedisError:
                 cached = None  # 캐시 조회 실패는 미스로 취급 — 응답 자체를 막지 않음
             if cached is not None:
-                return self._parser.parse(cached)
+                try:
+                    return self._parser.parse(cached)
+                except Exception:  # noqa: BLE001 — stale 캐시(스키마 변경 등)로 파싱 실패 시
+                    # 캐시 미스와 동일하게 아래 재호출 경로로 폴백한다(#623 P2 픽스 — 스키마
+                    # 변경 배포 후 옛 스키마로 저장된 캐시값이 500 크래시를 내던 문제).
+                    # 손상된 키는 정리해두고(선택), 아래 성공 경로에서 새 값으로 다시 setex된다.
+                    try:
+                        _redis().delete(cache_key)
+                    except redis.RedisError:
+                        pass
 
         last_error: Exception | None = None
         for _ in range(MAX_RETRIES + 1):

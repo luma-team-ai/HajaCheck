@@ -33,7 +33,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from ai.core.llm_client import get_llm
+from ai.core.llm_client import SHORT_CACHE_TTL_SECONDS, get_llm
 from ai.core.ocr_client import get_ocr_engine
 from ai.core.prompt_safety import wrap_untrusted
 
@@ -54,10 +54,6 @@ BUSINESS_START_DATE_PATTERN = re.compile(
 # 10MB ≈ 13.4M자. 여유를 두고 14,000,000자로 설정(코드 리뷰 P2 — 상한 없이 base64 디코드/PIL
 # open을 태우면 대형 페이로드로 CPU/메모리를 고갈시킬 수 있음, DoS 방지).
 MAX_IMAGE_BASE64_LENGTH = 14_000_000
-
-# structured 응답 Redis 캐시 TTL(#623) — 대표자명 등 개인정보가 섞인 OCR 응답이라, 다른 체인의
-# 기본 24h(llm_client.CACHE_TTL_SECONDS)보다 짧게 둬 공유 Redis(OCI dev/arm1 prod) 잔존 기간을 줄인다.
-OCR_CACHE_TTL_SECONDS = 60 * 60  # 1시간
 
 
 class BusinessLicenseOcrExtract(BaseModel):
@@ -179,7 +175,7 @@ def run_business_license_ocr_chain(image_base64: str) -> BusinessLicenseOcrResul
     prompt = _build_prompt("\n".join(texts))
     llm_result = (
         get_llm()
-        .with_structured_output(BusinessLicenseOcrExtract, ttl=OCR_CACHE_TTL_SECONDS)
+        .with_structured_output(BusinessLicenseOcrExtract, ttl=SHORT_CACHE_TTL_SECONDS)
         .invoke(prompt)
     )
 
