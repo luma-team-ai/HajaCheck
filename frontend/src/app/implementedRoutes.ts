@@ -13,6 +13,7 @@ const IMPLEMENTED_ROUTES = new Set([
   '/defects/list',
   '/mypage/plan',
   '/mypage/profile', // 마이페이지 내 정보(HAJA-361, #659)
+  '/mypage/inspections', // 마이페이지 내 점검 이력 / 보고서(HAJA-366, #668)
   '/inspections/1/viewer',
   '/inspections/create',
   '/facilities/list',
