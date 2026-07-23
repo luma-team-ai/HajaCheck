@@ -41,7 +41,8 @@ public class FacilityController {
     public ResponseEntity<ApiResponse<FacilityResponse>> create(
             @AuthenticationPrincipal LoginUser loginUser,
             @Valid @RequestBody FacilityCreateRequest request) {
-        FacilityResponse response = facilityService.create(loginUser.getCompanyId(), request);
+        FacilityResponse response =
+                facilityService.create(loginUser.getUserId(), loginUser.getCompanyId(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
     }
 
@@ -49,7 +50,8 @@ public class FacilityController {
     @GetMapping
     public ResponseEntity<ApiResponse<List<FacilityResponse>>> list(
             @AuthenticationPrincipal LoginUser loginUser) {
-        return ResponseEntity.ok(ApiResponse.ok(facilityService.list(loginUser.getCompanyId())));
+        return ResponseEntity.ok(ApiResponse.ok(
+                facilityService.list(loginUser.getUserId(), loginUser.getCompanyId())));
     }
 
     @Operation(summary = "시설물 상세 조회", description = "로그인 사용자의 회사가 소유한 시설물 단건을 조회한다")
@@ -57,7 +59,8 @@ public class FacilityController {
     public ResponseEntity<ApiResponse<FacilityResponse>> get(
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(facilityService.get(loginUser.getCompanyId(), id)));
+        return ResponseEntity.ok(ApiResponse.ok(
+                facilityService.get(loginUser.getUserId(), loginUser.getCompanyId(), id)));
     }
 
     @Operation(summary = "시설물 수정", description = "로그인 사용자의 회사가 소유한 시설물 정보를 전체 수정한다")
@@ -66,7 +69,8 @@ public class FacilityController {
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long id,
             @Valid @RequestBody FacilityUpdateRequest request) {
-        FacilityResponse response = facilityService.update(loginUser.getCompanyId(), id, request);
+        FacilityResponse response =
+                facilityService.update(loginUser.getUserId(), loginUser.getCompanyId(), id, request);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
@@ -75,7 +79,7 @@ public class FacilityController {
     public ResponseEntity<ApiResponse<Void>> delete(
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long id) {
-        facilityService.delete(loginUser.getCompanyId(), id);
+        facilityService.delete(loginUser.getUserId(), loginUser.getCompanyId(), id);
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
@@ -85,7 +89,8 @@ public class FacilityController {
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long id,
             @Valid @RequestBody FacilityScheduleRequest request) {
-        FacilityResponse response = facilityService.setSchedule(loginUser.getCompanyId(), id, request);
+        FacilityResponse response =
+                facilityService.setSchedule(loginUser.getUserId(), loginUser.getCompanyId(), id, request);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 }

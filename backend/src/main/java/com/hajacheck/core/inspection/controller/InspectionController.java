@@ -44,6 +44,7 @@ public class InspectionController {
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<InspectionResponse>> getInspection(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
-        return ResponseEntity.ok(ApiResponse.ok(inspectionService.getInspection(loginUser.getCompanyId(), id)));
+        return ResponseEntity.ok(ApiResponse.ok(
+                inspectionService.getInspection(loginUser.getUserId(), loginUser.getCompanyId(), id)));
     }
 }

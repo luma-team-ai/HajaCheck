@@ -48,7 +48,8 @@ public class DefectController {
             @RequestParam(required = false) DefectStatus status,
             @PageableDefault(size = 20) Pageable pageable) {
         PageResponse<DefectResponse> response =
-                defectService.list(loginUser.getCompanyId(), type, grade, status, pageable);
+                defectService.list(
+                        loginUser.getUserId(), loginUser.getCompanyId(), type, grade, status, pageable);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
@@ -57,7 +58,8 @@ public class DefectController {
     public ResponseEntity<ApiResponse<DefectResponse>> get(
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(defectService.get(loginUser.getCompanyId(), id)));
+        return ResponseEntity.ok(ApiResponse.ok(
+                defectService.get(loginUser.getUserId(), loginUser.getCompanyId(), id)));
     }
 
     @Operation(summary = "하자 상태 전이",
@@ -83,7 +85,8 @@ public class DefectController {
             @PathVariable Long id,
             @PageableDefault(size = 20) Pageable pageable) {
         PageResponse<DefectRevisionResponse> response =
-                defectService.getRevisions(loginUser.getCompanyId(), id, pageable);
+                defectService.getRevisions(
+                        loginUser.getUserId(), loginUser.getCompanyId(), id, pageable);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 }

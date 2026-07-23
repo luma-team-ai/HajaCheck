@@ -1,5 +1,6 @@
 package com.hajacheck.core.defect.service;
 
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.defect.dto.DefectDetailItem;
 import com.hajacheck.core.defect.dto.DefectRevisionRequest;
 import com.hajacheck.core.defect.entity.Defect;
@@ -26,6 +27,7 @@ public class DefectRevisionService {
     private final DefectRepository defectRepository;
     private final DefectRevisionRepository defectRevisionRepository;
     private final InspectionService inspectionService;
+    private final CompanyScopeGuard companyScopeGuard;
 
     /**
      * 점검 회차별 하자 목록 조회(검수·뷰어 공용).
@@ -35,9 +37,11 @@ public class DefectRevisionService {
      * @return 하자 목록(deleted=false만, id 오름차순)
      * @throws BusinessException 점검 회차 미존재 또는 타인 소유 (404 INSPECTION_NOT_FOUND)
      */
-    public List<DefectDetailItem> getDefectsByInspection(Long companyId, Long inspectionId) {
+    public List<DefectDetailItem> getDefectsByInspection(
+            Long userId, Long companyId, Long inspectionId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         // 소유권 검증
-        inspectionService.getInspection(companyId, inspectionId);
+        inspectionService.getInspection(userId, companyId, inspectionId);
 
         // 하자 조회(deleted=false만)
         List<Defect> defects = defectRepository.findByInspectionIdAndNotDeleted(inspectionId);
@@ -59,13 +63,14 @@ public class DefectRevisionService {
     @Transactional
     public DefectDetailItem reviewDefect(
             Long companyId, Long revisedByUserId, Long defectId, DefectRevisionRequest request) {
+        companyScopeGuard.requireEffectiveMembership(revisedByUserId, companyId);
         // 하자 로드
         Defect defect = defectRepository.findById(defectId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
 
         // 소유권 검증 — 점검 회차를 통해 확인, 미존재/타인 소유면 404 DEFECT_NOT_FOUND로 통일
         try {
-            inspectionService.getInspection(companyId, defect.getInspectionId());
+            inspectionService.getInspection(revisedByUserId, companyId, defect.getInspectionId());
         } catch (BusinessException e) {
             if (e.getErrorCode() == ErrorCode.INSPECTION_NOT_FOUND || e.getErrorCode() == ErrorCode.FACILITY_NOT_FOUND) {
                 throw new BusinessException(ErrorCode.DEFECT_NOT_FOUND);

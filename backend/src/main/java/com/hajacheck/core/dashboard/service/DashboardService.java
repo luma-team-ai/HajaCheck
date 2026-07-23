@@ -2,6 +2,7 @@ package com.hajacheck.core.dashboard.service;
 
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.dashboard.dto.DashboardSummaryResponse;
 import com.hajacheck.core.dashboard.dto.GradeDistributionResponse;
 import com.hajacheck.core.dashboard.dto.PendingPriorityResponse;
@@ -64,9 +65,10 @@ public class DashboardService {
     private final InspectionRepository inspectionRepository;
     private final DefectRepository defectRepository;
     private final UserRepository userRepository;
+    private final CompanyScopeGuard companyScopeGuard;
 
-    public DashboardSummaryResponse getSummary(Long companyId) {
-        requireCompanyId(companyId);
+    public DashboardSummaryResponse getSummary(Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         List<Long> facilityIds = companyFacilityIds(companyId);
         List<Long> inspectionIds = inspectionIdsOf(facilityIds);
 
@@ -110,8 +112,8 @@ public class DashboardService {
                 DashboardSummaryResponse.changeRate(pendingActionThisMonth, pendingActionLastMonth));
     }
 
-    public List<GradeDistributionResponse> getGradeDistribution(Long companyId) {
-        requireCompanyId(companyId);
+    public List<GradeDistributionResponse> getGradeDistribution(Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         List<Long> inspectionIds = inspectionIdsOf(companyFacilityIds(companyId));
         List<GradeCountProjection> counts =
                 inspectionIds.isEmpty() ? List.of() : defectRepository.countGroupByGrade(inspectionIds);
@@ -139,8 +141,8 @@ public class DashboardService {
                 .toList();
     }
 
-    public List<PendingPriorityResponse> getPendingPriority(Long companyId) {
-        requireCompanyId(companyId);
+    public List<PendingPriorityResponse> getPendingPriority(Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         List<Facility> facilities = facilityRepository.findByCompanyId(companyId);
         Map<Long, String> facilityNameById = toFacilityNameMap(facilities);
         List<Long> facilityIds = facilities.stream().map(Facility::getId).toList();
@@ -164,8 +166,8 @@ public class DashboardService {
                 .toList();
     }
 
-    public List<RecentInspectionResponse> getRecentInspections(Long companyId) {
-        requireCompanyId(companyId);
+    public List<RecentInspectionResponse> getRecentInspections(Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         List<Facility> facilities = facilityRepository.findByCompanyId(companyId);
         Map<Long, String> facilityNameById = toFacilityNameMap(facilities);
         List<Long> facilityIds = facilities.stream().map(Facility::getId).toList();
@@ -203,8 +205,9 @@ public class DashboardService {
      * 동일 원칙), nextInspectionDueAt 이 오늘~오늘+days 이내이며 null 이 아닌 시설물만
      * nextInspectionDueAt 오름차순으로 최대 limit 건 반환한다.
      */
-    public List<UpcomingInspectionResponse> getUpcomingInspections(Long companyId, int days, int limit) {
-        requireCompanyId(companyId);
+    public List<UpcomingInspectionResponse> getUpcomingInspections(
+            Long userId, Long companyId, int days, int limit) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         LocalDate today = LocalDate.now(KST);
         LocalDate from = today;
         LocalDate to = today.plusDays(days);
@@ -220,12 +223,6 @@ public class DashboardService {
 
     private List<Long> companyFacilityIds(Long companyId) {
         return facilityRepository.findByCompanyId(companyId).stream().map(Facility::getId).toList();
-    }
-
-    private void requireCompanyId(Long companyId) {
-        if (companyId == null) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
-        }
     }
 
     private List<Inspection> inspectionsOf(List<Long> facilityIds) {

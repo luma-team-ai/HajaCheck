@@ -39,28 +39,32 @@ public class DashboardController {
     @GetMapping("/summary")
     public ResponseEntity<ApiResponse<DashboardSummaryResponse>> getSummary(
             @AuthenticationPrincipal LoginUser loginUser) {
-        return ResponseEntity.ok(ApiResponse.ok(dashboardService.getSummary(loginUser.getCompanyId())));
+        return ResponseEntity.ok(ApiResponse.ok(
+                dashboardService.getSummary(loginUser.getUserId(), loginUser.getCompanyId())));
     }
 
     @Operation(summary = "등급 분포", description = "로그인 사용자 소유 시설물의 결함 등급(A~E) 분포를 반환한다")
     @GetMapping("/grade-distribution")
     public ResponseEntity<ApiResponse<List<GradeDistributionResponse>>> getGradeDistribution(
             @AuthenticationPrincipal LoginUser loginUser) {
-        return ResponseEntity.ok(ApiResponse.ok(dashboardService.getGradeDistribution(loginUser.getCompanyId())));
+        return ResponseEntity.ok(ApiResponse.ok(
+                dashboardService.getGradeDistribution(loginUser.getUserId(), loginUser.getCompanyId())));
     }
 
     @Operation(summary = "조치 우선순위 목록", description = "로그인 사용자 소유 시설물의 조치대기 결함을 등급·최신순으로 반환한다")
     @GetMapping("/pending-priority")
     public ResponseEntity<ApiResponse<List<PendingPriorityResponse>>> getPendingPriority(
             @AuthenticationPrincipal LoginUser loginUser) {
-        return ResponseEntity.ok(ApiResponse.ok(dashboardService.getPendingPriority(loginUser.getCompanyId())));
+        return ResponseEntity.ok(ApiResponse.ok(
+                dashboardService.getPendingPriority(loginUser.getUserId(), loginUser.getCompanyId())));
     }
 
     @Operation(summary = "최근 점검 목록", description = "로그인 사용자 소유 시설물의 최근 점검을 점검일 최신순으로 반환한다")
     @GetMapping("/recent-inspections")
     public ResponseEntity<ApiResponse<List<RecentInspectionResponse>>> getRecentInspections(
             @AuthenticationPrincipal LoginUser loginUser) {
-        return ResponseEntity.ok(ApiResponse.ok(dashboardService.getRecentInspections(loginUser.getCompanyId())));
+        return ResponseEntity.ok(ApiResponse.ok(
+                dashboardService.getRecentInspections(loginUser.getUserId(), loginUser.getCompanyId())));
     }
 
     @Operation(summary = "다가오는 점검 예정 시설물 조회",
@@ -71,6 +75,7 @@ public class DashboardController {
             @RequestParam(defaultValue = "30") @Min(1) @Max(365) int days,
             @RequestParam(defaultValue = "5") @Min(1) int limit) {
         return ResponseEntity.ok(ApiResponse.ok(
-                dashboardService.getUpcomingInspections(loginUser.getCompanyId(), days, limit)));
+                dashboardService.getUpcomingInspections(
+                        loginUser.getUserId(), loginUser.getCompanyId(), days, limit)));
     }
 }

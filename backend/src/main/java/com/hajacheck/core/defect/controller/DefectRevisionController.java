@@ -41,7 +41,7 @@ public class DefectRevisionController {
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable("id") Long inspectionId) {
         List<DefectDetailItem> defects = defectRevisionService.getDefectsByInspection(
-                loginUser.getCompanyId(), inspectionId);
+                loginUser.getUserId(), loginUser.getCompanyId(), inspectionId);
         return ResponseEntity.ok(ApiResponse.ok(defects));
     }
 

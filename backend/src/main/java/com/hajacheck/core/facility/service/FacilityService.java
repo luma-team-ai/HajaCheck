@@ -1,5 +1,6 @@
 package com.hajacheck.core.facility.service;
 
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
@@ -32,10 +33,11 @@ public class FacilityService {
     private static final int FACILITY_LIST_MAX = 500;
 
     private final FacilityRepository facilityRepository;
+    private final CompanyScopeGuard companyScopeGuard;
 
     @Transactional
-    public FacilityResponse create(Long companyId, FacilityCreateRequest request) {
-        requireCompanyId(companyId);
+    public FacilityResponse create(Long userId, Long companyId, FacilityCreateRequest request) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         Facility facility = Facility.builder()
                 .companyId(companyId)
                 .name(request.name())
@@ -51,8 +53,8 @@ public class FacilityService {
         return FacilityResponse.from(facilityRepository.save(facility));
     }
 
-    public List<FacilityResponse> list(Long companyId) {
-        requireCompanyId(companyId);
+    public List<FacilityResponse> list(Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         List<Facility> facilities =
                 facilityRepository.findByCompanyIdOrderByIdAsc(companyId, PageRequest.of(0, FACILITY_LIST_MAX));
         // #484 상한(500건)에 걸리면 나머지가 무고지로 잘린다(#502 P2) — 운영 감지를 위해 WARN 로그를 남긴다.
@@ -67,7 +69,8 @@ public class FacilityService {
                 .toList();
     }
 
-    public FacilityResponse get(Long companyId, Long facilityId) {
+    public FacilityResponse get(Long userId, Long companyId, Long facilityId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         return FacilityResponse.from(findCompanyFacility(companyId, facilityId));
     }
 
@@ -83,7 +86,8 @@ public class FacilityService {
     }
 
     @Transactional
-    public FacilityResponse update(Long companyId, Long facilityId, FacilityUpdateRequest request) {
+    public FacilityResponse update(Long userId, Long companyId, Long facilityId, FacilityUpdateRequest request) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         Facility facility = findCompanyFacility(companyId, facilityId);
         facility.updateInfo(
                 request.name(),
@@ -99,7 +103,8 @@ public class FacilityService {
     }
 
     @Transactional
-    public void delete(Long companyId, Long facilityId) {
+    public void delete(Long userId, Long companyId, Long facilityId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         facilityRepository.delete(findCompanyFacility(companyId, facilityId));
     }
 
@@ -108,21 +113,16 @@ public class FacilityService {
      * 기준일(오늘)은 서비스가 LocalDate.now() 로 산출해 엔티티에 주입한다.
      */
     @Transactional
-    public FacilityResponse setSchedule(Long companyId, Long facilityId, FacilityScheduleRequest request) {
+    public FacilityResponse setSchedule(
+            Long userId, Long companyId, Long facilityId, FacilityScheduleRequest request) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         Facility facility = findCompanyFacility(companyId, facilityId);
         facility.updateSchedule(request.inspectionCycleMonths(), LocalDate.now());
         return FacilityResponse.from(facility);
     }
 
     private Facility findCompanyFacility(Long companyId, Long facilityId) {
-        requireCompanyId(companyId);
         return facilityRepository.findByIdAndCompanyId(facilityId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.FACILITY_NOT_FOUND));
-    }
-
-    private void requireCompanyId(Long companyId) {
-        if (companyId == null) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
-        }
     }
 }

@@ -1,5 +1,6 @@
 package com.hajacheck.core.defect.service;
 
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.defect.dto.DefectResponse;
 import com.hajacheck.core.defect.dto.DefectRevisionResponse;
 import com.hajacheck.core.defect.entity.Defect;
@@ -31,16 +32,18 @@ public class DefectService {
 
     private final DefectRepository defectRepository;
     private final DefectRevisionRepository defectRevisionRepository;
+    private final CompanyScopeGuard companyScopeGuard;
 
     public PageResponse<DefectResponse> list(
-            Long companyId, DefectType type, DefectGrade grade, DefectStatus status, Pageable pageable) {
-        requireCompanyId(companyId);
+            Long userId, Long companyId, DefectType type, DefectGrade grade,
+            DefectStatus status, Pageable pageable) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         Page<Defect> page = defectRepository.findPageByCompanyIdAndFilters(companyId, type, grade, status, pageable);
         return PageResponse.from(page.map(DefectResponse::from));
     }
 
-    public DefectResponse get(Long companyId, Long defectId) {
-        requireCompanyId(companyId);
+    public DefectResponse get(Long userId, Long companyId, Long defectId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         Defect defect = defectRepository.findByIdAndCompanyId(defectId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
         return DefectResponse.from(defect);
@@ -50,8 +53,9 @@ public class DefectService {
      * 하자 활동 기록 타임라인 조회(HAJA-314) — findByIdAndCompanyId로 회사 범위를 먼저 검증해
      * cross-company IDOR을 차단한 뒤에만 defect_revisions를 조회한다(get()과 동일 원칙).
      */
-    public PageResponse<DefectRevisionResponse> getRevisions(Long companyId, Long defectId, Pageable pageable) {
-        requireCompanyId(companyId);
+    public PageResponse<DefectRevisionResponse> getRevisions(
+            Long userId, Long companyId, Long defectId, Pageable pageable) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         defectRepository.findByIdAndCompanyId(defectId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
         Page<DefectRevision> page = defectRevisionRepository.findByDefectIdOrderByCreatedAtDesc(defectId, pageable);
@@ -61,7 +65,7 @@ public class DefectService {
     @Transactional
     public DefectResponse updateStatus(
             Long companyId, Long revisedByUserId, Long defectId, DefectStatus status, String reason) {
-        requireCompanyId(companyId);
+        companyScopeGuard.requireEffectiveMembership(revisedByUserId, companyId);
         Defect defect = defectRepository.findByIdAndCompanyId(defectId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
         DefectStatus previousStatus = defect.getStatus();
@@ -71,9 +75,4 @@ public class DefectService {
         return DefectResponse.from(defect);
     }
 
-    private void requireCompanyId(Long companyId) {
-        if (companyId == null) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
-        }
-    }
 }

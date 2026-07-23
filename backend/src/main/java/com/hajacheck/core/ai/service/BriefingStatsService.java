@@ -1,5 +1,6 @@
 package com.hajacheck.core.ai.service;
 
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.ai.dto.BriefingStatsRequest;
 import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.core.defect.entity.DefectGrade;
@@ -55,11 +56,10 @@ public class BriefingStatsService {
     private final InspectionRepository inspectionRepository;
     private final DefectRepository defectRepository;
     private final AiProxyRateLimiter aiProxyRateLimiter;
+    private final CompanyScopeGuard companyScopeGuard;
 
     public BriefingStatsRequest buildStats(Long userId, Long companyId) {
-        if (companyId == null) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
-        }
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         // 브리핑도 FastAPI(/ai/briefing) 프록시 경로다 — DB 집계 전에 스레드풀 보호 가드를 적용해
         // 초과 시 429로 즉시 중단한다(사용자 축 → 전역 축, AiProxyRateLimiter 참고).
         aiProxyRateLimiter.checkUser(userId);
