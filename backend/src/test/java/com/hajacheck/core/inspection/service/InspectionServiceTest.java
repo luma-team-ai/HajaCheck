@@ -206,13 +206,14 @@ class InspectionServiceTest {
     }
 
     @Test
-    void getInspection_타인소유시설물의점검_예외전파() {
+    void getInspection_타인소유시설물의점검_INSPECTION_NOT_FOUND로통일() {
         Inspection inspection = inspectionOf(10L, 1L);
         when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
         when(facilityService.get(999L, 1L)).thenThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND));
 
+        // FACILITY_NOT_FOUND를 INSPECTION_NOT_FOUND로 통일 — IDOR 열거 방지
         assertThatThrownBy(() -> service.getInspection(999L, 10L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
+                        .isEqualTo(ErrorCode.INSPECTION_NOT_FOUND));
     }
 }
