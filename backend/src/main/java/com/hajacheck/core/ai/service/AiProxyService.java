@@ -51,8 +51,13 @@ public class AiProxyService {
     private final BriefingStatsService briefingStatsService;
     private final AiProxyRateLimiter aiProxyRateLimiter;
 
-    public ApiResponse<DefectExplainResponse> explainDefect(DefectExplainRequest request) {
-        // 로그인 사용자 축이 없는 경로라 전역 축만 적용(스레드풀 보호, 초과 시 429·호출 없이 중단).
+    /**
+     * @param userId 요청자 식별자 — 컨트롤러가 {@code @AuthenticationPrincipal}에서만 취득해 전달한다
+     *               (요청 바디에서 받지 않는다). 사용자 축 rate-limit 키로만 사용한다.
+     */
+    public ApiResponse<DefectExplainResponse> explainDefect(Long userId, DefectExplainRequest request) {
+        // 사용자 축 → 전역 축 순서로 rate-limit(초과 시 429·FastAPI 호출 없이 중단, AiProxyRateLimiter 참고).
+        aiProxyRateLimiter.checkUser(userId);
         aiProxyRateLimiter.checkGlobal();
         DefectExplainAiEnvelope envelope = callAiServer(request);
         if (envelope == null) {
@@ -92,8 +97,13 @@ public class AiProxyService {
         }
     }
 
-    public ApiResponse<ReportResponse> generateReport(ReportRequest request) {
-        // 로그인 사용자 축이 없는 경로라 전역 축만 적용(스레드풀 보호, 초과 시 429·호출 없이 중단).
+    /**
+     * @param userId 요청자 식별자 — 호출부(컨트롤러/ReportService)가 {@code @AuthenticationPrincipal}
+     *               에서 확보한 값을 전달한다(요청 바디에서 받지 않는다). 사용자 축 rate-limit 키로만 사용.
+     */
+    public ApiResponse<ReportResponse> generateReport(Long userId, ReportRequest request) {
+        // 사용자 축 → 전역 축 순서로 rate-limit(초과 시 429·FastAPI 호출 없이 중단, AiProxyRateLimiter 참고).
+        aiProxyRateLimiter.checkUser(userId);
         aiProxyRateLimiter.checkGlobal();
         ReportAiEnvelope envelope = callAiServer(request);
         if (envelope == null) {
