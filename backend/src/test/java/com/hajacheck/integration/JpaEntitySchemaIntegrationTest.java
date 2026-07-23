@@ -18,6 +18,7 @@ import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.inspection.entity.InspectionType;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
 import com.hajacheck.core.rag.entity.ChatMessageCitation;
@@ -103,6 +104,7 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
     void inspectionMediaDefectRevisionReport_저장조회() {
         User owner = seedInspectorOwner("inspection-owner@haja.com");
         Inspection inspection = seedInspection(owner, "통합검증 시설");
+        assertThat(inspection.getType()).isEqualTo(InspectionType.REGULAR);
 
         Media media = Media.builder()
                 .inspectionId(inspection.getId())

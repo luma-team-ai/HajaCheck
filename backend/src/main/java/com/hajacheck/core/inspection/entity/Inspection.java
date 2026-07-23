@@ -31,7 +31,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
  * 도메인 경계를 넘는 {@code createdBy}/{@code assignedInspectorId}(auth 도메인 User 참조)는 Long 값만 보유한다.
  *
  * <p>⚠️ BaseTimeEntity 상속 금지: inspections 테이블에는 updated_at 컬럼이 없다(created_at 만 존재).
- * status 는 PG named enum(inspection_status_type) — @JdbcTypeCode(NAMED_ENUM) 매핑.
+ * type/status 는 PG named enum(inspection_type/inspection_status_type) — @JdbcTypeCode(NAMED_ENUM) 매핑.
  *
  * <p>assignedInspectorId(점검 담당자)는 DB 상 not null이며 애플리케이션에서
  * users.status=ACTIVE AND role IN (INSPECTOR, ADMIN) 검증을 거친 값만 들어온다
@@ -77,6 +77,10 @@ public class Inspection {
     private LocalDate inspectionDate;
 
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(columnDefinition = "inspection_type", nullable = false)
+    private InspectionType type;
+
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(columnDefinition = "inspection_status_type", nullable = false)
     private InspectionStatus status;
 
@@ -86,12 +90,13 @@ public class Inspection {
 
     @Builder
     private Inspection(Long facilityId, Long createdBy, Long assignedInspectorId, Integer roundNo,
-                        LocalDate inspectionDate, InspectionStatus status) {
+                        LocalDate inspectionDate, InspectionType type, InspectionStatus status) {
         this.facilityId = facilityId;
         this.createdBy = createdBy;
         this.assignedInspectorId = assignedInspectorId;
         this.roundNo = roundNo;
         this.inspectionDate = inspectionDate;
+        this.type = type == null ? InspectionType.REGULAR : type;
         this.status = status == null ? InspectionStatus.CREATED : status;
     }
 

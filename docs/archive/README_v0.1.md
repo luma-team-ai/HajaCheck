@@ -1,6 +1,6 @@
 # hajaCheck 문서 가이드 (`docs/`)
 
-> **문서 버전:** v0.2 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
+> **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
 
 이 문서는 `docs/` 폴더의 **진입점**이다. (1) 어떤 문서가 어디에 있는지, (2) 문서를 어떻게 버전 관리·최신화하는지, (3) 개발 가이드라인이 무엇인지 안내한다.
 
@@ -17,7 +17,6 @@
 | `design/ai/` | AI 체인 설계(브리핑·grounding·보고서) | 설계 |
 | `design/db/table_design.md` | 테이블 설계서(컬럼·enum·제약 의미) | 설계(실 스키마는 아래 §3 참고) |
 | `design/db/*.sql` | 참조용 DDL 스크립트 (**배포 실행본 아님**) | 참조 |
-| `../backend/src/main/resources/db/migration/` | Flyway 버전 마이그레이션 | ✅ **DB 변경 실행 SOT** |
 | `prd/PRD_hajaCheck.md` | 제품 요구사항 정의서(최신) | ✅ **요구사항 SOT** |
 | `report/` | 보고서·버전 정합 자료 | 산출물 |
 | `STATUS.md` | 인프라·마지막 머지·다음 작업·알려진 이슈 | ✅ **운영 현황 SOT** |
@@ -61,17 +60,14 @@
 문서는 **코드·실제 환경을 따라간다.** "문서가 이렇다고 적혀 있다"가 아니라 **실제 구현이 진실**이다.
 
 - **API**: `openapi.yaml`/`contract.md`는 실제 컨트롤러(백엔드 `@RestController`, AI서버 `ai_router.py`)와 **대조**해서 맞춘다. "구현완료"라고 적혀 있어도 라우트가 실제 있는지 확인.
-- **DB 스키마**: `backend/src/main/resources/db/migration/`의 Flyway 버전 파일이 기존 DB 변경의 실행
-  SOT다. 적용된 버전은 `flyway_schema_history`와 실제 카탈로그를 함께 실측한다. `design/db/*.sql`은
-  신규 DB 최종 상태와 설계 검증을 위한 참조본이며 운영 DB에 직접 재실행하지 않는다.
+- **DB 스키마**: `design/db/*.sql`은 **참조용(미배포)**이다. 실제 제약(FK·삭제정책 등)은 **라이브 DB를 실측**해서 확인한다.
   ```bash
   ssh oci-arm1 "sudo -u postgres psql -d hajacheck -tAc \
     \"SELECT pg_get_constraintdef(oid) FROM pg_constraint \
       WHERE conrelid='{테이블}'::regclass AND contype='f';\""
   ```
 - **배포 순서**: **문서 내용 최신화 → 검증 → 배포**. 최신화 안 된 문서를 그대로 승격하지 않는다.
-- Flyway의 `V1__baseline_schema.sql`은 동결한다. 변경은 다음 버전 파일로만 추가하고, 빈 DB의 V1→최신
-  경로와 기존 DB의 baseline-on-migrate→최신 경로를 PostgreSQL 통합 테스트로 모두 검증한다.
+- ⚠️ 현재 스키마는 **Flyway 등 마이그레이션 도구가 없어 수동 관리** 상태다(엔티티가 FK를 관계 매핑하지 않는 경우도 있음). 스키마-문서 정합은 실측으로 확인할 것.
 
 ---
 

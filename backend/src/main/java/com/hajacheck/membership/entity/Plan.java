@@ -21,7 +21,8 @@ import org.hibernate.type.SqlTypes;
  * <p>name 은 PG named enum(plan_name_type) — {@code @JdbcTypeCode(NAMED_ENUM)} + columnDefinition 으로
  * 실 PG enum 에 매핑한다(ddl-auto=validate 통과, User.role 매핑 패턴 참고).
  *
- * <p>maxFacilities/maxMonthlyAnalyses 는 DDL 상 nullable(무제한 의미) — null 이면 응답에도 null 그대로 반환한다(계약).
+ * <p>maxFacilities/maxMonthlyAnalyses/maxSeats 는 DDL 상 nullable(무제한 의미) — null 이면 응답에도 null 그대로
+ * 반환한다(계약).
  */
 @Entity
 @Getter
@@ -43,7 +44,7 @@ public class Plan extends BaseTimeEntity {
     @Column(name = "max_monthly_analyses")
     private Integer maxMonthlyAnalyses;
 
-    @Column(name = "max_seats", nullable = false)
+    @Column(name = "max_seats")
     private Integer maxSeats;
 
     @Column(name = "has_pdf_watermark", nullable = false)
@@ -65,7 +66,7 @@ public class Plan extends BaseTimeEntity {
         this.name = name;
         this.maxFacilities = maxFacilities;
         this.maxMonthlyAnalyses = maxMonthlyAnalyses;
-        this.maxSeats = maxSeats == null ? 0 : maxSeats;
+        this.maxSeats = maxSeats;
         this.hasPdfWatermark = hasPdfWatermark;
         this.hasCounselorAccess = hasCounselorAccess;
         this.hasAiAddon = hasAiAddon;
@@ -73,7 +74,7 @@ public class Plan extends BaseTimeEntity {
     }
 
     /**
-     * 요금제 기준행 생성 팩토리(시드/테스트용). maxFacilities/maxMonthlyAnalyses 에 null 을 넘기면
+     * 요금제 기준행 생성 팩토리(시드/테스트용). maxFacilities/maxMonthlyAnalyses/maxSeats 에 null 을 넘기면
      * 무제한 요금제(Enterprise 등)를 표현한다.
      */
     public static Plan create(PlanName name, Integer maxFacilities, Integer maxMonthlyAnalyses, Integer maxSeats,
