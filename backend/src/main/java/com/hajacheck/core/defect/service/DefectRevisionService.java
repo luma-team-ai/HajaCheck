@@ -33,6 +33,7 @@ public class DefectRevisionService {
     /**
      * 점검 회차별 하자 목록 조회(검수·뷰어 공용).
      *
+     * @param userId          요청 사용자 id
      * @param companyId       요청 사용자의 회사 id
      * @param inspectionId    점검 회차 id
      * @return 하자 목록(deleted=false만, id 오름차순)
@@ -99,8 +100,8 @@ public class DefectRevisionService {
     /**
      * 하자 검수 — 등급 조정 또는 오탐 삭제(soft delete).
      *
-     * @param companyId       검수자의 회사 id
      * @param revisedByUserId 검수자 사용자 id
+     * @param companyId       검수자의 회사 id
      * @param defectId        하자 id
      * @param request         요청 (grade 또는 isDeleted 정확히 하나 + reason)
      * @return 검수 반영된 하자
