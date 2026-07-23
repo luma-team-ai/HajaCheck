@@ -467,8 +467,9 @@ export function ResultViewerPage() {
             <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
           )}
           <div>
-            <label className="mb-2 block text-sm font-medium text-text-default">하자 유형</label>
+            <label htmlFor="defect-type-select" className="mb-2 block text-sm font-medium text-text-default">하자 유형</label>
             <select
+              id="defect-type-select"
               value={newDefectType}
               onChange={(e) => setNewDefectType(e.target.value as 'CRACK' | 'SPALLING' | 'REBAR_EXPOSURE' | '')}
               className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
@@ -482,8 +483,9 @@ export function ResultViewerPage() {
             </select>
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium text-text-default">등급</label>
+            <label htmlFor="defect-grade-select" className="mb-2 block text-sm font-medium text-text-default">등급</label>
             <select
+              id="defect-grade-select"
               value={newDefectGrade}
               onChange={(e) => setNewDefectGrade(e.target.value as DefectGrade | '')}
               className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"

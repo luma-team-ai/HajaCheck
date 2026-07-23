@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -443,12 +443,11 @@ describe('ResultViewerPage (통합 테스트)', () => {
     const saveButton = screen.getAllByRole('button', { name: '저장' }).pop();
     fireEvent.click(saveButton!);
 
-    // POST 요청이 완료될 때까지 기다린다
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    expect(postCalled).toBe(true);
-    // 모달이 닫혀야 하므로 제목이 더 이상 보이지 않아야 한다
-    expect(screen.queryByText('누락된 하자 추가')).toBeNull();
+    // POST 요청이 완료되고 모달이 닫혀야 한다
+    await waitFor(() => {
+      expect(postCalled).toBe(true);
+      expect(screen.queryByText('누락된 하자 추가')).toBeNull();
+    });
   });
 
   it('모달에서 취소하면 API 호출 없이 모달이 닫힌다 (#622)', async () => {
@@ -502,8 +501,9 @@ describe('ResultViewerPage (통합 테스트)', () => {
     fireEvent.click(saveButton!);
 
     // 에러 메시지가 표시된다 (모달 내 에러 메시지 확인)
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    const errorMessages = screen.getAllByText(/누락 추가에 실패했습니다/);
-    expect(errorMessages.length).toBeGreaterThan(0);
+    await waitFor(() => {
+      const errorMessages = screen.getAllByText(/누락 추가에 실패했습니다/);
+      expect(errorMessages.length).toBeGreaterThan(0);
+    });
   });
 });
