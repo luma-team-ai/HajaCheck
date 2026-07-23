@@ -46,6 +46,12 @@ const PlatformAdminUsersPage = lazy(() =>
     default: m.PlatformAdminUsersPage,
   })),
 );
+// 플랫폼 관리자 > 플랜·쿼터 관리(#625) — 기업 관리자 콘솔의 PlanQuotaPage(#508)를 그대로 옮긴 실 화면
+const PlatformAdminPlanQuotaPage = lazy(() =>
+  import('../features/platform-admin/pages/PlatformAdminPlanQuotaPage').then((m) => ({
+    default: m.PlatformAdminPlanQuotaPage,
+  })),
+);
 
 // 이용약관 / 개인정보처리방침 — 랜딩 푸터 "법적 고지" 연결
 const TermsOfServicePage = lazy(() =>
@@ -547,14 +553,14 @@ export const router = createBrowserRouter([
         path: '/platform-admin/plans-quota',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <PlatformAdminPlaceholderPage title="플랜·쿼터 관리" />
+            <PlatformAdminPlanQuotaPage />
           </Suspense>
         ),
         handle: {
           breadcrumb: [{ label: '플랫폼 관리자' }, { label: '플랜·쿼터 관리' }],
           activeHref: '/platform-admin/plans-quota',
         },
-      },
+      }, // — features/platform-admin 플랜·쿼터 관리 실 화면 (#625, features/admin PlanQuotaPage 이식)
       {
         path: '/platform-admin/defect-types',
         element: (
