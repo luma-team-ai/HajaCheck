@@ -10,14 +10,14 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.List;
 
 /**
  * 시설물 등록 요청. name/type 은 DDL NOT NULL, 나머지는 DDL NULL 허용(§5.3)에 맞춰 선택 입력.
  *
- * <p>photoUrls/initialGrade/assigneeUserId/memo 는 #628(HAJA-347) 등록 필드 확장 — 전부 선택 입력이다.
+ * <p>initialGrade/assigneeUserId/memo 는 #628(HAJA-347) 등록 필드 확장 — 전부 선택 입력이다.
  * assigneeUserId 는 값이 있을 때만 서비스 계층에서 AuthService.validateAssignableInspector로 검증한다
  * (활성 사용자·INSPECTOR/ADMIN 역할·요청자와 동일 회사·양쪽 유효 멤버십, inspections와 동일 패턴).
+ * 대표 사진(photoUrls)은 Polalise DDL 검토 후 별도 후속으로 반영 예정(#632) — 이번 범위에서 제외.
  */
 public record FacilityCreateRequest(
         @NotBlank @Size(max = 200) String name,
@@ -33,8 +33,6 @@ public record FacilityCreateRequest(
         // @Min(0) 유지: 여기서는 "주기 미설정"(0)을 허용한다(설정 전용인 Schedule 요청은 @Min(1)).
         @Min(0) @Max(120) Integer inspectionCycleMonths,
         LocalDate nextInspectionDueAt,
-        // 대표 사진(최대 4장) — facility_photos.sort_order(0~3) 로 저장되는 순서는 이 리스트의 인덱스다.
-        @Size(max = 4) List<@NotBlank @Size(max = 500) String> photoUrls,
         FacilityInitialGrade initialGrade,
         Long assigneeUserId,
         @Size(max = 2000) String memo

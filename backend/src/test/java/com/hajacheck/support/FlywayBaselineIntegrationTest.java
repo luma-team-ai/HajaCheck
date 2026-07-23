@@ -136,11 +136,5 @@ class FlywayBaselineIntegrationTest {
                   and column_name in ('initial_grade', 'assignee_user_id', 'memo')
                 """, Long.class);
         assertThat(facilityColumnCount).isEqualTo(3L);
-
-        Long facilityPhotosTableExists = jdbcTemplate.queryForObject("""
-                select count(*) from information_schema.tables
-                where table_schema = 'public' and table_name = 'facility_photos'
-                """, Long.class);
-        assertThat(facilityPhotosTableExists).isEqualTo(1L);
     }
 }

@@ -604,42 +604,6 @@ create index idx_facilities_next_inspection_due_at
     on facilities (next_inspection_due_at)
     where next_inspection_due_at is not null;
 
-create table facility_photos
-(
-    id          bigint generated always as identity
-        primary key,
-    facility_id bigint                                 not null
-        constraint fk_facility_photos_facility
-            references facilities
-            on delete cascade,
-    photo_url   varchar(500)                            not null,
-    sort_order  integer                                 not null,
-    created_at  timestamp with time zone default now()  not null,
-    constraint uk_facility_photos_facility_sort
-        unique (facility_id, sort_order),
-    constraint ck_facility_photos_sort_order
-        check (sort_order between 0 and 3)
-);
-
-comment on table facility_photos is
-    '시설물 등록 시 첨부하는 대표 사진(최대 4장)을 노출 순서와 함께 관리한다. 시설물 삭제 시 CASCADE.';
-
-comment on column facility_photos.id is '시설물 사진 식별자';
-
-comment on column facility_photos.facility_id is '사진이 속한 시설물 식별자';
-
-comment on column facility_photos.photo_url is '사진 파일 URL';
-
-comment on column facility_photos.sort_order is '시설물 내 사진 노출 순서(0~3, 시설물당 최대 4장)';
-
-comment on column facility_photos.created_at is '사진 등록 시각';
-
-alter table facility_photos
-    owner to postgres;
-
-create index idx_facility_photos_facility
-    on facility_photos (facility_id);
-
 create table inspections
 (
     id              bigint generated always as identity

@@ -6,17 +6,11 @@ import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
-import com.hajacheck.core.facility.entity.FacilityPhoto;
-import com.hajacheck.core.facility.repository.FacilityPhotoRepository;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -39,7 +33,6 @@ public class FacilityService {
     private static final int FACILITY_LIST_MAX = 500;
 
     private final FacilityRepository facilityRepository;
-    private final FacilityPhotoRepository facilityPhotoRepository;
     private final AuthService authService;
 
     @Transactional
@@ -61,8 +54,7 @@ public class FacilityService {
                 .memo(request.memo())
                 .build();
         Facility saved = facilityRepository.save(facility);
-        List<String> photoUrls = savePhotos(saved.getId(), request.photoUrls());
-        return FacilityResponse.from(saved, photoUrls);
+        return FacilityResponse.from(saved);
     }
 
     public List<FacilityResponse> list(Long ownerId) {
@@ -75,17 +67,13 @@ public class FacilityService {
             log.warn("시설물 목록 상한({}) 도달 — ownerId={} 실제 보유 {}건, 상한 초과분 응답에서 누락",
                     FACILITY_LIST_MAX, ownerId, actualCount);
         }
-        Map<Long, List<String>> photosByFacilityId = loadPhotosByFacilityIds(
-                facilities.stream().map(Facility::getId).toList());
         return facilities.stream()
-                .map(facility -> FacilityResponse.from(
-                        facility, photosByFacilityId.getOrDefault(facility.getId(), List.of())))
+                .map(FacilityResponse::from)
                 .toList();
     }
 
     public FacilityResponse get(Long ownerId, Long facilityId) {
-        Facility facility = findOwnedFacility(ownerId, facilityId);
-        return FacilityResponse.from(facility, loadPhotos(facility.getId()));
+        return FacilityResponse.from(findOwnedFacility(ownerId, facilityId));
     }
 
     /**
@@ -116,15 +104,11 @@ public class FacilityService {
                 request.initialGrade(),
                 request.assigneeUserId(),
                 request.memo());
-        // PUT 은 전체 교체 — 대표 사진도 기존 것을 지우고 요청 목록으로 다시 채운다.
-        facilityPhotoRepository.deleteByFacilityId(facility.getId());
-        List<String> photoUrls = savePhotos(facility.getId(), request.photoUrls());
-        return FacilityResponse.from(facility, photoUrls);
+        return FacilityResponse.from(facility);
     }
 
     @Transactional
     public void delete(Long ownerId, Long facilityId) {
-        // facility_photos.facility_id 는 ON DELETE CASCADE 라 사진 행은 DB 가 함께 정리한다.
         facilityRepository.delete(findOwnedFacility(ownerId, facilityId));
     }
 
@@ -136,7 +120,7 @@ public class FacilityService {
     public FacilityResponse setSchedule(Long ownerId, Long facilityId, FacilityScheduleRequest request) {
         Facility facility = findOwnedFacility(ownerId, facilityId);
         facility.updateSchedule(request.inspectionCycleMonths(), LocalDate.now());
-        return FacilityResponse.from(facility, loadPhotos(facility.getId()));
+        return FacilityResponse.from(facility);
     }
 
     private Facility findOwnedFacility(Long ownerId, Long facilityId) {
@@ -153,37 +137,5 @@ public class FacilityService {
         if (assigneeUserId != null) {
             authService.validateAssignableInspector(ownerId, assigneeUserId);
         }
-    }
-
-    private List<String> savePhotos(Long facilityId, List<String> photoUrls) {
-        if (photoUrls == null || photoUrls.isEmpty()) {
-            return List.of();
-        }
-        List<FacilityPhoto> photos = new ArrayList<>();
-        for (int sortOrder = 0; sortOrder < photoUrls.size(); sortOrder++) {
-            photos.add(FacilityPhoto.builder()
-                    .facilityId(facilityId)
-                    .photoUrl(photoUrls.get(sortOrder))
-                    .sortOrder(sortOrder)
-                    .build());
-        }
-        facilityPhotoRepository.saveAll(photos);
-        return photoUrls;
-    }
-
-    private List<String> loadPhotos(Long facilityId) {
-        return facilityPhotoRepository.findByFacilityIdOrderBySortOrderAsc(facilityId).stream()
-                .map(FacilityPhoto::getPhotoUrl)
-                .toList();
-    }
-
-    private Map<Long, List<String>> loadPhotosByFacilityIds(List<Long> facilityIds) {
-        if (facilityIds.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        return facilityPhotoRepository.findByFacilityIdInOrderByFacilityIdAscSortOrderAsc(facilityIds).stream()
-                .collect(Collectors.groupingBy(
-                        FacilityPhoto::getFacilityId,
-                        Collectors.mapping(FacilityPhoto::getPhotoUrl, Collectors.toList())));
     }
 }

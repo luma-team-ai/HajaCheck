@@ -1,13 +1,10 @@
--- Flyway V10 — 시설물 등록 필드 확장: 대표 사진(최대 4장)·초기 등급·담당자·메모(#628 / HAJA-347).
+-- Flyway V10 — 시설물 등록 필드 확장: 초기 등급·담당자·메모(#628 / HAJA-347).
 -- (dev에 먼저 머지된 V8__grant_admin_to_company_owners.sql·V9__add_facilities_next_inspection_due_at_index.sql
--- 와 번호가 충돌해 V10으로 재번호했다 — 내용은 최초 작성 시와 동일.)
+-- 와 번호가 충돌해 V10으로 재번호했다.)
 --
--- Figma 시설물 등록 모달에는 있으나 기존 facilities 테이블/엔티티에는 없던 4개 필드를 추가한다.
---
--- 대표 사진(최대 4장): media 테이블은 inspection_id NOT NULL FK 라 점검 회차가 있어야만 미디어를
--- 표현할 수 있고, 시설물 "등록" 시점(아직 점검 회차가 없음)의 사진은 담을 수 없다. 시설물당 여러 장을
--- 순서까지 보존하며 표현해야 하므로 단일 컬럼(URL CSV/배열)이 아니라 별도 테이블
--- facility_photos(facility_id FK + photo_url + sort_order)로 모델링한다.
+-- Figma 시설물 등록 모달에는 있으나 기존 facilities 테이블/엔티티에는 없던 4개 필드 중, DB DDL 소유자
+-- (Polalise) 회신 없이 진행 가능한 3개 필드만 우선 반영한다. 대표 사진(최대 4장, facility_photos 테이블)은
+-- 신규 테이블 설계라 Polalise 검토 필요 — 별도 후속 마이그레이션으로 분리(#632).
 --
 -- 초기 등급(initial_grade): 대시보드 "하자 등급 분포"(GradeDistributionResponse)는 점검 이력
 -- (defects.grade, defect_grade_type)에서 산출되는 계산값이라 이 컬럼과는 완전히 다른 개념이다.
@@ -58,36 +55,3 @@ comment on column facilities.memo is '시설물 등록 메모(자유 텍스트, 
 
 create index if not exists idx_facilities_assignee
     on facilities (assignee_user_id);
-
-create table if not exists facility_photos
-(
-    id          bigint generated always as identity
-        primary key,
-    facility_id bigint                                 not null
-        constraint fk_facility_photos_facility
-            references facilities
-            on delete cascade,
-    photo_url   varchar(500)                            not null,
-    sort_order  integer                                 not null,
-    created_at  timestamp with time zone default now()  not null,
-    constraint uk_facility_photos_facility_sort
-        unique (facility_id, sort_order),
-    constraint ck_facility_photos_sort_order
-        check (sort_order between 0 and 3)
-);
-
-comment on table facility_photos is
-    '시설물 등록 시 첨부하는 대표 사진(최대 4장)을 노출 순서와 함께 관리한다. 시설물 삭제 시 CASCADE.';
-
-comment on column facility_photos.id is '시설물 사진 식별자';
-
-comment on column facility_photos.facility_id is '사진이 속한 시설물 식별자';
-
-comment on column facility_photos.photo_url is '사진 파일 URL';
-
-comment on column facility_photos.sort_order is '시설물 내 사진 노출 순서(0~3, 시설물당 최대 4장)';
-
-comment on column facility_photos.created_at is '사진 등록 시각';
-
-create index if not exists idx_facility_photos_facility
-    on facility_photos (facility_id);

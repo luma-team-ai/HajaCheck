@@ -10,13 +10,10 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.List;
 
 /**
  * 시설물 수정 요청(PUT — 전체 교체). name/type 은 DDL NOT NULL 이라 필수 유지.
  * 제약은 FacilityCreateRequest 와 동일하게 유지한다(PUT 이 전체 교체라 등록과 같은 규칙이어야 함).
- *
- * <p>photoUrls 도 전체 교체 — 요청에 담긴 목록으로 기존 대표 사진을 통째로 대체한다(#628 / HAJA-347).
  */
 public record FacilityUpdateRequest(
         @NotBlank @Size(max = 200) String name,
@@ -30,7 +27,6 @@ public record FacilityUpdateRequest(
         // @Max(120): 상한(10년) — FacilityScheduleRequest 와 동일 기준(#351).
         @Min(0) @Max(120) Integer inspectionCycleMonths,
         LocalDate nextInspectionDueAt,
-        @Size(max = 4) List<@NotBlank @Size(max = 500) String> photoUrls,
         FacilityInitialGrade initialGrade,
         Long assigneeUserId,
         @Size(max = 2000) String memo

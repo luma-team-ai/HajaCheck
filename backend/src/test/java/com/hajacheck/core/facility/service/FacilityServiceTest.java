@@ -17,7 +17,6 @@ import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.entity.FacilityInitialGrade;
-import com.hajacheck.core.facility.repository.FacilityPhotoRepository;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -39,9 +38,6 @@ class FacilityServiceTest {
     private FacilityRepository facilityRepository;
 
     @Mock
-    private FacilityPhotoRepository facilityPhotoRepository;
-
-    @Mock
     private AuthService authService;
 
     @InjectMocks
@@ -61,7 +57,7 @@ class FacilityServiceTest {
     private FacilityCreateRequest createRequest() {
         return new FacilityCreateRequest(
                 "테스트빌딩", "BUILDING", "서울시 강남구", null, null, 2010, "지상5층", 12, null,
-                null, null, null, null);
+                null, null, null);
     }
 
     @Test
@@ -156,7 +152,7 @@ class FacilityServiceTest {
         when(facilityRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
         FacilityUpdateRequest request = new FacilityUpdateRequest(
                 "수정된빌딩", "APARTMENT", "서울시 서초구", null, null, 2015, "지상10층", 6, null,
-                null, null, null, null);
+                null, null, null);
 
         FacilityResponse response = facilityService.update(OWNER_ID, 10L, request);
 
@@ -171,20 +167,20 @@ class FacilityServiceTest {
         when(facilityRepository.findByIdAndOwnerId(999L, OWNER_ID)).thenReturn(Optional.empty());
         FacilityUpdateRequest request = new FacilityUpdateRequest(
                 "수정된빌딩", "APARTMENT", null, null, null, null, null, null, null,
-                null, null, null, null);
+                null, null, null);
 
         assertThatThrownBy(() -> facilityService.update(OWNER_ID, 999L, request))
                 .isInstanceOf(BusinessException.class);
     }
 
     // ── 시설물 등록 필드 확장(#628 / HAJA-347) ──
+    // 대표 사진(photoUrls)은 Polalise DDL 검토 후 별도 후속으로 반영 예정(#632) — 이번 범위 테스트 제외.
 
     @Test
-    void create_대표사진초기등급담당자메모_함께저장() {
+    void create_초기등급담당자메모_함께저장() {
         when(facilityRepository.save(any(Facility.class))).thenAnswer(inv -> inv.getArgument(0));
         FacilityCreateRequest request = new FacilityCreateRequest(
                 "테스트빌딩", "BUILDING", "서울시 강남구", null, null, 2010, "지상5층", 12, null,
-                List.of("https://files.example/1.jpg", "https://files.example/2.jpg"),
                 FacilityInitialGrade.B, 5L, "1층 로비 CCTV 사각지대 있음");
 
         FacilityResponse response = facilityService.create(OWNER_ID, request);
@@ -198,8 +194,6 @@ class FacilityServiceTest {
         assertThat(response.initialGrade()).isEqualTo(FacilityInitialGrade.B);
         assertThat(response.assigneeUserId()).isEqualTo(5L);
         assertThat(response.memo()).isEqualTo("1층 로비 CCTV 사각지대 있음");
-        assertThat(response.photoUrls())
-                .containsExactly("https://files.example/1.jpg", "https://files.example/2.jpg");
     }
 
     @Test
@@ -217,7 +211,7 @@ class FacilityServiceTest {
                 .when(authService).validateAssignableInspector(OWNER_ID, 999L);
         FacilityCreateRequest request = new FacilityCreateRequest(
                 "테스트빌딩", "BUILDING", null, null, null, null, null, null, null,
-                null, null, 999L, null);
+                null, 999L, null);
 
         assertThatThrownBy(() -> facilityService.create(OWNER_ID, request))
                 .isInstanceOf(BusinessException.class)
@@ -285,33 +279,4 @@ class FacilityServiceTest {
                 .isInstanceOf(BusinessException.class);
     }
 
-    @Test
-    void update_PUT전체교체_기존사진삭제후요청목록으로재저장() {
-        Facility facility = existingFacility();
-        when(facilityRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
-        FacilityUpdateRequest request = new FacilityUpdateRequest(
-                "수정된빌딩", "APARTMENT", null, null, null, null, null, null, null,
-                List.of("https://files.example/new.jpg"), null, null, null);
-
-        FacilityResponse response = facilityService.update(OWNER_ID, 10L, request);
-
-        verify(facilityPhotoRepository).deleteByFacilityId(facility.getId());
-        verify(facilityPhotoRepository).saveAll(any());
-        assertThat(response.photoUrls()).containsExactly("https://files.example/new.jpg");
-    }
-
-    @Test
-    void list_사진은시설물별로그룹핑되어반환된다() {
-        Facility facilityA = existingFacility();
-        // Mockito 스텁 반환값이라 실제 PK 는 없다 — getId() 는 null 이므로 그룹핑 키(facilityId)는
-        // findByFacilityIdInOrderByFacilityIdAscSortOrderAsc 스텁으로 직접 통제한다.
-        when(facilityRepository.findByOwnerIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
-                .thenReturn(List.of(facilityA));
-
-        List<FacilityResponse> result = facilityService.list(OWNER_ID);
-
-        // photos 스텁이 없으면(unstubbed) Mockito 기본값(빈 리스트)이 반환돼 photoUrls 도 빈 리스트여야 한다.
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).photoUrls()).isEmpty();
-    }
 }

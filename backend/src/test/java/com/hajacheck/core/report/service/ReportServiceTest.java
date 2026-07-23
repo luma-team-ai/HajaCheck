@@ -71,7 +71,7 @@ class ReportServiceTest {
     private static FacilityResponse facility() {
         return new FacilityResponse(10L, 100L, "테스트빌딩", "BUILDING", "서울시 강남구",
                 null, null, null, null, null, null, LocalDateTime.now(), LocalDateTime.now(),
-                List.of(), null, null, null);
+                null, null, null);
     }
 
     private static ReportResponse aiReport() {
