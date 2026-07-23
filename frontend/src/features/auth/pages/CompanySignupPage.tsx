@@ -16,8 +16,10 @@ import {
   SUCCESS_CLASSES,
 } from '../formClasses';
 import { useBusinessLicenseOcr } from '../hooks/useBusinessLicenseOcr';
+import { useBusinessVerification } from '../hooks/useBusinessVerification';
 import { useCompanySignup } from '../hooks/useCompanySignup';
 import { useEmailAvailability } from '../hooks/useEmailAvailability';
+import type { BusinessVerificationResult } from '../types';
 import {
   doPasswordsMatch,
   getPasswordStrength,
@@ -37,11 +39,35 @@ const ERROR_MESSAGES: Record<string, string> = {
   FILE_TOO_LARGE: '파일 용량이 너무 큽니다. (최대 10MB)',
   INVALID_INPUT: '입력값을 다시 확인해 주세요.',
   FILE_UPLOAD_FAILED: '파일 업로드에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+  // 사업자 진위확인(#663) rate limit — 전역 분당10/일300(#648)
+  AUTH_TOO_MANY_REQUESTS: '잠시 후 다시 시도해 주세요.',
 };
 const DEFAULT_ERROR_MESSAGE = '가입 신청에 실패했습니다. 잠시 후 다시 시도해 주세요.';
+const BUSINESS_VERIFICATION_DEFAULT_ERROR_MESSAGE =
+  '진위확인에 실패했습니다. 잠시 후 다시 시도해 주세요.';
+const BUSINESS_VERIFICATION_GATE_MESSAGE = '사업자 진위확인을 먼저 완료해 주세요.';
 
 const INLINE_BTN_CLASSES =
   'shrink-0 cursor-pointer whitespace-nowrap rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-text-default enabled:hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-text-muted';
+
+// 사업자 진위확인 결과 6종(#648) — 뱃지 문구는 서버 message를 그대로 쓰고, 아이콘/색만 result로 분기.
+// VERIFIED만 성공색, UNAVAILABLE(국세청 장애 fail-open)은 중립/주의색, 나머지는 에러색.
+const BUSINESS_VERIFICATION_BADGE_CLASSES: Record<BusinessVerificationResult, string> = {
+  VERIFIED: SUCCESS_CLASSES,
+  NOT_REGISTERED: ERROR_CLASSES,
+  MISMATCH: ERROR_CLASSES,
+  SUSPENDED: ERROR_CLASSES,
+  CLOSED: ERROR_CLASSES,
+  UNAVAILABLE: 'text-xs text-warning-soft-fg',
+};
+const BUSINESS_VERIFICATION_BADGE_ICONS: Record<BusinessVerificationResult, string> = {
+  VERIFIED: '✅',
+  NOT_REGISTERED: '❌',
+  MISMATCH: '❌',
+  SUSPENDED: '⚠️',
+  CLOSED: '❌',
+  UNAVAILABLE: '⏳',
+};
 
 export function CompanySignupPage() {
   const [emailLocal, setEmailLocal] = useState('');
@@ -81,6 +107,13 @@ export function CompanySignupPage() {
   } = useEmailAvailability();
   const { signup, isPending, error } = useCompanySignup();
   const { runOcr, isPending: isOcrPending } = useBusinessLicenseOcr();
+  const {
+    verify: verifyBusiness,
+    isPending: isVerifyingBusiness,
+    result: businessVerificationResult,
+    error: businessVerificationError,
+    reset: resetBusinessVerification,
+  } = useBusinessVerification();
 
   // 로컬파트 + '@' + 도메인 조합 — 기존 email 흐름(중복확인·검증·제출)이 이 파생값을 그대로
   // 사용한다(#417, EmailDomainField). 둘 다 비면 '@'만 남아 isValidEmail이 false로 판정한다.
@@ -115,6 +148,44 @@ export function CompanySignupPage() {
     if (emailCheckResult) resetEmailCheck();
   };
 
+  // 사업자 진위확인(#648 BE, #663 FE) — 개업일자 필드 아래 [진위확인] 버튼. 3필드(사업자등록번호·
+  // 대표자명·개업일자)가 모두 유효해야 활성화(기존 검증 유틸 재사용, 새 규칙 추가 없음).
+  const canVerifyBusiness =
+    isValidBusinessNumber(businessRegistrationNumber) &&
+    representativeName.trim().length > 0 &&
+    isValidBusinessStartDate(businessStartDate);
+
+  const handleVerifyBusiness = () => {
+    if (!canVerifyBusiness) return;
+    verifyBusiness({
+      businessRegistrationNumber,
+      representativeName: representativeName.trim(),
+      businessStartDate,
+    });
+  };
+
+  // 진위확인 우회 방지(무효화) — 확인에 쓰인 3필드 중 하나라도 바뀌면 이전 결과/에러를 즉시
+  // 무효화한다(이메일의 resetEmailCheck 패턴과 동일). "확인 후 몰래 값만 바꿔 통과된 결과로
+  // 제출"하는 경로를 막는다.
+  const handleBusinessRegistrationNumberChange = (value: string) => {
+    setBusinessRegistrationNumber(value);
+    if (businessVerificationResult || businessVerificationError) resetBusinessVerification();
+  };
+  const handleRepresentativeNameChange = (value: string) => {
+    setRepresentativeName(value);
+    if (businessVerificationResult || businessVerificationError) resetBusinessVerification();
+  };
+  const handleBusinessStartDateChange = (value: string) => {
+    setBusinessStartDate(value);
+    if (businessVerificationResult || businessVerificationError) resetBusinessVerification();
+  };
+
+  // 진위확인 통과 = VERIFIED(일치) 또는 UNAVAILABLE(국세청 장애 fail-open, 백엔드도 PENDING 허용).
+  // 나머지(미확인·미등록·불일치·휴폐업)는 제출을 막는다.
+  const isBusinessVerified =
+    businessVerificationResult?.result === 'VERIFIED' ||
+    businessVerificationResult?.result === 'UNAVAILABLE';
+
   // 사업자등록증 OCR 자동채움(#587) — jpeg/png만 백엔드 OCR이 지원하므로 그 외 타입(PDF 등)은
   // OCR 호출 자체를 생략한다. 실패(400/429/5xx/네트워크)는 onError를 등록하지 않아 조용히
   // 폴백되고(useBusinessLicenseOcr 참고), 성공 시에도 이미 사용자가 입력한 값(빈 문자열이
@@ -143,6 +214,19 @@ export function CompanySignupPage() {
     runOcr(selected, {
       onSuccess: (data) => {
         if (requestId !== ocrRequestIdRef.current) return; // stale 응답 — 이후 선택으로 이미 무효화됨
+
+        // 진위확인 무효화 방어(#663) — OCR은 빈 필드만 채우므로 이미 진위확인을 통과한 상태(3필드
+        // 모두 값이 참)에선 실질적으로 값이 바뀌지 않아 자연히 안전하다. 그래도 방어적으로, 이번
+        // 자동채움이 진위확인 대상 3필드 중 하나라도 실제로 채울 예정이면(현재 비어있고 OCR값이
+        // 있으면) 이전 결과를 무효화한다.
+        const willFillVerifiedField =
+          (!businessRegistrationNumber.trim() && !!data.businessRegistrationNumber) ||
+          (!representativeName.trim() && !!data.representativeName) ||
+          (!businessStartDate.trim() && !!data.businessStartDate);
+        if (willFillVerifiedField && (businessVerificationResult || businessVerificationError)) {
+          resetBusinessVerification();
+        }
+
         setBusinessRegistrationNumber((prev) =>
           prev.trim() ? prev : (data.businessRegistrationNumber ?? prev),
         );
@@ -174,6 +258,8 @@ export function CompanySignupPage() {
     };
     if (!isCompanySignupFormValid(form)) return;
     if (emailCheckResult?.available === false) return;
+    // 진위확인 게이트(#648, #663) — 미확인·미등록·불일치·휴폐업이면 제출 자체를 막는다.
+    if (!isBusinessVerified) return;
 
     signup({
       email: email.trim(),
@@ -331,7 +417,7 @@ export function CompanySignupPage() {
                   type="text"
                   className={INPUT_CLASSES}
                   value={businessRegistrationNumber}
-                  onChange={(event) => setBusinessRegistrationNumber(event.target.value)}
+                  onChange={(event) => handleBusinessRegistrationNumberChange(event.target.value)}
                   placeholder="000-00-00000"
                 />
                 {showValidation && !isValidBusinessNumber(businessRegistrationNumber) && (
@@ -361,7 +447,7 @@ export function CompanySignupPage() {
                   type="text"
                   className={INPUT_CLASSES}
                   value={representativeName}
-                  onChange={(event) => setRepresentativeName(event.target.value)}
+                  onChange={(event) => handleRepresentativeNameChange(event.target.value)}
                 />
               </div>
 
@@ -374,7 +460,7 @@ export function CompanySignupPage() {
                   type="date"
                   className={INPUT_CLASSES}
                   value={businessStartDate}
-                  onChange={(event) => setBusinessStartDate(event.target.value)}
+                  onChange={(event) => handleBusinessStartDateChange(event.target.value)}
                 />
                 {(businessStartDate.length > 0 || showValidation) &&
                   !isValidBusinessStartDate(businessStartDate) && (
@@ -384,6 +470,34 @@ export function CompanySignupPage() {
                         : '개업일자를 입력해 주세요.'}
                     </p>
                   )}
+              </div>
+
+              {/* 사업자 진위확인(#648 BE, #663 FE) — 제출 전 [진위확인] 버튼 + 결과 뱃지.
+                  이메일 중복확인 버튼(INLINE_BTN_CLASSES)과 시각적으로 일관되게 재사용. */}
+              <div className="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  className={`${INLINE_BTN_CLASSES} self-start`}
+                  onClick={handleVerifyBusiness}
+                  disabled={isVerifyingBusiness || !canVerifyBusiness}
+                >
+                  진위확인
+                </button>
+                {businessVerificationResult && (
+                  <p className={BUSINESS_VERIFICATION_BADGE_CLASSES[businessVerificationResult.result]}>
+                    {BUSINESS_VERIFICATION_BADGE_ICONS[businessVerificationResult.result]}{' '}
+                    {businessVerificationResult.message}
+                  </p>
+                )}
+                {businessVerificationError && (
+                  <p className={ERROR_CLASSES}>
+                    {ERROR_MESSAGES[businessVerificationError.code] ??
+                      BUSINESS_VERIFICATION_DEFAULT_ERROR_MESSAGE}
+                  </p>
+                )}
+                {showValidation && !isBusinessVerified && (
+                  <p className={ERROR_CLASSES}>{BUSINESS_VERIFICATION_GATE_MESSAGE}</p>
+                )}
               </div>
             </div>
 
@@ -441,7 +555,12 @@ export function CompanySignupPage() {
 
             {submitErrorMessage && <p className={ERROR_CLASSES}>{submitErrorMessage}</p>}
 
-            <Button type="submit" size="lg" className="w-full" disabled={isPending}>
+            <Button
+              type="submit"
+              size="lg"
+              className="w-full"
+              disabled={isPending || (showValidation && !isBusinessVerified)}
+            >
               {isPending ? '신청 중...' : '가입 신청하기'}
             </Button>
 
