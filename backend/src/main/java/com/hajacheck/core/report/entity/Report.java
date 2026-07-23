@@ -141,6 +141,22 @@ public class Report extends BaseTimeEntity {
         this.editedBy = editedBy;
     }
 
+    /**
+     * AI 서버(LLM) 재호출 없이, 현재 저장된 본문(contentJson)이 확정 하자 목록과 구조적으로
+     * 일치하는지만 재검증한 결과를 기록한다(#680). {@link #recordGroundingResult}는 AI 응답과
+     * 결합된 {@link GroundingCheckResult}/{@link GroundingCheckTarget} 상관관계 검증에 묶여 있어
+     * 재사용할 수 없으므로 별도 도메인 메서드로 둔다 — 편집(updateContent)으로 null이 된
+     * groundingCheckPassed를 AI 재호출 없이 복구할 유일한 경로다.
+     */
+    public void recordStructuralGroundingRecheck(boolean matched, String warningsJson, Long editedBy) {
+        requireDraft("recordStructuralGroundingRecheck");
+        String normalizedWarnings = JsonValidator.normalizeOrRequireValid(
+                warningsJson, "근거 재검증 경고(groundingWarnings)");
+        this.groundingCheckPassed = matched;
+        this.groundingWarnings = normalizedWarnings;
+        this.editedBy = editedBy;
+    }
+
     public void finalizeReport(String pdfUrl, Long editedBy) {
         requireDraft("finalizeReport");
         if (!Boolean.TRUE.equals(this.groundingCheckPassed)) {
