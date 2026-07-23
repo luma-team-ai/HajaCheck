@@ -137,6 +137,7 @@ class ReportChainState(TypedDict):
     grounding_ok: bool
     grounding_defects: list[GroundingDefect]  # 입력 검증 후 미리 생성
     mismatch_policy: MismatchPolicy
+    grounding_result_action: Any  # GroundingAction (조건부 엣지 라우팅용)
 
 
 # ── 공통: 코드로 집계한 사실을 텍스트로 조립 (LLM이 재계산하지 않도록 — briefing_chain.py 패턴) ──
@@ -418,34 +419,41 @@ def node_parallel_sections(state: ReportChainState) -> dict[str, Any]:
 
 
 def node_detail_validation(state: ReportChainState) -> dict[str, Any]:
-    """detail 섹션 items가 confirmed_defects와 일치하는지 검증 — 불일치 시 재생성"""
+    """detail 섹션 items가 confirmed_defects와 일치하는지 판정 (재시도는 조건부 엣지로)"""
     detail = state["detail"]
     confirmed_defects = state["confirmed_defects"]
     detail_attempts = state.get("detail_attempts", 0)
 
-    # detail matches가 아니고 재시도 가능하면, detail 재생성
-    if not _detail_matches_confirmed(detail.items, confirmed_defects) and detail_attempts < GROUNDING_MAX_RETRIES:
-        logger.warning(
-            "detail 섹션 items가 confirmed_defects와 불일치(개수 또는 유형/등급 조합) — 재생성 시도 %d/%d",
-            detail_attempts + 1,
-            GROUNDING_MAX_RETRIES,
-        )
-        detail = _run_detail_chain(confirmed_defects)
-        detail_attempts += 1
-
-    # 최종 검사: 여전히 불일치면 ValueError 발생
+    # 불일치 판정 후 소진하면 여기서 ValueError 발생 (엣지 router는 판정만)
     if not _detail_matches_confirmed(detail.items, confirmed_defects):
-        raise ValueError(
-            "detail 섹션 items가 확정 하자 목록과 일치하지 않습니다"
-            f"(items={len(detail.items)}건, confirmed={len(confirmed_defects)}건, "
-            f"재생성 {detail_attempts}회 후에도 개수 또는 유형/등급 조합 불일치)."
-        )
+        if detail_attempts >= GROUNDING_MAX_RETRIES:
+            raise ValueError(
+                "detail 섹션 items가 확정 하자 목록과 일치하지 않습니다"
+                f"(items={len(detail.items)}건, confirmed={len(confirmed_defects)}건, "
+                f"재생성 {detail_attempts}회 후에도 개수 또는 유형/등급 조합 불일치)."
+            )
+
+    return {"detail": detail, "detail_attempts": detail_attempts}
+
+
+def node_detail_retry(state: ReportChainState) -> dict[str, Any]:
+    """detail 섹션 재생성 + 시도 횟수 증가 (그 후 detail_validation으로 돌아감)"""
+    confirmed_defects = state["confirmed_defects"]
+    detail_attempts = state.get("detail_attempts", 0)
+
+    logger.warning(
+        "detail 섹션 items가 confirmed_defects와 불일치(개수 또는 유형/등급 조합) — 재생성 시도 %d/%d",
+        detail_attempts + 1,
+        GROUNDING_MAX_RETRIES,
+    )
+    detail = _run_detail_chain(confirmed_defects)
+    detail_attempts += 1
 
     return {"detail": detail, "detail_attempts": detail_attempts}
 
 
 def node_grounding_check(state: ReportChainState) -> dict[str, Any]:
-    """summary grounding 검증 및 재생성 로직"""
+    """summary grounding 검증 — 판정만 (재시도는 조건부 엣지로)"""
     summary = state["summary"]
     grounding_defects = state["grounding_defects"]
     mismatch_policy = state["mismatch_policy"]
@@ -454,29 +462,34 @@ def node_grounding_check(state: ReportChainState) -> dict[str, Any]:
     claims = GroundingClaims(total_count=summary.total_count, count_by_grade=summary.count_by_grade)
     grounding_result = check_grounding(grounding_defects, claims, mismatch_policy)
 
-    # 불일치 → 재생성(최대 GROUNDING_MAX_RETRIES회, design §5-3)
-    while grounding_result.action is GroundingAction.REGENERATE and summary_attempts < GROUNDING_MAX_RETRIES:
-        summary = _run_summary_chain(state["confirmed_defects"])
-        claims = GroundingClaims(total_count=summary.total_count, count_by_grade=summary.count_by_grade)
-        grounding_result = check_grounding(grounding_defects, claims, mismatch_policy)
-        summary_attempts += 1
-
-    # 결과 판정 (기존 동작 보존)
+    # 결과 판정 (기존 동작 보존) — 소진된 REGENERATE는 grounding_ok=False
     grounding_ok = grounding_result.action is GroundingAction.PASS
     if grounding_result.action is GroundingAction.PASS:
         pass
     elif grounding_result.action is GroundingAction.REGENERATE:
-        logger.warning(
-            "Grounding mismatch가 재생성 %d회 후에도 지속됨 — grounding_ok=False로 반환(보고서 생성은 계속)",
-            summary_attempts,
-        )
+        if summary_attempts >= GROUNDING_MAX_RETRIES:
+            logger.warning(
+                "Grounding mismatch가 재생성 %d회 후에도 지속됨 — grounding_ok=False로 반환(보고서 생성은 계속)",
+                summary_attempts,
+            )
     elif grounding_result.action is GroundingAction.WARN:
         pass  # 설계 의도대로 재생성하지 않고 grounding_ok=False(또는 UNVERIFIABLE만 있으면 True)로 반영
     else:
         # GroundingAction 추가/변경 시 여기를 업그레이드 (지난번 프로덕션 다운 방지)
         raise ValueError(f"처리되지 않은 GroundingAction입니다: {grounding_result.action!r}")
 
-    return {"summary": summary, "summary_attempts": summary_attempts, "grounding_ok": grounding_ok}
+    return {"summary": summary, "summary_attempts": summary_attempts, "grounding_ok": grounding_ok, "grounding_result_action": grounding_result.action}
+
+
+def node_summary_retry(state: ReportChainState) -> dict[str, Any]:
+    """summary 재생성 + 시도 횟수 증가 (그 후 grounding_check으로 돌아감)"""
+    confirmed_defects = state["confirmed_defects"]
+    summary_attempts = state.get("summary_attempts", 0)
+
+    summary = _run_summary_chain(confirmed_defects)
+    summary_attempts += 1
+
+    return {"summary": summary, "summary_attempts": summary_attempts}
 
 
 def node_assemble_output(state: ReportChainState) -> dict[str, Any]:
@@ -490,25 +503,72 @@ def node_assemble_output(state: ReportChainState) -> dict[str, Any]:
     }
 
 
+# ── StateGraph 조건부 엣지 라우터 함수 ──
+
+def _detail_validation_router(state: ReportChainState) -> str:
+    """detail 검증 후 재시도 여부 판정 (라우터는 판정만, 예외 아님)"""
+    detail = state["detail"]
+    confirmed_defects = state["confirmed_defects"]
+    detail_attempts = state.get("detail_attempts", 0)
+
+    if not _detail_matches_confirmed(detail.items, confirmed_defects) and detail_attempts < GROUNDING_MAX_RETRIES:
+        return "detail_retry"
+    return "grounding_check"
+
+
+def _grounding_check_router(state: ReportChainState) -> str:
+    """grounding 검증 후 재시도 여부 판정 (라우터는 판정만, 예외 아님)"""
+    summary_attempts = state.get("summary_attempts", 0)
+    grounding_result_action = state.get("grounding_result_action")
+
+    if grounding_result_action is GroundingAction.REGENERATE and summary_attempts < GROUNDING_MAX_RETRIES:
+        return "summary_retry"
+    return "assemble_output"
+
+
 # ── StateGraph 컴파일 (모듈 로드 시 1회만) ──
 
 def _build_graph() -> StateGraph:
-    """보고서 체인 StateGraph 구성"""
+    """보고서 체인 StateGraph 구성 — 조건부 엣지로 detail/summary 재시도 사이클 구현"""
     graph = StateGraph(ReportChainState)
 
     # 노드 추가
     graph.add_node("init", node_init)
     graph.add_node("parallel_sections", node_parallel_sections)
     graph.add_node("detail_validation", node_detail_validation)
+    graph.add_node("detail_retry", node_detail_retry)
     graph.add_node("grounding_check", node_grounding_check)
+    graph.add_node("summary_retry", node_summary_retry)
     graph.add_node("assemble_output", node_assemble_output)
 
     # 엣지 연결
     graph.set_entry_point("init")
     graph.add_edge("init", "parallel_sections")
     graph.add_edge("parallel_sections", "detail_validation")
-    graph.add_edge("detail_validation", "grounding_check")
-    graph.add_edge("grounding_check", "assemble_output")
+
+    # detail 재시도 사이클 (조건부 엣지)
+    graph.add_conditional_edges(
+        "detail_validation",
+        _detail_validation_router,
+        {
+            "detail_retry": "detail_retry",
+            "grounding_check": "grounding_check",
+        },
+    )
+    graph.add_edge("detail_retry", "detail_validation")
+
+    # summary 재시도 사이클 (조건부 엣지)
+    graph.add_conditional_edges(
+        "grounding_check",
+        _grounding_check_router,
+        {
+            "summary_retry": "summary_retry",
+            "assemble_output": "assemble_output",
+        },
+    )
+    graph.add_edge("summary_retry", "grounding_check")
+
+    # 최종 엣지
     graph.add_edge("assemble_output", END)
 
     return graph.compile()
@@ -541,6 +601,7 @@ def run_report_chain(
         "grounding_ok": False,
         "grounding_defects": [],
         "mismatch_policy": MismatchPolicy("regenerate"),
+        "grounding_result_action": None,  # type: ignore
     }
 
     result = _compiled_graph.invoke(initial_state, config={"recursion_limit": 20})
