@@ -86,7 +86,8 @@ public class ReportController {
     @PostMapping("/api/reports/{id}/grounding-recheck")
     public ResponseEntity<ApiResponse<ReportDetailResponse>> recheckGrounding(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
-        ReportDetailResponse response = reportService.recheckGrounding(id, loginUser.getUserId());
+        ReportDetailResponse response =
+                reportService.recheckGrounding(id, loginUser.getCompanyId(), loginUser.getUserId());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 

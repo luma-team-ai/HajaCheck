@@ -283,11 +283,11 @@ class ReportServiceTest {
     void recheckGrounding_유형등급일치_grounding통과로기록() {
         Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
 
-        ReportDetailResponse response = reportService.recheckGrounding(5L, 100L);
+        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(response.groundingCheckPassed()).isTrue();
         assertThat(report.getGroundingWarnings()).isEqualTo("[]");
@@ -297,13 +297,13 @@ class ReportServiceTest {
     void recheckGrounding_순서가달라도멀티셋일치하면통과() {
         Report report = Report.draft(1L, 1, contentJsonWithDetailItems("박리·박락", "B", "균열", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of(
                         confirmedDefect(DefectType.CRACK, DefectGrade.C),
                         confirmedDefect(DefectType.SPALLING, DefectGrade.B)));
 
-        ReportDetailResponse response = reportService.recheckGrounding(5L, 100L);
+        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(response.groundingCheckPassed()).isTrue();
     }
@@ -312,11 +312,11 @@ class ReportServiceTest {
     void recheckGrounding_등급만달라도불일치() {
         Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "B"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
 
-        ReportDetailResponse response = reportService.recheckGrounding(5L, 100L);
+        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(response.groundingCheckPassed()).isFalse();
         assertThat(report.getGroundingWarnings()).contains("일치하지 않습니다");
@@ -326,11 +326,11 @@ class ReportServiceTest {
     void recheckGrounding_유형만달라도불일치() {
         Report report = Report.draft(1L, 1, contentJsonWithDetailItems("박리·박락", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
 
-        ReportDetailResponse response = reportService.recheckGrounding(5L, 100L);
+        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(response.groundingCheckPassed()).isFalse();
     }
@@ -339,13 +339,13 @@ class ReportServiceTest {
     void recheckGrounding_개수가달라도불일치() {
         Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of(
                         confirmedDefect(DefectType.CRACK, DefectGrade.C),
                         confirmedDefect(DefectType.SPALLING, DefectGrade.B)));
 
-        ReportDetailResponse response = reportService.recheckGrounding(5L, 100L);
+        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(response.groundingCheckPassed()).isFalse();
     }
@@ -355,9 +355,9 @@ class ReportServiceTest {
         Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
-                .when(inspectionService).getInspection(999L, 1L);
+                .when(inspectionService).getInspection(999L, 500L, 1L);
 
-        assertThatThrownBy(() -> reportService.recheckGrounding(5L, 999L))
+        assertThatThrownBy(() -> reportService.recheckGrounding(5L, 500L, 999L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.REPORT_NOT_FOUND));
         verify(defectRepository, never()).findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any());
@@ -374,9 +374,9 @@ class ReportServiceTest {
                 100L);
         report.finalizeReport("/api/reports/5/pdf/r.pdf", 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
 
-        assertThatThrownBy(() -> reportService.recheckGrounding(5L, 100L))
+        assertThatThrownBy(() -> reportService.recheckGrounding(5L, 500L, 100L))
                 .isInstanceOf(IllegalStateException.class);
     }
 
