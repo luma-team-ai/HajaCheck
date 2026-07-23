@@ -6,6 +6,10 @@ import { Button } from '../../../shared/components/Button';
 import { useInspectionResult } from '../../inspection/hooks/useInspectionResult';
 import { reportApi } from '../api/reportApi';
 import type { ReportDetailResponse } from '../api/reportApi';
+import { ReportContentEditor } from '../components/ReportContentEditor';
+import { isReportContent } from '../types';
+import type { ReportContent } from '../types';
+import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
 
 export function ReportGenerateStubPage() {
   const { id } = useParams<{ id: string }>();
@@ -13,8 +17,17 @@ export function ReportGenerateStubPage() {
   const inspectionId = Number(id);
 
   const [report, setReport] = useState<ReportDetailResponse | null>(null);
+  const [content, setContent] = useState<ReportContent | null>(null);
+  const [savedContent, setSavedContent] = useState<ReportContent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isRechecking, setIsRechecking] = useState(false);
+  const [recheckError, setRecheckError] = useState<string | null>(null);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [finalizeError, setFinalizeError] = useState<string | null>(null);
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
 
@@ -28,6 +41,14 @@ export function ReportGenerateStubPage() {
     };
   }, []);
 
+  const applyReport = (data: ReportDetailResponse) => {
+    setReport(data);
+    if (isReportContent(data.content)) {
+      setContent(data.content);
+      setSavedContent(data.content);
+    }
+  };
+
   const handleGenerateReport = async () => {
     if (isLoading) return;
     const controller = new AbortController();
@@ -38,7 +59,7 @@ export function ReportGenerateStubPage() {
     try {
       const response = await reportApi.generateReportDraft(inspectionId, controller.signal);
       if (!controller.signal.aborted) {
-        setReport(response.data);
+        applyReport(response.data);
       }
     } catch (err) {
       if (!controller.signal.aborted) {
@@ -49,6 +70,57 @@ export function ReportGenerateStubPage() {
       if (!controller.signal.aborted) {
         setIsLoading(false);
       }
+    }
+  };
+
+  const dirty = content !== null && savedContent !== null && JSON.stringify(content) !== JSON.stringify(savedContent);
+  const isFinalized = report?.status === 'FINALIZED';
+
+  const handleSave = async () => {
+    if (!report || !content || isSaving) return;
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      const response = await reportApi.updateContent(report.id, content);
+      applyReport(response.data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '저장에 실패했습니다.';
+      setSaveError(message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleGroundingRecheck = async () => {
+    if (!report || isRechecking) return;
+    setIsRechecking(true);
+    setRecheckError(null);
+    try {
+      const response = await reportApi.groundingRecheck(report.id);
+      applyReport(response.data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '확정 검증에 실패했습니다.';
+      setRecheckError(message);
+    } finally {
+      setIsRechecking(false);
+    }
+  };
+
+  const handleGeneratePdfAndFinalize = async () => {
+    if (!report || !content || isFinalizing || report.groundingCheckPassed !== true) return;
+    setIsFinalizing(true);
+    setFinalizeError(null);
+    try {
+      const pdfBlob = await exportReportToPdf(content);
+      const fileName = buildReportPdfFileName(inspectionId);
+      const uploadResponse = await reportApi.uploadPdf(report.id, pdfBlob, fileName);
+      const finalizeResponse = await reportApi.finalizeReport(report.id, uploadResponse.data.pdfUrl);
+      applyReport(finalizeResponse.data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'PDF 생성/확정에 실패했습니다.';
+      setFinalizeError(message);
+    } finally {
+      setIsFinalizing(false);
     }
   };
 
@@ -105,10 +177,12 @@ export function ReportGenerateStubPage() {
       ? (inspectionData.reviewedCount / inspectionData.totalCount) * 100
       : 0;
 
+  const canFinalize = report.groundingCheckPassed === true && !dirty && !isFinalized;
+
   return (
     <div className="flex h-full flex-col gap-6 py-6 pl-6 pr-28">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-text-default">보고서 초안 생성</h1>
+        <h1 className="text-2xl font-bold text-text-default">보고서 편집</h1>
         <Button onClick={handleBackToViewer} variant="secondary" size="md">
           분석 화면으로 돌아가기
         </Button>
@@ -196,16 +270,66 @@ export function ReportGenerateStubPage() {
         {report.groundingCheckPassed !== null && report.groundingCheckPassed !== undefined && (
           <div className="mt-6 rounded-lg bg-info-soft-bg p-3">
             <div className="text-sm text-info-soft-fg">
-              {report.groundingCheckPassed ? '✓ 검증 완료' : '⚠ 검증 대기 중'}
+              {report.groundingCheckPassed ? '✓ 검증 완료' : '⚠ 검증 실패 — 내용을 확인 후 다시 검증하세요.'}
             </div>
           </div>
         )}
       </div>
 
-      {/* NOTE: Stub notice */}
-      <div className="rounded-lg bg-yellow-50 p-4 text-sm text-yellow-800">
-        <strong>알림:</strong> 이 화면은 임시 화면입니다. 향후 보고서 편집 및 PDF 내보내기 기능이 추가될 예정입니다.
-      </div>
+      {isFinalized && (
+        <div className="rounded-lg bg-info-soft-bg p-3 text-sm text-info-soft-fg">
+          이 보고서는 확정되어 더 이상 편집할 수 없습니다.
+          {report.pdfUrl && (
+            <>
+              {' '}
+              <a href={report.pdfUrl} className="underline" target="_blank" rel="noreferrer">
+                PDF 보기
+              </a>
+            </>
+          )}
+        </div>
+      )}
+
+      {content && (
+        <ReportContentEditor content={content} onChange={setContent} readOnly={isFinalized} />
+      )}
+
+      {!isFinalized && (
+        <div className="flex flex-col gap-3 rounded-3xl border border-border bg-surface p-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={handleSave} variant="primary" disabled={!dirty || isSaving}>
+              {isSaving ? '저장 중...' : '저장'}
+            </Button>
+            <Button
+              onClick={handleGroundingRecheck}
+              variant="secondary"
+              disabled={dirty || isRechecking}
+            >
+              {isRechecking ? '검증 중...' : '확정 검증'}
+            </Button>
+            <Button
+              onClick={handleGeneratePdfAndFinalize}
+              variant="primary"
+              disabled={!canFinalize || isFinalizing}
+            >
+              {isFinalizing ? 'PDF 생성/확정 중...' : 'PDF 생성 후 확정'}
+            </Button>
+          </div>
+          {dirty && (
+            <p className="text-xs text-text-muted">
+              저장하지 않은 변경 사항이 있습니다. 확정 검증 전에 저장하세요.
+            </p>
+          )}
+          {report.groundingCheckPassed !== true && !dirty && (
+            <p className="text-xs text-text-muted">
+              확정 검증을 통과해야 PDF 생성 및 확정이 가능합니다.
+            </p>
+          )}
+          {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+          {recheckError && <p className="text-sm text-red-600">{recheckError}</p>}
+          {finalizeError && <p className="text-sm text-red-600">{finalizeError}</p>}
+        </div>
+      )}
     </div>
   );
 }
