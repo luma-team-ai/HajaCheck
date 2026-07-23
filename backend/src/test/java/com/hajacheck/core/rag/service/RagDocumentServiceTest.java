@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -34,6 +35,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
@@ -134,6 +136,22 @@ class RagDocumentServiceTest {
     void upload_AI서버연결예외_예외전파없이FAILED로전환() {
         when(aiProxyService.embedRagDocument(any()))
                 .thenThrow(new BusinessException(ErrorCode.AI_SERVER_UNREACHABLE));
+
+        RagDocumentResponse response = ragDocumentService.upload(file, REQUEST);
+
+        assertThat(response.embeddingStatus()).isEqualTo(RagEmbeddingStatus.FAILED);
+        verify(ragDocumentWriter).failEmbedding(any());
+    }
+
+    @Test
+    void upload_completeEmbedding이BusinessException아닌RuntimeException던지면_FAILED로전환되고EMBEDDING에고착되지않는다() {
+        // PR#685 리뷰 P2 회귀 방지 — completeEmbedding()이 @Version 낙관적 락 충돌 등
+        // BusinessException이 아닌 RuntimeException을 던지는 경우도 catch(BusinessException)만으로는
+        // 못 잡아 문서가 EMBEDDING 상태로 영구 고착됐었다. RuntimeException으로 넓힌 catch가
+        // 이 경로도 failEmbedding()으로 귀결시키는지 확인한다.
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(3)));
+        doThrow(new OptimisticLockingFailureException("동시 갱신 충돌"))
+                .when(ragDocumentWriter).completeEmbedding(any(), anyInt());
 
         RagDocumentResponse response = ragDocumentService.upload(file, REQUEST);
 

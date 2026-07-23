@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-from ai.core.rag_ingest import delete_document, ingest_document
+from ai.core.rag_ingest import delete_document, delete_stale_chunks, ingest_document
 from ai.core.vectorstore import COLLECTION_DEFECT_KB, COLLECTION_REGULATIONS
 from main import app
 
@@ -136,11 +136,24 @@ def test_delete_document_doc_id로where삭제(mock_get_vectorstore):
     mock_vs._collection.delete.assert_called_once_with(where={"doc_id": "42"})
 
 
+@patch("ai.core.rag_ingest.get_vectorstore")
+def test_delete_stale_chunks_keep_chunk_count이상만삭제(mock_get_vectorstore):
+    mock_vs = MagicMock()
+    mock_get_vectorstore.return_value = mock_vs
+
+    delete_stale_chunks("42", COLLECTION_REGULATIONS, 3)
+
+    mock_get_vectorstore.assert_called_once_with(COLLECTION_REGULATIONS)
+    mock_vs._collection.delete.assert_called_once_with(
+        where={"$and": [{"doc_id": "42"}, {"chunk_index": {"$gte": 3}}]}
+    )
+
+
 # ── /ai/rag-documents/embed 엔드포인트 ──
 
-@patch("routers.ai_router.delete_document")
+@patch("routers.ai_router.delete_stale_chunks")
 @patch("routers.ai_router.ingest_document")
-def test_embed_endpoint_성공_chunk_count반환(mock_ingest, mock_delete):
+def test_embed_endpoint_성공_chunk_count반환(mock_ingest, mock_delete_stale):
     mock_ingest.return_value = 5
 
     res = client.post(
@@ -159,13 +172,14 @@ def test_embed_endpoint_성공_chunk_count반환(mock_ingest, mock_delete):
     body = res.json()
     assert body["success"] is True
     assert body["data"]["chunk_count"] == 5
-    mock_delete.assert_called_once_with("42", "regulations")
+    # 삭제는 ingest 성공 이후, 실제 반환된 chunk_count로 초과분만 정리한다.
+    mock_delete_stale.assert_called_once_with("42", "regulations", 5)
     mock_ingest.assert_called_once()
 
 
-@patch("routers.ai_router.delete_document")
+@patch("routers.ai_router.delete_stale_chunks")
 @patch("routers.ai_router.ingest_document")
-def test_embed_endpoint_잘못된target_collection_VALIDATION_ERROR(mock_ingest, mock_delete):
+def test_embed_endpoint_잘못된target_collection_VALIDATION_ERROR(mock_ingest, mock_delete_stale):
     mock_ingest.side_effect = ValueError("unknown collection: bogus")
 
     res = client.post(
@@ -185,9 +199,9 @@ def test_embed_endpoint_잘못된target_collection_VALIDATION_ERROR(mock_ingest,
     assert body["error"]["code"] == "VALIDATION_ERROR"
 
 
-@patch("routers.ai_router.delete_document")
+@patch("routers.ai_router.delete_stale_chunks")
 @patch("routers.ai_router.ingest_document")
-def test_embed_endpoint_예상치못한예외_LLM_INVALID_OUTPUT폴백(mock_ingest, mock_delete):
+def test_embed_endpoint_예상치못한예외_LLM_INVALID_OUTPUT폴백(mock_ingest, mock_delete_stale):
     mock_ingest.side_effect = RuntimeError("chroma write failed")
 
     res = client.post(
@@ -205,6 +219,28 @@ def test_embed_endpoint_예상치못한예외_LLM_INVALID_OUTPUT폴백(mock_inge
     body = res.json()
     assert body["success"] is False
     assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
+
+
+@patch("routers.ai_router.delete_stale_chunks")
+@patch("routers.ai_router.ingest_document")
+def test_embed_endpoint_ingest실패시기존청크삭제안함(mock_ingest, mock_delete_stale):
+    # PR#685 리뷰 P2 회귀 방지 — ingest_document()가 실패하면 delete_stale_chunks()가 아예
+    # 호출되지 않아야, 방금까지 정상 서빙되던 기존 임베딩이 삭제-후-삽입 실패로 사라지는 창이
+    # 재발하지 않는다.
+    mock_ingest.side_effect = RuntimeError("chroma write failed")
+
+    client.post(
+        "/ai/rag-documents/embed",
+        json={
+            "doc_id": "1",
+            "title": "문서",
+            "doc_type": "LAW",
+            "target_collection": "regulations",
+            "text": "본문",
+        },
+    )
+
+    mock_delete_stale.assert_not_called()
 
 
 def test_embed_endpoint_필수필드누락_422():

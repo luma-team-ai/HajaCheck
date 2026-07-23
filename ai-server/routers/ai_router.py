@@ -34,7 +34,7 @@ from ai.core.grounding import (
     MismatchPolicy,
     check_grounding,
 )
-from ai.core.rag_ingest import delete_document, ingest_document
+from ai.core.rag_ingest import delete_stale_chunks, ingest_document
 from ai.core.schemas import AIErrorCode, AIResponse
 
 logger = logging.getLogger(__name__)
@@ -274,14 +274,16 @@ class RagDocumentEmbedRequest(BaseModel):
 
 @router.post("/rag-documents/embed")
 def rag_documents_embed(req: RagDocumentEmbedRequest) -> AIResponse:
-    """RAG 문서 임베딩(#22/HAJA-35, PRD FR-8-B) — 동일 doc_id의 기존 청크를 먼저 삭제한 뒤(재임베딩
-    시 중복 방지, 최초 업로드는 no-op) 청킹+적재한다. LLM 호출이 없는 결정론적 데이터 처리라 grounding-
-    check와 같은 계열이지만, 이 레포 catch-all 관례(ValueError→VALIDATION_ERROR, 나머지→고정 메시지
-    폴백)를 그대로 재사용한다 — 임베딩 모델 로드 실패 등 예측 어려운 실패도 스택은 서버 로그로만 남기고
-    클라이언트에는 내부 정보를 노출하지 않는다.
+    """RAG 문서 임베딩(#22/HAJA-35, PRD FR-8-B) — 청킹+적재(upsert)를 먼저 하고, 성공한 뒤에만
+    옛 문서의 초과 청크(재임베딩으로 청크 수가 줄어든 경우의 나머지)를 정리한다. 이전엔 삭제를
+    먼저 해 재삽입 실패 시 방금까지 정상 서빙되던 임베딩을 통째로 잃는 창이 있었다(PR#685 리뷰
+    P2) — add_texts()가 동일 chunk id를 upsert하므로 삭제 없이도 재임베딩이 안전하게 덮어써진다.
+    LLM 호출이 없는 결정론적 데이터 처리라 grounding-check와 같은 계열이지만, 이 레포 catch-all
+    관례(ValueError→VALIDATION_ERROR, 나머지→고정 메시지 폴백)를 그대로 재사용한다 — 임베딩 모델
+    로드 실패 등 예측 어려운 실패도 스택은 서버 로그로만 남기고 클라이언트에는 내부 정보를
+    노출하지 않는다.
     """
     try:
-        delete_document(req.doc_id, req.target_collection)
         chunk_count = ingest_document(
             req.doc_id,
             req.title,
@@ -293,6 +295,9 @@ def rag_documents_embed(req: RagDocumentEmbedRequest) -> AIResponse:
             authored_at=req.authored_at,
             verification_status=req.verification_status,
         )
+        # 옛 문서가 더 길었을 때만 남는 초과 청크 정리 — 실패해도 새 임베딩 자체는 이미 반영돼
+        # 있으므로 검색 결과에 영향 없다(최악의 경우 초과분 몇 개가 잠시 더 남을 뿐).
+        delete_stale_chunks(req.doc_id, req.target_collection, chunk_count)
     except ValueError as e:
         # target_collection이 regulations/defect_kb가 아닌 경우 등 — 내부 경로/모델명 노출 없는 메시지.
         return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, str(e))

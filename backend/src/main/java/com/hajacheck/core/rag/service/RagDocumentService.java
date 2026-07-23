@@ -146,11 +146,16 @@ public class RagDocumentService {
                 log.warn("RAG 문서 임베딩 실패(AI 서버 응답 실패) documentId={}", documentId);
                 ragDocumentWriter.failEmbedding(documentId);
             }
-        } catch (BusinessException e) {
-            // AI 서버 연결/타임아웃/응답형식 실패 — 업로드 자체는 실패시키지 않고 FAILED로 남긴다
-            // (관리자가 재임베딩으로 복구, handoff §Java 구현 상세).
-            log.warn("RAG 문서 임베딩 실패(AI 서버 호출 예외) documentId={} errorCode={}",
-                    documentId, e.getErrorCode(), e);
+        } catch (RuntimeException e) {
+            // AI 서버 연결/타임아웃/응답형식 실패(BusinessException)뿐 아니라, completeEmbedding()의
+            // @Version 낙관적 락 충돌(OptimisticLockException) 등 그 밖의 런타임 예외도 여기서 잡아야
+            // 한다 — BusinessException만 잡던 이전 구현은 그 밖의 예외가 그대로 전파돼 문서가
+            // EMBEDDING 상태로 커밋된 채 남고, restartEmbedding()이 EMBEDDING을 거부해 관리자가
+            // 재임베딩으로도 복구할 수 없는 고착 상태를 만들었다(PR#685 리뷰 P2). 업로드 자체는
+            // 실패시키지 않고 FAILED로 남긴다(관리자가 재임베딩으로 복구, handoff §Java 구현 상세).
+            // ⚠️ failEmbedding() 자체가 또 실패하는 경우(예: 그사이 동시 갱신)는 이 fallback으로도
+            // 못 막는다 — 그 정도로 좁은 창은 이번 수정 범위 밖으로 남긴다.
+            log.warn("RAG 문서 임베딩 실패 documentId={}", documentId, e);
             ragDocumentWriter.failEmbedding(documentId);
         }
     }

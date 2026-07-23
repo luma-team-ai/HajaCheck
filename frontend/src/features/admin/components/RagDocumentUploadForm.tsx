@@ -49,6 +49,7 @@ export function RagDocumentUploadForm({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
+  const [dropError, setDropError] = useState(false);
   const [title, setTitle] = useState(INITIAL_FORM_VALUES.title);
   const [sourceType, setSourceType] = useState<RagDocumentSourceType>(INITIAL_FORM_VALUES.sourceType);
   const [targetCollection, setTargetCollection] = useState<RagTargetCollection>(
@@ -84,14 +85,17 @@ export function RagDocumentUploadForm({
   }
 
   // accept 속성은 드래그앤드롭엔 적용되지 않아(BusinessLicenseUpload와 동일 이유) 아무 파일이나
-  // 들어올 수 있다 — PDF가 아니면 받지 않고 아래 fileValid 검증 메시지로 안내한다.
+  // 들어올 수 있다 — PDF가 아니면 이전엔 아무 피드백 없이 무시해 "왜 반응이 없지"로 읽혔다
+  // (PR#685 리뷰 P3). 클릭 선택 경로의 fileValid 검증 메시지와 같은 문구로 안내한다.
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setIsDragActive(false);
     const dropped = event.dataTransfer.files?.[0] ?? null;
     if (dropped && dropped.type !== 'application/pdf') {
+      setDropError(true);
       return;
     }
+    setDropError(false);
     setFile(dropped);
   }
 
@@ -177,6 +181,7 @@ export function RagDocumentUploadForm({
           </div>
         )}
 
+        {dropError && <p className="m-0 text-xs text-danger">PDF 파일만 업로드할 수 있습니다.</p>}
         {touched && !fileValid && <p className="m-0 text-xs text-danger">PDF 파일을 선택해 주세요.</p>}
       </div>
 

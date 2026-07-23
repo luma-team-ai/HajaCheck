@@ -87,8 +87,10 @@ def ingest_document(
 
 
 def delete_document(doc_id: str, collection: str) -> None:
-    """동일 doc_id의 기존 청크를 전부 삭제한다(재임베딩 첫 단계) — 최초 업로드 시엔 매칭되는 청크가
-    없어 no-op이다. ingest_document() 재호출 전에 먼저 불러 idempotent 재임베딩을 구현한다."""
+    """동일 doc_id의 기존 청크를 전부 삭제한다. ingest_document()보다 먼저 부르면(구 재임베딩 순서)
+    재삽입 실패 시 기존 임베딩을 통째로 잃는다(PR#685 리뷰 P2) — 재임베딩 경로에서는 대신
+    delete_stale_chunks()를 ingest_document() 성공 이후에 쓴다. 이 함수는 문서 자체를 완전히
+    지우는 별도 시나리오(현재 미구현)를 위해 남겨둔다."""
     vectorstore = get_vectorstore(collection)
     # langchain_chroma==0.1.4의 Chroma.delete(ids=None, **kwargs)는 where를 **kwargs로 받아놓고
     # self._collection.delete(ids=ids)만 호출해 실제로는 버린다 — where 없이 ids=None으로 호출되면
@@ -96,3 +98,16 @@ def delete_document(doc_id: str, collection: str) -> None:
     # 던져 모든 (재)임베딩이 실패한다(code-review P1). 래퍼를 우회해 내부 chromadb 컬렉션을 직접
     # 호출한다.
     vectorstore._collection.delete(where={"doc_id": doc_id})
+
+
+def delete_stale_chunks(doc_id: str, collection: str, keep_chunk_count: int) -> None:
+    """재임베딩 후 남은 옛 청크(chunk_index >= keep_chunk_count)만 삭제한다 — Chroma.add_texts()가
+    upsert이므로(collection.upsert, 동일 id 덮어씀) 0..keep_chunk_count-1 구간은 이미 새 내용으로
+    갱신돼 있다. 옛 문서가 새 문서보다 청크가 더 많았을 때 남는 초과분만 정리 대상이다.
+    ingest_document() **성공 이후에만** 호출한다(PR#685 리뷰 P2 — 삭제를 먼저 하면 재삽입 실패 시
+    방금까지 정상 서빙되던 임베딩이 전부 사라진다). 새 문서가 청크 0개(빈 텍스트)일 수도 있어
+    keep_chunk_count=0이면 사실상 전체 삭제와 동일하게 동작한다."""
+    vectorstore = get_vectorstore(collection)
+    vectorstore._collection.delete(
+        where={"$and": [{"doc_id": doc_id}, {"chunk_index": {"$gte": keep_chunk_count}}]}
+    )
