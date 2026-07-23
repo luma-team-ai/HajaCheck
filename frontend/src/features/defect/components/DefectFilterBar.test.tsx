@@ -135,7 +135,7 @@ describe("DefectFilterBar", () => {
     ).not.toBeNull();
   });
 
-  it("등급 이하 범위는 적용하지 않고 안내한다", async () => {
+  it("등급 이하 범위(E로 안 끝남)는 적용하지 않고 안내하며 기존 필터를 유지한다", async () => {
     server.use(
       http.post("/api/defects/nl-search", () =>
         HttpResponse.json({
@@ -149,10 +149,65 @@ describe("DefectFilterBar", () => {
         }),
       ),
     );
+    // grade만 인식됐지만 미표현 범위라 적용 가능 조건 0건 → 기존 수동필터 유지(onChange 미호출), 안내만.
     const { onChange } = renderFilterBar({ page: 0, size: 20 });
 
     fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
       target: { value: "B등급 이하 하자 보여줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+
+    expect(
+      await screen.findByText("등급 A, B 조건은 아직 목록 필터에 정확히 적용할 수 없어 제외했어요"),
+    ).not.toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("[P2-1] 단일 non-E 등급(A만)은 `>=`로 오노출되므로 적용하지 않고 안내한다", async () => {
+    server.use(
+      http.post("/api/defects/nl-search", () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            filters: { type: [], grade: ["A"], status: [], confidenceMin: null },
+            unsupported_terms: [],
+            clarifying_question: null,
+            interpretation_confidence: 0.9,
+          },
+        }),
+      ),
+    );
+    const { onChange } = renderFilterBar({ page: 0, size: 20 });
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "A등급 하자만 보여줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+
+    expect(
+      await screen.findByText("등급 A 조건은 아직 목록 필터에 정확히 적용할 수 없어 제외했어요"),
+    ).not.toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("[P2-3] 내림차순(E, D)으로 와도 정렬 후 min으로 적용한다", async () => {
+    server.use(
+      http.post("/api/defects/nl-search", () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            filters: { type: [], grade: ["E", "D"], status: [], confidenceMin: null },
+            unsupported_terms: [],
+            clarifying_question: null,
+            interpretation_confidence: 0.9,
+          },
+        }),
+      ),
+    );
+    const { onChange } = renderFilterBar({ page: 0, size: 20 });
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "중대·경고 하자 보여줘" },
     });
     fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
 
@@ -161,13 +216,39 @@ describe("DefectFilterBar", () => {
         page: 0,
         size: 20,
         type: undefined,
-        grade: undefined,
+        grade: "D",
         status: undefined,
       }),
     );
+    expect(screen.queryByText(/정확히 적용할 수 없어/)).toBeNull();
+  });
+
+  it("[P2-2] 적용 가능한 조건이 0건이면 기존 수동필터를 유지하고 안내만 한다", async () => {
+    server.use(
+      http.post("/api/defects/nl-search", () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            filters: { type: [], grade: [], status: [], confidenceMin: null },
+            unsupported_terms: ["지하주차장"],
+            clarifying_question: null,
+            interpretation_confidence: 0.9,
+          },
+        }),
+      ),
+    );
+    // 사전 수동필터(type=CRACK)가 있는 상태에서 전 필드 빈 배열 응답이 와도 조용히 날리지 않는다.
+    const { onChange } = renderFilterBar({ type: "CRACK", page: 0, size: 20 });
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "지하주차장 하자 보여줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+
     expect(
-      await screen.findByText("등급 A, B 이하 조건은 아직 목록 필터에 적용할 수 없어 제외했어요"),
+      await screen.findByText("다음 조건은 아직 지원하지 않아 제외했어요: 지하주차장"),
     ).not.toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("되묻는 질문이 오면 필터를 적용하지 않고 질문만 보여준다", async () => {

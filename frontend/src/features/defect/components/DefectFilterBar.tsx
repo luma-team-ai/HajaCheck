@@ -17,20 +17,33 @@ type Props = {
   onChange: (filters: DefectListFilters) => void;
 };
 
-// 백엔드 GET /api/defects의 grade 파라미터는 `>=`(이상) 의미로 이미 구현돼 있다
-// (DefectRepositoryImpl.java의 greaterThanOrEqualTo). 따라서 배열이 E로 끝나는 "~이상" 범위는
-// grade[0]만 보내도 정확하지만, E로 끝나지 않는 "~이하" 범위(예: A~B)는 `<=` 필터가 없어
-// 프론트만으로는 정확히 표현할 수 없다 — 이 경우 필터를 적용하지 않고 안내만 한다(리뷰 P2).
+// 등급 심각도 오름차순 순서(A=양호 … E=중대). 백엔드 GET /api/defects의 grade 파라미터는
+// `>=`(이상, 심각도 min 이상) 의미로만 구현돼 있어(DefectRepositoryImpl.java의 greaterThanOrEqualTo),
+// 정확히 표현 가능한 다중 등급은 "최고 등급 E로 끝나는 연속 집합(min..E)"뿐이다.
+const GRADE_ORDER: Record<DefectGrade, number> = { A: 0, B: 1, C: 2, D: 3, E: 4 };
+
+// grade 배열을 단일 `>= min` 파라미터로 변환한다. `>= min`은 심각도 min..E 를 정확히 표현하므로,
+// E로 끝나는 연속 집합만 그대로 적용한다. 그 외는 상위 등급까지 오노출되므로 미적용 + 안내(리뷰 P2):
+//  - 단일 non-E(예: ["A"] = "A만" 의도)를 `>= A`로 보내면 A~E 전부 노출됨(P2-1)
+//  - E로 끝나지 않는 "~이하" 범위(예: ["A","B"])는 `<=` 필터가 없어 표현 불가
+//  - 비연속 집합(예: ["A","C"])도 단일 임계값으로 표현 불가
+// structured output은 배열 순서를 보장하지 않으므로(예: ["E","D"] 내림차순 가능) 심각도 오름차순
+// 정렬 후 판별한다(P2-3).
 function resolveGradeFilter(grade: DefectGrade[]): { value: DefectGrade | undefined; notice: string | null } {
-  if (grade.length <= 1) {
-    return { value: grade[0], notice: null };
+  if (grade.length === 0) {
+    return { value: undefined, notice: null };
   }
-  if (grade[grade.length - 1] === "E") {
-    return { value: grade[0], notice: null };
+  const sorted = [...grade].sort((a, b) => GRADE_ORDER[a] - GRADE_ORDER[b]);
+  const contiguousToE =
+    sorted[sorted.length - 1] === "E" &&
+    sorted.every((g, i) => GRADE_ORDER[g] === GRADE_ORDER[sorted[0]] + i);
+  if (contiguousToE) {
+    // `>= sorted[0]` == sorted[0]..E, 정확히 표현됨
+    return { value: sorted[0], notice: null };
   }
   return {
     value: undefined,
-    notice: `등급 ${grade.join(", ")} 이하 조건은 아직 목록 필터에 적용할 수 없어 제외했어요`,
+    notice: `등급 ${sorted.join(", ")} 조건은 아직 목록 필터에 정확히 적용할 수 없어 제외했어요`,
   };
 }
 
@@ -90,7 +103,15 @@ export function DefectFilterBar({ filters, onChange }: Props) {
         if (result.clarifying_question) {
           return;
         }
-        onChange({ ...filters, ...toDefectListFilters(result.filters), page: 0 });
+        // 적용 가능한 조건이 0건이면(전부 unsupported·미표현 등급·confidenceMin 등) 사용자의 기존
+        // 수동필터를 조용히 덮어쓰지 않고 그대로 유지한다 — 안내(notices)만 노출한다(리뷰 P2).
+        const applied = toDefectListFilters(result.filters);
+        const hasApplicable =
+          applied.type !== undefined || applied.grade !== undefined || applied.status !== undefined;
+        if (!hasApplicable) {
+          return;
+        }
+        onChange({ ...filters, ...applied, page: 0 });
       },
     });
   }
