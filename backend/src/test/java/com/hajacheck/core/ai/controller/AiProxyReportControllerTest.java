@@ -1,6 +1,7 @@
 package com.hajacheck.core.ai.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -103,7 +104,7 @@ class AiProxyReportControllerTest extends PostgresTestSupport {
                         List.of("지하주차장")),
                 true);
 
-        when(aiProxyService.generateReport(any())).thenReturn(ApiResponse.ok(response));
+        when(aiProxyService.generateReport(anyLong(), any())).thenReturn(ApiResponse.ok(response));
 
         mockMvc.perform(post("/api/ai/report").with(csrf()).with(authentication(auth))
                         .contentType(MediaType.APPLICATION_JSON)

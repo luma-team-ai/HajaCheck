@@ -79,7 +79,7 @@ public class ReportService {
         ReportRequest request = GroundingReportRequestFactory.from(
                 context, facilityInfo, confirmedDefectDtos, DEFAULT_ON_MISMATCH);
 
-        ReportResponse aiReport = callAiServer(request);
+        ReportResponse aiReport = callAiServer(userId, request);
 
         String contentJson = GroundingReportContentSerializer.serialize(aiReport);
         Report report = Report.draft(inspectionId, nextVersion, contentJson, userId);
@@ -135,11 +135,12 @@ public class ReportService {
                 .orElse(1);
     }
 
-    private ReportResponse callAiServer(ReportRequest request) {
+    private ReportResponse callAiServer(Long userId, ReportRequest request) {
         // AiProxyService.generateReport()는 연결/타임아웃/응답형식 실패를 이미 BusinessException으로
         // 던진다(AiProxyService 참고) — 여기서 잡는 것은 envelope 자체는 정상 수신했으나 AI 서버가
         // 보고서 생성을 논리적으로 거부한 경우(envelope.success()=false)뿐이다.
-        ApiResponse<ReportResponse> response = aiProxyService.generateReport(request);
+        // userId 는 generateDraft 가 principal 에서 받은 값 — 사용자 축 rate-limit 키로 전달한다.
+        ApiResponse<ReportResponse> response = aiProxyService.generateReport(userId, request);
         if (!response.success() || response.data() == null) {
             throw new BusinessException(ErrorCode.REPORT_GENERATION_FAILED);
         }

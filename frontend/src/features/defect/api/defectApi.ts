@@ -2,6 +2,7 @@ import { aiClient } from '../../../shared/api/aiClient';
 import { api } from '../../../shared/api/axios';
 import type { PageResponse } from '../../../shared/api/types';
 import type { Defect, DefectListFilters, DefectRevision, DefectStatus } from '../types';
+import type { NlSearchResult } from '../nlSearchTypes';
 
 // DefectController.getRevisions @PageableDefault(size=20)과 반드시 일치시킬 것.
 export const DEFECT_REVISIONS_PAGE_SIZE = 20;
@@ -37,4 +38,8 @@ export const defectApi = {
   // 몇 건씩 요청하는지 암묵적으로 백엔드 기본값에 기대지 않기 위함.
   getRevisions: (id: number, page = 0, size = DEFECT_REVISIONS_PAGE_SIZE) =>
     api.get<PageResponse<DefectRevision>>(`/defects/${id}/revisions`, { params: { page, size } }),
+  // POST /api/defects/nl-search — 자연어 검색 → 필터 조건 변환. 세션 인증·점검자 역할·AI 부가 기능
+  // 게이트가 걸린 공개 Spring 게이트웨이라 aiClient가 아니라 일반 백엔드 클라이언트(api)를 사용한다
+  // (docs/design/ai/nl_search_filter_schema.md §4 — "프론트도 aiClient가 아니라... Spring API 클라이언트 사용").
+  nlSearch: (query: string) => api.post<NlSearchResult>('/defects/nl-search', { query }),
 };
