@@ -19,23 +19,35 @@ export function ReportGenerateStubPage() {
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const generateReport = async () => {
       setIsLoading(true);
       setError(null);
       try {
         const response = await reportApi.generateReportDraft(inspectionId);
-        setReport(response.data);
+        if (!controller.signal.aborted) {
+          setReport(response.data);
+        }
       } catch (err) {
-        const message = err instanceof Error ? err.message : '보고서 생성에 실패했습니다.';
-        setError(message);
+        if (!controller.signal.aborted) {
+          const message = err instanceof Error ? err.message : '보고서 생성에 실패했습니다.';
+          setError(message);
+        }
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+        }
       }
     };
 
     if (Number.isInteger(inspectionId) && inspectionId > 0) {
       generateReport();
     }
+
+    return () => {
+      controller.abort();
+    };
   }, [inspectionId]);
 
   const handleBackToViewer = () => {
