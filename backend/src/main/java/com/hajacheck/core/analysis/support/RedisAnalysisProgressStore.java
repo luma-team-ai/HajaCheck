@@ -8,6 +8,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -34,9 +35,14 @@ public class RedisAnalysisProgressStore implements AnalysisProgressStore {
         try {
             String json = objectMapper.writeValueAsString(progress);
             redisTemplate.opsForValue().set(RedisAnalysisKeys.progressKey(progress.inspectionId()), json, TTL);
-        } catch (JsonProcessingException e) {
-            // 진행률 캐시 실패로 잡 자체를 중단시키지 않는다 — GET이 DB 폴백으로 최선 응답한다.
-            log.warn("분석 진행 상태 직렬화 실패 — inspectionId={}", progress.inspectionId(), e);
+        } catch (JsonProcessingException | DataAccessException e) {
+            // 진행률 캐시 실패로 잡 자체를 중단시키지 않는다(코드 리뷰 P2) — GET이 DB 폴백으로 최선
+            // 응답한다. 예전엔 JsonProcessingException(직렬화 오류)만 잡아서, redisTemplate.set이
+            // 던지는 RedisConnectionFailureException/RedisSystemException(둘 다 DataAccessException
+            // 하위, unchecked) 같은 Redis 연결 장애는 그대로 밖으로 튀어 이 메서드가 이미지별
+            // try/catch 바깥(publish())에서 호출되는 InspectionAnalysisWorker.runAsync() 자체를
+            // 중단시켰다 — 상태가 ANALYZING에 고착되는 실제 원인이었다.
+            log.warn("분석 진행 상태 캐시 저장 실패 — inspectionId={}", progress.inspectionId(), e);
         }
     }
 

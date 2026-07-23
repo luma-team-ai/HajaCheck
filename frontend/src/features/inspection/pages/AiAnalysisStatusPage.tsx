@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
 import { CHART_GRADE_COLORS } from '../../../shared/components/charts/palette';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
+import { inspectionApi } from '../api/inspectionApi';
 import type { AnalysisFileStatus, AnalysisStage, AnalysisStatusResponse } from '../api/inspectionApi.types';
 import { useAnalysisStatus } from '../hooks/useAnalysisStatus';
 import { buildEmptyAnalysisStatus } from '../mocks/aiAnalysisStatus.mock';
@@ -95,7 +97,9 @@ export function AiAnalysisStatusPage() {
   const inspectionId = id ? Number(id) : null;
   const isRealMode = inspectionId !== null && !Number.isNaN(inspectionId);
 
-  const { data: realStatus, isLoading, isError } = useAnalysisStatus(isRealMode ? inspectionId : null);
+  const { data: realStatus, isLoading, isError, refetch } = useAnalysisStatus(isRealMode ? inspectionId : null);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   if (isRealMode && isLoading) {
     return <LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />;
@@ -109,6 +113,26 @@ export function AiAnalysisStatusPage() {
   const status = isRealMode && realStatus ? fromRealStatus(realStatus) : fromMockStatus(buildEmptyAnalysisStatus());
   const currentStageIndex = STAGES.findIndex((stage) => stage.key === status.stage);
   const isDone = status.stage === 'done';
+  // 코드 리뷰 P2 — 워커가 이미지 전체 실패로 롤백하면 stage가 'failed'다. useAnalysisStatus는 이미
+  // 이 상태에서 폴링을 멈추므로(무한 "진행 중 0%" 방지), 화면에서도 명확히 실패로 안내하고
+  // 재시도 경로(POST /analyze 재호출)를 열어둔다 — 안 그러면 화면 이탈 말고는 빠져나갈 길이 없다.
+  const isFailed = status.stage === 'failed';
+
+  const handleRetry = async () => {
+    if (!isRealMode || inspectionId === null || isRetrying) {
+      return;
+    }
+    setIsRetrying(true);
+    setRetryError(null);
+    try {
+      await inspectionApi.startAnalysis(inspectionId);
+      await refetch();
+    } catch (error) {
+      setRetryError(error instanceof Error ? error.message : '재시도에 실패했습니다.');
+    } finally {
+      setIsRetrying(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6 px-8 py-8">
@@ -288,7 +312,11 @@ export function AiAnalysisStatusPage() {
 
         <div className="absolute inset-x-0 bottom-0 flex items-center justify-between rounded-b-[20px] border-t border-neutral-200/50 bg-white/70 px-8 py-4 backdrop-blur">
           <p className="m-0 text-[13px] text-neutral-500">
-            {status.failedCount > 0 ? (
+            {isFailed ? (
+              <span className="font-medium text-[#BA1A1A]">
+                {retryError ?? 'AI 분석에 실패했습니다. 다시 시도해 주세요.'}
+              </span>
+            ) : status.failedCount > 0 ? (
               <>
                 실패 <span className="font-medium text-[#BA1A1A]">{status.failedCount}건</span>
               </>
@@ -301,22 +329,30 @@ export function AiAnalysisStatusPage() {
             )}
           </p>
           <div className="flex items-center gap-3">
-            <Button type="button" variant="secondary">
-              분석 취소
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              disabled={!isDone}
-              title={isDone ? undefined : '분석 완료 후 활성화'}
-              onClick={() => {
-                if (isDone && isRealMode) {
-                  navigate(`/inspections/${inspectionId}/viewer`);
-                }
-              }}
-            >
-              {isDone ? '검수 시작' : '검수 시작 — 분석 완료 후 활성화'}
-            </Button>
+            {isFailed ? (
+              <Button type="button" variant="primary" onClick={() => void handleRetry()} disabled={isRetrying}>
+                {isRetrying ? '재시도 중...' : '재시도'}
+              </Button>
+            ) : (
+              <>
+                <Button type="button" variant="secondary">
+                  분석 취소
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  disabled={!isDone}
+                  title={isDone ? undefined : '분석 완료 후 활성화'}
+                  onClick={() => {
+                    if (isDone && isRealMode) {
+                      navigate(`/inspections/${inspectionId}/viewer`);
+                    }
+                  }}
+                >
+                  {isDone ? '검수 시작' : '검수 시작 — 분석 완료 후 활성화'}
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </div>

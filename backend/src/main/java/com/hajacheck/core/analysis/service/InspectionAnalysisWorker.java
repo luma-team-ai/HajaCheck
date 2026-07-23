@@ -40,6 +40,9 @@ import org.springframework.stereotype.Component;
  * <p>재분석 시 기존 하자 소프트삭제(멱등화)는 {@link InspectionAnalysisService}가 아니라 이 클래스가
  * 담당한다(코드 리뷰 P1/P2 픽스) — 실제로 첫 탐지가 성공한 시점에 지연 실행해, 트리거 메서드에서
  * 미리 지웠다가 이후 큐 포화·전체 실패로 롤백되며 검수 완료된 하자가 보상 없이 유실되는 걸 막는다.
+ * 그 삭제는 첫 이미지의 저장과 {@link DefectWriter#softDeleteAllForInspectionThenSave} 한 트랜잭션으로
+ * 원자화돼 있다 — saveAll만 따로 뒤에 두면 실패 시 삭제가 보상 안 되고, 반대로 저장부터 하면 방금
+ * 저장한 새 하자까지 소프트삭제(전체 비삭제 행 대상)에 휩쓸려 지워지는 두 오답을 모두 피한다.
  */
 @Slf4j
 @Component
@@ -86,10 +89,6 @@ public class InspectionAnalysisWorker {
             Instant startedAt = Instant.now();
             try {
                 List<DetectedDefectItem> detections = detect(media);
-                if (!oldDefectsCleared) {
-                    defectWriter.softDeleteAllForInspection(inspectionId);
-                    oldDefectsCleared = true;
-                }
                 List<Defect> toSave = new ArrayList<>(detections.size());
                 for (DetectedDefectItem item : detections) {
                     Defect defect = toDefect(inspectionId, media.getId(), item);
@@ -105,7 +104,17 @@ public class InspectionAnalysisWorker {
                         riskyCrackCount++;
                     }
                 }
-                defectWriter.saveAll(toSave);
+                // 코드 리뷰 P2(잔여 창) — 소프트삭제와 "첫" 저장을 DefectWriter 쪽 한 트랜잭션으로
+                // 묶는다(원자화). saveAll만 따로 뒤에 두면 그 사이 예외가 났을 때 이미 커밋된 삭제가
+                // 보상되지 않고, 반대로 저장부터 하고 삭제하면 방금 저장한 새 하자까지
+                // softDeleteAllForInspection(전체 비삭제 행 대상)에 휩쓸려 지워진다 — 둘 다 오답이라
+                // 같은 트랜잭션으로만 안전하다.
+                if (!oldDefectsCleared) {
+                    defectWriter.softDeleteAllForInspectionThenSave(inspectionId, toSave);
+                    oldDefectsCleared = true;
+                } else {
+                    defectWriter.saveAll(toSave);
+                }
                 detectedDefectCount += toSave.size();
                 successCount++;
 
@@ -126,12 +135,15 @@ public class InspectionAnalysisWorker {
         // 코드 리뷰 P2 픽스 — 성공 0건(AI 서버 전면 다운 등)이면 ANALYZED(완료)로 전이하지 않는다.
         // 그대로 두면 프론트가 100%/"분석 완료"로 표시해 검수 단계 진입을 허용해버린다(아무것도
         // 분석되지 않았는데 완료로 오인). 상태를 시작 전으로 되돌려 재시도 가능하게 남긴다.
+        // stage를 "aiDetection"이 아니라 "failed"로 명시한다(코드 리뷰 P2, 프론트 폴링 종료 신호) —
+        // "aiDetection"으로 두면 useAnalysisStatus가 stage==='done'만 폴링 중단 조건으로 보므로
+        // 실패한 잡을 영원히 "진행 중 0%"로 오인해 폴링을 멈추지 않는다.
         if (successCount == 0 && !images.isEmpty()) {
             log.warn("AI 분석 전체 실패 — inspectionId={} totalImages={} — ANALYZED 전이를 건너뛰고 {}로 되돌린다",
                     inspectionId, images.size(), statusBeforeAnalysis);
             inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, statusBeforeAnalysis);
             AnalysisStatusResponse failedProgress = new AnalysisStatusResponse(
-                    inspectionId, "aiDetection", 0, images.size(), 0, files,
+                    inspectionId, "failed", 0, images.size(), 0, files,
                     detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount);
             progressStore.save(failedProgress);
             return;

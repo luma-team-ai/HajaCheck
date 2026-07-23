@@ -123,6 +123,34 @@ class InspectionAnalysisServiceTest {
     }
 
     @Test
+    void startAnalysis_REVIEWED회차는_ANALYSIS_NOT_ALLOWED로거부하고_아무것도호출안함() {
+        startAnalysis_최종상태회차는_재분석거부됨(InspectionStatus.REVIEWED);
+    }
+
+    @Test
+    void startAnalysis_REPORTED회차는_ANALYSIS_NOT_ALLOWED로거부하고_아무것도호출안함() {
+        startAnalysis_최종상태회차는_재분석거부됨(InspectionStatus.REPORTED);
+    }
+
+    private void startAnalysis_최종상태회차는_재분석거부됨(InspectionStatus finalStatus) {
+        // 코드 리뷰 P1(제품 결정) — 검수 완료(REVIEWED)·보고서화(REPORTED) 회차는 재분석을
+        // 허용하지 않는다. 허용하면 워커가 첫 탐지 성공 시 사람이 검수한 기존 하자를 소프트삭제하고
+        // 상태를 ANALYZED로 되돌려버려(역행) 보고서 확정 워크플로우가 깨진다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(finalStatus));
+
+        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
+
+        verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
+        verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
+        verify(progressStore, never()).save(any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any());
+    }
+
+    @Test
     void startAnalysis_이미지없으면_NO_MEDIA_원자적선점은시도하지않는다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));

@@ -108,6 +108,10 @@ public enum ErrorCode {
     ANALYSIS_NO_MEDIA(HttpStatus.BAD_REQUEST, "분석할 이미지가 없습니다."),
     ANALYSIS_ALREADY_RUNNING(HttpStatus.CONFLICT, "이미 분석이 진행 중입니다."),
     ANALYSIS_QUEUE_FULL(HttpStatus.SERVICE_UNAVAILABLE, "분석 요청이 많아 잠시 후 다시 시도해 주세요."),
+    // 코드 리뷰 P1 — 검수 완료(REVIEWED)·보고서화(REPORTED) 회차는 재분석을 허용하지 않는다(제품
+    // 결정). 재분석은 소프트삭제로 기존(사람이 검수한) 하자를 지우므로, 최종 상태 회차에서 허용하면
+    // 무보상 데이터 유실 표면이 된다.
+    ANALYSIS_NOT_ALLOWED(HttpStatus.CONFLICT, "검수 완료 또는 보고서화된 회차는 재분석할 수 없습니다."),
 
     // AI 서버(FastAPI) 인증 프록시(#228) — 연결/타임아웃/응답형식 3종
     AI_SERVER_UNREACHABLE(HttpStatus.SERVICE_UNAVAILABLE, "AI 서버에 연결할 수 없습니다."),

@@ -37,6 +37,12 @@ public class InspectionAnalysisService {
     // 뜻이라(images.isEmpty() 가드는 이 시점 이후) "업로드는 끝났고 분석 전"이 가장 정확한 표현이다.
     private static final InspectionStatus RECOVERY_STATUS = InspectionStatus.UPLOADING;
 
+    // 재분석 허용 소스 상태(코드 리뷰 P1, 제품 결정) — REVIEWED/REPORTED는 목록에서 뺀다.
+    // 재분석은 워커가 기존 하자를 소프트삭제하므로, 사람이 검수·확정한 최종 상태 회차에서 허용하면
+    // 무보상 데이터 유실 표면이 된다. ANALYZING은 별도 고착 복구 분기에서 다룬다.
+    private static final java.util.Set<InspectionStatus> ANALYSIS_ALLOWED_SOURCE_STATUSES = java.util.EnumSet.of(
+            InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED);
+
     private final InspectionService inspectionService;
     private final MediaRepository mediaRepository;
     private final DefectRepository defectRepository;
@@ -63,6 +69,10 @@ public class InspectionAnalysisService {
      *       이 메서드에서 미리 지워버리면, 이후 큐 포화({@link TaskRejectedException})나 워커 전체
      *       실패로 롤백되는 경우 이미 커밋된 소프트삭제는 보상되지 않아 검수 완료된 회차의 하자가
      *       영구 유실된다 — 실행이 실제로 결실을 맺기 전까지는 기존 데이터를 건드리지 않는다.</li>
+     *   <li><b>재분석 소스 상태 가드</b>(P1, 제품 결정): {@link #ANALYSIS_ALLOWED_SOURCE_STATUSES}에
+     *       없는 상태(REVIEWED/REPORTED)에서는 {@link ErrorCode#ANALYSIS_NOT_ALLOWED}로 거부한다.
+     *       가드가 없으면 검수 완료·보고서화된 회차도 재분석 트리거만으로 사람이 조정한 하자가
+     *       무보상으로 삭제되고 상태가 ANALYZED로 역행해 보고서 확정 워크플로우가 깨진다.</li>
      * </ul>
      */
     public void startAnalysis(Long requesterUserId, Long companyId, Long inspectionId) {
@@ -76,6 +86,11 @@ public class InspectionAnalysisService {
             log.warn("ANALYZING 고착 감지(진행률 캐시 없음) — inspectionId={} 재시작을 허용한다", inspectionId);
             inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, RECOVERY_STATUS);
             statusBeforeAnalysis = RECOVERY_STATUS;
+        }
+
+        if (!ANALYSIS_ALLOWED_SOURCE_STATUSES.contains(statusBeforeAnalysis)) {
+            // 코드 리뷰 P1 — REVIEWED/REPORTED(검수·보고서 확정) 회차는 재분석을 허용하지 않는다.
+            throw new BusinessException(ErrorCode.ANALYSIS_NOT_ALLOWED);
         }
 
         List<Media> images = mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(inspectionId, MediaFileType.IMAGE);
@@ -100,7 +115,11 @@ public class InspectionAnalysisService {
         try {
             worker.runAsync(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis);
         } catch (TaskRejectedException e) {
-            log.warn("분석 작업 큐 포화 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, statusBeforeAnalysis, e);
+            // 코드 리뷰 P2 — analysisTaskExecutor는 테넌트 구분 없는 전역 공유 풀이라(AsyncConfig),
+            // 어떤 회사가 큐를 채워 다른 회사까지 503을 받게 됐는지 나중에 로그로 추적할 수 있도록
+            // companyId를 남긴다(지금은 실제 부하 패턴을 관측하는 단계 — 회사별 격리는 별도 스코프).
+            log.warn("분석 작업 큐 포화 — inspectionId={} companyId={} 상태를 {}로 되돌린다",
+                    inspectionId, companyId, statusBeforeAnalysis, e);
             inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, statusBeforeAnalysis);
             progressStore.delete(inspectionId);
             throw new BusinessException(ErrorCode.ANALYSIS_QUEUE_FULL);

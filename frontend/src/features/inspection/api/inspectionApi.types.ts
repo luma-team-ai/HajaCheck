@@ -41,7 +41,9 @@ export interface InspectionResponse {
 }
 
 // AI 분석 실행/상태(dev-05-04) — backend AnalysisStatusResponse와 필드명 그대로 대응(camelCase, Jackson 기본).
-export type AnalysisStage = 'upload' | 'frameExtraction' | 'aiDetection' | 'postProcessing' | 'done';
+// 'failed'(코드 리뷰 P2) — 워커가 이미지 전체 실패로 롤백할 때만 쓰는 종료 상태. 'done'과 마찬가지로
+// 폴링을 멈춰야 한다(useAnalysisStatus 참고) — 안 그러면 실패한 잡이 영원히 "진행 중 0%"로 보인다.
+export type AnalysisStage = 'upload' | 'frameExtraction' | 'aiDetection' | 'postProcessing' | 'done' | 'failed';
 export type AnalysisFileStatus = 'waiting' | 'analyzing' | 'completed' | 'failed';
 
 export interface AnalysisFileProgress {

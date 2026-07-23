@@ -89,7 +89,9 @@ class InspectionAnalysisWorkerTest {
         ArgumentCaptor<AnalysisStatusResponse> captor = ArgumentCaptor.forClass(AnalysisStatusResponse.class);
         verify(progressStore, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
         AnalysisStatusResponse last = captor.getAllValues().get(captor.getAllValues().size() - 1);
-        assertThat(last.stage()).isNotEqualTo("done");
+        // 코드 리뷰 P2 — "failed"여야 프론트 폴링이 멈춘다(useAnalysisStatus는 'done'만 보던 걸
+        // 'done'|'failed' 둘 다 보도록 고쳤다). "aiDetection"으로 두면 무한 폴링에 걸린다.
+        assertThat(last.stage()).isEqualTo("failed");
         assertThat(last.failedCount()).isEqualTo(2);
         assertThat(last.detectedDefectCount()).isZero();
     }
@@ -151,11 +153,14 @@ class InspectionAnalysisWorkerTest {
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
                 InspectionStatus.UPLOADING);
 
-        verify(defectWriter, never()).softDeleteAllForInspection(any());
+        verify(defectWriter, never()).softDeleteAllForInspectionThenSave(any(), any());
     }
 
     @Test
-    void runAsync_첫탐지성공시점에_기존하자를딱한번만소프트삭제한다() {
+    void runAsync_첫탐지성공시점에_기존하자를딱한번만소프트삭제하고_나머지는saveAll만쓴다() {
+        // 코드 리뷰 P2(잔여 창) — 소프트삭제와 "첫" 저장이 DefectWriter 쪽 한 트랜잭션(
+        // softDeleteAllForInspectionThenSave)으로 묶였다. 두 번째 이미지부터는 이미 정리가
+        // 끝났으니 saveAll만 호출된다.
         when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
         when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(detection("CRACK", "A")));
         when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -163,25 +168,28 @@ class InspectionAnalysisWorkerTest {
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L), image(3L)),
                 InspectionStatus.UPLOADING);
 
-        verify(defectWriter, org.mockito.Mockito.times(1)).softDeleteAllForInspection(INSPECTION_ID);
+        verify(defectWriter, org.mockito.Mockito.times(1))
+                .softDeleteAllForInspectionThenSave(eq(INSPECTION_ID), any());
+        verify(defectWriter, org.mockito.Mockito.times(2)).saveAll(any());
     }
 
     @Test
-    void runAsync_소프트삭제는_새하자저장보다항상먼저실행된다() {
+    void runAsync_소프트삭제결합호출은_두번째이미지저장보다먼저실행된다() {
         when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
         when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(detection("CRACK", "A")));
         when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING);
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
+                InspectionStatus.UPLOADING);
 
         InOrder inOrder = Mockito.inOrder(defectWriter);
-        inOrder.verify(defectWriter).softDeleteAllForInspection(INSPECTION_ID);
+        inOrder.verify(defectWriter).softDeleteAllForInspectionThenSave(eq(INSPECTION_ID), any());
         inOrder.verify(defectWriter).saveAll(any());
     }
 
     @Test
     void runAsync_첫이미지실패후_두번째이미지에서성공하면_그때소프트삭제한다() {
-        // 소프트삭제는 detect() 자체가 성공한 시점(빈 탐지 결과도 성공으로 침)에 트리거된다 —
+        // 소프트삭제(결합 호출)는 detect() + saveAll() 자체가 성공한 시점에 트리거된다 —
         // 실패한 이미지에서는 절대 트리거되지 않는다는 걸 순서로 고정한다.
         when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
         when(aiProxyService.detectDefects(anyString()))
@@ -192,7 +200,25 @@ class InspectionAnalysisWorkerTest {
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
                 InspectionStatus.UPLOADING);
 
-        verify(defectWriter, org.mockito.Mockito.times(1)).softDeleteAllForInspection(INSPECTION_ID);
+        verify(defectWriter, org.mockito.Mockito.times(1))
+                .softDeleteAllForInspectionThenSave(eq(INSPECTION_ID), any());
+    }
+
+    @Test
+    void runAsync_detect는성공하지만saveAll이모두실패하면_소프트삭제자체가일어나지않는다() {
+        // 코드 리뷰 P2(잔여 창) — 소프트삭제+저장을 한 트랜잭션(softDeleteAllForInspectionThenSave)
+        // 으로 묶었으니, saveAll 부분에서 던져진 예외로 트랜잭션 전체가 롤백된다는 전제 아래,
+        // 워커 입장에서는 이 호출 자체가 예외를 던진 것으로 관측된다 — successCount는 늘지 않고
+        // 이 이미지는 실패로 격리된다(전체 실패 롤백 분기로 이어짐, 별도 테스트로 고정됨).
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(detection("CRACK", "A")));
+        org.mockito.Mockito.doThrow(new RuntimeException("제약 위반"))
+                .when(defectWriter).softDeleteAllForInspectionThenSave(any(), any());
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING);
+
+        verify(inspectionService, never())
+                .advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.ANALYZED);
     }
 
     private DetectedDefectItem detection(String type, String grade) {
