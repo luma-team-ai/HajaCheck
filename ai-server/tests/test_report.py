@@ -35,6 +35,7 @@ from ai.chains.report_chain import (
     run_report_chain,
 )
 from ai.core.grounding import GroundingAction
+from ai.core.llm_client import SHORT_CACHE_TTL_SECONDS
 from main import app
 from routers.ai_router import _canonical_content_hash
 
@@ -309,7 +310,7 @@ def _patch_all_sections(mock_get_llm, overview=None, summary=None, detail=None, 
         _LLMReportRecommendation: recommendation,
     }
 
-    def _with_structured_output(schema):
+    def _with_structured_output(schema, **_kwargs):  # ttl=... 등 프로덕션 호출부의 추가 kwarg 허용(#623 P2)
         structured = MagicMock()
         # summary는 재생성 흐름에서 여러 번 호출될 수 있으므로 매 invoke마다 최신 값을 반환
         structured.invoke.side_effect = lambda *_a, **_kw: outputs[schema]
@@ -337,6 +338,25 @@ def test_run_report_chain_success_matches_contract_field_names(mock_get_llm, moc
     assert result["detail"]["items"][0]["defect_type"] == "균열"
     assert len(result["recommendation"]["items"]) == 1
     assert result["grounding_ok"] is True
+
+
+@patch("ai.chains.report_chain.get_vectorstore")
+@patch("ai.chains.report_chain.get_llm")
+def test_run_report_chain_requests_short_cache_ttl_for_all_sections(mock_get_llm, mock_get_vectorstore):
+    """facility_info·confirmed_defects(시설명·위치·하자내용 등 회사정보)가 프롬프트에 섞이는 4개
+    섹션 모두 with_structured_output(schema, ttl=SHORT_CACHE_TTL_SECONDS)로 짧은 TTL을 요청하는지
+    확인한다(#623 P2 픽스 — 기본 24h 캐시가 이 정보성 프롬프트에 그대로 켜지는 것을 막음)."""
+    mock_get_vectorstore.side_effect = NotImplementedError("stub")
+    outputs = _patch_all_sections(mock_get_llm)
+
+    run_report_chain(_sample_facility_info(), _sample_defects(), on_mismatch="regenerate")
+
+    mock_llm = mock_get_llm.return_value
+    called_schemas_with_ttl = {
+        call.args[0]: call.kwargs.get("ttl") for call in mock_llm.with_structured_output.call_args_list
+    }
+    for schema in outputs:  # ReportOverview/ReportSummary/ReportDetail/_LLMReportRecommendation
+        assert called_schemas_with_ttl[schema] == SHORT_CACHE_TTL_SECONDS
 
 
 @patch("ai.chains.report_chain.get_vectorstore")
@@ -556,7 +576,7 @@ def test_grounding_mismatch_triggers_regenerate_then_recovers(mock_get_llm, mock
     }
     summary_calls = {"n": 0}
 
-    def _with_structured_output(schema):
+    def _with_structured_output(schema, **_kwargs):  # ttl=... 등 프로덕션 호출부의 추가 kwarg 허용(#623 P2)
         structured = MagicMock()
         if schema is ReportSummary:
             def _invoke(*_a, **_kw):
@@ -632,7 +652,7 @@ def test_regenerate_loop_output_parser_exception_propagates_as_llm_invalid_outpu
     }
     summary_calls = {"n": 0}
 
-    def _with_structured_output(schema):
+    def _with_structured_output(schema, **_kwargs):  # ttl=... 등 프로덕션 호출부의 추가 kwarg 허용(#623 P2)
         structured = MagicMock()
         if schema is ReportSummary:
             def _invoke(*_a, **_kw):
@@ -736,7 +756,7 @@ def test_detail_content_mismatch_triggers_regenerate_then_recovers(mock_get_llm,
     }
     detail_calls = {"n": 0}
 
-    def _with_structured_output(schema):
+    def _with_structured_output(schema, **_kwargs):  # ttl=... 등 프로덕션 호출부의 추가 kwarg 허용(#623 P2)
         structured = MagicMock()
         if schema is ReportDetail:
             def _invoke(*_a, **_kw):

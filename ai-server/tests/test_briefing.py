@@ -14,7 +14,9 @@ from ai.chains.briefing_chain import (
     WeeklyBriefing,
     _build_prompt,
     derive_facts,
+    run_briefing_chain,
 )
+from ai.core.llm_client import SHORT_CACHE_TTL_SECONDS
 from main import app
 
 client = TestClient(app)
@@ -96,6 +98,22 @@ def test_build_prompt_sanitizes_marker_spoofing_in_top_defect_type():
     )
     malicious_prompt = _build_prompt(malicious_stats, derive_facts(malicious_stats))
     assert malicious_prompt.count(UNTRUSTED_DATA_END) == baseline_count
+
+
+@patch("ai.chains.briefing_chain.get_llm")
+def test_run_briefing_chain_requests_short_cache_ttl(mock_get_llm):
+    """stats(회사 현황 수치·주요 하자유형)가 프롬프트에 섞이므로 with_structured_output이
+    ttl=SHORT_CACHE_TTL_SECONDS로 짧은 캐시 TTL을 요청하는지 확인한다(#623 P2 픽스)."""
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.return_value.invoke.return_value = WeeklyBriefing(
+        briefing="이번 주 하자는 총 45건입니다.",
+        recommendation="즉각 조치를 권장합니다.",
+    )
+    mock_get_llm.return_value = mock_llm
+
+    run_briefing_chain(_sample())
+
+    mock_llm.with_structured_output.assert_called_once_with(WeeklyBriefing, ttl=SHORT_CACHE_TTL_SECONDS)
 
 
 @patch("ai.chains.briefing_chain.get_llm")
