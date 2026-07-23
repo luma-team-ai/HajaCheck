@@ -7,7 +7,7 @@ import type {
   InspectionCreateResponse,
 } from '../types';
 import type { DefectStatusUpdateRequest } from './inspectionApi';
-import type { DefectDetailItem, DefectCreateRequest } from './inspectionApi.types';
+import type { DefectDetailItem, DefectCreateRequest, DefectType } from './inspectionApi.types';
 
 // ponytail: /api/inspections/:id/result 목은 제거됨 — 실제 백엔드는
 // /api/inspections/{id} + /api/inspections/{id}/defects 로 분리되어 있음.
@@ -122,19 +122,27 @@ export const inspectionHandlers = [
     const inspectionId = Number(params.id);
     const reqBody = (await request.json()) as DefectCreateRequest;
 
+    // ponytail: 요청의 영문 enum을 응답의 한글 값으로 변환 — 기존 타입 버그 통과
+    const typeMap: Record<DefectCreateRequest['type'], DefectType> = {
+      CRACK: '균열',
+      SPALLING: '박리박락',
+      LEAK_EFFLORESCENCE: '누수·백태',
+      REBAR_EXPOSURE: '철근노출',
+      PAINT_DAMAGE: '도장 손상',
+    };
+
     const newDefect: DefectDetailItem = {
       id: nextDefectId,
       inspectionId,
-      // ponytail: request의 영문 enum 값을 mock 응답의 한글 타입으로 캐스팅 — 기존 버그 통과
-      type: reqBody.type as any,
+      type: typeMap[reqBody.type],
       grade: reqBody.grade,
       confidence: 1.0,
       status: 'DETECTED',
       isReviewed: false,
-      bboxX: null as any,
-      bboxY: null as any,
-      bboxW: null as any,
-      bboxH: null as any,
+      bboxX: null,
+      bboxY: null,
+      bboxW: null,
+      bboxH: null,
       createdAt: new Date().toISOString(),
     };
     nextDefectId += 1;

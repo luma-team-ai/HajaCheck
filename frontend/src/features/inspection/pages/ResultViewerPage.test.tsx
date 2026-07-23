@@ -8,8 +8,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ApiResponse } from '../../../shared/api/types';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
 import type { DefectRevisionRequest } from '../api/inspectionApi';
-import type { InspectionResponse } from '../api/inspectionApi.types';
-import type { DefectDetailItem } from '../api/inspectionApi.types';
+import type { InspectionResponse, DefectDetailItem, DefectCreateRequest, DefectType } from '../api/inspectionApi.types';
 import { ResultViewerPage } from './ResultViewerPage';
 
 // 테스트용 목 데이터
@@ -141,19 +140,26 @@ const testHandlers = [
     return HttpResponse.json({ success: true, data: updatedDefect });
   }),
   http.post('/api/inspections/:id/defects', async ({ request }) => {
-    const body = (await request.json()) as any;
+    const body = (await request.json()) as DefectCreateRequest;
+    const typeMap: Record<DefectCreateRequest['type'], DefectType> = {
+      CRACK: '균열',
+      SPALLING: '박리박락',
+      LEAK_EFFLORESCENCE: '누수·백태',
+      REBAR_EXPOSURE: '철근노출',
+      PAINT_DAMAGE: '도장 손상',
+    };
     const newDefect: DefectDetailItem = {
       id: 999,
       inspectionId: 1,
-      type: body.type as any,
+      type: typeMap[body.type],
       grade: body.grade,
       confidence: 1.0,
       status: 'DETECTED',
       isReviewed: false,
-      bboxX: null as any,
-      bboxY: null as any,
-      bboxW: null as any,
-      bboxH: null as any,
+      bboxX: null,
+      bboxY: null,
+      bboxW: null,
+      bboxH: null,
       createdAt: new Date().toISOString(),
     };
     return HttpResponse.json({ success: true, data: newDefect }, { status: 201 });
@@ -409,21 +415,28 @@ describe('ResultViewerPage (통합 테스트)', () => {
     server.use(
       http.post('/api/inspections/:id/defects', async ({ request }) => {
         postCalled = true;
-        const body = (await request.json()) as any;
+        const body = (await request.json()) as DefectCreateRequest;
         expect(body.type).toBe('SPALLING');
         expect(body.grade).toBe('B');
+        const typeMap: Record<DefectCreateRequest['type'], DefectType> = {
+          CRACK: '균열',
+          SPALLING: '박리박락',
+          LEAK_EFFLORESCENCE: '누수·백태',
+          REBAR_EXPOSURE: '철근노출',
+          PAINT_DAMAGE: '도장 손상',
+        };
         const newDefect: DefectDetailItem = {
           id: 999,
           inspectionId: 1,
-          type: body.type as any,
+          type: typeMap[body.type],
           grade: body.grade,
           confidence: 1.0,
           status: 'DETECTED',
           isReviewed: false,
-          bboxX: null as any,
-          bboxY: null as any,
-          bboxW: null as any,
-          bboxH: null as any,
+          bboxX: null,
+          bboxY: null,
+          bboxW: null,
+          bboxH: null,
           createdAt: new Date().toISOString(),
         };
         return HttpResponse.json({ success: true, data: newDefect }, { status: 201 });

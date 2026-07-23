@@ -13,10 +13,12 @@ import type { DefectGrade } from '../types';
 import { filterDefects } from '../utils/filterDefects';
 
 const ALL_GRADES: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
-const DEFECT_TYPE_OPTIONS: { value: 'CRACK' | 'SPALLING' | 'REBAR_EXPOSURE'; label: string }[] = [
+const DEFECT_TYPE_OPTIONS: { value: 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE'; label: string }[] = [
   { value: 'CRACK', label: '균열' },
   { value: 'SPALLING', label: '박리박락' },
+  { value: 'LEAK_EFFLORESCENCE', label: '누수·백태' },
   { value: 'REBAR_EXPOSURE', label: '철근노출' },
+  { value: 'PAINT_DAMAGE', label: '도장 손상' },
 ];
 
 export function ResultViewerPage() {
@@ -31,7 +33,7 @@ export function ResultViewerPage() {
   const [gradeReason, setGradeReason] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isAddMissingOpen, setIsAddMissingOpen] = useState(false);
-  const [newDefectType, setNewDefectType] = useState<'CRACK' | 'SPALLING' | 'REBAR_EXPOSURE' | ''>('');
+  const [newDefectType, setNewDefectType] = useState<'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE' | ''>('');
   const [newDefectGrade, setNewDefectGrade] = useState<DefectGrade | ''>('');
   // rules-of-hooks: 훅은 조건부 return 이전에 호출해야 한다. 훅 내부 enabled 플래그가
   // 유효하지 않은 inspectionId일 때 쿼리를 스킵하므로, ID 검증 return은 훅 호출 다음에 둔다.
@@ -120,7 +122,7 @@ export function ResultViewerPage() {
     setErrorMessage('');
     try {
       const response = await inspectionApi.createDefect(inspectionId, {
-        type: newDefectType as 'CRACK' | 'SPALLING' | 'REBAR_EXPOSURE',
+        type: newDefectType as 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE',
         grade: newDefectGrade as DefectGrade,
       });
       await refetch();
@@ -137,10 +139,12 @@ export function ResultViewerPage() {
   }, [inspectionId, newDefectType, newDefectGrade, isUpdating, refetch]);
 
   const handleCancelAddMissing = useCallback(() => {
+    if (isUpdating) return;
     setIsAddMissingOpen(false);
     setNewDefectType('');
     setNewDefectGrade('');
-  }, []);
+    setErrorMessage('');
+  }, [isUpdating]);
 
   const handleConfirmReview = useCallback(async () => {
     if (!data) return;
@@ -444,7 +448,10 @@ export function ResultViewerPage() {
                     variant="secondary"
                     size="lg"
                     className="flex-1"
-                    onClick={() => setIsAddMissingOpen(true)}
+                    onClick={() => {
+                      setIsAddMissingOpen(true);
+                      setErrorMessage('');
+                    }}
                     disabled={isUpdating}
                   >
                     누락 추가
@@ -461,6 +468,7 @@ export function ResultViewerPage() {
         open={isAddMissingOpen}
         onClose={handleCancelAddMissing}
         title="누락된 하자 추가"
+        closeOnOverlayClick={!isUpdating}
       >
         <div className="flex flex-col gap-4">
           {errorMessage && (
@@ -471,7 +479,7 @@ export function ResultViewerPage() {
             <select
               id="defect-type-select"
               value={newDefectType}
-              onChange={(e) => setNewDefectType(e.target.value as 'CRACK' | 'SPALLING' | 'REBAR_EXPOSURE' | '')}
+              onChange={(e) => setNewDefectType(e.target.value as 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE' | '')}
               className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
             >
               <option value="">유형 선택</option>
