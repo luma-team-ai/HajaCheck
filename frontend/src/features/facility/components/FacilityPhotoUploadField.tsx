@@ -38,9 +38,12 @@ export function FacilityPhotoUploadField() {
       const remainingSlots = MAX_PHOTO_COUNT - prev.length;
       if (remainingSlots <= 0) return prev;
 
+      // filter를 slice보다 먼저 적용한다(PR머신 P3) — accept="image/*"는 드래그앤드롭에는
+      // 적용되지 않아 비이미지 파일이 앞쪽에 섞여 들어올 수 있는데, slice를 먼저 하면 그
+      // 비이미지가 슬롯을 차지해 뒤쪽 유효 이미지가 조용히 잘려나간다.
       const nextPhotos = Array.from(files)
-        .slice(0, remainingSlots)
         .filter((file) => file.type.startsWith('image/'))
+        .slice(0, remainingSlots)
         .map((file) => ({
           id: `${file.name}-${file.size}-${file.lastModified}`,
           file,

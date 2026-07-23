@@ -23,6 +23,10 @@ import { supportHandlers } from '../features/support/api/supportApi.handlers';
 
 export const handlers = [
   ...authHandlers,
+  // facilityAssigneeHandlers(GET /api/facilities/assignable-users, 리터럴 경로)는 msw v2 등록 순서
+  // 매칭이라 inspectionHandlers/facilityHandlers가 등록하는 GET /api/facilities/:id 캐치올보다
+  // 반드시 앞에 와야 한다 — 안 그러면 :id='assignable-users'로 먼저 매치되어 항상 404가 난다(PR머신 P1).
+  ...facilityAssigneeHandlers,
   ...inspectionHandlers,
   ...mediaHandlers,
   ...dashboardHandlers,
@@ -30,7 +34,6 @@ export const handlers = [
   ...facilityHandlers,
   ...facilityDefectHandlers,
   ...facilityComparisonHandlers,
-  ...facilityAssigneeHandlers,
   ...adminHandlers,
   ...adminPlanHandlers,
   ...planQuotaHandlers,

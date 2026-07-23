@@ -27,6 +27,10 @@ function makeImageFile(name: string): File {
   return new File(['fake-image-bytes'], name, { type: 'image/png' });
 }
 
+function makeNonImageFile(name: string): File {
+  return new File(['fake-doc-bytes'], name, { type: 'application/pdf' });
+}
+
 describe('FacilityPhotoUploadField', () => {
   it('이미지를 선택하면 미리보기가 추가된다', () => {
     render(<FacilityPhotoUploadField />);
@@ -97,5 +101,35 @@ describe('FacilityPhotoUploadField', () => {
 
     expect(createObjectURLMock).toHaveBeenCalledTimes(4);
     expect(screen.getByText('최대 4장까지 선택했습니다.')).not.toBeNull();
+  });
+
+  // PR머신 P3 — accept="image/*"는 드래그앤드롭에는 적용되지 않아 비이미지 파일이 앞쪽에 섞여
+  // 들어올 수 있다. slice를 filter보다 먼저 하면 앞쪽 비이미지가 슬롯을 차지해 뒤쪽 유효 이미지가
+  // 조용히 잘려나간다 — filter를 slice보다 먼저 적용해 비이미지가 슬롯을 소모하지 않아야 한다.
+  it('비이미지 파일이 슬롯 초과분과 섞여 들어와도 유효 이미지가 슬롯 한도까지 모두 추가된다(P3)', () => {
+    render(<FacilityPhotoUploadField />);
+
+    const input = screen.getByLabelText('대표 사진 업로드');
+    fireEvent.change(input, {
+      target: {
+        files: [
+          makeNonImageFile('doc1.pdf'),
+          makeImageFile('a.png'),
+          makeNonImageFile('doc2.pdf'),
+          makeImageFile('b.png'),
+          makeImageFile('c.png'),
+          makeImageFile('d.png'),
+          makeImageFile('e.png'),
+        ],
+      },
+    });
+
+    // 이미지 5장 중 슬롯(4)만큼 a~d가 전부 추가되어야 한다 — 비이미지가 앞에 있다고 잘려나가면 안 됨.
+    expect(createObjectURLMock).toHaveBeenCalledTimes(4);
+    expect(screen.getByAltText('a.png')).not.toBeNull();
+    expect(screen.getByAltText('b.png')).not.toBeNull();
+    expect(screen.getByAltText('c.png')).not.toBeNull();
+    expect(screen.getByAltText('d.png')).not.toBeNull();
+    expect(screen.queryByAltText('e.png')).toBeNull();
   });
 });
