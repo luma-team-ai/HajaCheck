@@ -89,7 +89,7 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long assigneeId = seedOwner("assignee@haja.com");
         Facility facility = Facility.builder()
-                .ownerId(ownerId)
+                .companyId(ownerId)
                 .name("등급테스트빌딩")
                 .type("BUILDING")
                 .initialGrade(FacilityInitialGrade.D)
