@@ -151,6 +151,13 @@ alter type menu_node_type owner to postgres;
 
 comment on type menu_node_type is '사이드바 메뉴 노드 유형(그룹/내부 링크/외부 링크)';
 
+create type facility_initial_grade_type as enum ('A', 'B', 'C', 'D', 'E');
+
+alter type facility_initial_grade_type owner to postgres;
+
+comment on type facility_initial_grade_type is
+    '시설물 등록 시 입력하는 초기 등급(A~E) — defect_grade_type(점검 이력 기반 하자 위험도)과는 별개의 독립 개념';
+
 create table users
 (
     id                bigint generated always as identity
@@ -539,7 +546,12 @@ create table facilities
     inspection_cycle_months integer,
     next_inspection_due_at  date,
     created_at              timestamp with time zone default now() not null,
-    updated_at              timestamp with time zone default now() not null
+    updated_at              timestamp with time zone default now() not null,
+    initial_grade           facility_initial_grade_type,
+    assignee_user_id        bigint
+        constraint fk_facilities_assignee
+            references users,
+    memo                    text
 );
 
 comment on table facilities is '회사가 소유·관리하는 점검 대상 시설 정보를 관리한다.';
@@ -570,11 +582,28 @@ comment on column facilities.created_at is '시설 생성 시각';
 
 comment on column facilities.updated_at is '시설 최종 수정 시각';
 
+comment on column facilities.initial_grade is
+    '시설물 등록 시 입력하는 초기 등급(A~E, nullable). 대시보드 하자 등급 분포(defects.grade 기반 계산값)와 혼동하지 말 것';
+
+comment on column facilities.assignee_user_id is
+    '시설물 담당자로 배정된 사용자 식별자(nullable). 배정 가능 여부는 AuthService.validateAssignableInspector로 애플리케이션에서 검증(활성 사용자·INSPECTOR/ADMIN 역할·요청자와 동일 회사·양쪽 유효 멤버십)';
+
+comment on column facilities.memo is '시설물 등록 메모(자유 텍스트, nullable)';
+
 alter table facilities
     owner to postgres;
 
 create index idx_facilities_company
     on facilities (company_id);
+
+create index idx_facilities_assignee
+    on facilities (assignee_user_id);
+
+-- #509 — InspectionDueNotificationScheduler(NOTI-01)의 next_inspection_due_at <= 오늘 풀스캔 해소.
+-- 점검 주기 미설정 시설물(NULL)은 배치 조건에 애초에 안 걸리므로 부분 인덱스로 크기를 줄인다.
+create index idx_facilities_next_inspection_due_at
+    on facilities (next_inspection_due_at)
+    where next_inspection_due_at is not null;
 
 create table inspections
 (

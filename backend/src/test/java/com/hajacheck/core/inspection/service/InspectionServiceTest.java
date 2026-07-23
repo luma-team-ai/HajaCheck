@@ -52,7 +52,8 @@ class InspectionServiceTest {
 
     private static FacilityResponse ownedFacility() {
         return new FacilityResponse(1L, "테스트 시설물", "BUILDING", null,
-                null, null, null, null, null, null, LocalDateTime.of(2020, 1, 1, 0, 0), null);
+                null, null, null, null, null, null, LocalDateTime.of(2020, 1, 1, 0, 0), null,
+                null, null, null);
     }
 
     private static Inspection inspectionOf(Long id, Long facilityId) {

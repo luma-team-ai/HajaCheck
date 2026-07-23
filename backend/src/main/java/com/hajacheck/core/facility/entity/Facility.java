@@ -13,6 +13,8 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * 회사가 소유·관리하는 점검 대상 시설 — DDL facilities 테이블 대응.
@@ -62,10 +64,22 @@ public class Facility extends BaseTimeEntity {
     @Column(name = "next_inspection_due_at")
     private LocalDate nextInspectionDueAt;
 
+    // 시설물 등록 필드 확장(#628 / HAJA-347) — 대표 사진은 별도 테이블(facility_photos)이라 여기 없다.
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "initial_grade", columnDefinition = "facility_initial_grade_type")
+    private FacilityInitialGrade initialGrade;
+
+    @Column(name = "assignee_user_id")
+    private Long assigneeUserId;
+
+    @Column(columnDefinition = "text")
+    private String memo;
+
     @Builder
     private Facility(Long companyId, String name, String type, String address,
                       BigDecimal latitude, BigDecimal longitude, Integer builtYear,
-                      String scale, Integer inspectionCycleMonths, LocalDate nextInspectionDueAt) {
+                      String scale, Integer inspectionCycleMonths, LocalDate nextInspectionDueAt,
+                      FacilityInitialGrade initialGrade, Long assigneeUserId, String memo) {
         this.companyId = companyId;
         this.name = name;
         this.type = type;
@@ -76,6 +90,9 @@ public class Facility extends BaseTimeEntity {
         this.scale = scale;
         this.inspectionCycleMonths = inspectionCycleMonths;
         this.nextInspectionDueAt = nextInspectionDueAt;
+        this.initialGrade = initialGrade;
+        this.assigneeUserId = assigneeUserId;
+        this.memo = memo;
     }
 
     /**
@@ -83,7 +100,8 @@ public class Facility extends BaseTimeEntity {
      */
     public void updateInfo(String name, String type, String address,
                             BigDecimal latitude, BigDecimal longitude, Integer builtYear,
-                            String scale, Integer inspectionCycleMonths, LocalDate nextInspectionDueAt) {
+                            String scale, Integer inspectionCycleMonths, LocalDate nextInspectionDueAt,
+                            FacilityInitialGrade initialGrade, Long assigneeUserId, String memo) {
         this.name = name;
         this.type = type;
         this.address = address;
@@ -93,6 +111,9 @@ public class Facility extends BaseTimeEntity {
         this.scale = scale;
         this.inspectionCycleMonths = inspectionCycleMonths;
         this.nextInspectionDueAt = nextInspectionDueAt;
+        this.initialGrade = initialGrade;
+        this.assigneeUserId = assigneeUserId;
+        this.memo = memo;
     }
 
     /**

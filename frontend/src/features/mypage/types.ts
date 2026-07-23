@@ -66,3 +66,39 @@ export const MYPAGE_ERROR_CODE = {
 } as const;
 
 export type MyPageErrorCode = (typeof MYPAGE_ERROR_CODE)[keyof typeof MYPAGE_ERROR_CODE];
+
+// ---- 마이페이지 — 내 점검 이력 / 보고서 (HAJA-366, #668) ----
+// 이 화면을 뒷받침하는 BE API가 전혀 없다(grep 0건) — Figma 시안 기준 mock 우선 구현.
+// InspectionHistoryStatus는 실 InspectionStatus(점검 회차 상태)와 이름만 다를 뿐 아직 매핑이
+// 확정되지 않았다(후속 BE #24/#210 계열 연동 시 실 enum과 맞춰 재정의될 수 있음) — 그래서
+// dashboard의 InspectionStatus를 그대로 쓰지 않고 이 feature 전용 타입으로 별도 정의한다.
+export type InspectionHistoryRole = 'INSPECTOR' | 'OWNER'; // 점검자 / 소유자(점검 회사 스코프 정책과 동일 구분)
+export type InspectionHistoryStatus = 'REVIEW_DONE' | 'REVIEW_PENDING' | 'ANALYZING'; // 검수완료 / 검수대기 / 분석중
+
+export interface InspectionHistoryRow {
+  id: number;
+  facilityName: string;
+  round: string; // 회차 표기, 예: '24-03'
+  inspectedAt: string; // 점검일 표기, 예: '2024.03.15' (BE 미구현이라 포맷 확정 전 — 문자열 그대로 표시)
+  role: InspectionHistoryRole;
+  defectCount: number;
+  status: InspectionHistoryStatus;
+}
+
+export interface MyInspectionsSummary {
+  participatedCount: number; // 참여 점검(회차)
+  reviewConfirmedCount: number; // 검수 확정
+  issuedReportCount: number; // 발급 보고서
+  inProgressCount: number; // 진행 중
+}
+
+// 보고서 카드 등급 dots 색상 — A~E 등급 문자가 아니라 신호등 색(빨강/주황/초록) 3색만 쓴다(Figma 시안).
+export type ReportGradeDotColor = 'RED' | 'ORANGE' | 'GREEN';
+
+export interface MyReportCard {
+  id: number;
+  title: string;
+  issuedAt: string; // 예: '2024.03.16'
+  fileSizeLabel: string; // 예: '1.2MB'
+  gradeDots: ReportGradeDotColor[];
+}

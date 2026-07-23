@@ -1,6 +1,5 @@
 package com.hajacheck.core.report.service;
 
-import com.hajacheck.auth.service.CompanyScopeGuard;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -10,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
@@ -73,7 +73,8 @@ class ReportServiceTest {
 
     private static FacilityResponse facility() {
         return new FacilityResponse(10L, "테스트빌딩", "BUILDING", "서울시 강남구",
-                null, null, null, null, null, null, LocalDateTime.now(), LocalDateTime.now());
+                null, null, null, null, null, null, LocalDateTime.now(), LocalDateTime.now(),
+                null, null, null);
     }
 
     private static ReportResponse aiReport() {

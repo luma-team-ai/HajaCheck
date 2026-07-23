@@ -1,5 +1,5 @@
-import { FALLBACK_GRADE_COLOR, GRADE_COLOR } from '../constants';
-import type { FacilityLocation } from '../types';
+import { getGradeColor } from '../constants';
+import type { DefectGrade, FacilityLocation } from '../types';
 
 interface SelectedFacilityPopupProps {
   facility: FacilityLocation;
@@ -12,8 +12,9 @@ export function SelectedFacilityPopup({
   onViewDetail,
   onGoToInspectionResult,
 }: SelectedFacilityPopupProps) {
-  // 등급별 안전 등급 텍스트 매핑
-  const getStatusText = (grade: string) => {
+  // 등급별 안전 등급 텍스트 매핑 — 등급 API 미연동(#661)으로 null이면 "등급 미정" 표기
+  const getStatusText = (grade: DefectGrade | null) => {
+    if (!grade) return '등급 미정';
     switch (grade) {
       case 'E':
         return '정밀안전진단 요망';
@@ -28,7 +29,7 @@ export function SelectedFacilityPopup({
     }
   };
 
-  const badgeBgColor = GRADE_COLOR[facility.highestGrade] ?? FALLBACK_GRADE_COLOR;
+  const badgeBgColor = getGradeColor(facility.highestGrade);
 
   return (
     // border-[#d4d4d8]: Figma 팝업 전용 보더 색상 — styles/tokens.css의 --color-border(#e4e4e7)와
@@ -60,7 +61,7 @@ export function SelectedFacilityPopup({
               style={{ backgroundColor: badgeBgColor }}
             >
               <span className="font-semibold text-white text-[11px] leading-[16.5px]">
-                {facility.highestGrade}
+                {facility.highestGrade ?? '-'}
               </span>
             </div>
           </div>

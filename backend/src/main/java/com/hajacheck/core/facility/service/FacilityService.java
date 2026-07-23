@@ -1,5 +1,6 @@
 package com.hajacheck.core.facility.service;
 
+import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
@@ -34,10 +35,12 @@ public class FacilityService {
 
     private final FacilityRepository facilityRepository;
     private final CompanyScopeGuard companyScopeGuard;
+    private final AuthService authService;
 
     @Transactional
     public FacilityResponse create(Long userId, Long companyId, FacilityCreateRequest request) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        validateAssigneeIfPresent(userId, request.assigneeUserId());
         Facility facility = Facility.builder()
                 .companyId(companyId)
                 .name(request.name())
@@ -49,8 +52,12 @@ public class FacilityService {
                 .scale(request.scale())
                 .inspectionCycleMonths(request.inspectionCycleMonths())
                 .nextInspectionDueAt(request.nextInspectionDueAt())
+                .initialGrade(request.initialGrade())
+                .assigneeUserId(request.assigneeUserId())
+                .memo(request.memo())
                 .build();
-        return FacilityResponse.from(facilityRepository.save(facility));
+        Facility saved = facilityRepository.save(facility);
+        return FacilityResponse.from(saved);
     }
 
     public List<FacilityResponse> list(Long userId, Long companyId) {
@@ -89,6 +96,7 @@ public class FacilityService {
     public FacilityResponse update(Long userId, Long companyId, Long facilityId, FacilityUpdateRequest request) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         Facility facility = findCompanyFacility(companyId, facilityId);
+        validateAssigneeIfPresent(userId, request.assigneeUserId());
         facility.updateInfo(
                 request.name(),
                 request.type(),
@@ -98,7 +106,10 @@ public class FacilityService {
                 request.builtYear(),
                 request.scale(),
                 request.inspectionCycleMonths(),
-                request.nextInspectionDueAt());
+                request.nextInspectionDueAt(),
+                request.initialGrade(),
+                request.assigneeUserId(),
+                request.memo());
         return FacilityResponse.from(facility);
     }
 
@@ -124,5 +135,16 @@ public class FacilityService {
     private Facility findCompanyFacility(Long companyId, Long facilityId) {
         return facilityRepository.findByIdAndCompanyId(facilityId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.FACILITY_NOT_FOUND));
+    }
+
+    /**
+     * 담당자 배정 검증(#628 / HAJA-347) — inspections.assigned_inspector_id와 동일하게
+     * AuthService.validateAssignableInspector 를 재사용한다. 시설물 담당자는 선택 입력(nullable)이라
+     * assigneeUserId 가 없으면 검증을 건너뛴다(값이 있을 때만 활성·역할·회사·멤버십을 검증).
+     */
+    private void validateAssigneeIfPresent(Long userId, Long assigneeUserId) {
+        if (assigneeUserId != null) {
+            authService.validateAssignableInspector(userId, assigneeUserId);
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.hajacheck.core.facility.dto;
 
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.core.facility.entity.FacilityInitialGrade;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -20,7 +21,10 @@ public record FacilityResponse(
         Integer inspectionCycleMonths,
         LocalDate nextInspectionDueAt,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        FacilityInitialGrade initialGrade,
+        Long assigneeUserId,
+        String memo
 ) {
     public static FacilityResponse from(Facility facility) {
         return new FacilityResponse(
@@ -35,7 +39,10 @@ public record FacilityResponse(
                 facility.getInspectionCycleMonths(),
                 facility.getNextInspectionDueAt(),
                 facility.getCreatedAt(),
-                facility.getUpdatedAt()
+                facility.getUpdatedAt(),
+                facility.getInitialGrade(),
+                facility.getAssigneeUserId(),
+                facility.getMemo()
         );
     }
 }

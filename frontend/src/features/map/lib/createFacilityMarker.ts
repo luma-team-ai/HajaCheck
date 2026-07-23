@@ -1,5 +1,5 @@
 // 시설물 마커 생성 — 일반 원형 도트 마커(그림자 통일) & Figma 시안 정합 선택 마커(원형 도트 + 하단 콤팩트 소형 포인터 팁 + 그림자)
-import { FALLBACK_GRADE_COLOR, FALLBACK_GRADE_LABEL, GRADE_COLOR, GRADE_LABEL } from '../constants';
+import { getGradeColor, getGradeLabel } from '../constants';
 import type { DefectGrade, FacilityLocation } from '../types';
 
 // 실 API 연동(#8) 시 서버가 null/NaN/범위밖 좌표를 줄 수 있어, 마커 생성 전 런타임 검증이 필요하다.
@@ -73,9 +73,9 @@ export function createMarkerImage(color: string, isSelected = false): KakaoMarke
 export function updateFacilityMarkerImage(
   marker: KakaoMarker,
   isSelected: boolean,
-  grade: string,
+  grade: DefectGrade | null,
 ): void {
-  const color = GRADE_COLOR[grade as DefectGrade] ?? FALLBACK_GRADE_COLOR;
+  const color = getGradeColor(grade);
   const image = createMarkerImage(color, isSelected);
   marker.setImage?.(image);
   marker.setZIndex?.(isSelected ? 20 : 1);
@@ -92,9 +92,9 @@ export function buildInfoWindowContent(facility: FacilityLocation): HTMLElement 
   nameEl.textContent = facility.name;
 
   const gradeEl = document.createElement('span');
-  gradeEl.style.color = GRADE_COLOR[facility.highestGrade] ?? FALLBACK_GRADE_COLOR;
+  gradeEl.style.color = getGradeColor(facility.highestGrade);
   gradeEl.style.fontWeight = '600';
-  gradeEl.textContent = GRADE_LABEL[facility.highestGrade] ?? FALLBACK_GRADE_LABEL;
+  gradeEl.textContent = getGradeLabel(facility.highestGrade);
 
   container.appendChild(nameEl);
   container.appendChild(gradeEl);
@@ -108,7 +108,7 @@ export function createFacilityMarker(
   isSelected = false,
 ): KakaoMarker {
   const position = new window.kakao.maps.LatLng(facility.latitude, facility.longitude);
-  const color = GRADE_COLOR[facility.highestGrade] ?? FALLBACK_GRADE_COLOR;
+  const color = getGradeColor(facility.highestGrade);
   const image = createMarkerImage(color, isSelected);
 
   const marker = new window.kakao.maps.Marker({

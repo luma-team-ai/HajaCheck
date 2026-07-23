@@ -1,6 +1,6 @@
 # hajaCheck 테이블 디자인 설계
 
-> **문서 버전:** v0.6 · **최종 수정:** 2026-07-23 · 이전 버전 `archive/`
+> **문서 버전:** v0.5 · **최종 수정:** 2026-07-23 · 이전 버전 `archive/`
 
 - 대상 스키마 파일: [HajaCheck_script.sql](HajaCheck_script.sql)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
@@ -571,11 +571,30 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 | next_inspection_due_at | date | Y | - | | 다음 점검 예정일 |
 | created_at | timestamptz | N | now() | | 생성 시각 |
 | updated_at | timestamptz | N | now() | | 최종 수정 시각 |
+| initial_grade | facility_initial_grade_type | Y | - | | 등록 시 입력하는 초기 등급(A~E) |
+| assignee_user_id | bigint | Y | - | **FK→users** | 시설물 담당자 |
+| memo | text | Y | - | | 등록 메모(자유 텍스트) |
 
-- 인덱스: `idx_facilities_company (company_id)`
-- V11 마이그레이션은 기존 `owner_id`의 사용자에 연결된 `users.company_id`로 시설을 이관한다. 회사가
+- 인덱스: `idx_facilities_company (company_id)`, `idx_facilities_assignee (assignee_user_id)`,
+  `idx_facilities_next_inspection_due_at (next_inspection_due_at) WHERE next_inspection_due_at IS NOT NULL`
+  (V9, #509 — InspectionDueNotificationScheduler 풀스캔 해소)
+- V11 마이그레이션은 기존 `owner_id`의 사용자에 연결된 `users.company_id`로 시설을 이관한다(#637). 회사가
   없거나 유효한 회사에 매핑할 수 없는 기존 시설은 임의 삭제·배정하지 않고 마이그레이션을 실패시킨다.
+  이관 완료 후 `owner_id`는 제거되고 `idx_facilities_owner`도 함께 소멸한다.
 - 착수 보고서 대비: `address`, `inspection_cycle_months`가 NOT NULL → NULL 허용으로 완화됨 (§2.1 참조)
+- `initial_grade`/`assignee_user_id`/`memo`는 V10(#628 / HAJA-347) — Figma 시설물 등록 모달의 신규
+  4개 필드(대표사진·초기 등급·담당자·메모) 중 DB DDL 소유자(Polalise) 회신 없이 진행 가능한 3개.
+  대표 사진(최대 4장, `facility_photos` 테이블 신설 예정)은 신규 테이블 설계라 Polalise 검토가 필요해
+  별도 후속 마이그레이션으로 분리했다(#632).
+  - `initial_grade`는 대시보드 "하자 등급 분포"(`defects.grade`, `defect_grade_type` 기반 계산값)와는
+    완전히 다른 개념이다. 컬럼명 분리에 더해 전용 enum `facility_initial_grade_type`(A~E)을 신설해
+    두 등급 체계가 DB 스키마 레벨에서도 섞이지 않게 한다.
+  - `assignee_user_id`는 `inspections.assigned_inspector_id`와 동일한 FK 패턴(nullable, users 참조).
+    배정 가능 여부는 `AuthService.validateAssignableInspector`로 애플리케이션에서 검증한다(활성
+    사용자·INSPECTOR/ADMIN 역할·요청자와 동일 회사·양쪽 유효 멤버십 — inspections와 동일 규칙).
+    시설물 등록은 담당자 배정이 필수가 아니고(nullable) 점검 회차 생성만큼 강한 정합성 보장이 필요한
+    상태 전이도 아니므로, `inspections`가 가진 DB 트리거(`check_inspection_assigned_inspector_company`)
+    수준의 DB 레벨 방어는 이번 범위에 포함하지 않는다.
 
 #### `inspections` — 시설별 점검 회차와 진행 상태
 

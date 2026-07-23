@@ -1,21 +1,23 @@
 package com.hajacheck.core.facility.service;
 
-import com.hajacheck.auth.service.CompanyScopeGuard;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.service.AuthService;
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.core.facility.entity.FacilityInitialGrade;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -38,6 +40,9 @@ class FacilityServiceTest {
     @Mock
     private CompanyScopeGuard companyScopeGuard;
 
+    @Mock
+    private AuthService authService;
+
     @InjectMocks
     private FacilityService facilityService;
 
@@ -55,7 +60,8 @@ class FacilityServiceTest {
 
     private FacilityCreateRequest createRequest() {
         return new FacilityCreateRequest(
-                "테스트빌딩", "BUILDING", "서울시 강남구", null, null, 2010, "지상5층", 12, null);
+                "테스트빌딩", "BUILDING", "서울시 강남구", null, null, 2010, "지상5층", 12, null,
+                null, null, null);
     }
 
     @Test
@@ -148,7 +154,8 @@ class FacilityServiceTest {
         Facility facility = existingFacility();
         when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
         FacilityUpdateRequest request = new FacilityUpdateRequest(
-                "수정된빌딩", "APARTMENT", "서울시 서초구", null, null, 2015, "지상10층", 6, null);
+                "수정된빌딩", "APARTMENT", "서울시 서초구", null, null, 2015, "지상10층", 6, null,
+                null, null, null);
 
         FacilityResponse response = facilityService.update(USER_ID, OWNER_ID, 10L, request);
 
@@ -162,10 +169,58 @@ class FacilityServiceTest {
     void update_없는시설_FACILITY_NOT_FOUND예외() {
         when(facilityRepository.findByIdAndCompanyId(999L, OWNER_ID)).thenReturn(Optional.empty());
         FacilityUpdateRequest request = new FacilityUpdateRequest(
-                "수정된빌딩", "APARTMENT", null, null, null, null, null, null, null);
+                "수정된빌딩", "APARTMENT", null, null, null, null, null, null, null,
+                null, null, null);
 
         assertThatThrownBy(() -> facilityService.update(USER_ID, OWNER_ID, 999L, request))
                 .isInstanceOf(BusinessException.class);
+    }
+
+    // ── 시설물 등록 필드 확장(#628 / HAJA-347) ──
+    // 대표 사진(photoUrls)은 Polalise DDL 검토 후 별도 후속으로 반영 예정(#632) — 이번 범위 테스트 제외.
+
+    @Test
+    void create_초기등급담당자메모_함께저장() {
+        when(facilityRepository.save(any(Facility.class))).thenAnswer(inv -> inv.getArgument(0));
+        FacilityCreateRequest request = new FacilityCreateRequest(
+                "테스트빌딩", "BUILDING", "서울시 강남구", null, null, 2010, "지상5층", 12, null,
+                FacilityInitialGrade.B, 5L, "1층 로비 CCTV 사각지대 있음");
+
+        FacilityResponse response = facilityService.create(USER_ID, OWNER_ID, request);
+
+        verify(authService).validateAssignableInspector(USER_ID, 5L);
+        ArgumentCaptor<Facility> captor = ArgumentCaptor.forClass(Facility.class);
+        verify(facilityRepository).save(captor.capture());
+        assertThat(captor.getValue().getInitialGrade()).isEqualTo(FacilityInitialGrade.B);
+        assertThat(captor.getValue().getAssigneeUserId()).isEqualTo(5L);
+        assertThat(captor.getValue().getMemo()).isEqualTo("1층 로비 CCTV 사각지대 있음");
+        assertThat(response.initialGrade()).isEqualTo(FacilityInitialGrade.B);
+        assertThat(response.assigneeUserId()).isEqualTo(5L);
+        assertThat(response.memo()).isEqualTo("1층 로비 CCTV 사각지대 있음");
+    }
+
+    @Test
+    void create_담당자없음_담당자검증호출안함() {
+        when(facilityRepository.save(any(Facility.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        facilityService.create(USER_ID, OWNER_ID, createRequest());
+
+        verify(authService, never()).validateAssignableInspector(any(), any());
+    }
+
+    @Test
+    void create_배정불가담당자_AUTH_INVALID_INSPECTOR예외_저장호출없음() {
+        doThrow(new BusinessException(ErrorCode.AUTH_INVALID_INSPECTOR))
+                .when(authService).validateAssignableInspector(USER_ID, 999L);
+        FacilityCreateRequest request = new FacilityCreateRequest(
+                "테스트빌딩", "BUILDING", null, null, null, null, null, null, null,
+                null, 999L, null);
+
+        assertThatThrownBy(() -> facilityService.create(USER_ID, OWNER_ID, request))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_INVALID_INSPECTOR));
+        verify(facilityRepository, never()).save(any());
     }
 
     @Test
