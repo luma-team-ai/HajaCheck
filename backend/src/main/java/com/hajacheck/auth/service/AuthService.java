@@ -9,6 +9,7 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.Instant;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
@@ -76,6 +77,20 @@ public class AuthService {
         if (!requesterMembershipEffective || !assigneeMembershipEffective) {
             throw new BusinessException(ErrorCode.AUTH_INVALID_INSPECTOR);
         }
+    }
+
+    /**
+     * 배정 가능한 회사 소속 사용자 목록(#690) — validateAssignableInspector 와 동일 자격 조건
+     * (활성·INSPECTOR/ADMIN 역할·유효 APPROVED 멤버십)을 목록으로 반환한다.
+     * companyId 는 LoginUser(세션 인증 결과)에서만 취득 — 요청 파라미터로 받지 않아 cross-company
+     * 열람을 원천 차단한다(FacilityController 의 companyId 스코프 패턴과 동일).
+     */
+    public List<UserResponse> listAssignableUsers(Long companyId) {
+        return companyMembershipRepository
+                .findAssignableUsersInCompany(companyId, Instant.now())
+                .stream()
+                .map(UserResponse::from)
+                .toList();
     }
 
     private User findUser(Long userId) {

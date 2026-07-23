@@ -1,6 +1,8 @@
 package com.hajacheck.core.facility.controller;
 
+import com.hajacheck.auth.dto.UserResponse;
 import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
@@ -35,6 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class FacilityController {
 
     private final FacilityService facilityService;
+    private final AuthService authService;
 
     @Operation(summary = "시설물 등록", description = "로그인 사용자의 회사 소유로 시설물을 신규 등록한다")
     @PostMapping
@@ -92,5 +95,13 @@ public class FacilityController {
         FacilityResponse response =
                 facilityService.setSchedule(loginUser.getUserId(), loginUser.getCompanyId(), id, request);
         return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "배정 가능한 담당자 목록 조회",
+            description = "로그인 사용자의 회사 소속 사용자 중 시설물 담당자로 배정 가능한(활성·INSPECTOR/ADMIN) 목록을 반환한다")
+    @GetMapping("/assignable-users")
+    public ResponseEntity<ApiResponse<List<UserResponse>>> listAssignableUsers(
+            @AuthenticationPrincipal LoginUser loginUser) {
+        return ResponseEntity.ok(ApiResponse.ok(authService.listAssignableUsers(loginUser.getCompanyId())));
     }
 }

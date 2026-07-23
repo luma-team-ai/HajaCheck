@@ -7,6 +7,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.dto.UserResponse;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
@@ -14,6 +15,7 @@ import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -227,5 +229,31 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.validateAssignableInspector(100L, 200L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.AUTH_INVALID_INSPECTOR));
+    }
+
+    @Test
+    void listAssignableUsers_회사소속목록_UserResponse로매핑되어반환() {
+        User inspector = assigneeOf(1L, Role.INSPECTOR, false);
+        when(inspector.getId()).thenReturn(200L);
+        when(inspector.getName()).thenReturn("점검자A");
+        when(inspector.getEmail()).thenReturn("inspector-a@haja.com");
+        when(companyMembershipRepository.findAssignableUsersInCompany(
+                org.mockito.ArgumentMatchers.eq(1L), any())).thenReturn(List.of(inspector));
+
+        List<UserResponse> result = authService.listAssignableUsers(1L);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).id()).isEqualTo(200L);
+        assertThat(result.get(0).name()).isEqualTo("점검자A");
+    }
+
+    @Test
+    void listAssignableUsers_회사소속없음_빈목록() {
+        when(companyMembershipRepository.findAssignableUsersInCompany(
+                org.mockito.ArgumentMatchers.eq(1L), any())).thenReturn(List.of());
+
+        List<UserResponse> result = authService.listAssignableUsers(1L);
+
+        assertThat(result).isEmpty();
     }
 }

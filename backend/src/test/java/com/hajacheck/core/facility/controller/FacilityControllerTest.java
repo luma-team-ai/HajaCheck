@@ -2,6 +2,7 @@ package com.hajacheck.core.facility.controller;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -289,5 +290,35 @@ class FacilityControllerTest extends PostgresTestSupport {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("AUTH_INVALID_INSPECTOR"));
+    }
+
+    // ── 배정 가능한 담당자 목록 조회(#690) ──
+
+    @Test
+    void 배정가능담당자목록_같은회사INSPECTOR_ADMIN만반환() throws Exception {
+        User owner = saveUser("owner14@haja.com");
+        Long companyId = owner.getCompanyId();
+        User inspector = userRepository.saveAndFlush(User.builder()
+                .email("inspector14@haja.com").name("점검자")
+                .role(Role.INSPECTOR).passwordHash("$2a$10$hashed")
+                .companyId(companyId).status(UserStatus.ACTIVE).build());
+        companyMembershipRepository.saveAndFlush(CompanyMembership.approvedOwner(companyId, inspector.getId()));
+        User plainUser = userRepository.saveAndFlush(User.builder()
+                .email("plain14@haja.com").name("일반사용자")
+                .role(Role.USER).passwordHash("$2a$10$hashed")
+                .companyId(companyId).status(UserStatus.ACTIVE).build());
+        companyMembershipRepository.saveAndFlush(CompanyMembership.approvedOwner(companyId, plainUser.getId()));
+
+        mockMvc.perform(get("/api/facilities/assignable-users")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(inspector.getId()));
+    }
+
+    @Test
+    void 배정가능담당자목록_미인증_401() throws Exception {
+        mockMvc.perform(get("/api/facilities/assignable-users"))
+                .andExpect(status().isUnauthorized());
     }
 }
