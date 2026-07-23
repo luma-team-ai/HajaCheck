@@ -433,6 +433,60 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void POST_bboxXOutOfRange_negative_400() throws Exception {
+        Company company = saveCompany("회사20");
+        User owner = saveUser("owner20@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector20@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        // bboxX=-1 (0.0 미만, 범위 위반) — 다른 3개는 valid (0.5)
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .bboxX(-1.0)
+                .bboxY(0.5)
+                .bboxW(0.5)
+                .bboxH(0.5)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void POST_bboxWOutOfRange_exceed_400() throws Exception {
+        Company company = saveCompany("회사21");
+        User owner = saveUser("owner21@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector21@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        // bboxW=1.5 (1.0 초과, 범위 위반) — 다른 3개는 valid (0.5)
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .bboxX(0.5)
+                .bboxY(0.5)
+                .bboxW(1.5)
+                .bboxH(0.5)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
     void POST_생성후조회_200() throws Exception {
         Company company = saveCompany("회사19");
         User owner = saveUser("owner19@haja.com");
