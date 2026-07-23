@@ -59,6 +59,12 @@ const PlatformAdminPlanQuotaPage = lazy(() =>
     default: m.PlatformAdminPlanQuotaPage,
   })),
 );
+// 플랫폼 관리자 > 서비스 통계(#634) — placeholder를 실 화면으로 교체
+const PlatformAdminStatsPage = lazy(() =>
+  import('../features/platform-admin/pages/PlatformAdminStatsPage').then((m) => ({
+    default: m.PlatformAdminStatsPage,
+  })),
+);
 
 // 이용약관 / 개인정보처리방침 — 랜딩 푸터 "법적 고지" 연결
 const TermsOfServicePage = lazy(() =>
@@ -675,7 +681,7 @@ export const router = createBrowserRouter([
         path: '/platform-admin/stats',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <PlatformAdminPlaceholderPage title="서비스 통계" />
+            <PlatformAdminStatsPage />
           </Suspense>
         ),
         handle: {
