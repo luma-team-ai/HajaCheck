@@ -1,20 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pagination } from '../../../shared/components/Pagination/Pagination';
-import { CurrentPlanCard } from '../components/CurrentPlanCard';
 import { PlanQuotaKpiCards } from '../components/PlanQuotaKpiCards';
 import { PlanQuotaTable } from '../components/PlanQuotaTable';
+import { FilterIcon } from '../components/icons/FilterIcon';
 import { SearchIcon } from '../components/icons/SearchIcon';
-import { useAdminPlanCatalog } from '../hooks/useAdminPlanCatalog';
 import { usePlanQuotaUsers } from '../hooks/usePlanQuotaUsers';
 import { PLAN_QUOTA_DEFAULT_PAGE_SIZE } from '../planQuota.constants';
 
 const KEYWORD_DEBOUNCE_MS = 300;
 
-// 플랫폼 관리자 > 플랜·쿼터 관리(#625) — features/admin/pages/PlanQuotaPage.tsx(Figma node-id
-// 1197-3519, #508)를 그대로 옮긴 것. 기업 관리자 화면은 요청 관리자 회사로 스코프되지만, 이 화면은
-// PLATFORM_ADMIN 전용 GET /api/platform-admin/plans-quota, /api/platform-admin/plans(회사 스코프
-// 없음)를 호출한다(백엔드 신규 엔드포인트는 backend/624-platform-admin-plan-quota 워크트리에서 별도 구현).
-// 헤더(브레드크럼)·사이드바는 PlatformAdminShellRoute가 담당하므로 이 페이지는 CONTENT 영역만 그린다.
+// 플랫폼 관리자 > 플랜·쿼터 관리(#625) — Figma node-id 1206-2639(플랫폼 관리자 기준 화면)를 따른다.
+// 기업 관리자 화면(features/admin/pages/PlanQuotaPage.tsx, #508)은 요청 관리자 회사로 스코프되고
+// 사이드에 고정된 "현재 플랜" 카드를 두지만, 이 화면은 전사 스코프라 사용자별 플랜·남은 기간·상태를
+// 표 하나에 담는다(사이드 카드 없음). PLATFORM_ADMIN 전용 GET /api/platform-admin/plans-quota(회사
+// 스코프 없음)를 호출한다(백엔드 신규 엔드포인트는 backend/624-platform-admin-plan-quota 워크트리에서
+// 별도 구현). 헤더(브레드크럼)·사이드바는 PlatformAdminShellRoute가 담당하므로 이 페이지는 CONTENT
+// 영역만 그린다.
 export function PlatformAdminPlanQuotaPage() {
   const [keywordInput, setKeywordInput] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -41,12 +42,10 @@ export function PlatformAdminPlanQuotaPage() {
   );
 
   const { data, isLoading, isError, refetch } = usePlanQuotaUsers(params);
-  const { data: catalogData } = useAdminPlanCatalog();
 
   const users = data?.content ?? [];
   const totalElements = data?.totalElements ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalElements / pageSize));
-  const companyPlan = isError ? null : data?.stats.companyPlan;
 
   const rangeStart = totalElements === 0 ? 0 : (page - 1) * pageSize + 1;
   const rangeEnd = Math.min(page * pageSize, totalElements);
@@ -54,7 +53,7 @@ export function PlatformAdminPlanQuotaPage() {
   return (
     <div className="flex min-h-full flex-col bg-surface-muted p-6 sm:p-8">
       <div className="flex flex-col gap-6 rounded-[20px] border border-border bg-surface p-6 sm:p-8">
-        {/* 헤더 — 제목·설명(좌) / 검색(우) */}
+        {/* 헤더 — 제목·설명(좌) / 검색·정책 설정(우) */}
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-6">
           <div>
             <h1 className="m-0 text-2xl font-bold text-heading">사용자 플랜·쿼터 관리</h1>
@@ -62,39 +61,42 @@ export function PlatformAdminPlanQuotaPage() {
               전사 사용자들의 플랜 상태와 쿼터 사용량을 모니터링하고 관리합니다.
             </p>
           </div>
-          <div className="relative w-full sm:w-64">
-            <span
-              className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-text-muted"
-              aria-hidden
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative w-full sm:w-64">
+              <span
+                className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-text-muted"
+                aria-hidden
+              >
+                <SearchIcon />
+              </span>
+              <input
+                type="search"
+                className="w-full rounded-full border border-border bg-surface py-2.5 pr-4 pl-11 text-sm text-text-default placeholder:text-text-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                placeholder="사용자 검색..."
+                value={keywordInput}
+                onChange={(event) => setKeywordInput(event.target.value)}
+                aria-label="사용자 검색"
+              />
+            </div>
+            {/* 클릭 동작(모달/페이지 이동)은 정책 미확정 — 후속 이슈에서 연결 */}
+            <button
+              type="button"
+              className="flex items-center gap-2 whitespace-nowrap rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-semibold text-text-default hover:border-primary hover:text-primary"
             >
-              <SearchIcon />
-            </span>
-            <input
-              type="search"
-              className="w-full rounded-full border border-border bg-surface py-2.5 pr-4 pl-11 text-sm text-text-default placeholder:text-text-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-              placeholder="사용자 검색..."
-              value={keywordInput}
-              onChange={(event) => setKeywordInput(event.target.value)}
-              aria-label="사용자 검색"
-            />
+              <FilterIcon />
+              플랜 정책 설정
+            </button>
           </div>
         </div>
 
         <PlanQuotaKpiCards stats={data?.stats} isError={isError} />
 
-        {/* 본문 — 쿼터 사용량 표(좌) / 현재 플랜 카드(우) */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
-          <PlanQuotaTable
-            users={users}
-            isLoading={isLoading}
-            isError={isError}
-            onRetry={() => void refetch()}
-          />
-          <div className="flex flex-col gap-3">
-            <p className="px-4 py-3 text-xs font-medium text-text-muted">현재 플랜</p>
-            <CurrentPlanCard plan={companyPlan} catalog={catalogData?.plans} />
-          </div>
-        </div>
+        <PlanQuotaTable
+          users={users}
+          isLoading={isLoading}
+          isError={isError}
+          onRetry={() => void refetch()}
+        />
 
         {/* 페이지네이션 — 표시 범위(좌) / 페이지 버튼(우) */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6">

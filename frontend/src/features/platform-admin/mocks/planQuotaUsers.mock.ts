@@ -15,6 +15,8 @@ export const mockPlanQuotaUsers: PlanQuotaUser[] = [
     plan: COMPANY_PLAN,
     quotaUsed: 1450,
     quotaLimit: COMPANY_QUOTA_LIMIT,
+    remainingDays: 245,
+    status: 'ACTIVE',
   },
   {
     id: 2,
@@ -23,6 +25,8 @@ export const mockPlanQuotaUsers: PlanQuotaUser[] = [
     plan: COMPANY_PLAN,
     quotaUsed: 980,
     quotaLimit: COMPANY_QUOTA_LIMIT,
+    remainingDays: 180,
+    status: 'ACTIVE',
   },
   {
     id: 3,
@@ -31,6 +35,8 @@ export const mockPlanQuotaUsers: PlanQuotaUser[] = [
     plan: COMPANY_PLAN,
     quotaUsed: 120,
     quotaLimit: COMPANY_QUOTA_LIMIT,
+    remainingDays: 90,
+    status: 'ACTIVE',
   },
   {
     id: 4,
@@ -40,6 +46,9 @@ export const mockPlanQuotaUsers: PlanQuotaUser[] = [
     // 경고 임계(90%) 이상 렌더 확인용 — 공용 한도를 많이 소진한 사용자
     quotaUsed: 4700,
     quotaLimit: COMPANY_QUOTA_LIMIT,
+    // 만료 임박(30일 이하) 상태 확인용
+    remainingDays: 12,
+    status: 'WARNING',
   },
   {
     id: 5,
@@ -48,6 +57,8 @@ export const mockPlanQuotaUsers: PlanQuotaUser[] = [
     plan: COMPANY_PLAN,
     quotaUsed: 38,
     quotaLimit: COMPANY_QUOTA_LIMIT,
+    remainingDays: 300,
+    status: 'ACTIVE',
   },
   {
     id: 6,
@@ -56,6 +67,8 @@ export const mockPlanQuotaUsers: PlanQuotaUser[] = [
     plan: COMPANY_PLAN,
     quotaUsed: 640,
     quotaLimit: COMPANY_QUOTA_LIMIT,
+    remainingDays: 150,
+    status: 'ACTIVE',
   },
   {
     id: 7,
@@ -64,6 +77,9 @@ export const mockPlanQuotaUsers: PlanQuotaUser[] = [
     plan: COMPANY_PLAN,
     quotaUsed: 940,
     quotaLimit: COMPANY_QUOTA_LIMIT,
+    // 만료된 플랜 확인용
+    remainingDays: null,
+    status: 'EXPIRED',
   },
   {
     id: 8,
@@ -73,6 +89,8 @@ export const mockPlanQuotaUsers: PlanQuotaUser[] = [
     plan: null,
     quotaUsed: 0,
     quotaLimit: null,
+    remainingDays: null,
+    status: 'EXPIRED',
   },
 ];
 
@@ -91,5 +109,4 @@ function computeTotalQuotaUsagePercent(users: PlanQuotaUser[]): number {
 export const mockPlanQuotaStats: PlanQuotaStats = {
   activeUsers: mockPlanQuotaUsers.filter((user) => user.plan !== null).length,
   totalQuotaUsagePercent: computeTotalQuotaUsagePercent(mockPlanQuotaUsers),
-  companyPlan: COMPANY_PLAN,
 };

@@ -8,7 +8,7 @@ interface PlanQuotaKpiCardsProps {
   isError: boolean;
 }
 
-// KPI 카드 2종 — Figma node-id 1197-3519. 좌: 전체 활성 사용자(보라 점), 우: 전체 쿼터 사용률(주황 점 + 바).
+// KPI 카드 2종 — Figma node-id 1206-2639. 좌: 전체 활성 사용자(보라 점), 우: 평균 쿼터 사용률(주황 점 + 바).
 // data가 없어도 카드는 사라지지 않는다 — 조회 전에는 0, 실패 시에는 "-"로 자리를 지킨다(사용자 관리 카드와 동일 규칙).
 export function PlanQuotaKpiCards({ stats, isError }: PlanQuotaKpiCardsProps) {
   const activeUsersText = isError
@@ -35,7 +35,7 @@ export function PlanQuotaKpiCards({ stats, isError }: PlanQuotaKpiCardsProps) {
       <section className="rounded-[20px] border border-border bg-surface p-6">
         <div className="flex items-center gap-2">
           <span className="inline-block h-2 w-2 rounded-full bg-[#f97316]" aria-hidden />
-          <span className="text-[13px] font-medium text-text-muted">전체 쿼터 사용률</span>
+          <span className="text-[13px] font-medium text-text-muted">평균 쿼터 사용률</span>
         </div>
         <p className="mt-4">
           <span className="text-4xl font-bold text-heading">

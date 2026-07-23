@@ -1,19 +1,18 @@
 // @vitest-environment jsdom
-// PlatformAdminPlanQuotaPage 통합 테스트 — features/admin/pages/PlanQuotaPage.test.tsx(#508)를
-// 그대로 옮긴 것(#625). 실제 usePlanQuotaUsers 훅 + MSW planQuotaHandlers를 통해 목록 렌더·KPI·
+// PlatformAdminPlanQuotaPage 통합 테스트 — Figma node-id 1206-2639(플랫폼 관리자 기준 화면) 기준.
+// 실제 usePlanQuotaUsers 훅 + MSW planQuotaHandlers를 통해 목록 렌더(플랜·남은 기간·상태 포함)·KPI·
 // 검색·페이지네이션·에러 상태를 검증한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { http, HttpResponse } from 'msw';
+import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { adminPlanHandlers } from '../api/adminPlanApi.handlers';
 import { planQuotaHandlers } from '../api/planQuotaApi.handlers';
 import { PLAN_QUOTA_KPI_TEST_ID } from '../components/PlanQuotaKpiCards';
 import { PlatformAdminPlanQuotaPage } from './PlatformAdminPlanQuotaPage';
 
-const server = setupServer(...planQuotaHandlers, ...adminPlanHandlers);
+const server = setupServer(...planQuotaHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
@@ -47,14 +46,14 @@ describe('PlatformAdminPlanQuotaPage (통합 테스트)', () => {
     expect(screen.getByText('94%')).toBeTruthy();
   });
 
-  it('KPI 카드에 전체 활성 사용자와 쿼터 사용률을 표시한다', async () => {
+  it('KPI 카드에 전체 활성 사용자와 평균 쿼터 사용률을 표시한다', async () => {
     renderPage();
 
     await screen.findByText('김민준');
     const kpi = within(screen.getByTestId(PLAN_QUOTA_KPI_TEST_ID));
     expect(kpi.getByText('전체 활성 사용자')).toBeTruthy();
     expect(kpi.getByText('7')).toBeTruthy();
-    expect(kpi.getByText('전체 쿼터 사용률')).toBeTruthy();
+    expect(kpi.getByText('평균 쿼터 사용률')).toBeTruthy();
   });
 
   it('첫 페이지에는 페이지 크기(4)만큼만 표시한다', async () => {
@@ -66,84 +65,28 @@ describe('PlatformAdminPlanQuotaPage (통합 테스트)', () => {
     expect(screen.getByText('전체 8명 중 1-4 표시')).toBeTruthy();
   });
 
-  it('현재 플랜 카드는 고정값을 보여주고, 페이지를 넘겨도 바뀌지 않는다', async () => {
+  it('행마다 현재 플랜·남은 기간·상태를 표시한다', async () => {
     renderPage();
 
-    expect(await screen.findByText('Standard')).toBeTruthy();
+    await screen.findByText('김민준');
+    // 김민준 — Standard 플랜, 245일 남음, 활성
+    expect(screen.getAllByText('Standard').length).toBeGreaterThan(0);
+    expect(screen.getByText('245일')).toBeTruthy();
+    expect(screen.getAllByText('활성').length).toBeGreaterThan(0);
+    // 최지우 — 만료 임박(12일), 주의 배지
+    expect(screen.getByText('12일')).toBeTruthy();
+    expect(screen.getByText('주의')).toBeTruthy();
+  });
 
-    // 2페이지로 이동해도(한서준=null인 사용자가 보여도) 카드는 그대로 유지된다
+  it('만료된 사용자는 남은 기간에 "만료됨", 상태에 "만료" 배지를 보여준다', async () => {
+    renderPage();
+
+    await screen.findByText('김민준');
     fireEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
-    await screen.findByText('한서준');
-    expect(screen.getByText('Standard')).toBeTruthy();
-  });
 
-  it('카탈로그의 priceMonthly가 null이어도 현재 플랜 카드가 크래시 없이 렌더된다', async () => {
-    server.use(
-      http.get('/api/platform-admin/plans', () =>
-        HttpResponse.json({
-          success: true,
-          data: {
-            plans: [
-              {
-                id: 2,
-                name: 'STANDARD',
-                maxFacilities: 10,
-                maxMonthlyAnalyses: 1000,
-                maxSeats: 3,
-                hasPdfWatermark: false,
-                hasCounselorAccess: true,
-                hasAiAddon: true,
-                priceMonthly: null,
-              },
-            ],
-          },
-        }),
-      ),
-    );
-    renderPage();
-
-    expect(await screen.findByText('가격 문의')).toBeTruthy();
-  });
-
-  it('ENTERPRISE의 maxSeats가 null이면 무제한 좌석을 포함 기능으로 렌더링한다', async () => {
-    server.use(
-      http.get('/api/platform-admin/plans-quota', () =>
-        HttpResponse.json({
-          success: true,
-          data: {
-            content: [],
-            page: 1,
-            size: 4,
-            totalElements: 0,
-            stats: { activeUsers: 0, totalQuotaUsagePercent: 0, companyPlan: 'ENTERPRISE' },
-          },
-        }),
-      ),
-    );
-    renderPage();
-
-    expect(await screen.findByText('Enterprise')).toBeTruthy();
-    expect(screen.getByText('점검자 좌석 무제한')).toBeTruthy();
-  });
-
-  it('활성 구독이 없으면 현재 플랜 카드에 안내 문구를 보여준다', async () => {
-    server.use(
-      http.get('/api/platform-admin/plans-quota', () =>
-        HttpResponse.json({
-          success: true,
-          data: {
-            content: [],
-            page: 1,
-            size: 4,
-            totalElements: 0,
-            stats: { activeUsers: 0, totalQuotaUsagePercent: 0, companyPlan: null },
-          },
-        }),
-      ),
-    );
-    renderPage();
-
-    expect(await screen.findByText('활성 구독 없음')).toBeTruthy();
+    await screen.findByText('윤아린');
+    expect(screen.getAllByText('만료됨').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('만료').length).toBeGreaterThan(0);
   });
 
   it('검색어를 입력하면 해당 사용자만 조회한다', async () => {
