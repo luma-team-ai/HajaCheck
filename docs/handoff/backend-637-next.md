@@ -15,15 +15,15 @@
 - `facilities.owner_id` (`users.id`)를 `facilities.company_id` (`companies.id`)로 전환한다.
 - 기존 시설 행은 `facilities.owner_id = users.id`를 통해 `users.company_id`로 변환한다.
 - 개인 사용자처럼 `users.company_id IS NULL`인 기존 시설이 있으면 데이터를 임의 삭제하거나 임의 회사에
-  배정하지 말고 V8을 명시적으로 실패시킨다.
+  배정하지 말고 V11을 명시적으로 실패시킨다.
 - 시설 조회·인가 범위를 로그인 사용자 개인이 아니라 로그인 사용자의 회사로 통일한다.
 
 ## 구현 범위
 
-1. 기존 V1~V7은 수정하지 않고
-   `backend/src/main/resources/db/migration/V8__migrate_facilities_to_company.sql`을 추가한다.
-2. V8은 두 경로를 모두 안전하게 지원한다.
-   - 빈 DB: V1의 `owner_id` 스키마를 V8에서 `company_id`로 변환
+1. 기존 V1~V9은 수정하지 않고
+   `backend/src/main/resources/db/migration/V11__migrate_facilities_to_company.sql`을 추가한다.
+2. V11은 두 경로를 모두 안전하게 지원한다.
+   - 빈 DB: V1의 `owner_id` 스키마를 V11에서 `company_id`로 변환
    - baseline-on-existing DB: 최신 캐노니컬 DDL에 이미 `company_id`가 있으면 의미 검증 후 no-op
 3. 마이그레이션은 기존 FK/인덱스를 회사 FK/인덱스로 교체하고, 컬럼 타입·NOT NULL·FK 대상·인덱스
    의미를 검증한다. 매핑 불가능한 기존 행이 있으면 구체적인 예외로 중단한다.
@@ -45,27 +45,27 @@
 
 ## 필수 테스트
 
-- V8 전용 Testcontainers 통합 테스트:
+- V11 전용 Testcontainers 통합 테스트:
   - 기존 `owner_id` 행이 소유 사용자의 `company_id`로 정확히 이관됨
   - 회사 없는 소유자의 시설이 있으면 마이그레이션 실패
   - 최종 컬럼/FK/인덱스 의미 검증
-- `FlywayBaselineIntegrationTest`와 `FlywayBaselineOnExistingDbIntegrationTest`의 V8 기대값 갱신
+- `FlywayBaselineIntegrationTest`와 `FlywayBaselineOnExistingDbIntegrationTest`의 V11 기대값 갱신
 - 변경된 Facility/Repository/Service/Controller 및 시설 경유 도메인 테스트 갱신
 - `./gradlew compileJava`
 - `./gradlew test`
 
 ## G1 자체 검수
 
-- PASS — 최신 원격에 V7이 존재하므로 다음 번호를 V8로 확정했다.
+- PASS — dev에 V9까지 존재하고 V10은 병행 PR #673(facility 등록 필드)이 선점하므로, 충돌을 피해 이 PR은 V11로 확정했다. (머지 순서 강제: #673 V10이 이 PR V11보다 먼저 dev에 머지돼야 out-of-order 부팅 실패를 피한다.)
 - PASS — 운영 회귀 패턴인 Hibernate `ddl-auto=validate` 누락과 baseline-on-existing 경로를 필수 테스트에 포함했다.
 - PASS — 사용자 ID가 액터 FK로 남는 경로와 회사 ID가 인가 스코프가 되는 경로를 구분했다.
 
 ## 승격 전제 (dev→main, 필수 — PR머신 P1)
 
-`V10__migrate_facilities_to_company.sql`은 `facilities.owner_id`→`users.company_id`
+`V11__migrate_facilities_to_company.sql`은 `facilities.owner_id`→`users.company_id`
 backfill 전에, 소유자의 `company_id`나 대응 `companies` 행이 없는 시설이 하나라도 있으면
 `raise exception`으로 마이그레이션을 중단한다(안전 설계, `FacilityCompanyMigrationTest`의
-`V10은_회사없는소유자의시설이있으면_구체적인예외로실패한다`가 이 동작을 고정). Flyway는 앱
+`V11은_회사없는소유자의시설이있으면_구체적인예외로실패한다`가 이 동작을 고정). Flyway는 앱
 기동 시 자동 실행되므로, **prod `hajacheck`에 무회사(개인) 소유 시설이 1건이라도 남아 있으면
 main 승격 자동배포 시 arm1-spring이 기동 실패**한다(#531 재발 유형).
 
@@ -82,7 +82,7 @@ where u.company_id is null or c.id is null;
 
 - **0건** → 그대로 승격 진행. 승격 PR 본문에 "프리플라이트 0건 확인" 결과를 남겨 이 P1을 닫는다.
 - **1건 이상** → 해당 시설의 소유자에게 회사를 배정하거나(정상 흐름으로 유도) 데이터를 정리(백업
-  포함)하는 선행 배치를 승격 전에 실행한 뒤 재확인한다. `V10` 자체를 수정하지 않는다(설계는 맞음 —
+  포함)하는 선행 배치를 승격 전에 실행한 뒤 재확인한다. `V11` 자체를 수정하지 않는다(설계는 맞음 —
   fail-fast가 의도된 동작).
 
 ## 책임

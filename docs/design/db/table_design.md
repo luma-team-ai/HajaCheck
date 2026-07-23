@@ -573,7 +573,7 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 | updated_at | timestamptz | N | now() | | 최종 수정 시각 |
 
 - 인덱스: `idx_facilities_company (company_id)`
-- V10 마이그레이션은 기존 `owner_id`의 사용자에 연결된 `users.company_id`로 시설을 이관한다. 회사가
+- V11 마이그레이션은 기존 `owner_id`의 사용자에 연결된 `users.company_id`로 시설을 이관한다. 회사가
   없거나 유효한 회사에 매핑할 수 없는 기존 시설은 임의 삭제·배정하지 않고 마이그레이션을 실패시킨다.
 - 착수 보고서 대비: `address`, `inspection_cycle_months`가 NOT NULL → NULL 허용으로 완화됨 (§2.1 참조)
 

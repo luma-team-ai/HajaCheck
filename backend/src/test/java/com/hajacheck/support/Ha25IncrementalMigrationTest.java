@@ -341,8 +341,8 @@ class Ha25IncrementalMigrationTest {
                         CONTAINER_ROOT + "V7__inspection_admin_schema.sql")
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
-                                "db/migration/V10__migrate_facilities_to_company.sql"),
-                        CONTAINER_ROOT + "V10__migrate_facilities_to_company.sql");
+                                "db/migration/V11__migrate_facilities_to_company.sql"),
+                        CONTAINER_ROOT + "V11__migrate_facilities_to_company.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -414,7 +414,7 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "V6__add_defects_media_id.sql");
         // #568 — Flyway V7(점검 관리자 스키마)도 이어서 1회 forward-apply한다.
         runPsql(postgres, "V7__inspection_admin_schema.sql");
-        runPsql(postgres, "V10__migrate_facilities_to_company.sql");
+        runPsql(postgres, "V11__migrate_facilities_to_company.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }
