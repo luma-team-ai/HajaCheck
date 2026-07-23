@@ -167,6 +167,13 @@ const PlanQuotaPage = lazy(() =>
   })),
 );
 
+// 플랫폼 관리자 > RAG 문서 관리 (#22/HAJA-35, PRD FR-8-B)
+const RagDocumentsPage = lazy(() =>
+  import('../features/admin/pages/RagDocumentsPage').then((m) => ({
+    default: m.RagDocumentsPage,
+  })),
+);
+
 const FacilityListPage = lazy(() =>
   import('../features/facility/pages/FacilityListPage').then((m) => ({
     default: m.FacilityListPage,
@@ -669,14 +676,14 @@ export const router = createBrowserRouter([
         path: '/platform-admin/rag-documents',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <PlatformAdminPlaceholderPage title="RAG 문서 관리" />
+            <RagDocumentsPage />
           </Suspense>
         ),
         handle: {
           breadcrumb: [{ label: '플랫폼 관리자' }, { label: 'RAG 문서 관리' }],
           activeHref: '/platform-admin/rag-documents',
         },
-      },
+      }, // — features/admin RAG 문서 관리 (#22/HAJA-35, PRD FR-8-B)
       {
         path: '/platform-admin/stats',
         element: (

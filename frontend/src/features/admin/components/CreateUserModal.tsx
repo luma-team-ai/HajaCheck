@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { doPasswordsMatch, isValidEmail, isValidPassword } from '../../auth/utils/authFormValidators';
 import { Button } from '../../../shared/components/Button';
 import { Modal } from '../../../shared/components/Modal';
+import { ADMIN_FORM_INPUT_CLASS, ADMIN_FORM_LABEL_CLASS } from '../adminFormClasses';
 import { ROLE_CHANGE_OPTIONS, ROLE_LABEL } from '../constants';
 import type { AdminUserRole } from '../types';
 
@@ -18,10 +19,6 @@ interface CreateUserModalProps {
   isSubmitting: boolean;
   submitErrorMessage?: string;
 }
-
-const INPUT_CLASS =
-  'w-full rounded-full border border-border bg-surface px-4 py-3 text-sm text-text-default placeholder:text-text-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-primary';
-const LABEL_CLASS = 'text-xs font-medium tracking-wide text-text-muted';
 
 // 사용자 등록 모달 — Figma node-id 1147-2649. "사용자 초대" 버튼을 대체하며, 회원가입 폼과 같은
 // 검증 정규식(authFormValidators)을 재사용한다 — 비밀번호 확인 일치 여부는 클라이언트에서만
@@ -77,13 +74,13 @@ export function CreateUserModal({
     <Modal open={open} onClose={handleClose} title="사용자 등록" closeOnOverlayClick={false}>
       <form onSubmit={handleSubmit} className="flex w-105 max-w-full flex-col gap-6">
         <div className="flex flex-col gap-2">
-          <label htmlFor="create-user-email" className={LABEL_CLASS}>
+          <label htmlFor="create-user-email" className={ADMIN_FORM_LABEL_CLASS}>
             이메일
           </label>
           <input
             id="create-user-email"
             type="email"
-            className={INPUT_CLASS}
+            className={ADMIN_FORM_INPUT_CLASS}
             placeholder="아이디 입력"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -95,13 +92,13 @@ export function CreateUserModal({
         </div>
 
         <div className="flex flex-col gap-2">
-          <label htmlFor="create-user-password" className={LABEL_CLASS}>
+          <label htmlFor="create-user-password" className={ADMIN_FORM_LABEL_CLASS}>
             비밀번호
           </label>
           <input
             id="create-user-password"
             type="password"
-            className={INPUT_CLASS}
+            className={ADMIN_FORM_INPUT_CLASS}
             placeholder="비밀번호 입력"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
@@ -113,13 +110,13 @@ export function CreateUserModal({
         </div>
 
         <div className="flex flex-col gap-2">
-          <label htmlFor="create-user-password-confirm" className={LABEL_CLASS}>
+          <label htmlFor="create-user-password-confirm" className={ADMIN_FORM_LABEL_CLASS}>
             비밀번호 재확인
           </label>
           <input
             id="create-user-password-confirm"
             type="password"
-            className={INPUT_CLASS}
+            className={ADMIN_FORM_INPUT_CLASS}
             placeholder="비밀번호 입력"
             value={passwordConfirm}
             onChange={(event) => setPasswordConfirm(event.target.value)}
@@ -131,13 +128,13 @@ export function CreateUserModal({
         </div>
 
         <div className="flex flex-col gap-2">
-          <label htmlFor="create-user-name" className={LABEL_CLASS}>
+          <label htmlFor="create-user-name" className={ADMIN_FORM_LABEL_CLASS}>
             이름
           </label>
           <input
             id="create-user-name"
             type="text"
-            className={INPUT_CLASS}
+            className={ADMIN_FORM_INPUT_CLASS}
             placeholder="실명 입력"
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -147,12 +144,12 @@ export function CreateUserModal({
         </div>
 
         <div className="flex flex-col gap-2">
-          <label htmlFor="create-user-role" className={LABEL_CLASS}>
+          <label htmlFor="create-user-role" className={ADMIN_FORM_LABEL_CLASS}>
             역할
           </label>
           <select
             id="create-user-role"
-            className={INPUT_CLASS}
+            className={ADMIN_FORM_INPUT_CLASS}
             value={role}
             onChange={(event) => setRole(event.target.value as AdminUserRole)}
           >
