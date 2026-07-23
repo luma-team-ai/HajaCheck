@@ -12,6 +12,7 @@ const IMPLEMENTED_ROUTES = new Set([
   '/dashboard/upcoming-inspections', // 다음 점검일 도래 독립 페이지(dev-03-02, #543)
   '/defects/list',
   '/mypage/plan',
+  '/mypage/profile', // 마이페이지 내 정보(HAJA-361, #659)
   '/inspections/1/viewer',
   '/inspections/create',
   '/facilities/list',
