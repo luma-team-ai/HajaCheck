@@ -8,9 +8,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
@@ -48,21 +50,28 @@ class FacilityControllerTest extends PostgresTestSupport {
     @Autowired
     private UserRepository userRepository;
     @Autowired
+    private CompanyRepository companyRepository;
+    @Autowired
     private FacilityRepository facilityRepository;
 
     private User saveUser(String email) {
-        return userRepository.save(User.builder()
+        User user = userRepository.saveAndFlush(User.builder()
                 .email(email)
                 .name("기업사용자")
                 .role(Role.USER)
                 .passwordHash("$2a$10$hashed")
                 .status(UserStatus.ACTIVE)
                 .build());
+        Company company = companyRepository.saveAndFlush(Company.createPendingReview(
+                user.getId(), email + " 회사", "TEST-" + user.getId(), "대표자",
+                "서울", null, "https://example.com/brn", "{\"source\":\"TEST\"}"));
+        user.assignToCompany(company.getId());
+        return userRepository.saveAndFlush(user);
     }
 
     private Facility saveFacility(Long ownerId) {
         return facilityRepository.save(Facility.builder()
-                .ownerId(ownerId)
+                .companyId(userRepository.findById(ownerId).orElseThrow().getCompanyId())
                 .name("테스트빌딩")
                 .type("BUILDING")
                 .address("서울시 강남구")

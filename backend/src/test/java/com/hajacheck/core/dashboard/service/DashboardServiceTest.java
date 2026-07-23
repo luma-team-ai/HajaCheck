@@ -1,6 +1,7 @@
 package com.hajacheck.core.dashboard.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
@@ -27,6 +28,8 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import java.lang.reflect.Field;
 import java.time.LocalDate;
 import java.util.List;
@@ -62,14 +65,14 @@ class DashboardServiceTest {
     private static final Long FACILITY_ID = 10L;
 
     private Facility facility(Long id, Long ownerId, String name) {
-        Facility facility = Facility.builder().ownerId(ownerId).name(name).type("BUILDING").build();
+        Facility facility = Facility.builder().companyId(ownerId).name(name).type("BUILDING").build();
         setId(facility, "id", id);
         return facility;
     }
 
     private Facility facilityWithDueAt(Long id, Long ownerId, String name, LocalDate nextInspectionDueAt) {
         Facility facility = Facility.builder()
-                .ownerId(ownerId).name(name).type("BUILDING")
+                .companyId(ownerId).name(name).type("BUILDING")
                 .inspectionCycleMonths(6).nextInspectionDueAt(nextInspectionDueAt)
                 .build();
         setId(facility, "id", id);
@@ -103,9 +106,9 @@ class DashboardServiceTest {
 
     @Test
     void getSummary_소유시설물없으면_전부0() {
-        when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of());
-        when(facilityRepository.countByOwnerId(OWNER_ID)).thenReturn(0L);
-        when(facilityRepository.countByOwnerIdAndCreatedAtBefore(eq(OWNER_ID), any())).thenReturn(0L);
+        when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of());
+        when(facilityRepository.countByCompanyId(OWNER_ID)).thenReturn(0L);
+        when(facilityRepository.countByCompanyIdAndCreatedAtBefore(eq(OWNER_ID), any())).thenReturn(0L);
 
         DashboardSummaryResponse response = dashboardService.getSummary(OWNER_ID);
 
@@ -118,9 +121,9 @@ class DashboardServiceTest {
 
     @Test
     void getSummary_소유시설물기준으로만집계() {
-        when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "A")));
-        when(facilityRepository.countByOwnerId(OWNER_ID)).thenReturn(3L);
-        when(facilityRepository.countByOwnerIdAndCreatedAtBefore(eq(OWNER_ID), any())).thenReturn(2L);
+        when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "A")));
+        when(facilityRepository.countByCompanyId(OWNER_ID)).thenReturn(3L);
+        when(facilityRepository.countByCompanyIdAndCreatedAtBefore(eq(OWNER_ID), any())).thenReturn(2L);
         when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of());
         when(inspectionRepository.countByFacilityIdInAndStatusInAndInspectionDateRange(
                 eq(List.of(FACILITY_ID)), anyCollection(), any(), any())).thenReturn(4L);
@@ -137,9 +140,9 @@ class DashboardServiceTest {
 
     @Test
     void getSummary_이전달0건이면_증가율100퍼센트() {
-        when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of());
-        when(facilityRepository.countByOwnerId(OWNER_ID)).thenReturn(5L);
-        when(facilityRepository.countByOwnerIdAndCreatedAtBefore(eq(OWNER_ID), any())).thenReturn(0L);
+        when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of());
+        when(facilityRepository.countByCompanyId(OWNER_ID)).thenReturn(5L);
+        when(facilityRepository.countByCompanyIdAndCreatedAtBefore(eq(OWNER_ID), any())).thenReturn(0L);
 
         DashboardSummaryResponse response = dashboardService.getSummary(OWNER_ID);
 
@@ -148,7 +151,7 @@ class DashboardServiceTest {
 
     @Test
     void getGradeDistribution_등급별percent계산_5개등급모두반환() {
-        when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "A")));
+        when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "A")));
         Inspection insp = inspection(100L, FACILITY_ID, OWNER_ID, LocalDate.now(), InspectionStatus.REVIEWED);
         when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of(insp));
         when(defectRepository.countGroupByGrade(List.of(100L))).thenReturn(List.of(
@@ -169,7 +172,7 @@ class DashboardServiceTest {
     void getGradeDistribution_하자0건이면_빈목록() {
         // 점검은 있으나 하자가 0건인 경우. 0% 5건을 반환하면 프론트 빈 상태 가드(items.length===0)가
         // 발동하지 못하고, 합계 0% 라 DASH-01 V2("합계 100% 검증")도 깨진다(#347).
-        when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "A")));
+        when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "A")));
         Inspection insp = inspection(100L, FACILITY_ID, OWNER_ID, LocalDate.now(), InspectionStatus.REVIEWED);
         when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of(insp));
         when(defectRepository.countGroupByGrade(List.of(100L))).thenReturn(List.of());
@@ -181,7 +184,7 @@ class DashboardServiceTest {
 
     @Test
     void getGradeDistribution_소유시설물없으면_빈목록() {
-        when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of());
+        when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of());
 
         List<GradeDistributionResponse> result = dashboardService.getGradeDistribution(OWNER_ID);
 
@@ -192,7 +195,7 @@ class DashboardServiceTest {
     void getGradeDistribution_미분류하자만있으면_빈목록() {
         // countGroupByGrade 는 "grade is not null" 조건이라 미분류(grade=null) 하자만 있으면
         // 집계가 비어 total==0 이 된다. 등급 막대에 그릴 것이 없으므로 빈 목록이 맞다(#347).
-        when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "A")));
+        when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "A")));
         Inspection insp = inspection(100L, FACILITY_ID, OWNER_ID, LocalDate.now(), InspectionStatus.ANALYZED);
         when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of(insp));
         when(defectRepository.countGroupByGrade(List.of(100L))).thenReturn(List.of());
@@ -204,9 +207,9 @@ class DashboardServiceTest {
 
     @Test
     void getPendingPriority_타인소유시설물의점검은조회대상에서제외() {
-        // owner 소유 facility 만 findByOwnerId 로 반환되므로, defectRepository 조회에는
+        // owner 소유 facility 만 findByCompanyId 로 반환되므로, defectRepository 조회에는
         // owner 소유 facility 로부터 얻은 inspectionId 만 전달돼야 한다(cross-owner IDOR 방지).
-        when(facilityRepository.findByOwnerId(OWNER_ID))
+        when(facilityRepository.findByCompanyId(OWNER_ID))
                 .thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "내시설")));
         Inspection myInspection =
                 inspection(200L, FACILITY_ID, OWNER_ID, LocalDate.now(), InspectionStatus.REVIEWED);
@@ -221,7 +224,7 @@ class DashboardServiceTest {
         assertThat(result).hasSize(1);
         assertThat(result.get(0).location()).isEqualTo("내시설");
         assertThat(result.get(0).grade()).isEqualTo("E");
-        // 타인(OTHER_OWNER_ID) 소유 시설물은 findByOwnerId(OWNER_ID) 결과에 없으므로
+        // 타인(OTHER_OWNER_ID) 소유 시설물은 findByCompanyId(OWNER_ID) 결과에 없으므로
         // defectRepository 조회 인자에도 해당 시설물의 inspectionId 가 절대 섞이지 않는다.
         verify(defectRepository).findPendingPriorityDefects(
                 List.of(200L), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10));
@@ -229,7 +232,7 @@ class DashboardServiceTest {
 
     @Test
     void getPendingPriority_소유시설물없으면_빈목록() {
-        when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of());
+        when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of());
 
         List<PendingPriorityResponse> result = dashboardService.getPendingPriority(OWNER_ID);
 
@@ -240,7 +243,7 @@ class DashboardServiceTest {
 
     @Test
     void getRecentInspections_시설물명_담당자명_결함수조합() {
-        when(facilityRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "내시설")));
+        when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "내시설")));
         Inspection insp =
                 inspection(400L, FACILITY_ID, 99L, LocalDate.of(2026, 7, 10), InspectionStatus.REPORTED);
         // 건수 제한이 Pageable 로 넘어가므로(#351) PageRequest.of(0, RECENT_LIMIT=10) 을 그대로 단언한다
@@ -269,7 +272,7 @@ class DashboardServiceTest {
         LocalDate today = LocalDate.now(kst);
         Facility soon = facilityWithDueAt(FACILITY_ID, OWNER_ID, "3일후시설", today.plusDays(3));
         Facility later = facilityWithDueAt(20L, OWNER_ID, "10일후시설", today.plusDays(10));
-        when(facilityRepository.findUpcomingByOwnerId(
+        when(facilityRepository.findUpcomingByCompanyId(
                 eq(OWNER_ID), eq(today), eq(today.plusDays(30)), eq(PageRequest.of(0, 5))))
                 .thenReturn(List.of(soon, later));
 
@@ -285,7 +288,7 @@ class DashboardServiceTest {
 
     @Test
     void getUpcomingInspections_대상없으면_빈목록() {
-        when(facilityRepository.findUpcomingByOwnerId(eq(OWNER_ID), any(), any(), any()))
+        when(facilityRepository.findUpcomingByCompanyId(eq(OWNER_ID), any(), any(), any()))
                 .thenReturn(List.of());
 
         List<UpcomingInspectionResponse> result = dashboardService.getUpcomingInspections(OWNER_ID, 30, 5);
@@ -295,12 +298,12 @@ class DashboardServiceTest {
 
     @Test
     void getUpcomingInspections_limit이repository로그대로전달() {
-        when(facilityRepository.findUpcomingByOwnerId(eq(OWNER_ID), any(), any(), eq(PageRequest.of(0, 3))))
+        when(facilityRepository.findUpcomingByCompanyId(eq(OWNER_ID), any(), any(), eq(PageRequest.of(0, 3))))
                 .thenReturn(List.of());
 
         dashboardService.getUpcomingInspections(OWNER_ID, 7, 3);
 
-        verify(facilityRepository).findUpcomingByOwnerId(eq(OWNER_ID), any(), any(), eq(PageRequest.of(0, 3)));
+        verify(facilityRepository).findUpcomingByCompanyId(eq(OWNER_ID), any(), any(), eq(PageRequest.of(0, 3)));
     }
 
     @Test
@@ -308,12 +311,12 @@ class DashboardServiceTest {
         // DashboardService.UPCOMING_INSPECTIONS_MAX_LIMIT(50) 방어로직(Math.min(limit, 50))이
         // 실제로 Pageable 에 반영되는지 — limit=100 요청이 그대로 repository 에 전달되면 과다조회다.
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-        when(facilityRepository.findUpcomingByOwnerId(eq(OWNER_ID), any(), any(), any()))
+        when(facilityRepository.findUpcomingByCompanyId(eq(OWNER_ID), any(), any(), any()))
                 .thenReturn(List.of());
 
         dashboardService.getUpcomingInspections(OWNER_ID, 30, 100);
 
-        verify(facilityRepository).findUpcomingByOwnerId(eq(OWNER_ID), any(), any(), pageableCaptor.capture());
+        verify(facilityRepository).findUpcomingByCompanyId(eq(OWNER_ID), any(), any(), pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(50);
     }
 
@@ -343,5 +346,12 @@ class DashboardServiceTest {
                 return cnt;
             }
         };
+    }
+    @Test
+    void getSummary_회사없는사용자_FORBIDDEN예외() {
+        assertThatThrownBy(() -> dashboardService.getSummary(null))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.FORBIDDEN));
     }
 }

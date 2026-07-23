@@ -15,6 +15,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.service.CompanyOwnerLookupService;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.notification.entity.Notification;
@@ -25,7 +26,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Collection;
 import java.util.List;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,8 +49,10 @@ class InspectionDueNotificationSchedulerTest {
     private static final Clock FIXED = Clock.fixed(Instant.parse("2026-07-20T15:00:00Z"), KST);
     private static final LocalDate TODAY = LocalDate.of(2026, 7, 21);
     private static final Long OWNER = 100L;
+    private static final Long COMPANY = 900L;
 
     private FacilityRepository facilityRepository;
+    private CompanyOwnerLookupService companyOwnerLookupService;
     private NotificationRepository notificationRepository;
     private NotificationService notificationService;
     private InspectionDueNotificationScheduler scheduler;
@@ -54,10 +60,16 @@ class InspectionDueNotificationSchedulerTest {
     @BeforeEach
     void setUp() {
         facilityRepository = mock(FacilityRepository.class);
+        companyOwnerLookupService = mock(CompanyOwnerLookupService.class);
         notificationRepository = mock(NotificationRepository.class);
         notificationService = mock(NotificationService.class);
+        lenient().when(companyOwnerLookupService.findOwnerUserIds(any()))
+                .thenAnswer(invocation -> ((Collection<Long>) invocation.getArgument(0)).stream()
+                        .collect(Collectors.toMap(
+                                Function.identity(),
+                                companyId -> companyId.equals(COMPANY) ? OWNER : companyId)));
         scheduler = new InspectionDueNotificationScheduler(
-                facilityRepository, notificationRepository, notificationService, FIXED);
+                facilityRepository, companyOwnerLookupService, notificationRepository, notificationService, FIXED);
     }
 
     private Facility dueFacility(long id, long ownerId, String name) {
@@ -67,7 +79,7 @@ class InspectionDueNotificationSchedulerTest {
     private Facility dueFacility(long id, long ownerId, String name, LocalDate dueAt) {
         Facility f = mock(Facility.class);
         lenient().when(f.getId()).thenReturn(id);
-        lenient().when(f.getOwnerId()).thenReturn(ownerId);
+        lenient().when(f.getCompanyId()).thenReturn(ownerId);
         lenient().when(f.getName()).thenReturn(name);
         lenient().when(f.getNextInspectionDueAt()).thenReturn(dueAt);
         return f;
@@ -95,7 +107,7 @@ class InspectionDueNotificationSchedulerTest {
     @Test
     @DisplayName("오늘 마감 시설물에 INSPECTION_DUE 알림을 발행한다")
     void 오늘마감시설_알림발행() {
-        stubDuePage(List.of(dueFacility(1L, OWNER, "시설A")));
+        stubDuePage(List.of(dueFacility(1L, COMPANY, "시설A")));
         stubNoExistingNotifications();
 
         scheduler.notifyFacilitiesDueToday();
@@ -106,7 +118,7 @@ class InspectionDueNotificationSchedulerTest {
     @Test
     @DisplayName("현재 도래일로 이미 발행된 알림이 있으면 발행하지 않는다(멱등)")
     void 이미알림존재_스킵() {
-        Facility f = dueFacility(1L, OWNER, "시설A");
+        Facility f = dueFacility(1L, COMPANY, "시설A");
         stubDuePage(List.of(f));
         Notification existing = existingNotificationFor(f);
         when(notificationRepository.findAllByUserIdInAndType(anySet(), any()))
@@ -120,8 +132,8 @@ class InspectionDueNotificationSchedulerTest {
     @Test
     @DisplayName("같은 owner의 시설물 2개 중 1개만 이미 알림 있으면 나머지 1개만 발행한다")
     void 일부만알림존재_나머지만발행() {
-        Facility f1 = dueFacility(1L, OWNER, "시설1");
-        Facility f2 = dueFacility(2L, OWNER, "시설2");
+        Facility f1 = dueFacility(1L, COMPANY, "시설1");
+        Facility f2 = dueFacility(2L, COMPANY, "시설2");
         stubDuePage(List.of(f1, f2));
         Notification existingForF1 = existingNotificationFor(f1);
         when(notificationRepository.findAllByUserIdInAndType(anySet(), any()))
@@ -137,7 +149,7 @@ class InspectionDueNotificationSchedulerTest {
     @Test
     @DisplayName("한 시설물의 notify가 예외를 던져도 같은 owner의 다음 시설물은 계속 처리한다")
     void notify예외_격리_다음시설계속() {
-        stubDuePage(List.of(dueFacility(1L, OWNER, "시설1"), dueFacility(2L, OWNER, "시설2")));
+        stubDuePage(List.of(dueFacility(1L, COMPANY, "시설1"), dueFacility(2L, COMPANY, "시설2")));
         stubNoExistingNotifications();
         doThrow(new RuntimeException("발행 실패")).doNothing()
                 .when(notificationService).notify(anyLong(), any(), anyString());
@@ -175,7 +187,7 @@ class InspectionDueNotificationSchedulerTest {
     @DisplayName("도래일이 그대로인 overdue 시설물은 재실행해도 두 번째엔 스킵된다(스팸 방지)")
     void overdue_도래일불변_재실행시_스킵() {
         // overdue(어제 마감) 시설물 — 도래일 값은 재스케줄 전까지 바뀌지 않는다.
-        Facility f = dueFacility(1L, OWNER, "연체시설", TODAY.minusDays(1));
+        Facility f = dueFacility(1L, COMPANY, "연체시설", TODAY.minusDays(1));
         stubDuePage(List.of(f));
 
         // 1회차: 기존 알림 없음 → 발행
@@ -213,8 +225,8 @@ class InspectionDueNotificationSchedulerTest {
     @Test
     @DisplayName("결과가 여러 페이지에 걸쳐도 모든 페이지가 처리된다")
     void 여러페이지_전부처리() {
-        Facility p0 = dueFacility(1L, OWNER, "1페이지시설");
-        Facility p1 = dueFacility(2L, OWNER, "2페이지시설");
+        Facility p0 = dueFacility(1L, COMPANY, "1페이지시설");
+        Facility p1 = dueFacility(2L, COMPANY, "2페이지시설");
         // pageSize=1 → page0.hasNext()=true(다음 페이지 있음), page1.hasNext()=false(마지막) 로 강제.
         Slice<Facility> page0 = new SliceImpl<>(List.of(p0), PageRequest.of(0, 1), true);
         Slice<Facility> page1 = new SliceImpl<>(List.of(p1), PageRequest.of(1, 1), false);
@@ -232,7 +244,7 @@ class InspectionDueNotificationSchedulerTest {
     @Test
     @DisplayName("기존 알림 배치 조회가 실패하면 그 페이지는 스킵하고 발행하지 않는다")
     void 배치조회실패_페이지스킵() {
-        stubDuePage(List.of(dueFacility(1L, OWNER, "시설A")));
+        stubDuePage(List.of(dueFacility(1L, COMPANY, "시설A")));
         when(notificationRepository.findAllByUserIdInAndType(anySet(), any()))
                 .thenThrow(new RuntimeException("DB 오류"));
 

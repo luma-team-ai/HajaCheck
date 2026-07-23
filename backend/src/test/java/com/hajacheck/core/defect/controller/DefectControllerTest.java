@@ -103,7 +103,7 @@ class DefectControllerTest extends PostgresTestSupport {
 
     private Facility saveFacility(Long ownerId) {
         return facilityRepository.save(Facility.builder()
-                .ownerId(ownerId)
+                .companyId(userRepository.findById(ownerId).orElseThrow().getCompanyId())
                 .name("테스트빌딩")
                 .type("BUILDING")
                 .address("서울시 강남구")

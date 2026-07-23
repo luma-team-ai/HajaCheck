@@ -41,7 +41,7 @@ class FacilityServiceTest {
 
     private Facility existingFacility() {
         return Facility.builder()
-                .ownerId(OWNER_ID)
+                .companyId(OWNER_ID)
                 .name("기존시설")
                 .type("BUILDING")
                 .address("서울시 강남구")
@@ -61,59 +61,58 @@ class FacilityServiceTest {
 
         ArgumentCaptor<Facility> captor = ArgumentCaptor.forClass(Facility.class);
         verify(facilityRepository).save(captor.capture());
-        assertThat(captor.getValue().getOwnerId()).isEqualTo(OWNER_ID);
+        assertThat(captor.getValue().getCompanyId()).isEqualTo(OWNER_ID);
         assertThat(captor.getValue().getName()).isEqualTo("테스트빌딩");
-        assertThat(response.ownerId()).isEqualTo(OWNER_ID);
         assertThat(response.name()).isEqualTo("테스트빌딩");
     }
 
     @Test
     void list_목록조회_소유자스코프로위임() {
-        when(facilityRepository.findByOwnerIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
                 .thenReturn(List.of(existingFacility()));
 
         List<FacilityResponse> result = facilityService.list(OWNER_ID);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).name()).isEqualTo("기존시설");
-        verify(facilityRepository).findByOwnerIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class));
+        verify(facilityRepository).findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class));
     }
 
     @Test
     void list_목록조회_상한초과시상한개수만반환() {
         List<Facility> capped = List.of(existingFacility(), existingFacility());
-        when(facilityRepository.findByOwnerIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
                 .thenReturn(capped);
 
         List<FacilityResponse> result = facilityService.list(OWNER_ID);
 
         assertThat(result).hasSize(2);
         ArgumentCaptor<PageRequest> pageableCaptor = ArgumentCaptor.forClass(PageRequest.class);
-        verify(facilityRepository).findByOwnerIdOrderByIdAsc(eq(OWNER_ID), pageableCaptor.capture());
+        verify(facilityRepository).findByCompanyIdOrderByIdAsc(eq(OWNER_ID), pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(500);
-        // 상한 미도달이면 무고지 truncation 감지용 countByOwnerId 를 호출할 필요가 없다(#502 P2).
-        verify(facilityRepository, never()).countByOwnerId(any());
+        // 상한 미도달이면 무고지 truncation 감지용 countByCompanyId 를 호출할 필요가 없다(#502 P2).
+        verify(facilityRepository, never()).countByCompanyId(any());
     }
 
     @Test
     void list_상한정확히도달시_실제보유건수를조회해WARN로그근거를남긴다() {
         List<Facility> maxed = java.util.Collections.nCopies(500, existingFacility());
-        when(facilityRepository.findByOwnerIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
                 .thenReturn(maxed);
-        when(facilityRepository.countByOwnerId(OWNER_ID)).thenReturn(650L);
+        when(facilityRepository.countByCompanyId(OWNER_ID)).thenReturn(650L);
 
         List<FacilityResponse> result = facilityService.list(OWNER_ID);
 
         assertThat(result).hasSize(500);
         // 응답 계약(List)은 그대로 500건 — 무고지 truncation 감지는 로그로만 이뤄지므로, 최소한 실제
-        // 보유 건수(countByOwnerId)를 조회했는지로 "감지 로직이 탔다"를 검증한다(#502 P2).
-        verify(facilityRepository).countByOwnerId(OWNER_ID);
+        // 보유 건수(countByCompanyId)를 조회했는지로 "감지 로직이 탔다"를 검증한다(#502 P2).
+        verify(facilityRepository).countByCompanyId(OWNER_ID);
     }
 
     @Test
     void get_존재하는본인시설_반환() {
         Facility facility = existingFacility();
-        when(facilityRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
 
         FacilityResponse response = facilityService.get(OWNER_ID, 10L);
 
@@ -122,7 +121,7 @@ class FacilityServiceTest {
 
     @Test
     void get_없는시설_FACILITY_NOT_FOUND예외() {
-        when(facilityRepository.findByIdAndOwnerId(999L, OWNER_ID)).thenReturn(Optional.empty());
+        when(facilityRepository.findByIdAndCompanyId(999L, OWNER_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> facilityService.get(OWNER_ID, 999L))
                 .isInstanceOf(BusinessException.class)
@@ -132,8 +131,8 @@ class FacilityServiceTest {
 
     @Test
     void get_타인소유시설_FACILITY_NOT_FOUND예외() {
-        // findByIdAndOwnerId 는 소유자 스코프라 타인 소유는 조회 자체가 빈 값으로 온다(cross-owner IDOR 방지).
-        when(facilityRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.empty());
+        // findByIdAndCompanyId 는 소유자 스코프라 타인 소유는 조회 자체가 빈 값으로 온다(cross-owner IDOR 방지).
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> facilityService.get(OWNER_ID, 10L))
                 .isInstanceOf(BusinessException.class);
@@ -142,7 +141,7 @@ class FacilityServiceTest {
     @Test
     void update_본인시설_필드갱신() {
         Facility facility = existingFacility();
-        when(facilityRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
         FacilityUpdateRequest request = new FacilityUpdateRequest(
                 "수정된빌딩", "APARTMENT", "서울시 서초구", null, null, 2015, "지상10층", 6, null);
 
@@ -156,7 +155,7 @@ class FacilityServiceTest {
 
     @Test
     void update_없는시설_FACILITY_NOT_FOUND예외() {
-        when(facilityRepository.findByIdAndOwnerId(999L, OWNER_ID)).thenReturn(Optional.empty());
+        when(facilityRepository.findByIdAndCompanyId(999L, OWNER_ID)).thenReturn(Optional.empty());
         FacilityUpdateRequest request = new FacilityUpdateRequest(
                 "수정된빌딩", "APARTMENT", null, null, null, null, null, null, null);
 
@@ -167,7 +166,7 @@ class FacilityServiceTest {
     @Test
     void delete_본인시설_저장소에서삭제() {
         Facility facility = existingFacility();
-        when(facilityRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
 
         facilityService.delete(OWNER_ID, 10L);
 
@@ -176,7 +175,7 @@ class FacilityServiceTest {
 
     @Test
     void delete_없는시설_FACILITY_NOT_FOUND예외_삭제호출없음() {
-        when(facilityRepository.findByIdAndOwnerId(999L, OWNER_ID)).thenReturn(Optional.empty());
+        when(facilityRepository.findByIdAndCompanyId(999L, OWNER_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> facilityService.delete(OWNER_ID, 999L))
                 .isInstanceOf(BusinessException.class);
@@ -193,7 +192,7 @@ class FacilityServiceTest {
     @Test
     void setSchedule_본인시설_다음점검일산출저장() {
         Facility facility = existingFacility();
-        when(facilityRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
         FacilityScheduleRequest request = new FacilityScheduleRequest(6);
 
         FacilityResponse response = facilityService.setSchedule(OWNER_ID, 10L, request);
@@ -204,7 +203,7 @@ class FacilityServiceTest {
 
     @Test
     void setSchedule_없는시설_FACILITY_NOT_FOUND예외() {
-        when(facilityRepository.findByIdAndOwnerId(999L, OWNER_ID)).thenReturn(Optional.empty());
+        when(facilityRepository.findByIdAndCompanyId(999L, OWNER_ID)).thenReturn(Optional.empty());
         FacilityScheduleRequest request = new FacilityScheduleRequest(12);
 
         assertThatThrownBy(() -> facilityService.setSchedule(OWNER_ID, 999L, request))
@@ -215,11 +214,18 @@ class FacilityServiceTest {
 
     @Test
     void setSchedule_타인소유시설_FACILITY_NOT_FOUND예외() {
-        // findByIdAndOwnerId 는 소유자 스코프라 타인 소유는 조회 자체가 빈 값으로 온다(cross-owner IDOR 방지).
-        when(facilityRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.empty());
+        // findByIdAndCompanyId 는 소유자 스코프라 타인 소유는 조회 자체가 빈 값으로 온다(cross-owner IDOR 방지).
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.empty());
         FacilityScheduleRequest request = new FacilityScheduleRequest(12);
 
         assertThatThrownBy(() -> facilityService.setSchedule(OWNER_ID, 10L, request))
                 .isInstanceOf(BusinessException.class);
+    }
+    @Test
+    void list_회사없는사용자_FORBIDDEN예외() {
+        assertThatThrownBy(() -> facilityService.list(null))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.FORBIDDEN));
     }
 }

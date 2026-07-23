@@ -65,7 +65,7 @@ class FlywayBaselineOnExistingDbIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 기존DB에_baselineOnMigrate로_V2부터_V7까지_적용해도_실패하지않고_validate와_PlanSeedGuard를_통과한다() {
+    void 기존DB에_baselineOnMigrate로_V2부터_V8까지_적용해도_실패하지않고_validate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 (1) Flyway 마이그레이션이 예외 없이 끝났고,
         // (2) Hibernate validate(전체 엔티티 매핑 대조)와 (3) PlanSeedGuard(plans 3티어) 를 통과했음을 의미한다.
 
@@ -75,15 +75,18 @@ class FlywayBaselineOnExistingDbIntegrationTest {
         assertThat(v1Type).isEqualTo("BASELINE");
 
         // V2(seed_plans)·V3(api_system_logs)·V4(add_platform_admin_role)·V5(add_business_start_date, #596)·
-        // V6(defects.media_id, #527/HAJA-314)·V7(inspection_admin_schema, #568)이 실제 versioned 마이그레이션으로
+        // V6(defects.media_id, #527/HAJA-314)·V7(inspection_admin_schema, #568)·
+        // V8(facilities company scope, #637)이 실제 versioned 마이그레이션으로
         // 성공 적용된다. 캐노니컬 DDL(HajaCheck_script.sql)은 이미 role_type에 PLATFORM_ADMIN·
-        // companies.business_start_date·defects.media_id·점검 관리자 스키마를 모두 포함하므로 V4·V5·V6·V7은
+        // companies.business_start_date·defects.media_id·점검 관리자·회사 시설 스키마를 모두 포함하므로
+        // V4·V5·V6·V7·V8은
         // IF NOT EXISTS로 no-op 성공한다 — 기존 DB(캐노니컬 DDL을 아직 못 받은 실제 arm1/팀원 로컬)에서는
-        // 이 V4·V5·V6·V7이 실제로 라벨·컬럼·테이블을 추가하는 경로다.
+        // 이 V4·V5·V6·V7·V8이 실제로 라벨·컬럼·테이블을 추가하는 경로다.
         Integer appliedVersioned = jdbcTemplate.queryForObject(
-                "select count(*) from flyway_schema_history where success = true and version in ('2', '3', '4', '5', '6', '7')",
+                "select count(*) from flyway_schema_history "
+                        + "where success = true and version in ('2', '3', '4', '5', '6', '7', '8')",
                 Integer.class);
-        assertThat(appliedVersioned).isEqualTo(6);
+        assertThat(appliedVersioned).isEqualTo(7);
 
         // 실패 기록이 남지 않아야 한다(V3가 if not exists로 skip되어 'relation already exists'가 나지 않음).
         Integer failed = jdbcTemplate.queryForObject(
@@ -126,5 +129,10 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 where table_schema = 'public' and table_name = 'inspection_notification_settings'
                 """, Long.class);
         assertThat(settingsTableExists).isEqualTo(1L);
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'facilities' and column_name = 'company_id'
+                """, Long.class)).isEqualTo(1L);
     }
 }

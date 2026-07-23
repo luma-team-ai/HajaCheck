@@ -149,7 +149,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
     private Facility saveFacility(User owner) {
         return facilityRepository.save(Facility.builder()
-                .ownerId(owner.getId())
+                .companyId(owner.getCompanyId())
                 .name("테스트시설물")
                 .type("건축물")
                 .build());

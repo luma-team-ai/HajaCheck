@@ -77,6 +77,7 @@ class InspectionAdminSchemaMigrationTest {
 
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .target("7")
                 .load()
                 .migrate();
 

@@ -69,7 +69,7 @@ class ReportServiceTest {
     }
 
     private static FacilityResponse facility() {
-        return new FacilityResponse(10L, 100L, "테스트빌딩", "BUILDING", "서울시 강남구",
+        return new FacilityResponse(10L, "테스트빌딩", "BUILDING", "서울시 강남구",
                 null, null, null, null, null, null, LocalDateTime.now(), LocalDateTime.now());
     }
 
@@ -109,7 +109,8 @@ class ReportServiceTest {
      */
     @Test
     void generateDraft_트랜잭션밖실행_NOT_SUPPORTED() throws NoSuchMethodException {
-        Method method = ReportService.class.getMethod("generateDraft", Long.class, Long.class);
+        Method method = ReportService.class.getMethod(
+                "generateDraft", Long.class, Long.class, Long.class);
         Transactional transactional = method.getAnnotation(Transactional.class);
 
         assertThat(transactional).as("generateDraft 는 @Transactional 애노테이션을 명시해야 한다").isNotNull();
@@ -128,7 +129,7 @@ class ReportServiceTest {
         when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
         when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        ReportDetailResponse response = reportService.generateDraft(1L, 100L);
+        ReportDetailResponse response = reportService.generateDraft(1L, 100L, 100L);
 
         assertThat(response.version()).isEqualTo(1);
         assertThat(response.inspectionId()).isEqualTo(1L);
@@ -159,7 +160,7 @@ class ReportServiceTest {
         when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
         when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        reportService.generateDraft(1L, 100L);
+        reportService.generateDraft(1L, 100L, 100L);
 
         ArgumentCaptor<ReportRequest> captor = ArgumentCaptor.forClass(ReportRequest.class);
         verify(aiProxyService).generateReport(anyLong(), captor.capture());
@@ -180,7 +181,7 @@ class ReportServiceTest {
         when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
         when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        ReportDetailResponse response = reportService.generateDraft(1L, 100L);
+        ReportDetailResponse response = reportService.generateDraft(1L, 100L, 100L);
 
         assertThat(response.version()).isEqualTo(3);
     }
@@ -194,7 +195,7 @@ class ReportServiceTest {
         when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
         when(aiProxyService.generateReport(anyLong(), any())).thenReturn(ApiResponse.fail("AI_ERR", "실패"));
 
-        assertThatThrownBy(() -> reportService.generateDraft(1L, 100L))
+        assertThatThrownBy(() -> reportService.generateDraft(1L, 100L, 100L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.REPORT_GENERATION_FAILED));
         verify(reportRepository, never()).save(any());
@@ -205,7 +206,7 @@ class ReportServiceTest {
         doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
                 .when(inspectionService).getInspection(999L, 1L);
 
-        assertThatThrownBy(() -> reportService.generateDraft(1L, 999L))
+        assertThatThrownBy(() -> reportService.generateDraft(1L, 999L, 999L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
         verify(aiProxyService, never()).generateReport(anyLong(), any());
@@ -224,7 +225,7 @@ class ReportServiceTest {
                 100L);
         assertThat(report.getGroundingCheckPassed()).isTrue();
 
-        ReportDetailResponse response = reportService.updateContent(5L, "{\"a\":2}", 100L);
+        ReportDetailResponse response = reportService.updateContent(5L, "{\"a\":2}", 100L, 100L);
 
         assertThat(response.groundingCheckPassed()).isNull();
     }
@@ -242,7 +243,7 @@ class ReportServiceTest {
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
 
-        assertThatThrownBy(() -> reportService.updateContent(5L, "{\"changed\":true}", 100L))
+        assertThatThrownBy(() -> reportService.updateContent(5L, "{\"changed\":true}", 100L, 100L))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -292,7 +293,7 @@ class ReportServiceTest {
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
 
-        ReportDetailResponse response = reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L);
+        ReportDetailResponse response = reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L, 100L);
 
         assertThat(response.status()).isEqualTo(com.hajacheck.core.report.entity.ReportStatus.FINALIZED);
         assertThat(response.pdfUrl()).isEqualTo("/api/reports/5/pdf/r.pdf");
@@ -310,7 +311,7 @@ class ReportServiceTest {
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
 
-        assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/999/pdf/r.pdf", 100L))
+        assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/999/pdf/r.pdf", 100L, 100L))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.REPORT_PDF_URL_INVALID);
@@ -328,7 +329,7 @@ class ReportServiceTest {
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
 
-        assertThatThrownBy(() -> reportService.finalizeReport(5L, "https://evil.example/r.pdf", 100L))
+        assertThatThrownBy(() -> reportService.finalizeReport(5L, "https://evil.example/r.pdf", 100L, 100L))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.REPORT_PDF_URL_INVALID);
