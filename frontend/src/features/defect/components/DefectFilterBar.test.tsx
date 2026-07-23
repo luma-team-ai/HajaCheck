@@ -223,6 +223,39 @@ describe("DefectFilterBar", () => {
     expect(screen.queryByText(/정확히 적용할 수 없어/)).toBeNull();
   });
 
+  it("[P3-1] 중복 등급(D, E, E)은 제거 후 연속집합으로 판정해 min으로 적용한다", async () => {
+    server.use(
+      http.post("/api/defects/nl-search", () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            filters: { type: [], grade: ["D", "E", "E"], status: [], confidenceMin: null },
+            unsupported_terms: [],
+            clarifying_question: null,
+            interpretation_confidence: 0.9,
+          },
+        }),
+      ),
+    );
+    const { onChange } = renderFilterBar({ page: 0, size: 20 });
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "경고·중대 하자 보여줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({
+        page: 0,
+        size: 20,
+        type: undefined,
+        grade: "D",
+        status: undefined,
+      }),
+    );
+    expect(screen.queryByText(/정확히 적용할 수 없어/)).toBeNull();
+  });
+
   it("[P2-2] 적용 가능한 조건이 0건이면 기존 수동필터를 유지하고 안내만 한다", async () => {
     server.use(
       http.post("/api/defects/nl-search", () =>

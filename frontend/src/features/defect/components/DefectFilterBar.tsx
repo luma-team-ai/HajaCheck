@@ -33,7 +33,8 @@ function resolveGradeFilter(grade: DefectGrade[]): { value: DefectGrade | undefi
   if (grade.length === 0) {
     return { value: undefined, notice: null };
   }
-  const sorted = [...grade].sort((a, b) => GRADE_ORDER[a] - GRADE_ORDER[b]);
+  // 중복 등급 제거 후 정렬 — ["E","E"]·["D","E","E"] 같은 중복이 연속성 판정을 깨 오적용되지 않게(P3-1).
+  const sorted = Array.from(new Set(grade)).sort((a, b) => GRADE_ORDER[a] - GRADE_ORDER[b]);
   const contiguousToE =
     sorted[sorted.length - 1] === "E" &&
     sorted.every((g, i) => GRADE_ORDER[g] === GRADE_ORDER[sorted[0]] + i);
