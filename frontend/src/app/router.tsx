@@ -134,6 +134,13 @@ const MyInspectionsPage = lazy(() =>
   })),
 );
 
+// 마이페이지 — 내 상담 내역 (HAJA-371, #678)
+const MyCounselsPage = lazy(() =>
+  import('../features/mypage/pages/MyCounselsPage').then((m) => ({
+    default: m.MyCounselsPage,
+  })),
+);
+
 // 관리자 > 사용자 관리 (Figma node 177-2017)
 const AdminUsersPage = lazy(() =>
   import('../features/admin/pages/AdminUsersPage').then((m) => ({
@@ -400,6 +407,18 @@ export const router = createBrowserRouter([
           activeHref: '/mypage/inspections',
         },
       }, // — features/mypage 내 점검 이력 / 보고서 (HAJA-366, #668)
+      {
+        path: '/mypage/counsels',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <MyCounselsPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '마이페이지' }, { label: '내 상담 내역' }],
+          activeHref: '/mypage/counsels',
+        },
+      }, // — features/mypage 내 상담 내역 (HAJA-371, #678)
       {
         path: '/facilities/map',
         element: (
