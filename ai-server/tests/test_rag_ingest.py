@@ -131,7 +131,9 @@ def test_delete_document_doc_id로where삭제(mock_get_vectorstore):
     delete_document("42", COLLECTION_REGULATIONS)
 
     mock_get_vectorstore.assert_called_once_with(COLLECTION_REGULATIONS)
-    mock_vs.delete.assert_called_once_with(where={"doc_id": "42"})
+    # langchain_chroma==0.1.4의 Chroma.delete()가 where를 무시해(code-review P1) 내부 _collection을
+    # 직접 호출하도록 고쳤다 — 이 테스트도 실제 구현과 같은 대상을 검증해야 회귀를 잡는다.
+    mock_vs._collection.delete.assert_called_once_with(where={"doc_id": "42"})
 
 
 # ── /ai/rag-documents/embed 엔드포인트 ──

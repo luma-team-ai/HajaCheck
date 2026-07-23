@@ -90,4 +90,9 @@ def delete_document(doc_id: str, collection: str) -> None:
     """동일 doc_id의 기존 청크를 전부 삭제한다(재임베딩 첫 단계) — 최초 업로드 시엔 매칭되는 청크가
     없어 no-op이다. ingest_document() 재호출 전에 먼저 불러 idempotent 재임베딩을 구현한다."""
     vectorstore = get_vectorstore(collection)
-    vectorstore.delete(where={"doc_id": doc_id})
+    # langchain_chroma==0.1.4의 Chroma.delete(ids=None, **kwargs)는 where를 **kwargs로 받아놓고
+    # self._collection.delete(ids=ids)만 호출해 실제로는 버린다 — where 없이 ids=None으로 호출되면
+    # chromadb가 "At least one of ids, where, or where_document must be provided" ValueError를
+    # 던져 모든 (재)임베딩이 실패한다(code-review P1). 래퍼를 우회해 내부 chromadb 컬렉션을 직접
+    # 호출한다.
+    vectorstore._collection.delete(where={"doc_id": doc_id})

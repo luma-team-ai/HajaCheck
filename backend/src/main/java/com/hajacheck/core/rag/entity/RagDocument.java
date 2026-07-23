@@ -152,14 +152,17 @@ public class RagDocument {
     }
 
     /**
-     * 재임베딩(관리자 명시적 액션, #22/HAJA-35) 트리거 직전 상태 리셋 — DONE/FAILED 문서를 PENDING으로
-     * 되돌려 {@link #startEmbedding()}이 다시 허용되게 한다. EMBEDDING 진행 중에는 거부해 동시 재임베딩
-     * 레이스를 막는다(재임베딩은 "명시적 배치 잡"으로 한정 — 진행 중인 잡 위에 또 트리거되지 않게).
+     * 재임베딩 시작(관리자 명시적 액션, #22/HAJA-35) — PENDING/DONE/FAILED 어떤 상태에서도 곧바로
+     * EMBEDDING으로 전이하는 단일 원자 전이다. 이전에는 resetForReEmbed()(→PENDING)와
+     * startEmbedding()(→EMBEDDING)을 별도 트랜잭션 2번으로 나눠 호출해, 그 사이 짧은 순간 방금까지
+     * DONE이던 문서가 "아직 처리 안 됨"을 뜻하는 PENDING으로 잘못 조회되는 창이 있었다(code-review
+     * P2). 단일 전이로 합쳐 그 창을 없앤다. EMBEDDING 중에는 거부해 동시 재임베딩 레이스를 막는다
+     * (재임베딩은 "명시적 배치 잡"으로 한정 — 진행 중인 잡 위에 또 트리거되지 않게).
      */
-    public void resetForReEmbed() {
-        requireEmbeddingStatus("resetForReEmbed",
+    public void restartEmbedding() {
+        requireEmbeddingStatus("restartEmbedding",
                 RagEmbeddingStatus.PENDING, RagEmbeddingStatus.DONE, RagEmbeddingStatus.FAILED);
-        this.embeddingStatus = RagEmbeddingStatus.PENDING;
+        this.embeddingStatus = RagEmbeddingStatus.EMBEDDING;
     }
 
     public void verify() {

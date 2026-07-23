@@ -1,6 +1,8 @@
 package com.hajacheck.core.rag.repository;
 
 import com.hajacheck.core.rag.entity.RagDocument;
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -11,4 +13,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface RagDocumentRepository extends JpaRepository<RagDocument, Long> {
 
     List<RagDocument> findAllByOrderByCreatedAtDesc();
+
+    /**
+     * id로 조회하고 없으면 즉시 예외 — RagDocumentService/RagDocumentWriter 양쪽에 똑같이 복제돼
+     * 있던 private findOrThrow 헬퍼를 여기 하나로 모은다(code-review 재사용 지적).
+     */
+    default RagDocument findByIdOrThrow(Long id) {
+        return findById(id).orElseThrow(() -> new BusinessException(ErrorCode.RAG_DOCUMENT_NOT_FOUND));
+    }
 }

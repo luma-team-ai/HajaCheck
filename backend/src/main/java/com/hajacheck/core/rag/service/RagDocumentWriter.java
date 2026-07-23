@@ -3,8 +3,6 @@ package com.hajacheck.core.rag.service;
 import com.hajacheck.core.rag.dto.RagDocumentUploadRequest;
 import com.hajacheck.core.rag.entity.RagDocument;
 import com.hajacheck.core.rag.repository.RagDocumentRepository;
-import com.hajacheck.global.exception.BusinessException;
-import com.hajacheck.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,26 +29,21 @@ public class RagDocumentWriter {
 
     @Transactional
     public void markEmbeddingStarted(Long id) {
-        findOrThrow(id).startEmbedding();
+        ragDocumentRepository.findByIdOrThrow(id).startEmbedding();
     }
 
     @Transactional
     public void completeEmbedding(Long id, int chunkCount) {
-        findOrThrow(id).completeEmbedding(chunkCount);
+        ragDocumentRepository.findByIdOrThrow(id).completeEmbedding(chunkCount);
     }
 
     @Transactional
     public void failEmbedding(Long id) {
-        findOrThrow(id).failEmbedding();
+        ragDocumentRepository.findByIdOrThrow(id).failEmbedding();
     }
 
     @Transactional
-    public void resetForReEmbed(Long id) {
-        findOrThrow(id).resetForReEmbed();
-    }
-
-    private RagDocument findOrThrow(Long id) {
-        return ragDocumentRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(ErrorCode.RAG_DOCUMENT_NOT_FOUND));
+    public void markReEmbeddingStarted(Long id) {
+        ragDocumentRepository.findByIdOrThrow(id).restartEmbedding();
     }
 }

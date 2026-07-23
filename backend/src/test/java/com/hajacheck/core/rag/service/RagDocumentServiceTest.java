@@ -26,7 +26,6 @@ import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.io.IOException;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -82,7 +81,11 @@ class RagDocumentServiceTest {
         when(fileStorage.store(any(), any(), any(), anyLong()))
                 .thenReturn(new StoredFile("https://files.example/rag-documents/stub.pdf", "rag-documents/stub.pdf"));
         when(ragDocumentWriter.create(any(), any())).thenReturn(document);
-        when(ragDocumentRepository.findById(any())).thenReturn(Optional.of(document));
+        // findByIdOrThrow는 RagDocumentRepository의 default 메서드다 — Mockito @Mock은 default
+        // 메서드도 스텁 없이는 null을 반환한다(실제 구현으로 자동 위임되지 않는다). findById만
+        // 스텁해두면 findByIdOrThrow(내부에서 findById 호출)가 아니라 이 메서드 자체가 직접
+        // 목이라 반드시 따로 스텁해야 한다(code-review 회귀 — 재사용 리팩터 시 놓쳤던 부분).
+        when(ragDocumentRepository.findByIdOrThrow(any())).thenReturn(document);
 
         // RagDocumentWriter의 상태전이 메서드가 실제로는 fresh 조회한 엔티티에 위임하는 효과를 재현.
         doAnswer(inv -> {
@@ -98,9 +101,9 @@ class RagDocumentServiceTest {
             return null;
         }).when(ragDocumentWriter).failEmbedding(any());
         doAnswer(inv -> {
-            document.resetForReEmbed();
+            document.restartEmbedding();
             return null;
-        }).when(ragDocumentWriter).resetForReEmbed(any());
+        }).when(ragDocumentWriter).markReEmbeddingStarted(any());
     }
 
     @Test
@@ -180,12 +183,13 @@ class RagDocumentServiceTest {
 
         assertThat(response.embeddingStatus()).isEqualTo(RagEmbeddingStatus.DONE);
         assertThat(response.chunkCount()).isEqualTo(9);
-        verify(ragDocumentWriter).resetForReEmbed(any());
+        verify(ragDocumentWriter).markReEmbeddingStarted(any());
     }
 
     @Test
     void reEmbed_문서없음_RAG_DOCUMENT_NOT_FOUND예외() {
-        when(ragDocumentRepository.findById(any())).thenReturn(Optional.empty());
+        when(ragDocumentRepository.findByIdOrThrow(any()))
+                .thenThrow(new BusinessException(ErrorCode.RAG_DOCUMENT_NOT_FOUND));
 
         assertThatThrownBy(() -> ragDocumentService.reEmbed(999L))
                 .isInstanceOf(BusinessException.class)

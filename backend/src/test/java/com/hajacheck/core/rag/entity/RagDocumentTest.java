@@ -64,43 +64,43 @@ class RagDocumentTest {
     }
 
     @Test
-    void resetForReEmbed_완료문서를대기로되돌려재임베딩을허용() {
+    void restartEmbedding_완료문서를곧바로임베딩중으로전이() {
         RagDocument document = RagDocument.upload(
                 "시설물 안전법", RagDocumentSourceType.LAW, RagTargetCollection.REGULATIONS,
                 null, null, null, null, "https://files.example/law.pdf");
         document.startEmbedding();
         document.completeEmbedding(5);
 
-        document.resetForReEmbed();
+        document.restartEmbedding();
 
-        assertThat(document.getEmbeddingStatus()).isEqualTo(RagEmbeddingStatus.PENDING);
-        // 리셋 후 startEmbedding()이 다시 허용되는지(재임베딩 흐름 전체 확인)
-        document.startEmbedding();
+        // resetForReEmbed()+startEmbedding() 2단계였던 이전 구현과 달리 PENDING을 거치지 않고
+        // 곧바로 EMBEDDING으로 전이한다(code-review P2 — 중간 PENDING이 동시 조회 시 오해를 유발).
+        assertThat(document.getEmbeddingStatus()).isEqualTo(RagEmbeddingStatus.EMBEDDING);
         document.completeEmbedding(7);
         assertThat(document.getChunkCount()).isEqualTo(7);
     }
 
     @Test
-    void resetForReEmbed_실패문서도대기로되돌림() {
+    void restartEmbedding_실패문서도곧바로임베딩중으로전이() {
         RagDocument document = RagDocument.upload(
                 "하자 지식", RagDocumentSourceType.GUIDELINE, RagTargetCollection.DEFECT_KB,
                 null, null, null, null, "https://files.example/kb.pdf");
         document.startEmbedding();
         document.failEmbedding();
 
-        document.resetForReEmbed();
+        document.restartEmbedding();
 
-        assertThat(document.getEmbeddingStatus()).isEqualTo(RagEmbeddingStatus.PENDING);
+        assertThat(document.getEmbeddingStatus()).isEqualTo(RagEmbeddingStatus.EMBEDDING);
     }
 
     @Test
-    void resetForReEmbed_임베딩중에는거부_동시재임베딩레이스방지() {
+    void restartEmbedding_임베딩중에는거부_동시재임베딩레이스방지() {
         RagDocument document = RagDocument.upload(
                 "시설물 안전법", RagDocumentSourceType.LAW, RagTargetCollection.REGULATIONS,
                 null, null, null, null, "https://files.example/law.pdf");
         document.startEmbedding();
 
-        assertThatThrownBy(document::resetForReEmbed).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(document::restartEmbedding).isInstanceOf(IllegalStateException.class);
     }
 
     @Test

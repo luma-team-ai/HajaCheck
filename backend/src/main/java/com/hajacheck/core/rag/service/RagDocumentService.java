@@ -88,9 +88,9 @@ public class RagDocumentService {
 
         Long documentId = document.getId();
         embed(documentId, request.title(), request.sourceType(), request.targetCollection(), text,
-                request.effectiveDate(), request.publisher(), request.authoredAt(), null);
+                request.effectiveDate(), request.publisher(), request.authoredAt(), null, false);
 
-        return RagDocumentResponse.from(findOrThrow(documentId));
+        return RagDocumentResponse.from(ragDocumentRepository.findByIdOrThrow(documentId));
     }
 
     /**
@@ -100,26 +100,40 @@ public class RagDocumentService {
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public RagDocumentResponse reEmbed(Long id) {
-        RagDocument document = findOrThrow(id);
+        RagDocument document = ragDocumentRepository.findByIdOrThrow(id);
         byte[] pdfBytes = fileStorage.read(document.getFileUrl());
         String text = pdfTextExtractor.extractText(pdfBytes);
 
-        ragDocumentWriter.resetForReEmbed(id);
         embed(id, document.getTitle(), document.getSourceType(), document.getTargetCollection(), text,
                 document.getEffectiveDate(), document.getPublisher(), document.getAuthoredAt(),
-                document.getVerificationStatus());
+                document.getVerificationStatus(), true);
 
-        return RagDocumentResponse.from(findOrThrow(id));
+        return RagDocumentResponse.from(ragDocumentRepository.findByIdOrThrow(id));
     }
 
     private void embed(Long documentId, String title, RagDocumentSourceType sourceType,
                         RagTargetCollection targetCollection, String text, LocalDate effectiveDate,
                         String publisher, LocalDate authoredAt,
-                        RagDocumentVerificationStatus verificationStatus) {
-        ragDocumentWriter.markEmbeddingStarted(documentId);
+                        RagDocumentVerificationStatus verificationStatus, boolean isReEmbed) {
+        // 최초 업로드(PENDING/FAILED만 허용)와 재임베딩(PENDING/DONE/FAILED 어디서든 허용)은 시작
+        // 전이의 허용 선행 상태가 달라 엔티티 메서드가 분리돼 있다(RagDocument.startEmbedding() vs
+        // restartEmbedding()) — 재임베딩을 resetForReEmbed()+startEmbedding() 2단계 트랜잭션으로
+        // 나눴던 이전 구현은 그 사이 DONE 문서가 일시적으로 PENDING처럼 보이는 창을 만들었다
+        // (code-review P2, RagDocument.restartEmbedding() 주석 참고).
+        if (isReEmbed) {
+            ragDocumentWriter.markReEmbeddingStarted(documentId);
+        } else {
+            ragDocumentWriter.markEmbeddingStarted(documentId);
+        }
 
+        // targetCollection.name()은 대문자(REGULATIONS/DEFECT_KB)지만 ai-server는 소문자 상수
+        // (vectorstore.py COLLECTION_REGULATIONS/COLLECTION_DEFECT_KB)와 정확히 일치하는지만
+        // 비교한다 — 그대로 보내면 매번 "unknown target_collection" ValueError로 임베딩이 실패한다
+        // (code-review P1). toLowerCase()로 두 값(REGULATIONS→regulations, DEFECT_KB→defect_kb)
+        // 모두 정확히 매핑된다.
         RagEmbedRequest aiRequest = new RagEmbedRequest(
-                String.valueOf(documentId), title, sourceType.name(), targetCollection.name(), text,
+                String.valueOf(documentId), title, sourceType.name(),
+                targetCollection.name().toLowerCase(java.util.Locale.ROOT), text,
                 effectiveDate == null ? null : effectiveDate.toString(),
                 publisher,
                 authoredAt == null ? null : authoredAt.toString(),
@@ -149,8 +163,4 @@ public class RagDocumentService {
         }
     }
 
-    private RagDocument findOrThrow(Long id) {
-        return ragDocumentRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(ErrorCode.RAG_DOCUMENT_NOT_FOUND));
-    }
 }
