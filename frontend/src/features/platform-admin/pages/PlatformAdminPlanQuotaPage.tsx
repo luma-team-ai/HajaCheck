@@ -36,7 +36,14 @@ export function PlatformAdminPlanQuotaPage() {
   const { data: planPolicies } = usePlanPolicies();
   const { updatePolicies, isPending: isSavingPolicy, error: savePolicyError, resetError: resetSavePolicyError } =
     useUpdatePlanPolicies();
-  const policy = planPolicies ? toPlanPolicyForm(planPolicies) : PLAN_POLICY_DEFAULTS;
+  // PR #686 P2 후속(#689) — planPolicies가 재조회로 갱신될 때마다(값이 같아도) toPlanPolicyForm이 매번
+  // 새 객체를 반환하면 모달에 넘기는 initialValues 참조가 바뀐다. usePlanQuotaUsers/usePlanPolicies는
+  // 기본 옵션(refetchOnWindowFocus=true)이라 모달을 열어 편집하는 도중 탭 전환만으로도 재조회·리렌더가
+  // 일어날 수 있어, 값 자체가 안 바뀌었으면 참조도 안정되도록 planPolicies에만 의존해 메모이즈한다.
+  const policy = useMemo(
+    () => (planPolicies ? toPlanPolicyForm(planPolicies) : PLAN_POLICY_DEFAULTS),
+    [planPolicies],
+  );
 
   const pageSize = PLAN_QUOTA_DEFAULT_PAGE_SIZE;
 
@@ -152,6 +159,7 @@ export function PlatformAdminPlanQuotaPage() {
         }}
         initialValues={policy}
         onSave={(values) => updatePolicies(fromPlanPolicyForm(values)).then(() => {})}
+        onEnterConfirm={resetSavePolicyError}
         isSubmitting={isSavingPolicy}
         submitErrorMessage={savePolicyError?.message}
       />
