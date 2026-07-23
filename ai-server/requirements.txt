@@ -10,7 +10,7 @@ langchain-core==0.3.86  # langgraph 0.6.11 호환 (0.3.26+ 요구)
 langchain-chroma==0.1.4  # chromadb 0.5.23과 호환, langchain-core<0.4 만족
 langchain-huggingface==0.1.2
 langsmith==0.10.10  # langchain-core>=0.3.26 요구에 따라 upgraded
-langgraph==0.6.11  # StateGraph 기반 report_chain 리팩토링용 (langchain-core 0.3.x와 호환)
+langgraph==0.6.11  # StateGraph 기반 체인 구현용 (WS1: report_chain, WS3: rag_chat_chain 공용)
 chromadb==0.5.23
 sentence-transformers==3.3.1
 easyocr==1.7.2  # 사업자등록증 OCR(HAJA-169/#552, RapidOCR→EasyOCR 교체 #605) — 한국어 인식 정확도 우위
