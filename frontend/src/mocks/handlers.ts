@@ -11,6 +11,8 @@ import { inspectionHandlers } from '../features/inspection/api/inspectionApi.han
 import { mediaHandlers } from '../features/inspection/api/mediaApi.handlers';
 import { mypageHandlers } from '../features/mypage/api/mypageApi.handlers';
 import { notificationHandlers } from '../features/notification/api/notificationApi.handlers';
+import { adminPlanHandlers as platformAdminPlanHandlers } from '../features/platform-admin/api/adminPlanApi.handlers';
+import { planQuotaHandlers as platformAdminPlanQuotaHandlers } from '../features/platform-admin/api/planQuotaApi.handlers';
 import { platformAdminUserHandlers } from '../features/platform-admin/api/platformAdminUserApi.handlers';
 import { supportHandlers } from '../features/support/api/supportApi.handlers';
 
@@ -27,6 +29,8 @@ export const handlers = [
   ...adminPlanHandlers,
   ...planQuotaHandlers,
   ...platformAdminUserHandlers,
+  ...platformAdminPlanHandlers,
+  ...platformAdminPlanQuotaHandlers,
   ...supportHandlers,
   ...notificationHandlers,
 ];
