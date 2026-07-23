@@ -39,3 +39,28 @@ export interface InspectionResponse {
   status: InspectionStatus;
   createdAt: string; // ISO datetime
 }
+
+// AI 분석 실행/상태(dev-05-04) — backend AnalysisStatusResponse와 필드명 그대로 대응(camelCase, Jackson 기본).
+export type AnalysisStage = 'upload' | 'frameExtraction' | 'aiDetection' | 'postProcessing' | 'done';
+export type AnalysisFileStatus = 'waiting' | 'analyzing' | 'completed' | 'failed';
+
+export interface AnalysisFileProgress {
+  mediaId: number;
+  fileName: string;
+  status: AnalysisFileStatus;
+  defectCount: number | null;
+  elapsedOrEta: string;
+}
+
+export interface AnalysisStatusResponse {
+  inspectionId: number;
+  stage: AnalysisStage;
+  progressPercent: number;
+  totalFileCount: number;
+  analyzedFileCount: number;
+  files: AnalysisFileProgress[];
+  detectedDefectCount: number;
+  riskyCrackCount: number;
+  severityDistribution: Record<'A' | 'B' | 'C' | 'D' | 'E', number>;
+  failedCount: number;
+}

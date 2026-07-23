@@ -1,6 +1,7 @@
 package com.hajacheck.core.media.repository;
 
 import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.entity.MediaFileType;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -14,6 +15,10 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
     // 검증한다. defect 자체는 이미 findByIdAndCompanyId로 회사 스코프를 확인한 뒤라, 이 조회로
     // 타 점검/타 회사 media를 조치 후 사진으로 연결하는 IDOR을 차단한다.
     Optional<Media> findByIdAndInspectionId(Long id, Long inspectionId);
+
+    // AI 분석(dev-05-04) 대상 이미지 조회 — id asc로 고정해 잡 진행률(파일별 처리 현황) 순서가
+    // 요청마다 흔들리지 않게 한다(defect 조회의 id ASC 고정과 동일 이유).
+    List<Media> findByInspectionIdAndFileTypeOrderByIdAsc(Long inspectionId, MediaFileType fileType);
 
     // 관리자 플랜·쿼터 관리(#507) — 멤버별 "이번 달 분석한 이미지 장수" 근사치. media 테이블에 업로더 FK가
     // 없어(point-in-time 스키마) 담당 점검자(inspections.assigned_inspector_id) 단위로 집계한다 — 한 점검을

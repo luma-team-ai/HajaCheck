@@ -5,7 +5,14 @@ import type {
   InspectionCreateRequest,
   InspectionCreateResponse,
 } from '../types';
-import type { InspectionResponse, DefectDetailItem, DefectGrade, DefectStatus, DefectCreateRequest } from './inspectionApi.types';
+import type {
+  InspectionResponse,
+  DefectDetailItem,
+  DefectGrade,
+  DefectStatus,
+  DefectCreateRequest,
+  AnalysisStatusResponse,
+} from './inspectionApi.types';
 
 export interface DefectRevisionRequest {
   grade?: DefectGrade;
@@ -41,4 +48,8 @@ export const inspectionApi = {
   listFacilityOptions: () => api.get<FacilityOption[]>('/facilities'),
   // 분석 결과 뷰어(useInspectionResultReal)용 — 실 GET /api/facilities/{id}(FacilityController.get)를 그대로 호출한다.
   getFacilityDetail: (id: number) => api.get<FacilityDetail>(`/facilities/${id}`),
+  // AI 분석 실행/상태(dev-05-04) — 분석 시작(202 Accepted, 바로 반환) + 진행 상태 폴링.
+  startAnalysis: (inspectionId: number) => api.post<void>(`/inspections/${inspectionId}/analyze`),
+  getAnalysisStatus: (inspectionId: number) =>
+    api.get<AnalysisStatusResponse>(`/inspections/${inspectionId}/analyze`),
 };

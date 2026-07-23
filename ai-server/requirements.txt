@@ -17,3 +17,6 @@ sentence-transformers==3.3.1
 rapidocr==3.9.2  # 사업자등록증 OCR(HAJA-169/#552, EasyOCR→RapidOCR PP-OCRv5 한국어 교체 #722)
                  # — 실측 완전일치 3/20(EasyOCR)→18/20, 추론 4장 5.8s→1.0s, 모델 ~95MB→13MB
 onnxruntime==1.27.0  # rapidocr 추론 백엔드. manylinux_2_28_aarch64 휠 확인됨(arm1 소스빌드 OK, #722)
+ultralytics==8.3.63  # 하자 탐지(dev-05-04) — YOLOv8-seg 추론. torch/torchvision은 Dockerfile에서 이미
+                      # CPU 전용 인덱스로 먼저 설치돼 있어 이걸 재사용한다(rapidocr와 동일 전제).
+                      # huggingface_hub는 langchain-huggingface의 기존 전이 의존성을 그대로 사용(신규 pin 없음).

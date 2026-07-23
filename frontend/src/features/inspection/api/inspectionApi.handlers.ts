@@ -155,4 +155,8 @@ export const inspectionHandlers = [
     const body: ApiResponse<DefectDetailItem> = { success: true, data: newDefect };
     return HttpResponse.json(body, { status: 201 });
   }),
+
+  // AI 분석 시작(dev-05-04) — InspectionCreatePage 제출 흐름이 업로드 직후 호출한다. 실제 진행률은
+  // useAnalysisStatus 전용 테스트에서 다루므로 여기서는 202만 흉내낸다.
+  http.post('/api/inspections/:id/analyze', () => new HttpResponse(null, { status: 202 })),
 ];

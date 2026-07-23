@@ -1,7 +1,9 @@
 import type { ChangeEvent } from 'react';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
+import { useAuthStore } from '../../auth/store/authStore';
+import { inspectionApi } from '../api/inspectionApi';
 import type { StagedMediaFile } from '../components/InspectionMediaUploadPanel';
 import { InspectionMediaUploadPanel } from '../components/InspectionMediaUploadPanel';
 import { useCreateInspection } from '../hooks/useCreateInspection';
@@ -34,11 +36,13 @@ const ERROR_CLASSES = 'text-xs text-danger';
 // 새 점검 생성 — 회의 후 반영된 시안(2026-07-22): 기존 "시설물 개요 + 모달" 2단계 플로우를
 // 폐지하고, 점검 정보 입력과 촬영 데이터 업로드를 한 화면에서 처리한다(AP-004+AP-005 통합 화면).
 // 제출 시 ① POST /api/inspections로 회차 생성 ② 응답 id로 이미지 파일만 POST .../media 업로드
-// (영상은 아직 백엔드 업로드 대상이 아님) ③ 시설물 상세로 이동. AI 분석 자동 실행(dev-05-04)은
-// 아직 엔드포인트가 없어 이번 제출에서 트리거하지 않는다 — 버튼 문구는 시안을 따르되 실제로는
-// "생성 + 업로드"까지만 수행.
+// (영상은 아직 백엔드 업로드 대상이 아님) ③ POST .../analyze로 AI 분석 시작(dev-05-04, 202 즉시
+// 반환) ④ AI 분석 실행/상태 화면(/inspections/{id}/analysis)으로 이동 — 그 화면이 실제 진행률을
+// 폴링한다.
 export function InspectionCreatePage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const currentUser = useAuthStore((state) => state.user);
   const { data: facilities, isLoading: isFacilitiesLoading } = useFacilityOptions();
   const {
     createInspection,
@@ -53,9 +57,12 @@ export function InspectionCreatePage() {
     error: uploadError,
   } = useUploadMedia();
 
-  const [values, setValues] = useState<InspectionCreateFormValues>(
-    INSPECTION_CREATE_FORM_INITIAL_VALUES,
-  );
+  // 시설물 상세 "+새 점검"(FacilityDetailPage)이 ?facilityId=로 넘겨준 값이 있으면 시설물
+  // 셀렉트 초기값으로 채운다 — 방금 보던 시설물을 다시 고르는 수고를 없앤다.
+  const [values, setValues] = useState<InspectionCreateFormValues>(() => ({
+    ...INSPECTION_CREATE_FORM_INITIAL_VALUES,
+    facilityId: searchParams.get('facilityId') ?? INSPECTION_CREATE_FORM_INITIAL_VALUES.facilityId,
+  }));
   const [errors, setErrors] = useState<InspectionCreateFormErrors>({});
   // 메모 — 시안에는 있으나 backend InspectionCreateRequest 계약에 아직 필드가 없어(facilityId·
   // inspectionDate·assignedInspectorId만 존재) 로컬 상태로만 유지한다. 후속 계약 확장 시 배선.
@@ -112,15 +119,19 @@ export function InspectionCreatePage() {
   const handleSubmit = async () => {
     const nextErrors = validateInspectionCreateForm(values);
     setErrors(nextErrors);
-    if (hasInspectionCreateFormErrors(nextErrors) || hasFileErrors) {
+    if (hasInspectionCreateFormErrors(nextErrors) || hasFileErrors || !currentUser) {
       return;
     }
 
     try {
       // 이미 생성된 회차가 있으면(직전 시도에서 업로드만 실패) 재생성하지 않고 재사용 — 안 그러면
       // 재제출마다 같은 시설물/점검일/담당자로 orphan 점검 회차가 계속 쌓인다.
+      // 담당 점검자는 더 이상 수동 입력을 받지 않고 로그인한 본인으로 자동 배정한다 — 본인이
+      // 회사 소속 INSPECTOR/ADMIN이 아니면 백엔드 검증(AuthService.validateAssignableInspector)에서
+      // AUTH_INVALID_INSPECTOR로 거부되고, 아래 createError로 그대로 노출된다.
       const inspection =
-        createdInspection ?? (await createInspection(toInspectionCreateRequest(values)));
+        createdInspection ??
+        (await createInspection(toInspectionCreateRequest(values, currentUser.id)));
       if (!createdInspection) {
         setCreatedInspection(inspection);
       }
@@ -133,7 +144,15 @@ export function InspectionCreatePage() {
         setUploadDone(true);
       }
 
-      navigate(`/facilities/${inspection.facilityId}`);
+      // AI 분석 트리거(POST /api/inspections/{id}/analyze, dev-05-04) — 202로 바로 반환되는
+      // 비동기 잡이라 완료를 기다리지 않는다. 실패해도(예: 네트워크 순간 오류) 이동은 그대로
+      // 진행한다 — 상태 화면이 "분석 대기" 그대로를 보여줄 뿐 사용자가 재시도할 여지가 남는다.
+      try {
+        await inspectionApi.startAnalysis(inspection.id);
+      } catch {
+        // 아래 catch와 별개로 조용히 무시 — 회차 생성·업로드는 이미 성공했으므로 이동은 계속한다.
+      }
+      navigate(`/inspections/${inspection.id}/analysis`);
     } catch {
       // 실패 사유는 error로 아래에 표시 — 입력값·선택 파일은 유지해 재시도 가능하게 둔다.
       // 회차 생성까지는 성공했다면 createdInspection에 남아있어 다음 제출은 업로드만 재시도한다.
@@ -192,31 +211,6 @@ export function InspectionCreatePage() {
               {errors.inspectionDate && (
                 <p id="inspection-date-error" className={ERROR_CLASSES}>
                   {errors.inspectionDate}
-                </p>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="inspection-assignee" className={LABEL_CLASSES}>
-                담당 점검자
-              </label>
-              <input
-                id="inspection-assignee"
-                type="text"
-                inputMode="numeric"
-                placeholder="점검자/관리자 사용자 ID"
-                value={values.assignedInspectorId}
-                onChange={handleFieldChange('assignedInspectorId')}
-                className={INPUT_CLASSES}
-                disabled={isFieldsLocked}
-                aria-invalid={Boolean(errors.assignedInspectorId)}
-                aria-describedby={
-                  errors.assignedInspectorId ? 'inspection-assignee-error' : undefined
-                }
-              />
-              {errors.assignedInspectorId && (
-                <p id="inspection-assignee-error" className={ERROR_CLASSES}>
-                  {errors.assignedInspectorId}
                 </p>
               )}
             </div>

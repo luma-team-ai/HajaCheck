@@ -16,6 +16,7 @@ const IMPLEMENTED_ROUTES = new Set([
   '/mypage/inspections', // 마이페이지 내 점검 이력 / 보고서(HAJA-366, #668)
   '/inspections/1/viewer',
   '/inspections/create',
+  '/inspections/ai-analysis',
   '/facilities/list',
   '/facilities/map',
   '/facilities/inspection-cycle',

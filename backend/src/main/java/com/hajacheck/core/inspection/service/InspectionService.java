@@ -150,6 +150,33 @@ public class InspectionService {
         return InspectionResponse.from(inspection);
     }
 
+    /**
+     * 회사 스코프 검증 후 엔티티를 그대로 반환한다(AI 분석 실행/상태, dev-05-04) — 분석 서비스가
+     * facilityId/assignedInspectorId 등 DTO에 없는 필드까지 필요해서 getInspection()의 DTO 반환과
+     * 별도로 둔다. 조회 전용(읽기 트랜잭션)이며 호출부가 상태를 바꾸려면 {@link #advanceStatus}를 쓴다.
+     */
+    public Inspection getOwnedInspectionEntity(Long requesterUserId, Long companyId, Long inspectionId) {
+        companyScopeGuard.requireEffectiveMembership(requesterUserId, companyId);
+        Inspection inspection = inspectionRepository.findById(inspectionId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.INSPECTION_NOT_FOUND));
+        try {
+            facilityService.get(requesterUserId, companyId, inspection.getFacilityId());
+        } catch (BusinessException e) {
+            if (e.getErrorCode() == ErrorCode.FACILITY_NOT_FOUND) {
+                throw new BusinessException(ErrorCode.INSPECTION_NOT_FOUND);
+            }
+            throw e;
+        }
+        return inspection;
+    }
+
+    /** 점검 회차 상태 전이(AI 분석 실행/상태, dev-05-04) — 회사 스코프 검증 후 advanceTo 위임. */
+    @Transactional
+    public void advanceStatus(Long requesterUserId, Long companyId, Long inspectionId, InspectionStatus next) {
+        Inspection inspection = getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
+        inspection.advanceTo(next);
+    }
+
     private void validateInspectionDate(LocalDate inspectionDate, FacilityResponse facility) {
         if (inspectionDate.isBefore(facility.createdAt().toLocalDate())) {
             throw new BusinessException(ErrorCode.INSPECTION_DATE_INVALID);

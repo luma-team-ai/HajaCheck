@@ -9,7 +9,8 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useAuthStore } from '../../auth/store/authStore';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
 import { mediaApi } from '../api/mediaApi';
 import type { Media } from '../types';
@@ -17,11 +18,26 @@ import { InspectionCreatePage } from './InspectionCreatePage';
 
 const server = setupServer(...inspectionHandlers);
 
+// 담당 점검자는 더 이상 폼 입력이 아니라 로그인한 본인(useAuthStore)으로 자동 배정된다 —
+// 페이지가 currentUser.id를 읽으므로 렌더 전에 스토어를 채워둬야 한다.
+const MOCK_CURRENT_USER = {
+  id: 5,
+  email: 'inspector@example.com',
+  name: '테스트 점검자',
+  role: 'INSPECTOR' as const,
+  companyId: 1,
+  profileImageUrl: null,
+};
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeEach(() => {
+  useAuthStore.setState({ user: MOCK_CURRENT_USER });
+});
 afterEach(() => {
   server.resetHandlers();
   cleanup();
   vi.restoreAllMocks();
+  useAuthStore.setState({ user: null });
 });
 afterAll(() => server.close());
 
@@ -40,7 +56,7 @@ function renderPage() {
       <MemoryRouter initialEntries={['/inspections/create']}>
         <Routes>
           <Route path="/inspections/create" element={<InspectionCreatePage />} />
-          <Route path="/facilities/:id" element={<div>시설물 상세</div>} />
+          <Route path="/inspections/:id/analysis" element={<div>AI 분석 실행/상태</div>} />
         </Routes>
         <LocationProbe />
       </MemoryRouter>
@@ -52,7 +68,6 @@ async function fillRequiredFields() {
   await screen.findByText('판교 테크노밸리 B동');
   fireEvent.change(screen.getByLabelText('시설물'), { target: { value: '1' } });
   fireEvent.change(screen.getByLabelText('점검일'), { target: { value: '2026-08-01' } });
-  fireEvent.change(screen.getByLabelText('담당 점검자'), { target: { value: '5' } });
 }
 
 function selectFiles(files: File[]) {
@@ -67,7 +82,6 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     expect(screen.getByRole('heading', { name: '데이터 업로드' })).not.toBeNull();
     expect(screen.getByLabelText('시설물')).not.toBeNull();
     expect(screen.getByLabelText('점검일')).not.toBeNull();
-    expect(screen.getByLabelText('담당 점검자')).not.toBeNull();
     expect(screen.getByLabelText('메모')).not.toBeNull();
   });
 
@@ -78,7 +92,6 @@ describe('InspectionCreatePage (통합 테스트)', () => {
 
     expect(await screen.findByText('시설물을 선택해 주세요.')).not.toBeNull();
     expect(screen.getByText('점검일을 선택해 주세요.')).not.toBeNull();
-    expect(screen.getByText('담당자 ID를 입력해 주세요.')).not.toBeNull();
   });
 
   it('허용되지 않는 형식의 파일을 선택하면 에러를 보여주고 제출 버튼을 비활성화한다', async () => {
@@ -103,7 +116,7 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     expect(await screen.findByText('영상 · 프레임 추출 예정')).not.toBeNull();
   });
 
-  it('생성 성공 + 이미지 업로드 성공 시 mediaApi.upload를 호출하고 시설물 상세로 이동한다', async () => {
+  it('생성 성공 + 이미지 업로드 성공 시 mediaApi.upload를 호출하고 AI 분석 실행/상태로 이동한다', async () => {
     const mockMedia: Media[] = [
       {
         id: 1,
@@ -133,8 +146,8 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     });
 
     expect(uploadSpy).toHaveBeenCalledWith(100, [file], expect.any(Function));
-    expect(await screen.findByText('시설물 상세')).not.toBeNull();
-    expect(screen.getByTestId('location-probe').textContent).toBe('/facilities/1');
+    expect(await screen.findByText('AI 분석 실행/상태')).not.toBeNull();
+    expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/100/analysis');
   });
 
   it('점검 생성 성공 후 업로드만 실패하면, 재제출 시 회차를 다시 만들지 않고 업로드만 재시도한다(P1 회귀 방지)', async () => {
@@ -202,7 +215,7 @@ describe('InspectionCreatePage (통합 테스트)', () => {
 
     expect(createCallCount).toBe(1); // 회차 생성은 여전히 1회만
     expect(uploadSpy).toHaveBeenCalledTimes(2); // 업로드는 재시도로 2회
-    expect(await screen.findByText('시설물 상세')).not.toBeNull();
+    expect(await screen.findByText('AI 분석 실행/상태')).not.toBeNull();
   });
 
   it('점검 생성 실패 시 에러 메시지를 표시하고 입력값을 유지한다', async () => {
