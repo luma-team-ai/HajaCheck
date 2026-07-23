@@ -12,9 +12,11 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.BriefingResponse;
 import com.hajacheck.core.ai.dto.BriefingStatsRequest;
+import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.support.InMemoryRateLimiter;
 import java.net.ConnectException;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,7 +60,10 @@ class AiProxyServiceBriefingTest {
 
         RestClient.Builder builder = RestClient.builder().baseUrl(properties.getBaseUrl());
         mockServer = MockRestServiceServer.bindTo(builder).build();
-        aiProxyService = new AiProxyService(builder.build(), properties, briefingStatsService);
+        // briefing 의 rate-limit 은 BriefingStatsService.buildStats(여기선 @Mock)에 있어 이 경로엔
+        // 직접 개입하지 않지만, 생성자 의존성이라 in-memory fake 를 주입한다.
+        aiProxyService = new AiProxyService(builder.build(), properties, briefingStatsService,
+                new AiProxyRateLimiter(new InMemoryRateLimiter()));
     }
 
     @Test
