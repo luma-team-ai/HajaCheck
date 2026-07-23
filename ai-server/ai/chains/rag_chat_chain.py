@@ -8,6 +8,8 @@ docs/design/ai/rag_chatbot_design.md §3·§4, docs/design/ai/rag_chroma_schema.
 
 LangGraph StateGraph 기반 구현 — 캐시·검색·LLM·출처 빌드 노드 + 조건부 엣지로 분기.
 """
+from __future__ import annotations
+
 import hashlib
 import json
 from pathlib import Path
