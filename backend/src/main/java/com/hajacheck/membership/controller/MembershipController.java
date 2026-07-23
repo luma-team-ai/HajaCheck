@@ -2,17 +2,20 @@ package com.hajacheck.membership.controller;
 
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.global.common.ApiResponse;
+import com.hajacheck.membership.dto.CheckoutRequest;
 import com.hajacheck.membership.dto.MyPlanResponse;
 import com.hajacheck.membership.dto.SeatsResponse;
 import com.hajacheck.membership.dto.UpgradeInquiryResponse;
 import com.hajacheck.membership.service.MembershipService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -47,5 +50,16 @@ public class MembershipController {
     public ResponseEntity<ApiResponse<UpgradeInquiryResponse>> requestUpgrade(
             @AuthenticationPrincipal LoginUser loginUser) {
         return ResponseEntity.ok(ApiResponse.ok(membershipService.requestUpgrade(loginUser.getUserId())));
+    }
+
+    @Operation(summary = "모의 결제(플랜 업그레이드)",
+            description = "PG 실결제·카드청구 없는 테스트 수준 모의 결제(#711) — 기존 ACTIVE(또는 UPGRADE_REQUESTED) "
+                    + "구독을 만료시키고 대상 요금제로 신규 ACTIVE 구독을 발급한다(멱등, 소유자만, STANDARD·ENTERPRISE만 허용).")
+    @PostMapping("/plan/checkout")
+    public ResponseEntity<ApiResponse<MyPlanResponse>> checkout(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @Valid @RequestBody CheckoutRequest request) {
+        return ResponseEntity.ok(
+                ApiResponse.ok(membershipService.checkout(loginUser.getUserId(), request.planName())));
     }
 }
