@@ -5,7 +5,7 @@ import type {
   InspectionCreateRequest,
   InspectionCreateResponse,
 } from '../types';
-import type { InspectionResponse, DefectDetailItem, DefectGrade, DefectStatus } from './inspectionApi.types';
+import type { InspectionResponse, DefectDetailItem, DefectGrade, DefectStatus, DefectCreateRequest } from './inspectionApi.types';
 
 export interface DefectRevisionRequest {
   grade?: DefectGrade;
@@ -31,6 +31,9 @@ export const inspectionApi = {
   // 하자 상태 전환 (DefectController.updateStatus)
   updateDefectStatus: (defectId: number, request: DefectStatusUpdateRequest) =>
     api.patch<DefectDetailItem>(`/defects/${defectId}/status`, request),
+  // 하자 수동 생성 — AI가 놓친 하자를 검수자가 추가 (DefectRevisionController.createManualDefect)
+  createDefect: (inspectionId: number, request: DefectCreateRequest) =>
+    api.post<DefectDetailItem>(`/inspections/${inspectionId}/defects`, request),
   // 점검(회차) 생성
   create: (body: InspectionCreateRequest) =>
     api.post<InspectionCreateResponse>('/inspections', body),

@@ -1,6 +1,6 @@
 // FR-4 결과 시각화·검수 — PRD §5 FR-4, §6.3 데이터 모델(안) 기준
-// 탐지 클래스 3종 확정(PRD v0.42, 2026-07-13) — 누수백태·도장손상은 데이터 확보 상황상 범위 제외
-export type DefectType = '균열' | '박리박락' | '철근노출';
+// 탐지 클래스 5종(AI 탐지 3종 + 수동 입력 확대 2종) — 누수백태·도장손상은 수동 입력 기능으로 확대
+export type DefectType = '균열' | '박리박락' | '누수·백태' | '철근노출' | '도장 손상';
 export type DefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
 export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'ACTION_PENDING' | 'IN_PROGRESS' | 'RESOLVED';
 
