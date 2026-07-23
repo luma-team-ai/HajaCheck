@@ -463,13 +463,18 @@ def node_grounding_check(state: ReportChainState) -> dict[str, Any]:
 
     # 결과 판정 (기존 동작 보존)
     grounding_ok = grounding_result.action is GroundingAction.PASS
-    if grounding_result.action is GroundingAction.REGENERATE:
+    if grounding_result.action is GroundingAction.PASS:
+        pass
+    elif grounding_result.action is GroundingAction.REGENERATE:
         logger.warning(
             "Grounding mismatch가 재생성 %d회 후에도 지속됨 — grounding_ok=False로 반환(보고서 생성은 계속)",
             summary_attempts,
         )
     elif grounding_result.action is GroundingAction.WARN:
         pass  # 설계 의도대로 재생성하지 않고 grounding_ok=False(또는 UNVERIFIABLE만 있으면 True)로 반영
+    else:
+        # GroundingAction 추가/변경 시 여기를 업그레이드 (지난번 프로덕션 다운 방지)
+        raise ValueError(f"처리되지 않은 GroundingAction입니다: {grounding_result.action!r}")
 
     return {"summary": summary, "summary_attempts": summary_attempts, "grounding_ok": grounding_ok}
 
