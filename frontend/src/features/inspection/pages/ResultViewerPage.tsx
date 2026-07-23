@@ -1,6 +1,6 @@
 import type { ChangeEvent } from 'react';
 import { useState, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
@@ -15,6 +15,7 @@ const ALL_GRADES: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
 
 export function ResultViewerPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const inspectionId = Number(id);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [gradeFilter, setGradeFilter] = useState<DefectGrade[]>(ALL_GRADES);
@@ -124,6 +125,10 @@ export function ResultViewerPage() {
     }
   }, [data, confidenceThreshold, gradeFilter, selectedDefectId, isUpdating, refetch]);
 
+  const handleGenerateReport = useCallback(() => {
+    navigate(`/inspections/${inspectionId}/reports/generate`);
+  }, [inspectionId, navigate]);
+
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
     return (
       <div className="p-5 text-red-600">잘못된 접근입니다. 유효한 검사 ID를 확인하세요.</div>
@@ -155,6 +160,19 @@ export function ResultViewerPage() {
 
   return (
     <div className="flex h-full flex-col gap-4 py-6 pl-6 pr-28">
+      {/* Header with Generate Report Button */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-text-default">점검 결과 분석</h2>
+        <Button
+          type="button"
+          variant="secondary"
+          size="md"
+          onClick={handleGenerateReport}
+        >
+          보고서 생성
+        </Button>
+      </div>
+
       {/* Filter Controls — Top Level */}
       <div className="flex gap-4">
         <div className="flex items-center gap-2">
