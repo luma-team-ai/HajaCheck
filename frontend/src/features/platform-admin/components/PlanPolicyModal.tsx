@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../../shared/components/Button';
 import { Modal } from '../../../shared/components/Modal';
 import { PLAN_LABEL } from '../constants';
@@ -19,6 +19,8 @@ interface PlanPolicyModalProps {
   onSave: (values: PlanPolicyForm) => Promise<void>;
   isSubmitting?: boolean;
   submitErrorMessage?: string;
+  /** 확인 단계 진입("설정 저장" 클릭) 시 호출 — 상위(page)가 이전 저장 실패 메시지를 리셋한다(#689 P3). */
+  onEnterConfirm?: () => void;
 }
 
 const GRID_TEMPLATE = 'grid grid-cols-[minmax(0,220px)_repeat(3,minmax(0,1fr))] items-center gap-4';
@@ -151,16 +153,24 @@ export function PlanPolicyModal({
   onSave,
   isSubmitting,
   submitErrorMessage,
+  onEnterConfirm,
 }: PlanPolicyModalProps) {
   const [draft, setDraft] = useState<PlanPolicyForm>(initialValues);
   const [isConfirming, setConfirming] = useState(false);
+  const prevOpenRef = useRef(open);
 
+  // PR #686 P2 후속(#689) — 이전엔 [open, initialValues]에 의존해, 모달이 열려 있는 동안
+  // initialValues 참조가 바뀌기만 해도(예: usePlanPolicies 백그라운드 재조회) 편집 중인 draft와
+  // 확인 단계가 초기화됐다. open이 false→true로 전환되는 시점에만 리셋한다 — 열려 있는 동안 부모가
+  // 리렌더돼도 사용자가 입력 중인 값은 유지된다.
   useEffect(() => {
-    if (open) {
+    if (open && !prevOpenRef.current) {
       setDraft(initialValues);
       setConfirming(false);
     }
-  }, [open, initialValues]);
+    prevOpenRef.current = open;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialValues는 open 전환 시점에만 읽는다(의도적).
+  }, [open]);
 
   function updateField<K extends keyof PlanPolicyValues>(plan: AdminUserPlan, key: K, value: PlanPolicyValues[K]) {
     setDraft((prev) => ({
@@ -170,6 +180,9 @@ export function PlanPolicyModal({
   }
 
   function handleSaveClick() {
+    // 이전 저장 실패 메시지가 있었다면(#689 P3) 재시도 진입 시 리셋한다 — 값을 고치지 않고 다시
+    // 시도해도 이번 결과가 확정되기 전까지 옛 실패 메시지가 그대로 남아있지 않도록.
+    onEnterConfirm?.();
     setConfirming(true);
   }
 
