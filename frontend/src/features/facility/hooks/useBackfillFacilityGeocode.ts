@@ -60,6 +60,21 @@ export function useBackfillFacilityGeocode() {
           // 필드를 수정한 경우 이 배치가 좌표만 바꾸려다 그 수정사항을 조용히 덮어써 유실시킨다.
           // PUT 직전 최신 레코드를 재조회해 그 위에 새로 계산한 좌표만 병합해서 보낸다.
           const { data: latest } = await facilityApi.getDetail(facility.id);
+
+          // 주소 정합성 검증(#672, PR #641 P2 후속): geocode 계산은 배치 시작 시점 스냅샷
+          // (facility.address)을 기준으로 했다. PUT 직전 재조회한 latest.address가 그 사이
+          // 바뀌었다면, 이번에 계산한 좌표는 이미 낡은 주소 기준이라 "최신 주소 + 옛 주소 기준
+          // 좌표"라는 정합성이 깨진 레코드가 저장될 수 있다. 이 경우 PUT을 건너뛰고 실패로
+          // 기록한다.
+          if (latest.address !== facility.address) {
+            failures.push({
+              id: facility.id,
+              name: facility.name,
+              reason: '배치 중 주소가 변경되어 좌표 재계산이 필요합니다.',
+            });
+            continue;
+          }
+
           await facilityApi.update(facility.id, {
             name: latest.name,
             type: latest.type,
