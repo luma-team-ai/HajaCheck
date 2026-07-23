@@ -1,5 +1,6 @@
 package com.hajacheck.core.defect.service;
 
+import com.hajacheck.core.defect.dto.DefectCreateRequest;
 import com.hajacheck.core.defect.dto.DefectDetailItem;
 import com.hajacheck.core.defect.dto.DefectRevisionRequest;
 import com.hajacheck.core.defect.entity.Defect;
@@ -44,6 +45,49 @@ public class DefectRevisionService {
         return defects.stream()
                 .map(DefectDetailItem::from)
                 .toList();
+    }
+
+    /**
+     * 수동 하자 생성 — 점검자가 분석 결과 누락된 하자를 직접 등록(FR-4, HAJA-344).
+     *
+     * @param requesterUserId 요청 사용자 id
+     * @param inspectionId    점검 회차 id
+     * @param request         요청 (type 필수, bbox 선택적 모두-또는-무, grade 선택적)
+     * @return 생성된 하자
+     * @throws BusinessException 점검 회차 미존재/타인 소유 (404), bbox 불완전/type 누락 (400)
+     */
+    @Transactional
+    public DefectDetailItem createManualDefect(
+            Long requesterUserId, Long inspectionId, DefectCreateRequest request) {
+        // 소유권 검증
+        inspectionService.getInspection(requesterUserId, inspectionId);
+
+        // bbox 검증: 4개 모두 지정되거나 모두 미지정
+        boolean hasBboxX = request.getBboxX() != null;
+        boolean hasBboxY = request.getBboxY() != null;
+        boolean hasBboxW = request.getBboxW() != null;
+        boolean hasBboxH = request.getBboxH() != null;
+
+        if ((hasBboxX || hasBboxY || hasBboxW || hasBboxH) &&
+                !(hasBboxX && hasBboxY && hasBboxW && hasBboxH)) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT);
+        }
+
+        // 하자 생성
+        // ponytail: confidence=1.0 sentinel, DB 마이그레이션 없이 회피 — AI/사람 구분 필요해지면 병현님과 협의 후 컬럼 추가
+        Defect defect = Defect.builder()
+                .inspectionId(inspectionId)
+                .type(request.getType())
+                .bboxX(request.getBboxX())
+                .bboxY(request.getBboxY())
+                .bboxW(request.getBboxW())
+                .bboxH(request.getBboxH())
+                .confidence(1.0)
+                .grade(request.getGrade())
+                .build();
+
+        Defect saved = defectRepository.save(defect);
+        return DefectDetailItem.from(saved);
     }
 
     /**
