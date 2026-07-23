@@ -3,8 +3,8 @@ import type { FormEvent } from 'react';
 import { doPasswordsMatch, isValidEmail, isValidPassword } from '../../auth/utils/authFormValidators';
 import { Button } from '../../../shared/components/Button';
 import { Modal } from '../../../shared/components/Modal';
-import { COMPANY_OPTIONS, ROLE_CHANGE_OPTIONS, ROLE_LABEL } from '../constants';
-import type { AdminUserRole } from '../types';
+import { ROLE_CHANGE_OPTIONS, ROLE_LABEL } from '../constants';
+import type { AdminUserRole, CompanyOption } from '../types';
 
 /** '' selectbox 값 = 회사 미소속(개인 계정)으로 등록 */
 const NO_COMPANY_VALUE = '';
@@ -21,6 +21,9 @@ interface CreateUserModalProps {
   }) => Promise<void>;
   isSubmitting: boolean;
   submitErrorMessage?: string;
+  /** GET /api/platform-admin/companies(#576) 응답 — 로딩 중이면 undefined. */
+  companyOptions?: CompanyOption[];
+  isCompanyOptionsLoading?: boolean;
 }
 
 const INPUT_CLASS =
@@ -36,6 +39,8 @@ export function CreateUserModal({
   onConfirm,
   isSubmitting,
   submitErrorMessage,
+  companyOptions,
+  isCompanyOptionsLoading = false,
 }: CreateUserModalProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -162,14 +167,18 @@ export function CreateUserModal({
             className={INPUT_CLASS}
             value={companyIdInput}
             onChange={(event) => setCompanyIdInput(event.target.value)}
+            disabled={isCompanyOptionsLoading}
           >
             <option value={NO_COMPANY_VALUE}>선택 안함(개인)</option>
-            {COMPANY_OPTIONS.map((company) => (
+            {(companyOptions ?? []).map((company) => (
               <option key={company.id} value={company.id}>
                 {company.name}
               </option>
             ))}
           </select>
+          {isCompanyOptionsLoading && (
+            <p className="m-0 text-xs text-text-muted">기업 목록을 불러오는 중...</p>
+          )}
         </div>
 
         <div className="flex flex-col gap-2">

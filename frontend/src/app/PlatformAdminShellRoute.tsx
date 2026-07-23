@@ -48,6 +48,8 @@ export function PlatformAdminShellRoute() {
       brandHref="/platform-admin/users"
       user={authUser ? { name: authUser.name } : undefined}
       onLogout={() => void logout()}
+      // 우측 하단 고객지원 퀵상담 FAB — 이 콘솔은 플랫폼 운영진 전용이라 고객 지원 진입점이 불필요(사용자 지시).
+      showSupportFab={false}
     >
       <Outlet />
     </AppLayout>

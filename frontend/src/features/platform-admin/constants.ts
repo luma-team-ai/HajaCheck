@@ -72,9 +72,10 @@ export const ROLE_FILTER_OPTIONS = (Object.keys(ROLE_LABEL) as AdminUserRole[]).
 export const PLAN_FILTER_OPTIONS = Object.keys(PLAN_LABEL) as AdminUserPlan[];
 export const STATUS_FILTER_OPTIONS = Object.keys(STATUS_LABEL) as AdminUserStatus[];
 
-// 사용자 등록 모달의 기업명 selectbox — 실 백엔드 GET /api/platform-admin/companies가 준비되기
-// 전까지의 선제 정의(planQuota.types.ts와 동일한 전략). "선택 안함" 선택 시 companyId=null로
-// 전송되어 개인(회사 미소속) 계정으로 등록된다.
+// GET /api/platform-admin/companies(#576 구현 완료)의 MSW 목 응답 + 목 사용자 픽스처(mocks/
+// platformAdminUsers.mock.ts) 데이터 소스. 실 화면(CreateUserModal)은 이 상수를 더 이상 직접
+// import하지 않는다 — useCompanyOptions()가 실 엔드포인트에서 받아온다. "선택 안함" 선택 시
+// companyId=null로 전송되어 개인(회사 미소속) 계정으로 등록된다.
 export const COMPANY_OPTIONS: CompanyOption[] = [
   { id: 1, name: '테크노빌딩관리' },
   { id: 2, name: '그린타워시설관리' },

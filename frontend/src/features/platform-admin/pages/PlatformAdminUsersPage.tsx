@@ -17,6 +17,7 @@ import { usePlatformAdminUsers } from '../hooks/usePlatformAdminUsers';
 import { useChangeUserRole } from '../hooks/useChangeUserRole';
 import { useChangeUserStatus } from '../hooks/useChangeUserStatus';
 import { useCreateUser } from '../hooks/useCreateUser';
+import { useCompanyOptions } from '../hooks/useCompanyOptions';
 import type { AdminUser, AdminUserPlan, AdminUserRole, AdminUserStatus } from '../types';
 import { DownloadIcon } from '../components/icons/DownloadIcon';
 import { InviteIcon } from '../components/icons/InviteIcon';
@@ -62,6 +63,7 @@ export function PlatformAdminUsersPage() {
     error: createUserError,
     resetError: resetCreateUserError,
   } = useCreateUser();
+  const { data: companyOptions, isLoading: isCompanyOptionsLoading } = useCompanyOptions();
 
   // 필터·검색어·페이지 크기가 바뀌면 1페이지로 되돌린다 — AdminUsersPage와 동일한 이유(#378 리뷰 지적).
   const filterSignature = `${keyword}|${role}|${plan}|${status}|${pageSize}`;
@@ -245,6 +247,8 @@ export function PlatformAdminUsersPage() {
           onConfirm={handleCreateUserConfirm}
           isSubmitting={isCreatingUser}
           submitErrorMessage={createUserError?.message}
+          companyOptions={companyOptions}
+          isCompanyOptionsLoading={isCompanyOptionsLoading}
         />
         <RoleChangeModal
           user={roleModalUser}
