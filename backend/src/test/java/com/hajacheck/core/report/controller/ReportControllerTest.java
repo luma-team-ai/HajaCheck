@@ -220,6 +220,52 @@ class ReportControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void 근거재검증_미인증_401() throws Exception {
+        mockMvc.perform(post("/api/reports/{id}/grounding-recheck", 1L).with(csrf()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 근거재검증_존재하지않는보고서_404() throws Exception {
+        User owner = seedOwner("recheck-no-report-owner@haja.com");
+
+        mockMvc.perform(post("/api/reports/{id}/grounding-recheck", 999L)
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("REPORT_NOT_FOUND"));
+    }
+
+    @Test
+    void 근거재검증_타인소유_404() throws Exception {
+        User owner = seedOwner("recheck-owner@haja.com");
+        User stranger = seedOwner("recheck-stranger@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+
+        mockMvc.perform(post("/api/reports/{id}/grounding-recheck", report.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(stranger))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("REPORT_NOT_FOUND"));
+    }
+
+    @Test
+    void 근거재검증_본인소유_200과재검증결과반환() throws Exception {
+        User owner = seedOwner("recheck-owner2@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+
+        mockMvc.perform(post("/api/reports/{id}/grounding-recheck", report.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(report.getId()))
+                .andExpect(jsonPath("$.data.groundingCheckPassed").exists());
+    }
+
+    @Test
     void 초안생성_미인증_401() throws Exception {
         mockMvc.perform(post("/api/inspections/{id}/reports", 1L).with(csrf()))
                 .andExpect(status().isUnauthorized());
