@@ -1,5 +1,6 @@
 package com.hajacheck.auth.service;
 
+import com.hajacheck.auth.dto.AssignableUserResponse;
 import com.hajacheck.auth.dto.UserResponse;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
@@ -84,12 +85,23 @@ public class AuthService {
      * (활성·INSPECTOR/ADMIN 역할·유효 APPROVED 멤버십)을 목록으로 반환한다.
      * companyId 는 LoginUser(세션 인증 결과)에서만 취득 — 요청 파라미터로 받지 않아 cross-company
      * 열람을 원천 차단한다(FacilityController 의 companyId 스코프 패턴과 동일).
+     *
+     * PR머신 P2 픽스: users.company_id 는 조회 편의 포인터일 뿐 권한의 단독 근거가 아니다
+     * (validateAssignableInspector 의 동일 원칙 — 클래스 상단 주석 참고). 멤버십이 revoke/만료된
+     * 뒤에도 세션(LoginUser)이 아직 유효하면 companyId 포인터만으로 회사 전체 명부를 열람할 수
+     * 있는 인가 갭이 있었다 — 요청자 본인의 유효 APPROVED 멤버십을 먼저 재확인한다.
      */
-    public List<UserResponse> listAssignableUsers(Long companyId) {
+    public List<AssignableUserResponse> listAssignableUsers(Long companyId, Long requesterUserId) {
+        Instant now = Instant.now();
+        boolean requesterMembershipEffective = companyId != null
+                && companyMembershipRepository.existsEffectiveApprovedMembership(companyId, requesterUserId, now);
+        if (!requesterMembershipEffective) {
+            throw new BusinessException(ErrorCode.AUTH_INVALID_INSPECTOR);
+        }
         return companyMembershipRepository
-                .findAssignableUsersInCompany(companyId, Instant.now())
+                .findAssignableUsersInCompany(companyId, now)
                 .stream()
-                .map(UserResponse::from)
+                .map(AssignableUserResponse::from)
                 .toList();
     }
 

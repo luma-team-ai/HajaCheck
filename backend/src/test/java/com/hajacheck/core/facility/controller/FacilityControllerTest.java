@@ -313,7 +313,26 @@ class FacilityControllerTest extends PostgresTestSupport {
                         .with(csrf()).with(authentication(authOf(owner))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].id").value(inspector.getId()));
+                .andExpect(jsonPath("$.data[0].id").value(inspector.getId()))
+                .andExpect(jsonPath("$.data[0].email").doesNotExist());
+    }
+
+    @Test
+    void 배정가능담당자목록_요청자멤버십없음_companyId포인터만으로는열람불가_400() throws Exception {
+        // PR머신 P2 픽스 회귀 고정 — companyId 포인터만 있고 유효 APPROVED 멤버십이 없는 사용자는
+        // 회사 명부(다른 구성원의 이름·역할)를 조회할 수 없어야 한다.
+        User owner = saveUser("owner15@haja.com");
+        Long companyId = owner.getCompanyId();
+        User noMembership = userRepository.saveAndFlush(User.builder()
+                .email("no-membership15@haja.com").name("멤버십없음")
+                .role(Role.USER).passwordHash("$2a$10$hashed")
+                .companyId(companyId).status(UserStatus.ACTIVE).build());
+        // 의도적으로 companyMembershipRepository 저장 생략 — companyId 포인터만 존재.
+
+        mockMvc.perform(get("/api/facilities/assignable-users")
+                        .with(csrf()).with(authentication(authOf(noMembership))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("AUTH_INVALID_INSPECTOR"));
     }
 
     @Test

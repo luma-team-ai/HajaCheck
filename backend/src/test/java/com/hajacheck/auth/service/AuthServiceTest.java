@@ -7,7 +7,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.hajacheck.auth.dto.UserResponse;
+import com.hajacheck.auth.dto.AssignableUserResponse;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
@@ -232,15 +232,17 @@ class AuthServiceTest {
     }
 
     @Test
-    void listAssignableUsers_회사소속목록_UserResponse로매핑되어반환() {
+    void listAssignableUsers_요청자유효멤버십_회사소속목록_AssignableUserResponse로매핑되어반환() {
         User inspector = assigneeOf(1L, Role.INSPECTOR, false);
         when(inspector.getId()).thenReturn(200L);
         when(inspector.getName()).thenReturn("점검자A");
-        when(inspector.getEmail()).thenReturn("inspector-a@haja.com");
+        when(companyMembershipRepository.existsEffectiveApprovedMembership(
+                org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq(100L), any()))
+                .thenReturn(true);
         when(companyMembershipRepository.findAssignableUsersInCompany(
                 org.mockito.ArgumentMatchers.eq(1L), any())).thenReturn(List.of(inspector));
 
-        List<UserResponse> result = authService.listAssignableUsers(1L);
+        List<AssignableUserResponse> result = authService.listAssignableUsers(1L, 100L);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).id()).isEqualTo(200L);
@@ -248,12 +250,36 @@ class AuthServiceTest {
     }
 
     @Test
-    void listAssignableUsers_회사소속없음_빈목록() {
+    void listAssignableUsers_요청자유효멤버십_회사소속없음_빈목록() {
+        when(companyMembershipRepository.existsEffectiveApprovedMembership(
+                org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq(100L), any()))
+                .thenReturn(true);
         when(companyMembershipRepository.findAssignableUsersInCompany(
                 org.mockito.ArgumentMatchers.eq(1L), any())).thenReturn(List.of());
 
-        List<UserResponse> result = authService.listAssignableUsers(1L);
+        List<AssignableUserResponse> result = authService.listAssignableUsers(1L, 100L);
 
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    void listAssignableUsers_요청자멤버십회수또는만료_AUTH_INVALID_INSPECTOR_목록조회안함() {
+        // PR머신 P2 픽스 회귀 고정 — companyId 포인터만으로는 명부를 열람할 수 없다.
+        when(companyMembershipRepository.existsEffectiveApprovedMembership(
+                org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq(100L), any()))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> authService.listAssignableUsers(1L, 100L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_INVALID_INSPECTOR));
+        org.mockito.Mockito.verify(companyMembershipRepository, org.mockito.Mockito.never())
+                .findAssignableUsersInCompany(any(), any());
+    }
+
+    @Test
+    void listAssignableUsers_회사소속없는개인계정_AUTH_INVALID_INSPECTOR() {
+        assertThatThrownBy(() -> authService.listAssignableUsers(null, 100L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_INVALID_INSPECTOR));
     }
 }
