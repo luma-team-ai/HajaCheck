@@ -89,6 +89,20 @@ describe('PlatformAdminPlanQuotaPage (통합 테스트)', () => {
     expect(screen.getAllByText('만료').length).toBeGreaterThan(0);
   });
 
+  it('"플랜 정책 설정" 버튼을 누르면 정책 모달이 열리고, 닫으면 사라진다', async () => {
+    renderPage();
+
+    await screen.findByText('김민준');
+    fireEvent.click(screen.getByRole('button', { name: '플랜 정책 설정' }));
+
+    expect(await screen.findByText('플랜 정책 설정 (Plan Policy Settings)')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+    await waitFor(() => {
+      expect(screen.queryByText('플랜 정책 설정 (Plan Policy Settings)')).toBeNull();
+    });
+  });
+
   it('검색어를 입력하면 해당 사용자만 조회한다', async () => {
     renderPage();
 

@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pagination } from '../../../shared/components/Pagination/Pagination';
+import { PlanPolicyModal } from '../components/PlanPolicyModal';
 import { PlanQuotaKpiCards } from '../components/PlanQuotaKpiCards';
 import { PlanQuotaTable } from '../components/PlanQuotaTable';
 import { FilterIcon } from '../components/icons/FilterIcon';
 import { SearchIcon } from '../components/icons/SearchIcon';
 import { usePlanQuotaUsers } from '../hooks/usePlanQuotaUsers';
+import { PLAN_POLICY_DEFAULTS } from '../planPolicy.constants';
+import type { PlanPolicyForm } from '../planPolicy.types';
 import { PLAN_QUOTA_DEFAULT_PAGE_SIZE } from '../planQuota.constants';
 
 const KEYWORD_DEBOUNCE_MS = 300;
@@ -20,6 +23,9 @@ export function PlatformAdminPlanQuotaPage() {
   const [keywordInput, setKeywordInput] = useState('');
   const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(1);
+  const [isPolicyModalOpen, setPolicyModalOpen] = useState(false);
+  // 저장 API가 아직 없어(#625 시점 보류) 화면 세션 동안만 유지되는 로컬 상태 — 새로고침하면 초기값으로 돌아간다.
+  const [policy, setPolicy] = useState<PlanPolicyForm>(PLAN_POLICY_DEFAULTS);
 
   const pageSize = PLAN_QUOTA_DEFAULT_PAGE_SIZE;
 
@@ -78,10 +84,10 @@ export function PlatformAdminPlanQuotaPage() {
                 aria-label="사용자 검색"
               />
             </div>
-            {/* 클릭 동작(모달/페이지 이동)은 정책 미확정 — 후속 이슈에서 연결 */}
             <button
               type="button"
               className="flex items-center gap-2 whitespace-nowrap rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-semibold text-text-default hover:border-primary hover:text-primary"
+              onClick={() => setPolicyModalOpen(true)}
             >
               <FilterIcon />
               플랜 정책 설정
@@ -106,6 +112,13 @@ export function PlatformAdminPlanQuotaPage() {
           <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
         </div>
       </div>
+
+      <PlanPolicyModal
+        open={isPolicyModalOpen}
+        onClose={() => setPolicyModalOpen(false)}
+        initialValues={policy}
+        onSave={setPolicy}
+      />
     </div>
   );
 }
