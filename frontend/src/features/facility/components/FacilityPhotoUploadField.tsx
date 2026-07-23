@@ -18,13 +18,17 @@ export function FacilityPhotoUploadField() {
   const [photos, setPhotos] = useState<StagedPhoto[]>([]);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // 언마운트 cleanup이 항상 최신 photos를 참조하도록 ref로 미러링한다 — dep []인 채로 photos를
+  // 그대로 클로저에 캡처하면 마운트 시점의(빈) 배열만 정리되어, 사진 추가 후 모달이 닫혀
+  // 언마운트될 때 실제 생성된 blob URL이 revoke되지 않는 누수가 있었다(PR머신 react-reviewer P2).
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
 
-  // 언마운트/교체 시 objectURL 누수 방지 — 브라우저가 GC로 자동 해제하지 않는 리소스라 명시적으로 해제한다.
+  // 언마운트 시 objectURL 누수 방지 — 브라우저가 GC로 자동 해제하지 않는 리소스라 명시적으로 해제한다.
   useEffect(() => {
     return () => {
-      photos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
+      photosRef.current.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 언마운트 시 그 시점의 photos만 정리하면 된다.
   }, []);
 
   const addFiles = (files: FileList | null) => {

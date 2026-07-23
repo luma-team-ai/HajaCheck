@@ -58,6 +58,9 @@ export function FacilityAddressField({
       {isSearchUnavailable && (
         <p className={ERROR_CLASSES}>주소 검색을 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.</p>
       )}
+      <label htmlFor="facility-address-detail" className="sr-only">
+        상세주소
+      </label>
       <input
         id="facility-address-detail"
         type="text"
