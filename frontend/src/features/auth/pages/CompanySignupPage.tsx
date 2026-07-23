@@ -114,6 +114,16 @@ export function CompanySignupPage() {
     error: businessVerificationError,
     reset: resetBusinessVerification,
   } = useBusinessVerification();
+  // 진위확인 in-flight 무효화 구멍 방지(PR #666 P2) — verify() 호출 시점의 3필드 스냅샷.
+  // mutation이 pending인 동안(result·error 모두 undefined)엔 onChange의 reset()이 걸리지 않으므로,
+  // "결과 존재 여부"만으로 게이트를 열면 그 창에서 필드를 바꾼 뒤 이전 값 기준 VERIFIED 응답이
+  // 뒤늦게 와도 게이트가 열려버린다. isBusinessVerified는 결과뿐 아니라 "현재 3필드가 확인 시점
+  // 스냅샷과 여전히 일치하는지"까지 함께 확인한다.
+  const [verifiedSnapshot, setVerifiedSnapshot] = useState<{
+    brn: string;
+    name: string;
+    startDate: string;
+  } | null>(null);
 
   // 로컬파트 + '@' + 도메인 조합 — 기존 email 흐름(중복확인·검증·제출)이 이 파생값을 그대로
   // 사용한다(#417, EmailDomainField). 둘 다 비면 '@'만 남아 isValidEmail이 false로 판정한다.
@@ -157,9 +167,15 @@ export function CompanySignupPage() {
 
   const handleVerifyBusiness = () => {
     if (!canVerifyBusiness) return;
+    const trimmedRepresentativeName = representativeName.trim();
+    setVerifiedSnapshot({
+      brn: businessRegistrationNumber,
+      name: trimmedRepresentativeName,
+      startDate: businessStartDate,
+    });
     verifyBusiness({
       businessRegistrationNumber,
-      representativeName: representativeName.trim(),
+      representativeName: trimmedRepresentativeName,
       businessStartDate,
     });
   };
@@ -180,11 +196,16 @@ export function CompanySignupPage() {
     if (businessVerificationResult || businessVerificationError) resetBusinessVerification();
   };
 
-  // 진위확인 통과 = VERIFIED(일치) 또는 UNAVAILABLE(국세청 장애 fail-open, 백엔드도 PENDING 허용).
-  // 나머지(미확인·미등록·불일치·휴폐업)는 제출을 막는다.
+  // 진위확인 통과 = VERIFIED(일치) 또는 UNAVAILABLE(국세청 장애 fail-open, 백엔드도 PENDING 허용)
+  // "이면서" 현재 3필드가 확인 시점 스냅샷과 여전히 일치할 때만이다(PR #666 P2 — in-flight 무효화
+  // 구멍 방지). 나머지(미확인·미등록·불일치·휴폐업, 또는 확인 이후 필드가 바뀐 상태)는 막는다.
   const isBusinessVerified =
-    businessVerificationResult?.result === 'VERIFIED' ||
-    businessVerificationResult?.result === 'UNAVAILABLE';
+    (businessVerificationResult?.result === 'VERIFIED' ||
+      businessVerificationResult?.result === 'UNAVAILABLE') &&
+    verifiedSnapshot !== null &&
+    verifiedSnapshot.brn === businessRegistrationNumber &&
+    verifiedSnapshot.name === representativeName.trim() &&
+    verifiedSnapshot.startDate === businessStartDate;
 
   // 사업자등록증 OCR 자동채움(#587) — jpeg/png만 백엔드 OCR이 지원하므로 그 외 타입(PDF 등)은
   // OCR 호출 자체를 생략한다. 실패(400/429/5xx/네트워크)는 onError를 등록하지 않아 조용히
@@ -495,9 +516,15 @@ export function CompanySignupPage() {
                       BUSINESS_VERIFICATION_DEFAULT_ERROR_MESSAGE}
                   </p>
                 )}
-                {showValidation && !isBusinessVerified && (
-                  <p className={ERROR_CLASSES}>{BUSINESS_VERIFICATION_GATE_MESSAGE}</p>
-                )}
+                {/* 실패 계열 뱃지(NOT_REGISTERED 등)나 에러가 이미 떠 있으면 게이트 문구와
+                    중복되므로 "결과·에러가 전혀 없을 때"(=아예 확인을 시도한 적 없을 때)만
+                    노출한다(PR #666 P3). */}
+                {showValidation &&
+                  !isBusinessVerified &&
+                  !businessVerificationResult &&
+                  !businessVerificationError && (
+                    <p className={ERROR_CLASSES}>{BUSINESS_VERIFICATION_GATE_MESSAGE}</p>
+                  )}
               </div>
             </div>
 

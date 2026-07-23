@@ -180,7 +180,11 @@ describe('CompanySignupPage — 사업자 진위확인 가입 신청 게이팅(#
 
     fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
 
-    expect(await screen.findByText('사업자 진위확인을 먼저 완료해 주세요.')).not.toBeNull();
+    // 실패 계열 뱃지가 이미 노출 중이므로 별도 게이트 안내 문구는 중복 노출하지 않는다(PR #666 P3).
+    // signup 미호출로 게이트가 닫혀 있는지만 확인한다.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByText('사업자 진위확인을 먼저 완료해 주세요.')).toBeNull();
+    expect(screen.getByText(badgeText(message))).not.toBeNull();
     expect(signupSpy).not.toHaveBeenCalled();
   });
 });
@@ -262,6 +266,44 @@ describe('CompanySignupPage — 사업자 진위확인 무효화(우회 방지, 
 
     fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
     await waitFor(() => expect(signupSpy).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('CompanySignupPage — 진위확인 in-flight 무효화(PR #666 P2)', () => {
+  it('응답 대기 중 필드를 바꾸면, 이전 값 기준 응답이 뒤늦게 VERIFIED로 와도 게이트가 열리지 않는다', async () => {
+    // authApi.verifyBusiness를 수동 제어 deferred promise로 대체 — resolveVerify를 호출하기
+    // 전까지는 mutation이 pending 상태(result·error 모두 undefined)로 유지된다. 이 창에서
+    // 필드를 바꾸는 시나리오를 재현한다(onChange의 reset()은 result/error가 있어야만 걸리므로
+    // pending 중엔 걸리지 않는다 — verifiedSnapshot 비교가 이 구멍을 막아야 한다).
+    let resolveVerify: (value: BusinessVerificationResponse) => void = () => {};
+    const deferred = new Promise<{ data: BusinessVerificationResponse }>((resolve) => {
+      resolveVerify = (value) => resolve({ data: value });
+    });
+    vi.spyOn(authApi, 'verifyBusiness').mockReturnValue(
+      deferred as unknown as ReturnType<typeof authApi.verifyBusiness>,
+    );
+    const signupSpy = vi.spyOn(authApi, 'signupCompany');
+
+    renderPage();
+    fillVerificationFields();
+    fillRestOfRequiredFields();
+    fireEvent.click(screen.getByRole('button', { name: '진위확인' }));
+
+    // 응답이 아직 오지 않은(in-flight) 상태에서 사업자등록번호를 다른 값으로 바꾼다.
+    fireEvent.change(screen.getByLabelText('사업자등록번호'), { target: { value: '9999999999' } });
+
+    // 이전 값(1234567890) 기준으로 확인했던 요청이 VERIFIED로 뒤늦게 응답한다.
+    resolveVerify({ result: 'VERIFIED', message: '사업자 정보가 국세청 등록정보와 일치합니다.' });
+    await waitFor(() => {
+      expect(screen.getByText(badgeText('사업자 정보가 국세청 등록정보와 일치합니다.'))).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
+
+    // 현재 사업자등록번호(9999999999)가 확인 시점 스냅샷(1234567890)과 달라 게이트는 여전히
+    // 닫혀 있어야 한다 — signup이 발화하지 않는다.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(signupSpy).not.toHaveBeenCalled();
   });
 });
 
