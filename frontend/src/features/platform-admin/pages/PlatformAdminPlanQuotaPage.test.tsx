@@ -8,11 +8,15 @@ import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { planPolicyHandlers } from '../api/planPolicyApi.handlers';
 import { planQuotaHandlers } from '../api/planQuotaApi.handlers';
 import { PLAN_QUOTA_KPI_TEST_ID } from '../components/PlanQuotaKpiCards';
 import { PlatformAdminPlanQuotaPage } from './PlatformAdminPlanQuotaPage';
 
-const server = setupServer(...planQuotaHandlers);
+// PlatformAdminPlanQuotaPage는 usePlanPolicies()로 GET /api/platform-admin/plans도 호출한다
+// (#624 후속, "플랜 정책 설정" 초기값을 plans 테이블과 연동) — onUnhandledRequest: 'error'라
+// planPolicyHandlers도 함께 등록해야 그 요청이 실패로 잡히지 않는다.
+const server = setupServer(...planQuotaHandlers, ...planPolicyHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
@@ -107,7 +111,7 @@ describe('PlatformAdminPlanQuotaPage (통합 테스트)', () => {
     renderPage();
 
     await screen.findByText('김민준');
-    fireEvent.change(screen.getByLabelText('사용자 검색'), { target: { value: '박도윤' } });
+    fireEvent.change(screen.getByLabelText('사용자 또는 기업 검색'), { target: { value: '박도윤' } });
 
     await waitFor(() => {
       expect(screen.queryByText('김민준')).toBeNull();
@@ -119,7 +123,7 @@ describe('PlatformAdminPlanQuotaPage (통합 테스트)', () => {
     renderPage();
 
     await screen.findByText('김민준');
-    fireEvent.change(screen.getByLabelText('사용자 검색'), {
+    fireEvent.change(screen.getByLabelText('사용자 또는 기업 검색'), {
       target: { value: '존재하지않는계정' },
     });
 

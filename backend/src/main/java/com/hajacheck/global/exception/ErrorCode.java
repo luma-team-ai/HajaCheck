@@ -68,6 +68,8 @@ public enum ErrorCode {
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
     // user_plans.plan_id 가 가리키는 요금제가 없는 데이터 정합성 오류(FK not-null 이라 정상 운영에선 발생 불가) — 500.
     PLAN_DATA_INVALID(HttpStatus.INTERNAL_SERVER_ERROR, "요금제 데이터에 오류가 있습니다."),
+    // 플랫폼 관리자 "플랜 정책 설정"(#624 후속) — FREE/STANDARD/ENTERPRISE 각각 정확히 한 번씩 없는 요청(누락·중복·미지원 플랜명).
+    PLAN_POLICY_INVALID(HttpStatus.BAD_REQUEST, "요금제 정책 요청이 올바르지 않습니다. FREE·STANDARD·ENTERPRISE 각각 정확히 한 번씩 포함해야 합니다."),
     // 시설물(facility)
     // 미존재/타인 소유 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.
     FACILITY_NOT_FOUND(HttpStatus.NOT_FOUND, "시설물을 찾을 수 없습니다."),

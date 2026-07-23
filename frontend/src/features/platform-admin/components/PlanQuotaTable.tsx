@@ -1,5 +1,6 @@
 import {
   PLAN_LABEL,
+  PLAN_QUOTA_BADGE_CLASS,
   PLAN_QUOTA_EMPTY_CELL,
   PLAN_QUOTA_EXPIRED_LABEL,
   PLAN_QUOTA_STATUS_DOT_CLASS,
@@ -10,7 +11,7 @@ import type { PlanQuotaUser } from '../planQuota.types';
 import { QuotaUsageBar } from './QuotaUsageBar';
 import { StateRow } from './StateRow';
 
-const COL_COUNT = 5;
+const COL_COUNT = 6;
 
 interface PlanQuotaTableProps {
   users: PlanQuotaUser[];
@@ -19,14 +20,17 @@ interface PlanQuotaTableProps {
   onRetry: () => void;
 }
 
-// 플랜·쿼터 사용자 표 — Figma node-id 1206-2639(플랫폼 관리자 기준 화면). 사용자별 계정(이름·이메일) /
-// 현재 플랜 / 월 분석 쿼터 사용량 바 / 남은 기간 / 상태(활성·주의·만료)를 한 행에 담는다. 전사 스코프라
-// 사이드에 고정된 "현재 플랜" 카드를 두지 않으므로, 이 표가 화면 전체 너비를 차지한다.
+// 플랜·쿼터 사용자 표 — Figma node-id 1206-2639(플랫폼 관리자 기준 화면). 소속 기업 / 사용자별
+// 계정(이름·이메일) / 현재 플랜 / 월 분석 쿼터 사용량 바 / 남은 기간 / 상태(활성·주의·만료)를 한 행에
+// 담는다. 전사 스코프라 사이드에 고정된 "현재 플랜" 카드를 두지 않으므로, 이 표가 화면 전체 너비를
+// 차지한다. 기업 컬럼은 사용자 지시(#624 후속)로 사용자 컬럼 앞에 추가했다 — 전사 조회에서 어느 회사
+// 소속인지가 사용자 이름보다 먼저 눈에 들어와야 한다는 판단.
 export function PlanQuotaTable({ users, isLoading, isError, onRetry }: PlanQuotaTableProps) {
   return (
     <table className="w-full border-collapse">
       <thead>
         <tr className="border-b border-border">
+          <th className="px-4 py-3 text-left text-xs font-medium text-text-muted">기업</th>
           <th className="px-4 py-3 text-left text-xs font-medium text-text-muted">사용자</th>
           <th className="px-4 py-3 text-left text-xs font-medium text-text-muted">현재 플랜</th>
           <th className="px-4 py-3 text-left text-xs font-medium text-text-muted">쿼터 사용량</th>
@@ -69,12 +73,21 @@ export function PlanQuotaTable({ users, isLoading, isError, onRetry }: PlanQuota
           users.map((user) => (
             <tr key={user.id} className="border-b border-border last:border-b-0">
               <td className="px-4 py-4 align-middle">
+                {user.companyName ? (
+                  <span className="text-sm text-text-default">{user.companyName}</span>
+                ) : (
+                  <span className="text-text-muted">{PLAN_QUOTA_EMPTY_CELL}</span>
+                )}
+              </td>
+              <td className="px-4 py-4 align-middle">
                 <p className="text-sm font-semibold text-heading">{user.name}</p>
                 <p className="text-[13px] text-text-muted">{user.email}</p>
               </td>
               <td className="px-4 py-4 align-middle">
                 {user.plan ? (
-                  <span className="inline-flex items-center rounded-full border border-border px-3 py-1 text-xs font-medium text-text-default">
+                  <span
+                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${PLAN_QUOTA_BADGE_CLASS[user.plan]}`}
+                  >
                     {PLAN_LABEL[user.plan]}
                   </span>
                 ) : (

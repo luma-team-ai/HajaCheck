@@ -16,7 +16,9 @@ interface PlanPolicyModalProps {
   open: boolean;
   onClose: () => void;
   initialValues: PlanPolicyForm;
-  onSave: (values: PlanPolicyForm) => void;
+  onSave: (values: PlanPolicyForm) => Promise<void>;
+  isSubmitting?: boolean;
+  submitErrorMessage?: string;
 }
 
 const GRID_TEMPLATE = 'grid grid-cols-[minmax(0,220px)_repeat(3,minmax(0,1fr))] items-center gap-4';
@@ -138,15 +140,25 @@ function PolicyToggle({
 }
 
 // "플랜 정책 설정" 모달 — 첨부 시안(2026-07-23) 그대로. FREE/STANDARD/ENTERPRISE 3개 플랜의 가격·한도·
-// 기능 제공 여부를 한 표에서 편집한다. 저장 API가 아직 없어(#625 시점 보류 사항) 열려 있는 동안만
-// 값을 들고 있다가 "설정 저장" 클릭 시 상위(onSave)로 커밋하고, "취소"·오버레이 클릭·ESC는 드래프트를
-// 버리고 initialValues로 되돌린다.
-export function PlanPolicyModal({ open, onClose, initialValues, onSave }: PlanPolicyModalProps) {
+// 기능 제공 여부를 plans 테이블과 연동해 편집한다(#624 후속, 사용자 지시 — 이전엔 화면 세션 동안만
+// 유지되는 로컬 상태였다). "설정 저장" 클릭 시 곧바로 저장하지 않고 확인 단계(정말 저장할지)를 한 번
+// 더 거친다 — 전사 전체(모든 회사)의 가격·한도에 즉시 영향을 주는 변경이라 실수 클릭을 막기 위함
+// (사용자 지시). "취소"·오버레이 클릭·ESC는 드래프트를 버리고 initialValues로 되돌린다.
+export function PlanPolicyModal({
+  open,
+  onClose,
+  initialValues,
+  onSave,
+  isSubmitting,
+  submitErrorMessage,
+}: PlanPolicyModalProps) {
   const [draft, setDraft] = useState<PlanPolicyForm>(initialValues);
+  const [isConfirming, setConfirming] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDraft(initialValues);
+      setConfirming(false);
     }
   }, [open, initialValues]);
 
@@ -157,9 +169,51 @@ export function PlanPolicyModal({ open, onClose, initialValues, onSave }: PlanPo
     }));
   }
 
-  function handleSave() {
-    onSave(draft);
+  function handleSaveClick() {
+    setConfirming(true);
+  }
+
+  async function handleConfirmSave() {
+    await onSave(draft);
     onClose();
+  }
+
+  if (isConfirming) {
+    return (
+      <Modal
+        open={open}
+        onClose={onClose}
+        closeOnOverlayClick={false}
+        title={
+          <span className="block text-xl font-bold text-heading">플랜 정책 저장 확인</span>
+        }
+      >
+        <div className="flex w-full max-w-md flex-col gap-6">
+          <p className="m-0 text-sm text-text-muted">
+            변경한 가격·한도·기능 제공 여부를 저장하시겠습니까? 저장 즉시 FREE/STANDARD/ENTERPRISE를
+            구독 중인 모든 회사·사용자에게 반영됩니다.
+          </p>
+          {submitErrorMessage && (
+            <p role="alert" className="m-0 text-sm text-danger">
+              {submitErrorMessage}
+            </p>
+          )}
+          <div className="-mx-6 -mb-6 flex justify-end gap-3 border-t border-border bg-surface-muted px-6 py-5">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setConfirming(false)}
+              disabled={isSubmitting}
+            >
+              뒤로
+            </Button>
+            <Button type="button" variant="primary" onClick={() => void handleConfirmSave()} disabled={isSubmitting}>
+              {isSubmitting ? '저장 중...' : '저장 확정'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    );
   }
 
   return (
@@ -270,7 +324,7 @@ export function PlanPolicyModal({ open, onClose, initialValues, onSave }: PlanPo
             <Button type="button" variant="secondary" onClick={onClose}>
               취소
             </Button>
-            <Button type="button" variant="primary" onClick={handleSave}>
+            <Button type="button" variant="primary" onClick={handleSaveClick}>
               설정 저장
             </Button>
           </div>

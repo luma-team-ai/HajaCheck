@@ -14,7 +14,8 @@ function matchesKeyword(user: PlanQuotaUser, keyword: string): boolean {
   }
   return (
     user.name.toLowerCase().includes(normalized) ||
-    user.email.toLowerCase().includes(normalized)
+    user.email.toLowerCase().includes(normalized) ||
+    (user.companyName?.toLowerCase().includes(normalized) ?? false)
   );
 }
 
@@ -24,8 +25,11 @@ export const planQuotaHandlers = [
     const page = Number(url.searchParams.get('page') ?? 1);
     const size = Number(url.searchParams.get('size') ?? PLAN_QUOTA_DEFAULT_PAGE_SIZE);
     const keyword = url.searchParams.get('keyword') ?? '';
+    const plan = url.searchParams.get('plan');
 
-    const filtered = mockPlanQuotaUsers.filter((user) => matchesKeyword(user, keyword));
+    const filtered = mockPlanQuotaUsers
+      .filter((user) => matchesKeyword(user, keyword))
+      .filter((user) => !plan || user.plan === plan);
 
     const start = (page - 1) * size;
     const body: ApiResponse<PlanQuotaListResponse> = {

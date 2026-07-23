@@ -3,6 +3,7 @@ package com.hajacheck.membership.repository;
 import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -16,4 +17,7 @@ public interface UserPlanRepository extends JpaRepository<UserPlan, Long> {
     boolean existsByCompanyIdAndStatusIn(Long companyId, Collection<UserPlanStatus> statuses);
 
     boolean existsByUserIdAndStatusIn(Long userId, Collection<UserPlanStatus> statuses);
+
+    // 플랫폼 관리자 플랜·쿼터 관리(#624) — 회사 귀속 활성 구독 전체(companyId → plan 매핑용, 회사당 최대 1건).
+    List<UserPlan> findByCompanyIdIsNotNullAndStatus(UserPlanStatus status);
 }
