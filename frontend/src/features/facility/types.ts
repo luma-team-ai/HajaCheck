@@ -1,6 +1,11 @@
 // 시설물 목록/등록 — dev-04-01(Figma), FR-003 — backend PR #176(dev 머지) 계약과 1:1
 // feature 간 직접 import 금지(React_코드_컨벤션.md §1) — 대시보드 타입과 별개로 로컬 정의
 
+// 시설물 등록 필드 확장(#628/HAJA-347) — backend FacilityInitialGrade(A~E) 그대로 정합.
+// ⚠️ 대시보드/하자 정보 패널이 쓰는 FacilityDefectGrade(점검 이력 기반 계산값)와는 별개의 독립
+// 개념이다(backend entity 주석과 동일) — 라벨 집합이 같을 뿐 서로 혼용하지 않는다.
+export type FacilityInitialGrade = 'A' | 'B' | 'C' | 'D' | 'E';
+
 export interface Facility {
   id: number;
   name: string;
@@ -16,6 +21,11 @@ export interface Facility {
   nextInspectionDueAt: string | null;
   createdAt: string;
   updatedAt: string;
+  // #628(HAJA-347) 등록 필드 확장 — 전부 선택 입력. 대표 사진(photoUrls)은 별도 테이블이라
+  // 백엔드 계약에 아직 없다(#632 후속) — FE도 이번 범위에서는 UI만 구성하고 전송하지 않는다.
+  initialGrade: FacilityInitialGrade | null;
+  assigneeUserId: number | null;
+  memo: string | null;
 }
 
 export interface CreateFacilityRequest {
@@ -30,6 +40,19 @@ export interface CreateFacilityRequest {
   // 클라이언트가 inspectionCycleMonths 기준으로 산정해 전송(utils/computeNextInspectionDueAt.ts) —
   // 백엔드가 자동계산하지 않으므로 FE가 보내지 않으면 항상 null로 저장된다.
   nextInspectionDueAt?: string | null;
+  // #628(HAJA-347) — 전부 선택 입력. assigneeUserId는 값이 있을 때만 서버가 배정 가능 검사자인지
+  // 검증한다(AuthService.validateAssignableInspector와 동일 패턴).
+  initialGrade?: FacilityInitialGrade | null;
+  assigneeUserId?: number | null;
+  memo?: string | null;
+}
+
+// 담당자 select 옵션 — 배정 가능한 사용자 목록. 실 API 없음(2026-07-23 조사, auth 쪽에
+// GET /api/users/me만 존재) → 이번 범위는 MSW 목 전용(facilityAssigneeApi.handlers.ts).
+// 실 연동은 후속 이슈로 분리(inspection의 assignedInspectorId도 현재 숫자 ID 직접입력이라 동일 공백).
+export interface FacilityAssignableUser {
+  id: number;
+  name: string;
 }
 
 // 점검 주기 설정(dev-04-03, FR-019) — POST /api/facilities/{id}/schedule 실 계약

@@ -5,6 +5,7 @@ import { planQuotaHandlers } from '../features/admin/api/planQuotaApi.handlers';
 import { ragDocumentHandlers } from '../features/admin/api/ragDocumentApi.handlers';
 import { authHandlers } from '../features/auth/api/authApi.handlers';
 import { dashboardHandlers } from '../features/dashboard/api/dashboardApi.handlers';
+import { facilityAssigneeHandlers } from '../features/facility/api/facilityAssigneeApi.handlers';
 import { facilityComparisonHandlers } from '../features/facility/api/facilityComparisonApi.handlers';
 import { facilityDefectHandlers } from '../features/facility/api/facilityDefectApi.handlers';
 import { facilityHandlers } from '../features/facility/api/facilityApi.handlers';
@@ -29,6 +30,7 @@ export const handlers = [
   ...facilityHandlers,
   ...facilityDefectHandlers,
   ...facilityComparisonHandlers,
+  ...facilityAssigneeHandlers,
   ...adminHandlers,
   ...adminPlanHandlers,
   ...planQuotaHandlers,
