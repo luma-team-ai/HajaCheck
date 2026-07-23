@@ -40,6 +40,9 @@ function makeFacility(overrides: Partial<Facility>): Facility {
     nextInspectionDueAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
     ...overrides,
   };
 }

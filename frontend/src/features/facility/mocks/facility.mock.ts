@@ -15,6 +15,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: '2026-09-15',
     createdAt: '2026-01-10T09:00:00.000Z',
     updatedAt: '2026-01-10T09:00:00.000Z',
+    initialGrade: 'B',
+    assigneeUserId: 101,
+    memo: '외벽 균열 재점검 예정',
   },
   {
     id: 2,
@@ -29,6 +32,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: '2027-01-05',
     createdAt: '2026-02-03T09:00:00.000Z',
     updatedAt: '2026-02-03T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 3,
@@ -43,6 +49,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: '2026-08-01',
     createdAt: '2026-01-20T09:00:00.000Z',
     updatedAt: '2026-01-20T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 4,
@@ -57,6 +66,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: '2026-10-22',
     createdAt: '2026-03-11T09:00:00.000Z',
     updatedAt: '2026-03-11T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 5,
@@ -71,6 +83,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: null,
     createdAt: '2026-04-02T09:00:00.000Z',
     updatedAt: '2026-04-02T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 6,
@@ -85,6 +100,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: '2026-08-12',
     createdAt: '2026-04-10T09:00:00.000Z',
     updatedAt: '2026-04-10T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 7,
@@ -99,6 +117,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: '2026-08-31',
     createdAt: '2026-04-12T09:00:00.000Z',
     updatedAt: '2026-04-12T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 8,
@@ -113,6 +134,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: '2026-07-25',
     createdAt: '2026-04-15T09:00:00.000Z',
     updatedAt: '2026-04-15T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 9,
@@ -127,6 +151,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: null,
     createdAt: '2026-04-16T09:00:00.000Z',
     updatedAt: '2026-04-16T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 10,
@@ -141,6 +168,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: '2026-08-05',
     createdAt: '2026-04-18T09:00:00.000Z',
     updatedAt: '2026-04-18T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 11,
@@ -155,6 +185,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: '2026-08-21',
     createdAt: '2026-04-20T09:00:00.000Z',
     updatedAt: '2026-04-20T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 12,
@@ -169,6 +202,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: '2026-08-01',
     createdAt: '2026-04-22T09:00:00.000Z',
     updatedAt: '2026-04-22T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 13,
@@ -183,6 +219,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: '2026-09-15',
     createdAt: '2026-04-25T09:00:00.000Z',
     updatedAt: '2026-04-25T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 14,
@@ -197,6 +236,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: '2026-07-27',
     createdAt: '2026-04-27T09:00:00.000Z',
     updatedAt: '2026-04-27T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 15,
@@ -211,6 +253,9 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: '2026-10-20',
     createdAt: '2026-04-28T09:00:00.000Z',
     updatedAt: '2026-04-28T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
   {
     id: 16,
@@ -225,5 +270,8 @@ export const mockFacilities: Facility[] = [
     nextInspectionDueAt: null,
     createdAt: '2026-04-30T09:00:00.000Z',
     updatedAt: '2026-04-30T09:00:00.000Z',
+    initialGrade: null,
+    assigneeUserId: null,
+    memo: null,
   },
 ];
