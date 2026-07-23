@@ -37,6 +37,12 @@ alter type inspection_status_type owner to postgres;
 
 comment on type inspection_status_type is '점검 처리 상태(생성/업로드중/분석중/분석완료/검토완료/보고서화)';
 
+create type inspection_type as enum ('REGULAR', 'DETAILED', 'EMERGENCY');
+
+alter type inspection_type owner to postgres;
+
+comment on type inspection_type is '점검 유형(정기/정밀/긴급)';
+
 create type media_file_type as enum ('IMAGE', 'VIDEO');
 
 alter type media_file_type owner to postgres;
@@ -379,7 +385,7 @@ create table plans
         unique,
     max_facilities       integer,
     max_monthly_analyses integer,
-    max_seats            integer                  default 0     not null,
+    max_seats            integer,
     has_pdf_watermark    boolean                  default false not null,
     has_counselor_access boolean                  default false not null,
     has_ai_addon         boolean                  default false not null,
@@ -398,7 +404,7 @@ comment on column plans.max_facilities is '요금제에서 등록 가능한 최�
 
 comment on column plans.max_monthly_analyses is '월간 최대 분석 가능 횟수';
 
-comment on column plans.max_seats is '요금제에서 허용하는 최대 사용자 좌석 수';
+comment on column plans.max_seats is '요금제에서 허용하는 최대 사용자 좌석 수(NULL은 무제한)';
 
 comment on column plans.has_pdf_watermark is '생성된 PDF에 워터마크를 표시하는지 여부';
 
@@ -582,6 +588,7 @@ create table inspections
         references users,
     round_no        integer                                                            not null,
     inspection_date date                                                               not null,
+    type            inspection_type          default 'REGULAR'::inspection_type        not null,
     status          inspection_status_type   default 'CREATED'::inspection_status_type not null,
     created_at      timestamp with time zone default now()                             not null,
     unique (facility_id, round_no)
@@ -600,6 +607,8 @@ comment on column inspections.assigned_inspector_id is '점검 담당자로 배�
 comment on column inspections.round_no is '시설별 점검 회차';
 
 comment on column inspections.inspection_date is '점검 수행일';
+
+comment on column inspections.type is '점검 유형(REGULAR=정기, DETAILED=정밀, EMERGENCY=긴급)';
 
 comment on column inspections.status is '점검 처리 상태';
 
@@ -674,6 +683,8 @@ create table defects
     lock_version    bigint                   default 0                              not null,
     inspection_id   bigint                                                          not null
         references inspections,
+    media_id        bigint
+        references media,
     type            defect_type                                                     not null,
     bbox_x          double precision,
     bbox_y          double precision,
@@ -696,6 +707,8 @@ comment on column defects.id is '결함 식별자';
 comment on column defects.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column defects.inspection_id is '결함이 발견된 점검 식별자';
+
+comment on column defects.media_id is '결함이 탐지된 촬영 이미지 식별자(HAJA-314, nullable — AI 탐지 파이프라인 도입 전 기존 행은 NULL)';
 
 comment on column defects.type is '결함 유형';
 
@@ -728,6 +741,9 @@ alter table defects
 
 create index idx_defects_inspection
     on defects (inspection_id);
+
+create index idx_defects_media
+    on defects (media_id);
 
 create table defect_revisions
 (
@@ -1138,6 +1154,51 @@ create index idx_notifications_user_unread
 create index idx_notifications_user_history
     on notifications (user_id, created_at desc, id desc);
 
+create table inspection_notification_settings
+(
+    id                         bigint generated always as identity
+        primary key,
+    user_id                    bigint                   not null
+        constraint fk_inspection_notification_settings_user
+            references users
+            on delete cascade,
+    facility_id                bigint                   not null
+        constraint fk_inspection_notification_settings_facility
+            references facilities
+            on delete cascade,
+    notify_before_enabled      boolean                  default true  not null,
+    notify_before_days         smallint                 default 7     not null,
+    warn_on_overdue_enabled    boolean                  default false not null,
+    created_at                 timestamp with time zone default now() not null,
+    updated_at                 timestamp with time zone default now() not null,
+    constraint uk_inspection_notification_settings_user_facility
+        unique (user_id, facility_id),
+    constraint ck_inspection_notification_settings_before_days
+        check (notify_before_days between 1 and 365)
+);
+
+comment on table inspection_notification_settings is '사용자·시설별 점검 예정 및 기한 경과 알림 설정';
+
+comment on column inspection_notification_settings.user_id is '알림 설정 사용자 식별자';
+
+comment on column inspection_notification_settings.facility_id is '알림 설정 대상 시설 식별자';
+
+comment on column inspection_notification_settings.notify_before_enabled is '점검 예정 사전 알림 사용 여부';
+
+comment on column inspection_notification_settings.notify_before_days is '점검 예정일 전 알림 일수(1~365일)';
+
+comment on column inspection_notification_settings.warn_on_overdue_enabled is '점검 예정일 경과 알림 사용 여부';
+
+comment on column inspection_notification_settings.created_at is '알림 설정 생성 시각';
+
+comment on column inspection_notification_settings.updated_at is '알림 설정 최종 수정 시각';
+
+alter table inspection_notification_settings
+    owner to postgres;
+
+create index idx_inspection_notification_settings_facility
+    on inspection_notification_settings (facility_id);
+
 create table api_system_logs
 (
     id             bigint generated always as identity
@@ -1386,15 +1447,23 @@ execute procedure set_updated_at();
 
 comment on trigger trg_plans_set_updated_at on plans is 'plans 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
 
+create trigger trg_inspection_notification_settings_set_updated_at
+    before update
+    on inspection_notification_settings
+    for each row
+execute procedure set_updated_at();
+
+comment on trigger trg_inspection_notification_settings_set_updated_at on inspection_notification_settings is '점검 알림 설정 변경 시 updated_at을 현재 시각으로 갱신한다.';
+
 -- 구독 요금제 시드(#517 / HAJA-308) — PRD §2.4(v0.44 확정) 요금제 표. 신규 설치 전용이며,
 -- 기존 운영 DB는 대신 docs/design/db/migrations/20260721_01_plans_seed_free_assign.sql 을 사용한다.
--- max_seats 는 NOT NULL 컬럼이라 Enterprise "무제한"은 sentinel 1000000 으로 표현한다.
+-- 제한값이 NULL인 경우 무제한을 의미한다.
 insert into plans (name, max_facilities, max_monthly_analyses, max_seats,
                    has_pdf_watermark, has_counselor_access, has_ai_addon, price_monthly)
 values
     ('FREE'::plan_name_type, 1, 50, 1, true, false, false, 0.00),
     ('STANDARD'::plan_name_type, 10, 1000, 3, false, true, true, 29000.00),
-    ('ENTERPRISE'::plan_name_type, null, null, 1000000, false, true, true, 59000.00)
+    ('ENTERPRISE'::plan_name_type, null, null, null, false, true, true, 59000.00)
 on conflict (name) do nothing;
 
 create trigger trg_facilities_set_updated_at

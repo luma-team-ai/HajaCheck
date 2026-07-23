@@ -40,6 +40,12 @@ const PlatformAdminPlaceholderPage = lazy(() =>
     default: m.PlatformAdminPlaceholderPage,
   })),
 );
+// 플랫폼 관리자 > 사용자 관리(#577) — 기업 관리자 콘솔의 AdminUsersPage(#405)를 그대로 옮긴 실 화면
+const PlatformAdminUsersPage = lazy(() =>
+  import('../features/platform-admin/pages/PlatformAdminUsersPage').then((m) => ({
+    default: m.PlatformAdminUsersPage,
+  })),
+);
 
 // 이용약관 / 개인정보처리방침 — 랜딩 푸터 "법적 고지" 연결
 const TermsOfServicePage = lazy(() =>
@@ -374,7 +380,8 @@ export const router = createBrowserRouter([
           breadcrumb: [{ label: '점검 관리' }, { label: '점검(회차) 생성' }],
           activeHref: '/inspections/create',
         },
-      }, // — features/inspection 점검(회차) 생성 (API 명세서 v0.3 AP-004)
+      }, // — features/inspection 점검(회차) 생성 (API 명세서 v0.3 AP-004) — 촬영 데이터 업로드는
+      // 회의 후 반영된 시안대로 이 화면에 통합됨(별도 /inspections/media-upload 라우트는 폐지).
       {
         path: '/inspections/:id/viewer',
         element: (
@@ -528,14 +535,14 @@ export const router = createBrowserRouter([
         path: '/platform-admin/users',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <PlatformAdminPlaceholderPage title="사용자 관리" />
+            <PlatformAdminUsersPage />
           </Suspense>
         ),
         handle: {
           breadcrumb: [{ label: '플랫폼 관리자' }, { label: '사용자 관리' }],
           activeHref: '/platform-admin/users',
         },
-      },
+      }, // — features/platform-admin 사용자 관리 실 화면 (#577, features/admin AdminUsersPage 이식)
       {
         path: '/platform-admin/plans-quota',
         element: (

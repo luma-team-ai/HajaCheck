@@ -242,7 +242,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .with(authentication(authOf(stranger))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.error.code").value("FACILITY_NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("INSPECTION_NOT_FOUND"));
     }
 
     @Test
@@ -506,7 +506,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("FACILITY_NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("DEFECT_NOT_FOUND"));
     }
 
     @Test

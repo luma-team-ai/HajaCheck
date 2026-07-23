@@ -12,18 +12,18 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * V6(grant_admin_to_company_owners, #636)의 데이터 변환을 격리 검증한다.
+ * V8(grant_admin_to_company_owners, #636)의 데이터 변환을 격리 검증한다.
  *
- * <p>빈 컨테이너에 V1~V5까지만 적용(target=5)한 뒤 시드 데이터를 심고, V6만 추가 적용해
+ * <p>빈 컨테이너에 V1~V7까지만 적용(target=7)한 뒤 시드 데이터를 심고, V8만 추가 적용해
  * 소급 UPDATE 의 대상 범위가 정확한지(= owner 인 USER 만 ADMIN 으로 상향)를 고정한다.
  * 파괴적 UPDATE 라 WHERE 조건이 넓어져 전체 user 를 ADMIN 으로 만들지 않는지가 이 테스트의 핵심이다.
  */
 @Testcontainers
-class V6GrantAdminToCompanyOwnersMigrationTest {
+class V8GrantAdminToCompanyOwnersMigrationTest {
 
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17")
-            .withDatabaseName("hajacheck_v6")
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16")
+            .withDatabaseName("hajacheck_v8")
             .withUsername("postgres");
 
     @Test
@@ -32,8 +32,8 @@ class V6GrantAdminToCompanyOwnersMigrationTest {
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
 
-        // 1) V1~V5까지만 적용(V6 데이터 변환 전 상태 확보).
-        migrateTo(dataSource, "5");
+        // 1) V1~V7까지만 적용(V8 데이터 변환 전 상태 확보 — V8만 소급 UPDATE라 그 직전까지 스키마를 만든다).
+        migrateTo(dataSource, "7");
 
         // 2) 시드: owner USER / owner 기존 ADMIN / non-owner USER / owner PLATFORM_ADMIN.
         long ownerUser = insertUser(jdbc, "owner-user@haja.com", "USER");
@@ -46,8 +46,8 @@ class V6GrantAdminToCompanyOwnersMigrationTest {
         insertCompany(jdbc, ownerPlatformAdmin, "회사C", "1000000003");
         // nonOwnerUser 는 어떤 회사의 owner 도 아니다.
 
-        // 3) V6 적용.
-        migrateTo(dataSource, "6");
+        // 3) V8 적용(소급 UPDATE).
+        migrateTo(dataSource, "8");
 
         // 4) 검증.
         // owner 인 USER 만 ADMIN 으로 상향.

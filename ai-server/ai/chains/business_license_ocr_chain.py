@@ -33,7 +33,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from ai.core.llm_client import get_llm
+from ai.core.llm_client import SHORT_CACHE_TTL_SECONDS, get_llm
 from ai.core.ocr_client import get_ocr_engine
 from ai.core.prompt_safety import wrap_untrusted
 
@@ -173,7 +173,11 @@ def run_business_license_ocr_chain(image_base64: str) -> BusinessLicenseOcrResul
     avg_confidence = sum(score for _text, score in lines_with_scores) / len(lines_with_scores)
 
     prompt = _build_prompt("\n".join(texts))
-    llm_result = get_llm().with_structured_output(BusinessLicenseOcrExtract).invoke(prompt)
+    llm_result = (
+        get_llm()
+        .with_structured_output(BusinessLicenseOcrExtract, ttl=SHORT_CACHE_TTL_SECONDS)
+        .invoke(prompt)
+    )
 
     business_registration_number = _find_business_reg_number(
         texts

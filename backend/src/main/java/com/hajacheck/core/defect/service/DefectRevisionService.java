@@ -65,7 +65,7 @@ public class DefectRevisionService {
         try {
             inspectionService.getInspection(requesterUserId, defect.getInspectionId());
         } catch (BusinessException e) {
-            if (e.getErrorCode() == ErrorCode.INSPECTION_NOT_FOUND) {
+            if (e.getErrorCode() == ErrorCode.INSPECTION_NOT_FOUND || e.getErrorCode() == ErrorCode.FACILITY_NOT_FOUND) {
                 throw new BusinessException(ErrorCode.DEFECT_NOT_FOUND);
             }
             throw e;

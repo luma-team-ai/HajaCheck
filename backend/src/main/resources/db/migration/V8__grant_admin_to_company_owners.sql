@@ -1,8 +1,8 @@
--- Flyway V6 — 기존 회사 owner 계정을 ADMIN 으로 소급 상향(#636).
+-- Flyway V8 — 기존 회사 owner 계정을 ADMIN 으로 소급 상향(#636).
 --
--- 배경: 기업 회원가입 시 회사 owner 도 role=USER 로 생성돼 왔다(V6 이전 createCompanyOwner).
+-- 배경: 기업 회원가입 시 회사 owner 도 role=USER 로 생성돼 왔다(이 변경 이전 createCompanyOwner).
 -- 그 결과 회사에 ADMIN 이 0명이 되어 아무도 회사 관리자 페이지(/api/admin/**)에 진입하지 못한다.
--- V6 이후 신규 owner 는 코드(createCompanyOwner)에서 ADMIN 으로 생성되지만, 이미 만들어진 기존
+-- 이 변경 이후 신규 owner 는 코드(createCompanyOwner)에서 ADMIN 으로 생성되지만, 이미 만들어진 기존
 -- owner 계정은 여전히 USER 이므로 여기서 1회 소급 상향한다.
 --
 -- 안전장치(파괴적 UPDATE 최소화):

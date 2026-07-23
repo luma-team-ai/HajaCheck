@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FacilityLocation } from './types';
 
-vi.mock('./lib/loadKakaoMapSdk', () => ({
+vi.mock('../../shared/lib/kakaoMap/loadKakaoMapSdk', () => ({
   loadKakaoMapSdk: vi.fn(() => Promise.resolve()),
   KakaoMapKeyMissingError: class KakaoMapKeyMissingError extends Error {},
 }));

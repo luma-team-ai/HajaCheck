@@ -8,13 +8,16 @@ import { facilityComparisonHandlers } from '../features/facility/api/facilityCom
 import { facilityDefectHandlers } from '../features/facility/api/facilityDefectApi.handlers';
 import { facilityHandlers } from '../features/facility/api/facilityApi.handlers';
 import { inspectionHandlers } from '../features/inspection/api/inspectionApi.handlers';
+import { mediaHandlers } from '../features/inspection/api/mediaApi.handlers';
 import { mypageHandlers } from '../features/mypage/api/mypageApi.handlers';
 import { notificationHandlers } from '../features/notification/api/notificationApi.handlers';
+import { platformAdminUserHandlers } from '../features/platform-admin/api/platformAdminUserApi.handlers';
 import { supportHandlers } from '../features/support/api/supportApi.handlers';
 
 export const handlers = [
   ...authHandlers,
   ...inspectionHandlers,
+  ...mediaHandlers,
   ...dashboardHandlers,
   ...mypageHandlers,
   ...facilityHandlers,
@@ -23,6 +26,7 @@ export const handlers = [
   ...adminHandlers,
   ...adminPlanHandlers,
   ...planQuotaHandlers,
+  ...platformAdminUserHandlers,
   ...supportHandlers,
   ...notificationHandlers,
 ];

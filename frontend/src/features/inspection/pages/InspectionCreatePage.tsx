@@ -1,71 +1,297 @@
+import type { ChangeEvent } from 'react';
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { FacilityOverviewPanel } from '../../../shared/components/FacilityOverviewPanel';
-import { DueDateBadge } from '../components/DueDateBadge';
-import { InspectionCreateModal } from '../components/InspectionCreateModal';
-import { useFacilityDetail } from '../hooks/useFacilityDetail';
-import { useFacilityOverview } from '../hooks/useFacilityOverview';
+import { useNavigate } from 'react-router-dom';
+import { Button } from '../../../shared/components/Button';
+import type { StagedMediaFile } from '../components/InspectionMediaUploadPanel';
+import { InspectionMediaUploadPanel } from '../components/InspectionMediaUploadPanel';
+import { useCreateInspection } from '../hooks/useCreateInspection';
+import { useFacilityOptions } from '../hooks/useFacilityOptions';
+import { useUploadMedia } from '../hooks/useUploadMedia';
+import type { InspectionCreateResponse } from '../types';
+import {
+  classifyMediaFile,
+  exceedsMaxFileCount,
+  formatFileSize,
+  validateMediaFile,
+  validateVideoFile,
+} from '../utils/validateMediaFiles';
+import type {
+  InspectionCreateFormErrors,
+  InspectionCreateFormValues,
+} from '../utils/validateInspectionCreateForm';
+import {
+  INSPECTION_CREATE_FORM_INITIAL_VALUES,
+  hasInspectionCreateFormErrors,
+  toInspectionCreateRequest,
+  validateInspectionCreateForm,
+} from '../utils/validateInspectionCreateForm';
 
-// 라우트에 시설물 컨텍스트가 없어 쿼리파라미터(?facilityId=)로 대상 지정,
-// 미지정 시 데모 대표 시설물(강남 오피스타워 A동, id=1)을 기본값으로 사용
-// (facility feature의 FacilityDetailPage와 동일 패턴).
-const DEFAULT_FACILITY_ID = 1;
+const INPUT_CLASSES =
+  'w-full rounded-full border border-border bg-white px-4 py-2.5 text-base text-text-default outline-none focus:ring-2 focus:ring-primary';
+const LABEL_CLASSES = 'text-xs font-medium tracking-wide text-text-muted';
+const ERROR_CLASSES = 'text-xs text-danger';
 
-// 점검(회차) 생성 — 화면 자체는 시설물 개요(Figma "hajaCheck Facility Detail - Fixed Images",
-// node-id 1-1401)와 동일 레이아웃을 쓴다(shared/FacilityOverviewPanel). 실제 점검 생성(AP-004,
-// POST /api/inspections)은 "+ 새 점검" 버튼을 눌러 여는 모달(InspectionCreateModal)이 담당한다.
+// 새 점검 생성 — 회의 후 반영된 시안(2026-07-22): 기존 "시설물 개요 + 모달" 2단계 플로우를
+// 폐지하고, 점검 정보 입력과 촬영 데이터 업로드를 한 화면에서 처리한다(AP-004+AP-005 통합 화면).
+// 제출 시 ① POST /api/inspections로 회차 생성 ② 응답 id로 이미지 파일만 POST .../media 업로드
+// (영상은 아직 백엔드 업로드 대상이 아님) ③ 시설물 상세로 이동. AI 분석 자동 실행(dev-05-04)은
+// 아직 엔드포인트가 없어 이번 제출에서 트리거하지 않는다 — 버튼 문구는 시안을 따르되 실제로는
+// "생성 + 업로드"까지만 수행.
 export function InspectionCreatePage() {
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const facilityId = Number(searchParams.get('facilityId')) || DEFAULT_FACILITY_ID;
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const { data: facilities, isLoading: isFacilitiesLoading } = useFacilityOptions();
+  const {
+    createInspection,
+    isPending: isCreating,
+    error: createError,
+    resetError: resetCreateError,
+  } = useCreateInspection();
+  const {
+    uploadMedia,
+    isPending: isUploading,
+    progress: uploadProgress,
+    error: uploadError,
+  } = useUploadMedia();
 
-  const { data: facility, isLoading, isError } = useFacilityDetail(facilityId);
-  const { data: overview } = useFacilityOverview(facilityId);
+  const [values, setValues] = useState<InspectionCreateFormValues>(
+    INSPECTION_CREATE_FORM_INITIAL_VALUES,
+  );
+  const [errors, setErrors] = useState<InspectionCreateFormErrors>({});
+  // 메모 — 시안에는 있으나 backend InspectionCreateRequest 계약에 아직 필드가 없어(facilityId·
+  // inspectionDate·assignedInspectorId만 존재) 로컬 상태로만 유지한다. 후속 계약 확장 시 배선.
+  const [memo, setMemo] = useState('');
+  const [mediaFiles, setMediaFiles] = useState<StagedMediaFile[]>([]);
+  const [uploadDone, setUploadDone] = useState(false);
+  const [fileCountError, setFileCountError] = useState<string | null>(null);
+  // 회차 생성(POST /api/inspections)이 성공한 뒤 업로드가 실패하면 여기 보관해둔다 — 재제출 시
+  // createInspection을 다시 호출하지 않고 이 id로 업로드만 재시도해 회차 중복 생성을 막는다(P1).
+  const [createdInspection, setCreatedInspection] = useState<InspectionCreateResponse | null>(
+    null,
+  );
 
-  if (isLoading) {
-    return <div className="px-8 py-8 text-base text-neutral-600">불러오는 중...</div>;
-  }
-  if (isError || !facility) {
-    return (
-      <div className="px-8 py-8 text-base text-neutral-600">시설물 정보를 불러오지 못했습니다.</div>
-    );
-  }
+  const isSubmitting = isCreating || isUploading;
+  const hasFileErrors = mediaFiles.some((entry) => entry.error !== null);
+  const totalSize = mediaFiles.reduce((sum, entry) => sum + entry.file.size, 0);
+  // 회차가 이미 생성된 뒤에는 점검 정보를 바꿔도 반영되지 않는다(재시도는 업로드만 재실행) —
+  // 혼동을 막기 위해 입력을 잠근다.
+  const isFieldsLocked = isSubmitting || createdInspection !== null;
 
-  const metaLine = [
-    facility.type,
-    facility.address,
-    facility.builtYear && `준공 ${facility.builtYear}`,
-    facility.scale,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  const handleFieldChange =
+    (field: keyof InspectionCreateFormValues) =>
+    (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      setValues((prev) => ({ ...prev, [field]: event.target.value }));
+      resetCreateError();
+    };
+
+  const handleFilesAdd = (newFiles: File[]) => {
+    setUploadDone(false);
+    const staged: StagedMediaFile[] = newFiles.map((file) => {
+      const kind = classifyMediaFile(file);
+      if (!kind) {
+        return { file, kind: 'image', error: 'FILE_INVALID_TYPE' };
+      }
+      const error = kind === 'image' ? validateMediaFile(file) : validateVideoFile(file);
+      return { file, kind, error };
+    });
+
+    // 개수 상한은 실제 업로드 대상(이미지)에만 적용 — 영상은 요청에 포함되지 않는다.
+    const currentImageCount = mediaFiles.filter((entry) => entry.kind === 'image').length;
+    const addingImageCount = staged.filter((entry) => entry.kind === 'image').length;
+    if (exceedsMaxFileCount(currentImageCount, addingImageCount)) {
+      setFileCountError('이미지는 한 번에 최대 10개까지 업로드할 수 있습니다.');
+      return;
+    }
+    setFileCountError(null);
+    setMediaFiles((prev) => [...prev, ...staged]);
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setMediaFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async () => {
+    const nextErrors = validateInspectionCreateForm(values);
+    setErrors(nextErrors);
+    if (hasInspectionCreateFormErrors(nextErrors) || hasFileErrors) {
+      return;
+    }
+
+    try {
+      // 이미 생성된 회차가 있으면(직전 시도에서 업로드만 실패) 재생성하지 않고 재사용 — 안 그러면
+      // 재제출마다 같은 시설물/점검일/담당자로 orphan 점검 회차가 계속 쌓인다.
+      const inspection =
+        createdInspection ?? (await createInspection(toInspectionCreateRequest(values)));
+      if (!createdInspection) {
+        setCreatedInspection(inspection);
+      }
+
+      const imageFiles = mediaFiles
+        .filter((entry) => entry.kind === 'image' && !entry.error)
+        .map((entry) => entry.file);
+      if (imageFiles.length > 0) {
+        await uploadMedia({ inspectionId: inspection.id, files: imageFiles });
+        setUploadDone(true);
+      }
+
+      navigate(`/facilities/${inspection.facilityId}`);
+    } catch {
+      // 실패 사유는 error로 아래에 표시 — 입력값·선택 파일은 유지해 재시도 가능하게 둔다.
+      // 회차 생성까지는 성공했다면 createdInspection에 남아있어 다음 제출은 업로드만 재시도한다.
+    }
+  };
 
   return (
-    <>
-      <FacilityOverviewPanel
-        facilityName={facility.name}
-        metaLine={metaLine}
-        grade={overview?.overallGrade}
-        totalRounds={overview?.totalRounds ?? '—'}
-        cumulativeDefectCount={overview?.cumulativeDefectCount ?? '—'}
-        unresolvedDefectCount={overview?.unresolvedDefectCount ?? '—'}
-        nextInspectionBadge={<DueDateBadge nextInspectionDueAt={facility.nextInspectionDueAt} />}
-        history={overview?.history ?? []}
-        onNewInspection={() => setIsModalOpen(true)}
-      />
+    <div className="flex flex-col gap-6 px-8 py-8">
+      <div className="flex flex-col gap-8 rounded-[20px] bg-white px-8 py-8 shadow-sm outline outline-1 outline-offset-[-1px] outline-neutral-300/20">
+        <section className="flex flex-col gap-4">
+          <h1 className="m-0 text-xl font-medium text-zinc-900">점검 정보</h1>
+          <div className="grid grid-cols-1 gap-4 border-t border-neutral-300/20 pt-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="inspection-facility" className={LABEL_CLASSES}>
+                시설물
+              </label>
+              <select
+                id="inspection-facility"
+                value={values.facilityId}
+                onChange={handleFieldChange('facilityId')}
+                className={INPUT_CLASSES}
+                disabled={isFacilitiesLoading || isFieldsLocked}
+                aria-invalid={Boolean(errors.facilityId)}
+                aria-describedby={errors.facilityId ? 'inspection-facility-error' : undefined}
+              >
+                <option value="">
+                  {isFacilitiesLoading ? '불러오는 중...' : '시설물을 선택하세요'}
+                </option>
+                {facilities?.map((facility) => (
+                  <option key={facility.id} value={facility.id}>
+                    {facility.name}
+                  </option>
+                ))}
+              </select>
+              {errors.facilityId && (
+                <p id="inspection-facility-error" className={ERROR_CLASSES}>
+                  {errors.facilityId}
+                </p>
+              )}
+            </div>
 
-      <InspectionCreateModal
-        open={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        defaultFacilityId={facilityId}
-        onCreated={(response) => {
-          setIsModalOpen(false);
-          // 새로 만든 회차가 곧바로 보이는 시설물 상세 화면으로 이동(점검 이력 자체는 아직 목데이터).
-          // FacilityDetailPage는 :id 경로 파라미터로 대상을 읽으므로 ?facilityId= 중복 없음.
-          navigate(`/facilities/${response.facilityId}`);
-        }}
-      />
-    </>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="inspection-date" className={LABEL_CLASSES}>
+                점검일
+              </label>
+              <input
+                id="inspection-date"
+                type="date"
+                value={values.inspectionDate}
+                onChange={handleFieldChange('inspectionDate')}
+                className={INPUT_CLASSES}
+                disabled={isFieldsLocked}
+                aria-invalid={Boolean(errors.inspectionDate)}
+                aria-describedby={errors.inspectionDate ? 'inspection-date-error' : undefined}
+              />
+              {errors.inspectionDate && (
+                <p id="inspection-date-error" className={ERROR_CLASSES}>
+                  {errors.inspectionDate}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="inspection-assignee" className={LABEL_CLASSES}>
+                담당 점검자
+              </label>
+              <input
+                id="inspection-assignee"
+                type="text"
+                inputMode="numeric"
+                placeholder="점검자/관리자 사용자 ID"
+                value={values.assignedInspectorId}
+                onChange={handleFieldChange('assignedInspectorId')}
+                className={INPUT_CLASSES}
+                disabled={isFieldsLocked}
+                aria-invalid={Boolean(errors.assignedInspectorId)}
+                aria-describedby={
+                  errors.assignedInspectorId ? 'inspection-assignee-error' : undefined
+                }
+              />
+              {errors.assignedInspectorId && (
+                <p id="inspection-assignee-error" className={ERROR_CLASSES}>
+                  {errors.assignedInspectorId}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="inspection-memo" className={LABEL_CLASSES}>
+                메모
+              </label>
+              <input
+                id="inspection-memo"
+                type="text"
+                placeholder="점검 관련 메모(선택)"
+                value={memo}
+                onChange={(event) => setMemo(event.target.value)}
+                className={INPUT_CLASSES}
+                disabled={isFieldsLocked}
+              />
+            </div>
+          </div>
+
+          {createError && (
+            <p role="alert" className={ERROR_CLASSES}>
+              {createError.message ?? '점검 회차 생성에 실패했습니다.'}
+            </p>
+          )}
+        </section>
+
+        <section className="flex flex-col gap-4">
+          <h2 className="m-0 text-xl font-medium text-zinc-900">데이터 업로드</h2>
+          <InspectionMediaUploadPanel
+            files={mediaFiles}
+            onFilesAdd={handleFilesAdd}
+            onRemove={handleRemoveFile}
+            uploaded={uploadDone}
+            uploadProgress={isUploading ? uploadProgress : null}
+            disabled={isSubmitting}
+          />
+          {fileCountError && (
+            <p role="alert" className={ERROR_CLASSES}>
+              {fileCountError}
+            </p>
+          )}
+          {uploadError && (
+            <p role="alert" className={ERROR_CLASSES}>
+              {uploadError.message ?? '업로드에 실패했습니다.'}
+            </p>
+          )}
+        </section>
+
+        <div className="flex items-center justify-between gap-4 rounded-full border border-neutral-300/30 bg-surface-muted px-6 py-3">
+          <span className="text-sm text-text-muted">
+            {mediaFiles.length > 0
+              ? `총 ${mediaFiles.length}개 파일 · ${formatFileSize(totalSize)}`
+              : '아직 첨부된 파일이 없습니다'}
+          </span>
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled
+              title="임시저장은 준비 중입니다"
+            >
+              임시저장
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={handleSubmit}
+              disabled={isSubmitting || hasFileErrors}
+            >
+              {isSubmitting ? '처리 중...' : '업로드 완료 후 AI 분석 시작'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

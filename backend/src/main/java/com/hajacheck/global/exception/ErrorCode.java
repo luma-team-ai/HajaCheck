@@ -106,6 +106,9 @@ public enum ErrorCode {
     // AI 서버 응답 4xx/5xx 구분(#334 P3) — 4xx 는 요청 자체가 거부된 것으로 보아 400, 5xx 는 업스트림 장애로 502.
     AI_REQUEST_REJECTED(HttpStatus.BAD_REQUEST, "AI 서버가 요청을 거부했습니다."),
     AI_SERVER_ERROR(HttpStatus.BAD_GATEWAY, "AI 서버에서 오류가 발생했습니다."),
+    // 하자 자연어 검색(HAJA-120) 공개 게이트웨이 — 점검자 역할은 통과했으나 has_ai_addon=true인
+    // 활성 플랜(개인 또는 APPROVED+VERIFIED 회사와 유효한 승인 멤버십)을 만족하지 못한 요청.
+    AI_ADDON_REQUIRED(HttpStatus.FORBIDDEN, "AI 기능을 사용할 수 없는 요금제입니다."),
 
     // 국세청 사업자 진위확인 외부 호출(#596) — fail-open 정책이라 최종 사용자 응답으로는 던지지 않고
     // 구조화 로깅(경보)용으로만 사용한다. 이 코드가 발생하면 진위확인을 스킵하고 가입은 그대로 진행한다

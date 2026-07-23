@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -78,6 +79,9 @@ public class SecurityConfig {
                         // 강제한다. 프론트 AdminRoute 는 UX 가드일 뿐 실제 차단은 이 경계가 최종 방어선이다.
                         // 회사 스코프·데이터 소유권은 각 서비스가 company_id 로 추가 필터링한다.
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        // 하자 자연어 검색(HAJA-120) — 점검자 역할을 엔드포인트 레벨에서 강제(설계 §4).
+                        // has_ai_addon 플랜 게이트는 역할과 무관한 별도 축이라 NlSearchService가 담당한다.
+                        .requestMatchers(HttpMethod.POST, "/api/defects/nl-search").hasRole("INSPECTOR")
                         // 그 밖은 "인증됨"만 요구. 소셜 셀프가입 계정(companyId=null·role=USER)에 대한
                         // companyId/role 기반 리소스 권한 경계는 각 도메인 엔드포인트에서 후속 과제로 부여한다.
                         .anyRequest().authenticated())

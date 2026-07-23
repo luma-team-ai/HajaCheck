@@ -26,6 +26,7 @@ from ai.chains.business_license_ocr_chain import (
     _normalize_start_date,
     run_business_license_ocr_chain,
 )
+from ai.core.llm_client import SHORT_CACHE_TTL_SECONDS
 from main import app
 
 client = TestClient(app)
@@ -220,6 +221,10 @@ def test_run_chain_prefers_regex_reg_number_over_llm_guess(mock_get_engine, mock
     assert result.business_registration_number == "123-45-67890"  # OCR regex 우선
     assert result.company_name == "하자체크 주식회사"
     assert result.representative_name == "홍길동"
+    # 대표자명 등 개인정보가 섞인 OCR 응답은 짧은 TTL로 캐시된다(#623 P2 픽스 이후 공용 상수 재사용).
+    mock_llm.with_structured_output.assert_called_once_with(
+        BusinessLicenseOcrExtract, ttl=SHORT_CACHE_TTL_SECONDS
+    )
     assert result.line_count == 3
     assert result.avg_confidence == round((0.97 + 0.99 + 0.86) / 3, 4)
 

@@ -25,28 +25,6 @@ describe('validateFacilityForm', () => {
     expect(hasFacilityFormErrors(errors)).toBe(false);
   });
 
-  it('위도가 범위를 벗어나면 에러를 반환한다', () => {
-    const errors = validateFacilityForm({
-      ...FACILITY_FORM_INITIAL_VALUES,
-      name: '테스트',
-      type: '건물',
-      latitude: '91',
-    });
-
-    expect(errors.latitude).toBeDefined();
-  });
-
-  it('경도가 범위를 벗어나면 에러를 반환한다', () => {
-    const errors = validateFacilityForm({
-      ...FACILITY_FORM_INITIAL_VALUES,
-      name: '테스트',
-      type: '건물',
-      longitude: '-181',
-    });
-
-    expect(errors.longitude).toBeDefined();
-  });
-
   it('점검주기가 음수면 에러를 반환한다', () => {
     const errors = validateFacilityForm({
       ...FACILITY_FORM_INITIAL_VALUES,
@@ -125,7 +103,7 @@ describe('validateFacilityForm', () => {
 });
 
 describe('toCreateFacilityRequest', () => {
-  it('빈 문자열 옵셔널 필드는 null로 변환한다', () => {
+  it('빈 문자열 옵셔널 필드는 null로 변환한다(latitude/longitude는 항상 null 반환 — Geocoder 병합 전)', () => {
     const request = toCreateFacilityRequest({
       ...FACILITY_FORM_INITIAL_VALUES,
       name: '강남 오피스타워 A동',
@@ -150,15 +128,13 @@ describe('toCreateFacilityRequest', () => {
       name: '강남 오피스타워 A동',
       type: '건물',
       address: '서울 강남구',
-      latitude: '37.5',
-      longitude: '127.0',
       builtYear: '2008',
       scale: '지상 20층',
       inspectionCycleMonths: '6',
     });
 
-    expect(request.latitude).toBe(37.5);
-    expect(request.longitude).toBe(127.0);
+    expect(request.latitude).toBeNull();
+    expect(request.longitude).toBeNull();
     expect(request.builtYear).toBe(2008);
     expect(request.inspectionCycleMonths).toBe(6);
   });

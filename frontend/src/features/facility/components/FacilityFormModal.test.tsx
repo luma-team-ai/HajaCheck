@@ -1,9 +1,30 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  GeocodeFailedError,
+  GeocodeNotFoundError,
+} from '../../../shared/lib/kakaoMap/geocodeAddress';
 import { FacilityFormModal } from './FacilityFormModal';
 
-afterEach(cleanup);
+const { geocodeAddressMock } = vi.hoisted(() => ({
+  geocodeAddressMock: vi.fn(),
+}));
+
+vi.mock('../../../shared/lib/kakaoMap/geocodeAddress', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../shared/lib/kakaoMap/geocodeAddress')
+  >('../../../shared/lib/kakaoMap/geocodeAddress');
+  return {
+    ...actual,
+    geocodeAddress: geocodeAddressMock,
+  };
+});
+
+afterEach(() => {
+  cleanup();
+  geocodeAddressMock.mockReset();
+});
 
 function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText(/시설물명/), {
@@ -97,5 +118,72 @@ describe('FacilityFormModal', () => {
 
     expect(handleSubmit).not.toHaveBeenCalled();
     expect(screen.getByText('시설물명을 입력해 주세요.')).not.toBeNull();
+  });
+
+  it('주소가 입력되면 Geocoder로 좌표를 계산해 onSubmit payload에 포함한다(#618)', async () => {
+    geocodeAddressMock.mockResolvedValue({ latitude: 37.5006, longitude: 127.0364 });
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal open onClose={vi.fn()} onSubmit={handleSubmit} isSubmitting={false} />,
+    );
+
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText(/주소/), {
+      target: { value: '서울 강남구 테헤란로 123' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+    });
+
+    expect(geocodeAddressMock).toHaveBeenCalledWith('서울 강남구 테헤란로 123');
+    expect(handleSubmit).toHaveBeenCalledTimes(1);
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      latitude: 37.5006,
+      longitude: 127.0364,
+    });
+  });
+
+  it('Geocoder가 주소를 찾지 못하면 에러 메시지를 표시하고 onSubmit을 호출하지 않는다(#618)', async () => {
+    geocodeAddressMock.mockRejectedValue(new GeocodeNotFoundError('존재하지 않는 주소'));
+    const handleSubmit = vi.fn();
+
+    render(
+      <FacilityFormModal open onClose={vi.fn()} onSubmit={handleSubmit} isSubmitting={false} />,
+    );
+
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText(/주소/), {
+      target: { value: '존재하지 않는 주소' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+    });
+
+    expect(handleSubmit).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/주소를 찾을 수 없습니다.*존재하지 않는 주소/),
+    ).not.toBeNull();
+  });
+
+  it('Geocoder 호출 자체가 실패하면 에러 메시지를 표시하고 onSubmit을 호출하지 않는다(#618)', async () => {
+    geocodeAddressMock.mockRejectedValue(new GeocodeFailedError('서울 강남구'));
+    const handleSubmit = vi.fn();
+
+    render(
+      <FacilityFormModal open onClose={vi.fn()} onSubmit={handleSubmit} isSubmitting={false} />,
+    );
+
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText(/주소/), { target: { value: '서울 강남구' } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+    });
+
+    expect(handleSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText(/좌표 변환에 실패했습니다/)).not.toBeNull();
   });
 });
