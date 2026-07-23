@@ -1,6 +1,7 @@
 -- #568 / HAJA-327 점검·관리자 스키마 정합화
 --
--- V1은 동결된 baseline이므로 이 파일에서 기존 DB와 신규 DB(V1→V5)의 최종 상태를 함께 맞춘다.
+-- V1은 동결된 baseline이므로 이 파일에서 기존 DB와 신규 DB(V1→V7, V5=#596 개업일자, V6=#583 예약)의
+-- 최종 상태를 함께 맞춘다.
 
 -- 운영 트래픽을 무기한 대기시키지 않는다. 특히 마지막 inspections ALTER는 짧게 락을 얻지 못하면
 -- 배포를 실패시켜 재시도할 수 있게 한다.
@@ -419,7 +420,7 @@ comment on trigger trg_inspection_notification_settings_set_updated_at
     on public.inspection_notification_settings is
     '점검 알림 설정 변경 시 updated_at을 현재 시각으로 갱신한다.';
 
--- ACCESS EXCLUSIVE 락이 필요한 inspections 변경은 V5의 마지막에 둔다. PostgreSQL 16의 constant-default
+-- ACCESS EXCLUSIVE 락이 필요한 inspections 변경은 V7의 마지막에 둔다. PostgreSQL 16의 constant-default
 -- fast path는 기존 행을 UPDATE하거나 NOT NULL 검증으로 스캔하지 않고 REGULAR 값을 메타데이터로 채운다.
 alter table public.inspections
     add column if not exists type public.inspection_type

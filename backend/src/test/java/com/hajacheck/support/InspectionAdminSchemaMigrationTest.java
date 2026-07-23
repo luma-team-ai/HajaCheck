@@ -20,7 +20,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** V4 레거시 데이터가 V5 점검·관리자 스키마로 안전하게 전환되는지 검증한다. */
+/** V4 레거시 데이터가 V7 점검·관리자 스키마로 안전하게 전환되는지 검증한다. */
 @Testcontainers
 @Execution(ExecutionMode.SAME_THREAD)
 class InspectionAdminSchemaMigrationTest {
@@ -40,7 +40,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_레거시데이터를_보정하고_최종제약을_적용한다() {
+    void V7은_레거시데이터를_보정하고_최종제약을_적용한다() {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .target("3")
@@ -52,16 +52,16 @@ class InspectionAdminSchemaMigrationTest {
 
         Long userId = jdbc.queryForObject("""
                 insert into users (email, name, role, password_hash)
-                values ('v5-inspector@haja.test', 'V5 점검자', 'INSPECTOR'::role_type, 'test-password-hash')
+                values ('v7-inspector@haja.test', 'V7 점검자', 'INSPECTOR'::role_type, 'test-password-hash')
                 returning id
                 """, Long.class);
         Long facilityId = jdbc.queryForObject("""
                 insert into facilities (owner_id, name, type)
-                values (?, 'V5 레거시 시설', 'BUILDING')
+                values (?, 'V7 레거시 시설', 'BUILDING')
                 returning id
                 """, Long.class, userId);
 
-        // 이 테스트의 목적은 담당자 회사 경계가 아니라 V5 type 백필이므로 해당 업무 트리거만 잠시 제외한다.
+        // 이 테스트의 목적은 담당자 회사 경계가 아니라 V7 type 백필이므로 해당 업무 트리거만 잠시 제외한다.
         jdbc.execute("alter table inspections disable trigger trg_inspections_check_assigned_inspector_company");
         Long inspectionId = jdbc.queryForObject("""
                 insert into inspections
@@ -162,7 +162,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_이미완성된_inspections_type_컬럼도_동일계약으로_승인한다() {
+    void V7은_이미완성된_inspections_type_컬럼도_동일계약으로_승인한다() {
         migrateToV3();
         JdbcTemplate jdbc = jdbc();
         jdbc.execute("create type public.inspection_type as enum ('REGULAR', 'DETAILED', 'EMERGENCY')");
@@ -187,7 +187,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_inspections_type_컬럼의_nullable_default_drift를_거부한다() {
+    void V7은_inspections_type_컬럼의_nullable_default_drift를_거부한다() {
         migrateToV3();
         JdbcTemplate jdbc = jdbc();
         jdbc.execute("create type public.inspection_type as enum ('REGULAR', 'DETAILED', 'EMERGENCY')");
@@ -197,7 +197,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_role_type의_예상밖_라벨을_거부한다() {
+    void V7은_role_type의_예상밖_라벨을_거부한다() {
         migrateToV3();
         jdbc().execute("alter type public.role_type add value 'UNEXPECTED_ROLE'");
 
@@ -205,7 +205,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_제약이_누락된_동명_알림설정테이블을_거부한다() {
+    void V7은_제약이_누락된_동명_알림설정테이블을_거부한다() {
         migrateToV3();
         jdbc().execute("""
                 create table public.inspection_notification_settings
@@ -225,7 +225,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_이름만같고_컬럼이다른_알림설정인덱스를_거부한다() {
+    void V7은_이름만같고_컬럼이다른_알림설정인덱스를_거부한다() {
         migrateToV3();
         JdbcTemplate jdbc = jdbc();
         createCanonicalNotificationTable(jdbc);
@@ -238,7 +238,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_이름만같고_이벤트가다른_알림설정트리거를_거부한다() {
+    void V7은_이름만같고_이벤트가다른_알림설정트리거를_거부한다() {
         migrateToV3();
         JdbcTemplate jdbc = jdbc();
         createCanonicalNotificationTable(jdbc);
@@ -256,7 +256,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_동일구조지만_NOT_VALID인_알림설정외래키를_거부한다() {
+    void V7은_동일구조지만_NOT_VALID인_알림설정외래키를_거부한다() {
         migrateToV3();
         JdbcTemplate jdbc = jdbc();
         createCanonicalNotificationTable(jdbc);
@@ -271,7 +271,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_WHEN_false로_비활성화된_알림설정트리거를_거부한다() {
+    void V7은_WHEN_false로_비활성화된_알림설정트리거를_거부한다() {
         migrateToV3();
         JdbcTemplate jdbc = jdbc();
         createCanonicalNotificationTable(jdbc);
@@ -290,7 +290,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_UNLOGGED_알림설정테이블을_거부한다() {
+    void V7은_UNLOGGED_알림설정테이블을_거부한다() {
         migrateToV3();
         JdbcTemplate jdbc = jdbc();
         createCanonicalNotificationTable(jdbc);
@@ -300,7 +300,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_partitioned_parent_알림설정테이블을_거부한다() {
+    void V7은_partitioned_parent_알림설정테이블을_거부한다() {
         migrateToV3();
         jdbc().execute("""
                 create table public.inspection_notification_settings
@@ -314,7 +314,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_UPDATE_OF로_대상컬럼이_제한된_알림설정트리거를_거부한다() {
+    void V7은_UPDATE_OF로_대상컬럼이_제한된_알림설정트리거를_거부한다() {
         migrateToV3();
         JdbcTemplate jdbc = jdbc();
         createCanonicalNotificationTable(jdbc);
@@ -332,7 +332,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_INHERITS_부모인_알림설정테이블을_거부한다() {
+    void V7은_INHERITS_부모인_알림설정테이블을_거부한다() {
         migrateToV3();
         JdbcTemplate jdbc = jdbc();
         createCanonicalNotificationTable(jdbc);
@@ -345,7 +345,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_ROW_LEVEL_SECURITY가_활성화된_알림설정테이블을_거부한다() {
+    void V7은_ROW_LEVEL_SECURITY가_활성화된_알림설정테이블을_거부한다() {
         migrateToV3();
         JdbcTemplate jdbc = jdbc();
         createCanonicalNotificationTable(jdbc);
@@ -358,7 +358,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_FORCE_ROW_LEVEL_SECURITY가_설정된_알림설정테이블을_거부한다() {
+    void V7은_FORCE_ROW_LEVEL_SECURITY가_설정된_알림설정테이블을_거부한다() {
         migrateToV3();
         JdbcTemplate jdbc = jdbc();
         createCanonicalNotificationTable(jdbc);
@@ -371,7 +371,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_예상밖_추가_UNIQUE_알림설정인덱스를_거부한다() {
+    void V7은_예상밖_추가_UNIQUE_알림설정인덱스를_거부한다() {
         migrateToV3();
         JdbcTemplate jdbc = jdbc();
         createCanonicalNotificationTable(jdbc);
@@ -384,7 +384,7 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5는_예상밖_추가_사용자트리거를_거부한다() {
+    void V7은_예상밖_추가_사용자트리거를_거부한다() {
         migrateToV3();
         JdbcTemplate jdbc = jdbc();
         createCanonicalNotificationTable(jdbc);
@@ -402,14 +402,14 @@ class InspectionAdminSchemaMigrationTest {
     }
 
     @Test
-    void V5_SQL은_동일스키마에서_직접_두번실행해도_같은계약을_유지한다() throws Exception {
+    void V7_SQL은_동일스키마에서_직접_두번실행해도_같은계약을_유지한다() throws Exception {
         migrateToV4();
         JdbcTemplate jdbc = jdbc();
-        String v5Sql = new ClassPathResource("db/migration/V5__inspection_admin_schema.sql")
+        String v7Sql = new ClassPathResource("db/migration/V7__inspection_admin_schema.sql")
                 .getContentAsString(StandardCharsets.UTF_8);
 
-        jdbc.execute(v5Sql);
-        jdbc.execute(v5Sql);
+        jdbc.execute(v7Sql);
+        jdbc.execute(v7Sql);
 
         assertThat(jdbc.queryForObject("""
                 select count(*)

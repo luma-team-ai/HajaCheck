@@ -305,8 +305,9 @@ FR·API·플로우 동기화는 이번 범위에서 **제외**하고, ERD(DB 설
 | 점검 알림 설정 | `inspection_notification_settings`가 사용자·시설별 사전 알림 사용 여부, 변경 가능한 사전 일수(기본 7일, 1~365일), 기한 경과 알림 여부를 보관한다. `(user_id, facility_id)`는 유일하며 사용자나 시설 삭제 시 설정도 연쇄 삭제한다. |
 | 후속 구현 | 설정 CRUD API·Entity/Repository·스케줄러 적용, 정기 점검에만 다음 점검일을 설정하는 서비스 검증은 별도 기능 작업으로 진행한다. |
 
-적용 파일은 `backend/src/main/resources/db/migration/V5__inspection_admin_schema.sql`이며, V4 레거시 데이터
-백필과 빈 DB·기존 캐노니컬 DB 경로를 PostgreSQL Testcontainers로 검증한다.
+적용 파일은 `backend/src/main/resources/db/migration/V7__inspection_admin_schema.sql`이며(V5는 #596 사업자등록
+개업일자 마이그레이션이 선점, V6은 #583 예약이라 V7로 재번호), V4 레거시 데이터 백필과 빈 DB·기존 캐노니컬 DB
+경로를 PostgreSQL Testcontainers로 검증한다.
 
 ---
 
@@ -1022,7 +1023,7 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 |---|---|---|
 | 테이블 디자인 설계서 | `table_design.md` | 착수보고서·PRD 대비 변경 사항, ERD 개요, enum/테이블 상세, RAG·상담 공용 설계, 핵심 요구사항 요약을 설명하는 기준 문서 |
 | 최종 통합 DDL | `HajaCheck_script.sql` | 신규 DB를 현재 최종 스키마로 생성할 때 사용하는 기준 SQL |
-| 실행 마이그레이션 | `../../../backend/src/main/resources/db/migration/V5__inspection_admin_schema.sql` | 기존 V4 DB의 점검 유형·역할·좌석·점검 알림 설정을 최종 상태로 전환하는 Flyway V5 |
+| 실행 마이그레이션 | `../../../backend/src/main/resources/db/migration/V7__inspection_admin_schema.sql` | 기존 V4 DB의 점검 유형·역할·좌석·점검 알림 설정을 최종 상태로 전환하는 Flyway V7(V5는 #596이 선점, V6은 #583 예약) |
 | 마이그레이션 검증 | `../../../backend/src/test/java/com/hajacheck/support/InspectionAdminSchemaMigrationTest.java` | V3 레거시 데이터 백필, enum·제약·기본값·설정 정책을 PostgreSQL에서 검증 |
 | Flyway 이전 마이그레이션 이력 | `migrations/README.md` 및 날짜형 SQL | Flyway 도입 전 수동 적용 이력 보존용 archive(신규 증분 파일 추가 금지) |
 | 기준 요구사항 문서 | `../../prd/PRD_hajaCheck.md` v0.47 | 기능 요구사항, IA, 시스템 아키텍처, 주요 데이터 모델 정의 |
