@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ReportDetailResponse } from '../api/reportApi';
 import type { InspectionResponse, DefectDetailItem } from '../../inspection/api/inspectionApi.types';
@@ -59,16 +59,22 @@ const mockReport: ReportDetailResponse = {
   createdAt: '2026-07-22T10:00:00Z',
 };
 
+let generateReportCallCount = 0;
+
 const server = setupServer(
   http.get('/api/inspections/1', () => HttpResponse.json({ success: true, data: mockInspection })),
   http.get('/api/inspections/1/defects', () => HttpResponse.json({ success: true, data: mockDefects })),
   http.get('/api/facilities/1', () => HttpResponse.json({ success: true, data: mockFacility })),
-  http.post('/api/inspections/1/reports', () =>
-    HttpResponse.json({ success: true, data: mockReport }, { status: 201 }),
-  ),
+  http.post('/api/inspections/1/reports', () => {
+    generateReportCallCount += 1;
+    return HttpResponse.json({ success: true, data: mockReport }, { status: 201 });
+  }),
 );
 
 beforeAll(() => server.listen());
+beforeEach(() => {
+  generateReportCallCount = 0;
+});
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
@@ -86,8 +92,21 @@ describe('ReportGenerateStubPage', () => {
     );
   };
 
-  it('should render generated report summary on success', async () => {
+  it('마운트 시점에는 초안 생성 API를 호출하지 않는다', async () => {
     renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('보고서 초안 생성')).toBeTruthy();
+    });
+
+    expect(generateReportCallCount).toBe(0);
+  });
+
+  it('버튼 클릭 시 초안을 생성하고, 재마운트해도 다시 클릭하기 전에는 재호출하지 않는다', async () => {
+    const { unmount } = renderPage();
+
+    await waitFor(() => screen.getByText('보고서 초안 생성'));
+    fireEvent.click(screen.getByRole('button', { name: '보고서 초안 생성' }));
 
     await waitFor(
       () => {
@@ -95,6 +114,16 @@ describe('ReportGenerateStubPage', () => {
       },
       { timeout: 3000 },
     );
+    expect(generateReportCallCount).toBe(1);
+
+    // 새로고침/재방문 시뮬레이션 — 재마운트만으로는 재호출되지 않아야 한다.
+    unmount();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('보고서 초안 생성')).toBeTruthy();
+    });
+    expect(generateReportCallCount).toBe(1);
   });
 
   it('should handle invalid inspection ID gracefully', () => {

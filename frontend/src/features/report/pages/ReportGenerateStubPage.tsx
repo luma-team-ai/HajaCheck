@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
@@ -13,42 +13,44 @@ export function ReportGenerateStubPage() {
   const inspectionId = Number(id);
 
   const [report, setReport] = useState<ReportDetailResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // 보고서 초안 생성은 비멱등 POST(호출마다 AI 실호출 + 새 DRAFT 버전 생성)라, 라우트 진입(마운트)에
+  // 자동 바인딩하지 않는다 — 새로고침·뒤로가기 재진입마다 재생성되는 걸 막기 위해 명시적 클릭으로만 실행.
   useEffect(() => {
-    const controller = new AbortController();
-
-    const generateReport = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await reportApi.generateReportDraft(inspectionId, controller.signal);
-        if (!controller.signal.aborted) {
-          setReport(response.data);
-        }
-      } catch (err) {
-        if (!controller.signal.aborted) {
-          const message = err instanceof Error ? err.message : '보고서 생성에 실패했습니다.';
-          setError(message);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    if (Number.isInteger(inspectionId) && inspectionId > 0) {
-      generateReport();
-    }
-
     return () => {
-      controller.abort();
+      abortControllerRef.current?.abort();
     };
-  }, [inspectionId]);
+  }, []);
+
+  const handleGenerateReport = async () => {
+    if (isLoading) return;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await reportApi.generateReportDraft(inspectionId, controller.signal);
+      if (!controller.signal.aborted) {
+        setReport(response.data);
+      }
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        const message = err instanceof Error ? err.message : '보고서 생성에 실패했습니다.';
+        setError(message);
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        setIsLoading(false);
+      }
+    }
+  };
 
   const handleBackToViewer = () => {
     navigate(`/inspections/${inspectionId}/viewer`);
@@ -67,7 +69,7 @@ export function ReportGenerateStubPage() {
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-6">
-        <AIErrorFallback onRetry={() => window.location.reload()} />
+        <AIErrorFallback onRetry={handleGenerateReport} />
         <Button onClick={handleBackToViewer} variant="secondary">
           분석 화면으로 돌아가기
         </Button>
@@ -76,7 +78,17 @@ export function ReportGenerateStubPage() {
   }
 
   if (!report) {
-    return <div className="p-5">보고서 데이터를 불러올 수 없습니다.</div>;
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-6">
+        <p className="text-text-muted">점검 결과를 바탕으로 보고서 초안을 생성합니다.</p>
+        <Button onClick={handleGenerateReport} variant="primary" size="lg">
+          보고서 초안 생성
+        </Button>
+        <Button onClick={handleBackToViewer} variant="secondary">
+          분석 화면으로 돌아가기
+        </Button>
+      </div>
+    );
   }
 
   // 하자 등급별 분포 계산
