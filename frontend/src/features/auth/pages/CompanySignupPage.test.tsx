@@ -40,8 +40,24 @@ function renderPage() {
   );
 }
 
+// 사업자 진위확인(#648, #663) — 제출 게이팅이 생겨 기존 제출 플로우 테스트들도 먼저 진위확인을
+// 통과시켜야 signup이 발화한다. authApi.verifyBusiness를 스파이로 대체해(다른 필드와 동일하게
+// authApi.signupCompany 스파이 패턴) 실제 서버 왕복 없이 VERIFIED로 확인 완료시킨다.
+async function verifyBusinessSuccessfully() {
+  vi.spyOn(authApi, 'verifyBusiness').mockResolvedValue({
+    data: { result: 'VERIFIED', message: '사업자 정보가 국세청 등록정보와 일치합니다.' },
+  } as Awaited<ReturnType<typeof authApi.verifyBusiness>>);
+
+  fireEvent.click(screen.getByRole('button', { name: '진위확인' }));
+
+  // 뱃지는 "{아이콘} {message}"로 렌더되어 정확 일치 대신 부분 일치(포함 여부)로 확인한다.
+  await waitFor(() => {
+    expect(screen.getByText(/사업자 정보가 국세청 등록정보와 일치합니다\./)).not.toBeNull();
+  });
+}
+
 // 이메일 이외 필드(비밀번호~약관 동의) — 직접입력/프리셋 두 이메일 경로 테스트가 공유한다.
-function fillNonEmailFields() {
+async function fillNonEmailFields() {
   fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'abcd1234' } });
   fireEvent.change(screen.getByLabelText('비밀번호 재입력'), { target: { value: 'abcd1234' } });
 
@@ -56,11 +72,14 @@ function fillNonEmailFields() {
   // 개업일자(#600) — 국세청 진위확인(#596)이 요구하는 필수값
   fireEvent.change(screen.getByLabelText('개업일자'), { target: { value: '2015-03-02' } });
 
+  // 사업자 진위확인(#663) — 3필드가 모두 유효해야 [진위확인] 버튼이 활성화된다.
+  await verifyBusinessSuccessfully();
+
   fireEvent.click(screen.getByLabelText(/이용약관에 동의합니다/));
   fireEvent.click(screen.getByLabelText(/개인정보 수집 및 이용에 동의합니다/));
 }
 
-function fillValidForm() {
+async function fillValidForm() {
   // 기본 상태는 도메인 직접입력 모드(#417) — 로컬파트 라벨(기존 계약 유지) + 직접입력 도메인 input
   // 두 곳을 채워야 기존과 동일한 'new-company@check.com' 조합 이메일이 만들어진다.
   fireEvent.change(screen.getByLabelText('아이디(이메일)'), {
@@ -69,20 +88,20 @@ function fillValidForm() {
   fireEvent.change(screen.getByLabelText('이메일 도메인 직접입력'), {
     target: { value: 'check.com' },
   });
-  fillNonEmailFields();
+  await fillNonEmailFields();
 }
 
 // PR머신 P3 회귀 위험 대응(#417) — 프리셋 도메인 select 경로도 조합 이메일이 올바르게 만들어지는지
 // 통합 테스트로 고정한다(EmailDomainField 단위 테스트는 콜백 발화만 확인, 실제 제출 페이로드는
 // 여기서 검증). 프리셋 선택 시 도메인 직접입력 input은 사라지므로 건드리지 않는다.
-function fillValidFormWithPresetDomain(presetDomain: string) {
+async function fillValidFormWithPresetDomain(presetDomain: string) {
   fireEvent.change(screen.getByLabelText('아이디(이메일)'), {
     target: { value: 'new-company' },
   });
   fireEvent.change(screen.getByLabelText('이메일 도메인 선택'), {
     target: { value: presetDomain },
   });
-  fillNonEmailFields();
+  await fillNonEmailFields();
 }
 
 describe('CompanySignupPage — 제출 버튼 계약(shared Button)', () => {
@@ -98,7 +117,7 @@ describe('CompanySignupPage — 제출 버튼 계약(shared Button)', () => {
     } as Awaited<ReturnType<typeof authApi.signupCompany>>);
 
     renderPage();
-    fillValidForm();
+    await fillValidForm();
 
     fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
 
@@ -127,7 +146,7 @@ describe('CompanySignupPage — 제출 버튼 계약(shared Button)', () => {
     } as Awaited<ReturnType<typeof authApi.signupCompany>>);
 
     renderPage();
-    fillValidFormWithPresetDomain('naver.com');
+    await fillValidFormWithPresetDomain('naver.com');
 
     fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
 
@@ -173,7 +192,7 @@ describe('CompanySignupPage — 제출 버튼 계약(shared Button)', () => {
     const restoredInput = screen.getByLabelText('이메일 도메인 직접입력') as HTMLInputElement;
     expect(restoredInput.value).toBe('mycompany.io');
 
-    fillNonEmailFields();
+    await fillNonEmailFields();
     fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
 
     await waitFor(() => {
@@ -189,7 +208,7 @@ describe('CompanySignupPage — 제출 버튼 계약(shared Button)', () => {
     const signupSpy = vi.spyOn(authApi, 'signupCompany').mockReturnValue(new Promise(() => {}));
 
     renderPage();
-    fillValidForm();
+    await fillValidForm();
 
     const submitButton = screen.getByRole('button', { name: '가입 신청하기' }) as HTMLButtonElement;
     expect(submitButton.type).toBe('submit');
@@ -242,7 +261,7 @@ describe('CompanySignupPage — 개업일자 필수 검증(#600)', () => {
     const signupSpy = vi.spyOn(authApi, 'signupCompany');
 
     renderPage();
-    fillValidForm();
+    await fillValidForm();
     // 필수값을 다시 비운다 — fillValidForm이 채운 뒤 사용자가 지운 상황을 재현.
     fireEvent.change(screen.getByLabelText('개업일자'), { target: { value: '' } });
 
@@ -259,7 +278,7 @@ describe('CompanySignupPage — 개업일자 필수 검증(#600)', () => {
     const futureValue = future.toISOString().slice(0, 10);
 
     renderPage();
-    fillValidForm();
+    await fillValidForm();
     fireEvent.change(screen.getByLabelText('개업일자'), { target: { value: futureValue } });
 
     fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));

@@ -52,6 +52,28 @@ export interface EmailAvailabilityResponse {
   available: boolean;
 }
 
+// 사업자 진위확인(#648 BE, #663 FE) — docs/_local/handoff/backend-648-bizverify-api.md 계약.
+// 판정 결과는 언제나 200 + success:true(에러가 아니라 정상 응답 형태로 6종 result를 표현).
+export type BusinessVerificationResult =
+  | 'VERIFIED'
+  | 'NOT_REGISTERED'
+  | 'MISMATCH'
+  | 'SUSPENDED'
+  | 'CLOSED'
+  | 'UNAVAILABLE';
+
+export interface BusinessVerificationRequest {
+  businessRegistrationNumber: string;
+  representativeName: string;
+  // ISO `yyyy-MM-dd` — `<input type="date">` 값 그대로 사용
+  businessStartDate: string;
+}
+
+export interface BusinessVerificationResponse {
+  result: BusinessVerificationResult;
+  message: string;
+}
+
 // 사업자등록증 OCR 자동채움(#587) — docs/api-contract 계약: 각 필드는 인식 실패 시 null.
 // 개업일자(businessStartDate)는 #598에서 4번째 자동채움 필드로 추가됨(ISO `yyyy-MM-dd`, nullable) — #600.
 export interface BusinessLicenseOcrResponse {
