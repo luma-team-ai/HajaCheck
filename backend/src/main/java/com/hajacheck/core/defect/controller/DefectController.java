@@ -73,7 +73,7 @@ public class DefectController {
             @Valid @RequestBody DefectStatusUpdateRequest request) {
         DefectResponse response =
                 defectService.updateStatus(
-                        loginUser.getCompanyId(), loginUser.getUserId(), id, request.status(), request.reason());
+                        loginUser.getUserId(), loginUser.getCompanyId(), id, request.status(), request.reason());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 

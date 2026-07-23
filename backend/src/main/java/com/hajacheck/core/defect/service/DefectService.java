@@ -64,7 +64,7 @@ public class DefectService {
 
     @Transactional
     public DefectResponse updateStatus(
-            Long companyId, Long revisedByUserId, Long defectId, DefectStatus status, String reason) {
+            Long revisedByUserId, Long companyId, Long defectId, DefectStatus status, String reason) {
         companyScopeGuard.requireEffectiveMembership(revisedByUserId, companyId);
         Defect defect = defectRepository.findByIdAndCompanyId(defectId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));

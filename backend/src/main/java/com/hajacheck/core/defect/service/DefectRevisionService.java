@@ -62,7 +62,7 @@ public class DefectRevisionService {
      */
     @Transactional
     public DefectDetailItem reviewDefect(
-            Long companyId, Long revisedByUserId, Long defectId, DefectRevisionRequest request) {
+            Long revisedByUserId, Long companyId, Long defectId, DefectRevisionRequest request) {
         companyScopeGuard.requireEffectiveMembership(revisedByUserId, companyId);
         // 하자 로드
         Defect defect = defectRepository.findById(defectId)

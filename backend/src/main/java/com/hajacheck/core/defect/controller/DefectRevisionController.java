@@ -57,7 +57,7 @@ public class DefectRevisionController {
             @PathVariable("id") Long defectId,
             @Valid @RequestBody DefectRevisionRequest request) {
         DefectDetailItem defect = defectRevisionService.reviewDefect(
-                loginUser.getCompanyId(), loginUser.getUserId(), defectId, request);
+                loginUser.getUserId(), loginUser.getCompanyId(), defectId, request);
         return ResponseEntity.ok(ApiResponse.ok(defect));
     }
 }

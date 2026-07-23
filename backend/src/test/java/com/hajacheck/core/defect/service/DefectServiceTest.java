@@ -186,7 +186,7 @@ class DefectServiceTest {
         when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
 
         DefectResponse response =
-                defectService.updateStatus(COMPANY_ID, USER_ID, 10L, DefectStatus.CONFIRMED, null);
+                defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.CONFIRMED, null);
 
         assertThat(response.status()).isEqualTo(DefectStatus.CONFIRMED);
         assertThat(defect.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
@@ -205,7 +205,7 @@ class DefectServiceTest {
         when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
 
         assertThatThrownBy(() ->
-                defectService.updateStatus(COMPANY_ID, USER_ID, 10L, DefectStatus.ACTION_PENDING, null))
+                defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.ACTION_PENDING, null))
                 .isInstanceOf(DomainValidationException.class);
         assertThat(defect.getStatus()).isEqualTo(DefectStatus.DETECTED);
     }
@@ -217,7 +217,7 @@ class DefectServiceTest {
 
         DefectResponse response =
                 defectService.updateStatus(
-                        COMPANY_ID, USER_ID, 10L, DefectStatus.ACTION_PENDING, "경미한 하자라 검수확정 생략");
+                        USER_ID, COMPANY_ID, 10L, DefectStatus.ACTION_PENDING, "경미한 하자라 검수확정 생략");
 
         assertThat(response.status()).isEqualTo(DefectStatus.ACTION_PENDING);
         verify(defectRevisionRepository).save(argThat(revision ->
@@ -231,7 +231,7 @@ class DefectServiceTest {
         when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() ->
-                defectService.updateStatus(COMPANY_ID, USER_ID, 10L, DefectStatus.CONFIRMED, null))
+                defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.CONFIRMED, null))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
