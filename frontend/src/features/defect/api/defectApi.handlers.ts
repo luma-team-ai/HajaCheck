@@ -69,16 +69,29 @@ export const defectHandlers = [
       return HttpResponse.json(failure, { status: 404 });
     }
 
-    const { status } = (await request.json()) as { status: DefectStatus };
-    const expectedNext = NEXT_STATUS[found.status];
+    const { status, reason } = (await request.json()) as { status: DefectStatus; reason?: string };
 
-    if (status !== expectedNext) {
+    // RESOLVED에서의 이탈은 reason 유무와 무관하게 409(조치 보드 드래그 전이, HAJA-349/#630 handoff 범위 §API).
+    if (found.status === 'RESOLVED' && status !== 'RESOLVED') {
       const failure: ApiResponse<null> = {
         success: false,
         data: null,
         error: { code: 'INVALID_STATE_TRANSITION', message: '현재 상태에서는 처리할 수 없는 요청입니다.' },
       };
       return HttpResponse.json(failure, { status: 409 });
+    }
+
+    const expectedNext = NEXT_STATUS[found.status];
+    const isForward = status === expectedNext;
+
+    // 역행·건너뛰기 전이는 reason이 있어야 허용된다(정방향 1단계만 reason 없이 통과).
+    if (!isForward && (!reason || reason.trim().length === 0)) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'INVALID_INPUT', message: '상태를 되돌리거나 건너뛰려면 사유가 필요합니다.' },
+      };
+      return HttpResponse.json(failure, { status: 400 });
     }
 
     found.status = status;

@@ -29,7 +29,9 @@ interface DefectTableRow {
   assignee: string;
 }
 
-const GRADE_CLASSES: Record<DefectGrade, string> = {
+// 조치 보드 카드(HAJA-349/#630)도 동일한 등급 배지 색상을 재사용한다 — feature 내 로컬 상수 재사용
+// 컨벤션(신규 색상 상수 추가 금지)에 따라 여기서만 정의하고 export만 넓힌다.
+export const GRADE_CLASSES: Record<DefectGrade, string> = {
   A: "border-emerald-200 bg-emerald-50 text-emerald-600",
   B: "border-sky-200 bg-sky-50 text-sky-600",
   C: "border-amber-200 bg-amber-50 text-amber-600",

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../../../shared/components/Button";
 import { TableFooterPagination } from "../../../shared/components/TableFooterPagination";
+import { DefectActionBoard } from "../components/DefectActionBoard";
 import { DefectFilterBar } from "../components/DefectFilterBar";
 import { DefectTable } from "../components/DefectTable";
 import { useDefects } from "../hooks/useDefects";
@@ -10,6 +11,11 @@ import { exportDefectsToPdf } from "../utils/exportDefectsToPdf";
 import "./DefectListPage.css";
 
 const DEFAULT_SIZE = 10;
+
+// "목록 보기 / 보드 보기" 탭(HAJA-349/#630) — 신규 라우트·사이드바 항목 추가 없이 기존 목록 페이지
+// 안에 탭으로 얹는다(#499에서 사이드바 "하자 관리"를 하위메뉴 없는 단일 링크로 정리한 결정 유지,
+// handoff §UI 배치).
+type DefectViewMode = "list" | "board";
 
 // 하자 목록 — HAJA-30. FacilityListPage(features/facility)와 동일하게 목록 조회 훅 + 테이블 +
 // (신규) 필터·페이지네이션 조합으로 구성한다. AppShellRoute 자식(셸 포함) — /defects/:id(상세)와
@@ -23,6 +29,7 @@ export function DefectListPage() {
   const { data, isLoading, isError, refetch } = useDefects(filters);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [isExporting, setIsExporting] = useState(false);
+  const [viewMode, setViewMode] = useState<DefectViewMode>("list");
 
   const size = filters.size ?? DEFAULT_SIZE;
   const currentPage = (filters.page ?? 0) + 1; // TableFooterPagination/Pagination은 1-based
@@ -120,33 +127,85 @@ export function DefectListPage() {
         </div>
 
         <DefectFilterBar filters={filters} onChange={setFilters} />
+
+        <div className="defect-list-page__view-tabs" role="tablist" aria-label="하자 보기 방식">
+          <button
+            type="button"
+            id="defect-list-tab-list"
+            role="tab"
+            aria-selected={viewMode === "list"}
+            aria-controls="defect-list-tabpanel-list"
+            className={
+              viewMode === "list"
+                ? "defect-list-page__view-tab is-active"
+                : "defect-list-page__view-tab"
+            }
+            onClick={() => setViewMode("list")}
+          >
+            목록 보기
+          </button>
+          <button
+            type="button"
+            id="defect-list-tab-board"
+            role="tab"
+            aria-selected={viewMode === "board"}
+            aria-controls="defect-list-tabpanel-board"
+            className={
+              viewMode === "board"
+                ? "defect-list-page__view-tab is-active"
+                : "defect-list-page__view-tab"
+            }
+            onClick={() => setViewMode("board")}
+          >
+            보드 보기
+          </button>
+        </div>
       </header>
 
-      <div className="defect-list-page__table-region">
-        <div className="defect-list-page__table-scroll">
-          <DefectTable
-            defects={data?.content}
-            isLoading={isLoading}
-            isError={isError}
-            onRetry={refetch}
-            selectedIds={selectedIds}
-            onSelectionChange={setSelectedIds}
-          />
-        </div>
-
-        {!isLoading && !isError && (
-          <div className="defect-list-page__pagination">
-            <TableFooterPagination
-              pageSize={size}
-              onPageSizeChange={handlePageSizeChange}
-              currentPage={currentPage}
-              totalPages={totalPages}
-              totalItems={totalElements}
-              onPageChange={handlePageChange}
+      {viewMode === "list" ? (
+        <div
+          className="defect-list-page__table-region"
+          id="defect-list-tabpanel-list"
+          role="tabpanel"
+          aria-labelledby="defect-list-tab-list"
+        >
+          <div className="defect-list-page__table-scroll">
+            <DefectTable
+              defects={data?.content}
+              isLoading={isLoading}
+              isError={isError}
+              onRetry={refetch}
+              selectedIds={selectedIds}
+              onSelectionChange={setSelectedIds}
             />
           </div>
-        )}
-      </div>
+
+          {!isLoading && !isError && (
+            <div className="defect-list-page__pagination">
+              <TableFooterPagination
+                pageSize={size}
+                onPageSizeChange={handlePageSizeChange}
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={totalElements}
+                onPageChange={handlePageChange}
+              />
+            </div>
+          )}
+        </div>
+      ) : (
+        // 보드 스코프는 전체 하자(사용자 확정) — 페이지네이션은 보드에서 의미가 없어 숨긴다.
+        // 목록/보드 탭이 유형·등급·상태 필터는 공유하되, 보드는 자체 페이지 크기(BOARD_PAGE_SIZE)로
+        // 조회한다(useDefectActionBoard 참조).
+        <div
+          className="defect-list-page__board-region"
+          id="defect-list-tabpanel-board"
+          role="tabpanel"
+          aria-labelledby="defect-list-tab-board"
+        >
+          <DefectActionBoard filters={filters} />
+        </div>
+      )}
     </section>
   );
 }

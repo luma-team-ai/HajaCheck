@@ -36,4 +36,4 @@ export const MAX_MAP_LEVEL = 14;
  * 시설물 목록 패널 카테고리 필터 탭 — features/facility/constants.ts FACILITY_TYPE_OPTIONS 참고
  * (feature 간 직접 import 금지 — 로컬 재정의). '전체'는 필터 미적용을 의미.
  */
-export const FACILITY_CATEGORY_FILTERS = ['전체', '교량', '터널', '댐'] as const;
+export const FACILITY_CATEGORY_FILTERS = ['전체', '건물', '교량', '터널', '도로', '기타'] as const;

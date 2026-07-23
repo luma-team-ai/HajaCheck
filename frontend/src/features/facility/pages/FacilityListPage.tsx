@@ -3,15 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
 import { FacilityFormModal } from '../components/FacilityFormModal';
 import { FacilityTable } from '../components/FacilityTable';
+import { useBackfillFacilityGeocode } from '../hooks/useBackfillFacilityGeocode';
 import { useCreateFacility } from '../hooks/useCreateFacility';
 import { useFacilities } from '../hooks/useFacilities';
 import type { CreateFacilityRequest } from '../types';
 
 export function FacilityListPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [backfillMessage, setBackfillMessage] = useState<string | undefined>(undefined);
   const navigate = useNavigate();
   const { data: facilities, isLoading, isError, refetch } = useFacilities();
   const { createFacility, isPending, error, resetError } = useCreateFacility();
+  const { run: runBackfill, isRunning: isBackfilling } = useBackfillFacilityGeocode();
 
   const handleOpenModal = () => setIsModalOpen(true);
   const handleCloseModal = () => {
@@ -19,6 +22,30 @@ export function FacilityListPage() {
     // 모달을 닫을 때(성공/실패/취소/Escape 등 어떤 경로든) 이전 실패의 에러를 초기화 —
     // 그러지 않으면 재오픈 시 지난 세션의 에러 메시지가 즉시 다시 노출된다.
     resetError();
+  };
+
+  // 관리자용 일괄 재-geocoding(#618) — 좌표(NULL) 없는 기존 시설물을 프론트 Geocoder로 소급 계산한다.
+  const handleBackfill = async () => {
+    if (!facilities || facilities.length === 0) {
+      return;
+    }
+    setBackfillMessage(undefined);
+    const result = await runBackfill(facilities);
+    await refetch();
+
+    if (result.targetCount === 0 && result.skippedNoAddressCount === 0) {
+      setBackfillMessage('좌표를 재계산할 시설물이 없습니다.');
+      return;
+    }
+
+    const parts = [`성공 ${result.succeeded}건`];
+    if (result.failures.length > 0) {
+      parts.push(`실패 ${result.failures.length}건`);
+    }
+    if (result.skippedNoAddressCount > 0) {
+      parts.push(`주소 없어 건너뜀 ${result.skippedNoAddressCount}건`);
+    }
+    setBackfillMessage(`좌표 일괄 재계산 완료 — ${parts.join(', ')}`);
   };
 
   // 시설물 이름 클릭 → 하자 정보 패널(/facilities/:id, dev-04-02, #489)로 이동
@@ -41,10 +68,25 @@ export function FacilityListPage() {
           시설물 관리
           {facilities && <span className="text-base font-normal text-text-muted">{facilities.length}</span>}
         </h1>
-        <Button variant="primary" onClick={handleOpenModal}>
-          + 시설물 등록
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            onClick={handleBackfill}
+            disabled={isBackfilling || !facilities || facilities.length === 0}
+          >
+            {isBackfilling ? '좌표 재계산 중...' : '좌표 일괄 재계산'}
+          </Button>
+          <Button variant="primary" onClick={handleOpenModal}>
+            + 시설물 등록
+          </Button>
+        </div>
       </div>
+
+      {backfillMessage && (
+        <p role="status" className="m-0 text-sm text-text-muted">
+          {backfillMessage}
+        </p>
+      )}
 
       <div className="overflow-hidden rounded-2xl border border-border bg-surface">
         <FacilityTable

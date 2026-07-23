@@ -1,6 +1,7 @@
 package com.hajacheck.core.defect.controller;
 
 import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.core.defect.dto.DefectCreateRequest;
 import com.hajacheck.core.defect.dto.DefectDetailItem;
 import com.hajacheck.core.defect.dto.DefectRevisionRequest;
 import com.hajacheck.core.defect.service.DefectRevisionService;
@@ -15,6 +16,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -43,6 +45,21 @@ public class DefectRevisionController {
         List<DefectDetailItem> defects = defectRevisionService.getDefectsByInspection(
                 loginUser.getUserId(), loginUser.getCompanyId(), inspectionId);
         return ResponseEntity.ok(ApiResponse.ok(defects));
+    }
+
+    @Operation(
+            summary = "수동 하자 생성",
+            description = "AI 분석 누락된 하자를 검수자가 직접 등록한다(FR-4, HAJA-344). "
+                    + "type은 필수, bbox는 선택(4개 모두 또는 모두 무)이며, grade는 선택(미지정 시 미검수)."
+    )
+    @PostMapping("/inspections/{id}/defects")
+    public ResponseEntity<ApiResponse<DefectDetailItem>> createManualDefect(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable("id") Long inspectionId,
+            @Valid @RequestBody DefectCreateRequest request) {
+        DefectDetailItem defect = defectRevisionService.createManualDefect(
+                loginUser.getUserId(), loginUser.getCompanyId(), inspectionId, request);
+        return ResponseEntity.ok(ApiResponse.ok(defect));
     }
 
     @Operation(

@@ -1390,6 +1390,45 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+    post:
+      summary: 수동 하자 생성
+      description: >
+        AI 분석 누락된 하자를 검수자가 직접 등록한다(FR-4, HAJA-344 #622). 소유권은 점검 회차(inspection)를
+        통해 검증하며, 미존재와 타인 소유를 구분하지 않고 404로 통일한다(IDOR 방지). type은 필수이며,
+        bbox는 선택적이나 4개(bboxX, Y, W, H) 모두 지정하거나 모두 미지정해야 한다. grade는 선택적이며
+        미지정 시 미검수 상태(isReviewed=false)로 저장된다. 생성된 하자는 항상 status=DETECTED,
+        confidence=1.0(사람 확인 = 최고 신뢰도), isDeleted=false로 초기화된다.
+      security:
+        - SessionCookie: []
+      tags: [defect]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DefectCreateRequest" }
+      responses:
+        "200":
+          description: 생성 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DefectApiResponse" }
+        "400":
+          description: 입력 오류 (type 누락, bbox 불완전 등)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 점검 회차 미존재 또는 타인 소유(INSPECTION_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
   /api/defects:
     get:
@@ -2334,6 +2373,22 @@ components:
           minLength: 1
           maxLength: 500
           description: defect_revisions.reason — 오탐/등급 조정 사유(검수 감사 추적)
+
+    DefectCreateRequest:
+      type: object
+      additionalProperties: false
+      description: >
+        POST /api/inspections/{id}/defects 요청 DTO(HAJA-344 #622).
+        type은 필수. bbox는 선택적이나 4개(bboxX, Y, W, H) 모두 지정하거나 모두 미지정해야 한다.
+        grade는 선택적이며, 미지정 시 미검수 상태로 저장된다.
+      required: [type]
+      properties:
+        type: { $ref: "#/components/schemas/DefectTypeCode" }
+        bboxX: { type: number, format: double, nullable: true, description: 경계상자 X 좌표(0~1, 정규화) }
+        bboxY: { type: number, format: double, nullable: true, description: 경계상자 Y 좌표(0~1, 정규화) }
+        bboxW: { type: number, format: double, nullable: true, description: 경계상자 폭(0~1, 정규화) }
+        bboxH: { type: number, format: double, nullable: true, description: 경계상자 높이(0~1, 정규화) }
+        grade: { $ref: "#/components/schemas/NullableDefectGradeCode" }
 
     NlSearchRequest:
       type: object

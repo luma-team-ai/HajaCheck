@@ -1,6 +1,8 @@
 package com.hajacheck.bizverify.service;
 
 import com.hajacheck.bizverify.config.BizVerifyProperties;
+import com.hajacheck.bizverify.dto.NtsStatusRequest;
+import com.hajacheck.bizverify.dto.NtsStatusResponse;
 import com.hajacheck.bizverify.dto.NtsValidateRequest;
 import com.hajacheck.bizverify.dto.NtsValidateResponse;
 import com.hajacheck.global.exception.ErrorCode;
@@ -20,9 +22,12 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
- * 국세청 사업자등록정보 진위확인 클라이언트(#596) — data.go.kr
- * "국세청_사업자등록정보 진위확인 및 상태조회" validate API 를 호출한다. core.ai 의 AiProxyService 와
+ * 국세청 사업자등록정보 진위확인 클라이언트(#596, 상태조회 조합은 #648) — data.go.kr
+ * "국세청_사업자등록정보 진위확인 및 상태조회" API 를 호출한다. core.ai 의 AiProxyService 와
  * 동일한 예외 매핑 골격을 따른다(WebClient 금지, 내장 RestClient 사용).
+ *
+ * <p>{@link #validate}는 회원가입 게이트({@code CompanySignupService})가 쓰는 validate API 단독 호출,
+ * {@link #verifyRealtime}는 실시간 진위확인 전용 API(#648)가 쓰는 status+validate 조합 호출이다.
  *
  * <p><b>fail-open 정책</b>: serviceKey 미설정 또는 국세청 API 장애(연결 실패·타임아웃·5xx·4xx·응답 파싱
  * 실패)는 예외를 던지지 않고 {@link NtsVerificationOutcome#SKIPPED} 를 반환한다 — 외부 의존성 문제로
@@ -36,6 +41,7 @@ import org.springframework.web.client.RestClientResponseException;
 public class NtsBusinessVerifyClient {
 
     private static final String VALIDATE_PATH = "/api/nts-businessman/v1/validate";
+    private static final String STATUS_PATH = "/api/nts-businessman/v1/status";
     // 국세청 status.b_stt_cd 코드 — 01 계속사업자 / 02 휴업 / 03 폐업.
     private static final String STT_CONTINUING = "01";
     private static final String STT_SUSPENDED = "02";
@@ -43,6 +49,9 @@ public class NtsBusinessVerifyClient {
     // 국세청 valid 코드 — 01 일치 / 02 불일치.
     private static final String VALID_MATCH = "01";
     private static final String VALID_MISMATCH = "02";
+    // 상태조회(status) 응답의 tax_type 에 담기는 미등록 안내문 — 정확한 구두점은 국세청 응답에 따라
+    // 달라질 수 있어(문헌마다 표기가 조금씩 다름) 부분 일치로 방어적으로 판정한다.
+    private static final String NOT_REGISTERED_MARKER = "등록되지 않은 사업자등록번호";
 
     private final RestClient bizVerifyRestClient;
     private final BizVerifyProperties bizVerifyProperties;
@@ -99,6 +108,101 @@ public class NtsBusinessVerifyClient {
                     ErrorCode.NTS_INVALID_RESPONSE, e.getClass().getSimpleName());
             return NtsVerificationOutcome.SKIPPED;
         }
+    }
+
+    /**
+     * 실시간 진위확인 전용 API(#648, {@code POST /api/auth/business-verification})가 사용하는 조합
+     * 판정. 회원가입 게이트({@link #validate})와 달리 <b>상태조회(status) API를 먼저 호출</b>해
+     * "미등록"과 "등록됐으나 이름/개업일 불일치"를 구분한다({@link NtsValidateResponse}의 valid=02는 이
+     * 둘을 구분하지 못한다 — 클래스 상단 및 {@link NtsVerificationOutcome#NOT_REGISTERED} 참고).
+     *
+     * <p>흐름: ①상태조회 → 미등록이면 즉시 {@link NtsVerificationOutcome#NOT_REGISTERED} ②휴업/폐업이면
+     * 즉시 SUSPENDED/CLOSED(이름·개업일 대조가 의미 없다) ③계속사업자(01)일 때만 {@link #validate}를
+     * 호출해 VERIFIED/MISMATCH를 확정한다. 상태조회 자체가 실패(미설정·연결실패·타임아웃·5xx·파싱실패)하면
+     * {@link #validate}를 호출하지 않고 fail-open(SKIPPED)한다 — 호출부(BusinessVerificationService)가
+     * 사용자 대면 결과 UNAVAILABLE로 매핑한다.
+     *
+     * @param normalizedBrn      하이픈 제거된 사업자등록번호(숫자 10자리)
+     * @param representativeName 대표자명
+     * @param businessStartDate  개업일자
+     * @return 실시간 진위확인 결과(회원가입 게이트와 달리 NOT_REGISTERED를 반환할 수 있다)
+     */
+    public NtsVerificationOutcome verifyRealtime(String normalizedBrn, String representativeName,
+                                                 LocalDate businessStartDate) {
+        if (!StringUtils.hasText(bizVerifyProperties.getServiceKey())) {
+            log.info("사업자 진위확인(실시간) 스킵: serviceKey 미설정 — fail-open(UNAVAILABLE)");
+            return NtsVerificationOutcome.SKIPPED;
+        }
+
+        NtsStatusResponse statusResponse;
+        try {
+            statusResponse = bizVerifyRestClient.post()
+                    // serviceKey 인코딩 규칙은 validate()와 동일(클래스 상단 주석 참고).
+                    .uri(uriBuilder -> uriBuilder.path(STATUS_PATH)
+                            .queryParam("serviceKey", "{serviceKey}")
+                            .build(bizVerifyProperties.getServiceKey()))
+                    .body(new NtsStatusRequest(List.of(normalizedBrn)))
+                    .retrieve()
+                    .body(NtsStatusResponse.class);
+        } catch (ResourceAccessException e) {
+            ErrorCode code = classifyConnectionFailure(e);
+            log.warn("사업자 진위확인(실시간) 상태조회 호출 실패: {} — fail-open(UNAVAILABLE)", code, e);
+            return NtsVerificationOutcome.SKIPPED;
+        } catch (RestClientResponseException e) {
+            log.warn("사업자 진위확인(실시간) 상태조회 HTTP 오류: {} (status={}) — fail-open(UNAVAILABLE)",
+                    ErrorCode.NTS_REQUEST_REJECTED, e.getStatusCode().value());
+            return NtsVerificationOutcome.SKIPPED;
+        } catch (RestClientException e) {
+            // ⚠️ Jackson 예외 메시지엔 원본 응답바디 스니펫(b_no 등)이 실릴 수 있어 e 스택 로깅하지 않는다.
+            log.warn("사업자 진위확인(실시간) 상태조회 응답 처리 실패: {} (cause={}) — fail-open(UNAVAILABLE)",
+                    ErrorCode.NTS_INVALID_RESPONSE, e.getClass().getSimpleName());
+            return NtsVerificationOutcome.SKIPPED;
+        }
+
+        NtsVerificationOutcome statusOutcome = interpretStatus(statusResponse);
+        if (statusOutcome != null) {
+            return statusOutcome; // NOT_REGISTERED / SUSPENDED / CLOSED / SKIPPED(파싱 불가)
+        }
+
+        // 상태조회가 계속사업자(01)를 확인했을 때만 validate() 로 대표자명·개업일자 일치 여부를 확정한다.
+        return validate(normalizedBrn, representativeName, businessStartDate);
+    }
+
+    /**
+     * 상태조회 응답을 해석한다. NOT_REGISTERED/SUSPENDED/CLOSED/SKIPPED(해석 불가) 중 하나면 그 값을,
+     * 계속사업자(01)라 {@link #validate} 로 넘겨야 하면 {@code null} 을 반환한다.
+     */
+    private NtsVerificationOutcome interpretStatus(NtsStatusResponse response) {
+        if (response == null || response.data() == null || response.data().isEmpty()) {
+            log.warn("사업자 진위확인(실시간) 상태조회 응답 비정상(data 없음): {} — fail-open(UNAVAILABLE)",
+                    ErrorCode.NTS_INVALID_RESPONSE);
+            return NtsVerificationOutcome.SKIPPED;
+        }
+        NtsStatusResponse.BusinessStatus item = response.data().get(0);
+        if (item == null) {
+            log.warn("사업자 진위확인(실시간) 상태조회 응답 비정상(항목 없음): {} — fail-open(UNAVAILABLE)",
+                    ErrorCode.NTS_INVALID_RESPONSE);
+            return NtsVerificationOutcome.SKIPPED;
+        }
+
+        if (StringUtils.hasText(item.taxType()) && item.taxType().contains(NOT_REGISTERED_MARKER)) {
+            return NtsVerificationOutcome.NOT_REGISTERED;
+        }
+
+        String sttCd = item.bSttCd();
+        if (STT_SUSPENDED.equals(sttCd)) {
+            return NtsVerificationOutcome.SUSPENDED;
+        }
+        if (STT_CLOSED.equals(sttCd)) {
+            return NtsVerificationOutcome.CLOSED;
+        }
+        if (STT_CONTINUING.equals(sttCd)) {
+            return null; // 계속사업자 — validate() 로 위임(호출부에서 처리)
+        }
+        // 01/02/03 외 미상 코드(빈 값 포함, 미등록 마커도 없음) — 해석 불가 → fail-open.
+        log.warn("사업자 진위확인(실시간) 상태조회 응답 미상 b_stt_cd: {} — fail-open(UNAVAILABLE)",
+                ErrorCode.NTS_INVALID_RESPONSE);
+        return NtsVerificationOutcome.SKIPPED;
     }
 
     /**

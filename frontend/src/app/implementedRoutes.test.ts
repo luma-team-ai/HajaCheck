@@ -11,6 +11,7 @@ describe('isRouteImplemented', () => {
     '/dashboard/upcoming-inspections',
     '/defects/list',
     '/mypage/plan',
+    '/mypage/profile',
     '/inspections/1/viewer',
     '/facilities/list',
     '/admin/plans-quota',
@@ -21,7 +22,7 @@ describe('isRouteImplemented', () => {
     },
   );
 
-  it.each(['/statistics', '/settings', '/mypage/profile'])(
+  it.each(['/statistics', '/settings'])(
     '아직 라우터에 없는 경로 %s는 false를 반환한다',
     (href) => {
       expect(isRouteImplemented(href)).toBe(false);
