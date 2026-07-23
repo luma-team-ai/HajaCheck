@@ -125,7 +125,10 @@ def _node_cache_check(state: RagChatState) -> RagChatState:
     cached = redis_client.get(cache_key)
 
     cached_result = json.loads(cached) if cached else None
-    final_response = AIResponse.ok(cached_result) if cached_result else None
+    # PR머신 P3: truthy 판정(if cached_result)이 아니라 is not None으로 통일 — _route_after_cache와
+    # 기준이 어긋나면(캐시 포맷이 falsy-but-not-None 값을 저장하게 바뀌는 경우) 라우터는 END로 보내는데
+    # final_response가 None이 되어 run_rag_chat_chain이 None을 반환하는 잠재적 불일치를 방지한다.
+    final_response = AIResponse.ok(cached_result) if cached_result is not None else None
 
     return {
         **state,
