@@ -13,6 +13,7 @@ describe('isRouteImplemented', () => {
     '/mypage/plan',
     '/mypage/profile',
     '/mypage/inspections',
+    '/mypage/counsels',
     '/inspections/1/viewer',
     '/facilities/list',
     '/admin/plans-quota',
