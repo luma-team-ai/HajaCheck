@@ -1,15 +1,22 @@
 package com.hajacheck.core.facility.service;
 
+import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.core.facility.entity.FacilityPhoto;
+import com.hajacheck.core.facility.repository.FacilityPhotoRepository;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -32,9 +39,12 @@ public class FacilityService {
     private static final int FACILITY_LIST_MAX = 500;
 
     private final FacilityRepository facilityRepository;
+    private final FacilityPhotoRepository facilityPhotoRepository;
+    private final AuthService authService;
 
     @Transactional
     public FacilityResponse create(Long ownerId, FacilityCreateRequest request) {
+        validateAssigneeIfPresent(ownerId, request.assigneeUserId());
         Facility facility = Facility.builder()
                 .ownerId(ownerId)
                 .name(request.name())
@@ -46,8 +56,13 @@ public class FacilityService {
                 .scale(request.scale())
                 .inspectionCycleMonths(request.inspectionCycleMonths())
                 .nextInspectionDueAt(request.nextInspectionDueAt())
+                .initialGrade(request.initialGrade())
+                .assigneeUserId(request.assigneeUserId())
+                .memo(request.memo())
                 .build();
-        return FacilityResponse.from(facilityRepository.save(facility));
+        Facility saved = facilityRepository.save(facility);
+        List<String> photoUrls = savePhotos(saved.getId(), request.photoUrls());
+        return FacilityResponse.from(saved, photoUrls);
     }
 
     public List<FacilityResponse> list(Long ownerId) {
@@ -60,13 +75,17 @@ public class FacilityService {
             log.warn("시설물 목록 상한({}) 도달 — ownerId={} 실제 보유 {}건, 상한 초과분 응답에서 누락",
                     FACILITY_LIST_MAX, ownerId, actualCount);
         }
+        Map<Long, List<String>> photosByFacilityId = loadPhotosByFacilityIds(
+                facilities.stream().map(Facility::getId).toList());
         return facilities.stream()
-                .map(FacilityResponse::from)
+                .map(facility -> FacilityResponse.from(
+                        facility, photosByFacilityId.getOrDefault(facility.getId(), List.of())))
                 .toList();
     }
 
     public FacilityResponse get(Long ownerId, Long facilityId) {
-        return FacilityResponse.from(findOwnedFacility(ownerId, facilityId));
+        Facility facility = findOwnedFacility(ownerId, facilityId);
+        return FacilityResponse.from(facility, loadPhotos(facility.getId()));
     }
 
     /**
@@ -83,6 +102,7 @@ public class FacilityService {
     @Transactional
     public FacilityResponse update(Long ownerId, Long facilityId, FacilityUpdateRequest request) {
         Facility facility = findOwnedFacility(ownerId, facilityId);
+        validateAssigneeIfPresent(ownerId, request.assigneeUserId());
         facility.updateInfo(
                 request.name(),
                 request.type(),
@@ -92,12 +112,19 @@ public class FacilityService {
                 request.builtYear(),
                 request.scale(),
                 request.inspectionCycleMonths(),
-                request.nextInspectionDueAt());
-        return FacilityResponse.from(facility);
+                request.nextInspectionDueAt(),
+                request.initialGrade(),
+                request.assigneeUserId(),
+                request.memo());
+        // PUT 은 전체 교체 — 대표 사진도 기존 것을 지우고 요청 목록으로 다시 채운다.
+        facilityPhotoRepository.deleteByFacilityId(facility.getId());
+        List<String> photoUrls = savePhotos(facility.getId(), request.photoUrls());
+        return FacilityResponse.from(facility, photoUrls);
     }
 
     @Transactional
     public void delete(Long ownerId, Long facilityId) {
+        // facility_photos.facility_id 는 ON DELETE CASCADE 라 사진 행은 DB 가 함께 정리한다.
         facilityRepository.delete(findOwnedFacility(ownerId, facilityId));
     }
 
@@ -109,11 +136,54 @@ public class FacilityService {
     public FacilityResponse setSchedule(Long ownerId, Long facilityId, FacilityScheduleRequest request) {
         Facility facility = findOwnedFacility(ownerId, facilityId);
         facility.updateSchedule(request.inspectionCycleMonths(), LocalDate.now());
-        return FacilityResponse.from(facility);
+        return FacilityResponse.from(facility, loadPhotos(facility.getId()));
     }
 
     private Facility findOwnedFacility(Long ownerId, Long facilityId) {
         return facilityRepository.findByIdAndOwnerId(facilityId, ownerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.FACILITY_NOT_FOUND));
+    }
+
+    /**
+     * 담당자 배정 검증(#628 / HAJA-347) — inspections.assigned_inspector_id와 동일하게
+     * AuthService.validateAssignableInspector 를 재사용한다. 시설물 담당자는 선택 입력(nullable)이라
+     * assigneeUserId 가 없으면 검증을 건너뛴다(값이 있을 때만 활성·역할·회사·멤버십을 검증).
+     */
+    private void validateAssigneeIfPresent(Long ownerId, Long assigneeUserId) {
+        if (assigneeUserId != null) {
+            authService.validateAssignableInspector(ownerId, assigneeUserId);
+        }
+    }
+
+    private List<String> savePhotos(Long facilityId, List<String> photoUrls) {
+        if (photoUrls == null || photoUrls.isEmpty()) {
+            return List.of();
+        }
+        List<FacilityPhoto> photos = new ArrayList<>();
+        for (int sortOrder = 0; sortOrder < photoUrls.size(); sortOrder++) {
+            photos.add(FacilityPhoto.builder()
+                    .facilityId(facilityId)
+                    .photoUrl(photoUrls.get(sortOrder))
+                    .sortOrder(sortOrder)
+                    .build());
+        }
+        facilityPhotoRepository.saveAll(photos);
+        return photoUrls;
+    }
+
+    private List<String> loadPhotos(Long facilityId) {
+        return facilityPhotoRepository.findByFacilityIdOrderBySortOrderAsc(facilityId).stream()
+                .map(FacilityPhoto::getPhotoUrl)
+                .toList();
+    }
+
+    private Map<Long, List<String>> loadPhotosByFacilityIds(List<Long> facilityIds) {
+        if (facilityIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return facilityPhotoRepository.findByFacilityIdInOrderByFacilityIdAscSortOrderAsc(facilityIds).stream()
+                .collect(Collectors.groupingBy(
+                        FacilityPhoto::getFacilityId,
+                        Collectors.mapping(FacilityPhoto::getPhotoUrl, Collectors.toList())));
     }
 }
