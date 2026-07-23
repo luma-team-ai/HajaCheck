@@ -29,9 +29,11 @@ export const defectApi = {
     api.get<PageResponse<Defect>>('/defects', { params: filters }),
   // GET /api/defects/{id} — 하자 상세
   getDetail: (id: number) => api.get<Defect>(`/defects/${id}`),
-  // PATCH /api/defects/{id}/status — 하자 상태 전이(신규→검수확정→조치대기→조치중→조치완료 순서만 허용)
-  updateStatus: (id: number, status: DefectStatus) =>
-    api.patch<Defect>(`/defects/${id}/status`, { status }),
+  // PATCH /api/defects/{id}/status — 하자 상태 전이. 정방향 1단계는 reason 없이 허용되고, 역행·건너뛰기
+  // 전이는 reason이 없으면 400(INVALID_INPUT)이다(조치 보드 드래그 전이, HAJA-349/#630). reason이 없을 때는
+  // 아예 body에서 필드를 빼서(값 undefined를 보내지 않음) 백엔드 Bean Validation과의 불필요한 충돌을 피한다.
+  updateStatus: (id: number, status: DefectStatus, reason?: string) =>
+    api.patch<Defect>(`/defects/${id}/status`, reason != null ? { status, reason } : { status }),
   // GET /api/defects/{id}/revisions — 하자 활동 기록(상태 변경 이력) 페이지 조회.
   // size는 DefectController.getRevisions의 @PageableDefault(size=20)와 일치시켜 명시 전달한다 —
   // 역행/건너뛰기 전이가 반복되면 이력 건수가 4단계로 고정되지 않아(self-review 발견) 프론트가
