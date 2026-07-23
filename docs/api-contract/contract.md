@@ -421,10 +421,10 @@ FastAPI validation error(`detail[]`)를 반환한다.
 `status` ∈ `PENDING_REVIEW|APPROVED|REJECTED`. 스테퍼: PENDING_REVIEW=서류검토중, APPROVED=승인완료.
 **실패**: `404 AUTH_SIGNUP_TOKEN_INVALID`
 
-## POST /ai/business-license-ocr — 사업자등록증 OCR (AI서버, **stub**)
-현재 stub. 백엔드 미배선(향후 실제 OCR 교체 seam).
-**요청**: `{ "image_base64": "..." }` 또는 `{ "file_ref": "..." }`
-**성공 200** (`AIResponse` envelope) `data`: `{ "businessRegistrationNumber": null, "companyName": null, "representativeName": null, "raw": {}, "stub": true }`
+## POST /ai/business-license-ocr — 사업자등록증 OCR (AI서버, 실구현 #552/#598)
+RapidOCR(한국어)+LLM 파싱. 백엔드 프록시(`/api/auth/business-license/ocr`, #557) 경유. 인식 실패 필드는 null(FE 수동입력 폴백).
+**요청**: `{ "image_base64": "..." }` (필수)
+**성공 200** (`AIResponse` envelope) `data`: `{ "businessRegistrationNumber": "123-45-67890", "companyName": "하자첵 주식회사", "representativeName": "홍길동", "businessStartDate": "2020-01-15", "raw": { "lineCount": 12, "avgConfidence": 0.93 }, "stub": false }` (#598 businessStartDate 추가)
 
 ### 추가 ErrorCode (Spring `ErrorCode`)
 이번 배포: `AUTH_EMAIL_DUPLICATED`(409) · `AUTH_BUSINESS_NUMBER_DUPLICATED`(409) · `AUTH_ACCOUNT_NOT_FOUND`(404) · `AUTH_SIGNUP_TOKEN_INVALID`(404) · `FILE_REQUIRED`(400) · `FILE_INVALID_TYPE`(400) · `FILE_TOO_LARGE`(400) · `FILE_UPLOAD_FAILED`(500)

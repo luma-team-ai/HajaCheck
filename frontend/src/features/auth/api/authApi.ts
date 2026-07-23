@@ -33,6 +33,7 @@ export function toCompanySignupFormData(body: CompanySignupRequest): FormData {
   formData.append('companyName', body.companyName);
   formData.append('businessRegistrationNumber', body.businessRegistrationNumber);
   formData.append('representativeName', body.representativeName);
+  formData.append('businessStartDate', body.businessStartDate);
   formData.append('address', body.address);
   formData.append('addressDetail', body.addressDetail);
   formData.append('agreeTermsOfService', String(body.agreeTermsOfService));

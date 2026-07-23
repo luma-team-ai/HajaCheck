@@ -209,6 +209,7 @@ create table companies
     business_registration_number    varchar(20)                                                             not null
         unique,
     representative_name             varchar(100)                                                            not null,
+    business_start_date             date,
     address                         varchar(300)                                                            not null,
     address_detail                  varchar(200),
     business_registration_file_url  varchar(500)                                                            not null,
@@ -237,6 +238,8 @@ comment on column companies.name is '상호명';
 comment on column companies.business_registration_number is '사업자등록번호';
 
 comment on column companies.representative_name is '대표자명';
+
+comment on column companies.business_start_date is '개업일자(국세청 진위확인 파라미터)';
 
 comment on column companies.address is '사업장 도로명주소';
 

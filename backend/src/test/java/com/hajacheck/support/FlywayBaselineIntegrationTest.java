@@ -61,15 +61,23 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1baseline_V2plans시드_V3apiSystemLogs_V4platformAdmin_V6defectsMedia가_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1baseline_V2plans시드_V3apiSystemLogs_V4platformAdmin_V5businessStartDate_V6defectsMedia가_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
         Integer appliedMigrations = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where success = true", Integer.class);
         // V1(baseline_schema) + V2(seed_plans) + V3(api_system_logs) + V4(add_platform_admin_role)
-        // + V6(defects.media_id, #527/HAJA-314) — V5는 아직 dev에 미병합인 PR #595가 선점 중이라 건너뜀.
-        assertThat(appliedMigrations).isEqualTo(5);
+        // + V5(add_business_start_date, #596) + V6(defects.media_id, #527/HAJA-314)
+        assertThat(appliedMigrations).isEqualTo(6);
+
+        // V5가 companies.business_start_date 컬럼을 실제로 추가했는지 확인(#596).
+        Long businessStartDateColumnExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'companies'
+                  and column_name = 'business_start_date'
+                """, Long.class);
+        assertThat(businessStartDateColumnExists).isEqualTo(1L);
 
         assertThat(planRepository.findByName(PlanName.FREE)).isPresent();
         assertThat(planRepository.findByName(PlanName.STANDARD)).isPresent();

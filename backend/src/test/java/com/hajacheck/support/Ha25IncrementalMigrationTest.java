@@ -325,6 +325,11 @@ class Ha25IncrementalMigrationTest {
                         MountableFile.forClasspathResource(
                                 MIGRATION_ROOT + "20260722_01_platform_admin_role.sql"),
                         CONTAINER_ROOT + "20260722_01_platform_admin_role.sql")
+                // #596 — companies.business_start_date 컬럼 추가(국세청 진위확인 개업일자).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                MIGRATION_ROOT + "20260722_02_add_business_start_date.sql"),
+                        CONTAINER_ROOT + "20260722_02_add_business_start_date.sql")
                 // #527 / HAJA-314 — Flyway 도입(#359) 이후 신규 스키마 변경은 이 레거시 폴더가 아니라
                 // Flyway forward migration(V6)으로만 추가한다. V5는 아직 dev에 미병합인 PR #595
                 // (#568/점검·관리자 DB 스키마)이 선점 중이라 충돌을 피해 V6으로 선제 재번호했다. 이 테스트가
@@ -397,6 +402,9 @@ class Ha25IncrementalMigrationTest {
         // #534 — role_type PLATFORM_ADMIN 라벨(IF NOT EXISTS로 재실행 가능).
         runPsql(postgres, "20260722_01_platform_admin_role.sql");
         runPsql(postgres, "20260722_01_platform_admin_role.sql");
+        // #596 — companies.business_start_date 컬럼(ADD COLUMN IF NOT EXISTS로 재실행 가능).
+        runPsql(postgres, "20260722_02_add_business_start_date.sql");
+        runPsql(postgres, "20260722_02_add_business_start_date.sql");
         // #527 / HAJA-314 — Flyway V6(defects.media_id + 인덱스)를 실제 운영 경로처럼 마지막에
         // forward-apply. Flyway 마이그레이션은 재실행을 전제하지 않으므로(스스로 1회만 적용) 레거시
         // 파일들과 달리 1회만 실행한다.

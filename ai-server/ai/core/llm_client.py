@@ -2,7 +2,7 @@
 
 모델명·엔드포인트·타임아웃·재시도·토큰 사용량 로깅을 한 곳에서 관리.
 체인에서는 get_llm()만 호출한다. LLM 클라이언트 직접 생성 금지.
-provider 선택(HF Serverless <-> Ollama)은 환경변수(LLM_PROVIDER) 또는 이 파일만 수정.
+HF Serverless Inference API(Qwen3-8B) 전용.
 """
 import hashlib
 import os
@@ -103,51 +103,32 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
     """모든 체인의 시작점.
 
     - 토큰 사용량은 Redis `ai:usage:{yyyyMMdd}` 에 자동 집계 (관리자 모니터링 연동)
-    - 응답 캐시: 키 `ai:cache:{provider}:{model}:{temperature}:{hash}` Redis 캐시 자동 적용
-      (provider/모델/temperature별 네임스페이스 분리로 전환 시 캐시 오염 방지, 우회는 cache=False)
+    - 응답 캐시: 키 `ai:cache:hf:{model}:{temperature}:{hash}` Redis 캐시 자동 적용
+      (모델/temperature별 네임스페이스 분리)
     - structured output이 필요하면 `get_llm().with_structured_output(Schema)` 사용
       (프롬프트 지시 + PydanticOutputParser 파싱 방식 — 응답 캐시는 거치지 않고, 파싱 실패 시 자체 재시도)
     """
-    llm_provider = os.getenv("LLM_PROVIDER", "hf").lower()
-    if llm_provider not in ("hf", "ollama"):
-        raise ValueError(f"LLM_PROVIDER must be 'hf' or 'ollama', got '{llm_provider}'")
+    # 호출 시점에 LLM_MODEL을 읽어 운영 중 조정 가능하게 한다 (#448 P2)
+    model_name = os.getenv("LLM_MODEL", DEFAULT_MODEL)
+    # HF Inference 튜닝 env도 호출 시점에 읽어, 프로세스 재시작 없이 반영되게 한다(운영 중 조정 가능).
+    #   HF_MAX_TOKENS: 응답 토큰 상한 — Qwen3-8B는 reasoning 이후 최종답을 내므로 작으면 content가
+    #     None으로 잘림(#438, 컨테이너 실측) → 기본값 크게(4096).
+    #   HF_TIMEOUT: 응답 대기 상한(초, 기본 120). max_tokens를 키우면 함께 상향하되, Spring
+    #     ai.server.read-timeout-ms(150000)보다 작게 유지할 것(#448 P1 — 역전 시 Spring이 먼저 끊음).
+    hf_max_tokens = int(os.getenv("HF_MAX_TOKENS", "4096"))
+    hf_timeout = float(os.getenv("HF_TIMEOUT", "120"))
+    # langchain_huggingface의 HuggingFaceEndpoint/ChatHuggingFace는 HF Inference Providers
+    # 전환 이후 construction 단계에서 항상 인증 실패한다(GitHub #438 / HAJA-279, 컨테이너
+    # 실측 — task를 바꿔도 해결 안 됨. 상세: ai/core/hf_chat_model.py 모듈 docstring).
+    # huggingface_hub.InferenceClient.chat_completion()은 정상 동작하므로 이를 감싸는
+    # 커스텀 BaseChatModel(HFInferenceChatModel)로 대체한다.
+    chat_model = HFInferenceChatModel(
+        model=model_name,
+        hf_api_token=os.environ["HF_API_TOKEN"],
+        temperature=temperature,
+        timeout=hf_timeout,
+        max_tokens=hf_max_tokens,
+    )
 
-    if llm_provider == "ollama":
-        model_name = os.getenv("OLLAMA_MODEL", "qwen3:8b")
-        # 지연 import: HF만 쓰는 환경에서 langchain-ollama 미설치여도 hf 경로는 동작
-        from langchain_ollama import ChatOllama
-
-        chat_model = ChatOllama(
-            model=model_name,
-            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            temperature=temperature,
-            # client_kwargs는 내부 ollama httpx 클라이언트로 전달 → connect/read 타임아웃 30s
-            # (HF의 timeout=30과 동일하게 무응답 서버에서 무한 대기 방지)
-            client_kwargs={"timeout": 30},
-        )
-    else:  # default "hf"
-        # OLLAMA_MODEL과 동일하게 호출 시점에 LLM_MODEL을 읽어 provider 간 일관성 유지
-        model_name = os.getenv("LLM_MODEL", DEFAULT_MODEL)
-        # HF Inference 튜닝 env도 model_name과 동일하게 호출 시점에 읽어, 프로세스 재시작 없이 반영되게
-        # 한다(운영 중 조정 가능, #448 P2 — 이전엔 임포트 시점 1회 고정이라 주석과 실동작이 어긋났음).
-        #   HF_MAX_TOKENS: 응답 토큰 상한 — Qwen3-8B는 reasoning 이후 최종답을 내므로 작으면 content가
-        #     None으로 잘림(#438, 컨테이너 실측) → 기본값 크게(4096).
-        #   HF_TIMEOUT: 응답 대기 상한(초, 기본 120). max_tokens를 키우면 함께 상향하되, Spring
-        #     ai.server.read-timeout-ms(150000)보다 작게 유지할 것(#448 P1 — 역전 시 Spring이 먼저 끊음).
-        hf_max_tokens = int(os.getenv("HF_MAX_TOKENS", "4096"))
-        hf_timeout = float(os.getenv("HF_TIMEOUT", "120"))
-        # langchain_huggingface의 HuggingFaceEndpoint/ChatHuggingFace는 HF Inference Providers
-        # 전환 이후 construction 단계에서 항상 인증 실패한다(GitHub #438 / HAJA-279, 컨테이너
-        # 실측 — task를 바꿔도 해결 안 됨. 상세: ai/core/hf_chat_model.py 모듈 docstring).
-        # huggingface_hub.InferenceClient.chat_completion()은 정상 동작하므로 이를 감싸는
-        # 커스텀 BaseChatModel(HFInferenceChatModel)로 대체한다.
-        chat_model = HFInferenceChatModel(
-            model=model_name,
-            hf_api_token=os.environ["HF_API_TOKEN"],
-            temperature=temperature,
-            timeout=hf_timeout,
-            max_tokens=hf_max_tokens,
-        )
-
-    cache_namespace = f"{llm_provider}:{model_name}:{temperature}"
+    cache_namespace = f"hf:{model_name}:{temperature}"
     return CachedLLM(chat_model, cache=cache, cache_namespace=cache_namespace)

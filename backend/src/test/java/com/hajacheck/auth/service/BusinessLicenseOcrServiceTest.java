@@ -75,7 +75,7 @@ class BusinessLicenseOcrServiceTest {
         byte[] bytes = realPngBytes();
         MultipartFile file = new MockMultipartFile("businessRegistrationFile", "license.png", "image/png", bytes);
         BusinessLicenseOcrResponse expected =
-                new BusinessLicenseOcrResponse("123-45-67890", "하자체크", "김대표");
+                new BusinessLicenseOcrResponse("123-45-67890", "하자체크", "김대표", "2020-01-15");
         when(aiProxyService.ocrBusinessLicense(any())).thenReturn(ApiResponse.ok(expected));
 
         ApiResponse<BusinessLicenseOcrResponse> response = service.ocr(file);
@@ -204,7 +204,7 @@ class BusinessLicenseOcrServiceTest {
     @Test
     void ocr_전역상한_초과시_429_AUTH_TOO_MANY_REQUESTS() throws IOException {
         when(aiProxyService.ocrBusinessLicense(any()))
-                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3")));
+                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3", "4")));
         int limit = authProperties.getBusinessLicenseOcrRateLimit().getGlobalLimit();
         for (int i = 0; i < limit; i++) {
             service.ocr(pngFile());
@@ -218,7 +218,7 @@ class BusinessLicenseOcrServiceTest {
     @Test
     void ocr_전역상한초과시_AI서버는_호출되지_않는다() throws IOException {
         when(aiProxyService.ocrBusinessLicense(any()))
-                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3")));
+                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3", "4")));
         int limit = authProperties.getBusinessLicenseOcrRateLimit().getGlobalLimit();
         for (int i = 0; i < limit; i++) {
             service.ocr(pngFile());
@@ -236,7 +236,7 @@ class BusinessLicenseOcrServiceTest {
     @Test
     void ocr_창이_지나면_전역상한이_리셋된다() throws IOException {
         when(aiProxyService.ocrBusinessLicense(any()))
-                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3")));
+                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3", "4")));
         int limit = authProperties.getBusinessLicenseOcrRateLimit().getGlobalLimit();
         for (int i = 0; i < limit; i++) {
             service.ocr(pngFile());
@@ -272,7 +272,7 @@ class BusinessLicenseOcrServiceTest {
     @Test
     void ocr_일일캡_초과시_429_AUTH_TOO_MANY_REQUESTS() throws IOException {
         when(aiProxyService.ocrBusinessLicense(any()))
-                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3")));
+                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3", "4")));
         authProperties.getBusinessLicenseOcrRateLimit().setDailyLimit(3);
         for (int i = 0; i < 3; i++) {
             service.ocr(pngFile());
@@ -288,7 +288,7 @@ class BusinessLicenseOcrServiceTest {
         // 분당 상한만으로는 지속 반복 시 일일 LLM 호출/과금이 무제한이 되는 P1 재현 — 분당 캡(기본 20)은
         // 여유롭게 두고 일일 캡만 낮춰, "분당은 안 걸렸는데 일일에서 막히는" 케이스를 고정한다.
         when(aiProxyService.ocrBusinessLicense(any()))
-                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3")));
+                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3", "4")));
         authProperties.getBusinessLicenseOcrRateLimit().setDailyLimit(2);
         int perMinuteLimit = authProperties.getBusinessLicenseOcrRateLimit().getGlobalLimit();
         assertThat(perMinuteLimit).as("분당 캡이 일일 캡보다 넉넉해야 이 케이스가 성립한다").isGreaterThan(2);
@@ -310,7 +310,7 @@ class BusinessLicenseOcrServiceTest {
     @Test
     void ocr_창이_지나면_일일캡이_리셋된다() throws IOException {
         when(aiProxyService.ocrBusinessLicense(any()))
-                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3")));
+                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1", "2", "3", "4")));
         authProperties.getBusinessLicenseOcrRateLimit().setDailyLimit(2);
         service.ocr(pngFile());
         service.ocr(pngFile());

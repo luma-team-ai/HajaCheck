@@ -22,6 +22,7 @@ import {
   doPasswordsMatch,
   getPasswordStrength,
   isValidBusinessNumber,
+  isValidBusinessStartDate,
   isValidEmail,
   isValidPassword,
 } from '../utils/authFormValidators';
@@ -62,6 +63,9 @@ export function CompanySignupPage() {
   const [companyName, setCompanyName] = useState('');
   const [businessRegistrationNumber, setBusinessRegistrationNumber] = useState('');
   const [representativeName, setRepresentativeName] = useState('');
+  // 개업일자 — 국세청 진위확인(#596)이 요구하는 필수값. OCR 자동채움(#598)의 4번째 필드로도
+  // 채워진다(#600). `<input type="date">` 값은 ISO `yyyy-MM-dd` 문자열 그대로 사용.
+  const [businessStartDate, setBusinessStartDate] = useState('');
   const [address, setAddress] = useState('');
   const [addressDetail, setAddressDetail] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -144,6 +148,9 @@ export function CompanySignupPage() {
         );
         setCompanyName((prev) => (prev.trim() ? prev : (data.companyName ?? prev)));
         setRepresentativeName((prev) => (prev.trim() ? prev : (data.representativeName ?? prev)));
+        // 개업일자 자동채움(#598, #600) — 기존 3필드와 동일 규칙: 빈 필드만 채우고, OCR이 null이면
+        // 건드리지 않는다(수기 입력 유지).
+        setBusinessStartDate((prev) => (prev.trim() ? prev : (data.businessStartDate ?? prev)));
       },
     });
   };
@@ -159,6 +166,7 @@ export function CompanySignupPage() {
       companyName,
       businessRegistrationNumber,
       representativeName,
+      businessStartDate,
       address,
       businessRegistrationFile: file,
       agreeTermsOfService,
@@ -173,6 +181,7 @@ export function CompanySignupPage() {
       companyName: companyName.trim(),
       businessRegistrationNumber,
       representativeName: representativeName.trim(),
+      businessStartDate,
       address,
       addressDetail,
       agreeTermsOfService,
@@ -303,7 +312,8 @@ export function CompanySignupPage() {
               onAddressDetailChange={setAddressDetail}
             />
 
-            {/* 사업자등록증 블록 — 시안 기준 파일업로드 + 사업자정보 3필드를 카드 하나로 그룹핑(#292) */}
+            {/* 사업자등록증 블록 — 시안 기준 파일업로드 + 사업자정보 4필드(개업일자 포함, #600)를
+                카드 하나로 그룹핑(#292) */}
             <div className="flex flex-col gap-4 rounded-xl border border-border p-4">
               <BusinessLicenseUpload
                 file={file}
@@ -353,6 +363,27 @@ export function CompanySignupPage() {
                   value={representativeName}
                   onChange={(event) => setRepresentativeName(event.target.value)}
                 />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className={LABEL_CLASSES} htmlFor="signup-business-start-date">
+                  개업일자
+                </label>
+                <input
+                  id="signup-business-start-date"
+                  type="date"
+                  className={INPUT_CLASSES}
+                  value={businessStartDate}
+                  onChange={(event) => setBusinessStartDate(event.target.value)}
+                />
+                {(businessStartDate.length > 0 || showValidation) &&
+                  !isValidBusinessStartDate(businessStartDate) && (
+                    <p className={ERROR_CLASSES}>
+                      {businessStartDate.length > 0
+                        ? '개업일자는 오늘 이전이어야 합니다.'
+                        : '개업일자를 입력해 주세요.'}
+                    </p>
+                  )}
               </div>
             </div>
 

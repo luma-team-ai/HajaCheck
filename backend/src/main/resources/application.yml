@@ -127,6 +127,14 @@ ai:
     # read-timeout이 그보다 작으면 Spring이 먼저 끊어 정상 응답조차 실패 처리된다(#448 P1). 여유분 포함 150s.
     read-timeout-ms: 150000
 
+# 국세청 사업자등록정보 진위확인(data.go.kr) — #596. service-key 미설정 시 진위확인을 스킵하고
+# 가입을 그대로 진행한다(fail-open). service-key 는 data.go.kr "일반 인증키(Decoding)" 를 주입한다.
+biz-verify:
+  base-url: ${BIZ_VERIFY_BASE_URL:https://api.odcloud.kr}
+  service-key: ${BUSINESS_REGISTRATION_API_KEY:}
+  connect-timeout-ms: 3000
+  read-timeout-ms: 5000
+
 management:
   endpoints:
     web:

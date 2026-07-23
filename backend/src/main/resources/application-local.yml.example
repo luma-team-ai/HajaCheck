@@ -83,3 +83,9 @@ ai:
     base-url: http://localhost:8000
     # 로컬 더미값 — 실제 시크릿 금지(FastAPI 는 아직 검증 안 하지만 프록시가 미리 부착한다, #228)
     internal-key: local-dev-internal-key
+
+# 국세청 사업자 진위확인(#596) — 로컬 더미값. 더미키(공백 아님)면 실제 호출을 시도하지만 fail-open 이라
+# 장애 시 가입은 진행된다. 진위확인을 완전히 끄려면 service-key 를 비우면 스킵된다.
+biz-verify:
+  base-url: https://api.odcloud.kr
+  service-key: local-dev-dummy
