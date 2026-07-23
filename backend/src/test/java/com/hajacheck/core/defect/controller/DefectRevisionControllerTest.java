@@ -487,6 +487,90 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void POST_bboxYOutOfRange_negative_400() throws Exception {
+        Company company = saveCompany("회사22");
+        User owner = saveUser("owner22@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector22@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        // bboxY=-0.1 (0.0 미만, 범위 위반) — 다른 3개는 valid (0.5)
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .bboxX(0.5)
+                .bboxY(-0.1)
+                .bboxW(0.5)
+                .bboxH(0.5)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void POST_bboxHOutOfRange_exceed_400() throws Exception {
+        Company company = saveCompany("회사23");
+        User owner = saveUser("owner23@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector23@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        // bboxH=1.1 (1.0 초과, 범위 위반) — 다른 3개는 valid (0.5)
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .bboxX(0.5)
+                .bboxY(0.5)
+                .bboxW(0.5)
+                .bboxH(1.1)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void POST_bboxBoundaryValues_200() throws Exception {
+        Company company = saveCompany("회사24");
+        User owner = saveUser("owner24@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector24@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        // 경계값 0.0/1.0은 허용 범위 포함(inclusive)이라 정상 생성돼야 한다
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .bboxX(0.0)
+                .bboxY(1.0)
+                .bboxW(0.0)
+                .bboxH(1.0)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.bboxX").value(0.0))
+                .andExpect(jsonPath("$.data.bboxY").value(1.0))
+                .andExpect(jsonPath("$.data.bboxW").value(0.0))
+                .andExpect(jsonPath("$.data.bboxH").value(1.0));
+    }
+
+    @Test
     void POST_생성후조회_200() throws Exception {
         Company company = saveCompany("회사19");
         User owner = saveUser("owner19@haja.com");
