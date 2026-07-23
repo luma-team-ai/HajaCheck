@@ -15,6 +15,10 @@ export interface PlanQuotaUser {
   /** 사용자 표시명 (예: "김민준") */
   name: string;
   email: string;
+  /** 소속 회사 id — 회사 미소속(개인 계정)이면 null */
+  companyId: number | null;
+  /** 소속 회사명 — 회사 미소속(개인 계정)이면 null */
+  companyName: string | null;
   /** 소속 회사가 구독한 플랜 — 활성 구독이 없으면 null */
   plan: AdminUserPlan | null;
   /** 이 사용자가 이번 달 분석한 이미지 장수 */
@@ -41,6 +45,8 @@ export interface PlanQuotaListParams {
   page: number;
   size: number;
   keyword?: string;
+  /** 소속 회사 구독 플랜으로 좁혀본다(회사 단위 필터) */
+  plan?: AdminUserPlan;
 }
 
 export interface PlanQuotaListResponse {
