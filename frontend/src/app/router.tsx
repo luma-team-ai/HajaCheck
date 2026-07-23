@@ -40,6 +40,12 @@ const PlatformAdminPlaceholderPage = lazy(() =>
     default: m.PlatformAdminPlaceholderPage,
   })),
 );
+// 플랫폼 관리자 > 사용자 관리(#577) — 기업 관리자 콘솔의 AdminUsersPage(#405)를 그대로 옮긴 실 화면
+const PlatformAdminUsersPage = lazy(() =>
+  import('../features/platform-admin/pages/PlatformAdminUsersPage').then((m) => ({
+    default: m.PlatformAdminUsersPage,
+  })),
+);
 
 // 이용약관 / 개인정보처리방침 — 랜딩 푸터 "법적 고지" 연결
 const TermsOfServicePage = lazy(() =>
@@ -529,14 +535,14 @@ export const router = createBrowserRouter([
         path: '/platform-admin/users',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <PlatformAdminPlaceholderPage title="사용자 관리" />
+            <PlatformAdminUsersPage />
           </Suspense>
         ),
         handle: {
           breadcrumb: [{ label: '플랫폼 관리자' }, { label: '사용자 관리' }],
           activeHref: '/platform-admin/users',
         },
-      },
+      }, // — features/platform-admin 사용자 관리 실 화면 (#577, features/admin AdminUsersPage 이식)
       {
         path: '/platform-admin/plans-quota',
         element: (
