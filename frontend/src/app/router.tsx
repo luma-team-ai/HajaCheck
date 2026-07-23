@@ -18,6 +18,13 @@ const ResultViewerPage = lazy(() =>
   })),
 );
 
+// 보고서 생성(임시 스텁) — 이슈 #621, HAJA-343
+const ReportGenerateStubPage = lazy(() =>
+  import('../features/report/pages/ReportGenerateStubPage').then((m) => ({
+    default: m.ReportGenerateStubPage,
+  })),
+);
+
 // 점검(회차) 생성 — API 명세서 v0.3 AP-004
 const InspectionCreatePage = lazy(() =>
   import('../features/inspection/pages/InspectionCreatePage').then((m) => ({
@@ -394,6 +401,18 @@ export const router = createBrowserRouter([
           activeHref: '/inspections/1/viewer',
         },
       }, // — features/inspection FR-4 (HAJA-249, #249)
+      {
+        path: '/inspections/:id/reports/generate',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <ReportGenerateStubPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '점검 관리' }, { label: '보고서 생성' }],
+          activeHref: '/inspections/1/reports/generate',
+        },
+      }, // — features/report 보고서 생성 (이슈 #621, HAJA-343)
       {
         path: '/facilities/:id',
         element: (

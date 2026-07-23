@@ -12,6 +12,7 @@ import { mediaHandlers } from '../features/inspection/api/mediaApi.handlers';
 import { mypageHandlers } from '../features/mypage/api/mypageApi.handlers';
 import { notificationHandlers } from '../features/notification/api/notificationApi.handlers';
 import { platformAdminUserHandlers } from '../features/platform-admin/api/platformAdminUserApi.handlers';
+import { reportHandlers } from '../features/report/api/reportApi.handlers';
 import { supportHandlers } from '../features/support/api/supportApi.handlers';
 
 export const handlers = [
@@ -27,6 +28,7 @@ export const handlers = [
   ...adminPlanHandlers,
   ...planQuotaHandlers,
   ...platformAdminUserHandlers,
+  ...reportHandlers,
   ...supportHandlers,
   ...notificationHandlers,
 ];
