@@ -7,8 +7,9 @@ import {
 } from '../../../shared/lib/kakaoMap/geocodeAddress';
 import { FacilityFormModal } from './FacilityFormModal';
 
-const { geocodeAddressMock } = vi.hoisted(() => ({
+const { geocodeAddressMock, openPostcodeSearchMock } = vi.hoisted(() => ({
   geocodeAddressMock: vi.fn(),
+  openPostcodeSearchMock: vi.fn(),
 }));
 
 vi.mock('../../../shared/lib/kakaoMap/geocodeAddress', async () => {
@@ -21,9 +22,24 @@ vi.mock('../../../shared/lib/kakaoMap/geocodeAddress', async () => {
   };
 });
 
+// 다음(카카오) 우편번호 팝업은 실제 외부 스크립트를 로드하므로 컴포넌트 테스트에서는 훅 자체를
+// 모킹해 "주소검색" 버튼 클릭 → onComplete 콜백 호출만 검증한다.
+vi.mock('../hooks/useFacilityPostcodeSearch', () => ({
+  useFacilityPostcodeSearch: () => ({ openPostcodeSearch: openPostcodeSearchMock }),
+}));
+
+// 담당자 select 옵션(react-query + MSW)은 이 컴포넌트 테스트 범위 밖이라 훅 자체를 모킹한다.
+vi.mock('../hooks/useFacilityAssignableUsers', () => ({
+  useFacilityAssignableUsers: () => ({
+    data: [{ id: 101, name: '김도현 검사자' }],
+    isLoading: false,
+  }),
+}));
+
 afterEach(() => {
   cleanup();
   geocodeAddressMock.mockReset();
+  openPostcodeSearchMock.mockReset();
 });
 
 function fillRequiredFields() {
@@ -31,6 +47,16 @@ function fillRequiredFields() {
     target: { value: '강남 오피스타워 A동' },
   });
   fireEvent.change(screen.getByLabelText(/시설물 유형/), { target: { value: '건물' } });
+}
+
+// "주소검색" 버튼을 클릭하고, 모킹된 openPostcodeSearch에 전달된 onComplete 콜백을 호출해
+// 도로명주소가 채워진 것처럼 시뮬레이션한다.
+function searchAndFillAddress(address: string) {
+  fireEvent.click(screen.getByRole('button', { name: '주소검색' }));
+  const onComplete = openPostcodeSearchMock.mock.calls.at(-1)?.[0] as (address: string) => void;
+  act(() => {
+    onComplete(address);
+  });
 }
 
 describe('FacilityFormModal', () => {
@@ -120,7 +146,7 @@ describe('FacilityFormModal', () => {
     expect(screen.getByText('시설물명을 입력해 주세요.')).not.toBeNull();
   });
 
-  it('주소가 입력되면 Geocoder로 좌표를 계산해 onSubmit payload에 포함한다(#618)', async () => {
+  it('주소검색으로 도로명주소를 채우면 Geocoder로 좌표를 계산해 onSubmit payload에 포함한다(#618, #629)', async () => {
     geocodeAddressMock.mockResolvedValue({ latitude: 37.5006, longitude: 127.0364 });
     const handleSubmit = vi.fn().mockResolvedValue(undefined);
 
@@ -129,9 +155,7 @@ describe('FacilityFormModal', () => {
     );
 
     fillRequiredFields();
-    fireEvent.change(screen.getByLabelText(/주소/), {
-      target: { value: '서울 강남구 테헤란로 123' },
-    });
+    searchAndFillAddress('서울 강남구 테헤란로 123');
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
@@ -140,8 +164,34 @@ describe('FacilityFormModal', () => {
     expect(geocodeAddressMock).toHaveBeenCalledWith('서울 강남구 테헤란로 123');
     expect(handleSubmit).toHaveBeenCalledTimes(1);
     expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      address: '서울 강남구 테헤란로 123',
       latitude: 37.5006,
       longitude: 127.0364,
+    });
+  });
+
+  it('상세주소를 함께 입력하면 도로명주소와 합쳐 하나의 address로 전송한다(#629)', async () => {
+    geocodeAddressMock.mockResolvedValue({ latitude: 37.5006, longitude: 127.0364 });
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal open onClose={vi.fn()} onSubmit={handleSubmit} isSubmitting={false} />,
+    );
+
+    fillRequiredFields();
+    searchAndFillAddress('서울 강남구 테헤란로 123');
+    fireEvent.change(screen.getByPlaceholderText('상세주소를 입력해 주세요'), {
+      target: { value: '10층 1001호' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+    });
+
+    // 도로명주소만 Geocoder에 전달된다(상세주소는 매칭률을 떨어뜨릴 수 있어 제외)
+    expect(geocodeAddressMock).toHaveBeenCalledWith('서울 강남구 테헤란로 123');
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      address: '서울 강남구 테헤란로 123 10층 1001호',
     });
   });
 
@@ -154,9 +204,7 @@ describe('FacilityFormModal', () => {
     );
 
     fillRequiredFields();
-    fireEvent.change(screen.getByLabelText(/주소/), {
-      target: { value: '존재하지 않는 주소' },
-    });
+    searchAndFillAddress('존재하지 않는 주소');
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
@@ -177,7 +225,7 @@ describe('FacilityFormModal', () => {
     );
 
     fillRequiredFields();
-    fireEvent.change(screen.getByLabelText(/주소/), { target: { value: '서울 강남구' } });
+    searchAndFillAddress('서울 강남구');
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
@@ -185,5 +233,72 @@ describe('FacilityFormModal', () => {
 
     expect(handleSubmit).not.toHaveBeenCalled();
     expect(screen.getByText(/좌표 변환에 실패했습니다/)).not.toBeNull();
+  });
+
+  it('초기 등급 pill을 선택하면 onSubmit payload에 initialGrade를 포함한다(#628)', async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal open onClose={vi.fn()} onSubmit={handleSubmit} isSubmitting={false} />,
+    );
+
+    fillRequiredFields();
+    fireEvent.click(screen.getByRole('button', { name: 'B' }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+    });
+
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({ initialGrade: 'B' });
+  });
+
+  it('선택된 초기 등급 pill을 다시 클릭하면 선택이 해제된다(#628)', async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal open onClose={vi.fn()} onSubmit={handleSubmit} isSubmitting={false} />,
+    );
+
+    fillRequiredFields();
+    fireEvent.click(screen.getByRole('button', { name: 'B' }));
+    fireEvent.click(screen.getByRole('button', { name: 'B' }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+    });
+
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({ initialGrade: null });
+  });
+
+  it('담당자와 메모를 입력하면 onSubmit payload에 포함한다(#628)', async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal open onClose={vi.fn()} onSubmit={handleSubmit} isSubmitting={false} />,
+    );
+
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText('담당자'), { target: { value: '101' } });
+    fireEvent.change(screen.getByLabelText('메모'), {
+      target: { value: '외벽 균열 재점검 예정' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+    });
+
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      assigneeUserId: 101,
+      memo: '외벽 균열 재점검 예정',
+    });
+  });
+
+  it('점검주기·규모 필드는 더 이상 등록 폼에 없다(#629)', () => {
+    render(
+      <FacilityFormModal open onClose={vi.fn()} onSubmit={vi.fn()} isSubmitting={false} />,
+    );
+
+    expect(screen.queryByLabelText(/점검주기/)).toBeNull();
+    expect(screen.queryByLabelText(/^규모$/)).toBeNull();
   });
 });
