@@ -1,10 +1,13 @@
 package com.hajacheck.core.report.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
 import com.hajacheck.core.defect.entity.Defect;
+import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectStatus;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.facility.dto.FacilityResponse;
@@ -20,7 +23,10 @@ import com.hajacheck.core.report.repository.ReportRepository;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -45,6 +51,13 @@ public class ReportService {
     // 참고), 별도 경고 수집 파이프라인이 붙기 전까지는 항상 빈 배열로 기록한다(GroundingCheckResult가
     // passed=true일 때 비어있지 않은 경고와의 동시 존재를 막는 도메인 규칙과도 정합).
     private static final String NO_GROUNDING_WARNINGS = "[]";
+    // 구조 재검증(#680) 불일치 시 기록하는 경고 — 이미 검증된 JSON 문자열 리터럴이라
+    // JsonValidator.requireValidJson 통과가 보장된다(GroundingCheckResult가 하는 것과 동일한 방식).
+    private static final String STRUCTURAL_MISMATCH_WARNINGS =
+            "[\"편집된 하자 상세 항목이 확정된 하자 목록과 일치하지 않습니다\"]";
+    private static final String UNCLASSIFIED_GRADE_LABEL = "미분류";
+    private static final String GRADE_SUFFIX = "등급";
+    private static final ObjectMapper RECHECK_MAPPER = new ObjectMapper();
 
     private final ReportRepository reportRepository;
     private final DefectRepository defectRepository;
@@ -115,6 +128,105 @@ public class ReportService {
         Report report = findCompanyReport(reportId, editedByUserId, companyId);
         report.updateContent(contentJson, editedByUserId);
         return ReportDetailResponse.from(report);
+    }
+
+    /**
+     * 편집(updateContent)으로 null이 된 grounding 판정을 AI 서버(LLM) 재호출 없이 구조 검증만으로
+     * 복구한다(#680 / HAJA-374). 본문(contentJson)의 detail.items를 확정 하자 목록과
+     * 유형+등급 멀티셋으로 비교해 일치 여부만 판정한다 — ai-server report_chain.py의
+     * _detail_content_key/_detail_matches_confirmed 로직을 그대로 이식(Java화)한 것으로,
+     * LLM 호출·수치 재계산 없이 결정론적으로 재현 가능하다.
+     */
+    @Transactional
+    public ReportDetailResponse recheckGrounding(Long reportId, Long companyId, Long userId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Report report = findCompanyReport(reportId, userId, companyId);
+
+        List<Defect> confirmedDefects = defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
+                report.getInspectionId(), CONFIRMED_DEFECT_STATUSES);
+        Map<DefectContentKey, Integer> expected = toMultiset(confirmedDefects.stream()
+                .map(defect -> new DefectContentKey(defect.getType().label(), gradeLabel(defect.getGrade())))
+                .map(ReportService::normalizeKey)
+                .toList());
+        Map<DefectContentKey, Integer> actual = toMultiset(extractDetailKeys(report.getContentJson()));
+
+        boolean matched = expected.equals(actual);
+        report.recordStructuralGroundingRecheck(
+                matched, matched ? NO_GROUNDING_WARNINGS : STRUCTURAL_MISMATCH_WARNINGS, userId);
+        return ReportDetailResponse.from(report);
+    }
+
+    private static String gradeLabel(DefectGrade grade) {
+        return grade != null ? grade.name() : UNCLASSIFIED_GRADE_LABEL;
+    }
+
+    /** report_chain.py `_detail_content_key`: (defect_type.strip(), 등급 정규화) 튜플로 비교한다. */
+    private record DefectContentKey(String defectType, String severityGrade) {
+    }
+
+    private static DefectContentKey normalizeKey(DefectContentKey raw) {
+        return new DefectContentKey(
+                raw.defectType() == null ? "" : raw.defectType().strip(),
+                normalizeGrade(raw.severityGrade()));
+    }
+
+    /**
+     * report_chain.py `_normalize_grade`/`normalize_grade_strict` 이식 — 'C등급'·' c ' 처럼 알려진
+     * 접미사(등급)만 제거한 뒤, 정확히 한 글자이고 A~E에 속할 때만 정규화된 등급으로 인정한다.
+     * 그 외(다글자 잔존 등)는 원본(strip+upper)을 그대로 반환한다(파이썬과 동일 계약 유지).
+     */
+    private static String normalizeGrade(String raw) {
+        String normalized = raw == null ? "" : raw.strip().toUpperCase();
+        if (normalized.endsWith(GRADE_SUFFIX)) {
+            normalized = normalized.substring(0, normalized.length() - GRADE_SUFFIX.length()).strip();
+        }
+        if (normalized.length() == 1) {
+            try {
+                DefectGrade.valueOf(normalized);
+                return normalized;
+            } catch (IllegalArgumentException ignored) {
+                // 유효 등급이 아니면 아래에서 strip+upper 원본을 그대로 반환한다.
+            }
+        }
+        return raw == null ? "" : raw.strip().toUpperCase();
+    }
+
+    /**
+     * contentJson의 detail.items에서 defect_type/severity_grade(구버전 호환으로 type/grade도 허용)를
+     * 추출한다. 저장 시점(GroundingReportContentSerializer)에 이미 검증된 JSON이므로 파싱 실패는
+     * 이론상 도달 불가하지만, 방어적으로 빈 목록으로 처리한다(강제 확정 차단 = fail-closed).
+     */
+    private static List<DefectContentKey> extractDetailKeys(String contentJson) {
+        List<DefectContentKey> keys = new ArrayList<>();
+        JsonNode root;
+        try {
+            root = RECHECK_MAPPER.readTree(contentJson);
+        } catch (Exception e) {
+            return keys;
+        }
+        JsonNode items = root.path("detail").path("items");
+        if (!items.isArray()) {
+            return keys;
+        }
+        for (JsonNode item : items) {
+            String type = textOf(item, "defect_type", "type");
+            String grade = textOf(item, "severity_grade", "grade");
+            keys.add(new DefectContentKey(type, grade));
+        }
+        return keys;
+    }
+
+    private static String textOf(JsonNode node, String primaryField, String fallbackField) {
+        JsonNode value = node.hasNonNull(primaryField) ? node.get(primaryField) : node.get(fallbackField);
+        return value == null ? "" : value.asText("");
+    }
+
+    private static Map<DefectContentKey, Integer> toMultiset(List<DefectContentKey> keys) {
+        Map<DefectContentKey, Integer> multiset = new HashMap<>();
+        for (DefectContentKey key : keys) {
+            multiset.merge(key, 1, Integer::sum);
+        }
+        return multiset;
     }
 
     @Transactional

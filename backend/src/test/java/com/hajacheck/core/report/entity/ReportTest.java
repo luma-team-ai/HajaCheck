@@ -206,6 +206,46 @@ class ReportTest {
         assertThat(report.getGroundingCheckPassed()).isTrue();
     }
 
+    @Test
+    void recordStructuralGroundingRecheck_DRAFT상태_판정과경고와수정자를기록() {
+        Report report = Report.draft(10L, 1, "{}", 20L);
+
+        report.recordStructuralGroundingRecheck(true, "[]", 30L);
+
+        assertThat(report.getGroundingCheckPassed()).isTrue();
+        assertThat(report.getGroundingWarnings()).isEqualTo("[]");
+        assertThat(report.getEditedBy()).isEqualTo(30L);
+    }
+
+    @Test
+    void recordStructuralGroundingRecheck_불일치_false와경고를기록() {
+        Report report = Report.draft(10L, 1, "{}", 20L);
+
+        report.recordStructuralGroundingRecheck(false, "[\"불일치\"]", 30L);
+
+        assertThat(report.getGroundingCheckPassed()).isFalse();
+        assertThat(report.getGroundingWarnings()).isEqualTo("[\"불일치\"]");
+    }
+
+    @Test
+    void recordStructuralGroundingRecheck_FINALIZED상태에서시도하면예외() {
+        Report report = Report.draft(10L, 1, "{}", 20L);
+        report.recordGroundingResult(grounding(report, true, null), 30L);
+        report.finalizeReport("https://files.example/report.pdf", 30L);
+
+        assertThatThrownBy(() -> report.recordStructuralGroundingRecheck(true, "[]", 31L))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void recordStructuralGroundingRecheck_경고가유효한JSON이아니면예외() {
+        Report report = Report.draft(10L, 1, "{}", 20L);
+
+        assertThatThrownBy(() -> report.recordStructuralGroundingRecheck(false, "not-json", 30L))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(report.getGroundingCheckPassed()).isNull();
+    }
+
     private static GroundingCheckResult grounding(Report report, boolean passed, String warnings) {
         GroundingRequestContext context = report.captureGroundingRequestContext();
         GroundingCheckTarget target = GroundingCheckTarget.capture(context, report.getContentJson());

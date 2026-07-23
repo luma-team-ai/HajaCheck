@@ -80,6 +80,17 @@ public class ReportController {
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
+    @Operation(summary = "보고서 근거 재검증(구조 검증)",
+            description = "AI 서버 재호출 없이 본문(detail.items)과 확정 하자 목록을 유형+등급 기준으로 대조해 "
+                    + "grounding 판정을 복구한다 — 편집(PATCH) 후 확정이 막힌 DRAFT 보고서에만 사용한다")
+    @PostMapping("/api/reports/{id}/grounding-recheck")
+    public ResponseEntity<ApiResponse<ReportDetailResponse>> recheckGrounding(
+            @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
+        ReportDetailResponse response =
+                reportService.recheckGrounding(id, loginUser.getCompanyId(), loginUser.getUserId());
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
     @Operation(summary = "보고서 확정", description = "근거 검증을 통과한 DRAFT 보고서를 PDF와 함께 확정(FINALIZED)한다")
     @PostMapping("/api/reports/{id}/finalize")
     public ResponseEntity<ApiResponse<ReportDetailResponse>> finalizeReport(
