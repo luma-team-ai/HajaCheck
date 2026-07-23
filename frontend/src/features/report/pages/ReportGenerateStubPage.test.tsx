@@ -1,13 +1,19 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ReportDetailResponse } from '../api/reportApi';
 import type { InspectionResponse, DefectDetailItem, MediaResponse } from '../../inspection/api/inspectionApi.types';
+import type { ReportContent } from '../types';
 import { ReportGenerateStubPage } from './ReportGenerateStubPage';
+
+vi.mock('../utils/exportReportToPdf', () => ({
+  exportReportToPdf: vi.fn().mockResolvedValue(new Blob(['fake-pdf'])),
+  buildReportPdfFileName: vi.fn().mockReturnValue('점검보고서_1_20260723.pdf'),
+}));
 
 const mockInspection: InspectionResponse = {
   id: 1,
@@ -49,17 +55,42 @@ const mockFacility = {
   nextInspectionDueAt: '2026-08-22',
 };
 
+const mockContent: ReportContent = {
+  overview: { purpose: '정기 점검', facility_summary: '테스트 시설물', scope: '전체' },
+  summary: {
+    overall_opinion: '양호',
+    total_count: 1,
+    count_by_grade: { A: 0, B: 0, C: 1, D: 0, E: 0 },
+    key_findings: ['균열 발견'],
+  },
+  detail: {
+    items: [
+      { defect_type: '균열', location: '1층 벽체', severity_grade: 'C', description: '설명', cause: '원인' },
+    ],
+  },
+  recommendation: {
+    items: [
+      { target: '1층 벽체', method: '보수', priority: '중', legal_basis: '관련 근거 없음', legal_basis_verified: false },
+    ],
+    monitoring_points: ['정기 재점검'],
+  },
+};
+
 const mockReport: ReportDetailResponse = {
   id: 1,
   inspectionId: 1,
   version: 1,
-  content: { summary: 'Test report' },
+  content: mockContent,
   status: 'DRAFT',
+  groundingCheckPassed: null,
+  pdfUrl: null,
+  editedBy: null,
   createdBy: 1,
   createdAt: '2026-07-22T10:00:00Z',
 };
 
 let generateReportCallCount = 0;
+let reportState: ReportDetailResponse = mockReport;
 
 const server = setupServer(
   http.get('/api/inspections/1', () => HttpResponse.json({ success: true, data: mockInspection })),
@@ -84,15 +115,38 @@ const server = setupServer(
   http.get('/api/facilities/1', () => HttpResponse.json({ success: true, data: mockFacility })),
   http.post('/api/inspections/1/reports', () => {
     generateReportCallCount += 1;
-    return HttpResponse.json({ success: true, data: mockReport }, { status: 201 });
+    reportState = mockReport;
+    return HttpResponse.json({ success: true, data: reportState }, { status: 201 });
+  }),
+  http.get('/api/reports/1', () => HttpResponse.json({ success: true, data: reportState })),
+  http.patch('/api/reports/1', async ({ request }) => {
+    const body = (await request.json()) as { contentJson: string };
+    reportState = { ...reportState, content: JSON.parse(body.contentJson), groundingCheckPassed: null };
+    return HttpResponse.json({ success: true, data: reportState });
+  }),
+  http.post('/api/reports/1/grounding-recheck', () => {
+    reportState = { ...reportState, groundingCheckPassed: true };
+    return HttpResponse.json({ success: true, data: reportState });
+  }),
+  http.post('/api/reports/1/pdf', () =>
+    HttpResponse.json({ success: true, data: { pdfUrl: '/api/reports/1/pdf/storage-key' } }),
+  ),
+  http.post('/api/reports/1/finalize', async ({ request }) => {
+    const body = (await request.json()) as { pdfUrl: string };
+    reportState = { ...reportState, status: 'FINALIZED', pdfUrl: body.pdfUrl };
+    return HttpResponse.json({ success: true, data: reportState });
   }),
 );
 
 beforeAll(() => server.listen());
 beforeEach(() => {
   generateReportCallCount = 0;
+  reportState = mockReport;
 });
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  cleanup();
+});
 afterAll(() => server.close());
 
 describe('ReportGenerateStubPage', () => {
@@ -156,5 +210,57 @@ describe('ReportGenerateStubPage', () => {
     );
 
     expect(screen.getByText(/잘못된 접근/)).toBeTruthy();
+  });
+
+  it('편집 → 저장 → 확정 검증 → PDF 생성 후 확정 순으로 진행하면 최종 FINALIZED로 전환된다', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '보고서 초안 생성' }));
+    await screen.findByText('보고서 생성 결과');
+
+    // 저장 전에는 dirty가 없어 저장 버튼이 비활성 상태
+    const saveButton = screen.getByRole('button', { name: '저장' }) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(true);
+
+    const purposeInput = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
+    fireEvent.change(purposeInput, { target: { value: '수정된 목적' } });
+    expect(saveButton.disabled).toBe(false);
+
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(saveButton.disabled).toBe(true));
+
+    // 저장 후에만 확정 검증 가능
+    const recheckButton = screen.getByRole('button', { name: '확정 검증' }) as HTMLButtonElement;
+    expect(recheckButton.disabled).toBe(false);
+    fireEvent.click(recheckButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('✓ 검증 완료')).toBeTruthy();
+    });
+
+    const finalizeButton = screen.getByRole('button', { name: 'PDF 생성 후 확정' }) as HTMLButtonElement;
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('이 보고서는 확정되어 더 이상 편집할 수 없습니다.')).toBeTruthy();
+    });
+
+    // FINALIZED 이후에는 편집 필드가 읽기 전용으로 전환된다
+    expect((screen.getByLabelText('점검 목적') as HTMLTextAreaElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: '저장' })).toBeNull();
+  });
+
+  it('content가 편집되지 않은 상태에서는 확정 검증 버튼이 항상 비활성화되지 않는다', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '보고서 초안 생성' }));
+    await screen.findByText('보고서 생성 결과');
+
+    const recheckButton = screen.getByRole('button', { name: '확정 검증' }) as HTMLButtonElement;
+    expect(recheckButton.disabled).toBe(false);
+
+    const finalizeButton = screen.getByRole('button', { name: 'PDF 생성 후 확정' }) as HTMLButtonElement;
+    expect(finalizeButton.disabled).toBe(true);
   });
 });
