@@ -53,16 +53,23 @@ export function useBackfillFacilityGeocode() {
           // address는 filter에서 trim() 확인을 거쳤으므로 non-null 단언 대신 as string으로
           // 타입만 좁힌다(값 자체는 이미 검증됨).
           const { latitude, longitude } = await geocodeAddress(facility.address as string);
+
+          // lost update 방지(#638, PR #631 P2 후속): 배치는 시설물마다 Geocoder 호출 → PUT이라
+          // 시간이 걸리고, 백엔드 Facility 엔티티에 낙관적 락(@Version)이 없다. 실행 시작 시점의
+          // 스냅샷(facility)을 그대로 PUT 바디에 담아 보내면, 그 사이 다른 세션이 이 시설물의 다른
+          // 필드를 수정한 경우 이 배치가 좌표만 바꾸려다 그 수정사항을 조용히 덮어써 유실시킨다.
+          // PUT 직전 최신 레코드를 재조회해 그 위에 새로 계산한 좌표만 병합해서 보낸다.
+          const { data: latest } = await facilityApi.getDetail(facility.id);
           await facilityApi.update(facility.id, {
-            name: facility.name,
-            type: facility.type,
-            address: facility.address,
+            name: latest.name,
+            type: latest.type,
+            address: latest.address,
             latitude,
             longitude,
-            builtYear: facility.builtYear,
-            scale: facility.scale,
-            inspectionCycleMonths: facility.inspectionCycleMonths,
-            nextInspectionDueAt: facility.nextInspectionDueAt,
+            builtYear: latest.builtYear,
+            scale: latest.scale,
+            inspectionCycleMonths: latest.inspectionCycleMonths,
+            nextInspectionDueAt: latest.nextInspectionDueAt,
           });
           succeeded += 1;
         } catch (error) {

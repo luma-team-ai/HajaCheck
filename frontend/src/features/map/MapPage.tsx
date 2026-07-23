@@ -29,7 +29,11 @@ export default function MapPage() {
   const rootRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<KakaoMap | null>(null);
-  const markersRef = useRef<KakaoMarker[]>([]);
+  // facility.id 기반 Map으로 마커를 관리 — markerFacilities를 배열 인덱스로 순회하며 매칭하면,
+  // mapApi.ts의 latitude/longitude != null 필터가 NaN·범위밖·(0,0) 좌표(EXIF GPS 결측 시 흔함)를
+  // 걸러내지 못해 그 항목이 목록 중간에 있을 때 이후 인덱스가 전부 밀려 엉뚱한 시설물에 선택
+  // 이미지가 적용되는 버그가 있었다(#661 P2). id 키로 매칭하면 이 문제가 근본적으로 사라진다.
+  const markersRef = useRef<Map<number, KakaoMarker>>(new Map());
   const overlayRef = useRef<KakaoCustomOverlay | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const hasCenteredRef = useRef(false);
@@ -149,7 +153,7 @@ export default function MapPage() {
       resizeObserverRef.current = null;
       hasCenteredRef.current = false;
       markersRef.current.forEach((marker) => marker.setMap(null));
-      markersRef.current = [];
+      markersRef.current = new Map();
       mapInstanceRef.current = null;
     };
   }, []);
@@ -191,26 +195,31 @@ export default function MapPage() {
       return valid;
     });
 
-    markersRef.current = validFacilities.map((facility) =>
-      createFacilityMarker(
-        map,
-        facility,
-        (selected) => setSelectedFacilityId(selected.id),
-        facility.id === selectedFacilityId,
-      ),
-    );
+    const nextMarkers = new Map<number, KakaoMarker>();
+    validFacilities.forEach((facility) => {
+      nextMarkers.set(
+        facility.id,
+        createFacilityMarker(
+          map,
+          facility,
+          (selected) => setSelectedFacilityId(selected.id),
+          facility.id === selectedFacilityId,
+        ),
+      );
+    });
+    markersRef.current = nextMarkers;
 
     return () => {
       markersRef.current.forEach((marker) => marker.setMap(null));
-      markersRef.current = [];
+      markersRef.current = new Map();
     };
   }, [markerFacilities, sdkStatus]);
 
   // 선택된 시설물 변경 시 마커 이미지(미선택: 원형 도트, 선택: 피그마 원형+삼각형 핀) 및 z-index 동기화
   useEffect(() => {
     if (sdkStatus !== 'ready') return;
-    markerFacilities.forEach((facility, index) => {
-      const marker = markersRef.current[index];
+    markerFacilities.forEach((facility) => {
+      const marker = markersRef.current.get(facility.id);
       if (!marker) return;
       const isSelected = facility.id === selectedFacilityId;
       updateFacilityMarkerImage(marker, isSelected, facility.highestGrade);
