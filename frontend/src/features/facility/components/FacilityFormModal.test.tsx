@@ -264,6 +264,36 @@ describe('FacilityFormModal', () => {
     expect(handleGeocodeFailure).toHaveBeenCalledWith(expect.stringContaining('좌표 변환에 실패했습니다'));
   });
 
+  // 재검수 P1 회귀고정 — geocode 실패 + onSubmit(등록 API)도 실패하는 경우, "등록되었습니다"
+  // 문구가 담긴 onGeocodeFailure는 절대 호출되면 안 된다(등록이 실제로 성공한 적이 없으므로).
+  it('Geocoder도 실패하고 onSubmit도 실패하면 onGeocodeFailure를 호출하지 않는다(#629 재검수 P1)', async () => {
+    geocodeAddressMock.mockRejectedValue(new GeocodeNotFoundError('존재하지 않는 주소'));
+    const handleSubmit = vi.fn().mockRejectedValue(new Error('등록 실패'));
+    const handleGeocodeFailure = vi.fn();
+
+    render(
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={handleSubmit}
+        isSubmitting={false}
+        onGeocodeFailure={handleGeocodeFailure}
+      />,
+    );
+
+    fillRequiredFields();
+    searchAndFillAddress('존재하지 않는 주소');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+    });
+
+    expect(handleSubmit).toHaveBeenCalledTimes(1);
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({ latitude: null, longitude: null });
+    // 등록 API가 실패했으므로 "좌표 없이 등록되었습니다" 배너용 콜백은 호출되면 안 된다.
+    expect(handleGeocodeFailure).not.toHaveBeenCalled();
+  });
+
   it('초기 등급 pill을 선택하면 onSubmit payload에 initialGrade를 포함한다(#628)', async () => {
     const handleSubmit = vi.fn().mockResolvedValue(undefined);
 

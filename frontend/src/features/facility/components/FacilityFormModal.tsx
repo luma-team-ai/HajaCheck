@@ -8,7 +8,7 @@ import {
   geocodeAddress,
 } from '../../../shared/lib/kakaoMap/geocodeAddress';
 import { FACILITY_TYPE_OPTIONS } from '../constants';
-import { ERROR_CLASSES, INPUT_CLASSES, LABEL_CLASSES } from '../formClasses';
+import { ERROR_CLASSES, INPUT_CLASSES, LABEL_CLASSES, WARNING_CLASSES } from '../formClasses';
 import { useFacilityAssignableUsers } from '../hooks/useFacilityAssignableUsers';
 import type { CreateFacilityRequest, FacilityInitialGrade } from '../types';
 import type { FacilityFormErrors, FacilityFormValues } from '../utils/validateFacilityForm';
@@ -89,6 +89,10 @@ export function FacilityFormModal({
     }
 
     const payload = toCreateFacilityRequest(values);
+    // geocode 실패 경고는 등록(onSubmit)이 실제로 성공한 뒤에만 부모에 알린다 — 재검수 P1:
+    // onSubmit 호출 전에 onGeocodeFailure를 부르면 "...등록되었습니다"(과거완료형) 문구가 아직
+    // API 호출도 되기 전에, 심지어 onSubmit이 이후 실패하는 경우에도 뜨는 거짓 배너가 된다.
+    let pendingGeocodeWarning: string | undefined;
 
     // 주소가 입력된 경우에만 좌표 변환을 시도한다 — 주소가 비어 있으면 좌표 없이(null) 등록된다.
     // 상세주소가 아닌 도로명주소(values.address)만 Geocoder에 전달한다 — 동/호수 등 상세주소가
@@ -104,16 +108,18 @@ export function FacilityFormModal({
       } catch (geocodeError) {
         // best-effort 정책(사용자 결정, #629): 좌표 변환 실패로 등록 자체를 막지 않는다 —
         // latitude/longitude는 세팅하지 않고(null 유지) 그대로 등록을 진행한다. 조용히 삼키지는
-        // 않고 콘솔 경고 + 부모 콜백(onGeocodeFailure)으로 인라인 배너 노출까지 표면화한다
-        // (이 레포는 별도 Toast 시스템을 두지 않는 컨벤션 — DefectStatusReasonModal.tsx 참고).
+        // 않고 콘솔 경고 + (등록 성공이 확정된 뒤) 부모 콜백(onGeocodeFailure)으로 인라인 배너
+        // 노출까지 표면화한다(이 레포는 별도 Toast 시스템을 두지 않는 컨벤션 —
+        // DefectStatusReasonModal.tsx 참고).
         const reason =
           geocodeError instanceof GeocodeNotFoundError || geocodeError instanceof GeocodeFailedError
             ? geocodeError.message
             : '주소 좌표 변환 중 오류가 발생했습니다.';
-        const message = `주소 좌표 자동 계산에 실패해 좌표 없이 등록되었습니다. (${reason})`;
         console.warn('[FacilityFormModal] 주소 좌표 변환 실패 — 좌표 없이 등록을 진행합니다.', geocodeError);
-        setGeocodeErrorMessage(message);
-        onGeocodeFailure?.(message);
+        // 등록이 아직 확정 전이므로(onSubmit 호출 전) 모달 내부 즉시 표시용은 진행형 문구로 —
+        // 상위 배너용(pendingGeocodeWarning)은 onSubmit 성공이 확정된 뒤에만 과거형으로 노출한다.
+        setGeocodeErrorMessage(`주소 좌표 자동 계산에 실패해 좌표 없이 등록을 진행합니다. (${reason})`);
+        pendingGeocodeWarning = `주소 좌표 자동 계산에 실패해 좌표 없이 등록되었습니다. (${reason})`;
       } finally {
         setIsGeocoding(false);
       }
@@ -126,12 +132,17 @@ export function FacilityFormModal({
       setValues(FACILITY_FORM_INITIAL_VALUES);
       // 성공 시 모달은 부모(open=false)로 인해 화면에서만 사라질 뿐 이 컴포넌트 자체는 언마운트되지
       // 않는다 — geocodeErrorMessage를 여기서 지우지 않으면 다음에 모달을 다시 열 때(핸들클로즈를
-      // 거치지 않은 경로로) 지난 실패 메시지가 잔류해 보일 수 있어 함께 초기화한다. 실패 사실 자체는
-      // 이미 onGeocodeFailure로 부모에 전달돼 인라인 배너로 남아 있다.
+      // 거치지 않은 경로로) 지난 실패 메시지가 잔류해 보일 수 있어 함께 초기화한다.
       setGeocodeErrorMessage(undefined);
+      // 등록이 실제로 성공한 뒤에만 부모에 경고를 전달 — onSubmit이 실패했다면 여기 도달하지
+      // 않으므로 onGeocodeFailure는 절대 호출되지 않는다(재검수 P1 수정).
+      if (pendingGeocodeWarning) {
+        onGeocodeFailure?.(pendingGeocodeWarning);
+      }
     } catch {
       // onSubmit(FacilityListPage.handleSubmit)이 던진 에러 — 여기서는 폼을 유지만 하고
       // 별도 처리는 하지 않는다. 에러 메시지 표시는 submitErrorMessage prop이 담당한다.
+      // pendingGeocodeWarning은 폐기 — 등록 자체가 실패했으니 "등록되었습니다" 경고를 띄우면 안 된다.
     }
   };
 
@@ -211,7 +222,9 @@ export function FacilityFormModal({
             errorMessage={errors.address}
           />
           {geocodeErrorMessage && (
-            <p role="alert" className={ERROR_CLASSES}>
+            // best-effort 경고(#629 재조정) — 필수검증 에러(ERROR_CLASSES, danger)와 달리 등록을
+            // 막지 않으므로 warning 톤으로 표시해 사용자가 "실패"로 오인하지 않게 한다(재검수 P2-a).
+            <p role="alert" className={WARNING_CLASSES}>
               {geocodeErrorMessage}
             </p>
           )}
