@@ -60,10 +60,12 @@ const mockReport: ReportDetailResponse = {
 };
 
 const server = setupServer(
-  http.get('/api/inspections/1', () => HttpResponse.json(mockInspection)),
-  http.get('/api/inspections/1/defects', () => HttpResponse.json(mockDefects)),
-  http.get('/api/facilities/1', () => HttpResponse.json(mockFacility)),
-  http.post('/api/inspections/1/reports', () => HttpResponse.json(mockReport)),
+  http.get('/api/inspections/1', () => HttpResponse.json({ success: true, data: mockInspection })),
+  http.get('/api/inspections/1/defects', () => HttpResponse.json({ success: true, data: mockDefects })),
+  http.get('/api/facilities/1', () => HttpResponse.json({ success: true, data: mockFacility })),
+  http.post('/api/inspections/1/reports', () =>
+    HttpResponse.json({ success: true, data: mockReport }, { status: 201 }),
+  ),
 );
 
 beforeAll(() => server.listen());
@@ -84,14 +86,12 @@ describe('ReportGenerateStubPage', () => {
     );
   };
 
-  it('should render page and handle report generation', async () => {
+  it('should render generated report summary on success', async () => {
     renderPage();
 
-    // Wait for either report data or error message
     await waitFor(
       () => {
-        const element = screen.queryByText(/보고서 생성 결과|보고서 데이터를 불러올/);
-        expect(element).toBeTruthy();
+        expect(screen.getByText('보고서 생성 결과')).toBeTruthy();
       },
       { timeout: 3000 },
     );
