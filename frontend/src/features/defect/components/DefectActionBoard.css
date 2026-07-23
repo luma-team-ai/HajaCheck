@@ -1,0 +1,203 @@
+.defect-board {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 32px 32px;
+  overflow: hidden;
+}
+
+.defect-board__loading {
+  display: flex;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.defect-board__error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--color-danger-soft-border);
+  border-radius: 12px;
+  background: var(--color-danger-soft-bg);
+  padding: 10px 16px;
+  color: var(--color-danger);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.defect-board__error button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.defect-board__columns {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-auto-columns: minmax(240px, 1fr);
+  grid-auto-flow: column;
+  gap: 16px;
+  overflow-x: auto;
+}
+
+.defect-board-column {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent);
+  border-radius: 16px;
+  background: var(--color-surface-muted);
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.defect-board-column--over {
+  border-color: var(--color-point);
+  background: color-mix(in srgb, var(--color-point) 6%, var(--color-surface-muted));
+}
+
+.defect-board-column__header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 12px;
+}
+
+.defect-board-column__header h3 {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.defect-board-column__count {
+  display: inline-flex;
+  min-width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: var(--color-surface);
+  padding: 0 6px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.defect-board-column__body {
+  display: flex;
+  min-height: 80px;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 0 12px 16px;
+}
+
+.defect-board-column__empty {
+  margin: 8px 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.defect-board-card {
+  display: flex;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-radius: 12px;
+  background: var(--color-surface);
+  padding: 10px;
+  cursor: grab;
+  touch-action: none;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 4%);
+}
+
+.defect-board-card:focus-visible {
+  outline: 2px solid var(--color-point);
+  outline-offset: 2px;
+}
+
+.defect-board-card--dragging {
+  opacity: 0.5;
+}
+
+.defect-board-card__thumb {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.defect-board-card__thumb--empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--color-surface-sunken), var(--color-border));
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.defect-board-card__body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.defect-board-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.defect-board-card__type {
+  overflow: hidden;
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.defect-board-card__grade {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.defect-board-card__facility {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .defect-board-column {
+    transition: none;
+  }
+}

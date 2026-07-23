@@ -264,7 +264,41 @@
   font-size: 12px;
 }
 
-.defect-list-page__table-region {
+.defect-list-page__view-tabs {
+  display: flex;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+.defect-list-page__view-tab {
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  background: transparent;
+  padding: 6px 16px;
+  color: var(--color-text-default);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.defect-list-page__view-tab:hover {
+  background: var(--color-surface-muted);
+}
+
+.defect-list-page__view-tab.is-active {
+  border-color: color-mix(in srgb, var(--color-border) 80%, transparent);
+  background: var(--color-primary);
+  color: var(--color-surface);
+}
+
+.defect-list-page__view-tab:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-point) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.defect-list-page__table-region,
+.defect-list-page__board-region {
   display: flex;
   min-height: 0;
   flex: 1;
