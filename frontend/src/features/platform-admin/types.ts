@@ -11,6 +11,9 @@ export type AdminUserStatus = 'ACTIVE' | 'SUSPENDED';
 
 export type AdminUserPlan = 'FREE' | 'STANDARD' | 'ENTERPRISE';
 
+// 회사 소속 없이 개인으로 가입한 사용자(예: USER 개인 플랜)는 companyId/companyName이 null이다.
+// 플랫폼 관리자 화면은 전사 조회라 이 구분이 필수지만, 기업 관리자 화면(features/admin)은 항상
+// 요청자 회사 하나로 스코프되어 있어 애초에 이 필드가 없다 — 두 types.ts가 갈리는 유일한 지점.
 export interface AdminUser {
   id: number;
   name: string;
@@ -18,9 +21,17 @@ export interface AdminUser {
   avatarUrl?: string | null;
   role: AdminUserRole;
   plan: AdminUserPlan | null;
+  companyId: number | null;
+  companyName: string | null;
   joinedAt: string;
   lastAccessAt: string | null;
   status: AdminUserStatus;
+}
+
+/** 사용자 등록 모달의 기업명 selectbox 옵션 — GET /api/platform-admin/companies 응답 1건 */
+export interface CompanyOption {
+  id: number;
+  name: string;
 }
 
 export interface AdminUserStats {

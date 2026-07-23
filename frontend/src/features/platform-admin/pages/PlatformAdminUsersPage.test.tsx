@@ -75,7 +75,7 @@ describe('PlatformAdminUsersPage (통합 테스트)', () => {
     renderPage();
 
     await screen.findByText('김지수');
-    fireEvent.change(screen.getByLabelText('이름·이메일 검색'), {
+    fireEvent.change(screen.getByLabelText('이름·이메일·기업명 검색'), {
       target: { value: '존재하지않는사용자' },
     });
 

@@ -3,8 +3,11 @@ import type { FormEvent } from 'react';
 import { doPasswordsMatch, isValidEmail, isValidPassword } from '../../auth/utils/authFormValidators';
 import { Button } from '../../../shared/components/Button';
 import { Modal } from '../../../shared/components/Modal';
-import { ROLE_CHANGE_OPTIONS, ROLE_LABEL } from '../constants';
+import { COMPANY_OPTIONS, ROLE_CHANGE_OPTIONS, ROLE_LABEL } from '../constants';
 import type { AdminUserRole } from '../types';
+
+/** '' selectbox 값 = 회사 미소속(개인 계정)으로 등록 */
+const NO_COMPANY_VALUE = '';
 
 interface CreateUserModalProps {
   open: boolean;
@@ -14,6 +17,7 @@ interface CreateUserModalProps {
     password: string;
     name: string;
     role: AdminUserRole;
+    companyId: number | null;
   }) => Promise<void>;
   isSubmitting: boolean;
   submitErrorMessage?: string;
@@ -38,6 +42,7 @@ export function CreateUserModal({
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState<AdminUserRole>('USER');
+  const [companyIdInput, setCompanyIdInput] = useState(NO_COMPANY_VALUE);
   const [touched, setTouched] = useState(false);
 
   const emailValid = isValidEmail(email);
@@ -52,6 +57,7 @@ export function CreateUserModal({
     setPasswordConfirm('');
     setName('');
     setRole('USER');
+    setCompanyIdInput(NO_COMPANY_VALUE);
     setTouched(false);
   }
 
@@ -68,7 +74,8 @@ export function CreateUserModal({
     }
     // catch만 해서 콘솔에 unhandled rejection이 찍히지 않게 한다 — 실패 메시지는
     // submitErrorMessage(mutation.error)로 아래에 표시된다(다른 관리자 모달과 동일 패턴).
-    onConfirm({ email: email.trim(), password, name: name.trim(), role })
+    const companyId = companyIdInput === NO_COMPANY_VALUE ? null : Number(companyIdInput);
+    onConfirm({ email: email.trim(), password, name: name.trim(), role, companyId })
       .then(resetForm)
       .catch(() => {});
   }
@@ -144,6 +151,25 @@ export function CreateUserModal({
             autoComplete="off"
           />
           {touched && !nameValid && <p className="m-0 text-xs text-danger">이름은 필수입니다.</p>}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label htmlFor="create-user-company" className={LABEL_CLASS}>
+            기업명
+          </label>
+          <select
+            id="create-user-company"
+            className={INPUT_CLASS}
+            value={companyIdInput}
+            onChange={(event) => setCompanyIdInput(event.target.value)}
+          >
+            <option value={NO_COMPANY_VALUE}>선택 안함(개인)</option>
+            {COMPANY_OPTIONS.map((company) => (
+              <option key={company.id} value={company.id}>
+                {company.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="flex flex-col gap-2">

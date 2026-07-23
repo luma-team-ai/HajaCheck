@@ -1,6 +1,6 @@
 import type { SideNavItem } from '../../shared/components/SideNavBar';
 import adminIcon from '../../assets/brand/sidenav-admin.svg';
-import type { AdminUserPlan, AdminUserRole, AdminUserStatus } from './types';
+import type { AdminUserPlan, AdminUserRole, AdminUserStatus, CompanyOption } from './types';
 
 // 플랫폼 관리자 콘솔 사이드바(#535) — 7개 메뉴 라벨은 기존 SideNavBar DEFAULT_ADMIN_ITEM(기업
 // 관리자 콘솔)의 subItems 라벨과 동일하게 유지하고, 경로만 /platform-admin/* 로 분리한다.
@@ -67,7 +67,21 @@ export const GROWTH_UP_CLASS = 'text-[#16a34a]';
 export const ROLE_FILTER_OPTIONS = (Object.keys(ROLE_LABEL) as AdminUserRole[]).filter(
   (role) => role !== 'COUNSELOR',
 );
+// features/admin와 달리 여기선 플랜 필터를 유지한다 — 전사 조회라 회사별 구독 플랜으로 좁혀볼 일이
+// 실제로 있다(사용자 지시, #577 후속).
+export const PLAN_FILTER_OPTIONS = Object.keys(PLAN_LABEL) as AdminUserPlan[];
 export const STATUS_FILTER_OPTIONS = Object.keys(STATUS_LABEL) as AdminUserStatus[];
+
+// 사용자 등록 모달의 기업명 selectbox — 실 백엔드 GET /api/platform-admin/companies가 준비되기
+// 전까지의 선제 정의(planQuota.types.ts와 동일한 전략). "선택 안함" 선택 시 companyId=null로
+// 전송되어 개인(회사 미소속) 계정으로 등록된다.
+export const COMPANY_OPTIONS: CompanyOption[] = [
+  { id: 1, name: '테크노빌딩관리' },
+  { id: 2, name: '그린타워시설관리' },
+  { id: 3, name: '한빛건설' },
+  { id: 4, name: '스마트파크FM' },
+  { id: 5, name: '유니온시설서비스' },
+];
 
 export const DEFAULT_PAGE_SIZE = 10;
 

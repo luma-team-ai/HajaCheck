@@ -1,6 +1,13 @@
 import type { ChangeEvent } from 'react';
-import { ROLE_FILTER_OPTIONS, ROLE_LABEL, STATUS_FILTER_OPTIONS, STATUS_LABEL } from '../constants';
-import type { AdminUserRole, AdminUserStatus } from '../types';
+import {
+  PLAN_FILTER_OPTIONS,
+  PLAN_LABEL,
+  ROLE_FILTER_OPTIONS,
+  ROLE_LABEL,
+  STATUS_FILTER_OPTIONS,
+  STATUS_LABEL,
+} from '../constants';
+import type { AdminUserPlan, AdminUserRole, AdminUserStatus } from '../types';
 import { FilterIcon } from './icons/FilterIcon';
 import { SearchIcon } from './icons/SearchIcon';
 
@@ -10,9 +17,11 @@ export type FilterValue<T> = T | '';
 interface AdminUserFilterBarProps {
   keyword: string;
   role: FilterValue<AdminUserRole>;
+  plan: FilterValue<AdminUserPlan>;
   status: FilterValue<AdminUserStatus>;
   onKeywordChange: (keyword: string) => void;
   onRoleChange: (role: FilterValue<AdminUserRole>) => void;
+  onPlanChange: (plan: FilterValue<AdminUserPlan>) => void;
   onStatusChange: (status: FilterValue<AdminUserStatus>) => void;
   onReset: () => void;
 }
@@ -28,18 +37,21 @@ const SELECT_ARROW_STYLE = {
   backgroundPosition: 'right 14px center',
 };
 
-// 사용자 관리 검색·필터 바 — Figma node-id 177-2017.
-// 좌측 검색창(pill), 우측 역할/상태 드롭다운 + 필터 초기화 버튼(플랜 필터는 제거 — 사용자 지시).
+// 사용자 관리 검색·필터 바 — Figma node-id 177-2017 기반, 플랫폼 관리자용으로 플랜 드롭다운을
+// 역할·상태 사이에 추가(#577 후속, 사용자 지시) — 기업 관리자 화면(features/admin)은 회사 단위
+// 스코프라 플랜이 항상 하나뿐이라 필터 의미가 없어 제거했지만, 여긴 전사 조회라 필요하다.
 export function AdminUserFilterBar({
   keyword,
   role,
+  plan,
   status,
   onKeywordChange,
   onRoleChange,
+  onPlanChange,
   onStatusChange,
   onReset,
 }: AdminUserFilterBarProps) {
-  const hasActiveFilter = Boolean(keyword || role || status);
+  const hasActiveFilter = Boolean(keyword || role || plan || status);
 
   function handleKeywordChange(event: ChangeEvent<HTMLInputElement>) {
     onKeywordChange(event.target.value);
@@ -57,10 +69,10 @@ export function AdminUserFilterBar({
         <input
           type="search"
           className="w-full rounded-full border border-border bg-surface py-2.5 pr-4 pl-11 text-sm text-text-default placeholder:text-text-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-          placeholder="이름·이메일 검색"
+          placeholder="이름·이메일·기업명 검색"
           value={keyword}
           onChange={handleKeywordChange}
-          aria-label="이름·이메일 검색"
+          aria-label="이름·이메일·기업명 검색"
         />
       </div>
 
@@ -76,6 +88,21 @@ export function AdminUserFilterBar({
           {ROLE_FILTER_OPTIONS.map((option) => (
             <option key={option} value={option}>
               {ROLE_LABEL[option]}
+            </option>
+          ))}
+        </select>
+
+        <select
+          className={SELECT_CLASS}
+          style={SELECT_ARROW_STYLE}
+          value={plan}
+          onChange={(event) => onPlanChange(event.target.value as FilterValue<AdminUserPlan>)}
+          aria-label="플랜 필터"
+        >
+          <option value="">플랜</option>
+          {PLAN_FILTER_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {PLAN_LABEL[option]}
             </option>
           ))}
         </select>

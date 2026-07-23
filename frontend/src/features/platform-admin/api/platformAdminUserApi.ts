@@ -22,6 +22,8 @@ export interface CreateUserPayload {
   password: string;
   name: string;
   role: AdminUserRole;
+  /** null = 회사 미소속(개인 계정)으로 등록 */
+  companyId: number | null;
 }
 
 // 플랫폼 관리자 > 사용자 관리(#577) — features/admin/api/adminApi.ts(#405)를 그대로 옮긴 것.

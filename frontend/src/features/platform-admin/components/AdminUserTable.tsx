@@ -1,4 +1,4 @@
-import { ROLE_BADGE_CLASS, ROLE_LABEL, STATUS_DOT_CLASS, STATUS_LABEL } from '../constants';
+import { EMPTY_CELL, ROLE_BADGE_CLASS, ROLE_LABEL, STATUS_DOT_CLASS, STATUS_LABEL } from '../constants';
 import type { AdminUser } from '../types';
 import { formatJoinedAt, formatRelativeAccess } from '../utils/formatUserDates';
 import { AdminUserRowMenu } from './AdminUserRowMenu';
@@ -15,7 +15,7 @@ interface AdminUserTableProps {
   onRowAction: (action: AdminUserRowAction, user: AdminUser) => void;
 }
 
-const COLUMN_COUNT = 6;
+const COLUMN_COUNT = 7;
 const HEADER_CELL = 'px-4 py-3 text-left text-[13px] font-medium text-text-muted';
 const BODY_CELL = 'px-4 py-3 align-middle';
 
@@ -35,7 +35,8 @@ export function AdminUserTable({
     <table className="w-full border-collapse text-sm">
       <thead>
         <tr className="border-b border-border">
-          <th className={`${HEADER_CELL} pl-6`}>이름</th>
+          <th className={`${HEADER_CELL} pl-6`}>기업명</th>
+          <th className={HEADER_CELL}>이름</th>
           <th className={HEADER_CELL}>이메일</th>
           <th className={HEADER_CELL}>역할</th>
           <th className={HEADER_CELL}>가입일</th>
@@ -77,7 +78,10 @@ export function AdminUserTable({
           !isError &&
           users.map((user) => (
             <tr key={user.id} className="border-b border-border last:border-b-0 hover:bg-surface-muted">
-              <td className={`${BODY_CELL} pl-6`}>
+              <td className={`${BODY_CELL} pl-6 text-text-default`}>
+                {user.companyName ?? EMPTY_CELL}
+              </td>
+              <td className={BODY_CELL}>
                 <span className="flex items-center gap-2.5">
                   <UserAvatar user={user} />
                   <span className="text-heading">{user.name}</span>

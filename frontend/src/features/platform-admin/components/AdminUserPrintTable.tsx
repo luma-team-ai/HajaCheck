@@ -1,4 +1,4 @@
-import { ROLE_LABEL, STATUS_LABEL } from '../constants';
+import { EMPTY_CELL, ROLE_LABEL, STATUS_LABEL } from '../constants';
 import type { AdminUser } from '../types';
 import { formatAbsoluteAccess, formatJoinedAt } from '../utils/formatUserDates';
 
@@ -25,6 +25,7 @@ export function AdminUserPrintTable({ users, generatedAt }: AdminUserPrintTableP
       <table className="w-full border-collapse text-xs text-black">
         <thead>
           <tr>
+            <th className={CELL}>기업명</th>
             <th className={CELL}>이름</th>
             <th className={CELL}>이메일</th>
             <th className={CELL}>역할</th>
@@ -36,6 +37,7 @@ export function AdminUserPrintTable({ users, generatedAt }: AdminUserPrintTableP
         <tbody>
           {users.map((user) => (
             <tr key={user.id}>
+              <td className={CELL}>{user.companyName ?? EMPTY_CELL}</td>
               <td className={CELL}>{user.name}</td>
               <td className={CELL}>{user.email}</td>
               <td className={CELL}>{ROLE_LABEL[user.role]}</td>

@@ -1,6 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse } from '../../../shared/api/types';
-import { DEFAULT_PAGE_SIZE, PLAN_LABEL, ROLE_LABEL, STATUS_LABEL } from '../constants';
+import { COMPANY_OPTIONS, DEFAULT_PAGE_SIZE, PLAN_LABEL, ROLE_LABEL, STATUS_LABEL } from '../constants';
 import { mockPlatformAdminUsers, mockPlatformAdminUserStats } from '../mocks/platformAdminUsers.mock';
 import type {
   AdminUser,
@@ -29,7 +29,8 @@ function matchesKeyword(user: AdminUser, keyword: string): boolean {
   }
   return (
     user.name.toLowerCase().includes(normalized) ||
-    user.email.toLowerCase().includes(normalized)
+    user.email.toLowerCase().includes(normalized) ||
+    (user.companyName?.toLowerCase().includes(normalized) ?? false)
   );
 }
 
@@ -66,10 +67,11 @@ export const platformAdminUserHandlers = [
   }),
 
   http.post('/api/platform-admin/users', async ({ request }) => {
-    const { email, name, role } = (await request.json()) as {
+    const { email, name, role, companyId } = (await request.json()) as {
       email: string;
       name: string;
       role: AdminUserRole;
+      companyId: number | null;
     };
 
     if (mockPlatformAdminUsers.some((candidate) => candidate.email === email)) {
@@ -83,12 +85,15 @@ export const platformAdminUserHandlers = [
       );
     }
 
+    const company = companyId !== null ? COMPANY_OPTIONS.find((c) => c.id === companyId) : undefined;
     const created: AdminUser = {
       id: Math.max(0, ...mockPlatformAdminUsers.map((user) => user.id)) + 1,
       name,
       email,
       role,
       plan: null,
+      companyId: company?.id ?? null,
+      companyName: company?.name ?? null,
       joinedAt: new Date().toISOString(),
       lastAccessAt: null,
       status: 'ACTIVE',

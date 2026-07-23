@@ -17,7 +17,7 @@ import { usePlatformAdminUsers } from '../hooks/usePlatformAdminUsers';
 import { useChangeUserRole } from '../hooks/useChangeUserRole';
 import { useChangeUserStatus } from '../hooks/useChangeUserStatus';
 import { useCreateUser } from '../hooks/useCreateUser';
-import type { AdminUser, AdminUserRole, AdminUserStatus } from '../types';
+import type { AdminUser, AdminUserPlan, AdminUserRole, AdminUserStatus } from '../types';
 import { DownloadIcon } from '../components/icons/DownloadIcon';
 import { InviteIcon } from '../components/icons/InviteIcon';
 
@@ -33,6 +33,7 @@ export function PlatformAdminUsersPage() {
   const [keywordInput, setKeywordInput] = useState('');
   const keyword = useDebouncedValue(keywordInput, KEYWORD_DEBOUNCE_MS);
   const [role, setRole] = useState<FilterValue<AdminUserRole>>('');
+  const [plan, setPlan] = useState<FilterValue<AdminUserPlan>>('');
   const [status, setStatus] = useState<FilterValue<AdminUserStatus>>('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -63,7 +64,7 @@ export function PlatformAdminUsersPage() {
   } = useCreateUser();
 
   // 필터·검색어·페이지 크기가 바뀌면 1페이지로 되돌린다 — AdminUsersPage와 동일한 이유(#378 리뷰 지적).
-  const filterSignature = `${keyword}|${role}|${status}|${pageSize}`;
+  const filterSignature = `${keyword}|${role}|${plan}|${status}|${pageSize}`;
   const prevFilterSignatureRef = useRef(filterSignature);
   if (prevFilterSignatureRef.current !== filterSignature) {
     prevFilterSignatureRef.current = filterSignature;
@@ -96,9 +97,10 @@ export function PlatformAdminUsersPage() {
       size: pageSize,
       ...(keyword ? { keyword } : {}),
       ...(role ? { role } : {}),
+      ...(plan ? { plan } : {}),
       ...(status ? { status } : {}),
     }),
-    [page, pageSize, keyword, role, status],
+    [page, pageSize, keyword, role, plan, status],
   );
 
   const { data, isLoading, isError, refetch } = usePlatformAdminUsers(params);
@@ -110,6 +112,7 @@ export function PlatformAdminUsersPage() {
   function handleReset() {
     setKeywordInput('');
     setRole('');
+    setPlan('');
     setStatus('');
   }
 
@@ -149,6 +152,7 @@ export function PlatformAdminUsersPage() {
       const all = await fetchAllPlatformAdminUsers({
         ...(keyword ? { keyword } : {}),
         ...(role ? { role } : {}),
+        ...(plan ? { plan } : {}),
         ...(status ? { status } : {}),
       });
       setExportGeneratedAt(new Date().toLocaleString('ko-KR'));
@@ -170,6 +174,7 @@ export function PlatformAdminUsersPage() {
     password: string;
     name: string;
     role: AdminUserRole;
+    companyId: number | null;
   }) {
     const created = await createUser(input);
     setIsCreateModalOpen(false);
@@ -207,9 +212,11 @@ export function PlatformAdminUsersPage() {
         <AdminUserFilterBar
           keyword={keywordInput}
           role={role}
+          plan={plan}
           status={status}
           onKeywordChange={setKeywordInput}
           onRoleChange={setRole}
+          onPlanChange={setPlan}
           onStatusChange={setStatus}
           onReset={handleReset}
         />
