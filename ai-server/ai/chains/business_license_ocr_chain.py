@@ -55,6 +55,10 @@ BUSINESS_START_DATE_PATTERN = re.compile(
 # open을 태우면 대형 페이로드로 CPU/메모리를 고갈시킬 수 있음, DoS 방지).
 MAX_IMAGE_BASE64_LENGTH = 14_000_000
 
+# structured 응답 Redis 캐시 TTL(#623) — 대표자명 등 개인정보가 섞인 OCR 응답이라, 다른 체인의
+# 기본 24h(llm_client.CACHE_TTL_SECONDS)보다 짧게 둬 공유 Redis(OCI dev/arm1 prod) 잔존 기간을 줄인다.
+OCR_CACHE_TTL_SECONDS = 60 * 60  # 1시간
+
 
 class BusinessLicenseOcrExtract(BaseModel):
     """LLM 응답은 structured output 으로만 수신 — 자유 텍스트 파싱 금지 (AI_개발_컨벤션.md §4)"""
@@ -173,7 +177,11 @@ def run_business_license_ocr_chain(image_base64: str) -> BusinessLicenseOcrResul
     avg_confidence = sum(score for _text, score in lines_with_scores) / len(lines_with_scores)
 
     prompt = _build_prompt("\n".join(texts))
-    llm_result = get_llm().with_structured_output(BusinessLicenseOcrExtract).invoke(prompt)
+    llm_result = (
+        get_llm()
+        .with_structured_output(BusinessLicenseOcrExtract, ttl=OCR_CACHE_TTL_SECONDS)
+        .invoke(prompt)
+    )
 
     business_registration_number = _find_business_reg_number(
         texts
