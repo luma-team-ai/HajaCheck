@@ -4,6 +4,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { mapApi } from './api/mapApi';
 import { FacilityListPanel } from './components/FacilityListPanel';
 import { MapControls, type MapDisplayType } from './components/MapControls';
@@ -24,6 +25,7 @@ import {
 const MARKER_SEARCH_DEBOUNCE_MS = 250;
 
 export default function MapPage() {
+  const navigate = useNavigate();
   const rootRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<KakaoMap | null>(null);
@@ -329,10 +331,11 @@ export default function MapPage() {
           <SelectedFacilityPopup
             facility={selectedFacility}
             onViewDetail={() => {
-              // 시설물 상세 라우트 미구현(features/facility) — 버튼 자리만 배치, 구현 시 연결
+              navigate(`/facilities/${selectedFacility.id}`);
             }}
             onGoToInspectionResult={() => {
-              // 결과접수 라우트 미구현 — 버튼 자리만 배치, 구현 시 연결
+              // 결과 검수 라우트(/inspections/:id/viewer)는 inspectionId가 필요하나 FacilityLocation/
+              // GET /api/facilities 응답 어디에도 해당 필드가 없음 — 백엔드 API 확장 선행 필요, 별도 이슈로 분리(#570 범위 밖)
             }}
           />,
           overlayContainer
