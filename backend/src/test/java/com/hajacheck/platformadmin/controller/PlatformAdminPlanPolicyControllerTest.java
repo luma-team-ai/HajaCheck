@@ -93,10 +93,13 @@ class PlatformAdminPlanPolicyControllerTest extends PostgresTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.plans[?(@.name=='STANDARD')].priceMonthly")
-                        .value(List.of(39000.00)))
-                .andExpect(jsonPath("$.data.plans[?(@.name=='STANDARD')].maxFacilities")
-                        .value(List.of(20)));
+                // plans는 id 오름차순(FREE=1, STANDARD=2, ENTERPRISE=3 — V1/V2 시드 순서 고정)이라
+                // index[1]이 항상 STANDARD다. JsonPath 필터(`[?(@.name==...)]`)는 이 환경에서
+                // 정상 매치해도 추출값이 null로 나오는 경우가 있어(PlatformAdminPlanQuotaControllerTest
+                // 에서도 동일 증상 확인) 인덱스로 단언한다.
+                .andExpect(jsonPath("$.data.plans[1].name").value("STANDARD"))
+                .andExpect(jsonPath("$.data.plans[1].priceMonthly").value(39000.00))
+                .andExpect(jsonPath("$.data.plans[1].maxFacilities").value(20));
 
         Plan standard = planRepository.findByName(PlanName.STANDARD).orElseThrow();
         assertThat(standard.getPriceMonthly()).isEqualByComparingTo(new BigDecimal("39000"));
