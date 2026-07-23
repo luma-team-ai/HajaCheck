@@ -21,6 +21,19 @@ export function formatPriceMonthly(price: number): string {
   return `₩${price.toLocaleString()}/월`;
 }
 
+// 다음 결제일 표기(HAJA-?, #712 Figma 리디자인) — BE는 LocalDate를 "YYYY-MM-DD" ISO로 직렬화해
+// 내려준다(계약 그대로 표기). Date 파싱을 거쳐 시:분 등 예상 밖 포맷이 섞여 와도 안전하게
+// YYYY-MM-DD로 정규화하고, 파싱 불가한 값은 원문을 그대로 반환한다(빈 화면보다 원문 노출이 낫다).
+export function formatBillingDate(iso: string): string {
+  const date = new Date(`${iso.slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return iso;
+
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export const PLAN_NAME_LABEL: Record<PlanName, string> = {
   FREE: 'Free',
   STANDARD: 'Standard',

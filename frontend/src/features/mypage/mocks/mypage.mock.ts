@@ -1,8 +1,16 @@
 import type { MyPlan, SeatMember, SeatsInfo } from '../types';
 
-// 백엔드 #211(HAJA-177) 미배포 대비 예제 데이터(HAJA-185) — Figma "My Page - My Plan Management" 시안 기준
+// 백엔드 #211(HAJA-177) 미배포 대비 예제 데이터(HAJA-185) — Figma "My Page - My Plan Management" 시안 기준.
+// priceMonthly=29000은 PRD 확정 STANDARD가(platform-admin planPolicyApi.handlers.ts 시드값과 동일 기준,
+// #712 리디자인 시 99000 → 정정). nextBillingDate/businessVerified는 BE #711/PR#714에서 확정된 신규 필드.
 export const mockMyPlan: MyPlan = {
-  plan: { name: 'STANDARD', priceMonthly: 99000, status: 'ACTIVE' },
+  plan: {
+    name: 'STANDARD',
+    priceMonthly: 29000,
+    status: 'ACTIVE',
+    nextBillingDate: '2026-08-01',
+    businessVerified: true,
+  },
   limits: { maxFacilities: 10, maxMonthlyAnalyses: 1000, maxSeats: 3 },
   usage: { facilityCount: 4, analyzedImageCount: 786, seatCount: 2, period: '2026-07-01' },
 };

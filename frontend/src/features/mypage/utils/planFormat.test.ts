@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatBillingDate,
   formatLimit,
   formatPriceMonthly,
   isUsageWarning,
@@ -55,5 +56,23 @@ describe('isUsageWarning', () => {
 describe('formatPriceMonthly', () => {
   it('원화 기호와 천단위 콤마, /월 접미사를 붙인다', () => {
     expect(formatPriceMonthly(99000)).toBe('₩99,000/월');
+  });
+});
+
+describe('formatBillingDate', () => {
+  it('ISO 날짜(YYYY-MM-DD)를 그대로 표기한다', () => {
+    expect(formatBillingDate('2026-08-01')).toBe('2026-08-01');
+  });
+
+  it('시각이 포함된 ISO 문자열이 와도 날짜 부분만 표기한다', () => {
+    expect(formatBillingDate('2026-08-01T09:00:00Z')).toBe('2026-08-01');
+  });
+
+  it('한 자릿수 월/일도 0으로 패딩한다', () => {
+    expect(formatBillingDate('2026-01-05')).toBe('2026-01-05');
+  });
+
+  it('파싱할 수 없는 값은 원문을 그대로 반환한다', () => {
+    expect(formatBillingDate('invalid-date')).toBe('invalid-date');
   });
 });
