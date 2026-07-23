@@ -33,6 +33,20 @@ export interface InspectionMedia {
   height: number;
 }
 
+// 촬영 데이터 업로드 — API 명세서 v0.3 AP-005, POST /api/inspections/{id}/media.
+// backend MediaResponse와 1:1(originalUrl은 의도적으로 없음 — 원본 비공개 정책).
+export interface Media {
+  id: number;
+  inspectionId: number;
+  fileType: 'IMAGE' | 'VIDEO';
+  thumbnailUrl: string;
+  mimeType: string;
+  capturedAt: string | null;
+  gpsLat: number | null;
+  gpsLng: number | null;
+  createdAt: string;
+}
+
 export interface InspectionResult {
   inspectionId: number;
   media: InspectionMedia;
@@ -73,8 +87,8 @@ export interface FacilityOption {
   name: string;
 }
 
-// 점검(회차) 생성 화면 상단의 시설물 개요 패널(shared/FacilityOverviewPanel) 전용 — facility
-// feature의 Facility/FacilityInspectionOverview 타입과 같은 이유로 로컬 정의(cross-feature import 금지).
+// 분석 결과 뷰어(useInspectionResultReal)가 GET /api/facilities/{id}로 조회하는 시설물 상세 —
+// 위 FacilityOption과 같은 이유로 로컬 정의(cross-feature import 금지).
 export interface FacilityDetail {
   id: number;
   name: string;
@@ -83,27 +97,4 @@ export interface FacilityDetail {
   builtYear: number | null;
   scale: string | null;
   nextInspectionDueAt: string | null;
-}
-
-export type DefectGradeLetter = 'A' | 'B' | 'C' | 'D' | 'E';
-
-export interface FacilityOverviewHistoryEntry {
-  id: number;
-  roundNo: number;
-  /** YYYY-MM-DD */
-  inspectionDate: string;
-  inspectorName: string;
-  status: string;
-  imageCount: number;
-  defectGradeBreakdown: { grade: DefectGradeLetter; count: number }[];
-  changeNote?: string;
-  additionalImageCount?: number;
-}
-
-export interface FacilityOverview {
-  overallGrade: DefectGradeLetter | null;
-  totalRounds: number;
-  cumulativeDefectCount: number;
-  unresolvedDefectCount: number;
-  history: FacilityOverviewHistoryEntry[];
 }

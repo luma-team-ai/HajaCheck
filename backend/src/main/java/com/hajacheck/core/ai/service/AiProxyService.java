@@ -13,6 +13,7 @@ import com.hajacheck.core.ai.dto.DefectExplainResponse;
 import com.hajacheck.core.ai.dto.ReportAiEnvelope;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
+import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -48,8 +49,16 @@ public class AiProxyService {
     private final RestClient aiServerRestClient;
     private final AiServerProperties aiServerProperties;
     private final BriefingStatsService briefingStatsService;
+    private final AiProxyRateLimiter aiProxyRateLimiter;
 
-    public ApiResponse<DefectExplainResponse> explainDefect(DefectExplainRequest request) {
+    /**
+     * @param userId 요청자 식별자 — 컨트롤러가 {@code @AuthenticationPrincipal}에서만 취득해 전달한다
+     *               (요청 바디에서 받지 않는다). 사용자 축 rate-limit 키로만 사용한다.
+     */
+    public ApiResponse<DefectExplainResponse> explainDefect(Long userId, DefectExplainRequest request) {
+        // 사용자 축 → 전역 축 순서로 rate-limit(초과 시 429·FastAPI 호출 없이 중단, AiProxyRateLimiter 참고).
+        aiProxyRateLimiter.checkUser(userId);
+        aiProxyRateLimiter.checkGlobal();
         DefectExplainAiEnvelope envelope = callAiServer(request);
         if (envelope == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
@@ -88,7 +97,14 @@ public class AiProxyService {
         }
     }
 
-    public ApiResponse<ReportResponse> generateReport(ReportRequest request) {
+    /**
+     * @param userId 요청자 식별자 — 호출부(컨트롤러/ReportService)가 {@code @AuthenticationPrincipal}
+     *               에서 확보한 값을 전달한다(요청 바디에서 받지 않는다). 사용자 축 rate-limit 키로만 사용.
+     */
+    public ApiResponse<ReportResponse> generateReport(Long userId, ReportRequest request) {
+        // 사용자 축 → 전역 축 순서로 rate-limit(초과 시 429·FastAPI 호출 없이 중단, AiProxyRateLimiter 참고).
+        aiProxyRateLimiter.checkUser(userId);
+        aiProxyRateLimiter.checkGlobal();
         ReportAiEnvelope envelope = callAiServer(request);
         if (envelope == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);

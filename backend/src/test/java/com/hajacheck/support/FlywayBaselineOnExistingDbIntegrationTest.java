@@ -74,15 +74,16 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 "select type from flyway_schema_history where version = '1'", String.class);
         assertThat(v1Type).isEqualTo("BASELINE");
 
-        // V2(seed_plans)·V3(api_system_logs)·V4(add_platform_admin_role)·V5(add_business_start_date)·
-        // V7(inspection_admin_schema, V6은 #583 예약)만 실제 versioned 마이그레이션으로 성공 적용된다.
-        // 캐노니컬 DDL(HajaCheck_script.sql)은 이미 role_type에 PLATFORM_ADMIN·companies.business_start_date·
-        // 점검 관리자 스키마를 모두 포함하므로 V4/V5/V7은 IF NOT EXISTS로 no-op 성공한다 — 기존 DB(캐노니컬
-        // DDL을 아직 못 받은 실제 arm1/팀원 로컬)에서는 이 V4/V5/V7이 실제로 라벨·컬럼·테이블을 추가하는 경로다.
+        // V2(seed_plans)·V3(api_system_logs)·V4(add_platform_admin_role)·V5(add_business_start_date, #596)·
+        // V6(defects.media_id, #527/HAJA-314)·V7(inspection_admin_schema, #568)이 실제 versioned 마이그레이션으로
+        // 성공 적용된다. 캐노니컬 DDL(HajaCheck_script.sql)은 이미 role_type에 PLATFORM_ADMIN·
+        // companies.business_start_date·defects.media_id·점검 관리자 스키마를 모두 포함하므로 V4·V5·V6·V7은
+        // IF NOT EXISTS로 no-op 성공한다 — 기존 DB(캐노니컬 DDL을 아직 못 받은 실제 arm1/팀원 로컬)에서는
+        // 이 V4·V5·V6·V7이 실제로 라벨·컬럼·테이블을 추가하는 경로다.
         Integer appliedVersioned = jdbcTemplate.queryForObject(
-                "select count(*) from flyway_schema_history where success = true and version in ('2', '3', '4', '5', '7')",
+                "select count(*) from flyway_schema_history where success = true and version in ('2', '3', '4', '5', '6', '7')",
                 Integer.class);
-        assertThat(appliedVersioned).isEqualTo(5);
+        assertThat(appliedVersioned).isEqualTo(6);
 
         // 실패 기록이 남지 않아야 한다(V3가 if not exists로 skip되어 'relation already exists'가 나지 않음).
         Integer failed = jdbcTemplate.queryForObject(
@@ -95,6 +96,13 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 where table_schema = 'public' and table_name = 'api_system_logs'
                 """, Long.class);
         assertThat(apiLogsTables).isEqualTo(1L);
+
+        // 기존 DB에 있던 defects.media_id 도 그대로 유지된다(V6 재실행이 깨거나 중복 생성하지 않음, #527/HAJA-314).
+        Long mediaIdColumns = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'defects' and column_name = 'media_id'
+                """, Long.class);
+        assertThat(mediaIdColumns).isEqualTo(1L);
 
         // plans 3티어가 유지된다(V2 seed 는 ON CONFLICT DO NOTHING 이라 기존 시드를 훼손하지 않는다).
         assertThat(planRepository.findByName(PlanName.FREE)).isPresent();

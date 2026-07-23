@@ -1,6 +1,7 @@
 package com.hajacheck.core.ai.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -84,7 +85,7 @@ class AiProxyControllerTest extends PostgresTestSupport {
     void 하자설명_인증됨_AI서버성공_200과데이터반환() throws Exception {
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                 loginUser, null, loginUser.getAuthorities());
-        when(aiProxyService.explainDefect(any()))
+        when(aiProxyService.explainDefect(anyLong(), any()))
                 .thenReturn(ApiResponse.ok(new DefectExplainResponse("철근 부식", "구조 내력 저하", "단면 보수 후 재도장")));
 
         mockMvc.perform(post("/api/ai/defect-explain").with(csrf()).with(authentication(auth))

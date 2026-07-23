@@ -20,7 +20,7 @@ const mockFacilityOptions: FacilityOption[] = [
   { id: 2, name: '판교 테크노밸리 B동' },
 ];
 
-// 점검(회차) 생성 화면 상단 개요 패널용 시설물 상세 목 — facility feature의 mockFacilities id=1과
+// 분석 결과 뷰어(useInspectionResultReal)용 시설물 상세 목 — facility feature의 mockFacilities id=1과
 // 동일 데모 시설물(값만 로컬 복제, cross-feature import 금지).
 const mockFacilityDetails: Record<number, FacilityDetail> = {
   1: {

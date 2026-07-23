@@ -125,7 +125,7 @@ class ReportServiceTest {
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of());
         when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
-        when(aiProxyService.generateReport(any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(0))));
+        when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
         when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         ReportDetailResponse response = reportService.generateDraft(1L, 100L);
@@ -135,7 +135,7 @@ class ReportServiceTest {
         assertThat(response.groundingCheckPassed()).isTrue();
 
         ArgumentCaptor<ReportRequest> captor = ArgumentCaptor.forClass(ReportRequest.class);
-        verify(aiProxyService).generateReport(captor.capture());
+        verify(aiProxyService).generateReport(anyLong(), captor.capture());
         assertThat(captor.getValue().reportVersion()).isEqualTo(1);
         assertThat(captor.getValue().confirmedDefects()).isEmpty();
     }
@@ -156,13 +156,13 @@ class ReportServiceTest {
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of(defect));
         when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
-        when(aiProxyService.generateReport(any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(0))));
+        when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
         when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         reportService.generateDraft(1L, 100L);
 
         ArgumentCaptor<ReportRequest> captor = ArgumentCaptor.forClass(ReportRequest.class);
-        verify(aiProxyService).generateReport(captor.capture());
+        verify(aiProxyService).generateReport(anyLong(), captor.capture());
         ReportRequest.ConfirmedDefect confirmedDefect = captor.getValue().confirmedDefects().get(0);
         assertThat(confirmedDefect.defectType()).isEqualTo("균열");
         assertThat(confirmedDefect.location()).isEqualTo("서울시 강남구");
@@ -177,7 +177,7 @@ class ReportServiceTest {
                 .thenReturn(List.of());
         Report existing = Report.draft(1L, 2, "{}", 100L);
         when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.of(existing));
-        when(aiProxyService.generateReport(any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(0))));
+        when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
         when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         ReportDetailResponse response = reportService.generateDraft(1L, 100L);
@@ -192,7 +192,7 @@ class ReportServiceTest {
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of());
         when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
-        when(aiProxyService.generateReport(any())).thenReturn(ApiResponse.fail("AI_ERR", "실패"));
+        when(aiProxyService.generateReport(anyLong(), any())).thenReturn(ApiResponse.fail("AI_ERR", "실패"));
 
         assertThatThrownBy(() -> reportService.generateDraft(1L, 100L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
@@ -208,7 +208,7 @@ class ReportServiceTest {
         assertThatThrownBy(() -> reportService.generateDraft(1L, 999L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
-        verify(aiProxyService, never()).generateReport(any());
+        verify(aiProxyService, never()).generateReport(anyLong(), any());
     }
 
     @Test

@@ -1,6 +1,8 @@
 import { useParams } from 'react-router-dom';
 import { ErrorFallback } from '../../../shared/components/ErrorFallback';
+import { ActivityHistoryPanel } from '../components/ActivityHistoryPanel';
 import { DefectExplainPanel } from '../components/DefectExplainPanel';
+import { DefectImageViewer } from '../components/DefectImageViewer';
 import { DefectStatusStepper } from '../components/DefectStatusStepper';
 import { useDefect } from '../hooks/useDefect';
 import { useUpdateDefectStatus } from '../hooks/useUpdateDefectStatus';
@@ -49,8 +51,19 @@ export function DefectDetailPage() {
             <dd>{DEFECT_STATUS_LABEL[defect.status]}</dd>
           </dl>
 
+          {/* TODO(SLA): SLA 기준 정책 미확정(PRD 미기재) — 이번 스코프에서 제외(HAJA-314). 정책 확정 후
+              여기에 SLA 배지/기한 표시를 추가한다. */}
+
           <div className="defect-detail-layout">
             <div className="defect-detail-primary">
+              <DefectImageViewer
+                imageUrl={defect.imageUrl}
+                typeLabel={defect.typeLabel}
+                bboxX={defect.bboxX}
+                bboxY={defect.bboxY}
+                bboxW={defect.bboxW}
+                bboxH={defect.bboxH}
+              />
               <DefectStatusStepper
                 status={defect.status}
                 onAdvance={handleAdvance}
@@ -84,6 +97,9 @@ export function DefectDetailPage() {
                 location={defect.facilityName}
                 facility_type={defect.facilityType}
               />
+              {/* key로 defect.id 변경 시 재마운트 — ActivityHistoryPanel 내부 page state가
+                  다른 하자로 넘어갈 때도 남아있으면 존재하지 않는 페이지를 조회하게 된다. */}
+              <ActivityHistoryPanel key={defect.id} defectId={defect.id} />
             </aside>
           </div>
         </>

@@ -69,8 +69,8 @@ class FlywayBaselineIntegrationTest {
         Integer appliedMigrations = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where success = true", Integer.class);
         // V1(baseline_schema) + V2(seed_plans) + V3(api_system_logs) + V4(add_platform_admin_role)
-        // + V5(add_business_start_date, #596) + V7(inspection_admin_schema, #568 — V6은 #583 예약)
-        assertThat(appliedMigrations).isEqualTo(6);
+        // + V5(add_business_start_date, #596) + V6(defects.media_id, #527/HAJA-314) + V7(inspection_admin_schema, #568)
+        assertThat(appliedMigrations).isEqualTo(7);
 
         // V5가 companies.business_start_date 컬럼을 실제로 추가했는지 확인(#596).
         Long businessStartDateColumnExists = jdbcTemplate.queryForObject("""
@@ -102,6 +102,13 @@ class FlywayBaselineIntegrationTest {
                 where t.typname = 'role_type' and e.enumlabel = 'PLATFORM_ADMIN'
                 """, Long.class);
         assertThat(platformAdminLabelExists).isEqualTo(1L);
+
+        // V6이 실제로 defects.media_id 컬럼(#527/HAJA-314)을 만들었는지 확인.
+        Long columnExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'defects' and column_name = 'media_id'
+                """, Long.class);
+        assertThat(columnExists).isEqualTo(1L);
 
         // V7이 점검 알림 설정 테이블을 실제로 추가했는지 확인한다.
         Long settingsTableExists = jdbcTemplate.queryForObject("""

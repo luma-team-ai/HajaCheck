@@ -14,6 +14,8 @@ public class AiServerProperties {
 
     private String baseUrl;
     private String internalKey;
+    // 하자 자연어 검색(HAJA-120) 전용 — X-Internal-Key와 별개 토큰(contract.md InternalServiceToken).
+    private String internalServiceToken;
     private long connectTimeoutMs = 3000;
     // HF Inference(Qwen3 reasoning) 정상 응답이 최대 HF_TIMEOUT(기본 120s)까지 걸릴 수 있어
     // application.yml 미설정 시 기본 폴백도 그보다 크게 유지한다(#448 P1). 실제값은 application.yml.
@@ -33,6 +35,14 @@ public class AiServerProperties {
 
     public void setInternalKey(String internalKey) {
         this.internalKey = internalKey;
+    }
+
+    public String getInternalServiceToken() {
+        return internalServiceToken;
+    }
+
+    public void setInternalServiceToken(String internalServiceToken) {
+        this.internalServiceToken = internalServiceToken;
     }
 
     public long getConnectTimeoutMs() {

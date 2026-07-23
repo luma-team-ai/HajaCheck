@@ -1,6 +1,7 @@
 package com.hajacheck.core.defect.service;
 
 import com.hajacheck.core.defect.dto.DefectResponse;
+import com.hajacheck.core.defect.dto.DefectRevisionResponse;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectRevision;
@@ -41,6 +42,17 @@ public class DefectService {
         Defect defect = defectRepository.findByIdAndOwnerId(defectId, ownerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
         return DefectResponse.from(defect);
+    }
+
+    /**
+     * 하자 활동 기록 타임라인 조회(HAJA-314) — findByIdAndOwnerId로 소유권을 먼저 검증해
+     * cross-owner IDOR을 차단한 뒤에만 defect_revisions를 조회한다(get()과 동일 원칙).
+     */
+    public PageResponse<DefectRevisionResponse> getRevisions(Long ownerId, Long defectId, Pageable pageable) {
+        defectRepository.findByIdAndOwnerId(defectId, ownerId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
+        Page<DefectRevision> page = defectRevisionRepository.findByDefectIdOrderByCreatedAtDesc(defectId, pageable);
+        return PageResponse.from(page.map(DefectRevisionResponse::from));
     }
 
     @Transactional

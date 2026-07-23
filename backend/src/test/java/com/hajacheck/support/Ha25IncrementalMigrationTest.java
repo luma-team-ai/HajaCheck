@@ -331,7 +331,10 @@ class Ha25IncrementalMigrationTest {
                                 MIGRATION_ROOT + "20260722_02_add_business_start_date.sql"),
                         CONTAINER_ROOT + "20260722_02_add_business_start_date.sql")
                 // Flyway 도입 이후의 변경은 수동 migrations archive가 아니라 버전 파일을 이어 적용한다.
-                // V7 — #568 점검 관리자 스키마(V6은 #583이 선점 예정이라 비워둔다).
+                // V6 — #527/HAJA-314 defects.media_id, V7 — #568 점검 관리자 스키마. 둘 다 forward-apply한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("db/migration/V6__add_defects_media_id.sql"),
+                        CONTAINER_ROOT + "V6__add_defects_media_id.sql")
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V7__inspection_admin_schema.sql"),
@@ -402,6 +405,10 @@ class Ha25IncrementalMigrationTest {
         // #596 — companies.business_start_date 컬럼(ADD COLUMN IF NOT EXISTS로 재실행 가능).
         runPsql(postgres, "20260722_02_add_business_start_date.sql");
         runPsql(postgres, "20260722_02_add_business_start_date.sql");
+        // #527 / HAJA-314 — Flyway V6(defects.media_id + 인덱스)를 실제 운영 경로처럼 forward-apply.
+        // Flyway 마이그레이션은 재실행을 전제하지 않으므로(스스로 1회만 적용) 레거시 파일들과 달리 1회만 실행한다.
+        runPsql(postgres, "V6__add_defects_media_id.sql");
+        // #568 — Flyway V7(점검 관리자 스키마)도 이어서 1회 forward-apply한다.
         runPsql(postgres, "V7__inspection_admin_schema.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;

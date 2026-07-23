@@ -1,6 +1,7 @@
 package com.hajacheck.core.defect.entity;
 
 import com.hajacheck.core.inspection.entity.Inspection;
+import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.global.exception.DomainStateTransitionException;
 import com.hajacheck.global.exception.DomainValidationException;
 import jakarta.persistence.Column;
@@ -32,6 +33,10 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
  *
  * <p>⚠️ BaseTimeEntity 상속 금지: defects 테이블에는 updated_at 컬럼이 없다(created_at 만 존재).
  * type/grade/status 는 PG named enum — @JdbcTypeCode(NAMED_ENUM) 매핑. grade 는 DDL 상 nullable.
+ *
+ * <p>mediaId(HAJA-314)는 이 결함이 어느 촬영 이미지에서 탐지됐는지 가리키는 nullable FK다 — bbox 좌표가
+ * 있어도 그 좌표가 속한 이미지를 알 수 없어 하자 상세 화면에 실사진을 띄울 방법이 없었다. AI 탐지 파이프라인이
+ * 아직 없어 기존 행은 전부 NULL로 남는다(백필 대상 없음).
  */
 @Entity
 @Getter
@@ -57,6 +62,13 @@ public class Defect {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "inspection_id", insertable = false, updatable = false)
     private Inspection inspection;
+
+    @Column(name = "media_id")
+    private Long mediaId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "media_id", insertable = false, updatable = false)
+    private Media media;
 
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(columnDefinition = "defect_type", nullable = false)
@@ -102,10 +114,11 @@ public class Defect {
     private LocalDateTime createdAt;
 
     @Builder
-    private Defect(Long inspectionId, DefectType type, Double bboxX, Double bboxY, Double bboxW, Double bboxH,
-                    Double confidence, DefectGrade grade, DefectStatus status, boolean reviewed, boolean deleted,
-                    Double crackWidthMm, Double crackLengthMm) {
+    private Defect(Long inspectionId, Long mediaId, DefectType type, Double bboxX, Double bboxY, Double bboxW,
+                    Double bboxH, Double confidence, DefectGrade grade, DefectStatus status, boolean reviewed,
+                    boolean deleted, Double crackWidthMm, Double crackLengthMm) {
         this.inspectionId = inspectionId;
+        this.mediaId = mediaId;
         this.type = type;
         this.bboxX = bboxX;
         this.bboxY = bboxY;
