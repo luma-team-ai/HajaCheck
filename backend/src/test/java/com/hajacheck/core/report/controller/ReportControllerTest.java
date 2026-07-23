@@ -103,7 +103,7 @@ class ReportControllerTest extends PostgresTestSupport {
 
     private Inspection seedInspection(User owner) {
         Facility facility = facilityRepository.save(Facility.builder()
-                .ownerId(owner.getId())
+                .companyId(owner.getCompanyId())
                 .name("테스트빌딩")
                 .type("BUILDING")
                 .address("서울시 강남구")

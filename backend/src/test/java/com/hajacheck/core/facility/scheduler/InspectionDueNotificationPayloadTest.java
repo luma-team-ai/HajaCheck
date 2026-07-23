@@ -16,7 +16,7 @@ class InspectionDueNotificationPayloadTest {
 
     private Facility facility(Long id, String name, LocalDate dueAt) {
         Facility f = Facility.builder()
-                .ownerId(1L)
+                .companyId(1L)
                 .name(name)
                 .type("BUILDING")
                 .nextInspectionDueAt(dueAt)

@@ -47,7 +47,7 @@ class InspectionDueNotificationDedupeJsonbRoundTripTest extends PostgresTestSupp
         em.flush();
 
         Facility facility = Facility.builder()
-                .ownerId(owner.getId())
+                .companyId(owner.getId())
                 .name("강남빌딩")
                 .type("BUILDING")
                 .nextInspectionDueAt(LocalDate.of(2026, 7, 21))

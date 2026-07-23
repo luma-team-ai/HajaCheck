@@ -1,5 +1,6 @@
 package com.hajacheck.core.report.service;
 
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
@@ -50,6 +51,7 @@ public class ReportService {
     private final InspectionService inspectionService;
     private final FacilityService facilityService;
     private final AiProxyService aiProxyService;
+    private final CompanyScopeGuard companyScopeGuard;
 
     /**
      * 확정 하자를 근거로 AI 보고서 초안을 생성한다.
@@ -62,9 +64,10 @@ public class ReportService {
     // AI 왕복 동안 커넥션을 잡지 않는다. nextVersion 조회(findFirst...)와 save 는 SimpleJpaRepository 의
     // 각 메서드가 자체 @Transactional 을 걸어주므로(활성 트랜잭션이 없으면 각자 짧게 시작) 별도 처리가 필요 없다.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public ReportDetailResponse generateDraft(Long inspectionId, Long userId) {
-        InspectionResponse inspection = inspectionService.getInspection(userId, inspectionId);
-        FacilityResponse facility = facilityService.get(userId, inspection.facilityId());
+    public ReportDetailResponse generateDraft(Long inspectionId, Long companyId, Long userId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        InspectionResponse inspection = inspectionService.getInspection(userId, companyId, inspectionId);
+        FacilityResponse facility = facilityService.get(userId, companyId, inspection.facilityId());
 
         List<Defect> confirmedDefects = defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
                 inspectionId, CONFIRMED_DEFECT_STATUSES);
@@ -91,30 +94,36 @@ public class ReportService {
         return ReportDetailResponse.from(reportRepository.save(report));
     }
 
-    public ReportDetailResponse getReport(Long reportId, Long userId) {
-        return ReportDetailResponse.from(findOwnedReport(reportId, userId));
+    public ReportDetailResponse getReport(Long reportId, Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        return ReportDetailResponse.from(findCompanyReport(reportId, userId, companyId));
     }
 
-    public List<ReportSummaryResponse> listReports(Long inspectionId, Long userId) {
+    public List<ReportSummaryResponse> listReports(Long inspectionId, Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         // 소유권 검증(IDOR 방지) — 미존재/타인소유 모두 InspectionService.getInspection() 이 통일 응답.
-        inspectionService.getInspection(userId, inspectionId);
+        inspectionService.getInspection(userId, companyId, inspectionId);
         return reportRepository.findByInspectionIdOrderByVersionDesc(inspectionId).stream()
                 .map(ReportSummaryResponse::from)
                 .toList();
     }
 
     @Transactional
-    public ReportDetailResponse updateContent(Long reportId, String contentJson, Long userId) {
-        Report report = findOwnedReport(reportId, userId);
-        report.updateContent(contentJson, userId);
+    public ReportDetailResponse updateContent(
+            Long reportId, String contentJson, Long companyId, Long editedByUserId) {
+        companyScopeGuard.requireEffectiveMembership(editedByUserId, companyId);
+        Report report = findCompanyReport(reportId, editedByUserId, companyId);
+        report.updateContent(contentJson, editedByUserId);
         return ReportDetailResponse.from(report);
     }
 
     @Transactional
-    public ReportDetailResponse finalizeReport(Long reportId, String pdfUrl, Long userId) {
-        Report report = findOwnedReport(reportId, userId);
+    public ReportDetailResponse finalizeReport(
+            Long reportId, String pdfUrl, Long companyId, Long editedByUserId) {
+        companyScopeGuard.requireEffectiveMembership(editedByUserId, companyId);
+        Report report = findCompanyReport(reportId, editedByUserId, companyId);
         requireOwnPdfUrl(reportId, pdfUrl);
-        report.finalizeReport(pdfUrl, userId);
+        report.finalizeReport(pdfUrl, editedByUserId);
         return ReportDetailResponse.from(report);
     }
 
@@ -151,13 +160,17 @@ public class ReportService {
      * 소유권 검증(IDOR 방지) — MediaService.getThumbnail() 패턴과 동일하게, 존재 여부 열거를 막기 위해
      * 미존재/타인소유 모두 REPORT_NOT_FOUND(404) 로 통일 응답한다.
      */
-    private Report findOwnedReport(Long reportId, Long userId) {
+    private Report findCompanyReport(Long reportId, Long userId, Long companyId) {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.REPORT_NOT_FOUND));
         try {
-            inspectionService.getInspection(userId, report.getInspectionId());
+            inspectionService.getInspection(userId, companyId, report.getInspectionId());
         } catch (BusinessException e) {
-            throw new BusinessException(ErrorCode.REPORT_NOT_FOUND);
+            if (e.getErrorCode() == ErrorCode.INSPECTION_NOT_FOUND
+                    || e.getErrorCode() == ErrorCode.FACILITY_NOT_FOUND) {
+                throw new BusinessException(ErrorCode.REPORT_NOT_FOUND);
+            }
+            throw e;
         }
         return report;
     }

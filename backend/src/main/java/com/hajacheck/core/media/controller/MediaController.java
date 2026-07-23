@@ -39,7 +39,8 @@ public class MediaController {
             @PathVariable Long inspectionId,
             @RequestParam("files") List<MultipartFile> files,
             @AuthenticationPrincipal LoginUser loginUser) {
-        List<MediaResponse> response = mediaService.uploadMedia(inspectionId, loginUser.getUserId(), files);
+        List<MediaResponse> response = mediaService.uploadMedia(
+                inspectionId, loginUser.getUserId(), loginUser.getCompanyId(), files);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
     }
 
@@ -47,7 +48,8 @@ public class MediaController {
     @GetMapping("/api/media/{id}/thumbnail")
     public ResponseEntity<byte[]> getThumbnail(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
-        ThumbnailFile thumbnail = mediaService.getThumbnail(loginUser.getUserId(), id);
+        ThumbnailFile thumbnail =
+                mediaService.getThumbnail(loginUser.getUserId(), loginUser.getCompanyId(), id);
         // 사용자별로 소유권 검증을 거쳐 다른 콘텐츠를 반환하는 사적(private) 이미지라(현장 GPS 결부),
         // 동일 URL이 공유 캐시(프록시/CDN)나 브라우저 캐시에 남아 다른 사용자·로그아웃 후 노출되면
         // 안 된다(리뷰 P2).

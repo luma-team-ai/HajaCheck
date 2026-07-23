@@ -29,7 +29,6 @@ vi.mock('../api/facilityApi', () => ({
 function makeFacility(overrides: Partial<Facility>): Facility {
   return {
     id: 1,
-    ownerId: 1,
     name: '테스트 시설물',
     type: '건물',
     address: '서울 강남구 테헤란로 123',

@@ -1,6 +1,7 @@
 package com.hajacheck.core.facility.service;
 
 import com.hajacheck.auth.service.AuthService;
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
@@ -18,7 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 시설물 CRUD — 모든 조회/수정/삭제는 owner(로그인 사용자) 스코프로 제한한다.
+ * 시설물 CRUD — 모든 조회/수정/삭제는 로그인 사용자의 회사 스코프로 제한한다.
  */
 @Slf4j
 @Service
@@ -33,13 +34,15 @@ public class FacilityService {
     private static final int FACILITY_LIST_MAX = 500;
 
     private final FacilityRepository facilityRepository;
+    private final CompanyScopeGuard companyScopeGuard;
     private final AuthService authService;
 
     @Transactional
-    public FacilityResponse create(Long ownerId, FacilityCreateRequest request) {
-        validateAssigneeIfPresent(ownerId, request.assigneeUserId());
+    public FacilityResponse create(Long userId, Long companyId, FacilityCreateRequest request) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        validateAssigneeIfPresent(userId, request.assigneeUserId());
         Facility facility = Facility.builder()
-                .ownerId(ownerId)
+                .companyId(companyId)
                 .name(request.name())
                 .type(request.type())
                 .address(request.address())
@@ -57,23 +60,25 @@ public class FacilityService {
         return FacilityResponse.from(saved);
     }
 
-    public List<FacilityResponse> list(Long ownerId) {
+    public List<FacilityResponse> list(Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         List<Facility> facilities =
-                facilityRepository.findByOwnerIdOrderByIdAsc(ownerId, PageRequest.of(0, FACILITY_LIST_MAX));
+                facilityRepository.findByCompanyIdOrderByIdAsc(companyId, PageRequest.of(0, FACILITY_LIST_MAX));
         // #484 상한(500건)에 걸리면 나머지가 무고지로 잘린다(#502 P2) — 운영 감지를 위해 WARN 로그를 남긴다.
         // 응답 계약(List<FacilityResponse>)은 유지하고, 진짜 페이지네이션 전환 전까지의 임시 관측 수단이다.
         if (facilities.size() == FACILITY_LIST_MAX) {
-            long actualCount = facilityRepository.countByOwnerId(ownerId);
-            log.warn("시설물 목록 상한({}) 도달 — ownerId={} 실제 보유 {}건, 상한 초과분 응답에서 누락",
-                    FACILITY_LIST_MAX, ownerId, actualCount);
+            long actualCount = facilityRepository.countByCompanyId(companyId);
+            log.warn("시설물 목록 상한({}) 도달 — companyId={} 실제 보유 {}건, 상한 초과분 응답에서 누락",
+                    FACILITY_LIST_MAX, companyId, actualCount);
         }
         return facilities.stream()
                 .map(FacilityResponse::from)
                 .toList();
     }
 
-    public FacilityResponse get(Long ownerId, Long facilityId) {
-        return FacilityResponse.from(findOwnedFacility(ownerId, facilityId));
+    public FacilityResponse get(Long userId, Long companyId, Long facilityId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        return FacilityResponse.from(findCompanyFacility(companyId, facilityId));
     }
 
     /**
@@ -88,9 +93,10 @@ public class FacilityService {
     }
 
     @Transactional
-    public FacilityResponse update(Long ownerId, Long facilityId, FacilityUpdateRequest request) {
-        Facility facility = findOwnedFacility(ownerId, facilityId);
-        validateAssigneeIfPresent(ownerId, request.assigneeUserId());
+    public FacilityResponse update(Long userId, Long companyId, Long facilityId, FacilityUpdateRequest request) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Facility facility = findCompanyFacility(companyId, facilityId);
+        validateAssigneeIfPresent(userId, request.assigneeUserId());
         facility.updateInfo(
                 request.name(),
                 request.type(),
@@ -108,23 +114,26 @@ public class FacilityService {
     }
 
     @Transactional
-    public void delete(Long ownerId, Long facilityId) {
-        facilityRepository.delete(findOwnedFacility(ownerId, facilityId));
+    public void delete(Long userId, Long companyId, Long facilityId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        facilityRepository.delete(findCompanyFacility(companyId, facilityId));
     }
 
     /**
-     * 점검주기 설정(dev-04-03, #268) — owner 스코프 검증 후 엔티티 메서드로 상태전이 위임.
+     * 점검주기 설정(dev-04-03, #268) — 회사 스코프 검증 후 엔티티 메서드로 상태전이 위임.
      * 기준일(오늘)은 서비스가 LocalDate.now() 로 산출해 엔티티에 주입한다.
      */
     @Transactional
-    public FacilityResponse setSchedule(Long ownerId, Long facilityId, FacilityScheduleRequest request) {
-        Facility facility = findOwnedFacility(ownerId, facilityId);
+    public FacilityResponse setSchedule(
+            Long userId, Long companyId, Long facilityId, FacilityScheduleRequest request) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Facility facility = findCompanyFacility(companyId, facilityId);
         facility.updateSchedule(request.inspectionCycleMonths(), LocalDate.now());
         return FacilityResponse.from(facility);
     }
 
-    private Facility findOwnedFacility(Long ownerId, Long facilityId) {
-        return facilityRepository.findByIdAndOwnerId(facilityId, ownerId)
+    private Facility findCompanyFacility(Long companyId, Long facilityId) {
+        return facilityRepository.findByIdAndCompanyId(facilityId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.FACILITY_NOT_FOUND));
     }
 
@@ -133,9 +142,9 @@ public class FacilityService {
      * AuthService.validateAssignableInspector 를 재사용한다. 시설물 담당자는 선택 입력(nullable)이라
      * assigneeUserId 가 없으면 검증을 건너뛴다(값이 있을 때만 활성·역할·회사·멤버십을 검증).
      */
-    private void validateAssigneeIfPresent(Long ownerId, Long assigneeUserId) {
+    private void validateAssigneeIfPresent(Long userId, Long assigneeUserId) {
         if (assigneeUserId != null) {
-            authService.validateAssignableInspector(ownerId, assigneeUserId);
+            authService.validateAssignableInspector(userId, assigneeUserId);
         }
     }
 }

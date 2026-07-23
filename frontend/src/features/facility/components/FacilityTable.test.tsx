@@ -8,7 +8,6 @@ afterEach(cleanup);
 
 const mockFacility: Facility = {
   id: 1,
-  ownerId: 1,
   name: '강남 오피스타워 A동',
   type: '건물',
   address: '서울 강남구 테헤란로 123',

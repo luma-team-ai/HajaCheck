@@ -17,7 +17,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * 사용자가 소유·관리하는 점검 대상 시설 — DDL facilities 테이블 대응.
+ * 회사가 소유·관리하는 점검 대상 시설 — DDL facilities 테이블 대응.
  * SpringBoot_코드_컨벤션.md §6/§7: @Setter 금지, 상태 변경은 의도가 드러나는 메서드로.
  *
  * ⚠️ Soft Delete 미적용: DDL facilities 테이블에 is_deleted 컬럼이 없다(§5.3, docs/design/db/table_design.md).
@@ -34,8 +34,8 @@ public class Facility extends BaseTimeEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "owner_id", nullable = false)
-    private Long ownerId;
+    @Column(name = "company_id", nullable = false)
+    private Long companyId;
 
     @Column(nullable = false, length = 200)
     private String name;
@@ -76,11 +76,11 @@ public class Facility extends BaseTimeEntity {
     private String memo;
 
     @Builder
-    private Facility(Long ownerId, String name, String type, String address,
+    private Facility(Long companyId, String name, String type, String address,
                       BigDecimal latitude, BigDecimal longitude, Integer builtYear,
                       String scale, Integer inspectionCycleMonths, LocalDate nextInspectionDueAt,
                       FacilityInitialGrade initialGrade, Long assigneeUserId, String memo) {
-        this.ownerId = ownerId;
+        this.companyId = companyId;
         this.name = name;
         this.type = type;
         this.address = address;
@@ -127,7 +127,7 @@ public class Facility extends BaseTimeEntity {
         this.nextInspectionDueAt = baseDate.plusMonths(inspectionCycleMonths);
     }
 
-    public boolean isOwnedBy(Long userId) {
-        return this.ownerId.equals(userId);
+    public boolean belongsToCompany(Long companyId) {
+        return this.companyId.equals(companyId);
     }
 }

@@ -164,7 +164,7 @@ class MediaControllerTest extends PostgresTestSupport {
     void 썸네일조회_인증됨_CacheControl_noStore_private() throws Exception {
         User owner = seedApprovedInspector("thumb-owner@haja.com");
         Facility facility = facilityRepository.save(Facility.builder()
-                .ownerId(owner.getId())
+                .companyId(owner.getCompanyId())
                 .name("테스트빌딩")
                 .type("BUILDING")
                 .build());

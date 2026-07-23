@@ -4,7 +4,6 @@ import type { Facility } from '../types';
 export const mockFacilities: Facility[] = [
   {
     id: 1,
-    ownerId: 1,
     name: '강남 오피스타워 A동',
     type: '건물',
     address: '서울 강남구 테헤란로 123',
@@ -19,7 +18,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 2,
-    ownerId: 1,
     name: '판교 테크노밸리 B동',
     type: '건물',
     address: '경기 성남시 분당구 판교역로 235',
@@ -34,7 +32,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 3,
-    ownerId: 1,
     name: '한강대교 북단',
     type: '교량',
     address: '서울 용산구 한강대로 인근',
@@ -49,7 +46,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 4,
-    ownerId: 1,
     name: '송도 물류센터',
     type: '건물',
     address: '인천 연수구 송도과학로 32',
@@ -64,7 +60,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 5,
-    ownerId: 1,
     name: '수원 스마트팩토리',
     type: '건물',
     address: '경기 수원시 영통구 광교로 145',
@@ -79,7 +74,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 6,
-    ownerId: 1,
     name: '야탑 물류센터',
     type: '건물',
     address: '경기도 성남시 분당구 야탑로 205',
@@ -94,7 +88,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 7,
-    ownerId: 1,
     name: '탄천 보행교',
     type: '교량',
     address: '경기도 성남시 분당구 탄천로',
@@ -109,7 +102,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 8,
-    ownerId: 1,
     name: '역삼 스퀘어 타워',
     type: '건물',
     address: '서울시 강남구 테헤란로 152',
@@ -124,7 +116,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 9,
-    ownerId: 1,
     name: '성수 리모델링 현장동',
     type: '건물',
     address: '서울시 성동구 아차산로 68',
@@ -139,7 +130,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 10,
-    ownerId: 1,
     name: '남산 1호 터널 접속부',
     type: '터널',
     address: '서울시 중구 퇴계로',
@@ -154,7 +144,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 11,
-    ownerId: 1,
     name: '올림픽대로 잠실 구간',
     type: '도로',
     address: '서울시 송파구 올림픽대로',
@@ -169,7 +158,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 12,
-    ownerId: 1,
     name: '한강 성수대교 남단',
     type: '교량',
     address: '서울시 강남구 압구정로',
@@ -184,7 +172,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 13,
-    ownerId: 1,
     name: '서울숲 옹벽 구간',
     type: '기타',
     address: '서울시 성동구 뚝섬로 273',
@@ -199,7 +186,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 14,
-    ownerId: 1,
     name: '강남역 지하상가 통로',
     type: '기타',
     address: '서울시 강남구 강남대로 지하 396',
@@ -214,7 +200,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 15,
-    ownerId: 1,
     name: '마포 상암 DMC 별관',
     type: '건물',
     address: '서울시 마포구 성암로 267',
@@ -229,7 +214,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 16,
-    ownerId: 1,
     name: '상암 월드컵로 고가',
     type: '도로',
     address: '서울시 마포구 월드컵로',

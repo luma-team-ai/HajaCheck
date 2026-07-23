@@ -39,7 +39,8 @@ import org.springframework.web.client.RestClient;
 class AiProxyServiceBriefingTest {
 
     private static final String AI_SERVER_URL = "http://ai-server-test/ai/briefing";
-    private static final Long OWNER_ID = 1L;
+    private static final Long USER_ID = 1L;
+    private static final Long COMPANY_ID = 2L;
 
     private static final BriefingStatsRequest STATS = new BriefingStatsRequest(
             3, 4, 2, 1, 8, 10, "균열", 1, Map.of("A", 3L, "B", 4L, "C", 1L, "D", 0L, "E", 1L));
@@ -68,7 +69,7 @@ class AiProxyServiceBriefingTest {
 
     @Test
     void briefing_성공_데이터반환_내부키헤더부착() {
-        when(briefingStatsService.buildStats(OWNER_ID)).thenReturn(STATS);
+        when(briefingStatsService.buildStats(USER_ID, COMPANY_ID)).thenReturn(STATS);
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("X-Internal-Key", "test-internal-key"))
@@ -93,7 +94,7 @@ class AiProxyServiceBriefingTest {
                                 }
                                 """));
 
-        ApiResponse<BriefingResponse> response = aiProxyService.briefing(OWNER_ID);
+        ApiResponse<BriefingResponse> response = aiProxyService.briefing(USER_ID, COMPANY_ID);
 
         assertThat(response.success()).isTrue();
         assertThat(response.data()).isNotNull();
@@ -105,7 +106,7 @@ class AiProxyServiceBriefingTest {
 
     @Test
     void briefing_LLM실패_에러코드메시지그대로전파() {
-        when(briefingStatsService.buildStats(OWNER_ID)).thenReturn(STATS);
+        when(briefingStatsService.buildStats(USER_ID, COMPANY_ID)).thenReturn(STATS);
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andRespond(withStatus(HttpStatus.OK)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -113,7 +114,7 @@ class AiProxyServiceBriefingTest {
                                 {"success":false,"error":{"code":"LLM_INVALID_OUTPUT","message":"모델 응답 파싱 실패"}}
                                 """));
 
-        ApiResponse<BriefingResponse> response = aiProxyService.briefing(OWNER_ID);
+        ApiResponse<BriefingResponse> response = aiProxyService.briefing(USER_ID, COMPANY_ID);
 
         assertThat(response.success()).isFalse();
         assertThat(response.error().code()).isEqualTo("LLM_INVALID_OUTPUT");
@@ -122,13 +123,13 @@ class AiProxyServiceBriefingTest {
 
     @Test
     void briefing_연결불가_AI_SERVER_UNREACHABLE예외() {
-        when(briefingStatsService.buildStats(OWNER_ID)).thenReturn(STATS);
+        when(briefingStatsService.buildStats(USER_ID, COMPANY_ID)).thenReturn(STATS);
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andRespond(request -> {
                     throw new ConnectException("Connection refused");
                 });
 
-        assertThatThrownBy(() -> aiProxyService.briefing(OWNER_ID))
+        assertThatThrownBy(() -> aiProxyService.briefing(USER_ID, COMPANY_ID))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_SERVER_UNREACHABLE));
@@ -137,11 +138,11 @@ class AiProxyServiceBriefingTest {
     @Test
     void briefing_5xx응답_AI_SERVER_ERROR예외() {
         // #334 P3: 5xx 는 업스트림(AI 서버) 자체 장애로 보아 AI_SERVER_ERROR 로 분기.
-        when(briefingStatsService.buildStats(OWNER_ID)).thenReturn(STATS);
+        when(briefingStatsService.buildStats(USER_ID, COMPANY_ID)).thenReturn(STATS);
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andRespond(withServerError());
 
-        assertThatThrownBy(() -> aiProxyService.briefing(OWNER_ID))
+        assertThatThrownBy(() -> aiProxyService.briefing(USER_ID, COMPANY_ID))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_SERVER_ERROR));
@@ -150,13 +151,13 @@ class AiProxyServiceBriefingTest {
     @Test
     void briefing_4xx응답_AI_REQUEST_REJECTED예외() {
         // #334 P3: 4xx 는 요청 데이터가 AI 서버 계약에 안 맞아 거부된 것으로 보아 AI_REQUEST_REJECTED 로 분기.
-        when(briefingStatsService.buildStats(OWNER_ID)).thenReturn(STATS);
+        when(briefingStatsService.buildStats(USER_ID, COMPANY_ID)).thenReturn(STATS);
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andRespond(withStatus(HttpStatus.BAD_REQUEST)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"detail\":\"invalid request\"}"));
 
-        assertThatThrownBy(() -> aiProxyService.briefing(OWNER_ID))
+        assertThatThrownBy(() -> aiProxyService.briefing(USER_ID, COMPANY_ID))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_REQUEST_REJECTED));

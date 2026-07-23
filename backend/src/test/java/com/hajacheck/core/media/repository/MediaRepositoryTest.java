@@ -66,7 +66,7 @@ class MediaRepositoryTest extends PostgresTestSupport {
         em.persist(owner);
         em.flush();
 
-        Facility facility = Facility.builder().ownerId(owner.getId()).name("테스트빌딩").type("BUILDING").build();
+        Facility facility = Facility.builder().companyId(company.getId()).name("테스트빌딩").type("BUILDING").build();
         em.persist(facility);
         em.flush();
 

@@ -75,10 +75,15 @@ class DefectRepositoryTest extends PostgresTestSupport {
     }
 
     private Long seedFacility(Long ownerId, String name) {
-        Facility facility = Facility.builder().ownerId(ownerId).name(name).type("BUILDING").build();
+        Long companyId = em.find(User.class, ownerId).getCompanyId();
+        Facility facility = Facility.builder().companyId(companyId).name(name).type("BUILDING").build();
         em.persist(facility);
         em.flush();
         return facility.getId();
+    }
+
+    private Long companyId(Long ownerId) {
+        return em.find(User.class, ownerId).getCompanyId();
     }
 
     private Long seedInspection(Long facilityId, Long createdBy, int roundNo) {
@@ -296,7 +301,7 @@ class DefectRepositoryTest extends PostgresTestSupport {
     // ── HAJA-30: 하자 목록·상세 조회 ──
 
     @Test
-    void findPageByOwnerIdAndFilters_owner스코프_본인시설하자만조회() {
+    void findPageByCompanyIdAndFilters_owner스코프_본인시설하자만조회() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long strangerId = seedOwner("owner-b@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
@@ -306,29 +311,29 @@ class DefectRepositoryTest extends PostgresTestSupport {
         defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
         defectRepository.save(newDefect(strangerInspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
 
-        Page<Defect> result = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, null, null, PageRequest.of(0, 10));
+        Page<Defect> result = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, null, PageRequest.of(0, 10));
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getTotalElements()).isEqualTo(1);
     }
 
     @Test
-    void findPageByOwnerIdAndFilters_삭제된하자는제외() {
+    void findPageByCompanyIdAndFilters_삭제된하자는제외() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
         defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
         defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, true));
 
-        Page<Defect> result = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, null, null, PageRequest.of(0, 10));
+        Page<Defect> result = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, null, PageRequest.of(0, 10));
 
         assertThat(result.getContent()).hasSize(1);
     }
 
     @Test
-    void findPageByOwnerIdAndFilters_유형등급상태필터적용() {
+    void findPageByCompanyIdAndFilters_유형등급상태필터적용() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
@@ -337,13 +342,13 @@ class DefectRepositoryTest extends PostgresTestSupport {
 
         // 등급 필터는 "이상"(임계값) 의미다 — grade=E(최고 등급)를 주면 E 자기 자신만 매치되므로
         // 임계값과 정확 일치가 동일한 결과라 이 케이스만으로는 회귀를 못 잡는다. 임계값 전용
-        // 회귀 방지는 아래 findPageByOwnerIdAndFilters_등급필터는이상_임계값의미 에서 별도 검증한다.
-        Page<Defect> gradeFiltered = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, DefectGrade.E, null, PageRequest.of(0, 10));
-        Page<Defect> statusFiltered = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, null, DefectStatus.DETECTED, PageRequest.of(0, 10));
-        Page<Defect> typeFiltered = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, DefectType.CRACK, null, null, PageRequest.of(0, 10));
+        // 회귀 방지는 아래 findPageByCompanyIdAndFilters_등급필터는이상_임계값의미 에서 별도 검증한다.
+        Page<Defect> gradeFiltered = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, DefectGrade.E, null, PageRequest.of(0, 10));
+        Page<Defect> statusFiltered = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, DefectStatus.DETECTED, PageRequest.of(0, 10));
+        Page<Defect> typeFiltered = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), DefectType.CRACK, null, null, PageRequest.of(0, 10));
 
         assertThat(gradeFiltered.getContent()).extracting(Defect::getGrade).containsExactly(DefectGrade.E);
         assertThat(statusFiltered.getContent()).extracting(Defect::getStatus)
@@ -352,7 +357,7 @@ class DefectRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void findPageByOwnerIdAndFilters_등급필터는이상_임계값의미() {
+    void findPageByCompanyIdAndFilters_등급필터는이상_임계값의미() {
         // PR #372 code-reviewer P2 — "등급: X 이상" UI 라벨과 달리 백엔드가 grade == X 정확 일치만
         // 반환해 X보다 심각한 등급이 결과에서 누락되던 결함의 회귀 방지 테스트. PG named enum
         // (defect_grade_type)의 실제 DB측 >= 비교(A<B<C<D<E 선언순)를 Testcontainers로 검증한다.
@@ -366,14 +371,14 @@ class DefectRepositoryTest extends PostgresTestSupport {
         defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.DETECTED, false));
 
         // 중간값(C) 필터 — C·D·E는 포함, A·B는 제외.
-        Page<Defect> cOrAbove = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, DefectGrade.C, null, PageRequest.of(0, 10));
+        Page<Defect> cOrAbove = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, DefectGrade.C, null, PageRequest.of(0, 10));
         // 최저 등급(A) 필터 — 전부 포함(임계값이 사실상 무필터와 동일).
-        Page<Defect> aOrAbove = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, DefectGrade.A, null, PageRequest.of(0, 10));
+        Page<Defect> aOrAbove = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, DefectGrade.A, null, PageRequest.of(0, 10));
         // 최고 등급(E) 필터 — E만 포함(정확 일치와 결과가 같아지는 경계).
-        Page<Defect> eOrAbove = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, DefectGrade.E, null, PageRequest.of(0, 10));
+        Page<Defect> eOrAbove = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, DefectGrade.E, null, PageRequest.of(0, 10));
 
         assertThat(cOrAbove.getContent()).extracting(Defect::getGrade)
                 .containsExactlyInAnyOrder(DefectGrade.C, DefectGrade.D, DefectGrade.E);
@@ -383,7 +388,7 @@ class DefectRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void findPageByOwnerIdAndFilters_최신순정렬() {
+    void findPageByCompanyIdAndFilters_최신순정렬() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
@@ -397,15 +402,15 @@ class DefectRepositoryTest extends PostgresTestSupport {
         updateCreatedAt(newer.getId(), base.plusMinutes(10));
         em.clear();
 
-        Page<Defect> result = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, null, null, PageRequest.of(0, 10));
+        Page<Defect> result = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, null, PageRequest.of(0, 10));
 
         assertThat(result.getContent()).extracting(Defect::getId)
                 .containsExactly(newer.getId(), older.getId());
     }
 
     @Test
-    void findByIdAndOwnerId_본인소유하자_조회됨() {
+    void findByIdAndCompanyId_본인소유하자_조회됨() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
@@ -417,14 +422,14 @@ class DefectRepositoryTest extends PostgresTestSupport {
         em.flush();
         em.clear();
 
-        Optional<Defect> result = defectRepository.findByIdAndOwnerId(saved.getId(), ownerId);
+        Optional<Defect> result = defectRepository.findByIdAndCompanyId(saved.getId(), companyId(ownerId));
 
         assertThat(result).isPresent();
         assertThat(result.get().getInspection().getFacility().getId()).isEqualTo(facilityId);
     }
 
     @Test
-    void findByIdAndOwnerId_타인소유하자_빈값() {
+    void findByIdAndCompanyId_타인소유하자_빈값() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long strangerId = seedOwner("owner-b@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
@@ -432,20 +437,20 @@ class DefectRepositoryTest extends PostgresTestSupport {
         Defect saved = defectRepository.save(
                 newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
 
-        Optional<Defect> result = defectRepository.findByIdAndOwnerId(saved.getId(), strangerId);
+        Optional<Defect> result = defectRepository.findByIdAndCompanyId(saved.getId(), companyId(strangerId));
 
         assertThat(result).isEmpty();
     }
 
     @Test
-    void findByIdAndOwnerId_삭제된하자_빈값() {
+    void findByIdAndCompanyId_삭제된하자_빈값() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
         Defect saved = defectRepository.save(
                 newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, true));
 
-        Optional<Defect> result = defectRepository.findByIdAndOwnerId(saved.getId(), ownerId);
+        Optional<Defect> result = defectRepository.findByIdAndCompanyId(saved.getId(), companyId(ownerId));
 
         assertThat(result).isEmpty();
     }

@@ -11,7 +11,6 @@ import java.time.LocalDateTime;
  */
 public record FacilityResponse(
         Long id,
-        Long ownerId,
         String name,
         String type,
         String address,
@@ -30,7 +29,6 @@ public record FacilityResponse(
     public static FacilityResponse from(Facility facility) {
         return new FacilityResponse(
                 facility.getId(),
-                facility.getOwnerId(),
                 facility.getName(),
                 facility.getType(),
                 facility.getAddress(),

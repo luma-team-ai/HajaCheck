@@ -1,5 +1,6 @@
 package com.hajacheck.core.facility.scheduler;
 
+import com.hajacheck.auth.service.CompanyOwnerLookupService;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.notification.entity.Notification;
@@ -21,7 +22,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 점검 예정일이 도래한 시설물의 소유자에게 INSPECTION_DUE 알림을 발행하는 일 배치(NOTI-01, #425).
+ * 점검 예정일이 도래한 시설물의 회사 소유자에게 INSPECTION_DUE 알림을 발행하는 일 배치(NOTI-01, #425).
  *
  * <p>매일 06:00(KST) 실행. {@code next_inspection_due_at <= 오늘}인(overdue 포함) 시설물을 페이지 단위로 순회하며,
  * 각 시설물의 <b>현재 도래일</b>로 이미 INSPECTION_DUE가 발행됐으면 건너뛴다(멱등, 도래일당 1회). 도래일 값이
@@ -50,6 +51,7 @@ public class InspectionDueNotificationScheduler {
     private static final int PAGE_SIZE = 200;
 
     private final FacilityRepository facilityRepository;
+    private final CompanyOwnerLookupService companyOwnerLookupService;
     private final NotificationRepository notificationRepository;
     private final NotificationService notificationService;
     private final Clock clock;
@@ -79,16 +81,18 @@ public class InspectionDueNotificationScheduler {
     }
 
     private BatchCounts processPage(List<Facility> facilities, int pageNumber) {
-        Set<Long> ownerIds = facilities.stream()
-                .map(Facility::getOwnerId)
+        Set<Long> companyIds = facilities.stream()
+                .map(Facility::getCompanyId)
                 .collect(Collectors.toSet());
+        Map<Long, Long> ownerUserIdByCompany = companyOwnerLookupService.findOwnerUserIds(companyIds);
+        Set<Long> ownerUserIds = Set.copyOf(ownerUserIdByCompany.values());
 
-        // owner당 1쿼리(N+1) 대신, 이 페이지에 등장하는 모든 owner의 기존 알림을 한 번에 조회해
-        // owner별 이미-발행 dedupe 키 집합을 만든다.
+        // 회사당 1쿼리(N+1) 대신, 이 페이지에 등장하는 회사 소유자의 기존 알림을 한 번에 조회해
+        // 수신 사용자별 이미-발행 dedupe 키 집합을 만든다.
         Map<Long, Set<String>> alreadyByOwner;
         try {
             alreadyByOwner = notificationRepository
-                    .findAllByUserIdInAndType(ownerIds, NotificationType.INSPECTION_DUE)
+                    .findAllByUserIdInAndType(ownerUserIds, NotificationType.INSPECTION_DUE)
                     .stream()
                     .collect(Collectors.groupingBy(
                             Notification::getUserId,
@@ -106,13 +110,20 @@ public class InspectionDueNotificationScheduler {
         int skipped = 0;
         int failed = 0;
         for (Facility facility : facilities) {
-            Set<String> already = alreadyByOwner.getOrDefault(facility.getOwnerId(), Set.of());
+            Long recipientUserId = ownerUserIdByCompany.get(facility.getCompanyId());
+            if (recipientUserId == null) {
+                failed++;
+                log.warn("INSPECTION_DUE 회사 소유자 조회 실패 — facilityId={} companyId={}",
+                        facility.getId(), facility.getCompanyId());
+                continue;
+            }
+            Set<String> already = alreadyByOwner.getOrDefault(recipientUserId, Set.of());
             if (already.contains(InspectionDueNotificationPayload.dedupeKeyOf(facility))) {
                 skipped++;
                 continue;
             }
             try {
-                notificationService.notify(facility.getOwnerId(), NotificationType.INSPECTION_DUE,
+                notificationService.notify(recipientUserId, NotificationType.INSPECTION_DUE,
                         InspectionDueNotificationPayload.serialize(facility));
                 published++;
             } catch (Exception e) {

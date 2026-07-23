@@ -35,7 +35,8 @@ public class InspectionController {
     public ResponseEntity<ApiResponse<InspectionResponse>> createInspection(
             @Valid @RequestBody InspectionCreateRequest request,
             @AuthenticationPrincipal LoginUser loginUser) {
-        InspectionResponse response = inspectionService.createInspection(request, loginUser.getUserId());
+        InspectionResponse response = inspectionService.createInspection(
+                request, loginUser.getCompanyId(), loginUser.getUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
     }
 
@@ -43,6 +44,7 @@ public class InspectionController {
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<InspectionResponse>> getInspection(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
-        return ResponseEntity.ok(ApiResponse.ok(inspectionService.getInspection(loginUser.getUserId(), id)));
+        return ResponseEntity.ok(ApiResponse.ok(
+                inspectionService.getInspection(loginUser.getUserId(), loginUser.getCompanyId(), id)));
     }
 }

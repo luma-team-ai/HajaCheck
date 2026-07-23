@@ -15,18 +15,18 @@ import org.springframework.data.repository.query.Param;
 
 public interface FacilityRepository extends JpaRepository<Facility, Long> {
 
-    List<Facility> findByOwnerId(Long ownerId);
+    List<Facility> findByCompanyId(Long companyId);
 
     // 시설물 목록 조회 상한(#484) — FacilityService.list() 전용. 계약(응답=배열) 은 유지한 채
     // 무제한 반환을 막는 방어적 상한이라 정렬은 id asc(등록순, 결정적) 로 고정한다.
-    List<Facility> findByOwnerIdOrderByIdAsc(Long ownerId, Pageable pageable);
+    List<Facility> findByCompanyIdOrderByIdAsc(Long companyId, Pageable pageable);
 
-    Optional<Facility> findByIdAndOwnerId(Long id, Long ownerId);
+    Optional<Facility> findByIdAndCompanyId(Long id, Long companyId);
 
-    long countByOwnerId(Long ownerId);
+    long countByCompanyId(Long companyId);
 
     // 대시보드 개요(HAJA-17) — 전월 대비 증감률 계산용: 기준 시각 이전 누적 등록 수.
-    long countByOwnerIdAndCreatedAtBefore(Long ownerId, LocalDateTime before);
+    long countByCompanyIdAndCreatedAtBefore(Long companyId, LocalDateTime before);
 
     // 점검 회차 채번 동시성 경쟁 방지(dev-05-02) — 같은 시설물에 대한 동시 점검 생성 요청을
     // 트랜잭션 종료 시점까지 직렬화하기 위한 행 잠금. 시설물은 항상 존재가 보장된 상태에서 호출되므로
@@ -35,17 +35,17 @@ public interface FacilityRepository extends JpaRepository<Facility, Long> {
     @Query("select f from Facility f where f.id = :id")
     Optional<Facility> findByIdForUpdate(@Param("id") Long id);
 
-    // 다가오는 점검 예정 조회(dev-03-02, HAJA-대시보드 위젯) — owner_id 단일 스코프,
+    // 다가오는 점검 예정 조회(dev-03-02, HAJA-대시보드 위젯) — company_id 단일 스코프,
     // next_inspection_due_at is not null 이며 [from, to] 범위(오늘~오늘+days) 내인 시설물만,
     // nextInspectionDueAt 오름차순으로 최대 limit(Pageable) 건 반환.
-    @Query("select f from Facility f where f.ownerId = :ownerId and f.nextInspectionDueAt is not null "
+    @Query("select f from Facility f where f.companyId = :companyId and f.nextInspectionDueAt is not null "
             + "and f.nextInspectionDueAt >= :from and f.nextInspectionDueAt <= :to "
             + "order by f.nextInspectionDueAt asc")
-    List<Facility> findUpcomingByOwnerId(@Param("ownerId") Long ownerId, @Param("from") LocalDate from,
-                                          @Param("to") LocalDate to, Pageable pageable);
+    List<Facility> findUpcomingByCompanyId(@Param("companyId") Long companyId, @Param("from") LocalDate from,
+                                            @Param("to") LocalDate to, Pageable pageable);
 
-    // INSPECTION_DUE 알림 배치(NOTI-01, #425) — findUpcomingByOwnerId 와 달리 owner 스코프가 없는 전역 쿼리.
-    // 배치가 모든 owner의 마감 도래(overdue 포함, 오늘 이하) 시설물을 순회해야 하므로 의도적으로 unscoped 다.
+    // INSPECTION_DUE 알림 배치(NOTI-01, #425) — findUpcomingByCompanyId 와 달리 회사 스코프가 없는 전역 쿼리.
+    // 배치가 모든 회사의 마감 도래(overdue 포함, 오늘 이하) 시설물을 순회해야 하므로 의도적으로 unscoped 다.
     // 전역 대상이라 미페이징 로딩은 메모리 위험 — 반드시 Pageable 로 페이지 단위 순회한다(스케줄러가 hasNext 로 반복).
     // ⚠️ OrderByIdAsc 필수: ORDER BY 없이는 Postgres 가 페이지 요청 간 행 순서를 보장하지 않아 페이지 순회 중
     // 행 중복 노출/누락(그 시설물 owner가 알림 미수신)이 발생한다. id asc 결정적 정렬로 안정 페이징을 강제한다.

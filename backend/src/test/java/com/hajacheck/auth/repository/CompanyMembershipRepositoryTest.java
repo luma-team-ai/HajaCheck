@@ -79,6 +79,70 @@ class CompanyMembershipRepositoryTest extends PostgresTestSupport {
         assertThat(exists).isFalse();
     }
 
+    @Test
+    void existsEffectiveApprovedMembership_멤버십없음_false() {
+        Company company = saveCompany(CompanyState.APPROVED_VERIFIED);
+        User member = saveMember(company.getId(), UserStatus.ACTIVE);
+
+        boolean exists = companyMembershipRepository.existsEffectiveApprovedMembership(
+                company.getId(), member.getId(), Instant.now());
+
+        assertThat(exists).isFalse();
+    }
+
+    @Test
+    void existsEffectiveApprovedMembership_PENDING멤버십_false() {
+        Company company = saveCompany(CompanyState.APPROVED_VERIFIED);
+        User member = saveMember(company.getId(), UserStatus.ACTIVE);
+        companyMembershipRepository.saveAndFlush(CompanyMembership.invite(
+                company.getId(), member.getId(), null, Instant.now().plus(1, ChronoUnit.DAYS)));
+
+        boolean exists = companyMembershipRepository.existsEffectiveApprovedMembership(
+                company.getId(), member.getId(), Instant.now());
+
+        assertThat(exists).isFalse();
+    }
+
+    @Test
+    void existsEffectiveApprovedMembership_REVOKED멤버십_false() {
+        Company company = saveCompany(CompanyState.APPROVED_VERIFIED);
+        User member = saveMember(company.getId(), UserStatus.ACTIVE);
+        CompanyMembership membership = saveApprovedMembership(company.getId(), member.getId());
+        membership.revoke();
+        companyMembershipRepository.saveAndFlush(membership);
+
+        boolean exists = companyMembershipRepository.existsEffectiveApprovedMembership(
+                company.getId(), member.getId(), Instant.now());
+
+        assertThat(exists).isFalse();
+    }
+
+    @Test
+    void existsEffectiveApprovedMembership_EXPIRED멤버십_false() {
+        Company company = saveCompany(CompanyState.APPROVED_VERIFIED);
+        User member = saveMember(company.getId(), UserStatus.ACTIVE);
+        saveApprovedMembership(company.getId(), member.getId());
+
+        boolean exists = companyMembershipRepository.existsEffectiveApprovedMembership(
+                company.getId(), member.getId(), Instant.now().plus(2, ChronoUnit.DAYS));
+
+        assertThat(exists).isFalse();
+    }
+
+    @Test
+    void existsEffectiveApprovedMembership_staleCompanyPointer_false() {
+        Company company = saveCompany(CompanyState.APPROVED_VERIFIED);
+        User member = saveMember(company.getId(), UserStatus.ACTIVE);
+        saveApprovedMembership(company.getId(), member.getId());
+        member.assignToCompany(null);
+        userRepository.saveAndFlush(member);
+
+        boolean exists = companyMembershipRepository.existsEffectiveApprovedMembership(
+                company.getId(), member.getId(), Instant.now());
+
+        assertThat(exists).isFalse();
+    }
+
     private Company saveCompany(CompanyState state) {
         User owner = userRepository.save(User.createCompanyOwner(
                 "membership-owner@haja.com", "멤버십 소유자", "$2a$10$hashed"));
@@ -113,11 +177,11 @@ class CompanyMembershipRepositoryTest extends PostgresTestSupport {
                 .build());
     }
 
-    private void saveApprovedMembership(Long companyId, Long userId) {
+    private CompanyMembership saveApprovedMembership(Long companyId, Long userId) {
         CompanyMembership membership = CompanyMembership.invite(
                 companyId, userId, null, Instant.now().plus(1, ChronoUnit.DAYS));
         membership.approve();
-        companyMembershipRepository.saveAndFlush(membership);
+        return companyMembershipRepository.saveAndFlush(membership);
     }
 
     private enum CompanyState {

@@ -353,7 +353,12 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V10__add_facility_registration_fields.sql"),
-                        CONTAINER_ROOT + "V10__add_facility_registration_fields.sql");
+                        CONTAINER_ROOT + "V10__add_facility_registration_fields.sql")
+                // V11 — #637 facilities 소유를 개인(owner_id)에서 회사(company_id)로 전환.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V11__migrate_facilities_to_company.sql"),
+                        CONTAINER_ROOT + "V11__migrate_facilities_to_company.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -431,6 +436,8 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "V9__add_facilities_next_inspection_due_at_index.sql");
         // #628/HAJA-347 — Flyway V10(시설물 등록 필드 확장)도 이어서 1회 forward-apply한다.
         runPsql(postgres, "V10__add_facility_registration_fields.sql");
+        // #637 — Flyway V11(facilities company scope 전환)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V11__migrate_facilities_to_company.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

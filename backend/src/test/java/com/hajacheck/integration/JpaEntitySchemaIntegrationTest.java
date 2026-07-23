@@ -297,7 +297,7 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
 
     private Inspection seedInspection(User owner, String facilityName) {
         Facility facility = Facility.builder()
-                .ownerId(owner.getId())
+                .companyId(owner.getCompanyId())
                 .name(facilityName)
                 .type("BUILDING")
                 .build();

@@ -30,7 +30,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 점검 결과 기반 보고서 생성·조회·편집·확정 API(#446 / HAJA-283). 소유권 검증은 전부 서비스 계층
- * (ReportService → InspectionService.getInspection)에 위임하고, 컨트롤러는 로그인 사용자 식별자만 전달한다.
+ * (ReportService → InspectionService.getInspection)에 위임한다. 회사 스코프와 변경 액터 사용자 식별자는
+ * 각각 {@link LoginUser#getCompanyId()}와 {@link LoginUser#getUserId()}에서 분리해 전달한다.
  */
 @Tag(name = "Report", description = "보고서 API")
 @RestController
@@ -44,7 +45,8 @@ public class ReportController {
     @PostMapping("/api/inspections/{inspectionId}/reports")
     public ResponseEntity<ApiResponse<ReportDetailResponse>> generateDraft(
             @PathVariable Long inspectionId, @AuthenticationPrincipal LoginUser loginUser) {
-        ReportDetailResponse response = reportService.generateDraft(inspectionId, loginUser.getUserId());
+        ReportDetailResponse response = reportService.generateDraft(
+                inspectionId, loginUser.getCompanyId(), loginUser.getUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
     }
 
@@ -52,7 +54,8 @@ public class ReportController {
     @GetMapping("/api/inspections/{inspectionId}/reports")
     public ResponseEntity<ApiResponse<List<ReportSummaryResponse>>> listReports(
             @PathVariable Long inspectionId, @AuthenticationPrincipal LoginUser loginUser) {
-        List<ReportSummaryResponse> response = reportService.listReports(inspectionId, loginUser.getUserId());
+        List<ReportSummaryResponse> response = reportService.listReports(
+                inspectionId, loginUser.getUserId(), loginUser.getCompanyId());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
@@ -60,7 +63,8 @@ public class ReportController {
     @GetMapping("/api/reports/{id}")
     public ResponseEntity<ApiResponse<ReportDetailResponse>> getReport(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
-        ReportDetailResponse response = reportService.getReport(id, loginUser.getUserId());
+        ReportDetailResponse response =
+                reportService.getReport(id, loginUser.getUserId(), loginUser.getCompanyId());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
@@ -71,7 +75,8 @@ public class ReportController {
             @Valid @RequestBody UpdateReportContentRequest request,
             @AuthenticationPrincipal LoginUser loginUser) {
         ReportDetailResponse response =
-                reportService.updateContent(id, request.contentJson(), loginUser.getUserId());
+                reportService.updateContent(
+                        id, request.contentJson(), loginUser.getCompanyId(), loginUser.getUserId());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
@@ -82,7 +87,8 @@ public class ReportController {
             @Valid @RequestBody FinalizeReportRequest request,
             @AuthenticationPrincipal LoginUser loginUser) {
         ReportDetailResponse response =
-                reportService.finalizeReport(id, request.pdfUrl(), loginUser.getUserId());
+                reportService.finalizeReport(
+                        id, request.pdfUrl(), loginUser.getCompanyId(), loginUser.getUserId());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
@@ -93,7 +99,7 @@ public class ReportController {
             @RequestParam("file") MultipartFile file,
             @AuthenticationPrincipal LoginUser loginUser) {
         // 소유권 검증 — 존재하지 않거나 타인 소유 보고서에 대한 PDF 업로드를 차단(IDOR 방지).
-        reportService.getReport(id, loginUser.getUserId());
+        reportService.getReport(id, loginUser.getUserId(), loginUser.getCompanyId());
         String storageKey = reportPdfStorage.store(id, file);
         String pdfUrl = "/api/reports/%d/pdf/%s".formatted(id, storageKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(new ReportPdfResponse(pdfUrl)));
@@ -107,7 +113,7 @@ public class ReportController {
             @AuthenticationPrincipal LoginUser loginUser) {
         // 소유권 검증 — 존재하지 않거나 타인 소유 보고서의 PDF 열람을 차단(IDOR 방지). 정적 리소스
         // 핸들러로 직접 서빙하지 않는 이유(#455 P2-1)가 바로 이 검증을 강제하기 위함이다.
-        reportService.getReport(id, loginUser.getUserId());
+        reportService.getReport(id, loginUser.getUserId(), loginUser.getCompanyId());
         Resource resource = reportPdfStorage.load(id, storageKey);
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF).body(resource);
     }
