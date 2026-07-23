@@ -2,6 +2,7 @@ package com.hajacheck.core.analysis.support;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.hajacheck.core.analysis.dto.AnalysisStatusResponse;
 import java.time.Duration;
 import java.util.Optional;
@@ -28,7 +29,10 @@ public class RedisAnalysisProgressStore implements AnalysisProgressStore {
     private static final Duration TTL = Duration.ofHours(6);
 
     private final StringRedisTemplate redisTemplate;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    // updatedAt(Instant, 코드 리뷰 P2 하트비트) 직렬화에 JavaTimeModule이 필요하다 — 기본
+    // ObjectMapper는 java.time 타입을 모른다(Spring이 관리하는 전역 ObjectMapper 빈은 Boot
+    // 자동설정으로 이미 등록돼 있지만, 이 클래스는 원래부터 별도 인스턴스를 직접 들고 있었다).
+    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     @Override
     public void save(AnalysisStatusResponse progress) {
@@ -48,20 +52,30 @@ public class RedisAnalysisProgressStore implements AnalysisProgressStore {
 
     @Override
     public Optional<AnalysisStatusResponse> find(Long inspectionId) {
-        String json = redisTemplate.opsForValue().get(RedisAnalysisKeys.progressKey(inspectionId));
-        if (json == null) {
-            return Optional.empty();
-        }
         try {
+            String json = redisTemplate.opsForValue().get(RedisAnalysisKeys.progressKey(inspectionId));
+            if (json == null) {
+                return Optional.empty();
+            }
             return Optional.of(objectMapper.readValue(json, AnalysisStatusResponse.class));
-        } catch (JsonProcessingException e) {
-            log.warn("분석 진행 상태 역직렬화 실패 — inspectionId={}", inspectionId, e);
+        } catch (JsonProcessingException | DataAccessException e) {
+            // 코드 리뷰 P2 — save()와 대칭으로 fail-soft해야 한다. 캐시 "부재"(TTL 만료)에는
+            // InspectionAnalysisService.getStatus()가 rebuildFromDb로 폴백하도록 설계돼 있는데,
+            // 캐시 "장애"(Redis 연결 불가)에서 예외를 그대로 던지면 그 폴백(orElseGet)이 실행되기도
+            // 전에 예외가 전파돼 2초 폴링 GET이 전부 500으로 깨진다. startAnalysis의 ANALYZING
+            // 고착 판정(find() 호출)도 같은 이유로 막혀 복구 자체가 불가능해진다.
+            log.warn("분석 진행 상태 캐시 조회 실패 — inspectionId={}", inspectionId, e);
             return Optional.empty();
         }
     }
 
     @Override
     public void delete(Long inspectionId) {
-        redisTemplate.delete(RedisAnalysisKeys.progressKey(inspectionId));
+        try {
+            redisTemplate.delete(RedisAnalysisKeys.progressKey(inspectionId));
+        } catch (DataAccessException e) {
+            // save()/find()와 동일한 이유로 fail-soft — TTL(6시간)이 있어 방치돼도 결국 만료된다.
+            log.warn("분석 진행 상태 캐시 삭제 실패 — inspectionId={}", inspectionId, e);
+        }
     }
 }

@@ -144,7 +144,8 @@ public class InspectionAnalysisWorker {
             inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, statusBeforeAnalysis);
             AnalysisStatusResponse failedProgress = new AnalysisStatusResponse(
                     inspectionId, "failed", 0, images.size(), 0, files,
-                    detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount);
+                    detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount,
+                    Instant.now());
             progressStore.save(failedProgress);
             return;
         }
@@ -152,7 +153,7 @@ public class InspectionAnalysisWorker {
         inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, InspectionStatus.ANALYZED);
         AnalysisStatusResponse done = new AnalysisStatusResponse(
                 inspectionId, "done", 100, images.size(), images.size(), files,
-                detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount);
+                detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount, Instant.now());
         progressStore.save(done);
     }
 
@@ -191,7 +192,7 @@ public class InspectionAnalysisWorker {
         int percent = total == 0 ? 0 : (int) Math.round(analyzedCount * 100.0 / total);
         AnalysisStatusResponse progress = new AnalysisStatusResponse(
                 inspectionId, "aiDetection", percent, total, analyzedCount, List.copyOf(files),
-                detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount);
+                detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount, Instant.now());
         progressStore.save(progress);
     }
 

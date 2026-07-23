@@ -15,10 +15,14 @@ import com.hajacheck.core.media.entity.MediaFileType;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.task.TaskRejectedException;
@@ -43,6 +47,14 @@ public class InspectionAnalysisService {
     private static final java.util.Set<InspectionStatus> ANALYSIS_ALLOWED_SOURCE_STATUSES = java.util.EnumSet.of(
             InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED);
 
+    // 진행률 캐시가 종료됐다고 보는 stage(코드 리뷰 P2) — 이 상태면 고착이 아니라 정상 종료다.
+    private static final Set<String> TERMINAL_STAGES = Set.of("done", "failed");
+
+    // 고착 판정 임계값(코드 리뷰 P2, 제품 확인 완료) — ANALYZING인데 진행률 캐시(하트비트)가 이보다
+    // 오래 갱신 안 됐으면 워커가 크래시(JVM 재기동·OOM 등)한 것으로 본다. PRD 목표(100장 10분)의
+    // 정상 진행 간격보다 충분히 커서 정상 진행 중인 잡을 오탐하지 않는다.
+    private static final Duration STUCK_HEARTBEAT_THRESHOLD = Duration.ofMinutes(5);
+
     private final InspectionService inspectionService;
     private final MediaRepository mediaRepository;
     private final DefectRepository defectRepository;
@@ -55,13 +67,15 @@ public class InspectionAnalysisService {
      *
      * <p>코드 리뷰 P1/P2 픽스를 함께 반영한다:
      * <ul>
-     *   <li><b>고착 복구</b>: status==ANALYZING인데 진행률 캐시가 없으면(TaskRejectedException 발생
-     *       시점 이전 크래시, 워커 진행 중 JVM 재기동 등) 고착으로 간주하고 강제로 되돌려 재시작을 허용한다.
-     *       (P1) 이 판정은 "캐시 부재"에 의존하므로, 원자적 선점 성공과 캐시 기록 사이에 오래 걸리는
-     *       작업이 끼면 정상 진행 중인 요청을 다른 요청이 고착으로 오판해 이중 실행될 수 있다 — 그래서
-     *       선점 성공 직후 곧바로(다른 무거운 작업 없이) 캐시를 써서 그 창을 인메모리 리스트 구성
-     *       수준(사실상 무시 가능)으로 좁힌다. 예전엔 이 사이에 소프트삭제(수십~수백 ms, DB 트랜잭션)가
-     *       끼어 있어 더블클릭·재시도로 현실적으로 도달 가능한 경쟁이었다.</li>
+     *   <li><b>고착 복구</b>: status==ANALYZING인데 진행률 캐시가 없거나(TaskRejectedException 발생
+     *       시점 이전 크래시 등) 캐시는 있지만 하트비트가 {@link #STUCK_HEARTBEAT_THRESHOLD}보다
+     *       오래 갱신 안 됐으면(워커가 JVM 재기동·OOM 등으로 죽었지만 TTL 6시간짜리 캐시는 살아있는
+     *       경우) 고착으로 간주하고 강제로 되돌려 재시작을 허용한다. (P1) "캐시 부재" 판정은 원자적
+     *       선점 성공과 캐시 기록 사이에 오래 걸리는 작업이 끼면 정상 진행 중인 요청을 다른 요청이
+     *       고착으로 오판해 이중 실행될 수 있다 — 그래서 선점 성공 직후 곧바로(다른 무거운 작업
+     *       없이) 캐시를 써서 그 창을 인메모리 리스트 구성 수준(사실상 무시 가능)으로 좁힌다.
+     *       예전엔 이 사이에 소프트삭제(수십~수백 ms, DB 트랜잭션)가 끼어 있어 더블클릭·재시도로
+     *       현실적으로 도달 가능한 경쟁이었다.</li>
      *   <li><b>원자적 선점</b>: "조회 후 상태 확인 → 별도 UPDATE"가 아니라
      *       {@link InspectionService#tryStartAnalyzing} 단일 조건부 UPDATE로 동시 요청의 이중 실행을 막는다.</li>
      *   <li><b>재분석 멱등화</b>(P2): 기존 하자 소프트삭제는 더 이상 이 메서드가 하지 않는다 —
@@ -80,10 +94,12 @@ public class InspectionAnalysisService {
         InspectionStatus statusBeforeAnalysis = inspection.getStatus();
 
         if (statusBeforeAnalysis == InspectionStatus.ANALYZING) {
-            if (progressStore.find(inspectionId).isPresent()) {
+            Optional<AnalysisStatusResponse> cached = progressStore.find(inspectionId);
+            if (cached.isPresent() && !isCacheStale(cached.get())) {
                 throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
             }
-            log.warn("ANALYZING 고착 감지(진행률 캐시 없음) — inspectionId={} 재시작을 허용한다", inspectionId);
+            log.warn("ANALYZING 고착 감지({}) — inspectionId={} 재시작을 허용한다",
+                    cached.isPresent() ? "캐시 하트비트 지연" : "진행률 캐시 없음", inspectionId);
             inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, RECOVERY_STATUS);
             statusBeforeAnalysis = RECOVERY_STATUS;
         }
@@ -110,7 +126,7 @@ public class InspectionAnalysisService {
         }
         progressStore.save(new AnalysisStatusResponse(
                 inspectionId, "aiDetection", 0, images.size(), 0, initialFiles, 0, 0,
-                emptyGradeMap(), 0));
+                emptyGradeMap(), 0, Instant.now()));
 
         try {
             worker.runAsync(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis);
@@ -130,11 +146,31 @@ public class InspectionAnalysisService {
      * 진행 상태 조회 — Redis 캐시를 우선 쓰고, 없으면(TTL 만료·서버 재기동 등) DB로 최선 재구성한다.
      * 재구성 시 실제 진행 중이던 잡의 세부 타임라인은 복원할 수 없지만, 최소한 "무엇이 실제로 맞는지"
      * (분석 완료 여부, 실제 저장된 하자 통계)는 정직하게 보여준다 — 캐시가 없다고 0%로 되돌리지 않는다.
+     *
+     * <p>캐시는 있지만 하트비트가 오래돼(코드 리뷰 P2, {@link #isCacheStale}) 고착으로 보이면
+     * stage만 "failed"로 바꿔 반환한다 — 이 메서드는 읽기 전용(GET)이라 DB/Redis를 실제로 고치지는
+     * 않는다(부작용 없음 원칙). 사용자가 화면의 재시도 버튼을 눌러 {@link #startAnalysis}를 다시
+     * 호출해야 실제 상태 복구·재시작이 일어난다 — 거기서도 같은 {@link #isCacheStale} 기준을 쓴다.
      */
     public AnalysisStatusResponse getStatus(Long requesterUserId, Long companyId, Long inspectionId) {
         Inspection inspection = inspectionService.getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
 
-        return progressStore.find(inspectionId).orElseGet(() -> rebuildFromDb(inspection));
+        return progressStore.find(inspectionId)
+                .map(cached -> isCacheStale(cached) ? cached.withStage("failed") : cached)
+                .orElseGet(() -> rebuildFromDb(inspection));
+    }
+
+    /**
+     * 진행률 캐시가 고착됐는지 판정한다(코드 리뷰 P2, 사용자 확인 완료) — {@link #TERMINAL_STAGES}로
+     * 이미 종료된 캐시는 고착이 아니라 정상 종료다. 그 외(진행 중으로 보이는) 캐시는 하트비트
+     * ({@link AnalysisStatusResponse#updatedAt})가 {@link #STUCK_HEARTBEAT_THRESHOLD}보다 오래
+     * 갱신 안 됐으면 워커 크래시로 본다.
+     */
+    private boolean isCacheStale(AnalysisStatusResponse cached) {
+        if (TERMINAL_STAGES.contains(cached.stage())) {
+            return false;
+        }
+        return Duration.between(cached.updatedAt(), Instant.now()).compareTo(STUCK_HEARTBEAT_THRESHOLD) > 0;
     }
 
     private AnalysisStatusResponse rebuildFromDb(Inspection inspection) {
@@ -150,7 +186,7 @@ public class InspectionAnalysisService {
                 files.add(new FileProgress(images.get(i).getId(), "이미지 " + (i + 1), "waiting", null, "-"));
             }
             return new AnalysisStatusResponse(
-                    inspectionId, "upload", 0, images.size(), 0, files, 0, 0, emptyGradeMap(), 0);
+                    inspectionId, "upload", 0, images.size(), 0, files, 0, 0, emptyGradeMap(), 0, Instant.now());
         }
 
         // 완료된 적 있는 회차 — 실제 저장된 defects로 요약을 재구성한다(캐시 TTL 만료 대응).
@@ -183,7 +219,7 @@ public class InspectionAnalysisService {
 
         return new AnalysisStatusResponse(
                 inspectionId, "done", 100, images.size(), images.size(), files,
-                defects.size(), riskyCrackCount, gradeMap, 0);
+                defects.size(), riskyCrackCount, gradeMap, 0, Instant.now());
     }
 
     private Map<String, Integer> emptyGradeMap() {

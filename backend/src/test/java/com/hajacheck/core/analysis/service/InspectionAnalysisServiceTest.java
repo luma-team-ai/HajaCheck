@@ -123,6 +123,41 @@ class InspectionAnalysisServiceTest {
     }
 
     @Test
+    void startAnalysis_ANALYZING인데_캐시하트비트가오래됐으면_고착으로보고복구후재시작() {
+        // 코드 리뷰 P2(사용자 확인 완료) — 워커가 JVM 재기동·OOM 등으로 크래시해도 진행률 캐시는
+        // TTL 6시간 동안 살아있다. "캐시 부재"만 고착으로 보면 이 경우를 못 잡는다 — 캐시가
+        // 있어도 하트비트(updatedAt)가 임계값(5분)보다 오래됐으면 고착으로 봐야 한다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
+        when(progressStore.find(INSPECTION_ID))
+                .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)))));
+        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+                .thenReturn(List.of(image(1L)));
+        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+
+        service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        verify(inspectionService).advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.UPLOADING);
+        verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
+                eq(InspectionStatus.UPLOADING));
+    }
+
+    @Test
+    void startAnalysis_ANALYZING인데_캐시하트비트가신선하면_ALREADY_RUNNING_재시작안함() {
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
+        when(progressStore.find(INSPECTION_ID))
+                .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofSeconds(30)))));
+
+        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
+
+        verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any());
+    }
+
+    @Test
     void startAnalysis_REVIEWED회차는_ANALYSIS_NOT_ALLOWED로거부하고_아무것도호출안함() {
         startAnalysis_최종상태회차는_재분석거부됨(InspectionStatus.REVIEWED);
     }
@@ -252,6 +287,41 @@ class InspectionAnalysisServiceTest {
     }
 
     @Test
+    void getStatus_캐시가오래된진행중상태면_failed로표면화하되나머지값은보존한다() {
+        // 코드 리뷰 P2(사용자 확인 완료) — GET은 읽기 전용이라 DB/Redis를 고치지 않는다. stage만
+        // "failed"로 바꿔 프론트 폴링이 멈추고 재시도 버튼이 뜨게 한다(useAnalysisStatus 참고).
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
+        AnalysisStatusResponse stale =
+                progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)));
+        when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.of(stale));
+
+        AnalysisStatusResponse result = service.getStatus(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        assertThat(result.stage()).isEqualTo("failed");
+        assertThat(result.progressPercent()).isEqualTo(stale.progressPercent());
+        assertThat(result.analyzedFileCount()).isEqualTo(stale.analyzedFileCount());
+        verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
+        verify(progressStore, never()).save(any());
+        verify(progressStore, never()).delete(any());
+    }
+
+    @Test
+    void getStatus_캐시가오래됐어도_이미done이면_그대로둔다() {
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
+        AnalysisStatusResponse oldDone = new AnalysisStatusResponse(
+                INSPECTION_ID, "done", 100, 2, 2, List.of(), 3, 1,
+                java.util.Map.of("A", 0, "B", 0, "C", 1, "D", 1, "E", 1), 0,
+                java.time.Instant.now().minus(java.time.Duration.ofHours(1)));
+        when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.of(oldDone));
+
+        AnalysisStatusResponse result = service.getStatus(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        assertThat(result).isEqualTo(oldDone);
+    }
+
+    @Test
     void getStatus_캐시없고_분석된적없으면_전부대기상태로재구성한다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
@@ -268,8 +338,12 @@ class InspectionAnalysisServiceTest {
     }
 
     private AnalysisStatusResponse anyProgress() {
+        return progressAsOf(java.time.Instant.now());
+    }
+
+    private AnalysisStatusResponse progressAsOf(java.time.Instant updatedAt) {
         return new AnalysisStatusResponse(
                 INSPECTION_ID, "aiDetection", 50, 2, 1, List.of(), 0, 0,
-                java.util.Map.of("A", 0, "B", 0, "C", 0, "D", 0, "E", 0), 0);
+                java.util.Map.of("A", 0, "B", 0, "C", 0, "D", 0, "E", 0), 0, updatedAt);
     }
 }
