@@ -4,8 +4,7 @@ import type { AdminPlanCatalogResponse } from '../planQuota.types';
 
 // GET /api/admin/plans MSW 목 — docs/design/db/migrations/20260721_01_plans_seed_free_assign.sql의
 // 실제 시드값과 동일하게 맞춘다(PRD_hajaCheck.md §2.4 요금제 표 기준, HAJA-308). FREE는 max_seats=1
-// (계정 소유자 본인 1석, "추가 초대 좌석 없음"을 의미 — planQuota.constants.ts의 NO_ADDITIONAL_SEAT_THRESHOLD
-// 참고), ENTERPRISE는 max_seats=1000000(무제한 센티널, max_seats DDL 컬럼이 NOT NULL이라 null 불가).
+// (계정 소유자 본인 1석, "추가 초대 좌석 없음"을 의미), ENTERPRISE는 max_seats=null(무제한)이다.
 export const mockAdminPlanCatalog: AdminPlanCatalogResponse = {
   plans: [
     {
@@ -35,7 +34,7 @@ export const mockAdminPlanCatalog: AdminPlanCatalogResponse = {
       name: 'ENTERPRISE',
       maxFacilities: null,
       maxMonthlyAnalyses: null,
-      maxSeats: 1000000,
+      maxSeats: null,
       hasPdfWatermark: false,
       hasCounselorAccess: true,
       hasAiAddon: true,

@@ -49,8 +49,9 @@ export function DashboardPage() {
       <KpiSection />
 
       {/* 시안: KPI 아래는 2단 컬럼 — 좌(넓음)=등급분포+최근점검 / 우(좁음)=처리대기+AI 브리핑.
-          mt-3은 KPI 섹션과의 간격을 Figma 시안처럼 더 넓게 벌리기 위한 추가 여백(#556 후속) */}
-      <div className="mt-3 grid grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] gap-4 items-start max-[1100px]:grid-cols-1">
+          mt-9(36px)는 KPI 섹션과의 간격을 Figma 시안처럼 더 넓게 벌리기 위한 추가 여백
+          (#556 후속, 최초 mt-3=12px에서 실측 반영해 36px로 조정) */}
+      <div className="mt-9 grid grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] gap-4 items-start max-[1100px]:grid-cols-1">
         <div className="flex flex-col gap-4 min-w-0">
           <GradeDistributionCard />
           <RecentInspectionsTable />

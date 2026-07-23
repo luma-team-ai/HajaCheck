@@ -49,6 +49,7 @@ function makeDefect(overrides: Partial<Defect> = {}): Defect {
     bboxH: null,
     crackWidthMm: null,
     crackLengthMm: null,
+    imageUrl: null,
     createdAt: '2026-07-01T09:00:00.000Z',
     ...overrides,
   };

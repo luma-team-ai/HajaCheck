@@ -1,14 +1,18 @@
 package com.hajacheck.core.ai.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.support.RateLimiter;
 import com.hajacheck.core.ai.dto.BriefingStatsRequest;
+import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
@@ -19,15 +23,18 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.support.InMemoryRateLimiter;
 import java.lang.reflect.Field;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -49,12 +56,22 @@ class BriefingStatsServiceTest {
     @Mock
     private DefectRepository defectRepository;
 
-    @InjectMocks
     private BriefingStatsService briefingStatsService;
 
     private static final Long OWNER_ID = 1L;
     private static final Long FACILITY_ID = 10L;
     private static final Long INSPECTION_ID = 100L;
+
+    @BeforeEach
+    void setUp() {
+        // 실 구현(RedisRateLimiter)은 @Profile("!test")라 in-memory fake 로 대체(한도 내 통과).
+        briefingStatsService = newService(new InMemoryRateLimiter());
+    }
+
+    private BriefingStatsService newService(RateLimiter rateLimiter) {
+        return new BriefingStatsService(facilityRepository, inspectionRepository, defectRepository,
+                new AiProxyRateLimiter(rateLimiter));
+    }
 
     private Facility facility(Long id, Long ownerId, String name) {
         Facility facility = Facility.builder().ownerId(ownerId).name(name).type("BUILDING").build();
@@ -106,6 +123,18 @@ class BriefingStatsServiceTest {
                 return cnt;
             }
         };
+    }
+
+    @Test
+    void buildStats_rate_limit초과_AUTH_TOO_MANY_REQUESTS_집계쿼리도안함() {
+        // rate-limit 은 DB 집계보다 먼저 적용된다 — 초과 시 429 를 던지고 어떤 repository 조회도 하지 않는다.
+        BriefingStatsService limited = newService((key, limit, window) -> false); // 항상 초과(거부)
+
+        assertThatThrownBy(() -> limited.buildStats(OWNER_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS);
+        verifyNoInteractions(facilityRepository, inspectionRepository, defectRepository);
     }
 
     @Test

@@ -83,8 +83,8 @@ export interface AdminPlanCatalogItem {
   maxFacilities: number | null;
   /** null = 무제한 */
   maxMonthlyAnalyses: number | null;
-  /** 0 = 좌석 없음(1인 계정) */
-  maxSeats: number;
+  /** null = 무제한, 1 이하 = 추가 좌석 없음(1인 계정) */
+  maxSeats: number | null;
   hasPdfWatermark: boolean;
   hasCounselorAccess: boolean;
   hasAiAddon: boolean;

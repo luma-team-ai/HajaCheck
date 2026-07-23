@@ -1,10 +1,10 @@
 # 고객지원 RAG 챗봇 설계 — RetrievalQA·출처표시 규약 (design-03-20)
 
-> **문서 버전:** v0.1 · **최종 수정:** 2026-07-20 · 이전 버전 `archive/`
+> **문서 버전:** v0.2 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
 
 > 담당: 이은석(주, 직접 구현) / 김승현(챕터7 RAG 코치) · 관련 WBS: `design-03-20`(설계)·`dev-08-01`(구현) · 관련 FR: FR-6
-> 관련 이슈: GitHub #386 · Jira HAJA-122(에픽 HAJA-103 [AI 설계])
-> 상태: **설계 진행(초안)** — 출처표시 스키마는 코드 확정분 채택, 파이프라인·표시·엔드포인트 규약 정리
+> 관련 이슈: GitHub #386(설계) · #19(구현, HAJA-28) · Jira HAJA-122(설계 에픽 HAJA-103 [AI 설계])·HAJA-32(구현)
+> 상태: **파이프라인 구현 완료(HAJA-28)** — Chroma 검색·RetrievalQA·citation·Redis 캐시는 `ai-server/ai/chains/rag_chat_chain.py`로 구현됨. Spring 프록시·세션 연동(§7·§9)은 후속 이슈로 분리.
 > 컨벤션 근거: `docs/conventions/AI_개발_컨벤션.md` §3(프롬프트)·§4(structured output)·§6(RAG 규약)·§8(체인 절차)
 > 연관 문서: `docs/design/ai/rag_chroma_schema.md`(Chroma 메타데이터·SourceCitation SoT), `docs/design/ai/report-chain-design.md` §6.4(report `legal_basis` 정합), `docs/api-contract/contract.md`(`/ai/rag-chat`)
 > 참조 구현: `ai-server/ai/core/schemas.py`(`SourceCitation`/`RagAnswerData`/`AIResponse`, HAJA-145), `ai-server/ai/chains/defect_explain_chain.py`(체인 패턴), `ai-server/ai/core/chunking.py`(법조문 분리자)
@@ -89,22 +89,20 @@ retriever가 준 청크 metadata를 아래로 매핑한다(`rag_chroma_schema.md
 - `POST /ai/rag-chat` (FR-6, `contract.md` "다음 추가 예정"). 요청: `{query: str, session_id?: ...}`(세부는 dev-08-01·`/api/chat-sessions`와 함께 확정). 응답: `AIResponse.ok(RagAnswerData)`.
 - **외부 직접 노출 금지 — Spring 강제 경유**(HAJA-188/190/191 보안 반영): 공개 경로는 Spring Boot(`/api/...`)가 인증·플랜(`has_ai_addon` 등) 검사 후 내부 `/ai/rag-chat` 호출, FastAPI는 `X-Internal-Key` 검증. nginx 공개 `/ai/` 미노출.
 
-## 8. 공통 모듈 의존·선행 블로커
+## 8. 공통 모듈 의존 (2026-07-22 갱신 — 구현 완료, 블로커 해소)
 
-**의존(신규 모듈 불필요):** `vectorstore.py`(get_vectorstore)·`embeddings.py`·`chunking.py`(법조문 분리자)·`llm_client.get_llm()`·`prompts/`.
+**의존(신규 모듈 불필요):** `vectorstore.py`(get_vectorstore)·`embeddings.py`·`chunking.py`(법조문 분리자)·`llm_client.get_llm()`/`get_redis_client()`·`prompts/rag_chat.md`.
 
-**⚠️ 선행 블로커(2026-07-19 확인):**
-- `ai/core/vectorstore.py`가 현재 **`NotImplementedError` 스텁** → regulations 컬렉션 미생성. 본 챗봇(dev-08-01, 7/15~20 예정)과 report_chain(dev-07-01)이 **동일 의존**.
-- regulations 적재는 `dev-11-05`(RAG 문서 관리, 김승현, **7/20~23** 예정)에 달림. **vectorstore 팩토리 자체 구현 주체·시점이 WBS에 미명시** → 김승현·오영석(공통 모듈)과 **`vectorstore 구현 → 임베딩 배치`를 dev-08-01·dev-07-01보다 앞당기는 순서 합의 필요**.
-- 컨벤션 §6대로 검색 0건 시 "관련 근거 없음"으로 처리되므로 챗봇 골격 구현은 막히지 않으나, **실제 근거 인용은 regulations 적재(7/20 이후)부터** 가능.
+`ai/core/vectorstore.py`는 더 이상 스텁이 아니다 — `get_vectorstore(collection)` 팩토리가 완전히 구현돼 있고(§7 이전 버전이 우려했던 `NotImplementedError` 블로커는 해소됨), `rag_chat_chain.py`는 이를 그대로 경유해 `regulations` 컬렉션을 검색한다. 다만 **regulations 컬렉션의 실제 데이터 적재**(문서 등록·임베딩 배치, dev-11-05 담당)는 이 설계·구현 범위 밖이며 별도로 진행된다 — 적재 전에는 모든 질의가 검색 0건(`RAG_NO_RESULT`)으로 응답하는 것이 정상 동작이다(§4.3 그대로 유효).
 
-## 9. 남은 확정 사항 (dev-08-01 이관)
+## 9. 확정 사항 (2026-07-22, HAJA-28 구현 완료)
 
-- [ ] `prompts/rag_chat.md` 실파일 작성(골자: 질의+context→근거 기반 답변, 컨벤션 §6 출처 필수·0건 임의생성 금지)
-- [ ] retrieval 파라미터 확정(컬렉션 라우팅 기본값·top-k·score threshold·MMR)
-- [ ] `/ai/rag-chat` 요청 스키마 + `/api/chat-sessions` 연동(세션·이력)
-- [ ] grounding 적용 여부 검토(답변-근거 정합, 공통 `ai.core.grounding` 재사용 가능성)
-- [ ] report `legal_basis` 구조화 재사용 협의 결론 반영(§6, 김관영·유병현)
-- [ ] **선행**: vectorstore 팩토리 구현·regulations 적재 순서 합의(§8)
+- [x] `prompts/rag_chat.md` 실파일 작성(`ai-server/ai/prompts/rag_chat.md`) — `{context}`+`{question_text}`(wrap_untrusted) 변수, 근거 없으면 "관련 근거를 찾지 못했습니다" 유도, LLM은 answer만 생성.
+- [x] retrieval 파라미터 확정: 컬렉션은 `regulations` 단독 착수(§4.1 그대로), top-k=4(초안값 그대로 채택), score threshold·MMR·`defect_kb` 병행 라우팅은 이번 범위 밖(필요 시 후속).
+- [x] Redis 캐시 방식 확정: 키 `ai:cache:rag-chat:{sha256(question)[:16]}`, TTL은 `llm_client.CACHE_TTL_SECONDS`(1일) 재사용, 검색 0건은 캐시 저장 안 함.
+- [ ] `/ai/rag-chat` 요청 스키마의 `session_id`는 필드만 선점(현재 미사용) — Spring `/api/ai/rag-chat` 프록시(소유·`session_type='RAG'` 검증) + `/api/chat-sessions` 연동(세션·이력)은 **후속 이슈로 분리**(`/api/chat-sessions` 자체 미구현).
+- [ ] `chat_message_citations` 실사용(대화 이력 영속화, LangChain Memory)도 후속 이슈로 분리.
+- [ ] grounding 적용 여부 검토(답변-근거 정합, 공통 `ai.core.grounding` 재사용 가능성) — 미착수.
+- [ ] report `legal_basis` 구조화 재사용 협의 결론 반영(§6, 김관영·유병현) — 미착수.
 
-→ 확정되는 대로 본 문서 갱신 + `ai-server/ai/chains/rag_chat_chain.py` 구현(dev-08-01).
+구현: `ai-server/ai/chains/rag_chat_chain.py`(GitHub #19, HAJA-28) · 계약: `docs/api-contract/contract.md`("POST /ai/rag-chat") · 테스트: `ai-server/tests/test_rag_chat_chain.py`.

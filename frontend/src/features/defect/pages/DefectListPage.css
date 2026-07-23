@@ -151,6 +151,20 @@
   opacity: 1;
 }
 
+.defect-filter-bar__ai-message {
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-point) 8%, var(--color-surface));
+  color: var(--color-text-default);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.defect-filter-bar__ai-message--error {
+  background: var(--color-danger-soft-bg);
+  color: var(--color-danger);
+}
+
 .defect-filter-bar__result {
   display: flex;
   min-height: 20px;

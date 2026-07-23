@@ -6,6 +6,7 @@ from fastapi import FastAPI
 load_dotenv()
 
 from routers.ai_router import router as ai_router  # noqa: E402 — load_dotenv() 이후 임포트 필요
+from routers.nl_search_router import router as nl_search_router  # noqa: E402
 
 # fail-closed: 명시적 dev/local일 때만 /docs·/redoc·/openapi.json 노출, 그 외(미설정·prod·오타 등 전부)는 차단
 # (내부 AI 실행은 deps.py 내부키로 이미 보호되지만, 스키마 문서 자체는 별도 라우트라 추가로 막아야 함.
@@ -20,6 +21,7 @@ app = FastAPI(
 )
 
 app.include_router(ai_router)
+app.include_router(nl_search_router)
 
 
 @app.get("/health")

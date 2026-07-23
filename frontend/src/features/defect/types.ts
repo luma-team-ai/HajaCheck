@@ -23,6 +23,19 @@ export interface Defect {
   bboxH: number | null;
   crackWidthMm: number | null;
   crackLengthMm: number | null;
+  // 인가된 /api/media/{id}/thumbnail 경로 — mediaId가 없으면 null(HAJA-314)
+  imageUrl: string | null;
+  createdAt: string;
+}
+
+// GET /api/defects/{id}/revisions 응답 항목 — backend DefectRevisionResponse와 1:1(HAJA-314)
+export interface DefectRevision {
+  id: number;
+  revisedBy: number;
+  fieldChanged: string;
+  oldValue: string | null;
+  newValue: string | null;
+  reason: string | null;
   createdAt: string;
 }
 

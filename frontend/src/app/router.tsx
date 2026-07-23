@@ -380,7 +380,8 @@ export const router = createBrowserRouter([
           breadcrumb: [{ label: '점검 관리' }, { label: '점검(회차) 생성' }],
           activeHref: '/inspections/create',
         },
-      }, // — features/inspection 점검(회차) 생성 (API 명세서 v0.3 AP-004)
+      }, // — features/inspection 점검(회차) 생성 (API 명세서 v0.3 AP-004) — 촬영 데이터 업로드는
+      // 회의 후 반영된 시안대로 이 화면에 통합됨(별도 /inspections/media-upload 라우트는 폐지).
       {
         path: '/inspections/:id/viewer',
         element: (

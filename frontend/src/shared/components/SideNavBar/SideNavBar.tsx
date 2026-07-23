@@ -105,7 +105,6 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     icon: inspectionsIcon,
     subItems: [
       { label: '점검(회차) 생성', href: '/inspections/create' },
-      { label: '촬영 데이터 업로드', href: '/inspections/media-upload' },
       { label: 'AI 분석 실행/상태', href: '/inspections/ai-analysis' },
       { label: '분석 결과 뷰어', href: '/inspections/1/viewer' },
       { label: '보고서 생성 진입점', href: '/inspections/report-entry' },
