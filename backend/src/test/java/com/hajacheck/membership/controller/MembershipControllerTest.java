@@ -267,6 +267,21 @@ class MembershipControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void 모의결제_존재하지않는플랜명_400_INVALID_INPUT() throws Exception {
+        // planName 이 PlanName enum(FREE/STANDARD/ENTERPRISE)에 없는 문자열이면 Jackson 역직렬화
+        // 단계에서 HttpMessageNotReadableException → GlobalExceptionHandler 가 INVALID_INPUT(400)으로 변환.
+        Plan plan = savePlan();
+        User user = saveUser("checkoutInvalidEnum@haja.com", null);
+        userPlanRepository.save(UserPlan.forUser(user.getId(), plan.getId()));
+
+        mockMvc.perform(post("/api/me/plan/checkout").with(csrf()).with(authentication(authOf(user)))
+                        .contentType("application/json")
+                        .content("{\"planName\":\"GOLD\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
     void 모의결제_미인증_401() throws Exception {
         mockMvc.perform(post("/api/me/plan/checkout").with(csrf())
                         .contentType("application/json")

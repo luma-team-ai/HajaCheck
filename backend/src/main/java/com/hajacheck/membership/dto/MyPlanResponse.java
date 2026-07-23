@@ -31,7 +31,7 @@ public record MyPlanResponse(PlanInfo plan, Limits limits, Usage usage) {
     }
 
     /**
-     * @param company 회사 구독(companyId != null)이면 그 회사, 개인 구독이면 null.
+     * @param company 회사 구독(companyId != null)이면 그 회사(조회 실패 시 null 가능), 개인 구독이면 null.
      * @param zoneId  nextBillingDate 계산에 쓸 서버 KST 존(호출부의 currentPeriod()와 동일 존이어야 한다).
      */
     public static MyPlanResponse from(UserPlan userPlan, Plan plan, UsageCounter usage, LocalDate period,
@@ -39,9 +39,12 @@ public record MyPlanResponse(PlanInfo plan, Limits limits, Usage usage) {
         LocalDate nextBillingDate = plan.getPriceMonthly() != null && plan.getPriceMonthly().signum() > 0
                 ? ZonedDateTime.ofInstant(userPlan.getStartedAt(), zoneId).toLocalDate().plusMonths(1)
                 : null;
-        Boolean businessVerified = company == null
+        // "회사 구독인지"는 company 조회 성공 여부가 아니라 userPlan.companyId(owner XOR 의 실제 소유 구분)로
+        // 판별한다 — 정상 데이터에선 발생 불가하지만, 회사 구독인데 company 조회가 비어 company==null 이 되는
+        // 방어적 케이스에서도 businessVerified 는 "미인증"(false)이어야 한다(개인 구독의 null 과 계약상 구분).
+        Boolean businessVerified = userPlan.getCompanyId() == null
                 ? null
-                : company.getVerificationStatus() == BusinessVerificationStatus.VERIFIED;
+                : company != null && company.getVerificationStatus() == BusinessVerificationStatus.VERIFIED;
         PlanInfo planInfo = new PlanInfo(
                 plan.getName().name(),
                 plan.getPriceMonthly(),

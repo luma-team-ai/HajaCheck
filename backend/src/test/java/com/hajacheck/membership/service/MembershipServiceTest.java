@@ -230,6 +230,25 @@ class MembershipServiceTest {
     }
 
     @Test
+    void 내플랜조회_회사구독인데_company조회실패시_businessVerified_false_null아님() {
+        // 방어적 케이스(정상 데이터에선 발생 불가) — userPlan.companyId 로 "회사 구독"임은 확정됐는데
+        // companyRepository.findById 가 비어 company==null 이 되더라도, 계약("회사 구독=boolean")상
+        // 개인 구독의 null 과 구분되어야 하므로 false 여야 한다.
+        UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
+        when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        when(companyRepository.findById(COMPANY_ID)).thenReturn(Optional.empty());
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(501L), any())).thenReturn(Optional.empty());
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().businessVerified()).isFalse();
+    }
+
+    @Test
     void 내플랜조회_개인구독은_businessVerified_null() {
         UserPlan userPlan = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
 
@@ -408,6 +427,31 @@ class MembershipServiceTest {
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
         when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
                 .thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.ENTERPRISE)).thenReturn(Optional.of(enterprisePlan));
+        when(userPlanRepository.saveAndFlush(any(UserPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(any(), any())).thenReturn(Optional.empty());
+
+        MyPlanResponse response = service.checkout(USER_ID, PlanName.ENTERPRISE);
+
+        ArgumentCaptor<UserPlan> captor = ArgumentCaptor.forClass(UserPlan.class);
+        verify(userPlanRepository, times(2)).saveAndFlush(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(UserPlan::getStatus)
+                .containsExactly(UserPlanStatus.EXPIRED, UserPlanStatus.ACTIVE);
+        assertThat(current.getStatus()).isEqualTo(UserPlanStatus.EXPIRED);
+        assertThat(response.plan().name()).isEqualTo("ENTERPRISE");
+        assertThat(response.plan().status()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void 모의결제_회사구독_소유자본인_성공_기존만료후_신규ACTIVE발급() {
+        UserPlan current = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+        Company company = company(COMPANY_ID, USER_ID); // 본인이 오너
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
+        when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(current));
+        when(companyRepository.findById(COMPANY_ID)).thenReturn(Optional.of(company));
         when(planRepository.findByName(PlanName.ENTERPRISE)).thenReturn(Optional.of(enterprisePlan));
         when(userPlanRepository.saveAndFlush(any(UserPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(usageCounterRepository.findByUserPlanIdAndPeriod(any(), any())).thenReturn(Optional.empty());
