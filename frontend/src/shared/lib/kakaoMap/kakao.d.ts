@@ -135,6 +135,7 @@ declare global {
     position: KakaoLatLng;
     content: HTMLElement;
     yAnchor?: number;
+    zIndex?: number;
   }
 
   interface KakaoCustomOverlay {
