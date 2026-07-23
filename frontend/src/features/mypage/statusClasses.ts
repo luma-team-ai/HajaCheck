@@ -1,4 +1,11 @@
-import type { PlanStatus, SeatMemberRole, SeatMemberStatus } from './types';
+import type {
+  InspectionHistoryRole,
+  InspectionHistoryStatus,
+  PlanStatus,
+  ReportGradeDotColor,
+  SeatMemberRole,
+  SeatMemberStatus,
+} from './types';
 
 // success(초록)/warning(앰버) 색상 토큰이 shared/styles/tokens.css에 없다(2026-07-16 확인).
 // tokens.css는 다른 오너의 자산이라 이번 스타일 전환 범위에서 건드리지 않고, 삭제된 mypage.css에
@@ -44,3 +51,38 @@ export const USAGE_BAR_FILL_CLASS = {
   normal: 'bg-primary',
   warning: 'bg-danger',
 } as const;
+
+// ---- 내 점검 이력 / 보고서 (HAJA-366, #668) ----
+
+// 점검 이력 역할 배지 — "소유자=검정 채움, 점검자=연회색"(Figma), SEAT_ROLE_BADGE_CLASS와 동일 팔레트 재사용.
+export const INSPECTION_ROLE_BADGE_CLASS: Record<InspectionHistoryRole, string> = {
+  OWNER: 'bg-primary text-surface',
+  INSPECTOR: 'bg-neutral-100 text-text-default',
+};
+
+export const INSPECTION_ROLE_LABEL: Record<InspectionHistoryRole, string> = {
+  OWNER: '소유자',
+  INSPECTOR: '점검자',
+};
+
+// 점검 이력 상태 점 — 검수완료=emerald·검수대기=amber·분석중=blue(handoff 지시). Tailwind 표준
+// 팔레트만 사용(신규 hex 도입 없음) — DefectTable.tsx의 emerald/amber 사용례와 동일 계열.
+export const INSPECTION_STATUS_DOT_CLASS: Record<InspectionHistoryStatus, string> = {
+  REVIEW_DONE: 'bg-emerald-500',
+  REVIEW_PENDING: 'bg-amber-500',
+  ANALYZING: 'bg-blue-500',
+};
+
+export const INSPECTION_STATUS_LABEL: Record<InspectionHistoryStatus, string> = {
+  REVIEW_DONE: '검수완료',
+  REVIEW_PENDING: '검수대기',
+  ANALYZING: '분석중',
+};
+
+// 보고서 카드 등급 dots — 신호등 3색. RED/GREEN은 파일 내 기존 hex(#dc2626/#16a34a 계열)를 재사용하고,
+// ORANGE는 SEAT_STATUS_DOT_CLASS.INVITED와 동일하게 Tailwind 표준 팔레트(orange-500)를 쓴다.
+export const REPORT_GRADE_DOT_CLASS: Record<ReportGradeDotColor, string> = {
+  RED: 'bg-danger',
+  ORANGE: 'bg-orange-500',
+  GREEN: 'bg-[#16a34a]',
+};

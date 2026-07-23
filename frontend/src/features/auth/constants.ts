@@ -5,6 +5,8 @@ export const GOOGLE_OAUTH_PATH = '/api/auth/oauth2/google';
 // 기업 인증 플로우 — HAJA-170(#187) — API 경로(axios baseURL='/api' 기준 상대경로)
 export const EMAIL_AVAILABILITY_PATH = '/auth/email-availability';
 export const COMPANY_SIGNUP_PATH = '/auth/companies';
+// 사업자 진위확인(#648 BE, #663 FE) — 회원가입 제출 전 국세청 등록정보 일치 확인, 비로그인 공개
+export const BUSINESS_VERIFICATION_PATH = '/auth/business-verification';
 export const ID_INQUIRY_PATH = '/auth/id-inquiry';
 // 비밀번호 찾기 — 이메일 링크 방식(#301, HAJA-224) — docs/api-contract/contract.md "비밀번호 찾기 1·2단계"
 export const PASSWORD_RESET_REQUEST_PATH = '/auth/password-reset-request';

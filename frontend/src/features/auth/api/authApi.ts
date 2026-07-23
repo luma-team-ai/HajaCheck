@@ -1,6 +1,7 @@
 import { api } from '../../../shared/api/axios';
 import {
   BUSINESS_LICENSE_OCR_PATH,
+  BUSINESS_VERIFICATION_PATH,
   COMPANY_SIGNUP_PATH,
   EMAIL_AVAILABILITY_PATH,
   ID_INQUIRY_PATH,
@@ -9,6 +10,8 @@ import {
 } from '../constants';
 import type {
   BusinessLicenseOcrResponse,
+  BusinessVerificationRequest,
+  BusinessVerificationResponse,
   CompanySignupRequest,
   CompanySignupResponse,
   EmailAvailabilityResponse,
@@ -55,6 +58,10 @@ export const authApi = {
     api.get<EmailAvailabilityResponse>(EMAIL_AVAILABILITY_PATH, { params: { email } }),
   signupCompany: (body: CompanySignupRequest) =>
     api.post<CompanySignupResponse>(COMPANY_SIGNUP_PATH, toCompanySignupFormData(body)),
+  // 사업자 진위확인(#648 BE, #663 FE) — 회원가입 제출 전 [진위확인] 버튼, 비로그인 공개 엔드포인트.
+  // 판정 결과(VERIFIED 등 6종)는 항상 200으로 오므로 result 필드로 분기한다.
+  verifyBusiness: (body: BusinessVerificationRequest) =>
+    api.post<BusinessVerificationResponse>(BUSINESS_VERIFICATION_PATH, body),
   // 사업자등록증 OCR 자동채움(#587) — 비로그인 공개 엔드포인트, 파일 파라미터명은 가입 API와
   // 동일하게 businessRegistrationFile을 사용(계약 정합).
   businessLicenseOcr: (file: File) => {
