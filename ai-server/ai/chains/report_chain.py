@@ -1,8 +1,8 @@
-"""AI 보고서 생성 체인 — 4섹션(개요/요약/상세/권고) 병렬 생성 + Grounding Check (dev-07-01, HAJA-31)
+"""AI 보고서 생성 체인 — 4섹션(개요/요약/상세/권고) LangGraph StateGraph로 구성 (dev-07-01, HAJA-31)
 
 설계: docs/design/ai/report-chain-design.md §2-§6. 컨벤션: AI_개발_컨벤션.md §8 예시 체인 절차.
 
-- 4개 섹션은 서로 독립적이므로 RunnableParallel로 동시 invoke (design §3)
+- StateGraph로 4섹션 생성 노드 + detail/summary validation 노드 구성
 - summary/detail 은 briefing_chain.py 패턴과 동일하게 **수치는 코드로 집계해 프롬프트에 주입**하고,
   LLM에는 "그대로 옮겨 적기"만 지시한다 (LLM이 수치를 직접 계산·창작하지 않도록 — 환각 방지 원칙)
 - Grounding Check(ai.core.grounding)는 그대로 재사용 — 자체 대조 로직을 새로 만들지 않는다 (design §5)
@@ -13,8 +13,10 @@
 import logging
 from collections import Counter
 from pathlib import Path
+from typing import Any, TypedDict
 
 from langchain_core.runnables import RunnableLambda, RunnableParallel
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
 
 from ai.core.grounding import (
@@ -117,6 +119,24 @@ class RecommendationItem(BaseModel):
 class ReportRecommendation(BaseModel):
     items: list[RecommendationItem] = Field(default_factory=list)
     monitoring_points: list[str] = Field(default_factory=list)
+
+
+# ── StateGraph 상태 스키마 ──
+
+class ReportChainState(TypedDict):
+    """Report chain의 상태 — 각 노드가 읽고 쓰는 필드들"""
+    facility_info: dict
+    confirmed_defects: list[dict]
+    on_mismatch: str  # "regenerate" or "warn"
+    overview: ReportOverview
+    summary: ReportSummary
+    detail: ReportDetail
+    recommendation: ReportRecommendation
+    detail_attempts: int
+    summary_attempts: int
+    grounding_ok: bool
+    grounding_defects: list[GroundingDefect]  # 입력 검증 후 미리 생성
+    mismatch_policy: MismatchPolicy
 
 
 # ── 공통: 코드로 집계한 사실을 텍스트로 조립 (LLM이 재계산하지 않도록 — briefing_chain.py 패턴) ──
@@ -338,22 +358,7 @@ def _run_recommendation_chain(confirmed_defects: list[dict]) -> ReportRecommenda
     return ReportRecommendation(items=items, monitoring_points=llm_result.monitoring_points)
 
 
-# ── 병렬 실행 + Grounding Check + 조립 ──
-
-def _run_parallel(facility_info: dict, confirmed_defects: list[dict]) -> dict:
-    """4개 RunnableLambda는 각자 내부에서 get_llm()을 직접 호출한다(각 _run_*_chain 참고) — 스레드풀에서
-    동시 실행돼도 get_llm()이 매 호출마다 새 HuggingFaceEndpoint + CachedLLM 인스턴스를
-    생성하므로(ai.core.llm_client.get_llm, @lru_cache 없음) 4개 브랜치가 클라이언트 상태를 공유하지
-    않는다(PR머신 P2 후속 확인 — 유일한 모듈 레벨 공유 상태는 get_llm() 내부가 아니라 llm_client._redis()의
-    lru_cache 싱글턴인데, redis-py Redis 클라이언트는 커넥션 풀 기반으로 스레드 안전하다)."""
-    parallel = RunnableParallel(
-        overview=RunnableLambda(lambda _: _run_overview_chain(facility_info)),
-        summary=RunnableLambda(lambda _: _run_summary_chain(confirmed_defects)),
-        detail=RunnableLambda(lambda _: _run_detail_chain(confirmed_defects)),
-        recommendation=RunnableLambda(lambda _: _run_recommendation_chain(confirmed_defects)),
-    )
-    return parallel.invoke({})
-
+# ── 병렬 실행 + Grounding Check + 조립 — StateGraph 노드들 ──
 
 def _detail_content_key(defect_type: str, severity_grade: str) -> tuple[str, str]:
     return (str(defect_type or "").strip(), _normalize_grade(str(severity_grade or "")))
@@ -381,6 +386,133 @@ def _to_grounding_defects(confirmed_defects: list[dict]) -> list[GroundingDefect
     ]
 
 
+# ── StateGraph 노드 함수들 ──
+
+def node_init(state: ReportChainState) -> dict[str, Any]:
+    """입력 검증 — confirmed_defects에서 GroundingDefect 생성"""
+    grounding_defects = _to_grounding_defects(state["confirmed_defects"])
+    mismatch_policy = MismatchPolicy(state["on_mismatch"])
+    return {
+        "grounding_defects": grounding_defects,
+        "mismatch_policy": mismatch_policy,
+    }
+
+
+def node_parallel_sections(state: ReportChainState) -> dict[str, Any]:
+    """4개 섹션 병렬 생성 — 기존 _run_parallel 로직 재사용 (RunnableParallel 유지)"""
+    # ponytail: parallel_sections 노드 내부에서 기존 _run_parallel()를 그대로 유지해 4섹션 결과를 한 번에 얻는다.
+    # 그래프 Send API로 별도 노드로 분기시키지 않음 — 단일 writer이므로 Annotated reducer 불필요.
+    parallel = RunnableParallel(
+        overview=RunnableLambda(lambda _: _run_overview_chain(state["facility_info"])),
+        summary=RunnableLambda(lambda _: _run_summary_chain(state["confirmed_defects"])),
+        detail=RunnableLambda(lambda _: _run_detail_chain(state["confirmed_defects"])),
+        recommendation=RunnableLambda(lambda _: _run_recommendation_chain(state["confirmed_defects"])),
+    )
+    results = parallel.invoke({})
+    return {
+        "overview": results["overview"],
+        "summary": results["summary"],
+        "detail": results["detail"],
+        "recommendation": results["recommendation"],
+    }
+
+
+def node_detail_validation(state: ReportChainState) -> dict[str, Any]:
+    """detail 섹션 items가 confirmed_defects와 일치하는지 검증 — 불일치 시 재생성"""
+    detail = state["detail"]
+    confirmed_defects = state["confirmed_defects"]
+    detail_attempts = state.get("detail_attempts", 0)
+
+    # detail matches가 아니고 재시도 가능하면, detail 재생성
+    if not _detail_matches_confirmed(detail.items, confirmed_defects) and detail_attempts < GROUNDING_MAX_RETRIES:
+        logger.warning(
+            "detail 섹션 items가 confirmed_defects와 불일치(개수 또는 유형/등급 조합) — 재생성 시도 %d/%d",
+            detail_attempts + 1,
+            GROUNDING_MAX_RETRIES,
+        )
+        detail = _run_detail_chain(confirmed_defects)
+        detail_attempts += 1
+
+    # 최종 검사: 여전히 불일치면 ValueError 발생
+    if not _detail_matches_confirmed(detail.items, confirmed_defects):
+        raise ValueError(
+            "detail 섹션 items가 확정 하자 목록과 일치하지 않습니다"
+            f"(items={len(detail.items)}건, confirmed={len(confirmed_defects)}건, "
+            f"재생성 {detail_attempts}회 후에도 개수 또는 유형/등급 조합 불일치)."
+        )
+
+    return {"detail": detail, "detail_attempts": detail_attempts}
+
+
+def node_grounding_check(state: ReportChainState) -> dict[str, Any]:
+    """summary grounding 검증 및 재생성 로직"""
+    summary = state["summary"]
+    grounding_defects = state["grounding_defects"]
+    mismatch_policy = state["mismatch_policy"]
+    summary_attempts = state.get("summary_attempts", 0)
+
+    claims = GroundingClaims(total_count=summary.total_count, count_by_grade=summary.count_by_grade)
+    grounding_result = check_grounding(grounding_defects, claims, mismatch_policy)
+
+    # 불일치 → 재생성(최대 GROUNDING_MAX_RETRIES회, design §5-3)
+    while grounding_result.action is GroundingAction.REGENERATE and summary_attempts < GROUNDING_MAX_RETRIES:
+        summary = _run_summary_chain(state["confirmed_defects"])
+        claims = GroundingClaims(total_count=summary.total_count, count_by_grade=summary.count_by_grade)
+        grounding_result = check_grounding(grounding_defects, claims, mismatch_policy)
+        summary_attempts += 1
+
+    # 결과 판정 (기존 동작 보존)
+    grounding_ok = grounding_result.action is GroundingAction.PASS
+    if grounding_result.action is GroundingAction.REGENERATE:
+        logger.warning(
+            "Grounding mismatch가 재생성 %d회 후에도 지속됨 — grounding_ok=False로 반환(보고서 생성은 계속)",
+            summary_attempts,
+        )
+    elif grounding_result.action is GroundingAction.WARN:
+        pass  # 설계 의도대로 재생성하지 않고 grounding_ok=False(또는 UNVERIFIABLE만 있으면 True)로 반영
+
+    return {"summary": summary, "summary_attempts": summary_attempts, "grounding_ok": grounding_ok}
+
+
+def node_assemble_output(state: ReportChainState) -> dict[str, Any]:
+    """최종 출력 dict 조립 — contract.md 응답 형태"""
+    return {
+        "overview": state["overview"],
+        "summary": state["summary"],
+        "detail": state["detail"],
+        "recommendation": state["recommendation"],
+        "grounding_ok": state["grounding_ok"],
+    }
+
+
+# ── StateGraph 컴파일 (모듈 로드 시 1회만) ──
+
+def _build_graph() -> StateGraph:
+    """보고서 체인 StateGraph 구성"""
+    graph = StateGraph(ReportChainState)
+
+    # 노드 추가
+    graph.add_node("init", node_init)
+    graph.add_node("parallel_sections", node_parallel_sections)
+    graph.add_node("detail_validation", node_detail_validation)
+    graph.add_node("grounding_check", node_grounding_check)
+    graph.add_node("assemble_output", node_assemble_output)
+
+    # 엣지 연결
+    graph.set_entry_point("init")
+    graph.add_edge("init", "parallel_sections")
+    graph.add_edge("parallel_sections", "detail_validation")
+    graph.add_edge("detail_validation", "grounding_check")
+    graph.add_edge("grounding_check", "assemble_output")
+    graph.add_edge("assemble_output", END)
+
+    return graph.compile()
+
+
+# ponytail: 그래프는 모듈 로드 시 컴파일, checkpointer 사용 안 함 (무상태 단발 실행)
+_compiled_graph = _build_graph()
+
+
 def run_report_chain(
     facility_info: dict,
     confirmed_defects: list[dict],
@@ -391,75 +523,27 @@ def run_report_chain(
     반환값은 contract.md `POST /ai/report` 응답의 `data` 필드 형태와 동일하다
     (overview/summary/detail/recommendation + grounding_ok).
     """
-    mismatch_policy = MismatchPolicy(on_mismatch)
+    initial_state: ReportChainState = {
+        "facility_info": facility_info,
+        "confirmed_defects": confirmed_defects,
+        "on_mismatch": on_mismatch,
+        "overview": None,  # type: ignore
+        "summary": None,  # type: ignore
+        "detail": ReportDetail(),
+        "recommendation": ReportRecommendation(),
+        "detail_attempts": 0,
+        "summary_attempts": 0,
+        "grounding_ok": False,
+        "grounding_defects": [],
+        "mismatch_policy": MismatchPolicy("regenerate"),
+    }
 
-    # severity_grade 등 저비용 입력 검증(GroundingDefect 생성)은 LLM 호출 전에 먼저 수행한다 —
-    # 4섹션 LLM 호출을 전부 마친 뒤에야 잘못된 입력이 드러나면 비용·지연이 낭비되므로(PR머신 지적, P2).
-    grounding_defects = _to_grounding_defects(confirmed_defects)
-
-    results = _run_parallel(facility_info, confirmed_defects)
-    overview: ReportOverview = results["overview"]
-    summary: ReportSummary = results["summary"]
-    detail: ReportDetail = results["detail"]
-    recommendation: ReportRecommendation = results["recommendation"]
-
-    # detail 섹션 대조는 grounding 공통 모듈의 범위 밖 — report_chain에서 직접 검증(design §5-4).
-    # 개수뿐 아니라 defect_type+severity_grade 조합(멀티셋)까지 실제 confirmed_defects와 일치하는지
-    # 대조한다(PR머신 P2 — 개수만 맞고 내용이 뒤바뀌거나 창작된 경우를 놓치던 것을 보강).
-    # 불일치 시 기존 grounding 재생성 경로와 동일하게 최대 GROUNDING_MAX_RETRIES회 재시도한다.
-    detail_attempts = 0
-    while not _detail_matches_confirmed(detail.items, confirmed_defects) and detail_attempts < GROUNDING_MAX_RETRIES:
-        logger.warning(
-            "detail 섹션 items가 confirmed_defects와 불일치(개수 또는 유형/등급 조합) — 재생성 시도 %d/%d",
-            detail_attempts + 1, GROUNDING_MAX_RETRIES,
-        )
-        detail = _run_detail_chain(confirmed_defects)
-        detail_attempts += 1
-
-    if not _detail_matches_confirmed(detail.items, confirmed_defects):
-        raise ValueError(
-            "detail 섹션 items가 확정 하자 목록과 일치하지 않습니다"
-            f"(items={len(detail.items)}건, confirmed={len(confirmed_defects)}건, "
-            f"재생성 {detail_attempts}회 후에도 개수 또는 유형/등급 조합 불일치)."
-        )
-
-    claims = GroundingClaims(total_count=summary.total_count, count_by_grade=summary.count_by_grade)
-    grounding_result = check_grounding(grounding_defects, claims, mismatch_policy)
-
-    # 불일치 → 재생성(최대 GROUNDING_MAX_RETRIES회, design §5-3). 재생성 후에도 불일치면 WARN(=grounding_ok False)로
-    # 전환하되 보고서 생성 자체는 막지 않는다 (컨벤션 §5 "AI 실패가 비-AI 기능을 막으면 안 됨").
-    attempts = 0
-    while grounding_result.action is GroundingAction.REGENERATE and attempts < GROUNDING_MAX_RETRIES:
-        summary = _run_summary_chain(confirmed_defects)
-        claims = GroundingClaims(total_count=summary.total_count, count_by_grade=summary.count_by_grade)
-        grounding_result = check_grounding(grounding_defects, claims, mismatch_policy)
-        attempts += 1
-
-    # GroundingAction은 PASS/REGENERATE/WARN 3개 값뿐이다(ai.core.grounding 확인 완료, PR머신 P2 후속).
-    # REGENERATE는 위 while 루프에서 재시도를 모두 소진하면 그대로 남을 수 있고(재생성해도 계속 불일치),
-    # WARN은 on_mismatch=warn 정책이거나 UNVERIFIABLE(근거 부재)로 즉시 확정된 경우다. 셋 다 여기서
-    # "보고서 생성 자체를 막지 않는다"는 동일한 결론으로 귀결되므로 분기가 사실상 통과(pass)이지만,
-    # 향후 GroundingAction에 새 값(예: BLOCK류)이 추가돼도 조용히 통과되지 않도록 명시적으로 분기하고
-    # 알려지지 않은 값은 방어적으로 예외를 발생시킨다(라우터가 VALIDATION_ERROR로 처리).
-    if grounding_result.action is GroundingAction.PASS:
-        pass
-    elif grounding_result.action is GroundingAction.REGENERATE:
-        logger.warning(
-            "Grounding mismatch가 재생성 %d회 후에도 지속됨 — grounding_ok=False로 반환(보고서 생성은 계속)",
-            attempts,
-        )
-    elif grounding_result.action is GroundingAction.WARN:
-        pass  # 설계 의도대로 재생성하지 않고 grounding_ok=False(또는 UNVERIFIABLE만 있으면 True)로 반영
-    else:
-        raise ValueError(f"처리되지 않은 GroundingAction 입니다: {grounding_result.action!r}")
+    result = _compiled_graph.invoke(initial_state, config={"recursion_limit": 20})
 
     return {
-        "overview": overview.model_dump(),
-        "summary": summary.model_dump(),
-        "detail": detail.model_dump(),
-        "recommendation": recommendation.model_dump(),
-        # grounded 단독이 아니라 action==PASS 로 판정(#125 P2) — UNVERIFIABLE(근거 부재)만 있어도
-        # grounded=True 가 될 수 있어, 이걸 그대로 쓰면 사람 확인이 필요한 보고서가 완전 검증됐다고
-        # 오판정된다(backend Report.finalizeReport() 가 grounding_ok=True 를 확정 게이트로 신뢰하므로 실제 위험).
-        "grounding_ok": grounding_result.action is GroundingAction.PASS,
+        "overview": result["overview"].model_dump(),
+        "summary": result["summary"].model_dump(),
+        "detail": result["detail"].model_dump(),
+        "recommendation": result["recommendation"].model_dump(),
+        "grounding_ok": result["grounding_ok"],
     }
