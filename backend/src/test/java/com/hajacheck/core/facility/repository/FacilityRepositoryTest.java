@@ -51,6 +51,14 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         return company.getId();
     }
 
+    // FK(assignee_user_id → users) 충족용 사용자 시드 후 생성된 user id 반환.
+    private Long seedUser(String email) {
+        User user = User.createCompanyOwner(email, "담당자", "$2a$10$testtesttesttesttesttes");
+        em.persist(user);
+        em.flush();
+        return user.getId();
+    }
+
     private Facility newFacility(Long ownerId, String name) {
         return Facility.builder()
                 .companyId(ownerId)
@@ -87,7 +95,7 @@ class FacilityRepositoryTest extends PostgresTestSupport {
     @Test
     void save_초기등급담당자메모_저장후조회시그대로반환() {
         Long ownerId = seedOwner("owner-a@haja.com");
-        Long assigneeId = seedOwner("assignee@haja.com");
+        Long assigneeId = seedUser("assignee@haja.com");
         Facility facility = Facility.builder()
                 .companyId(ownerId)
                 .name("등급테스트빌딩")
