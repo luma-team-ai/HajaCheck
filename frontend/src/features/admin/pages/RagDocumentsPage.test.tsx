@@ -44,7 +44,8 @@ describe('RagDocumentsPage (통합 테스트)', () => {
     expect(await screen.findByText('시설물의 안전관리에 관한 특별법')).toBeTruthy();
     expect(screen.getByText('균열 하자 보수 지침')).toBeTruthy();
     expect(screen.getAllByText('완료').length).toBeGreaterThan(0);
-    expect(screen.getByText('실패')).toBeTruthy();
+    // "재임베딩 필요"는 상단 통계 카드 라벨과 FAILED 문서 행 상태 양쪽에 나타난다(getAllByText로 스코프).
+    expect(screen.getAllByText('재임베딩 필요').length).toBeGreaterThan(0);
   });
 
   it('재임베딩 버튼을 누르면 해당 문서 행의 상태가 완료로 갱신된다', async () => {
@@ -55,7 +56,7 @@ describe('RagDocumentsPage (통합 테스트)', () => {
     if (!row) {
       throw new Error('문서 행을 찾을 수 없습니다');
     }
-    expect(within(row).getByText('실패')).toBeTruthy();
+    expect(within(row).getByText('재임베딩 필요')).toBeTruthy();
 
     // mock 데이터의 FAILED 문서를 재임베딩 — MSW 핸들러가 즉시 DONE으로 갱신해 반환한다.
     fireEvent.click(within(row).getByRole('button', { name: '재임베딩' }));
@@ -63,15 +64,23 @@ describe('RagDocumentsPage (통합 테스트)', () => {
     expect(await within(row).findByText('완료')).toBeTruthy();
   });
 
-  it('PDF 파일을 선택하지 않고 제출하면 클라이언트 검증 메시지를 보여준다', async () => {
+  it('파일을 고르기 전엔 제목 등 메타데이터 입력·제출 버튼이 보이지 않는다(Figma 디자인 — 드롭존만 노출)', async () => {
     renderPage();
 
     await screen.findByText('시설물의 안전관리에 관한 특별법');
-    fireEvent.change(screen.getByLabelText('제목'), {
-      target: { value: '제목만 입력한 문서' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: '업로드 및 임베딩 실행' }));
+    expect(screen.queryByLabelText('제목')).toBeNull();
+    expect(screen.queryByRole('button', { name: '업로드 및 임베딩 실행' })).toBeNull();
+  });
 
-    expect(await screen.findByText('PDF 파일을 선택해 주세요.')).toBeTruthy();
+  it('파일 선택 후 제목을 비워둔 채 제출하면 클라이언트 검증 메시지를 보여준다', async () => {
+    renderPage();
+
+    await screen.findByText('시설물의 안전관리에 관한 특별법');
+    const file = new File(['%PDF-1.4'], 'law.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('PDF 파일'), { target: { files: [file] } });
+
+    fireEvent.click(await screen.findByRole('button', { name: '업로드 및 임베딩 실행' }));
+
+    expect(await screen.findByText('제목은 필수입니다.')).toBeTruthy();
   });
 });
