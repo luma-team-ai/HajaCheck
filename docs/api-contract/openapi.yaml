@@ -1238,8 +1238,9 @@ paths:
     post:
       summary: 점검(회차) 생성
       description: >
-        인증 사용자가 접근 가능한 시설에 점검 회차를 생성하고 담당 점검자를 지정한다.
-        assignedInspectorId는 ACTIVE이면서 INSPECTOR 또는 ADMIN인 사용자만 허용하며,
+        인증 사용자의 유효 회사가 소유한 시설에만 점검 회차를 생성하고 담당 점검자를 지정한다.
+        assignedInspectorId는 같은 회사 소속이며 ACTIVE인 INSPECTOR 또는 ADMIN만 허용하며,
+        관리자와 담당 점검자에게도 타회사 시설 접근 예외는 없다.
         createdBy는 요청 바디가 아니라 인증 주체에서 서버가 기록한다.
       security:
         - SessionCookie: []
@@ -1395,9 +1396,9 @@ paths:
       summary: 하자 목록 검색·필터 (FR-012, 계획/미구현)
       description: >
         서버가 인증 주체의 companyId와 일치하는 회사 소유 시설물(facilities.company_id) 범위를 먼저 계산한다.
-        요청자 자신의 companyId가 없거나 소속이 유효하지 않으면 시설 경유 접근을 거부하고,
-        관리자는 전체 시설물. 이와 별개로 inspections.assigned_inspector_id가 본인인 점검 회차는
-        시설물 범위 밖이어도 항상 포함한다. 모든 역할에서 defects.is_deleted=false를 강제한다. 아래 쿼리
+        요청자 자신의 companyId가 없거나 현재 DB 기준 회사·멤버십 소속이 유효하지 않으면 시설 경유 접근을
+        거부한다. 관리자 전체 조회와 assigned_inspector_id 기반 타회사 접근 예외는 없다. 모든 역할에서
+        defects.is_deleted=false를 강제한다. 아래 쿼리
         파라미터는 이 서버 유도 소유권 범위를 좁히는 용도로만 사용하며 클라이언트 입력으로 범위를 확장할 수
         없다. 정렬은 created_at DESC, id DESC로 고정해 페이지 간 결과 순서를 안정적으로 유지한다.
       security:
