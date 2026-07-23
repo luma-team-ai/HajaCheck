@@ -7,7 +7,6 @@ import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
-import com.hajacheck.core.defect.service.DefectWriter;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
@@ -41,7 +40,6 @@ public class InspectionAnalysisService {
     private final InspectionService inspectionService;
     private final MediaRepository mediaRepository;
     private final DefectRepository defectRepository;
-    private final DefectWriter defectWriter;
     private final AnalysisProgressStore progressStore;
     private final InspectionAnalysisWorker worker;
 
@@ -49,14 +47,22 @@ public class InspectionAnalysisService {
      * 분석 시작 — 소유권 검증, 이미지 존재 검증, ANALYZING을 원자적으로 선점하고 초기 진행률(전부 대기)을
      * 캐시에 써둔 뒤 비동기 워커에 위임한다. 이 메서드 자체는 워커 완료를 기다리지 않고 즉시 반환한다.
      *
-     * <p>코드 리뷰 P2 픽스 3건을 함께 반영한다:
+     * <p>코드 리뷰 P1/P2 픽스를 함께 반영한다:
      * <ul>
      *   <li><b>고착 복구</b>: status==ANALYZING인데 진행률 캐시가 없으면(TaskRejectedException 발생
-     *       시점 이전 크래시, 워커 진행 중 JVM 재기동 등) 고착으로 간주하고 강제로 되돌려 재시작을 허용한다.</li>
+     *       시점 이전 크래시, 워커 진행 중 JVM 재기동 등) 고착으로 간주하고 강제로 되돌려 재시작을 허용한다.
+     *       (P1) 이 판정은 "캐시 부재"에 의존하므로, 원자적 선점 성공과 캐시 기록 사이에 오래 걸리는
+     *       작업이 끼면 정상 진행 중인 요청을 다른 요청이 고착으로 오판해 이중 실행될 수 있다 — 그래서
+     *       선점 성공 직후 곧바로(다른 무거운 작업 없이) 캐시를 써서 그 창을 인메모리 리스트 구성
+     *       수준(사실상 무시 가능)으로 좁힌다. 예전엔 이 사이에 소프트삭제(수십~수백 ms, DB 트랜잭션)가
+     *       끼어 있어 더블클릭·재시도로 현실적으로 도달 가능한 경쟁이었다.</li>
      *   <li><b>원자적 선점</b>: "조회 후 상태 확인 → 별도 UPDATE"가 아니라
      *       {@link InspectionService#tryStartAnalyzing} 단일 조건부 UPDATE로 동시 요청의 이중 실행을 막는다.</li>
-     *   <li><b>재분석 멱등화</b>: 선점에 성공하면(=이번 호출이 실제로 분석을 시작함) 기존 하자를
-     *       소프트삭제한 뒤 워커를 돌린다 — 완료된 회차 재트리거·경쟁으로 인한 하자 중복 적재 방지.</li>
+     *   <li><b>재분석 멱등화</b>(P2): 기존 하자 소프트삭제는 더 이상 이 메서드가 하지 않는다 —
+     *       {@link InspectionAnalysisWorker}가 실제로 최소 1건 탐지에 성공한 시점에 지연 실행한다.
+     *       이 메서드에서 미리 지워버리면, 이후 큐 포화({@link TaskRejectedException})나 워커 전체
+     *       실패로 롤백되는 경우 이미 커밋된 소프트삭제는 보상되지 않아 검수 완료된 회차의 하자가
+     *       영구 유실된다 — 실행이 실제로 결실을 맺기 전까지는 기존 데이터를 건드리지 않는다.</li>
      * </ul>
      */
     public void startAnalysis(Long requesterUserId, Long companyId, Long inspectionId) {
@@ -82,9 +88,7 @@ public class InspectionAnalysisService {
             throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
         }
 
-        // 재분석 멱등화 — 이 시점부터는 이번 호출이 유일한 실행 주체임이 보장된다.
-        defectWriter.softDeleteAllForInspection(inspectionId);
-
+        // P1 — 선점 성공과 캐시 기록 사이에 무거운 작업을 두지 않는다(클래스 javadoc 참고).
         List<FileProgress> initialFiles = new java.util.ArrayList<>(images.size());
         for (int i = 0; i < images.size(); i++) {
             initialFiles.add(new FileProgress(images.get(i).getId(), "이미지 " + (i + 1), "waiting", null, "-"));

@@ -26,6 +26,14 @@ if TYPE_CHECKING:
 # 점검 미디어 업로드 상한 20MB(MediaUploadProperties, backend)의 base64 상당치(+33% 여유 포함).
 MAX_IMAGE_BASE64_LENGTH = 28_000_000
 
+# decompression bomb 방어(코드 리뷰 P2) — base64 길이 상한만으로는 안 막힌다. 고압축 포맷(PNG 등)은
+# 단색에 가까운 대형 이미지를 수 KB로 압축하므로, 작은 base64가 수천만~수억 픽셀로 디코딩될 수
+# 있다. business_license_ocr_chain._decode_image는 bytes를 그대로 easyocr에 넘겨(cv2.imdecode가
+# 내부 처리) 이 문제가 없지만, 여긴 PIL.Image.open + convert("RGB")로 전체 픽셀 버퍼를 직접
+# 할당하므로 별도 방어가 필요하다. 40MP는 실제 현장 촬영 사진의 현실적 해상도 상한(고화소
+# DSLR/드론 기준)보다 넉넉히 잡은 값 — 정상 사용은 막지 않으면서 폭탄만 차단한다.
+MAX_IMAGE_PIXELS = 40_000_000
+
 # YOLO 추론 자체가 임계값을 너무 낮게 잡으면 잡음(false positive)이 쏟아진다 — 1차 보수적 기본값.
 DEFAULT_CONFIDENCE_THRESHOLD = 0.25
 
@@ -60,9 +68,16 @@ def _decode_image(image_base64: str) -> "Image.Image":
     except (binascii.Error, ValueError) as e:
         raise DefectDetectionError("image_base64가 올바른 base64 인코딩이 아닙니다") from e
     try:
-        return Image.open(io.BytesIO(raw)).convert("RGB")
+        image = Image.open(io.BytesIO(raw))
     except UnidentifiedImageError as e:
         raise DefectDetectionError("image_base64가 올바른 이미지 파일이 아닙니다") from e
+
+    # Image.open()은 헤더만 읽고 지연 디코딩한다(size 접근은 픽셀 버퍼를 할당하지 않음) — 그래서
+    # 픽셀 상한 검사를 convert() 앞에 둬야 실제 전체 버퍼 할당(비용이 큰 부분) 전에 거부할 수 있다.
+    width, height = image.size
+    if width * height > MAX_IMAGE_PIXELS:
+        raise DefectDetectionError("이미지 해상도가 허용 상한을 초과했습니다")
+    return image.convert("RGB")
 
 
 def _mask_area_ratio(masks, index: int, fallback_bbox_area: float) -> float:

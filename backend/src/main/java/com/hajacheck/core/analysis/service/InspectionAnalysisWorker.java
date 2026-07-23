@@ -36,6 +36,10 @@ import org.springframework.stereotype.Component;
  * <p>회차의 이미지를 순서대로 하나씩 처리한다(병렬 아님) — FastAPI가 CPU 바운드 단일 워커 전제라
  * Spring 쪽에서 병렬로 던져도 처리량이 늘지 않고 대기열만 쌓인다(AsyncConfig 주석 참고). 이미지 1장
  * 실패는 그 이미지만 실패 처리하고 나머지는 계속 진행한다 — 회차 전체를 롤백하지 않는다.
+ *
+ * <p>재분석 시 기존 하자 소프트삭제(멱등화)는 {@link InspectionAnalysisService}가 아니라 이 클래스가
+ * 담당한다(코드 리뷰 P1/P2 픽스) — 실제로 첫 탐지가 성공한 시점에 지연 실행해, 트리거 메서드에서
+ * 미리 지웠다가 이후 큐 포화·전체 실패로 롤백되며 검수 완료된 하자가 보상 없이 유실되는 걸 막는다.
  */
 @Slf4j
 @Component
@@ -66,6 +70,11 @@ public class InspectionAnalysisWorker {
         int riskyCrackCount = 0;
         int failedCount = 0;
         int successCount = 0;
+        // 재분석 멱등화(코드 리뷰 P2) — 기존 하자 소프트삭제를 이 루프 안에서, 실제로 첫 탐지가
+        // 성공한 시점에 딱 한 번만 지연 실행한다. InspectionAnalysisService가 미리 지워버리면
+        // 이후 이미지 전체 실패로 롤백될 때 검수 완료된 회차의 기존 하자가 보상 없이 영구 유실된다
+        // (이 필드가 false로 남으면 = 이번 실행이 아무 결실도 못 맺었으면 = 기존 데이터를 건드리지 않았다는 뜻).
+        boolean oldDefectsCleared = false;
         Map<DefectGrade, Integer> gradeCounts = new EnumMap<>(DefectGrade.class);
 
         for (int i = 0; i < images.size(); i++) {
@@ -77,6 +86,10 @@ public class InspectionAnalysisWorker {
             Instant startedAt = Instant.now();
             try {
                 List<DetectedDefectItem> detections = detect(media);
+                if (!oldDefectsCleared) {
+                    defectWriter.softDeleteAllForInspection(inspectionId);
+                    oldDefectsCleared = true;
+                }
                 List<Defect> toSave = new ArrayList<>(detections.size());
                 for (DetectedDefectItem item : detections) {
                     Defect defect = toDefect(inspectionId, media.getId(), item);
