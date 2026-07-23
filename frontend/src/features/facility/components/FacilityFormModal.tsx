@@ -8,7 +8,9 @@ import {
   geocodeAddress,
 } from '../../../shared/lib/kakaoMap/geocodeAddress';
 import { FACILITY_TYPE_OPTIONS } from '../constants';
-import type { CreateFacilityRequest } from '../types';
+import { ERROR_CLASSES, INPUT_CLASSES, LABEL_CLASSES } from '../formClasses';
+import { useFacilityAssignableUsers } from '../hooks/useFacilityAssignableUsers';
+import type { CreateFacilityRequest, FacilityInitialGrade } from '../types';
 import type { FacilityFormErrors, FacilityFormValues } from '../utils/validateFacilityForm';
 import {
   FACILITY_FORM_INITIAL_VALUES,
@@ -16,6 +18,9 @@ import {
   toCreateFacilityRequest,
   validateFacilityForm,
 } from '../utils/validateFacilityForm';
+import { FacilityAddressField } from './FacilityAddressField';
+import { FacilityInitialGradeSelect } from './FacilityInitialGradeSelect';
+import { FacilityPhotoUploadField } from './FacilityPhotoUploadField';
 
 type Props = {
   open: boolean;
@@ -24,11 +29,6 @@ type Props = {
   isSubmitting: boolean;
   submitErrorMessage?: string;
 };
-
-const INPUT_CLASSES =
-  'w-full rounded-lg border border-border bg-surface-muted px-3 py-2 text-sm text-text-default outline-none focus:ring-2 focus:ring-primary';
-const LABEL_CLASSES = 'text-sm font-medium text-text-default';
-const ERROR_CLASSES = 'text-xs text-danger';
 
 export function FacilityFormModal({
   open,
@@ -42,16 +42,31 @@ export function FacilityFormModal({
   // 주소 → 좌표 변환(Geocoder) 진행 중 여부와 실패 메시지 — 수동 위도/경도 입력을 대체한다(#618).
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [geocodeErrorMessage, setGeocodeErrorMessage] = useState<string | undefined>(undefined);
+  // 담당자 select 옵션 — 실 API 없음(types.ts FacilityAssignableUser 주석 참고), MSW 목 전용(#629).
+  const { data: assignableUsers, isLoading: isAssignableUsersLoading } =
+    useFacilityAssignableUsers();
 
   const handleChange =
     (field: keyof FacilityFormValues) =>
-    (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    (event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
       setValues((prev) => ({ ...prev, [field]: event.target.value }));
-      if (field === 'address' && geocodeErrorMessage) {
-        // 주소를 다시 고치기 시작하면 지난 좌표 변환 실패 메시지를 지운다.
-        setGeocodeErrorMessage(undefined);
-      }
     };
+
+  const handleAddressChange = (address: string) => {
+    setValues((prev) => ({ ...prev, address }));
+    if (geocodeErrorMessage) {
+      // 주소를 다시 고치기 시작하면 지난 좌표 변환 실패 메시지를 지운다.
+      setGeocodeErrorMessage(undefined);
+    }
+  };
+
+  const handleAddressDetailChange = (addressDetail: string) => {
+    setValues((prev) => ({ ...prev, addressDetail }));
+  };
+
+  const handleInitialGradeChange = (initialGrade: FacilityInitialGrade | '') => {
+    setValues((prev) => ({ ...prev, initialGrade }));
+  };
 
   const handleClose = () => {
     setValues(FACILITY_FORM_INITIAL_VALUES);
@@ -71,6 +86,9 @@ export function FacilityFormModal({
     const payload = toCreateFacilityRequest(values);
 
     // 주소가 입력된 경우에만 좌표 변환을 시도한다 — 주소가 비어 있으면 좌표 없이(null) 등록된다.
+    // 상세주소가 아닌 도로명주소(values.address)만 Geocoder에 전달한다 — 동/호수 등 상세주소가
+    // 섞이면 Kakao Geocoder 매칭률이 떨어지기 때문(백엔드로는 toCreateFacilityRequest가 합친
+    // payload.address가 그대로 전송된다).
     if (values.address.trim()) {
       setGeocodeErrorMessage(undefined);
       setIsGeocoding(true);
@@ -119,87 +137,70 @@ export function FacilityFormModal({
         </button>
       </div>
 
-      <form className="flex w-105 max-w-full flex-col gap-4" onSubmit={handleSubmit} noValidate>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="facility-name" className={LABEL_CLASSES}>
-            시설물명 <span className="text-danger">*</span>
-          </label>
-          <input
-            id="facility-name"
-            type="text"
-            value={values.name}
-            onChange={handleChange('name')}
-            maxLength={200}
-            placeholder="예: 강남 오피스타워 A동"
-            className={INPUT_CLASSES}
-            aria-invalid={Boolean(errors.name)}
-            aria-describedby={errors.name ? 'facility-name-error' : undefined}
-          />
-          {errors.name && (
-            <p id="facility-name-error" className={ERROR_CLASSES}>
-              {errors.name}
-            </p>
-          )}
-        </div>
+      <form className="flex w-105 max-w-full flex-col gap-5" onSubmit={handleSubmit} noValidate>
+        {/* 기본 정보 */}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="facility-name" className={LABEL_CLASSES}>
+              시설물명 <span className="text-danger">*</span>
+            </label>
+            <input
+              id="facility-name"
+              type="text"
+              value={values.name}
+              onChange={handleChange('name')}
+              maxLength={200}
+              placeholder="예: 강남 오피스타워 A동"
+              className={INPUT_CLASSES}
+              aria-invalid={Boolean(errors.name)}
+              aria-describedby={errors.name ? 'facility-name-error' : undefined}
+            />
+            {errors.name && (
+              <p id="facility-name-error" className={ERROR_CLASSES}>
+                {errors.name}
+              </p>
+            )}
+          </div>
 
-        <div className="flex flex-col gap-1">
-          <label htmlFor="facility-type" className={LABEL_CLASSES}>
-            시설물 유형 <span className="text-danger">*</span>
-          </label>
-          <select
-            id="facility-type"
-            value={values.type}
-            onChange={handleChange('type')}
-            className={INPUT_CLASSES}
-            aria-invalid={Boolean(errors.type)}
-            aria-describedby={errors.type ? 'facility-type-error' : undefined}
-          >
-            <option value="">유형을 선택하세요</option>
-            {FACILITY_TYPE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-          {errors.type && (
-            <p id="facility-type-error" className={ERROR_CLASSES}>
-              {errors.type}
-            </p>
-          )}
-        </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="facility-type" className={LABEL_CLASSES}>
+              시설물 유형 <span className="text-danger">*</span>
+            </label>
+            <select
+              id="facility-type"
+              value={values.type}
+              onChange={handleChange('type')}
+              className={INPUT_CLASSES}
+              aria-invalid={Boolean(errors.type)}
+              aria-describedby={errors.type ? 'facility-type-error' : undefined}
+            >
+              <option value="">유형을 선택하세요</option>
+              {FACILITY_TYPE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            {errors.type && (
+              <p id="facility-type-error" className={ERROR_CLASSES}>
+                {errors.type}
+              </p>
+            )}
+          </div>
 
-        <div className="flex flex-col gap-1">
-          <label htmlFor="facility-address" className={LABEL_CLASSES}>
-            주소
-          </label>
-          <input
-            id="facility-address"
-            type="text"
-            value={values.address}
-            onChange={handleChange('address')}
-            maxLength={300}
-            placeholder="주소를 입력하세요"
-            className={INPUT_CLASSES}
-            aria-invalid={Boolean(errors.address)}
-            aria-describedby={errors.address ? 'facility-address-error' : undefined}
+          <FacilityAddressField
+            address={values.address}
+            addressDetail={values.addressDetail}
+            onAddressChange={handleAddressChange}
+            onAddressDetailChange={handleAddressDetailChange}
+            errorMessage={errors.address}
           />
-          {errors.address && (
-            <p id="facility-address-error" className={ERROR_CLASSES}>
-              {errors.address}
-            </p>
-          )}
-          {/* 위도/경도 수동 입력 제거(#618) — 등록 시 주소를 기준으로 Geocoder가 좌표를 자동 계산한다. */}
-          <p className="m-0 text-xs text-text-muted">
-            등록 시 주소를 기준으로 위치 좌표가 자동으로 계산됩니다.
-          </p>
           {geocodeErrorMessage && (
             <p role="alert" className={ERROR_CLASSES}>
               {geocodeErrorMessage}
             </p>
           )}
-        </div>
 
-        <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
             <label htmlFor="facility-built-year" className={LABEL_CLASSES}>
               준공년도
@@ -221,50 +222,60 @@ export function FacilityFormModal({
               </p>
             )}
           </div>
+        </div>
 
-          <div className="flex flex-col gap-1">
-            <label htmlFor="facility-inspection-cycle" className={LABEL_CLASSES}>
-              점검주기(개월)
-            </label>
-            <input
-              id="facility-inspection-cycle"
-              type="text"
-              inputMode="numeric"
-              value={values.inspectionCycleMonths}
-              onChange={handleChange('inspectionCycleMonths')}
-              placeholder="예: 6"
-              className={INPUT_CLASSES}
-              aria-invalid={Boolean(errors.inspectionCycleMonths)}
-              aria-describedby={
-                errors.inspectionCycleMonths ? 'facility-inspection-cycle-error' : undefined
-              }
-            />
-            {errors.inspectionCycleMonths && (
-              <p id="facility-inspection-cycle-error" className={ERROR_CLASSES}>
-                {errors.inspectionCycleMonths}
-              </p>
-            )}
-          </div>
+        {/* 대표 사진 — UI만 구성(#629), 실 업로드 연동은 #652 대기 */}
+        <FacilityPhotoUploadField />
+
+        {/* 초기 등급 설정(선택) */}
+        <FacilityInitialGradeSelect value={values.initialGrade} onChange={handleInitialGradeChange} />
+
+        {/* 담당자(선택) / 메모(선택) */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor="facility-assignee" className={LABEL_CLASSES}>
+            담당자
+          </label>
+          <select
+            id="facility-assignee"
+            value={values.assigneeUserId}
+            onChange={handleChange('assigneeUserId')}
+            className={INPUT_CLASSES}
+            disabled={isAssignableUsersLoading}
+            aria-invalid={Boolean(errors.assigneeUserId)}
+            aria-describedby={errors.assigneeUserId ? 'facility-assignee-error' : undefined}
+          >
+            <option value="">담당자를 선택하세요 (선택)</option>
+            {assignableUsers?.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </select>
+          {errors.assigneeUserId && (
+            <p id="facility-assignee-error" className={ERROR_CLASSES}>
+              {errors.assigneeUserId}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col gap-1">
-          <label htmlFor="facility-scale" className={LABEL_CLASSES}>
-            규모
+          <label htmlFor="facility-memo" className={LABEL_CLASSES}>
+            메모
           </label>
-          <input
-            id="facility-scale"
-            type="text"
-            value={values.scale}
-            onChange={handleChange('scale')}
-            maxLength={100}
-            placeholder="예: 지상 20층, 지하 5층"
+          <textarea
+            id="facility-memo"
+            value={values.memo}
+            onChange={handleChange('memo')}
+            maxLength={2000}
+            rows={3}
+            placeholder="메모를 입력하세요 (선택)"
             className={INPUT_CLASSES}
-            aria-invalid={Boolean(errors.scale)}
-            aria-describedby={errors.scale ? 'facility-scale-error' : undefined}
+            aria-invalid={Boolean(errors.memo)}
+            aria-describedby={errors.memo ? 'facility-memo-error' : undefined}
           />
-          {errors.scale && (
-            <p id="facility-scale-error" className={ERROR_CLASSES}>
-              {errors.scale}
+          {errors.memo && (
+            <p id="facility-memo-error" className={ERROR_CLASSES}>
+              {errors.memo}
             </p>
           )}
         </div>
