@@ -224,6 +224,23 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void 사용자등록_승인대기companyId면_404_COMPANY_NOT_FOUND() throws Exception {
+        User platformAdmin = saveUser("플랫폼관리자", "pa8b@haja.com", Role.PLATFORM_ADMIN);
+        Company pendingCompany = saveCompany(com.hajacheck.auth.entity.CompanyStatus.PENDING_REVIEW);
+        PlatformAdminUserCreateRequest request = new PlatformAdminUserCreateRequest(
+                "pa8b-new@haja.com", "password1", "실패대상2", Role.USER, pendingCompany.getId());
+
+        mockMvc.perform(post("/api/platform-admin/users")
+                        .with(authentication(authOf(platformAdmin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("COMPANY_NOT_FOUND"));
+
+        assertThat(userRepository.findByEmail("pa8b-new@haja.com")).isEmpty();
+    }
+
+    @Test
     void 사용자등록_이메일중복이면_409() throws Exception {
         User platformAdmin = saveUser("플랫폼관리자", "pa9@haja.com", Role.PLATFORM_ADMIN);
         saveUser("기존사용자", "pa9-dup@haja.com", Role.USER);

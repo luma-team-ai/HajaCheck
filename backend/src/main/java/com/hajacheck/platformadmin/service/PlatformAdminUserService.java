@@ -4,6 +4,7 @@ import com.hajacheck.admin.dto.AdminUserRoleUpdateResponse;
 import com.hajacheck.admin.dto.AdminUserStatsResponse;
 import com.hajacheck.admin.dto.AdminUserStatusUpdateResponse;
 import com.hajacheck.auth.entity.Company;
+import com.hajacheck.auth.entity.CompanyStatus;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
@@ -74,6 +75,13 @@ public class PlatformAdminUserService {
         if (request.companyId() != null) {
             Company company = companyRepository.findById(request.companyId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.COMPANY_NOT_FOUND));
+            // 배정 가능 기업 목록(listAssignableCompanies)이 승인(APPROVED)된 기업만 노출하는 것과
+            // 정합을 맞춘다(PR머신 리뷰 P2) — 승인 대기/반려 companyId를 직접 크래프팅해도 존재 여부만
+            // 확인하고 통과시키면 아직 유효하지 않은 회사에 사용자가 조기 배선된다. 리소스 존재 여부
+            // 열거를 피하기 위해 미존재와 동일하게 COMPANY_NOT_FOUND로 응답한다.
+            if (company.getStatus() != CompanyStatus.APPROVED) {
+                throw new BusinessException(ErrorCode.COMPANY_NOT_FOUND);
+            }
             companyName = company.getName();
         }
 
@@ -113,10 +121,17 @@ public class PlatformAdminUserService {
     // 대상 회사의 마지막 ACTIVE ADMIN을 강등/정지하면 그 회사는 자체 관리자 콘솔 접근 수단을
     // 영구히 잃는다(AdminUserService와 동일 취지). 회사 미소속(companyId=null) 대상은 보호 대상
     // 회사 자체가 없으므로 검사하지 않는다.
+    //
+    // TOCTOU 방지(PR머신 2차 검토 P2): count-후-쓰기 사이에 잠금이 없으면, 활성 ADMIN이 정확히
+    // 2명인 회사에서 서로 다른 ADMIN을 대상으로 한 두 요청이 동시에 count=2>1을 보고 둘 다 통과해
+    // 커밋 후 활성 ADMIN이 0명이 될 수 있다. 카운트 전에 회사 행을 PESSIMISTIC_WRITE로 잠가 같은
+    // 회사를 대상으로 한 요청을 직렬화한다 — 두 번째 요청은 첫 번째가 커밋한 뒤에야 잠금을 얻고,
+    // 그 시점의 최신(감소한) 카운트를 보게 된다.
     private void requireNotLastCompanyAdmin(Long companyId) {
         if (companyId == null) {
             return;
         }
+        companyRepository.findByIdForUpdate(companyId);
         long remainingActiveAdmins =
                 platformAdminUserRepository.countByCompanyIdAndRoleAndStatus(companyId, Role.ADMIN, UserStatus.ACTIVE);
         if (remainingActiveAdmins <= 1) {
