@@ -24,6 +24,13 @@ interface CreateUserModalProps {
   /** GET /api/platform-admin/companies(#576) 응답 — 로딩 중이면 undefined. */
   companyOptions?: CompanyOption[];
   isCompanyOptionsLoading?: boolean;
+  /**
+   * 기업 목록 조회 실패 여부. "승인된 기업이 0곳"과 구별해서 보여줘야 한다 — 무음 실패로 selectbox가
+   * 그냥 비어 있으면 관리자가 실제로는 소속 회사가 있는 사용자를 개인 계정으로 잘못 등록할 수 있다
+   * (PR #656 PR머신 리뷰 P3).
+   */
+  isCompanyOptionsError?: boolean;
+  onRetryCompanyOptions?: () => void;
 }
 
 const INPUT_CLASS =
@@ -41,6 +48,8 @@ export function CreateUserModal({
   submitErrorMessage,
   companyOptions,
   isCompanyOptionsLoading = false,
+  isCompanyOptionsError = false,
+  onRetryCompanyOptions,
 }: CreateUserModalProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -167,7 +176,7 @@ export function CreateUserModal({
             className={INPUT_CLASS}
             value={companyIdInput}
             onChange={(event) => setCompanyIdInput(event.target.value)}
-            disabled={isCompanyOptionsLoading}
+            disabled={isCompanyOptionsLoading || isCompanyOptionsError}
           >
             <option value={NO_COMPANY_VALUE}>선택 안함(개인)</option>
             {(companyOptions ?? []).map((company) => (
@@ -178,6 +187,19 @@ export function CreateUserModal({
           </select>
           {isCompanyOptionsLoading && (
             <p className="m-0 text-xs text-text-muted">기업 목록을 불러오는 중...</p>
+          )}
+          {isCompanyOptionsError && (
+            <p className="m-0 flex items-center gap-2 text-xs text-danger" role="alert">
+              기업 목록을 불러오지 못했습니다. 승인된 기업이 없는 것과는 다릅니다 — 개인 계정으로
+              등록하기 전에 다시 시도해 주세요.
+              <button
+                type="button"
+                className="cursor-pointer border-none bg-none p-0 font-medium text-danger underline"
+                onClick={onRetryCompanyOptions}
+              >
+                다시 시도
+              </button>
+            </p>
           )}
         </div>
 
