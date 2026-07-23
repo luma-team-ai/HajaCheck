@@ -3,6 +3,7 @@ import type { AdminUser } from '../types';
 import { formatJoinedAt, formatRelativeAccess } from '../utils/formatUserDates';
 import { AdminUserRowMenu } from './AdminUserRowMenu';
 import type { AdminUserRowAction } from './AdminUserRowMenu';
+import { CompanyAvatar } from './CompanyAvatar';
 import { StateRow } from './StateRow';
 import { UserAvatar } from './UserAvatar';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
@@ -79,7 +80,10 @@ export function AdminUserTable({
           users.map((user) => (
             <tr key={user.id} className="border-b border-border last:border-b-0 hover:bg-surface-muted">
               <td className={`${BODY_CELL} pl-6 text-text-default`}>
-                {user.companyName ?? EMPTY_CELL}
+                <span className="flex items-center gap-2">
+                  <CompanyAvatar companyName={user.companyName} />
+                  {user.companyName ?? EMPTY_CELL}
+                </span>
               </td>
               <td className={BODY_CELL}>
                 <span className="flex items-center gap-2.5">

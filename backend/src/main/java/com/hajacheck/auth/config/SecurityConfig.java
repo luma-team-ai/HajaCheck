@@ -79,6 +79,9 @@ public class SecurityConfig {
                         // 강제한다. 프론트 AdminRoute 는 UX 가드일 뿐 실제 차단은 이 경계가 최종 방어선이다.
                         // 회사 스코프·데이터 소유권은 각 서비스가 company_id 로 추가 필터링한다.
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        // 플랫폼 관리자 콘솔(#576 사용자 관리) — 회사 스코프 없는 전사 데이터라 별도 role로
+                        // 엄격히 분리한다. "/api/admin/**"(ADMIN)와 절대 겹치지 않아야 한다(설계 §6 원칙).
+                        .requestMatchers("/api/platform-admin/**").hasRole("PLATFORM_ADMIN")
                         // 하자 자연어 검색(HAJA-120) — 점검자 역할을 엔드포인트 레벨에서 강제(설계 §4).
                         // has_ai_addon 플랜 게이트는 역할과 무관한 별도 축이라 NlSearchService가 담당한다.
                         .requestMatchers(HttpMethod.POST, "/api/defects/nl-search").hasRole("INSPECTOR")

@@ -49,6 +49,12 @@ interface AppLayoutProps {
   unreadCount?: number;
   onNotificationClick?: () => void;
   onProfileClick?: () => void;
+  /**
+   * 우측 하단 고객지원 퀵상담 FAB(BottomNavBarFab) + 팝업 노출 여부. 미지정 시 true(기존 동작).
+   * 플랫폼 관리자 콘솔(PlatformAdminShellRoute)은 내부 운영진 화면이라 고객 대상 지원 진입점이
+   * 필요 없어 false로 끈다(사용자 지시, #576 후속).
+   */
+  showSupportFab?: boolean;
 }
 
 // 로그인 후 내부 페이지 공통 앱 셸 — 신규 공통 컴포넌트 SideNavBar + Header 조합(HAJA-186, #217).
@@ -68,6 +74,7 @@ export function AppLayout({
   unreadCount,
   onNotificationClick,
   onProfileClick,
+  showSupportFab = true,
 }: AppLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -129,8 +136,8 @@ export function AppLayout({
         />
         <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
       </div>
-      <BottomNavBarFab onClick={handleFabClick} />
-      {isSupportPopupOpen && (
+      {showSupportFab && <BottomNavBarFab onClick={handleFabClick} />}
+      {showSupportFab && isSupportPopupOpen && (
         <FloatingPopup
           onClose={() => setIsSupportPopupOpen(false)}
           links={[
