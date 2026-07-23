@@ -1,6 +1,6 @@
 # hajaCheck 테이블 디자인 설계
 
-> **문서 버전:** v0.5 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
+> **문서 버전:** v0.5 · **최종 수정:** 2026-07-23 · 이전 버전 `archive/`
 
 - 대상 스키마 파일: [HajaCheck_script.sql](HajaCheck_script.sql)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
@@ -569,9 +569,44 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 | next_inspection_due_at | date | Y | - | | 다음 점검 예정일 |
 | created_at | timestamptz | N | now() | | 생성 시각 |
 | updated_at | timestamptz | N | now() | | 최종 수정 시각 |
+| initial_grade | facility_initial_grade_type | Y | - | | 등록 시 입력하는 초기 등급(A~E) |
+| assignee_user_id | bigint | Y | - | **FK→users** | 시설물 담당자 |
+| memo | text | Y | - | | 등록 메모(자유 텍스트) |
 
-- 인덱스: `idx_facilities_owner (owner_id)`
+- 인덱스: `idx_facilities_owner (owner_id)`, `idx_facilities_assignee (assignee_user_id)`,
+  `idx_facilities_next_inspection_due_at (next_inspection_due_at) WHERE next_inspection_due_at IS NOT NULL`
+  (V9, #509 — InspectionDueNotificationScheduler 풀스캔 해소)
 - 착수 보고서 대비: `address`, `inspection_cycle_months`가 NOT NULL → NULL 허용으로 완화됨 (§2.1 참조)
+- `initial_grade`/`assignee_user_id`/`memo`는 V8(#628 / HAJA-347) — Figma 시설물 등록 모달의 대표
+  사진·초기 등급·담당자·메모 4개 필드 중 초기 등급/담당자/메모를 여기에 담는다(대표 사진은 시설물당
+  다중 이미지라 별도 테이블 `facility_photos`로 분리).
+  - `initial_grade`는 대시보드 "하자 등급 분포"(`defects.grade`, `defect_grade_type` 기반 계산값)와는
+    완전히 다른 개념이다. 컬럼명 분리에 더해 전용 enum `facility_initial_grade_type`(A~E)을 신설해
+    두 등급 체계가 DB 스키마 레벨에서도 섞이지 않게 한다.
+  - `assignee_user_id`는 `inspections.assigned_inspector_id`와 동일한 FK 패턴(nullable, users 참조).
+    배정 가능 여부는 `AuthService.validateAssignableInspector`로 애플리케이션에서 검증한다(활성
+    사용자·INSPECTOR/ADMIN 역할·요청자와 동일 회사·양쪽 유효 멤버십 — inspections와 동일 규칙).
+    시설물 등록은 담당자 배정이 필수가 아니고(nullable) 점검 회차 생성만큼 강한 정합성 보장이 필요한
+    상태 전이도 아니므로, `inspections`가 가진 DB 트리거(`check_inspection_assigned_inspector_company`)
+    수준의 DB 레벨 방어는 이번 범위에 포함하지 않는다.
+
+#### `facility_photos` — 시설물 등록 시 첨부하는 대표 사진(최대 4장)
+
+| 컬럼 | 타입 | NULL | 기본값 | 키 | 설명 |
+|---|---|---|---|---|---|
+| id | bigint (identity) | N | - | **PK** | 시설물 사진 식별자 |
+| facility_id | bigint | N | - | **FK→facilities**, UQ(복합) | 사진이 속한 시설물 |
+| photo_url | varchar(500) | N | - | | 사진 파일 URL |
+| sort_order | integer | N | - | UQ(복합) | 노출 순서(0~3) |
+| created_at | timestamptz | N | now() | | 등록 시각 |
+
+- **UQ**: `(facility_id, sort_order)` — 같은 시설물 내 순서 중복 방지.
+- **CHECK**: `sort_order between 0 and 3` — 시설물당 최대 4장.
+- 인덱스: `idx_facility_photos_facility (facility_id)`
+- `facility_id`는 `ON DELETE CASCADE` — 시설물 삭제(하드 삭제) 시 사진 행도 함께 정리된다.
+- V8(#628 / HAJA-347) 신설. `media` 테이블(`inspection_id` NOT NULL FK)은 점검 회차가 있어야만 표현
+  가능해 시설물 등록 시점(점검 회차 이전)의 사진을 담을 수 없다 — 단일 컬럼(URL CSV/배열) 대신 순서
+  보존이 가능한 별도 테이블로 모델링했다.
 
 #### `inspections` — 시설별 점검 회차와 진행 상태
 
