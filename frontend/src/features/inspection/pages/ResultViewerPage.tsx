@@ -262,7 +262,7 @@ export function ResultViewerPage() {
                   size="lg"
                   className="flex-[7]"
                   onClick={handleConfirmReview}
-                  disabled={isUpdating || !selected}
+                  disabled={isUpdating || !selected || selected.status !== 'DETECTED'}
                 >
                   이 이미지 검수 확정
                 </Button>
