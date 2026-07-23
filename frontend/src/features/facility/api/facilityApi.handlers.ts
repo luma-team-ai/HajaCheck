@@ -88,6 +88,49 @@ export const facilityHandlers = [
     return HttpResponse.json(body, { status: 201 });
   }),
 
+  // 시설물 수정(PUT — 전체 교체). 좌표 소급 재-geocoding(#618)이 이 핸들러로 latitude/longitude를 갱신한다.
+  http.put('/api/facilities/:id', async ({ params, request }) => {
+    const id = Number(params.id);
+    const reqBody = (await request.json()) as CreateFacilityRequest;
+    const target = facilities.find((facility) => facility.id === id);
+
+    if (!target) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'FACILITY_NOT_FOUND', message: '시설물을 찾을 수 없습니다.' },
+      };
+      return HttpResponse.json(failure, { status: 404 });
+    }
+
+    if (!reqBody.name?.trim() || !reqBody.type?.trim()) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'FACILITY_VALIDATION_ERROR', message: '시설물명과 유형은 필수입니다.' },
+      };
+      return HttpResponse.json(failure, { status: 400 });
+    }
+
+    const updated: Facility = {
+      ...target,
+      name: reqBody.name,
+      type: reqBody.type,
+      address: reqBody.address ?? null,
+      latitude: reqBody.latitude ?? null,
+      longitude: reqBody.longitude ?? null,
+      builtYear: reqBody.builtYear ?? null,
+      scale: reqBody.scale ?? null,
+      inspectionCycleMonths: reqBody.inspectionCycleMonths ?? null,
+      nextInspectionDueAt: reqBody.nextInspectionDueAt ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+    facilities = facilities.map((facility) => (facility.id === id ? updated : facility));
+
+    const body: ApiResponse<Facility> = { success: true, data: updated };
+    return HttpResponse.json(body);
+  }),
+
   // 점검 주기 설정(dev-04-03, FR-019) — 요청 개월 수 기준 nextInspectionDueAt을 산정해 저장.
   // computeNextInspectionDueAt과 동일 규칙을 재사용해 등록 시나리오와 계산 로직이 어긋나지 않게 한다.
   http.post('/api/facilities/:id/schedule', async ({ params, request }) => {

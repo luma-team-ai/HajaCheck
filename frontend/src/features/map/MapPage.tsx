@@ -13,7 +13,10 @@ import { useDebouncedValue } from '../../shared/hooks/useDebouncedValue';
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_LEVEL, ERROR_TEXT_COLOR, MAX_MAP_LEVEL, MIN_MAP_LEVEL } from './constants';
 import { createFacilityMarker, isValidCoordinate } from './lib/createFacilityMarker';
 import { filterFacilities } from './lib/filterFacilities';
-import { KakaoMapKeyMissingError, loadKakaoMapSdk } from './lib/loadKakaoMapSdk';
+import {
+  KakaoMapKeyMissingError,
+  loadKakaoMapSdk,
+} from '../../shared/lib/kakaoMap/loadKakaoMapSdk';
 
 // 검색어 타이핑마다 지도 마커를 전량 재생성(setMap(null) 후 재생성)하면 입력이 잦을수록
 // 불필요한 DOM/SVG 마커 생성 비용이 커진다. 목록 패널 필터링은 즉시 반영하되, 마커 재생성에

@@ -36,6 +36,35 @@ declare global {
         handler: () => void,
       ) => void;
     };
+    services: KakaoMapsServicesNamespace;
+  }
+
+  // libraries=services 로드 시에만 존재 — 주소↔좌표 변환(Geocoder) 전용 (#618)
+  interface KakaoMapsServicesNamespace {
+    Geocoder: new () => KakaoGeocoder;
+    Status: KakaoGeocoderStatusMap;
+  }
+
+  interface KakaoGeocoder {
+    addressSearch(
+      address: string,
+      callback: (result: KakaoGeocoderAddressResult[], status: KakaoGeocoderStatus) => void,
+    ): void;
+  }
+
+  interface KakaoGeocoderAddressResult {
+    // Kakao Geocoder 응답은 좌표를 문자열로 반환한다(x=경도, y=위도)
+    x: string;
+    y: string;
+    address_name: string;
+  }
+
+  type KakaoGeocoderStatus = string & { readonly __brand: 'KakaoGeocoderStatus' };
+
+  interface KakaoGeocoderStatusMap {
+    OK: KakaoGeocoderStatus;
+    ZERO_RESULT: KakaoGeocoderStatus;
+    ERROR: KakaoGeocoderStatus;
   }
 
   interface KakaoLatLng {
