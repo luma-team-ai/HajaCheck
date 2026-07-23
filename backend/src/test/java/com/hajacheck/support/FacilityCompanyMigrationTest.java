@@ -3,6 +3,7 @@ package com.hajacheck.support;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.LocalDateTime;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,17 +39,27 @@ class FacilityCompanyMigrationTest {
         migrateToV7();
         JdbcTemplate jdbc = jdbc();
         LegacyIds ids = createCompanyOwner(jdbc, "mapped");
+        LocalDateTime originalUpdatedAt = LocalDateTime.of(2025, 1, 2, 3, 4, 5);
         Long facilityId = jdbc.queryForObject("""
-                insert into facilities (owner_id, name, type)
-                values (?, 'V8 이관 시설', 'BUILDING')
+                insert into facilities (owner_id, name, type, updated_at)
+                values (?, 'V8 이관 시설', 'BUILDING', ?)
                 returning id
-                """, Long.class, ids.userId());
+                """, Long.class, ids.userId(), originalUpdatedAt);
 
         migrateLatest();
 
         assertThat(jdbc.queryForObject(
                 "select company_id from facilities where id = ?", Long.class, facilityId))
                 .isEqualTo(ids.companyId());
+        assertThat(jdbc.queryForObject(
+                "select updated_at from facilities where id = ?", LocalDateTime.class, facilityId))
+                .isEqualTo(originalUpdatedAt);
+        assertThat(jdbc.queryForObject("""
+                select tgenabled::text
+                  from pg_trigger
+                 where tgrelid = 'public.facilities'::regclass
+                   and tgname = 'trg_facilities_set_updated_at'
+                """, String.class)).isEqualTo("O");
         assertThat(columnExists(jdbc, "owner_id")).isFalse();
         assertThat(columnExists(jdbc, "company_id")).isTrue();
         assertThat(jdbc.queryForObject("""
@@ -63,8 +74,21 @@ class FacilityCompanyMigrationTest {
                   from pg_constraint c
                  where c.conrelid = 'public.facilities'::regclass
                    and c.contype = 'f'
+                   and c.conname = 'fk_facilities_company'
                    and c.confrelid = 'public.companies'::regclass
                    and c.convalidated
+                   and not c.condeferrable
+                   and not c.condeferred
+                   and c.confmatchtype = 's'
+                   and c.confupdtype = 'a'
+                   and c.confdeltype = 'a'
+                   and c.confkey[1] = (
+                       select attnum
+                         from pg_attribute
+                        where attrelid = 'public.companies'::regclass
+                          and attname = 'id'
+                          and not attisdropped
+                   )
                 """, Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("""
                 select count(*)
@@ -129,6 +153,71 @@ class FacilityCompanyMigrationTest {
                 "select count(*) from flyway_schema_history where success = true and version = '8'",
                 Integer.class)).isEqualTo(1);
         assertThat(ids.companyId()).isPositive();
+    }
+
+    @Test
+    void V8은_이미회사소유스키마의_FK의미가다르면_실패한다() {
+        migrateToV7();
+        JdbcTemplate jdbc = jdbc();
+        jdbc.execute("alter table facilities add column company_id bigint");
+        jdbc.execute("alter table facilities alter column company_id set not null");
+        jdbc.execute("alter table facilities drop column owner_id");
+        jdbc.execute("""
+                alter table facilities
+                    add constraint fk_facilities_company
+                        foreign key (company_id) references companies (id)
+                        deferrable initially deferred
+                """);
+        jdbc.execute("create index idx_facilities_company on facilities (company_id)");
+
+        assertThatThrownBy(this::migrateLatest)
+                .hasStackTraceContaining("facilities.company_id foreign key semantics mismatch");
+    }
+
+    @Test
+    void V8은_companyId가_companiesId외컬럼을참조하면_실패한다() {
+        migrateToV7();
+        JdbcTemplate jdbc = jdbc();
+        jdbc.execute("alter table companies add column alternate_id bigint unique");
+        jdbc.execute("alter table facilities add column company_id bigint");
+        jdbc.execute("alter table facilities alter column company_id set not null");
+        jdbc.execute("alter table facilities drop column owner_id");
+        jdbc.execute("""
+                alter table facilities
+                    add constraint fk_facilities_company
+                        foreign key (company_id) references companies (alternate_id)
+                """);
+        jdbc.execute("create index idx_facilities_company on facilities (company_id)");
+
+        assertThatThrownBy(this::migrateLatest)
+                .hasStackTraceContaining("facilities.company_id foreign key semantics mismatch");
+    }
+
+    @Test
+    void V8은_history없는_oldOwner스키마를_baselineOnMigrate로_V2부터재적용한다() {
+        migrateToV7();
+        JdbcTemplate jdbc = jdbc();
+        LegacyIds ids = createCompanyOwner(jdbc, "historyless");
+        Long facilityId = jdbc.queryForObject("""
+                insert into facilities (owner_id, name, type)
+                values (?, 'history 없는 시설', 'BUILDING')
+                returning id
+                """, Long.class, ids.userId());
+        jdbc.execute("drop table flyway_schema_history");
+
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .baselineOnMigrate(true)
+                .baselineVersion("1")
+                .load()
+                .migrate();
+
+        assertThat(jdbc.queryForObject(
+                "select company_id from facilities where id = ?", Long.class, facilityId))
+                .isEqualTo(ids.companyId());
+        assertThat(jdbc.queryForObject(
+                "select count(*) from flyway_schema_history where success = true and version = '8'",
+                Integer.class)).isEqualTo(1);
     }
 
     private LegacyIds createCompanyOwner(JdbcTemplate jdbc, String suffix) {

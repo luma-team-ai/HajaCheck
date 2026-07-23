@@ -7,6 +7,7 @@ declare
     has_company_id boolean;
     invalid_facility_id bigint;
     invalid_owner_id bigint;
+    updated_at_trigger_state "char";
 begin
     if to_regclass('public.facilities') is null
             or to_regclass('public.users') is null
@@ -87,10 +88,31 @@ begin
         alter table public.facilities
             add column company_id bigint;
 
+        select tgenabled
+          into updated_at_trigger_state
+          from pg_trigger
+         where tgrelid = 'public.facilities'::regclass
+           and tgname = 'trg_facilities_set_updated_at'
+           and not tgisinternal;
+
+        -- 소유권 backfill은 업무 데이터 수정이 아니므로 updated_at 트리거의 기존 상태를 보존한 채
+        -- 일시 중단한다. 마이그레이션 실패 시 PostgreSQL의 transactional DDL이 상태도 함께 롤백한다.
+        if updated_at_trigger_state is not null and updated_at_trigger_state <> 'D' then
+            execute 'alter table public.facilities disable trigger trg_facilities_set_updated_at';
+        end if;
+
         update public.facilities f
            set company_id = u.company_id
           from public.users u
          where u.id = f.owner_id;
+
+        if updated_at_trigger_state = 'O' then
+            execute 'alter table public.facilities enable trigger trg_facilities_set_updated_at';
+        elsif updated_at_trigger_state = 'A' then
+            execute 'alter table public.facilities enable always trigger trg_facilities_set_updated_at';
+        elsif updated_at_trigger_state = 'R' then
+            execute 'alter table public.facilities enable replica trigger trg_facilities_set_updated_at';
+        end if;
 
         alter table public.facilities
             alter column company_id set not null;
@@ -115,6 +137,7 @@ $$;
 do $$
 declare
     company_attnum smallint;
+    companies_id_attnum smallint;
     company_fk_count integer;
     company_index_count integer;
 begin
@@ -132,6 +155,20 @@ begin
             'facilities.company_id must be bigint not null after company migration';
     end if;
 
+    select attnum
+      into companies_id_attnum
+      from pg_attribute
+     where attrelid = 'public.companies'::regclass
+       and attname = 'id'
+       and atttypid = 'pg_catalog.int8'::regtype
+       and attnotnull
+       and not attisdropped;
+
+    if companies_id_attnum is null then
+        raise exception
+            'companies.id must be bigint not null for facilities.company_id foreign key';
+    end if;
+
     if exists (
         select 1
           from pg_attribute
@@ -146,20 +183,20 @@ begin
     select count(*)
       into company_fk_count
       from pg_constraint c
-      join pg_attribute company_id_column
-        on company_id_column.attrelid = 'public.companies'::regclass
-       and company_id_column.attname = 'id'
-       and not company_id_column.attisdropped
      where c.conrelid = 'public.facilities'::regclass
        and c.contype = 'f'
+       and c.conname = 'fk_facilities_company'
        and c.convalidated
+       and not c.condeferrable
+       and not c.condeferred
        and c.confrelid = 'public.companies'::regclass
+       and c.confmatchtype = 's'
        and c.confupdtype = 'a'
        and c.confdeltype = 'a'
        and cardinality(c.conkey) = 1
        and c.conkey[1] = company_attnum
        and cardinality(c.confkey) = 1
-       and c.confkey[1] = company_id_column.attnum;
+       and c.confkey[1] = companies_id_attnum;
 
     if company_fk_count <> 1 then
         raise exception
@@ -174,11 +211,17 @@ begin
            and company_attnum = any (c.conkey)
            and not (
                c.convalidated
+               and c.conname = 'fk_facilities_company'
+               and not c.condeferrable
+               and not c.condeferred
                and c.confrelid = 'public.companies'::regclass
+               and c.confmatchtype = 's'
                and c.confupdtype = 'a'
                and c.confdeltype = 'a'
                and cardinality(c.conkey) = 1
+               and c.conkey[1] = company_attnum
                and cardinality(c.confkey) = 1
+               and c.confkey[1] = companies_id_attnum
            )
     ) then
         raise exception
