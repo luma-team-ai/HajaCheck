@@ -136,6 +136,14 @@ biz-verify:
   service-key: ${BUSINESS_REGISTRATION_API_KEY:}
   connect-timeout-ms: 3000
   read-timeout-ms: 5000
+  # 실시간 진위확인 공개 API(#648, POST /api/auth/business-verification) rate-limit — 비로그인이라
+  # 전역 상한만 사용한다(IP 축 미사용 근거는 BizVerifyProperties.RateLimit javadoc 참고). 일일 캡은
+  # 회원가입 플로우와 공유하는 국세청 서비스키 쿼터 소진을 막는 안전판이다.
+  rate-limit:
+    global-limit: 10
+    global-window: 1m
+    daily-limit: 300
+    daily-window: 1d
 
 management:
   endpoints:
