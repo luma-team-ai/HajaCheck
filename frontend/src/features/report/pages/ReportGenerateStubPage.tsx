@@ -25,7 +25,7 @@ export function ReportGenerateStubPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await reportApi.generateReportDraft(inspectionId);
+        const response = await reportApi.generateReportDraft(inspectionId, controller.signal);
         if (!controller.signal.aborted) {
           setReport(response.data);
         }

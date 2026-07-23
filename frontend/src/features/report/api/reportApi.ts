@@ -15,6 +15,6 @@ export interface ReportDetailResponse {
 
 export const reportApi = {
   // 보고서 초안 생성
-  generateReportDraft: (inspectionId: number) =>
-    api.post<ReportDetailResponse>(`/inspections/${inspectionId}/reports`, {}),
+  generateReportDraft: (inspectionId: number, signal?: AbortSignal) =>
+    api.post<ReportDetailResponse>(`/inspections/${inspectionId}/reports`, {}, { signal }),
 };
