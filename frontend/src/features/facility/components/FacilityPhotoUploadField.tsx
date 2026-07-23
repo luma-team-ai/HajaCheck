@@ -21,8 +21,11 @@ export function FacilityPhotoUploadField() {
   // 언마운트 cleanup이 항상 최신 photos를 참조하도록 ref로 미러링한다 — dep []인 채로 photos를
   // 그대로 클로저에 캡처하면 마운트 시점의(빈) 배열만 정리되어, 사진 추가 후 모달이 닫혀
   // 언마운트될 때 실제 생성된 blob URL이 revoke되지 않는 누수가 있었다(PR머신 react-reviewer P2).
+  // ref 쓰기는 렌더 본문이 아니라 effect 안에서 한다("never write ref during render" — 재검수 P2).
   const photosRef = useRef(photos);
-  photosRef.current = photos;
+  useEffect(() => {
+    photosRef.current = photos;
+  }, [photos]);
 
   // 언마운트 시 objectURL 누수 방지 — 브라우저가 GC로 자동 해제하지 않는 리소스라 명시적으로 해제한다.
   useEffect(() => {
