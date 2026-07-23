@@ -542,7 +542,7 @@ create table facilities
     updated_at              timestamp with time zone default now() not null
 );
 
-comment on table facilities is '사용자가 소유하거나 관리하는 점검 대상 시설 정보를 관리한다.';
+comment on table facilities is '회사가 소유·관리하는 점검 대상 시설 정보를 관리한다.';
 
 comment on column facilities.id is '시설 식별자';
 

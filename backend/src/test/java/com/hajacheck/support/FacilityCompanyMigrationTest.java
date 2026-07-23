@@ -15,7 +15,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** V8이 시설 소유 범위를 사용자에서 회사로 안전하게 전환하는지 검증한다. */
+/** V10이 시설 소유 범위를 사용자에서 회사로 안전하게 전환하는지 검증한다. */
 @Testcontainers
 @Execution(ExecutionMode.SAME_THREAD)
 class FacilityCompanyMigrationTest {
@@ -35,14 +35,14 @@ class FacilityCompanyMigrationTest {
     }
 
     @Test
-    void V8은_owner시설을_사용자의회사로이관하고_최종제약을적용한다() {
+    void V10은_owner시설을_사용자의회사로이관하고_최종제약을적용한다() {
         migrateToV7();
         JdbcTemplate jdbc = jdbc();
         LegacyIds ids = createCompanyOwner(jdbc, "mapped");
         LocalDateTime originalUpdatedAt = LocalDateTime.of(2025, 1, 2, 3, 4, 5);
         Long facilityId = jdbc.queryForObject("""
                 insert into facilities (owner_id, name, type, updated_at)
-                values (?, 'V8 이관 시설', 'BUILDING', ?)
+                values (?, 'V10 이관 시설', 'BUILDING', ?)
                 returning id
                 """, Long.class, ids.userId(), originalUpdatedAt);
 
@@ -101,17 +101,17 @@ class FacilityCompanyMigrationTest {
     }
 
     @Test
-    void V8은_회사없는소유자의시설이있으면_구체적인예외로실패한다() {
+    void V10은_회사없는소유자의시설이있으면_구체적인예외로실패한다() {
         migrateToV7();
         JdbcTemplate jdbc = jdbc();
         Long userId = jdbc.queryForObject("""
                 insert into users (email, name, role, password_hash)
-                values ('v8-unmapped@haja.test', 'V8 무소속', 'USER'::role_type, 'test-password-hash')
+                values ('v10-unmapped@haja.test', 'V10 무소속', 'USER'::role_type, 'test-password-hash')
                 returning id
                 """, Long.class);
         Long facilityId = jdbc.queryForObject("""
                 insert into facilities (owner_id, name, type)
-                values (?, 'V8 이관 불가 시설', 'BUILDING')
+                values (?, 'V10 이관 불가 시설', 'BUILDING')
                 returning id
                 """, Long.class, userId);
 
@@ -122,7 +122,7 @@ class FacilityCompanyMigrationTest {
     }
 
     @Test
-    void V8은_이미회사소유스키마인_baseline기존DB를_검증후그대로승인한다() {
+    void V10은_이미회사소유스키마인_baseline기존DB를_검증후그대로승인한다() {
         migrateToV7();
         JdbcTemplate jdbc = jdbc();
         LegacyIds ids = createCompanyOwner(jdbc, "baseline");
@@ -150,13 +150,13 @@ class FacilityCompanyMigrationTest {
         assertThat(columnExists(jdbc, "owner_id")).isFalse();
         assertThat(columnExists(jdbc, "company_id")).isTrue();
         assertThat(jdbc.queryForObject(
-                "select count(*) from flyway_schema_history where success = true and version = '8'",
+                "select count(*) from flyway_schema_history where success = true and version = '10'",
                 Integer.class)).isEqualTo(1);
         assertThat(ids.companyId()).isPositive();
     }
 
     @Test
-    void V8은_이미회사소유스키마의_FK의미가다르면_실패한다() {
+    void V10은_이미회사소유스키마의_FK의미가다르면_실패한다() {
         migrateToV7();
         JdbcTemplate jdbc = jdbc();
         jdbc.execute("alter table facilities add column company_id bigint");
@@ -175,7 +175,7 @@ class FacilityCompanyMigrationTest {
     }
 
     @Test
-    void V8은_companyId가_companiesId외컬럼을참조하면_실패한다() {
+    void V10은_companyId가_companiesId외컬럼을참조하면_실패한다() {
         migrateToV7();
         JdbcTemplate jdbc = jdbc();
         jdbc.execute("alter table companies add column alternate_id bigint unique");
@@ -194,7 +194,7 @@ class FacilityCompanyMigrationTest {
     }
 
     @Test
-    void V8은_history없는_oldOwner스키마를_baselineOnMigrate로_V2부터재적용한다() {
+    void V10은_history없는_oldOwner스키마를_baselineOnMigrate로_V2부터재적용한다() {
         migrateToV7();
         JdbcTemplate jdbc = jdbc();
         LegacyIds ids = createCompanyOwner(jdbc, "historyless");
@@ -216,23 +216,23 @@ class FacilityCompanyMigrationTest {
                 "select company_id from facilities where id = ?", Long.class, facilityId))
                 .isEqualTo(ids.companyId());
         assertThat(jdbc.queryForObject(
-                "select count(*) from flyway_schema_history where success = true and version = '8'",
+                "select count(*) from flyway_schema_history where success = true and version = '10'",
                 Integer.class)).isEqualTo(1);
     }
 
     private LegacyIds createCompanyOwner(JdbcTemplate jdbc, String suffix) {
         Long userId = jdbc.queryForObject("""
                 insert into users (email, name, role, password_hash)
-                values (?, 'V8 회사 소유자', 'ADMIN'::role_type, 'test-password-hash')
+                values (?, 'V10 회사 소유자', 'ADMIN'::role_type, 'test-password-hash')
                 returning id
-                """, Long.class, "v8-" + suffix + "@haja.test");
+                """, Long.class, "v10-" + suffix + "@haja.test");
         Long companyId = jdbc.queryForObject("""
                 insert into companies (
                     owner_user_id, name, business_registration_number, representative_name,
                     address, business_registration_file_url)
-                values (?, 'V8 회사', ?, '대표자', '서울시', '/test/v8-company.png')
+                values (?, 'V10 회사', ?, '대표자', '서울시', '/test/v10-company.png')
                 returning id
-                """, Long.class, userId, "v8-brn-" + suffix);
+                """, Long.class, userId, "v10-brn-" + suffix);
         jdbc.update("update users set company_id = ? where id = ?", companyId, userId);
         return new LegacyIds(userId, companyId);
     }

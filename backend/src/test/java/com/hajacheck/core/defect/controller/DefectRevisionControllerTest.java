@@ -355,6 +355,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
         User owner = saveUser("owner15@haja.com");
         addCompanyMembership(owner, company);
         User stranger = saveUser("stranger15@haja.com");
+        addCompanyMembership(stranger, saveCompany("회사15-외부"));
         User inspector = saveInspector("inspector15@haja.com", company);
         Facility facility = saveFacility(owner);
         Inspection inspection = saveInspection(facility, owner, inspector);
@@ -375,6 +376,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     @Test
     void POST_미존재점검_404() throws Exception {
         User owner = saveUser("owner16@haja.com");
+        addCompanyMembership(owner, saveCompany("회사16"));
 
         DefectCreateRequest request = DefectCreateRequest.builder()
                 .type(DefectType.CRACK)
