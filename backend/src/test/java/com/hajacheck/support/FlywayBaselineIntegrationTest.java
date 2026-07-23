@@ -68,8 +68,8 @@ class FlywayBaselineIntegrationTest {
         Integer appliedMigrations = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where success = true", Integer.class);
         // V1(baseline_schema) + V2(seed_plans) + V3(api_system_logs) + V4(add_platform_admin_role)
-        // + V5(add_business_start_date, #596)
-        assertThat(appliedMigrations).isEqualTo(5);
+        // + V5(add_business_start_date, #596) + V6(grant_admin_to_company_owners, #636)
+        assertThat(appliedMigrations).isEqualTo(6);
 
         // V5가 companies.business_start_date 컬럼을 실제로 추가했는지 확인(#596).
         Long businessStartDateColumnExists = jdbcTemplate.queryForObject("""
