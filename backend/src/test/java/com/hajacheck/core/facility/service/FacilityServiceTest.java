@@ -1,10 +1,12 @@
 package com.hajacheck.core.facility.service;
 
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,11 +35,14 @@ class FacilityServiceTest {
 
     @Mock
     private FacilityRepository facilityRepository;
+    @Mock
+    private CompanyScopeGuard companyScopeGuard;
 
     @InjectMocks
     private FacilityService facilityService;
 
     private static final Long OWNER_ID = 1L;
+    private static final Long USER_ID = 101L;
 
     private Facility existingFacility() {
         return Facility.builder()
@@ -57,7 +62,7 @@ class FacilityServiceTest {
     void create_등록_소유자와입력값으로저장() {
         when(facilityRepository.save(any(Facility.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        FacilityResponse response = facilityService.create(OWNER_ID, createRequest());
+        FacilityResponse response = facilityService.create(USER_ID, OWNER_ID, createRequest());
 
         ArgumentCaptor<Facility> captor = ArgumentCaptor.forClass(Facility.class);
         verify(facilityRepository).save(captor.capture());
@@ -71,7 +76,7 @@ class FacilityServiceTest {
         when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
                 .thenReturn(List.of(existingFacility()));
 
-        List<FacilityResponse> result = facilityService.list(OWNER_ID);
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).name()).isEqualTo("기존시설");
@@ -84,7 +89,7 @@ class FacilityServiceTest {
         when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
                 .thenReturn(capped);
 
-        List<FacilityResponse> result = facilityService.list(OWNER_ID);
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
 
         assertThat(result).hasSize(2);
         ArgumentCaptor<PageRequest> pageableCaptor = ArgumentCaptor.forClass(PageRequest.class);
@@ -101,7 +106,7 @@ class FacilityServiceTest {
                 .thenReturn(maxed);
         when(facilityRepository.countByCompanyId(OWNER_ID)).thenReturn(650L);
 
-        List<FacilityResponse> result = facilityService.list(OWNER_ID);
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
 
         assertThat(result).hasSize(500);
         // 응답 계약(List)은 그대로 500건 — 무고지 truncation 감지는 로그로만 이뤄지므로, 최소한 실제
@@ -114,7 +119,7 @@ class FacilityServiceTest {
         Facility facility = existingFacility();
         when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
 
-        FacilityResponse response = facilityService.get(OWNER_ID, 10L);
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
 
         assertThat(response.name()).isEqualTo("기존시설");
     }
@@ -123,7 +128,7 @@ class FacilityServiceTest {
     void get_없는시설_FACILITY_NOT_FOUND예외() {
         when(facilityRepository.findByIdAndCompanyId(999L, OWNER_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> facilityService.get(OWNER_ID, 999L))
+        assertThatThrownBy(() -> facilityService.get(USER_ID, OWNER_ID, 999L))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
@@ -134,7 +139,7 @@ class FacilityServiceTest {
         // findByIdAndCompanyId 는 소유자 스코프라 타인 소유는 조회 자체가 빈 값으로 온다(cross-owner IDOR 방지).
         when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> facilityService.get(OWNER_ID, 10L))
+        assertThatThrownBy(() -> facilityService.get(USER_ID, OWNER_ID, 10L))
                 .isInstanceOf(BusinessException.class);
     }
 
@@ -145,7 +150,7 @@ class FacilityServiceTest {
         FacilityUpdateRequest request = new FacilityUpdateRequest(
                 "수정된빌딩", "APARTMENT", "서울시 서초구", null, null, 2015, "지상10층", 6, null);
 
-        FacilityResponse response = facilityService.update(OWNER_ID, 10L, request);
+        FacilityResponse response = facilityService.update(USER_ID, OWNER_ID, 10L, request);
 
         assertThat(response.name()).isEqualTo("수정된빌딩");
         assertThat(response.type()).isEqualTo("APARTMENT");
@@ -159,7 +164,7 @@ class FacilityServiceTest {
         FacilityUpdateRequest request = new FacilityUpdateRequest(
                 "수정된빌딩", "APARTMENT", null, null, null, null, null, null, null);
 
-        assertThatThrownBy(() -> facilityService.update(OWNER_ID, 999L, request))
+        assertThatThrownBy(() -> facilityService.update(USER_ID, OWNER_ID, 999L, request))
                 .isInstanceOf(BusinessException.class);
     }
 
@@ -168,7 +173,7 @@ class FacilityServiceTest {
         Facility facility = existingFacility();
         when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
 
-        facilityService.delete(OWNER_ID, 10L);
+        facilityService.delete(USER_ID, OWNER_ID, 10L);
 
         verify(facilityRepository, times(1)).delete(facility);
     }
@@ -177,7 +182,7 @@ class FacilityServiceTest {
     void delete_없는시설_FACILITY_NOT_FOUND예외_삭제호출없음() {
         when(facilityRepository.findByIdAndCompanyId(999L, OWNER_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> facilityService.delete(OWNER_ID, 999L))
+        assertThatThrownBy(() -> facilityService.delete(USER_ID, OWNER_ID, 999L))
                 .isInstanceOf(BusinessException.class);
         verify(facilityRepository, never()).delete(any(Facility.class));
     }
@@ -195,7 +200,7 @@ class FacilityServiceTest {
         when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
         FacilityScheduleRequest request = new FacilityScheduleRequest(6);
 
-        FacilityResponse response = facilityService.setSchedule(OWNER_ID, 10L, request);
+        FacilityResponse response = facilityService.setSchedule(USER_ID, OWNER_ID, 10L, request);
 
         assertThat(response.inspectionCycleMonths()).isEqualTo(6);
         assertThat(response.nextInspectionDueAt()).isEqualTo(LocalDate.now().plusMonths(6));
@@ -206,7 +211,7 @@ class FacilityServiceTest {
         when(facilityRepository.findByIdAndCompanyId(999L, OWNER_ID)).thenReturn(Optional.empty());
         FacilityScheduleRequest request = new FacilityScheduleRequest(12);
 
-        assertThatThrownBy(() -> facilityService.setSchedule(OWNER_ID, 999L, request))
+        assertThatThrownBy(() -> facilityService.setSchedule(USER_ID, OWNER_ID, 999L, request))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
@@ -218,12 +223,14 @@ class FacilityServiceTest {
         when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.empty());
         FacilityScheduleRequest request = new FacilityScheduleRequest(12);
 
-        assertThatThrownBy(() -> facilityService.setSchedule(OWNER_ID, 10L, request))
+        assertThatThrownBy(() -> facilityService.setSchedule(USER_ID, OWNER_ID, 10L, request))
                 .isInstanceOf(BusinessException.class);
     }
     @Test
     void list_회사없는사용자_FORBIDDEN예외() {
-        assertThatThrownBy(() -> facilityService.list(null))
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN))
+                .when(companyScopeGuard).requireEffectiveMembership(USER_ID, null);
+        assertThatThrownBy(() -> facilityService.list(USER_ID, null))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.FORBIDDEN));

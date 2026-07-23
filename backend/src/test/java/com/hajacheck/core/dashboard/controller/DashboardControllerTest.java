@@ -6,10 +6,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.hajacheck.auth.entity.Company;
+import com.hajacheck.auth.entity.CompanyMembership;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyRepository;
+import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.facility.entity.Facility;
@@ -43,6 +45,8 @@ class DashboardControllerTest extends PostgresTestSupport {
     @Autowired
     private CompanyRepository companyRepository;
     @Autowired
+    private CompanyMembershipRepository companyMembershipRepository;
+    @Autowired
     private FacilityRepository facilityRepository;
 
     private User saveUser(String email) {
@@ -56,6 +60,11 @@ class DashboardControllerTest extends PostgresTestSupport {
         Company company = companyRepository.saveAndFlush(Company.createPendingReview(
                 user.getId(), email + " 회사", "TEST-" + user.getId(), "대표자",
                 "서울", null, "https://example.com/brn", "{\"source\":\"TEST\"}"));
+        company.markBusinessVerified();
+        company.approve(user.getId());
+        companyRepository.saveAndFlush(company);
+        companyMembershipRepository.saveAndFlush(
+                CompanyMembership.approvedOwner(company.getId(), user.getId()));
         user.assignToCompany(company.getId());
         return userRepository.saveAndFlush(user);
     }

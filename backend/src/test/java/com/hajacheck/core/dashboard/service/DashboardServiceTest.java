@@ -6,11 +6,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.dashboard.dto.DashboardSummaryResponse;
 import com.hajacheck.core.dashboard.dto.GradeDistributionResponse;
 import com.hajacheck.core.dashboard.dto.PendingPriorityResponse;
@@ -56,11 +58,14 @@ class DashboardServiceTest {
 
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private CompanyScopeGuard companyScopeGuard;
 
     @InjectMocks
     private DashboardService dashboardService;
 
     private static final Long OWNER_ID = 1L;
+    private static final Long USER_ID = 101L;
     private static final Long OTHER_OWNER_ID = 2L;
     private static final Long FACILITY_ID = 10L;
 
@@ -110,7 +115,7 @@ class DashboardServiceTest {
         when(facilityRepository.countByCompanyId(OWNER_ID)).thenReturn(0L);
         when(facilityRepository.countByCompanyIdAndCreatedAtBefore(eq(OWNER_ID), any())).thenReturn(0L);
 
-        DashboardSummaryResponse response = dashboardService.getSummary(OWNER_ID);
+        DashboardSummaryResponse response = dashboardService.getSummary(USER_ID, OWNER_ID);
 
         assertThat(response.totalFacilities()).isZero();
         assertThat(response.monthlyAnalyzed()).isZero();
@@ -130,7 +135,7 @@ class DashboardServiceTest {
         when(inspectionRepository.countByFacilityIdInAndStatusIn(eq(List.of(FACILITY_ID)), anyCollection()))
                 .thenReturn(7L);
 
-        DashboardSummaryResponse response = dashboardService.getSummary(OWNER_ID);
+        DashboardSummaryResponse response = dashboardService.getSummary(USER_ID, OWNER_ID);
 
         assertThat(response.totalFacilities()).isEqualTo(3L);
         assertThat(response.totalFacilitiesChangeRate()).isEqualTo(50.0); // (3-2)/2*100
@@ -144,7 +149,7 @@ class DashboardServiceTest {
         when(facilityRepository.countByCompanyId(OWNER_ID)).thenReturn(5L);
         when(facilityRepository.countByCompanyIdAndCreatedAtBefore(eq(OWNER_ID), any())).thenReturn(0L);
 
-        DashboardSummaryResponse response = dashboardService.getSummary(OWNER_ID);
+        DashboardSummaryResponse response = dashboardService.getSummary(USER_ID, OWNER_ID);
 
         assertThat(response.totalFacilitiesChangeRate()).isEqualTo(100.0);
     }
@@ -158,7 +163,8 @@ class DashboardServiceTest {
                 gradeCount(DefectGrade.A, 3L),
                 gradeCount(DefectGrade.E, 1L)));
 
-        List<GradeDistributionResponse> result = dashboardService.getGradeDistribution(OWNER_ID);
+        List<GradeDistributionResponse> result =
+                dashboardService.getGradeDistribution(USER_ID, OWNER_ID);
 
         assertThat(result).hasSize(5);
         assertThat(result).extracting(GradeDistributionResponse::grade)
@@ -177,7 +183,8 @@ class DashboardServiceTest {
         when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of(insp));
         when(defectRepository.countGroupByGrade(List.of(100L))).thenReturn(List.of());
 
-        List<GradeDistributionResponse> result = dashboardService.getGradeDistribution(OWNER_ID);
+        List<GradeDistributionResponse> result =
+                dashboardService.getGradeDistribution(USER_ID, OWNER_ID);
 
         assertThat(result).isEmpty();
     }
@@ -186,7 +193,8 @@ class DashboardServiceTest {
     void getGradeDistribution_소유시설물없으면_빈목록() {
         when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of());
 
-        List<GradeDistributionResponse> result = dashboardService.getGradeDistribution(OWNER_ID);
+        List<GradeDistributionResponse> result =
+                dashboardService.getGradeDistribution(USER_ID, OWNER_ID);
 
         assertThat(result).isEmpty();
     }
@@ -200,7 +208,8 @@ class DashboardServiceTest {
         when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of(insp));
         when(defectRepository.countGroupByGrade(List.of(100L))).thenReturn(List.of());
 
-        List<GradeDistributionResponse> result = dashboardService.getGradeDistribution(OWNER_ID);
+        List<GradeDistributionResponse> result =
+                dashboardService.getGradeDistribution(USER_ID, OWNER_ID);
 
         assertThat(result).isEmpty();
     }
@@ -219,7 +228,8 @@ class DashboardServiceTest {
                 List.of(200L), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10)))
                 .thenReturn(List.of(pending));
 
-        List<PendingPriorityResponse> result = dashboardService.getPendingPriority(OWNER_ID);
+        List<PendingPriorityResponse> result =
+                dashboardService.getPendingPriority(USER_ID, OWNER_ID);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).location()).isEqualTo("내시설");
@@ -234,7 +244,8 @@ class DashboardServiceTest {
     void getPendingPriority_소유시설물없으면_빈목록() {
         when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of());
 
-        List<PendingPriorityResponse> result = dashboardService.getPendingPriority(OWNER_ID);
+        List<PendingPriorityResponse> result =
+                dashboardService.getPendingPriority(USER_ID, OWNER_ID);
 
         assertThat(result).isEmpty();
         verify(defectRepository, never())
@@ -256,7 +267,8 @@ class DashboardServiceTest {
         setId(creator, "id", 99L);
         when(userRepository.findAllById(List.of(99L))).thenReturn(List.of(creator));
 
-        List<RecentInspectionResponse> result = dashboardService.getRecentInspections(OWNER_ID);
+        List<RecentInspectionResponse> result =
+                dashboardService.getRecentInspections(USER_ID, OWNER_ID);
 
         assertThat(result).hasSize(1);
         RecentInspectionResponse item = result.get(0);
@@ -276,7 +288,8 @@ class DashboardServiceTest {
                 eq(OWNER_ID), eq(today), eq(today.plusDays(30)), eq(PageRequest.of(0, 5))))
                 .thenReturn(List.of(soon, later));
 
-        List<UpcomingInspectionResponse> result = dashboardService.getUpcomingInspections(OWNER_ID, 30, 5);
+        List<UpcomingInspectionResponse> result =
+                dashboardService.getUpcomingInspections(USER_ID, OWNER_ID, 30, 5);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).facilityName()).isEqualTo("3일후시설");
@@ -291,7 +304,8 @@ class DashboardServiceTest {
         when(facilityRepository.findUpcomingByCompanyId(eq(OWNER_ID), any(), any(), any()))
                 .thenReturn(List.of());
 
-        List<UpcomingInspectionResponse> result = dashboardService.getUpcomingInspections(OWNER_ID, 30, 5);
+        List<UpcomingInspectionResponse> result =
+                dashboardService.getUpcomingInspections(USER_ID, OWNER_ID, 30, 5);
 
         assertThat(result).isEmpty();
     }
@@ -301,7 +315,7 @@ class DashboardServiceTest {
         when(facilityRepository.findUpcomingByCompanyId(eq(OWNER_ID), any(), any(), eq(PageRequest.of(0, 3))))
                 .thenReturn(List.of());
 
-        dashboardService.getUpcomingInspections(OWNER_ID, 7, 3);
+        dashboardService.getUpcomingInspections(USER_ID, OWNER_ID, 7, 3);
 
         verify(facilityRepository).findUpcomingByCompanyId(eq(OWNER_ID), any(), any(), eq(PageRequest.of(0, 3)));
     }
@@ -314,7 +328,7 @@ class DashboardServiceTest {
         when(facilityRepository.findUpcomingByCompanyId(eq(OWNER_ID), any(), any(), any()))
                 .thenReturn(List.of());
 
-        dashboardService.getUpcomingInspections(OWNER_ID, 30, 100);
+        dashboardService.getUpcomingInspections(USER_ID, OWNER_ID, 30, 100);
 
         verify(facilityRepository).findUpcomingByCompanyId(eq(OWNER_ID), any(), any(), pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(50);
@@ -349,7 +363,9 @@ class DashboardServiceTest {
     }
     @Test
     void getSummary_회사없는사용자_FORBIDDEN예외() {
-        assertThatThrownBy(() -> dashboardService.getSummary(null))
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN))
+                .when(companyScopeGuard).requireEffectiveMembership(USER_ID, null);
+        assertThatThrownBy(() -> dashboardService.getSummary(USER_ID, null))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.FORBIDDEN));

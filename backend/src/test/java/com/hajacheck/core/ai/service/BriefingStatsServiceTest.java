@@ -6,11 +6,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.support.RateLimiter;
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.ai.dto.BriefingStatsRequest;
 import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.core.defect.entity.DefectGrade;
@@ -55,6 +57,8 @@ class BriefingStatsServiceTest {
 
     @Mock
     private DefectRepository defectRepository;
+    @Mock
+    private CompanyScopeGuard companyScopeGuard;
 
     private BriefingStatsService briefingStatsService;
 
@@ -71,7 +75,7 @@ class BriefingStatsServiceTest {
 
     private BriefingStatsService newService(RateLimiter rateLimiter) {
         return new BriefingStatsService(facilityRepository, inspectionRepository, defectRepository,
-                new AiProxyRateLimiter(rateLimiter));
+                new AiProxyRateLimiter(rateLimiter), companyScopeGuard);
     }
 
     private Facility facility(Long id, Long ownerId, String name) {
@@ -334,6 +338,8 @@ class BriefingStatsServiceTest {
     }
     @Test
     void buildStats_회사없는사용자_FORBIDDEN예외() {
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN))
+                .when(companyScopeGuard).requireEffectiveMembership(USER_ID, null);
         assertThatThrownBy(() -> briefingStatsService.buildStats(USER_ID, null))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())

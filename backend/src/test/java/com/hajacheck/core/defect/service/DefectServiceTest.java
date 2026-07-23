@@ -1,5 +1,6 @@
 package com.hajacheck.core.defect.service;
 
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -7,6 +8,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.core.defect.dto.DefectResponse;
@@ -47,6 +49,8 @@ class DefectServiceTest {
 
     @Mock
     private DefectRevisionRepository defectRevisionRepository;
+    @Mock
+    private CompanyScopeGuard companyScopeGuard;
 
     @InjectMocks
     private DefectService defectService;
@@ -99,7 +103,7 @@ class DefectServiceTest {
                 .thenReturn(page);
 
         PageResponse<DefectResponse> response =
-                defectService.list(COMPANY_ID, DefectType.CRACK, null, null, pageable);
+                defectService.list(USER_ID, COMPANY_ID, DefectType.CRACK, null, null, pageable);
 
         assertThat(response.content()).hasSize(1);
         assertThat(response.totalElements()).isEqualTo(1);
@@ -114,7 +118,8 @@ class DefectServiceTest {
                 eq(COMPANY_ID), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
-        PageResponse<DefectResponse> response = defectService.list(COMPANY_ID, null, null, null, pageable);
+        PageResponse<DefectResponse> response =
+                defectService.list(USER_ID, COMPANY_ID, null, null, null, pageable);
 
         assertThat(response.content()).isEmpty();
         assertThat(response.totalElements()).isZero();
@@ -125,7 +130,7 @@ class DefectServiceTest {
         Defect defect = existingDefect(5L);
         when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
 
-        DefectResponse response = defectService.get(COMPANY_ID, 10L);
+        DefectResponse response = defectService.get(USER_ID, COMPANY_ID, 10L);
 
         assertThat(response.id()).isEqualTo(10L);
         assertThat(response.facilityId()).isEqualTo(5L);
@@ -137,7 +142,7 @@ class DefectServiceTest {
     void get_없는하자_DEFECT_NOT_FOUND예외() {
         when(defectRepository.findByIdAndCompanyId(999L, COMPANY_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> defectService.get(COMPANY_ID, 999L))
+        assertThatThrownBy(() -> defectService.get(USER_ID, COMPANY_ID, 999L))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
@@ -149,7 +154,7 @@ class DefectServiceTest {
         ReflectionTestUtils.setField(defect, "mediaId", 42L);
         when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
 
-        DefectResponse response = defectService.get(COMPANY_ID, 10L);
+        DefectResponse response = defectService.get(USER_ID, COMPANY_ID, 10L);
 
         assertThat(response.imageUrl()).isEqualTo("/api/media/42/thumbnail");
     }
@@ -159,7 +164,7 @@ class DefectServiceTest {
         Defect defect = existingDefect(5L);
         when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
 
-        DefectResponse response = defectService.get(COMPANY_ID, 10L);
+        DefectResponse response = defectService.get(USER_ID, COMPANY_ID, 10L);
 
         assertThat(response.imageUrl()).isNull();
     }
@@ -169,7 +174,7 @@ class DefectServiceTest {
         // findByIdAndCompanyId 는 소유자 스코프라 타인 소유는 조회 자체가 빈 값으로 온다(cross-owner IDOR 방지).
         when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> defectService.get(COMPANY_ID, 10L))
+        assertThatThrownBy(() -> defectService.get(USER_ID, COMPANY_ID, 10L))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
@@ -243,7 +248,8 @@ class DefectServiceTest {
         when(defectRevisionRepository.findByDefectIdOrderByCreatedAtDesc(10L, pageable))
                 .thenReturn(new PageImpl<>(List.of(revision), pageable, 1));
 
-        PageResponse<DefectRevisionResponse> response = defectService.getRevisions(COMPANY_ID, 10L, pageable);
+        PageResponse<DefectRevisionResponse> response =
+                defectService.getRevisions(USER_ID, COMPANY_ID, 10L, pageable);
 
         assertThat(response.content()).hasSize(1);
         assertThat(response.content().get(0).fieldChanged()).isEqualTo("status");
@@ -255,7 +261,7 @@ class DefectServiceTest {
         Pageable pageable = PageRequest.of(0, 20);
         when(defectRepository.findByIdAndCompanyId(999L, COMPANY_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> defectService.getRevisions(COMPANY_ID, 999L, pageable))
+        assertThatThrownBy(() -> defectService.getRevisions(USER_ID, COMPANY_ID, 999L, pageable))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
@@ -267,14 +273,17 @@ class DefectServiceTest {
         Pageable pageable = PageRequest.of(0, 20);
         when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> defectService.getRevisions(COMPANY_ID, 10L, pageable))
+        assertThatThrownBy(() -> defectService.getRevisions(USER_ID, COMPANY_ID, 10L, pageable))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
     }
     @Test
     void list_회사없는사용자_FORBIDDEN예외() {
-        assertThatThrownBy(() -> defectService.list(null, null, null, null, PageRequest.of(0, 10)))
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN))
+                .when(companyScopeGuard).requireEffectiveMembership(USER_ID, null);
+        assertThatThrownBy(() ->
+                defectService.list(USER_ID, null, null, null, null, PageRequest.of(0, 10)))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.FORBIDDEN));
