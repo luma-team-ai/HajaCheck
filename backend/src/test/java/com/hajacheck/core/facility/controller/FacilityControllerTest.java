@@ -17,9 +17,11 @@ import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.core.facility.entity.FacilityInitialGrade;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -208,7 +210,8 @@ class FacilityControllerTest extends PostgresTestSupport {
         User owner = saveUser("owner10@haja.com");
         Facility facility = saveFacility(owner.getId());
         FacilityUpdateRequest request = new FacilityUpdateRequest(
-                "수정빌딩", "BUILDING", null, null, null, 999999, null, 6, null);
+                "수정빌딩", "BUILDING", null, null, null, 999999, null, 6, null,
+                null, null, null, null);
 
         mockMvc.perform(put("/api/facilities/{id}", facility.getId())
                         .with(csrf()).with(authentication(authOf(owner)))
@@ -219,7 +222,8 @@ class FacilityControllerTest extends PostgresTestSupport {
 
     private FacilityCreateRequest createRequestWith(Integer builtYear, Integer inspectionCycleMonths) {
         return new FacilityCreateRequest(
-                "검증빌딩", "BUILDING", null, null, null, builtYear, null, inspectionCycleMonths, null);
+                "검증빌딩", "BUILDING", null, null, null, builtYear, null, inspectionCycleMonths, null,
+                null, null, null, null);
     }
 
     @Test
@@ -231,5 +235,61 @@ class FacilityControllerTest extends PostgresTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // ── 시설물 등록 필드 확장(#628 / HAJA-347) ──
+
+    @Test
+    void 시설물등록_대표사진초기등급메모포함_201_응답에반영() throws Exception {
+        User owner = saveUser("owner11@haja.com");
+        FacilityCreateRequest request = new FacilityCreateRequest(
+                "테스트빌딩", "BUILDING", null, null, null, null, null, null, null,
+                List.of("https://files.example/1.jpg", "https://files.example/2.jpg"),
+                FacilityInitialGrade.C, null, "1층 로비 CCTV 점검 필요");
+
+        mockMvc.perform(post("/api/facilities")
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.initialGrade").value("C"))
+                .andExpect(jsonPath("$.data.memo").value("1층 로비 CCTV 점검 필요"))
+                .andExpect(jsonPath("$.data.photoUrls.length()").value(2))
+                .andExpect(jsonPath("$.data.photoUrls[0]").value("https://files.example/1.jpg"));
+    }
+
+    @Test
+    void 시설물등록_유효성실패_대표사진4장초과_400() throws Exception {
+        User owner = saveUser("owner12@haja.com");
+        FacilityCreateRequest request = new FacilityCreateRequest(
+                "테스트빌딩", "BUILDING", null, null, null, null, null, null, null,
+                List.of("https://files.example/1.jpg", "https://files.example/2.jpg",
+                        "https://files.example/3.jpg", "https://files.example/4.jpg",
+                        "https://files.example/5.jpg"),
+                null, null, null);
+
+        mockMvc.perform(post("/api/facilities")
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 시설물등록_배정불가담당자_400_AUTH_INVALID_INSPECTOR() throws Exception {
+        // assigneeUserId 가 요청자와 같은 회사 소속 INSPECTOR/ADMIN 이 아니면(여기서는 회사가 아예 없는
+        // 일반 USER) AuthService.validateAssignableInspector 가 거부해야 한다.
+        User owner = saveUser("owner13@haja.com");
+        User notAssignable = saveUser("stranger2@haja.com");
+        FacilityCreateRequest request = new FacilityCreateRequest(
+                "테스트빌딩", "BUILDING", null, null, null, null, null, null, null,
+                null, null, notAssignable.getId(), null);
+
+        mockMvc.perform(post("/api/facilities")
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("AUTH_INVALID_INSPECTOR"));
     }
 }

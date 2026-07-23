@@ -19,7 +19,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * Flyway가 "완전히 빈" PostgreSQL(#359)에서 V1(baseline_schema)→V2(seed_plans)→
  * V3(create_api_system_logs)→V4(add_platform_admin_role)→V5(add_business_start_date)→
  * V6(defects.media_id)→V7(inspection_admin_schema)→V8(grant_admin_to_company_owners, #636)→
- * V9(facilities.next_inspection_due_at 인덱스, #509)를 순서대로
+ * V9(facilities.next_inspection_due_at 인덱스, #509)→
+ * V10(add_facility_registration_fields, #628)을 순서대로
  * 적용하고, Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -63,7 +64,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V9까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V10까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -72,7 +73,8 @@ class FlywayBaselineIntegrationTest {
         // V1(baseline_schema) + V2(seed_plans) + V3(api_system_logs) + V4(add_platform_admin_role)
         // + V5(add_business_start_date, #596) + V6(defects.media_id, #527/HAJA-314) + V7(inspection_admin_schema, #568)
         // + V8(grant_admin_to_company_owners, #636) + V9(facilities.next_inspection_due_at 인덱스, #509)
-        assertThat(appliedMigrations).isEqualTo(9);
+        // + V10(add_facility_registration_fields, #628/HAJA-347)
+        assertThat(appliedMigrations).isEqualTo(10);
 
         // V5가 companies.business_start_date 컬럼을 실제로 추가했는지 확인(#596).
         Long businessStartDateColumnExists = jdbcTemplate.queryForObject("""
@@ -118,5 +120,27 @@ class FlywayBaselineIntegrationTest {
                 where table_schema = 'public' and table_name = 'inspection_notification_settings'
                 """, Long.class);
         assertThat(settingsTableExists).isEqualTo(1L);
+
+        // V9가 facilities.next_inspection_due_at 부분 인덱스(#509)를 실제로 추가했는지 확인한다.
+        Long nextInspectionDueAtIndexExists = jdbcTemplate.queryForObject("""
+                select count(*) from pg_indexes
+                where schemaname = 'public' and tablename = 'facilities'
+                  and indexname = 'idx_facilities_next_inspection_due_at'
+                """, Long.class);
+        assertThat(nextInspectionDueAtIndexExists).isEqualTo(1L);
+
+        // V10이 시설물 등록 필드(#628/HAJA-347)를 실제로 추가했는지 확인한다.
+        Long facilityColumnCount = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'facilities'
+                  and column_name in ('initial_grade', 'assignee_user_id', 'memo')
+                """, Long.class);
+        assertThat(facilityColumnCount).isEqualTo(3L);
+
+        Long facilityPhotosTableExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.tables
+                where table_schema = 'public' and table_name = 'facility_photos'
+                """, Long.class);
+        assertThat(facilityPhotosTableExists).isEqualTo(1L);
     }
 }

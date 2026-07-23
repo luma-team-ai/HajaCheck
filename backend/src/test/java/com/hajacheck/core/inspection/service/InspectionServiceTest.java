@@ -25,6 +25,7 @@ import java.lang.reflect.Field;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
@@ -49,7 +50,8 @@ class InspectionServiceTest {
 
     private static FacilityResponse ownedFacility() {
         return new FacilityResponse(1L, 100L, "테스트 시설물", "BUILDING", null,
-                null, null, null, null, null, null, LocalDateTime.of(2020, 1, 1, 0, 0), null);
+                null, null, null, null, null, null, LocalDateTime.of(2020, 1, 1, 0, 0), null,
+                List.of(), null, null, null);
     }
 
     private static Inspection inspectionOf(Long id, Long facilityId) {

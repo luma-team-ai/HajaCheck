@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.core.facility.entity.FacilityInitialGrade;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
 import java.util.List;
@@ -68,6 +69,42 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         assertThat(saved.getId()).isNotNull();
         assertThat(saved.getCreatedAt()).isNotNull();
         assertThat(saved.getName()).isEqualTo("테스트빌딩");
+    }
+
+    // 시설물 등록 필드 확장(#628 / HAJA-347) — initial_grade(NAMED_ENUM 매핑)·assignee_user_id·memo가
+    // 실 PG 왕복 후에도 그대로 유지되는지 확인한다.
+    @Test
+    void save_초기등급담당자메모_저장후조회시그대로반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long assigneeId = seedOwner("assignee@haja.com");
+        Facility facility = Facility.builder()
+                .ownerId(ownerId)
+                .name("등급테스트빌딩")
+                .type("BUILDING")
+                .initialGrade(FacilityInitialGrade.D)
+                .assigneeUserId(assigneeId)
+                .memo("옥상 방수 재시공 필요")
+                .build();
+
+        Facility saved = facilityRepository.save(facility);
+        em.flush();
+        em.clear();
+        Facility found = facilityRepository.findById(saved.getId()).orElseThrow();
+
+        assertThat(found.getInitialGrade()).isEqualTo(FacilityInitialGrade.D);
+        assertThat(found.getAssigneeUserId()).isEqualTo(assigneeId);
+        assertThat(found.getMemo()).isEqualTo("옥상 방수 재시공 필요");
+    }
+
+    @Test
+    void save_초기등급담당자메모_미입력시_null유지() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+
+        Facility saved = facilityRepository.save(newFacility(ownerId, "테스트빌딩"));
+
+        assertThat(saved.getInitialGrade()).isNull();
+        assertThat(saved.getAssigneeUserId()).isNull();
+        assertThat(saved.getMemo()).isNull();
     }
 
     @Test
@@ -298,7 +335,8 @@ class FacilityRepositoryTest extends PostgresTestSupport {
             Facility f = facilityRepository.findById(savedIds.get(i)).orElseThrow();
             f.updateInfo(f.getName() + "_수정", f.getType(), f.getAddress(),
                     f.getLatitude(), f.getLongitude(), f.getBuiltYear(),
-                    f.getScale(), f.getInspectionCycleMonths(), f.getNextInspectionDueAt());
+                    f.getScale(), f.getInspectionCycleMonths(), f.getNextInspectionDueAt(),
+                    f.getInitialGrade(), f.getAssigneeUserId(), f.getMemo());
             facilityRepository.save(f);
         }
         em.flush();
