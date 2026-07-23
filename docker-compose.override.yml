@@ -18,6 +18,7 @@ services:
     volumes:
       - ./backend/src:/workspace/src
       - ./backend/build.gradle:/workspace/build.gradle
+      - ./docs:/docs:ro # build.gradle의 verifyHa25SchemaInputs가 ../docs/design/db/*.sql을 참조 — ./gradlew test에 필요
       - gradle-cache:/root/.gradle
     environment:
       SPRING_DEVTOOLS_RESTART_ENABLED: "true"
@@ -33,6 +34,7 @@ services:
       - ./ai-server/deps.py:/app/deps.py
       - ./ai-server/routers:/app/routers
       - ./ai-server/ai:/app/ai
+      - ./ai-server/tests:/app/tests # pytest tests/ 미마운트 상태였음 — 컨테이너 안에서 테스트 실행하려면 필요
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     environment:
       # main.py가 fail-closed(명시적 dev/local만 /docs 노출)로 바뀌어 로컬 개발에서 켜려면 명시 필요

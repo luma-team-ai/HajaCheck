@@ -177,6 +177,21 @@ public class InspectionService {
         inspection.advanceTo(next);
     }
 
+    /**
+     * AI 분석 시작 원자적 선점(dev-05-04, 코드 리뷰 P2 픽스) — "조회 후 상태 확인 → 별도 UPDATE"
+     * (check-then-act)는 동시 요청 사이에 경쟁 구간이 생겨 둘 다 통과할 수 있다. 소유권 검증 후
+     * {@link InspectionRepository#startAnalyzingIfNotRunning} 단일 조건부 UPDATE로 전이해,
+     * 영향 행 수로 선점 성공 여부를 원자적으로 판정한다.
+     *
+     * @return true = 이 호출이 ANALYZING을 선점함, false = 이미 다른 요청이 선점(또는 이미 ANALYZING) —
+     *         호출부는 ANALYSIS_ALREADY_RUNNING으로 응답해야 한다.
+     */
+    @Transactional
+    public boolean tryStartAnalyzing(Long requesterUserId, Long companyId, Long inspectionId) {
+        getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
+        return inspectionRepository.startAnalyzingIfNotRunning(inspectionId) > 0;
+    }
+
     private void validateInspectionDate(LocalDate inspectionDate, FacilityResponse facility) {
         if (inspectionDate.isBefore(facility.createdAt().toLocalDate())) {
             throw new BusinessException(ErrorCode.INSPECTION_DATE_INVALID);

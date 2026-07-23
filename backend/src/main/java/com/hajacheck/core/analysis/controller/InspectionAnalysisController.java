@@ -7,7 +7,6 @@ import com.hajacheck.global.common.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -17,14 +16,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * AI 분석 실행/상태(dev-05-04, API 명세서 v0.3 AP-006 연장) — {@code Profile("!test")} 이유는
- * {@link com.hajacheck.core.analysis.support.AnalysisProgressStore} 문서 참고.
- */
+/** AI 분석 실행/상태(dev-05-04, API 명세서 v0.3 AP-006 연장). */
 @Tag(name = "Inspection Analysis", description = "AI 분석 실행/상태 API")
 @RestController
 @RequestMapping("/api/inspections/{id}/analyze")
-@Profile("!test")
 @RequiredArgsConstructor
 public class InspectionAnalysisController {
 

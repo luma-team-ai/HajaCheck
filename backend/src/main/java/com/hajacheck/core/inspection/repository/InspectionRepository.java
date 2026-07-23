@@ -7,6 +7,7 @@ import java.util.Collection;
 import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -46,4 +47,12 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
             + "order by i.facility_id, i.inspection_date desc, i.id desc",
             nativeQuery = true)
     List<Inspection> findLatestByFacilityIds(@Param("facilityIds") Collection<Long> facilityIds);
+
+    // AI 분석 시작(dev-05-04) — check-then-act(조회 후 별도 UPDATE) 대신 단일 조건부 UPDATE로
+    // ANALYZING 선점을 원자적으로 수행한다(코드 리뷰 P2: 동시 POST /analyze 시 이중 실행 방지).
+    // 영향 행 수 0 = 이미 ANALYZING(다른 요청이 선점했거나 고착) → 호출부가 ANALYSIS_ALREADY_RUNNING으로 응답.
+    @Modifying
+    @Query("update Inspection i set i.status = com.hajacheck.core.inspection.entity.InspectionStatus.ANALYZING "
+            + "where i.id = :id and i.status <> com.hajacheck.core.inspection.entity.InspectionStatus.ANALYZING")
+    int startAnalyzingIfNotRunning(@Param("id") Long id);
 }

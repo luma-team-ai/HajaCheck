@@ -24,7 +24,6 @@ import java.util.Locale;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
@@ -40,7 +39,6 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
-@Profile("!test")
 @RequiredArgsConstructor
 public class InspectionAnalysisWorker {
 
@@ -50,8 +48,15 @@ public class InspectionAnalysisWorker {
     private final DefectWriter defectWriter;
     private final AnalysisProgressStore progressStore;
 
+    /**
+     * @param statusBeforeAnalysis 분석 시작 직전 상태(ANALYZING으로 전이되기 전 값) — 코드 리뷰 P2
+     *                             픽스: 이미지 전체가 실패하면 이 값으로 되돌려 ANALYZED(완료)로
+     *                             오인 전이하지 않는다(InspectionAnalysisService가 큐잉 실패 시
+     *                             동일 값으로 롤백하는 것과 대칭 — 정상 완료가 아니면 항상 이 값으로 복귀).
+     */
     @Async(AsyncConfig.ANALYSIS_TASK_EXECUTOR)
-    public void runAsync(Long requesterUserId, Long companyId, Long inspectionId, List<Media> images) {
+    public void runAsync(Long requesterUserId, Long companyId, Long inspectionId, List<Media> images,
+                          InspectionStatus statusBeforeAnalysis) {
         List<FileProgress> files = new ArrayList<>(images.size());
         for (int i = 0; i < images.size(); i++) {
             files.add(new FileProgress(images.get(i).getId(), displayName(i), "waiting", null, "-"));
@@ -60,6 +65,7 @@ public class InspectionAnalysisWorker {
         int detectedDefectCount = 0;
         int riskyCrackCount = 0;
         int failedCount = 0;
+        int successCount = 0;
         Map<DefectGrade, Integer> gradeCounts = new EnumMap<>(DefectGrade.class);
 
         for (int i = 0; i < images.size(); i++) {
@@ -88,6 +94,7 @@ public class InspectionAnalysisWorker {
                 }
                 defectWriter.saveAll(toSave);
                 detectedDefectCount += toSave.size();
+                successCount++;
 
                 String elapsed = formatElapsed(startedAt);
                 files.set(i, new FileProgress(media.getId(), displayName(i), "completed", toSave.size(), elapsed));
@@ -101,6 +108,20 @@ public class InspectionAnalysisWorker {
 
             publish(inspectionId, images.size(), i + 1, files, detectedDefectCount, riskyCrackCount,
                     gradeCounts, failedCount);
+        }
+
+        // 코드 리뷰 P2 픽스 — 성공 0건(AI 서버 전면 다운 등)이면 ANALYZED(완료)로 전이하지 않는다.
+        // 그대로 두면 프론트가 100%/"분석 완료"로 표시해 검수 단계 진입을 허용해버린다(아무것도
+        // 분석되지 않았는데 완료로 오인). 상태를 시작 전으로 되돌려 재시도 가능하게 남긴다.
+        if (successCount == 0 && !images.isEmpty()) {
+            log.warn("AI 분석 전체 실패 — inspectionId={} totalImages={} — ANALYZED 전이를 건너뛰고 {}로 되돌린다",
+                    inspectionId, images.size(), statusBeforeAnalysis);
+            inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, statusBeforeAnalysis);
+            AnalysisStatusResponse failedProgress = new AnalysisStatusResponse(
+                    inspectionId, "aiDetection", 0, images.size(), 0, files,
+                    detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount);
+            progressStore.save(failedProgress);
+            return;
         }
 
         inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, InspectionStatus.ANALYZED);

@@ -7,6 +7,7 @@ import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.service.DefectWriter;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
@@ -21,7 +22,6 @@ import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Profile;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
 
@@ -31,24 +31,45 @@ import org.springframework.stereotype.Service;
  */
 @Slf4j
 @Service
-@Profile("!test")
 @RequiredArgsConstructor
 public class InspectionAnalysisService {
+
+    // ANALYZING 고착 복구(코드 리뷰 P2) 시 되돌릴 상태 — 여기 도달했다는 건 이미 이미지가 있다는
+    // 뜻이라(images.isEmpty() 가드는 이 시점 이후) "업로드는 끝났고 분석 전"이 가장 정확한 표현이다.
+    private static final InspectionStatus RECOVERY_STATUS = InspectionStatus.UPLOADING;
 
     private final InspectionService inspectionService;
     private final MediaRepository mediaRepository;
     private final DefectRepository defectRepository;
+    private final DefectWriter defectWriter;
     private final AnalysisProgressStore progressStore;
     private final InspectionAnalysisWorker worker;
 
     /**
-     * 분석 시작 — 소유권 검증, 이미지 존재 검증, 상태를 ANALYZING으로 전이하고 초기 진행률(전부 대기)을
+     * 분석 시작 — 소유권 검증, 이미지 존재 검증, ANALYZING을 원자적으로 선점하고 초기 진행률(전부 대기)을
      * 캐시에 써둔 뒤 비동기 워커에 위임한다. 이 메서드 자체는 워커 완료를 기다리지 않고 즉시 반환한다.
+     *
+     * <p>코드 리뷰 P2 픽스 3건을 함께 반영한다:
+     * <ul>
+     *   <li><b>고착 복구</b>: status==ANALYZING인데 진행률 캐시가 없으면(TaskRejectedException 발생
+     *       시점 이전 크래시, 워커 진행 중 JVM 재기동 등) 고착으로 간주하고 강제로 되돌려 재시작을 허용한다.</li>
+     *   <li><b>원자적 선점</b>: "조회 후 상태 확인 → 별도 UPDATE"가 아니라
+     *       {@link InspectionService#tryStartAnalyzing} 단일 조건부 UPDATE로 동시 요청의 이중 실행을 막는다.</li>
+     *   <li><b>재분석 멱등화</b>: 선점에 성공하면(=이번 호출이 실제로 분석을 시작함) 기존 하자를
+     *       소프트삭제한 뒤 워커를 돌린다 — 완료된 회차 재트리거·경쟁으로 인한 하자 중복 적재 방지.</li>
+     * </ul>
      */
     public void startAnalysis(Long requesterUserId, Long companyId, Long inspectionId) {
         Inspection inspection = inspectionService.getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
-        if (inspection.getStatus() == InspectionStatus.ANALYZING) {
-            throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
+        InspectionStatus statusBeforeAnalysis = inspection.getStatus();
+
+        if (statusBeforeAnalysis == InspectionStatus.ANALYZING) {
+            if (progressStore.find(inspectionId).isPresent()) {
+                throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
+            }
+            log.warn("ANALYZING 고착 감지(진행률 캐시 없음) — inspectionId={} 재시작을 허용한다", inspectionId);
+            inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, RECOVERY_STATUS);
+            statusBeforeAnalysis = RECOVERY_STATUS;
         }
 
         List<Media> images = mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(inspectionId, MediaFileType.IMAGE);
@@ -56,7 +77,13 @@ public class InspectionAnalysisService {
             throw new BusinessException(ErrorCode.ANALYSIS_NO_MEDIA);
         }
 
-        inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, InspectionStatus.ANALYZING);
+        if (!inspectionService.tryStartAnalyzing(requesterUserId, companyId, inspectionId)) {
+            // 이 요청과 동시에 들어온 다른 요청이 먼저 선점했다(원자적 조건부 UPDATE 영향 행 0건).
+            throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
+        }
+
+        // 재분석 멱등화 — 이 시점부터는 이번 호출이 유일한 실행 주체임이 보장된다.
+        defectWriter.softDeleteAllForInspection(inspectionId);
 
         List<FileProgress> initialFiles = new java.util.ArrayList<>(images.size());
         for (int i = 0; i < images.size(); i++) {
@@ -67,9 +94,11 @@ public class InspectionAnalysisService {
                 emptyGradeMap(), 0));
 
         try {
-            worker.runAsync(requesterUserId, companyId, inspectionId, images);
+            worker.runAsync(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis);
         } catch (TaskRejectedException e) {
-            log.warn("분석 작업 큐 포화 — inspectionId={}", inspectionId, e);
+            log.warn("분석 작업 큐 포화 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, statusBeforeAnalysis, e);
+            inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, statusBeforeAnalysis);
+            progressStore.delete(inspectionId);
             throw new BusinessException(ErrorCode.ANALYSIS_QUEUE_FULL);
         }
     }
