@@ -81,7 +81,7 @@ export function ReportGenerateStubPage() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-6">
         <p className="text-text-muted">점검 결과를 바탕으로 보고서 초안을 생성합니다.</p>
-        <Button onClick={handleGenerateReport} variant="primary" size="lg">
+        <Button onClick={handleGenerateReport} variant="primary" size="lg" disabled={isLoading}>
           보고서 초안 생성
         </Button>
         <Button onClick={handleBackToViewer} variant="secondary">
