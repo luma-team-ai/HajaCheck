@@ -8,6 +8,7 @@ import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserConsentRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.membership.service.PlanProvisioningService;
+import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -41,14 +42,21 @@ public class CompanyAccountWriter {
                                  String companyName, String businessRegistrationNumber,
                                  String address, String addressDetail,
                                  String fileUrl, String ocrRaw,
-                                 String termsVersion, String privacyVersion) {
+                                 String termsVersion, String privacyVersion,
+                                 LocalDate businessStartDate, boolean businessVerified) {
 
         // user.name = 대표자명(표시명). role=USER, status=ACTIVE.
         User user = userRepository.save(User.createCompanyOwner(email, representativeName, passwordHash));
 
         Company company = companyRepository.save(Company.createPendingReview(
                 user.getId(), companyName, businessRegistrationNumber, representativeName,
-                address, addressDetail, fileUrl, ocrRaw));
+                address, addressDetail, fileUrl, ocrRaw, businessStartDate));
+
+        // 국세청 진위확인 성공(계속사업자)이면 같은 트랜잭션에서 VERIFIED 로 전이(#596).
+        // (관리자 승인 approve() 가 요구하는 VERIFIED 불변식을 이 시점에 충족시킨다.)
+        if (businessVerified) {
+            company.markBusinessVerified();
+        }
 
         // 상호 FK 배선 — dirty checking 으로 커밋 시 users.company_id 업데이트.
         user.assignToCompany(company.getId());

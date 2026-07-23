@@ -34,6 +34,31 @@ describe('NotificationDropdown', () => {
     expect(screen.getByText('미읽음 1')).not.toBeNull();
   });
 
+  it('헤더 X 클릭 시 onClose가 호출된다(#564)', () => {
+    const handleClose = vi.fn();
+    render(<NotificationDropdown notifications={notifications} unreadCount={1} onClose={handleClose} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '알림 패널 닫기' }));
+
+    expect(handleClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('개별 알림 X 클릭 시 해당 항목의 onDismiss만 호출된다(#564)', () => {
+    const handleDismiss = vi.fn();
+    const items: NotificationItem[] = [{ ...notifications[0], onDismiss: handleDismiss }, notifications[1]];
+    render(<NotificationDropdown notifications={items} unreadCount={1} />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: '알림 닫기' })[0]);
+
+    expect(handleDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('onDismiss가 없는 항목엔 X 버튼이 렌더되지 않는다(#564)', () => {
+    render(<NotificationDropdown notifications={notifications} unreadCount={1} />);
+
+    expect(screen.queryAllByRole('button', { name: '알림 닫기' })).toHaveLength(0);
+  });
+
   it('알림 행의 액션 버튼 클릭 시 onAction이 호출된다', () => {
     const handleAction = vi.fn();
     render(

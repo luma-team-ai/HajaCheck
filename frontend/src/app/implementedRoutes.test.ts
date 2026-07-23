@@ -8,8 +8,8 @@ describe('isRouteImplemented', () => {
   it.each([
     '/dashboard',
     '/dashboard/ai-weekly-briefing',
+    '/dashboard/upcoming-inspections',
     '/defects/list',
-    '/defects/detail',
     '/mypage/plan',
     '/inspections/1/viewer',
     '/facilities/list',

@@ -1,13 +1,17 @@
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse } from '../../../shared/api/types';
-import { mockInspectionResult } from '../mocks/inspectionResult.mock';
 import type {
   FacilityDetail,
   FacilityOption,
   InspectionCreateRequest,
   InspectionCreateResponse,
-  InspectionResult,
 } from '../types';
+import type { DefectStatusUpdateRequest } from './inspectionApi';
+import type { DefectDetailItem } from './inspectionApi.types';
+
+// ponytail: /api/inspections/:id/result 목은 제거됨 — 실제 백엔드는
+// /api/inspections/{id} + /api/inspections/{id}/defects 로 분리되어 있음.
+// 이제 MSW를 끄고 실 API를 호출하거나, MSW를 켜도 두 개 엔드포인트를 따로 mock해야 함.
 
 // 점검(회차) 생성 폼의 시설물 셀렉트 전용 목 — facility feature의 mockFacilities와는 별개
 // (feature 간 직접 import 금지, 이름만 같은 화면 캡처 기준으로 맞춤).
@@ -33,11 +37,6 @@ const mockFacilityDetails: Record<number, FacilityDetail> = {
 let nextInspectionId = 100;
 
 export const inspectionHandlers = [
-  http.get('/api/inspections/:id/result', () => {
-    const body: ApiResponse<InspectionResult> = { success: true, data: mockInspectionResult };
-    return HttpResponse.json(body);
-  }),
-
   http.get('/api/facilities', () => {
     const body: ApiResponse<FacilityOption[]> = { success: true, data: mockFacilityOptions };
     return HttpResponse.json(body);
@@ -58,6 +57,35 @@ export const inspectionHandlers = [
 
     const body: ApiResponse<FacilityDetail> = { success: true, data: found };
     return HttpResponse.json(body);
+  }),
+
+  http.patch('/api/defects/:id/status', async ({ params, request }) => {
+    const defectId = Number(params.id);
+    const reqBody = (await request.json()) as DefectStatusUpdateRequest;
+
+    // Mock handler: allow all valid status transitions except for testing edge cases
+    // In tests, specific scenarios (e.g., already-reviewed defect) can override this handler
+    const data: DefectDetailItem = {
+      id: defectId,
+      status: reqBody.status,
+      // Return a minimal defect object to satisfy the type contract
+      inspectionId: 1,
+      type: '균열',
+      grade: 'A',
+      confidence: 0.95,
+      isReviewed: true,
+      bboxX: 100,
+      bboxY: 100,
+      bboxW: 50,
+      bboxH: 50,
+      crackLengthMm: 150,
+      createdAt: new Date().toISOString(),
+    };
+    const result: ApiResponse<DefectDetailItem> = {
+      success: true,
+      data,
+    };
+    return HttpResponse.json(result);
   }),
 
   http.post('/api/inspections', async ({ request }) => {

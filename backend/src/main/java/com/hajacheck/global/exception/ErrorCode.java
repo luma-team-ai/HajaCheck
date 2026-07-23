@@ -48,6 +48,9 @@ public enum ErrorCode {
     // 점검 담당자 배정(dev-05-02) — 미존재/정지/역할 불충족 모두 통일 응답(리소스 열거 방지).
     AUTH_INVALID_INSPECTOR(HttpStatus.BAD_REQUEST, "담당자로 배정할 수 없는 사용자입니다."),
     AUTH_APPROVED_MEMBERSHIP_CONFLICT(HttpStatus.CONFLICT, "이미 승인된 회사 멤버십이 존재합니다."),
+    // 국세청 진위확인(#596) — 사업자등록번호+대표자명+개업일자가 국세청 등록정보와 불일치하거나
+    // 휴업/폐업/미등록으로 가입을 차단하는 경우. 진위 "불일치"는 입력 오류이므로 400(401 금지 정책 준수).
+    AUTH_BUSINESS_VERIFICATION_FAILED(HttpStatus.BAD_REQUEST, "사업자등록정보 진위확인에 실패했습니다. 사업자등록번호·대표자명·개업일자를 확인해 주세요."),
 
     // 파일 업로드(사업자등록증)
     FILE_REQUIRED(HttpStatus.BAD_REQUEST, "파일이 필요합니다."),
@@ -106,6 +109,15 @@ public enum ErrorCode {
     // 하자 자연어 검색(HAJA-120) 공개 게이트웨이 — 점검자 역할은 통과했으나 has_ai_addon=true인
     // 활성 플랜(개인 또는 APPROVED+VERIFIED 회사와 유효한 승인 멤버십)을 만족하지 못한 요청.
     AI_ADDON_REQUIRED(HttpStatus.FORBIDDEN, "AI 기능을 사용할 수 없는 요금제입니다."),
+
+    // 국세청 사업자 진위확인 외부 호출(#596) — fail-open 정책이라 최종 사용자 응답으로는 던지지 않고
+    // 구조화 로깅(경보)용으로만 사용한다. 이 코드가 발생하면 진위확인을 스킵하고 가입은 그대로 진행한다
+    // (verification_status=PENDING). HttpStatus 는 AI_* 와 동일 계열로 부여(실제 응답엔 미노출).
+    NTS_SERVER_UNREACHABLE(HttpStatus.SERVICE_UNAVAILABLE, "국세청 진위확인 서버에 연결할 수 없습니다."),
+    NTS_SERVER_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "국세청 진위확인 서버 응답이 지연되고 있습니다."),
+    NTS_INVALID_RESPONSE(HttpStatus.BAD_GATEWAY, "국세청 진위확인 서버 응답을 처리할 수 없습니다."),
+    // 국세청이 HTTP 4xx/5xx로 응답(서버에 도달했으나 거부 — 예: 인증키 만료/오류). "서버 다운"과 구분한다.
+    NTS_REQUEST_REJECTED(HttpStatus.BAD_GATEWAY, "국세청 진위확인 서버가 요청을 거부했습니다."),
 
     // 보고서(report) — #446 / HAJA-283
     // 미존재/타인 소유(점검 소유권 불일치) 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.

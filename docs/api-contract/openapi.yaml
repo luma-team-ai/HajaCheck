@@ -1,9 +1,17 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.7.0-draft"
+  version: "0.11.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    2026-07-22 OCR 개업일자 추출(#598 / HAJA-338) — /ai/business-license-ocr 및 공개 프록시 응답에
+    businessStartDate(ISO date, nullable) 추가. 국세청 진위확인(#596)에 사용.
+    2026-07-22 기업가입에 businessStartDate(개업일자, 필수) 추가(#596 / HAJA-337) — 국세청 진위확인
+    (번호+대표자명+개업일자) 연동. verificationStatus 실제 배선(VERIFIED/PENDING).
+    2026-07-22 사업자등록증 OCR 공개 프록시(#557 / HAJA-324) — /api/auth/business-license/ocr(비로그인
+    multipart) 추가: 파일검증(jpeg/png·10MB·매직바이트)→base64→ai-server 프록시, rate-limit(분당+일일 절대캡).
+    2026-07-22 사업자등록증 OCR 실구현(#552 / HAJA-321) — /ai/business-license-ocr 를 stub 에서
+    RapidOCR(한국어 인식)+LLM 파싱 실동작으로 교체(image_base64 필수·max_length, raw=집계값, stub=false).
     2026-07-22 관리자 플랜·쿼터 관리 API(#507) 추가 — /api/admin/plans, /api/admin/plan,
     /api/admin/plan/history, /api/admin/plan-quota 및 AdminPlan* 스키마.
     /api/admin/plan/history 에 page/size 페이지네이션 추가(PR#525 머신 리뷰 P3).
@@ -201,13 +209,16 @@ paths:
 
   /ai/business-license-ocr:
     post:
-      summary: 사업자등록증 OCR (stub, HAJA-169)
+      summary: 사업자등록증 OCR (RapidOCR 실구현, #552 / HAJA-321)
       description: >
-        실제 OCR 미구현 — `ai-server/routers/ai_router.py`(약 231~245행) 는 입력(image_base64/file_ref)을
-        사용하지 않고 고정 stub 응답(모든 필드 null, stub=true)만 반환한다(seam only, 향후 실제 OCR 교체 예정).
-        내부 전용이며 Spring `/api/ai/*` 프록시 계열과 동일하게 X-Internal-Key 검증 대상이다.
+        `image_base64`(사업자등록증 이미지)를 RapidOCR(ONNXRuntime, 한국어 PP-OCR 인식 모델)로
+        텍스트 추출 후 LLM structured output 으로 {businessRegistrationNumber, companyName,
+        representativeName} 을 파싱해 반환한다. `image_base64` 필수(없으면 VALIDATION_ERROR),
+        `file_ref` 는 아직 미구현(값이 와도 무시). OCR/모델로드/LLM 파싱 실패는 예외를 삼키지 않고
+        서버 로그에 스택만 남긴 뒤(OCR 원문·개인정보는 로깅하지 않음) LLM_INVALID_OUTPUT 으로 반환 →
+        클라이언트는 수동 입력으로 폴백한다. 내부 전용이며 X-Internal-Key 검증 대상이다.
       x-internal: true
-      x-status: stub
+      x-status: implemented
       security:
         - InternalKey: []
       tags: [ai]
@@ -218,7 +229,9 @@ paths:
             schema: { $ref: "#/components/schemas/BusinessLicenseOcrRequest" }
       responses:
         "200":
-          description: 항상 stub 고정 응답(성공/실패 구분 없음)
+          description: >
+            OCR 성공 시 success=true + 추출 필드(인식 실패한 필드는 null). 입력 검증/처리 실패 시
+            success=false + error(VALIDATION_ERROR·LLM_INVALID_OUTPUT).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BusinessLicenseOcrAIResponse" }
@@ -385,6 +398,52 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "400":
           description: FILE_REQUIRED | FILE_INVALID_TYPE | FILE_TOO_LARGE | INVALID_INPUT
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/auth/business-license/ocr:
+    post:
+      summary: 사업자등록증 OCR (공개 프록시, multipart/form-data)
+      description: >
+        기업 가입 전(비로그인) 화면에서 사업자등록증 이미지를 업로드하면 사업자번호·상호·대표자명을 인식해
+        자동채움용으로 반환한다. 파일검증(jpeg/png 매직바이트·10MB) 후 base64로 내부 ai-server
+        `/ai/business-license-ocr`(X-Internal-Key)에 프록시한다. `BusinessLicenseOcrController.ocr` 구현됨.
+        보조 기능이라 인식 실패해도 가입은 수동 입력으로 진행 가능. `/api/auth/**` permitAll(비로그인).
+        rate-limit(전역 분당 + 일일 절대캡) 적용.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [businessRegistrationFile]
+              properties:
+                businessRegistrationFile:
+                  type: string
+                  format: binary
+                  description: 사업자등록증 이미지(jpeg/png, 최대 10MB)
+      responses:
+        "200":
+          description: 인식 성공(인식 실패한 필드는 null — FE 수동 입력 폴백)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BusinessLicenseOcrProxyApiResponse" }
+        "400":
+          description: FILE_REQUIRED | FILE_INVALID_TYPE | FILE_TOO_LARGE
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "429":
+          description: AUTH_TOO_MANY_REQUESTS (분당/일일 rate-limit 초과)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "5XX":
+          description: >
+            ai-server 실패 — AI_INVALID_RESPONSE·AI_SERVER_ERROR(502) | AI_SERVER_UNREACHABLE(503)
+            | AI_SERVER_TIMEOUT(504). FE 수동 입력 폴백.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
@@ -1301,11 +1360,33 @@ paths:
   /api/inspections/{id}/defects:
     get:
       summary: 분석 결과(하자 목록) 조회
+      description: >
+        점검 회차(inspection) 하나에 속한 하자 전체를 반환한다(뷰어·검수 공용, FR-4). 소유권은
+        본인 소유 시설물만 허용하며, 미존재와 타인 소유를 구분하지 않고 404로 통일한다(IDOR 방지).
+        `defects.is_deleted=false`만 반환하고(오탐 삭제된 항목 제외), 정렬은 `id ASC`로 고정한다
+        (프론트 오버레이 번호가 탐지 순서와 어긋나지 않도록). 페이지네이션 없음 — 한 회차의 하자
+        수는 뷰어가 한 화면에 그릴 수 있는 범위로 가정(대량이면 후속 별도 이슈).
+      security:
+        - SessionCookie: []
       tags: [defect]
       parameters:
-        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
       responses:
-        "200": { description: TODO — 오영석 확정 필요 }
+        "200":
+          description: 조회 성공(빈 배열 포함)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DefectDetailListApiResponse" }
+        "401":
+          description: 미인증
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 점검 회차 미존재 또는 타인 소유(INSPECTION_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
   /api/defects:
     get:
@@ -1424,11 +1505,50 @@ paths:
   /api/defects/{id}:
     patch:
       summary: 검수 — 오탐 수정·등급 조정 (defect_revisions append-only)
+      description: >
+        점검자가 하자를 검수한다(FR-4, 휴먼 인 더 루프). `grade`(등급 조정) 또는 `isDeleted`(오탐 삭제,
+        Soft Delete) 중 **정확히 하나**만 지정한다 — 둘 다 지정하거나 둘 다 생략하면 400. 각 변경은
+        `defects` 테이블을 직접 덮어쓰지 않고 `defect_revisions`에 append-only 이력(누가·언제·무엇을·왜)을
+        별도로 남긴다. `revisedBy`는 세션 사용자로 서버가 채우며 요청 바디에 포함하지 않는다.
+        이미 RESOLVED 상태인 하자는 등급을 더 바꿀 수 없다(Defect.review 도메인 가드 — 409). **상태(status)
+        전이는 이 엔드포인트의 책임이 아니다** — 검수확정 이후 상태 흐름은 #17 전용 API가 담당한다.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
       tags: [defect]
       parameters:
-        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DefectRevisionRequest" }
       responses:
-        "200": { description: TODO — 오영석 확정 필요 }
+        "200":
+          description: 검수 반영된 하자 상세
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DefectApiResponse" }
+        "400":
+          description: grade/isDeleted 둘 다 지정 또는 둘 다 누락, reason 누락 등(INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 하자 미존재 또는 타인 소유(DEFECT_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: RESOLVED 상태인 하자의 등급 변경 시도(INVALID_STATE_TRANSITION)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
   /api/inspections/{inspectionId}/reports:
     parameters:
@@ -2145,6 +2265,75 @@ components:
           oneOf:
             - { $ref: "#/components/schemas/ApiError" }
 
+    DefectDetailItem:
+      type: object
+      additionalProperties: false
+      description: >
+        DefectListItem + 뷰어 오버레이·정밀 검수에 필요한 필드(bbox·균열 실측치). 목록(#/api/defects)은
+        가벼운 DefectListItem을 쓰고, 점검 회차 단위 조회·검수 API는 이 스키마를 쓴다.
+      required: [id, inspectionId, type, grade, status, confidence, isReviewed, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        inspectionId: { type: integer, format: int64 }
+        type: { $ref: "#/components/schemas/DefectTypeCode" }
+        grade: { $ref: "#/components/schemas/NullableDefectGradeCode" }
+        status: { $ref: "#/components/schemas/DefectStatusCode" }
+        confidence: { type: number, format: double, minimum: 0, maximum: 1 }
+        isReviewed: { type: boolean }
+        bboxX: { type: number, format: double, nullable: true }
+        bboxY: { type: number, format: double, nullable: true }
+        bboxW: { type: number, format: double, nullable: true }
+        bboxH: { type: number, format: double, nullable: true }
+        crackWidthMm: { type: number, format: double, nullable: true }
+        crackLengthMm: { type: number, format: double, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    DefectDetailListApiResponse:
+      type: object
+      description: GET /api/inspections/{id}/defects 전용 Spring ApiResponse envelope(페이지네이션 없음)
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          type: array
+          items: { $ref: "#/components/schemas/DefectDetailItem" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    DefectApiResponse:
+      type: object
+      description: PATCH /api/defects/{id} 전용 Spring ApiResponse envelope
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/DefectDetailItem" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    DefectRevisionRequest:
+      type: object
+      additionalProperties: false
+      description: >
+        grade·isDeleted 중 정확히 하나만 지정(둘 다 또는 둘 다 아님이면 400). isDeleted는 오탐 삭제
+        전용이라 true만 허용 — 이 API로 복구(false)는 지원하지 않는다.
+      required: [reason]
+      properties:
+        grade: { $ref: "#/components/schemas/DefectGradeCode" }
+        isDeleted: { type: boolean, enum: [true] }
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: defect_revisions.reason — 오탐/등급 조정 사유(검수 감사 추적)
+
     NlSearchRequest:
       type: object
       additionalProperties: false
@@ -2564,6 +2753,7 @@ components:
           companyName,
           businessRegistrationNumber,
           representativeName,
+          businessStartDate,
           address,
           agreeTermsOfService,
           agreePrivacyPolicy,
@@ -2574,6 +2764,11 @@ components:
         companyName: { type: string, maxLength: 200, example: "(주)하자체크" }
         businessRegistrationNumber: { type: string, pattern: '\d{3}-?\d{2}-?\d{5}', example: "123-45-67890" }
         representativeName: { type: string, maxLength: 100, example: 김민수 }
+        businessStartDate:
+          type: string
+          format: date
+          description: "개업일자(ISO yyyy-MM-dd). 국세청 진위확인(번호+대표자명+개업일자)에 사용. OCR 자동채움 또는 수기 입력."
+          example: "2020-01-15"
         address: { type: string, maxLength: 300, example: 서울시 강남구 ... }
         addressDetail: { type: string, maxLength: 200, nullable: true }
         agreeTermsOfService: { type: boolean }
@@ -2609,6 +2804,24 @@ components:
       properties:
         success: { type: boolean, example: true }
         data: { $ref: "#/components/schemas/EmailAvailabilityResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    BusinessLicenseOcrProxyResponse:
+      type: object
+      description: >
+        공개 프록시가 FE에 반환하는 4필드(ai-server raw 신뢰도·stub 등 부가필드는 화이트리스트로 제거).
+        인식 실패한 필드는 null — FE는 수동 입력으로 폴백.
+      properties:
+        businessRegistrationNumber: { type: string, nullable: true, example: "123-45-67890" }
+        companyName: { type: string, nullable: true, example: "하자첵 주식회사" }
+        representativeName: { type: string, nullable: true, example: "홍길동" }
+        businessStartDate: { type: string, format: date, nullable: true, description: "개업일자(ISO yyyy-MM-dd). 국세청 진위확인(#596)용. 인식 실패 시 null.", example: "2020-01-15" }
+
+    BusinessLicenseOcrProxyApiResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/BusinessLicenseOcrProxyResponse" }
         error: { type: object, nullable: true, example: null }
 
     SignupStatusResponse:
@@ -2684,28 +2897,36 @@ components:
           oneOf:
             - { $ref: "#/components/schemas/ApiError" }
 
-    # ── ai-server OCR stub (구현됨, ai-server/routers/ai_router.py 약 224~245행, HAJA-169) ──
+    # ── ai-server OCR (실구현, ai-server/routers/ai_router.py, #552 / HAJA-321) ──
     BusinessLicenseOcrRequest:
       type: object
-      description: 둘 다 stub 단계는 사용하지 않는다(seam only) — 향후 실제 OCR 교체 시 채택.
+      description: >
+        image_base64 필수(사업자등록증 이미지의 base64). max_length=14000000 —
+        FE 업로드 상한 10MB 의 base64 인코딩 상당치(초과 시 요청 파싱 단계 422). file_ref 는 미구현(seam only).
+      required: [image_base64]
       properties:
-        image_base64: { type: string, nullable: true }
+        image_base64: { type: string, nullable: true, maxLength: 14000000 }
         file_ref: { type: string, nullable: true }
 
     BusinessLicenseOcrData:
       type: object
-      description: AIResponse.data 의 실제 형태 — stub 은 항상 이 고정값을 반환한다.
+      description: >
+        AIResponse.data 형태. 인식 실패한 필드는 null. raw 는 개인정보 노출 방지를 위해 OCR 원문 대신
+        집계값(lineCount·avgConfidence)만 담는다. stub 은 실구현 후 항상 false.
       required: [businessRegistrationNumber, companyName, representativeName, raw, stub]
       properties:
-        businessRegistrationNumber: { type: string, nullable: true, example: null }
-        companyName: { type: string, nullable: true, example: null }
-        representativeName: { type: string, nullable: true, example: null }
-        raw: { type: object, example: {} }
-        stub: { type: boolean, example: true }
+        businessRegistrationNumber: { type: string, nullable: true, example: "123-45-67890" }
+        companyName: { type: string, nullable: true, example: "하자첵 주식회사" }
+        representativeName: { type: string, nullable: true, example: "홍길동" }
+        businessStartDate: { type: string, format: date, nullable: true, example: "2020-01-15" }
+        raw:
+          type: object
+          example: { lineCount: 12, avgConfidence: 0.93 }
+        stub: { type: boolean, example: false }
 
     BusinessLicenseOcrAIResponse:
       type: object
-      description: 내부 /ai/business-license-ocr 전용 AIResponse envelope(stub 은 항상 success=true)
+      description: 내부 /ai/business-license-ocr 전용 AIResponse envelope(성공 시 success=true, 실패 시 error)
       required: [success, data, error]
       properties:
         success: { type: boolean, example: true }

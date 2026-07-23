@@ -1,6 +1,11 @@
-# 기존 PostgreSQL 수동 증분 반영 절차
+# 기존 PostgreSQL 수동 증분 반영 절차 (Flyway 이전 — 보관)
 
-> **문서 버전:** v0.1 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
+> **문서 버전:** v0.2 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
+
+> ⚠️ **Flyway 도입(#359) 이후 보관 문서.** 신규 마이그레이션은 더 이상 이 디렉터리에 수동 SQL로
+> 추가하지 않는다 — `backend/src/main/resources/db/migration/`의 Flyway 버전 파일(`V{n}__*.sql`)이
+> 유일한 진실 소스다. 이 디렉터리와 아래 절차는 Flyway 도입 이전에 arm1 프로덕션 등 기존 DB를
+> 현재 스키마로 수동 정합했던 이력의 기록으로만 남긴다(신규 DB에는 적용하지 않는다).
 
 이 디렉터리는 이미 운영 중인 v0.3 계열 PostgreSQL을 현재
 [`HajaCheck_script.sql`](../HajaCheck_script.sql) 스키마로 올리는 수동 증분 SQL을 보관한다.
@@ -336,6 +341,12 @@ HAJA-25와 메뉴 스키마를 이미 적용한 DB에는 이 파일만 단독으
 개인 활성 사용자 중 ACTIVE/UPGRADE_REQUESTED `user_plans`이 없는 대상에 FREE `ACTIVE` 행을 채우는 백필을
 함께 수행한다. 신규 설치는 `HajaCheck_script.sql`에 이미 반영된 동일 시드를 사용하므로 이 파일이 필요
 없고, 기존 운영 DB만 파일 상단 안내에 따라 단독으로 적용한다.
+
+`20260722_01_platform_admin_role.sql`도 독립 파일이다(#534 / #535 플랫폼 관리자 콘솔 선행 작업) —
+`role_type` PG enum에 `PLATFORM_ADMIN` 라벨을 추가한다(`ALTER TYPE ... ADD VALUE IF NOT EXISTS`,
+autocommit 필요·재실행 안전). 신규 설치는 `HajaCheck_script.sql`에 이미 반영돼 있어 이 파일이 필요
+없고, 기존 운영/개발 DB만 단독으로 적용한다. 이 값이 없는 상태에서 `role='PLATFORM_ADMIN'` 사용자가
+로그인하면 `InternalAuthenticationServiceException`(No enum constant Role.PLATFORM_ADMIN)이 발생한다.
 
 ## 롤백 원칙
 

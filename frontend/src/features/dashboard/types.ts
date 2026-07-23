@@ -55,3 +55,13 @@ export interface AiBriefing {
   recommendation: string;
   facts: AiBriefingFacts;
 }
+
+// 다음 점검일 도래 위젯(dev-03-02, #469) — BE UpcomingInspectionResponse와 1:1.
+// ⚠️ Figma 시안엔 "점검 유형"·"이전 최고등급"도 있으나 BE에 대응 데이터가 없어 이번 범위 제외(#543).
+export interface UpcomingInspectionItem {
+  facilityId: number;
+  facilityName: string;
+  nextInspectionDueAt: string; // ISO date(yyyy-MM-dd)
+  dDay: number;
+  inspectionCycleMonths: number | null;
+}

@@ -1,10 +1,15 @@
 // 라우트 정의는 이 파일 한 곳에 집중 — React_코드_컨벤션.md §7
 // 경로: kebab-case / 인증 가드: ProtectedRoute, AdminRoute / 페이지 lazy loading 기본
 import { lazy, Suspense } from 'react';
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AdminRoute } from '../shared/components/AdminRoute';
+import { PlatformAdminRoute } from '../shared/components/PlatformAdminRoute';
 import { ProtectedRoute } from '../shared/components/ProtectedRoute';
+import { LoadingSpinner } from '../shared/components/LoadingSpinner';
+import LandingPage from '../features/landing/LandingPage';
+import { PLATFORM_ADMIN_ROUTE } from '../shared/constants/routes';
 import { AppShellRoute } from './AppShellRoute';
+import { PlatformAdminShellRoute } from './PlatformAdminShellRoute';
 
 const MapPage = lazy(() => import('../features/map/MapPage'));
 const ResultViewerPage = lazy(() =>
@@ -20,10 +25,20 @@ const InspectionCreatePage = lazy(() =>
   })),
 );
 
-const LandingPage = lazy(() => import('../features/landing/LandingPage'));
-
 const LoginPage = lazy(() =>
   import('../features/auth/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
+);
+
+// 플랫폼 관리자 콘솔 — 라우팅/로그인 게이트/nav 뼈대(#535, Figma node 973-2520)
+const PlatformAdminLoginPage = lazy(() =>
+  import('../features/platform-admin/pages/PlatformAdminLoginPage').then((m) => ({
+    default: m.PlatformAdminLoginPage,
+  })),
+);
+const PlatformAdminPlaceholderPage = lazy(() =>
+  import('../features/platform-admin/pages/PlatformAdminPlaceholderPage').then((m) => ({
+    default: m.PlatformAdminPlaceholderPage,
+  })),
 );
 
 // 이용약관 / 개인정보처리방침 — 랜딩 푸터 "법적 고지" 연결
@@ -67,6 +82,13 @@ const ResetPasswordPage = lazy(() =>
 const DashboardPage = lazy(() =>
   import('../features/dashboard/pages/DashboardPage').then((m) => ({
     default: m.DashboardPage,
+  })),
+);
+
+// 다음 점검일 도래(dev-03-02, #543) — AI 주간 브리핑과 달리 실제 화면 자체가 없었던 독립 페이지
+const UpcomingInspectionsPage = lazy(() =>
+  import('../features/dashboard/pages/UpcomingInspectionsPage').then((m) => ({
+    default: m.UpcomingInspectionsPage,
   })),
 );
 
@@ -167,24 +189,28 @@ export const router = createBrowserRouter([
   ...DEV_ONLY_ROUTES,
   {
     path: '/',
-    element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
-        <LandingPage />
-      </Suspense>
-    ),
+    element: <LandingPage />,
   },
   {
     path: '/login',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <LoginPage />
       </Suspense>
     ),
   }, // — features/auth (HAJA-160, #157)
   {
+    path: '/platform-admin/login',
+    element: (
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+        <PlatformAdminLoginPage />
+      </Suspense>
+    ),
+  }, // — features/platform-admin 플랫폼 관리자 전용 로그인, 기업회원 /login과 분리(#535)
+  {
     path: '/policy/terms-of-service',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <TermsOfServicePage />
       </Suspense>
     ),
@@ -192,7 +218,7 @@ export const router = createBrowserRouter([
   {
     path: '/policy/privacy',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <PrivacyPolicyPage />
       </Suspense>
     ),
@@ -200,7 +226,7 @@ export const router = createBrowserRouter([
   {
     path: '/signup/company',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <CompanySignupPage />
       </Suspense>
     ),
@@ -208,7 +234,7 @@ export const router = createBrowserRouter([
   {
     path: '/signup/company/pending',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <CompanySignupPendingPage />
       </Suspense>
     ),
@@ -216,7 +242,7 @@ export const router = createBrowserRouter([
   {
     path: '/find-id',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <FindIdPage />
       </Suspense>
     ),
@@ -224,7 +250,7 @@ export const router = createBrowserRouter([
   {
     path: '/find-password',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <FindPasswordPage />
       </Suspense>
     ),
@@ -232,7 +258,7 @@ export const router = createBrowserRouter([
   {
     path: '/reset-password',
     element: (
-      <Suspense fallback={<div>불러오는 중...</div>}>
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
         <ResetPasswordPage />
       </Suspense>
     ),
@@ -251,19 +277,31 @@ export const router = createBrowserRouter([
       {
         path: '/dashboard',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <DashboardPage />
           </Suspense>
         ),
         handle: { breadcrumb: [{ label: '홈' }, { label: '대시보드' }], activeHref: '/dashboard' },
       }, // — features/dashboard (HAJA-17)
       {
+        path: '/dashboard/upcoming-inspections',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <UpcomingInspectionsPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '대시보드' }, { label: '다음 점검일 도래' }],
+          activeHref: '/dashboard/upcoming-inspections',
+        },
+      }, // — features/dashboard 다음 점검일 도래 (dev-03-02, #543)
+      {
         // 정적 경로라 SideNavBar href('/defects/list')와 동일하게 맞춰 activeHref 매핑 없이도
         // 사이드바 클릭이 그대로 동작한다(하위 :id 상세는 동적 세그먼트라 SideNavBar 플레이스홀더
         // href와 다를 수밖에 없어 handle.activeHref로 매핑하는 것과 대조 — HAJA-30).
         path: '/defects/list',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <DefectListPage />
           </Suspense>
         ),
@@ -275,7 +313,7 @@ export const router = createBrowserRouter([
       {
         path: '/dashboard/ai-weekly-briefing',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <DashboardPage />
           </Suspense>
         ),
@@ -289,19 +327,22 @@ export const router = createBrowserRouter([
       {
         path: '/defects/:id',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <DefectDetailPage />
           </Suspense>
         ),
         handle: {
           breadcrumb: [{ label: '홈' }, { label: '하자 관리' }, { label: '하자 상세' }],
-          activeHref: '/defects/detail',
+          // '하자 관리'는 하위메뉴 없는 단일 링크(href='/defects/list')로 정리돼(#499) 더 이상
+          // '/defects/detail' href를 가진 항목이 없다 — 그 값을 쓰면 사이드바가 하이라이트되지
+          // 않는 회귀가 생겨 '/defects/list'로 맞춘다(코드 리뷰 P1 지적).
+          activeHref: '/defects/list',
         },
       }, // — features/defect (HAJA-171)
       {
         path: '/mypage/plan',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <MyPlanPage />
           </Suspense>
         ),
@@ -313,7 +354,7 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/map',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <MapPage />
           </Suspense>
         ),
@@ -325,7 +366,7 @@ export const router = createBrowserRouter([
       {
         path: '/inspections/create',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <InspectionCreatePage />
           </Suspense>
         ),
@@ -337,7 +378,7 @@ export const router = createBrowserRouter([
       {
         path: '/inspections/:id/viewer',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <ResultViewerPage />
           </Suspense>
         ),
@@ -349,25 +390,31 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/:id',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <FacilityDetailPage />
           </Suspense>
         ),
         handle: {
           breadcrumb: [{ label: '시설물 관리' }, { label: '강남 오피스타워 A동' }],
-          activeHref: '/facilities/detail',
+          // SideNavBar '시설물 관리' 그룹엔 '/facilities/detail' href를 가진 항목이 없다(항상 없었음) —
+          // '시설물 목록/등록'(href='/facilities/list')과 맞춰 그룹이 자동으로 펼쳐지고 하이라이트되게
+          // 한다(코드 리뷰 P1 지적, #499와 함께 정리).
+          activeHref: '/facilities/list',
         },
       }, // — features/facility 시설물 상세 (Figma node-id 1-1401)
       {
         path: '/facilities/:id/defects/:defectId',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <FacilityDefectDetailPage />
           </Suspense>
         ),
         handle: {
           breadcrumb: [{ label: '시설물 목록' }, { label: '시설물 상세' }, { label: '하자 상세' }],
-          activeHref: '/facilities/detail',
+          // SideNavBar '시설물 관리' 그룹엔 '/facilities/detail' href를 가진 항목이 없다(항상 없었음) —
+          // '시설물 목록/등록'(href='/facilities/list')과 맞춰 그룹이 자동으로 펼쳐지고 하이라이트되게
+          // 한다(코드 리뷰 P1 지적, #499와 함께 정리).
+          activeHref: '/facilities/list',
         },
       }, // — features/facility 하자 정보 패널 (dev-04-02, #489). 위 시설물 개요(/facilities/:id,
       // #504)에서 특정 하자를 드릴다운하는 하위 화면 — 같은 :id로는 #504와 라우트가 겹쳐
@@ -375,7 +422,7 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/:id/defects/:defectId/compare',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <FacilityInspectionComparePage />
           </Suspense>
         ),
@@ -385,13 +432,16 @@ export const router = createBrowserRouter([
             { label: '시설물 상세' },
             { label: '회차 비교' },
           ],
-          activeHref: '/facilities/detail',
+          // SideNavBar '시설물 관리' 그룹엔 '/facilities/detail' href를 가진 항목이 없다(항상 없었음) —
+          // '시설물 목록/등록'(href='/facilities/list')과 맞춰 그룹이 자동으로 펼쳐지고 하이라이트되게
+          // 한다(코드 리뷰 P1 지적, #499와 함께 정리).
+          activeHref: '/facilities/list',
         },
       }, // — features/facility 회차 간 비교 (dev-04-02, #489). 부모(하자 상세)와 동일 사이드바 하이라이트 유지.
       {
         path: '/facilities/inspection-cycle',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <InspectionCycleSettingsPage />
           </Suspense>
         ),
@@ -407,7 +457,7 @@ export const router = createBrowserRouter([
       {
         path: '/facilities/list',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <FacilityListPage />
           </Suspense>
         ),
@@ -422,7 +472,7 @@ export const router = createBrowserRouter([
         // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#378, 컨벤션 §7)
         element: (
           <AdminRoute>
-            <Suspense fallback={<div>불러오는 중...</div>}>
+            <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
               <AdminUsersPage />
             </Suspense>
           </AdminRoute>
@@ -437,7 +487,7 @@ export const router = createBrowserRouter([
         // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(#508, 컨벤션 §7)
         element: (
           <AdminRoute>
-            <Suspense fallback={<div>불러오는 중...</div>}>
+            <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
               <PlanQuotaPage />
             </Suspense>
           </AdminRoute>
@@ -450,7 +500,7 @@ export const router = createBrowserRouter([
       {
         path: '/support/ai-assistant',
         element: (
-          <Suspense fallback={<div>불러오는 중...</div>}>
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
             <AiAssistantPage />
           </Suspense>
         ),
@@ -461,6 +511,105 @@ export const router = createBrowserRouter([
       }, // — features/support (dev-08-01, HAJA-32, FR-6)
     ],
   },
+  {
+    // 플랫폼 관리자 콘솔 전용 셸 — 일반 사용자 AppShellRoute와 별개(#535). PlatformAdminRoute가
+    // 미인증→/platform-admin/login, role≠PLATFORM_ADMIN→/dashboard로 부모 단계에서 차단한다.
+    element: (
+      <PlatformAdminRoute>
+        <PlatformAdminShellRoute />
+      </PlatformAdminRoute>
+    ),
+    children: [
+      {
+        path: PLATFORM_ADMIN_ROUTE,
+        element: <Navigate to="/platform-admin/users" replace />,
+      },
+      {
+        path: '/platform-admin/users',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="사용자 관리" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '사용자 관리' }],
+          activeHref: '/platform-admin/users',
+        },
+      },
+      {
+        path: '/platform-admin/plans-quota',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="플랜·쿼터 관리" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '플랜·쿼터 관리' }],
+          activeHref: '/platform-admin/plans-quota',
+        },
+      },
+      {
+        path: '/platform-admin/defect-types',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="하자 유형·등급 관리" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '하자 유형·등급 관리' }],
+          activeHref: '/platform-admin/defect-types',
+        },
+      },
+      {
+        path: '/platform-admin/counsels',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="상담 관리" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '상담 관리' }],
+          activeHref: '/platform-admin/counsels',
+        },
+      },
+      {
+        path: '/platform-admin/rag-documents',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="RAG 문서 관리" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: 'RAG 문서 관리' }],
+          activeHref: '/platform-admin/rag-documents',
+        },
+      },
+      {
+        path: '/platform-admin/stats',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="서비스 통계" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '서비스 통계' }],
+          activeHref: '/platform-admin/stats',
+        },
+      },
+      {
+        path: '/platform-admin/monitoring',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <PlatformAdminPlaceholderPage title="시스템 모니터링" />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '시스템 모니터링' }],
+          activeHref: '/platform-admin/monitoring',
+        },
+      },
+    ],
+  }, // — features/platform-admin (#535). 각 메뉴 실 기능은 후속 이슈.
   // 구 '/facilities'(셸 밖) 라우트는 '/facilities/list'(셸 안, 위 AppShellRoute children)로 이동됨(#472).
   // '/defects/list' 는 AppShellRoute 자식(위 children 배열)으로 등록됨 — features/defect (HAJA-30)
   // { path: '/reports', ... }                  — features/report

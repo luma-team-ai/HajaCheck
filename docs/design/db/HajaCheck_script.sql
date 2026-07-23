@@ -1,11 +1,11 @@
 -- 신규 DB를 현재 최종 스키마로 생성하기 위한 설계 기준 DDL이다.
 -- 운영 DB 증분 마이그레이션에는 직접 실행하지 말고 별도 버전 마이그레이션을 사용한다.
 
-create type role_type as enum ('ADMIN', 'INSPECTOR', 'USER', 'COUNSELOR');
+create type role_type as enum ('ADMIN', 'INSPECTOR', 'USER', 'COUNSELOR', 'PLATFORM_ADMIN');
 
 alter type role_type owner to postgres;
 
-comment on type role_type is '사용자 권한 역할(관리자/검사자/일반 사용자/상담사)';
+comment on type role_type is '사용자 권한 역할(관리자/검사자/일반 사용자/상담사/플랫폼 관리자)';
 
 create type social_provider_type as enum ('KAKAO', 'GOOGLE');
 
@@ -209,6 +209,7 @@ create table companies
     business_registration_number    varchar(20)                                                             not null
         unique,
     representative_name             varchar(100)                                                            not null,
+    business_start_date             date,
     address                         varchar(300)                                                            not null,
     address_detail                  varchar(200),
     business_registration_file_url  varchar(500)                                                            not null,
@@ -237,6 +238,8 @@ comment on column companies.name is '상호명';
 comment on column companies.business_registration_number is '사업자등록번호';
 
 comment on column companies.representative_name is '대표자명';
+
+comment on column companies.business_start_date is '개업일자(국세청 진위확인 파라미터)';
 
 comment on column companies.address is '사업장 도로명주소';
 

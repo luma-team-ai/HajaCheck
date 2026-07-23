@@ -10,6 +10,9 @@ interface BusinessLicenseUploadProps {
   file: File | null;
   onFileSelect: (file: File | null) => void;
   errorMessage?: string | null;
+  // 사업자등록증 OCR 자동채움(#587) — 호출부(CompanySignupPage)가 useBusinessLicenseOcr().isPending을
+  // 그대로 전달. 컴포넌트는 API를 모르고 로딩 문구 표시만 담당(단방향 계층 유지).
+  isOcrLoading?: boolean;
 }
 
 // 드롭 경로 전용 에러 메시지 — CompanySignupPage의 ERROR_MESSAGES(제출시 검증)와 텍스트는 같지만
@@ -23,9 +26,16 @@ const DROP_ERROR_MESSAGES: Record<BusinessLicenseFileError, string> = {
 };
 
 // 사업자등록증 파일 업로드 — 드래그앤드롭 + "파일 선택" 버튼, 파일명·용량 표시 + 삭제(✕) 지원.
-// OCR 자동인식은 AI서버 stub이라 미구현(#292 handoff 근거) — 안내 문구만 유지, 구현 금지.
+// OCR 자동채움 구현(#587) — jpeg/png 업로드 시 사업자정보 3필드를 자동채움(호출·상태관리는
+// CompanySignupPage 소유, 이 컴포넌트는 로딩 문구만 표시). PDF는 백엔드 OCR 미지원이라 자동인식
+// 대상에서 제외된다(호출부에서 판정) — 이 컴포넌트는 안내 문구로만 반영.
 // (#298: 바이트 동일한 랜딩 히어로 이미지가 "자동인식 예상화면"으로 잘못 노출되던 블록 제거)
-export function BusinessLicenseUpload({ file, onFileSelect, errorMessage }: BusinessLicenseUploadProps) {
+export function BusinessLicenseUpload({
+  file,
+  onFileSelect,
+  errorMessage,
+  isOcrLoading,
+}: BusinessLicenseUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragActive, setIsDragActive] = useState(false);
   // accept 속성은 드래그앤드롭엔 적용되지 않아(#298) 클릭 선택과 달리 아무 파일이나 들어온다 —
@@ -125,8 +135,16 @@ export function BusinessLicenseUpload({ file, onFileSelect, errorMessage }: Busi
 
       {displayErrorMessage && <p className={ERROR_CLASSES}>{displayErrorMessage}</p>}
 
+      {isOcrLoading && (
+        <p className="m-0 text-xs text-text-muted" role="status">
+          ⏳ 사업자등록증 정보를 자동인식하는 중입니다...
+        </p>
+      )}
+
       <p className="m-0 text-xs text-text-muted">
-        사업자등록번호·상호명·대표자명 자동인식은 준비 중입니다. 아래 항목을 직접 입력해 주세요.
+        JPG, PNG 파일은 업로드 시 사업자등록번호·상호명·대표자명·개업일자가 자동으로
+        채워집니다(자동채움 후에도 직접 수정 가능). PDF는 자동인식을 지원하지 않아 아래 항목을
+        직접 입력해 주세요.
       </p>
     </div>
   );

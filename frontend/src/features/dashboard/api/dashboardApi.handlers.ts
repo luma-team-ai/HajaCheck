@@ -6,6 +6,7 @@ import {
   mockGradeDistribution,
   mockPendingPriority,
   mockRecentInspections,
+  mockUpcomingInspections,
 } from '../mocks/dashboard.mock';
 import type {
   AiBriefing,
@@ -13,6 +14,7 @@ import type {
   GradeDistributionItem,
   PendingPriorityItem,
   RecentInspectionItem,
+  UpcomingInspectionItem,
 } from '../types';
 
 export const dashboardHandlers = [
@@ -38,6 +40,14 @@ export const dashboardHandlers = [
     const body: ApiResponse<RecentInspectionItem[]> = {
       success: true,
       data: mockRecentInspections,
+    };
+    return HttpResponse.json(body);
+  }),
+
+  http.get('/api/dashboard/upcoming-inspections', () => {
+    const body: ApiResponse<UpcomingInspectionItem[]> = {
+      success: true,
+      data: mockUpcomingInspections,
     };
     return HttpResponse.json(body);
   }),

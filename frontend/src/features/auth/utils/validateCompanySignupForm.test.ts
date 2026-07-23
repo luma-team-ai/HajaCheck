@@ -14,6 +14,7 @@ function makeValidForm(overrides: Partial<CompanySignupFormValues> = {}): Compan
     companyName: '(주)하자체크',
     businessRegistrationNumber: '123-45-67890',
     representativeName: '김민수',
+    businessStartDate: '2015-03-02',
     address: '서울시 강남구 테헤란로 1',
     businessRegistrationFile: makeFile(),
     agreeTermsOfService: true,
@@ -65,5 +66,19 @@ describe('isCompanySignupFormValid', () => {
 
   it('회사명이 공백뿐이면 false를 반환한다', () => {
     expect(isCompanySignupFormValid(makeValidForm({ companyName: '   ' }))).toBe(false);
+  });
+
+  it('개업일자가 없으면 false를 반환한다(#600)', () => {
+    expect(isCompanySignupFormValid(makeValidForm({ businessStartDate: '' }))).toBe(false);
+  });
+
+  it('개업일자가 미래 날짜면 false를 반환한다(#600)', () => {
+    const future = new Date();
+    future.setFullYear(future.getFullYear() + 1);
+    expect(
+      isCompanySignupFormValid(
+        makeValidForm({ businessStartDate: future.toISOString().slice(0, 10) }),
+      ),
+    ).toBe(false);
   });
 });

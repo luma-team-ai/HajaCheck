@@ -1,27 +1,8 @@
-/* 콘텐츠 패널·카드 프리미티브·챗봇 FAB 공통 스타일 — 여러 feature(대시보드·마이페이지 등)가 공유.
+/* 콘텐츠 패널·카드 프리미티브 공통 스타일 — 여러 feature(대시보드·마이페이지 등)가 공유.
    사이드바/상단바는 공통 컴포넌트 SideNavBar/Header(Tailwind)로 완전히 대체되어 구식
    사이드바(.sidebar 계열)/상단바(.topbar 계열) 규칙은 삭제됨(HAJA-186, #217 리뷰 반영).
+   챗봇 FAB(.chatbot-fab)도 BottomNavBarFab(Tailwind)로 대체되어 삭제됨(#499).
    아래 규칙은 현재도 사용 중(React_코드_컨벤션.md §1). */
-
-/* ── 챗봇 플로팅 버튼 ───────────────────────────────────── */
-
-.chatbot-fab {
-  position: fixed;
-  right: 32px;
-  bottom: 32px;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  border: none;
-  background: #1f2430;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 10px 24px rgba(17, 24, 39, 0.32);
-  cursor: pointer;
-  z-index: 20;
-}
 
 /* ── 콘텐츠 공통(페이지 카드 패널) ───────────────────────── */
 

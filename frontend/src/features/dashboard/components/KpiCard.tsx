@@ -11,7 +11,7 @@ type Props = {
 // kpi-col 반응형(1100px/720px 데스크톱 우선 breakpoint)·형제 순서 기반 보더 규칙은
 // Tailwind 임의 variant(max-[…]:, first:/last:, [&:nth-child(2)])로 그대로 이식.
 const KPI_COL_CLASS =
-  `pl-7 pr-7 border-r ${DASHBOARD_COLOR_CLASS.dividerBorder} first:pl-1 last:pr-1 last:border-r-0 ` +
+  `pl-7 pr-7 border-r ${DASHBOARD_COLOR_CLASS.kpiDividerBorder} first:pl-1 last:pr-1 last:border-r-0 ` +
   `max-[1100px]:px-5 max-[1100px]:py-3 max-[1100px]:border-b ${DASHBOARD_COLOR_CLASS.dividerBorderBottomNarrow} ` +
   'max-[1100px]:[&:nth-child(2)]:border-r-0 max-[720px]:border-r-0';
 

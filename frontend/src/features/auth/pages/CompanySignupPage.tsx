@@ -6,7 +6,7 @@ import { CompanyAddressField } from '../components/CompanyAddressField';
 import { CompanySignupHeroPanel } from '../components/CompanySignupHeroPanel';
 import { EmailDomainField } from '../components/EmailDomainField';
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
-import { LOGIN_ROUTE } from '../constants';
+import { BUSINESS_LICENSE_OCR_SUPPORTED_TYPES, LOGIN_ROUTE } from '../constants';
 import { PRIVACY_POLICY_ROUTE, TERMS_OF_SERVICE_ROUTE } from '../../policy/constants';
 import {
   ERROR_CLASSES,
@@ -15,12 +15,14 @@ import {
   PASSWORD_TOGGLE_CLASSES,
   SUCCESS_CLASSES,
 } from '../formClasses';
+import { useBusinessLicenseOcr } from '../hooks/useBusinessLicenseOcr';
 import { useCompanySignup } from '../hooks/useCompanySignup';
 import { useEmailAvailability } from '../hooks/useEmailAvailability';
 import {
   doPasswordsMatch,
   getPasswordStrength,
   isValidBusinessNumber,
+  isValidBusinessStartDate,
   isValidEmail,
   isValidPassword,
 } from '../utils/authFormValidators';
@@ -61,6 +63,9 @@ export function CompanySignupPage() {
   const [companyName, setCompanyName] = useState('');
   const [businessRegistrationNumber, setBusinessRegistrationNumber] = useState('');
   const [representativeName, setRepresentativeName] = useState('');
+  // 개업일자 — 국세청 진위확인(#596)이 요구하는 필수값. OCR 자동채움(#598)의 4번째 필드로도
+  // 채워진다(#600). `<input type="date">` 값은 ISO `yyyy-MM-dd` 문자열 그대로 사용.
+  const [businessStartDate, setBusinessStartDate] = useState('');
   const [address, setAddress] = useState('');
   const [addressDetail, setAddressDetail] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -75,6 +80,7 @@ export function CompanySignupPage() {
     reset: resetEmailCheck,
   } = useEmailAvailability();
   const { signup, isPending, error } = useCompanySignup();
+  const { runOcr, isPending: isOcrPending } = useBusinessLicenseOcr();
 
   // 로컬파트 + '@' + 도메인 조합 — 기존 email 흐름(중복확인·검증·제출)이 이 파생값을 그대로
   // 사용한다(#417, EmailDomainField). 둘 다 비면 '@'만 남아 isValidEmail이 false로 판정한다.
@@ -109,6 +115,46 @@ export function CompanySignupPage() {
     if (emailCheckResult) resetEmailCheck();
   };
 
+  // 사업자등록증 OCR 자동채움(#587) — jpeg/png만 백엔드 OCR이 지원하므로 그 외 타입(PDF 등)은
+  // OCR 호출 자체를 생략한다. 실패(400/429/5xx/네트워크)는 onError를 등록하지 않아 조용히
+  // 폴백되고(useBusinessLicenseOcr 참고), 성공 시에도 이미 사용자가 입력한 값(빈 문자열이
+  // 아닌 필드)은 덮어쓰지 않는다 — 자동채움은 초기값 제공일 뿐 이후 자유롭게 수정 가능해야
+  // 한다(요구사항 #587). 단, 이 규칙 때문에 파일을 다른 것으로 교체해도 이미 자동채움된
+  // 값은 재덮어쓰기 되지 않는다 — 재인식이 필요하면 사용자가 해당 필드를 직접 비우고 다시
+  // 채워야 한다(알려진 트레이드오프, 후속 개선은 별도 이슈로 분리 가능).
+  //
+  // stale 응답 가드(P1, 리뷰어 픽스) — 파일 A 선택 후 OCR 진행 중 파일을 삭제하거나 B로 빠르게
+  // 교체하면, 뒤늦게 도착한 A의 OCR 응답이 "지금 선택과 무관한" 값을 필드에 주입할 수 있다.
+  // 단조 증가 request-id로 "이 응답이 아직 최신 선택에 대한 것인지"를 onSuccess에서 확인하고,
+  // 아니면 무시한다. 파일 삭제·미지원 타입 등 OCR을 호출하지 않는 경로도 id를 반드시 증가시켜야
+  // 직전에 진행 중이던(아직 응답 안 온) OCR의 결과가 새 선택 상태에 적용되지 않는다.
+  const ocrRequestIdRef = useRef(0);
+
+  const handleFileSelect = (selected: File | null) => {
+    setFile(selected);
+    const requestId = ++ocrRequestIdRef.current;
+    if (!selected) return;
+    if (!BUSINESS_LICENSE_OCR_SUPPORTED_TYPES.includes(selected.type)) return;
+    // rate-limit 낭비 방지(P2, 리뷰어 픽스) — 오버사이즈·무효 파일은 어차피 폼 검증에서 걸러지므로
+    // 백엔드 OCR(분당+일일 캡)을 호출하지 않는다. 파일 자체는 그대로 state에 세팅해 기존 제출 시
+    // 검증(validateBusinessLicenseFile) 흐름을 그대로 탄다.
+    if (validateBusinessLicenseFile(selected) !== null) return;
+
+    runOcr(selected, {
+      onSuccess: (data) => {
+        if (requestId !== ocrRequestIdRef.current) return; // stale 응답 — 이후 선택으로 이미 무효화됨
+        setBusinessRegistrationNumber((prev) =>
+          prev.trim() ? prev : (data.businessRegistrationNumber ?? prev),
+        );
+        setCompanyName((prev) => (prev.trim() ? prev : (data.companyName ?? prev)));
+        setRepresentativeName((prev) => (prev.trim() ? prev : (data.representativeName ?? prev)));
+        // 개업일자 자동채움(#598, #600) — 기존 3필드와 동일 규칙: 빈 필드만 채우고, OCR이 null이면
+        // 건드리지 않는다(수기 입력 유지).
+        setBusinessStartDate((prev) => (prev.trim() ? prev : (data.businessStartDate ?? prev)));
+      },
+    });
+  };
+
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setShowValidation(true);
@@ -120,6 +166,7 @@ export function CompanySignupPage() {
       companyName,
       businessRegistrationNumber,
       representativeName,
+      businessStartDate,
       address,
       businessRegistrationFile: file,
       agreeTermsOfService,
@@ -134,6 +181,7 @@ export function CompanySignupPage() {
       companyName: companyName.trim(),
       businessRegistrationNumber,
       representativeName: representativeName.trim(),
+      businessStartDate,
       address,
       addressDetail,
       agreeTermsOfService,
@@ -264,12 +312,14 @@ export function CompanySignupPage() {
               onAddressDetailChange={setAddressDetail}
             />
 
-            {/* 사업자등록증 블록 — 시안 기준 파일업로드 + 사업자정보 3필드를 카드 하나로 그룹핑(#292) */}
+            {/* 사업자등록증 블록 — 시안 기준 파일업로드 + 사업자정보 4필드(개업일자 포함, #600)를
+                카드 하나로 그룹핑(#292) */}
             <div className="flex flex-col gap-4 rounded-xl border border-border p-4">
               <BusinessLicenseUpload
                 file={file}
-                onFileSelect={setFile}
+                onFileSelect={handleFileSelect}
                 errorMessage={fileError ? ERROR_MESSAGES[fileError] : null}
+                isOcrLoading={isOcrPending}
               />
 
               <div className="flex flex-col gap-1.5">
@@ -313,6 +363,27 @@ export function CompanySignupPage() {
                   value={representativeName}
                   onChange={(event) => setRepresentativeName(event.target.value)}
                 />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className={LABEL_CLASSES} htmlFor="signup-business-start-date">
+                  개업일자
+                </label>
+                <input
+                  id="signup-business-start-date"
+                  type="date"
+                  className={INPUT_CLASSES}
+                  value={businessStartDate}
+                  onChange={(event) => setBusinessStartDate(event.target.value)}
+                />
+                {(businessStartDate.length > 0 || showValidation) &&
+                  !isValidBusinessStartDate(businessStartDate) && (
+                    <p className={ERROR_CLASSES}>
+                      {businessStartDate.length > 0
+                        ? '개업일자는 오늘 이전이어야 합니다.'
+                        : '개업일자를 입력해 주세요.'}
+                    </p>
+                  )}
               </div>
             </div>
 

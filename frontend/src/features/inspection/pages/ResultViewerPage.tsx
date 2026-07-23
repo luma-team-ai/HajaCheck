@@ -1,11 +1,13 @@
 import type { ChangeEvent } from 'react';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
 import { DefectOverlay } from '../components/DefectOverlay';
+import { InspectionDefectExplainPanel } from '../components/InspectionDefectExplainPanel';
 import { useInspectionResult } from '../hooks/useInspectionResult';
+import { inspectionApi } from '../api/inspectionApi';
 import type { DefectGrade } from '../types';
 import { filterDefects } from '../utils/filterDefects';
 
@@ -17,9 +19,110 @@ export function ResultViewerPage() {
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [gradeFilter, setGradeFilter] = useState<DefectGrade[]>(ALL_GRADES);
   const [selectedDefectId, setSelectedDefectId] = useState<number | undefined>();
+  const [gradeEditId, setGradeEditId] = useState<number | undefined>();
+  const [selectedGrade, setSelectedGrade] = useState<DefectGrade | ''>('');
+  const [gradeReason, setGradeReason] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   // rules-of-hooks: 훅은 조건부 return 이전에 호출해야 한다. 훅 내부 enabled 플래그가
   // 유효하지 않은 inspectionId일 때 쿼리를 스킵하므로, ID 검증 return은 훅 호출 다음에 둔다.
   const { data, isLoading, isError, refetch } = useInspectionResult(inspectionId);
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // ponytail: 콜백은 훅이므로 조건부 return 이전에 정의(rules-of-hooks).
+  // 콜백 내부에서 data/selected를 참조하지만, 클로저 캡처는 실행 시점에 일어나므로 정의 시점에 존재할 필요 없음.
+  // 콜백 내부 guards가 조기 return을 처리한다.
+
+  const handleDeleteFalsePositive = useCallback(async () => {
+    if (!data) return;
+    const reason = prompt('오탐 삭제 사유를 입력해주세요 (1-500자):');
+    if (!reason || reason.trim().length === 0 || reason.trim().length > 500) {
+      setErrorMessage('사유는 1-500자 범위여야 합니다.');
+      return;
+    }
+    const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
+    const selected = selectedDefectId
+      ? visibleDefects.find((d) => d.id === selectedDefectId)
+      : visibleDefects[0];
+    if (!selected || isUpdating) return;
+    setIsUpdating(true);
+    setErrorMessage('');
+    try {
+      await inspectionApi.reviewDefect(selected.id, { isDeleted: true, reason: reason.trim() });
+      await refetch();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '오탐 삭제에 실패했습니다.';
+      setErrorMessage(msg);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [data, confidenceThreshold, gradeFilter, selectedDefectId, isUpdating, refetch]);
+
+  const handleOpenGradeEdit = useCallback(() => {
+    if (!data) return;
+    const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
+    const selected = selectedDefectId
+      ? visibleDefects.find((d) => d.id === selectedDefectId)
+      : visibleDefects[0];
+    if (selected) {
+      setGradeEditId(selected.id);
+      setSelectedGrade(selected.grade);
+    }
+  }, [data, confidenceThreshold, gradeFilter, selectedDefectId]);
+
+  const handleConfirmGrade = useCallback(async () => {
+    if (!data) return;
+    if (!gradeReason.trim() || gradeReason.trim().length > 500) {
+      setErrorMessage('수정 사유는 1-500자 범위여야 합니다.');
+      return;
+    }
+    const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
+    const selected = selectedDefectId
+      ? visibleDefects.find((d) => d.id === selectedDefectId)
+      : visibleDefects[0];
+    if (!selected || !selectedGrade || isUpdating) return;
+    setIsUpdating(true);
+    setErrorMessage('');
+    try {
+      await inspectionApi.reviewDefect(selected.id, {
+        grade: selectedGrade as DefectGrade,
+        reason: gradeReason.trim(),
+      });
+      await refetch();
+      setGradeEditId(undefined);
+      setSelectedGrade('');
+      setGradeReason('');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '등급 수정에 실패했습니다.';
+      setErrorMessage(msg);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [data, confidenceThreshold, gradeFilter, selectedDefectId, selectedGrade, gradeReason, isUpdating, refetch]);
+
+  const handleCancelGradeEdit = useCallback(() => {
+    setGradeEditId(undefined);
+    setSelectedGrade('');
+  }, []);
+
+  const handleConfirmReview = useCallback(async () => {
+    if (!data) return;
+    const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
+    const selected = selectedDefectId
+      ? visibleDefects.find((d) => d.id === selectedDefectId)
+      : visibleDefects[0];
+    if (!selected || isUpdating) return;
+    setIsUpdating(true);
+    setErrorMessage('');
+    try {
+      await inspectionApi.updateDefectStatus(selected.id, { status: 'CONFIRMED' });
+      await refetch();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '검수 확정에 실패했습니다.';
+      setErrorMessage(msg);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [data, confidenceThreshold, gradeFilter, selectedDefectId, isUpdating, refetch]);
 
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
     return (
@@ -137,15 +240,33 @@ export function ResultViewerPage() {
             </div>
 
             {/* Action Buttons — 우측 패널의 등급수정/누락추가와 동일 높이로 하단 정렬 */}
-            {/* TODO: 백엔드 구현(#16 오탐 수정·등급 조정, #17 하자 상태머신) 후 활성화 — #249 후속 이슈 */}
             {visibleDefects.length > 0 && (
-              <div className="flex items-center gap-3">
-                <Button type="button" variant="danger-soft" size="lg" className="flex-[3]" disabled>
+              <div className="flex flex-col gap-2">
+                {errorMessage && (
+                  <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
+                )}
+                <div className="flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="danger-soft"
+                  size="lg"
+                  className="flex-[3]"
+                  onClick={handleDeleteFalsePositive}
+                  disabled={isUpdating || !selected}
+                >
                   오탐 삭제
                 </Button>
-                <Button type="button" variant="primary" size="lg" className="flex-[7]" disabled>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="lg"
+                  className="flex-[7]"
+                  onClick={handleConfirmReview}
+                  disabled={isUpdating || !selected}
+                >
                   이 이미지 검수 확정
                 </Button>
+                </div>
               </div>
             )}
           </div>
@@ -176,13 +297,13 @@ export function ResultViewerPage() {
                     <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
                       <div className="mb-2 text-xs text-text-muted">면적 비율</div>
                       <div className="text-xl font-bold text-text-default">
-                        {Math.round((selected.areaRatio ?? 0) * 100)}%
+                        {selected.areaRatio !== undefined ? `${Math.round(selected.areaRatio * 100)}%` : '준비 중'}
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Summary Note */}
+                {/* AI Analysis Panel */}
                 <div>
                   <div className="mb-3 flex items-center gap-2">
                     <svg className="h-[13px] w-[10px]" fill="currentColor" viewBox="0 0 10 13">
@@ -190,23 +311,85 @@ export function ResultViewerPage() {
                     </svg>
                     <span className="text-xs font-medium text-text-default">분석 요약</span>
                   </div>
-                  <div className="rounded-xl border border-warning-soft-border bg-warning-soft-bg p-4 text-sm text-warning-soft-fg">
-                    {selected.summary}
-                  </div>
+                  {data && (
+                    <InspectionDefectExplainPanel
+                      defectType={selected.type}
+                      grade={selected.grade}
+                      facilityType={data.facilityType}
+                    />
+                  )}
                 </div>
               </div>
 
-              {/* Action Buttons — 스크롤 영역 밖 하단 고정, 좌측 "검수 확정" 버튼과 동일 높이 */}
-              {/* TODO: 백엔드 구현(#16 오탐 수정·등급 조정, #17 하자 상태머신) 후 활성화 — #249 후속 이슈 */}
-              {/* 좌측 컬럼(p-6=24px 하단 여백)과 하단 정렬 맞추려 pb-6 사용, py-5 아님 */}
-              <div className="flex gap-3 px-5 pt-5 pb-6">
-                <Button type="button" variant="secondary" size="lg" className="flex-1" disabled>
-                  등급 수정
-                </Button>
-                <Button type="button" variant="secondary" size="lg" className="flex-1" disabled>
-                  누락 추가
-                </Button>
-              </div>
+              {/* Grade Edit Mode */}
+              {gradeEditId === selected.id ? (
+                <div className="flex flex-col gap-2 px-5 pt-5 pb-6">
+                  {errorMessage && (
+                    <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
+                  )}
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedGrade}
+                      onChange={(e) => setSelectedGrade(e.target.value as DefectGrade | '')}
+                      className="flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">등급 선택</option>
+                      {ALL_GRADES.map((g) => (
+                        <option key={g} value={g}>
+                          {g}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <textarea
+                    value={gradeReason}
+                    onChange={(e) => setGradeReason(e.target.value)}
+                    placeholder="수정 사유를 입력해주세요 (1-500자)"
+                    maxLength={500}
+                    className="rounded-lg border border-border bg-white px-3 py-2 text-sm"
+                    rows={3}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="lg"
+                      className="flex-1"
+                      onClick={handleConfirmGrade}
+                      disabled={!selectedGrade || !gradeReason.trim() || isUpdating}
+                    >
+                      저장
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="lg"
+                      className="flex-1"
+                      onClick={handleCancelGradeEdit}
+                      disabled={isUpdating}
+                    >
+                      취소
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-3 px-5 pt-5 pb-6">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="lg"
+                    className="flex-1"
+                    onClick={handleOpenGradeEdit}
+                    disabled={isUpdating || !selected}
+                  >
+                    등급 수정
+                  </Button>
+                  {/* TODO: 누락 추가 → defect 생성 API 미구현 (#249 후속) */}
+                  <Button type="button" variant="secondary" size="lg" className="flex-1" disabled>
+                    누락 추가
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </div>

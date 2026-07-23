@@ -5,6 +5,7 @@
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse } from '../../../shared/api/types';
 import type {
+  BusinessLicenseOcrResponse,
   CompanySignupResponse,
   EmailAvailabilityResponse,
   IdInquiryResponse,
@@ -21,6 +22,16 @@ export const MOCK_FIND_ID_REPRESENTATIVE_NAME = '김민수';
 export const MOCK_FIND_ID_MASKED_EMAIL = 'h***@c***.com';
 
 export const MOCK_SIGNUP_TOKEN = 'mock-signup-token';
+
+// 사업자등록증 OCR 자동채움(#587) 기본 성공 시나리오 — 핸들러가 request.formData()를 파싱하지
+// 않아야 msw(node)+jsdom+undici 조합에서 File 파트가 있는 multipart도 안정적으로 라운드트립된다
+// (authApi.company.test.ts 상단 주석의 known limitation과 달리, 요청 본문을 읽지 않으면 그 이슈를
+// 피할 수 있음을 확인 후 채택 — #587 구현 조사).
+export const MOCK_OCR_BUSINESS_NUMBER = '1234567890';
+export const MOCK_OCR_COMPANY_NAME = '(주)오씨알테스트';
+export const MOCK_OCR_REPRESENTATIVE_NAME = '박대표';
+// 개업일자 자동채움(#598 응답 확장, #600 FE 반영) — ISO `yyyy-MM-dd`
+export const MOCK_OCR_BUSINESS_START_DATE = '2015-03-02';
 
 function normalizeDigits(value: string): string {
   return value.replace(/\D/g, '');
@@ -110,6 +121,19 @@ export const companyAuthHandlers = [
       },
     };
     return HttpResponse.json(success, { status: 201 });
+  }),
+
+  http.post('/api/auth/business-license/ocr', () => {
+    const success: ApiResponse<BusinessLicenseOcrResponse> = {
+      success: true,
+      data: {
+        businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER,
+        companyName: MOCK_OCR_COMPANY_NAME,
+        representativeName: MOCK_OCR_REPRESENTATIVE_NAME,
+        businessStartDate: MOCK_OCR_BUSINESS_START_DATE,
+      },
+    };
+    return HttpResponse.json(success);
   }),
 
   http.post('/api/auth/id-inquiry', async ({ request }) => {

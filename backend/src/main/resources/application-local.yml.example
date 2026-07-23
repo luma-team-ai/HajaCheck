@@ -25,8 +25,10 @@ spring:
       database: 1   # 개발은 1번 (운영 0번)
   jpa:
     hibernate:
-      # 공용 개발 DB(SSH 터널)에 Hibernate가 스키마를 자동 변경하지 않도록 none 고정(스키마는 수동 관리, #273)
-      ddl-auto: none
+      # Flyway가 스키마를 관리하고 Hibernate는 검증만 한다(#359, #273의 후속 — 이제 "수동 관리" 대신
+      # Flyway 마이그레이션이 스키마 소유권을 가지므로 validate로 전환). 공용 개발 DB(SSH 터널)는
+      # baseline-on-migrate로 V1 실행 없이 스탬프만 되고, 스키마 자체는 여전히 Hibernate가 건드리지 않는다.
+      ddl-auto: validate
     show-sql: true
   security:
     oauth2:
@@ -68,17 +70,22 @@ app:
     success-redirect: http://localhost:5173/dashboard
     failure-redirect: http://localhost:5173/login?error=oauth
 
-# plans 시드 부팅 가드(#517/#518) — 기본 true(안전측 fail-closed)지만, 로컬은 ddl-auto=update 로
-# 빈 DB에서 최초 기동하면 시드 SQL이 아직 적용되지 않은 게 정상이라(docs/conventions/로컬_개발_가이드.md §4)
-# 여기서 명시적으로 꺼둔다. plans 시드까지 재현하려면 docs/design/db/HajaCheck_script.sql 의 plans insert
-# 구문만 로컬 PG에 수동 적용해도 된다(선택).
+# plans 시드 부팅 가드(#517/#518) — 기본 true(안전측 fail-closed)를 그대로 둔다. Flyway 도입(#359) 이후
+# V1(빈 새 DB) 또는 V2(기존 DB, baseline-on-migrate로 V1을 건너뛴 경우)가 plans 3티어를 항상 채우므로
+# "시드 없는 최초 기동"이 더 이상 정상 시나리오가 아니다 — 로컬에서 별도로 끌 필요 없음.
 hajacheck:
   membership:
     seed-guard:
-      enabled: false
+      enabled: true
 
 ai:
   server:
     base-url: http://localhost:8000
     # 로컬 더미값 — 실제 시크릿 금지(FastAPI 는 아직 검증 안 하지만 프록시가 미리 부착한다, #228)
     internal-key: local-dev-internal-key
+
+# 국세청 사업자 진위확인(#596) — 로컬 더미값. 더미키(공백 아님)면 실제 호출을 시도하지만 fail-open 이라
+# 장애 시 가입은 진행된다. 진위확인을 완전히 끄려면 service-key 를 비우면 스킵된다.
+biz-verify:
+  base-url: https://api.odcloud.kr
+  service-key: local-dev-dummy

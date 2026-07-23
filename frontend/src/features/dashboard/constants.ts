@@ -2,8 +2,9 @@
 // shared/components/SideNavBar(DEFAULT_ITEMS)가 담당(HAJA-186, #217 앱 셸 연결)
 
 // 스토리보드 DASH-01 action 이동 경로 (URL 하드코딩 방지 — 단일 지점 관리)
-// A1: 새 점검 시작 → 점검 회차 생성(INSP-01, FR-2-01 업로드)
-export const INSPECTION_NEW_PATH = '/inspections/new';
+// A1: 새 점검 시작 → 점검 회차 생성(INSP-01, FR-2-01 업로드). router.tsx에는 '/inspections/create'로만
+// 등록돼 있고 '/inspections/new'는 등록된 적이 없어 실제로는 미매치 경로였다(#543에서 발견·수정).
+export const INSPECTION_NEW_PATH = '/inspections/create';
 // A2: 검수하기 → 처리 대기 하자의 상세(하자 상세, /defects/:id)로 이동 (Figma node 1-1588 동기화)
 export const defectDetailPath = (defectId: number): string => `/defects/${defectId}`;
 

@@ -13,6 +13,8 @@ import com.hajacheck.auth.support.FileStorageService;
 import com.hajacheck.auth.support.FileStorageService.StoredFile;
 import com.hajacheck.auth.support.TokenNamespaces;
 import com.hajacheck.auth.support.TokenStore;
+import com.hajacheck.bizverify.service.NtsBusinessVerifyClient;
+import com.hajacheck.bizverify.service.NtsVerificationOutcome;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +45,7 @@ public class CompanySignupService {
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
     private final CompanyAccountWriter accountWriter;
+    private final NtsBusinessVerifyClient ntsBusinessVerifyClient;
     private final FileStorageService fileStorage;
     private final FileStorageProperties fileStorageProperties;
     private final TokenStore tokenStore;
@@ -66,6 +69,15 @@ public class CompanySignupService {
             throw new BusinessException(ErrorCode.AUTH_BUSINESS_NUMBER_DUPLICATED);
         }
 
+        // ②' 국세청 진위확인(트랜잭션·파일저장 전 외부 호출). 진위 불일치·휴/폐업·미등록은 가입 차단,
+        //     외부 장애·미설정은 fail-open(스킵) — 정상 가입을 막지 않는다(#596).
+        NtsVerificationOutcome verification = ntsBusinessVerifyClient.validate(
+                normalizedBrn, request.representativeName(), request.businessStartDate());
+        if (isVerificationBlocked(verification)) {
+            throw new BusinessException(ErrorCode.AUTH_BUSINESS_VERIFICATION_FAILED);
+        }
+        boolean businessVerified = verification == NtsVerificationOutcome.VERIFIED;
+
         // ② 파일 저장(트랜잭션 밖). 검증 실패는 FILE_* 로 던진다.
         StoredFile stored = fileStorage.store(request.businessRegistrationFile(), FILE_CATEGORY,
                 fileStorageProperties.getAllowedContentTypes(), fileStorageProperties.getMaxSizeBytes());
@@ -78,7 +90,8 @@ public class CompanySignupService {
                     email, request.representativeName(), passwordHash,
                     request.companyName(), normalizedBrn, request.address(), request.addressDetail(),
                     stored.url(), OCR_STUB_RAW,
-                    policyProperties.getTermsVersion(), policyProperties.getPrivacyVersion());
+                    policyProperties.getTermsVersion(), policyProperties.getPrivacyVersion(),
+                    request.businessStartDate(), businessVerified);
         } catch (DataIntegrityViolationException e) {
             // 선검사와 저장 사이의 경합(동시 가입) — unique 위반. 파일 정리 후 email/brn 구분해 409.
             fileStorage.delete(stored.storageKey());
@@ -128,5 +141,15 @@ public class CompanySignupService {
      */
     static String normalizeBrn(String raw) {
         return raw == null ? null : raw.replaceAll("-", "").trim();
+    }
+
+    /**
+     * 국세청 진위확인 결과가 가입 차단 사유인지 판정(#596). 불일치·휴업·폐업(미등록은 불일치로 매핑)은 차단,
+     * VERIFIED(성공)·SKIPPED(fail-open)는 가입 진행. 휴업 차단은 보수적 처리다(재검토 여지).
+     */
+    private static boolean isVerificationBlocked(NtsVerificationOutcome outcome) {
+        return outcome == NtsVerificationOutcome.MISMATCH
+                || outcome == NtsVerificationOutcome.SUSPENDED
+                || outcome == NtsVerificationOutcome.CLOSED;
     }
 }
