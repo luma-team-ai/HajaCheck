@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.6 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
+> **문서 버전:** v0.5 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -106,13 +106,13 @@
 
 ---
 
-## POST /ai/rag-chat — ✅ 구현됨(내부 전용, Spring 프록시는 후속 이슈)
+## POST /ai/rag-chat — ⏳ 미구현(설계만, 예: `docs/design/ai/rag_chroma_schema.md` 참조) — 계획 엔드포인트
 
-점검 기준·법규 질의 전담 RAG 챗봇(FR-6). FastAPI 라우트는 `ai-server/routers/ai_router.py`에 구현되어 있다(체인: `ai-server/ai/chains/rag_chat_chain.py`, GitHub #19/HAJA-28). 성공 시 `AIResponse.data`는 `RagAnswerData` 형태이며, `sources[]`는 표시 라벨(`locator`)과 원문 발췌(`snippet`)를 분리한다.
+점검 기준·법규 질의 전담 RAG 챗봇(FR-6). 성공 시 `AIResponse.data`는 `RagAnswerData` 형태이며, `sources[]`는 표시 라벨(`locator`)과 원문 발췌(`snippet`)를 분리한다.
 
-> **내부 호출 계약**: PRD §6의 Spring Boot → FastAPI 구조를 따른다. 프론트엔드는 이 엔드포인트를 직접 호출하지 않는다. **Spring `/api/ai/rag-chat` 프록시(요청자의 `session_id` 소유·`session_type='RAG'` 검증 포함)는 이번 범위에 포함되지 않고 후속 이슈로 분리됐다** — `/api/chat-sessions` 자체가 아직 미구현이기 때문이다(`docs/design/ai/rag_chatbot_design.md` §9 참조). FastAPI 요청 스키마는 `session_id`(선택, 양의 정수)를 받지만 **현재 파이프라인은 이 값을 사용하지 않는다**(세션·대화 이력 연동 전 상태) — 아래 `session_id`는 향후 Spring이 검증해 넘길 서버 관리 식별자를 위한 선점 필드다.
+> **내부 호출 계약**: PRD §6의 Spring Boot → FastAPI 구조를 따른다. 프론트엔드는 이 엔드포인트를 직접 호출하지 않는다. Spring Boot는 `session_id`가 인증 사용자 소유이고 `session_type='RAG'`인지 확인한 뒤에만 FastAPI를 호출한다. 세션이 존재하지 않거나 타인 소유이면 정보 노출을 막기 위해 모두 `404`로 처리하고 FastAPI 호출은 생략한다. 따라서 아래 `session_id`는 클라이언트가 임의 지정한 값이 아니라 Spring Boot가 검증한 서버 관리 식별자다.
 >
-> Spring Boot는 환경변수로 주입된 내부키를 **`X-Internal-Key`** 헤더에 담고(`AI_INTERNAL_KEY`, 다른 `/ai/*`와 공유 단일 소스), FastAPI는 일치하지 않거나 누락된 요청을 처리 전에 거부한다(`deps.py::verify_internal_key`, `hmac.compare_digest` 상수시간 비교 — 위 "접근 모델" 절과 동일 메커니즘). 토큰 값은 저장소·로그·OpenAPI에 기록하지 않는다. 운영 nginx는 다른 `/ai/*`와 동일하게 공개 프록시 대상에서 이미 제외돼 있다(2026-07-16 확정, 위 "접근 모델" 절 참조).
+> Spring Boot는 환경변수로 주입된 내부 서비스 토큰을 `X-Internal-Service-Token` 헤더에 담고, FastAPI는 일치하지 않거나 누락된 요청을 처리 전에 거부해야 한다. 토큰 값은 저장소·로그·OpenAPI에 기록하지 않는다. 운영 nginx는 `/ai/rag-chat`을 FastAPI로 직접 프록시하면 안 되며, 현재 `/ai/**` 직접 경로는 이 엔드포인트 구현 전에 Spring Boot 경유 또는 외부 차단으로 변경해야 한다. 이 인증·라우팅 구현은 후속 Spring/FastAPI 배포 작업의 선행조건이다.
 
 **요청**:
 ```json
@@ -144,9 +144,7 @@
 }
 ```
 
-**응답 실패**: `RAG_NO_RESULT`(검색 결과 0건, 캐시 저장 안 함) · `VALIDATION_ERROR`(비-LLM 검증 실패) · 공통 LLM 오류 코드(`LLM_INVALID_OUTPUT` 등).
-
-정상 응답은 Redis에 `ai:cache:rag-chat:{sha256(question)[:16]}` 키로 캐시된다(TTL 1일, `llm_client.CACHE_TTL_SECONDS` 공유). 캐시 히트 시 Chroma·LLM 호출 없이 저장된 `RagAnswerData`를 그대로 반환한다.
+**응답 실패**: `RAG_NO_RESULT`(검색 결과 0건) 또는 공통 LLM 오류 코드.
 
 `sources[].doc_id`는 PostgreSQL `rag_documents.id`를 문자열화한 양의 정수 문자열(`^[1-9][0-9]*$`)이다. Spring Boot가 `chat_message_citations.document_id`에 저장할 때 패턴 검증을 통과한 값을 `int(doc_id)`로 변환한다.
 
@@ -295,7 +293,7 @@ FastAPI validation error(`detail[]`)를 반환한다.
 
 ## 다음 추가 예정 (각 담당자)
 
-- `/api/ai/rag-chat` — Spring 프록시(session_id 소유·session_type='RAG' 검증) + `/api/chat-sessions`, `chat_message_citations` 영속화 (이은석, 후속 이슈)
+- `/ai/rag-chat` — RAG 챗봇 (이은석)
 - `/api/defects/nl-search` — 자연어 검색 공개 게이트웨이(Spring Boot, 인증·플랜 검사) → 내부 `/ai/nl-search`(FastAPI, 외부 직접 노출 금지)
 - Spring Boot REST 엔드포인트 전체 (백엔드 담당)
 
@@ -423,10 +421,10 @@ FastAPI validation error(`detail[]`)를 반환한다.
 `status` ∈ `PENDING_REVIEW|APPROVED|REJECTED`. 스테퍼: PENDING_REVIEW=서류검토중, APPROVED=승인완료.
 **실패**: `404 AUTH_SIGNUP_TOKEN_INVALID`
 
-## POST /ai/business-license-ocr — 사업자등록증 OCR (AI서버, 실구현 #552/#598)
-RapidOCR(한국어)+LLM 파싱. 백엔드 프록시(`/api/auth/business-license/ocr`, #557) 경유. 인식 실패 필드는 null(FE 수동입력 폴백).
-**요청**: `{ "image_base64": "..." }` (필수)
-**성공 200** (`AIResponse` envelope) `data`: `{ "businessRegistrationNumber": "123-45-67890", "companyName": "하자첵 주식회사", "representativeName": "홍길동", "businessStartDate": "2020-01-15", "raw": { "lineCount": 12, "avgConfidence": 0.93 }, "stub": false }` (#598 businessStartDate 추가)
+## POST /ai/business-license-ocr — 사업자등록증 OCR (AI서버, **stub**)
+현재 stub. 백엔드 미배선(향후 실제 OCR 교체 seam).
+**요청**: `{ "image_base64": "..." }` 또는 `{ "file_ref": "..." }`
+**성공 200** (`AIResponse` envelope) `data`: `{ "businessRegistrationNumber": null, "companyName": null, "representativeName": null, "raw": {}, "stub": true }`
 
 ### 추가 ErrorCode (Spring `ErrorCode`)
 이번 배포: `AUTH_EMAIL_DUPLICATED`(409) · `AUTH_BUSINESS_NUMBER_DUPLICATED`(409) · `AUTH_ACCOUNT_NOT_FOUND`(404) · `AUTH_SIGNUP_TOKEN_INVALID`(404) · `FILE_REQUIRED`(400) · `FILE_INVALID_TYPE`(400) · `FILE_TOO_LARGE`(400) · `FILE_UPLOAD_FAILED`(500)
