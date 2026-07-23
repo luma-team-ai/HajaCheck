@@ -2,6 +2,11 @@ import type { ChangeEvent, FormEvent } from 'react';
 import { useState } from 'react';
 import { Button } from '../../../shared/components/Button';
 import { Modal } from '../../../shared/components/Modal';
+import {
+  GeocodeFailedError,
+  GeocodeNotFoundError,
+  geocodeAddress,
+} from '../../../shared/lib/kakaoMap/geocodeAddress';
 import { FACILITY_TYPE_OPTIONS } from '../constants';
 import type { CreateFacilityRequest } from '../types';
 import type { FacilityFormErrors, FacilityFormValues } from '../utils/validateFacilityForm';
@@ -34,16 +39,24 @@ export function FacilityFormModal({
 }: Props) {
   const [values, setValues] = useState<FacilityFormValues>(FACILITY_FORM_INITIAL_VALUES);
   const [errors, setErrors] = useState<FacilityFormErrors>({});
+  // 주소 → 좌표 변환(Geocoder) 진행 중 여부와 실패 메시지 — 수동 위도/경도 입력을 대체한다(#618).
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [geocodeErrorMessage, setGeocodeErrorMessage] = useState<string | undefined>(undefined);
 
   const handleChange =
     (field: keyof FacilityFormValues) =>
     (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       setValues((prev) => ({ ...prev, [field]: event.target.value }));
+      if (field === 'address' && geocodeErrorMessage) {
+        // 주소를 다시 고치기 시작하면 지난 좌표 변환 실패 메시지를 지운다.
+        setGeocodeErrorMessage(undefined);
+      }
     };
 
   const handleClose = () => {
     setValues(FACILITY_FORM_INITIAL_VALUES);
     setErrors({});
+    setGeocodeErrorMessage(undefined);
     onClose();
   };
 
@@ -54,8 +67,32 @@ export function FacilityFormModal({
     if (hasFacilityFormErrors(nextErrors)) {
       return;
     }
+
+    const payload = toCreateFacilityRequest(values);
+
+    // 주소가 입력된 경우에만 좌표 변환을 시도한다 — 주소가 비어 있으면 좌표 없이(null) 등록된다.
+    if (values.address.trim()) {
+      setGeocodeErrorMessage(undefined);
+      setIsGeocoding(true);
+      try {
+        const { latitude, longitude } = await geocodeAddress(values.address);
+        payload.latitude = latitude;
+        payload.longitude = longitude;
+      } catch (geocodeError) {
+        // 조용히 삼키지 않고 사용자에게 표면화 — 등록 자체를 막고 주소를 더 구체적으로 입력하도록 유도한다.
+        const message =
+          geocodeError instanceof GeocodeNotFoundError || geocodeError instanceof GeocodeFailedError
+            ? geocodeError.message
+            : '주소 좌표 변환 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.';
+        setGeocodeErrorMessage(message);
+        return;
+      } finally {
+        setIsGeocoding(false);
+      }
+    }
+
     try {
-      await onSubmit(toCreateFacilityRequest(values));
+      await onSubmit(payload);
       // 성공 확정 후에만 폼을 초기화 — 실패 시(catch)에는 아무것도 하지 않고 사용자가 입력한
       // 값과 에러 배너(submitErrorMessage)를 그대로 유지한다.
       setValues(FACILITY_FORM_INITIAL_VALUES);
@@ -151,52 +188,15 @@ export function FacilityFormModal({
               {errors.address}
             </p>
           )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="facility-latitude" className={LABEL_CLASSES}>
-              위도
-            </label>
-            <input
-              id="facility-latitude"
-              type="text"
-              inputMode="decimal"
-              value={values.latitude}
-              onChange={handleChange('latitude')}
-              placeholder="-90 ~ 90"
-              className={INPUT_CLASSES}
-              aria-invalid={Boolean(errors.latitude)}
-              aria-describedby={errors.latitude ? 'facility-latitude-error' : undefined}
-            />
-            {errors.latitude && (
-              <p id="facility-latitude-error" className={ERROR_CLASSES}>
-                {errors.latitude}
-              </p>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <label htmlFor="facility-longitude" className={LABEL_CLASSES}>
-              경도
-            </label>
-            <input
-              id="facility-longitude"
-              type="text"
-              inputMode="decimal"
-              value={values.longitude}
-              onChange={handleChange('longitude')}
-              placeholder="-180 ~ 180"
-              className={INPUT_CLASSES}
-              aria-invalid={Boolean(errors.longitude)}
-              aria-describedby={errors.longitude ? 'facility-longitude-error' : undefined}
-            />
-            {errors.longitude && (
-              <p id="facility-longitude-error" className={ERROR_CLASSES}>
-                {errors.longitude}
-              </p>
-            )}
-          </div>
+          {/* 위도/경도 수동 입력 제거(#618) — 등록 시 주소를 기준으로 Geocoder가 좌표를 자동 계산한다. */}
+          <p className="m-0 text-xs text-text-muted">
+            등록 시 주소를 기준으로 위치 좌표가 자동으로 계산됩니다.
+          </p>
+          {geocodeErrorMessage && (
+            <p role="alert" className={ERROR_CLASSES}>
+              {geocodeErrorMessage}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -276,11 +276,16 @@ export function FacilityFormModal({
         )}
 
         <div className="mt-2 flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={handleClose} disabled={isSubmitting}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleClose}
+            disabled={isSubmitting || isGeocoding}
+          >
             취소
           </Button>
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
-            {isSubmitting ? '등록 중...' : '등록하기'}
+          <Button type="submit" variant="primary" disabled={isSubmitting || isGeocoding}>
+            {isGeocoding ? '주소 확인 중...' : isSubmitting ? '등록 중...' : '등록하기'}
           </Button>
         </div>
       </form>

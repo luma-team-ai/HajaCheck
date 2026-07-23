@@ -3,8 +3,8 @@ import type { FormEvent } from 'react';
 import { doPasswordsMatch, isValidEmail, isValidPassword } from '../../auth/utils/authFormValidators';
 import { Button } from '../../../shared/components/Button';
 import { Modal } from '../../../shared/components/Modal';
-import { COMPANY_OPTIONS, ROLE_CHANGE_OPTIONS, ROLE_LABEL } from '../constants';
-import type { AdminUserRole } from '../types';
+import { ROLE_CHANGE_OPTIONS, ROLE_LABEL } from '../constants';
+import type { AdminUserRole, CompanyOption } from '../types';
 
 /** '' selectbox 값 = 회사 미소속(개인 계정)으로 등록 */
 const NO_COMPANY_VALUE = '';
@@ -21,6 +21,16 @@ interface CreateUserModalProps {
   }) => Promise<void>;
   isSubmitting: boolean;
   submitErrorMessage?: string;
+  /** GET /api/platform-admin/companies(#576) 응답 — 로딩 중이면 undefined. */
+  companyOptions?: CompanyOption[];
+  isCompanyOptionsLoading?: boolean;
+  /**
+   * 기업 목록 조회 실패 여부. "승인된 기업이 0곳"과 구별해서 보여줘야 한다 — 무음 실패로 selectbox가
+   * 그냥 비어 있으면 관리자가 실제로는 소속 회사가 있는 사용자를 개인 계정으로 잘못 등록할 수 있다
+   * (PR #656 PR머신 리뷰 P3).
+   */
+  isCompanyOptionsError?: boolean;
+  onRetryCompanyOptions?: () => void;
 }
 
 const INPUT_CLASS =
@@ -36,6 +46,10 @@ export function CreateUserModal({
   onConfirm,
   isSubmitting,
   submitErrorMessage,
+  companyOptions,
+  isCompanyOptionsLoading = false,
+  isCompanyOptionsError = false,
+  onRetryCompanyOptions,
 }: CreateUserModalProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -162,14 +176,31 @@ export function CreateUserModal({
             className={INPUT_CLASS}
             value={companyIdInput}
             onChange={(event) => setCompanyIdInput(event.target.value)}
+            disabled={isCompanyOptionsLoading || isCompanyOptionsError}
           >
             <option value={NO_COMPANY_VALUE}>선택 안함(개인)</option>
-            {COMPANY_OPTIONS.map((company) => (
+            {(companyOptions ?? []).map((company) => (
               <option key={company.id} value={company.id}>
                 {company.name}
               </option>
             ))}
           </select>
+          {isCompanyOptionsLoading && (
+            <p className="m-0 text-xs text-text-muted">기업 목록을 불러오는 중...</p>
+          )}
+          {isCompanyOptionsError && (
+            <p className="m-0 flex items-center gap-2 text-xs text-danger" role="alert">
+              기업 목록을 불러오지 못했습니다. 승인된 기업이 없는 것과는 다릅니다 — 개인 계정으로
+              등록하기 전에 다시 시도해 주세요.
+              <button
+                type="button"
+                className="cursor-pointer border-none bg-none p-0 font-medium text-danger underline"
+                onClick={onRetryCompanyOptions}
+              >
+                다시 시도
+              </button>
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col gap-2">

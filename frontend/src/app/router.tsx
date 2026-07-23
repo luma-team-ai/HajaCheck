@@ -18,6 +18,13 @@ const ResultViewerPage = lazy(() =>
   })),
 );
 
+// 보고서 생성(임시 스텁) — 이슈 #621, HAJA-343
+const ReportGenerateStubPage = lazy(() =>
+  import('../features/report/pages/ReportGenerateStubPage').then((m) => ({
+    default: m.ReportGenerateStubPage,
+  })),
+);
+
 // 점검(회차) 생성 — API 명세서 v0.3 AP-004
 const InspectionCreatePage = lazy(() =>
   import('../features/inspection/pages/InspectionCreatePage').then((m) => ({
@@ -119,6 +126,11 @@ const DefectListPage = lazy(() =>
 // 마이페이지 — 내 플랜 (HAJA-185, #212)
 const MyPlanPage = lazy(() =>
   import('../features/mypage/pages/MyPlanPage').then((m) => ({ default: m.MyPlanPage })),
+);
+
+// 마이페이지 — 내 정보 (HAJA-361, #659)
+const MyProfilePage = lazy(() =>
+  import('../features/mypage/pages/MyProfilePage').then((m) => ({ default: m.MyProfilePage })),
 );
 
 // 관리자 > 사용자 관리 (Figma node 177-2017)
@@ -364,6 +376,18 @@ export const router = createBrowserRouter([
         },
       }, // — features/mypage (HAJA-185, #212)
       {
+        path: '/mypage/profile',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <MyProfilePage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '마이페이지' }, { label: '내 정보' }],
+          activeHref: '/mypage/profile',
+        },
+      }, // — features/mypage 내 정보 (HAJA-361, #659)
+      {
         path: '/facilities/map',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
@@ -400,6 +424,18 @@ export const router = createBrowserRouter([
           activeHref: '/inspections/1/viewer',
         },
       }, // — features/inspection FR-4 (HAJA-249, #249)
+      {
+        path: '/inspections/:id/reports/generate',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <ReportGenerateStubPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '점검 관리' }, { label: '보고서 생성' }],
+          activeHref: '/inspections/1/reports/generate',
+        },
+      }, // — features/report 보고서 생성 (이슈 #621, HAJA-343)
       {
         path: '/facilities/:id',
         element: (

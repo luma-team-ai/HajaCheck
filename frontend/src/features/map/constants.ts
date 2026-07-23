@@ -22,6 +22,19 @@ export const GRADE_LABEL: Record<DefectGrade, string> = {
 export const FALLBACK_GRADE_COLOR = '#9CA3AF';
 export const FALLBACK_GRADE_LABEL = '알 수 없음';
 
+/**
+ * 등급 색상/라벨 조회 헬퍼 — null(등급 API 미연동으로 아직 값이 없는 상태, #661) 및 계약 밖
+ * 문자열(런타임 방어)을 모두 FALLBACK_GRADE_COLOR/LABEL로 안전하게 처리한다. 마커/배지/팝업 등
+ * 등급을 표시하는 모든 지점에서 GRADE_COLOR/GRADE_LABEL을 직접 인덱싱하는 대신 이 헬퍼를 쓴다.
+ */
+export function getGradeColor(grade: DefectGrade | null | undefined): string {
+  return grade ? GRADE_COLOR[grade] ?? FALLBACK_GRADE_COLOR : FALLBACK_GRADE_COLOR;
+}
+
+export function getGradeLabel(grade: DefectGrade | null | undefined): string {
+  return grade ? GRADE_LABEL[grade] ?? FALLBACK_GRADE_LABEL : FALLBACK_GRADE_LABEL;
+}
+
 /** 에러 메시지 텍스트 색상 */
 export const ERROR_TEXT_COLOR = '#B91C1C';
 
@@ -36,4 +49,4 @@ export const MAX_MAP_LEVEL = 14;
  * 시설물 목록 패널 카테고리 필터 탭 — features/facility/constants.ts FACILITY_TYPE_OPTIONS 참고
  * (feature 간 직접 import 금지 — 로컬 재정의). '전체'는 필터 미적용을 의미.
  */
-export const FACILITY_CATEGORY_FILTERS = ['전체', '교량', '터널', '댐'] as const;
+export const FACILITY_CATEGORY_FILTERS = ['전체', '건물', '교량', '터널', '도로', '기타'] as const;

@@ -3,10 +3,11 @@
 // Kakao Maps SDK는 실제 스크립트 로드 없이 최소 스텁으로 대체하고, loadKakaoMapSdk/mapApi는 모듈 목으로 우회한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FacilityLocation } from './types';
 
-vi.mock('./lib/loadKakaoMapSdk', () => ({
+vi.mock('../../shared/lib/kakaoMap/loadKakaoMapSdk', () => ({
   loadKakaoMapSdk: vi.fn(() => Promise.resolve()),
   KakaoMapKeyMissingError: class KakaoMapKeyMissingError extends Error {},
 }));
@@ -43,6 +44,9 @@ vi.mock('./api/mapApi', () => ({
     getFacilityLocations: vi.fn(() => Promise.resolve(mockFacilities)),
   },
 }));
+
+// 위 vi.mock으로 대체된 모듈을 그대로 참조 — 개별 테스트에서 mockResolvedValueOnce로 응답을 override한다
+import { mapApi } from './api/mapApi';
 
 // MapPage를 동적 import하여 위 vi.mock이 먼저 적용된 뒤 로드되도록 한다
 let MapPage: typeof import('./MapPage').default;
@@ -101,9 +105,15 @@ function stubKakaoMaps() {
         Object.assign(this, options);
         this.setMap = vi.fn();
         this.getPosition = vi.fn();
+        this.setImage = vi.fn();
+        this.setZIndex = vi.fn();
       }),
       MarkerImage: vi.fn(function MarkerImage() {}),
       Size: vi.fn(function Size() {}),
+      Point: vi.fn(function Point(this: Record<string, unknown>, x: number, y: number) {
+        this.x = x;
+        this.y = y;
+      }),
       // CustomOverlay는 실 SDK처럼 content DOM을 지도 레이어에 붙이는 것을 흉내내
       // React Portal로 렌더링된 SelectedFacilityPopup을 RTL이 document에서 찾을 수 있게 한다.
       CustomOverlay: vi.fn(function CustomOverlay(
@@ -130,10 +140,14 @@ function renderMapPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  // MapPage는 useNavigate()(상세 보기 버튼, #570/#658)를 사용하므로 Router 컨텍스트가 필요하다 —
+  // 누락 시 렌더 자체가 예외를 던진다(테스트 하네스 정합 수정, #661 작업 중 발견한 사전 존재 결함).
   return render(
-    <QueryClientProvider client={queryClient}>
-      <MapPage />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <MapPage />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -214,6 +228,20 @@ describe('MapPage', () => {
     unmount();
 
     expect(observer.disconnect).toHaveBeenCalled();
+  });
+
+  // 회귀 방지(#570): 페이지 루트가 h-full(퍼센트 높이)만 쓰면, AppShellRoute 공용 셸이
+  // min-h-screen이라 시설물 목록이 길 때 조상 체인에 확정 높이가 없어 문서 전체가 뷰포트보다
+  // 커지고, 그 안의 absolute 배치 요소(범례 등)가 뷰포트 밖으로 밀려난다. 루트는 실측 px 높이로
+  // 고정되어야 한다.
+  it('페이지 루트 높이가 뷰포트 실측값(px)으로 고정되어, 문서가 뷰포트보다 커지지 않는다(회귀 방지, #570)', async () => {
+    const { container } = renderMapPage();
+    await screen.findByText('한강대교 북단');
+
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.style.height).not.toBe('');
+    expect(root.style.height).not.toBe('100%');
+    expect(root.style.height.endsWith('px')).toBe(true);
   });
 
   it('확대 버튼 클릭 시 레벨이 감소하고 MIN_MAP_LEVEL(1) 아래로 내려가지 않는다', async () => {
@@ -335,6 +363,66 @@ describe('MapPage', () => {
 
     fireEvent.click(roadmapButton);
     expect(mapInstance.setMapTypeId).toHaveBeenCalledWith(window.kakao.maps.MapTypeId.ROADMAP);
+  });
+
+  it('유효하지 않은 좌표를 가진 시설물이 목록 중간에 있어도, 그 이후 시설물의 마커 선택 이미지가 올바른 시설물에 적용된다(회귀 방지, #661 P2)', async () => {
+    // mapApi.ts의 latitude/longitude != null 필터는 NaN·범위밖·(0,0) 좌표(EXIF GPS 결측 시 흔함)를
+    // 걸러내지 못하므로, 그런 유효하지 않은 좌표를 가진 시설물이 목록 중간(id=2)에 존재하는 상황을
+    // 재현한다. 인덱스 매칭 버그가 있으면 그 이후 시설물(id=3)의 선택 상태가 엉뚱한 마커에 적용된다.
+    const facilitiesWithInvalidMiddle: FacilityLocation[] = [
+      {
+        id: 1,
+        name: '한강대교 북단',
+        address: '서울 용산구 이촌동 302-14',
+        category: '교량',
+        latitude: 37.5145,
+        longitude: 126.9631,
+        highestGrade: 'E',
+        warningCount: 12,
+        cautionCount: 5,
+        thumbnailUrl: null,
+      },
+      {
+        id: 2,
+        name: '유효하지 않은 좌표 시설물',
+        address: '',
+        category: '기타',
+        latitude: 0,
+        longitude: 0,
+        highestGrade: null,
+        warningCount: null,
+        cautionCount: null,
+        thumbnailUrl: null,
+      },
+      {
+        id: 3,
+        name: '남산1호터널',
+        address: '서울 중구 예장동',
+        category: '터널',
+        latitude: 37.5559,
+        longitude: 126.9939,
+        highestGrade: 'C',
+        warningCount: 3,
+        cautionCount: 1,
+        thumbnailUrl: null,
+      },
+    ];
+    vi.mocked(mapApi.getFacilityLocations).mockResolvedValueOnce(facilitiesWithInvalidMiddle);
+
+    renderMapPage();
+    await screen.findByText('남산1호터널');
+
+    const MarkerCtor = window.kakao.maps.Marker as unknown as ReturnType<typeof vi.fn>;
+    const targetMarker = MarkerCtor.mock.instances.find(
+      (instance) => (instance as unknown as { title?: string }).title === '남산1호터널',
+    ) as { setZIndex: ReturnType<typeof vi.fn> } | undefined;
+    expect(targetMarker).toBeDefined();
+
+    fireEvent.click(screen.getByText('남산1호터널'));
+
+    // id 기반 매칭이라면 남산1호터널(id=3)의 실제 마커가 선택 시 z-index 20을 받는다.
+    // 인덱스 매칭 버그가 있으면 이 마커는 결코 setZIndex(20)을 받지 못한다(엉뚱한 마커가 대신 받음).
+    expect(targetMarker!.setZIndex).toHaveBeenCalledWith(20);
   });
 
   it('목록에서 시설물을 선택하면 지도가 panTo로 부드럽게 이동한다', async () => {

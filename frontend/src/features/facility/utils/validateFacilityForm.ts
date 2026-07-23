@@ -2,12 +2,12 @@ import type { CreateFacilityRequest } from '../types';
 import { computeNextInspectionDueAt } from './computeNextInspectionDueAt';
 
 // 폼 입력은 모두 문자열로 관리(빈 문자열 = 미입력) 후 제출 시 CreateFacilityRequest로 변환한다.
+// 위도/경도는 더 이상 수동 입력 필드가 아니다 — 주소 기반 Geocoder 자동 변환으로 대체됐다(#618).
+// 계산된 좌표는 FacilityFormModal이 제출 시점에 별도로 toCreateFacilityRequest 결과에 병합한다.
 export interface FacilityFormValues {
   name: string;
   type: string;
   address: string;
-  latitude: string;
-  longitude: string;
   builtYear: string;
   scale: string;
   inspectionCycleMonths: string;
@@ -19,8 +19,6 @@ export const FACILITY_FORM_INITIAL_VALUES: FacilityFormValues = {
   name: '',
   type: '',
   address: '',
-  latitude: '',
-  longitude: '',
   builtYear: '',
   scale: '',
   inspectionCycleMonths: '',
@@ -30,10 +28,6 @@ const MAX_NAME_LENGTH = 200;
 const MAX_TYPE_LENGTH = 20;
 const MAX_ADDRESS_LENGTH = 300;
 const MAX_SCALE_LENGTH = 100;
-const MIN_LATITUDE = -90;
-const MAX_LATITUDE = 90;
-const MIN_LONGITUDE = -180;
-const MAX_LONGITUDE = 180;
 const MIN_BUILT_YEAR = 1900;
 
 // 준공년도 상한 — 준공이 미래일 수는 없으므로 현재연도가 기준이나, "내년 준공 예정" 등록을 허용해 +1 까지 받는다.
@@ -60,20 +54,6 @@ export function validateFacilityForm(values: FacilityFormValues): FacilityFormEr
 
   if (values.address.length > MAX_ADDRESS_LENGTH) {
     errors.address = `주소는 ${MAX_ADDRESS_LENGTH}자 이하로 입력해 주세요.`;
-  }
-
-  if (values.latitude.trim()) {
-    const latitude = Number(values.latitude);
-    if (Number.isNaN(latitude) || latitude < MIN_LATITUDE || latitude > MAX_LATITUDE) {
-      errors.latitude = `위도는 ${MIN_LATITUDE} ~ ${MAX_LATITUDE} 사이 숫자여야 합니다.`;
-    }
-  }
-
-  if (values.longitude.trim()) {
-    const longitude = Number(values.longitude);
-    if (Number.isNaN(longitude) || longitude < MIN_LONGITUDE || longitude > MAX_LONGITUDE) {
-      errors.longitude = `경도는 ${MIN_LONGITUDE} ~ ${MAX_LONGITUDE} 사이 숫자여야 합니다.`;
-    }
   }
 
   if (values.builtYear.trim()) {
@@ -108,6 +88,8 @@ export function hasFacilityFormErrors(errors: FacilityFormErrors): boolean {
 // 빈 문자열 입력은 옵셔널 필드를 null로 취급 — 서버에 불필요한 빈 문자열을 보내지 않는다.
 // nextInspectionDueAt은 백엔드가 자동계산하지 않으므로(FacilityService는 패스스루 저장만) 여기서
 // inspectionCycleMonths 기준으로 산정해 함께 전송한다 — computeNextInspectionDueAt은 MSW 목과 공용.
+// latitude/longitude는 여기서 채우지 않는다 — 주소 기반 Geocoder 자동 변환 결과를 FacilityFormModal이
+// 제출 시점에 이 함수의 반환값 위에 병합한다(#618, 수동 입력 필드 제거).
 export function toCreateFacilityRequest(values: FacilityFormValues): CreateFacilityRequest {
   const inspectionCycleMonths = values.inspectionCycleMonths.trim()
     ? Number(values.inspectionCycleMonths)
@@ -117,8 +99,8 @@ export function toCreateFacilityRequest(values: FacilityFormValues): CreateFacil
     name: values.name.trim(),
     type: values.type.trim(),
     address: values.address.trim() || null,
-    latitude: values.latitude.trim() ? Number(values.latitude) : null,
-    longitude: values.longitude.trim() ? Number(values.longitude) : null,
+    latitude: null,
+    longitude: null,
     builtYear: values.builtYear.trim() ? Number(values.builtYear) : null,
     scale: values.scale.trim() || null,
     inspectionCycleMonths,

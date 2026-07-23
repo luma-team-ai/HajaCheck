@@ -20,11 +20,16 @@ export interface FacilityLocation {
   category: string;
   latitude: number;
   longitude: number;
-  /** 해당 시설물에 등록된 하자 중 최고 등급 */
-  highestGrade: DefectGrade;
-  /** 결함(경고) 건수 */
-  warningCount: number;
-  /** 주의 건수 */
-  cautionCount: number;
+  /**
+   * 해당 시설물에 등록된 하자 중 최고 등급.
+   * 백엔드 FacilityResponse(backend .../facility/dto/FacilityResponse.java)에는 아직 등급 필드가
+   * 없으므로(등급 산정 API 미구현), API 연동 상태에서는 항상 null("등급 미정")이다. 등급 API
+   * 연동(#661 범위 밖) 전까지 UI는 null을 정상 상태로 취급해 처리해야 한다.
+   */
+  highestGrade: DefectGrade | null;
+  /** 결함(경고) 건수 — 등급과 동일 사유로 API 미연동 시 null("집계 없음") */
+  warningCount: number | null;
+  /** 주의 건수 — 등급과 동일 사유로 API 미연동 시 null("집계 없음") */
+  cautionCount: number | null;
   thumbnailUrl: string | null;
 }

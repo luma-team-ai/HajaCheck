@@ -1,5 +1,5 @@
-import { FALLBACK_GRADE_COLOR, GRADE_COLOR } from '../constants';
-import type { FacilityLocation } from '../types';
+import { getGradeColor } from '../constants';
+import type { DefectGrade, FacilityLocation } from '../types';
 
 interface SelectedFacilityPopupProps {
   facility: FacilityLocation;
@@ -12,8 +12,9 @@ export function SelectedFacilityPopup({
   onViewDetail,
   onGoToInspectionResult,
 }: SelectedFacilityPopupProps) {
-  // 등급별 안전 등급 텍스트 매핑
-  const getStatusText = (grade: string) => {
+  // 등급별 안전 등급 텍스트 매핑 — 등급 API 미연동(#661)으로 null이면 "등급 미정" 표기
+  const getStatusText = (grade: DefectGrade | null) => {
+    if (!grade) return '등급 미정';
     switch (grade) {
       case 'E':
         return '정밀안전진단 요망';
@@ -28,7 +29,7 @@ export function SelectedFacilityPopup({
     }
   };
 
-  const badgeBgColor = GRADE_COLOR[facility.highestGrade] ?? FALLBACK_GRADE_COLOR;
+  const badgeBgColor = getGradeColor(facility.highestGrade);
 
   return (
     // border-[#d4d4d8]: Figma 팝업 전용 보더 색상 — styles/tokens.css의 --color-border(#e4e4e7)와
@@ -60,7 +61,7 @@ export function SelectedFacilityPopup({
               style={{ backgroundColor: badgeBgColor }}
             >
               <span className="font-semibold text-white text-[11px] leading-[16.5px]">
-                {facility.highestGrade}
+                {facility.highestGrade ?? '-'}
               </span>
             </div>
           </div>
@@ -72,20 +73,19 @@ export function SelectedFacilityPopup({
         </div>
       </div>
       <div className="mt-4 flex items-center gap-3">
-        {/* border-border(#e4e4e7)로 시맨틱 토큰 치환(정확히 일치, P3). bg-[#f7f7f7]/text-[#52525b]는
-            매칭되는 토큰이 없어 하드코딩 유지 */}
+        {/* border-border(#e4e4e7)로 시맨틱 토큰 치환(정확히 일치, P3). flex-1 w-full로 팝업 하단을 가로로 꽉 채운다 */}
         <button
           type="button"
           onClick={onViewDetail}
-          className="flex h-10 w-[92px] items-center justify-center rounded-[999px] border border-border bg-[#f7f7f7] font-medium text-[#52525b] text-[14px] leading-[21px] transition hover:opacity-85"
+          className="flex h-10 flex-1 w-full items-center justify-center rounded-[999px] border border-border bg-[#f7f7f7] font-medium text-[#52525b] text-[14px] leading-[21px] transition hover:opacity-85"
         >
           상세 보기
         </button>
-        {/* bg-primary(#18181b)로 시맨틱 토큰 치환(정확히 일치, P3) */}
+        {/* bg-primary(#18181b)로 시맨틱 토큰 치환(정확히 일치, P3). flex-1 w-full로 팝업 하단을 가로로 꽉 채운다 */}
         <button
           type="button"
           onClick={onGoToInspectionResult}
-          className="flex h-10 w-[92px] items-center justify-center rounded-[999px] bg-primary font-medium text-white text-[14px] leading-[21px] transition hover:opacity-85"
+          className="flex h-10 flex-1 w-full items-center justify-center rounded-[999px] bg-primary font-medium text-white text-[14px] leading-[21px] transition hover:opacity-85"
         >
           결과 검수
         </button>

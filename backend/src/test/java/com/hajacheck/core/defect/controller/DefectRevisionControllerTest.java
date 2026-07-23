@@ -4,6 +4,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -19,6 +20,7 @@ import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.core.defect.dto.DefectCreateRequest;
 import com.hajacheck.core.defect.dto.DefectRevisionRequest;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
@@ -43,7 +45,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 검수 API 통합 테스트(GET /api/inspections/{id}/defects, PATCH /api/defects/{id}).
+ * 검수 API 통합 테스트(GET /api/inspections/{id}/defects, POST /api/inspections/{id}/defects, PATCH /api/defects/{id}).
  * 최신 테스트 패턴(NotificationControllerTest 참고): @SpringBootTest + MockMvc + PostgresTestSupport.
  */
 @SpringBootTest
@@ -259,6 +261,343 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     void GET_미인증_401() throws Exception {
         mockMvc.perform(get("/api/inspections/{id}/defects", 1L))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // ============ POST /api/inspections/{id}/defects 테스트 ============
+
+    @Test
+    void POST_정상생성_200() throws Exception {
+        Company company = saveCompany("회사12");
+        User owner = saveUser("owner12@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector12@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .grade(DefectGrade.B)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.type").value("CRACK"))
+                .andExpect(jsonPath("$.data.grade").value("B"))
+                .andExpect(jsonPath("$.data.status").value("DETECTED"))
+                .andExpect(jsonPath("$.data.confidence").value(1.0))
+                .andExpect(jsonPath("$.data.isReviewed").value(false));
+    }
+
+    @Test
+    void POST_gradeNullable_200() throws Exception {
+        Company company = saveCompany("회사13");
+        User owner = saveUser("owner13@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector13@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.LEAK_EFFLORESCENCE)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.type").value("LEAK_EFFLORESCENCE"))
+                .andExpect(jsonPath("$.data.grade").value((Object) null))
+                .andExpect(jsonPath("$.data.isReviewed").value(false));
+    }
+
+    @Test
+    void POST_bboxComplete_200() throws Exception {
+        Company company = saveCompany("회사14");
+        User owner = saveUser("owner14@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector14@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .bboxX(0.1)
+                .bboxY(0.2)
+                .bboxW(0.3)
+                .bboxH(0.4)
+                .grade(DefectGrade.A)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.bboxX").value(0.1))
+                .andExpect(jsonPath("$.data.bboxY").value(0.2))
+                .andExpect(jsonPath("$.data.bboxW").value(0.3))
+                .andExpect(jsonPath("$.data.bboxH").value(0.4));
+    }
+
+    @Test
+    void POST_타인점검_404() throws Exception {
+        Company company = saveCompany("회사15");
+        User owner = saveUser("owner15@haja.com");
+        addCompanyMembership(owner, company);
+        User stranger = saveUser("stranger15@haja.com");
+        User inspector = saveInspector("inspector15@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(stranger)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("INSPECTION_NOT_FOUND"));
+    }
+
+    @Test
+    void POST_미존재점검_404() throws Exception {
+        User owner = saveUser("owner16@haja.com");
+
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", 999999L)
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("INSPECTION_NOT_FOUND"));
+    }
+
+    @Test
+    void POST_typeNull_400() throws Exception {
+        Company company = saveCompany("회사17");
+        User owner = saveUser("owner17@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector17@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void POST_bboxPartial_400() throws Exception {
+        Company company = saveCompany("회사18");
+        User owner = saveUser("owner18@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector18@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        // bboxX만 지정하고 나머지는 null
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .bboxX(0.1)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void POST_bboxXOutOfRange_negative_400() throws Exception {
+        Company company = saveCompany("회사20");
+        User owner = saveUser("owner20@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector20@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        // bboxX=-1 (0.0 미만, 범위 위반) — 다른 3개는 valid (0.5)
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .bboxX(-1.0)
+                .bboxY(0.5)
+                .bboxW(0.5)
+                .bboxH(0.5)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void POST_bboxWOutOfRange_exceed_400() throws Exception {
+        Company company = saveCompany("회사21");
+        User owner = saveUser("owner21@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector21@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        // bboxW=1.5 (1.0 초과, 범위 위반) — 다른 3개는 valid (0.5)
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .bboxX(0.5)
+                .bboxY(0.5)
+                .bboxW(1.5)
+                .bboxH(0.5)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void POST_bboxYOutOfRange_negative_400() throws Exception {
+        Company company = saveCompany("회사22");
+        User owner = saveUser("owner22@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector22@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        // bboxY=-0.1 (0.0 미만, 범위 위반) — 다른 3개는 valid (0.5)
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .bboxX(0.5)
+                .bboxY(-0.1)
+                .bboxW(0.5)
+                .bboxH(0.5)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void POST_bboxHOutOfRange_exceed_400() throws Exception {
+        Company company = saveCompany("회사23");
+        User owner = saveUser("owner23@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector23@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        // bboxH=1.1 (1.0 초과, 범위 위반) — 다른 3개는 valid (0.5)
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .bboxX(0.5)
+                .bboxY(0.5)
+                .bboxW(0.5)
+                .bboxH(1.1)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void POST_bboxBoundaryValues_200() throws Exception {
+        Company company = saveCompany("회사24");
+        User owner = saveUser("owner24@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector24@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        // 경계값 0.0/1.0은 허용 범위 포함(inclusive)이라 정상 생성돼야 한다
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .bboxX(0.0)
+                .bboxY(1.0)
+                .bboxW(0.0)
+                .bboxH(1.0)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.bboxX").value(0.0))
+                .andExpect(jsonPath("$.data.bboxY").value(1.0))
+                .andExpect(jsonPath("$.data.bboxW").value(0.0))
+                .andExpect(jsonPath("$.data.bboxH").value(1.0));
+    }
+
+    @Test
+    void POST_생성후조회_200() throws Exception {
+        Company company = saveCompany("회사19");
+        User owner = saveUser("owner19@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector19@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.REBAR_EXPOSURE)
+                .grade(DefectGrade.C)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+
+        // 이어서 GET으로 조회해서 생성된 하자가 포함되는지 확인
+        mockMvc.perform(get("/api/inspections/{id}/defects", inspection.getId())
+                .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].type").value("REBAR_EXPOSURE"))
+                .andExpect(jsonPath("$.data[0].grade").value("C"));
     }
 
     // ============ PATCH /api/defects/{id} 테스트 ============

@@ -2,8 +2,9 @@
 // PRD_hajaCheck_v0.37.md 92행, 171행: 업로드 시 수집한 EXIF GPS 활용
 // AppShellRoute(공용 앱 셸) 안에서 렌더링되므로 셸(사이드바/헤더) 마크업은 포함하지 않는다(HAJA-150, #129 재오픈)
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { mapApi } from './api/mapApi';
 import { FacilityListPanel } from './components/FacilityListPanel';
 import { MapControls, type MapDisplayType } from './components/MapControls';
@@ -11,9 +12,12 @@ import { MapLegend } from './components/MapLegend';
 import { SelectedFacilityPopup } from './components/SelectedFacilityPopup';
 import { useDebouncedValue } from '../../shared/hooks/useDebouncedValue';
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_LEVEL, ERROR_TEXT_COLOR, MAX_MAP_LEVEL, MIN_MAP_LEVEL } from './constants';
-import { createFacilityMarker, isValidCoordinate } from './lib/createFacilityMarker';
+import { createFacilityMarker, isValidCoordinate, updateFacilityMarkerImage } from './lib/createFacilityMarker';
 import { filterFacilities } from './lib/filterFacilities';
-import { KakaoMapKeyMissingError, loadKakaoMapSdk } from './lib/loadKakaoMapSdk';
+import {
+  KakaoMapKeyMissingError,
+  loadKakaoMapSdk,
+} from '../../shared/lib/kakaoMap/loadKakaoMapSdk';
 
 // 검색어 타이핑마다 지도 마커를 전량 재생성(setMap(null) 후 재생성)하면 입력이 잦을수록
 // 불필요한 DOM/SVG 마커 생성 비용이 커진다. 목록 패널 필터링은 즉시 반영하되, 마커 재생성에
@@ -21,12 +25,28 @@ import { KakaoMapKeyMissingError, loadKakaoMapSdk } from './lib/loadKakaoMapSdk'
 const MARKER_SEARCH_DEBOUNCE_MS = 250;
 
 export default function MapPage() {
+  const navigate = useNavigate();
+  const rootRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<KakaoMap | null>(null);
-  const markersRef = useRef<KakaoMarker[]>([]);
+  // facility.id 기반 Map으로 마커를 관리 — markerFacilities를 배열 인덱스로 순회하며 매칭하면,
+  // mapApi.ts의 latitude/longitude != null 필터가 NaN·범위밖·(0,0) 좌표(EXIF GPS 결측 시 흔함)를
+  // 걸러내지 못해 그 항목이 목록 중간에 있을 때 이후 인덱스가 전부 밀려 엉뚱한 시설물에 선택
+  // 이미지가 적용되는 버그가 있었다(#661 P2). id 키로 매칭하면 이 문제가 근본적으로 사라진다.
+  const markersRef = useRef<Map<number, KakaoMarker>>(new Map());
   const overlayRef = useRef<KakaoCustomOverlay | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const hasCenteredRef = useRef(false);
+
+  // 이 페이지 루트의 뷰포트 기준 실측 높이 — AppShellRoute의 공용 셸(min-h-screen, shared라 여기서
+  // 수정하지 않음)이 자식 콘텐츠(긴 시설물 목록)에 따라 뷰포트보다 커질 수 있고, 그러면 셸의
+  // <main overflow-y-auto>가 내부 스크롤하는 대신 문서 전체가 스크롤된다(#570). h-full(퍼센트
+  // 높이)은 조상 체인에 확정된 높이가 없으면 콘텐츠 크기에 그대로 끌려가 이 문제를 못 막는다.
+  // 대신 루트의 실제 화면상 top 위치(헤더 높이만큼, 이 페이지 콘텐츠 크기와 무관하게 안정적)를
+  // 측정해 뷰포트 나머지 높이를 px로 명시하면, 이 페이지 자신이 뷰포트에 갇혀 문서가 더 이상
+  // 커지지 않는다 — 그 안의 FacilityListPanel(자체 overflow-y-auto 보유)이 내부 스크롤을 맡고,
+  // MapControls/MapLegend는 원래의 단순한 absolute 배치로도 항상 화면 안에 머문다.
+  const [rootHeight, setRootHeight] = useState<number | null>(null);
 
   const [overlayContainer] = useState(() => document.createElement('div'));
 
@@ -133,9 +153,27 @@ export default function MapPage() {
       resizeObserverRef.current = null;
       hasCenteredRef.current = false;
       markersRef.current.forEach((marker) => marker.setMap(null));
-      markersRef.current = [];
+      markersRef.current = new Map();
       mapInstanceRef.current = null;
     };
+  }, []);
+
+  // 루트의 뷰포트 기준 실측 높이를 px로 고정 — 위 rootHeight 선언부 주석 참고(#570).
+  // useLayoutEffect: 브라우저 페인트 전에 동기 적용해, 문서가 잠깐이라도 뷰포트보다 커지는
+  // 순간(FOUC 성격의 flash)을 최소화한다. 루트 자신의 top은 이 페이지의 콘텐츠 크기와
+  // 무관하게 안정적이므로(위에 있는 헤더 높이로만 결정) 초기 측정도 신뢰할 수 있다.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    const updateHeight = () => {
+      const top = root.getBoundingClientRect().top;
+      setRootHeight(window.innerHeight - top);
+    };
+
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
   }, []);
 
   // 필터링된 시설물 목록이 준비되면 마커 렌더링 (재렌더 시 기존 마커 정리 후 재생성)
@@ -157,15 +195,36 @@ export default function MapPage() {
       return valid;
     });
 
-    markersRef.current = validFacilities.map((facility) =>
-      createFacilityMarker(map, facility, (selected) => setSelectedFacilityId(selected.id)),
-    );
+    const nextMarkers = new Map<number, KakaoMarker>();
+    validFacilities.forEach((facility) => {
+      nextMarkers.set(
+        facility.id,
+        createFacilityMarker(
+          map,
+          facility,
+          (selected) => setSelectedFacilityId(selected.id),
+          facility.id === selectedFacilityId,
+        ),
+      );
+    });
+    markersRef.current = nextMarkers;
 
     return () => {
       markersRef.current.forEach((marker) => marker.setMap(null));
-      markersRef.current = [];
+      markersRef.current = new Map();
     };
   }, [markerFacilities, sdkStatus]);
+
+  // 선택된 시설물 변경 시 마커 이미지(미선택: 원형 도트, 선택: 피그마 원형+삼각형 핀) 및 z-index 동기화
+  useEffect(() => {
+    if (sdkStatus !== 'ready') return;
+    markerFacilities.forEach((facility) => {
+      const marker = markersRef.current.get(facility.id);
+      if (!marker) return;
+      const isSelected = facility.id === selectedFacilityId;
+      updateFacilityMarkerImage(marker, isSelected, facility.highestGrade);
+    });
+  }, [selectedFacilityId, markerFacilities, sdkStatus]);
 
   // 지도/위성 토글 상태를 실제 카카오맵 인스턴스에 반영
   useEffect(() => {
@@ -198,7 +257,8 @@ export default function MapPage() {
     const overlay = new window.kakao.maps.CustomOverlay({
       position,
       content: overlayContainer,
-      yAnchor: 1.18, // 마커 살짝 위에 배치하기 위한 Anchor 값
+      yAnchor: 1.32, // 선택 핀(높이 42px)과 오버레이 팝업 카드의 Y축 위치가 겹치지 않도록 여유 이격
+      zIndex: 300, // 카카오맵 오버레이 레이어 스태킹 최상위(300) 지정해 어떤 마커 핀(z-index 20 이하)에도 팝업이 가려지지 않도록 보장
     });
 
     overlay.setMap(map);
@@ -250,7 +310,11 @@ export default function MapPage() {
   }
 
   return (
-    <div className="flex h-full w-full overflow-hidden">
+    <div
+      ref={rootRef}
+      className="flex w-full overflow-hidden"
+      style={{ height: rootHeight ?? '100%' }}
+    >
       <FacilityListPanel
         facilities={filteredFacilities}
         isLoading={isLoading || sdkStatus === 'loading'}
@@ -276,10 +340,11 @@ export default function MapPage() {
           <SelectedFacilityPopup
             facility={selectedFacility}
             onViewDetail={() => {
-              // 시설물 상세 라우트 미구현(features/facility) — 버튼 자리만 배치, 구현 시 연결
+              navigate(`/facilities/${selectedFacility.id}`);
             }}
             onGoToInspectionResult={() => {
-              // 결과접수 라우트 미구현 — 버튼 자리만 배치, 구현 시 연결
+              // 결과 검수 라우트(/inspections/:id/viewer)는 inspectionId가 필요하나 FacilityLocation/
+              // GET /api/facilities 응답 어디에도 해당 필드가 없음 — 백엔드 API 확장 선행 필요, 별도 이슈로 분리(#570 범위 밖)
             }}
           />,
           overlayContainer

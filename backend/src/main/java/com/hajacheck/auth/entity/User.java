@@ -105,9 +105,13 @@ public class User extends BaseTimeEntity {
     }
 
     /**
-     * 기업 회원가입(자체가입) 소유자 계정 팩토리 — email/password 로그인, role=USER, status=ACTIVE.
+     * 기업 회원가입(자체가입) 소유자 계정 팩토리 — email/password 로그인, role=ADMIN, status=ACTIVE.
      * 참고: user.name 에는 대표자명을 담는다(users.name len100 = 표시명). companyId 는 가입 트랜잭션에서
      * Company 저장 후 {@link #assignToCompany(Long)} 로 배선한다.
+     * role=ADMIN 인 이유(#636): 회사 owner=회사 관리자다. USER 로 두면 회사에 ADMIN 이 0명이 되어
+     * 아무도 회사 관리자 페이지(/api/admin/**)에 진입하지 못한다. 이 ADMIN 은 기업(회사) 스코프 관리자이며
+     * (AdminUserController 가 loginUser.getCompanyId() 자기 회사 스코프로만 동작 → cross-tenant 없음),
+     * company_id 없는 플랫폼 운영진 축인 PLATFORM_ADMIN 과는 별개 계층이다.
      * status=ACTIVE 인 이유: user_status_type 에 PENDING 라벨이 없다. 승인 게이팅(company.status=PENDING_REVIEW)은
      * 각 보호 리소스 엔드포인트의 후속 과제이며, 이 계정은 로그인은 되되 미승인 상태로 남는다.
      */
@@ -115,7 +119,7 @@ public class User extends BaseTimeEntity {
         return User.builder()
                 .email(email)
                 .name(name)
-                .role(Role.USER)
+                .role(Role.ADMIN)
                 .passwordHash(passwordHash)
                 .status(UserStatus.ACTIVE)
                 .build();

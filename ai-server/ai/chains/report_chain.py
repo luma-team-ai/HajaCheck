@@ -26,7 +26,7 @@ from ai.core.grounding import (
     check_grounding,
     normalize_grade_strict,
 )
-from ai.core.llm_client import get_llm
+from ai.core.llm_client import SHORT_CACHE_TTL_SECONDS, get_llm
 from ai.core.prompt_safety import UNTRUSTED_DATA_BEGIN, UNTRUSTED_DATA_END, sanitize_untrusted, wrap_untrusted
 from ai.core.vectorstore import COLLECTION_REGULATIONS, get_vectorstore
 
@@ -198,7 +198,8 @@ def _build_prompt_overview(facility_info: dict) -> str:
 
 def _run_overview_chain(facility_info: dict) -> ReportOverview:
     prompt = _build_prompt_overview(facility_info)
-    return get_llm().with_structured_output(ReportOverview).invoke(prompt)
+    # facility_info(시설명·위치 등 회사정보)가 프롬프트에 섞이므로 캐시 TTL을 짧게 둔다(#623 P2 픽스).
+    return get_llm().with_structured_output(ReportOverview, ttl=SHORT_CACHE_TTL_SECONDS).invoke(prompt)
 
 
 # ── summary ──
@@ -220,7 +221,8 @@ def _build_prompt_summary(confirmed_defects: list[dict]) -> str:
 
 def _run_summary_chain(confirmed_defects: list[dict]) -> ReportSummary:
     prompt = _build_prompt_summary(confirmed_defects)
-    return get_llm().with_structured_output(ReportSummary).invoke(prompt)
+    # confirmed_defects(하자내용 등 회사정보)가 프롬프트에 섞이므로 캐시 TTL을 짧게 둔다(#623 P2 픽스).
+    return get_llm().with_structured_output(ReportSummary, ttl=SHORT_CACHE_TTL_SECONDS).invoke(prompt)
 
 
 # ── detail ──
@@ -237,7 +239,8 @@ def _build_prompt_detail(confirmed_defects: list[dict]) -> str:
 
 def _run_detail_chain(confirmed_defects: list[dict]) -> ReportDetail:
     prompt = _build_prompt_detail(confirmed_defects)
-    return get_llm().with_structured_output(ReportDetail).invoke(prompt)
+    # confirmed_defects(하자내용 등 회사정보)가 프롬프트에 섞이므로 캐시 TTL을 짧게 둔다(#623 P2 픽스).
+    return get_llm().with_structured_output(ReportDetail, ttl=SHORT_CACHE_TTL_SECONDS).invoke(prompt)
 
 
 # ── recommendation (+ RAG, vectorstore 미구현 시 "관련 근거 없음" 폴백) ──
@@ -299,8 +302,11 @@ def _run_recommendation_chain(confirmed_defects: list[dict]) -> ReportRecommenda
     # LLM에는 legal_basis_verified가 없는 전용 스키마(_LLMReportRecommendation)로만 구조화 출력을
     # 요청한다 — legal_basis_verified는 항상 아래에서 코드로 계산해 채우므로 LLM 스키마에 노출할
     # 이유가 없다(PR머신 P3).
+    # confirmed_defects(하자내용 등 회사정보)가 프롬프트에 섞이므로 캐시 TTL을 짧게 둔다(#623 P2 픽스).
     llm_result: _LLMReportRecommendation = (
-        get_llm().with_structured_output(_LLMReportRecommendation).invoke(prompt)
+        get_llm()
+        .with_structured_output(_LLMReportRecommendation, ttl=SHORT_CACHE_TTL_SECONDS)
+        .invoke(prompt)
     )
 
     if not legal_basis_context:

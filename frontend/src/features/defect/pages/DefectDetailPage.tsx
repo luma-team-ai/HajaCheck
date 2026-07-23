@@ -18,7 +18,7 @@ export function DefectDetailPage() {
     useUpdateDefectStatus(defectId);
 
   const handleAdvance = (next: DefectStatus) => {
-    updateStatus(next).catch(() => {});
+    updateStatus({ status: next }).catch(() => {});
   };
 
   return (

@@ -1,38 +1,42 @@
 // 시설물 위치 조회 — feature별 api 모듈 (React_코드_컨벤션.md §3)
-// TODO(#8): 시설물 API 완성 시 /api/facilities 연동으로 교체 (현재는 목 데이터 반환)
+// 백엔드 /api/facilities 연동 (dev-04-04)
+import { api } from '../../../shared/api/axios';
 import type { FacilityLocation } from '../types';
 
-const MOCK_FACILITY_LOCATIONS: FacilityLocation[] = [
-  {
-    id: 1,
-    name: '한강대교 북단',
-    address: '서울 용산구 이촌동 302-14',
-    category: '교량',
-    latitude: 37.5145,
-    longitude: 126.9631,
-    highestGrade: 'E',
-    warningCount: 12,
-    cautionCount: 5,
-    thumbnailUrl: null,
-  },
-  {
-    id: 2,
-    name: '남산1호터널',
-    address: '서울 중구 예장동',
-    category: '터널',
-    latitude: 37.5559,
-    longitude: 126.9939,
-    highestGrade: 'C',
-    warningCount: 3,
-    cautionCount: 1,
-    thumbnailUrl: null,
-  },
-];
+interface FacilityResponse {
+  id: number;
+  ownerId: number;
+  name: string;
+  type: string;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  builtYear: number | null;
+  scale: string | null;
+  inspectionCycleMonths: number | null;
+  nextInspectionDueAt: string | null;
+}
 
 export const mapApi = {
   getFacilityLocations: async (): Promise<FacilityLocation[]> => {
-    // TODO(#8): 백엔드 /api/facilities 연동 시 아래 목 데이터 제거하고
-    // return api.get<FacilityLocation[]>('/facilities').then((res) => res.data);
-    return Promise.resolve(MOCK_FACILITY_LOCATIONS);
+    const res = await api.get<FacilityResponse[]>('/facilities');
+    const facilities = res.data ?? [];
+    return facilities
+      .filter((f) => f.latitude != null && f.longitude != null)
+      .map((f) => ({
+        id: f.id,
+        name: f.name,
+        address: f.address ?? '',
+        category: f.type ?? '기타',
+        latitude: Number(f.latitude),
+        longitude: Number(f.longitude),
+        // 백엔드 FacilityResponse에 등급/하자건수 필드가 아직 없다(등급 산정 API 미구현, #661).
+        // 실데이터가 없는 값을 임의 공식으로 지어내 실제 안전등급처럼 노출하지 않도록 null로
+        // 내려보내고, UI(마커/팝업/목록)는 null을 "등급 미정"으로 폴백 처리한다.
+        highestGrade: null,
+        warningCount: null,
+        cautionCount: null,
+        thumbnailUrl: null,
+      }));
   },
 };
