@@ -74,7 +74,7 @@ public class DefectRevisionService {
         }
 
         // 하자 생성
-        // ponytail: confidence=1.0 sentinel, DB 마이그레이션 없이 회피 — AI/사람 구분 필요해지면 병현님과 협의 후 컬럼 추가
+        // confidence=1.0은 수동 생성 sentinel(스키마 마이그레이션 없이 AI/사람 구분 회피) — AI/사람 구분 컬럼 추가 검토는 #644
         Defect defect = Defect.builder()
                 .inspectionId(inspectionId)
                 .type(request.getType())
