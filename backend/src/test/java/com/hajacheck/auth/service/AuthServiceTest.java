@@ -233,9 +233,12 @@ class AuthServiceTest {
 
     @Test
     void listAssignableUsers_요청자유효멤버십_회사소속목록_AssignableUserResponse로매핑되어반환() {
-        User inspector = assigneeOf(1L, Role.INSPECTOR, false);
+        // 매핑 경로(AssignableUserResponse.from)는 getId/getName/getRole만 호출한다 — assigneeOf
+        // 헬퍼(getCompanyId/getStatus까지 스텁)를 그대로 쓰면 미사용 스텁으로 strict Mockito가 실패한다.
+        User inspector = mock(User.class);
         when(inspector.getId()).thenReturn(200L);
         when(inspector.getName()).thenReturn("점검자A");
+        when(inspector.getRole()).thenReturn(Role.INSPECTOR);
         when(companyMembershipRepository.existsEffectiveApprovedMembership(
                 org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq(100L), any()))
                 .thenReturn(true);
