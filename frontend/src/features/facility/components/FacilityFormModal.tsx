@@ -28,6 +28,10 @@ type Props = {
   onSubmit: (payload: CreateFacilityRequest) => Promise<void>;
   isSubmitting: boolean;
   submitErrorMessage?: string;
+  // 주소는 있는데 Geocoder(좌표 변환)가 실패했을 때 호출된다 — 등록 자체는 막지 않고 좌표
+  // 없이(null) 진행하는 best-effort 정책(사용자 결정, #629)이라, 등록 성공 시 이 모달은 곧
+  // 닫히므로 실패 사실을 부모(FacilityListPage)가 인라인 배너로 계속 보여줄 수 있게 전달한다.
+  onGeocodeFailure?: (message: string) => void;
 };
 
 export function FacilityFormModal({
@@ -36,6 +40,7 @@ export function FacilityFormModal({
   onSubmit,
   isSubmitting,
   submitErrorMessage,
+  onGeocodeFailure,
 }: Props) {
   const [values, setValues] = useState<FacilityFormValues>(FACILITY_FORM_INITIAL_VALUES);
   const [errors, setErrors] = useState<FacilityFormErrors>({});
@@ -97,13 +102,18 @@ export function FacilityFormModal({
         payload.latitude = latitude;
         payload.longitude = longitude;
       } catch (geocodeError) {
-        // 조용히 삼키지 않고 사용자에게 표면화 — 등록 자체를 막고 주소를 더 구체적으로 입력하도록 유도한다.
-        const message =
+        // best-effort 정책(사용자 결정, #629): 좌표 변환 실패로 등록 자체를 막지 않는다 —
+        // latitude/longitude는 세팅하지 않고(null 유지) 그대로 등록을 진행한다. 조용히 삼키지는
+        // 않고 콘솔 경고 + 부모 콜백(onGeocodeFailure)으로 인라인 배너 노출까지 표면화한다
+        // (이 레포는 별도 Toast 시스템을 두지 않는 컨벤션 — DefectStatusReasonModal.tsx 참고).
+        const reason =
           geocodeError instanceof GeocodeNotFoundError || geocodeError instanceof GeocodeFailedError
             ? geocodeError.message
-            : '주소 좌표 변환 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.';
+            : '주소 좌표 변환 중 오류가 발생했습니다.';
+        const message = `주소 좌표 자동 계산에 실패해 좌표 없이 등록되었습니다. (${reason})`;
+        console.warn('[FacilityFormModal] 주소 좌표 변환 실패 — 좌표 없이 등록을 진행합니다.', geocodeError);
         setGeocodeErrorMessage(message);
-        return;
+        onGeocodeFailure?.(message);
       } finally {
         setIsGeocoding(false);
       }
@@ -114,6 +124,11 @@ export function FacilityFormModal({
       // 성공 확정 후에만 폼을 초기화 — 실패 시(catch)에는 아무것도 하지 않고 사용자가 입력한
       // 값과 에러 배너(submitErrorMessage)를 그대로 유지한다.
       setValues(FACILITY_FORM_INITIAL_VALUES);
+      // 성공 시 모달은 부모(open=false)로 인해 화면에서만 사라질 뿐 이 컴포넌트 자체는 언마운트되지
+      // 않는다 — geocodeErrorMessage를 여기서 지우지 않으면 다음에 모달을 다시 열 때(핸들클로즈를
+      // 거치지 않은 경로로) 지난 실패 메시지가 잔류해 보일 수 있어 함께 초기화한다. 실패 사실 자체는
+      // 이미 onGeocodeFailure로 부모에 전달돼 인라인 배너로 남아 있다.
+      setGeocodeErrorMessage(undefined);
     } catch {
       // onSubmit(FacilityListPage.handleSubmit)이 던진 에러 — 여기서는 폼을 유지만 하고
       // 별도 처리는 하지 않는다. 에러 메시지 표시는 submitErrorMessage prop이 담당한다.

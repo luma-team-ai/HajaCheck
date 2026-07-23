@@ -195,12 +195,21 @@ describe('FacilityFormModal', () => {
     });
   });
 
-  it('Geocoder가 주소를 찾지 못하면 에러 메시지를 표시하고 onSubmit을 호출하지 않는다(#618)', async () => {
+  // 사용자 결정(#629 재조정) — 주소는 있는데 Geocoder가 실패해도 등록을 차단하지 않고 좌표
+  // null로 best-effort 진행한다. 주소가 아예 없을 때(null로 등록되는 기존 경로)와 동일한 결과.
+  it('Geocoder가 주소를 찾지 못해도 등록을 막지 않고 좌표 없이 onSubmit을 진행한다(#618, #629 best-effort)', async () => {
     geocodeAddressMock.mockRejectedValue(new GeocodeNotFoundError('존재하지 않는 주소'));
-    const handleSubmit = vi.fn();
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+    const handleGeocodeFailure = vi.fn();
 
     render(
-      <FacilityFormModal open onClose={vi.fn()} onSubmit={handleSubmit} isSubmitting={false} />,
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={handleSubmit}
+        isSubmitting={false}
+        onGeocodeFailure={handleGeocodeFailure}
+      />,
     );
 
     fillRequiredFields();
@@ -210,18 +219,33 @@ describe('FacilityFormModal', () => {
       fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
     });
 
-    expect(handleSubmit).not.toHaveBeenCalled();
-    expect(
-      screen.getByText(/주소를 찾을 수 없습니다.*존재하지 않는 주소/),
-    ).not.toBeNull();
+    expect(handleSubmit).toHaveBeenCalledTimes(1);
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      address: '존재하지 않는 주소',
+      latitude: null,
+      longitude: null,
+    });
+    // onGeocodeFailure로 넘어간 메시지가 상위(FacilityListPage)에서 인라인 배너로 쓰인다 —
+    // 등록 성공 시 이 모달 내부의 geocodeErrorMessage는 정리되므로(다음 오픈 시 잔류 방지),
+    // 실패 사실을 검증하는 지점은 여기(콜백 인자)다.
+    expect(handleGeocodeFailure).toHaveBeenCalledWith(
+      expect.stringContaining('존재하지 않는 주소'),
+    );
   });
 
-  it('Geocoder 호출 자체가 실패하면 에러 메시지를 표시하고 onSubmit을 호출하지 않는다(#618)', async () => {
+  it('Geocoder 호출 자체가 실패해도 등록을 막지 않고 좌표 없이 onSubmit을 진행한다(#618, #629 best-effort)', async () => {
     geocodeAddressMock.mockRejectedValue(new GeocodeFailedError('서울 강남구'));
-    const handleSubmit = vi.fn();
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+    const handleGeocodeFailure = vi.fn();
 
     render(
-      <FacilityFormModal open onClose={vi.fn()} onSubmit={handleSubmit} isSubmitting={false} />,
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={handleSubmit}
+        isSubmitting={false}
+        onGeocodeFailure={handleGeocodeFailure}
+      />,
     );
 
     fillRequiredFields();
@@ -231,8 +255,13 @@ describe('FacilityFormModal', () => {
       fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
     });
 
-    expect(handleSubmit).not.toHaveBeenCalled();
-    expect(screen.getByText(/좌표 변환에 실패했습니다/)).not.toBeNull();
+    expect(handleSubmit).toHaveBeenCalledTimes(1);
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      address: '서울 강남구',
+      latitude: null,
+      longitude: null,
+    });
+    expect(handleGeocodeFailure).toHaveBeenCalledWith(expect.stringContaining('좌표 변환에 실패했습니다'));
   });
 
   it('초기 등급 pill을 선택하면 onSubmit payload에 initialGrade를 포함한다(#628)', async () => {

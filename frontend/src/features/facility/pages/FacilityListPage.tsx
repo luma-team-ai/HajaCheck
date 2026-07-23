@@ -11,12 +11,19 @@ import type { CreateFacilityRequest } from '../types';
 export function FacilityListPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [backfillMessage, setBackfillMessage] = useState<string | undefined>(undefined);
+  // 주소 좌표 자동계산(Geocoder) 실패 best-effort 안내(#629, 사용자 결정) — 등록 자체는 막지 않으므로
+  // 모달이 곧 닫히는 성공 경로에서도 사용자가 사실을 인지할 수 있도록 이 페이지에 인라인으로 남긴다
+  // (이 레포는 별도 Toast 시스템을 두지 않는 컨벤션 — backfillMessage와 동일 패턴).
+  const [geocodeWarningMessage, setGeocodeWarningMessage] = useState<string | undefined>(undefined);
   const navigate = useNavigate();
   const { data: facilities, isLoading, isError, refetch } = useFacilities();
   const { createFacility, isPending, error, resetError } = useCreateFacility();
   const { run: runBackfill, isRunning: isBackfilling } = useBackfillFacilityGeocode();
 
-  const handleOpenModal = () => setIsModalOpen(true);
+  const handleOpenModal = () => {
+    setGeocodeWarningMessage(undefined);
+    setIsModalOpen(true);
+  };
   const handleCloseModal = () => {
     setIsModalOpen(false);
     // 모달을 닫을 때(성공/실패/취소/Escape 등 어떤 경로든) 이전 실패의 에러를 초기화 —
@@ -61,6 +68,12 @@ export function FacilityListPage() {
     // 이 함수가 던지는 rejection을 FacilityFormModal의 handleSubmit이 catch한다.
   };
 
+  // 주소 좌표 자동계산(Geocoder) 실패 best-effort 안내(#629) — 등록은 이미 좌표 없이 진행되므로
+  // 여기서는 사용자에게 사실을 알리는 인라인 배너만 세팅한다.
+  const handleGeocodeFailure = (message: string) => {
+    setGeocodeWarningMessage(message);
+  };
+
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8">
       <div className="flex items-center justify-between">
@@ -88,6 +101,12 @@ export function FacilityListPage() {
         </p>
       )}
 
+      {geocodeWarningMessage && (
+        <p role="alert" className="m-0 text-sm text-warning-soft-fg">
+          {geocodeWarningMessage}
+        </p>
+      )}
+
       <div className="overflow-hidden rounded-2xl border border-border bg-surface">
         <FacilityTable
           facilities={facilities}
@@ -104,6 +123,7 @@ export function FacilityListPage() {
         onSubmit={handleSubmit}
         isSubmitting={isPending}
         submitErrorMessage={error?.message}
+        onGeocodeFailure={handleGeocodeFailure}
       />
     </div>
   );
