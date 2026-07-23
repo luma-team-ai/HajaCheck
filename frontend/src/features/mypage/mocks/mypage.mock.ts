@@ -1,4 +1,4 @@
-import type { MyPlan, SeatsInfo } from '../types';
+import type { MyPlan, SeatMember, SeatsInfo } from '../types';
 
 // 백엔드 #211(HAJA-177) 미배포 대비 예제 데이터(HAJA-185) — Figma "My Page - My Plan Management" 시안 기준
 export const mockMyPlan: MyPlan = {
@@ -28,4 +28,15 @@ export const mockSeats: SeatsInfo = {
       status: 'ACTIVE',
     },
   ],
+};
+
+// '초대됨' 상태 데모 전용(#659, HAJA-361) — 실 UserStatus엔 없는 프론트 전용 값(types.ts 참고).
+// mockSeats.members에는 넣지 않는다(넣으면 /mypage/plan 등 SeatsSection을 쓰는 기존 화면까지
+// 함께 바뀐다) — MyProfilePage에서만 SeatsSection의 extraDemoMembers로 별도 주입한다.
+export const mockInvitedSeatMember: SeatMember = {
+  userId: 999,
+  name: '박초대',
+  email: 'invited@example.com',
+  role: 'INSPECTOR',
+  status: 'INVITED',
 };

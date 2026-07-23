@@ -33,8 +33,11 @@ export interface MyPlan {
 
 // backend com.hajacheck.auth.entity.Role과 1:1
 export type SeatMemberRole = 'ADMIN' | 'INSPECTOR' | 'USER' | 'COUNSELOR';
-// backend com.hajacheck.auth.entity.UserStatus와 1:1
-export type SeatMemberStatus = 'ACTIVE' | 'SUSPENDED';
+// backend com.hajacheck.auth.entity.UserStatus 값(ACTIVE/SUSPENDED) + 프론트 전용 'INVITED'.
+// 'INVITED'(초대됨)는 실 UserStatus에 없는 값이다 — 좌석 초대 기능이 아직 백엔드에 없어(후속 #24/#210)
+// 실 API 응답은 절대 이 값을 반환하지 않는다. 마이페이지 '내 정보'(#659) 좌석 섹션에서 데모 표시
+// 용도로만 mocks/mypage.mock.ts의 mockInvitedSeatMember를 통해 주입한다.
+export type SeatMemberStatus = 'ACTIVE' | 'SUSPENDED' | 'INVITED';
 
 export interface SeatMember {
   userId: number;
