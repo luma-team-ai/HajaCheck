@@ -64,7 +64,6 @@ export const facilityHandlers = [
     const now = new Date().toISOString();
     const created: Facility = {
       id: nextId,
-      ownerId: 1,
       name: reqBody.name,
       type: reqBody.type,
       address: reqBody.address ?? null,

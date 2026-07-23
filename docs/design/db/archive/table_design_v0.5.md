@@ -1,6 +1,6 @@
 # hajaCheck 테이블 디자인 설계
 
-> **문서 버전:** v0.6 · **최종 수정:** 2026-07-23 · 이전 버전 `archive/`
+> **문서 버전:** v0.5 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
 
 - 대상 스키마 파일: [HajaCheck_script.sql](HajaCheck_script.sql)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
@@ -318,13 +318,13 @@ companies ── (owner_user_id) >── users
 companies ──< users (company_id, 개인→기업 전환 시 오너 초대 승인 경로로 세팅)
 companies ──< company_memberships >── users (승인·회수·만료 가능한 소속 SoT)
 companies ──< user_plans (company_id, 회사 단위 플랜 — 소속 임직원 전체가 상속)
-companies ──< facilities ──< inspections ──┬──< media
-                                           ├──< defects ──< defect_revisions
-                                           └──< reports
 
 users ──┬──< user_consents
         ├──< user_plans >── plans (user_id 또는 company_id 중 하나에만 귀속, §2.6)
         │        └──< usage_counters
+        ├──< facilities ──< inspections ──┬──< media
+        │                                 ├──< defects ──< defect_revisions
+        │                                 └──< reports
         ├──< inspection_notification_settings >── facilities
         ├──< chat_sessions ──< chat_messages ──< chat_message_citations >── rag_documents
         │        │                  │                  (+ chunk_ref → Chroma, FK 아님)
@@ -346,7 +346,7 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 
 `users`와 `companies`는 서로를 참조하는 **양방향 FK** 관계다: `companies.owner_user_id`는 그 회사를 가입·소유한 단 한 명의 사용자를 가리키고(회사 1건당 소유자 1명), `users.company_id`는 그 회사에 소속된 모든 사용자(소유자 본인 포함, 협업자 초대로 합류한 임직원 포함)를 가리킨다(회사 1건당 소속 사용자 N명).
 
-- `users`는 `company_memberships.user_id/invited_by`, `inspections.created_by/assigned_inspector_id`, `defect_revisions.revised_by`, `reports.created_by/edited_by`, `chat_sessions.user_id`, `counsel_tickets.user_id/counselor_id`, `notifications.user_id` 등 서비스 전반의 액터로 참조된다. 시설 자체의 소유 범위는 `facilities.company_id`로 회사에 귀속된다.
+- `users`는 `company_memberships.user_id/invited_by`, `facilities.owner_id`, `inspections.created_by/assigned_inspector_id`, `defect_revisions.revised_by`, `reports.created_by/edited_by`, `chat_sessions.user_id`, `counsel_tickets.user_id/counselor_id`, `notifications.user_id` 등 서비스 전반의 액터로 참조된다.
 - `chat_sessions`는 `session_type`(`RAG`/`SCENARIO_BOT`/`COUNSEL`) 하나로 세 가지 대화 흐름을 통합하고, `chat_messages`도 공용으로 사용한다.
 - `counsel_tickets`는 큐/배정/상태만 관리하고, 실제 대화는 `session_id`를 통해 `chat_sessions`/`chat_messages`를 그대로 재사용한다.
 - `bot_scenarios`는 `parent_id`로 자기 자신을 참조하는 계층형(트리) 구조다.
@@ -416,7 +416,7 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 - **UQ**: `email`, `(social_provider, social_id)` — 동일 소셜 계정으로 중복 가입 방지. `social_provider`/`social_id`가 NULL인 자체가입 사용자끼리는 이 UNIQUE 제약에 걸리지 않는다(PostgreSQL은 NULL을 서로 다른 값으로 취급).
 - **CK** `ck_users_auth_method`: `(social_provider IS NOT NULL AND social_id IS NOT NULL) OR password_hash IS NOT NULL` — 소셜 로그인 또는 자체가입(비밀번호) 중 최소 하나의 인증 수단은 반드시 있어야 함.
 - 인덱스: `idx_users_company (company_id)`
-- 참조 대상: `company_memberships.user_id/invited_by`, `inspections.created_by/assigned_inspector_id`, `defect_revisions.revised_by`, `reports.edited_by/created_by`, `chat_sessions.user_id`, `counsel_tickets.user_id/counselor_id`, `notifications.user_id`, `user_plans.user_id`, `companies.owner_user_id/reviewed_by`, `user_consents.user_id`.
+- 참조 대상: `company_memberships.user_id/invited_by`, `facilities.owner_id`, `inspections.created_by/assigned_inspector_id`, `defect_revisions.revised_by`, `reports.edited_by/created_by`, `chat_sessions.user_id`, `counsel_tickets.user_id/counselor_id`, `notifications.user_id`, `user_plans.user_id`, `companies.owner_user_id/reviewed_by`, `user_consents.user_id`.
 - §2.5 근거: 착수 시점엔 소셜 로그인 전용으로 `social_provider`/`social_id`가 NOT NULL이었으나, 자체 회원가입(AUTH-02) 지원을 위해 nullable로 완화하고 `password_hash`·`company_id`를 추가했다.
 
 #### `companies` — 기업 회원가입으로 생성된 회사 계정
@@ -444,8 +444,6 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 
 - **UQ**: `business_registration_number` — 동일 사업자등록번호로 중복 가입 방지.
 - 인덱스: `idx_companies_owner (owner_user_id)`
-- 참조 대상: `users.company_id`, `company_memberships.company_id`, `user_plans.company_id`,
-  `facilities.company_id`.
 - §2.5 근거: 스토리보드의 사업자등록증 업로드→OCR 자동 인식(사업자등록번호/상호명/대표자)→관리자 승인 대기 흐름을 그대로 컬럼화했다. OCR 인식(자동)과 국세청 진위확인(외부 API)은 서로 다른 검증 단계라 `business_registration_ocr_raw`(원본 추출값)와 `verification_status`(진위확인 결과)를 분리했다.
 - `verification_status`(진위확인, 자동)와 `status`(관리자 승인, 사람이 처리)는 서로 독립적인 두 축이다 — 진위확인이 통과해도 관리자가 반려할 수 있다.
 - ✅ **승인 게이팅 확정(미검증 기업 유료권한 차단)**: 단, 두 축이 독립이라도 **`status`를 `APPROVED`로 전이하려면 `verification_status = VERIFIED`가 전제조건**이다(`FAILED`/`PENDING` 회사는 승인 불가). 승인 전이는 이 조건을 강제하는 애플리케이션 트랜잭션(가능하면 트리거 병행)으로만 처리하고, **회사 귀속 `user_plans` 결제/활성화 시에도 `verification_status = VERIFIED AND status = APPROVED`를 함께 확인**한다. 승인 전이 시점의 검증 상태는 감사 로그(`reviewed_by`/`reviewed_at` + 검증 상태)로 남긴다. 이로써 국세청 진위확인에 실패한 위조/미검증 기업이 관리자 실수·절차 누락만으로 유료 기능·기업 워크스페이스 권한을 얻는 경로를 차단한다.
@@ -554,12 +552,12 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 
 ### 5.3 시설물·점검
 
-#### `facilities` — 회사가 소유·관리하는 점검 대상 시설
+#### `facilities` — 사용자가 소유·관리하는 점검 대상 시설
 
 | 컬럼 | 타입 | NULL | 기본값 | 키 | 설명 |
 |---|---|---|---|---|---|
 | id | bigint (identity) | N | - | **PK** | 시설 식별자 |
-| company_id | bigint | N | - | **FK→companies** | 시설을 소유·관리하는 회사 |
+| owner_id | bigint | N | - | **FK→users** | 시설 소유자/관리자 |
 | name | varchar(200) | N | - | | 시설 명칭 |
 | type | varchar(20) | N | - | | 시설 유형 |
 | address | varchar(300) | Y | - | | 시설 주소 |
@@ -572,9 +570,7 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 | created_at | timestamptz | N | now() | | 생성 시각 |
 | updated_at | timestamptz | N | now() | | 최종 수정 시각 |
 
-- 인덱스: `idx_facilities_company (company_id)`
-- V8 마이그레이션은 기존 `owner_id`의 사용자에 연결된 `users.company_id`로 시설을 이관한다. 회사가
-  없거나 유효한 회사에 매핑할 수 없는 기존 시설은 임의 삭제·배정하지 않고 마이그레이션을 실패시킨다.
+- 인덱스: `idx_facilities_owner (owner_id)`
 - 착수 보고서 대비: `address`, `inspection_cycle_months`가 NOT NULL → NULL 허용으로 완화됨 (§2.1 참조)
 
 #### `inspections` — 시설별 점검 회차와 진행 상태

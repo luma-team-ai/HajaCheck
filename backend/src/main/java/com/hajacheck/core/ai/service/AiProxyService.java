@@ -143,12 +143,12 @@ public class AiProxyService {
     }
 
     /**
-     * 로그인 사용자(ownerId) 소유 범위 현황을 {@link BriefingStatsService} 로 집계해 FastAPI
-     * {@code /ai/briefing} 을 호출한다(#248 / HAJA-197). ownerId 는 컨트롤러가
-     * {@code @AuthenticationPrincipal} 에서만 취득해 전달한다(IDOR 방지).
+     * 로그인 사용자의 회사(companyId) 소유 범위 현황을 {@link BriefingStatsService} 로 집계해 FastAPI
+     * {@code /ai/briefing} 을 호출한다(#248 / HAJA-197). userId와 companyId는 컨트롤러가
+     * {@code @AuthenticationPrincipal} 에서만 취득해 각각 rate-limit과 회사 스코프에 사용한다.
      */
-    public ApiResponse<BriefingResponse> briefing(Long ownerId) {
-        BriefingStatsRequest stats = briefingStatsService.buildStats(ownerId);
+    public ApiResponse<BriefingResponse> briefing(Long userId, Long companyId) {
+        BriefingStatsRequest stats = briefingStatsService.buildStats(userId, companyId);
         BriefingAiEnvelope envelope = callAiServer(stats);
         if (envelope == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);

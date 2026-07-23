@@ -1,11 +1,9 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.12.0-draft"
+  version: "0.11.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
-    2026-07-23 시설 소유 범위를 사용자에서 회사로 전환(#637 / HAJA-353) — FacilityResponse의
-    ownerId를 제거하고 시설·점검·하자·보고서 경유 접근을 인증 사용자의 companyId 범위로 통일.
     2026-07-22 OCR 개업일자 추출(#598 / HAJA-338) — /ai/business-license-ocr 및 공개 프록시 응답에
     businessStartDate(ISO date, nullable) 추가. 국세청 진위확인(#596)에 사용.
     2026-07-22 기업가입에 businessStartDate(개업일자, 필수) 추가(#596 / HAJA-337) — 국세청 진위확인
@@ -930,7 +928,7 @@ paths:
     post:
       summary: 시설물 등록
       description: >
-        인증 사용자의 회사가 소유하는 시설물을 등록한다. companyId 는 요청 바디가 아니라 인증 주체에서 서버가 기록한다.
+        인증 사용자가 시설물을 등록한다. ownerId 는 요청 바디가 아니라 인증 주체에서 서버가 기록한다.
         name/type 은 필수(DDL NOT NULL), 나머지는 선택 입력이다.
       security:
         - SessionCookie: []
@@ -959,7 +957,7 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
     get:
       summary: 내 시설물 목록 조회
-      description: 인증 주체의 회사가 소유한(companyId 일치) 시설물만 반환한다.
+      description: 인증 주체가 소유한(ownerId 일치) 시설물만 반환한다.
       security:
         - SessionCookie: []
           XsrfToken: []
@@ -1115,8 +1113,8 @@ paths:
         로그인 사용자 소유 시설물 기준 요약 지표 4종(총 시설물·이번 달 분석·검수대기·조치대기)과 각 항목의
         전월/전주 대비 변화율을 반환한다. 스냅샷 테이블이 없어 changeRate 는 근사치로 계산한다 —
         totalFacilitiesChangeRate 는 누적 시설물 수 기준, 나머지는 점검/하자 생성시각 기준 이번 달·주
-        vs 지난 달·주 비교. 분모가 0이면 분자>0일 때만 100%, 그 외 0%로 처리한다. companyId 는 인증
-        주체에서만 취득한다(cross-company IDOR 방지). `DashboardController.getSummary` 구현됨.
+        vs 지난 달·주 비교. 분모가 0이면 분자>0일 때만 100%, 그 외 0%로 처리한다. ownerId 는 인증
+        주체에서만 취득한다(cross-owner IDOR 방지). `DashboardController.getSummary` 구현됨.
       security:
         - SessionCookie: []
       tags: [dashboard]
@@ -1202,9 +1200,9 @@ paths:
     get:
       summary: 다가오는 점검 예정 시설물 조회 (대시보드 위젯, dev-03-02)
       description: >
-        인증 사용자의 회사가 소유한(company_id) 시설물 중 next_inspection_due_at 이 오늘 이후이며 오늘부터
+        인증 사용자가 소유한(owner_id) 시설물 중 next_inspection_due_at 이 오늘 이후이며 오늘부터
         days 일 이내로 임박한 것을 nextInspectionDueAt 오름차순으로 최대 limit 건 반환한다. 접근
-        범위는 기존 대시보드 엔드포인트와 동일한 company_id 단일 스코프이며 companyId 는 세션 인증
+        범위는 기존 대시보드 엔드포인트와 동일한 owner_id 단일 스코프이며 ownerId 는 세션 인증
         주체에서만 취득한다(요청 파라미터로 받지 않음, IDOR 방지). next_inspection_due_at 이 null 인
         시설물은 제외한다. 조회 결과가 0건이면 200 빈 배열.
       security:
@@ -1394,8 +1392,9 @@ paths:
     get:
       summary: 하자 목록 검색·필터 (FR-012, 계획/미구현)
       description: >
-        서버가 인증 주체의 companyId와 일치하는 회사 소유 시설물(facilities.company_id) 범위를 먼저 계산한다.
-        요청자 자신의 companyId가 없거나 소속이 유효하지 않으면 시설 경유 접근을 거부하고,
+        서버가 인증 주체로부터 조회 가능한 시설물 범위를 먼저 계산한다: 본인 소유 시설물(facilities.owner_id),
+        회사 소속 공유 시설물(등록자가 아니어도 시설물 소유자와 요청자 양쪽 모두가 같은 회사에 대해 유효한
+        company_memberships를 가진 경우에 한해 포함 — 요청자 자신의 멤버십이 미승인·회수·만료 상태면 제외),
         관리자는 전체 시설물. 이와 별개로 inspections.assigned_inspector_id가 본인인 점검 회차는
         시설물 범위 밖이어도 항상 포함한다. 모든 역할에서 defects.is_deleted=false를 강제한다. 아래 쿼리
         파라미터는 이 서버 유도 소유권 범위를 좁히는 용도로만 사용하며 클라이언트 입력으로 범위를 확장할 수
@@ -2017,7 +2016,7 @@ components:
       type: object
       additionalProperties: false
       required: [name, type]
-      description: companyId 는 인증 주체에서 서버가 기록하므로 요청 바디에 포함하지 않는다.
+      description: ownerId 는 인증 주체에서 서버가 기록하므로 요청 바디에 포함하지 않는다.
       properties:
         name: { type: string, maxLength: 200 }
         type: { type: string, maxLength: 20 }
@@ -2057,9 +2056,10 @@ components:
     FacilityResponse:
       type: object
       additionalProperties: false
-      required: [id, name, type, createdAt, updatedAt]
+      required: [id, ownerId, name, type, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int64 }
+        ownerId: { type: integer, format: int64 }
         name: { type: string }
         type: { type: string }
         address: { type: string, nullable: true }

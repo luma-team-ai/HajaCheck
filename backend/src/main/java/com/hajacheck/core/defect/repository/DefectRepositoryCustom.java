@@ -8,6 +8,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 public interface DefectRepositoryCustom {
-    Page<Defect> findPageByOwnerIdAndFilters(
-            Long ownerId, DefectType type, DefectGrade grade, DefectStatus status, Pageable pageable);
+    Page<Defect> findPageByCompanyIdAndFilters(
+            Long companyId, DefectType type, DefectGrade grade, DefectStatus status, Pageable pageable);
 }

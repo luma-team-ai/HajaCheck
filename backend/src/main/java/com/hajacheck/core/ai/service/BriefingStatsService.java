@@ -12,6 +12,8 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -35,8 +37,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>DashboardService 의 private 헬퍼(ownedFacilityIds/inspectionIdsOf/countInspections 등)는
  * 재사용하지 않고 이 서비스가 독립적으로 조합한다 — #248 handoff 의도적 선택: DashboardService(#222
  * 최근 파일)를 수정하면 리뷰 diff 가 커지므로, 최소한의 조합 로직만 이 서비스에 새로 둔다.
- * 모든 조회는 로그인 사용자(ownerId)가 소유한 facilities.owner_id 범위로만 집계한다
- * (cross-owner IDOR 방지, DashboardService/facility 도메인과 동일 원칙).
+ * 모든 조회는 로그인 사용자의 회사(companyId)가 소유한 facilities.company_id 범위로만 집계한다
+ * (cross-company IDOR 방지, DashboardService/facility 도메인과 동일 원칙).
  */
 @Service
 @Transactional(readOnly = true)
@@ -54,20 +56,23 @@ public class BriefingStatsService {
     private final DefectRepository defectRepository;
     private final AiProxyRateLimiter aiProxyRateLimiter;
 
-    public BriefingStatsRequest buildStats(Long ownerId) {
+    public BriefingStatsRequest buildStats(Long userId, Long companyId) {
+        if (companyId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
         // 브리핑도 FastAPI(/ai/briefing) 프록시 경로다 — DB 집계 전에 스레드풀 보호 가드를 적용해
         // 초과 시 429로 즉시 중단한다(사용자 축 → 전역 축, AiProxyRateLimiter 참고).
-        aiProxyRateLimiter.checkUser(ownerId);
+        aiProxyRateLimiter.checkUser(userId);
         aiProxyRateLimiter.checkGlobal();
 
-        List<Long> facilityIds = facilityRepository.findByOwnerId(ownerId).stream().map(Facility::getId).toList();
+        List<Long> facilityIds = facilityRepository.findByCompanyId(companyId).stream().map(Facility::getId).toList();
         List<Long> inspectionIds = facilityIds.isEmpty() ? List.of()
                 : inspectionRepository.findByFacilityIdIn(facilityIds).stream().map(Inspection::getId).toList();
 
         LocalDate thisMonthStart = LocalDate.now(KST).withDayOfMonth(1);
         LocalDate nextMonthStart = thisMonthStart.plusMonths(1);
 
-        long totalFacilities = facilityRepository.countByOwnerId(ownerId);
+        long totalFacilities = facilityRepository.countByCompanyId(companyId);
         long monthlyAnalysis = facilityIds.isEmpty() ? 0
                 : inspectionRepository.countByFacilityIdInAndStatusInAndInspectionDateRange(
                         facilityIds, ANALYZED_OR_LATER_STATUSES, thisMonthStart, nextMonthStart);

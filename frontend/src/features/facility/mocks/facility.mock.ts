@@ -4,7 +4,6 @@ import type { Facility } from '../types';
 export const mockFacilities: Facility[] = [
   {
     id: 1,
-    ownerId: 1,
     name: '강남 오피스타워 A동',
     type: '건물',
     address: '서울 강남구 테헤란로 123',
@@ -19,7 +18,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 2,
-    ownerId: 1,
     name: '판교 테크노밸리 B동',
     type: '건물',
     address: '경기 성남시 분당구 판교역로 235',
@@ -34,7 +32,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 3,
-    ownerId: 1,
     name: '한강대교 북단',
     type: '교량',
     address: '서울 용산구 한강대로 인근',
@@ -49,7 +46,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 4,
-    ownerId: 1,
     name: '송도 물류센터',
     type: '건물',
     address: '인천 연수구 송도과학로 32',
@@ -64,7 +60,6 @@ export const mockFacilities: Facility[] = [
   },
   {
     id: 5,
-    ownerId: 1,
     name: '수원 스마트팩토리',
     type: '건물',
     address: '경기 수원시 영통구 광교로 145',

@@ -526,8 +526,9 @@ create table facilities
 (
     id                      bigint generated always as identity
         primary key,
-    owner_id                bigint                                 not null
-        references users,
+    company_id              bigint                                 not null
+        constraint fk_facilities_company
+            references companies,
     name                    varchar(200)                           not null,
     type                    varchar(20)                            not null,
     address                 varchar(300),
@@ -545,7 +546,7 @@ comment on table facilities is '사용자가 소유하거나 관리하는 점검
 
 comment on column facilities.id is '시설 식별자';
 
-comment on column facilities.owner_id is '시설 소유자 또는 관리자 사용자 식별자';
+comment on column facilities.company_id is '시설을 소유·관리하는 회사 식별자';
 
 comment on column facilities.name is '시설 명칭';
 
@@ -572,8 +573,8 @@ comment on column facilities.updated_at is '시설 최종 수정 시각';
 alter table facilities
     owner to postgres;
 
-create index idx_facilities_owner
-    on facilities (owner_id);
+create index idx_facilities_company
+    on facilities (company_id);
 
 create table inspections
 (

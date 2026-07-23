@@ -3,7 +3,6 @@
 
 export interface Facility {
   id: number;
-  ownerId: number;
   name: string;
   type: string;
   address: string | null;

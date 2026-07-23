@@ -27,8 +27,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 하자 목록·상세 조회 및 상태 전이 API(HAJA-30). 소유자(owner)는 인증 사용자
- * (@AuthenticationPrincipal)로부터만 취득 — 요청 파라미터로 ownerId를 받지 않는다(cross-owner IDOR 방지).
+ * 하자 목록·상세 조회 및 상태 전이 API(HAJA-30). 회사 스코프는 인증 사용자
+ * (@AuthenticationPrincipal)로부터만 취득 — 요청 파라미터로 companyId를 받지 않는다(cross-company IDOR 방지).
  */
 @Tag(name = "Defect", description = "하자(결함) API")
 @RestController
@@ -48,7 +48,7 @@ public class DefectController {
             @RequestParam(required = false) DefectStatus status,
             @PageableDefault(size = 20) Pageable pageable) {
         PageResponse<DefectResponse> response =
-                defectService.list(loginUser.getUserId(), type, grade, status, pageable);
+                defectService.list(loginUser.getCompanyId(), type, grade, status, pageable);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
@@ -57,7 +57,7 @@ public class DefectController {
     public ResponseEntity<ApiResponse<DefectResponse>> get(
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(defectService.get(loginUser.getUserId(), id)));
+        return ResponseEntity.ok(ApiResponse.ok(defectService.get(loginUser.getCompanyId(), id)));
     }
 
     @Operation(summary = "하자 상태 전이",
@@ -70,7 +70,8 @@ public class DefectController {
             @PathVariable Long id,
             @Valid @RequestBody DefectStatusUpdateRequest request) {
         DefectResponse response =
-                defectService.updateStatus(loginUser.getUserId(), id, request.status(), request.reason());
+                defectService.updateStatus(
+                        loginUser.getCompanyId(), loginUser.getUserId(), id, request.status(), request.reason());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
@@ -82,7 +83,7 @@ public class DefectController {
             @PathVariable Long id,
             @PageableDefault(size = 20) Pageable pageable) {
         PageResponse<DefectRevisionResponse> response =
-                defectService.getRevisions(loginUser.getUserId(), id, pageable);
+                defectService.getRevisions(loginUser.getCompanyId(), id, pageable);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 }

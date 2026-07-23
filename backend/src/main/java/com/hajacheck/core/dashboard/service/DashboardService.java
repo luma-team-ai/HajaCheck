@@ -18,6 +18,8 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -34,8 +36,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 대시보드 개요 집계(HAJA-17, dev-03-01) — 모든 조회는 로그인 사용자(ownerId)가 소유한
- * facilities.owner_id 범위로만 집계한다(cross-owner IDOR 방지, facility 도메인과 동일 원칙).
+ * 대시보드 개요 집계(HAJA-17, dev-03-01) — 모든 조회는 로그인 사용자의 회사(companyId)가 소유한
+ * facilities.company_id 범위로만 집계한다(cross-company IDOR 방지, facility 도메인과 동일 원칙).
  *
  * <p>도메인 간 결합: facility/inspection/defect 는 core 패키지 내 서로 다른 하위 도메인이지만,
  * 연관관계 없는 FK 값 컬럼 설계(§0 "도메인 간 직접 의존 금지"는 auth/core/counsel/admin 최상위
@@ -63,17 +65,18 @@ public class DashboardService {
     private final DefectRepository defectRepository;
     private final UserRepository userRepository;
 
-    public DashboardSummaryResponse getSummary(Long ownerId) {
-        List<Long> facilityIds = ownedFacilityIds(ownerId);
+    public DashboardSummaryResponse getSummary(Long companyId) {
+        requireCompanyId(companyId);
+        List<Long> facilityIds = companyFacilityIds(companyId);
         List<Long> inspectionIds = inspectionIdsOf(facilityIds);
 
         LocalDate thisMonthStart = LocalDate.now(KST).withDayOfMonth(1);
         LocalDate nextMonthStart = thisMonthStart.plusMonths(1);
         LocalDate lastMonthStart = thisMonthStart.minusMonths(1);
 
-        long totalFacilities = facilityRepository.countByOwnerId(ownerId);
+        long totalFacilities = facilityRepository.countByCompanyId(companyId);
         long totalFacilitiesLastMonth =
-                facilityRepository.countByOwnerIdAndCreatedAtBefore(ownerId, thisMonthStart.atStartOfDay());
+                facilityRepository.countByCompanyIdAndCreatedAtBefore(companyId, thisMonthStart.atStartOfDay());
 
         long monthlyAnalyzed = countInspections(facilityIds, ANALYZED_STATUSES, thisMonthStart, nextMonthStart);
         long monthlyAnalyzedLastMonth =
@@ -107,8 +110,9 @@ public class DashboardService {
                 DashboardSummaryResponse.changeRate(pendingActionThisMonth, pendingActionLastMonth));
     }
 
-    public List<GradeDistributionResponse> getGradeDistribution(Long ownerId) {
-        List<Long> inspectionIds = inspectionIdsOf(ownedFacilityIds(ownerId));
+    public List<GradeDistributionResponse> getGradeDistribution(Long companyId) {
+        requireCompanyId(companyId);
+        List<Long> inspectionIds = inspectionIdsOf(companyFacilityIds(companyId));
         List<GradeCountProjection> counts =
                 inspectionIds.isEmpty() ? List.of() : defectRepository.countGroupByGrade(inspectionIds);
 
@@ -135,8 +139,9 @@ public class DashboardService {
                 .toList();
     }
 
-    public List<PendingPriorityResponse> getPendingPriority(Long ownerId) {
-        List<Facility> facilities = facilityRepository.findByOwnerId(ownerId);
+    public List<PendingPriorityResponse> getPendingPriority(Long companyId) {
+        requireCompanyId(companyId);
+        List<Facility> facilities = facilityRepository.findByCompanyId(companyId);
         Map<Long, String> facilityNameById = toFacilityNameMap(facilities);
         List<Long> facilityIds = facilities.stream().map(Facility::getId).toList();
 
@@ -159,8 +164,9 @@ public class DashboardService {
                 .toList();
     }
 
-    public List<RecentInspectionResponse> getRecentInspections(Long ownerId) {
-        List<Facility> facilities = facilityRepository.findByOwnerId(ownerId);
+    public List<RecentInspectionResponse> getRecentInspections(Long companyId) {
+        requireCompanyId(companyId);
+        List<Facility> facilities = facilityRepository.findByCompanyId(companyId);
         Map<Long, String> facilityNameById = toFacilityNameMap(facilities);
         List<Long> facilityIds = facilities.stream().map(Facility::getId).toList();
         if (facilityIds.isEmpty()) {
@@ -193,26 +199,33 @@ public class DashboardService {
     }
 
     /**
-     * 다가오는 점검 예정 시설물 조회(dev-03-02) — owner_id 단일 스코프(기존 대시보드 엔드포인트와
+     * 다가오는 점검 예정 시설물 조회(dev-03-02) — company_id 단일 스코프(기존 대시보드 엔드포인트와
      * 동일 원칙), nextInspectionDueAt 이 오늘~오늘+days 이내이며 null 이 아닌 시설물만
      * nextInspectionDueAt 오름차순으로 최대 limit 건 반환한다.
      */
-    public List<UpcomingInspectionResponse> getUpcomingInspections(Long ownerId, int days, int limit) {
+    public List<UpcomingInspectionResponse> getUpcomingInspections(Long companyId, int days, int limit) {
+        requireCompanyId(companyId);
         LocalDate today = LocalDate.now(KST);
         LocalDate from = today;
         LocalDate to = today.plusDays(days);
         int safeLimit = Math.min(limit, UPCOMING_INSPECTIONS_MAX_LIMIT);
 
-        List<Facility> facilities = facilityRepository.findUpcomingByOwnerId(
-                ownerId, from, to, PageRequest.of(0, safeLimit));
+        List<Facility> facilities = facilityRepository.findUpcomingByCompanyId(
+                companyId, from, to, PageRequest.of(0, safeLimit));
 
         return facilities.stream()
                 .map(facility -> UpcomingInspectionResponse.from(facility, today))
                 .toList();
     }
 
-    private List<Long> ownedFacilityIds(Long ownerId) {
-        return facilityRepository.findByOwnerId(ownerId).stream().map(Facility::getId).toList();
+    private List<Long> companyFacilityIds(Long companyId) {
+        return facilityRepository.findByCompanyId(companyId).stream().map(Facility::getId).toList();
+    }
+
+    private void requireCompanyId(Long companyId) {
+        if (companyId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
     }
 
     private List<Inspection> inspectionsOf(List<Long> facilityIds) {
