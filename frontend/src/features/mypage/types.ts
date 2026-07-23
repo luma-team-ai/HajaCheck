@@ -9,6 +9,10 @@ export interface MyPlanInfo {
   name: PlanName;
   priceMonthly: number;
   status: PlanStatus;
+  // Figma 리디자인(node 1463-2786, #712) — BE #711/PR#714에서 확정된 GET /me/plan 확장 필드.
+  // nextBillingDate: 유료 플랜만(FREE는 null). businessVerified: 회사 구독=boolean, 개인 구독(companyId=null)=null.
+  nextBillingDate: string | null;
+  businessVerified: boolean | null;
 }
 
 // limits.max_* 는 무제한이면 null 그대로 반환(contract.md) — FE에서 "무제한" 표기
@@ -53,16 +57,14 @@ export interface SeatsInfo {
   members: SeatMember[];
 }
 
-export interface UpgradeInquiryResult {
-  status: PlanStatus;
-}
-
 // contract.md 추가 ErrorCode(마이페이지) — error.code 비교를 이 상수로 통일해 오타 시 컴파일 에러가 나게 한다.
 // (shared/api/types.ts의 ApiError.code는 앱 전역 에러코드를 아우르는 plain string이라 여기서 좁힐 수 없음 —
 // 대신 이 객체의 프로퍼티를 통해서만 비교하게 해 오타를 컴파일 타임에 잡는다.)
+// PLAN_ACTIVE_SUBSCRIPTION_CONFLICT: POST /me/plan/checkout 동시 요청 경합(409, #712/PR#714 계약).
 export const MYPAGE_ERROR_CODE = {
   PLAN_NOT_FOUND: 'PLAN_NOT_FOUND',
   PLAN_FORBIDDEN: 'PLAN_FORBIDDEN',
+  PLAN_ACTIVE_SUBSCRIPTION_CONFLICT: 'PLAN_ACTIVE_SUBSCRIPTION_CONFLICT',
 } as const;
 
 export type MyPageErrorCode = (typeof MYPAGE_ERROR_CODE)[keyof typeof MYPAGE_ERROR_CODE];
