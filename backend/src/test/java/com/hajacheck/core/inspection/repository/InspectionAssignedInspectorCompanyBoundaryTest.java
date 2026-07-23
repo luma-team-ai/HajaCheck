@@ -50,8 +50,8 @@ class InspectionAssignedInspectorCompanyBoundaryTest extends PostgresTestSupport
     @Autowired
     private TestEntityManager em;
 
-    private Long seedFacility(Long ownerId, String name) {
-        Facility facility = Facility.builder().ownerId(ownerId).name(name).type("BUILDING").build();
+    private Long seedFacility(Long companyId, String name) {
+        Facility facility = Facility.builder().companyId(companyId).name(name).type("BUILDING").build();
         em.persist(facility);
         em.flush();
         return facility.getId();
@@ -103,7 +103,7 @@ class InspectionAssignedInspectorCompanyBoundaryTest extends PostgresTestSupport
                 "boundary-owner-b@haja.test", "boundary company B", "HA25-BOUNDARY-B");
         User inspectorB = seedApprovedMember(
                 ownerB.getCompanyId(), "boundary-inspector-b@haja.test", Role.INSPECTOR, UserStatus.ACTIVE);
-        Long facilityId = seedFacility(ownerA.getId(), "경계테스트빌딩A");
+        Long facilityId = seedFacility(ownerA.getCompanyId(), "경계테스트빌딩A");
 
         assertThatThrownBy(() -> inspectionRepository.saveAndFlush(
                 newInspection(facilityId, ownerA.getId(), inspectorB.getId())))
@@ -117,7 +117,7 @@ class InspectionAssignedInspectorCompanyBoundaryTest extends PostgresTestSupport
                 "boundary-owner-c@haja.test", "boundary company C", "HA25-BOUNDARY-C");
         User member = seedApprovedMember(
                 owner.getCompanyId(), "boundary-member-c@haja.test", Role.INSPECTOR, UserStatus.ACTIVE);
-        Long facilityId = seedFacility(owner.getId(), "동일회사빌딩");
+        Long facilityId = seedFacility(owner.getCompanyId(), "동일회사빌딩");
 
         Inspection saved = inspectionRepository.saveAndFlush(
                 newInspection(facilityId, owner.getId(), member.getId()));
@@ -133,7 +133,9 @@ class InspectionAssignedInspectorCompanyBoundaryTest extends PostgresTestSupport
         User inspector = userRepository.saveAndFlush(
                 User.createCompanyOwner(
                         "boundary-individual-b@haja.test", "individual-b", "<password-hash-placeholder>"));
-        Long facilityId = seedFacility(creator.getId(), "무소속사용자간배정차단빌딩");
+        User facilityOwner = seedApprovedCompanyOwner(
+                "boundary-facility-owner-a@haja.test", "boundary facility company A", "HA25-FACILITY-A");
+        Long facilityId = seedFacility(facilityOwner.getCompanyId(), "무소속사용자간배정차단빌딩");
 
         assertThatThrownBy(() -> inspectionRepository.saveAndFlush(
                 newInspection(facilityId, creator.getId(), inspector.getId())))
@@ -145,7 +147,9 @@ class InspectionAssignedInspectorCompanyBoundaryTest extends PostgresTestSupport
     void bothCompanyLessSelfAssignment_rejectedByTrigger() {
         User individual = userRepository.saveAndFlush(
                 User.createCompanyOwner("boundary-individual@haja.test", "individual", "<password-hash-placeholder>"));
-        Long facilityId = seedFacility(individual.getId(), "개인빌딩");
+        User facilityOwner = seedApprovedCompanyOwner(
+                "boundary-facility-owner-b@haja.test", "boundary facility company B", "HA25-FACILITY-B");
+        Long facilityId = seedFacility(facilityOwner.getCompanyId(), "개인빌딩");
 
         assertThatThrownBy(() -> inspectionRepository.saveAndFlush(
                 newInspection(facilityId, individual.getId(), individual.getId())))
@@ -167,7 +171,7 @@ class InspectionAssignedInspectorCompanyBoundaryTest extends PostgresTestSupport
         inspector.assignToCompany(owner.getCompanyId());
         inspector = userRepository.saveAndFlush(inspector);
         Long inspectorId = inspector.getId();
-        Long facilityId = seedFacility(owner.getId(), "stale 포인터 차단 빌딩");
+        Long facilityId = seedFacility(owner.getCompanyId(), "stale 포인터 차단 빌딩");
 
         assertThatThrownBy(() -> inspectionRepository.saveAndFlush(
                 newInspection(facilityId, owner.getId(), inspectorId)))
@@ -185,7 +189,7 @@ class InspectionAssignedInspectorCompanyBoundaryTest extends PostgresTestSupport
                 .findByCompanyIdAndUserId(owner.getCompanyId(), inspector.getId()).orElseThrow();
         membership.revoke();
         companyMembershipRepository.saveAndFlush(membership);
-        Long facilityId = seedFacility(owner.getId(), "회수 멤버십 차단 빌딩");
+        Long facilityId = seedFacility(owner.getCompanyId(), "회수 멤버십 차단 빌딩");
 
         assertThatThrownBy(() -> inspectionRepository.saveAndFlush(
                 newInspection(facilityId, owner.getId(), inspector.getId())))
@@ -199,7 +203,7 @@ class InspectionAssignedInspectorCompanyBoundaryTest extends PostgresTestSupport
                 "boundary-owner-f@haja.test", "boundary company F", "HA25-BOUNDARY-F");
         User member = seedApprovedMember(
                 owner.getCompanyId(), "boundary-user-f@haja.test", Role.USER, UserStatus.ACTIVE);
-        Long facilityId = seedFacility(owner.getId(), "역할 차단 빌딩");
+        Long facilityId = seedFacility(owner.getCompanyId(), "역할 차단 빌딩");
 
         assertThatThrownBy(() -> inspectionRepository.saveAndFlush(
                 newInspection(facilityId, owner.getId(), member.getId())))
@@ -213,7 +217,7 @@ class InspectionAssignedInspectorCompanyBoundaryTest extends PostgresTestSupport
                 "boundary-owner-g@haja.test", "boundary company G", "HA25-BOUNDARY-G");
         User inspector = seedApprovedMember(
                 owner.getCompanyId(), "boundary-suspended-g@haja.test", Role.INSPECTOR, UserStatus.SUSPENDED);
-        Long facilityId = seedFacility(owner.getId(), "정지 담당자 차단 빌딩");
+        Long facilityId = seedFacility(owner.getCompanyId(), "정지 담당자 차단 빌딩");
 
         assertThatThrownBy(() -> inspectionRepository.saveAndFlush(
                 newInspection(facilityId, owner.getId(), inspector.getId())))

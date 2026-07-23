@@ -1,6 +1,7 @@
 package com.hajacheck.core.inspection.service;
 
 import com.hajacheck.auth.service.AuthService;
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.inspection.dto.InspectionCreateRequest;
@@ -32,12 +33,15 @@ public class InspectionService {
     private final InspectionRepository inspectionRepository;
     private final FacilityService facilityService;
     private final AuthService authService;
+    private final CompanyScopeGuard companyScopeGuard;
 
     @Transactional
-    public InspectionResponse createInspection(InspectionCreateRequest request, Long creatorUserId) {
-        // 시설물 선택 검증 — 본인 소유 시설물만 회차 생성 가능(PRD FR-1 권한 매트릭스: 시설물 등록·조회 "본인 소유만").
-        // FacilityService.get()이 미존재/타인소유 모두 FACILITY_NOT_FOUND로 던지므로 그대로 검증에 사용(dev 브랜치 기존 구현).
-        FacilityResponse facility = facilityService.get(creatorUserId, request.facilityId());
+    public InspectionResponse createInspection(
+            InspectionCreateRequest request, Long companyId, Long creatorUserId) {
+        companyScopeGuard.requireEffectiveMembership(creatorUserId, companyId);
+        // 시설물 선택 검증 — 요청자 회사 소유 시설물만 회차 생성 가능.
+        // FacilityService.get()이 미존재/타회사 소유 모두 FACILITY_NOT_FOUND로 던지므로 그대로 검증에 사용한다.
+        FacilityResponse facility = facilityService.get(creatorUserId, companyId, request.facilityId());
 
         // 담당자 배정 검증 — users.status=ACTIVE AND role IN (INSPECTOR, ADMIN) + 요청자와 동일 회사(table_design.md §inspections).
         authService.validateAssignableInspector(creatorUserId, request.assignedInspectorId());
@@ -83,14 +87,15 @@ public class InspectionService {
         return message != null && message.contains(ROUND_NO_UNIQUE_CONSTRAINT);
     }
 
-    public InspectionResponse getInspection(Long requesterUserId, Long inspectionId) {
+    public InspectionResponse getInspection(Long userId, Long companyId, Long inspectionId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         Inspection inspection = inspectionRepository.findById(inspectionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INSPECTION_NOT_FOUND));
         // 소유권 검증 — 본인 소유 시설물의 점검만 조회 가능(IDOR 방지). 미존재/타인소유 모두
         // INSPECTION_NOT_FOUND로 통일 응답(시설물이 없거나 타인 소유면 FACILITY_NOT_FOUND가 나오지만
         // 클라이언트 관점에선 "점검이 없거나 조회 불가"로 봐야 하므로 변환).
         try {
-            facilityService.get(requesterUserId, inspection.getFacilityId());
+            facilityService.get(userId, companyId, inspection.getFacilityId());
         } catch (BusinessException e) {
             if (e.getErrorCode() == ErrorCode.FACILITY_NOT_FOUND) {
                 throw new BusinessException(ErrorCode.INSPECTION_NOT_FOUND);

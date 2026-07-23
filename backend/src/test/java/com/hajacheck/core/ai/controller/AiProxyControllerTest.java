@@ -130,7 +130,8 @@ class AiProxyControllerTest extends PostgresTestSupport {
                 "이번 주 하자 발생이 감소했습니다.",
                 "균열 유형 점검을 우선하세요.",
                 new BriefingResponse.BriefingFacts(8L, 10L, -20, "감소", "균열", 1L));
-        when(aiProxyService.briefing(loginUser.getUserId())).thenReturn(ApiResponse.ok(response));
+        when(aiProxyService.briefing(loginUser.getUserId(), loginUser.getCompanyId()))
+                .thenReturn(ApiResponse.ok(response));
 
         mockMvc.perform(post("/api/ai/briefing").with(csrf()).with(authentication(auth)))
                 .andExpect(status().isOk())

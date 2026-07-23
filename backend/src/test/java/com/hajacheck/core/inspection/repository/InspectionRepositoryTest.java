@@ -67,7 +67,8 @@ class InspectionRepositoryTest extends PostgresTestSupport {
     }
 
     private Long seedFacility(Long ownerId, String name) {
-        Facility facility = Facility.builder().ownerId(ownerId).name(name).type("BUILDING").build();
+        Long companyId = em.find(User.class, ownerId).getCompanyId();
+        Facility facility = Facility.builder().companyId(companyId).name(name).type("BUILDING").build();
         em.persist(facility);
         em.flush();
         return facility.getId();

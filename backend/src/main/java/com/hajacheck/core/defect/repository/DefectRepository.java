@@ -20,11 +20,11 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
     // 않은 기본 목록 조회가 항상 실패하는 버그가 있었다. Criteria API로 필터 미지정 시 predicate
     // 자체를 생성하지 않도록 전환.
 
-    // 상세 조회 — id + owner 스코프 단건. 미존재/타인 소유 모두 빈 Optional(cross-owner IDOR 방지,
-    // FacilityRepository.findByIdAndOwnerId 와 동일 원칙).
+    // 상세 조회 — id + 회사 스코프 단건. 미존재/타회사 소유 모두 빈 Optional(cross-company IDOR 방지,
+    // FacilityRepository.findByIdAndCompanyId 와 동일 원칙).
     @Query("select d from Defect d join fetch d.inspection i join fetch i.facility f "
-            + "where d.id = :id and f.ownerId = :ownerId and d.deleted = false")
-    Optional<Defect> findByIdAndOwnerId(@Param("id") Long id, @Param("ownerId") Long ownerId);
+            + "where d.id = :id and f.companyId = :companyId and d.deleted = false")
+    Optional<Defect> findByIdAndCompanyId(@Param("id") Long id, @Param("companyId") Long companyId);
 
     // 대시보드 조치대기 우선순위 목록(HAJA-17) — 등급(E→A) 우선, 미분류(grade=null)는 최하단, 동일 등급
     // 내에서는 최신순. PostgreSQL은 "ORDER BY ... DESC" 시 기본이 NULLS FIRST라, 파생 쿼리

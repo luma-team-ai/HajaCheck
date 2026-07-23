@@ -1,6 +1,6 @@
 # 2.1 요구사항 정의서 — API 엔드포인트 (점검관리B 작성분)
 
-> **문서 버전:** v0.2 · **최종 수정:** 2026-07-16 · 이전 버전 `archive/`
+> **문서 버전:** v0.3 · **최종 수정:** 2026-07-23 · 이전 버전 `archive/`
 
 > 팀 전체 FR 번호 체계 확정 전 독립 문서로 작성 — 번호 확정되면 일괄 치환 예정.
 > 기술 스펙 원본은 `docs/api-contract/openapi.yaml`, 사람이 보는 요약은 `docs/api-contract/contract.md` 참조.
@@ -11,8 +11,8 @@
 |---|---|---|---|---|
 | FR-001 | 소셜 로그인 | `GET /api/auth/oauth2/{provider}` — 사용자는 Kakao 또는 Google 계정으로 로그인할 수 있어야 하며, 시스템은 OAuth2 인증 후 세션을 발급해야 한다. | 일반 사용자 | 상 |
 | FR-002 | 내 정보 조회 | `GET /api/users/me` — 사용자는 로그인 후 자신의 프로필·역할 정보를 조회할 수 있어야 한다. | 일반 사용자 | 상 |
-| FR-003 | 시설물 등록 | `POST /api/facilities` — 사용자는 점검 대상 시설물(건물·교량 등)의 기본정보를 등록할 수 있어야 한다. | 점검자 | 상 |
-| FR-004 | 점검(회차) 생성 | `POST /api/inspections` — 사용자는 접근 가능한 시설물에 대해 점검 회차를 생성하고 `assignedInspectorId`로 활성 점검자(INSPECTOR/ADMIN)를 지정할 수 있어야 한다. 생성자는 인증 주체에서 서버가 기록한다. | 점검자 | 상 |
+| FR-003 | 시설물 등록 | `POST /api/facilities` — 현재 DB 기준 유효한 승인·검증 회사 멤버십을 가진 사용자는 자신의 회사 소유(`facilities.company_id`)로 점검 대상 시설물 기본정보를 등록할 수 있어야 한다. | 점검자 | 상 |
+| FR-004 | 점검(회차) 생성 | `POST /api/inspections` — 사용자는 자신의 유효 회사가 소유한 시설물에 대해서만 점검 회차를 생성하고, 같은 회사의 ACTIVE INSPECTOR/ADMIN을 `assignedInspectorId`로 지정할 수 있어야 한다. 생성자는 인증 주체에서 서버가 기록하며 관리자·담당자도 타회사 예외가 없다. | 점검자 | 상 |
 | FR-005 | 촬영 데이터 업로드 | `POST /api/inspections/{id}/media` — 사용자는 점검 회차에 이미지/영상을 업로드할 수 있어야 하며, 시스템은 업로드 진행률을 표시해야 한다. | 점검자 | 상 |
 | FR-006 | AI 분석 요청 | `POST /api/inspections/{id}/analyze` — 사용자는 업로드된 데이터에 대해 AI 하자 탐지 분석을 요청할 수 있어야 하며, 시스템은 비동기 잡으로 처리해야 한다. | 점검자 | 상 |
 | FR-007 | 분석 결과(하자 목록) 조회 | `GET /api/inspections/{id}/defects` — 사용자는 분석이 완료된 하자 목록을 조회할 수 있어야 한다. | 점검자 | 상 |
@@ -36,7 +36,7 @@
 | FR-009 | AI 하자 원인·조치 설명 | `POST /ai/defect-explain` — 사용자가 하자를 선택하면 시스템은 LLM으로 추정 원인·위험도·조치 방안을 생성해 제공해야 한다. 근거 없는 내용을 생성하지 않아야 한다. | 점검자 | 중 |
 | FR-010 | 보고서 생성 요청 | `POST /api/reports` — 사용자는 검수 확정된 하자 목록을 바탕으로 점검 보고서 생성을 요청할 수 있어야 한다. | 점검자 | 상 |
 | FR-011 | 보고서 PDF 다운로드 | `GET /api/reports/{id}/pdf` — 사용자는 생성된 보고서를 PDF 파일로 다운로드할 수 있어야 한다. | 점검자 | 중 |
-| FR-012 | 하자 목록 검색·필터 | `GET /api/defects` — 사용자는 유형·등급·상태별로 하자 목록을 페이지 조회할 수 있어야 한다. 서버는 시설물 `owner_id`(개인 소유 또는 시설물 소유자·요청자 양쪽 모두가 같은 회사 유효 멤버십을 가진 경우의 공유)·점검 `assigned_inspector_id`·관리자 역할로 조회 범위를 강제하고, `is_deleted=false`만 반환해야 한다. | 점검자/관리자 | 중 |
+| FR-012 | 하자 목록 검색·필터 | `GET /api/defects` — 사용자는 유형·등급·상태별로 하자 목록을 페이지 조회할 수 있어야 한다. 서버는 매 요청 ACTIVE 사용자·`users.company_id` 일치·APPROVED/VERIFIED 회사·APPROVED/미회수/미만료 멤버십을 검증하고 `facilities.company_id` 단일 회사 범위와 `is_deleted=false`를 강제해야 한다. 관리자 전체 조회 및 타회사 담당 점검자 예외는 없다. | 점검자/관리자 | 중 |
 | FR-013 | 하자 자연어 검색 (P1) | 공개 `POST /api/defects/nl-search` — Spring Boot가 인증·점검자 권한·`has_ai_addon`을 검사한 뒤 내부 FastAPI `POST /ai/nl-search`로 전달하고, 자연어 질의를 필터 조건으로 변환해 반환해야 한다. 회사 플랜 상속은 회사 `APPROVED`+`VERIFIED` 및 `company_memberships`의 유효한 승인 멤버십(승인·미회수·미만료·사용자 소속 일치)을 모두 검증해야 한다. | 점검자(Standard 이상) | 하 |
 | FR-014 | RAG 챗봇 질의 | `POST /ai/rag-chat` — 사용자는 점검 기준·법규를 질의할 수 있어야 하며, 시스템은 답변과 함께 출처를 표시해야 한다. | 일반 사용자 | 중 |
 | FR-015 | 상담 시나리오 챗봇 | `POST /api/counsel/scenario` — 사용자는 버튼 기반 시나리오로 서비스 이용 안내를 받을 수 있어야 한다. | 일반 사용자 | 중 |

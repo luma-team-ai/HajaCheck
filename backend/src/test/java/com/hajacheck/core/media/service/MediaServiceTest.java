@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.support.FileStorageService;
 import com.hajacheck.auth.support.FileStorageService.StoredFile;
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.config.MediaUploadProperties;
 import com.hajacheck.core.media.dto.MediaResponse;
@@ -58,6 +59,8 @@ class MediaServiceTest {
     private FileStorageService fileStorage;
     @Mock
     private MediaUploadProperties properties;
+    @Mock
+    private CompanyScopeGuard companyScopeGuard;
 
     @InjectMocks
     private MediaService service;
@@ -96,10 +99,10 @@ class MediaServiceTest {
         stubStorage();
         when(mediaWriter.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
-        List<MediaResponse> result = service.uploadMedia(1L, 100L, List.of(file1, file2));
+        List<MediaResponse> result = service.uploadMedia(1L, 200L, 100L, List.of(file1, file2));
 
         assertThat(result).hasSize(2);
-        verify(inspectionService).getInspection(100L, 1L);
+        verify(inspectionService).getInspection(200L, 100L, 1L);
         verify(fileStorage, times(2)).store(any(), eq("inspection-media"), any(), anyLong());
         verify(fileStorage, times(2))
                 .storeBytes(any(), eq("image/jpeg"), eq("inspection-media-thumb"), any(), anyLong());
@@ -117,11 +120,11 @@ class MediaServiceTest {
 
     @Test
     void uploadMedia_빈목록_FILE_REQUIRED_아무것도호출안함() {
-        assertThatThrownBy(() -> service.uploadMedia(1L, 100L, List.of()))
+        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, List.of()))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FILE_REQUIRED));
 
-        verify(inspectionService, never()).getInspection(anyLong(), anyLong());
+        verify(inspectionService, never()).getInspection(anyLong(), anyLong(), anyLong());
         verify(mediaWriter, never()).saveAll(anyList());
     }
 
@@ -133,11 +136,11 @@ class MediaServiceTest {
             files.add(pngFile("a" + i + ".png", png));
         }
 
-        assertThatThrownBy(() -> service.uploadMedia(1L, 100L, files))
+        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, files))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.MEDIA_COUNT_EXCEEDED));
 
-        verify(inspectionService, never()).getInspection(anyLong(), anyLong());
+        verify(inspectionService, never()).getInspection(anyLong(), anyLong(), anyLong());
     }
 
     @Test
@@ -145,9 +148,9 @@ class MediaServiceTest {
         byte[] png = realPngBytes();
         MultipartFile file = pngFile("a.png", png);
         doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
-                .when(inspectionService).getInspection(999L, 1L);
+                .when(inspectionService).getInspection(200L, 999L, 1L);
 
-        assertThatThrownBy(() -> service.uploadMedia(1L, 999L, List.of(file)))
+        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 999L, List.of(file)))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
 
@@ -159,7 +162,7 @@ class MediaServiceTest {
         // content-type 은 image/jpeg 라고 선언했지만 실제 바이트는 JPEG 시그니처가 아니다.
         MultipartFile fakeJpeg = new MockMultipartFile("files", "fake.jpg", "image/jpeg", "not-a-real-jpeg".getBytes());
 
-        assertThatThrownBy(() -> service.uploadMedia(1L, 100L, List.of(fakeJpeg)))
+        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, List.of(fakeJpeg)))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FILE_INVALID_TYPE));
 
@@ -175,7 +178,7 @@ class MediaServiceTest {
         stubStorage();
         when(mediaWriter.saveAll(anyList())).thenThrow(new RuntimeException("DB 저장 실패"));
 
-        assertThatThrownBy(() -> service.uploadMedia(1L, 100L, List.of(file1, file2)))
+        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, List.of(file1, file2)))
                 .isInstanceOf(RuntimeException.class);
 
         // 파일 2개 × (원본 + 썸네일) = 4건 보상삭제.
@@ -187,7 +190,7 @@ class MediaServiceTest {
     void getThumbnail_존재하지않는미디어_MEDIA_NOT_FOUND() {
         when(mediaRepository.findById(999L)).thenReturn(java.util.Optional.empty());
 
-        assertThatThrownBy(() -> service.getThumbnail(100L, 999L))
+        assertThatThrownBy(() -> service.getThumbnail(200L, 100L, 999L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
     }
@@ -207,9 +210,9 @@ class MediaServiceTest {
                 .build();
         when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
         doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
-                .when(inspectionService).getInspection(999L, 1L);
+                .when(inspectionService).getInspection(200L, 999L, 1L);
 
-        assertThatThrownBy(() -> service.getThumbnail(999L, 10L))
+        assertThatThrownBy(() -> service.getThumbnail(200L, 999L, 10L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
     }
@@ -231,7 +234,7 @@ class MediaServiceTest {
         when(fileStorage.read("inspection-media-thumb/x.jpg"))
                 .thenThrow(new BusinessException(ErrorCode.FILE_NOT_FOUND));
 
-        assertThatThrownBy(() -> service.getThumbnail(100L, 10L))
+        assertThatThrownBy(() -> service.getThumbnail(200L, 100L, 10L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
     }
@@ -249,9 +252,33 @@ class MediaServiceTest {
         when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
         when(fileStorage.read("inspection-media-thumb/x.jpg")).thenReturn(new byte[] {1, 2, 3});
 
-        MediaService.ThumbnailFile thumbnail = service.getThumbnail(100L, 10L);
+        MediaService.ThumbnailFile thumbnail = service.getThumbnail(200L, 100L, 10L);
 
         assertThat(thumbnail.mimeType()).isEqualTo("image/jpeg");
         assertThat(thumbnail.content()).containsExactly(1, 2, 3);
+    }
+    @Test
+    void getThumbnail_무소속사용자_FORBIDDEN을404로변환하지않는다() {
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN))
+                .when(companyScopeGuard).requireEffectiveMembership(200L, null);
+
+        assertThatThrownBy(() -> service.getThumbnail(200L, null, 10L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.FORBIDDEN));
+        verify(mediaRepository, never()).findById(anyLong());
+    }
+
+    @Test
+    void getThumbnail_검증중FORBIDDEN도404로변환하지않는다() {
+        Media media = Media.builder().inspectionId(1L).thumbnailUrl("thumb/x.jpg").build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN))
+                .when(inspectionService).getInspection(200L, 100L, 1L);
+
+        assertThatThrownBy(() -> service.getThumbnail(200L, 100L, 10L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.FORBIDDEN));
     }
 }

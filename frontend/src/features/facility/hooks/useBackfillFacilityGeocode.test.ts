@@ -29,7 +29,6 @@ vi.mock('../api/facilityApi', () => ({
 function makeFacility(overrides: Partial<Facility>): Facility {
   return {
     id: 1,
-    ownerId: 1,
     name: '테스트 시설물',
     type: '건물',
     address: '서울 강남구 테헤란로 123',
@@ -151,6 +150,44 @@ describe('useBackfillFacilityGeocode', () => {
         longitude: 127.2,
       }),
     );
+  });
+
+  it('getDetail로 재조회한 주소가 배치 시작 시점 스냅샷 주소와 다르면 좌표를 반영하지 않고 failures에 기록한다', async () => {
+    // 배치 시작 시점 스냅샷 주소는 "서울 강남구 테헤란로 123"이었지만, Geocoder 호출이 진행되는
+    // 동안 다른 세션이 주소를 변경했다고 가정한다. 이번에 계산한 좌표는 옛 주소 기준이므로
+    // PUT을 건너뛰고 실패로 기록해야 한다("최신 주소 + 옛 주소 기준 좌표" 정합성 붕괴 방지).
+    geocodeAddressMock.mockResolvedValue({ latitude: 37.5006, longitude: 127.0364 });
+    getDetailMock.mockResolvedValue({
+      data: makeFacility({ id: 5, name: '수원 스마트팩토리', address: '경기 수원시 팔달구 456' }),
+    });
+    updateMock.mockResolvedValue({ data: {} });
+
+    const { useBackfillFacilityGeocode } = await import('./useBackfillFacilityGeocode');
+    const { result } = renderHook(() => useBackfillFacilityGeocode());
+
+    const facilities = [
+      makeFacility({ id: 5, name: '수원 스마트팩토리', address: '서울 강남구 테헤란로 123' }),
+    ];
+
+    let outcome;
+    await act(async () => {
+      outcome = await result.current.run(facilities);
+    });
+
+    expect(geocodeAddressMock).toHaveBeenCalledWith('서울 강남구 테헤란로 123');
+    expect(getDetailMock).toHaveBeenCalledWith(5);
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(outcome).toMatchObject({
+      targetCount: 1,
+      succeeded: 0,
+      failures: [
+        {
+          id: 5,
+          name: '수원 스마트팩토리',
+          reason: '배치 중 주소가 변경되어 좌표 재계산이 필요합니다.',
+        },
+      ],
+    });
   });
 
   it('geocode 실패 건은 failures에 기록하고 나머지는 계속 처리한다', async () => {

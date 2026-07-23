@@ -2,6 +2,7 @@ package com.hajacheck.core.media.service;
 
 import com.hajacheck.auth.support.FileStorageService;
 import com.hajacheck.auth.support.FileStorageService.StoredFile;
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.config.MediaUploadProperties;
 import com.hajacheck.core.media.dto.MediaResponse;
@@ -47,6 +48,7 @@ public class MediaService {
     private final InspectionService inspectionService;
     private final FileStorageService fileStorage;
     private final MediaUploadProperties properties;
+    private final CompanyScopeGuard companyScopeGuard;
 
     /**
      * ① 개수/소유권 검증 ② 전체 파일 매직바이트 검증(all-or-nothing) ③ 원본+썸네일 저장(트랜잭션 밖 IO)
@@ -59,13 +61,15 @@ public class MediaService {
      * 유지하므로 이 메서드에서만 명시적으로 무효화해야 한다).
      *
      * <p>⚠️ 소유권 검증(getInspection→FacilityService.get())은 "조회 가능한 사용자"가 아니라
-     * {@code Facility.ownerId == requesterUserId} 단일 일치를 요구한다(FacilityService 클래스 문서:
-     * "모든 조회/수정/삭제는 owner 스코프로 제한"). 즉 이 도메인엔 "읽기는 되지만 쓰기는 안 되는" 별도
+     * {@code Facility.companyId == companyId} 일치를 요구한다(FacilityService 클래스 문서:
+     * "모든 조회/수정/삭제는 회사 스코프로 제한"). 즉 이 도메인엔 "읽기는 되지만 쓰기는 안 되는" 별도
      * 권한 계층이 아직 없어 조회 검증을 업로드(쓰기)에 재사용해도 권한 상승이 되지 않는다(리뷰 P2 확인).
      * assignedInspectorId 기반의 세분화된 역할 권한은 SecurityConfig 에 명시된 대로 후속 과제.
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public List<MediaResponse> uploadMedia(Long inspectionId, Long requesterUserId, List<MultipartFile> files) {
+    public List<MediaResponse> uploadMedia(
+            Long inspectionId, Long userId, Long companyId, List<MultipartFile> files) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         if (files == null || files.isEmpty()) {
             throw new BusinessException(ErrorCode.FILE_REQUIRED);
         }
@@ -74,7 +78,7 @@ public class MediaService {
         }
 
         // 소유권 검증 + 존재 확인 — FacilityService.get() 기반 IDOR 방지 로직을 그대로 재사용(중복 없음).
-        inspectionService.getInspection(requesterUserId, inspectionId);
+        inspectionService.getInspection(userId, companyId, inspectionId);
 
         // 전체 파일을 먼저 검증한다(all-or-nothing) — 하나라도 실패하면 아무것도 저장하지 않는다.
         for (MultipartFile file : files) {
@@ -149,17 +153,22 @@ public class MediaService {
      * 병렬·빈번하게 호출될 수 있어(썸네일 그리드) 커넥션 풀 고갈 위험이 업로드보다 오히려 크다.
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public ThumbnailFile getThumbnail(Long requesterUserId, Long mediaId) {
+    public ThumbnailFile getThumbnail(Long userId, Long companyId, Long mediaId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         Media media = mediaRepository.findById(mediaId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
         try {
-            inspectionService.getInspection(requesterUserId, media.getInspectionId());
+            inspectionService.getInspection(userId, companyId, media.getInspectionId());
         } catch (BusinessException e) {
             // 존재 여부 열거 방지(리뷰 P2) — 타인 소유 미디어(getInspection이 던지는
             // FACILITY_NOT_FOUND/INSPECTION_NOT_FOUND)와 아예 없는 미디어(MEDIA_NOT_FOUND)를
             // error.code로 구분할 수 있으면 안 된다(openapi.yaml·클래스 문서가 명시한 "존재 여부
             // 열거 방지 통일 응답" 계약). 실패 사유와 무관하게 동일한 MEDIA_NOT_FOUND(404)로 통일한다.
-            throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
+            if (e.getErrorCode() == ErrorCode.INSPECTION_NOT_FOUND
+                    || e.getErrorCode() == ErrorCode.FACILITY_NOT_FOUND) {
+                throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
+            }
+            throw e;
         }
         if (media.getThumbnailUrl() == null) {
             throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);

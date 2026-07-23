@@ -140,10 +140,10 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     }
 
     private void addCompanyMembership(User user, Company company) {
-        // JdbcTemplate으로 user.company_id 업데이트
-        userRepository.flush();
-        jdbcTemplate.update("UPDATE users SET company_id = ? WHERE id = ?",
-                company.getId(), user.getId());
+        // 엔티티 메서드로 companyId를 갱신해 인메모리 user 객체와 DB를 함께 동기화한다.
+        // (raw JDBC UPDATE만 하면 이후 saveFacility(owner) 등이 stale companyId=null을 참조하게 된다)
+        user.assignToCompany(company.getId());
+        userRepository.saveAndFlush(user);
 
         // 멤버십 생성
         companyMembershipRepository.save(CompanyMembership.approvedOwner(company.getId(), user.getId()));
@@ -151,7 +151,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
 
     private Facility saveFacility(User owner) {
         return facilityRepository.save(Facility.builder()
-                .ownerId(owner.getId())
+                .companyId(owner.getCompanyId())
                 .name("테스트시설물")
                 .type("건축물")
                 .build());
@@ -235,6 +235,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
         User owner = saveUser("owner3@haja.com");
         addCompanyMembership(owner, company);
         User stranger = saveUser("stranger@haja.com");
+        addCompanyMembership(stranger, saveCompany("회사3-외부"));
         User inspector = saveInspector("inspector3@haja.com", company);
         Facility facility = saveFacility(owner);
         Inspection inspection = saveInspection(facility, owner, inspector);
@@ -250,6 +251,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     @Test
     void GET_미존재점검_404() throws Exception {
         User owner = saveUser("owner4@haja.com");
+        addCompanyMembership(owner, saveCompany("회사4"));
 
         mockMvc.perform(get("/api/inspections/{id}/defects", 999999L)
                 .with(authentication(authOf(owner))))
@@ -353,6 +355,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
         User owner = saveUser("owner15@haja.com");
         addCompanyMembership(owner, company);
         User stranger = saveUser("stranger15@haja.com");
+        addCompanyMembership(stranger, saveCompany("회사15-외부"));
         User inspector = saveInspector("inspector15@haja.com", company);
         Facility facility = saveFacility(owner);
         Inspection inspection = saveInspection(facility, owner, inspector);
@@ -373,6 +376,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     @Test
     void POST_미존재점검_404() throws Exception {
         User owner = saveUser("owner16@haja.com");
+        addCompanyMembership(owner, saveCompany("회사16"));
 
         DefectCreateRequest request = DefectCreateRequest.builder()
                 .type(DefectType.CRACK)
@@ -808,6 +812,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     @Test
     void PATCH_미존재하자_404() throws Exception {
         User owner = saveUser("owner12@haja.com");
+        addCompanyMembership(owner, saveCompany("회사12"));
 
         DefectRevisionRequest request = DefectRevisionRequest.builder()
                 .grade(DefectGrade.A)
@@ -829,6 +834,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
         User owner = saveUser("owner13@haja.com");
         addCompanyMembership(owner, company);
         User stranger = saveUser("stranger2@haja.com");
+        addCompanyMembership(stranger, saveCompany("회사13-외부"));
         User inspector = saveInspector("inspector13@haja.com", company);
         Facility facility = saveFacility(owner);
         Inspection inspection = saveInspection(facility, owner, inspector);

@@ -49,9 +49,9 @@ public class AiProxyController {
         return ResponseEntity.ok(aiProxyService.generateReport(loginUser.getUserId(), request));
     }
 
-    @Operation(summary = "AI 주간 브리핑", description = "로그인 사용자 소유 현황을 집계해 인증 프록시로 AI 서버에 전달해 주간 브리핑 카드를 반환한다")
+    @Operation(summary = "AI 주간 브리핑", description = "로그인 사용자의 회사 소유 현황을 집계해 인증 프록시로 AI 서버에 전달해 주간 브리핑 카드를 반환한다")
     @PostMapping("/briefing")
     public ResponseEntity<ApiResponse<BriefingResponse>> briefing(@AuthenticationPrincipal LoginUser loginUser) {
-        return ResponseEntity.ok(aiProxyService.briefing(loginUser.getUserId()));
+        return ResponseEntity.ok(aiProxyService.briefing(loginUser.getUserId(), loginUser.getCompanyId()));
     }
 }

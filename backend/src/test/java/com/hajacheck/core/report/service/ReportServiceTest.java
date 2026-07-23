@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
@@ -59,6 +60,8 @@ class ReportServiceTest {
     private FacilityService facilityService;
     @Mock
     private AiProxyService aiProxyService;
+    @Mock
+    private CompanyScopeGuard companyScopeGuard;
 
     @InjectMocks
     private ReportService reportService;
@@ -69,7 +72,7 @@ class ReportServiceTest {
     }
 
     private static FacilityResponse facility() {
-        return new FacilityResponse(10L, 100L, "테스트빌딩", "BUILDING", "서울시 강남구",
+        return new FacilityResponse(10L, "테스트빌딩", "BUILDING", "서울시 강남구",
                 null, null, null, null, null, null, LocalDateTime.now(), LocalDateTime.now(),
                 null, null, null);
     }
@@ -110,7 +113,8 @@ class ReportServiceTest {
      */
     @Test
     void generateDraft_트랜잭션밖실행_NOT_SUPPORTED() throws NoSuchMethodException {
-        Method method = ReportService.class.getMethod("generateDraft", Long.class, Long.class);
+        Method method = ReportService.class.getMethod(
+                "generateDraft", Long.class, Long.class, Long.class);
         Transactional transactional = method.getAnnotation(Transactional.class);
 
         assertThat(transactional).as("generateDraft 는 @Transactional 애노테이션을 명시해야 한다").isNotNull();
@@ -121,19 +125,22 @@ class ReportServiceTest {
 
     @Test
     void generateDraft_확정하자_초안생성_버전1() {
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
-        when(facilityService.get(100L, 10L)).thenReturn(facility());
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of());
         when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
         when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
         when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        ReportDetailResponse response = reportService.generateDraft(1L, 100L);
+        ReportDetailResponse response = reportService.generateDraft(1L, 100L, 200L);
 
         assertThat(response.version()).isEqualTo(1);
         assertThat(response.inspectionId()).isEqualTo(1L);
         assertThat(response.groundingCheckPassed()).isTrue();
+        verify(companyScopeGuard).requireEffectiveMembership(200L, 100L);
+        verify(inspectionService).getInspection(200L, 100L, 1L);
+        verify(facilityService).get(200L, 100L, 10L);
 
         ArgumentCaptor<ReportRequest> captor = ArgumentCaptor.forClass(ReportRequest.class);
         verify(aiProxyService).generateReport(anyLong(), captor.capture());
@@ -143,8 +150,8 @@ class ReportServiceTest {
 
     @Test
     void generateDraft_확정하자를AI요청형식으로변환() {
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
-        when(facilityService.get(100L, 10L)).thenReturn(facility());
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
         Defect defect = Defect.builder()
                 .inspectionId(1L)
                 .type(DefectType.CRACK)
@@ -160,7 +167,7 @@ class ReportServiceTest {
         when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
         when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        reportService.generateDraft(1L, 100L);
+        reportService.generateDraft(1L, 100L, 200L);
 
         ArgumentCaptor<ReportRequest> captor = ArgumentCaptor.forClass(ReportRequest.class);
         verify(aiProxyService).generateReport(anyLong(), captor.capture());
@@ -172,8 +179,8 @@ class ReportServiceTest {
 
     @Test
     void generateDraft_기존버전이있으면다음버전으로증가() {
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
-        when(facilityService.get(100L, 10L)).thenReturn(facility());
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of());
         Report existing = Report.draft(1L, 2, "{}", 100L);
@@ -181,21 +188,21 @@ class ReportServiceTest {
         when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
         when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        ReportDetailResponse response = reportService.generateDraft(1L, 100L);
+        ReportDetailResponse response = reportService.generateDraft(1L, 100L, 200L);
 
         assertThat(response.version()).isEqualTo(3);
     }
 
     @Test
     void generateDraft_AI응답실패_REPORT_GENERATION_FAILED() {
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
-        when(facilityService.get(100L, 10L)).thenReturn(facility());
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of());
         when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
         when(aiProxyService.generateReport(anyLong(), any())).thenReturn(ApiResponse.fail("AI_ERR", "실패"));
 
-        assertThatThrownBy(() -> reportService.generateDraft(1L, 100L))
+        assertThatThrownBy(() -> reportService.generateDraft(1L, 100L, 200L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.REPORT_GENERATION_FAILED));
         verify(reportRepository, never()).save(any());
@@ -204,9 +211,9 @@ class ReportServiceTest {
     @Test
     void generateDraft_타인소유점검_예외전파() {
         doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
-                .when(inspectionService).getInspection(999L, 1L);
+                .when(inspectionService).getInspection(200L, 999L, 1L);
 
-        assertThatThrownBy(() -> reportService.generateDraft(1L, 999L))
+        assertThatThrownBy(() -> reportService.generateDraft(1L, 999L, 200L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
         verify(aiProxyService, never()).generateReport(anyLong(), any());
@@ -216,7 +223,7 @@ class ReportServiceTest {
     void updateContent_수정후grounding필드를null로리셋() {
         Report report = Report.draft(1L, 1, "{\"a\":1}", 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -225,7 +232,7 @@ class ReportServiceTest {
                 100L);
         assertThat(report.getGroundingCheckPassed()).isTrue();
 
-        ReportDetailResponse response = reportService.updateContent(5L, "{\"a\":2}", 100L);
+        ReportDetailResponse response = reportService.updateContent(5L, "{\"a\":2}", 100L, 200L);
 
         assertThat(response.groundingCheckPassed()).isNull();
     }
@@ -241,9 +248,135 @@ class ReportServiceTest {
                 100L);
         report.finalizeReport("https://files.example/r.pdf", 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
 
-        assertThatThrownBy(() -> reportService.updateContent(5L, "{\"changed\":true}", 100L))
+        assertThatThrownBy(() -> reportService.updateContent(5L, "{\"changed\":true}", 100L, 200L))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    private static Defect confirmedDefect(DefectType type, DefectGrade grade) {
+        return Defect.builder()
+                .inspectionId(1L)
+                .type(type)
+                .confidence(0.9)
+                .grade(grade)
+                .status(DefectStatus.CONFIRMED)
+                .build();
+    }
+
+    private static String contentJsonWithDetailItems(String... typeGradePairs) {
+        List<ReportResponse.DetailItem> items = new java.util.ArrayList<>();
+        for (int i = 0; i < typeGradePairs.length; i += 2) {
+            items.add(new ReportResponse.DetailItem(
+                    typeGradePairs[i], "위치", typeGradePairs[i + 1], "설명", "원인"));
+        }
+        ReportResponse aiReport = new ReportResponse(
+                new ReportResponse.Overview("목적", "요약", "범위"),
+                new ReportResponse.Summary("양호", items.size(), java.util.Map.of(), List.of()),
+                new ReportResponse.Detail(items),
+                new ReportResponse.Recommendation(List.of(), List.of()),
+                true);
+        return GroundingReportContentSerializer.serialize(aiReport);
+    }
+
+    @Test
+    void recheckGrounding_유형등급일치_grounding통과로기록() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
+
+        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
+
+        assertThat(response.groundingCheckPassed()).isTrue();
+        assertThat(report.getGroundingWarnings()).isEqualTo("[]");
+    }
+
+    @Test
+    void recheckGrounding_순서가달라도멀티셋일치하면통과() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("박리·박락", "B", "균열", "C"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(
+                        confirmedDefect(DefectType.CRACK, DefectGrade.C),
+                        confirmedDefect(DefectType.SPALLING, DefectGrade.B)));
+
+        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
+
+        assertThat(response.groundingCheckPassed()).isTrue();
+    }
+
+    @Test
+    void recheckGrounding_등급만달라도불일치() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "B"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
+
+        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
+
+        assertThat(response.groundingCheckPassed()).isFalse();
+        assertThat(report.getGroundingWarnings()).contains("일치하지 않습니다");
+    }
+
+    @Test
+    void recheckGrounding_유형만달라도불일치() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("박리·박락", "C"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
+
+        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
+
+        assertThat(response.groundingCheckPassed()).isFalse();
+    }
+
+    @Test
+    void recheckGrounding_개수가달라도불일치() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(
+                        confirmedDefect(DefectType.CRACK, DefectGrade.C),
+                        confirmedDefect(DefectType.SPALLING, DefectGrade.B)));
+
+        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
+
+        assertThat(response.groundingCheckPassed()).isFalse();
+    }
+
+    @Test
+    void recheckGrounding_타인소유_REPORT_NOT_FOUND() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
+                .when(inspectionService).getInspection(999L, 500L, 1L);
+
+        assertThatThrownBy(() -> reportService.recheckGrounding(5L, 500L, 999L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.REPORT_NOT_FOUND));
+        verify(defectRepository, never()).findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any());
+    }
+
+    @Test
+    void recheckGrounding_FINALIZED상태에서시도하면예외() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        report.finalizeReport("/api/reports/5/pdf/r.pdf", 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+
+        assertThatThrownBy(() -> reportService.recheckGrounding(5L, 500L, 100L))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -251,7 +384,7 @@ class ReportServiceTest {
     void getReport_존재하지않으면REPORT_NOT_FOUND() {
         when(reportRepository.findById(5L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> reportService.getReport(5L, 100L))
+        assertThatThrownBy(() -> reportService.getReport(5L, 200L, 100L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.REPORT_NOT_FOUND));
     }
@@ -261,21 +394,21 @@ class ReportServiceTest {
         Report report = Report.draft(1L, 1, "{}", 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
-                .when(inspectionService).getInspection(999L, 1L);
+                .when(inspectionService).getInspection(200L, 999L, 1L);
 
-        assertThatThrownBy(() -> reportService.getReport(5L, 999L))
+        assertThatThrownBy(() -> reportService.getReport(5L, 200L, 999L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.REPORT_NOT_FOUND));
     }
 
     @Test
     void listReports_소유권검증후버전목록을최신순으로반환() {
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
         Report v1 = Report.draft(1L, 1, "{}", 100L);
         Report v2 = Report.draft(1L, 2, "{}", 100L);
         when(reportRepository.findByInspectionIdOrderByVersionDesc(1L)).thenReturn(List.of(v2, v1));
 
-        List<ReportSummaryResponse> result = reportService.listReports(1L, 100L);
+        List<ReportSummaryResponse> result = reportService.listReports(1L, 200L, 100L);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).version()).isEqualTo(2);
@@ -291,9 +424,9 @@ class ReportServiceTest {
                         null),
                 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
 
-        ReportDetailResponse response = reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L);
+        ReportDetailResponse response = reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L, 200L);
 
         assertThat(response.status()).isEqualTo(com.hajacheck.core.report.entity.ReportStatus.FINALIZED);
         assertThat(response.pdfUrl()).isEqualTo("/api/reports/5/pdf/r.pdf");
@@ -309,9 +442,9 @@ class ReportServiceTest {
                         null),
                 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
 
-        assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/999/pdf/r.pdf", 100L))
+        assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/999/pdf/r.pdf", 100L, 200L))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.REPORT_PDF_URL_INVALID);
@@ -327,11 +460,35 @@ class ReportServiceTest {
                         null),
                 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
-        when(inspectionService.getInspection(100L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
 
-        assertThatThrownBy(() -> reportService.finalizeReport(5L, "https://evil.example/r.pdf", 100L))
+        assertThatThrownBy(() -> reportService.finalizeReport(5L, "https://evil.example/r.pdf", 100L, 200L))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.REPORT_PDF_URL_INVALID);
+    }
+    @Test
+    void getReport_무소속사용자_FORBIDDEN을404로변환하지않는다() {
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN))
+                .when(companyScopeGuard).requireEffectiveMembership(200L, null);
+
+        assertThatThrownBy(() -> reportService.getReport(5L, 200L, null))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.FORBIDDEN));
+        verify(reportRepository, never()).findById(anyLong());
+    }
+
+    @Test
+    void getReport_검증중FORBIDDEN도404로변환하지않는다() {
+        Report report = Report.draft(1L, 1, "{}", 200L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN))
+                .when(inspectionService).getInspection(200L, 100L, 1L);
+
+        assertThatThrownBy(() -> reportService.getReport(5L, 200L, 100L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.FORBIDDEN));
     }
 }
