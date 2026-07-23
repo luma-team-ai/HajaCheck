@@ -75,14 +75,14 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**")
                         .permitAll()
-                        // RAG 문서 관리(#22/HAJA-35) — company_id 스코프가 없는 플랫폼 전역 리소스라
-                        // PLATFORM_ADMIN(company_id 없는 플랫폼 운영진, #535)도 접근을 허용한다. 더 구체적인
-                        // 패턴이라 아래 "/api/admin/**"(ADMIN 전용) 보다 먼저 와야 매칭된다 — 순서를 바꾸면
-                        // 이 규칙은 죽은 코드가 된다. 다른 /api/admin/** 하위(사용자 관리 등)는
-                        // loginUser.getCompanyId()로 회사를 스코프하는 로직이 있어 PLATFORM_ADMIN에게
-                        // 그대로 열면 companyId 없는 계정이 잘못 스코프될 수 있다 — 그쪽까지 넓히지 않는다
-                        // (해당 문제는 이 PR 범위 밖, 후속 이슈로 별도 처리).
-                        .requestMatchers("/api/admin/rag-documents/**").hasAnyRole("ADMIN", "PLATFORM_ADMIN")
+                        // RAG 문서 관리(#22/HAJA-35) — company_id 스코프가 없는 "전 테넌트 공유" 지식베이스
+                        // (regulations/defect_kb Chroma 컬렉션 원본)라 PLATFORM_ADMIN 전용이다(설계 §6:
+                        // 전역 데이터는 platform-admin으로 엄격 분리, "/api/admin/**"(ADMIN)와 절대 겹치지
+                        // 않아야 함). 프론트도 PlatformAdminRoute로만 열려 있다(router.tsx) — 회사 ADMIN까지
+                        // 열면 한 회사 관리자가 API 직접 호출로 전사 공유 KB를 오염시킬 수 있다(PR #685 리뷰 P1).
+                        // 더 구체적인 패턴이라 아래 "/api/admin/**"(ADMIN 전용) 보다 먼저 와야 매칭된다 —
+                        // 순서를 바꾸면 이 규칙은 죽은 코드가 된다.
+                        .requestMatchers("/api/admin/rag-documents/**").hasRole("PLATFORM_ADMIN")
                         // 관리자 콘솔(#405 사용자 관리, #507 플랜·쿼터 관리) — 엔드포인트 레벨에서 ADMIN role 을
                         // 강제한다. 프론트 AdminRoute 는 UX 가드일 뿐 실제 차단은 이 경계가 최종 방어선이다.
                         // 회사 스코프·데이터 소유권은 각 서비스가 company_id 로 추가 필터링한다.

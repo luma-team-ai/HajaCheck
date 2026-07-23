@@ -23,10 +23,10 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 관리자 콘솔 — RAG 문서 관리(#22/HAJA-35, PRD FR-8-B). ADMIN 인가는 SecurityConfig 의 URL 매처
- * ("/api/admin/**" → hasRole(ADMIN)) 가 필터 단계에서 강제한다 — 다른 관리자 컨트롤러(AdminPlanController/
- * AdminUserController)와 동일한 가드를 그대로 재사용한다. company 스코핑은 두지 않는다(법규·지침 문서는
- * 회사 소유 리소스가 아니라 플랫폼 전체가 공유하는 지식베이스 원본).
+ * 플랫폼 관리자 콘솔 — RAG 문서 관리(#22/HAJA-35, PRD FR-8-B). PLATFORM_ADMIN 인가는 SecurityConfig 의
+ * URL 매처("/api/admin/rag-documents/**" → hasRole(PLATFORM_ADMIN)) 가 필터 단계에서 강제한다 —
+ * "/api/admin/**"(ADMIN 전용) 과는 별개 경계다(설계 §6). company 스코핑은 두지 않는다(법규·지침 문서는
+ * 회사 소유 리소스가 아니라 플랫폼 전체가 공유하는 지식베이스 원본이라 PLATFORM_ADMIN 전용, PR #685 리뷰 P1).
  */
 @Tag(name = "Admin", description = "관리자 API")
 @RestController
@@ -37,14 +37,14 @@ public class RagDocumentController {
 
     private final RagDocumentService ragDocumentService;
 
-    @Operation(summary = "RAG 문서 목록 조회", description = "법규·지침 PDF 문서와 임베딩 상태를 최신 등록순으로 반환한다(ADMIN 전용).")
+    @Operation(summary = "RAG 문서 목록 조회", description = "법규·지침 PDF 문서와 임베딩 상태를 최신 등록순으로 반환한다(PLATFORM_ADMIN 전용).")
     @GetMapping
     public ResponseEntity<ApiResponse<List<RagDocumentResponse>>> list() {
         return ResponseEntity.ok(ApiResponse.ok(ragDocumentService.list()));
     }
 
     @Operation(summary = "RAG 문서 업로드",
-            description = "법규·지침 PDF를 업로드해 텍스트를 추출하고 AI 서버 임베딩 파이프라인을 실행한다(ADMIN 전용). "
+            description = "법규·지침 PDF를 업로드해 텍스트를 추출하고 AI 서버 임베딩 파이프라인을 실행한다(PLATFORM_ADMIN 전용). "
                     + "AI 서버 임베딩 실패는 업로드 자체를 실패시키지 않는다 — FAILED 상태로 남고 재임베딩으로 복구한다.")
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<RagDocumentResponse>> upload(
@@ -55,7 +55,7 @@ public class RagDocumentController {
     }
 
     @Operation(summary = "RAG 문서 재임베딩",
-            description = "기존 상태(대기/완료/실패)와 무관하게 임베딩을 재실행한다(ADMIN 전용, 명시적 관리자 액션으로만 "
+            description = "기존 상태(대기/완료/실패)와 무관하게 임베딩을 재실행한다(PLATFORM_ADMIN 전용, 명시적 관리자 액션으로만 "
                     + "트리거 — 자동 재임베딩 없음). AI 서버가 동일 문서의 기존 청크를 삭제 후 재삽입하는 idempotent 설계다.")
     @PostMapping("/{id}/re-embed")
     public ResponseEntity<ApiResponse<RagDocumentResponse>> reEmbed(@PathVariable Long id) {
