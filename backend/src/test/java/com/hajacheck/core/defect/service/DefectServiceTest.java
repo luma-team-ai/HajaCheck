@@ -10,8 +10,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.core.defect.dto.DefectResponse;
+import com.hajacheck.core.defect.dto.DefectRevisionResponse;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
+import com.hajacheck.core.defect.entity.DefectRevision;
 import com.hajacheck.core.defect.entity.DefectStatus;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
@@ -141,6 +143,27 @@ class DefectServiceTest {
     }
 
     @Test
+    void get_mediaId있으면_썸네일엔드포인트로imageUrl조립() {
+        Defect defect = existingDefect(5L);
+        ReflectionTestUtils.setField(defect, "mediaId", 42L);
+        when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(defect));
+
+        DefectResponse response = defectService.get(OWNER_ID, 10L);
+
+        assertThat(response.imageUrl()).isEqualTo("/api/media/42/thumbnail");
+    }
+
+    @Test
+    void get_mediaId없으면_imageUrlNull() {
+        Defect defect = existingDefect(5L);
+        when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(defect));
+
+        DefectResponse response = defectService.get(OWNER_ID, 10L);
+
+        assertThat(response.imageUrl()).isNull();
+    }
+
+    @Test
     void get_타인소유하자_DEFECT_NOT_FOUND예외() {
         // findByIdAndOwnerId 는 소유자 스코프라 타인 소유는 조회 자체가 빈 값으로 온다(cross-owner IDOR 방지).
         when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.empty());
@@ -199,6 +222,47 @@ class DefectServiceTest {
         when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> defectService.updateStatus(OWNER_ID, 10L, DefectStatus.CONFIRMED, null))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
+    }
+
+    @Test
+    void getRevisions_본인소유_이력페이지반환() {
+        Defect defect = existingDefect(5L);
+        when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.of(defect));
+        Pageable pageable = PageRequest.of(0, 20);
+        DefectRevision revision = DefectRevision.record(
+                10L, OWNER_ID, "status", "DETECTED", "CONFIRMED", null);
+        ReflectionTestUtils.setField(revision, "id", 1L);
+        when(defectRevisionRepository.findByDefectIdOrderByCreatedAtDesc(10L, pageable))
+                .thenReturn(new PageImpl<>(List.of(revision), pageable, 1));
+
+        PageResponse<DefectRevisionResponse> response = defectService.getRevisions(OWNER_ID, 10L, pageable);
+
+        assertThat(response.content()).hasSize(1);
+        assertThat(response.content().get(0).fieldChanged()).isEqualTo("status");
+        assertThat(response.content().get(0).newValue()).isEqualTo("CONFIRMED");
+    }
+
+    @Test
+    void getRevisions_없는하자_DEFECT_NOT_FOUND예외() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(defectRepository.findByIdAndOwnerId(999L, OWNER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> defectService.getRevisions(OWNER_ID, 999L, pageable))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
+    }
+
+    // IDOR 방지 회귀 테스트(필수) — 타 소유자 하자의 활동기록 조회는 404.
+    @Test
+    void getRevisions_타인소유하자_DEFECT_NOT_FOUND예외() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(defectRepository.findByIdAndOwnerId(10L, OWNER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> defectService.getRevisions(OWNER_ID, 10L, pageable))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));

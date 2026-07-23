@@ -119,6 +119,27 @@ describe('DefectDetailPage (통합 테스트)', () => {
     expect(await screen.findByRole('button', { name: '해결됨(으)로 다음 단계' })).not.toBeNull();
   });
 
+  it('실사진: imageUrl이 있으면 이미지를 렌더링한다(HAJA-314)', async () => {
+    renderPage('1');
+
+    const img = await screen.findByRole('img', { name: '철근 노출 촬영 이미지' });
+    expect((img as HTMLImageElement).src).toContain('/api/media/901/thumbnail');
+  });
+
+  it('실사진: imageUrl이 없으면 빈 상태 메시지를 표시한다(HAJA-314)', async () => {
+    renderPage('3');
+
+    expect(await screen.findByText('박리·박락')).not.toBeNull();
+    expect(screen.getByText('촬영 이미지가 없습니다')).not.toBeNull();
+  });
+
+  it('활동 기록: 상태 전이 이력을 렌더링한다(HAJA-314)', async () => {
+    renderPage('1');
+
+    await screen.findByText('철근 노출');
+    expect(await screen.findByText("상태를 '확인됨'에서 '조치대기'(으)로 변경했습니다.")).not.toBeNull();
+  });
+
   it('상태 전이 스텝퍼: 서버가 409를 반환하면 에러 메시지를 표시한다', async () => {
     server.use(
       http.patch('/api/defects/:id/status', () => {

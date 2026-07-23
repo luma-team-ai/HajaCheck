@@ -674,6 +674,8 @@ create table defects
     lock_version    bigint                   default 0                              not null,
     inspection_id   bigint                                                          not null
         references inspections,
+    media_id        bigint
+        references media,
     type            defect_type                                                     not null,
     bbox_x          double precision,
     bbox_y          double precision,
@@ -696,6 +698,8 @@ comment on column defects.id is '결함 식별자';
 comment on column defects.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column defects.inspection_id is '결함이 발견된 점검 식별자';
+
+comment on column defects.media_id is '결함이 탐지된 촬영 이미지 식별자(HAJA-314, nullable — AI 탐지 파이프라인 도입 전 기존 행은 NULL)';
 
 comment on column defects.type is '결함 유형';
 
@@ -728,6 +732,9 @@ alter table defects
 
 create index idx_defects_inspection
     on defects (inspection_id);
+
+create index idx_defects_media
+    on defects (media_id);
 
 create table defect_revisions
 (

@@ -375,4 +375,102 @@ class DefectControllerTest extends PostgresTestSupport {
                         .content(objectMapper.writeValueAsString(Map.of("status", "CONFIRMED"))))
                 .andExpect(status().isUnauthorized());
     }
+
+    @Test
+    void 하자활동기록조회_본인소유_200_상태전이이력포함() throws Exception {
+        User owner = saveOwner("owner14@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(patch("/api/defects/{id}/status", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("status", "CONFIRMED"))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/defects/{id}/revisions", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].fieldChanged").value("status"))
+                .andExpect(jsonPath("$.data.content[0].oldValue").value("DETECTED"))
+                .andExpect(jsonPath("$.data.content[0].newValue").value("CONFIRMED"));
+    }
+
+    // findByDefectIdOrderByCreatedAtDesc가 실제 DB에서 최신순으로 정렬해 반환하는지 검증(self-review
+    // 발견 — 기존 테스트는 이력 1건뿐이라 정렬 자체를 검증하지 못했음).
+    @Test
+    void 하자활동기록조회_두건이상이면_최신순으로반환() throws Exception {
+        User owner = saveOwner("owner18@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(patch("/api/defects/{id}/status", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("status", "CONFIRMED"))))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/api/defects/{id}/status", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("status", "ACTION_PENDING"))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/defects/{id}/revisions", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(2))
+                .andExpect(jsonPath("$.data.content[0].oldValue").value("CONFIRMED"))
+                .andExpect(jsonPath("$.data.content[0].newValue").value("ACTION_PENDING"))
+                .andExpect(jsonPath("$.data.content[1].oldValue").value("DETECTED"))
+                .andExpect(jsonPath("$.data.content[1].newValue").value("CONFIRMED"));
+    }
+
+    @Test
+    void 하자활동기록조회_이력없으면빈페이지() throws Exception {
+        User owner = saveOwner("owner15@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(get("/api/defects/{id}/revisions", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(0))
+                .andExpect(jsonPath("$.data.totalElements").value(0));
+    }
+
+    @Test
+    void 하자활동기록조회_없는하자_404_DEFECT_NOT_FOUND() throws Exception {
+        User owner = saveOwner("owner16@haja.com");
+
+        mockMvc.perform(get("/api/defects/{id}/revisions", 999999L)
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_NOT_FOUND"));
+    }
+
+    // IDOR 회귀 테스트(필수) — 타 사용자 소유 하자의 활동기록 조회는 404(리소스 존재 여부 비노출).
+    @Test
+    void 하자활동기록조회_타인소유하자_404_DEFECT_NOT_FOUND() throws Exception {
+        User owner = saveOwner("owner17@haja.com");
+        User stranger = saveOwner("stranger17@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(get("/api/defects/{id}/revisions", defect.getId())
+                        .with(csrf()).with(authentication(authOf(stranger))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_NOT_FOUND"));
+    }
+
+    @Test
+    void 하자활동기록조회_미인증_401() throws Exception {
+        mockMvc.perform(get("/api/defects/{id}/revisions", 1L).with(csrf()))
+                .andExpect(status().isUnauthorized());
+    }
 }
