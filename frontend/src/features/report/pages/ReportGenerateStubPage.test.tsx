@@ -263,4 +263,33 @@ describe('ReportGenerateStubPage', () => {
     const finalizeButton = screen.getByRole('button', { name: 'PDF 생성 후 확정' }) as HTMLButtonElement;
     expect(finalizeButton.disabled).toBe(true);
   });
+
+  it('저장 실패 시 axios 인터셉터가 던진 ApiError의 실제 message를 그대로 노출한다(제네릭 문구로 덮지 않는다)', async () => {
+    // shared/api/axios.ts 인터셉터는 실패를 `new Error(...)`가 아니라 plain
+    // { code, message, status } ApiError 객체로 reject한다 — 그 경로를 그대로 재현한다.
+    server.use(
+      http.patch('/api/reports/1', () =>
+        HttpResponse.json(
+          { success: false, error: { code: 'REPORT_ALREADY_FINALIZED', message: '이미 확정된 보고서는 수정할 수 없습니다.' } },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '보고서 초안 생성' }));
+    await screen.findByText('보고서 생성 결과');
+
+    const purposeInput = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
+    fireEvent.change(purposeInput, { target: { value: '수정된 목적' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('이미 확정된 보고서는 수정할 수 없습니다.')).toBeTruthy();
+    });
+    // 제네릭 폴백 문구로 덮이지 않았는지도 함께 확인
+    expect(screen.queryByText('저장에 실패했습니다.')).toBeNull();
+  });
 });

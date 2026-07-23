@@ -11,6 +11,20 @@ import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
 
+// shared/api/axios.ts 인터셉터는 실패 응답을 `new Error(...)`가 아니라 plain ApiError
+// 객체({ code, message, status })로 reject한다 — `err instanceof Error`는 항상 false가 되어
+// 서버가 내려준 실제 사유(예: FINALIZED 상태 수정 거부, grounding 실패 사유)가 항상 제네릭
+// 문구로 덮인다(PR머신 code-reviewer P2 지적). ApiError 형태를 우선 좁혀서 message를 꺼낸다.
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message) {
+    return err.message;
+  }
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return fallback;
+}
+
 export function ReportGenerateStubPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -63,8 +77,7 @@ export function ReportGenerateStubPage() {
       }
     } catch (err) {
       if (!controller.signal.aborted) {
-        const message = err instanceof Error ? err.message : '보고서 생성에 실패했습니다.';
-        setError(message);
+        setError(extractErrorMessage(err, '보고서 생성에 실패했습니다.'));
       }
     } finally {
       if (!controller.signal.aborted) {
@@ -84,8 +97,7 @@ export function ReportGenerateStubPage() {
       const response = await reportApi.updateContent(report.id, content);
       applyReport(response.data);
     } catch (err) {
-      const message = err instanceof Error ? err.message : '저장에 실패했습니다.';
-      setSaveError(message);
+      setSaveError(extractErrorMessage(err, '저장에 실패했습니다.'));
     } finally {
       setIsSaving(false);
     }
@@ -99,8 +111,7 @@ export function ReportGenerateStubPage() {
       const response = await reportApi.groundingRecheck(report.id);
       applyReport(response.data);
     } catch (err) {
-      const message = err instanceof Error ? err.message : '확정 검증에 실패했습니다.';
-      setRecheckError(message);
+      setRecheckError(extractErrorMessage(err, '확정 검증에 실패했습니다.'));
     } finally {
       setIsRechecking(false);
     }
@@ -117,8 +128,7 @@ export function ReportGenerateStubPage() {
       const finalizeResponse = await reportApi.finalizeReport(report.id, uploadResponse.data.pdfUrl);
       applyReport(finalizeResponse.data);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'PDF 생성/확정에 실패했습니다.';
-      setFinalizeError(message);
+      setFinalizeError(extractErrorMessage(err, 'PDF 생성/확정에 실패했습니다.'));
     } finally {
       setIsFinalizing(false);
     }
