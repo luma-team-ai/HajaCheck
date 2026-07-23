@@ -100,6 +100,10 @@ export function useDefectActionBoard(filters: DefectListFilters) {
       if (context?.previous) {
         queryClient.setQueryData(listQueryKey, context.previous);
       }
+      // 스냅샷 복구만으로는 서버와 다시 어긋날 수 있는 경우(예: 같은 카드가 진행 중인 뮤테이션 위에
+      // 재드래그돼 onMutate가 이미 낙관적으로 바뀐 상태를 "원본"으로 스냅샷한 경우)를 방어하기 위해
+      // 항상 무효화해서 최종적으로는 서버 상태로 재동기화되게 한다(code-reviewer 지적, HAJA-349/#630).
+      queryClient.invalidateQueries({ queryKey: listQueryKey });
       setDropError(error.message || '상태 변경에 실패했습니다.');
     },
     onSuccess: () => {
@@ -122,6 +126,13 @@ export function useDefectActionBoard(filters: DefectListFilters) {
     (event: DragEndEvent) => {
       const { active, over } = event;
       if (!over) {
+        return;
+      }
+
+      // 이전 드롭이 아직 처리 중이면 새 드롭을 무시한다 — 단일 mutation을 재진입하면 두 번째
+      // onMutate가 첫 번째 낙관적 업데이트 "이후" 상태를 원본으로 스냅샷해 롤백이 꼬인다
+      // (code-reviewer 지적, HAJA-349/#630). invalidateQueries(onError)와 함께 이중 방어.
+      if (mutation.isPending) {
         return;
       }
 
@@ -149,7 +160,7 @@ export function useDefectActionBoard(filters: DefectListFilters) {
 
   const submitReason = useCallback(
     (reason: string) => {
-      if (!reasonRequest) {
+      if (!reasonRequest || mutation.isPending) {
         return;
       }
       mutation.mutate({ id: reasonRequest.defect.id, status: reasonRequest.targetStatus, reason });

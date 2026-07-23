@@ -8,8 +8,9 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import type { ReactNode } from 'react';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
+import { defectApi } from '../api/defectApi';
 import { defectHandlers } from '../api/defectApi.handlers';
 import { mockDefects } from '../mocks/defect.mock';
 import type { Defect } from '../types';
@@ -163,5 +164,91 @@ describe('useDefectActionBoard', () => {
 
     expect(result.current.reasonRequest).toBeNull();
     expect(result.current.dropError).toBeNull();
+  });
+
+  // code-reviewer 지적(HAJA-349/#630) — 진행 중인 드롭 위에 같은 카드를 재드래그하면 두 번째
+  // onMutate가 이미 낙관적으로 바뀐 상태를 "원본"으로 스냅샷해 롤백이 꼬인다. onError에서 항상
+  // invalidateQueries로 서버 상태와 재동기화되게 방어했는지 검증.
+  it('드롭 실패 시 목록 쿼리를 무효화해 서버 상태로 재동기화한다', async () => {
+    server.use(
+      http.patch('/api/defects/:id/status', () => {
+        const failure: ApiResponse<null> = {
+          success: false,
+          data: null,
+          error: { code: 'INVALID_STATE_TRANSITION', message: '현재 상태에서는 처리할 수 없는 요청입니다.' },
+        };
+        return HttpResponse.json(failure, { status: 409 });
+      }),
+    );
+    const getListSpy = vi.spyOn(defectApi, 'getList');
+
+    const { result } = renderHook(() => useDefectActionBoard({}), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    const callsBeforeDrop = getListSpy.mock.calls.length;
+
+    act(() => {
+      result.current.handleDragEnd(dragEndEvent(2, 'CONFIRMED'));
+    });
+
+    await waitFor(() => expect(result.current.dropError).not.toBeNull());
+    // onError가 invalidateQueries를 호출했다면 목록이 다시 조회된다(getList 호출 횟수 증가).
+    await waitFor(() => expect(getListSpy.mock.calls.length).toBeGreaterThan(callsBeforeDrop));
+
+    getListSpy.mockRestore();
+  });
+
+  // 진행 중인(pending) 뮤테이션이 끝나기 전 같은 카드를 재드래그하면 두 번째 onMutate가 스냅샷을
+  // 잘못 뜨는 레이스가 생긴다 — handleDragEnd/submitReason의 isPending 가드로 재진입을 막는지 검증.
+  it('이전 드롭이 처리 중이면 같은 카드의 새 드래그를 무시한다', async () => {
+    let releaseFirstRequest: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseFirstRequest = resolve;
+    });
+
+    server.use(
+      http.patch('/api/defects/:id/status', async ({ params, request }) => {
+        await gate;
+        const id = Number(params.id);
+        const found = mockDefects.find((defect) => defect.id === id) as Defect;
+        const { status } = (await request.json()) as { status: Defect['status'] };
+        found.status = status;
+        const body: ApiResponse<Defect> = { success: true, data: found };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    const { result } = renderHook(() => useDefectActionBoard({}), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // id=2는 DETECTED — 정방향 드롭이라 응답을 기다리는 동안에도 즉시 낙관적으로 이동한다.
+    act(() => {
+      result.current.handleDragEnd(dragEndEvent(2, 'CONFIRMED'));
+    });
+
+    await waitFor(() => {
+      const confirmed = result.current.columns.find((column) => column.status === 'CONFIRMED');
+      expect(confirmed?.defects.some((defect) => defect.id === 2)).toBe(true);
+    });
+
+    // 첫 요청이 아직 응답을 못 받은 상태에서 같은 카드를 역행 드롭 — 가드가 없다면 사유 모달이 떴을
+    // 것이다.
+    act(() => {
+      result.current.handleDragEnd(dragEndEvent(2, 'DETECTED'));
+    });
+    expect(result.current.reasonRequest).toBeNull();
+
+    await act(async () => {
+      releaseFirstRequest();
+      await gate;
+    });
+
+    // 두 번째 드래그가 무시됐으므로 최종 상태는 첫 드롭의 결과(CONFIRMED)여야 한다.
+    await waitFor(() => {
+      const confirmed = result.current.columns.find((column) => column.status === 'CONFIRMED');
+      expect(confirmed?.defects.some((defect) => defect.id === 2)).toBe(true);
+      const detected = result.current.columns.find((column) => column.status === 'DETECTED');
+      expect(detected?.defects.some((defect) => defect.id === 2)).toBe(false);
+    });
   });
 });

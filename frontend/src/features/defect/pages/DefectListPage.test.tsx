@@ -267,4 +267,22 @@ describe("DefectListPage (통합 테스트)", () => {
 
     expect(await screen.findByRole("table")).not.toBeNull();
   });
+
+  it("탭 버튼과 탭 패널이 aria-controls/aria-labelledby로 연결된다(code-reviewer 지적)", async () => {
+    renderPage();
+    await screen.findByRole("table");
+
+    const listTab = screen.getByRole("tab", { name: "목록 보기" });
+    const [listPanel] = screen.getAllByRole("tabpanel");
+    expect(listTab.getAttribute("aria-controls")).toBe(listPanel.id);
+    expect(listPanel.getAttribute("aria-labelledby")).toBe(listTab.id);
+
+    fireEvent.click(screen.getByRole("tab", { name: "보드 보기" }));
+    await screen.findByLabelText("신규 컬럼");
+
+    const boardTab = screen.getByRole("tab", { name: "보드 보기" });
+    const [boardPanel] = screen.getAllByRole("tabpanel");
+    expect(boardTab.getAttribute("aria-controls")).toBe(boardPanel.id);
+    expect(boardPanel.getAttribute("aria-labelledby")).toBe(boardTab.id);
+  });
 });
