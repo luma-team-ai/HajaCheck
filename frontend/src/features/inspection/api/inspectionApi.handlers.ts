@@ -7,7 +7,7 @@ import type {
   InspectionCreateResponse,
 } from '../types';
 import type { DefectStatusUpdateRequest } from './inspectionApi';
-import type { DefectDetailItem } from './inspectionApi.types';
+import type { DefectDetailItem, DefectCreateRequest } from './inspectionApi.types';
 
 // ponytail: /api/inspections/:id/result 목은 제거됨 — 실제 백엔드는
 // /api/inspections/{id} + /api/inspections/{id}/defects 로 분리되어 있음.
@@ -35,6 +35,7 @@ const mockFacilityDetails: Record<number, FacilityDetail> = {
 };
 
 let nextInspectionId = 100;
+let nextDefectId = 1000;
 
 export const inspectionHandlers = [
   http.get('/api/facilities', () => {
@@ -114,6 +115,31 @@ export const inspectionHandlers = [
     nextInspectionId += 1;
 
     const body: ApiResponse<InspectionCreateResponse> = { success: true, data: created };
+    return HttpResponse.json(body, { status: 201 });
+  }),
+
+  http.post('/api/inspections/:id/defects', async ({ params, request }) => {
+    const inspectionId = Number(params.id);
+    const reqBody = (await request.json()) as DefectCreateRequest;
+
+    const newDefect: DefectDetailItem = {
+      id: nextDefectId,
+      inspectionId,
+      // ponytail: request의 영문 enum 값을 mock 응답의 한글 타입으로 캐스팅 — 기존 버그 통과
+      type: reqBody.type as any,
+      grade: reqBody.grade,
+      confidence: 1.0,
+      status: 'DETECTED',
+      isReviewed: false,
+      bboxX: null as any,
+      bboxY: null as any,
+      bboxW: null as any,
+      bboxH: null as any,
+      createdAt: new Date().toISOString(),
+    };
+    nextDefectId += 1;
+
+    const body: ApiResponse<DefectDetailItem> = { success: true, data: newDefect };
     return HttpResponse.json(body, { status: 201 });
   }),
 ];

@@ -140,6 +140,24 @@ const testHandlers = [
     };
     return HttpResponse.json({ success: true, data: updatedDefect });
   }),
+  http.post('/api/inspections/:id/defects', async ({ request }) => {
+    const body = (await request.json()) as any;
+    const newDefect: DefectDetailItem = {
+      id: 999,
+      inspectionId: 1,
+      type: body.type as any,
+      grade: body.grade,
+      confidence: 1.0,
+      status: 'DETECTED',
+      isReviewed: false,
+      bboxX: null as any,
+      bboxY: null as any,
+      bboxW: null as any,
+      bboxH: null as any,
+      createdAt: new Date().toISOString(),
+    };
+    return HttpResponse.json({ success: true, data: newDefect }, { status: 201 });
+  }),
 ];
 
 const server = setupServer(...testHandlers);
@@ -330,5 +348,162 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     renderPage();
     expect(await screen.findByText('탐지된 하자가 없습니다.')).not.toBeNull();
+  });
+
+  it('"누락 추가" 버튼을 클릭하면 모달이 열린다 (#622)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const button = screen.getByRole('button', { name: '누락 추가' });
+    expect(button.hasAttribute('disabled')).toBe(false);
+
+    fireEvent.click(button);
+
+    expect(await screen.findByText('누락된 하자 추가')).not.toBeNull();
+    expect(screen.getByDisplayValue('유형 선택')).not.toBeNull();
+    expect(screen.getByDisplayValue('등급 선택')).not.toBeNull();
+  });
+
+  it('모달에서 유형과 등급을 선택하지 않으면 저장 버튼이 비활성화된다 (#622)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    await screen.findByText('누락된 하자 추가');
+
+    const saveButton = screen.getAllByRole('button', { name: '저장' }).pop();
+    expect(saveButton?.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('모달에서 유형만 선택하면 저장 버튼이 비활성화된다 (#622)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    await screen.findByText('누락된 하자 추가');
+
+    const typeSelect = screen.getAllByDisplayValue('유형 선택')[0];
+    fireEvent.change(typeSelect, { target: { value: 'CRACK' } });
+
+    const saveButton = screen.getAllByRole('button', { name: '저장' }).pop();
+    expect(saveButton?.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('모달에서 유형과 등급을 선택하면 저장 버튼이 활성화된다 (#622)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    await screen.findByText('누락된 하자 추가');
+
+    const selects = screen.getAllByDisplayValue(/유형 선택|등급 선택/);
+    fireEvent.change(selects[0], { target: { value: 'CRACK' } });
+    fireEvent.change(selects[1], { target: { value: 'A' } });
+
+    const saveButton = screen.getAllByRole('button', { name: '저장' }).pop();
+    expect(saveButton?.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('모달에서 저장하면 POST 요청을 보내고 모달이 닫힌다 (#622)', async () => {
+    let postCalled = false;
+    server.use(
+      http.post('/api/inspections/:id/defects', async ({ request }) => {
+        postCalled = true;
+        const body = (await request.json()) as any;
+        expect(body.type).toBe('SPALLING');
+        expect(body.grade).toBe('B');
+        const newDefect: DefectDetailItem = {
+          id: 999,
+          inspectionId: 1,
+          type: body.type as any,
+          grade: body.grade,
+          confidence: 1.0,
+          status: 'DETECTED',
+          isReviewed: false,
+          bboxX: null as any,
+          bboxY: null as any,
+          bboxW: null as any,
+          bboxH: null as any,
+          createdAt: new Date().toISOString(),
+        };
+        return HttpResponse.json({ success: true, data: newDefect }, { status: 201 });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    await screen.findByText('누락된 하자 추가');
+
+    const selects = screen.getAllByDisplayValue(/유형 선택|등급 선택/);
+    fireEvent.change(selects[0], { target: { value: 'SPALLING' } });
+    fireEvent.change(selects[1], { target: { value: 'B' } });
+
+    const saveButton = screen.getAllByRole('button', { name: '저장' }).pop();
+    fireEvent.click(saveButton!);
+
+    // POST 요청이 완료될 때까지 기다린다
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(postCalled).toBe(true);
+    // 모달이 닫혀야 하므로 제목이 더 이상 보이지 않아야 한다
+    expect(screen.queryByText('누락된 하자 추가')).toBeNull();
+  });
+
+  it('모달에서 취소하면 API 호출 없이 모달이 닫힌다 (#622)', async () => {
+    let postCalled = false;
+    server.use(
+      http.post('/api/inspections/:id/defects', async () => {
+        postCalled = true;
+        return HttpResponse.json({ success: false }, { status: 500 });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    await screen.findByText('누락된 하자 추가');
+
+    const cancelButton = screen.getAllByRole('button', { name: '취소' }).pop();
+    fireEvent.click(cancelButton!);
+
+    // 모달이 닫혀야 하므로 제목이 더 이상 보이지 않아야 한다
+    expect(screen.queryByText('누락된 하자 추가')).toBeNull();
+
+    // POST 호출이 없어야 한다
+    expect(postCalled).toBe(false);
+  });
+
+  it('모달에서 저장 실패 시 에러 메시지를 표시한다 (#622)', async () => {
+    server.use(
+      http.post('/api/inspections/:id/defects', () => {
+        const failure: ApiResponse<null> = {
+          success: false,
+          data: null,
+          error: { code: 'INVALID_INPUT', message: '누락 추가에 실패했습니다.' },
+        };
+        return HttpResponse.json(failure, { status: 400 });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    await screen.findByText('누락된 하자 추가');
+
+    const selects = screen.getAllByDisplayValue(/유형 선택|등급 선택/);
+    fireEvent.change(selects[0], { target: { value: 'CRACK' } });
+    fireEvent.change(selects[1], { target: { value: 'A' } });
+
+    const saveButton = screen.getAllByRole('button', { name: '저장' }).pop();
+    fireEvent.click(saveButton!);
+
+    // 에러 메시지가 표시된다 (모달 내 에러 메시지 확인)
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const errorMessages = screen.getAllByText(/누락 추가에 실패했습니다/);
+    expect(errorMessages.length).toBeGreaterThan(0);
   });
 });

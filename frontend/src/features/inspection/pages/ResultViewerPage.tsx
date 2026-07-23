@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
+import { Modal } from '../../../shared/components/Modal/Modal';
 import { DefectOverlay } from '../components/DefectOverlay';
 import { InspectionDefectExplainPanel } from '../components/InspectionDefectExplainPanel';
 import { useInspectionResult } from '../hooks/useInspectionResult';
@@ -12,6 +13,11 @@ import type { DefectGrade } from '../types';
 import { filterDefects } from '../utils/filterDefects';
 
 const ALL_GRADES: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
+const DEFECT_TYPE_OPTIONS: { value: 'CRACK' | 'SPALLING' | 'REBAR_EXPOSURE'; label: string }[] = [
+  { value: 'CRACK', label: '균열' },
+  { value: 'SPALLING', label: '박리박락' },
+  { value: 'REBAR_EXPOSURE', label: '철근노출' },
+];
 
 export function ResultViewerPage() {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +30,9 @@ export function ResultViewerPage() {
   const [selectedGrade, setSelectedGrade] = useState<DefectGrade | ''>('');
   const [gradeReason, setGradeReason] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [isAddMissingOpen, setIsAddMissingOpen] = useState(false);
+  const [newDefectType, setNewDefectType] = useState<'CRACK' | 'SPALLING' | 'REBAR_EXPOSURE' | ''>('');
+  const [newDefectGrade, setNewDefectGrade] = useState<DefectGrade | ''>('');
   // rules-of-hooks: 훅은 조건부 return 이전에 호출해야 한다. 훅 내부 enabled 플래그가
   // 유효하지 않은 inspectionId일 때 쿼리를 스킵하므로, ID 검증 return은 훅 호출 다음에 둔다.
   const { data, isLoading, isError, refetch } = useInspectionResult(inspectionId);
@@ -103,6 +112,34 @@ export function ResultViewerPage() {
   const handleCancelGradeEdit = useCallback(() => {
     setGradeEditId(undefined);
     setSelectedGrade('');
+  }, []);
+
+  const handleCreateMissingDefect = useCallback(async () => {
+    if (!newDefectType || !newDefectGrade || isUpdating) return;
+    setIsUpdating(true);
+    setErrorMessage('');
+    try {
+      const response = await inspectionApi.createDefect(inspectionId, {
+        type: newDefectType as 'CRACK' | 'SPALLING' | 'REBAR_EXPOSURE',
+        grade: newDefectGrade as DefectGrade,
+      });
+      await refetch();
+      setSelectedDefectId(response.data.id);
+      setIsAddMissingOpen(false);
+      setNewDefectType('');
+      setNewDefectGrade('');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '누락 추가에 실패했습니다.';
+      setErrorMessage(msg);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [inspectionId, newDefectType, newDefectGrade, isUpdating, refetch]);
+
+  const handleCancelAddMissing = useCallback(() => {
+    setIsAddMissingOpen(false);
+    setNewDefectType('');
+    setNewDefectGrade('');
   }, []);
 
   const handleConfirmReview = useCallback(async () => {
@@ -402,8 +439,14 @@ export function ResultViewerPage() {
                   >
                     등급 수정
                   </Button>
-                  {/* TODO: 누락 추가 → defect 생성 API 미구현 (#249 후속) */}
-                  <Button type="button" variant="secondary" size="lg" className="flex-1" disabled>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="lg"
+                    className="flex-1"
+                    onClick={() => setIsAddMissingOpen(true)}
+                    disabled={isUpdating}
+                  >
                     누락 추가
                   </Button>
                 </div>
@@ -412,6 +455,71 @@ export function ResultViewerPage() {
           )}
         </div>
       </div>
+
+      {/* Add Missing Defect Modal */}
+      <Modal
+        open={isAddMissingOpen}
+        onClose={handleCancelAddMissing}
+        title="누락된 하자 추가"
+      >
+        <div className="flex flex-col gap-4">
+          {errorMessage && (
+            <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
+          )}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-text-default">하자 유형</label>
+            <select
+              value={newDefectType}
+              onChange={(e) => setNewDefectType(e.target.value as 'CRACK' | 'SPALLING' | 'REBAR_EXPOSURE' | '')}
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+            >
+              <option value="">유형 선택</option>
+              {DEFECT_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-medium text-text-default">등급</label>
+            <select
+              value={newDefectGrade}
+              onChange={(e) => setNewDefectGrade(e.target.value as DefectGrade | '')}
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+            >
+              <option value="">등급 선택</option>
+              {ALL_GRADES.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button
+              type="button"
+              variant="primary"
+              size="lg"
+              className="flex-1"
+              onClick={handleCreateMissingDefect}
+              disabled={!newDefectType || !newDefectGrade || isUpdating}
+            >
+              저장
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="lg"
+              className="flex-1"
+              onClick={handleCancelAddMissing}
+              disabled={isUpdating}
+            >
+              취소
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

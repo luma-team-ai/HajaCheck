@@ -20,6 +20,13 @@ export interface DefectDetailItem {
   createdAt: string; // ISO datetime
 }
 
+// 실제 백엔드가 받는 영문 enum 값 그대로 — 위 DefectType(한글 리터럴)과 다르게 선언한 이유는
+// 그 타입이 실제 백엔드 직렬화 값과 불일치하는 기존 버그이기 때문(이번 스코프 밖, 손대지 않음).
+export interface DefectCreateRequest {
+  type: 'CRACK' | 'SPALLING' | 'REBAR_EXPOSURE';
+  grade: DefectGrade;
+}
+
 export type InspectionStatus = 'CREATED' | 'UPLOADING' | 'ANALYZING' | 'ANALYZED' | 'REVIEWED' | 'REPORTED';
 
 export interface InspectionResponse {
