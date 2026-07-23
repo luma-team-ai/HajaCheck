@@ -68,6 +68,10 @@ services:
       # Vite dev 서버는 environment 를 런타임에 읽으므로 값 변경 시 재빌드 없이 재생성만 하면 된다.
       VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:-}
       VITE_APP_TITLE: ${VITE_APP_TITLE:-hajaCheck}
+      # Docker Desktop(Windows) 바인드 마운트는 네이티브 fs 이벤트가 컨테이너로 전파되지 않아
+      # 기본 chokidar 감시로 HMR이 소스 변경을 못 잡는다(수정해도 이전 코드가 계속 서빙됨) —
+      # vite.config.ts의 server.watch.usePolling이 이 값을 읽어 폴링으로 강제 감지한다.
+      VITE_WATCH_POLL: "true"
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
