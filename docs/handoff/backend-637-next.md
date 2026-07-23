@@ -60,6 +60,31 @@
 - PASS — 운영 회귀 패턴인 Hibernate `ddl-auto=validate` 누락과 baseline-on-existing 경로를 필수 테스트에 포함했다.
 - PASS — 사용자 ID가 액터 FK로 남는 경로와 회사 ID가 인가 스코프가 되는 경로를 구분했다.
 
+## 승격 전제 (dev→main, 필수 — PR머신 P1)
+
+`V10__migrate_facilities_to_company.sql`은 `facilities.owner_id`→`users.company_id`
+backfill 전에, 소유자의 `company_id`나 대응 `companies` 행이 없는 시설이 하나라도 있으면
+`raise exception`으로 마이그레이션을 중단한다(안전 설계, `FacilityCompanyMigrationTest`의
+`V10은_회사없는소유자의시설이있으면_구체적인예외로실패한다`가 이 동작을 고정). Flyway는 앱
+기동 시 자동 실행되므로, **prod `hajacheck`에 무회사(개인) 소유 시설이 1건이라도 남아 있으면
+main 승격 자동배포 시 arm1-spring이 기동 실패**한다(#531 재발 유형).
+
+**main 승격 직전, 딱 1회 다음 프리플라이트를 prod에서 실행해 0건을 확인한다** (레포 정적 diff로는
+검증 불가 — 운영자 실행 필수):
+
+```sql
+select f.id, f.owner_id
+from facilities f
+left join users u on u.id = f.owner_id
+left join companies c on c.id = u.company_id
+where u.company_id is null or c.id is null;
+```
+
+- **0건** → 그대로 승격 진행. 승격 PR 본문에 "프리플라이트 0건 확인" 결과를 남겨 이 P1을 닫는다.
+- **1건 이상** → 해당 시설의 소유자에게 회사를 배정하거나(정상 흐름으로 유도) 데이터를 정리(백업
+  포함)하는 선행 배치를 승격 전에 실행한 뒤 재확인한다. `V10` 자체를 수정하지 않는다(설계는 맞음 —
+  fail-fast가 의도된 동작).
+
 ## 책임
 
 1. 지정 워크트리 안에서만 코드·테스트를 수정한다.
