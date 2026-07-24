@@ -1,5 +1,6 @@
 package com.hajacheck.core.facility.controller;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -24,6 +25,9 @@ import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.entity.FacilityInitialGrade;
 import com.hajacheck.core.facility.repository.FacilityRepository;
+import com.hajacheck.core.inspection.entity.Inspection;
+import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
@@ -59,6 +63,8 @@ class FacilityControllerTest extends PostgresTestSupport {
     private CompanyMembershipRepository companyMembershipRepository;
     @Autowired
     private FacilityRepository facilityRepository;
+    @Autowired
+    private InspectionRepository inspectionRepository;
 
     private User saveUser(String email) {
         User user = userRepository.saveAndFlush(User.builder()
@@ -86,6 +92,30 @@ class FacilityControllerTest extends PostgresTestSupport {
                 .name("테스트빌딩")
                 .type("BUILDING")
                 .address("서울시 강남구")
+                .build());
+    }
+
+    // 시설물 현황 목록(#540 ⑥, HAJA-378) — 회사 소속 배정 가능 담당자(INSPECTOR/ADMIN + APPROVED 멤버십)를 시드한다.
+    // inspections.assigned_inspector_id 는 DB 트리거(trg_inspections_check_assigned_inspector_company)로
+    // 승인된 회사 소속 INSPECTOR/ADMIN 만 허용되므로 Role.USER 인 owner 를 그대로 재사용할 수 없다.
+    private User saveInspector(String email, Long companyId) {
+        User inspector = userRepository.saveAndFlush(User.builder()
+                .email(email).name("점검자")
+                .role(Role.INSPECTOR).passwordHash("$2a$10$hashed")
+                .companyId(companyId).status(UserStatus.ACTIVE).build());
+        companyMembershipRepository.saveAndFlush(CompanyMembership.approvedOwner(companyId, inspector.getId()));
+        return inspector;
+    }
+
+    private Inspection saveInspection(Long facilityId, Long createdBy, Long assignedInspectorId,
+                                       int roundNo, LocalDate inspectionDate) {
+        return inspectionRepository.save(Inspection.builder()
+                .facilityId(facilityId)
+                .createdBy(createdBy)
+                .assignedInspectorId(assignedInspectorId)
+                .roundNo(roundNo)
+                .inspectionDate(inspectionDate)
+                .status(InspectionStatus.CREATED)
                 .build());
     }
 
@@ -338,6 +368,87 @@ class FacilityControllerTest extends PostgresTestSupport {
     @Test
     void 배정가능담당자목록_미인증_401() throws Exception {
         mockMvc.perform(get("/api/facilities/assignable-users"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ── 시설물 현황 전용 목록(#540 ⑥, HAJA-378) ──
+
+    @Test
+    void 현황목록_회사시설없으면_200_빈배열() throws Exception {
+        User owner = saveUser("status-owner1@haja.com");
+
+        mockMvc.perform(get("/api/facilities/status")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void 현황목록_담당자와점검이력있는시설_모든필드반영() throws Exception {
+        User owner = saveUser("status-owner2@haja.com");
+        Long companyId = owner.getCompanyId();
+        User inspector = saveInspector("status-inspector2@haja.com", companyId);
+        LocalDate dueAt = LocalDate.now().plusDays(7);
+        Facility facility = facilityRepository.save(Facility.builder()
+                .companyId(companyId)
+                .name("현황테스트빌딩")
+                .type("BUILDING")
+                .initialGrade(FacilityInitialGrade.B)
+                .nextInspectionDueAt(dueAt)
+                .assigneeUserId(inspector.getId())
+                .build());
+        LocalDate lastInspectedAt = LocalDate.now().minusDays(3);
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 1, LocalDate.now().minusDays(20));
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 2, lastInspectedAt);
+
+        mockMvc.perform(get("/api/facilities/status")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].facilityId").value(facility.getId()))
+                .andExpect(jsonPath("$.data[0].facilityName").value("현황테스트빌딩"))
+                .andExpect(jsonPath("$.data[0].initialGrade").value("B"))
+                .andExpect(jsonPath("$.data[0].nextInspectionDueAt").value(dueAt.toString()))
+                .andExpect(jsonPath("$.data[0].dDay").value(7))
+                .andExpect(jsonPath("$.data[0].assigneeUserId").value(inspector.getId()))
+                .andExpect(jsonPath("$.data[0].assigneeName").value("점검자"))
+                .andExpect(jsonPath("$.data[0].lastInspectedAt").value(lastInspectedAt.toString()));
+    }
+
+    @Test
+    void 현황목록_담당자없고점검이력없는시설_null필드로반환_에러없음() throws Exception {
+        User owner = saveUser("status-owner3@haja.com");
+        Facility facility = saveFacility(owner.getId());
+
+        mockMvc.perform(get("/api/facilities/status")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].facilityId").value(facility.getId()))
+                .andExpect(jsonPath("$.data[0].initialGrade").value(nullValue()))
+                .andExpect(jsonPath("$.data[0].nextInspectionDueAt").value(nullValue()))
+                .andExpect(jsonPath("$.data[0].dDay").value(nullValue()))
+                .andExpect(jsonPath("$.data[0].assigneeUserId").value(nullValue()))
+                .andExpect(jsonPath("$.data[0].assigneeName").value(nullValue()))
+                .andExpect(jsonPath("$.data[0].lastInspectedAt").value(nullValue()));
+    }
+
+    @Test
+    void 현황목록_타회사시설물은응답에없음() throws Exception {
+        User owner = saveUser("status-owner4@haja.com");
+        User otherOwner = saveUser("status-owner5@haja.com");
+        saveFacility(otherOwner.getId());
+
+        mockMvc.perform(get("/api/facilities/status")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void 현황목록_미인증_401() throws Exception {
+        mockMvc.perform(get("/api/facilities/status"))
                 .andExpect(status().isUnauthorized());
     }
 }

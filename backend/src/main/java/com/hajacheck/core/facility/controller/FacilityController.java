@@ -6,6 +6,7 @@ import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
+import com.hajacheck.core.facility.dto.FacilityStatusResponse;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.global.common.ApiResponse;
@@ -55,6 +56,15 @@ public class FacilityController {
             @AuthenticationPrincipal LoginUser loginUser) {
         return ResponseEntity.ok(ApiResponse.ok(
                 facilityService.list(loginUser.getUserId(), loginUser.getCompanyId())));
+    }
+
+    @Operation(summary = "시설물 현황 목록 조회", description = "로그인 사용자의 회사가 소유한 시설물의 현황(상태·D-day·담당자·최근점검일)을 반환한다"
+            + "(#540 ⑥, HAJA-378) — 대시보드 스타일 현황 테이블 화면 전용")
+    @GetMapping("/status")
+    public ResponseEntity<ApiResponse<List<FacilityStatusResponse>>> listStatus(
+            @AuthenticationPrincipal LoginUser loginUser) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                facilityService.listStatus(loginUser.getUserId(), loginUser.getCompanyId())));
     }
 
     @Operation(summary = "시설물 상세 조회", description = "로그인 사용자의 회사가 소유한 시설물 단건을 조회한다")
