@@ -5,9 +5,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.support.PostgresTestSupport;
@@ -39,6 +41,8 @@ class PlatformAdminMonitoringControllerTest extends PostgresTestSupport {
     private MockMvc mockMvc;
     @Autowired
     private UserRepository userRepository;
+    @Autowired
+    private CompanyRepository companyRepository;
 
     @Test
     void 조회_미인증_401() throws Exception {
@@ -48,7 +52,8 @@ class PlatformAdminMonitoringControllerTest extends PostgresTestSupport {
 
     @Test
     void 조회_회사ADMIN이면_403() throws Exception {
-        User companyAdmin = saveUser(Role.ADMIN, 1L);
+        Company company = saveApprovedCompany();
+        User companyAdmin = saveUser(Role.ADMIN, company.getId());
         mockMvc.perform(get("/api/platform-admin/monitoring").with(authentication(authOf(companyAdmin))))
                 .andExpect(status().isForbidden());
     }
@@ -75,7 +80,8 @@ class PlatformAdminMonitoringControllerTest extends PostgresTestSupport {
     // Actuator 과노출 회귀 테스트(#728 리뷰 지적) — health 를 제외한 나머지는 PLATFORM_ADMIN 전용이어야 한다.
     @Test
     void actuator_metrics는_회사ADMIN이면_403() throws Exception {
-        User companyAdmin = saveUser(Role.ADMIN, 1L);
+        Company company = saveApprovedCompany();
+        User companyAdmin = saveUser(Role.ADMIN, company.getId());
         mockMvc.perform(get("/actuator/metrics").with(authentication(authOf(companyAdmin))))
                 .andExpect(status().isForbidden());
     }
@@ -84,6 +90,19 @@ class PlatformAdminMonitoringControllerTest extends PostgresTestSupport {
     void actuator_health는_무인증도_200() throws Exception {
         mockMvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk());
+    }
+
+    // 회사 소속 ADMIN 403 검증용 — company_id FK 제약이 있어 존재하는 Company를 먼저 만들어야 한다
+    // (PlatformAdminStatsControllerTest#saveApprovedCompany와 동일 패턴).
+    private Company saveApprovedCompany() {
+        int n = SEQ.incrementAndGet();
+        User owner = saveUser(Role.ADMIN, null);
+        Company company = Company.createPendingReview(
+                owner.getId(), "회사" + n, "BRN-728-" + n, "대표", "서울", null,
+                "https://files.example/brn.pdf", "{\"source\":\"MANUAL_INPUT\"}");
+        company.markBusinessVerified();
+        company.approve(owner.getId());
+        return companyRepository.save(company);
     }
 
     private User saveUser(Role role, Long companyId) {
