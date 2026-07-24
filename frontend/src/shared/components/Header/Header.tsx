@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import bellIcon from '../../../assets/brand/header-bell.svg';
 import userIcon from '../../../assets/brand/header-user-outlined.svg';
@@ -27,8 +28,28 @@ interface HeaderProps {
 // 상단에 쓰는 헤더. 랜딩용 TopNavigation(node-id 63-2)과는 별개 컴포넌트(HAJA-149)
 export function Header({ breadcrumb, unreadCount = 0, onNotificationClick, onProfileClick, profileMenu }: HeaderProps) {
   const [isProfileMenuOpen, setProfileMenuOpen] = useState(false);
+  // 프로필 버튼 재클릭 토글 경합(벨 버튼 suppressNextBellClickRef #474, FAB suppressNextFabClickRef #546과
+  // 동일 패턴) 가드 — ProfileMenu는 useOutsideDismiss로 document mousedown에서 바깥 클릭을 감지해
+  // onClose를 부르는데, 프로필 버튼은 그 rootRef 바깥이라 드롭다운이 열린 상태에서 버튼을 다시 클릭하면
+  // 실제 이벤트 순서(mousedown→click)상 mousedown이 먼저 드롭다운을 닫고, 뒤이은 click이 다시 토글해
+  // 재오픈해버린다. 패널이 닫혀 있으면 무조건 false로 덮어써(우클릭·드래그아웃처럼 click이 뒤따르지
+  // 않는 mousedown 이후에도 플래그가 true로 고정돼 다음 정상 클릭을 삼키지 않게 함).
+  const suppressNextProfileClickRef = useRef(false);
+
+  function handleProfileWrapperMouseDownCapture(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!isProfileMenuOpen) {
+      suppressNextProfileClickRef.current = false;
+      return;
+    }
+    const target = event.target as Element | null;
+    suppressNextProfileClickRef.current = Boolean(target?.closest('button[aria-label="내 프로필"]'));
+  }
 
   function handleProfileButtonClick() {
+    if (suppressNextProfileClickRef.current) {
+      suppressNextProfileClickRef.current = false;
+      return;
+    }
     if (profileMenu) {
       setProfileMenuOpen((open) => !open);
       return;
@@ -73,7 +94,7 @@ export function Header({ breadcrumb, unreadCount = 0, onNotificationClick, onPro
           )}
         </button>
 
-        <div className="relative">
+        <div className="relative" onMouseDownCapture={handleProfileWrapperMouseDownCapture}>
           <button
             type="button"
             className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-border bg-[#ece6ee] p-0"
