@@ -1,6 +1,4 @@
 import type {
-  CounselStatus,
-  CounselType,
   InspectionHistoryRole,
   InspectionHistoryStatus,
   PlanStatus,
@@ -89,36 +87,3 @@ export const REPORT_GRADE_DOT_CLASS: Record<ReportGradeDotColor, string> = {
   ORANGE: 'bg-orange-500',
   GREEN: 'bg-[#16a34a]',
 };
-
-// ---- 내 상담 내역 (HAJA-371, #678) ----
-
-// 상담 유형 점 — 시나리오 챗봇=stone·상담원 연결=blue·문의 남기기=orange(SEAT_STATUS_DOT_CLASS.INVITED와
-// 동일 팔레트 재사용, 신규 hex 도입 없음).
-export const COUNSEL_TYPE_DOT_CLASS: Record<CounselType, string> = {
-  SCENARIO_BOT: 'bg-stone-400',
-  AGENT_CONNECT: 'bg-blue-500',
-  INQUIRY: 'bg-orange-500',
-};
-
-export const COUNSEL_TYPE_LABEL: Record<CounselType, string> = {
-  SCENARIO_BOT: '시나리오 챗봇',
-  AGENT_CONNECT: '상담원 연결',
-  INQUIRY: '문의 남기기',
-};
-
-// 상담 상태 pill — 종료=stone, 대기중=amber(USAGE_WARNING_BADGE_CLASS와 동일 hex 재사용 — 신규 hex
-// 도입 없음), 답변 완료=blue(Tailwind 표준 팔레트).
-export const COUNSEL_STATUS_BADGE_CLASS: Record<CounselStatus, string> = {
-  CLOSED: 'bg-stone-100 text-stone-600',
-  WAITING: USAGE_WARNING_BADGE_CLASS,
-  ANSWERED: 'bg-blue-50 text-blue-600',
-};
-
-export const COUNSEL_STATUS_LABEL: Record<CounselStatus, string> = {
-  CLOSED: '종료',
-  WAITING: '대기중',
-  ANSWERED: '답변 완료',
-};
-
-// 대기중 서브텍스트('대기 순번 N') 색 — USAGE_WARNING_BADGE_CLASS와 동일한 앰버 hex 재사용.
-export const COUNSEL_WAITING_NUMBER_TEXT_CLASS = 'text-[#b5670a]';
