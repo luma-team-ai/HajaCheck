@@ -96,7 +96,8 @@ def test_rag_chat_endpoint_success_sources_ignore_llm_output(
 
     mock_llm = MagicMock()
     mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(
-        answer="균열 보수는 손상 정도와 구조 안전성 평가 결과에 따라 보수 공법을 선택합니다."
+        answer="균열 보수는 손상 정도와 구조 안전성 평가 결과에 따라 보수 공법을 선택합니다.",
+        grounded=True,
     )
     mock_get_llm.return_value = mock_llm
 
@@ -140,6 +141,40 @@ def test_rag_chat_endpoint_no_result_returns_rag_no_result_and_skips_cache_write
     assert body["success"] is False
     assert body["error"]["code"] == "RAG_NO_RESULT"
     mock_get_llm.assert_not_called()
+    mock_redis.setex.assert_not_called()
+
+
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+@patch("ai.chains.rag_chat_chain.get_llm")
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+def test_rag_chat_endpoint_ungrounded_answer_returns_rag_no_result_without_sources(
+    mock_get_vectorstore, mock_get_llm, mock_get_redis_client
+):
+    """검색은 top-k(관련성 무관)를 반환했지만 LLM이 grounded=false로 판정한 경우 —
+    무관한 발췌를 sources로 붙이지 않고 RAG_NO_RESULT로 응답, 캐시도 저장하지 않는다.
+    (실측 회귀: "안녕" 같은 무관한 질의에 근거없음 답변 + 무관 출처가 함께 뜨던 버그)"""
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None
+    mock_get_redis_client.return_value = mock_redis
+
+    mock_vectorstore = MagicMock()
+    mock_vectorstore.similarity_search.return_value = [
+        _doc(doc_id="42", chunk_index=3, article="제59조")
+    ]
+    mock_get_vectorstore.return_value = mock_vectorstore
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(
+        answer="관련 근거를 찾지 못했습니다", grounded=False
+    )
+    mock_get_llm.return_value = mock_llm
+
+    res = client.post("/ai/rag-chat", json={"question": "안녕"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "RAG_NO_RESULT"
     mock_redis.setex.assert_not_called()
 
 
@@ -198,7 +233,8 @@ def test_rag_chat_success_writes_cache_with_expected_key_ttl_and_payload(
 
     mock_llm = MagicMock()
     mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(
-        answer="균열 보수는 손상 정도와 구조 안전성 평가 결과에 따라 보수 공법을 선택합니다."
+        answer="균열 보수는 손상 정도와 구조 안전성 평가 결과에 따라 보수 공법을 선택합니다.",
+        grounded=True,
     )
     mock_get_llm.return_value = mock_llm
 
