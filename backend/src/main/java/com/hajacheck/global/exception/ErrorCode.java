@@ -108,6 +108,11 @@ public enum ErrorCode {
     ANALYSIS_NO_MEDIA(HttpStatus.BAD_REQUEST, "분석할 이미지가 없습니다."),
     ANALYSIS_ALREADY_RUNNING(HttpStatus.CONFLICT, "이미 분석이 진행 중입니다."),
     ANALYSIS_QUEUE_FULL(HttpStatus.SERVICE_UNAVAILABLE, "분석 요청이 많아 잠시 후 다시 시도해 주세요."),
+    // 코드 리뷰 P2 4차 — analysisTaskExecutor(전역 공유 풀, core=max=2·queue=20)를 한 회사가
+    // 대량 요청으로 독점하면 다른 회사까지 ANALYSIS_QUEUE_FULL을 받는 noisy-neighbor 표면이라,
+    // 공유 풀에 실제로 들어가기 전에 회사별 동시 실행 상한으로 먼저 막는다(AsyncConfig 참고).
+    ANALYSIS_COMPANY_CONCURRENCY_LIMIT(HttpStatus.SERVICE_UNAVAILABLE,
+            "동시에 진행 가능한 분석 요청 수를 초과했습니다. 진행 중인 분석이 끝난 뒤 다시 시도해 주세요."),
     // 코드 리뷰 P1 — 검수 완료(REVIEWED)·보고서화(REPORTED) 회차는 재분석을 허용하지 않는다(제품
     // 결정). 재분석은 소프트삭제로 기존(사람이 검수한) 하자를 지우므로, 최종 상태 회차에서 허용하면
     // 무보상 데이터 유실 표면이 된다.

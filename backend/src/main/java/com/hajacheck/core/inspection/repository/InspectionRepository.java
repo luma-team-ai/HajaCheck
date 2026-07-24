@@ -55,4 +55,13 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     @Query("update Inspection i set i.status = com.hajacheck.core.inspection.entity.InspectionStatus.ANALYZING "
             + "where i.id = :id and i.status <> com.hajacheck.core.inspection.entity.InspectionStatus.ANALYZING")
     int startAnalyzingIfNotRunning(@Param("id") Long id);
+
+    // 회사별 분석 동시 실행 상한(코드 리뷰 P2 4차) — analysisTaskExecutor는 테넌트 구분 없는 전역
+    // 공유 풀이라, 한 회사가 대량 요청으로 큐를 독점하면 다른 회사까지 막힌다(noisy-neighbor).
+    // 공유 풀에 넣기 전에 이 카운트로 회사별 상한을 먼저 강제한다(InspectionAnalysisService 참고).
+    // i.facility(지연 로딩 연관관계)를 거쳐 JPQL 조인 — Facility 목록을 먼저 조회할 필요 없다.
+    @Query("select count(i) from Inspection i "
+            + "where i.facility.companyId = :companyId and i.status = :status")
+    long countByFacilityCompanyIdAndStatus(
+            @Param("companyId") Long companyId, @Param("status") InspectionStatus status);
 }

@@ -17,6 +17,7 @@ import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.DefectRevisionRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
@@ -53,6 +54,8 @@ class InspectionAnalysisServiceTest {
     @Mock
     private InspectionService inspectionService;
     @Mock
+    private InspectionRepository inspectionRepository;
+    @Mock
     private MediaRepository mediaRepository;
     @Mock
     private DefectRepository defectRepository;
@@ -85,6 +88,13 @@ class InspectionAnalysisServiceTest {
 
     private Defect defect(Long id) {
         Defect defect = Defect.builder().inspectionId(INSPECTION_ID).build();
+        ReflectionTestUtils.setField(defect, "id", id);
+        return defect;
+    }
+
+    // DefectRevisionService.createManualDefect()와 동일한 sentinel(confidence=1.0) — 코드 리뷰 P1 4차.
+    private Defect manualDefect(Long id) {
+        Defect defect = Defect.builder().inspectionId(INSPECTION_ID).confidence(1.0).build();
         ReflectionTestUtils.setField(defect, "id", id);
         return defect;
     }
@@ -253,6 +263,27 @@ class InspectionAnalysisServiceTest {
     }
 
     @Test
+    void startAnalysis_ANALYZED인데_리비전없어도_수동생성하자가있으면_ANALYSIS_NOT_ALLOWED로거부한다() {
+        // 코드 리뷰 P1 4차 — DefectRevisionService.createManualDefect()는 defect_revisions에
+        // 행을 남기지 않는다(신규 생성이라 "수정 이력"이 아님). 리비전 유무만 보면 이 수동 하자를
+        // "사람이 손댄 적 없음"으로 오판해 재분석을 허용하고, 워커가 소프트삭제(전체 비삭제 행 대상)로
+        // 방금 입력한 수동 하자까지 지워버린다 — confidence==1.0 sentinel도 함께 확인해야 막힌다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
+        when(defectRepository.findByInspectionIdAndNotDeleted(INSPECTION_ID))
+                .thenReturn(List.of(manualDefect(1L)));
+        when(defectRevisionRepository.existsByDefectIdIn(List.of(1L))).thenReturn(false);
+
+        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
+
+        verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void startAnalysis_이미지없으면_NO_MEDIA_원자적선점은시도하지않는다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
@@ -265,6 +296,42 @@ class InspectionAnalysisServiceTest {
 
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
         verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void startAnalysis_회사별동시실행상한초과시_ANALYSIS_COMPANY_CONCURRENCY_LIMIT으로거부하고_선점시도안함() {
+        // 코드 리뷰 P2 4차(noisy-neighbor) — 한 회사가 이미 상한(2건)만큼 ANALYZING 중이면, 공유
+        // 실행기 큐에 넣기 전에(tryStartAnalyzing 호출 전에) 먼저 거부해야 한다 — 안 그러면 이
+        // 회사 요청이 계속 큐를 채워 다른 회사 요청까지 밀어낸다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
+        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+                .thenReturn(List.of(image(1L)));
+        when(inspectionRepository.countByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
+                .thenReturn(2L);
+
+        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_COMPANY_CONCURRENCY_LIMIT);
+
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void startAnalysis_회사별동시실행상한미만이면_정상진행한다() {
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
+        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+                .thenReturn(List.of(image(1L)));
+        when(inspectionRepository.countByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
+                .thenReturn(1L);
+        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+
+        service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
+                eq(InspectionStatus.UPLOADING), any());
     }
 
     @Test

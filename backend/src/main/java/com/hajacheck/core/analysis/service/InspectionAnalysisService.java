@@ -8,8 +8,11 @@ import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.DefectRevisionRepository;
+import com.hajacheck.core.defect.service.DefectRevisionService;
+import com.hajacheck.core.defect.service.DefectWriter;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
@@ -56,7 +59,21 @@ public class InspectionAnalysisService {
     // 정상 진행 간격보다 충분히 커서 정상 진행 중인 잡을 오탐하지 않는다.
     private static final Duration STUCK_HEARTBEAT_THRESHOLD = Duration.ofMinutes(5);
 
+    // 수동 생성 하자 판정 sentinel(코드 리뷰 P1 3차) — DefectRevisionService.createManualDefect()가
+    // 스키마 마이그레이션 없이 AI/사람 구분을 표시하려고 쓰는 값과 동일해야 한다(그 쪽 confidence(1.0)
+    // 리터럴과 반드시 일치 — 어긋나면 이 가드가 조용히 무력화된다). 근본 해결은 AI/사람 생성 구분
+    // 컬럼 추가(#644), 그 전까지의 최선 근사치.
+    private static final Double MANUAL_DEFECT_CONFIDENCE_SENTINEL = 1.0;
+
+    // 회사별 분석 동시 실행 상한(코드 리뷰 P2 4차) — analysisTaskExecutor(AsyncConfig, 전역 공유
+    // core=max=2·queue=20)를 한 회사가 대량 요청으로 독점하면 다른 회사까지 ANALYSIS_QUEUE_FULL을
+    // 받는 noisy-neighbor 표면이다. 코어 스레드 수(2)와 동일하게 맞춰, 한 회사가 큐 슬롯 다수를
+    // 선점해도 최소한 스레드 하나만큼은 다른 회사 몫으로 남도록 한다. 완벽한 격리(파티셔닝)는 아닌
+    // 최소 방어선 — 정밀한 공정성이 필요해지면 회사별 큐 분리로 승격할 것.
+    private static final long PER_COMPANY_CONCURRENT_ANALYSIS_LIMIT = 2;
+
     private final InspectionService inspectionService;
+    private final InspectionRepository inspectionRepository;
     private final MediaRepository mediaRepository;
     private final DefectRepository defectRepository;
     private final DefectRevisionRepository defectRevisionRepository;
@@ -131,6 +148,19 @@ public class InspectionAnalysisService {
             throw new BusinessException(ErrorCode.ANALYSIS_NO_MEDIA);
         }
 
+        // 코드 리뷰 P2 4차 — 공유 실행기 큐에 넣기 전에 회사별 동시 실행 상한을 먼저 강제한다.
+        // 이 카운트는 원자적이지 않다(조회 후 아래에서 별도 UPDATE) — 동시에 여러 요청이 들어오면
+        // 상한을 살짝 넘을 수 있지만, 정확한 개수 제한이 목적이 아니라 "한 회사가 큐 전체를 독점하는
+        // 것"을 막는 최소 방어선이라 이 정도 여유는 허용한다(엄격한 단일실행 보장이 필요한
+        // startAnalyzingIfNotRunning의 원자적 조건부 UPDATE와는 목적이 다르다).
+        long companyActiveAnalyses = inspectionRepository.countByFacilityCompanyIdAndStatus(
+                companyId, InspectionStatus.ANALYZING);
+        if (companyActiveAnalyses >= PER_COMPANY_CONCURRENT_ANALYSIS_LIMIT) {
+            log.warn("회사별 분석 동시 실행 상한 초과 — companyId={} activeAnalyses={} limit={}",
+                    companyId, companyActiveAnalyses, PER_COMPANY_CONCURRENT_ANALYSIS_LIMIT);
+            throw new BusinessException(ErrorCode.ANALYSIS_COMPANY_CONCURRENCY_LIMIT);
+        }
+
         if (!inspectionService.tryStartAnalyzing(requesterUserId, companyId, inspectionId)) {
             // 이 요청과 동시에 들어온 다른 요청이 먼저 선점했다(원자적 조건부 UPDATE 영향 행 0건).
             throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
@@ -198,14 +228,39 @@ public class InspectionAnalysisService {
     }
 
     /**
-     * ANALYZED 회차의 현재 비삭제 하자 중 사람이 조정(defect_revisions 존재)한 것이 있는지
-     * 확인한다(코드 리뷰 P2, 제품 결정 완료).
+     * ANALYZED 회차의 현재 비삭제 하자 중 사람이 손댄 것이 있는지 확인한다(코드 리뷰 P2, 제품
+     * 결정 완료 / 코드 리뷰 P1 3차 확장).
+     *
+     * <p>"사람이 손댄" 판정은 두 경로를 모두 본다:
+     * <ol>
+     *   <li><b>검수 조정</b>: {@code defect_revisions} 존재(등급 조정·오탐 삭제 등 기존 하자 수정 이력).</li>
+     *   <li><b>수동 생성</b>(코드 리뷰 P1 3차): {@link DefectRevisionService#createManualDefect}로
+     *       검수자가 AI가 놓친 하자를 직접 추가한 경우. 이 경로는 {@code defect_revisions}에 아무
+     *       행도 남기지 않아(신규 생성이라 "수정 이력"이 아님) 1번만으로는 걸러지지 않았다 — 그 상태로
+     *       재분석하면 {@link InspectionAnalysisWorker}가 {@link DefectWriter#softDeleteAllForInspectionThenSave}
+     *       (비삭제 행 전체 대상)로 방금 사람이 입력한 하자까지 함께 소프트삭제해버려 무보상으로
+     *       유실된다. {@code createManualDefect}는 상태 제한이 없어 ANALYZED 회차에도 수동 추가가
+     *       가능하므로 현실적으로 도달 가능한 경로다.</li>
+     * </ol>
+     *
+     * <p>수동 생성 판정은 {@code confidence == }{@link #MANUAL_DEFECT_CONFIDENCE_SENTINEL} —
+     * {@code DefectRevisionService.createManualDefect}가 스키마 마이그레이션 없이 AI/사람 구분을
+     * 표시하려고 쓰는 sentinel 값이다({@code confidence(1.0)} 리터럴, 부동소수점 반올림 오차 없이
+     * 정확히 일치). AI 탐지 결과는 YOLO confidence를 그대로 저장하므로 실무상 정확히 1.0이 나올
+     * 일은 사실상 없지만, 완전히 배제할 수는 없는 임시방편이다 — 근본 해결은 AI/사람 생성 구분
+     * 컬럼 추가(#644)이며, 그 전까지의 최선 근사치로 이 sentinel을 쓴다.
      */
     private boolean hasUserRevisedDefects(Long inspectionId) {
-        List<Long> defectIds = defectRepository.findByInspectionIdAndNotDeleted(inspectionId).stream()
-                .map(Defect::getId)
-                .toList();
-        return !defectIds.isEmpty() && defectRevisionRepository.existsByDefectIdIn(defectIds);
+        List<Defect> defects = defectRepository.findByInspectionIdAndNotDeleted(inspectionId);
+        if (defects.isEmpty()) {
+            return false;
+        }
+        List<Long> defectIds = defects.stream().map(Defect::getId).toList();
+        if (defectRevisionRepository.existsByDefectIdIn(defectIds)) {
+            return true;
+        }
+        return defects.stream()
+                .anyMatch(defect -> MANUAL_DEFECT_CONFIDENCE_SENTINEL.equals(defect.getConfidence()));
     }
 
     /**

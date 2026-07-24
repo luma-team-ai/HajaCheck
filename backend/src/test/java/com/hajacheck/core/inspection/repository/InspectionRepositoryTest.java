@@ -128,6 +128,32 @@ class InspectionRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
+    void countByFacilityCompanyIdAndStatus_회사소유시설물전체에서상태건만집계한다() {
+        // 코드 리뷰 P2 4차(회사별 분석 동시 실행 상한) — i.facility.companyId 암묵적 조인이
+        // Facility 목록을 먼저 조회하지 않고도 회사 전체(여러 시설물) 범위로 집계되는지, 그리고
+        // 타사 데이터가 섞이지 않는지 고정한다.
+        Long ownerA = seedOwner("owner-a@haja.com");
+        Long ownerB = seedOwner("owner-b@haja.com");
+        Long companyA = em.find(User.class, ownerA).getCompanyId();
+        Long facilityA1 = seedFacility(ownerA, "A시설1");
+        Long facilityA2 = seedFacility(ownerA, "A시설2");
+        Long facilityB = seedFacility(ownerB, "B시설");
+        inspectionRepository.save(
+                newInspection(facilityA1, ownerA, ownerA, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZING));
+        inspectionRepository.save(
+                newInspection(facilityA2, ownerA, ownerA, 1, LocalDate.of(2026, 7, 2), InspectionStatus.ANALYZING));
+        inspectionRepository.save(
+                newInspection(facilityA1, ownerA, ownerA, 2, LocalDate.of(2026, 7, 3), InspectionStatus.UPLOADING));
+        // 타사(B)가 동시에 ANALYZING이어도 회사A 집계에 섞이면 안 된다.
+        inspectionRepository.save(
+                newInspection(facilityB, ownerB, ownerB, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZING));
+
+        long count = inspectionRepository.countByFacilityCompanyIdAndStatus(companyA, InspectionStatus.ANALYZING);
+
+        assertThat(count).isEqualTo(2);
+    }
+
+    @Test
     void countByFacilityIdInAndStatusInAndInspectionDateRange_기간내만집계() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
