@@ -23,7 +23,11 @@ export function filterFacilities(
       facility.name.toLowerCase().includes(query) ||
       facility.address.toLowerCase().includes(query);
 
-    const matchesCategory = selectedCategory === '전체' || facility.category === selectedCategory;
+    // facility.category는 "건물-정기-4개월" 같은 {종류}-{점검유형}-{주기} 복합 문자열(#731)일 수
+    // 있어 완전일치 대신 접두어로 비교한다. 레거시 단일 값("건물" 등)은 split 결과가 원본과 같아
+    // 그대로 매칭된다(#761).
+    const matchesCategory =
+      selectedCategory === '전체' || facility.category.split('-')[0] === selectedCategory;
 
     return matchesSearch && matchesCategory;
   });
