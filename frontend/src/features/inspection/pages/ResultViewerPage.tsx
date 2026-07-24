@@ -367,8 +367,6 @@ export function ResultViewerPage() {
                   media={{
                     id: currentMediaGroup?.mediaId ?? 0,
                     imageUrl: currentMediaGroup?.imageUrl ?? '',
-                    width: 1,
-                    height: 1,
                   }}
                   defects={currentDefects}
                   selectedId={selected?.id}

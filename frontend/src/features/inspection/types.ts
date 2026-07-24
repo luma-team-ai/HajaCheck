@@ -31,8 +31,10 @@ export interface Defect {
 export interface InspectionMedia {
   id: number;
   imageUrl: string;
-  width: number;
-  height: number;
+  // 백엔드가 실제 이미지 크기를 제공하지 않음(#781) — 항상 undefined. DefectOverlay는 값이
+  // 없으면 maxWidth 제약을 걸지 않고 컨테이너 폭 그대로(w-full) 렌더링한다.
+  width?: number;
+  height?: number;
 }
 
 // 촬영 데이터 업로드 — API 명세서 v0.3 AP-005, POST /api/inspections/{id}/media.

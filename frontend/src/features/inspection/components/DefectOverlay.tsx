@@ -11,7 +11,7 @@ interface DefectOverlayProps {
 // 확정 디자인(선택 시 마젠타 #d946ef 하이라이트)으로 교체 완료. 회귀 아님(#367 QA 확인).
 export function DefectOverlay({ media, defects, selectedId, onSelect }: DefectOverlayProps) {
   return (
-    <div className="relative w-full" style={{ maxWidth: media.width }}>
+    <div className="relative w-full" style={media.width ? { maxWidth: media.width } : undefined}>
       <img src={media.imageUrl} alt="점검 이미지" className="block w-full" />
       {defects.map((defect) => {
         const isSelected = selectedId === defect.id;

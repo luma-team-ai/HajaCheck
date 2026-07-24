@@ -22,6 +22,8 @@ import defaultAvatarIcon from '../../../assets/brand/sidenav-default-avatar.svg'
 export interface SideNavSubItem {
   label: string;
   href: string;
+  /** 라벨 텍스트 변경에 안전하게 특정 항목을 찾기 위한 안정 식별자(선택) — 동적 링크 생성 등에 사용 */
+  id?: string;
 }
 
 export interface SideNavItem {
@@ -106,8 +108,8 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     icon: inspectionsIcon,
     subItems: [
       { label: '점검(회차) 생성', href: '/inspections/create' },
-      { label: 'AI 분석 실행/상태', href: '/inspections/ai-analysis' },
-      { label: '분석 결과 뷰어', href: '/inspections/1/viewer' },
+      { id: 'ai-analysis', label: 'AI 분석 실행/상태', href: '/inspections/ai-analysis' },
+      { id: 'result-viewer', label: '분석 결과 뷰어', href: '/inspections/1/viewer' },
       { label: '보고서 생성 진입점', href: '/inspections/report-entry' },
     ],
   },
@@ -200,12 +202,12 @@ export function SideNavBar({
         return {
           ...item,
           subItems: (item.subItems || []).map((sub) => {
-            if (sub.label === 'AI 분석 실행/상태') {
+            if (sub.id === 'ai-analysis') {
               return activeInspectionId
                 ? { ...sub, href: `/inspections/${activeInspectionId}/analysis` }
                 : sub;
             }
-            if (sub.label === '분석 결과 뷰어') {
+            if (sub.id === 'result-viewer') {
               return activeInspectionId
                 ? { ...sub, href: `/inspections/${activeInspectionId}/viewer` }
                 : sub;
