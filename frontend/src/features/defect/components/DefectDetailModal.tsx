@@ -88,7 +88,6 @@ export function DefectDetailModal({ defectId, onClose }: Props) {
     // 모달은 InspectionDefectsPage에서 조건부로 마운트/언마운트되므로(열림=마운트) 마운트 시
     // 1회만 실행 — defect 데이터가 로딩 후 채워져도 트랩을 재설정할 필요는 없다(포커스 가능 요소
     // 목록은 매 Tab 입력마다 다시 조회하므로 최신 DOM을 반영한다).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
