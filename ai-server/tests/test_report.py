@@ -1091,7 +1091,11 @@ def test_report_recommendation_rag_verified_and_unverified_flows():
 
 
 def test_canonical_content_hash_golden_cross_language_verification():
-    """Python _canonical_content_hash의 정규화 JSON SHA-256 결과가 백엔드 Java SHA-256과 1:1 동기화되는지 검증."""
+    """Python _canonical_content_hash의 정규화 JSON SHA-256 결과가 백엔드 Java
+    GroundingCheckTarget.hash()와 동일 입력에 대해 동일 해시를 내는지 검증(HAJA-397).
+    이 고정 해시값은 backend GroundingCheckTargetTest.java의
+    contentHashMatchesPythonCanonicalGoldenValue()와 동일 payload로 대조된다 — 둘 중 하나만
+    바뀌어도 실패해야 진짜 크로스언어 검증이다."""
     sample_content = {
         "overview": {"purpose": "정기점검", "facility_summary": "강남빌딩", "scope": "외벽"},
         "summary": {
@@ -1127,8 +1131,9 @@ def test_canonical_content_hash_golden_cross_language_verification():
     }
 
     content_hash = _canonical_content_hash(sample_content)
-    assert len(content_hash) == 64
-    assert isinstance(content_hash, str)
+    assert content_hash == (
+        "629f35f1e9aae5437d143cd2edc3e304a57dfefa888e75ae255ebb397f8f6323"
+    )
 
 
 if __name__ == "__main__":
