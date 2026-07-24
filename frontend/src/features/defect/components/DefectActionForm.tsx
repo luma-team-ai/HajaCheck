@@ -1,4 +1,11 @@
-import { useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react';
+import {
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { Button } from '../../../shared/components/Button';
 import { useDefectAssignableUsers } from '../hooks/useDefectAssignableUsers';
 import { useSubmitDefectAction } from '../hooks/useSubmitDefectAction';
@@ -32,7 +39,7 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: assignableUsers, isLoading: isAssigneeLoading } = useDefectAssignableUsers();
-  const { uploadActionPhoto, isPending: isUploading } = useUploadDefectActionPhoto();
+  const { uploadActionPhoto, isPending: isUploading, error: uploadError } = useUploadDefectActionPhoto();
   const { submitAction, isPending: isSubmitting, error: submitError } = useSubmitDefectAction(
     defectId,
     inspectionId,
@@ -93,6 +100,14 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
     setIsDragActive(false);
   }
 
+  // 드롭존이 role="button"이라 클릭뿐 아니라 키보드(Enter/Space)로도 활성화돼야 한다(코드리뷰 P1).
+  function handleDropzoneKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+      event.preventDefault();
+      fileInputRef.current?.click();
+    }
+  }
+
   const canSubmit =
     file != null &&
     actionContent.trim().length > 0 &&
@@ -132,6 +147,7 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onClick={() => fileInputRef.current?.click()}
+          onKeyDown={handleDropzoneKeyDown}
           role="button"
           tabIndex={0}
         >
@@ -189,6 +205,12 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
           ))}
         </select>
       </div>
+
+      {uploadError && (
+        <p className="defect-action-form__error" role="alert">
+          조치 후 사진 업로드에 실패했습니다. 잠시 후 다시 시도해 주세요.
+        </p>
+      )}
 
       {submitError && (
         <p className="defect-action-form__error" role="alert">

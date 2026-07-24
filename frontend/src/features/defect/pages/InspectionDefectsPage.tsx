@@ -21,9 +21,14 @@ export function InspectionDefectsPage() {
   const { data: defects, isLoading, isError, refetch } = useInspectionDefects(inspectionId);
   const [selectedDefectId, setSelectedDefectId] = useState<number | null>(null);
 
+  const isModalOpen = selectedDefectId != null;
+
   return (
     <div className="inspection-defects-page">
-      <div className="inspection-defects-page__scroll">
+      {/* 모달이 열려 있는 동안 배경 콘텐츠를 스크린리더에서 숨긴다(코드리뷰 P1 — 포커스 트랩과
+          별개로, aria-hidden이 없으면 배경 텍스트가 그대로 읽힌다). 실제 키보드 포커스 이동은
+          DefectDetailModal의 자체 Tab 트랩이 막는다. */}
+      <div className="inspection-defects-page__scroll" aria-hidden={isModalOpen || undefined}>
         <nav className="inspection-defects-page__breadcrumb" aria-label="하자 관리 현재 위치">
           <span>하자 관리</span>
           <span aria-hidden="true">›</span>
