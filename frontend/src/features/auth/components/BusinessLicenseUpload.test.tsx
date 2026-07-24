@@ -1,11 +1,25 @@
 // @vitest-environment jsdom
 // #298 — OCR 예상화면(잘못된 랜딩 히어로 이미지) 제거 + 드래그앤드롭 업로드 버튼 회귀 방지.
 // 특히 드롭 경로 검증(accept 속성이 드래그앤드롭엔 적용되지 않는 문제)을 고정하는 테스트 포함.
+// #748 — 업로드 이미지 썸네일 미리보기·OCR 결과 피드백 테스트 포함.
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BusinessLicenseUpload } from './BusinessLicenseUpload';
 
 afterEach(cleanup);
+
+// jsdom은 URL.createObjectURL/revokeObjectURL을 구현하지 않으므로 직접 스텁한다
+// (FacilityPhotoUploadField.test.tsx와 동일 패턴).
+let createObjectURLMock: ReturnType<typeof vi.fn>;
+let revokeObjectURLMock: ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  let counter = 0;
+  createObjectURLMock = vi.fn(() => `blob:mock-${counter++}`);
+  revokeObjectURLMock = vi.fn();
+  URL.createObjectURL = createObjectURLMock as unknown as typeof URL.createObjectURL;
+  URL.revokeObjectURL = revokeObjectURLMock as unknown as typeof URL.revokeObjectURL;
+});
 
 function getDropzone() {
   // 드롭존 컨테이너 = "파일을 끌어다 놓거나" 문구의 부모 요소
@@ -89,5 +103,114 @@ describe('BusinessLicenseUpload', () => {
 
     rerender(<BusinessLicenseUpload file={null} onFileSelect={vi.fn()} isOcrLoading={true} />);
     expect(screen.getByRole('status').textContent).toContain('자동인식하는 중입니다');
+  });
+
+  // #748 — 업로드 이미지 썸네일 미리보기
+  // 장식용 썸네일이라 alt=""를 쓰는데, 이 경우 암묵적 role은 "presentation"이라
+  // getByRole('img')로는 찾히지 않는다(a11y 트리에서 제외) — container.querySelector로 확인한다.
+  it('이미지 파일을 선택하면 썸네일을 렌더링하고 objectURL을 생성한다', () => {
+    const file = new File(['dummy'], 'license.png', { type: 'image/png' });
+    const { container } = render(<BusinessLicenseUpload file={file} onFileSelect={vi.fn()} />);
+
+    expect(createObjectURLMock).toHaveBeenCalledWith(file);
+    const thumbnail = container.querySelector('img') as HTMLImageElement | null;
+    expect(thumbnail).not.toBeNull();
+    expect(thumbnail?.src).toContain('blob:mock-0');
+  });
+
+  it('PDF 파일은 썸네일 대신 기존 📄 아이콘을 유지한다(objectURL 생성 안 함)', () => {
+    const file = new File(['%PDF-1.4'], 'license.pdf', { type: 'application/pdf' });
+    const { container } = render(<BusinessLicenseUpload file={file} onFileSelect={vi.fn()} />);
+
+    expect(createObjectURLMock).not.toHaveBeenCalled();
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByText('license.pdf')).not.toBeNull();
+  });
+
+  it('파일을 다른 이미지로 교체하면 이전 objectURL을 revoke하고 새 objectURL을 생성한다', () => {
+    const fileA = new File(['a'], 'a.png', { type: 'image/png' });
+    const fileB = new File(['b'], 'b.png', { type: 'image/png' });
+    const { rerender } = render(<BusinessLicenseUpload file={fileA} onFileSelect={vi.fn()} />);
+
+    expect(createObjectURLMock).toHaveBeenCalledTimes(1);
+
+    rerender(<BusinessLicenseUpload file={fileB} onFileSelect={vi.fn()} />);
+
+    expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:mock-0');
+    expect(createObjectURLMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('언마운트 시 생성된 objectURL을 revoke한다', () => {
+    const file = new File(['dummy'], 'license.png', { type: 'image/png' });
+    const { unmount } = render(<BusinessLicenseUpload file={file} onFileSelect={vi.fn()} />);
+
+    unmount();
+
+    expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:mock-0');
+  });
+
+  // #748 — OCR 진행 스피너 강조: role=status는 유지하되 회전 스피너(장식용 span)가 함께 있어야 한다.
+  it('isOcrLoading이 true면 role=status 로딩 박스 안에 회전 스피너를 함께 렌더링한다', () => {
+    render(<BusinessLicenseUpload file={null} onFileSelect={vi.fn()} isOcrLoading={true} />);
+
+    const statusBox = screen.getByRole('status');
+    expect(statusBox.querySelector('.animate-spin')).not.toBeNull();
+  });
+
+  // #748 — OCR 성공/실패 결과 피드백
+  it('ocrFeedback이 success면 채운 필드 수를 포함한 안내 문구를 노출한다', () => {
+    render(
+      <BusinessLicenseUpload
+        file={null}
+        onFileSelect={vi.fn()}
+        ocrFeedback={{ status: 'success', filledCount: 3 }}
+      />,
+    );
+
+    expect(screen.getByText('✓ 3개 항목이 자동입력됐어요')).not.toBeNull();
+  });
+
+  it('ocrFeedback이 empty면 인식된 정보가 없다는 중립 안내를 노출한다', () => {
+    render(
+      <BusinessLicenseUpload
+        file={null}
+        onFileSelect={vi.fn()}
+        ocrFeedback={{ status: 'empty', filledCount: 0 }}
+      />,
+    );
+
+    expect(
+      screen.getByText('인식된 정보가 없어요. 아래 항목을 직접 입력해 주세요'),
+    ).not.toBeNull();
+  });
+
+  it('ocrFeedback이 error면 실패 안내를 노출하고, isOcrLoading이 true인 동안은 감춘다', () => {
+    const { rerender } = render(
+      <BusinessLicenseUpload
+        file={null}
+        onFileSelect={vi.fn()}
+        isOcrLoading={true}
+        ocrFeedback={{ status: 'error', filledCount: 0 }}
+      />,
+    );
+    expect(screen.queryByText(/자동인식에 실패했어요/)).toBeNull();
+
+    rerender(
+      <BusinessLicenseUpload
+        file={null}
+        onFileSelect={vi.fn()}
+        isOcrLoading={false}
+        ocrFeedback={{ status: 'error', filledCount: 0 }}
+      />,
+    );
+    expect(screen.getByText(/자동인식에 실패했어요/)).not.toBeNull();
+  });
+
+  it('ocrFeedback이 없으면 결과 피드백 문구를 노출하지 않는다', () => {
+    render(<BusinessLicenseUpload file={null} onFileSelect={vi.fn()} ocrFeedback={null} />);
+
+    expect(screen.queryByText(/자동입력됐어요/)).toBeNull();
+    expect(screen.queryByText(/인식된 정보가 없어요/)).toBeNull();
+    expect(screen.queryByText(/자동인식에 실패했어요/)).toBeNull();
   });
 });

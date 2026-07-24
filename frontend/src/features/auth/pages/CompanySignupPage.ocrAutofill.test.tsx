@@ -346,3 +346,129 @@ describe('CompanySignupPage — 사업자등록증 OCR 자동채움(#587)', () =
     expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(MOCK_OCR_COMPANY_NAME);
   });
 });
+
+describe('CompanySignupPage — OCR 결과 피드백·자동채움 배지(#748)', () => {
+  it('OCR 성공(4필드 모두 채움) 시 "4개 항목이 자동입력됐어요" 피드백을 노출한다', async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pngFile()] } });
+
+    await waitFor(() => {
+      expect(screen.getByText('✓ 4개 항목이 자동입력됐어요')).not.toBeNull();
+    });
+  });
+
+  it('OCR이 인식된 값을 하나도 주지 못하면 중립 안내를 노출한다', async () => {
+    server.use(
+      http.post('/api/auth/business-license/ocr', () => {
+        const success: ApiResponse<{
+          businessRegistrationNumber: string | null;
+          companyName: string | null;
+          representativeName: string | null;
+          businessStartDate: string | null;
+        }> = {
+          success: true,
+          data: {
+            businessRegistrationNumber: null,
+            companyName: null,
+            representativeName: null,
+            businessStartDate: null,
+          },
+        };
+        return HttpResponse.json(success);
+      }),
+    );
+
+    renderPage();
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pngFile()] } });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('인식된 정보가 없어요. 아래 항목을 직접 입력해 주세요'),
+      ).not.toBeNull();
+    });
+  });
+
+  it('OCR이 400으로 실패하면 인라인 실패 안내를 노출하되 폼 제출은 막지 않는다', async () => {
+    server.use(
+      http.post('/api/auth/business-license/ocr', () => {
+        const failure: ApiResponse<null> = {
+          success: false,
+          data: null,
+          error: { code: 'FILE_INVALID_TYPE', message: '지원하지 않는 파일 형식입니다.' },
+        };
+        return HttpResponse.json(failure, { status: 400 });
+      }),
+    );
+
+    renderPage();
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pngFile()] } });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('자동인식에 실패했어요. 아래 항목을 직접 입력해 주세요'),
+      ).not.toBeNull();
+    });
+    // 수동 입력은 여전히 가능해야 한다(가입을 막지 않음).
+    fireEvent.change(screen.getByLabelText('사업자등록번호'), { target: { value: '1112223334' } });
+    expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe('1112223334');
+  });
+
+  it('새 파일을 다시 선택하면 이전 피드백이 초기화된다', async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pngFile()] } });
+    await waitFor(() => {
+      expect(screen.getByText('✓ 4개 항목이 자동입력됐어요')).not.toBeNull();
+    });
+
+    // PDF는 OCR을 호출하지 않으므로 재선택 직후 이전 피드백이 즉시 사라져야 한다.
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pdfFile()] } });
+    expect(screen.queryByText('✓ 4개 항목이 자동입력됐어요')).toBeNull();
+  });
+
+  it('PDF 업로드(OCR 미호출) 시에는 로딩·성공·실패 피드백이 전혀 뜨지 않는다', async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pdfFile()] } });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByText(/자동입력됐어요/)).toBeNull();
+    expect(screen.queryByText(/인식된 정보가 없어요/)).toBeNull();
+    expect(screen.queryByText(/자동인식에 실패했어요/)).toBeNull();
+  });
+
+  it('OCR로 채워진 필드에는 "자동인식" 배지가 붙고, 값을 직접 수정하면 배지가 사라진다', async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pngFile()] } });
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(
+        MOCK_OCR_COMPANY_NAME,
+      );
+    });
+    expect(screen.getAllByText('자동인식')).toHaveLength(4);
+
+    fireEvent.change(screen.getByLabelText('상호명'), { target: { value: '수정된 상호명' } });
+
+    expect(screen.getAllByText('자동인식')).toHaveLength(3);
+  });
+
+  it('이미 값이 채워진 필드는 OCR로 새로 채워지지 않으므로 배지가 붙지 않는다', async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('사업자등록번호'), { target: { value: '9999999999' } });
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pngFile()] } });
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(
+        MOCK_OCR_COMPANY_NAME,
+      );
+    });
+    // 4필드 중 사용자가 이미 입력한 사업자등록번호를 제외한 3필드만 자동채움됐다.
+    expect(screen.getAllByText('자동인식')).toHaveLength(3);
+    expect(screen.getByText('✓ 3개 항목이 자동입력됐어요')).not.toBeNull();
+  });
+});
