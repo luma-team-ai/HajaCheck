@@ -59,6 +59,10 @@ class InspectionAnalysisWorkerTest {
     private static final Long USER_ID = 1L;
     private static final Long COMPANY_ID = 10L;
     private static final Long INSPECTION_ID = 100L;
+    // 세대 토큰(코드 리뷰 P1) — 대부분의 테스트는 펜싱과 무관하므로 findGeneration을 스텁하지
+    // 않는다(기본값 Optional.empty() → isCurrentGeneration이 "유효함"으로 보수적으로 판단해 기존
+    // 동작이 그대로 유지된다). 펜싱 자체를 검증하는 테스트만 findGeneration을 별도로 스텁한다.
+    private static final String GENERATION = "gen-1";
 
     private Media image(Long id) {
         Media media = Media.builder()
@@ -78,7 +82,7 @@ class InspectionAnalysisWorkerTest {
         when(aiProxyService.detectDefects(anyString())).thenThrow(new RuntimeException("AI 서버 다운"));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
-                InspectionStatus.UPLOADING);
+                InspectionStatus.UPLOADING, GENERATION);
 
         verify(inspectionService, never())
                 .advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.ANALYZED);
@@ -106,7 +110,7 @@ class InspectionAnalysisWorkerTest {
                 .thenThrow(new RuntimeException("타임아웃"));
         when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(ok, fail), InspectionStatus.UPLOADING);
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(ok, fail), InspectionStatus.UPLOADING, GENERATION);
 
         verify(inspectionService)
                 .advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.ANALYZED);
@@ -129,7 +133,7 @@ class InspectionAnalysisWorkerTest {
         ));
         when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING);
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING, GENERATION);
 
         ArgumentCaptor<AnalysisStatusResponse> captor = ArgumentCaptor.forClass(AnalysisStatusResponse.class);
         verify(progressStore, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
@@ -151,7 +155,7 @@ class InspectionAnalysisWorkerTest {
         when(aiProxyService.detectDefects(anyString())).thenThrow(new RuntimeException("AI 서버 다운"));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
-                InspectionStatus.UPLOADING);
+                InspectionStatus.UPLOADING, GENERATION);
 
         verify(defectWriter, never()).softDeleteAllForInspectionThenSave(any(), any());
     }
@@ -166,7 +170,7 @@ class InspectionAnalysisWorkerTest {
         when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L), image(3L)),
-                InspectionStatus.UPLOADING);
+                InspectionStatus.UPLOADING, GENERATION);
 
         verify(defectWriter, org.mockito.Mockito.times(1))
                 .softDeleteAllForInspectionThenSave(eq(INSPECTION_ID), any());
@@ -180,7 +184,7 @@ class InspectionAnalysisWorkerTest {
         when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
-                InspectionStatus.UPLOADING);
+                InspectionStatus.UPLOADING, GENERATION);
 
         InOrder inOrder = Mockito.inOrder(defectWriter);
         inOrder.verify(defectWriter).softDeleteAllForInspectionThenSave(eq(INSPECTION_ID), any());
@@ -198,7 +202,7 @@ class InspectionAnalysisWorkerTest {
         when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
-                InspectionStatus.UPLOADING);
+                InspectionStatus.UPLOADING, GENERATION);
 
         verify(defectWriter, org.mockito.Mockito.times(1))
                 .softDeleteAllForInspectionThenSave(eq(INSPECTION_ID), any());
@@ -215,9 +219,43 @@ class InspectionAnalysisWorkerTest {
         org.mockito.Mockito.doThrow(new RuntimeException("제약 위반"))
                 .when(defectWriter).softDeleteAllForInspectionThenSave(any(), any());
 
-        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING);
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING, GENERATION);
 
         verify(inspectionService, never())
+                .advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.ANALYZED);
+    }
+
+    @Test
+    void runAsync_세대토큰이바뀌면_이후쓰기와상태전이없이_첫번째쓰기시점에조용히중단한다() {
+        // 코드 리뷰 P1(워커 펜싱) — 진행률 저장소에 기록된 "현재" 세대 토큰이 이 실행이 받은 토큰과
+        // 다르면(다른 실행이 재선점해 자신이 추월당함) DB에 더 이상 쓰지 않고 즉시 중단해야 한다.
+        // detect()는 성공해서 쓰기 직전까지 도달하지만, 그 직전 토큰 확인에서 걸려 소프트삭제/저장
+        // 어느 쪽도 호출되지 않고, 두 번째 이미지는 시도조차 하지 않는다(즉시 return).
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(detection("CRACK", "A")));
+        when(progressStore.findGeneration(INSPECTION_ID)).thenReturn(java.util.Optional.of("other-gen-추월함"));
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
+                InspectionStatus.UPLOADING, GENERATION);
+
+        verify(defectWriter, never()).softDeleteAllForInspectionThenSave(any(), any());
+        verify(defectWriter, never()).saveAll(any());
+        verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
+        verify(aiProxyService, org.mockito.Mockito.times(1)).detectDefects(anyString());
+    }
+
+    @Test
+    void runAsync_세대토큰저장소가비어있으면_펜싱정보없음으로보고정상진행한다() {
+        // fail-soft(코드 리뷰 P1) — findGeneration이 비어있으면(TTL 만료·Redis 장애 등) "펜싱 정보
+        // 없음"으로 보수적으로 계속 진행한다. 이 저장소 장애가 정상 진행 중인 분석 잡까지 막으면 안 된다.
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(detection("CRACK", "A")));
+        when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(progressStore.findGeneration(INSPECTION_ID)).thenReturn(java.util.Optional.empty());
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING, GENERATION);
+
+        verify(inspectionService)
                 .advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.ANALYZED);
     }
 

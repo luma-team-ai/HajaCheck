@@ -43,6 +43,16 @@ import org.springframework.stereotype.Component;
  * 그 삭제는 첫 이미지의 저장과 {@link DefectWriter#softDeleteAllForInspectionThenSave} 한 트랜잭션으로
  * 원자화돼 있다 — saveAll만 따로 뒤에 두면 실패 시 삭제가 보상 안 되고, 반대로 저장부터 하면 방금
  * 저장한 새 하자까지 소프트삭제(전체 비삭제 행 대상)에 휩쓸려 지워지는 두 오답을 모두 피한다.
+ *
+ * <p><b>세대 토큰 펜싱</b>(코드 리뷰 P1) — {@link InspectionAnalysisService}의 ANALYZING 고착 복구는
+ * 하트비트만으로 판단하므로 오탐 가능성이 있다(이 워커가 실제로는 아직 살아서 도는 중인데, 진행률
+ * 캐시 갱신이 지연되거나 분석 실행기 큐가 밀려 첫 이미지 처리 자체가 늦게 시작된 경우 등). 오탐이면
+ * 원본 워커가 여전히 도는 채로 재선점된 새 워커가 하나 더 뜨는데, 아무 방지 장치가 없으면 두 워커가
+ * 같은 회차에 동시에 defect를 쓰면서(append 중복·유령 행) 데이터가 손상된다. 이를 막기 위해 이
+ * 워커는 DB에 쓰기 직전마다({@link #isCurrentGeneration}) 자신이 받은 세대 토큰이 여전히
+ * {@link AnalysisProgressStore}상 "현재" 토큰인지 확인하고, 다르면(다른 실행이 재선점해 새 토큰을
+ * 발급함 = 자신이 추월당함) 조용히 중단한다(더 이상 쓰기·상태전이 없이 return) — 예외를 던지지 않는
+ * 이유는 이게 오류가 아니라 "정상적으로 다른 실행에 자리를 내준 것"이기 때문이다.
  */
 @Slf4j
 @Component
@@ -60,10 +70,12 @@ public class InspectionAnalysisWorker {
      *                             픽스: 이미지 전체가 실패하면 이 값으로 되돌려 ANALYZED(완료)로
      *                             오인 전이하지 않는다(InspectionAnalysisService가 큐잉 실패 시
      *                             동일 값으로 롤백하는 것과 대칭 — 정상 완료가 아니면 항상 이 값으로 복귀).
+     * @param generation 이 실행이 선점될 때 발급된 세대 토큰(코드 리뷰 P1, 클래스 javadoc "세대 토큰
+     *                   펜싱" 참고) — DB 쓰기 직전마다 {@link #isCurrentGeneration}으로 유효성을 재확인한다.
      */
     @Async(AsyncConfig.ANALYSIS_TASK_EXECUTOR)
     public void runAsync(Long requesterUserId, Long companyId, Long inspectionId, List<Media> images,
-                          InspectionStatus statusBeforeAnalysis) {
+                          InspectionStatus statusBeforeAnalysis, String generation) {
         List<FileProgress> files = new ArrayList<>(images.size());
         for (int i = 0; i < images.size(); i++) {
             files.add(new FileProgress(images.get(i).getId(), displayName(i), "waiting", null, "-"));
@@ -104,6 +116,15 @@ public class InspectionAnalysisWorker {
                         riskyCrackCount++;
                     }
                 }
+                // 코드 리뷰 P1 — DB에 쓰기 직전 세대 토큰을 재확인한다(클래스 javadoc "세대 토큰
+                // 펜싱" 참고). 다른 실행이 재선점해 자신이 추월당했으면 이 이미지의 결과를 버리고
+                // 즉시 중단한다 — 여기서 계속 쓰면 재선점된 새 워커의 결과와 뒤섞여 손상된다.
+                if (!isCurrentGeneration(inspectionId, generation)) {
+                    log.warn("분석 세대 토큰 불일치(추월당함) — inspectionId={} mediaId={} 쓰기를 건너뛰고 중단한다",
+                            inspectionId, media.getId());
+                    return;
+                }
+
                 // 코드 리뷰 P2(잔여 창) — 소프트삭제와 "첫" 저장을 DefectWriter 쪽 한 트랜잭션으로
                 // 묶는다(원자화). saveAll만 따로 뒤에 두면 그 사이 예외가 났을 때 이미 커밋된 삭제가
                 // 보상되지 않고, 반대로 저장부터 하고 삭제하면 방금 저장한 새 하자까지
@@ -138,6 +159,14 @@ public class InspectionAnalysisWorker {
         // stage를 "aiDetection"이 아니라 "failed"로 명시한다(코드 리뷰 P2, 프론트 폴링 종료 신호) —
         // "aiDetection"으로 두면 useAnalysisStatus가 stage==='done'만 폴링 중단 조건으로 보므로
         // 실패한 잡을 영원히 "진행 중 0%"로 오인해 폴링을 멈추지 않는다.
+        // 코드 리뷰 P1 — 상태전이(advanceStatus) 직전에도 세대 토큰을 한 번 더 확인한다. 마지막
+        // 이미지의 쓰기 시점 확인을 통과한 뒤에도, 그 이후(집계 등 순수 연산만 남은 짧은 구간)
+        // 추월당했을 가능성을 마저 좁힌다.
+        if (!isCurrentGeneration(inspectionId, generation)) {
+            log.warn("분석 세대 토큰 불일치(추월당함) — inspectionId={} 상태전이를 건너뛰고 중단한다", inspectionId);
+            return;
+        }
+
         if (successCount == 0 && !images.isEmpty()) {
             log.warn("AI 분석 전체 실패 — inspectionId={} totalImages={} — ANALYZED 전이를 건너뛰고 {}로 되돌린다",
                     inspectionId, images.size(), statusBeforeAnalysis);
@@ -155,6 +184,17 @@ public class InspectionAnalysisWorker {
                 inspectionId, "done", 100, images.size(), images.size(), files,
                 detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount, Instant.now());
         progressStore.save(done);
+    }
+
+    /**
+     * 세대 토큰이 여전히 유효한지 확인한다(코드 리뷰 P1, 클래스 javadoc "세대 토큰 펜싱" 참고).
+     * 저장소가 비어있거나 장애로 못 읽으면(fail-soft) 펜싱 정보가 없는 것으로 보아 보수적으로
+     * "유효함(계속 진행)"으로 판단한다 — 저장소 장애가 정상 진행 중인 분석 잡까지 막아버리면 안 된다.
+     */
+    private boolean isCurrentGeneration(Long inspectionId, String generation) {
+        return progressStore.findGeneration(inspectionId)
+                .map(generation::equals)
+                .orElse(true);
     }
 
     private List<DetectedDefectItem> detect(Media media) {

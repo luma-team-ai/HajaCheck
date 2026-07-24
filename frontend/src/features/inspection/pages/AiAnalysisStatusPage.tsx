@@ -54,15 +54,46 @@ function fromMockStatus(s: AiAnalysisStatus): ViewModel {
   };
 }
 
+// 코드 리뷰 P3 — 등급별 퍼센트를 Math.round로 각각 독립 반올림하면(예: 1/1/1건 → 33.33%씩)
+// 33+33+33=99%처럼 합계가 100%에서 어긋나 스택 바에 빈 틈이 남거나 넘칠 수 있다. 최대 나머지
+// (largest-remainder) 방식 — 먼저 내림한 뒤, 버려진 소수부(나머지)가 큰 등급부터 1%씩 배분해
+// 정수 퍼센트의 합이 항상 100이 되도록 맞춘다. 렌더 로직과 분리된 순수 함수라 직접 테스트한다.
+export function computeSeverityPercentages(
+  counts: Record<'A' | 'B' | 'C' | 'D' | 'E', number>,
+): Record<'A' | 'B' | 'C' | 'D' | 'E', number> {
+  const grades = ['A', 'B', 'C', 'D', 'E'] as const;
+  const total = grades.reduce((sum, grade) => sum + counts[grade], 0);
+  if (total === 0) {
+    return { A: 0, B: 0, C: 0, D: 0, E: 0 };
+  }
+
+  const raw = grades.map((grade) => (counts[grade] / total) * 100);
+  const floors = raw.map(Math.floor);
+  const leftover = 100 - floors.reduce((sum, value) => sum + value, 0);
+
+  // 나머지(소수부)가 큰 등급부터 leftover(정수, 0 이상 grades.length 미만)개만큼 +1 — 동률이면
+  // A→E 순서로 결정론적으로 배분한다(테스트 재현성).
+  const byRemainderDesc = grades
+    .map((grade, index) => ({ grade, index, remainder: raw[index] - floors[index] }))
+    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+
+  const result: Record<'A' | 'B' | 'C' | 'D' | 'E', number> = { A: floors[0], B: floors[1], C: floors[2], D: floors[3], E: floors[4] };
+  for (let i = 0; i < leftover; i++) {
+    result[byRemainderDesc[i].grade] += 1;
+  }
+  return result;
+}
+
 function fromRealStatus(s: AnalysisStatusResponse): ViewModel {
   const grades = ['A', 'B', 'C', 'D', 'E'] as const;
   const totalGraded = grades.reduce((sum, grade) => sum + s.severityDistribution[grade], 0);
+  const percentages = computeSeverityPercentages(s.severityDistribution);
   const severityDistribution =
     totalGraded === 0
       ? []
       : grades.map((grade) => ({
           grade,
-          percentage: Math.round((s.severityDistribution[grade] / totalGraded) * 100),
+          percentage: percentages[grade],
           color: CHART_GRADE_COLORS[grade],
         }));
 
@@ -117,6 +148,11 @@ export function AiAnalysisStatusPage() {
   // 이 상태에서 폴링을 멈추므로(무한 "진행 중 0%" 방지), 화면에서도 명확히 실패로 안내하고
   // 재시도 경로(POST /analyze 재호출)를 열어둔다 — 안 그러면 화면 이탈 말고는 빠져나갈 길이 없다.
   const isFailed = status.stage === 'failed';
+  // 코드 리뷰 P2(막다른 길 수정) — InspectionCreatePage가 POST /analyze 트리거 실패를 조용히
+  // 삼키고 이 화면으로 이동하면, 분석이 아예 시작되지 않아 stage가 'upload'(rebuildFromDb의
+  // "분석된 적 없음" 분기)로 재구성된다. 이전에는 이 상태에서 분석을 시작/재시도할 버튼이 전혀
+  // 없어(취소·검수시작 둘 다 disabled) 사용자가 화면을 이탈하는 것 말고는 빠져나갈 길이 없었다.
+  const isPreAnalysis = status.stage === 'upload';
 
   const handleRetry = async () => {
     if (!isRealMode || inspectionId === null || isRetrying) {
@@ -312,15 +348,17 @@ export function AiAnalysisStatusPage() {
 
         <div className="absolute inset-x-0 bottom-0 flex items-center justify-between rounded-b-[20px] border-t border-neutral-200/50 bg-white/70 px-8 py-4 backdrop-blur">
           <p className="m-0 text-[13px] text-neutral-500">
-            {isFailed ? (
-              <span className="font-medium text-[#BA1A1A]">
-                {retryError ?? 'AI 분석에 실패했습니다. 다시 시도해 주세요.'}
-              </span>
+            {retryError ? (
+              <span className="font-medium text-[#BA1A1A]">{retryError}</span>
+            ) : isFailed ? (
+              <span className="font-medium text-[#BA1A1A]">AI 분석에 실패했습니다. 다시 시도해 주세요.</span>
             ) : status.failedCount > 0 ? (
               <>
                 실패 <span className="font-medium text-[#BA1A1A]">{status.failedCount}건</span>
               </>
-            ) : status.stage === 'upload' ? (
+            ) : isPreAnalysis && isRealMode ? (
+              'AI 분석이 아직 시작되지 않았습니다 — 분석 시작을 눌러 주세요'
+            ) : isPreAnalysis ? (
               'AI 분석 대기 중입니다'
             ) : isDone ? (
               '분석이 완료됐습니다'
@@ -332,6 +370,14 @@ export function AiAnalysisStatusPage() {
             {isFailed ? (
               <Button type="button" variant="primary" onClick={() => void handleRetry()} disabled={isRetrying}>
                 {isRetrying ? '재시도 중...' : '재시도'}
+              </Button>
+            ) : isPreAnalysis && isRealMode ? (
+              // 코드 리뷰 P2(막다른 길 수정) — 회차 생성 화면에서 POST /analyze 트리거가 조용히
+              // 실패하면 stage가 'upload'로 재구성되는데, 예전에는 여기서 분석을 시작할 방법이
+              // 전혀 없었다(취소·검수시작 모두 disabled). handleRetry는 실패 배너의 "재시도"와 동일하게
+              // POST /analyze를 다시 호출할 뿐이라 이름과 달리 최초 시작에도 그대로 재사용할 수 있다.
+              <Button type="button" variant="primary" onClick={() => void handleRetry()} disabled={isRetrying}>
+                {isRetrying ? '분석 시작 중...' : '분석 시작'}
               </Button>
             ) : (
               <>

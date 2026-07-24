@@ -70,6 +70,47 @@ class RedisAnalysisProgressStoreTest {
     }
 
     @Test
+    void delete_진행률캐시와세대토큰키를_모두삭제한다() {
+        // 코드 리뷰 P1(워커 펜싱) — 큐잉 실패 등으로 이번 선점이 워커까지 못 가면 진행률 캐시뿐
+        // 아니라 방금 발급한 세대 토큰도 함께 정리해야, 다음 정상 실행이 새로 발급한 토큰이 그대로
+        // 유효하게 남는다(정리 안 하면 상관없는 옛 토큰이 계속 남아있는 것 자체는 무해하지만, 정합성
+        // 확인 차 명시적으로 고정한다).
+        store.delete(1L);
+
+        org.mockito.Mockito.verify(redisTemplate).delete(RedisAnalysisKeys.progressKey(1L));
+        org.mockito.Mockito.verify(redisTemplate).delete(RedisAnalysisKeys.generationKey(1L));
+    }
+
+    @Test
+    void saveGeneration_Redis연결장애가나도_예외를전파하지않는다() {
+        doThrow(new RedisConnectionFailureException("연결 끊김"))
+                .when(valueOps).set(anyString(), anyString(), any());
+
+        assertThatCode(() -> store.saveGeneration(1L, "gen-1")).doesNotThrowAnyException();
+    }
+
+    @Test
+    void findGeneration_Redis연결장애시_예외를전파하지않고_빈Optional을반환한다() {
+        doThrow(new RedisConnectionFailureException("연결 끊김"))
+                .when(valueOps).get(anyString());
+
+        assertThat(store.findGeneration(1L)).isEmpty();
+    }
+
+    @Test
+    void saveGeneration_저장한값을findGeneration으로되읽는다() {
+        ArgumentCaptor<String> valueCaptor = ArgumentCaptor.forClass(String.class);
+        when(valueOps.get(RedisAnalysisKeys.generationKey(1L))).thenAnswer(inv -> valueCaptor.getValue());
+
+        store.saveGeneration(1L, "gen-abc123");
+        org.mockito.Mockito.verify(valueOps).set(
+                org.mockito.ArgumentMatchers.eq(RedisAnalysisKeys.generationKey(1L)),
+                valueCaptor.capture(), any());
+
+        assertThat(store.findGeneration(1L)).contains("gen-abc123");
+    }
+
+    @Test
     void save_저장한JSON을find로되읽으면_updatedAt까지동일하다() {
         // 코드 리뷰 P2(하트비트) — updatedAt(Instant) 직렬화에 JavaTimeModule이 필요하다. 이 클래스는
         // Spring이 관리하는 전역 ObjectMapper(Boot 자동설정으로 이미 등록됨)를 안 쓰고 별도 인스턴스를

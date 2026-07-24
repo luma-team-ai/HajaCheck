@@ -29,4 +29,25 @@ public interface AnalysisProgressStore {
      * 재시도부터 정상적으로 고착 판정이 동작한다.
      */
     boolean isAvailable();
+
+    /**
+     * 이번 실행(선점)에 발급된 세대 토큰을 기록한다(코드 리뷰 P1 — 워커 펜싱).
+     *
+     * <p>고착 복구 분기는 원본 워커가 실제로 죽었는지 확인할 방법 없이 상태만 UPLOADING으로
+     * 되돌린 뒤 재선점한다({@link com.hajacheck.core.analysis.service.InspectionAnalysisService}
+     * 참고) — 하트비트 판정이 오탐이면(GC 정지, 실행기 큐 적체 등으로 heartbeat만 지연) 원본 워커가
+     * 여전히 살아서 돌고 있는 채로 새 워커가 하나 더 뜬다. 두 워커가 같은 회차에 defect를 동시에
+     * 쓰면 append 중복·유령 행으로 데이터가 손상된다. 이를 막기 위해 재선점마다 새 토큰을 발급해
+     * 두고, {@link com.hajacheck.core.analysis.service.InspectionAnalysisWorker}가 DB에 쓰기
+     * 직전마다 자신이 받은 토큰과 여기 저장된 "현재" 토큰을 비교해, 다르면(추월당함) 스스로 중단한다.
+     */
+    void saveGeneration(Long inspectionId, String generation);
+
+    /**
+     * 현재 유효한 세대 토큰 — {@link #saveGeneration}으로 마지막에 기록된 값. 저장소가 비어있거나
+     * (TTL 만료 등) 장애로 못 읽으면 {@code Optional.empty()}를 반환한다(fail-soft, find()/isAvailable()과
+     * 동일 원칙) — 호출부(워커)는 "세대를 확인할 수 없음"을 "펜싱 정보 없음 = 계속 진행"으로 보수적으로
+     * 취급해, 이 저장소 장애가 정상 진행 중인 분석 잡까지 막아버리지 않게 한다.
+     */
+    Optional<String> findGeneration(Long inspectionId);
 }

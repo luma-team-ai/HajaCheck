@@ -94,6 +94,12 @@ public class InspectionAnalysisService {
      *       REPORTED와 동일하게 {@link ErrorCode#ANALYSIS_NOT_ALLOWED}로 거부한다. 위 소스 상태
      *       가드는 REVIEWED/REPORTED만 "사람이 확정한 최종 상태"로 보호하는데, ANALYZED 단계에서도
      *       검수 완료 전에 등급 등을 조정하는 워크플로우가 있어 같은 무보상 유실 위험을 가진다.</li>
+     *   <li><b>워커 펜싱</b>(P1): 고착 복구는 원본 워커가 실제로 죽었는지 확인할 수 없다 — 하트비트
+     *       판정(고착 판정)이 오탐(GC 정지, 분석 실행기 큐 적체로 첫 이미지 처리가 늦게 시작되는
+     *       경우 등)이면 원본 워커가 여전히 살아 돌고 있는 채로 재선점이 새 워커를 하나 더 띄운다.
+     *       이를 막기 위해 재선점(이 메서드 호출)마다 새 세대 토큰을 발급해 {@link AnalysisProgressStore}에
+     *       기록하고 워커에 함께 넘긴다 — {@link InspectionAnalysisWorker}는 DB에 쓰기 직전마다 자신의
+     *       토큰과 "현재" 토큰을 비교해, 다르면(추월당함) 스스로 중단한다.</li>
      * </ul>
      */
     public void startAnalysis(Long requesterUserId, Long companyId, Long inspectionId) {
@@ -130,6 +136,13 @@ public class InspectionAnalysisService {
             throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
         }
 
+        // 워커 펜싱용 세대 토큰 발급(코드 리뷰 P1) — 선점(이 메서드 호출)마다 새로 발급한다. 고착
+        // 복구로 재선점한 경우, 하트비트 오탐으로 원본 워커가 실제로는 아직 살아 돌고 있어도 이
+        // 새 토큰이 "현재" 토큰이 되므로, 원본 워커는 다음 DB 쓰기 직전 자신의(옛) 토큰과 불일치를
+        // 확인하고 스스로 중단한다(InspectionAnalysisWorker 참고).
+        String generation = java.util.UUID.randomUUID().toString();
+        progressStore.saveGeneration(inspectionId, generation);
+
         // P1 — 선점 성공과 캐시 기록 사이에 무거운 작업을 두지 않는다(클래스 javadoc 참고).
         List<FileProgress> initialFiles = new java.util.ArrayList<>(images.size());
         for (int i = 0; i < images.size(); i++) {
@@ -140,7 +153,7 @@ public class InspectionAnalysisService {
                 emptyGradeMap(), 0, Instant.now()));
 
         try {
-            worker.runAsync(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis);
+            worker.runAsync(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis, generation);
         } catch (TaskRejectedException e) {
             // 코드 리뷰 P2 — analysisTaskExecutor는 테넌트 구분 없는 전역 공유 풀이라(AsyncConfig),
             // 어떤 회사가 큐를 채워 다른 회사까지 503을 받게 됐는지 나중에 로그로 추적할 수 있도록

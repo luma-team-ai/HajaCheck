@@ -111,7 +111,7 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
 
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
     }
 
@@ -130,7 +130,7 @@ class InspectionAnalysisServiceTest {
         // 고착 복구 — UPLOADING으로 강제 되돌린 뒤에야 원자적 선점을 시도한다.
         verify(inspectionService).advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.UPLOADING);
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING));
+                eq(InspectionStatus.UPLOADING), any());
     }
 
     @Test
@@ -149,7 +149,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
 
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -169,7 +169,7 @@ class InspectionAnalysisServiceTest {
 
         verify(inspectionService).advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.UPLOADING);
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING));
+                eq(InspectionStatus.UPLOADING), any());
     }
 
     @Test
@@ -184,7 +184,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
 
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -212,7 +212,7 @@ class InspectionAnalysisServiceTest {
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
         verify(progressStore, never()).save(any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -232,7 +232,7 @@ class InspectionAnalysisServiceTest {
 
         verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -249,7 +249,7 @@ class InspectionAnalysisServiceTest {
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.ANALYZED));
+                eq(InspectionStatus.ANALYZED), any());
     }
 
     @Test
@@ -264,7 +264,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NO_MEDIA);
 
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -281,7 +281,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
 
         verify(progressStore, never()).save(any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -296,7 +296,7 @@ class InspectionAnalysisServiceTest {
 
         verify(progressStore).save(any(AnalysisStatusResponse.class));
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING));
+                eq(InspectionStatus.UPLOADING), any());
     }
 
     @Test
@@ -317,7 +317,46 @@ class InspectionAnalysisServiceTest {
         InOrder inOrder = Mockito.inOrder(inspectionService, progressStore, worker);
         inOrder.verify(inspectionService).tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID);
         inOrder.verify(progressStore).save(any(AnalysisStatusResponse.class));
-        inOrder.verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), any());
+        inOrder.verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), any(), any());
+    }
+
+    @Test
+    void startAnalysis_선점마다_새세대토큰을발급해서저장소에기록한다() {
+        // 코드 리뷰 P1(워커 펜싱) — 정상 선점이든 고착 복구 후 재선점이든, tryStartAnalyzing이
+        // 성공할 때마다 새 세대 토큰이 발급·기록돼야 한다. 이 토큰이 없으면(또는 재사용되면) 추월당한
+        // 워커를 스스로 중단시킬 방법이 없다(InspectionAnalysisWorker 참고).
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
+        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+                .thenReturn(List.of(image(1L)));
+        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+
+        service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        org.mockito.ArgumentCaptor<String> generationCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(progressStore).saveGeneration(eq(INSPECTION_ID), generationCaptor.capture());
+        assertThat(generationCaptor.getValue()).isNotBlank();
+        // 워커에도 저장소에 기록한 것과 "같은" 토큰이 전달돼야 스스로 비교할 수 있다.
+        verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
+                eq(InspectionStatus.UPLOADING), eq(generationCaptor.getValue()));
+    }
+
+    @Test
+    void startAnalysis_고착복구로재선점하면_새세대토큰이발급된다() {
+        // 코드 리뷰 P1 — stuckReason(review 문구 그대로) 검증: ANALYZING 고착 복구 경로도 일반
+        // 선점과 동일하게 tryStartAnalyzing 성공 이후 새 세대 토큰을 발급해야 한다. 이게 없으면
+        // 하트비트 오탐으로 살아있는 원본 워커를 펜싱할 수단이 없다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
+        when(progressStore.find(INSPECTION_ID))
+                .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)))));
+        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+                .thenReturn(List.of(image(1L)));
+        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+
+        service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        verify(progressStore).saveGeneration(eq(INSPECTION_ID), org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -328,7 +367,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
         org.mockito.Mockito.doThrow(new TaskRejectedException("full"))
-                .when(worker).runAsync(any(), any(), any(), any(), any());
+                .when(worker).runAsync(any(), any(), any(), any(), any(), any());
 
         assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .isInstanceOf(BusinessException.class)

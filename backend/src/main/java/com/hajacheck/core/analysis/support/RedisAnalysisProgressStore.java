@@ -75,9 +75,37 @@ public class RedisAnalysisProgressStore implements AnalysisProgressStore {
     public void delete(Long inspectionId) {
         try {
             redisTemplate.delete(RedisAnalysisKeys.progressKey(inspectionId));
+            // 큐잉 실패(TaskRejectedException) 등으로 이번 선점이 워커 실행까지 못 갔을 때 호출된다 —
+            // 그 경우 세대 토큰도 함께 정리해야, 다음 정상 실행이 발급한 새 토큰이 그대로 유효하게 남는다.
+            redisTemplate.delete(RedisAnalysisKeys.generationKey(inspectionId));
         } catch (DataAccessException e) {
             // save()/find()와 동일한 이유로 fail-soft — TTL(6시간)이 있어 방치돼도 결국 만료된다.
             log.warn("분석 진행 상태 캐시 삭제 실패 — inspectionId={}", inspectionId, e);
+        }
+    }
+
+    /**
+     * 세대 토큰 기록(코드 리뷰 P1 — 워커 펜싱, {@link AnalysisProgressStore#saveGeneration} 계약 참고).
+     * TTL은 진행률 캐시와 동일 6시간 — 세대 판정이 필요한 기간(분석 잡 생존 기간)과 일치시킨다.
+     */
+    @Override
+    public void saveGeneration(Long inspectionId, String generation) {
+        try {
+            redisTemplate.opsForValue().set(RedisAnalysisKeys.generationKey(inspectionId), generation, TTL);
+        } catch (DataAccessException e) {
+            // fail-soft — 세대 기록이 실패해도 분석 잡 자체를 막지 않는다. 다만 이 경우 펜싱이 사실상
+            // 무력화된다는 트레이드오프가 있다(findGeneration도 비어있어 워커는 "계속 진행"으로 판단).
+            log.warn("분석 세대 토큰 저장 실패 — inspectionId={}", inspectionId, e);
+        }
+    }
+
+    @Override
+    public Optional<String> findGeneration(Long inspectionId) {
+        try {
+            return Optional.ofNullable(redisTemplate.opsForValue().get(RedisAnalysisKeys.generationKey(inspectionId)));
+        } catch (DataAccessException e) {
+            log.warn("분석 세대 토큰 조회 실패 — inspectionId={}", inspectionId, e);
+            return Optional.empty();
         }
     }
 
