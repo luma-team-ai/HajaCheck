@@ -167,3 +167,72 @@ describe('defectApi.getDetail', () => {
     });
   });
 });
+
+// --- 하자 목록·상세 개편 (HAJA-393/394, #725/#726) ---------------------------------------
+
+describe('defectApi.getInspections', () => {
+  it('필터 없이 요청하면 점검 단위 목록을 페이지 응답으로 반환한다', async () => {
+    const res = await defectApi.getInspections();
+
+    expect(res.data.content.length).toBeGreaterThan(0);
+    expect(res.data.content.map((inspection) => inspection.id)).toContain(101);
+  });
+
+  it('점검별 하자 건수·등급분포를 mockDefects 기준으로 집계해 반환한다', async () => {
+    const res = await defectApi.getInspections();
+    const inspection101 = res.data.content.find((item) => item.id === 101);
+
+    // mockDefects: inspectionId=101 → id 1(grade D), id 2(grade C) 2건.
+    expect(inspection101?.defectCount).toBe(2);
+    expect(inspection101?.gradeDistribution).toMatchObject({ C: 1, D: 1 });
+  });
+
+  it('status 필터를 적용하면 해당 상태의 점검만 반환한다', async () => {
+    const res = await defectApi.getInspections({ status: 'REPORTED' });
+
+    expect(res.data.content.every((inspection) => inspection.status === 'REPORTED')).toBe(true);
+  });
+});
+
+describe('defectApi.getByInspection', () => {
+  it('점검에 속한 하자 목록을 반환한다', async () => {
+    const res = await defectApi.getByInspection(101);
+
+    expect(res.data.map((defect) => defect.id).sort()).toEqual([1, 2]);
+  });
+
+  it('존재하지 않는 점검 id는 INSPECTION_NOT_FOUND 에러로 reject된다', async () => {
+    await expect(defectApi.getByInspection(999999)).rejects.toMatchObject({
+      code: 'INSPECTION_NOT_FOUND',
+    });
+  });
+});
+
+describe('defectApi.listFacilityOptions', () => {
+  it('점검 목록 필터용 시설물 옵션을 반환한다', async () => {
+    const res = await defectApi.listFacilityOptions();
+
+    expect(res.data.length).toBeGreaterThan(0);
+  });
+});
+
+describe('defectApi.submitAction', () => {
+  it('조치 결과 등록 필드와 함께 요청하면 상태가 RESOLVED로 바뀌고 actionResult가 채워진다', async () => {
+    const res = await defectApi.submitAction(2, {
+      status: 'RESOLVED',
+      actionContent: '균열 부위 보수 완료',
+      actionDate: '2026-07-20',
+      assigneeId: 101,
+      afterMediaId: 9001,
+    });
+
+    expect(res.data.status).toBe('RESOLVED');
+    expect(res.data.actionResult).toMatchObject({
+      actionContent: '균열 부위 보수 완료',
+      actionDate: '2026-07-20',
+      assigneeId: 101,
+      assigneeName: '김도현 검사자',
+      afterPhotoUrl: '/api/media/9001/thumbnail',
+    });
+  });
+});
