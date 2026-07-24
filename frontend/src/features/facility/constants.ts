@@ -6,11 +6,11 @@ import type { DefectChangeType, FacilityDefectStatus, FacilityInitialGrade } fro
 // (DB 스키마 변경 없음). cycleMonths는 UI 전용 파생값 — 선택 시 inspectionCycleMonths·
 // nextInspectionDueAt을 자동 계산하기 위한 매핑이며 서버로는 별도 전송되지 않는다.
 export interface FacilityTypeOption {
-  value: string;
-  cycleMonths: number;
+  readonly value: string;
+  readonly cycleMonths: number;
 }
 
-export const FACILITY_TYPE_OPTIONS: FacilityTypeOption[] = [
+export const FACILITY_TYPE_OPTIONS: readonly FacilityTypeOption[] = [
   { value: '건물-긴급-1개월', cycleMonths: 1 },
   { value: '건물-정기-4개월', cycleMonths: 4 },
   { value: '건물-정밀-24개월', cycleMonths: 24 },
