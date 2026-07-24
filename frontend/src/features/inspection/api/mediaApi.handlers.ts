@@ -14,7 +14,11 @@ const MOCK_THUMBNAIL_URL =
   );
 
 // 데모 시설물(id=1)의 점검 회차 + 새 점검 생성 목(nextInspectionId 시작값 100)을 유효한 것으로 취급한다.
-const KNOWN_INSPECTION_IDS = new Set([1, 100, 101, 102]);
+// 202·301은 features/defect/mocks/inspection.mock.ts의 mockInspections(HAJA-393/394, #725/#726)
+// 점검 id — 이 핸들러가 defectHandlers보다 먼저 등록돼(mocks/handlers.ts) POST
+// /api/inspections/:id/media를 가로채므로, 여기 화이트리스트에도 추가해야 그 점검의 하자 상세
+// 모달 "조치 후 사진 업로드"가 실패하지 않는다(PR머신 P1 지적).
+const KNOWN_INSPECTION_IDS = new Set([1, 100, 101, 102, 202, 301]);
 
 let nextMediaId = 1;
 

@@ -36,9 +36,11 @@ export function DefectListPage() {
     page: 0,
     size: DEFAULT_SIZE,
   });
+  const [viewMode, setViewMode] = useState<DefectViewMode>("list");
   // 헤더 "총 N건"(보드 탭 활성 시) 소스로만 쓴다 — 보드 탭 자체 로딩/에러 UI는 DefectActionBoard가
-  // 내부 useDefectActionBoard로 별도 처리한다.
-  const { data } = useDefects(defectFilters);
+  // 내부 useDefectActionBoard로 별도 처리한다. 목록 보기 탭에서는 이 응답을 전혀 쓰지 않으므로
+  // viewMode==='board'일 때만 조회한다(PR머신 P2 지적 — 불필요한 GET /api/defects 매 렌더 호출).
+  const { data } = useDefects(defectFilters, { enabled: viewMode === "board" });
   const {
     data: inspectionData,
     isLoading: isInspectionLoading,
@@ -49,7 +51,6 @@ export function DefectListPage() {
   // 이전 탭의 선택이 남아 있으면 혼동되므로 탭을 바꿀 때 함께 초기화한다.
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [isExporting, setIsExporting] = useState(false);
-  const [viewMode, setViewMode] = useState<DefectViewMode>("list");
 
   const inspectionSize = inspectionFilters.size ?? DEFAULT_SIZE;
   const inspectionCurrentPage = (inspectionFilters.page ?? 0) + 1; // TableFooterPagination은 1-based

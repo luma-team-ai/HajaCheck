@@ -7,6 +7,7 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { api } from '../../../shared/api/axios';
 import { defectHandlers } from '../api/defectApi.handlers';
 import { defectMediaApi } from '../api/defectMediaApi';
 import { mockDefects } from '../mocks/defect.mock';
@@ -149,5 +150,36 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     expect(
       await within(activityPanel).findByText("상태를 '확인됨'에서 '조치대기'(으)로 변경했습니다."),
     ).not.toBeNull();
+  });
+});
+
+// PR머신 P1 회귀 방지 — mocks/handlers.ts의 전역 등록 순서(mediaHandlers가 defectHandlers보다
+// 먼저 등록)를 그대로 재현해 "조치 후 사진 업로드"가 실제 앱과 동일한 핸들러 충돌 경로를 타는지
+// 검증한다. 위 describe는 격리된 setupServer(...defectHandlers)만 써서 이 충돌을 잡지 못했다
+// (defectHandlers만 있으면 defectHandlers 안의 자체 media mock이 응답해 항상 성공해버림) —
+// 반드시 전역 handlers 배열로 별도 서버를 띄워 검증한다. 기존 describe의 격리 서버와는 완전히
+// 분리된 인스턴스라 서로의 handler/state에 영향을 주지 않는다.
+describe('InspectionDefectsPage — 전역 MSW 핸들러 등록 순서 회귀 테스트(PR머신 P1)', () => {
+  it('inspectionId=202(한강대교 북단)로 온 요청이 mediaHandlers 화이트리스트를 통과한다', async () => {
+    const { handlers } = await import('../../../mocks/handlers');
+    const globalServer = setupServer(...handlers);
+    globalServer.listen({ onUnhandledRequest: 'error' });
+
+    try {
+      // features/inspection/api/mediaApi.handlers.ts의 KNOWN_INSPECTION_IDS 화이트리스트에 202가
+      // 없으면(회귀 시) mediaHandlers가 defectHandlers보다 먼저 등록돼 있어(mocks/handlers.ts)
+      // 이 요청이 항상 INSPECTION_NOT_FOUND(404)로 실패한다.
+      //
+      // 실제 File을 담아 undici로 보내면 jsdom File과 Node multipart 파서가 호환되지 않아 무관한
+      // ERR_ASSERTION이 나므로(별도 환경 이슈, 실제 앱 동작과는 무관), 파일 없는 FormData로 요청해
+      // "inspectionId 화이트리스트 검사"만 특정해 확인한다 — mediaApi.handlers.ts는 그 검사를 파일
+      // 유무 확인보다 먼저 수행하므로(handler 상단), 404가 아니라 FILE_REQUIRED(400)가 오면 202가
+      // 화이트리스트를 통과했다는 뜻이다.
+      await expect(api.post('/inspections/202/media', new FormData())).rejects.toMatchObject({
+        code: 'FILE_REQUIRED',
+      });
+    } finally {
+      globalServer.close();
+    }
   });
 });
