@@ -242,4 +242,52 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         assertThat(result.getContent()).extracting(Inspection::getId)
                 .containsExactly(sameDaySecond.getId(), newer.getId(), older.getId());
     }
+
+    // ── 시설물 현황 목록(#540 ⑥, HAJA-378) 최근 점검일 배치 조회 ──
+
+    @Test
+    void findLatestByFacilityIds_시설물별최신점검1건씩만반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityA = seedFacility(ownerId, "A시설");
+        Long facilityB = seedFacility(ownerId, "B시설");
+        inspectionRepository.save(
+                newInspection(facilityA, ownerId, ownerId, 1, LocalDate.of(2026, 6, 1), InspectionStatus.CREATED));
+        Inspection latestA = inspectionRepository.save(
+                newInspection(facilityA, ownerId, ownerId, 2, LocalDate.of(2026, 7, 10), InspectionStatus.CREATED));
+        Inspection onlyB = inspectionRepository.save(
+                newInspection(facilityB, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+
+        List<Inspection> result =
+                inspectionRepository.findLatestByFacilityIds(List.of(facilityA, facilityB));
+
+        assertThat(result).hasSize(2)
+                .extracting(Inspection::getId)
+                .containsExactlyInAnyOrder(latestA.getId(), onlyB.getId());
+    }
+
+    @Test
+    void findLatestByFacilityIds_동일날짜면id가큰최신등록건반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 10), InspectionStatus.CREATED));
+        Inspection newerSameDate = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 10), InspectionStatus.CREATED));
+
+        List<Inspection> result = inspectionRepository.findLatestByFacilityIds(List.of(facilityId));
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(newerSameDate.getId());
+    }
+
+    @Test
+    void findLatestByFacilityIds_점검이력없는시설물은결과에없음() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityWithNoInspection = seedFacility(ownerId, "점검이력없음");
+
+        List<Inspection> result =
+                inspectionRepository.findLatestByFacilityIds(List.of(facilityWithNoInspection));
+
+        assertThat(result).isEmpty();
+    }
 }
