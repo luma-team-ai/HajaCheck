@@ -169,8 +169,13 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     }
 
     private Defect saveDefect(Inspection inspection, DefectGrade grade, DefectStatus status) {
+        return saveDefect(inspection, grade, status, null);
+    }
+
+    private Defect saveDefect(Inspection inspection, DefectGrade grade, DefectStatus status, Long mediaId) {
         return defectRepository.save(Defect.builder()
                 .inspectionId(inspection.getId())
+                .mediaId(mediaId)
                 .type(DefectType.CRACK)
                 .confidence(0.95)
                 .grade(grade)
@@ -206,8 +211,53 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data[0].id").value(defect1.getId()))
                 .andExpect(jsonPath("$.data[0].grade").value("C"))
                 .andExpect(jsonPath("$.data[0].status").value("DETECTED"))
+                .andExpect(jsonPath("$.data[0].mediaId").isEmpty())
+                .andExpect(jsonPath("$.data[0].imageUrl").isEmpty())
                 .andExpect(jsonPath("$.data[1].id").value(defect2.getId()))
                 .andExpect(jsonPath("$.data[1].grade").value("B"));
+    }
+
+    @Test
+    void GET_mediaIdPresent_imageUrlReturned_200() throws Exception {
+        // mediaId가 있는 하자는 imageUrl이 생성돼야 한다
+        Company company = saveCompany("회사26");
+        User owner = saveUser("owner26@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector26@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+        long testMediaId = 12345L;
+        Defect defectWithMedia = saveDefect(inspection, DefectGrade.A, DefectStatus.DETECTED, testMediaId);
+
+        mockMvc.perform(get("/api/inspections/{id}/defects", inspection.getId())
+                .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(defectWithMedia.getId()))
+                .andExpect(jsonPath("$.data[0].mediaId").value(testMediaId))
+                .andExpect(jsonPath("$.data[0].imageUrl").value("/api/media/12345/thumbnail"));
+    }
+
+    @Test
+    void GET_mediaIdNull_imageUrlNull_200() throws Exception {
+        // mediaId가 없는 하자는 imageUrl이 null이어야 한다
+        Company company = saveCompany("회사27");
+        User owner = saveUser("owner27@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector27@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+        Defect defectWithoutMedia = saveDefect(inspection, DefectGrade.B, DefectStatus.DETECTED, null);
+
+        mockMvc.perform(get("/api/inspections/{id}/defects", inspection.getId())
+                .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(defectWithoutMedia.getId()))
+                .andExpect(jsonPath("$.data[0].mediaId").isEmpty())
+                .andExpect(jsonPath("$.data[0].imageUrl").isEmpty());
     }
 
     @Test
