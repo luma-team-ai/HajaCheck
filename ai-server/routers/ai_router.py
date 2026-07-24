@@ -1,7 +1,7 @@
 """AI 엔드포인트 — 네이밍: /ai/{기능} (AI_개발_컨벤션.md §5, v0.2)
 
 /ai/report · /ai/chat · /ai/briefing · /ai/defect-explain · /ai/nl-search · /ai/grounding-check
-/ai/rag-chat
+/ai/rag-chat · /ai/detect-defects
 
 동기/비동기 경계(§5 v0.2, HAJA-208): 비동기 잡 패턴(잡 ID -> 폴링) 원칙은 클라이언트 대면
 경계(예: 백엔드 /api/reports)에 적용된다. 이 라우터의 /ai/* 는 verify_internal_key로 보호되는
@@ -24,6 +24,10 @@ from ai.chains.briefing_chain import DashboardStats, run_briefing_chain
 from ai.chains.business_license_ocr_chain import (
     MAX_IMAGE_BASE64_LENGTH,
     run_business_license_ocr_chain,
+)
+from ai.chains.defect_detection_chain import (
+    MAX_IMAGE_BASE64_LENGTH as DEFECT_DETECTION_MAX_IMAGE_BASE64_LENGTH,
+    run_defect_detection_chain,
 )
 from ai.chains.defect_explain_chain import run_defect_explain_chain
 from ai.chains.rag_chat_chain import run_rag_chat_chain
@@ -100,6 +104,26 @@ def rag_chat(req: RagChatRequest) -> AIResponse:
     except Exception:  # noqa: BLE001 — LLM 클라이언트 오류부터 Redis 장애까지 포괄하는 최종 폴백.
         logger.exception("POST /ai/rag-chat 처리 중 예상치 못한 예외 발생")
         return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "답변 생성 중 오류가 발생했습니다")
+
+
+class DetectDefectsRequest(BaseModel):
+    """AI 하자 탐지 요청(dev-05-04, AP-006) — 이미지 1장당 1회 호출(Spring이 회차의 미디어를
+    순회하며 여러 번 호출). image_base64 max_length는 점검 미디어 업로드 상한 20MB의 base64
+    상당치(business_license_ocr_chain과 동일한 DoS 방지 근거, 도메인별 상한 분리)."""
+
+    image_base64: str = Field(min_length=1, max_length=DEFECT_DETECTION_MAX_IMAGE_BASE64_LENGTH)
+
+
+@router.post("/detect-defects")
+def detect_defects(req: DetectDefectsRequest) -> AIResponse:
+    try:
+        detections = run_defect_detection_chain(req.image_base64)
+    except Exception:  # noqa: BLE001 — 디코딩 실패·모델 로드 실패·추론 오류 전반의 표준 폴백
+        logger.exception("POST /ai/detect-defects 처리 중 예상치 못한 예외 발생")
+        return AIResponse.fail(
+            AIErrorCode.VISION_INFERENCE_FAILED, "하자 탐지 중 오류가 발생했습니다"
+        )
+    return AIResponse.ok({"detections": [d.model_dump() for d in detections]})
 
 
 class GroundingCheckRequest(BaseModel):

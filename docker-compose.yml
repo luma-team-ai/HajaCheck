@@ -121,6 +121,11 @@ services:
       LANGCHAIN_ENDPOINT: ${LANGCHAIN_ENDPOINT:-}
       LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
       LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-}
+      # ultralytics(dev-05-04)가 기본으로 쓰려는 /app/.config는 non-root(fastapi, uid 999) 컨테이너에서
+      # 쓰기 불가 — 미지정 시 매 요청마다 "not writeable, defaulting to /tmp" 경고가 반복된다.
+      # 기존 hf_cache 볼륨(이미 fastapi 소유) 하위로 고정해 재기동해도 설정이 유지되게 한다.
+      YOLO_CONFIG_DIR: /app/hf_cache/ultralytics
+      MPLCONFIGDIR: /app/hf_cache/matplotlib
     volumes:
       - chroma_data:/app/chroma_data
       - hf_cache:/app/hf_cache

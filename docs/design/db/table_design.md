@@ -1,6 +1,9 @@
 # hajaCheck 테이블 디자인 설계
 
-> **문서 버전:** v0.5 · **최종 수정:** 2026-07-23 · 이전 버전 `archive/`
+> **문서 버전:** v0.5 · **최종 수정:** 2026-07-24 · 이전 버전 `archive/`
+> (버전 관리 확인: v0.5는 아직 `main`에 released되지 않음 — `main`은 v0.4(2026-07-21)까지만 반영됨.
+> released 문서 실질 변경 시 요구되는 archive 스냅샷·버전 bump는 미released 문서의 예외 규칙에 따라
+> 생략하고, 이번 PR의 media_id 행 추가(dev-05-04) 반영 시각으로 최종 수정일만 갱신한다.)
 
 - 대상 스키마 파일: [HajaCheck_script.sql](HajaCheck_script.sql)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
@@ -650,9 +653,10 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 |---|---|---|---|---|---|
 | id | bigint (identity) | N | - | **PK** | 결함 식별자 |
 | inspection_id | bigint | N | - | **FK→inspections** | 결함이 발견된 점검 |
+| media_id | bigint | Y | - | **FK→media**(V6) | 결함이 탐지된 촬영 이미지 |
 | type | defect_type | N | - | | 결함 유형 |
 | lock_version | bigint | N | 0 | | 상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전 |
-| bbox_x / bbox_y / bbox_w / bbox_h | double precision | Y | - | | 결함 바운딩 박스 좌표/크기 |
+| bbox_x / bbox_y / bbox_w / bbox_h | double precision | Y | - | | 결함 바운딩 박스 좌표/크기(0~1 정규화) |
 | confidence | double precision | N | - | | AI 결함 탐지 신뢰도 |
 | grade | defect_grade_type | Y | - | | 결함 위험·심각도 등급(A~E) |
 | status | defect_status_type | N | `DETECTED` | | 결함 조치 상태 |
@@ -662,7 +666,11 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 | crack_length_mm | double precision | Y | - | | 균열 길이(mm) |
 | created_at | timestamptz | N | now() | | 생성 시각 |
 
-- 인덱스: `idx_defects_inspection (inspection_id)`
+- 인덱스: `idx_defects_inspection (inspection_id)`, `idx_defects_media (media_id)`
+- **media_id(dev-05-04, V6 추가)**: AI 분석 실행/상태 화면이 "이미지별 처리 현황"(파일별 탐지 건수)을
+  보여주려면 하자가 어느 사진에서 나왔는지 알아야 한다. 기존 defects 행이 전혀 없었던 시점(하자를
+  생성하는 프로덕션 코드가 이번에 처음 추가됨)에 도입해 백필 없이 nullable로 추가했다 — 수동 등록 등
+  media 연결이 없는 하자 생성 경로를 스키마 레벨에서 배제하지 않기 위해 nullable 유지.
 
 #### `defect_revisions` — 결함 정보 변경 이력
 

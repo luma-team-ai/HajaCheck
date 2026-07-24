@@ -32,6 +32,13 @@ const InspectionCreatePage = lazy(() =>
   })),
 );
 
+// AI 분석 실행/상태 — API 명세서 v0.3 AP-006(dev-05-04). 실 진행률 API 배선 전, 시안 목데이터 화면.
+const AiAnalysisStatusPage = lazy(() =>
+  import('../features/inspection/pages/AiAnalysisStatusPage').then((m) => ({
+    default: m.AiAnalysisStatusPage,
+  })),
+);
+
 const LoginPage = lazy(() =>
   import('../features/auth/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
 );
@@ -471,8 +478,35 @@ export const router = createBrowserRouter([
           breadcrumb: [{ label: '점검 관리' }, { label: '점검(회차) 생성' }],
           activeHref: '/inspections/create',
         },
-      }, // — features/inspection 점검(회차) 생성 (API 명세서 v0.3 AP-004) — 촬영 데이터 업로드는
+      }, // — features/inspection 점검(회차) 생성 (API 명세서 v0.3 AP-004)
+      {
+        path: '/inspections/ai-analysis',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <AiAnalysisStatusPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '점검 관리' }, { label: 'AI 분석 실행/상태' }],
+          activeHref: '/inspections/ai-analysis',
+        },
+      }, // — features/inspection AI 분석 실행/상태 (API 명세서 v0.3 AP-006, dev-05-04) — 촬영 데이터 업로드는
       // 회의 후 반영된 시안대로 이 화면에 통합됨(별도 /inspections/media-upload 라우트는 폐지).
+      {
+        // 실제 점검 회차의 분석 상태(백엔드 폴링) — 위 정적 경로는 사이드바 직접 진입용 데모(id 없음,
+        // 빈 상태만 표시)이고, 이 경로는 점검 생성 후 진짜 분석 진행 상황을 보여준다(AiAnalysisStatusPage가
+        // :id 유무로 두 모드를 분기).
+        path: '/inspections/:id/analysis',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <AiAnalysisStatusPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '점검 관리' }, { label: 'AI 분석 실행/상태' }],
+          activeHref: '/inspections/ai-analysis',
+        },
+      },
       {
         path: '/inspections/:id/viewer',
         element: (

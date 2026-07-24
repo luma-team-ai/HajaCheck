@@ -7,6 +7,9 @@ import com.hajacheck.core.ai.dto.BriefingStatsRequest;
 import com.hajacheck.core.ai.dto.BusinessLicenseOcrAiEnvelope;
 import com.hajacheck.core.ai.dto.BusinessLicenseOcrAiRequest;
 import com.hajacheck.core.ai.dto.BusinessLicenseOcrResponse;
+import com.hajacheck.core.ai.dto.DefectDetectionAiEnvelope;
+import com.hajacheck.core.ai.dto.DefectDetectionAiRequest;
+import com.hajacheck.core.ai.dto.DetectedDefectItem;
 import com.hajacheck.core.ai.dto.DefectExplainAiEnvelope;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
@@ -27,6 +30,7 @@ import com.hajacheck.global.exception.ErrorCode;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -53,6 +57,7 @@ public class AiProxyService {
     private static final String BUSINESS_LICENSE_OCR_PATH = "/ai/business-license-ocr";
     private static final String RAG_CHAT_PATH = "/ai/rag-chat";
     private static final String RAG_EMBED_PATH = "/ai/rag-documents/embed";
+    private static final String DETECT_DEFECTS_PATH = "/ai/detect-defects";
     private static final String INTERNAL_KEY_HEADER = "X-Internal-Key";
 
     private final RestClient aiServerRestClient;
@@ -327,6 +332,46 @@ public class AiProxyService {
                     .body(request)
                     .retrieve()
                     .body(RagEmbedAiEnvelope.class);
+        } catch (ResourceAccessException e) {
+            throw mapConnectionFailure(e);
+        } catch (RestClientResponseException e) {
+            throw mapResponseStatusFailure(e);
+        } catch (RestClientException e) {
+            log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    /**
+     * 하자 탐지(dev-05-04) — InspectionAnalysisService가 회차의 이미지를 순회하며 1장씩 호출한다.
+     * 다른 /ai/* 프록시와 달리 컨트롤러가 아니라 배치 잡(비동기 서비스)에서 호출되므로 ApiResponse가
+     * 아니라 언랩된 결과를 바로 던지거나 반환한다 — 호출부가 이미지 1건 실패를 잡 전체 실패로 만들지
+     * 않고 개별 격리 처리할 수 있도록 BusinessException을 그대로 전파한다(catch는 호출부 책임).
+     */
+    public List<DetectedDefectItem> detectDefects(String imageBase64) {
+        DefectDetectionAiEnvelope envelope = callAiServer(new DefectDetectionAiRequest(imageBase64));
+        if (envelope == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        if (!envelope.success()) {
+            log.warn("AI 서버 하자 탐지 실패 응답: {}",
+                    envelope.error() != null ? envelope.error().code() : "unknown");
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        if (envelope.data() == null || envelope.data().detections() == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        return envelope.data().detections();
+    }
+
+    private DefectDetectionAiEnvelope callAiServer(DefectDetectionAiRequest request) {
+        try {
+            return aiServerRestClient.post()
+                    .uri(DETECT_DEFECTS_PATH)
+                    .headers(this::attachInternalKeyIfPresent)
+                    .body(request)
+                    .retrieve()
+                    .body(DefectDetectionAiEnvelope.class);
         } catch (ResourceAccessException e) {
             throw mapConnectionFailure(e);
         } catch (RestClientResponseException e) {

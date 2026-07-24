@@ -86,4 +86,8 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
     @Query("select d from Defect d where d.inspectionId = :inspectionId and d.deleted = false "
             + "order by d.id asc")
     List<Defect> findByInspectionIdAndNotDeleted(@Param("inspectionId") Long inspectionId);
+
+    // AI 재분석 fail-closed 가드(코드 리뷰 P1 5차) — ANALYZED 회차에 비삭제 하자가 하나라도 있으면
+    // 재분석을 거부한다(InspectionAnalysisService.hasExistingDefects). 목록을 로딩하지 않고 존재만 확인.
+    boolean existsByInspectionIdAndDeletedFalse(Long inspectionId);
 }

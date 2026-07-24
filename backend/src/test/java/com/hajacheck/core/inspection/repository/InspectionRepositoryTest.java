@@ -7,6 +7,9 @@ import com.hajacheck.auth.entity.CompanyMembership;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.core.defect.entity.Defect;
+import com.hajacheck.core.defect.entity.DefectType;
+import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
@@ -32,6 +35,9 @@ class InspectionRepositoryTest extends PostgresTestSupport {
 
     @Autowired
     private InspectionRepository inspectionRepository;
+
+    @Autowired
+    private DefectRepository defectRepository;
 
     @Autowired
     private TestEntityManager em;
@@ -125,6 +131,126 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 List.of(facilityA), List.of(InspectionStatus.ANALYZED, InspectionStatus.REVIEWED));
 
         assertThat(count).isEqualTo(2);
+    }
+
+    @Test
+    void findByFacilityCompanyIdAndStatus_회사소유시설물전체에서_상태회차만_반환한다() {
+        // 코드 리뷰 P2 4차/10차(회사별 분석 동시 실행 상한) — i.facility.companyId 암묵적 조인이
+        // Facility 목록을 먼저 조회하지 않고도 회사 전체(여러 시설물) 범위로 모으는지, 타사 데이터가
+        // 섞이지 않는지 고정한다. (호출부가 하트비트 isStuck으로 고착 유령을 제외하려고 count가 아닌
+        // 목록을 받는다.)
+        Long ownerA = seedOwner("owner-a@haja.com");
+        Long ownerB = seedOwner("owner-b@haja.com");
+        Long companyA = em.find(User.class, ownerA).getCompanyId();
+        Long facilityA1 = seedFacility(ownerA, "A시설1");
+        Long facilityA2 = seedFacility(ownerA, "A시설2");
+        Long facilityB = seedFacility(ownerB, "B시설");
+        inspectionRepository.save(
+                newInspection(facilityA1, ownerA, ownerA, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZING));
+        inspectionRepository.save(
+                newInspection(facilityA2, ownerA, ownerA, 1, LocalDate.of(2026, 7, 2), InspectionStatus.ANALYZING));
+        inspectionRepository.save(
+                newInspection(facilityA1, ownerA, ownerA, 2, LocalDate.of(2026, 7, 3), InspectionStatus.UPLOADING));
+        // 타사(B)가 동시에 ANALYZING이어도 회사A 결과에 섞이면 안 된다.
+        inspectionRepository.save(
+                newInspection(facilityB, ownerB, ownerB, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZING));
+
+        List<Inspection> analyzing =
+                inspectionRepository.findByFacilityCompanyIdAndStatus(companyA, InspectionStatus.ANALYZING);
+
+        assertThat(analyzing).hasSize(2)
+                .allMatch(i -> i.getStatus() == InspectionStatus.ANALYZING);
+    }
+
+    @Test
+    void findByStatus_상태로_전체회차를_반환한다() {
+        // 코드 리뷰 P2 10차(리퍼) — 회사 무관 전역 ANALYZING 조회. 리퍼가 이 목록을 훑어 고착을 복원한다.
+        Long ownerA = seedOwner("owner-a@haja.com");
+        Long ownerB = seedOwner("owner-b@haja.com");
+        Long facilityA = seedFacility(ownerA, "A시설");
+        Long facilityB = seedFacility(ownerB, "B시설");
+        inspectionRepository.save(
+                newInspection(facilityA, ownerA, ownerA, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZING));
+        inspectionRepository.save(
+                newInspection(facilityB, ownerB, ownerB, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZING));
+        inspectionRepository.save(
+                newInspection(facilityA, ownerA, ownerA, 2, LocalDate.of(2026, 7, 2), InspectionStatus.ANALYZED));
+
+        List<Inspection> analyzing = inspectionRepository.findByStatus(InspectionStatus.ANALYZING);
+
+        assertThat(analyzing).hasSize(2)
+                .allMatch(i -> i.getStatus() == InspectionStatus.ANALYZING);
+    }
+
+    @Test
+    void startAnalyzingIfNotRunning_허용소스상태에서만_1행영향_그외는0행() {
+        // 코드 리뷰 P1 10차(불변식 고정) — 원자적 조건부 UPDATE가 "허용 소스 상태 집합"을 강제하는지
+        // 직접 고정한다. 허용(CREATED/UPLOADING/ANALYZED)은 1행(ANALYZING 선점 성공), 그 외
+        // (REVIEWED/REPORTED/이미 ANALYZING)는 0행이어야 한다 — 사전 체크와 무관하게 이 UPDATE
+        // 자체가 REVIEWED/REPORTED 재분석 진입을 원자적으로 막는다는 게 핵심.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        java.util.EnumSet<InspectionStatus> allowed = java.util.EnumSet.of(
+                InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED);
+        int roundNo = 1;
+
+        for (InspectionStatus allowedSource : List.of(
+                InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED)) {
+            Inspection insp = inspectionRepository.save(newInspection(
+                    facilityId, ownerId, ownerId, roundNo++, LocalDate.of(2026, 7, 1), allowedSource));
+            assertThat(inspectionRepository.startAnalyzingIfNotRunning(insp.getId(), InspectionStatus.ANALYZING, allowed))
+                    .as("허용 소스 상태 %s 는 선점 성공(1행)", allowedSource)
+                    .isEqualTo(1);
+        }
+
+        for (InspectionStatus blockedSource : List.of(
+                InspectionStatus.REVIEWED, InspectionStatus.REPORTED, InspectionStatus.ANALYZING)) {
+            Inspection insp = inspectionRepository.save(newInspection(
+                    facilityId, ownerId, ownerId, roundNo++, LocalDate.of(2026, 7, 1), blockedSource));
+            assertThat(inspectionRepository.startAnalyzingIfNotRunning(insp.getId(), InspectionStatus.ANALYZING, allowed))
+                    .as("허용되지 않은 소스 상태 %s 는 선점 거부(0행)", blockedSource)
+                    .isZero();
+        }
+    }
+
+    @Test
+    void startAnalyzingIfNotRunning_비삭제하자가있으면_허용소스상태여도0행() {
+        // 코드 리뷰 P1(머신 검수 2차) — 사전 체크(hasExistingDefects)와 이 원자적 UPDATE 사이에
+        // createManualDefect로 하자가 끼어드는 TOCTOU를 막기 위해, WHERE 자체에 "비삭제 하자 없음"을
+        // 강제한다. UPLOADING(허용 소스 상태)이라도 비삭제 하자가 이미 있으면 선점은 실패(0행)해야
+        // 하고, 그 하자가 소프트삭제(deleted=true)된 것뿐이면 다시 선점 가능(1행)해야 한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        java.util.EnumSet<InspectionStatus> allowed = java.util.EnumSet.of(
+                InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED);
+
+        Inspection withDefect = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.UPLOADING));
+        em.persist(Defect.builder()
+                .inspectionId(withDefect.getId())
+                .type(DefectType.CRACK)
+                .confidence(1.0)
+                .build());
+        em.flush();
+
+        assertThat(inspectionRepository.startAnalyzingIfNotRunning(withDefect.getId(), InspectionStatus.ANALYZING, allowed))
+                .as("비삭제 하자가 있으면 허용 소스 상태여도 선점 실패(0행)")
+                .isZero();
+
+        Inspection withOnlyDeletedDefect = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 1), InspectionStatus.UPLOADING));
+        Defect deleted = Defect.builder()
+                .inspectionId(withOnlyDeletedDefect.getId())
+                .type(DefectType.CRACK)
+                .confidence(1.0)
+                .build();
+        deleted.softDelete();
+        em.persist(deleted);
+        em.flush();
+
+        assertThat(inspectionRepository.startAnalyzingIfNotRunning(withOnlyDeletedDefect.getId(), InspectionStatus.ANALYZING, allowed))
+                .as("남은 하자가 전부 소프트삭제 상태면 선점 성공(1행)")
+                .isEqualTo(1);
     }
 
     @Test

@@ -150,6 +150,71 @@ public class InspectionService {
         return InspectionResponse.from(inspection);
     }
 
+    /**
+     * 회사 스코프 검증 후 엔티티를 그대로 반환한다(AI 분석 실행/상태, dev-05-04) — 분석 서비스가
+     * facilityId/assignedInspectorId 등 DTO에 없는 필드까지 필요해서 getInspection()의 DTO 반환과
+     * 별도로 둔다. 조회 전용(읽기 트랜잭션)이며 호출부가 상태를 바꾸려면 {@link #advanceStatus}를 쓴다.
+     */
+    public Inspection getOwnedInspectionEntity(Long requesterUserId, Long companyId, Long inspectionId) {
+        companyScopeGuard.requireEffectiveMembership(requesterUserId, companyId);
+        Inspection inspection = inspectionRepository.findById(inspectionId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.INSPECTION_NOT_FOUND));
+        try {
+            facilityService.get(requesterUserId, companyId, inspection.getFacilityId());
+        } catch (BusinessException e) {
+            if (e.getErrorCode() == ErrorCode.FACILITY_NOT_FOUND) {
+                throw new BusinessException(ErrorCode.INSPECTION_NOT_FOUND);
+            }
+            throw e;
+        }
+        return inspection;
+    }
+
+    /** 점검 회차 상태 전이(AI 분석 실행/상태, dev-05-04) — 회사 스코프 검증 후 advanceTo 위임. */
+    @Transactional
+    public void advanceStatus(Long requesterUserId, Long companyId, Long inspectionId, InspectionStatus next) {
+        Inspection inspection = getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
+        inspection.advanceTo(next);
+    }
+
+    /**
+     * ANALYZING 고착 회차를 리퍼가 시스템 배치로 복원한다(코드 리뷰 P2 10차) — @Scheduled 리퍼는
+     * 사용자 컨텍스트가 없어 회사 스코프 검증을 거치지 않는다(배치 전용, 외부 요청 경로 아님).
+     * 여전히 ANALYZING일 때만 UPLOADING으로 되돌린다 — 그 사이 정상 완료됐거나 다른 경로가 이미
+     * 정리했으면 아무것도 하지 않는다(멱등). 전이는 {@link Inspection#advanceTo}가 허용 전이 테이블로
+     * 검증한다(ANALYZING→UPLOADING 허용). RECOVERY_STATUS(=UPLOADING, InspectionAnalysisService)와
+     * 동일한 "업로드는 끝났고 분석 전" 상태로 되돌려, 사용자가 다시 분석을 시작할 수 있게 한다.
+     */
+    @Transactional
+    public void revertStuckAnalyzing(Long inspectionId) {
+        Inspection inspection = inspectionRepository.findById(inspectionId).orElse(null);
+        if (inspection == null || inspection.getStatus() != InspectionStatus.ANALYZING) {
+            return;
+        }
+        inspection.advanceTo(InspectionStatus.UPLOADING);
+    }
+
+    /**
+     * AI 분석 시작 원자적 선점(dev-05-04, 코드 리뷰 P2 픽스) — "조회 후 상태 확인 → 별도 UPDATE"
+     * (check-then-act)는 동시 요청 사이에 경쟁 구간이 생겨 둘 다 통과할 수 있다. 소유권 검증 후
+     * {@link InspectionRepository#startAnalyzingIfNotRunning} 단일 조건부 UPDATE로 전이해,
+     * 영향 행 수로 선점 성공 여부를 원자적으로 판정한다.
+     *
+     * @param allowedStatuses 선점을 허용할 소스 상태 집합(코드 리뷰 P1 10차) — 호출부가 재분석 허용
+     *                        소스 상태(ANALYSIS_ALLOWED_SOURCE_STATUSES)를 넘긴다. 조건부 UPDATE의
+     *                        WHERE가 이 집합을 강제하므로, 사전 체크와 이 UPDATE 사이에 REVIEWED/
+     *                        REPORTED 등으로 전이돼도 원자적으로 거부된다(사람 확정 하자 유실 TOCTOU 차단).
+     * @return true = 이 호출이 ANALYZING을 선점함, false = 선점 불가(다른 요청이 선점했거나 허용되지
+     *         않은 소스 상태) — 호출부는 ANALYSIS_ALREADY_RUNNING으로 응답해야 한다.
+     */
+    @Transactional
+    public boolean tryStartAnalyzing(Long requesterUserId, Long companyId, Long inspectionId,
+            java.util.Collection<InspectionStatus> allowedStatuses) {
+        getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
+        return inspectionRepository.startAnalyzingIfNotRunning(
+                inspectionId, InspectionStatus.ANALYZING, allowedStatuses) > 0;
+    }
+
     private void validateInspectionDate(LocalDate inspectionDate, FacilityResponse facility) {
         if (inspectionDate.isBefore(facility.createdAt().toLocalDate())) {
             throw new BusinessException(ErrorCode.INSPECTION_DATE_INVALID);

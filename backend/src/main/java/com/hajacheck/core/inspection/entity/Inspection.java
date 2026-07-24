@@ -1,6 +1,7 @@
 package com.hajacheck.core.inspection.entity;
 
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.global.exception.DomainStateTransitionException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -100,7 +101,26 @@ public class Inspection {
         this.status = status == null ? InspectionStatus.CREATED : status;
     }
 
+    /**
+     * 상태 전이 — {@link InspectionStatus} 허용 전이 테이블에 있는 전이만 적용하고, 그 외에는
+     * {@link DomainStateTransitionException}으로 거부한다(상태 머신 중앙화). 검증 없는 setter였을 때는
+     * 리퍼가 되돌린 회차를 좀비 워커가 ANALYZED로 되살리는 등 불법 전이가 조용히 적용됐다 —
+     * 이제는 거부(fail-safe: 상태 불변, 데이터 손상 없음)된다. 정상 경로의 전이는 모두 테이블에
+     * 포함돼 있고(그 클래스 주석 참고), 이 예외는 동시성 경쟁으로 이미 다른 경로가 상태를 바꾼
+     * 드문 경우에만 발생한다.
+     *
+     * <p>코드 리뷰 P2(2차) — 표준 {@code IllegalStateException}이 아니라 그 하위형인
+     * {@link DomainStateTransitionException}을 던진다. {@code GlobalExceptionHandler}는 표준
+     * {@code IllegalStateException}을 "프로그래밍 오류일 수 있음"으로 보아 500으로 처리하고,
+     * {@code DomainStateTransitionException}만 명시적으로 409(INVALID_STATE_TRANSITION)로
+     * 매핑한다(Company/Defect 등 다른 엔티티의 상태 전이 가드와 동일 패턴). 이 전이 거부는
+     * 프로그래밍 오류가 아니라 예상된 동시성 경쟁(예: 고착 복구 재시도 중복 클릭)이므로 409가 맞다.
+     */
     public void advanceTo(InspectionStatus next) {
+        if (!this.status.canTransitionTo(next)) {
+            throw new DomainStateTransitionException(
+                    "허용되지 않은 점검 상태 전이: " + this.status + " -> " + next + " (inspectionId=" + this.id + ")");
+        }
         this.status = next;
     }
 }

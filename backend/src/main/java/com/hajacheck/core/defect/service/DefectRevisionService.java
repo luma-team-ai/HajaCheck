@@ -9,6 +9,8 @@ import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectRevision;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.DefectRevisionRepository;
+import com.hajacheck.core.inspection.entity.Inspection;
+import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -60,14 +62,24 @@ public class DefectRevisionService {
      * @param inspectionId    점검 회차 id
      * @param request         요청 (type 필수, bbox 선택적 모두-또는-무, grade 선택적)
      * @return 생성된 하자
-     * @throws BusinessException 점검 회차 미존재/타인 소유 (404), bbox 불완전/type 누락 (400)
+     * @throws BusinessException 점검 회차 미존재/타인 소유 (404), bbox 불완전/type 누락 (400),
+     *                           분석 진행 중(ANALYZING) (409)
      */
     @Transactional
     public DefectDetailItem createManualDefect(
             Long requesterUserId, Long companyId, Long inspectionId, DefectCreateRequest request) {
         companyScopeGuard.requireEffectiveMembership(requesterUserId, companyId);
         // 소유권 검증
-        inspectionService.getInspection(requesterUserId, companyId, inspectionId);
+        Inspection inspection = inspectionService.getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
+
+        // 코드 리뷰 P1(머신 검수 2차) — ANALYZING 중 수동 하자가 끼면, 워커가 첫 탐지 성공 시 호출하는
+        // softDeleteAllForInspectionThenSave(DefectWriter)가 방금 추가된 이 하자까지 통째로 비삭제
+        // 대상에 포함시켜 지운다. InspectionAnalysisService.hasExistingDefects 사전 체크·원자적 UPDATE의
+        // NOT EXISTS는 분석 "시작 시점"만 지키므로, 시작 이후(ANALYZING 동안) 끼어드는 이 경로는 그
+        // 자체로 막아야 한다.
+        if (inspection.getStatus() == InspectionStatus.ANALYZING) {
+            throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
+        }
 
         // bbox 검증: 4개 모두 지정되거나 모두 미지정
         boolean hasBboxX = request.getBboxX() != null;
