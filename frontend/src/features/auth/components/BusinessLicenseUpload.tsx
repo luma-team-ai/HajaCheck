@@ -11,6 +11,7 @@ import {
   validateBusinessLicenseFile,
   type BusinessLicenseFileError,
 } from '../utils/validateBusinessLicenseFile';
+import { BusinessLicenseImageLightbox } from './BusinessLicenseImageLightbox';
 
 // OCR 결과 피드백(#748) — 상태 판단(stale 가드·실제 채운 필드 수)은 CompanySignupPage 소유,
 // 이 컴포넌트는 결과만 그대로 표시한다(단방향 계층 유지).
@@ -76,6 +77,9 @@ export function BusinessLicenseUpload({
   // 해제하지 않는 리소스라 파일 변경/언마운트 시 명시적으로 revoke한다(FacilityPhotoUploadField와
   // 동일 패턴).
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // 썸네일 클릭 확대 라이트박스(#767) — previewUrl을 그대로 재사용(추가 objectURL 생성 없음).
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const thumbnailButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!file || !file.type.startsWith('image/')) {
@@ -86,6 +90,19 @@ export function BusinessLicenseUpload({
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
+
+  // 파일이 삭제되거나 PDF로 교체돼 미리보기가 사라지면 열려 있던 라이트박스도 함께 닫는다
+  // (stale 이미지 노출 방지).
+  useEffect(() => {
+    if (!previewUrl) {
+      setIsLightboxOpen(false);
+    }
+  }, [previewUrl]);
+
+  const closeLightbox = () => {
+    setIsLightboxOpen(false);
+    thumbnailButtonRef.current?.focus();
+  };
 
   const acceptDroppedFile = (candidate: File | null) => {
     if (!candidate) return;
@@ -165,11 +182,15 @@ export function BusinessLicenseUpload({
       {file && (
         <div className="flex items-center gap-2 rounded-lg bg-surface-muted px-3 py-2 text-sm">
           {previewUrl ? (
-            <img
-              src={previewUrl}
-              alt=""
-              className="h-12 w-12 shrink-0 rounded-md object-cover"
-            />
+            <button
+              ref={thumbnailButtonRef}
+              type="button"
+              className="shrink-0 cursor-zoom-in rounded-md border-none bg-transparent p-0"
+              aria-label="사업자등록증 이미지 크게 보기"
+              onClick={() => setIsLightboxOpen(true)}
+            >
+              <img src={previewUrl} alt="" className="h-12 w-12 rounded-md object-cover" />
+            </button>
           ) : (
             <span aria-hidden="true">📄</span>
           )}
@@ -214,6 +235,10 @@ export function BusinessLicenseUpload({
         채워집니다(자동채움 후에도 직접 수정 가능). PDF는 자동인식을 지원하지 않아 아래 항목을
         직접 입력해 주세요.
       </p>
+
+      {isLightboxOpen && previewUrl && (
+        <BusinessLicenseImageLightbox previewUrl={previewUrl} onClose={closeLightbox} />
+      )}
     </div>
   );
 }
