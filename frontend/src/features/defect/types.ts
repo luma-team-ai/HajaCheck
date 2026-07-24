@@ -26,6 +26,10 @@ export interface Defect {
   // 인가된 /api/media/{id}/thumbnail 경로 — mediaId가 없으면 null(HAJA-314)
   imageUrl: string | null;
   createdAt: string;
+  // "조치 결과 등록"(하자 상세 모달, HAJA-394/#726) 제출값 — 미등록이면 null/undefined.
+  // 실제 저장 컬럼은 백엔드 Flyway V5 대기(TBD, docs/api-contract/contract.md §"하자 목록·상세 화면
+  // 개편" 참고) — 필드가 옵셔널이라 기존 mock/테스트 데이터를 건드리지 않아도 된다.
+  actionResult?: DefectActionResult | null;
 }
 
 // GET /api/defects/{id}/revisions 응답 항목 — backend DefectRevisionResponse와 1:1(HAJA-314)
@@ -76,3 +80,80 @@ export const DEFECT_GRADE_LABEL: Record<DefectGrade, string> = {
   D: '경고',
   E: '중대',
 };
+
+// ---------------------------------------------------------------------------
+// 하자 목록·상세 개편 (draft, HAJA-393/394 · #725/#726, 2026-07-24)
+// docs/api-contract/contract.md §"하자 목록·상세 화면 개편" 참고 — 목록 화면은 하자 단건이 아니라
+// 점검(Inspection) 단위로 재해석한다(사용자 확정 지시, 시각 디자인은 유지).
+// ---------------------------------------------------------------------------
+
+// 점검(회차) 진행 상태 — inspection feature의 InspectionStatus와 동일한 백엔드 enum 값이지만
+// feature 간 직접 import 금지(React_코드_컨벤션.md §1)로 로컬 재정의한다.
+export type InspectionStatus = 'CREATED' | 'UPLOADING' | 'ANALYZING' | 'ANALYZED' | 'REVIEWED' | 'REPORTED';
+
+export const INSPECTION_STATUS_LABEL: Record<InspectionStatus, string> = {
+  CREATED: '생성됨',
+  UPLOADING: '업로드중',
+  ANALYZING: '분석중',
+  ANALYZED: '분석완료',
+  REVIEWED: '검수완료',
+  REPORTED: '보고완료',
+};
+
+// 등급별 하자 건수 분포 — 점검 목록 테이블의 "등급분포" 컬럼(contract.md 화면 구조 ①)
+export type InspectionGradeDistribution = Record<DefectGrade, number>;
+
+// GET /api/inspections 목록 항목 — 신규 엔드포인트(BE 미구현, MSW 목으로 우선 개발, contract.md 참고)
+export interface InspectionListItem {
+  id: number;
+  facilityId: number;
+  facilityName: string;
+  facilityType: string;
+  roundNo: number;
+  inspectionDate: string; // YYYY-MM-DD
+  status: InspectionStatus;
+  defectCount: number;
+  gradeDistribution: InspectionGradeDistribution;
+  assigneeName: string | null;
+}
+
+// GET /api/inspections 쿼리 파라미터 — page는 Spring Data 관례대로 0-based
+export interface InspectionListFilters {
+  status?: InspectionStatus;
+  facilityId?: number;
+  page?: number;
+  size?: number;
+}
+
+// 점검 목록 필터의 시설물 select 옵션 — GET /api/facilities 재사용(§api 레이어 참고)
+export interface InspectionFacilityOption {
+  id: number;
+  name: string;
+}
+
+// 담당자 select 옵션 — facility feature의 FacilityAssignableUser와 동일 모양이지만 feature 간
+// 직접 import 금지 컨벤션에 따라 로컬로 재정의한다(#690 GET /api/facilities/assignable-users 재사용 대상).
+export interface DefectAssignee {
+  id: number;
+  name: string;
+}
+
+// 하자 상세 모달 "조치 결과 등록" 결과 — 등록되면 Defect.actionResult에 채워진다.
+export interface DefectActionResult {
+  actionContent: string;
+  actionDate: string; // YYYY-MM-DD
+  assigneeId: number;
+  assigneeName: string;
+  afterPhotoUrl: string | null;
+}
+
+// 하자 상세 모달 "조치 완료 등록" 제출 body — PATCH /api/defects/{id}/status 확장 가정(BE 판단 대기,
+// contract.md §"조치 결과 등록" 참고). 실제 필드명/엔드포인트가 BE 확정과 다르면 PR에
+// [CONTRACT-CHANGE-REQUEST]로 표시할 것.
+export interface DefectActionSubmitRequest {
+  status: 'RESOLVED';
+  actionContent: string;
+  actionDate: string;
+  assigneeId: number;
+  afterMediaId?: number;
+}

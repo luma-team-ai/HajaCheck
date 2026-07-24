@@ -1,19 +1,31 @@
 package com.hajacheck.core.inspection.service;
 
+import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
+import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.repository.InspectionDefectCountProjection;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.inspection.dto.InspectionCreateRequest;
+import com.hajacheck.core.inspection.dto.InspectionListItemResponse;
 import com.hajacheck.core.inspection.dto.InspectionResponse;
 import com.hajacheck.core.inspection.entity.Inspection;
+import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +46,8 @@ public class InspectionService {
     private final FacilityService facilityService;
     private final AuthService authService;
     private final CompanyScopeGuard companyScopeGuard;
+    private final DefectRepository defectRepository;
+    private final UserRepository userRepository;
 
     @Transactional
     public InspectionResponse createInspection(
@@ -85,6 +99,37 @@ public class InspectionService {
         }
         String message = e.getMostSpecificCause().getMessage();
         return message != null && message.contains(ROUND_NO_UNIQUE_CONSTRAINT);
+    }
+
+    /**
+     * 점검 목록 조회(HAJA-393/#725) — 하자 목록 화면 개편 "①점검 단위 목록". 회사 스코프는
+     * InspectionRepositoryImpl 이 facility.companyId 조인으로 강제하므로, facilityId 필터에 타사 소유
+     * 시설물을 넘겨도 빈 결과만 나온다(cross-company IDOR 방지, DefectService.list()와 동일 원칙).
+     */
+    public PageResponse<InspectionListItemResponse> list(
+            Long userId, Long companyId, Long facilityId, InspectionStatus status, Pageable pageable) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Page<Inspection> page =
+                inspectionRepository.findPageByCompanyIdAndFilters(companyId, facilityId, status, pageable);
+
+        List<Long> inspectionIds = page.getContent().stream().map(Inspection::getId).toList();
+        Map<Long, Long> defectCountByInspectionId = inspectionIds.isEmpty() ? Map.of()
+                : defectRepository.countGroupByInspectionId(inspectionIds).stream()
+                        .collect(Collectors.toMap(
+                                InspectionDefectCountProjection::getInspectionId,
+                                InspectionDefectCountProjection::getCnt));
+
+        List<Long> inspectorIds =
+                page.getContent().stream().map(Inspection::getAssignedInspectorId).distinct().toList();
+        Map<Long, String> inspectorNameById = inspectorIds.isEmpty() ? Map.of()
+                : userRepository.findAllById(inspectorIds).stream()
+                        .collect(Collectors.toMap(User::getId, User::getName));
+
+        return PageResponse.from(page.map(inspection -> InspectionListItemResponse.from(
+                inspection,
+                inspection.getFacility().getName(),
+                inspectorNameById.getOrDefault(inspection.getAssignedInspectorId(), "-"),
+                defectCountByInspectionId.getOrDefault(inspection.getId(), 0L))));
     }
 
     public InspectionResponse getInspection(Long userId, Long companyId, Long inspectionId) {

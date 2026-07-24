@@ -10,7 +10,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface InspectionRepository extends JpaRepository<Inspection, Long> {
+public interface InspectionRepository extends JpaRepository<Inspection, Long>, InspectionRepositoryCustom {
 
     // 대시보드 개요(HAJA-17) — 소유 시설물 범위 내 점검 전체(최근 점검 목록 조합용 createdBy/facilityId 매핑 포함).
     List<Inspection> findByFacilityIdIn(Collection<Long> facilityIds);

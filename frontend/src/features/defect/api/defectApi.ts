@@ -1,7 +1,16 @@
 import { aiClient } from '../../../shared/api/aiClient';
 import { api } from '../../../shared/api/axios';
 import type { PageResponse } from '../../../shared/api/types';
-import type { Defect, DefectListFilters, DefectRevision, DefectStatus } from '../types';
+import type {
+  Defect,
+  DefectActionSubmitRequest,
+  DefectListFilters,
+  DefectRevision,
+  DefectStatus,
+  InspectionFacilityOption,
+  InspectionListFilters,
+  InspectionListItem,
+} from '../types';
 import type { NlSearchResult } from '../nlSearchTypes';
 
 // DefectController.getRevisions @PageableDefault(size=20)과 반드시 일치시킬 것.
@@ -44,4 +53,23 @@ export const defectApi = {
   // 게이트가 걸린 공개 Spring 게이트웨이라 aiClient가 아니라 일반 백엔드 클라이언트(api)를 사용한다
   // (docs/design/ai/nl_search_filter_schema.md §4 — "프론트도 aiClient가 아니라... Spring API 클라이언트 사용").
   nlSearch: (query: string) => api.post<NlSearchResult>('/defects/nl-search', { query }),
+
+  // --- 하자 목록·상세 개편 (HAJA-393/394, #725/#726) ---------------------------------------
+
+  // GET /api/inspections — 점검(Inspection) 단위 목록. 백엔드 신규 구현 대기 상태라 MSW 목으로
+  // 우선 개발한다(contract.md §엔드포인트 매핑 ①).
+  getInspections: (filters: InspectionListFilters = {}) =>
+    api.get<PageResponse<InspectionListItem>>('/inspections', { params: filters }),
+  // GET /api/inspections/{id}/defects — 점검별 하자 카드 목록(카드형 상세, contract.md §②).
+  // inspection feature의 inspectionApi.getDefects와 동일 엔드포인트를 defect feature 안에 자체
+  // 복제해서 호출한다(feature 간 직접 import 금지, React_코드_컨벤션.md §1).
+  getByInspection: (inspectionId: number) => api.get<Defect[]>(`/inspections/${inspectionId}/defects`),
+  // GET /api/facilities — 점검 목록 필터의 시설물 select 옵션. facility/inspection feature import
+  // 없이 실 엔드포인트만 재사용(이미 다른 feature도 동일 엔드포인트를 각자 호출하는 기존 패턴과 동일).
+  listFacilityOptions: () => api.get<InspectionFacilityOption[]>('/facilities'),
+  // PATCH /api/defects/{id}/status 확장 가정(BE 판단 대기, contract.md §"조치 결과 등록" 참고) —
+  // 하자 상세 모달의 "조치 완료 등록" 제출 시 상태 전이(RESOLVED)와 조치결과 필드를 함께 보낸다.
+  // 실제 필드명/엔드포인트가 BE 확정과 다르면 PR에 [CONTRACT-CHANGE-REQUEST]로 표시할 것.
+  submitAction: (id: number, body: DefectActionSubmitRequest) =>
+    api.patch<Defect>(`/defects/${id}/status`, body),
 };

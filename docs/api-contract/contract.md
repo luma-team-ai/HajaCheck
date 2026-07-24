@@ -452,7 +452,7 @@ Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?no
 | 조치 내용 | 텍스트(멀티라인) | ✅ | placeholder "조치 내용을 입력해 주세요." |
 | 조치일 | 날짜 | ✅ | |
 | 담당자 | 드롭다운(예: "김현수 과장") | ✅ | **#690 "배정 가능한 담당자(회사 소속 사용자) 목록 조회 API" 재사용 대상** |
-| (버튼) 조치 완료 등록 | — | — | 제출 시 상태 전이(`PATCH /api/defects/{id}/status`, RESOLVED 전이 추정) + 위 필드 저장을 동시에 수행하는 것으로 보임 — BE가 단일 엔드포인트로 묶을지 분리할지 결정 |
+| (버튼) 조치 완료 등록 | — | — | **결정(2026-07-24, BE)**: 신규 `PATCH /api/defects/{id}/action` — 상태 전이는 RESOLVED로 고정, 기존 `PATCH /api/defects/{id}/status`는 확장하지 않음(아래 "엔드포인트 매핑" 근거 참고) |
 
 ### 엔드포인트 매핑 (기존 재사용 우선)
 
@@ -460,15 +460,14 @@ Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?no
 |---|---|---|
 | ①점검 단위 목록 | `GET /api/inspections` (페이지네이션, 상태/시설물 필터) | **신규** — 현재 `InspectionController`는 `GET /{id}` 단건만 존재. 응답에 하자 건수·등급분포 등 집계 포함 검토(대시보드 `recent-inspections`/`upcoming-inspections` 필드 재사용) |
 | ②점검별 하자 카드 목록 | `GET /api/inspections/{id}/defects` | **기존 재사용** (`DefectRevisionController`, `DefectDetailItem` 반환). 카드 UI에 필요한 필드(썸네일 등)가 부족하면 `DefectDetailItem` 확장 — 신규 엔드포인트 만들지 말 것 |
-| ③하자 상세 모달 조회 | `GET /api/defects/{id}` (`DefectResponse`) | **기존 재사용 + 확장 필요** — 위 표의 "조치 결과 등록" 필드(조치내용/조치일/담당자/조치후사진) 저장용 컬럼이 `Defect` 엔티티에 없음. Flyway **V5**로 추가(V1~V4 절대 수정 금지) |
-| ③조치 결과 등록 | `PATCH /api/defects/{id}/status` 확장 또는 신규 `PATCH /api/defects/{id}/action` | **BE 판단 필요** — 상태전이와 조치결과 저장을 한 엔드포인트로 묶을지, 별도로 분리할지 결정하고 이 섹션 갱신 |
-| ③담당자 드롭다운 옵션 | `GET /api/facilities/assignable-users` (#690, `FacilityController`) | **기존 재사용 추정** — 회사 소속 배정가능 사용자 목록. 정확한 응답 필드는 BE 세션이 `FacilityController.java:102` 확인 후 반영 |
-| ③파일 업로드(조치 후 사진) | `POST /api/inspections/{id}/media` | **기존 media API 재사용** — 하자 전용 신규 첨부 엔드포인트 만들지 않기로 확정(2026-07-24 사용자 결정) |
+| ③하자 상세 모달 조회 | `GET /api/defects/{id}` (`DefectResponse`) | **구현 완료** — "조치 결과 등록" 필드(조치내용/조치일/담당자/조치후사진) 저장용 컬럼을 `Defect` 엔티티에 추가. Flyway **V12**로 추가(handoff는 애초 "V5"를 지정했으나 그 사이 V5~V11이 다른 PR에서 선점돼 다음 번호로 진행, V1~V11 무수정) |
+| ③조치 결과 등록 | **신규** `PATCH /api/defects/{id}/action` (`DefectActionResultRequest`) | **구현 완료** — 상태전이(`PATCH /status`)와 분리한 이유: (1) 조치완료 폼에는 "역행/건너뛰기 사유" 입력란이 없어 4개 필드가 항상 전부 필수인데, `DefectStatusUpdateRequest`에 조건부 필수 필드를 얹으면 검증이 status 값에 따라 달라져 복잡해짐 (2) 상태전이 API의 기존 의미(모든 상태 간 자유 전이+사유)와 "조치 등록"의 의미(IN_PROGRESS→RESOLVED 전용, 항상 4필드 세트)가 달라 한 엔드포인트에 섞으면 계약이 모호해짐. 내부적으로 `Defect#registerActionResult()`가 기존 `changeStatus()`의 정방향 전이 규칙(IN_PROGRESS에서만 사유 없이 허용)을 재사용하므로 순서를 건너뛴 완료 처리는 400으로 자연히 거부됨 |
+| ③담당자 드롭다운 옵션 | `GET /api/facilities/assignable-users` (#690, `FacilityController.java:102`, `AssignableUserResponse{id,name,role}`) | **구현 완료** — 기존 API 그대로 재사용. `DefectActionResultRequest.actionAssigneeId`도 서비스 계층에서 `AuthService.validateAssignableInspector()`(#690과 동일 자격조건: 활성·INSPECTOR/ADMIN·유효 승인 멤버십)로 검증해 cross-company IDOR 차단 |
+| ③파일 업로드(조치 후 사진) | `POST /api/inspections/{id}/media` | **기존 media API 재사용** — 업로드 후 반환된 mediaId를 `DefectActionResultRequest.actionMediaId`로 전달. 서비스가 해당 media가 하자와 같은 inspection 소속인지 검증(`MediaRepository.findByIdAndInspectionId`)해 타 점검/타 회사 media 연결을 차단 |
 
 ### 잔여 TBD
-- ③"조치 결과 등록" 제출 시 상태전이(RESOLVED 추정)와 필드 저장이 한 트랜잭션인지, `DefectStatusUpdateRequest`를 확장할지 신규 DTO를 만들지 — BE 세션 구현 중 결정하고 이 섹션 갱신
-- 하자당 첨부파일("조치 후 사진") 다건 허용 여부, 기존 `mediaId`(탐지 이미지 1개, nullable)와의 관계 구분
-- `GET /api/inspections` 목록의 정렬/기본 필터 및 페이지 크기
+- 하자당 첨부파일("조치 후 사진") 다건 허용 여부, 기존 `mediaId`(탐지 이미지 1개, nullable)와의 관계 구분 — 현재는 1건(actionMediaId)만 지원
+- `GET /api/inspections` 목록의 정렬/기본 필터 및 페이지 크기(현재 구현: 점검일 최신순 desc + 동일일자 id desc, 기본 페이지 크기 20)
 
 ### 관련 이슈
 선행 #17(HAJA-26, CLOSED) · 연관(중복 여부 확인 필요) #527(하자 상세 이미지뷰어/활동기록/SLA) · #630(조치 보드 칸반)

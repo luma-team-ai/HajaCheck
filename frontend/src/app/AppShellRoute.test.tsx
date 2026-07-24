@@ -18,6 +18,8 @@ const baseUser: User = {
   role: 'USER',
   companyId: 1,
   profileImageUrl: null,
+  createdAt: '2026-01-01T00:00:00',
+  companyName: '하자체크',
 };
 
 // 알림 센터(HAJA-38) 연결 후 로그인 사용자 렌더 시 useNotifications가 GET /api/notifications를

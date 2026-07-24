@@ -2,11 +2,14 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../../../shared/components/Button";
 import { TableFooterPagination } from "../../../shared/components/TableFooterPagination";
+import { defectApi } from "../api/defectApi";
 import { DefectActionBoard } from "../components/DefectActionBoard";
 import { DefectFilterBar } from "../components/DefectFilterBar";
-import { DefectTable } from "../components/DefectTable";
+import { InspectionFilterBar } from "../components/InspectionFilterBar";
+import { InspectionTable } from "../components/InspectionTable";
 import { useDefects } from "../hooks/useDefects";
-import type { DefectListFilters } from "../types";
+import { useInspections } from "../hooks/useInspections";
+import type { DefectListFilters, InspectionListFilters } from "../types";
 import { exportDefectsToPdf } from "../utils/exportDefectsToPdf";
 import "./DefectListPage.css";
 
@@ -17,63 +20,94 @@ const DEFAULT_SIZE = 10;
 // handoff §UI 배치).
 type DefectViewMode = "list" | "board";
 
-// 하자 목록 — HAJA-30. FacilityListPage(features/facility)와 동일하게 목록 조회 훅 + 테이블 +
-// (신규) 필터·페이지네이션 조합으로 구성한다. AppShellRoute 자식(셸 포함) — /defects/:id(상세)와
-// 동일한 셸 아래 목록→상세 이동 흐름을 유지한다.
+// 하자 목록 — HAJA-30 → HAJA-393/394(#725/#726)에서 "목록 보기" 탭을 점검(Inspection) 단위로
+// 재해석했다(사용자 확정 지시, 2026-07-24 — 시각 디자인은 유지하되 로우를 점검 단위로 변경).
+// "보드 보기" 탭(HAJA-349/#630)은 여전히 하자 단건 기준으로 유지한다(이번 개편 범위 밖 — 손대지
+// 않음). 두 탭이 서로 다른 그레인(점검 vs 하자)을 다루므로 필터 상태도 분리한다:
+// - defectFilters: 보드 탭(DefectActionBoard) + 헤더 "총 N건"(보드 탭 활성 시) 소스
+// - inspectionFilters: 목록 탭(InspectionTable) 소스
 export function DefectListPage() {
   const navigate = useNavigate();
-  const [filters, setFilters] = useState<DefectListFilters>({
+  const [defectFilters, setDefectFilters] = useState<DefectListFilters>({
     page: 0,
     size: DEFAULT_SIZE,
   });
-  const { data, isLoading, isError, refetch } = useDefects(filters);
+  const [inspectionFilters, setInspectionFilters] = useState<InspectionListFilters>({
+    page: 0,
+    size: DEFAULT_SIZE,
+  });
+  const [viewMode, setViewMode] = useState<DefectViewMode>("list");
+  // 헤더 "총 N건"(보드 탭 활성 시) 소스로만 쓴다 — 보드 탭 자체 로딩/에러 UI는 DefectActionBoard가
+  // 내부 useDefectActionBoard로 별도 처리한다. 목록 보기 탭에서는 이 응답을 전혀 쓰지 않으므로
+  // viewMode==='board'일 때만 조회한다(PR머신 P2 지적 — 불필요한 GET /api/defects 매 렌더 호출).
+  const { data } = useDefects(defectFilters, { enabled: viewMode === "board" });
+  const {
+    data: inspectionData,
+    isLoading: isInspectionLoading,
+    isError: isInspectionError,
+    refetch: refetchInspections,
+  } = useInspections(inspectionFilters);
+  // 선택 대상은 활성 탭에 따라 그레인이 다르다(목록=점검 id, 보드=선택 없음) — viewMode 전환 시
+  // 이전 탭의 선택이 남아 있으면 혼동되므로 탭을 바꿀 때 함께 초기화한다.
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [isExporting, setIsExporting] = useState(false);
-  const [viewMode, setViewMode] = useState<DefectViewMode>("list");
 
-  const size = filters.size ?? DEFAULT_SIZE;
-  const currentPage = (filters.page ?? 0) + 1; // TableFooterPagination/Pagination은 1-based
-  const totalElements = data?.totalElements ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalElements / size));
+  const inspectionSize = inspectionFilters.size ?? DEFAULT_SIZE;
+  const inspectionCurrentPage = (inspectionFilters.page ?? 0) + 1; // TableFooterPagination은 1-based
+  const inspectionTotalElements = inspectionData?.totalElements ?? 0;
+  const inspectionTotalPages = Math.max(1, Math.ceil(inspectionTotalElements / inspectionSize));
 
-  const selectedDefects = useMemo(
-    () => (data?.content ?? []).filter((defect) => selectedIds.has(defect.id)),
-    [data, selectedIds],
+  // 헤더 "총 N건"은 활성 탭 그레인 기준(목록=점검 건수, 보드=하자 건수)으로 표시한다.
+  const totalElements = viewMode === "list" ? inspectionTotalElements : data?.totalElements ?? 0;
+
+  const selectedInspections = useMemo(
+    () => (inspectionData?.content ?? []).filter((inspection) => selectedIds.has(inspection.id)),
+    [inspectionData, selectedIds],
   );
-  const selectedInspectionIds = useMemo(
-    () => new Set(selectedDefects.map((defect) => defect.inspectionId)),
-    [selectedDefects],
-  );
-  const canGenerateReport =
-    selectedDefects.length > 0 && selectedInspectionIds.size === 1;
+  // 보드 탭에서는 점검 선택 자체가 의미 없으므로(테이블이 렌더링되지 않음) 목록 탭에서만 활성화한다.
+  const canGenerateReport = viewMode === "list" && selectedInspections.length === 1;
+  const canExport = viewMode === "list" && selectedInspections.length > 0;
   const reportButtonTitle =
-    selectedDefects.length === 0
-      ? "보고서를 생성할 하자를 선택하세요"
-      : selectedInspectionIds.size > 1
-        ? "같은 점검 회차의 하자만 선택하세요"
-        : undefined;
-  const canExport = selectedDefects.length > 0;
+    viewMode !== "list"
+      ? "목록 보기에서 점검을 선택하세요"
+      : selectedInspections.length === 0
+        ? "보고서를 생성할 점검을 선택하세요"
+        : selectedInspections.length > 1
+          ? "보고서는 점검 1건씩만 생성할 수 있습니다"
+          : undefined;
 
-  const handlePageChange = (page: number) => {
-    setFilters((prev) => ({ ...prev, page: page - 1 }));
+  const handleInspectionPageChange = (page: number) => {
+    setInspectionFilters((prev) => ({ ...prev, page: page - 1 }));
   };
 
-  const handlePageSizeChange = (nextSize: number) => {
-    setFilters((prev) => ({ ...prev, size: nextSize, page: 0 }));
+  const handleInspectionPageSizeChange = (nextSize: number) => {
+    setInspectionFilters((prev) => ({ ...prev, size: nextSize, page: 0 }));
+  };
+
+  const handleViewModeChange = (mode: DefectViewMode) => {
+    setViewMode(mode);
+    setSelectedIds(new Set());
   };
 
   const handleGenerateReport = () => {
     if (!canGenerateReport) return;
-    navigate(`/inspections/${selectedDefects[0].inspectionId}/viewer`);
+    navigate(`/inspections/${selectedInspections[0].id}/viewer`);
   };
 
+  // "내보내기"는 선택된 점검(들)에 속한 하자 전체를 모아 PDF로 내보낸다 — 기존(하자 단건 선택 후
+  // 바로 내보내기)과 달리 점검 단위 선택이라 하자 목록을 먼저 조회해야 한다(HAJA-393/394 재해석).
   const handleExport = async () => {
     if (!canExport || isExporting) return;
     setIsExporting(true);
     try {
-      await exportDefectsToPdf(selectedDefects);
+      const defectsByInspection = await Promise.all(
+        selectedInspections.map((inspection) =>
+          defectApi.getByInspection(inspection.id).then((res) => res.data),
+        ),
+      );
+      await exportDefectsToPdf(defectsByInspection.flat());
     } catch (error) {
-      console.error("하자 목록 PDF 내보내기 실패", error);
+      console.error("점검 하자 목록 PDF 내보내기 실패", error);
     } finally {
       setIsExporting(false);
     }
@@ -109,7 +143,7 @@ export function DefectListPage() {
               variant="secondary"
               size="md"
               disabled={!canExport || isExporting}
-              title={canExport ? undefined : "내보낼 하자를 선택하세요"}
+              title={canExport ? undefined : "내보낼 점검을 선택하세요"}
               onClick={handleExport}
             >
               {isExporting ? "내보내는 중..." : "내보내기"}
@@ -126,7 +160,11 @@ export function DefectListPage() {
           </div>
         </div>
 
-        <DefectFilterBar filters={filters} onChange={setFilters} />
+        {viewMode === "list" ? (
+          <InspectionFilterBar filters={inspectionFilters} onChange={setInspectionFilters} />
+        ) : (
+          <DefectFilterBar filters={defectFilters} onChange={setDefectFilters} />
+        )}
 
         <div className="defect-list-page__view-tabs" role="tablist" aria-label="하자 보기 방식">
           <button
@@ -140,7 +178,7 @@ export function DefectListPage() {
                 ? "defect-list-page__view-tab is-active"
                 : "defect-list-page__view-tab"
             }
-            onClick={() => setViewMode("list")}
+            onClick={() => handleViewModeChange("list")}
           >
             목록 보기
           </button>
@@ -155,7 +193,7 @@ export function DefectListPage() {
                 ? "defect-list-page__view-tab is-active"
                 : "defect-list-page__view-tab"
             }
-            onClick={() => setViewMode("board")}
+            onClick={() => handleViewModeChange("board")}
           >
             보드 보기
           </button>
@@ -170,25 +208,25 @@ export function DefectListPage() {
           aria-labelledby="defect-list-tab-list"
         >
           <div className="defect-list-page__table-scroll">
-            <DefectTable
-              defects={data?.content}
-              isLoading={isLoading}
-              isError={isError}
-              onRetry={refetch}
+            <InspectionTable
+              inspections={inspectionData?.content}
+              isLoading={isInspectionLoading}
+              isError={isInspectionError}
+              onRetry={refetchInspections}
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
             />
           </div>
 
-          {!isLoading && !isError && (
+          {!isInspectionLoading && !isInspectionError && (
             <div className="defect-list-page__pagination">
               <TableFooterPagination
-                pageSize={size}
-                onPageSizeChange={handlePageSizeChange}
-                currentPage={currentPage}
-                totalPages={totalPages}
-                totalItems={totalElements}
-                onPageChange={handlePageChange}
+                pageSize={inspectionSize}
+                onPageSizeChange={handleInspectionPageSizeChange}
+                currentPage={inspectionCurrentPage}
+                totalPages={inspectionTotalPages}
+                totalItems={inspectionTotalElements}
+                onPageChange={handleInspectionPageChange}
               />
             </div>
           )}
@@ -203,7 +241,7 @@ export function DefectListPage() {
           role="tabpanel"
           aria-labelledby="defect-list-tab-board"
         >
-          <DefectActionBoard filters={filters} />
+          <DefectActionBoard filters={defectFilters} />
         </div>
       )}
     </section>

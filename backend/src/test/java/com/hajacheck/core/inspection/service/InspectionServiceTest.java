@@ -5,27 +5,36 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
+import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.repository.InspectionDefectCountProjection;
 import com.hajacheck.core.facility.dto.FacilityResponse;
+import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.inspection.dto.InspectionCreateRequest;
+import com.hajacheck.core.inspection.dto.InspectionListItemResponse;
 import com.hajacheck.core.inspection.dto.InspectionResponse;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.lang.reflect.Field;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
@@ -34,6 +43,11 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class InspectionServiceTest {
@@ -46,6 +60,10 @@ class InspectionServiceTest {
     private AuthService authService;
     @Mock
     private CompanyScopeGuard companyScopeGuard;
+    @Mock
+    private DefectRepository defectRepository;
+    @Mock
+    private UserRepository userRepository;
 
     @InjectMocks
     private InspectionService service;
@@ -77,6 +95,27 @@ class InspectionServiceTest {
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    // InspectionRepositoryImpl 이 fetch join 으로 facility 를 채워서 반환하므로, list() 테스트는
+    // facility 연관관계까지 리플렉션으로 세팅해야 InspectionListItemResponse.from() 이 정상 매핑된다
+    // (DefectServiceTest.existingDefect() 와 동일 사유).
+    private static Inspection inspectionWithFacility(Long id, Long facilityId, String facilityName,
+                                                       Long assignedInspectorId, InspectionStatus status) {
+        Facility facility = Facility.builder().companyId(100L).name(facilityName).type("BUILDING").build();
+        ReflectionTestUtils.setField(facility, "id", facilityId);
+
+        Inspection inspection = Inspection.builder()
+                .facilityId(facilityId)
+                .createdBy(300L)
+                .assignedInspectorId(assignedInspectorId)
+                .roundNo(1)
+                .inspectionDate(LocalDate.of(2026, 7, 20))
+                .status(status)
+                .build();
+        setId(inspection, id);
+        ReflectionTestUtils.setField(inspection, "facility", facility);
+        return inspection;
     }
 
     @Test
@@ -221,5 +260,94 @@ class InspectionServiceTest {
         assertThatThrownBy(() -> service.getInspection(300L, 999L, 10L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.INSPECTION_NOT_FOUND));
+    }
+
+    @Test
+    void list_owner스코프로위임_필터그대로전달_시설물명담당자명하자건수포함매핑() {
+        Pageable pageable = PageRequest.of(0, 20);
+        Inspection inspection = inspectionWithFacility(10L, 1L, "테스트빌딩", 200L, InspectionStatus.ANALYZED);
+        Page<Inspection> page = new PageImpl<>(List.of(inspection), pageable, 1);
+        when(inspectionRepository.findPageByCompanyIdAndFilters(
+                eq(100L), eq(1L), eq(InspectionStatus.ANALYZED), any(Pageable.class)))
+                .thenReturn(page);
+        when(defectRepository.countGroupByInspectionId(List.of(10L)))
+                .thenReturn(List.of(countProjection(10L, 3L)));
+        User inspector = User.builder().name("김점검").build();
+        ReflectionTestUtils.setField(inspector, "id", 200L);
+        when(userRepository.findAllById(List.of(200L))).thenReturn(List.of(inspector));
+
+        PageResponse<InspectionListItemResponse> response =
+                service.list(300L, 100L, 1L, InspectionStatus.ANALYZED, pageable);
+
+        assertThat(response.content()).hasSize(1);
+        InspectionListItemResponse item = response.content().get(0);
+        assertThat(item.id()).isEqualTo(10L);
+        assertThat(item.facilityId()).isEqualTo(1L);
+        assertThat(item.facilityName()).isEqualTo("테스트빌딩");
+        assertThat(item.assignedInspectorId()).isEqualTo(200L);
+        assertThat(item.assignedInspectorName()).isEqualTo("김점검");
+        assertThat(item.status()).isEqualTo(InspectionStatus.ANALYZED);
+        assertThat(item.defectCount()).isEqualTo(3L);
+        verify(companyScopeGuard).requireEffectiveMembership(300L, 100L);
+        verify(inspectionRepository)
+                .findPageByCompanyIdAndFilters(100L, 1L, InspectionStatus.ANALYZED, pageable);
+    }
+
+    @Test
+    void list_결과없으면빈페이지_하자레포사용자레포조회안함() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(inspectionRepository.findPageByCompanyIdAndFilters(
+                eq(100L), isNull(), isNull(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+        PageResponse<InspectionListItemResponse> response = service.list(300L, 100L, null, null, pageable);
+
+        assertThat(response.content()).isEmpty();
+        assertThat(response.totalElements()).isZero();
+        verify(defectRepository, never()).countGroupByInspectionId(any());
+        verify(userRepository, never()).findAllById(any());
+    }
+
+    @Test
+    void list_하자담당자정보없으면기본값() {
+        Pageable pageable = PageRequest.of(0, 20);
+        Inspection inspection = inspectionWithFacility(10L, 1L, "테스트빌딩", 200L, InspectionStatus.CREATED);
+        when(inspectionRepository.findPageByCompanyIdAndFilters(
+                eq(100L), isNull(), isNull(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(inspection), pageable, 1));
+        when(defectRepository.countGroupByInspectionId(List.of(10L))).thenReturn(List.of());
+        when(userRepository.findAllById(List.of(200L))).thenReturn(List.of());
+
+        PageResponse<InspectionListItemResponse> response = service.list(300L, 100L, null, null, pageable);
+
+        InspectionListItemResponse item = response.content().get(0);
+        assertThat(item.defectCount()).isZero();
+        assertThat(item.assignedInspectorName()).isEqualTo("-");
+    }
+
+    @Test
+    void list_회사없는사용자_FORBIDDEN예외() {
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN))
+                .when(companyScopeGuard).requireEffectiveMembership(300L, null);
+
+        assertThatThrownBy(() -> service.list(300L, null, null, null, PageRequest.of(0, 10)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.FORBIDDEN));
+        verify(inspectionRepository, never()).findPageByCompanyIdAndFilters(any(), any(), any(), any());
+    }
+
+    private static InspectionDefectCountProjection countProjection(Long inspectionId, long cnt) {
+        return new InspectionDefectCountProjection() {
+            @Override
+            public Long getInspectionId() {
+                return inspectionId;
+            }
+
+            @Override
+            public long getCnt() {
+                return cnt;
+            }
+        };
     }
 }

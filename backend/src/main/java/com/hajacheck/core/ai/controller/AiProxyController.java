@@ -4,6 +4,8 @@ import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.ai.dto.BriefingResponse;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
+import com.hajacheck.core.ai.dto.RagChatRequest;
+import com.hajacheck.core.ai.dto.RagChatResponse;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
@@ -53,5 +55,14 @@ public class AiProxyController {
     @PostMapping("/briefing")
     public ResponseEntity<ApiResponse<BriefingResponse>> briefing(@AuthenticationPrincipal LoginUser loginUser) {
         return ResponseEntity.ok(aiProxyService.briefing(loginUser.getUserId(), loginUser.getCompanyId()));
+    }
+
+    @Operation(summary = "고객지원 RAG 챗봇", description = "로그인 사용자 질의를 인증 프록시로 AI 서버에 전달해 법규·점검 기준 기반 답변과 출처를 반환한다")
+    @PostMapping("/rag-chat")
+    public ResponseEntity<ApiResponse<RagChatResponse>> ragChat(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @Valid @RequestBody RagChatRequest request) {
+        // userId 는 principal 에서만 취득(요청 바디 금지) — 사용자 축 rate-limit 키로만 쓰인다.
+        return ResponseEntity.ok(aiProxyService.ragChat(loginUser.getUserId(), request));
     }
 }

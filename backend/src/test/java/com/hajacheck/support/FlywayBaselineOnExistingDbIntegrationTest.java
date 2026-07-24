@@ -65,7 +65,7 @@ class FlywayBaselineOnExistingDbIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 기존DB에_baselineOnMigrate로_V2부터_V11까지_적용해도_실패하지않고_validate와_PlanSeedGuard를_통과한다() {
+    void 기존DB에_baselineOnMigrate로_V2부터_V12까지_적용해도_실패하지않고_validate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 (1) Flyway 마이그레이션이 예외 없이 끝났고,
         // (2) Hibernate validate(전체 엔티티 매핑 대조)와 (3) PlanSeedGuard(plans 3티어) 를 통과했음을 의미한다.
 
@@ -77,19 +77,20 @@ class FlywayBaselineOnExistingDbIntegrationTest {
         // V2(seed_plans)·V3(api_system_logs)·V4(add_platform_admin_role)·V5(add_business_start_date, #596)·
         // V6(defects.media_id, #527/HAJA-314)·V7(inspection_admin_schema, #568)·
         // V8(grant_admin_to_company_owners, #636)·V9(facilities.next_inspection_due_at 인덱스, #509)·
-        // V10(add_facility_registration_fields, #628/HAJA-347)·V11(facilities company scope, #637)이
-        // 실제 versioned 마이그레이션으로 성공 적용된다. 캐노니컬 DDL(HajaCheck_script.sql)은 이미
-        // role_type에 PLATFORM_ADMIN·companies.business_start_date·defects.media_id·점검 관리자 스키마·
-        // next_inspection_due_at 인덱스·시설물 등록 필드 확장·회사 시설(company_id) 전환을 모두 포함하므로
-        // V4~V11은 IF NOT EXISTS(또는 대상 없는 UPDATE)로 no-op 성공한다 — 기존 DB(캐노니컬 DDL을 아직 못
-        // 받은 실제 arm1/팀원 로컬)에서는 이 V4~V11이 실제로 라벨·컬럼·테이블·인덱스를 추가/전환하는 경로다.
+        // V10(add_facility_registration_fields, #628/HAJA-347)·V11(facilities company scope, #637)·
+        // V12(defects 조치 결과 등록 필드, #725/HAJA-393)이 실제 versioned 마이그레이션으로 성공 적용된다.
+        // 캐노니컬 DDL(HajaCheck_script.sql)은 이미 role_type에 PLATFORM_ADMIN·companies.business_start_date·
+        // defects.media_id·점검 관리자 스키마·next_inspection_due_at 인덱스·시설물 등록 필드 확장·
+        // 회사 시설(company_id) 전환·defects 조치 결과 등록 필드를 모두 포함하므로 V4~V12는
+        // IF NOT EXISTS(또는 대상 없는 UPDATE)로 no-op 성공한다 — 기존 DB(캐노니컬 DDL을 아직 못 받은 실제
+        // arm1/팀원 로컬)에서는 이 V4~V12가 실제로 라벨·컬럼·테이블·인덱스를 추가/전환하는 경로다.
         // V8은 데이터 UPDATE 라 대상 owner 가 없어도(캐노니컬 DDL은 스키마만 적재, companies 빈 상태) 0행
         // 갱신으로 성공한다(#636).
         Integer appliedVersioned = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where success = true "
-                        + "and version in ('2', '3', '4', '5', '6', '7', '8', '9', '10', '11')",
+                        + "and version in ('2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12')",
                 Integer.class);
-        assertThat(appliedVersioned).isEqualTo(10);
+        assertThat(appliedVersioned).isEqualTo(11);
 
         // 실패 기록이 남지 않아야 한다(V3가 if not exists로 skip되어 'relation already exists'가 나지 않음).
         Integer failed = jdbcTemplate.queryForObject(
@@ -157,5 +158,14 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 select count(*) from information_schema.columns
                 where table_schema = 'public' and table_name = 'facilities' and column_name = 'company_id'
                 """, Long.class)).isEqualTo(1L);
+
+        // 기존 DB에 있던 defects 조치 결과 등록 필드(V12, #725/HAJA-393)도 그대로 유지된다
+        // (V12 재실행이 깨거나 중복 생성하지 않음 — 캐노니컬 DDL이 이미 포함하므로 no-op 성공 경로).
+        Long actionResultColumnCount = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'defects'
+                  and column_name in ('action_media_id', 'action_content', 'action_date', 'action_assignee_id')
+                """, Long.class);
+        assertThat(actionResultColumnCount).isEqualTo(4L);
     }
 }

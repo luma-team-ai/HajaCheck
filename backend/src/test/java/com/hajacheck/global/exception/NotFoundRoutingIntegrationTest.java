@@ -1,6 +1,8 @@
 package com.hajacheck.global.exception;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -87,12 +89,16 @@ class NotFoundRoutingIntegrationTest extends PostgresTestSupport {
     @Test
     @DisplayName("인증된 사용자가 지원하지 않는 메서드로 호출하면 500이 아니라 405 + METHOD_NOT_ALLOWED 로 응답한다")
     void authenticatedRequestWithUnsupportedMethod_returns405() throws Exception {
-        // GET /api/inspections — 실사용자가 브라우저 주소창에 쳐서 겪은 회귀(POST만 존재, 목록 조회 미구현).
+        // DELETE /api/inspections — 이 경로는 POST(생성)/GET(목록, #725)만 매핑되어 있고 DELETE는
+        // 지원하지 않는다. 원래 이 테스트는 GET(당시 미구현)으로 405를 검증했으나, #725가 GET을
+        // 실제로 매핑하면서 그 전제가 깨져(이제 정상 200/403 응답) DELETE로 교체했다. DELETE는
+        // CSRF 보호 대상(SecurityConfig)이라 csrf() 없이는 CsrfFilter 단계에서 403으로 먼저 끊겨
+        // 디스패처까지 못 가므로 명시적으로 토큰을 붙인다.
         LoginUser principal = new LoginUser(seededUser);
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                 principal, null, principal.getAuthorities());
 
-        mockMvc.perform(get("/api/inspections").with(authentication(auth)))
+        mockMvc.perform(delete("/api/inspections").with(authentication(auth)).with(csrf()))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("METHOD_NOT_ALLOWED"));

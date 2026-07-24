@@ -4,6 +4,9 @@ info:
   version: "0.15.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    2026-07-24 내 정보 조회(GET /api/users/me, 로그인 응답 포함) UserResponse에 createdAt(가입일)·
+    companyName(소속 기업명, 개인 회원/회사 미조회 시 null) 추가(#740 / HAJA-401) — 마이페이지 "내 정보"
+    프로필 섹션용. 기존 필드 순서·이름 유지한 추가형(하위호환).
     2026-07-23 마이페이지 "내 플랜" Figma 리디자인 + 모의 결제(#711) — MyPlanResponse.plan에
     nextBillingDate(유료 플랜만, startedAt KST 기준 +1개월)·businessVerified(회사 구독만, Company.
     verificationStatus==VERIFIED) 추가. POST /api/me/plan/checkout 신설 — PG 실결제 없는 모의 결제로
@@ -2188,6 +2191,8 @@ components:
         role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR, PLATFORM_ADMIN], example: USER }
         companyId: { type: integer, format: int64, nullable: true, example: 10 }
         profileImageUrl: { type: string, nullable: true, example: "https://.../p.png" }
+        createdAt: { type: string, format: date-time, description: "가입일시(BaseTimeEntity, 항상 존재)", example: "2026-07-24T14:30:00" }
+        companyName: { type: string, nullable: true, description: 소속 기업명(개인 회원/회사 미조회 시 null), example: 하자체크 }
 
     ApiError:
       type: object

@@ -10,6 +10,10 @@ import com.hajacheck.core.ai.dto.BusinessLicenseOcrResponse;
 import com.hajacheck.core.ai.dto.DefectExplainAiEnvelope;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
+import com.hajacheck.core.ai.dto.RagChatAiEnvelope;
+import com.hajacheck.core.ai.dto.RagChatAiRequest;
+import com.hajacheck.core.ai.dto.RagChatRequest;
+import com.hajacheck.core.ai.dto.RagChatResponse;
 import com.hajacheck.core.ai.dto.RagEmbedAiEnvelope;
 import com.hajacheck.core.ai.dto.RagEmbedRequest;
 import com.hajacheck.core.ai.dto.RagEmbedResponse;
@@ -47,6 +51,7 @@ public class AiProxyService {
     private static final String REPORT_PATH = "/ai/report";
     private static final String BRIEFING_PATH = "/ai/briefing";
     private static final String BUSINESS_LICENSE_OCR_PATH = "/ai/business-license-ocr";
+    private static final String RAG_CHAT_PATH = "/ai/rag-chat";
     private static final String RAG_EMBED_PATH = "/ai/rag-documents/embed";
     private static final String INTERNAL_KEY_HEADER = "X-Internal-Key";
 
@@ -180,6 +185,59 @@ public class AiProxyService {
                     .body(request)
                     .retrieve()
                     .body(BriefingAiEnvelope.class);
+        } catch (ResourceAccessException e) {
+            throw mapConnectionFailure(e);
+        } catch (RestClientResponseException e) {
+            throw mapResponseStatusFailure(e);
+        } catch (RestClientException e) {
+            log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    /**
+     * 고객지원 RAG 챗봇 프록시(HAJA-32, #467) — 로그인 사용자(관리자 한정 아님)가 호출한다.
+     * {@code userId} 는 컨트롤러가 {@code @AuthenticationPrincipal} 에서만 취득해 전달한다(요청 바디 금지).
+     * 사용자 축 rate-limit 키로만 사용한다.
+     *
+     * <p>프론트 요청({@code query})을 FastAPI 계약({@code question})으로 변환해 전달한다 — 필드명이 달라
+     * {@link RagChatRequest} 를 그대로 재사용할 수 없다({@link RagChatAiRequest} javadoc 참고).
+     * {@code session_id} 는 세션 소유·{@code session_type='RAG'} 검증이 후속 이슈로 분리돼 있어
+     * (contract.md §"내부 호출 계약", {@code /api/chat-sessions} 미구현) 이번 범위에서는 보내지 않는다.
+     */
+    public ApiResponse<RagChatResponse> ragChat(Long userId, RagChatRequest request) {
+        // 사용자 축 → 전역 축 순서로 rate-limit(초과 시 429·FastAPI 호출 없이 중단, AiProxyRateLimiter 참고).
+        aiProxyRateLimiter.checkUser(userId);
+        aiProxyRateLimiter.checkGlobal();
+        RagChatAiEnvelope envelope = callAiServer(new RagChatAiRequest(request.query()));
+        if (envelope == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+
+        if (!envelope.success()) {
+            RagChatAiEnvelope.ErrorBody error = envelope.error();
+            if (error == null) {
+                throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+            }
+            // RAG_NO_RESULT 등 AIErrorCode 를 가공 없이 그대로 전달 — 프론트는 error.code 로 분기한다
+            // (useRagChat.ts: code==='RAG_NO_RESULT' 는 에러가 아니라 "근거 없음" 안내로 표시).
+            return ApiResponse.fail(error.code(), error.message());
+        }
+
+        if (envelope.data() == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        return ApiResponse.ok(envelope.data());
+    }
+
+    private RagChatAiEnvelope callAiServer(RagChatAiRequest request) {
+        try {
+            return aiServerRestClient.post()
+                    .uri(RAG_CHAT_PATH)
+                    .headers(this::attachInternalKeyIfPresent)
+                    .body(request)
+                    .retrieve()
+                    .body(RagChatAiEnvelope.class);
         } catch (ResourceAccessException e) {
             throw mapConnectionFailure(e);
         } catch (RestClientResponseException e) {
