@@ -30,6 +30,7 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -389,7 +390,10 @@ class FacilityControllerTest extends PostgresTestSupport {
         User owner = saveUser("status-owner2@haja.com");
         Long companyId = owner.getCompanyId();
         User inspector = saveInspector("status-inspector2@haja.com", companyId);
-        LocalDate dueAt = LocalDate.now().plusDays(7);
+        // dDay는 서비스가 KST 기준(FacilityService.KST)으로 산출하므로, CI(UTC 러너)에서
+        // 시스템 기본 zone(LocalDate.now())으로 만들면 자정 전후 9시간 구간에서 하루 어긋난다 —
+        // 같은 KST로 맞춰야 CI/로컬 무관하게 결정론적으로 통과한다.
+        LocalDate dueAt = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(7);
         Facility facility = facilityRepository.save(Facility.builder()
                 .companyId(companyId)
                 .name("현황테스트빌딩")
