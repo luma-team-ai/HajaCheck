@@ -13,6 +13,10 @@ export interface User {
   role: Role;
   companyId: number | null;
   profileImageUrl: string | null;
+  // 가입일시(BaseTimeEntity, 항상 존재) — 마이페이지 "내 프로필" 섹션(#744, HAJA-403)에서 사용.
+  createdAt: string;
+  // 소속 기업명 — 개인 회원/회사 미조회 시 null(#744, HAJA-403).
+  companyName: string | null;
 }
 
 // 백엔드 응답 DTO 형태 — 현재는 User와 동일 필드
