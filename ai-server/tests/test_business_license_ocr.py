@@ -1,16 +1,17 @@
-"""business-license-ocr 실제 구현 검증 (HAJA-169/#552, RapidOCR→EasyOCR 교체 #605).
+"""business-license-ocr 실제 구현 검증 (HAJA-169/#552, RapidOCR→EasyOCR 교체 #605,
+EasyOCR→RapidOCR PP-OCRv5 한국어 교체 #722).
 
 - 라우터: 입력 검증(image_base64 필수) + 성공/실패 envelope (체인은 모킹)
 - 체인: OCR 결과 없음 폴백, 정규식 사업자등록번호 보정, LLM 실패 시 예외 전파 확인 (get_ocr_engine/
-  get_llm 모킹 — 실제 EasyOCR/HF 호출 없음)
-- 파싱 유닛(실제 OCR 아님): EasyOCR `readtext()` 응답 형식(`[(box, text, conf), ...]`)을
-  모킹해 `_extract_text_lines`가 실제 이미지 픽스처 경로로도 정상 파싱하는지 확인. (RapidOCR
-  시절과 달리 EasyOCR는 항상 언어 모델을 네트워크에서 다운로드해야 해서 "번들 모델로 오프라인
-  실 파이프라인 검증"이 불가능하다 — AI_개발_컨벤션 "HF 모델 관련 테스트는 항상 모킹" 원칙에
-  따라 여기서도 모킹으로 대체한다. EasyOCR 자체의 wiring은 `tests/test_ocr_client.py`에서
-  별도 검증.)
+  get_llm 모킹 — 실제 RapidOCR/HF 호출 없음)
+- 파싱 유닛(실제 OCR 아님): RapidOCR 호출 결과(`res.txts`/`res.scores` 튜플)를 모킹해
+  `_extract_text_lines`가 실제 이미지 픽스처 경로로도 정상 파싱하는지 확인. 모델 다운로드가
+  필요한 실제 추론은 AI_개발_컨벤션 "HF 모델 관련 테스트는 항상 모킹" 원칙에 따라 모킹으로
+  대체한다. RapidOCR 엔진 자체의 wiring(`Global.use_cls=False` 등)은 `tests/test_ocr_client.py`
+  에서 별도 검증.
 """
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
@@ -166,7 +167,7 @@ def test_normalize_start_date_returns_none_on_missing_or_invalid():
 @patch("ai.chains.business_license_ocr_chain.get_ocr_engine")
 def test_extract_text_lines_returns_empty_when_ocr_finds_nothing(mock_get_engine):
     mock_engine = MagicMock()
-    mock_engine.readtext.return_value = []
+    mock_engine.return_value = SimpleNamespace(txts=None, scores=None)
     mock_get_engine.return_value = mock_engine
 
     assert _extract_text_lines(b"fake-image-bytes") == []
@@ -178,7 +179,7 @@ def test_run_chain_returns_empty_result_without_llm_call_when_ocr_empty(
     mock_get_engine, mock_get_llm
 ):
     mock_engine = MagicMock()
-    mock_engine.readtext.return_value = []
+    mock_engine.return_value = SimpleNamespace(txts=None, scores=None)
     mock_get_engine.return_value = mock_engine
 
     import base64
@@ -197,11 +198,10 @@ def test_run_chain_prefers_regex_reg_number_over_llm_guess(mock_get_engine, mock
     """OCR 원문에 정규식으로 잡히는 등록번호가 있으면, LLM이 다른 값을 내놓아도 OCR 기반 값을 우선한다
     (숫자는 결정론적 후처리가 LLM 자유 파싱보다 신뢰도가 높다는 설계 의도 검증)."""
     mock_engine = MagicMock()
-    mock_engine.readtext.return_value = [
-        [[[0, 0], [1, 0], [1, 1], [0, 1]], "등록번호:123-45-67890", 0.97],
-        [[[0, 1], [1, 1], [1, 2], [0, 2]], "상호:하자체크 주식회사", 0.99],
-        [[[0, 2], [1, 2], [1, 3], [0, 3]], "대표자: 홍길동", 0.86],
-    ]
+    mock_engine.return_value = SimpleNamespace(
+        txts=("등록번호:123-45-67890", "상호:하자체크 주식회사", "대표자: 홍길동"),
+        scores=(0.97, 0.99, 0.86),
+    )
     mock_get_engine.return_value = mock_engine
 
     mock_llm = MagicMock()
@@ -236,9 +236,7 @@ def test_run_chain_falls_back_to_llm_number_when_regex_finds_none(
 ):
     """등록번호 라인이 OCR 오인식으로 깨져 정규식이 못 잡으면 LLM 파싱 결과(정규화 적용)를 쓴다."""
     mock_engine = MagicMock()
-    mock_engine.readtext.return_value = [
-        [[[0, 0], [1, 0], [1, 1], [0, 1]], "등록번호 확인불가", 0.4]
-    ]
+    mock_engine.return_value = SimpleNamespace(txts=("등록번호 확인불가",), scores=(0.4,))
     mock_get_engine.return_value = mock_engine
 
     mock_llm = MagicMock()
@@ -265,9 +263,7 @@ def test_run_chain_falls_back_to_llm_number_when_regex_finds_none(
 def test_run_chain_normalizes_business_start_date_from_llm(mock_get_engine, mock_get_llm):
     """LLM이 원문 그대로("2020.01.15") 넘긴 개업연월일을 체인이 ISO로 정규화해 반환한다(#598)."""
     mock_engine = MagicMock()
-    mock_engine.readtext.return_value = [
-        [[[0, 0], [1, 0], [1, 1], [0, 1]], "개업연월일:2020.01.15", 0.9]
-    ]
+    mock_engine.return_value = SimpleNamespace(txts=("개업연월일:2020.01.15",), scores=(0.9,))
     mock_get_engine.return_value = mock_engine
 
     mock_llm = MagicMock()
@@ -291,9 +287,7 @@ def test_run_chain_normalizes_business_start_date_from_llm(mock_get_engine, mock
 def test_run_chain_business_start_date_null_when_llm_gives_nothing(mock_get_engine, mock_get_llm):
     """LLM이 개업연월일을 못 찾으면(None) 체인 결과도 None — 허위 값을 만들어내지 않는다."""
     mock_engine = MagicMock()
-    mock_engine.readtext.return_value = [
-        [[[0, 0], [1, 0], [1, 1], [0, 1]], "사업자등록증", 0.9]
-    ]
+    mock_engine.return_value = SimpleNamespace(txts=("사업자등록증",), scores=(0.9,))
     mock_get_engine.return_value = mock_engine
 
     mock_llm = MagicMock()
@@ -326,27 +320,28 @@ def test_run_chain_propagates_ocr_engine_failure(mock_get_engine):
         pass
 
 
-# ── 파싱 유닛: EasyOCR 응답 형식 모킹 + 실제 이미지 픽스처 경로(디코딩 파싱 확인, 실제 OCR 아님) ──
+# ── 파싱 유닛: RapidOCR 응답 형식 모킹 + 실제 이미지 픽스처 경로(디코딩 파싱 확인, 실제 OCR 아님) ──
 
 
 @patch("ai.chains.business_license_ocr_chain.get_ocr_engine")
-def test_extract_text_lines_parses_easyocr_format_with_real_fixture_path(mock_get_engine):
-    """`_extract_text_lines`가 실제 이미지 픽스처 파일 경로로 EasyOCR `readtext()` 응답 형식
-    (`[(box, text, conf), ...]`, `detail=1, paragraph=False`)을 올바르게 파싱하는지 확인한다.
+def test_extract_text_lines_parses_rapidocr_format_with_real_fixture_path(mock_get_engine):
+    """`_extract_text_lines`가 실제 이미지 픽스처 파일 경로로 RapidOCR 호출 결과
+    (`res.txts: tuple[str, ...]`, `res.scores: tuple[float, ...]`)를 올바르게 파싱하는지
+    확인한다.
 
     코드 리뷰 P3 — 이 테스트는 **실제 OCR 파이프라인을 검증하지 않는다**(`get_ocr_engine`을
-    완전히 모킹하므로 실제 EasyOCR 모델은 전혀 호출되지 않는다). 픽스처 이미지는 `_extract_text_lines`가
-    bytes를 읽어 반환값을 파싱하는 경로만 실경로로 태우기 위해 재사용할 뿐이다(즉 "스모크
-    테스트"가 아니라 파싱 로직 유닛 테스트). 실제 EasyOCR 한국어 인식 정확도는 이 작업(#605)
-    배경 조사의 로컬 실측(모델 다운로드 포함, 이 테스트 스위트 밖에서 별도 확인)으로 검증됨 —
-    EasyOCR는 RapidOCR과 달리 pip 패키지에 오프라인 번들 모델이 없어 CI에서 매번 실제 파이프라인을
-    돌리려면 네트워크 다운로드가 필요하므로(AI_개발_컨벤션 "HF 모델 관련 테스트는 항상 모킹"
-    원칙과 상충) 여기서는 모킹으로 대체한다.
+    완전히 모킹하므로 실제 RapidOCR 모델은 전혀 호출되지 않는다). 픽스처 이미지는
+    `_extract_text_lines`가 bytes를 읽어 반환값을 파싱하는 경로만 실경로로 태우기 위해
+    재사용할 뿐이다(즉 "스모크 테스트"가 아니라 파싱 로직 유닛 테스트). 실제 RapidOCR
+    PP-OCRv5 한국어 인식 정확도(완전일치 18/20)는 이 작업(#722) 배경 조사의 로컬 실측(모델
+    다운로드 포함, 이 테스트 스위트 밖에서 별도 확인)으로 검증됨 — CI에서 매번 실제
+    파이프라인을 돌리려면 네트워크 모델 다운로드가 필요하므로(AI_개발_컨벤션 "HF 모델 관련
+    테스트는 항상 모킹" 원칙과 상충) 여기서는 모킹으로 대체한다.
     """
     mock_engine = MagicMock()
-    mock_engine.readtext.return_value = [
-        [[[0, 0], [1, 0], [1, 1], [0, 1]], "등록번호:123-45-67890", 0.97],
-    ]
+    mock_engine.return_value = SimpleNamespace(
+        txts=("등록번호:123-45-67890",), scores=(0.97,)
+    )
     mock_get_engine.return_value = mock_engine
 
     image_bytes = (FIXTURES_DIR / "business_license_sample.png").read_bytes()
