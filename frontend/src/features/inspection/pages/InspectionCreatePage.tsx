@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
 import { useAuthStore } from '../../auth/store/authStore';
 import { inspectionApi } from '../api/inspectionApi';
+import { useInspectionStore } from '../store/inspectionStore';
 import type { StagedMediaFile } from '../components/InspectionMediaUploadPanel';
 import { InspectionMediaUploadPanel } from '../components/InspectionMediaUploadPanel';
 import { useCreateInspection } from '../hooks/useCreateInspection';
@@ -43,6 +44,7 @@ export function InspectionCreatePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const currentUser = useAuthStore((state) => state.user);
+  const setActiveInspectionId = useInspectionStore((state) => state.setActiveInspectionId);
   const { data: facilities, isLoading: isFacilitiesLoading } = useFacilityOptions();
   const {
     createInspection,
@@ -162,6 +164,7 @@ export function InspectionCreatePage() {
       } catch {
         // 아래 catch와 별개로 조용히 무시 — 회차 생성·업로드는 이미 성공했으므로 이동은 계속한다.
       }
+      setActiveInspectionId(inspection.id);
       navigate(`/inspections/${inspection.id}/analysis`);
     } catch {
       // 실패 사유는 error로 아래에 표시 — 입력값·선택 파일은 유지해 재시도 가능하게 둔다.

@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getApiErrorMessage } from '../../../shared/api/types';
 import { Button } from '../../../shared/components/Button';
 import { CHART_GRADE_COLORS } from '../../../shared/components/charts/palette';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { inspectionApi } from '../api/inspectionApi';
+import { useInspectionStore } from '../store/inspectionStore';
 import type { AnalysisFileStatus, AnalysisStage, AnalysisStatusResponse } from '../api/inspectionApi.types';
 import { useAnalysisStatus } from '../hooks/useAnalysisStatus';
 import { buildEmptyAnalysisStatus } from '../mocks/aiAnalysisStatus.mock';
@@ -128,10 +129,18 @@ export function AiAnalysisStatusPage() {
   const { id } = useParams<{ id: string }>();
   const inspectionId = id ? Number(id) : null;
   const isRealMode = inspectionId !== null && !Number.isNaN(inspectionId);
+  const setActiveInspectionId = useInspectionStore((state) => state.setActiveInspectionId);
 
   const { data: realStatus, isLoading, isError, refetch } = useAnalysisStatus(isRealMode ? inspectionId : null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+
+  // 유효한 inspection id일 때 store에 저장 — SideNavBar의 동적 링크 생성에 사용
+  useEffect(() => {
+    if (isRealMode && inspectionId !== null) {
+      setActiveInspectionId(inspectionId);
+    }
+  }, [inspectionId, isRealMode, setActiveInspectionId]);
 
   if (isRealMode && isLoading) {
     return <LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />;
