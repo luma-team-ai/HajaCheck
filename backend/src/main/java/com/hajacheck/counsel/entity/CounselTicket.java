@@ -70,6 +70,10 @@ public class CounselTicket {
     @Column(columnDefinition = "counsel_ticket_status_type", nullable = false)
     private CounselTicketStatus status;
 
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(columnDefinition = "counsel_type", nullable = false)
+    private CounselType counselType;
+
     @Column(name = "queue_position")
     private Integer queuePosition;
 
@@ -82,19 +86,25 @@ public class CounselTicket {
 
     @Builder(access = AccessLevel.PRIVATE)
     private CounselTicket(Long userId, Long counselorId, Long sessionId,
-                          CounselTicketStatus status, Integer queuePosition, Instant endedAt) {
+                          CounselTicketStatus status, CounselType counselType,
+                          Integer queuePosition, Instant endedAt) {
         this.userId = userId;
         this.counselorId = counselorId;
         this.sessionId = sessionId;
         this.status = status == null ? CounselTicketStatus.WAITING : status;
+        this.counselType = counselType;
         this.queuePosition = queuePosition;
         this.endedAt = endedAt;
     }
 
-    public static CounselTicket request(Long userId, Integer queuePosition) {
+    public static CounselTicket request(Long userId, CounselType counselType, Integer queuePosition) {
+        if (counselType == null) {
+            throw new DomainValidationException("request 불가: 상담 유형은 필수다");
+        }
         return CounselTicket.builder()
                 .userId(userId)
                 .status(CounselTicketStatus.WAITING)
+                .counselType(counselType)
                 .queuePosition(queuePosition)
                 .build();
     }
