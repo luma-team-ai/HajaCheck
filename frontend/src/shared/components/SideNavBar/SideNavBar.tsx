@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { useInspectionStore } from '../../../features/inspection/store/inspectionStore';
 import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import brandIcon from '../../../assets/brand/sidenav-brand-icon.png';
 import collapseIcon from '../../../assets/brand/sidenav-collapse.svg';
@@ -188,12 +189,35 @@ export function SideNavBar({
   onWidthChange,
   isRouteImplemented = () => true,
 }: SideNavBarProps) {
+  const activeInspectionId = useInspectionStore((state) => state.activeInspectionId);
+
   // isAdmin=true일 때 spread로 매 렌더 새 배열이 생기면 activeHref 동기화 effect가 매 렌더 재실행되어
   // 수동으로 펼친 다른 그룹이 즉시 스냅백되는 버그가 있었음(PR#154 리뷰 P1) — useMemo로 참조 안정화
-  const allItems = useMemo(
-    () => (isAdmin ? [...items, adminItem] : items),
-    [isAdmin, items, adminItem],
-  );
+  // ponytail: "점검 관리" 그룹의 "AI 분석 실행/상태"와 "분석 결과 뷰어" 링크를 activeInspectionId로 동적 생성
+  const allItems = useMemo(() => {
+    const dynamicItems = items.map((item) => {
+      if (item.label === '점검 관리') {
+        return {
+          ...item,
+          subItems: (item.subItems || []).map((sub) => {
+            if (sub.label === 'AI 분석 실행/상태') {
+              return activeInspectionId
+                ? { ...sub, href: `/inspections/${activeInspectionId}/analysis` }
+                : sub;
+            }
+            if (sub.label === '분석 결과 뷰어') {
+              return activeInspectionId
+                ? { ...sub, href: `/inspections/${activeInspectionId}/viewer` }
+                : sub;
+            }
+            return sub;
+          }),
+        };
+      }
+      return item;
+    });
+    return isAdmin ? [...dynamicItems, adminItem] : dynamicItems;
+  }, [isAdmin, items, adminItem, activeInspectionId]);
   const [expandedLabel, setExpandedLabel] = useState<string | undefined>(() =>
     allItems.find((item) => item.subItems?.some((sub) => sub.href === activeHref))?.label,
   );

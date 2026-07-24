@@ -24,6 +24,8 @@ export interface Defect {
   lengthMm?: number; // 균열 길이(균열 전용)
   areaRatio?: number; // 마스크 면적 비율 0~1(박리박락·철근노출 전용)
   summary: string; // 분석 요약
+  mediaId?: number | null; // 이미지 ID — 백엔드에서 제공. null이면 미지정(수동 추가 등)
+  imageUrl?: string | null; // 이미지 URL — 백엔드 형식: /api/media/{mediaId}/thumbnail
 }
 
 export interface InspectionMedia {

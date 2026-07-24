@@ -54,7 +54,7 @@ export function useInspectionResultReal(inspectionId: number) {
   // defectCode: 데이터 없거나 시뮬레이션용. 백엔드에서 제공하지 않으면 inspection.id로 임시 구성.
   const defectCode = inspection ? `DEF-${String(inspection.id).padStart(4, '0')}` : '';
 
-  // defects 변환: bbox와 measurements 포함
+  // defects 변환: bbox, measurements, mediaId/imageUrl 포함
   const transformedDefects: Defect[] = (defectsData || []).map((d) => ({
     id: d.id,
     type: d.type,
@@ -71,6 +71,8 @@ export function useInspectionResultReal(inspectionId: number) {
     lengthMm: d.crackLengthMm,
     // ponytail: summary는 백엔드에서 제공하지 않으므로 기본값. AI explain으로 채울 수 있음(후속).
     summary: `${d.type} 하자 — 신뢰도 ${Math.round(d.confidence * 100)}%`,
+    mediaId: d.mediaId ?? null,
+    imageUrl: d.imageUrl ?? null,
   }));
 
   const reviewedCount = (defectsData || []).filter((d) => d.isReviewed).length;

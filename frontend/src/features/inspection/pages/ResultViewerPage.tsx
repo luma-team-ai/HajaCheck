@@ -1,5 +1,5 @@
 import type { ChangeEvent } from 'react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
@@ -9,6 +9,7 @@ import { DefectOverlay } from '../components/DefectOverlay';
 import { InspectionDefectExplainPanel } from '../components/InspectionDefectExplainPanel';
 import { useInspectionResult } from '../hooks/useInspectionResult';
 import { inspectionApi } from '../api/inspectionApi';
+import { useInspectionStore } from '../store/inspectionStore';
 import type { DefectGrade } from '../types';
 import { filterDefects } from '../utils/filterDefects';
 
@@ -25,9 +26,12 @@ export function ResultViewerPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const inspectionId = Number(id);
+  const setActiveInspectionId = useInspectionStore((state) => state.setActiveInspectionId);
+
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [gradeFilter, setGradeFilter] = useState<DefectGrade[]>(ALL_GRADES);
   const [selectedDefectId, setSelectedDefectId] = useState<number | undefined>();
+  const [selectedMediaId, setSelectedMediaId] = useState<number | null>(null);
   const [gradeEditId, setGradeEditId] = useState<number | undefined>();
   const [selectedGrade, setSelectedGrade] = useState<DefectGrade | ''>('');
   const [gradeReason, setGradeReason] = useState('');
@@ -39,6 +43,13 @@ export function ResultViewerPage() {
   // 유효하지 않은 inspectionId일 때 쿼리를 스킵하므로, ID 검증 return은 훅 호출 다음에 둔다.
   const { data, isLoading, isError, refetch } = useInspectionResult(inspectionId);
   const [isUpdating, setIsUpdating] = useState(false);
+
+  // 유효한 inspection id일 때 store에 저장 — SideNavBar의 동적 링크 생성에 사용
+  useEffect(() => {
+    if (Number.isInteger(inspectionId) && inspectionId > 0) {
+      setActiveInspectionId(inspectionId);
+    }
+  }, [inspectionId, setActiveInspectionId]);
 
   // ponytail: 콜백은 훅이므로 조건부 return 이전에 정의(rules-of-hooks).
   // 콜백 내부에서 data/selected를 참조하지만, 클로저 캡처는 실행 시점에 일어나므로 정의 시점에 존재할 필요 없음.
@@ -170,6 +181,59 @@ export function ResultViewerPage() {
     navigate(`/inspections/${inspectionId}/reports/generate`);
   }, [inspectionId, navigate]);
 
+  // rules-of-hooks: 모든 훅은 조건부 return 이전에 호출되어야 한다.
+  // data가 없을 때도 안전하게 처리할 수 있도록 가드 포함.
+  const visibleDefects = data?.defects
+    ? filterDefects(data.defects, confidenceThreshold, gradeFilter)
+    : [];
+
+  // ponytail: mediaId별 그룹핑 — 각 이미지의 고유 mediaId와 해당 imageUrl 추출
+  const mediaGroups = useMemo(() => {
+    const groups = new Map<number | null, { mediaId: number | null; imageUrl: string | null; defects: typeof visibleDefects }>();
+    for (const defect of visibleDefects) {
+      const mId = defect.mediaId ?? null;
+      if (!groups.has(mId)) {
+        groups.set(mId, { mediaId: mId, imageUrl: defect.imageUrl ?? null, defects: [] });
+      }
+      groups.get(mId)?.defects.push(defect);
+    }
+    // 정렬: null(수동 추가) 마지막, 그 외는 mediaId 순
+    return Array.from(groups.values()).sort((a, b) => {
+      if (a.mediaId === null) return 1;
+      if (b.mediaId === null) return -1;
+      return (a.mediaId ?? 0) - (b.mediaId ?? 0);
+    });
+  }, [visibleDefects]);
+
+  // 현재 선택된 media(또는 첫 번째 media)
+  const currentMediaGroup = useMemo(() => {
+    if (mediaGroups.length === 0) return null;
+    const currentId = selectedMediaId ?? mediaGroups[0]?.mediaId ?? null;
+    return mediaGroups.find((g) => g.mediaId === currentId) ?? mediaGroups[0] ?? null;
+  }, [mediaGroups, selectedMediaId]);
+
+  // 현재 media 그룹의 defects (early return 이전 계산)
+  const currentDefects = currentMediaGroup?.defects ?? [];
+
+  // 현재 media 인디케이터 (예: "이미지 1/2")
+  const currentMediaIndex = mediaGroups.findIndex((g) => g.mediaId === currentMediaGroup?.mediaId);
+  const mediaIndicator = mediaGroups.length > 0 ? `이미지 ${currentMediaIndex + 1}/${mediaGroups.length}` : '';
+
+  // 이전/다음 이미지 네비게이션 — rules-of-hooks: 훅은 조건부 return 이전에 호출
+  const handlePrevMedia = useCallback(() => {
+    if (currentMediaIndex > 0) {
+      setSelectedMediaId(mediaGroups[currentMediaIndex - 1]?.mediaId ?? null);
+      setSelectedDefectId(undefined);
+    }
+  }, [currentMediaIndex, mediaGroups]);
+
+  const handleNextMedia = useCallback(() => {
+    if (currentMediaIndex < mediaGroups.length - 1) {
+      setSelectedMediaId(mediaGroups[currentMediaIndex + 1]?.mediaId ?? null);
+      setSelectedDefectId(undefined);
+    }
+  }, [currentMediaIndex, mediaGroups]);
+
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
     return (
       <div className="p-5 text-red-600">잘못된 접근입니다. 유효한 검사 ID를 확인하세요.</div>
@@ -181,11 +245,10 @@ export function ResultViewerPage() {
   if (!data || data.defects.length === 0)
     return <div className="p-5">탐지된 하자가 없습니다.</div>;
 
-  const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
   const found = selectedDefectId
-    ? visibleDefects.find((d) => d.id === selectedDefectId)
+    ? currentDefects.find((d) => d.id === selectedDefectId)
     : undefined;
-  const selected = found ?? visibleDefects[0];
+  const selected = found ?? currentDefects[0];
 
   const handleThresholdChange = (event: ChangeEvent<HTMLInputElement>) => {
     setConfidenceThreshold(Number(event.target.value));
@@ -269,13 +332,45 @@ export function ResultViewerPage() {
         <div className="flex flex-1">
           {/* Left: Image Viewer Section */}
           <div className="flex flex-1 flex-col gap-6 bg-surface-sunken p-6">
+            {/* Image Navigator — 다중 이미지 지원 */}
+            {mediaGroups.length > 1 && (
+              <div className="flex items-center justify-between">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handlePrevMedia}
+                  disabled={currentMediaIndex === 0}
+                >
+                  ← 이전 이미지
+                </Button>
+                <span className="text-xs font-medium text-text-muted">{mediaIndicator}</span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleNextMedia}
+                  disabled={currentMediaIndex === mediaGroups.length - 1}
+                >
+                  다음 이미지 →
+                </Button>
+              </div>
+            )}
+
             <div className="flex flex-1 items-center justify-center">
-              {visibleDefects.length === 0 ? (
-                <div className="text-sm text-text-muted">조건에 맞는 하자가 없습니다.</div>
+              {currentDefects.length === 0 ? (
+                <div className="text-sm text-text-muted">
+                  {mediaGroups.length === 0 ? '조건에 맞는 하자가 없습니다.' : '이 이미지에 해당하는 하자가 없습니다.'}
+                </div>
               ) : (
                 <DefectOverlay
-                  media={data.media}
-                  defects={visibleDefects}
+                  media={{
+                    id: currentMediaGroup?.mediaId ?? 0,
+                    imageUrl: currentMediaGroup?.imageUrl ?? '',
+                    width: 1,
+                    height: 1,
+                  }}
+                  defects={currentDefects}
                   selectedId={selected?.id}
                   onSelect={setSelectedDefectId}
                 />

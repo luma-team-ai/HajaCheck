@@ -18,6 +18,8 @@ export interface DefectDetailItem {
   crackWidthMm?: number;
   crackLengthMm?: number;
   createdAt: string; // ISO datetime
+  mediaId?: number | null; // 이미지 ID — 백엔드에서 제공(#777 계약)
+  imageUrl?: string | null; // 이미지 URL 형식: /api/media/{mediaId}/thumbnail — 백엔드에서 제공(#777 계약)
 }
 
 // 실제 백엔드가 받는 영문 enum 값 그대로 — 위 DefectType(한글 리터럴)과 다르게 선언한 이유는
