@@ -80,6 +80,36 @@ describe('filterFacilities', () => {
     expect(result.map((f) => f.id)).toEqual([1, 3]);
   });
 
+  it('복합 문자열 카테고리("건물-정기-4개월")도 접두어로 필터에 매칭된다(#761)', () => {
+    const facilitiesWithCompositeCategory: FacilityLocation[] = [
+      { ...mockFacilities[0], category: '건물-정기-4개월' },
+      { ...mockFacilities[1], category: '교량-긴급-1개월' },
+    ];
+
+    const result = filterFacilities(facilitiesWithCompositeCategory, '', '건물');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(1);
+  });
+
+  it('접두어가 다른 복합 문자열 카테고리는 필터에 매칭되지 않는다(#761)', () => {
+    const facilitiesWithCompositeCategory: FacilityLocation[] = [
+      { ...mockFacilities[0], category: '건물-정기-4개월' },
+    ];
+
+    const result = filterFacilities(facilitiesWithCompositeCategory, '', '교량');
+    expect(result).toHaveLength(0);
+  });
+
+  it('레거시 단일 값 카테고리("건물")는 기존처럼 그대로 필터에 매칭된다(#761)', () => {
+    const facilitiesWithLegacyCategory: FacilityLocation[] = [
+      { ...mockFacilities[0], category: '건물' },
+    ];
+
+    const result = filterFacilities(facilitiesWithLegacyCategory, '', '건물');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(1);
+  });
+
   it('검색어와 카테고리 필터가 모두 매칭되어야 필터링된다', () => {
     const resultMatch = filterFacilities(mockFacilities, '강남', '오피스');
     expect(resultMatch).toHaveLength(2); // '아크로빌 빌딩' (역삼동 강남구 주소 매칭), '강남 타워' (명칭 매칭)

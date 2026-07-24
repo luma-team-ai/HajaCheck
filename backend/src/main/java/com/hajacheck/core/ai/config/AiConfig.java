@@ -29,4 +29,22 @@ public class AiConfig {
                 .requestFactory(requestFactory)
                 .build();
     }
+
+    /**
+     * 플랫폼 관리자 모니터링(#728) ai-server 헬스체크 전용 RestClient — {@link #aiServerRestClient}는
+     * LLM 호출용으로 read-timeout 이 150s(#448)라 헬스체크에 그대로 쓰면 ai-server 지연 시 대시보드가
+     * 함께 멈춘다. 같은 base-url 로 짧은 타임아웃(healthCheckTimeoutMs)만 다르게 별도 빈으로 둔다.
+     */
+    @Bean
+    public RestClient aiServerHealthCheckRestClient(AiServerProperties properties) {
+        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.DEFAULTS
+                .withConnectTimeout(Duration.ofMillis(properties.getHealthCheckTimeoutMs()))
+                .withReadTimeout(Duration.ofMillis(properties.getHealthCheckTimeoutMs()));
+        ClientHttpRequestFactory requestFactory = ClientHttpRequestFactories.get(settings);
+
+        return RestClient.builder()
+                .baseUrl(properties.getBaseUrl())
+                .requestFactory(requestFactory)
+                .build();
+    }
 }
