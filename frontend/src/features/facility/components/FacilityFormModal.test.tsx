@@ -5,6 +5,7 @@ import {
   GeocodeFailedError,
   GeocodeNotFoundError,
 } from '../../../shared/lib/kakaoMap/geocodeAddress';
+import { computeNextInspectionDueAt } from '../utils/computeNextInspectionDueAt';
 import { FacilityFormModal } from './FacilityFormModal';
 
 const { geocodeAddressMock, openPostcodeSearchMock } = vi.hoisted(() => ({
@@ -46,7 +47,12 @@ function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText(/시설물명/), {
     target: { value: '강남 오피스타워 A동' },
   });
-  fireEvent.change(screen.getByLabelText(/시설물 유형/), { target: { value: '건물' } });
+  // #731 — 유형 옵션이 {종류}-{점검유형}-{주기} 조합 12종으로 확장돼 단순 '건물'은 더 이상
+  // 유효한 <option>이 아니다(없는 옵션 값을 select.value에 대입하면 jsdom이 selectedIndex를
+  // -1로 두고 값이 반영되지 않는다) — 실제 12개 옵션 중 하나를 선택한다.
+  fireEvent.change(screen.getByLabelText(/시설물 유형/), {
+    target: { value: '건물-정기-4개월' },
+  });
 }
 
 // "주소검색" 버튼을 클릭하고, 모킹된 openPostcodeSearch에 전달된 onComplete 콜백을 호출해
@@ -110,7 +116,9 @@ describe('FacilityFormModal', () => {
     expect((screen.getByLabelText(/시설물명/) as HTMLInputElement).value).toBe(
       '강남 오피스타워 A동',
     );
-    expect((screen.getByLabelText(/시설물 유형/) as HTMLSelectElement).value).toBe('건물');
+    expect((screen.getByLabelText(/시설물 유형/) as HTMLSelectElement).value).toBe(
+      '건물-정기-4개월',
+    );
   });
 
   it('등록 성공 시 폼 값을 초기화한다', async () => {
@@ -349,6 +357,35 @@ describe('FacilityFormModal', () => {
     expect(handleSubmit.mock.calls[0][0]).toMatchObject({
       assigneeUserId: 101,
       memo: '외벽 균열 재점검 예정',
+    });
+  });
+
+  // #731 — 시설물 유형 select가 {종류}-{점검유형}-{주기} 조합 12종으로 확장되면서, 선택한 옵션의
+  // 주기(cycleMonths)가 별도 입력 없이 onSubmit payload의 inspectionCycleMonths·nextInspectionDueAt에
+  // 자동 반영돼야 한다.
+  it('유형으로 "건물-정밀-24개월"을 선택하면 inspectionCycleMonths=24, nextInspectionDueAt이 24개월 뒤로 계산돼 onSubmit payload에 실린다(#731)', async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal open onClose={vi.fn()} onSubmit={handleSubmit} isSubmitting={false} />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/시설물명/), {
+      target: { value: '강남 오피스타워 A동' },
+    });
+    fireEvent.change(screen.getByLabelText(/시설물 유형/), {
+      target: { value: '건물-정밀-24개월' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+    });
+
+    expect(handleSubmit).toHaveBeenCalledTimes(1);
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      type: '건물-정밀-24개월',
+      inspectionCycleMonths: 24,
+      nextInspectionDueAt: computeNextInspectionDueAt(24),
     });
   });
 
