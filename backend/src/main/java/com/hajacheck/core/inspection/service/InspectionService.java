@@ -178,6 +178,23 @@ public class InspectionService {
     }
 
     /**
+     * ANALYZING 고착 회차를 리퍼가 시스템 배치로 복원한다(코드 리뷰 P2 10차) — @Scheduled 리퍼는
+     * 사용자 컨텍스트가 없어 회사 스코프 검증을 거치지 않는다(배치 전용, 외부 요청 경로 아님).
+     * 여전히 ANALYZING일 때만 UPLOADING으로 되돌린다 — 그 사이 정상 완료됐거나 다른 경로가 이미
+     * 정리했으면 아무것도 하지 않는다(멱등). 전이는 {@link Inspection#advanceTo}가 허용 전이 테이블로
+     * 검증한다(ANALYZING→UPLOADING 허용). RECOVERY_STATUS(=UPLOADING, InspectionAnalysisService)와
+     * 동일한 "업로드는 끝났고 분석 전" 상태로 되돌려, 사용자가 다시 분석을 시작할 수 있게 한다.
+     */
+    @Transactional
+    public void revertStuckAnalyzing(Long inspectionId) {
+        Inspection inspection = inspectionRepository.findById(inspectionId).orElse(null);
+        if (inspection == null || inspection.getStatus() != InspectionStatus.ANALYZING) {
+            return;
+        }
+        inspection.advanceTo(InspectionStatus.UPLOADING);
+    }
+
+    /**
      * AI 분석 시작 원자적 선점(dev-05-04, 코드 리뷰 P2 픽스) — "조회 후 상태 확인 → 별도 UPDATE"
      * (check-then-act)는 동시 요청 사이에 경쟁 구간이 생겨 둘 다 통과할 수 있다. 소유권 검증 후
      * {@link InspectionRepository#startAnalyzingIfNotRunning} 단일 조건부 UPDATE로 전이해,

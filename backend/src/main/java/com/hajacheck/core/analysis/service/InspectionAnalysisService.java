@@ -142,16 +142,19 @@ public class InspectionAnalysisService {
             throw new BusinessException(ErrorCode.ANALYSIS_NO_MEDIA);
         }
 
-        // 코드 리뷰 P2 4차 — 공유 실행기 큐에 넣기 전에 회사별 동시 실행 상한을 먼저 강제한다.
-        // 이 카운트는 원자적이지 않다(조회 후 아래에서 별도 UPDATE) — 동시에 여러 요청이 들어오면
-        // 상한을 살짝 넘을 수 있지만, 정확한 개수 제한이 목적이 아니라 "한 회사가 큐 전체를 독점하는
-        // 것"을 막는 최소 방어선이라 이 정도 여유는 허용한다(엄격한 단일실행 보장이 필요한
-        // startAnalyzingIfNotRunning의 원자적 조건부 UPDATE와는 목적이 다르다).
-        long companyActiveAnalyses = inspectionRepository.countByFacilityCompanyIdAndStatus(
-                companyId, InspectionStatus.ANALYZING);
-        if (companyActiveAnalyses >= PER_COMPANY_CONCURRENT_ANALYSIS_LIMIT) {
-            log.warn("회사별 분석 동시 실행 상한 초과 — companyId={} activeAnalyses={} limit={}",
-                    companyId, companyActiveAnalyses, PER_COMPANY_CONCURRENT_ANALYSIS_LIMIT);
+        // 코드 리뷰 P2 4차/10차 — 공유 실행기 큐에 넣기 전에 회사별 동시 실행 상한을 먼저 강제한다.
+        // 단, "살아있는 잡"만 센다(10차): 워커 크래시로 ANALYZING에 고착된 유령 회차를 그대로 세면
+        // 리퍼가 복원하기 전까지 그 회사가 영구히 상한에 걸려 분석을 못 하게 된다. 리퍼와 동일한
+        // {@link #isStuck} 정의를 공유해 고착 회차를 카운트에서 제외한다. 이 카운트는 원자적이지
+        // 않지만(조회 후 아래에서 별도 UPDATE) 정확한 개수 제한이 목적이 아니라 한 회사의 큐 독점을
+        // 막는 최소 방어선이라 이 정도 여유는 허용한다.
+        long companyAliveAnalyses = inspectionRepository
+                .findByFacilityCompanyIdAndStatus(companyId, InspectionStatus.ANALYZING).stream()
+                .filter(analyzing -> !isStuck(analyzing.getId()))
+                .count();
+        if (companyAliveAnalyses >= PER_COMPANY_CONCURRENT_ANALYSIS_LIMIT) {
+            log.warn("회사별 분석 동시 실행 상한 초과 — companyId={} aliveAnalyses={} limit={}",
+                    companyId, companyAliveAnalyses, PER_COMPANY_CONCURRENT_ANALYSIS_LIMIT);
             throw new BusinessException(ErrorCode.ANALYSIS_COMPANY_CONCURRENCY_LIMIT);
         }
 
@@ -263,6 +266,33 @@ public class InspectionAnalysisService {
             return isCacheStale(cached.get()) ? "캐시 하트비트 지연" : null;
         }
         return progressStore.isAvailable() ? "진행률 캐시 없음" : null;
+    }
+
+    /**
+     * 이 회차의 ANALYZING이 고착됐는지 — 리퍼({@link com.hajacheck.core.analysis.scheduler.StuckAnalysisReaper})와
+     * 회사별 동시실행 카운트가 공유하는 "살아있는 잡" 판정(코드 리뷰 P2 10차). {@link #stuckReason}과
+     * 정확히 같은 기준(Redis 진행률 하트비트, TTL 만료/장애 구분)을 쓴다 — 두 소비자가 같은 정의를
+     * 공유해야 "카운트에서 제외된 회차는 리퍼가 복원하고, 복원 대상은 카운트에서 빠진다"가 일관된다.
+     * inspections 테이블엔 updated_at이 없어 DB 타임스탬프가 아니라 Redis 진행률 캐시의 updatedAt을 쓴다.
+     */
+    public boolean isStuck(Long inspectionId) {
+        return stuckReason(progressStore.find(inspectionId)) != null;
+    }
+
+    /**
+     * 리퍼 전용 — ANALYZING 고착 회차를 직전 상태({@link #RECOVERY_STATUS})로 복원한다(코드 리뷰 P2 10차).
+     * 고착이 아니면 아무것도 하지 않는다. 실제 상태 전이는 {@link InspectionService#revertStuckAnalyzing}가
+     * 시스템 배치(사용자 컨텍스트 없음)로 수행하며, 여전히 ANALYZING일 때만 되돌린다(멱등).
+     *
+     * @return 복원했으면 true, 고착이 아니어서 건너뛰었으면 false.
+     */
+    public boolean reapIfStuck(Long inspectionId) {
+        if (!isStuck(inspectionId)) {
+            return false;
+        }
+        inspectionService.revertStuckAnalyzing(inspectionId);
+        log.warn("ANALYZING 고착 리퍼 복원 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, RECOVERY_STATUS);
+        return true;
     }
 
     private AnalysisStatusResponse rebuildFromDb(Inspection inspection) {

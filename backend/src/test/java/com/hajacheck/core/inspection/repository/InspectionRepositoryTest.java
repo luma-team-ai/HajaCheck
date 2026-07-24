@@ -128,10 +128,11 @@ class InspectionRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void countByFacilityCompanyIdAndStatus_회사소유시설물전체에서상태건만집계한다() {
-        // 코드 리뷰 P2 4차(회사별 분석 동시 실행 상한) — i.facility.companyId 암묵적 조인이
-        // Facility 목록을 먼저 조회하지 않고도 회사 전체(여러 시설물) 범위로 집계되는지, 그리고
-        // 타사 데이터가 섞이지 않는지 고정한다.
+    void findByFacilityCompanyIdAndStatus_회사소유시설물전체에서_상태회차만_반환한다() {
+        // 코드 리뷰 P2 4차/10차(회사별 분석 동시 실행 상한) — i.facility.companyId 암묵적 조인이
+        // Facility 목록을 먼저 조회하지 않고도 회사 전체(여러 시설물) 범위로 모으는지, 타사 데이터가
+        // 섞이지 않는지 고정한다. (호출부가 하트비트 isStuck으로 고착 유령을 제외하려고 count가 아닌
+        // 목록을 받는다.)
         Long ownerA = seedOwner("owner-a@haja.com");
         Long ownerB = seedOwner("owner-b@haja.com");
         Long companyA = em.find(User.class, ownerA).getCompanyId();
@@ -144,13 +145,35 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 newInspection(facilityA2, ownerA, ownerA, 1, LocalDate.of(2026, 7, 2), InspectionStatus.ANALYZING));
         inspectionRepository.save(
                 newInspection(facilityA1, ownerA, ownerA, 2, LocalDate.of(2026, 7, 3), InspectionStatus.UPLOADING));
-        // 타사(B)가 동시에 ANALYZING이어도 회사A 집계에 섞이면 안 된다.
+        // 타사(B)가 동시에 ANALYZING이어도 회사A 결과에 섞이면 안 된다.
         inspectionRepository.save(
                 newInspection(facilityB, ownerB, ownerB, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZING));
 
-        long count = inspectionRepository.countByFacilityCompanyIdAndStatus(companyA, InspectionStatus.ANALYZING);
+        List<Inspection> analyzing =
+                inspectionRepository.findByFacilityCompanyIdAndStatus(companyA, InspectionStatus.ANALYZING);
 
-        assertThat(count).isEqualTo(2);
+        assertThat(analyzing).hasSize(2)
+                .allMatch(i -> i.getStatus() == InspectionStatus.ANALYZING);
+    }
+
+    @Test
+    void findByStatus_상태로_전체회차를_반환한다() {
+        // 코드 리뷰 P2 10차(리퍼) — 회사 무관 전역 ANALYZING 조회. 리퍼가 이 목록을 훑어 고착을 복원한다.
+        Long ownerA = seedOwner("owner-a@haja.com");
+        Long ownerB = seedOwner("owner-b@haja.com");
+        Long facilityA = seedFacility(ownerA, "A시설");
+        Long facilityB = seedFacility(ownerB, "B시설");
+        inspectionRepository.save(
+                newInspection(facilityA, ownerA, ownerA, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZING));
+        inspectionRepository.save(
+                newInspection(facilityB, ownerB, ownerB, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZING));
+        inspectionRepository.save(
+                newInspection(facilityA, ownerA, ownerA, 2, LocalDate.of(2026, 7, 2), InspectionStatus.ANALYZED));
+
+        List<Inspection> analyzing = inspectionRepository.findByStatus(InspectionStatus.ANALYZING);
+
+        assertThat(analyzing).hasSize(2)
+                .allMatch(i -> i.getStatus() == InspectionStatus.ANALYZING);
     }
 
     @Test

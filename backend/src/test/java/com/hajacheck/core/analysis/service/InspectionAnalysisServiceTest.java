@@ -82,6 +82,20 @@ class InspectionAnalysisServiceTest {
         return inspection;
     }
 
+    // 회사별 동시실행 카운트용 — INSPECTION_ID와 다른 id의 ANALYZING 회차(코드 리뷰 P2 10차).
+    private Inspection analyzingWithId(Long id) {
+        Inspection inspection = Inspection.builder()
+                .facilityId(5L)
+                .createdBy(USER_ID)
+                .assignedInspectorId(USER_ID)
+                .roundNo(1)
+                .inspectionDate(LocalDate.now())
+                .status(InspectionStatus.ANALYZING)
+                .build();
+        ReflectionTestUtils.setField(inspection, "id", id);
+        return inspection;
+    }
+
     private Media image(Long id) {
         Media media = Media.builder()
                 .inspectionId(INSPECTION_ID)
@@ -258,16 +272,18 @@ class InspectionAnalysisServiceTest {
     }
 
     @Test
-    void startAnalysis_회사별동시실행상한초과시_ANALYSIS_COMPANY_CONCURRENCY_LIMIT으로거부하고_선점시도안함() {
-        // 코드 리뷰 P2 4차(noisy-neighbor) — 한 회사가 이미 상한(2건)만큼 ANALYZING 중이면, 공유
-        // 실행기 큐에 넣기 전에(tryStartAnalyzing 호출 전에) 먼저 거부해야 한다 — 안 그러면 이
-        // 회사 요청이 계속 큐를 채워 다른 회사 요청까지 밀어낸다.
+    void startAnalysis_회사별_살아있는_동시실행이_상한이상이면_거부하고_선점시도안함() {
+        // 코드 리뷰 P2 4차/10차(noisy-neighbor) — 한 회사에 살아있는 ANALYZING이 상한(2건)만큼이면,
+        // 공유 실행기 큐에 넣기 전에(tryStartAnalyzing 호출 전에) 먼저 거부한다. 두 회차 모두 하트비트가
+        // 신선(fresh) → isStuck=false → 살아있는 것으로 카운트된다.
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionRepository.countByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
-                .thenReturn(2L);
+        when(inspectionRepository.findByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
+                .thenReturn(List.of(analyzingWithId(201L), analyzingWithId(202L)));
+        when(progressStore.find(201L)).thenReturn(Optional.of(anyProgress()));
+        when(progressStore.find(202L)).thenReturn(Optional.of(anyProgress()));
 
         assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .isInstanceOf(BusinessException.class)
@@ -278,19 +294,63 @@ class InspectionAnalysisServiceTest {
     }
 
     @Test
-    void startAnalysis_회사별동시실행상한미만이면_정상진행한다() {
+    void startAnalysis_회사별_살아있는_동시실행이_상한미만이면_정상진행한다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionRepository.countByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
-                .thenReturn(1L);
+        when(inspectionRepository.findByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
+                .thenReturn(List.of(analyzingWithId(201L)));
+        when(progressStore.find(201L)).thenReturn(Optional.of(anyProgress()));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
                 eq(InspectionStatus.UPLOADING), any());
+    }
+
+    @Test
+    void startAnalysis_회사별_상한만큼_ANALYZING이어도_전부_고착이면_카운트에서제외되어_진행() {
+        // 코드 리뷰 P2 10차(불변식) — 리퍼가 복원하기 전이라도 하트비트로 고착 판정된 유령 회차는
+        // 카운트에서 빠져야 한다. 안 그러면 워커 크래시가 쌓인 회사는 영구히 상한에 걸린다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
+        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+                .thenReturn(List.of(image(1L)));
+        when(inspectionRepository.findByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
+                .thenReturn(List.of(analyzingWithId(201L), analyzingWithId(202L)));
+        // 하트비트가 임계(5분)보다 오래됨 → isStuck=true → 둘 다 카운트에서 제외 → 살아있는 잡 0건.
+        AnalysisStatusResponse stale =
+                progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)));
+        when(progressStore.find(201L)).thenReturn(Optional.of(stale));
+        when(progressStore.find(202L)).thenReturn(Optional.of(stale));
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+
+        service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
+                eq(InspectionStatus.UPLOADING), any());
+    }
+
+    @Test
+    void reapIfStuck_고착이면_revertStuckAnalyzing을호출하고_true를반환한다() {
+        // 코드 리뷰 P2 10차 — 리퍼가 회차별로 부르는 진입점. 하트비트 지연(stale)이면 고착으로 보고
+        // 시스템 복원(revertStuckAnalyzing, 회사 스코프 없는 배치 전용)을 호출한다.
+        AnalysisStatusResponse stale =
+                progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)));
+        when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.of(stale));
+
+        assertThat(service.reapIfStuck(INSPECTION_ID)).isTrue();
+        verify(inspectionService).revertStuckAnalyzing(INSPECTION_ID);
+    }
+
+    @Test
+    void reapIfStuck_고착이아니면_아무것도안하고_false를반환한다() {
+        when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.of(anyProgress()));
+
+        assertThat(service.reapIfStuck(INSPECTION_ID)).isFalse();
+        verify(inspectionService, never()).revertStuckAnalyzing(any());
     }
 
     @Test

@@ -65,12 +65,18 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     int startAnalyzingIfNotRunning(
             @Param("id") Long id, @Param("allowedStatuses") Collection<InspectionStatus> allowedStatuses);
 
-    // 회사별 분석 동시 실행 상한(코드 리뷰 P2 4차) — analysisTaskExecutor는 테넌트 구분 없는 전역
-    // 공유 풀이라, 한 회사가 대량 요청으로 큐를 독점하면 다른 회사까지 막힌다(noisy-neighbor).
-    // 공유 풀에 넣기 전에 이 카운트로 회사별 상한을 먼저 강제한다(InspectionAnalysisService 참고).
-    // i.facility(지연 로딩 연관관계)를 거쳐 JPQL 조인 — Facility 목록을 먼저 조회할 필요 없다.
-    @Query("select count(i) from Inspection i "
+    // 회사별 분석 동시 실행 상한(코드 리뷰 P2 4차/10차) — analysisTaskExecutor는 테넌트 구분 없는
+    // 전역 공유 풀이라, 한 회사가 대량 요청으로 큐를 독점하면 다른 회사까지 막힌다(noisy-neighbor).
+    // 공유 풀에 넣기 전에 이 목록으로 회사별 상한을 강제하되, "살아있는 잡"만 세도록 호출부가
+    // isStuck으로 고착 유령을 제외한다(단순 count가 아니라 목록을 반환하는 이유 — 카운트에 하트비트
+    // 기반 stale 판정이 필요한데 그건 SQL로 표현할 수 없다). i.facility(지연 로딩 연관관계)를 거쳐
+    // JPQL 조인 — Facility 목록을 먼저 조회할 필요 없다.
+    @Query("select i from Inspection i "
             + "where i.facility.companyId = :companyId and i.status = :status")
-    long countByFacilityCompanyIdAndStatus(
+    List<Inspection> findByFacilityCompanyIdAndStatus(
             @Param("companyId") Long companyId, @Param("status") InspectionStatus status);
+
+    // ANALYZING 고착 리퍼(코드 리뷰 P2 10차) — 상태별 전체 조회. 리퍼가 하트비트로 고착 회차를
+    // 걸러 복원하므로 고착 유령이 누적되지 않아 ANALYZING 집합은 실사용상 작게 유지된다.
+    List<Inspection> findByStatus(InspectionStatus status);
 }
