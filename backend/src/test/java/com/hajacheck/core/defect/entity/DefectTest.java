@@ -140,4 +140,16 @@ class DefectTest {
         assertThatThrownBy(() -> defect.changeStatus(DefectStatus.CONFIRMED))
                 .isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    void changeStatus_예외발생시reviewed는변경되지않음() {
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).build();
+        assertThat(defect.isReviewed()).isFalse();
+
+        assertThatThrownBy(() -> defect.changeStatus(DefectStatus.DETECTED))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(defect.isReviewed()).isFalse();
+    }
 }
