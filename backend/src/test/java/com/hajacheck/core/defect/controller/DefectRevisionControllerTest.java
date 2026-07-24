@@ -30,6 +30,7 @@ import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
+import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDateTime;
@@ -572,6 +573,38 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data.bboxY").value(1.0))
                 .andExpect(jsonPath("$.data.bboxW").value(0.0))
                 .andExpect(jsonPath("$.data.bboxH").value(1.0));
+    }
+
+    @Test
+    void POST_ANALYZING중이면_409_ANALYSIS_ALREADY_RUNNING() throws Exception {
+        // 코드 리뷰 P1(머신 검수 2차) — ANALYZING 동안 수동 하자가 끼면, 워커가 첫 탐지 성공 시 호출하는
+        // softDeleteAllForInspectionThenSave가 방금 추가된 이 하자까지 통째로 지운다. createManualDefect
+        // 자체가 회차 상태를 막아야 이 TOCTOU가 닫힌다.
+        Company company = saveCompany("회사25");
+        User owner = saveUser("owner25@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector25@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = inspectionRepository.save(Inspection.builder()
+                .facilityId(facility.getId())
+                .createdBy(owner.getId())
+                .assignedInspectorId(inspector.getId())
+                .roundNo(1)
+                .inspectionDate(java.time.LocalDate.now())
+                .status(InspectionStatus.ANALYZING)
+                .build());
+
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_ALREADY_RUNNING"));
     }
 
     @Test

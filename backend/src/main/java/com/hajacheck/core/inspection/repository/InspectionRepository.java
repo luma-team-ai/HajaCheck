@@ -1,5 +1,6 @@
 package com.hajacheck.core.inspection.repository;
 
+import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import java.time.LocalDate;
@@ -67,9 +68,15 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     // 그 전엔 이 메서드를 실제 DB로 검증하는 테스트가 없어 잠재해 있었다). status/statuses를 bind
     // parameter로 넘기는 다른 메서드(findByFacilityCompanyIdAndStatus 등, 전부 정상 동작)와 동일하게
     // enum을 파라미터로 바인딩하면 @JdbcTypeCode(NAMED_ENUM) 타입 서술자를 그대로 타 안전하다.
+    // 코드 리뷰 P1(머신 검수 2차) — 사전 체크(hasExistingDefects)와 이 UPDATE 사이(또는 UPLOADING/
+    // CREATED 회차가 애초에 사전 체크를 거치지 않던 예전 경로)에 createManualDefect로 하자가 끼면,
+    // 재분석이 그 사람 하자를 원자적 선점은 통과시키고 이후 워커의 소프트삭제가 지워버리는 TOCTOU가
+    // 있었다. 소스 상태 TOCTOU를 WHERE의 allowedStatuses로 닫은 것과 동일한 방식으로, "비삭제 하자
+    // 없음"도 이 원자적 UPDATE의 WHERE에 함께 강제해 선점 성공 자체를 막는다.
     @Modifying
     @Query("update Inspection i set i.status = :analyzingStatus "
-            + "where i.id = :id and i.status in :allowedStatuses")
+            + "where i.id = :id and i.status in :allowedStatuses "
+            + "and not exists (select 1 from Defect d where d.inspectionId = i.id and d.deleted = false)")
     int startAnalyzingIfNotRunning(
             @Param("id") Long id,
             @Param("analyzingStatus") InspectionStatus analyzingStatus,

@@ -15,7 +15,7 @@ design-03-04(YOLOv8-seg 1차 학습) 완료 전이라 `models/MODEL_CARD.md`는 
   `best.pt`가 있으면 우선 선택한다(ultralytics 학습 산출물의 관례적 이름). 파일명을 몰라도 동작한다.
 - **클래스 이름도 하드코딩하지 않는다** — ultralytics 체크포인트는 학습 시 `data.yaml`의 클래스
   순서를 `model.names`(dict[int, str])로 자체 내장한다. 인덱스 순서를 추측할 필요 없이 로드된
-  모델에서 그대로 읽는다(defect_grading.py의 라벨 정규화가 다양한 표기를 흡수한다).
+  모델에서 그대로 읽는다(grading.py의 라벨 정규화가 다양한 표기를 흡수한다).
 """
 from __future__ import annotations
 
@@ -84,8 +84,10 @@ def predict(model: "YOLO", **kwargs):
     요청이 같은 시점에 이 함수를 호출할 수 있다 — 락 없이 두면 결과가 다른 요청과 뒤섞여 잘못된
     회차·미디어에 하자가 저장되거나 예외로 이어질 수 있다.
 
-    모델 로딩(get_yolo_model)은 이 락과 무관하다 — @lru_cache 자체가 스레드 세이프한 단일
-    초기화를 보장하므로 별도 보호가 필요 없고, 추론(predict)만 직렬화하면 된다.
+    모델 로딩(get_yolo_model)은 이 락과 무관하다 — @lru_cache는 캐시 자료구조 접근만 스레드
+    세이프할 뿐 캐시 미스 시 최초 실행(다운로드+로드) 자체를 직렬화하진 않는다(코드 리뷰 P3,
+    머신 검수 2차). 정상 운영에서는 기동 시 워밍업(main.py `_warmup_yolo_model`)이 첫 호출을
+    미리 끝내둬 이 창을 덮으므로 별도 락은 두지 않는다 — 추론(predict)만 직렬화하면 된다.
     """
     with _predict_lock:
         return model.predict(**kwargs)

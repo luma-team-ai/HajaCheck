@@ -7,6 +7,9 @@ import com.hajacheck.auth.entity.CompanyMembership;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.core.defect.entity.Defect;
+import com.hajacheck.core.defect.entity.DefectType;
+import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
@@ -32,6 +35,9 @@ class InspectionRepositoryTest extends PostgresTestSupport {
 
     @Autowired
     private InspectionRepository inspectionRepository;
+
+    @Autowired
+    private DefectRepository defectRepository;
 
     @Autowired
     private TestEntityManager em;
@@ -205,6 +211,46 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                     .as("허용되지 않은 소스 상태 %s 는 선점 거부(0행)", blockedSource)
                     .isZero();
         }
+    }
+
+    @Test
+    void startAnalyzingIfNotRunning_비삭제하자가있으면_허용소스상태여도0행() {
+        // 코드 리뷰 P1(머신 검수 2차) — 사전 체크(hasExistingDefects)와 이 원자적 UPDATE 사이에
+        // createManualDefect로 하자가 끼어드는 TOCTOU를 막기 위해, WHERE 자체에 "비삭제 하자 없음"을
+        // 강제한다. UPLOADING(허용 소스 상태)이라도 비삭제 하자가 이미 있으면 선점은 실패(0행)해야
+        // 하고, 그 하자가 소프트삭제(deleted=true)된 것뿐이면 다시 선점 가능(1행)해야 한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        java.util.EnumSet<InspectionStatus> allowed = java.util.EnumSet.of(
+                InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED);
+
+        Inspection withDefect = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.UPLOADING));
+        em.persist(Defect.builder()
+                .inspectionId(withDefect.getId())
+                .type(DefectType.CRACK)
+                .confidence(1.0)
+                .build());
+        em.flush();
+
+        assertThat(inspectionRepository.startAnalyzingIfNotRunning(withDefect.getId(), InspectionStatus.ANALYZING, allowed))
+                .as("비삭제 하자가 있으면 허용 소스 상태여도 선점 실패(0행)")
+                .isZero();
+
+        Inspection withOnlyDeletedDefect = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 1), InspectionStatus.UPLOADING));
+        Defect deleted = Defect.builder()
+                .inspectionId(withOnlyDeletedDefect.getId())
+                .type(DefectType.CRACK)
+                .confidence(1.0)
+                .build();
+        deleted.softDelete();
+        em.persist(deleted);
+        em.flush();
+
+        assertThat(inspectionRepository.startAnalyzingIfNotRunning(withOnlyDeletedDefect.getId(), InspectionStatus.ANALYZING, allowed))
+                .as("남은 하자가 전부 소프트삭제 상태면 선점 성공(1행)")
+                .isEqualTo(1);
     }
 
     @Test

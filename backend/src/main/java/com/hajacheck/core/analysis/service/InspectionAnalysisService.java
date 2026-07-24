@@ -97,11 +97,19 @@ public class InspectionAnalysisService {
      *       없는 상태(REVIEWED/REPORTED)에서는 {@link ErrorCode#ANALYSIS_NOT_ALLOWED}로 거부한다.
      *       가드가 없으면 검수 완료·보고서화된 회차도 재분석 트리거만으로 사람이 조정한 하자가
      *       무보상으로 삭제되고 상태가 ANALYZED로 역행해 보고서 확정 워크플로우가 깨진다.</li>
-     *   <li><b>ANALYZED fail-closed 가드</b>(P1 5차): 소스 상태가 ANALYZED이고 비삭제 하자가 하나라도
-     *       있으면 {@link ErrorCode#ANALYSIS_NOT_ALLOWED}로 거부한다({@link #hasExistingDefects}).
+     *   <li><b>기존 하자 fail-closed 가드</b>(P1 5차, 머신 검수 2차에서 소스 상태 무관으로 확장):
+     *       소스 상태와 무관하게 비삭제 하자가 하나라도 있으면 {@link ErrorCode#ANALYSIS_NOT_ALLOWED}로
+     *       거부한다({@link #hasExistingDefects}). 원래는 ANALYZED에만 걸었는데, createManualDefect가
+     *       회차 상태를 검사하지 않아 CREATED/UPLOADING 회차에도 수동 하자가 들어갈 수 있고, 그런
+     *       회차의 "첫" 분석에는 가드가 전혀 없어 사람 하자가 무조건 삭제되는 경로가 남아 있었다.
      *       "사람이 손댄 하자"를 revision/sentinel로 추론하던 방식이 그 판정을 남기지 않는 입력 경로
-     *       (수동 하자 추가 등)로 계속 뚫렸기 때문에, AI/사람 구분 컬럼(#644) 도입 전까지는 하자가
-     *       있으면 재분석 자체를 막는 fail-closed로 둔다(데이터 유실 가능성 0).</li>
+     *       (수동 하자 추가 등)로 계속 뚫렸기 때문에, AI/사람 구분 컬럼(#644) 도입 전까지는 소스 상태를
+     *       따지지 않고 하자가 있으면 재분석 자체를 막는 fail-closed로 둔다. 이 사전 체크와 아래
+     *       원자적 선점 사이의 잔여 TOCTOU는 {@link InspectionRepository#startAnalyzingIfNotRunning}의
+     *       WHERE에 동일한 "비삭제 하자 없음" 조건을 함께 걸어 닫는다(사전 체크는 명확한 에러 메시지용,
+     *       실제 방어선은 그 원자적 UPDATE). 분석 실행 중(ANALYZING) 자체에 새 수동 하자가 끼는 것은
+     *       {@link com.hajacheck.core.defect.service.DefectRevisionService#createManualDefect}의
+     *       상태 가드로 막는다.</li>
      *   <li><b>워커 펜싱</b>(P1): 고착 복구는 원본 워커가 실제로 죽었는지 확인할 수 없다 — 하트비트
      *       판정(고착 판정)이 오탐(GC 정지, 분석 실행기 큐 적체로 첫 이미지 처리가 늦게 시작되는
      *       경우 등)이면 원본 워커가 여전히 살아 돌고 있는 채로 재선점이 새 워커를 하나 더 띄운다.
@@ -129,11 +137,14 @@ public class InspectionAnalysisService {
             throw new BusinessException(ErrorCode.ANALYSIS_NOT_ALLOWED);
         }
 
-        if (statusBeforeAnalysis == InspectionStatus.ANALYZED && hasExistingDefects(inspectionId)) {
-            // fail-closed(코드 리뷰 P1 5차) — ANALYZED 회차에 하자가 하나라도 있으면 재분석을 거부한다.
-            // 재분석은 워커가 기존 하자를 소프트삭제하므로, 사람이 수동 추가(createManualDefect)·검수한
-            // 하자가 무보상 유실될 수 있는 유일한 경로다. AI/사람 생성을 구분하는 컬럼(#644)이 없는 한
-            // 신뢰할 수 있는 선별이 불가능하므로, 그 전까지는 "하자가 있으면 재분석 자체를 막는다".
+        if (hasExistingDefects(inspectionId)) {
+            // fail-closed(코드 리뷰 P1 5차, 머신 검수 2차 — 소스 상태 무관으로 확장) — 하자가 하나라도
+            // 있으면 재분석을 거부한다. 원래는 ANALYZED에만 걸었는데, createManualDefect가 회차 상태를
+            // 검사하지 않아 CREATED/UPLOADING 회차에도 수동 하자가 들어갈 수 있어 그 경로가 가드 없이
+            // 뚫려 있었다(첫 분석이 무조건 소프트삭제). 재분석은 워커가 기존 하자를 소프트삭제하므로,
+            // 사람이 수동 추가(createManualDefect)·검수한 하자가 무보상 유실될 수 있는 유일한 경로다.
+            // AI/사람 생성을 구분하는 컬럼(#644)이 없는 한 신뢰할 수 있는 선별이 불가능하므로, 그
+            // 전까지는 소스 상태와 무관하게 "하자가 있으면 재분석 자체를 막는다".
             throw new BusinessException(ErrorCode.ANALYSIS_NOT_ALLOWED);
         }
 
@@ -161,8 +172,10 @@ public class InspectionAnalysisService {
         if (!inspectionService.tryStartAnalyzing(
                 requesterUserId, companyId, inspectionId, ANALYSIS_ALLOWED_SOURCE_STATUSES)) {
             // 원자적 조건부 UPDATE 영향 행 0건 — 다른 요청이 먼저 선점했거나, 사전 체크 이후 허용되지
-            // 않은 소스 상태(REVIEWED/REPORTED 등)로 전이됐다(코드 리뷰 P1 10차 — WHERE가 허용
-            // 소스 상태를 강제하므로 그 TOCTOU에서도 사람 확정 하자가 소프트삭제로 유실되지 않는다).
+            // 않은 소스 상태(REVIEWED/REPORTED 등)로 전이됐거나(코드 리뷰 P1 10차), 사전 체크 이후
+            // 수동 하자가 새로 등록됐다(코드 리뷰 P1, 머신 검수 2차) — WHERE가 허용 소스 상태와
+            // "비삭제 하자 없음"을 함께 강제하므로 두 TOCTOU 모두에서 사람 하자가 소프트삭제로
+            // 유실되지 않는다.
             throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
         }
 
@@ -228,16 +241,19 @@ public class InspectionAnalysisService {
     }
 
     /**
-     * ANALYZED 회차에 비삭제 하자가 하나라도 있는지 — fail-closed 재분석 가드(코드 리뷰 P1 5차).
+     * 회차(소스 상태 무관)에 비삭제 하자가 하나라도 있는지 — fail-closed 재분석 가드(코드 리뷰 P1 5차,
+     * 머신 검수 2차에서 ANALYZED 전용 → 소스 상태 무관으로 확장).
      *
      * <p>이전엔 "사람이 손댄 하자"를 {@code defect_revisions} 존재 → {@code confidence == 1.0} sentinel
      * 순으로 추론했는데, 판정 방식을 바꿔 막을 때마다 그 판정을 남기지 않는 입력 경로가 나타나 계속
      * 뚫렸다(라운드9~10). 대표적으로 {@code DefectRevisionService.createManualDefect}(수동 하자 추가)는
      * revision을 남기지 않아 1차 판정을 우회했고, sentinel은 근사치라 언제든 오탐/누락이 가능했다.
-     * AI/사람 생성을 구분하는 컬럼(#644)이 없는 한 신뢰할 수 있는 선별이 불가능하므로, 그 컬럼이
-     * 들어오기 전까지는 "ANALYZED 회차에 하자가 있으면 재분석 자체를 거부"하는 fail-closed로 둔다 —
-     * 재분석 소프트삭제({@link DefectWriter#softDeleteAllForInspectionThenSave})로 인한 데이터 유실
-     * 가능성 0, 스키마 변경 0.
+     * 게다가 이 메서드 호출을 ANALYZED 상태에만 걸어뒀던 탓에, createManualDefect가 회차 상태를 전혀
+     * 검사하지 않는다는 점과 맞물려 CREATED/UPLOADING 회차의 "첫" 분석에는 가드 자체가 없어 수동 하자가
+     * 무조건 삭제되는 경로가 남아 있었다(머신 검수 2차). AI/사람 생성을 구분하는 컬럼(#644)이 없는 한
+     * 신뢰할 수 있는 선별이 불가능하므로, 그 컬럼이 들어오기 전까지는 소스 상태와 무관하게 "하자가
+     * 있으면 재분석 자체를 거부"하는 fail-closed로 둔다 — 재분석 소프트삭제
+     * ({@link DefectWriter#softDeleteAllForInspectionThenSave})로 인한 데이터 유실 가능성 0, 스키마 변경 0.
      *
      * <p>#644로 origin(AI/MANUAL) 컬럼이 도입되면 이 fail-closed를 정식 판정으로 교체한다: 소프트삭제
      * 대상을 origin=AI로 한정하고, "사람 손댐" 판정은 <b>defect_revisions + origin=MANUAL</b>로 한다.

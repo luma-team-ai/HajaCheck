@@ -241,6 +241,40 @@ class InspectionAnalysisServiceTest {
     }
 
     @Test
+    void startAnalysis_UPLOADING인데_하자가하나라도있으면_fail_closed로재분석거부한다() {
+        // 코드 리뷰 P1(머신 검수 2차) — fail-closed 가드가 ANALYZED에만 걸려 있던 탓에, createManualDefect가
+        // 회차 상태를 검사하지 않아 CREATED/UPLOADING 회차에도 수동 하자가 들어갈 수 있는데 그런 회차의
+        // "첫" 분석에는 가드가 전혀 없어 사람 하자가 무조건 삭제되는 경로가 있었다. 소스 상태와 무관하게
+        // 하자 존재만으로 거부해야 한다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(INSPECTION_ID)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
+
+        verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void startAnalysis_CREATED인데_하자가하나라도있으면_fail_closed로재분석거부한다() {
+        // 위 테스트와 동일한 이유로 CREATED도 예외를 두지 않는다 — createManualDefect가 상태를 전혀
+        // 가리지 않으므로 이론상 CREATED 회차에도 수동 하자가 존재할 수 있다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.CREATED));
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(INSPECTION_ID)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
+
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void startAnalysis_ANALYZED인데_하자가하나도없으면_정상진행한다() {
         // 재분석으로 유실될 하자가 없으므로(예: 이전 분석이 아무 하자도 못 찾음) 재분석을 허용한다.
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
