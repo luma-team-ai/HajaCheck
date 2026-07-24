@@ -91,6 +91,12 @@ alter type counsel_ticket_status_type owner to postgres;
 
 comment on type counsel_ticket_status_type is '상담 티켓 처리 상태(대기/진행중/해결/오프라인 이탈)';
 
+create type counsel_type as enum ('USAGE', 'ANALYSIS_RESULT', 'BILLING_ETC');
+
+alter type counsel_type owner to postgres;
+
+comment on type counsel_type is '상담 유형(이용 방법/분석 결과/결제·기타)';
+
 create type rag_doc_source_type as enum ('LAW', 'GUIDELINE');
 
 alter type rag_doc_source_type owner to postgres;
@@ -961,6 +967,7 @@ create table counsel_tickets
     session_id     bigint
         references chat_sessions,
     status         counsel_ticket_status_type default 'WAITING'::counsel_ticket_status_type not null,
+    counsel_type   counsel_type                                                             not null,
     queue_position integer,
     created_at     timestamp with time zone   default now()                                 not null,
     ended_at       timestamp with time zone
@@ -979,6 +986,8 @@ comment on column counsel_tickets.counselor_id is '배정된 상담사 사용자
 comment on column counsel_tickets.session_id is '상담 대화가 이루어지는 채팅 세션 식별자(chat_sessions, session_type=COUNSEL)';
 
 comment on column counsel_tickets.status is '상담 티켓 처리 상태';
+
+comment on column counsel_tickets.counsel_type is '상담 유형';
 
 comment on column counsel_tickets.queue_position is '상담 대기열 순번';
 
@@ -1004,6 +1013,26 @@ create unique index uq_counsel_tickets_session
 
 comment on index uq_counsel_tickets_session is
     '하나의 전문상담 세션이 여러 상담 티켓에 중복 배정되는 것을 방지한다.';
+
+create table counselor_skills
+(
+    counselor_id bigint       not null
+        references users,
+    counsel_type counsel_type not null,
+    primary key (counselor_id, counsel_type)
+);
+
+comment on table counselor_skills is '상담사가 처리 가능한 상담 유형(다대다)';
+
+comment on column counselor_skills.counselor_id is '상담사 사용자 식별자(users, role=COUNSELOR — DB 제약 아닌 서비스 레벨 검증)';
+
+comment on column counselor_skills.counsel_type is '처리 가능한 상담 유형';
+
+alter table counselor_skills
+    owner to postgres;
+
+create index idx_counselor_skills_counsel_type
+    on counselor_skills (counsel_type);
 
 create table bot_scenarios
 (

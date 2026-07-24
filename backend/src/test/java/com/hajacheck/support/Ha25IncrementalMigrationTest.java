@@ -364,7 +364,13 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V12__add_defect_action_result_fields.sql"),
-                        CONTAINER_ROOT + "V12__add_defect_action_result_fields.sql");
+                        CONTAINER_ROOT + "V12__add_defect_action_result_fields.sql")
+                // V13 — #743 상담 유형(counsel_type) 분류: counsel_tickets.counsel_type 컬럼 +
+                // counselor_skills 다대다 테이블.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V13__add_counsel_type.sql"),
+                        CONTAINER_ROOT + "V13__add_counsel_type.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -446,6 +452,8 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "V11__migrate_facilities_to_company.sql");
         // #725/HAJA-393 — Flyway V12(defects 조치 결과 등록 필드)도 이어서 1회 forward-apply한다.
         runPsql(postgres, "V12__add_defect_action_result_fields.sql");
+        // #743 — Flyway V13(counsel_type 분류)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V13__add_counsel_type.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

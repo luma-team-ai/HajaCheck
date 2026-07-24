@@ -20,8 +20,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * V3(create_api_system_logs)→V4(add_platform_admin_role)→V5(add_business_start_date)→
  * V6(defects.media_id)→V7(inspection_admin_schema)→V8(grant_admin_to_company_owners, #636)→
  * V9(facilities.next_inspection_due_at 인덱스, #509)→V10(add_facility_registration_fields, #628)→
- * V11(facilities company scope, #637)→V12(defects 조치 결과 등록 필드, #725/HAJA-393)을 순서대로
- * 적용하고, Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
+ * V11(facilities company scope, #637)→V12(defects 조치 결과 등록 필드, #725/HAJA-393)→
+ * V13(counsel_type 분류, #743)을 순서대로 적용하고, Hibernate ddl-auto=validate + PlanSeedGuard
+ * 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
  * 만들고 Flyway는 application-test.yml에서 꺼둠)를 쓴다. 이 클래스만 예외적으로 initScript 없는 컨테이너 +
@@ -64,7 +65,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V12까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V13까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -74,8 +75,8 @@ class FlywayBaselineIntegrationTest {
         // + V5(add_business_start_date, #596) + V6(defects.media_id, #527/HAJA-314) + V7(inspection_admin_schema, #568)
         // + V8(grant_admin_to_company_owners, #636) + V9(facilities.next_inspection_due_at 인덱스, #509)
         // + V10(add_facility_registration_fields, #628/HAJA-347) + V11(facilities company scope, #637)
-        // + V12(defects 조치 결과 등록 필드, #725/HAJA-393)
-        assertThat(appliedMigrations).isEqualTo(12);
+        // + V12(defects 조치 결과 등록 필드, #725/HAJA-393) + V13(counsel_type 분류, #743)
+        assertThat(appliedMigrations).isEqualTo(13);
 
         // V5가 companies.business_start_date 컬럼을 실제로 추가했는지 확인(#596).
         Long businessStartDateColumnExists = jdbcTemplate.queryForObject("""
@@ -151,5 +152,18 @@ class FlywayBaselineIntegrationTest {
                   and column_name in ('action_media_id', 'action_content', 'action_date', 'action_assignee_id')
                 """, Long.class);
         assertThat(actionResultColumnCount).isEqualTo(4L);
+
+        // V13이 counsel_tickets.counsel_type 컬럼과 counselor_skills 테이블(#743)을 실제로 추가했는지 확인한다.
+        Long counselTypeColumnExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'counsel_tickets' and column_name = 'counsel_type'
+                """, Long.class);
+        assertThat(counselTypeColumnExists).isEqualTo(1L);
+
+        Long counselorSkillsTableExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.tables
+                where table_schema = 'public' and table_name = 'counselor_skills'
+                """, Long.class);
+        assertThat(counselorSkillsTableExists).isEqualTo(1L);
     }
 }

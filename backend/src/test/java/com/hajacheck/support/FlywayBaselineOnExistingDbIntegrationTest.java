@@ -18,9 +18,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 /**
  * Flyway baseline-on-migrate 의 "기존 DB" 경로(#359, #544 P1)를 검증한다.
  *
- * <p>{@link FlywayBaselineIntegrationTest}(빈 컨테이너에서 V1→…→V11 전체 실행)와 짝을 이룬다. 이 기능의
+ * <p>{@link FlywayBaselineIntegrationTest}(빈 컨테이너에서 V1→…→V13 전체 실행)와 짝을 이룬다. 이 기능의
  * 실제 목적(#531 arm1 승격 스키마 드리프트 재발 방지)에서 운영·로컬이 실제로 밟는 경로는 "이미 전체 스키마가
- * 있는 기존 DB에 baseline 스탬프만 찍고 V2~V11만 적용"되는 쪽인데, 짝 테스트는 신규 DB 경로만 덮는다.
+ * 있는 기존 DB에 baseline 스탬프만 찍고 V2~V13만 적용"되는 쪽인데, 짝 테스트는 신규 DB 경로만 덮는다.
  *
  * <p>여기서는 캐노니컬 DDL({@code db/HajaCheck_script.sql}, api_system_logs·plans 시드 포함 — arm1·팀원
  * 로컬처럼 이미 모든 스키마가 존재하는 DB를 모사)을 initScript로 미리 적재한 컨테이너에
@@ -65,7 +65,7 @@ class FlywayBaselineOnExistingDbIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 기존DB에_baselineOnMigrate로_V2부터_V12까지_적용해도_실패하지않고_validate와_PlanSeedGuard를_통과한다() {
+    void 기존DB에_baselineOnMigrate로_V2부터_V13까지_적용해도_실패하지않고_validate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 (1) Flyway 마이그레이션이 예외 없이 끝났고,
         // (2) Hibernate validate(전체 엔티티 매핑 대조)와 (3) PlanSeedGuard(plans 3티어) 를 통과했음을 의미한다.
 
@@ -78,19 +78,20 @@ class FlywayBaselineOnExistingDbIntegrationTest {
         // V6(defects.media_id, #527/HAJA-314)·V7(inspection_admin_schema, #568)·
         // V8(grant_admin_to_company_owners, #636)·V9(facilities.next_inspection_due_at 인덱스, #509)·
         // V10(add_facility_registration_fields, #628/HAJA-347)·V11(facilities company scope, #637)·
-        // V12(defects 조치 결과 등록 필드, #725/HAJA-393)이 실제 versioned 마이그레이션으로 성공 적용된다.
-        // 캐노니컬 DDL(HajaCheck_script.sql)은 이미 role_type에 PLATFORM_ADMIN·companies.business_start_date·
-        // defects.media_id·점검 관리자 스키마·next_inspection_due_at 인덱스·시설물 등록 필드 확장·
-        // 회사 시설(company_id) 전환·defects 조치 결과 등록 필드를 모두 포함하므로 V4~V12는
-        // IF NOT EXISTS(또는 대상 없는 UPDATE)로 no-op 성공한다 — 기존 DB(캐노니컬 DDL을 아직 못 받은 실제
-        // arm1/팀원 로컬)에서는 이 V4~V12가 실제로 라벨·컬럼·테이블·인덱스를 추가/전환하는 경로다.
+        // V12(defects 조치 결과 등록 필드, #725/HAJA-393)·V13(counsel_type 분류, #743)이 실제 versioned
+        // 마이그레이션으로 성공 적용된다. 캐노니컬 DDL(HajaCheck_script.sql)은 이미 role_type에 PLATFORM_ADMIN·
+        // companies.business_start_date·defects.media_id·점검 관리자 스키마·next_inspection_due_at 인덱스·
+        // 시설물 등록 필드 확장·회사 시설(company_id) 전환·defects 조치 결과 등록 필드·counsel_type 분류를
+        // 모두 포함하므로 V4~V13은 IF NOT EXISTS(또는 대상 없는 UPDATE)로 no-op 성공한다 — 기존 DB(캐노니컬
+        // DDL을 아직 못 받은 실제 arm1/팀원 로컬)에서는 이 V4~V13이 실제로 라벨·컬럼·테이블·인덱스를
+        // 추가/전환하는 경로다.
         // V8은 데이터 UPDATE 라 대상 owner 가 없어도(캐노니컬 DDL은 스키마만 적재, companies 빈 상태) 0행
         // 갱신으로 성공한다(#636).
         Integer appliedVersioned = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where success = true "
-                        + "and version in ('2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12')",
+                        + "and version in ('2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13')",
                 Integer.class);
-        assertThat(appliedVersioned).isEqualTo(11);
+        assertThat(appliedVersioned).isEqualTo(12);
 
         // 실패 기록이 남지 않아야 한다(V3가 if not exists로 skip되어 'relation already exists'가 나지 않음).
         Integer failed = jdbcTemplate.queryForObject(
@@ -167,5 +168,19 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                   and column_name in ('action_media_id', 'action_content', 'action_date', 'action_assignee_id')
                 """, Long.class);
         assertThat(actionResultColumnCount).isEqualTo(4L);
+
+        // 기존 DB에 있던 counsel_tickets.counsel_type·counselor_skills(V13, #743)도 그대로 유지된다
+        // (V13 재실행이 깨거나 중복 생성하지 않음 — 캐노니컬 DDL이 이미 포함하므로 no-op 성공 경로).
+        Long counselTypeColumnExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'counsel_tickets' and column_name = 'counsel_type'
+                """, Long.class);
+        assertThat(counselTypeColumnExists).isEqualTo(1L);
+
+        Long counselorSkillsTableExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.tables
+                where table_schema = 'public' and table_name = 'counselor_skills'
+                """, Long.class);
+        assertThat(counselorSkillsTableExists).isEqualTo(1L);
     }
 }
