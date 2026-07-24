@@ -100,7 +100,19 @@ public class Inspection {
         this.status = status == null ? InspectionStatus.CREATED : status;
     }
 
+    /**
+     * 상태 전이 — {@link InspectionStatus} 허용 전이 테이블에 있는 전이만 적용하고, 그 외에는
+     * {@link IllegalStateException}으로 거부한다(상태 머신 중앙화). 검증 없는 setter였을 때는
+     * 리퍼가 되돌린 회차를 좀비 워커가 ANALYZED로 되살리는 등 불법 전이가 조용히 적용됐다 —
+     * 이제는 거부(fail-safe: 상태 불변, 데이터 손상 없음)된다. 정상 경로의 전이는 모두 테이블에
+     * 포함돼 있고(그 클래스 주석 참고), 이 예외는 동시성 경쟁으로 이미 다른 경로가 상태를 바꾼
+     * 드문 경우에만 발생하며 비동기 워커에서는 로그로 관측된다.
+     */
     public void advanceTo(InspectionStatus next) {
+        if (!this.status.canTransitionTo(next)) {
+            throw new IllegalStateException(
+                    "허용되지 않은 점검 상태 전이: " + this.status + " -> " + next + " (inspectionId=" + this.id + ")");
+        }
         this.status = next;
     }
 }
