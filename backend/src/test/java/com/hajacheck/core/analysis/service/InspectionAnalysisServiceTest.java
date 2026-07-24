@@ -12,9 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.hajacheck.core.analysis.dto.AnalysisStatusResponse;
 import com.hajacheck.core.analysis.support.AnalysisProgressStore;
-import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.repository.DefectRepository;
-import com.hajacheck.core.defect.repository.DefectRevisionRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
@@ -60,8 +58,6 @@ class InspectionAnalysisServiceTest {
     @Mock
     private DefectRepository defectRepository;
     @Mock
-    private DefectRevisionRepository defectRevisionRepository;
-    @Mock
     private AnalysisProgressStore progressStore;
     @Mock
     private InspectionAnalysisWorker worker;
@@ -84,19 +80,6 @@ class InspectionAnalysisServiceTest {
                 .build();
         ReflectionTestUtils.setField(inspection, "id", INSPECTION_ID);
         return inspection;
-    }
-
-    private Defect defect(Long id) {
-        Defect defect = Defect.builder().inspectionId(INSPECTION_ID).build();
-        ReflectionTestUtils.setField(defect, "id", id);
-        return defect;
-    }
-
-    // DefectRevisionService.createManualDefect()와 동일한 sentinel(confidence=1.0) — 코드 리뷰 P1 4차.
-    private Defect manualDefect(Long id) {
-        Defect defect = Defect.builder().inspectionId(INSPECTION_ID).confidence(1.0).build();
-        ReflectionTestUtils.setField(defect, "id", id);
-        return defect;
     }
 
     private Media image(Long id) {
@@ -226,15 +209,13 @@ class InspectionAnalysisServiceTest {
     }
 
     @Test
-    void startAnalysis_ANALYZED인데_사람이조정한하자가있으면_ANALYSIS_NOT_ALLOWED로거부한다() {
-        // 코드 리뷰 P2(제품 결정) — REVIEWED/REPORTED만 보호하면 ANALYZED 단계(검수 완료 전)에서
-        // 등급을 조정한 하자가 재분석으로 무보상 삭제되는 구멍이 남는다. defect_revisions 존재로
-        // "사람이 손댄 하자"를 판정한다.
+    void startAnalysis_ANALYZED인데_하자가하나라도있으면_fail_closed로재분석거부한다() {
+        // 코드 리뷰 P1 5차(fail-closed) — "사람이 손댄 하자"를 revision/sentinel로 추론하던 방식이
+        // 그 판정을 남기지 않는 입력 경로(수동 하자 추가 등)로 계속 뚫렸다. AI/사람 구분 컬럼(#644)
+        // 전까지는 하자가 존재하면 재분석 자체를 거부한다 — 판정 방식이 아니라 "하자 존재"만 본다.
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
-        when(defectRepository.findByInspectionIdAndNotDeleted(INSPECTION_ID))
-                .thenReturn(List.of(defect(1L), defect(2L)));
-        when(defectRevisionRepository.existsByDefectIdIn(List.of(1L, 2L))).thenReturn(true);
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(INSPECTION_ID)).thenReturn(true);
 
         assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .isInstanceOf(BusinessException.class)
@@ -246,12 +227,11 @@ class InspectionAnalysisServiceTest {
     }
 
     @Test
-    void startAnalysis_ANALYZED인데_리비전없으면_정상진행한다() {
+    void startAnalysis_ANALYZED인데_하자가하나도없으면_정상진행한다() {
+        // 재분석으로 유실될 하자가 없으므로(예: 이전 분석이 아무 하자도 못 찾음) 재분석을 허용한다.
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
-        when(defectRepository.findByInspectionIdAndNotDeleted(INSPECTION_ID))
-                .thenReturn(List.of(defect(1L)));
-        when(defectRevisionRepository.existsByDefectIdIn(List.of(1L))).thenReturn(false);
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(INSPECTION_ID)).thenReturn(false);
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
@@ -260,27 +240,6 @@ class InspectionAnalysisServiceTest {
 
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
                 eq(InspectionStatus.ANALYZED), any());
-    }
-
-    @Test
-    void startAnalysis_ANALYZED인데_리비전없어도_수동생성하자가있으면_ANALYSIS_NOT_ALLOWED로거부한다() {
-        // 코드 리뷰 P1 4차 — DefectRevisionService.createManualDefect()는 defect_revisions에
-        // 행을 남기지 않는다(신규 생성이라 "수정 이력"이 아님). 리비전 유무만 보면 이 수동 하자를
-        // "사람이 손댄 적 없음"으로 오판해 재분석을 허용하고, 워커가 소프트삭제(전체 비삭제 행 대상)로
-        // 방금 입력한 수동 하자까지 지워버린다 — confidence==1.0 sentinel도 함께 확인해야 막힌다.
-        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
-                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
-        when(defectRepository.findByInspectionIdAndNotDeleted(INSPECTION_ID))
-                .thenReturn(List.of(manualDefect(1L)));
-        when(defectRevisionRepository.existsByDefectIdIn(List.of(1L))).thenReturn(false);
-
-        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
-                .isInstanceOf(BusinessException.class)
-                .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
-
-        verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test

@@ -7,8 +7,6 @@ import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
-import com.hajacheck.core.defect.repository.DefectRevisionRepository;
-import com.hajacheck.core.defect.service.DefectRevisionService;
 import com.hajacheck.core.defect.service.DefectWriter;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
@@ -59,12 +57,6 @@ public class InspectionAnalysisService {
     // 정상 진행 간격보다 충분히 커서 정상 진행 중인 잡을 오탐하지 않는다.
     private static final Duration STUCK_HEARTBEAT_THRESHOLD = Duration.ofMinutes(5);
 
-    // 수동 생성 하자 판정 sentinel(코드 리뷰 P1 3차) — DefectRevisionService.createManualDefect()가
-    // 스키마 마이그레이션 없이 AI/사람 구분을 표시하려고 쓰는 값과 동일해야 한다(그 쪽 confidence(1.0)
-    // 리터럴과 반드시 일치 — 어긋나면 이 가드가 조용히 무력화된다). 근본 해결은 AI/사람 생성 구분
-    // 컬럼 추가(#644), 그 전까지의 최선 근사치.
-    private static final Double MANUAL_DEFECT_CONFIDENCE_SENTINEL = 1.0;
-
     // 회사별 분석 동시 실행 상한(코드 리뷰 P2 4차) — analysisTaskExecutor(AsyncConfig, 전역 공유
     // core=max=2·queue=20)를 한 회사가 대량 요청으로 독점하면 다른 회사까지 ANALYSIS_QUEUE_FULL을
     // 받는 noisy-neighbor 표면이다. 코어 스레드 수(2)와 동일하게 맞춰, 한 회사가 큐 슬롯 다수를
@@ -76,7 +68,6 @@ public class InspectionAnalysisService {
     private final InspectionRepository inspectionRepository;
     private final MediaRepository mediaRepository;
     private final DefectRepository defectRepository;
-    private final DefectRevisionRepository defectRevisionRepository;
     private final AnalysisProgressStore progressStore;
     private final InspectionAnalysisWorker worker;
 
@@ -106,11 +97,11 @@ public class InspectionAnalysisService {
      *       없는 상태(REVIEWED/REPORTED)에서는 {@link ErrorCode#ANALYSIS_NOT_ALLOWED}로 거부한다.
      *       가드가 없으면 검수 완료·보고서화된 회차도 재분석 트리거만으로 사람이 조정한 하자가
      *       무보상으로 삭제되고 상태가 ANALYZED로 역행해 보고서 확정 워크플로우가 깨진다.</li>
-     *   <li><b>ANALYZED 리비전 가드</b>(P2, 제품 결정): 소스 상태가 ANALYZED이면 이 회차의 하자
-     *       중 사람이 조정(defect_revisions 존재)한 것이 하나라도 있는지 확인해, 있으면 REVIEWED/
-     *       REPORTED와 동일하게 {@link ErrorCode#ANALYSIS_NOT_ALLOWED}로 거부한다. 위 소스 상태
-     *       가드는 REVIEWED/REPORTED만 "사람이 확정한 최종 상태"로 보호하는데, ANALYZED 단계에서도
-     *       검수 완료 전에 등급 등을 조정하는 워크플로우가 있어 같은 무보상 유실 위험을 가진다.</li>
+     *   <li><b>ANALYZED fail-closed 가드</b>(P1 5차): 소스 상태가 ANALYZED이고 비삭제 하자가 하나라도
+     *       있으면 {@link ErrorCode#ANALYSIS_NOT_ALLOWED}로 거부한다({@link #hasExistingDefects}).
+     *       "사람이 손댄 하자"를 revision/sentinel로 추론하던 방식이 그 판정을 남기지 않는 입력 경로
+     *       (수동 하자 추가 등)로 계속 뚫렸기 때문에, AI/사람 구분 컬럼(#644) 도입 전까지는 하자가
+     *       있으면 재분석 자체를 막는 fail-closed로 둔다(데이터 유실 가능성 0).</li>
      *   <li><b>워커 펜싱</b>(P1): 고착 복구는 원본 워커가 실제로 죽었는지 확인할 수 없다 — 하트비트
      *       판정(고착 판정)이 오탐(GC 정지, 분석 실행기 큐 적체로 첫 이미지 처리가 늦게 시작되는
      *       경우 등)이면 원본 워커가 여전히 살아 돌고 있는 채로 재선점이 새 워커를 하나 더 띄운다.
@@ -138,8 +129,11 @@ public class InspectionAnalysisService {
             throw new BusinessException(ErrorCode.ANALYSIS_NOT_ALLOWED);
         }
 
-        if (statusBeforeAnalysis == InspectionStatus.ANALYZED && hasUserRevisedDefects(inspectionId)) {
-            // 코드 리뷰 P2(제품 결정) — ANALYZED 단계에서도 사람이 하자를 조정했으면 재분석을 막는다.
+        if (statusBeforeAnalysis == InspectionStatus.ANALYZED && hasExistingDefects(inspectionId)) {
+            // fail-closed(코드 리뷰 P1 5차) — ANALYZED 회차에 하자가 하나라도 있으면 재분석을 거부한다.
+            // 재분석은 워커가 기존 하자를 소프트삭제하므로, 사람이 수동 추가(createManualDefect)·검수한
+            // 하자가 무보상 유실될 수 있는 유일한 경로다. AI/사람 생성을 구분하는 컬럼(#644)이 없는 한
+            // 신뢰할 수 있는 선별이 불가능하므로, 그 전까지는 "하자가 있으면 재분석 자체를 막는다".
             throw new BusinessException(ErrorCode.ANALYSIS_NOT_ALLOWED);
         }
 
@@ -231,39 +225,25 @@ public class InspectionAnalysisService {
     }
 
     /**
-     * ANALYZED 회차의 현재 비삭제 하자 중 사람이 손댄 것이 있는지 확인한다(코드 리뷰 P2, 제품
-     * 결정 완료 / 코드 리뷰 P1 3차 확장).
+     * ANALYZED 회차에 비삭제 하자가 하나라도 있는지 — fail-closed 재분석 가드(코드 리뷰 P1 5차).
      *
-     * <p>"사람이 손댄" 판정은 두 경로를 모두 본다:
-     * <ol>
-     *   <li><b>검수 조정</b>: {@code defect_revisions} 존재(등급 조정·오탐 삭제 등 기존 하자 수정 이력).</li>
-     *   <li><b>수동 생성</b>(코드 리뷰 P1 3차): {@link DefectRevisionService#createManualDefect}로
-     *       검수자가 AI가 놓친 하자를 직접 추가한 경우. 이 경로는 {@code defect_revisions}에 아무
-     *       행도 남기지 않아(신규 생성이라 "수정 이력"이 아님) 1번만으로는 걸러지지 않았다 — 그 상태로
-     *       재분석하면 {@link InspectionAnalysisWorker}가 {@link DefectWriter#softDeleteAllForInspectionThenSave}
-     *       (비삭제 행 전체 대상)로 방금 사람이 입력한 하자까지 함께 소프트삭제해버려 무보상으로
-     *       유실된다. {@code createManualDefect}는 상태 제한이 없어 ANALYZED 회차에도 수동 추가가
-     *       가능하므로 현실적으로 도달 가능한 경로다.</li>
-     * </ol>
+     * <p>이전엔 "사람이 손댄 하자"를 {@code defect_revisions} 존재 → {@code confidence == 1.0} sentinel
+     * 순으로 추론했는데, 판정 방식을 바꿔 막을 때마다 그 판정을 남기지 않는 입력 경로가 나타나 계속
+     * 뚫렸다(라운드9~10). 대표적으로 {@code DefectRevisionService.createManualDefect}(수동 하자 추가)는
+     * revision을 남기지 않아 1차 판정을 우회했고, sentinel은 근사치라 언제든 오탐/누락이 가능했다.
+     * AI/사람 생성을 구분하는 컬럼(#644)이 없는 한 신뢰할 수 있는 선별이 불가능하므로, 그 컬럼이
+     * 들어오기 전까지는 "ANALYZED 회차에 하자가 있으면 재분석 자체를 거부"하는 fail-closed로 둔다 —
+     * 재분석 소프트삭제({@link DefectWriter#softDeleteAllForInspectionThenSave})로 인한 데이터 유실
+     * 가능성 0, 스키마 변경 0.
      *
-     * <p>수동 생성 판정은 {@code confidence == }{@link #MANUAL_DEFECT_CONFIDENCE_SENTINEL} —
-     * {@code DefectRevisionService.createManualDefect}가 스키마 마이그레이션 없이 AI/사람 구분을
-     * 표시하려고 쓰는 sentinel 값이다({@code confidence(1.0)} 리터럴, 부동소수점 반올림 오차 없이
-     * 정확히 일치). AI 탐지 결과는 YOLO confidence를 그대로 저장하므로 실무상 정확히 1.0이 나올
-     * 일은 사실상 없지만, 완전히 배제할 수는 없는 임시방편이다 — 근본 해결은 AI/사람 생성 구분
-     * 컬럼 추가(#644)이며, 그 전까지의 최선 근사치로 이 sentinel을 쓴다.
+     * <p>#644로 origin(AI/MANUAL) 컬럼이 도입되면 이 fail-closed를 정식 판정으로 교체한다: 소프트삭제
+     * 대상을 origin=AI로 한정하고, "사람 손댐" 판정은 <b>defect_revisions + origin=MANUAL</b>로 한다.
+     * ⚠️ 그때 {@code defects.is_reviewed}를 "검수 완료" 기준으로 쓰지 말 것 — is_reviewed는 등급 수정
+     * 경로에서만 true가 되고 상태 확정·오탐 삭제 경로는 false로 남아 사람이 손댄 하자를 놓친다.
+     * 세 편집 경로가 모두 기록되는 defect_revisions가 올바른 기준이다.
      */
-    private boolean hasUserRevisedDefects(Long inspectionId) {
-        List<Defect> defects = defectRepository.findByInspectionIdAndNotDeleted(inspectionId);
-        if (defects.isEmpty()) {
-            return false;
-        }
-        List<Long> defectIds = defects.stream().map(Defect::getId).toList();
-        if (defectRevisionRepository.existsByDefectIdIn(defectIds)) {
-            return true;
-        }
-        return defects.stream()
-                .anyMatch(defect -> MANUAL_DEFECT_CONFIDENCE_SENTINEL.equals(defect.getConfidence()));
+    private boolean hasExistingDefects(Long inspectionId) {
+        return defectRepository.existsByInspectionIdAndDeletedFalse(inspectionId);
     }
 
     /**
