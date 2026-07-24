@@ -7,6 +7,13 @@
 -- 동일한 IF NOT EXISTS/가드 컨벤션을 따른다. 상담사(users.role=COUNSELOR) 제약은 로컬/운영 role_type
 -- 정합이 아직 안 맞아(Role.java 상단 주석) DB 레벨 CHECK/트리거 없이 서비스 레벨 검증으로만 둔다.
 --
+-- PR #772 리뷰(P1): DEFAULT 없는 NOT NULL 컬럼 추가는 기존 행이 있으면 'column contains null
+-- values'로 Flyway forward-apply가 실패해 앱 기동을 중단시킬 수 있다(#531과 같은 클래스의 리스크).
+-- prod(hajacheck-arm1-postgres-1, DB hajacheck)에서 `select count(*) from counsel_tickets;`를 직접
+-- 실행해 0건임을 확인했다(2026-07-24) — 위 write 경로 부재와 정합되는 실측 근거이며, 이를 바탕으로
+-- DEFAULT를 붙이지 않고 현재 설계를 그대로 유지한다. 행이 있는 구스키마에 forward-apply하면 지금
+-- 설계상 반드시 실패한다는 계약은 CounselTypeMigrationTest로 고정해 둔다.
+--
 -- V12는 dev에 아직 미병합인 #725/#726 시설물 재설계 마이그레이션이 선점해 V13으로 재번호했다
 -- (V6/V10과 동일한 재번호 컨벤션).
 
