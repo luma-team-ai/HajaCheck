@@ -7,15 +7,18 @@
 ## 사이클
 **Normal** (sonnet, typescript-reviewer/react-reviewer 1회, cap 1)
 
-## 사전 준비 — Figma (필수, 가장 먼저 할 것)
-1. Figma MCP 커넥터 인증 필요. 인증 안 돼 있으면 세션에서 `/mcp` 또는 claude.ai 커넥터 설정에서 Figma를 연결.
-2. 인증 후 **`figma-design-to-code` 스킬을 먼저 로드**(`get_design_context` 호출 전 필수)한 뒤 아래 3개 노드를 순서대로 확인:
-   - 하자 목록(점검 단위): https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?node-id=1-2099&m=dev
-   - 하자 상세(카드형 목록): https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?node-id=1547-2912&m=dev
-   - 하자 상세 모달: https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?node-id=1562-3682&m=dev
-3. **모달 "작업 내용" 필드셋을 확정하는 게 가장 중요** — 백엔드 세션(`backend/725`)이 이 필드를 기다리고 있음. 확정되면:
-   - `docs/api-contract/contract.md` §"하자 목록·상세 화면 개편" TBD 항목을 실제 필드로 채워 갱신(문서 버전 bump 필요 — root v0.8→v0.9 + `archive/contract_v0.8.md` 스냅샷)
-   - PR 본문에 `[CONTRACT-CHANGE-REQUEST]` 표시 + 백엔드 워크트리(`../hajacheck-backend-725`)에도 알 수 있게 커밋 메시지에 필드 요약
+## 사전 준비 — Figma
+**메인 세션이 3개 노드를 이미 실사 확인 완료**했고 `docs/api-contract/contract.md` §"하자 목록·상세 화면 개편"에 화면 구조·모달 필드가 전부 정리돼 있음 — 먼저 그 문서부터 읽을 것.
+
+⚠️ **이 Figma 팀은 Starter 플랜이라 Dev Mode/MCP 호출이 금방 rate limit에 걸린다**(`get_metadata` 2회 만에 발생 확인). `figma-design-to-code` 스킬로 `get_design_context`를 호출하는 건 **정확한 spacing/색상/토큰 등 픽셀 단위 구현이 실제로 필요한 노드에 한해서만, 아껴서** 사용할 것. 이미 계약 문서에 정리된 필드·구조를 재확인하려고 반복 호출하지 말 것.
+
+1. Figma MCP 인증이 안 돼 있으면 claude.ai 커넥터 설정 또는 `/mcp`에서 연결.
+2. 노드: 목록 `node-id=1-2099` · 카드형 상세 `node-id=1547-2912` · 모달 `node-id=1562-3682` (fileKey `0NUC2R7VZ2pAFeqiMjPjZp`)
+3. contract.md에 이미 정리됨:
+   - 목록(node 1-2099)은 원래 하자 단건 플랫 테이블이지만 **점검 단위로 재해석**해야 함(시각 디자인은 유지)
+   - 카드형 상세(node 1547-2912)는 설명과 그대로 일치 — KPI 4종 + 하자 카드 그리드 + 우측 활동기록 사이드바
+   - 모달(node 1562-3682)의 "조치 결과 등록" 필드(조치후사진/조치내용/조치일/담당자, 전부 필수)는 contract.md 표에 정리됨 — 그대로 구현
+4. rate limit에 안 걸리고 실제로 필요한 경우에만 `get_design_context`로 정확한 spacing/토큰/에셋을 가져올 것. 걸리면 잠시 후 재시도하거나, 이미 정리된 정보만으로 먼저 구현하고 나중에 세부 스타일을 다듬어도 됨.
 
 ## 브랜치·워크트리
 ```
