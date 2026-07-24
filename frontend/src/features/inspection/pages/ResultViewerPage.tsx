@@ -181,18 +181,11 @@ export function ResultViewerPage() {
     navigate(`/inspections/${inspectionId}/reports/generate`);
   }, [inspectionId, navigate]);
 
-  if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
-    return (
-      <div className="p-5 text-red-600">잘못된 접근입니다. 유효한 검사 ID를 확인하세요.</div>
-    );
-  }
-
-  if (isLoading) return <AILoadingIndicator message="점검 결과를 분석 중입니다..." />;
-  if (isError) return <AIErrorFallback onRetry={() => void refetch()} />;
-  if (!data || data.defects.length === 0)
-    return <div className="p-5">탐지된 하자가 없습니다.</div>;
-
-  const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
+  // rules-of-hooks: 모든 훅은 조건부 return 이전에 호출되어야 한다.
+  // data가 없을 때도 안전하게 처리할 수 있도록 가드 포함.
+  const visibleDefects = data?.defects
+    ? filterDefects(data.defects, confidenceThreshold, gradeFilter)
+    : [];
 
   // ponytail: mediaId별 그룹핑 — 각 이미지의 고유 mediaId와 해당 imageUrl 추출
   const mediaGroups = useMemo(() => {
@@ -219,12 +212,38 @@ export function ResultViewerPage() {
     return mediaGroups.find((g) => g.mediaId === currentId) ?? mediaGroups[0] ?? null;
   }, [mediaGroups, selectedMediaId]);
 
-  // 현재 media 그룹의 defects
+  // 현재 media 그룹의 defects (early return 이전 계산)
   const currentDefects = currentMediaGroup?.defects ?? [];
 
   // 현재 media 인디케이터 (예: "이미지 1/2")
   const currentMediaIndex = mediaGroups.findIndex((g) => g.mediaId === currentMediaGroup?.mediaId);
   const mediaIndicator = mediaGroups.length > 0 ? `이미지 ${currentMediaIndex + 1}/${mediaGroups.length}` : '';
+
+  // 이전/다음 이미지 네비게이션 — rules-of-hooks: 훅은 조건부 return 이전에 호출
+  const handlePrevMedia = useCallback(() => {
+    if (currentMediaIndex > 0) {
+      setSelectedMediaId(mediaGroups[currentMediaIndex - 1]?.mediaId ?? null);
+      setSelectedDefectId(undefined);
+    }
+  }, [currentMediaIndex, mediaGroups]);
+
+  const handleNextMedia = useCallback(() => {
+    if (currentMediaIndex < mediaGroups.length - 1) {
+      setSelectedMediaId(mediaGroups[currentMediaIndex + 1]?.mediaId ?? null);
+      setSelectedDefectId(undefined);
+    }
+  }, [currentMediaIndex, mediaGroups]);
+
+  if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
+    return (
+      <div className="p-5 text-red-600">잘못된 접근입니다. 유효한 검사 ID를 확인하세요.</div>
+    );
+  }
+
+  if (isLoading) return <AILoadingIndicator message="점검 결과를 분석 중입니다..." />;
+  if (isError) return <AIErrorFallback onRetry={() => void refetch()} />;
+  if (!data || data.defects.length === 0)
+    return <div className="p-5">탐지된 하자가 없습니다.</div>;
 
   const found = selectedDefectId
     ? currentDefects.find((d) => d.id === selectedDefectId)
@@ -240,21 +259,6 @@ export function ResultViewerPage() {
       prev.includes(grade) ? prev.filter((g) => g !== grade) : [...prev, grade],
     );
   };
-
-  // 이전/다음 이미지 네비게이션
-  const handlePrevMedia = useCallback(() => {
-    if (currentMediaIndex > 0) {
-      setSelectedMediaId(mediaGroups[currentMediaIndex - 1]?.mediaId ?? null);
-      setSelectedDefectId(undefined);
-    }
-  }, [currentMediaIndex, mediaGroups]);
-
-  const handleNextMedia = useCallback(() => {
-    if (currentMediaIndex < mediaGroups.length - 1) {
-      setSelectedMediaId(mediaGroups[currentMediaIndex + 1]?.mediaId ?? null);
-      setSelectedDefectId(undefined);
-    }
-  }, [currentMediaIndex, mediaGroups]);
 
   const progressPercent = data.totalCount > 0 ? (data.reviewedCount / data.totalCount) * 100 : 0;
 
