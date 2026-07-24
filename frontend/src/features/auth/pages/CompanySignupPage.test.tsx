@@ -8,7 +8,7 @@
 // 여기서도 같은 이유로 authApi.signupCompany를 스파이로 대체해 "발화 여부"만 검증하고, 실제 서버
 // 왕복은 하지 않는다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { authApi } from '../api/authApi';
@@ -253,6 +253,26 @@ describe('CompanySignupPage — 약관 동의 링크(#453)', () => {
 
     fireEvent.click(screen.getByRole('link', { name: '이용약관' }));
     expect(termsCheckbox.checked).toBe(false);
+  });
+});
+
+// #720 픽스 — CompanySignupHeroPanel(좌측 브랜딩 패널)이 lg 미만에서 hidden 처리되면서, 그 안에만
+// 있던 브랜드 로고(홈 진입점)가 1024px 미만(태블릿·모바일)에서 완전히 사라지는 회귀가 있었다.
+// LoginPage의 mobile-brand-logo(#720)와 동일 취지로, 폼 컨테이너 상단에 별도로 렌더되는 모바일
+// 전용 로고 진입점(data-testid="mobile-brand-logo")이 항상 존재하고 랜딩(홈)으로 연결되는지
+// 고정한다. jsdom은 CSS 미디어쿼리(lg:hidden)를 평가하지 않으므로 실제 반응형 숨김/노출 자체는
+// 검증 대상이 아니다 — "hidden lg:flex" 컨테이너(CompanySignupHeroPanel) 밖에 독립된 로고
+// 진입점이 구조적으로 존재하고 랜딩(LANDING_ROUTE='/')으로 향하는지를 고정하는 것이 목적이다.
+describe('CompanySignupPage — 모바일 전용 브랜드 로고(#720)', () => {
+  it('모바일 전용 브랜드 로고가 렌더되고 랜딩(홈)으로 연결된다', () => {
+    renderPage();
+
+    const mobileBrandLogo = screen.getByTestId('mobile-brand-logo');
+    const homeLink = within(mobileBrandLogo).getByRole('link', {
+      name: 'HajaCheck 홈으로',
+    }) as HTMLAnchorElement;
+
+    expect(homeLink.getAttribute('href')).toBe('/');
   });
 });
 

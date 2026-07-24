@@ -168,4 +168,30 @@ describe('LoginPage', () => {
       expect(screen.getByTestId('location').textContent).toBe('/signup/company');
     });
   });
+
+  // #720 픽스 — LoginHeroPanel(좌측 브랜딩 패널)이 lg 미만에서 hidden 처리되면서, 그 안에만
+  // 있던 브랜드 로고(홈 진입점)가 1024px 미만(태블릿·모바일)에서 완전히 사라지는 회귀가 있었다.
+  // mobile-signup-cta(#297 P2)와 동일 패턴으로, 인증 패널 상단에 별도로 렌더되는 모바일 전용
+  // 로고 진입점(data-testid="mobile-brand-logo")이 항상 존재하고 클릭 시 랜딩(홈)으로 이동하는지
+  // 고정한다. jsdom은 CSS 미디어쿼리(lg:hidden)를 평가하지 않으므로 실제 반응형 숨김/노출
+  // 자체는 검증 대상이 아니다 — "hidden lg:flex" 컨테이너(LoginHeroPanel) 밖에 독립된 로고
+  // 진입점이 구조적으로 존재하고 클릭 시 정상 라우팅되는지를 고정하는 것이 이 테스트의 목적이다.
+  it('모바일 전용 브랜드 로고가 렌더되고 클릭 시 랜딩(홈)으로 이동한다(#720)', async () => {
+    mockGetMeUnauthorized();
+    const queryClient = new QueryClient();
+    renderLoginPage(queryClient, { pathname: '/login' });
+
+    await waitFor(() => {
+      expect(getMeCallCount).toBe(1);
+    });
+
+    const mobileBrandLogo = await screen.findByTestId('mobile-brand-logo');
+    const homeLink = within(mobileBrandLogo).getByRole('link', { name: 'HajaCheck 홈으로' });
+
+    fireEvent.click(homeLink);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location').textContent).toBe('/');
+    });
+  });
 });
