@@ -32,6 +32,9 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDateTime;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -71,6 +74,8 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     private InspectionRepository inspectionRepository;
     @Autowired
     private DefectRepository defectRepository;
+    @Autowired
+    private MediaRepository mediaRepository;
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -168,6 +173,17 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build());
     }
 
+    private Media saveMedia(Inspection inspection) {
+        return mediaRepository.save(Media.builder()
+                .inspectionId(inspection.getId())
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("s3://test-bucket/original.jpg")
+                .thumbnailUrl("s3://test-bucket/thumb.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/jpeg")
+                .build());
+    }
+
     private Defect saveDefect(Inspection inspection, DefectGrade grade, DefectStatus status) {
         return saveDefect(inspection, grade, status, null);
     }
@@ -226,8 +242,8 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
         User inspector = saveInspector("inspector26@haja.com", company);
         Facility facility = saveFacility(owner);
         Inspection inspection = saveInspection(facility, owner, inspector);
-        long testMediaId = 12345L;
-        Defect defectWithMedia = saveDefect(inspection, DefectGrade.A, DefectStatus.DETECTED, testMediaId);
+        Media media = saveMedia(inspection);
+        Defect defectWithMedia = saveDefect(inspection, DefectGrade.A, DefectStatus.DETECTED, media.getId());
 
         mockMvc.perform(get("/api/inspections/{id}/defects", inspection.getId())
                 .with(authentication(authOf(owner))))
@@ -235,8 +251,8 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].id").value(defectWithMedia.getId()))
-                .andExpect(jsonPath("$.data[0].mediaId").value(testMediaId))
-                .andExpect(jsonPath("$.data[0].imageUrl").value("/api/media/12345/thumbnail"));
+                .andExpect(jsonPath("$.data[0].mediaId").value(media.getId()))
+                .andExpect(jsonPath("$.data[0].imageUrl").value("/api/media/" + media.getId() + "/thumbnail"));
     }
 
     @Test
