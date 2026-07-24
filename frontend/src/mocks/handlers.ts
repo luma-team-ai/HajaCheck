@@ -13,6 +13,7 @@ import { inspectionHandlers } from '../features/inspection/api/inspectionApi.han
 import { mediaHandlers } from '../features/inspection/api/mediaApi.handlers';
 import { mypageHandlers } from '../features/mypage/api/mypageApi.handlers';
 import { notificationHandlers } from '../features/notification/api/notificationApi.handlers';
+import { monitoringHandlers } from '../features/platform-admin/api/monitoringApi.handlers';
 import { planPolicyHandlers } from '../features/platform-admin/api/planPolicyApi.handlers';
 import { planQuotaHandlers as platformAdminPlanQuotaHandlers } from '../features/platform-admin/api/planQuotaApi.handlers';
 import { platformAdminCompanyHandlers } from '../features/platform-admin/api/platformAdminCompanyApi.handlers';
@@ -42,6 +43,7 @@ export const handlers = [
   ...planPolicyHandlers,
   ...platformAdminCompanyHandlers,
   ...statsHandlers,
+  ...monitoringHandlers,
   ...reportHandlers,
   ...ragDocumentHandlers,
   ...supportHandlers,
