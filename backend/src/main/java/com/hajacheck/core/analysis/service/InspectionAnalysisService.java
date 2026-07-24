@@ -161,8 +161,11 @@ public class InspectionAnalysisService {
             throw new BusinessException(ErrorCode.ANALYSIS_COMPANY_CONCURRENCY_LIMIT);
         }
 
-        if (!inspectionService.tryStartAnalyzing(requesterUserId, companyId, inspectionId)) {
-            // 이 요청과 동시에 들어온 다른 요청이 먼저 선점했다(원자적 조건부 UPDATE 영향 행 0건).
+        if (!inspectionService.tryStartAnalyzing(
+                requesterUserId, companyId, inspectionId, ANALYSIS_ALLOWED_SOURCE_STATUSES)) {
+            // 원자적 조건부 UPDATE 영향 행 0건 — 다른 요청이 먼저 선점했거나, 사전 체크 이후 허용되지
+            // 않은 소스 상태(REVIEWED/REPORTED 등)로 전이됐다(코드 리뷰 P1 10차 — WHERE가 허용
+            // 소스 상태를 강제하므로 그 TOCTOU에서도 사람 확정 하자가 소프트삭제로 유실되지 않는다).
             throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
         }
 

@@ -122,7 +122,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
 
         verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
     }
 
     @Test
@@ -133,7 +133,7 @@ class InspectionAnalysisServiceTest {
         when(progressStore.isAvailable()).thenReturn(true);
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
@@ -173,7 +173,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)))));
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
@@ -219,7 +219,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
 
         verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
         verify(progressStore, never()).save(any());
         verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
@@ -241,7 +241,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
 
         verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
         verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
@@ -254,7 +254,7 @@ class InspectionAnalysisServiceTest {
         when(defectRevisionRepository.existsByDefectIdIn(List.of(1L))).thenReturn(false);
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
@@ -279,7 +279,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
 
         verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
         verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
@@ -294,7 +294,7 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NO_MEDIA);
 
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
         verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
@@ -314,7 +314,7 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_COMPANY_CONCURRENCY_LIMIT);
 
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
         verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
@@ -326,7 +326,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(List.of(image(1L)));
         when(inspectionRepository.countByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
                 .thenReturn(1L);
-        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
@@ -341,7 +341,7 @@ class InspectionAnalysisServiceTest {
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
         // 동시에 들어온 다른 요청이 먼저 선점했다고 가정 — 조건부 UPDATE 영향 행 0건.
-        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(false);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(false);
 
         assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .isInstanceOf(BusinessException.class)
@@ -357,7 +357,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L), image(2L)));
-        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
@@ -377,12 +377,12 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         InOrder inOrder = Mockito.inOrder(inspectionService, progressStore, worker);
-        inOrder.verify(inspectionService).tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID);
+        inOrder.verify(inspectionService).tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any());
         inOrder.verify(progressStore).save(any(AnalysisStatusResponse.class));
         inOrder.verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), any(), any());
     }
@@ -396,7 +396,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
@@ -419,7 +419,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)))));
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
@@ -432,7 +432,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
         org.mockito.Mockito.doThrow(new TaskRejectedException("full"))
                 .when(worker).runAsync(any(), any(), any(), any(), any(), any());
 

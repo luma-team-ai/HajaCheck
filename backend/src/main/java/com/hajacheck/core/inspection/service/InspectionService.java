@@ -183,13 +183,18 @@ public class InspectionService {
      * {@link InspectionRepository#startAnalyzingIfNotRunning} 단일 조건부 UPDATE로 전이해,
      * 영향 행 수로 선점 성공 여부를 원자적으로 판정한다.
      *
-     * @return true = 이 호출이 ANALYZING을 선점함, false = 이미 다른 요청이 선점(또는 이미 ANALYZING) —
-     *         호출부는 ANALYSIS_ALREADY_RUNNING으로 응답해야 한다.
+     * @param allowedStatuses 선점을 허용할 소스 상태 집합(코드 리뷰 P1 10차) — 호출부가 재분석 허용
+     *                        소스 상태(ANALYSIS_ALLOWED_SOURCE_STATUSES)를 넘긴다. 조건부 UPDATE의
+     *                        WHERE가 이 집합을 강제하므로, 사전 체크와 이 UPDATE 사이에 REVIEWED/
+     *                        REPORTED 등으로 전이돼도 원자적으로 거부된다(사람 확정 하자 유실 TOCTOU 차단).
+     * @return true = 이 호출이 ANALYZING을 선점함, false = 선점 불가(다른 요청이 선점했거나 허용되지
+     *         않은 소스 상태) — 호출부는 ANALYSIS_ALREADY_RUNNING으로 응답해야 한다.
      */
     @Transactional
-    public boolean tryStartAnalyzing(Long requesterUserId, Long companyId, Long inspectionId) {
+    public boolean tryStartAnalyzing(Long requesterUserId, Long companyId, Long inspectionId,
+            java.util.Collection<InspectionStatus> allowedStatuses) {
         getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
-        return inspectionRepository.startAnalyzingIfNotRunning(inspectionId) > 0;
+        return inspectionRepository.startAnalyzingIfNotRunning(inspectionId, allowedStatuses) > 0;
     }
 
     private void validateInspectionDate(LocalDate inspectionDate, FacilityResponse facility) {
