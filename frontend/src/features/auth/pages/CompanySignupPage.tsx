@@ -100,6 +100,17 @@ export function CompanySignupPage() {
   // 개업일자 — 국세청 진위확인(#596)이 요구하는 필수값. OCR 자동채움(#598)의 4번째 필드로도
   // 채워진다(#600). `<input type="date">` 값은 ISO `yyyy-MM-dd` 문자열 그대로 사용.
   const [businessStartDate, setBusinessStartDate] = useState('');
+  // OCR 자동채움 판정용 ref(#748, 리뷰어 P2 픽스) — isCustomDomainRef와 동일한 이유: OCR
+  // onSuccess는 파일 선택 시점 렌더의 클로저를 캡처하는데, OCR 왕복(수백 ms+) 동안 사용자가
+  // 이 4필드를 직접 수정할 수 있다. state 대신 ref를 "현재 비어있는지" 판정의 유일한 진실
+  // 소스로 삼아 각 필드의 onChange·OCR 자동채움 두 지점 모두에서 setState와 함께 동기 갱신한다
+  // (React state updater를 이용한 "지연 실행 시점에만 안전한" 방식은 실제로는 신뢰할 수 없음—
+  // 같은 콜백 안에서 여러 setState를 연달아 호출하면 첫 번째 이후는 React 내부 최적화(eager
+  // bailout)가 비활성화되어 updater가 즉시 실행되지 않을 수 있다는 게 실측으로 확인됨).
+  const businessRegistrationNumberRef = useRef('');
+  const companyNameRef = useRef('');
+  const representativeNameRef = useRef('');
+  const businessStartDateRef = useRef('');
   const [address, setAddress] = useState('');
   const [addressDetail, setAddressDetail] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -120,7 +131,7 @@ export function CompanySignupPage() {
     reset: resetEmailCheck,
   } = useEmailAvailability();
   const { signup, isPending, error } = useCompanySignup();
-  const { runOcr, isPending: isOcrPending } = useBusinessLicenseOcr();
+  const { runOcr, isPending: isOcrPending, reset: resetOcr } = useBusinessLicenseOcr();
   const {
     verify: verifyBusiness,
     isPending: isVerifyingBusiness,
@@ -209,20 +220,24 @@ export function CompanySignupPage() {
   // 무효화한다(이메일의 resetEmailCheck 패턴과 동일). "확인 후 몰래 값만 바꿔 통과된 결과로
   // 제출"하는 경로를 막는다.
   const handleBusinessRegistrationNumberChange = (value: string) => {
+    businessRegistrationNumberRef.current = value;
     setBusinessRegistrationNumber(value);
     clearAutoFilledField('brn');
     if (businessVerificationResult || businessVerificationError) resetBusinessVerification();
   };
   const handleCompanyNameChange = (value: string) => {
+    companyNameRef.current = value;
     setCompanyName(value);
     clearAutoFilledField('companyName');
   };
   const handleRepresentativeNameChange = (value: string) => {
+    representativeNameRef.current = value;
     setRepresentativeName(value);
     clearAutoFilledField('representativeName');
     if (businessVerificationResult || businessVerificationError) resetBusinessVerification();
   };
   const handleBusinessStartDateChange = (value: string) => {
+    businessStartDateRef.current = value;
     setBusinessStartDate(value);
     clearAutoFilledField('startDate');
     if (businessVerificationResult || businessVerificationError) resetBusinessVerification();
@@ -245,7 +260,10 @@ export function CompanySignupPage() {
   // 아닌 필드)은 덮어쓰지 않는다 — 자동채움은 초기값 제공일 뿐 이후 자유롭게 수정 가능해야
   // 한다(요구사항 #587). 단, 이 규칙 때문에 파일을 다른 것으로 교체해도 이미 자동채움된
   // 값은 재덮어쓰기 되지 않는다 — 재인식이 필요하면 사용자가 해당 필드를 직접 비우고 다시
-  // 채워야 한다(알려진 트레이드오프, 후속 개선은 별도 이슈로 분리 가능).
+  // 채워야 한다(알려진 트레이드오프, 후속 개선은 별도 이슈로 분리 가능). 자동채움 배지(#748,
+  // autoFilledFields)도 새 파일 선택 시 초기화하지 않는다 — 같은 이유로 이미 채워진 필드는
+  // 다음 OCR 호출에서 newlyFilled에 잡히지 않으니 배지가 "값이 그대로 유지된다"는 사실과
+  // 항상 일치한다(리뷰어 확인 완료, non-blocking).
   //
   // stale 응답 가드(P1, 리뷰어 픽스) — 파일 A 선택 후 OCR 진행 중 파일을 삭제하거나 B로 빠르게
   // 교체하면, 뒤늦게 도착한 A의 OCR 응답이 "지금 선택과 무관한" 값을 필드에 주입할 수 있다.
@@ -260,6 +278,9 @@ export function CompanySignupPage() {
     // 유효하지 않다. 아래에서 OCR을 호출하지 않는 경로(파일 삭제·미지원 타입·오버사이즈)는
     // 이 초기화 이후 아무것도 설정하지 않으므로 피드백이 뜨지 않는다(의도된 동작).
     setOcrFeedback(null);
+    // mutation 상태 초기화(#748, 리뷰어 P3) — 이전 호출의 data/error를 지워 다음 runOcr가
+    // 깨끗한 mutation 상태에서 시작하게 한다(ocrFeedback과 함께 "새 파일 = 새로 시작").
+    resetOcr();
     const requestId = ++ocrRequestIdRef.current;
     if (!selected) return;
     if (!BUSINESS_LICENSE_OCR_SUPPORTED_TYPES.includes(selected.type)) return;
@@ -272,28 +293,54 @@ export function CompanySignupPage() {
       onSuccess: (data) => {
         if (requestId !== ocrRequestIdRef.current) return; // stale 응답 — 이후 선택으로 이미 무효화됨
 
-        // 실제 채운 필드만 판정(#748) — "현재 비어있고 OCR값이 있는" 필드만 이번 호출로 새로
-        // 채워지는 필드다. 자동채움 배지·피드백 문구(N개 채움) 모두 이 판정을 공유한다.
-        const newlyFilledKeys: AutoFilledFieldKey[] = [];
-        if (!businessRegistrationNumber.trim() && data.businessRegistrationNumber) {
-          newlyFilledKeys.push('brn');
+        // 실제 채운 필드 판정(#748, 리뷰어 P2 픽스) — OCR 왕복(수백 ms+) 동안 사용자가 필드를
+        // 수정할 수 있어, 파일 선택 시점 렌더의 클로저 값(businessRegistrationNumber 등)을 직접
+        // 읽으면 응답 도착 시점의 실제 값과 어긋난다. setState functional updater 안에서
+        // "prev"를 판정에 쓰는 방식도 신뢰할 수 없다 — 같은 콜백에서 setXxx를 여러 번 연달아
+        // 호출하면 첫 호출 이후로는 React의 eager state 최적화가 비활성화돼 updater가 이
+        // 콜백이 끝나기 전에 실행된다는 보장이 없다(실측 확인: 뒤쪽 updater들이 지연 실행돼
+        // 판정용 accumulator가 항상 false로 읽힘). 대신 각 필드 onChange에서 setState와 함께
+        // 동기 갱신해 온 ref(businessRegistrationNumberRef 등)를 "현재 값"의 유일한 진실
+        // 소스로 삼는다 — 판정과 실제 write가 항상 같은 값을 본다.
+        const filled: Record<AutoFilledFieldKey, boolean> = {
+          brn: false,
+          companyName: false,
+          representativeName: false,
+          startDate: false,
+        };
+
+        if (!businessRegistrationNumberRef.current.trim() && data.businessRegistrationNumber) {
+          filled.brn = true;
+          businessRegistrationNumberRef.current = data.businessRegistrationNumber;
+          setBusinessRegistrationNumber(data.businessRegistrationNumber);
         }
-        if (!companyName.trim() && data.companyName) {
-          newlyFilledKeys.push('companyName');
+        if (!companyNameRef.current.trim() && data.companyName) {
+          filled.companyName = true;
+          companyNameRef.current = data.companyName;
+          setCompanyName(data.companyName);
         }
-        if (!representativeName.trim() && data.representativeName) {
-          newlyFilledKeys.push('representativeName');
+        if (!representativeNameRef.current.trim() && data.representativeName) {
+          filled.representativeName = true;
+          representativeNameRef.current = data.representativeName;
+          setRepresentativeName(data.representativeName);
         }
-        if (!businessStartDate.trim() && data.businessStartDate) {
-          newlyFilledKeys.push('startDate');
+        // 개업일자 자동채움(#598, #600) — 기존 3필드와 동일 규칙: 빈 필드만 채우고, OCR이 null이면
+        // 건드리지 않는다(수기 입력 유지).
+        if (!businessStartDateRef.current.trim() && data.businessStartDate) {
+          filled.startDate = true;
+          businessStartDateRef.current = data.businessStartDate;
+          setBusinessStartDate(data.businessStartDate);
         }
+
+        const newlyFilledKeys = (Object.keys(filled) as AutoFilledFieldKey[]).filter(
+          (key) => filled[key],
+        );
 
         // 진위확인 무효화 방어(#663) — OCR은 빈 필드만 채우므로 이미 진위확인을 통과한 상태(3필드
         // 모두 값이 참)에선 실질적으로 값이 바뀌지 않아 자연히 안전하다. 그래도 방어적으로, 이번
         // 자동채움이 진위확인 대상 3필드 중 하나라도 실제로 채울 예정이면 이전 결과를 무효화한다.
-        const willFillVerifiedField = newlyFilledKeys.some(
-          (key) => key === 'brn' || key === 'representativeName' || key === 'startDate',
-        );
+        const willFillVerifiedField =
+          filled.brn || filled.representativeName || filled.startDate;
         if (willFillVerifiedField && (businessVerificationResult || businessVerificationError)) {
           resetBusinessVerification();
         }
@@ -309,15 +356,6 @@ export function CompanySignupPage() {
           status: newlyFilledKeys.length > 0 ? 'success' : 'empty',
           filledCount: newlyFilledKeys.length,
         });
-
-        setBusinessRegistrationNumber((prev) =>
-          prev.trim() ? prev : (data.businessRegistrationNumber ?? prev),
-        );
-        setCompanyName((prev) => (prev.trim() ? prev : (data.companyName ?? prev)));
-        setRepresentativeName((prev) => (prev.trim() ? prev : (data.representativeName ?? prev)));
-        // 개업일자 자동채움(#598, #600) — 기존 3필드와 동일 규칙: 빈 필드만 채우고, OCR이 null이면
-        // 건드리지 않는다(수기 입력 유지).
-        setBusinessStartDate((prev) => (prev.trim() ? prev : (data.businessStartDate ?? prev)));
       },
       onError: () => {
         // 실패 인라인 피드백(#748) — 보조 기능 원칙(useBusinessLicenseOcr) 유지: 폼 제출을
