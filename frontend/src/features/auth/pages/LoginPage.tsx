@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import type { ApiError } from '../../../shared/api/types';
 import { Button } from '../../../shared/components/Button';
 import { isSafeInternalPath } from '../../../shared/utils/safeInternalPath';
@@ -9,7 +10,7 @@ import { AuthSignupCta } from '../components/AuthSignupCta';
 import { CompanyLoginTab } from '../components/CompanyLoginTab';
 import { LoginHeroPanel } from '../components/LoginHeroPanel';
 import { PersonalLoginTab } from '../components/PersonalLoginTab';
-import { AUTH_ME_QUERY_KEY, AUTH_ME_QUERY_STALE_TIME_MS } from '../constants';
+import { AUTH_ME_QUERY_KEY, AUTH_ME_QUERY_STALE_TIME_MS, LANDING_ROUTE } from '../constants';
 import { useAuthStore } from '../store/authStore';
 import type { UserResponse } from '../types';
 
@@ -81,6 +82,17 @@ export function LoginPage() {
             min-h를 줘 개인(소셜)·기업(폼) 두 탭의 높이를 동일하게 맞춘다 — 높이 차로 블록이
             재중앙정렬돼 탭 위치가 흔들리던 문제를 막는다(#421, 최초 요청 "탭 위치 고정"). */}
         <section className="flex w-full flex-col justify-center gap-8 p-12 lg:w-1/2">
+          {/* lg 미만(1024px 미만)에서는 LoginHeroPanel 전체가 hidden이라, 그 안에만 있는
+              브랜드 로고(홈 진입점)가 화면에서 완전히 사라진다(#720, mobile-signup-cta와 동일
+              원인·동일 패턴 — PR #297 P2 선례). 인증 패널 상단(탭 위)에 동일 로고를 별도로
+              렌더하되 lg 이상에서는 숨겨 데스크톱 시안과 동일하게 유지한다(좌측 패널과 중복
+              노출 없음). */}
+          <div className="flex justify-center lg:hidden" data-testid="mobile-brand-logo">
+            <Link to={LANDING_ROUTE} className="w-fit" aria-label="HajaCheck 홈으로">
+              <img src={brandLogo} alt="HajaCheck" className="h-7 w-auto object-contain" />
+            </Link>
+          </div>
+
           {/* 개인/기업 탭 좌우 50/50 분할(#414, Figma #42) — 각 탭이 절반 폭을 차지하고 라벨 중앙정렬 */}
           <div className="flex border-b border-border" role="tablist">
             <button

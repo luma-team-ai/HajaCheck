@@ -1,30 +1,35 @@
-"""ai/core/ocr_client.py 단위 테스트 (#605) — `get_ocr_engine()`이 `easyocr.Reader`를
-올바른 인자로 호출하는지 검증한다. 실제 모델 다운로드/추론(Reader 인스턴스화 내부 동작)은
-하지 않는다 — `easyocr.Reader` 클래스 자체를 모킹한다.
+"""ai/core/ocr_client.py 단위 테스트 (#722, 이전 #605) — `get_ocr_engine()`이
+`RapidOCR`을 올바른 인자로 호출하는지 검증한다. 실제 모델 다운로드/추론(RapidOCR 인스턴스화
+내부 동작)은 하지 않는다 — `rapidocr.RapidOCR` 클래스 자체를 모킹한다.
 
-## P1 회귀 방지 (코드 리뷰 재현, docker에서 재현됨)
-`user_network_directory`를 지정하지 않으면 EasyOCR이 기본 경로(`~/.EasyOCR/user_network` →
-컨테이너에선 fastapi 유저 HOME=`/app` 기준 `/app/.EasyOCR/user_network`)를 mkdir하려 시도하는데,
-`/app`은 root:root 755라 fastapi(uid 999)가 mkdir에 실패해 **첫 OCR 요청이 PermissionError로
-무조건 실패한다**. 이 파일은 `user_network_directory`가 항상 쓰기 가능한 경로(hf_cache 볼륨
-하위)로 지정되는지, 그리고 그 디렉터리가 실제로 사전 생성되는지를 고정한다.
+## 회귀 방지 핵심: `Global.use_cls: False` (#722)
+RapidOCR 기본값 `use_cls: true`(텍스트 방향 분류기)가 사업자등록증 같은 가로쓰기 정형
+문서에서 텍스트라인을 뒤집어 쓰레기 값을 만든다(실측: 완전일치 18/20 → 12/20으로 하락).
+이 파일은 `RapidOCR(params={...})`에 `Global.use_cls`가 항상 `False`로 전달되는지, 그리고
+모델 캐시 경로(`Global.model_root_dir`)가 hf_cache 볼륨 하위로 지정되는지를 고정한다.
 
-`easyocr`는 import 시 torch/torchvision을 로드하는데, 실제 로드하면 종료 시 세그폴트를 유발하므로
-(아래 import 블록 주석 참조) 이 파일은 `sys.modules`에 가짜 easyocr를 심어 실제 로드를 회피한다.
-앱/체인 import 경로는 원래 easyocr를 요구하지 않는다(지연 import #573, `test_business_license_ocr.py`가 모킹 검증).
+`rapidocr`는 import 시 cv2/onnxruntime을 로드하는데, 실제 로드하면 종료 시 세그폴트를
+유발하므로(easyocr 시절 #605와 동일 문제 패턴) 이 파일은 `sys.modules`에 가짜 rapidocr를
+심어 실제 로드를 회피한다. 앱/체인 import 경로는 원래 rapidocr를 요구하지 않는다(지연 import
+#573/#605, `test_business_license_ocr.py`가 모킹 검증).
 """
 import sys
 from unittest.mock import MagicMock, patch
 
 import pytest  # noqa: F401 — fixture 데코레이터에서 사용
 
-# ⚠️ easyocr는 import 시 torch/torchvision을 로드하는데, 이를 실제로 로드하면 같은 프로세스의
-# chromadb/onnxruntime 등과 함께 **pytest 종료 시 Segmentation fault**(native 라이브러리 정리
-# 순서 충돌)를 유발한다 — PR머신 docker build+test에서 "167 passed … Segmentation fault"로 재현(#605 회귀).
-# 이 테스트는 get_ocr_engine()이 easyocr.Reader를 올바른 인자로 호출하는지만 검증하므로, 실제
-# easyocr를 import하지 않고 sys.modules에 가짜 모듈을 심는다(torch/torchvision 미로드 → 세그폴트 회피).
-# get_ocr_engine 내부의 지연 `import easyocr`도 이 가짜를 받는다.
-sys.modules["easyocr"] = MagicMock()
+# ⚠️ rapidocr는 import 시 cv2/onnxruntime을 로드하는데, 이를 실제로 로드하면 같은 프로세스의
+# chromadb 등과 함께 **pytest 종료 시 Segmentation fault**(native 라이브러리 정리 순서 충돌)를
+# 유발할 수 있다(#605 회귀 패턴과 동일한 위험군). 이 테스트는 get_ocr_engine()이
+# rapidocr.RapidOCR을 올바른 인자로 호출하는지만 검증하므로, 실제 rapidocr를 import하지 않고
+# sys.modules에 가짜 모듈을 심는다(cv2/onnxruntime 미로드 → 세그폴트 회피).
+# get_ocr_engine 내부의 지연 `from rapidocr import ...`도 이 가짜를 받는다.
+_fake_rapidocr = MagicMock()
+_fake_rapidocr.EngineType.ONNXRUNTIME = "onnxruntime"
+_fake_rapidocr.LangRec.KOREAN = "korean"
+_fake_rapidocr.OCRVersion.PPOCRV5 = "PP-OCRv5"
+_fake_rapidocr.ModelType.MOBILE = "mobile"
+sys.modules["rapidocr"] = _fake_rapidocr
 
 from ai.core import ocr_client  # noqa: E402 — 위 sys.modules 모킹 이후 import
 
@@ -37,57 +42,50 @@ def _clear_engine_cache():
     ocr_client.get_ocr_engine.cache_clear()
 
 
-@patch("easyocr.Reader")
-def test_get_ocr_engine_passes_user_network_directory(mock_reader_cls, tmp_path, monkeypatch):
-    """P1 회귀 방지 핵심 검증 — Reader 생성 시 user_network_directory가 항상 전달돼야 한다."""
-    model_dir = tmp_path / "easyocr"
-    user_network_dir = model_dir / "user_network"
-    monkeypatch.setattr(ocr_client, "EASYOCR_MODEL_DIR", str(model_dir))
-    monkeypatch.setattr(ocr_client, "EASYOCR_USER_NETWORK_DIR", str(user_network_dir))
-    mock_reader_cls.return_value = MagicMock()
+@patch("rapidocr.RapidOCR")
+def test_get_ocr_engine_disables_cls_and_uses_ppocrv5_korean(mock_rapidocr_cls, tmp_path, monkeypatch):
+    """P1 회귀 방지 핵심 검증 — Global.use_cls는 항상 False, Rec 설정은 PP-OCRv5 한국어여야 한다."""
+    model_root_dir = tmp_path / "rapidocr"
+    monkeypatch.setattr(ocr_client, "RAPIDOCR_MODEL_ROOT_DIR", str(model_root_dir))
+    mock_rapidocr_cls.return_value = MagicMock()
 
     ocr_client.get_ocr_engine()
 
-    mock_reader_cls.assert_called_once()
-    _args, kwargs = mock_reader_cls.call_args
-    assert kwargs["model_storage_directory"] == str(model_dir)
-    assert kwargs["user_network_directory"] == str(user_network_dir)
-    assert kwargs["gpu"] is False
-    assert kwargs["download_enabled"] is True
+    mock_rapidocr_cls.assert_called_once()
+    _args, kwargs = mock_rapidocr_cls.call_args
+    params = kwargs["params"]
+    assert params["Global.use_cls"] is False
+    assert params["Global.model_root_dir"] == str(model_root_dir)
+    assert params["Rec.engine_type"] == "onnxruntime"
+    assert params["Rec.lang_type"] == "korean"
+    assert params["Rec.ocr_version"] == "PP-OCRv5"
+    assert params["Rec.model_type"] == "mobile"
 
 
-@patch("easyocr.Reader")
-def test_get_ocr_engine_creates_model_and_user_network_dirs_before_reader_init(
-    mock_reader_cls, tmp_path, monkeypatch
-):
-    """model_storage_directory·user_network_directory 둘 다 Reader 생성 전에 미리 만들어져
-    있어야 한다(둘 다 hf_cache 볼륨 하위라 상위 디렉터리는 fastapi 소유지만, 하위 서브디렉터리는
-    최초 실행 시 없으므로 이 함수가 직접 생성해야 함 — P1 재현의 근본 원인)."""
-    model_dir = tmp_path / "easyocr"
-    user_network_dir = model_dir / "user_network"
-    monkeypatch.setattr(ocr_client, "EASYOCR_MODEL_DIR", str(model_dir))
-    monkeypatch.setattr(ocr_client, "EASYOCR_USER_NETWORK_DIR", str(user_network_dir))
-    mock_reader_cls.return_value = MagicMock()
+@patch("rapidocr.RapidOCR")
+def test_get_ocr_engine_creates_model_root_dir_before_init(mock_rapidocr_cls, tmp_path, monkeypatch):
+    """모델 캐시 디렉터리는 RapidOCR 생성 전에 미리 만들어져 있어야 한다(hf_cache 볼륨 하위
+    서브디렉터리는 최초 실행 시 없으므로 이 함수가 직접 생성해야 함 — fastapi(uid 999) 권한
+    문제 방지, EasyOCR 시절 #605 P1 재현과 동일 원칙)."""
+    model_root_dir = tmp_path / "rapidocr"
+    monkeypatch.setattr(ocr_client, "RAPIDOCR_MODEL_ROOT_DIR", str(model_root_dir))
+    mock_rapidocr_cls.return_value = MagicMock()
 
-    assert not model_dir.exists()
+    assert not model_root_dir.exists()
 
     ocr_client.get_ocr_engine()
 
-    assert model_dir.is_dir()
-    assert user_network_dir.is_dir()
+    assert model_root_dir.is_dir()
 
 
-@patch("easyocr.Reader")
-def test_get_ocr_engine_caches_single_instance(mock_reader_cls, tmp_path, monkeypatch):
-    """lru_cache로 프로세스당 1회만 Reader를 생성해야 한다(모델 재로드 비용 상각)."""
-    monkeypatch.setattr(ocr_client, "EASYOCR_MODEL_DIR", str(tmp_path / "easyocr"))
-    monkeypatch.setattr(
-        ocr_client, "EASYOCR_USER_NETWORK_DIR", str(tmp_path / "easyocr" / "user_network")
-    )
-    mock_reader_cls.return_value = MagicMock()
+@patch("rapidocr.RapidOCR")
+def test_get_ocr_engine_caches_single_instance(mock_rapidocr_cls, tmp_path, monkeypatch):
+    """lru_cache로 프로세스당 1회만 RapidOCR을 생성해야 한다(모델 재로드 비용 상각)."""
+    monkeypatch.setattr(ocr_client, "RAPIDOCR_MODEL_ROOT_DIR", str(tmp_path / "rapidocr"))
+    mock_rapidocr_cls.return_value = MagicMock()
 
     first = ocr_client.get_ocr_engine()
     second = ocr_client.get_ocr_engine()
 
     assert first is second
-    mock_reader_cls.assert_called_once()
+    mock_rapidocr_cls.assert_called_once()

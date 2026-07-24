@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 # HajaCheck ai-server (FastAPI) — 멀티스테이지 빌드
 # requirements.txt는 그대로 install(버전 고정, 수정 금지 — AI_개발_컨벤션.md §7).
-# torch·torchvision은 아래에서 **같은 CPU 전용 인덱스**로 함께 설치(sentence-transformers·easyocr #605 공용).
-# ⚠️ torchvision을 PyPI 기본 인덱스에서 설치하면 torch(+cpu)와 빌드 변형이 달라
-# `RuntimeError: operator torchvision::nms does not exist`(ABI 불일치)로 easyocr import가 런타임 크래시한다(#605 실측).
-# 반드시 torch와 동일 index-url(cpu)로 torchvision을 설치해 +cpu 매칭 휠을 받는다. 나머지 전이 의존성은
-# requirements.txt install 단계에서 PyPI aarch64(manylinux) 휠로 설치(ARM 소스 빌드 불필요).
+# torch는 아래에서 CPU 전용 인덱스로 설치(sentence-transformers 임베딩 #439가 사용).
+# torchvision은 설치하지 않는다 — easyocr(→torch/torchvision ABI 매칭 필요, #605)를 RapidOCR로
+# 교체하면서(#722) torchvision을 요구하는 의존성이 없어졌다(rapidocr는 torch/torchvision 의존
+# 없음, sentence-transformers==3.3.1은 torch>=1.11.0만 요구). 나머지 전이 의존성은 requirements.txt
+# install 단계에서 PyPI aarch64(manylinux) 휠로 설치(ARM 소스 빌드 불필요).
 
 # ---- Build stage ----
 FROM python:3.11-slim AS build
@@ -19,7 +19,7 @@ RUN apt-get update \
 COPY requirements.txt ./
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
-    && /opt/venv/bin/pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
+    && /opt/venv/bin/pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
     && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # ---- Runtime stage ----
@@ -28,9 +28,9 @@ WORKDIR /app
 
 RUN apt-get update \
     # curl=헬스체크. libgl1·libglib2.0-0=opencv(cv2) 런타임 공유 라이브러리 — 사업자등록증
-    # OCR(#552, RapidOCR→EasyOCR 교체 #605)이 cv2를 로드하며, 이게 없으면 실제 OCR 호출 시
-    # `libGL.so.1` import 에러가 난다(#573). EasyOCR 교체 후에도 내부적으로 cv2를 그대로
-    # 쓰므로 동일하게 필요하다.
+    # OCR(#552, RapidOCR→EasyOCR 교체 #605, EasyOCR→RapidOCR PP-OCRv5 한국어 교체 #722)이
+    # cv2를 로드하며, 이게 없으면 실제 OCR 호출 시 `libGL.so.1` import 에러가 난다(#573).
+    # RapidOCR로 재교체된 후에도 내부적으로 cv2를 그대로 쓰므로 동일하게 필요하다.
     # (앱 import 경로는 지연 import로 cv2를 요구하지 않지만, 런타임 OCR 실행에는 필요.)
     && apt-get install -y --no-install-recommends curl libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/* \
@@ -52,9 +52,10 @@ RUN mkdir -p /app/chroma_data && chown -R fastapi:fastapi /app/chroma_data
 
 # hf_cache도 named volume 마운트 대상(HF_HOME=/app/hf_cache) — bge-m3 등 임베딩 모델 캐시(#439).
 # 최초 마운트 시점 UID로 초기화되므로 chroma_data와 동일하게 fastapi(999) 소유권을 미리 부여한다.
-# EasyOCR 모델(#605)도 이 볼륨 하위 `easyocr/` 서브디렉터리에 캐시한다(ai/core/ocr_client.py
-# EASYOCR_MODEL_DIR) — 별도 볼륨 없이 기존 마운트를 재사용하므로 여기서 별도 mkdir 불필요
-# (하위 디렉터리는 fastapi 유저가 런타임에 os.makedirs로 생성, 상위 디렉터리 소유권만 있으면 충분).
+# RapidOCR 모델(#722, 이전 EasyOCR #605도 동일 패턴)도 이 볼륨 하위 `rapidocr/` 서브디렉터리에
+# 캐시한다(ai/core/ocr_client.py RAPIDOCR_MODEL_ROOT_DIR) — 별도 볼륨 없이 기존 마운트를
+# 재사용하므로 여기서 별도 mkdir 불필요(하위 디렉터리는 fastapi 유저가 런타임에 os.makedirs로
+# 생성, 상위 디렉터리 소유권만 있으면 충분).
 RUN mkdir -p /app/hf_cache && chown -R fastapi:fastapi /app/hf_cache
 
 USER fastapi

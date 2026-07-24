@@ -267,18 +267,17 @@ def _run_detail_chain(confirmed_defects: list[dict]) -> ReportDetail:
 # ── recommendation (+ RAG, vectorstore 미구현 시 "관련 근거 없음" 폴백) ──
 
 def _retrieve_legal_basis_context(confirmed_defects: list[dict]) -> str:
-    """Chroma regulations 컬렉션 LangChain similarity_search로 검색.
-    검색 경로가 어떤 이유로든 실패하면, design 문서가 이미 정의한 "0건 검색" 케이스와
-    동일하게 취급 — 빈 컨텍스트를 반환하고 체인은 정상 진행한다(요청 전체를 실패시키지 않음).
+    """Chroma regulations 컬렉션 LangChain similarity_search로 법령/지침 문맥을 검색한다.
+    검색 결과가 부재하거나 예외 발생 시 legal_basis를 '관련 근거 없음'으로 안전하게 고정하고 체인을 정상 진행한다.
     """
     try:
         vectorstore = get_vectorstore(COLLECTION_REGULATIONS)
         query = " ".join(sorted({str(d.get("defect_type", "")) for d in confirmed_defects if d.get("defect_type")}))
         docs = vectorstore.similarity_search(query, k=3)
-    except NotImplementedError as e:
-        # 방어적 코드 — vectorstore 구현 이후 발생 가능성은 낮지만 폴백 처리
-        logger.info("vectorstore NotImplementedError — 검색 결과 없음으로 폴백: %s", e)
+    except NotImplementedError:
+        logger.info("vectorstore 미지원 프로토콜 — 검색 결과 없음으로 안전 폴백")
         return ""
+
     except Exception as e:  # noqa: BLE001 — vectorstore 실구현 이후의 검색/연결 실패까지 폴백 대상으로 폭넓게 잡되,
         # 아래 프로그래밍 오류(잘못된 인자·타입·존재하지 않는 속성 등)는 "검색 실패"가 아니라 코드 버그일
         # 가능성이 높으므로 조용히 폴백시키지 않고 그대로 재발생시킨다(PR머신 P3 — 과도한 except Exception이

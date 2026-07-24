@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { computeNextInspectionDueAt } from './computeNextInspectionDueAt';
 import {
   FACILITY_FORM_INITIAL_VALUES,
   hasFacilityFormErrors,
@@ -164,7 +165,10 @@ describe('toCreateFacilityRequest', () => {
     expect(request.builtYear).toBe(2008);
   });
 
-  it('점검주기를 폼에서 제거했으므로 nextInspectionDueAt은 항상 null이다(#629)', () => {
+  // #731 — 점검주기는 더 이상 항상 null이 아니다: 선택된 type이 FACILITY_TYPE_OPTIONS(12종)의
+  // value와 정확히 일치하면 그 cycleMonths가 파생된다. 일치하는 옵션이 없는 자유 문자열(과거
+  // 데이터·예외 케이스)이면 기존처럼 null을 유지한다.
+  it('type이 FACILITY_TYPE_OPTIONS 12종 중 어느 것과도 일치하지 않으면 inspectionCycleMonths·nextInspectionDueAt은 null이다', () => {
     const request = toCreateFacilityRequest({
       ...FACILITY_FORM_INITIAL_VALUES,
       name: '강남 오피스타워 A동',
@@ -175,6 +179,27 @@ describe('toCreateFacilityRequest', () => {
     expect(request.inspectionCycleMonths).toBeNull();
     expect(request.scale).toBeNull();
   });
+
+  it.each([
+    ['건물-긴급-1개월', 1],
+    ['건물-정기-4개월', 4],
+    ['건물-정밀-24개월', 24],
+    ['교량-정밀-12개월', 12],
+    ['기타-긴급-1개월', 1],
+  ])(
+    '유형으로 "%s"을 선택하면 inspectionCycleMonths=%i, nextInspectionDueAt이 그 주기로 계산된다(#731)',
+    (type, cycleMonths) => {
+      const request = toCreateFacilityRequest({
+        ...FACILITY_FORM_INITIAL_VALUES,
+        name: '강남 오피스타워 A동',
+        type,
+      });
+
+      expect(request.type).toBe(type);
+      expect(request.inspectionCycleMonths).toBe(cycleMonths);
+      expect(request.nextInspectionDueAt).toBe(computeNextInspectionDueAt(cycleMonths));
+    },
+  );
 
   it('초기등급/담당자/메모를 CreateFacilityRequest에 포함한다(#628)', () => {
     const request = toCreateFacilityRequest({

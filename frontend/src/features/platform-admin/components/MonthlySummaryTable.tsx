@@ -19,7 +19,7 @@ export function MonthlySummaryTable({ rows, isLoading, isError }: MonthlySummary
           <th className="px-4 py-3 text-right text-xs font-medium text-text-muted">신규 가입</th>
           <th className="px-4 py-3 text-right text-xs font-medium text-text-muted">분석 장수</th>
           <th className="px-4 py-3 text-right text-xs font-medium text-text-muted">상담 건수</th>
-          <th className="px-4 py-3 text-right text-xs font-medium text-text-muted">전환(Free→Standard)</th>
+          <th className="px-4 py-3 text-right text-xs font-medium text-text-muted">전환(업그레이드)</th>
           <th className="px-4 py-3 text-right text-xs font-medium text-text-muted">추세</th>
         </tr>
       </thead>
@@ -59,7 +59,7 @@ export function MonthlySummaryTable({ rows, isLoading, isError }: MonthlySummary
                 {row.counselCount.toLocaleString('ko-KR')}
               </td>
               <td className="px-4 py-3 text-right align-middle text-sm text-text-default">
-                {row.freeToStandardConversions.toLocaleString('ko-KR')}
+                {row.upgradeConversions.toLocaleString('ko-KR')}
               </td>
               <td className="px-4 py-3 text-right align-middle text-sm">
                 <span aria-label={MONTHLY_TREND_LABEL[row.trend]}>{MONTHLY_TREND_ARROW[row.trend]}</span>

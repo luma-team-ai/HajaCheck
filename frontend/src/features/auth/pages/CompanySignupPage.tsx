@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import { Button } from '../../../shared/components/Button';
 import { BusinessLicenseUpload } from '../components/BusinessLicenseUpload';
 import { CompanyAddressField } from '../components/CompanyAddressField';
 import { CompanySignupHeroPanel } from '../components/CompanySignupHeroPanel';
 import { EmailDomainField } from '../components/EmailDomainField';
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
-import { BUSINESS_LICENSE_OCR_SUPPORTED_TYPES, LOGIN_ROUTE } from '../constants';
+import { BUSINESS_LICENSE_OCR_SUPPORTED_TYPES, LANDING_ROUTE, LOGIN_ROUTE } from '../constants';
 import { PRIVACY_POLICY_ROUTE, TERMS_OF_SERVICE_ROUTE } from '../../policy/constants';
 import {
   ERROR_CLASSES,
@@ -308,6 +309,18 @@ export function CompanySignupPage() {
         {/* 오른쪽 입력 폼을 테두리 카드로 감싼다(#424) — 왼쪽 히어로(이미지)는 테두리 없음.
             내부 콘텐츠 폭 유지를 위해 max-w를 패딩만큼 넓힌다. */}
         <div className="h-fit w-full max-w-[504px] rounded-2xl border border-border bg-white p-8 shadow-sm">
+          {/* lg 미만(1024px 미만)에서는 CompanySignupHeroPanel 전체가 hidden이라, 그 안에만
+              있는 브랜드 로고(홈 진입점)가 화면에서 완전히 사라진다(#720, LoginPage와 동일
+              패턴). 폼 컨테이너 상단에 동일 로고를 별도로 렌더하되 lg 이상에서는 숨겨 데스크톱
+              시안과 동일하게 유지한다. 우측은 흰 배경이라 hero 패널의 흰색 반전(brightness-0
+              invert)은 쓰지 않는다 — 그건 어두운 hero 배경 전용이라 흰 배경에서는 로고가
+              보이지 않게 된다. */}
+          <div className="mb-6 flex justify-center lg:hidden" data-testid="mobile-brand-logo">
+            <Link to={LANDING_ROUTE} className="w-fit" aria-label="HajaCheck 홈으로">
+              <img src={brandLogo} alt="HajaCheck" className="h-7 w-auto object-contain" />
+            </Link>
+          </div>
+
           <p className="m-0 text-sm font-medium text-text-muted">기업 회원가입</p>
           <h1 className="m-0 mt-1.5 text-2xl font-bold text-heading">회사 계정을 만들어 주세요</h1>
           <p className="m-0 mt-2 text-sm text-text-muted">

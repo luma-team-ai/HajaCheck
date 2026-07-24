@@ -49,7 +49,10 @@ function openCreateModal() {
 
 function fillRequiredFields(name: string) {
   fireEvent.change(screen.getByLabelText(/시설물명/), { target: { value: name } });
-  fireEvent.change(screen.getByLabelText(/시설물 유형/), { target: { value: '건물' } });
+  // #731 — 유형 옵션이 조합형 12종으로 확장돼 단순 '건물'은 더 이상 유효한 <option>이 아니다.
+  fireEvent.change(screen.getByLabelText(/시설물 유형/), {
+    target: { value: '건물-정기-4개월' },
+  });
 }
 
 describe('FacilityListPage (통합 테스트)', () => {
@@ -73,6 +76,9 @@ describe('FacilityListPage (통합 테스트)', () => {
     expect(await screen.findByText('테스트 신규 시설물')).not.toBeNull();
     // 등록 성공 후 모달이 닫혀 더 이상 폼이 렌더링되지 않는다
     expect(screen.queryByRole('dialog')).toBeNull();
+    // #731 — 유형 "건물-정기-4개월" 선택으로 파생된 점검주기(4개월)가 MSW 목 POST 응답을 거쳐
+    // 목록 테이블의 "점검주기" 컬럼까지 그대로 반영돼야 한다(등록 폼 → 요청 → 목 저장소 → 렌더링 전체 경로).
+    expect(await screen.findByText('4개월')).not.toBeNull();
   });
 
   it('등록 실패: 모달이 닫히지 않고 입력한 폼 값이 유지되며 에러 메시지가 표시된다', async () => {

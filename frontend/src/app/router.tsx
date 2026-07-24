@@ -65,6 +65,12 @@ const PlatformAdminStatsPage = lazy(() =>
     default: m.PlatformAdminStatsPage,
   })),
 );
+// 플랫폼 관리자 > 시스템 모니터링(#729) — placeholder를 실 화면으로 교체
+const PlatformAdminMonitoringPage = lazy(() =>
+  import('../features/platform-admin/pages/PlatformAdminMonitoringPage').then((m) => ({
+    default: m.PlatformAdminMonitoringPage,
+  })),
+);
 
 // 이용약관 / 개인정보처리방침 — 랜딩 푸터 "법적 고지" 연결
 const TermsOfServicePage = lazy(() =>
@@ -700,14 +706,14 @@ export const router = createBrowserRouter([
         path: '/platform-admin/monitoring',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <PlatformAdminPlaceholderPage title="시스템 모니터링" />
+            <PlatformAdminMonitoringPage />
           </Suspense>
         ),
         handle: {
           breadcrumb: [{ label: '플랫폼 관리자' }, { label: '시스템 모니터링' }],
           activeHref: '/platform-admin/monitoring',
         },
-      },
+      }, // — features/platform-admin 시스템 모니터링 실 화면 (#729)
     ],
   }, // — features/platform-admin (#535). 각 메뉴 실 기능은 후속 이슈.
   // 구 '/facilities'(셸 밖) 라우트는 '/facilities/list'(셸 안, 위 AppShellRoute children)로 이동됨(#472).

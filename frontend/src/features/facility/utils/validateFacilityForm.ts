@@ -1,3 +1,4 @@
+import { findFacilityTypeCycleMonths } from '../constants';
 import type { CreateFacilityRequest, FacilityInitialGrade } from '../types';
 import { computeNextInspectionDueAt } from './computeNextInspectionDueAt';
 
@@ -101,12 +102,16 @@ export function hasFacilityFormErrors(errors: FacilityFormErrors): boolean {
 }
 
 // 빈 문자열 입력은 옵셔널 필드를 null로 취급 — 서버에 불필요한 빈 문자열을 보내지 않는다.
-// 점검주기(inspectionCycleMonths)를 폼에서 제거했으므로(#629) nextInspectionDueAt은 항상 null —
-// 점검 주기는 등록 후 별도 "점검 주기 설정" 화면(dev-04-03, POST .../schedule)에서 설정한다.
+// 점검주기(inspectionCycleMonths)는 별도 입력 필드가 아니라 선택된 유형(values.type)에서
+// 파생한다(#731) — 12개 조합 옵션(constants.ts FACILITY_TYPE_OPTIONS) 중 정확히 일치하는
+// value가 있으면 그 cycleMonths를, 없으면(과거 데이터·예외적 자유 입력) null을 사용한다.
+// nextInspectionDueAt은 그 cycleMonths 기준으로 computeNextInspectionDueAt이 자동 계산한다 —
+// 별도 "점검 주기 설정" 화면(dev-04-03, POST .../schedule)에서 이후 재조정도 가능하다.
 // latitude/longitude는 여기서 채우지 않는다 — 주소 기반 Geocoder 자동 변환 결과를 FacilityFormModal이
 // 제출 시점에 이 함수의 반환값 위에 병합한다(#618, 수동 입력 필드 제거).
 export function toCreateFacilityRequest(values: FacilityFormValues): CreateFacilityRequest {
   const address = joinAddress(values.address, values.addressDetail) || null;
+  const inspectionCycleMonths = findFacilityTypeCycleMonths(values.type);
 
   return {
     name: values.name.trim(),
@@ -116,8 +121,8 @@ export function toCreateFacilityRequest(values: FacilityFormValues): CreateFacil
     longitude: null,
     builtYear: values.builtYear.trim() ? Number(values.builtYear) : null,
     scale: null,
-    inspectionCycleMonths: null,
-    nextInspectionDueAt: computeNextInspectionDueAt(null),
+    inspectionCycleMonths,
+    nextInspectionDueAt: computeNextInspectionDueAt(inspectionCycleMonths),
     initialGrade: values.initialGrade || null,
     assigneeUserId: values.assigneeUserId.trim() ? Number(values.assigneeUserId) : null,
     memo: values.memo.trim() || null,

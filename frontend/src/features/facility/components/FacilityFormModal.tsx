@@ -202,8 +202,8 @@ export function FacilityFormModal({
             >
               <option value="">유형을 선택하세요</option>
               {FACILITY_TYPE_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
+                <option key={option.value} value={option.value}>
+                  {option.value}
                 </option>
               ))}
             </select>
