@@ -46,7 +46,18 @@ public class RedisErrorLogStore implements ErrorLogStore {
 
     @Override
     public List<ErrorLogItemResponse> recent(int limit) {
-        List<String> raw = redisTemplate.opsForList().range(KEY, 0, Math.max(0, limit - 1));
+        List<String> raw;
+        try {
+            raw = redisTemplate.opsForList().range(KEY, 0, Math.max(0, limit - 1));
+        } catch (Exception e) {
+            // record()와 동일한 fail-silent 정책(PR #766 리뷰 지적) — 여기서 예외를 그대로 던지면
+            // Redis 장애 시 GET /api/platform-admin/monitoring 응답 전체(serverHealth·resourceUsage
+            // 포함)가 500으로 실패한다. 이 화면은 인프라 장애 상황을 보여주는 게 목적이라, 정작 장애
+            // 시점에 대시보드 자체가 뜨지 않는 건 다른 실패 케이스(AI 서버/Actuator → 상태값으로 흡수)
+            // 와도 비대칭이다.
+            log.debug("에러 로그 Redis 조회 실패", e);
+            return List.of();
+        }
         if (raw == null || raw.isEmpty()) {
             return List.of();
         }

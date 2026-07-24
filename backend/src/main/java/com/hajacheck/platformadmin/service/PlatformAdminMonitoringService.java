@@ -7,6 +7,7 @@ import com.hajacheck.platformadmin.dto.ServerHealthStatus;
 import com.hajacheck.platformadmin.dto.ServerResourceUsageResponse;
 import com.hajacheck.platformadmin.dto.SystemMonitoringResponse;
 import com.hajacheck.platformadmin.support.ErrorLogStore;
+import java.io.File;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.actuate.health.CompositeHealth;
@@ -128,10 +129,21 @@ public class PlatformAdminMonitoringService {
         double memoryUsed = metricValue("jvm.memory.used", List.of("area:heap"));
         double memoryMax = metricValue("jvm.memory.max", List.of("area:heap"));
         double memoryUsage = memoryMax > 0 ? clampPercent(memoryUsed / memoryMax * 100) : 0;
-        double diskFree = metricValue("disk.free", List.of());
-        double diskTotal = metricValue("disk.total", List.of());
-        double diskUsage = diskTotal > 0 ? clampPercent((diskTotal - diskFree) / diskTotal * 100) : 0;
-        return new ServerResourceUsageResponse(round1(cpuUsage), round1(memoryUsage), round1(diskUsage));
+        return new ServerResourceUsageResponse(round1(cpuUsage), round1(memoryUsage), round1(diskUsagePercent()));
+    }
+
+    // Actuator/Micrometer 기본 자동구성은 disk.free/disk.total "메트릭"을 등록하지 않는다(디스크는
+    // DiskSpaceHealthIndicator로만 노출되는 헬스 컴포넌트라 metricsEndpoint.metric()으로는 항상 조회
+    // 실패→0 폴백됨, PR #766 리뷰 지적 — 디스크 게이지가 항상 0%로 표시되던 결함). File API로 앱이
+    // 실행 중인 파일시스템의 사용률을 직접 계산한다.
+    private double diskUsagePercent() {
+        File workingDir = new File(".");
+        long total = workingDir.getTotalSpace();
+        long usable = workingDir.getUsableSpace();
+        if (total <= 0) {
+            return 0;
+        }
+        return clampPercent((double) (total - usable) / total * 100);
     }
 
     private double metricValue(String name, List<String> tags) {
