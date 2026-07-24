@@ -5,15 +5,34 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { useAuthStore } from '../../auth/store/authStore';
+import type { User } from '../../auth/types';
 import { mypageHandlers } from '../api/mypageApi.handlers';
 import { MyProfilePage } from './MyProfilePage';
 
 const server = setupServer(...mypageHandlers);
 
+// 내 프로필 섹션(HAJA-403, #744)은 authStore.user를 그대로 쓴다 — AuthGate 부트스트랩과 동일하게
+// 각 테스트 전에 로그인 사용자를 채워둔다.
+const mockUser: User = {
+  id: 1,
+  email: 'hajacheck@example.com',
+  name: '하자체크 담당자',
+  role: 'USER',
+  companyId: 1,
+  profileImageUrl: null,
+  createdAt: '2026-07-24T14:30:00',
+  companyName: '하자체크',
+};
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeEach(() => {
+  useAuthStore.setState({ user: mockUser });
+});
 afterEach(() => {
   server.resetHandlers();
+  useAuthStore.setState({ user: null });
   cleanup();
 });
 afterAll(() => server.close());
@@ -31,6 +50,34 @@ function renderPage(): void {
 }
 
 describe('MyProfilePage', () => {
+  it('내 프로필 섹션(이름·이메일·가입일·소속 기업)을 렌더링한다', async () => {
+    renderPage();
+
+    expect(await screen.findByText('내 프로필')).toBeTruthy();
+    expect(screen.getByText('하자체크 담당자')).toBeTruthy();
+    expect(screen.getByText('hajacheck@example.com')).toBeTruthy();
+    expect(screen.getByText('2026.07.24')).toBeTruthy();
+    expect(screen.getByText('하자체크')).toBeTruthy();
+  });
+
+  it('소속 기업이 없으면(companyName: null) "개인 회원"으로 표기한다', async () => {
+    useAuthStore.setState({ user: { ...mockUser, companyId: null, companyName: null } });
+    renderPage();
+
+    expect(await screen.findByText('내 프로필')).toBeTruthy();
+    expect(screen.getByText('개인 회원')).toBeTruthy();
+  });
+
+  it('로그인 사용자 정보가 없어도(방어적) 다른 섹션(플랜)은 그대로 렌더링한다', async () => {
+    useAuthStore.setState({ user: null });
+    renderPage();
+
+    expect(
+      await screen.findByText('프로필 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'),
+    ).toBeTruthy();
+    expect(await screen.findByText('Standard')).toBeTruthy();
+  });
+
   it('플랜 요약(플랜명·PLAN 배지·가격·다음 결제일·사업자 인증 칩)을 렌더링한다', async () => {
     renderPage();
 
