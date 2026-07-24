@@ -10,17 +10,26 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.entity.Role;
+import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
+import com.hajacheck.core.facility.dto.FacilityStatusResponse;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.entity.FacilityInitialGrade;
 import com.hajacheck.core.facility.repository.FacilityRepository;
+import com.hajacheck.core.inspection.entity.Inspection;
+import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.lang.reflect.Field;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -43,6 +52,12 @@ class FacilityServiceTest {
     @Mock
     private AuthService authService;
 
+    @Mock
+    private InspectionRepository inspectionRepository;
+
+    @Mock
+    private UserRepository userRepository;
+
     @InjectMocks
     private FacilityService facilityService;
 
@@ -56,6 +71,34 @@ class FacilityServiceTest {
                 .type("BUILDING")
                 .address("서울시 강남구")
                 .build();
+    }
+
+    // 리플렉션으로 id 를 채워 Map 조립(facilityId 기준)이 검증 가능하게 한다 — Facility.id 는
+    // @GeneratedValue라 빌더로 직접 설정할 수 없다(FacilityResponse.from 등 기존 테스트는 id 검증을
+    // 하지 않아 문제되지 않았지만, listStatus 는 facility.getId() 로 Map 조회를 하므로 필요).
+    private Facility facilityWithId(Long id, String name, FacilityInitialGrade grade,
+                                     LocalDate nextInspectionDueAt, Long assigneeUserId) {
+        Facility facility = Facility.builder()
+                .companyId(OWNER_ID)
+                .name(name)
+                .type("BUILDING")
+                .address("서울시 강남구")
+                .initialGrade(grade)
+                .nextInspectionDueAt(nextInspectionDueAt)
+                .assigneeUserId(assigneeUserId)
+                .build();
+        setId(facility, id);
+        return facility;
+    }
+
+    private void setId(Facility facility, Long id) {
+        try {
+            Field idField = Facility.class.getDeclaredField("id");
+            idField.setAccessible(true);
+            idField.set(facility, id);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private FacilityCreateRequest createRequest() {
@@ -289,5 +332,99 @@ class FacilityServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.FORBIDDEN));
+    }
+
+    // ── 시설물 현황 전용 목록(#540 ⑥, HAJA-378) ──
+
+    @Test
+    void listStatus_회사시설없으면_빈목록_배치조회미호출() {
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of());
+
+        List<FacilityStatusResponse> result = facilityService.listStatus(USER_ID, OWNER_ID);
+
+        assertThat(result).isEmpty();
+        verify(inspectionRepository, never()).findLatestByFacilityIds(any());
+        verify(userRepository, never()).findAllById(any());
+    }
+
+    @Test
+    void listStatus_담당자와점검이력있는시설_모든필드조립() {
+        Facility facility = facilityWithId(
+                10L, "테스트빌딩", FacilityInitialGrade.C, LocalDate.now().plusDays(5), 5L);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+
+        Inspection lastInspection = Inspection.builder()
+                .facilityId(10L)
+                .createdBy(USER_ID)
+                .assignedInspectorId(5L)
+                .roundNo(2)
+                .inspectionDate(LocalDate.now().minusDays(3))
+                .status(InspectionStatus.CREATED)
+                .build();
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L))).thenReturn(List.of(lastInspection));
+
+        User assignee = User.builder()
+                .email("assignee@haja.com").name("담당자김").role(Role.INSPECTOR)
+                .passwordHash("$2a$10$hashed").status(UserStatus.ACTIVE).build();
+        setUserId(assignee, 5L);
+        when(userRepository.findAllById(List.of(5L))).thenReturn(List.of(assignee));
+
+        List<FacilityStatusResponse> result = facilityService.listStatus(USER_ID, OWNER_ID);
+
+        assertThat(result).hasSize(1);
+        FacilityStatusResponse status = result.get(0);
+        assertThat(status.facilityId()).isEqualTo(10L);
+        assertThat(status.facilityName()).isEqualTo("테스트빌딩");
+        assertThat(status.initialGrade()).isEqualTo(FacilityInitialGrade.C);
+        assertThat(status.dDay()).isEqualTo(5L);
+        assertThat(status.assigneeUserId()).isEqualTo(5L);
+        assertThat(status.assigneeName()).isEqualTo("담당자김");
+        assertThat(status.lastInspectedAt()).isEqualTo(LocalDate.now().minusDays(3));
+    }
+
+    @Test
+    void listStatus_담당자없고점검이력없는시설_null필드로반환_에러없음() {
+        Facility facility = facilityWithId(11L, "미배정시설", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        when(inspectionRepository.findLatestByFacilityIds(List.of(11L))).thenReturn(List.of());
+
+        List<FacilityStatusResponse> result = facilityService.listStatus(USER_ID, OWNER_ID);
+
+        assertThat(result).hasSize(1);
+        FacilityStatusResponse status = result.get(0);
+        assertThat(status.facilityId()).isEqualTo(11L);
+        assertThat(status.initialGrade()).isNull();
+        assertThat(status.nextInspectionDueAt()).isNull();
+        assertThat(status.dDay()).isNull();
+        assertThat(status.assigneeUserId()).isNull();
+        assertThat(status.assigneeName()).isNull();
+        assertThat(status.lastInspectedAt()).isNull();
+        // 담당자 배정된 시설이 하나도 없으면 배치 사용자 조회 자체를 생략한다(불필요 쿼리 방지).
+        verify(userRepository, never()).findAllById(any());
+    }
+
+    @Test
+    void listStatus_회사스코프검증_먼저호출() {
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN))
+                .when(companyScopeGuard).requireEffectiveMembership(USER_ID, OWNER_ID);
+
+        assertThatThrownBy(() -> facilityService.listStatus(USER_ID, OWNER_ID))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.FORBIDDEN));
+        verify(facilityRepository, never()).findByCompanyIdOrderByIdAsc(any(), any());
+    }
+
+    private void setUserId(User user, Long id) {
+        try {
+            Field idField = User.class.getDeclaredField("id");
+            idField.setAccessible(true);
+            idField.set(user, id);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }

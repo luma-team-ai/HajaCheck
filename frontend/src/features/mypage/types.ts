@@ -104,30 +104,3 @@ export interface MyReportCard {
   fileSizeLabel: string; // 예: '1.2MB'
   gradeDots: ReportGradeDotColor[];
 }
-
-// ---- 마이페이지 — 내 상담 내역 (HAJA-371, #678) ----
-// 상담(counsel) BE API가 전무하다 — backend의 counsel 관련 controller/service/repository는
-// .gitkeep만 있는 빈 스켈레톤이고 엔티티만 존재한다(grep 확인). CounselType/CounselStatus는 실
-// BE enum(ChatSessionType/CounselTicketStatus)과 이름이 다른 이 feature 전용 타입이다
-// (InspectionHistoryStatus와 동일 선례 — 매핑은 후속 BE 연동 시 확정).
-export type CounselType = 'SCENARIO_BOT' | 'AGENT_CONNECT' | 'INQUIRY'; // 시나리오 챗봇 / 상담원 연결 / 문의 남기기
-export type CounselStatus = 'CLOSED' | 'WAITING' | 'ANSWERED'; // 종료 / 대기중 / 답변 완료
-
-// 담당자 표기 3분기(Figma) — 없음('-')/상담원(아바타+이름)/텍스트만('배정 대기중', '관리자 그룹').
-// null=담당자 없음, textOnly=true면 아바타 없이 이름만 텍스트로 표기한다.
-export interface MyCounselAssignee {
-  name: string;
-  textOnly?: boolean;
-}
-
-export interface MyCounselRow {
-  id: number;
-  type: CounselType;
-  topic: string;
-  assignee: MyCounselAssignee | null;
-  status: CounselStatus;
-  waitingNumber?: number | null; // status==='WAITING'일 때만 '대기 순번 N' 서브텍스트로 표시
-  startedAt: string; // 시작 일시, 예: '2026-07-10 14:20' (BE 미구현이라 포맷 확정 전 — 문자열 그대로 표시)
-  lastMessage: string; // 마지막 메시지 미리보기
-  canView: boolean; // '보기' 액션 노출 여부(Figma 시안 — 특정 행만 표시, 나머지는 자리만 차지하고 숨김)
-}
