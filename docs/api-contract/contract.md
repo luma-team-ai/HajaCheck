@@ -266,6 +266,7 @@ FastAPI validation error(`detail[]`)를 반환한다.
 | PUT | `/api/facilities/{id}` | 시설물 수정 | 허남/김관영 |
 | DELETE | `/api/facilities/{id}` | 시설물 삭제 | 허남/김관영 |
 | POST | `/api/facilities/{id}/schedule` | 시설물 점검주기 설정(dev-04-03) | 허남/김관영 |
+| GET | `/api/facilities/status` | 시설물 현황 전용 목록(#540 ⑥, HAJA-378) | 허남 |
 | POST | `/api/inspections` | 점검(회차) 생성 | 황승현 |
 | POST | `/api/inspections/{id}/media` | 촬영 데이터 업로드 | 황승현 |
 | POST | `/api/inspections/{id}/analyze` | AI 분석 요청 | 황승현 |
@@ -472,3 +473,48 @@ Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?no
 ### 관련 이슈
 선행 #17(HAJA-26, CLOSED) · 연관(중복 여부 확인 필요) #527(하자 상세 이미지뷰어/활동기록/SLA) · #630(조치 보드 칸반)
 > `AUTH_VERIFICATION_FAILED`(400)는 보안질문 방식 전용으로 예약됐으나 그 방식이 폐기돼 **참조 0건** — 제거 대상(후속 정리). 이번 PR에서는 건드리지 않는다.
+
+## 시설물 현황 전용 목록 API (#540 ⑥, HAJA-378, 2026-07-24)
+
+> 이슈 #540 ⑥ "현황 전용 목록 API" — 대시보드 스타일 "시설물 현황" 요약 테이블 화면 전용 읽기 전용 엔드포인트. 기존 `GET /api/facilities`(CRUD 상세, `FacilityResponse` 반환)를 화면에 그대로 재사용하지 않고 화면 전용 응답(`FacilityStatusResponse`)을 신설했다.
+
+### GET /api/facilities/status
+
+- 인증: 세션 필요(미인증 401). 회사 스코프는 `LoginUser.companyId`로만 결정한다 — 요청 파라미터/바디로 companyId를 받지 않는다(cross-company IDOR 방지, 기존 `FacilityController` 원칙과 동일). `CompanyScopeGuard.requireEffectiveMembership` 통과 못하면 403 `FORBIDDEN`.
+- 응답: `List<FacilityStatusResponse>`(페이지네이션 없음) — 기존 `GET /api/facilities`와 동일하게 #484 상한(500건) 방어값을 재사용한다. 상한 도달 시 서버 WARN 로그만 남기고 응답 계약(배열)은 그대로 유지한다.
+- 시설물이 없으면 `200` + 빈 배열.
+
+**FacilityStatusResponse 필드**
+
+| 필드 | 타입 | nullable | 설명 |
+|---|---|---|---|
+| facilityId | Long | - | 시설물 ID |
+| facilityName | String | - | 시설물명 |
+| initialGrade | `FacilityInitialGrade`(A~E) | ✅ | 등록 시 입력한 정적 초기 등급. ⚠️ 점검 이력 기반으로 동적 산출되는 등급이 **아니다**(별도 미해결 과제, 이번 범위 밖) |
+| nextInspectionDueAt | LocalDate | ✅ | 다음 점검 예정일 |
+| dDay | Long | ✅ | `nextInspectionDueAt - today`(KST 기준, dev-03-02 `UpcomingInspectionResponse`와 동일 관례) — nextInspectionDueAt 이 없으면 null(음수 가능 — 마감 경과 시) |
+| assigneeUserId | Long | ✅ | 담당자 미배정 시 null |
+| assigneeName | String | ✅ | 담당자 표시명(배치 조회로 조립, N+1 방지) — 담당자 미배정 시 null |
+| lastInspectedAt | LocalDate | ✅ | 시설물의 가장 최근 `Inspection.inspectionDate`(점검 이력이 없으면 null) |
+
+예시 응답:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "facilityId": 10,
+      "facilityName": "테스트빌딩",
+      "initialGrade": "B",
+      "nextInspectionDueAt": "2026-08-01",
+      "dDay": 8,
+      "assigneeUserId": 5,
+      "assigneeName": "김점검",
+      "lastInspectedAt": "2026-07-10"
+    }
+  ],
+  "error": null
+}
+```
+
+- 신규 ErrorCode 없음 — 기존 `FORBIDDEN`(403) 재사용. `FACILITY_NOT_FOUND`는 단건 조회 전용이라 이 목록 엔드포인트에서는 발생하지 않는다.
