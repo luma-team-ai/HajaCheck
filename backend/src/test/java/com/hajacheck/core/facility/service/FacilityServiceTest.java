@@ -31,6 +31,7 @@ import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.lang.reflect.Field;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -350,8 +351,12 @@ class FacilityServiceTest {
 
     @Test
     void listStatus_담당자와점검이력있는시설_모든필드조립() {
+        // dDay는 서비스가 KST 기준(FacilityService.KST)으로 산출하므로, CI(UTC 러너)에서
+        // 시스템 기본 zone(LocalDate.now())으로 만들면 자정 전후 9시간 구간에서 하루 어긋난다 —
+        // 같은 KST로 맞춰야 CI/로컬 무관하게 결정론적으로 통과한다.
         Facility facility = facilityWithId(
-                10L, "테스트빌딩", FacilityInitialGrade.C, LocalDate.now().plusDays(5), 5L);
+                10L, "테스트빌딩", FacilityInitialGrade.C,
+                LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(5), 5L);
         when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
                 .thenReturn(List.of(facility));
 

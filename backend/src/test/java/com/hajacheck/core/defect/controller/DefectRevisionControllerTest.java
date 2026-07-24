@@ -32,6 +32,9 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDateTime;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -71,6 +74,8 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     private InspectionRepository inspectionRepository;
     @Autowired
     private DefectRepository defectRepository;
+    @Autowired
+    private MediaRepository mediaRepository;
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -168,9 +173,25 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .build());
     }
 
+    private Media saveMedia(Inspection inspection) {
+        return mediaRepository.save(Media.builder()
+                .inspectionId(inspection.getId())
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("s3://test-bucket/original.jpg")
+                .thumbnailUrl("s3://test-bucket/thumb.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/jpeg")
+                .build());
+    }
+
     private Defect saveDefect(Inspection inspection, DefectGrade grade, DefectStatus status) {
+        return saveDefect(inspection, grade, status, null);
+    }
+
+    private Defect saveDefect(Inspection inspection, DefectGrade grade, DefectStatus status, Long mediaId) {
         return defectRepository.save(Defect.builder()
                 .inspectionId(inspection.getId())
+                .mediaId(mediaId)
                 .type(DefectType.CRACK)
                 .confidence(0.95)
                 .grade(grade)
@@ -206,8 +227,53 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data[0].id").value(defect1.getId()))
                 .andExpect(jsonPath("$.data[0].grade").value("C"))
                 .andExpect(jsonPath("$.data[0].status").value("DETECTED"))
+                .andExpect(jsonPath("$.data[0].mediaId").isEmpty())
+                .andExpect(jsonPath("$.data[0].imageUrl").isEmpty())
                 .andExpect(jsonPath("$.data[1].id").value(defect2.getId()))
                 .andExpect(jsonPath("$.data[1].grade").value("B"));
+    }
+
+    @Test
+    void GET_mediaIdPresent_imageUrlReturned_200() throws Exception {
+        // mediaId가 있는 하자는 imageUrl이 생성돼야 한다
+        Company company = saveCompany("회사26");
+        User owner = saveUser("owner26@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector26@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+        Media media = saveMedia(inspection);
+        Defect defectWithMedia = saveDefect(inspection, DefectGrade.A, DefectStatus.DETECTED, media.getId());
+
+        mockMvc.perform(get("/api/inspections/{id}/defects", inspection.getId())
+                .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(defectWithMedia.getId()))
+                .andExpect(jsonPath("$.data[0].mediaId").value(media.getId()))
+                .andExpect(jsonPath("$.data[0].imageUrl").value("/api/media/" + media.getId() + "/thumbnail"));
+    }
+
+    @Test
+    void GET_mediaIdNull_imageUrlNull_200() throws Exception {
+        // mediaId가 없는 하자는 imageUrl이 null이어야 한다
+        Company company = saveCompany("회사27");
+        User owner = saveUser("owner27@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector27@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+        Defect defectWithoutMedia = saveDefect(inspection, DefectGrade.B, DefectStatus.DETECTED, null);
+
+        mockMvc.perform(get("/api/inspections/{id}/defects", inspection.getId())
+                .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(defectWithoutMedia.getId()))
+                .andExpect(jsonPath("$.data[0].mediaId").isEmpty())
+                .andExpect(jsonPath("$.data[0].imageUrl").isEmpty());
     }
 
     @Test
