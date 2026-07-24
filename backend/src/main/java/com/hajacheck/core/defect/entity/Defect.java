@@ -186,6 +186,7 @@ public class Defect {
                             .formatted(this.status, status));
         }
         this.status = status;
+        this.reviewed = true;
     }
 
     public void updateCrackMeasurement(Double crackWidthMm, Double crackLengthMm) {
@@ -203,6 +204,7 @@ public class Defect {
             return;
         }
         this.deleted = true;
+        this.reviewed = true;
     }
 
     private void requireNotDeleted(String action) {

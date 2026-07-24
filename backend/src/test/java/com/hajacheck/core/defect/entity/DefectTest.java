@@ -38,6 +38,7 @@ class DefectTest {
         defect.changeStatus(DefectStatus.RESOLVED);
 
         assertThat(defect.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+        assertThat(defect.isReviewed()).isTrue();
     }
 
     @Test
@@ -64,9 +65,11 @@ class DefectTest {
 
         detected.changeStatus(DefectStatus.ACTION_PENDING, "경미한 하자라 검수확정 생략");
         assertThat(detected.getStatus()).isEqualTo(DefectStatus.ACTION_PENDING);
+        assertThat(detected.isReviewed()).isTrue();
 
         detected.changeStatus(DefectStatus.CONFIRMED, "확정 이전으로 재검토 필요");
         assertThat(detected.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+        assertThat(detected.isReviewed()).isTrue();
     }
 
     @Test
@@ -87,6 +90,7 @@ class DefectTest {
         defect.softDelete();
 
         assertThat(defect.isDeleted()).isTrue();
+        assertThat(defect.isReviewed()).isTrue();
     }
 
     @Test
@@ -135,5 +139,17 @@ class DefectTest {
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> defect.changeStatus(DefectStatus.CONFIRMED))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void changeStatus_예외발생시reviewed는변경되지않음() {
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).build();
+        assertThat(defect.isReviewed()).isFalse();
+
+        assertThatThrownBy(() -> defect.changeStatus(DefectStatus.DETECTED))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(defect.isReviewed()).isFalse();
     }
 }
