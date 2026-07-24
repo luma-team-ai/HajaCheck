@@ -1,6 +1,9 @@
 # hajaCheck 테이블 디자인 설계
 
-> **문서 버전:** v0.5 · **최종 수정:** 2026-07-23 · 이전 버전 `archive/`
+> **문서 버전:** v0.5 · **최종 수정:** 2026-07-24 · 이전 버전 `archive/`
+> (버전 관리 확인: v0.5는 아직 `main`에 released되지 않음 — `main`은 v0.4(2026-07-21)까지만 반영됨.
+> released 문서 실질 변경 시 요구되는 archive 스냅샷·버전 bump는 미released 문서의 예외 규칙에 따라
+> 생략하고, 이번 PR의 media_id 행 추가(dev-05-04) 반영 시각으로 최종 수정일만 갱신한다.)
 
 - 대상 스키마 파일: [HajaCheck_script.sql](HajaCheck_script.sql)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).

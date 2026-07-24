@@ -3,6 +3,7 @@ package com.hajacheck.core.inspection.entity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.hajacheck.global.exception.DomainStateTransitionException;
 import java.time.LocalDate;
 import java.util.EnumMap;
 import java.util.EnumSet;
@@ -65,21 +66,25 @@ class InspectionTransitionTest {
     }
 
     @Test
-    void advanceTo_허용되지않은전이는_예외로거부하고_상태를유지한다() {
+    void advanceTo_허용되지않은전이는_DomainStateTransitionException으로거부하고_상태를유지한다() {
         // 예: 리퍼가 UPLOADING으로 되돌린 회차를 좀비 워커가 ANALYZED로 되살리려는 전이 —
         // 검증 없는 setter였을 때는 조용히 적용됐다. 이제는 거부되고 상태가 그대로 남는다(fail-safe).
+        // 코드 리뷰 P2(2차) — 표준 IllegalStateException이 아니라 DomainStateTransitionException을
+        // 던져야 GlobalExceptionHandler가 409(INVALID_STATE_TRANSITION)로 매핑한다. 표준
+        // IllegalStateException은 "프로그래밍 오류"로 간주돼 500으로 처리되므로, 동시성 경쟁으로
+        // 예상 가능한 이 거부가 500으로 노출되면 안 된다.
         Inspection inspection = inspectionWithStatus(InspectionStatus.UPLOADING);
 
         assertThatThrownBy(() -> inspection.advanceTo(InspectionStatus.ANALYZED))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(DomainStateTransitionException.class);
         assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.UPLOADING);
     }
 
     @Test
-    void advanceTo_자기자신으로의전이도_거부한다() {
+    void advanceTo_자기자신으로의전이도_DomainStateTransitionException으로거부한다() {
         Inspection inspection = inspectionWithStatus(InspectionStatus.ANALYZING);
 
         assertThatThrownBy(() -> inspection.advanceTo(InspectionStatus.ANALYZING))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(DomainStateTransitionException.class);
     }
 }
