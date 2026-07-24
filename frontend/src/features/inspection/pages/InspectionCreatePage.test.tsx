@@ -27,6 +27,8 @@ const MOCK_CURRENT_USER = {
   role: 'INSPECTOR' as const,
   companyId: 1,
   profileImageUrl: null,
+  createdAt: '2026-07-01T00:00:00',
+  companyName: '테스트회사',
 };
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
@@ -239,5 +241,31 @@ describe('InspectionCreatePage (통합 테스트)', () => {
 
     expect(await screen.findByText('배정할 수 없는 담당자입니다.')).not.toBeNull();
     expect((screen.getByLabelText('시설물') as HTMLSelectElement).value).toBe('1');
+  });
+
+  it('currentUser=null이면 제출 시 안내 메시지가 뜨고 createInspection이 호출되지 않는다', async () => {
+    // 코드 리뷰 P3 — 로그인 사용자 정보가 아직 로드되지 않은 순간의 제출을 조용히 무시하던 것을
+    // 고쳤다(무피드백 오동작). currentUser가 null이면 안내 문구를 보여주고 회차 생성 요청 자체를
+    // 보내지 않는다.
+    useAuthStore.setState({ user: null });
+    let createCallCount = 0;
+    server.use(
+      http.post('/api/inspections', () => {
+        createCallCount += 1;
+        return HttpResponse.json({ success: true, data: null });
+      }),
+    );
+
+    renderPage();
+    await fillRequiredFields();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
+    });
+
+    expect(
+      await screen.findByText('사용자 정보를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.'),
+    ).not.toBeNull();
+    expect(createCallCount).toBe(0);
   });
 });
