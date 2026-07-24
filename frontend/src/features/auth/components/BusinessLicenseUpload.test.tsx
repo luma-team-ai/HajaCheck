@@ -213,4 +213,78 @@ describe('BusinessLicenseUpload', () => {
     expect(screen.queryByText(/인식된 정보가 없어요/)).toBeNull();
     expect(screen.queryByText(/자동인식에 실패했어요/)).toBeNull();
   });
+
+  // #767 — 썸네일 클릭 확대(라이트박스)
+  describe('이미지 썸네일 라이트박스(#767)', () => {
+    function renderWithImage() {
+      const file = new File(['dummy'], 'license.png', { type: 'image/png' });
+      return render(<BusinessLicenseUpload file={file} onFileSelect={vi.fn()} />);
+    }
+
+    it('썸네일을 클릭하면 라이트박스가 열리고 원본 이미지를 role=dialog 안에 노출한다', () => {
+      renderWithImage();
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: '사업자등록증 이미지 크게 보기' }));
+
+      const dialog = screen.getByRole('dialog', { name: '사업자등록증 이미지 크게 보기' });
+      expect(dialog).not.toBeNull();
+      const originalImage = screen.getByAltText('사업자등록증 원본 이미지') as HTMLImageElement;
+      expect(originalImage.src).toContain('blob:mock-0');
+      // 라이트박스는 기존 previewUrl을 재사용할 뿐, 추가 objectURL을 만들지 않는다.
+      expect(createObjectURLMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('닫기(✕) 버튼 클릭 시 라이트박스가 닫힌다', () => {
+      renderWithImage();
+
+      fireEvent.click(screen.getByRole('button', { name: '사업자등록증 이미지 크게 보기' }));
+      expect(screen.getByRole('dialog')).not.toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('배경(바깥 영역) 클릭 시 라이트박스가 닫힌다', () => {
+      renderWithImage();
+
+      fireEvent.click(screen.getByRole('button', { name: '사업자등록증 이미지 크게 보기' }));
+      expect(screen.getByRole('dialog')).not.toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: '배경 클릭하여 닫기' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('Esc 키를 누르면 라이트박스가 닫힌다', () => {
+      renderWithImage();
+
+      fireEvent.click(screen.getByRole('button', { name: '사업자등록증 이미지 크게 보기' }));
+      expect(screen.getByRole('dialog')).not.toBeNull();
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('원본 이미지 자체 클릭으로는 닫히지 않는다', () => {
+      renderWithImage();
+
+      fireEvent.click(screen.getByRole('button', { name: '사업자등록증 이미지 크게 보기' }));
+      expect(screen.getByRole('dialog')).not.toBeNull();
+
+      fireEvent.click(screen.getByAltText('사업자등록증 원본 이미지'));
+      expect(screen.getByRole('dialog')).not.toBeNull();
+    });
+
+    it('열려 있는 상태에서 파일이 삭제되면(previewUrl 소멸) 라이트박스도 함께 닫힌다', () => {
+      const file = new File(['dummy'], 'license.png', { type: 'image/png' });
+      const { rerender } = render(<BusinessLicenseUpload file={file} onFileSelect={vi.fn()} />);
+
+      fireEvent.click(screen.getByRole('button', { name: '사업자등록증 이미지 크게 보기' }));
+      expect(screen.getByRole('dialog')).not.toBeNull();
+
+      rerender(<BusinessLicenseUpload file={null} onFileSelect={vi.fn()} />);
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
 });
