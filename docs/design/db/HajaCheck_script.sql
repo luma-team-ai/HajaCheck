@@ -727,6 +727,12 @@ create table defects
     is_deleted      boolean                  default false                          not null,
     crack_width_mm  double precision,
     crack_length_mm double precision,
+    action_media_id    bigint
+        references media,
+    action_content     text,
+    action_date        date,
+    action_assignee_id bigint
+        references users,
     created_at      timestamp with time zone default now()                          not null
 );
 
@@ -763,6 +769,14 @@ comment on column defects.is_deleted is '결함의 논리 삭제 여부';
 comment on column defects.crack_width_mm is '균열 폭(mm)';
 
 comment on column defects.crack_length_mm is '균열 길이(mm)';
+
+comment on column defects.action_media_id is '조치 후 사진(HAJA-393/#725) — 조치 결과 등록 시 업로드한 촬영 이미지 식별자, nullable';
+
+comment on column defects.action_content is '조치 내용(HAJA-393/#725) — 조치 결과 등록 시 입력한 텍스트, nullable';
+
+comment on column defects.action_date is '조치일(HAJA-393/#725) — 조치 결과 등록 시 입력한 날짜, nullable';
+
+comment on column defects.action_assignee_id is '조치 담당자(HAJA-393/#725) — GET /api/facilities/assignable-users 로 선택된 회사 소속 사용자, nullable';
 
 comment on column defects.created_at is '결함 생성 시각';
 
