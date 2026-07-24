@@ -5,6 +5,7 @@ import { planQuotaHandlers } from '../features/admin/api/planQuotaApi.handlers';
 import { ragDocumentHandlers } from '../features/admin/api/ragDocumentApi.handlers';
 import { authHandlers } from '../features/auth/api/authApi.handlers';
 import { dashboardHandlers } from '../features/dashboard/api/dashboardApi.handlers';
+import { defectHandlers } from '../features/defect/api/defectApi.handlers';
 import { facilityAssigneeHandlers } from '../features/facility/api/facilityAssigneeApi.handlers';
 import { facilityComparisonHandlers } from '../features/facility/api/facilityComparisonApi.handlers';
 import { facilityDefectHandlers } from '../features/facility/api/facilityDefectApi.handlers';
@@ -30,6 +31,12 @@ export const handlers = [
   ...facilityAssigneeHandlers,
   ...inspectionHandlers,
   ...mediaHandlers,
+  // defectHandlers(GET /api/inspections, GET /api/inspections/:id/defects — HAJA-393/394, #725/#726)는
+  // 위 inspectionHandlers/mediaHandlers/facilityAssigneeHandlers가 이미 처리하는 /api/facilities,
+  // /api/facilities/assignable-users, POST /api/inspections/:id/media에 대한 자체 목도 포함하지만
+  // (feature 간 직접 import 금지로 각자 복제) msw는 먼저 등록된 핸들러가 우선하므로 여기서는 실제로
+  // 새로 추가되는 두 엔드포인트만 유효하게 동작한다.
+  ...defectHandlers,
   ...dashboardHandlers,
   ...mypageHandlers,
   ...facilityHandlers,

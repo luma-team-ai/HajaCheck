@@ -15,9 +15,14 @@ import type { DefectDetailItem, DefectCreateRequest, DefectType } from './inspec
 
 // 점검(회차) 생성 폼의 시설물 셀렉트 전용 목 — facility feature의 mockFacilities와는 별개
 // (feature 간 직접 import 금지, 이름만 같은 화면 캡처 기준으로 맞춤).
+// id=3(한강대교 북단)은 features/defect/mocks/inspection.mock.ts의 mockInspections(id=202,
+// HAJA-393/394 · #725/#726)가 참조하는 시설물 — 이 핸들러가 defectHandlers보다 먼저 등록돼
+// GET /api/facilities를 가로채므로, 여기 목록에도 추가해야 InspectionFilterBar 시설물 select에
+// 그 옵션이 노출된다(PR머신 P2 지적).
 const mockFacilityOptions: FacilityOption[] = [
   { id: 1, name: '강남 오피스타워 A동' },
   { id: 2, name: '판교 테크노밸리 B동' },
+  { id: 3, name: '한강대교 북단' },
 ];
 
 // 분석 결과 뷰어(useInspectionResultReal)용 시설물 상세 목 — facility feature의 mockFacilities id=1과

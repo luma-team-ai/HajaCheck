@@ -135,6 +135,15 @@ const DefectListPage = lazy(() =>
   })),
 );
 
+// 점검 상세(카드형) — HAJA-393/394(#725/#726), 하자 목록 "목록 보기" 탭(점검 단위) 로우 클릭 시 이동.
+// 기존 /defects/:id(하자 단건 상세, 보드 보기에서 여전히 사용 — dashboard/facility feature 등에서도
+// 참조하므로 라우트 의미를 바꾸지 않음)와 별개 경로를 쓴다.
+const InspectionDefectsPage = lazy(() =>
+  import('../features/defect/pages/InspectionDefectsPage').then((m) => ({
+    default: m.InspectionDefectsPage,
+  })),
+);
+
 // 마이페이지 — 내 플랜 (HAJA-185, #212)
 const MyPlanPage = lazy(() =>
   import('../features/mypage/pages/MyPlanPage').then((m) => ({ default: m.MyPlanPage })),
@@ -396,6 +405,20 @@ export const router = createBrowserRouter([
           activeHref: '/defects/list',
         },
       }, // — features/defect (HAJA-171)
+      {
+        path: '/inspections/:id/defects',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <InspectionDefectsPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '하자 관리' }, { label: '하자 상세' }],
+          // '하자 관리'는 하위메뉴 없는 단일 링크(href='/defects/list')로 정리돼(#499) 있어
+          // 그 값으로 맞춘다(DefectDetailPage 라우트와 동일한 이유).
+          activeHref: '/defects/list',
+        },
+      }, // — features/defect 점검 상세(카드형, HAJA-393/394, #725/#726)
       {
         path: '/mypage/plan',
         element: (
