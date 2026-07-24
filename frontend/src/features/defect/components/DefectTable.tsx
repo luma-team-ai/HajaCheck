@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ErrorFallback } from "../../../shared/components/ErrorFallback";
 import type { TableColumn } from "../../../shared/components/Table";
 import { Table } from "../../../shared/components/Table";
 import type { Defect, DefectGrade, DefectStatus } from "../types";
 import { formatDefectCode, formatDefectDate } from "../utils/defectFormat";
+import { SelectionCheckbox } from "./SelectionCheckbox";
 
 type Props = {
   defects: Defect[] | undefined;
@@ -65,43 +66,6 @@ export const STATUS_PRESENTATION: Record<
     className: "border-emerald-200 bg-emerald-50 text-emerald-600",
   },
 };
-
-type SelectionCheckboxProps = {
-  ariaLabel: string;
-  checked: boolean;
-  disabled?: boolean;
-  indeterminate?: boolean;
-  onChange: () => void;
-};
-
-function SelectionCheckbox({
-  ariaLabel,
-  checked,
-  disabled = false,
-  indeterminate = false,
-  onChange,
-}: SelectionCheckboxProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.indeterminate = indeterminate;
-    }
-  }, [indeterminate]);
-
-  return (
-    <input
-      ref={inputRef}
-      className="defect-list-table__select"
-      type="checkbox"
-      aria-label={ariaLabel}
-      checked={checked}
-      disabled={disabled}
-      onChange={onChange}
-      onClick={(event) => event.stopPropagation()}
-    />
-  );
-}
 
 function createColumns({
   isAllSelected,
