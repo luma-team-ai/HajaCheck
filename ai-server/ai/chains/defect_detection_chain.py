@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from ai.core.grading import compute_grade, normalize_defect_type_label
 from ai.core.yolo_client import get_yolo_model
+from ai.core.yolo_client import predict as yolo_predict
 
 if TYPE_CHECKING:
     from PIL import Image
@@ -93,7 +94,8 @@ def run_defect_detection_chain(image_base64: str) -> list[DetectedDefect]:
     image = _decode_image(image_base64)
 
     model = get_yolo_model()
-    results = model.predict(source=image, conf=DEFAULT_CONFIDENCE_THRESHOLD, verbose=False)
+    # 동시 추론 직렬화(코드 리뷰 P2, yolo_client.predict 참고) — model.predict를 직접 부르지 않는다.
+    results = yolo_predict(model, source=image, conf=DEFAULT_CONFIDENCE_THRESHOLD, verbose=False)
     result = results[0]
 
     names = result.names or model.names

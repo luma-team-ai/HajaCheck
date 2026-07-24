@@ -7,11 +7,18 @@ base64 길이 상한만으로는 고압축 이미지(단색에 가까운 대형 
 """
 import base64
 import io
+import threading
+import time
 
 import pytest
 from PIL import Image
 
-from ai.chains.defect_detection_chain import MAX_IMAGE_PIXELS, DefectDetectionError, _decode_image
+from ai.chains.defect_detection_chain import (
+    MAX_IMAGE_PIXELS,
+    DefectDetectionError,
+    _decode_image,
+    run_defect_detection_chain,
+)
 
 
 def _tiny_valid_png_base64() -> str:
@@ -59,3 +66,50 @@ def test_decode_image_accepts_pixel_count_exactly_at_limit(monkeypatch):
 
     # 상한 자체는 거부 대상이 아니다(초과분만 거부) — 예외 없이 통과해야 한다.
     _decode_image(_tiny_valid_png_base64())
+
+
+def test_run_defect_detection_chain_serializes_concurrent_predict_calls(monkeypatch):
+    """코드 리뷰 P2 — get_yolo_model()이 반환하는 인스턴스는 프로세스 전역 공유(@lru_cache)라,
+    ultralytics YOLO.predict가 스레드 세이프를 보장하지 않는다. FastAPI가 동기 핸들러를
+    threadpool에서 실행하고 Spring analysisTaskExecutor(core=max=2)가 서로 다른 회차를 동시에
+    분석하면 최대 2개 요청이 predict를 동시 호출할 수 있어, yolo_client.predict()의 락으로
+    직렬화해야 한다 — 가짜 모델의 predict 구간을 넓혀(sleep) 여러 스레드가 실제로 겹칠 기회를
+    주고, 락이 없으면 잡혔을 동시 진입(max_active > 1)이 없는지 고정한다.
+    """
+    active = 0
+    max_active = 0
+    counter_lock = threading.Lock()
+
+    class _FakeResult:
+        names: dict = {}
+        boxes = None
+        masks = None
+
+    class _FakeModel:
+        names: dict = {}
+
+        def predict(self, **_kwargs):
+            nonlocal active, max_active
+            with counter_lock:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.05)  # predict 호출 구간을 늘려 락이 없으면 겹칠 기회를 실제로 만든다
+            with counter_lock:
+                active -= 1
+            return [_FakeResult()]
+
+    fake_model = _FakeModel()
+    monkeypatch.setattr(
+        "ai.chains.defect_detection_chain.get_yolo_model", lambda: fake_model
+    )
+
+    image_b64 = _tiny_valid_png_base64()
+    threads = [
+        threading.Thread(target=run_defect_detection_chain, args=(image_b64,)) for _ in range(4)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert max_active == 1

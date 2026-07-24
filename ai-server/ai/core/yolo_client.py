@@ -20,6 +20,7 @@ design-03-04(YOLOv8-seg 1차 학습) 완료 전이라 `models/MODEL_CARD.md`는 
 from __future__ import annotations
 
 import os
+import threading
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -27,6 +28,9 @@ if TYPE_CHECKING:  # 타입 체커 전용 — 런타임 import 아님(torch/cv2 
     from ultralytics import YOLO
 
 YOLO_REPO_ID = os.getenv("YOLO_MODEL_REPO_ID", "50seok/hajacheck-defect-detection")
+
+# 공유 YOLO 인스턴스에 대한 동시 predict 직렬화(코드 리뷰 P2) — get_yolo_model()의 락과는 별개다.
+_predict_lock = threading.Lock()
 
 
 def _resolve_checkpoint_filename(token: str | None) -> str:
@@ -66,3 +70,22 @@ def get_yolo_model() -> "YOLO":
     # 재다운로드를 피한다.
     weights_path = hf_hub_download(repo_id=YOLO_REPO_ID, filename=filename, token=token)
     return YOLO(weights_path)
+
+
+def predict(model: "YOLO", **kwargs):
+    """model.predict(...)를 락으로 직렬화한다(코드 리뷰 P2).
+
+    get_yolo_model()이 반환하는 인스턴스는 프로세스 전역 공유(@lru_cache, 사실상 싱글턴)다.
+    ultralytics YOLO.predict()는 호출마다 인스턴스 내부의 predictor(배치·결과 상태를 인스턴스
+    필드에 보관)를 재사용하도록 설계돼 있어 동시 호출에 대한 스레드 세이프를 보장하지 않는다.
+
+    `/ai/detect-defects`는 async가 아닌 동기 `def`라 FastAPI가 외부 threadpool에서 실행하고,
+    Spring `analysisTaskExecutor`(core=max=2)가 서로 다른 점검 회차를 동시에 분석하면 최대 2개
+    요청이 같은 시점에 이 함수를 호출할 수 있다 — 락 없이 두면 결과가 다른 요청과 뒤섞여 잘못된
+    회차·미디어에 하자가 저장되거나 예외로 이어질 수 있다.
+
+    모델 로딩(get_yolo_model)은 이 락과 무관하다 — @lru_cache 자체가 스레드 세이프한 단일
+    초기화를 보장하므로 별도 보호가 필요 없고, 추론(predict)만 직렬화하면 된다.
+    """
+    with _predict_lock:
+        return model.predict(**kwargs)
