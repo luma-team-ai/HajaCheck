@@ -72,28 +72,15 @@ describe('PlatformAdminMonitoringPage (통합 테스트)', () => {
     expect(card.getByText('42.5%')).toBeTruthy();
   });
 
-  it('날짜 검색 입력값은 오늘 날짜로 기본 설정된다', async () => {
+  it('날짜 검색 기본값은 비어 있어(전체) 초기 렌더에서 바로 전체 목록을 보여준다', async () => {
     renderPage();
 
-    await screen.findByTestId(ERROR_LOG_TABLE_TEST_ID);
-    const today = new Date();
-    const expected = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(
-      today.getDate(),
-    ).padStart(2, '0')}`;
-    expect(screen.getByLabelText<HTMLInputElement>('날짜 검색').value).toBe(expected);
-  });
-
-  it('날짜 검색을 비우면 날짜 제한 없이 전체 목록을 렌더링한다', async () => {
-    renderPage();
-
-    await screen.findByTestId(ERROR_LOG_TABLE_TEST_ID);
-    fireEvent.change(screen.getByLabelText('날짜 검색'), { target: { value: '' } });
-
-    const table = within(screen.getByTestId(ERROR_LOG_TABLE_TEST_ID));
+    const table = within(await screen.findByTestId(ERROR_LOG_TABLE_TEST_ID));
+    expect(screen.getByLabelText<HTMLInputElement>('날짜 검색').value).toBe('');
     expect(table.getAllByText('ERROR').length).toBe(2);
     expect(table.getAllByText('WARN').length).toBe(3);
     expect(table.getByText('worker-queue')).toBeTruthy();
-    // 전날(2023-10-23) 로그도 날짜 제한 없이 노출돼야 한다
+    // 전날(2023-10-23) 로그도 기본 화면에서 바로 노출돼야 한다(과거 '오늘' 기본값 회귀 방지)
     expect(table.getByText('daily-cron')).toBeTruthy();
   });
 
@@ -101,7 +88,6 @@ describe('PlatformAdminMonitoringPage (통합 테스트)', () => {
     renderPage();
 
     await screen.findByTestId(ERROR_LOG_TABLE_TEST_ID);
-    fireEvent.change(screen.getByLabelText('날짜 검색'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'WARN' }));
 
     const table = within(screen.getByTestId(ERROR_LOG_TABLE_TEST_ID));

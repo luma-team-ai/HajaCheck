@@ -14,16 +14,6 @@ const ERROR_LOG_PAGE_SIZE = 10;
 // 한다(사용자 지시) — 목록 조회 API·페이지네이션을 별도로 만들지 않는다.
 const JOB_QUEUE_DISPLAY_LIMIT = 5;
 
-// <input type="date"> value 포맷(YYYY-MM-DD)에 맞춘 로컬 타임존 기준 오늘 날짜.
-// toISOString()은 UTC라 자정 근처에 날짜가 하루 밀릴 수 있어 사용하지 않는다.
-function getTodayDateString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
 // 플랫폼 관리자 > 시스템 모니터링(#729) — Figma node-id 1-404. 헤더(브레드크럼)·사이드바는
 // PlatformAdminShellRoute가 담당하므로 이 페이지는 CONTENT 영역만 그린다(다른 platform-admin
 // 페이지와 동일 계약). 분석 잡 큐는 최신 1일치 중 최대 5건만 노출한다(사용자 지시) — 큐 요약 배지
@@ -32,7 +22,11 @@ function getTodayDateString(): string {
 export function PlatformAdminMonitoringPage() {
   const { data, isLoading, isError, refetch } = useSystemMonitoring();
 
-  const [errorLogDate, setErrorLogDate] = useState(getTodayDateString);
+  // 기본값은 '전체'(빈 문자열) — 예전엔 '오늘'로 고정했으나(#729 후속), 에러가 드문 정상 운영일엔
+  // 항상 빈 화면으로 보여 모니터링 패널의 본래 목적(최근 장애 관측)을 무력화했다(PR #766 리뷰 지적,
+  // 브라우저 로컬 타임존과 서버 KST 타임존 불일치로 자정 근처 오탐도 겹침). 날짜는 필요할 때 사용자가
+  // 직접 좁혀 쓰는 선택적 필터로 되돌린다.
+  const [errorLogDate, setErrorLogDate] = useState('');
   const [errorLogLevel, setErrorLogLevel] = useState<ErrorLogLevelFilter>('ALL');
   const [errorLogPage, setErrorLogPage] = useState(1);
 

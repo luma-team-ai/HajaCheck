@@ -111,4 +111,20 @@ class RedisErrorLogAppenderTest {
         assertThat(filter.decide(mockEvent(Level.WARN, "any.Logger", "warn"))).isEqualTo(FilterReply.NEUTRAL);
         assertThat(filter.decide(mockEvent(Level.ERROR, "any.Logger", "error"))).isEqualTo(FilterReply.NEUTRAL);
     }
+
+    /**
+     * PR #766 3차 리뷰 지적(P3) 회귀 테스트 — log.error(null, throwable)처럼 formattedMessage가 null인
+     * 이벤트도 마스킹 단계에서 NPE 없이 저장돼야 한다(이전엔 append()의 catch가 삼켜 그 항목 전체가
+     * 조용히 유실됐다).
+     */
+    @Test
+    void 메시지가_null인_에러_로그도_예외없이_저장된다() {
+        RecordingErrorLogStore store = new RecordingErrorLogStore();
+        RedisErrorLogAppender appender = new RedisErrorLogAppender(store);
+        appender.start();
+
+        appender.append(mockEvent(Level.ERROR, "com.hajacheck.auth.service.AuthService", null));
+
+        assertThat(store.recorded).hasSize(1);
+    }
 }

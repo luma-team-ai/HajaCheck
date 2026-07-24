@@ -136,6 +136,11 @@ public class RedisErrorLogAppender extends AppenderBase<ILoggingEvent> {
     }
 
     private String maskSensitiveInfo(String message) {
+        // log.error(null, throwable)처럼 포맷된 메시지가 null일 수 있다(PR #766 리뷰 지적) — 그대로
+        // Pattern.matcher(null)에 넘기면 NPE로 이 항목 전체가 조용히 유실된다.
+        if (message == null) {
+            return null;
+        }
         String masked = EMAIL_PATTERN.matcher(message).replaceAll("***@***");
         masked = BUSINESS_REG_NO_PATTERN.matcher(masked).replaceAll("***-**-*****");
         masked = PHONE_PATTERN.matcher(masked).replaceAll("***-****-****");
