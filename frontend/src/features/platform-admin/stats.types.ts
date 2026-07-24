@@ -45,8 +45,8 @@ export interface MonthlySummaryRow {
   newSubscribers: number;
   analysisCount: number;
   counselCount: number;
-  /** Free → Standard 전환 건수 */
-  freeToStandardConversions: number;
+  /** 상위 플랜 업그레이드 전환 건수 (Free→Standard, Free→Enterprise, Standard→Enterprise 합산) */
+  upgradeConversions: number;
   trend: MonthlyTrendDirection;
 }
 
