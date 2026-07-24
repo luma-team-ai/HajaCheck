@@ -126,7 +126,28 @@ class PlatformAdminServiceStatsServiceTest {
 
         PlatformAdminServiceStatsResponse response = service.getStats();
 
-        assertThat(response.monthlySummary().get(0).freeToStandardConversions()).isEqualTo(1);
+        assertThat(response.monthlySummary().get(0).upgradeConversions()).isEqualTo(1);
+    }
+
+    @Test
+    void standardToEnterprise전환도_업그레이드전환에합산된다() {
+        Plan free = plan(1L, PlanName.FREE);
+        Plan standard = plan(2L, PlanName.STANDARD);
+        Plan enterprise = plan(3L, PlanName.ENTERPRISE);
+        Instant expiredAt = Instant.now().minusSeconds(60);
+        UserPlan expiredStandard =
+                companyPlan(300L, 2L, UserPlanStatus.EXPIRED, expiredAt.minusSeconds(3600), expiredAt);
+        UserPlan newEnterprise = companyPlan(300L, 3L, UserPlanStatus.ACTIVE, expiredAt, null);
+
+        when(userPlanRepository.findByCompanyIdIsNotNull()).thenReturn(List.of(expiredStandard, newEnterprise));
+        when(planRepository.findAll()).thenReturn(List.of(free, standard, enterprise));
+        when(userPlanRepository.findByCompanyIdIsNotNullAndStatus(UserPlanStatus.ACTIVE))
+                .thenReturn(List.of(newEnterprise));
+        when(usageCounterRepository.findByPeriodBetween(any(), any())).thenReturn(List.of());
+
+        PlatformAdminServiceStatsResponse response = service.getStats();
+
+        assertThat(response.monthlySummary().get(0).upgradeConversions()).isEqualTo(1);
     }
 
     @Test

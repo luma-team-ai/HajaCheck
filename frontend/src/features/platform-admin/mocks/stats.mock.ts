@@ -40,11 +40,11 @@ export const mockServiceStats: ServiceStatsResponse = {
     { type: 'BILLING_ETC', count: 70 },
   ],
   monthlySummary: [
-    { month: '6월', newSubscribers: 152, analysisCount: 5230, counselCount: 98, freeToStandardConversions: 12, trend: 'UP' },
-    { month: '5월', newSubscribers: 140, analysisCount: 4810, counselCount: 92, freeToStandardConversions: 15, trend: 'UP' },
-    { month: '4월', newSubscribers: 128, analysisCount: 4100, counselCount: 85, freeToStandardConversions: 9, trend: 'UP' },
-    { month: '3월', newSubscribers: 110, analysisCount: 3650, counselCount: 76, freeToStandardConversions: 8, trend: 'UP' },
-    { month: '2월', newSubscribers: 95, analysisCount: 3200, counselCount: 70, freeToStandardConversions: 5, trend: 'DOWN' },
-    { month: '1월', newSubscribers: 105, analysisCount: 3190, counselCount: 65, freeToStandardConversions: 4, trend: 'FLAT' },
+    { month: '6월', newSubscribers: 152, analysisCount: 5230, counselCount: 98, upgradeConversions: 14, trend: 'UP' },
+    { month: '5월', newSubscribers: 140, analysisCount: 4810, counselCount: 92, upgradeConversions: 17, trend: 'UP' },
+    { month: '4월', newSubscribers: 128, analysisCount: 4100, counselCount: 85, upgradeConversions: 10, trend: 'UP' },
+    { month: '3월', newSubscribers: 110, analysisCount: 3650, counselCount: 76, upgradeConversions: 9, trend: 'UP' },
+    { month: '2월', newSubscribers: 95, analysisCount: 3200, counselCount: 70, upgradeConversions: 6, trend: 'DOWN' },
+    { month: '1월', newSubscribers: 105, analysisCount: 3190, counselCount: 65, upgradeConversions: 4, trend: 'FLAT' },
   ],
 };
