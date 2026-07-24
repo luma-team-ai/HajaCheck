@@ -334,15 +334,17 @@ class InspectionAnalysisServiceTest {
     }
 
     @Test
-    void reapIfStuck_고착이면_revertStuckAnalyzing을호출하고_true를반환한다() {
-        // 코드 리뷰 P2 10차 — 리퍼가 회차별로 부르는 진입점. 하트비트 지연(stale)이면 고착으로 보고
-        // 시스템 복원(revertStuckAnalyzing, 회사 스코프 없는 배치 전용)을 호출한다.
+    void reapIfStuck_고착이면_revertStuckAnalyzing을호출하고_새세대토큰을발급하고_true를반환한다() {
+        // 코드 리뷰 P2 10차/P3 — 리퍼가 회차별로 부르는 진입점. 하트비트 지연(stale)이면 고착으로 보고
+        // 시스템 복원(revertStuckAnalyzing, 회사 스코프 없는 배치 전용)을 호출하고, startAnalysis
+        // 재선점과 대칭으로 새 세대 토큰을 발급해 하트비트 오탐 시 원본 워커의 잔여 쓰기를 펜싱한다.
         AnalysisStatusResponse stale =
                 progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)));
         when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.of(stale));
 
         assertThat(service.reapIfStuck(INSPECTION_ID)).isTrue();
         verify(inspectionService).revertStuckAnalyzing(INSPECTION_ID);
+        verify(progressStore).saveGeneration(eq(INSPECTION_ID), org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -351,6 +353,7 @@ class InspectionAnalysisServiceTest {
 
         assertThat(service.reapIfStuck(INSPECTION_ID)).isFalse();
         verify(inspectionService, never()).revertStuckAnalyzing(any());
+        verify(progressStore, never()).saveGeneration(any(), any());
     }
 
     @Test

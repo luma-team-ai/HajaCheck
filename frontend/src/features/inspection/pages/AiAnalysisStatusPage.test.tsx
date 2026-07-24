@@ -80,12 +80,9 @@ describe('AiAnalysisStatusPage', () => {
     await waitFor(() => expect(startAnalysisSpy).toHaveBeenCalledWith(100));
   });
 
-  it('분석 시작 트리거 자체가 다시 실패해도 에러 배너를 보여주고 화면이 막다른 길이 되지 않는다', async () => {
-    // 주의: handleRetry의 `error instanceof Error` 체크는 axios 인터셉터(shared/api/axios.ts)가
-    // 실패 시 던지는 평범한 ApiError 객체(Error 서브클래스가 아님)에는 항상 false라서, 서버가 준
-    // 구체적 메시지(예: '업로드된 이미지가 없습니다.')가 아니라 대체 문구만 뜬다 — 이건 이 페이지뿐
-    // 아니라 ResultViewerPage 등 여러 곳에 퍼진 기존 버그라 이번 P2(버튼 부재) 수정 범위 밖으로
-    // 남겨두고, 여기서는 "적어도 에러 배너는 뜨고 재시도할 수 있다"만 고정한다.
+  it('분석 시작 트리거 자체가 다시 실패하면 서버가 준 구체 메시지가 배너에 뜨고 화면이 막다른 길이 되지 않는다', async () => {
+    // 코드 리뷰 P3(해소) — handleRetry가 getApiErrorMessage(shared/api/types.ts)로 바뀌어, axios
+    // 인터셉터가 던지는 ApiError(Error 서브클래스가 아님)에서도 서버 메시지를 그대로 뽑아 보여준다.
     server.use(
       http.get('/api/inspections/:id/analyze', () =>
         HttpResponse.json({ success: true, data: preAnalysisStatus() }),
@@ -107,7 +104,7 @@ describe('AiAnalysisStatusPage', () => {
       fireEvent.click(startButton);
     });
 
-    expect(await screen.findByText('재시도에 실패했습니다.')).not.toBeNull();
+    expect(await screen.findByText('업로드된 이미지가 없습니다.')).not.toBeNull();
     // 버튼은 여전히 남아있어야 재시도가 가능하다 — 실패했다고 화면이 막히면 안 된다.
     expect(screen.getByRole('button', { name: '분석 시작' })).not.toBeNull();
   });

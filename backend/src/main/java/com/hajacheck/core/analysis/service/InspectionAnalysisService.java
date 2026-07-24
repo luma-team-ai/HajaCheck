@@ -284,6 +284,13 @@ public class InspectionAnalysisService {
      * 고착이 아니면 아무것도 하지 않는다. 실제 상태 전이는 {@link InspectionService#revertStuckAnalyzing}가
      * 시스템 배치(사용자 컨텍스트 없음)로 수행하며, 여전히 ANALYZING일 때만 되돌린다(멱등).
      *
+     * <p>세대 토큰도 새로 발급한다(코드 리뷰 P3, {@link #startAnalysis}의 재선점과 대칭) — 리퍼가
+     * 복원하는 시점엔 아직 재선점(startAnalysis)이 일어나지 않아 이중 워커 실행 위험은 없지만,
+     * 하트비트 오탐(원본 워커가 실제로는 아직 살아서 마지막 저장을 마치는 중)이면 그 워커의 다음
+     * DB 쓰기가 "defect는 저장됐으나 status=UPLOADING"인 일시적 불일치를 남길 수 있다. 여기서
+     * 토큰을 갈아치우면 그 잔여 쓰기도 {@link InspectionAnalysisWorker}의 세대 확인에서 즉시
+     * 펜싱돼, 재선점 경로와 동일한 방식으로 창을 닫는다.
+     *
      * @return 복원했으면 true, 고착이 아니어서 건너뛰었으면 false.
      */
     public boolean reapIfStuck(Long inspectionId) {
@@ -291,6 +298,7 @@ public class InspectionAnalysisService {
             return false;
         }
         inspectionService.revertStuckAnalyzing(inspectionId);
+        progressStore.saveGeneration(inspectionId, java.util.UUID.randomUUID().toString());
         log.warn("ANALYZING 고착 리퍼 복원 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, RECOVERY_STATUS);
         return true;
     }

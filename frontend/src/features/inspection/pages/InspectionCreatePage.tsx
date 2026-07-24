@@ -75,6 +75,8 @@ export function InspectionCreatePage() {
   const [createdInspection, setCreatedInspection] = useState<InspectionCreateResponse | null>(
     null,
   );
+  // 코드 리뷰 P3 — currentUser 미로딩 시 제출을 조용히 막던 것 대신 사유를 보여준다.
+  const [submitBlockedMessage, setSubmitBlockedMessage] = useState<string | null>(null);
 
   const isSubmitting = isCreating || isUploading;
   const hasFileErrors = mediaFiles.some((entry) => entry.error !== null);
@@ -117,9 +119,17 @@ export function InspectionCreatePage() {
   };
 
   const handleSubmit = async () => {
+    if (!currentUser) {
+      // 코드 리뷰 P3 — 로그인 사용자 정보가 아직 로드되지 않은 순간의 제출을 조용히 무시하면
+      // 사용자는 버튼이 왜 반응하지 않는지 알 수 없다(무피드백 오동작). 안내 문구로 사유를 알린다.
+      setSubmitBlockedMessage('사용자 정보를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
+      return;
+    }
+    setSubmitBlockedMessage(null);
+
     const nextErrors = validateInspectionCreateForm(values);
     setErrors(nextErrors);
-    if (hasInspectionCreateFormErrors(nextErrors) || hasFileErrors || !currentUser) {
+    if (hasInspectionCreateFormErrors(nextErrors) || hasFileErrors) {
       return;
     }
 
@@ -234,6 +244,11 @@ export function InspectionCreatePage() {
           {createError && (
             <p role="alert" className={ERROR_CLASSES}>
               {createError.message ?? '점검 회차 생성에 실패했습니다.'}
+            </p>
+          )}
+          {submitBlockedMessage && (
+            <p role="alert" className={ERROR_CLASSES}>
+              {submitBlockedMessage}
             </p>
           )}
         </section>

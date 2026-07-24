@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { getApiErrorMessage } from '../../../shared/api/types';
 import { Button } from '../../../shared/components/Button';
 import { CHART_GRADE_COLORS } from '../../../shared/components/charts/palette';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
@@ -164,7 +165,9 @@ export function AiAnalysisStatusPage() {
       await inspectionApi.startAnalysis(inspectionId);
       await refetch();
     } catch (error) {
-      setRetryError(error instanceof Error ? error.message : '재시도에 실패했습니다.');
+      // 코드 리뷰 P3 — axios 인터셉터가 던지는 ApiError는 Error 서브클래스가 아니라
+      // `error instanceof Error`가 항상 false였다(서버가 준 구체 사유가 대체 문구에 가려짐).
+      setRetryError(getApiErrorMessage(error, '재시도에 실패했습니다.'));
     } finally {
       setIsRetrying(false);
     }
