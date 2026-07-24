@@ -14,4 +14,6 @@ langsmith==0.10.10  # langchain-core>=0.3.26 요구에 따라 upgraded (WS1 PR #
 langgraph==0.6.11  # StateGraph 기반 체인 구현용 (WS1: report_chain, WS3: rag_chat_chain 공용)
 chromadb==0.5.23
 sentence-transformers==3.3.1
-easyocr==1.7.2  # 사업자등록증 OCR(HAJA-169/#552, RapidOCR→EasyOCR 교체 #605) — 한국어 인식 정확도 우위
+rapidocr==3.9.2  # 사업자등록증 OCR(HAJA-169/#552, EasyOCR→RapidOCR PP-OCRv5 한국어 교체 #722)
+                 # — 실측 완전일치 3/20(EasyOCR)→18/20, 추론 4장 5.8s→1.0s, 모델 ~95MB→13MB
+onnxruntime==1.27.0  # rapidocr 추론 백엔드. manylinux_2_28_aarch64 휠 확인됨(arm1 소스빌드 OK, #722)
