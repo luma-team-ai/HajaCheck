@@ -67,7 +67,7 @@ describe('PlatformAdminMonitoringPage (통합 테스트)', () => {
 
     const card = within(await screen.findByTestId(SERVER_RESOURCE_TEST_ID));
     expect(card.getByText('CPU')).toBeTruthy();
-    expect(card.getByText('메모리')).toBeTruthy();
+    expect(card.getByText('메모리(JVM 힙)')).toBeTruthy();
     expect(card.getByText('디스크')).toBeTruthy();
     expect(card.getByText('42.5%')).toBeTruthy();
   });

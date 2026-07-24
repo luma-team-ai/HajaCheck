@@ -15,9 +15,11 @@ interface ResourceRow {
   label: string;
 }
 
+// '메모리'는 시스템 전체가 아니라 JVM 힙 기준(PlatformAdminMonitoringService#getResourceUsage)이라
+// CPU·디스크와 나란히 두면 호스트 메모리 여유로 오인될 수 있어 라벨에 기준을 명시한다(PR #766 리뷰 지적).
 const ROWS: ResourceRow[] = [
   { key: 'cpuUsagePercent', label: 'CPU' },
-  { key: 'memoryUsagePercent', label: '메모리' },
+  { key: 'memoryUsagePercent', label: '메모리(JVM 힙)' },
   { key: 'diskUsagePercent', label: '디스크' },
 ];
 
