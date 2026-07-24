@@ -6,7 +6,7 @@ public record PlatformAdminMonthlySummaryRow(
         long newSubscribers,
         long analysisCount,
         long counselCount,
-        long freeToStandardConversions,
+        long upgradeConversions,
         PlatformAdminMonthlyTrend trend
 ) {
 }

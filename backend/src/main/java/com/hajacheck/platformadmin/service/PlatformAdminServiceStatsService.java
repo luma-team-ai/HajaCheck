@@ -43,8 +43,9 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><b>가입자 추이/신규 가입자</b>: 회사 이력의 가장 이른 startedAt 이 속한 달을 "그 회사가 처음 가입한 달"로
  * 본다(플랜 변경은 신규 가입이 아니라 최초 구독 시점만 신규로 센다).
  *
- * <p><b>Free→Standard 전환</b>: 같은 회사 이력에서 연속한 두 행(prev, curr)이 prev.plan=FREE,
- * curr.plan=STANDARD 이면 curr.startedAt 이 속한 달에 전환 1건으로 센다.
+ * <p><b>업그레이드 전환</b>: 같은 회사 이력에서 연속한 두 행(prev, curr)이 curr.plan 의 등급이 prev.plan 보다
+ * 높으면(FREE&lt;STANDARD&lt;ENTERPRISE, {@link PlanName} 선언 순서) curr.startedAt 이 속한 달에 전환 1건으로
+ * 센다 — Free→Standard 뿐 아니라 Free→Enterprise, Standard→Enterprise 도 모두 포함한다.
  *
  * <p><b>분석 요청/상담 건수</b>: usage_counters(개인+회사 구독 전체)의 월별 합계 — KPI 의 누적치는 트렌드
  * 윈도우(최근 {@value #TREND_MONTHS}개월) monthlySummary 합계와 항상 일치한다.
@@ -91,7 +92,7 @@ public class PlatformAdminServiceStatsService {
         Map<YearMonth, Long> analysisRequestsByMonth =
                 usageSumByMonth(months, UsageCounter::getAnalysisRequestCount);
         Map<YearMonth, Long> counselCountByMonth = usageSumByMonth(months, UsageCounter::getCounselTicketCount);
-        Map<YearMonth, Long> freeToStandardByMonth = conversionsByMonth(historyByCompany, planById);
+        Map<YearMonth, Long> upgradeConversionsByMonth = conversionsByMonth(historyByCompany, planById);
 
         PlatformAdminServiceStatsKpi kpi = new PlatformAdminServiceStatsKpi(
                 totalSubscribersNow,
@@ -118,7 +119,7 @@ public class PlatformAdminServiceStatsService {
             long prevNew = i == 0 ? newSubscribersLastMonth : newSubscribersByMonth.get(months.get(i - 1));
             monthlySummary.add(new PlatformAdminMonthlySummaryRow(
                     monthLabel(ym), thisNew, analysisRequestsByMonth.get(ym), counselCountByMonth.get(ym),
-                    freeToStandardByMonth.getOrDefault(ym, 0L), trendOf(thisNew, prevNew)));
+                    upgradeConversionsByMonth.getOrDefault(ym, 0L), trendOf(thisNew, prevNew)));
         }
 
         return new PlatformAdminServiceStatsResponse(
@@ -177,7 +178,7 @@ public class PlatformAdminServiceStatsService {
             for (int i = 1; i < history.size(); i++) {
                 PlanName prevPlan = planNameOf(history.get(i - 1), planById);
                 PlanName currPlan = planNameOf(history.get(i), planById);
-                if (prevPlan == PlanName.FREE && currPlan == PlanName.STANDARD) {
+                if (prevPlan != null && currPlan != null && currPlan.ordinal() > prevPlan.ordinal()) {
                     YearMonth month = YearMonth.from(history.get(i).getStartedAt().atZone(KST));
                     result.merge(month, 1L, Long::sum);
                 }
