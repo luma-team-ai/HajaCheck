@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { authApi } from '../api/authApi';
 import { AUTH_ME_QUERY_KEY, LOGIN_ROUTE } from '../constants';
 import { useAuthStore } from '../store/authStore';
+import { useInspectionStore } from '../../inspection/store/inspectionStore';
 
 // 로그아웃 — SideNavBar/Header가 공유하는 단일 훅 (React_코드_컨벤션.md §0 "공통 로직 중복 금지")
 // logout API가 실패해도 클라이언트 세션(react-query 캐시·authStore)은 항상 정리한다 —
@@ -14,6 +15,7 @@ export function useLogout(redirectTo: string = LOGIN_ROUTE) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const clearUser = useAuthStore((state) => state.clearUser);
+  const clearActiveInspectionId = useInspectionStore((state) => state.clearActiveInspectionId);
 
   const logout = async (): Promise<void> => {
     try {
@@ -33,6 +35,7 @@ export function useLogout(redirectTo: string = LOGIN_ROUTE) {
       await queryClient.cancelQueries({ queryKey: AUTH_ME_QUERY_KEY });
       queryClient.setQueryData(AUTH_ME_QUERY_KEY, null);
       clearUser();
+      clearActiveInspectionId();
       navigate(redirectTo);
     }
   };
