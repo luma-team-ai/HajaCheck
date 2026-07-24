@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.8 · **최종 수정:** 2026-07-24 · 이전 버전 `archive/`
+> **문서 버전:** v0.7 · **최종 수정:** 2026-07-23 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -431,45 +431,4 @@ RapidOCR(한국어)+LLM 파싱. 백엔드 프록시(`/api/auth/business-license/
 ### 추가 ErrorCode (Spring `ErrorCode`)
 이번 배포: `AUTH_EMAIL_DUPLICATED`(409) · `AUTH_BUSINESS_NUMBER_DUPLICATED`(409) · `AUTH_ACCOUNT_NOT_FOUND`(404) · `AUTH_SIGNUP_TOKEN_INVALID`(404) · `FILE_REQUIRED`(400) · `FILE_INVALID_TYPE`(400) · `FILE_TOO_LARGE`(400) · `FILE_UPLOAD_FAILED`(500)
 비밀번호 찾기(#194, 이메일 링크 방식): `AUTH_RESET_TOKEN_INVALID`(400, 기존 예약분) · `AUTH_TOO_MANY_REQUESTS`(429, 신규)
-
-## 하자 목록·상세 화면 개편 (draft, HAJA-393/394 · #725/#726, 2026-07-24)
-
-> HAJA-26(#17, CLOSED·main 승격완료)로 나온 기존 하자 목록/상세를 Figma 재설계안 기준으로 개편. **이 섹션은 Figma 3개 노드를 실사 확인한 결과 확정** — 세부 구현 중 어긋나는 부분이 있으면 PR에 `[CONTRACT-CHANGE-REQUEST]`로 표시하고 이 문서를 갱신한다.
-
-Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?node-id=1-2099&m=dev) · [상세(카드형)](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?node-id=1547-2912&m=dev) · [상세 모달](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?node-id=1562-3682&m=dev)
-
-⚠️ **Figma 팀 플랜이 Starter라 Dev Mode/MCP 호출이 제한된다**(`get_metadata` 2회 만에 rate limit). 프론트 세션은 Figma MCP 호출을 아껴 쓰고, 아래 확정된 필드부터 참고할 것.
-
-### 화면 구조 (3단, 실사 확인 완료)
-1. **하자 목록 화면**(node `1-2099`) — 실제로 열어보니 **하자 단건 플랫 테이블**(하자ID/썸네일/유형/등급/시설물/위치/상태/등록일/담당자, AI 자연어 검색바, 필터칩, 페이지네이션). 기존 `DefectListPage`와 시각 구조는 유사. **사용자 확정 지시(2026-07-24): 시각 디자인은 유지하되 로우 단위를 점검(Inspection)으로 재해석** — 컬럼도 하자 단건이 아니라 점검 단위 정보(점검일·시설물·하자 건수·등급분포 등)로 바꿔야 함. Figma가 아직 최신 재설계를 반영 못한 상태.
-2. **점검 상세**(node `1547-2912`, "Defect Management Detail card list") — ✅ Figma가 설명과 정확히 일치. 브레드크럼("하자 관리 > 하자 목록 > 하자 상세") + KPI 4종(총 하자/검수확정/조치중/조치완료) + 필터·정렬 + **하자 카드 그리드**(카드당: 유형, 등급뱃지, 상태뱃지, 썸네일, AI신뢰도, 최대폭) + 우측 사이드바 "활동 기록"(타임라인 — 상태변경·담당자배정·조치내용이 텍스트로 이미 존재)
-3. **하자 상세 모달**(node `1562-3682`, "Defect Management Detail - modal") — ✅ 실사 확인 완료(브라우저 스크린샷). 사이드바/헤더 제외 전체 영역 모달. 좌측: 헤더(하자ID+유형+등급+상태뱃지) → "조치 전 사진(원본)"(bbox 오버레이) → 통계 3종(AI신뢰도/균열 폭(최대)/균열 길이(추정)) → "AI 분석 설명"(원인/위험도/조치권고). 우측 "조치 결과 등록": 아래 필드 참조. 하단 "활동 기록" 타임라인(상태·일시·담당자).
-
-### 모달 "조치 결과 등록" 필드 (확정, node `1562-3682` 실사)
-| 필드(Figma 라벨) | 타입 | 필수 | 비고 |
-|---|---|---|---|
-| 조치 후 사진 업로드 | 파일(JPG/PNG, 최대 10MB) | ✅ | 드래그앤드롭 업로드 영역 |
-| 조치 내용 | 텍스트(멀티라인) | ✅ | placeholder "조치 내용을 입력해 주세요." |
-| 조치일 | 날짜 | ✅ | |
-| 담당자 | 드롭다운(예: "김현수 과장") | ✅ | **#690 "배정 가능한 담당자(회사 소속 사용자) 목록 조회 API" 재사용 대상** |
-| (버튼) 조치 완료 등록 | — | — | 제출 시 상태 전이(`PATCH /api/defects/{id}/status`, RESOLVED 전이 추정) + 위 필드 저장을 동시에 수행하는 것으로 보임 — BE가 단일 엔드포인트로 묶을지 분리할지 결정 |
-
-### 엔드포인트 매핑 (기존 재사용 우선)
-
-| 화면 | 엔드포인트 | 상태 |
-|---|---|---|
-| ①점검 단위 목록 | `GET /api/inspections` (페이지네이션, 상태/시설물 필터) | **신규** — 현재 `InspectionController`는 `GET /{id}` 단건만 존재. 응답에 하자 건수·등급분포 등 집계 포함 검토(대시보드 `recent-inspections`/`upcoming-inspections` 필드 재사용) |
-| ②점검별 하자 카드 목록 | `GET /api/inspections/{id}/defects` | **기존 재사용** (`DefectRevisionController`, `DefectDetailItem` 반환). 카드 UI에 필요한 필드(썸네일 등)가 부족하면 `DefectDetailItem` 확장 — 신규 엔드포인트 만들지 말 것 |
-| ③하자 상세 모달 조회 | `GET /api/defects/{id}` (`DefectResponse`) | **기존 재사용 + 확장 필요** — 위 표의 "조치 결과 등록" 필드(조치내용/조치일/담당자/조치후사진) 저장용 컬럼이 `Defect` 엔티티에 없음. Flyway **V5**로 추가(V1~V4 절대 수정 금지) |
-| ③조치 결과 등록 | `PATCH /api/defects/{id}/status` 확장 또는 신규 `PATCH /api/defects/{id}/action` | **BE 판단 필요** — 상태전이와 조치결과 저장을 한 엔드포인트로 묶을지, 별도로 분리할지 결정하고 이 섹션 갱신 |
-| ③담당자 드롭다운 옵션 | `GET /api/facilities/assignable-users` (#690, `FacilityController`) | **기존 재사용 추정** — 회사 소속 배정가능 사용자 목록. 정확한 응답 필드는 BE 세션이 `FacilityController.java:102` 확인 후 반영 |
-| ③파일 업로드(조치 후 사진) | `POST /api/inspections/{id}/media` | **기존 media API 재사용** — 하자 전용 신규 첨부 엔드포인트 만들지 않기로 확정(2026-07-24 사용자 결정) |
-
-### 잔여 TBD
-- ③"조치 결과 등록" 제출 시 상태전이(RESOLVED 추정)와 필드 저장이 한 트랜잭션인지, `DefectStatusUpdateRequest`를 확장할지 신규 DTO를 만들지 — BE 세션 구현 중 결정하고 이 섹션 갱신
-- 하자당 첨부파일("조치 후 사진") 다건 허용 여부, 기존 `mediaId`(탐지 이미지 1개, nullable)와의 관계 구분
-- `GET /api/inspections` 목록의 정렬/기본 필터 및 페이지 크기
-
-### 관련 이슈
-선행 #17(HAJA-26, CLOSED) · 연관(중복 여부 확인 필요) #527(하자 상세 이미지뷰어/활동기록/SLA) · #630(조치 보드 칸반)
 > `AUTH_VERIFICATION_FAILED`(400)는 보안질문 방식 전용으로 예약됐으나 그 방식이 폐기돼 **참조 0건** — 제거 대상(후속 정리). 이번 PR에서는 건드리지 않는다.
