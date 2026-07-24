@@ -1,5 +1,6 @@
 package com.hajacheck.core.defect.service;
 
+import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -7,10 +8,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.core.defect.dto.DefectActionResultRequest;
 import com.hajacheck.core.defect.dto.DefectResponse;
 import com.hajacheck.core.defect.dto.DefectRevisionResponse;
 import com.hajacheck.core.defect.entity.Defect;
@@ -23,6 +28,8 @@ import com.hajacheck.core.defect.repository.DefectRevisionRepository;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.DomainValidationException;
@@ -51,6 +58,12 @@ class DefectServiceTest {
     private DefectRevisionRepository defectRevisionRepository;
     @Mock
     private CompanyScopeGuard companyScopeGuard;
+    @Mock
+    private AuthService authService;
+    @Mock
+    private MediaRepository mediaRepository;
+    @Mock
+    private UserRepository userRepository;
 
     @InjectMocks
     private DefectService defectService;
@@ -62,6 +75,10 @@ class DefectServiceTest {
     // (FacilityServiceTest와 달리 응답 DTO가 연관관계(inspection.facility)까지 타고 들어가므로
     // 세 엔티티를 함께 구성해야 한다).
     private Defect existingDefect(Long facilityId) {
+        return existingDefect(facilityId, DefectStatus.DETECTED);
+    }
+
+    private Defect existingDefect(Long facilityId, DefectStatus status) {
         Facility facility = Facility.builder()
                 .companyId(COMPANY_ID)
                 .name("테스트빌딩")
@@ -85,7 +102,7 @@ class DefectServiceTest {
                 .type(DefectType.CRACK)
                 .confidence(0.9)
                 .grade(DefectGrade.C)
-                .status(DefectStatus.DETECTED)
+                .status(status)
                 .reviewed(false)
                 .deleted(false)
                 .build();
@@ -178,6 +195,135 @@ class DefectServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
+    }
+
+    @Test
+    void get_조치담당자있으면이름조회해서포함() {
+        Defect defect = existingDefect(5L, DefectStatus.RESOLVED);
+        ReflectionTestUtils.setField(defect, "actionAssigneeId", 200L);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+        User assignee = User.builder().name("김현수").build();
+        ReflectionTestUtils.setField(assignee, "id", 200L);
+        when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
+
+        DefectResponse response = defectService.get(USER_ID, COMPANY_ID, 10L);
+
+        assertThat(response.actionAssigneeName()).isEqualTo("김현수");
+    }
+
+    @Test
+    void get_조치담당자없으면이름조회안함() {
+        Defect defect = existingDefect(5L);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+
+        DefectResponse response = defectService.get(USER_ID, COMPANY_ID, 10L);
+
+        assertThat(response.actionAssigneeName()).isNull();
+        verify(userRepository, never()).findById(any());
+    }
+
+    // ── HAJA-393/#725: 조치 결과 등록 ──
+
+    private DefectActionResultRequest actionResultRequest() {
+        return new DefectActionResultRequest(50L, "균열 부위 보수 완료", LocalDate.of(2026, 7, 24), 200L);
+    }
+
+    @Test
+    void registerActionResult_IN_PROGRESS에서_RESOLVED전이및필드저장_이력기록() {
+        Defect defect = existingDefect(5L, DefectStatus.IN_PROGRESS);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+        Media media = Media.builder().inspectionId(100L).build();
+        ReflectionTestUtils.setField(media, "id", 50L);
+        when(mediaRepository.findByIdAndInspectionId(50L, 100L)).thenReturn(Optional.of(media));
+        User assignee = User.builder().name("김현수").build();
+        ReflectionTestUtils.setField(assignee, "id", 200L);
+        when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
+
+        DefectResponse response =
+                defectService.registerActionResult(USER_ID, COMPANY_ID, 10L, actionResultRequest());
+
+        assertThat(response.status()).isEqualTo(DefectStatus.RESOLVED);
+        assertThat(response.actionContent()).isEqualTo("균열 부위 보수 완료");
+        assertThat(response.actionDate()).isEqualTo(LocalDate.of(2026, 7, 24));
+        assertThat(response.actionAssigneeId()).isEqualTo(200L);
+        assertThat(response.actionAssigneeName()).isEqualTo("김현수");
+        assertThat(response.actionPhotoUrl()).isEqualTo("/api/media/50/thumbnail");
+        assertThat(defect.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+        verify(authService).validateAssignableInspector(USER_ID, 200L);
+        verify(defectRevisionRepository).save(argThat(revision ->
+                revision.getDefectId().equals(10L)
+                        && revision.getRevisedBy().equals(USER_ID)
+                        && revision.getFieldChanged().equals("status")
+                        && revision.getOldValue().equals("IN_PROGRESS")
+                        && revision.getNewValue().equals("RESOLVED")));
+    }
+
+    @Test
+    void registerActionResult_담당자자격없음_예외전파되고저장안됨() {
+        Defect defect = existingDefect(5L, DefectStatus.IN_PROGRESS);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+        doThrow(new BusinessException(ErrorCode.AUTH_INVALID_INSPECTOR))
+                .when(authService).validateAssignableInspector(USER_ID, 200L);
+
+        assertThatThrownBy(() -> defectService.registerActionResult(USER_ID, COMPANY_ID, 10L, actionResultRequest()))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_INVALID_INSPECTOR));
+        assertThat(defect.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        verify(defectRevisionRepository, never()).save(any());
+    }
+
+    @Test
+    void registerActionResult_조치후사진이타점검소속_MEDIA_NOT_FOUND예외() {
+        // 다른 점검의 media를 mediaId로 넘기면(또는 없는 media) IDOR 차단 — findByIdAndInspectionId가
+        // 같은 inspectionId 조건이라 빈 값이 온다.
+        Defect defect = existingDefect(5L, DefectStatus.IN_PROGRESS);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+        when(mediaRepository.findByIdAndInspectionId(50L, 100L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> defectService.registerActionResult(USER_ID, COMPANY_ID, 10L, actionResultRequest()))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
+        assertThat(defect.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        verify(defectRevisionRepository, never()).save(any());
+    }
+
+    @Test
+    void registerActionResult_타인소유하자_DEFECT_NOT_FOUND예외() {
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> defectService.registerActionResult(USER_ID, COMPANY_ID, 10L, actionResultRequest()))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
+        verify(authService, never()).validateAssignableInspector(any(), any());
+    }
+
+    @Test
+    void registerActionResult_IN_PROGRESS아닌상태에서호출_순서건너뛴완료차단() {
+        // "조치 완료 등록" 폼에는 사유 입력란이 없다 — changeStatus()가 정방향 한 단계(IN_PROGRESS→RESOLVED)만
+        // 사유 없이 허용하므로, 그 외 상태(DETECTED 등)에서 호출하면 DomainValidationException으로 자연히 막힌다.
+        Defect defect = existingDefect(5L, DefectStatus.DETECTED);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+        Media media = Media.builder().inspectionId(100L).build();
+        ReflectionTestUtils.setField(media, "id", 50L);
+        when(mediaRepository.findByIdAndInspectionId(50L, 100L)).thenReturn(Optional.of(media));
+
+        assertThatThrownBy(() -> defectService.registerActionResult(USER_ID, COMPANY_ID, 10L, actionResultRequest()))
+                .isInstanceOf(DomainValidationException.class);
+        assertThat(defect.getStatus()).isEqualTo(DefectStatus.DETECTED);
+        verify(defectRevisionRepository, never()).save(any());
+    }
+
+    @Test
+    void registerActionResult_이미RESOLVED인하자_예외전파() {
+        Defect defect = existingDefect(5L, DefectStatus.RESOLVED);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+        Media media = Media.builder().inspectionId(100L).build();
+        ReflectionTestUtils.setField(media, "id", 50L);
+        when(mediaRepository.findByIdAndInspectionId(50L, 100L)).thenReturn(Optional.of(media));
+
+        assertThatThrownBy(() -> defectService.registerActionResult(USER_ID, COMPANY_ID, 10L, actionResultRequest()))
+                .isInstanceOf(com.hajacheck.global.exception.DomainStateTransitionException.class);
+        verify(defectRevisionRepository, never()).save(any());
     }
 
     @Test
