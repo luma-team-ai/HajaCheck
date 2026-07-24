@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useAuthStore } from '../features/auth/store/authStore';
@@ -87,5 +87,18 @@ describe('PlatformAdminShellRoute', () => {
     renderAt('/platform-admin/users');
 
     expect(screen.getByText('플랫폼 운영진')).not.toBeNull();
+  });
+
+  it('헤더 프로필 버튼 클릭 시 드롭다운이 열리고 기업명/내 플랜 없이 이름·이메일·로그아웃만 노출한다(#773)', () => {
+    useAuthStore.setState({ user: platformAdminUser });
+
+    renderAt('/platform-admin/users');
+
+    fireEvent.click(screen.getByRole('button', { name: '내 프로필' }));
+
+    expect(screen.getByText('platform-admin@example.com')).not.toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /내 정보/ })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /내 플랜/ })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: /로그아웃/ })).not.toBeNull();
   });
 });

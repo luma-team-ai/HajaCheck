@@ -48,6 +48,19 @@ export function PlatformAdminShellRoute() {
       brandHref="/platform-admin/users"
       user={authUser ? { name: authUser.name } : undefined}
       onLogout={() => void logout()}
+      // Header 프로필 드롭다운(#773) — 플랫폼 관리자는 기업 소속·구독 플랜이 없어(company_id 없음)
+      // 일반 사용자 셸(AppShellRoute)의 companyName/planLabel/내 정보/내 플랜 항목을 그대로 채울 수
+      // 없다. 마이페이지도 없으므로 이름·이메일 + 로그아웃만 노출한다(ProfileMenu는 그 값들이
+      // 없으면 해당 UI를 자체적으로 생략).
+      profileMenu={
+        authUser
+          ? {
+              name: authUser.name,
+              email: authUser.email,
+              onLogout: () => void logout(),
+            }
+          : undefined
+      }
       // 우측 하단 고객지원 퀵상담 FAB — 이 콘솔은 플랫폼 운영진 전용이라 고객 지원 진입점이 불필요(사용자 지시).
       showSupportFab={false}
     >
