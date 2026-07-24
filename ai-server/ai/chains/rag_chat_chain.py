@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Literal, Optional, TypedDict
 
 from langgraph.graph import END, StateGraph
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ai.core.llm_client import CACHE_TTL_SECONDS, get_llm, get_redis_client
 from ai.core.prompt_safety import wrap_untrusted
@@ -45,9 +45,19 @@ class RagChatState(TypedDict):
 
 class _RagChatAnswer(BaseModel):
     """LLM structured output 스키마 — answer만. 공개 응답 스키마 RagAnswerData(§2)와는 별개다.
-    sources 필드를 아예 두지 않음으로써 LLM이 이상한 값을 내도 sources가 절대 바뀌지 않는다."""
+    sources 필드를 아예 두지 않음으로써 LLM이 이상한 값을 내도 sources가 절대 바뀌지 않는다.
+
+    grounded: retrieve가 관련성 임계값 없이 top-k를 그대로 반환하므로(§4.1), docs가 비어있지
+    않다는 사실만으로는 "질의와 실제로 관련된 근거"를 보장하지 못한다 — LLM이 그 발췌로 실제
+    답변했는지 스스로 판정한 값. False면 sources를 붙이지 않고 no_result로 라우팅한다."""
 
     answer: str
+    grounded: bool = Field(
+        description=(
+            "검색된 법규 발췌만으로 질문에 실제로 답변했으면 true. "
+            "발췌에 관련 근거가 없어 '관련 근거를 찾지 못했습니다'류로 답했으면 false."
+        )
+    )
 
 
 def _render_locator(metadata: dict) -> str:
@@ -171,6 +181,13 @@ def _node_answer(state: RagChatState) -> RagChatState:
     return {**state, "llm_answer": llm_answer}
 
 
+def _route_after_answer(state: RagChatState) -> Literal["build_sources", "no_result"]:
+    """LLM 답변 후 라우터 — 검색 발췌로 실제 답변했으면(grounded=true) build_sources,
+    아니면(grounded=false) no_result. docs 비존재만 걸러내던 _route_after_retrieve와 달리
+    "검색은 됐지만 무관한 발췌"까지 여기서 걸러낸다."""
+    return "build_sources" if state["llm_answer"].grounded else "no_result"
+
+
 def _node_build_sources(state: RagChatState) -> RagChatState:
     """출처 빌드 노드.
 
@@ -202,7 +219,8 @@ def _node_cache_write(state: RagChatState) -> RagChatState:
 
 
 def _node_no_result(state: RagChatState) -> RagChatState:
-    """검색 0건 응답 노드.
+    """근거 없음 응답 노드 — 검색 0건(_route_after_retrieve) 또는 검색은 됐지만 무관함
+    (_route_after_answer, grounded=false) 두 경로에서 모두 진입한다.
 
     RAG_NO_RESULT 에러 응답을 세팅. 캐시는 저장하지 않음 (설계 §4.3).
     """
@@ -246,8 +264,14 @@ _graph.add_conditional_edges(
     {"answer": "answer", "no_result": "no_result"}
 )
 
+# answer 후 조건부 분기 — grounded=false면 no_result로(무관한 발췌에 sources 붙이는 것 방지)
+_graph.add_conditional_edges(
+    "answer",
+    _route_after_answer,
+    {"build_sources": "build_sources", "no_result": "no_result"}
+)
+
 # 무조건 엣지 (재시도 없음, 선형 흐름)
-_graph.add_edge("answer", "build_sources")
 _graph.add_edge("build_sources", "cache_write")
 _graph.add_edge("cache_write", END)
 _graph.add_edge("no_result", END)
