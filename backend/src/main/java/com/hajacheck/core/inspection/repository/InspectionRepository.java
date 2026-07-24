@@ -35,4 +35,15 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     // 점검 회차 생성(dev-05-02) — 시설물별 다음 회차 번호 계산.
     @Query("select coalesce(max(i.roundNo), 0) from Inspection i where i.facilityId = :facilityId")
     int findMaxRoundNoByFacilityId(@Param("facilityId") Long facilityId);
+
+    // 시설물 현황 목록(#540 ⑥, HAJA-378) — 시설물별 "최근 점검일" 1건씩만 필요하다.
+    // findRecentByFacilityIds 는 전체 시설물이 뒤섞인 플랫 리스트라 시설물별 최신 1건 추출에는
+    // 부적합(서비스단 재그룹 없이는 못 씀). Postgres DISTINCT ON 으로 시설물별 최신 1건만
+    // DB 단에서 골라 N+1/인메모리 재그룹 없이 반환한다(정렬은 findRecentByFacilityIds 와 동일 기준:
+    // inspection_date desc, id desc — 동일 날짜 여러 회차 시 최신 등록분을 "최근 점검"으로 취급).
+    @Query(value = "select distinct on (i.facility_id) i.* from inspections i "
+            + "where i.facility_id in (:facilityIds) "
+            + "order by i.facility_id, i.inspection_date desc, i.id desc",
+            nativeQuery = true)
+    List<Inspection> findLatestByFacilityIds(@Param("facilityIds") Collection<Long> facilityIds);
 }
