@@ -5,6 +5,7 @@ import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectStatus;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.facility.entity.Facility;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -18,6 +19,10 @@ import java.time.LocalDateTime;
  * {@link com.hajacheck.core.media.dto.MediaResponse}와 동일하게 기존 인가된 썸네일 엔드포인트
  * ({@code /api/media/{id}/thumbnail})를 재사용한다 — 원본은 직접 서빙하지 않는다는 PRD FR-2 정책을
  * 그대로 따른다.
+ *
+ * <p>actionPhotoUrl~actionAssigneeName(HAJA-393/#725)은 "조치 결과 등록"(PATCH /api/defects/{id}/action)
+ * 이전에는 전부 null이다. actionAssigneeName은 엔티티가 Long id만 보유하므로 서비스 계층에서 조회해
+ * {@link #from(Defect, String)}로 채운다. 이름을 조회하지 않는 목록 등에서는 기존 {@link #from(Defect)}가 null로 남긴다.
  */
 public record DefectResponse(
         Long id,
@@ -38,9 +43,18 @@ public record DefectResponse(
         Double crackWidthMm,
         Double crackLengthMm,
         String imageUrl,
+        String actionPhotoUrl,
+        String actionContent,
+        LocalDate actionDate,
+        Long actionAssigneeId,
+        String actionAssigneeName,
         LocalDateTime createdAt
 ) {
     public static DefectResponse from(Defect defect) {
+        return from(defect, null);
+    }
+
+    public static DefectResponse from(Defect defect, String actionAssigneeName) {
         Facility facility = defect.getInspection().getFacility();
         return new DefectResponse(
                 defect.getId(),
@@ -61,6 +75,11 @@ public record DefectResponse(
                 defect.getCrackWidthMm(),
                 defect.getCrackLengthMm(),
                 defect.getMediaId() == null ? null : "/api/media/" + defect.getMediaId() + "/thumbnail",
+                defect.getActionMediaId() == null ? null : "/api/media/" + defect.getActionMediaId() + "/thumbnail",
+                defect.getActionContent(),
+                defect.getActionDate(),
+                defect.getActionAssigneeId(),
+                actionAssigneeName,
                 defect.getCreatedAt()
         );
     }
