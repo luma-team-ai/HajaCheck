@@ -335,7 +335,10 @@ export function AiAnalysisStatusPage() {
               </Button>
             ) : (
               <>
-                <Button type="button" variant="secondary">
+                {/* 코드 리뷰 P2(미해소 지적) — 취소 API가 아직 없다. onClick 없는 클릭 가능한
+                    버튼으로 두면 사용자가 눌러도 아무 일도 안 일어나는 오동작이라, InspectionCreatePage의
+                    "임시저장" 버튼과 동일하게 disabled+title로 명확히 "준비 중"임을 알린다. */}
+                <Button type="button" variant="secondary" disabled title="분석 취소는 준비 중입니다">
                   분석 취소
                 </Button>
                 <Button

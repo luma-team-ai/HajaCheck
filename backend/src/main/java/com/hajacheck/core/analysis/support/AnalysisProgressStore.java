@@ -19,4 +19,14 @@ public interface AnalysisProgressStore {
 
     /** 큐잉 실패로 롤백하거나(TaskRejectedException) 전체 실패로 상태를 되돌릴 때 잔여 캐시를 지운다. */
     void delete(Long inspectionId);
+
+    /**
+     * 저장소 자체가 지금 정상 응답 중인지(코드 리뷰 P2, 사용자 확인 완료) — find()가 fail-soft라
+     * "캐시가 진짜 없음"과 "장애로 못 읽음"을 Optional만으로는 구분할 수 없다.
+     * InspectionAnalysisService의 ANALYZING 고착 판정이 이 값으로 둘을 나눈다: 저장소가 정상인데
+     * 캐시가 없으면 진짜 고착(재시작 허용), 저장소 자체가 불안정하면 진행 중인 잡을 오판할 위험이
+     * 있으니 보수적으로 "아직 진행 중"으로 본다(ALREADY_RUNNING) — 저장소가 복구되면 그 다음
+     * 재시도부터 정상적으로 고착 판정이 동작한다.
+     */
+    boolean isAvailable();
 }

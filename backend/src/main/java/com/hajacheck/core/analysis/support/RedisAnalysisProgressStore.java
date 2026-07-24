@@ -10,6 +10,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -76,6 +78,23 @@ public class RedisAnalysisProgressStore implements AnalysisProgressStore {
         } catch (DataAccessException e) {
             // save()/find()와 동일한 이유로 fail-soft — TTL(6시간)이 있어 방치돼도 결국 만료된다.
             log.warn("분석 진행 상태 캐시 삭제 실패 — inspectionId={}", inspectionId, e);
+        }
+    }
+
+    /**
+     * PING으로 Redis 연결 자체가 살아있는지 확인한다(코드 리뷰 P2, 사용자 확인 완료) —
+     * {@link AnalysisProgressStore#isAvailable} 계약 참고. find()/save()의 fail-soft(예외를
+     * Optional.empty()/무시로 흡수)와 별개로, InspectionAnalysisService의 ANALYZING 고착 판정이
+     * "캐시 진짜 없음"과 "Redis 장애로 못 읽음"을 구분하는 데 쓴다.
+     */
+    @Override
+    public boolean isAvailable() {
+        try {
+            String pong = redisTemplate.execute((RedisCallback<String>) RedisConnection::ping);
+            return pong != null;
+        } catch (DataAccessException e) {
+            log.warn("Redis 가용성 확인 실패", e);
+            return false;
         }
     }
 }

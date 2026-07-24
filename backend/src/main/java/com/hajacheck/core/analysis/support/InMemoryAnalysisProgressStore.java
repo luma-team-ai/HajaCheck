@@ -31,4 +31,9 @@ public class InMemoryAnalysisProgressStore implements AnalysisProgressStore {
     public void delete(Long inspectionId) {
         store.remove(inspectionId);
     }
+
+    @Override
+    public boolean isAvailable() {
+        return true;
+    }
 }

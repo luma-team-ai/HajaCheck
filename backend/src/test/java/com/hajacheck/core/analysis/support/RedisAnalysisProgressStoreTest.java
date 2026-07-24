@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
@@ -83,6 +84,26 @@ class RedisAnalysisProgressStoreTest {
         Optional<AnalysisStatusResponse> roundTripped = store.find(1L);
 
         assertThat(roundTripped).contains(original);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void isAvailable_PING성공하면_true를반환한다() {
+        when(redisTemplate.execute(any(RedisCallback.class))).thenReturn("PONG");
+
+        assertThat(store.isAvailable()).isTrue();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void isAvailable_Redis장애면_false를반환하고예외를전파하지않는다() {
+        // 코드 리뷰 P2(사용자 확인 완료) — InspectionAnalysisService.stuckReason()이 이 값으로
+        // "캐시 진짜 없음"과 "Redis 장애로 못 읽음"을 구분한다. 여기서 예외가 새면 그 판정 로직
+        // 자체가 죽는다.
+        when(redisTemplate.execute(any(RedisCallback.class)))
+                .thenThrow(new RedisConnectionFailureException("연결 끊김"));
+
+        assertThat(store.isAvailable()).isFalse();
     }
 
     private AnalysisStatusResponse sampleProgress() {

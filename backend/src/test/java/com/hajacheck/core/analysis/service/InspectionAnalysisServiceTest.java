@@ -12,7 +12,9 @@ import static org.mockito.Mockito.when;
 
 import com.hajacheck.core.analysis.dto.AnalysisStatusResponse;
 import com.hajacheck.core.analysis.support.AnalysisProgressStore;
+import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.repository.DefectRevisionRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
@@ -55,6 +57,8 @@ class InspectionAnalysisServiceTest {
     @Mock
     private DefectRepository defectRepository;
     @Mock
+    private DefectRevisionRepository defectRevisionRepository;
+    @Mock
     private AnalysisProgressStore progressStore;
     @Mock
     private InspectionAnalysisWorker worker;
@@ -77,6 +81,12 @@ class InspectionAnalysisServiceTest {
                 .build();
         ReflectionTestUtils.setField(inspection, "id", INSPECTION_ID);
         return inspection;
+    }
+
+    private Defect defect(Long id) {
+        Defect defect = Defect.builder().inspectionId(INSPECTION_ID).build();
+        ReflectionTestUtils.setField(defect, "id", id);
+        return defect;
     }
 
     private Media image(Long id) {
@@ -106,10 +116,11 @@ class InspectionAnalysisServiceTest {
     }
 
     @Test
-    void startAnalysis_ANALYZING인데_진행률캐시없으면_고착으로보고복구후재시작() {
+    void startAnalysis_ANALYZING인데_진행률캐시없고_Redis정상이면_고착으로보고복구후재시작() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
         when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.empty());
+        when(progressStore.isAvailable()).thenReturn(true);
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
@@ -120,6 +131,25 @@ class InspectionAnalysisServiceTest {
         verify(inspectionService).advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.UPLOADING);
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
                 eq(InspectionStatus.UPLOADING));
+    }
+
+    @Test
+    void startAnalysis_ANALYZING인데_캐시없고_Redis자체가불안정하면_ALREADY_RUNNING_이중워커안함() {
+        // 코드 리뷰 P2(사용자 확인 완료) — find()가 fail-soft라 "캐시 진짜 없음"과 "Redis 장애로
+        // 못 읽음"을 Optional만으로는 구분 못한다. isAvailable()==false(Redis 자체가 불안정)면
+        // 실제로는 다른 워커가 살아서 돌고 있을 수 있으니 고착으로 오판해 재시작하지 않고 보수적으로
+        // ALREADY_RUNNING을 던진다 — 정상 진행 중인 잡에 대해 이중 워커가 뜨는 걸 막는다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
+        when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.empty());
+        when(progressStore.isAvailable()).thenReturn(false);
+
+        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
+
+        verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -183,6 +213,43 @@ class InspectionAnalysisServiceTest {
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
         verify(progressStore, never()).save(any());
         verify(worker, never()).runAsync(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void startAnalysis_ANALYZED인데_사람이조정한하자가있으면_ANALYSIS_NOT_ALLOWED로거부한다() {
+        // 코드 리뷰 P2(제품 결정) — REVIEWED/REPORTED만 보호하면 ANALYZED 단계(검수 완료 전)에서
+        // 등급을 조정한 하자가 재분석으로 무보상 삭제되는 구멍이 남는다. defect_revisions 존재로
+        // "사람이 손댄 하자"를 판정한다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
+        when(defectRepository.findByInspectionIdAndNotDeleted(INSPECTION_ID))
+                .thenReturn(List.of(defect(1L), defect(2L)));
+        when(defectRevisionRepository.existsByDefectIdIn(List.of(1L, 2L))).thenReturn(true);
+
+        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
+
+        verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void startAnalysis_ANALYZED인데_리비전없으면_정상진행한다() {
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
+        when(defectRepository.findByInspectionIdAndNotDeleted(INSPECTION_ID))
+                .thenReturn(List.of(defect(1L)));
+        when(defectRevisionRepository.existsByDefectIdIn(List.of(1L))).thenReturn(false);
+        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+                .thenReturn(List.of(image(1L)));
+        when(inspectionService.tryStartAnalyzing(USER_ID, COMPANY_ID, INSPECTION_ID)).thenReturn(true);
+
+        service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
+                eq(InspectionStatus.ANALYZED));
     }
 
     @Test

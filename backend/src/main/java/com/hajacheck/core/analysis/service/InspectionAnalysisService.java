@@ -7,6 +7,7 @@ import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.repository.DefectRevisionRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
@@ -58,6 +59,7 @@ public class InspectionAnalysisService {
     private final InspectionService inspectionService;
     private final MediaRepository mediaRepository;
     private final DefectRepository defectRepository;
+    private final DefectRevisionRepository defectRevisionRepository;
     private final AnalysisProgressStore progressStore;
     private final InspectionAnalysisWorker worker;
 
@@ -87,6 +89,11 @@ public class InspectionAnalysisService {
      *       없는 상태(REVIEWED/REPORTED)에서는 {@link ErrorCode#ANALYSIS_NOT_ALLOWED}로 거부한다.
      *       가드가 없으면 검수 완료·보고서화된 회차도 재분석 트리거만으로 사람이 조정한 하자가
      *       무보상으로 삭제되고 상태가 ANALYZED로 역행해 보고서 확정 워크플로우가 깨진다.</li>
+     *   <li><b>ANALYZED 리비전 가드</b>(P2, 제품 결정): 소스 상태가 ANALYZED이면 이 회차의 하자
+     *       중 사람이 조정(defect_revisions 존재)한 것이 하나라도 있는지 확인해, 있으면 REVIEWED/
+     *       REPORTED와 동일하게 {@link ErrorCode#ANALYSIS_NOT_ALLOWED}로 거부한다. 위 소스 상태
+     *       가드는 REVIEWED/REPORTED만 "사람이 확정한 최종 상태"로 보호하는데, ANALYZED 단계에서도
+     *       검수 완료 전에 등급 등을 조정하는 워크플로우가 있어 같은 무보상 유실 위험을 가진다.</li>
      * </ul>
      */
     public void startAnalysis(Long requesterUserId, Long companyId, Long inspectionId) {
@@ -94,18 +101,22 @@ public class InspectionAnalysisService {
         InspectionStatus statusBeforeAnalysis = inspection.getStatus();
 
         if (statusBeforeAnalysis == InspectionStatus.ANALYZING) {
-            Optional<AnalysisStatusResponse> cached = progressStore.find(inspectionId);
-            if (cached.isPresent() && !isCacheStale(cached.get())) {
+            String stuckReason = stuckReason(progressStore.find(inspectionId));
+            if (stuckReason == null) {
                 throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
             }
-            log.warn("ANALYZING 고착 감지({}) — inspectionId={} 재시작을 허용한다",
-                    cached.isPresent() ? "캐시 하트비트 지연" : "진행률 캐시 없음", inspectionId);
+            log.warn("ANALYZING 고착 감지({}) — inspectionId={} 재시작을 허용한다", stuckReason, inspectionId);
             inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, RECOVERY_STATUS);
             statusBeforeAnalysis = RECOVERY_STATUS;
         }
 
         if (!ANALYSIS_ALLOWED_SOURCE_STATUSES.contains(statusBeforeAnalysis)) {
             // 코드 리뷰 P1 — REVIEWED/REPORTED(검수·보고서 확정) 회차는 재분석을 허용하지 않는다.
+            throw new BusinessException(ErrorCode.ANALYSIS_NOT_ALLOWED);
+        }
+
+        if (statusBeforeAnalysis == InspectionStatus.ANALYZED && hasUserRevisedDefects(inspectionId)) {
+            // 코드 리뷰 P2(제품 결정) — ANALYZED 단계에서도 사람이 하자를 조정했으면 재분석을 막는다.
             throw new BusinessException(ErrorCode.ANALYSIS_NOT_ALLOWED);
         }
 
@@ -171,6 +182,36 @@ public class InspectionAnalysisService {
             return false;
         }
         return Duration.between(cached.updatedAt(), Instant.now()).compareTo(STUCK_HEARTBEAT_THRESHOLD) > 0;
+    }
+
+    /**
+     * ANALYZED 회차의 현재 비삭제 하자 중 사람이 조정(defect_revisions 존재)한 것이 있는지
+     * 확인한다(코드 리뷰 P2, 제품 결정 완료).
+     */
+    private boolean hasUserRevisedDefects(Long inspectionId) {
+        List<Long> defectIds = defectRepository.findByInspectionIdAndNotDeleted(inspectionId).stream()
+                .map(Defect::getId)
+                .toList();
+        return !defectIds.isEmpty() && defectRevisionRepository.existsByDefectIdIn(defectIds);
+    }
+
+    /**
+     * ANALYZING 고착 여부와 사유를 함께 판정한다(코드 리뷰 P2, 사용자 확인 완료) — 반환값이
+     * {@code null}이면 고착이 아니다(=진행 중인 것으로 보고 ALREADY_RUNNING). non-null이면 그
+     * 사유 문자열이고 호출부가 고착 복구를 진행한다.
+     *
+     * <p>캐시가 있으면 하트비트({@link #isCacheStale})로만 판단한다. 캐시가 "없으면" 두 가지
+     * 원인이 구분 안 된다 — ①TTL 만료·크래시로 진짜 없음(고착) ②Redis 자체가 지금 불안정해서
+     * find()가 fail-soft로 empty를 돌려준 것(진행 중인 잡을 오판할 위험). {@link
+     * AnalysisProgressStore#isAvailable}로 저장소가 정상임을 확인했을 때만 "진짜 없음"으로 보고
+     * 고착 복구를 허용한다 — Redis가 죽어 있으면 판단을 유보하고 진행 중이라고 보수적으로 본다
+     * (저장소가 복구되면 다음 재시도부터 정상적으로 고착 판정이 동작한다).
+     */
+    private String stuckReason(Optional<AnalysisStatusResponse> cached) {
+        if (cached.isPresent()) {
+            return isCacheStale(cached.get()) ? "캐시 하트비트 지연" : null;
+        }
+        return progressStore.isAvailable() ? "진행률 캐시 없음" : null;
     }
 
     private AnalysisStatusResponse rebuildFromDb(Inspection inspection) {
