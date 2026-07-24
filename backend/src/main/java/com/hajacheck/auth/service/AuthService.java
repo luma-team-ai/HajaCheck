@@ -2,10 +2,12 @@ package com.hajacheck.auth.service;
 
 import com.hajacheck.auth.dto.AssignableUserResponse;
 import com.hajacheck.auth.dto.UserResponse;
+import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyMembershipRepository;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -27,6 +29,7 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final CompanyMembershipRepository companyMembershipRepository;
+    private final CompanyRepository companyRepository;
 
     /**
      * 로그인 성공 후 lastLoginAt 갱신(dirty checking).
@@ -38,8 +41,26 @@ public class AuthService {
         findUser(userId).updateLastLogin(Instant.now());
     }
 
+    /**
+     * 내 정보 조회(#740) — 가입일(createdAt)과 소속 기업명(companyName)을 함께 응답한다.
+     * companyId가 null인 개인 회원은 companyName=null. companyId가 있어도 회사가 삭제 등으로
+     * 조회되지 않으면 존재 열거 없이 companyName=null로 방어(이 API는 본인 조회이므로 오류로
+     * 막을 필요 없이 null로 내려주는 편이 UX상 적절 — PlatformAdminUserResponse.from(User, String)와
+     * 동일한 "호출부가 조회한 값을 넘긴다" 패턴).
+     */
     public UserResponse getMe(Long userId) {
-        return UserResponse.from(findUser(userId));
+        User user = findUser(userId);
+        String companyName = resolveCompanyName(user.getCompanyId());
+        return UserResponse.from(user, companyName);
+    }
+
+    private String resolveCompanyName(Long companyId) {
+        if (companyId == null) {
+            return null;
+        }
+        return companyRepository.findById(companyId)
+                .map(Company::getName)
+                .orElse(null);
     }
 
     /**
