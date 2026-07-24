@@ -107,17 +107,30 @@ export function Header({ breadcrumb, unreadCount = 0, onNotificationClick, onPro
           </button>
 
           {profileMenu && isProfileMenuOpen && (
-            <div className="absolute top-full right-0 z-50 mt-2">
+            // absolute+top-full은 헤더의 로컬 스태킹 컨텍스트에 갇혀, 지도뷰(카카오맵이 CustomOverlay에
+            // 큰 zIndex를 직접 지정 — features/map/MapPage.tsx 참조)처럼 명시적으로 높은 z-index를 쓰는
+            // 페이지 콘텐츠에 가려질 수 있었다(다른 담당자 리포트). 알림 드롭다운(NotificationCenter.tsx)이
+            // 이미 이 문제를 겪지 않는 이유는 fixed로 뷰포트 기준 최상위 스태킹 컨텍스트에 렌더되기
+            // 때문 — 동일 패턴으로 맞춘다. 헤더 우측 끝(px-8) 버튼이라 오프셋도 그와 동일하게 right-8.
+            <div className="fixed top-16 right-8 z-50">
               <ProfileMenu
                 {...profileMenu}
-                onMyInfoClick={() => {
-                  closeProfileMenu();
-                  profileMenu.onMyInfoClick();
-                }}
-                onMyPlanClick={() => {
-                  closeProfileMenu();
-                  profileMenu.onMyPlanClick();
-                }}
+                onMyInfoClick={
+                  profileMenu.onMyInfoClick
+                    ? () => {
+                        closeProfileMenu();
+                        profileMenu.onMyInfoClick?.();
+                      }
+                    : undefined
+                }
+                onMyPlanClick={
+                  profileMenu.onMyPlanClick
+                    ? () => {
+                        closeProfileMenu();
+                        profileMenu.onMyPlanClick?.();
+                      }
+                    : undefined
+                }
                 onLogout={() => {
                   closeProfileMenu();
                   profileMenu.onLogout();

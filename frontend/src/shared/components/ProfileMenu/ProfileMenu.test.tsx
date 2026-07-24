@@ -54,6 +54,17 @@ describe('ProfileMenu', () => {
     expect(props.onLogout).toHaveBeenCalledTimes(1);
   });
 
+  it('companyName·onMyInfoClick·onMyPlanClick 미지정 시(플랫폼 관리자, #773) 해당 UI를 렌더링하지 않는다', () => {
+    render(
+      <ProfileMenu name="플랫폼 운영진" email="platform-admin@example.com" onLogout={vi.fn()} />,
+    );
+
+    expect(screen.queryByRole('menuitem', { name: /내 정보/ })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /내 플랜/ })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: /로그아웃/ })).not.toBeNull();
+    expect(screen.getByText('플랫폼 운영진')).not.toBeNull();
+  });
+
   it('onClose 제공 시 바깥 클릭·ESC로 닫을 수 있다', () => {
     const handleClose = vi.fn();
     renderMenu({ onClose: handleClose });
