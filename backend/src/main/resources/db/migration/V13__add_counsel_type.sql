@@ -6,6 +6,9 @@
 -- "기존 DB" 경로(FlywayBaselineOnExistingDbIntegrationTest)에서 no-op 성공하도록, 기존 V6/V10과
 -- 동일한 IF NOT EXISTS/가드 컨벤션을 따른다. 상담사(users.role=COUNSELOR) 제약은 로컬/운영 role_type
 -- 정합이 아직 안 맞아(Role.java 상단 주석) DB 레벨 CHECK/트리거 없이 서비스 레벨 검증으로만 둔다.
+--
+-- V12는 dev에 아직 미병합인 #725/#726 시설물 재설계 마이그레이션이 선점해 V13으로 재번호했다
+-- (V6/V10과 동일한 재번호 컨벤션).
 
 do $$
 begin
