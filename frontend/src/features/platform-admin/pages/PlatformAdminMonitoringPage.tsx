@@ -1,19 +1,64 @@
+import { useRef, useState } from 'react';
+import { Pagination } from '../../../shared/components/Pagination';
 import { AnalysisJobQueueCard } from '../components/AnalysisJobQueueCard';
+import { ErrorLogFilterBar } from '../components/ErrorLogFilterBar';
+import type { ErrorLogLevelFilter } from '../components/ErrorLogFilterBar';
 import { ErrorLogTable } from '../components/ErrorLogTable';
-import { HfApiUsageCard } from '../components/HfApiUsageCard';
 import { ServerHealthCards } from '../components/ServerHealthCards';
+import { ServerResourceCard } from '../components/ServerResourceCard';
 import { useSystemMonitoring } from '../hooks/useSystemMonitoring';
 import { filterToLatestDay } from '../utils/filterToLatestDay';
 
+const ERROR_LOG_PAGE_SIZE = 10;
+// 분석 잡 큐는 요약 카드일 뿐이라 최대 5건만 노출하고, 그 이상 상세 조회는 DB에서 직접 확인하게
+// 한다(사용자 지시) — 목록 조회 API·페이지네이션을 별도로 만들지 않는다.
+const JOB_QUEUE_DISPLAY_LIMIT = 5;
+
+// <input type="date"> value 포맷(YYYY-MM-DD)에 맞춘 로컬 타임존 기준 오늘 날짜.
+// toISOString()은 UTC라 자정 근처에 날짜가 하루 밀릴 수 있어 사용하지 않는다.
+function getTodayDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // 플랫폼 관리자 > 시스템 모니터링(#729) — Figma node-id 1-404. 헤더(브레드크럼)·사이드바는
 // PlatformAdminShellRoute가 담당하므로 이 페이지는 CONTENT 영역만 그린다(다른 platform-admin
-// 페이지와 동일 계약). 분석 잡 큐·에러 로그는 최신 1일치만 노출한다(사용자 지시) — 큐 요약 배지
-// (진행/완료/실패)는 별도 집계값이라 이 필터의 영향을 받지 않는다.
+// 페이지와 동일 계약). 분석 잡 큐는 최신 1일치 중 최대 5건만 노출한다(사용자 지시) — 큐 요약 배지
+// (진행/완료/실패)는 별도 집계값이라 이 필터의 영향을 받지 않는다. 에러 로그는 날짜 검색 + LEVEL 필터 + 페이지네이션으로
+// 전체 목록(백엔드 최근 50건)을 탐색한다(#729 후속).
 export function PlatformAdminMonitoringPage() {
   const { data, isLoading, isError, refetch } = useSystemMonitoring();
 
-  const latestDayJobs = filterToLatestDay(data?.jobQueue.jobs ?? [], (job) => job.recordedAt);
-  const latestDayErrorLogs = filterToLatestDay(data?.errorLogs ?? [], (log) => log.timestamp);
+  const [errorLogDate, setErrorLogDate] = useState(getTodayDateString);
+  const [errorLogLevel, setErrorLogLevel] = useState<ErrorLogLevelFilter>('ALL');
+  const [errorLogPage, setErrorLogPage] = useState(1);
+
+  // 날짜·레벨 조건이 바뀌면 1페이지로 되돌린다(PlatformAdminUsersPage와 동일 패턴).
+  const errorLogFilterSignature = `${errorLogDate}|${errorLogLevel}`;
+  const prevErrorLogFilterSignatureRef = useRef(errorLogFilterSignature);
+  if (prevErrorLogFilterSignatureRef.current !== errorLogFilterSignature) {
+    prevErrorLogFilterSignatureRef.current = errorLogFilterSignature;
+    setErrorLogPage(1);
+  }
+
+  const latestDayJobs = filterToLatestDay(data?.jobQueue.jobs ?? [], (job) => job.recordedAt).slice(
+    0,
+    JOB_QUEUE_DISPLAY_LIMIT,
+  );
+
+  const filteredErrorLogs = (data?.errorLogs ?? []).filter((log) => {
+    const matchesDate = !errorLogDate || log.timestamp.startsWith(errorLogDate);
+    const matchesLevel = errorLogLevel === 'ALL' || log.level === errorLogLevel;
+    return matchesDate && matchesLevel;
+  });
+  const errorLogTotalPages = Math.max(1, Math.ceil(filteredErrorLogs.length / ERROR_LOG_PAGE_SIZE));
+  const pagedErrorLogs = filteredErrorLogs.slice(
+    (errorLogPage - 1) * ERROR_LOG_PAGE_SIZE,
+    errorLogPage * ERROR_LOG_PAGE_SIZE,
+  );
 
   return (
     <div className="flex min-h-full flex-col gap-6 bg-surface-muted p-6 sm:p-8">
@@ -35,19 +80,30 @@ export function PlatformAdminMonitoringPage() {
           isError={isError}
           onRefresh={() => void refetch()}
         />
-        <HfApiUsageCard usage={data?.hfApiUsage} isLoading={isLoading} isError={isError} />
+        <ServerResourceCard resourceUsage={data?.resourceUsage} isLoading={isLoading} isError={isError} />
       </div>
 
       <section className="flex flex-col gap-4 rounded-[20px] border border-border bg-surface p-6">
-        <div className="flex items-center justify-between">
-          <h3 className="m-0 text-base font-bold text-heading">최근 에러 로그</h3>
-          {/* 전체 로그 조회 화면은 이 이슈 범위 밖 — 우선 Figma 시안대로 어포던스만 노출한다(#729). */}
-          <span className="flex items-center gap-1 text-[13px] font-medium text-text-muted">
-            전체 보기
-            <span aria-hidden>→</span>
-          </span>
+        <h3 className="m-0 text-base font-bold text-heading">에러 로그</h3>
+        <ErrorLogFilterBar
+          date={errorLogDate}
+          onDateChange={setErrorLogDate}
+          level={errorLogLevel}
+          onLevelChange={setErrorLogLevel}
+        />
+        <ErrorLogTable
+          logs={pagedErrorLogs}
+          isLoading={isLoading}
+          isError={isError}
+          pageSize={ERROR_LOG_PAGE_SIZE}
+        />
+        <div className="flex justify-end">
+          <Pagination
+            currentPage={errorLogPage}
+            totalPages={errorLogTotalPages}
+            onPageChange={setErrorLogPage}
+          />
         </div>
-        <ErrorLogTable logs={latestDayErrorLogs} isLoading={isLoading} isError={isError} />
       </section>
     </div>
   );

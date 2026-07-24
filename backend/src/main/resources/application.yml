@@ -128,6 +128,8 @@ ai:
     # HF Inference(Qwen3 reasoning)는 정상 응답에도 최대 HF_TIMEOUT(기본 120s)까지 걸릴 수 있어,
     # read-timeout이 그보다 작으면 Spring이 먼저 끊어 정상 응답조차 실패 처리된다(#448 P1). 여유분 포함 150s.
     read-timeout-ms: 150000
+    # 플랫폼 관리자 모니터링(#728) ai-server 헬스체크 전용 — 위 read-timeout-ms 와 별개로 짧게 끊는다.
+    health-check-timeout-ms: 3000
 
 # 국세청 사업자등록정보 진위확인(data.go.kr) — #596. service-key 미설정 시 진위확인을 스킵하고
 # 가입을 그대로 진행한다(fail-open). service-key 는 data.go.kr "일반 인증키(Decoding)" 를 주입한다.

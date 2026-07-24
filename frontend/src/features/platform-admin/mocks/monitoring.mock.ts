@@ -44,19 +44,10 @@ export const mockSystemMonitoring: SystemMonitoringResponse = {
       },
     ],
   },
-  hfApiUsage: {
-    weeklyUsage: [
-      { day: 'Mon', usage: 20 },
-      { day: 'Tue', usage: 45 },
-      { day: 'Wed', usage: 38 },
-      { day: 'Thu', usage: 70 },
-      { day: 'Fri', usage: 55 },
-      { day: 'Sat', usage: 88 },
-      { day: 'Sun', usage: 0 },
-    ],
-    budgetUsedPercent: 68,
-    budgetLimitPercent: 80,
-    warningMessage: '일일 한도 초과 시 디그레이드 모드 전환 (이미지 해상도 다운샘플링 적용)',
+  resourceUsage: {
+    cpuUsagePercent: 42.5,
+    memoryUsagePercent: 61.3,
+    diskUsagePercent: 74.8,
   },
   errorLogs: [
     {
