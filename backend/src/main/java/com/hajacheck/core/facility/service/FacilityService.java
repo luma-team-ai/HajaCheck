@@ -1,17 +1,26 @@
 package com.hajacheck.core.facility.service;
 
+import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
+import com.hajacheck.core.facility.dto.FacilityStatusResponse;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.repository.FacilityRepository;
+import com.hajacheck.core.inspection.entity.Inspection;
+import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -33,9 +42,14 @@ public class FacilityService {
     // 훨씬 크게 잡는다. 진짜 페이지네이션(Page 응답) 전환 전까지의 임시 방어값.
     private static final int FACILITY_LIST_MAX = 500;
 
+    // 시설물 현황 목록(#540 ⑥, HAJA-378) — dDay 산출 기준 시각대(DashboardService 와 동일 관례).
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
     private final FacilityRepository facilityRepository;
     private final CompanyScopeGuard companyScopeGuard;
     private final AuthService authService;
+    private final InspectionRepository inspectionRepository;
+    private final UserRepository userRepository;
 
     @Transactional
     public FacilityResponse create(Long userId, Long companyId, FacilityCreateRequest request) {
@@ -79,6 +93,55 @@ public class FacilityService {
     public FacilityResponse get(Long userId, Long companyId, Long facilityId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         return FacilityResponse.from(findCompanyFacility(companyId, facilityId));
+    }
+
+    /**
+     * 시설물 현황 전용 목록(#540 ⑥, HAJA-378) — 대시보드 스타일 테이블 화면 전용 읽기 전용 조회.
+     * list()와 동일한 회사 스코프·상한(#484) 정책을 재사용하되, 응답에 상태(initialGrade)·D-day·
+     * 담당자명·최근 점검일을 함께 계산해 붙인다. 담당자명/최근 점검일은 N+1 을 피하기 위해
+     * 배치 조회(findAllById/findLatestByFacilityIds) 후 Map 으로 조립한다
+     * (DashboardService.getRecentInspections() 의 creatorNameById 패턴과 동일).
+     */
+    public List<FacilityStatusResponse> listStatus(Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        List<Facility> facilities =
+                facilityRepository.findByCompanyIdOrderByIdAsc(companyId, PageRequest.of(0, FACILITY_LIST_MAX));
+        if (facilities.size() == FACILITY_LIST_MAX) {
+            long actualCount = facilityRepository.countByCompanyId(companyId);
+            log.warn("시설물 현황 목록 상한({}) 도달 — companyId={} 실제 보유 {}건, 상한 초과분 응답에서 누락",
+                    FACILITY_LIST_MAX, companyId, actualCount);
+        }
+        if (facilities.isEmpty()) {
+            return List.of();
+        }
+
+        LocalDate today = LocalDate.now(KST);
+        List<Long> facilityIds = facilities.stream().map(Facility::getId).toList();
+
+        Map<Long, LocalDate> lastInspectedByFacilityId =
+                inspectionRepository.findLatestByFacilityIds(facilityIds).stream()
+                        .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getInspectionDate));
+
+        List<Long> assigneeIds = facilities.stream()
+                .map(Facility::getAssigneeUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, String> assigneeNameById = assigneeIds.isEmpty()
+                ? Map.of()
+                : userRepository.findAllById(assigneeIds).stream()
+                        .collect(Collectors.toMap(User::getId, User::getName));
+
+        return facilities.stream()
+                .map(facility -> FacilityStatusResponse.of(
+                        facility,
+                        today,
+                        // assigneeUserId 가 null 이면 Map.of()(불변 빈 맵)의 get(null) 이 NPE 를 던지므로
+                        // (ImmutableCollections 는 null 키 조회 자체를 금지) null 키는 조회 전에 걸러낸다.
+                        facility.getAssigneeUserId() == null
+                                ? null : assigneeNameById.get(facility.getAssigneeUserId()),
+                        lastInspectedByFacilityId.get(facility.getId())))
+                .toList();
     }
 
     /**
