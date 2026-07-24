@@ -147,7 +147,6 @@ const DEFAULT_ITEMS: SideNavItem[] = [
       // 이 메뉴 구조를 다시 검토할 것.
       { label: '내 점검 이력/보고서', href: '/mypage/inspections' },
       { label: '내 플랜', href: '/mypage/plan' },
-      { label: '내 상담 내역', href: '/mypage/counsels' },
     ],
   },
   { label: '통계', href: '/statistics', icon: statisticsIcon },
