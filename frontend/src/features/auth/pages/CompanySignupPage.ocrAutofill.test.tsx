@@ -471,4 +471,90 @@ describe('CompanySignupPage — OCR 결과 피드백·자동채움 배지(#748)'
     expect(screen.getAllByText('자동인식')).toHaveLength(3);
     expect(screen.getByText('✓ 3개 항목이 자동입력됐어요')).not.toBeNull();
   });
+
+  // 리뷰어 P2 픽스 — OCR 왕복(수백 ms+) 동안 사용자가 필드를 수정하면, 판정(배지·카운트)이
+  // "파일 선택 시점"이 아니라 "응답 도착 시점의 실제 write 결과"를 따라가야 한다.
+  it('OCR 진행 중 빈 필드에 사용자가 직접 입력하면, 응답 도착 후에도 사용자 값이 유지되고 배지가 붙지 않는다(P2)', async () => {
+    server.use(
+      http.post('/api/auth/business-license/ocr', async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const success: ApiResponse<{
+          businessRegistrationNumber: string | null;
+          companyName: string | null;
+          representativeName: string | null;
+          businessStartDate: string | null;
+        }> = {
+          success: true,
+          data: {
+            businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER,
+            companyName: MOCK_OCR_COMPANY_NAME,
+            representativeName: MOCK_OCR_REPRESENTATIVE_NAME,
+            businessStartDate: MOCK_OCR_BUSINESS_START_DATE,
+          },
+        };
+        return HttpResponse.json(success);
+      }),
+    );
+
+    renderPage();
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pngFile()] } });
+
+    // 응답(50ms) 도착 전, 선택 시점엔 비어있던 상호명에 사용자가 직접 입력한다.
+    fireEvent.change(screen.getByLabelText('상호명'), { target: { value: '사용자입력상호' } });
+
+    // 응답이 도착할 시점까지 기다린다 — 사업자등록번호는 여전히 비어있으니 정상 자동채움된다.
+    await waitFor(() => {
+      expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe(
+        MOCK_OCR_BUSINESS_NUMBER,
+      );
+    });
+
+    // 상호명은 응답 도착 시점에 이미 사용자 입력값이 있었으므로 OCR값으로 덮어써지지 않는다
+    // (functional updater가 응답 시점의 최신 prev를 본다) — 그리고 배지도 붙지 않아야 한다.
+    expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe('사용자입력상호');
+    expect(screen.getAllByText('자동인식')).toHaveLength(3); // 사업자등록번호·대표자명·개업일자만
+    expect(screen.getByText('✓ 3개 항목이 자동입력됐어요')).not.toBeNull();
+  });
+
+  it('OCR 진행 중 이미 값이 있던 필드를 사용자가 비우면, 응답 도착 시 그 필드도 자동채움되고 배지가 붙는다(P2)', async () => {
+    server.use(
+      http.post('/api/auth/business-license/ocr', async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const success: ApiResponse<{
+          businessRegistrationNumber: string | null;
+          companyName: string | null;
+          representativeName: string | null;
+          businessStartDate: string | null;
+        }> = {
+          success: true,
+          data: {
+            businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER,
+            companyName: MOCK_OCR_COMPANY_NAME,
+            representativeName: MOCK_OCR_REPRESENTATIVE_NAME,
+            businessStartDate: MOCK_OCR_BUSINESS_START_DATE,
+          },
+        };
+        return HttpResponse.json(success);
+      }),
+    );
+
+    renderPage();
+    // 대표자명을 선택 이전에 미리 채워둔다 — 선택 시점 판정만 봤다면 "이미 채워진 필드"라
+    // newlyFilled에서 제외됐을 값이다.
+    fireEvent.change(screen.getByLabelText('대표자명'), { target: { value: '임시대표' } });
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pngFile()] } });
+
+    // 응답 도착 전, 사용자가 대표자명을 다시 비운다 — 응답 시점엔 이 필드가 실제로 빈 상태다.
+    fireEvent.change(screen.getByLabelText('대표자명'), { target: { value: '' } });
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('대표자명') as HTMLInputElement).value).toBe(
+        MOCK_OCR_REPRESENTATIVE_NAME,
+      );
+    });
+
+    // 응답 시점의 실제 값(빈 문자열)을 기준으로 자동채움됐으므로 배지도 붙어야 한다.
+    expect(screen.getAllByText('자동인식')).toHaveLength(4);
+    expect(screen.getByText('✓ 4개 항목이 자동입력됐어요')).not.toBeNull();
+  });
 });
