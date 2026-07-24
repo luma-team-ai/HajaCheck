@@ -5,7 +5,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.filter.ThresholdFilter;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.spi.FilterReply;
 import com.hajacheck.platformadmin.dto.ErrorLogItemResponse;
 import java.util.ArrayList;
 import java.util.List;
@@ -90,5 +92,23 @@ class RedisErrorLogAppenderTest {
         appender.append(mockEvent(Level.INFO, "com.hajacheck.auth.service.AuthService", "로그인 성공"));
 
         assertThat(store.recorded).isEmpty();
+    }
+
+    /**
+     * PR #766 2차 리뷰 지적(P2) 회귀 테스트 — attachToRootLogger()가 asyncAppender에 거는
+     * ThresholdFilter(level=WARN)가 실제로 INFO 이하를 큐 진입 전에 걸러내는지 검증한다.
+     * ROOT 로거 attach·AsyncAppender 전체 배선(큐 크기·neverBlock 등)은 통합 테스트 영역이라
+     * 여기서는 필터 판정 로직만 고정한다.
+     */
+    @Test
+    void WARN_임계_필터는_INFO_이하를_거부하고_WARN_ERROR는_통과시킨다() {
+        ThresholdFilter filter = new ThresholdFilter();
+        filter.setLevel(Level.WARN.toString());
+        filter.start();
+
+        assertThat(filter.decide(mockEvent(Level.INFO, "any.Logger", "info"))).isEqualTo(FilterReply.DENY);
+        assertThat(filter.decide(mockEvent(Level.DEBUG, "any.Logger", "debug"))).isEqualTo(FilterReply.DENY);
+        assertThat(filter.decide(mockEvent(Level.WARN, "any.Logger", "warn"))).isEqualTo(FilterReply.NEUTRAL);
+        assertThat(filter.decide(mockEvent(Level.ERROR, "any.Logger", "error"))).isEqualTo(FilterReply.NEUTRAL);
     }
 }

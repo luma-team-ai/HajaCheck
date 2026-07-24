@@ -3,6 +3,7 @@ package com.hajacheck.platformadmin.support;
 import ch.qos.logback.classic.AsyncAppender;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.filter.ThresholdFilter;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
 import com.hajacheck.platformadmin.dto.ErrorLogItemResponse;
@@ -42,6 +43,14 @@ import org.springframework.stereotype.Component;
  * 스레드+bounded 큐를 두고, 큐가 가득 차면(neverBlock) 요청 스레드를 막지 않고 드롭한다(부가 기능이라
  * 손실 허용) — 실제 Redis 호출(이 클래스의 append())은 여전히 여기서 하되, 호출 스레드만 분리된다.
  *
+ * <p><b>WARN/ERROR 우선 보존(PR #766 2차 리뷰 지적)</b>: {@link AsyncAppender}를 ROOT에 그대로 붙이면
+ * 애플리케이션 전역의 INFO 이상 모든 이벤트가 이 큐로 유입돼(실제 레벨 필터는 이 클래스의
+ * {@code append()}에서 뒤늦게 적용됨) 대량 INFO 트래픽이 큐 압력을 만들고, neverBlock으로 큐가
+ * 포화되는 순간(=장애로 로그가 폭주하는 바로 그 시점) 정작 보여줘야 할 WARN/ERROR까지 드롭될 수 있다.
+ * {@link ThresholdFilter}(level=WARN)를 asyncAppender에 걸어 WARN/ERROR만 큐에 진입시키고,
+ * {@code setDiscardingThreshold(0)}로 "큐 80% 참에 낮은 레벨부터 자동 버림" 완화 로직도 끈다(어차피
+ * 큐에는 WARN/ERROR만 들어오므로 낮은 레벨을 버릴 대상 자체가 없다는 것을 명시).
+ *
  * <p><b>개인정보 마스킹(PR #766 리뷰 지적)</b>: 애플리케이션 전역 {@code log.warn}/{@code log.error}
  * 메시지를 그대로 캡처하므로, 예외 메시지에 이메일·전화번호·사업자등록번호 등이 섞여 있으면 마스킹 없이
  * {@code GET /api/platform-admin/monitoring} API로 노출될 수 있다(CLAUDE.md "개인정보는 로그에 평문으로
@@ -78,10 +87,18 @@ public class RedisErrorLogAppender extends AppenderBase<ILoggingEvent> {
         setContext(root.getLoggerContext());
         start();
 
+        ThresholdFilter warnAndAboveOnly = new ThresholdFilter();
+        warnAndAboveOnly.setLevel(Level.WARN.toString());
+        warnAndAboveOnly.start();
+
         AsyncAppender asyncAppender = new AsyncAppender();
         asyncAppender.setContext(root.getLoggerContext());
         asyncAppender.setName("platformAdminErrorLogAsyncAppender");
         asyncAppender.setQueueSize(ASYNC_QUEUE_SIZE);
+        // WARN/ERROR만 큐에 넣는다 — INFO 이하 대량 트래픽이 큐 압력을 만들어 WARN/ERROR를 밀어내는 것을 방지.
+        asyncAppender.addFilter(warnAndAboveOnly);
+        // 큐에는 이제 WARN/ERROR만 들어오므로 "낮은 레벨부터 자동 버림" 완화 로직은 대상이 없다 — 명시적으로 끈다.
+        asyncAppender.setDiscardingThreshold(0);
         // 큐가 가득 차도 요청 스레드를 막지 않고 즉시 드롭한다(neverBlock, logback 1.1.10+) — 부가 기능은
         // 손실을 허용하되 애플리케이션 로깅/요청 처리를 절대 지연시켜서는 안 된다.
         asyncAppender.setNeverBlock(true);
