@@ -1,6 +1,7 @@
 package com.hajacheck.core.defect.controller;
 
 import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.core.defect.dto.DefectActionResultRequest;
 import com.hajacheck.core.defect.dto.DefectResponse;
 import com.hajacheck.core.defect.dto.DefectRevisionResponse;
 import com.hajacheck.core.defect.dto.DefectStatusUpdateRequest;
@@ -74,6 +75,20 @@ public class DefectController {
         DefectResponse response =
                 defectService.updateStatus(
                         loginUser.getUserId(), loginUser.getCompanyId(), id, request.status(), request.reason());
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "조치 결과 등록",
+            description = "조치 후 사진(mediaId)/조치 내용/조치일/담당자를 등록하며 상태를 조치완료(RESOLVED)로 전이한다. "
+                    + "IN_PROGRESS 상태에서만 호출 가능 — 순서를 건너뛴 완료 처리는 400으로 거부된다("
+                    + "\"조치 완료 등록\" 버튼 전용이라 사유 입력란이 없음, HAJA-393/#725)")
+    @PatchMapping("/{id}/action")
+    public ResponseEntity<ApiResponse<DefectResponse>> registerActionResult(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long id,
+            @Valid @RequestBody DefectActionResultRequest request) {
+        DefectResponse response =
+                defectService.registerActionResult(loginUser.getUserId(), loginUser.getCompanyId(), id, request);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 

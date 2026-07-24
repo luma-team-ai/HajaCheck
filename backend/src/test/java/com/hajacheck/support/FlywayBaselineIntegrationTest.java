@@ -20,8 +20,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * V3(create_api_system_logs)→V4(add_platform_admin_role)→V5(add_business_start_date)→
  * V6(defects.media_id)→V7(inspection_admin_schema)→V8(grant_admin_to_company_owners, #636)→
  * V9(facilities.next_inspection_due_at 인덱스, #509)→V10(add_facility_registration_fields, #628)→
- * V11(facilities company scope, #637)을 순서대로 적용하고, Hibernate ddl-auto=validate +
- * PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
+ * V11(facilities company scope, #637)→V12(defects 조치 결과 등록 필드, #725/HAJA-393)을 순서대로
+ * 적용하고, Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
  * 만들고 Flyway는 application-test.yml에서 꺼둠)를 쓴다. 이 클래스만 예외적으로 initScript 없는 컨테이너 +
@@ -64,7 +64,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V11까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V12까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -74,7 +74,8 @@ class FlywayBaselineIntegrationTest {
         // + V5(add_business_start_date, #596) + V6(defects.media_id, #527/HAJA-314) + V7(inspection_admin_schema, #568)
         // + V8(grant_admin_to_company_owners, #636) + V9(facilities.next_inspection_due_at 인덱스, #509)
         // + V10(add_facility_registration_fields, #628/HAJA-347) + V11(facilities company scope, #637)
-        assertThat(appliedMigrations).isEqualTo(11);
+        // + V12(defects 조치 결과 등록 필드, #725/HAJA-393)
+        assertThat(appliedMigrations).isEqualTo(12);
 
         // V5가 companies.business_start_date 컬럼을 실제로 추가했는지 확인(#596).
         Long businessStartDateColumnExists = jdbcTemplate.queryForObject("""
@@ -142,5 +143,13 @@ class FlywayBaselineIntegrationTest {
                 select count(*) from information_schema.columns
                 where table_schema = 'public' and table_name = 'facilities' and column_name = 'company_id'
                 """, Long.class)).isEqualTo(1L);
+
+        // V12가 defects 조치 결과 등록 필드(#725/HAJA-393)를 실제로 추가했는지 확인한다.
+        Long actionResultColumnCount = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'defects'
+                  and column_name in ('action_media_id', 'action_content', 'action_date', 'action_assignee_id')
+                """, Long.class);
+        assertThat(actionResultColumnCount).isEqualTo(4L);
     }
 }

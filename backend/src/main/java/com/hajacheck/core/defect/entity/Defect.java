@@ -16,6 +16,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -109,6 +110,20 @@ public class Defect {
     @Column(name = "crack_length_mm")
     private Double crackLengthMm;
 
+    // 조치 결과 등록(HAJA-393/#725, "조치 완료 등록" 버튼) — 4개 필드 모두 registerActionResult() 를
+    // 통해서만 함께 채워진다(V12, nullable — 조치 등록 전에는 전부 NULL).
+    @Column(name = "action_media_id")
+    private Long actionMediaId;
+
+    @Column(name = "action_content")
+    private String actionContent;
+
+    @Column(name = "action_date")
+    private LocalDate actionDate;
+
+    @Column(name = "action_assignee_id")
+    private Long actionAssigneeId;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
@@ -187,6 +202,22 @@ public class Defect {
         }
         this.status = status;
         this.reviewed = true;
+    }
+
+    /**
+     * 조치 결과 등록(HAJA-393/#725, "조치 완료 등록" 버튼) — 조치 후 사진/조치 내용/조치일/담당자를
+     * 한 번에 저장하면서 RESOLVED로 상태를 전이한다. 별도 사유 입력란이 없는 폼이라 changeStatus()를
+     * reason 없이 호출한다 — 정방향 한 단계(IN_PROGRESS→RESOLVED)만 사유 없이 허용하는 기존 규칙을
+     * 그대로 재사용하므로, 순서를 건너뛴 상태에서 호출하면 DomainValidationException으로 자연히
+     * 막힌다(조기 완료 방지).
+     */
+    public void registerActionResult(Long actionMediaId, String actionContent, LocalDate actionDate,
+                                      Long actionAssigneeId) {
+        changeStatus(DefectStatus.RESOLVED);
+        this.actionMediaId = actionMediaId;
+        this.actionContent = actionContent;
+        this.actionDate = actionDate;
+        this.actionAssigneeId = actionAssigneeId;
     }
 
     public void updateCrackMeasurement(Double crackWidthMm, Double crackLengthMm) {

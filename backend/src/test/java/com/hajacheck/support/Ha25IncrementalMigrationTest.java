@@ -358,7 +358,13 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V11__migrate_facilities_to_company.sql"),
-                        CONTAINER_ROOT + "V11__migrate_facilities_to_company.sql");
+                        CONTAINER_ROOT + "V11__migrate_facilities_to_company.sql")
+                // V12 — #725/HAJA-393 defects 조치 결과 등록 필드(action_media_id/action_content/
+                // action_date/action_assignee_id).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V12__add_defect_action_result_fields.sql"),
+                        CONTAINER_ROOT + "V12__add_defect_action_result_fields.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -438,6 +444,8 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "V10__add_facility_registration_fields.sql");
         // #637 — Flyway V11(facilities company scope 전환)도 이어서 1회 forward-apply한다.
         runPsql(postgres, "V11__migrate_facilities_to_company.sql");
+        // #725/HAJA-393 — Flyway V12(defects 조치 결과 등록 필드)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V12__add_defect_action_result_fields.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }
