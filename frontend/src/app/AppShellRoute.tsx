@@ -7,10 +7,12 @@ import { useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Outlet, useMatches, useNavigate } from 'react-router-dom';
 import { useLogout } from '../features/auth/hooks/useLogout';
-import { MYPAGE_PLAN_ROUTE } from '../features/auth/constants';
+import { MYPAGE_PLAN_ROUTE, MYPAGE_PROFILE_ROUTE } from '../features/auth/constants';
 import { useAuthStore } from '../features/auth/store/authStore';
 import { NotificationCenter } from '../features/notification/components/NotificationCenter';
 import { useNotifications } from '../features/notification/hooks/useNotifications';
+import { useMyPlan } from '../features/mypage/hooks/useMyPlan';
+import { PLAN_NAME_LABEL } from '../features/mypage/utils/planFormat';
 import type { BreadcrumbItem } from '../shared/components/Header';
 import { AppLayout } from '../shared/components/AppLayout';
 import { isAdminRole } from '../shared/constants/roles';
@@ -46,6 +48,9 @@ export function AppShellRoute() {
   // — 각자 role === 'ADMIN'을 따로 비교하면 한쪽만 바뀌었을 때 메뉴·접근 판정이 어긋난다(#378).
   const isAdmin = isAdminRole(authUser?.role);
   const { logout } = useLogout();
+  // Header 프로필 드롭다운(HAJA-758) 상단 플랜 뱃지용 — 마이페이지 "내 플랜"과 동일 소스(useMyPlan)를 재사용해
+  // 표기가 어긋나지 않게 한다. 백엔드 미배포 시에도 useMyPlan 자체가 예제 데이터로 폴백한다(HAJA-185).
+  const { data: myPlan } = useMyPlan();
   // 가장 깊은(마지막) match부터 breadcrumb/activeHref를 선언한 handle을 찾는다.
   const current = [...matches].reverse().find((match) => hasAppShellHandle(match.handle));
   const handle = current?.handle as AppShellHandle | undefined;
@@ -108,6 +113,19 @@ export function AppShellRoute() {
         }
         onLogout={() => void logout()}
         onProfileClick={() => navigate(MYPAGE_PLAN_ROUTE)}
+        profileMenu={
+          authUser
+            ? {
+                companyName: authUser.companyName ?? '개인 회원',
+                planLabel: myPlan ? PLAN_NAME_LABEL[myPlan.plan.name] : PLAN_NAME_LABEL.FREE,
+                name: authUser.name,
+                email: authUser.email,
+                onMyInfoClick: () => navigate(MYPAGE_PROFILE_ROUTE),
+                onMyPlanClick: () => navigate(MYPAGE_PLAN_ROUTE),
+                onLogout: () => void logout(),
+              }
+            : undefined
+        }
         unreadCount={unreadCount}
         onNotificationClick={handleNotificationClick}
       >
