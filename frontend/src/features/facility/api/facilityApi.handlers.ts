@@ -79,6 +79,10 @@ export const facilityHandlers = [
         reqBody.nextInspectionDueAt ?? computeNextInspectionDueAt(reqBody.inspectionCycleMonths),
       createdAt: now,
       updatedAt: now,
+      // #628(HAJA-347) 등록 필드 확장 — 전부 선택 입력
+      initialGrade: reqBody.initialGrade ?? null,
+      assigneeUserId: reqBody.assigneeUserId ?? null,
+      memo: reqBody.memo ?? null,
     };
     nextId += 1;
     facilities = [created, ...facilities];
@@ -122,6 +126,10 @@ export const facilityHandlers = [
       scale: reqBody.scale ?? null,
       inspectionCycleMonths: reqBody.inspectionCycleMonths ?? null,
       nextInspectionDueAt: reqBody.nextInspectionDueAt ?? null,
+      // PUT은 전체 교체(FacilityUpdateRequest와 1:1) — POST와 동일하게 값을 그대로 반영한다.
+      initialGrade: reqBody.initialGrade ?? null,
+      assigneeUserId: reqBody.assigneeUserId ?? null,
+      memo: reqBody.memo ?? null,
       updatedAt: new Date().toISOString(),
     };
     facilities = facilities.map((facility) => (facility.id === id ? updated : facility));

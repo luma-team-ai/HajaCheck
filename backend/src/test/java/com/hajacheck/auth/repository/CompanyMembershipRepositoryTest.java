@@ -143,6 +143,54 @@ class CompanyMembershipRepositoryTest extends PostgresTestSupport {
         assertThat(exists).isFalse();
     }
 
+    @Test
+    void findAssignableUsersInCompany_INSPECTOR와ADMIN_유효멤버십만포함() {
+        Company company = saveCompany(CompanyState.APPROVED_VERIFIED);
+        User inspector = saveMemberWithRole(company.getId(), Role.INSPECTOR, UserStatus.ACTIVE);
+        saveApprovedMembership(company.getId(), inspector.getId());
+        User admin = saveMemberWithRole(company.getId(), Role.ADMIN, UserStatus.ACTIVE);
+        saveApprovedMembership(company.getId(), admin.getId());
+        User plainUser = saveMemberWithRole(company.getId(), Role.USER, UserStatus.ACTIVE);
+        saveApprovedMembership(company.getId(), plainUser.getId());
+
+        var result = companyMembershipRepository.findAssignableUsersInCompany(company.getId(), Instant.now());
+
+        assertThat(result).extracting(User::getId)
+                .containsExactlyInAnyOrder(inspector.getId(), admin.getId());
+    }
+
+    @Test
+    void findAssignableUsersInCompany_정지된사용자는제외() {
+        Company company = saveCompany(CompanyState.APPROVED_VERIFIED);
+        User suspended = saveMemberWithRole(company.getId(), Role.INSPECTOR, UserStatus.SUSPENDED);
+        saveApprovedMembership(company.getId(), suspended.getId());
+
+        var result = companyMembershipRepository.findAssignableUsersInCompany(company.getId(), Instant.now());
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void findAssignableUsersInCompany_멤버십없음_제외() {
+        Company company = saveCompany(CompanyState.APPROVED_VERIFIED);
+        saveMemberWithRole(company.getId(), Role.INSPECTOR, UserStatus.ACTIVE);
+
+        var result = companyMembershipRepository.findAssignableUsersInCompany(company.getId(), Instant.now());
+
+        assertThat(result).isEmpty();
+    }
+
+    private User saveMemberWithRole(Long companyId, Role role, UserStatus status) {
+        return userRepository.save(User.builder()
+                .email("assignable-" + role + "-" + status + "@haja.com")
+                .name("배정후보 " + role)
+                .role(role)
+                .passwordHash("$2a$10$hashed")
+                .companyId(companyId)
+                .status(status)
+                .build());
+    }
+
     private Company saveCompany(CompanyState state) {
         User owner = userRepository.save(User.createCompanyOwner(
                 "membership-owner@haja.com", "멤버십 소유자", "$2a$10$hashed"));

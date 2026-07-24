@@ -31,12 +31,13 @@ function renderPage(): void {
 }
 
 describe('MyProfilePage', () => {
-  it('플랜 요약(플랜명·상태 배지·가격)을 렌더링한다', async () => {
+  it('플랜 요약(플랜명·PLAN 배지·가격·다음 결제일·사업자 인증 칩)을 렌더링한다', async () => {
     renderPage();
 
     expect(await screen.findByText('Standard')).toBeTruthy();
-    expect(screen.getByText('이용중')).toBeTruthy(); // PLAN_STATUS_LABEL.ACTIVE(planFormat.ts)
-    expect(screen.getByText('₩99,000/월 · 다음 결제일 정보는 준비 중입니다.')).toBeTruthy();
+    expect(screen.getByText('PLAN')).toBeTruthy(); // 고정 배지(#712 Figma 리디자인, PLAN_STATUS_BADGE_CLASS 대체)
+    expect(screen.getByText('₩29,000/월 · 다음 결제일 2026-08-01')).toBeTruthy(); // mockMyPlan(#712 가격 정정)
+    expect(screen.getByText('사업자 인증 완료')).toBeTruthy(); // businessVerified: true(mockMyPlan)
   });
 
   it('사용량 3종(시설물/월 분석/점검자 좌석)을 렌더링한다', async () => {

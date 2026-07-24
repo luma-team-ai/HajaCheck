@@ -13,7 +13,8 @@ import { MYPAGE_ERROR_CODE } from '../types';
 //
 // '초대됨' 상태는 실 UserStatus에 없는 프론트 전용 값(types.ts 참고)이라, mockInvitedSeatMember를
 // SeatsSection의 extraDemoMembers로 얹어 데모로만 보여준다 — 초대·행별 액션 실구현은 후속 #24/#210.
-// BillingHistoryPlaceholder는 Figma "내 정보" 시안에 없는 섹션이라 MyPlanPage와 달리 렌더하지 않는다.
+// 결제 이력은 Figma "내 정보" 시안에 없는 섹션이라 렌더하지 않는다 — MyPlanPage는 PlanCard 상단
+// "결제 내역" 버튼(모달)으로 노출한다(#712 리디자인, 구 BillingHistoryPlaceholder 섹션 대체).
 export function MyProfilePage() {
   const { data, isLoading, isError, error } = useMyPlan();
   const errorCode = error?.code;

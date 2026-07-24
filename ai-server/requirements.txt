@@ -5,10 +5,13 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic==2.10.4
 redis==5.2.1
-langchain==0.3.13
+langchain==0.3.30  # 0.3.13→0.3.30: langgraph 0.6.11과 호환 가능한 최신 버전 (WS1 PR #703과 동일 조합)
+langchain-core==0.3.86  # langgraph 0.6.11 호환(0.3.26+ 요구) — 명시 고정 안 하면 pip가 langchain==구버전과의
+                        # 호환 버전을 탐색하다 resolution-too-deep으로 실패한다(CI 실측, PR #710 회귀)
 langchain-chroma==0.1.4  # chromadb 0.5.23과 호환, langchain-core<0.4 만족
 langchain-huggingface==0.1.2
-langsmith==0.2.11  # langchain 0.3.13 종속 버전과 고정 일치 (design-03-13, 트레이싱 활성화용 명시)
+langsmith==0.10.10  # langchain-core>=0.3.26 요구에 따라 upgraded (WS1 PR #703과 동일 조합)
+langgraph==0.6.11  # StateGraph 기반 체인 구현용 (WS1: report_chain, WS3: rag_chat_chain 공용)
 chromadb==0.5.23
 sentence-transformers==3.3.1
 easyocr==1.7.2  # 사업자등록증 OCR(HAJA-169/#552, RapidOCR→EasyOCR 교체 #605) — 한국어 인식 정확도 우위

@@ -6,9 +6,11 @@ type Props = {
   used: number;
   limit: number | null;
   unit?: string;
+  /** 월 분석 항목 전용(Figma 리디자인, #712) — 경고 배지 문구에 "매월 1일 초기화" 안내를 덧붙인다. */
+  resetMonthly?: boolean;
 };
 
-export function UsageBar({ label, used, limit, unit = '' }: Props) {
+export function UsageBar({ label, used, limit, unit = '', resetMonthly = false }: Props) {
   const percent = usagePercent(used, limit);
   const warning = isUsageWarning(percent);
   const limitText = limit === null ? formatLimit(limit) : `${formatLimit(limit)}${unit}`;
@@ -23,7 +25,7 @@ export function UsageBar({ label, used, limit, unit = '' }: Props) {
               className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${USAGE_WARNING_BADGE_CLASS}`}
             >
               <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
-              {percent}% 도달
+              {percent}% 도달{resetMonthly ? ' · 매월 1일 초기화' : ''}
             </span>
           )}
         </span>

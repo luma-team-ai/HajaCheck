@@ -159,6 +159,11 @@ services:
       APP_ENV: prod
       # HF 캐시를 named volume(hf_cache) 경로로 고정 — bge-m3 모델 캐시 영속화(#439).
       HF_HOME: /app/hf_cache
+      # LangSmith 트레이싱(design-03-13/HAJA-115) — 미설정(빈값/false) 시 비활성.
+      LANGCHAIN_TRACING_V2: ${LANGCHAIN_TRACING_V2:-false}
+      LANGCHAIN_ENDPOINT: ${LANGCHAIN_ENDPOINT:-}
+      LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
+      LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-}
     volumes:
       - chroma_data:/app/chroma_data
       - hf_cache:/app/hf_cache

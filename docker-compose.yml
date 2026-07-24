@@ -114,6 +114,13 @@ services:
       # HF 캐시를 named volume(hf_cache) 경로로 고정 — transformers/hub/sentence-transformers가
       # 모두 HF_HOME 하위를 쓰므로 이 한 줄로 bge-m3 모델 캐시가 영속화된다(#439).
       HF_HOME: /app/hf_cache
+      # LangSmith 트레이싱(design-03-13/HAJA-115 — .env.example 스캐폴딩은 PR #114로 이미 완료,
+      # 이 4줄은 그 값을 컨테이너로 passthrough만 함). 미설정(빈값/false) 시 비활성 — get_llm()이
+      # 유일한 LLM 호출 지점이라 코드 변경 없이 전 체인 자동 트레이싱됨.
+      LANGCHAIN_TRACING_V2: ${LANGCHAIN_TRACING_V2:-false}
+      LANGCHAIN_ENDPOINT: ${LANGCHAIN_ENDPOINT:-}
+      LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
+      LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-}
     volumes:
       - chroma_data:/app/chroma_data
       - hf_cache:/app/hf_cache

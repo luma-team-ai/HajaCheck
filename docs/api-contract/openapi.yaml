@@ -1,9 +1,16 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.14.0-draft"
+  version: "0.15.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    2026-07-23 마이페이지 "내 플랜" Figma 리디자인 + 모의 결제(#711) — MyPlanResponse.plan에
+    nextBillingDate(유료 플랜만, startedAt KST 기준 +1개월)·businessVerified(회사 구독만, Company.
+    verificationStatus==VERIFIED) 추가. POST /api/me/plan/checkout 신설 — PG 실결제 없는 모의 결제로
+    기존 ACTIVE(또는 UPGRADE_REQUESTED) 구독을 만료시키고 대상 요금제(STANDARD/ENTERPRISE만)로 신규
+    ACTIVE 구독을 발급한다(멱등, 소유자만, AdminPlanService#changePlan과 동일 전이 패턴).
+    2026-07-23 보고서 근거 재검증(구조 검증) API(#680 / HAJA-374) — POST /api/reports/{id}/grounding-recheck
+    명세 추가.
     2026-07-23 플랫폼 관리자 플랜 정책 설정 API(#624 후속, 사용자 지시) 추가 — GET/PUT
     /api/platform-admin/plans. plans 테이블(FREE/STANDARD/ENTERPRISE)을 조회 전용에서 편집 가능하게
     전환(PLATFORM_ADMIN 전용). PUT은 3개 플랜을 한 번에 원자적으로 교체(부분 업데이트 없음), hasAiAddon은
@@ -701,6 +708,62 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "404":
           description: 활성 구독 없음 (PLAN_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/me/plan/checkout:
+    post:
+      summary: 모의 결제 — 플랜 업그레이드 (마이페이지, #711)
+      description: >
+        PG 실결제·카드청구 없는 테스트 수준 모의 결제. 기존 ACTIVE(또는 UPGRADE_REQUESTED) 구독을
+        만료(EXPIRED)시키고 대상 요금제로 신규 ACTIVE 구독을 발급한다(단일 트랜잭션,
+        AdminPlanService#changePlan과 동일 전이 패턴). 대상이 이미 ACTIVE 구독과 같으면 멱등 no-op(200).
+        회사 구독은 company.ownerUserId만, 개인 구독은 그 구독의 소유 사용자만 요청할 수 있다
+        (PLAN_FORBIDDEN). 대상 플랜은 STANDARD/ENTERPRISE만 허용 — FREE 요청은 INVALID_INPUT(400).
+        동시 결제 경합(부분 UQ 위반)은 PLAN_ACTIVE_SUBSCRIPTION_CONFLICT(409).
+        `MembershipController.checkout` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [membership]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [planName]
+              properties:
+                planName: { type: string, enum: [STANDARD, ENTERPRISE], example: ENTERPRISE }
+      responses:
+        "200":
+          description: 결제(플랜 전이) 성공 — 갱신된 내 플랜 반환
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MyPlanApiResponse" }
+        "400":
+          description: FREE 대상 요청 등 잘못된 입력 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 구독 소유자 아님 (PLAN_FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 활성 구독 없음 (PLAN_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: 동시 결제 경합 (PLAN_ACTIVE_SUBSCRIPTION_CONFLICT)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
@@ -1838,6 +1901,44 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 타인 소유 (REPORT_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: 이미 확정된 보고서 (INVALID_STATE_TRANSITION)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/reports/{id}/grounding-recheck:
+    post:
+      summary: 보고서 근거 재검증(구조 검증) (#680 / HAJA-374)
+      description: >
+        AI 서버 재호출 없이 본문(detail.items)과 확정 하자 목록을 유형+등급 기준으로 대조해
+        grounding 판정을 복구한다 — 편집(PATCH) 후 확정이 막힌 DRAFT 보고서에만 사용한다.
+        `ReportController.recheckGrounding` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [report]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: 재검증 완료 및 보고서 상세 반환
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportDetailApiResponse" }
         "401":
           description: 미인증 (UNAUTHORIZED)
           content:
@@ -3174,11 +3275,26 @@ components:
       properties:
         plan:
           type: object
-          required: [name, priceMonthly, status]
+          required: [name, priceMonthly, status, nextBillingDate, businessVerified]
           properties:
             name: { type: string, enum: [FREE, STANDARD, ENTERPRISE], example: STANDARD }
             priceMonthly: { type: number, example: 99000 }
             status: { type: string, enum: [ACTIVE, EXPIRED, UPGRADE_REQUESTED], example: ACTIVE }
+            nextBillingDate:
+              type: string
+              format: date
+              nullable: true
+              description: >
+                유료 플랜(priceMonthly > 0)이면 startedAt(KST) + 1개월(달력, plusMonths(1)). FREE
+                플랜이면 null(#711).
+              example: "2026-08-15"
+            businessVerified:
+              type: boolean
+              nullable: true
+              description: >
+                회사 구독이면 Company.verificationStatus == VERIFIED 여부. 개인 구독(companyId=null)이면
+                사업자 인증 개념이 없으므로 null(#711).
+              example: true
         limits:
           type: object
           description: plans.max_* 가 null(무제한)이면 null 을 그대로 반환한다.

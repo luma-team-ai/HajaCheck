@@ -5,11 +5,17 @@ docs/design/ai/rag_chatbot_design.md §3·§4, docs/design/ai/rag_chroma_schema.
 
 `sources`는 LLM이 만들지 않는다 — retriever가 반환한 Chroma 청크 metadata에서 코드가 결정적으로
 구성한다(설계 §3 "LLM 창작 아님"). LLM structured output(`_RagChatAnswer`)에는 `answer` 하나만 둔다.
+
+LangGraph StateGraph 기반 구현 — 캐시·검색·LLM·출처 빌드 노드 + 조건부 엣지로 분기.
 """
+from __future__ import annotations
+
 import hashlib
 import json
 from pathlib import Path
+from typing import Literal, Optional, TypedDict
 
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
 from ai.core.llm_client import CACHE_TTL_SECONDS, get_llm, get_redis_client
@@ -21,6 +27,20 @@ PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 RAG_CHAT_TOP_K = 4  # 설계 §4.1 초안값
 RAG_CHAT_CACHE_PREFIX = "ai:cache:rag-chat"
+
+
+class RagChatState(TypedDict):
+    """StateGraph 상태 — 질의부터 최종 응답까지의 중간값들을 담는다.
+
+    캐시 유무, 검색 결과 유무에 따라 경로가 분기하므로, 모든 경로가 final_response를 남겨둔다.
+    """
+    question: str
+    cache_key: str
+    cached_result: Optional[dict]
+    docs: list
+    llm_answer: Optional["_RagChatAnswer"]
+    sources: Optional[list[SourceCitation]]
+    final_response: Optional[AIResponse]
 
 
 class _RagChatAnswer(BaseModel):
@@ -89,23 +109,172 @@ def _cache_key(question: str) -> str:
     return f"{RAG_CHAT_CACHE_PREFIX}:{hashlib.sha256(question.encode('utf-8')).hexdigest()[:16]}"
 
 
-def run_rag_chat_chain(question: str) -> AIResponse:
+# ============================================================================
+# StateGraph 노드들 — 각 노드는 state를 받아서 수정된 state를 반환
+# ============================================================================
+
+
+def _node_cache_check(state: RagChatState) -> RagChatState:
+    """캐시 조회 노드.
+
+    Redis에서 캐시를 조회하고, 히트 시 cached_result와 final_response를 세팅한다.
+    노드 함수 내에서 get_redis_client()를 런타임 호출하므로 @patch 호환성 유지.
+    """
     redis_client = get_redis_client()
-    cache_key = _cache_key(question)
-
+    cache_key = _cache_key(state["question"])
     cached = redis_client.get(cache_key)
-    if cached is not None:
-        return AIResponse.ok(json.loads(cached))
 
-    docs = get_vectorstore(COLLECTION_REGULATIONS).similarity_search(question, k=RAG_CHAT_TOP_K)
-    if not docs:
-        # 검색만으론 비용이 없어 재시도 비용이 없으므로 캐시 저장 안 함(설계 §4.3).
-        return AIResponse.fail(AIErrorCode.RAG_NO_RESULT, "관련 근거를 찾지 못했습니다")
+    cached_result = json.loads(cached) if cached else None
+    # PR머신 P3: truthy 판정(if cached_result)이 아니라 is not None으로 통일 — _route_after_cache와
+    # 기준이 어긋나면(캐시 포맷이 falsy-but-not-None 값을 저장하게 바뀌는 경우) 라우터는 END로 보내는데
+    # final_response가 None이 되어 run_rag_chat_chain이 None을 반환하는 잠재적 불일치를 방지한다.
+    final_response = AIResponse.ok(cached_result) if cached_result is not None else None
 
-    context = _build_context(docs)
-    prompt = _build_prompt(question, context)
+    return {
+        **state,
+        "cache_key": cache_key,
+        "cached_result": cached_result,
+        "final_response": final_response,
+    }
+
+
+def _route_after_cache(state: RagChatState) -> Literal["end", "retrieve"]:
+    """캐시 후 라우터 — 캐시 히트면 END, 미스면 retrieve 노드로."""
+    return "end" if state["cached_result"] is not None else "retrieve"
+
+
+def _node_retrieve(state: RagChatState) -> RagChatState:
+    """검색 노드.
+
+    벡터스토어에서 similarity_search를 수행. 노드 함수 내에서 get_vectorstore()를 런타임 호출.
+    """
+    docs = get_vectorstore(COLLECTION_REGULATIONS).similarity_search(
+        state["question"], k=RAG_CHAT_TOP_K
+    )
+    return {**state, "docs": docs}
+
+
+def _route_after_retrieve(state: RagChatState) -> Literal["answer", "no_result"]:
+    """검색 후 라우터 — 문서 있으면 answer, 없으면 no_result 노드로."""
+    return "answer" if state["docs"] else "no_result"
+
+
+def _node_answer(state: RagChatState) -> RagChatState:
+    """LLM 호출 노드.
+
+    context 구성, prompt 빌드, LLM structured output 호출.
+    노드 함수 내에서 get_llm()을 런타임 호출하므로 @patch 호환성 유지.
+    """
+    context = _build_context(state["docs"])
+    prompt = _build_prompt(state["question"], context)
     llm_answer = get_llm().with_structured_output(_RagChatAnswer).invoke(prompt)
+    return {**state, "llm_answer": llm_answer}
 
-    answer_data = RagAnswerData(answer=llm_answer.answer, sources=_build_sources(docs))
-    redis_client.setex(cache_key, CACHE_TTL_SECONDS, answer_data.model_dump_json())
-    return AIResponse.ok(answer_data.model_dump())
+
+def _node_build_sources(state: RagChatState) -> RagChatState:
+    """출처 빌드 노드.
+
+    검색 문서의 metadata에서 결정론적으로 sources를 구성.
+    """
+    sources = _build_sources(state["docs"])
+    return {**state, "sources": sources}
+
+
+def _node_cache_write(state: RagChatState) -> RagChatState:
+    """캐시 저장 노드.
+
+    RagAnswerData를 조립해서 Redis에 저장하고 final_response를 세팅.
+    """
+    answer_data = RagAnswerData(
+        answer=state["llm_answer"].answer,
+        sources=state["sources"]
+    )
+    redis_client = get_redis_client()
+    redis_client.setex(
+        state["cache_key"],
+        CACHE_TTL_SECONDS,
+        answer_data.model_dump_json()
+    )
+    return {
+        **state,
+        "final_response": AIResponse.ok(answer_data.model_dump())
+    }
+
+
+def _node_no_result(state: RagChatState) -> RagChatState:
+    """검색 0건 응답 노드.
+
+    RAG_NO_RESULT 에러 응답을 세팅. 캐시는 저장하지 않음 (설계 §4.3).
+    """
+    return {
+        **state,
+        "final_response": AIResponse.fail(
+            AIErrorCode.RAG_NO_RESULT,
+            "관련 근거를 찾지 못했습니다"
+        )
+    }
+
+
+# ============================================================================
+# StateGraph 정의 및 compile — 모듈 로드 시 1회만 수행
+# ============================================================================
+
+_graph = StateGraph(RagChatState)
+
+# 노드 등록
+_graph.add_node("cache_check", _node_cache_check)
+_graph.add_node("retrieve", _node_retrieve)
+_graph.add_node("answer", _node_answer)
+_graph.add_node("build_sources", _node_build_sources)
+_graph.add_node("cache_write", _node_cache_write)
+_graph.add_node("no_result", _node_no_result)
+
+# 진입점 및 엣지
+_graph.set_entry_point("cache_check")
+
+# cache_check 후 조건부 분기
+_graph.add_conditional_edges(
+    "cache_check",
+    _route_after_cache,
+    {"end": END, "retrieve": "retrieve"}
+)
+
+# retrieve 후 조건부 분기
+_graph.add_conditional_edges(
+    "retrieve",
+    _route_after_retrieve,
+    {"answer": "answer", "no_result": "no_result"}
+)
+
+# 무조건 엣지 (재시도 없음, 선형 흐름)
+_graph.add_edge("answer", "build_sources")
+_graph.add_edge("build_sources", "cache_write")
+_graph.add_edge("cache_write", END)
+_graph.add_edge("no_result", END)
+
+# compile
+compiled_graph = _graph.compile()
+
+
+def run_rag_chat_chain(question: str) -> AIResponse:
+    """RAG 챗봇 체인 공개 진입점.
+
+    LangGraph StateGraph로 구현된 파이프라인을 invoke하고 최종 응답을 반환.
+    시그니처와 반환값은 기존과 100% 동일.
+    """
+    initial_state: RagChatState = {
+        "question": question,
+        "cache_key": "",
+        "cached_result": None,
+        "docs": [],
+        "llm_answer": None,
+        "sources": None,
+        "final_response": None,
+    }
+
+    result_state = compiled_graph.invoke(
+        initial_state,
+        config={"recursion_limit": 10}
+    )
+
+    return result_state["final_response"]

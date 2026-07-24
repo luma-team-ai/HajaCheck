@@ -85,6 +85,11 @@ export function useBackfillFacilityGeocode() {
             scale: latest.scale,
             inspectionCycleMonths: latest.inspectionCycleMonths,
             nextInspectionDueAt: latest.nextInspectionDueAt,
+            // #628(HAJA-347) 등록 필드 확장 — PUT은 전체 교체라 여기서도 최신 값을 그대로 실어야
+            // 좌표만 갱신하려다 초기등급/담당자/메모를 조용히 null로 덮어쓰는 lost update를 막는다.
+            initialGrade: latest.initialGrade,
+            assigneeUserId: latest.assigneeUserId,
+            memo: latest.memo,
           });
           succeeded += 1;
         } catch (error) {

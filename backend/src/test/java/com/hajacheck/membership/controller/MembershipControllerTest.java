@@ -1,5 +1,6 @@
 package com.hajacheck.membership.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -184,5 +185,107 @@ class MembershipControllerTest extends PostgresTestSupport {
         mockMvc.perform(post("/api/me/plan/upgrade-inquiry").with(csrf()).with(authentication(authOf(user))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("UPGRADE_REQUESTED"));
+    }
+
+    // ── checkout(모의 결제, #711) ──
+
+    private Plan saveEnterprisePlan() {
+        planRepository.findByName(PlanName.ENTERPRISE).ifPresent(planRepository::delete);
+        planRepository.flush();
+        return planRepository.save(Plan.create(PlanName.ENTERPRISE, null, null, null, false, true, true,
+                BigDecimal.valueOf(299000)));
+    }
+
+    @Test
+    void 모의결제_개인구독_소유자_200_신규ACTIVE발급() throws Exception {
+        savePlan();
+        Plan enterprisePlan = saveEnterprisePlan();
+        User user = saveUser("checkout@haja.com", null);
+        UserPlan original = userPlanRepository.save(UserPlan.forUser(user.getId(), planRepository
+                .findByName(PlanName.STANDARD).orElseThrow().getId()));
+
+        mockMvc.perform(post("/api/me/plan/checkout").with(csrf()).with(authentication(authOf(user)))
+                        .contentType("application/json")
+                        .content("{\"planName\":\"ENTERPRISE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.plan.name").value("ENTERPRISE"))
+                .andExpect(jsonPath("$.data.plan.status").value("ACTIVE"));
+
+        UserPlan expired = userPlanRepository.findById(original.getId()).orElseThrow();
+        assertThat(expired.getStatus().name()).isEqualTo("EXPIRED");
+        assertThat(enterprisePlan.getId()).isNotNull();
+    }
+
+    @Test
+    void 모의결제_회사구독_소유자아니면_403_PLAN_FORBIDDEN() throws Exception {
+        savePlan();
+        saveEnterprisePlan();
+        User owner = saveUser("checkoutOwner@haja.com", null);
+        Company company = companyRepository.save(Company.createPendingReview(
+                owner.getId(), "(주)하자체크3", "1112223330", "이철수", "서울시 마포구", null,
+                "http://files/brn3.png", "{}"));
+        owner.assignToCompany(company.getId());
+        User staff = saveUser("checkoutStaff@haja.com", company.getId());
+        userPlanRepository.save(UserPlan.forCompany(company.getId(),
+                planRepository.findByName(PlanName.STANDARD).orElseThrow().getId()));
+
+        mockMvc.perform(post("/api/me/plan/checkout").with(csrf()).with(authentication(authOf(staff)))
+                        .contentType("application/json")
+                        .content("{\"planName\":\"ENTERPRISE\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("PLAN_FORBIDDEN"));
+    }
+
+    @Test
+    void 모의결제_대상동일_멱등_200_변경없음() throws Exception {
+        Plan plan = savePlan();
+        User user = saveUser("checkoutIdempotent@haja.com", null);
+        UserPlan userPlan = userPlanRepository.save(UserPlan.forUser(user.getId(), plan.getId()));
+
+        mockMvc.perform(post("/api/me/plan/checkout").with(csrf()).with(authentication(authOf(user)))
+                        .contentType("application/json")
+                        .content("{\"planName\":\"STANDARD\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.plan.name").value("STANDARD"))
+                .andExpect(jsonPath("$.data.plan.status").value("ACTIVE"));
+
+        UserPlan unchanged = userPlanRepository.findById(userPlan.getId()).orElseThrow();
+        assertThat(unchanged.getStatus().name()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void 모의결제_FREE대상_400_INVALID_INPUT() throws Exception {
+        Plan plan = savePlan();
+        User user = saveUser("checkoutFree@haja.com", null);
+        userPlanRepository.save(UserPlan.forUser(user.getId(), plan.getId()));
+
+        mockMvc.perform(post("/api/me/plan/checkout").with(csrf()).with(authentication(authOf(user)))
+                        .contentType("application/json")
+                        .content("{\"planName\":\"FREE\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void 모의결제_존재하지않는플랜명_400_INVALID_INPUT() throws Exception {
+        // planName 이 PlanName enum(FREE/STANDARD/ENTERPRISE)에 없는 문자열이면 Jackson 역직렬화
+        // 단계에서 HttpMessageNotReadableException → GlobalExceptionHandler 가 INVALID_INPUT(400)으로 변환.
+        Plan plan = savePlan();
+        User user = saveUser("checkoutInvalidEnum@haja.com", null);
+        userPlanRepository.save(UserPlan.forUser(user.getId(), plan.getId()));
+
+        mockMvc.perform(post("/api/me/plan/checkout").with(csrf()).with(authentication(authOf(user)))
+                        .contentType("application/json")
+                        .content("{\"planName\":\"GOLD\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void 모의결제_미인증_401() throws Exception {
+        mockMvc.perform(post("/api/me/plan/checkout").with(csrf())
+                        .contentType("application/json")
+                        .content("{\"planName\":\"STANDARD\"}"))
+                .andExpect(status().isUnauthorized());
     }
 }

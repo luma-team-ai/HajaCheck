@@ -48,10 +48,11 @@ export const SEAT_STATUS_DOT_CLASS: Record<SeatMemberStatus, string> = {
 export const USAGE_WARNING_BADGE_CLASS = 'bg-[#fdf0d5] text-[#b5670a]';
 
 // 사용량 프로그레스 바 채움색 — 평시는 tokens.css bg-primary(시안이 zinc-900 계열 바),
-// 경고(80%↑)는 신규 hex 대신 기존 --color-danger 토큰 재사용
+// 경고(80%↑)는 Figma 리디자인(node 1463-2786, #712)에서 빨강 → 앰버로 변경. Tailwind 표준
+// 팔레트(amber-500)를 그대로 쓴다 — USAGE_WARNING_BADGE_CLASS(앰버 pill)와 같은 계열, 신규 hex 없음.
 export const USAGE_BAR_FILL_CLASS = {
   normal: 'bg-primary',
-  warning: 'bg-danger',
+  warning: 'bg-amber-500',
 } as const;
 
 // ---- 내 점검 이력 / 보고서 (HAJA-366, #668) ----
