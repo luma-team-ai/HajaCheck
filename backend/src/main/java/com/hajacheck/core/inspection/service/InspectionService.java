@@ -211,7 +211,8 @@ public class InspectionService {
     public boolean tryStartAnalyzing(Long requesterUserId, Long companyId, Long inspectionId,
             java.util.Collection<InspectionStatus> allowedStatuses) {
         getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
-        return inspectionRepository.startAnalyzingIfNotRunning(inspectionId, allowedStatuses) > 0;
+        return inspectionRepository.startAnalyzingIfNotRunning(
+                inspectionId, InspectionStatus.ANALYZING, allowedStatuses) > 0;
     }
 
     private void validateInspectionDate(LocalDate inspectionDate, FacilityResponse facility) {

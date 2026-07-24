@@ -59,11 +59,21 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     // 원자적 UPDATE 자체가 허용 소스 상태 불변식을 강제하도록 `status in :allowedStatuses`로 좁힌다 —
     // 사전 체크는 명확한 에러 메시지(NOT_ALLOWED vs ALREADY_RUNNING)용으로만 남고, 실제 동시성
     // 방어선은 이 조건부 UPDATE다. 호출부는 반드시 ANALYSIS_ALLOWED_SOURCE_STATUSES를 넘긴다.
+    //
+    // CI 실측 픽스(#701) — SET절에 `InspectionStatus.ANALYZING`을 JPQL 리터럴로 박아두면 Hibernate가
+    // 이를 `'ANALYZING'::InspectionStatus`로 캐스팅하는데, 실제 PG 이넘 타입명은 (Inspection 엔티티
+    // @Column(columnDefinition=...) 그대로) `inspection_status_type`이라 "type InspectionStatus does not
+    // exist"로 즉시 실패한다(@DataJpaTest 실 PostgreSQL 대상 InspectionRepositoryTest로 처음 노출됨 —
+    // 그 전엔 이 메서드를 실제 DB로 검증하는 테스트가 없어 잠재해 있었다). status/statuses를 bind
+    // parameter로 넘기는 다른 메서드(findByFacilityCompanyIdAndStatus 등, 전부 정상 동작)와 동일하게
+    // enum을 파라미터로 바인딩하면 @JdbcTypeCode(NAMED_ENUM) 타입 서술자를 그대로 타 안전하다.
     @Modifying
-    @Query("update Inspection i set i.status = com.hajacheck.core.inspection.entity.InspectionStatus.ANALYZING "
+    @Query("update Inspection i set i.status = :analyzingStatus "
             + "where i.id = :id and i.status in :allowedStatuses")
     int startAnalyzingIfNotRunning(
-            @Param("id") Long id, @Param("allowedStatuses") Collection<InspectionStatus> allowedStatuses);
+            @Param("id") Long id,
+            @Param("analyzingStatus") InspectionStatus analyzingStatus,
+            @Param("allowedStatuses") Collection<InspectionStatus> allowedStatuses);
 
     // 회사별 분석 동시 실행 상한(코드 리뷰 P2 4차/10차) — analysisTaskExecutor는 테넌트 구분 없는
     // 전역 공유 풀이라, 한 회사가 대량 요청으로 큐를 독점하면 다른 회사까지 막힌다(noisy-neighbor).

@@ -192,7 +192,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED)) {
             Inspection insp = inspectionRepository.save(newInspection(
                     facilityId, ownerId, ownerId, roundNo++, LocalDate.of(2026, 7, 1), allowedSource));
-            assertThat(inspectionRepository.startAnalyzingIfNotRunning(insp.getId(), allowed))
+            assertThat(inspectionRepository.startAnalyzingIfNotRunning(insp.getId(), InspectionStatus.ANALYZING, allowed))
                     .as("허용 소스 상태 %s 는 선점 성공(1행)", allowedSource)
                     .isEqualTo(1);
         }
@@ -201,7 +201,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 InspectionStatus.REVIEWED, InspectionStatus.REPORTED, InspectionStatus.ANALYZING)) {
             Inspection insp = inspectionRepository.save(newInspection(
                     facilityId, ownerId, ownerId, roundNo++, LocalDate.of(2026, 7, 1), blockedSource));
-            assertThat(inspectionRepository.startAnalyzingIfNotRunning(insp.getId(), allowed))
+            assertThat(inspectionRepository.startAnalyzingIfNotRunning(insp.getId(), InspectionStatus.ANALYZING, allowed))
                     .as("허용되지 않은 소스 상태 %s 는 선점 거부(0행)", blockedSource)
                     .isZero();
         }
