@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Profile;
 
 /**
  * test 프로파일에서 Redis 기반 빈들의 in-memory 대체재를 제공한다.
- * 실 구현(RedisTokenStore·RedisRateLimiter·RedisPasswordResetTokenStore)은 모두 @Profile("!test") 라
+ * 실 구현(RedisTokenStore·RedisRateLimiter·RedisPasswordResetTokenStore·RedisErrorLogStore)은 모두 @Profile("!test") 라
  * test 에서 뜨지 않으므로(RedisAutoConfiguration 제외 → StringRedisTemplate 빈 부재), 여기서 채운다.
  *
  * <p>plain @Configuration + @Profile("test") 로 두어 @SpringBootTest 컴포넌트 스캔에 자동 포함되게 한다
@@ -32,5 +32,10 @@ public class TestTokenStoreConfig {
     @Bean
     public InMemoryRateLimiter rateLimiter() {
         return new InMemoryRateLimiter();
+    }
+
+    @Bean
+    public InMemoryErrorLogStore errorLogStore() {
+        return new InMemoryErrorLogStore();
     }
 }

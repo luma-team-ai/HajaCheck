@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-// PlatformAdminMonitoringPage 통합 테스트 — Figma node-id 1-404 기준.
-// 실제 useSystemMonitoring 훅 + MSW monitoringHandlers를 통해 서버 상태·잡 큐·HF API 사용량·에러
+// PlatformAdminMonitoringPage 통합 테스트 — Figma node-id 1-404 기준(#728로 HF API 사용량 카드는
+// 서버 자원 카드로 대체됨).
+// 실제 useSystemMonitoring 훅 + MSW monitoringHandlers를 통해 서버 상태·잡 큐·서버 자원·에러
 // 로그 렌더와 에러 상태를 검증한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter } from 'react-router-dom';
@@ -12,6 +13,7 @@ import { monitoringHandlers } from '../api/monitoringApi.handlers';
 import { JOB_QUEUE_TEST_ID } from '../components/AnalysisJobQueueCard';
 import { ERROR_LOG_TABLE_TEST_ID } from '../components/ErrorLogTable';
 import { SERVER_HEALTH_TEST_ID } from '../components/ServerHealthCards';
+import { SERVER_RESOURCE_TEST_ID } from '../components/ServerResourceCard';
 import { PlatformAdminMonitoringPage } from './PlatformAdminMonitoringPage';
 
 const server = setupServer(...monitoringHandlers);
@@ -60,22 +62,56 @@ describe('PlatformAdminMonitoringPage (통합 테스트)', () => {
     expect(queue.getByText('힐스테이트 광교 102동')).toBeTruthy();
   });
 
-  it('최근 에러 로그는 최신 1일치(2023-10-24, 4건)만 렌더링한다', async () => {
+  it('서버 자원 카드를 렌더링한다', async () => {
+    renderPage();
+
+    const card = within(await screen.findByTestId(SERVER_RESOURCE_TEST_ID));
+    expect(card.getByText('CPU')).toBeTruthy();
+    expect(card.getByText('메모리(JVM 힙)')).toBeTruthy();
+    expect(card.getByText('디스크')).toBeTruthy();
+    expect(card.getByText('42.5%')).toBeTruthy();
+  });
+
+  it('날짜 검색 기본값은 비어 있어(전체) 초기 렌더에서 바로 전체 목록을 보여준다', async () => {
     renderPage();
 
     const table = within(await screen.findByTestId(ERROR_LOG_TABLE_TEST_ID));
+    expect(screen.getByLabelText<HTMLInputElement>('날짜 검색').value).toBe('');
     expect(table.getAllByText('ERROR').length).toBe(2);
-    expect(table.getAllByText('WARN').length).toBe(2);
+    expect(table.getAllByText('WARN').length).toBe(3);
     expect(table.getByText('worker-queue')).toBeTruthy();
-    // 전날(2023-10-23) 로그는 1일치 필터에 걸러져 보이지 않아야 한다
-    expect(table.queryByText('daily-cron')).toBeNull();
+    // 전날(2023-10-23) 로그도 기본 화면에서 바로 노출돼야 한다(과거 '오늘' 기본값 회귀 방지)
+    expect(table.getByText('daily-cron')).toBeTruthy();
   });
 
-  it('"최근 에러 로그" 섹션에 전체 보기 어포던스를 노출한다', async () => {
+  it('ERROR/WARN 라벨을 클릭하면 해당 레벨만 조회된다', async () => {
     renderPage();
 
     await screen.findByTestId(ERROR_LOG_TABLE_TEST_ID);
-    expect(screen.getByText('전체 보기')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'WARN' }));
+
+    const table = within(screen.getByTestId(ERROR_LOG_TABLE_TEST_ID));
+    expect(table.getAllByText('WARN').length).toBe(3);
+    expect(table.queryByText('ERROR')).toBeNull();
+    expect(table.getByText('daily-cron')).toBeTruthy();
+  });
+
+  it('날짜를 검색하면 해당 날짜의 로그만 조회된다', async () => {
+    renderPage();
+
+    await screen.findByTestId(ERROR_LOG_TABLE_TEST_ID);
+    fireEvent.change(screen.getByLabelText('날짜 검색'), { target: { value: '2023-10-24' } });
+
+    const table = within(screen.getByTestId(ERROR_LOG_TABLE_TEST_ID));
+    expect(table.getByText('worker-queue')).toBeTruthy();
+    expect(table.queryByText('daily-cron')).toBeNull();
+  });
+
+  it('"에러 로그" 섹션에 페이지네이션 컨트롤을 노출한다', async () => {
+    renderPage();
+
+    await screen.findByTestId(ERROR_LOG_TABLE_TEST_ID);
+    expect(screen.getByRole('navigation', { name: '페이지 네비게이션' })).toBeTruthy();
   });
 
   it('조회 실패 시 에러 메시지를 노출한다', async () => {

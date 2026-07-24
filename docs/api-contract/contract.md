@@ -474,6 +474,37 @@ Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?no
 선행 #17(HAJA-26, CLOSED) · 연관(중복 여부 확인 필요) #527(하자 상세 이미지뷰어/활동기록/SLA) · #630(조치 보드 칸반)
 > `AUTH_VERIFICATION_FAILED`(400)는 보안질문 방식 전용으로 예약됐으나 그 방식이 폐기돼 **참조 0건** — 제거 대상(후속 정리). 이번 PR에서는 건드리지 않는다.
 
+## GET /api/platform-admin/monitoring — 플랫폼 관리자 시스템 모니터링 (#728, frontend PR #732 계약 확정 2026-07-24)
+
+PLATFORM_ADMIN 전용(SecurityConfig `hasRole(PLATFORM_ADMIN)`). companyId 스코프 없이 플랫폼 전체 인프라 상태를 반환한다.
+
+**성공 200** (`ApiResponse` envelope) `data`:
+```json
+{
+  "serverHealth": [
+    { "id": "api-server", "name": "API 서버", "status": "HEALTHY", "metric": null },
+    { "id": "ai-analysis-server", "name": "AI 분석 서버", "status": "HEALTHY", "metric": null },
+    { "id": "db", "name": "DB", "status": "HEALTHY", "metric": null }
+  ],
+  "jobQueue": { "summary": { "inProgress": 0, "completed": 0, "failed": 0 }, "jobs": [] },
+  "resourceUsage": { "cpuUsagePercent": 42.5, "memoryUsagePercent": 61.3, "diskUsagePercent": 74.8 },
+  "errorLogs": [
+    { "id": "...", "timestamp": "2026-07-24 14:02:11", "level": "ERROR", "service": "AiProxyService", "message": "..." }
+  ]
+}
+```
+
+- `serverHealth`: 자체 서버·DB는 `HealthEndpoint`(Actuator) 빈을 Java API로 직접 호출(HTTP 재호출 아님) — `UP`→`HEALTHY`, `DOWN`→`DOWN`, 그 외→`DEGRADED`. AI 분석 서버는 ai-server `GET /health`를 3초 타임아웃으로 폴링(연결 실패/타임아웃→`DOWN`, 비정상 상태코드→`DEGRADED`).
+- `jobQueue`: **AI 자동 분석 파이프라인이 아직 코드베이스에 없어(#728 범위 제외, AI 탐지 기능 완료 후 별도 이슈) 항상 `summary` 전부 0, `jobs` 빈 배열을 반환한다.** 없는 데이터를 지어내지 않는다 — 프론트 `AnalysisJobQueueCard`는 그대로 렌더되어 0/빈 목록으로 보인다.
+- `resourceUsage`: `MetricsEndpoint`(Actuator)로 조회한 **현재 시점(라이브) 값** — `system.cpu.usage`, `jvm.memory.used`/`max`(area:heap), `disk.free`/`total`. 시계열이 아니다. (HF API 사용량 카드를 대체 — HF는 사용량 조회 공개 API가 없어 별도 과업으로 분리, 2026-07-24 결정.)
+- `errorLogs`: 최근 50건, 최신순. `RedisErrorLogAppender`가 애플리케이션 전역의 기존 `log.error`/`log.warn` 호출(예: AiProxyService AI 서버 연결 실패, GlobalExceptionHandler 미처리 예외)을 Redis capped list(최근 200건)에 실시간 적재한 것을 조회한다 — 별도 계측 없이 실제 발생 이벤트만 노출.
+- **Actuator 과노출 차단**: `/actuator/health`만 무인증(docker healthcheck용), 그 외(`/actuator/metrics` 등)는 이번에 `hasRole(PLATFORM_ADMIN)`으로 제한(SecurityConfig) — 이전에는 로그인만 하면 누구나 조회 가능했다.
+
+### ErrorCode
+이번 엔드포인트는 신규 ErrorCode 없음(정상 조회 실패 케이스가 없음 — AI 서버/Actuator 실패는 상태값(`DOWN`/`DEGRADED`)으로 흡수하고 200을 반환).
+
+---
+
 ## 시설물 현황 전용 목록 API (#540 ⑥, HAJA-378, 2026-07-24)
 
 > 이슈 #540 ⑥ "현황 전용 목록 API" — 대시보드 스타일 "시설물 현황" 요약 테이블 화면 전용 읽기 전용 엔드포인트. 기존 `GET /api/facilities`(CRUD 상세, `FacilityResponse` 반환)를 화면에 그대로 재사용하지 않고 화면 전용 응답(`FacilityStatusResponse`)을 신설했다.

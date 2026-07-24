@@ -75,6 +75,13 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**")
                         .permitAll()
+                        // Actuator 과노출 차단(#728 리뷰 지적) — health 를 제외한 나머지(예: metrics)는
+                        // management.endpoints.web.exposure.include(application.yml) 로 이미 열려 있어
+                        // 위 permitAll 목록에 없으면 anyRequest().authenticated() 로 떨어져 "로그인만 하면"
+                        // 누구나 조회 가능했다. 플랫폼 관리자 모니터링 화면(#728)은 이 엔드포인트들을 HTTP로
+                        // 재호출하지 않고 HealthEndpoint/MetricsEndpoint 빈을 직접 호출하므로, 여기서 막아도
+                        // 그 화면 기능에는 영향이 없다 — 순수 외부 직접 접근 차단용.
+                        .requestMatchers("/actuator/**").hasRole("PLATFORM_ADMIN")
                         // RAG 문서 관리(#22/HAJA-35) — company_id 스코프가 없는 "전 테넌트 공유" 지식베이스
                         // (regulations/defect_kb Chroma 컬렉션 원본)라 PLATFORM_ADMIN 전용이다(설계 §6:
                         // 전역 데이터는 platform-admin으로 엄격 분리, "/api/admin/**"(ADMIN)와 절대 겹치지

@@ -1,5 +1,5 @@
-// 플랫폼 관리자 > 시스템 모니터링(#729) 도메인 타입. Figma node-id 1-404.
-// 백엔드 /api/platform-admin/monitoring 계약 확정 전까지 MSW 목데이터로만 채운다(BE 이슈 별도).
+// 플랫폼 관리자 > 시스템 모니터링(#729/#728) 도메인 타입. Figma node-id 1-404.
+// 백엔드 /api/platform-admin/monitoring 실제 구현(#728)과 1:1 계약.
 
 export type ServerHealthStatus = 'HEALTHY' | 'DEGRADED' | 'DOWN';
 
@@ -35,19 +35,15 @@ export interface AnalysisJobQueue {
   jobs: AnalysisJobQueueItem[];
 }
 
-export interface HfApiWeeklyUsagePoint {
-  day: string;
-  usage: number;
-}
-
-export interface HfApiUsage {
-  weeklyUsage: HfApiWeeklyUsagePoint[];
-  /** 이번 주 예산 사용률(0~100) */
-  budgetUsedPercent: number;
-  /** 예산 경고 한도(0~100) — 사용률 바 위에 마커로 표시 */
-  budgetLimitPercent: number;
-  /** 한도 초과 시 정책 안내 — 없으면 배너를 표시하지 않는다 */
-  warningMessage: string | null;
+// 서버 자원 사용률(#728) — 백엔드가 Actuator 메트릭으로 조회한 현재 시점 값이라 시계열이 아니다(HF API
+// 사용량 카드를 대체 — HF는 사용량 조회 공개 API가 없어 별도 과업으로 분리).
+export interface ServerResourceUsage {
+  /** CPU 사용률(0~100) */
+  cpuUsagePercent: number;
+  /** JVM 힙 메모리 사용률(0~100) */
+  memoryUsagePercent: number;
+  /** 디스크 사용률(0~100) */
+  diskUsagePercent: number;
 }
 
 export type ErrorLogLevel = 'ERROR' | 'WARN';
@@ -62,7 +58,8 @@ export interface ErrorLogItem {
 
 export interface SystemMonitoringResponse {
   serverHealth: ServerHealthItem[];
+  /** AI 자동 분석 파이프라인 도입 전까지 백엔드가 항상 빈 값(summary 전부 0, jobs 빈 배열)을 반환한다(#728) */
   jobQueue: AnalysisJobQueue;
-  hfApiUsage: HfApiUsage;
+  resourceUsage: ServerResourceUsage;
   errorLogs: ErrorLogItem[];
 }
