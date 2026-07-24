@@ -2,7 +2,7 @@ import type { ReactNode, MouseEvent as ReactMouseEvent } from 'react';
 import { useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from '../Header';
-import type { BreadcrumbItem } from '../Header';
+import type { BreadcrumbItem, HeaderProfileMenu } from '../Header';
 import { SideNavBar } from '../SideNavBar';
 import type { SideNavItem } from '../SideNavBar';
 import { BottomNavBarFab } from '../BottomNavBarFab';
@@ -49,6 +49,8 @@ interface AppLayoutProps {
   unreadCount?: number;
   onNotificationClick?: () => void;
   onProfileClick?: () => void;
+  /** 제공 시 Header 프로필 버튼 클릭이 onProfileClick 대신 이 정보로 드롭다운 메뉴를 연다(HAJA-758) */
+  profileMenu?: HeaderProfileMenu;
   /**
    * 우측 하단 고객지원 퀵상담 FAB(BottomNavBarFab) + 팝업 노출 여부. 미지정 시 true(기존 동작).
    * 플랫폼 관리자 콘솔(PlatformAdminShellRoute)은 내부 운영진 화면이라 고객 대상 지원 진입점이
@@ -74,6 +76,7 @@ export function AppLayout({
   unreadCount,
   onNotificationClick,
   onProfileClick,
+  profileMenu,
   showSupportFab = true,
 }: AppLayoutProps) {
   const location = useLocation();
@@ -133,6 +136,7 @@ export function AppLayout({
           unreadCount={unreadCount}
           onNotificationClick={onNotificationClick}
           onProfileClick={onProfileClick}
+          profileMenu={profileMenu}
         />
         <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
       </div>
