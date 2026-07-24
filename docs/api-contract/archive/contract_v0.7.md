@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.8 · **최종 수정:** 2026-07-24 · 이전 버전 `archive/`
+> **문서 버전:** v0.7 · **최종 수정:** 2026-07-23 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -431,33 +431,4 @@ RapidOCR(한국어)+LLM 파싱. 백엔드 프록시(`/api/auth/business-license/
 ### 추가 ErrorCode (Spring `ErrorCode`)
 이번 배포: `AUTH_EMAIL_DUPLICATED`(409) · `AUTH_BUSINESS_NUMBER_DUPLICATED`(409) · `AUTH_ACCOUNT_NOT_FOUND`(404) · `AUTH_SIGNUP_TOKEN_INVALID`(404) · `FILE_REQUIRED`(400) · `FILE_INVALID_TYPE`(400) · `FILE_TOO_LARGE`(400) · `FILE_UPLOAD_FAILED`(500)
 비밀번호 찾기(#194, 이메일 링크 방식): `AUTH_RESET_TOKEN_INVALID`(400, 기존 예약분) · `AUTH_TOO_MANY_REQUESTS`(429, 신규)
-
-## 하자 목록·상세 화면 개편 (draft, HAJA-393/394 · #725/#726, 2026-07-24)
-
-> HAJA-26(#17, CLOSED·main 승격완료)로 나온 기존 하자 목록/상세를 Figma 재설계안 기준으로 개편. **이 섹션은 초안** — 백엔드/프론트가 각자 워크트리에서 Figma를 확인한 뒤 필드가 어긋나면 PR에 `[CONTRACT-CHANGE-REQUEST]`로 표시하고 이 문서를 갱신한다(A-B-C 모델 §api-contract.md 변경 규칙 준용).
-
-Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?node-id=1-2099&m=dev) · [상세(카드형)](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?node-id=1547-2912&m=dev) · [상세 모달](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?node-id=1562-3682&m=dev)
-
-### 화면 구조 (3단)
-1. **하자 목록 화면** = 점검(Inspection) 단위 목록 (기존 `DefectListPage`는 하자 단건 페이징 목록이라 구조 자체가 바뀜)
-2. **점검 상세** = 그 점검에 속한 하자를 **카드형 목록**으로 표시
-3. **하자 상세 모달** = 카드 클릭 시 사이드바·헤더를 제외한 전체 영역을 차지하는 모달. 상세 정보 + "작업 내용"(담당자·조치 메모 등, 필드는 Figma 확인 필요) + 파일 업로드
-
-### 엔드포인트 매핑 (기존 재사용 우선)
-
-| 화면 | 엔드포인트 | 상태 |
-|---|---|---|
-| ①점검 단위 목록 | `GET /api/inspections` (페이지네이션, 상태/시설물 필터) | **신규** — 현재 `InspectionController`는 `GET /{id}` 단건만 존재. BE 세션이 필드 확정(대시보드 `recent-inspections`/`upcoming-inspections` 응답 필드 재사용 검토) |
-| ②점검별 하자 카드 목록 | `GET /api/inspections/{id}/defects` | **기존 재사용** (`DefectRevisionController`, `DefectDetailItem` 반환, 뷰어·검수 공용). 카드 UI에 필요한 필드(썸네일 등)가 부족하면 `DefectDetailItem` 확장 — 신규 엔드포인트 만들지 말 것 |
-| ③하자 상세 모달 | `GET /api/defects/{id}` (`DefectResponse`) | **기존 재사용 + 확장 필요**. `Defect` 엔티티에 "작업 내용"(담당자/조치 메모 등) 컬럼이 아직 없음 — Figma로 정확한 필드셋 확정 후 필요 시 Flyway **V5**(V1~V4 절대 수정 금지, 다음 번호는 V5) |
-| ③상태 전이 | `PATCH /api/defects/{id}/status` | 기존 그대로 사용 (역행/건너뛰기 사유 필수 로직 변경 없음) |
-| ③파일 업로드 | `POST /api/inspections/{id}/media` | **기존 media API 재사용** — 하자 전용 신규 첨부 엔드포인트 만들지 않기로 확정(2026-07-24 사용자 결정) |
-
-### TBD (Figma 확인 후 확정 — 확정되는 대로 이 섹션 갱신)
-- 모달 "작업 내용" 정확한 필드셋과 명칭(담당자 배정 여부 — 최근 병합된 #690 "배정 가능한 담당자 목록" API와 연계할지)
-- 하자당 첨부파일 다건 허용 여부, 기존 `mediaId`(탐지 이미지 1개, nullable) 관계와의 구분
-- `GET /api/inspections` 목록의 정렬/기본 필터(진행중/완료 등) 및 페이지 크기
-
-### 관련 이슈
-선행 #17(HAJA-26, CLOSED) · 연관(중복 여부 확인 필요) #527(하자 상세 이미지뷰어/활동기록/SLA) · #630(조치 보드 칸반)
 > `AUTH_VERIFICATION_FAILED`(400)는 보안질문 방식 전용으로 예약됐으나 그 방식이 폐기돼 **참조 0건** — 제거 대상(후속 정리). 이번 PR에서는 건드리지 않는다.
