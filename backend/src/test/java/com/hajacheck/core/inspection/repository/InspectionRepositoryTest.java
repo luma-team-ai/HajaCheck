@@ -19,6 +19,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -72,6 +73,10 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         em.persist(facility);
         em.flush();
         return facility.getId();
+    }
+
+    private Long companyId(Long ownerId) {
+        return em.find(User.class, ownerId).getCompanyId();
     }
 
     private Inspection newInspection(Long facilityId, Long createdBy, Long assignedInspectorId, int roundNo,
@@ -159,5 +164,82 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 inspectionRepository.findRecentByFacilityIds(List.of(facilityId), PageRequest.of(0, 2));
 
         assertThat(limited).extracting(Inspection::getRoundNo).containsExactly(2, 3);
+    }
+
+    // ── HAJA-393/#725: 하자 목록·상세 화면 개편 — GET /api/inspections ──
+
+    @Test
+    void findPageByCompanyIdAndFilters_owner스코프_본인회사점검만조회() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long strangerId = seedOwner("owner-b@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long strangerFacilityId = seedFacility(strangerId, "타인빌딩");
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        inspectionRepository.save(newInspection(
+                strangerFacilityId, strangerId, strangerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getTotalElements()).isEqualTo(1);
+        assertThat(result.getContent().get(0).getFacilityId()).isEqualTo(facilityId);
+    }
+
+    @Test
+    void findPageByCompanyIdAndFilters_시설물필터적용() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityA = seedFacility(ownerId, "A시설");
+        Long facilityB = seedFacility(ownerId, "B시설");
+        inspectionRepository.save(
+                newInspection(facilityA, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        inspectionRepository.save(
+                newInspection(facilityB, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), facilityA, null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getFacilityId).containsExactly(facilityA);
+    }
+
+    @Test
+    void findPageByCompanyIdAndFilters_상태필터적용() {
+        // status(PG named enum: inspection_status_type) 필터가 없을 때도 예외 없이 동작해야 한다 —
+        // JPQL ":param is null or col = :param" 패턴이 이 타입의 null 바인딩에서 던지는
+        // "could not determine data type of parameter" 회귀를 Criteria API 전환으로 우회했는지 검증.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZED));
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 2), InspectionStatus.REVIEWED));
+
+        Page<Inspection> statusFiltered = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, InspectionStatus.ANALYZED, PageRequest.of(0, 10));
+        Page<Inspection> unfiltered = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, PageRequest.of(0, 10));
+
+        assertThat(statusFiltered.getContent()).extracting(Inspection::getStatus)
+                .containsExactly(InspectionStatus.ANALYZED);
+        assertThat(unfiltered.getContent()).hasSize(2);
+    }
+
+    @Test
+    void findPageByCompanyIdAndFilters_점검일최신순_동일일자면id내림차순() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection older = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        Inspection newer = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 10), InspectionStatus.CREATED));
+        Inspection sameDaySecond = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 3, LocalDate.of(2026, 7, 10), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getId)
+                .containsExactly(sameDaySecond.getId(), newer.getId(), older.getId());
     }
 }
