@@ -321,8 +321,9 @@ class BusinessLicenseOcrRequest(BaseModel):
 
 @router.post("/business-license-ocr")
 def business_license_ocr(req: BusinessLicenseOcrRequest) -> AIResponse:
-    """사업자등록증 OCR (HAJA-169/#552, RapidOCR→EasyOCR 교체 #605) — EasyOCR(한국어 모델)
-    + LLM structured output(오탈자 교정 포함).
+    """사업자등록증 OCR (HAJA-169/#552, RapidOCR→EasyOCR 교체 #605, EasyOCR→RapidOCR
+    PP-OCRv5 한국어 교체 #722) — RapidOCR(PP-OCRv5 한국어 인식모델) + LLM structured
+    output(오탈자 교정 포함).
 
     image_base64만 지원한다(file_ref는 아직 미구현 — 값이 와도 무시). 이미지가 없으면
     VALIDATION_ERROR. OCR 디코딩 실패·모델 로드 실패·LLM 파싱 실패 등은 예외를 삼키지 않고
