@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../features/auth/store/authStore';
-import { DASHBOARD_ROUTE, LOGIN_ROUTE } from '../constants/routes';
+import { DASHBOARD_ROUTE, INVITE_CODE_ROUTE, LOGIN_ROUTE } from '../constants/routes';
 import type { Role } from '../constants/roles';
 
 type Props = {
@@ -33,6 +33,13 @@ export function ProtectedRoute({ children, allowedRoles }: Props) {
         state={{ from: `${location.pathname}${location.search}` }}
       />
     );
+  }
+
+  // 초대 코드 미입력(status=WAITING, #794/#799) — company_id가 없어 대부분의 보호 리소스가 백엔드
+  // SessionUserRevalidationFilter에서 403(AUTH_ACCOUNT_WAITING)으로 막힌다. 화면이 깨진 채로 뜨는
+  // 대신 여기서 선제적으로 초대 코드 입력 화면으로 보낸다. 그 화면 자체는 무한 루프 방지를 위해 예외.
+  if (user.status === 'WAITING' && location.pathname !== INVITE_CODE_ROUTE) {
+    return <Navigate to={INVITE_CODE_ROUTE} replace />;
   }
 
   // 권한 부족은 인증 실패와 다르게 다룬다 — /login으로 보내면 이미 로그인한 사용자가 로그인 화면을

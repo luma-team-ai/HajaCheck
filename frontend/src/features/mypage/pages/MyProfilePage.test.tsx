@@ -24,6 +24,7 @@ const mockUser: User = {
   profileImageUrl: null,
   createdAt: '2026-07-24T14:30:00',
   companyName: '하자체크',
+  status: 'ACTIVE',
 };
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
