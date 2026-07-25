@@ -12,6 +12,7 @@ import com.hajacheck.core.defect.repository.DefectRevisionRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
+import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.util.List;
@@ -31,6 +32,7 @@ public class DefectRevisionService {
     private final DefectRevisionRepository defectRevisionRepository;
     private final InspectionService inspectionService;
     private final CompanyScopeGuard companyScopeGuard;
+    private final MediaRepository mediaRepository;
 
     /**
      * 점검 회차별 하자 목록 조회(검수·뷰어 공용).
@@ -92,10 +94,17 @@ public class DefectRevisionService {
             throw new BusinessException(ErrorCode.INVALID_INPUT);
         }
 
+        // mediaId 검증(지정 시에만) — 해당 점검 회차 소속 사진인지 확인(DefectService.actionMediaId와 동일 패턴)
+        if (request.getMediaId() != null) {
+            mediaRepository.findByIdAndInspectionId(request.getMediaId(), inspectionId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
+        }
+
         // 하자 생성
         // confidence=1.0은 수동 생성 sentinel(스키마 마이그레이션 없이 AI/사람 구분 회피) — AI/사람 구분 컬럼 추가 검토는 #644
         Defect defect = Defect.builder()
                 .inspectionId(inspectionId)
+                .mediaId(request.getMediaId())
                 .type(request.getType())
                 .bboxX(request.getBboxX())
                 .bboxY(request.getBboxY())
