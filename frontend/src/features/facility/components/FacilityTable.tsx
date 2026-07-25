@@ -10,12 +10,22 @@ type Props = {
   isError: boolean;
   onRetry: () => void;
   onSelectFacility: (id: number) => void;
+  // 검색/필터 적용 결과 0건일 때 "등록된 시설물이 없습니다"(#810 이전 문구)는 오해를 줄 수 있어
+  // FacilityListPage가 필터 활성 여부에 따라 다른 안내 문구를 넘길 수 있게 열어둔다.
+  emptyMessage?: string;
 };
 
 // 로딩/에러 상태는 Table 바깥에서 처리하고, 빈 데이터는 Table의 emptyMessage로 위임(React_코드_컨벤션.md §5 4상태)
 // 공용 Table(shared, 미수정 대상)은 행 전체 클릭(onRowClick)을 지원하지 않아, 이름 셀을 버튼으로 렌더링해
 // 시설물 상세(/facilities/:id)로 이동하는 진입점을 제공한다(#489).
-export function FacilityTable({ facilities, isLoading, isError, onRetry, onSelectFacility }: Props) {
+export function FacilityTable({
+  facilities,
+  isLoading,
+  isError,
+  onRetry,
+  onSelectFacility,
+  emptyMessage = '등록된 시설물이 없습니다. 시설물을 등록해 주세요.',
+}: Props) {
   if (isLoading) {
     return (
       <LoadingSpinner className="flex items-center justify-center gap-2 px-4 py-12" />
@@ -56,10 +66,6 @@ export function FacilityTable({ facilities, isLoading, isError, onRetry, onSelec
   ];
 
   return (
-    <Table
-      columns={columns}
-      data={facilities ?? []}
-      emptyMessage="등록된 시설물이 없습니다. 시설물을 등록해 주세요."
-    />
+    <Table columns={columns} data={facilities ?? []} emptyMessage={emptyMessage} />
   );
 }
