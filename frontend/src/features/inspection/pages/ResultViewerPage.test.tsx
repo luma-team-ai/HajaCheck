@@ -8,7 +8,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ApiResponse } from '../../../shared/api/types';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
 import type { DefectRevisionRequest } from '../api/inspectionApi';
-import type { InspectionResponse, DefectDetailItem, DefectCreateRequest, DefectType } from '../api/inspectionApi.types';
+import type { InspectionResponse, DefectDetailItem, DefectCreateRequest, DefectType, MediaResponse } from '../api/inspectionApi.types';
 import { ResultViewerPage } from './ResultViewerPage';
 
 // 테스트용 목 데이터
@@ -117,6 +117,36 @@ const testHandlers = [
   }),
   http.get('/api/inspections/:id/defects', () => {
     const body: ApiResponse<DefectDetailItem[]> = { success: true, data: mockDefects };
+    return HttpResponse.json(body);
+  }),
+  http.get('/api/inspections/:id/media', () => {
+    const mockMedia: MediaResponse[] = [
+      {
+        id: 67,
+        inspectionId: 1,
+        fileType: 'IMAGE',
+        thumbnailUrl: '/api/media/67/thumbnail',
+        detailUrl: '/api/media/67/detail',
+        mimeType: 'image/jpeg',
+        capturedAt: '2026-07-22T10:00:00Z',
+        gpsLat: null,
+        gpsLng: null,
+        createdAt: '2026-07-22T10:00:00Z',
+      },
+      {
+        id: 68,
+        inspectionId: 1,
+        fileType: 'IMAGE',
+        thumbnailUrl: '/api/media/68/thumbnail',
+        detailUrl: '/api/media/68/detail',
+        mimeType: 'image/jpeg',
+        capturedAt: '2026-07-22T10:05:00Z',
+        gpsLat: null,
+        gpsLng: null,
+        createdAt: '2026-07-22T10:05:00Z',
+      },
+    ];
+    const body: ApiResponse<MediaResponse[]> = { success: true, data: mockMedia };
     return HttpResponse.json(body);
   }),
   http.post('/api/ai/defect-explain', () => {

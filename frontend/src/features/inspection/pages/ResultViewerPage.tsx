@@ -85,22 +85,27 @@ export function ResultViewerPage() {
     ? filterDefects(data.defects, confidenceThreshold, gradeFilter)
     : [];
 
-  // ponytail: mediaId별 그룹핑 — 각 이미지의 고유 mediaId와 해당 imageUrl 추출.
-  // 수동 추가 하자(mediaId=null)는 애초에 특정 이미지에 결부되지 않는 API 설계라(#784) 이미지
-  // 순회 대상에서 제외한다 — 넣으면 "다음 이미지"가 이미지 없는 깨진 화면으로 넘어가 버림.
-  // 뷰어에서 수동 추가 하자를 어떻게 노출할지는 팀 판단 대기(#784).
+  // 미디어 우선 그룹핑(#804) — 전체 media 목록에서 시작해 각 media의 하자를 붙인다.
+  // 이렇게 하면 하자 0건 이미지도 갤러리에 노출된다 — 필터 조건과 무관하게 모든 촬영 이미지를 순회할 수 있다.
+  // 수동 추가 하자(mediaId=null)는 이미지와 결부되지 않아 미디어 그룹 대상에서 제외한다.
   const mediaGroups = useMemo(() => {
-    const groups = new Map<number, { mediaId: number; imageUrl: string | null; defects: typeof visibleDefects }>();
+    // 1. 필터된 하자(visibleDefects)를 mediaId별로 맵 구성
+    const defectsByMediaId = new Map<number, typeof visibleDefects>();
     for (const defect of visibleDefects) {
       if (defect.mediaId == null) continue;
-      const mId = defect.mediaId;
-      if (!groups.has(mId)) {
-        groups.set(mId, { mediaId: mId, imageUrl: defect.imageUrl ?? null, defects: [] });
+      if (!defectsByMediaId.has(defect.mediaId)) {
+        defectsByMediaId.set(defect.mediaId, []);
       }
-      groups.get(mId)?.defects.push(defect);
+      defectsByMediaId.get(defect.mediaId)?.push(defect);
     }
-    return Array.from(groups.values()).sort((a, b) => a.mediaId - b.mediaId);
-  }, [visibleDefects]);
+
+    // 2. 전체 media 목록을 기준으로 그룹 생성(하자 없는 이미지도 포함)
+    return (data?.media ?? []).map((media) => ({
+      mediaId: media.id,
+      imageUrl: media.imageUrl,
+      defects: defectsByMediaId.get(media.id) ?? [], // 이 media의 필터된 하자 목록(없으면 빈 배열)
+    }));
+  }, [data?.media, visibleDefects]);
 
   // 현재 선택된 media(또는 첫 번째 media)
   const currentMediaGroup = useMemo(() => {
@@ -393,21 +398,26 @@ export function ResultViewerPage() {
               </div>
             )}
 
-            <div className="flex flex-1 items-center justify-center">
-              {currentDefects.length === 0 ? (
-                <div className="text-sm text-text-muted">
-                  {mediaGroups.length === 0 ? '조건에 맞는 하자가 없습니다.' : '이 이미지에 해당하는 하자가 없습니다.'}
-                </div>
+            <div className="flex flex-1 flex-col items-center justify-center gap-2">
+              {currentMediaGroup ? (
+                <>
+                  <DefectOverlay
+                    media={{
+                      id: currentMediaGroup.mediaId,
+                      imageUrl: currentMediaGroup.imageUrl ?? '',
+                    }}
+                    defects={currentDefects}
+                    selectedId={selected?.id}
+                    onSelect={setSelectedDefectId}
+                  />
+                  {currentDefects.length === 0 && (
+                    <div className="text-sm text-text-muted">
+                      {visibleDefects.length === 0 ? '조건에 맞는 하자가 없습니다.' : '이 이미지에 해당하는 하자가 없습니다.'}
+                    </div>
+                  )}
+                </>
               ) : (
-                <DefectOverlay
-                  media={{
-                    id: currentMediaGroup?.mediaId ?? 0,
-                    imageUrl: currentMediaGroup?.imageUrl ?? '',
-                  }}
-                  defects={currentDefects}
-                  selectedId={selected?.id}
-                  onSelect={setSelectedDefectId}
-                />
+                <div className="text-sm text-text-muted">표시할 이미지가 없습니다.</div>
               )}
             </div>
 

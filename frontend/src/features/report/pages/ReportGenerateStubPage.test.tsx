@@ -6,7 +6,7 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ReportDetailResponse } from '../api/reportApi';
-import type { InspectionResponse, DefectDetailItem } from '../../inspection/api/inspectionApi.types';
+import type { InspectionResponse, DefectDetailItem, MediaResponse } from '../../inspection/api/inspectionApi.types';
 import { ReportGenerateStubPage } from './ReportGenerateStubPage';
 
 const mockInspection: InspectionResponse = {
@@ -64,6 +64,23 @@ let generateReportCallCount = 0;
 const server = setupServer(
   http.get('/api/inspections/1', () => HttpResponse.json({ success: true, data: mockInspection })),
   http.get('/api/inspections/1/defects', () => HttpResponse.json({ success: true, data: mockDefects })),
+  http.get('/api/inspections/1/media', () => {
+    const mockMedia: MediaResponse[] = [
+      {
+        id: 1,
+        inspectionId: 1,
+        fileType: 'IMAGE',
+        thumbnailUrl: '/api/media/1/thumbnail',
+        detailUrl: '/api/media/1/detail',
+        mimeType: 'image/jpeg',
+        capturedAt: '2026-07-22T10:00:00Z',
+        gpsLat: null,
+        gpsLng: null,
+        createdAt: '2026-07-22T10:00:00Z',
+      },
+    ];
+    return HttpResponse.json({ success: true, data: mockMedia });
+  }),
   http.get('/api/facilities/1', () => HttpResponse.json({ success: true, data: mockFacility })),
   http.post('/api/inspections/1/reports', () => {
     generateReportCallCount += 1;

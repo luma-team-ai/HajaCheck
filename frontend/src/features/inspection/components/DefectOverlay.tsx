@@ -15,7 +15,7 @@ export function DefectOverlay({ media, defects, selectedId, onSelect }: DefectOv
     // 정확히 같아야 정렬이 맞는다. img를 자연 크기로 두고(w-full 강제 금지 — 썸네일 원본
     // 해상도보다 크게 늘리면 블러 발생, #781/#791) div가 그 크기로 shrink-wrap하게 한다.
     <div className="relative w-fit max-w-full">
-      <img src={media.imageUrl} alt="점검 이미지" className="block max-w-full" />
+      <img src={media.imageUrl} alt="점검 이미지" className="block max-w-full max-h-[60vh]" />
       {defects.map((defect) => {
         const isSelected = selectedId === defect.id;
         return (
