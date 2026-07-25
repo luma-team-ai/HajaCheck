@@ -1,7 +1,9 @@
 import type { InspectionHistoryRow, MyInspectionsSummary, MyReportCard } from '../types';
 
-// 마이페이지 — 내 점검 이력 / 보고서 (HAJA-366, #668) — BE API 전무(grep 0건), Figma 시안 수치를
-// 그대로 예제 데이터로 이식한다. mypage.mock.ts(플랜/좌석)과 도메인이 달라 별도 파일로 분리.
+// 마이페이지 — 내 점검 이력 / 보고서 (HAJA-366/#668, BE 연동 #844/HAJA-442) — MSW 핸들러
+// (api/mypageApi.handlers.ts) 전용 예제 데이터. 실 서버 응답 계약(원시값: roundNo/inspectionDate/
+// issuedAt/fileSizeBytes)과 동일한 shape을 유지한다 — 표시 포맷 조립은 utils/myInspectionsFormat.ts.
+// 프로덕션 경로(훅)에서는 더 이상 참조하지 않는다(mock 폴백 제거, #844).
 
 export const mockMyInspectionsSummary: MyInspectionsSummary = {
   participatedCount: 18,
@@ -10,14 +12,13 @@ export const mockMyInspectionsSummary: MyInspectionsSummary = {
   inProgressCount: 2,
 };
 
-// 목록은 8건만 담되, totalElements는 Figma 시안의 "1-8 / 18" 페이지네이션 표기에 맞춰 18로 둔다
-// (handoff 지시 — 총 18건 느낌을 재현하는 표시 목적. 실 서버 페이징 연동은 후속 BE 몫).
+// 목록은 8건만 담되, totalElements는 Figma 시안의 "1-8 / 18" 페이지네이션 표기에 맞춰 18로 둔다.
 export const mockMyInspectionRows: InspectionHistoryRow[] = [
   {
     id: 1,
     facilityName: '강남 오피스타워 A동',
-    round: '24-03',
-    inspectedAt: '2024.03.15',
+    roundNo: 3,
+    inspectionDate: '2024-03-15',
     role: 'INSPECTOR',
     defectCount: 24,
     status: 'REVIEW_DONE',
@@ -25,8 +26,8 @@ export const mockMyInspectionRows: InspectionHistoryRow[] = [
   {
     id: 2,
     facilityName: '성수동 지식산업센터 1차',
-    round: '24-01',
-    inspectedAt: '2024.03.12',
+    roundNo: 1,
+    inspectionDate: '2024-03-12',
     role: 'OWNER',
     defectCount: 15,
     status: 'REVIEW_PENDING',
@@ -34,8 +35,8 @@ export const mockMyInspectionRows: InspectionHistoryRow[] = [
   {
     id: 3,
     facilityName: '분당 테크노밸리 C동',
-    round: '23-04',
-    inspectedAt: '2024.02.28',
+    roundNo: 4,
+    inspectionDate: '2024-02-28',
     role: 'INSPECTOR',
     defectCount: 8,
     status: 'ANALYZING',
@@ -43,8 +44,8 @@ export const mockMyInspectionRows: InspectionHistoryRow[] = [
   {
     id: 4,
     facilityName: '여의도 스카이라인 타워',
-    round: '24-02',
-    inspectedAt: '2024.02.20',
+    roundNo: 2,
+    inspectionDate: '2024-02-20',
     role: 'INSPECTOR',
     defectCount: 42,
     status: 'REVIEW_DONE',
@@ -52,8 +53,8 @@ export const mockMyInspectionRows: InspectionHistoryRow[] = [
   {
     id: 5,
     facilityName: '판교 테크노센터 3관',
-    round: '24-01',
-    inspectedAt: '2024.02.15',
+    roundNo: 1,
+    inspectionDate: '2024-02-15',
     role: 'OWNER',
     defectCount: 12,
     status: 'REVIEW_DONE',
@@ -61,8 +62,8 @@ export const mockMyInspectionRows: InspectionHistoryRow[] = [
   {
     id: 6,
     facilityName: '광화문 비즈니스 스퀘어',
-    round: '23-12',
-    inspectedAt: '2024.02.01',
+    roundNo: 12,
+    inspectionDate: '2024-02-01',
     role: 'INSPECTOR',
     defectCount: 19,
     status: 'REVIEW_DONE',
@@ -70,8 +71,8 @@ export const mockMyInspectionRows: InspectionHistoryRow[] = [
   {
     id: 7,
     facilityName: '가산 디지털엠파이어 2단지',
-    round: '24-02',
-    inspectedAt: '2024.01.20',
+    roundNo: 2,
+    inspectionDate: '2024-01-20',
     role: 'INSPECTOR',
     defectCount: 5,
     status: 'REVIEW_PENDING',
@@ -79,8 +80,8 @@ export const mockMyInspectionRows: InspectionHistoryRow[] = [
   {
     id: 8,
     facilityName: '인천 송도 글로벌 캠퍼스',
-    round: '24-01',
-    inspectedAt: '2024.01.10',
+    roundNo: 1,
+    inspectionDate: '2024-01-10',
     role: 'INSPECTOR',
     defectCount: 31,
     status: 'REVIEW_DONE',
@@ -92,23 +93,29 @@ export const MOCK_MY_INSPECTIONS_TOTAL_ELEMENTS = 18;
 export const mockMyReports: MyReportCard[] = [
   {
     id: 1,
-    title: '[24-03] 강남 오피스타워 A동 정밀점검 보고서',
-    issuedAt: '2024.03.16',
-    fileSizeLabel: '1.2MB',
+    inspectionId: 1,
+    facilityName: '강남 오피스타워 A동',
+    roundNo: 3,
+    issuedAt: '2024-03-16T10:22:00',
+    fileSizeBytes: 1258291,
     gradeDots: ['RED', 'ORANGE', 'GREEN'],
   },
   {
     id: 2,
-    title: '[24-01] 성수동 지식산업센터 정기 보고서',
-    issuedAt: '2024.03.12',
-    fileSizeLabel: '0.8MB',
+    inspectionId: 2,
+    facilityName: '성수동 지식산업센터 1차',
+    roundNo: 1,
+    issuedAt: '2024-03-12T09:00:00',
+    fileSizeBytes: 838861,
     gradeDots: ['ORANGE', 'GREEN'],
   },
   {
     id: 3,
-    title: '[24-02] 여의도 스카이라인 타워 종합 분석서',
-    issuedAt: '2024.02.21',
-    fileSizeLabel: '2.4MB',
-    gradeDots: ['RED', 'RED'],
+    inspectionId: 4,
+    facilityName: '여의도 스카이라인 타워',
+    roundNo: 2,
+    issuedAt: '2024-02-21T14:30:00',
+    fileSizeBytes: 2516583,
+    gradeDots: ['RED', 'GREEN'],
   },
 ];
