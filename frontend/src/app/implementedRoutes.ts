@@ -8,6 +8,7 @@
 // 잘못 통과시킨다(#227 리뷰 P1). 실제로 이동 가능한 정확한 경로만 화이트리스트한다.
 const IMPLEMENTED_ROUTES = new Set([
   '/dashboard',
+  '/statistics', // 통계 대시보드(HAJA-40, #27)
   '/dashboard/ai-weekly-briefing', // AiBriefingCard 인라인 위젯 앵커 스크롤(#478)
   '/dashboard/upcoming-inspections', // 다음 점검일 도래 독립 페이지(dev-03-02, #543)
   '/defects/list',
