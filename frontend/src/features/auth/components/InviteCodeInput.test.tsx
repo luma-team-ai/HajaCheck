@@ -6,9 +6,9 @@ import { InviteCodeInput } from './InviteCodeInput';
 
 afterEach(cleanup);
 
-function Controlled() {
-  const [value, setValue] = useState('');
-  return <InviteCodeInput value={value} onChange={setValue} />;
+function Controlled({ defaultValue = '' }: { defaultValue?: string }) {
+  const [, setValue] = useState('');
+  return <InviteCodeInput defaultValue={defaultValue} onChange={setValue} />;
 }
 
 function getInputs() {
@@ -64,5 +64,29 @@ describe('InviteCodeInput', () => {
     fireEvent.change(inputs[2], { target: { value: '' } });
 
     expect(inputs.map((input) => input.value)).toEqual(['A', 'B', '', 'D', 'E', 'F']);
+  });
+
+  // #817 P3 계약 고정 — defaultValue는 초기값 전용이라 마운트 이후 부모가 그 prop을 바꿔도
+  // 슬롯을 재동기화하지 않는다(재설정하려면 key={...}로 컴포넌트를 remount해야 한다).
+  it('마운트 후 defaultValue prop이 바뀌어도 입력 칸을 재동기화하지 않는다(초기값 전용)', () => {
+    function Rerenderable() {
+      const [defaultValue, setDefaultValue] = useState('ABC');
+      const [, setCode] = useState('');
+      return (
+        <>
+          <button type="button" onClick={() => setDefaultValue('')}>
+            외부에서 빈 문자열로 변경
+          </button>
+          <InviteCodeInput defaultValue={defaultValue} onChange={setCode} />
+        </>
+      );
+    }
+    render(<Rerenderable />);
+    const inputs = getInputs();
+    expect(inputs.map((input) => input.value)).toEqual(['A', 'B', 'C', '', '', '']);
+
+    fireEvent.click(screen.getByRole('button', { name: '외부에서 빈 문자열로 변경' }));
+
+    expect(inputs.map((input) => input.value)).toEqual(['A', 'B', 'C', '', '', '']);
   });
 });
