@@ -78,6 +78,9 @@ export function ResultViewerPage() {
   const [isAddMissingOpen, setIsAddMissingOpen] = useState(false);
   const [newDefectType, setNewDefectType] = useState<'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE' | ''>('');
   const [newDefectGrade, setNewDefectGrade] = useState<DefectGrade | ''>('');
+  // ponytail: 캔버스 드래그 상태 — 모달 열릴 때마다 리셋(모달 열 때 마다 새 박스 시작)
+  const [draggingBbox, setDraggingBbox] = useState<{ x: number; y: number; width: number; height: number } | undefined>();
+  const [canvasMouseDown, setCanvasMouseDown] = useState(false);
   // rules-of-hooks: 훅은 조건부 return 이전에 호출해야 한다. 훅 내부 enabled 플래그가
   // 유효하지 않은 inspectionId일 때 쿼리를 스킵하므로, ID 검증 return은 훅 호출 다음에 둔다.
   const { data, isLoading, isError, refetch } = useInspectionResult(inspectionId);
@@ -234,30 +237,76 @@ export function ResultViewerPage() {
     setIsUpdating(true);
     setErrorMessage('');
     try {
-      const response = await inspectionApi.createDefect(inspectionId, {
+      const payload = {
         type: newDefectType as 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE',
         grade: newDefectGrade as DefectGrade,
-      });
+        ...(draggingBbox && {
+          bboxX: draggingBbox.x,
+          bboxY: draggingBbox.y,
+          bboxW: draggingBbox.width,
+          bboxH: draggingBbox.height,
+        }),
+        ...(currentMediaGroup?.mediaId && { mediaId: currentMediaGroup.mediaId }),
+      };
+      const response = await inspectionApi.createDefect(inspectionId, payload);
       await refetch();
       setSelectedDefectId(response.data.id);
       setIsAddMissingOpen(false);
       setNewDefectType('');
       setNewDefectGrade('');
+      setDraggingBbox(undefined);
+      setCanvasMouseDown(false);
     } catch (error) {
       const msg = error instanceof Error ? error.message : '누락 추가에 실패했습니다.';
       setErrorMessage(msg);
     } finally {
       setIsUpdating(false);
     }
-  }, [inspectionId, newDefectType, newDefectGrade, isUpdating, refetch]);
+  }, [inspectionId, newDefectType, newDefectGrade, isUpdating, refetch, draggingBbox, currentMediaGroup?.mediaId]);
 
   const handleCancelAddMissing = useCallback(() => {
     if (isUpdating) return;
     setIsAddMissingOpen(false);
     setNewDefectType('');
     setNewDefectGrade('');
+    setDraggingBbox(undefined);
+    setCanvasMouseDown(false);
     setErrorMessage('');
   }, [isUpdating]);
+
+  // ponytail: 캔버스 드래그 이벤트 — 마우스 위치를 이미지 좌표계(0~1 정규화)로 변환
+  const handleCanvasMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const canvas = e.currentTarget;
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      setCanvasMouseDown(true);
+      setDraggingBbox({ x, y, width: 0, height: 0 });
+    },
+    [],
+  );
+
+  const handleCanvasMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!canvasMouseDown || !draggingBbox) return;
+      const canvas = e.currentTarget;
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      setDraggingBbox({
+        x: Math.min(draggingBbox.x, x),
+        y: Math.min(draggingBbox.y, y),
+        width: Math.abs(x - draggingBbox.x),
+        height: Math.abs(y - draggingBbox.y),
+      });
+    },
+    [canvasMouseDown, draggingBbox],
+  );
+
+  const handleCanvasMouseUp = useCallback(() => {
+    setCanvasMouseDown(false);
+  }, []);
 
   const handleConfirmReview = useCallback(async () => {
     if (!data) return;
@@ -655,21 +704,58 @@ export function ResultViewerPage() {
         title="누락된 하자 추가"
         closeOnOverlayClick={!isUpdating}
       >
-        <div className="flex flex-col gap-4">
-          {/* 이미지 위 위치(bbox) 지정 UI가 없다는 걸 명시 — 현재 API도 이 경로로는 mediaId를
-              받지 않아 특정 이미지에 결부되지 않는다(#784). 위치 지정까지 지원할지는 팀 논의 후 별도 작업. */}
+        <div className="flex max-h-96 flex-col gap-4 overflow-y-auto">
           <p className="text-xs text-text-muted">
-            유형·등급만 기록되며, 특정 이미지의 위치(박스)에는 연결되지 않습니다.
+            이미지 위에 드래그하여 박스 위치를 지정할 수 있습니다. (선택사항)
           </p>
           {errorMessage && (
             <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
           )}
+
+          {/* Canvas — 현재 이미지 + 드래그 박스 표시 */}
+          {currentMediaGroup && (
+            <div
+              onMouseDown={handleCanvasMouseDown}
+              onMouseMove={handleCanvasMouseMove}
+              onMouseUp={handleCanvasMouseUp}
+              onMouseLeave={handleCanvasMouseUp}
+              className="relative w-full cursor-crosshair rounded-lg bg-surface-sunken p-2"
+            >
+              <div className="relative w-fit max-w-full">
+                <img
+                  src={currentMediaGroup.imageUrl}
+                  alt="이미지"
+                  className="block max-w-full max-h-64 rounded"
+                />
+                {/* Dragging bounding box */}
+                {draggingBbox && (
+                  <div
+                    className="absolute border-2 border-dashed border-primary rounded-sm pointer-events-none"
+                    style={{
+                      left: `${draggingBbox.x * 100}%`,
+                      top: `${draggingBbox.y * 100}%`,
+                      width: `${draggingBbox.width * 100}%`,
+                      height: `${draggingBbox.height * 100}%`,
+                      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
           <div>
-            <label htmlFor="defect-type-select" className="mb-2 block text-sm font-medium text-text-default">하자 유형</label>
+            <label htmlFor="defect-type-select" className="mb-2 block text-sm font-medium text-text-default">
+              하자 유형
+            </label>
             <select
               id="defect-type-select"
               value={newDefectType}
-              onChange={(e) => setNewDefectType(e.target.value as 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE' | '')}
+              onChange={(e) =>
+                setNewDefectType(
+                  e.target.value as 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE' | '',
+                )
+              }
               className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
             >
               <option value="">유형 선택</option>
@@ -680,8 +766,11 @@ export function ResultViewerPage() {
               ))}
             </select>
           </div>
+
           <div>
-            <label htmlFor="defect-grade-select" className="mb-2 block text-sm font-medium text-text-default">등급</label>
+            <label htmlFor="defect-grade-select" className="mb-2 block text-sm font-medium text-text-default">
+              등급
+            </label>
             <select
               id="defect-grade-select"
               value={newDefectGrade}
@@ -696,6 +785,7 @@ export function ResultViewerPage() {
               ))}
             </select>
           </div>
+
           <div className="flex gap-2 pt-2">
             <Button
               type="button"
