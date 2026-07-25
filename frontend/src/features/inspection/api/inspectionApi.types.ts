@@ -29,6 +29,12 @@ export interface DefectDetailItem {
 export interface DefectCreateRequest {
   type: 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE';
   grade: DefectGrade;
+  // ponytail: bbox는 전부 있거나 다 없거나(#831) — 백엔드도 이렇게 검증함
+  bboxX?: number;
+  bboxY?: number;
+  bboxW?: number;
+  bboxH?: number;
+  mediaId?: number;
 }
 
 // GET /api/inspections/{id}/media 응답 타입 (#804)
