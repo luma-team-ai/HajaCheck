@@ -20,6 +20,7 @@ import { planQuotaHandlers as platformAdminPlanQuotaHandlers } from '../features
 import { platformAdminCompanyHandlers } from '../features/platform-admin/api/platformAdminCompanyApi.handlers';
 import { platformAdminUserHandlers } from '../features/platform-admin/api/platformAdminUserApi.handlers';
 import { reportHandlers } from '../features/report/api/reportApi.handlers';
+import { statisticsHandlers } from '../features/statistics/api/statisticsApi.handlers';
 import { statsHandlers } from '../features/platform-admin/api/statsApi.handlers';
 import { supportHandlers } from '../features/support/api/supportApi.handlers';
 
@@ -38,6 +39,7 @@ export const handlers = [
   // 새로 추가되는 두 엔드포인트만 유효하게 동작한다.
   ...defectHandlers,
   ...dashboardHandlers,
+  ...statisticsHandlers,
   ...mypageHandlers,
   ...facilityHandlers,
   ...facilityDefectHandlers,
