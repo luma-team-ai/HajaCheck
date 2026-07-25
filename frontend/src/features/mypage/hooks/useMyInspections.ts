@@ -1,34 +1,23 @@
 import { useQuery } from '@tanstack/react-query';
 import type { ApiError, PageResponse } from '../../../shared/api/types';
 import { mypageApi } from '../api/mypageApi';
-import {
-  MOCK_MY_INSPECTIONS_TOTAL_ELEMENTS,
-  mockMyInspectionRows,
-} from '../mocks/myInspections.mock';
+import type { PeriodFilterValue } from '../components/PeriodFilterSelect';
 import type { InspectionHistoryRow } from '../types';
-import { fetchWithFallback } from '../utils/fetchWithFallback';
 
 interface UseMyInspectionsParams {
-  page: number; // 1-base — TableFooterPagination/Pagination과 동일 관례(useMyInspections 호출부 참고)
+  page: number; // 1-base — TableFooterPagination/Pagination과 동일 관례(아래 -1 변환 참고)
   size: number;
+  period: PeriodFilterValue;
 }
 
-// 내 점검 이력 테이블 (HAJA-366, #668). BE 미구현이라 page/size는 쿼리 키에는 반영하지만
-// 실제 서버 페이징은 없다 — mock 폴백은 항상 같은 8건 + totalElements=18을 돌려준다(mock 파일 주석 참고).
-// 후속 BE 연동 시 이 훅 시그니처(params)는 그대로 유지한 채 mypageApi.getInspections만 실 서버로 붙으면 된다.
+// 내 점검 이력 테이블 (HAJA-366/#668, BE 연동 #844/HAJA-442). page는 1-base UI 값을 그대로 받아
+// BE 0-base 규약(InspectionController.list와 동일 page 규약)에 맞춰 -1 해서 전달한다.
 export function useMyInspections(params: UseMyInspectionsParams) {
-  const fallback: PageResponse<InspectionHistoryRow> = {
-    content: mockMyInspectionRows,
-    page: params.page - 1,
-    totalElements: MOCK_MY_INSPECTIONS_TOTAL_ELEMENTS,
-  };
-
   return useQuery<PageResponse<InspectionHistoryRow>, ApiError>({
     queryKey: ['mypage', 'inspections', 'list', params],
     queryFn: () =>
-      fetchWithFallback(
-        () => mypageApi.getInspections(params).then((res) => res.data),
-        fallback,
-      ),
+      mypageApi
+        .getInspections({ page: params.page - 1, size: params.size, period: params.period })
+        .then((res) => res.data),
   });
 }
