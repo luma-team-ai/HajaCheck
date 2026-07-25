@@ -15,6 +15,9 @@ import { filterDefects } from '../utils/filterDefects';
 
 const ALL_GRADES: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
 
+// 누락 추가 캔버스 — 드래그 없이 클릭만 해도 제출되던 0크기 박스 방지 임계값(정규화 좌표 기준, #841)
+const MIN_BBOX_SIZE = 0.01;
+
 // Figma 시안의 등급 라벨은 이 페이지 전용 워딩이다 — feature 간 직접 import 금지(types.ts 참고).
 // StatisticsGradeDistributionCard와 동일 라벨 사용.
 const GRADE_LABELS: Record<DefectGrade, string> = {
@@ -304,8 +307,13 @@ export function ResultViewerPage() {
     [canvasMouseDown, draggingBbox],
   );
 
+  // 드래그 없이 클릭만 하면 0크기 박스가 그대로 제출되던 것을 방지(#841) — 최소 임계값 미만이면
+  // 위치 미지정(undefined)으로 되돌린다.
   const handleCanvasMouseUp = useCallback(() => {
     setCanvasMouseDown(false);
+    setDraggingBbox((prev) =>
+      prev && (prev.width < MIN_BBOX_SIZE || prev.height < MIN_BBOX_SIZE) ? undefined : prev,
+    );
   }, []);
 
   const handleConfirmReview = useCallback(async () => {
@@ -714,14 +722,17 @@ export function ResultViewerPage() {
 
           {/* Canvas — 현재 이미지 + 드래그 박스 표시 */}
           {currentMediaGroup && (
-            <div
-              onMouseDown={handleCanvasMouseDown}
-              onMouseMove={handleCanvasMouseMove}
-              onMouseUp={handleCanvasMouseUp}
-              onMouseLeave={handleCanvasMouseUp}
-              className="relative w-full cursor-crosshair rounded-lg bg-surface-sunken p-2"
-            >
-              <div className="relative w-fit max-w-full">
+            <div className="w-full rounded-lg bg-surface-sunken p-2">
+              {/* 마우스 이벤트를 이미지와 정확히 같은 크기(w-fit)인 이 div에 붙인다(#841) — 바깥
+                  패딩 div 기준으로 계산하면, 세로로 긴 사진처럼 이미지 폭이 캔버스 폭보다 좁아질 때
+                  드래그 좌표와 실제 이미지 위 위치가 어긋난다. DefectOverlay.tsx와 동일 기준. */}
+              <div
+                onMouseDown={handleCanvasMouseDown}
+                onMouseMove={handleCanvasMouseMove}
+                onMouseUp={handleCanvasMouseUp}
+                onMouseLeave={handleCanvasMouseUp}
+                className="relative w-fit max-w-full cursor-crosshair"
+              >
                 <img
                   src={currentMediaGroup.imageUrl}
                   alt="이미지"
