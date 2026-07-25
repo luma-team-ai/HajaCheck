@@ -1,4 +1,4 @@
--- Flyway V13 — 상담 유형(counsel_type) 분류: counsel_tickets.counsel_type 컬럼 + 상담사가 처리
+-- Flyway V14 — 상담 유형(counsel_type) 분류: counsel_tickets.counsel_type 컬럼 + 상담사가 처리
 -- 가능한 상담 유형을 관리하는 counselor_skills 다대다 테이블(#743).
 --
 -- counsel_tickets는 아직 프로덕션 write 경로가 없어(엔티티만 존재, service/controller 미구현)
@@ -14,8 +14,8 @@
 -- DEFAULT를 붙이지 않고 현재 설계를 그대로 유지한다. 행이 있는 구스키마에 forward-apply하면 지금
 -- 설계상 반드시 실패한다는 계약은 CounselTypeMigrationTest로 고정해 둔다.
 --
--- V12는 dev에 아직 미병합인 #725/#726 시설물 재설계 마이그레이션이 선점해 V13으로 재번호했다
--- (V6/V10과 동일한 재번호 컨벤션).
+-- dev에 V12(defects 조치 결과, #725/HAJA-393)·V13(media.detail_url, #788/#789)이 이미 선점해
+-- V14로 재번호했다 (V6/V10과 동일한 재번호 컨벤션).
 
 do $$
 begin
