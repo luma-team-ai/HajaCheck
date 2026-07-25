@@ -81,7 +81,11 @@ export function FindPasswordPage() {
               )}
             </div>
 
-            {errorMessage && <p className={ERROR_CLASSES}>{errorMessage}</p>}
+            {errorMessage && (
+              <p role="alert" className={ERROR_CLASSES}>
+                {errorMessage}
+              </p>
+            )}
 
             <Button type="submit" size="lg" className="w-full" disabled={isPending}>
               {isPending ? '전송 중...' : '재설정 링크 보내기'}

@@ -102,7 +102,11 @@ export function CompanyLoginTab() {
         </div>
       </div>
 
-      {errorMessage && <p className={ERROR_CLASSES}>{errorMessage}</p>}
+      {errorMessage && (
+        <p role="alert" className={ERROR_CLASSES}>
+          {errorMessage}
+        </p>
+      )}
 
       <label className="flex cursor-pointer items-center gap-2 text-[13px] text-text-default">
         <input

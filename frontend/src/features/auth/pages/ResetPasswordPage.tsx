@@ -98,7 +98,9 @@ export function ResetPasswordPage() {
           </div>
         ) : isTokenInvalid ? (
           <div className="mt-6 flex flex-col gap-4">
-            <p className={ERROR_CLASSES}>{TOKEN_INVALID_MESSAGE}</p>
+            <p role="alert" className={ERROR_CLASSES}>
+              {TOKEN_INVALID_MESSAGE}
+            </p>
             <Link to={FIND_PASSWORD_ROUTE} className="text-sm font-medium text-heading underline">
               비밀번호 찾기 다시 요청하기
             </Link>
@@ -162,7 +164,11 @@ export function ResetPasswordPage() {
               )}
             </div>
 
-            {errorMessage && <p className={ERROR_CLASSES}>{errorMessage}</p>}
+            {errorMessage && (
+              <p role="alert" className={ERROR_CLASSES}>
+                {errorMessage}
+              </p>
+            )}
 
             <Button type="submit" size="lg" className="w-full" disabled={isPending}>
               {isPending ? '변경 중...' : '변경'}
