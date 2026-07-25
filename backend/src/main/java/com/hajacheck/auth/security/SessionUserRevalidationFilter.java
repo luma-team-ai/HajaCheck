@@ -1,15 +1,20 @@
 package com.hajacheck.auth.security;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.global.common.ApiResponse;
+import com.hajacheck.global.exception.ErrorCode;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -35,8 +40,15 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @RequiredArgsConstructor
 public class SessionUserRevalidationFilter extends OncePerRequestFilter {
 
+    // WAITING(#794) 계정이 초대 코드를 입력해 자기 상태를 확인·전환하는 데 필요한 최소 경로만 예외로 연다.
+    // 이 필터는 URL 매처와 무관하게 모든 요청에 걸리므로(SUSPENDED 차단과 동일 구조), 여기 없는 경로는
+    // permitAll 목록(SecurityConfig)에 있어도 이 필터 단계에서 먼저 막힌다.
+    private static final String USERS_ME_PATH = "/api/users/me";
+    private static final String INVITE_CODE_REDEEM_PATH = "/api/users/me/invite-code";
+
     private final UserRepository userRepository;
     private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
+    private final ObjectMapper objectMapper;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
@@ -54,6 +66,14 @@ public class SessionUserRevalidationFilter extends OncePerRequestFilter {
             }
 
             User user = current.get();
+
+            // WAITING(#794): 세션(로그인)은 유지하되 초대 코드 확인·redeem 외의 보호된 리소스는 차단한다.
+            // SUSPENDED와 달리 세션을 죽이지 않는다 — 코드를 다시 입력해 재시도할 수 있어야 하므로.
+            if (user.isWaiting() && !isWaitingAllowedRequest(request)) {
+                writeWaitingBlockedResponse(response);
+                return;
+            }
+
             if (user.getRole() != sessionUser.getRole() || !Objects.equals(user.getCompanyId(), sessionUser.getCompanyId())) {
                 LoginUser refreshed = new LoginUser(user);
                 // LoginUser 생성자는 passwordHash 를 다시 채운다 — ProviderManager 를 거치지 않는 이
@@ -71,5 +91,21 @@ public class SessionUserRevalidationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    // GET /api/users/me(내 상태 확인) · POST /api/users/me/invite-code(redeem)만 예외 — 그 밖은 메서드까지
+    // 정확히 일치해야 통과한다(예: DELETE /api/users/me 같은 미래 확장이 이 예외를 우연히 타지 않도록).
+    private boolean isWaitingAllowedRequest(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        String method = request.getMethod();
+        return ("GET".equals(method) && USERS_ME_PATH.equals(uri))
+                || ("POST".equals(method) && INVITE_CODE_REDEEM_PATH.equals(uri));
+    }
+
+    private void writeWaitingBlockedResponse(HttpServletResponse response) throws IOException {
+        response.setStatus(ErrorCode.AUTH_ACCOUNT_WAITING.getStatus().value());
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        objectMapper.writeValue(response.getWriter(), ApiResponse.fail(ErrorCode.AUTH_ACCOUNT_WAITING));
     }
 }

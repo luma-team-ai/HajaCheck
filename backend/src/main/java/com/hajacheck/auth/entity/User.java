@@ -1,6 +1,7 @@
 package com.hajacheck.auth.entity;
 
 import com.hajacheck.global.common.BaseTimeEntity;
+import com.hajacheck.global.exception.DomainStateTransitionException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -88,9 +89,10 @@ public class User extends BaseTimeEntity {
     }
 
     /**
-     * 소셜 신규 가입 팩토리 — passwordHash 는 null(소셜 전용), role=USER, status=ACTIVE.
-     * 참고: 소셜 자동가입이 ACTIVE 인 것은 companyId=null 개인회원의 의도된 셀프가입이다.
-     * 보호 리소스의 companyId/role 권한 경계는 각 엔드포인트 후속 과제로 다룬다(이 PR 범위 밖).
+     * 소셜 신규 가입 팩토리 — passwordHash 는 null(소셜 전용), role=USER, status=WAITING(#794).
+     * company_id 없이 가입하므로, 기업 관리자가 발급한 초대 코드를 redeem(activateWithInviteCode)해
+     * 회사에 배선되기 전까지 WAITING(초대 대기)으로 남는다. 로그인은 허용되지만 보호된 리소스 접근은
+     * SessionUserRevalidationFilter가 차단하고, 초대 코드 redeem 엔드포인트만 예외로 연다.
      */
     public static User createSocialUser(SocialProvider provider, String socialId,
                                         String email, String name) {
@@ -100,7 +102,7 @@ public class User extends BaseTimeEntity {
                 .role(Role.USER)
                 .socialProvider(provider)
                 .socialId(socialId)
-                .status(UserStatus.ACTIVE)
+                .status(UserStatus.WAITING)
                 .build();
     }
 
@@ -176,6 +178,23 @@ public class User extends BaseTimeEntity {
 
     public boolean isSuspended() {
         return this.status == UserStatus.SUSPENDED;
+    }
+
+    public boolean isWaiting() {
+        return this.status == UserStatus.WAITING;
+    }
+
+    /**
+     * 초대 코드 redeem(#794) — WAITING 상태에서만 허용. 회사 소속 배선 + ACTIVE 전환을 한 번에 수행한다.
+     * 이미 ACTIVE/SUSPENDED인 계정이 재요청(예: 만료 전 재전송된 코드)하면 상태 전이 가드로 막는다.
+     */
+    public void activateWithInviteCode(Long companyId) {
+        if (this.status != UserStatus.WAITING) {
+            throw new DomainStateTransitionException(
+                    "초대 코드 적용 불가: 현재 상태=%s".formatted(this.status));
+        }
+        this.companyId = companyId;
+        this.status = UserStatus.ACTIVE;
     }
 
     /**

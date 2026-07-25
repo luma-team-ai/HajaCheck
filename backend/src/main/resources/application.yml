@@ -94,6 +94,8 @@ app:
   auth:
     password-reset-ttl: 10m
     signup-status-ttl: 30d
+    # 사용자 초대 코드(#794) — 프론트 발급 모달 카운트다운(02:59)과 동일값 유지.
+    invite-code-ttl: 180s
     # 비밀번호 재설정 1단계 rate-limit(2단계엔 걸지 않음 — 계약 §Rate-limit).
     password-reset-rate-limit:
       # 대상 이메일 축 — 사용자 단위 실질 방어(특정 피해자 메일 폭탄 차단).

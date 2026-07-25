@@ -19,6 +19,12 @@ public class AuthProperties {
     /** 가입 상태 조회 토큰 TTL. 기본 30일. */
     private Duration signupStatusTtl = Duration.ofDays(30);
 
+    /**
+     * 사용자 초대 코드 TTL(#794). 기본 180초 — 발급 모달의 카운트다운(프론트)과 동일해야 한다.
+     * 1회용(redeem 시 즉시 삭제)이라 짧게 둘수록 발급 화면 캡처·전달 지연으로 인한 도용 창이 좁아진다.
+     */
+    private Duration inviteCodeTtl = Duration.ofSeconds(180);
+
     /** 비밀번호 재설정 1단계 rate-limit(2단계엔 걸지 않는다 — 계약 §Rate-limit). */
     private PasswordResetRateLimit passwordResetRateLimit = new PasswordResetRateLimit();
 
@@ -191,5 +197,13 @@ public class AuthProperties {
 
     public void setSignupStatusTtl(Duration signupStatusTtl) {
         this.signupStatusTtl = signupStatusTtl;
+    }
+
+    public Duration getInviteCodeTtl() {
+        return inviteCodeTtl;
+    }
+
+    public void setInviteCodeTtl(Duration inviteCodeTtl) {
+        this.inviteCodeTtl = inviteCodeTtl;
     }
 }

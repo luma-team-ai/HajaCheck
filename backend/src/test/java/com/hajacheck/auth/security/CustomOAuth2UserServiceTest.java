@@ -102,7 +102,8 @@ class CustomOAuth2UserServiceTest {
 
         verify(socialAccountWriter, never()).registerWithFreePlan(any(User.class));
         assertThat(result.getEmail()).isEqualTo("kakao@haja.com");
-        assertThat(existing.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        // 기존(재로그인) 사용자는 findOrRegister가 상태를 바꾸지 않는다 — createSocialUser 기본값(WAITING, #794)이 그대로 유지됨을 확인.
+        assertThat(existing.getStatus()).isEqualTo(UserStatus.WAITING);
     }
 
     @Test

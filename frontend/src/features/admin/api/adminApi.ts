@@ -24,6 +24,11 @@ export interface CreateUserPayload {
   role: AdminUserRole;
 }
 
+export interface InviteCodeIssueResult {
+  code: string;
+  ttlSeconds: number;
+}
+
 // 관리자 API — 백엔드 GET/PATCH /api/admin/users(#405) 실 연동.
 // UI 페이지 상태(AdminUsersPage, TableFooterPagination)는 1-base 관례를 쓰지만 백엔드 Pageable은
 // 0-base(Spring 관례)라 여기서 한 번만 변환한다 — 화면 코드는 계속 1-base로 다룬다.
@@ -37,6 +42,9 @@ export const adminApi = {
     api.patch<RoleUpdateResult>(`/admin/users/${id}/role`, { role }),
   changeStatus: (id: number, status: AdminUserStatus) =>
     api.patch<StatusUpdateResult>(`/admin/users/${id}/status`, { status }),
+  // 초대 코드(#794) — 발급은 요청 관리자 소속 회사로 서버가 스코프하므로 바디 없음.
+  issueInviteCode: () => api.post<InviteCodeIssueResult>('/admin/invite-codes'),
+  deleteInviteCode: (code: string) => api.delete<void>(`/admin/invite-codes/${encodeURIComponent(code)}`),
 };
 
 const EXPORT_PAGE_SIZE = 100;
