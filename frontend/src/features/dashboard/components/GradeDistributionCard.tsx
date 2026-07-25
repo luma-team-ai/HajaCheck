@@ -17,7 +17,9 @@ export function GradeDistributionCard() {
 
   return (
     <section className="dashboard-card">
-      <h3 className="dashboard-card-title">하자 등급 분포</h3>
+      {/* mb-5!: 공용 dashboard-card-title(margin-bottom 12px, un-layered)이 Figma 재대조(2026-07-24)
+          결과보다 좁아 20px로 확대 — un-layered CSS를 덮으려면 Tailwind !important 필요(colors.ts 참고) */}
+      <h3 className="dashboard-card-title mb-5!">하자 등급 분포</h3>
 
       {isLoading && <LoadingSpinner />}
       {isError && <p className="dashboard-card-status">등급 분포를 불러오지 못했습니다.</p>}
