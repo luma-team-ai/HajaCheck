@@ -33,6 +33,20 @@ public class MediaController {
 
     private final MediaService mediaService;
 
+    @Operation(
+            summary = "점검 회차별 촬영 데이터 목록 조회",
+            description = "점검 회차에 업로드된 모든 미디어를 반환한다(분석 결과 뷰어 용, #803). "
+                    + "하자 등급이 0개인 이미지도 포함되며, 각 항목에 thumbnailUrl/detailUrl이 포함된다."
+    )
+    @GetMapping("/api/inspections/{inspectionId}/media")
+    public ResponseEntity<ApiResponse<List<MediaResponse>>> getMediaByInspection(
+            @PathVariable Long inspectionId,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        List<MediaResponse> response = mediaService.getMediaByInspection(
+                loginUser.getUserId(), loginUser.getCompanyId(), inspectionId);
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
     @Operation(summary = "촬영 데이터 업로드", description = "점검 회차에 이미지(JPG/PNG) 다중 업로드")
     @PostMapping("/api/inspections/{inspectionId}/media")
     public ResponseEntity<ApiResponse<List<MediaResponse>>> uploadMedia(
