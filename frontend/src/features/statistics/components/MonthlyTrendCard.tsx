@@ -7,6 +7,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  type ActiveDotProps,
   type DotItemDotProps,
   type LabelProps,
   type TooltipContentProps,
@@ -40,7 +41,10 @@ export function MonthlyTrendCard({ filterParams }: MonthlyTrendCardProps) {
   const maxCount = data && data.length > 0 ? Math.max(...data.map((item) => item.defectCount)) : null;
 
   const renderPeakDot = (props: DotItemDotProps) => {
-    const { points: _points, payload, index, ...rest } = props;
+    // Dot(SVGCircleElement)의 points는 string 타입이라 DotItemDotProps.points(DotPoint[])를
+    // 그대로 spread하면 타입 충돌 — Dot에 필요 없는 필드라 명시적으로 제외한다.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { points, payload, index, ...rest } = props;
     const isPeak = (payload as MonthlyDefectTrendItem | undefined)?.defectCount === maxCount;
     return (
       <Dot
@@ -56,8 +60,8 @@ export function MonthlyTrendCard({ filterParams }: MonthlyTrendCardProps) {
     );
   };
 
-  const renderActiveDot = (props: any) => {
-    const { points: _points, payload, index, ...rest } = props;
+  const renderActiveDot = (props: ActiveDotProps) => {
+    const { payload, index, ...rest } = props;
     const isPeak = (payload as MonthlyDefectTrendItem | undefined)?.defectCount === maxCount;
     return (
       <Dot
