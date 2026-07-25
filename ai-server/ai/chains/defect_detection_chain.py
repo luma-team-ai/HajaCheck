@@ -50,6 +50,7 @@ class DetectedDefect(BaseModel):
     bbox_h: float
     confidence: float
     grade: str  # A~E
+    area_ratio: float  # 세그멘테이션 마스크 기반 면적비율(또는 바운딩박스 근사치)
 
 
 class DefectDetectionError(Exception):
@@ -128,6 +129,7 @@ def run_defect_detection_chain(image_base64: str) -> list[DetectedDefect]:
                 bbox_h=bbox_h,
                 confidence=round(float(confidences[i]), 4),
                 grade=grade,
+                area_ratio=area_ratio,
             )
         )
 
