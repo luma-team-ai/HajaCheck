@@ -100,11 +100,16 @@ export function ResultViewerPage() {
     }
 
     // 2. 전체 media 목록을 기준으로 그룹 생성(하자 없는 이미지도 포함)
-    return (data?.media ?? []).map((media) => ({
-      mediaId: media.id,
-      imageUrl: media.imageUrl,
-      defects: defectsByMediaId.get(media.id) ?? [], // 이 media의 필터된 하자 목록(없으면 빈 배열)
-    }));
+    // id 오름차순 명시 정렬 — 백엔드 응답 순서에 기대지 않는다(#815, 이전/다음 이미지 네비게이션
+    // 순서가 요청마다 흔들리지 않도록 고정).
+    return (data?.media ?? [])
+      .slice()
+      .sort((a, b) => a.id - b.id)
+      .map((media) => ({
+        mediaId: media.id,
+        imageUrl: media.imageUrl,
+        defects: defectsByMediaId.get(media.id) ?? [], // 이 media의 필터된 하자 목록(없으면 빈 배열)
+      }));
   }, [data?.media, visibleDefects]);
 
   // 현재 선택된 media(또는 첫 번째 media)
