@@ -18,10 +18,10 @@ const ResultViewerPage = lazy(() =>
   })),
 );
 
-// 보고서 생성(임시 스텁) — 이슈 #621, HAJA-343
-const ReportGenerateStubPage = lazy(() =>
-  import('../features/report/pages/ReportGenerateStubPage').then((m) => ({
-    default: m.ReportGenerateStubPage,
+// 보고서 생성 — 이슈 #621/#679, HAJA-343/HAJA-373
+const ReportGeneratePage = lazy(() =>
+  import('../features/report/pages/ReportGeneratePage').then((m) => ({
+    default: m.ReportGeneratePage,
   })),
 );
 
@@ -547,7 +547,7 @@ export const router = createBrowserRouter([
         path: '/inspections/:id/reports/generate',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <ReportGenerateStubPage />
+            <ReportGeneratePage />
           </Suspense>
         ),
         handle: {
