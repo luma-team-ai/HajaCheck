@@ -223,6 +223,12 @@ const FacilityInspectionComparePage = lazy(() =>
   })),
 );
 
+const StatisticsPage = lazy(() =>
+  import('../features/statistics/pages/StatisticsPage').then((m) => ({
+    default: m.StatisticsPage,
+  })),
+);
+
 // 고객지원 > AI 어시스턴트 (dev-08-01, HAJA-32, FR-6 RAG 법규 Q&A)
 const AiAssistantPage = lazy(() =>
   import('../features/support/pages/AiAssistantPage').then((m) => ({
@@ -641,6 +647,18 @@ export const router = createBrowserRouter([
           activeHref: '/admin/plans-quota',
         },
       }, // — features/admin 플랜·쿼터 관리 (Figma node 1197-3519)
+      {
+        path: '/statistics',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <StatisticsPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '통계' }],
+          activeHref: '/statistics',
+        },
+      }, // — features/statistics (HAJA-40, #27)
       {
         path: '/support/ai-assistant',
         element: (
