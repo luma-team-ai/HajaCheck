@@ -59,13 +59,15 @@ function typeCode(code: string) {
 }
 
 describe('InviteCodePage', () => {
-  it('6자리를 모두 채우지 않고 확인을 누르면 로컬 에러를 보여준다', () => {
+  // #845 — 확인 버튼이 disabled={!isComplete || isPending}이라 6자리 미만이면 클릭도 Enter도
+  // 발동하지 않는다(jsdom/브라우저 공통, disabled 폼 컨트롤). 6자리 미만 상태에서 확인 버튼이
+  // 비활성 상태로 유지되는지를 그 도달 불가능한 로컬 에러 분기 대신 고정한다.
+  it('6자리를 모두 채우지 않으면 확인 버튼이 비활성 상태다', () => {
     renderPage();
     typeCode('AB12');
 
-    fireEvent.click(screen.getByRole('button', { name: /확인/ }));
-
-    expect(screen.getByRole('alert').textContent).toContain('6자리 초대 코드를 모두 입력해 주세요.');
+    const confirmButton = screen.getByRole('button', { name: /확인/ }) as HTMLButtonElement;
+    expect(confirmButton.disabled).toBe(true);
   });
 
   it('redeem 성공 시 authStore.user를 갱신하고 대시보드로 이동한다', async () => {

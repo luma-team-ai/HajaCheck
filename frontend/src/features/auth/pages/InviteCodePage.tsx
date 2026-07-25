@@ -18,7 +18,6 @@ export function InviteCodePage() {
   const user = useAuthStore((state) => state.user);
   const navigate = useNavigate();
   const [code, setCode] = useState('');
-  const [localError, setLocalError] = useState<string | null>(null);
   const { redeemInviteCode, isPending, isSuccess, error, reset } = useRedeemInviteCode();
   // 다른 계정으로 로그인(#799 후속) — WAITING 세션은 "취소"로 랜딩에 가도 로그아웃되지 않아,
   // 다시 로그인해도 이 화면으로 튕겨 돌아온다(같은 세션이 살아있으므로 의도된 동작). 다른
@@ -26,7 +25,7 @@ export function InviteCodePage() {
   const { logout } = useLogout();
 
   const isComplete = code.length === INVITE_CODE_LENGTH;
-  const errorMessage = localError ?? error?.message ?? null;
+  const errorMessage = error?.message ?? null;
 
   // redeem 성공(status=ACTIVE 전환) 직후 대시보드로 이동 — ProtectedRoute의 WAITING 리다이렉트가
   // authStore.user 갱신(useRedeemInviteCode의 onSuccess)을 이미 반영한 상태라 되돌아오지 않는다.
@@ -43,16 +42,14 @@ export function InviteCodePage() {
 
   const handleChange = (next: string) => {
     setCode(next);
-    if (localError) setLocalError(null);
     if (error) reset();
   };
 
+  // 확인 버튼이 disabled={!isComplete || isPending}이라 6자리 미만이면 클릭도 Enter(암묵적 제출)도
+  // 발동하지 않는다(#845) — 이 핸들러가 호출되는 시점엔 isComplete가 항상 true이므로 별도 로컬
+  // 검증 분기를 두지 않는다.
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!isComplete) {
-      setLocalError('6자리 초대 코드를 모두 입력해 주세요.');
-      return;
-    }
     redeemInviteCode({ code });
   };
 
