@@ -3,16 +3,17 @@ package com.hajacheck.invitecode.controller;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.invitecode.dto.InviteCodeIssueResponse;
+import com.hajacheck.invitecode.dto.InviteCodeRevokeRequest;
 import com.hajacheck.invitecode.service.InviteCodeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -24,6 +25,10 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>폐기 응답이 {@code ResponseEntity<Void>}+204가 아니라 {@code ApiResponse} 봉투로 200을 내리는 이유:
  * 프론트 axios 인터셉터(shared/api/axios.ts)가 모든 응답에서 response.data.data를 읽는다 — 204(본문 없음)를
  * 내리면 response.data가 undefined가 되어 그 접근이 그대로 크래시한다(AuthController.logout과 동일 패턴).
+ *
+ * <p>폐기가 {@code DELETE /{code}}(경로 변수)가 아니라 {@code POST /revoke}(바디)인 이유(PR머신 리뷰 P3):
+ * 초대 코드는 회사 배선 권한을 주는 1회용 크레덴셜이라, URL 경로에 실으면 nginx/서블릿 액세스 로그·
+ * 브라우저 히스토리에 평문으로 남는다. 발급 응답·redeem 요청은 이미 바디로만 오가므로 폐기도 맞춘다.
  */
 @Tag(name = "Admin", description = "관리자 API")
 @RestController
@@ -42,11 +47,11 @@ public class AdminInviteCodeController {
     }
 
     @Operation(summary = "초대 코드 폐기", description = "발급 모달을 닫을 때 호출한다(ADMIN 전용). 요청 관리자 소속 회사가 발급한 코드만 삭제되고, 그 외(미존재·만료·타 회사)는 조용히 무시한다.")
-    @DeleteMapping("/{code}")
+    @PostMapping("/revoke")
     public ResponseEntity<ApiResponse<Void>> revoke(
             @AuthenticationPrincipal LoginUser loginUser,
-            @PathVariable String code) {
-        inviteCodeService.revoke(code, loginUser.getCompanyId());
+            @Valid @RequestBody InviteCodeRevokeRequest request) {
+        inviteCodeService.revoke(request.code(), loginUser.getCompanyId());
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 }

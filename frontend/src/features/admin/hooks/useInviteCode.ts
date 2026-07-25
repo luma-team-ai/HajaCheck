@@ -10,7 +10,7 @@ export function useInviteCode() {
     mutationFn: () => adminApi.issueInviteCode().then((res) => res.data),
   });
   const revokeMutation = useMutation<void, ApiError, string>({
-    mutationFn: (code) => adminApi.deleteInviteCode(code).then(() => undefined),
+    mutationFn: (code) => adminApi.revokeInviteCode(code).then(() => undefined),
   });
 
   return {

@@ -81,6 +81,15 @@ public class InviteCodeService {
      * (같은 코드를 아는 두 사용자가 동시에 시도) 둘 다 검증을 통과해 같은 회사에 배선될 수 있다(코드
      * "1회용" 원칙의 근소한 완화). 다른 회사로의 오배선(cross-tenant)은 아니고, 발급 즉시 공유되지
      * 않는 한 실질적으로 발생하기 어려운 경합이라 트랜잭션 정합성(더 흔한 실패 모드)을 우선했다.
+     *
+     * <p>⚠️ rate-limit(Redis)·peek(Redis)·existsById(DB)를 @Transactional 트랜잭션 시작 *이후*에
+     * 수행하는 이유(PR머신 리뷰 P3 — "왜 트랜잭션 안에 두는가" 코멘트 요청): 이 세 호출을 트랜잭션 밖으로
+     * 빼려면 원자성이 필요한 DB 쓰기(activateWithInviteCode)만 별도 메서드로 분리해야 하는데, 같은 빈
+     * 안에서 그 메서드를 호출하면 Spring AOP 프록시를 거치지 않아(self-invocation) @Transactional이
+     * 조용히 무시된다 — 트랜잭션 없이 activateWithInviteCode가 실행되면 afterCommit 콜백 자체가 걸리지
+     * 않아 이 메서드 전체의 "커밋 후에만 코드 소비" 계약(바로 위 트레이드오프 단락)이 깨진다. 안전하게
+     * 분리하려면 별도 Spring 빈(예: 전용 활성화 서비스)으로 쪼개야 하는데, 이 경로의 실제 비용(로컬
+     * Redis 왕복 1~2회 + PK 조회 1회)이 미미해 그 리팩터링 리스크를 감수할 실익이 낮다고 판단했다.
      */
     @Transactional
     public UserResponse redeem(String code, Long userId) {

@@ -44,7 +44,9 @@ export const adminApi = {
     api.patch<StatusUpdateResult>(`/admin/users/${id}/status`, { status }),
   // 초대 코드(#794) — 발급은 요청 관리자 소속 회사로 서버가 스코프하므로 바디 없음.
   issueInviteCode: () => api.post<InviteCodeIssueResult>('/admin/invite-codes'),
-  deleteInviteCode: (code: string) => api.delete<void>(`/admin/invite-codes/${encodeURIComponent(code)}`),
+  // 폐기는 코드를 URL 경로가 아니라 바디로 보낸다(PR머신 리뷰 P3) — 1회용이라도 회사 배선 권한을 주는
+  // 크레덴셜이라 경로에 실으면 액세스 로그·브라우저 히스토리에 평문으로 남을 수 있다.
+  revokeInviteCode: (code: string) => api.post<void>('/admin/invite-codes/revoke', { code }),
 };
 
 const EXPORT_PAGE_SIZE = 100;
