@@ -81,6 +81,25 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         return facility.getId();
     }
 
+    // 마이페이지 "내 점검 이력"(#844) 시나리오 — 담당자(assignedInspectorId)와 등록자(createdBy)가
+    // 서로 다른 사람인 케이스를 만들려면, HAJA-25 배정 검증 트리거가 요구하는 대로 "같은 회사"에
+    // 속한 두 번째 INSPECTOR 멤버가 필요하다(InspectionAssignedInspectorCompanyBoundaryTest와 동일 헬퍼).
+    private Long seedApprovedMember(Long companyId, String email) {
+        User member = User.builder()
+                .email(email)
+                .name("동료")
+                .role(Role.INSPECTOR)
+                .passwordHash("$2a$10$testtesttesttesttesttes")
+                .status(UserStatus.ACTIVE)
+                .build();
+        em.persist(member);
+        em.flush();
+        em.persist(CompanyMembership.approvedOwner(companyId, member.getId()));
+        member.assignToCompany(companyId);
+        em.flush();
+        return member.getId();
+    }
+
     private Long companyId(Long ownerId) {
         return em.find(User.class, ownerId).getCompanyId();
     }
@@ -415,5 +434,105 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 inspectionRepository.findLatestByFacilityIds(List.of(facilityWithNoInspection));
 
         assertThat(result).isEmpty();
+    }
+
+    // ── 마이페이지 "내 점검 이력"(#844) ──
+
+    @Test
+    void countMine_담당자또는등록자인회사스코프내점검만집계() {
+        Long ownerId = seedOwner("owner-a@haja.com"); // createdBy 겸 assignedInspectorId
+        Long stranger = seedOwner("owner-b@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long strangerFacility = seedFacility(stranger, "타인빌딩");
+        // createdBy만 본인
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        // 회사 밖 점검(타인 회사) — 섞이면 안 된다
+        inspectionRepository.save(newInspection(
+                strangerFacility, stranger, stranger, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+
+        long count = inspectionRepository.countMine(companyId(ownerId), ownerId);
+
+        assertThat(count).isEqualTo(1);
+    }
+
+    @Test
+    void countMineByStatusIn_상태집합에속한건만집계() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.REVIEWED));
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 2), InspectionStatus.REPORTED));
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 3, LocalDate.of(2026, 7, 3), InspectionStatus.CREATED));
+
+        long reviewConfirmed = inspectionRepository.countMineByStatusIn(
+                companyId(ownerId), ownerId,
+                java.util.EnumSet.of(InspectionStatus.REVIEWED, InspectionStatus.REPORTED));
+
+        assertThat(reviewConfirmed).isEqualTo(2);
+    }
+
+    @Test
+    void findMyInspectionsPage_담당자거나등록자인점검만_회사스코프내에서반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long colleague = seedApprovedMember(companyId(ownerId), "colleague-a@haja.com"); // 같은 회사 동료
+        Long stranger = seedOwner("owner-c@haja.com"); // 완전히 다른 회사
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long strangerFacility = seedFacility(stranger, "타인빌딩");
+        // 본인이 담당자(assignedInspectorId), 등록자는 동료
+        Inspection asInspector = inspectionRepository.save(newInspection(
+                facilityId, colleague, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        // 본인이 등록자(createdBy)만, 담당자는 동료
+        Inspection asCreator = inspectionRepository.save(newInspection(
+                facilityId, ownerId, colleague, 2, LocalDate.of(2026, 7, 2), InspectionStatus.CREATED));
+        // 본인과 무관한 같은 회사 점검 — 제외돼야 함
+        inspectionRepository.save(newInspection(
+                facilityId, colleague, colleague, 3, LocalDate.of(2026, 7, 3), InspectionStatus.CREATED));
+        // 타 회사 점검(회사 밖) — 본인이 담당자여도 회사 스코프 밖이라 제외돼야 함
+        // (HAJA-25 트리거상 assigned_inspector와 created_by는 같은 회사여야 하므로 stranger 본인을 등록자로 둔다)
+        inspectionRepository.save(newInspection(
+                strangerFacility, stranger, stranger, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findMyInspectionsPage(
+                ownerId, companyId(ownerId), null, PageRequest.of(0, 10));
+
+        assertThat(result.getTotalElements()).isEqualTo(2);
+        assertThat(result.getContent()).extracting(Inspection::getId)
+                .containsExactlyInAnyOrder(asInspector.getId(), asCreator.getId());
+    }
+
+    @Test
+    void findMyInspectionsPage_기간필터_periodFrom이후만포함() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection older = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 1, 1), InspectionStatus.CREATED));
+        Inspection newer = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 10), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findMyInspectionsPage(
+                ownerId, companyId(ownerId), LocalDate.of(2026, 6, 1), PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getId).containsExactly(newer.getId());
+        assertThat(result.getTotalElements()).isEqualTo(1);
+        assertThat(older).isNotNull(); // 사용 안 하면 실수로 지워질 수 있어 참조를 명시
+    }
+
+    @Test
+    void findMyInspectionsPage_정렬은점검일최신순_동일일자면id내림차순() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection first = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 10), InspectionStatus.CREATED));
+        Inspection second = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 10), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findMyInspectionsPage(
+                ownerId, companyId(ownerId), null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getId)
+                .containsExactly(second.getId(), first.getId());
     }
 }

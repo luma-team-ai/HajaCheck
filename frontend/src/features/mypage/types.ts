@@ -69,19 +69,19 @@ export const MYPAGE_ERROR_CODE = {
 
 export type MyPageErrorCode = (typeof MYPAGE_ERROR_CODE)[keyof typeof MYPAGE_ERROR_CODE];
 
-// ---- 마이페이지 — 내 점검 이력 / 보고서 (HAJA-366, #668) ----
-// 이 화면을 뒷받침하는 BE API가 전혀 없다(grep 0건) — Figma 시안 기준 mock 우선 구현.
-// InspectionHistoryStatus는 실 InspectionStatus(점검 회차 상태)와 이름만 다를 뿐 아직 매핑이
-// 확정되지 않았다(후속 BE #24/#210 계열 연동 시 실 enum과 맞춰 재정의될 수 있음) — 그래서
-// dashboard의 InspectionStatus를 그대로 쓰지 않고 이 feature 전용 타입으로 별도 정의한다.
+// ---- 마이페이지 — 내 점검 이력 / 보고서 (HAJA-366/#668, BE 연동 #844/HAJA-442) ----
+// BE(mypage.dto.*)와 1:1 — 표시용 문자열(회차 조립·날짜 포맷·파일크기·보고서 제목)은 전부 원시값으로
+// 받고 프론트(utils/myInspectionsFormat.ts)가 조립한다(전역 컨벤션: 표시 포맷은 클라이언트 책임).
+// InspectionHistoryStatus는 실 InspectionStatus(점검 회차 상태, 6종)를 BE가 화면 3종으로 매핑해 내려준다
+// (com.hajacheck.mypage.dto.MyInspectionDisplayStatus) — dashboard의 InspectionStatus와는 별개 타입.
 export type InspectionHistoryRole = 'INSPECTOR' | 'OWNER'; // 점검자 / 소유자(점검 회사 스코프 정책과 동일 구분)
 export type InspectionHistoryStatus = 'REVIEW_DONE' | 'REVIEW_PENDING' | 'ANALYZING'; // 검수완료 / 검수대기 / 분석중
 
 export interface InspectionHistoryRow {
   id: number;
   facilityName: string;
-  round: string; // 회차 표기, 예: '24-03'
-  inspectedAt: string; // 점검일 표기, 예: '2024.03.15' (BE 미구현이라 포맷 확정 전 — 문자열 그대로 표시)
+  roundNo: number; // 회차 정수 그대로 — '24-03' 조립은 utils/myInspectionsFormat.ts#formatRoundLabel
+  inspectionDate: string; // ISO 'yyyy-MM-dd'(LocalDate) — '2024.03.15' 표기는 formatInspectionDate
   role: InspectionHistoryRole;
   defectCount: number;
   status: InspectionHistoryStatus;
@@ -99,8 +99,10 @@ export type ReportGradeDotColor = 'RED' | 'ORANGE' | 'GREEN';
 
 export interface MyReportCard {
   id: number;
-  title: string;
-  issuedAt: string; // 예: '2024.03.16'
-  fileSizeLabel: string; // 예: '1.2MB'
+  inspectionId: number;
+  facilityName: string; // title 대신 원시값 — '[{yy-RR}] {facilityName} 점검 보고서' 조립은 formatReportTitle
+  roundNo: number;
+  issuedAt: string; // ISO datetime(LocalDateTime, Report.updatedAt 근사) — '2024.03.16' 표기는 formatIssuedDate
+  fileSizeBytes: number | null; // null이면 PDF 조회 실패 — 화면에서 크기 표시 자체를 감춘다
   gradeDots: ReportGradeDotColor[];
 }

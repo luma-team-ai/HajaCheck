@@ -73,7 +73,7 @@ describe('MyInspectionsPage', () => {
 
     expect(screen.queryByText('강남 오피스타워 A동')).toBeNull();
     expect(await screen.findByText('최근 발급된 보고서')).toBeTruthy();
-    expect(screen.getByText('[24-03] 강남 오피스타워 A동 정밀점검 보고서')).toBeTruthy();
+    expect(screen.getByText('[24-03] 강남 오피스타워 A동 점검 보고서')).toBeTruthy();
     expect(screen.getByText('2024.03.16 · 1.2MB')).toBeTruthy();
 
     const downloadButtons = screen.getAllByRole('button', { name: /다운로드/ });

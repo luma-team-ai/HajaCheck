@@ -96,4 +96,19 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     // ANALYZING 고착 리퍼(코드 리뷰 P2 10차) — 상태별 전체 조회. 리퍼가 하트비트로 고착 회차를
     // 걸러 복원하므로 고착 유령이 누적되지 않아 ANALYZING 집합은 실사용상 작게 유지된다.
     List<Inspection> findByStatus(InspectionStatus status);
+
+    // 마이페이지 "내 점검 이력" 요약(#844) — "내 점검" = assignedInspectorId 또는 createdBy가 본인.
+    // 회사 스코프(facility.companyId)는 findPageByCompanyIdAndFilters와 동일 원칙으로 강제한다
+    // (요청자가 회사를 이동해도 과거 소속 회사의 점검이 현재 컨텍스트에 섞이지 않도록).
+    // statuses는 항상 서비스가 상수 EnumSet을 넘기므로(null 아님) named enum IN절 null 바인딩 문제와 무관.
+    @Query("select count(i) from Inspection i where i.facility.companyId = :companyId "
+            + "and (i.assignedInspectorId = :userId or i.createdBy = :userId)")
+    long countMine(@Param("companyId") Long companyId, @Param("userId") Long userId);
+
+    @Query("select count(i) from Inspection i where i.facility.companyId = :companyId "
+            + "and (i.assignedInspectorId = :userId or i.createdBy = :userId) and i.status in :statuses")
+    long countMineByStatusIn(
+            @Param("companyId") Long companyId,
+            @Param("userId") Long userId,
+            @Param("statuses") Collection<InspectionStatus> statuses);
 }
