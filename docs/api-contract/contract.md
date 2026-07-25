@@ -555,3 +555,54 @@ PLATFORM_ADMIN 전용(SecurityConfig `hasRole(PLATFORM_ADMIN)`). companyId 스�
 ```
 
 - 신규 ErrorCode 없음 — 기존 `FORBIDDEN`(403) 재사용. `FACILITY_NOT_FOUND`는 단건 조회 전용이라 이 목록 엔드포인트에서는 발생하지 않는다.
+
+## 대시보드 "최근 점검 전체보기" 페이지네이션+검색 API (신규, 2026-07-26)
+
+> 대시보드 카드 "최근 점검"의 "전체보기" 버튼 → `/dashboard/recent-inspections` 전체 목록 화면. 기존 위젯
+> 엔드포인트 `GET /api/dashboard/recent-inspections`(상위 10건 고정 배열, `List<RecentInspectionResponse>`)는
+> **완전히 무변경**으로 남긴다 — 아래는 완전히 별도의 신규 엔드포인트다(회귀 위험 없는 additive 확장).
+> `defectApi.getInspections`/`GET /api/inspections`(하자 목록 개편, HAJA-393/394, §"하자 목록·상세 화면 개편")를
+> 재사용하지 않는 이유: 그쪽 `InspectionStatus`는 raw 6단계(`CREATED|UPLOADING|ANALYZING|ANALYZED|REVIEWED|REPORTED`)이고,
+> 대시보드는 이미 화면용 4단계 한글 라벨(`분석중|검수대기|조치대기|완료`)로 서버에서 번역해 반환한다 — 두 체계를
+> 다시 매핑하는 대신 대시보드가 이미 가진 번역 로직을 확장하는 쪽이 안전하다.
+
+### GET /api/dashboard/recent-inspections/search
+
+- 인증: 세션 필요(미인증 401). 회사 스코프는 기존 대시보드 엔드포인트와 동일하게 `LoginUser`로만 결정(`CompanyScopeGuard.requireEffectiveMembership` 실패 시 403 `FORBIDDEN`) — 요청 파라미터로 companyId를 받지 않는다.
+- Query Parameters(전부 optional):
+
+| 파라미터 | 타입 | 기본값 | 설명 |
+|---|---|---|---|
+| `page` | int | 0 | Spring Data 관례(0-based) |
+| `size` | int | 10 | 페이지 크기, 서버가 **최대 100**으로 캡(과다조회 방지 — `FacilityService.FACILITY_LIST_MAX` 방어 컨벤션과 동일 원칙) |
+| `status` | string | 없음 | 대시보드 4단계 한글 라벨 중 하나: `분석중`/`검수대기`/`조치대기`/`완료`. 그 외 값은 400 `INVALID_INPUT` |
+| `facilityId` | Long | 없음 | 특정 시설물로 한정 |
+| `query` | string | 없음 | 시설물명 또는 담당자명(대소문자 무시 부분일치) 자유 텍스트 검색. 담당자명은 `RecentInspectionResponse.inspector`와 동일하게 `Inspection.createdBy` 기준(기존 위젯 관례 유지 — `assignedInspectorId`가 아님) |
+
+- 응답: `PageResponse<RecentInspectionResponse>`(`content`/`page`/`totalElements` — 기존 `GET /api/inspections`와 동일 envelope 형태, `docs/api-contract/contract.md` §"하자 목록·상세 화면 개편" 참고). `RecentInspectionResponse` 필드는 기존 위젯 엔드포인트와 100% 동일(`id, facilityName, inspectedAt, inspector, defectCount, status`).
+- 정렬: 항상 `inspectionDate desc, id desc`(기존 위젯과 동일 기준) — 파라미터화하지 않는다.
+- 파라미터 없이(또는 `page=0&size=10`만) 호출하면 기존 위젯과 **동일한 회사 스코프·정렬 기준**으로 상위 10건을 반환한다(별도 엔드포인트이므로 위젯 쪽 응답 형태 자체는 바뀌지 않음).
+
+예시 응답:
+```json
+{
+  "success": true,
+  "data": {
+    "content": [
+      {
+        "id": 400,
+        "facilityName": "강남빌딩",
+        "inspectedAt": "2026-07-10",
+        "inspector": "김검사",
+        "defectCount": 6,
+        "status": "완료"
+      }
+    ],
+    "page": 0,
+    "totalElements": 47
+  },
+  "error": null
+}
+```
+
+- 신규 ErrorCode 없음 — `INVALID_INPUT`(400, 잘못된 `status` 라벨)·`FORBIDDEN`(403) 모두 기존 공통 코드 재사용.
