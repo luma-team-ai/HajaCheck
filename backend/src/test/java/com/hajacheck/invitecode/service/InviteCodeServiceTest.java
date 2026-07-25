@@ -2,8 +2,12 @@ package com.hajacheck.invitecode.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -18,6 +22,7 @@ import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
+import com.hajacheck.auth.support.RateLimiter;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.DomainStateTransitionException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -25,15 +30,19 @@ import com.hajacheck.invitecode.dto.InviteCodeIssueResponse;
 import com.hajacheck.invitecode.support.InviteCodeStore;
 import java.time.Duration;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * InviteCodeService 단위 테스트(#794, PR머신 리뷰 P2 대응) — 발급 충돌 재시도, 폐기의 회사 스코프,
- * redeem의 상태전이 가드·코드 소비 순서를 고정한다.
+ * redeem의 상태전이 가드·rate-limit·코드 소비 순서(afterCommit)를 고정한다.
  */
 @ExtendWith(MockitoExtension.class)
 class InviteCodeServiceTest {
@@ -55,8 +64,36 @@ class InviteCodeServiceTest {
     @Mock
     private AuthProperties authProperties;
 
+    @Mock
+    private RateLimiter rateLimiter;
+
     @InjectMocks
     private InviteCodeService inviteCodeService;
+
+    @BeforeEach
+    void setUpCommonStubs() {
+        // redeem 테스트 대부분이 rate-limit 통과를 전제하므로 기본값을 통과로 깔아둔다(개별 테스트가 재정의 가능).
+        lenient().when(authProperties.getInviteCodeRedeemRateLimit())
+                .thenReturn(new AuthProperties.InviteCodeRedeemRateLimit());
+        lenient().when(rateLimiter.tryAcquire(anyString(), anyInt(), any())).thenReturn(true);
+        // redeem()의 @Transactional 안에서 registerSynchronization을 호출하므로, 실제 트랜잭션 없는
+        // 단위 테스트에서도 활성화해둬야 IllegalStateException 없이 동작한다(afterCommit은 테스트에서 수동 트리거).
+        TransactionSynchronizationManager.initSynchronization();
+    }
+
+    @AfterEach
+    void tearDownSynchronization() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    /** 테스트에서 실제 트랜잭션 매니저 없이 afterCommit 콜백을 수동으로 발화시킨다. */
+    private static void triggerAfterCommit() {
+        for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+            synchronization.afterCommit();
+        }
+    }
 
     // ── issue ──
 
@@ -135,10 +172,20 @@ class InviteCodeServiceTest {
     // ── redeem ──
 
     @Test
-    void redeem_WAITING사용자가_유효코드로_성공하면_ACTIVE로_전환되고_코드가_소비된다() {
+    void redeem_rate_limit_초과시_AUTH_TOO_MANY_REQUESTS이고_아무것도_조회하지않는다() {
+        when(rateLimiter.tryAcquire(anyString(), anyInt(), any())).thenReturn(false);
+
+        assertThatThrownBy(() -> inviteCodeService.redeem("ABC123", 6L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS));
+        verify(userRepository, never()).findById(anyLong());
+    }
+
+    @Test
+    void redeem_WAITING사용자가_유효코드로_성공하면_ACTIVE로_전환되고_커밋후_코드가_소비된다() {
         User waitingUser = User.createSocialUser(SocialProvider.KAKAO, "social-1", "a@haja.com", "홍길동");
         when(userRepository.findById(1L)).thenReturn(Optional.of(waitingUser));
-        when(inviteCodeStore.consumeIfPresent("ABC123")).thenReturn(Optional.of("10"));
+        when(inviteCodeStore.peek("ABC123")).thenReturn(Optional.of("10"));
         when(companyRepository.existsById(10L)).thenReturn(true);
         UserResponse expected = new UserResponse(1L, "a@haja.com", "홍길동", Role.USER, 10L, null, null, null,
                 UserStatus.ACTIVE);
@@ -149,28 +196,32 @@ class InviteCodeServiceTest {
         assertThat(result).isEqualTo(expected);
         assertThat(waitingUser.getStatus()).isEqualTo(UserStatus.ACTIVE);
         assertThat(waitingUser.getCompanyId()).isEqualTo(10L);
+        // 커밋 전에는 아직 Redis 코드가 소비되지 않는다(afterCommit 콜백에서만 소비).
+        verify(inviteCodeStore, never()).consumeIfPresent(anyString());
+
+        triggerAfterCommit();
+
         verify(inviteCodeStore).consumeIfPresent("ABC123");
     }
 
-    // PR머신 리뷰 P2 회귀 고정 — 이미 ACTIVE인 계정의 redeem 시도는 코드를 소비(consumeIfPresent)하기
-    // *전에* 막혀야 한다. 순서가 바뀌면 정당한 코드가 이 요청 하나로 소각돼 실제 대상자가 못 쓴다.
+    // PR머신 리뷰 P2 회귀 고정 — 이미 ACTIVE인 계정의 redeem 시도는 코드를 조회/소비하기 *전에* 막혀야 한다.
     @Test
-    void redeem_이미ACTIVE인사용자가_요청하면_코드를_소비하지않고_예외를던진다() {
+    void redeem_이미ACTIVE인사용자가_요청하면_코드를_건드리지않고_예외를던진다() {
         User activeUser = User.createByAdmin("b@haja.com", "김철수", Role.USER, "$2a$hash", 5L);
         when(userRepository.findById(2L)).thenReturn(Optional.of(activeUser));
 
         assertThatThrownBy(() -> inviteCodeService.redeem("ABC123", 2L))
                 .isInstanceOf(DomainStateTransitionException.class);
 
-        verify(inviteCodeStore, never()).consumeIfPresent(anyString());
         verify(inviteCodeStore, never()).peek(anyString());
+        verify(inviteCodeStore, never()).consumeIfPresent(anyString());
     }
 
     @Test
     void redeem_코드가_유효하지않으면_AUTH_INVITE_CODE_INVALID() {
         User waitingUser = User.createSocialUser(SocialProvider.KAKAO, "social-2", "c@haja.com", "박영희");
         when(userRepository.findById(3L)).thenReturn(Optional.of(waitingUser));
-        when(inviteCodeStore.consumeIfPresent("BADCODE")).thenReturn(Optional.empty());
+        when(inviteCodeStore.peek("BADCODE")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> inviteCodeService.redeem("BADCODE", 3L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
@@ -179,21 +230,21 @@ class InviteCodeServiceTest {
     }
 
     @Test
-    void redeem_사용자가_없으면_USER_NOT_FOUND이고_코드를_소비하지않는다() {
+    void redeem_사용자가_없으면_USER_NOT_FOUND이고_코드를_건드리지않는다() {
         when(userRepository.findById(4L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> inviteCodeService.redeem("ABC123", 4L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.USER_NOT_FOUND));
-        verify(inviteCodeStore, never()).consumeIfPresent(anyString());
+        verify(inviteCodeStore, never()).peek(anyString());
     }
 
     // PR머신 리뷰 P2 추가 지적 — 발급 시점엔 있던 회사가 redeem 시점엔 삭제됐을 수 있다.
     @Test
-    void redeem_회사가_존재하지않으면_AUTH_INVITE_CODE_INVALID이고_사용자는_WAITING으로_남는다() {
+    void redeem_회사가_존재하지않으면_AUTH_INVITE_CODE_INVALID이고_사용자는_WAITING으로_남고_코드는_소비되지않는다() {
         User waitingUser = User.createSocialUser(SocialProvider.KAKAO, "social-3", "d@haja.com", "이순신");
         when(userRepository.findById(5L)).thenReturn(Optional.of(waitingUser));
-        when(inviteCodeStore.consumeIfPresent("ABC123")).thenReturn(Optional.of("999"));
+        when(inviteCodeStore.peek("ABC123")).thenReturn(Optional.of("999"));
         when(companyRepository.existsById(999L)).thenReturn(false);
 
         assertThatThrownBy(() -> inviteCodeService.redeem("ABC123", 5L))
@@ -201,5 +252,23 @@ class InviteCodeServiceTest {
                         .isEqualTo(ErrorCode.AUTH_INVITE_CODE_INVALID));
         assertThat(waitingUser.getStatus()).isEqualTo(UserStatus.WAITING);
         assertThat(waitingUser.getCompanyId()).isNull();
+        verify(inviteCodeStore, never()).consumeIfPresent(anyString());
+    }
+
+    // PR머신 리뷰 P2 핵심 회귀 — DB 커밋이 실패(트랜잭션 롤백)하면 코드가 소비되지 않고 그대로 남아
+    // 재시도할 수 있어야 한다. afterCommit 콜백 자체가 호출되지 않으면 이 계약이 자동으로 지켜진다.
+    @Test
+    void redeem_DB커밋이_실패하면_afterCommit이_호출되지않아_코드가_남는다() {
+        User waitingUser = User.createSocialUser(SocialProvider.KAKAO, "social-4", "e@haja.com", "정약용");
+        when(userRepository.findById(7L)).thenReturn(Optional.of(waitingUser));
+        when(inviteCodeStore.peek("ABC123")).thenReturn(Optional.of("10"));
+        when(companyRepository.existsById(10L)).thenReturn(true);
+        when(authService.getMe(7L)).thenReturn(
+                new UserResponse(7L, "e@haja.com", "정약용", Role.USER, 10L, null, null, null, UserStatus.ACTIVE));
+
+        inviteCodeService.redeem("ABC123", 7L);
+        // 커밋 트리거를 호출하지 않음(=DB 커밋 실패/롤백 시나리오와 동일하게 afterCommit 미발화).
+
+        verify(inviteCodeStore, never()).consumeIfPresent(anyString());
     }
 }

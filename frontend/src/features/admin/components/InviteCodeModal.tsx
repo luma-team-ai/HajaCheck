@@ -28,6 +28,7 @@ export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
   const [code, setCode] = useState('');
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   // 모달이 열릴 때마다 새 코드를 발급받고 타이머를 서버 TTL로 초기화한다.
   useEffect(() => {
@@ -66,12 +67,15 @@ export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
   }, [open, code, secondsLeft]);
 
   useEffect(() => {
-    if (!copied) {
+    if (!copied && !copyFailed) {
       return;
     }
-    const timer = setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
+    const timer = setTimeout(() => {
+      setCopied(false);
+      setCopyFailed(false);
+    }, COPY_FEEDBACK_MS);
     return () => clearTimeout(timer);
-  }, [copied]);
+  }, [copied, copyFailed]);
 
   const isExpired = Boolean(code) && secondsLeft <= 0;
 
@@ -87,8 +91,14 @@ export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
   }
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(code);
-    setCopied(true);
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+    } catch {
+      // 권한 거부·비보안 컨텍스트(HTTP)에서 writeText가 reject될 수 있다 — unhandled rejection 대신
+      // "복사 실패" 피드백을 잠깐 보여준다(코드는 여전히 화면에 보이니 수동 선택으로 대체 가능).
+      setCopyFailed(true);
+    }
   }
 
   return (
@@ -156,7 +166,7 @@ export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
             className="flex-1"
           >
             <CopyIcon />
-            {copied ? '복사됨' : '코드 복사하기'}
+            {copyFailed ? '복사 실패 · 직접 선택해 주세요' : copied ? '복사됨' : '코드 복사하기'}
           </Button>
         </div>
       </div>
