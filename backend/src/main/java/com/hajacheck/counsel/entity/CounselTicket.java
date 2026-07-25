@@ -77,6 +77,18 @@ public class CounselTicket {
     @Column(name = "queue_position")
     private Integer queuePosition;
 
+    // 사람이 읽는 티켓 번호(CS-yyyyMMdd-{id}). PK 기반이라 최초 insert 후 확정되므로, 생성 시점엔
+    // 유일한 임시값을 넣고(assignTicketNumber로 교체) NOT NULL/UNIQUE 를 만족시킨다.
+    @Column(name = "ticket_number", nullable = false, length = 20, unique = true)
+    private String ticketNumber;
+
+    // 진입 시나리오 스냅샷 — 최상위 카테고리 / 바로 위 부모 노드 라벨(시나리오 트리 변경과 무관하게 이력 고정).
+    @Column(nullable = false, length = 100)
+    private String category;
+
+    @Column(nullable = false, length = 200)
+    private String title;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
@@ -86,18 +98,27 @@ public class CounselTicket {
 
     @Builder(access = AccessLevel.PRIVATE)
     private CounselTicket(Long userId, Long counselorId, Long sessionId,
-                          CounselTicketStatus status, CounselType counselType,
-                          Integer queuePosition, Instant endedAt) {
+                          CounselTicketStatus status, CounselType counselType, Integer queuePosition,
+                          String ticketNumber, String category, String title, Instant endedAt) {
         this.userId = userId;
         this.counselorId = counselorId;
         this.sessionId = sessionId;
         this.status = status == null ? CounselTicketStatus.WAITING : status;
         this.counselType = counselType;
         this.queuePosition = queuePosition;
+        this.ticketNumber = ticketNumber;
+        this.category = category;
+        this.title = title;
         this.endedAt = endedAt;
     }
 
-    public static CounselTicket request(Long userId, CounselType counselType, Integer queuePosition) {
+    /**
+     * 대기 티켓 생성. ticket_number 는 PK 확정 후에만 최종값을 알 수 있어(포맷에 id 포함) 여기서는 임시
+     * 유일값을 넣고, 최초 저장 뒤 {@link #assignTicketNumber}로 교체한다(같은 트랜잭션 내 2단계 저장).
+     * counselType 은 배정 자격 매칭(counselor_skills)의 기준이라 필수다(#743/#772).
+     */
+    public static CounselTicket request(
+            Long userId, CounselType counselType, Integer queuePosition, String category, String title) {
         if (counselType == null) {
             throw new DomainValidationException("request 불가: 상담 유형은 필수다");
         }
@@ -106,7 +127,29 @@ public class CounselTicket {
                 .status(CounselTicketStatus.WAITING)
                 .counselType(counselType)
                 .queuePosition(queuePosition)
+                .ticketNumber(temporaryTicketNumber())
+                .category(category)
+                .title(title)
                 .build();
+    }
+
+    /** 최초 저장으로 확정된 PK 로 사람이 읽는 티켓 번호를 부여한다(임시값 → 최종값). */
+    public void assignTicketNumber(String ticketNumber) {
+        if (ticketNumber == null || ticketNumber.isBlank()) {
+            throw new DomainValidationException("ticket_number 는 비어 있을 수 없다");
+        }
+        this.ticketNumber = ticketNumber;
+    }
+
+    /** CS-{yyyyMMdd}-{id, 최소 3자리 zero-pad}. 생성 시각 날짜 + PK 기반이라 별도 시퀀스 불필요. */
+    public static String formatTicketNumber(LocalDateTime createdAt, Long id) {
+        return "CS-%s-%03d".formatted(
+                createdAt.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd")), id);
+    }
+
+    // insert 시점 NOT NULL/UNIQUE 만족용 임시 유일값(≤20자). 즉시 assignTicketNumber 로 교체된다.
+    private static String temporaryTicketNumber() {
+        return "TMP-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 16);
     }
 
     /**

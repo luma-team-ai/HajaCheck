@@ -100,6 +100,16 @@ public class SecurityConfig {
                         // 하자 자연어 검색(HAJA-120) — 점검자 역할을 엔드포인트 레벨에서 강제(설계 §4).
                         // has_ai_addon 플랜 게이트는 역할과 무관한 별도 축이라 NlSearchService가 담당한다.
                         .requestMatchers(HttpMethod.POST, "/api/defects/nl-search").hasRole("INSPECTOR")
+                        // 전문 상담(FR-7, #20/HAJA-33) — 상담원 콘솔 축(대기열 조회·셀프-클레임 배정)은
+                        // COUNSELOR/PLATFORM_ADMIN 만. 종료·이탈의 세부 소유권(담당 상담원 본인/티켓 소유자)은
+                        // 서비스가 검증하므로 여기서는 대기열·배정만 role 게이트로 막는다. 티켓 생성은 로그인만
+                        // 요구하고 요금제 게이트(has_counselor_access)는 CounselTicketService가 담당한다.
+                        .requestMatchers(HttpMethod.GET, "/api/counsel/tickets").hasAnyRole("COUNSELOR", "PLATFORM_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/counsel/tickets/*/assign").hasAnyRole("COUNSELOR", "PLATFORM_ADMIN")
+                        // WebSocket 핸드셰이크 — 실질 인증은 CounselHandshakeInterceptor(SESSION 쿠키 검증)와
+                        // StompAuthChannelInterceptor(CONNECT 재검증·SUBSCRIBE 당사자 검증)가 담당한다. 이 매처는
+                        // "인증 필요"를 명시적으로 문서화하는 최소 경계다(anyRequest로도 커버되지만 의도 고정).
+                        .requestMatchers("/ws/**").authenticated()
                         // 그 밖은 "인증됨"만 요구. 소셜 셀프가입 계정(companyId=null·role=USER)에 대한
                         // companyId/role 기반 리소스 권한 경계는 각 도메인 엔드포인트에서 후속 과제로 부여한다.
                         .anyRequest().authenticated())

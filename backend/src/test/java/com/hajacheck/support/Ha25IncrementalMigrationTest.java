@@ -385,7 +385,13 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V16__add_defect_area_ratio.sql"),
-                        CONTAINER_ROOT + "V16__add_defect_area_ratio.sql");
+                        CONTAINER_ROOT + "V16__add_defect_area_ratio.sql")
+                // #20/HAJA-33 — Flyway V18(상담 티켓 스냅샷 + 채팅 첨부 컬럼, V13 선점으로 재번호). V17(구
+                // V13, bot_scenarios 시드 데이터)는 스키마 시그니처에 영향이 없어 이 파리티 테스트에서는 생략한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V18__counsel_ticket_snapshot_and_chat_attachment.sql"),
+                        CONTAINER_ROOT + "V18__counsel_ticket_snapshot_and_chat_attachment.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -475,6 +481,9 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "V15__add_user_status_waiting.sql");
         // #803 — Flyway V16(defects.area_ratio)도 이어서 1회 forward-apply한다.
         runPsql(postgres, "V16__add_defect_area_ratio.sql");
+        // #20/HAJA-33 — Flyway V18(상담 티켓 스냅샷 + 채팅 첨부, V13 선점으로 재번호)도 이어서 1회
+        // forward-apply한다(V17 시드는 스키마 무변경이라 파리티 대상 아님).
+        runPsql(postgres, "V18__counsel_ticket_snapshot_and_chat_attachment.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

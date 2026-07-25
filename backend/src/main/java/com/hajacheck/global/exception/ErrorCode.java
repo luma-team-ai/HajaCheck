@@ -95,8 +95,20 @@ public enum ErrorCode {
     MEDIA_DETAIL_GENERATION_BUSY(HttpStatus.SERVICE_UNAVAILABLE,
             "상세 이미지 생성 요청이 많아 잠시 후 다시 시도해 주세요."),
 
-    // 상담(counsel)
+    // 상담(counsel) — 시나리오 챗봇 + 상담원 연결(FR-7, #20/HAJA-33)
     COUNSEL_SESSION_ASSIGNMENT_CONFLICT(HttpStatus.CONFLICT, "이미 상담 세션이 배정된 티켓입니다."),
+    // 시나리오 노드 미존재.
+    COUNSEL_SCENARIO_NOT_FOUND(HttpStatus.NOT_FOUND, "상담 시나리오를 찾을 수 없습니다."),
+    // 티켓 미존재/타인 소유 통일 응답 — 리소스 존재 여부 열거(cross-user IDOR) 방지(PLAN_FORBIDDEN 관례와 정합).
+    COUNSEL_TICKET_NOT_FOUND(HttpStatus.NOT_FOUND, "상담 티켓을 찾을 수 없습니다."),
+    COUNSEL_TICKET_FORBIDDEN(HttpStatus.FORBIDDEN, "상담 티켓에 대한 권한이 없습니다."),
+    // 상담원 연결 기능을 제공하지 않는 요금제(Plan.hasCounselorAccess=false)의 티켓 생성 시도.
+    COUNSEL_PLAN_REQUIRED(HttpStatus.FORBIDDEN, "상담원 연결을 사용할 수 없는 요금제입니다."),
+    // 셀프-클레임 배정 시 counselor_skills에 티켓의 counsel_type이 없는 상담사(#743/#772 이후 자격 검증).
+    COUNSEL_SKILL_MISMATCH(HttpStatus.FORBIDDEN, "해당 상담 유형을 처리할 수 있는 상담사가 아닙니다."),
+    // 시나리오 category → counselType 매핑 테이블에 없는 category(신규 시나리오 추가 시 매핑 갱신 누락) —
+    // "시나리오 없음"과 구분되는 데이터 정합성 오류(PLAN_DATA_INVALID와 동일 성격).
+    COUNSEL_TYPE_MAPPING_NOT_FOUND(HttpStatus.INTERNAL_SERVER_ERROR, "상담 유형 매핑 데이터에 오류가 있습니다."),
 
     // 알림(notification) — FR-9, HAJA-274. 미존재/타인 소유 모두 통일 응답(cross-user IDOR 방지).
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "알림을 찾을 수 없습니다."),

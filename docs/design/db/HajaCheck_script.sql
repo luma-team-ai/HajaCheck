@@ -938,6 +938,8 @@ create table chat_messages
     sender      chat_sender_type                       not null,
     content     text                                   not null,
     scenario_id bigint,
+    attachment_key       varchar(500),
+    attachment_mime_type varchar(100),
     created_at  timestamp with time zone default now() not null
 );
 
@@ -975,6 +977,9 @@ create table counsel_tickets
     status         counsel_ticket_status_type default 'WAITING'::counsel_ticket_status_type not null,
     counsel_type   counsel_type                                                             not null,
     queue_position integer,
+    ticket_number  varchar(20)                                                              not null,
+    category       varchar(100)                                                             not null,
+    title          varchar(200)                                                             not null,
     created_at     timestamp with time zone   default now()                                 not null,
     ended_at       timestamp with time zone
 );
@@ -1019,6 +1024,9 @@ create unique index uq_counsel_tickets_session
 
 comment on index uq_counsel_tickets_session is
     '하나의 전문상담 세션이 여러 상담 티켓에 중복 배정되는 것을 방지한다.';
+
+create unique index uq_counsel_tickets_ticket_number
+    on counsel_tickets (ticket_number);
 
 create table counselor_skills
 (
