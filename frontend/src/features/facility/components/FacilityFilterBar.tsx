@@ -1,4 +1,4 @@
-import type { ChangeEvent } from 'react';
+import { useMemo, type ChangeEvent } from 'react';
 import { FACILITY_INITIAL_GRADE_OPTIONS } from '../constants';
 import type { Facility, FacilityInitialGrade } from '../types';
 import type { FacilityListFilters } from '../utils/filterFacilities';
@@ -34,8 +34,10 @@ const SELECT_ARROW_STYLE = {
 // 구분선 + pill 드롭다운 3개. 유형/지역 옵션은 하드코딩하지 않고 현재 로드된 facilities에서
 // distinct 값으로 동적 구성한다(getFacilityTypeOptions/getFacilityRegionOptions).
 export function FacilityFilterBar({ facilities, filters, onChange }: Props) {
-  const typeOptions = getFacilityTypeOptions(facilities);
-  const regionOptions = getFacilityRegionOptions(facilities);
+  // 검색어 입력 등 filters 변경으로 리렌더가 잦은데, facilities 참조가 그대로면 옵션 목록을 다시
+  // map/Set/sort할 필요가 없다(#825 P3).
+  const typeOptions = useMemo(() => getFacilityTypeOptions(facilities), [facilities]);
+  const regionOptions = useMemo(() => getFacilityRegionOptions(facilities), [facilities]);
 
   function handleSearchChange(event: ChangeEvent<HTMLInputElement>) {
     // 클라이언트 사이드 필터라 데이터가 이미 다 로드돼 있으므로 디바운스 없이 즉시 반영한다.
