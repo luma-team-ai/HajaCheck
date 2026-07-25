@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
+import { FacilityFilterBar } from '../components/FacilityFilterBar';
 import { FacilityFormModal } from '../components/FacilityFormModal';
 import { FacilityTable } from '../components/FacilityTable';
 import { useCreateFacility } from '../hooks/useCreateFacility';
 import { useFacilities } from '../hooks/useFacilities';
 import type { CreateFacilityRequest } from '../types';
+import { FACILITY_LIST_FILTERS_INITIAL, filterFacilities } from '../utils/filterFacilities';
+import type { FacilityListFilters } from '../utils/filterFacilities';
 
 export function FacilityListPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -13,9 +16,18 @@ export function FacilityListPage() {
   // 모달이 곧 닫히는 성공 경로에서도 사용자가 사실을 인지할 수 있도록 이 페이지에 인라인으로 남긴다
   // (이 레포는 별도 Toast 시스템을 두지 않는 컨벤션).
   const [geocodeWarningMessage, setGeocodeWarningMessage] = useState<string | undefined>(undefined);
+  // 검색+유형/지역/등급 필터(#810) — 백엔드 변경 없이 클라이언트 사이드로 처리(utils/filterFacilities.ts).
+  const [filters, setFilters] = useState<FacilityListFilters>(FACILITY_LIST_FILTERS_INITIAL);
   const navigate = useNavigate();
   const { data: facilities, isLoading, isError, refetch } = useFacilities();
   const { createFacility, isPending, error, resetError } = useCreateFacility();
+
+  const isFilterActive =
+    filters.search !== '' || filters.type !== '' || filters.region !== '' || filters.grade !== '';
+  const filteredFacilities = useMemo(
+    () => (facilities ? filterFacilities(facilities, filters) : facilities),
+    [facilities, filters],
+  );
 
   const handleOpenModal = () => {
     setGeocodeWarningMessage(undefined);
@@ -67,13 +79,20 @@ export function FacilityListPage() {
         </p>
       )}
 
+      <FacilityFilterBar facilities={facilities ?? []} filters={filters} onChange={setFilters} />
+
       <div className="overflow-hidden rounded-2xl border border-border bg-surface">
         <FacilityTable
-          facilities={facilities}
+          facilities={filteredFacilities}
           isLoading={isLoading}
           isError={isError}
           onRetry={refetch}
           onSelectFacility={handleSelectFacility}
+          emptyMessage={
+            isFilterActive
+              ? '검색/필터 조건에 맞는 시설물이 없습니다.'
+              : '등록된 시설물이 없습니다. 시설물을 등록해 주세요.'
+          }
         />
       </div>
 

@@ -117,4 +117,28 @@ describe('FacilityListPage (통합 테스트)', () => {
 
     expect(await screen.findByText('시설물 상세 화면')).not.toBeNull();
   });
+
+  // 검색+필터(#810) — MSW 목 데이터를 실제 useFacilities 경로로 불러온 뒤 FacilityFilterBar를
+  // 통해 클라이언트 사이드로 좁혀지는지 확인한다(pure filterFacilities는 별도 단위 테스트 존재).
+  it('검색창에 입력하면 일치하지 않는 시설물이 목록에서 숨겨진다', async () => {
+    renderPage();
+    await screen.findByText('강남 오피스타워 A동');
+    await screen.findByText('한강대교 북단');
+
+    fireEvent.change(screen.getByLabelText('시설물 이름 검색'), { target: { value: '오피스타워' } });
+
+    expect(screen.getByText('강남 오피스타워 A동')).not.toBeNull();
+    expect(screen.queryByText('한강대교 북단')).toBeNull();
+  });
+
+  it('검색 결과가 0건이면 필터 전용 빈 상태 안내 문구를 표시한다', async () => {
+    renderPage();
+    await screen.findByText('강남 오피스타워 A동');
+
+    fireEvent.change(screen.getByLabelText('시설물 이름 검색'), {
+      target: { value: '존재하지않는시설물이름' },
+    });
+
+    expect(await screen.findByText('검색/필터 조건에 맞는 시설물이 없습니다.')).not.toBeNull();
+  });
 });
