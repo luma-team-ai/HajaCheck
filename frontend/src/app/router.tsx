@@ -236,6 +236,13 @@ const AiAssistantPage = lazy(() =>
   })),
 );
 
+// 고객지원 > 내 상담 이력 (#20, HAJA-33)
+const CounselHistoryPage = lazy(() =>
+  import('../features/counsel/pages/CounselHistoryPage').then((m) => ({
+    default: m.CounselHistoryPage,
+  })),
+);
+
 const ChartShowcasePage = import.meta.env.DEV
   ? lazy(() =>
       import('../dev/charts/ChartShowcasePage').then((m) => ({
@@ -671,6 +678,18 @@ export const router = createBrowserRouter([
           activeHref: '/support/ai-assistant',
         },
       }, // — features/support (dev-08-01, HAJA-32, FR-6)
+      {
+        path: '/support/history',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <CounselHistoryPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '고객지원' }, { label: '내 상담 이력' }],
+          activeHref: '/support/history',
+        },
+      }, // — features/counsel (#20, HAJA-33)
     ],
   },
   {
