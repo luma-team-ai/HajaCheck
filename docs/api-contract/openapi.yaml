@@ -1,9 +1,12 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.15.0-draft"
+  version: "0.16.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    2026-07-25 분석 결과 뷰어 전용 상세 이미지 조회(GET /api/media/{id}/detail) 신설(#788/#789) —
+    그리드용 썸네일(400px 상한)보다 큰 해상도(기본 1600px)로 재인코딩된 이미지 반환. DefectDetailItem에
+    detailUrl 필드 추가.
     2026-07-24 내 정보 조회(GET /api/users/me, 로그인 응답 포함) UserResponse에 createdAt(가입일)·
     companyName(소속 기업명, 개인 회원/회사 미조회 시 null) 추가(#740 / HAJA-401) — 마이페이지 "내 정보"
     프로필 섹션용. 기존 필드 순서·이름 유지한 추가형(하위호환).
@@ -1516,8 +1519,9 @@ paths:
     get:
       summary: 미디어 썸네일 조회
       description: >
-        재인코딩된 썸네일(JPEG) 바이트를 반환한다. 원본은 어떤 엔드포인트로도 직접 서빙하지 않는다
-        (PRD FR-2 업로드 보안 검증). 원본 크기 재인코딩본("뷰어용") 서빙은 "결과 뷰어" 과업 범위.
+        재인코딩된 썸네일(JPEG, 그리드·지도팝업·리스트카드용, 400px 상한) 바이트를 반환한다. 원본은
+        어떤 엔드포인트로도 직접 서빙하지 않는다(PRD FR-2 업로드 보안 검증). 분석 결과 뷰어(상세검수)
+        전용 더 큰 해상도는 /api/media/{id}/detail 참조(#788/#789).
       security:
         - SessionCookie: []
           XsrfToken: []
@@ -1527,6 +1531,37 @@ paths:
       responses:
         "200":
           description: 썸네일 이미지(JPEG)
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+        "401":
+          description: 미인증
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미디어 미존재 또는 타인 소유(존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/media/{id}/detail:
+    get:
+      summary: 미디어 상세 이미지 조회
+      description: >
+        분석 결과 뷰어(상세검수) 전용 — 그리드용 썸네일(400px 상한)보다 큰 해상도(기본 1600px 상한)로
+        재인코딩된 JPEG 바이트를 반환한다(#788/#789). 원본은 이 엔드포인트로도 직접 서빙하지 않는다
+        (PRD FR-2). 업로드 시 생성해 저장한 상세 이미지를 그대로 읽어 반환하며, 그 이전(V13 마이그레이션
+        전)에 업로드된 행은 저장된 상세 이미지가 없어 조회 시점에 원본에서 즉석 재인코딩한다.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [media]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: 상세 이미지(JPEG)
           content:
             image/jpeg:
               schema: { type: string, format: binary }
@@ -2556,6 +2591,10 @@ components:
         bboxH: { type: number, format: double, nullable: true }
         crackWidthMm: { type: number, format: double, nullable: true }
         crackLengthMm: { type: number, format: double, nullable: true }
+        detailUrl:
+          type: string
+          nullable: true
+          description: 분석 결과 뷰어 전용 상세 이미지 URL(/api/media/{mediaId}/detail) — mediaId가 있을 때만 채워짐(#788/#789)
         createdAt: { type: string, format: date-time }
 
     DefectDetailListApiResponse:
