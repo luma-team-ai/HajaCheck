@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
@@ -24,7 +24,9 @@ function extractErrorMessage(err: unknown, fallback: string): string {
 export function ReportGeneratePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const inspectionId = Number(id);
+  const reportIdParam = searchParams.get('reportId');
 
   const [report, setReport] = useState<ReportDetailResponse | null>(null);
   const [content, setContent] = useState<ReportContent | null>(null);
@@ -56,6 +58,36 @@ export function ReportGeneratePage() {
       setSavedContent(data.content);
     }
   };
+
+  useEffect(() => {
+    if (!reportIdParam) return;
+    const reportId = Number(reportIdParam);
+    if (!Number.isInteger(reportId) || reportId <= 0) return;
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    setIsLoading(true);
+    setError(null);
+
+    reportApi
+      .getReport(reportId, controller.signal)
+      .then((response) => {
+        if (!controller.signal.aborted) {
+          applyReport(response.data);
+        }
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) {
+          setError(extractErrorMessage(err, '보고서를 불러오는데 실패했습니다.'));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+        }
+      });
+  }, [reportIdParam]);
 
   const handleGenerateReport = async () => {
     if (isLoading) return;
@@ -287,7 +319,11 @@ export function ReportGeneratePage() {
       )}
 
       {content && (
-        <ReportContentEditor content={content} onChange={setContent} readOnly={isFinalized} />
+        <ReportContentEditor
+          content={content}
+          onChange={setContent}
+          readOnly={isFinalized || isSaving || isRechecking || isFinalizing}
+        />
       )}
 
       {!isFinalized && (

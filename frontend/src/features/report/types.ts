@@ -51,6 +51,8 @@ export interface ReportContent {
 export function isReportContent(value: unknown): value is ReportContent {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
+  const detail = v.detail as Record<string, unknown> | null;
+  const rec = v.recommendation as Record<string, unknown> | null;
   return (
     typeof v.overview === 'object' &&
     v.overview !== null &&
@@ -58,7 +60,9 @@ export function isReportContent(value: unknown): value is ReportContent {
     v.summary !== null &&
     typeof v.detail === 'object' &&
     v.detail !== null &&
+    Array.isArray(detail?.items) &&
     typeof v.recommendation === 'object' &&
-    v.recommendation !== null
+    v.recommendation !== null &&
+    Array.isArray(rec?.items)
   );
 }

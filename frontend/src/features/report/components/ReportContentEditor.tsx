@@ -290,7 +290,9 @@ export function ReportContentEditor({ content, onChange, readOnly }: ReportConte
               label={`법적 근거${item.legal_basis_verified ? ' (검증됨)' : ''}`}
               value={item.legal_basis}
               readOnly={readOnly}
-              onChange={(v) => updateRecommendationItem(i, { legal_basis: v })}
+              onChange={(v) =>
+                updateRecommendationItem(i, { legal_basis: v, legal_basis_verified: false })
+              }
               multiline
             />
             {!readOnly && (

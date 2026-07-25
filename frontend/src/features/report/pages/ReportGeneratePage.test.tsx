@@ -285,4 +285,30 @@ describe('ReportGeneratePage', () => {
     });
     expect(screen.queryByText('저장에 실패했습니다.')).toBeNull();
   });
+
+  it('URL 쿼리에 reportId가 존재하면 마운트 시 getReport를 호출하여 기존 보고서를 로드한다', async () => {
+    let getReportCalled = false;
+    server.use(
+      http.get('/api/reports/99', () => {
+        getReportCalled = true;
+        return HttpResponse.json({ success: true, data: { ...mockReport, id: 99 } });
+      }),
+    );
+
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/inspections/1/reports/generate?reportId=99']}>
+          <Routes>
+            <Route path="/inspections/:id/reports/generate" element={<ReportGeneratePage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('보고서 생성 결과')).toBeTruthy();
+    });
+    expect(getReportCalled).toBe(true);
+  });
 });
