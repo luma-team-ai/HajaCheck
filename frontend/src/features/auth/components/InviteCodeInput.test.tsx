@@ -6,9 +6,9 @@ import { InviteCodeInput } from './InviteCodeInput';
 
 afterEach(cleanup);
 
-function Controlled() {
-  const [value, setValue] = useState('');
-  return <InviteCodeInput value={value} onChange={setValue} />;
+function Controlled({ defaultValue = '' }: { defaultValue?: string }) {
+  const [, setValue] = useState('');
+  return <InviteCodeInput defaultValue={defaultValue} onChange={setValue} />;
 }
 
 function getInputs() {
@@ -47,5 +47,46 @@ describe('InviteCodeInput', () => {
     });
 
     expect(inputs.map((input) => input.value)).toEqual(['A', 'B', 'C', '1', '2', '3']);
+  });
+
+  // #816 P2 회귀 방지 — 압축 문자열(join)을 매 렌더 6칸으로 재분해하던 이전 구현은, 가운데 칸을
+  // 지워 join 결과가 짧아지면 그 문자열을 슬롯에 다시 채우는 과정에서 뒤 칸 값이 왼쪽으로 밀렸다.
+  it('가운데 칸(index 2)을 채운 뒤 지우면 뒤 칸(index 3~5) 값이 이동하지 않는다', () => {
+    render(<Controlled />);
+    const inputs = getInputs();
+    'ABCDEF'.split('').forEach((char, index) => {
+      fireEvent.change(inputs[index], { target: { value: char } });
+    });
+    expect(inputs.map((input) => input.value)).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
+
+    // 3번째 칸(index 2, 'C')을 직접 지운다 — 백스페이스 가드(빈 칸에서만 이전 칸 이동)가 아니라
+    // 값이 있는 칸의 기본 삭제 경로(브라우저가 onChange('')를 발생)를 재현한다.
+    fireEvent.change(inputs[2], { target: { value: '' } });
+
+    expect(inputs.map((input) => input.value)).toEqual(['A', 'B', '', 'D', 'E', 'F']);
+  });
+
+  // #817 P3 계약 고정 — defaultValue는 초기값 전용이라 마운트 이후 부모가 그 prop을 바꿔도
+  // 슬롯을 재동기화하지 않는다(재설정하려면 key={...}로 컴포넌트를 remount해야 한다).
+  it('마운트 후 defaultValue prop이 바뀌어도 입력 칸을 재동기화하지 않는다(초기값 전용)', () => {
+    function Rerenderable() {
+      const [defaultValue, setDefaultValue] = useState('ABC');
+      const [, setCode] = useState('');
+      return (
+        <>
+          <button type="button" onClick={() => setDefaultValue('')}>
+            외부에서 빈 문자열로 변경
+          </button>
+          <InviteCodeInput defaultValue={defaultValue} onChange={setCode} />
+        </>
+      );
+    }
+    render(<Rerenderable />);
+    const inputs = getInputs();
+    expect(inputs.map((input) => input.value)).toEqual(['A', 'B', 'C', '', '', '']);
+
+    fireEvent.click(screen.getByRole('button', { name: '외부에서 빈 문자열로 변경' }));
+
+    expect(inputs.map((input) => input.value)).toEqual(['A', 'B', 'C', '', '', '']);
   });
 });

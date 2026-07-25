@@ -110,6 +110,26 @@ describe('InviteCodePage', () => {
     expect(screen.queryByText('대시보드 화면')).toBeNull();
   });
 
+  // #817 P3 — 확인 버튼을 마우스로 누르지 않아도 6자리 입력 후 Enter로 제출 가능해야 한다.
+  it('6자리 입력 후 Enter를 누르면 redeem이 호출된다', async () => {
+    server.use(
+      http.post('/api/users/me/invite-code', () => {
+        const success: ApiResponse<User> = {
+          success: true,
+          data: { ...waitingUser, companyId: 7, companyName: '테스트회사', status: 'ACTIVE' },
+        };
+        return HttpResponse.json(success);
+      }),
+    );
+    renderPage();
+    typeCode('ABC123');
+
+    const inputs = screen.getAllByLabelText(/초대 코드 \d번째 자리/);
+    fireEvent.submit(inputs[5].closest('form') as HTMLFormElement);
+
+    await waitFor(() => expect(screen.getByText('대시보드 화면')).not.toBeNull());
+  });
+
   it('이미 회사에 연결된(WAITING 아님) 사용자가 접근하면 대시보드로 리다이렉트한다', () => {
     useAuthStore.setState({ user: { ...waitingUser, status: 'ACTIVE', companyId: 7 } });
 

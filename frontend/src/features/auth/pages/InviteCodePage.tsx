@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import { DASHBOARD_ROUTE } from '../../../shared/constants/routes';
@@ -46,7 +47,8 @@ export function InviteCodePage() {
     if (error) reset();
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     if (!isComplete) {
       setLocalError('6자리 초대 코드를 모두 입력해 주세요.');
       return;
@@ -97,39 +99,42 @@ export function InviteCodePage() {
           발급받은 6자리 초대 코드를 입력해 주세요.
         </p>
 
-        <div className="mt-8">
-          <InviteCodeInput
-            value={code}
-            onChange={handleChange}
-            hasError={!!errorMessage}
-            disabled={isPending}
-          />
-        </div>
+        {/* <form>으로 감싸 6자리를 다 채운 뒤 Enter로도 제출 가능하게 한다(#817 P3) — 별도 키 핸들러
+            없이 네이티브 form submit(Enter)을 그대로 활용한다. */}
+        <form onSubmit={handleSubmit}>
+          <div className="mt-8">
+            <InviteCodeInput
+              defaultValue={code}
+              onChange={handleChange}
+              hasError={!!errorMessage}
+              disabled={isPending}
+            />
+          </div>
 
-        <p
-          role={errorMessage ? 'alert' : undefined}
-          className="mt-4 min-h-[20px] text-center text-sm text-red-500"
-        >
-          {errorMessage}
-        </p>
+          <p
+            role={errorMessage ? 'alert' : undefined}
+            className="mt-4 min-h-[20px] text-center text-sm text-red-500"
+          >
+            {errorMessage}
+          </p>
 
-        <div className="mt-4 flex gap-3">
-          <Link
-            to={LANDING_ROUTE}
-            className="flex h-[50px] flex-1 items-center justify-center rounded-full border border-zinc-300 text-[15px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
-          >
-            취소
-          </Link>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!isComplete || isPending}
-            className="flex h-[50px] flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-zinc-900 text-[15px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {isPending ? '확인 중...' : '확인'}
-            {!isPending && <span aria-hidden="true">→</span>}
-          </button>
-        </div>
+          <div className="mt-4 flex gap-3">
+            <Link
+              to={LANDING_ROUTE}
+              className="flex h-[50px] flex-1 items-center justify-center rounded-full border border-zinc-300 text-[15px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+            >
+              취소
+            </Link>
+            <button
+              type="submit"
+              disabled={!isComplete || isPending}
+              className="flex h-[50px] flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-zinc-900 text-[15px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isPending ? '확인 중...' : '확인'}
+              {!isPending && <span aria-hidden="true">→</span>}
+            </button>
+          </div>
+        </form>
 
         <button
           type="button"

@@ -42,6 +42,13 @@ export function ProtectedRoute({ children, allowedRoles }: Props) {
     return <Navigate to={INVITE_CODE_ROUTE} replace />;
   }
 
+  // status=SUSPENDED는 여기서 별도로 가로챌 필요가 없다(#816 P2 확인 완료) — 자체 로그인은
+  // LockedException, 소셜 로그인은 CustomOAuth2UserService.requireActive가 정지 계정을 인증
+  // 단계에서 차단하고, 로그인 후에도 SessionUserRevalidationFilter가 모든 요청(이 화면의
+  // getMe 포함)을 401로 막아 axios 인터셉터가 즉시 /login으로 하드 리다이렉트한다. 즉
+  // authStore.user가 SUSPENDED로 채워진 채 ProtectedRoute까지 도달하는 경로 자체가 없다
+  // (WAITING과 달리 SessionUserRevalidationFilter가 세션을 유지하지 않고 즉시 끊기 때문).
+
   // 권한 부족은 인증 실패와 다르게 다룬다 — /login으로 보내면 이미 로그인한 사용자가 로그인 화면을
   // 다시 보게 되고(혼란), 복귀 후 같은 경로로 돌아와 리다이렉트가 반복된다. 대시보드로 되돌린다.
   //
