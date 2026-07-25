@@ -7,6 +7,7 @@ import { isRouteImplemented } from './implementedRoutes';
 describe('isRouteImplemented', () => {
   it.each([
     '/dashboard',
+    '/statistics', // HAJA-40(#27) — 통계 대시보드 구현으로 화이트리스트에 추가됨(원래 미구현 목록에 있었음)
     '/dashboard/ai-weekly-briefing',
     '/dashboard/upcoming-inspections',
     '/defects/list',
@@ -23,7 +24,7 @@ describe('isRouteImplemented', () => {
     },
   );
 
-  it.each(['/statistics', '/settings'])(
+  it.each(['/settings'])(
     '아직 라우터에 없는 경로 %s는 false를 반환한다',
     (href) => {
       expect(isRouteImplemented(href)).toBe(false);
