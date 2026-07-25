@@ -22,6 +22,7 @@ import com.hajacheck.core.media.entity.MediaFileType;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.membership.service.QuotaService;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -61,6 +62,8 @@ class InspectionAnalysisServiceTest {
     private AnalysisProgressStore progressStore;
     @Mock
     private InspectionAnalysisWorker worker;
+    @Mock
+    private QuotaService quotaService;
 
     @InjectMocks
     private InspectionAnalysisService service;

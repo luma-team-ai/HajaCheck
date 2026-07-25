@@ -12,6 +12,7 @@ import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.invitecode.dto.InviteCodeIssueResponse;
 import com.hajacheck.invitecode.support.InviteCodeGenerator;
 import com.hajacheck.invitecode.support.InviteCodeStore;
+import com.hajacheck.membership.service.QuotaService;
 import java.time.Duration;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,7 @@ public class InviteCodeService {
     private final AuthService authService;
     private final AuthProperties authProperties;
     private final RateLimiter rateLimiter;
+    private final QuotaService quotaService;
 
     /** 발급 — 요청 관리자 소속 회사(loginUser.companyId)로 스코프된 코드를 만든다(ADMIN 전용, 컨트롤러가 role 강제). */
     public InviteCodeIssueResponse issue(Long companyId) {
@@ -116,6 +118,11 @@ public class InviteCodeService {
         if (!companyRepository.existsById(companyId)) {
             throw new BusinessException(ErrorCode.AUTH_INVITE_CODE_INVALID);
         }
+
+        // 좌석 한도(plans.max_seats) 강제(#843) — 활성화 직전, 같은 트랜잭션에서 1석을 예약한다.
+        // 같은 트랜잭션이어야 (a) 한도 초과 시 활성화가 통째로 롤백되고 (b) 예약이 커밋될 때까지 잠금이
+        // 유지돼 동시 redeem 이 같은 좌석을 이중 사용하지 못한다.
+        quotaService.reserveSeat(companyId);
 
         user.activateWithInviteCode(companyId);
         UserResponse response = authService.getMe(userId);
