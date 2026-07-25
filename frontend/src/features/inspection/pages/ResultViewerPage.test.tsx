@@ -21,6 +21,8 @@ const mockInspection: InspectionResponse = {
   inspectionDate: '2026-07-22',
   status: 'ANALYZED',
   createdAt: '2026-07-22T10:00:00Z',
+  reviewedCount: 1,
+  totalCount: 5,
 };
 
 const mockDefects: DefectDetailItem[] = [
@@ -616,5 +618,36 @@ describe('ResultViewerPage (통합 테스트)', () => {
       const errorMessages = screen.getAllByText(/누락 추가에 실패했습니다/);
       expect(errorMessages.length).toBeGreaterThan(0);
     });
+  });
+
+  it('검수가 미완료일 때 "보고서 생성" 버튼이 비활성화된다 (#829)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const button = screen.getByRole('button', { name: '보고서 생성' });
+    expect(button.hasAttribute('disabled')).toBe(true);
+    // mockDefects 중 id=3(CONFIRMED), id=5(RESOLVED)가 검수 확정으로 계산 → reviewedCount=2
+    expect(button.getAttribute('title')).toBe('2/5 하자 검수 확정 필요');
+  });
+
+  it('모든 하자를 검수 확정하면 "보고서 생성" 버튼이 활성화된다 (#829)', async () => {
+    const allConfirmedDefects: DefectDetailItem[] = mockDefects.map((d) => ({
+      ...d,
+      status: 'CONFIRMED' as const,
+      isReviewed: true,
+    }));
+
+    server.use(
+      http.get('/api/inspections/:id/defects', () => {
+        const body: ApiResponse<DefectDetailItem[]> = { success: true, data: allConfirmedDefects };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const button = screen.getByRole('button', { name: '보고서 생성' });
+    expect(button.hasAttribute('disabled')).toBe(false);
   });
 });
