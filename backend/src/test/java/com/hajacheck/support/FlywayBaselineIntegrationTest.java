@@ -22,8 +22,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * V9(facilities.next_inspection_due_at 인덱스, #509)→V10(add_facility_registration_fields, #628)→
  * V11(facilities company scope, #637)→V12(defects 조치 결과 등록 필드, #725/HAJA-393)→V13(media.
  * detail_url, #788/#789)→V14(counsel_type 분류, #743)→V15(user_status_type WAITING 라벨, #792)→
- * V16(defects.area_ratio, #803)을 순서대로 적용하고, Hibernate ddl-auto=validate + PlanSeedGuard
- * 부팅 가드가 통과하는지 검증한다.
+ * V16(defects.area_ratio, #803)→…→V19(FREE 좌석 한도 1→2, #843)를 순서대로 적용하고,
+ * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
  * 만들고 Flyway는 application-test.yml에서 꺼둠)를 쓴다. 이 클래스만 예외적으로 initScript 없는 컨테이너 +
@@ -66,7 +66,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V18까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V19까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -80,7 +80,8 @@ class FlywayBaselineIntegrationTest {
         // + V14(counsel_type 분류, #743) + V15(user_status_type WAITING 라벨, #792)
         // + V16(defects.area_ratio, #803) + V17(seed_bot_scenarios, #20/HAJA-33 — V13 선점으로 재번호)
         // + V18(counsel 티켓 스냅샷 + 채팅 첨부, #20/HAJA-33 — V14 선점으로 재번호)
-        assertThat(appliedMigrations).isEqualTo(18);
+        // + V19(FREE 좌석 한도 1→2, #843/HAJA-441)
+        assertThat(appliedMigrations).isEqualTo(19);
 
         // V5가 companies.business_start_date 컬럼을 실제로 추가했는지 확인(#596).
         Long businessStartDateColumnExists = jdbcTemplate.queryForObject("""
@@ -94,6 +95,12 @@ class FlywayBaselineIntegrationTest {
         assertThat(planRepository.findByName(PlanName.STANDARD)).isPresent();
         assertThat(planRepository.findByName(PlanName.ENTERPRISE)).isPresent();
         assertThat(planRepository.findByName(PlanName.ENTERPRISE).orElseThrow().getMaxSeats()).isNull();
+
+        // V19가 FREE 좌석 한도를 실제로 올렸는지 확인한다(#843/HAJA-441). V1 baseline 은 시드값 1로
+        // 넣으므로, 이 경로에서는 V19 가 진짜로 1행을 갱신해야 2가 된다 — 대표(1석)만으로 좌석이 꽉 차
+        // 초대 코드 redeem 이 영구히 403 이 되는 회귀를 여기서 잡는다.
+        assertThat(planRepository.findByName(PlanName.FREE).orElseThrow().getMaxSeats()).isEqualTo(2);
+        assertThat(planRepository.findByName(PlanName.STANDARD).orElseThrow().getMaxSeats()).isEqualTo(3);
 
         Long planCount = jdbcTemplate.queryForObject("select count(*) from plans", Long.class);
         assertThat(planCount).isEqualTo(3L);

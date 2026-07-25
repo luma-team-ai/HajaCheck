@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.CompanyMembership;
 import com.hajacheck.auth.entity.Role;
+import com.hajacheck.auth.entity.SocialProvider;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyMembershipRepository;
@@ -20,6 +21,7 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.invitecode.service.InviteCodeService;
 import com.hajacheck.membership.dto.MyPlanResponse;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
@@ -62,6 +64,8 @@ class QuotaServiceIntegrationTest extends PostgresTestSupport {
     private FacilityService facilityService;
     @Autowired
     private MembershipService membershipService;
+    @Autowired
+    private InviteCodeService inviteCodeService;
     @Autowired
     private UserRepository userRepository;
     @Autowired
@@ -236,6 +240,44 @@ class QuotaServiceIntegrationTest extends PostgresTestSupport {
         UsageCounter usage = currentUsage();
         assertThat(usage.getFacilityCount()).isEqualTo(5);
         assertThat(usage.getAnalyzedImageCount()).isEqualTo(100_000);
+    }
+
+    /**
+     * FREE 좌석 상향(1→2, #843/HAJA-441 · Flyway V19)의 회귀 방지선 — 이 결정 이전에는 FREE 회사의
+     * 대표가 유일한 좌석을 점유해 초대 코드 redeem 이 <b>항상</b> PLAN_SEAT_QUOTA_EXCEEDED 였다(온보딩 불가).
+     */
+    @Test
+    void FREE회사는_대표외에_점검자1명을_초대할수있고_그다음_초대는_좌석한도로_막힌다() {
+        givenCompanyPlan(PlanName.FREE);
+        int maxSeats = planRepository.findByName(PlanName.FREE).orElseThrow().getMaxSeats();
+        assertThat(maxSeats).as("FREE 는 대표 1석 + 점검자 1석 = 2석이어야 초대 온보딩이 가능하다").isEqualTo(2);
+        // 대표(owner)가 이미 1석을 쓰고 있다.
+        assertThat(userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE)).isEqualTo(1);
+
+        Long firstInviteeId = saveWaitingUser("first");
+        String firstCode = inviteCodeService.issue(companyId).code();
+        inviteCodeService.redeem(firstCode, firstInviteeId);
+
+        // 1건은 실제로 성공한다 — 소속 배선 + ACTIVE 전환 + 좌석 집계까지 반영된다.
+        assertThat(userRepository.findById(firstInviteeId).orElseThrow().getCompanyId()).isEqualTo(companyId);
+        assertThat(userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE)).isEqualTo(2);
+        assertThat(currentUsage().getSeatCount()).isEqualTo(2);
+
+        // 2석을 모두 쓴 뒤의 초대는 좌석 한도로 막힌다(코드 자체는 유효하므로 거부 사유가 섞이지 않는다).
+        Long secondInviteeId = saveWaitingUser("second");
+        String secondCode = inviteCodeService.issue(companyId).code();
+        assertThatThrownBy(() -> inviteCodeService.redeem(secondCode, secondInviteeId))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED));
+        assertThat(userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE)).isEqualTo(2);
+    }
+
+    private Long saveWaitingUser(String suffix) {
+        return userRepository.saveAndFlush(User.createSocialUser(
+                SocialProvider.KAKAO, "quota-int-social-" + System.nanoTime() + "-" + suffix,
+                "quota-int-waiting-" + System.nanoTime() + "-" + suffix + "@haja.com", "대기자" + suffix))
+                .getId();
     }
 
     private UserPlan givenCompanyPlan(PlanName planName) {
