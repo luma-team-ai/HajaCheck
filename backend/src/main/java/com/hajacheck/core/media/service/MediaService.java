@@ -15,11 +15,14 @@ import com.hajacheck.core.media.support.ImageSignatureValidator;
 import com.hajacheck.core.media.support.ImageThumbnailGenerator;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -38,10 +41,27 @@ public class MediaService {
 
     private static final String ORIGINAL_CATEGORY = "inspection-media";
     private static final String THUMBNAIL_CATEGORY = "inspection-media-thumb";
+    private static final String DETAIL_CATEGORY = "inspection-media-detail";
     private static final Set<String> THUMBNAIL_CONTENT_TYPES = Set.of("image/jpeg");
     // 썸네일은 thumbnailMaxDimension 으로 이미 축소되므로 이 상한은 순전히 방어적 상한선.
     private static final long THUMBNAIL_MAX_BYTES = 2_000_000L;
+    // 상세 이미지는 썸네일(400px)보다 훨씬 큰 detailMaxDimension(기본 1600px)으로 인코딩되므로
+    // 픽셀 수 비례로 상한도 크게 잡는다(방어적 상한선, 순정 사진 압축률 기준 여유 포함).
+    private static final long DETAIL_MAX_BYTES = 8_000_000L;
     private static final String THUMBNAIL_MIME_TYPE = "image/jpeg";
+    // 레거시(V13 이전) 행의 상세 이미지 즉석 생성 동시 실행 상한 — 배포 직후 레거시 인스펙션을 열면
+    // 그리드 하자 수만큼 원본(최대 20MB) 디코딩이 한꺼번에 몰릴 수 있어 방어적으로 제한한다(#788/#789
+    // PR머신 리뷰 P2). ponytail: 인스턴스 로컬 세마포어라 여러 앱 인스턴스 전체 합산은 상한×인스턴스수 —
+    // 레거시 행이 시간이 지나면 자연 소멸하는 유한 집합이라 그 이상의 분산 제한(Redis 등)은 과함.
+    private static final int MAX_CONCURRENT_LEGACY_DETAIL_GENERATION = 4;
+    // PR머신 리뷰 P1(#789) — permit이 없을 때 무기한 대기하면 요청 스레드(Tomcat 워커)가 계속 점유돼
+    // 레거시 행 대상 동시 요청 폭주 시 스레드풀 고갈로 번진다. 대기 상한을 두고 초과하면 즉시 503으로
+    // 반환해 워커 스레드를 붙잡지 않는다("거부 없는 완화"가 아니라 "상한부 대기 후 거부"로 전환).
+    // static final이 아닌 인스턴스 필드 — 테스트가 ReflectionTestUtils로 값을 줄여 5초 대기 없이
+    // BUSY 분기를 검증할 수 있게 한다(static final 상수는 컴파일 타임에 인라인되어 리플렉션으로 못 바꿈).
+    private long legacyDetailGenerationWaitSeconds = 5;
+    private final Semaphore legacyDetailGenerationLimiter =
+            new Semaphore(MAX_CONCURRENT_LEGACY_DETAIL_GENERATION);
 
     private final MediaRepository mediaRepository;
     private final MediaWriter mediaWriter;
@@ -131,11 +151,25 @@ public class MediaService {
                 THUMBNAIL_CONTENT_TYPES, THUMBNAIL_MAX_BYTES);
         storedKeys.add(thumbnail.storageKey());
 
+        // 상세 이미지(분석 결과 뷰어 전용, 썸네일보다 큰 해상도)도 업로드 시점에 1회 생성해 저장한다 —
+        // 조회 시마다 원본을 재디코딩하던 성능 문제(PR머신 리뷰 P2, #789)를 썸네일과 동일한 패턴으로 해결.
+        byte[] detailBytes;
+        try (InputStream in = file.getInputStream()) {
+            detailBytes = ImageThumbnailGenerator.generate(
+                    in, properties.getDetailMaxDimension(), exif.orientation());
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
+        }
+        StoredFile detail = fileStorage.storeBytes(detailBytes, THUMBNAIL_MIME_TYPE, DETAIL_CATEGORY,
+                THUMBNAIL_CONTENT_TYPES, DETAIL_MAX_BYTES);
+        storedKeys.add(detail.storageKey());
+
         return Media.builder()
                 .inspectionId(inspectionId)
                 .fileType(MediaFileType.IMAGE)
                 .originalUrl(original.storageKey())
                 .thumbnailUrl(thumbnail.storageKey())
+                .detailUrl(detail.storageKey())
                 .capturedAt(exif.capturedAt())
                 .gpsLat(exif.gpsLat())
                 .gpsLng(exif.gpsLng())
@@ -155,30 +189,90 @@ public class MediaService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ThumbnailFile getThumbnail(Long userId, Long companyId, Long mediaId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Media media = loadOwnedMedia(userId, companyId, mediaId);
+        if (media.getThumbnailUrl() == null) {
+            throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
+        }
+        return new ThumbnailFile(readOrMediaNotFound(media.getThumbnailUrl()), THUMBNAIL_MIME_TYPE);
+    }
+
+    /**
+     * 분석 결과 뷰어(상세검수) 전용 상세 이미지 — 그리드·지도팝업용 썸네일(400px 상한)로는 크랙 폭 같은
+     * 하자를 육안으로 판별하기 어려워(#788) 업로드 시 미리 생성해 둔 상세 이미지(detailUrl, V13)를
+     * 그대로 읽어 반환한다(getThumbnail()과 동일 패턴 — 조회마다 재인코딩하지 않는다).
+     *
+     * <p>V13 이전에 업로드된 기존 행은 detailUrl이 없다(백필 안 함) — 그 경우 매 조회마다 원본에서
+     * 즉석 생성하는 폴백을 탄다.
+     *
+     * <p>ponytail: write-through 캐시(생성 결과를 detailUrl에 저장)는 일부러 안 한다 — 캐시를 넣으면
+     * 그 캐시 자체의 동시성(동일 mediaId 동시 최초조회 시 고아 파일)·부분실패 관측성 문제가 새로 생겨
+     * PR머신 2라운드에 걸쳐 계속 지적됐다. 레거시 행은 시간이 지나면 자연히 사라지는 유한 집합(신규
+     * 업로드는 전부 V13 경로로 처음부터 detailUrl을 가짐)이라 감수할 만한 트레이드오프로 판단.
+     * 대신 {@link #legacyDetailGenerationLimiter}로 동시 재인코딩 수만 제한한다 — 배포 직후 레거시
+     * 인스펙션을 열면 그리드 하자 수만큼 원본(최대 20MB) 디코딩이 한꺼번에 몰릴 수 있어서다. permit
+     * 획득은 {@link #legacyDetailGenerationWaitSeconds} 상한부 대기이며, 초과 시 요청 스레드를
+     * 계속 점유하지 않도록 즉시 503(MEDIA_DETAIL_GENERATION_BUSY)으로 거부한다(PR머신 리뷰 P1, #789).
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public ThumbnailFile getDetailImage(Long userId, Long companyId, Long mediaId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Media media = loadOwnedMedia(userId, companyId, mediaId);
+        if (media.getDetailUrl() != null) {
+            return new ThumbnailFile(readOrMediaNotFound(media.getDetailUrl()), THUMBNAIL_MIME_TYPE);
+        }
+        return generateLegacyDetailImage(media);
+    }
+
+    private ThumbnailFile generateLegacyDetailImage(Media media) {
+        boolean acquired;
+        try {
+            acquired = legacyDetailGenerationLimiter.tryAcquire(
+                    legacyDetailGenerationWaitSeconds, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
+        }
+        if (!acquired) {
+            throw new BusinessException(ErrorCode.MEDIA_DETAIL_GENERATION_BUSY);
+        }
+        try {
+            byte[] originalBytes = readOrMediaNotFound(media.getOriginalUrl());
+            int orientation = ExifGpsExtractor.extract(new ByteArrayInputStream(originalBytes)).orientation();
+            byte[] detailBytes = ImageThumbnailGenerator.generate(
+                    new ByteArrayInputStream(originalBytes), properties.getDetailMaxDimension(), orientation);
+            return new ThumbnailFile(detailBytes, THUMBNAIL_MIME_TYPE);
+        } finally {
+            legacyDetailGenerationLimiter.release();
+        }
+    }
+
+    // 소유권 검증 — 미디어 존재 + 그 미디어가 속한 점검 회차가 요청자 회사 소속인지. 존재 여부 열거
+    // 방지(리뷰 P2) — 타인 소유 미디어(getInspection이 던지는 FACILITY_NOT_FOUND/INSPECTION_NOT_FOUND)와
+    // 아예 없는 미디어(MEDIA_NOT_FOUND)를 error.code로 구분할 수 있으면 안 된다(openapi.yaml·클래스
+    // 문서가 명시한 "존재 여부 열거 방지 통일 응답" 계약). 실패 사유와 무관하게 동일한
+    // MEDIA_NOT_FOUND(404)로 통일한다. getThumbnail/getDetailImage 공용.
+    private Media loadOwnedMedia(Long userId, Long companyId, Long mediaId) {
         Media media = mediaRepository.findById(mediaId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
         try {
             inspectionService.getInspection(userId, companyId, media.getInspectionId());
         } catch (BusinessException e) {
-            // 존재 여부 열거 방지(리뷰 P2) — 타인 소유 미디어(getInspection이 던지는
-            // FACILITY_NOT_FOUND/INSPECTION_NOT_FOUND)와 아예 없는 미디어(MEDIA_NOT_FOUND)를
-            // error.code로 구분할 수 있으면 안 된다(openapi.yaml·클래스 문서가 명시한 "존재 여부
-            // 열거 방지 통일 응답" 계약). 실패 사유와 무관하게 동일한 MEDIA_NOT_FOUND(404)로 통일한다.
             if (e.getErrorCode() == ErrorCode.INSPECTION_NOT_FOUND
                     || e.getErrorCode() == ErrorCode.FACILITY_NOT_FOUND) {
                 throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
             }
             throw e;
         }
-        if (media.getThumbnailUrl() == null) {
-            throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
-        }
+        return media;
+    }
+
+    // DB 행(Media)은 있으나 디스크 파일이 유실된 경우(리뷰 P2, FileStorageService.read()가
+    // FILE_NOT_FOUND로 구분)도 클라이언트 입장에선 "이 미디어를 찾을 수 없다"는 404와 동일하다 —
+    // 저장소 구현 세부를 노출하지 않고 MEDIA_NOT_FOUND로 통일한다.
+    private byte[] readOrMediaNotFound(String storageKey) {
         try {
-            return new ThumbnailFile(fileStorage.read(media.getThumbnailUrl()), THUMBNAIL_MIME_TYPE);
+            return fileStorage.read(storageKey);
         } catch (BusinessException e) {
-            // DB 행(Media)은 있으나 디스크 파일이 유실된 경우(리뷰 P2, FileStorageService.read()가
-            // FILE_NOT_FOUND로 구분)도 클라이언트 입장에선 위 두 케이스와 동일한 "이 미디어의 썸네일을
-            // 찾을 수 없다"는 404다 — 저장소 구현 세부를 노출하지 않고 MEDIA_NOT_FOUND로 통일한다.
             if (e.getErrorCode() == ErrorCode.FILE_NOT_FOUND) {
                 throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
             }

@@ -86,6 +86,7 @@ app:
     max-size-bytes: 20971520
     max-files-per-request: 10
     thumbnail-max-dimension: 400
+    detail-max-dimension: 1600
   policy:
     # 약관 버전은 서버 소유(클라이언트 미전송) — 동의 이력에 기록.
     terms-version: "1.0"

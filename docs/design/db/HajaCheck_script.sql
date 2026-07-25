@@ -662,6 +662,7 @@ create table media
     file_type               media_file_type                        not null,
     original_url            varchar(500)                           not null,
     thumbnail_url           varchar(500),
+    detail_url              varchar(500),
     source_video_id         bigint,
     frame_index             integer,
     captured_at             timestamp with time zone,
@@ -683,6 +684,8 @@ comment on column media.file_type is '미디어 파일 유형';
 comment on column media.original_url is '원본 미디어 파일 URL';
 
 comment on column media.thumbnail_url is '미디어 썸네일 이미지 URL';
+
+comment on column media.detail_url is '분석 결과 뷰어 전용 상세 이미지 저장키(#788/#789, V13 — nullable, V13 이전 업로드 행은 NULL)';
 
 comment on column media.source_video_id is '프레임 이미지의 원본 영상 식별자(media.id 자기 참조 개념이나 FK 미설정 — 영상 프레임 추출 파이프라인의 유연한 기록을 위함)';
 

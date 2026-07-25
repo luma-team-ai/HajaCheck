@@ -24,6 +24,10 @@ public class MediaUploadProperties {
     /** 썸네일 재인코딩 시 가로/세로 중 긴 변의 최대 픽셀(비율 유지 축소). */
     private int thumbnailMaxDimension = 400;
 
+    /** 상세뷰(분석 결과 뷰어) 재인코딩 시 가로/세로 중 긴 변의 최대 픽셀 — 그리드용 썸네일보다
+     * 커야 하자(크랙 폭 등)를 육안으로 판별할 수 있다(#788). */
+    private int detailMaxDimension = 1600;
+
     public List<String> getAllowedContentTypes() {
         return allowedContentTypes;
     }
@@ -54,5 +58,13 @@ public class MediaUploadProperties {
 
     public void setThumbnailMaxDimension(int thumbnailMaxDimension) {
         this.thumbnailMaxDimension = thumbnailMaxDimension;
+    }
+
+    public int getDetailMaxDimension() {
+        return detailMaxDimension;
+    }
+
+    public void setDetailMaxDimension(int detailMaxDimension) {
+        this.detailMaxDimension = detailMaxDimension;
     }
 }

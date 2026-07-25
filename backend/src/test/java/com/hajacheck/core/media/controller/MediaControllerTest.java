@@ -127,6 +127,20 @@ class MediaControllerTest extends PostgresTestSupport {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void 상세이미지조회_미인증_401() throws Exception {
+        mockMvc.perform(get("/api/media/{id}/detail", 1L))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private static byte[] realPngBytes() throws java.io.IOException {
+        java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(4, 4,
+                java.awt.image.BufferedImage.TYPE_INT_RGB);
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(image, "png", out);
+        return out.toByteArray();
+    }
+
     /**
      * @RequestParam("files") 는 기본 required=true 라, multipart 요청에 "files" 파트 자체가 아예
      * 없으면 컨트롤러 진입 전에 Spring이 MissingServletRequestPartException을 던진다(리뷰 P2).
@@ -193,6 +207,49 @@ class MediaControllerTest extends PostgresTestSupport {
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
 
         mockMvc.perform(get("/api/media/{id}/thumbnail", media.getId())
+                        .with(authentication(auth)))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("private")));
+    }
+
+    /**
+     * 상세 이미지도 썸네일과 동일하게 사적 이미지라 공유 캐시 금지(no-store, private) — 원본에서
+     * 실제로 디코딩·재인코딩까지 되는지(200 OK) 함께 고정한다(#788).
+     */
+    @Test
+    void 상세이미지조회_인증됨_CacheControl_noStore_private() throws Exception {
+        User owner = seedApprovedInspector("detail-owner@haja.com");
+        Facility facility = facilityRepository.save(Facility.builder()
+                .companyId(owner.getCompanyId())
+                .name("테스트빌딩")
+                .type("BUILDING")
+                .build());
+        Inspection inspection = inspectionRepository.save(Inspection.builder()
+                .facilityId(facility.getId())
+                .createdBy(owner.getId())
+                .assignedInspectorId(owner.getId())
+                .roundNo(1)
+                .inspectionDate(LocalDate.now())
+                .status(InspectionStatus.CREATED)
+                .build());
+        FileStorageService.StoredFile original = fileStorage.storeBytes(
+                realPngBytes(), "image/png", "inspection-media",
+                List.of("image/png"), 1_000_000L);
+        Media media = mediaRepository.save(Media.builder()
+                .inspectionId(inspection.getId())
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl(original.storageKey())
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build());
+
+        LoginUser principal = new LoginUser(owner);
+        UsernamePasswordAuthenticationToken auth =
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+
+        mockMvc.perform(get("/api/media/{id}/detail", media.getId())
                         .with(authentication(auth)))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
