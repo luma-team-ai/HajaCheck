@@ -30,7 +30,7 @@ function setUp(revokeInviteCode = vi.fn()) {
 describe('InviteCodeModal', () => {
   it('한 번도 복사하지 않고 닫으면 발급된 코드를 폐기한다', async () => {
     const { revokeInviteCode, onClose } = setUp();
-    await waitFor(() => expect(screen.getByText('7B2-W9A')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('7B2-W9A')).toBeTruthy());
 
     fireEvent.click(screen.getByRole('button', { name: '닫기' }));
 
@@ -42,7 +42,7 @@ describe('InviteCodeModal', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     const { revokeInviteCode, onClose } = setUp();
-    await waitFor(() => expect(screen.getByText('7B2-W9A')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('7B2-W9A')).toBeTruthy());
 
     fireEvent.click(screen.getByRole('button', { name: /코드 복사하기/ }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('7B2-W9A'));
