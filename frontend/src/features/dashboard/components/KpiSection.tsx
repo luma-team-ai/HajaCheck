@@ -5,8 +5,9 @@ import { KpiCard } from './KpiCard';
 // dashboard-card의 기본 padding(20px 24px)을 대신해 시안값(4px 0)을 강제 적용 —
 // 공용 shared/styles/layout.css의 동일 클래스보다 이 규칙을 확실히 우선시키기 위해
 // Tailwind !important 접두를 사용(원본 CSS도 소스 순서로 동일 목적의 override였음).
+// Figma 원본(2026-07-25 재확인): 셀 패딩 p-6(24px) 전부 동일 — 그룹은 좌우 0만 유지.
 const KPI_CARD_GROUP_CLASS =
-  'grid grid-cols-4 py-5! px-0! max-[1100px]:grid-cols-2 max-[720px]:grid-cols-1';
+  'grid grid-cols-4 py-6! px-0! max-[1100px]:grid-cols-2 max-[720px]:grid-cols-1';
 
 export function KpiSection() {
   const { data, isLoading, isError } = useDashboardSummary();

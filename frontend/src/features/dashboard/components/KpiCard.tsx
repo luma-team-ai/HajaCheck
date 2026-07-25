@@ -10,8 +10,9 @@ type Props = {
 
 // kpi-col 반응형(1100px/720px 데스크톱 우선 breakpoint)·형제 순서 기반 보더 규칙은
 // Tailwind 임의 variant(max-[…]:, first:/last:, [&:nth-child(2)])로 그대로 이식.
+// Figma 원본(2026-07-25 재확인): 4개 셀 전부 p-6(24px) 동일 — 첫 셀 특례(first:pl-1) 없음.
 const KPI_COL_CLASS =
-  `pl-7 pr-7 border-r ${DASHBOARD_COLOR_CLASS.kpiDividerBorder} first:pl-4 last:pr-1 last:border-r-0 ` +
+  `pl-6 pr-6 border-r ${DASHBOARD_COLOR_CLASS.kpiDividerBorder} last:border-r-0 ` +
   `max-[1100px]:px-5 max-[1100px]:py-3 max-[1100px]:border-b ${DASHBOARD_COLOR_CLASS.dividerBorderBottomNarrow} ` +
   'max-[1100px]:[&:nth-child(2)]:border-r-0 max-[720px]:border-r-0';
 
@@ -28,7 +29,7 @@ export function KpiCard({ label, value, changeRate, hasAlertDot = false }: Props
     // Figma 원본 dev-mode 추출 Tailwind 값 그대로 복원(2026-07-25) — 스크린샷 비교로 %를 추측하며
     // 여러 차례 흔들렸던 것을 중단하고, 최초 제공받은 기준값(라벨 text-sm, 수치 text-5xl,
     // 단위 text-xl, 증감율 text-sm)을 단일 진실로 고정한다. 더 이상 임의 축소하지 않는다.
-    <div className={`${KPI_COL_CLASS} flex flex-col gap-1`}>
+    <div className={`${KPI_COL_CLASS} flex flex-col gap-2`}>
       <div className="flex items-center gap-1.5">
         {hasAlertDot && (
           <span
