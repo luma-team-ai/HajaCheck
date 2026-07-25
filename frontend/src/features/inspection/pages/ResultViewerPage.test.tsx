@@ -39,6 +39,8 @@ const mockDefects: DefectDetailItem[] = [
     crackWidthMm: 3.2,
     crackLengthMm: 45,
     createdAt: '2026-07-22T10:00:00Z',
+    mediaId: 67,
+    imageUrl: '/api/media/67/thumbnail',
   },
   {
     id: 2,
@@ -53,6 +55,8 @@ const mockDefects: DefectDetailItem[] = [
     bboxW: 0.12,
     bboxH: 0.15,
     createdAt: '2026-07-22T10:00:00Z',
+    mediaId: 67,
+    imageUrl: '/api/media/67/thumbnail',
   },
   {
     id: 3,
@@ -67,6 +71,8 @@ const mockDefects: DefectDetailItem[] = [
     bboxW: 0.25,
     bboxH: 0.1,
     createdAt: '2026-07-22T10:00:00Z',
+    mediaId: 67,
+    imageUrl: '/api/media/67/thumbnail',
   },
   {
     id: 4,
@@ -81,6 +87,8 @@ const mockDefects: DefectDetailItem[] = [
     bboxW: 0.1,
     bboxH: 0.1,
     createdAt: '2026-07-22T10:00:00Z',
+    mediaId: 67,
+    imageUrl: '/api/media/67/thumbnail',
   },
   {
     id: 5,
@@ -95,6 +103,8 @@ const mockDefects: DefectDetailItem[] = [
     bboxW: 0.2,
     bboxH: 0.08,
     createdAt: '2026-07-22T10:00:00Z',
+    mediaId: 67,
+    imageUrl: '/api/media/67/thumbnail',
   },
 ];
 
@@ -234,7 +244,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
-    const button = screen.getByRole('button', { name: '이 이미지 검수 확정' });
+    const button = screen.getByRole('button', { name: '이 하자 검수 확정' });
     expect(button.hasAttribute('disabled')).toBe(false);
 
     fireEvent.click(button);
@@ -263,7 +273,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
-    const button = screen.getByRole('button', { name: '이 이미지 검수 확정' });
+    const button = screen.getByRole('button', { name: '이 하자 검수 확정' });
     fireEvent.click(button);
 
     // 에러 메시지 표시 확인 (기본 에러 메시지가 표시됨)
@@ -287,7 +297,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
-    const button = screen.getByRole('button', { name: '이 이미지 검수 확정' });
+    const button = screen.getByRole('button', { name: '이 하자 검수 확정' });
     expect(button.hasAttribute('disabled')).toBe(true);
   });
 
@@ -308,7 +318,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
-    const button = screen.getByRole('button', { name: '이 이미지 검수 확정' });
+    const button = screen.getByRole('button', { name: '이 하자 검수 확정' });
     expect(button.hasAttribute('disabled')).toBe(true);
   });
 

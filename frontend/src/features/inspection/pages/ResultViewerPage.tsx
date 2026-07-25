@@ -1,6 +1,6 @@
 import type { ChangeEvent } from 'react';
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
@@ -28,12 +28,38 @@ export function ResultViewerPage() {
   const inspectionId = Number(id);
   const setActiveInspectionId = useInspectionStore((state) => state.setActiveInspectionId);
 
+  // 보고 있던 이미지/하자를 URL 쿼리로 들고 다닌다 — 검수 중 페이지를 이탈했다 재진입해도(뒤로가기,
+  // 새로고침) 처음(이미지 1장)으로 되돌아가지 않도록(#784). 서버 데이터(진행률 등)는 원래도
+  // 유실되지 않았고, 로컬 state(어떤 이미지를 보고 있었는지)만 컴포넌트 언마운트로 사라지던 것.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialMediaIdParam = searchParams.get('mediaId');
+  const initialDefectIdParam = searchParams.get('defectId');
+
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [gradeFilter, setGradeFilter] = useState<DefectGrade[]>(ALL_GRADES);
-  const [selectedDefectId, setSelectedDefectId] = useState<number | undefined>();
+  const [selectedDefectId, setSelectedDefectId] = useState<number | undefined>(
+    initialDefectIdParam ? Number(initialDefectIdParam) : undefined,
+  );
   // sentinel은 undefined("미선택")로 둔다 — 수동 추가 하자 그룹의 실제 mediaId도 null이라
   // null을 sentinel로 쓰면 그 그룹을 선택해도 "미선택"으로 오인되어 항상 첫 이미지로 되돌아간다.
-  const [selectedMediaId, setSelectedMediaId] = useState<number | null | undefined>(undefined);
+  const [selectedMediaId, setSelectedMediaId] = useState<number | null | undefined>(
+    initialMediaIdParam ? Number(initialMediaIdParam) : undefined,
+  );
+
+  // 선택 변경 시 URL에 반영(replace — 클릭마다 히스토리 스택을 쌓지 않는다).
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (selectedMediaId != null) next.set('mediaId', String(selectedMediaId));
+        else next.delete('mediaId');
+        if (selectedDefectId != null) next.set('defectId', String(selectedDefectId));
+        else next.delete('defectId');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [selectedMediaId, selectedDefectId, setSearchParams]);
   const [gradeEditId, setGradeEditId] = useState<number | undefined>();
   const [selectedGrade, setSelectedGrade] = useState<DefectGrade | ''>('');
   const [gradeReason, setGradeReason] = useState('');
@@ -417,7 +443,7 @@ export function ResultViewerPage() {
                   onClick={handleConfirmReview}
                   disabled={isUpdating || !selected || selected.status !== 'DETECTED'}
                 >
-                  이 이미지 검수 확정
+                  이 하자 검수 확정
                 </Button>
                 </div>
               </div>
