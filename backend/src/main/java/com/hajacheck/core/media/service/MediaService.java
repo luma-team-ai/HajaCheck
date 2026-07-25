@@ -39,9 +39,13 @@ public class MediaService {
 
     private static final String ORIGINAL_CATEGORY = "inspection-media";
     private static final String THUMBNAIL_CATEGORY = "inspection-media-thumb";
+    private static final String DETAIL_CATEGORY = "inspection-media-detail";
     private static final Set<String> THUMBNAIL_CONTENT_TYPES = Set.of("image/jpeg");
     // 썸네일은 thumbnailMaxDimension 으로 이미 축소되므로 이 상한은 순전히 방어적 상한선.
     private static final long THUMBNAIL_MAX_BYTES = 2_000_000L;
+    // 상세 이미지는 썸네일(400px)보다 훨씬 큰 detailMaxDimension(기본 1600px)으로 인코딩되므로
+    // 픽셀 수 비례로 상한도 크게 잡는다(방어적 상한선, 순정 사진 압축률 기준 여유 포함).
+    private static final long DETAIL_MAX_BYTES = 8_000_000L;
     private static final String THUMBNAIL_MIME_TYPE = "image/jpeg";
 
     private final MediaRepository mediaRepository;
@@ -132,11 +136,25 @@ public class MediaService {
                 THUMBNAIL_CONTENT_TYPES, THUMBNAIL_MAX_BYTES);
         storedKeys.add(thumbnail.storageKey());
 
+        // 상세 이미지(분석 결과 뷰어 전용, 썸네일보다 큰 해상도)도 업로드 시점에 1회 생성해 저장한다 —
+        // 조회 시마다 원본을 재디코딩하던 성능 문제(PR머신 리뷰 P2, #789)를 썸네일과 동일한 패턴으로 해결.
+        byte[] detailBytes;
+        try (InputStream in = file.getInputStream()) {
+            detailBytes = ImageThumbnailGenerator.generate(
+                    in, properties.getDetailMaxDimension(), exif.orientation());
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
+        }
+        StoredFile detail = fileStorage.storeBytes(detailBytes, THUMBNAIL_MIME_TYPE, DETAIL_CATEGORY,
+                THUMBNAIL_CONTENT_TYPES, DETAIL_MAX_BYTES);
+        storedKeys.add(detail.storageKey());
+
         return Media.builder()
                 .inspectionId(inspectionId)
                 .fileType(MediaFileType.IMAGE)
                 .originalUrl(original.storageKey())
                 .thumbnailUrl(thumbnail.storageKey())
+                .detailUrl(detail.storageKey())
                 .capturedAt(exif.capturedAt())
                 .gpsLat(exif.gpsLat())
                 .gpsLng(exif.gpsLng())
@@ -165,18 +183,23 @@ public class MediaService {
 
     /**
      * 분석 결과 뷰어(상세검수) 전용 상세 이미지 — 그리드·지도팝업용 썸네일(400px 상한)로는 크랙 폭 같은
-     * 하자를 육안으로 판별하기 어려워(#788) 저장된 원본에서 더 큰 해상도로 다시 재인코딩해 반환한다.
-     * 원본(originalUrl)은 여기서도 그대로 반환하지 않는다(PRD FR-2 원본 비공개 정책) — 매 요청마다
-     * {@link ImageThumbnailGenerator}로 재인코딩한 바이트만 응답한다. EXIF Orientation은 DB에 저장하지
-     * 않으므로 업로드 시 썸네일 생성과 동일하게 원본에서 다시 추출한다.
+     * 하자를 육안으로 판별하기 어려워(#788) 업로드 시 미리 생성해 둔 상세 이미지(detailUrl, V13)를
+     * 그대로 읽어 반환한다(getThumbnail()과 동일 패턴 — 조회마다 재인코딩하지 않는다, PR머신 리뷰 P2).
      *
-     * <p>⚠️ getThumbnail()과 동일한 이유로 NOT_SUPPORTED(트랜잭션 밖에서 디코딩 IO 수행).
+     * <p>V13 이전에 업로드된 기존 행은 detailUrl이 없다(백필 안 함) — 그 경우에만 원본에서 즉석
+     * 생성하는 폴백을 탄다. 원본(originalUrl)은 이 폴백에서도 그대로 반환하지 않는다(PRD FR-2
+     * 원본 비공개 정책) — {@link ImageThumbnailGenerator}로 재인코딩한 바이트만 응답한다. EXIF
+     * Orientation은 DB에 저장하지 않으므로 업로드 시 썸네일 생성과 동일하게 원본에서 다시 추출한다.
+     *
+     * <p>⚠️ getThumbnail()과 동일한 이유로 NOT_SUPPORTED(트랜잭션 밖에서 디스크/디코딩 IO 수행).
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ThumbnailFile getDetailImage(Long userId, Long companyId, Long mediaId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         Media media = loadOwnedMedia(userId, companyId, mediaId);
-        // originalUrl은 DB에서 not null(V1 baseline) — thumbnailUrl과 달리 null 방어 불필요.
+        if (media.getDetailUrl() != null) {
+            return new ThumbnailFile(readOrMediaNotFound(media.getDetailUrl()), THUMBNAIL_MIME_TYPE);
+        }
         byte[] originalBytes = readOrMediaNotFound(media.getOriginalUrl());
         int orientation = ExifGpsExtractor.extract(new ByteArrayInputStream(originalBytes)).orientation();
         byte[] detailBytes = ImageThumbnailGenerator.generate(

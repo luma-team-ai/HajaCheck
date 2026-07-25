@@ -74,7 +74,11 @@ class MediaServiceTest {
     }
 
     private static byte[] realPngBytes() throws IOException {
-        BufferedImage image = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
+        return realPngBytes(4, 4);
+    }
+
+    private static byte[] realPngBytes(int width, int height) throws IOException {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ImageIO.write(image, "png", out);
         return out.toByteArray();
@@ -89,6 +93,9 @@ class MediaServiceTest {
                 .thenReturn(new StoredFile("/files/inspection-media/x.png", "inspection-media/x.png"));
         when(fileStorage.storeBytes(any(), eq("image/jpeg"), eq("inspection-media-thumb"), any(), anyLong()))
                 .thenReturn(new StoredFile("/files/inspection-media-thumb/x.jpg", "inspection-media-thumb/x.jpg"));
+        when(fileStorage.storeBytes(any(), eq("image/jpeg"), eq("inspection-media-detail"), any(), anyLong()))
+                .thenReturn(new StoredFile("/files/inspection-media-detail/x.jpg", "inspection-media-detail/x.jpg"));
+        when(properties.getDetailMaxDimension()).thenReturn(1600);
     }
 
     @Test
@@ -106,6 +113,8 @@ class MediaServiceTest {
         verify(fileStorage, times(2)).store(any(), eq("inspection-media"), any(), anyLong());
         verify(fileStorage, times(2))
                 .storeBytes(any(), eq("image/jpeg"), eq("inspection-media-thumb"), any(), anyLong());
+        verify(fileStorage, times(2))
+                .storeBytes(any(), eq("image/jpeg"), eq("inspection-media-detail"), any(), anyLong());
         verify(fileStorage, never()).delete(anyString());
 
         ArgumentCaptor<List<Media>> captor = ArgumentCaptor.forClass(List.class);
@@ -116,6 +125,7 @@ class MediaServiceTest {
         assertThat(saved.getMimeType()).isEqualTo("image/png");
         assertThat(saved.getOriginalUrl()).isEqualTo("inspection-media/x.png");
         assertThat(saved.getThumbnailUrl()).isEqualTo("inspection-media-thumb/x.jpg");
+        assertThat(saved.getDetailUrl()).isEqualTo("inspection-media-detail/x.jpg");
     }
 
     @Test
@@ -181,9 +191,10 @@ class MediaServiceTest {
         assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, List.of(file1, file2)))
                 .isInstanceOf(RuntimeException.class);
 
-        // 파일 2개 × (원본 + 썸네일) = 4건 보상삭제.
+        // 파일 2개 × (원본 + 썸네일 + 상세이미지) = 6건 보상삭제.
         verify(fileStorage, times(2)).delete("inspection-media/x.png");
         verify(fileStorage, times(2)).delete("inspection-media-thumb/x.jpg");
+        verify(fileStorage, times(2)).delete("inspection-media-detail/x.jpg");
     }
 
     @Test
@@ -286,17 +297,19 @@ class MediaServiceTest {
     }
 
     @Test
-    void getDetailImage_원본파일디스크유실_MEDIA_NOT_FOUND() {
+    void getDetailImage_저장된상세이미지파일유실_MEDIA_NOT_FOUND() {
+        // V13 이후 정상 업로드 행(detailUrl 존재) — 저장된 상세이미지 파일 자체가 디스크에서 유실된 케이스.
         Media media = Media.builder()
                 .inspectionId(1L)
                 .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
                 .originalUrl("inspection-media/x.png")
                 .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .detailUrl("inspection-media-detail/x.jpg")
                 .mimeSignatureVerified(true)
                 .mimeType("image/png")
                 .build();
         when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
-        when(fileStorage.read("inspection-media/x.png"))
+        when(fileStorage.read("inspection-media-detail/x.jpg"))
                 .thenThrow(new BusinessException(ErrorCode.FILE_NOT_FOUND));
 
         assertThatThrownBy(() -> service.getDetailImage(200L, 100L, 10L))
@@ -305,7 +318,36 @@ class MediaServiceTest {
     }
 
     @Test
-    void getDetailImage_본인소유_원본에서더큰해상도로재인코딩반환() throws IOException {
+    void getDetailImage_본인소유_저장된상세이미지그대로반환_재인코딩안함() {
+        // getThumbnail()과 동일 패턴 — 업로드 시 저장해 둔 파일을 읽기만 한다(PR머신 리뷰 P2: 조회마다
+        // 재인코딩하던 성능 문제 해소 확인). detailMaxDimension을 다시 계산하지 않으므로 호출도 없어야 한다.
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .detailUrl("inspection-media-detail/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        when(fileStorage.read("inspection-media-detail/x.jpg")).thenReturn(new byte[] {9, 9, 9});
+
+        MediaService.ThumbnailFile detail = service.getDetailImage(200L, 100L, 10L);
+
+        assertThat(detail.mimeType()).isEqualTo("image/jpeg");
+        assertThat(detail.content()).containsExactly(9, 9, 9);
+        verify(properties, never()).getDetailMaxDimension();
+    }
+
+    @Test
+    void getDetailImage_레거시행_detailUrl없음_원본에서즉석생성하며detailMaxDimension실제적용() throws IOException {
+        // V13 이전 업로드된 기존 행(detailUrl 미설정) 전용 폴백 경로. PR머신 리뷰 P2: "성공적으로
+        // 재인코딩됨"만 확인하던 이전 테스트는 detailMaxDimension이 실제로 쓰였는지(썸네일 크기로
+        // 잘못 축소되지 않는지) 고정하지 못했다 — 원본보다 작고 thumbnailMaxDimension(400)보다 크고
+        // detailMaxDimension(1600)보다도 큰 2000x1500 이미지를 넣어, 결과가 정확히 1600으로
+        // 축소됐는지(=detailMaxDimension 사용, thumbnailMaxDimension 오사용이면 400이 됐을 것) 픽셀
+        // 단위로 직접 검증한다.
         when(properties.getDetailMaxDimension()).thenReturn(1600);
         Media media = Media.builder()
                 .inspectionId(1L)
@@ -314,16 +356,17 @@ class MediaServiceTest {
                 .thumbnailUrl("inspection-media-thumb/x.jpg")
                 .mimeSignatureVerified(true)
                 .mimeType("image/png")
-                .build();
+                .build(); // detailUrl 미지정 → null
         when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
-        when(fileStorage.read("inspection-media/x.png")).thenReturn(realPngBytes());
+        when(fileStorage.read("inspection-media/x.png")).thenReturn(realPngBytes(2000, 1500));
 
         MediaService.ThumbnailFile detail = service.getDetailImage(200L, 100L, 10L);
 
         assertThat(detail.mimeType()).isEqualTo("image/jpeg");
-        assertThat(detail.content()).isNotEmpty();
-        // 재인코딩본은 항상 JPEG — 원본(PNG) 바이트를 그대로 반환하지 않는다(PRD FR-2).
-        assertThat(detail.content()).isNotEqualTo(realPngBytes());
+        BufferedImage decoded = ImageIO.read(new java.io.ByteArrayInputStream(detail.content()));
+        assertThat(Math.max(decoded.getWidth(), decoded.getHeight())).isEqualTo(1600);
+        verify(properties).getDetailMaxDimension();
+        verify(properties, never()).getThumbnailMaxDimension();
     }
 
     @Test
