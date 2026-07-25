@@ -260,7 +260,7 @@ class InspectionAnalysisWorkerTest {
     }
 
     private DetectedDefectItem detection(String type, String grade) {
-        return new DetectedDefectItem(type, 0.1, 0.1, 0.2, 0.2, 0.9, grade);
+        return new DetectedDefectItem(type, 0.1, 0.1, 0.2, 0.2, 0.9, grade, null);
     }
 
     @SuppressWarnings("unchecked")

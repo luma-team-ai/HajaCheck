@@ -20,10 +20,13 @@ import com.hajacheck.counsel.entity.ChatSession;
 import com.hajacheck.counsel.entity.ChatSessionType;
 import com.hajacheck.counsel.entity.CounselTicket;
 import com.hajacheck.counsel.entity.CounselTicketStatus;
+import com.hajacheck.counsel.entity.CounselType;
+import com.hajacheck.counsel.entity.CounselorSkill;
 import com.hajacheck.counsel.repository.BotScenarioRepository;
 import com.hajacheck.counsel.repository.ChatMessageRepository;
 import com.hajacheck.counsel.repository.ChatSessionRepository;
 import com.hajacheck.counsel.repository.CounselTicketRepository;
+import com.hajacheck.counsel.repository.CounselorSkillRepository;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UserPlan;
@@ -61,6 +64,8 @@ class CounselTicketControllerTest extends PostgresTestSupport {
     private CounselTicketRepository ticketRepository;
     @Autowired
     private BotScenarioRepository botScenarioRepository;
+    @Autowired
+    private CounselorSkillRepository counselorSkillRepository;
     @Autowired
     private ChatSessionRepository chatSessionRepository;
     @Autowired
@@ -180,7 +185,7 @@ class CounselTicketControllerTest extends PostgresTestSupport {
         Plan plan = saveCounselorPlan(true);
         User requester = saveUser("q-user@haja.com", Role.USER);
         userPlanRepository.save(UserPlan.forUser(requester.getId(), plan.getId()));
-        ticketRepository.save(CounselTicket.request(requester.getId(), 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        ticketRepository.save(CounselTicket.request(requester.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
         User counselor = saveUser("counselor@haja.com", Role.COUNSELOR);
 
         mockMvc.perform(get("/api/counsel/tickets").with(authentication(authOf(counselor))))
@@ -194,8 +199,9 @@ class CounselTicketControllerTest extends PostgresTestSupport {
     @Test
     void 배정_상담원셀프클레임_200_IN_PROGRESS() throws Exception {
         User requester = saveUser("assign-user@haja.com", Role.USER);
-        CounselTicket ticket = ticketRepository.save(CounselTicket.request(requester.getId(), 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        CounselTicket ticket = ticketRepository.save(CounselTicket.request(requester.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
         User counselor = saveUser("assign-counselor@haja.com", Role.COUNSELOR);
+        counselorSkillRepository.save(CounselorSkill.assign(counselor.getId(), CounselType.ANALYSIS_RESULT));
 
         mockMvc.perform(post("/api/counsel/tickets/" + ticket.getId() + "/assign")
                         .with(csrf()).with(authentication(authOf(counselor))))
@@ -211,7 +217,7 @@ class CounselTicketControllerTest extends PostgresTestSupport {
     @Test
     void 배정_일반사용자_403_role경계() throws Exception {
         User requester = saveUser("assign-user2@haja.com", Role.USER);
-        CounselTicket ticket = ticketRepository.save(CounselTicket.request(requester.getId(), 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        CounselTicket ticket = ticketRepository.save(CounselTicket.request(requester.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
         User plainUser = saveUser("plain2@haja.com", Role.USER);
 
         mockMvc.perform(post("/api/counsel/tickets/" + ticket.getId() + "/assign")
@@ -222,8 +228,9 @@ class CounselTicketControllerTest extends PostgresTestSupport {
     @Test
     void 종료_담당상담원본인_200_RESOLVED() throws Exception {
         User requester = saveUser("resolve-user@haja.com", Role.USER);
-        CounselTicket ticket = ticketRepository.save(CounselTicket.request(requester.getId(), 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        CounselTicket ticket = ticketRepository.save(CounselTicket.request(requester.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
         User counselor = saveUser("resolve-counselor@haja.com", Role.COUNSELOR);
+        counselorSkillRepository.save(CounselorSkill.assign(counselor.getId(), CounselType.ANALYSIS_RESULT));
         mockMvc.perform(post("/api/counsel/tickets/" + ticket.getId() + "/assign")
                         .with(csrf()).with(authentication(authOf(counselor))))
                 .andExpect(status().isOk());
@@ -237,8 +244,9 @@ class CounselTicketControllerTest extends PostgresTestSupport {
     @Test
     void 종료_담당아닌상담원_403_TICKET_FORBIDDEN() throws Exception {
         User requester = saveUser("resolve-user2@haja.com", Role.USER);
-        CounselTicket ticket = ticketRepository.save(CounselTicket.request(requester.getId(), 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        CounselTicket ticket = ticketRepository.save(CounselTicket.request(requester.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
         User counselor = saveUser("resolve-counselor2@haja.com", Role.COUNSELOR);
+        counselorSkillRepository.save(CounselorSkill.assign(counselor.getId(), CounselType.ANALYSIS_RESULT));
         mockMvc.perform(post("/api/counsel/tickets/" + ticket.getId() + "/assign")
                         .with(csrf()).with(authentication(authOf(counselor))))
                 .andExpect(status().isOk());
@@ -255,7 +263,7 @@ class CounselTicketControllerTest extends PostgresTestSupport {
     @Test
     void 이탈_소유자본인_200_OFFLINE_LEFT() throws Exception {
         User owner = saveUser("leave-owner@haja.com", Role.USER);
-        CounselTicket ticket = ticketRepository.save(CounselTicket.request(owner.getId(), 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        CounselTicket ticket = ticketRepository.save(CounselTicket.request(owner.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
 
         mockMvc.perform(post("/api/counsel/tickets/" + ticket.getId() + "/leave-offline")
                         .with(csrf()).with(authentication(authOf(owner))))
@@ -266,7 +274,7 @@ class CounselTicketControllerTest extends PostgresTestSupport {
     @Test
     void 이탈_타인_404_TICKET_NOT_FOUND_열거방지() throws Exception {
         User owner = saveUser("leave-owner2@haja.com", Role.USER);
-        CounselTicket ticket = ticketRepository.save(CounselTicket.request(owner.getId(), 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        CounselTicket ticket = ticketRepository.save(CounselTicket.request(owner.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
         User stranger = saveUser("stranger@haja.com", Role.USER);
 
         mockMvc.perform(post("/api/counsel/tickets/" + ticket.getId() + "/leave-offline")
@@ -281,8 +289,8 @@ class CounselTicketControllerTest extends PostgresTestSupport {
     void 내이력_본인티켓만_반환() throws Exception {
         User me = saveUser("mine@haja.com", Role.USER);
         User other = saveUser("other-user@haja.com", Role.USER);
-        ticketRepository.save(CounselTicket.request(me.getId(), 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
-        ticketRepository.save(CounselTicket.request(other.getId(), 2, "ACCOUNT_BILLING", "요금제 변경/해지"));
+        ticketRepository.save(CounselTicket.request(me.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        ticketRepository.save(CounselTicket.request(other.getId(), CounselType.BILLING_ETC, 2, "ACCOUNT_BILLING", "요금제 변경/해지"));
 
         mockMvc.perform(get("/api/counsel/tickets/mine").with(authentication(authOf(me))))
                 .andExpect(status().isOk())
@@ -348,7 +356,7 @@ class CounselTicketControllerTest extends PostgresTestSupport {
         ChatSession session = chatSessionRepository.save(
                 ChatSession.start(requester.getId(), ChatSessionType.COUNSEL));
         CounselTicket ticket = ticketRepository.save(
-                CounselTicket.request(requester.getId(), 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+                CounselTicket.request(requester.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
         ticket.assign(counselor.getId(), session);
         CounselTicket saved = ticketRepository.saveAndFlush(ticket);
         chatMessageRepository.save(

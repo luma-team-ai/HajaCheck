@@ -7,10 +7,6 @@ import { isGradeTotalValid, sortGradeDistribution, sumGradePercent } from '../ut
 // 경고 문구의 빨강·13px을 살리려면 두 유틸리티 모두 `!`가 필요하다(Cascade Layers — colors.ts 주석 참고).
 const WARNING_CLASS = `dashboard-card-status mt-2 ${DASHBOARD_COLOR_CLASS.dangerTextImportant} text-[13px]!`;
 
-// percent=0인 등급 라벨이 폭 0%로 사라지는 것을 막는 최소 폭(px 고정, #565 P2 재검수 반영) —
-// %로 주면 flex-shrink가 전체 항목(0%가 아닌 항목 포함)을 비례 축소시켜 막대와의 정렬이 깨진다.
-const MIN_LABEL_WIDTH_PX = 40;
-
 export function GradeDistributionCard() {
   const { data, isLoading, isError } = useGradeDistribution();
   const sorted = data ? sortGradeDistribution(data) : [];
@@ -21,7 +17,9 @@ export function GradeDistributionCard() {
 
   return (
     <section className="dashboard-card">
-      <h3 className="dashboard-card-title">하자 등급 분포</h3>
+      {/* text-xl!/mb-5!: 공용 dashboard-card-title(15px, margin-bottom 12px, un-layered)을
+          Figma 원본 dev-mode 값(text-xl=20px, mb=20px)으로 override(un-layered CSS라 `!` 필요, colors.ts 참고) */}
+      <h3 className="dashboard-card-title text-xl! mb-5!">하자 등급 분포</h3>
 
       {isLoading && <LoadingSpinner />}
       {isError && <p className="dashboard-card-status">등급 분포를 불러오지 못했습니다.</p>}
@@ -32,7 +30,7 @@ export function GradeDistributionCard() {
       {!isLoading && !isError && sorted.length > 0 && (
         <>
           <div
-            className="flex w-full h-3.5 rounded-full overflow-hidden bg-[#f0f1f3]"
+            className="flex w-full h-7 rounded-full overflow-hidden bg-[#f0f1f3]"
             role="img"
             aria-label="하자 등급 분포 막대 그래프"
           >
@@ -44,28 +42,18 @@ export function GradeDistributionCard() {
               />
             ))}
           </div>
-          {/* 각 라벨을 막대와 동일한 비율 너비로 배치해 해당 색상 세그먼트 바로 아래 오도록 정렬(Figma 시안, #556).
-              percent=0인 등급(BE가 A~E 5개를 항상 반환)은 폭 0%가 되어 라벨이 완전히 사라지므로 최소 px 폭을
-              보장한다(#565 P2). shrink-0은 0%(고정 px) 항목에만 걸어야 한다 — 전항목에 걸면 총 폭이
-              100% + (0%항목수 × 40px)가 되어도 아무것도 줄어들 수 없어 카드 밖으로 오버플로우한다(#580 P2).
-              percent>0 항목은 shrink 허용 상태로 둬서 0%항목의 고정폭만큼 비례 축소되어 총합이 100%로 맞춰진다.
-              리스트 시맨틱도 유지(#565 P3). */}
-          <ul className="list-none m-0 flex w-full mt-3.5 p-0">
+          {/* Figma 재정합(2026-07-24): 라벨을 막대 세그먼트와 동일 비율 너비로 배치하던 기존 방식(#556)은
+              편중된 분포(예: A 89%)에서 소수 등급 라벨이 말줄임(...)으로 잘려 읽을 수 없는 문제가 있었다.
+              시안(2-1)처럼 5개 라벨을 각자 내용 너비 그대로, justify-between으로 한 행에 고르게 펼쳐
+              전부 온전히 읽히도록 변경 — 폭 고정/shrink 계산(#565·#580 P2 우회책)이 전부 불필요해진다. */}
+          <ul className="list-none m-0 flex w-full flex-wrap justify-between gap-2 mt-3.5 p-0">
             {sorted.map((item) => (
               <li
                 key={item.grade}
-                className={`flex min-w-0 flex-col items-center gap-1 text-[13px] text-[#555] ${
-                  item.percent > 0 ? '' : 'shrink-0'
-                }`}
-                style={
-                  item.percent > 0
-                    ? { width: `${item.percent}%` }
-                    : { width: `${MIN_LABEL_WIDTH_PX}px` }
-                }
+                className="flex items-center gap-2 text-sm text-zinc-900 whitespace-nowrap"
               >
                 <span className={`inline-block w-2 h-2 rounded-full ${GRADE_BG_CLASS_LIGHT[item.grade]}`} />
-                {/* 세그먼트 폭이 라벨보다 좁을 수 있어(예: E 5%) 말줄임으로 정렬을 유지한다(#556 리뷰 반영) */}
-                <span className="w-full overflow-hidden text-ellipsis whitespace-nowrap text-center">
+                <span>
                   {item.grade} 등급 ({item.percent}%)
                 </span>
               </li>

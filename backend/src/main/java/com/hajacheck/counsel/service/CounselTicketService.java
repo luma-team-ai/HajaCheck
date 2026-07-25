@@ -12,10 +12,13 @@ import com.hajacheck.counsel.entity.ChatSession;
 import com.hajacheck.counsel.entity.ChatSessionType;
 import com.hajacheck.counsel.entity.CounselTicket;
 import com.hajacheck.counsel.entity.CounselTicketStatus;
+import com.hajacheck.counsel.entity.CounselType;
+import com.hajacheck.counsel.entity.CounselorSkillId;
 import com.hajacheck.counsel.repository.BotScenarioRepository;
 import com.hajacheck.counsel.repository.ChatMessageRepository;
 import com.hajacheck.counsel.repository.ChatSessionRepository;
 import com.hajacheck.counsel.repository.CounselTicketRepository;
+import com.hajacheck.counsel.repository.CounselorSkillRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.entity.Plan;
@@ -46,9 +49,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>배정 모델(셀프-클레임)</b>: 자동 push-배정(상담원 프레즌스 트래킹 필요, WS 비정상 종료 시 stale 위험)
  * 대신 상담원이 콘솔에서 대기열을 보고 직접 집는 pull 모델을 쓴다. 스킬 기반 라우팅(counsel_type +
- * counselor_skills)은 별도 이슈(#708)에서 아직 착수 전이라 DB에 없으므로, 이번 구현은 스킬 매칭 없이 진행하되
- * 자격 검증 지점을 {@link #validateAssignmentEligibility}로 격리한다 — #708 머지 후 그 메서드 한 곳만
- * counsel_type 매칭으로 교체하면 REST 계약·WS·상태머신을 건드리지 않는다.
+ * counselor_skills, #743/#772)이 머지돼 자격 검증 지점 {@link #validateAssignmentEligibility}에서
+ * 실제로 매칭한다 — 시나리오 category → counselType 매핑은 {@link #resolveCounselType}에 격리한다.
  */
 @Service
 @Transactional(readOnly = true)
@@ -64,6 +66,7 @@ public class CounselTicketService {
     private final ChatSessionRepository chatSessionRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final BotScenarioRepository botScenarioRepository;
+    private final CounselorSkillRepository counselorSkillRepository;
     private final UserRepository userRepository;
     private final UserPlanRepository userPlanRepository;
     private final PlanRepository planRepository;
@@ -82,8 +85,9 @@ public class CounselTicketService {
         ScenarioSnapshot snapshot = resolveScenarioSnapshot(scenarioId);
 
         int queuePosition = (int) ticketRepository.countByStatus(CounselTicketStatus.WAITING) + 1;
+        CounselType counselType = resolveCounselType(snapshot.category());
         CounselTicket ticket = ticketRepository.saveAndFlush(
-                CounselTicket.request(userId, queuePosition, snapshot.category(), snapshot.title()));
+                CounselTicket.request(userId, counselType, queuePosition, snapshot.category(), snapshot.title()));
         ticket.assignTicketNumber(
                 CounselTicket.formatTicketNumber(ticket.getCreatedAt(), ticket.getId()));
         ticketRepository.saveAndFlush(ticket);
@@ -263,13 +267,34 @@ public class CounselTicketService {
     }
 
     /**
-     * 배정 자격 검증(격리 지점). 현재는 스킬 매칭 없이 pull 모델이므로 셀프-클레임 상담원의 존재만 확인한다.
-     * TODO(#708 머지 후): {@code ticket.counselType} ↔ {@code counselor_skills} 매칭 검증으로 교체한다.
+     * 배정 자격 검증(격리 지점). 상담사 존재 확인 후, {@code counselor_skills}에 티켓의 counselType을
+     * 처리 가능하다고 등록돼 있는지 확인한다(#743/#772 스킬 기반 라우팅).
      */
     private void validateAssignmentEligibility(CounselTicket ticket, Long counselorId) {
         if (!userRepository.existsById(counselorId)) {
             throw new BusinessException(ErrorCode.COUNSEL_TICKET_FORBIDDEN);
         }
+        boolean hasSkill = counselorSkillRepository.existsById(
+                new CounselorSkillId(counselorId, ticket.getCounselType()));
+        if (!hasSkill) {
+            throw new BusinessException(ErrorCode.COUNSEL_SKILL_MISMATCH);
+        }
+    }
+
+    /**
+     * 시나리오 최상위 category → counselType 매핑(격리 지점). category(4종)와 counselType(3종, #743)이
+     * 1:1이 아니라 여기서 명시적으로 대응시킨다 — INSPECTION_REPORT(점검 결과서 관련)는 분석 결과 문의가
+     * 주 사례라 ANALYSIS_RESULT로, ERROR_REPORT(오류 신고)는 정형 분류가 없어 기타 성격인 BILLING_ETC로
+     * 묶는다(팀 결정, 2026-07-25).
+     */
+    private static CounselType resolveCounselType(String category) {
+        return switch (category) {
+            case "INSPECTION_REPORT" -> CounselType.ANALYSIS_RESULT;
+            case "ACCOUNT_BILLING" -> CounselType.BILLING_ETC;
+            case "USAGE_GUIDE" -> CounselType.USAGE;
+            case "ERROR_REPORT" -> CounselType.BILLING_ETC;
+            default -> throw new BusinessException(ErrorCode.COUNSEL_SCENARIO_NOT_FOUND);
+        };
     }
 
     /** 상담원 표시 이름 단건 조회. counselorId 가 null 이거나(미배정) 탈퇴 등으로 없으면 null. */

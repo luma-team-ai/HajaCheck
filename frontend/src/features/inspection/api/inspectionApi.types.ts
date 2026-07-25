@@ -20,6 +20,7 @@ export interface DefectDetailItem {
   createdAt: string; // ISO datetime
   mediaId?: number | null; // 이미지 ID — 백엔드에서 제공(#777 계약)
   imageUrl?: string | null; // 이미지 URL 형식: /api/media/{mediaId}/thumbnail — 백엔드에서 제공(#777 계약)
+  detailUrl?: string | null; // 분석 결과 뷰어 전용 상세 이미지(썸네일보다 큰 해상도) — /api/media/{mediaId}/detail(#788)
 }
 
 // 실제 백엔드가 받는 영문 enum 값 그대로 — 위 DefectType(한글 리터럴)과 다르게 선언한 이유는

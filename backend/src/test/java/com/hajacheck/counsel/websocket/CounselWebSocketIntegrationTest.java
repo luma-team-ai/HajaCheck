@@ -16,6 +16,7 @@ import com.hajacheck.counsel.dto.ChatMessageSendRequest;
 import com.hajacheck.counsel.entity.ChatSession;
 import com.hajacheck.counsel.entity.ChatSessionType;
 import com.hajacheck.counsel.entity.CounselTicket;
+import com.hajacheck.counsel.entity.CounselType;
 import com.hajacheck.counsel.repository.ChatMessageRepository;
 import com.hajacheck.counsel.repository.ChatSessionRepository;
 import com.hajacheck.counsel.repository.CounselTicketRepository;
@@ -227,7 +228,7 @@ class CounselWebSocketIntegrationTest extends PostgresTestSupport {
         ChatSession session = chatSessionRepository.save(
                 ChatSession.start(requesterId, ChatSessionType.COUNSEL));
         CounselTicket ticket = ticketRepository.save(
-                CounselTicket.request(requesterId, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+                CounselTicket.request(requesterId, CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
         ticket.assign(counselorId, session);
         return ticketRepository.saveAndFlush(ticket);
     }

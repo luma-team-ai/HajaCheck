@@ -72,6 +72,10 @@ public class Media {
     @Column(name = "thumbnail_url", length = 500)
     private String thumbnailUrl;
 
+    /** 분석 결과 뷰어 전용 상세 이미지 저장키(#788/#789, V13 — nullable, 이전 업로드 행은 NULL). */
+    @Column(name = "detail_url", length = 500)
+    private String detailUrl;
+
     @Column(name = "source_video_id")
     private Long sourceVideoId;
 
@@ -103,12 +107,13 @@ public class Media {
 
     @Builder
     private Media(Long inspectionId, MediaFileType fileType, String originalUrl, String thumbnailUrl,
-                  Long sourceVideoId, Integer frameIndex, LocalDateTime capturedAt,
+                  String detailUrl, Long sourceVideoId, Integer frameIndex, LocalDateTime capturedAt,
                   BigDecimal gpsLat, BigDecimal gpsLng, boolean mimeSignatureVerified, String mimeType) {
         this.inspectionId = inspectionId;
         this.fileType = fileType;
         this.originalUrl = originalUrl;
         this.thumbnailUrl = thumbnailUrl;
+        this.detailUrl = detailUrl;
         this.sourceVideoId = sourceVideoId;
         this.frameIndex = frameIndex;
         this.capturedAt = capturedAt;

@@ -38,4 +38,9 @@ public class TestTokenStoreConfig {
     public InMemoryErrorLogStore errorLogStore() {
         return new InMemoryErrorLogStore();
     }
+
+    @Bean
+    public InMemoryInviteCodeStore inviteCodeStore() {
+        return new InMemoryInviteCodeStore();
+    }
 }

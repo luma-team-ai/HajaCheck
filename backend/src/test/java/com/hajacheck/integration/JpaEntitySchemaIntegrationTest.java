@@ -36,6 +36,9 @@ import com.hajacheck.counsel.entity.ChatSenderType;
 import com.hajacheck.counsel.entity.ChatSession;
 import com.hajacheck.counsel.entity.ChatSessionType;
 import com.hajacheck.counsel.entity.CounselTicket;
+import com.hajacheck.counsel.entity.CounselType;
+import com.hajacheck.counsel.entity.CounselorSkill;
+import com.hajacheck.counsel.entity.CounselorSkillId;
 import com.hajacheck.notification.entity.Notification;
 import com.hajacheck.notification.entity.NotificationType;
 import com.hajacheck.notification.repository.NotificationRepository;
@@ -187,7 +190,7 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
                 scenarioSession.getId(), ChatSenderType.BOT, "관련 근거입니다", child.getId(), null, null);
         em.persist(message);
 
-        CounselTicket ticket = CounselTicket.request(user.getId(), 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의");
+        CounselTicket ticket = CounselTicket.request(user.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의");
         ticket.assign(user.getId(), counselSession);
         em.persist(ticket);
 
@@ -230,7 +233,7 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
         User user = seedUser("counsel-unique-user@haja.com");
         ChatSession session = ChatSession.start(user.getId(), ChatSessionType.COUNSEL);
         em.persistAndFlush(session);
-        CounselTicket first = CounselTicket.request(user.getId(), 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의");
+        CounselTicket first = CounselTicket.request(user.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의");
         first.assign(user.getId(), session);
         em.persistAndFlush(first);
 
@@ -238,10 +241,24 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
         // uq_counsel_tickets_session(동일 세션 중복 배정) 위반임을 보장한다.
         assertThatThrownBy(() -> jdbcTemplate.update("""
                 insert into counsel_tickets
-                    (user_id, counselor_id, session_id, status, queue_position, ticket_number, category, title)
-                values (?, ?, ?, 'IN_PROGRESS'::counsel_ticket_status_type, null, 'CS-DUP-0001', 'X', 'Y')
+                    (user_id, counselor_id, session_id, status, counsel_type, queue_position, ticket_number, category, title)
+                values (?, ?, ?, 'IN_PROGRESS'::counsel_ticket_status_type, 'ANALYSIS_RESULT'::counsel_type, null, 'CS-DUP-0001', 'X', 'Y')
                 """, user.getId(), user.getId(), session.getId()))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void counselorSkill_복합키저장조회() {
+        User counselor = seedUser("counselor-skill-user@haja.com");
+
+        CounselorSkill skill = CounselorSkill.assign(counselor.getId(), CounselType.BILLING_ETC);
+        em.persistAndFlush(skill);
+        em.clear();
+
+        CounselorSkillId id = new CounselorSkillId(counselor.getId(), CounselType.BILLING_ETC);
+        CounselorSkill found = em.find(CounselorSkill.class, id);
+        assertThat(found.getId().getCounselorId()).isEqualTo(counselor.getId());
+        assertThat(found.getId().getCounselType()).isEqualTo(CounselType.BILLING_ETC);
     }
 
     @Test

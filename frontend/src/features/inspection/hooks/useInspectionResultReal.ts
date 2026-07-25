@@ -2,6 +2,15 @@ import { useQueries } from '@tanstack/react-query';
 import { inspectionApi } from '../api/inspectionApi';
 import type { DefectBoundingBox, Defect, InspectionResult } from '../types';
 
+// 뷰어는 상세 이미지(detailUrl, 그리드용 썸네일보다 큰 해상도)를 우선 사용 — 크랙 폭처럼 눈으로
+// 판별해야 하는 상세검수 화면에 400px 썸네일은 너무 작다(#788). export로 분리해 단위 테스트 가능하게.
+export function resolveDefectImageUrl(
+  imageUrl: string | null | undefined,
+  detailUrl: string | null | undefined,
+): string | null {
+  return detailUrl ?? imageUrl ?? null;
+}
+
 /**
  * 실제 API에서 점검 결과를 조회한다. 세 개의 독립적인 쿼리를 병렬 실행하고 결합한다:
  * 1. GET /api/inspections/{id} — 점검 회차 정보
@@ -72,7 +81,7 @@ export function useInspectionResultReal(inspectionId: number) {
     // ponytail: summary는 백엔드에서 제공하지 않으므로 기본값. AI explain으로 채울 수 있음(후속).
     summary: `${d.type} 하자 — 신뢰도 ${Math.round(d.confidence * 100)}%`,
     mediaId: d.mediaId ?? null,
-    imageUrl: d.imageUrl ?? null,
+    imageUrl: resolveDefectImageUrl(d.imageUrl, d.detailUrl),
   }));
 
   const reviewedCount = (defectsData || []).filter((d) => d.isReviewed).length;

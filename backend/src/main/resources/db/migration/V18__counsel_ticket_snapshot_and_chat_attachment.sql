@@ -1,4 +1,7 @@
--- Flyway V14 — 상담 티켓 스냅샷 필드 + 채팅 이미지 첨부 컬럼(FR-7, #20/HAJA-33).
+-- Flyway V18 — 상담 티켓 스냅샷 필드 + 채팅 이미지 첨부 컬럼(FR-7, #20/HAJA-33).
+-- dev에 V13(media.detail_url, #788/#789)~V16(defects.area_ratio, #803)이 이미 선점해
+-- V18로 재번호했다(V6/V10과 동일한 재번호 컨벤션). counsel_tickets.counsel_type 컬럼은
+-- V14(add_counsel_type, #743)가 먼저 추가하며, 이 마이그레이션은 그 위에 스냅샷 필드만 더한다.
 --
 -- (1) counsel_tickets: 시나리오에서 진입한 카테고리/제목을 스냅샷으로 저장(시나리오 트리가 나중에 바뀌어도
 --     과거 티켓의 이력 표시가 안 바뀌도록 — Media.storageKey 스냅샷과 동일 원칙) + 사람이 읽는 티켓번호.

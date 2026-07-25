@@ -16,6 +16,8 @@ import lombok.Getter;
  * imageUrl(HAJA-314)은 defect.mediaId가 있을 때만 채워지며,
  * {@link com.hajacheck.core.defect.dto.DefectResponse}와 동일하게
  * 기존 인가된 썸네일 엔드포인트({@code /api/media/{id}/thumbnail})를 재사용한다.
+ * detailUrl(#788)은 분석 결과 뷰어 전용 — 그리드용 썸네일(400px 상한)로는 크랙 폭 같은 하자를
+ * 육안으로 판별하기 어려워 더 큰 해상도의 {@code /api/media/{id}/detail}을 가리킨다.
  */
 @Getter
 @Builder
@@ -34,8 +36,10 @@ public class DefectDetailItem {
     private Double bboxH;
     private Double crackWidthMm;
     private Double crackLengthMm;
+    private Double areaRatio;
     private Long mediaId;
     private String imageUrl;
+    private String detailUrl;
     private LocalDateTime createdAt;
 
     public static DefectDetailItem from(Defect defect) {
@@ -53,8 +57,10 @@ public class DefectDetailItem {
                 .bboxH(defect.getBboxH())
                 .crackWidthMm(defect.getCrackWidthMm())
                 .crackLengthMm(defect.getCrackLengthMm())
+                .areaRatio(defect.getAreaRatio())
                 .mediaId(defect.getMediaId())
                 .imageUrl(defect.getMediaId() == null ? null : "/api/media/" + defect.getMediaId() + "/thumbnail")
+                .detailUrl(defect.getMediaId() == null ? null : "/api/media/" + defect.getMediaId() + "/detail")
                 .createdAt(defect.getCreatedAt())
                 .build();
     }

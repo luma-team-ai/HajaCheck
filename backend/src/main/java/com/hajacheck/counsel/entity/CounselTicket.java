@@ -70,6 +70,10 @@ public class CounselTicket {
     @Column(columnDefinition = "counsel_ticket_status_type", nullable = false)
     private CounselTicketStatus status;
 
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(columnDefinition = "counsel_type", nullable = false)
+    private CounselType counselType;
+
     @Column(name = "queue_position")
     private Integer queuePosition;
 
@@ -94,12 +98,13 @@ public class CounselTicket {
 
     @Builder(access = AccessLevel.PRIVATE)
     private CounselTicket(Long userId, Long counselorId, Long sessionId,
-                          CounselTicketStatus status, Integer queuePosition,
+                          CounselTicketStatus status, CounselType counselType, Integer queuePosition,
                           String ticketNumber, String category, String title, Instant endedAt) {
         this.userId = userId;
         this.counselorId = counselorId;
         this.sessionId = sessionId;
         this.status = status == null ? CounselTicketStatus.WAITING : status;
+        this.counselType = counselType;
         this.queuePosition = queuePosition;
         this.ticketNumber = ticketNumber;
         this.category = category;
@@ -110,11 +115,17 @@ public class CounselTicket {
     /**
      * 대기 티켓 생성. ticket_number 는 PK 확정 후에만 최종값을 알 수 있어(포맷에 id 포함) 여기서는 임시
      * 유일값을 넣고, 최초 저장 뒤 {@link #assignTicketNumber}로 교체한다(같은 트랜잭션 내 2단계 저장).
+     * counselType 은 배정 자격 매칭(counselor_skills)의 기준이라 필수다(#743/#772).
      */
-    public static CounselTicket request(Long userId, Integer queuePosition, String category, String title) {
+    public static CounselTicket request(
+            Long userId, CounselType counselType, Integer queuePosition, String category, String title) {
+        if (counselType == null) {
+            throw new DomainValidationException("request 불가: 상담 유형은 필수다");
+        }
         return CounselTicket.builder()
                 .userId(userId)
                 .status(CounselTicketStatus.WAITING)
+                .counselType(counselType)
                 .queuePosition(queuePosition)
                 .ticketNumber(temporaryTicketNumber())
                 .category(category)

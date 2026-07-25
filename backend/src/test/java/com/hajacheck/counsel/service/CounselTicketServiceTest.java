@@ -24,10 +24,13 @@ import com.hajacheck.counsel.entity.ChatSession;
 import com.hajacheck.counsel.entity.ChatSessionType;
 import com.hajacheck.counsel.entity.CounselTicket;
 import com.hajacheck.counsel.entity.CounselTicketStatus;
+import com.hajacheck.counsel.entity.CounselType;
+import com.hajacheck.counsel.entity.CounselorSkillId;
 import com.hajacheck.counsel.repository.BotScenarioRepository;
 import com.hajacheck.counsel.repository.ChatMessageRepository;
 import com.hajacheck.counsel.repository.ChatSessionRepository;
 import com.hajacheck.counsel.repository.CounselTicketRepository;
+import com.hajacheck.counsel.repository.CounselorSkillRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.entity.Plan;
@@ -77,6 +80,8 @@ class CounselTicketServiceTest {
     @Mock
     private BotScenarioRepository botScenarioRepository;
     @Mock
+    private CounselorSkillRepository counselorSkillRepository;
+    @Mock
     private UserRepository userRepository;
     @Mock
     private UserPlanRepository userPlanRepository;
@@ -92,7 +97,7 @@ class CounselTicketServiceTest {
     @BeforeEach
     void setUp() {
         service = new CounselTicketService(ticketRepository, chatSessionRepository, chatMessageRepository,
-                botScenarioRepository, userRepository, userPlanRepository, planRepository,
+                botScenarioRepository, counselorSkillRepository, userRepository, userPlanRepository, planRepository,
                 companyMembershipRepository, messagingTemplate);
     }
 
@@ -285,6 +290,8 @@ class CounselTicketServiceTest {
         CounselTicket ticket = waitingTicket();
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
         when(userRepository.existsById(COUNSELOR_ID)).thenReturn(true);
+        when(counselorSkillRepository.existsById(new CounselorSkillId(COUNSELOR_ID, CounselType.ANALYSIS_RESULT)))
+                .thenReturn(true);
         when(chatSessionRepository.save(any(ChatSession.class)))
                 .thenAnswer(inv -> withId((ChatSession) inv.getArgument(0), 700L));
         when(ticketRepository.saveAndFlush(any(CounselTicket.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -313,6 +320,8 @@ class CounselTicketServiceTest {
         CounselTicket ticket = waitingTicket();
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
         when(userRepository.existsById(COUNSELOR_ID)).thenReturn(true);
+        when(counselorSkillRepository.existsById(new CounselorSkillId(COUNSELOR_ID, CounselType.ANALYSIS_RESULT)))
+                .thenReturn(true);
         when(chatSessionRepository.save(any(ChatSession.class)))
                 .thenAnswer(inv -> withId((ChatSession) inv.getArgument(0), 700L));
         when(ticketRepository.saveAndFlush(any(CounselTicket.class)))
@@ -322,6 +331,20 @@ class CounselTicketServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.COUNSEL_SESSION_ASSIGNMENT_CONFLICT);
         verify(messagingTemplate, never()).convertAndSendToUser(anyString(), anyString(), any(Object.class));
+    }
+
+    @Test
+    void 배정_상담유형스킬없음_403_COUNSEL_SKILL_MISMATCH() {
+        CounselTicket ticket = waitingTicket();
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
+        when(userRepository.existsById(COUNSELOR_ID)).thenReturn(true);
+        when(counselorSkillRepository.existsById(new CounselorSkillId(COUNSELOR_ID, CounselType.ANALYSIS_RESULT)))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> service.assignToCounselor(TICKET_ID, COUNSELOR_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.COUNSEL_SKILL_MISMATCH);
+        verify(chatSessionRepository, never()).save(any());
     }
 
     @Test
@@ -423,7 +446,7 @@ class CounselTicketServiceTest {
     }
 
     private CounselTicket waitingTicket() {
-        CounselTicket ticket = CounselTicket.request(USER_ID, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의");
+        CounselTicket ticket = CounselTicket.request(USER_ID, CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의");
         ReflectionTestUtils.setField(ticket, "id", TICKET_ID);
         return ticket;
     }

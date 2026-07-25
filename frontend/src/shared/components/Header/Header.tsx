@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import bellIcon from '../../../assets/brand/header-bell.svg';
 import userIcon from '../../../assets/brand/header-user-outlined.svg';
@@ -106,39 +107,44 @@ export function Header({ breadcrumb, unreadCount = 0, onNotificationClick, onPro
             <img className="h-5 w-5" src={userIcon} alt="" />
           </button>
 
-          {profileMenu && isProfileMenuOpen && (
-            // absolute+top-full은 헤더의 로컬 스태킹 컨텍스트에 갇혀, 지도뷰(카카오맵이 CustomOverlay에
-            // 큰 zIndex를 직접 지정 — features/map/MapPage.tsx 참조)처럼 명시적으로 높은 z-index를 쓰는
-            // 페이지 콘텐츠에 가려질 수 있었다(다른 담당자 리포트). 알림 드롭다운(NotificationCenter.tsx)이
-            // 이미 이 문제를 겪지 않는 이유는 fixed로 뷰포트 기준 최상위 스태킹 컨텍스트에 렌더되기
-            // 때문 — 동일 패턴으로 맞춘다. 헤더 우측 끝(px-8) 버튼이라 오프셋도 그와 동일하게 right-8.
-            <div className="fixed top-16 right-8 z-50">
-              <ProfileMenu
-                {...profileMenu}
-                onMyInfoClick={
-                  profileMenu.onMyInfoClick
-                    ? () => {
-                        closeProfileMenu();
-                        profileMenu.onMyInfoClick?.();
-                      }
-                    : undefined
-                }
-                onMyPlanClick={
-                  profileMenu.onMyPlanClick
-                    ? () => {
-                        closeProfileMenu();
-                        profileMenu.onMyPlanClick?.();
-                      }
-                    : undefined
-                }
-                onLogout={() => {
-                  closeProfileMenu();
-                  profileMenu.onLogout();
-                }}
-                onClose={closeProfileMenu}
-              />
-            </div>
-          )}
+          {profileMenu && isProfileMenuOpen &&
+            // fixed만으로는 부족했다(#790) — 이 <header>의 backdrop-blur(filter)가 자체 스태킹
+            // 컨텍스트를 만들면서 position:fixed 자손의 containing block도 header로 묶어버려,
+            // header 전체가 형제 <main>(지도뷰 콘텐츠)보다 먼저 페인트되는 한 그 안에서 z-50을 줘도
+            // 지도 레이어에 가려졌다. 알림 드롭다운(NotificationCenter.tsx)이 이 문제를 겪지 않는
+            // 진짜 이유는 fixed 자체가 아니라 애초에 header 서브트리 바깥(AppShellRoute)에서 렌더되어
+            // 이 필터 스태킹 컨텍스트에 갇히지 않기 때문 — createPortal로 document.body에 렌더해
+            // 동일하게 header 스태킹 컨텍스트 밖으로 빼낸다. 헤더 우측 끝(px-8) 버튼이라 오프셋도
+            // 동일하게 right-8.
+            createPortal(
+              <div className="fixed top-16 right-8 z-50">
+                <ProfileMenu
+                  {...profileMenu}
+                  onMyInfoClick={
+                    profileMenu.onMyInfoClick
+                      ? () => {
+                          closeProfileMenu();
+                          profileMenu.onMyInfoClick?.();
+                        }
+                      : undefined
+                  }
+                  onMyPlanClick={
+                    profileMenu.onMyPlanClick
+                      ? () => {
+                          closeProfileMenu();
+                          profileMenu.onMyPlanClick?.();
+                        }
+                      : undefined
+                  }
+                  onLogout={() => {
+                    closeProfileMenu();
+                    profileMenu.onLogout();
+                  }}
+                  onClose={closeProfileMenu}
+                />
+              </div>,
+              document.body
+            )}
         </div>
       </div>
     </header>

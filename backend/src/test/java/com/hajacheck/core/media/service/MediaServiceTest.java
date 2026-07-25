@@ -39,6 +39,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
@@ -74,7 +75,11 @@ class MediaServiceTest {
     }
 
     private static byte[] realPngBytes() throws IOException {
-        BufferedImage image = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
+        return realPngBytes(4, 4);
+    }
+
+    private static byte[] realPngBytes(int width, int height) throws IOException {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ImageIO.write(image, "png", out);
         return out.toByteArray();
@@ -89,6 +94,9 @@ class MediaServiceTest {
                 .thenReturn(new StoredFile("/files/inspection-media/x.png", "inspection-media/x.png"));
         when(fileStorage.storeBytes(any(), eq("image/jpeg"), eq("inspection-media-thumb"), any(), anyLong()))
                 .thenReturn(new StoredFile("/files/inspection-media-thumb/x.jpg", "inspection-media-thumb/x.jpg"));
+        when(fileStorage.storeBytes(any(), eq("image/jpeg"), eq("inspection-media-detail"), any(), anyLong()))
+                .thenReturn(new StoredFile("/files/inspection-media-detail/x.jpg", "inspection-media-detail/x.jpg"));
+        when(properties.getDetailMaxDimension()).thenReturn(1600);
     }
 
     @Test
@@ -106,6 +114,8 @@ class MediaServiceTest {
         verify(fileStorage, times(2)).store(any(), eq("inspection-media"), any(), anyLong());
         verify(fileStorage, times(2))
                 .storeBytes(any(), eq("image/jpeg"), eq("inspection-media-thumb"), any(), anyLong());
+        verify(fileStorage, times(2))
+                .storeBytes(any(), eq("image/jpeg"), eq("inspection-media-detail"), any(), anyLong());
         verify(fileStorage, never()).delete(anyString());
 
         ArgumentCaptor<List<Media>> captor = ArgumentCaptor.forClass(List.class);
@@ -116,6 +126,7 @@ class MediaServiceTest {
         assertThat(saved.getMimeType()).isEqualTo("image/png");
         assertThat(saved.getOriginalUrl()).isEqualTo("inspection-media/x.png");
         assertThat(saved.getThumbnailUrl()).isEqualTo("inspection-media-thumb/x.jpg");
+        assertThat(saved.getDetailUrl()).isEqualTo("inspection-media-detail/x.jpg");
     }
 
     @Test
@@ -181,9 +192,10 @@ class MediaServiceTest {
         assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, List.of(file1, file2)))
                 .isInstanceOf(RuntimeException.class);
 
-        // 파일 2개 × (원본 + 썸네일) = 4건 보상삭제.
+        // 파일 2개 × (원본 + 썸네일 + 상세이미지) = 6건 보상삭제.
         verify(fileStorage, times(2)).delete("inspection-media/x.png");
         verify(fileStorage, times(2)).delete("inspection-media-thumb/x.jpg");
+        verify(fileStorage, times(2)).delete("inspection-media-detail/x.jpg");
     }
 
     @Test
@@ -257,6 +269,194 @@ class MediaServiceTest {
         assertThat(thumbnail.mimeType()).isEqualTo("image/jpeg");
         assertThat(thumbnail.content()).containsExactly(1, 2, 3);
     }
+    @Test
+    void getDetailImage_존재하지않는미디어_MEDIA_NOT_FOUND() {
+        when(mediaRepository.findById(999L)).thenReturn(java.util.Optional.empty());
+
+        assertThatThrownBy(() -> service.getDetailImage(200L, 100L, 999L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
+    }
+
+    @Test
+    void getDetailImage_타인소유_존재하지않는id와동일하게MEDIA_NOT_FOUND() {
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
+                .when(inspectionService).getInspection(200L, 999L, 1L);
+
+        assertThatThrownBy(() -> service.getDetailImage(200L, 999L, 10L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
+    }
+
+    @Test
+    void getDetailImage_저장된상세이미지파일유실_MEDIA_NOT_FOUND() {
+        // V13 이후 정상 업로드 행(detailUrl 존재) — 저장된 상세이미지 파일 자체가 디스크에서 유실된 케이스.
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .detailUrl("inspection-media-detail/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        when(fileStorage.read("inspection-media-detail/x.jpg"))
+                .thenThrow(new BusinessException(ErrorCode.FILE_NOT_FOUND));
+
+        assertThatThrownBy(() -> service.getDetailImage(200L, 100L, 10L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
+    }
+
+    @Test
+    void getDetailImage_본인소유_저장된상세이미지그대로반환_재인코딩안함() {
+        // getThumbnail()과 동일 패턴 — 업로드 시 저장해 둔 파일을 읽기만 한다(PR머신 리뷰 P2: 조회마다
+        // 재인코딩하던 성능 문제 해소 확인). detailMaxDimension을 다시 계산하지 않으므로 호출도 없어야 한다.
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .detailUrl("inspection-media-detail/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        when(fileStorage.read("inspection-media-detail/x.jpg")).thenReturn(new byte[] {9, 9, 9});
+
+        MediaService.ThumbnailFile detail = service.getDetailImage(200L, 100L, 10L);
+
+        assertThat(detail.mimeType()).isEqualTo("image/jpeg");
+        assertThat(detail.content()).containsExactly(9, 9, 9);
+        verify(properties, never()).getDetailMaxDimension();
+    }
+
+    @Test
+    void getDetailImage_레거시행_detailUrl없음_원본에서즉석생성하며detailMaxDimension실제적용() throws IOException {
+        // V13 이전 업로드된 기존 행(detailUrl 미설정) 전용 폴백 경로. PR머신 리뷰 P2: "성공적으로
+        // 재인코딩됨"만 확인하던 이전 테스트는 detailMaxDimension이 실제로 쓰였는지(썸네일 크기로
+        // 잘못 축소되지 않는지) 고정하지 못했다 — 원본보다 작고 thumbnailMaxDimension(400)보다 크고
+        // detailMaxDimension(1600)보다도 큰 2000x1500 이미지를 넣어, 결과가 정확히 1600으로
+        // 축소됐는지(=detailMaxDimension 사용, thumbnailMaxDimension 오사용이면 400이 됐을 것) 픽셀
+        // 단위로 직접 검증한다.
+        when(properties.getDetailMaxDimension()).thenReturn(1600);
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build(); // detailUrl 미지정 → null
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        when(fileStorage.read("inspection-media/x.png")).thenReturn(realPngBytes(2000, 1500));
+
+        MediaService.ThumbnailFile detail = service.getDetailImage(200L, 100L, 10L);
+
+        assertThat(detail.mimeType()).isEqualTo("image/jpeg");
+        BufferedImage decoded = ImageIO.read(new java.io.ByteArrayInputStream(detail.content()));
+        assertThat(Math.max(decoded.getWidth(), decoded.getHeight())).isEqualTo(1600);
+        verify(properties).getDetailMaxDimension();
+        verify(properties, never()).getThumbnailMaxDimension();
+    }
+
+    @Test
+    void getDetailImage_레거시행_동시요청이_동시생성상한을넘지않는다() throws Exception {
+        // PR머신 리뷰 P2 — 캐시 없이 레거시 행을 즉석 생성하므로, 배포 직후 레거시 인스펙션을 열면
+        // 그리드 하자 수만큼 원본 디코딩이 한꺼번에 몰릴 수 있다. MediaService의
+        // MAX_CONCURRENT_LEGACY_DETAIL_GENERATION(4) 세마포어가 실제로 동시 실행을 제한하는지,
+        // fileStorage.read 호출 중 동시 진행 수를 직접 세어 검증한다(상한보다 많은 10개를 동시 발사).
+        when(properties.getDetailMaxDimension()).thenReturn(1600);
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        byte[] original = realPngBytes(800, 600);
+        java.util.concurrent.atomic.AtomicInteger inFlight = new java.util.concurrent.atomic.AtomicInteger(0);
+        java.util.concurrent.atomic.AtomicInteger maxInFlight = new java.util.concurrent.atomic.AtomicInteger(0);
+        when(fileStorage.read("inspection-media/x.png")).thenAnswer(invocation -> {
+            int current = inFlight.incrementAndGet();
+            maxInFlight.updateAndGet(prev -> Math.max(prev, current));
+            Thread.sleep(50);
+            inFlight.decrementAndGet();
+            return original;
+        });
+
+        int totalRequests = 10;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(totalRequests);
+        try {
+            List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+            for (int i = 0; i < totalRequests; i++) {
+                futures.add(pool.submit(() -> service.getDetailImage(200L, 100L, 10L)));
+            }
+            for (java.util.concurrent.Future<?> future : futures) {
+                future.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdown();
+        }
+
+        assertThat(maxInFlight.get()).isLessThanOrEqualTo(4);
+    }
+
+    @Test
+    void getDetailImage_레거시행_대기상한초과시_블로킹대신BUSY로즉시실패한다() throws Exception {
+        // PR머신 리뷰 P1 — 세마포어 permit이 없을 때 acquire()로 무기한 대기하면 요청 스레드(Tomcat
+        // 워커)가 계속 점유돼 전역 가용성 표면이 된다. tryAcquire(timeout) 초과 시 블로킹 대신
+        // MEDIA_DETAIL_GENERATION_BUSY(503)로 즉시 실패하는지 고정한다. 실제 대기 없이 분기만 검증하도록
+        // 대기 상한을 0으로 줄인 뒤(tryAcquire(0, ...) = permit 없으면 즉시 실패), permit 4개를 모두
+        // 다른 스레드가 붙잡고 있는 상태를 만든다.
+        ReflectionTestUtils.setField(service, "legacyDetailGenerationWaitSeconds", 0L);
+        when(properties.getDetailMaxDimension()).thenReturn(1600);
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        java.util.concurrent.CountDownLatch releaseLatch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch permitsHeldLatch = new java.util.concurrent.CountDownLatch(4);
+        when(fileStorage.read("inspection-media/x.png")).thenAnswer(invocation -> {
+            permitsHeldLatch.countDown();
+            releaseLatch.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            return realPngBytes(800, 600);
+        });
+
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(5);
+        try {
+            for (int i = 0; i < 4; i++) {
+                pool.submit(() -> service.getDetailImage(200L, 100L, 10L));
+            }
+            assertThat(permitsHeldLatch.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+            assertThatThrownBy(() -> service.getDetailImage(200L, 100L, 10L))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                            .isEqualTo(ErrorCode.MEDIA_DETAIL_GENERATION_BUSY));
+        } finally {
+            releaseLatch.countDown();
+            pool.shutdown();
+        }
+    }
+
     @Test
     void getThumbnail_무소속사용자_FORBIDDEN을404로변환하지않는다() {
         doThrow(new BusinessException(ErrorCode.FORBIDDEN))
