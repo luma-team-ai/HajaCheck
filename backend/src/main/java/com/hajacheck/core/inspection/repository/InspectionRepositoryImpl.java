@@ -17,11 +17,13 @@ import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.support.PageableExecutionUtils;
+import org.springframework.util.StringUtils;
 
 /**
  * 점검 목록 조회(HAJA-393/#725) — JPQL {@code :param is null or col = :param} 패턴은 PostgreSQL
@@ -188,6 +190,66 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
                 cb.equal(root.get("createdBy"), userId)));
         if (periodFrom != null) {
             predicates.add(cb.greaterThanOrEqualTo(root.get("inspectionDate"), periodFrom));
+        }
+        return predicates;
+    }
+
+    @Override
+    public Page<Inspection> findRecentInspectionsPage(
+            Long companyId, Long facilityId, Collection<InspectionStatus> statuses,
+            String query, Collection<Long> matchingCreatorIds, Pageable pageable) {
+
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+
+        CriteriaQuery<Inspection> selectQuery = cb.createQuery(Inspection.class);
+        Root<Inspection> root = selectQuery.from(Inspection.class);
+        Join<Inspection, Facility> facility = root.join("facility");
+        root.fetch("facility");
+
+        selectQuery.select(root)
+                .where(buildRecentPredicates(
+                                cb, root, facility, companyId, facilityId, statuses, query, matchingCreatorIds)
+                        .toArray(new Predicate[0]))
+                // 대시보드 기존 최근 점검 정렬(findRecentByFacilityIds)과 동일 기준 — 기본 호출(필터 없음)의
+                // 결과 순서가 오늘의 위젯과 100% 일치해야 하므로 Pageable.getSort()는 쓰지 않는다.
+                .orderBy(cb.desc(root.get("inspectionDate")), cb.desc(root.get("id")));
+
+        List<Inspection> content = em.createQuery(selectQuery)
+                .setFirstResult((int) pageable.getOffset())
+                .setMaxResults(pageable.getPageSize())
+                .getResultList();
+
+        CriteriaQuery<Long> countQuery = cb.createQuery(Long.class);
+        Root<Inspection> countRoot = countQuery.from(Inspection.class);
+        Join<Inspection, Facility> countFacility = countRoot.join("facility");
+        countQuery.select(cb.count(countRoot))
+                .where(buildRecentPredicates(cb, countRoot, countFacility, companyId, facilityId, statuses,
+                                query, matchingCreatorIds)
+                        .toArray(new Predicate[0]));
+
+        Long total = em.createQuery(countQuery).getSingleResult();
+
+        return PageableExecutionUtils.getPage(content, pageable, () -> total);
+    }
+
+    private List<Predicate> buildRecentPredicates(
+            CriteriaBuilder cb, Root<Inspection> root, Join<Inspection, Facility> facility,
+            Long companyId, Long facilityId, Collection<InspectionStatus> statuses,
+            String query, Collection<Long> matchingCreatorIds) {
+        List<Predicate> predicates = new ArrayList<>();
+        predicates.add(cb.equal(facility.get("companyId"), companyId));
+        if (facilityId != null) {
+            predicates.add(cb.equal(root.get("facilityId"), facilityId));
+        }
+        if (statuses != null && !statuses.isEmpty()) {
+            predicates.add(root.get("status").in(statuses));
+        }
+        if (StringUtils.hasText(query)) {
+            String pattern = "%" + query.trim().toLowerCase() + "%";
+            Predicate nameMatch = cb.like(cb.lower(facility.get("name")), pattern);
+            predicates.add(matchingCreatorIds == null || matchingCreatorIds.isEmpty()
+                    ? nameMatch
+                    : cb.or(nameMatch, root.get("createdBy").in(matchingCreatorIds)));
         }
         return predicates;
     }

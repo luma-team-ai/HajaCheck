@@ -19,6 +19,7 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
@@ -32,7 +33,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,6 +63,18 @@ public class DashboardService {
     private static final int RECENT_LIMIT = 10;
     private static final int PENDING_PRIORITY_LIMIT = 10;
     private static final int UPCOMING_INSPECTIONS_MAX_LIMIT = 50;
+    // "최근 점검 전체보기"(신규) 페이지 크기 상한 — FacilityService.FACILITY_LIST_MAX와 동일한
+    // 방어적 상한 컨벤션(과다조회 방지). 프론트 기본 페이지 크기는 10이지만 사용자가 size를
+    // 임의로 키워 보내는 경우를 대비한다.
+    private static final int RECENT_SEARCH_MAX_SIZE = 100;
+
+    // 대시보드 4단계 한글 상태 라벨 → raw InspectionStatus 집합 역매핑. RecentInspectionResponse의
+    // statusLabel()(정방향: raw → 한글)과 반드시 대칭 유지 — 그쪽이 바뀌면 여기도 같이 바꿀 것.
+    private static final Map<String, Set<InspectionStatus>> RECENT_STATUS_LABEL_GROUPS = Map.of(
+            "분석중", EnumSet.of(InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZING),
+            "검수대기", EnumSet.of(InspectionStatus.ANALYZED),
+            "조치대기", EnumSet.of(InspectionStatus.REVIEWED),
+            "완료", EnumSet.of(InspectionStatus.REPORTED));
 
     private final FacilityRepository facilityRepository;
     private final InspectionRepository inspectionRepository;
@@ -198,6 +213,71 @@ public class DashboardService {
                         creatorNameById.getOrDefault(inspection.getCreatedBy(), "-"),
                         defectCountByInspectionId.getOrDefault(inspection.getId(), 0L)))
                 .toList();
+    }
+
+    /**
+     * 대시보드 "최근 점검 전체보기"(신규) — {@link #getRecentInspections}(위젯, 상위 10건 고정
+     * 플랫 배열)와 별도 메서드/엔드포인트로 둔다. 기존 위젯 호출 경로는 이 메서드를 전혀 타지
+     * 않으므로 회귀 위험 없는 additive 확장이다. 페이지네이션 + 시설물/상태(한글 라벨)/텍스트
+     * 검색(시설물명 또는 담당자명)을 지원한다.
+     */
+    public PageResponse<RecentInspectionResponse> searchRecentInspections(
+            Long userId, Long companyId, Long facilityId, String statusLabel, String query, Pageable pageable) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+
+        Set<InspectionStatus> statuses = resolveStatusLabel(statusLabel);
+        int cappedSize = Math.min(Math.max(pageable.getPageSize(), 1), RECENT_SEARCH_MAX_SIZE);
+        Pageable safePageable = PageRequest.of(pageable.getPageNumber(), cappedSize);
+
+        boolean hasQuery = query != null && !query.isBlank();
+        String trimmedQuery = hasQuery ? query.trim() : null;
+        List<Long> matchingCreatorIds = hasQuery
+                ? userRepository.findIdsByCompanyIdAndNameContaining(companyId, trimmedQuery)
+                : List.of();
+
+        Page<Inspection> page = inspectionRepository.findRecentInspectionsPage(
+                companyId, facilityId, statuses, trimmedQuery, matchingCreatorIds, safePageable);
+
+        List<Inspection> content = page.getContent();
+        if (content.isEmpty()) {
+            return new PageResponse<>(List.of(), page.getNumber(), page.getTotalElements());
+        }
+
+        List<Long> inspectionIds = content.stream().map(Inspection::getId).toList();
+        Map<Long, Long> defectCountByInspectionId = defectRepository.countGroupByInspectionId(inspectionIds).stream()
+                .collect(Collectors.toMap(
+                        InspectionDefectCountProjection::getInspectionId,
+                        InspectionDefectCountProjection::getCnt));
+
+        List<Long> creatorIds = content.stream().map(Inspection::getCreatedBy).distinct().toList();
+        Map<Long, String> creatorNameById = userRepository.findAllById(creatorIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getName));
+
+        // getRecentInspections()와 동일하게 facilityRepository로 배치 조회한 이름 맵을 쓴다
+        // (inspection.getFacility() 지연 연관관계 직접 참조 지양) — 같은 트랜잭션 내에서 먼저
+        // save() 된 Inspection이 영속성 컨텍스트 1차 캐시에 facility=null 상태로 이미 올라가 있으면
+        // 이후 fetch join 쿼리 결과가 그 관리 중인 인스턴스를 그대로 재사용해 facility가 채워지지
+        // 않는 경우가 있다(JPA 아이덴티티 맵 캐시 특성) — 명시적 배치 조회가 항상 안전하다.
+        List<Long> facilityIds = content.stream().map(Inspection::getFacilityId).distinct().toList();
+        Map<Long, String> facilityNameById = facilityRepository.findAllById(facilityIds).stream()
+                .collect(Collectors.toMap(Facility::getId, Facility::getName));
+
+        return PageResponse.from(page.map(inspection -> RecentInspectionResponse.from(
+                inspection,
+                facilityNameById.getOrDefault(inspection.getFacilityId(), "-"),
+                creatorNameById.getOrDefault(inspection.getCreatedBy(), "-"),
+                defectCountByInspectionId.getOrDefault(inspection.getId(), 0L))));
+    }
+
+    private Set<InspectionStatus> resolveStatusLabel(String statusLabel) {
+        if (statusLabel == null || statusLabel.isBlank()) {
+            return Set.of();
+        }
+        Set<InspectionStatus> statuses = RECENT_STATUS_LABEL_GROUPS.get(statusLabel);
+        if (statuses == null) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT);
+        }
+        return statuses;
     }
 
     /**
