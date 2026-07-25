@@ -10,13 +10,28 @@
 --     chat_messages에 직접 컬럼을 둔다(Media는 inspectionId NOT NULL FK로 강결합돼 재사용 불가).
 --
 -- 캐노니컬 DDL(HajaCheck_script.sql)에 이미 존재할 수 있어(baseline-on-existing 경로) IF NOT EXISTS로
--- 멱등 처리한다(V12 패턴). counsel_tickets는 이 기능의 첫 구현이라 어느 환경에서도 비어 있어 NOT NULL
--- 컬럼을 기본값 없이 추가해도 안전하다.
+-- 멱등 처리한다(V12 패턴).
+--
+-- PR머신 리뷰(P1, PR #820): ticket_number/category/title을 DEFAULT·백필 없이 NOT NULL로 한 번에 추가하면
+-- counsel_tickets에 기존 행이 있는 환경에서 Flyway forward-apply가 'column contains null values'로
+-- 실패해 앱 기동을 중단시킬 수 있다(#531과 같은 클래스의 가용성 리스크). 이 기능의 REST 쓰기 경로가
+-- 아직 어떤 환경에도 배포된 적 없어 실제로는 0건이어야 하지만, prod 재검증에 의존하지 않고도 안전하도록
+-- nullable 추가 → 방어적 백필(멱등) → NOT NULL 전환 3단계로 처리한다.
+alter table counsel_tickets
+    add column if not exists ticket_number varchar(20),
+    add column if not exists category      varchar(100),
+    add column if not exists title         varchar(200);
+
+update counsel_tickets
+   set ticket_number = 'CS-LEGACY-' || id,
+       category = 'UNKNOWN',
+       title = 'UNKNOWN'
+ where ticket_number is null;
 
 alter table counsel_tickets
-    add column if not exists ticket_number varchar(20)  not null,
-    add column if not exists category      varchar(100) not null,
-    add column if not exists title         varchar(200) not null;
+    alter column ticket_number set not null,
+    alter column category set not null,
+    alter column title set not null;
 
 create unique index if not exists uq_counsel_tickets_ticket_number
     on counsel_tickets (ticket_number);

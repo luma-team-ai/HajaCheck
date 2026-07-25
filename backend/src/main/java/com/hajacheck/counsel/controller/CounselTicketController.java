@@ -11,6 +11,8 @@ import com.hajacheck.counsel.service.CounselTicketService;
 import com.hajacheck.counsel.service.CounselTicketService.Transcript;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.common.PageResponse;
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -71,10 +73,21 @@ public class CounselTicketController {
         int safePage = Math.max(page, 0);
         int safeSize = size <= 0 ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
         Pageable pageable = PageRequest.of(safePage, safeSize);
-        CounselTicketStatus statusFilter = "ALL".equalsIgnoreCase(status)
-                ? null : CounselTicketStatus.valueOf(status);
+        CounselTicketStatus statusFilter = parseStatusFilter(status);
         return ResponseEntity.ok(ApiResponse.ok(PageResponse.from(
                 counselTicketService.getMyTickets(loginUser.getUserId(), statusFilter, pageable))));
+    }
+
+    /** "ALL"은 필터 없음(null), 그 외 값은 enum 파싱 — 유효하지 않은 값은 500이 아닌 400으로 표면화한다. */
+    private CounselTicketStatus parseStatusFilter(String status) {
+        if ("ALL".equalsIgnoreCase(status)) {
+            return null;
+        }
+        try {
+            return CounselTicketStatus.valueOf(status);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT);
+        }
     }
 
     @Operation(summary = "상담 대화 조회", description = "티켓의 전체 대화 이력(시간순). 당사자(사용자 본인/담당 상담원)만.")

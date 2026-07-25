@@ -299,6 +299,16 @@ class CounselTicketControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void 내이력_잘못된status파라미터_400_INVALID_INPUT() throws Exception {
+        User me = saveUser("mine-invalid-status@haja.com", Role.USER);
+
+        mockMvc.perform(get("/api/counsel/tickets/mine").param("status", "INVALID")
+                        .with(authentication(authOf(me))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
     void 대화조회_당사자_200() throws Exception {
         User requester = saveUser("msg-user@haja.com", Role.USER);
         User counselor = saveUser("msg-counselor@haja.com", Role.COUNSELOR);
