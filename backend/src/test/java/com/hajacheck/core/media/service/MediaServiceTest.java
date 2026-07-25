@@ -359,6 +359,8 @@ class MediaServiceTest {
                 .build(); // detailUrl 미지정 → null
         when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
         when(fileStorage.read("inspection-media/x.png")).thenReturn(realPngBytes(2000, 1500));
+        when(fileStorage.storeBytes(any(), eq("image/jpeg"), eq("inspection-media-detail"), any(), anyLong()))
+                .thenReturn(new StoredFile("/files/inspection-media-detail/legacy.jpg", "inspection-media-detail/legacy.jpg"));
 
         MediaService.ThumbnailFile detail = service.getDetailImage(200L, 100L, 10L);
 
@@ -367,6 +369,35 @@ class MediaServiceTest {
         assertThat(Math.max(decoded.getWidth(), decoded.getHeight())).isEqualTo(1600);
         verify(properties).getDetailMaxDimension();
         verify(properties, never()).getThumbnailMaxDimension();
+        // write-through 캐시(PR머신 리뷰 P2) — 생성 결과를 저장하고 media.detailUrl을 채워, 다음
+        // 조회부터는 원본 재인코딩 없이 저장된 파일을 읽기만 하도록 한다.
+        verify(fileStorage).storeBytes(any(), eq("image/jpeg"), eq("inspection-media-detail"), any(), anyLong());
+        verify(mediaWriter).cacheDetailUrl(10L, "inspection-media-detail/legacy.jpg");
+    }
+
+    @Test
+    void getDetailImage_레거시행_write_through캐시저장실패해도_방금생성한이미지는정상반환() throws IOException {
+        // write-through 캐시는 성능 최적화일 뿐 조회 성공 여부를 좌우하면 안 된다(#788/#789) —
+        // storeBytes가 실패해도 이미 생성한 detailBytes는 그대로 클라이언트에 반환돼야 한다.
+        when(properties.getDetailMaxDimension()).thenReturn(1600);
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        when(fileStorage.read("inspection-media/x.png")).thenReturn(realPngBytes(800, 600));
+        when(fileStorage.storeBytes(any(), eq("image/jpeg"), eq("inspection-media-detail"), any(), anyLong()))
+                .thenThrow(new RuntimeException("디스크 쓰기 실패"));
+
+        MediaService.ThumbnailFile detail = service.getDetailImage(200L, 100L, 10L);
+
+        assertThat(detail.mimeType()).isEqualTo("image/jpeg");
+        assertThat(detail.content()).isNotEmpty();
+        verify(mediaWriter, never()).cacheDetailUrl(anyLong(), anyString());
     }
 
     @Test

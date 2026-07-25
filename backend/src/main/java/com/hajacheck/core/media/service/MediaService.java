@@ -186,10 +186,15 @@ public class MediaService {
      * 하자를 육안으로 판별하기 어려워(#788) 업로드 시 미리 생성해 둔 상세 이미지(detailUrl, V13)를
      * 그대로 읽어 반환한다(getThumbnail()과 동일 패턴 — 조회마다 재인코딩하지 않는다, PR머신 리뷰 P2).
      *
-     * <p>V13 이전에 업로드된 기존 행은 detailUrl이 없다(백필 안 함) — 그 경우에만 원본에서 즉석
-     * 생성하는 폴백을 탄다. 원본(originalUrl)은 이 폴백에서도 그대로 반환하지 않는다(PRD FR-2
-     * 원본 비공개 정책) — {@link ImageThumbnailGenerator}로 재인코딩한 바이트만 응답한다. EXIF
-     * Orientation은 DB에 저장하지 않으므로 업로드 시 썸네일 생성과 동일하게 원본에서 다시 추출한다.
+     * <p>V13 이전에 업로드된 기존 행은 detailUrl이 없다(백필 안 함) — 그 경우 원본에서 즉석 생성하는
+     * 폴백을 타되, 생성 결과를 write-through 저장해 두 번째 조회부터는 다시 읽기만 하도록 한다(PR머신
+     * 리뷰 P2 — 캐시 없이 조회마다 원본 전체를 재디코딩하면, detailUrl 우선 사용으로 뷰어 진입 시
+     * 그리드의 레거시 이미지 수만큼 동시다발 재인코딩이 발생해 CPU/힙 부담이 컸다). write-through
+     * 실패(캐시 쓰기 오류)는 응답 자체를 막지 않는다 — 방금 생성한 바이트는 이미 있으므로 그대로
+     * 반환하고, 다음 조회에서 다시 즉석 생성을 시도한다. 원본(originalUrl)은 이 폴백에서도 그대로
+     * 반환하지 않는다(PRD FR-2 원본 비공개 정책) — {@link ImageThumbnailGenerator}로 재인코딩한
+     * 바이트만 응답한다. EXIF Orientation은 DB에 저장하지 않으므로 업로드 시 썸네일 생성과 동일하게
+     * 원본에서 다시 추출한다.
      *
      * <p>⚠️ getThumbnail()과 동일한 이유로 NOT_SUPPORTED(트랜잭션 밖에서 디스크/디코딩 IO 수행).
      */
@@ -204,7 +209,21 @@ public class MediaService {
         int orientation = ExifGpsExtractor.extract(new ByteArrayInputStream(originalBytes)).orientation();
         byte[] detailBytes = ImageThumbnailGenerator.generate(
                 new ByteArrayInputStream(originalBytes), properties.getDetailMaxDimension(), orientation);
+        cacheDetailBytes(mediaId, detailBytes);
         return new ThumbnailFile(detailBytes, THUMBNAIL_MIME_TYPE);
+    }
+
+    // 레거시 폴백에서 즉석 생성한 상세 이미지를 write-through 저장(#788/#789 PR머신 리뷰 P2). 캐시
+    // 쓰기 실패는 조용히 무시한다 — 이미 생성한 바이트는 호출부가 그대로 반환할 수 있고, 캐싱은
+    // 성능 최적화일 뿐 조회 자체의 성공 여부를 좌우해선 안 된다(다음 조회에서 재시도됨).
+    private void cacheDetailBytes(Long mediaId, byte[] detailBytes) {
+        try {
+            StoredFile stored = fileStorage.storeBytes(detailBytes, THUMBNAIL_MIME_TYPE, DETAIL_CATEGORY,
+                    THUMBNAIL_CONTENT_TYPES, DETAIL_MAX_BYTES);
+            mediaWriter.cacheDetailUrl(mediaId, stored.storageKey());
+        } catch (RuntimeException ignored) {
+            // best-effort — 위 주석 참조.
+        }
     }
 
     // 소유권 검증 — 미디어 존재 + 그 미디어가 속한 점검 회차가 요청자 회사 소속인지. 존재 여부 열거

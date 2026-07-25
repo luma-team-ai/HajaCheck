@@ -23,4 +23,14 @@ public class MediaWriter {
     public List<Media> saveAll(List<Media> mediaList) {
         return mediaRepository.saveAll(mediaList);
     }
+
+    /**
+     * 레거시 행(V13 이전 업로드, detailUrl 미보유)의 상세 이미지를 최초 조회 시 write-through
+     * 캐시한다(#788/#789 PR머신 리뷰 P2). 새 트랜잭션에서 재조회해 더티체킹으로 반영 — 호출부
+     * (MediaService#getDetailImage)는 NOT_SUPPORTED라 관리되는 영속성 컨텍스트가 없다.
+     */
+    @Transactional
+    public void cacheDetailUrl(Long mediaId, String detailUrl) {
+        mediaRepository.findById(mediaId).ifPresent(media -> media.assignDetailUrl(detailUrl));
+    }
 }
