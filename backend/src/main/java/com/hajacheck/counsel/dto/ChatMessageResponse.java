@@ -13,15 +13,21 @@ public record ChatMessageResponse(
         Long sessionId,
         ChatSenderType sender,
         String content,
+        String counselorName,
         String attachmentUrl,
         LocalDateTime createdAt) {
 
-    public static ChatMessageResponse from(ChatMessage message, Long ticketId) {
+    /**
+     * @param counselorName 담당 상담원 표시 이름. {@code sender=COUNSELOR} 메시지에만 채우고(호출부에서 전달),
+     *                      {@code USER}/{@code BOT} 메시지에는 null 이어야 한다.
+     */
+    public static ChatMessageResponse from(ChatMessage message, Long ticketId, String counselorName) {
         return new ChatMessageResponse(
                 message.getId(),
                 message.getSessionId(),
                 message.getSender(),
                 message.getContent(),
+                message.getSender() == ChatSenderType.COUNSELOR ? counselorName : null,
                 attachmentUrl(message, ticketId),
                 message.getCreatedAt());
     }

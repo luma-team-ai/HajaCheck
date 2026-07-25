@@ -13,13 +13,18 @@ public record CounselTicketResponse(
         String title,
         Long userId,
         Long counselorId,
+        String counselorName,
         Long sessionId,
         CounselTicketStatus status,
         Integer queuePosition,
         LocalDateTime createdAt,
         Instant endedAt) {
 
-    public static CounselTicketResponse from(CounselTicket ticket) {
+    /**
+     * @param counselorName 배정된 상담원 표시 이름(미배정·탈퇴 등이면 null). 이름 조회는 호출부(서비스)가
+     *                      {@code counselorId} 로 수행해 전달한다 — 엔티티만으로는 알 수 없기 때문.
+     */
+    public static CounselTicketResponse from(CounselTicket ticket, String counselorName) {
         return new CounselTicketResponse(
                 ticket.getId(),
                 ticket.getTicketNumber(),
@@ -27,6 +32,7 @@ public record CounselTicketResponse(
                 ticket.getTitle(),
                 ticket.getUserId(),
                 ticket.getCounselorId(),
+                counselorName,
                 ticket.getSessionId(),
                 ticket.getStatus(),
                 ticket.getQueuePosition(),

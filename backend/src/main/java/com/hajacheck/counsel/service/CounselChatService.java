@@ -1,5 +1,7 @@
 package com.hajacheck.counsel.service;
 
+import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.counsel.dto.ChatMessageResponse;
 import com.hajacheck.counsel.entity.ChatMessage;
 import com.hajacheck.counsel.entity.ChatSenderType;
@@ -32,6 +34,7 @@ public class CounselChatService {
 
     private final CounselTicketRepository ticketRepository;
     private final ChatMessageRepository chatMessageRepository;
+    private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
     /**
@@ -76,8 +79,11 @@ public class CounselChatService {
         // content 는 DB NOT NULL 이라 이미지 전용 메시지는 빈 문자열로 저장한다.
         ChatMessage saved = chatMessageRepository.save(ChatMessage.create(
                 ticket.getSessionId(), sender, hasText ? content : "", null, validatedKey, attachmentMimeType));
+        String counselorName = sender == ChatSenderType.COUNSELOR
+                ? userRepository.findById(ticket.getCounselorId()).map(User::getName).orElse(null)
+                : null;
         messagingTemplate.convertAndSend(
-                TOPIC_PREFIX + ticketId, ChatMessageResponse.from(saved, ticketId));
+                TOPIC_PREFIX + ticketId, ChatMessageResponse.from(saved, ticketId, counselorName));
     }
 
     /** 발신자가 티켓 사용자면 USER, 담당 상담원이면 COUNSELOR, 둘 다 아니면 null(비참여자). */

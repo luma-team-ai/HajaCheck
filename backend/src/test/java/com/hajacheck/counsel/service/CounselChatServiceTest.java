@@ -8,6 +8,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.entity.Role;
+import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.counsel.dto.ChatMessageResponse;
 import com.hajacheck.counsel.entity.ChatMessage;
 import com.hajacheck.counsel.entity.ChatSenderType;
@@ -44,13 +48,20 @@ class CounselChatServiceTest {
     @Mock
     private ChatMessageRepository chatMessageRepository;
     @Mock
+    private UserRepository userRepository;
+    @Mock
     private SimpMessagingTemplate messagingTemplate;
 
     private CounselChatService service;
 
     @BeforeEach
     void setUp() {
-        service = new CounselChatService(ticketRepository, chatMessageRepository, messagingTemplate);
+        service = new CounselChatService(ticketRepository, chatMessageRepository, userRepository, messagingTemplate);
+        User counselor = User.builder()
+                .email("counselor@haja.com").name("상담원").role(Role.COUNSELOR)
+                .passwordHash("$2a$10$hashed").companyId(null).status(UserStatus.ACTIVE).build();
+        ReflectionTestUtils.setField(counselor, "id", COUNSELOR_ID);
+        when(userRepository.findById(COUNSELOR_ID)).thenReturn(Optional.of(counselor));
     }
 
     @Test

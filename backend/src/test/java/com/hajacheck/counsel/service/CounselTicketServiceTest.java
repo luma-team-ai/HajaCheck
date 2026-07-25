@@ -16,6 +16,7 @@ import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.counsel.dto.ChatMessageResponse;
 import com.hajacheck.counsel.dto.CounselTicketResponse;
+import com.hajacheck.counsel.dto.CounselTicketSummaryResponse;
 import com.hajacheck.counsel.entity.BotScenario;
 import com.hajacheck.counsel.entity.ChatMessage;
 import com.hajacheck.counsel.entity.ChatSenderType;
@@ -188,6 +189,40 @@ class CounselTicketServiceTest {
 
         verify(ticketRepository).findByUserIdAndStatusOrderByCreatedAtDesc(
                 USER_ID, CounselTicketStatus.RESOLVED, pageable);
+    }
+
+    // ── 상담원 이름 배치 조회(N+1 방지) — 페이지 내 서로 다른 상담원이 각자의 티켓에만 매핑되는지 ──
+
+    @Test
+    void 대기열조회_페이지내_서로다른상담원이름이_각티켓에정확히매핑() {
+        Long otherCounselorId = 11L;
+        CounselTicket ticketA = inProgressTicket();
+        CounselTicket ticketB = waitingTicket();
+        ReflectionTestUtils.setField(ticketB, "id", 51L);
+        ReflectionTestUtils.setField(ticketB, "counselorId", otherCounselorId);
+        Pageable pageable = PageRequest.of(0, 20);
+        when(ticketRepository.findByStatusOrderByCreatedAtAsc(CounselTicketStatus.WAITING, pageable))
+                .thenReturn(new PageImpl<>(List.of(ticketA, ticketB)));
+        when(userRepository.findAllById(any())).thenReturn(List.of(
+                counselorUser(COUNSELOR_ID, "김상담"), counselorUser(otherCounselorId, "이상담")));
+
+        Page<CounselTicketSummaryResponse> page =
+                service.getQueue(CounselTicketStatus.WAITING, pageable);
+
+        assertThat(page.getContent())
+                .filteredOn(r -> r.id().equals(TICKET_ID)).extracting(CounselTicketSummaryResponse::counselorName)
+                .containsExactly("김상담");
+        assertThat(page.getContent())
+                .filteredOn(r -> r.id().equals(51L)).extracting(CounselTicketSummaryResponse::counselorName)
+                .containsExactly("이상담");
+    }
+
+    private User counselorUser(Long id, String name) {
+        User user = User.builder()
+                .email(id + "@haja.com").name(name).role(Role.COUNSELOR)
+                .passwordHash("$2a$10$hashed").companyId(null).status(UserStatus.ACTIVE).build();
+        ReflectionTestUtils.setField(user, "id", id);
+        return user;
     }
 
     // ── 대화 조회 IDOR ──

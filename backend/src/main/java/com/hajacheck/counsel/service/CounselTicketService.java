@@ -27,8 +27,11 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -84,13 +87,14 @@ public class CounselTicketService {
         ticket.assignTicketNumber(
                 CounselTicket.formatTicketNumber(ticket.getCreatedAt(), ticket.getId()));
         ticketRepository.saveAndFlush(ticket);
-        return CounselTicketResponse.from(ticket);
+        return CounselTicketResponse.from(ticket, resolveCounselorName(ticket.getCounselorId()));
     }
 
     /** 상담원 대기열 — 상태별 목록(생성순 FIFO), 페이지네이션. 기본 사용처는 WAITING 대기열. */
     public Page<CounselTicketSummaryResponse> getQueue(CounselTicketStatus status, Pageable pageable) {
-        return ticketRepository.findByStatusOrderByCreatedAtAsc(status, pageable)
-                .map(CounselTicketSummaryResponse::from);
+        Page<CounselTicket> page = ticketRepository.findByStatusOrderByCreatedAtAsc(status, pageable);
+        Map<Long, String> names = resolveCounselorNames(page.getContent());
+        return page.map(ticket -> CounselTicketSummaryResponse.from(ticket, nameOf(names, ticket)));
     }
 
     /**
@@ -102,14 +106,17 @@ public class CounselTicketService {
         Page<CounselTicket> tickets = (status == null)
                 ? ticketRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable)
                 : ticketRepository.findByUserIdAndStatusOrderByCreatedAtDesc(userId, status, pageable);
-        return tickets.map(CounselTicketSummaryResponse::from);
+        Map<Long, String> names = resolveCounselorNames(tickets.getContent());
+        return tickets.map(ticket -> CounselTicketSummaryResponse.from(ticket, nameOf(names, ticket)));
     }
 
     /** 티켓 전체 대화 이력(시간순). 당사자(사용자 본인/담당 상담원)만 — 아니면 열거 방지 통일 응답. */
     public List<ChatMessageResponse> getMessages(Long ticketId, Long requesterId) {
         CounselTicket ticket = loadParticipantTicket(ticketId, requesterId);
+        // 티켓의 담당 상담원 이름을 1회 조회해 COUNSELOR 발신 메시지에만 부여한다(DTO from 이 발신자 유형으로 분기).
+        String counselorName = resolveCounselorName(ticket.getCounselorId());
         return loadMessages(ticket).stream()
-                .map(message -> ChatMessageResponse.from(message, ticket.getId()))
+                .map(message -> ChatMessageResponse.from(message, ticket.getId(), counselorName))
                 .toList();
     }
 
@@ -159,7 +166,8 @@ public class CounselTicketService {
             throw new BusinessException(ErrorCode.COUNSEL_SESSION_ASSIGNMENT_CONFLICT);
         }
 
-        CounselTicketResponse response = CounselTicketResponse.from(ticket);
+        CounselTicketResponse response =
+                CounselTicketResponse.from(ticket, resolveCounselorName(counselorId));
         messagingTemplate.convertAndSendToUser(
                 String.valueOf(ticket.getUserId()), DEST_ASSIGNED, response);
         return response;
@@ -181,7 +189,8 @@ public class CounselTicketService {
         endSession(ticket.getSessionId());
         ticketRepository.saveAndFlush(ticket);
 
-        CounselTicketResponse response = CounselTicketResponse.from(ticket);
+        CounselTicketResponse response =
+                CounselTicketResponse.from(ticket, resolveCounselorName(ticket.getCounselorId()));
         messagingTemplate.convertAndSendToUser(
                 String.valueOf(ticket.getUserId()), DEST_ENDED, response);
         return response;
@@ -199,7 +208,7 @@ public class CounselTicketService {
         ticket.leaveOffline();
         endSession(ticket.getSessionId());
         ticketRepository.saveAndFlush(ticket);
-        return CounselTicketResponse.from(ticket);
+        return CounselTicketResponse.from(ticket, resolveCounselorName(ticket.getCounselorId()));
     }
 
     private List<ChatMessage> loadMessages(CounselTicket ticket) {
@@ -261,6 +270,31 @@ public class CounselTicketService {
         if (!userRepository.existsById(counselorId)) {
             throw new BusinessException(ErrorCode.COUNSEL_TICKET_FORBIDDEN);
         }
+    }
+
+    /** 상담원 표시 이름 단건 조회. counselorId 가 null 이거나(미배정) 탈퇴 등으로 없으면 null. */
+    private String resolveCounselorName(Long counselorId) {
+        if (counselorId == null) {
+            return null;
+        }
+        return userRepository.findById(counselorId).map(User::getName).orElse(null);
+    }
+
+    /** 목록 조회용 배치 이름 조회 — 페이지 내 counselorId 들을 한 번에 모아 조회해 N+1 을 방지한다. */
+    private Map<Long, String> resolveCounselorNames(List<CounselTicket> tickets) {
+        Set<Long> counselorIds = tickets.stream()
+                .map(CounselTicket::getCounselorId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (counselorIds.isEmpty()) {
+            return Map.of();
+        }
+        return userRepository.findAllById(counselorIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getName));
+    }
+
+    private String nameOf(Map<Long, String> names, CounselTicket ticket) {
+        return ticket.getCounselorId() == null ? null : names.get(ticket.getCounselorId());
     }
 
     /**
