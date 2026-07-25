@@ -13,7 +13,7 @@ alter type social_provider_type owner to postgres;
 
 comment on type social_provider_type is '소셜 로그인 제공자';
 
-create type user_status_type as enum ('ACTIVE', 'SUSPENDED');
+create type user_status_type as enum ('ACTIVE', 'SUSPENDED', 'WAITING');
 
 alter type user_status_type owner to postgres;
 

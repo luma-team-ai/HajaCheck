@@ -375,7 +375,12 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V14__add_counsel_type.sql"),
-                        CONTAINER_ROOT + "V14__add_counsel_type.sql");
+                        CONTAINER_ROOT + "V14__add_counsel_type.sql")
+                // V15 — #792 user_status_type에 WAITING(초대 대기) 라벨 추가.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V15__add_user_status_waiting.sql"),
+                        CONTAINER_ROOT + "V15__add_user_status_waiting.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -461,6 +466,8 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "V13__add_media_detail_url.sql");
         // #743 — Flyway V14(counsel_type 분류)도 이어서 1회 forward-apply한다.
         runPsql(postgres, "V14__add_counsel_type.sql");
+        // #792 — Flyway V15(user_status_type WAITING 라벨)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V15__add_user_status_waiting.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }
