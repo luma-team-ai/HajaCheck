@@ -258,6 +258,75 @@ class MediaServiceTest {
         assertThat(thumbnail.content()).containsExactly(1, 2, 3);
     }
     @Test
+    void getDetailImage_존재하지않는미디어_MEDIA_NOT_FOUND() {
+        when(mediaRepository.findById(999L)).thenReturn(java.util.Optional.empty());
+
+        assertThatThrownBy(() -> service.getDetailImage(200L, 100L, 999L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
+    }
+
+    @Test
+    void getDetailImage_타인소유_존재하지않는id와동일하게MEDIA_NOT_FOUND() {
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
+                .when(inspectionService).getInspection(200L, 999L, 1L);
+
+        assertThatThrownBy(() -> service.getDetailImage(200L, 999L, 10L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
+    }
+
+    @Test
+    void getDetailImage_원본파일디스크유실_MEDIA_NOT_FOUND() {
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        when(fileStorage.read("inspection-media/x.png"))
+                .thenThrow(new BusinessException(ErrorCode.FILE_NOT_FOUND));
+
+        assertThatThrownBy(() -> service.getDetailImage(200L, 100L, 10L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
+    }
+
+    @Test
+    void getDetailImage_본인소유_원본에서더큰해상도로재인코딩반환() throws IOException {
+        when(properties.getDetailMaxDimension()).thenReturn(1600);
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        when(fileStorage.read("inspection-media/x.png")).thenReturn(realPngBytes());
+
+        MediaService.ThumbnailFile detail = service.getDetailImage(200L, 100L, 10L);
+
+        assertThat(detail.mimeType()).isEqualTo("image/jpeg");
+        assertThat(detail.content()).isNotEmpty();
+        // 재인코딩본은 항상 JPEG — 원본(PNG) 바이트를 그대로 반환하지 않는다(PRD FR-2).
+        assertThat(detail.content()).isNotEqualTo(realPngBytes());
+    }
+
+    @Test
     void getThumbnail_무소속사용자_FORBIDDEN을404로변환하지않는다() {
         doThrow(new BusinessException(ErrorCode.FORBIDDEN))
                 .when(companyScopeGuard).requireEffectiveMembership(200L, null);
