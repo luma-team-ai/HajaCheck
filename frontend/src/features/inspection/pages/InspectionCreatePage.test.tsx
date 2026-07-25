@@ -29,6 +29,7 @@ const MOCK_CURRENT_USER = {
   profileImageUrl: null,
   createdAt: '2026-07-01T00:00:00',
   companyName: '테스트회사',
+  status: 'ACTIVE' as const,
 };
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
