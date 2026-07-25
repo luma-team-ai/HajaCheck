@@ -28,6 +28,7 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.membership.service.PlanProvisioningService;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -66,6 +67,8 @@ class FacilityControllerTest extends PostgresTestSupport {
     private FacilityRepository facilityRepository;
     @Autowired
     private InspectionRepository inspectionRepository;
+    @Autowired
+    private PlanProvisioningService planProvisioningService;
 
     private User saveUser(String email) {
         User user = userRepository.saveAndFlush(User.builder()
@@ -83,6 +86,9 @@ class FacilityControllerTest extends PostgresTestSupport {
         companyRepository.saveAndFlush(company);
         companyMembershipRepository.saveAndFlush(
                 CompanyMembership.approvedOwner(company.getId(), user.getId()));
+        // 실제 기업 가입(CompanyAccountWriter)과 동일하게 FREE 구독을 배정한다 — 시설물 등록은 플랜 한도
+        // 검사(#843)를 타므로, 구독이 없는 fixture 는 프로덕션에 존재할 수 없는 상태다.
+        planProvisioningService.ensureFreePlanForCompany(company.getId());
         user.assignToCompany(company.getId());
         return userRepository.saveAndFlush(user);
     }

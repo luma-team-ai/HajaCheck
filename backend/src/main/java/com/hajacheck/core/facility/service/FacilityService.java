@@ -15,6 +15,7 @@ import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.membership.service.QuotaService;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -50,10 +51,14 @@ public class FacilityService {
     private final AuthService authService;
     private final InspectionRepository inspectionRepository;
     private final UserRepository userRepository;
+    private final QuotaService quotaService;
 
     @Transactional
     public FacilityResponse create(Long userId, Long companyId, FacilityCreateRequest request) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        // 플랜 한도(plans.max_facilities) 강제(#843) — 회사 스코프를 DB 로 재검증한 직후, 저장 전에 슬롯을
+        // 예약한다. 같은 트랜잭션이라 아래 save 가 실패하면 예약도 함께 롤백된다.
+        quotaService.reserveFacilitySlot(userId, companyId);
         validateAssigneeIfPresent(userId, request.assigneeUserId());
         Facility facility = Facility.builder()
                 .companyId(companyId)
@@ -180,6 +185,9 @@ public class FacilityService {
     public void delete(Long userId, Long companyId, Long facilityId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         facilityRepository.delete(findCompanyFacility(companyId, facilityId));
+        // 시설물은 물리 삭제라 보유량이 즉시 줄어든다(#843) — 사용량 표시값을 같은 트랜잭션에서 재동기화해
+        // 카운터가 영구히 부풀어 신규 등록을 잘못 막는 드리프트를 막는다.
+        quotaService.syncFacilityUsage(userId, companyId);
     }
 
     /**

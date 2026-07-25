@@ -76,6 +76,17 @@ public enum ErrorCode {
     PLAN_DATA_INVALID(HttpStatus.INTERNAL_SERVER_ERROR, "요금제 데이터에 오류가 있습니다."),
     // 플랫폼 관리자 "플랜 정책 설정"(#624 후속) — FREE/STANDARD/ENTERPRISE 각각 정확히 한 번씩 없는 요청(누락·중복·미지원 플랜명).
     PLAN_POLICY_INVALID(HttpStatus.BAD_REQUEST, "요금제 정책 요청이 올바르지 않습니다. FREE·STANDARD·ENTERPRISE 각각 정확히 한 번씩 포함해야 합니다."),
+
+    // 플랜 한도 강제(#843 / HAJA-441) — usage_counters 원자적 조건부 UPDATE 가 0행을 반환(=한도 초과)했을 때.
+    // HTTP 상태는 403(FORBIDDEN)으로 통일한다: "요금제가 허용하지 않는 요청"이라는 엔타이틀먼트 판정이라
+    // 같은 성격의 기존 게이트(COUNSEL_PLAN_REQUIRED·AI_ADDON_REQUIRED)와 계약을 맞춘다. 409(CONFLICT)는
+    // "다시 시도하면 풀릴 수 있는 상태 충돌", 429(TOO_MANY_REQUESTS)는 "시간이 지나면 풀리는 rate-limit"
+    // (AUTH_TOO_MANY_REQUESTS)을 뜻하는데, 플랜 한도는 업그레이드나 자원 정리 없이는 재시도해도 풀리지
+    // 않으므로 둘 다 프론트에 잘못된 재시도 힌트를 준다.
+    PLAN_FACILITY_QUOTA_EXCEEDED(HttpStatus.FORBIDDEN, "요금제의 시설물 등록 한도를 초과했습니다. 요금제를 업그레이드해 주세요."),
+    PLAN_ANALYSIS_QUOTA_EXCEEDED(HttpStatus.FORBIDDEN, "요금제의 월 분석 한도를 초과했습니다. 요금제를 업그레이드해 주세요."),
+    PLAN_SEAT_QUOTA_EXCEEDED(HttpStatus.FORBIDDEN, "요금제의 좌석 한도를 초과했습니다. 요금제를 업그레이드해 주세요."),
+
     // 시설물(facility)
     // 미존재/타인 소유 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.
     FACILITY_NOT_FOUND(HttpStatus.NOT_FOUND, "시설물을 찾을 수 없습니다."),

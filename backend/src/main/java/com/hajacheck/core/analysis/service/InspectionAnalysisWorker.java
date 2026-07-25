@@ -14,6 +14,8 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.global.config.AsyncConfig;
+import com.hajacheck.membership.service.AnalysisQuotaCharge;
+import com.hajacheck.membership.service.QuotaService;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -53,6 +55,39 @@ import org.springframework.stereotype.Component;
  * {@link AnalysisProgressStore}상 "현재" 토큰인지 확인하고, 다르면(다른 실행이 재선점해 새 토큰을
  * 발급함 = 자신이 추월당함) 조용히 중단한다(더 이상 쓰기·상태전이 없이 return) — 예외를 던지지 않는
  * 이유는 이게 오류가 아니라 "정상적으로 다른 실행에 자리를 내준 것"이기 때문이다.
+ *
+ * <p><b>월 분석 사용량 보상</b>(#843, 코드 리뷰 P1) — 사용량은 {@link InspectionAnalysisService}가
+ * 큐 적재 <i>전에</i> 차감하고, 큐 적재까지 성공하면 그쪽 catch 는 더 이상 도달하지 않는다. 따라서
+ * "적재는 됐지만 아무 결과도 남기지 못한" 종료 경로의 보상은 <b>이 워커의 책임</b>이다. 기준은
+ * {@code successCount == 0}, 즉 <b>DB에 한 건도 커밋하지 못한 실행만</b> 되돌린다:
+ * <ul>
+ *   <li><b>전량 실패</b>(AI 서버 다운 등) → 보상. 상태도 시작 전으로 되돌아가 재시도 가능하므로,
+ *       보상하지 않으면 재시도할 때마다 한도만 깎여 FREE(월 50장)는 금세 소진되고 복구 API도 없다.</li>
+ *   <li><b>추월당함</b>(세대 토큰 불일치) → {@code successCount == 0} 일 때만 보상. 이 실행은 결과를
+ *       남기지 못하고 끝나고, 자리를 넘겨받은 실행은 자기 몫을 따로 차감했기 때문이다.</li>
+ *   <li><b>부분 실패</b>({@code successCount > 0}) → 보상하지 않는다. 성공한 장수만큼 결과가 남았고,
+ *       장수 단위 부분 환불은 "요청 1건 = 이미지 N장" 차감 단위와 어긋난다.</li>
+ * </ul>
+ *
+ * <p><b>⚠️ 알려진 과대 집계 한 가지</b>(#843 머신 검수 P3-2, 실제 코드로 확인함) — "추월당함 +
+ * {@code successCount > 0}" 조합의 근거를 예전엔 "이미 저장한 하자는 남으므로 사용량도 실제 소비된 것"
+ * 이라고 적었는데, <b>그 서술은 한 경로에서 사실이 아니다</b>:
+ * <ul>
+ *   <li><b>리퍼가 토큰을 올린 경우</b>({@link com.hajacheck.core.analysis.scheduler.StuckAnalysisReaper}
+ *       → {@code reapIfStuck}) — 새 실행이 뜨지 않으므로 이 워커가 저장한 하자는 그대로 남는다.
+ *       기존 근거가 그대로 성립한다.</li>
+ *   <li><b>다른 요청이 재선점한 경우</b> — 넘겨받은 실행 B가 첫 탐지에 성공하는 순간
+ *       {@link DefectWriter#softDeleteAllForInspectionThenSave} 가 그 회차의 <b>비삭제 하자 전체</b>를
+ *       소프트삭제한다({@code findByInspectionIdAndNotDeleted} 대상 = A가 저장한 것 포함). 즉 A의 부분
+ *       결과는 실제로 사라지고, A와 B가 각각 N장을 차감해 사용자가 2N을 부담한다.</li>
+ * </ul>
+ * 다만 이 경로는 매우 좁다 — {@link InspectionAnalysisService#startAnalysis} 의 fail-closed 가드와
+ * {@code InspectionRepository#startAnalyzingIfNotRunning} 의 WHERE 가 둘 다 "비삭제 하자 없음"을
+ * 요구하므로, A가 하자를 <b>커밋한 뒤</b>에는 B가 애초에 선점하지 못한다. 도달하려면 B의 선점이 A의
+ * 세대 토큰 확인과 첫 커밋 사이(READ COMMITTED에서 A의 INSERT가 아직 안 보이는 구간)에 끼어야 한다.
+ * <b>이 좁은 트리거에서는 과대 집계를 감수한다</b> — 여기서 보상하면 반대로 "리퍼 경로에서 결과가 남았는데
+ * 환불"이 되어 무료 분석 경로가 열리고, 두 경로를 코드로 구분할 수단이 지금은 없다. 근본 해소는 AI/사람
+ * 생성 구분 컬럼(#644)으로 소프트삭제 대상을 좁힌 뒤 후속 이슈에서 다룬다(동작은 현행 유지).
  */
 @Slf4j
 @Component
@@ -64,6 +99,7 @@ public class InspectionAnalysisWorker {
     private final AiProxyService aiProxyService;
     private final DefectWriter defectWriter;
     private final AnalysisProgressStore progressStore;
+    private final QuotaService quotaService;
 
     /**
      * @param statusBeforeAnalysis 분석 시작 직전 상태(ANALYZING으로 전이되기 전 값) — 코드 리뷰 P2
@@ -72,10 +108,15 @@ public class InspectionAnalysisWorker {
      *                             동일 값으로 롤백하는 것과 대칭 — 정상 완료가 아니면 항상 이 값으로 복귀).
      * @param generation 이 실행이 선점될 때 발급된 세대 토큰(코드 리뷰 P1, 클래스 javadoc "세대 토큰
      *                   펜싱" 참고) — DB 쓰기 직전마다 {@link #isCurrentGeneration}으로 유효성을 재확인한다.
+     * @param charge {@link InspectionAnalysisService}가 큐 적재 전에 차감한 월 분석 사용량의 좌표
+     *               (구독·기간·장수). 이 워커가 아무 결과도 남기지 못하고 끝나면 <b>이 좌표만</b> 되돌린다 —
+     *               @Async 로 수 분이 흐르는 동안 월이 넘어가거나 요금제가 바뀌어도 "깎았던 그 행"이
+     *               정확히 복구되도록, 보상 시점에 기간·구독을 재계산하지 않는다.
      */
     @Async(AsyncConfig.ANALYSIS_TASK_EXECUTOR)
     public void runAsync(Long requesterUserId, Long companyId, Long inspectionId, List<Media> images,
-                          InspectionStatus statusBeforeAnalysis, String generation) {
+                          InspectionStatus statusBeforeAnalysis, String generation,
+                          AnalysisQuotaCharge charge) {
         List<FileProgress> files = new ArrayList<>(images.size());
         for (int i = 0; i < images.size(); i++) {
             files.add(new FileProgress(images.get(i).getId(), displayName(i), "waiting", null, "-"));
@@ -122,6 +163,7 @@ public class InspectionAnalysisWorker {
                 if (!isCurrentGeneration(inspectionId, generation)) {
                     log.warn("분석 세대 토큰 불일치(추월당함) — inspectionId={} mediaId={} 쓰기를 건너뛰고 중단한다",
                             inspectionId, media.getId());
+                    refundIfNothingPersisted(inspectionId, charge, successCount);
                     return;
                 }
 
@@ -164,12 +206,22 @@ public class InspectionAnalysisWorker {
         // 추월당했을 가능성을 마저 좁힌다.
         if (!isCurrentGeneration(inspectionId, generation)) {
             log.warn("분석 세대 토큰 불일치(추월당함) — inspectionId={} 상태전이를 건너뛰고 중단한다", inspectionId);
+            refundIfNothingPersisted(inspectionId, charge, successCount);
             return;
         }
 
         if (successCount == 0 && !images.isEmpty()) {
             log.warn("AI 분석 전체 실패 — inspectionId={} totalImages={} — ANALYZED 전이를 건너뛰고 {}로 되돌린다",
                     inspectionId, images.size(), statusBeforeAnalysis);
+            // 코드 리뷰 P1(#843) — 상태만 되돌리고 월 분석 사용량을 그대로 소진시키면, 재시도할 때마다
+            // 한도만 깎인다(InspectionAnalysisService 의 큐 포화 보상과 대칭). 클래스 javadoc 참고.
+            //
+            // 재검토 P3 — advanceStatus 보다 **먼저** 보상한다. advanceStatus 는 내부적으로
+            // CompanyScopeGuard 재검증을 타므로, 분석이 도는 동안 요청자의 회사 소속이 해제되면 여기서
+            // 예외가 난다. 보상이 뒤에 있으면 그 좁은 창에서 사용량만 소진된 채 복구 수단이 없다(관리자
+            // 보정 API 없음). 순서를 뒤집으면 최악이라도 "상태가 ANALYZING 으로 잔류"인데 그건
+            // StuckAnalysisReaper 가 복구한다.
+            refundIfNothingPersisted(inspectionId, charge, successCount);
             inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, statusBeforeAnalysis);
             AnalysisStatusResponse failedProgress = new AnalysisStatusResponse(
                     inspectionId, "failed", 0, images.size(), 0, files,
@@ -184,6 +236,25 @@ public class InspectionAnalysisWorker {
                 inspectionId, "done", 100, images.size(), images.size(), files,
                 detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount, Instant.now());
         progressStore.save(done);
+    }
+
+    /**
+     * 이 실행이 DB에 아무것도 커밋하지 못했으면 월 분석 사용량을 되돌린다(#843, 클래스 javadoc
+     * "월 분석 사용량 보상" 참고). {@code successCount > 0} 이면 결과가 남았으므로 보상하지 않는다.
+     *
+     * <p>보상 실패는 절대 여기서 전파시키지 않는다 — 이 워커는 {@code @Async}라 예외를 받아줄 호출부가
+     * 없고, 보상 실패 때문에 뒤따르는 진행률 저장(프론트 폴링 종료 신호)까지 건너뛰면 화면이 "진행 중"에
+     * 영원히 갇힌다. 최악의 결과는 이번 요청분이 월 사용량에 과대 집계되는 것뿐이다.
+     */
+    private void refundIfNothingPersisted(Long inspectionId, AnalysisQuotaCharge charge, int successCount) {
+        if (successCount > 0) {
+            return;
+        }
+        try {
+            quotaService.refundAnalysisQuota(charge);
+        } catch (RuntimeException e) {
+            log.warn("분석 사용량 보상 차감 실패 — inspectionId={} charge={}", inspectionId, charge, e);
+        }
     }
 
     /**

@@ -28,6 +28,7 @@ import com.hajacheck.global.exception.DomainStateTransitionException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.invitecode.dto.InviteCodeIssueResponse;
 import com.hajacheck.invitecode.support.InviteCodeStore;
+import com.hajacheck.membership.service.QuotaService;
 import java.time.Duration;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
@@ -66,6 +67,9 @@ class InviteCodeServiceTest {
 
     @Mock
     private RateLimiter rateLimiter;
+
+    @Mock
+    private QuotaService quotaService;
 
     @InjectMocks
     private InviteCodeService inviteCodeService;

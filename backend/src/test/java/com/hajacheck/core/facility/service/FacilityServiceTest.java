@@ -29,6 +29,7 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.membership.service.QuotaService;
 import java.lang.reflect.Field;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -58,6 +59,9 @@ class FacilityServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private QuotaService quotaService;
 
     @InjectMocks
     private FacilityService facilityService;

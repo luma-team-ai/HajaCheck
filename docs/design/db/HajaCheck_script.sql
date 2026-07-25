@@ -1548,7 +1548,9 @@ comment on trigger trg_inspection_notification_settings_set_updated_at on inspec
 insert into plans (name, max_facilities, max_monthly_analyses, max_seats,
                    has_pdf_watermark, has_counselor_access, has_ai_addon, price_monthly)
 values
-    ('FREE'::plan_name_type, 1, 50, 1, true, false, false, 0.00),
+    -- FREE 좌석은 2석이다(대표 1 + 점검자 1, #843 / HAJA-441 · Flyway V19와 동일 값).
+    -- 1석이면 대표가 유일한 좌석을 점유해 초대 코드 redeem 이 항상 막힌다(온보딩 불가).
+    ('FREE'::plan_name_type, 1, 50, 2, true, false, false, 0.00),
     ('STANDARD'::plan_name_type, 10, 1000, 3, false, true, true, 29000.00),
     ('ENTERPRISE'::plan_name_type, null, null, null, false, true, true, 59000.00)
 on conflict (name) do nothing;
