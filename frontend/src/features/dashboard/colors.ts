@@ -78,11 +78,11 @@ export const GRADE_BG_CLASS: Record<DefectGrade, string> = {
   E: 'bg-[#dc2626]',
 };
 
-/** 하자 등급 분포 막대·범례 전용 연한 팔레트(Figma 시안 기준, #556) — GradeBadge와는 분리 관리 */
+/** 하자 등급 분포 막대·범례 전용 팔레트 — Figma 재정합(2026-07-24, Tailwind green-600/lime-500/yellow-500/orange-500/red-600) */
 export const GRADE_BG_CLASS_LIGHT: Record<DefectGrade, string> = {
-  A: 'bg-[#86efac]',
-  B: 'bg-[#bef264]',
-  C: 'bg-[#fde047]',
-  D: 'bg-[#fdba74]',
-  E: 'bg-[#fca5a5]',
+  A: 'bg-[#16a34a]',
+  B: 'bg-[#84cc16]',
+  C: 'bg-[#eab308]',
+  D: 'bg-[#f97316]',
+  E: 'bg-[#dc2626]',
 };
