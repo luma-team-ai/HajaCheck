@@ -48,9 +48,14 @@ class InspectionRepositoryTest extends PostgresTestSupport {
     // APPROVED 멤버십을 가질 것을 요구한다. 이 픽스처는 owner를 그대로 담당자로도 재사용하므로
     // 역할을 INSPECTOR로 두고 승인된 회사·멤버십을 함께 시드한다.
     private Long seedOwner(String email) {
+        return seedOwnerWithName(email, "소유자");
+    }
+
+    // 담당자명 검색 테스트(findRecentInspectionsPage)용 — 이름을 지정해 시드해야 매칭/비매칭을 구분할 수 있다.
+    private Long seedOwnerWithName(String email, String name) {
         User owner = User.builder()
                 .email(email)
-                .name("소유자")
+                .name(name)
                 .role(Role.INSPECTOR)
                 .passwordHash("$2a$10$testtesttesttesttesttes")
                 .status(UserStatus.ACTIVE)
@@ -72,6 +77,26 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         em.flush();
 
         return owner.getId();
+    }
+
+    // 담당자명 검색 테스트(findRecentInspectionsPage)용 — seedOwnerWithName은 매번 새 회사를 만들어서
+    // "같은 회사 소속의 다른 이름을 가진 두 번째 담당자"를 표현할 수 없다. 기존 회사에 소속만 추가한다
+    // (assigned_inspector_id 트리거가 "created_by의 승인된 회사"에 속한 INSPECTOR/ADMIN만 허용하므로,
+    // 검색 대상 담당자와 점검을 만든 사람이 같은 회사여야 한다).
+    private Long seedCompanyMember(Long companyId, String email, String name) {
+        User member = User.builder()
+                .email(email)
+                .name(name)
+                .role(Role.INSPECTOR)
+                .passwordHash("$2a$10$testtesttesttesttesttes")
+                .status(UserStatus.ACTIVE)
+                .companyId(companyId)
+                .build();
+        em.persist(member);
+        em.flush();
+        em.persist(CompanyMembership.approvedOwner(companyId, member.getId()));
+        em.flush();
+        return member.getId();
     }
 
     private Long seedFacility(Long ownerId, String name) {
@@ -537,6 +562,158 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         assertThat(result.getContent()).hasSize(2);
         assertThat(result.getContent()).extracting(Inspection::getId)
                 .containsExactlyInAnyOrder(noDefects.getId(), withDefect.getId());
+    }
+
+    // ── 대시보드 "최근 점검 전체보기"(신규) — findRecentInspectionsPage ──
+
+    @Test
+    void findRecentInspectionsPage_필터없으면_기존findRecentByFacilityIds와동일순서() {
+        // 스펙 요구사항: 파라미터 없이 호출하면 기존 위젯(findRecentByFacilityIds, 상위 10건)과
+        // 내용·순서가 동일해야 한다. 신규 엔드포인트는 별도 메서드지만, 같은 정렬 기준(점검일desc,id desc)
+        // 위에서 같은 결과 집합을 내야 한다는 계약을 여기서 고정한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 10), InspectionStatus.CREATED));
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 3, LocalDate.of(2026, 7, 5), InspectionStatus.CREATED));
+
+        List<Inspection> legacy =
+                inspectionRepository.findRecentByFacilityIds(List.of(facilityId), PageRequest.of(0, 10));
+        Page<Inspection> newEndpoint = inspectionRepository.findRecentInspectionsPage(
+                companyId(ownerId), null, java.util.Set.of(), null, List.of(), PageRequest.of(0, 10));
+
+        assertThat(newEndpoint.getContent()).extracting(Inspection::getId)
+                .containsExactlyElementsOf(legacy.stream().map(Inspection::getId).toList());
+    }
+
+    @Test
+    void findRecentInspectionsPage_owner스코프_타사데이터제외() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long strangerId = seedOwner("owner-b@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long strangerFacilityId = seedFacility(strangerId, "타인빌딩");
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        inspectionRepository.save(newInspection(
+                strangerFacilityId, strangerId, strangerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
+                companyId(ownerId), null, java.util.Set.of(), null, List.of(), PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getFacilityId()).isEqualTo(facilityId);
+    }
+
+    @Test
+    void findRecentInspectionsPage_상태집합필터() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 2), InspectionStatus.UPLOADING));
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 3, LocalDate.of(2026, 7, 3), InspectionStatus.REVIEWED));
+
+        // "분석중" 라벨은 CREATED/UPLOADING/ANALYZING 을 아우른다(RECENT_STATUS_LABEL_GROUPS).
+        Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
+                companyId(ownerId), null,
+                java.util.EnumSet.of(InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZING),
+                null, List.of(), PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getStatus)
+                .containsExactlyInAnyOrder(InspectionStatus.CREATED, InspectionStatus.UPLOADING);
+    }
+
+    @Test
+    void findRecentInspectionsPage_시설물필터적용() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityA = seedFacility(ownerId, "A시설");
+        Long facilityB = seedFacility(ownerId, "B시설");
+        inspectionRepository.save(
+                newInspection(facilityA, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        inspectionRepository.save(
+                newInspection(facilityB, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
+                companyId(ownerId), facilityA, java.util.Set.of(), null, List.of(), PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getFacilityId).containsExactly(facilityA);
+    }
+
+    @Test
+    void findRecentInspectionsPage_텍스트검색_시설물명매칭() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityA = seedFacility(ownerId, "강남빌딩");
+        Long facilityB = seedFacility(ownerId, "서초타워");
+        inspectionRepository.save(
+                newInspection(facilityA, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        inspectionRepository.save(
+                newInspection(facilityB, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
+                companyId(ownerId), null, java.util.Set.of(), "강남", List.of(), PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getFacilityId).containsExactly(facilityA);
+    }
+
+    @Test
+    void findRecentInspectionsPage_텍스트검색_담당자명매칭id로OR결합() {
+        // 서비스가 UserRepository.findIdsByCompanyIdAndNameContaining 으로 미리 찾은 담당자(createdBy) id
+        // 목록을 넘겨준다고 가정 — 이 레포지토리 메서드는 그 id 목록과 시설물명 LIKE 를 OR 로 결합만 한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long companyId = companyId(ownerId);
+        Long inspectorUserId = seedCompanyMember(companyId, "inspector-kim@haja.com", "김검사");
+        Long facilityId = seedFacility(ownerId, "무관한이름빌딩");
+        // createdBy=ownerId(점검 생성자), assignedInspectorId=inspectorUserId("김검사") — 검색 대상은
+        // createdBy(대시보드 "담당자" 표시 필드, RecentInspectionResponse 관례)이므로 inspectorUserId를
+        // createdBy에 둔다. assignedInspectorId 트리거를 만족시키려 ownerId를 담당자로 배정한다.
+        Inspection byInspector = inspectionRepository.save(newInspection(
+                facilityId, inspectorUserId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 2), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
+                companyId(ownerId), null, java.util.Set.of(), "김검사", List.of(inspectorUserId), PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getId).containsExactly(byInspector.getId());
+    }
+
+    @Test
+    void findRecentInspectionsPage_매칭없으면_빈페이지_totalElements0() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
+                companyId(ownerId), null, java.util.Set.of(), "존재하지않는검색어", List.of(), PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).isEmpty();
+        assertThat(result.getTotalElements()).isZero();
+    }
+
+    @Test
+    void findRecentInspectionsPage_페이지네이션_size와offset적용() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        for (int i = 1; i <= 5; i++) {
+            inspectionRepository.save(newInspection(
+                    facilityId, ownerId, ownerId, i, LocalDate.of(2026, 7, i), InspectionStatus.CREATED));
+        }
+
+        Page<Inspection> firstPage = inspectionRepository.findRecentInspectionsPage(
+                companyId(ownerId), null, java.util.Set.of(), null, List.of(), PageRequest.of(0, 2));
+        Page<Inspection> secondPage = inspectionRepository.findRecentInspectionsPage(
+                companyId(ownerId), null, java.util.Set.of(), null, List.of(), PageRequest.of(1, 2));
+
+        assertThat(firstPage.getContent()).extracting(Inspection::getRoundNo).containsExactly(5, 4);
+        assertThat(secondPage.getContent()).extracting(Inspection::getRoundNo).containsExactly(3, 2);
+        assertThat(firstPage.getTotalElements()).isEqualTo(5);
+        assertThat(firstPage.getTotalPages()).isEqualTo(3);
     }
 
     // ── 시설물 현황 목록(#540 ⑥, HAJA-378) 최근 점검일 배치 조회 ──
