@@ -35,10 +35,10 @@ export const statisticsHandlers = [
       }
     }
 
-    if (period === '1m') {
-      summary.totalDefects = Math.round(summary.totalDefects * 0.15);
-    } else if (period === '3m') {
+    if (period === '3m') {
       summary.totalDefects = Math.round(summary.totalDefects * 0.45);
+    } else if (period === '1y') {
+      summary.totalDefects = Math.round(summary.totalDefects * 1.6);
     }
 
     const body: ApiResponse<StatisticsKpiSummary> = { success: true, data: summary };
@@ -59,10 +59,12 @@ export const statisticsHandlers = [
       }));
     }
 
-    if (period === '1m') {
-      trend = trend.slice(-1);
-    } else if (period === '3m') {
+    if (period === '3m') {
       trend = trend.slice(-3);
+    } else if (period === '1y') {
+      // mock 데이터는 6개월치만 있어 '1y'를 그대로 slice로 늘릴 수 없다 — 다른 카드처럼
+      // 스케일 계수로 필터 반응성만 시연한다(실 API 연동 시 12개월 데이터로 교체).
+      trend = trend.map((item) => ({ ...item, defectCount: Math.round(item.defectCount * 1.3) }));
     }
 
     const body: ApiResponse<MonthlyDefectTrendItem[]> = { success: true, data: trend };
@@ -118,10 +120,31 @@ export const statisticsHandlers = [
     return HttpResponse.json(body);
   }),
 
-  http.get('/api/statistics/facility-type-heatmap', () => {
+  http.get('/api/statistics/facility-type-heatmap', ({ request }) => {
+    const url = new URL(request.url);
+    const period = url.searchParams.get('period');
+    const facilityId = url.searchParams.get('facilityId');
+
+    let heatmap = [...mockFacilityTypeHeatmap];
+
+    if (period === '3m') {
+      const months = [...new Set(heatmap.map((cell) => cell.month))].sort().slice(-3);
+      heatmap = heatmap.filter((cell) => months.includes(cell.month));
+    }
+
+    if (facilityId && facilityId !== 'all') {
+      const facility = mockFacilitySummary.find((f) => String(f.facilityId) === facilityId);
+      // facilityType은 "건물-정기-4개월" 같은 원본 복합 문자열(파싱 전) — 히트맵 카테고리는
+      // 접두어만 쓰므로(PRD §3.3, 실 API는 이 파싱을 백엔드가 수행) mock에서만 접두어를 비교한다.
+      const category = facility?.facilityType.split('-')[0];
+      if (category) {
+        heatmap = heatmap.filter((cell) => cell.facilityTypeCategory === category);
+      }
+    }
+
     const body: ApiResponse<FacilityTypeMonthlyHeatmapCell[]> = {
       success: true,
-      data: mockFacilityTypeHeatmap,
+      data: heatmap,
     };
     return HttpResponse.json(body);
   }),

@@ -41,8 +41,8 @@ export interface GradeDistributionItem {
 }
 
 // "시설물군별" 히트맵(시설물 유형 × 월별) — PRD §3.2 C안 확정 스펙.
-// facilityTypeCategory는 facilities.type 원본 복합 문자열("건물-정기-4개월")의 접두어만 취한 것
-// (utils/parseFacilityTypeCategory.ts 참고). 라벨 카피("시설물군별" 등)는 확정 전 — PRD §3.2.
+// facilityTypeCategory는 facilities.type 원본 복합 문자열("건물-정기-4개월")의 접두어만 취한 것이며,
+// 이 파싱은 백엔드가 수행해 API 응답에 카테고리로만 내려준다(PRD §3.3). 라벨 카피("시설물군별" 등)는 확정 전.
 export type FacilityTypeCategory = '건물' | '교량' | '도로' | '기타';
 
 export interface FacilityTypeMonthlyHeatmapCell {
