@@ -40,11 +40,16 @@ function renderPage(): void {
 }
 
 describe('PlatformAdminMonitoringPage (통합 테스트)', () => {
+  // #848 — 이 페이지의 카드·테이블 컨테이너(각 TEST_ID)는 로딩·에러·성공 어느 상태든 항상 렌더된다
+  // (ServerHealthCards는 로딩 중 items=[]로 빈 grid를, ServerResourceCard/테이블류는 "불러오는
+  // 중..." 상태 노드를 그 자리에 둔다). findByTestId는 그 즉시(로딩 중에도) resolve되므로, 뒤이은
+  // 값 검증은 실제 데이터 텍스트가 나타날 때까지 find*로 기다려야 한다 — 그렇지 않으면 데이터 도착
+  // 전 스냅샷에서 동기 단언이 실행되는 레이스가 생긴다.
   it('서버 상태 카드 3종을 렌더링한다', async () => {
     renderPage();
 
     const cards = within(await screen.findByTestId(SERVER_HEALTH_TEST_ID));
-    expect(cards.getByText('API 서버')).toBeTruthy();
+    expect(await cards.findByText('API 서버')).toBeTruthy();
     expect(cards.getByText('AI 분석 서버')).toBeTruthy();
     expect(cards.getByText('DB')).toBeTruthy();
     expect(cards.getAllByText('정상').length).toBe(3);
@@ -55,7 +60,7 @@ describe('PlatformAdminMonitoringPage (통합 테스트)', () => {
     renderPage();
 
     const queue = within(await screen.findByTestId(JOB_QUEUE_TEST_ID));
-    expect(queue.getByText('진행 2')).toBeTruthy();
+    expect(await queue.findByText('진행 2')).toBeTruthy();
     expect(queue.getByText('완료 148')).toBeTruthy();
     expect(queue.getByText('실패 1')).toBeTruthy();
     expect(queue.getByText('J-8892')).toBeTruthy();
@@ -66,7 +71,7 @@ describe('PlatformAdminMonitoringPage (통합 테스트)', () => {
     renderPage();
 
     const card = within(await screen.findByTestId(SERVER_RESOURCE_TEST_ID));
-    expect(card.getByText('CPU')).toBeTruthy();
+    expect(await card.findByText('CPU')).toBeTruthy();
     expect(card.getByText('메모리(JVM 힙)')).toBeTruthy();
     expect(card.getByText('디스크')).toBeTruthy();
     expect(card.getByText('42.5%')).toBeTruthy();
@@ -77,9 +82,9 @@ describe('PlatformAdminMonitoringPage (통합 테스트)', () => {
 
     const table = within(await screen.findByTestId(ERROR_LOG_TABLE_TEST_ID));
     expect(screen.getByLabelText<HTMLInputElement>('날짜 검색').value).toBe('');
+    expect(await table.findByText('worker-queue')).toBeTruthy();
     expect(table.getAllByText('ERROR').length).toBe(2);
     expect(table.getAllByText('WARN').length).toBe(3);
-    expect(table.getByText('worker-queue')).toBeTruthy();
     // 전날(2023-10-23) 로그도 기본 화면에서 바로 노출돼야 한다(과거 '오늘' 기본값 회귀 방지)
     expect(table.getByText('daily-cron')).toBeTruthy();
   });
@@ -125,6 +130,9 @@ describe('PlatformAdminMonitoringPage (통합 테스트)', () => {
     );
     renderPage();
 
-    expect(await screen.findByRole('alert')).toBeTruthy();
+    // isError가 되면 페이지 상단 배너뿐 아니라 ServerResourceCard·ErrorLogTable도 각자
+    // role="alert"를 렌더해(각 위젯이 자기 영역 에러를 스스로 안내하는 설계) alert가 여러 개가
+    // 된다 — findByRole('alert') 단수 매칭은 실패하므로, 페이지 상단 배너 문구로 특정해 기다린다.
+    expect(await screen.findByText('시스템 모니터링 정보를 불러오지 못했습니다.', { exact: false })).toBeTruthy();
   });
 });
