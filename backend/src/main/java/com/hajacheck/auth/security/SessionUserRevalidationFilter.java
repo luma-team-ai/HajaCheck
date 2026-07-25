@@ -45,6 +45,10 @@ public class SessionUserRevalidationFilter extends OncePerRequestFilter {
     // permitAll 목록(SecurityConfig)에 있어도 이 필터 단계에서 먼저 막힌다.
     private static final String USERS_ME_PATH = "/api/users/me";
     private static final String INVITE_CODE_REDEEM_PATH = "/api/users/me/invite-code";
+    // PR머신 리뷰 P2 — 로그아웃이 빠져 있으면 WAITING 사용자가 코드 입력 전까지 세션에서 빠져나갈
+    // 방법이 없다(쿠키 수동 삭제 외 탈출 불가). AuthController.logout은 permitAll이지만 이 필터가
+    // permitAll보다 먼저 걸리므로 여기서도 명시적으로 열어야 한다.
+    private static final String LOGOUT_PATH = "/api/auth/logout";
 
     private final UserRepository userRepository;
     private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
@@ -93,13 +97,15 @@ public class SessionUserRevalidationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    // GET /api/users/me(내 상태 확인) · POST /api/users/me/invite-code(redeem)만 예외 — 그 밖은 메서드까지
-    // 정확히 일치해야 통과한다(예: DELETE /api/users/me 같은 미래 확장이 이 예외를 우연히 타지 않도록).
+    // GET /api/users/me(내 상태 확인) · POST /api/users/me/invite-code(redeem) · POST /api/auth/logout만
+    // 예외 — 그 밖은 메서드까지 정확히 일치해야 통과한다(예: DELETE /api/users/me 같은 미래 확장이 이
+    // 예외를 우연히 타지 않도록).
     private boolean isWaitingAllowedRequest(HttpServletRequest request) {
         String uri = request.getRequestURI();
         String method = request.getMethod();
         return ("GET".equals(method) && USERS_ME_PATH.equals(uri))
-                || ("POST".equals(method) && INVITE_CODE_REDEEM_PATH.equals(uri));
+                || ("POST".equals(method) && INVITE_CODE_REDEEM_PATH.equals(uri))
+                || ("POST".equals(method) && LOGOUT_PATH.equals(uri));
     }
 
     private void writeWaitingBlockedResponse(HttpServletResponse response) throws IOException {

@@ -3,33 +3,37 @@ package com.hajacheck.invitecode.service;
 import com.hajacheck.auth.config.AuthProperties;
 import com.hajacheck.auth.dto.UserResponse;
 import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.invitecode.dto.InviteCodeIssueResponse;
 import com.hajacheck.invitecode.support.InviteCodeGenerator;
-import com.hajacheck.invitecode.support.InviteCodeKeys;
+import com.hajacheck.invitecode.support.InviteCodeStore;
 import java.time.Duration;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 사용자 초대 코드(#794) — 기업 관리자가 발급(회사 스코프) → WAITING 상태 소셜 가입 계정이 redeem해
- * company_id 배선 + ACTIVE 전환. 코드 자체는 Redis에만 존재하는 1회용·TTL 180초 값이라 DB 테이블을 두지 않는다.
+ * company_id 배선 + ACTIVE 전환. 코드 자체는 InviteCodeStore(Redis)에만 존재하는 1회용·TTL 180초 값이라
+ * DB 테이블을 두지 않는다. StringRedisTemplate을 직접 쓰지 않고 InviteCodeStore 인터페이스를 통해서만
+ * 접근한다 — test 프로파일은 RedisAutoConfiguration을 제외해 StringRedisTemplate 빈이 없기 때문
+ * (TokenStore와 동일한 이유, InMemoryInviteCodeStore가 test 프로파일에서 대체).
  */
 @Service
 @RequiredArgsConstructor
 public class InviteCodeService {
 
     // SecureRandom 6자리 코드는 충돌 확률이 극히 낮지만(31^6 ≈ 8.8억), 동시 발급이 겹칠 가능성에 대비해
-    // setIfAbsent(SETNX)로 원자적 선점 후 실패하면 재시도한다 — 한 회사의 코드를 다른 회사가 덮어쓰는 것을 방지.
+    // issueIfAbsent(SETNX)로 원자적 선점 후 실패하면 재시도한다 — 한 회사의 코드를 다른 회사가 덮어쓰는 것을 방지.
     private static final int MAX_ISSUE_ATTEMPTS = 5;
 
-    private final StringRedisTemplate redisTemplate;
+    private final InviteCodeStore inviteCodeStore;
     private final UserRepository userRepository;
+    private final CompanyRepository companyRepository;
     private final AuthService authService;
     private final AuthProperties authProperties;
 
@@ -40,9 +44,7 @@ public class InviteCodeService {
 
         for (int attempt = 0; attempt < MAX_ISSUE_ATTEMPTS; attempt++) {
             String code = InviteCodeGenerator.generate();
-            Boolean stored = redisTemplate.opsForValue()
-                    .setIfAbsent(InviteCodeKeys.key(code), String.valueOf(companyId), ttl);
-            if (Boolean.TRUE.equals(stored)) {
+            if (inviteCodeStore.issueIfAbsent(code, String.valueOf(companyId), ttl)) {
                 return new InviteCodeIssueResponse(code, ttl.toSeconds());
             }
         }
@@ -56,11 +58,9 @@ public class InviteCodeService {
      */
     public void revoke(String code, Long companyId) {
         requireCompanyId(companyId);
-        String key = InviteCodeKeys.key(code);
-        String storedCompanyId = redisTemplate.opsForValue().get(key);
-        if (storedCompanyId != null && storedCompanyId.equals(String.valueOf(companyId))) {
-            redisTemplate.delete(key);
-        }
+        inviteCodeStore.peek(code)
+                .filter(storedCompanyId -> storedCompanyId.equals(String.valueOf(companyId)))
+                .ifPresent(storedCompanyId -> inviteCodeStore.delete(code));
     }
 
     /** redeem — WAITING 상태 사용자가 코드를 입력해 회사 소속으로 전환한다. */
@@ -69,16 +69,25 @@ public class InviteCodeService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
-        // getAndDelete: 조회와 삭제를 한 번에 — 동시에 같은 코드가 두 번 redeem되는 경합에서 한쪽만 성공한다
+        // Redis 코드를 소비하기 *전에* WAITING 여부부터 확인한다(PR머신 리뷰 P2). 순서를 바꾸면 이미
+        // ACTIVE인 계정의 redeem 시도(실수/악의 모두)가 상태전이 예외를 맞기 전에 코드를 태워버려,
+        // 그 코드를 받은 정당한 WAITING 사용자가 못 쓰게 된다(griefing) — DB 커밋 실패 시에도 코드만
+        // 소실되고 사용자는 재발급 전까지 WAITING에 갇힌다.
+        user.requireWaiting();
+
+        // consumeIfPresent: 조회와 삭제를 한 번에 — 동시에 같은 코드가 두 번 redeem되는 경합에서 한쪽만 성공한다
         // (RedisTokenStore.consume과 동일 원자성 패턴).
-        String storedCompanyId = redisTemplate.opsForValue().getAndDelete(InviteCodeKeys.key(code));
-        if (storedCompanyId == null) {
+        String storedCompanyId = inviteCodeStore.consumeIfPresent(code)
+                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVITE_CODE_INVALID));
+
+        Long companyId = Long.valueOf(storedCompanyId);
+        // 발급 시점엔 존재하던 회사가 redeem 시점(최대 TTL만큼 지연)엔 삭제됐을 수 있다(PR머신 리뷰 P2
+        // 추가 지적) — 코드 자체의 유효성과 동일한 통일 응답으로 처리해 회사 존재 여부를 열거하지 않는다.
+        if (!companyRepository.existsById(companyId)) {
             throw new BusinessException(ErrorCode.AUTH_INVITE_CODE_INVALID);
         }
 
-        // WAITING이 아닌 계정(이미 ACTIVE 등)의 redeem 시도는 User.activateWithInviteCode의 상태 전이
-        // 가드(DomainStateTransitionException → 409)가 막는다.
-        user.activateWithInviteCode(Long.valueOf(storedCompanyId));
+        user.activateWithInviteCode(companyId);
         return authService.getMe(userId);
     }
 

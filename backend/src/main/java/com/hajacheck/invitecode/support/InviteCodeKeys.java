@@ -21,7 +21,8 @@ public final class InviteCodeKeys {
         return PREFIX + canonicalize(code);
     }
 
-    private static String canonicalize(String code) {
+    /** Redis 키 조립뿐 아니라 InMemoryInviteCodeStore(test fake)도 동일 정규화를 쓰기 위해 공개한다. */
+    public static String canonicalize(String code) {
         return code.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
     }
 }

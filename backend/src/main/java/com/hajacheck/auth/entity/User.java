@@ -185,14 +185,24 @@ public class User extends BaseTimeEntity {
     }
 
     /**
-     * 초대 코드 redeem(#794) — WAITING 상태에서만 허용. 회사 소속 배선 + ACTIVE 전환을 한 번에 수행한다.
-     * 이미 ACTIVE/SUSPENDED인 계정이 재요청(예: 만료 전 재전송된 코드)하면 상태 전이 가드로 막는다.
+     * 초대 코드 redeem(#794) 가드 — WAITING이 아니면 던진다. InviteCodeService가 Redis 코드를 소비하기
+     * *전에* 먼저 호출한다(PR머신 리뷰 P2) — activateWithInviteCode 내부에서만 검사하면, 이미 ACTIVE인
+     * 계정의 redeem 시도가 이 예외를 맞기 전에 코드가 이미 소비돼 정당한 WAITING 사용자의 코드를
+     * 태워버릴 수 있다(griefing) + DB 커밋 실패 시 코드만 날아가고 사용자는 WAITING에 갇힌다.
      */
-    public void activateWithInviteCode(Long companyId) {
+    public void requireWaiting() {
         if (this.status != UserStatus.WAITING) {
             throw new DomainStateTransitionException(
                     "초대 코드 적용 불가: 현재 상태=%s".formatted(this.status));
         }
+    }
+
+    /**
+     * 초대 코드 redeem(#794) — WAITING 상태에서만 허용. 회사 소속 배선 + ACTIVE 전환을 한 번에 수행한다.
+     * requireWaiting()을 다시 호출해 호출부가 사전 검사를 빠뜨렸어도 불변식이 깨지지 않게 방어한다.
+     */
+    public void activateWithInviteCode(Long companyId) {
+        requireWaiting();
         this.companyId = companyId;
         this.status = UserStatus.ACTIVE;
     }
