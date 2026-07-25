@@ -58,7 +58,7 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 - **[프론트엔드] 시설물 목록/등록 사이드바 href 불일치 수정 (→ dev, 2026-07-21)** — **#473**(이슈 #472). `SideNavBar` href(`/facilities/list`)와 실 라우트(`/facilities`, 셸 밖)가 어긋나 항상 "미구현" 오표시. `FacilityListPage`를 `AppShellRoute` 안 `/facilities/list`로 이동. **동일 패턴이 대시보드 AI 주간 브리핑 카드에도 있었음 → 이슈 #478/PR #480으로 해소 완료**.
 - **[백엔드] 알림센터 FE 헤더 벨 연동 (HAJA-293 → dev, 2026-07-21)** — **#471**(이슈 #468). `GET /api/notifications` 컨테이너, `NotificationDropdown` shared 재사용.
 - **[백엔드] 알림 읽음처리 API (HAJA-274 → dev, 2026-07-21)** — **#470**(이슈 #426). `PATCH /api/notifications/{id}/read`.
-- **[백엔드] 대시보드 다가오는 점검 조회 API (HAJA-292·dev-03-02 → dev, 2026-07-21)** — **#469**(이슈 #464, `awaiting-promotion`). `GET /api/dashboard/upcoming-inspections`(days/limit 쿼리, nextInspectionDueAt 오름차순). **⚠️ 프론트 위젯 미연동 — 사이드바 "다음 점검일 도래" 메뉴는 아직 미구현 화면**(아래 다음 작업 참조).
+- **[백엔드] 대시보드 다가오는 점검 조회 API (HAJA-292·dev-03-02 → dev, 2026-07-21)** — **#469**(이슈 #464, `awaiting-promotion`). `GET /api/dashboard/upcoming-inspections`(days/limit 쿼리, nextInspectionDueAt 오름차순). **프론트 연동은 PR #551(2026-07-22 dev 머지)로 완료** — 남은 건 표시 기준 스펙 확정(#750).
 - **[프론트엔드] Recharts 차트 타입별 얇은 래퍼 컴포넌트 공용화 (HAJA-249 → dev, 2026-07-21)** — **#413**.
 - **[프론트엔드] 점검주기 화면 fidelity 개선 + #462 P2 후속 (HAJA-289·dev-04-03 → dev, 2026-07-21)** — **#465**. D-42·전체너비 fidelity, cycleType 동기화·저장 예외·데모 env가드.
 - **[백엔드] 보고서 영속화 — 초안 생성/조회/수정/확정 + PDF 저장 (→ dev, 2026-07-20)** — **#455**(이슈 #446). P2 후속 이슈 #463 분리(PR머신).
@@ -131,8 +131,8 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
   - [x] **[프론트엔드]** 시설물 목록/등록 — #473로 해소 완료
   - [x] **[프론트엔드]** 알림센터 벨 재클릭 가드 — #476으로 해소 완료(이슈 #474)
   - [x] **[프론트엔드]** 대시보드 AI 주간 브리핑 카드 — **PR #480 머지·이슈 #478 종료로 해소 완료**(2026-07-25 실측)
-  - [ ] **[프론트엔드]** 대시보드 "다음 점검일 도래" — `/dashboard/upcoming-inspections` 진짜 미구현(위젯 자체가 없음). 백엔드 API는 #469로 이미 존재(`GET /api/dashboard/upcoming-inspections`) — 프론트 연동만 남음
-  - [ ] **[프론트엔드]** 시설물 관리 > 시설물 상세 — `/facilities/detail` 진짜 미구현(`FacilityDetailPage` 자체가 없음). 단, 백엔드 `GET /api/facilities/{id}` + 프론트 `facilityApi.getDetail(id)`는 이미 존재 — `DefectDetailPage`/`useDefect` 패턴 재사용해 화면·훅·라우트·화이트리스트만 추가하면 됨(스코프 작음)
+  - [x] **[프론트엔드]** 대시보드 "다음 점검일 도래" — **해소 완료**(2026-07-26 코드 실측). PR **#551**(2026-07-22 dev 머지)로 연동됨: `router.tsx:377-385` 라우트 · `UpcomingInspectionsPage.tsx` · `dashboardApi.ts:18-19` · `useUpcomingInspections.ts` · `implementedRoutes.ts:13` 화이트리스트 전부 존재. ⚠️ 남은 건 구현이 아니라 **스펙 확정** → **#750**(30일/5건 하드코딩에 PRD 근거 없음, 5건 초과분 열람 경로 부재 — 기획 판단 대기).
+  - [x] **[프론트엔드]** 시설물 관리 > 시설물 상세 — **해소 완료**(2026-07-26 코드 실측). `router.tsx:559-567`에 `/facilities/:id` → `FacilityDetailPage` 등록, `facilityApi.ts:11 getDetail(id)` 존재. `implementedRoutes.ts`에 없는 건 **의도된 설계**(동적 `:id` 패턴은 화이트리스트에 넣지 않음 — `implementedRoutes.ts:6-8` 주석)라 버그 아님. 사이드바가 가리키던 정적 경로 `/facilities/detail`은 #546에서 죽은 화이트리스트로 정리됨.
 - [x] **[백엔드] PR #372 (HAJA-26 하자 목록·상세 조회 API) — 해소 완료** (2026-07-22 dev 머지, 2026-07-25 실측 확인). 연계 이슈 **#445**("하자 상세 실 조회 미구현")도 CLOSED. 승격 배치 #602에 포함돼 프로덕션 반영됨.
 - **[보안] 신규 발견 — 이슈 #458 — 사업자등록증 정적 파일 무인가 노출 가능성**
   - [ ] 정적 파일 서빙(`@Profile("!prod")`)이 실제 운영 프로파일(docker)을 못 막고 있음 — 승격 전 확인 필요(security-reviewer 트리거 대상)
