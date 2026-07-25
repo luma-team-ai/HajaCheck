@@ -48,4 +48,21 @@ describe('InviteCodeInput', () => {
 
     expect(inputs.map((input) => input.value)).toEqual(['A', 'B', 'C', '1', '2', '3']);
   });
+
+  // #816 P2 회귀 방지 — 압축 문자열(join)을 매 렌더 6칸으로 재분해하던 이전 구현은, 가운데 칸을
+  // 지워 join 결과가 짧아지면 그 문자열을 슬롯에 다시 채우는 과정에서 뒤 칸 값이 왼쪽으로 밀렸다.
+  it('가운데 칸(index 2)을 채운 뒤 지우면 뒤 칸(index 3~5) 값이 이동하지 않는다', () => {
+    render(<Controlled />);
+    const inputs = getInputs();
+    'ABCDEF'.split('').forEach((char, index) => {
+      fireEvent.change(inputs[index], { target: { value: char } });
+    });
+    expect(inputs.map((input) => input.value)).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
+
+    // 3번째 칸(index 2, 'C')을 직접 지운다 — 백스페이스 가드(빈 칸에서만 이전 칸 이동)가 아니라
+    // 값이 있는 칸의 기본 삭제 경로(브라우저가 onChange('')를 발생)를 재현한다.
+    fireEvent.change(inputs[2], { target: { value: '' } });
+
+    expect(inputs.map((input) => input.value)).toEqual(['A', 'B', '', 'D', 'E', 'F']);
+  });
 });

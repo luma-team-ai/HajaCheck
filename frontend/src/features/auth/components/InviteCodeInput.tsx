@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useState, useRef } from 'react';
 import type { ClipboardEvent, KeyboardEvent } from 'react';
 
 const CODE_LENGTH = 6;
@@ -14,15 +14,27 @@ type Props = {
 };
 
 // 발급받은 6자리 초대 코드를 한 칸씩 입력하는 컴포넌트(HAJA, #799) — 코드 형식(영문/숫자 여부)은
-// 발급 측(#794, 백엔드 미구현)이 아직 확정 전이라 우선 영문 대문자+숫자를 모두 허용한다.
+// 발급 측(#794)이 영문 대문자+숫자를 모두 허용하므로 그대로 맞춘다.
 export function InviteCodeInput({ value, onChange, hasError = false, disabled = false }: Props) {
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
-  const digits = Array.from({ length: CODE_LENGTH }, (_, index) => value[index] ?? '');
+  // 슬롯별 문자를 컴포넌트 내부 상태(고정 길이 6 배열)로 유지한다(#816 P2 후속) — 매 렌더마다
+  // 압축된 value prop(join된 문자열)을 6칸으로 재분해하면, 중간 칸을 지워 join 결과가 짧아졌을 때
+  // 그 압축 문자열을 되풀이해 슬롯에 다시 채우는 과정에서 뒤 칸 값들이 왼쪽으로 밀린다
+  // (예: 'ABCDEF'에서 3번째 칸만 지우면 'ABDEF' → 재분해 시 D가 3번째 칸으로 당겨져 표시됨).
+  // 빈 칸의 "위치"는 압축 문자열만으로 복원할 수 없으므로 위치 정보 자체를 상태로 들고 있는다.
+  const [digits, setDigits] = useState<string[]>(() =>
+    Array.from({ length: CODE_LENGTH }, (_, index) => value[index] ?? ''),
+  );
+
+  const commit = (next: string[]) => {
+    setDigits(next);
+    onChange(next.join(''));
+  };
 
   const setDigitAt = (index: number, char: string) => {
     const next = digits.slice();
     next[index] = char;
-    onChange(next.join('').replace(/\s+$/, ''));
+    commit(next);
   };
 
   const handleChange = (index: number, rawInput: string) => {
@@ -54,7 +66,8 @@ export function InviteCodeInput({ value, onChange, hasError = false, disabled = 
       .slice(0, CODE_LENGTH);
     if (!pasted) return;
 
-    onChange(pasted);
+    const next = Array.from({ length: CODE_LENGTH }, (_, index) => pasted[index] ?? '');
+    commit(next);
     const focusIndex = Math.min(pasted.length, CODE_LENGTH - 1);
     inputRefs.current[focusIndex]?.focus();
   };
