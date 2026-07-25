@@ -11,7 +11,7 @@ type Props = {
 // kpi-col 반응형(1100px/720px 데스크톱 우선 breakpoint)·형제 순서 기반 보더 규칙은
 // Tailwind 임의 variant(max-[…]:, first:/last:, [&:nth-child(2)])로 그대로 이식.
 const KPI_COL_CLASS =
-  `pl-7 pr-7 border-r ${DASHBOARD_COLOR_CLASS.kpiDividerBorder} first:pl-1 last:pr-1 last:border-r-0 ` +
+  `pl-7 pr-7 border-r ${DASHBOARD_COLOR_CLASS.kpiDividerBorder} first:pl-4 last:pr-1 last:border-r-0 ` +
   `max-[1100px]:px-5 max-[1100px]:py-3 max-[1100px]:border-b ${DASHBOARD_COLOR_CLASS.dividerBorderBottomNarrow} ` +
   'max-[1100px]:[&:nth-child(2)]:border-r-0 max-[720px]:border-r-0';
 
@@ -27,7 +27,7 @@ export function KpiCard({ label, value, changeRate, hasAlertDot = false }: Props
   return (
     // Figma 시안 폰트 비율 재정합(2026-07-24, 원본 대조): 라벨=text-sm/font-medium,
     // 수치=text-5xl(숫자만)+단위 text-xl 별도, 증감율 배지=text-sm/font-normal.
-    <div className={`${KPI_COL_CLASS} flex flex-col gap-2`}>
+    <div className={`${KPI_COL_CLASS} flex flex-col gap-1`}>
       <div className="flex items-center gap-1.5">
         {hasAlertDot && (
           <span

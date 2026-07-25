@@ -4,14 +4,17 @@ import { useRecentInspections } from '../hooks/useRecentInspections';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { StatusBadge } from './StatusBadge';
 
+// Figma 재대조(2026-07-24): 헤더 배경을 회색(#f6f7f9)에서 행 hover와 동일한 연보라 rose(#f8f2fa)로 통일 —
+// colors.ts rowSelectedBg와 같은 값을 재사용해 "헤더 기본색 = 행 호버색"을 단일 소스로 보장.
+// 헤더 폰트는 표 본문(text-[10px], 13px의 75%)보다 더 작게(text-[9px], 13px의 70%).
 const TH_BASE_CLASS =
-  `text-left ${DASHBOARD_COLOR_CLASS.labelText} font-semibold py-2.75 px-3 bg-[#f6f7f9] border-b border-[#eee] whitespace-nowrap`;
-const TD_CLASS = 'p-3 border-b border-[#f4f4f4] whitespace-nowrap';
+  `text-left text-[9px] ${DASHBOARD_COLOR_CLASS.labelText} font-semibold py-2.75 px-3 ${DASHBOARD_COLOR_CLASS.rowSelectedBg} border-b border-[#eee] whitespace-nowrap`;
+const TD_CLASS = 'p-3 text-[10px] border-b border-[#f4f4f4] whitespace-nowrap';
 
 // 행 인터랙션(HAJA-17) — 클릭/Enter/Space로 선택, 키보드 포커스 가시화. 색은 colors.ts 단일 관리.
 const ROW_BASE_CLASS = `cursor-pointer transition-colors ${DASHBOARD_COLOR_CLASS.rowFocusOutline}`;
-// 미선택 행: zebra 줄무늬 + hover 강조. 선택 행: rose 배경(줄무늬 미적용 — even:bg가 nth-child 특이도로 이겨서 제외).
-const ROW_UNSELECTED_CLASS = `even:bg-[#fafbfc] ${DASHBOARD_COLOR_CLASS.rowHoverBg}`;
+// Figma 재대조(2026-07-24): zebra 회색 줄무늬(#fafbfc) 제거 — 미선택 행은 전부 흰색, hover에서만 강조.
+const ROW_UNSELECTED_CLASS = DASHBOARD_COLOR_CLASS.rowHoverBg;
 const ROW_SELECTED_CLASS = DASHBOARD_COLOR_CLASS.rowSelectedBg;
 
 export function RecentInspectionsTable() {
