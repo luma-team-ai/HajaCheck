@@ -99,7 +99,10 @@ export function exportStatisticsToCsv(data: ExportStatisticsDataParams): void {
     .map((row) =>
       row
         .map((cell) => {
-          const str = String(cell ?? '');
+          const raw = String(cell ?? '');
+          // 시설물명 등 사용자 입력값이 CSV로 그대로 나가므로, Excel 등이 셀을 수식으로 해석하지
+          // 않도록 =/+/-/@로 시작하는 값은 앞에 작은따옴표를 붙여 무력화한다(CSV formula injection).
+          const str = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
           if (str.includes(',') || str.includes('"') || str.includes('\n')) {
             return `"${str.replace(/"/g, '""')}"`;
           }
