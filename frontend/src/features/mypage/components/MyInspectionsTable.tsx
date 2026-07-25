@@ -3,6 +3,7 @@ import { Table } from '../../../shared/components/Table/Table';
 import { TableFooterPagination } from '../../../shared/components/TableFooterPagination/TableFooterPagination';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import type { InspectionHistoryRow } from '../types';
+import { formatInspectionDate, formatRoundLabel } from '../utils/myInspectionsFormat';
 import { InspectionRoleBadge } from './InspectionRoleBadge';
 import { InspectionStatusBadge } from './InspectionStatusBadge';
 
@@ -22,8 +23,16 @@ type Props = {
 // 렌더해 클릭이 아무 동작도 하지 않음을 명확히 한다.
 const COLUMNS: TableColumn<InspectionHistoryRow>[] = [
   { key: 'facilityName', header: '시설물' },
-  { key: 'round', header: '회차' },
-  { key: 'inspectedAt', header: '점검일' },
+  {
+    key: 'roundNo',
+    header: '회차',
+    render: (row) => formatRoundLabel(row.inspectionDate, row.roundNo),
+  },
+  {
+    key: 'inspectionDate',
+    header: '점검일',
+    render: (row) => formatInspectionDate(row.inspectionDate),
+  },
   { key: 'role', header: '내 역할', render: (row) => <InspectionRoleBadge role={row.role} /> },
   { key: 'defectCount', header: '하자 수', render: (row) => `${row.defectCount}건` },
   { key: 'status', header: '상태', render: (row) => <InspectionStatusBadge status={row.status} /> },
