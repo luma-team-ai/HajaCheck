@@ -189,22 +189,21 @@ export function ResultViewerPage() {
     ? filterDefects(data.defects, confidenceThreshold, gradeFilter)
     : [];
 
-  // ponytail: mediaId별 그룹핑 — 각 이미지의 고유 mediaId와 해당 imageUrl 추출
+  // ponytail: mediaId별 그룹핑 — 각 이미지의 고유 mediaId와 해당 imageUrl 추출.
+  // 수동 추가 하자(mediaId=null)는 애초에 특정 이미지에 결부되지 않는 API 설계라(#784) 이미지
+  // 순회 대상에서 제외한다 — 넣으면 "다음 이미지"가 이미지 없는 깨진 화면으로 넘어가 버림.
+  // 뷰어에서 수동 추가 하자를 어떻게 노출할지는 팀 판단 대기(#784).
   const mediaGroups = useMemo(() => {
-    const groups = new Map<number | null, { mediaId: number | null; imageUrl: string | null; defects: typeof visibleDefects }>();
+    const groups = new Map<number, { mediaId: number; imageUrl: string | null; defects: typeof visibleDefects }>();
     for (const defect of visibleDefects) {
-      const mId = defect.mediaId ?? null;
+      if (defect.mediaId == null) continue;
+      const mId = defect.mediaId;
       if (!groups.has(mId)) {
         groups.set(mId, { mediaId: mId, imageUrl: defect.imageUrl ?? null, defects: [] });
       }
       groups.get(mId)?.defects.push(defect);
     }
-    // 정렬: null(수동 추가) 마지막, 그 외는 mediaId 순
-    return Array.from(groups.values()).sort((a, b) => {
-      if (a.mediaId === null) return 1;
-      if (b.mediaId === null) return -1;
-      return (a.mediaId ?? 0) - (b.mediaId ?? 0);
-    });
+    return Array.from(groups.values()).sort((a, b) => a.mediaId - b.mediaId);
   }, [visibleDefects]);
 
   // 현재 선택된 media(또는 첫 번째 media)
