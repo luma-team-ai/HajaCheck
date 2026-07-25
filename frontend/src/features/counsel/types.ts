@@ -29,6 +29,30 @@ export interface CounselTicketSummaryResponse {
   createdAt: string; // ISO LocalDateTime
 }
 
+// GET /api/counsel/scenarios/roots, 자식 버튼 목록 — 시나리오 버튼(노드) 요약
+export interface BotScenarioButtonResponse {
+  id: number;
+  category: string;
+  buttonLabel: string;
+  leadsToCounselor: boolean;
+}
+
+// GET /api/counsel/scenarios/{id} 응답 — 노드 상세(응답 텍스트 + 자식 버튼)
+export interface BotScenarioNodeResponse {
+  id: number;
+  parentId: number | null;
+  category: string;
+  buttonLabel: string;
+  responseText: string | null;
+  leadsToCounselor: boolean;
+  children: BotScenarioButtonResponse[];
+}
+
+// POST /api/counsel/tickets 요청
+export interface CounselTicketCreateRequest {
+  scenarioId: number;
+}
+
 export type ChatMessageSender = 'USER' | 'COUNSELOR' | 'BOT';
 
 // GET /api/counsel/tickets/{id}/messages 응답 항목

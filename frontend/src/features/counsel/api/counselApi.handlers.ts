@@ -1,5 +1,9 @@
 import { http, HttpResponse } from 'msw';
-import type { ChatMessageResponse, CounselTicketSummaryResponse } from '../types';
+import type {
+  BotScenarioButtonResponse,
+  ChatMessageResponse,
+  CounselTicketSummaryResponse,
+} from '../types';
 
 export const mockTickets: CounselTicketSummaryResponse[] = [
   {
@@ -48,7 +52,46 @@ export const mockMessages: ChatMessageResponse[] = [
   },
 ];
 
+export const mockScenarioRoots: BotScenarioButtonResponse[] = [
+  { id: 10, category: 'INSPECTION_REPORT', buttonLabel: '점검 결과서 관련', leadsToCounselor: false },
+  { id: 20, category: 'ACCOUNT_BILLING', buttonLabel: '계정 및 결제', leadsToCounselor: false },
+];
+
+export const mockCounselorLeaf: BotScenarioButtonResponse = {
+  id: 11,
+  category: 'INSPECTION_REPORT',
+  buttonLabel: '상담원 연결',
+  leadsToCounselor: true,
+};
+
 export const counselHandlers = [
+  http.get('/api/counsel/scenarios/roots', () =>
+    HttpResponse.json({ success: true, data: mockScenarioRoots }),
+  ),
+  http.get('/api/counsel/scenarios/:id', ({ params }) => {
+    const id = Number(params.id);
+    if (id === 10) {
+      return HttpResponse.json({
+        success: true,
+        data: {
+          id: 10,
+          parentId: null,
+          category: 'INSPECTION_REPORT',
+          buttonLabel: '점검 결과서 관련',
+          responseText: null,
+          leadsToCounselor: false,
+          children: [mockCounselorLeaf],
+        },
+      });
+    }
+    return HttpResponse.json(
+      { success: false, error: { code: 'COUNSEL_SCENARIO_NOT_FOUND', message: '상담 시나리오를 찾을 수 없습니다.' } },
+      { status: 404 },
+    );
+  }),
+  http.post('/api/counsel/tickets', () =>
+    HttpResponse.json({ success: true, data: { ...mockTickets[0], queuePosition: 2 } }),
+  ),
   http.get('/api/counsel/tickets/mine', ({ request }) => {
     const url = new URL(request.url);
     const status = url.searchParams.get('status');

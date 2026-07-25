@@ -1,7 +1,10 @@
 import { api } from '../../../shared/api/axios';
 import type { PageResponse } from '../../../shared/api/types';
 import type {
+  BotScenarioButtonResponse,
+  BotScenarioNodeResponse,
   ChatMessageResponse,
+  CounselTicketCreateRequest,
   CounselTicketListFilters,
   CounselTicketSummaryResponse,
 } from '../types';
@@ -12,6 +15,13 @@ export const counselApi = {
     api.get<PageResponse<CounselTicketSummaryResponse>>('/counsel/tickets/mine', {
       params: filters,
     }),
+  // GET /api/counsel/scenarios/roots — 챗봇 첫 화면 최상위 버튼 목록
+  getScenarioRoots: () => api.get<BotScenarioButtonResponse[]>('/counsel/scenarios/roots'),
+  // GET /api/counsel/scenarios/{id} — 노드 응답 텍스트 + 자식 버튼
+  getScenarioNode: (id: number) => api.get<BotScenarioNodeResponse>(`/counsel/scenarios/${id}`),
+  // POST /api/counsel/tickets — leadsToCounselor 리프에서 상담원 연결 요청(티켓 생성)
+  createTicket: (request: CounselTicketCreateRequest) =>
+    api.post<CounselTicketSummaryResponse>('/counsel/tickets', request),
   // GET /api/counsel/tickets/{id}/messages — 티켓 대화 전체 메시지
   getMessages: (ticketId: number) =>
     api.get<ChatMessageResponse[]>(`/counsel/tickets/${ticketId}/messages`),

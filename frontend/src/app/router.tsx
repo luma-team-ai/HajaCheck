@@ -249,6 +249,13 @@ const CounselHistoryPage = lazy(() =>
   })),
 );
 
+// 고객지원 > 상담 챗봇 (#20, HAJA-33)
+const ChatBotPage = lazy(() =>
+  import('../features/counsel/pages/ChatBotPage').then((m) => ({
+    default: m.ChatBotPage,
+  })),
+);
+
 const ChartShowcasePage = import.meta.env.DEV
   ? lazy(() =>
       import('../dev/charts/ChartShowcasePage').then((m) => ({
@@ -706,6 +713,18 @@ export const router = createBrowserRouter([
         handle: {
           breadcrumb: [{ label: '고객지원' }, { label: '내 상담 이력' }],
           activeHref: '/support/history',
+        },
+      }, // — features/counsel (#20, HAJA-33)
+      {
+        path: '/support/chat-bot',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <ChatBotPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '고객지원' }, { label: '상담 챗봇' }],
+          activeHref: '/support/chat-bot',
         },
       }, // — features/counsel (#20, HAJA-33)
     ],
