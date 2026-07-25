@@ -73,7 +73,7 @@ def test_run_defect_detection_chain_includes_area_ratio_in_result(monkeypatch):
     import torch
 
     class _FakeMasks:
-        """마스크 데이터를 시뮬레이션 — sum()이 전체 픽셀 1/4을 반환하는 마스크."""
+        """마스크 데이터를 시뮬레이션 — 전체 픽셀이 모두 마스크에 포함(area_ratio=1.0)."""
 
         def __init__(self):
             self.data = [torch.ones((100, 100), dtype=torch.bool)]  # 10,000개 픽셀 중 모두 True
@@ -117,7 +117,43 @@ def test_run_defect_detection_chain_includes_area_ratio_in_result(monkeypatch):
     assert detection.confidence == 0.95
     assert detection.grade == "E"  # area_ratio=1.0 → 면적 비율 100%는 E 등급
     assert detection.area_ratio == 1.0  # area_ratio 필드가 존재하고 1.0이어야 함
-    assert hasattr(detection, "area_ratio"), "DetectedDefect에 area_ratio 필드가 없음"
+
+
+def test_run_defect_detection_chain_area_ratio_fallback_to_bbox(monkeypatch):
+    """세그멘테이션 마스크가 없는 체크포인트(masks=None)에서는 bbox 면적을 근사치로 쓴다(이슈 #802)."""
+    import torch
+
+    class _FakeBoxes:
+        """탐지 1건: CRACK, bbox=[0.1, 0.2, 0.3, 0.4] → w=0.2, h=0.2 → area_ratio=0.04."""
+
+        def __init__(self):
+            self.xyxyn = torch.tensor([[0.1, 0.2, 0.3, 0.4]])
+            self.conf = torch.tensor([0.95])
+            self.cls = torch.tensor([0.0])
+
+        def __len__(self):
+            return len(self.xyxyn)
+
+    class _FakeResult:
+        names = {0: "균열"}
+        boxes = _FakeBoxes()
+        masks = None  # 비-seg 체크포인트
+
+    class _FakeModel:
+        names = {}
+
+        def predict(self, **_kwargs):
+            return [_FakeResult()]
+
+    monkeypatch.setattr(
+        "ai.chains.defect_detection_chain.get_yolo_model", lambda: _FakeModel()
+    )
+
+    detections = run_defect_detection_chain(_tiny_valid_png_base64())
+
+    assert len(detections) == 1
+    detection = detections[0]
+    assert detection.area_ratio == pytest.approx(0.2 * 0.2)
 
 
 def test_run_defect_detection_chain_serializes_concurrent_predict_calls(monkeypatch):
