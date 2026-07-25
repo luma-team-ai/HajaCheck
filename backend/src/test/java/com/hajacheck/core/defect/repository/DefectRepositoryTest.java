@@ -454,4 +454,48 @@ class DefectRepositoryTest extends PostgresTestSupport {
 
         assertThat(result).isEmpty();
     }
+
+    // ── 마이페이지 "내 보고서" gradeDots(#844) ──
+
+    @Test
+    void findDistinctGradesByInspectionIds_점검별로중복없이등급만반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionA = seedInspection(facilityId, ownerId, 1);
+        Long inspectionB = seedInspection(facilityId, ownerId, 2);
+        // A: E 등급 2건(중복 제거되어 E 1건만 반환돼야 함) + null 등급 1건(제외돼야 함)
+        defectRepository.save(newDefect(inspectionA, DefectGrade.E, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionA, DefectGrade.E, DefectStatus.RESOLVED, false));
+        defectRepository.save(newDefect(inspectionA, null, DefectStatus.DETECTED, false));
+        // 삭제된 하자는 등급이 있어도 제외
+        defectRepository.save(newDefect(inspectionA, DefectGrade.A, DefectStatus.DETECTED, true));
+        // B: C 등급 1건 — 다른 점검이라 A와 섞이면 안 된다
+        defectRepository.save(newDefect(inspectionB, DefectGrade.C, DefectStatus.DETECTED, false));
+
+        List<InspectionGradeProjection> result =
+                defectRepository.findDistinctGradesByInspectionIds(List.of(inspectionA, inspectionB));
+
+        assertThat(result).hasSize(2);
+        assertThat(result.stream()
+                .filter(p -> p.getInspectionId().equals(inspectionA))
+                .map(InspectionGradeProjection::getGrade))
+                .containsExactly(DefectGrade.E);
+        assertThat(result.stream()
+                .filter(p -> p.getInspectionId().equals(inspectionB))
+                .map(InspectionGradeProjection::getGrade))
+                .containsExactly(DefectGrade.C);
+    }
+
+    @Test
+    void findDistinctGradesByInspectionIds_대상점검없으면빈리스트() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+        defectRepository.save(newDefect(inspectionId, DefectGrade.B, DefectStatus.DETECTED, false));
+
+        List<InspectionGradeProjection> result =
+                defectRepository.findDistinctGradesByInspectionIds(List.of());
+
+        assertThat(result).isEmpty();
+    }
 }
