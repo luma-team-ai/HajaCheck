@@ -1,0 +1,121 @@
+package com.hajacheck.counsel.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.hajacheck.counsel.dto.ChatMessageResponse;
+import com.hajacheck.counsel.entity.ChatMessage;
+import com.hajacheck.counsel.entity.ChatSenderType;
+import com.hajacheck.counsel.entity.CounselTicket;
+import com.hajacheck.counsel.entity.CounselTicketStatus;
+import com.hajacheck.counsel.repository.ChatMessageRepository;
+import com.hajacheck.counsel.repository.CounselTicketRepository;
+import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
+
+/**
+ * CounselChatService 단위테스트 — 비진행 티켓/비참여자 발신 드롭, 참여자 발신 저장+브로드캐스트(#20/HAJA-33).
+ */
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
+class CounselChatServiceTest {
+
+    private static final Long TICKET_ID = 50L;
+    private static final Long SESSION_ID = 700L;
+    private static final Long USER_ID = 1L;
+    private static final Long COUNSELOR_ID = 9L;
+
+    @Mock
+    private CounselTicketRepository ticketRepository;
+    @Mock
+    private ChatMessageRepository chatMessageRepository;
+    @Mock
+    private SimpMessagingTemplate messagingTemplate;
+
+    private CounselChatService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new CounselChatService(ticketRepository, chatMessageRepository, messagingTemplate);
+    }
+
+    @Test
+    void 발신_사용자참여자_USER발신자로_저장및브로드캐스트() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.sendMessage(TICKET_ID, USER_ID, "안녕하세요");
+
+        ArgumentCaptor<ChatMessage> captor = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(chatMessageRepository).save(captor.capture());
+        assertThat(captor.getValue().getSender()).isEqualTo(ChatSenderType.USER);
+        assertThat(captor.getValue().getSessionId()).isEqualTo(SESSION_ID);
+        verify(messagingTemplate).convertAndSend(eq("/topic/counsel/" + TICKET_ID), any(ChatMessageResponse.class));
+    }
+
+    @Test
+    void 발신_상담원참여자_COUNSELOR발신자로_저장() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.sendMessage(TICKET_ID, COUNSELOR_ID, "무엇을 도와드릴까요");
+
+        ArgumentCaptor<ChatMessage> captor = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(chatMessageRepository).save(captor.capture());
+        assertThat(captor.getValue().getSender()).isEqualTo(ChatSenderType.COUNSELOR);
+    }
+
+    @Test
+    void 발신_비참여자_드롭() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+
+        service.sendMessage(TICKET_ID, 999L, "몰래 주입");
+
+        verify(chatMessageRepository, never()).save(any());
+        verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
+    }
+
+    @Test
+    void 발신_비진행티켓_드롭() {
+        CounselTicket waiting = inProgressTicket();
+        ReflectionTestUtils.setField(waiting, "status", CounselTicketStatus.WAITING);
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(waiting));
+
+        service.sendMessage(TICKET_ID, USER_ID, "아직 배정 전");
+
+        verify(chatMessageRepository, never()).save(any());
+        verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
+    }
+
+    @Test
+    void 발신_티켓없음_드롭() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.empty());
+
+        service.sendMessage(TICKET_ID, USER_ID, "없는 티켓");
+
+        verify(chatMessageRepository, never()).save(any());
+    }
+
+    private CounselTicket inProgressTicket() {
+        CounselTicket ticket = CounselTicket.request(USER_ID, 1);
+        ReflectionTestUtils.setField(ticket, "id", TICKET_ID);
+        ReflectionTestUtils.setField(ticket, "status", CounselTicketStatus.IN_PROGRESS);
+        ReflectionTestUtils.setField(ticket, "counselorId", COUNSELOR_ID);
+        ReflectionTestUtils.setField(ticket, "sessionId", SESSION_ID);
+        return ticket;
+    }
+}
