@@ -39,6 +39,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
@@ -411,6 +412,49 @@ class MediaServiceTest {
         }
 
         assertThat(maxInFlight.get()).isLessThanOrEqualTo(4);
+    }
+
+    @Test
+    void getDetailImage_레거시행_대기상한초과시_블로킹대신BUSY로즉시실패한다() throws Exception {
+        // PR머신 리뷰 P1 — 세마포어 permit이 없을 때 acquire()로 무기한 대기하면 요청 스레드(Tomcat
+        // 워커)가 계속 점유돼 전역 가용성 표면이 된다. tryAcquire(timeout) 초과 시 블로킹 대신
+        // MEDIA_DETAIL_GENERATION_BUSY(503)로 즉시 실패하는지 고정한다. 실제 대기 없이 분기만 검증하도록
+        // 대기 상한을 0으로 줄인 뒤(tryAcquire(0, ...) = permit 없으면 즉시 실패), permit 4개를 모두
+        // 다른 스레드가 붙잡고 있는 상태를 만든다.
+        ReflectionTestUtils.setField(service, "legacyDetailGenerationWaitSeconds", 0L);
+        when(properties.getDetailMaxDimension()).thenReturn(1600);
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        java.util.concurrent.CountDownLatch releaseLatch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch permitsHeldLatch = new java.util.concurrent.CountDownLatch(4);
+        when(fileStorage.read("inspection-media/x.png")).thenAnswer(invocation -> {
+            permitsHeldLatch.countDown();
+            releaseLatch.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            return realPngBytes(800, 600);
+        });
+
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(5);
+        try {
+            for (int i = 0; i < 4; i++) {
+                pool.submit(() -> service.getDetailImage(200L, 100L, 10L));
+            }
+            assertThat(permitsHeldLatch.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+            assertThatThrownBy(() -> service.getDetailImage(200L, 100L, 10L))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                            .isEqualTo(ErrorCode.MEDIA_DETAIL_GENERATION_BUSY));
+        } finally {
+            releaseLatch.countDown();
+            pool.shutdown();
+        }
     }
 
     @Test

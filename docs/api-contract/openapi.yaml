@@ -1575,6 +1575,13 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "503":
+          description: >
+            레거시(V13 이전) 행 즉석 생성 동시 처리 상한 초과(MEDIA_DETAIL_GENERATION_BUSY) — 잠시 후 재시도
+            (PR머신 리뷰 P1, #789).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
   /api/inspections/{id}/analyze:
     post:

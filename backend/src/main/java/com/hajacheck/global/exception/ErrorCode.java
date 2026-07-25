@@ -84,6 +84,10 @@ public enum ErrorCode {
     // 촬영 데이터(미디어) 업로드(dev-05-03)
     MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "미디어를 찾을 수 없습니다."),
     MEDIA_COUNT_EXCEEDED(HttpStatus.BAD_REQUEST, "한 번에 업로드할 수 있는 파일 수를 초과했습니다."),
+    // PR머신 리뷰 P1(#789) — 레거시 상세이미지 폴백 세마포어가 무기한 블로킹이면 permit 대기 스레드가
+    // Tomcat 워커를 점유해 전역 가용성 표면이 된다. tryAcquire(timeout) 초과 시 즉시 이 코드로 반환한다.
+    MEDIA_DETAIL_GENERATION_BUSY(HttpStatus.SERVICE_UNAVAILABLE,
+            "상세 이미지 생성 요청이 많아 잠시 후 다시 시도해 주세요."),
 
     // 상담(counsel)
     COUNSEL_SESSION_ASSIGNMENT_CONFLICT(HttpStatus.CONFLICT, "이미 상담 세션이 배정된 티켓입니다."),

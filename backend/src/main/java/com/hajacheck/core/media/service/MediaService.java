@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -53,6 +54,12 @@ public class MediaService {
     // PR머신 리뷰 P2). ponytail: 인스턴스 로컬 세마포어라 여러 앱 인스턴스 전체 합산은 상한×인스턴스수 —
     // 레거시 행이 시간이 지나면 자연 소멸하는 유한 집합이라 그 이상의 분산 제한(Redis 등)은 과함.
     private static final int MAX_CONCURRENT_LEGACY_DETAIL_GENERATION = 4;
+    // PR머신 리뷰 P1(#789) — permit이 없을 때 무기한 대기하면 요청 스레드(Tomcat 워커)가 계속 점유돼
+    // 레거시 행 대상 동시 요청 폭주 시 스레드풀 고갈로 번진다. 대기 상한을 두고 초과하면 즉시 503으로
+    // 반환해 워커 스레드를 붙잡지 않는다("거부 없는 완화"가 아니라 "상한부 대기 후 거부"로 전환).
+    // static final이 아닌 인스턴스 필드 — 테스트가 ReflectionTestUtils로 값을 줄여 5초 대기 없이
+    // BUSY 분기를 검증할 수 있게 한다(static final 상수는 컴파일 타임에 인라인되어 리플렉션으로 못 바꿈).
+    private long legacyDetailGenerationWaitSeconds = 5;
     private final Semaphore legacyDetailGenerationLimiter =
             new Semaphore(MAX_CONCURRENT_LEGACY_DETAIL_GENERATION);
 
@@ -202,8 +209,9 @@ public class MediaService {
      * PR머신 2라운드에 걸쳐 계속 지적됐다. 레거시 행은 시간이 지나면 자연히 사라지는 유한 집합(신규
      * 업로드는 전부 V13 경로로 처음부터 detailUrl을 가짐)이라 감수할 만한 트레이드오프로 판단.
      * 대신 {@link #legacyDetailGenerationLimiter}로 동시 재인코딩 수만 제한한다 — 배포 직후 레거시
-     * 인스펙션을 열면 그리드 하자 수만큼 원본(최대 20MB) 디코딩이 한꺼번에 몰릴 수 있어서다. 상한을
-     * 넘는 요청은 실패하지 않고 permit이 빌 때까지 대기한다(거부가 아니라 완화).
+     * 인스펙션을 열면 그리드 하자 수만큼 원본(최대 20MB) 디코딩이 한꺼번에 몰릴 수 있어서다. permit
+     * 획득은 {@link #legacyDetailGenerationWaitSeconds} 상한부 대기이며, 초과 시 요청 스레드를
+     * 계속 점유하지 않도록 즉시 503(MEDIA_DETAIL_GENERATION_BUSY)으로 거부한다(PR머신 리뷰 P1, #789).
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ThumbnailFile getDetailImage(Long userId, Long companyId, Long mediaId) {
@@ -216,11 +224,16 @@ public class MediaService {
     }
 
     private ThumbnailFile generateLegacyDetailImage(Media media) {
+        boolean acquired;
         try {
-            legacyDetailGenerationLimiter.acquire();
+            acquired = legacyDetailGenerationLimiter.tryAcquire(
+                    legacyDetailGenerationWaitSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
+        }
+        if (!acquired) {
+            throw new BusinessException(ErrorCode.MEDIA_DETAIL_GENERATION_BUSY);
         }
         try {
             byte[] originalBytes = readOrMediaNotFound(media.getOriginalUrl());
