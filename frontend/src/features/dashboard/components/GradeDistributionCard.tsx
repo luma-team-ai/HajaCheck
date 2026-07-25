@@ -17,9 +17,9 @@ export function GradeDistributionCard() {
 
   return (
     <section className="dashboard-card">
-      {/* mb-5!: 공용 dashboard-card-title(margin-bottom 12px, un-layered)이 Figma 재대조(2026-07-24)
-          결과보다 좁아 20px로 확대 — un-layered CSS를 덮으려면 Tailwind !important 필요(colors.ts 참고) */}
-      <h3 className="dashboard-card-title mb-5!">하자 등급 분포</h3>
+      {/* text-xl!/mb-5!: 공용 dashboard-card-title(15px, margin-bottom 12px, un-layered)을
+          Figma 원본 dev-mode 값(text-xl=20px, mb=20px)으로 override(un-layered CSS라 `!` 필요, colors.ts 참고) */}
+      <h3 className="dashboard-card-title text-xl! mb-5!">하자 등급 분포</h3>
 
       {isLoading && <LoadingSpinner />}
       {isError && <p className="dashboard-card-status">등급 분포를 불러오지 못했습니다.</p>}
@@ -30,7 +30,7 @@ export function GradeDistributionCard() {
       {!isLoading && !isError && sorted.length > 0 && (
         <>
           <div
-            className="flex w-full h-3.5 rounded-full overflow-hidden bg-[#f0f1f3]"
+            className="flex w-full h-7 rounded-full overflow-hidden bg-[#f0f1f3]"
             role="img"
             aria-label="하자 등급 분포 막대 그래프"
           >
@@ -50,7 +50,7 @@ export function GradeDistributionCard() {
             {sorted.map((item) => (
               <li
                 key={item.grade}
-                className="flex items-center gap-1.5 text-[13px] text-[#555] whitespace-nowrap"
+                className="flex items-center gap-2 text-sm text-zinc-900 whitespace-nowrap"
               >
                 <span className={`inline-block w-2 h-2 rounded-full ${GRADE_BG_CLASS_LIGHT[item.grade]}`} />
                 <span>
