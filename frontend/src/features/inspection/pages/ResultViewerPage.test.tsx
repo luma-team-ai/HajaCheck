@@ -396,6 +396,20 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(await screen.findByText('이미지 2/2')).not.toBeNull();
   });
 
+  it('하자 0건 이미지로 이동해도 이미지 자체는 렌더되고 문구만 같이 뜬다(#815)', async () => {
+    // 기본 mock: mediaId=67에만 하자 5건, media 목록은 67·68 — 68은 하자 0건인 채로 그대로 사용.
+    renderPage();
+    await screen.findByText('DEF-0001');
+    expect(await screen.findByText('이미지 1/2')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '다음 이미지 →' }));
+
+    expect(await screen.findByText('이미지 2/2')).not.toBeNull();
+    // 이미지 자체(DefectOverlay)는 계속 렌더되어야 한다 — 문구로 대체되면 안 됨.
+    expect(screen.getByAltText('점검 이미지')).not.toBeNull();
+    expect(screen.getByText('이 이미지에 해당하는 하자가 없습니다.')).not.toBeNull();
+  });
+
   it('오탐 삭제 버튼이 활성화되어 있다(#553)', async () => {
     renderPage();
     await screen.findByText('DEF-0001');
