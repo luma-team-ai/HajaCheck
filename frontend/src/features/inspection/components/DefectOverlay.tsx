@@ -11,8 +11,11 @@ interface DefectOverlayProps {
 // 확정 디자인(선택 시 마젠타 #d946ef 하이라이트)으로 교체 완료. 회귀 아님(#367 QA 확인).
 export function DefectOverlay({ media, defects, selectedId, onSelect }: DefectOverlayProps) {
   return (
-    <div className="relative w-full" style={media.width ? { maxWidth: media.width } : undefined}>
-      <img src={media.imageUrl} alt="점검 이미지" className="block w-full" />
+    // w-fit: 하자 박스는 이 div의 %로 위치를 잡으므로 div 크기가 렌더링된 이미지 크기와
+    // 정확히 같아야 정렬이 맞는다. img를 자연 크기로 두고(w-full 강제 금지 — 썸네일 원본
+    // 해상도보다 크게 늘리면 블러 발생, #781/#791) div가 그 크기로 shrink-wrap하게 한다.
+    <div className="relative w-fit max-w-full">
+      <img src={media.imageUrl} alt="점검 이미지" className="block max-w-full" />
       {defects.map((defect) => {
         const isSelected = selectedId === defect.id;
         return (
