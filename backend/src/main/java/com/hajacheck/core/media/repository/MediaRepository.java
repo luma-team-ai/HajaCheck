@@ -20,6 +20,10 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
     // 요청마다 흔들리지 않게 한다(defect 조회의 id ASC 고정과 동일 이유).
     List<Media> findByInspectionIdAndFileTypeOrderByIdAsc(Long inspectionId, MediaFileType fileType);
 
+    // 점검 회차별 미디어 전체 조회(#803 분석 결과 뷰어) — 업로드된 모든 미디어를 반환(하자 유무 무관).
+    // id asc 고정으로 조회 순서를 일관되게 유지한다.
+    List<Media> findByInspectionIdOrderByIdAsc(Long inspectionId);
+
     // 관리자 플랜·쿼터 관리(#507) — 멤버별 "이번 달 분석한 이미지 장수" 근사치. media 테이블에 업로더 FK가
     // 없어(point-in-time 스키마) 담당 점검자(inspections.assigned_inspector_id) 단위로 집계한다 — 한 점검을
     // 여러 사람이 함께 촬영/업로드하면 실제 기여자 분포와 다를 수 있는 근사값이며, 회사 전체 합계(KPI 카드)는
