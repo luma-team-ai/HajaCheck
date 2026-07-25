@@ -1,7 +1,8 @@
 import type { ChangeEvent } from 'react';
-import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useBlocker, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
+import { Modal } from '../../../shared/components/Modal';
 import { useAuthStore } from '../../auth/store/authStore';
 import { inspectionApi } from '../api/inspectionApi';
 import { useInspectionStore } from '../store/inspectionStore';
@@ -28,11 +29,35 @@ import {
   toInspectionCreateRequest,
   validateInspectionCreateForm,
 } from '../utils/validateInspectionCreateForm';
+import {
+  clearInspectionCreateDraft,
+  loadInspectionCreateDraft,
+  saveInspectionCreateDraft,
+} from '../utils/inspectionCreateDraft';
+import {
+  clearDraftMediaFiles,
+  loadDraftMediaFiles,
+  saveDraftMediaFiles,
+} from '../utils/inspectionCreateDraftFiles';
 
 const INPUT_CLASSES =
   'w-full rounded-full border border-border bg-white px-4 py-2.5 text-base text-text-default outline-none focus:ring-2 focus:ring-primary';
 const LABEL_CLASSES = 'text-xs font-medium tracking-wide text-text-muted';
+// SideNavBar의 "구현되지 않은 페이지" 안내와 동일한 자동 소멸 시간(#217 컨벤션 재사용)
+const DRAFT_SAVED_NOTICE_MS = 2500;
 const ERROR_CLASSES = 'text-xs text-danger';
+
+// File[] → StagedMediaFile[] 분류/검증 — handleFilesAdd(신규 선택)와 임시저장 복원(기존 File 재구성) 둘 다 사용.
+function stageMediaFiles(files: File[]): StagedMediaFile[] {
+  return files.map((file) => {
+    const kind = classifyMediaFile(file);
+    if (!kind) {
+      return { file, kind: 'image', error: 'FILE_INVALID_TYPE' };
+    }
+    const error = kind === 'image' ? validateMediaFile(file) : validateVideoFile(file);
+    return { file, kind, error };
+  });
+}
 
 // 새 점검 생성 — 회의 후 반영된 시안(2026-07-22): 기존 "시설물 개요 + 모달" 2단계 플로우를
 // 폐지하고, 점검 정보 입력과 촬영 데이터 업로드를 한 화면에서 처리한다(AP-004+AP-005 통합 화면).
@@ -60,16 +85,24 @@ export function InspectionCreatePage() {
   } = useUploadMedia();
 
   // 시설물 상세 "+새 점검"(FacilityDetailPage)이 ?facilityId=로 넘겨준 값이 있으면 시설물
-  // 셀렉트 초기값으로 채운다 — 방금 보던 시설물을 다시 고르는 수고를 없앤다.
+  // 셀렉트 초기값으로 채운다 — 방금 보던 시설물을 다시 고르는 수고를 없앤다. 그 다음 우선순위로
+  // 임시저장된 이전 입력(sessionStorage)이 있으면 복원한다 — 명시적 딥링크(쿼리파라미터)가 항상 우선.
+  const inspectionCreateDraft = useState(() => loadInspectionCreateDraft())[0];
   const [values, setValues] = useState<InspectionCreateFormValues>(() => ({
-    ...INSPECTION_CREATE_FORM_INITIAL_VALUES,
-    facilityId: searchParams.get('facilityId') ?? INSPECTION_CREATE_FORM_INITIAL_VALUES.facilityId,
+    facilityId:
+      searchParams.get('facilityId') ??
+      inspectionCreateDraft?.facilityId ??
+      INSPECTION_CREATE_FORM_INITIAL_VALUES.facilityId,
+    inspectionDate:
+      inspectionCreateDraft?.inspectionDate ?? INSPECTION_CREATE_FORM_INITIAL_VALUES.inspectionDate,
   }));
   const [errors, setErrors] = useState<InspectionCreateFormErrors>({});
   // 메모 — 시안에는 있으나 backend InspectionCreateRequest 계약에 아직 필드가 없어(facilityId·
   // inspectionDate·assignedInspectorId만 존재) 로컬 상태로만 유지한다. 후속 계약 확장 시 배선.
-  const [memo, setMemo] = useState('');
+  const [memo, setMemo] = useState(() => inspectionCreateDraft?.memo ?? '');
   const [mediaFiles, setMediaFiles] = useState<StagedMediaFile[]>([]);
+  // 사이드바로 페이지를 이탈하려 할 때 확정 성공 후의 프로그램적 navigate까지 막지 않기 위한 플래그.
+  const hasSubmittedRef = useRef(false);
   const [uploadDone, setUploadDone] = useState(false);
   const [fileCountError, setFileCountError] = useState<string | null>(null);
   // 회차 생성(POST /api/inspections)이 성공한 뒤 업로드가 실패하면 여기 보관해둔다 — 재제출 시
@@ -79,6 +112,10 @@ export function InspectionCreatePage() {
   );
   // 코드 리뷰 P3 — currentUser 미로딩 시 제출을 조용히 막던 것 대신 사유를 보여준다.
   const [submitBlockedMessage, setSubmitBlockedMessage] = useState<string | null>(null);
+  // "임시저장" 버튼 수동 클릭 피드백 — 값 자체는 이미 아래 effect가 입력마다 자동 저장하므로,
+  // 이 버튼은 저장을 트리거한다기보다 "지금 저장됐다"는 확인을 사용자에게 보여주는 역할이다.
+  const [showDraftSavedNotice, setShowDraftSavedNotice] = useState(false);
+  const draftSavedNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const isSubmitting = isCreating || isUploading;
   const hasFileErrors = mediaFiles.some((entry) => entry.error !== null);
@@ -86,6 +123,81 @@ export function InspectionCreatePage() {
   // 회차가 이미 생성된 뒤에는 점검 정보를 바꿔도 반영되지 않는다(재시도는 업로드만 재실행) —
   // 혼동을 막기 위해 입력을 잠근다.
   const isFieldsLocked = isSubmitting || createdInspection !== null;
+
+  // 입력란 중 하나라도 채워졌으면(파일 첨부 포함) "작성 중"으로 간주 — 사이드바 이탈 시 확인창을 띄운다.
+  const hasDraftInput =
+    values.facilityId !== '' ||
+    values.inspectionDate !== '' ||
+    memo.trim() !== '' ||
+    mediaFiles.length > 0;
+
+  // 텍스트 입력(facilityId/inspectionDate/memo)은 sessionStorage에 임시저장한다.
+  useEffect(() => {
+    if (hasSubmittedRef.current) {
+      return;
+    }
+    if (!hasDraftInput) {
+      clearInspectionCreateDraft();
+      return;
+    }
+    saveInspectionCreateDraft({
+      facilityId: values.facilityId,
+      inspectionDate: values.inspectionDate,
+      memo,
+    });
+  }, [values.facilityId, values.inspectionDate, memo, hasDraftInput]);
+
+  // 마운트 시 1회 — 텍스트 초안이 있을 때만(=같은 세션) IndexedDB의 첨부 파일을 복원한다.
+  // 텍스트 초안이 없다면(탭을 새로 열었거나 sessionStorage가 이미 소거된 상태) IndexedDB에
+  // 남아있는 파일은 이전 세션의 고아 데이터이므로 복원하지 않고 정리한다.
+  useEffect(() => {
+    if (!inspectionCreateDraft) {
+      void clearDraftMediaFiles();
+      return;
+    }
+    void loadDraftMediaFiles().then((files) => {
+      if (files.length > 0) {
+        setMediaFiles(stageMediaFiles(files));
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 마운트 시 1회만 실행
+  }, []);
+
+  // 첨부 파일(Blob)은 sessionStorage 용량을 훌쩍 넘길 수 있어 IndexedDB에 별도 저장한다.
+  useEffect(() => {
+    if (hasSubmittedRef.current) {
+      return;
+    }
+    void saveDraftMediaFiles(mediaFiles.map((entry) => entry.file));
+  }, [mediaFiles]);
+
+  // 언마운트 시 대기 중인 "임시저장됨" 안내 타이머 정리(SideNavBar notice와 동일 패턴).
+  useEffect(() => {
+    return () => clearTimeout(draftSavedNoticeTimerRef.current);
+  }, []);
+
+  const handleManualDraftSave = () => {
+    saveInspectionCreateDraft({
+      facilityId: values.facilityId,
+      inspectionDate: values.inspectionDate,
+      memo,
+    });
+    setShowDraftSavedNotice(true);
+    clearTimeout(draftSavedNoticeTimerRef.current);
+    draftSavedNoticeTimerRef.current = setTimeout(
+      () => setShowDraftSavedNotice(false),
+      DRAFT_SAVED_NOTICE_MS,
+    );
+  };
+
+  // 사이드바 Link 클릭 등 라우터 내부 이동을 가로챈다 — 제출 성공 후 분석 화면으로의 프로그램적
+  // navigate는 hasSubmittedRef로 예외 처리(성공 직후 같은 확인창이 다시 뜨는 오동작 방지).
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      !hasSubmittedRef.current &&
+      hasDraftInput &&
+      currentLocation.pathname !== nextLocation.pathname,
+  );
 
   const handleFieldChange =
     (field: keyof InspectionCreateFormValues) =>
@@ -96,14 +208,7 @@ export function InspectionCreatePage() {
 
   const handleFilesAdd = (newFiles: File[]) => {
     setUploadDone(false);
-    const staged: StagedMediaFile[] = newFiles.map((file) => {
-      const kind = classifyMediaFile(file);
-      if (!kind) {
-        return { file, kind: 'image', error: 'FILE_INVALID_TYPE' };
-      }
-      const error = kind === 'image' ? validateMediaFile(file) : validateVideoFile(file);
-      return { file, kind, error };
-    });
+    const staged = stageMediaFiles(newFiles);
 
     // 개수 상한은 실제 업로드 대상(이미지)에만 적용 — 영상은 요청에 포함되지 않는다.
     const currentImageCount = mediaFiles.filter((entry) => entry.kind === 'image').length;
@@ -165,6 +270,11 @@ export function InspectionCreatePage() {
         // 아래 catch와 별개로 조용히 무시 — 회차 생성·업로드는 이미 성공했으므로 이동은 계속한다.
       }
       setActiveInspectionId(inspection.id);
+      // 이 지점부터는 폼을 "작성 중"으로 취급하지 않는다 — 아래 navigate가 useBlocker에 다시
+      // 걸려 방금 성공한 흐름에서 이탈 확인창이 뜨는 걸 막고, 임시저장된 초안도 정리한다.
+      hasSubmittedRef.current = true;
+      clearInspectionCreateDraft();
+      void clearDraftMediaFiles();
       navigate(`/inspections/${inspection.id}/analysis`);
     } catch {
       // 실패 사유는 error로 아래에 표시 — 입력값·선택 파일은 유지해 재시도 가능하게 둔다.
@@ -285,11 +395,17 @@ export function InspectionCreatePage() {
               : '아직 첨부된 파일이 없습니다'}
           </span>
           <div className="flex items-center gap-3">
+            {showDraftSavedNotice && (
+              <span role="status" className="text-xs text-text-muted">
+                임시저장되었습니다
+              </span>
+            )}
             <Button
               type="button"
               variant="secondary"
-              disabled
-              title="임시저장은 준비 중입니다"
+              onClick={handleManualDraftSave}
+              disabled={isFieldsLocked || !hasDraftInput}
+              title={!hasDraftInput ? '임시저장할 입력 내용이 없습니다' : undefined}
             >
               임시저장
             </Button>
@@ -304,6 +420,29 @@ export function InspectionCreatePage() {
           </div>
         </div>
       </div>
+
+      {blocker.state === 'blocked' && (
+        <Modal
+          open
+          onClose={() => blocker.reset()}
+          title="작성 중인 정보가 있습니다"
+          closeOnOverlayClick={false}
+        >
+          <div className="flex w-80 flex-col gap-6">
+            <p className="m-0 text-sm text-text-muted">
+              작성을 취소하시겠습니까? (입력 내용 임시저장됨)
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="secondary" onClick={() => blocker.reset()}>
+                취소
+              </Button>
+              <Button type="button" variant="primary" onClick={() => blocker.proceed()}>
+                나가기
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
