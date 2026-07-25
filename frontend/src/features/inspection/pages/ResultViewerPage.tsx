@@ -31,7 +31,9 @@ export function ResultViewerPage() {
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [gradeFilter, setGradeFilter] = useState<DefectGrade[]>(ALL_GRADES);
   const [selectedDefectId, setSelectedDefectId] = useState<number | undefined>();
-  const [selectedMediaId, setSelectedMediaId] = useState<number | null>(null);
+  // sentinel은 undefined("미선택")로 둔다 — 수동 추가 하자 그룹의 실제 mediaId도 null이라
+  // null을 sentinel로 쓰면 그 그룹을 선택해도 "미선택"으로 오인되어 항상 첫 이미지로 되돌아간다.
+  const [selectedMediaId, setSelectedMediaId] = useState<number | null | undefined>(undefined);
   const [gradeEditId, setGradeEditId] = useState<number | undefined>();
   const [selectedGrade, setSelectedGrade] = useState<DefectGrade | ''>('');
   const [gradeReason, setGradeReason] = useState('');
@@ -208,7 +210,7 @@ export function ResultViewerPage() {
   // 현재 선택된 media(또는 첫 번째 media)
   const currentMediaGroup = useMemo(() => {
     if (mediaGroups.length === 0) return null;
-    const currentId = selectedMediaId ?? mediaGroups[0]?.mediaId ?? null;
+    const currentId = selectedMediaId !== undefined ? selectedMediaId : (mediaGroups[0]?.mediaId ?? null);
     return mediaGroups.find((g) => g.mediaId === currentId) ?? mediaGroups[0] ?? null;
   }, [mediaGroups, selectedMediaId]);
 
