@@ -85,8 +85,15 @@ public enum ErrorCode {
     MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "미디어를 찾을 수 없습니다."),
     MEDIA_COUNT_EXCEEDED(HttpStatus.BAD_REQUEST, "한 번에 업로드할 수 있는 파일 수를 초과했습니다."),
 
-    // 상담(counsel)
+    // 상담(counsel) — 시나리오 챗봇 + 상담원 연결(FR-7, #20/HAJA-33)
     COUNSEL_SESSION_ASSIGNMENT_CONFLICT(HttpStatus.CONFLICT, "이미 상담 세션이 배정된 티켓입니다."),
+    // 시나리오 노드 미존재.
+    COUNSEL_SCENARIO_NOT_FOUND(HttpStatus.NOT_FOUND, "상담 시나리오를 찾을 수 없습니다."),
+    // 티켓 미존재/타인 소유 통일 응답 — 리소스 존재 여부 열거(cross-user IDOR) 방지(PLAN_FORBIDDEN 관례와 정합).
+    COUNSEL_TICKET_NOT_FOUND(HttpStatus.NOT_FOUND, "상담 티켓을 찾을 수 없습니다."),
+    COUNSEL_TICKET_FORBIDDEN(HttpStatus.FORBIDDEN, "상담 티켓에 대한 권한이 없습니다."),
+    // 상담원 연결 기능을 제공하지 않는 요금제(Plan.hasCounselorAccess=false)의 티켓 생성 시도.
+    COUNSEL_PLAN_REQUIRED(HttpStatus.FORBIDDEN, "상담원 연결을 사용할 수 없는 요금제입니다."),
 
     // 알림(notification) — FR-9, HAJA-274. 미존재/타인 소유 모두 통일 응답(cross-user IDOR 방지).
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "알림을 찾을 수 없습니다."),
