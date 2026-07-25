@@ -103,6 +103,10 @@ export function InspectionCreatePage() {
   const [mediaFiles, setMediaFiles] = useState<StagedMediaFile[]>([]);
   // 사이드바로 페이지를 이탈하려 할 때 확정 성공 후의 프로그램적 navigate까지 막지 않기 위한 플래그.
   const hasSubmittedRef = useRef(false);
+  // 마운트 시 IndexedDB 복원이 끝나기 전까지 저장 effect가 mediaFiles 초기값([])으로 먼저 덮어쓰지
+  // 못하게 막는 게이트(PR 리뷰 P2) — 복원·저장이 각자 별도 IndexedDB 커넥션/트랜잭션을 열어서,
+  // 게이트 없이는 어느 쪽이 먼저 커밋될지가 브라우저 구현에 암묵적으로 의존하게 된다.
+  const hasHydratedMediaRef = useRef(false);
   const [uploadDone, setUploadDone] = useState(false);
   const [fileCountError, setFileCountError] = useState<string | null>(null);
   // 회차 생성(POST /api/inspections)이 성공한 뒤 업로드가 실패하면 여기 보관해둔다 — 재제출 시
@@ -149,23 +153,33 @@ export function InspectionCreatePage() {
 
   // 마운트 시 1회 — 텍스트 초안이 있을 때만(=같은 세션) IndexedDB의 첨부 파일을 복원한다.
   // 텍스트 초안이 없다면(탭을 새로 열었거나 sessionStorage가 이미 소거된 상태) IndexedDB에
-  // 남아있는 파일은 이전 세션의 고아 데이터이므로 복원하지 않고 정리한다.
+  // 남아있는 파일은 이전 세션의 고아 데이터이므로 복원하지 않고 정리한다. 완료 시(성공/실패 모두)
+  // hasHydratedMediaRef를 세워 아래 저장 effect가 그 전엔 mediaFiles 초기값([])으로 먼저
+  // 덮어쓰지 못하게 한다.
   useEffect(() => {
     if (!inspectionCreateDraft) {
-      void clearDraftMediaFiles();
+      void clearDraftMediaFiles().finally(() => {
+        hasHydratedMediaRef.current = true;
+      });
       return;
     }
-    void loadDraftMediaFiles().then((files) => {
-      if (files.length > 0) {
-        setMediaFiles(stageMediaFiles(files));
-      }
-    });
+    void loadDraftMediaFiles()
+      .then((files) => {
+        if (files.length > 0) {
+          setMediaFiles(stageMediaFiles(files));
+        }
+      })
+      .finally(() => {
+        hasHydratedMediaRef.current = true;
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 마운트 시 1회만 실행
   }, []);
 
   // 첨부 파일(Blob)은 sessionStorage 용량을 훌쩍 넘길 수 있어 IndexedDB에 별도 저장한다.
+  // 위 복원 effect가 끝나기 전에는(hasHydratedMediaRef.current === false) 쓰지 않는다 — 마운트
+  // 직후 mediaFiles 초기값([])으로 먼저 저장해버리면 복원 대상 파일을 지울 수 있다(PR 리뷰 P2).
   useEffect(() => {
-    if (hasSubmittedRef.current) {
+    if (hasSubmittedRef.current || !hasHydratedMediaRef.current) {
       return;
     }
     void saveDraftMediaFiles(mediaFiles.map((entry) => entry.file));
