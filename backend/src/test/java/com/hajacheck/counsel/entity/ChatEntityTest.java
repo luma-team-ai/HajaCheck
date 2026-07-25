@@ -11,7 +11,7 @@ class ChatEntityTest {
         BotScenario root = BotScenario.create(null, "시설", "시설 점검", "항목을 선택하세요", false, 0);
         BotScenario child = BotScenario.create(1L, "시설", "균열", "균열 정보를 안내합니다", false, 1);
 
-        ChatMessage message = ChatMessage.create(100L, ChatSenderType.USER, "균열", 2L);
+        ChatMessage message = ChatMessage.create(100L, ChatSenderType.USER, "균열", 2L, null, null);
 
         assertThat(message.getSessionId()).isEqualTo(100L);
         assertThat(message.getScenarioId()).isEqualTo(2L);

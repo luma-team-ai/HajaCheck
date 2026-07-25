@@ -12,7 +12,7 @@ class CounselTicketTest {
 
     @Test
     void assign_상담사와상담세션을배정() {
-        CounselTicket ticket = CounselTicket.request(10L, 3);
+        CounselTicket ticket = CounselTicket.request(10L, 3, "INSPECTION_REPORT", "AI 분석 결과 등급 문의");
 
         ticket.assign(20L, counselSession(5L, 10L));
 
@@ -24,7 +24,7 @@ class CounselTicketTest {
 
     @Test
     void resolve_배정후상담종료상태와시각을기록() {
-        CounselTicket ticket = CounselTicket.request(10L, 1);
+        CounselTicket ticket = CounselTicket.request(10L, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의");
         ticket.assign(20L, counselSession(5L, 10L));
 
         ticket.resolve();
@@ -35,14 +35,14 @@ class CounselTicketTest {
 
     @Test
     void resolve_대기중인티켓이면예외() {
-        CounselTicket ticket = CounselTicket.request(10L, 1);
+        CounselTicket ticket = CounselTicket.request(10L, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의");
 
         assertThatThrownBy(ticket::resolve).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
     void assign_종료된티켓이면재배정과오프라인전환을거부() {
-        CounselTicket ticket = CounselTicket.request(10L, 1);
+        CounselTicket ticket = CounselTicket.request(10L, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의");
         ticket.assign(20L, counselSession(5L, 10L));
         ticket.resolve();
 
@@ -54,7 +54,7 @@ class CounselTicketTest {
 
     @Test
     void assign_유효한전문상담세션과상담사만허용() {
-        CounselTicket ticket = CounselTicket.request(10L, 1);
+        CounselTicket ticket = CounselTicket.request(10L, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의");
         ChatSession scenarioSession = counselSession(5L, 10L);
         when(scenarioSession.getSessionType()).thenReturn(ChatSessionType.SCENARIO_BOT);
         ChatSession endedSession = counselSession(6L, 10L);

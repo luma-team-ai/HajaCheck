@@ -151,7 +151,7 @@ class StompAuthChannelInterceptorTest {
     }
 
     private CounselTicket ticket() {
-        CounselTicket ticket = CounselTicket.request(USER_ID, 1);
+        CounselTicket ticket = CounselTicket.request(USER_ID, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의");
         ReflectionTestUtils.setField(ticket, "id", TICKET_ID);
         ReflectionTestUtils.setField(ticket, "status", CounselTicketStatus.IN_PROGRESS);
         ReflectionTestUtils.setField(ticket, "counselorId", COUNSELOR_ID);

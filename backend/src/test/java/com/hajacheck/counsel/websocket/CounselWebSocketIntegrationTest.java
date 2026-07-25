@@ -133,7 +133,7 @@ class CounselWebSocketIntegrationTest extends PostgresTestSupport {
         // SUBSCRIBE 프레임이 브로커에 등록될 여유를 준 뒤 전송(같은 커넥션이라 순서는 보장되지만 등록 완료 대기).
         Thread.sleep(300);
         session.send("/app/counsel/" + ticket.getId() + "/send",
-                new ChatMessageSendRequest("안녕하세요 상담원님"));
+                new ChatMessageSendRequest("안녕하세요 상담원님", null));
 
         ChatMessageResponse broadcast = received.poll(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
         assertThat(broadcast).isNotNull();
@@ -226,7 +226,8 @@ class CounselWebSocketIntegrationTest extends PostgresTestSupport {
     private CounselTicket saveInProgressTicket(Long requesterId, Long counselorId) {
         ChatSession session = chatSessionRepository.save(
                 ChatSession.start(requesterId, ChatSessionType.COUNSEL));
-        CounselTicket ticket = ticketRepository.save(CounselTicket.request(requesterId, 1));
+        CounselTicket ticket = ticketRepository.save(
+                CounselTicket.request(requesterId, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
         ticket.assign(counselorId, session);
         return ticketRepository.saveAndFlush(ticket);
     }

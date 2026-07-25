@@ -58,7 +58,7 @@ class CounselChatServiceTest {
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
         when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        service.sendMessage(TICKET_ID, USER_ID, "안녕하세요");
+        service.sendMessage(TICKET_ID, USER_ID, "안녕하세요", null);
 
         ArgumentCaptor<ChatMessage> captor = ArgumentCaptor.forClass(ChatMessage.class);
         verify(chatMessageRepository).save(captor.capture());
@@ -72,7 +72,7 @@ class CounselChatServiceTest {
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
         when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        service.sendMessage(TICKET_ID, COUNSELOR_ID, "무엇을 도와드릴까요");
+        service.sendMessage(TICKET_ID, COUNSELOR_ID, "무엇을 도와드릴까요", null);
 
         ArgumentCaptor<ChatMessage> captor = ArgumentCaptor.forClass(ChatMessage.class);
         verify(chatMessageRepository).save(captor.capture());
@@ -83,7 +83,7 @@ class CounselChatServiceTest {
     void 발신_비참여자_드롭() {
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
 
-        service.sendMessage(TICKET_ID, 999L, "몰래 주입");
+        service.sendMessage(TICKET_ID, 999L, "몰래 주입", null);
 
         verify(chatMessageRepository, never()).save(any());
         verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
@@ -95,7 +95,7 @@ class CounselChatServiceTest {
         ReflectionTestUtils.setField(waiting, "status", CounselTicketStatus.WAITING);
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(waiting));
 
-        service.sendMessage(TICKET_ID, USER_ID, "아직 배정 전");
+        service.sendMessage(TICKET_ID, USER_ID, "아직 배정 전", null);
 
         verify(chatMessageRepository, never()).save(any());
         verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
@@ -105,13 +105,46 @@ class CounselChatServiceTest {
     void 발신_티켓없음_드롭() {
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.empty());
 
-        service.sendMessage(TICKET_ID, USER_ID, "없는 티켓");
+        service.sendMessage(TICKET_ID, USER_ID, "없는 티켓", null);
+
+        verify(chatMessageRepository, never()).save(any());
+    }
+
+    @Test
+    void 발신_이미지첨부_저장키격리검증_MIME확장자도출() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.sendMessage(TICKET_ID, USER_ID, null, "counsel-attachment/abc123.jpg");
+
+        ArgumentCaptor<ChatMessage> captor = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(chatMessageRepository).save(captor.capture());
+        assertThat(captor.getValue().getAttachmentKey()).isEqualTo("counsel-attachment/abc123.jpg");
+        assertThat(captor.getValue().getAttachmentMimeType()).isEqualTo("image/jpeg");
+        assertThat(captor.getValue().getContent()).isEmpty();
+    }
+
+    @Test
+    void 발신_타도메인저장키_드롭_격리() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+
+        // 점검 미디어 등 다른 도메인 저장키를 상담 첨부로 참조하려는 시도 → 드롭.
+        service.sendMessage(TICKET_ID, USER_ID, null, "inspection-media/x.jpg");
+
+        verify(chatMessageRepository, never()).save(any());
+    }
+
+    @Test
+    void 발신_내용과첨부모두없음_드롭() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+
+        service.sendMessage(TICKET_ID, USER_ID, "  ", null);
 
         verify(chatMessageRepository, never()).save(any());
     }
 
     private CounselTicket inProgressTicket() {
-        CounselTicket ticket = CounselTicket.request(USER_ID, 1);
+        CounselTicket ticket = CounselTicket.request(USER_ID, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의");
         ReflectionTestUtils.setField(ticket, "id", TICKET_ID);
         ReflectionTestUtils.setField(ticket, "status", CounselTicketStatus.IN_PROGRESS);
         ReflectionTestUtils.setField(ticket, "counselorId", COUNSELOR_ID);

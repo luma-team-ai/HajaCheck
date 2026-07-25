@@ -64,7 +64,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V12까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V14까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -75,7 +75,8 @@ class FlywayBaselineIntegrationTest {
         // + V8(grant_admin_to_company_owners, #636) + V9(facilities.next_inspection_due_at 인덱스, #509)
         // + V10(add_facility_registration_fields, #628/HAJA-347) + V11(facilities company scope, #637)
         // + V12(defects 조치 결과 등록 필드, #725/HAJA-393)
-        assertThat(appliedMigrations).isEqualTo(12);
+        // + V13(seed_bot_scenarios, #20/HAJA-33) + V14(counsel 티켓 스냅샷 + 채팅 첨부, #20/HAJA-33)
+        assertThat(appliedMigrations).isEqualTo(14);
 
         // V5가 companies.business_start_date 컬럼을 실제로 추가했는지 확인(#596).
         Long businessStartDateColumnExists = jdbcTemplate.queryForObject("""
@@ -151,5 +152,27 @@ class FlywayBaselineIntegrationTest {
                   and column_name in ('action_media_id', 'action_content', 'action_date', 'action_assignee_id')
                 """, Long.class);
         assertThat(actionResultColumnCount).isEqualTo(4L);
+
+        // V13이 bot_scenarios 시드(최상위 4개 카테고리)를 실제로 채웠는지 확인(#20/HAJA-33).
+        Long rootScenarioCount = jdbcTemplate.queryForObject(
+                "select count(*) from bot_scenarios where parent_id is null", Long.class);
+        assertThat(rootScenarioCount).isEqualTo(4L);
+        Long counselorLinkLeafCount = jdbcTemplate.queryForObject(
+                "select count(*) from bot_scenarios where leads_to_counselor = true", Long.class);
+        assertThat(counselorLinkLeafCount).isEqualTo(6L);
+
+        // V14가 counsel_tickets 스냅샷 필드 + chat_messages 첨부 컬럼을 실제로 추가했는지 확인(#20/HAJA-33).
+        Long counselTicketColumnCount = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'counsel_tickets'
+                  and column_name in ('ticket_number', 'category', 'title')
+                """, Long.class);
+        assertThat(counselTicketColumnCount).isEqualTo(3L);
+        Long chatAttachmentColumnCount = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'chat_messages'
+                  and column_name in ('attachment_key', 'attachment_mime_type')
+                """, Long.class);
+        assertThat(chatAttachmentColumnCount).isEqualTo(2L);
     }
 }
