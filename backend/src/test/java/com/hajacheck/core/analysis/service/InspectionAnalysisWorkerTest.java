@@ -19,6 +19,7 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.membership.service.QuotaService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,6 +53,8 @@ class InspectionAnalysisWorkerTest {
     private DefectWriter defectWriter;
     @Mock
     private AnalysisProgressStore progressStore;
+    @Mock
+    private QuotaService quotaService;
 
     @InjectMocks
     private InspectionAnalysisWorker worker;
@@ -257,6 +260,66 @@ class InspectionAnalysisWorkerTest {
 
         verify(inspectionService)
                 .advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.ANALYZED);
+    }
+
+    // ── 월 분석 사용량 보상(#843, 코드 리뷰 P1) ──
+    // 사용량 차감은 InspectionAnalysisService가 큐 적재 *전에* 하고, 적재에 성공하면 그쪽 catch는 더 이상
+    // 도달하지 않는다 → "적재는 됐지만 아무것도 남기지 못한" 종료 경로의 보상은 이 워커의 책임이다.
+
+    @Test
+    void runAsync_전체이미지실패시_월분석사용량을_보상차감한다() {
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString())).thenThrow(new RuntimeException("AI 서버 다운"));
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
+                InspectionStatus.UPLOADING, GENERATION);
+
+        // 보상이 없으면 AI 서버 다운 상태에서 재시도할 때마다 한도만 깎인다(FREE는 월 50장, 복구 API 없음).
+        verify(quotaService).refundAnalysisQuota(USER_ID, COMPANY_ID, 2);
+    }
+
+    @Test
+    void runAsync_일부라도성공하면_사용량을_보상차감하지않는다() {
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString()))
+                .thenReturn(List.of(detection("CRACK", "A")))
+                .thenThrow(new RuntimeException("타임아웃"));
+        when(defectWriter.softDeleteAllForInspectionThenSave(any(), any())).thenAnswer(inv -> inv.getArgument(1));
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
+                InspectionStatus.UPLOADING, GENERATION);
+
+        // 성공한 장수만큼 결과(하자)가 실제로 남았으므로 사용량은 소비된 것이 맞다.
+        verify(quotaService, never()).refundAnalysisQuota(any(), any(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    void runAsync_추월당해_아무것도쓰지못했으면_사용량을_보상차감한다() {
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(detection("CRACK", "A")));
+        when(progressStore.findGeneration(INSPECTION_ID)).thenReturn(java.util.Optional.of("other-gen-추월함"));
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
+                InspectionStatus.UPLOADING, GENERATION);
+
+        // 자리를 넘겨받은 실행은 자기 몫을 따로 차감했고, 이 실행은 결과를 하나도 남기지 못했다.
+        verify(quotaService).refundAnalysisQuota(USER_ID, COMPANY_ID, 2);
+    }
+
+    @Test
+    void runAsync_보상차감이실패해도_진행률저장을건너뛰지않는다() {
+        // 보상 실패로 예외가 새면 뒤따르는 "failed" 진행률 저장이 생략돼 프론트가 영원히 폴링한다.
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString())).thenThrow(new RuntimeException("AI 서버 다운"));
+        Mockito.doThrow(new RuntimeException("보상 실패"))
+                .when(quotaService).refundAnalysisQuota(any(), any(), org.mockito.ArgumentMatchers.anyInt());
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)),
+                InspectionStatus.UPLOADING, GENERATION);
+
+        ArgumentCaptor<AnalysisStatusResponse> captor = ArgumentCaptor.forClass(AnalysisStatusResponse.class);
+        verify(progressStore, Mockito.atLeastOnce()).save(captor.capture());
+        assertThat(captor.getAllValues().get(captor.getAllValues().size() - 1).stage()).isEqualTo("failed");
     }
 
     private DetectedDefectItem detection(String type, String grade) {
