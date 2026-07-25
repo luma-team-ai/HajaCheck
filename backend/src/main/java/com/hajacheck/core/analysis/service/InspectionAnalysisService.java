@@ -17,6 +17,7 @@ import com.hajacheck.core.media.entity.MediaFileType;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.membership.service.AnalysisQuotaCharge;
 import com.hajacheck.membership.service.QuotaService;
 import java.time.Duration;
 import java.time.Instant;
@@ -178,9 +179,12 @@ public class InspectionAnalysisService {
         // 차감을 선점(tryStartAnalyzing)보다 앞에 두는 이유: 한도 초과로 거부할 때 회차 상태를 ANALYZING 으로
         // 바꿔놨다가 되돌리는 경로를 만들지 않기 위해서다. 대신 이 메서드는 트랜잭션 밖이라 차감이 즉시
         // 커밋되므로, 이후 어떤 이유로든 실패하면 아래 catch 에서 반드시 보상 차감한다.
-        quotaService.consumeAnalysisQuota(requesterUserId, companyId, images.size());
+        // 차감이 실제로 갱신한 좌표(구독·기간·장수)를 그대로 들고 다닌다(머신 검수 P2) — 보상은 이 좌표만
+        // 되돌린다. 워커는 @Async 로 수 분을 돌기 때문에, 보상 시점에 기간·구독을 재계산하면 월이 넘어갔거나
+        // 요금제가 바뀐 경우 엉뚱한 행을 감산한다(AnalysisQuotaCharge javadoc 참고).
+        AnalysisQuotaCharge charge = quotaService.consumeAnalysisQuota(requesterUserId, companyId, images.size());
         try {
-            dispatchAnalysis(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis);
+            dispatchAnalysis(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis, charge);
         } catch (RuntimeException e) {
             // 선점 실패(ALREADY_RUNNING)·큐 포화(QUEUE_FULL)·예기치 못한 오류 모두 "분석이 시작되지 않음"이다 —
             // 실패한 요청이 월 한도를 갉아먹지 않도록 되돌린다.
@@ -190,7 +194,7 @@ public class InspectionAnalysisService {
             // 있다. 그걸 그대로 내보내면 사용자가 원래 원인(QUEUE_FULL 등) 대신 500 을 받는다 —
             // 보상 실패의 최악 결과는 이번 요청분이 월 사용량에 과대 집계되는 것뿐이므로 원인을 덮지 않는다.
             try {
-                quotaService.refundAnalysisQuota(requesterUserId, companyId, images.size());
+                quotaService.refundAnalysisQuota(charge);
             } catch (RuntimeException refundFailure) {
                 log.warn("분석 사용량 보상 차감 실패 — inspectionId={} companyId={} images={}",
                         inspectionId, companyId, images.size(), refundFailure);
@@ -199,9 +203,13 @@ public class InspectionAnalysisService {
         }
     }
 
-    /** 원자적 선점 → 세대 토큰 발급 → 초기 진행률 기록 → 비동기 워커 위임. 실패 시 호출부가 사용량을 보상한다. */
+    /**
+     * 원자적 선점 → 세대 토큰 발급 → 초기 진행률 기록 → 비동기 워커 위임. 실패 시 호출부가 사용량을 보상한다.
+     * {@code charge} 는 워커까지 그대로 넘긴다 — 큐 적재에 성공하면 이후 종료 경로의 보상은 워커 책임이다.
+     */
     private void dispatchAnalysis(Long requesterUserId, Long companyId, Long inspectionId,
-                                  List<Media> images, InspectionStatus statusBeforeAnalysis) {
+                                  List<Media> images, InspectionStatus statusBeforeAnalysis,
+                                  AnalysisQuotaCharge charge) {
         if (!inspectionService.tryStartAnalyzing(
                 requesterUserId, companyId, inspectionId, ANALYSIS_ALLOWED_SOURCE_STATUSES)) {
             // 원자적 조건부 UPDATE 영향 행 0건 — 다른 요청이 먼저 선점했거나, 사전 체크 이후 허용되지
@@ -229,7 +237,8 @@ public class InspectionAnalysisService {
                 emptyGradeMap(), 0, Instant.now()));
 
         try {
-            worker.runAsync(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis, generation);
+            worker.runAsync(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis,
+                    generation, charge);
         } catch (TaskRejectedException e) {
             // 코드 리뷰 P2 — analysisTaskExecutor는 테넌트 구분 없는 전역 공유 풀이라(AsyncConfig),
             // 어떤 회사가 큐를 채워 다른 회사까지 503을 받게 됐는지 나중에 로그로 추적할 수 있도록

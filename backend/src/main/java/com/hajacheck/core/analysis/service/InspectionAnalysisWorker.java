@@ -14,6 +14,7 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.global.config.AsyncConfig;
+import com.hajacheck.membership.service.AnalysisQuotaCharge;
 import com.hajacheck.membership.service.QuotaService;
 import java.time.Duration;
 import java.time.Instant;
@@ -68,6 +69,7 @@ import org.springframework.stereotype.Component;
  *   <li><b>부분 실패</b>({@code successCount > 0}) → 보상하지 않는다. 성공한 장수만큼 결과가 남았고,
  *       장수 단위 부분 환불은 "요청 1건 = 이미지 N장" 차감 단위와 어긋난다.</li>
  * </ul>
+ *
  */
 @Slf4j
 @Component
@@ -88,10 +90,15 @@ public class InspectionAnalysisWorker {
      *                             동일 값으로 롤백하는 것과 대칭 — 정상 완료가 아니면 항상 이 값으로 복귀).
      * @param generation 이 실행이 선점될 때 발급된 세대 토큰(코드 리뷰 P1, 클래스 javadoc "세대 토큰
      *                   펜싱" 참고) — DB 쓰기 직전마다 {@link #isCurrentGeneration}으로 유효성을 재확인한다.
+     * @param charge {@link InspectionAnalysisService}가 큐 적재 전에 차감한 월 분석 사용량의 좌표
+     *               (구독·기간·장수). 이 워커가 아무 결과도 남기지 못하고 끝나면 <b>이 좌표만</b> 되돌린다 —
+     *               @Async 로 수 분이 흐르는 동안 월이 넘어가거나 요금제가 바뀌어도 "깎았던 그 행"이
+     *               정확히 복구되도록, 보상 시점에 기간·구독을 재계산하지 않는다.
      */
     @Async(AsyncConfig.ANALYSIS_TASK_EXECUTOR)
     public void runAsync(Long requesterUserId, Long companyId, Long inspectionId, List<Media> images,
-                          InspectionStatus statusBeforeAnalysis, String generation) {
+                          InspectionStatus statusBeforeAnalysis, String generation,
+                          AnalysisQuotaCharge charge) {
         List<FileProgress> files = new ArrayList<>(images.size());
         for (int i = 0; i < images.size(); i++) {
             files.add(new FileProgress(images.get(i).getId(), displayName(i), "waiting", null, "-"));
@@ -138,7 +145,7 @@ public class InspectionAnalysisWorker {
                 if (!isCurrentGeneration(inspectionId, generation)) {
                     log.warn("분석 세대 토큰 불일치(추월당함) — inspectionId={} mediaId={} 쓰기를 건너뛰고 중단한다",
                             inspectionId, media.getId());
-                    refundIfNothingPersisted(requesterUserId, companyId, inspectionId, images.size(), successCount);
+                    refundIfNothingPersisted(inspectionId, charge, successCount);
                     return;
                 }
 
@@ -181,7 +188,7 @@ public class InspectionAnalysisWorker {
         // 추월당했을 가능성을 마저 좁힌다.
         if (!isCurrentGeneration(inspectionId, generation)) {
             log.warn("분석 세대 토큰 불일치(추월당함) — inspectionId={} 상태전이를 건너뛰고 중단한다", inspectionId);
-            refundIfNothingPersisted(requesterUserId, companyId, inspectionId, images.size(), successCount);
+            refundIfNothingPersisted(inspectionId, charge, successCount);
             return;
         }
 
@@ -196,7 +203,7 @@ public class InspectionAnalysisWorker {
             // 예외가 난다. 보상이 뒤에 있으면 그 좁은 창에서 사용량만 소진된 채 복구 수단이 없다(관리자
             // 보정 API 없음). 순서를 뒤집으면 최악이라도 "상태가 ANALYZING 으로 잔류"인데 그건
             // StuckAnalysisReaper 가 복구한다.
-            refundIfNothingPersisted(requesterUserId, companyId, inspectionId, images.size(), successCount);
+            refundIfNothingPersisted(inspectionId, charge, successCount);
             inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, statusBeforeAnalysis);
             AnalysisStatusResponse failedProgress = new AnalysisStatusResponse(
                     inspectionId, "failed", 0, images.size(), 0, files,
@@ -221,16 +228,14 @@ public class InspectionAnalysisWorker {
      * 없고, 보상 실패 때문에 뒤따르는 진행률 저장(프론트 폴링 종료 신호)까지 건너뛰면 화면이 "진행 중"에
      * 영원히 갇힌다. 최악의 결과는 이번 요청분이 월 사용량에 과대 집계되는 것뿐이다.
      */
-    private void refundIfNothingPersisted(Long requesterUserId, Long companyId, Long inspectionId,
-                                          int imageCount, int successCount) {
+    private void refundIfNothingPersisted(Long inspectionId, AnalysisQuotaCharge charge, int successCount) {
         if (successCount > 0) {
             return;
         }
         try {
-            quotaService.refundAnalysisQuota(requesterUserId, companyId, imageCount);
+            quotaService.refundAnalysisQuota(charge);
         } catch (RuntimeException e) {
-            log.warn("분석 사용량 보상 차감 실패 — inspectionId={} companyId={} images={}",
-                    inspectionId, companyId, imageCount, e);
+            log.warn("분석 사용량 보상 차감 실패 — inspectionId={} charge={}", inspectionId, charge, e);
         }
     }
 

@@ -237,11 +237,14 @@ class QuotaEnforcementConcurrencyTest extends PostgresTestSupport {
         // 보상이 정상 동작하는지 커밋을 실제로 일으켜 확인한다(@Transactional 테스트로는 검증 불가).
         givenCompanyPlan(PlanName.STANDARD);
 
-        quotaService.consumeAnalysisQuota(ownerId, companyId, 9);
+        AnalysisQuotaCharge charge = quotaService.consumeAnalysisQuota(ownerId, companyId, 9);
+        assertThat(charge.isCharged()).isTrue();
+        assertThat(charge.userPlanId()).isEqualTo(userPlanId);
+        assertThat(charge.period()).isEqualTo(currentPeriod());
         assertThat(currentUsage().getAnalyzedImageCount()).isEqualTo(9);
         assertThat(currentUsage().getAnalysisRequestCount()).isEqualTo(1);
 
-        quotaService.refundAnalysisQuota(ownerId, companyId, 9);
+        quotaService.refundAnalysisQuota(charge);
 
         assertThat(currentUsage().getAnalyzedImageCount()).isZero();
         assertThat(currentUsage().getAnalysisRequestCount()).isZero();

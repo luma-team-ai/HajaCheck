@@ -11,6 +11,7 @@ import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
@@ -62,6 +63,9 @@ public class QuotaService {
     private final PlanProvisioningService planProvisioningService;
     private final FacilityRepository facilityRepository;
     private final UserRepository userRepository;
+    // SchedulingConfig 가 KST 로 고정해 제공하는 빈 — 서버 기본 타임존에 흔들리지 않게 하고,
+    // 월 경계(말일 차감 → 익월 보상) 같은 시점 의존 동작을 테스트가 결정적으로 재현할 수 있게 한다.
+    private final Clock clock;
 
     /**
      * 시설물 1건 등록 슬롯 예약 — <b>시설물 INSERT 와 같은 트랜잭션</b>에서 호출해야 한다.
@@ -140,11 +144,14 @@ public class QuotaService {
      *
      * <p>호출부(분석 시작)는 트랜잭션 밖이라 이 메서드가 독립 트랜잭션으로 커밋된다 — 이후 단계가 실패하면
      * 호출부가 반드시 {@link #refundAnalysisQuota} 로 보상해야 한다.
+     *
+     * @return 실제로 갱신한 좌표({@link AnalysisQuotaCharge}) — 호출부는 이 값을 그대로 보상에 넘긴다.
+     *         보상이 구독·기간을 다시 계산하지 않아야 하는 이유는 그 record 의 javadoc 참고.
      */
     @Transactional
-    public void consumeAnalysisQuota(Long userId, Long companyId, int imageCount) {
+    public AnalysisQuotaCharge consumeAnalysisQuota(Long userId, Long companyId, int imageCount) {
         if (imageCount <= 0) {
-            return;
+            return AnalysisQuotaCharge.none();
         }
         UserPlan userPlan = resolveLivePlan(userId, companyId);
         Plan plan = findPlan(userPlan.getPlanId());
@@ -158,10 +165,16 @@ public class QuotaService {
         if (updated == 0) {
             throw new BusinessException(ErrorCode.PLAN_ANALYSIS_QUOTA_EXCEEDED);
         }
+        return AnalysisQuotaCharge.of(userPlan.getId(), period, imageCount);
     }
 
     /**
-     * 분석 시작·실행이 실패했을 때의 보상 차감.
+     * 분석 시작·실행이 실패했을 때의 보상 차감 — {@link #consumeAnalysisQuota} 가 돌려준 좌표
+     * ({@link AnalysisQuotaCharge})가 가리키는 <b>그 행만</b> 되돌린다.
+     *
+     * <p>⚠️ 구독·기간을 <b>다시 조회하거나 계산하지 않는다</b>(머신 검수 P2/P3-1). 분석 워커는 {@code @Async}
+     * 로 수 분을 돌기 때문에, 보상 시점에 재계산하면 월이 넘어갔을 때 엉뚱한 기간 행을, 요금제가 바뀌었을 때
+     * 엉뚱한 구독 행을 감산한다. 근거와 실패 시나리오는 {@link AnalysisQuotaCharge} javadoc 참고.
      *
      * <p>{@code REQUIRES_NEW} 인 이유: 호출부는 대부분 "원래 실패"를 처리하는 예외 경로다. 보상을 호출부
      * 트랜잭션에 태우면 보상 쪽 실패가 호출부 트랜잭션까지 롤백 전용으로 오염시킨다.
@@ -169,7 +182,8 @@ public class QuotaService {
      * <p>⚠️ 그 대가로 <b>이 메서드는 반드시 트랜잭션 밖에서 호출해야 한다</b>(되돌릴 차감이 이미 커밋돼
      * 있어야 한다). 실제 두 호출부는 이 전제를 만족한다: {@code InspectionAnalysisService#startAnalysis}
      * 와 {@code InspectionAnalysisWorker#runAsync} 는 둘 다 트랜잭션 밖이라 {@link #consumeAnalysisQuota}
-     * 가 자기 트랜잭션으로 즉시 커밋된 뒤에 실패 경로로 들어간다.
+     * 가 자기 트랜잭션으로 즉시 커밋된 뒤에 실패 경로로 들어간다. (좌표 전파로 대상 행 <b>지정</b> 방식이
+     * 바뀌었을 뿐, 이 트랜잭션 계약은 그대로다 — 좌표가 정확해도 그 행이 아직 커밋 전이면 못 되돌린다.)
      *
      * <p>⚠️ <b>전제를 어기면 조용한 no-op 이 아니라 요청이 멈춘다</b>(재검토 P2 — 이전 주석의 "0행 갱신"
      * 서술은 틀렸다). 호출부 트랜잭션 TX-A 가 {@link #consumeAnalysisQuota}(REQUIRED, TX-A 에 조인)로
@@ -186,12 +200,12 @@ public class QuotaService {
      * 보상 실패의 최악 결과는 사용량이 조금 과대 집계되는 것뿐이라 원인을 가릴 이유가 없다.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void refundAnalysisQuota(Long userId, Long companyId, int imageCount) {
-        if (imageCount <= 0) {
+    public void refundAnalysisQuota(AnalysisQuotaCharge charge) {
+        if (charge == null || !charge.isCharged()) {
             return;
         }
-        findLivePlan(userId, companyId).ifPresent(userPlan ->
-                usageCounterRepository.refundAnalysisQuota(userPlan.getId(), currentPeriod(), imageCount));
+        usageCounterRepository.refundAnalysisQuota(
+                charge.userPlanId(), charge.period(), charge.imageCount());
     }
 
     /**
@@ -284,6 +298,8 @@ public class QuotaService {
     }
 
     private LocalDate currentPeriod() {
-        return YearMonth.now(KST).atDay(1);
+        // clock 은 SchedulingConfig 에서 Clock.system(Asia/Seoul) 로 제공된다 — KST 상수는 그 계약을
+        // 문서화하고, 혹시 다른 존의 Clock 이 주입되더라도 집계 기간만은 KST 로 고정되게 한다.
+        return YearMonth.now(clock.withZone(KST)).atDay(1);
     }
 }
