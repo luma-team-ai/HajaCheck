@@ -64,12 +64,30 @@ import org.springframework.stereotype.Component;
  *   <li><b>전량 실패</b>(AI 서버 다운 등) → 보상. 상태도 시작 전으로 되돌아가 재시도 가능하므로,
  *       보상하지 않으면 재시도할 때마다 한도만 깎여 FREE(월 50장)는 금세 소진되고 복구 API도 없다.</li>
  *   <li><b>추월당함</b>(세대 토큰 불일치) → {@code successCount == 0} 일 때만 보상. 이 실행은 결과를
- *       남기지 못하고 끝나고, 자리를 넘겨받은 실행은 자기 몫을 따로 차감했기 때문이다. 반대로 이미
- *       일부 이미지를 저장했다면 그 하자는 롤백되지 않고 남으므로 사용량도 실제로 소비된 것이다.</li>
+ *       남기지 못하고 끝나고, 자리를 넘겨받은 실행은 자기 몫을 따로 차감했기 때문이다.</li>
  *   <li><b>부분 실패</b>({@code successCount > 0}) → 보상하지 않는다. 성공한 장수만큼 결과가 남았고,
  *       장수 단위 부분 환불은 "요청 1건 = 이미지 N장" 차감 단위와 어긋난다.</li>
  * </ul>
  *
+ * <p><b>⚠️ 알려진 과대 집계 한 가지</b>(#843 머신 검수 P3-2, 실제 코드로 확인함) — "추월당함 +
+ * {@code successCount > 0}" 조합의 근거를 예전엔 "이미 저장한 하자는 남으므로 사용량도 실제 소비된 것"
+ * 이라고 적었는데, <b>그 서술은 한 경로에서 사실이 아니다</b>:
+ * <ul>
+ *   <li><b>리퍼가 토큰을 올린 경우</b>({@link com.hajacheck.core.analysis.scheduler.StuckAnalysisReaper}
+ *       → {@code reapIfStuck}) — 새 실행이 뜨지 않으므로 이 워커가 저장한 하자는 그대로 남는다.
+ *       기존 근거가 그대로 성립한다.</li>
+ *   <li><b>다른 요청이 재선점한 경우</b> — 넘겨받은 실행 B가 첫 탐지에 성공하는 순간
+ *       {@link DefectWriter#softDeleteAllForInspectionThenSave} 가 그 회차의 <b>비삭제 하자 전체</b>를
+ *       소프트삭제한다({@code findByInspectionIdAndNotDeleted} 대상 = A가 저장한 것 포함). 즉 A의 부분
+ *       결과는 실제로 사라지고, A와 B가 각각 N장을 차감해 사용자가 2N을 부담한다.</li>
+ * </ul>
+ * 다만 이 경로는 매우 좁다 — {@link InspectionAnalysisService#startAnalysis} 의 fail-closed 가드와
+ * {@code InspectionRepository#startAnalyzingIfNotRunning} 의 WHERE 가 둘 다 "비삭제 하자 없음"을
+ * 요구하므로, A가 하자를 <b>커밋한 뒤</b>에는 B가 애초에 선점하지 못한다. 도달하려면 B의 선점이 A의
+ * 세대 토큰 확인과 첫 커밋 사이(READ COMMITTED에서 A의 INSERT가 아직 안 보이는 구간)에 끼어야 한다.
+ * <b>이 좁은 트리거에서는 과대 집계를 감수한다</b> — 여기서 보상하면 반대로 "리퍼 경로에서 결과가 남았는데
+ * 환불"이 되어 무료 분석 경로가 열리고, 두 경로를 코드로 구분할 수단이 지금은 없다. 근본 해소는 AI/사람
+ * 생성 구분 컬럼(#644)으로 소프트삭제 대상을 좁힌 뒤 후속 이슈에서 다룬다(동작은 현행 유지).
  */
 @Slf4j
 @Component
