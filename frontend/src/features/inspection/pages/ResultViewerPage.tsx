@@ -14,6 +14,17 @@ import type { DefectGrade } from '../types';
 import { filterDefects } from '../utils/filterDefects';
 
 const ALL_GRADES: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
+
+// Figma 시안의 등급 라벨은 이 페이지 전용 워딩이다 — feature 간 직접 import 금지(types.ts 참고).
+// StatisticsGradeDistributionCard와 동일 라벨 사용.
+const GRADE_LABELS: Record<DefectGrade, string> = {
+  A: 'A (경미)',
+  B: 'B (양호)',
+  C: 'C (보통)',
+  D: 'D (주의)',
+  E: 'E (심각)',
+};
+
 const DEFECT_TYPE_OPTIONS: { value: 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE'; label: string }[] = [
   { value: 'CRACK', label: '균열' },
   { value: 'SPALLING', label: '박리박락' },
@@ -526,58 +537,8 @@ export function ResultViewerPage() {
                 </div>
               </div>
 
-              {/* Grade Edit Mode */}
-              {gradeEditId === selected.id ? (
-                <div className="flex flex-col gap-2 px-5 pt-5 pb-6">
-                  {errorMessage && (
-                    <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
-                  )}
-                  <div className="flex gap-2">
-                    <select
-                      value={selectedGrade}
-                      onChange={(e) => setSelectedGrade(e.target.value as DefectGrade | '')}
-                      className="flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="">등급 선택</option>
-                      {ALL_GRADES.map((g) => (
-                        <option key={g} value={g}>
-                          {g}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <textarea
-                    value={gradeReason}
-                    onChange={(e) => setGradeReason(e.target.value)}
-                    placeholder="수정 사유를 입력해주세요 (1-500자)"
-                    maxLength={500}
-                    className="rounded-lg border border-border bg-white px-3 py-2 text-sm"
-                    rows={3}
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="lg"
-                      className="flex-1"
-                      onClick={handleConfirmGrade}
-                      disabled={!selectedGrade || !gradeReason.trim() || isUpdating}
-                    >
-                      저장
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="lg"
-                      className="flex-1"
-                      onClick={handleCancelGradeEdit}
-                      disabled={isUpdating}
-                    >
-                      취소
-                    </Button>
-                  </div>
-                </div>
-              ) : (
+              {/* Grade Edit Mode — 등급 수정 모달(#827) */}
+              {!gradeEditId && (
                 <div className="flex gap-3 px-5 pt-5 pb-6">
                   <Button
                     type="button"
@@ -608,6 +569,84 @@ export function ResultViewerPage() {
           )}
         </div>
       </div>
+
+      {/* Grade Edit Modal (#827) */}
+      <Modal
+        open={gradeEditId !== undefined}
+        onClose={handleCancelGradeEdit}
+        title="등급 수정"
+        closeOnOverlayClick={!isUpdating}
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-text-muted">
+            보정된 심각도 등급 선택수동 검토에 기반하여
+          </p>
+          {errorMessage && (
+            <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
+          )}
+          {/* 라디오 그룹 — 2열 grid (A,B / C,D / E) */}
+          <div role="radiogroup" aria-label="등급 선택" className="grid grid-cols-2 gap-2">
+            {ALL_GRADES.map((grade) => (
+              <label
+                key={grade}
+                className={`flex cursor-pointer items-center justify-center rounded-[20px] border-2 px-4 py-2.5 font-medium transition ${
+                  selectedGrade === grade
+                    ? 'border-black bg-black/5 text-text-default'
+                    : 'border-[#e4e4e7] text-text-default hover:bg-surface-muted'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="grade-select"
+                  value={grade}
+                  checked={selectedGrade === grade}
+                  onChange={(e) => setSelectedGrade(e.target.value as DefectGrade)}
+                  className="sr-only"
+                />
+                {GRADE_LABELS[grade]}
+              </label>
+            ))}
+          </div>
+          {/* 수정 사유 textarea */}
+          <div>
+            <label htmlFor="grade-reason-textarea" className="mb-2 block text-sm font-medium text-text-default">
+              수정 사유
+            </label>
+            <textarea
+              id="grade-reason-textarea"
+              value={gradeReason}
+              onChange={(e) => setGradeReason(e.target.value)}
+              placeholder="수정 사유를 입력해주세요 (1-500자)"
+              maxLength={500}
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+              rows={3}
+            />
+          </div>
+          {/* 모달 버튼 */}
+          <div className="flex gap-2 pt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="lg"
+              className="flex-1"
+              onClick={handleCancelGradeEdit}
+              disabled={isUpdating}
+            >
+              취소
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="lg"
+              className="flex-1"
+              onClick={handleConfirmGrade}
+              disabled={!selectedGrade || !gradeReason.trim() || isUpdating}
+            >
+              확인
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Add Missing Defect Modal */}
       <Modal
