@@ -70,6 +70,32 @@ describe('InviteCodePage', () => {
     expect(confirmButton.disabled).toBe(true);
   });
 
+  // #849 PR머신 P3 — 위 테스트는 "버튼이 비활성"까지만 보장한다. 버튼 조건이나 폼 구조가 바뀌어
+  // 미완성 코드가 제출되는 회귀를 막기 위해, 폼 submit을 직접 발생시켜(= disabled 버튼 우회)
+  // redeem이 호출되지 않는다는 계약 자체를 고정한다.
+  it('6자리 미만에서 폼이 제출돼도 redeem을 호출하지 않는다', async () => {
+    let redeemCallCount = 0;
+    server.use(
+      http.post('/api/users/me/invite-code', () => {
+        redeemCallCount += 1;
+        const success: ApiResponse<User> = {
+          success: true,
+          data: { ...waitingUser, companyId: 7, companyName: '테스트회사', status: 'ACTIVE' },
+        };
+        return HttpResponse.json(success);
+      }),
+    );
+    renderPage();
+    typeCode('AB12');
+
+    const inputs = screen.getAllByLabelText(/초대 코드 \d번째 자리/);
+    fireEvent.submit(inputs[0].closest('form') as HTMLFormElement);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /확인/ })).not.toBeNull());
+    expect(redeemCallCount).toBe(0);
+    expect(screen.queryByText('대시보드 화면')).toBeNull();
+  });
+
   it('redeem 성공 시 authStore.user를 갱신하고 대시보드로 이동한다', async () => {
     server.use(
       http.post('/api/users/me/invite-code', () => {

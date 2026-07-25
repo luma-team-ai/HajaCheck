@@ -46,10 +46,13 @@ export function InviteCodePage() {
   };
 
   // 확인 버튼이 disabled={!isComplete || isPending}이라 6자리 미만이면 클릭도 Enter(암묵적 제출)도
-  // 발동하지 않는다(#845) — 이 핸들러가 호출되는 시점엔 isComplete가 항상 true이므로 별도 로컬
-  // 검증 분기를 두지 않는다.
+  // 발동하지 않는다(#845) — 사용자에게 보일 로컬 에러 안내는 그래서 두지 않는다(도달 불가 UI).
+  // 다만 안전망이 "버튼 disabled" 한 곳으로 좁아지므로, 버튼 조건이나 폼 구조가 바뀌어 미완성
+  // 코드가 제출되는 회귀는 이 가드가 막는다(#849 PR머신 P3). 도달 자체가 회귀 신호이며,
+  // InviteCodePage.test.tsx가 "6자리 미만 제출 시 redeem 미호출"로 이 계약을 고정한다.
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!isComplete) return;
     redeemInviteCode({ code });
   };
 
