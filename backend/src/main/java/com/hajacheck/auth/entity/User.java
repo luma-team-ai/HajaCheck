@@ -93,6 +93,12 @@ public class User extends BaseTimeEntity {
      * company_id 없이 가입하므로, 기업 관리자가 발급한 초대 코드를 redeem(activateWithInviteCode)해
      * 회사에 배선되기 전까지 WAITING(초대 대기)으로 남는다. 로그인은 허용되지만 보호된 리소스 접근은
      * SessionUserRevalidationFilter가 차단하고, 초대 코드 redeem 엔드포인트만 예외로 연다.
+     *
+     * <p>⚠️ <b>제품 결정(#794, 명시적 확인 완료)</b>: companyId=null 상태로 서비스를 이용하는 "개인 회원
+     * 셀프가입" 경로는 이 기능으로 폐지됐다(이전엔 status=ACTIVE로 즉시 서비스 이용 가능했음). 초대 코드
+     * 없이 가입한 사용자는 redeem 전까지 GET /api/users/me·POST /api/users/me/invite-code·
+     * POST /api/auth/logout 외 어떤 리소스에도 접근할 수 없다 — 의도된 동작이며 회귀가 아니다
+     * (SessionUserRevalidationFilterTest가 이 계약을 고정한다).
      */
     public static User createSocialUser(SocialProvider provider, String socialId,
                                         String email, String name) {
