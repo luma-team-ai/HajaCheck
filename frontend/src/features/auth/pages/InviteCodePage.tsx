@@ -18,7 +18,6 @@ export function InviteCodePage() {
   const user = useAuthStore((state) => state.user);
   const navigate = useNavigate();
   const [code, setCode] = useState('');
-  const [localError, setLocalError] = useState<string | null>(null);
   const { redeemInviteCode, isPending, isSuccess, error, reset } = useRedeemInviteCode();
   // 다른 계정으로 로그인(#799 후속) — WAITING 세션은 "취소"로 랜딩에 가도 로그아웃되지 않아,
   // 다시 로그인해도 이 화면으로 튕겨 돌아온다(같은 세션이 살아있으므로 의도된 동작). 다른
@@ -26,7 +25,7 @@ export function InviteCodePage() {
   const { logout } = useLogout();
 
   const isComplete = code.length === INVITE_CODE_LENGTH;
-  const errorMessage = localError ?? error?.message ?? null;
+  const errorMessage = error?.message ?? null;
 
   // redeem 성공(status=ACTIVE 전환) 직후 대시보드로 이동 — ProtectedRoute의 WAITING 리다이렉트가
   // authStore.user 갱신(useRedeemInviteCode의 onSuccess)을 이미 반영한 상태라 되돌아오지 않는다.
@@ -43,16 +42,17 @@ export function InviteCodePage() {
 
   const handleChange = (next: string) => {
     setCode(next);
-    if (localError) setLocalError(null);
     if (error) reset();
   };
 
+  // 확인 버튼이 disabled={!isComplete || isPending}이라 6자리 미만이면 클릭도 Enter(암묵적 제출)도
+  // 발동하지 않는다(#845) — 사용자에게 보일 로컬 에러 안내는 그래서 두지 않는다(도달 불가 UI).
+  // 다만 안전망이 "버튼 disabled" 한 곳으로 좁아지므로, 버튼 조건이나 폼 구조가 바뀌어 미완성
+  // 코드가 제출되는 회귀는 이 가드가 막는다(#849 PR머신 P3). 도달 자체가 회귀 신호이며,
+  // InviteCodePage.test.tsx가 "6자리 미만 제출 시 redeem 미호출"로 이 계약을 고정한다.
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!isComplete) {
-      setLocalError('6자리 초대 코드를 모두 입력해 주세요.');
-      return;
-    }
+    if (!isComplete) return;
     redeemInviteCode({ code });
   };
 

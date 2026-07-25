@@ -96,10 +96,13 @@ describe('AppShellRoute', () => {
     expect(screen.getByText('핸들 없는 페이지')).not.toBeNull();
   });
 
+  // '통계'(/statistics)는 HAJA-40(#27)에서 실제 라우트로 구현되어 더 이상 미구현 예시로 쓸 수
+  // 없다 — '설정'(/settings)은 아직 라우터에 없는 항목이라 이 시나리오의 예시로 대체한다
+  // (implementedRoutes.test.ts와 동일 화이트리스트 기준).
   it('router.tsx의 실제 isRouteImplemented를 SideNavBar까지 연결한다(미구현 경로 클릭 시 안내)', () => {
     renderAt('/dashboard');
 
-    fireEvent.click(screen.getByText('통계'));
+    fireEvent.click(screen.getByText('설정'));
 
     expect(screen.getByRole('status').textContent).toBe('아직 구현되지 않은 페이지입니다');
   });

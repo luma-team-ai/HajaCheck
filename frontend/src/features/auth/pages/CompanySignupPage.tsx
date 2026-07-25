@@ -652,7 +652,7 @@ export function CompanySignupPage() {
                   </p>
                 )}
                 {businessVerificationError && (
-                  <p className={ERROR_CLASSES}>
+                  <p role="alert" className={ERROR_CLASSES}>
                     {ERROR_MESSAGES[businessVerificationError.code] ??
                       BUSINESS_VERIFICATION_DEFAULT_ERROR_MESSAGE}
                   </p>
@@ -721,7 +721,11 @@ export function CompanySignupPage() {
               )}
             </div>
 
-            {submitErrorMessage && <p className={ERROR_CLASSES}>{submitErrorMessage}</p>}
+            {submitErrorMessage && (
+              <p role="alert" className={ERROR_CLASSES}>
+                {submitErrorMessage}
+              </p>
+            )}
 
             <Button
               type="submit"

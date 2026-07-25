@@ -101,7 +101,11 @@ export function FindIdPage() {
             {showValidation && !isFormValid && (
               <p className="auth-form-error">사업자등록번호와 상호명(또는 대표자명)을 입력해 주세요.</p>
             )}
-            {errorMessage && <p className="auth-form-error">{errorMessage}</p>}
+            {errorMessage && (
+              <p role="alert" className="auth-form-error">
+                {errorMessage}
+              </p>
+            )}
 
             <button type="submit" className="company-login-submit-btn" disabled={isPending}>
               {isPending ? '확인 중...' : '아이디 확인'}
