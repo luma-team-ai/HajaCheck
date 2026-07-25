@@ -79,6 +79,59 @@ export function ResultViewerPage() {
     }
   }, [inspectionId, setActiveInspectionId]);
 
+  // rules-of-hooks: 모든 훅은 조건부 return 이전에 호출되어야 한다.
+  // data가 없을 때도 안전하게 처리할 수 있도록 가드 포함.
+  const visibleDefects = data?.defects
+    ? filterDefects(data.defects, confidenceThreshold, gradeFilter)
+    : [];
+
+  // ponytail: mediaId별 그룹핑 — 각 이미지의 고유 mediaId와 해당 imageUrl 추출.
+  // 수동 추가 하자(mediaId=null)는 애초에 특정 이미지에 결부되지 않는 API 설계라(#784) 이미지
+  // 순회 대상에서 제외한다 — 넣으면 "다음 이미지"가 이미지 없는 깨진 화면으로 넘어가 버림.
+  // 뷰어에서 수동 추가 하자를 어떻게 노출할지는 팀 판단 대기(#784).
+  const mediaGroups = useMemo(() => {
+    const groups = new Map<number, { mediaId: number; imageUrl: string | null; defects: typeof visibleDefects }>();
+    for (const defect of visibleDefects) {
+      if (defect.mediaId == null) continue;
+      const mId = defect.mediaId;
+      if (!groups.has(mId)) {
+        groups.set(mId, { mediaId: mId, imageUrl: defect.imageUrl ?? null, defects: [] });
+      }
+      groups.get(mId)?.defects.push(defect);
+    }
+    return Array.from(groups.values()).sort((a, b) => a.mediaId - b.mediaId);
+  }, [visibleDefects]);
+
+  // 현재 선택된 media(또는 첫 번째 media)
+  const currentMediaGroup = useMemo(() => {
+    if (mediaGroups.length === 0) return null;
+    const currentId = selectedMediaId !== undefined ? selectedMediaId : (mediaGroups[0]?.mediaId ?? null);
+    return mediaGroups.find((g) => g.mediaId === currentId) ?? mediaGroups[0] ?? null;
+  }, [mediaGroups, selectedMediaId]);
+
+  // 현재 media 그룹의 defects — 핸들러들이 "현재 보고 있는 이미지" 범위로 하자를 찾을 때 쓴다
+  // (handleGenerateReport 등보다 먼저 선언 — 뒤 핸들러들이 전방참조 없이 곧장 쓸 수 있게).
+  const currentDefects = currentMediaGroup?.defects ?? [];
+
+  // 현재 media 인디케이터 (예: "이미지 1/2")
+  const currentMediaIndex = mediaGroups.findIndex((g) => g.mediaId === currentMediaGroup?.mediaId);
+  const mediaIndicator = mediaGroups.length > 0 ? `이미지 ${currentMediaIndex + 1}/${mediaGroups.length}` : '';
+
+  // 이전/다음 이미지 네비게이션 — rules-of-hooks: 훅은 조건부 return 이전에 호출
+  const handlePrevMedia = useCallback(() => {
+    if (currentMediaIndex > 0) {
+      setSelectedMediaId(mediaGroups[currentMediaIndex - 1]?.mediaId ?? null);
+      setSelectedDefectId(undefined);
+    }
+  }, [currentMediaIndex, mediaGroups]);
+
+  const handleNextMedia = useCallback(() => {
+    if (currentMediaIndex < mediaGroups.length - 1) {
+      setSelectedMediaId(mediaGroups[currentMediaIndex + 1]?.mediaId ?? null);
+      setSelectedDefectId(undefined);
+    }
+  }, [currentMediaIndex, mediaGroups]);
+
   // ponytail: 콜백은 훅이므로 조건부 return 이전에 정의(rules-of-hooks).
   // 콜백 내부에서 data/selected를 참조하지만, 클로저 캡처는 실행 시점에 일어나므로 정의 시점에 존재할 필요 없음.
   // 콜백 내부 guards가 조기 return을 처리한다.
@@ -90,10 +143,12 @@ export function ResultViewerPage() {
       setErrorMessage('사유는 1-500자 범위여야 합니다.');
       return;
     }
-    const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
+    // currentDefects(현재 보고 있는 이미지)에서 찾는다 — 전체 하자 목록(visibleDefects)에서
+    // 찾으면 다른 이미지를 보고 있어도 항상 첫 번째 이미지의 하자를 대상으로 삼는 오동작이
+    // 있었다(#784, 다중 이미지 뷰어 도입 후 미반영된 버그).
     const selected = selectedDefectId
-      ? visibleDefects.find((d) => d.id === selectedDefectId)
-      : visibleDefects[0];
+      ? currentDefects.find((d) => d.id === selectedDefectId)
+      : currentDefects[0];
     if (!selected || isUpdating) return;
     setIsUpdating(true);
     setErrorMessage('');
@@ -106,19 +161,18 @@ export function ResultViewerPage() {
     } finally {
       setIsUpdating(false);
     }
-  }, [data, confidenceThreshold, gradeFilter, selectedDefectId, isUpdating, refetch]);
+  }, [data, currentDefects, selectedDefectId, isUpdating, refetch]);
 
   const handleOpenGradeEdit = useCallback(() => {
     if (!data) return;
-    const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
     const selected = selectedDefectId
-      ? visibleDefects.find((d) => d.id === selectedDefectId)
-      : visibleDefects[0];
+      ? currentDefects.find((d) => d.id === selectedDefectId)
+      : currentDefects[0];
     if (selected) {
       setGradeEditId(selected.id);
       setSelectedGrade(selected.grade);
     }
-  }, [data, confidenceThreshold, gradeFilter, selectedDefectId]);
+  }, [data, currentDefects, selectedDefectId]);
 
   const handleConfirmGrade = useCallback(async () => {
     if (!data) return;
@@ -126,10 +180,9 @@ export function ResultViewerPage() {
       setErrorMessage('수정 사유는 1-500자 범위여야 합니다.');
       return;
     }
-    const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
     const selected = selectedDefectId
-      ? visibleDefects.find((d) => d.id === selectedDefectId)
-      : visibleDefects[0];
+      ? currentDefects.find((d) => d.id === selectedDefectId)
+      : currentDefects[0];
     if (!selected || !selectedGrade || isUpdating) return;
     setIsUpdating(true);
     setErrorMessage('');
@@ -148,7 +201,7 @@ export function ResultViewerPage() {
     } finally {
       setIsUpdating(false);
     }
-  }, [data, confidenceThreshold, gradeFilter, selectedDefectId, selectedGrade, gradeReason, isUpdating, refetch]);
+  }, [data, currentDefects, selectedDefectId, selectedGrade, gradeReason, isUpdating, refetch]);
 
   const handleCancelGradeEdit = useCallback(() => {
     setGradeEditId(undefined);
@@ -187,79 +240,35 @@ export function ResultViewerPage() {
 
   const handleConfirmReview = useCallback(async () => {
     if (!data) return;
-    const visibleDefects = filterDefects(data.defects, confidenceThreshold, gradeFilter);
     const selected = selectedDefectId
-      ? visibleDefects.find((d) => d.id === selectedDefectId)
-      : visibleDefects[0];
+      ? currentDefects.find((d) => d.id === selectedDefectId)
+      : currentDefects[0];
     if (!selected || isUpdating) return;
     setIsUpdating(true);
     setErrorMessage('');
     try {
       await inspectionApi.updateDefectStatus(selected.id, { status: 'CONFIRMED' });
       await refetch();
+      // 이 이미지에 더 확정할 하자가 없으면 다음 이미지로 자동 이동(요청 반영, #784).
+      // refetch()의 서버 응답을 기다리지 않고 방금 확정한 것 기준으로 낙관적으로 판단한다 —
+      // currentDefects는 확정 이전 스냅샷이라 selected를 제외하고 계산해야 한다.
+      const hasMoreToConfirm = currentDefects.some(
+        (d) => d.id !== selected.id && d.status === 'DETECTED',
+      );
+      if (!hasMoreToConfirm) {
+        handleNextMedia();
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : '검수 확정에 실패했습니다.';
       setErrorMessage(msg);
     } finally {
       setIsUpdating(false);
     }
-  }, [data, confidenceThreshold, gradeFilter, selectedDefectId, isUpdating, refetch]);
+  }, [data, currentDefects, selectedDefectId, isUpdating, refetch, handleNextMedia]);
 
   const handleGenerateReport = useCallback(() => {
     navigate(`/inspections/${inspectionId}/reports/generate`);
   }, [inspectionId, navigate]);
-
-  // rules-of-hooks: 모든 훅은 조건부 return 이전에 호출되어야 한다.
-  // data가 없을 때도 안전하게 처리할 수 있도록 가드 포함.
-  const visibleDefects = data?.defects
-    ? filterDefects(data.defects, confidenceThreshold, gradeFilter)
-    : [];
-
-  // ponytail: mediaId별 그룹핑 — 각 이미지의 고유 mediaId와 해당 imageUrl 추출.
-  // 수동 추가 하자(mediaId=null)는 애초에 특정 이미지에 결부되지 않는 API 설계라(#784) 이미지
-  // 순회 대상에서 제외한다 — 넣으면 "다음 이미지"가 이미지 없는 깨진 화면으로 넘어가 버림.
-  // 뷰어에서 수동 추가 하자를 어떻게 노출할지는 팀 판단 대기(#784).
-  const mediaGroups = useMemo(() => {
-    const groups = new Map<number, { mediaId: number; imageUrl: string | null; defects: typeof visibleDefects }>();
-    for (const defect of visibleDefects) {
-      if (defect.mediaId == null) continue;
-      const mId = defect.mediaId;
-      if (!groups.has(mId)) {
-        groups.set(mId, { mediaId: mId, imageUrl: defect.imageUrl ?? null, defects: [] });
-      }
-      groups.get(mId)?.defects.push(defect);
-    }
-    return Array.from(groups.values()).sort((a, b) => a.mediaId - b.mediaId);
-  }, [visibleDefects]);
-
-  // 현재 선택된 media(또는 첫 번째 media)
-  const currentMediaGroup = useMemo(() => {
-    if (mediaGroups.length === 0) return null;
-    const currentId = selectedMediaId !== undefined ? selectedMediaId : (mediaGroups[0]?.mediaId ?? null);
-    return mediaGroups.find((g) => g.mediaId === currentId) ?? mediaGroups[0] ?? null;
-  }, [mediaGroups, selectedMediaId]);
-
-  // 현재 media 그룹의 defects (early return 이전 계산)
-  const currentDefects = currentMediaGroup?.defects ?? [];
-
-  // 현재 media 인디케이터 (예: "이미지 1/2")
-  const currentMediaIndex = mediaGroups.findIndex((g) => g.mediaId === currentMediaGroup?.mediaId);
-  const mediaIndicator = mediaGroups.length > 0 ? `이미지 ${currentMediaIndex + 1}/${mediaGroups.length}` : '';
-
-  // 이전/다음 이미지 네비게이션 — rules-of-hooks: 훅은 조건부 return 이전에 호출
-  const handlePrevMedia = useCallback(() => {
-    if (currentMediaIndex > 0) {
-      setSelectedMediaId(mediaGroups[currentMediaIndex - 1]?.mediaId ?? null);
-      setSelectedDefectId(undefined);
-    }
-  }, [currentMediaIndex, mediaGroups]);
-
-  const handleNextMedia = useCallback(() => {
-    if (currentMediaIndex < mediaGroups.length - 1) {
-      setSelectedMediaId(mediaGroups[currentMediaIndex + 1]?.mediaId ?? null);
-      setSelectedDefectId(undefined);
-    }
-  }, [currentMediaIndex, mediaGroups]);
 
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
     return (

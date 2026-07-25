@@ -322,6 +322,50 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(button.hasAttribute('disabled')).toBe(true);
   });
 
+  it('이 이미지의 마지막 하자를 확정하면 다음 이미지로 자동 이동한다(#784)', async () => {
+    // mediaId=67(이미지1)은 id=2(박리박락)만 DETECTED로 남기고 나머지는 이미 확정/해결 상태로,
+    // mediaId=68(이미지2)에 별도 하자 하나를 추가한 2-이미지 시나리오.
+    const twoImageDefectsMock: DefectDetailItem[] = [
+      { ...mockDefects[0], status: 'CONFIRMED' },
+      mockDefects[1], // id=2, status: 'DETECTED' — 이미지1의 마지막 미확정 하자
+      { ...mockDefects[2], status: 'CONFIRMED' },
+      { ...mockDefects[3], status: 'CONFIRMED' },
+      { ...mockDefects[4], status: 'RESOLVED' },
+      {
+        id: 6,
+        inspectionId: 1,
+        type: '누수·백태',
+        grade: 'A',
+        status: 'DETECTED',
+        confidence: 0.7,
+        isReviewed: false,
+        bboxX: 0.4,
+        bboxY: 0.4,
+        bboxW: 0.1,
+        bboxH: 0.1,
+        createdAt: '2026-07-22T10:00:00Z',
+        mediaId: 68,
+        imageUrl: '/api/media/68/thumbnail',
+      },
+    ];
+    server.use(
+      http.get('/api/inspections/:id/defects', () => {
+        const body: ApiResponse<DefectDetailItem[]> = { success: true, data: twoImageDefectsMock };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+    expect(await screen.findByText('이미지 1/2')).not.toBeNull();
+
+    // 이미지1의 유일한 DETECTED 하자(id=2, 박리박락)를 선택 후 확정
+    fireEvent.click(screen.getByTitle(/박리박락/));
+    fireEvent.click(screen.getByRole('button', { name: '이 하자 검수 확정' }));
+
+    expect(await screen.findByText('이미지 2/2')).not.toBeNull();
+  });
+
   it('오탐 삭제 버튼이 활성화되어 있다(#553)', async () => {
     renderPage();
     await screen.findByText('DEF-0001');
