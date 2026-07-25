@@ -19,10 +19,14 @@ export function KpiCard({ label, value, changeRate, hasAlertDot = false }: Props
   const changeColorClass =
     changeRate < 0 ? DASHBOARD_COLOR_CLASS.dangerText : DASHBOARD_COLOR_CLASS.successText;
 
+  // Figma 시안은 수치(예: "14")와 단위("개")를 서로 다른 폰트 크기(5xl/xl)로 분리 렌더링한다.
+  // value가 "14개"처럼 합쳐진 문자열로 들어오므로, 여기서 숫자(콤마 포함)와 뒤따르는 단위를 분리한다.
+  const valueMatch = value.match(/^([\d,]+)(.*)$/);
+  const [numeric, unit] = valueMatch ? [valueMatch[1], valueMatch[2]] : [value, ''];
+
   return (
-    // Figma 시안 세로 리듬 정합(2026-07-24): 라벨↔수치 간격을 gap-2(8px 플렉스 갭)로,
-    // 수치 폰트를 text-5xl(48px)로 키워 시안의 "여유 있는" 카드 높이를 재현한다
-    // (기존 mb-2.5+text-[28px]는 시안 대비 수치가 작아 세로 리듬이 눌려 보였음).
+    // Figma 시안 폰트 비율 재정합(2026-07-24, 원본 대조): 라벨=text-sm/font-medium,
+    // 수치=text-5xl(숫자만)+단위 text-xl 별도, 증감율 배지=text-sm/font-normal.
     <div className={`${KPI_COL_CLASS} flex flex-col gap-2`}>
       <div className="flex items-center gap-1.5">
         {hasAlertDot && (
@@ -31,11 +35,12 @@ export function KpiCard({ label, value, changeRate, hasAlertDot = false }: Props
             aria-hidden="true"
           />
         )}
-        <span className={`text-[13px] ${DASHBOARD_COLOR_CLASS.labelText} font-semibold`}>{label}</span>
+        <span className={`text-sm ${DASHBOARD_COLOR_CLASS.labelText} font-medium`}>{label}</span>
       </div>
-      <p className="flex items-baseline gap-2 m-0">
-        <span className="text-5xl font-extrabold leading-none">{value}</span>
-        <span className={`text-[13px] font-bold ${changeColorClass}`}>
+      <p className="flex items-baseline gap-1.5 m-0">
+        <span className="text-5xl font-semibold leading-none">{numeric}</span>
+        {unit && <span className="text-xl font-medium leading-none">{unit}</span>}
+        <span className={`text-sm font-normal ${changeColorClass}`}>
           {formatChangeRate(changeRate)}
         </span>
       </p>
