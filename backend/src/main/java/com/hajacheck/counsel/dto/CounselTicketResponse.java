@@ -8,6 +8,9 @@ import java.time.LocalDateTime;
 /** 상담 티켓 단건 응답 — 생성/배정/종료 결과 및 개인 알림 페이로드. */
 public record CounselTicketResponse(
         Long id,
+        String ticketNumber,
+        String category,
+        String title,
         Long userId,
         Long counselorId,
         Long sessionId,
@@ -19,6 +22,9 @@ public record CounselTicketResponse(
     public static CounselTicketResponse from(CounselTicket ticket) {
         return new CounselTicketResponse(
                 ticket.getId(),
+                ticket.getTicketNumber(),
+                ticket.getCategory(),
+                ticket.getTitle(),
                 ticket.getUserId(),
                 ticket.getCounselorId(),
                 ticket.getSessionId(),

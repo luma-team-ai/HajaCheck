@@ -62,26 +62,42 @@ public class ChatMessage {
     @JoinColumn(name = "scenario_id", insertable = false, updatable = false)
     private BotScenario scenario;
 
+    // 이미지 첨부 — FileStorageService storageKey(실제 URL 아님) + MIME. 텍스트만 있는 메시지는 둘 다 null.
+    @Column(name = "attachment_key", length = 500)
+    private String attachmentKey;
+
+    @Column(name = "attachment_mime_type", length = 100)
+    private String attachmentMimeType;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
     @Builder(access = AccessLevel.PRIVATE)
-    private ChatMessage(Long sessionId, ChatSenderType sender,
-                        String content, Long scenarioId) {
+    private ChatMessage(Long sessionId, ChatSenderType sender, String content, Long scenarioId,
+                        String attachmentKey, String attachmentMimeType) {
         this.sessionId = sessionId;
         this.sender = sender;
         this.content = content;
         this.scenarioId = scenarioId;
+        this.attachmentKey = attachmentKey;
+        this.attachmentMimeType = attachmentMimeType;
     }
 
-    public static ChatMessage create(Long sessionId, ChatSenderType sender,
-                                     String content, Long scenarioId) {
+    public static ChatMessage create(Long sessionId, ChatSenderType sender, String content,
+                                     Long scenarioId, String attachmentKey, String attachmentMimeType) {
         return ChatMessage.builder()
                 .sessionId(sessionId)
                 .sender(sender)
                 .content(content)
                 .scenarioId(scenarioId)
+                .attachmentKey(attachmentKey)
+                .attachmentMimeType(attachmentMimeType)
                 .build();
+    }
+
+    /** 텍스트 전용 메시지 편의 팩토리(첨부 없음). */
+    public static ChatMessage createText(Long sessionId, ChatSenderType sender, String content) {
+        return create(sessionId, sender, content, null, null, null);
     }
 }

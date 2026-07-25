@@ -13,4 +13,11 @@ public interface CounselTicketRepository extends JpaRepository<CounselTicket, Lo
 
     // 상담원 대기열 — 상태별 목록(생성순 = FIFO), 페이지네이션.
     Page<CounselTicket> findByStatusOrderByCreatedAtAsc(CounselTicketStatus status, Pageable pageable);
+
+    // 내 상담 이력 — 본인 티켓 전체(최신순), 페이지네이션. userId 는 세션 주체에서만 채운다(IDOR 방지).
+    Page<CounselTicket> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
+
+    // 내 상담 이력 — 본인 + 상태 필터(최신순).
+    Page<CounselTicket> findByUserIdAndStatusOrderByCreatedAtDesc(
+            Long userId, CounselTicketStatus status, Pageable pageable);
 }
