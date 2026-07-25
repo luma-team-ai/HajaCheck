@@ -4,6 +4,9 @@ info:
   version: "0.16.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    2026-07-25 점검 회차별 미디어 목록 조회(GET /api/inspections/{id}/media) 신설(#803) — 하자 유무
+    무관 전체 이미지 노출용. MediaResponse에 detailUrl 추가. DefectDetailItem에 areaRatio(결함
+    면적비율, 박리박락·철근노출 전용) 추가(#802/#803).
     2026-07-25 분석 결과 뷰어 전용 상세 이미지 조회(GET /api/media/{id}/detail) 신설(#788/#789) —
     그리드용 썸네일(400px 상한)보다 큰 해상도(기본 1600px)로 재인코딩된 이미지 반환. DefectDetailItem에
     detailUrl 필드 추가.
@@ -1592,6 +1595,36 @@ paths:
       responses:
         "202": { description: TODO — 황승현 확정 필요(비동기 잡 패턴) }
 
+  /api/inspections/{id}/media:
+    get:
+      summary: 점검 회차별 촬영 데이터(미디어) 목록 조회
+      description: >
+        점검 회차(inspection)에 업로드된 미디어 전체를 반환한다(하자 유무 무관, 분석 결과 뷰어 전용,
+        #803). 결과뷰어가 하자 목록에서 역으로 이미지를 그룹핑하던 기존 방식은 하자가 0건인 사진을
+        노출할 수 없었던 문제를 이 엔드포인트로 해소한다. 소유권은 점검 회차를 통해 검증하며,
+        미존재와 타인 소유를 구분하지 않고 404로 통일한다(IDOR 방지).
+      security:
+        - SessionCookie: []
+      tags: [media]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: 조회 성공(빈 배열 포함)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaListApiResponse" }
+        "401":
+          description: 미인증
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 점검 회차 미존재 또는 타인 소유(INSPECTION_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
   /api/inspections/{id}/defects:
     get:
       summary: 분석 결과(하자 목록) 조회
@@ -2509,6 +2542,9 @@ components:
         thumbnailUrl:
           type: string
           description: 인가된 썸네일 조회 API 경로(/api/media/{id}/thumbnail) — 저장소 원본 경로 아님.
+        detailUrl:
+          type: string
+          description: 분석 결과 뷰어 전용 상세 이미지 조회 API 경로(/api/media/{id}/detail, #803)
         mimeType: { type: string, nullable: true }
         capturedAt: { type: string, format: date-time, nullable: true, description: EXIF 촬영시각(없으면 null) }
         gpsLat: { type: number, nullable: true }
@@ -2598,6 +2634,11 @@ components:
         bboxH: { type: number, format: double, nullable: true }
         crackWidthMm: { type: number, format: double, nullable: true }
         crackLengthMm: { type: number, format: double, nullable: true }
+        areaRatio:
+          type: number
+          format: double
+          nullable: true
+          description: 결함 면적비율(탐지 bbox 면적 ÷ 이미지 전체 면적) — 박리박락·철근노출 전용, 균열은 항상 null(#802/#803)
         detailUrl:
           type: string
           nullable: true

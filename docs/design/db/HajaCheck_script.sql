@@ -736,6 +736,7 @@ create table defects
     is_deleted      boolean                  default false                          not null,
     crack_width_mm  double precision,
     crack_length_mm double precision,
+    area_ratio      double precision,
     action_media_id    bigint
         references media,
     action_content     text,
@@ -778,6 +779,8 @@ comment on column defects.is_deleted is '결함의 논리 삭제 여부';
 comment on column defects.crack_width_mm is '균열 폭(mm)';
 
 comment on column defects.crack_length_mm is '균열 길이(mm)';
+
+comment on column defects.area_ratio is '결함 면적비율(탐지 bbox 면적 ÷ 이미지 전체 면적, HAJA-803, nullable)';
 
 comment on column defects.action_media_id is '조치 후 사진(HAJA-393/#725) — 조치 결과 등록 시 업로드한 촬영 이미지 식별자, nullable';
 

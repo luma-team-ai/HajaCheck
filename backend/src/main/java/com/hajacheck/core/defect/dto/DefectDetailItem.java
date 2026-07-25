@@ -36,6 +36,7 @@ public class DefectDetailItem {
     private Double bboxH;
     private Double crackWidthMm;
     private Double crackLengthMm;
+    private Double areaRatio;
     private Long mediaId;
     private String imageUrl;
     private String detailUrl;
@@ -56,6 +57,7 @@ public class DefectDetailItem {
                 .bboxH(defect.getBboxH())
                 .crackWidthMm(defect.getCrackWidthMm())
                 .crackLengthMm(defect.getCrackLengthMm())
+                .areaRatio(defect.getAreaRatio())
                 .mediaId(defect.getMediaId())
                 .imageUrl(defect.getMediaId() == null ? null : "/api/media/" + defect.getMediaId() + "/thumbnail")
                 .detailUrl(defect.getMediaId() == null ? null : "/api/media/" + defect.getMediaId() + "/detail")

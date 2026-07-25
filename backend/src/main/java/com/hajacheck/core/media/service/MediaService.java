@@ -179,6 +179,26 @@ public class MediaService {
     }
 
     /**
+     * 점검 회차별 미디어 목록 조회(#803 분석 결과 뷰어) — 업로드된 모든 미디어를 반환한다(하자 유무 무관).
+     * 결과에는 각 미디어의 썸네일/상세이미지 URL이 포함되어 있어, 프론트가 이미지 갤러리를 구성할 수 있다.
+     *
+     * @param userId          요청 사용자 id
+     * @param companyId       요청 사용자의 회사 id
+     * @param inspectionId    점검 회차 id
+     * @return 미디어 목록 (id 오름차순, 각 항목에 thumbnailUrl, detailUrl 포함)
+     * @throws BusinessException 점검 회차 미존재 또는 타인 소유 (404 INSPECTION_NOT_FOUND via IDOR guard)
+     */
+    @Transactional(readOnly = true)
+    public List<MediaResponse> getMediaByInspection(Long userId, Long companyId, Long inspectionId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        // 소유권 검증 — 타인 회차면 INSPECTION_NOT_FOUND(404)
+        inspectionService.getInspection(userId, companyId, inspectionId);
+
+        List<Media> medias = mediaRepository.findByInspectionIdOrderByIdAsc(inspectionId);
+        return medias.stream().map(MediaResponse::from).toList();
+    }
+
+    /**
      * 썸네일 조회(인가된 서빙 엔드포인트 전용) — 소유권 재검증 후 바이트를 반환한다.
      * 원본(originalUrl)은 어떤 경로로도 읽어 반환하지 않는다(PRD FR-2 원본 비공개 정책).
      *
