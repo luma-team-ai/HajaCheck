@@ -29,6 +29,9 @@ export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  // copied는 "복사됨" 배지를 1.5초만 보여주는 일시 상태라 폐기 여부 판단에 못 쓴다(그 뒤엔 다시 false로
+  // 꺼진다) — "이 발급 사이클에서 한 번이라도 복사했는지"를 별도로, 재발급/재오픈 때만 초기화되게 든다.
+  const [everCopied, setEverCopied] = useState(false);
 
   // 모달이 열릴 때마다 새 코드를 발급받고 타이머를 서버 TTL로 초기화한다.
   useEffect(() => {
@@ -37,6 +40,7 @@ export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
     }
     setCode('');
     setCopied(false);
+    setEverCopied(false);
     void issueInviteCode()
       .then((result) => {
         setCode(result.code);
@@ -47,10 +51,13 @@ export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // 모달이 닫힐 때(오버레이 없이 "닫기" 버튼으로만) 아직 안 쓴 코드를 즉시 폐기한다 — TTL 만료를 기다리지 않고
-  // 그 자리에서 재사용 창을 없앤다. code가 비어 있으면(발급 실패/응답 전) 호출하지 않는다.
+  // 모달이 닫힐 때(오버레이 없이 "닫기" 버튼으로만) 폐기 여부를 복사 이력으로 가른다(PR머신 후속 #809 P2) —
+  // 한 번도 복사 안 한 코드만 즉시 폐기해 재사용 창을 없앤다. 이미 복사해 채팅/메일 등으로 전달했을 코드는
+  // 닫는다고 무효화하지 않는다 — 그러면 관리자가 "복사→전달→닫기" 순서로 쓸 때마다 정상 발급된 코드가
+  // 수신자 redeem 시점엔 이미 폐기돼 실패하는 사용자향 오동작이 된다. 미복사 코드는 TTL(180초)까지
+  // 서버에 남아 있어도 원본대로면 위험 노출 창이 늘지 않는다(어차피 아무에게도 전달되지 않았으므로).
   function handleClose() {
-    if (code) {
+    if (code && !everCopied) {
       revokeInviteCode(code);
     }
     onClose();
@@ -82,6 +89,7 @@ export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
   function handleReissue() {
     setCode('');
     setCopied(false);
+    setEverCopied(false);
     void issueInviteCode()
       .then((result) => {
         setCode(result.code);
@@ -94,6 +102,7 @@ export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
+      setEverCopied(true);
     } catch {
       // 권한 거부·비보안 컨텍스트(HTTP)에서 writeText가 reject될 수 있다 — unhandled rejection 대신
       // "복사 실패" 피드백을 잠깐 보여준다(코드는 여전히 화면에 보이니 수동 선택으로 대체 가능).
