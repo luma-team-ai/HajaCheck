@@ -106,6 +106,9 @@ public enum ErrorCode {
     COUNSEL_PLAN_REQUIRED(HttpStatus.FORBIDDEN, "상담원 연결을 사용할 수 없는 요금제입니다."),
     // 셀프-클레임 배정 시 counselor_skills에 티켓의 counsel_type이 없는 상담사(#743/#772 이후 자격 검증).
     COUNSEL_SKILL_MISMATCH(HttpStatus.FORBIDDEN, "해당 상담 유형을 처리할 수 있는 상담사가 아닙니다."),
+    // 시나리오 category → counselType 매핑 테이블에 없는 category(신규 시나리오 추가 시 매핑 갱신 누락) —
+    // "시나리오 없음"과 구분되는 데이터 정합성 오류(PLAN_DATA_INVALID와 동일 성격).
+    COUNSEL_TYPE_MAPPING_NOT_FOUND(HttpStatus.INTERNAL_SERVER_ERROR, "상담 유형 매핑 데이터에 오류가 있습니다."),
 
     // 알림(notification) — FR-9, HAJA-274. 미존재/타인 소유 모두 통일 응답(cross-user IDOR 방지).
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "알림을 찾을 수 없습니다."),

@@ -285,7 +285,12 @@ public class CounselTicketService {
      * 시나리오 최상위 category → counselType 매핑(격리 지점). category(4종)와 counselType(3종, #743)이
      * 1:1이 아니라 여기서 명시적으로 대응시킨다 — INSPECTION_REPORT(점검 결과서 관련)는 분석 결과 문의가
      * 주 사례라 ANALYSIS_RESULT로, ERROR_REPORT(오류 신고)는 정형 분류가 없어 기타 성격인 BILLING_ETC로
-     * 묶는다(팀 결정, 2026-07-25).
+     * 묶는다(팀 결정, 2026-07-25). USAGE_GUIDE는 현재 시드(V17)에 상담원 연결 리프가 없어 셀프서비스
+     * 전용이지만, 매핑은 향후 리프 추가에 대비해 선제로 둔다.
+     *
+     * <p>default 분기는 "시나리오 미존재"(COUNSEL_SCENARIO_NOT_FOUND)와 구분한다 — 여기 도달했다는 건
+     * bot_scenarios에 실존하는 category인데 이 매핑 테이블 갱신이 누락됐다는 뜻(신규 category 시드만 하고
+     * 이 switch를 안 고친 경우)이라, PLAN_DATA_INVALID와 동일 성격의 데이터 정합성 오류로 취급한다.
      */
     private static CounselType resolveCounselType(String category) {
         return switch (category) {
@@ -293,7 +298,7 @@ public class CounselTicketService {
             case "ACCOUNT_BILLING" -> CounselType.BILLING_ETC;
             case "USAGE_GUIDE" -> CounselType.USAGE;
             case "ERROR_REPORT" -> CounselType.BILLING_ETC;
-            default -> throw new BusinessException(ErrorCode.COUNSEL_SCENARIO_NOT_FOUND);
+            default -> throw new BusinessException(ErrorCode.COUNSEL_TYPE_MAPPING_NOT_FOUND);
         };
     }
 

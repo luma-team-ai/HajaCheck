@@ -139,6 +139,18 @@ class CounselTicketServiceTest {
     }
 
     @Test
+    void 티켓생성_매핑안된카테고리_500_COUNSEL_TYPE_MAPPING_NOT_FOUND() {
+        givenCounselorAccess(true);
+        BotScenario leaf = scenario(SCENARIO_LEAF_ID, null, "UNKNOWN_CATEGORY", "선택", true);
+        when(botScenarioRepository.findById(SCENARIO_LEAF_ID)).thenReturn(Optional.of(leaf));
+
+        assertThatThrownBy(() -> service.createTicket(USER_ID, SCENARIO_LEAF_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.COUNSEL_TYPE_MAPPING_NOT_FOUND);
+        verify(ticketRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
     void 티켓생성_시나리오없음_404_SCENARIO_NOT_FOUND() {
         givenCounselorAccess(true);
         when(botScenarioRepository.findById(SCENARIO_LEAF_ID)).thenReturn(Optional.empty());
