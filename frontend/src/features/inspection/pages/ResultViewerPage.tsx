@@ -398,21 +398,26 @@ export function ResultViewerPage() {
               </div>
             )}
 
-            <div className="flex flex-1 items-center justify-center">
-              {currentDefects.length === 0 ? (
-                <div className="text-sm text-text-muted">
-                  {visibleDefects.length === 0 ? '조건에 맞는 하자가 없습니다.' : '이 이미지에 해당하는 하자가 없습니다.'}
-                </div>
+            <div className="flex flex-1 flex-col items-center justify-center gap-2">
+              {currentMediaGroup ? (
+                <>
+                  <DefectOverlay
+                    media={{
+                      id: currentMediaGroup.mediaId,
+                      imageUrl: currentMediaGroup.imageUrl ?? '',
+                    }}
+                    defects={currentDefects}
+                    selectedId={selected?.id}
+                    onSelect={setSelectedDefectId}
+                  />
+                  {currentDefects.length === 0 && (
+                    <div className="text-sm text-text-muted">
+                      {visibleDefects.length === 0 ? '조건에 맞는 하자가 없습니다.' : '이 이미지에 해당하는 하자가 없습니다.'}
+                    </div>
+                  )}
+                </>
               ) : (
-                <DefectOverlay
-                  media={{
-                    id: currentMediaGroup?.mediaId ?? 0,
-                    imageUrl: currentMediaGroup?.imageUrl ?? '',
-                  }}
-                  defects={currentDefects}
-                  selectedId={selected?.id}
-                  onSelect={setSelectedDefectId}
-                />
+                <div className="text-sm text-text-muted">표시할 이미지가 없습니다.</div>
               )}
             </div>
 
