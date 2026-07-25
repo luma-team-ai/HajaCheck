@@ -40,7 +40,7 @@ export function KpiCard({ label, value, changeRate, hasAlertDot = false }: Props
       <p className="flex items-baseline gap-1.5 m-0">
         <span className="text-4xl font-semibold leading-none">{numeric}</span>
         {unit && <span className="text-base font-medium leading-none">{unit}</span>}
-        <span className={`text-xs font-normal ${changeColorClass}`}>
+        <span className={`text-[8px] font-normal ${changeColorClass}`}>
           {formatChangeRate(changeRate)}
         </span>
       </p>

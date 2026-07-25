@@ -6,7 +6,7 @@ import { KpiCard } from './KpiCard';
 // 공용 shared/styles/layout.css의 동일 클래스보다 이 규칙을 확실히 우선시키기 위해
 // Tailwind !important 접두를 사용(원본 CSS도 소스 순서로 동일 목적의 override였음).
 const KPI_CARD_GROUP_CLASS =
-  'grid grid-cols-4 pt-1! pb-5! px-0! max-[1100px]:grid-cols-2 max-[720px]:grid-cols-1';
+  'grid grid-cols-4 py-5! px-0! max-[1100px]:grid-cols-2 max-[720px]:grid-cols-1';
 
 export function KpiSection() {
   const { data, isLoading, isError } = useDashboardSummary();
