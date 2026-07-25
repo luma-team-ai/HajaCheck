@@ -359,8 +359,6 @@ class MediaServiceTest {
                 .build(); // detailUrl 미지정 → null
         when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
         when(fileStorage.read("inspection-media/x.png")).thenReturn(realPngBytes(2000, 1500));
-        when(fileStorage.storeBytes(any(), eq("image/jpeg"), eq("inspection-media-detail"), any(), anyLong()))
-                .thenReturn(new StoredFile("/files/inspection-media-detail/legacy.jpg", "inspection-media-detail/legacy.jpg"));
 
         MediaService.ThumbnailFile detail = service.getDetailImage(200L, 100L, 10L);
 
@@ -369,16 +367,14 @@ class MediaServiceTest {
         assertThat(Math.max(decoded.getWidth(), decoded.getHeight())).isEqualTo(1600);
         verify(properties).getDetailMaxDimension();
         verify(properties, never()).getThumbnailMaxDimension();
-        // write-through 캐시(PR머신 리뷰 P2) — 생성 결과를 저장하고 media.detailUrl을 채워, 다음
-        // 조회부터는 원본 재인코딩 없이 저장된 파일을 읽기만 하도록 한다.
-        verify(fileStorage).storeBytes(any(), eq("image/jpeg"), eq("inspection-media-detail"), any(), anyLong());
-        verify(mediaWriter).cacheDetailUrl(10L, "inspection-media-detail/legacy.jpg");
     }
 
     @Test
-    void getDetailImage_레거시행_write_through캐시저장실패해도_방금생성한이미지는정상반환() throws IOException {
-        // write-through 캐시는 성능 최적화일 뿐 조회 성공 여부를 좌우하면 안 된다(#788/#789) —
-        // storeBytes가 실패해도 이미 생성한 detailBytes는 그대로 클라이언트에 반환돼야 한다.
+    void getDetailImage_레거시행_동시요청이_동시생성상한을넘지않는다() throws Exception {
+        // PR머신 리뷰 P2 — 캐시 없이 레거시 행을 즉석 생성하므로, 배포 직후 레거시 인스펙션을 열면
+        // 그리드 하자 수만큼 원본 디코딩이 한꺼번에 몰릴 수 있다. MediaService의
+        // MAX_CONCURRENT_LEGACY_DETAIL_GENERATION(4) 세마포어가 실제로 동시 실행을 제한하는지,
+        // fileStorage.read 호출 중 동시 진행 수를 직접 세어 검증한다(상한보다 많은 10개를 동시 발사).
         when(properties.getDetailMaxDimension()).thenReturn(1600);
         Media media = Media.builder()
                 .inspectionId(1L)
@@ -389,15 +385,32 @@ class MediaServiceTest {
                 .mimeType("image/png")
                 .build();
         when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
-        when(fileStorage.read("inspection-media/x.png")).thenReturn(realPngBytes(800, 600));
-        when(fileStorage.storeBytes(any(), eq("image/jpeg"), eq("inspection-media-detail"), any(), anyLong()))
-                .thenThrow(new RuntimeException("디스크 쓰기 실패"));
+        byte[] original = realPngBytes(800, 600);
+        java.util.concurrent.atomic.AtomicInteger inFlight = new java.util.concurrent.atomic.AtomicInteger(0);
+        java.util.concurrent.atomic.AtomicInteger maxInFlight = new java.util.concurrent.atomic.AtomicInteger(0);
+        when(fileStorage.read("inspection-media/x.png")).thenAnswer(invocation -> {
+            int current = inFlight.incrementAndGet();
+            maxInFlight.updateAndGet(prev -> Math.max(prev, current));
+            Thread.sleep(50);
+            inFlight.decrementAndGet();
+            return original;
+        });
 
-        MediaService.ThumbnailFile detail = service.getDetailImage(200L, 100L, 10L);
+        int totalRequests = 10;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(totalRequests);
+        try {
+            List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+            for (int i = 0; i < totalRequests; i++) {
+                futures.add(pool.submit(() -> service.getDetailImage(200L, 100L, 10L)));
+            }
+            for (java.util.concurrent.Future<?> future : futures) {
+                future.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdown();
+        }
 
-        assertThat(detail.mimeType()).isEqualTo("image/jpeg");
-        assertThat(detail.content()).isNotEmpty();
-        verify(mediaWriter, never()).cacheDetailUrl(anyLong(), anyString());
+        assertThat(maxInFlight.get()).isLessThanOrEqualTo(4);
     }
 
     @Test

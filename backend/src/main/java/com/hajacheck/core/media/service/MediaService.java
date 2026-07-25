@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Semaphore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -47,6 +48,13 @@ public class MediaService {
     // 픽셀 수 비례로 상한도 크게 잡는다(방어적 상한선, 순정 사진 압축률 기준 여유 포함).
     private static final long DETAIL_MAX_BYTES = 8_000_000L;
     private static final String THUMBNAIL_MIME_TYPE = "image/jpeg";
+    // 레거시(V13 이전) 행의 상세 이미지 즉석 생성 동시 실행 상한 — 배포 직후 레거시 인스펙션을 열면
+    // 그리드 하자 수만큼 원본(최대 20MB) 디코딩이 한꺼번에 몰릴 수 있어 방어적으로 제한한다(#788/#789
+    // PR머신 리뷰 P2). ponytail: 인스턴스 로컬 세마포어라 여러 앱 인스턴스 전체 합산은 상한×인스턴스수 —
+    // 레거시 행이 시간이 지나면 자연 소멸하는 유한 집합이라 그 이상의 분산 제한(Redis 등)은 과함.
+    private static final int MAX_CONCURRENT_LEGACY_DETAIL_GENERATION = 4;
+    private final Semaphore legacyDetailGenerationLimiter =
+            new Semaphore(MAX_CONCURRENT_LEGACY_DETAIL_GENERATION);
 
     private final MediaRepository mediaRepository;
     private final MediaWriter mediaWriter;
@@ -184,19 +192,18 @@ public class MediaService {
     /**
      * 분석 결과 뷰어(상세검수) 전용 상세 이미지 — 그리드·지도팝업용 썸네일(400px 상한)로는 크랙 폭 같은
      * 하자를 육안으로 판별하기 어려워(#788) 업로드 시 미리 생성해 둔 상세 이미지(detailUrl, V13)를
-     * 그대로 읽어 반환한다(getThumbnail()과 동일 패턴 — 조회마다 재인코딩하지 않는다, PR머신 리뷰 P2).
+     * 그대로 읽어 반환한다(getThumbnail()과 동일 패턴 — 조회마다 재인코딩하지 않는다).
      *
-     * <p>V13 이전에 업로드된 기존 행은 detailUrl이 없다(백필 안 함) — 그 경우 원본에서 즉석 생성하는
-     * 폴백을 타되, 생성 결과를 write-through 저장해 두 번째 조회부터는 다시 읽기만 하도록 한다(PR머신
-     * 리뷰 P2 — 캐시 없이 조회마다 원본 전체를 재디코딩하면, detailUrl 우선 사용으로 뷰어 진입 시
-     * 그리드의 레거시 이미지 수만큼 동시다발 재인코딩이 발생해 CPU/힙 부담이 컸다). write-through
-     * 실패(캐시 쓰기 오류)는 응답 자체를 막지 않는다 — 방금 생성한 바이트는 이미 있으므로 그대로
-     * 반환하고, 다음 조회에서 다시 즉석 생성을 시도한다. 원본(originalUrl)은 이 폴백에서도 그대로
-     * 반환하지 않는다(PRD FR-2 원본 비공개 정책) — {@link ImageThumbnailGenerator}로 재인코딩한
-     * 바이트만 응답한다. EXIF Orientation은 DB에 저장하지 않으므로 업로드 시 썸네일 생성과 동일하게
-     * 원본에서 다시 추출한다.
+     * <p>V13 이전에 업로드된 기존 행은 detailUrl이 없다(백필 안 함) — 그 경우 매 조회마다 원본에서
+     * 즉석 생성하는 폴백을 탄다.
      *
-     * <p>⚠️ getThumbnail()과 동일한 이유로 NOT_SUPPORTED(트랜잭션 밖에서 디스크/디코딩 IO 수행).
+     * <p>ponytail: write-through 캐시(생성 결과를 detailUrl에 저장)는 일부러 안 한다 — 캐시를 넣으면
+     * 그 캐시 자체의 동시성(동일 mediaId 동시 최초조회 시 고아 파일)·부분실패 관측성 문제가 새로 생겨
+     * PR머신 2라운드에 걸쳐 계속 지적됐다. 레거시 행은 시간이 지나면 자연히 사라지는 유한 집합(신규
+     * 업로드는 전부 V13 경로로 처음부터 detailUrl을 가짐)이라 감수할 만한 트레이드오프로 판단.
+     * 대신 {@link #legacyDetailGenerationLimiter}로 동시 재인코딩 수만 제한한다 — 배포 직후 레거시
+     * 인스펙션을 열면 그리드 하자 수만큼 원본(최대 20MB) 디코딩이 한꺼번에 몰릴 수 있어서다. 상한을
+     * 넘는 요청은 실패하지 않고 permit이 빌 때까지 대기한다(거부가 아니라 완화).
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ThumbnailFile getDetailImage(Long userId, Long companyId, Long mediaId) {
@@ -205,24 +212,24 @@ public class MediaService {
         if (media.getDetailUrl() != null) {
             return new ThumbnailFile(readOrMediaNotFound(media.getDetailUrl()), THUMBNAIL_MIME_TYPE);
         }
-        byte[] originalBytes = readOrMediaNotFound(media.getOriginalUrl());
-        int orientation = ExifGpsExtractor.extract(new ByteArrayInputStream(originalBytes)).orientation();
-        byte[] detailBytes = ImageThumbnailGenerator.generate(
-                new ByteArrayInputStream(originalBytes), properties.getDetailMaxDimension(), orientation);
-        cacheDetailBytes(mediaId, detailBytes);
-        return new ThumbnailFile(detailBytes, THUMBNAIL_MIME_TYPE);
+        return generateLegacyDetailImage(media);
     }
 
-    // 레거시 폴백에서 즉석 생성한 상세 이미지를 write-through 저장(#788/#789 PR머신 리뷰 P2). 캐시
-    // 쓰기 실패는 조용히 무시한다 — 이미 생성한 바이트는 호출부가 그대로 반환할 수 있고, 캐싱은
-    // 성능 최적화일 뿐 조회 자체의 성공 여부를 좌우해선 안 된다(다음 조회에서 재시도됨).
-    private void cacheDetailBytes(Long mediaId, byte[] detailBytes) {
+    private ThumbnailFile generateLegacyDetailImage(Media media) {
         try {
-            StoredFile stored = fileStorage.storeBytes(detailBytes, THUMBNAIL_MIME_TYPE, DETAIL_CATEGORY,
-                    THUMBNAIL_CONTENT_TYPES, DETAIL_MAX_BYTES);
-            mediaWriter.cacheDetailUrl(mediaId, stored.storageKey());
-        } catch (RuntimeException ignored) {
-            // best-effort — 위 주석 참조.
+            legacyDetailGenerationLimiter.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(ErrorCode.FILE_UPLOAD_FAILED);
+        }
+        try {
+            byte[] originalBytes = readOrMediaNotFound(media.getOriginalUrl());
+            int orientation = ExifGpsExtractor.extract(new ByteArrayInputStream(originalBytes)).orientation();
+            byte[] detailBytes = ImageThumbnailGenerator.generate(
+                    new ByteArrayInputStream(originalBytes), properties.getDetailMaxDimension(), orientation);
+            return new ThumbnailFile(detailBytes, THUMBNAIL_MIME_TYPE);
+        } finally {
+            legacyDetailGenerationLimiter.release();
         }
     }
 

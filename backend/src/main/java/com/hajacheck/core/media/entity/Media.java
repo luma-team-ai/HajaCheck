@@ -122,13 +122,4 @@ public class Media {
         this.mimeSignatureVerified = mimeSignatureVerified;
         this.mimeType = mimeType;
     }
-
-    /**
-     * V13 이전 업로드된 레거시 행(detailUrl 미보유)에서 최초 조회 시 즉석 생성한 상세 이미지를
-     * write-through 캐시한다(#788/#789 PR머신 리뷰 P2 — 매 조회마다 원본 재인코딩 반복 방지).
-     * 두 번째 조회부터는 이 값을 그대로 읽기만 하면 된다.
-     */
-    public void assignDetailUrl(String detailUrl) {
-        this.detailUrl = detailUrl;
-    }
 }
