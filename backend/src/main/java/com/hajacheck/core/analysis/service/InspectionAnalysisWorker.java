@@ -188,10 +188,16 @@ public class InspectionAnalysisWorker {
         if (successCount == 0 && !images.isEmpty()) {
             log.warn("AI 분석 전체 실패 — inspectionId={} totalImages={} — ANALYZED 전이를 건너뛰고 {}로 되돌린다",
                     inspectionId, images.size(), statusBeforeAnalysis);
-            inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, statusBeforeAnalysis);
             // 코드 리뷰 P1(#843) — 상태만 되돌리고 월 분석 사용량을 그대로 소진시키면, 재시도할 때마다
             // 한도만 깎인다(InspectionAnalysisService 의 큐 포화 보상과 대칭). 클래스 javadoc 참고.
+            //
+            // 재검토 P3 — advanceStatus 보다 **먼저** 보상한다. advanceStatus 는 내부적으로
+            // CompanyScopeGuard 재검증을 타므로, 분석이 도는 동안 요청자의 회사 소속이 해제되면 여기서
+            // 예외가 난다. 보상이 뒤에 있으면 그 좁은 창에서 사용량만 소진된 채 복구 수단이 없다(관리자
+            // 보정 API 없음). 순서를 뒤집으면 최악이라도 "상태가 ANALYZING 으로 잔류"인데 그건
+            // StuckAnalysisReaper 가 복구한다.
             refundIfNothingPersisted(requesterUserId, companyId, inspectionId, images.size(), successCount);
+            inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, statusBeforeAnalysis);
             AnalysisStatusResponse failedProgress = new AnalysisStatusResponse(
                     inspectionId, "failed", 0, images.size(), 0, files,
                     detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount,

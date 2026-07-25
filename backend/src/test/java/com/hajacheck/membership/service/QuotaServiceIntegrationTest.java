@@ -196,7 +196,10 @@ class QuotaServiceIntegrationTest extends PostgresTestSupport {
 
     // 아래 두 테스트는 보상 SQL 자체(요청수·이미지수 되돌림, 음수 방지)를 고정한다. 서비스 메서드가
     // 아니라 리포지토리를 직접 부르는 이유: QuotaService#refundAnalysisQuota 는 REQUIRES_NEW 라
-    // 이 테스트의 미커밋 차감을 보지 못한다(0행 갱신). 서비스 경로의 end-to-end 보상은 커밋을 실제로
+    // 이 테스트가 자기 트랜잭션에서 만든 미커밋 집계 행 자체를 보지 못한다(행이 안 보이니 0행 갱신).
+    // ⚠️ 이걸 "트랜잭션 안에서 부르면 최악이라도 no-op"으로 일반화하지 말 것 — 대상 행이 이미 커밋돼
+    // 있는데 호출부 트랜잭션이 그 행을 갱신해 잠금을 쥐고 있으면 0행이 아니라 잠금 대기로 멈춘다
+    // (QuotaService#refundAnalysisQuota javadoc 참고). 서비스 경로의 end-to-end 보상은 커밋을 실제로
     // 일으키는 QuotaEnforcementConcurrencyTest 가 검증한다.
 
     @Test

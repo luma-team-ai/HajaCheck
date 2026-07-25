@@ -166,11 +166,18 @@ public class QuotaService {
      * <p>{@code REQUIRES_NEW} 인 이유: 호출부는 대부분 "원래 실패"를 처리하는 예외 경로다. 보상을 호출부
      * 트랜잭션에 태우면 보상 쪽 실패가 호출부 트랜잭션까지 롤백 전용으로 오염시킨다.
      *
-     * <p>⚠️ 그 대가로 <b>되돌릴 차감이 이미 커밋돼 있어야 한다</b> — 독립 트랜잭션이라 호출부의 미커밋
-     * 차감은 보이지 않아 조용히 0행 갱신으로 끝난다. 실제 두 호출부는 모두 이 전제를 만족한다:
-     * {@code InspectionAnalysisService#startAnalysis} 와 {@code InspectionAnalysisWorker#runAsync} 는
-     * 둘 다 트랜잭션 밖이라 {@link #consumeAnalysisQuota} 가 자기 트랜잭션으로 즉시 커밋된 뒤에 실패
-     * 경로로 들어간다.
+     * <p>⚠️ 그 대가로 <b>이 메서드는 반드시 트랜잭션 밖에서 호출해야 한다</b>(되돌릴 차감이 이미 커밋돼
+     * 있어야 한다). 실제 두 호출부는 이 전제를 만족한다: {@code InspectionAnalysisService#startAnalysis}
+     * 와 {@code InspectionAnalysisWorker#runAsync} 는 둘 다 트랜잭션 밖이라 {@link #consumeAnalysisQuota}
+     * 가 자기 트랜잭션으로 즉시 커밋된 뒤에 실패 경로로 들어간다.
+     *
+     * <p>⚠️ <b>전제를 어기면 조용한 no-op 이 아니라 요청이 멈춘다</b>(재검토 P2 — 이전 주석의 "0행 갱신"
+     * 서술은 틀렸다). 호출부 트랜잭션 TX-A 가 {@link #consumeAnalysisQuota}(REQUIRED, TX-A 에 조인)로
+     * 같은 {@code usage_counters} 행을 이미 갱신해 <b>배타 잠금을 쥔 상태</b>라면, {@code REQUIRES_NEW}
+     * 로 열린 TX-B 의 UPDATE 는 그 잠금을 기다린다. 그런데 TX-A 는 이 메서드 호출이 반환되기를 기다리므로
+     * 영원히 커밋되지 않는다 — DB 교착이 아니라 JVM 대기라 <b>PostgreSQL 교착 탐지기가 발동하지 않고</b>,
+     * {@code lock_timeout}/{@code statement_timeout} 도 설정돼 있지 않아 커넥션 2개를 쥔 채 무기한 멈춘다.
+     * "0행 갱신으로 끝난다"가 성립하는 건 호출부가 <b>차감을 하지 않은</b> 트랜잭션일 때뿐이다.
      *
      * <p>⚠️ 이 메서드는 예외를 <b>삼키지 않는다</b>. 예전에는 본문을 try/catch 로 감쌌지만, 그러면
      * 프록시의 커밋 단계에서 새로 던져지는 {@code UnexpectedRollbackException} 은 못 잡아 원래 원인
