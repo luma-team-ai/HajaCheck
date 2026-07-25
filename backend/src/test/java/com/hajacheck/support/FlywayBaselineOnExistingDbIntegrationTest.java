@@ -120,15 +120,14 @@ class FlywayBaselineOnExistingDbIntegrationTest {
         assertThat(planRepository.findByName(PlanName.ENTERPRISE)).isPresent();
         assertThat(planRepository.findByName(PlanName.ENTERPRISE).orElseThrow().getMaxSeats()).isNull();
 
-        // V19(FREE 좌석 1→2, #843/HAJA-441) — 캐노니컬 DDL 은 이미 2로 시드하므로 이 경로에서 V19 의
-        // WHERE(max_seats = 1)는 아무 행도 만나지 않는다. 즉 "이미 1이 아닌 값(운영자가 플랜 정책 설정으로
-        // 조정해 둔 값 포함)은 덮지 않는다"는 조건절의 의도가 여기서 실제로 검증되고, 그럼에도 신규 설치
-        // 경로와 기존 DB 증분 경로가 같은 값(2)으로 수렴하는지 함께 고정한다.
-        assertThat(planRepository.findByName(PlanName.FREE).orElseThrow().getMaxSeats()).isEqualTo(2);
+        // FREE 는 대표 1인 전용 티어다(#858 — #843/V19 좌석 상향을 되돌리며 V19 파일 자체를 삭제했다).
+        // 캐노니컬 DDL 시드값 1이 그대로 유지되어야 하며, V19 가 더 이상 존재하지 않으므로
+        // flyway_schema_history 에 version='19' 레코드도 남지 않는다.
+        assertThat(planRepository.findByName(PlanName.FREE).orElseThrow().getMaxSeats()).isEqualTo(1);
         Integer v19Applied = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where version = '19' and success = true",
                 Integer.class);
-        assertThat(v19Applied).isEqualTo(1);
+        assertThat(v19Applied).isEqualTo(0);
 
         Long planCount = jdbcTemplate.queryForObject("select count(*) from plans", Long.class);
         assertThat(planCount).isEqualTo(3L);
