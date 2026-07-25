@@ -33,6 +33,16 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
  * 수행해야 한다 — 갱신 행 수 0이 곧 한도 초과 판정이며, period 최초 생성 경합은 UNIQUE 기반 UPSERT로 흡수한다.
  * 향후 이 카운터를 증가시키는 서비스(QuotaInterceptor 등)를 구현할 때 read-modify-write 패턴으로
  * 되돌리지 않도록 주의한다(jpa_entity_implementation_audit.md §3.7 참조).
+ *
+ * <p><b>⚠️ 위 규정의 명시적 예외 — facilityCount/seatCount(#843)</b>: 이 둘은 "해당 월 <b>또는 집계
+ * 시점의</b> 등록 시설 수 / 사용 좌석 수"(DDL 컬럼 주석)라는 <b>스냅샷</b>이지 월 누적이 아니다.
+ * 진실의 원천은 {@code facilities}/{@code users} 실측 count(*)이고 이 컬럼은 화면 표시용 미러이므로,
+ * 한도 판정을 "저장된 카운터 &lt; 한도"로 할 수 없다(삭제·정지 같은 감소 경로가 하나라도 누락되면
+ * 영구 드리프트로 정당한 요청을 잘못 막는다). 그래서 이 둘만은 <b>집계 행을
+ * {@code select ... for update}로 먼저 잠근 뒤 실측하고, 그 실측값을 조건으로 하는 UPDATE</b>
+ * (갱신 0행 = 한도 초과)로 처리한다 — 잠금 선행이 없으면 그 UPDATE 는 원자적이지 않다. 규약과
+ * 그 강제 방법은 {@code UsageCounterRepository#reserveFacilitySlot}/{@code #reserveSeat} javadoc 참조.
+ * analyzedImageCount/analysisRequestCount 등 누적 카운터는 위 원칙(순수 조건부 UPDATE) 그대로다.
  */
 @Entity
 @Getter

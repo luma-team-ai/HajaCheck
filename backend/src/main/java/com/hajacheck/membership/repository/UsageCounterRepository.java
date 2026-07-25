@@ -20,6 +20,12 @@ import org.springframework.data.repository.query.Param;
  *
  * <p>period 행 최초 생성 경합은 {@code unique (user_plan_id, period)} 기반 UPSERT
  * ({@link #insertPeriodRowIfAbsent})로 흡수한다.
+ *
+ * <p><b>예외 — 스냅샷 한도(시설물·좌석)</b>: 이 둘은 판정 기준이 저장된 카운터가 아니라
+ * {@code facilities}/{@code users} 실측 count(*)라, 예약 UPDATE 의 WHERE 에 카운터 컬럼이 등장하지
+ * 않는다. 따라서 그 문장들은 <b>단독으로는 원자적이지 않으며</b> 반드시 {@link #lockPeriodRow}로
+ * 집계 행을 먼저 잠근 트랜잭션 안에서만 호출해야 한다(잠금 → 실측 → 조건부 UPDATE 순서). 이를
+ * 시그니처로 강제하기 위해 두 예약/동기화 메서드는 대상 행을 잠금 메서드가 돌려준 id 로만 받는다.
  */
 public interface UsageCounterRepository extends JpaRepository<UsageCounter, Long> {
 
@@ -73,44 +79,49 @@ public interface UsageCounterRepository extends JpaRepository<UsageCounter, Long
      * 시설물 1건 등록 슬롯을 예약한다 — {@code measured}(잠금 후 실측한 현재 보유 시설물 수)가 한도 미만일
      * 때만 갱신되고, 0행이면 한도 초과다.
      *
-     * <p>⚠️ 호출부는 <b>실제 시설물 INSERT와 같은 트랜잭션</b>에서 이 메서드를 호출해야 한다. 잠금을 쥔 채
-     * 커밋해야 다음 요청의 실측이 방금 만든 시설물을 포함해서 세기 때문이다.
+     * <p>⚠️ <b>이 UPDATE 의 WHERE 에는 카운터 컬럼 참조가 없다</b>(판정 기준이 저장된 값이 아니라 실측값이라
+     * 그렇다). 즉 이 문장 하나만으로는 원자적이지 않고, 안전성은 전적으로 <b>같은 트랜잭션에서
+     * {@link #lockPeriodRow} 로 그 행을 먼저 잠갔다는 사실</b>에 의존한다. 그 불변식을 호출 순서 관례가
+     * 아니라 시그니처로 강제하기 위해, 대상 행을 (userPlanId, period) 가 아니라 <b>잠금 메서드가 돌려준
+     * {@code usageCounterId}</b> 로만 지정한다 — 잠그지 않고서는 이 id 를 얻을 경로가 없다.
+     *
+     * <p>⚠️ 호출부는 <b>실제 시설물 INSERT 와 같은 트랜잭션</b>이어야 한다. 잠금을 쥔 채 커밋해야 다음
+     * 요청의 실측이 방금 만든 시설물을 포함해서 세기 때문이다.
+     *
+     * @param usageCounterId {@link #lockPeriodRow} 가 반환한, 이 트랜잭션이 잠그고 있는 집계 행 id
      */
     @Modifying(flushAutomatically = true)
     @Query(value = """
             update usage_counters
                set facility_count = cast(:measured as integer) + 1
-             where user_plan_id = :userPlanId
-               and period = cast(:period as date)
+             where id = :usageCounterId
                and cast(:measured as integer) < cast(:maxFacilities as integer)
             """, nativeQuery = true)
-    int reserveFacilitySlot(@Param("userPlanId") Long userPlanId,
-                            @Param("period") LocalDate period,
+    int reserveFacilitySlot(@Param("usageCounterId") Long usageCounterId,
                             @Param("measured") int measured,
                             @Param("maxFacilities") int maxFacilities);
 
-    /** 시설물 보유량 표시값 동기화(무제한 요금제·삭제 후) — 한도 판정 없이 실측값을 그대로 반영한다. */
+    /**
+     * 시설물 보유량 표시값 동기화(무제한 요금제·삭제 후) — 한도 판정 없이 실측값을 그대로 반영한다.
+     * {@link #reserveFacilitySlot} 과 같은 이유로 잠금 메서드가 돌려준 id 로만 대상을 지정한다.
+     */
     @Modifying(flushAutomatically = true)
     @Query(value = """
             update usage_counters
                set facility_count = cast(:value as integer)
-             where user_plan_id = :userPlanId and period = cast(:period as date)
+             where id = :usageCounterId
             """, nativeQuery = true)
-    int syncFacilityCount(@Param("userPlanId") Long userPlanId,
-                          @Param("period") LocalDate period,
-                          @Param("value") int value);
+    int syncFacilityCount(@Param("usageCounterId") Long usageCounterId, @Param("value") int value);
 
-    /** 좌석 1석 예약 — {@link #reserveFacilitySlot} 과 동일 규약(실측 기반 조건부 UPDATE, 0행 = 한도 초과). */
+    /** 좌석 1석 예약 — {@link #reserveFacilitySlot} 과 동일 규약(잠금 선행 필수, 0행 = 한도 초과). */
     @Modifying(flushAutomatically = true)
     @Query(value = """
             update usage_counters
                set seat_count = cast(:measured as integer) + 1
-             where user_plan_id = :userPlanId
-               and period = cast(:period as date)
+             where id = :usageCounterId
                and cast(:measured as integer) < cast(:maxSeats as integer)
             """, nativeQuery = true)
-    int reserveSeat(@Param("userPlanId") Long userPlanId,
-                    @Param("period") LocalDate period,
+    int reserveSeat(@Param("usageCounterId") Long usageCounterId,
                     @Param("measured") int measured,
                     @Param("maxSeats") int maxSeats);
 
@@ -119,11 +130,9 @@ public interface UsageCounterRepository extends JpaRepository<UsageCounter, Long
     @Query(value = """
             update usage_counters
                set seat_count = cast(:value as integer)
-             where user_plan_id = :userPlanId and period = cast(:period as date)
+             where id = :usageCounterId
             """, nativeQuery = true)
-    int syncSeatCount(@Param("userPlanId") Long userPlanId,
-                      @Param("period") LocalDate period,
-                      @Param("value") int value);
+    int syncSeatCount(@Param("usageCounterId") Long usageCounterId, @Param("value") int value);
 
     /**
      * 월 분석 한도 차감 — 누적 카운터라 실측 원천이 없고, 저장된 값 자체를 조건으로 쓰는 순수 원자적

@@ -44,6 +44,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.IllegalTransactionStateException;
 
 /**
  * 플랜 한도 강제(#843 / HAJA-441)의 <b>동시 요청 경합</b> 검증 — 같은 회사로 한도보다 많은 요청을 동시에
@@ -203,18 +204,23 @@ class QuotaEnforcementConcurrencyTest extends PostgresTestSupport {
         assertThat(threadCount).isGreaterThan(remainingSeats);
 
         List<Long> waitingUserIds = new ArrayList<>();
+        // ⚠️ 초대 코드는 스레드마다 따로 발급한다. 하나를 공유하면 먼저 커밋한 redeem 의 afterCommit 이
+        // 코드를 소비해버려(1회용), 뒤따르는 스레드가 좌석 한도가 아니라 AUTH_INVITE_CODE_INVALID 로
+        // 떨어진다 — 타이밍에 따라 재현되는 false-red 다. 거부 사유를 "좌석 한도" 하나로 고정한다.
+        List<String> codes = new ArrayList<>();
         for (int i = 0; i < threadCount; i++) {
             User waiting = userRepository.save(User.createSocialUser(
                     SocialProvider.KAKAO, "quota-social-" + System.nanoTime() + "-" + i,
                     "quota-waiting-" + System.nanoTime() + "-" + i + "@haja.com", "대기자" + i));
             waitingUserIds.add(waiting.getId());
             extraUserIds.add(waiting.getId());
+            codes.add(inviteCodeService.issue(companyId).code());
         }
-        String code = inviteCodeService.issue(companyId).code();
+        assertThat(codes).doesNotHaveDuplicates();
 
         List<Boolean> results = runConcurrently(threadCount,
                 index -> {
-                    inviteCodeService.redeem(code, waitingUserIds.get(index));
+                    inviteCodeService.redeem(codes.get(index), waitingUserIds.get(index));
                     return true;
                 },
                 ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED);
@@ -222,6 +228,37 @@ class QuotaEnforcementConcurrencyTest extends PostgresTestSupport {
         assertThat(succeeded(results)).isEqualTo(remainingSeats);
         assertThat(userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE)).isEqualTo(limit);
         assertThat(currentUsage().getSeatCount()).isEqualTo(limit);
+    }
+
+    @Test
+    void 분석_보상차감은_독립트랜잭션이라_이미커밋된_사용량을_되돌린다() {
+        // QuotaService#refundAnalysisQuota 는 REQUIRES_NEW 다(보상 실패가 호출부 트랜잭션을 오염시키지
+        // 않도록). 실제 호출부(startAnalysis·워커)는 트랜잭션 밖이라 차감이 먼저 커밋되는데, 그 전제에서
+        // 보상이 정상 동작하는지 커밋을 실제로 일으켜 확인한다(@Transactional 테스트로는 검증 불가).
+        givenCompanyPlan(PlanName.STANDARD);
+
+        quotaService.consumeAnalysisQuota(ownerId, companyId, 9);
+        assertThat(currentUsage().getAnalyzedImageCount()).isEqualTo(9);
+        assertThat(currentUsage().getAnalysisRequestCount()).isEqualTo(1);
+
+        quotaService.refundAnalysisQuota(ownerId, companyId, 9);
+
+        assertThat(currentUsage().getAnalyzedImageCount()).isZero();
+        assertThat(currentUsage().getAnalysisRequestCount()).isZero();
+    }
+
+    @Test
+    void 예약API를_트랜잭션밖에서_호출하면_즉시_실패한다() {
+        // MANDATORY(리뷰 P2) — 예약은 자원 영속화와 같은 트랜잭션이어야 잠금이 커밋까지 유지돼 한도가
+        // 새지 않는다. 트랜잭션 없는 호출을 조용히 통과시키지 않고 런타임에 fail-fast 시킨다.
+        givenCompanyPlan(PlanName.STANDARD);
+
+        assertThatThrownBy(() -> quotaService.reserveFacilitySlot(ownerId, companyId))
+                .isInstanceOf(IllegalTransactionStateException.class);
+        assertThatThrownBy(() -> quotaService.reserveSeat(companyId))
+                .isInstanceOf(IllegalTransactionStateException.class);
+        assertThatThrownBy(() -> quotaService.syncFacilityUsage(ownerId, companyId))
+                .isInstanceOf(IllegalTransactionStateException.class);
     }
 
     @Test
