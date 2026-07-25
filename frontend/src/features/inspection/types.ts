@@ -53,7 +53,7 @@ export interface Media {
 
 export interface InspectionResult {
   inspectionId: number;
-  media: InspectionMedia;
+  media: InspectionMedia[]; // 전체 미디어 목록 (#804)
   defects: Defect[];
   defectCode: string; // 예: DEF-0192
   facilityName: string; // 예: 강남 오피스타워 A동
