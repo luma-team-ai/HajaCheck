@@ -3,12 +3,17 @@ package com.hajacheck.counsel.service;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.counsel.dto.ChatMessageResponse;
 import com.hajacheck.counsel.dto.CounselTicketResponse;
 import com.hajacheck.counsel.dto.CounselTicketSummaryResponse;
+import com.hajacheck.counsel.entity.BotScenario;
+import com.hajacheck.counsel.entity.ChatMessage;
 import com.hajacheck.counsel.entity.ChatSession;
 import com.hajacheck.counsel.entity.ChatSessionType;
 import com.hajacheck.counsel.entity.CounselTicket;
 import com.hajacheck.counsel.entity.CounselTicketStatus;
+import com.hajacheck.counsel.repository.BotScenarioRepository;
+import com.hajacheck.counsel.repository.ChatMessageRepository;
 import com.hajacheck.counsel.repository.ChatSessionRepository;
 import com.hajacheck.counsel.repository.CounselTicketRepository;
 import com.hajacheck.global.exception.BusinessException;
@@ -18,7 +23,11 @@ import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -29,7 +38,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 전문 상담 티켓 라이프사이클(FR-7, #20/HAJA-33) — 생성(WAITING)·상담원 셀프-클레임 배정·종료·오프라인 이탈.
+ * 전문 상담 티켓 라이프사이클(FR-7, #20/HAJA-33) — 생성(WAITING)·상담원 셀프-클레임 배정·종료·오프라인 이탈
+ * + 내 상담 이력 조회·대화 조회·트랜스크립트 내보내기.
  *
  * <p><b>배정 모델(셀프-클레임)</b>: 자동 push-배정(상담원 프레즌스 트래킹 필요, WS 비정상 종료 시 stale 위험)
  * 대신 상담원이 콘솔에서 대기열을 보고 직접 집는 pull 모델을 쓴다. 스킬 기반 라우팅(counsel_type +
@@ -44,9 +54,13 @@ public class CounselTicketService {
 
     private static final String DEST_ASSIGNED = "/queue/counsel/assigned";
     private static final String DEST_ENDED = "/queue/counsel/ended";
+    private static final DateTimeFormatter TRANSCRIPT_TS =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final CounselTicketRepository ticketRepository;
     private final ChatSessionRepository chatSessionRepository;
+    private final ChatMessageRepository chatMessageRepository;
+    private final BotScenarioRepository botScenarioRepository;
     private final UserRepository userRepository;
     private final UserPlanRepository userPlanRepository;
     private final PlanRepository planRepository;
@@ -54,15 +68,22 @@ public class CounselTicketService {
     private final SimpMessagingTemplate messagingTemplate;
 
     /**
-     * 상담 티켓 생성(WAITING). {@code has_counselor_access=true} 활성 플랜 게이트를 통과한 요청만 허용한다
-     * (NlSearchService.requireAiAddon 과 동일한 개인/회사 분기 패턴). queuePosition 은 생성 시점 스냅샷
-     * (WAITING 건수 + 1)만 저장하고 이후 재계산하지 않는다 — 실시간 순번은 후속 과제.
+     * 상담 티켓 생성(WAITING). {@code has_counselor_access=true} 활성 플랜 게이트를 통과한 요청만 허용한다.
+     * {@code scenarioId}는 상담원 연결을 유발하는 리프(leadsToCounselor=true)여야 하며, 그 트리를 타고 올라가
+     * 최상위 category와 바로 위 부모 라벨을 스냅샷으로 저장한다(시나리오 트리 변경과 무관하게 이력 고정).
+     * ticket_number 는 PK 확정 후 부여하므로 같은 트랜잭션 내 2단계 저장한다.
      */
     @Transactional
-    public CounselTicketResponse createTicket(Long userId) {
+    public CounselTicketResponse createTicket(Long userId, Long scenarioId) {
         requireCounselorAccess(userId);
+        ScenarioSnapshot snapshot = resolveScenarioSnapshot(scenarioId);
+
         int queuePosition = (int) ticketRepository.countByStatus(CounselTicketStatus.WAITING) + 1;
-        CounselTicket ticket = ticketRepository.save(CounselTicket.request(userId, queuePosition));
+        CounselTicket ticket = ticketRepository.saveAndFlush(
+                CounselTicket.request(userId, queuePosition, snapshot.category(), snapshot.title()));
+        ticket.assignTicketNumber(
+                CounselTicket.formatTicketNumber(ticket.getCreatedAt(), ticket.getId()));
+        ticketRepository.saveAndFlush(ticket);
         return CounselTicketResponse.from(ticket);
     }
 
@@ -70,6 +91,49 @@ public class CounselTicketService {
     public Page<CounselTicketSummaryResponse> getQueue(CounselTicketStatus status, Pageable pageable) {
         return ticketRepository.findByStatusOrderByCreatedAtAsc(status, pageable)
                 .map(CounselTicketSummaryResponse::from);
+    }
+
+    /**
+     * 내 상담 이력 — 요청자 본인 티켓만(최신순). {@code status}가 null 이면 전체, 아니면 해당 상태만.
+     * userId 는 세션 주체({@code @AuthenticationPrincipal})에서만 채운다 — 요청 파라미터로 받지 않아 IDOR 차단.
+     */
+    public Page<CounselTicketSummaryResponse> getMyTickets(
+            Long userId, CounselTicketStatus status, Pageable pageable) {
+        Page<CounselTicket> tickets = (status == null)
+                ? ticketRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable)
+                : ticketRepository.findByUserIdAndStatusOrderByCreatedAtDesc(userId, status, pageable);
+        return tickets.map(CounselTicketSummaryResponse::from);
+    }
+
+    /** 티켓 전체 대화 이력(시간순). 당사자(사용자 본인/담당 상담원)만 — 아니면 열거 방지 통일 응답. */
+    public List<ChatMessageResponse> getMessages(Long ticketId, Long requesterId) {
+        CounselTicket ticket = loadParticipantTicket(ticketId, requesterId);
+        return loadMessages(ticket).stream()
+                .map(message -> ChatMessageResponse.from(message, ticket.getId()))
+                .toList();
+    }
+
+    /** 대화 내보내기 — 당사자만. 전체 대화를 평문 텍스트 트랜스크립트(UTF-8)로 변환해 반환한다. */
+    public Transcript exportTranscript(Long ticketId, Long requesterId) {
+        CounselTicket ticket = loadParticipantTicket(ticketId, requesterId);
+        StringBuilder sb = new StringBuilder();
+        sb.append("상담 티켓: ").append(ticket.getTicketNumber()).append('\n');
+        sb.append("카테고리: ").append(ticket.getCategory()).append('\n');
+        sb.append("제목: ").append(ticket.getTitle()).append('\n');
+        sb.append("상태: ").append(ticket.getStatus()).append('\n');
+        sb.append("생성: ").append(ticket.getCreatedAt().format(TRANSCRIPT_TS)).append('\n');
+        sb.append("----------------------------------------\n");
+        for (ChatMessage message : loadMessages(ticket)) {
+            sb.append('[').append(message.getCreatedAt().format(TRANSCRIPT_TS)).append("] ")
+                    .append(message.getSender()).append(": ")
+                    .append(message.getContent() == null ? "" : message.getContent());
+            if (message.getAttachmentKey() != null) {
+                sb.append(" [이미지 첨부]");
+            }
+            sb.append('\n');
+        }
+        byte[] content = sb.toString().getBytes(StandardCharsets.UTF_8);
+        return new Transcript(ticket.getTicketNumber() + ".txt", content);
     }
 
     /**
@@ -138,6 +202,50 @@ public class CounselTicketService {
         return CounselTicketResponse.from(ticket);
     }
 
+    private List<ChatMessage> loadMessages(CounselTicket ticket) {
+        if (ticket.getSessionId() == null) {
+            return List.of();
+        }
+        return chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(ticket.getSessionId());
+    }
+
+    /** 당사자(사용자 본인/담당 상담원)만 접근 가능한 티켓 로드. 비당사자·미존재는 열거 방지 통일 응답(404). */
+    private CounselTicket loadParticipantTicket(Long ticketId, Long requesterId) {
+        CounselTicket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND));
+        boolean participant = Objects.equals(ticket.getUserId(), requesterId)
+                || Objects.equals(ticket.getCounselorId(), requesterId);
+        if (!participant) {
+            throw new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND);
+        }
+        return ticket;
+    }
+
+    /**
+     * 시나리오 리프에서 category(최상위)/title(바로 위 부모 라벨) 스냅샷을 도출한다. leadsToCounselor=false
+     * 노드에서 진입하면 잘못된 진입점이므로 거부한다.
+     */
+    private ScenarioSnapshot resolveScenarioSnapshot(Long scenarioId) {
+        BotScenario leaf = botScenarioRepository.findById(scenarioId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_SCENARIO_NOT_FOUND));
+        if (!leaf.isLeadsToCounselor()) {
+            throw new BusinessException(ErrorCode.COUNSEL_TICKET_FORBIDDEN);
+        }
+        // 바로 위 부모 라벨 = title. 부모가 없으면(최상위 리프) 자기 라벨을 title 로 사용.
+        BotScenario parent = leaf.getParentId() == null ? leaf
+                : botScenarioRepository.findById(leaf.getParentId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_SCENARIO_NOT_FOUND));
+        String title = parent.getButtonLabel();
+
+        // 최상위(parent_id NULL)까지 올라가 category 스냅샷.
+        BotScenario cursor = parent;
+        while (cursor.getParentId() != null) {
+            cursor = botScenarioRepository.findById(cursor.getParentId())
+                    .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_SCENARIO_NOT_FOUND));
+        }
+        return new ScenarioSnapshot(cursor.getCategory(), title);
+    }
+
     private void endSession(Long sessionId) {
         if (sessionId == null) {
             return;
@@ -185,5 +293,12 @@ public class CounselTicketService {
         if (!plan.isHasCounselorAccess()) {
             throw new BusinessException(ErrorCode.COUNSEL_PLAN_REQUIRED);
         }
+    }
+
+    private record ScenarioSnapshot(String category, String title) {
+    }
+
+    /** 트랜스크립트 내보내기 결과 — 파일명 + UTF-8 본문 바이트. */
+    public record Transcript(String fileName, byte[] content) {
     }
 }
