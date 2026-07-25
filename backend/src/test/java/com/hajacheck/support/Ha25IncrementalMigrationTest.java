@@ -364,7 +364,34 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V12__add_defect_action_result_fields.sql"),
-                        CONTAINER_ROOT + "V12__add_defect_action_result_fields.sql");
+                        CONTAINER_ROOT + "V12__add_defect_action_result_fields.sql")
+                // V13 — #788/#789 media.detail_url(분석 결과 뷰어 상세 이미지).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V13__add_media_detail_url.sql"),
+                        CONTAINER_ROOT + "V13__add_media_detail_url.sql")
+                // V14 — #743 상담 유형(counsel_type) 분류: counsel_tickets.counsel_type 컬럼 +
+                // counselor_skills 다대다 테이블.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V14__add_counsel_type.sql"),
+                        CONTAINER_ROOT + "V14__add_counsel_type.sql")
+                // V15 — #792 user_status_type에 WAITING(초대 대기) 라벨 추가.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V15__add_user_status_waiting.sql"),
+                        CONTAINER_ROOT + "V15__add_user_status_waiting.sql")
+                // V16 — #803 defects.area_ratio(분석 결과 뷰어 면적비율) 컬럼 추가.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V16__add_defect_area_ratio.sql"),
+                        CONTAINER_ROOT + "V16__add_defect_area_ratio.sql")
+                // #20/HAJA-33 — Flyway V18(상담 티켓 스냅샷 + 채팅 첨부 컬럼, V13 선점으로 재번호). V17(구
+                // V13, bot_scenarios 시드 데이터)는 스키마 시그니처에 영향이 없어 이 파리티 테스트에서는 생략한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V18__counsel_ticket_snapshot_and_chat_attachment.sql"),
+                        CONTAINER_ROOT + "V18__counsel_ticket_snapshot_and_chat_attachment.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -446,6 +473,17 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "V11__migrate_facilities_to_company.sql");
         // #725/HAJA-393 — Flyway V12(defects 조치 결과 등록 필드)도 이어서 1회 forward-apply한다.
         runPsql(postgres, "V12__add_defect_action_result_fields.sql");
+        // #788/#789 — Flyway V13(media.detail_url)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V13__add_media_detail_url.sql");
+        // #743 — Flyway V14(counsel_type 분류)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V14__add_counsel_type.sql");
+        // #792 — Flyway V15(user_status_type WAITING 라벨)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V15__add_user_status_waiting.sql");
+        // #803 — Flyway V16(defects.area_ratio)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V16__add_defect_area_ratio.sql");
+        // #20/HAJA-33 — Flyway V18(상담 티켓 스냅샷 + 채팅 첨부, V13 선점으로 재번호)도 이어서 1회
+        // forward-apply한다(V17 시드는 스키마 무변경이라 파리티 대상 아님).
+        runPsql(postgres, "V18__counsel_ticket_snapshot_and_chat_attachment.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

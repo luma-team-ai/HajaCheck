@@ -5,6 +5,7 @@ import {
   COMPANY_SIGNUP_PATH,
   EMAIL_AVAILABILITY_PATH,
   ID_INQUIRY_PATH,
+  INVITE_CODE_REDEEM_PATH,
   PASSWORD_RESET_PATH,
   PASSWORD_RESET_REQUEST_PATH,
 } from '../constants';
@@ -17,6 +18,7 @@ import type {
   EmailAvailabilityResponse,
   IdInquiryRequest,
   IdInquiryResponse,
+  InviteCodeRedeemRequest,
   LoginRequest,
   PasswordResetLinkRequest,
   PasswordResetLinkResponse,
@@ -75,4 +77,8 @@ export const authApi = {
     api.post<PasswordResetLinkResponse>(PASSWORD_RESET_REQUEST_PATH, body),
   resetPassword: (body: PasswordResetRequest) =>
     api.post<PasswordResetResponse>(PASSWORD_RESET_PATH, body),
+  // 초대 코드 redeem(#794 backend PR #801, #799) — WAITING 사용자 전용. 성공 시 회사 배선된
+  // 최신 UserResponse(status=ACTIVE)를 반환한다.
+  redeemInviteCode: (body: InviteCodeRedeemRequest) =>
+    api.post<UserResponse>(INVITE_CODE_REDEEM_PATH, body),
 };

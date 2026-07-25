@@ -13,7 +13,7 @@ alter type social_provider_type owner to postgres;
 
 comment on type social_provider_type is '소셜 로그인 제공자';
 
-create type user_status_type as enum ('ACTIVE', 'SUSPENDED');
+create type user_status_type as enum ('ACTIVE', 'SUSPENDED', 'WAITING');
 
 alter type user_status_type owner to postgres;
 
@@ -90,6 +90,12 @@ create type counsel_ticket_status_type as enum ('WAITING', 'IN_PROGRESS', 'RESOL
 alter type counsel_ticket_status_type owner to postgres;
 
 comment on type counsel_ticket_status_type is '상담 티켓 처리 상태(대기/진행중/해결/오프라인 이탈)';
+
+create type counsel_type as enum ('USAGE', 'ANALYSIS_RESULT', 'BILLING_ETC');
+
+alter type counsel_type owner to postgres;
+
+comment on type counsel_type is '상담 유형(이용 방법/분석 결과/결제·기타)';
 
 create type rag_doc_source_type as enum ('LAW', 'GUIDELINE');
 
@@ -662,6 +668,7 @@ create table media
     file_type               media_file_type                        not null,
     original_url            varchar(500)                           not null,
     thumbnail_url           varchar(500),
+    detail_url              varchar(500),
     source_video_id         bigint,
     frame_index             integer,
     captured_at             timestamp with time zone,
@@ -683,6 +690,8 @@ comment on column media.file_type is '미디어 파일 유형';
 comment on column media.original_url is '원본 미디어 파일 URL';
 
 comment on column media.thumbnail_url is '미디어 썸네일 이미지 URL';
+
+comment on column media.detail_url is '분석 결과 뷰어 전용 상세 이미지 저장키(#788/#789, V13 — nullable, V13 이전 업로드 행은 NULL)';
 
 comment on column media.source_video_id is '프레임 이미지의 원본 영상 식별자(media.id 자기 참조 개념이나 FK 미설정 — 영상 프레임 추출 파이프라인의 유연한 기록을 위함)';
 
@@ -727,6 +736,7 @@ create table defects
     is_deleted      boolean                  default false                          not null,
     crack_width_mm  double precision,
     crack_length_mm double precision,
+    area_ratio      double precision,
     action_media_id    bigint
         references media,
     action_content     text,
@@ -769,6 +779,8 @@ comment on column defects.is_deleted is '결함의 논리 삭제 여부';
 comment on column defects.crack_width_mm is '균열 폭(mm)';
 
 comment on column defects.crack_length_mm is '균열 길이(mm)';
+
+comment on column defects.area_ratio is '결함 면적비율(탐지 bbox 면적 ÷ 이미지 전체 면적, HAJA-803, nullable)';
 
 comment on column defects.action_media_id is '조치 후 사진(HAJA-393/#725) — 조치 결과 등록 시 업로드한 촬영 이미지 식별자, nullable';
 
@@ -926,6 +938,8 @@ create table chat_messages
     sender      chat_sender_type                       not null,
     content     text                                   not null,
     scenario_id bigint,
+    attachment_key       varchar(500),
+    attachment_mime_type varchar(100),
     created_at  timestamp with time zone default now() not null
 );
 
@@ -961,7 +975,11 @@ create table counsel_tickets
     session_id     bigint
         references chat_sessions,
     status         counsel_ticket_status_type default 'WAITING'::counsel_ticket_status_type not null,
+    counsel_type   counsel_type                                                             not null,
     queue_position integer,
+    ticket_number  varchar(20)                                                              not null,
+    category       varchar(100)                                                             not null,
+    title          varchar(200)                                                             not null,
     created_at     timestamp with time zone   default now()                                 not null,
     ended_at       timestamp with time zone
 );
@@ -979,6 +997,8 @@ comment on column counsel_tickets.counselor_id is '배정된 상담사 사용자
 comment on column counsel_tickets.session_id is '상담 대화가 이루어지는 채팅 세션 식별자(chat_sessions, session_type=COUNSEL)';
 
 comment on column counsel_tickets.status is '상담 티켓 처리 상태';
+
+comment on column counsel_tickets.counsel_type is '상담 유형';
 
 comment on column counsel_tickets.queue_position is '상담 대기열 순번';
 
@@ -1004,6 +1024,29 @@ create unique index uq_counsel_tickets_session
 
 comment on index uq_counsel_tickets_session is
     '하나의 전문상담 세션이 여러 상담 티켓에 중복 배정되는 것을 방지한다.';
+
+create unique index uq_counsel_tickets_ticket_number
+    on counsel_tickets (ticket_number);
+
+create table counselor_skills
+(
+    counselor_id bigint       not null
+        references users,
+    counsel_type counsel_type not null,
+    primary key (counselor_id, counsel_type)
+);
+
+comment on table counselor_skills is '상담사가 처리 가능한 상담 유형(다대다)';
+
+comment on column counselor_skills.counselor_id is '상담사 사용자 식별자(users, role=COUNSELOR — DB 제약 아닌 서비스 레벨 검증)';
+
+comment on column counselor_skills.counsel_type is '처리 가능한 상담 유형';
+
+alter table counselor_skills
+    owner to postgres;
+
+create index idx_counselor_skills_counsel_type
+    on counselor_skills (counsel_type);
 
 create table bot_scenarios
 (

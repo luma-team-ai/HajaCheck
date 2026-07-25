@@ -1,6 +1,6 @@
 # 기존 PostgreSQL 수동 증분 반영 절차 (Flyway 이전 — 보관)
 
-> **문서 버전:** v0.3 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
+> **문서 버전:** v0.4 · **최종 수정:** 2026-07-25 · 이전 버전 `archive/`
 
 > ⚠️ **Flyway 도입(#359) 이후 보관 문서.** 신규 마이그레이션은 더 이상 이 디렉터리에 수동 SQL로
 > 추가하지 않는다 — `backend/src/main/resources/db/migration/`의 Flyway 버전 파일(`V{n}__*.sql`)이
@@ -347,6 +347,15 @@ HAJA-25와 메뉴 스키마를 이미 적용한 DB에는 이 파일만 단독으
 autocommit 필요·재실행 안전). 신규 설치는 `HajaCheck_script.sql`에 이미 반영돼 있어 이 파일이 필요
 없고, 기존 운영/개발 DB만 단독으로 적용한다. 이 값이 없는 상태에서 `role='PLATFORM_ADMIN'` 사용자가
 로그인하면 `InternalAuthenticationServiceException`(No enum constant Role.PLATFORM_ADMIN)이 발생한다.
+
+`20260722_01_promotion531_schema_reconcile.sql`은 절차의 일부가 아니라 **장애 핫픽스 기록**이다
+(#531 dev→main 승격 배포 시 arm1 `ddl-auto=validate`가 누락 스키마로 boot 실패 → 프로덕션 일시 다운,
+2026-07-22 이 DDL을 수동 적용해 복구). 내용은 `@Version` `lock_version` 컬럼(`companies`,
+`usage_counters`), 통째로 누락됐던 `company_memberships` 테이블(enum·인덱스·트리거 포함),
+`rag_documents.verification_status` enum 컬럼이며 전 문장이 재실행 안전하다. 근본 원인인
+"정규 증분 없이 엔티티 스키마가 dev에 누적"은 Flyway 도입(#359/#544)으로 차단됐고, 같은 스키마는
+`V1__baseline_schema.sql`에 이미 포함돼 있다 — 따라서 **신규·기존 DB 어디에도 다시 적용하지 않으며,
+승격 프리플라이트에서 스키마 드리프트를 전수 대조해야 하는 이유의 근거 기록으로만 남긴다.**
 
 ## 롤백 원칙
 

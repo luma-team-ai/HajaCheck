@@ -110,6 +110,9 @@ public class Defect {
     @Column(name = "crack_length_mm")
     private Double crackLengthMm;
 
+    @Column(name = "area_ratio")
+    private Double areaRatio;
+
     // 조치 결과 등록(HAJA-393/#725, "조치 완료 등록" 버튼) — 4개 필드 모두 registerActionResult() 를
     // 통해서만 함께 채워진다(V12, nullable — 조치 등록 전에는 전부 NULL).
     @Column(name = "action_media_id")
@@ -131,7 +134,7 @@ public class Defect {
     @Builder
     private Defect(Long inspectionId, Long mediaId, DefectType type, Double bboxX, Double bboxY, Double bboxW,
                     Double bboxH, Double confidence, DefectGrade grade, DefectStatus status, boolean reviewed,
-                    boolean deleted, Double crackWidthMm, Double crackLengthMm) {
+                    boolean deleted, Double crackWidthMm, Double crackLengthMm, Double areaRatio) {
         this.inspectionId = inspectionId;
         this.mediaId = mediaId;
         this.type = type;
@@ -146,6 +149,7 @@ public class Defect {
         this.deleted = deleted;
         this.crackWidthMm = crackWidthMm;
         this.crackLengthMm = crackLengthMm;
+        this.areaRatio = areaRatio;
     }
 
     public void review(DefectGrade grade) {

@@ -16,5 +16,6 @@ public record DetectedDefectItem(
         @JsonProperty("bbox_w") Double bboxW,
         @JsonProperty("bbox_h") Double bboxH,
         Double confidence,
-        String grade) {
+        String grade,
+        @JsonProperty("area_ratio") Double areaRatio) {
 }

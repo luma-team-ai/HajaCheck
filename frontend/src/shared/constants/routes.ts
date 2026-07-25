@@ -23,3 +23,8 @@ export const PLATFORM_ADMIN_LOGIN_ROUTE = '/platform-admin/login';
 
 /** 플랫폼 관리자 콘솔 진입점 — 로그인 성공 후 이동 대상(router.tsx에서 첫 메뉴로 재리다이렉트) */
 export const PLATFORM_ADMIN_ROUTE = '/platform-admin';
+
+// 초대 코드 입력(#799, #794) — 소셜 최초 로그인 직후 status=WAITING(company_id 없음)인 사용자가
+// 발급받은 초대 코드로 회사에 연결하는 화면. ProtectedRoute가 WAITING 사용자를 여기로 강제
+// 리다이렉트해야 하므로(보호 라우트 어디로 가든 동일하게 가로채야 함) shared 상수로 둔다.
+export const INVITE_CODE_ROUTE = '/invite-code';

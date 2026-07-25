@@ -18,10 +18,10 @@ const ResultViewerPage = lazy(() =>
   })),
 );
 
-// 보고서 생성(임시 스텁) — 이슈 #621, HAJA-343
-const ReportGenerateStubPage = lazy(() =>
-  import('../features/report/pages/ReportGenerateStubPage').then((m) => ({
-    default: m.ReportGenerateStubPage,
+// 보고서 생성 — 이슈 #621/#679, HAJA-343/HAJA-373
+const ReportGeneratePage = lazy(() =>
+  import('../features/report/pages/ReportGeneratePage').then((m) => ({
+    default: m.ReportGeneratePage,
   })),
 );
 
@@ -114,6 +114,12 @@ const FindPasswordPage = lazy(() =>
 const ResetPasswordPage = lazy(() =>
   import('../features/auth/pages/ResetPasswordPage').then((m) => ({
     default: m.ResetPasswordPage,
+  })),
+);
+// 초대 코드 입력(#799) — 소셜 최초 로그인 시 company_id 없는 사용자가 회사에 연결하는 화면
+const InviteCodePage = lazy(() =>
+  import('../features/auth/pages/InviteCodePage').then((m) => ({
+    default: m.InviteCodePage,
   })),
 );
 
@@ -343,6 +349,18 @@ export const router = createBrowserRouter([
     ),
   }, // — features/auth 비밀번호 찾기 2단계, 메일 링크 진입 (#301, HAJA-224)
   {
+    path: '/invite-code',
+    // 로그인은 됐지만 company_id가 없는 상태(소셜 최초 로그인)라 AppShell(사이드바) 밖,
+    // ProtectedRoute만으로 감싼 독립 화면 — CompanySignupPendingPage와 동일한 스탠드얼론 패턴.
+    element: (
+      <ProtectedRoute>
+        <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+          <InviteCodePage />
+        </Suspense>
+      </ProtectedRoute>
+    ),
+  }, // — features/auth 초대 코드 입력 (#799)
+  {
     // 로그인 후 내부 페이지 공통 앱 셸(SideNavBar+Header, AppLayout) — nested route로 강제 연결(HAJA-186, #217 후속).
     // ProtectedRoute로 부모 전체를 감싸 자식 라우트를 일괄 보호한다(#231, HAJA-189) —
     // 이 셸에 새 페이지를 포함하려면: children에 라우트 추가 + handle에 breadcrumb/activeHref 선언만 하면 됨
@@ -536,7 +554,7 @@ export const router = createBrowserRouter([
         path: '/inspections/:id/reports/generate',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <ReportGenerateStubPage />
+            <ReportGeneratePage />
           </Suspense>
         ),
         handle: {

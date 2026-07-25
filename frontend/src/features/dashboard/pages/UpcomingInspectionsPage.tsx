@@ -29,7 +29,7 @@ export function UpcomingInspectionsPage() {
         <h1 className="dashboard-page-title">다음 점검일 도래</h1>
         <button
           type="button"
-          className="cursor-pointer rounded-full border-none bg-[#111] px-4.5 py-2.5 text-sm font-semibold text-white"
+          className="cursor-pointer rounded-full border-none bg-[#111] px-4.5 py-2.5 text-sm font-semibold text-white transition duration-150 hover:opacity-85"
           onClick={handleStartNewInspection}
         >
           + 새 점검 시작

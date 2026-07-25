@@ -14,6 +14,20 @@ import type { DefectGrade } from '../types';
 import { filterDefects } from '../utils/filterDefects';
 
 const ALL_GRADES: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
+
+// 누락 추가 캔버스 — 드래그 없이 클릭만 해도 제출되던 0크기 박스 방지 임계값(정규화 좌표 기준, #841)
+const MIN_BBOX_SIZE = 0.01;
+
+// Figma 시안의 등급 라벨은 이 페이지 전용 워딩이다 — feature 간 직접 import 금지(types.ts 참고).
+// StatisticsGradeDistributionCard와 동일 라벨 사용.
+const GRADE_LABELS: Record<DefectGrade, string> = {
+  A: 'A (경미)',
+  B: 'B (양호)',
+  C: 'C (보통)',
+  D: 'D (주의)',
+  E: 'E (심각)',
+};
+
 const DEFECT_TYPE_OPTIONS: { value: 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE'; label: string }[] = [
   { value: 'CRACK', label: '균열' },
   { value: 'SPALLING', label: '박리박락' },
@@ -67,6 +81,9 @@ export function ResultViewerPage() {
   const [isAddMissingOpen, setIsAddMissingOpen] = useState(false);
   const [newDefectType, setNewDefectType] = useState<'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE' | ''>('');
   const [newDefectGrade, setNewDefectGrade] = useState<DefectGrade | ''>('');
+  // ponytail: 캔버스 드래그 상태 — 모달 열릴 때마다 리셋(모달 열 때 마다 새 박스 시작)
+  const [draggingBbox, setDraggingBbox] = useState<{ x: number; y: number; width: number; height: number } | undefined>();
+  const [canvasMouseDown, setCanvasMouseDown] = useState(false);
   // rules-of-hooks: 훅은 조건부 return 이전에 호출해야 한다. 훅 내부 enabled 플래그가
   // 유효하지 않은 inspectionId일 때 쿼리를 스킵하므로, ID 검증 return은 훅 호출 다음에 둔다.
   const { data, isLoading, isError, refetch } = useInspectionResult(inspectionId);
@@ -85,22 +102,32 @@ export function ResultViewerPage() {
     ? filterDefects(data.defects, confidenceThreshold, gradeFilter)
     : [];
 
-  // ponytail: mediaId별 그룹핑 — 각 이미지의 고유 mediaId와 해당 imageUrl 추출.
-  // 수동 추가 하자(mediaId=null)는 애초에 특정 이미지에 결부되지 않는 API 설계라(#784) 이미지
-  // 순회 대상에서 제외한다 — 넣으면 "다음 이미지"가 이미지 없는 깨진 화면으로 넘어가 버림.
-  // 뷰어에서 수동 추가 하자를 어떻게 노출할지는 팀 판단 대기(#784).
+  // 미디어 우선 그룹핑(#804) — 전체 media 목록에서 시작해 각 media의 하자를 붙인다.
+  // 이렇게 하면 하자 0건 이미지도 갤러리에 노출된다 — 필터 조건과 무관하게 모든 촬영 이미지를 순회할 수 있다.
+  // 수동 추가 하자(mediaId=null)는 이미지와 결부되지 않아 미디어 그룹 대상에서 제외한다.
   const mediaGroups = useMemo(() => {
-    const groups = new Map<number, { mediaId: number; imageUrl: string | null; defects: typeof visibleDefects }>();
+    // 1. 필터된 하자(visibleDefects)를 mediaId별로 맵 구성
+    const defectsByMediaId = new Map<number, typeof visibleDefects>();
     for (const defect of visibleDefects) {
       if (defect.mediaId == null) continue;
-      const mId = defect.mediaId;
-      if (!groups.has(mId)) {
-        groups.set(mId, { mediaId: mId, imageUrl: defect.imageUrl ?? null, defects: [] });
+      if (!defectsByMediaId.has(defect.mediaId)) {
+        defectsByMediaId.set(defect.mediaId, []);
       }
-      groups.get(mId)?.defects.push(defect);
+      defectsByMediaId.get(defect.mediaId)?.push(defect);
     }
-    return Array.from(groups.values()).sort((a, b) => a.mediaId - b.mediaId);
-  }, [visibleDefects]);
+
+    // 2. 전체 media 목록을 기준으로 그룹 생성(하자 없는 이미지도 포함)
+    // id 오름차순 명시 정렬 — 백엔드 응답 순서에 기대지 않는다(#815, 이전/다음 이미지 네비게이션
+    // 순서가 요청마다 흔들리지 않도록 고정).
+    return (data?.media ?? [])
+      .slice()
+      .sort((a, b) => a.id - b.id)
+      .map((media) => ({
+        mediaId: media.id,
+        imageUrl: media.imageUrl,
+        defects: defectsByMediaId.get(media.id) ?? [], // 이 media의 필터된 하자 목록(없으면 빈 배열)
+      }));
+  }, [data?.media, visibleDefects]);
 
   // 현재 선택된 media(또는 첫 번째 media)
   const currentMediaGroup = useMemo(() => {
@@ -213,30 +240,81 @@ export function ResultViewerPage() {
     setIsUpdating(true);
     setErrorMessage('');
     try {
-      const response = await inspectionApi.createDefect(inspectionId, {
+      const payload = {
         type: newDefectType as 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE',
         grade: newDefectGrade as DefectGrade,
-      });
+        ...(draggingBbox && {
+          bboxX: draggingBbox.x,
+          bboxY: draggingBbox.y,
+          bboxW: draggingBbox.width,
+          bboxH: draggingBbox.height,
+        }),
+        ...(currentMediaGroup?.mediaId && { mediaId: currentMediaGroup.mediaId }),
+      };
+      const response = await inspectionApi.createDefect(inspectionId, payload);
       await refetch();
       setSelectedDefectId(response.data.id);
       setIsAddMissingOpen(false);
       setNewDefectType('');
       setNewDefectGrade('');
+      setDraggingBbox(undefined);
+      setCanvasMouseDown(false);
     } catch (error) {
       const msg = error instanceof Error ? error.message : '누락 추가에 실패했습니다.';
       setErrorMessage(msg);
     } finally {
       setIsUpdating(false);
     }
-  }, [inspectionId, newDefectType, newDefectGrade, isUpdating, refetch]);
+  }, [inspectionId, newDefectType, newDefectGrade, isUpdating, refetch, draggingBbox, currentMediaGroup?.mediaId]);
 
   const handleCancelAddMissing = useCallback(() => {
     if (isUpdating) return;
     setIsAddMissingOpen(false);
     setNewDefectType('');
     setNewDefectGrade('');
+    setDraggingBbox(undefined);
+    setCanvasMouseDown(false);
     setErrorMessage('');
   }, [isUpdating]);
+
+  // ponytail: 캔버스 드래그 이벤트 — 마우스 위치를 이미지 좌표계(0~1 정규화)로 변환
+  const handleCanvasMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const canvas = e.currentTarget;
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      setCanvasMouseDown(true);
+      setDraggingBbox({ x, y, width: 0, height: 0 });
+    },
+    [],
+  );
+
+  const handleCanvasMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!canvasMouseDown || !draggingBbox) return;
+      const canvas = e.currentTarget;
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      setDraggingBbox({
+        x: Math.min(draggingBbox.x, x),
+        y: Math.min(draggingBbox.y, y),
+        width: Math.abs(x - draggingBbox.x),
+        height: Math.abs(y - draggingBbox.y),
+      });
+    },
+    [canvasMouseDown, draggingBbox],
+  );
+
+  // 드래그 없이 클릭만 하면 0크기 박스가 그대로 제출되던 것을 방지(#841) — 최소 임계값 미만이면
+  // 위치 미지정(undefined)으로 되돌린다.
+  const handleCanvasMouseUp = useCallback(() => {
+    setCanvasMouseDown(false);
+    setDraggingBbox((prev) =>
+      prev && (prev.width < MIN_BBOX_SIZE || prev.height < MIN_BBOX_SIZE) ? undefined : prev,
+    );
+  }, []);
 
   const handleConfirmReview = useCallback(async () => {
     if (!data) return;
@@ -308,6 +386,8 @@ export function ResultViewerPage() {
           variant="secondary"
           size="md"
           onClick={handleGenerateReport}
+          disabled={data.reviewedCount !== data.totalCount}
+          title={data.reviewedCount !== data.totalCount ? `${data.reviewedCount}/${data.totalCount} 하자 검수 확정 필요` : ''}
         >
           보고서 생성
         </Button>
@@ -393,21 +473,26 @@ export function ResultViewerPage() {
               </div>
             )}
 
-            <div className="flex flex-1 items-center justify-center">
-              {currentDefects.length === 0 ? (
-                <div className="text-sm text-text-muted">
-                  {mediaGroups.length === 0 ? '조건에 맞는 하자가 없습니다.' : '이 이미지에 해당하는 하자가 없습니다.'}
-                </div>
+            <div className="flex flex-1 flex-col items-center justify-center gap-2">
+              {currentMediaGroup ? (
+                <>
+                  <DefectOverlay
+                    media={{
+                      id: currentMediaGroup.mediaId,
+                      imageUrl: currentMediaGroup.imageUrl ?? '',
+                    }}
+                    defects={currentDefects}
+                    selectedId={selected?.id}
+                    onSelect={setSelectedDefectId}
+                  />
+                  {currentDefects.length === 0 && (
+                    <div className="text-sm text-text-muted">
+                      {visibleDefects.length === 0 ? '조건에 맞는 하자가 없습니다.' : '이 이미지에 해당하는 하자가 없습니다.'}
+                    </div>
+                  )}
+                </>
               ) : (
-                <DefectOverlay
-                  media={{
-                    id: currentMediaGroup?.mediaId ?? 0,
-                    imageUrl: currentMediaGroup?.imageUrl ?? '',
-                  }}
-                  defects={currentDefects}
-                  selectedId={selected?.id}
-                  onSelect={setSelectedDefectId}
-                />
+                <div className="text-sm text-text-muted">표시할 이미지가 없습니다.</div>
               )}
             </div>
 
@@ -509,58 +594,8 @@ export function ResultViewerPage() {
                 </div>
               </div>
 
-              {/* Grade Edit Mode */}
-              {gradeEditId === selected.id ? (
-                <div className="flex flex-col gap-2 px-5 pt-5 pb-6">
-                  {errorMessage && (
-                    <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
-                  )}
-                  <div className="flex gap-2">
-                    <select
-                      value={selectedGrade}
-                      onChange={(e) => setSelectedGrade(e.target.value as DefectGrade | '')}
-                      className="flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="">등급 선택</option>
-                      {ALL_GRADES.map((g) => (
-                        <option key={g} value={g}>
-                          {g}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <textarea
-                    value={gradeReason}
-                    onChange={(e) => setGradeReason(e.target.value)}
-                    placeholder="수정 사유를 입력해주세요 (1-500자)"
-                    maxLength={500}
-                    className="rounded-lg border border-border bg-white px-3 py-2 text-sm"
-                    rows={3}
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="lg"
-                      className="flex-1"
-                      onClick={handleConfirmGrade}
-                      disabled={!selectedGrade || !gradeReason.trim() || isUpdating}
-                    >
-                      저장
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="lg"
-                      className="flex-1"
-                      onClick={handleCancelGradeEdit}
-                      disabled={isUpdating}
-                    >
-                      취소
-                    </Button>
-                  </div>
-                </div>
-              ) : (
+              {/* Grade Edit Mode — 등급 수정 모달(#827) */}
+              {!gradeEditId && (
                 <div className="flex gap-3 px-5 pt-5 pb-6">
                   <Button
                     type="button"
@@ -592,6 +627,84 @@ export function ResultViewerPage() {
         </div>
       </div>
 
+      {/* Grade Edit Modal (#827) */}
+      <Modal
+        open={gradeEditId !== undefined}
+        onClose={handleCancelGradeEdit}
+        title="등급 수정"
+        closeOnOverlayClick={!isUpdating}
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-text-muted">
+            보정된 심각도 등급 선택수동 검토에 기반하여
+          </p>
+          {errorMessage && (
+            <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
+          )}
+          {/* 라디오 그룹 — 2열 grid (A,B / C,D / E) */}
+          <div role="radiogroup" aria-label="등급 선택" className="grid grid-cols-2 gap-2">
+            {ALL_GRADES.map((grade) => (
+              <label
+                key={grade}
+                className={`flex cursor-pointer items-center justify-center rounded-[20px] border-2 px-4 py-2.5 font-medium transition ${
+                  selectedGrade === grade
+                    ? 'border-black bg-black/5 text-text-default'
+                    : 'border-[#e4e4e7] text-text-default hover:bg-surface-muted'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="grade-select"
+                  value={grade}
+                  checked={selectedGrade === grade}
+                  onChange={(e) => setSelectedGrade(e.target.value as DefectGrade)}
+                  className="sr-only"
+                />
+                {GRADE_LABELS[grade]}
+              </label>
+            ))}
+          </div>
+          {/* 수정 사유 textarea */}
+          <div>
+            <label htmlFor="grade-reason-textarea" className="mb-2 block text-sm font-medium text-text-default">
+              수정 사유
+            </label>
+            <textarea
+              id="grade-reason-textarea"
+              value={gradeReason}
+              onChange={(e) => setGradeReason(e.target.value)}
+              placeholder="수정 사유를 입력해주세요 (1-500자)"
+              maxLength={500}
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+              rows={3}
+            />
+          </div>
+          {/* 모달 버튼 */}
+          <div className="flex gap-2 pt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="lg"
+              className="flex-1"
+              onClick={handleCancelGradeEdit}
+              disabled={isUpdating}
+            >
+              취소
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="lg"
+              className="flex-1"
+              onClick={handleConfirmGrade}
+              disabled={!selectedGrade || !gradeReason.trim() || isUpdating}
+            >
+              확인
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Add Missing Defect Modal */}
       <Modal
         open={isAddMissingOpen}
@@ -599,21 +712,61 @@ export function ResultViewerPage() {
         title="누락된 하자 추가"
         closeOnOverlayClick={!isUpdating}
       >
-        <div className="flex flex-col gap-4">
-          {/* 이미지 위 위치(bbox) 지정 UI가 없다는 걸 명시 — 현재 API도 이 경로로는 mediaId를
-              받지 않아 특정 이미지에 결부되지 않는다(#784). 위치 지정까지 지원할지는 팀 논의 후 별도 작업. */}
+        <div className="flex max-h-96 flex-col gap-4 overflow-y-auto">
           <p className="text-xs text-text-muted">
-            유형·등급만 기록되며, 특정 이미지의 위치(박스)에는 연결되지 않습니다.
+            이미지 위에 드래그하여 박스 위치를 지정할 수 있습니다. (선택사항)
           </p>
           {errorMessage && (
             <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
           )}
+
+          {/* Canvas — 현재 이미지 + 드래그 박스 표시 */}
+          {currentMediaGroup && (
+            <div className="w-full rounded-lg bg-surface-sunken p-2">
+              {/* 마우스 이벤트를 이미지와 정확히 같은 크기(w-fit)인 이 div에 붙인다(#841) — 바깥
+                  패딩 div 기준으로 계산하면, 세로로 긴 사진처럼 이미지 폭이 캔버스 폭보다 좁아질 때
+                  드래그 좌표와 실제 이미지 위 위치가 어긋난다. DefectOverlay.tsx와 동일 기준. */}
+              <div
+                onMouseDown={handleCanvasMouseDown}
+                onMouseMove={handleCanvasMouseMove}
+                onMouseUp={handleCanvasMouseUp}
+                onMouseLeave={handleCanvasMouseUp}
+                className="relative w-fit max-w-full cursor-crosshair"
+              >
+                <img
+                  src={currentMediaGroup.imageUrl}
+                  alt="이미지"
+                  className="block max-w-full max-h-64 rounded"
+                />
+                {/* Dragging bounding box */}
+                {draggingBbox && (
+                  <div
+                    className="absolute border-2 border-dashed border-primary rounded-sm pointer-events-none"
+                    style={{
+                      left: `${draggingBbox.x * 100}%`,
+                      top: `${draggingBbox.y * 100}%`,
+                      width: `${draggingBbox.width * 100}%`,
+                      height: `${draggingBbox.height * 100}%`,
+                      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
           <div>
-            <label htmlFor="defect-type-select" className="mb-2 block text-sm font-medium text-text-default">하자 유형</label>
+            <label htmlFor="defect-type-select" className="mb-2 block text-sm font-medium text-text-default">
+              하자 유형
+            </label>
             <select
               id="defect-type-select"
               value={newDefectType}
-              onChange={(e) => setNewDefectType(e.target.value as 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE' | '')}
+              onChange={(e) =>
+                setNewDefectType(
+                  e.target.value as 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE' | '',
+                )
+              }
               className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
             >
               <option value="">유형 선택</option>
@@ -624,8 +777,11 @@ export function ResultViewerPage() {
               ))}
             </select>
           </div>
+
           <div>
-            <label htmlFor="defect-grade-select" className="mb-2 block text-sm font-medium text-text-default">등급</label>
+            <label htmlFor="defect-grade-select" className="mb-2 block text-sm font-medium text-text-default">
+              등급
+            </label>
             <select
               id="defect-grade-select"
               value={newDefectGrade}
@@ -640,6 +796,7 @@ export function ResultViewerPage() {
               ))}
             </select>
           </div>
+
           <div className="flex gap-2 pt-2">
             <Button
               type="button"

@@ -17,18 +17,19 @@ export class KakaoMapKeyMissingError extends Error {
  * 이미 window.kakao.maps 가 로드돼 있으면 즉시 resolve.
  */
 export function loadKakaoMapSdk(): Promise<void> {
+  if (window.kakao?.maps) {
+    loadPromise = Promise.resolve();
+    return loadPromise;
+  }
+
   if (loadPromise) {
     return loadPromise;
   }
 
   const appKey = import.meta.env.VITE_KAKAO_MAP_APP_KEY as string | undefined;
   if (!appKey) {
+    loadPromise = null;
     return Promise.reject(new KakaoMapKeyMissingError());
-  }
-
-  if (window.kakao?.maps) {
-    loadPromise = Promise.resolve();
-    return loadPromise;
   }
 
   loadPromise = new Promise<void>((resolve, reject) => {
@@ -60,6 +61,9 @@ export function loadKakaoMapSdk(): Promise<void> {
       reject(new Error('Kakao Maps SDK 로드에 실패했습니다.'));
     };
     document.head.appendChild(script);
+  }).catch((err) => {
+    loadPromise = null;
+    throw err;
   });
 
   return loadPromise;

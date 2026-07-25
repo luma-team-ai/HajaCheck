@@ -12,12 +12,12 @@ const MOCK_IMAGE_URL =
 
 export const mockInspectionResult: InspectionResult = {
   inspectionId: 1,
-  media: {
-    id: 1,
-    imageUrl: MOCK_IMAGE_URL,
-    width: 1600,
-    height: 1200,
-  },
+  media: [
+    {
+      id: 1,
+      imageUrl: MOCK_IMAGE_URL,
+    },
+  ],
   defectCode: 'DEF-0192',
   facilityName: '강남 오피스타워 A동',
   facilityType: '건물',

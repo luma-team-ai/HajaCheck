@@ -86,6 +86,7 @@ app:
     max-size-bytes: 20971520
     max-files-per-request: 10
     thumbnail-max-dimension: 400
+    detail-max-dimension: 1600
   policy:
     # 약관 버전은 서버 소유(클라이언트 미전송) — 동의 이력에 기록.
     terms-version: "1.0"
@@ -93,6 +94,12 @@ app:
   auth:
     password-reset-ttl: 10m
     signup-status-ttl: 30d
+    # 사용자 초대 코드(#794) — 프론트 발급 모달 카운트다운(02:59)과 동일값 유지.
+    invite-code-ttl: 180s
+    # 초대 코드 redeem 무차별 대입 방어(PR머신 리뷰 P2) — 사용자(userId) 축 하나.
+    invite-code-redeem-rate-limit:
+      user-limit: 5
+      user-window: 5m
     # 비밀번호 재설정 1단계 rate-limit(2단계엔 걸지 않음 — 계약 §Rate-limit).
     password-reset-rate-limit:
       # 대상 이메일 축 — 사용자 단위 실질 방어(특정 피해자 메일 폭탄 차단).

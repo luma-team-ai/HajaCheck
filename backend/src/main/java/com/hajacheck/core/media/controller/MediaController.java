@@ -33,6 +33,20 @@ public class MediaController {
 
     private final MediaService mediaService;
 
+    @Operation(
+            summary = "점검 회차별 촬영 데이터 목록 조회",
+            description = "점검 회차에 업로드된 모든 미디어를 반환한다(분석 결과 뷰어 용, #803). "
+                    + "하자 등급이 0개인 이미지도 포함되며, 각 항목에 thumbnailUrl/detailUrl이 포함된다."
+    )
+    @GetMapping("/api/inspections/{inspectionId}/media")
+    public ResponseEntity<ApiResponse<List<MediaResponse>>> getMediaByInspection(
+            @PathVariable Long inspectionId,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        List<MediaResponse> response = mediaService.getMediaByInspection(
+                loginUser.getUserId(), loginUser.getCompanyId(), inspectionId);
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
     @Operation(summary = "촬영 데이터 업로드", description = "점검 회차에 이미지(JPG/PNG) 다중 업로드")
     @PostMapping("/api/inspections/{inspectionId}/media")
     public ResponseEntity<ApiResponse<List<MediaResponse>>> uploadMedia(
@@ -57,5 +71,19 @@ public class MediaController {
                 .cacheControl(CacheControl.noStore().cachePrivate())
                 .contentType(MediaType.parseMediaType(thumbnail.mimeType()))
                 .body(thumbnail.content());
+    }
+
+    @Operation(summary = "미디어 상세 이미지 조회",
+            description = "분석 결과 뷰어 전용 — 그리드용 썸네일보다 큰 해상도로 원본에서 재인코딩해 반환(원본 직접 서빙 안 함)")
+    @GetMapping("/api/media/{id}/detail")
+    public ResponseEntity<byte[]> getDetailImage(
+            @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
+        ThumbnailFile detail =
+                mediaService.getDetailImage(loginUser.getUserId(), loginUser.getCompanyId(), id);
+        // getThumbnail()과 동일한 이유로 no-store — 소유권 검증을 거치는 사적 이미지라 공유 캐시 금지.
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore().cachePrivate())
+                .contentType(MediaType.parseMediaType(detail.mimeType()))
+                .body(detail.content());
     }
 }

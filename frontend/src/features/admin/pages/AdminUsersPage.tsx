@@ -10,6 +10,7 @@ import type { AdminUserRowAction } from '../components/AdminUserRowMenu';
 import { AdminUserStatsCard } from '../components/AdminUserStatsCard';
 import { AdminUserTable } from '../components/AdminUserTable';
 import { CreateUserModal } from '../components/CreateUserModal';
+import { InviteCodeModal } from '../components/InviteCodeModal';
 import { RoleChangeModal } from '../components/RoleChangeModal';
 import { StatusChangeModal } from '../components/StatusChangeModal';
 import { DEFAULT_PAGE_SIZE, EMPTY_CELL, ROLE_LABEL, STATUS_LABEL } from '../constants';
@@ -20,6 +21,7 @@ import { useCreateUser } from '../hooks/useCreateUser';
 import type { AdminUser, AdminUserRole, AdminUserStatus } from '../types';
 import { DownloadIcon } from '../components/icons/DownloadIcon';
 import { InviteIcon } from '../components/icons/InviteIcon';
+import { MailIcon } from '../components/icons/MailIcon';
 
 const KEYWORD_DEBOUNCE_MS = 300;
 const NOTICE_AUTO_DISMISS_MS = 2500;
@@ -37,6 +39,7 @@ export function AdminUsersPage() {
   const [roleModalUser, setRoleModalUser] = useState<AdminUser | null>(null);
   const [statusModalUser, setStatusModalUser] = useState<AdminUser | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isInviteCodeModalOpen, setIsInviteCodeModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportUsers, setExportUsers] = useState<AdminUser[] | null>(null);
   const [exportGeneratedAt, setExportGeneratedAt] = useState('');
@@ -207,6 +210,10 @@ export function AdminUsersPage() {
               <DownloadIcon />
               {isExporting ? '내보내는 중...' : '내보내기'}
             </Button>
+            <Button variant="secondary" size="sm" onClick={() => setIsInviteCodeModalOpen(true)}>
+              <MailIcon />
+              초대 코드 발급
+            </Button>
             <Button variant="primary" size="sm" onClick={() => setIsCreateModalOpen(true)}>
               <InviteIcon />+ 사용자 등록
             </Button>
@@ -250,6 +257,10 @@ export function AdminUsersPage() {
           onConfirm={handleCreateUserConfirm}
           isSubmitting={isCreatingUser}
           submitErrorMessage={createUserError?.message}
+        />
+        <InviteCodeModal
+          open={isInviteCodeModalOpen}
+          onClose={() => setIsInviteCodeModalOpen(false)}
         />
         <RoleChangeModal
           user={roleModalUser}

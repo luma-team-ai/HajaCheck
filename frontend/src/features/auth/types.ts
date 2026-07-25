@@ -6,6 +6,10 @@ import type { Role } from '../../shared/constants/roles';
 
 export type { Role };
 
+// 사용자 계정 상태 — 백엔드 UserStatus enum(#794, PR #801)과 값 일치.
+// WAITING: 소셜 최초 가입 직후 company_id 없음 — 초대 코드를 redeem해야 ACTIVE로 전환된다.
+export type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'WAITING';
+
 export interface User {
   id: number;
   email: string;
@@ -17,6 +21,8 @@ export interface User {
   createdAt: string;
   // 소속 기업명 — 개인 회원/회사 미조회 시 null(#744, HAJA-403).
   companyName: string | null;
+  // 초대 코드 입력 화면 분기용(#794, #799) — WAITING이면 ProtectedRoute가 INVITE_CODE_ROUTE로 리다이렉트.
+  status: UserStatus;
 }
 
 // 백엔드 응답 DTO 형태 — 현재는 User와 동일 필드
@@ -113,4 +119,10 @@ export interface PasswordResetRequest {
 
 export interface PasswordResetResponse {
   reset: boolean;
+}
+
+// 초대 코드 redeem(#794 backend PR #801, #799) — 성공 시 companyId 배선 + status=ACTIVE로 전환된
+// 최신 UserResponse를 그대로 돌려준다(authStore 갱신용).
+export interface InviteCodeRedeemRequest {
+  code: string;
 }

@@ -1,0 +1,59 @@
+package com.hajacheck.counsel.controller;
+
+import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.counsel.dto.CounselAttachmentResponse;
+import com.hajacheck.counsel.service.CounselAttachmentService;
+import com.hajacheck.counsel.service.CounselAttachmentService.AttachmentFile;
+import com.hajacheck.global.common.ApiResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
+/**
+ * 상담 채팅 이미지 첨부 API(FR-7, #20/HAJA-33) — 업로드(저장키 반환)/서빙(인가 후 바이트). 업로드/서빙 모두
+ * 티켓 당사자만(서비스에서 검증). 원본을 정적 URL 로 노출하지 않고 서빙 엔드포인트로만 인가 접근한다.
+ */
+@Tag(name = "Counsel Attachment", description = "상담 채팅 이미지 첨부 API")
+@RestController
+@RequiredArgsConstructor
+public class CounselAttachmentController {
+
+    private final CounselAttachmentService counselAttachmentService;
+
+    @Operation(summary = "상담 첨부 업로드", description = "이미지(JPG/PNG) 1건 업로드 후 저장키 반환(당사자만). 프론트는 이 저장키를 WS 메시지에 실어 보낸다.")
+    @PostMapping("/api/counsel/tickets/{ticketId}/attachments")
+    public ResponseEntity<ApiResponse<CounselAttachmentResponse>> upload(
+            @PathVariable Long ticketId,
+            @RequestParam("file") MultipartFile file,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        CounselAttachmentResponse response =
+                counselAttachmentService.upload(ticketId, loginUser.getUserId(), file);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "상담 첨부 조회", description = "메시지 첨부 이미지 바이트 반환(당사자만, 개인 대화라 공유 캐시 금지).")
+    @GetMapping("/api/counsel/tickets/{ticketId}/messages/{messageId}/attachment")
+    public ResponseEntity<byte[]> getAttachment(
+            @PathVariable Long ticketId,
+            @PathVariable Long messageId,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        AttachmentFile attachment =
+                counselAttachmentService.read(ticketId, messageId, loginUser.getUserId());
+        return ResponseEntity.ok()
+                // 개인 대화 첨부 — 공유 캐시(프록시/CDN)·로그아웃 후 노출 방지(Media 썸네일과 동일 이유).
+                .cacheControl(CacheControl.noStore().cachePrivate())
+                .contentType(MediaType.parseMediaType(attachment.mimeType()))
+                .body(attachment.content());
+    }
+}

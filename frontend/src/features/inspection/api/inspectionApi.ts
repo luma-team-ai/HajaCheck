@@ -12,6 +12,7 @@ import type {
   DefectStatus,
   DefectCreateRequest,
   AnalysisStatusResponse,
+  MediaResponse,
 } from './inspectionApi.types';
 
 export interface DefectRevisionRequest {
@@ -32,6 +33,9 @@ export const inspectionApi = {
   // 점검 회차별 하자 목록 조회
   getDefects: (inspectionId: number) =>
     api.get<DefectDetailItem[]>(`/inspections/${inspectionId}/defects`),
+  // 점검 회차별 전체 미디어 목록 조회 (하자 유무 무관, #804)
+  getMedia: (inspectionId: number) =>
+    api.get<MediaResponse[]>(`/inspections/${inspectionId}/media`),
   // 하자 검수: 오탐 삭제 또는 등급 조정 (DefectRevisionController.reviewDefect)
   reviewDefect: (defectId: number, request: DefectRevisionRequest) =>
     api.patch<DefectDetailItem>(`/defects/${defectId}`, request),

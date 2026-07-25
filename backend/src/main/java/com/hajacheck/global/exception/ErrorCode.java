@@ -52,6 +52,12 @@ public enum ErrorCode {
     // 휴업/폐업/미등록으로 가입을 차단하는 경우. 진위 "불일치"는 입력 오류이므로 400(401 금지 정책 준수).
     AUTH_BUSINESS_VERIFICATION_FAILED(HttpStatus.BAD_REQUEST, "사업자등록정보 진위확인에 실패했습니다. 사업자등록번호·대표자명·개업일자를 확인해 주세요."),
 
+    // 초대 코드(#794) — 소셜 가입(WAITING) 계정이 기업 관리자가 발급한 코드를 redeem해 회사 소속으로 전환.
+    // WAITING 계정이 초대 코드 redeem 외의 보호된 리소스를 요청했을 때 SessionUserRevalidationFilter가 통일 응답.
+    AUTH_ACCOUNT_WAITING(HttpStatus.FORBIDDEN, "초대 코드 입력 후 이용할 수 있습니다."),
+    // Redis에 없음(미발급/오입력) · 만료 · 이미 사용됨을 구분하지 않는 통일 응답(코드 열거 방지).
+    AUTH_INVITE_CODE_INVALID(HttpStatus.BAD_REQUEST, "유효하지 않거나 만료된 초대 코드입니다."),
+
     // 파일 업로드(사업자등록증)
     FILE_REQUIRED(HttpStatus.BAD_REQUEST, "파일이 필요합니다."),
     FILE_INVALID_TYPE(HttpStatus.BAD_REQUEST, "허용되지 않는 파일 형식입니다. (JPG, PNG, PDF 만 가능)"),
@@ -84,9 +90,25 @@ public enum ErrorCode {
     // 촬영 데이터(미디어) 업로드(dev-05-03)
     MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "미디어를 찾을 수 없습니다."),
     MEDIA_COUNT_EXCEEDED(HttpStatus.BAD_REQUEST, "한 번에 업로드할 수 있는 파일 수를 초과했습니다."),
+    // PR머신 리뷰 P1(#789) — 레거시 상세이미지 폴백 세마포어가 무기한 블로킹이면 permit 대기 스레드가
+    // Tomcat 워커를 점유해 전역 가용성 표면이 된다. tryAcquire(timeout) 초과 시 즉시 이 코드로 반환한다.
+    MEDIA_DETAIL_GENERATION_BUSY(HttpStatus.SERVICE_UNAVAILABLE,
+            "상세 이미지 생성 요청이 많아 잠시 후 다시 시도해 주세요."),
 
-    // 상담(counsel)
+    // 상담(counsel) — 시나리오 챗봇 + 상담원 연결(FR-7, #20/HAJA-33)
     COUNSEL_SESSION_ASSIGNMENT_CONFLICT(HttpStatus.CONFLICT, "이미 상담 세션이 배정된 티켓입니다."),
+    // 시나리오 노드 미존재.
+    COUNSEL_SCENARIO_NOT_FOUND(HttpStatus.NOT_FOUND, "상담 시나리오를 찾을 수 없습니다."),
+    // 티켓 미존재/타인 소유 통일 응답 — 리소스 존재 여부 열거(cross-user IDOR) 방지(PLAN_FORBIDDEN 관례와 정합).
+    COUNSEL_TICKET_NOT_FOUND(HttpStatus.NOT_FOUND, "상담 티켓을 찾을 수 없습니다."),
+    COUNSEL_TICKET_FORBIDDEN(HttpStatus.FORBIDDEN, "상담 티켓에 대한 권한이 없습니다."),
+    // 상담원 연결 기능을 제공하지 않는 요금제(Plan.hasCounselorAccess=false)의 티켓 생성 시도.
+    COUNSEL_PLAN_REQUIRED(HttpStatus.FORBIDDEN, "상담원 연결을 사용할 수 없는 요금제입니다."),
+    // 셀프-클레임 배정 시 counselor_skills에 티켓의 counsel_type이 없는 상담사(#743/#772 이후 자격 검증).
+    COUNSEL_SKILL_MISMATCH(HttpStatus.FORBIDDEN, "해당 상담 유형을 처리할 수 있는 상담사가 아닙니다."),
+    // 시나리오 category → counselType 매핑 테이블에 없는 category(신규 시나리오 추가 시 매핑 갱신 누락) —
+    // "시나리오 없음"과 구분되는 데이터 정합성 오류(PLAN_DATA_INVALID와 동일 성격).
+    COUNSEL_TYPE_MAPPING_NOT_FOUND(HttpStatus.INTERNAL_SERVER_ERROR, "상담 유형 매핑 데이터에 오류가 있습니다."),
 
     // 알림(notification) — FR-9, HAJA-274. 미존재/타인 소유 모두 통일 응답(cross-user IDOR 방지).
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "알림을 찾을 수 없습니다."),
@@ -96,6 +118,10 @@ public enum ErrorCode {
     ADMIN_PROTECTED_ACCOUNT(HttpStatus.CONFLICT, "자기 자신 또는 회사의 마지막 관리자는 변경할 수 없습니다."),
     // 프론트 역할 선택지(USER/INSPECTOR/ADMIN) 밖의 Role(예: COUNSELOR)을 서버가 그대로 수락하지 않도록 화이트리스트 강제.
     ADMIN_ROLE_NOT_ASSIGNABLE(HttpStatus.BAD_REQUEST, "부여할 수 없는 역할입니다."),
+    // 프론트 상태 선택지(ACTIVE/SUSPENDED) 밖의 상태(WAITING, #794)를 관리자 상태변경 API가 그대로
+    // 수락하면 companyId는 그대로 둔 채 status만 WAITING이 되어 "WAITING=companyId 없음" 불변식이
+    // 깨진다 — ADMIN_ROLE_NOT_ASSIGNABLE과 동일한 화이트리스트 강제.
+    ADMIN_STATUS_NOT_ASSIGNABLE(HttpStatus.BAD_REQUEST, "부여할 수 없는 상태입니다."),
 
     // 플랫폼 관리자 콘솔 — 사용자 관리(#576). 사용자 등록 시 지정한 companyId가 존재하지 않는 경우.
     COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "기업을 찾을 수 없습니다."),

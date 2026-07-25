@@ -8,7 +8,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ApiResponse } from '../../../shared/api/types';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
 import type { DefectRevisionRequest } from '../api/inspectionApi';
-import type { InspectionResponse, DefectDetailItem, DefectCreateRequest, DefectType } from '../api/inspectionApi.types';
+import type { InspectionResponse, DefectDetailItem, DefectCreateRequest, DefectType, MediaResponse } from '../api/inspectionApi.types';
 import { ResultViewerPage } from './ResultViewerPage';
 
 // 테스트용 목 데이터
@@ -21,6 +21,8 @@ const mockInspection: InspectionResponse = {
   inspectionDate: '2026-07-22',
   status: 'ANALYZED',
   createdAt: '2026-07-22T10:00:00Z',
+  reviewedCount: 1,
+  totalCount: 5,
 };
 
 const mockDefects: DefectDetailItem[] = [
@@ -117,6 +119,36 @@ const testHandlers = [
   }),
   http.get('/api/inspections/:id/defects', () => {
     const body: ApiResponse<DefectDetailItem[]> = { success: true, data: mockDefects };
+    return HttpResponse.json(body);
+  }),
+  http.get('/api/inspections/:id/media', () => {
+    const mockMedia: MediaResponse[] = [
+      {
+        id: 67,
+        inspectionId: 1,
+        fileType: 'IMAGE',
+        thumbnailUrl: '/api/media/67/thumbnail',
+        detailUrl: '/api/media/67/detail',
+        mimeType: 'image/jpeg',
+        capturedAt: '2026-07-22T10:00:00Z',
+        gpsLat: null,
+        gpsLng: null,
+        createdAt: '2026-07-22T10:00:00Z',
+      },
+      {
+        id: 68,
+        inspectionId: 1,
+        fileType: 'IMAGE',
+        thumbnailUrl: '/api/media/68/thumbnail',
+        detailUrl: '/api/media/68/detail',
+        mimeType: 'image/jpeg',
+        capturedAt: '2026-07-22T10:05:00Z',
+        gpsLat: null,
+        gpsLng: null,
+        createdAt: '2026-07-22T10:05:00Z',
+      },
+    ];
+    const body: ApiResponse<MediaResponse[]> = { success: true, data: mockMedia };
     return HttpResponse.json(body);
   }),
   http.post('/api/ai/defect-explain', () => {
@@ -366,6 +398,20 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(await screen.findByText('이미지 2/2')).not.toBeNull();
   });
 
+  it('하자 0건 이미지로 이동해도 이미지 자체는 렌더되고 문구만 같이 뜬다(#815)', async () => {
+    // 기본 mock: mediaId=67에만 하자 5건, media 목록은 67·68 — 68은 하자 0건인 채로 그대로 사용.
+    renderPage();
+    await screen.findByText('DEF-0001');
+    expect(await screen.findByText('이미지 1/2')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '다음 이미지 →' }));
+
+    expect(await screen.findByText('이미지 2/2')).not.toBeNull();
+    // 이미지 자체(DefectOverlay)는 계속 렌더되어야 한다 — 문구로 대체되면 안 됨.
+    expect(screen.getByAltText('점검 이미지')).not.toBeNull();
+    expect(screen.getByText('이 이미지에 해당하는 하자가 없습니다.')).not.toBeNull();
+  });
+
   it('오탐 삭제 버튼이 활성화되어 있다(#553)', async () => {
     renderPage();
     await screen.findByText('DEF-0001');
@@ -570,6 +616,214 @@ describe('ResultViewerPage (통합 테스트)', () => {
     // 에러 메시지가 표시된다 (모달 내 에러 메시지 확인)
     await waitFor(() => {
       const errorMessages = screen.getAllByText(/누락 추가에 실패했습니다/);
+      expect(errorMessages.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('검수가 미완료일 때 "보고서 생성" 버튼이 비활성화된다 (#829)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const button = screen.getByRole('button', { name: '보고서 생성' });
+    expect(button.hasAttribute('disabled')).toBe(true);
+    // mockDefects 중 id=3(CONFIRMED), id=5(RESOLVED)가 검수 확정으로 계산 → reviewedCount=2
+    expect(button.getAttribute('title')).toBe('2/5 하자 검수 확정 필요');
+  });
+
+  it('모든 하자를 검수 확정하면 "보고서 생성" 버튼이 활성화된다 (#829)', async () => {
+    const allConfirmedDefects: DefectDetailItem[] = mockDefects.map((d) => ({
+      ...d,
+      status: 'CONFIRMED' as const,
+      isReviewed: true,
+    }));
+
+    server.use(
+      http.get('/api/inspections/:id/defects', () => {
+        const body: ApiResponse<DefectDetailItem[]> = { success: true, data: allConfirmedDefects };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const button = screen.getByRole('button', { name: '보고서 생성' });
+    expect(button.hasAttribute('disabled')).toBe(false);
+  });
+
+  // 등급 수정 모달 테스트 (#827)
+  it('"등급 수정" 버튼을 클릭하면 라디오 버튼 모달이 열린다 (#827)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const button = screen.getByRole('button', { name: '등급 수정' });
+    expect(button.hasAttribute('disabled')).toBe(false);
+
+    fireEvent.click(button);
+
+    expect(await screen.findByText('등급 수정')).not.toBeNull();
+    // 라디오 그룹 확인
+    expect(screen.getByRole('radiogroup', { name: '등급 선택' })).not.toBeNull();
+  });
+
+  it('등급 수정 모달에서 라디오 버튼으로 등급을 선택할 수 있다 (#827)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '등급 수정' }));
+    // 모달이 열려있는지 라디오 그룹으로 확인
+    const radioGroup = await screen.findByRole('radiogroup', { name: '등급 선택' });
+
+    // D 라벨을 클릭해서 라디오 선택
+    const dGradeLabel = screen.getByText('D (주의)');
+    fireEvent.click(dGradeLabel);
+
+    // 라디오 그룹이 여전히 표시되어 있는지 확인 (모달이 열려있음)
+    expect(radioGroup).not.toBeNull();
+  });
+
+  it('등급 수정 모달에서 사유를 입력하지 않으면 확인 버튼이 비활성화된다 (#827)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '등급 수정' }));
+    await screen.findByText('등급 수정');
+
+    // 등급 선택 (라벨 클릭)
+    fireEvent.click(screen.getByText('D (주의)'));
+
+    // 확인 버튼 찾기 (라벨 "등급 수정" 모달 내)
+    const confirmButtons = screen.getAllByRole('button', { name: '확인' });
+    // 마지막 "확인" 버튼이 등급 수정 모달의 버튼 (누락 추가 모달이 없어서)
+    const gradeConfirmButton = confirmButtons[confirmButtons.length - 1];
+    expect(gradeConfirmButton.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('등급 수정 모달에서 등급과 사유를 입력하면 확인 버튼이 활성화된다 (#827)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '등급 수정' }));
+    await screen.findByText('등급 수정');
+
+    // 등급 선택
+    fireEvent.click(screen.getByText('D (주의)'));
+
+    // 사유 입력 — getByPlaceholderText 사용
+    const textarea = screen.getByPlaceholderText('수정 사유를 입력해주세요 (1-500자)');
+    fireEvent.change(textarea, { target: { value: '검토 결과 등급 상향' } });
+
+    // 확인 버튼 활성화 확인
+    const confirmButtons = screen.getAllByRole('button', { name: '확인' });
+    const gradeConfirmButton = confirmButtons[confirmButtons.length - 1];
+    expect(gradeConfirmButton.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('등급 수정 모달에서 저장하면 PATCH 요청을 보낸다 (#827)', async () => {
+    let patchCalled = false;
+    let patchPayload: DefectRevisionRequest | null = null;
+    server.use(
+      http.patch('/api/defects/:id', async ({ request }) => {
+        patchCalled = true;
+        patchPayload = (await request.json()) as DefectRevisionRequest;
+        // 요청 검증: grade와 reason이 모두 포함되어야 함
+        if (!patchPayload.reason || patchPayload.reason.trim().length === 0) {
+          return HttpResponse.json(
+            { success: false, error: { code: 'INVALID_INPUT', message: 'reason은 필수이고 1-500자여야 합니다.' } },
+            { status: 400 },
+          );
+        }
+        const updatedDefect: DefectDetailItem = mockDefects[0];
+        return HttpResponse.json({ success: true, data: updatedDefect });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '등급 수정' }));
+    await screen.findByText('등급 수정');
+
+    // 등급 선택
+    fireEvent.click(screen.getByText('D (주의)'));
+
+    // 사유 입력 — getByPlaceholderText 사용
+    const textarea = screen.getByPlaceholderText('수정 사유를 입력해주세요 (1-500자)');
+    fireEvent.change(textarea, { target: { value: '검토 결과 등급 상향' } });
+
+    // 확인 버튼 클릭
+    const confirmButtons = screen.getAllByRole('button', { name: '확인' });
+    const gradeConfirmButton = confirmButtons[confirmButtons.length - 1];
+    fireEvent.click(gradeConfirmButton);
+
+    // PATCH 요청 완료 대기 및 검증
+    await waitFor(() => {
+      expect(patchCalled).toBe(true);
+      expect(patchPayload?.grade).toBe('D');
+      expect(patchPayload?.reason).toBe('검토 결과 등급 상향');
+    });
+  });
+
+  it('등급 수정 모달에서 취소하면 API 호출 없이 모달이 닫힌다 (#827)', async () => {
+    let patchCalled = false;
+    server.use(
+      http.patch('/api/defects/:id', async () => {
+        patchCalled = true;
+        return HttpResponse.json({ success: false }, { status: 500 });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '등급 수정' }));
+    // 모달이 열렸는지 라디오 그룹으로 확인
+    await screen.findByRole('radiogroup', { name: '등급 선택' });
+
+    const cancelButtons = screen.getAllByRole('button', { name: '취소' });
+    const gradeCancelButton = cancelButtons[cancelButtons.length - 1];
+    fireEvent.click(gradeCancelButton);
+
+    // 모달 다이얼로그가 닫혀야 한다 (라디오 그룹이 사라져야 함)
+    expect(screen.queryByRole('radiogroup', { name: '등급 선택' })).toBeNull();
+
+    // PATCH 호출이 없어야 한다
+    expect(patchCalled).toBe(false);
+  });
+
+  it('등급 수정 모달에서 저장 실패 시 에러 메시지를 표시한다 (#827)', async () => {
+    server.use(
+      http.patch('/api/defects/:id', () => {
+        const failure: ApiResponse<null> = {
+          success: false,
+          data: null,
+          error: { code: 'INVALID_INPUT', message: '등급 수정에 실패했습니다.' },
+        };
+        return HttpResponse.json(failure, { status: 400 });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '등급 수정' }));
+    await screen.findByText('등급 수정');
+
+    // 등급 선택
+    fireEvent.click(screen.getByText('D (주의)'));
+
+    // 사유 입력 — getByPlaceholderText 사용
+    const textarea = screen.getByPlaceholderText('수정 사유를 입력해주세요 (1-500자)');
+    fireEvent.change(textarea, { target: { value: '검토 결과' } });
+
+    // 확인 버튼 클릭
+    const confirmButtons = screen.getAllByRole('button', { name: '확인' });
+    const gradeConfirmButton = confirmButtons[confirmButtons.length - 1];
+    fireEvent.click(gradeConfirmButton);
+
+    // 에러 메시지가 표시된다 (모달 내 에러 메시지 확인)
+    await waitFor(() => {
+      const errorMessages = screen.getAllByText(/등급 수정에 실패했습니다/);
       expect(errorMessages.length).toBeGreaterThan(0);
     });
   });
