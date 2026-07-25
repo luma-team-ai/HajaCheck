@@ -56,6 +56,8 @@ export interface InspectionResponse {
   inspectionDate: string; // YYYY-MM-DD
   status: InspectionStatus;
   createdAt: string; // ISO datetime
+  reviewedCount?: number; // 검수 확정된 하자 수
+  totalCount?: number; // 전체 하자 수
 }
 
 // AI 분석 실행/상태(dev-05-04) — backend AnalysisStatusResponse와 필드명 그대로 대응(camelCase, Jackson 기본).
