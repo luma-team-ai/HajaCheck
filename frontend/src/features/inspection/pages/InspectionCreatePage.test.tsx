@@ -5,10 +5,10 @@
 // (authApi.company.test.ts와 동일 근거) mediaApi.upload를 스파이로
 // 대체해 발화 여부/파라미터만 검증한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { createMemoryRouter, Link, RouterProvider } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuthStore } from '../../auth/store/authStore';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
@@ -43,27 +43,41 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-function LocationProbe() {
-  const location = useLocation();
-  return <div data-testid="location-probe">{location.pathname}</div>;
-}
-
+// useBlocker(react-router-dom)는 data router(createMemoryRouter/RouterProvider) 컨텍스트
+// 안에서만 동작한다 — MemoryRouter+Routes(비-data router)로 렌더하면 렌더 시점에 크래시한다
+// (같은 레포의 AppShellRoute.test.tsx/authFlow.logout.test.tsx와 동일 패턴으로 교체).
+// "/dashboard-link"는 실제 사이드바 Link 클릭을 대역하는 테스트 전용 라우트 — useBlocker는
+// 어떤 컴포넌트가 이동을 시작했는지 상관하지 않고 라우터 내부 이동 자체를 가로채므로,
+// 실제 SideNavBar Link 클릭과 동등하게 검증할 수 있다.
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
 
+  const router = createMemoryRouter(
+    [
+      {
+        path: '/inspections/create',
+        element: (
+          <>
+            <Link to="/dashboard">대시보드로 이동(사이드바 대역)</Link>
+            <InspectionCreatePage />
+          </>
+        ),
+      },
+      { path: '/inspections/:id/analysis', element: <div>AI 분석 실행/상태</div> },
+      { path: '/dashboard', element: <div>대시보드 페이지</div> },
+    ],
+    { initialEntries: ['/inspections/create'] },
+  );
+
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/inspections/create']}>
-        <Routes>
-          <Route path="/inspections/create" element={<InspectionCreatePage />} />
-          <Route path="/inspections/:id/analysis" element={<div>AI 분석 실행/상태</div>} />
-        </Routes>
-        <LocationProbe />
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+
+  return router;
 }
 
 async function fillRequiredFields() {
@@ -137,7 +151,7 @@ describe('InspectionCreatePage (통합 테스트)', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .mockResolvedValue({ data: mockMedia } as any);
 
-    renderPage();
+    const router = renderPage();
     await fillRequiredFields();
     const file = new File(['a'], 'a.jpg', { type: 'image/jpeg' });
     selectFiles([file]);
@@ -149,7 +163,7 @@ describe('InspectionCreatePage (통합 테스트)', () => {
 
     expect(uploadSpy).toHaveBeenCalledWith(100, [file], expect.any(Function));
     expect(await screen.findByText('AI 분석 실행/상태')).not.toBeNull();
-    expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/100/analysis');
+    expect(router.state.location.pathname).toBe('/inspections/100/analysis');
   });
 
   it('점검 생성 성공 후 업로드만 실패하면, 재제출 시 회차를 다시 만들지 않고 업로드만 재시도한다(P1 회귀 방지)', async () => {
@@ -267,5 +281,29 @@ describe('InspectionCreatePage (통합 테스트)', () => {
       await screen.findByText('사용자 정보를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.'),
     ).not.toBeNull();
     expect(createCallCount).toBe(0);
+  });
+
+  it('작성 중 다른 라우트로 이동 시 확인창을 띄우고, 취소하면 머무르고 나가기를 누르면 이동한다', async () => {
+    const router = renderPage();
+    await fillRequiredFields();
+
+    fireEvent.click(screen.getByRole('link', { name: '대시보드로 이동(사이드바 대역)' }));
+    expect(
+      await screen.findByText('작성을 취소하시겠습니까? (입력 내용 임시저장됨)'),
+    ).not.toBeNull();
+    expect(router.state.location.pathname).toBe('/inspections/create');
+
+    // 취소 — 확인창이 닫히고 현재 페이지에 머무른다
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+    await waitFor(() =>
+      expect(screen.queryByText('작성을 취소하시겠습니까? (입력 내용 임시저장됨)')).toBeNull(),
+    );
+    expect(router.state.location.pathname).toBe('/inspections/create');
+
+    // 다시 시도 후 나가기 — 클릭했던 목적지로 이동한다
+    fireEvent.click(screen.getByRole('link', { name: '대시보드로 이동(사이드바 대역)' }));
+    await screen.findByText('작성을 취소하시겠습니까? (입력 내용 임시저장됨)');
+    fireEvent.click(screen.getByRole('button', { name: '나가기' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard'));
   });
 });
