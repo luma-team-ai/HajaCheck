@@ -39,6 +39,11 @@ public class AdminUserService {
     // 화이트리스트 — COUNSELOR 등 이 화면 밖의 Role은 요청을 크래프팅해도 서버가 거부한다(리뷰 P2).
     private static final Set<Role> ASSIGNABLE_ROLES = EnumSet.of(Role.ADMIN, Role.INSPECTOR, Role.USER);
 
+    // 관리자 콘솔이 프론트에 노출하는 배정 가능 상태(STATUS_CHANGE_OPTIONS: ACTIVE/SUSPENDED)와 동일한
+    // 화이트리스트 — WAITING(#794)은 소셜 가입 전용 자동 상태라 관리자가 임의로 부여할 수 없다.
+    // 허용하면 companyId는 그대로인 채 status만 WAITING이 되어 "WAITING=companyId 없음" 불변식이 깨진다.
+    private static final Set<UserStatus> ASSIGNABLE_STATUSES = EnumSet.of(UserStatus.ACTIVE, UserStatus.SUSPENDED);
+
     public AdminUserListResponse list(Long companyId, String keyword, Role role, PlanName plan, UserStatus status,
                                        Pageable pageable) {
         requireCompanyId(companyId);
@@ -92,6 +97,7 @@ public class AdminUserService {
     @Transactional
     public AdminUserStatusUpdateResponse changeStatus(Long userId, UserStatus status, Long companyId,
                                                         Long requestingUserId) {
+        requireAssignableStatus(status);
         User user = findUser(userId, companyId);
         if (user.getRole() == Role.ADMIN && status == UserStatus.SUSPENDED) {
             requireNotLastOrSelfAdmin(userId, companyId, requestingUserId);
@@ -114,6 +120,12 @@ public class AdminUserService {
     private void requireAssignableRole(Role role) {
         if (!ASSIGNABLE_ROLES.contains(role)) {
             throw new BusinessException(ErrorCode.ADMIN_ROLE_NOT_ASSIGNABLE);
+        }
+    }
+
+    private void requireAssignableStatus(UserStatus status) {
+        if (!ASSIGNABLE_STATUSES.contains(status)) {
+            throw new BusinessException(ErrorCode.ADMIN_STATUS_NOT_ASSIGNABLE);
         }
     }
 

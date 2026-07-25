@@ -52,6 +52,12 @@ public enum ErrorCode {
     // 휴업/폐업/미등록으로 가입을 차단하는 경우. 진위 "불일치"는 입력 오류이므로 400(401 금지 정책 준수).
     AUTH_BUSINESS_VERIFICATION_FAILED(HttpStatus.BAD_REQUEST, "사업자등록정보 진위확인에 실패했습니다. 사업자등록번호·대표자명·개업일자를 확인해 주세요."),
 
+    // 초대 코드(#794) — 소셜 가입(WAITING) 계정이 기업 관리자가 발급한 코드를 redeem해 회사 소속으로 전환.
+    // WAITING 계정이 초대 코드 redeem 외의 보호된 리소스를 요청했을 때 SessionUserRevalidationFilter가 통일 응답.
+    AUTH_ACCOUNT_WAITING(HttpStatus.FORBIDDEN, "초대 코드 입력 후 이용할 수 있습니다."),
+    // Redis에 없음(미발급/오입력) · 만료 · 이미 사용됨을 구분하지 않는 통일 응답(코드 열거 방지).
+    AUTH_INVITE_CODE_INVALID(HttpStatus.BAD_REQUEST, "유효하지 않거나 만료된 초대 코드입니다."),
+
     // 파일 업로드(사업자등록증)
     FILE_REQUIRED(HttpStatus.BAD_REQUEST, "파일이 필요합니다."),
     FILE_INVALID_TYPE(HttpStatus.BAD_REQUEST, "허용되지 않는 파일 형식입니다. (JPG, PNG, PDF 만 가능)"),
@@ -100,6 +106,10 @@ public enum ErrorCode {
     ADMIN_PROTECTED_ACCOUNT(HttpStatus.CONFLICT, "자기 자신 또는 회사의 마지막 관리자는 변경할 수 없습니다."),
     // 프론트 역할 선택지(USER/INSPECTOR/ADMIN) 밖의 Role(예: COUNSELOR)을 서버가 그대로 수락하지 않도록 화이트리스트 강제.
     ADMIN_ROLE_NOT_ASSIGNABLE(HttpStatus.BAD_REQUEST, "부여할 수 없는 역할입니다."),
+    // 프론트 상태 선택지(ACTIVE/SUSPENDED) 밖의 상태(WAITING, #794)를 관리자 상태변경 API가 그대로
+    // 수락하면 companyId는 그대로 둔 채 status만 WAITING이 되어 "WAITING=companyId 없음" 불변식이
+    // 깨진다 — ADMIN_ROLE_NOT_ASSIGNABLE과 동일한 화이트리스트 강제.
+    ADMIN_STATUS_NOT_ASSIGNABLE(HttpStatus.BAD_REQUEST, "부여할 수 없는 상태입니다."),
 
     // 플랫폼 관리자 콘솔 — 사용자 관리(#576). 사용자 등록 시 지정한 companyId가 존재하지 않는 경우.
     COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "기업을 찾을 수 없습니다."),
