@@ -184,7 +184,17 @@ public class InspectionAnalysisService {
         } catch (RuntimeException e) {
             // 선점 실패(ALREADY_RUNNING)·큐 포화(QUEUE_FULL)·예기치 못한 오류 모두 "분석이 시작되지 않음"이다 —
             // 실패한 요청이 월 한도를 갉아먹지 않도록 되돌린다.
-            quotaService.refundAnalysisQuota(requesterUserId, companyId, images.size());
+            //
+            // ⚠️ 보상 호출은 반드시 한 겹 더 감싼다(코드 리뷰 P2): refundAnalysisQuota 는 예외를 삼키지
+            // 않고, @Transactional 프록시의 커밋 단계에서 UnexpectedRollbackException 이 새로 튀어나올 수도
+            // 있다. 그걸 그대로 내보내면 사용자가 원래 원인(QUEUE_FULL 등) 대신 500 을 받는다 —
+            // 보상 실패의 최악 결과는 이번 요청분이 월 사용량에 과대 집계되는 것뿐이므로 원인을 덮지 않는다.
+            try {
+                quotaService.refundAnalysisQuota(requesterUserId, companyId, images.size());
+            } catch (RuntimeException refundFailure) {
+                log.warn("분석 사용량 보상 차감 실패 — inspectionId={} companyId={} images={}",
+                        inspectionId, companyId, images.size(), refundFailure);
+            }
             throw e;
         }
     }

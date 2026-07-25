@@ -190,6 +190,11 @@ class QuotaServiceIntegrationTest extends PostgresTestSupport {
         assertThat(currentUsage().getAnalyzedImageCount()).isEqualTo(limit);
     }
 
+    // 아래 두 테스트는 보상 SQL 자체(요청수·이미지수 되돌림, 음수 방지)를 고정한다. 서비스 메서드가
+    // 아니라 리포지토리를 직접 부르는 이유: QuotaService#refundAnalysisQuota 는 REQUIRES_NEW 라
+    // 이 테스트의 미커밋 차감을 보지 못한다(0행 갱신). 서비스 경로의 end-to-end 보상은 커밋을 실제로
+    // 일으키는 QuotaEnforcementConcurrencyTest 가 검증한다.
+
     @Test
     void 분석_실패시_보상차감이_요청수와_이미지수를_되돌린다() {
         givenCompanyPlan(PlanName.STANDARD);
@@ -198,7 +203,7 @@ class QuotaServiceIntegrationTest extends PostgresTestSupport {
         assertThat(currentUsage().getAnalyzedImageCount()).isEqualTo(7);
         assertThat(currentUsage().getAnalysisRequestCount()).isEqualTo(1);
 
-        quotaService.refundAnalysisQuota(ownerId, companyId, 7);
+        usageCounterRepository.refundAnalysisQuota(currentUserPlanId(), currentPeriod(), 7);
 
         assertThat(currentUsage().getAnalyzedImageCount()).isZero();
         assertThat(currentUsage().getAnalysisRequestCount()).isZero();
@@ -210,7 +215,7 @@ class QuotaServiceIntegrationTest extends PostgresTestSupport {
         quotaService.consumeAnalysisQuota(ownerId, companyId, 1);
 
         // 차감 이력보다 큰 보상(월 경계에서 집계 행이 새로 만들어진 경우 등)도 CHECK 제약을 깨지 않는다.
-        quotaService.refundAnalysisQuota(ownerId, companyId, 100);
+        usageCounterRepository.refundAnalysisQuota(currentUserPlanId(), currentPeriod(), 100);
 
         assertThat(currentUsage().getAnalyzedImageCount()).isZero();
         assertThat(currentUsage().getAnalysisRequestCount()).isZero();

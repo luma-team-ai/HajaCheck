@@ -505,6 +505,80 @@ class InspectionAnalysisServiceTest {
         verify(progressStore).delete(INSPECTION_ID);
     }
 
+    // ── 월 분석 한도 배선(#843) ──
+
+    @Test
+    void startAnalysis_큐포화시_차감했던_월분석사용량을_보상차감한다() {
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
+        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+                .thenReturn(List.of(image(1L), image(2L), image(3L)));
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        Mockito.doThrow(new TaskRejectedException("full"))
+                .when(worker).runAsync(any(), any(), any(), any(), any(), any());
+
+        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_QUEUE_FULL);
+
+        // 차감(이미지 3장)과 보상이 짝을 이뤄야 실패한 요청이 월 한도를 갉아먹지 않는다.
+        verify(quotaService).consumeAnalysisQuota(USER_ID, COMPANY_ID, 3);
+        verify(quotaService).refundAnalysisQuota(USER_ID, COMPANY_ID, 3);
+    }
+
+    @Test
+    void startAnalysis_원자적선점에실패하면_차감했던_월분석사용량을_보상차감한다() {
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
+        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+                .thenReturn(List.of(image(1L), image(2L)));
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any()))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
+
+        verify(quotaService).refundAnalysisQuota(USER_ID, COMPANY_ID, 2);
+    }
+
+    @Test
+    void startAnalysis_보상차감이실패해도_원래실패원인을_그대로전파한다() {
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
+        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+                .thenReturn(List.of(image(1L)));
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        Mockito.doThrow(new TaskRejectedException("full"))
+                .when(worker).runAsync(any(), any(), any(), any(), any(), any());
+        // 보상 트랜잭션 커밋 단계의 UnexpectedRollbackException 등 — 원인을 덮으면 사용자가 500을 받는다.
+        Mockito.doThrow(new IllegalStateException("보상 트랜잭션 롤백"))
+                .when(quotaService).refundAnalysisQuota(any(), any(), org.mockito.ArgumentMatchers.anyInt());
+
+        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_QUEUE_FULL);
+    }
+
+    @Test
+    void startAnalysis_월분석한도초과면_선점도_워커위임도_하지않는다() {
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
+        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+                .thenReturn(List.of(image(1L)));
+        Mockito.doThrow(new BusinessException(ErrorCode.PLAN_ANALYSIS_QUOTA_EXCEEDED))
+                .when(quotaService).consumeAnalysisQuota(any(), any(), org.mockito.ArgumentMatchers.anyInt());
+
+        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PLAN_ANALYSIS_QUOTA_EXCEEDED);
+
+        // 한도 초과는 차감 이전에 판정되므로 회차를 ANALYZING으로 바꿨다가 되돌리는 경로가 아예 없어야 한다.
+        Mockito.verifyNoInteractions(worker);
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
+        verify(quotaService, never()).refundAnalysisQuota(any(), any(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
     @Test
     void getStatus_진행률캐시있으면_그대로반환한다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))

@@ -18,6 +18,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -64,25 +65,28 @@ public class QuotaService {
 
     /**
      * 시설물 1건 등록 슬롯 예약 — <b>시설물 INSERT 와 같은 트랜잭션</b>에서 호출해야 한다.
+     * 그 계약을 관례가 아니라 런타임에서 fail-fast 시키기 위해 {@code MANDATORY} 로 선언한다(호출부에
+     * 활성 트랜잭션이 없으면 즉시 IllegalTransactionStateException — 잠금이 곧바로 풀려 한도가 새는
+     * 사용법을 조용히 통과시키지 않는다).
      *
      * <p>기존 데이터가 이미 한도를 넘겨 있어도(FREE 회사에 시설물 11건) 막는 것은 <b>신규 등록뿐</b>이다 —
      * 조회·수정·삭제 경로는 이 검사를 타지 않으므로 기존 기능이 잠기지 않는다.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     public void reserveFacilitySlot(Long userId, Long companyId) {
         UserPlan userPlan = resolveLivePlan(userId, companyId);
         Plan plan = findPlan(userPlan.getPlanId());
         LocalDate period = currentPeriod();
-        lockPeriodRow(userPlan, period, companyId);
+        long usageCounterId = lockPeriodRow(userPlan, period, companyId);
 
         int measured = measureFacilities(companyId);
         Integer maxFacilities = plan.getMaxFacilities();
         if (maxFacilities == null) {
             // null = 무제한(Plan javadoc) — 조건절을 넣지 않고 표시값만 맞춘다.
-            usageCounterRepository.syncFacilityCount(userPlan.getId(), period, measured + 1);
+            usageCounterRepository.syncFacilityCount(usageCounterId, measured + 1);
             return;
         }
-        if (usageCounterRepository.reserveFacilitySlot(userPlan.getId(), period, measured, maxFacilities) == 0) {
+        if (usageCounterRepository.reserveFacilitySlot(usageCounterId, measured, maxFacilities) == 0) {
             throw new BusinessException(ErrorCode.PLAN_FACILITY_QUOTA_EXCEEDED);
         }
     }
@@ -94,37 +98,39 @@ public class QuotaService {
      * <p>삭제는 한도와 무관한 동작이므로 구독이 없거나 집계 행이 없으면 조용히 건너뛴다 — 사용량 미러
      * 갱신 실패가 삭제 자체를 막아서는 안 된다.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     public void syncFacilityUsage(Long userId, Long companyId) {
         Optional<UserPlan> userPlan = findLivePlan(userId, companyId);
         if (userPlan.isEmpty()) {
             return;
         }
-        LocalDate period = currentPeriod();
-        if (usageCounterRepository.lockPeriodRow(userPlan.get().getId(), period).isEmpty()) {
+        Optional<Long> usageCounterId =
+                usageCounterRepository.lockPeriodRow(userPlan.get().getId(), currentPeriod());
+        if (usageCounterId.isEmpty()) {
             return;
         }
-        usageCounterRepository.syncFacilityCount(userPlan.get().getId(), period, measureFacilities(companyId));
+        usageCounterRepository.syncFacilityCount(usageCounterId.get(), measureFacilities(companyId));
     }
 
     /**
-     * 좌석 1석 예약 — <b>구성원 활성화(ACTIVE 전이)와 같은 트랜잭션</b>에서 호출해야 한다.
+     * 좌석 1석 예약 — <b>구성원 활성화(ACTIVE 전이)와 같은 트랜잭션</b>에서 호출해야 한다
+     * ({@link #reserveFacilitySlot} 과 같은 이유로 {@code MANDATORY}).
      * 실측 기준은 {@code MembershipService#getSeats} 와 동일한 "회사 소속 ACTIVE 사용자 수"다.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     public void reserveSeat(Long companyId) {
         UserPlan userPlan = resolveLivePlan(null, companyId);
         Plan plan = findPlan(userPlan.getPlanId());
         LocalDate period = currentPeriod();
-        lockPeriodRow(userPlan, period, companyId);
+        long usageCounterId = lockPeriodRow(userPlan, period, companyId);
 
         int measured = measureSeats(companyId);
         Integer maxSeats = plan.getMaxSeats();
         if (maxSeats == null) {
-            usageCounterRepository.syncSeatCount(userPlan.getId(), period, measured + 1);
+            usageCounterRepository.syncSeatCount(usageCounterId, measured + 1);
             return;
         }
-        if (usageCounterRepository.reserveSeat(userPlan.getId(), period, measured, maxSeats) == 0) {
+        if (usageCounterRepository.reserveSeat(usageCounterId, measured, maxSeats) == 0) {
             throw new BusinessException(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED);
         }
     }
@@ -155,30 +161,39 @@ public class QuotaService {
     }
 
     /**
-     * 분석 시작이 실패했을 때의 보상 차감. 예외 처리 경로에서 호출되므로 <b>절대 예외를 던지지 않는다</b> —
-     * 보상 실패가 원래 실패 원인을 덮어써서는 안 된다(최악의 경우 사용량이 조금 과대 집계될 뿐).
+     * 분석 시작·실행이 실패했을 때의 보상 차감.
+     *
+     * <p>{@code REQUIRES_NEW} 인 이유: 호출부는 대부분 "원래 실패"를 처리하는 예외 경로다. 보상을 호출부
+     * 트랜잭션에 태우면 보상 쪽 실패가 호출부 트랜잭션까지 롤백 전용으로 오염시킨다.
+     *
+     * <p>⚠️ 그 대가로 <b>되돌릴 차감이 이미 커밋돼 있어야 한다</b> — 독립 트랜잭션이라 호출부의 미커밋
+     * 차감은 보이지 않아 조용히 0행 갱신으로 끝난다. 실제 두 호출부는 모두 이 전제를 만족한다:
+     * {@code InspectionAnalysisService#startAnalysis} 와 {@code InspectionAnalysisWorker#runAsync} 는
+     * 둘 다 트랜잭션 밖이라 {@link #consumeAnalysisQuota} 가 자기 트랜잭션으로 즉시 커밋된 뒤에 실패
+     * 경로로 들어간다.
+     *
+     * <p>⚠️ 이 메서드는 예외를 <b>삼키지 않는다</b>. 예전에는 본문을 try/catch 로 감쌌지만, 그러면
+     * 프록시의 커밋 단계에서 새로 던져지는 {@code UnexpectedRollbackException} 은 못 잡아 원래 원인
+     * ({@code ANALYSIS_QUEUE_FULL} 등)을 500 으로 덮어쓴다(리뷰 P2). 대신 <b>호출부가</b>
+     * {@code catch (RuntimeException)} 로 감싸 경고만 남기고 원래 예외를 그대로 전파해야 한다 —
+     * 보상 실패의 최악 결과는 사용량이 조금 과대 집계되는 것뿐이라 원인을 가릴 이유가 없다.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void refundAnalysisQuota(Long userId, Long companyId, int imageCount) {
         if (imageCount <= 0) {
             return;
         }
-        try {
-            findLivePlan(userId, companyId).ifPresent(userPlan ->
-                    usageCounterRepository.refundAnalysisQuota(userPlan.getId(), currentPeriod(), imageCount));
-        } catch (RuntimeException e) {
-            log.warn("분석 사용량 보상 차감 실패 — companyId={} images={} (사용량만 과대 집계됨)",
-                    companyId, imageCount, e);
-        }
+        findLivePlan(userId, companyId).ifPresent(userPlan ->
+                usageCounterRepository.refundAnalysisQuota(userPlan.getId(), currentPeriod(), imageCount));
     }
 
     /**
      * 당월 집계 행을 보장한 뒤 배타 잠금한다. 잠금을 먼저 잡아야 뒤이은 실측이 "직전에 커밋된 요청"까지
      * 반영한 최신값이 된다(스냅샷 한도의 TOCTOU 차단).
      */
-    private void lockPeriodRow(UserPlan userPlan, LocalDate period, Long companyId) {
+    private long lockPeriodRow(UserPlan userPlan, LocalDate period, Long companyId) {
         ensurePeriodRow(userPlan, period, companyId);
-        usageCounterRepository.lockPeriodRow(userPlan.getId(), period)
+        return usageCounterRepository.lockPeriodRow(userPlan.getId(), period)
                 // UPSERT 직후라 사실상 도달 불가 — 도달했다면 집계 행이 외부에서 삭제된 것이므로,
                 // 한도 초과(403)로 오인시키지 않고 서버 오류로 표면화한다.
                 .orElseThrow(() -> {
