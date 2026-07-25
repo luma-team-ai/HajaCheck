@@ -2,23 +2,31 @@ package com.hajacheck.counsel.controller;
 
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.counsel.dto.ChatMessageResponse;
+import com.hajacheck.counsel.dto.CounselTicketCreateRequest;
 import com.hajacheck.counsel.dto.CounselTicketResponse;
 import com.hajacheck.counsel.dto.CounselTicketSummaryResponse;
 import com.hajacheck.counsel.entity.CounselTicketStatus;
 import com.hajacheck.counsel.service.CounselTicketService;
+import com.hajacheck.counsel.service.CounselTicketService.Transcript;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.common.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.PageRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -40,12 +48,56 @@ public class CounselTicketController {
 
     private final CounselTicketService counselTicketService;
 
-    @Operation(summary = "상담 티켓 생성", description = "상담원 연결을 요청한다(WAITING). has_counselor_access 활성 플랜만 허용.")
+    @Operation(summary = "상담 티켓 생성",
+            description = "시나리오 리프(leadsToCounselor=true)에서 상담원 연결을 요청한다(WAITING). "
+                    + "has_counselor_access 활성 플랜만 허용, category/title 은 시나리오 트리에서 스냅샷.")
     @PostMapping
     public ResponseEntity<ApiResponse<CounselTicketResponse>> createTicket(
-            @AuthenticationPrincipal LoginUser loginUser) {
-        CounselTicketResponse response = counselTicketService.createTicket(loginUser.getUserId());
+            @AuthenticationPrincipal LoginUser loginUser,
+            @Valid @RequestBody CounselTicketCreateRequest request) {
+        CounselTicketResponse response =
+                counselTicketService.createTicket(loginUser.getUserId(), request.scenarioId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "내 상담 이력 조회",
+            description = "요청자 본인의 상담 티켓 목록(최신순). status=ALL(기본) 또는 특정 상태 필터. userId 는 세션에서만.")
+    @GetMapping("/mine")
+    public ResponseEntity<ApiResponse<PageResponse<CounselTicketSummaryResponse>>> getMyTickets(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @RequestParam(defaultValue = "ALL") String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        int safePage = Math.max(page, 0);
+        int safeSize = size <= 0 ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+        CounselTicketStatus statusFilter = "ALL".equalsIgnoreCase(status)
+                ? null : CounselTicketStatus.valueOf(status);
+        return ResponseEntity.ok(ApiResponse.ok(PageResponse.from(
+                counselTicketService.getMyTickets(loginUser.getUserId(), statusFilter, pageable))));
+    }
+
+    @Operation(summary = "상담 대화 조회", description = "티켓의 전체 대화 이력(시간순). 당사자(사용자 본인/담당 상담원)만.")
+    @GetMapping("/{id}/messages")
+    public ResponseEntity<ApiResponse<List<ChatMessageResponse>>> getMessages(
+            @PathVariable Long id,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        List<ChatMessageResponse> messages =
+                counselTicketService.getMessages(id, loginUser.getUserId());
+        return ResponseEntity.ok(ApiResponse.ok(messages));
+    }
+
+    @Operation(summary = "대화 내보내기", description = "티켓의 전체 대화를 평문 텍스트(.txt)로 다운로드한다. 당사자만.")
+    @GetMapping("/{id}/export")
+    public ResponseEntity<byte[]> exportTranscript(
+            @PathVariable Long id,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        Transcript transcript = counselTicketService.exportTranscript(id, loginUser.getUserId());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + transcript.fileName() + "\"")
+                .contentType(new MediaType(MediaType.TEXT_PLAIN, java.nio.charset.StandardCharsets.UTF_8))
+                .body(transcript.content());
     }
 
     @Operation(summary = "상담 대기열 조회", description = "상태별 티켓 목록(생성순, 기본 WAITING). COUNSELOR/PLATFORM_ADMIN 전용.")

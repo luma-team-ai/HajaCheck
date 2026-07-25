@@ -33,7 +33,7 @@ public class CounselChatController {
             log.debug("상담 메시지 드롭 — 인증 주체 없음: ticketId={}", ticketId);
             return;
         }
-        counselChatService.sendMessage(ticketId, senderUserId, request.content());
+        counselChatService.sendMessage(ticketId, senderUserId, request.content(), request.attachmentKey());
     }
 
     private Long resolveUserId(Principal principal) {
