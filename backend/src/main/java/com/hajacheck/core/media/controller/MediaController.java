@@ -58,4 +58,18 @@ public class MediaController {
                 .contentType(MediaType.parseMediaType(thumbnail.mimeType()))
                 .body(thumbnail.content());
     }
+
+    @Operation(summary = "미디어 상세 이미지 조회",
+            description = "분석 결과 뷰어 전용 — 그리드용 썸네일보다 큰 해상도로 원본에서 재인코딩해 반환(원본 직접 서빙 안 함)")
+    @GetMapping("/api/media/{id}/detail")
+    public ResponseEntity<byte[]> getDetailImage(
+            @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
+        ThumbnailFile detail =
+                mediaService.getDetailImage(loginUser.getUserId(), loginUser.getCompanyId(), id);
+        // getThumbnail()과 동일한 이유로 no-store — 소유권 검증을 거치는 사적 이미지라 공유 캐시 금지.
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore().cachePrivate())
+                .contentType(MediaType.parseMediaType(detail.mimeType()))
+                .body(detail.content());
+    }
 }

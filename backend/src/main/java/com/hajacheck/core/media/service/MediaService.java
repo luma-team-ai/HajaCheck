@@ -15,6 +15,7 @@ import com.hajacheck.core.media.support.ImageSignatureValidator;
 import com.hajacheck.core.media.support.ImageThumbnailGenerator;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -155,30 +156,61 @@ public class MediaService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ThumbnailFile getThumbnail(Long userId, Long companyId, Long mediaId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Media media = loadOwnedMedia(userId, companyId, mediaId);
+        if (media.getThumbnailUrl() == null) {
+            throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
+        }
+        return new ThumbnailFile(readOrMediaNotFound(media.getThumbnailUrl()), THUMBNAIL_MIME_TYPE);
+    }
+
+    /**
+     * 분석 결과 뷰어(상세검수) 전용 상세 이미지 — 그리드·지도팝업용 썸네일(400px 상한)로는 크랙 폭 같은
+     * 하자를 육안으로 판별하기 어려워(#788) 저장된 원본에서 더 큰 해상도로 다시 재인코딩해 반환한다.
+     * 원본(originalUrl)은 여기서도 그대로 반환하지 않는다(PRD FR-2 원본 비공개 정책) — 매 요청마다
+     * {@link ImageThumbnailGenerator}로 재인코딩한 바이트만 응답한다. EXIF Orientation은 DB에 저장하지
+     * 않으므로 업로드 시 썸네일 생성과 동일하게 원본에서 다시 추출한다.
+     *
+     * <p>⚠️ getThumbnail()과 동일한 이유로 NOT_SUPPORTED(트랜잭션 밖에서 디코딩 IO 수행).
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public ThumbnailFile getDetailImage(Long userId, Long companyId, Long mediaId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Media media = loadOwnedMedia(userId, companyId, mediaId);
+        // originalUrl은 DB에서 not null(V1 baseline) — thumbnailUrl과 달리 null 방어 불필요.
+        byte[] originalBytes = readOrMediaNotFound(media.getOriginalUrl());
+        int orientation = ExifGpsExtractor.extract(new ByteArrayInputStream(originalBytes)).orientation();
+        byte[] detailBytes = ImageThumbnailGenerator.generate(
+                new ByteArrayInputStream(originalBytes), properties.getDetailMaxDimension(), orientation);
+        return new ThumbnailFile(detailBytes, THUMBNAIL_MIME_TYPE);
+    }
+
+    // 소유권 검증 — 미디어 존재 + 그 미디어가 속한 점검 회차가 요청자 회사 소속인지. 존재 여부 열거
+    // 방지(리뷰 P2) — 타인 소유 미디어(getInspection이 던지는 FACILITY_NOT_FOUND/INSPECTION_NOT_FOUND)와
+    // 아예 없는 미디어(MEDIA_NOT_FOUND)를 error.code로 구분할 수 있으면 안 된다(openapi.yaml·클래스
+    // 문서가 명시한 "존재 여부 열거 방지 통일 응답" 계약). 실패 사유와 무관하게 동일한
+    // MEDIA_NOT_FOUND(404)로 통일한다. getThumbnail/getDetailImage 공용.
+    private Media loadOwnedMedia(Long userId, Long companyId, Long mediaId) {
         Media media = mediaRepository.findById(mediaId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
         try {
             inspectionService.getInspection(userId, companyId, media.getInspectionId());
         } catch (BusinessException e) {
-            // 존재 여부 열거 방지(리뷰 P2) — 타인 소유 미디어(getInspection이 던지는
-            // FACILITY_NOT_FOUND/INSPECTION_NOT_FOUND)와 아예 없는 미디어(MEDIA_NOT_FOUND)를
-            // error.code로 구분할 수 있으면 안 된다(openapi.yaml·클래스 문서가 명시한 "존재 여부
-            // 열거 방지 통일 응답" 계약). 실패 사유와 무관하게 동일한 MEDIA_NOT_FOUND(404)로 통일한다.
             if (e.getErrorCode() == ErrorCode.INSPECTION_NOT_FOUND
                     || e.getErrorCode() == ErrorCode.FACILITY_NOT_FOUND) {
                 throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
             }
             throw e;
         }
-        if (media.getThumbnailUrl() == null) {
-            throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
-        }
+        return media;
+    }
+
+    // DB 행(Media)은 있으나 디스크 파일이 유실된 경우(리뷰 P2, FileStorageService.read()가
+    // FILE_NOT_FOUND로 구분)도 클라이언트 입장에선 "이 미디어를 찾을 수 없다"는 404와 동일하다 —
+    // 저장소 구현 세부를 노출하지 않고 MEDIA_NOT_FOUND로 통일한다.
+    private byte[] readOrMediaNotFound(String storageKey) {
         try {
-            return new ThumbnailFile(fileStorage.read(media.getThumbnailUrl()), THUMBNAIL_MIME_TYPE);
+            return fileStorage.read(storageKey);
         } catch (BusinessException e) {
-            // DB 행(Media)은 있으나 디스크 파일이 유실된 경우(리뷰 P2, FileStorageService.read()가
-            // FILE_NOT_FOUND로 구분)도 클라이언트 입장에선 위 두 케이스와 동일한 "이 미디어의 썸네일을
-            // 찾을 수 없다"는 404다 — 저장소 구현 세부를 노출하지 않고 MEDIA_NOT_FOUND로 통일한다.
             if (e.getErrorCode() == ErrorCode.FILE_NOT_FOUND) {
                 throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
             }
