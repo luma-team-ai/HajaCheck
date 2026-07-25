@@ -380,7 +380,12 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V15__add_user_status_waiting.sql"),
-                        CONTAINER_ROOT + "V15__add_user_status_waiting.sql");
+                        CONTAINER_ROOT + "V15__add_user_status_waiting.sql")
+                // V16 — #803 defects.area_ratio(분석 결과 뷰어 면적비율) 컬럼 추가.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V16__add_defect_area_ratio.sql"),
+                        CONTAINER_ROOT + "V16__add_defect_area_ratio.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -468,6 +473,8 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "V14__add_counsel_type.sql");
         // #792 — Flyway V15(user_status_type WAITING 라벨)도 이어서 1회 forward-apply한다.
         runPsql(postgres, "V15__add_user_status_waiting.sql");
+        // #803 — Flyway V16(defects.area_ratio)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V16__add_defect_area_ratio.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

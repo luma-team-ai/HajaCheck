@@ -28,6 +28,7 @@ import com.hajacheck.core.media.entity.MediaFileType;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -130,6 +131,12 @@ class MediaControllerTest extends PostgresTestSupport {
     @Test
     void 상세이미지조회_미인증_401() throws Exception {
         mockMvc.perform(get("/api/media/{id}/detail", 1L))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 점검별미디어목록조회_미인증_401() throws Exception {
+        mockMvc.perform(get("/api/inspections/{id}/media", 1L))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -254,5 +261,114 @@ class MediaControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
                 .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("private")));
+    }
+
+    /**
+     * 점검 회차별 미디어 목록 조회(#803 분석 결과 뷰어) — 업로드된 모든 미디어를 반환한다(하자 유무 무관).
+     * 각 항목에 thumbnailUrl, detailUrl이 포함되어야 한다.
+     */
+    @Test
+    void 점검별미디어목록조회_정상_200() throws Exception {
+        User owner = seedApprovedInspector("media-list-owner@haja.com");
+        Facility facility = facilityRepository.save(Facility.builder()
+                .companyId(owner.getCompanyId())
+                .name("테스트빌딩")
+                .type("BUILDING")
+                .build());
+        Inspection inspection = inspectionRepository.save(Inspection.builder()
+                .facilityId(facility.getId())
+                .createdBy(owner.getId())
+                .assignedInspectorId(owner.getId())
+                .roundNo(1)
+                .inspectionDate(LocalDate.now())
+                .status(InspectionStatus.CREATED)
+                .build());
+
+        // 2개의 미디어 저장 (detailUrl 있음)
+        FileStorageService.StoredFile thumb1 = fileStorage.storeBytes(
+                "THUMBDATA1".getBytes(), "image/jpeg", "inspection-media-thumb",
+                List.of("image/jpeg"), 1_000_000L);
+        FileStorageService.StoredFile detail1 = fileStorage.storeBytes(
+                "DETAILDATA1".getBytes(), "image/jpeg", "inspection-media-detail",
+                List.of("image/jpeg"), 8_000_000L);
+        Media media1 = mediaRepository.save(Media.builder()
+                .inspectionId(inspection.getId())
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x1.png")
+                .thumbnailUrl(thumb1.storageKey())
+                .detailUrl(detail1.storageKey())
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .capturedAt(LocalDateTime.now())
+                .build());
+
+        FileStorageService.StoredFile thumb2 = fileStorage.storeBytes(
+                "THUMBDATA2".getBytes(), "image/jpeg", "inspection-media-thumb",
+                List.of("image/jpeg"), 1_000_000L);
+        FileStorageService.StoredFile detail2 = fileStorage.storeBytes(
+                "DETAILDATA2".getBytes(), "image/jpeg", "inspection-media-detail",
+                List.of("image/jpeg"), 8_000_000L);
+        Media media2 = mediaRepository.save(Media.builder()
+                .inspectionId(inspection.getId())
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x2.png")
+                .thumbnailUrl(thumb2.storageKey())
+                .detailUrl(detail2.storageKey())
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .capturedAt(LocalDateTime.now())
+                .build());
+
+        LoginUser principal = new LoginUser(owner);
+        UsernamePasswordAuthenticationToken auth =
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+
+        mockMvc.perform(get("/api/inspections/{id}/media", inspection.getId())
+                        .with(authentication(auth)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].id").value(media1.getId()))
+                .andExpect(jsonPath("$.data[0].thumbnailUrl").value("/api/media/" + media1.getId() + "/thumbnail"))
+                .andExpect(jsonPath("$.data[0].detailUrl").value("/api/media/" + media1.getId() + "/detail"))
+                .andExpect(jsonPath("$.data[1].id").value(media2.getId()))
+                .andExpect(jsonPath("$.data[1].thumbnailUrl").value("/api/media/" + media2.getId() + "/thumbnail"))
+                .andExpect(jsonPath("$.data[1].detailUrl").value("/api/media/" + media2.getId() + "/detail"));
+    }
+
+    /**
+     * IDOR 차단: 타인 회사의 점검 회차로 미디어 목록을 조회하려 하면 404(INSPECTION_NOT_FOUND)를 반환한다.
+     * 미존재와 타인 소유를 구분하지 않고 동일하게 404로 응답한다.
+     */
+    @Test
+    void 점검별미디어목록조회_타인회차_404() throws Exception {
+        User owner1 = seedApprovedInspector("media-list-owner1@haja.com");
+        User owner2 = seedApprovedInspector("media-list-owner2@haja.com");
+
+        // owner1의 회차 생성
+        Facility facility1 = facilityRepository.save(Facility.builder()
+                .companyId(owner1.getCompanyId())
+                .name("테스트빌딩1")
+                .type("BUILDING")
+                .build());
+        Inspection inspection1 = inspectionRepository.save(Inspection.builder()
+                .facilityId(facility1.getId())
+                .createdBy(owner1.getId())
+                .assignedInspectorId(owner1.getId())
+                .roundNo(1)
+                .inspectionDate(LocalDate.now())
+                .status(InspectionStatus.CREATED)
+                .build());
+
+        // owner2가 owner1의 회차 접근 시도
+        LoginUser principal2 = new LoginUser(owner2);
+        UsernamePasswordAuthenticationToken auth2 =
+                new UsernamePasswordAuthenticationToken(principal2, null, principal2.getAuthorities());
+
+        mockMvc.perform(get("/api/inspections/{id}/media", inspection1.getId())
+                        .with(authentication(auth2)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("INSPECTION_NOT_FOUND"));
     }
 }

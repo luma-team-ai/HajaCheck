@@ -223,6 +223,7 @@ public class InspectionAnalysisWorker {
                 .bboxH(item.bboxH())
                 .confidence(item.confidence())
                 .grade(grade)
+                .areaRatio(item.areaRatio())
                 .build();
     }
 
