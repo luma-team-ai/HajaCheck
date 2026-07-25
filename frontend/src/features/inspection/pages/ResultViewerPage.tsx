@@ -591,6 +591,11 @@ export function ResultViewerPage() {
         closeOnOverlayClick={!isUpdating}
       >
         <div className="flex flex-col gap-4">
+          {/* 이미지 위 위치(bbox) 지정 UI가 없다는 걸 명시 — 현재 API도 이 경로로는 mediaId를
+              받지 않아 특정 이미지에 결부되지 않는다(#784). 위치 지정까지 지원할지는 팀 논의 후 별도 작업. */}
+          <p className="text-xs text-text-muted">
+            유형·등급만 기록되며, 특정 이미지의 위치(박스)에는 연결되지 않습니다.
+          </p>
           {errorMessage && (
             <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
           )}
