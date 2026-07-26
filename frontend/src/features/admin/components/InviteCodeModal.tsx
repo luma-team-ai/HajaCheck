@@ -138,7 +138,9 @@ export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
             isSeatQuotaExceeded ? (
               <div role="alert" className="flex flex-col items-center gap-3">
                 <span className="text-sm font-semibold text-danger">
-                  좌석이 모두 사용 중입니다. 구성원을 추가하려면 플랜을 업그레이드하세요.
+                  좌석이 모두 사용 중입니다.
+                  <br />
+                  구성원을 추가하려면 플랜을 업그레이드하세요.
                 </span>
                 <Button variant="primary" size="sm" onClick={() => navigate(MYPAGE_PLAN_ROUTE)}>
                   플랜 업그레이드

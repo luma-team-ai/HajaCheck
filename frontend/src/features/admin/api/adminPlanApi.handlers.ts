@@ -2,6 +2,7 @@ import { http, HttpResponse } from 'msw';
 import type { ApiResponse } from '../../../shared/api/types';
 import { mockPlanQuotaUsers } from '../mocks/planQuotaUsers.mock';
 import type {
+  AdminCurrentPlanResponse,
   AdminPlanCatalogResponse,
   PlanChangePreviewResponse,
   PlanChangePreviewSuspendTarget,
@@ -48,6 +49,22 @@ export const mockAdminPlanCatalog: AdminPlanCatalogResponse = {
       priceMonthly: 59000,
     },
   ],
+};
+
+// GET /api/admin/plan MSW 목 — 좌석 여유가 있는 STANDARD 기본값(1/3석)으로 둔다. 좌석이 가득 찬
+// 케이스를 확인하는 테스트는 server.use()로 이 핸들러를 개별 덮어써 재현한다(#872 후속).
+export const mockAdminCurrentPlan: AdminCurrentPlanResponse = {
+  subscriptionId: 1,
+  plan: mockAdminPlanCatalog.plans[1],
+  status: 'ACTIVE',
+  startedAt: '2026-01-01T00:00:00Z',
+  usage: {
+    analyzedImageCount: 0,
+    analysisRequestCount: 0,
+    facilityCount: 0,
+    seatCount: 1,
+    period: '2026-07-01',
+  },
 };
 
 // ── 플랜 변경 미리보기·실행 목(#890 Phase 1/2) ──
@@ -128,6 +145,11 @@ function computeFacilityOverflow(maxFacilities: number | null): number {
 export const adminPlanHandlers = [
   http.get('/api/admin/plans', () => {
     const body: ApiResponse<AdminPlanCatalogResponse> = { success: true, data: mockAdminPlanCatalog };
+    return HttpResponse.json(body);
+  }),
+
+  http.get('/api/admin/plan', () => {
+    const body: ApiResponse<AdminCurrentPlanResponse> = { success: true, data: mockAdminCurrentPlan };
     return HttpResponse.json(body);
   }),
 

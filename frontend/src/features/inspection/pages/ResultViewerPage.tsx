@@ -476,8 +476,11 @@ export function ResultViewerPage() {
         </div>
 
         <div className="flex flex-1">
-          {/* Left: Image Viewer Section */}
-          <div className="flex flex-1 flex-col gap-6 bg-surface-sunken p-6">
+          {/* Left: Image Viewer Section — overflow-y-auto(#902): 부모 Unified Card가
+              overflow-hidden이라, 이미지(max-h-[79vh])가 낮은 뷰포트에서 진행률바·검수확정
+              버튼과 합쳐 이 컬럼 높이를 넘기면 클립돼 버튼이 영구히 안 보이게 된다. 넘칠 때
+              스크롤로 항상 닿을 수 있게 방어(#897 79vh 상향의 후속 안전장치). */}
+          <div className="flex flex-1 flex-col gap-6 overflow-y-auto bg-surface-sunken p-6">
             {/* Image Navigator — 다중 이미지 지원 */}
             {mediaGroups.length > 1 && (
               <div className="flex items-center justify-between">

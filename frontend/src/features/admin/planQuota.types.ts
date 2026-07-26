@@ -134,3 +134,21 @@ export interface PlanChangeRequestPayload {
   confirmOverflow?: boolean;
   keepUserIds?: number[];
 }
+
+// GET /api/admin/plan 응답 — 내 회사의 현재 구독+이번 달 사용량(#507). "사용자 등록" 버튼 클릭 시
+// 좌석 잔여를 미리 확인하는 용도로 쓴다(#872 후속) — plan은 AdminPlanCatalogItem과 1:1(AdminPlanItem).
+export interface AdminCurrentPlanUsage {
+  analyzedImageCount: number;
+  analysisRequestCount: number;
+  facilityCount: number;
+  seatCount: number;
+  period: string;
+}
+
+export interface AdminCurrentPlanResponse {
+  subscriptionId: number;
+  plan: AdminPlanCatalogItem;
+  status: string;
+  startedAt: string;
+  usage: AdminCurrentPlanUsage;
+}

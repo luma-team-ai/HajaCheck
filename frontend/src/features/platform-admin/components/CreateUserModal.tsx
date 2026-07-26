@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { doPasswordsMatch, isValidEmail, isValidPassword } from '../../auth/utils/authFormValidators';
+import { useEmailAvailability } from '../../auth/hooks/useEmailAvailability';
+import { EmailDomainField } from '../../auth/components/EmailDomainField';
 import { Button } from '../../../shared/components/Button';
 import { Modal } from '../../../shared/components/Modal';
 import { ROLE_CHANGE_OPTIONS, ROLE_LABEL } from '../constants';
@@ -36,6 +38,12 @@ interface CreateUserModalProps {
 const INPUT_CLASS =
   'w-full rounded-full border border-border bg-surface px-4 py-3 text-sm text-text-default placeholder:text-text-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-primary';
 const LABEL_CLASS = 'text-xs font-medium tracking-wide text-text-muted';
+// 이메일 중복확인(CompanySignupPage와 동일 UX) — admin/adminFormClasses.ts와 같은 값이지만
+// feature 경계상 이 파일의 기존 로컬 상수 패턴(INPUT_CLASS/LABEL_CLASS)을 그대로 따른다.
+const INLINE_BTN_CLASS =
+  'cursor-pointer self-start border-none bg-none p-0 text-xs font-medium text-primary underline disabled:cursor-not-allowed disabled:opacity-50';
+const ERROR_CLASS = 'm-0 text-xs text-danger';
+const SUCCESS_CLASS = 'm-0 text-xs text-[#1a9a52]';
 
 // 사용자 등록 모달 — Figma node-id 1147-2649. "사용자 초대" 버튼을 대체하며, 회원가입 폼과 같은
 // 검증 정규식(authFormValidators)을 재사용한다 — 비밀번호 확인 일치 여부는 클라이언트에서만
@@ -51,7 +59,12 @@ export function CreateUserModal({
   isCompanyOptionsError = false,
   onRetryCompanyOptions,
 }: CreateUserModalProps) {
-  const [email, setEmail] = useState('');
+  const [emailLocal, setEmailLocal] = useState('');
+  const [emailDomain, setEmailDomain] = useState('');
+  // CompanySignupPage와 동일 기본값 — 직접입력이 기본이라 기존 자유입력 동작과 다르지 않다.
+  const [isCustomDomain, setIsCustomDomain] = useState(true);
+  const [lastCustomDomain, setLastCustomDomain] = useState('');
+  const isCustomDomainRef = useRef(true);
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [name, setName] = useState('');
@@ -59,20 +72,60 @@ export function CreateUserModal({
   const [companyIdInput, setCompanyIdInput] = useState(NO_COMPANY_VALUE);
   const [touched, setTouched] = useState(false);
 
+  const {
+    checkEmailAvailability,
+    isPending: isCheckingEmail,
+    result: emailCheckResult,
+    reset: resetEmailCheck,
+  } = useEmailAvailability();
+
+  // 로컬파트 + '@' + 도메인 조합 — CompanySignupPage와 동일 파생값(#417, EmailDomainField).
+  const email = `${emailLocal.trim()}@${emailDomain.trim()}`;
   const emailValid = isValidEmail(email);
+  // 중복확인을 실제로 통과("사용 가능")해야만 등록 가능 — 확인을 안 했거나(undefined) 중복(false)이면 막는다.
+  const emailChecked = emailCheckResult?.available === true;
   const passwordValid = isValidPassword(password);
   const passwordMatch = doPasswordsMatch(password, passwordConfirm);
   const nameValid = name.trim().length > 0;
-  const formValid = emailValid && passwordValid && passwordMatch && nameValid;
+  const formValid = emailValid && emailChecked && passwordValid && passwordMatch && nameValid;
+
+  // 이메일을 바꾸면 이전 중복확인 결과(stale)를 즉시 무효화 — CompanySignupPage와 동일 패턴.
+  function handleEmailLocalChange(value: string) {
+    setEmailLocal(value);
+    if (emailCheckResult) resetEmailCheck();
+  }
+
+  function handleEmailDomainChange(value: string) {
+    setEmailDomain(value);
+    if (isCustomDomainRef.current) setLastCustomDomain(value);
+    if (emailCheckResult) resetEmailCheck();
+  }
+
+  function handleEmailCustomModeChange(isCustom: boolean) {
+    isCustomDomainRef.current = isCustom;
+    setIsCustomDomain(isCustom);
+    if (isCustom) setEmailDomain(lastCustomDomain);
+    if (emailCheckResult) resetEmailCheck();
+  }
+
+  function handleCheckEmail() {
+    if (!emailValid) return;
+    checkEmailAvailability(email.trim());
+  }
 
   function resetForm() {
-    setEmail('');
+    setEmailLocal('');
+    setEmailDomain('');
+    setIsCustomDomain(true);
+    isCustomDomainRef.current = true;
+    setLastCustomDomain('');
     setPassword('');
     setPasswordConfirm('');
     setName('');
     setRole('USER');
     setCompanyIdInput(NO_COMPANY_VALUE);
     setTouched(false);
+    resetEmailCheck();
   }
 
   function handleClose() {
@@ -101,17 +154,33 @@ export function CreateUserModal({
           <label htmlFor="create-user-email" className={LABEL_CLASS}>
             이메일
           </label>
-          <input
+          <EmailDomainField
             id="create-user-email"
-            type="email"
-            className={INPUT_CLASS}
-            placeholder="아이디 입력"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            autoComplete="off"
+            localPart={emailLocal}
+            domain={emailDomain}
+            isCustomDomain={isCustomDomain}
+            onLocalPartChange={handleEmailLocalChange}
+            onDomainChange={handleEmailDomainChange}
+            onCustomModeChange={handleEmailCustomModeChange}
           />
-          {touched && !emailValid && (
+          <button
+            type="button"
+            className={INLINE_BTN_CLASS}
+            onClick={handleCheckEmail}
+            disabled={isCheckingEmail || !emailValid}
+          >
+            중복확인
+          </button>
+          {emailCheckResult && (
+            <p className={emailCheckResult.available ? SUCCESS_CLASS : ERROR_CLASS}>
+              {emailCheckResult.available ? '사용 가능한 이메일입니다.' : '이미 가입된 이메일입니다.'}
+            </p>
+          )}
+          {(emailLocal.length > 0 || emailDomain.length > 0 || touched) && !emailValid && (
             <p className="m-0 text-xs text-danger">이메일 형식이 올바르지 않습니다.</p>
+          )}
+          {touched && emailValid && !emailCheckResult && (
+            <p className="m-0 text-xs text-danger">이메일 중복확인을 완료해 주세요.</p>
           )}
         </div>
 

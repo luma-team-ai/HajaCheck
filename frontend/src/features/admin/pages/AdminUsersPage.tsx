@@ -3,6 +3,9 @@ import { Button } from '../../../shared/components/Button';
 import { TableFooterPagination } from '../../../shared/components/TableFooterPagination/TableFooterPagination';
 import { useDebouncedValue } from '../../../shared/hooks/useDebouncedValue';
 import { fetchAllAdminUsers } from '../api/adminApi';
+import { adminPlanApi } from '../api/adminPlanApi';
+import { getApiErrorMessage } from '../../../shared/api/types';
+import type { ApiError } from '../../../shared/api/types';
 import { AdminUserFilterBar } from '../components/AdminUserFilterBar';
 import type { FilterValue } from '../components/AdminUserFilterBar';
 import { AdminUserPrintTable } from '../components/AdminUserPrintTable';
@@ -175,6 +178,34 @@ export function AdminUsersPage() {
     resetCreateUserError();
   }
 
+  // "사용자 등록" 버튼 클릭 시 좌석 잔여를 먼저 확인한다(#872 후속) — 폼을 다 채우고 제출해야만
+  // 좌석 한도(PLAN_SEAT_QUOTA_EXCEEDED)를 알게 되는 것보다, 클릭 즉시 얼럿으로 안내하는 편이
+  // 사용자 입장에서 더 친절하다. 조회 자체가 실패해도 모달을 조용히 열지 않고, 그 사유를 그대로
+  // 얼럿으로 보여준다 — 화면/라우팅 구조는 그대로 두고 액션 시점에만 안내하는 최소 수정(사용자 확인)
+  // — 조용히 넘어가면 실패 이유를 알 길이 없어진다.
+  //
+  // PR머신 리뷰 P3: getCurrentPlan은 "활성 구독 없음"도 PLAN_NOT_FOUND로 던진다(승인 여부와 무관 —
+  // #517 가입 시 FREE 자동배정으로 실발생 가능성은 낮음). 원인을 확정할 수 없는 문구("회사 미승인")로
+  // 단정하지 않고 중립적으로 안내한다.
+  async function handleOpenCreateModal() {
+    try {
+      const { data } = await adminPlanApi.getCurrentPlan();
+      const { plan, usage } = data;
+      if (plan.maxSeats !== null && usage.seatCount >= plan.maxSeats) {
+        setNotice('좌석이 모두 사용 중입니다.\n구성원을 추가하려면 플랜을 업그레이드하세요.');
+        return;
+      }
+    } catch (error) {
+      if ((error as ApiError)?.code === 'PLAN_NOT_FOUND') {
+        setNotice('활성 구독 정보를 확인하지 못했습니다.\n플랜 상태를 확인하거나 잠시 후 다시 시도해 주세요.');
+        return;
+      }
+      setNotice(getApiErrorMessage(error, '사용자 등록 가능 여부를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'));
+      return;
+    }
+    setIsCreateModalOpen(true);
+  }
+
   async function handleCreateUserConfirm(input: {
     email: string;
     password: string;
@@ -214,7 +245,7 @@ export function AdminUsersPage() {
               <MailIcon />
               초대 코드 발급
             </Button>
-            <Button variant="primary" size="sm" onClick={() => setIsCreateModalOpen(true)}>
+            <Button variant="primary" size="sm" onClick={() => void handleOpenCreateModal()}>
               <InviteIcon />+ 사용자 등록
             </Button>
           </div>
@@ -282,7 +313,7 @@ export function AdminUsersPage() {
             <div
               role="status"
               aria-live="polite"
-              className="rounded-[20px] border border-border bg-white/90 px-6 py-4 text-sm font-medium text-text-default shadow-[0px_20px_25px_-5px_rgba(0,0,0,0.1),0px_8px_10px_-6px_rgba(0,0,0,0.1)] backdrop-blur-[10px]"
+              className="rounded-[20px] border border-border bg-white/90 px-6 py-4 text-sm font-medium whitespace-pre-line text-text-default shadow-[0px_20px_25px_-5px_rgba(0,0,0,0.1),0px_8px_10px_-6px_rgba(0,0,0,0.1)] backdrop-blur-[10px]"
             >
               {notice}
             </div>

@@ -13,6 +13,7 @@ import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UserPlanStatus;
+import com.hajacheck.membership.service.QuotaService;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserCreateRequest;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserListResponse;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserProjection;
@@ -43,6 +44,7 @@ public class PlatformAdminUserService {
     private final PlatformAdminUserRepository platformAdminUserRepository;
     private final CompanyRepository companyRepository;
     private final PasswordEncoder passwordEncoder;
+    private final QuotaService quotaService;
 
     // AdminUserService.ASSIGNABLE_ROLES와 동일한 화이트리스트 — 플랫폼 관리자도 COUNSELOR 등
     // 이 화면 밖의 Role은 배정할 수 없다.
@@ -82,6 +84,19 @@ public class PlatformAdminUserService {
             if (company.getStatus() != CompanyStatus.APPROVED) {
                 throw new BusinessException(ErrorCode.COMPANY_NOT_FOUND);
             }
+            // 좌석 잔여 확인(#872 후속) — 회사를 지정해 등록하는 경로도 그 회사 좌석을 그대로
+            // 채우므로, 개인 계정(companyId=null)과 달리 여기서는 검사해야 한다. 그렇지 않으면
+            // 기업 관리자용 좌석 강제(AdminUserService.createUser)를 플랫폼 관리자 경로로 우회할 수 있다.
+            //
+            // PR머신 2차 재검토 P2 — hasAvailableSeat(advisory)+회사 행 잠금 대신, 초대코드 redeem
+            // (InviteCodeService#redeem)이 이미 쓰는 QuotaService#reserveSeat를 그대로 재사용한다.
+            // reserveSeat는 usage_counters 행을 잠그고 원자적 조건부 UPDATE로 좌석을 예약하므로, 이
+            // 경로와 redeem 경로가 같은 잠금 대상을 공유해 서로 직렬화된다(교차 경로 좌석 초과 방지) —
+            // 회사 행을 따로 잠글 필요가 없어지고, 자가 프로비저닝(REQUIRES_NEW)과 충돌해 교착을 만들
+            // 위험도 함께 사라진다. 예약이 성공하면 usage_counters 미러도 갱신되어 getCurrentPlan의
+            // 좌석 표시가 실제와 어긋나는 문제도 해소된다. 활성화(User 저장) 직전에 호출해야 한도 초과
+            // 시 등록 자체가 롤백된다(reserveSeat javadoc 계약).
+            quotaService.reserveSeat(request.companyId());
             companyName = company.getName();
         }
 

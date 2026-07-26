@@ -24,6 +24,14 @@ export interface SideNavSubItem {
   href: string;
   /** 라벨 텍스트 변경에 안전하게 특정 항목을 찾기 위한 안정 식별자(선택) — 동적 링크 생성 등에 사용 */
   id?: string;
+  /**
+   * activeHref와의 "현재 활성 섹션" 비교에만 쓰는 고정 href(선택, 미지정 시 href로 폴백).
+   * AI 분석/결과 뷰어/보고서 생성처럼 activeInspectionId에 따라 href가 매번 바뀌는 항목用 —
+   * router.tsx는 실제 :id와 무관하게 항상 같은 정적 activeHref(예: '/inspections/1/viewer')를
+   * 보고하므로(#368), href가 '/inspections/create'나 '/inspections/{실제id}/viewer'로 바뀌어도
+   * 매칭이 끊기지 않도록 별도로 고정해둔다.
+   */
+  matchHref?: string;
 }
 
 export interface SideNavItem {
@@ -108,9 +116,29 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     icon: inspectionsIcon,
     subItems: [
       { label: '점검(회차) 생성', href: '/inspections/create' },
-      { id: 'ai-analysis', label: 'AI 분석 실행/상태', href: '/inspections/ai-analysis' },
-      { id: 'result-viewer', label: '분석 결과 뷰어', href: '/inspections/1/viewer' },
-      { id: 'report-entry', label: '보고서 생성 진입점', href: '/inspections/1/reports' },
+      // 아래 세 항목의 href는 렌더 시 activeInspectionId 유무로 항상 재계산되어 덮어써진다
+      // (allItems useMemo 참고) — 여기 적힌 값은 "점검이 아직 없을 때"의 실제 동작(점검 생성으로
+      // 이동)과 맞춰 둔 것일 뿐, 그 자체로 쓰이지 않는다. matchHref는 router.tsx가 실제 :id와
+      // 무관하게 보고하는 정적 activeHref(#368)와 맞춘 고정값 — href가 바뀌어도 활성 섹션 표시가
+      // 끊기지 않게 한다.
+      {
+        id: 'ai-analysis',
+        label: 'AI 분석 실행/상태',
+        href: '/inspections/create',
+        matchHref: '/inspections/ai-analysis',
+      },
+      {
+        id: 'result-viewer',
+        label: '분석 결과 뷰어',
+        href: '/inspections/create',
+        matchHref: '/inspections/1/viewer',
+      },
+      {
+        id: 'report-entry',
+        label: '보고서 생성 진입점',
+        href: '/inspections/create',
+        matchHref: '/inspections/1/reports',
+      },
     ],
   },
   // '하자 상세'는 목록에서 항목을 눌러 실제 id로 /defects/:id에 진입하는 방식이라 사이드바에
@@ -195,7 +223,9 @@ export function SideNavBar({
 
   // isAdmin=true일 때 spread로 매 렌더 새 배열이 생기면 activeHref 동기화 effect가 매 렌더 재실행되어
   // 수동으로 펼친 다른 그룹이 즉시 스냅백되는 버그가 있었음(PR#154 리뷰 P1) — useMemo로 참조 안정화
-  // ponytail: "점검 관리" 그룹의 "AI 분석 실행/상태"와 "분석 결과 뷰어" 링크를 activeInspectionId로 동적 생성
+  // "점검 관리" 그룹의 "AI 분석 실행/상태"·"분석 결과 뷰어"·"보고서 생성 진입점" 링크를
+  // activeInspectionId로 동적 생성한다 — 점검이 아직 없으면 셋 다 점검 생성 화면으로 보낸다
+  // (점검 없이 들어가면 각자 다르게 깨지거나 빈 데모만 보여주던 것을 통일).
   const allItems = useMemo(() => {
     const dynamicItems = items.map((item) => {
       if (item.label === '점검 관리') {
@@ -203,14 +233,31 @@ export function SideNavBar({
           ...item,
           subItems: (item.subItems || []).map((sub) => {
             if (sub.id === 'ai-analysis') {
-              return activeInspectionId
-                ? { ...sub, href: `/inspections/${activeInspectionId}/analysis` }
-                : sub;
+              return {
+                ...sub,
+                href: activeInspectionId
+                  ? `/inspections/${activeInspectionId}/analysis`
+                  : '/inspections/create',
+              };
             }
             if (sub.id === 'result-viewer') {
-              return activeInspectionId
-                ? { ...sub, href: `/inspections/${activeInspectionId}/viewer` }
-                : sub;
+              return {
+                ...sub,
+                href: activeInspectionId
+                  ? `/inspections/${activeInspectionId}/viewer`
+                  : '/inspections/create',
+              };
+            }
+            if (sub.id === 'report-entry') {
+              // 실제 보고서 생성 진입점 라우트는 /inspections/:id/reports(#884, ReportEntryPage) —
+              // 그 화면에서 보고서를 만들면 /reports/generate(편집 화면)로 넘어가는 구조라 여기서는
+              // .../reports/generate가 아니라 .../reports로 보내야 한다.
+              return {
+                ...sub,
+                href: activeInspectionId
+                  ? `/inspections/${activeInspectionId}/reports`
+                  : '/inspections/create',
+              };
             }
             return sub;
           }),
@@ -221,7 +268,7 @@ export function SideNavBar({
     return isAdmin ? [...dynamicItems, adminItem] : dynamicItems;
   }, [isAdmin, items, adminItem, activeInspectionId]);
   const [expandedLabel, setExpandedLabel] = useState<string | undefined>(() =>
-    allItems.find((item) => item.subItems?.some((sub) => sub.href === activeHref))?.label,
+    allItems.find((item) => item.subItems?.some((sub) => (sub.matchHref ?? sub.href) === activeHref))?.label,
   );
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   // 접힌 상태에서 마우스를 올렸을 때 시각적으로만 펼쳐 보이는 오버레이 트리거 — 실제 collapsed
@@ -245,7 +292,7 @@ export function SideNavBar({
   // activeHref가 마운트 이후 바뀌어도(사이드바 클릭이 아닌 다른 경로로 하위 라우트 진입 시) 해당 그룹이 펼쳐지도록 동기화
   useEffect(() => {
     const activeGroupLabel = allItems.find((item) =>
-      item.subItems?.some((sub) => sub.href === activeHref),
+      item.subItems?.some((sub) => (sub.matchHref ?? sub.href) === activeHref),
     )?.label;
     if (activeGroupLabel) {
       setExpandedLabel(activeGroupLabel);
@@ -446,15 +493,18 @@ export function SideNavBar({
                   <div className="flex flex-col gap-1 pr-4 pl-[46px]">
                     {item.subItems.map((sub) => (
                       <Link
-                        key={sub.href}
+                        // "점검 관리" 하위 항목 중 AI 분석/결과 뷰어/보고서 생성 셋은 진행 중인 점검이
+                        // 없을 때 href가 모두 '/inspections/create'로 겹친다(allItems useMemo 참고) —
+                        // href를 key로 쓰면 React key 중복이 나서 sub.id가 있으면 그걸 우선한다.
+                        key={sub.id ?? sub.href}
                         to={sub.href}
                         onClick={(event) => handleNavClick(event, sub.href)}
                         className={`whitespace-nowrap rounded-full px-4 py-[6px] text-[13px] no-underline hover:text-primary ${
-                          sub.href === activeHref
+                          (sub.matchHref ?? sub.href) === activeHref
                             ? 'bg-surface text-primary ring-1 ring-border'
                             : 'text-[#71717a]'
                         }`}
-                        aria-current={sub.href === activeHref ? 'page' : undefined}
+                        aria-current={(sub.matchHref ?? sub.href) === activeHref ? 'page' : undefined}
                       >
                         {sub.label}
                       </Link>

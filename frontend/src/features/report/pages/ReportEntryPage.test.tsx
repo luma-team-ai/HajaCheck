@@ -271,7 +271,7 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(screen.queryByText(/2026\. 1\. 1\./)).toBeNull();
   });
 
-  it('검수가 미완료면 "보고서 생성 시작"이 비활성화된다', async () => {
+  it('검수가 미완료면 "보고서 생성 시작"이 비활성화되고 완료율이 실제 값으로 표시된다(#935)', async () => {
     server.use(
       http.get('/api/inspections/:id/defects', () =>
         HttpResponse.json({
@@ -284,6 +284,10 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     await screen.findByText(/점검 회차 요약/);
 
     expect(screen.getByRole('button', { name: '보고서 생성 시작' }).hasAttribute('disabled')).toBe(true);
+    // 2건 중 1건만 확정 — "검수 완료율"이 리터럴 "100%"가 아니라 실제 50%로 표시돼야 한다(회귀 방지).
+    expect(screen.getByText('50%')).not.toBeNull();
+    expect(screen.getByText('진행 중')).not.toBeNull();
+    expect(screen.queryByText('완료')).toBeNull();
   });
 
   it('생성에 성공하면 편집화면으로 reportId 쿼리를 달아 이동한다', async () => {

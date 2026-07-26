@@ -20,6 +20,10 @@ import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.membership.entity.PlanName;
+import com.hajacheck.membership.entity.UserPlan;
+import com.hajacheck.membership.repository.PlanRepository;
+import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
@@ -54,6 +58,27 @@ class AdminUserControllerTest extends PostgresTestSupport {
     private CompanyRepository companyRepository;
     @Autowired
     private ObjectMapper objectMapper;
+    @Autowired
+    private PlanRepository planRepository;
+    @Autowired
+    private UserPlanRepository userPlanRepository;
+
+    // 좌석 잔여 확인(#872 후속)이 사용자 등록 경로에도 적용되면서, FREE(1석)는 대표(owner) 1인만으로
+    // 이미 가득 찬다 — 신규 등록 성공을 검증하는 테스트는 좌석이 남는 플랜을 명시적으로 부여해야 한다.
+    private void givenStandardPlan(Long companyId) {
+        Long planId = planRepository.findByName(PlanName.STANDARD).orElseThrow().getId();
+        userPlanRepository.saveAndFlush(UserPlan.forCompany(companyId, planId));
+    }
+
+    // 좌석 검사(QuotaService#hasAvailableSeat)의 UserPlan 자가 프로비저닝(REQUIRES_NEW)은 이 테스트
+    // 클래스의 @Transactional(롤백 전용, 커밋 안 됨)과 격리 수준이 부딪힌다 — 자가 프로비저닝이 여는
+    // 별도 트랜잭션(별도 커넥션)은 아직 커밋되지 않은 이 테스트 트랜잭션의 Company 행을 볼 수 없어
+    // FK 위반으로 실패하고, PLAN_NOT_FOUND(404)로 표면화된다. FREE 플랜을 명시적으로 같은 트랜잭션에서
+    // 미리 만들어두면 자가 프로비저닝 자체가 트리거되지 않아 이 문제를 피한다.
+    private void givenFreePlan(Long companyId) {
+        Long planId = planRepository.findByName(PlanName.FREE).orElseThrow().getId();
+        userPlanRepository.saveAndFlush(UserPlan.forCompany(companyId, planId));
+    }
 
     // users.company_id / companies.business_registration_number 는 DDL 상 FK/unique 이므로
     // 리터럴 companyId 대신 실제 Company 행을 먼저 저장하고 그 id 를 써야 한다(FK 위반 방지,
@@ -192,6 +217,7 @@ class AdminUserControllerTest extends PostgresTestSupport {
     void 사용자등록_관리자_201과등록한관리자의company로배선() throws Exception {
         Company company = saveCompany();
         User admin = saveUser("관리자", "admin7@haja.com", Role.ADMIN, company.getId());
+        givenStandardPlan(company.getId());
         AdminUserCreateRequest request =
                 new AdminUserCreateRequest("newbie@haja.com", "password1", "새사용자", Role.USER);
 
@@ -208,6 +234,27 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
         User saved = userRepository.findByEmail("newbie@haja.com").orElseThrow();
         assertThat(saved.getCompanyId()).isEqualTo(company.getId());
+    }
+
+    // #872 후속 — 초대 코드 발급에만 좌석 검사를 넣고 관리자 직접 등록 경로는 그대로 두면, 좌석
+    // 강제(FREE=1석) 자체가 이 경로로 조용히 우회된다. FREE 회사는 대표가 이미 유일 좌석을 쓰고
+    // 있으므로 신규 등록 자체가 좌석 한도로 막혀야 한다(코드 생성이 아예 안 되는 초대 코드 경로와 동일 계약).
+    @Test
+    void 사용자등록_FREE회사는_대표가_유일좌석을_점유해_좌석한도로_막힌다() throws Exception {
+        Company company = saveCompany();
+        User admin = saveUser("관리자", "admin7b@haja.com", Role.ADMIN, company.getId());
+        givenFreePlan(company.getId());
+        AdminUserCreateRequest request =
+                new AdminUserCreateRequest("blocked-by-seat@haja.com", "password1", "차단대상", Role.USER);
+
+        mockMvc.perform(post("/api/admin/users")
+                        .with(authentication(authOf(admin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("PLAN_SEAT_QUOTA_EXCEEDED"));
+
+        assertThat(userRepository.findByEmail("blocked-by-seat@haja.com")).isEmpty();
     }
 
     @Test
@@ -228,6 +275,7 @@ class AdminUserControllerTest extends PostgresTestSupport {
     void 사용자등록_이메일중복이면_409() throws Exception {
         Company company = saveCompany();
         User admin = saveUser("관리자", "admin8@haja.com", Role.ADMIN, company.getId());
+        givenStandardPlan(company.getId());
         saveUser("기존사용자", "dup@haja.com", Role.USER);
         AdminUserCreateRequest request =
                 new AdminUserCreateRequest("dup@haja.com", "password1", "중복사용자", Role.USER);
