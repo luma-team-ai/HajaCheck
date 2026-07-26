@@ -102,13 +102,24 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     expect(screen.getByLabelText('메모')).not.toBeNull();
   });
 
-  it('필수값 미입력 시 제출하면 에러 메시지를 보여주고 요청을 보내지 않는다', async () => {
+  it('시설물·점검일·업로드 이미지 중 하나라도 비어 있으면 제출 버튼이 비활성 상태를 유지한다', async () => {
     renderPage();
+    const submitButton = screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' });
 
-    fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
+    // 아무 것도 입력하지 않은 초기 상태
+    expect(submitButton).toHaveProperty('disabled', true);
 
-    expect(await screen.findByText('시설물을 선택해 주세요.')).not.toBeNull();
-    expect(screen.getByText('점검일을 선택해 주세요.')).not.toBeNull();
+    // 시설물·점검일만 채운 상태(파일 없음)
+    await fillRequiredFields();
+    expect(submitButton).toHaveProperty('disabled', true);
+
+    // 영상 파일만 첨부 — 업로드 대상(이미지)이 아니므로 여전히 비활성이어야 한다(PR 리뷰 P2 회귀 방지)
+    selectFiles([new File(['a'], 'clip.mp4', { type: 'video/mp4' })]);
+    expect(submitButton).toHaveProperty('disabled', true);
+
+    // 업로드 대상 이미지를 추가하면 비로소 활성화된다
+    selectFiles([new File(['a'], 'a.jpg', { type: 'image/jpeg' })]);
+    expect(submitButton).toHaveProperty('disabled', false);
   });
 
   it('허용되지 않는 형식의 파일을 선택하면 에러를 보여주고 제출 버튼을 비활성화한다', async () => {
@@ -249,6 +260,7 @@ describe('InspectionCreatePage (통합 테스트)', () => {
 
     renderPage();
     await fillRequiredFields();
+    selectFiles([new File(['a'], 'a.jpg', { type: 'image/jpeg' })]);
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
@@ -273,6 +285,7 @@ describe('InspectionCreatePage (통합 테스트)', () => {
 
     renderPage();
     await fillRequiredFields();
+    selectFiles([new File(['a'], 'a.jpg', { type: 'image/jpeg' })]);
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));

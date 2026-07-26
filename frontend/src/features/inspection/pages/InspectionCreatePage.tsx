@@ -124,10 +124,14 @@ export function InspectionCreatePage() {
 
   const isSubmitting = isCreating || isUploading;
   const hasFileErrors = mediaFiles.some((entry) => entry.error !== null);
-  // 시설물·점검일·업로드 파일 중 하나라도 비어 있으면 제출 자체를 막는다 — 예전엔 파일 미첨부여도
-  // handleSubmit이 업로드를 건너뛰고 바로 AI 분석을 트리거해 빈 회차가 생성될 수 있었다.
+  // handleSubmit이 실제로 업로드하는 대상은 kind==='image'(에러 없는 것)뿐이다(아래 handleSubmit의
+  // imageFiles 필터와 동일 기준) — 영상은 업로드 대상이 아니므로 mediaFiles.length만 보면 영상만
+  // 첨부한 경우를 놓친다(PR #882 리뷰 P2). 시설물·점검일·업로드 대상 이미지 중 하나라도 비어 있으면
+  // 제출 자체를 막는다 — 예전엔 이미지 미첨부여도 handleSubmit이 업로드를 건너뛰고 바로 AI 분석을
+  // 트리거해 빈 회차가 생성될 수 있었다.
+  const hasUploadableImage = mediaFiles.some((entry) => entry.kind === 'image' && !entry.error);
   const hasMissingRequiredInput =
-    !values.facilityId || !values.inspectionDate || mediaFiles.length === 0;
+    !values.facilityId || !values.inspectionDate || !hasUploadableImage;
   const totalSize = mediaFiles.reduce((sum, entry) => sum + entry.file.size, 0);
   // 회차가 이미 생성된 뒤에는 점검 정보를 바꿔도 반영되지 않는다(재시도는 업로드만 재실행) —
   // 혼동을 막기 위해 입력을 잠근다.
@@ -220,6 +224,13 @@ export function InspectionCreatePage() {
   // "나가기" 클릭 시 모달을 닫는 렌더와, blocker.proceed()가 유발하는 목적지 페이지 마운트 렌더가
   // React 배치로 한 커밋에 묶이면 목적지가 무거울 때(통계 대시보드 등) 그 렌더가 끝날 때까지 모달이
   // 화면에 남아있는 것처럼 보인다. flushSync로 모달 제거만 별도 커밋으로 강제 분리해 즉시 사라지게 한다.
+  // isLeaving을 다시 false로 되돌리는 코드는 없다(PR #882 리뷰 P3 확인 요청) — @remix-run/router
+  // proceed()는 상태를 'proceeding'으로 동기 전환한 뒤 같은 navigate() 호출을 재실행하고,
+  // shouldBlockNavigation은 blocker.state==='proceeding'일 때 블로커 재확인 자체를 건너뛴다
+  // (node_modules/@remix-run/router/dist/router.js의 proceed()·shouldBlockNavigation 구현 확인,
+  // 6.30.4). 즉 이 앱처럼 블로커가 하나뿐이고 pathname이 실제로 달라야만 블로킹되는 구성에서는
+  // proceed() 이후 반드시 다른 라우트로 네비게이션이 완료되어 이 컴포넌트가 언마운트되므로,
+  // isLeaving이 true인 채로 blocker.state가 다시 'blocked'가 되는 경우는 발생하지 않는다.
   const [isLeaving, setIsLeaving] = useState(false);
   const handleConfirmLeave = () => {
     flushSync(() => setIsLeaving(true));
