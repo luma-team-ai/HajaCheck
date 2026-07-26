@@ -28,7 +28,7 @@ export function DefectCard({ defect, onSelect }: Props) {
           <img src={defect.imageUrl} alt="" />
         ) : (
           <span className="defect-card-grid__thumb-empty" aria-hidden="true">
-            {defect.typeLabel.slice(0, 1)}
+            {defect.typeLabel?.slice(0, 1)}
           </span>
         )}
       </div>

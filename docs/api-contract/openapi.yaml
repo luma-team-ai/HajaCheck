@@ -4,6 +4,8 @@ info:
   version: "0.16.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
+    2026-07-26 DefectDetailItem에 typeLabel(한글 라벨) 추가 — 카드형 하자 목록에서 계약 불일치로
+    크래시하던 문제 수정(#918/HAJA-468). DefectResponse.typeLabel과 동일 매핑.
     2026-07-25 점검 회차별 미디어 목록 조회(GET /api/inspections/{id}/media) 신설(#803) — 하자 유무
     무관 전체 이미지 노출용. MediaResponse에 detailUrl 추가. DefectDetailItem에 areaRatio(결함
     면적비율, 박리박락·철근노출 전용) 추가(#802/#803).
@@ -2619,11 +2621,12 @@ components:
       description: >
         DefectListItem + 뷰어 오버레이·정밀 검수에 필요한 필드(bbox·균열 실측치). 목록(#/api/defects)은
         가벼운 DefectListItem을 쓰고, 점검 회차 단위 조회·검수 API는 이 스키마를 쓴다.
-      required: [id, inspectionId, type, grade, status, confidence, isReviewed, createdAt]
+      required: [id, inspectionId, type, typeLabel, grade, status, confidence, isReviewed, createdAt]
       properties:
         id: { type: integer, format: int64 }
         inspectionId: { type: integer, format: int64 }
         type: { $ref: "#/components/schemas/DefectTypeCode" }
+        typeLabel: { type: string }
         grade: { $ref: "#/components/schemas/NullableDefectGradeCode" }
         status: { $ref: "#/components/schemas/DefectStatusCode" }
         confidence: { type: number, format: double, minimum: 0, maximum: 1 }

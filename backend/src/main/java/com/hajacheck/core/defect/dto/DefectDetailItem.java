@@ -25,6 +25,7 @@ public class DefectDetailItem {
     private Long id;
     private Long inspectionId;
     private DefectType type;
+    private String typeLabel;
     private DefectGrade grade;
     private DefectStatus status;
     private Double confidence;
@@ -47,6 +48,7 @@ public class DefectDetailItem {
                 .id(defect.getId())
                 .inspectionId(defect.getInspectionId())
                 .type(defect.getType())
+                .typeLabel(defect.getType().label())
                 .grade(defect.getGrade())
                 .status(defect.getStatus())
                 .confidence(defect.getConfidence())
