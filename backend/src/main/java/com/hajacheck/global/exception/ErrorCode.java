@@ -94,6 +94,14 @@ public enum ErrorCode {
     PLAN_DOWNGRADE_CONFIRMATION_REQUIRED(HttpStatus.CONFLICT,
             "요금제를 내리면 한도를 초과하는 구성원이 정지되고 일부 시설물이 읽기 전용이 됩니다. 변경 내용을 확인한 뒤 다시 요청해 주세요."),
 
+    // 플랜 하향 시 유지할 구성원 직접 선택(#890 Phase 2, keepUserIds) — 선택한 id 중 이 회사의 ACTIVE
+    // 구성원이 아닌 게 있을 때. PLAN_FORBIDDEN("구독 소유자만 요청할 수 있습니다")을 재사용하지 않는다 —
+    // 이 상황의 호출자는 이미 정당한 owner(회사 소유자 인가는 통과)라, 그 메시지를 보여주면 "내가 owner가
+    // 아니라는 건가?" 하는 무관한 혼선을 준다(보안 재검토 P3-4). 어떤 id가 문제인지는 여전히 밝히지
+    // 않는다(존재 여부를 흘리지 않는 기존 관례 유지) — HttpStatus만 PLAN_FORBIDDEN과 동일(403).
+    PLAN_KEEP_USER_INVALID(HttpStatus.FORBIDDEN,
+            "선택한 구성원 중 일부가 유효하지 않습니다. 회사 소속 활성 구성원만 유지 대상으로 선택할 수 있습니다."),
+
     // 시설물(facility)
     // 미존재/타인 소유 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.
     FACILITY_NOT_FOUND(HttpStatus.NOT_FOUND, "시설물을 찾을 수 없습니다."),

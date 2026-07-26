@@ -15,6 +15,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -55,25 +57,31 @@ public class AdminPlanController {
 
     @Operation(summary = "회사 플랜 변경 미리보기",
             description = "이 요금제로 바꾸면 어떤 구성원이 정지되고 시설물 몇 개가 읽기 전용이 되는지 부작용 없이 계산한다(#890). "
-                    + "requiresConfirmation=true 면 PATCH 요청에 confirmOverflow=true 를 실어야 실제 변경된다. 회사 owner 전용.")
+                    + "requiresConfirmation=true 면 PATCH 요청에 confirmOverflow=true 를 실어야 실제 변경된다. 회사 owner 전용. "
+                    + "keepUserIds(반복 쿼리 파라미터, 예: ?planName=FREE&keepUserIds=1&keepUserIds=2)로 유지할 구성원을 직접 "
+                    + "고를 수 있다(#890 Phase 2) — 미지정 시 기존 동작(id 오름차순 자동 선정).")
     @GetMapping("/plan/change-preview")
     public ResponseEntity<ApiResponse<AdminPlanChangePreviewResponse>> previewChange(
             @AuthenticationPrincipal LoginUser loginUser,
-            @RequestParam PlanName planName) {
-        return ResponseEntity.ok(
-                ApiResponse.ok(adminPlanService.previewChange(loginUser.getUserId(), planName)));
+            @RequestParam PlanName planName,
+            // size(@Max(100))와 일관되게 상한을 둔다(재검토 F-14).
+            @Size(max = 200) @RequestParam(required = false) List<Long> keepUserIds) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                adminPlanService.previewChange(loginUser.getUserId(), planName, keepUserIds)));
     }
 
     @Operation(summary = "회사 플랜 변경",
             description = "요청 관리자 회사의 구독 요금제를 변경한다 — 기존 구독을 만료하고 신규 구독을 발급한다(변경 이력은 user_plans 로 보존). ADMIN 전용. "
                     + "하향으로 한도를 넘는 구성원·시설물이 생기면 confirmOverflow=true 없이는 409(PLAN_DOWNGRADE_CONFIRMATION_REQUIRED)로 "
-                    + "거절하고 아무것도 바꾸지 않는다(#890).")
+                    + "거절하고 아무것도 바꾸지 않는다(#890). keepUserIds 로 유지할 구성원을 직접 고를 수 있다(#890 Phase 2) — "
+                    + "타 회사 id·좌석 한도 초과는 403 으로 거절한다.")
     @PatchMapping("/plan")
     public ResponseEntity<ApiResponse<AdminPlanResponse>> changePlan(
             @AuthenticationPrincipal LoginUser loginUser,
             @Valid @RequestBody AdminPlanChangeRequest request) {
         return ResponseEntity.ok(ApiResponse.ok(adminPlanService.changePlan(
-                loginUser.getUserId(), request.planName(), request.overflowConfirmed())));
+                loginUser.getUserId(), request.planName(), request.overflowConfirmed(),
+                request.resolvedKeepUserIds())));
     }
 
     @Operation(summary = "회사 플랜 변경 이력 조회",

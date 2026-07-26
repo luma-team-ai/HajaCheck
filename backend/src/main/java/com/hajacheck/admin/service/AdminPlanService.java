@@ -103,9 +103,14 @@ public class AdminPlanService {
      * <p><b>인가</b>: 회사 플랜을 즉시 발급(결제·플랫폼 승인 없이)하는 동작이라, {@link
      * com.hajacheck.membership.service.MembershipService#requestUpgrade} 와 동일하게 <b>회사 소유자(owner)</b>
      * 로 한정한다 — 승인된 멤버십만으로는 허용하지 않는다(그 외 ADMIN 멤버는 요청/조회만 가능).
+     *
+     * @param keepUserIds 하향으로 좌석이 넘칠 때 관리자가 직접 유지할 구성원(#890 Phase 2). 비어 있으면
+     *                    (null 포함) 기존 동작(id 오름차순 자동 선정) — 검증·정합 보장은
+     *                    {@code PlanDowngradeService#preview(Long, Plan, Plan, List)} javadoc 참고.
      */
     @Transactional
-    public AdminPlanResponse changePlan(Long adminUserId, PlanName targetPlanName, boolean overflowConfirmed) {
+    public AdminPlanResponse changePlan(
+            Long adminUserId, PlanName targetPlanName, boolean overflowConfirmed, List<Long> keepUserIds) {
         Long companyId = resolveInheritedCompanyId(adminUserId);
         requireCompanyOwner(companyId, adminUserId);
         UserPlan current = resolveCurrentCompanyPlan(companyId);
@@ -121,10 +126,14 @@ public class AdminPlanService {
         // 현재 플랜은 "하향인지" 판정에만 쓰이므로 멱등 조기반환 뒤에 조회한다(재검토 P3).
         Plan currentPlan = findPlan(current.getPlanId());
 
-        // 하향으로 한도를 넘게 되는 자원이 있으면 "명시적 확인" 없이는 아무것도 바꾸지 않는다(#890).
-        // 이 검사를 아래 만료/발급보다 먼저 두는 이유: 확인 없는 요청에서 플랜만 바뀌고 정지는 안 되는
-        // 중간 상태가 절대 남으면 안 되기 때문이다(트랜잭션 롤백에 기대지 않고 순서로 보장한다).
-        if (!overflowConfirmed && planDowngradeService.preview(companyId, currentPlan, targetPlan).exists()) {
+        // ⚠️ preview 는 여기서 "정확히 한 번만" 호출하고 그 결과를 아래 confirmOverflow 판정과
+        // applyOverflow 양쪽에 그대로 재사용한다(재검토 F-7/F-9). overflowConfirmed=true 로 확인을
+        // 생략한 요청이라도 검증(스코프·좌석 한도·ACTIVE ADMIN)이 여기서 항상 먼저 끝나 있어야
+        // 아래 만료(expire)/신규발급(saveAndFlush) 이후로 검증이 밀리지 않는다 — 확인 없는 요청에서
+        // 플랜만 바뀌고 정지는 안 되는 중간 상태가 절대 남으면 안 되기 때문이다(트랜잭션 롤백에
+        // 기대지 않고 호출 순서로 보장한다).
+        DowngradeOverflow overflow = planDowngradeService.preview(companyId, currentPlan, targetPlan, keepUserIds);
+        if (!overflowConfirmed && overflow.exists()) {
             throw new BusinessException(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED);
         }
 
@@ -145,14 +154,14 @@ public class AdminPlanService {
         }
 
         // 초과 좌석 정지는 신규 구독 발급과 같은 트랜잭션에서 — 플랜만 내려가고 정지가 안 되면 한도가
-        // 조용히 무력화된다. 초과가 없으면 no-op 다.
+        // 조용히 무력화된다. 위에서 이미 계산해 둔 overflow 를 그대로 적용할 뿐 재계산하지 않는다.
         //
         // ⚠️ 알려진 한계(리뷰 P2, 후속 이슈 #913): 이 트랜잭션은 users/user_plans 를 잠그지 않고, preview 가
         // 읽는 건 잠금 없는 스냅샷이다. 같은 시각 다른 트랜잭션이 "구 플랜" 기준으로 좌석을 활성화하면
         // (QuotaService#reserveSeat 는 구 userPlan 의 usage_counters 행을 잠그므로 이 트랜잭션과
         // 직렬화되지 않는다) 커밋 후 새 플랜 한도를 넘는 인원이 남을 수 있다. reserveSeat 는 신규
         // 활성화만 막으므로 그 초과는 스스로 해소되지 않는다.
-        planDowngradeService.applyOverflow(companyId, currentPlan, targetPlan);
+        planDowngradeService.applyOverflow(companyId, targetPlan, overflow);
         return buildResponseWithUsage(saved, targetPlan);
     }
 
@@ -160,15 +169,20 @@ public class AdminPlanService {
      * 요금제 변경 미리보기(#890) — 이 요금제로 내리면 누가 정지되고 시설물 몇 개가 읽기 전용이 되는지
      * <b>부작용 없이</b> 계산한다. 인가는 {@link #changePlan} 과 동일(회사 owner 한정)하게 맞춘다 —
      * 구성원 이름·이메일을 돌려주므로 조회 권한을 변경 권한보다 넓게 두면 안 된다.
+     *
+     * @param keepUserIds 관리자가 유지를 검토 중인 구성원 선택(#890 Phase 2) — 실제 변경({@link #changePlan})
+     *                    에 넘길 값과 동일하게 넘겨야 미리보기·실제 결과가 어긋나지 않는다. 비어 있으면
+     *                    (null 포함) 기존 동작(id 오름차순 자동 선정).
      */
-    public AdminPlanChangePreviewResponse previewChange(Long adminUserId, PlanName targetPlanName) {
+    public AdminPlanChangePreviewResponse previewChange(
+            Long adminUserId, PlanName targetPlanName, List<Long> keepUserIds) {
         Long companyId = resolveInheritedCompanyId(adminUserId);
         requireCompanyOwner(companyId, adminUserId);
         Plan targetPlan = planRepository.findByName(targetPlanName)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
 
         Plan currentPlan = findPlan(resolveCurrentCompanyPlan(companyId).getPlanId());
-        DowngradeOverflow overflow = planDowngradeService.preview(companyId, currentPlan, targetPlan);
+        DowngradeOverflow overflow = planDowngradeService.preview(companyId, currentPlan, targetPlan, keepUserIds);
         List<AdminPlanChangePreviewResponse.SuspendTarget> targets =
                 userRepository.findAllById(overflow.seatUserIdsToSuspend()).stream()
                         .sorted(Comparator.comparing(User::getId))

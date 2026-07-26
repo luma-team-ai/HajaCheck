@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pagination } from '../../../shared/components/Pagination/Pagination';
 import { CurrentPlanCard } from '../components/CurrentPlanCard';
+import { PlanChangeControl } from '../components/PlanChangeControl';
 import { PlanQuotaKpiCards } from '../components/PlanQuotaKpiCards';
 import { PlanQuotaTable } from '../components/PlanQuotaTable';
 import { SearchIcon } from '../components/icons/SearchIcon';
@@ -112,6 +113,7 @@ export function PlanQuotaPage() {
           <div className="flex flex-col gap-3">
             <p className="px-4 py-3 text-xs font-medium text-text-muted">현재 플랜</p>
             <CurrentPlanCard plan={companyPlan} catalog={catalogData?.plans} />
+            <PlanChangeControl currentPlan={companyPlan} catalog={catalogData?.plans} />
           </div>
         </div>
 

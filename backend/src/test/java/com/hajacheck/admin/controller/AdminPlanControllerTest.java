@@ -1,5 +1,6 @@
 package com.hajacheck.admin.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -231,6 +232,167 @@ class AdminPlanControllerTest extends PostgresTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"planName\":\"ENTERPRISE\"}"))
                 .andExpect(status().isForbidden());
+    }
+
+    // ── 유지할 구성원 직접 선택(#890 Phase 2, keepUserIds) — 여기가 뚫리면 계정 정지를 남이
+    // 조종할 수 있으므로 실 PostgreSQL로 회사 스코프·좌석 초과·owner 보호를 끝까지 검증한다.
+
+    @Test
+    void 플랜변경_keepUserIds지정하면_선택된인원만_유지되고_나머지가정지된다() throws Exception {
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.ENTERPRISE);
+        User m1 = saveUser(Role.USER, fx.company().getId());
+        User m2 = saveUser(Role.USER, fx.company().getId());
+        User m3 = saveUser(Role.USER, fx.company().getId());
+        User m4 = saveUser(Role.USER, fx.company().getId());
+        User m5 = saveUser(Role.USER, fx.company().getId());
+        // owner + 5명 = 6명 활성 — STANDARD(시드값 기준 좌석 3, HajaCheck_script.sql SOT)로 내리면
+        // 좌석이 넘친다. 값을 하드코딩하지 않고 실측한다(시드가 바뀌어도 이 테스트의 전제가 깨지지
+        // 않게, 위 플랜쿼터목록조회 테스트들과 동일 전략).
+        Integer standardMaxSeats = planRepository.findByName(PlanName.STANDARD)
+                .orElseThrow().getMaxSeats();
+        assertThat(standardMaxSeats).isLessThan(6);
+
+        // keepUserIds=[m3] 만 명시 선택 — "선택된 인원만 유지되고 나머지가 정지"(좌석에 여유가 있어도
+        // 자동으로 채우지 않는다, 핸드오프 §2 확정 정책)이므로 owner+m3 딱 2명만 유지되고 나머지
+        // 4명(m1,m2,m4,m5)이 전부 정지된다.
+        mockMvc.perform(get("/api/admin/plan/change-preview")
+                        .param("planName", "STANDARD")
+                        .param("keepUserIds", String.valueOf(m3.getId()))
+                        .with(authentication(authOf(fx.admin()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.requiresConfirmation").value(true))
+                .andExpect(jsonPath("$.data.seatsToSuspend[*].userId")
+                        .value(org.hamcrest.Matchers.containsInAnyOrder(
+                                m1.getId().intValue(), m2.getId().intValue(),
+                                m4.getId().intValue(), m5.getId().intValue())));
+
+        mockMvc.perform(patch("/api/admin/plan")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"STANDARD\",\"confirmOverflow\":true,\"keepUserIds\":["
+                                + m3.getId() + "]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.plan.name").value("STANDARD"));
+
+        assertThat(userRepository.findById(m1.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserStatus.SUSPENDED);
+        assertThat(userRepository.findById(m2.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserStatus.SUSPENDED);
+        assertThat(userRepository.findById(m4.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserStatus.SUSPENDED);
+        assertThat(userRepository.findById(m5.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserStatus.SUSPENDED);
+        assertThat(userRepository.findById(m3.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserStatus.ACTIVE);
+        assertThat(userRepository.findById(fx.admin().getId()).orElseThrow().getStatus())
+                .isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    void 플랜변경_타회사id를_keepUserIds로주입하면_403_거절되고_플랜은그대로다() throws Exception {
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.ENTERPRISE);
+        saveUser(Role.USER, fx.company().getId());
+        saveUser(Role.USER, fx.company().getId());
+        saveUser(Role.USER, fx.company().getId());
+
+        // 다른 회사 소속 사용자 id를 유지 대상으로 주입 — 부작용이 전혀 없어야 한다.
+        Fixture other = approvedCompanyAdminWithPlan(PlanName.FREE);
+        Long strangerId = other.admin().getId();
+
+        mockMvc.perform(get("/api/admin/plan/change-preview")
+                        .param("planName", "STANDARD")
+                        .param("keepUserIds", String.valueOf(strangerId))
+                        .with(authentication(authOf(fx.admin()))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("PLAN_KEEP_USER_INVALID"));
+
+        // confirmOverflow 는 일부러 지정하지 않는다(false 취급) — keepUserIds 검증은 "명시적 확인" 여부와
+        // 무관하게 항상 적용돼야 하고, 검증이 만료(expire)/신규발급(saveAndFlush) **이전**에 먼저 걸려야
+        // "부작용 0"이 성립한다(#890 Phase 2 핵심). confirmOverflow:true로 확인부터 건너뛰면 검증이
+        // applyOverflow까지 미뤄져 만료·신규발급 SQL이 먼저 나가버린다 — 운영에서는 그 요청의 트랜잭션이
+        // 그대로 롤백돼 문제가 없지만, 이 테스트처럼 같은 트랜잭션 안에서 곧바로 재조회하면(테스트 클래스
+        // @Transactional 하나로 묶여 있어 요청 간에도 같은 커넥션을 공유) 아직 커밋되지 않은 값을 그대로
+        // 읽어버려 "부작용 없음" 검증 자체가 성립하지 않는다.
+        mockMvc.perform(patch("/api/admin/plan")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"STANDARD\",\"keepUserIds\":[" + strangerId + "]}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("PLAN_KEEP_USER_INVALID"));
+
+        // 부작용 0 — 플랜은 여전히 ENTERPRISE, 아무도 정지되지 않았다.
+        mockMvc.perform(get("/api/admin/plan").with(authentication(authOf(fx.admin()))))
+                .andExpect(jsonPath("$.data.plan.name").value("ENTERPRISE"));
+    }
+
+    @Test
+    void 플랜변경_선택인원이_좌석수를넘으면_403_거절된다() throws Exception {
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.ENTERPRISE);
+        User m1 = saveUser(Role.USER, fx.company().getId());
+        User m2 = saveUser(Role.USER, fx.company().getId());
+        User m3 = saveUser(Role.USER, fx.company().getId());
+
+        // FREE 좌석 한도(실측, 하드코딩 금지)보다 owner+3명 유지 선택이 확실히 넘치게 만든다.
+        Integer freeMaxSeats = planRepository.findByName(PlanName.FREE).orElseThrow().getMaxSeats();
+        assertThat(freeMaxSeats).isLessThan(4);
+        String keepUserIds = "[" + m1.getId() + "," + m2.getId() + "," + m3.getId() + "]";
+
+        // confirmOverflow 미지정 — 위 테스트와 동일한 이유로, 검증이 만료/신규발급보다 먼저 걸려야
+        // 이 테스트 안에서 "부작용 0"을 그대로 검증할 수 있다.
+        mockMvc.perform(patch("/api/admin/plan")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"FREE\",\"keepUserIds\":" + keepUserIds + "}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("PLAN_SEAT_QUOTA_EXCEEDED"));
+
+        // 부작용 0 — 플랜 그대로, 아무도 정지되지 않았다.
+        mockMvc.perform(get("/api/admin/plan").with(authentication(authOf(fx.admin()))))
+                .andExpect(jsonPath("$.data.plan.name").value("ENTERPRISE"));
+        assertThat(userRepository.findById(m1.getId()).orElseThrow().getStatus()).isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    void 플랜변경_keepUserIds미지정이면_기존id오름차순_동작그대로다() throws Exception {
+        // 재검토 F-6 — 기존 테스트는 활성 3명 vs STANDARD 3석이라 "초과 없음" 조기 반환에 걸려 정지
+        // 로직 자체가 실행되지 않았다(유일한 단정 "m1 ACTIVE"가 정지 로직을 통째로 지워도 통과하는
+        // 거짓 양성). 좌석 수를 실측해(하드코딩 금지) 정확히 좌석+1명을 활성으로 만들어 실제 초과를
+        // 강제하고, "kept = owner + id 오름차순으로 좌석 수만큼"이라는 알고리즘 자체를 단정한다.
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.ENTERPRISE);
+        Integer standardMaxSeats = planRepository.findByName(PlanName.STANDARD)
+                .orElseThrow().getMaxSeats();
+        // owner 1석을 빼면 나머지 인원용 좌석은 (standardMaxSeats - 1) — id가 가장 작은 m1과 그 다음
+        // (standardMaxSeats - 2)명(middle)까지가 유지 대상이 되려면 좌석이 최소 2석은 있어야 한다.
+        assertThat(standardMaxSeats).isGreaterThanOrEqualTo(2);
+
+        // 생성 순서 = id 오름차순: m1(가장 먼저) → middle(좌석 안에 들어가는 나머지) → overflow(좌석 밖,
+        // 유일하게 정지될 1명). 활성 총원 = owner(1) + m1(1) + middle(standardMaxSeats-2) + overflow(1)
+        //            = standardMaxSeats + 1 → 좌석을 정확히 1명 초과한다.
+        User m1 = saveUser(Role.USER, fx.company().getId());
+        java.util.List<User> middle = new java.util.ArrayList<>();
+        for (int i = 0; i < standardMaxSeats - 2; i++) {
+            middle.add(saveUser(Role.USER, fx.company().getId()));
+        }
+        User overflow = saveUser(Role.USER, fx.company().getId());
+
+        mockMvc.perform(patch("/api/admin/plan")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"STANDARD\",\"confirmOverflow\":true}"))
+                .andExpect(status().isOk());
+
+        // keepUserIds 를 아예 보내지 않아도(하위 호환) id 오름차순 자동 선정이 그대로 동작한다 —
+        // owner + m1 + middle 전원이 유지되고, 좌석 밖으로 밀려난 overflow 1명만 정지된다.
+        assertThat(userRepository.findById(fx.admin().getId()).orElseThrow().getStatus())
+                .isEqualTo(UserStatus.ACTIVE);
+        assertThat(userRepository.findById(m1.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserStatus.ACTIVE);
+        for (User mid : middle) {
+            assertThat(userRepository.findById(mid.getId()).orElseThrow().getStatus())
+                    .isEqualTo(UserStatus.ACTIVE);
+        }
+        assertThat(userRepository.findById(overflow.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserStatus.SUSPENDED);
     }
 
     // ── 회사 멤버별 쿼터 목록(#525 팔로우업 — PR머신 P2: 이 엔드포인트가 테스트에서 전혀 검증되지 않았음) ──
