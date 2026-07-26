@@ -38,8 +38,6 @@ describe('RecentInspectionsFullListPage', () => {
   it('목록과 총 건수를 렌더링한다(기본 페이지 크기=10)', async () => {
     renderPage();
 
-    // 시설물 select 옵션과 표 셀에 동일 텍스트가 동시에 존재할 수 있어(facilityId 필터 옵션이
-    // 목 데이터의 시설물명과 겹침) role='cell'로 표 본문만 특정한다.
     expect(await screen.findByRole('cell', { name: '여의도 파크센터' })).not.toBeNull();
     // mockRecentInspectionsFull은 22건 — 기본 size=10이라 화면엔 상위 10건만, 총 건수는 전체를 표시.
     expect(screen.getByText(`총 ${mockRecentInspectionsFull.length}건`)).not.toBeNull();
@@ -71,6 +69,20 @@ describe('RecentInspectionsFullListPage', () => {
     expect(screen.queryByRole('cell', { name: '여의도 파크센터' })).toBeNull(); // 검수대기 상태라 제외됨
   });
 
+  it('시설물 종류 필터 선택 시 접두 매칭된 항목만 남는다', async () => {
+    renderPage();
+    await screen.findByRole('cell', { name: '여의도 파크센터' });
+
+    fireEvent.change(screen.getByLabelText('시설물 종류 필터'), { target: { value: '교량' } });
+
+    await waitFor(() => {
+      // id=18 type='교량', id=21 type='교량-정기-4개월' — 접두 매칭으로 둘 다 포함.
+      expect(screen.getByRole('cell', { name: '거제 조선소 A안벽' })).not.toBeNull();
+      expect(screen.getByRole('cell', { name: '강릉 해양센터' })).not.toBeNull();
+      expect(screen.queryByRole('cell', { name: '여의도 파크센터' })).toBeNull(); // type='건물'이라 제외
+    });
+  });
+
   it('페이지네이션 — 다음 페이지 클릭 시 다음 항목이 표시된다', async () => {
     renderPage();
     await screen.findByRole('cell', { name: '여의도 파크센터' });
@@ -78,6 +90,18 @@ describe('RecentInspectionsFullListPage', () => {
     expect(screen.queryByRole('cell', { name: '인천 국제터미널' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('cell', { name: '인천 국제터미널' })).not.toBeNull();
+    });
+  });
+
+  it('페이지네이션 — 숫자 페이지 버튼 클릭 시 해당 페이지로 이동한다', async () => {
+    renderPage();
+    await screen.findByRole('cell', { name: '여의도 파크센터' });
+    expect(screen.queryByRole('cell', { name: '인천 국제터미널' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '2' }));
 
     await waitFor(() => {
       expect(screen.getByRole('cell', { name: '인천 국제터미널' })).not.toBeNull();
