@@ -5,6 +5,7 @@ import { useDebouncedValue } from '../../../shared/hooks/useDebouncedValue';
 import { fetchAllAdminUsers } from '../api/adminApi';
 import { adminPlanApi } from '../api/adminPlanApi';
 import { getApiErrorMessage } from '../../../shared/api/types';
+import type { ApiError } from '../../../shared/api/types';
 import { AdminUserFilterBar } from '../components/AdminUserFilterBar';
 import type { FilterValue } from '../components/AdminUserFilterBar';
 import { AdminUserPrintTable } from '../components/AdminUserPrintTable';
@@ -27,6 +28,8 @@ import { MailIcon } from '../components/icons/MailIcon';
 
 const KEYWORD_DEBOUNCE_MS = 300;
 const NOTICE_AUTO_DISMISS_MS = 2500;
+// 회사 미승인(#363)/좌석초과(#872)는 원인이 다르므로 안내 문구를 분리한다(사용자 확인).
+const COMPANY_NOT_APPROVED_CODES = new Set(['PLAN_NOT_FOUND', 'FORBIDDEN']);
 
 // 관리자 > 사용자 관리 — Figma node-id 177-2017 "hajaCheck Admin - 사용자 관리 워크스페이스".
 // 헤더(브레드크럼)·사이드바는 AppShellRoute → AppLayout이 담당하므로 이 페이지는 CONTENT 영역만 그린다.
@@ -187,10 +190,14 @@ export function AdminUsersPage() {
       const { data } = await adminPlanApi.getCurrentPlan();
       const { plan, usage } = data;
       if (plan.maxSeats !== null && usage.seatCount >= plan.maxSeats) {
-        setNotice(`좌석이 가득 찼습니다 (${usage.seatCount}/${plan.maxSeats}). 플랜을 업그레이드해 주세요.`);
+        setNotice('좌석이 모두 사용 중입니다.\n구성원을 추가하려면 플랜을 업그레이드하세요.');
         return;
       }
     } catch (error) {
+      if (COMPANY_NOT_APPROVED_CODES.has((error as ApiError)?.code)) {
+        setNotice('회사 가입 승인이 아직 완료되지 않았습니다.\n플랫폼 관리자 승인을 기다려 주세요.');
+        return;
+      }
       setNotice(getApiErrorMessage(error, '사용자 등록 가능 여부를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'));
       return;
     }
@@ -304,7 +311,7 @@ export function AdminUsersPage() {
             <div
               role="status"
               aria-live="polite"
-              className="rounded-[20px] border border-border bg-white/90 px-6 py-4 text-sm font-medium text-text-default shadow-[0px_20px_25px_-5px_rgba(0,0,0,0.1),0px_8px_10px_-6px_rgba(0,0,0,0.1)] backdrop-blur-[10px]"
+              className="rounded-[20px] border border-border bg-white/90 px-6 py-4 text-sm font-medium whitespace-pre-line text-text-default shadow-[0px_20px_25px_-5px_rgba(0,0,0,0.1),0px_8px_10px_-6px_rgba(0,0,0,0.1)] backdrop-blur-[10px]"
             >
               {notice}
             </div>

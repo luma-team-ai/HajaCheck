@@ -197,7 +197,9 @@ describe('AdminUsersPage (통합 테스트)', () => {
     fireEvent.click(screen.getByRole('button', { name: '+ 사용자 등록' }));
 
     expect(await screen.findByRole('status')).toBeTruthy();
-    expect(screen.getByText('좌석이 가득 찼습니다 (3/3). 플랜을 업그레이드해 주세요.')).toBeTruthy();
+    expect(
+      screen.getByText('좌석이 모두 사용 중입니다. 구성원을 추가하려면 플랜을 업그레이드하세요.'),
+    ).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
@@ -226,7 +228,9 @@ describe('AdminUsersPage (통합 테스트)', () => {
     await screen.findByText('김지수');
     fireEvent.click(screen.getByRole('button', { name: '+ 사용자 등록' }));
 
-    expect(await screen.findByText('활성 구독을 찾을 수 없습니다.')).toBeTruthy();
+    expect(
+      await screen.findByText('회사 가입 승인이 아직 완료되지 않았습니다. 플랫폼 관리자 승인을 기다려 주세요.'),
+    ).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
