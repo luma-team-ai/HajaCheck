@@ -3,6 +3,7 @@ package com.hajacheck.auth.controller;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.hajacheck.auth.entity.Company;
@@ -65,9 +66,12 @@ class BusinessLicenseFileControllerTest extends PostgresTestSupport {
                 .andExpect(status().isUnauthorized());
     }
 
-
+    /**
+     * 요청 URL은 capture-the-rest 매핑의 실제 HTTP 경로다. Spring은 이 URL의
+     * {*storageKey} 값에 선행 slash를 보존하므로 서비스 정규화가 없으면 404가 된다.
+     */
     @Test
-    void 사업자등록증조회_정상회사사용자_선행slash를정규화해_실제바이트_200() throws Exception {
+    void 사업자등록증조회_실제HTTP_captureTheRest선행slash_정상다운로드_200() throws Exception {
         User owner = userRepository.saveAndFlush(User.builder()
                 .email("business-license-download-owner@haja.com")
                 .name("사업자등록증 소유자")
@@ -93,11 +97,54 @@ class BusinessLicenseFileControllerTest extends PostgresTestSupport {
         UsernamePasswordAuthenticationToken auth =
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
 
-        mockMvc.perform(get("/api/companies/{companyId}/business-license/{storageKey}",
-                        company.getId(), stored.storageKey())
-                        .with(authentication(auth)))
+        String actualHttpPath = "/api/companies/" + company.getId()
+                + "/business-license/" + stored.storageKey();
+        mockMvc.perform(get(actualHttpPath).with(authentication(auth)))
                 .andExpect(status().isOk())
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                 .andExpect(content().contentType("image/png"))
                 .andExpect(content().bytes("license-bytes".getBytes()));
+    }
+
+    @Test
+    void 사업자등록증조회_비멤버인증사용자_동일storageKey_403_파일바이트미반환() throws Exception {
+        User owner = userRepository.saveAndFlush(User.builder()
+                .email("business-license-owner-forbidden@haja.com")
+                .name("사업자등록증 소유자")
+                .role(Role.INSPECTOR)
+                .passwordHash("$2a$10$hashed")
+                .status(UserStatus.ACTIVE)
+                .build());
+        FileStorageService.StoredFile stored = fileStorage.storeBytes(
+                "license-bytes".getBytes(), "image/png", "business-registration",
+                java.util.List.of("image/png"), 1024);
+        storedStorageKey = stored.storageKey();
+        Company company = companyRepository.saveAndFlush(Company.createPendingReview(
+                owner.getId(), "비멤버차단테스트회사", "REG-FORBIDDEN-" + owner.getId(), "대표자",
+                "서울시", null, stored.url(), "{}"));
+        company.markBusinessVerified();
+        company.approve(owner.getId());
+        companyRepository.saveAndFlush(company);
+        companyMembershipRepository.saveAndFlush(CompanyMembership.approvedOwner(company.getId(), owner.getId()));
+        owner.assignToCompany(company.getId());
+        userRepository.saveAndFlush(owner);
+
+        User outsider = userRepository.saveAndFlush(User.builder()
+                .email("business-license-outsider@haja.com")
+                .name("비멤버 사용자")
+                .role(Role.INSPECTOR)
+                .passwordHash("$2a$10$hashed")
+                .status(UserStatus.ACTIVE)
+                .build());
+        LoginUser principal = new LoginUser(outsider);
+        UsernamePasswordAuthenticationToken auth =
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+
+        mockMvc.perform(get("/api/companies/" + company.getId()
+                        + "/business-license/" + stored.storageKey())
+                        .with(authentication(auth)))
+                .andExpect(status().isForbidden())
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("license-bytes"))));
     }
 }
