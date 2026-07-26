@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-// DefectListPage 통합 테스트 — HAJA-393/394(#725/#726)로 "목록 보기" 탭이 점검(Inspection) 단위
-// 테이블로 재해석된 것을 검증한다. "보드 보기" 탭은 여전히 하자 단건 기준(HAJA-349/#630, 변경 없음)
-// 이라 관련 테스트는 원본(DefectListPage.test.tsx, HAJA-30)과 동일하게 유지한다.
+// DefectListPage 통합 테스트 — HAJA-393/394(#725/#726)로 점검(Inspection) 단위 테이블로 재해석된 것을
+// 검증한다. 2026-07-26 정정(#726 코멘트): "목록 보기/보드 보기" 2탭 구조는 설계 오류로 확정되어
+// 제거되었다 — 이 페이지는 다시 점검 단위 목록 단일 플로우만 렌더링한다("보드 보기" 탭 관련 테스트는
+// 삭제, DefectActionBoard.test.tsx가 컴포넌트 단위로 별도 커버).
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -238,48 +239,5 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
     );
 
     consoleErrorSpy.mockRestore();
-  });
-});
-
-describe("DefectListPage — 보드 보기 탭(하자 단건, HAJA-349/#630, 변경 없음)", () => {
-  it("보드 보기 탭을 클릭하면 목록 대신 조치 보드를 렌더링한다", async () => {
-    renderPage();
-    await screen.findByRole("table");
-
-    fireEvent.click(screen.getByRole("tab", { name: "보드 보기" }));
-
-    expect(screen.queryByRole("table")).toBeNull();
-    expect(await screen.findByLabelText("신규 컬럼")).not.toBeNull();
-    expect(screen.getByLabelText("조치완료 컬럼")).not.toBeNull();
-  });
-
-  it("목록 보기로 돌아가면 다시 테이블과 페이지네이션을 렌더링한다", async () => {
-    renderPage();
-    await screen.findByRole("table");
-
-    fireEvent.click(screen.getByRole("tab", { name: "보드 보기" }));
-    await screen.findByLabelText("신규 컬럼");
-
-    fireEvent.click(screen.getByRole("tab", { name: "목록 보기" }));
-
-    expect(await screen.findByRole("table")).not.toBeNull();
-  });
-
-  it("탭 버튼과 탭 패널이 aria-controls/aria-labelledby로 연결된다(code-reviewer 지적)", async () => {
-    renderPage();
-    await screen.findByRole("table");
-
-    const listTab = screen.getByRole("tab", { name: "목록 보기" });
-    const [listPanel] = screen.getAllByRole("tabpanel");
-    expect(listTab.getAttribute("aria-controls")).toBe(listPanel.id);
-    expect(listPanel.getAttribute("aria-labelledby")).toBe(listTab.id);
-
-    fireEvent.click(screen.getByRole("tab", { name: "보드 보기" }));
-    await screen.findByLabelText("신규 컬럼");
-
-    const boardTab = screen.getByRole("tab", { name: "보드 보기" });
-    const [boardPanel] = screen.getAllByRole("tabpanel");
-    expect(boardTab.getAttribute("aria-controls")).toBe(boardPanel.id);
-    expect(boardPanel.getAttribute("aria-labelledby")).toBe(boardTab.id);
   });
 });

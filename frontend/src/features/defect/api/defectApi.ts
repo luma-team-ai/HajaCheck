@@ -56,10 +56,16 @@ export const defectApi = {
 
   // --- 하자 목록·상세 개편 (HAJA-393/394, #725/#726) ---------------------------------------
 
-  // GET /api/inspections — 점검(Inspection) 단위 목록. 백엔드 신규 구현 대기 상태라 MSW 목으로
-  // 우선 개발한다(contract.md §엔드포인트 매핑 ①).
+  // GET /api/inspections — 점검(Inspection) 단위 목록. 백엔드 PR #891로 구현 완료(origin/dev,
+  // 2026-07-26 확인) — defectType/defectGrade/defectStatus는 Spring `@RequestParam List<T>`로
+  // 바인딩되어 `key=v1&key=v2`(대괄호 없는 반복 키)를 기대한다. axios 기본 배열 직렬화는 `key[]=v1`
+  // 형태를 만들 수 있어(백엔드가 빈 리스트로 받는 위험, #726/HAJA-394) paramsSerializer로 대괄호 없는
+  // 반복 키 직렬화를 명시 강제한다(axios 1.x `indexes: null` 옵션).
   getInspections: (filters: InspectionListFilters = {}) =>
-    api.get<PageResponse<InspectionListItem>>('/inspections', { params: filters }),
+    api.get<PageResponse<InspectionListItem>>('/inspections', {
+      params: filters,
+      paramsSerializer: { indexes: null },
+    }),
   // GET /api/inspections/{id}/defects — 점검별 하자 카드 목록(카드형 상세, contract.md §②).
   // inspection feature의 inspectionApi.getDefects와 동일 엔드포인트를 defect feature 안에 자체
   // 복제해서 호출한다(feature 간 직접 import 금지, React_코드_컨벤션.md §1).
