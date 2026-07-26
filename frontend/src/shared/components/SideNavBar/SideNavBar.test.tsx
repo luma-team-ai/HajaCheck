@@ -211,6 +211,29 @@ describe('SideNavBar', () => {
     });
   });
 
+  describe('보고서 하위 항목 — activeInspectionId에 따른 동적 링크', () => {
+    afterEach(() => useInspectionStore.getState().clearActiveInspectionId());
+
+    it('진행 중인 점검이 없으면 편집·내보내기 링크가 보고서 목록으로 이동한다', () => {
+      render(<SideNavBar activeHref="/dashboard" />, { wrapper: MemoryRouter });
+
+      fireEvent.click(screen.getByText('보고서'));
+
+      expect(screen.getByRole('link', { name: '보고서 편집·미리보기' }).getAttribute('href')).toBe('/reports');
+      expect(screen.getByRole('link', { name: 'PDF 내보내기' }).getAttribute('href')).toBe('/reports');
+    });
+
+    it('진행 중인 점검이 있으면 편집·내보내기 링크가 해당 점검으로 이동한다', () => {
+      useInspectionStore.getState().setActiveInspectionId(42);
+      render(<SideNavBar activeHref="/dashboard" />, { wrapper: MemoryRouter });
+
+      fireEvent.click(screen.getByText('보고서'));
+
+      expect(screen.getByRole('link', { name: '보고서 편집·미리보기' }).getAttribute('href')).toBe('/inspections/42/reports');
+      expect(screen.getByRole('link', { name: 'PDF 내보내기' }).getAttribute('href')).toBe('/inspections/42/reports');
+    });
+  });
+
   describe('"점검 관리" 하위 항목 — activeInspectionId에 따른 동적 링크', () => {
     function LocationProbe() {
       const location = useLocation();
