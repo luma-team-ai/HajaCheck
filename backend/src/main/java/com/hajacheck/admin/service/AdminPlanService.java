@@ -109,6 +109,7 @@ public class AdminPlanService {
         Long companyId = resolveInheritedCompanyId(adminUserId);
         requireCompanyOwner(companyId, adminUserId);
         UserPlan current = resolveCurrentCompanyPlan(companyId);
+        Plan currentPlan = findPlan(current.getPlanId());
         Plan targetPlan = planRepository.findByName(targetPlanName)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
 
@@ -121,7 +122,7 @@ public class AdminPlanService {
         // 하향으로 한도를 넘게 되는 자원이 있으면 "명시적 확인" 없이는 아무것도 바꾸지 않는다(#890).
         // 이 검사를 아래 만료/발급보다 먼저 두는 이유: 확인 없는 요청에서 플랜만 바뀌고 정지는 안 되는
         // 중간 상태가 절대 남으면 안 되기 때문이다(트랜잭션 롤백에 기대지 않고 순서로 보장한다).
-        if (!overflowConfirmed && planDowngradeService.preview(companyId, targetPlan).exists()) {
+        if (!overflowConfirmed && planDowngradeService.preview(companyId, currentPlan, targetPlan).exists()) {
             throw new BusinessException(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED);
         }
 
@@ -131,16 +132,26 @@ public class AdminPlanService {
         adminPlanRepository.saveAndFlush(current);
 
         UserPlan renewed = UserPlan.forCompany(companyId, targetPlan.getId());
+        UserPlan saved;
         try {
-            UserPlan saved = adminPlanRepository.saveAndFlush(renewed);
-            // 초과 좌석 정지는 신규 구독 발급과 같은 트랜잭션에서 — 플랜만 내려가고 정지가 안 되면
-            // 한도가 조용히 무력화된다. 초과가 없으면 no-op 다.
-            planDowngradeService.applyOverflow(companyId, targetPlan);
-            return buildResponseWithUsage(saved, targetPlan);
+            // try 범위를 이 한 줄로 좁힌다(리뷰 P3) — 아래 좌석 정지 flush 에서 나온 무결성 위반까지
+            // "이미 활성 구독 존재"로 오분류하지 않기 위해서다.
+            saved = adminPlanRepository.saveAndFlush(renewed);
         } catch (DataIntegrityViolationException e) {
             // 동시 플랜 변경 경합 — 다른 트랜잭션이 이미 새 ACTIVE 를 만들어 부분 UQ 위반.
             throw new BusinessException(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
         }
+
+        // 초과 좌석 정지는 신규 구독 발급과 같은 트랜잭션에서 — 플랜만 내려가고 정지가 안 되면 한도가
+        // 조용히 무력화된다. 초과가 없으면 no-op 다.
+        //
+        // ⚠️ 알려진 한계(리뷰 P2, 후속 이슈): 이 트랜잭션은 users/user_plans 를 잠그지 않고, preview 가
+        // 읽는 건 잠금 없는 스냅샷이다. 같은 시각 다른 트랜잭션이 "구 플랜" 기준으로 좌석을 활성화하면
+        // (QuotaService#reserveSeat 는 구 userPlan 의 usage_counters 행을 잠그므로 이 트랜잭션과
+        // 직렬화되지 않는다) 커밋 후 새 플랜 한도를 넘는 인원이 남을 수 있다. reserveSeat 는 신규
+        // 활성화만 막으므로 그 초과는 스스로 해소되지 않는다.
+        planDowngradeService.applyOverflow(companyId, currentPlan, targetPlan);
+        return buildResponseWithUsage(saved, targetPlan);
     }
 
     /**
@@ -154,7 +165,8 @@ public class AdminPlanService {
         Plan targetPlan = planRepository.findByName(targetPlanName)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
 
-        DowngradeOverflow overflow = planDowngradeService.preview(companyId, targetPlan);
+        Plan currentPlan = findPlan(resolveCurrentCompanyPlan(companyId).getPlanId());
+        DowngradeOverflow overflow = planDowngradeService.preview(companyId, currentPlan, targetPlan);
         List<AdminPlanChangePreviewResponse.SuspendTarget> targets =
                 userRepository.findAllById(overflow.seatUserIdsToSuspend()).stream()
                         .sorted(Comparator.comparing(User::getId))

@@ -67,6 +67,16 @@ class AdminPlanServiceTest {
     @InjectMocks
     private AdminPlanService service;
 
+    @org.junit.jupiter.api.BeforeEach
+    void 현재플랜조회를_기본으로_stub한다() {
+        // #890 — changePlan 이 하향 판정을 위해 현재 플랜(findPlan)을 조회한다. preview 자체는 이 클래스에서
+        // 목이라 현재 플랜 값은 결과에 영향을 주지 않으므로, 비어 있지 않기만 하면 된다.
+        org.mockito.Mockito.lenient()
+                .when(planRepository.findById(org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(Optional.of(Plan.create(PlanName.ENTERPRISE, null, null, null,
+                        false, true, true, new BigDecimal("59000.00"))));
+    }
+
     @Test
     void 플랜변경_두번째saveAndFlush_동시성경합예외_409로매핑() {
         Long adminUserId = 1L;
@@ -86,7 +96,7 @@ class AdminPlanServiceTest {
                 companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
         when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(targetPlan));
         // 이 테스트의 관심사는 동시성 경합(409) 매핑이라 하향 초과는 없는 상황으로 고정한다(#890).
-        when(planDowngradeService.preview(anyLong(), any(Plan.class))).thenReturn(DowngradeOverflow.none());
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class))).thenReturn(DowngradeOverflow.none());
         // 첫 saveAndFlush(만료 처리)는 성공, 두 번째(신규 ACTIVE 삽입)에서 부분 UQ 위반을 재현한다.
         when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
                 .thenReturn(current)
@@ -165,7 +175,7 @@ class AdminPlanServiceTest {
         when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
                 companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
         when(planRepository.findByName(PlanName.FREE)).thenReturn(Optional.of(targetPlan));
-        when(planDowngradeService.preview(companyId, targetPlan))
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class)))
                 .thenReturn(new DowngradeOverflow(List.of(7L, 8L), 3));
 
         assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.FREE, false))
@@ -175,7 +185,7 @@ class AdminPlanServiceTest {
 
         // 부작용 부재가 이 테스트의 핵심 — 구독 전이도, 좌석 정지도 시도되지 않아야 한다.
         verify(adminPlanRepository, never()).saveAndFlush(any(UserPlan.class));
-        verify(planDowngradeService, never()).applyOverflow(anyLong(), any(Plan.class));
+        verify(planDowngradeService, never()).applyOverflow(anyLong(), any(Plan.class), any(Plan.class));
     }
 
     @Test
@@ -198,12 +208,12 @@ class AdminPlanServiceTest {
         when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
                 companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
         when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(targetPlan));
-        when(planDowngradeService.preview(companyId, targetPlan)).thenReturn(DowngradeOverflow.none());
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class))).thenReturn(DowngradeOverflow.none());
         when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         service.changePlan(adminUserId, PlanName.STANDARD, false);
 
-        verify(planDowngradeService).applyOverflow(companyId, targetPlan);
+        verify(planDowngradeService).applyOverflow(anyLong(), any(Plan.class), any(Plan.class));
     }
 }

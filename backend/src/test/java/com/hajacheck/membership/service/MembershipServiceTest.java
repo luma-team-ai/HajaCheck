@@ -76,8 +76,16 @@ class MembershipServiceTest {
         // 초과가 없는 상황이라 기본값으로 고정한다(초과 케이스는 PlanDowngradeServiceTest 가 다룬다).
         org.mockito.Mockito.lenient()
                 .when(planDowngradeService.preview(org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.any(com.hajacheck.membership.entity.Plan.class),
                         org.mockito.ArgumentMatchers.any(com.hajacheck.membership.entity.Plan.class)))
                 .thenReturn(com.hajacheck.membership.dto.DowngradeOverflow.none());
+        // checkout 이 하향 판정을 위해 현재 플랜을 조회한다(#890). preview 가 목이라 값 자체는 결과에
+        // 영향을 주지 않으므로 비어 있지 않기만 하면 된다.
+        org.mockito.Mockito.lenient()
+                .when(planRepository.findById(org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(java.util.Optional.of(com.hajacheck.membership.entity.Plan.create(
+                        com.hajacheck.membership.entity.PlanName.ENTERPRISE, null, null, null,
+                        false, true, true, new java.math.BigDecimal("59000.00"))));
     }
 
     private static final Long USER_ID = 1L;

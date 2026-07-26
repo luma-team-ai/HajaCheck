@@ -146,7 +146,8 @@ public class MembershipService {
         // 되면 거절하고 관리자 콘솔의 "변경 미리보기 → 명시적 확인" 경로(AdminPlanService#changePlan)로
         // 유도한다. FREE 다운그레이드는 위에서 이미 막혀 있으므로, 여기 걸리는 건 ENTERPRISE→STANDARD 처럼
         // 한도가 낮아지는 전환이다.
-        if (companyId != null && planDowngradeService.preview(companyId, targetPlan).exists()) {
+        if (companyId != null && planDowngradeService.preview(companyId, findPlan(current.getPlanId()), targetPlan)
+                        .seatOverflowCount() > 0) {
             throw new BusinessException(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED);
         }
 
