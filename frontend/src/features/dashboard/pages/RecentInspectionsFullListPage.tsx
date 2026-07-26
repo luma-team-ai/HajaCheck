@@ -7,7 +7,6 @@ import { TableFooterPagination } from '../../../shared/components/TableFooterPag
 import { useDebouncedValue } from '../../../shared/hooks/useDebouncedValue';
 import { DASHBOARD_COLOR_CLASS } from '../colors';
 import { StatusBadge } from '../components/StatusBadge';
-import { useDashboardFacilityOptions } from '../hooks/useDashboardFacilityOptions';
 import { useRecentInspectionsList } from '../hooks/useRecentInspectionsList';
 import type { InspectionStatus, RecentInspectionsSearchFilters } from '../types';
 
@@ -24,6 +23,12 @@ const STATUS_PILLS: { value: InspectionStatus | undefined; label: string }[] = [
   { value: '완료', label: '완료' },
 ];
 
+// "시설물 종류" 카테고리 — facility feature의 FACILITY_TYPE_OPTIONS(#731, "{종류}-{점검유형}-{주기}"
+// 조합 12종)에서 종류 부분만 뽑은 값이지만, feature 간 직접 import 금지 컨벤션에 따라 로컬로
+// 재정의한다(facility.constants.ts findFacilityTypeCycleMonths 참고). 백엔드가 접두(prefix) 매칭을
+// 하므로 이 4개 값만으로 컴파운드형 시설물 종류도 전부 커버된다.
+const FACILITY_TYPE_CATEGORIES = ['건물', '교량', '도로', '기타'] as const;
+
 // RecentInspectionsTable.tsx(대시보드 카드, 2026-07-25 Figma 재대조 완료)와 동일 톤 유지 — 헤더
 // bg-pink-50 text-xs uppercase, 본문 text-sm. 색 토큰은 전부 colors.ts 단일 관리를 그대로 재사용한다.
 const TH_BASE_CLASS =
@@ -31,13 +36,13 @@ const TH_BASE_CLASS =
 const TD_CLASS = 'p-3 text-sm border-b border-[#f4f4f4] whitespace-nowrap';
 
 // 대시보드 "최근 점검" 카드의 "전체보기" 버튼 진입 화면(신규) — 위젯(RecentInspectionsTable, 상위
-// 10건 고정)과 달리 페이지네이션+검색+상태/시설물 필터를 지원하는 전체 목록.
+// 10건 고정)과 달리 페이지네이션+검색+상태/시설물종류 필터를 지원하는 전체 목록.
 //
-// 설계 결정(스펙에서 판단 위임된 항목, PR 설명에도 기록):
-// - "시설물 종류" 드롭다운: 백엔드가 시설물 유형(건물/교량/도로 등) 카테고리 필터를 제공하지 않는다
-//   (신규 검색 API는 facilityId만 지원). 존재하지 않는 필터를 라벨만 흉내 내는 대신, 실제로 동작하는
-//   특정 시설물 선택(facilityId, InspectionFilterBar의 "전체 시설물" 드롭다운과 동일 패턴)으로 구현하고
-//   라벨도 "시설물: 전체"로 정확히 표시한다.
+// 설계 결정(2026-07-26 Figma 재대조로 갱신):
+// - "시설물 종류" 드롭다운: 특정 시설물 선택(facilityId)이 아니라 카테고리(건물/교량/도로/기타)
+//   필터다. 백엔드가 facility.type을 접두(prefix) 매칭하므로 #731 컴파운드값("건물-긴급-1개월")도
+//   함께 잡힌다 — 시설물 목록을 별도로 fetch할 필요가 없어 단순해졌다(이전 버전의 facilityId select는
+//   폐기, useDashboardFacilityOptions 훅도 함께 제거).
 // - 행 클릭/체크박스: 스펙 미확정 항목이라 이번 1차 버전은 정보 제공용 표로만 렌더링한다(선택·네비게이션
 //   없음) — 기존 위젯의 행 선택 인터랙션(RecentInspectionsTable)은 이 페이지로 옮기지 않았다.
 export function RecentInspectionsFullListPage() {
@@ -47,8 +52,6 @@ export function RecentInspectionsFullListPage() {
     page: 0,
     size: DEFAULT_SIZE,
   });
-
-  const { data: facilityOptions } = useDashboardFacilityOptions();
 
   const trimmedSearch = debouncedSearch.trim();
   const effectiveFilters: RecentInspectionsSearchFilters = {
@@ -72,9 +75,9 @@ export function RecentInspectionsFullListPage() {
     setFilters((prev) => ({ ...prev, status, page: 0 }));
   }
 
-  function handleFacilityChange(event: ChangeEvent<HTMLSelectElement>) {
+  function handleFacilityTypeChange(event: ChangeEvent<HTMLSelectElement>) {
     const value = event.target.value;
-    setFilters((prev) => ({ ...prev, facilityId: value === '' ? undefined : Number(value), page: 0 }));
+    setFilters((prev) => ({ ...prev, facilityType: value === '' ? undefined : value, page: 0 }));
   }
 
   function handlePageChange(page: number) {
@@ -98,6 +101,8 @@ export function RecentInspectionsFullListPage() {
         </div>
       </div>
 
+      {/* Figma 재대조(2026-07-26): 검색창이 flex-1로 남은 폭을 전부 차지해 종류 드롭다운이
+          다음 줄로 밀려나던 문제 — 검색창 폭을 max-w-80(320px)으로 고정해 한 줄에 나란히 배치. */}
       <div className="flex flex-wrap items-center gap-3">
         <input
           type="search"
@@ -105,18 +110,18 @@ export function RecentInspectionsFullListPage() {
           onChange={handleSearchChange}
           placeholder="시설물, 담당자 검색"
           aria-label="시설물, 담당자 검색"
-          className={`min-w-60 flex-1 rounded-full border ${DASHBOARD_COLOR_CLASS.filterInputBorder} px-4 py-2.5 text-sm outline-none ${DASHBOARD_COLOR_CLASS.filterInputFocusBorder}`}
+          className={`w-full max-w-80 rounded-full border ${DASHBOARD_COLOR_CLASS.filterInputBorder} px-4 py-2.5 text-sm outline-none ${DASHBOARD_COLOR_CLASS.filterInputFocusBorder}`}
         />
         <select
-          value={filters.facilityId ?? ''}
-          onChange={handleFacilityChange}
-          aria-label="시설물 필터"
+          value={filters.facilityType ?? ''}
+          onChange={handleFacilityTypeChange}
+          aria-label="시설물 종류 필터"
           className={`rounded-full border ${DASHBOARD_COLOR_CLASS.filterInputBorder} px-4 py-2.5 text-sm ${DASHBOARD_COLOR_CLASS.bodyText}`}
         >
-          <option value="">시설물: 전체</option>
-          {(facilityOptions ?? []).map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.name}
+          <option value="">시설물 종류: 전체</option>
+          {FACILITY_TYPE_CATEGORIES.map((category) => (
+            <option key={category} value={category}>
+              {category}
             </option>
           ))}
         </select>
@@ -188,6 +193,7 @@ export function RecentInspectionsFullListPage() {
           totalPages={totalPages}
           totalItems={totalElements}
           onPageChange={handlePageChange}
+          paginationVariant="numbered"
         />
       )}
     </div>
