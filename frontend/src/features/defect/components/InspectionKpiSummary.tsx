@@ -1,11 +1,21 @@
 import { useMemo } from 'react';
-import type { Defect } from '../types';
+import type { Defect, DefectStatus } from '../types';
+import { STATUS_PRESENTATION } from './DefectTable';
 
 type Props = {
   defects: Defect[];
 };
 
+// DefectCard.tsx와 동일 패턴(신규 색상 상수 추가 금지 컨벤션) — STATUS_PRESENTATION의
+// "border-* bg-* text-*" 필(pill) 배지 클래스에서 text-* 색상 클래스만 뽑아 dot의
+// background-color: currentColor로 재사용한다.
+function pickTextColorClass(classNames: string): string {
+  return classNames.split(' ').find((cls) => cls.startsWith('text-')) ?? '';
+}
+
 // 점검 상세(카드형, HAJA-393/394 §화면 구조 ②) KPI 4종 — contract.md 확정: 총 하자/검수확정/조치중/조치완료.
+// Figma 정렬(#966) — "총 하자"를 제외한 상태 3종엔 DefectTable.STATUS_PRESENTATION 색상 dot을 붙이고
+// 값 뒤에 "건" 단위를 표기한다(#937/PR#950 diff에서 이 컴포넌트만 누락됐던 스타일링 보완).
 export function InspectionKpiSummary({ defects }: Props) {
   const summary = useMemo(
     () => ({
@@ -17,21 +27,38 @@ export function InspectionKpiSummary({ defects }: Props) {
     [defects],
   );
 
-  const items: { key: string; label: string; value: number }[] = [
+  const items: { key: string; label: string; value: number; statusKey?: DefectStatus }[] = [
     { key: 'total', label: '총 하자', value: summary.total },
-    { key: 'confirmed', label: '검수확정', value: summary.confirmed },
-    { key: 'inProgress', label: '조치중', value: summary.inProgress },
-    { key: 'resolved', label: '조치완료', value: summary.resolved },
+    { key: 'confirmed', label: '검수확정', value: summary.confirmed, statusKey: 'CONFIRMED' },
+    { key: 'inProgress', label: '조치중', value: summary.inProgress, statusKey: 'IN_PROGRESS' },
+    { key: 'resolved', label: '조치완료', value: summary.resolved, statusKey: 'RESOLVED' },
   ];
 
   return (
     <dl className="inspection-kpi-summary" aria-label="점검 하자 요약">
-      {items.map((item) => (
-        <div className="inspection-kpi-summary__card" key={item.key}>
-          <dt>{item.label}</dt>
-          <dd>{item.value.toLocaleString()}</dd>
-        </div>
-      ))}
+      {items.map((item) => {
+        const dotColorClass = item.statusKey
+          ? pickTextColorClass(STATUS_PRESENTATION[item.statusKey].className)
+          : '';
+
+        return (
+          <div className="inspection-kpi-summary__card" key={item.key}>
+            <dt>
+              {item.statusKey && (
+                <span
+                  className={`inspection-kpi-summary__dot ${dotColorClass}`}
+                  aria-hidden="true"
+                />
+              )}
+              {item.label}
+            </dt>
+            <dd>
+              {item.value.toLocaleString()}
+              {item.statusKey ? '건' : ''}
+            </dd>
+          </div>
+        );
+      })}
     </dl>
   );
 }

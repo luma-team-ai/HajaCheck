@@ -31,8 +31,9 @@
 .inspection-defects-page__title {
   margin: 0 0 20px;
   color: var(--color-heading);
-  font-size: 26px;
-  font-weight: 800;
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
 }
 
 .inspection-defects-page__sr-only {
@@ -89,10 +90,21 @@
 }
 
 .inspection-kpi-summary__card dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
   color: var(--color-text-muted);
   font-size: 13px;
   font-weight: 600;
+}
+
+.inspection-kpi-summary__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background-color: currentColor;
 }
 
 .inspection-kpi-summary__card dd {
