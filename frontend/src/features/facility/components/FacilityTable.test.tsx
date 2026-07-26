@@ -22,6 +22,7 @@ const mockFacility: Facility = {
   initialGrade: null,
   assigneeUserId: null,
   memo: null,
+  latestDefectId: null,
 };
 
 // FacilityTable은 데이터를 직접 조회하지 않는 순수 프레젠테이셔널 컴포넌트이므로
@@ -106,6 +107,6 @@ describe('FacilityTable', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '강남 오피스타워 A동' }));
 
-    expect(handleSelect).toHaveBeenCalledWith(1);
+    expect(handleSelect).toHaveBeenCalledWith(1, mockFacility.latestDefectId);
   });
 });

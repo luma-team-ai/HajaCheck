@@ -26,6 +26,8 @@ export interface Facility {
   initialGrade: FacilityInitialGrade | null;
   assigneeUserId: number | null;
   memo: string | null;
+  // 시설물 상세→하자 오버레이 직행(HAJA-434 갭1) — 대표(최신) 하자 id, 하자가 없으면 null.
+  latestDefectId: number | null;
 }
 
 export interface CreateFacilityRequest {

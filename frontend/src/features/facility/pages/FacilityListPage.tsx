@@ -40,9 +40,12 @@ export function FacilityListPage() {
     resetError();
   };
 
-  // 시설물 이름 클릭 → 하자 정보 패널(/facilities/:id, dev-04-02, #489)로 이동
-  const handleSelectFacility = (id: number) => {
-    navigate(`/facilities/${id}`);
+  // 시설물 이름 클릭 → 하자 오버레이(HAJA-434 갭1, Figma node-id=1-3958 흐름)로 직행.
+  // 대표 하자가 없는 시설물(하자 미탐지)은 갈 곳이 없으므로 기존 시설물 상세로 폴백한다.
+  const handleSelectFacility = (id: number, latestDefectId: number | null) => {
+    navigate(
+      latestDefectId != null ? `/facilities/${id}/defects/${latestDefectId}` : `/facilities/${id}`,
+    );
   };
 
   const handleSubmit = async (payload: CreateFacilityRequest) => {

@@ -23,6 +23,8 @@ import com.hajacheck.core.facility.dto.FacilityStatusResponse;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.entity.FacilityInitialGrade;
+import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.repository.FacilityLatestDefectProjection;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
@@ -62,6 +64,9 @@ class FacilityServiceTest {
 
     @Mock
     private QuotaService quotaService;
+
+    @Mock
+    private DefectRepository defectRepository;
 
     @InjectMocks
     private FacilityService facilityService;
@@ -137,6 +142,80 @@ class FacilityServiceTest {
         verify(facilityRepository).findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class));
     }
 
+    // HAJA-434 갭1 P1 픽스 — PR머신이 지적한 회귀: list()가 latestDefectId를 안 채우면 목록 화면에서
+    // "시설물 클릭 시 하자 오버레이 직행"이 항상 폴백된다. get()만이 아니라 list()도 채우는지 고정한다.
+    @Test
+    void list_하자있는시설_대표하자ID채워서반환() {
+        Facility facility = facilityWithId(10L, "강남 오피스타워", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        when(defectRepository.findLatestByFacilityIds(eq(List.of(10L)), eq(OWNER_ID)))
+                .thenReturn(List.of(new FacilityLatestDefectProjection() {
+                    public Long getFacilityId() {
+                        return 10L;
+                    }
+
+                    public Long getDefectId() {
+                        return 777L;
+                    }
+                }));
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).latestDefectId()).isEqualTo(777L);
+    }
+
+    @Test
+    void list_하자없는시설_대표하자ID는null() {
+        Facility facility = facilityWithId(10L, "강남 오피스타워", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        when(defectRepository.findLatestByFacilityIds(eq(List.of(10L)), eq(OWNER_ID)))
+                .thenReturn(List.of());
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).latestDefectId()).isNull();
+    }
+
+    // code-reviewer P2 — 시설물 1건짜리 테스트만으로는 facilityId별 그룹핑(첫 값=최신 유지)이
+    // 실제로 동작하는지 못 잡는다(예: mergeFunction 누락해도 통과할 수 있음). 시설물 2건 +
+    // 각각 하자 2건(쿼리 정렬 순서인 createdAt desc를 그대로 재현) 조합으로 교차오염 여부를 고정한다.
+    @Test
+    void list_시설물여러건_각시설물별로대표하자ID가섞이지않는다() {
+        Facility facilityA = facilityWithId(10L, "강남 오피스타워", null, null, null);
+        Facility facilityB = facilityWithId(20L, "한강대교 북단", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facilityA, facilityB));
+        // facilityId asc, createdAt desc 정렬을 그대로 재현 — 시설물별 첫 행이 최신 하자다.
+        when(defectRepository.findLatestByFacilityIds(eq(List.of(10L, 20L)), eq(OWNER_ID)))
+                .thenReturn(List.of(
+                        projection(10L, 501L),
+                        projection(10L, 502L),
+                        projection(20L, 601L)));
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).id()).isEqualTo(10L);
+        assertThat(result.get(0).latestDefectId()).isEqualTo(501L);
+        assertThat(result.get(1).id()).isEqualTo(20L);
+        assertThat(result.get(1).latestDefectId()).isEqualTo(601L);
+    }
+
+    private static FacilityLatestDefectProjection projection(Long facilityId, Long defectId) {
+        return new FacilityLatestDefectProjection() {
+            public Long getFacilityId() {
+                return facilityId;
+            }
+
+            public Long getDefectId() {
+                return defectId;
+            }
+        };
+    }
+
     @Test
     void list_목록조회_상한초과시상한개수만반환() {
         List<Facility> capped = List.of(existingFacility(), existingFacility());
@@ -176,6 +255,32 @@ class FacilityServiceTest {
         FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
 
         assertThat(response.name()).isEqualTo("기존시설");
+    }
+
+    // HAJA-434 갭1 — 시설물 상세→하자 오버레이 직행을 위한 대표(최신) 하자 id.
+    @Test
+    void get_하자있는시설_대표하자ID채워서반환() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(defectRepository.findLatestIdsByFacility(eq(10L), eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(555L));
+
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
+
+        assertThat(response.latestDefectId()).isEqualTo(555L);
+        verify(defectRepository).findLatestIdsByFacility(eq(10L), eq(OWNER_ID), any(PageRequest.class));
+    }
+
+    @Test
+    void get_하자없는시설_대표하자ID는null() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(defectRepository.findLatestIdsByFacility(eq(10L), eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of());
+
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
+
+        assertThat(response.latestDefectId()).isNull();
     }
 
     @Test

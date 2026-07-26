@@ -24,6 +24,7 @@ function buildFacility(overrides: Partial<Facility>): Facility {
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
     ...overrides,
   };
 }
