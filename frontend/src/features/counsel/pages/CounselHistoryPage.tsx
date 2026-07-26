@@ -28,8 +28,8 @@ export function CounselHistoryPage() {
   }
 
   return (
-    <div className="flex h-full flex-col p-5">
-      <div className="flex min-h-0 flex-1 overflow-hidden rounded-[20px] bg-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
+    <div className="flex h-full flex-col bg-surface-muted p-5">
+      <div className="flex min-h-0 flex-1 overflow-hidden rounded-[20px] border border-border bg-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
         {/* 좌측: 목록 */}
         <div className="flex w-[320px] shrink-0 flex-col border-r border-border">
           <div className="flex flex-col gap-3 border-b border-border px-5 py-4">

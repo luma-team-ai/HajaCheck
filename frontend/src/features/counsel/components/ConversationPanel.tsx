@@ -2,13 +2,15 @@ import { useState } from 'react';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { api } from '../../../shared/api/axios';
 import { getApiErrorMessage } from '../../../shared/api/types';
+import headerUserIcon from '../../../assets/brand/header-user-outlined.svg';
+import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import type { ChatMessageResponse, CounselTicketSummaryResponse } from '../types';
 
 function MessageBubble({ message }: { message: ChatMessageResponse }) {
   if (message.sender === 'USER') {
     return (
       <div className="flex flex-col items-end gap-1">
-        <div className="max-w-[560px] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-surface-sunken px-5 pt-2.5 pb-3 text-sm font-medium text-primary">
+        <div className="max-w-[560px] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-primary px-5 pt-2.5 pb-3 text-sm font-medium text-white">
           {message.content}
         </div>
         {message.attachmentUrl && (
@@ -22,14 +24,19 @@ function MessageBubble({ message }: { message: ChatMessageResponse }) {
     );
   }
 
-  // COUNSELOR/BOT — 좌측 정렬, 상담원은 이름 표시.
+  // COUNSELOR/BOT — 좌측 정렬, 상담 챗봇 화면(ChatBotPage)과 동일한 아바타+말풍선 배치로 통일.
   return (
-    <div className="flex flex-col items-start gap-1">
-      {message.sender === 'COUNSELOR' && message.counselorName && (
-        <span className="text-xs font-medium text-text-muted">상담원 {message.counselorName}</span>
+    <div className="flex items-start gap-2.5">
+      {message.sender === 'COUNSELOR' && (
+        <ChatAvatar icon={headerUserIcon} bgClassName="bg-surface-sunken" className="border border-border" />
       )}
-      <div className="max-w-[560px] whitespace-pre-wrap rounded-2xl rounded-tl-sm border border-border bg-white px-5 py-3 text-sm font-medium text-primary">
-        {message.content}
+      <div className="flex flex-col items-start gap-1">
+        {message.sender === 'COUNSELOR' && message.counselorName && (
+          <span className="text-xs font-medium text-text-muted">상담원 {message.counselorName}</span>
+        )}
+        <div className="max-w-[560px] whitespace-pre-wrap rounded-2xl rounded-tl-sm border border-border bg-white px-5 py-3 text-sm font-medium text-primary">
+          {message.content}
+        </div>
       </div>
     </div>
   );
@@ -97,6 +104,11 @@ export function ConversationPanel({ ticket, messages, loading, error, onStartNew
           disabled={exporting}
           className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-surface-sunken disabled:opacity-50"
         >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <path d="M7 10l5 5 5-5" />
+            <path d="M12 15V3" />
+          </svg>
           대화 내보내기
         </button>
       </div>

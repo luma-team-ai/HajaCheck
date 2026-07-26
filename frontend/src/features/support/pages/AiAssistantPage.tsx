@@ -122,8 +122,8 @@ export function AiAssistantPage() {
   }
 
   return (
-    <div className="flex h-full flex-col p-5">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] bg-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
+    <div className="flex h-full flex-col bg-surface-muted p-5">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] border border-border bg-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
         {/* 카드 헤더 */}
         <div className="flex flex-col border-b border-border px-6 py-4">
           <h1 className="m-0 text-xl font-medium text-primary">AI 어시스턴트</h1>

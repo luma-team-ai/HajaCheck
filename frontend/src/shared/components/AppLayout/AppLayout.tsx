@@ -90,9 +90,9 @@ export function AppLayout({
   // (suppressNextBellClickRef, PR머신 P2 #474)으로 해소한다.
   const suppressNextFabClickRef = useRef(false);
 
-  function goToSupportEntry() {
+  function goToSupportEntry(category?: string) {
     setIsSupportPopupOpen(false);
-    navigate(SUPPORT_ENTRY_HREF);
+    navigate(category ? `${SUPPORT_ENTRY_HREF}?category=${category}` : SUPPORT_ENTRY_HREF);
   }
 
   function handleFabClick() {
@@ -145,11 +145,11 @@ export function AppLayout({
         <FloatingPopup
           onClose={() => setIsSupportPopupOpen(false)}
           links={[
-            { label: '서비스 이용 방법', onClick: goToSupportEntry },
-            { label: '분석 결과 문의', onClick: goToSupportEntry },
-            { label: '요금·기타', onClick: goToSupportEntry },
+            { label: '서비스 이용 방법', onClick: () => goToSupportEntry('USAGE_GUIDE') },
+            { label: '분석 결과 문의', onClick: () => goToSupportEntry('INSPECTION_REPORT') },
+            { label: '요금·기타', onClick: () => goToSupportEntry('ACCOUNT_BILLING') },
           ]}
-          onConnectAgent={goToSupportEntry}
+          onConnectAgent={() => goToSupportEntry()}
         />
       )}
     </div>

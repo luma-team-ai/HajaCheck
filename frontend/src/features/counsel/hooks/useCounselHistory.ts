@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getApiErrorMessage } from '../../../shared/api/types';
 import { counselApi } from '../api/counselApi';
-import { DEFAULT_PAGE_SIZE } from '../constants';
+import { DEFAULT_PAGE_SIZE, isTicketEnded } from '../constants';
 import type {
   ChatMessageResponse,
   CounselTicketStatusFilter,
@@ -12,7 +12,7 @@ import type {
 // 목록이 바뀌면(필터 전환) 첫 번째 티켓을 자동 선택한다(Figma: 진입 시 최신 티켓이 우측에 열려 있음).
 export function useCounselHistory() {
   const [status, setStatus] = useState<CounselTicketStatusFilter>('ALL');
-  const [tickets, setTickets] = useState<CounselTicketSummaryResponse[]>([]);
+  const [allTickets, setAllTickets] = useState<CounselTicketSummaryResponse[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [ticketsError, setTicketsError] = useState<string | null>(null);
 
@@ -21,29 +21,41 @@ export function useCounselHistory() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState<string | null>(null);
 
-  const loadTickets = useCallback(async (filter: CounselTicketStatusFilter) => {
+  const loadTickets = useCallback(async () => {
     setTicketsLoading(true);
     setTicketsError(null);
     try {
-      const res = await counselApi.getTickets({ status: filter, page: 0, size: DEFAULT_PAGE_SIZE });
-      setTickets(res.data.content);
-      // 필터 전환 후 이전 선택이 새 목록에 없으면(예: '진행중'에서 '종료'로 전환) 첫 항목으로 갱신.
-      setSelectedId((prev) => {
-        if (prev !== null && res.data.content.some((t) => t.id === prev)) return prev;
-        return res.data.content[0]?.id ?? null;
-      });
+      const res = await counselApi.getTickets({ status: 'ALL', page: 0, size: DEFAULT_PAGE_SIZE });
+      setAllTickets(res.data.content);
     } catch (err) {
       setTicketsError(getApiErrorMessage(err, '상담 이력을 불러오지 못했습니다.'));
-      setTickets([]);
-      setSelectedId(null);
+      setAllTickets([]);
     } finally {
       setTicketsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void loadTickets(status);
-  }, [status, loadTickets]);
+    void loadTickets();
+  }, [loadTickets]);
+
+  // 카드 뱃지(STATUS_BADGE)는 WAITING+IN_PROGRESS를 "진행중"으로, RESOLVED+OFFLINE_LEFT를
+  // "종료"로 묶어 보여주는데, 백엔드 status 쿼리는 단일 enum만 받아 이 그룹을 표현하지 못한다
+  // (탭에서 status=IN_PROGRESS만 보내면 WAITING 티켓이 빠져 "전체엔 있는데 탭엔 없음" 불일치가 남).
+  // 항상 전체를 받아 뱃지와 동일한 기준으로 프론트에서 걸러 일치시킨다.
+  const tickets = useMemo(() => {
+    if (status === 'ALL') return allTickets;
+    if (status === 'RESOLVED') return allTickets.filter((t) => isTicketEnded(t.status));
+    return allTickets.filter((t) => !isTicketEnded(t.status));
+  }, [status, allTickets]);
+
+  useEffect(() => {
+    // 필터 전환 후 이전 선택이 새 목록에 없으면(예: '진행중'에서 '종료'로 전환) 첫 항목으로 갱신.
+    setSelectedId((prev) => {
+      if (prev !== null && tickets.some((t) => t.id === prev)) return prev;
+      return tickets[0]?.id ?? null;
+    });
+  }, [tickets]);
 
   useEffect(() => {
     if (selectedId === null) {

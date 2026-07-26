@@ -29,8 +29,8 @@ export function TicketCard({ ticket, selected, onSelect }: Props) {
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      className={`flex w-full flex-col gap-1.5 rounded-2xl border px-4 py-3 text-left transition-colors ${
-        selected ? 'border-primary bg-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]' : 'border-transparent hover:bg-surface-sunken'
+      className={`flex w-full flex-col gap-1.5 rounded-2xl border bg-white px-4 py-3 text-left shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] transition-colors ${
+        selected ? 'border-primary' : 'border-border hover:bg-surface-sunken'
       }`}
     >
       <div className="flex items-center justify-between gap-2">
@@ -43,10 +43,9 @@ export function TicketCard({ ticket, selected, onSelect }: Props) {
         </span>
       </div>
       <p className="m-0 truncate text-sm font-semibold text-primary">{ticket.title}</p>
-      <div className="flex items-center justify-between gap-2 text-xs text-text-muted">
-        <span className="truncate">{ticket.counselorName ?? '배정 대기 중'}</span>
-        <span className="shrink-0">{formatCardTimestamp(ticket.createdAt)}</span>
-      </div>
+      <p className="m-0 truncate text-xs text-text-muted">
+        {ticket.counselorName ?? '배정 대기 중'} · {formatCardTimestamp(ticket.createdAt)}
+      </p>
     </button>
   );
 }
