@@ -21,6 +21,7 @@ import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.membership.service.QuotaService;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,6 +54,7 @@ public class InspectionService {
     private final CompanyScopeGuard companyScopeGuard;
     private final DefectRepository defectRepository;
     private final UserRepository userRepository;
+    private final QuotaService quotaService;
 
     @Transactional
     public InspectionResponse createInspection(
@@ -61,6 +63,13 @@ public class InspectionService {
         // 시설물 선택 검증 — 요청자 회사 소유 시설물만 회차 생성 가능.
         // FacilityService.get()이 미존재/타회사 소유 모두 FACILITY_NOT_FOUND로 던지므로 그대로 검증에 사용한다.
         FacilityResponse facility = facilityService.get(creatorUserId, companyId, request.facilityId());
+
+        // 플랜 하향으로 한도를 넘긴 시설물은 읽기 전용이다(#890) — 조회·기존 점검 이력은 그대로 두고
+        // 신규 점검 생성만 막는다. 상태 컬럼 없이 "id 오름차순 한도 초과분"으로 계산 판정하므로,
+        // 요금제를 다시 올리면 별도 복구 작업 없이 자동으로 풀린다.
+        if (quotaService.isFacilityReadOnly(companyId, request.facilityId())) {
+            throw new BusinessException(ErrorCode.PLAN_FACILITY_QUOTA_EXCEEDED);
+        }
 
         // 담당자 배정 검증 — users.status=ACTIVE AND role IN (INSPECTOR, ADMIN) + 요청자와 동일 회사(table_design.md §inspections).
         authService.validateAssignableInspector(creatorUserId, request.assignedInspectorId());

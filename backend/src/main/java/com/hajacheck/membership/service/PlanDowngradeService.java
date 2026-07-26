@@ -27,8 +27,10 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><b>자원별 처리</b>
  * <ul>
  *   <li><b>좌석</b> — 초과분을 {@link UserStatus#SUSPENDED} 로 전환한다. 목록에는 "정지됨"으로 계속 보인다.</li>
- *   <li><b>시설물</b> — 상태 컬럼을 추가하지 않고 <b>계산 판정</b>한다({@link #isFacilityReadOnly}).
- *       한도가 다시 올라가면 자동 복구된다는 게 컬럼 방식 대비 이점이다.</li>
+ *   <li><b>시설물</b> — 상태 컬럼을 추가하지 않고 <b>계산 판정</b>한다
+ *       ({@code QuotaService#isFacilityReadOnly} — 현재 플랜 해석이 필요해 그쪽에 둔다).
+ *       한도가 다시 올라가면 자동 복구된다는 게 컬럼 방식 대비 이점이다. 그래서 하향 시점에
+ *       시설물에 대해 할 일이 없다.</li>
  *   <li><b>월 분석</b> — <b>아무것도 하지 않는다.</b> 이미 소비한 누적 기록이라 되돌리면 기록 왜곡이다.
  *       당월 초과는 그대로 두고 신규 분석만 차단되는 현행 동작(=QuotaService)이 곧 정책이며,
  *       다음 달 period 행이 새로 열리면서 자연히 새 한도가 적용된다. <b>누락이 아니다.</b></li>
@@ -74,23 +76,6 @@ public class PlanDowngradeService {
         log.info("플랜 하향 좌석 정지 — companyId={} targetPlan={} suspended={} facilityReadOnly={}",
                 companyId, targetPlan.getName(), overflow.seatOverflowCount(), overflow.facilityOverflowCount());
         return overflow;
-    }
-
-    /**
-     * 이 시설물이 현재 요금제 한도를 넘어 "읽기 전용"인지 — id 오름차순 순위가 {@code maxFacilities} 를
-     * 넘으면 읽기 전용이다(계산 판정, 클래스 javadoc 참고).
-     *
-     * <p>읽기 전용이어도 <b>조회·기존 점검 이력은 그대로</b>다. 차단 대상은 <b>신규 점검 생성</b>뿐이다 —
-     * 점검·보고서가 시설물을 참조하므로 목록에서 빼거나 삭제하면 참조 정합성이 깨진다.
-     */
-    public boolean isFacilityReadOnly(Long companyId, Long facilityId, Plan plan) {
-        Integer maxFacilities = plan.getMaxFacilities();
-        if (maxFacilities == null || companyId == null || facilityId == null) {
-            // null = 무제한(Plan javadoc) — 읽기 전용으로 떨어지는 시설물이 없다.
-            return false;
-        }
-        long rank = facilityRepository.countByCompanyIdAndIdLessThanEqual(companyId, facilityId);
-        return rank > maxFacilities;
     }
 
     /**

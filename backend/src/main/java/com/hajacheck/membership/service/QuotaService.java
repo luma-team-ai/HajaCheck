@@ -164,6 +164,34 @@ public class QuotaService {
     }
 
     /**
+     * 이 시설물이 현재 요금제 한도를 넘어 <b>읽기 전용</b>인지(#890) — 회사 시설물을 id 오름차순으로 봤을 때
+     * 순위가 {@code plans.max_facilities} 를 넘으면 읽기 전용이다.
+     *
+     * <p><b>상태 컬럼을 두지 않고 계산으로 판정하는 이유</b>: 한도가 다시 올라가면(업그레이드) 별도 복구
+     * 작업 없이 <b>자동으로 다시 쓰기 가능</b>해진다. 컬럼 방식은 하향·상향 양쪽에서 동기화를 유지해야 하고
+     * 어긋나면 영구 드리프트가 된다.
+     *
+     * <p>읽기 전용이어도 <b>조회·기존 점검 이력은 그대로</b>다. 차단 대상은 <b>신규 점검 생성</b>뿐 —
+     * 점검·보고서가 시설물을 참조하므로 목록에서 빼거나 삭제하면 참조 정합성이 깨진다(#890 정책).
+     *
+     * <p>활성 구독이 없으면(개인 계정 등) 판정 대상이 아니므로 false 다 — 회사 자원이 아닌 것에 회사 한도를
+     * 적용하지 않는다.
+     */
+    public boolean isFacilityReadOnly(Long companyId, Long facilityId) {
+        if (companyId == null || facilityId == null) {
+            return false;
+        }
+        Integer maxFacilities = findLivePlan(null, companyId)
+                .map(userPlan -> findPlan(userPlan.getPlanId()).getMaxFacilities())
+                .orElse(null);
+        if (maxFacilities == null) {
+            // 무제한이거나 활성 구독 없음 — 어느 쪽이든 읽기 전용으로 떨어지는 시설물이 없다.
+            return false;
+        }
+        return facilityRepository.countByCompanyIdAndIdLessThanEqual(companyId, facilityId) > maxFacilities;
+    }
+
+    /**
      * 월 분석 한도 차감(요청 1건 = 이미지 {@code imageCount} 장).
      *
      * <p>호출부(분석 시작)는 트랜잭션 밖이라 이 메서드가 독립 트랜잭션으로 커밋된다 — 이후 단계가 실패하면

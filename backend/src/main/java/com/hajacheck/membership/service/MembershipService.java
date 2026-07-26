@@ -53,6 +53,7 @@ public class MembershipService {
     private final PlanRepository planRepository;
     private final UserPlanRepository userPlanRepository;
     private final UsageCounterRepository usageCounterRepository;
+    private final PlanDowngradeService planDowngradeService;
 
     public MyPlanResponse getMyPlan(Long userId) {
         User user = findUser(userId);
@@ -138,6 +139,15 @@ public class MembershipService {
         // 대상이 현재와 동일 + 이미 ACTIVE → 변경 없음(불필요한 이력 행/한도 리셋 방지).
         if (current.getStatus() == UserPlanStatus.ACTIVE && current.getPlanId().equals(targetPlan.getId())) {
             return buildResponseWithUsage(current, targetPlan, company);
+        }
+
+        // 이 흐름에서는 구성원을 정지시키지 않는다(#890) — 셀프 결제 화면에는 "누가 정지되는지" 확인 단계가
+        // 없어서, 여기서 전환을 허용하면 관리자가 모르는 사이에 동료 계정이 끊긴다. 하향으로 한도를 넘게
+        // 되면 거절하고 관리자 콘솔의 "변경 미리보기 → 명시적 확인" 경로(AdminPlanService#changePlan)로
+        // 유도한다. FREE 다운그레이드는 위에서 이미 막혀 있으므로, 여기 걸리는 건 ENTERPRISE→STANDARD 처럼
+        // 한도가 낮아지는 전환이다.
+        if (companyId != null && planDowngradeService.preview(companyId, targetPlan).exists()) {
+            throw new BusinessException(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED);
         }
 
         // 기존 구독 만료 후 신규 ACTIVE 발급 — 부분 UQ(ACTIVE 최대 1건)를 만족하도록 만료 UPDATE 를 먼저
