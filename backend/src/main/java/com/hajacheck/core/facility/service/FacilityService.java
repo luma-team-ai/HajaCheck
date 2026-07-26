@@ -4,6 +4,7 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
+import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
@@ -52,6 +53,7 @@ public class FacilityService {
     private final InspectionRepository inspectionRepository;
     private final UserRepository userRepository;
     private final QuotaService quotaService;
+    private final DefectRepository defectRepository;
 
     @Transactional
     public FacilityResponse create(Long userId, Long companyId, FacilityCreateRequest request) {
@@ -97,7 +99,13 @@ public class FacilityService {
 
     public FacilityResponse get(Long userId, Long companyId, Long facilityId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
-        return FacilityResponse.from(findCompanyFacility(companyId, facilityId));
+        Facility facility = findCompanyFacility(companyId, facilityId);
+        Long latestDefectId = defectRepository
+                .findLatestIdsByFacility(facilityId, companyId, PageRequest.of(0, 1))
+                .stream()
+                .findFirst()
+                .orElse(null);
+        return FacilityResponse.from(facility, latestDefectId);
     }
 
     /**

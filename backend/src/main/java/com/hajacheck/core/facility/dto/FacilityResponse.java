@@ -24,9 +24,15 @@ public record FacilityResponse(
         LocalDateTime updatedAt,
         FacilityInitialGrade initialGrade,
         Long assigneeUserId,
-        String memo
+        String memo,
+        // 시설물 상세→하자 오버레이 직행(HAJA-434 갭1) — 대표(최신) 하자 id, 하자가 없으면 null.
+        Long latestDefectId
 ) {
     public static FacilityResponse from(Facility facility) {
+        return from(facility, null);
+    }
+
+    public static FacilityResponse from(Facility facility, Long latestDefectId) {
         return new FacilityResponse(
                 facility.getId(),
                 facility.getName(),
@@ -42,7 +48,8 @@ public record FacilityResponse(
                 facility.getUpdatedAt(),
                 facility.getInitialGrade(),
                 facility.getAssigneeUserId(),
-                facility.getMemo()
+                facility.getMemo(),
+                latestDefectId
         );
     }
 }

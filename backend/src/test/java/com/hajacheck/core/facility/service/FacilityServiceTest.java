@@ -23,6 +23,7 @@ import com.hajacheck.core.facility.dto.FacilityStatusResponse;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.entity.FacilityInitialGrade;
+import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
@@ -62,6 +63,9 @@ class FacilityServiceTest {
 
     @Mock
     private QuotaService quotaService;
+
+    @Mock
+    private DefectRepository defectRepository;
 
     @InjectMocks
     private FacilityService facilityService;
@@ -176,6 +180,32 @@ class FacilityServiceTest {
         FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
 
         assertThat(response.name()).isEqualTo("기존시설");
+    }
+
+    // HAJA-434 갭1 — 시설물 상세→하자 오버레이 직행을 위한 대표(최신) 하자 id.
+    @Test
+    void get_하자있는시설_대표하자ID채워서반환() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(defectRepository.findLatestIdsByFacility(eq(10L), eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(555L));
+
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
+
+        assertThat(response.latestDefectId()).isEqualTo(555L);
+        verify(defectRepository).findLatestIdsByFacility(eq(10L), eq(OWNER_ID), any(PageRequest.class));
+    }
+
+    @Test
+    void get_하자없는시설_대표하자ID는null() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(defectRepository.findLatestIdsByFacility(eq(10L), eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of());
+
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
+
+        assertThat(response.latestDefectId()).isNull();
     }
 
     @Test
