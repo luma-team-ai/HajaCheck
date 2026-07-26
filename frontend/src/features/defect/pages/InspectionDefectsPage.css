@@ -61,35 +61,45 @@
   margin-top: 20px;
 }
 
-/* --- KPI 4종 --- */
+/* --- KPI 4종 (인라인 통계, Figma 정렬 #937 — 박스형 카드 대신 라벨/숫자를 한 줄에 배치) --- */
 
 .inspection-kpi-summary {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   margin: 0;
+  padding: 0;
 }
 
 .inspection-kpi-summary__card {
-  padding: 18px 20px;
-  border: 1px solid var(--color-border);
-  border-radius: 20px;
-  background: var(--color-surface);
-  box-shadow: 0 2px 5px rgba(24, 24, 27, 0.08);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 24px;
+  border-right: 1px solid var(--color-border);
+}
+
+.inspection-kpi-summary__card:first-child {
+  padding-left: 0;
+}
+
+.inspection-kpi-summary__card:last-child {
+  padding-right: 0;
+  border-right: none;
 }
 
 .inspection-kpi-summary__card dt {
-  margin: 0 0 6px;
+  margin: 0;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .inspection-kpi-summary__card dd {
   margin: 0;
   color: var(--color-heading);
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 800;
 }
 
 /* --- 하자 카드 그리드 --- */
@@ -488,7 +498,13 @@
   }
 
   .inspection-kpi-summary {
-    grid-template-columns: repeat(2, 1fr);
+    row-gap: 12px;
+  }
+
+  .inspection-kpi-summary__card {
+    flex: 1 1 40%;
+    border-right: none;
+    padding: 0;
   }
 }
 
@@ -498,7 +514,15 @@
   }
 
   .inspection-kpi-summary {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .inspection-kpi-summary__card {
+    width: 100%;
+    padding: 0;
+    border-right: none;
   }
 
   .defect-card-grid__grid {
