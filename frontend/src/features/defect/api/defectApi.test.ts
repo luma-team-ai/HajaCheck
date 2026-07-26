@@ -268,13 +268,12 @@ describe('defectApi.listFacilityOptions', () => {
 });
 
 describe('defectApi.submitAction', () => {
-  it('조치 결과 등록 필드와 함께 요청하면 상태가 RESOLVED로 바뀌고 actionResult가 채워진다', async () => {
+  it('PATCH /api/defects/{id}/action 호출 시 상태가 RESOLVED로 바뀌고 actionResult가 채워진다', async () => {
     const res = await defectApi.submitAction(2, {
-      status: 'RESOLVED',
       actionContent: '균열 부위 보수 완료',
       actionDate: '2026-07-20',
-      assigneeId: 101,
-      afterMediaId: 9001,
+      actionAssigneeId: 101,
+      actionMediaId: 9001,
     });
 
     expect(res.data.status).toBe('RESOLVED');

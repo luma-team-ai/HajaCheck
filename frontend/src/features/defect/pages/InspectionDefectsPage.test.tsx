@@ -67,6 +67,12 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     expect(within(kpi).getByText('2')).not.toBeNull();
   });
 
+  it('헤더에 점검 ID 텍스트를 렌더링한다', async () => {
+    renderPage('101');
+
+    expect(await screen.findByRole('heading', { name: /점검 #101/ })).not.toBeNull();
+  });
+
   it('하자가 없는 점검(inspectionId=301)은 빈 상태 메시지를 표시한다', async () => {
     renderPage('301');
 

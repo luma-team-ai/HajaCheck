@@ -28,6 +28,13 @@
   font-weight: 600;
 }
 
+.inspection-defects-page__title {
+  margin: 0 0 20px;
+  color: var(--color-heading);
+  font-size: 26px;
+  font-weight: 800;
+}
+
 .inspection-defects-page__sr-only {
   position: absolute;
   width: 1px;
@@ -54,35 +61,45 @@
   margin-top: 20px;
 }
 
-/* --- KPI 4종 --- */
+/* --- KPI 4종 (인라인 통계, Figma 정렬 #937 — 박스형 카드 대신 라벨/숫자를 한 줄에 배치) --- */
 
 .inspection-kpi-summary {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   margin: 0;
+  padding: 0;
 }
 
 .inspection-kpi-summary__card {
-  padding: 18px 20px;
-  border: 1px solid var(--color-border);
-  border-radius: 20px;
-  background: var(--color-surface);
-  box-shadow: 0 2px 5px rgba(24, 24, 27, 0.08);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 24px;
+  border-right: 1px solid var(--color-border);
+}
+
+.inspection-kpi-summary__card:first-child {
+  padding-left: 0;
+}
+
+.inspection-kpi-summary__card:last-child {
+  padding-right: 0;
+  border-right: none;
 }
 
 .inspection-kpi-summary__card dt {
-  margin: 0 0 6px;
+  margin: 0;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .inspection-kpi-summary__card dd {
   margin: 0;
   color: var(--color-heading);
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 800;
 }
 
 /* --- 하자 카드 그리드 --- */
@@ -94,10 +111,111 @@
   gap: 16px;
 }
 
-.defect-card-grid__controls {
+.defect-card-grid__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.defect-card-grid__status-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.defect-card-grid__status-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  background: var(--color-surface);
+  padding: 7px 14px;
+  color: var(--color-text-default);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.defect-card-grid__status-tab-count {
+  border-radius: 9999px;
+  background: var(--color-surface-sunken);
+  padding: 1px 7px;
+  color: inherit;
+  font-size: 11px;
+}
+
+.defect-card-grid__status-tab.is-active {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.defect-card-grid__status-tab.is-active .defect-card-grid__status-tab-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.defect-card-grid__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.defect-card-grid__funnel {
+  position: relative;
+}
+
+.defect-card-grid__funnel-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-text-default);
+  cursor: pointer;
+}
+
+.defect-card-grid__funnel-button.has-active-filter {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.defect-card-grid__funnel-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 160px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  padding: 12px;
+  box-shadow: 0 8px 20px rgba(24, 24, 27, 0.12);
+}
+
+.defect-card-grid__funnel-panel .defect-filter-bar__select {
+  width: 100%;
+}
+
+.defect-card-grid__sort-select {
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  background: var(--color-surface-muted);
+  padding: 6px 12px;
+  color: var(--color-text-default);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .defect-card-grid__grid {
@@ -138,7 +256,7 @@
 
 .defect-card-grid__thumb {
   display: flex;
-  height: 140px;
+  height: 160px;
   align-items: center;
   justify-content: center;
   background: var(--color-surface-sunken);
@@ -163,25 +281,59 @@
   padding: 14px 16px 16px;
 }
 
-.defect-card-grid__badges {
+.defect-card-grid__heading {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .defect-card-grid__type {
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
   margin: 0;
   color: var(--color-heading);
   font-size: 15px;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.defect-card-grid__badges {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+
+.defect-card-grid__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.defect-card-grid__badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: currentColor;
 }
 
 .defect-card-grid__stats {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 10px;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.defect-card-grid__stats-divider {
+  width: 1px;
+  height: 12px;
+  background: var(--color-border);
 }
 
 /* --- 점검 활동 기록 사이드바 --- */
@@ -201,6 +353,50 @@
   margin-right: 8px;
   color: var(--color-primary);
   font-weight: 700;
+}
+
+/* dot + 세로 연결선 타임라인(Figma 정렬, #937) — ActivityHistoryPanel(하자 단건, defect-activity-panel
+   클래스)과는 다른 조상 클래스(inspection-activity-panel)로 스코프해 그쪽 스타일에는 영향을 주지 않는다. */
+.inspection-activity-panel .defect-activity-list li {
+  position: relative;
+}
+
+.inspection-activity-panel .defect-activity-dot {
+  position: relative;
+  z-index: 1;
+}
+
+.inspection-activity-panel .defect-activity-list li:not(:last-child)::before {
+  position: absolute;
+  top: 12px;
+  left: 5px;
+  width: 2px;
+  height: calc(100% + 18px);
+  background: var(--color-border);
+  content: '';
+}
+
+.inspection-activity-panel__entry {
+  border-radius: 12px;
+  background: var(--color-surface-sunken);
+  padding: 10px 12px;
+}
+
+.inspection-activity-panel__more {
+  width: 100%;
+  margin-top: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  background: var(--color-surface);
+  padding: 8px 0;
+  color: var(--color-text-default);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.inspection-activity-panel__more:hover {
+  background: var(--color-surface-sunken);
 }
 
 /* --- 하자 상세 모달 --- */
@@ -253,14 +449,24 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin: 8px 0 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .defect-detail-modal__code {
+  margin: 0;
+  color: var(--color-heading);
+  font-size: 26px;
+  font-weight: 800;
+}
+
+.defect-image-viewer-label {
+  margin: 0;
   color: var(--color-text-muted);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .defect-detail-modal__body {
@@ -326,11 +532,13 @@
 .defect-action-form__dropzone {
   display: flex;
   min-height: 96px;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   border: 1px dashed var(--color-border);
   border-radius: 12px;
-  padding: 16px;
+  padding: 20px 16px;
   color: var(--color-text-muted);
   cursor: pointer;
   font-size: 13px;
@@ -340,6 +548,35 @@
 .defect-action-form__dropzone.is-drag-active {
   border-color: var(--color-point);
   background: color-mix(in srgb, var(--color-point) 6%, var(--color-surface));
+}
+
+.defect-action-form__dropzone-icon {
+  width: 28px;
+  height: 28px;
+  color: var(--color-text-muted);
+}
+
+.defect-action-form__dropzone-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.defect-action-form__dropzone-text strong {
+  color: var(--color-text-default);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.defect-action-form__dropzone-text small {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.defect-action-form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
 }
 
 .defect-action-form__error {
@@ -380,7 +617,13 @@
   }
 
   .inspection-kpi-summary {
-    grid-template-columns: repeat(2, 1fr);
+    row-gap: 12px;
+  }
+
+  .inspection-kpi-summary__card {
+    flex: 1 1 40%;
+    border-right: none;
+    padding: 0;
   }
 }
 
@@ -390,10 +633,22 @@
   }
 
   .inspection-kpi-summary {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .inspection-kpi-summary__card {
+    width: 100%;
+    padding: 0;
+    border-right: none;
   }
 
   .defect-card-grid__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .defect-action-form__row {
     grid-template-columns: 1fr;
   }
 }

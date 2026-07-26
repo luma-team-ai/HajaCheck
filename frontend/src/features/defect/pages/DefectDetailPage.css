@@ -167,27 +167,30 @@
 
 .defect-metrics {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 14px;
 }
 
 .defect-metric-card {
   display: flex;
-  min-height: 118px;
+  min-height: 68px;
   flex-direction: column;
-  justify-content: flex-start;
-  padding: 20px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 14px 12px;
   border: 1px solid var(--color-border);
-  border-radius: 20px;
+  border-radius: 999px;
   background: var(--color-surface);
   box-shadow: 0 2px 5px rgba(24, 24, 27, 0.08);
+  text-align: center;
 }
 
-.defect-metric-card > span { margin-bottom: 5px; color: var(--color-text-muted); font-size: 12px; font-weight: 600; }
-.defect-metric-card strong { color: #000; font-size: 34px; line-height: 1; }
-.defect-metric-card small { font-size: 14px; font-weight: 500; }
-.defect-metric-card em { margin-top: 5px; color: var(--color-text-muted); font-size: 13px; font-style: normal; text-align: right; }
-.defect-metric-card .defect-metric-empty { color: var(--color-text-muted); font-size: 16px; font-weight: 600; }
+.defect-metric-card > span { margin-bottom: 0; color: var(--color-text-muted); font-size: 11px; font-weight: 600; }
+.defect-metric-card strong { color: var(--color-heading); font-size: 18px; line-height: 1.2; }
+.defect-metric-card small { font-size: 12px; font-weight: 500; }
+.defect-metric-card em { margin-top: 0; color: var(--color-text-muted); font-size: 12px; font-style: normal; text-align: center; }
+.defect-metric-card .defect-metric-empty { color: var(--color-text-muted); font-size: 13px; font-weight: 600; }
 
 .defect-explain-panel {
   padding: 26px;
@@ -201,6 +204,13 @@
 .defect-explain-section h3 { margin: 0 0 5px; color: var(--color-text-muted); font-size: 13px; font-weight: 700; }
 .defect-explain-section .defect-risk-title { color: #ff6d1f; }
 .defect-explain-section p { margin: 0; color: var(--color-text-default); font-size: 14px; line-height: 1.55; }
+
+.defect-explain-section--risk {
+  padding: 14px 16px;
+  border: 1px solid var(--color-danger-soft-border);
+  border-radius: 14px;
+  background: var(--color-danger-soft-bg);
+}
 
 .defect-activity-panel { padding: 26px; }
 .defect-activity-panel h2 { margin: 0 0 20px; color: var(--color-heading); font-size: 21px; font-weight: 800; }
@@ -228,7 +238,27 @@
   background: var(--color-primary);
 }
 
+.defect-activity-meta { display: flex; align-items: center; gap: 8px; }
 .defect-activity-meta time { color: var(--color-text-muted); font-size: 12px; }
+
+.defect-activity-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 9999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.defect-activity-status-badge > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
 .defect-activity-list p { margin: 6px 0 0; color: var(--color-text-default); font-size: 13px; line-height: 1.5; }
 
 .defect-activity-pagination { display: flex; justify-content: center; margin-top: 16px; }

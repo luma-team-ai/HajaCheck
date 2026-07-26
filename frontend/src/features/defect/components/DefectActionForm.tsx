@@ -27,8 +27,9 @@ const PHOTO_ERROR_MESSAGE: Record<'FILE_INVALID_TYPE' | 'FILE_TOO_LARGE', string
 
 // 하자 상세 모달 "조치 결과 등록" 폼 — contract.md §"조치 결과 등록" 필드 표 확정: 조치 후 사진
 // (필수, 드래그앤드롭), 조치 내용(필수), 조치일(필수), 담당자(필수). 제출 시 PATCH
-// /api/defects/{id}/status를 상태전이(RESOLVED)+조치결과 필드로 확장하는 것으로 가정한다(BE 판단
-// 대기 — contract.md §엔드포인트 매핑 ③조치 결과 등록, [CONTRACT-CHANGE-REQUEST] 후보).
+// /api/defects/{id}/action(DefectActionResultRequest)을 호출한다 — 상태 전이(RESOLVED)는 백엔드가
+// 내부에서 항상 고정 처리하므로 요청 바디에 status를 싣지 않는다(contract.md §엔드포인트 매핑
+// ③조치 결과 등록 확정).
 export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmitted }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -122,12 +123,15 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
 
     try {
       const uploaded = await uploadActionPhoto({ inspectionId, file });
+      const uploadedMediaId = uploaded[0]?.id;
+      if (uploadedMediaId == null) {
+        throw new Error('조치 후 사진 업로드 결과가 없습니다.');
+      }
       await submitAction({
-        status: 'RESOLVED',
         actionContent: actionContent.trim(),
         actionDate,
-        assigneeId,
-        afterMediaId: uploaded[0]?.id,
+        actionAssigneeId: assigneeId,
+        actionMediaId: uploadedMediaId,
       });
       onSubmitted?.();
     } catch {
@@ -151,7 +155,30 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
           role="button"
           tabIndex={0}
         >
-          {file ? <span>{file.name}</span> : <span>클릭하거나 파일을 끌어다 놓으세요 (JPG, PNG, 최대 10MB)</span>}
+          {file ? (
+            <span>{file.name}</span>
+          ) : (
+            <>
+              <svg
+                className="defect-action-form__dropzone-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M7 16a4 4 0 0 1-.5-7.97A5 5 0 0 1 16.9 6.02 4.5 4.5 0 0 1 17.5 15H16m-8 3 4-4m0 0 4 4m-4-4v9"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span className="defect-action-form__dropzone-text">
+                <strong>파일을 드래그하거나 클릭하여 업로드</strong>
+                <small>JPG, PNG 파일 (최대 10MB)</small>
+              </span>
+            </>
+          )}
           <input
             id="defect-action-photo"
             ref={fileInputRef}
@@ -179,31 +206,33 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
         />
       </div>
 
-      <div className="defect-action-form__field">
-        <label htmlFor="defect-action-date">조치일 *</label>
-        <input
-          id="defect-action-date"
-          type="date"
-          value={actionDate}
-          onChange={(event) => setActionDate(event.target.value)}
-        />
-      </div>
+      <div className="defect-action-form__row">
+        <div className="defect-action-form__field">
+          <label htmlFor="defect-action-date">조치일 *</label>
+          <input
+            id="defect-action-date"
+            type="date"
+            value={actionDate}
+            onChange={(event) => setActionDate(event.target.value)}
+          />
+        </div>
 
-      <div className="defect-action-form__field">
-        <label htmlFor="defect-action-assignee">담당자 *</label>
-        <select
-          id="defect-action-assignee"
-          value={assigneeId}
-          disabled={isAssigneeLoading}
-          onChange={(event) => setAssigneeId(event.target.value === '' ? '' : Number(event.target.value))}
-        >
-          <option value="">담당자를 선택하세요</option>
-          {(assignableUsers ?? []).map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.name}
-            </option>
-          ))}
-        </select>
+        <div className="defect-action-form__field">
+          <label htmlFor="defect-action-assignee">담당자 *</label>
+          <select
+            id="defect-action-assignee"
+            value={assigneeId}
+            disabled={isAssigneeLoading}
+            onChange={(event) => setAssigneeId(event.target.value === '' ? '' : Number(event.target.value))}
+          >
+            <option value="">담당자를 선택하세요</option>
+            {(assignableUsers ?? []).map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {uploadError && (

@@ -5,8 +5,8 @@ import { inspectionDefectsKeys } from './useInspectionDefects';
 import { defectKeys } from './useDefects';
 import type { Defect, DefectActionSubmitRequest } from '../types';
 
-// 하자 상세 모달 "조치 완료 등록" 제출(HAJA-394/#726) — PATCH /api/defects/{id}/status 확장 가정
-// (BE 판단 대기, contract.md §"조치 결과 등록" 참고). 성공 시 상세 캐시를 갱신하고, 같은 점검의
+// 하자 상세 모달 "조치 완료 등록" 제출(HAJA-394/#726) — PATCH /api/defects/{id}/action(확정,
+// contract.md §"조치 결과 등록"). 성공 시 상세 캐시를 갱신하고, 같은 점검의
 // 카드 그리드(useInspectionDefects)도 최신 상태를 반영하도록 무효화한다.
 export function useSubmitDefectAction(defectId: number | undefined, inspectionId: number | undefined) {
   const queryClient = useQueryClient();

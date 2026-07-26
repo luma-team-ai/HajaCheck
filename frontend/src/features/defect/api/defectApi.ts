@@ -73,9 +73,9 @@ export const defectApi = {
   // GET /api/facilities — 점검 목록 필터의 시설물 select 옵션. facility/inspection feature import
   // 없이 실 엔드포인트만 재사용(이미 다른 feature도 동일 엔드포인트를 각자 호출하는 기존 패턴과 동일).
   listFacilityOptions: () => api.get<InspectionFacilityOption[]>('/facilities'),
-  // PATCH /api/defects/{id}/status 확장 가정(BE 판단 대기, contract.md §"조치 결과 등록" 참고) —
-  // 하자 상세 모달의 "조치 완료 등록" 제출 시 상태 전이(RESOLVED)와 조치결과 필드를 함께 보낸다.
-  // 실제 필드명/엔드포인트가 BE 확정과 다르면 PR에 [CONTRACT-CHANGE-REQUEST]로 표시할 것.
+  // PATCH /api/defects/{id}/action — 하자 상세 모달의 "조치 완료 등록" 제출(DefectActionResultRequest,
+  // contract.md §"조치 결과 등록" 확정, #726). 상태 전이(PATCH /status)와는 분리된 별도 엔드포인트로,
+  // 백엔드가 내부에서 항상 IN_PROGRESS→RESOLVED로만 전이한다.
   submitAction: (id: number, body: DefectActionSubmitRequest) =>
-    api.patch<Defect>(`/defects/${id}/status`, body),
+    api.patch<Defect>(`/defects/${id}/action`, body),
 };

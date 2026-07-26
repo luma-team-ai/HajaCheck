@@ -114,7 +114,7 @@ describe('useDefectExplain (통합 테스트)', () => {
     expect(container.textContent).toContain('바닥재 수분 침투');
     expect(container.textContent).toContain('방치 시 위험');
     expect(container.textContent).toContain('낙상 위험');
-    expect(container.textContent).toContain('조치 계획');
+    expect(container.textContent).toContain('조치 권고');
     expect(container.textContent).toContain('바닥재 전체 교체');
 
     root.unmount();
