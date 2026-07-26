@@ -3,6 +3,9 @@ package com.hajacheck.admin.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.admin.repository.AdminPlanRepository;
@@ -14,6 +17,7 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.membership.dto.DowngradeOverflow;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UserPlan;
@@ -57,6 +61,8 @@ class AdminPlanServiceTest {
     private CompanyRepository companyRepository;
     @Mock
     private MediaRepository mediaRepository;
+    @Mock
+    private com.hajacheck.membership.service.PlanDowngradeService planDowngradeService;
 
     @InjectMocks
     private AdminPlanService service;
@@ -79,12 +85,14 @@ class AdminPlanServiceTest {
         when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
                 companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
         when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(targetPlan));
+        // 이 테스트의 관심사는 동시성 경합(409) 매핑이라 하향 초과는 없는 상황으로 고정한다(#890).
+        when(planDowngradeService.preview(anyLong(), any(Plan.class))).thenReturn(DowngradeOverflow.none());
         // 첫 saveAndFlush(만료 처리)는 성공, 두 번째(신규 ACTIVE 삽입)에서 부분 UQ 위반을 재현한다.
         when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
                 .thenReturn(current)
                 .thenThrow(new DataIntegrityViolationException("uq_user_plans_active_company violated"));
 
-        assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.STANDARD))
+        assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.STANDARD, false))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT));
@@ -105,7 +113,7 @@ class AdminPlanServiceTest {
         when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
         when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
 
-        assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.STANDARD))
+        assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.STANDARD, false))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_FORBIDDEN));
@@ -135,5 +143,67 @@ class AdminPlanServiceTest {
         var response = service.getPlanQuota(adminUserId, 1, 20, null);
 
         assertThat(response.stats().companyPlan()).isNull();
+    }
+
+    @Test
+    void 하향으로_한도초과가생기는데_확인이없으면_아무것도바꾸지않고_409() {
+        // #890 핵심 안전장치 — 관리자가 모르는 사이에 구성원이 정지되면 안 된다. 확인 플래그가 없으면
+        // 플랜 만료/신규 발급(saveAndFlush) 자체에 도달하지 않아야 한다(부작용 0).
+        Long adminUserId = 1L;
+        Long companyId = 10L;
+        User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
+                .passwordHash("hash").build();
+        UserPlan current = UserPlan.forCompany(companyId, 100L);
+        Plan targetPlan = Plan.create(PlanName.FREE, 1, 50, 1, true, false, false, BigDecimal.ZERO);
+        Company company = Company.createPendingReview(adminUserId, "회사", "123-45-67890",
+                "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+
+        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(companyMembershipRepository.existsEffectiveApprovedMembership(anyLong(), anyLong(), any()))
+                .thenReturn(true);
+        when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
+                companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.FREE)).thenReturn(Optional.of(targetPlan));
+        when(planDowngradeService.preview(companyId, targetPlan))
+                .thenReturn(new DowngradeOverflow(List.of(7L, 8L), 3));
+
+        assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.FREE, false))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED));
+
+        // 부작용 부재가 이 테스트의 핵심 — 구독 전이도, 좌석 정지도 시도되지 않아야 한다.
+        verify(adminPlanRepository, never()).saveAndFlush(any(UserPlan.class));
+        verify(planDowngradeService, never()).applyOverflow(anyLong(), any(Plan.class));
+    }
+
+    @Test
+    void 하향이라도_초과가없으면_확인없이_그대로변경된다() {
+        // 불필요한 마찰 금지(#890) — 넘치는 자원이 없으면 확인 플래그를 요구하지 않는다.
+        Long adminUserId = 1L;
+        Long companyId = 10L;
+        User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
+                .passwordHash("hash").build();
+        UserPlan current = UserPlan.forCompany(companyId, 100L);
+        Plan targetPlan = Plan.create(PlanName.STANDARD, 10, 1000, 3, false, true, true,
+                new BigDecimal("29000.00"));
+        Company company = Company.createPendingReview(adminUserId, "회사", "123-45-67890",
+                "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+
+        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(companyMembershipRepository.existsEffectiveApprovedMembership(anyLong(), anyLong(), any()))
+                .thenReturn(true);
+        when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
+                companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(targetPlan));
+        when(planDowngradeService.preview(companyId, targetPlan)).thenReturn(DowngradeOverflow.none());
+        when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.changePlan(adminUserId, PlanName.STANDARD, false);
+
+        verify(planDowngradeService).applyOverflow(companyId, targetPlan);
     }
 }
