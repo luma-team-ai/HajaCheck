@@ -25,6 +25,11 @@ public interface FacilityRepository extends JpaRepository<Facility, Long> {
 
     long countByCompanyId(Long companyId);
 
+    // 플랜 하향 시 "읽기 전용 시설물" 계산 판정(#890) — 회사 시설물을 id 오름차순으로 봤을 때 이 시설물의
+    // 순위(자기 자신 포함)다. 순위가 plans.max_facilities 를 넘으면 읽기 전용으로 본다. 상태 컬럼을 두지
+    // 않는 이유는 한도가 다시 올라갔을 때 자동 복구되기 때문(PlanDowngradeService javadoc 참고).
+    long countByCompanyIdAndIdLessThanEqual(Long companyId, Long id);
+
     // 대시보드 개요(HAJA-17) — 전월 대비 증감률 계산용: 기준 시각 이전 누적 등록 수.
     long countByCompanyIdAndCreatedAtBefore(Long companyId, LocalDateTime before);
 

@@ -1,5 +1,6 @@
 package com.hajacheck.admin.service;
 
+import com.hajacheck.admin.dto.AdminPlanChangePreviewResponse;
 import com.hajacheck.admin.dto.AdminPlanCatalogResponse;
 import com.hajacheck.admin.dto.AdminPlanHistoryEntry;
 import com.hajacheck.admin.dto.AdminPlanHistoryResponse;
@@ -17,6 +18,7 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.membership.dto.DowngradeOverflow;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UsageCounter;
@@ -24,6 +26,7 @@ import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
+import com.hajacheck.membership.service.PlanDowngradeService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -72,6 +75,7 @@ public class AdminPlanService {
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
     private final MediaRepository mediaRepository;
+    private final PlanDowngradeService planDowngradeService;
 
     /** 제공 요금제 카탈로그(변경 선택지) — 회사 스코프와 무관한 참조 데이터라 ADMIN 이면 조회 가능. */
     public AdminPlanCatalogResponse getPlanCatalog() {
@@ -101,7 +105,7 @@ public class AdminPlanService {
      * 로 한정한다 — 승인된 멤버십만으로는 허용하지 않는다(그 외 ADMIN 멤버는 요청/조회만 가능).
      */
     @Transactional
-    public AdminPlanResponse changePlan(Long adminUserId, PlanName targetPlanName) {
+    public AdminPlanResponse changePlan(Long adminUserId, PlanName targetPlanName, boolean overflowConfirmed) {
         Long companyId = resolveInheritedCompanyId(adminUserId);
         requireCompanyOwner(companyId, adminUserId);
         UserPlan current = resolveCurrentCompanyPlan(companyId);
@@ -114,19 +118,64 @@ public class AdminPlanService {
             return buildResponseWithUsage(current, targetPlan);
         }
 
+        // 현재 플랜은 "하향인지" 판정에만 쓰이므로 멱등 조기반환 뒤에 조회한다(재검토 P3).
+        Plan currentPlan = findPlan(current.getPlanId());
+
+        // 하향으로 한도를 넘게 되는 자원이 있으면 "명시적 확인" 없이는 아무것도 바꾸지 않는다(#890).
+        // 이 검사를 아래 만료/발급보다 먼저 두는 이유: 확인 없는 요청에서 플랜만 바뀌고 정지는 안 되는
+        // 중간 상태가 절대 남으면 안 되기 때문이다(트랜잭션 롤백에 기대지 않고 순서로 보장한다).
+        if (!overflowConfirmed && planDowngradeService.preview(companyId, currentPlan, targetPlan).exists()) {
+            throw new BusinessException(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED);
+        }
+
         // 기존 구독 만료 후 신규 ACTIVE 발급 — 부분 UQ(uq_user_plans_active_company: ACTIVE 최대 1건)를
         // 만족하도록 만료 UPDATE 를 먼저 flush 한 뒤 INSERT 한다.
         current.expire();
         adminPlanRepository.saveAndFlush(current);
 
         UserPlan renewed = UserPlan.forCompany(companyId, targetPlan.getId());
+        UserPlan saved;
         try {
-            UserPlan saved = adminPlanRepository.saveAndFlush(renewed);
-            return buildResponseWithUsage(saved, targetPlan);
+            // try 범위를 이 한 줄로 좁힌다(리뷰 P3) — 아래 좌석 정지 flush 에서 나온 무결성 위반까지
+            // "이미 활성 구독 존재"로 오분류하지 않기 위해서다.
+            saved = adminPlanRepository.saveAndFlush(renewed);
         } catch (DataIntegrityViolationException e) {
             // 동시 플랜 변경 경합 — 다른 트랜잭션이 이미 새 ACTIVE 를 만들어 부분 UQ 위반.
             throw new BusinessException(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
         }
+
+        // 초과 좌석 정지는 신규 구독 발급과 같은 트랜잭션에서 — 플랜만 내려가고 정지가 안 되면 한도가
+        // 조용히 무력화된다. 초과가 없으면 no-op 다.
+        //
+        // ⚠️ 알려진 한계(리뷰 P2, 후속 이슈 #913): 이 트랜잭션은 users/user_plans 를 잠그지 않고, preview 가
+        // 읽는 건 잠금 없는 스냅샷이다. 같은 시각 다른 트랜잭션이 "구 플랜" 기준으로 좌석을 활성화하면
+        // (QuotaService#reserveSeat 는 구 userPlan 의 usage_counters 행을 잠그므로 이 트랜잭션과
+        // 직렬화되지 않는다) 커밋 후 새 플랜 한도를 넘는 인원이 남을 수 있다. reserveSeat 는 신규
+        // 활성화만 막으므로 그 초과는 스스로 해소되지 않는다.
+        planDowngradeService.applyOverflow(companyId, currentPlan, targetPlan);
+        return buildResponseWithUsage(saved, targetPlan);
+    }
+
+    /**
+     * 요금제 변경 미리보기(#890) — 이 요금제로 내리면 누가 정지되고 시설물 몇 개가 읽기 전용이 되는지
+     * <b>부작용 없이</b> 계산한다. 인가는 {@link #changePlan} 과 동일(회사 owner 한정)하게 맞춘다 —
+     * 구성원 이름·이메일을 돌려주므로 조회 권한을 변경 권한보다 넓게 두면 안 된다.
+     */
+    public AdminPlanChangePreviewResponse previewChange(Long adminUserId, PlanName targetPlanName) {
+        Long companyId = resolveInheritedCompanyId(adminUserId);
+        requireCompanyOwner(companyId, adminUserId);
+        Plan targetPlan = planRepository.findByName(targetPlanName)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
+
+        Plan currentPlan = findPlan(resolveCurrentCompanyPlan(companyId).getPlanId());
+        DowngradeOverflow overflow = planDowngradeService.preview(companyId, currentPlan, targetPlan);
+        List<AdminPlanChangePreviewResponse.SuspendTarget> targets =
+                userRepository.findAllById(overflow.seatUserIdsToSuspend()).stream()
+                        .sorted(Comparator.comparing(User::getId))
+                        .map(u -> new AdminPlanChangePreviewResponse.SuspendTarget(
+                                u.getId(), u.getName(), u.getEmail()))
+                        .toList();
+        return AdminPlanChangePreviewResponse.of(targetPlanName, overflow, targets);
     }
 
     /** 회사 구독 변경 이력(최신 순, 페이지 단위). */

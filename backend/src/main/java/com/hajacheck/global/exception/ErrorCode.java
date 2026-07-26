@@ -87,6 +87,13 @@ public enum ErrorCode {
     PLAN_ANALYSIS_QUOTA_EXCEEDED(HttpStatus.FORBIDDEN, "요금제의 월 분석 한도를 초과했습니다. 요금제를 업그레이드해 주세요."),
     PLAN_SEAT_QUOTA_EXCEEDED(HttpStatus.FORBIDDEN, "요금제의 좌석 한도를 초과했습니다. 요금제를 업그레이드해 주세요."),
 
+    // 플랜 하향 시 한도 초과분 확인 요구(#890) — 위 3종과 달리 409(CONFLICT)가 맞다. "요금제가 허용하지
+    // 않는 요청"이 아니라 "지금 상태와 충돌하니 확인하고 다시 보내라"는 뜻이고, 실제로 호출자가 확인
+    // 플래그를 실어 재시도하면 풀린다. 구체적인 정지 대상은 이 에러가 아니라 변경 미리보기 조회로 받는다
+    // (에러 응답 계약이 {timestamp, code, message} 라 페이로드를 실을 수 없다).
+    PLAN_DOWNGRADE_CONFIRMATION_REQUIRED(HttpStatus.CONFLICT,
+            "요금제를 내리면 한도를 초과하는 구성원이 정지되고 일부 시설물이 읽기 전용이 됩니다. 변경 내용을 확인한 뒤 다시 요청해 주세요."),
+
     // 시설물(facility)
     // 미존재/타인 소유 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.
     FACILITY_NOT_FOUND(HttpStatus.NOT_FOUND, "시설물을 찾을 수 없습니다."),
