@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { createMemoryRouter, Link, RouterProvider, useLocation } from 'react-router-dom';
+import { createMemoryRouter, Link, RouterProvider } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { inspectionApi } from '../api/inspectionApi';
 import type { AnalysisStatusResponse } from '../api/inspectionApi.types';
@@ -59,17 +59,15 @@ function analyzingStatus(): AnalysisStatusResponse {
 }
 
 // useBlocker(react-router-dom)는 data router(createMemoryRouter/RouterProvider) 컨텍스트 안에서만
-// 동작한다(InspectionCreatePage.test.tsx와 동일 이유) — "/dashboard-link"는 사이드바 Link 클릭을
-// 대역하는 테스트 전용 라우트.
+// 동작한다(InspectionCreatePage.test.tsx와 동일 이유) — "대시보드로 이동" Link는 사이드바 클릭을
+// 대역하는 테스트 전용 라우트. 이동 여부는 router.state.location.pathname으로 직접 확인한다 — 목적지
+// 라우트로 전환되면 이 route의 element(따라서 그 안의 아무 컴포넌트든)가 통째로 언마운트되므로,
+// LocationProbe를 이 element 안에 두면 이동 성공 자체를 검증할 수 없다(InspectionCreatePage.test.tsx와
+// 동일 패턴 — router.state를 직접 읽는다).
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-
-  function LocationProbe() {
-    const location = useLocation();
-    return <div data-testid="location-probe">{location.pathname}</div>;
-  }
 
   const router = createMemoryRouter(
     [
@@ -79,7 +77,6 @@ function renderPage() {
           <>
             <Link to="/dashboard">대시보드로 이동(사이드바 대역)</Link>
             <AiAnalysisStatusPage />
-            <LocationProbe />
           </>
         ),
       },
@@ -157,7 +154,7 @@ describe('AiAnalysisStatusPage', () => {
         ),
       );
 
-      renderPage();
+      const router = renderPage();
       await screen.findByText('50%');
 
       fireEvent.click(screen.getByText('대시보드로 이동(사이드바 대역)'));
@@ -170,7 +167,7 @@ describe('AiAnalysisStatusPage', () => {
       fireEvent.click(screen.getByRole('button', { name: '취소' }));
 
       expect(screen.queryByText('분석이 진행 중입니다')).toBeNull();
-      expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/100/analysis');
+      expect(router.state.location.pathname).toBe('/inspections/100/analysis');
     });
 
     it('확인창에서 나가기를 누르면 분석 취소(DELETE)를 호출하고 실제로 이동한다', async () => {
@@ -185,17 +182,15 @@ describe('AiAnalysisStatusPage', () => {
         }),
       );
 
-      renderPage();
+      const router = renderPage();
       await screen.findByText('50%');
 
       fireEvent.click(screen.getByText('대시보드로 이동(사이드바 대역)'));
       await screen.findByText('분석이 진행 중입니다');
 
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: '나가기' }));
-      });
+      fireEvent.click(screen.getByRole('button', { name: '나가기' }));
 
-      expect(screen.getByTestId('location-probe').textContent).toBe('/dashboard');
+      await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard'));
       await waitFor(() => expect(cancelCallCount).toBe(1));
     });
 
