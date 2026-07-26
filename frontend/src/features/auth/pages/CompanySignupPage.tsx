@@ -24,6 +24,7 @@ import { useBusinessLicenseOcr } from '../hooks/useBusinessLicenseOcr';
 import { useBusinessVerification } from '../hooks/useBusinessVerification';
 import { useCompanySignup } from '../hooks/useCompanySignup';
 import { useEmailAvailability } from '../hooks/useEmailAvailability';
+import type { ApiError } from '../../../shared/api/types';
 import type { BusinessVerificationResult } from '../types';
 import {
   doPasswordsMatch,
@@ -51,6 +52,32 @@ const DEFAULT_ERROR_MESSAGE = '가입 신청에 실패했습니다. 잠시 후 �
 const BUSINESS_VERIFICATION_DEFAULT_ERROR_MESSAGE =
   '진위확인에 실패했습니다. 잠시 후 다시 시도해 주세요.';
 const BUSINESS_VERIFICATION_GATE_MESSAGE = '사업자 진위확인을 먼저 완료해 주세요.';
+// 판정 불가 에러 게이트 통과(#910) — 국세청 전면 장애 중 rate-limit(#648, 전역 분당10/일300,
+// 실패 요청도 카운터 차감)이 소진되면 그날 전원 가입이 완전히 막힌다. UNAVAILABLE(국세청 자체
+// 장애 응답)은 이미 fail-open으로 통과시키는데, "국세청 응답을 아예 받지 못해 판정 불가"인
+// 나머지 경우(429/5xx/408·499 같은 타임아웃/네트워크 오류)도 같은 결론이어야 한다는 게 #596에서
+// 확립된 정책이다. 메시지 문자열 매칭은 하지 않는다(전역 컨벤션: 프론트는 status/code로 분기).
+const WARNING_SOFT_CLASSES = 'text-xs text-warning-soft-fg';
+const BUSINESS_VERIFICATION_ERROR_BYPASS_MESSAGE =
+  '지금 국세청 확인이 어려워 확인 없이 진행합니다.';
+
+// PR #912 P3 픽스 — 화이트리스트(429/5xx/네트워크만 통과)에서 블랙리스트(확정 차단 사유만 열거,
+// 나머지는 전부 통과)로 뒤집는다. 정책 의도는 "국세청 응답을 못 받아 판정 불가면 통과"이지,
+// "정해진 몇 가지 상태코드만 통과"가 아니다. 타임아웃이 408/499처럼 4xx로 표면화되는 경우
+// status>=500 조건에 걸리지 않아 화이트리스트로는 게이트가 부당하게 닫혔다(원래 이슈와 동일한
+// 증상 재발). 반대로 확정적으로 차단해야 하는 사유는 두 가지뿐이다 — ①입력값 자체가 잘못된
+// 400 INVALID_INPUT, ②인증·인가 실패(401/403, 이 요청 자체가 정당한 사용자로 인증되지 않았다는
+// 뜻이라 "국세청 판정 불가"와 무관한 별개 사유). 이 둘 다 국세청에 물어볼 필요조차 없이 요청
+// 자체가 무효라는 확정 신호이므로 계속 차단한다. 404는 "존재하지 않는 사업자"가 아니라 검증
+// API 자체가 없다는 뜻이라(그런 도메인 응답은 result 필드로 내려오지, HTTP 404가 아니다) 배포
+// 사고 등으로 엔드포인트가 사라진 경우를 뜻할 가능성이 높다 — 이는 사용자 책임이 아니고 국세청
+// 판정과도 무관하므로, "국세청 응답을 받지 못한 판정 불가" 쪽으로 분류해 통과시킨다(블랙리스트
+// 미포함 = 기본 통과).
+function isVerificationErrorGateBypassable(error: ApiError): boolean {
+  if (error.code === 'INVALID_INPUT') return false; // 400 입력값 자체 오류 — 확정적 차단
+  if (error.status === 401 || error.status === 403) return false; // 인증·인가 실패 — 확정적 차단
+  return true; // 그 외 전부(429/5xx/408·499 타임아웃/네트워크 오류/404 등) — 판정 불가로 통과
+}
 
 // 자동채움 필드 배지(#748) — OCR이 실제로 값을 주입한 필드만 추적한다(진위확인 3필드 + 상호명).
 type AutoFilledFieldKey = 'brn' | 'companyName' | 'representativeName' | 'startDate';
@@ -66,7 +93,7 @@ const BUSINESS_VERIFICATION_BADGE_CLASSES: Record<BusinessVerificationResult, st
   MISMATCH: ERROR_CLASSES,
   SUSPENDED: ERROR_CLASSES,
   CLOSED: ERROR_CLASSES,
-  UNAVAILABLE: 'text-xs text-warning-soft-fg',
+  UNAVAILABLE: WARNING_SOFT_CLASSES,
 };
 const BUSINESS_VERIFICATION_BADGE_ICONS: Record<BusinessVerificationResult, string> = {
   VERIFIED: '✅',
@@ -247,12 +274,20 @@ export function CompanySignupPage() {
     if (businessVerificationResult || businessVerificationError) resetBusinessVerification();
   };
 
+  // 판정 불가 에러(429/5xx/네트워크 오류)도 UNAVAILABLE과 동일하게 게이트를 통과시킨다(#910).
+  // 400 INVALID_INPUT은 확정적 차단 대상이라 isVerificationErrorGateBypassable이 false를 반환한다.
+  const isBusinessVerificationErrorBypassable = businessVerificationError
+    ? isVerificationErrorGateBypassable(businessVerificationError)
+    : false;
+
   // 진위확인 통과 = VERIFIED(일치) 또는 UNAVAILABLE(국세청 장애 fail-open, 백엔드도 PENDING 허용)
-  // "이면서" 현재 3필드가 확인 시점 스냅샷과 여전히 일치할 때만이다(PR #666 P2 — in-flight 무효화
-  // 구멍 방지). 나머지(미확인·미등록·불일치·휴폐업, 또는 확인 이후 필드가 바뀐 상태)는 막는다.
+  // 또는 판정 불가 에러(429/5xx/네트워크 오류, #910) "이면서" 현재 3필드가 확인 시점 스냅샷과
+  // 여전히 일치할 때만이다(PR #666 P2 — in-flight 무효화 구멍 방지). 나머지(미확인·미등록·불일치·
+  // 휴폐업·400 입력오류, 또는 확인 이후 필드가 바뀐 상태)는 막는다.
   const isBusinessVerified =
     (businessVerificationResult?.result === 'VERIFIED' ||
-      businessVerificationResult?.result === 'UNAVAILABLE') &&
+      businessVerificationResult?.result === 'UNAVAILABLE' ||
+      isBusinessVerificationErrorBypassable) &&
     verifiedSnapshot !== null &&
     verifiedSnapshot.brn === businessRegistrationNumber &&
     verifiedSnapshot.name === representativeName.trim() &&
@@ -682,12 +717,20 @@ export function CompanySignupPage() {
                     {businessVerificationResult.message}
                   </p>
                 )}
-                {businessVerificationError && (
-                  <p role="alert" className={ERROR_CLASSES}>
-                    {ERROR_MESSAGES[businessVerificationError.code] ??
-                      BUSINESS_VERIFICATION_DEFAULT_ERROR_MESSAGE}
-                  </p>
-                )}
+                {businessVerificationError &&
+                  (isBusinessVerificationErrorBypassable ? (
+                    // 판정 불가 에러 통과 안내(#910) — VERIFIED 성공 뱃지와 구분되도록
+                    // UNAVAILABLE과 동일한 warning 톤을 재사용한다. role="alert"는 붙이지 않는다
+                    // (제출을 막는 에러가 아니라 통과를 알리는 안내이므로).
+                    <p className={WARNING_SOFT_CLASSES}>
+                      ⏳ {BUSINESS_VERIFICATION_ERROR_BYPASS_MESSAGE}
+                    </p>
+                  ) : (
+                    <p role="alert" className={ERROR_CLASSES}>
+                      {ERROR_MESSAGES[businessVerificationError.code] ??
+                        BUSINESS_VERIFICATION_DEFAULT_ERROR_MESSAGE}
+                    </p>
+                  ))}
                 {/* 실패 계열 뱃지(NOT_REGISTERED 등)나 에러가 이미 떠 있으면 게이트 문구와
                     중복되므로 "결과·에러가 전혀 없을 때"(=아예 확인을 시도한 적 없을 때)만
                     노출한다(PR #666 P3). */}
