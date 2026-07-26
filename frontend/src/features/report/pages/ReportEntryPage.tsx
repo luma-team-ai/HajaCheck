@@ -595,7 +595,7 @@ export function ReportEntryPage() {
       </div>
 
       {/* 6. Action Bar — 별도 카드 박스 (fixed 오버레이 아님, #961) */}
-      <div className="mx-auto w-full max-w-[1024px] rounded-2xl border border-border bg-white px-6 py-4 shadow-[0px_8px_12px_rgba(0,0,0,0.08)]">
+      <div className="mx-auto mt-6 w-full max-w-[1024px] rounded-2xl border border-border bg-white px-6 py-4 shadow-[0px_8px_12px_rgba(0,0,0,0.08)]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm text-text-muted">
             <Icon spec={ICONS.history} fill="#77767B" className="h-[13.5px] w-3" />
