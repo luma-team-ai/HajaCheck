@@ -95,3 +95,42 @@ export interface AdminPlanCatalogItem {
 export interface AdminPlanCatalogResponse {
   plans: AdminPlanCatalogItem[];
 }
+
+// ── 플랜 변경(#890 Phase 1/2, PATCH /api/admin/plan · GET /api/admin/plan/change-preview) ──
+
+/** 하향으로 정지될 구성원 한 명 — 이름·이메일까지 받아야 관리자가 누구인지 보고 판단할 수 있다. */
+export interface PlanChangePreviewSuspendTarget {
+  userId: number;
+  name: string;
+  email: string;
+}
+
+/**
+ * GET /api/admin/plan/change-preview 응답 — 이 요금제로 바꾸면 무엇이 정지·읽기전용이 되는지
+ * 부작용 없이 미리 본다(#890).
+ *
+ * ⚠️ facilityOverflowCount는 "대상 요금제 기준 총량"이지 "이번에 새로 바뀌는 증분"이 아니다 — 이미
+ * 이전 하향으로 읽기전용이던 시설물도 포함된 개수다. 화면에 "새로 N개가 읽기전용이 됩니다"로
+ * 렌더하면 오인을 준다.
+ */
+export interface PlanChangePreviewResponse {
+  targetPlan: AdminUserPlan;
+  requiresConfirmation: boolean;
+  seatsToSuspend: PlanChangePreviewSuspendTarget[];
+  facilityOverflowCount: number;
+}
+
+/**
+ * PATCH /api/admin/plan 요청 바디.
+ *
+ * @param confirmOverflow 하향으로 한도를 넘는 자원이 있는데 이 값이 없으면 서버가 아무것도 바꾸지
+ *                        않고 409(PLAN_DOWNGRADE_CONFIRMATION_REQUIRED)로 거절한다.
+ * @param keepUserIds     좌석이 넘칠 때 관리자가 직접 유지할 구성원 id(#890 Phase 2). 미지정이면
+ *                        기존 동작(id 오름차순 자동 선정) — change-preview와 동일한 값을 넘겨야
+ *                        미리보기·실제 결과가 어긋나지 않는다.
+ */
+export interface PlanChangeRequestPayload {
+  planName: AdminUserPlan;
+  confirmOverflow?: boolean;
+  keepUserIds?: number[];
+}
