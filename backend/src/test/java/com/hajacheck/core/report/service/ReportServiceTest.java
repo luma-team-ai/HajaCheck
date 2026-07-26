@@ -30,6 +30,7 @@ import com.hajacheck.core.report.repository.ReportRepository;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.core.report.support.ReportPdfStorage;
 import java.lang.reflect.Method;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -62,6 +63,8 @@ class ReportServiceTest {
     private AiProxyService aiProxyService;
     @Mock
     private CompanyScopeGuard companyScopeGuard;
+    @Mock
+    private ReportPdfStorage reportPdfStorage;
 
     @InjectMocks
     private ReportService reportService;
@@ -466,6 +469,26 @@ class ReportServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.REPORT_PDF_URL_INVALID);
+    }
+
+    @Test
+    void finalizeReport_업로드되지않은storageKey로finalize시도시거부됨() {
+        Report report = Report.draft(1L, 1, "{}", 100L);
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        doThrow(new BusinessException(ErrorCode.FILE_NOT_FOUND))
+                .when(reportPdfStorage).load(5L, "nonexistent.pdf");
+
+        assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/5/pdf/nonexistent.pdf", 100L, 200L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.FILE_NOT_FOUND);
     }
     @Test
     void getReport_무소속사용자_FORBIDDEN을404로변환하지않는다() {

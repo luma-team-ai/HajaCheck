@@ -150,9 +150,9 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     href: '/reports',
     icon: reportsIcon,
     subItems: [
-      { label: '보고서 목록/이력 관리', href: '/reports/list' },
-      { label: '보고서 편집·미리보기', href: '/reports/editor' },
-      { label: 'PDF 내보내기', href: '/reports/export-pdf' },
+      { label: '보고서 목록/이력 관리', href: '/mypage/inspections' },
+      { label: '보고서 편집·미리보기', href: '/inspections/1/reports/generate' },
+      { label: 'PDF 내보내기', href: '/inspections/1/reports/generate' },
     ],
   },
   {

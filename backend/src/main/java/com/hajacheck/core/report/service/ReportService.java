@@ -20,6 +20,7 @@ import com.hajacheck.core.report.entity.GroundingCheckResult;
 import com.hajacheck.core.report.entity.GroundingRequestContext;
 import com.hajacheck.core.report.entity.Report;
 import com.hajacheck.core.report.repository.ReportRepository;
+import com.hajacheck.core.report.support.ReportPdfStorage;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -65,6 +66,7 @@ public class ReportService {
     private final FacilityService facilityService;
     private final AiProxyService aiProxyService;
     private final CompanyScopeGuard companyScopeGuard;
+    private final ReportPdfStorage reportPdfStorage;
 
     /**
      * 확정 하자를 근거로 AI 보고서 초안을 생성한다.
@@ -234,20 +236,22 @@ public class ReportService {
             Long reportId, String pdfUrl, Long companyId, Long editedByUserId) {
         companyScopeGuard.requireEffectiveMembership(editedByUserId, companyId);
         Report report = findCompanyReport(reportId, editedByUserId, companyId);
-        requireOwnPdfUrl(reportId, pdfUrl);
+        String storageKey = requireOwnPdfUrl(reportId, pdfUrl);
+        reportPdfStorage.load(reportId, storageKey);
         report.finalizeReport(pdfUrl, editedByUserId);
         return ReportDetailResponse.from(report);
     }
 
     /**
-     * pdfUrl이 이 보고서의 업로드 엔드포인트(/api/reports/{id}/pdf/{storageKey})를 가리키는지 확인한다
-     * (#455 P2-2) — 임의 문자열이나 타 보고서의 pdfUrl을 finalize에 그대로 실어 확정하는 것을 차단한다.
+     * pdfUrl이 이 보고서의 업로드 엔드포인트(/api/reports/{id}/pdf/{storageKey})를 가리키는지 확인하고
+     * storageKey를 추출한다 (#455 P2-2, #463 P2).
      */
-    private void requireOwnPdfUrl(Long reportId, String pdfUrl) {
+    private String requireOwnPdfUrl(Long reportId, String pdfUrl) {
         String expectedPrefix = "/api/reports/%d/pdf/".formatted(reportId);
         if (pdfUrl == null || !pdfUrl.startsWith(expectedPrefix) || pdfUrl.length() == expectedPrefix.length()) {
             throw new BusinessException(ErrorCode.REPORT_PDF_URL_INVALID);
         }
+        return pdfUrl.substring(expectedPrefix.length());
     }
 
     private int nextVersion(Long inspectionId) {
