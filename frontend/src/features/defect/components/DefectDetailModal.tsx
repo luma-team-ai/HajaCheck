@@ -114,7 +114,7 @@ export function DefectDetailModal({ defectId, onClose }: Props) {
         {!isLoading && !isError && defect && (
           <>
             <header className="defect-detail-modal__header">
-              <span className="defect-detail-modal__code">{formatDefectCode(defect.id)}</span>
+              <h2 className="defect-detail-modal__code">{formatDefectCode(defect.id)}</h2>
               <span className="defect-chip">{defect.typeLabel}</span>
               <span className="defect-chip">
                 {defect.grade ? `${defect.grade}등급 · ${DEFECT_GRADE_LABEL[defect.grade]}` : '미분류'}
@@ -127,6 +127,7 @@ export function DefectDetailModal({ defectId, onClose }: Props) {
 
             <div className="defect-detail-modal__body">
               <div className="defect-detail-modal__primary">
+                <p className="defect-image-viewer-label">조치 전 사진 (원본)</p>
                 <DefectImageViewer
                   imageUrl={defect.imageUrl}
                   typeLabel={defect.typeLabel}
