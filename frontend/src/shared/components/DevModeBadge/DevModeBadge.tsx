@@ -1,5 +1,3 @@
-import { shouldEnableMocking } from '../../utils/shouldEnableMocking';
-
 // 개발 모드 표시 배지 (#302 → #311로 확장) — "지금 어떤 걸 보고 있는지"를 화면에 드러낸다.
 //
 // 계기: 로컬 스택엔 프론트가 둘이라(80=nginx dist / vite dev 서버) 지금 어느 쪽을 보는지 화면만
