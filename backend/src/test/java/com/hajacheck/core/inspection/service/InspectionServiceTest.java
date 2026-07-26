@@ -34,6 +34,7 @@ import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.membership.service.QuotaService;
 import java.lang.reflect.Field;
 import java.sql.SQLException;
 import java.time.LocalDate;
@@ -69,6 +70,10 @@ class InspectionServiceTest {
     private DefectRepository defectRepository;
     @Mock
     private UserRepository userRepository;
+    // #890 — 플랜 하향으로 한도를 넘긴 시설물은 읽기 전용이라 신규 점검 생성이 막힌다. 이 클래스의
+    // 관심사는 그 게이트가 아니므로 "읽기 전용 아님"(기본 false)으로 두고 원래 시나리오만 검증한다.
+    @Mock
+    private QuotaService quotaService;
 
     @InjectMocks
     private InspectionService service;

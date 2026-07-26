@@ -62,9 +62,23 @@ class MembershipServiceTest {
     private UserPlanRepository userPlanRepository;
     @Mock
     private UsageCounterRepository usageCounterRepository;
+    // #890 — 셀프 결제(checkout)는 하향으로 한도를 넘게 되면 거절한다. 이 클래스의 기존 시나리오는
+    // 초과가 없는 상황이므로 기본값(초과 없음)으로 stub 한다.
+    @Mock
+    private PlanDowngradeService planDowngradeService;
 
     @InjectMocks
     private MembershipService service;
+
+    @org.junit.jupiter.api.BeforeEach
+    void 하향초과없음을_기본값으로_둔다() {
+        // #890 — checkout 은 하향으로 한도를 넘게 되면 거절한다. 이 클래스의 기존 시나리오는 모두
+        // 초과가 없는 상황이라 기본값으로 고정한다(초과 케이스는 PlanDowngradeServiceTest 가 다룬다).
+        org.mockito.Mockito.lenient()
+                .when(planDowngradeService.preview(org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.any(com.hajacheck.membership.entity.Plan.class)))
+                .thenReturn(com.hajacheck.membership.dto.DowngradeOverflow.none());
+    }
 
     private static final Long USER_ID = 1L;
     private static final Long COMPANY_ID = 10L;
