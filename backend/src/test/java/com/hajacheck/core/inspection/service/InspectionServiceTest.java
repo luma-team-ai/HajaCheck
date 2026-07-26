@@ -425,4 +425,21 @@ class InspectionServiceTest {
             }
         };
     }
+
+    @Test
+    void createInspection_시설물이_플랜하향으로_읽기전용이면_생성차단되고_저장안됨() {
+        // #890 — 하향으로 한도를 넘긴 시설물은 조회·기존 점검 이력은 살리되 신규 점검 생성만 막는다.
+        // 차단 시 회차 INSERT 가 시도조차 되지 않아야 한다(부작용 부재).
+        InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 20), 200L);
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+        when(quotaService.isFacilityReadOnly(100L, 1L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.createInspection(request, 100L, 300L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_FACILITY_QUOTA_EXCEEDED));
+
+        verify(inspectionRepository, never()).saveAndFlush(any(Inspection.class));
+        verify(facilityService, never()).lockForUpdate(anyLong());
+    }
 }
