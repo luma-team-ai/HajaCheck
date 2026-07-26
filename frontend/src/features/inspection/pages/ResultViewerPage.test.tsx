@@ -412,6 +412,19 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(screen.getByText('이 이미지에 해당하는 하자가 없습니다.')).not.toBeNull();
   });
 
+  it('하자 0건 이미지에서도 누락추가 버튼이 계속 보인다(#874)', async () => {
+    // 기본 mock: media 68은 하자 0건 — 선택된 하자(selected)가 없어도
+    // 우측 패널·누락추가 버튼이 통째로 사라지면 안 된다(#874 회귀 버그).
+    renderPage();
+    await screen.findByText('DEF-0001');
+    fireEvent.click(screen.getByRole('button', { name: '다음 이미지 →' }));
+    await screen.findByText('이 이미지에 해당하는 하자가 없습니다.');
+
+    const button = screen.getByRole('button', { name: '누락 추가' });
+    expect(button.hasAttribute('disabled')).toBe(false);
+    expect(screen.getByText('선택된 하자가 없습니다.')).not.toBeNull();
+  });
+
   it('오탐 삭제 버튼이 활성화되어 있다(#553)', async () => {
     renderPage();
     await screen.findByText('DEF-0001');
@@ -456,7 +469,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(await screen.findByText('탐지된 하자가 없습니다.')).not.toBeNull();
   });
 
-  it('"누락 추가" 버튼을 클릭하면 모달이 열린다 (#622)', async () => {
+  it('"누락 추가" 버튼을 클릭하면 메인 뷰어 위 그리기 모드로 전환된다 (#874, 2안)', async () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
@@ -465,9 +478,34 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     fireEvent.click(button);
 
+    expect(await screen.findByText('이미지 위에 드래그해서 하자 위치를 표시하세요.')).not.toBeNull();
+    expect(screen.queryByText('누락된 하자 추가')).toBeNull();
+  });
+
+  it('그리기 모드에서 "박스 없이 계속"을 누르면 유형/등급 선택 모달이 열린다 (#874)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    await screen.findByText('이미지 위에 드래그해서 하자 위치를 표시하세요.');
+    fireEvent.click(screen.getByRole('button', { name: '박스 없이 계속' }));
+
     expect(await screen.findByText('누락된 하자 추가')).not.toBeNull();
+    expect(screen.getByText(/하자 위치가 지정되지 않았습니다/)).not.toBeNull();
     expect(screen.getByDisplayValue('유형 선택')).not.toBeNull();
     expect(screen.getByDisplayValue('등급 선택')).not.toBeNull();
+  });
+
+  it('그리기 모드에서 "취소"를 누르면 모달 없이 원래 화면으로 돌아간다 (#874)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    await screen.findByText('이미지 위에 드래그해서 하자 위치를 표시하세요.');
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+
+    expect(screen.queryByText('이미지 위에 드래그해서 하자 위치를 표시하세요.')).toBeNull();
+    expect(screen.queryByText('누락된 하자 추가')).toBeNull();
   });
 
   it('모달에서 유형과 등급을 선택하지 않으면 저장 버튼이 비활성화된다 (#622)', async () => {
@@ -475,6 +513,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     await screen.findByText('DEF-0001');
 
     fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    fireEvent.click(await screen.findByRole('button', { name: '박스 없이 계속' }));
     await screen.findByText('누락된 하자 추가');
 
     const saveButton = screen.getAllByRole('button', { name: '저장' }).pop();
@@ -486,6 +525,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     await screen.findByText('DEF-0001');
 
     fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    fireEvent.click(await screen.findByRole('button', { name: '박스 없이 계속' }));
     await screen.findByText('누락된 하자 추가');
 
     const typeSelect = screen.getAllByDisplayValue('유형 선택')[0];
@@ -500,6 +540,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     await screen.findByText('DEF-0001');
 
     fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    fireEvent.click(await screen.findByRole('button', { name: '박스 없이 계속' }));
     await screen.findByText('누락된 하자 추가');
 
     const selects = screen.getAllByDisplayValue(/유형 선택|등급 선택/);
@@ -547,6 +588,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     await screen.findByText('DEF-0001');
 
     fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    fireEvent.click(await screen.findByRole('button', { name: '박스 없이 계속' }));
     await screen.findByText('누락된 하자 추가');
 
     const selects = screen.getAllByDisplayValue(/유형 선택|등급 선택/);
@@ -576,6 +618,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     await screen.findByText('DEF-0001');
 
     fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    fireEvent.click(await screen.findByRole('button', { name: '박스 없이 계속' }));
     await screen.findByText('누락된 하자 추가');
 
     const cancelButton = screen.getAllByRole('button', { name: '취소' }).pop();
@@ -604,6 +647,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     await screen.findByText('DEF-0001');
 
     fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    fireEvent.click(await screen.findByRole('button', { name: '박스 없이 계속' }));
     await screen.findByText('누락된 하자 추가');
 
     const selects = screen.getAllByDisplayValue(/유형 선택|등급 선택/);

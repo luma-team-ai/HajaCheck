@@ -61,4 +61,50 @@ describe('DefectOverlay', () => {
     expect(screen.queryByText('박리박락 B등급')).toBeNull();
     expect(screen.queryByText('균열 C등급')).toBeNull();
   });
+
+  it('겹친 박스는 면적 내림차순으로 렌더되어 작은 박스가 항상 클릭 가능하다', () => {
+    // 큰 박스와 그 안에 완전히 포함되는 작은 박스
+    const largeDefect: Defect = {
+      id: 10,
+      type: '균열',
+      grade: 'D',
+      status: 'DETECTED',
+      confidence: 0.75,
+      bbox: { x: 0.2, y: 0.2, width: 0.6, height: 0.6 }, // 면적 0.36
+      widthMm: 2.0,
+      lengthMm: 30,
+      summary: '큰 박스',
+    };
+    const smallDefect: Defect = {
+      id: 11,
+      type: '박리박락',
+      grade: 'A',
+      status: 'DETECTED',
+      confidence: 0.92,
+      bbox: { x: 0.35, y: 0.35, width: 0.3, height: 0.3 }, // 면적 0.09, 큰 박스 안에 포함
+      areaRatio: 0.05,
+      summary: '작은 박스',
+    };
+    const onSelect = vi.fn();
+    const { container } = render(
+      <DefectOverlay
+        media={media}
+        defects={[largeDefect, smallDefect]}
+        onSelect={onSelect}
+      />,
+    );
+
+    // DOM 순서 확인: 면적 내림차순이므로 큰 박스가 먼저, 작은 박스가 나중에 와야 함
+    const buttons = container.querySelectorAll('button');
+    expect(buttons.length).toBe(2);
+    // 두 번째 버튼(나중에 렌더)이 작은 박스여야 함 (title로 구분)
+    const largeBoxTitle = buttons[0].getAttribute('title') ?? '';
+    const smallBoxTitle = buttons[1].getAttribute('title') ?? '';
+    expect(largeBoxTitle).toMatch(/confidence/); // 큰 박스는 정상 defect
+    expect(smallBoxTitle).toMatch(/confidence/); // 작은 박스도 정상 defect
+
+    // 작은 박스 클릭 시 onSelect 콜 확인
+    fireEvent.click(buttons[1]);
+    expect(onSelect).toHaveBeenCalledWith(11);
+  });
 });
