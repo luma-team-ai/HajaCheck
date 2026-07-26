@@ -1,5 +1,6 @@
 import type { ChangeEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useBlocker, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
 import { Modal } from '../../../shared/components/Modal';
@@ -123,6 +124,10 @@ export function InspectionCreatePage() {
 
   const isSubmitting = isCreating || isUploading;
   const hasFileErrors = mediaFiles.some((entry) => entry.error !== null);
+  // 시설물·점검일·업로드 파일 중 하나라도 비어 있으면 제출 자체를 막는다 — 예전엔 파일 미첨부여도
+  // handleSubmit이 업로드를 건너뛰고 바로 AI 분석을 트리거해 빈 회차가 생성될 수 있었다.
+  const hasMissingRequiredInput =
+    !values.facilityId || !values.inspectionDate || mediaFiles.length === 0;
   const totalSize = mediaFiles.reduce((sum, entry) => sum + entry.file.size, 0);
   // 회차가 이미 생성된 뒤에는 점검 정보를 바꿔도 반영되지 않는다(재시도는 업로드만 재실행) —
   // 혼동을 막기 위해 입력을 잠근다.
@@ -212,6 +217,14 @@ export function InspectionCreatePage() {
       hasDraftInput &&
       currentLocation.pathname !== nextLocation.pathname,
   );
+  // "나가기" 클릭 시 모달을 닫는 렌더와, blocker.proceed()가 유발하는 목적지 페이지 마운트 렌더가
+  // React 배치로 한 커밋에 묶이면 목적지가 무거울 때(통계 대시보드 등) 그 렌더가 끝날 때까지 모달이
+  // 화면에 남아있는 것처럼 보인다. flushSync로 모달 제거만 별도 커밋으로 강제 분리해 즉시 사라지게 한다.
+  const [isLeaving, setIsLeaving] = useState(false);
+  const handleConfirmLeave = () => {
+    flushSync(() => setIsLeaving(true));
+    blocker.proceed?.();
+  };
 
   const handleFieldChange =
     (field: keyof InspectionCreateFormValues) =>
@@ -427,7 +440,12 @@ export function InspectionCreatePage() {
               type="button"
               variant="primary"
               onClick={handleSubmit}
-              disabled={isSubmitting || hasFileErrors}
+              disabled={isSubmitting || hasFileErrors || hasMissingRequiredInput}
+              title={
+                hasMissingRequiredInput && !isSubmitting
+                  ? '시설물, 점검일, 업로드 파일을 모두 입력해 주세요'
+                  : undefined
+              }
             >
               {isSubmitting ? '처리 중...' : '업로드 완료 후 AI 분석 시작'}
             </Button>
@@ -435,7 +453,7 @@ export function InspectionCreatePage() {
         </div>
       </div>
 
-      {blocker.state === 'blocked' && (
+      {blocker.state === 'blocked' && !isLeaving && (
         <Modal
           open
           onClose={() => blocker.reset()}
@@ -450,7 +468,7 @@ export function InspectionCreatePage() {
               <Button type="button" variant="secondary" onClick={() => blocker.reset()}>
                 취소
               </Button>
-              <Button type="button" variant="primary" onClick={() => blocker.proceed()}>
+              <Button type="button" variant="primary" onClick={handleConfirmLeave}>
                 나가기
               </Button>
             </div>
