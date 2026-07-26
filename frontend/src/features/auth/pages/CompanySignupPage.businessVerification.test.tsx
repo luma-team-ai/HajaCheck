@@ -308,23 +308,27 @@ describe('CompanySignupPage — 진위확인 in-flight 무효화(PR #666 P2)', (
 });
 
 describe('CompanySignupPage — 사업자 진위확인 에러(429/400, #663)', () => {
-  it('429 rate limit 에러 메시지가 노출된다', async () => {
+  it('429 rate limit 에러는 확인 없이 진행 안내 문구로 노출된다(#910)', async () => {
     vi.spyOn(authApi, 'verifyBusiness').mockRejectedValue({
       code: 'AUTH_TOO_MANY_REQUESTS',
       message: '잠시 후 다시 시도해 주세요.',
+      status: 429,
     });
 
     renderPage();
     fillVerificationFields();
     fireEvent.click(screen.getByRole('button', { name: '진위확인' }));
 
-    expect(await screen.findByText('잠시 후 다시 시도해 주세요.')).not.toBeNull();
+    expect(
+      await screen.findByText(badgeText('지금 국세청 확인이 어려워 확인 없이 진행합니다.')),
+    ).not.toBeNull();
   });
 
-  it('400 INVALID_INPUT 에러 메시지가 노출된다', async () => {
+  it('400 INVALID_INPUT 에러 메시지가 노출된다(확정적 입력오류라 통과 대상 아님)', async () => {
     vi.spyOn(authApi, 'verifyBusiness').mockRejectedValue({
       code: 'INVALID_INPUT',
       message: '입력값을 다시 확인해 주세요.',
+      status: 400,
     });
 
     renderPage();
@@ -332,5 +336,119 @@ describe('CompanySignupPage — 사업자 진위확인 에러(429/400, #663)', (
     fireEvent.click(screen.getByRole('button', { name: '진위확인' }));
 
     expect(await screen.findByText('입력값을 다시 확인해 주세요.')).not.toBeNull();
+  });
+});
+
+// 진위확인 429/네트워크 오류 시 가입 제출 완전 차단 해소(#910) — 국세청 전면 장애 중 전역
+// rate-limit(분당10/일300, 실패 요청도 카운터 차감)이 소진되면 그날 전원 가입이 막히던 문제.
+// 판정 불가 계열 에러(429/5xx/네트워크 오류)는 UNAVAILABLE과 동일하게 게이트를 통과시키되,
+// 400 INVALID_INPUT(확정적 입력오류)은 여전히 차단하고, 통과 후 필드를 바꾸면 우회 방지가
+// 동일하게 적용되는지 검증한다.
+describe('CompanySignupPage — 진위확인 판정 불가 에러 게이트 통과(#910)', () => {
+  it('429 rate limit 에러 후 제출하면 signupCompany가 호출된다(회귀 방지 핵심)', async () => {
+    vi.spyOn(authApi, 'verifyBusiness').mockRejectedValue({
+      code: 'AUTH_TOO_MANY_REQUESTS',
+      message: '잠시 후 다시 시도해 주세요.',
+      status: 429,
+    });
+    const signupSpy = vi.spyOn(authApi, 'signupCompany').mockResolvedValue({
+      data: { companyId: 1, maskedEmail: 'n***@c***.com', status: 'PENDING_REVIEW', signupToken: 't' },
+    } as Awaited<ReturnType<typeof authApi.signupCompany>>);
+
+    renderPage();
+    fillVerificationFields();
+    fillRestOfRequiredFields();
+    fireEvent.click(screen.getByRole('button', { name: '진위확인' }));
+    await screen.findByText(badgeText('지금 국세청 확인이 어려워 확인 없이 진행합니다.'));
+
+    fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
+
+    await waitFor(() => expect(signupSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it('네트워크 오류(응답 없음) 후 제출해도 signupCompany가 호출된다', async () => {
+    vi.spyOn(authApi, 'verifyBusiness').mockRejectedValue({
+      code: 'NETWORK_ERROR',
+      message: '네트워크 오류가 발생했습니다.',
+    });
+    const signupSpy = vi.spyOn(authApi, 'signupCompany').mockResolvedValue({
+      data: { companyId: 1, maskedEmail: 'n***@c***.com', status: 'PENDING_REVIEW', signupToken: 't' },
+    } as Awaited<ReturnType<typeof authApi.signupCompany>>);
+
+    renderPage();
+    fillVerificationFields();
+    fillRestOfRequiredFields();
+    fireEvent.click(screen.getByRole('button', { name: '진위확인' }));
+    await screen.findByText(badgeText('지금 국세청 확인이 어려워 확인 없이 진행합니다.'));
+
+    fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
+
+    await waitFor(() => expect(signupSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it('5xx 서버 오류 후 제출해도 signupCompany가 호출된다', async () => {
+    vi.spyOn(authApi, 'verifyBusiness').mockRejectedValue({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: '서버 오류가 발생했습니다.',
+      status: 503,
+    });
+    const signupSpy = vi.spyOn(authApi, 'signupCompany').mockResolvedValue({
+      data: { companyId: 1, maskedEmail: 'n***@c***.com', status: 'PENDING_REVIEW', signupToken: 't' },
+    } as Awaited<ReturnType<typeof authApi.signupCompany>>);
+
+    renderPage();
+    fillVerificationFields();
+    fillRestOfRequiredFields();
+    fireEvent.click(screen.getByRole('button', { name: '진위확인' }));
+    await screen.findByText(badgeText('지금 국세청 확인이 어려워 확인 없이 진행합니다.'));
+
+    fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
+
+    await waitFor(() => expect(signupSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it('400 INVALID_INPUT은 제출 시에도 여전히 차단된다(signup 미호출)', async () => {
+    vi.spyOn(authApi, 'verifyBusiness').mockRejectedValue({
+      code: 'INVALID_INPUT',
+      message: '입력값을 다시 확인해 주세요.',
+      status: 400,
+    });
+    const signupSpy = vi.spyOn(authApi, 'signupCompany');
+
+    renderPage();
+    fillVerificationFields();
+    fillRestOfRequiredFields();
+    fireEvent.click(screen.getByRole('button', { name: '진위확인' }));
+    await screen.findByText('입력값을 다시 확인해 주세요.');
+
+    fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(signupSpy).not.toHaveBeenCalled();
+  });
+
+  it('에러로 게이트를 통과시킨 뒤 사업자등록번호를 바꾸면 게이트가 다시 닫힌다(우회 방지)', async () => {
+    vi.spyOn(authApi, 'verifyBusiness').mockRejectedValue({
+      code: 'AUTH_TOO_MANY_REQUESTS',
+      message: '잠시 후 다시 시도해 주세요.',
+      status: 429,
+    });
+    const signupSpy = vi.spyOn(authApi, 'signupCompany');
+
+    renderPage();
+    fillVerificationFields();
+    fillRestOfRequiredFields();
+    fireEvent.click(screen.getByRole('button', { name: '진위확인' }));
+    await screen.findByText(badgeText('지금 국세청 확인이 어려워 확인 없이 진행합니다.'));
+
+    fireEvent.change(screen.getByLabelText('사업자등록번호'), { target: { value: '9999999999' } });
+    expect(
+      screen.queryByText(badgeText('지금 국세청 확인이 어려워 확인 없이 진행합니다.')),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
+
+    expect(await screen.findByText('사업자 진위확인을 먼저 완료해 주세요.')).not.toBeNull();
+    expect(signupSpy).not.toHaveBeenCalled();
   });
 });
