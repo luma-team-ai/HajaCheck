@@ -28,6 +28,15 @@ const GRADE_LABELS: Record<DefectGrade, string> = {
   E: 'E (심각)',
 };
 
+// 등급별 색상 점 — 등급관리 설정 화면(하자 심각도 등급 규칙) 색상표와 동일 값(#944).
+const GRADE_DOT_COLORS: Record<DefectGrade, string> = {
+  A: '#16A34A',
+  B: '#84CC16',
+  C: '#EAB308',
+  D: '#F97316',
+  E: '#DC2626',
+};
+
 const DEFECT_TYPE_OPTIONS: { value: 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE'; label: string }[] = [
   { value: 'CRACK', label: '균열' },
   { value: 'SPALLING', label: '박리박락' },
@@ -702,7 +711,7 @@ export function ResultViewerPage() {
             {ALL_GRADES.map((grade) => (
               <label
                 key={grade}
-                className={`flex cursor-pointer items-center justify-center rounded-[20px] border-2 px-4 py-2.5 font-medium transition ${
+                className={`flex cursor-pointer items-center justify-center gap-2 rounded-[20px] border-2 px-4 py-2.5 font-medium transition ${
                   selectedGrade === grade
                     ? 'border-black bg-black/5 text-text-default'
                     : 'border-[#e4e4e7] text-text-default hover:bg-surface-muted'
@@ -715,6 +724,11 @@ export function ResultViewerPage() {
                   checked={selectedGrade === grade}
                   onChange={(e) => setSelectedGrade(e.target.value as DefectGrade)}
                   className="sr-only"
+                />
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: GRADE_DOT_COLORS[grade] }}
+                  aria-hidden="true"
                 />
                 {GRADE_LABELS[grade]}
               </label>
