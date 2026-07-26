@@ -140,6 +140,30 @@ public class QuotaService {
     }
 
     /**
+     * 좌석 여유 조회(읽기 전용) — 초대 코드 발급 시점 선검사(#857)용. {@link #reserveSeat}과 달리 잠금·차감이
+     * 없어 상태를 바꾸지 않으므로 읽기 전용 트랜잭션에서도 호출할 수 있다.
+     *
+     * <p>판정 기준은 {@link #reserveSeat}와 동일한 소스({@link #resolveLivePlan}·{@link #measureSeats})를
+     * 그대로 재사용한다 — 발급 판정과 redeem 판정이 서로 다른 기준을 보면 "발급은 됐는데 redeem은 막힘"이
+     * 재발한다.
+     *
+     * <p>⚠️ advisory(조언적) 판정이다. 이 호출과 실제 활성화({@link #reserveSeat}) 사이에 다른 초대가
+     * 먼저 redeem 돼 좌석이 찰 수 있으므로(경합), true를 반환해도 이후 {@link #reserveSeat}가 거부할 수
+     * 있다. 최종 방어선은 여전히 {@link #reserveSeat}의 원자적 조건부 UPDATE다 — 이 메서드는 그것을
+     * 대체하지 않는다.
+     */
+    public boolean hasAvailableSeat(Long companyId) {
+        UserPlan userPlan = resolveLivePlan(null, companyId);
+        Plan plan = findPlan(userPlan.getPlanId());
+        Integer maxSeats = plan.getMaxSeats();
+        if (maxSeats == null) {
+            // null = 무제한(Plan javadoc, reserveSeat과 동일 관례).
+            return true;
+        }
+        return measureSeats(companyId) < maxSeats;
+    }
+
+    /**
      * 월 분석 한도 차감(요청 1건 = 이미지 {@code imageCount} 장).
      *
      * <p>호출부(분석 시작)는 트랜잭션 밖이라 이 메서드가 독립 트랜잭션으로 커밋된다 — 이후 단계가 실패하면

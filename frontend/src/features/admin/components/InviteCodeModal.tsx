@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
 import { Modal } from '../../../shared/components/Modal';
 import { getApiErrorMessage } from '../../../shared/api/types';
+import { MYPAGE_PLAN_ROUTE } from '../../auth/constants';
 import { useInviteCode } from '../hooks/useInviteCode';
 import { CopyIcon } from './icons/CopyIcon';
 import { KeyIcon } from './icons/KeyIcon';
+
+// #857 — 좌석 한도(plans.max_seats) 초과는 다른 발급 실패와 달리 "재시도하면 될 수도"가 아니라
+// 유료 전환 없인 근본적으로 못 푸는 실패다. 그래서 다른 오류(재시도 유도)와 분기해 업그레이드 CTA를
+// 보여준다 — 메시지 문자열이 아니라 error.code로 판별한다(React_코드_컨벤션 — .status/코드 기준 분기).
+const SEAT_QUOTA_EXCEEDED_CODE = 'PLAN_SEAT_QUOTA_EXCEEDED';
 
 interface InviteCodeModalProps {
   open: boolean;
@@ -24,6 +31,7 @@ function formatTimer(seconds: number): string {
 // 코드는 백엔드(POST /api/admin/invite-codes, #794)가 발급하고 Redis에 TTL로 보관한다 —
 // 프론트는 서버가 내려준 ttlSeconds로 카운트다운만 그린다(값 자체를 클라이언트에서 만들지 않는다).
 export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
+  const navigate = useNavigate();
   const { issueInviteCode, isIssuing, issueError, revokeInviteCode } = useInviteCode();
   const [code, setCode] = useState('');
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -85,6 +93,7 @@ export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
   }, [copied, copyFailed]);
 
   const isExpired = Boolean(code) && secondsLeft <= 0;
+  const isSeatQuotaExceeded = issueError?.code === SEAT_QUOTA_EXCEEDED_CODE;
 
   function handleReissue() {
     setCode('');
@@ -126,13 +135,24 @@ export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
 
         <div className="flex w-full flex-col items-center gap-2 rounded-[16px] border border-dashed border-border bg-surface-muted px-6 py-6">
           {issueError ? (
-            <button
-              type="button"
-              onClick={handleReissue}
-              className="cursor-pointer border-none bg-none text-sm font-semibold text-danger underline"
-            >
-              {getApiErrorMessage(issueError, '발급에 실패했습니다')} · 다시 시도
-            </button>
+            isSeatQuotaExceeded ? (
+              <div role="alert" className="flex flex-col items-center gap-3">
+                <span className="text-sm font-semibold text-danger">
+                  좌석이 모두 사용 중입니다. 구성원을 추가하려면 플랜을 업그레이드하세요.
+                </span>
+                <Button variant="primary" size="sm" onClick={() => navigate(MYPAGE_PLAN_ROUTE)}>
+                  플랜 업그레이드
+                </Button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleReissue}
+                className="cursor-pointer border-none bg-none text-sm font-semibold text-danger underline"
+              >
+                {getApiErrorMessage(issueError, '발급에 실패했습니다')} · 다시 시도
+              </button>
+            )
           ) : isIssuing || !code ? (
             <span className="text-sm text-text-muted">발급 중...</span>
           ) : isExpired ? (
