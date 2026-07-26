@@ -118,9 +118,16 @@ export interface InspectionListItem {
 }
 
 // GET /api/inspections 쿼리 파라미터 — page는 Spring Data 관례대로 0-based
+// defectType/defectGrade/defectStatus(#878/HAJA-452, 백엔드 PR #891로 origin/dev 머지 완료)는 자연어
+// 하자조건 검색(POST /api/defects/nl-search)이 산출한 필터를 그대로 실어 재조회하는 용도 — 셋 중
+// 1개 이상 주어지면 같은 하자 하나가 조건을 전부 만족하는 점검만 반환한다(EXISTS 서브쿼리, 서로 다른
+// 하자로 나눠 만족하면 매칭 아님. InspectionController.list 설명 참고).
 export interface InspectionListFilters {
   status?: InspectionStatus;
   facilityId?: number;
+  defectType?: DefectType[];
+  defectGrade?: DefectGrade[];
+  defectStatus?: DefectStatus[];
   page?: number;
   size?: number;
 }
