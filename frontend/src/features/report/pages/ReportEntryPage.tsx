@@ -274,42 +274,21 @@ export function ReportEntryPage() {
   if (!data) return <div className="p-5 text-red-600">데이터를 불러올 수 없습니다.</div>;
 
   return (
-    <div className="flex flex-col gap-8 pb-48">
-      {/* 1. Title Section */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-medium tracking-tight text-black">
-            점검 회차 요약 — {data.roundNo}회차
-          </h1>
-          <p className="mt-2 text-base font-medium text-text-muted">
-            검수가 완료된 하자를 바탕으로 점검 보고서 초안을 생성합니다.
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <Button
-            variant="secondary"
-            size="md"
-            onClick={() => navigate(`/inspections/${inspectionId}/viewer`)}
-          >
-            회차 상세
-          </Button>
-          <Button
-            variant="primary"
-            size="md"
-            disabled={data.reviewedCount !== data.totalCount}
-            title={
-              data.reviewedCount !== data.totalCount
-                ? `검수를 완료해야 합니다 (${data.reviewedCount}/${data.totalCount})`
-                : undefined
-            }
-            onClick={handleGenerateReport}
-          >
-            <span className="inline-flex items-center gap-2">
-              보고서 생성
-              <Icon spec={ICONS.sparkle} fill="currentColor" className="h-3 w-3.5" />
-            </span>
-          </Button>
-        </div>
+    <div className="pb-48">
+      {/* Figma node 180:5040 "Background+Border+Shadow" — 섹션 1~5(제목~최근작업내역)를
+          감싸는 흰색 카드. 이전 구현에 이 바깥 카드 자체가 통째로 빠져 있었다(#927).
+          6.하단 액션바는 Figma에서도 이 카드의 형제 요소(고정 오버레이)라 카드 밖에 둔다. */}
+      <div className="mx-auto flex max-w-[1024px] flex-col gap-8 rounded-[20px] border border-border bg-white p-8 shadow-[0px_8px_12px_rgba(0,0,0,0.08)]">
+      {/* 1. Title Section — "회차 상세"/"보고서 생성" 버튼 제거(#933 후속, 사용자 확정):
+          이 페이지 자체가 이미 회차 상세 컨텍스트이고, "보고서 생성"은 하단 액션바의
+          "보고서 생성 시작" 버튼과 중복이라 상단 버튼 쌍은 불필요했다. */}
+      <div>
+        <h1 className="text-3xl font-medium tracking-tight text-black">
+          점검 회차 요약 — {data.roundNo}회차
+        </h1>
+        <p className="mt-2 text-base font-medium text-text-muted">
+          검수가 완료된 하자를 바탕으로 점검 보고서 초안을 생성합니다.
+        </p>
       </div>
 
       {/* 2. Round Summary Strip */}
@@ -604,6 +583,7 @@ export function ReportEntryPage() {
           </div>
         </div>
       )}
+      </div>
 
       {/* 6. Sticky Bottom Action Bar */}
       <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-white/80 px-8 py-4 backdrop-blur-md">
