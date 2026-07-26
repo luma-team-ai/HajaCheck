@@ -7,7 +7,7 @@ import type {
   InspectionCreateResponse,
 } from '../types';
 import type { DefectStatusUpdateRequest } from './inspectionApi';
-import type { DefectDetailItem, DefectCreateRequest, DefectType } from './inspectionApi.types';
+import type { DefectDetailItem, DefectCreateRequest } from './inspectionApi.types';
 
 // ponytail: /api/inspections/:id/result 목은 제거됨 — 실제 백엔드는
 // /api/inspections/{id} + /api/inspections/{id}/defects 로 분리되어 있음.
@@ -76,7 +76,7 @@ export const inspectionHandlers = [
       status: reqBody.status,
       // Return a minimal defect object to satisfy the type contract
       inspectionId: 1,
-      type: '균열',
+      type: 'CRACK',
       grade: 'A',
       confidence: 0.95,
       isReviewed: true,
@@ -127,19 +127,11 @@ export const inspectionHandlers = [
     const inspectionId = Number(params.id);
     const reqBody = (await request.json()) as DefectCreateRequest;
 
-    // ponytail: 요청의 영문 enum을 응답의 한글 값으로 변환 — 기존 타입 버그 통과
-    const typeMap: Record<DefectCreateRequest['type'], DefectType> = {
-      CRACK: '균열',
-      SPALLING: '박리박락',
-      LEAK_EFFLORESCENCE: '누수·백태',
-      REBAR_EXPOSURE: '철근노출',
-      PAINT_DAMAGE: '도장 손상',
-    };
-
+    // 실 백엔드와 동일하게 영문 코드 그대로 반환 — 한글 라벨 번역은 프론트 훅에서 한다(#881).
     const newDefect: DefectDetailItem = {
       id: nextDefectId,
       inspectionId,
-      type: typeMap[reqBody.type],
+      type: reqBody.type,
       grade: reqBody.grade,
       confidence: 1.0,
       status: 'DETECTED',

@@ -8,7 +8,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ApiResponse } from '../../../shared/api/types';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
 import type { DefectRevisionRequest } from '../api/inspectionApi';
-import type { InspectionResponse, DefectDetailItem, DefectCreateRequest, DefectType, MediaResponse } from '../api/inspectionApi.types';
+import type { InspectionResponse, DefectDetailItem, DefectCreateRequest, MediaResponse } from '../api/inspectionApi.types';
 import { ResultViewerPage } from './ResultViewerPage';
 
 // 테스트용 목 데이터
@@ -29,7 +29,7 @@ const mockDefects: DefectDetailItem[] = [
   {
     id: 1,
     inspectionId: 1,
-    type: '균열',
+    type: 'CRACK',
     grade: 'C',
     status: 'DETECTED',
     confidence: 0.98,
@@ -47,7 +47,7 @@ const mockDefects: DefectDetailItem[] = [
   {
     id: 2,
     inspectionId: 1,
-    type: '박리박락',
+    type: 'SPALLING',
     grade: 'B',
     status: 'DETECTED',
     confidence: 0.81,
@@ -63,7 +63,7 @@ const mockDefects: DefectDetailItem[] = [
   {
     id: 3,
     inspectionId: 1,
-    type: '철근노출',
+    type: 'REBAR_EXPOSURE',
     grade: 'D',
     status: 'CONFIRMED',
     confidence: 0.67,
@@ -79,7 +79,7 @@ const mockDefects: DefectDetailItem[] = [
   {
     id: 4,
     inspectionId: 1,
-    type: '철근노출',
+    type: 'REBAR_EXPOSURE',
     grade: 'E',
     status: 'DETECTED',
     confidence: 0.58,
@@ -95,7 +95,7 @@ const mockDefects: DefectDetailItem[] = [
   {
     id: 5,
     inspectionId: 1,
-    type: '박리박락',
+    type: 'SPALLING',
     grade: 'A',
     status: 'RESOLVED',
     confidence: 0.45,
@@ -183,17 +183,10 @@ const testHandlers = [
   }),
   http.post('/api/inspections/:id/defects', async ({ request }) => {
     const body = (await request.json()) as DefectCreateRequest;
-    const typeMap: Record<DefectCreateRequest['type'], DefectType> = {
-      CRACK: '균열',
-      SPALLING: '박리박락',
-      LEAK_EFFLORESCENCE: '누수·백태',
-      REBAR_EXPOSURE: '철근노출',
-      PAINT_DAMAGE: '도장 손상',
-    };
     const newDefect: DefectDetailItem = {
       id: 999,
       inspectionId: 1,
-      type: typeMap[body.type],
+      type: body.type,
       grade: body.grade,
       confidence: 1.0,
       status: 'DETECTED',
@@ -366,7 +359,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
       {
         id: 6,
         inspectionId: 1,
-        type: '누수·백태',
+        type: 'LEAK_EFFLORESCENCE',
         grade: 'A',
         status: 'DETECTED',
         confidence: 0.7,
@@ -454,6 +447,29 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     // AI 패널의 설명이 id=2로 갱신됨 (같은 mock 응답 재사용)
     expect(await screen.findByText(/콘크리트 표면의 환경 노출로 인한 수축 응력/)).not.toBeNull();
+  });
+
+  it('균열(CRACK) 하자는 면적 비율이 아니라 예상 길이(mm)를 표시한다(#881)', async () => {
+    // 백엔드는 type을 영문 코드로 내려주므로(#881), 훅에서 한글로 번역돼야만
+    // '균열' 분기(예상 길이)를 탄다. id=1은 CRACK·crackLengthMm=45.
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    expect(screen.getByText('예상 길이')).not.toBeNull();
+    expect(screen.getByText('45mm')).not.toBeNull();
+    expect(screen.queryByText('면적 비율')).toBeNull();
+  });
+
+  it('박리박락(SPALLING) 하자는 면적 비율을 표시한다(#881)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    // id=2(박리박락) 마커 클릭 — areaRatio 미제공이라 '준비 중'으로 표시된다.
+    fireEvent.click(screen.getByTitle(/박리박락/));
+
+    expect(screen.getByText('면적 비율')).not.toBeNull();
+    expect(screen.getByText('준비 중')).not.toBeNull();
+    expect(screen.queryByText('예상 길이')).toBeNull();
   });
 
   it('빈 데이터: 탐지된 하자가 없으면 해당 메시지를 표시한다', async () => {
@@ -559,17 +575,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
         const body = (await request.json()) as DefectCreateRequest;
         expect(body.type).toBe('SPALLING');
         expect(body.grade).toBe('B');
-        const typeMap: Record<DefectCreateRequest['type'], DefectType> = {
-          CRACK: '균열',
-          SPALLING: '박리박락',
-          LEAK_EFFLORESCENCE: '누수·백태',
-          REBAR_EXPOSURE: '철근노출',
-          PAINT_DAMAGE: '도장 손상',
-        };
         const newDefect: DefectDetailItem = {
           id: 999,
           inspectionId: 1,
-          type: typeMap[body.type],
+          type: body.type,
           grade: body.grade,
           confidence: 1.0,
           status: 'DETECTED',
