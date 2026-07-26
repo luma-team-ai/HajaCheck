@@ -116,17 +116,18 @@ class AdminPlanControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 현재플랜조회_미승인멤버십관리자_404_상속안됨() throws Exception {
-        // 회사·플랜은 있으나 관리자 멤버십이 PENDING → 회사 플랜 상속 대상 아님(§2.6).
+    void 현재플랜조회_승인멤버십없어도_200_companyId기준상속() throws Exception {
+        // #887 방어 처리: 실제 가입 경로(CompanyAccountWriter)는 멤버십 행을 만들지 않으므로, 회사
+        // 소속 관리자는 승인 멤버십이 전혀 없어도(PENDING 멤버십조차 없어도) users.company_id만으로
+        // 회사 플랜을 정상 조회할 수 있어야 한다(원래는 여기서 404였다 — 그 결손이 이 이슈의 원인).
         Company company = saveApprovedCompany();
         User admin = saveUser(Role.ADMIN, company.getId());
-        companyMembershipRepository.save(
-                CompanyMembership.invite(company.getId(), admin.getId(), null, null));
         seedPlans();
         userPlanRepository.save(UserPlan.forCompany(company.getId(), planId(PlanName.FREE)));
 
         mockMvc.perform(get("/api/admin/plan").with(authentication(authOf(admin))))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.plan.name").value("FREE"));
     }
 
     // ── 플랜 변경 + 이력 ──
@@ -269,6 +270,26 @@ class AdminPlanControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data.content[0].plan").doesNotExist())
                 .andExpect(jsonPath("$.data.content[0].quotaLimit").doesNotExist())
                 .andExpect(jsonPath("$.data.stats.companyPlan").doesNotExist());
+    }
+
+    @Test
+    void 플랜쿼터목록조회_멤버십행자체없음_실가입흐름재현_200() throws Exception {
+        // #887 핵심 재현 케이스: 실제 CompanyAccountWriter.createAccount()는 CompanyMembership 행을
+        // 아예 만들지 않는다 — 이 테스트는 companyMembershipRepository.save()를 전혀 호출하지 않아
+        // 그 실제 상태를 그대로 재현한다. 이전에는 여기서 PLAN_NOT_FOUND(404)가 그대로 터졌다.
+        Company company = saveApprovedCompany();
+        User admin = saveUser(Role.ADMIN, company.getId());
+        seedPlans();
+        userPlanRepository.save(UserPlan.forCompany(company.getId(), planId(PlanName.STANDARD)));
+        Integer standardQuotaLimit = planRepository.findByName(PlanName.STANDARD)
+                .orElseThrow().getMaxMonthlyAnalyses();
+
+        mockMvc.perform(get("/api/admin/plan-quota").with(authentication(authOf(admin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].plan").value("STANDARD"))
+                .andExpect(jsonPath("$.data.content[0].quotaLimit").value(standardQuotaLimit))
+                .andExpect(jsonPath("$.data.stats.companyPlan").value("STANDARD"));
     }
 
     @Test
