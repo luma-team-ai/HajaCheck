@@ -172,8 +172,6 @@ class AdminPlanServiceTest {
                 "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
 
         when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
-        when(companyMembershipRepository.existsEffectiveApprovedMembership(anyLong(), anyLong(), any()))
-                .thenReturn(true);
         when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
         when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
                 companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
@@ -205,8 +203,6 @@ class AdminPlanServiceTest {
                 "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
 
         when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
-        when(companyMembershipRepository.existsEffectiveApprovedMembership(anyLong(), anyLong(), any()))
-                .thenReturn(true);
         when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
         when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
                 companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));

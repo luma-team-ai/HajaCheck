@@ -43,7 +43,8 @@ info:
     /api/admin/plan/history 에 page/size 페이지네이션 추가(PR#525 머신 리뷰 P3).
     2026-07-26 플랜 하향 시 한도 초과분 처리(#890) — GET /api/admin/plan/change-preview 신규,
     AdminPlanChangeRequest.confirmOverflow 추가, PATCH /api/admin/plan 에 409
-    PLAN_DOWNGRADE_CONFIRMATION_REQUIRED 추가.
+    PLAN_DOWNGRADE_CONFIRMATION_REQUIRED 추가. POST /api/me/plan/checkout 도 하향 초과 시 같은 409 로
+    거절한다(셀프 결제에는 확인 경로가 없어 관리자 콘솔로 유도).
     2026-07-21 명세-구현 동기화 — 멤버십·계정복구·대시보드·AI프록시·OCR 추가, 보고서 API를 #455 구현 기준으로
     재작성(#498).
     2026-07-19 GET /api/notifications(AP-020, #25 / HAJA-38 FR-9) 계약 추가.
@@ -775,7 +776,10 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "409":
-          description: 동시 결제 경합 (PLAN_ACTIVE_SUBSCRIPTION_CONFLICT)
+          description: >
+            동시 결제 경합 (PLAN_ACTIVE_SUBSCRIPTION_CONFLICT) 또는 하향으로 한도를 넘는 구성원·시설물이 생김
+            (PLAN_DOWNGRADE_CONFIRMATION_REQUIRED, #890) — 셀프 결제에는 확인 단계가 없어 거절만 하고
+            관리자 콘솔의 change-preview → confirmOverflow 경로로 유도한다.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }

@@ -147,7 +147,7 @@ public class AdminPlanService {
         // 초과 좌석 정지는 신규 구독 발급과 같은 트랜잭션에서 — 플랜만 내려가고 정지가 안 되면 한도가
         // 조용히 무력화된다. 초과가 없으면 no-op 다.
         //
-        // ⚠️ 알려진 한계(리뷰 P2, 후속 이슈): 이 트랜잭션은 users/user_plans 를 잠그지 않고, preview 가
+        // ⚠️ 알려진 한계(리뷰 P2, 후속 이슈 #913): 이 트랜잭션은 users/user_plans 를 잠그지 않고, preview 가
         // 읽는 건 잠금 없는 스냅샷이다. 같은 시각 다른 트랜잭션이 "구 플랜" 기준으로 좌석을 활성화하면
         // (QuotaService#reserveSeat 는 구 userPlan 의 usage_counters 행을 잠그므로 이 트랜잭션과
         // 직렬화되지 않는다) 커밋 후 새 플랜 한도를 넘는 인원이 남을 수 있다. reserveSeat 는 신규

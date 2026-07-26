@@ -165,8 +165,11 @@ public class PlanDowngradeService {
      * 잠긴다(owner 까지 SUSPENDED 면 {@code SessionUserRevalidationFilter} 가 세션을 즉시 죽여 로그인도
      * 불가). 그래서 외부 인가에 기대지 않고 여기서 직접 막는다.
      *
-     * <p>{@code maxSeats == 0}(플랫폼 관리자가 설정 가능)처럼 전원이 정지 대상이 되는 입력도 이 단정에
-     * 걸린다.
+     * <p>⚠️ {@code maxSeats == 0}(플랫폼 관리자가 설정 가능) 이어도 <b>owner 가 active 목록에 있으면
+     * keep 의 첫 원소로 살아남아</b> 이 단정에 걸리지 않는다(정지되지 않는다). 이 단정이 실제로 발화하는
+     * 건 owner 가 active 목록에 없거나 owner 가 ADMIN 이 아닌 경우다 — 현행 가입 경로
+     * ({@code User#createCompanyOwner} 가 owner 를 ADMIN+ACTIVE 로 만들고 V8 이 기존 owner 를 소급
+     * ADMIN 으로 올린다)에서는 발생하지 않으므로, 외부 호출부가 붙었을 때를 대비한 순수 방어선이다.
      */
     private void requireSurvivingActiveAdmin(List<User> active, List<Long> suspend) {
         Set<Long> suspended = Set.copyOf(suspend);
