@@ -205,6 +205,13 @@
 .defect-explain-section .defect-risk-title { color: #ff6d1f; }
 .defect-explain-section p { margin: 0; color: var(--color-text-default); font-size: 14px; line-height: 1.55; }
 
+.defect-explain-section--risk {
+  padding: 14px 16px;
+  border: 1px solid var(--color-danger-soft-border);
+  border-radius: 14px;
+  background: var(--color-danger-soft-bg);
+}
+
 .defect-activity-panel { padding: 26px; }
 .defect-activity-panel h2 { margin: 0 0 20px; color: var(--color-heading); font-size: 21px; font-weight: 800; }
 

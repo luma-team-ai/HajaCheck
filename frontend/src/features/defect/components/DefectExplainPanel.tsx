@@ -45,12 +45,12 @@ export function DefectExplainPanel({
             <h3>예상 원인</h3>
             <p>{data.cause}</p>
           </div>
-          <div className="defect-explain-section">
+          <div className="defect-explain-section defect-explain-section--risk">
             <h3 className="defect-risk-title">⚠ 방치 시 위험</h3>
             <p>{data.risk}</p>
           </div>
           <div className="defect-explain-section">
-            <h3>조치 계획</h3>
+            <h3>조치 권고</h3>
             <p>{data.action}</p>
           </div>
         </div>
