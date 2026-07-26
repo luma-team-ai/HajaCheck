@@ -24,8 +24,13 @@ import { statisticsHandlers } from '../features/statistics/api/statisticsApi.han
 import { statsHandlers } from '../features/platform-admin/api/statsApi.handlers';
 import { supportHandlers } from '../features/support/api/supportApi.handlers';
 
+// hybrid는 실제 Spring 세션/인증을 사용해야 하므로 auth MSW가 실 로그인 요청을 가로채면 안 된다.
+// true/미설정 dev에서는 기존 목 로그인 동작을 유지한다.
+const isHybridMode = import.meta.env.VITE_ENABLE_MSW?.trim().toLowerCase() === 'hybrid';
+const effectiveAuthHandlers = isHybridMode ? [] : authHandlers;
+
 export const handlers = [
-  ...authHandlers,
+  ...effectiveAuthHandlers,
   // facilityAssigneeHandlers(GET /api/facilities/assignable-users, 리터럴 경로)는 msw v2 등록 순서
   // 매칭이라 inspectionHandlers/facilityHandlers가 등록하는 GET /api/facilities/:id 캐치올보다
   // 반드시 앞에 와야 한다 — 안 그러면 :id='assignable-users'로 먼저 매치되어 항상 404가 난다(PR머신 P1).
