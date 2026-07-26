@@ -9,7 +9,6 @@ import {
 import type { NlSearchResult } from '../nlSearchTypes';
 import type {
   Defect,
-  DefectActionSubmitRequest,
   DefectAssignee,
   DefectRevision,
   DefectStatus,
@@ -106,9 +105,7 @@ export const defectHandlers = [
       return HttpResponse.json(failure, { status: 404 });
     }
 
-    const reqBody = (await request.json()) as { status: DefectStatus; reason?: string } & Partial<
-      Omit<DefectActionSubmitRequest, 'status'>
-    >;
+    const reqBody = (await request.json()) as { status: DefectStatus; reason?: string };
     const { status, reason } = reqBody;
 
     // RESOLVED에서의 이탈은 reason 유무와 무관하게 409(조치 보드 드래그 전이, HAJA-349/#630 handoff 범위 §API).
@@ -124,11 +121,8 @@ export const defectHandlers = [
     const expectedNext = NEXT_STATUS[found.status];
     const isForward = status === expectedNext;
 
-    // 역행·건너뛰기 전이는 reason이 있어야 허용된다(정방향 1단계만 reason 없이 통과). "조치 완료 등록"
-    // 모달 제출(actionContent 포함)은 조치 보드 드래그 전이와 달리 사유 대신 조치내용/조치일/담당자를
-    // 함께 보내므로 reason 요구 대상에서 제외한다(HAJA-394/#726, contract.md §"조치 결과 등록").
-    const isActionRegistration = reqBody.actionContent != null;
-    if (!isForward && !isActionRegistration && (!reason || reason.trim().length === 0)) {
+    // 역행·건너뛰기 전이는 reason이 있어야 허용된다(정방향 1단계만 reason 없이 통과).
+    if (!isForward && (!reason || reason.trim().length === 0)) {
       const failure: ApiResponse<null> = {
         success: false,
         data: null,
@@ -139,19 +133,42 @@ export const defectHandlers = [
 
     found.status = status;
 
-    // "조치 완료 등록" 제출(HAJA-394/#726) — PATCH /api/defects/{id}/status 확장 가정(BE 판단 대기,
-    // contract.md §"조치 결과 등록"). afterMediaId는 POST /api/inspections/{id}/media 응답에서 받은
-    // 사진 id를 그대로 회신 표시용 URL로 치환한다(실 저장 컬럼은 Flyway V5 대기).
-    if (isActionRegistration && reqBody.actionContent && reqBody.actionDate && reqBody.assigneeId != null) {
-      const assignee = mockDefectAssignees.find((candidate) => candidate.id === reqBody.assigneeId);
-      found.actionResult = {
-        actionContent: reqBody.actionContent,
-        actionDate: reqBody.actionDate,
-        assigneeId: reqBody.assigneeId,
-        assigneeName: assignee?.name ?? '담당자 미상',
-        afterPhotoUrl: reqBody.afterMediaId != null ? `/api/media/${reqBody.afterMediaId}/thumbnail` : null,
+    const body: ApiResponse<Defect> = { success: true, data: found };
+    return HttpResponse.json(body);
+  }),
+
+  // PATCH /api/defects/:id/action — "조치 완료 등록"(HAJA-394/#726, contract.md §"조치 결과 등록"
+  // 확정). DefectActionResultRequest(actionMediaId/actionContent/actionDate/actionAssigneeId) 1:1
+  // 미러 — 상태전이(PATCH /status)와 분리된 별도 엔드포인트이며, 항상 RESOLVED로 고정 전이한다.
+  http.patch('/api/defects/:id/action', async ({ params, request }) => {
+    const id = Number(params.id);
+    const found = mockDefects.find((defect) => defect.id === id);
+
+    if (!found) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'DEFECT_NOT_FOUND', message: '하자를 찾을 수 없습니다.' },
       };
+      return HttpResponse.json(failure, { status: 404 });
     }
+
+    const reqBody = (await request.json()) as {
+      actionMediaId: number;
+      actionContent: string;
+      actionDate: string;
+      actionAssigneeId: number;
+    };
+
+    const assignee = mockDefectAssignees.find((candidate) => candidate.id === reqBody.actionAssigneeId);
+    found.actionResult = {
+      actionContent: reqBody.actionContent,
+      actionDate: reqBody.actionDate,
+      assigneeId: reqBody.actionAssigneeId,
+      assigneeName: assignee?.name ?? '담당자 미상',
+      afterPhotoUrl: `/api/media/${reqBody.actionMediaId}/thumbnail`,
+    };
+    found.status = 'RESOLVED';
 
     const body: ApiResponse<Defect> = { success: true, data: found };
     return HttpResponse.json(body);

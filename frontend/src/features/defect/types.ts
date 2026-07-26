@@ -159,13 +159,12 @@ export interface DefectActionResult {
   afterPhotoUrl: string | null;
 }
 
-// 하자 상세 모달 "조치 완료 등록" 제출 body — PATCH /api/defects/{id}/status 확장 가정(BE 판단 대기,
-// contract.md §"조치 결과 등록" 참고). 실제 필드명/엔드포인트가 BE 확정과 다르면 PR에
-// [CONTRACT-CHANGE-REQUEST]로 표시할 것.
+// 하자 상세 모달 "조치 완료 등록" 제출 body — PATCH /api/defects/{id}/action, DefectActionResultRequest
+// 1:1(contract.md §"조치 결과 등록" 확정, #726). status는 보내지 않는다 — 백엔드가 내부에서 항상
+// RESOLVED로만 전이한다(Defect#registerActionResult).
 export interface DefectActionSubmitRequest {
-  status: 'RESOLVED';
   actionContent: string;
   actionDate: string;
-  assigneeId: number;
-  afterMediaId?: number;
+  actionAssigneeId: number;
+  actionMediaId: number;
 }

@@ -27,8 +27,9 @@ const PHOTO_ERROR_MESSAGE: Record<'FILE_INVALID_TYPE' | 'FILE_TOO_LARGE', string
 
 // 하자 상세 모달 "조치 결과 등록" 폼 — contract.md §"조치 결과 등록" 필드 표 확정: 조치 후 사진
 // (필수, 드래그앤드롭), 조치 내용(필수), 조치일(필수), 담당자(필수). 제출 시 PATCH
-// /api/defects/{id}/status를 상태전이(RESOLVED)+조치결과 필드로 확장하는 것으로 가정한다(BE 판단
-// 대기 — contract.md §엔드포인트 매핑 ③조치 결과 등록, [CONTRACT-CHANGE-REQUEST] 후보).
+// /api/defects/{id}/action(DefectActionResultRequest)을 호출한다 — 상태 전이(RESOLVED)는 백엔드가
+// 내부에서 항상 고정 처리하므로 요청 바디에 status를 싣지 않는다(contract.md §엔드포인트 매핑
+// ③조치 결과 등록 확정).
 export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmitted }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -122,12 +123,15 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
 
     try {
       const uploaded = await uploadActionPhoto({ inspectionId, file });
+      const uploadedMediaId = uploaded[0]?.id;
+      if (uploadedMediaId == null) {
+        throw new Error('조치 후 사진 업로드 결과가 없습니다.');
+      }
       await submitAction({
-        status: 'RESOLVED',
         actionContent: actionContent.trim(),
         actionDate,
-        assigneeId,
-        afterMediaId: uploaded[0]?.id,
+        actionAssigneeId: assigneeId,
+        actionMediaId: uploadedMediaId,
       });
       onSubmitted?.();
     } catch {
