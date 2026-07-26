@@ -49,10 +49,11 @@ function defect(
 }
 
 // 균열 2건(C·E) · 철근노출 1건(D) — 전부 검수 완료
+// API 응답 type은 영문 코드(#881) — useInspectionResultReal이 화면 표시용 한글로 번역한다.
 const allReviewedDefects: DefectDetailItem[] = [
-  defect(1, '균열', 'C', true),
-  defect(2, '균열', 'E', true),
-  defect(3, '철근노출', 'D', true),
+  defect(1, 'CRACK', 'C', true),
+  defect(2, 'CRACK', 'E', true),
+  defect(3, 'REBAR_EXPOSURE', 'D', true),
 ];
 
 const mockMedia: MediaResponse[] = [
@@ -153,8 +154,8 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(crackCard.getByText('2')).not.toBeNull();
     expect(crackCard.getByTitle('E등급 · 심각')).not.toBeNull();
 
-    // 데이터의 타입값은 '철근노출'(띄어쓰기 없음)인데 화면 라벨은 Figma 표기('철근 노출')다.
-    // 영문 enum('REBAR_EXPOSURE')으로 매칭하면 여기서 0건이 되어 조용히 깨진다.
+    // 화면 표시 라벨('철근노출', 띄어쓰기 없음)은 Figma 표기('철근 노출')와 다르다 — 훅이
+    // 번역하는 값(DEFECT_TYPE_CODE_LABELS) 기준이며 testid도 그 값을 따른다.
     const rebarCard = within(screen.getByTestId('defect-type-card-철근노출'));
     expect(rebarCard.getByText('1')).not.toBeNull();
     expect(rebarCard.getByTitle('D등급 · 주의')).not.toBeNull();
@@ -275,7 +276,7 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
       http.get('/api/inspections/:id/defects', () =>
         HttpResponse.json({
           success: true,
-          data: [defect(1, '균열', 'C', true), defect(2, '균열', 'E', false)],
+          data: [defect(1, 'CRACK', 'C', true), defect(2, 'CRACK', 'E', false)],
         }),
       ),
     );
