@@ -106,6 +106,17 @@ public class AdminPlanService {
      */
     @Transactional
     public AdminPlanResponse changePlan(Long adminUserId, PlanName targetPlanName, boolean overflowConfirmed) {
+        return changePlan(adminUserId, targetPlanName, overflowConfirmed, List.of());
+    }
+
+    /**
+     * @param keepUserIds 하향으로 좌석이 넘칠 때 관리자가 직접 유지할 구성원(#890 Phase 2). 비어 있으면
+     *                    (null 포함) 기존 동작(id 오름차순 자동 선정) — 검증·정합 보장은
+     *                    {@code PlanDowngradeService#preview(Long, Plan, Plan, List)} javadoc 참고.
+     */
+    @Transactional
+    public AdminPlanResponse changePlan(
+            Long adminUserId, PlanName targetPlanName, boolean overflowConfirmed, List<Long> keepUserIds) {
         Long companyId = resolveInheritedCompanyId(adminUserId);
         requireCompanyOwner(companyId, adminUserId);
         UserPlan current = resolveCurrentCompanyPlan(companyId);
@@ -124,7 +135,7 @@ public class AdminPlanService {
         // 하향으로 한도를 넘게 되는 자원이 있으면 "명시적 확인" 없이는 아무것도 바꾸지 않는다(#890).
         // 이 검사를 아래 만료/발급보다 먼저 두는 이유: 확인 없는 요청에서 플랜만 바뀌고 정지는 안 되는
         // 중간 상태가 절대 남으면 안 되기 때문이다(트랜잭션 롤백에 기대지 않고 순서로 보장한다).
-        if (!overflowConfirmed && planDowngradeService.preview(companyId, currentPlan, targetPlan).exists()) {
+        if (!overflowConfirmed && resolveOverflowPreview(companyId, currentPlan, targetPlan, keepUserIds).exists()) {
             throw new BusinessException(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED);
         }
 
@@ -152,7 +163,7 @@ public class AdminPlanService {
         // (QuotaService#reserveSeat 는 구 userPlan 의 usage_counters 행을 잠그므로 이 트랜잭션과
         // 직렬화되지 않는다) 커밋 후 새 플랜 한도를 넘는 인원이 남을 수 있다. reserveSeat 는 신규
         // 활성화만 막으므로 그 초과는 스스로 해소되지 않는다.
-        planDowngradeService.applyOverflow(companyId, currentPlan, targetPlan);
+        applyDowngradeOverflow(companyId, currentPlan, targetPlan, keepUserIds);
         return buildResponseWithUsage(saved, targetPlan);
     }
 
@@ -162,13 +173,23 @@ public class AdminPlanService {
      * 구성원 이름·이메일을 돌려주므로 조회 권한을 변경 권한보다 넓게 두면 안 된다.
      */
     public AdminPlanChangePreviewResponse previewChange(Long adminUserId, PlanName targetPlanName) {
+        return previewChange(adminUserId, targetPlanName, List.of());
+    }
+
+    /**
+     * @param keepUserIds 관리자가 유지를 검토 중인 구성원 선택(#890 Phase 2) — 실제 변경({@link #changePlan})
+     *                    에 넘길 값과 동일하게 넘겨야 미리보기·실제 결과가 어긋나지 않는다. 비어 있으면
+     *                    (null 포함) 기존 동작(id 오름차순 자동 선정).
+     */
+    public AdminPlanChangePreviewResponse previewChange(
+            Long adminUserId, PlanName targetPlanName, List<Long> keepUserIds) {
         Long companyId = resolveInheritedCompanyId(adminUserId);
         requireCompanyOwner(companyId, adminUserId);
         Plan targetPlan = planRepository.findByName(targetPlanName)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
 
         Plan currentPlan = findPlan(resolveCurrentCompanyPlan(companyId).getPlanId());
-        DowngradeOverflow overflow = planDowngradeService.preview(companyId, currentPlan, targetPlan);
+        DowngradeOverflow overflow = resolveOverflowPreview(companyId, currentPlan, targetPlan, keepUserIds);
         List<AdminPlanChangePreviewResponse.SuspendTarget> targets =
                 userRepository.findAllById(overflow.seatUserIdsToSuspend()).stream()
                         .sorted(Comparator.comparing(User::getId))
@@ -176,6 +197,26 @@ public class AdminPlanService {
                                 u.getId(), u.getName(), u.getEmail()))
                         .toList();
         return AdminPlanChangePreviewResponse.of(targetPlanName, overflow, targets);
+    }
+
+    // keepUserIds 가 비어 있으면(대다수 호출) 기존 3-인자 오버로드를 그대로 타게 해, 이 서비스의 기존
+    // 단위 테스트(planDowngradeService 목 stub)가 keepUserIds 도입 이후에도 그대로 통과한다(리뷰 대비).
+    private DowngradeOverflow resolveOverflowPreview(
+            Long companyId, Plan currentPlan, Plan targetPlan, List<Long> keepUserIds) {
+        return isEmpty(keepUserIds)
+                ? planDowngradeService.preview(companyId, currentPlan, targetPlan)
+                : planDowngradeService.preview(companyId, currentPlan, targetPlan, keepUserIds);
+    }
+
+    private DowngradeOverflow applyDowngradeOverflow(
+            Long companyId, Plan currentPlan, Plan targetPlan, List<Long> keepUserIds) {
+        return isEmpty(keepUserIds)
+                ? planDowngradeService.applyOverflow(companyId, currentPlan, targetPlan)
+                : planDowngradeService.applyOverflow(companyId, currentPlan, targetPlan, keepUserIds);
+    }
+
+    private boolean isEmpty(List<Long> keepUserIds) {
+        return keepUserIds == null || keepUserIds.isEmpty();
     }
 
     /** 회사 구독 변경 이력(최신 순, 페이지 단위). */
