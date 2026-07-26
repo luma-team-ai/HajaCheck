@@ -155,7 +155,30 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
           role="button"
           tabIndex={0}
         >
-          {file ? <span>{file.name}</span> : <span>클릭하거나 파일을 끌어다 놓으세요 (JPG, PNG, 최대 10MB)</span>}
+          {file ? (
+            <span>{file.name}</span>
+          ) : (
+            <>
+              <svg
+                className="defect-action-form__dropzone-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M7 16a4 4 0 0 1-.5-7.97A5 5 0 0 1 16.9 6.02 4.5 4.5 0 0 1 17.5 15H16m-8 3 4-4m0 0 4 4m-4-4v9"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span className="defect-action-form__dropzone-text">
+                <strong>파일을 드래그하거나 클릭하여 업로드</strong>
+                <small>JPG, PNG 파일 (최대 10MB)</small>
+              </span>
+            </>
+          )}
           <input
             id="defect-action-photo"
             ref={fileInputRef}
@@ -183,31 +206,33 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
         />
       </div>
 
-      <div className="defect-action-form__field">
-        <label htmlFor="defect-action-date">조치일 *</label>
-        <input
-          id="defect-action-date"
-          type="date"
-          value={actionDate}
-          onChange={(event) => setActionDate(event.target.value)}
-        />
-      </div>
+      <div className="defect-action-form__row">
+        <div className="defect-action-form__field">
+          <label htmlFor="defect-action-date">조치일 *</label>
+          <input
+            id="defect-action-date"
+            type="date"
+            value={actionDate}
+            onChange={(event) => setActionDate(event.target.value)}
+          />
+        </div>
 
-      <div className="defect-action-form__field">
-        <label htmlFor="defect-action-assignee">담당자 *</label>
-        <select
-          id="defect-action-assignee"
-          value={assigneeId}
-          disabled={isAssigneeLoading}
-          onChange={(event) => setAssigneeId(event.target.value === '' ? '' : Number(event.target.value))}
-        >
-          <option value="">담당자를 선택하세요</option>
-          {(assignableUsers ?? []).map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.name}
-            </option>
-          ))}
-        </select>
+        <div className="defect-action-form__field">
+          <label htmlFor="defect-action-assignee">담당자 *</label>
+          <select
+            id="defect-action-assignee"
+            value={assigneeId}
+            disabled={isAssigneeLoading}
+            onChange={(event) => setAssigneeId(event.target.value === '' ? '' : Number(event.target.value))}
+          >
+            <option value="">담당자를 선택하세요</option>
+            {(assignableUsers ?? []).map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {uploadError && (

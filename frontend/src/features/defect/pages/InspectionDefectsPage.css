@@ -532,11 +532,13 @@
 .defect-action-form__dropzone {
   display: flex;
   min-height: 96px;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   border: 1px dashed var(--color-border);
   border-radius: 12px;
-  padding: 16px;
+  padding: 20px 16px;
   color: var(--color-text-muted);
   cursor: pointer;
   font-size: 13px;
@@ -546,6 +548,35 @@
 .defect-action-form__dropzone.is-drag-active {
   border-color: var(--color-point);
   background: color-mix(in srgb, var(--color-point) 6%, var(--color-surface));
+}
+
+.defect-action-form__dropzone-icon {
+  width: 28px;
+  height: 28px;
+  color: var(--color-text-muted);
+}
+
+.defect-action-form__dropzone-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.defect-action-form__dropzone-text strong {
+  color: var(--color-text-default);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.defect-action-form__dropzone-text small {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.defect-action-form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
 }
 
 .defect-action-form__error {
@@ -614,6 +645,10 @@
   }
 
   .defect-card-grid__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .defect-action-form__row {
     grid-template-columns: 1fr;
   }
 }
