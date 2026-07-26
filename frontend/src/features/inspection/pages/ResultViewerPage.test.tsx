@@ -734,6 +734,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
     const dots = radioGroup.querySelectorAll('span[aria-hidden="true"]');
     expect(dots.length).toBe(5);
     expect((dots[0] as HTMLElement).style.backgroundColor).toBe('rgb(22, 163, 74)'); // A #16A34A
+    // B는 프로젝트 표준 팔레트(dashboard/map/chart 공통) 값 — "연한" 변형과 혼동 금지 회귀 방지(#957)
+    expect((dots[1] as HTMLElement).style.backgroundColor).toBe('rgb(101, 163, 13)'); // B #65A30D
+    expect((dots[2] as HTMLElement).style.backgroundColor).toBe('rgb(234, 179, 8)'); // C #EAB308
+    expect((dots[3] as HTMLElement).style.backgroundColor).toBe('rgb(249, 115, 22)'); // D #F97316
     expect((dots[4] as HTMLElement).style.backgroundColor).toBe('rgb(220, 38, 38)'); // E #DC2626
   });
 
