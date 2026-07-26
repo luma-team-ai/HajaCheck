@@ -209,6 +209,21 @@ public class Company extends BaseTimeEntity {
         this.verifiedAt = Instant.now();
     }
 
+    /**
+     * 사업자등록 진위확인 실패 확정(#888 PENDING 자동 재검증 스케줄러 전용) — 국세청이 미등록/불일치/
+     * 휴업/폐업을 확정 응답했을 때 호출한다. 국세청 장애·미설정으로 인한 SKIPPED(fail-open)는 이 메서드를
+     * 호출하지 않고 PENDING을 유지해야 한다(호출부 책임 — 장애를 실패로 오판하면 안 된다).
+     *
+     * <p>⚠️ {@code verifiedAt} 처리 방침: 갱신하지 않는다(null 유지). 이 필드명은 "진위 확인 완료 시각"이
+     * 아니라 {@link #markBusinessVerified()}가 뜻하는 "검증 성공(VERIFIED) 시각"으로 좁게 쓰인다 — 실패
+     * 확정 시각이 필요해지면 이 필드를 재사용하지 말고 {@code failedAt} 같은 전용 컬럼을 새로 추가할 것
+     * (재사용 시 이후 재검증으로 FAILED→VERIFIED 전이가 생기면 "최초 검증 시각"과 "최근 실패 시각"이
+     * 뒤섞여 의미가 오염된다).
+     */
+    public void markBusinessVerificationFailed() {
+        this.verificationStatus = BusinessVerificationStatus.FAILED;
+    }
+
     private void requirePendingReview(String action) {
         if (this.status != CompanyStatus.PENDING_REVIEW) {
             throw new DomainStateTransitionException(
