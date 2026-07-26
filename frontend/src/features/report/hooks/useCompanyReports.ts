@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../api/reportApi';
 import { mockReportListItems } from '../mocks/reportList.mock';
 import type { ReportListFilters } from '../types';
+import { filterReportListItems } from '../utils/reportListFormat';
 import { hybridFetchFallback } from '../../../shared/utils/hybridFetchFallback';
 
 // 보고서 목록/이력 관리(#463) — 회사 스코프 전체 보고서 목록.
@@ -14,14 +15,7 @@ export function useCompanyReports(filters: ReportListFilters) {
       fallback: () => {
       const page = filters.page ?? 0;
       const size = filters.size ?? 10;
-      const filtered = mockReportListItems.filter((item) => {
-        if (filters.facilityId && item.facilityId !== filters.facilityId) return false;
-        if (filters.status && item.status !== filters.status) return false;
-        if (filters.query && !item.facilityName.toLowerCase().includes(filters.query.toLowerCase())) {
-          return false;
-        }
-        return true;
-      });
+      const filtered = filterReportListItems(mockReportListItems, filters);
       return {
         content: filtered.slice(page * size, page * size + size),
         page,

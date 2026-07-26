@@ -9,6 +9,7 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { facilityHandlers } from '../../facility/api/facilityApi.handlers';
 import { reportHandlers } from '../api/reportApi.handlers';
+import { platformAdminCompanyHandlers } from '../../platform-admin/api/platformAdminCompanyApi.handlers';
 import { formatReportListTitle } from '../utils/reportListFormat';
 import { ReportListPage } from './ReportListPage';
 
@@ -17,7 +18,7 @@ import { ReportListPage } from './ReportListPage';
 const REPORT_101_TITLE = formatReportListTitle('판교 테크원타워', '2026-07-24T14:30:00', 3);
 const REPORT_103_TITLE = formatReportListTitle('강남 파이낸스센터', '2026-06-23T09:15:00', 1);
 
-const server = setupServer(...reportHandlers, ...facilityHandlers);
+const server = setupServer(...reportHandlers, ...facilityHandlers, ...platformAdminCompanyHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
@@ -68,7 +69,7 @@ describe('ReportListPage', () => {
     expect(screen.getByText(REPORT_103_TITLE)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '시설물 필터' }));
-    fireEvent.click(await screen.findByRole('option', { name: '판교 테크원타워' }));
+    fireEvent.click(await screen.findByRole('option', { name: '강남 오피스타워 A동' }));
 
     await screen.findByText(REPORT_101_TITLE);
     expect(screen.queryByText(REPORT_103_TITLE)).toBeNull();

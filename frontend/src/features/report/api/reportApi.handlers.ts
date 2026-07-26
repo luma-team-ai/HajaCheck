@@ -2,6 +2,7 @@ import { http, HttpResponse } from 'msw';
 import type { ApiResponse, PageResponse } from '../../../shared/api/types';
 import type { ReportDetailResponse } from './reportApi';
 import type { ReportContent, ReportListItem, ReportListStatus } from '../types';
+import { filterReportListItems } from '../utils/reportListFormat';
 import { mockReportListItems } from '../mocks/reportList.mock';
 
 const mockReportContent: ReportContent = {
@@ -83,6 +84,13 @@ let currentReportState: ReportDetailResponse = {
 };
 
 export const reportHandlers = [
+  http.post('/api/inspections/:inspectionId/reports', ({ params }) => {
+    const inspectionId = Number(params.inspectionId);
+    currentReportState = { ...currentReportState, inspectionId };
+    const body: ApiResponse<ReportDetailResponse> = { success: true, data: currentReportState };
+    return HttpResponse.json(body, { status: 201 });
+  }),
+
   http.get('/api/inspections/:inspectionId/reports', ({ params }) => {
     const inspectionId = Number(params.inspectionId);
     const body: ApiResponse<
@@ -231,25 +239,11 @@ startxref
     const query = url.searchParams.get('query')?.trim().toLowerCase();
     const period = url.searchParams.get('period');
 
-    const periodFromDate = (() => {
-      if (!period || period === 'ALL') return null;
-      const months = period === '1M' ? 1 : period === '3M' ? 3 : 6;
-      const from = new Date();
-      from.setMonth(from.getMonth() - months);
-      return from;
-    })();
-
-    const filtered = mockReportListItems.filter((item) => {
-      if (facilityIdParam && item.facilityId !== Number(facilityIdParam)) return false;
-      if (statusParam && item.status !== statusParam) return false;
-      // title은 서버 필드가 아니라(reports 테이블에 title 컬럼 없음) 검색은 facilityName 기준으로만
-      // 필터링한다 — ReportListTable이 표시하는 조립된 제목([yy-RR] 시설물명 점검 보고서)도 결국
-      // facilityName을 포함하므로 검색 의도상 동일하게 걸린다.
-      if (query && !item.facilityName.toLowerCase().includes(query)) {
-        return false;
-      }
-      if (periodFromDate && new Date(item.updatedAt) < periodFromDate) return false;
-      return true;
+    const filtered = filterReportListItems(mockReportListItems, {
+      facilityId: facilityIdParam ? Number(facilityIdParam) : undefined,
+      status: statusParam ?? undefined,
+      query: query ?? undefined,
+      period: period as 'ALL' | '1M' | '3M' | '6M' | undefined,
     });
 
     const content: ReportListItem[] = filtered.slice(page * size, page * size + size);
