@@ -8,9 +8,9 @@ import type { SideNavItem } from '../SideNavBar';
 import { BottomNavBarFab } from '../BottomNavBarFab';
 import { FloatingPopup } from '../FloatingPopup';
 
-// 고객지원 퀵링크 패널 진입점 — 아직 실제로 구현된 지원 페이지는 AI 어시스턴트(/support/ai-assistant)
-// 뿐이라(상담 챗봇·상담 이력은 미구현 placeholder), 모든 항목이 그 페이지로 이동한다(#499, 사용자 결정).
-const SUPPORT_ENTRY_HREF = '/support/ai-assistant';
+// 고객지원 퀵링크 패널 진입점 — 상담 챗봇(#20, HAJA-33)이 구현되어, 카테고리 버튼들은 챗봇에서
+// 실제 시나리오 선택으로 이어진다(딥링크로 카테고리를 미리 선택하는 기능은 아직 없음).
+const SUPPORT_ENTRY_HREF = '/support/chat-bot';
 
 interface AppLayoutUser {
   name: string;

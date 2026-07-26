@@ -113,16 +113,6 @@ export function ConversationPanel({ ticket, messages, loading, error, onStartNew
           !error &&
           messages.map((message) => <MessageBubble key={message.id} message={message} />)}
       </div>
-
-      <div className="flex justify-end px-6 pb-6">
-        <button
-          type="button"
-          onClick={onStartNewCounsel}
-          className="rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-white"
-        >
-          새 상담 시작
-        </button>
-      </div>
     </div>
   );
 }
