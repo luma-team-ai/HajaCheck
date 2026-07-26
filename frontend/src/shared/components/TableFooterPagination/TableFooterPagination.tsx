@@ -89,7 +89,11 @@ export function TableFooterPagination({
         </span>
       </div>
 
-      <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={onPageChange} />
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+      />
     </div>
   );
 }
