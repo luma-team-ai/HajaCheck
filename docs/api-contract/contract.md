@@ -474,6 +474,12 @@ Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?no
 선행 #17(HAJA-26, CLOSED) · 연관(중복 여부 확인 필요) #527(하자 상세 이미지뷰어/활동기록/SLA) · #630(조치 보드 칸반)
 > `AUTH_VERIFICATION_FAILED`(400)는 보안질문 방식 전용으로 예약됐으나 그 방식이 폐기돼 **참조 0건** — 제거 대상(후속 정리). 이번 PR에서는 건드리지 않는다.
 
+### 설계 정정 — "목록 보기/보드 보기" 2탭 구조 폐기 (사용자 확정 지시, 2026-07-26 → PR #899로 구현 완료)
+`DefectListPage`가 실제 구현되면서 위 ①점검 단위 목록과 `#630`(조치 보드 칸반, 하자 단건 기준)이 같은 페이지 안에 탭(`목록 보기`/`보드 보기`)으로 얹혀버렸던 것을 설계 오류로 확정하고 제거했다. `DefectListPage`(`/defects/list`)는 이제 **①점검 단위 목록만** 표시한다(탭 없음) — `DefectActionBoard`/`DefectFilterBar` 컴포넌트는 삭제하지 않고 참조만 제거(`#630`을 별도 라우트로 분리할지 완전 폐기할지는 후속 이슈). `/defects/:id`(`DefectDetailPage`)는 대시보드 `PendingPriorityCard`·시설물 `FacilityDefectDetailPage`가 독립적으로 딥링크하므로 그대로 유지.
+
+### GET /api/inspections — 하자 조건(자연어) 필터 확장 (신규, 2026-07-26 → PR #891/#899로 구현 완료)
+기존 `POST /api/defects/nl-search`(HAJA-120)는 자연어를 `{type[], grade[], status[], confidenceMin}` 필터 조건으로만 변환하고 조회는 하지 않는다. "검색한 하자 조건에 해당하는 점검을 보여줘야 함"이라는 요구사항에 따라, 점검 목록 화면에 자연어 검색창(`InspectionNlSearchBar`)을 신설하고 `GET /api/inspections`에 선택 파라미터 `defectType`/`defectGrade`/`defectStatus`(배열)를 추가했다. 매칭 조건: 해당 점검에 속한 하자 **하나가** 세 조건을 동시에 만족해야 포함(EXISTS 서브쿼리 — JOIN+독립 IN이 아님, 서로 다른 하자가 조건을 나눠 만족하는 false positive 방지). `defectGrade`는 기존 단일 등급 임계값(`>=`) 필터와 달리 **정확 매칭(IN)** — nl-search 출력 배열 시맨틱에 맞춤. 프론트는 axios `paramsSerializer:{indexes:null}`로 배열 쿼리 파라미터를 Spring `List<T>` 바인딩과 정합시켰다. 관련: #878(BE, HAJA-452)·#726(FE, HAJA-394).
+
 ## GET /api/platform-admin/monitoring — 플랫폼 관리자 시스템 모니터링 (#728, frontend PR #732 계약 확정 2026-07-24)
 
 PLATFORM_ADMIN 전용(SecurityConfig `hasRole(PLATFORM_ADMIN)`). companyId 스코프 없이 플랫폼 전체 인프라 상태를 반환한다.
