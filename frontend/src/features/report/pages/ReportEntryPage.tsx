@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
@@ -28,6 +28,9 @@ const GRADE_COLORS: Record<string, string> = {
 
 const GRADE_ORDER = ['A', 'B', 'C', 'D', 'E'] as const;
 
+// 설정 컨트롤이 아직 비활성인 이유(#886 P2) — 백엔드/ai-server 옵션 연동 전까지 공통 사용.
+const NOT_APPLIED_TITLE = '아직 생성 결과에 반영되지 않습니다 (백엔드 연동 예정)';
+
 // 유형별 카드 — Figma는 5종을 항상 고정 노출하므로 0건 유형도 렌더한다(AI 자동탐지는 3종이고
 // 누수·백태/도장 손상은 수동 추가로만 생기지만, 칸이 사라지면 레이아웃이 흔들린다).
 // `type`은 백엔드가 내려주는 DefectType(한글) 원본값이라 매칭 키로 그대로 쓰고,
@@ -52,34 +55,31 @@ export function ReportEntryPage() {
   // 템플릿·언어는 선택지가 하나뿐이라 상태가 아니라 상수로 둔다(고를 게 없는데 setter를 두면 죽은 코드가 된다).
   const template = '정밀안전점검 표준';
   const language = '국문';
-  const [sections, setSections] = useState({
+  // 이 값들은 아직 생성 요청에 실리지 않는다(백엔드가 옵션을 안 받음) → 전부 읽기 전용 상수로 둔다.
+  // 켜고 끌 수 있는데 결과에 반영되지 않으면 사용자를 속이는 UI가 된다(#886 P2).
+  // 백엔드·ai-server 연동이 끝나면 useState로 되돌리고 disabled를 푼다.
+  const sections = {
     overview: true,
     summary: true,
     details: true,
     recommendation: true,
     opinion: false,
-  });
-  const [includePhoto, setIncludePhoto] = useState(true);
+  };
+  const includePhoto = true;
 
   // UI 상태
   const [isGenerating, setIsGenerating] = useState(false);
   const [reports, setReports] = useState<ReportSummaryResponse[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // 클린업
-  useEffect(() => {
-    return () => {
-      abortControllerRef.current?.abort();
-    };
-  }, []);
-
-  // 최근 작업 내역 조회
+  // 최근 작업 내역 조회 — cleanup에서 직전 요청을 취소한다(#886 P2).
+  // ref에 마지막 컨트롤러만 담고 언마운트에서 한 번 abort하는 방식은, 같은 컴포넌트 인스턴스가
+  // 유지된 채 :id만 바뀌는 경우(A 요청 in-flight 중 B로 전환) A를 취소하지 못한다.
+  // 그러면 늦게 도착한 A의 응답이 B 화면의 목록을 덮어쓴다(경쟁 조건).
   useEffect(() => {
     if (!Number.isInteger(inspectionId) || inspectionId <= 0) return;
 
     const controller = new AbortController();
-    abortControllerRef.current = controller;
 
     setReportsLoading(true);
     reportApi
@@ -99,6 +99,8 @@ export function ReportEntryPage() {
           setReportsLoading(false);
         }
       });
+
+    return () => controller.abort();
   }, [inspectionId]);
 
   // 등급 분포 계산
@@ -346,6 +348,13 @@ export function ReportEntryPage() {
         </div>
 
         <div className="rounded-3xl border border-border bg-surface p-6">
+          {/* 아래 설정은 아직 생성 요청에 실리지 않는다(#886 P2). title 툴팁은 hover해야만 보이므로
+              항상 보이는 배너로도 알린다 — 연동 완료 시 이 배너와 disabled를 함께 제거한다. */}
+          <p className="mb-5 rounded-2xl border border-border bg-surface-muted px-4 py-3 text-xs text-text-muted">
+            아래 설정은 <strong className="font-semibold text-text-default">아직 생성 결과에 반영되지 않습니다.</strong>{' '}
+            백엔드 연동 후 활성화될 예정이라 현재는 선택할 수 없습니다.
+          </p>
+
           {/* 템플릿 & 언어 */}
           <div className="mb-6 flex gap-4">
             <div className="flex-1">
@@ -391,28 +400,15 @@ export function ReportEntryPage() {
                   disabled: true,
                   title: 'Grounding check 근거 데이터로 필수입니다',
                 },
-                { key: 'recommendation', label: '조치 권고' },
-                {
-                  key: 'opinion',
-                  label: '종합 의견',
-                  disabled: true,
-                  title: '준비 중입니다',
-                },
+                { key: 'recommendation', label: '조치 권고', title: NOT_APPLIED_TITLE },
+                { key: 'opinion', label: '종합 의견', title: '준비 중입니다' },
               ].map((sec) => (
                 <button
                   key={sec.key}
-                  onClick={() => {
-                    if (!sec.disabled) {
-                      setSections((prev) => ({
-                        ...prev,
-                        [sec.key as keyof typeof sections]: !prev[sec.key as keyof typeof sections],
-                      }));
-                    }
-                  }}
-                  disabled={sec.disabled}
-                  title={sec.title}
+                  disabled
+                  title={sec.title ?? NOT_APPLIED_TITLE}
                   className={`flex gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-all ${
-                    sections[sec.key as keyof typeof sections] && !sec.disabled
+                    sections[sec.key as keyof typeof sections]
                       ? 'border-black bg-black text-white'
                       : 'border-border bg-white text-black disabled:bg-surface disabled:text-text-muted'
                   }`}
@@ -420,7 +416,7 @@ export function ReportEntryPage() {
                   <input
                     type="checkbox"
                     checked={sections[sec.key as keyof typeof sections] || false}
-                    disabled={sec.disabled}
+                    disabled
                     readOnly
                     className="pointer-events-none"
                   />
@@ -446,7 +442,8 @@ export function ReportEntryPage() {
               </div>
             </div>
             <button
-              onClick={() => setIncludePhoto(!includePhoto)}
+              disabled
+              title={NOT_APPLIED_TITLE}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                 includePhoto ? 'bg-black' : 'bg-border'
               }`}
