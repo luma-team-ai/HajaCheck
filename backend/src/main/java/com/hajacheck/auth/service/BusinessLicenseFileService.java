@@ -29,13 +29,24 @@ public class BusinessLicenseFileService {
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.COMPANY_NOT_FOUND));
 
+        String normalizedRequestedStorageKey = normalizeCapturedStorageKey(requestedStorageKey);
         String expectedStorageKey = extractStorageKey(company.getBusinessRegistrationFileUrl());
-        if (!isSafeStorageKey(requestedStorageKey) || !expectedStorageKey.equals(requestedStorageKey)) {
+        if (!isSafeStorageKey(normalizedRequestedStorageKey)
+                || !expectedStorageKey.equals(normalizedRequestedStorageKey)) {
             throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
         }
 
-        byte[] content = fileStorage.read(requestedStorageKey);
-        return new LicenseFile(content, contentType(requestedStorageKey), extension(requestedStorageKey));
+        byte[] content = fileStorage.read(normalizedRequestedStorageKey);
+        return new LicenseFile(content, contentType(normalizedRequestedStorageKey),
+                extension(normalizedRequestedStorageKey));
+    }
+
+    /** Spring의 capture-the-rest 경로 변수에서 보존되는 선행 slash 하나만 제거한다. */
+    private String normalizeCapturedStorageKey(String storageKey) {
+        if (storageKey != null && storageKey.startsWith("/")) {
+            return storageKey.substring(1);
+        }
+        return storageKey;
     }
 
     private String extractStorageKey(String storedUrl) {
