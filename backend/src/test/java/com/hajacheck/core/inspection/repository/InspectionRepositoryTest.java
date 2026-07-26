@@ -676,6 +676,22 @@ class InspectionRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
+    void findRecentInspectionsPage_시설물종류필터_리터럴퍼센트문자는LIKE와일드카드로해석되지않음() {
+        // code review P2 — facilityTypeCategory에 LIKE 와일드카드(%, _)를 리터럴로 넣어도 "전체 매칭"으로
+        // 새지 않아야 한다. 실제 facility.type 값 중 어느 것도 리터럴 "%"로 시작하지 않으므로, 이스케이프가
+        // 제대로 되면 결과가 0건이어야 한다(이스케이프 누락 시 모든 시설물이 매칭돼 회귀한다).
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacilityWithType(ownerId, "테스트빌딩", "건물");
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
+                companyId(ownerId), null, "%", java.util.Set.of(), null, List.of(), PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).isEmpty();
+    }
+
+    @Test
     void findRecentInspectionsPage_텍스트검색_시설물명매칭() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityA = seedFacility(ownerId, "강남빌딩");
@@ -689,6 +705,23 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 companyId(ownerId), null, null, java.util.Set.of(), "강남", List.of(), PageRequest.of(0, 10));
 
         assertThat(result.getContent()).extracting(Inspection::getFacilityId).containsExactly(facilityA);
+    }
+
+    @Test
+    void findRecentInspectionsPage_텍스트검색_리터럴퍼센트문자는LIKE와일드카드로해석되지않음() {
+        // query는 서비스단(DashboardService.escapeLikeWildcards)에서 이스케이프된 값이 넘어온다고 가정 —
+        // 여기서는 레포지토리가 그 이스케이프된 값을 escape 절과 함께 올바르게 처리하는지만 검증한다.
+        // 이스케이프된 "%"(=\\%)는 리터럴 문자 그대로 취급돼야 하므로, 이름에 "%"가 없는 시설물은
+        // 매칭되지 않아야 한다(이스케이프 누락 시 모든 시설물이 매칭돼 회귀한다).
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "강남빌딩");
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
+                companyId(ownerId), null, null, java.util.Set.of(), "\\%", List.of(), PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).isEmpty();
     }
 
     @Test

@@ -231,13 +231,16 @@ public class DashboardService {
         Pageable safePageable = PageRequest.of(pageable.getPageNumber(), cappedSize);
 
         boolean hasQuery = query != null && !query.isBlank();
-        String trimmedQuery = hasQuery ? query.trim() : null;
+        // LIKE 와일드카드(%, _)를 사용자가 검색어에 리터럴로 입력해도(예: "_"가 포함된 시설물명) 와일드카드로
+        // 해석되지 않도록 이스케이프 — AdminUserService.normalizeKeyword와 동일 컨벤션. userRepository/
+        // inspectionRepository 양쪽 LIKE 절 모두 이 값을 그대로 쓰므로 여기서 한 번만 이스케이프한다.
+        String escapedQuery = hasQuery ? escapeLikeWildcards(query.trim()) : null;
         List<Long> matchingCreatorIds = hasQuery
-                ? userRepository.findIdsByCompanyIdAndNameContaining(companyId, trimmedQuery)
+                ? userRepository.findIdsByCompanyIdAndNameContaining(companyId, escapedQuery)
                 : List.of();
 
         Page<Inspection> page = inspectionRepository.findRecentInspectionsPage(
-                companyId, facilityId, facilityType, statuses, trimmedQuery, matchingCreatorIds, safePageable);
+                companyId, facilityId, facilityType, statuses, escapedQuery, matchingCreatorIds, safePageable);
 
         List<Inspection> content = page.getContent();
         if (content.isEmpty()) {
@@ -268,6 +271,14 @@ public class DashboardService {
                 facilityNameById.getOrDefault(inspection.getFacilityId(), "-"),
                 creatorNameById.getOrDefault(inspection.getCreatedBy(), "-"),
                 defectCountByInspectionId.getOrDefault(inspection.getId(), 0L))));
+    }
+
+    // 백슬래시부터 먼저 이스케이프해야 뒤이어 삽입하는 이스케이프 문자와 충돌하지 않는다 —
+    // UserRepository.findIdsByCompanyIdAndNameContaining/InspectionRepositoryImpl의 `escape '\\'`와 짝을 이룬다.
+    private String escapeLikeWildcards(String raw) {
+        return raw.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
 
     private Set<InspectionStatus> resolveStatusLabel(String statusLabel) {

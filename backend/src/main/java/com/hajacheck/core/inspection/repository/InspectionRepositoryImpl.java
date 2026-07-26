@@ -246,18 +246,34 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
         if (StringUtils.hasText(facilityTypeCategory)) {
             // facility.type은 "건물"처럼 단순값이거나(레거시) #731 등록 모달이 저장하는
             // "건물-긴급-1개월"류 컴파운드 값일 수 있어, 접두(prefix) LIKE로 종류 카테고리만 매칭한다.
-            predicates.add(cb.like(facility.get("type"), facilityTypeCategory.trim() + "%"));
+            // 사용자가 카테고리 문자열에 LIKE 와일드카드(%, _)를 리터럴로 넣어도 매칭 오작동이 없도록
+            // 이스케이프한 뒤, 실제 접두 매칭용 "%" 는 이스케이프하지 않은 채로 뒤에 붙인다.
+            predicates.add(cb.like(facility.get("type"), escapeLikeWildcards(facilityTypeCategory.trim()) + "%",
+                    LIKE_ESCAPE_CHAR));
         }
         if (statuses != null && !statuses.isEmpty()) {
             predicates.add(root.get("status").in(statuses));
         }
         if (StringUtils.hasText(query)) {
+            // query는 호출부(DashboardService.escapeLikeWildcards)에서 이미 이스케이프해 넘어온다 —
+            // findIdsByCompanyIdAndNameContaining(UserRepository)에 넘기는 값과 동일 이스케이프를
+            // 공유해야 하므로 여기서 다시 이스케이프하지 않는다.
             String pattern = "%" + query.trim().toLowerCase() + "%";
-            Predicate nameMatch = cb.like(cb.lower(facility.get("name")), pattern);
+            Predicate nameMatch = cb.like(cb.lower(facility.get("name")), pattern, LIKE_ESCAPE_CHAR);
             predicates.add(matchingCreatorIds == null || matchingCreatorIds.isEmpty()
                     ? nameMatch
                     : cb.or(nameMatch, root.get("createdBy").in(matchingCreatorIds)));
         }
         return predicates;
+    }
+
+    private static final char LIKE_ESCAPE_CHAR = '\\';
+
+    // AdminUserService.normalizeKeyword와 동일 컨벤션 — 백슬래시부터 먼저 이스케이프해야 뒤이어
+    // 삽입하는 이스케이프 문자와 충돌하지 않는다.
+    private static String escapeLikeWildcards(String raw) {
+        return raw.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
 }

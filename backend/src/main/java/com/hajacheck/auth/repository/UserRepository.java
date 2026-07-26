@@ -30,8 +30,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
     // 대시보드 "최근 점검 전체보기" 검색(신규) — 검색어가 담당자명에 매칭되는 회사 소속 사용자 id만
     // 골라 InspectionRepositoryImpl 의 createdBy IN(:ids) 예측에 넘긴다. 회사 스코프를 여기서부터
     // 강제해(companyId = :companyId) 타사 사용자 이름이 매칭되지 않도록 한다(cross-company IDOR 방지).
+    // namePattern은 호출부(DashboardService.escapeLikeWildcards)에서 LIKE 와일드카드(%, _)를 이미
+    // 이스케이프해서 넘긴다 — AdminUserRepository.search와 동일하게 escape '\\'로 짝을 맞춘다.
     @Query("select u.id from User u where u.companyId = :companyId "
-            + "and lower(u.name) like lower(concat('%', :namePattern, '%'))")
+            + "and lower(u.name) like lower(concat('%', :namePattern, '%')) escape '\\'")
     List<Long> findIdsByCompanyIdAndNameContaining(
             @Param("companyId") Long companyId, @Param("namePattern") String namePattern);
 }

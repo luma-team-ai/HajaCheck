@@ -437,6 +437,28 @@ class DashboardServiceTest {
     }
 
     @Test
+    void searchRecentInspections_query에LIKE와일드카드포함시_이스케이프해서양쪽레포지토리에동일하게전달() {
+        // code review P2 — "%"/"_"를 리터럴로 검색해도 LIKE 와일드카드로 새지 않도록 서비스가
+        // 이스케이프한 뒤, userRepository(담당자명)와 inspectionRepository(시설물명) 양쪽에 동일한
+        // 이스케이프 값을 넘겨야 한다(둘이 다르면 한쪽만 리터럴 취급되는 불일치가 생긴다).
+        // 원본 검색어 "김%검사"(리터럴 %) → 이스케이프 후 "김\%검사"(백슬래시+%, Java 문자열
+        // 리터럴로는 "김\\%검사").
+        when(userRepository.findIdsByCompanyIdAndNameContaining(OWNER_ID, "김\\%검사")).thenReturn(List.of());
+        Page<Inspection> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
+        when(inspectionRepository.findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), isNull(), eq(Set.of()), eq("김\\%검사"), eq(List.of()),
+                eq(PageRequest.of(0, 10))))
+                .thenReturn(emptyPage);
+
+        dashboardService.searchRecentInspections(USER_ID, OWNER_ID, null, null, null, "김%검사", PageRequest.of(0, 10));
+
+        verify(userRepository).findIdsByCompanyIdAndNameContaining(OWNER_ID, "김\\%검사");
+        verify(inspectionRepository).findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), isNull(), eq(Set.of()), eq("김\\%검사"), eq(List.of()),
+                eq(PageRequest.of(0, 10)));
+    }
+
+    @Test
     void searchRecentInspections_facilityId가레포지토리에그대로전달() {
         Page<Inspection> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
         when(inspectionRepository.findRecentInspectionsPage(
