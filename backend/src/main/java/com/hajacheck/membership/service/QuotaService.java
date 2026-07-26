@@ -140,26 +140,27 @@ public class QuotaService {
     }
 
     /**
-     * 좌석 잔여 확인(예약 없음) — 초대 코드 <b>발급</b> 시점(#872)에 호출한다. {@link #reserveSeat}
-     * 와 달리 좌석을 점유하지 않는 단순 조회라 잠금·트랜잭션 경계가 필요 없다(readOnly 기본 트랜잭션으로
-     * 충분) — 코드가 실제로 redeem될지, 언제 될지 알 수 없는 시점에 좌석을 미리 묶어두면 발급만 해두고
-     * 쓰지 않는 코드가 잔여를 영구히 깎아먹는다.
+     * 좌석 여유 조회(읽기 전용) — 초대 코드 발급 시점 선검사(#857)용. {@link #reserveSeat}과 달리 잠금·차감이
+     * 없어 상태를 바꾸지 않으므로 읽기 전용 트랜잭션에서도 호출할 수 있다.
      *
-     * <p>⚠️ 여기서 통과해도 redeem 시점의 {@link #reserveSeat} 재검사가 최종 관문이다 — 발급과 redeem
-     * 사이(최대 TTL)에 다른 초대가 좌석을 채우는 경합은 이 메서드가 막지 못한다(의도된 완화: 발급 시점
-     * 차단의 목적은 "관리자가 애초에 못 쓸 코드를 나눠주는 흔한 경로"를 없애는 것이지, 모든 경합을
-     * 트랜잭션으로 봉쇄하는 것이 아니다 — 그 봉쇄는 이미 reserveSeat가 한다).
+     * <p>판정 기준은 {@link #reserveSeat}와 동일한 소스({@link #resolveLivePlan}·{@link #measureSeats})를
+     * 그대로 재사용한다 — 발급 판정과 redeem 판정이 서로 다른 기준을 보면 "발급은 됐는데 redeem은 막힘"이
+     * 재발한다.
+     *
+     * <p>⚠️ advisory(조언적) 판정이다. 이 호출과 실제 활성화({@link #reserveSeat}) 사이에 다른 초대가
+     * 먼저 redeem 돼 좌석이 찰 수 있으므로(경합), true를 반환해도 이후 {@link #reserveSeat}가 거부할 수
+     * 있다. 최종 방어선은 여전히 {@link #reserveSeat}의 원자적 조건부 UPDATE다 — 이 메서드는 그것을
+     * 대체하지 않는다.
      */
-    public void assertSeatAvailable(Long companyId) {
+    public boolean hasAvailableSeat(Long companyId) {
         UserPlan userPlan = resolveLivePlan(null, companyId);
         Plan plan = findPlan(userPlan.getPlanId());
         Integer maxSeats = plan.getMaxSeats();
         if (maxSeats == null) {
-            return;
+            // null = 무제한(Plan javadoc, reserveSeat과 동일 관례).
+            return true;
         }
-        if (measureSeats(companyId) >= maxSeats) {
-            throw new BusinessException(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED);
-        }
+        return measureSeats(companyId) < maxSeats;
     }
 
     /**

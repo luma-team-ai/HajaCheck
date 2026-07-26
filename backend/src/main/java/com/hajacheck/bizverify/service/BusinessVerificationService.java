@@ -87,8 +87,15 @@ public class BusinessVerificationService {
                     BusinessVerificationResult.SUSPENDED, "현재 휴업 상태인 사업자입니다.");
             case CLOSED -> new BusinessVerificationResponse(
                     BusinessVerificationResult.CLOSED, "폐업 처리된 사업자입니다.");
+            // 문구 변경(#880, 2026-07-26): 국세청 odcloud API가 키 검증 이전 단계에서 전면 장애(재시도
+            // 대상 밖 — 정상 키/무효 키/더미값 모두 동일 503)인 구간이 실측 확인됐고, 이런 서비스는
+            // 과거에도 며칠~수주 단위 장애가 반복돼 왔다. 기존 "잠시 후 다시 시도해 주세요" 문구는 이런
+            // 장기 장애 구간에서 사용자를 무한 재시도로 붙잡아 둔다. 실제로는 fail-open이라 진위확인 없이도
+            // 가입이 그대로 통과되므로(제출 시 CompanySignupService 재검증도 동일 fail-open), 그 사실을
+            // 문구로 명확히 알려 계속 진행하도록 안내한다. UNAVAILABLE 결과 코드·fail-open 정책은 불변.
             case SKIPPED -> new BusinessVerificationResponse(
-                    BusinessVerificationResult.UNAVAILABLE, "일시적인 오류로 진위확인을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+                    BusinessVerificationResult.UNAVAILABLE,
+                    "국세청 시스템 장애로 지금은 확인이 어렵습니다. 진위확인 없이도 가입을 계속 진행하실 수 있습니다.");
         };
     }
 }

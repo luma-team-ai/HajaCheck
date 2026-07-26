@@ -7,7 +7,6 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -81,6 +80,8 @@ class InviteCodeServiceTest {
         lenient().when(authProperties.getInviteCodeRedeemRateLimit())
                 .thenReturn(new AuthProperties.InviteCodeRedeemRateLimit());
         lenient().when(rateLimiter.tryAcquire(anyString(), anyInt(), any())).thenReturn(true);
+        // issue() 테스트 대부분이 좌석 여유를 전제하므로 기본값을 통과로 깔아둔다(#857 선검사 — 개별 테스트가 재정의 가능).
+        lenient().when(quotaService.hasAvailableSeat(anyLong())).thenReturn(true);
         // redeem()의 @Transactional 안에서 registerSynchronization을 호출하므로, 실제 트랜잭션 없는
         // 단위 테스트에서도 활성화해둬야 IllegalStateException 없이 동작한다(afterCommit은 테스트에서 수동 트리거).
         TransactionSynchronizationManager.initSynchronization();
@@ -120,18 +121,6 @@ class InviteCodeServiceTest {
                         .isEqualTo(ErrorCode.FORBIDDEN));
     }
 
-    // #872 — 좌석이 가득 찬 회사는 코드 자체가 생성되지 않아야 한다(관리자가 못 쓸 코드를 나눠주는 경로 차단).
-    @Test
-    void issue_좌석이_없으면_코드를_생성하지않고_예외를_그대로_전파한다() {
-        doThrow(new BusinessException(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED))
-                .when(quotaService).assertSeatAvailable(10L);
-
-        assertThatThrownBy(() -> inviteCodeService.issue(10L))
-                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED));
-        verify(inviteCodeStore, never()).issueIfAbsent(anyString(), anyString(), any());
-    }
-
     @Test
     void issue_충돌이_나면_재시도해서_성공한다() {
         when(authProperties.getInviteCodeTtl()).thenReturn(TTL);
@@ -154,6 +143,31 @@ class InviteCodeServiceTest {
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.INTERNAL_ERROR));
         verify(inviteCodeStore, times(5)).issueIfAbsent(anyString(), eq("10"), eq(TTL));
+    }
+
+    // #857 — 좌석 잔여 선검사. 실패 시 inviteCodeStore에 아무 부작용도 남으면 안 되는 것이 이 작업의 핵심 계약.
+    @Test
+    void issue_좌석여유가_없으면_PLAN_SEAT_QUOTA_EXCEEDED이고_코드를_생성하지않는다() {
+        when(quotaService.hasAvailableSeat(10L)).thenReturn(false);
+
+        assertThatThrownBy(() -> inviteCodeService.issue(10L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED));
+        // 좌석 검사가 코드 생성보다 먼저 일어나야 한다 — 실패한 발급이 inviteCodeStore에 흔적을 남기면 안 된다.
+        verify(inviteCodeStore, never()).issueIfAbsent(anyString(), anyString(), any());
+        verify(authProperties, never()).getInviteCodeTtl();
+    }
+
+    @Test
+    void issue_좌석여유가_있으면_평소대로_발급된다() {
+        when(authProperties.getInviteCodeTtl()).thenReturn(TTL);
+        when(quotaService.hasAvailableSeat(10L)).thenReturn(true);
+        when(inviteCodeStore.issueIfAbsent(anyString(), eq("10"), eq(TTL))).thenReturn(true);
+
+        InviteCodeIssueResponse response = inviteCodeService.issue(10L);
+
+        assertThat(response.code()).isNotBlank();
+        verify(quotaService).hasAvailableSeat(10L);
     }
 
     // ── revoke ──

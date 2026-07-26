@@ -71,7 +71,9 @@ public class AdminUserService {
         // 좌석 잔여 확인(#872 후속) — 초대 코드 발급과 동일하게, 관리자가 직접 등록하는 경로도
         // 좌석이 가득 찬 회사는 새 사용자를 만들지 못하게 막는다(그렇지 않으면 초대 코드 좌석
         // 강제가 이 경로로 그대로 우회된다).
-        quotaService.assertSeatAvailable(companyId);
+        if (!quotaService.hasAvailableSeat(companyId)) {
+            throw new BusinessException(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED);
+        }
         // 선검사 — 명확한 중복은 저장 전에 조기 차단(CompanySignupService와 동일 패턴).
         if (adminUserRepository.existsByEmail(request.email())) {
             throw new BusinessException(ErrorCode.AUTH_EMAIL_DUPLICATED);

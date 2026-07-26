@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.10 · **최종 수정:** 2026-07-26 · 이전 버전 `archive/`
+> **문서 버전:** v0.9 · **최종 수정:** 2026-07-24 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -459,7 +459,7 @@ Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?no
 
 | 화면 | 엔드포인트 | 상태 |
 |---|---|---|
-| ①점검 단위 목록 | `GET /api/inspections` (페이지네이션, 상태/시설물 필터) | **구현 완료** — 응답 `InspectionListItemResponse{id, facilityId, facilityName, roundNo, inspectionDate, assignedInspectorId, assigneeName, status, defectCount, gradeDistribution}`. `gradeDistribution`은 `Map<String,Long>`으로 A~E 5개 키를 항상 포함(하자 없는 등급은 0). 담당자 표시 필드명은 `assigneeName`으로 확정(초기 구현 `assignedInspectorName`에서 FE 계약 정합을 위해 리네임, #893/HAJA-458) |
+| ①점검 단위 목록 | `GET /api/inspections` (페이지네이션, 상태/시설물 필터) | **신규** — 현재 `InspectionController`는 `GET /{id}` 단건만 존재. 응답에 하자 건수·등급분포 등 집계 포함 검토(대시보드 `recent-inspections`/`upcoming-inspections` 필드 재사용) |
 | ②점검별 하자 카드 목록 | `GET /api/inspections/{id}/defects` | **기존 재사용** (`DefectRevisionController`, `DefectDetailItem` 반환). 카드 UI에 필요한 필드(썸네일 등)가 부족하면 `DefectDetailItem` 확장 — 신규 엔드포인트 만들지 말 것 |
 | ③하자 상세 모달 조회 | `GET /api/defects/{id}` (`DefectResponse`) | **구현 완료** — "조치 결과 등록" 필드(조치내용/조치일/담당자/조치후사진) 저장용 컬럼을 `Defect` 엔티티에 추가. Flyway **V12**로 추가(handoff는 애초 "V5"를 지정했으나 그 사이 V5~V11이 다른 PR에서 선점돼 다음 번호로 진행, V1~V11 무수정) |
 | ③조치 결과 등록 | **신규** `PATCH /api/defects/{id}/action` (`DefectActionResultRequest`) | **구현 완료** — 상태전이(`PATCH /status`)와 분리한 이유: (1) 조치완료 폼에는 "역행/건너뛰기 사유" 입력란이 없어 4개 필드가 항상 전부 필수인데, `DefectStatusUpdateRequest`에 조건부 필수 필드를 얹으면 검증이 status 값에 따라 달라져 복잡해짐 (2) 상태전이 API의 기존 의미(모든 상태 간 자유 전이+사유)와 "조치 등록"의 의미(IN_PROGRESS→RESOLVED 전용, 항상 4필드 세트)가 달라 한 엔드포인트에 섞으면 계약이 모호해짐. 내부적으로 `Defect#registerActionResult()`가 기존 `changeStatus()`의 정방향 전이 규칙(IN_PROGRESS에서만 사유 없이 허용)을 재사용하므로 순서를 건너뛴 완료 처리는 400으로 자연히 거부됨 |

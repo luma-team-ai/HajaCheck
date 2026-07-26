@@ -30,7 +30,7 @@ const mockDefects: DefectDetailItem[] = [
   {
     id: 1,
     inspectionId: 1,
-    type: '균열',
+    type: 'CRACK',
     grade: 'C',
     status: 'DETECTED',
     confidence: 0.98,

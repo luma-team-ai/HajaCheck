@@ -65,6 +65,15 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
     List<InspectionGradeProjection> findDistinctGradesByInspectionIds(
             @Param("inspectionIds") Collection<Long> inspectionIds);
 
+    // 점검 목록 등급분포(#893/HAJA-458) — 점검별 등급별 하자 건수 배치 조회. 목록 화면 카드 배지가
+    // "등급 A 3건, 등급 B 1건" 처럼 점검별 세부 분포를 보여줘야 해서, 전체 합산인 countGroupByGrade와
+    // 별도로 inspectionId 를 함께 그룹핑한다.
+    @Query("select d.inspectionId as inspectionId, d.grade as grade, count(d) as cnt from Defect d "
+            + "where d.inspectionId in :inspectionIds and d.deleted = false and d.grade is not null "
+            + "group by d.inspectionId, d.grade")
+    List<InspectionGradeCountProjection> countGroupByInspectionIdAndGrade(
+            @Param("inspectionIds") Collection<Long> inspectionIds);
+
     // AI 주간 브리핑(#248 / HAJA-197) — 등록 기준 주간 하자 count(전 상태 포함), createdAt 기준
     // 명시적 반열림 [from,to) — PG timestamp 는 마이크로초 정밀도라 "-1ns" 트릭은 다음 자정으로
     // 반올림되어 BETWEEN(양끝 포함)과 사실상 동일해지고 주 경계 자정 값이 이중집계된다(리뷰 P1 픽스,

@@ -103,6 +103,11 @@ export const INSPECTION_STATUS_LABEL: Record<InspectionStatus, string> = {
 // 등급별 하자 건수 분포 — 점검 목록 테이블의 "등급분포" 컬럼(contract.md 화면 구조 ①)
 export type InspectionGradeDistribution = Record<DefectGrade, number>;
 
+// #893 방어 코드 — 백엔드 응답에 gradeDistribution이 없거나(계약 불일치) 필드명이 다를 때
+// "Cannot read properties of undefined" 크래시를 막기 위한 런타임 기본값. InspectionListItem
+// 타입 자체는 필수 필드로 유지하고, 이 상수는 소비 지점(InspectionTable 등)에서 ?? 폴백으로만 쓴다.
+export const EMPTY_GRADE_DISTRIBUTION: InspectionGradeDistribution = { A: 0, B: 0, C: 0, D: 0, E: 0 };
+
 // GET /api/inspections 목록 항목 — 신규 엔드포인트(BE 미구현, MSW 목으로 우선 개발, contract.md 참고)
 export interface InspectionListItem {
   id: number;
@@ -118,9 +123,16 @@ export interface InspectionListItem {
 }
 
 // GET /api/inspections 쿼리 파라미터 — page는 Spring Data 관례대로 0-based
+// defectType/defectGrade/defectStatus(#878/HAJA-452, 백엔드 PR #891로 origin/dev 머지 완료)는 자연어
+// 하자조건 검색(POST /api/defects/nl-search)이 산출한 필터를 그대로 실어 재조회하는 용도 — 셋 중
+// 1개 이상 주어지면 같은 하자 하나가 조건을 전부 만족하는 점검만 반환한다(EXISTS 서브쿼리, 서로 다른
+// 하자로 나눠 만족하면 매칭 아님. InspectionController.list 설명 참고).
 export interface InspectionListFilters {
   status?: InspectionStatus;
   facilityId?: number;
+  defectType?: DefectType[];
+  defectGrade?: DefectGrade[];
+  defectStatus?: DefectStatus[];
   page?: number;
   size?: number;
 }

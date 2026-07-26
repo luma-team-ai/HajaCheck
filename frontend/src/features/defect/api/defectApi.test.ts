@@ -3,8 +3,9 @@
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import type { ApiResponse } from '../../../shared/api/types';
+import type { ApiResponse, PageResponse } from '../../../shared/api/types';
 import { mockDefects } from '../mocks/defect.mock';
+import type { InspectionListItem } from '../types';
 import { defectApi } from './defectApi';
 import { defectHandlers } from './defectApi.handlers';
 
@@ -191,6 +192,56 @@ describe('defectApi.getInspections', () => {
     const res = await defectApi.getInspections({ status: 'REPORTED' });
 
     expect(res.data.content.every((inspection) => inspection.status === 'REPORTED')).toBe(true);
+  });
+
+  it('defectType/defectGrade/defectStatus 조건을 모두 만족하는 단일 하자가 있는 점검만 반환한다', async () => {
+    // mockDefects id=1: inspectionId=101, type=REBAR_EXPOSURE, grade=D, status=ACTION_PENDING —
+    // 세 조건을 전부 동시에 만족. id=2(같은 inspectionId=101)는 type=CRACK이라 조건 불일치.
+    const res = await defectApi.getInspections({
+      defectType: ['REBAR_EXPOSURE'],
+      defectGrade: ['D'],
+      defectStatus: ['ACTION_PENDING'],
+    });
+
+    expect(res.data.content.map((inspection) => inspection.id)).toEqual([101]);
+  });
+
+  it('서로 다른 하자가 조건을 나눠 만족하면 매칭하지 않는다', async () => {
+    // inspectionId=101에는 grade=D(id 1)와 type=CRACK(id 2)이 있지만, 같은 하자 하나가 두 조건을
+    // 동시에 만족하지는 않는다 — 백엔드 EXISTS 서브쿼리 의미와 동일하게 매칭되지 않아야 한다.
+    const res = await defectApi.getInspections({
+      defectType: ['CRACK'],
+      defectGrade: ['D'],
+    });
+
+    expect(res.data.content.map((inspection) => inspection.id)).not.toContain(101);
+  });
+
+  // axios 배열 파라미터 직렬화(#726/HAJA-394) — Spring `@RequestParam List<T>`는 대괄호 없는 반복
+  // 키(`defectType=A&defectType=B`)를 기대하므로, axios 기본 직렬화가 `defectType[]=A` 형태를 만들지
+  // 않는지 실제 요청 URL을 MSW로 가로채 검증한다(가정이 아니라 실측).
+  it('배열 필터를 대괄호 없는 반복 키(key=v1&key=v2)로 직렬화해 요청한다', async () => {
+    let capturedUrl = '';
+    server.use(
+      http.get('/api/inspections', ({ request }) => {
+        capturedUrl = request.url;
+        const body: ApiResponse<PageResponse<InspectionListItem>> = {
+          success: true,
+          data: { content: [], page: 0, totalElements: 0 },
+        };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    await defectApi.getInspections({ defectType: ['CRACK', 'SPALLING'], defectGrade: ['D'] });
+
+    const queryString = capturedUrl.split('?')[1] ?? '';
+    expect(queryString).toContain('defectType=CRACK');
+    expect(queryString).toContain('defectType=SPALLING');
+    expect(queryString).toContain('defectGrade=D');
+    // 대괄호가 인코딩되어(%5B%5D) 붙거나 리터럴로 붙는 어느 경우도 없어야 한다.
+    expect(queryString).not.toMatch(/defectType(%5B%5D|\[\])/);
+    expect(queryString).not.toMatch(/defectGrade(%5B%5D|\[\])/);
   });
 });
 

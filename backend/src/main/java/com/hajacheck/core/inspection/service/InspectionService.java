@@ -4,8 +4,12 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
+import com.hajacheck.core.defect.entity.DefectGrade;
+import com.hajacheck.core.defect.entity.DefectStatus;
+import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.InspectionDefectCountProjection;
+import com.hajacheck.core.defect.repository.InspectionGradeCountProjection;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.inspection.dto.InspectionCreateRequest;
@@ -18,6 +22,7 @@ import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -105,12 +110,18 @@ public class InspectionService {
      * 점검 목록 조회(HAJA-393/#725) — 하자 목록 화면 개편 "①점검 단위 목록". 회사 스코프는
      * InspectionRepositoryImpl 이 facility.companyId 조인으로 강제하므로, facilityId 필터에 타사 소유
      * 시설물을 넘겨도 빈 결과만 나온다(cross-company IDOR 방지, DefectService.list()와 동일 원칙).
+     *
+     * <p>#878(HAJA-452) — defectTypes/defectGrades/defectStatuses 는 자연어 하자조건 검색
+     * (POST /api/defects/nl-search)이 산출한 필터를 그대로 실어 재조회하는 용도. 회사 스코프 검증은
+     * 위 기존 로직 그대로이며, 새 파라미터는 repository 의 EXISTS 서브쿼리로만 매칭에 관여한다.
      */
     public PageResponse<InspectionListItemResponse> list(
-            Long userId, Long companyId, Long facilityId, InspectionStatus status, Pageable pageable) {
+            Long userId, Long companyId, Long facilityId, InspectionStatus status,
+            List<DefectType> defectTypes, List<DefectGrade> defectGrades, List<DefectStatus> defectStatuses,
+            Pageable pageable) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
-        Page<Inspection> page =
-                inspectionRepository.findPageByCompanyIdAndFilters(companyId, facilityId, status, pageable);
+        Page<Inspection> page = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId, facilityId, status, defectTypes, defectGrades, defectStatuses, pageable);
 
         List<Long> inspectionIds = page.getContent().stream().map(Inspection::getId).toList();
         Map<Long, Long> defectCountByInspectionId = inspectionIds.isEmpty() ? Map.of()
@@ -125,11 +136,44 @@ public class InspectionService {
                 : userRepository.findAllById(inspectorIds).stream()
                         .collect(Collectors.toMap(User::getId, User::getName));
 
+        Map<Long, Map<String, Long>> gradeDistributionByInspectionId =
+                buildGradeDistributionByInspectionId(inspectionIds);
+
         return PageResponse.from(page.map(inspection -> InspectionListItemResponse.from(
                 inspection,
                 inspection.getFacility().getName(),
                 inspectorNameById.getOrDefault(inspection.getAssignedInspectorId(), "-"),
-                defectCountByInspectionId.getOrDefault(inspection.getId(), 0L))));
+                defectCountByInspectionId.getOrDefault(inspection.getId(), 0L),
+                gradeDistributionByInspectionId.getOrDefault(inspection.getId(), emptyGradeDistribution()))));
+    }
+
+    // 점검 목록 등급분포(#893/HAJA-458) — inspectionId 마다 A~E 5개 키를 전부 채운 뒤(기본값 0)
+    // 실제 집계값으로 덮어쓴다. BriefingStatsService.gradeDistribution() 과 동일한 패턴이며, 프론트
+    // InspectionListItem.gradeDistribution 이 5개 등급 전부를 기대해 undefined 접근("Cannot read
+    // properties of undefined") 크래시(#893)를 일으키지 않도록 빈 등급도 0으로 명시한다.
+    private Map<Long, Map<String, Long>> buildGradeDistributionByInspectionId(List<Long> inspectionIds) {
+        if (inspectionIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Map<String, Long>> distributionByInspectionId = new LinkedHashMap<>();
+        for (Long inspectionId : inspectionIds) {
+            distributionByInspectionId.put(inspectionId, emptyGradeDistribution());
+        }
+        List<InspectionGradeCountProjection> counts =
+                defectRepository.countGroupByInspectionIdAndGrade(inspectionIds);
+        for (InspectionGradeCountProjection projection : counts) {
+            distributionByInspectionId.get(projection.getInspectionId())
+                    .put(projection.getGrade().name(), projection.getCnt());
+        }
+        return distributionByInspectionId;
+    }
+
+    private static Map<String, Long> emptyGradeDistribution() {
+        Map<String, Long> distribution = new LinkedHashMap<>();
+        for (DefectGrade grade : DefectGrade.values()) {
+            distribution.put(grade.name(), 0L);
+        }
+        return distribution;
     }
 
     public InspectionResponse getInspection(Long userId, Long companyId, Long inspectionId) {

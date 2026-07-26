@@ -1,5 +1,6 @@
 import { useQueries } from '@tanstack/react-query';
 import { inspectionApi } from '../api/inspectionApi';
+import { DEFECT_TYPE_CODE_LABELS } from '../api/inspectionApi.types';
 import type { DefectBoundingBox, Defect, InspectionResult, InspectionMedia } from '../types';
 
 // 뷰어는 상세 이미지(detailUrl, 그리드용 썸네일보다 큰 해상도)를 우선 사용 — 크랙 폭처럼 눈으로
@@ -71,26 +72,31 @@ export function useInspectionResultReal(inspectionId: number) {
   const defectCode = inspection ? `DEF-${String(inspection.id).padStart(4, '0')}` : '';
 
   // defects 변환: bbox, measurements, mediaId/imageUrl/areaRatio 포함
-  const transformedDefects: Defect[] = (defectsData || []).map((d) => ({
-    id: d.id,
-    type: d.type,
-    grade: d.grade,
-    status: d.status,
-    confidence: d.confidence,
-    bbox: {
-      x: d.bboxX,
-      y: d.bboxY,
-      width: d.bboxW,
-      height: d.bboxH,
-    } as DefectBoundingBox,
-    widthMm: d.crackWidthMm,
-    lengthMm: d.crackLengthMm,
-    areaRatio: d.areaRatio ?? undefined, // 박리박락·철근노출 전용(#804)
-    // ponytail: summary는 백엔드에서 제공하지 않으므로 기본값. AI explain으로 채울 수 있음(후속).
-    summary: `${d.type} 하자 — 신뢰도 ${Math.round(d.confidence * 100)}%`,
-    mediaId: d.mediaId ?? null,
-    imageUrl: resolveDefectImageUrl(d.imageUrl, d.detailUrl),
-  }));
+  const transformedDefects: Defect[] = (defectsData || []).map((d) => {
+    // 백엔드는 type을 영문 코드로 내려준다(openapi.yaml DefectTypeCode) — 화면 표시·유형별
+    // 분기(균열=선형/그 외=면적형)는 한글 라벨 기준이라 여기서 한 번만 번역한다(#881).
+    const typeLabel = DEFECT_TYPE_CODE_LABELS[d.type];
+    return {
+      id: d.id,
+      type: typeLabel,
+      grade: d.grade,
+      status: d.status,
+      confidence: d.confidence,
+      bbox: {
+        x: d.bboxX,
+        y: d.bboxY,
+        width: d.bboxW,
+        height: d.bboxH,
+      } as DefectBoundingBox,
+      widthMm: d.crackWidthMm,
+      lengthMm: d.crackLengthMm,
+      areaRatio: d.areaRatio ?? undefined, // 박리박락·철근노출 전용(#804)
+      // ponytail: summary는 백엔드에서 제공하지 않으므로 기본값. AI explain으로 채울 수 있음(후속).
+      summary: `${typeLabel} 하자 — 신뢰도 ${Math.round(d.confidence * 100)}%`,
+      mediaId: d.mediaId ?? null,
+      imageUrl: resolveDefectImageUrl(d.imageUrl, d.detailUrl),
+    };
+  });
 
   const reviewedCount = (defectsData || []).filter((d) => d.isReviewed).length;
   const totalCount = transformedDefects.length;
@@ -106,6 +112,7 @@ export function useInspectionResultReal(inspectionId: number) {
     inspection && isValidId && facilityQuery.data
       ? {
           inspectionId: inspection.id,
+          roundNo: inspection.roundNo, // 보고서 생성 진입점의 "N회차" 표기용(#876)
           media: transformedMedia, // 전체 미디어 목록(하자 유무 무관, #804)
           defects: transformedDefects,
           defectCode,

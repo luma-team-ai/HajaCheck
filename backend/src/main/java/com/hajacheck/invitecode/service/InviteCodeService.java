@@ -47,13 +47,18 @@ public class InviteCodeService {
     /**
      * 발급 — 요청 관리자 소속 회사(loginUser.companyId)로 스코프된 코드를 만든다(ADMIN 전용, 컨트롤러가 role 강제).
      *
-     * <p>좌석 잔여를 코드 생성 <b>전에</b> 확인한다(#872 — #843 좌석 강제 후속). 이 검사 없이는 이미 좌석이
-     * 가득 찬 회사도 코드 발급 자체는 항상 성공해, 관리자가 실패를 모른 채 못 쓸 코드를 나눠주고 redeem
-     * 시점에야 상대방이 {@code PLAN_SEAT_QUOTA_EXCEEDED}로 막힌다(실패가 잘못된 사람·시점에 도달).
+     * <p>좌석 잔여 선검사(#857) — 코드를 생성·저장하기 *전에* {@link QuotaService#hasAvailableSeat}로 판정한다.
+     * 여유가 없으면 기존 {@code PLAN_SEAT_QUOTA_EXCEEDED}를 그대로 던지고 {@code inviteCodeStore}에는 아무
+     * 부작용도 남기지 않는다 — redeem 시점에야 실패를 알아 관리자가 아무 신호도 못 받던 문제(초대 대상만
+     * WAITING에 갇힘)를 발급 시점으로 앞당긴다. 이 검사는 advisory이므로 {@link #redeem}의
+     * {@code reserveSeat}(최종 방어선)는 그대로 유지한다 — 발급~redeem 사이 경합으로 여기를 통과해도
+     * redeem에서 다시 막힐 수 있다.
      */
     public InviteCodeIssueResponse issue(Long companyId) {
         requireCompanyId(companyId);
-        quotaService.assertSeatAvailable(companyId);
+        if (!quotaService.hasAvailableSeat(companyId)) {
+            throw new BusinessException(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED);
+        }
         Duration ttl = authProperties.getInviteCodeTtl();
 
         for (int attempt = 0; attempt < MAX_ISSUE_ATTEMPTS; attempt++) {

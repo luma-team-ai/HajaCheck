@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ApiError } from '../../../shared/api/types';
 import { InviteCodeModal } from './InviteCodeModal';
 import { useInviteCode } from '../hooks/useInviteCode';
 
@@ -16,19 +16,48 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function setUp(revokeInviteCode = vi.fn(), issueError: ApiError | null = null) {
-  const issueInviteCode = issueError
-    ? vi.fn().mockRejectedValue(issueError)
-    : vi.fn().mockResolvedValue({ code: '7B2-W9A', ttlSeconds: 180 });
+function setUp(revokeInviteCode = vi.fn()) {
+  const issueInviteCode = vi.fn().mockResolvedValue({ code: '7B2-W9A', ttlSeconds: 180 });
   mockedUseInviteCode.mockReturnValue({
     issueInviteCode,
     isIssuing: false,
-    issueError,
+    issueError: null,
     revokeInviteCode,
   });
   const onClose = vi.fn();
-  render(<InviteCodeModal open onClose={onClose} />);
+  // useNavigate(#857 업그레이드 CTA)를 쓰므로 Router 컨텍스트가 필요하다.
+  render(
+    <MemoryRouter>
+      <InviteCodeModal open onClose={onClose} />
+    </MemoryRouter>,
+  );
   return { issueInviteCode, revokeInviteCode, onClose };
+}
+
+// #857 — 좌석 만석으로 발급 자체가 실패하는 경우. issueInviteCode가 reject되므로 code는 끝까지 빈 값.
+function setUpSeatQuotaExceeded() {
+  const issueInviteCode = vi.fn().mockRejectedValue({
+    code: 'PLAN_SEAT_QUOTA_EXCEEDED',
+    message: '요금제의 좌석 한도를 초과했습니다. 요금제를 업그레이드해 주세요.',
+    status: 403,
+  });
+  mockedUseInviteCode.mockReturnValue({
+    issueInviteCode,
+    isIssuing: false,
+    issueError: {
+      code: 'PLAN_SEAT_QUOTA_EXCEEDED',
+      message: '요금제의 좌석 한도를 초과했습니다. 요금제를 업그레이드해 주세요.',
+      status: 403,
+    },
+    revokeInviteCode: vi.fn(),
+  });
+  const onClose = vi.fn();
+  render(
+    <MemoryRouter>
+      <InviteCodeModal open onClose={onClose} />
+    </MemoryRouter>,
+  );
+  return { onClose };
 }
 
 describe('InviteCodeModal', () => {
@@ -57,27 +86,38 @@ describe('InviteCodeModal', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  // #872 — 발급 시점 좌석 한도 초과는 재시도가 무의미하므로 "다시 시도" 링크 없이 안내 문구만 보여준다.
-  // 문구는 <br/>로 2줄 표시되므로(디자인 요청) 텍스트 노드가 쪼개진다 — 부모 요소 기준으로 확인한다.
-  it('발급이 좌석 한도 초과로 실패하면 다시 시도 링크 없이 안내 문구만 2줄로 보여준다', async () => {
-    setUp(vi.fn(), { code: 'PLAN_SEAT_QUOTA_EXCEEDED', message: '요금제의 좌석 한도를 초과했습니다. 요금제를 업그레이드해 주세요.' });
+  // #857 — 좌석 잔여 선검사 실패 시 일반 오류(재시도 유도)와 구분해 업그레이드 CTA를 보여줘야 한다.
+  it('좌석 한도 초과(PLAN_SEAT_QUOTA_EXCEEDED)면 업그레이드 안내와 CTA를 보여준다', async () => {
+    setUpSeatQuotaExceeded();
 
-    const message = await screen.findByText((_, element) =>
-      element?.tagName === 'P' && element.textContent === '요금제의 좌석 한도를 초과했습니다.요금제를 업그레이드해 주세요.',
-    );
-    expect(message.querySelector('br')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /다시 시도/ })).toBeNull();
-    expect(screen.queryByRole('link')).toBeNull();
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+
+    expect(screen.getByText(/좌석이 모두 사용 중입니다/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '플랜 업그레이드' })).toBeTruthy();
+    // 코드 자체가 생성되지 않았으므로 복사 버튼은 비활성 상태여야 한다.
+    const copyButton = screen.getByRole('button', { name: /코드 복사하기/ }) as HTMLButtonElement;
+    expect(copyButton.disabled).toBe(true);
   });
 
-  it('발급이 그 외 사유로 실패하면 다시 시도 버튼을 보여준다', async () => {
-    const { issueInviteCode } = setUp(vi.fn(), { code: 'INTERNAL_ERROR', message: '일시적인 오류가 발생했습니다' });
+  it('좌석 한도 초과가 아닌 다른 발급 실패는 기존처럼 재시도 문구를 보여준다', async () => {
+    const issueInviteCode = vi.fn().mockRejectedValue({
+      code: 'INTERNAL_ERROR',
+      message: '일시적인 오류가 발생했습니다',
+      status: 500,
+    });
+    mockedUseInviteCode.mockReturnValue({
+      issueInviteCode,
+      isIssuing: false,
+      issueError: { code: 'INTERNAL_ERROR', message: '일시적인 오류가 발생했습니다', status: 500 },
+      revokeInviteCode: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <InviteCodeModal open onClose={vi.fn()} />
+      </MemoryRouter>,
+    );
 
-    const retry = await screen.findByRole('button', { name: /다시 시도/ });
-    expect(screen.queryByRole('button', { name: /플랜 업그레이드/ })).toBeNull();
-
-    fireEvent.click(retry);
-
-    expect(issueInviteCode).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText(/일시적인 오류가 발생했습니다 · 다시 시도/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '플랜 업그레이드' })).toBeNull();
   });
 });
