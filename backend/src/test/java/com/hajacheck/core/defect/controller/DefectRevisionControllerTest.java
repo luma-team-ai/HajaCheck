@@ -225,6 +225,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.length()").value(2))
                 .andExpect(jsonPath("$.data[0].id").value(defect1.getId()))
+                .andExpect(jsonPath("$.data[0].typeLabel").value("균열"))
                 .andExpect(jsonPath("$.data[0].grade").value("C"))
                 .andExpect(jsonPath("$.data[0].status").value("DETECTED"))
                 .andExpect(jsonPath("$.data[0].mediaId").isEmpty())
