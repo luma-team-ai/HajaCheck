@@ -19,7 +19,17 @@ public class BizVerifyProperties {
     private String baseUrl;
     private String serviceKey;
     private long connectTimeoutMs = 3000;
-    private long readTimeoutMs = 5000;
+    // 5000 → 8000(#880) — odcloud 국세청 게이트웨이는 장애 없이도 5초를 자주 넘긴다(2026-07-26 실측).
+    private long readTimeoutMs = 8000;
+
+    /**
+     * 일시적 실패(연결 실패·타임아웃·5xx) 재시도 횟수(#880) — 최초 시도 제외 횟수. 기본 1(=최대 2회 시도).
+     * 4xx·응답 파싱 실패·해석 불가는 재시도하지 않는다({@link NtsBusinessVerifyClient} 참고).
+     */
+    private int retryMaxAttempts = 1;
+
+    /** 재시도 사이 대기 시간(ms, #880). */
+    private long retryBackoffMs = 300;
 
     /** 실시간 진위확인 공개 API(#648) rate-limit. */
     private RateLimit rateLimit = new RateLimit();
@@ -54,6 +64,22 @@ public class BizVerifyProperties {
 
     public void setReadTimeoutMs(long readTimeoutMs) {
         this.readTimeoutMs = readTimeoutMs;
+    }
+
+    public int getRetryMaxAttempts() {
+        return retryMaxAttempts;
+    }
+
+    public void setRetryMaxAttempts(int retryMaxAttempts) {
+        this.retryMaxAttempts = retryMaxAttempts;
+    }
+
+    public long getRetryBackoffMs() {
+        return retryBackoffMs;
+    }
+
+    public void setRetryBackoffMs(long retryBackoffMs) {
+        this.retryBackoffMs = retryBackoffMs;
     }
 
     public RateLimit getRateLimit() {
