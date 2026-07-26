@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAuthStore } from '../../auth/store/authStore';
 import { Button } from '../../../shared/components/Button';
 import { Modal } from '../../../shared/components/Modal';
 import { getApiErrorMessage } from '../../../shared/api/types';
@@ -10,13 +11,15 @@ import type { AdminUserPlan } from '../types';
 
 // 유지 대상 선택 UI에서 한 번에 보여줄 회사 멤버 수 상한 — 서버 @Max(100)과 맞춘다. 회사 규모가
 // 100명을 넘으면 이 모달에서 전원을 선택지로 보여주지 못한다(이 요금제 정책상 좌석 한도가 최대
-// 수십 단위라 실용적으로는 충분하다고 판단 — 넘는 경우는 후속 이슈로 남길 수 있음).
+// 수십 단위라 실용적으로는 충분하다고 판단 — 넘는 경우는 후속 이슈로 남길 수 있음, F-15 계열 후속).
 const MEMBER_ROSTER_PAGE_SIZE = 100;
 
 interface PlanDowngradeConfirmModalProps {
   open: boolean;
   /** 확인 대상 요금제 — open=false 이거나 아직 미선택이면 null. */
   planName: AdminUserPlan | null;
+  /** 대상 요금제의 좌석 한도(catalog 기준) — null=무제한. 좌석 카운터·체크박스 disabled 판정에 쓴다. */
+  maxSeats: number | null;
   onClose: () => void;
   /** 변경이 성공적으로 반영된 뒤 호출 — 부모가 선택 상태를 리셋한다. */
   onChanged: () => void;
@@ -29,11 +32,17 @@ interface PlanDowngradeConfirmModalProps {
 export function PlanDowngradeConfirmModal({
   open,
   planName,
+  maxSeats,
   onClose,
   onChanged,
 }: PlanDowngradeConfirmModalProps) {
+  // changePlan은 회사 owner 전용 API라(AdminPlanService#requireCompanyOwner), 이 모달을 열 수 있는
+  // 로그인 사용자 = 항상 owner다 — 별도 조회 없이 auth store의 로그인 사용자 id를 그대로 owner로
+  // 쓴다(#930 재검토 F-2).
+  const ownerUserId = useAuthStore((state) => state.user?.id) ?? null;
+
   // null = 관리자가 아직 유지 대상을 직접 고르지 않음(서버 기본값 사용). 커스터마이즈하면 구체적인
-  // id 배열이 된다 — 빈 배열([])도 "직접 전원 정지 선택"이라는 유효한 커스터마이즈 상태다.
+  // id 배열이 된다. owner는 항상 이 배열에 포함된다(toggleKeep이 강제) — 빈 배열은 나오지 않는다.
   const [customKeepUserIds, setCustomKeepUserIds] = useState<number[] | null>(null);
 
   // 모달이 닫힐 때 커스터마이즈 상태를 리셋 — 다음에 다른 플랜으로 다시 열어도 이전 선택이 새지 않게.
@@ -46,12 +55,13 @@ export function PlanDowngradeConfirmModal({
   const previewKeepUserIds = useMemo(() => customKeepUserIds ?? [], [customKeepUserIds]);
   const {
     data: preview,
-    isLoading: previewLoading,
+    isFetching: previewIsFetching,
     isError: previewIsError,
   } = usePlanChangePreview(planName, previewKeepUserIds, open);
 
   // 유지 대상 선택 UI용 회사 멤버 전체 목록 — plan-quota 목록과 같은 데이터 소스를 재사용한다.
-  const { data: rosterData } = usePlanQuotaUsers({ page: 1, size: MEMBER_ROSTER_PAGE_SIZE });
+  // 모달이 닫혀 있으면 조회하지 않는다(#930 재검토 F-11).
+  const { data: rosterData } = usePlanQuotaUsers({ page: 1, size: MEMBER_ROSTER_PAGE_SIZE }, open);
   const roster = rosterData?.content ?? [];
 
   const suspendIds = useMemo(
@@ -65,8 +75,12 @@ export function PlanDowngradeConfirmModal({
     return null;
   }
 
-  // 체크박스 표시 상태 — 아직 커스터마이즈하지 않았으면 서버가 계산한 기본 정지 대상을 그대로 반영한다.
+  // 체크박스 표시 상태 — owner는 항상 유지(체크 해제 불가). 아직 커스터마이즈하지 않았으면 서버가
+  // 계산한 기본 정지 대상을 그대로 반영한다.
   function isKeeping(userId: number): boolean {
+    if (ownerUserId !== null && userId === ownerUserId) {
+      return true;
+    }
     if (customKeepUserIds !== null) {
       return customKeepUserIds.includes(userId);
     }
@@ -74,13 +88,40 @@ export function PlanDowngradeConfirmModal({
   }
 
   function toggleKeep(userId: number) {
-    const base = customKeepUserIds ?? roster.filter((member) => !suspendIds.has(member.id)).map((member) => member.id);
-    const next = base.includes(userId)
-      ? base.filter((id) => id !== userId)
-      : [...base, userId];
+    if (ownerUserId !== null && userId === ownerUserId) {
+      // owner 행은 애초에 disabled 처리되지만, 방어적으로 한 번 더 막는다.
+      return;
+    }
+    const base = customKeepUserIds ?? roster.filter((member) => isKeeping(member.id)).map((member) => member.id);
+    // owner id를 base에 항상 강제 포함한다 — 이게 F-1("정확히 N명 골랐는데 초과") 의 근본 원인이었다:
+    // toggleKeep이 현재 선택에 owner를 안 넣은 채로 시작하면, applyOverflow는 owner를 추가로 끼워
+    // 넣어 항상 +1이 되어 좌석 한도를 넘겨버린다.
+    const baseWithOwner =
+      ownerUserId !== null && !base.includes(ownerUserId) ? [...base, ownerUserId] : base;
+    const next = baseWithOwner.includes(userId)
+      ? baseWithOwner.filter((id) => id !== userId)
+      : [...baseWithOwner, userId];
     resetError();
-    setCustomKeepUserIds(next);
+    // []([]) 의미를 백엔드에 맞춰 통일한다(#930 재검토 F-2 보안 P2): adminPlanApi.ts는 keepUserIds가
+    // 비어 있으면 아예 전송하지 않고, 백엔드도 빈 배열을 "미지정"으로 취급한다 — 즉 이 코드베이스
+    // 어디에도 "빈 배열 = 전원 정지 선택"은 구현돼 있지 않다. next가 비면(이론상 owner조차 없는
+    // 극단적 상황 방어용 — owner가 항상 base에 강제 포함되므로 실질적으로는 발생하지 않는다) 서버
+    // 기본값(null)으로 되돌린다.
+    setCustomKeepUserIds(next.length === 0 ? null : next);
   }
+
+  // 좌석 카운터·한도 판정 — 오늘 이 화면의 주 사용 경로(자동 선정이 이미 maxSeats를 꽉 채운 상태에서
+  // 관리자가 한 명을 더 체크하는 경우)가 항상 403 데드엔드로 끝나던 문제(#930 재검토 F-1)를, 한도
+  // 도달 시 미체크 체크박스 자체를 disabled로 막아 원천 차단한다.
+  // roster(plan-quota 목록)에는 아직 활성화되지 않은 초대 대기 멤버(plan=null, 좌석을 점유하지
+  // 않음)도 함께 내려온다 — 좌석 계산은 백엔드와 동일하게 활성(plan!==null) 멤버만 대상으로 해야
+  // 카운터·한도가 실제 좌석 수와 어긋나지 않는다.
+  const activeRoster = roster.filter((member) => member.plan !== null);
+  const keepCount = activeRoster.filter((member) => isKeeping(member.id)).length;
+  const atSeatLimit = maxSeats !== null && keepCount >= maxSeats;
+  // preview가 아직 한 번도 로드되지 않은 최초 로딩 구간에서는 suspendIds를 신뢰할 수 없어(전원
+  // isKeeping=true로 오표시) 체크박스를 잠가 그 창에 발생하는 잘못된 toggle을 막는다(F-3).
+  const rosterInteractionDisabled = preview === undefined;
 
   async function handleConfirm() {
     if (!planName) {
@@ -94,13 +135,33 @@ export function PlanDowngradeConfirmModal({
       });
       onChanged();
     } catch {
-      // 에러는 아래 error(mutation.error)로 표시한다 — 409(PLAN_DOWNGRADE_CONFIRMATION_REQUIRED)를
-      // 포함해 에러 코드 기준으로 안내만 바꾸고(메시지 문자열 매칭 금지), 콘솔에 unhandled rejection이
-      // 찍히지 않도록 여기서 흡수한다.
+      // 에러는 아래 error(mutation.error)로 표시한다 — 에러 코드 기준으로 안내만 바꾸고(메시지
+      // 문자열 매칭 금지), 콘솔에 unhandled rejection이 찍히지 않도록 여기서 흡수한다.
     }
   }
 
   const isStaleConfirmation = error?.code === 'PLAN_DOWNGRADE_CONFIRMATION_REQUIRED';
+  const isSeatQuotaExceeded = error?.code === 'PLAN_SEAT_QUOTA_EXCEEDED';
+  const isProtectedAdmin = error?.code === 'ADMIN_PROTECTED_ACCOUNT';
+  const isKeepUserInvalid = error?.code === 'PLAN_KEEP_USER_INVALID';
+
+  function errorMessage(): string {
+    if (isStaleConfirmation) {
+      return '확인하는 사이 구성원이 늘어 다시 확인이 필요합니다. 위 내용을 다시 확인한 뒤 변경을 눌러주세요.';
+    }
+    if (isSeatQuotaExceeded) {
+      // 이 문맥(하향 시 유지 인원 선택)에서 "요금제를 업그레이드해 주세요"는 오안내다 — 관리자가
+      // 이미 하향을 시도하는 중이라 업그레이드를 안내하면 목적과 반대되는 요구가 된다(F-1).
+      return '선택한 유지 인원이 좌석 한도를 초과합니다. 유지할 구성원 수를 줄여주세요.';
+    }
+    if (isProtectedAdmin) {
+      return '선택한 구성원만 유지하면 활성 관리자가 한 명도 남지 않습니다. 관리자 권한을 가진 구성원을 한 명 이상 유지 대상에 포함해 주세요.';
+    }
+    if (isKeepUserInvalid) {
+      return '유지 대상 선택에 문제가 있습니다. 목록을 다시 확인한 뒤 선택해 주세요.';
+    }
+    return getApiErrorMessage(error, '플랜 변경에 실패했습니다.');
+  }
 
   return (
     <Modal
@@ -118,6 +179,11 @@ export function PlanDowngradeConfirmModal({
           <p className="m-0 text-sm font-semibold text-heading">
             정지될 구성원 {preview ? `${preview.seatsToSuspend.length}명` : '계산 중...'}
           </p>
+          {maxSeats !== null && (
+            <p className="m-0 text-xs text-text-muted">
+              현재 유지 선택 {keepCount} / 최대 {maxSeats}명 (회사 소유자 1석 포함)
+            </p>
+          )}
           <p className="m-0 text-xs text-text-muted">
             아래에서 유지할 구성원을 직접 선택할 수 있습니다. 선택하지 않은 구성원은 로그인할 수
             없게 정지됩니다(계정은 삭제되지 않으며, 좌석 여유가 생기면 다시 활성화할 수 있습니다).
@@ -130,28 +196,45 @@ export function PlanDowngradeConfirmModal({
           </p>
         )}
 
-        <div className="flex max-h-60 flex-col overflow-y-auto rounded-xl border border-border">
-          {roster.length === 0 && (
-            <p className="m-0 p-3 text-sm text-text-muted">표시할 구성원이 없습니다.</p>
-          )}
-          {roster.map((member) => (
-            <label
-              key={member.id}
-              className="flex items-center gap-2.5 border-b border-border px-3 py-2 last:border-b-0"
-            >
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-heading"
-                checked={isKeeping(member.id)}
-                onChange={() => toggleKeep(member.id)}
-              />
-              <span className="flex flex-col text-sm">
-                <span className="text-text-default">{member.name}</span>
-                <span className="text-xs text-text-muted">{member.email}</span>
-              </span>
-            </label>
-          ))}
-        </div>
+        {/* F-13: 시설물만 초과(정지 대상 0명)면 유지 대상 선택 UI 자체가 무의미하다 — 감추고 시설물
+            안내만 보여준다. preview가 아직 없는 최초 로딩 구간에는(어느 쪽인지 모르므로) 우선
+            보여준다 — 이후 데이터가 도착하면 필요 시 한 번만 감춰진다(토글마다 깜빡이지 않음, 위
+            placeholderData:keepPreviousData 덕에 preview는 재조회 중에도 이전 값을 유지한다). */}
+        {(preview === undefined || preview.seatsToSuspend.length > 0) && (
+          <div className="flex max-h-60 flex-col overflow-y-auto rounded-xl border border-border">
+            {roster.length === 0 && (
+              <p className="m-0 p-3 text-sm text-text-muted">표시할 구성원이 없습니다.</p>
+            )}
+            {roster.map((member) => {
+              const isOwner = ownerUserId !== null && member.id === ownerUserId;
+              const checked = isKeeping(member.id);
+              const disabled =
+                isOwner || rosterInteractionDisabled || (atSeatLimit && !checked);
+              return (
+                <label
+                  key={member.id}
+                  className="flex items-center gap-2.5 border-b border-border px-3 py-2 last:border-b-0"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-heading"
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={() => toggleKeep(member.id)}
+                  />
+                  <span className="flex flex-col text-sm">
+                    <span className="text-text-default">{member.name}</span>
+                    {isOwner ? (
+                      <span className="text-xs text-text-muted">회사 소유자는 항상 유지됩니다</span>
+                    ) : (
+                      <span className="text-xs text-text-muted">{member.email}</span>
+                    )}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
 
         {/* facilityOverflowCount는 "대상 요금제 기준 총량"이지 증분이 아니다(AdminPlanChangePreviewResponse
             javadoc) — "새로 N개가 읽기전용이 됩니다"로 쓰면 오인을 준다. */}
@@ -165,9 +248,7 @@ export function PlanDowngradeConfirmModal({
 
         {error && (
           <p role="alert" className="m-0 text-sm text-danger">
-            {isStaleConfirmation
-              ? '확인하는 사이 구성원이 늘어 다시 확인이 필요합니다. 위 내용을 다시 확인한 뒤 변경을 눌러주세요.'
-              : getApiErrorMessage(error, '플랜 변경에 실패했습니다.')}
+            {errorMessage()}
           </p>
         )}
 
@@ -179,7 +260,7 @@ export function PlanDowngradeConfirmModal({
             type="button"
             variant="primary"
             onClick={handleConfirm}
-            disabled={isPending || previewLoading || previewIsError}
+            disabled={isPending || previewIsFetching || previewIsError}
           >
             {isPending ? '변경 중...' : '변경 확정'}
           </Button>

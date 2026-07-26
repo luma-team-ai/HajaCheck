@@ -31,6 +31,8 @@ export function PlanChangeControl({ currentPlan, catalog }: PlanChangeControlPro
   }
 
   const options = catalog.filter((item) => item.name !== currentPlan);
+  // 확인 모달의 좌석 카운터·체크박스 disabled 판정(#930 재검토 F-1)에 쓸 대상 요금제의 좌석 한도.
+  const confirmTargetMaxSeats = catalog.find((item) => item.name === confirmPlanName)?.maxSeats ?? null;
 
   async function handleChangeClick() {
     if (!selected) {
@@ -101,6 +103,7 @@ export function PlanChangeControl({ currentPlan, catalog }: PlanChangeControlPro
       <PlanDowngradeConfirmModal
         open={confirmPlanName !== null}
         planName={confirmPlanName}
+        maxSeats={confirmTargetMaxSeats}
         onClose={() => setConfirmPlanName(null)}
         onChanged={() => {
           setConfirmPlanName(null);
