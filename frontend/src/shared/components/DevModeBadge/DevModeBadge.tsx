@@ -1,5 +1,3 @@
-import { shouldEnableMocking } from '../../utils/shouldEnableMocking';
-
 // 개발 모드 표시 배지 (#302 → #311로 확장) — "지금 어떤 걸 보고 있는지"를 화면에 드러낸다.
 //
 // 계기: 로컬 스택엔 프론트가 둘이라(80=nginx dist / vite dev 서버) 지금 어느 쪽을 보는지 화면만
@@ -26,20 +24,30 @@ import { shouldEnableMocking } from '../../utils/shouldEnableMocking';
 export function DevModeBadge() {
   if (!import.meta.env.DEV) return null;
 
-  const mocking = shouldEnableMocking(import.meta.env);
+  const mswValue = import.meta.env.VITE_ENABLE_MSW?.trim().toLowerCase();
+  const isOff = mswValue === 'false';
+  const isHybrid = mswValue === 'hybrid';
+
+  let badgeText = 'DEV';
+  let badgeBg = 'bg-zinc-700';
+
+  if (isHybrid) {
+    badgeText = 'DEV · 하이브리드';
+    badgeBg = 'bg-emerald-600';
+  } else if (!isOff) {
+    badgeText = 'DEV · MSW 목';
+    badgeBg = 'bg-amber-500';
+  }
 
   return (
     <div
       // 우하단은 BottomNavBarFab(퀵상담 FAB)이 쓰므로 좌하단. 단 좌하단엔 SideNavBar 로그아웃 버튼이 겹치므로
       // pointer-events-none 으로 클릭을 통과시키고, 작게·반투명으로 시각적 방해를 줄인다.
-      // (pointer-events-none 이라 hover·title 툴팁은 동작하지 않는다 — 설명은 이 주석과 가이드에 둔다)
-      className={`pointer-events-none fixed bottom-1 left-1 z-[9999] flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold text-white opacity-70 shadow-sm ${
-        mocking ? 'bg-amber-500' : 'bg-zinc-700'
-      }`}
+      className={`pointer-events-none fixed bottom-1 left-1 z-[9999] flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold text-white opacity-70 shadow-sm ${badgeBg}`}
       role="status"
     >
       <span className="h-1.5 w-1.5 rounded-full bg-white" aria-hidden="true" />
-      {mocking ? 'DEV · MSW 목' : 'DEV'}
+      {badgeText}
     </div>
   );
 }

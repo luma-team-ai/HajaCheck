@@ -46,6 +46,60 @@ export interface ReportContent {
   recommendation: ReportRecommendation;
 }
 
+// ---------------------------------------------------------------------------
+// 보고서 목록 / 이력 관리 (#463, 사이드바 "보고서" 최상위 메뉴 — 회사 스코프 전체 보고서 목록)
+// GET /api/reports, /api/reports/summary — 백엔드 미구현 시 hybrid 훅이 404를 목으로 폴백한다.
+// ---------------------------------------------------------------------------
+
+export type ReportListStatus = 'DRAFT' | 'FINALIZED';
+
+// 등급 색상은 Figma 시안(A=빨강...D=초록)이 아니라 SOT 등급 의미(A=양호/E=중대)를 따른다 —
+// 2026-07-21 Figma 등급 색상 3곳 불일치 감사에서 Figma가 아니라 SOT 설계문서가 기준으로
+// 확정됐다. defect feature GRADE_CLASSES와 동일 색상 체계(A=emerald...E=red).
+export type ReportGrade = 'A' | 'B' | 'C' | 'D' | 'E';
+export type ReportGradeDistribution = Partial<Record<ReportGrade, number>>;
+
+export interface ReportListItem {
+  id: number;
+  inspectionId: number;
+  facilityId: number;
+  facilityName: string;
+  roundNo: number;
+  // 보고서명(title)은 서버 필드가 아니다 — reports 테이블에 title 컬럼이 없다(V1 baseline schema).
+  // mypage feature formatReportTitle(#844)과 동일하게 facilityName+roundNo+updatedAt으로 프론트가
+  // 조립한다(utils/reportListFormat.ts#formatReportListTitle).
+  gradeDistribution: ReportGradeDistribution;
+  status: ReportListStatus;
+  version: number;
+  updatedAt: string; // ISO datetime
+  pdfUrl: string | null; // FINALIZED에서만 값 존재
+}
+
+export interface ReportListSummary {
+  totalCount: number;
+  finalizedCount: number;
+  draftCount: number;
+  issuedThisMonthCount: number; // 이번 달 FINALIZED 건수
+}
+
+export type ReportListPeriod = '1M' | '3M' | '6M' | 'ALL';
+
+export interface ReportListFilters {
+  page?: number;
+  size?: number;
+  facilityId?: number;
+  status?: ReportListStatus;
+  query?: string;
+  period?: ReportListPeriod;
+}
+
+// 목록 필터의 시설물 select 옵션 — GET /api/facilities 재사용(defect feature의 동일 선례,
+// feature 간 직접 import 금지 컨벤션에 따라 로컬로 재정의).
+export interface ReportFacilityOption {
+  id: number;
+  name: string;
+}
+
 // content가 아직 위 구조를 갖췄는지 런타임 가드(초안 생성 직후 형태가 다를 가능성에 방어) —
 // 얕은 필드 존재 검사만 수행한다(과설계 금지).
 export function isReportContent(value: unknown): value is ReportContent {

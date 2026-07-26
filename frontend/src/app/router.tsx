@@ -33,6 +33,13 @@ const ReportEntryPage = lazy(() =>
 );
 
 // 점검(회차) 생성 — API 명세서 v0.3 AP-004
+// 보고서 목록/이력 관리 — 이슈 #463
+const ReportListPage = lazy(() =>
+  import('../features/report/pages/ReportListPage').then((m) => ({
+    default: m.ReportListPage,
+  })),
+);
+
 const InspectionCreatePage = lazy(() =>
   import('../features/inspection/pages/InspectionCreatePage').then((m) => ({
     default: m.InspectionCreatePage,
@@ -589,6 +596,18 @@ export const router = createBrowserRouter([
         },
       }, // — features/report 보고서 생성 (이슈 #621, HAJA-343)
       {
+        path: '/reports',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <ReportListPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '보고서' }, { label: '보고서 목록 / 이력 관리' }],
+          activeHref: '/reports',
+        },
+      }, // — features/report 보고서 목록/이력 관리 (#463)
+      {
         path: '/facilities/:id',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
@@ -849,7 +868,6 @@ export const router = createBrowserRouter([
   }, // — features/platform-admin (#535). 각 메뉴 실 기능은 후속 이슈.
   // 구 '/facilities'(셸 밖) 라우트는 '/facilities/list'(셸 안, 위 AppShellRoute children)로 이동됨(#472).
   // '/defects/list' 는 AppShellRoute 자식(위 children 배열)으로 등록됨 — features/defect (HAJA-30)
-  // { path: '/reports', ... }                  — features/report
   // { path: '/support', ... }                  — features/support
   // 관리자: /admin/users 구현 완료(위 AppShell children) — 나머지 관리자 화면은 #21 하위 이슈로 분리
 ]);

@@ -23,13 +23,18 @@ import { reportHandlers } from '../features/report/api/reportApi.handlers';
 import { statisticsHandlers } from '../features/statistics/api/statisticsApi.handlers';
 import { statsHandlers } from '../features/platform-admin/api/statsApi.handlers';
 import { supportHandlers } from '../features/support/api/supportApi.handlers';
+import { getEffectiveAuthHandlers, isHybridMode } from '../shared/utils/isHybridMode';
 
 // hybrid는 실제 Spring 세션/인증을 사용해야 하므로 auth MSW가 실 로그인 요청을 가로채면 안 된다.
 // true/미설정 dev에서는 기존 목 로그인 동작을 유지한다.
-const isHybridMode = import.meta.env.VITE_ENABLE_MSW?.trim().toLowerCase() === 'hybrid';
-const effectiveAuthHandlers = isHybridMode ? [] : authHandlers;
+const hybridMode = isHybridMode(import.meta.env);
+const effectiveAuthHandlers = getEffectiveAuthHandlers(import.meta.env, authHandlers);
+const effectiveFacilityHandlers = hybridMode ? [] : facilityHandlers;
+// hybrid에서는 실 백엔드가 계약을 가진 보고서 요청을 MSW가 가로채지 않게 한다.
+// 백엔드 미구현 회사 목록/요약은 훅의 404 폴백으로 개발 화면을 유지한다.
+const effectiveReportHandlers = hybridMode ? [] : reportHandlers;
 
-export const handlers = [
+const allMockHandlers = [
   ...effectiveAuthHandlers,
   // facilityAssigneeHandlers(GET /api/facilities/assignable-users, 리터럴 경로)는 msw v2 등록 순서
   // 매칭이라 inspectionHandlers/facilityHandlers가 등록하는 GET /api/facilities/:id 캐치올보다
@@ -46,7 +51,7 @@ export const handlers = [
   ...dashboardHandlers,
   ...statisticsHandlers,
   ...mypageHandlers,
-  ...facilityHandlers,
+  ...effectiveFacilityHandlers,
   ...facilityDefectHandlers,
   ...facilityComparisonHandlers,
   ...adminHandlers,
@@ -58,8 +63,14 @@ export const handlers = [
   ...platformAdminCompanyHandlers,
   ...statsHandlers,
   ...monitoringHandlers,
-  ...reportHandlers,
+  ...effectiveReportHandlers,
   ...ragDocumentHandlers,
   ...supportHandlers,
   ...notificationHandlers,
 ];
+
+// hybrid에서는 서비스워커가 데이터 요청을 가로채지 않아야 한다.
+// 실서버 우선/실패 시 목 폴백은 각 query hook의 hybridFetchFallback이 담당한다.
+// 이 경계를 두지 않으면 MSW가 200 목 응답을 먼저 반환해 실제 DB 데이터와 CUD 결과를
+// 영구적으로 가리게 된다(#941, #943).
+export const handlers = hybridMode ? [] : allMockHandlers;

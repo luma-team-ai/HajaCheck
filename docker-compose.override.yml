@@ -16,8 +16,7 @@ services:
       target: build # JDK 빌드 스테이지 재사용(gradlew bootRun에 필요, jre 런타임 스테이지 아님)
     command: ["./gradlew", "bootRun", "--no-daemon", "--continuous"]
     volumes:
-      - ./backend/src:/workspace/src
-      - ./backend/build.gradle:/workspace/build.gradle
+      - ./backend:/workspace
       - ./docs:/docs:ro # build.gradle의 verifyHa25SchemaInputs가 ../docs/design/db/*.sql을 참조 — ./gradlew test에 필요
       - gradle-cache:/root/.gradle
     environment:
@@ -30,11 +29,7 @@ services:
 
   fastapi:
     volumes:
-      - ./ai-server/main.py:/app/main.py
-      - ./ai-server/deps.py:/app/deps.py
-      - ./ai-server/routers:/app/routers
-      - ./ai-server/ai:/app/ai
-      - ./ai-server/tests:/app/tests # pytest tests/ 미마운트 상태였음 — 컨테이너 안에서 테스트 실행하려면 필요
+      - ./ai-server:/app # pytest tests/ 미마운트 상태였음 — 컨테이너 안에서 테스트 실행하려면 필요
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     environment:
       # main.py가 fail-closed(명시적 dev/local만 /docs 노출)로 바뀌어 로컬 개발에서 켜려면 명시 필요
@@ -75,10 +70,8 @@ services:
       # vite.config.ts의 server.watch.usePolling이 이 값을 읽어 폴링으로 강제 감지한다.
       VITE_WATCH_POLL: "true"
     volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
-      - ./frontend/index.html:/app/index.html
-      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - ./frontend:/app
+      - /app/node_modules
     ports:
       - "5173:5173"
     healthcheck:

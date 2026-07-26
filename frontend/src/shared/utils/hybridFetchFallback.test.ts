@@ -31,6 +31,18 @@ describe('hybridFetchFallback', () => {
     expect(result).toEqual(mockFallbackData);
   });
 
+  it('페이지 응답도 isEmpty 판정으로 실데이터 우선 정책을 검증한다', async () => {
+    const realPage = { content: [], page: 0, totalElements: 0 };
+    const result = await hybridFetchFallback({
+      fetcher: vi.fn().mockResolvedValue(realPage),
+      fallback: { content: [{ id: 1 }], page: 0, totalElements: 1 },
+      env: { DEV: true },
+      isEmpty: (page) => page.content.length === 0,
+    });
+
+    expect(result.content).toEqual([{ id: 1 }]);
+  });
+
   it('fallbackOnEmptyArray가 false인 경우, 실 서버의 빈 배열 응답을 그대로 유지한다', async () => {
     const fetcher = vi.fn().mockResolvedValue([]);
 

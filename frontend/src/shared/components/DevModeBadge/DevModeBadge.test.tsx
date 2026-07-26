@@ -26,11 +26,22 @@ describe('DevModeBadge', () => {
 
   it('dev 빌드 + MSW 켜짐이면 목 모드를 함께 경고한다', () => {
     vi.stubEnv('DEV', true);
-    vi.stubEnv('VITE_ENABLE_MSW', undefined);
+    vi.stubEnv('VITE_ENABLE_MSW', 'true');
 
     render(<DevModeBadge />);
 
-    expect(screen.getByRole('status').textContent).toContain('MSW');
+    expect(screen.getByRole('status').textContent).toContain('DEV · MSW 목');
+  });
+
+  it('dev 빌드 + VITE_ENABLE_MSW=hybrid 이면 에메랄드 "DEV · 하이브리드" 배지를 표시한다', () => {
+    vi.stubEnv('DEV', true);
+    vi.stubEnv('VITE_ENABLE_MSW', 'hybrid');
+
+    render(<DevModeBadge />);
+
+    const badge = screen.getByRole('status');
+    expect(badge.textContent).toContain('DEV · 하이브리드');
+    expect(badge.className).toContain('bg-emerald-600');
   });
 
   // 프로덕션 빌드에서 dist(사진)와 실제 운영은 산출물이 동일해 클라이언트에서 구분할 수 없다.
