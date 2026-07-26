@@ -18,9 +18,12 @@ import org.springframework.web.client.RestClient;
  * 더 긴 쪽(실시간용) 타임아웃이 무인증 제출 경로에도 적용돼 스레드 점유 리스크가 커진다. 자세한 근거는
  * {@link BizVerifyProperties#getReadTimeoutMs()}/{@link BizVerifyProperties#getRealtimeReadTimeoutMs()}
  * Javadoc, 사용처는 {@link com.hajacheck.bizverify.service.NtsBusinessVerifyClient} 참고.
+ *
+ * <p>{@link PendingBusinessReverifyProperties}(#888 PENDING 자동 재검증 배치 설정)도 이 설정 클래스에서
+ * 함께 등록한다(스캔 미사용, 명시 등록 — CompanyAuthConfig 패턴과 동일).
  */
 @Configuration
-@EnableConfigurationProperties(BizVerifyProperties.class)
+@EnableConfigurationProperties({BizVerifyProperties.class, PendingBusinessReverifyProperties.class})
 public class BizVerifyConfig {
 
     /** 제출 경로 전용(회원가입 게이트 {@code validate()} 단독 호출) — read-timeout 5s, 재시도 없음. */
