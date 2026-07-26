@@ -17,18 +17,20 @@ export class KakaoMapKeyMissingError extends Error {
  * 이미 window.kakao.maps 가 로드돼 있으면 즉시 resolve.
  */
 export function loadKakaoMapSdk(): Promise<void> {
+  // 1. 이미 진행 중인 로드(pending loadPromise)가 존재하면 항상 그 promise를 공유한다 (#835 P2 픽스).
+  //    script.onload발화 ~ kakao.maps.load() 콜백 완료 찰나의 동시 호출 시 레이스 조기 resolve 방지.
+  if (loadPromise) {
+    return loadPromise;
+  }
+
+  // 2. 스크립트가 완전히 로드되어 window.kakao.maps 네임스페이스가 존재하는 경우
   if (window.kakao?.maps) {
     loadPromise = Promise.resolve();
     return loadPromise;
   }
 
-  if (loadPromise) {
-    return loadPromise;
-  }
-
   const appKey = import.meta.env.VITE_KAKAO_MAP_APP_KEY as string | undefined;
   if (!appKey) {
-    loadPromise = null;
     return Promise.reject(new KakaoMapKeyMissingError());
   }
 
