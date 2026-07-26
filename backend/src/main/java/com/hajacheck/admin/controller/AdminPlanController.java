@@ -1,12 +1,14 @@
 package com.hajacheck.admin.controller;
 
 import com.hajacheck.admin.dto.AdminPlanCatalogResponse;
+import com.hajacheck.admin.dto.AdminPlanChangePreviewResponse;
 import com.hajacheck.admin.dto.AdminPlanChangeRequest;
 import com.hajacheck.admin.dto.AdminPlanHistoryResponse;
 import com.hajacheck.admin.dto.AdminPlanQuotaResponse;
 import com.hajacheck.admin.dto.AdminPlanResponse;
 import com.hajacheck.admin.service.AdminPlanService;
 import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.global.common.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -51,13 +53,27 @@ public class AdminPlanController {
         return ResponseEntity.ok(ApiResponse.ok(adminPlanService.getCurrentPlan(loginUser.getUserId())));
     }
 
-    @Operation(summary = "회사 플랜 변경", description = "요청 관리자 회사의 구독 요금제를 변경한다 — 기존 구독을 만료하고 신규 구독을 발급한다(변경 이력은 user_plans 로 보존). ADMIN 전용.")
+    @Operation(summary = "회사 플랜 변경 미리보기",
+            description = "이 요금제로 바꾸면 어떤 구성원이 정지되고 시설물 몇 개가 읽기 전용이 되는지 부작용 없이 계산한다(#890). "
+                    + "requiresConfirmation=true 면 PATCH 요청에 confirmOverflow=true 를 실어야 실제 변경된다. 회사 owner 전용.")
+    @GetMapping("/plan/change-preview")
+    public ResponseEntity<ApiResponse<AdminPlanChangePreviewResponse>> previewChange(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @RequestParam PlanName planName) {
+        return ResponseEntity.ok(
+                ApiResponse.ok(adminPlanService.previewChange(loginUser.getUserId(), planName)));
+    }
+
+    @Operation(summary = "회사 플랜 변경",
+            description = "요청 관리자 회사의 구독 요금제를 변경한다 — 기존 구독을 만료하고 신규 구독을 발급한다(변경 이력은 user_plans 로 보존). ADMIN 전용. "
+                    + "하향으로 한도를 넘는 구성원·시설물이 생기면 confirmOverflow=true 없이는 409(PLAN_DOWNGRADE_CONFIRMATION_REQUIRED)로 "
+                    + "거절하고 아무것도 바꾸지 않는다(#890).")
     @PatchMapping("/plan")
     public ResponseEntity<ApiResponse<AdminPlanResponse>> changePlan(
             @AuthenticationPrincipal LoginUser loginUser,
             @Valid @RequestBody AdminPlanChangeRequest request) {
-        return ResponseEntity.ok(
-                ApiResponse.ok(adminPlanService.changePlan(loginUser.getUserId(), request.planName())));
+        return ResponseEntity.ok(ApiResponse.ok(adminPlanService.changePlan(
+                loginUser.getUserId(), request.planName(), request.overflowConfirmed())));
     }
 
     @Operation(summary = "회사 플랜 변경 이력 조회",
