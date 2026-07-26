@@ -11,7 +11,6 @@ import com.hajacheck.admin.repository.AdminUserRepository;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
-import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.entity.PlanName;
@@ -35,7 +34,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class AdminUserService {
 
     private final AdminUserRepository adminUserRepository;
-    private final CompanyRepository companyRepository;
     private final PasswordEncoder passwordEncoder;
     private final QuotaService quotaService;
 
@@ -74,22 +72,15 @@ public class AdminUserService {
         // 좌석이 가득 찬 회사는 새 사용자를 만들지 못하게 막는다(그렇지 않으면 초대 코드 좌석
         // 강제가 이 경로로 그대로 우회된다).
         //
-        // 회사 행 잠금 밖에서 먼저 호출(PR머신 재검토 2차 P1 — 교착 방지): 활성 구독이 없는 회사면
-        // QuotaService#resolveLivePlan이 REQUIRES_NEW(별도 커넥션)로 FREE 플랜을 자가 프로비저닝한다.
-        // 이 INSERT가 companies 행에 FOR KEY SHARE를 요구하는데, 아래 findByIdForUpdate로 이미 FOR
-        // UPDATE를 쥔 채 같은 트랜잭션에서 호출하면 그 FOR KEY SHARE가 막혀 REQUIRES_NEW 반환을 기다리는
-        // 바깥 트랜잭션과 서로를 무기한 기다린다(PostgreSQL 교착 탐지 밖의 JVM 대기 — 커넥션 고갈).
-        // 잠그기 전에 한 번 호출해 자가 프로비저닝을 잠금 없이 커밋시켜 둔다.
-        quotaService.hasAvailableSeat(companyId);
-        // TOCTOU 방지(PR머신 재검토 P3): hasAvailableSeat는 advisory 판정이라 검사와 save 사이에 잠금이
-        // 없으면, 좌석이 정확히 1석 남은 회사에서 동시에 들어온 두 등록 요청이 둘 다 통과해 좌석 한도를
-        // 넘길 수 있다. requireNotLastCompanyAdmin과 동일한 패턴으로 회사 행을 PESSIMISTIC_WRITE로 먼저
-        // 잠가 동시 등록 요청을 직렬화한 뒤, 위에서 이미 플랜이 보장돼 있으므로(자가 프로비저닝 재트리거
-        // 없이) 최신 좌석 수로 재판정한다.
-        companyRepository.findByIdForUpdate(companyId);
-        if (!quotaService.hasAvailableSeat(companyId)) {
-            throw new BusinessException(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED);
-        }
+        // PR머신 2차 재검토 P2 — hasAvailableSeat(advisory)+회사 행 잠금 대신, 초대코드 redeem
+        // (InviteCodeService#redeem)이 이미 쓰는 QuotaService#reserveSeat를 그대로 재사용한다.
+        // reserveSeat는 usage_counters 행을 잠그고 원자적 조건부 UPDATE로 좌석을 예약하므로,
+        // 이 경로와 redeem 경로가 같은 잠금 대상을 공유해 서로 직렬화된다(교차 경로 좌석 초과 방지) —
+        // 회사 행을 따로 잠글 필요가 없어지고, 그 잠금이 자가 프로비저닝(REQUIRES_NEW)과 충돌해
+        // 교착을 만들 위험도 함께 사라진다. 예약이 성공하면 usage_counters 미러도 함께 갱신되어
+        // AdminPlanService#getCurrentPlan의 좌석 표시가 실제와 어긋나는 문제(PR머신 P2)도 해소된다.
+        // 활성화(User 저장) 직전에 호출해야 한도 초과 시 등록 자체가 롤백된다(reserveSeat javadoc 계약).
+        quotaService.reserveSeat(companyId);
         // 선검사 — 명확한 중복은 저장 전에 조기 차단(CompanySignupService와 동일 패턴).
         if (adminUserRepository.existsByEmail(request.email())) {
             throw new BusinessException(ErrorCode.AUTH_EMAIL_DUPLICATED);

@@ -88,20 +88,15 @@ public class PlatformAdminUserService {
             // 채우므로, 개인 계정(companyId=null)과 달리 여기서는 검사해야 한다. 그렇지 않으면
             // 기업 관리자용 좌석 강제(AdminUserService.createUser)를 플랫폼 관리자 경로로 우회할 수 있다.
             //
-            // 회사 행 잠금 밖에서 먼저 호출(PR머신 재검토 2차 P1 — 교착 방지, AdminUserService와 동일 이유):
-            // 활성 구독이 없는 회사면 자가 프로비저닝(REQUIRES_NEW)이 companies 행에 FOR KEY SHARE를
-            // 요구하는데, 아래 findByIdForUpdate로 FOR UPDATE를 이미 쥔 채 호출하면 서로 무기한 대기하는
-            // 탐지 불가 교착이 난다. 잠그기 전에 한 번 호출해 자가 프로비저닝을 잠금 없이 커밋시켜 둔다.
-            quotaService.hasAvailableSeat(request.companyId());
-            // TOCTOU 방지(PR머신 재검토 P3): hasAvailableSeat는 advisory 판정이라(QuotaService#hasAvailableSeat
-            // javadoc 참고) 검사와 save 사이에 잠금이 없으면 동시 등록 요청이 좌석 한도를 넘길 수 있다.
-            // requireNotLastCompanyAdmin(본 클래스, TOCTOU 방지 목적 동일)과 같은 패턴으로 회사 행을
-            // PESSIMISTIC_WRITE로 먼저 잠가 동시 등록 요청을 직렬화한 뒤, 위에서 이미 플랜이 보장돼
-            // 있으므로(자가 프로비저닝 재트리거 없이) 최신 좌석 수로 재판정한다.
-            companyRepository.findByIdForUpdate(request.companyId());
-            if (!quotaService.hasAvailableSeat(request.companyId())) {
-                throw new BusinessException(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED);
-            }
+            // PR머신 2차 재검토 P2 — hasAvailableSeat(advisory)+회사 행 잠금 대신, 초대코드 redeem
+            // (InviteCodeService#redeem)이 이미 쓰는 QuotaService#reserveSeat를 그대로 재사용한다.
+            // reserveSeat는 usage_counters 행을 잠그고 원자적 조건부 UPDATE로 좌석을 예약하므로, 이
+            // 경로와 redeem 경로가 같은 잠금 대상을 공유해 서로 직렬화된다(교차 경로 좌석 초과 방지) —
+            // 회사 행을 따로 잠글 필요가 없어지고, 자가 프로비저닝(REQUIRES_NEW)과 충돌해 교착을 만들
+            // 위험도 함께 사라진다. 예약이 성공하면 usage_counters 미러도 갱신되어 getCurrentPlan의
+            // 좌석 표시가 실제와 어긋나는 문제도 해소된다. 활성화(User 저장) 직전에 호출해야 한도 초과
+            // 시 등록 자체가 롤백된다(reserveSeat javadoc 계약).
+            quotaService.reserveSeat(request.companyId());
             companyName = company.getName();
         }
 
