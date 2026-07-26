@@ -407,6 +407,52 @@ describe('CompanySignupPage — 진위확인 판정 불가 에러 게이트 통�
     await waitFor(() => expect(signupSpy).toHaveBeenCalledTimes(1));
   });
 
+  it('408 요청 타임아웃 후 제출해도 signupCompany가 호출된다(PR #912 P3 — 화이트리스트→블랙리스트)', async () => {
+    vi.spyOn(authApi, 'verifyBusiness').mockRejectedValue({
+      code: 'REQUEST_TIMEOUT',
+      message: '요청 시간이 초과되었습니다.',
+      status: 408,
+    });
+    const signupSpy = vi.spyOn(authApi, 'signupCompany').mockResolvedValue({
+      data: { companyId: 1, maskedEmail: 'n***@c***.com', status: 'PENDING_REVIEW', signupToken: 't' },
+    } as Awaited<ReturnType<typeof authApi.signupCompany>>);
+
+    renderPage();
+    fillVerificationFields();
+    fillRestOfRequiredFields();
+    fireEvent.click(screen.getByRole('button', { name: '진위확인' }));
+    await screen.findByText(badgeText('지금 국세청 확인이 어려워 확인 없이 진행합니다.'));
+
+    fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
+
+    await waitFor(() => expect(signupSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it.each([401, 403])(
+    '%d 인증·인가 실패는 확정 차단 사유라 제출 시 signup이 호출되지 않는다',
+    async (status) => {
+      vi.spyOn(authApi, 'verifyBusiness').mockRejectedValue({
+        code: status === 401 ? 'AUTH_UNAUTHORIZED' : 'AUTH_FORBIDDEN',
+        message: '인증이 필요합니다.',
+        status,
+      });
+      const signupSpy = vi.spyOn(authApi, 'signupCompany');
+
+      renderPage();
+      fillVerificationFields();
+      fillRestOfRequiredFields();
+      fireEvent.click(screen.getByRole('button', { name: '진위확인' }));
+      // ERROR_MESSAGES에 없는 코드라 기본 진위확인 실패 문구로 표시된다(에러 메시지 매핑 자체는
+      // 이 이슈 범위 밖 — 게이트 차단 여부만 검증).
+      await screen.findByText('진위확인에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+
+      fireEvent.click(screen.getByRole('button', { name: '가입 신청하기' }));
+
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(signupSpy).not.toHaveBeenCalled();
+    },
+  );
+
   it('400 INVALID_INPUT은 제출 시에도 여전히 차단된다(signup 미호출)', async () => {
     vi.spyOn(authApi, 'verifyBusiness').mockRejectedValue({
       code: 'INVALID_INPUT',
