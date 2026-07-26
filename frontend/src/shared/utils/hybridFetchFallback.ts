@@ -1,5 +1,3 @@
-import { shouldEnableMocking } from './shouldEnableMocking';
-
 export interface HybridFallbackOptions<T> {
   fetcher: () => Promise<T>;
   fallback: T | (() => T);
