@@ -46,7 +46,10 @@ export function DefectOverlay({
       <img
         src={media.imageUrl}
         alt="점검 이미지"
-        className={`block max-w-full max-h-[60vh] ${drawMode ? 'cursor-crosshair' : ''}`}
+        // 세로 사진이 60vh 높이 상한 때문에 양옆 여백이 과하게 크다는 실사용 피드백(#897) —
+        // 79vh로 올려 여백을 줄임. 화면이 낮은 노트북에서는 진행률바·액션 버튼 행이 밀릴 여유가
+        // 줄어드는 트레이드오프가 있음(60vh 대비 헤더/버튼용 여유가 40vh→21vh로 축소).
+        className={`block max-w-full max-h-[79vh] ${drawMode ? 'cursor-crosshair' : ''}`}
       />
       {/* Existing defects */}
       {sortedDefects.map((defect) => {

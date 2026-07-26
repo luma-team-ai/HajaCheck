@@ -107,4 +107,11 @@ describe('DefectOverlay', () => {
     fireEvent.click(buttons[1]);
     expect(onSelect).toHaveBeenCalledWith(11);
   });
+
+  it('세로 사진 여백 축소를 위해 이미지 높이 상한이 79vh다(#897)', () => {
+    render(<DefectOverlay media={media} defects={defects} onSelect={vi.fn()} />);
+
+    const img = screen.getByAltText('점검 이미지');
+    expect(img.className).toContain('max-h-[79vh]');
+  });
 });
