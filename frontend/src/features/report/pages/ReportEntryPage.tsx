@@ -326,16 +326,25 @@ export function ReportEntryPage() {
           </div>
         </div>
 
-        {/* 검수 완료율 */}
+        {/* 검수 완료율 — 실제 reviewedCount/totalCount 계산(이전엔 "100%" 리터럴 하드코딩, #939) */}
         <div className="flex items-center gap-3">
           <div className="text-right">
             <div className="text-xs font-medium tracking-wide text-text-muted">검수 완료율</div>
-            <div className="mt-1 text-xl font-bold text-black">100%</div>
+            <div className="mt-1 text-xl font-bold text-black">
+              {data.totalCount > 0 ? Math.round((data.reviewedCount / data.totalCount) * 100) : 0}%
+            </div>
           </div>
-          <div className="inline-flex items-center gap-1 rounded-full bg-success-soft-bg px-3 py-1">
-            <div className="h-1.5 w-1.5 rounded-full bg-success" />
-            <span className="text-xs font-medium text-success">완료</span>
-          </div>
+          {data.reviewedCount === data.totalCount && data.totalCount > 0 ? (
+            <div className="inline-flex items-center gap-1 rounded-full bg-success-soft-bg px-3 py-1">
+              <div className="h-1.5 w-1.5 rounded-full bg-success" />
+              <span className="text-xs font-medium text-success">완료</span>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1 rounded-full bg-surface-muted px-3 py-1">
+              <div className="h-1.5 w-1.5 rounded-full bg-text-muted" />
+              <span className="text-xs font-medium text-text-muted">진행 중</span>
+            </div>
+          )}
         </div>
       </div>
 
