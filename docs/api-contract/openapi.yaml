@@ -48,7 +48,9 @@ info:
     PLAN_DOWNGRADE_CONFIRMATION_REQUIRED 추가. POST /api/me/plan/checkout 도 하향 초과 시 같은 409 로
     거절한다(셀프 결제에는 확인 경로가 없어 관리자 콘솔로 유도).
     2026-07-26 하향 확인 UX(#890 Phase 2) — AdminPlanChangeRequest.keepUserIds 및 change-preview 의
-    동명 반복 쿼리 파라미터 추가(관리자가 유지할 구성원 직접 선택).
+    동명 반복 쿼리 파라미터 추가(관리자가 유지할 구성원 직접 선택). keepUserIds 검증 실패용
+    PLAN_KEEP_USER_INVALID(403) 신설 — PLAN_FORBIDDEN 재사용 시 정당한 owner 에게 "소유자만 요청 가능"이라는
+    무관한 안내가 나가던 문제(보안 재검토 P3-4). 어느 id 가 문제인지는 여전히 노출하지 않는다.
     2026-07-21 명세-구현 동기화 — 멤버십·계정복구·대시보드·AI프록시·OCR 추가, 보고서 API를 #455 구현 기준으로
     재작성(#498).
     2026-07-19 GET /api/notifications(AP-020, #25 / HAJA-38 FR-9) 계약 추가.
@@ -975,7 +977,10 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "403":
-          description: ADMIN 아님 / 회사 owner 아님 (FORBIDDEN / PLAN_FORBIDDEN)
+          description: >
+            ADMIN 아님 / 회사 owner 아님 (FORBIDDEN / PLAN_FORBIDDEN) · keepUserIds 에 요청자 회사의
+            ACTIVE 구성원이 아닌 id 포함 (PLAN_KEEP_USER_INVALID) · 선택 인원이 대상 요금제 좌석 수
+            초과 (PLAN_SEAT_QUOTA_EXCEEDED)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
@@ -3638,7 +3643,7 @@ components:
           description: >
             하향으로 좌석이 넘칠 때 **관리자가 직접 유지할 구성원**(#890 Phase 2). 미지정이면 기존 동작인
             id 오름차순(오래된 계정 유지)으로 자동 선정한다. owner 는 이 목록과 무관하게 항상 유지된다.
-            검증: 요청자 회사의 ACTIVE 구성원이 아니면 PLAN_FORBIDDEN(403) · 선택 인원이 대상 요금제
+            검증: 요청자 회사의 ACTIVE 구성원이 아니면 PLAN_KEEP_USER_INVALID(403, 어느 id가 문제인지는 밝히지 않는다) · 선택 인원이 대상 요금제
             좌석 수를 넘으면 PLAN_SEAT_QUOTA_EXCEEDED(403) · 선택 결과로 ACTIVE 관리자가 0명이 되면
             ADMIN_PROTECTED_ACCOUNT(409).
           example: [12, 34]
