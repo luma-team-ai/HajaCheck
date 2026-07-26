@@ -1,9 +1,19 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Pagination } from './Pagination';
+import { getPaginationItems, Pagination } from './Pagination';
 
 afterEach(cleanup);
+
+describe('getPaginationItems', () => {
+  it('totalPages가 5이고 currentPage가 1일 때 [1, 2, 3, "...", 5]를 반환한다', () => {
+    expect(getPaginationItems(1, 5)).toEqual([1, 2, 3, '...', 5]);
+  });
+
+  it('totalPages가 10이고 currentPage가 5일 때 [1, "...", 4, 5, 6, "...", 10]를 반환한다', () => {
+    expect(getPaginationItems(5, 10)).toEqual([1, '...', 4, 5, 6, '...', 10]);
+  });
+});
 
 describe('Pagination', () => {
   it('다음 버튼 클릭 시 onPageChange(currentPage + 1)이 호출된다', () => {
@@ -27,20 +37,19 @@ describe('Pagination', () => {
     expect(screen.getByLabelText('다음 페이지').hasAttribute('disabled')).toBe(true);
   });
 
-  it('이전 버튼 클릭 시 onPageChange(currentPage - 1)이 호출된다', () => {
+  it('페이지 번호 클릭 시 onPageChange(page)가 호출된다', () => {
     const handlePageChange = vi.fn();
-    render(<Pagination currentPage={3} totalPages={5} onPageChange={handlePageChange} />);
+    render(<Pagination currentPage={1} totalPages={5} onPageChange={handlePageChange} />);
 
-    fireEvent.click(screen.getByLabelText('이전 페이지'));
+    fireEvent.click(screen.getByLabelText('3페이지'));
 
-    expect(handlePageChange).toHaveBeenCalledWith(2);
+    expect(handlePageChange).toHaveBeenCalledWith(3);
   });
 
-  it('페이지 번호 버튼은 렌더하지 않는다(이전/다음 화살표만 노출)', () => {
-    render(<Pagination currentPage={5} totalPages={10} onPageChange={vi.fn()} />);
+  it('현재 페이지 번호 버튼에는 aria-current="page"가 설정된다', () => {
+    render(<Pagination currentPage={1} totalPages={5} onPageChange={vi.fn()} />);
 
-    expect(screen.queryByText('1')).toBeNull();
-    expect(screen.queryByText('10')).toBeNull();
-    expect(screen.queryByText('...')).toBeNull();
+    const currentButton = screen.getByLabelText('1페이지');
+    expect(currentButton.getAttribute('aria-current')).toBe('page');
   });
 });

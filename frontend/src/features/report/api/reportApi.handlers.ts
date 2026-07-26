@@ -1,7 +1,8 @@
 import { http, HttpResponse } from 'msw';
-import type { ApiResponse } from '../../../shared/api/types';
+import type { ApiResponse, PageResponse } from '../../../shared/api/types';
 import type { ReportDetailResponse } from './reportApi';
-import type { ReportContent } from '../types';
+import type { ReportContent, ReportListItem, ReportListStatus } from '../types';
+import { mockReportListItems } from '../mocks/reportList.mock';
 
 const mockReportContent: ReportContent = {
   overview: {
@@ -82,12 +83,79 @@ let currentReportState: ReportDetailResponse = {
 };
 
 export const reportHandlers = [
-  http.post('/api/inspections/:inspectionId/reports', () => {
-    const body: ApiResponse<ReportDetailResponse> = {
+  http.get('/api/inspections/:inspectionId/reports', ({ params }) => {
+    const inspectionId = Number(params.inspectionId);
+    const body: ApiResponse<
+      {
+        id: number;
+        inspectionId: number;
+        version: number;
+        status: 'DRAFT' | 'FINALIZED';
+        groundingCheckPassed: boolean;
+        createdAt: string;
+        createdByName: string;
+      }[]
+    > = {
       success: true,
-      data: currentReportState,
+      data: [
+        {
+          id: inspectionId * 100 + 3,
+          inspectionId,
+          version: 3,
+          status: 'FINALIZED',
+          groundingCheckPassed: true,
+          createdAt: '2026-07-24T14:30:00Z',
+          createdByName: '이점검',
+        },
+        {
+          id: inspectionId * 100 + 2,
+          inspectionId,
+          version: 2,
+          status: 'FINALIZED',
+          groundingCheckPassed: true,
+          createdAt: '2026-07-22T11:20:00Z',
+          createdByName: '김관리',
+        },
+        {
+          id: inspectionId * 100 + 1,
+          inspectionId,
+          version: 1,
+          status: 'DRAFT',
+          groundingCheckPassed: true,
+          createdAt: '2026-07-20T09:00:00Z',
+          createdByName: '시스템',
+        },
+      ],
     };
-    return HttpResponse.json(body, { status: 201 });
+    return HttpResponse.json(body, { status: 200 });
+  }),
+
+  http.get('/api/reports/:id/pdf/:storageKey', () => {
+    const dummyPdfContent = `%PDF-1.4
+1 0 obj <</Type /Catalog /Pages 2 0 R>> endobj
+2 0 obj <</Type /Pages /Kids [3 0 R] /Count 1>> endobj
+3 0 obj <</Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources <<>> /Contents 4 0 R>> endobj
+4 0 obj <</Length 44>> stream
+BT /F1 12 Tf 72 712 Td (HajaCheck Mock PDF Report) Tj ET
+endstream endobj
+xref
+0 5
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000212 00000 n 
+trailer <</Size 5 /Root 1 0 R>>
+startxref
+306
+%%EOF`;
+    return new HttpResponse(dummyPdfContent, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'inline; filename="mock_report.pdf"',
+      },
+    });
   }),
 
   http.get('/api/reports/:id', ({ params }) => {
@@ -149,6 +217,75 @@ export const reportHandlers = [
       data: currentReportState,
     };
     return HttpResponse.json(body, { status: 200 });
+  }),
+
+  // GET /api/reports — 보고서 목록/이력 관리(#463) 회사 스코프 전체 목록. BE 미구현이라 필터/
+  // 검색/페이지네이션을 MSW 안에서 실제로 계산한다(다른 mock처럼 파라미터 무시하지 않음 —
+  // 화면 개발·수동 테스트가 실제로 동작해야 의미가 있어서).
+  http.get('/api/reports', ({ request }) => {
+    const url = new URL(request.url);
+    const page = Number(url.searchParams.get('page') ?? '0');
+    const size = Number(url.searchParams.get('size') ?? '10');
+    const facilityIdParam = url.searchParams.get('facilityId');
+    const statusParam = url.searchParams.get('status') as ReportListStatus | null;
+    const query = url.searchParams.get('query')?.trim().toLowerCase();
+    const period = url.searchParams.get('period');
+
+    const periodFromDate = (() => {
+      if (!period || period === 'ALL') return null;
+      const months = period === '1M' ? 1 : period === '3M' ? 3 : 6;
+      const from = new Date();
+      from.setMonth(from.getMonth() - months);
+      return from;
+    })();
+
+    const filtered = mockReportListItems.filter((item) => {
+      if (facilityIdParam && item.facilityId !== Number(facilityIdParam)) return false;
+      if (statusParam && item.status !== statusParam) return false;
+      // title은 서버 필드가 아니라(reports 테이블에 title 컬럼 없음) 검색은 facilityName 기준으로만
+      // 필터링한다 — ReportListTable이 표시하는 조립된 제목([yy-RR] 시설물명 점검 보고서)도 결국
+      // facilityName을 포함하므로 검색 의도상 동일하게 걸린다.
+      if (query && !item.facilityName.toLowerCase().includes(query)) {
+        return false;
+      }
+      if (periodFromDate && new Date(item.updatedAt) < periodFromDate) return false;
+      return true;
+    });
+
+    const content: ReportListItem[] = filtered.slice(page * size, page * size + size);
+    const body: ApiResponse<PageResponse<ReportListItem>> = {
+      success: true,
+      data: { content, page, totalElements: filtered.length },
+    };
+    return HttpResponse.json(body);
+  }),
+
+  // GET /api/reports/summary — KPI 4종. 필터와 무관하게 항상 전체 스코프 기준.
+  http.get('/api/reports/summary', () => {
+    const finalizedCount = mockReportListItems.filter((item) => item.status === 'FINALIZED').length;
+    const draftCount = mockReportListItems.filter((item) => item.status === 'DRAFT').length;
+    const now = new Date();
+    const issuedThisMonthCount = mockReportListItems.filter((item) => {
+      if (item.status !== 'FINALIZED') return false;
+      const updatedAt = new Date(item.updatedAt);
+      return updatedAt.getFullYear() === now.getFullYear() && updatedAt.getMonth() === now.getMonth();
+    }).length;
+
+    const body: ApiResponse<{
+      totalCount: number;
+      finalizedCount: number;
+      draftCount: number;
+      issuedThisMonthCount: number;
+    }> = {
+      success: true,
+      data: {
+        totalCount: mockReportListItems.length,
+        finalizedCount,
+        draftCount,
+        issuedThisMonthCount,
+      },
+    };
+    return HttpResponse.json(body);
   }),
 ];
 

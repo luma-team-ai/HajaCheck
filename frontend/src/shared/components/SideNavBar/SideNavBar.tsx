@@ -150,9 +150,9 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     href: '/reports',
     icon: reportsIcon,
     subItems: [
-      { label: '보고서 목록/이력 관리', href: '/mypage/inspections' },
-      { label: '보고서 편집·미리보기', href: '/inspections/1/reports/generate' },
-      { label: 'PDF 내보내기', href: '/inspections/1/reports/generate' },
+      { label: '보고서 목록/이력 관리', href: '/reports' },
+      { label: '보고서 편집·미리보기', href: '/inspections/1/reports' },
+      { label: 'PDF 내보내기', href: '/inspections/1/reports' },
     ],
   },
   {
@@ -258,6 +258,11 @@ export function SideNavBar({
                   ? `/inspections/${activeInspectionId}/reports`
                   : '/inspections/create',
               };
+            }
+            if (sub.id === 'report-entry') {
+              return activeInspectionId
+                ? { ...sub, href: `/inspections/${activeInspectionId}/reports` }
+                : sub;
             }
             return sub;
           }),

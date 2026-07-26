@@ -63,30 +63,38 @@ export function StatisticsPage() {
   };
 
   return (
-    <div className="dashboard-content rounded-none!">
-      <div className="dashboard-page-header flex flex-wrap items-center justify-between gap-4 pb-4! border-b border-zinc-200">
-        <h1 className="dashboard-page-title text-3xl! font-medium! text-zinc-900! leading-10!">통계</h1>
-        <StatisticsFilterBar
-          selectedPeriod={selectedPeriod}
-          onPeriodChange={setSelectedPeriod}
-          selectedFacility={selectedFacility}
-          onFacilityChange={setSelectedFacility}
-          facilityOptions={facilityOptions}
-          onExport={handleExport}
-        />
-      </div>
+    <div className="flex min-h-full flex-col gap-5 bg-surface-muted p-6">
+      <nav className="flex items-center gap-2 text-sm" aria-label="통계 현재 위치">
+        <span className="font-medium text-text-muted">HajaCheck</span>
+        <span className="text-text-muted">›</span>
+        <span className="font-medium text-heading">통계</span>
+      </nav>
 
-      <div className="mt-6 flex flex-col gap-6">
-        <StatisticsKpiSection filterParams={filterParams} />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <MonthlyTrendCard filterParams={filterParams} />
-          <DefectTypeDistributionCard filterParams={filterParams} />
+      <div className="flex flex-col rounded-[20px] border border-border bg-surface p-8 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-border">
+          <h1 className="m-0 text-3xl font-semibold text-heading">통계</h1>
+          <StatisticsFilterBar
+            selectedPeriod={selectedPeriod}
+            onPeriodChange={setSelectedPeriod}
+            selectedFacility={selectedFacility}
+            onFacilityChange={setSelectedFacility}
+            facilityOptions={facilityOptions}
+            onExport={handleExport}
+          />
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-[3.5fr_6.5fr] gap-6">
-          <StatisticsGradeDistributionCard filterParams={filterParams} />
-          <FacilityTypeHeatmap filterParams={filterParams} />
+
+        <div className="mt-6 flex flex-col gap-6">
+          <StatisticsKpiSection filterParams={filterParams} />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <MonthlyTrendCard filterParams={filterParams} />
+            <DefectTypeDistributionCard filterParams={filterParams} />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-[3.5fr_6.5fr] gap-6">
+            <StatisticsGradeDistributionCard filterParams={filterParams} />
+            <FacilityTypeHeatmap filterParams={filterParams} />
+          </div>
+          <FacilitySummaryTable filterParams={filterParams} />
         </div>
-        <FacilitySummaryTable filterParams={filterParams} />
       </div>
     </div>
   );
