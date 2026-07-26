@@ -169,14 +169,20 @@ public class PlanDowngradeService {
      * 걸린다.
      */
     private void requireSurvivingActiveAdmin(List<User> active, List<Long> suspend) {
+        Set<Long> suspended = Set.copyOf(suspend);
         boolean keepsActiveAdmin = active.stream()
-                .filter(user -> !suspend.contains(user.getId()))
+                .filter(user -> !suspended.contains(user.getId()))
                 .anyMatch(user -> user.getRole() == Role.ADMIN);
         if (!keepsActiveAdmin) {
             throw new BusinessException(ErrorCode.ADMIN_PROTECTED_ACCOUNT);
         }
     }
 
+    /**
+     * 읽기 전용이 될 시설물 <b>총량</b>(증분이 아니다, 재검토 P3) — "대상 요금제 기준으로 한도를 넘는
+     * 개수"다. 이미 이전 하향으로 읽기전용이던 것도 포함되므로, 화면에 "이번에 새로 바뀌는 개수"로
+     * 표시하면 오인을 준다.
+     */
     private int resolveFacilityOverflowCount(Long companyId, Plan targetPlan) {
         Integer maxFacilities = targetPlan.getMaxFacilities();
         if (companyId == null || maxFacilities == null) {

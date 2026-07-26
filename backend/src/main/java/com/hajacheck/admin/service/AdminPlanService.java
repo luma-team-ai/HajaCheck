@@ -109,7 +109,6 @@ public class AdminPlanService {
         Long companyId = resolveInheritedCompanyId(adminUserId);
         requireCompanyOwner(companyId, adminUserId);
         UserPlan current = resolveCurrentCompanyPlan(companyId);
-        Plan currentPlan = findPlan(current.getPlanId());
         Plan targetPlan = planRepository.findByName(targetPlanName)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
 
@@ -118,6 +117,9 @@ public class AdminPlanService {
                 && current.getPlanId().equals(targetPlan.getId())) {
             return buildResponseWithUsage(current, targetPlan);
         }
+
+        // 현재 플랜은 "하향인지" 판정에만 쓰이므로 멱등 조기반환 뒤에 조회한다(재검토 P3).
+        Plan currentPlan = findPlan(current.getPlanId());
 
         // 하향으로 한도를 넘게 되는 자원이 있으면 "명시적 확인" 없이는 아무것도 바꾸지 않는다(#890).
         // 이 검사를 아래 만료/발급보다 먼저 두는 이유: 확인 없는 요청에서 플랜만 바뀌고 정지는 안 되는

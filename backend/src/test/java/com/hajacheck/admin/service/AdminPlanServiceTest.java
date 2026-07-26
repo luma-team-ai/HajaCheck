@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -29,6 +30,7 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -73,8 +75,9 @@ class AdminPlanServiceTest {
         // 목이라 현재 플랜 값은 결과에 영향을 주지 않으므로, 비어 있지 않기만 하면 된다.
         org.mockito.Mockito.lenient()
                 .when(planRepository.findById(org.mockito.ArgumentMatchers.anyLong()))
-                .thenReturn(Optional.of(Plan.create(PlanName.ENTERPRISE, null, null, null,
-                        false, true, true, new BigDecimal("59000.00"))));
+                // 목표 플랜(STANDARD)과 구별 가능한 값이어야 인자 순서 검증이 의미를 갖는다(재검토 P2).
+                .thenReturn(Optional.of(Plan.create(PlanName.FREE, 1, 50, 1,
+                        true, false, false, BigDecimal.ZERO)));
     }
 
     @Test
@@ -214,6 +217,11 @@ class AdminPlanServiceTest {
 
         service.changePlan(adminUserId, PlanName.STANDARD, false);
 
-        verify(planDowngradeService).applyOverflow(anyLong(), any(Plan.class), any(Plan.class));
+        // (current, target) 순서가 뒤바뀌면 isNarrowing 판정이 통째로 뒤집혀 P1 이 재발한다(재검토 P2).
+        // 같은 타입 파라미터가 인접해 스왑이 쉬우므로 구체 인자로 순서를 고정한다.
+        ArgumentCaptor<Plan> plans = ArgumentCaptor.forClass(Plan.class);
+        verify(planDowngradeService).applyOverflow(eq(companyId), plans.capture(), plans.capture());
+        assertThat(plans.getAllValues()).extracting(Plan::getName)
+                .containsExactly(PlanName.FREE, PlanName.STANDARD);
     }
 }
