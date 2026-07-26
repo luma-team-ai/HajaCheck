@@ -61,25 +61,64 @@ function findCatalogItem(planName: string | null) {
   return mockAdminPlanCatalog.plans.find((item) => item.name === planName);
 }
 
-// 백엔드 PlanDowngradeService#resolveSeatsToSuspend 와 동일한 규칙(owner 항상 유지, keepUserIds
-// 미지정 시 id 오름차순 자동 선정)을 목에서도 재현해, 실 API로 교체해도 화면 동작이 그대로 남게 한다.
-function computeSeatsToSuspend(maxSeats: number | null, keepUserIds: number[]): PlanChangePreviewSuspendTarget[] {
+// 백엔드 PLAN_KEEP_USER_INVALID/PLAN_SEAT_QUOTA_EXCEEDED 거절을 목에서도 실제로 재현하기 위한
+// 전용 에러 — 이전에는 "동일한 규칙 재현"이라는 주석만 있고 실제 거절 로직이 없어 어떤 keepUserIds를
+// 보내도 조용히 통과했다(#930 재검토 F-4/F-5). 두 핸들러(GET/PATCH)가 이 에러를 잡아 403으로 변환한다.
+class PlanKeepUserRejection extends Error {
+  constructor(
+    public code: 'PLAN_KEEP_USER_INVALID' | 'PLAN_SEAT_QUOTA_EXCEEDED',
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+// 백엔드 PlanDowngradeService#preview/resolveSeatsToSuspend 와 동일한 규칙을 목에서도 재현한다:
+// ① keepUserIds가 지정되면 활성 멤버 스코프인지 항상 검증(좌석 여유 여부와 무관 — F-10과 동일 원칙),
+// ② owner는 항상 유지, ③ keepUserIds 지정 시 좌석 초과분을 자동으로 줄이지 않고 그대로 거절한다.
+function resolveSeatsToSuspend(maxSeats: number | null, keepUserIds: number[]): PlanChangePreviewSuspendTarget[] {
+  const hasSelection = keepUserIds.length > 0;
+  if (hasSelection) {
+    for (const id of keepUserIds) {
+      if (!MOCK_ACTIVE_MEMBER_IDS.includes(id)) {
+        throw new PlanKeepUserRejection(
+          'PLAN_KEEP_USER_INVALID',
+          '선택한 구성원 중 일부가 유효하지 않습니다.',
+        );
+      }
+    }
+  }
+
   if (maxSeats === null || MOCK_ACTIVE_MEMBER_IDS.length <= maxSeats) {
     return [];
   }
+
   const keep = new Set<number>([MOCK_OWNER_ID, ...keepUserIds]);
-  if (keepUserIds.length === 0) {
+  if (!hasSelection) {
     for (const id of MOCK_ACTIVE_MEMBER_IDS) {
       if (keep.size >= maxSeats) {
         break;
       }
       keep.add(id);
     }
+  } else if (keep.size > maxSeats) {
+    throw new PlanKeepUserRejection(
+      'PLAN_SEAT_QUOTA_EXCEEDED',
+      '선택한 유지 인원이 좌석 한도를 초과합니다.',
+    );
   }
+
   return MOCK_ACTIVE_MEMBER_IDS.filter((id) => !keep.has(id)).map((id) => {
     const user = mockPlanQuotaUsers.find((candidate) => candidate.id === id);
     return { userId: id, name: user?.name ?? `구성원${id}`, email: user?.email ?? '' };
   });
+}
+
+function rejectionResponse(e: PlanKeepUserRejection) {
+  return HttpResponse.json(
+    { success: false, data: null, error: { code: e.code, message: e.message } },
+    { status: 403 },
+  );
 }
 
 function computeFacilityOverflow(maxFacilities: number | null): number {
@@ -108,7 +147,15 @@ export const adminPlanHandlers = [
       );
     }
 
-    const seatsToSuspend = computeSeatsToSuspend(target.maxSeats, keepUserIds);
+    let seatsToSuspend: PlanChangePreviewSuspendTarget[];
+    try {
+      seatsToSuspend = resolveSeatsToSuspend(target.maxSeats, keepUserIds);
+    } catch (e) {
+      if (e instanceof PlanKeepUserRejection) {
+        return rejectionResponse(e);
+      }
+      throw e;
+    }
     const facilityOverflowCount = computeFacilityOverflow(target.maxFacilities);
     const body: ApiResponse<PlanChangePreviewResponse> = {
       success: true,
@@ -137,7 +184,15 @@ export const adminPlanHandlers = [
     }
 
     const keepUserIds = payload.keepUserIds ?? [];
-    const seatsToSuspend = computeSeatsToSuspend(target.maxSeats, keepUserIds);
+    let seatsToSuspend: PlanChangePreviewSuspendTarget[];
+    try {
+      seatsToSuspend = resolveSeatsToSuspend(target.maxSeats, keepUserIds);
+    } catch (e) {
+      if (e instanceof PlanKeepUserRejection) {
+        return rejectionResponse(e);
+      }
+      throw e;
+    }
     const facilityOverflowCount = computeFacilityOverflow(target.maxFacilities);
     const requiresConfirmation = seatsToSuspend.length > 0 || facilityOverflowCount > 0;
 
