@@ -95,4 +95,17 @@ describe('hybridFetchFallback', () => {
       }),
     ).rejects.toEqual(networkErr);
   });
+
+  it('env.VITE_ENABLE_MSW === "false"일 때는 DEV === true여도 절대 목 데이터로 폴백하지 않는다 (#868 P2 가드)', async () => {
+    const fetcher = vi.fn().mockResolvedValue([]);
+
+    const result = await hybridFetchFallback({
+      fetcher,
+      fallback: mockFallbackData,
+      env: { DEV: true, VITE_ENABLE_MSW: 'false' },
+      fallbackOnEmptyArray: true,
+    });
+
+    expect(result).toEqual([]);
+  });
 });

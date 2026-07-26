@@ -10,7 +10,6 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     host: true,
-    fs: { allow: ['..'] },
     watch: {
       // Docker Desktop(Windows) 바인드 마운트는 네이티브 파일시스템 이벤트가 컨테이너로
       // 전파되지 않아 기본 chokidar 감시로는 HMR이 소스 변경을 못 잡는다(수정해도 이전 코드가
@@ -23,13 +22,6 @@ export default defineConfig({
       // AI 호출(aiClient baseURL=/api/ai)도 스프링 인증 프록시를 경유 — dev에서도 보안 경계 일관
       '/api': springTarget,
       '/ws': { target: springTarget, ws: true },
-    },
-  },
-  test: {
-    server: {
-      fs: {
-        allow: ['/home/user/dev/teams/HajaCheck', '..'],
-      },
     },
   },
 });
