@@ -74,10 +74,18 @@ public class AdminUserService {
         // 좌석이 가득 찬 회사는 새 사용자를 만들지 못하게 막는다(그렇지 않으면 초대 코드 좌석
         // 강제가 이 경로로 그대로 우회된다).
         //
-        // TOCTOU 방지(PR머신 재검토 P3): hasAvailableSeat는 advisory 판정이라(QuotaService#hasAvailableSeat
-        // javadoc 참고) 검사와 save 사이에 잠금이 없으면, 좌석이 정확히 1석 남은 회사에서 동시에 들어온
-        // 두 등록 요청이 둘 다 통과해 좌석 한도를 넘길 수 있다. requireNotLastCompanyAdmin과 동일한 패턴으로
-        // 회사 행을 PESSIMISTIC_WRITE로 먼저 잠가, 같은 회사를 대상으로 한 동시 등록 요청을 직렬화한다.
+        // 회사 행 잠금 밖에서 먼저 호출(PR머신 재검토 2차 P1 — 교착 방지): 활성 구독이 없는 회사면
+        // QuotaService#resolveLivePlan이 REQUIRES_NEW(별도 커넥션)로 FREE 플랜을 자가 프로비저닝한다.
+        // 이 INSERT가 companies 행에 FOR KEY SHARE를 요구하는데, 아래 findByIdForUpdate로 이미 FOR
+        // UPDATE를 쥔 채 같은 트랜잭션에서 호출하면 그 FOR KEY SHARE가 막혀 REQUIRES_NEW 반환을 기다리는
+        // 바깥 트랜잭션과 서로를 무기한 기다린다(PostgreSQL 교착 탐지 밖의 JVM 대기 — 커넥션 고갈).
+        // 잠그기 전에 한 번 호출해 자가 프로비저닝을 잠금 없이 커밋시켜 둔다.
+        quotaService.hasAvailableSeat(companyId);
+        // TOCTOU 방지(PR머신 재검토 P3): hasAvailableSeat는 advisory 판정이라 검사와 save 사이에 잠금이
+        // 없으면, 좌석이 정확히 1석 남은 회사에서 동시에 들어온 두 등록 요청이 둘 다 통과해 좌석 한도를
+        // 넘길 수 있다. requireNotLastCompanyAdmin과 동일한 패턴으로 회사 행을 PESSIMISTIC_WRITE로 먼저
+        // 잠가 동시 등록 요청을 직렬화한 뒤, 위에서 이미 플랜이 보장돼 있으므로(자가 프로비저닝 재트리거
+        // 없이) 최신 좌석 수로 재판정한다.
         companyRepository.findByIdForUpdate(companyId);
         if (!quotaService.hasAvailableSeat(companyId)) {
             throw new BusinessException(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED);
