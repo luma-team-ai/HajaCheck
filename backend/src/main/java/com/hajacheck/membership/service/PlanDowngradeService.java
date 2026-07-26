@@ -40,6 +40,12 @@ import org.springframework.transaction.annotation.Transactional;
  *       당월 초과는 그대로 두고 신규 분석만 차단되는 현행 동작(=QuotaService)이 곧 정책이며,
  *       다음 달 period 행이 새로 열리면서 자연히 새 한도가 적용된다. <b>누락이 아니다.</b></li>
  * </ul>
+ *
+ * <p><b>호출 순서 원칙(#890 Phase 2 재검토 F-7)</b>: 호출부({@code AdminPlanService#changePlan})는
+ * {@link #preview(Long, Plan, Plan, List)} 를 <b>정확히 한 번</b> 호출해 그 결과({@link DowngradeOverflow})를
+ * 변수에 담고, confirmOverflow 판정과 {@link #applyOverflow(Long, Plan, DowngradeOverflow)} 양쪽에 그대로
+ * 재사용해야 한다 — 검증(스코프·좌석 한도·ACTIVE ADMIN)이 항상 만료(expire)·신규발급(saveAndFlush)
+ * <b>이전에</b> 끝나 있도록 보장하기 위해서다(트랜잭션 롤백에 기대지 않고 호출 순서로 보장한다).
  */
 @Slf4j
 @Service
@@ -52,11 +58,9 @@ public class PlanDowngradeService {
     private final FacilityRepository facilityRepository;
 
     /**
-     * 대상 요금제로 내렸을 때 넘치게 되는 자원을 계산한다(부작용 없음). 유지 대상 미지정(기존 동작 —
-     * id 오름차순 자동 선정)과 동일하다.
-     *
-     * <p>실제 전환({@link #applyOverflow})과 <b>같은 메서드로 대상을 산출</b>하므로 미리보기와 결과가
-     * 어긋나지 않는다.
+     * 대상 요금제로 내렸을 때 넘치게 되는 자원을 계산한다(부작용 없음). 유지 대상 선택 없이(기존 동작 —
+     * id 오름차순 자동 선정)와 동일하다. {@code MembershipService#checkout}(셀프 결제, 관리자 콘솔
+     * 확인 UX 밖) 전용 — keepUserIds 선택은 관리자 콘솔({@code AdminPlanService})에서만 의미가 있다.
      */
     public DowngradeOverflow preview(Long companyId, Plan currentPlan, Plan targetPlan) {
         return preview(companyId, currentPlan, targetPlan, List.of());
@@ -66,24 +70,43 @@ public class PlanDowngradeService {
      * 대상 요금제로 내렸을 때 넘치게 되는 자원을 계산한다(부작용 없음) — 관리자가 유지할 구성원을 직접
      * 고를 수 있다(#890 Phase 2).
      *
-     * <p>실제 전환({@link #applyOverflow})과 <b>같은 메서드로 대상을 산출</b>하므로 미리보기와 결과가
-     * 어긋나지 않는다 — 검증도 여기 한 곳({@link #resolveSeatsToSuspend})에서만 이뤄진다.
+     * <p>실제 전환({@link #applyOverflow(Long, Plan, DowngradeOverflow)})은 <b>이 메서드가 반환한 결과를
+     * 그대로</b> 받아 적용할 뿐 재계산하지 않으므로 미리보기와 결과가 어긋나지 않는다.
+     *
+     * <p>⚠️ <b>회사 스코프 검증은 좌석이 실제로 좁아지는지와 무관하게 항상 수행한다</b>(재검토 F-10) —
+     * 검증을 "좌석이 좁아지는 전환일 때만" 게이트 뒤에 두면, 지금은 초과가 없어 정지 대상이 없다는
+     * 이유로 잘못된 id 가 조용히 통과했다가 나중에 인원이 늘거나 한도가 좁아지는 시점에야 뒤늦게
+     * 드러나는 잠복 결함이 된다.
      *
      * @param keepUserIds 관리자가 유지를 선택한 구성원 id. <b>비어 있으면(null 포함) 기존 동작</b>(owner +
      *                    id 오름차순 자동 선정)을 그대로 따른다 — 하위 호환. 비어 있지 않으면 아래를 검증한다.
      *                    <ul>
      *                      <li>전부 <b>요청 회사의 ACTIVE 구성원</b>이어야 한다 — 아니면(타 회사 id 등)
-     *                          존재 여부를 흘리지 않고 {@link ErrorCode#PLAN_FORBIDDEN}으로 일괄 거절한다
-     *                          (기존 owner 조회 실패와 같은 관례).</li>
+     *                          존재 여부를 흘리지 않고 {@link ErrorCode#PLAN_KEEP_USER_INVALID}로 일괄
+     *                          거절한다({@link #validateKeepUserIdsScope} 참고).</li>
      *                      <li>owner 는 선택 여부와 무관하게 <b>항상</b> 유지 집합에 포함된다.</li>
      *                      <li>owner 를 합친 유지 인원(union, 중복 제거)이 좌석 한도를 넘으면
      *                          {@link ErrorCode#PLAN_SEAT_QUOTA_EXCEEDED}로 거절한다.</li>
      *                    </ul>
      */
     public DowngradeOverflow preview(Long companyId, Plan currentPlan, Plan targetPlan, List<Long> keepUserIds) {
-        List<Long> seats = isNarrowing(currentPlan.getMaxSeats(), targetPlan.getMaxSeats())
-                ? resolveSeatsToSuspend(companyId, targetPlan, keepUserIds)
-                : List.of();
+        boolean hasSelection = keepUserIds != null && !keepUserIds.isEmpty();
+        boolean seatsNarrowing = isNarrowing(currentPlan.getMaxSeats(), targetPlan.getMaxSeats());
+
+        List<Long> seats = List.of();
+        if (companyId != null && (hasSelection || seatsNarrowing)) {
+            // 두 갈래(스코프 검증·좌석 산출) 모두 같은 활성 구성원 스냅샷을 써야 정합이 맞으므로 한
+            // 번만 조회해 재사용한다(중복 쿼리 방지).
+            List<User> active = userRepository.findByCompanyIdAndStatusOrderByIdAsc(
+                    companyId, UserStatus.ACTIVE, Pageable.unpaged());
+            if (hasSelection) {
+                validateKeepUserIdsScope(active, keepUserIds);
+            }
+            if (seatsNarrowing) {
+                seats = resolveSeatsToSuspend(companyId, targetPlan, keepUserIds, active);
+            }
+        }
+
         int facilities = isNarrowing(currentPlan.getMaxFacilities(), targetPlan.getMaxFacilities())
                 ? resolveFacilityOverflowCount(companyId, targetPlan)
                 : 0;
@@ -114,24 +137,18 @@ public class PlanDowngradeService {
      * 초과 좌석을 실제로 정지시킨다 — <b>플랜 전환과 같은 트랜잭션</b>에서 호출해야 한다
      * ({@code MANDATORY}). 플랜만 바뀌고 정지가 안 된 상태가 남으면 한도가 조용히 무력화된다.
      *
+     * <p>⚠️ <b>{@code overflow} 는 재계산하지 않고 그대로 적용한다</b>(재검토 F-7) — 호출부가
+     * {@link #preview(Long, Plan, Plan, List)} 로 <b>미리(=쓰기 이전에)</b> 계산해 둔 결과를 넘겨야
+     * 한다. 이 메서드 안에서 다시 preview 를 호출하면, {@code confirmOverflow=true} 로 확인을 생략한
+     * 경로에서는 검증이 만료(expire)·신규발급(saveAndFlush) <b>이후</b>로 밀려 "쓰기 이전 검증" 원칙이
+     * 깨진다(트랜잭션 롤백에 기대는 상태로 되돌아간다).
+     *
      * <p>시설물은 계산 판정이라 여기서 할 일이 없고, 월 분석은 정책상 손대지 않는다(클래스 javadoc).
      *
-     * @return 실제로 정지된 대상 요약(호출부 응답·로깅용)
+     * @return 그대로 받은 {@code overflow}(호출부 응답·로깅용)
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public DowngradeOverflow applyOverflow(Long companyId, Plan currentPlan, Plan targetPlan) {
-        return applyOverflow(companyId, currentPlan, targetPlan, List.of());
-    }
-
-    /**
-     * 초과 좌석을 실제로 정지시킨다 — 유지 대상을 관리자가 직접 선택할 수 있다(#890 Phase 2).
-     * 검증·산출은 {@link #preview(Long, Plan, Plan, List)} 와 완전히 동일한 경로를 탄다(정합 보장).
-     *
-     * @param keepUserIds {@link #preview(Long, Plan, Plan, List)} 와 동일한 규칙 — 비어 있으면 기존 동작.
-     */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public DowngradeOverflow applyOverflow(Long companyId, Plan currentPlan, Plan targetPlan, List<Long> keepUserIds) {
-        DowngradeOverflow overflow = preview(companyId, currentPlan, targetPlan, keepUserIds);
+    public DowngradeOverflow applyOverflow(Long companyId, Plan targetPlan, DowngradeOverflow overflow) {
         if (overflow.seatUserIdsToSuspend().isEmpty()) {
             return overflow;
         }
@@ -140,6 +157,27 @@ public class PlanDowngradeService {
         log.info("플랜 하향 좌석 정지 — companyId={} targetPlan={} suspended={} facilityReadOnly={}",
                 companyId, targetPlan.getName(), overflow.seatOverflowCount(), overflow.facilityOverflowCount());
         return overflow;
+    }
+
+    /**
+     * keepUserIds 스코프 검증 — <b>이 메서드가 보안 경계다</b>(#890 Phase 2 — 여기가 뚫리면 계정 정지를
+     * 남이 조종한다). id 하나라도 이 회사의 ACTIVE 구성원이 아니면(타 회사 소속·이미 SUSPENDED 등) 어느
+     * 것이 문제인지 특정하지 않고 {@link ErrorCode#PLAN_KEEP_USER_INVALID}로 일괄 거절한다.
+     *
+     * <p>⚠️ {@link ErrorCode#PLAN_FORBIDDEN}("구독 소유자만 요청할 수 있습니다")을 재사용하지 않는다
+     * (보안 재검토 P3-4) — 이 메서드가 불리는 시점의 호출자는 이미 정당한 회사 owner(그 인가는
+     * {@code AdminPlanService#requireCompanyOwner} 가 이 호출 전에 통과시킨다)라, "소유자만
+     * 요청할 수 있다"는 메시지를 보여주면 자기 자신이 owner 가 아니라는 무관한 혼선을 준다. 그래서
+     * 같은 403 이되 전용 코드를 쓴다 — 어떤 id 가 문제인지는 여전히 밝히지 않는다(존재 여부를 흘리지
+     * 않는 기존 관례는 유지).
+     */
+    private void validateKeepUserIdsScope(List<User> active, List<Long> keepUserIds) {
+        Set<Long> activeIds = active.stream().map(User::getId).collect(Collectors.toSet());
+        for (Long selected : keepUserIds) {
+            if (!activeIds.contains(selected)) {
+                throw new BusinessException(ErrorCode.PLAN_KEEP_USER_INVALID);
+            }
+        }
     }
 
     /**
@@ -157,35 +195,15 @@ public class PlanDowngradeService {
      * {@link #requireSurvivingActiveAdmin} 이 여기서 직접 강제한다. ADMIN 을 통째로 면제하면 ADMIN 을
      * 늘리는 것만으로 좌석 한도를 무제한 우회할 수 있어(#850 과 같은 구멍) 강제가 무의미해진다.
      *
-     * <p>⚠️ <b>keepUserIds 검증이 이 메서드의 보안 경계다</b>(#890 Phase 2 — 여기가 뚫리면 계정 정지를
-     * 남이 조종한다). id 하나라도 이 회사의 ACTIVE 구성원이 아니면(타 회사 소속·이미 SUSPENDED 등) 어느
-     * 것이 문제인지 특정하지 않고 {@link ErrorCode#PLAN_FORBIDDEN}으로 일괄 거절한다 — 존재 여부를 흘리지
-     * 않는 기존 관례(바로 위 owner 조회 실패 처리)와 맞춘다. <b>이 스코프 검증은 좌석이 남아 정지 대상이
-     * 없는 경우에도 항상 수행한다</b> — "지금은 초과가 없어 어차피 아무도 안 정지된다"는 이유로 잘못된
-     * id 를 조용히 통과시키면, 이후 한도가 좁아지거나 인원이 늘어 이 값이 실제로 쓰이는 시점에야 뒤늦게
-     * 발견되는 잠복 결함이 된다.
+     * @param active 호출부({@link #preview(Long, Plan, Plan, List)})가 이미 조회해 둔 이 회사 ACTIVE
+     *               구성원 스냅샷 — 스코프 검증과 같은 스냅샷을 재사용해 중복 조회를 없앤다.
      */
-    private List<Long> resolveSeatsToSuspend(Long companyId, Plan targetPlan, List<Long> keepUserIds) {
+    private List<Long> resolveSeatsToSuspend(
+            Long companyId, Plan targetPlan, List<Long> keepUserIds, List<User> active) {
         Integer maxSeats = targetPlan.getMaxSeats();
-        if (companyId == null || maxSeats == null) {
-            // null = 무제한(Plan javadoc) — 정지 대상 없음.
-            return List.of();
-        }
-        List<User> active = userRepository.findByCompanyIdAndStatusOrderByIdAsc(
-                companyId, UserStatus.ACTIVE, Pageable.unpaged());
-
-        boolean hasSelection = keepUserIds != null && !keepUserIds.isEmpty();
-        if (hasSelection) {
-            Set<Long> activeIds = active.stream().map(User::getId).collect(Collectors.toSet());
-            for (Long selected : keepUserIds) {
-                if (!activeIds.contains(selected)) {
-                    // 타 회사 id·이미 정지된 id 등 — 존재 여부를 흘리지 않고 전체를 거절한다.
-                    throw new BusinessException(ErrorCode.PLAN_FORBIDDEN);
-                }
-            }
-        }
-
-        if (active.size() <= maxSeats) {
+        if (maxSeats == null || active.size() <= maxSeats) {
+            // null = 무제한(Plan javadoc). 이 분기는 호출부가 이미 isNarrowing 으로 좁아지는 경우만
+            // 불러주므로 실제로는 도달하지 않지만, 이 메서드를 독립적으로 안전하게 유지하기 위한 방어.
             return List.of();
         }
         // 회사 행이 없으면 owner 를 특정할 수 없다 — 조용히 owner 보호를 해제하는 대신 거절한다(리뷰 P3).
@@ -198,6 +216,7 @@ public class PlanDowngradeService {
             keep.add(ownerUserId);
         }
 
+        boolean hasSelection = keepUserIds != null && !keepUserIds.isEmpty();
         if (!hasSelection) {
             // 관리자가 직접 고르지 않음 — 기존 동작(id 오름차순 자동 선정) 그대로(하위 호환).
             for (User user : active) {
