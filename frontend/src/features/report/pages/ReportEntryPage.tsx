@@ -135,10 +135,9 @@ export function ReportEntryPage() {
       null
     : null;
 
-  // 예상 생성 시간 계산 (로직: 확정 하자 건수 기반의 단순 추정)
-  // ponytail: 근거 없는 추정식. 백엔드 제공 데이터가 없으므로 하드코딩.
-  // 실제 성능 데이터를 바탕으로 조정 필요.
-  const estimatedMinutes = Math.max(1, Math.ceil((data?.reviewedCount || 0) / 50));
+  // Figma 하단 바에는 "예상 생성 시간 약 N분"이 있지만 여기서 계산하지 않는다 —
+  // 실제 소요는 LLM 체인·백엔드만 아는 값이라 프론트가 추정하면 틀린 숫자를 확정적으로 보여주게 된다.
+  // 백엔드가 생성 소요 추정치를 내려주면 그때 표기한다(보고서 도메인 담당 영역).
 
   const handleGenerateReport = useCallback(async () => {
     if (!data || data.reviewedCount !== data.totalCount || isGenerating) return;
@@ -511,7 +510,8 @@ export function ReportEntryPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-text-muted">
               <span>
-                확정 하자 {data.reviewedCount}건 기준 · 예상 생성 시간 약 <span className="font-semibold text-black">{estimatedMinutes}분</span>
+                확정 하자 <span className="font-semibold text-black">{data.reviewedCount}건</span> 기준으로
+                생성합니다
               </span>
             </div>
             <div className="flex gap-3">
