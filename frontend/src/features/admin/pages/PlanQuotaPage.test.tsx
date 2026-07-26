@@ -132,7 +132,9 @@ describe('PlanQuotaPage (통합 테스트)', () => {
     expect(screen.getByText('점검자 좌석 무제한')).toBeTruthy();
   });
 
-  it('회사에 활성 구독이 없으면 현재 플랜 카드에 안내 문구를 보여준다', async () => {
+  it('회사에 활성 구독이 없으면 현재 플랜 카드와 페이지 안내 문구를 함께 보여준다', async () => {
+    // #887: companyPlan=null은 정상 응답(200)이라 isError 배너(role=alert)가 아니라
+    // role=status인 별도 안내로 렌더돼야 한다 — 조회 실패와 混同되지 않는지 확인.
     server.use(
       http.get('/api/admin/plan-quota', () =>
         HttpResponse.json({
@@ -150,6 +152,12 @@ describe('PlanQuotaPage (통합 테스트)', () => {
     renderPage();
 
     expect(await screen.findByText('활성 구독 없음')).toBeTruthy();
+    expect(
+      await screen.findByText(
+        '현재 회사에 활성화된 플랜 구독이 없습니다. 플랜을 등록하면 멤버별 쿼터 사용량이 표시됩니다.',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('검색어를 입력하면 해당 멤버만 조회한다', async () => {

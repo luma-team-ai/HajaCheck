@@ -12,7 +12,6 @@ import com.hajacheck.admin.repository.AdminUserRepository;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
-import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.core.media.repository.MediaRepository;
@@ -25,7 +24,6 @@ import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -47,9 +45,12 @@ import org.springframework.transaction.annotation.Transactional;
  * 회사(company_id)의 요금제를 조회·변경하고 이번 달 사용량(월 분석 장수 등)을 확인한다.
  *
  * <p><b>인가</b>: ADMIN role 자체는 SecurityConfig 의 URL 매처("/api/admin/**" → hasRole(ADMIN))가 필터
- * 단계에서 강제한다(프론트 가드는 UX 용, 백엔드가 최종 방어선). 이 서비스는 그 위에 <b>회사 스코프 + 상속</b>을
- * 얹는다: companyId 가 없으면(개인 회원 등) FORBIDDEN, 있어도 그 회사에 <b>유효한 승인 멤버십</b>이 없으면
- * 회사 플랜을 상속하지 않으므로(§2.6 "미승인 멤버십은 상속 대상 아님") PLAN_NOT_FOUND 로 응답한다.
+ * 단계에서 강제한다(프론트 가드는 UX 용, 백엔드가 최종 방어선). 이 서비스는 그 위에 <b>회사 스코프</b>를 얹는다:
+ * companyId 가 없으면(개인 회원 등) FORBIDDEN. (#887) 원래는 그 회사에 유효한 승인 {@code CompanyMembership}
+ * 이 없으면(§2.6 "미승인 멤버십은 상속 대상 아님") 추가로 PLAN_NOT_FOUND 를 던졌으나, 실제 가입 경로
+ * ({@code CompanyAccountWriter.createAccount()})가 멤버십 행을 만들지 않아 모든 기업 관리자가 이 화면에서
+ * 그 예외를 그대로 맞는 결손이 있었다 — 정식 승인 플로우 배선(#363)까지는 users.company_id 만으로 회사
+ * 스코프를 인정하는 방어적 완화를 적용한다({@link #resolveInheritedCompanyId} 참고).
  *
  * <p><b>플랜 변경 이력</b>: table_design.md §user_plans 가 규정한 대로 "기존 ACTIVE 를 EXPIRED 로 내리고 신규를
  * ACTIVE 로 올리는" 단일 트랜잭션 전이로 처리한다 — user_plans 행 자체가 "언제·어느 요금제에서·어느 요금제로"의
@@ -69,7 +70,6 @@ public class AdminPlanService {
     private final PlanRepository planRepository;
     private final UsageCounterRepository usageCounterRepository;
     private final UserRepository userRepository;
-    private final CompanyMembershipRepository companyMembershipRepository;
     private final CompanyRepository companyRepository;
     private final MediaRepository mediaRepository;
 
@@ -196,20 +196,21 @@ public class AdminPlanService {
         return AdminPlanResponse.from(userPlan, plan, usage, period);
     }
 
-    // 요청 관리자의 회사를 확정하고 상속 자격(유효 승인 멤버십)을 검증한다.
-    // companyId 없음 = 회사 관리 대상 아님(FORBIDDEN). 유효 승인 멤버십 없음 = 회사 플랜 상속 대상 아님(§2.6).
+    // 요청 관리자의 회사를 확정한다. companyId 없음(개인 회원 등) = 회사 관리 대상 아님(FORBIDDEN).
+    //
+    // (#887) 원래는 여기서 유효 승인 CompanyMembership 을 추가로 요구했다(§2.6 "미승인 멤버십은 상속
+    // 대상 아님"). 그런데 실제 가입 경로(CompanyAccountWriter.createAccount())는 가입 시 멤버십 행을
+    // 아예 만들지 않고 users.company_id 만 채우므로, 그 게이트를 유지하면 dev 의 모든 기업 관리자가
+    // 이 화면에서 PLAN_NOT_FOUND(404) 를 그대로 맞는다. 정식 해결(가입 시 PENDING 멤버십 생성 + 승인
+    // 엔드포인트 배선)은 #363 에서 별도 Critical 사이클로 처리하고, 그 전까지는 users.company_id 만으로
+    // 회사 스코프를 인정한다 — "활성 플랜 없음"은 resolveCurrentCompanyPlan/getPlanQuota 가 이미 별도로
+    // (PLAN_NOT_FOUND 또는 null 값) 처리하므로 여기서 미승인 멤버십과 混同될 일은 없다.
     private Long resolveInheritedCompanyId(Long adminUserId) {
         User admin = userRepository.findById(adminUserId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         Long companyId = admin.getCompanyId();
         if (companyId == null) {
             throw new BusinessException(ErrorCode.PLAN_FORBIDDEN);
-        }
-        boolean inherits = companyMembershipRepository
-                .existsEffectiveApprovedMembership(companyId, adminUserId, Instant.now());
-        if (!inherits) {
-            // 미승인/무효 멤버십 → 회사 귀속 플랜을 상속하지 않음 → 활성 구독 없음과 동일하게 응답.
-            throw new BusinessException(ErrorCode.PLAN_NOT_FOUND);
         }
         return companyId;
     }
