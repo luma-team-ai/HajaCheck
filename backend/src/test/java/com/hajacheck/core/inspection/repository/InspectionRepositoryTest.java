@@ -8,6 +8,7 @@ import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.core.defect.entity.Defect;
+import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.facility.entity.Facility;
@@ -325,7 +326,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 strangerFacilityId, strangerId, strangerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
 
         Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
-                companyId(ownerId), null, null, PageRequest.of(0, 10));
+                companyId(ownerId), null, null, null, null, null, PageRequest.of(0, 10));
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getTotalElements()).isEqualTo(1);
@@ -343,7 +344,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 newInspection(facilityB, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
 
         Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
-                companyId(ownerId), facilityA, null, PageRequest.of(0, 10));
+                companyId(ownerId), facilityA, null, null, null, null, PageRequest.of(0, 10));
 
         assertThat(result.getContent()).extracting(Inspection::getFacilityId).containsExactly(facilityA);
     }
@@ -361,9 +362,9 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 2), InspectionStatus.REVIEWED));
 
         Page<Inspection> statusFiltered = inspectionRepository.findPageByCompanyIdAndFilters(
-                companyId(ownerId), null, InspectionStatus.ANALYZED, PageRequest.of(0, 10));
+                companyId(ownerId), null, InspectionStatus.ANALYZED, null, null, null, PageRequest.of(0, 10));
         Page<Inspection> unfiltered = inspectionRepository.findPageByCompanyIdAndFilters(
-                companyId(ownerId), null, null, PageRequest.of(0, 10));
+                companyId(ownerId), null, null, null, null, null, PageRequest.of(0, 10));
 
         assertThat(statusFiltered.getContent()).extracting(Inspection::getStatus)
                 .containsExactly(InspectionStatus.ANALYZED);
@@ -382,10 +383,160 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 newInspection(facilityId, ownerId, ownerId, 3, LocalDate.of(2026, 7, 10), InspectionStatus.CREATED));
 
         Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
-                companyId(ownerId), null, null, PageRequest.of(0, 10));
+                companyId(ownerId), null, null, null, null, null, PageRequest.of(0, 10));
 
         assertThat(result.getContent()).extracting(Inspection::getId)
                 .containsExactly(sameDaySecond.getId(), newer.getId(), older.getId());
+    }
+
+    // ── #878(HAJA-452): 하자 조건(자연어) 필터 확장 — EXISTS 서브쿼리 ──
+
+    @Test
+    void findPageByCompanyIdAndFilters_하자유형필터_해당유형하자가진점검만포함() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection withCrack = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZED));
+        Inspection withSpalling = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 2), InspectionStatus.ANALYZED));
+        em.persist(Defect.builder().inspectionId(withCrack.getId()).type(DefectType.CRACK).confidence(0.9).build());
+        em.persist(Defect.builder().inspectionId(withSpalling.getId()).type(DefectType.SPALLING).confidence(0.9)
+                .build());
+        em.flush();
+
+        Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, List.of(DefectType.CRACK), null, null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getId).containsExactly(withCrack.getId());
+    }
+
+    @Test
+    void findPageByCompanyIdAndFilters_하자등급복수필터_배열내OR매칭() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection gradeD = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZED));
+        Inspection gradeE = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 2), InspectionStatus.ANALYZED));
+        Inspection gradeA = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 3, LocalDate.of(2026, 7, 3), InspectionStatus.ANALYZED));
+        em.persist(Defect.builder().inspectionId(gradeD.getId()).type(DefectType.CRACK).confidence(0.9)
+                .grade(DefectGrade.D).build());
+        em.persist(Defect.builder().inspectionId(gradeE.getId()).type(DefectType.CRACK).confidence(0.9)
+                .grade(DefectGrade.E).build());
+        em.persist(Defect.builder().inspectionId(gradeA.getId()).type(DefectType.CRACK).confidence(0.9)
+                .grade(DefectGrade.A).build());
+        em.flush();
+
+        Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, null, List.of(DefectGrade.D, DefectGrade.E), null,
+                PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getId)
+                .containsExactlyInAnyOrder(gradeD.getId(), gradeE.getId());
+    }
+
+    @Test
+    void findPageByCompanyIdAndFilters_복수조건AND_같은하자가전부만족해야매칭_다른하자로나뉘면미매칭() {
+        // 계약 §"GET /api/inspections — 하자 조건(자연어) 필터 확장" — type+grade는 "하나의 하자"가
+        // 동시에 만족해야 매칭이다. 서로 다른 하자가 조건을 나눠 만족하는 점검은 매칭되면 안 된다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection sameDefectMatches = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZED));
+        Inspection splitAcrossDefects = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 2), InspectionStatus.ANALYZED));
+        // 하나의 하자가 CRACK이면서 동시에 D등급 — 매칭돼야 함.
+        em.persist(Defect.builder().inspectionId(sameDefectMatches.getId()).type(DefectType.CRACK).confidence(0.9)
+                .grade(DefectGrade.D).build());
+        // CRACK이지만 등급은 A(불일치) + SPALLING이면서 D등급(불일치) — 어느 하자도 둘 다 만족 못함.
+        em.persist(Defect.builder().inspectionId(splitAcrossDefects.getId()).type(DefectType.CRACK).confidence(0.9)
+                .grade(DefectGrade.A).build());
+        em.persist(Defect.builder().inspectionId(splitAcrossDefects.getId()).type(DefectType.SPALLING)
+                .confidence(0.9).grade(DefectGrade.D).build());
+        em.flush();
+
+        Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, List.of(DefectType.CRACK), List.of(DefectGrade.D), null,
+                PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getId)
+                .containsExactly(sameDefectMatches.getId());
+    }
+
+    @Test
+    void findPageByCompanyIdAndFilters_매칭하자여러개있어도점검중복없이1건() {
+        // EXISTS 서브쿼리(JOIN 아님) — 한 점검에 조건을 만족하는 하자가 여러 개여도 결과에 점검이
+        // 중복되지 않아야 한다(점검 단위 페이지네이션 유지).
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection inspection = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZED));
+        em.persist(Defect.builder().inspectionId(inspection.getId()).type(DefectType.CRACK).confidence(0.9)
+                .grade(DefectGrade.D).build());
+        em.persist(Defect.builder().inspectionId(inspection.getId()).type(DefectType.CRACK).confidence(0.8)
+                .grade(DefectGrade.E).build());
+        em.flush();
+
+        Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, List.of(DefectType.CRACK), null, null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
+    void findPageByCompanyIdAndFilters_소프트삭제된하자는매칭제외() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection inspection = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZED));
+        Defect deleted = Defect.builder().inspectionId(inspection.getId()).type(DefectType.CRACK).confidence(0.9)
+                .build();
+        deleted.softDelete();
+        em.persist(deleted);
+        em.flush();
+
+        Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, List.of(DefectType.CRACK), null, null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).isEmpty();
+        assertThat(result.getTotalElements()).isZero();
+    }
+
+    @Test
+    void findPageByCompanyIdAndFilters_미매칭조건_빈페이지() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection inspection = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZED));
+        em.persist(Defect.builder().inspectionId(inspection.getId()).type(DefectType.CRACK).confidence(0.9).build());
+        em.flush();
+
+        Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, List.of(DefectType.SPALLING), null, null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).isEmpty();
+        assertThat(result.getTotalElements()).isZero();
+    }
+
+    @Test
+    void findPageByCompanyIdAndFilters_하자조건파라미터모두없으면_기존동작과동일회귀없음() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection noDefects = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        Inspection withDefect = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 2), InspectionStatus.ANALYZED));
+        em.persist(Defect.builder().inspectionId(withDefect.getId()).type(DefectType.CRACK).confidence(0.9).build());
+        em.flush();
+
+        Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, List.of(), List.of(), List.of(), PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).hasSize(2);
+        assertThat(result.getContent()).extracting(Inspection::getId)
+                .containsExactlyInAnyOrder(noDefects.getId(), withDefect.getId());
     }
 
     // ── 시설물 현황 목록(#540 ⑥, HAJA-378) 최근 점검일 배치 조회 ──
