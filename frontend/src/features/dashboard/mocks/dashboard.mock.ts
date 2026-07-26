@@ -7,6 +7,7 @@
 //    → 훅에서 import가 사라졌다고 "고아 export"로 오해하지 말 것(#328 오탐 사례).
 import type {
   AiBriefing,
+  DashboardFacilityOption,
   DashboardSummary,
   GradeDistributionItem,
   PendingPriorityItem,
@@ -114,6 +115,160 @@ export const mockRecentInspections: RecentInspectionItem[] = [
     defectCount: 2,
     status: '완료',
   },
+];
+
+// "최근 점검 전체보기"(신규, GET /api/dashboard/recent-inspections/search) 전용 목 데이터 —
+// 페이지네이션이 화면상 실제로 동작하는 걸 눈으로 확인할 수 있도록 10건보다 많이 둔다(22건).
+// 앞 5건은 위젯 목(mockRecentInspections)과 동일값을 유지해 "필터 없이 호출하면 위젯과 동일한
+// 상위 항목"이라는 계약을 목 데이터에서도 시각적으로 대조할 수 있게 한다.
+export const mockRecentInspectionsFull: RecentInspectionItem[] = [
+  ...mockRecentInspections,
+  {
+    id: 6,
+    facilityName: '부산 마린센터',
+    inspectedAt: '2026-07-08',
+    inspector: '한지민',
+    defectCount: 4,
+    status: '검수대기',
+  },
+  {
+    id: 7,
+    facilityName: '대전 테크노파크',
+    inspectedAt: '2026-07-08',
+    inspector: '김현수',
+    defectCount: 1,
+    status: '조치대기',
+  },
+  {
+    id: 8,
+    facilityName: '광주 이노밸리',
+    inspectedAt: '2026-07-07',
+    inspector: '이서연',
+    defectCount: 0,
+    status: '분석중',
+  },
+  {
+    id: 9,
+    facilityName: '울산 산업단지 3동',
+    inspectedAt: '2026-07-07',
+    inspector: '박도윤',
+    defectCount: 8,
+    status: '완료',
+  },
+  {
+    id: 10,
+    facilityName: '세종 시청사',
+    inspectedAt: '2026-07-06',
+    inspector: '최지우',
+    defectCount: 2,
+    status: '완료',
+  },
+  {
+    id: 11,
+    facilityName: '인천 국제터미널',
+    inspectedAt: '2026-07-06',
+    inspector: '정민준',
+    defectCount: 5,
+    status: '조치대기',
+  },
+  {
+    id: 12,
+    facilityName: '창원 산업센터',
+    inspectedAt: '2026-07-05',
+    inspector: '한지민',
+    defectCount: 0,
+    status: '분석중',
+  },
+  {
+    id: 13,
+    facilityName: '전주 한옥마을 안전센터',
+    inspectedAt: '2026-07-05',
+    inspector: '김현수',
+    defectCount: 3,
+    status: '검수대기',
+  },
+  {
+    id: 14,
+    facilityName: '청주 물류단지',
+    inspectedAt: '2026-07-04',
+    inspector: '이서연',
+    defectCount: 7,
+    status: '완료',
+  },
+  {
+    id: 15,
+    facilityName: '천안 스마트타운',
+    inspectedAt: '2026-07-04',
+    inspector: '박도윤',
+    defectCount: 1,
+    status: '조치대기',
+  },
+  {
+    id: 16,
+    facilityName: '여수 화학단지 2공장',
+    inspectedAt: '2026-07-03',
+    inspector: '최지우',
+    defectCount: 0,
+    status: '분석중',
+  },
+  {
+    id: 17,
+    facilityName: '포항 제철단지',
+    inspectedAt: '2026-07-03',
+    inspector: '정민준',
+    defectCount: 6,
+    status: '검수대기',
+  },
+  {
+    id: 18,
+    facilityName: '거제 조선소 A안벽',
+    inspectedAt: '2026-07-02',
+    inspector: '한지민',
+    defectCount: 2,
+    status: '완료',
+  },
+  {
+    id: 19,
+    facilityName: '제주 공항 물류센터',
+    inspectedAt: '2026-07-02',
+    inspector: '김현수',
+    defectCount: 4,
+    status: '조치대기',
+  },
+  {
+    id: 20,
+    facilityName: '춘천 데이터센터',
+    inspectedAt: '2026-07-01',
+    inspector: '이서연',
+    defectCount: 0,
+    status: '분석중',
+  },
+  {
+    id: 21,
+    facilityName: '강릉 해양센터',
+    inspectedAt: '2026-06-30',
+    inspector: '박도윤',
+    defectCount: 3,
+    status: '검수대기',
+  },
+  {
+    id: 22,
+    facilityName: '안동 문화센터',
+    inspectedAt: '2026-06-29',
+    inspector: '최지우',
+    defectCount: 5,
+    status: '완료',
+  },
+];
+
+// "최근 점검 전체보기" 필터 바의 시설물 select 옵션 목 — defect feature의
+// mockInspectionFacilityOptions와 동일 패턴(feature 간 직접 import 금지, 로컬 복제).
+export const mockDashboardFacilityOptions: DashboardFacilityOption[] = [
+  { id: 1, name: '여의도 파크센터' },
+  { id: 2, name: '강남 오피스타워' },
+  { id: 3, name: '판교 테크노밸리' },
+  { id: 4, name: '송도 물류센터' },
+  { id: 5, name: '수원 스마트팩토리' },
 ];
 
 function daysFromNowIsoDate(days: number): string {

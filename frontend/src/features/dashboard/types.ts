@@ -38,6 +38,28 @@ export interface RecentInspectionItem {
   status: InspectionStatus;
 }
 
+// ---------------------------------------------------------------------------
+// "최근 점검 전체보기"(신규) — GET /api/dashboard/recent-inspections/search
+// 기존 위젯(/dashboard/recent-inspections, 상위 10건 고정 배열)과는 별개 엔드포인트.
+// contract.md §"대시보드 '최근 점검 전체보기' 페이지네이션+검색 API" 참고.
+// ---------------------------------------------------------------------------
+
+// GET .../search 쿼리 파라미터 — page는 Spring Data 관례대로 0-based
+export interface RecentInspectionsSearchFilters {
+  page?: number;
+  size?: number;
+  status?: InspectionStatus;
+  facilityId?: number;
+  query?: string;
+}
+
+// 필터 바 "시설물" select 옵션 — GET /api/facilities 재사용(defect feature의 InspectionFacilityOption과
+// 동일 모양이지만 feature 간 직접 import 금지 컨벤션에 따라 로컬로 재정의).
+export interface DashboardFacilityOption {
+  id: number;
+  name: string;
+}
+
 // AI 주간 브리핑 — docs/design/ai/dashboard_briefing.md §4 출력 스키마와 1:1
 export type BriefingTrend = '감소' | '증가' | '유지';
 
