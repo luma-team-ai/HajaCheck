@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.hajacheck.core.analysis.dto.AnalysisStatusResponse;
 import com.hajacheck.core.analysis.support.AnalysisProgressStore;
+import com.hajacheck.core.analysis.support.InMemoryAnalysisProgressStore;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
@@ -649,6 +650,63 @@ class InspectionAnalysisServiceTest {
         assertThat(result.progressPercent()).isZero();
         assertThat(result.files()).hasSize(1);
         assertThat(result.files().get(0).status()).isEqualTo("waiting");
+    }
+
+    // ── 사용자 취소("한 번에 하나만" 정책, 2026-07-27) ──
+
+    @Test
+    void cancelAnalysis_ANALYZING이면_상태를되돌리고_delete_이후에_세대토큰을갱신한다() {
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
+
+        service.cancelAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        verify(inspectionService).revertStuckAnalyzing(INSPECTION_ID);
+        verify(progressStore).delete(INSPECTION_ID);
+        verify(progressStore).saveGeneration(eq(INSPECTION_ID), org.mockito.ArgumentMatchers.anyString());
+        // PR 리뷰 P1(2차) — delete()는 진행률 캐시뿐 아니라 세대 토큰 키까지 함께 지운다
+        // (RedisAnalysisProgressStore/InMemoryAnalysisProgressStore 둘 다 동일). saveGeneration을
+        // delete보다 먼저 호출하면 delete가 방금 발급한 토큰까지 지워버려, 아직 돌고 있는 워커가
+        // "불일치(중단)"가 아니라 "토큰 없음(fail-soft로 계속 진행)"으로 오판해 취소가 무시된다.
+        // 순서를 직접 고정한다 — delete가 saveGeneration보다 반드시 먼저 호출돼야 한다.
+        InOrder inOrder = Mockito.inOrder(progressStore);
+        inOrder.verify(progressStore).delete(INSPECTION_ID);
+        inOrder.verify(progressStore).saveGeneration(eq(INSPECTION_ID), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void cancelAnalysis_실제AnalysisProgressStore계약으로_취소후에도_새세대토큰이살아남아_워커를펜싱한다() {
+        // PR 리뷰 P1(2차) — mock으로 saveGeneration/delete "호출 여부"만 검증하면, delete가 실제로는
+        // 방금 발급한 토큰까지 지워버리는 순서 버그를 잡지 못한다(둘 다 호출되긴 하니까). 실제
+        // InMemoryAnalysisProgressStore로 계약을 닫는다: 취소 전 워커가 들고 있던 토큰(G1)과 취소 후
+        // 남아있는 토큰이 (a) 비어있지 않고 (b) G1과 달라야 워커가 다음 체크포인트에서 실제로 펜싱된다.
+        AnalysisProgressStore realProgressStore = new InMemoryAnalysisProgressStore();
+        realProgressStore.saveGeneration(INSPECTION_ID, "G1");
+        InspectionAnalysisService serviceWithRealStore = new InspectionAnalysisService(
+                inspectionService, inspectionRepository, mediaRepository, defectRepository,
+                realProgressStore, worker, quotaService);
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
+
+        serviceWithRealStore.cancelAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        Optional<String> survivingGeneration = realProgressStore.findGeneration(INSPECTION_ID);
+        assertThat(survivingGeneration).isPresent();
+        assertThat(survivingGeneration).get().isNotEqualTo("G1");
+    }
+
+    @Test
+    void cancelAnalysis_ANALYZING이아니면_아무것도하지않는다() {
+        // 이탈 확인창이 떠 있는 사이 분석이 자연 종료됐거나(done/failed) 애초에 시작 전인 레이스를
+        // 조용히 흡수한다(멱등) — 이미 끝난 분석을 취소 API가 되돌리면 오히려 상태가 역행한다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
+
+        service.cancelAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        verify(progressStore, never()).saveGeneration(any(), any());
+        verify(inspectionService, never()).revertStuckAnalyzing(any());
+        verify(progressStore, never()).delete(any());
     }
 
     private AnalysisStatusResponse anyProgress() {

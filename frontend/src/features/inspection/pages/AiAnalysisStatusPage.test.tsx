@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { createMemoryRouter, Link, RouterProvider } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { inspectionApi } from '../api/inspectionApi';
 import type { AnalysisStatusResponse } from '../api/inspectionApi.types';
@@ -40,20 +40,57 @@ function preAnalysisStatus(): AnalysisStatusResponse {
   };
 }
 
+function analyzingStatus(): AnalysisStatusResponse {
+  return {
+    inspectionId: 100,
+    stage: 'aiDetection',
+    progressPercent: 50,
+    totalFileCount: 2,
+    analyzedFileCount: 1,
+    files: [
+      { mediaId: 1, fileName: '이미지 1', status: 'completed', defectCount: 0, elapsedOrEta: '1.0s' },
+      { mediaId: 2, fileName: '이미지 2', status: 'analyzing', defectCount: null, elapsedOrEta: '처리중...' },
+    ],
+    detectedDefectCount: 0,
+    riskyCrackCount: 0,
+    severityDistribution: { A: 0, B: 0, C: 0, D: 0, E: 0 },
+    failedCount: 0,
+  };
+}
+
+// useBlocker(react-router-dom)는 data router(createMemoryRouter/RouterProvider) 컨텍스트 안에서만
+// 동작한다(InspectionCreatePage.test.tsx와 동일 이유) — "대시보드로 이동" Link는 사이드바 클릭을
+// 대역하는 테스트 전용 라우트. 이동 여부는 router.state.location.pathname으로 직접 확인한다 — 목적지
+// 라우트로 전환되면 이 route의 element(따라서 그 안의 아무 컴포넌트든)가 통째로 언마운트되므로,
+// LocationProbe를 이 element 안에 두면 이동 성공 자체를 검증할 수 없다(InspectionCreatePage.test.tsx와
+// 동일 패턴 — router.state를 직접 읽는다).
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
 
+  const router = createMemoryRouter(
+    [
+      {
+        path: '/inspections/:id/analysis',
+        element: (
+          <>
+            <Link to="/dashboard">대시보드로 이동(사이드바 대역)</Link>
+            <AiAnalysisStatusPage />
+          </>
+        ),
+      },
+      { path: '/dashboard', element: <div>대시보드 페이지</div> },
+    ],
+    { initialEntries: ['/inspections/100/analysis'] },
+  );
+
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/inspections/100/analysis']}>
-        <Routes>
-          <Route path="/inspections/:id/analysis" element={<AiAnalysisStatusPage />} />
-        </Routes>
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  return router;
 }
 
 describe('AiAnalysisStatusPage', () => {
@@ -107,6 +144,96 @@ describe('AiAnalysisStatusPage', () => {
     expect(await screen.findByText('업로드된 이미지가 없습니다.')).not.toBeNull();
     // 버튼은 여전히 남아있어야 재시도가 가능하다 — 실패했다고 화면이 막히면 안 된다.
     expect(screen.getByRole('button', { name: '분석 시작' })).not.toBeNull();
+  });
+
+  describe('"한 번에 하나만" 정책(2026-07-27) — 분석 진행 중 이탈/취소', () => {
+    it('분석이 진행 중일 때 다른 라우트로 이동을 시도하면 확인창이 뜨고, 취소를 누르면 머무른다', async () => {
+      server.use(
+        http.get('/api/inspections/:id/analyze', () =>
+          HttpResponse.json({ success: true, data: analyzingStatus() }),
+        ),
+      );
+
+      const router = renderPage();
+      await screen.findByText('50%');
+
+      fireEvent.click(screen.getByText('대시보드로 이동(사이드바 대역)'));
+
+      expect(await screen.findByText('분석이 진행 중입니다')).not.toBeNull();
+      expect(
+        screen.getByText('지금 나가면 진행 중인 분석 작업이 초기화됩니다. 계속하시겠습니까?'),
+      ).not.toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: '취소' }));
+
+      expect(screen.queryByText('분석이 진행 중입니다')).toBeNull();
+      expect(router.state.location.pathname).toBe('/inspections/100/analysis');
+    });
+
+    it('확인창에서 나가기를 누르면 분석 취소(DELETE)를 호출하고 실제로 이동한다', async () => {
+      let cancelCallCount = 0;
+      server.use(
+        http.get('/api/inspections/:id/analyze', () =>
+          HttpResponse.json({ success: true, data: analyzingStatus() }),
+        ),
+        http.delete('/api/inspections/:id/analyze', () => {
+          cancelCallCount += 1;
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+
+      const router = renderPage();
+      await screen.findByText('50%');
+
+      fireEvent.click(screen.getByText('대시보드로 이동(사이드바 대역)'));
+      await screen.findByText('분석이 진행 중입니다');
+
+      fireEvent.click(screen.getByRole('button', { name: '나가기' }));
+
+      await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard'));
+      await waitFor(() => expect(cancelCallCount).toBe(1));
+    });
+
+    it('분석이 아직 시작 전(stage=upload)이면 이탈해도 확인창이 뜨지 않는다', async () => {
+      server.use(
+        http.get('/api/inspections/:id/analyze', () =>
+          HttpResponse.json({ success: true, data: preAnalysisStatus() }),
+        ),
+      );
+
+      renderPage();
+      await screen.findByRole('button', { name: '분석 시작' });
+
+      fireEvent.click(screen.getByText('대시보드로 이동(사이드바 대역)'));
+
+      expect(screen.queryByText('분석이 진행 중입니다')).toBeNull();
+      expect(await screen.findByText('대시보드 페이지')).not.toBeNull();
+    });
+
+    it('"분석 취소" 버튼을 누르면 취소 후 재조회해 분석 시작 전 화면으로 돌아온다', async () => {
+      let hasCancelled = false;
+      server.use(
+        http.get('/api/inspections/:id/analyze', () =>
+          HttpResponse.json({
+            success: true,
+            data: hasCancelled ? preAnalysisStatus() : analyzingStatus(),
+          }),
+        ),
+        http.delete('/api/inspections/:id/analyze', () => {
+          hasCancelled = true;
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+
+      renderPage();
+      const cancelButton = await screen.findByRole('button', { name: '분석 취소' });
+
+      await act(async () => {
+        fireEvent.click(cancelButton);
+      });
+
+      expect(await screen.findByRole('button', { name: '분석 시작' })).not.toBeNull();
+    });
   });
 });
 

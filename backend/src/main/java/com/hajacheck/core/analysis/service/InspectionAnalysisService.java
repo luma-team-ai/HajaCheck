@@ -361,6 +361,44 @@ public class InspectionAnalysisService {
         return true;
     }
 
+    /**
+     * 사용자가 명시적으로 분석을 취소한다("한 번에 하나만" 정책, 2026-07-27 팀 결정) — 분석 실행/상태
+     * 화면을 이탈하려 할 때 이탈 확인창에서 "나가기"를 누르면 프론트가 호출한다.
+     *
+     * <p>ANALYZING이 아니면(이미 완료·실패로 종료됐거나 애초에 시작 전) 아무것도 하지 않는다(멱등) —
+     * 이탈 확인창이 떠 있는 동안 분석이 자연 종료되는 레이스를 조용히 흡수한다.
+     *
+     * <p>세대 토큰을 새로 발급하는 것만으로 취소를 구현한다 — {@link InspectionAnalysisWorker}는 이미
+     * DB 쓰기 직전마다(이미지 저장 전·최종 상태전이 전) 세대 토큰을 확인해 불일치하면 스스로 중단하고
+     * {@code successCount==0}이면 월 분석 사용량도 보상한다(클래스 docstring "세대 토큰 펜싱"/"월 분석
+     * 사용량 보상" 참고) — 재선점(고착 복구)이 이 메커니즘을 쓰는 것과 완전히 동일하게, "취소"도 그저
+     * "이 실행은 더 이상 유효하지 않다"고 알리는 것뿐이다. 새 사용량 보상 로직을 따로 만들지 않는다.
+     * 이 메서드 자체는 워커의 실제 종료를 기다리지 않고 즉시 반환한다.
+     *
+     * <p>상태는 고착 복구와 동일하게 {@link InspectionService#revertStuckAnalyzing}로 되돌리고
+     * (ANALYZING→UPLOADING), 진행률 캐시는 지운다 — 이후 조회(getStatus)는 큐 포화 롤백과 동일하게
+     * {@link #rebuildFromDb}가 "분석된 적 없음" 분기로 자연스럽게 재구성한다(새 stage 값을 만들 필요 없음).
+     *
+     * <p>⚠️ 순서 주의(PR 리뷰 P1) — {@link AnalysisProgressStore#delete}는 진행률 캐시뿐 아니라
+     * 세대 토큰 키까지 함께 지운다({@link com.hajacheck.core.analysis.support.RedisAnalysisProgressStore#delete}/
+     * {@link com.hajacheck.core.analysis.support.InMemoryAnalysisProgressStore#delete} 둘 다). 그래서
+     * {@code saveGeneration}을 {@code delete}보다 먼저 호출하면, delete가 방금 발급한 새 토큰까지
+     * 지워버려 {@link InspectionAnalysisWorker#isCurrentGeneration}이 "불일치(중단)"가 아니라
+     * "토큰 없음(fail-soft로 계속 진행)"으로 오판한다 — 즉 취소가 워커를 전혀 펜싱하지 못하고 무시된다.
+     * 반드시 {@code delete} 이후에 {@code saveGeneration}을 호출해 새 토큰이 살아남게 한다
+     * ({@link #reapIfStuck}은 애초에 delete를 안 부르므로 이 문제가 없다).
+     */
+    public void cancelAnalysis(Long requesterUserId, Long companyId, Long inspectionId) {
+        Inspection inspection = inspectionService.getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
+        if (inspection.getStatus() != InspectionStatus.ANALYZING) {
+            return;
+        }
+        inspectionService.revertStuckAnalyzing(inspectionId);
+        progressStore.delete(inspectionId);
+        progressStore.saveGeneration(inspectionId, java.util.UUID.randomUUID().toString());
+        log.info("사용자 분석 취소 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, RECOVERY_STATUS);
+    }
+
     private AnalysisStatusResponse rebuildFromDb(Inspection inspection) {
         Long inspectionId = inspection.getId();
         List<Media> images = mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(inspectionId, MediaFileType.IMAGE);
