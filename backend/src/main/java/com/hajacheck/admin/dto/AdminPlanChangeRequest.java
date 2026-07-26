@@ -2,6 +2,7 @@ package com.hajacheck.admin.dto;
 
 import com.hajacheck.membership.entity.PlanName;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 
 /**
@@ -21,7 +22,11 @@ import java.util.List;
  *                        와 동일한 값을 넘겨야 미리보기·실제 결과가 일치한다.
  */
 public record AdminPlanChangeRequest(
-        @NotNull PlanName planName, Boolean confirmOverflow, List<Long> keepUserIds) {
+        @NotNull PlanName planName,
+        Boolean confirmOverflow,
+        // 같은 컨트롤러의 size(@Max(100))와 일관되게 상한을 둔다(재검토 F-14) — 회사 실 좌석 한도(최대
+        // 수십)보다 훨씬 넉넉하게 잡아 정상 사용을 막지 않으면서 과도한 배열 페이로드를 차단한다.
+        @Size(max = 200) List<Long> keepUserIds) {
 
     public boolean overflowConfirmed() {
         return Boolean.TRUE.equals(confirmOverflow);
