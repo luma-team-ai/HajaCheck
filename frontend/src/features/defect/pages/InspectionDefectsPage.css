@@ -101,10 +101,111 @@
   gap: 16px;
 }
 
-.defect-card-grid__controls {
+.defect-card-grid__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.defect-card-grid__status-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.defect-card-grid__status-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  background: var(--color-surface);
+  padding: 7px 14px;
+  color: var(--color-text-default);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.defect-card-grid__status-tab-count {
+  border-radius: 9999px;
+  background: var(--color-surface-sunken);
+  padding: 1px 7px;
+  color: inherit;
+  font-size: 11px;
+}
+
+.defect-card-grid__status-tab.is-active {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.defect-card-grid__status-tab.is-active .defect-card-grid__status-tab-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.defect-card-grid__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.defect-card-grid__funnel {
+  position: relative;
+}
+
+.defect-card-grid__funnel-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-text-default);
+  cursor: pointer;
+}
+
+.defect-card-grid__funnel-button.has-active-filter {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.defect-card-grid__funnel-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 160px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  padding: 12px;
+  box-shadow: 0 8px 20px rgba(24, 24, 27, 0.12);
+}
+
+.defect-card-grid__funnel-panel .defect-filter-bar__select {
+  width: 100%;
+}
+
+.defect-card-grid__sort-select {
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  background: var(--color-surface-muted);
+  padding: 6px 12px;
+  color: var(--color-text-default);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .defect-card-grid__grid {
