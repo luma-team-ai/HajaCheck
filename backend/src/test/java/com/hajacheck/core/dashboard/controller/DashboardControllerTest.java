@@ -85,8 +85,12 @@ class DashboardControllerTest extends PostgresTestSupport {
     }
 
     private Long saveFacility(Long companyId, String name) {
+        return saveFacility(companyId, name, "BUILDING");
+    }
+
+    private Long saveFacility(Long companyId, String name, String type) {
         return facilityRepository.saveAndFlush(
-                Facility.builder().companyId(companyId).name(name).type("BUILDING").build()).getId();
+                Facility.builder().companyId(companyId).name(name).type(type).build()).getId();
     }
 
     // 점검 회차 생성 — assigned_inspector_id 는 DB 트리거(trg_inspections_check_assigned_inspector_company)가
@@ -210,6 +214,24 @@ class DashboardControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(1))
                 .andExpect(jsonPath("$.data.content[0].facilityName").value("강남빌딩"));
+    }
+
+    @Test
+    void 최근점검검색_시설물종류필터_컴파운드값도접두매칭() throws Exception {
+        User owner = saveUser("owner-search-type@haja.com");
+        Long companyId = owner.getCompanyId();
+        Long inspectorId = saveInspectorMember(companyId, "inspector-search-type@haja.com");
+        Long buildingId = saveFacility(companyId, "신규건물", "건물-긴급-1개월");
+        Long bridgeId = saveFacility(companyId, "한강대교", "교량-정기-4개월");
+        saveInspection(buildingId, owner.getId(), inspectorId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED);
+        saveInspection(bridgeId, owner.getId(), inspectorId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED);
+
+        mockMvc.perform(get("/api/dashboard/recent-inspections/search")
+                        .param("facilityType", "건물")
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].facilityName").value("신규건물"));
     }
 
     @Test

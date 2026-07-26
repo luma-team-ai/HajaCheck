@@ -374,11 +374,11 @@ class DashboardServiceTest {
     void searchRecentInspections_필터없으면_빈상태집합과빈검색조건으로위임() {
         Page<Inspection> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
         when(inspectionRepository.findRecentInspectionsPage(
-                eq(OWNER_ID), isNull(), eq(Set.of()), isNull(), eq(List.of()), eq(PageRequest.of(0, 10))))
+                eq(OWNER_ID), isNull(), isNull(), eq(Set.of()), isNull(), eq(List.of()), eq(PageRequest.of(0, 10))))
                 .thenReturn(emptyPage);
 
         PageResponse<RecentInspectionResponse> result = dashboardService.searchRecentInspections(
-                USER_ID, OWNER_ID, null, null, null, PageRequest.of(0, 10));
+                USER_ID, OWNER_ID, null, null, null, null, PageRequest.of(0, 10));
 
         assertThat(result.content()).isEmpty();
         assertThat(result.totalElements()).isZero();
@@ -390,7 +390,7 @@ class DashboardServiceTest {
         Inspection insp = inspection(500L, FACILITY_ID, 99L, LocalDate.of(2026, 7, 1), InspectionStatus.UPLOADING);
         Page<Inspection> page = new PageImpl<>(List.of(insp), PageRequest.of(0, 10), 1);
         when(inspectionRepository.findRecentInspectionsPage(
-                eq(OWNER_ID), isNull(),
+                eq(OWNER_ID), isNull(), isNull(),
                 eq(EnumSet.of(InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZING)),
                 isNull(), eq(List.of()), eq(PageRequest.of(0, 10))))
                 .thenReturn(page);
@@ -402,7 +402,7 @@ class DashboardServiceTest {
         when(userRepository.findAllById(List.of(99L))).thenReturn(List.of(creator));
 
         PageResponse<RecentInspectionResponse> result = dashboardService.searchRecentInspections(
-                USER_ID, OWNER_ID, null, "분석중", null, PageRequest.of(0, 10));
+                USER_ID, OWNER_ID, null, null, "분석중", null, PageRequest.of(0, 10));
 
         assertThat(result.content()).hasSize(1);
         RecentInspectionResponse item = result.content().get(0);
@@ -414,7 +414,7 @@ class DashboardServiceTest {
     @Test
     void searchRecentInspections_알수없는상태라벨_INVALID_INPUT예외() {
         assertThatThrownBy(() -> dashboardService.searchRecentInspections(
-                USER_ID, OWNER_ID, null, "존재하지않는상태", null, PageRequest.of(0, 10)))
+                USER_ID, OWNER_ID, null, null, "존재하지않는상태", null, PageRequest.of(0, 10)))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.INVALID_INPUT));
@@ -425,26 +425,47 @@ class DashboardServiceTest {
         when(userRepository.findIdsByCompanyIdAndNameContaining(OWNER_ID, "김검사")).thenReturn(List.of(99L));
         Page<Inspection> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
         when(inspectionRepository.findRecentInspectionsPage(
-                eq(OWNER_ID), isNull(), eq(Set.of()), eq("김검사"), eq(List.of(99L)), eq(PageRequest.of(0, 10))))
+                eq(OWNER_ID), isNull(), isNull(), eq(Set.of()), eq("김검사"), eq(List.of(99L)),
+                eq(PageRequest.of(0, 10))))
                 .thenReturn(emptyPage);
 
-        dashboardService.searchRecentInspections(USER_ID, OWNER_ID, null, null, "김검사", PageRequest.of(0, 10));
+        dashboardService.searchRecentInspections(USER_ID, OWNER_ID, null, null, null, "김검사", PageRequest.of(0, 10));
 
         verify(inspectionRepository).findRecentInspectionsPage(
-                eq(OWNER_ID), isNull(), eq(Set.of()), eq("김검사"), eq(List.of(99L)), eq(PageRequest.of(0, 10)));
+                eq(OWNER_ID), isNull(), isNull(), eq(Set.of()), eq("김검사"), eq(List.of(99L)),
+                eq(PageRequest.of(0, 10)));
     }
 
     @Test
     void searchRecentInspections_facilityId가레포지토리에그대로전달() {
         Page<Inspection> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
         when(inspectionRepository.findRecentInspectionsPage(
-                eq(OWNER_ID), eq(FACILITY_ID), eq(Set.of()), isNull(), eq(List.of()), eq(PageRequest.of(0, 10))))
+                eq(OWNER_ID), eq(FACILITY_ID), isNull(), eq(Set.of()), isNull(), eq(List.of()),
+                eq(PageRequest.of(0, 10))))
                 .thenReturn(emptyPage);
 
-        dashboardService.searchRecentInspections(USER_ID, OWNER_ID, FACILITY_ID, null, null, PageRequest.of(0, 10));
+        dashboardService.searchRecentInspections(
+                USER_ID, OWNER_ID, FACILITY_ID, null, null, null, PageRequest.of(0, 10));
 
         verify(inspectionRepository).findRecentInspectionsPage(
-                eq(OWNER_ID), eq(FACILITY_ID), eq(Set.of()), isNull(), eq(List.of()), eq(PageRequest.of(0, 10)));
+                eq(OWNER_ID), eq(FACILITY_ID), isNull(), eq(Set.of()), isNull(), eq(List.of()),
+                eq(PageRequest.of(0, 10)));
+    }
+
+    @Test
+    void searchRecentInspections_facilityType이레포지토리에그대로전달() {
+        Page<Inspection> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
+        when(inspectionRepository.findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), eq("건물"), eq(Set.of()), isNull(), eq(List.of()),
+                eq(PageRequest.of(0, 10))))
+                .thenReturn(emptyPage);
+
+        dashboardService.searchRecentInspections(
+                USER_ID, OWNER_ID, null, "건물", null, null, PageRequest.of(0, 10));
+
+        verify(inspectionRepository).findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), eq("건물"), eq(Set.of()), isNull(), eq(List.of()),
+                eq(PageRequest.of(0, 10)));
     }
 
     @Test
@@ -452,10 +473,10 @@ class DashboardServiceTest {
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
         Page<Inspection> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 100), 0);
         when(inspectionRepository.findRecentInspectionsPage(
-                eq(OWNER_ID), isNull(), eq(Set.of()), isNull(), eq(List.of()), pageableCaptor.capture()))
+                eq(OWNER_ID), isNull(), isNull(), eq(Set.of()), isNull(), eq(List.of()), pageableCaptor.capture()))
                 .thenReturn(emptyPage);
 
-        dashboardService.searchRecentInspections(USER_ID, OWNER_ID, null, null, null, PageRequest.of(0, 500));
+        dashboardService.searchRecentInspections(USER_ID, OWNER_ID, null, null, null, null, PageRequest.of(0, 500));
 
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(100);
     }
@@ -465,7 +486,7 @@ class DashboardServiceTest {
         doThrow(new BusinessException(ErrorCode.FORBIDDEN))
                 .when(companyScopeGuard).requireEffectiveMembership(USER_ID, null);
         assertThatThrownBy(() -> dashboardService.searchRecentInspections(
-                USER_ID, null, null, null, null, PageRequest.of(0, 10)))
+                USER_ID, null, null, null, null, null, PageRequest.of(0, 10)))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.FORBIDDEN));

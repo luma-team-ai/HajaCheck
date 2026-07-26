@@ -126,6 +126,15 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         return member.getId();
     }
 
+    // 시설물 종류 필터(#접두 매칭) 테스트 전용 — 레거시 단순값/#731 컴파운드값을 임의로 지정한다.
+    private Long seedFacilityWithType(Long ownerId, String name, String type) {
+        Long companyId = em.find(User.class, ownerId).getCompanyId();
+        Facility facility = Facility.builder().companyId(companyId).name(name).type(type).build();
+        em.persist(facility);
+        em.flush();
+        return facility.getId();
+    }
+
     private Long companyId(Long ownerId) {
         return em.find(User.class, ownerId).getCompanyId();
     }
@@ -583,7 +592,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         List<Inspection> legacy =
                 inspectionRepository.findRecentByFacilityIds(List.of(facilityId), PageRequest.of(0, 10));
         Page<Inspection> newEndpoint = inspectionRepository.findRecentInspectionsPage(
-                companyId(ownerId), null, java.util.Set.of(), null, List.of(), PageRequest.of(0, 10));
+                companyId(ownerId), null, null, java.util.Set.of(), null, List.of(), PageRequest.of(0, 10));
 
         assertThat(newEndpoint.getContent()).extracting(Inspection::getId)
                 .containsExactlyElementsOf(legacy.stream().map(Inspection::getId).toList());
@@ -601,7 +610,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 strangerFacilityId, strangerId, strangerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
 
         Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
-                companyId(ownerId), null, java.util.Set.of(), null, List.of(), PageRequest.of(0, 10));
+                companyId(ownerId), null, null, java.util.Set.of(), null, List.of(), PageRequest.of(0, 10));
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getFacilityId()).isEqualTo(facilityId);
@@ -620,7 +629,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
 
         // "분석중" 라벨은 CREATED/UPLOADING/ANALYZING 을 아우른다(RECENT_STATUS_LABEL_GROUPS).
         Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
-                companyId(ownerId), null,
+                companyId(ownerId), null, null,
                 java.util.EnumSet.of(InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZING),
                 null, List.of(), PageRequest.of(0, 10));
 
@@ -639,9 +648,31 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 newInspection(facilityB, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
 
         Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
-                companyId(ownerId), facilityA, java.util.Set.of(), null, List.of(), PageRequest.of(0, 10));
+                companyId(ownerId), facilityA, null, java.util.Set.of(), null, List.of(), PageRequest.of(0, 10));
 
         assertThat(result.getContent()).extracting(Inspection::getFacilityId).containsExactly(facilityA);
+    }
+
+    @Test
+    void findRecentInspectionsPage_시설물종류필터_접두매칭으로컴파운드값도포함() {
+        // facility.type은 레거시 단순값("건물")과 #731 등록 모달의 컴파운드값("건물-긴급-1개월")이
+        // 공존할 수 있다 — "건물" 카테고리로 필터링하면 둘 다 포함되고 "교량"류는 제외돼야 한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long buildingSimple = seedFacilityWithType(ownerId, "레거시빌딩", "건물");
+        Long buildingCompound = seedFacilityWithType(ownerId, "신규빌딩", "건물-긴급-1개월");
+        Long bridge = seedFacilityWithType(ownerId, "한강대교", "교량-정기-4개월");
+        inspectionRepository.save(newInspection(
+                buildingSimple, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        inspectionRepository.save(newInspection(
+                buildingCompound, ownerId, ownerId, 1, LocalDate.of(2026, 7, 2), InspectionStatus.CREATED));
+        inspectionRepository.save(
+                newInspection(bridge, ownerId, ownerId, 1, LocalDate.of(2026, 7, 3), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
+                companyId(ownerId), null, "건물", java.util.Set.of(), null, List.of(), PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getFacilityId)
+                .containsExactlyInAnyOrder(buildingSimple, buildingCompound);
     }
 
     @Test
@@ -655,7 +686,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 newInspection(facilityB, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
 
         Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
-                companyId(ownerId), null, java.util.Set.of(), "강남", List.of(), PageRequest.of(0, 10));
+                companyId(ownerId), null, null, java.util.Set.of(), "강남", List.of(), PageRequest.of(0, 10));
 
         assertThat(result.getContent()).extracting(Inspection::getFacilityId).containsExactly(facilityA);
     }
@@ -677,7 +708,8 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 2), InspectionStatus.CREATED));
 
         Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
-                companyId(ownerId), null, java.util.Set.of(), "김검사", List.of(inspectorUserId), PageRequest.of(0, 10));
+                companyId(ownerId), null, null, java.util.Set.of(), "김검사", List.of(inspectorUserId),
+                PageRequest.of(0, 10));
 
         assertThat(result.getContent()).extracting(Inspection::getId).containsExactly(byInspector.getId());
     }
@@ -690,7 +722,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
 
         Page<Inspection> result = inspectionRepository.findRecentInspectionsPage(
-                companyId(ownerId), null, java.util.Set.of(), "존재하지않는검색어", List.of(), PageRequest.of(0, 10));
+                companyId(ownerId), null, null, java.util.Set.of(), "존재하지않는검색어", List.of(), PageRequest.of(0, 10));
 
         assertThat(result.getContent()).isEmpty();
         assertThat(result.getTotalElements()).isZero();
@@ -706,9 +738,9 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         }
 
         Page<Inspection> firstPage = inspectionRepository.findRecentInspectionsPage(
-                companyId(ownerId), null, java.util.Set.of(), null, List.of(), PageRequest.of(0, 2));
+                companyId(ownerId), null, null, java.util.Set.of(), null, List.of(), PageRequest.of(0, 2));
         Page<Inspection> secondPage = inspectionRepository.findRecentInspectionsPage(
-                companyId(ownerId), null, java.util.Set.of(), null, List.of(), PageRequest.of(1, 2));
+                companyId(ownerId), null, null, java.util.Set.of(), null, List.of(), PageRequest.of(1, 2));
 
         assertThat(firstPage.getContent()).extracting(Inspection::getRoundNo).containsExactly(5, 4);
         assertThat(secondPage.getContent()).extracting(Inspection::getRoundNo).containsExactly(3, 2);
