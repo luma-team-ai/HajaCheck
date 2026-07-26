@@ -190,6 +190,26 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
         assertThat(saved.getCompanyId()).isEqualTo(company.getId());
     }
 
+    // #872 후속 — 플랫폼 관리자가 companyId를 지정해 등록하는 경로도 그 회사 좌석을 그대로 채우므로,
+    // 좌석이 가득 찬 회사(FREE=1석, 대표가 이미 점유)를 지정하면 개인 계정 등록과 달리 막혀야 한다.
+    @Test
+    void 사용자등록_좌석이_가득찬companyId지정시_좌석한도로_막힌다() throws Exception {
+        User platformAdmin = saveUser("플랫폼관리자", "pa6b@haja.com", Role.PLATFORM_ADMIN);
+        Company company = saveCompany();
+        saveUser("기존멤버", "pa6b-existing@haja.com", Role.ADMIN, company.getId());
+        PlatformAdminUserCreateRequest request = new PlatformAdminUserCreateRequest(
+                "pa6b-new@haja.com", "password1", "차단대상", Role.USER, company.getId());
+
+        mockMvc.perform(post("/api/platform-admin/users")
+                        .with(authentication(authOf(platformAdmin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("PLAN_SEAT_QUOTA_EXCEEDED"));
+
+        assertThat(userRepository.findByEmail("pa6b-new@haja.com")).isEmpty();
+    }
+
     @Test
     void 사용자등록_companyId없으면_개인계정으로등록() throws Exception {
         User platformAdmin = saveUser("플랫폼관리자", "pa7@haja.com", Role.PLATFORM_ADMIN);

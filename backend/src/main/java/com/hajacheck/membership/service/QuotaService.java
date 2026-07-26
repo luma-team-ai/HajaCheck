@@ -140,6 +140,29 @@ public class QuotaService {
     }
 
     /**
+     * 좌석 잔여 확인(예약 없음) — 초대 코드 <b>발급</b> 시점(#872)에 호출한다. {@link #reserveSeat}
+     * 와 달리 좌석을 점유하지 않는 단순 조회라 잠금·트랜잭션 경계가 필요 없다(readOnly 기본 트랜잭션으로
+     * 충분) — 코드가 실제로 redeem될지, 언제 될지 알 수 없는 시점에 좌석을 미리 묶어두면 발급만 해두고
+     * 쓰지 않는 코드가 잔여를 영구히 깎아먹는다.
+     *
+     * <p>⚠️ 여기서 통과해도 redeem 시점의 {@link #reserveSeat} 재검사가 최종 관문이다 — 발급과 redeem
+     * 사이(최대 TTL)에 다른 초대가 좌석을 채우는 경합은 이 메서드가 막지 못한다(의도된 완화: 발급 시점
+     * 차단의 목적은 "관리자가 애초에 못 쓸 코드를 나눠주는 흔한 경로"를 없애는 것이지, 모든 경합을
+     * 트랜잭션으로 봉쇄하는 것이 아니다 — 그 봉쇄는 이미 reserveSeat가 한다).
+     */
+    public void assertSeatAvailable(Long companyId) {
+        UserPlan userPlan = resolveLivePlan(null, companyId);
+        Plan plan = findPlan(userPlan.getPlanId());
+        Integer maxSeats = plan.getMaxSeats();
+        if (maxSeats == null) {
+            return;
+        }
+        if (measureSeats(companyId) >= maxSeats) {
+            throw new BusinessException(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED);
+        }
+    }
+
+    /**
      * 월 분석 한도 차감(요청 1건 = 이미지 {@code imageCount} 장).
      *
      * <p>호출부(분석 시작)는 트랜잭션 밖이라 이 메서드가 독립 트랜잭션으로 커밋된다 — 이후 단계가 실패하면

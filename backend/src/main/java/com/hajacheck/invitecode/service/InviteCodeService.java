@@ -44,9 +44,16 @@ public class InviteCodeService {
     private final RateLimiter rateLimiter;
     private final QuotaService quotaService;
 
-    /** 발급 — 요청 관리자 소속 회사(loginUser.companyId)로 스코프된 코드를 만든다(ADMIN 전용, 컨트롤러가 role 강제). */
+    /**
+     * 발급 — 요청 관리자 소속 회사(loginUser.companyId)로 스코프된 코드를 만든다(ADMIN 전용, 컨트롤러가 role 강제).
+     *
+     * <p>좌석 잔여를 코드 생성 <b>전에</b> 확인한다(#872 — #843 좌석 강제 후속). 이 검사 없이는 이미 좌석이
+     * 가득 찬 회사도 코드 발급 자체는 항상 성공해, 관리자가 실패를 모른 채 못 쓸 코드를 나눠주고 redeem
+     * 시점에야 상대방이 {@code PLAN_SEAT_QUOTA_EXCEEDED}로 막힌다(실패가 잘못된 사람·시점에 도달).
+     */
     public InviteCodeIssueResponse issue(Long companyId) {
         requireCompanyId(companyId);
+        quotaService.assertSeatAvailable(companyId);
         Duration ttl = authProperties.getInviteCodeTtl();
 
         for (int attempt = 0; attempt < MAX_ISSUE_ATTEMPTS; attempt++) {

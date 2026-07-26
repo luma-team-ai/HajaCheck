@@ -250,26 +250,26 @@ class QuotaServiceIntegrationTest extends PostgresTestSupport {
      * 결함"이라 판단해 Flyway V19 로 FREE max_seats 를 1→2 로 올렸으나, 그 판단이 틀렸다. FREE = 1석은
      * <b>티어 설계 그 자체</b>다(대표 1인 전용 — 구성원을 늘리려면 STANDARD 로 유료 전환). 이 테스트는
      * "FREE 회사는 대표가 유일 좌석을 점유하므로 첫 초대부터 PLAN_SEAT_QUOTA_EXCEEDED 로 막힌다"는
-     * 올바른 계약을 고정해, V19 류의 좌석 상향이 다시 조용히 들어오는 것을 막는다. 실패 사유를 사용자에게
-     * 명확히 안내하는 UX 개선은 #857 에서 별도로 다룬다.
+     * 올바른 계약을 고정해, V19 류의 좌석 상향이 다시 조용히 들어오는 것을 막는다.
+     *
+     * <p>#872 이후로는 이 거부가 <b>발급 시점</b>에 일어난다(redeem 시점이 아니다) — 관리자가 애초에
+     * 못 쓸 코드를 나눠주고서야 상대방 redeem이 실패하는, 실패가 잘못된 사람·시점에 도달하던 문제의
+     * 회귀 방지선을 겸한다.
      */
     @Test
-    void FREE회사는_대표가_유일좌석을_점유해_첫_초대부터_좌석한도로_막힌다() {
+    void FREE회사는_대표가_유일좌석을_점유해_초대_코드_발급_자체가_좌석한도로_막힌다() {
         givenCompanyPlan(PlanName.FREE);
         int maxSeats = planRepository.findByName(PlanName.FREE).orElseThrow().getMaxSeats();
         assertThat(maxSeats).as("FREE 는 대표 1인 전용 티어라 1석이어야 한다").isEqualTo(1);
         // 대표(owner)가 이미 유일한 1석을 쓰고 있다.
         assertThat(userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE)).isEqualTo(1);
 
-        Long inviteeId = saveWaitingUser("free-invitee");
-        String code = inviteCodeService.issue(companyId).code();
-        assertThatThrownBy(() -> inviteCodeService.redeem(code, inviteeId))
+        // 코드 자체가 생성되지 않아야 한다 — 관리자가 못 쓸 코드를 전달할 여지가 없다.
+        assertThatThrownBy(() -> inviteCodeService.issue(companyId))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED));
 
-        // redeem 이 거부되면 초대 대상은 소속 배선도, ACTIVE 전환도 되지 않아야 한다.
-        assertThat(userRepository.findById(inviteeId).orElseThrow().getCompanyId()).isNull();
         assertThat(userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE)).isEqualTo(1);
     }
 
@@ -299,10 +299,8 @@ class QuotaServiceIntegrationTest extends PostgresTestSupport {
         assertThat(userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE)).isEqualTo(3);
         assertThat(currentUsage().getSeatCount()).isEqualTo(3);
 
-        // 3석을 모두 쓴 뒤의 초대는 좌석 한도로 막힌다(코드 자체는 유효하므로 거부 사유가 섞이지 않는다).
-        Long thirdInviteeId = saveWaitingUser("standard-third");
-        String thirdCode = inviteCodeService.issue(companyId).code();
-        assertThatThrownBy(() -> inviteCodeService.redeem(thirdCode, thirdInviteeId))
+        // 3석을 모두 쓴 뒤에는 코드 발급 자체가 좌석 한도로 막힌다(#872 — redeem까지 가지 않는다).
+        assertThatThrownBy(() -> inviteCodeService.issue(companyId))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED));

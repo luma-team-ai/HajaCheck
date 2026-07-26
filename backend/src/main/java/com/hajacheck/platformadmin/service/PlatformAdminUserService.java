@@ -13,6 +13,7 @@ import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UserPlanStatus;
+import com.hajacheck.membership.service.QuotaService;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserCreateRequest;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserListResponse;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserProjection;
@@ -43,6 +44,7 @@ public class PlatformAdminUserService {
     private final PlatformAdminUserRepository platformAdminUserRepository;
     private final CompanyRepository companyRepository;
     private final PasswordEncoder passwordEncoder;
+    private final QuotaService quotaService;
 
     // AdminUserService.ASSIGNABLE_ROLES와 동일한 화이트리스트 — 플랫폼 관리자도 COUNSELOR 등
     // 이 화면 밖의 Role은 배정할 수 없다.
@@ -82,6 +84,10 @@ public class PlatformAdminUserService {
             if (company.getStatus() != CompanyStatus.APPROVED) {
                 throw new BusinessException(ErrorCode.COMPANY_NOT_FOUND);
             }
+            // 좌석 잔여 확인(#872 후속) — 회사를 지정해 등록하는 경로도 그 회사 좌석을 그대로
+            // 채우므로, 개인 계정(companyId=null)과 달리 여기서는 검사해야 한다. 그렇지 않으면
+            // 기업 관리자용 좌석 강제(AdminUserService.createUser)를 플랫폼 관리자 경로로 우회할 수 있다.
+            quotaService.assertSeatAvailable(request.companyId());
             companyName = company.getName();
         }
 

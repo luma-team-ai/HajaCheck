@@ -15,6 +15,7 @@ import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UserPlanStatus;
+import com.hajacheck.membership.service.QuotaService;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.List;
@@ -34,6 +35,7 @@ public class AdminUserService {
 
     private final AdminUserRepository adminUserRepository;
     private final PasswordEncoder passwordEncoder;
+    private final QuotaService quotaService;
 
     // 관리자 콘솔이 프론트에 노출하는 배정 가능 역할(ROLE_CHANGE_OPTIONS: USER/INSPECTOR/ADMIN)과 동일한
     // 화이트리스트 — COUNSELOR 등 이 화면 밖의 Role은 요청을 크래프팅해도 서버가 거부한다(리뷰 P2).
@@ -66,6 +68,10 @@ public class AdminUserService {
     public AdminUserResponse createUser(AdminUserCreateRequest request, Long companyId) {
         requireCompanyId(companyId);
         requireAssignableRole(request.role());
+        // 좌석 잔여 확인(#872 후속) — 초대 코드 발급과 동일하게, 관리자가 직접 등록하는 경로도
+        // 좌석이 가득 찬 회사는 새 사용자를 만들지 못하게 막는다(그렇지 않으면 초대 코드 좌석
+        // 강제가 이 경로로 그대로 우회된다).
+        quotaService.assertSeatAvailable(companyId);
         // 선검사 — 명확한 중복은 저장 전에 조기 차단(CompanySignupService와 동일 패턴).
         if (adminUserRepository.existsByEmail(request.email())) {
             throw new BusinessException(ErrorCode.AUTH_EMAIL_DUPLICATED);

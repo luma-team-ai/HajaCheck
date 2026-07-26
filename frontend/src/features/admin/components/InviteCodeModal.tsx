@@ -13,6 +13,10 @@ interface InviteCodeModalProps {
 
 const COPY_FEEDBACK_MS = 1500;
 
+// 발급 시점 좌석 한도 초과(#872, #843 후속) — 재시도해도 좌석이 늘지 않으니 "다시 시도" 링크를
+// 보여주지 않는다. 클릭 가능한 이동 링크 없이 안내 문구만 표시한다.
+const SEAT_QUOTA_ERROR_CODE = 'PLAN_SEAT_QUOTA_EXCEEDED';
+
 function formatTimer(seconds: number): string {
   const clamped = Math.max(0, seconds);
   const minutes = Math.floor(clamped / 60);
@@ -125,7 +129,13 @@ export function InviteCodeModal({ open, onClose }: InviteCodeModalProps) {
         </div>
 
         <div className="flex w-full flex-col items-center gap-2 rounded-[16px] border border-dashed border-border bg-surface-muted px-6 py-6">
-          {issueError ? (
+          {issueError?.code === SEAT_QUOTA_ERROR_CODE ? (
+            <p className="m-0 text-sm font-semibold text-danger">
+              요금제의 좌석 한도를 초과했습니다.
+              <br />
+              요금제를 업그레이드해 주세요.
+            </p>
+          ) : issueError ? (
             <button
               type="button"
               onClick={handleReissue}

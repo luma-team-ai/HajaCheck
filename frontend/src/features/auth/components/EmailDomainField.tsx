@@ -22,6 +22,9 @@ interface EmailDomainFieldProps {
   onLocalPartChange: (value: string) => void;
   onDomainChange: (value: string) => void;
   onCustomModeChange: (isCustom: boolean) => void;
+  /** 로컬파트 input의 id — 페이지가 소유한 <label htmlFor>와 연결한다. 미지정 시 회원가입
+   * 화면(CompanySignupPage) 기존 id로 기본값을 유지해 그 화면·테스트는 영향받지 않는다. */
+  id?: string;
 }
 
 export function EmailDomainField({
@@ -31,6 +34,7 @@ export function EmailDomainField({
   onLocalPartChange,
   onDomainChange,
   onCustomModeChange,
+  id = 'signup-email',
 }: EmailDomainFieldProps) {
   const handleSelectChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const value = event.target.value;
@@ -48,7 +52,7 @@ export function EmailDomainField({
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2">
         <input
-          id="signup-email"
+          id={id}
           type="text"
           className={INPUT_CLASSES}
           value={localPart}

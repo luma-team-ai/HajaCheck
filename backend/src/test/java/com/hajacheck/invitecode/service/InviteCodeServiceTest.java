@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -117,6 +118,18 @@ class InviteCodeServiceTest {
         assertThatThrownBy(() -> inviteCodeService.issue(null))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FORBIDDEN));
+    }
+
+    // #872 — 좌석이 가득 찬 회사는 코드 자체가 생성되지 않아야 한다(관리자가 못 쓸 코드를 나눠주는 경로 차단).
+    @Test
+    void issue_좌석이_없으면_코드를_생성하지않고_예외를_그대로_전파한다() {
+        doThrow(new BusinessException(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED))
+                .when(quotaService).assertSeatAvailable(10L);
+
+        assertThatThrownBy(() -> inviteCodeService.issue(10L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED));
+        verify(inviteCodeStore, never()).issueIfAbsent(anyString(), anyString(), any());
     }
 
     @Test
