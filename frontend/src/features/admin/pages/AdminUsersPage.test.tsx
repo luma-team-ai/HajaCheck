@@ -212,7 +212,7 @@ describe('AdminUsersPage (통합 테스트)', () => {
     expect(await screen.findByRole('dialog')).toBeTruthy();
   });
 
-  // 회사 미승인(#363) 등으로 좌석 잔여 확인 자체가 실패하면, 조용히 모달을 여는 대신(과거 fail-open)
+  // 좌석 잔여 확인 자체가 실패하면(예: 활성 구독 없음), 조용히 모달을 여는 대신(과거 fail-open)
   // 실패 사유를 그대로 얼럿으로 보여준다(사용자 확인) — 안내 없이 넘어가면 원인을 알 길이 없어진다.
   it('좌석 잔여 확인이 실패하면 모달을 열지 않고 실패 사유를 얼럿으로 안내한다', async () => {
     server.use(
@@ -229,7 +229,7 @@ describe('AdminUsersPage (통합 테스트)', () => {
     fireEvent.click(screen.getByRole('button', { name: '+ 사용자 등록' }));
 
     expect(
-      await screen.findByText('회사 가입 승인이 아직 완료되지 않았습니다. 플랫폼 관리자 승인을 기다려 주세요.'),
+      await screen.findByText('활성 구독 정보를 확인하지 못했습니다. 플랜 상태를 확인하거나 잠시 후 다시 시도해 주세요.'),
     ).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();
   });

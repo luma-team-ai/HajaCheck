@@ -7,11 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.entity.Company;
-import com.hajacheck.auth.entity.CompanyMembership;
-import com.hajacheck.auth.entity.CompanyMembershipStatus;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
-import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserConsentRepository;
 import com.hajacheck.auth.repository.UserRepository;
@@ -36,8 +33,6 @@ class CompanyAccountWriterTest {
     private UserRepository userRepository;
     @Mock
     private CompanyRepository companyRepository;
-    @Mock
-    private CompanyMembershipRepository companyMembershipRepository;
     @Mock
     private UserConsentRepository userConsentRepository;
     @Mock
@@ -102,27 +97,5 @@ class CompanyAccountWriterTest {
         ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(userCaptor.capture());
         assertThat(userCaptor.getValue().getRole()).isEqualTo(Role.ADMIN);
-    }
-
-    // #363 — 승인 전에는 users.company_id를 배선하지 않고, 오너 소속을 PENDING 멤버십으로만 남긴다.
-    @Test
-    void createAccount_오너는_PENDING멤버십으로만_기록되고_companyId는_배선되지않는다() {
-        User user = User.createCompanyOwner("owner@haja.com", "김민수", "$2a$hashed");
-        Company company = mock(Company.class);
-        when(company.getId()).thenReturn(99L);
-        when(userRepository.save(any(User.class))).thenReturn(user);
-        when(companyRepository.save(any(Company.class))).thenReturn(company);
-
-        accountWriter.createAccount(
-                "owner@haja.com", "김민수", "$2a$hashed",
-                "(주)하자체크", "1234567890", "서울시 강남구", "101호",
-                "/files/x.png", "{}", "1.0", "1.0",
-                LocalDate.of(2020, 1, 1), false);
-
-        assertThat(user.getCompanyId()).isNull();
-        ArgumentCaptor<CompanyMembership> membershipCaptor = ArgumentCaptor.forClass(CompanyMembership.class);
-        verify(companyMembershipRepository).save(membershipCaptor.capture());
-        assertThat(membershipCaptor.getValue().getCompanyId()).isEqualTo(99L);
-        assertThat(membershipCaptor.getValue().getStatus()).isEqualTo(CompanyMembershipStatus.PENDING);
     }
 }

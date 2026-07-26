@@ -1,11 +1,9 @@
 package com.hajacheck.auth.service;
 
 import com.hajacheck.auth.entity.Company;
-import com.hajacheck.auth.entity.CompanyMembership;
 import com.hajacheck.auth.entity.ConsentPolicyType;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserConsent;
-import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserConsentRepository;
 import com.hajacheck.auth.repository.UserRepository;
@@ -21,17 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
  * (같은 클래스 내부 호출은 @Transactional 프록시가 안 걸리므로, 트랜잭션 경계를 별도 빈으로 확보).
  *
  * <p>저장 순서(FK 정합): users.company_id 는 nullable → 유저 먼저 저장(company_id=null) →
- * 회사 저장(owner_user_id=user.id) → 오너 {@link CompanyMembership} 을 PENDING 으로 생성(#363) →
- * 동의 이력 saveAll → FREE 플랜 배정(#517, 같은 트랜잭션). users↔companies 상호 FK 를 유저 선삽입
- * + 사후 참조로 순환 없이 해소한다.
- *
- * <p>⚠️ 오너의 {@code users.company_id} 는 가입 시점에 배선하지 않는다(#363 — HAJA-25 P2 지적 수정).
- * 예전에는 여기서 바로 {@code user.assignToCompany(company.getId())} 를 호출해, 관리자 승인
- * (Company.status=PENDING_REVIEW) 이전에도 오너가 회사 스코프 관리자 권한(/api/admin/**)을 그대로
- * 쓸 수 있는 구멍이 있었다. 이제는 {@link CompanyMembership#invite} 로 PENDING 멤버십만 만들고,
- * {@code users.company_id} 배선은 {@link CompanyApprovalService#approve} 가 회사 승인과 같은
- * 트랜잭션에서 수행한다 — 승인 전에는 companyId 가 없어 관리자 콘솔 접근 자체가 막힌다
- * (AdminUserService/AdminPlanService 등의 {@code requireCompanyId} 가드가 그대로 작동).
+ * 회사 저장(owner_user_id=user.id) → user.assignToCompany(company.id)(dirty flush) → 동의 이력 saveAll →
+ * FREE 플랜 배정(#517, 같은 트랜잭션). users↔companies 상호 FK 를 유저 선삽입 + 사후 업데이트로 순환 없이 해소한다.
  *
  * <p>이메일/사업자번호 unique 위반은 여기서 DataIntegrityViolationException 으로 전파되고,
  * 호출부(CompanySignupService)가 파일 보상삭제 + 409 매핑을 담당한다.
@@ -42,7 +31,6 @@ public class CompanyAccountWriter {
 
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
-    private final CompanyMembershipRepository companyMembershipRepository;
     private final UserConsentRepository userConsentRepository;
     private final PlanProvisioningService planProvisioningService;
 
@@ -70,9 +58,8 @@ public class CompanyAccountWriter {
             company.markBusinessVerified();
         }
 
-        // 오너 소속을 PENDING 멤버십으로만 기록한다(#363) — users.company_id 배선은 승인 시점
-        // (CompanyApprovalService#approve)으로 미룬다.
-        companyMembershipRepository.save(CompanyMembership.invite(company.getId(), user.getId(), user.getId(), null));
+        // 상호 FK 배선 — dirty checking 으로 커밋 시 users.company_id 업데이트.
+        user.assignToCompany(company.getId());
 
         userConsentRepository.saveAll(List.of(
                 UserConsent.of(user.getId(), ConsentPolicyType.TERMS_OF_SERVICE, termsVersion),

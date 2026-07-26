@@ -28,8 +28,6 @@ import { MailIcon } from '../components/icons/MailIcon';
 
 const KEYWORD_DEBOUNCE_MS = 300;
 const NOTICE_AUTO_DISMISS_MS = 2500;
-// 회사 미승인(#363)/좌석초과(#872)는 원인이 다르므로 안내 문구를 분리한다(사용자 확인).
-const COMPANY_NOT_APPROVED_CODES = new Set(['PLAN_NOT_FOUND', 'FORBIDDEN']);
 
 // 관리자 > 사용자 관리 — Figma node-id 177-2017 "hajaCheck Admin - 사용자 관리 워크스페이스".
 // 헤더(브레드크럼)·사이드바는 AppShellRoute → AppLayout이 담당하므로 이 페이지는 CONTENT 영역만 그린다.
@@ -182,9 +180,13 @@ export function AdminUsersPage() {
 
   // "사용자 등록" 버튼 클릭 시 좌석 잔여를 먼저 확인한다(#872 후속) — 폼을 다 채우고 제출해야만
   // 좌석 한도(PLAN_SEAT_QUOTA_EXCEEDED)를 알게 되는 것보다, 클릭 즉시 얼럿으로 안내하는 편이
-  // 사용자 입장에서 더 친절하다. 조회 자체가 실패해도(#363 회사 미승인 등) 모달을 조용히 열지
-  // 않고, 그 사유를 그대로 얼럿으로 보여준다 — 화면/라우팅 구조는 그대로 두고 액션 시점에만
-  // 안내하는 최소 수정(사용자 확인) — 조용히 넘어가면 실패 이유를 알 길이 없어진다.
+  // 사용자 입장에서 더 친절하다. 조회 자체가 실패해도 모달을 조용히 열지 않고, 그 사유를 그대로
+  // 얼럿으로 보여준다 — 화면/라우팅 구조는 그대로 두고 액션 시점에만 안내하는 최소 수정(사용자 확인)
+  // — 조용히 넘어가면 실패 이유를 알 길이 없어진다.
+  //
+  // PR머신 리뷰 P3: getCurrentPlan은 "활성 구독 없음"도 PLAN_NOT_FOUND로 던진다(승인 여부와 무관 —
+  // #517 가입 시 FREE 자동배정으로 실발생 가능성은 낮음). 원인을 확정할 수 없는 문구("회사 미승인")로
+  // 단정하지 않고 중립적으로 안내한다.
   async function handleOpenCreateModal() {
     try {
       const { data } = await adminPlanApi.getCurrentPlan();
@@ -194,8 +196,8 @@ export function AdminUsersPage() {
         return;
       }
     } catch (error) {
-      if (COMPANY_NOT_APPROVED_CODES.has((error as ApiError)?.code)) {
-        setNotice('회사 가입 승인이 아직 완료되지 않았습니다.\n플랫폼 관리자 승인을 기다려 주세요.');
+      if ((error as ApiError)?.code === 'PLAN_NOT_FOUND') {
+        setNotice('활성 구독 정보를 확인하지 못했습니다.\n플랜 상태를 확인하거나 잠시 후 다시 시도해 주세요.');
         return;
       }
       setNotice(getApiErrorMessage(error, '사용자 등록 가능 여부를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'));
