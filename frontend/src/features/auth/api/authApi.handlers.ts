@@ -25,6 +25,9 @@ export const authHandlers = [
     const body = (await request.json()) as LoginRequest;
 
     if (body.loginId === MOCK_LOGIN_ID && body.password === MOCK_PASSWORD) {
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.setItem('msw_authenticated', 'true');
+      }
       const success: ApiResponse<UserResponse> = { success: true, data: mockUser };
       return HttpResponse.json(success);
     }
@@ -40,8 +43,17 @@ export const authHandlers = [
     return HttpResponse.json(failure, { status: 401 });
   }),
 
-  // 미로그인 상태 목 — 항상 401 (실제 백엔드는 세션 쿠키 유효 시 200)
+  // MSW 세션 유지 목 — 로그인 성공 시 sessionStorage에 msw_authenticated가 저장되어
+  // 주소창 직접 입력 및 새로고침(F5) 시에도 세션이 유지된다.
   http.get('/api/users/me', () => {
+    const isAuthenticated =
+      typeof window !== 'undefined' && window.sessionStorage.getItem('msw_authenticated') === 'true';
+
+    if (isAuthenticated) {
+      const success: ApiResponse<UserResponse> = { success: true, data: mockUser };
+      return HttpResponse.json(success);
+    }
+
     const failure: ApiResponse<null> = {
       success: false,
       data: null,
@@ -51,6 +63,9 @@ export const authHandlers = [
   }),
 
   http.post('/api/auth/logout', () => {
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.removeItem('msw_authenticated');
+    }
     const success: ApiResponse<null> = { success: true, data: null };
     return HttpResponse.json(success);
   }),
