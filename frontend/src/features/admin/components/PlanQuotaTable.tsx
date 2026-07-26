@@ -1,6 +1,7 @@
 import type { PlanQuotaUser } from '../planQuota.types';
 import { QuotaUsageBar } from './QuotaUsageBar';
 import { StateRow } from './StateRow';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 
 const COL_COUNT = 2;
 
@@ -26,19 +27,19 @@ export function PlanQuotaTable({ users, isLoading, isError, onRetry }: PlanQuota
       <tbody>
         {isLoading && (
           <StateRow colSpan={COL_COUNT}>
-            <span className="text-text-muted">불러오는 중...</span>
+            <LoadingSpinner className="flex items-center justify-center gap-2" />
           </StateRow>
         )}
 
         {!isLoading && isError && (
           <StateRow colSpan={COL_COUNT}>
-            <span className="flex flex-col items-center gap-3">
-              <span className="text-danger" role="alert">
+            <span className="flex flex-col items-center gap-3" role="alert">
+              <span className="text-danger">
                 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
               </span>
               <button
                 type="button"
-                className="rounded-full border border-border px-4 py-1.5 text-sm text-text-default hover:border-primary hover:text-primary"
+                className="cursor-pointer rounded-full border border-border bg-surface px-4 py-1.5 text-[13px] text-text-default hover:text-primary"
                 onClick={onRetry}
               >
                 다시 시도
@@ -56,7 +57,7 @@ export function PlanQuotaTable({ users, isLoading, isError, onRetry }: PlanQuota
         {!isLoading &&
           !isError &&
           users.map((user) => (
-            <tr key={user.id} className="border-b border-border last:border-b-0">
+            <tr key={user.id} className="border-b border-border last:border-b-0 hover:bg-surface-muted">
               <td className="px-4 py-4 align-middle">
                 <p className="text-sm font-semibold text-heading">{user.name}</p>
                 <p className="text-[13px] text-text-muted">{user.email}</p>

@@ -20,6 +20,12 @@ export const api = axios.create({
 
 api.interceptors.response.use(
   (response) => {
+    // blob 응답(파일 다운로드, 예: 상담 대화 내보내기)은 envelope({success,data,error}) 형태가
+    // 아니라 파일 본문 자체이므로 unwrap을 건너뛴다 — body.success/body.data 접근 시 Blob에 그런
+    // 필드가 없어 response.data가 undefined로 뭉개지는 회귀를 방지한다(카운슬 대화 내보내기 신설).
+    if (response.config.responseType === 'blob') {
+      return response;
+    }
     const body = response.data as ApiResponse<unknown>;
     if (body && body.success === false) {
       const apiError: ApiError = {

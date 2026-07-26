@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
-import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import { DASHBOARD_ROUTE } from '../../../shared/constants/routes';
+import { AuthGlassPanel } from '../components/AuthGlassPanel';
 import { InviteCodeInput } from '../components/InviteCodeInput';
 import { LANDING_ROUTE } from '../constants';
 import { useLogout } from '../hooks/useLogout';
@@ -57,26 +57,7 @@ export function InviteCodePage() {
   };
 
   return (
-    <main className="relative flex min-h-screen w-full items-center justify-center bg-[#fafafa] px-6 py-16">
-      <Link
-        to={LANDING_ROUTE}
-        className="absolute left-8 top-10 inline-flex items-center gap-2 rounded-sm text-sm text-[#47464b] transition-colors hover:text-zinc-900"
-        aria-label="hajaCheck 홈으로"
-      >
-        <span aria-hidden="true">←</span>
-        hajaCheck 홈으로
-      </Link>
-
-      <section
-        aria-labelledby="invite-code-title"
-        className="relative w-full max-w-[440px] rounded-[20px] border border-white bg-white/70 p-8 shadow-[inset_0px_1px_0px_1px_#ffffff,0px_4px_24px_-4px_#0000000d] backdrop-blur-[10px]"
-      >
-        <header className="flex items-center justify-center">
-          <Link to={LANDING_ROUTE} aria-label="HajaCheck 홈으로" className="inline-flex rounded-sm">
-            <img src={brandLogo} alt="HajaCheck" className="h-7 w-auto object-contain" />
-          </Link>
-        </header>
-
+    <AuthGlassPanel titleId="invite-code-title">
         <div className="mt-10 flex justify-center" aria-hidden="true">
           {/* 사람 + 열쇠 아이콘 — 디자인팀 제공 원본(Visual Header.svg) 그대로 인라인. 배경(#F1EDED)까지
               아이콘에 포함돼 있어 별도 래퍼 배경을 씌우지 않는다. */}
@@ -143,7 +124,6 @@ export function InviteCodePage() {
         >
           다른 계정으로 로그인
         </button>
-      </section>
-    </main>
+    </AuthGlassPanel>
   );
 }
