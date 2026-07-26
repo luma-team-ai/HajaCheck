@@ -9,7 +9,8 @@ type Props = {
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
-  onSelectFacility: (id: number) => void;
+  // latestDefectId — 하자 오버레이 직행(HAJA-434 갭1) 라우팅 판단용, 하자 없으면 null.
+  onSelectFacility: (id: number, latestDefectId: number | null) => void;
   // 검색/필터 적용 결과 0건일 때 "등록된 시설물이 없습니다"(#810 이전 문구)는 오해를 줄 수 있어
   // FacilityListPage가 필터 활성 여부에 따라 다른 안내 문구를 넘길 수 있게 열어둔다.
   emptyMessage?: string;
@@ -43,7 +44,7 @@ export function FacilityTable({
       render: (row) => (
         <button
           type="button"
-          onClick={() => onSelectFacility(row.id)}
+          onClick={() => onSelectFacility(row.id, row.latestDefectId)}
           className="cursor-pointer bg-transparent p-0 text-left font-semibold text-accent underline-offset-2 hover:underline"
         >
           {row.name}

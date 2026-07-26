@@ -24,6 +24,7 @@ const facilities: Facility[] = [
     initialGrade: 'B',
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 2,
@@ -41,6 +42,7 @@ const facilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
 ];
 

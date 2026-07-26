@@ -83,6 +83,7 @@ export const facilityHandlers = [
       initialGrade: reqBody.initialGrade ?? null,
       assigneeUserId: reqBody.assigneeUserId ?? null,
       memo: reqBody.memo ?? null,
+      latestDefectId: null,
     };
     nextId += 1;
     facilities = [created, ...facilities];
@@ -130,6 +131,7 @@ export const facilityHandlers = [
       initialGrade: reqBody.initialGrade ?? null,
       assigneeUserId: reqBody.assigneeUserId ?? null,
       memo: reqBody.memo ?? null,
+      latestDefectId: null,
       updatedAt: new Date().toISOString(),
     };
     facilities = facilities.map((facility) => (facility.id === id ? updated : facility));

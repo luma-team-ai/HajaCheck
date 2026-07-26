@@ -18,6 +18,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: 'B',
     assigneeUserId: 101,
     memo: '외벽 균열 재점검 예정',
+    latestDefectId: null,
   },
   {
     id: 2,
@@ -35,6 +36,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 3,
@@ -52,6 +54,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 4,
@@ -69,6 +72,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 5,
@@ -86,6 +90,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 6,
@@ -103,6 +108,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 7,
@@ -120,6 +126,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 8,
@@ -137,6 +144,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 9,
@@ -154,6 +162,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 10,
@@ -171,6 +180,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 11,
@@ -188,6 +198,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 12,
@@ -205,6 +216,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 13,
@@ -222,6 +234,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 14,
@@ -239,6 +252,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 15,
@@ -256,6 +270,7 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
   {
     id: 16,
@@ -273,5 +288,6 @@ export const mockFacilities: Facility[] = [
     initialGrade: null,
     assigneeUserId: null,
     memo: null,
+    latestDefectId: null,
   },
 ];
