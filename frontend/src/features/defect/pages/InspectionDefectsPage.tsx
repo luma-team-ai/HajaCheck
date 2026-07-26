@@ -37,7 +37,10 @@ export function InspectionDefectsPage() {
           <span className="inspection-defects-page__breadcrumb-current">하자 상세</span>
         </nav>
 
-        <h1 className="inspection-defects-page__sr-only">점검 하자 상세</h1>
+        <h1 className="inspection-defects-page__title">
+          점검 #{inspectionId ?? '-'}
+          <span className="inspection-defects-page__sr-only"> 하자 상세</span>
+        </h1>
 
         {isLoading && (
           <div role="status" className="inspection-defects-page__loading">

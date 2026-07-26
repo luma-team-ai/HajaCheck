@@ -28,6 +28,13 @@
   font-weight: 600;
 }
 
+.inspection-defects-page__title {
+  margin: 0 0 20px;
+  color: var(--color-heading);
+  font-size: 26px;
+  font-weight: 800;
+}
+
 .inspection-defects-page__sr-only {
   position: absolute;
   width: 1px;
