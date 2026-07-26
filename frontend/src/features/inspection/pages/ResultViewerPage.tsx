@@ -28,10 +28,12 @@ const GRADE_LABELS: Record<DefectGrade, string> = {
   E: 'E (심각)',
 };
 
-// 등급별 색상 점 — 등급관리 설정 화면(하자 심각도 등급 규칙) 색상표와 동일 값(#944).
+// 등급별 색상 점 — 프로젝트 표준 팔레트(dashboard/colors.ts GRADE_BG_CLASS,
+// map/constants.ts GRADE_COLOR, charts/palette.ts CHART_GRADE_COLORS)와 동일 값(#957).
+// B는 '#84CC16'(등급분포 막대 전용 "연한" 팔레트)을 잘못 가져왔던 것을 표준값으로 정정.
 const GRADE_DOT_COLORS: Record<DefectGrade, string> = {
   A: '#16A34A',
-  B: '#84CC16',
+  B: '#65A30D',
   C: '#EAB308',
   D: '#F97316',
   E: '#DC2626',
