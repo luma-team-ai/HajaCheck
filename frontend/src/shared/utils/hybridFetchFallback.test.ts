@@ -1,0 +1,98 @@
+import { describe, expect, it, vi } from 'vitest';
+import { hybridFetchFallback } from './hybridFetchFallback';
+
+describe('hybridFetchFallback', () => {
+  const mockFallbackData = [{ id: 1, name: 'MSW 샘플 항목' }];
+
+  it('DEV 환경에서 실 서버가 성공 응답(유효 데이터)을 돌려주면 실데이터를 반환한다', async () => {
+    const realData = [{ id: 99, name: '실 서버 레코드' }];
+    const fetcher = vi.fn().mockResolvedValue(realData);
+
+    const result = await hybridFetchFallback({
+      fetcher,
+      fallback: mockFallbackData,
+      env: { DEV: true },
+    });
+
+    expect(result).toEqual(realData);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('DEV 환경에서 실 서버가 빈 배열([])을 응답하면 MSW 목 데이터로 폴백한다', async () => {
+    const fetcher = vi.fn().mockResolvedValue([]);
+
+    const result = await hybridFetchFallback({
+      fetcher,
+      fallback: mockFallbackData,
+      env: { DEV: true },
+      fallbackOnEmptyArray: true,
+    });
+
+    expect(result).toEqual(mockFallbackData);
+  });
+
+  it('fallbackOnEmptyArray가 false인 경우, 실 서버의 빈 배열 응답을 그대로 유지한다', async () => {
+    const fetcher = vi.fn().mockResolvedValue([]);
+
+    const result = await hybridFetchFallback({
+      fetcher,
+      fallback: mockFallbackData,
+      env: { DEV: true },
+      fallbackOnEmptyArray: false,
+    });
+
+    expect(result).toEqual([]);
+  });
+
+  it('DEV 환경에서 실 서버가 404 Not Found 에러를 던지면 목 데이터로 폴백한다', async () => {
+    const error404 = { response: { status: 404 } };
+    const fetcher = vi.fn().mockRejectedValue(error404);
+
+    const result = await hybridFetchFallback({
+      fetcher,
+      fallback: () => mockFallbackData,
+      env: { DEV: true },
+    });
+
+    expect(result).toEqual(mockFallbackData);
+  });
+
+  it('DEV 환경에서 NETWORK_ERROR(서버 미기동) 발생 시 목 데이터로 폴백한다', async () => {
+    const networkErr = { code: 'NETWORK_ERROR' };
+    const fetcher = vi.fn().mockRejectedValue(networkErr);
+
+    const result = await hybridFetchFallback({
+      fetcher,
+      fallback: mockFallbackData,
+      env: { DEV: true },
+    });
+
+    expect(result).toEqual(mockFallbackData);
+  });
+
+  it('401 Unauthorized 또는 500 에러 발생 시 폴백하지 않고 에러를 전파한다', async () => {
+    const err500 = { response: { status: 500 } };
+    const fetcher = vi.fn().mockRejectedValue(err500);
+
+    await expect(
+      hybridFetchFallback({
+        fetcher,
+        fallback: mockFallbackData,
+        env: { DEV: true },
+      }),
+    ).rejects.toEqual(err500);
+  });
+
+  it('PROD 환경(DEV: false)에서는 404나 NETWORK_ERROR가 나도 절대 목 데이터로 폴백하지 않는다 (#213 가드)', async () => {
+    const networkErr = { code: 'NETWORK_ERROR' };
+    const fetcher = vi.fn().mockRejectedValue(networkErr);
+
+    await expect(
+      hybridFetchFallback({
+        fetcher,
+        fallback: mockFallbackData,
+        env: { DEV: false },
+      }),
+    ).rejects.toEqual(networkErr);
+  });
+});
