@@ -155,6 +155,7 @@ class PlanDowngradeServiceTest {
 
     @Test
     void 정지_적용은_대상만_SUSPENDED로_바꾸고_owner는_ACTIVE로_남긴다() {
+        // applyOverflow는 재계산하지 않고 preview가 이미 산출한 overflow를 그대로 적용한다(재검토 F-7).
         User owner = member(5L, Role.ADMIN);
         User other = member(9L);
         givenActiveMembers(member(1L), owner, other);
@@ -162,7 +163,9 @@ class PlanDowngradeServiceTest {
         when(facilityRepository.countByCompanyId(anyLong())).thenReturn(0L);
         when(userRepository.findAllById(any())).thenReturn(List.of(member(1L), other));
 
-        DowngradeOverflow applied = service.applyOverflow(COMPANY_ID, UNLIMITED, plan(PlanName.FREE, 1, 1));
+        Plan target = plan(PlanName.FREE, 1, 1);
+        DowngradeOverflow overflow = service.preview(COMPANY_ID, UNLIMITED, target);
+        DowngradeOverflow applied = service.applyOverflow(COMPANY_ID, target, overflow);
 
         assertThat(applied.seatUserIdsToSuspend()).containsExactly(1L, 9L);
         assertThat(other.getStatus()).isEqualTo(UserStatus.SUSPENDED);
@@ -262,7 +265,11 @@ class PlanDowngradeServiceTest {
     }
 
     @Test
-    void 타회사_id를_유지대상으로_주입하면_PLAN_FORBIDDEN으로_거절하고_부작용이없다() {
+    void 타회사_id를_유지대상으로_주입하면_PLAN_KEEP_USER_INVALID로_거절하고_부작용이없다() {
+        // applyOverflow 는 더 이상 재계산·재검증하지 않는다(재검토 F-7/F-9) — 검증은 오직 preview() 에서
+        // 일어나고, applyOverflow 는 이미 검증을 통과한 DowngradeOverflow 만 받는다. 즉 잘못된 id 로는
+        // applyOverflow 에 도달할 방법 자체가 없다(preview 가 항상 먼저 막는다) — 그래서 이 테스트는
+        // preview 단계의 거절과 findAllById 미호출(부작용 없음)만 확인한다.
         givenActiveMembers(member(1L), member(5L, Role.ADMIN), member(9L));
         givenOwner(5L);
         when(facilityRepository.countByCompanyId(anyLong())).thenReturn(0L);
@@ -273,13 +280,7 @@ class PlanDowngradeServiceTest {
                         COMPANY_ID, UNLIMITED, plan(PlanName.FREE, 1, 1), List.of(otherCompanyUserId)))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(com.hajacheck.global.exception.ErrorCode.PLAN_FORBIDDEN));
-
-        // applyOverflow 도 동일하게 거절하고, 정지 처리(findAllById 이후 상태 변경) 자체를 시도하지 않는다.
-        org.assertj.core.api.Assertions
-                .assertThatThrownBy(() -> service.applyOverflow(
-                        COMPANY_ID, UNLIMITED, plan(PlanName.FREE, 1, 1), List.of(otherCompanyUserId)))
-                .isInstanceOf(BusinessException.class);
+                        .isEqualTo(com.hajacheck.global.exception.ErrorCode.PLAN_KEEP_USER_INVALID));
         org.mockito.Mockito.verify(userRepository, org.mockito.Mockito.never()).findAllById(any());
     }
 
@@ -296,7 +297,7 @@ class PlanDowngradeServiceTest {
                         COMPANY_ID, UNLIMITED, plan(PlanName.STANDARD, 10, 5), List.of(999L)))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(com.hajacheck.global.exception.ErrorCode.PLAN_FORBIDDEN));
+                        .isEqualTo(com.hajacheck.global.exception.ErrorCode.PLAN_KEEP_USER_INVALID));
     }
 
     @Test
@@ -345,7 +346,7 @@ class PlanDowngradeServiceTest {
         List<Long> keepUserIds = List.of(20L);
 
         DowngradeOverflow previewResult = service.preview(COMPANY_ID, UNLIMITED, target, keepUserIds);
-        DowngradeOverflow applied = service.applyOverflow(COMPANY_ID, UNLIMITED, target, keepUserIds);
+        DowngradeOverflow applied = service.applyOverflow(COMPANY_ID, target, previewResult);
 
         assertThat(applied.seatUserIdsToSuspend())
                 .containsExactlyInAnyOrderElementsOf(previewResult.seatUserIdsToSuspend());

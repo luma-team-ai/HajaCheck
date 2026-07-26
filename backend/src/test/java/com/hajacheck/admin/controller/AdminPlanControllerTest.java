@@ -304,7 +304,7 @@ class AdminPlanControllerTest extends PostgresTestSupport {
                         .param("keepUserIds", String.valueOf(strangerId))
                         .with(authentication(authOf(fx.admin()))))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error.code").value("PLAN_FORBIDDEN"));
+                .andExpect(jsonPath("$.error.code").value("PLAN_KEEP_USER_INVALID"));
 
         // confirmOverflow 는 일부러 지정하지 않는다(false 취급) — keepUserIds 검증은 "명시적 확인" 여부와
         // 무관하게 항상 적용돼야 하고, 검증이 만료(expire)/신규발급(saveAndFlush) **이전**에 먼저 걸려야
@@ -318,7 +318,7 @@ class AdminPlanControllerTest extends PostgresTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"planName\":\"STANDARD\",\"keepUserIds\":[" + strangerId + "]}"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error.code").value("PLAN_FORBIDDEN"));
+                .andExpect(jsonPath("$.error.code").value("PLAN_KEEP_USER_INVALID"));
 
         // 부작용 0 — 플랜은 여전히 ENTERPRISE, 아무도 정지되지 않았다.
         mockMvc.perform(get("/api/admin/plan").with(authentication(authOf(fx.admin()))))
@@ -354,9 +354,26 @@ class AdminPlanControllerTest extends PostgresTestSupport {
 
     @Test
     void 플랜변경_keepUserIds미지정이면_기존id오름차순_동작그대로다() throws Exception {
+        // 재검토 F-6 — 기존 테스트는 활성 3명 vs STANDARD 3석이라 "초과 없음" 조기 반환에 걸려 정지
+        // 로직 자체가 실행되지 않았다(유일한 단정 "m1 ACTIVE"가 정지 로직을 통째로 지워도 통과하는
+        // 거짓 양성). 좌석 수를 실측해(하드코딩 금지) 정확히 좌석+1명을 활성으로 만들어 실제 초과를
+        // 강제하고, "kept = owner + id 오름차순으로 좌석 수만큼"이라는 알고리즘 자체를 단정한다.
         Fixture fx = approvedCompanyAdminWithPlan(PlanName.ENTERPRISE);
+        Integer standardMaxSeats = planRepository.findByName(PlanName.STANDARD)
+                .orElseThrow().getMaxSeats();
+        // owner 1석을 빼면 나머지 인원용 좌석은 (standardMaxSeats - 1) — id가 가장 작은 m1과 그 다음
+        // (standardMaxSeats - 2)명(middle)까지가 유지 대상이 되려면 좌석이 최소 2석은 있어야 한다.
+        assertThat(standardMaxSeats).isGreaterThanOrEqualTo(2);
+
+        // 생성 순서 = id 오름차순: m1(가장 먼저) → middle(좌석 안에 들어가는 나머지) → overflow(좌석 밖,
+        // 유일하게 정지될 1명). 활성 총원 = owner(1) + m1(1) + middle(standardMaxSeats-2) + overflow(1)
+        //            = standardMaxSeats + 1 → 좌석을 정확히 1명 초과한다.
         User m1 = saveUser(Role.USER, fx.company().getId());
-        saveUser(Role.USER, fx.company().getId());
+        java.util.List<User> middle = new java.util.ArrayList<>();
+        for (int i = 0; i < standardMaxSeats - 2; i++) {
+            middle.add(saveUser(Role.USER, fx.company().getId()));
+        }
+        User overflow = saveUser(Role.USER, fx.company().getId());
 
         mockMvc.perform(patch("/api/admin/plan")
                         .with(csrf()).with(authentication(authOf(fx.admin())))
@@ -365,8 +382,17 @@ class AdminPlanControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk());
 
         // keepUserIds 를 아예 보내지 않아도(하위 호환) id 오름차순 자동 선정이 그대로 동작한다 —
-        // owner + id가 가장 작은 m1이 유지되고, 나머지 정지.
-        assertThat(userRepository.findById(m1.getId()).orElseThrow().getStatus()).isEqualTo(UserStatus.ACTIVE);
+        // owner + m1 + middle 전원이 유지되고, 좌석 밖으로 밀려난 overflow 1명만 정지된다.
+        assertThat(userRepository.findById(fx.admin().getId()).orElseThrow().getStatus())
+                .isEqualTo(UserStatus.ACTIVE);
+        assertThat(userRepository.findById(m1.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserStatus.ACTIVE);
+        for (User mid : middle) {
+            assertThat(userRepository.findById(mid.getId()).orElseThrow().getStatus())
+                    .isEqualTo(UserStatus.ACTIVE);
+        }
+        assertThat(userRepository.findById(overflow.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserStatus.SUSPENDED);
     }
 
     // ── 회사 멤버별 쿼터 목록(#525 팔로우업 — PR머신 P2: 이 엔드포인트가 테스트에서 전혀 검증되지 않았음) ──

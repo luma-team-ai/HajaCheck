@@ -99,13 +99,15 @@ class AdminPlanServiceTest {
                 companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
         when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(targetPlan));
         // 이 테스트의 관심사는 동시성 경합(409) 매핑이라 하향 초과는 없는 상황으로 고정한다(#890).
-        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class))).thenReturn(DowngradeOverflow.none());
+        // changePlan은 항상 4-인자 preview로 위임한다(재검토 F-9 — 3-인자 오버로드는 런타임 경로가 아니다).
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class), any()))
+                .thenReturn(DowngradeOverflow.none());
         // 첫 saveAndFlush(만료 처리)는 성공, 두 번째(신규 ACTIVE 삽입)에서 부분 UQ 위반을 재현한다.
         when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
                 .thenReturn(current)
                 .thenThrow(new DataIntegrityViolationException("uq_user_plans_active_company violated"));
 
-        assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.STANDARD, false))
+        assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.STANDARD, false, List.of()))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT));
@@ -126,7 +128,7 @@ class AdminPlanServiceTest {
         when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
         when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
 
-        assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.STANDARD, false))
+        assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.STANDARD, false, List.of()))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_FORBIDDEN));
@@ -176,17 +178,18 @@ class AdminPlanServiceTest {
         when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
                 companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
         when(planRepository.findByName(PlanName.FREE)).thenReturn(Optional.of(targetPlan));
-        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class)))
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class), any()))
                 .thenReturn(new DowngradeOverflow(List.of(7L, 8L), 3));
 
-        assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.FREE, false))
+        assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.FREE, false, List.of()))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED));
 
         // 부작용 부재가 이 테스트의 핵심 — 구독 전이도, 좌석 정지도 시도되지 않아야 한다.
         verify(adminPlanRepository, never()).saveAndFlush(any(UserPlan.class));
-        verify(planDowngradeService, never()).applyOverflow(anyLong(), any(Plan.class), any(Plan.class));
+        verify(planDowngradeService, never())
+                .applyOverflow(anyLong(), any(Plan.class), any(DowngradeOverflow.class));
     }
 
     @Test
@@ -207,26 +210,33 @@ class AdminPlanServiceTest {
         when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
                 companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
         when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(targetPlan));
-        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class))).thenReturn(DowngradeOverflow.none());
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class), any()))
+                .thenReturn(DowngradeOverflow.none());
         when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.changePlan(adminUserId, PlanName.STANDARD, false);
+        service.changePlan(adminUserId, PlanName.STANDARD, false, List.of());
 
         // (current, target) 순서가 뒤바뀌면 isNarrowing 판정이 통째로 뒤집혀 P1 이 재발한다(재검토 P2).
-        // 같은 타입 파라미터가 인접해 스왑이 쉬우므로 구체 인자로 순서를 고정한다.
+        // 같은 타입 파라미터가 인접해 스왑이 쉬우므로 구체 인자로 순서를 고정한다. applyOverflow는 이제
+        // Plan을 하나만 받으므로(재검토 F-7/F-9 — DowngradeOverflow를 재계산하지 않고 그대로 적용) 이
+        // 회귀선은 preview() 호출의 (currentPlan, targetPlan) 인자 순서에 재고정한다.
         ArgumentCaptor<Plan> plans = ArgumentCaptor.forClass(Plan.class);
-        verify(planDowngradeService).applyOverflow(eq(companyId), plans.capture(), plans.capture());
+        verify(planDowngradeService).preview(eq(companyId), plans.capture(), plans.capture(), any());
         assertThat(plans.getAllValues()).extracting(Plan::getName)
                 .containsExactly(PlanName.FREE, PlanName.STANDARD);
+        verify(planDowngradeService).applyOverflow(eq(companyId), any(Plan.class), any(DowngradeOverflow.class));
     }
 
-    // ── keepUserIds 전달(#890 Phase 2) — AdminPlanService 는 PlanDowngradeService 로 그대로 넘길 뿐이라,
-    // 여기서는 "빈 값이면 기존 3-인자 오버로드, 값이 있으면 4-인자 오버로드로 정확히 위임되는지"만 본다.
-    // 실제 검증(회사 스코프·좌석 초과·owner·ACTIVE ADMIN)은 PlanDowngradeServiceTest가 고정한다.
+    // ── keepUserIds 전달(#890 Phase 2) — AdminPlanService는 preview()를 정확히 한 번 호출해 그 결과를
+    // overflowConfirmed 판정과 applyOverflow 양쪽에 재사용한다(재검토 F-7/F-9). 오버로드 선택 여부가 아니라
+    // "어떤 keepUserIds 값이 그대로 preview에 전달됐는가"를 ArgumentCaptor로 단정한다 — 오버로드 구조 자체는
+    // 런타임 의미가 없는 목 stub용 분기였으므로 계약으로 고정하지 않는다. 실제 검증(회사 스코프·좌석 초과·
+    // owner·ACTIVE ADMIN)은 PlanDowngradeServiceTest가 고정한다.
 
     @Test
-    void keepUserIds가_비어있으면_기존3인자_preview오버로드로_위임한다() {
+    @SuppressWarnings("unchecked")
+    void keepUserIds가_비어있으면_preview에_빈리스트로_전달되고_preview결과가_그대로_applyOverflow에_재사용된다() {
         Long adminUserId = 1L;
         Long companyId = 10L;
         User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
@@ -236,27 +246,31 @@ class AdminPlanServiceTest {
                 new BigDecimal("29000.00"));
         Company company = Company.createPendingReview(adminUserId, "회사", "123-45-67890",
                 "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+        DowngradeOverflow overflow = DowngradeOverflow.none();
 
         when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
         when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
         when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
                 companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
         when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(targetPlan));
-        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class)))
-                .thenReturn(DowngradeOverflow.none());
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class), any()))
+                .thenReturn(overflow);
         when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         service.changePlan(adminUserId, PlanName.STANDARD, false, List.of());
 
-        verify(planDowngradeService).preview(eq(companyId), any(Plan.class), any(Plan.class));
-        verify(planDowngradeService).applyOverflow(eq(companyId), any(Plan.class), any(Plan.class));
-        verify(planDowngradeService, never())
-                .preview(anyLong(), any(Plan.class), any(Plan.class), any());
+        ArgumentCaptor<List<Long>> keepUserIdsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(planDowngradeService)
+                .preview(eq(companyId), any(Plan.class), any(Plan.class), keepUserIdsCaptor.capture());
+        assertThat(keepUserIdsCaptor.getValue()).isEmpty();
+        // preview 결과(overflow)가 그대로 applyOverflow에 재사용된다 — 재조회 없음(재검토 F-7).
+        verify(planDowngradeService).applyOverflow(companyId, targetPlan, overflow);
     }
 
     @Test
-    void keepUserIds가_지정되면_4인자_오버로드로_그대로_위임한다() {
+    @SuppressWarnings("unchecked")
+    void keepUserIds가_지정되면_preview에_그대로_전달되고_preview결과가_applyOverflow에_재사용된다() {
         Long adminUserId = 1L;
         Long companyId = 10L;
         List<Long> keepUserIds = List.of(3L, 4L);
@@ -266,6 +280,7 @@ class AdminPlanServiceTest {
         Plan targetPlan = Plan.create(PlanName.FREE, 1, 50, 1, true, false, false, BigDecimal.ZERO);
         Company company = Company.createPendingReview(adminUserId, "회사", "123-45-67890",
                 "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+        DowngradeOverflow overflow = DowngradeOverflow.none();
 
         when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
         when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
@@ -273,20 +288,22 @@ class AdminPlanServiceTest {
                 companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
         when(planRepository.findByName(PlanName.FREE)).thenReturn(Optional.of(targetPlan));
         when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class), eq(keepUserIds)))
-                .thenReturn(DowngradeOverflow.none());
+                .thenReturn(overflow);
         when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         service.changePlan(adminUserId, PlanName.FREE, false, keepUserIds);
 
-        verify(planDowngradeService).preview(eq(companyId), any(Plan.class), any(Plan.class), eq(keepUserIds));
+        ArgumentCaptor<List<Long>> keepUserIdsCaptor = ArgumentCaptor.forClass(List.class);
         verify(planDowngradeService)
-                .applyOverflow(eq(companyId), any(Plan.class), any(Plan.class), eq(keepUserIds));
-        verify(planDowngradeService, never()).preview(anyLong(), any(Plan.class), any(Plan.class));
+                .preview(eq(companyId), any(Plan.class), any(Plan.class), keepUserIdsCaptor.capture());
+        assertThat(keepUserIdsCaptor.getValue()).containsExactlyElementsOf(keepUserIds);
+        verify(planDowngradeService).applyOverflow(companyId, targetPlan, overflow);
     }
 
     @Test
-    void previewChange도_keepUserIds가_지정되면_4인자_오버로드로_위임한다() {
+    @SuppressWarnings("unchecked")
+    void previewChange도_keepUserIds가_지정되면_preview에_그대로_전달된다() {
         Long adminUserId = 1L;
         Long companyId = 10L;
         List<Long> keepUserIds = List.of(7L);
@@ -308,6 +325,9 @@ class AdminPlanServiceTest {
 
         service.previewChange(adminUserId, PlanName.FREE, keepUserIds);
 
-        verify(planDowngradeService).preview(eq(companyId), any(Plan.class), any(Plan.class), eq(keepUserIds));
+        ArgumentCaptor<List<Long>> keepUserIdsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(planDowngradeService)
+                .preview(eq(companyId), any(Plan.class), any(Plan.class), keepUserIdsCaptor.capture());
+        assertThat(keepUserIdsCaptor.getValue()).containsExactlyElementsOf(keepUserIds);
     }
 }
