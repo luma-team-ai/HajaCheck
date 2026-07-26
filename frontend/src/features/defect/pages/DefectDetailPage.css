@@ -238,7 +238,27 @@
   background: var(--color-primary);
 }
 
+.defect-activity-meta { display: flex; align-items: center; gap: 8px; }
 .defect-activity-meta time { color: var(--color-text-muted); font-size: 12px; }
+
+.defect-activity-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 9999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.defect-activity-status-badge > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
 .defect-activity-list p { margin: 6px 0 0; color: var(--color-text-default); font-size: 13px; line-height: 1.5; }
 
 .defect-activity-pagination { display: flex; justify-content: center; margin-top: 16px; }
