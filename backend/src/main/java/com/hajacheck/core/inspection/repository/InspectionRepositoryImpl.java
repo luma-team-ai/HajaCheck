@@ -1,14 +1,20 @@
 package com.hajacheck.core.inspection.repository;
 
+import com.hajacheck.core.defect.entity.Defect;
+import com.hajacheck.core.defect.entity.DefectGrade;
+import com.hajacheck.core.defect.entity.DefectStatus;
+import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.AbstractQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,6 +28,13 @@ import org.springframework.data.support.PageableExecutionUtils;
  * named enum(inspection_status_type) 파라미터를 null로 바인딩할 때 "could not determine data type of
  * parameter" 예외를 일으킨다(DefectRepositoryImpl과 동일한 이유). 필터가 없으면 predicate 자체를
  * 생성하지 않는 Criteria API 방식으로 우회한다.
+ *
+ * <p>#878(HAJA-452) — 하자 조건(자연어) 필터 확장: defectType/defectGrade/defectStatus 는 JOIN이 아니라
+ * correlated EXISTS 서브쿼리로 건다. JOIN을 쓰면 한 점검에 하자가 여러 건일 때 점검 단위 페이지네이션이
+ * 하자 단위로 뻥튀기되고, 서로 다른 하자가 각각 조건 일부만 만족해도 매칭돼버린다. EXISTS는 "같은 하자
+ * 하나가 주어진 조건(type/grade/status)을 전부 동시에 만족"하는지를 강제하면서도 점검 1행당 결과 1행을
+ * 유지한다(계약 §"GET /api/inspections — 하자 조건(자연어) 필터 확장" — nl-search가 산출하는
+ * {type[], grade[], status[]} 는 "하나의 하자 프로파일"을 나타낸다).
  */
 @RequiredArgsConstructor
 public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
@@ -30,7 +43,9 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
 
     @Override
     public Page<Inspection> findPageByCompanyIdAndFilters(
-            Long companyId, Long facilityId, InspectionStatus status, Pageable pageable) {
+            Long companyId, Long facilityId, InspectionStatus status,
+            List<DefectType> defectTypes, List<DefectGrade> defectGrades, List<DefectStatus> defectStatuses,
+            Pageable pageable) {
 
         CriteriaBuilder cb = em.getCriteriaBuilder();
 
@@ -40,7 +55,9 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
         root.fetch("facility");
 
         query.select(root)
-                .where(buildPredicates(cb, root, facility, companyId, facilityId, status).toArray(new Predicate[0]))
+                .where(buildPredicates(cb, query, root, facility, companyId, facilityId, status,
+                                defectTypes, defectGrades, defectStatuses)
+                        .toArray(new Predicate[0]))
                 .orderBy(cb.desc(root.get("inspectionDate")), cb.desc(root.get("id")));
 
         List<Inspection> content = em.createQuery(query)
@@ -52,7 +69,8 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
         Root<Inspection> countRoot = countQuery.from(Inspection.class);
         Join<Inspection, Facility> countFacility = countRoot.join("facility");
         countQuery.select(cb.count(countRoot))
-                .where(buildPredicates(cb, countRoot, countFacility, companyId, facilityId, status)
+                .where(buildPredicates(cb, countQuery, countRoot, countFacility, companyId, facilityId, status,
+                                defectTypes, defectGrades, defectStatuses)
                         .toArray(new Predicate[0]));
 
         Long total = em.createQuery(countQuery).getSingleResult();
@@ -61,8 +79,9 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
     }
 
     private List<Predicate> buildPredicates(
-            CriteriaBuilder cb, Root<Inspection> root, Join<Inspection, Facility> facility,
-            Long companyId, Long facilityId, InspectionStatus status) {
+            CriteriaBuilder cb, AbstractQuery<?> query, Root<Inspection> root, Join<Inspection, Facility> facility,
+            Long companyId, Long facilityId, InspectionStatus status,
+            List<DefectType> defectTypes, List<DefectGrade> defectGrades, List<DefectStatus> defectStatuses) {
         List<Predicate> predicates = new ArrayList<>();
         predicates.add(cb.equal(facility.get("companyId"), companyId));
         if (facilityId != null) {
@@ -71,7 +90,54 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
         if (status != null) {
             predicates.add(cb.equal(root.get("status"), status));
         }
+        Predicate defectExists = buildDefectFilterExistsPredicate(
+                cb, query, root, defectTypes, defectGrades, defectStatuses);
+        if (defectExists != null) {
+            predicates.add(defectExists);
+        }
         return predicates;
+    }
+
+    /**
+     * #878 — defectType/defectGrade/defectStatus 가 1개 이상 주어지면, 그 점검(inspection) 소속 하자 중
+     * "삭제되지 않았고 주어진 조건을 전부(AND) 만족하는" 하자가 하나라도 있는지 correlated EXISTS로 확인한다.
+     * 세 파라미터가 전부 비어있으면 null 을 반환해 호출부가 predicate 자체를 추가하지 않게 한다(house style —
+     * 필터가 없으면 이전 동작과 완전히 동일해야 회귀가 없다).
+     */
+    private Predicate buildDefectFilterExistsPredicate(
+            CriteriaBuilder cb, AbstractQuery<?> query, Root<Inspection> inspectionRoot,
+            List<DefectType> defectTypes, List<DefectGrade> defectGrades, List<DefectStatus> defectStatuses) {
+        boolean hasType = defectTypes != null && !defectTypes.isEmpty();
+        boolean hasGrade = defectGrades != null && !defectGrades.isEmpty();
+        boolean hasStatus = defectStatuses != null && !defectStatuses.isEmpty();
+        if (!hasType && !hasGrade && !hasStatus) {
+            return null;
+        }
+
+        Subquery<Long> subquery = query.subquery(Long.class);
+        Root<Defect> defectRoot = subquery.from(Defect.class);
+        subquery.select(cb.literal(1L));
+
+        List<Predicate> defectPredicates = new ArrayList<>();
+        // 상관(correlation) — 이 서브쿼리를 아우터 Inspection 행 하나당 평가한다.
+        defectPredicates.add(cb.equal(defectRoot.get("inspectionId"), inspectionRoot.get("id")));
+        defectPredicates.add(cb.isFalse(defectRoot.get("deleted")));
+        if (hasType) {
+            defectPredicates.add(defectRoot.get("type").in(defectTypes));
+        }
+        if (hasGrade) {
+            // DefectRepositoryImpl.buildPredicates 의 grade 필터(단일값, "X 등급 이상" 임계값
+            // greaterThanOrEqualTo)와 의도적으로 다르다 — 이쪽은 nl-search(POST /api/defects/nl-search)가
+            // 산출한 NlSearchFilters.grade 배열을 그대로 IN 절로 실어 정확 매칭한다(자연어가 이미 "D 이상"
+            // 같은 임계값을 등급 배열로 풀어서 내려주므로, 여기서 또 임계값 의미를 얹으면 이중 해석이 된다).
+            defectPredicates.add(defectRoot.get("grade").in(defectGrades));
+        }
+        if (hasStatus) {
+            defectPredicates.add(defectRoot.get("status").in(defectStatuses));
+        }
+        subquery.where(defectPredicates.toArray(new Predicate[0]));
+
+        return cb.exists(subquery);
     }
 
     /**

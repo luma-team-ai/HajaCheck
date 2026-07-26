@@ -4,6 +4,9 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
+import com.hajacheck.core.defect.entity.DefectGrade;
+import com.hajacheck.core.defect.entity.DefectStatus;
+import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.InspectionDefectCountProjection;
 import com.hajacheck.core.facility.dto.FacilityResponse;
@@ -105,12 +108,18 @@ public class InspectionService {
      * 점검 목록 조회(HAJA-393/#725) — 하자 목록 화면 개편 "①점검 단위 목록". 회사 스코프는
      * InspectionRepositoryImpl 이 facility.companyId 조인으로 강제하므로, facilityId 필터에 타사 소유
      * 시설물을 넘겨도 빈 결과만 나온다(cross-company IDOR 방지, DefectService.list()와 동일 원칙).
+     *
+     * <p>#878(HAJA-452) — defectTypes/defectGrades/defectStatuses 는 자연어 하자조건 검색
+     * (POST /api/defects/nl-search)이 산출한 필터를 그대로 실어 재조회하는 용도. 회사 스코프 검증은
+     * 위 기존 로직 그대로이며, 새 파라미터는 repository 의 EXISTS 서브쿼리로만 매칭에 관여한다.
      */
     public PageResponse<InspectionListItemResponse> list(
-            Long userId, Long companyId, Long facilityId, InspectionStatus status, Pageable pageable) {
+            Long userId, Long companyId, Long facilityId, InspectionStatus status,
+            List<DefectType> defectTypes, List<DefectGrade> defectGrades, List<DefectStatus> defectStatuses,
+            Pageable pageable) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
-        Page<Inspection> page =
-                inspectionRepository.findPageByCompanyIdAndFilters(companyId, facilityId, status, pageable);
+        Page<Inspection> page = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId, facilityId, status, defectTypes, defectGrades, defectStatuses, pageable);
 
         List<Long> inspectionIds = page.getContent().stream().map(Inspection::getId).toList();
         Map<Long, Long> defectCountByInspectionId = inspectionIds.isEmpty() ? Map.of()
