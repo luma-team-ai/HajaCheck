@@ -14,6 +14,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { adminPlanHandlers } from '../api/adminPlanApi.handlers';
 import { planQuotaHandlers } from '../api/planQuotaApi.handlers';
 import { PLAN_QUOTA_KPI_TEST_ID } from '../components/PlanQuotaKpiCards';
+import { mockPlanQuotaUsers } from '../mocks/planQuotaUsers.mock';
+import { PLAN_QUOTA_DEFAULT_PAGE_SIZE } from '../planQuota.constants';
 import { PlanQuotaPage } from './PlanQuotaPage';
 
 const server = setupServer(...planQuotaHandlers, ...adminPlanHandlers);
@@ -199,5 +201,138 @@ describe('PlanQuotaPage (통합 테스트)', () => {
     // KPI는 사라지지 않고 "-"로 자리를 지킨다
     const kpi = within(screen.getByTestId(PLAN_QUOTA_KPI_TEST_ID));
     expect(kpi.getAllByText('-').length).toBeGreaterThan(0);
+  });
+});
+
+// 플랜 변경 흐름(#890 Phase 1 확인 UX + Phase 2 keepUserIds) — PlanChangeControl + PlanDowngradeConfirmModal.
+// adminPlanApi.handlers.ts의 목은 planQuotaUsers.mock.ts의 활성 멤버 7명(plan !== null, 1번 김민준을
+// owner로 가정)으로 좌석 초과를 재현한다 — FREE(좌석 1)로 내리면 owner만 남고 나머지 6명이 정지된다.
+describe('PlanQuotaPage — 플랜 변경(#890)', () => {
+  it('requiresConfirmation=false(초과 없음)면 확인 모달 없이 즉시 반영된다', async () => {
+    renderPage();
+    await screen.findByText('김민준');
+
+    // 현재 STANDARD → ENTERPRISE(무제한)는 넘치는 자원이 없다.
+    fireEvent.change(screen.getByLabelText('변경할 요금제'), { target: { value: 'ENTERPRISE' } });
+    fireEvent.click(screen.getByRole('button', { name: '변경' }));
+
+    // 확인 모달 없이 바로 처리 — 선택값이 플레이스홀더로 리셋된다.
+    await waitFor(() => {
+      expect((screen.getByLabelText('변경할 요금제') as HTMLSelectElement).value).toBe('');
+    });
+    expect(screen.queryByText(/플랜으로 변경/)).toBeNull();
+  });
+
+  it('requiresConfirmation=true(좌석 초과)면 확인 모달에 정지될 구성원 이름·이메일이 뜬다', async () => {
+    renderPage();
+    await screen.findByText('김민준');
+
+    // STANDARD → FREE(좌석 1)는 owner 외 전원이 넘친다.
+    fireEvent.change(screen.getByLabelText('변경할 요금제'), { target: { value: 'FREE' } });
+    fireEvent.click(screen.getByRole('button', { name: '변경' }));
+
+    expect(await screen.findByText('Free 플랜으로 변경')).toBeTruthy();
+    // 이서연은 아래 표(page1)에도 같은 이름이 렌더되므로 모달(dialog) 범위로 좁혀 조회한다.
+    // 미리보기 자체가 비동기 조회라 findByText로 로딩이 끝나길 기다린다.
+    const dialog = within(screen.getByRole('dialog'));
+    expect(await dialog.findByText('정지될 구성원 6명')).toBeTruthy();
+    expect(dialog.getByText('이서연')).toBeTruthy();
+    expect(dialog.getByText('seoyeon.lee@company.com')).toBeTruthy();
+  });
+
+  it('확인 모달에서 유지할 구성원을 직접 선택하면 그 인원이 정지 대상에서 빠진다', async () => {
+    // FREE(좌석 1)는 owner 외 아무도 더 유지할 여유가 없어(추가 선택=좌석 초과) 선택 교체를 보여줄 수
+    // 없다 — 좌석에 여유가 있는 STANDARD(좌석 3)로 내리는 시나리오로 재현한다(현재 플랜을 ENTERPRISE로
+    // override). 기본 선택(id 오름차순)은 owner(1)+이서연(2)+박도윤(3) 유지, 나머지 4명 정지다.
+    server.use(
+      http.get('/api/admin/plan-quota', ({ request }) => {
+        // 모달의 유지 대상 선택 목록(size=100)과 페이지의 표(size=4)가 같은 엔드포인트를 쓰므로,
+        // 두 호출 모두 실제 멤버 데이터를 그대로 페이징해 돌려주고 companyPlan만 override한다.
+        const url = new URL(request.url);
+        const page = Number(url.searchParams.get('page') ?? 1);
+        const size = Number(url.searchParams.get('size') ?? PLAN_QUOTA_DEFAULT_PAGE_SIZE);
+        const start = (page - 1) * size;
+        return HttpResponse.json({
+          success: true,
+          data: {
+            content: mockPlanQuotaUsers.slice(start, start + size),
+            page,
+            size,
+            totalElements: mockPlanQuotaUsers.length,
+            stats: { activeUsers: 7, totalQuotaUsagePercent: 29, companyPlan: 'ENTERPRISE' },
+          },
+        });
+      }),
+    );
+    renderPage();
+    await screen.findByText('Enterprise');
+
+    fireEvent.change(screen.getByLabelText('변경할 요금제'), { target: { value: 'STANDARD' } });
+    fireEvent.click(screen.getByRole('button', { name: '변경' }));
+
+    await screen.findByText('정지될 구성원 4명');
+    // 롤 목록은 회사 전 구성원을 항상 보여준다(체크=유지, 해제=정지) — 박도윤·최지우는 아래 표(page1)
+    // 에도 같은 이름이 렌더되므로 모달(dialog) 범위로 좁혀 조회하고, "정지 여부"는 체크박스 상태로
+    // 검증한다(이름·이메일 자체는 유지 대상이어도 정지 대상이어도 항상 렌더되므로 존재 유무로는
+    // 판별할 수 없다).
+    const dialog = within(screen.getByRole('dialog'));
+    const doyoonCheckbox = within(dialog.getByText('박도윤').closest('label') as HTMLElement).getByRole(
+      'checkbox',
+    ) as HTMLInputElement;
+    const jiwooCheckbox = within(dialog.getByText('최지우').closest('label') as HTMLElement).getByRole(
+      'checkbox',
+    ) as HTMLInputElement;
+
+    // 기본값(id 오름차순 자동 선정): owner(1)+이서연(2)+박도윤(3) 유지, 최지우(4번째)는 정지 대상.
+    expect(doyoonCheckbox.checked).toBe(true);
+    expect(jiwooCheckbox.checked).toBe(false);
+
+    // 박도윤을 해제하고 최지우를 유지로 선택한다 — 유지 인원 수는 그대로(3명)이므로 좌석 한도를
+    // 넘기지 않는다.
+    fireEvent.click(doyoonCheckbox);
+    fireEvent.click(jiwooCheckbox);
+
+    expect(doyoonCheckbox.checked).toBe(false);
+    expect(jiwooCheckbox.checked).toBe(true);
+  });
+
+  it('미리보기 이후 확인이 필요해지는 경합(409)이 나면 확인 모달로 방어적으로 전환한다', async () => {
+    // 미리보기(change-preview)는 초과 없음을 반환하지만, 실제 PATCH 시점엔 인원이 늘어 서버가
+    // 409(PLAN_DOWNGRADE_CONFIRMATION_REQUIRED)를 돌려주는 경합 상황을 재현한다. 메시지 문자열이
+    // 아니라 에러 코드로 분기해야 한다(핸드오프 §1-4).
+    server.use(
+      http.get('/api/admin/plan/change-preview', () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            targetPlan: 'ENTERPRISE',
+            requiresConfirmation: false,
+            seatsToSuspend: [],
+            facilityOverflowCount: 0,
+          },
+        }),
+      ),
+      http.patch('/api/admin/plan', () =>
+        HttpResponse.json(
+          {
+            success: false,
+            data: null,
+            error: {
+              code: 'PLAN_DOWNGRADE_CONFIRMATION_REQUIRED',
+              message: '하향으로 한도를 넘는 자원이 있어 확인이 필요합니다.',
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    renderPage();
+    await screen.findByText('김민준');
+
+    fireEvent.change(screen.getByLabelText('변경할 요금제'), { target: { value: 'ENTERPRISE' } });
+    fireEvent.click(screen.getByRole('button', { name: '변경' }));
+
+    // 문자열 매칭이 아니라 에러 코드 분기로 확인 모달이 열린다.
+    expect(await screen.findByText('Enterprise 플랜으로 변경')).toBeTruthy();
   });
 });
