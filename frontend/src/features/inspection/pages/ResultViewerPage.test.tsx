@@ -728,7 +728,13 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     expect(await screen.findByText('등급 수정')).not.toBeNull();
     // 라디오 그룹 확인
-    expect(screen.getByRole('radiogroup', { name: '등급 선택' })).not.toBeNull();
+    const radioGroup = screen.getByRole('radiogroup', { name: '등급 선택' });
+    expect(radioGroup).not.toBeNull();
+    // 등급별 색상 점이 5개 전부 렌더되는지(#944 — 등급관리 색상표와 동일한 색)
+    const dots = radioGroup.querySelectorAll('span[aria-hidden="true"]');
+    expect(dots.length).toBe(5);
+    expect((dots[0] as HTMLElement).style.backgroundColor).toBe('rgb(22, 163, 74)'); // A #16A34A
+    expect((dots[4] as HTMLElement).style.backgroundColor).toBe('rgb(220, 38, 38)'); // E #DC2626
   });
 
   it('등급 수정 모달에서 라디오 버튼으로 등급을 선택할 수 있다 (#827)', async () => {
