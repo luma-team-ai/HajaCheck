@@ -87,4 +87,39 @@ describe('loadKakaoMapSdk', () => {
     const secondCall = loadKakaoMapSdk();
     expect(secondCall).not.toBe(firstCall);
   });
+
+  it('script.onload 발생 시 kakao.maps가 생성되어도 load() 콜백 전 동시 재호출은 pending Promise를 공유한다 (#835 P2 가드)', async () => {
+    const { loadKakaoMapSdk } = await importFreshModule();
+
+    let mapLoadCallback: (() => void) | null = null;
+    const firstCall = loadKakaoMapSdk();
+
+    const script = document.getElementById(SCRIPT_ID) as HTMLScriptElement;
+    // script.onload에서 window.kakao.maps 네임스페이스는 생겼지만 load() 콜백은 아직 실행되지 않은 상태 지연
+    (window as unknown as { kakao: { maps: { load: (cb: () => void) => void } } }).kakao = {
+      maps: {
+        load: (cb: () => void) => {
+          mapLoadCallback = cb;
+        },
+      },
+    };
+    script.onload?.(new Event('load'));
+
+    // window.kakao.maps는 존재하지만 지연 상태에서 두 번째 호출 수행
+    const secondCall = loadKakaoMapSdk();
+    expect(secondCall).toBe(firstCall);
+
+    // 콜백이 실행되기 전에는 두 Promise 모두 unresolved
+    let resolved = false;
+    firstCall.then(() => {
+      resolved = true;
+    });
+    expect(resolved).toBe(false);
+
+    // 지연된 콜백 실행 시 비로소 resolve
+    const invokeCallback = mapLoadCallback as (() => void) | null;
+    invokeCallback?.();
+    await expect(firstCall).resolves.toBeUndefined();
+    await expect(secondCall).resolves.toBeUndefined();
+  });
 });
