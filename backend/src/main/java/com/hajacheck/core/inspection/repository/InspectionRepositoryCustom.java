@@ -39,8 +39,12 @@ public interface InspectionRepositoryCustom {
      * @param matchingCreatorIds query 로 이름이 매칭된 담당자(User) id 목록(서비스가 UserRepository로
      *                          선조회) — query 가 있고 매칭된 사용자가 있으면 facility.name OR
      *                          createdBy IN(:matchingCreatorIds)로 결합한다.
+     * @param facilityTypeCategory null/blank = 시설물 종류 필터 없음, 아니면 facility.type 접두 매칭
+     *                          (예: "건물" → "건물"·"건물-긴급-1개월" 등 컴파운드 값까지 전부 매칭 —
+     *                          #731 등록 모달이 "{종류}-{점검유형}-{주기}" 조합 문자열을 저장하므로
+     *                          접두(prefix) LIKE로 종류만 추출해 매칭한다).
      */
     Page<Inspection> findRecentInspectionsPage(
-            Long companyId, Long facilityId, Collection<InspectionStatus> statuses,
+            Long companyId, Long facilityId, String facilityTypeCategory, Collection<InspectionStatus> statuses,
             String query, Collection<Long> matchingCreatorIds, Pageable pageable);
 }

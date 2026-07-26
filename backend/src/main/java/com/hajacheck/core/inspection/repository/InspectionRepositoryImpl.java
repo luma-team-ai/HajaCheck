@@ -196,7 +196,7 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
 
     @Override
     public Page<Inspection> findRecentInspectionsPage(
-            Long companyId, Long facilityId, Collection<InspectionStatus> statuses,
+            Long companyId, Long facilityId, String facilityTypeCategory, Collection<InspectionStatus> statuses,
             String query, Collection<Long> matchingCreatorIds, Pageable pageable) {
 
         CriteriaBuilder cb = em.getCriteriaBuilder();
@@ -204,11 +204,13 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
         CriteriaQuery<Inspection> selectQuery = cb.createQuery(Inspection.class);
         Root<Inspection> root = selectQuery.from(Inspection.class);
         Join<Inspection, Facility> facility = root.join("facility");
-        root.fetch("facility");
+        // 시설물명은 companyId/facilityId 등의 predicate에만 쓰이고 응답 매핑은 서비스가
+        // facilityRepository.findAllById로 배치 재조회하므로, 여기서 fetch join으로 전체 Facility를
+        // 함께 로딩할 필요가 없다(중복 로딩 방지, code review P3 반영).
 
         selectQuery.select(root)
-                .where(buildRecentPredicates(
-                                cb, root, facility, companyId, facilityId, statuses, query, matchingCreatorIds)
+                .where(buildRecentPredicates(cb, root, facility, companyId, facilityId, facilityTypeCategory,
+                                statuses, query, matchingCreatorIds)
                         .toArray(new Predicate[0]))
                 // 대시보드 기존 최근 점검 정렬(findRecentByFacilityIds)과 동일 기준 — 기본 호출(필터 없음)의
                 // 결과 순서가 오늘의 위젯과 100% 일치해야 하므로 Pageable.getSort()는 쓰지 않는다.
@@ -223,8 +225,8 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
         Root<Inspection> countRoot = countQuery.from(Inspection.class);
         Join<Inspection, Facility> countFacility = countRoot.join("facility");
         countQuery.select(cb.count(countRoot))
-                .where(buildRecentPredicates(cb, countRoot, countFacility, companyId, facilityId, statuses,
-                                query, matchingCreatorIds)
+                .where(buildRecentPredicates(cb, countRoot, countFacility, companyId, facilityId,
+                                facilityTypeCategory, statuses, query, matchingCreatorIds)
                         .toArray(new Predicate[0]));
 
         Long total = em.createQuery(countQuery).getSingleResult();
@@ -234,12 +236,17 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
 
     private List<Predicate> buildRecentPredicates(
             CriteriaBuilder cb, Root<Inspection> root, Join<Inspection, Facility> facility,
-            Long companyId, Long facilityId, Collection<InspectionStatus> statuses,
+            Long companyId, Long facilityId, String facilityTypeCategory, Collection<InspectionStatus> statuses,
             String query, Collection<Long> matchingCreatorIds) {
         List<Predicate> predicates = new ArrayList<>();
         predicates.add(cb.equal(facility.get("companyId"), companyId));
         if (facilityId != null) {
             predicates.add(cb.equal(root.get("facilityId"), facilityId));
+        }
+        if (StringUtils.hasText(facilityTypeCategory)) {
+            // facility.type은 "건물"처럼 단순값이거나(레거시) #731 등록 모달이 저장하는
+            // "건물-긴급-1개월"류 컴파운드 값일 수 있어, 접두(prefix) LIKE로 종류 카테고리만 매칭한다.
+            predicates.add(cb.like(facility.get("type"), facilityTypeCategory.trim() + "%"));
         }
         if (statuses != null && !statuses.isEmpty()) {
             predicates.add(root.get("status").in(statuses));

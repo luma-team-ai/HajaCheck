@@ -222,7 +222,8 @@ public class DashboardService {
      * 검색(시설물명 또는 담당자명)을 지원한다.
      */
     public PageResponse<RecentInspectionResponse> searchRecentInspections(
-            Long userId, Long companyId, Long facilityId, String statusLabel, String query, Pageable pageable) {
+            Long userId, Long companyId, Long facilityId, String facilityType, String statusLabel, String query,
+            Pageable pageable) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
 
         Set<InspectionStatus> statuses = resolveStatusLabel(statusLabel);
@@ -236,7 +237,7 @@ public class DashboardService {
                 : List.of();
 
         Page<Inspection> page = inspectionRepository.findRecentInspectionsPage(
-                companyId, facilityId, statuses, trimmedQuery, matchingCreatorIds, safePageable);
+                companyId, facilityId, facilityType, statuses, trimmedQuery, matchingCreatorIds, safePageable);
 
         List<Inspection> content = page.getContent();
         if (content.isEmpty()) {

@@ -78,11 +78,13 @@ public class DashboardController {
     public ResponseEntity<ApiResponse<PageResponse<RecentInspectionResponse>>> searchRecentInspections(
             @AuthenticationPrincipal LoginUser loginUser,
             @RequestParam(required = false) Long facilityId,
+            @RequestParam(required = false) String facilityType,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String query,
             @PageableDefault(size = 10) Pageable pageable) {
         return ResponseEntity.ok(ApiResponse.ok(dashboardService.searchRecentInspections(
-                loginUser.getUserId(), loginUser.getCompanyId(), facilityId, status, query, pageable)));
+                loginUser.getUserId(), loginUser.getCompanyId(), facilityId, facilityType, status, query,
+                pageable)));
     }
 
     @Operation(summary = "다가오는 점검 예정 시설물 조회",
