@@ -8,10 +8,11 @@ import { setupServer } from 'msw/node';
 import { MemoryRouter } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { adminHandlers } from '../api/adminApi.handlers';
+import { adminPlanHandlers, mockAdminCurrentPlan } from '../api/adminPlanApi.handlers';
 import { STATS_CARD_TEST_ID } from '../components/AdminUserStatsCard';
 import { AdminUsersPage } from './AdminUsersPage';
 
-const server = setupServer(...adminHandlers);
+const server = setupServer(...adminHandlers, ...adminPlanHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
@@ -177,5 +178,59 @@ describe('AdminUsersPage (통합 테스트)', () => {
     expect(await screen.findByRole('status')).toBeTruthy();
     expect(screen.getByText(/상태가 정지\(으\)로 변경되었습니다/)).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  // #872 후속 — 폼을 다 채우고 제출해야만 좌석 한도를 알게 되는 것보다, 버튼 클릭 즉시 얼럿으로
+  // 안내하는 편이 낫다는 판단(사용자 확인)으로 추가된 사전 확인.
+  it('좌석이 가득 찬 상태면 사용자 등록 클릭 시 모달을 열지 않고 얼럿으로 안내한다', async () => {
+    server.use(
+      http.get('/api/admin/plan', () =>
+        HttpResponse.json({
+          success: true,
+          data: { ...mockAdminCurrentPlan, usage: { ...mockAdminCurrentPlan.usage, seatCount: 3 } },
+        }),
+      ),
+    );
+    renderPage();
+
+    await screen.findByText('김지수');
+    fireEvent.click(screen.getByRole('button', { name: '+ 사용자 등록' }));
+
+    expect(await screen.findByRole('status')).toBeTruthy();
+    expect(
+      screen.getByText('좌석이 모두 사용 중입니다. 구성원을 추가하려면 플랜을 업그레이드하세요.'),
+    ).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('좌석이 남아있으면 사용자 등록 클릭 시 모달을 연다', async () => {
+    renderPage();
+
+    await screen.findByText('김지수');
+    fireEvent.click(screen.getByRole('button', { name: '+ 사용자 등록' }));
+
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+  });
+
+  // 좌석 잔여 확인 자체가 실패하면(예: 활성 구독 없음), 조용히 모달을 여는 대신(과거 fail-open)
+  // 실패 사유를 그대로 얼럿으로 보여준다(사용자 확인) — 안내 없이 넘어가면 원인을 알 길이 없어진다.
+  it('좌석 잔여 확인이 실패하면 모달을 열지 않고 실패 사유를 얼럿으로 안내한다', async () => {
+    server.use(
+      http.get('/api/admin/plan', () =>
+        HttpResponse.json(
+          { success: false, data: null, error: { code: 'PLAN_NOT_FOUND', message: '활성 구독을 찾을 수 없습니다.' } },
+          { status: 404 },
+        ),
+      ),
+    );
+    renderPage();
+
+    await screen.findByText('김지수');
+    fireEvent.click(screen.getByRole('button', { name: '+ 사용자 등록' }));
+
+    expect(
+      await screen.findByText('활성 구독 정보를 확인하지 못했습니다. 플랜 상태를 확인하거나 잠시 후 다시 시도해 주세요.'),
+    ).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
