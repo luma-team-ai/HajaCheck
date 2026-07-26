@@ -28,6 +28,6 @@ describe('DefectStatusStepper', () => {
     const upcomingDot = screen.getByText('조치중').previousSibling as HTMLElement;
 
     expect(completedDot.className).toContain('bg-heading');
-    expect(upcomingDot.className).toContain('bg-[#e4e4e7]');
+    expect(upcomingDot.className).toContain('bg-border');
   });
 });
