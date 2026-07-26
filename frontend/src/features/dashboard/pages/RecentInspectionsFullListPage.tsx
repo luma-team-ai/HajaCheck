@@ -102,7 +102,8 @@ export function RecentInspectionsFullListPage() {
       </div>
 
       {/* Figma 재대조(2026-07-26): 검색창이 flex-1로 남은 폭을 전부 차지해 종류 드롭다운이
-          다음 줄로 밀려나던 문제 — 검색창 폭을 max-w-80(320px)으로 고정해 한 줄에 나란히 배치. */}
+          다음 줄로 밀려나던 문제 — 검색창 폭을 max-w-80(320px)으로 고정해 한 줄에 나란히 배치.
+          상태 필터 pill도 별도 줄이 아니라 같은 줄에 나란히 배치한다(2026-07-26 2차 재대조). */}
       <div className="flex flex-wrap items-center gap-3">
         <input
           type="search"
@@ -125,22 +126,22 @@ export function RecentInspectionsFullListPage() {
             </option>
           ))}
         </select>
-      </div>
 
-      <div role="tablist" aria-label="점검 상태 필터" className="flex flex-wrap gap-2">
-        {STATUS_PILLS.map((pill) => (
-          <Button
-            key={pill.label}
-            type="button"
-            role="tab"
-            aria-selected={filters.status === pill.value}
-            variant={filters.status === pill.value ? 'primary' : 'secondary'}
-            size="sm"
-            onClick={() => handleStatusChange(pill.value)}
-          >
-            {pill.label}
-          </Button>
-        ))}
+        <div role="tablist" aria-label="점검 상태 필터" className="flex flex-wrap gap-2">
+          {STATUS_PILLS.map((pill) => (
+            <Button
+              key={pill.label}
+              type="button"
+              role="tab"
+              aria-selected={filters.status === pill.value}
+              variant={filters.status === pill.value ? 'primary' : 'secondary'}
+              size="sm"
+              onClick={() => handleStatusChange(pill.value)}
+            >
+              {pill.label}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {isLoading && <LoadingSpinner />}
