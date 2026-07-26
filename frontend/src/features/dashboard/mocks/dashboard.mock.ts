@@ -7,7 +7,6 @@
 //    → 훅에서 import가 사라졌다고 "고아 export"로 오해하지 말 것(#328 오탐 사례).
 import type {
   AiBriefing,
-  DashboardFacilityOption,
   DashboardSummary,
   GradeDistributionItem,
   PendingPriorityItem,
@@ -261,15 +260,17 @@ export const mockRecentInspectionsFull: RecentInspectionItem[] = [
   },
 ];
 
-// "최근 점검 전체보기" 필터 바의 시설물 select 옵션 목 — defect feature의
-// mockInspectionFacilityOptions와 동일 패턴(feature 간 직접 import 금지, 로컬 복제).
-export const mockDashboardFacilityOptions: DashboardFacilityOption[] = [
-  { id: 1, name: '여의도 파크센터' },
-  { id: 2, name: '강남 오피스타워' },
-  { id: 3, name: '판교 테크노밸리' },
-  { id: 4, name: '송도 물류센터' },
-  { id: 5, name: '수원 스마트팩토리' },
-];
+// "최근 점검 전체보기" 필터 바의 "시설물 종류" — mockRecentInspectionsFull 항목(id)별 카테고리.
+// 실 API는 응답 바디에 종류를 안 돌려주고(facility.type은 필터링에만 쓰임) 요청 파라미터로만
+// 받으므로, MSW 핸들러가 접두(prefix) 매칭을 흉내 내기 위한 핸들러 전용 조회 테이블이다
+// (RecentInspectionResponse에 필드로 노출하지 않는다 — 백엔드 계약과 1:1 유지).
+export const mockRecentInspectionFacilityTypeById: Record<number, string> = {
+  1: '건물', 2: '건물', 3: '건물-긴급-1개월', 4: '기타', 5: '건물',
+  6: '건물', 7: '기타', 8: '건물', 9: '기타', 10: '건물',
+  11: '도로', 12: '기타', 13: '건물', 14: '기타', 15: '건물',
+  16: '기타', 17: '기타', 18: '교량', 19: '도로', 20: '기타',
+  21: '교량-정기-4개월', 22: '건물',
+};
 
 function daysFromNowIsoDate(days: number): string {
   const date = new Date(Date.now() + days * 24 * 60 * 60 * 1000);

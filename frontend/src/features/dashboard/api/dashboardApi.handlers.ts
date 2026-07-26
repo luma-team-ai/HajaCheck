@@ -2,29 +2,22 @@ import { http, HttpResponse } from 'msw';
 import type { ApiResponse, PageResponse } from '../../../shared/api/types';
 import {
   mockAiBriefing,
-  mockDashboardFacilityOptions,
   mockDashboardSummary,
   mockGradeDistribution,
   mockPendingPriority,
+  mockRecentInspectionFacilityTypeById,
   mockRecentInspections,
   mockRecentInspectionsFull,
   mockUpcomingInspections,
 } from '../mocks/dashboard.mock';
 import type {
   AiBriefing,
-  DashboardFacilityOption,
   DashboardSummary,
   GradeDistributionItem,
   PendingPriorityItem,
   RecentInspectionItem,
   UpcomingInspectionItem,
 } from '../types';
-
-// facilityId select 옵션 → facilityName 매핑(목 전용) — RecentInspectionItem 자체엔 facilityId가 없어
-// (BE RecentInspectionResponse와 동일 필드 구성) facilityId 필터를 시뮬레이션하려면 이 매핑이 필요하다.
-const FACILITY_NAME_BY_ID: Record<number, string> = Object.fromEntries(
-  mockDashboardFacilityOptions.map((option) => [option.id, option.name]),
-);
 
 export const dashboardHandlers = [
   http.get('/api/dashboard/summary', () => {
@@ -60,16 +53,18 @@ export const dashboardHandlers = [
     const page = Number(url.searchParams.get('page') ?? '0');
     const size = Number(url.searchParams.get('size') ?? '10');
     const status = url.searchParams.get('status');
-    const facilityIdParam = url.searchParams.get('facilityId');
+    const facilityType = url.searchParams.get('facilityType');
     const query = url.searchParams.get('query')?.trim().toLowerCase();
 
     let filtered = mockRecentInspectionsFull;
     if (status) {
       filtered = filtered.filter((item) => item.status === status);
     }
-    if (facilityIdParam) {
-      const facilityName = FACILITY_NAME_BY_ID[Number(facilityIdParam)];
-      filtered = filtered.filter((item) => item.facilityName === facilityName);
+    if (facilityType) {
+      // 백엔드와 동일하게 접두(prefix) 매칭 — "건물" 선택 시 "건물-긴급-1개월" 컴파운드값도 포함.
+      filtered = filtered.filter((item) =>
+        (mockRecentInspectionFacilityTypeById[item.id] ?? '').startsWith(facilityType),
+      );
     }
     if (query) {
       filtered = filtered.filter(
@@ -84,16 +79,6 @@ export const dashboardHandlers = [
     const body: ApiResponse<PageResponse<RecentInspectionItem>> = {
       success: true,
       data: { content, page, totalElements: filtered.length },
-    };
-    return HttpResponse.json(body);
-  }),
-
-  // "최근 점검 전체보기" 필터 바의 시설물 select 옵션 — dashboard feature 자체 목(feature 간 직접
-  // import 금지 컨벤션에 따라 defect/facility feature의 동일 핸들러와 별개로 등록).
-  http.get('/api/facilities', () => {
-    const body: ApiResponse<DashboardFacilityOption[]> = {
-      success: true,
-      data: mockDashboardFacilityOptions,
     };
     return HttpResponse.json(body);
   }),
