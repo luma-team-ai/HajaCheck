@@ -274,7 +274,11 @@ export function ReportEntryPage() {
   if (!data) return <div className="p-5 text-red-600">데이터를 불러올 수 없습니다.</div>;
 
   return (
-    <div className="flex flex-col gap-8 pb-48">
+    <div className="pb-48">
+      {/* Figma node 180:5040 "Background+Border+Shadow" — 섹션 1~5(제목~최근작업내역)를
+          감싸는 흰색 카드. 이전 구현에 이 바깥 카드 자체가 통째로 빠져 있었다(#927).
+          6.하단 액션바는 Figma에서도 이 카드의 형제 요소(고정 오버레이)라 카드 밖에 둔다. */}
+      <div className="mx-auto flex max-w-[1024px] flex-col gap-8 rounded-[20px] border border-border bg-white p-8 shadow-[0px_8px_12px_rgba(0,0,0,0.08)]">
       {/* 1. Title Section */}
       <div className="flex items-start justify-between">
         <div>
@@ -604,6 +608,7 @@ export function ReportEntryPage() {
           </div>
         </div>
       )}
+      </div>
 
       {/* 6. Sticky Bottom Action Bar */}
       <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-white/80 px-8 py-4 backdrop-blur-md">
