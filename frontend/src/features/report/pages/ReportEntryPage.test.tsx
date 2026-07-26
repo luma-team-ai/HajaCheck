@@ -170,9 +170,9 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
         HttpResponse.json({
           success: true,
           data: [
-            defect(1, '균열', 'C', true), // 확정
-            defect(2, '균열', 'E', false), // 미검수(DETECTED) — 제외돼야 함
-            defect(3, '철근노출', 'D', true), // 확정
+            defect(1, 'CRACK', 'C', true), // 확정
+            defect(2, 'CRACK', 'E', false), // 미검수(DETECTED) — 제외돼야 함
+            defect(3, 'REBAR_EXPOSURE', 'D', true), // 확정
           ],
         }),
       ),
