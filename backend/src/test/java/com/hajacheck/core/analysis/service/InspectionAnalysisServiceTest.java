@@ -651,6 +651,37 @@ class InspectionAnalysisServiceTest {
         assertThat(result.files().get(0).status()).isEqualTo("waiting");
     }
 
+    // ── 사용자 취소("한 번에 하나만" 정책, 2026-07-27) ──
+
+    @Test
+    void cancelAnalysis_ANALYZING이면_세대토큰을갱신하고_상태를되돌리고_진행률캐시를지운다() {
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
+
+        service.cancelAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        // 세대 토큰을 먼저 갱신해야 아직 돌고 있는 워커가 다음 체크포인트에서 스스로 중단·보상한다
+        // (InspectionAnalysisWorker의 기존 펜싱 메커니즘을 그대로 재사용 — 이 메서드는 새 보상 로직을
+        // 만들지 않는다).
+        verify(progressStore).saveGeneration(eq(INSPECTION_ID), org.mockito.ArgumentMatchers.anyString());
+        verify(inspectionService).revertStuckAnalyzing(INSPECTION_ID);
+        verify(progressStore).delete(INSPECTION_ID);
+    }
+
+    @Test
+    void cancelAnalysis_ANALYZING이아니면_아무것도하지않는다() {
+        // 이탈 확인창이 떠 있는 사이 분석이 자연 종료됐거나(done/failed) 애초에 시작 전인 레이스를
+        // 조용히 흡수한다(멱등) — 이미 끝난 분석을 취소 API가 되돌리면 오히려 상태가 역행한다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
+
+        service.cancelAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        verify(progressStore, never()).saveGeneration(any(), any());
+        verify(inspectionService, never()).revertStuckAnalyzing(any());
+        verify(progressStore, never()).delete(any());
+    }
+
     private AnalysisStatusResponse anyProgress() {
         return progressAsOf(java.time.Instant.now());
     }

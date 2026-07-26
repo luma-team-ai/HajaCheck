@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -39,5 +40,14 @@ public class InspectionAnalysisController {
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
         return ResponseEntity.ok(ApiResponse.ok(
                 analysisService.getStatus(loginUser.getUserId(), loginUser.getCompanyId(), id)));
+    }
+
+    @Operation(summary = "AI 분석 취소", description =
+            "진행 중인 AI 분석을 취소한다(\"한 번에 하나만\" 정책) — ANALYZING이 아니면 아무 효과 없이 성공 처리한다")
+    @DeleteMapping
+    public ResponseEntity<Void> cancel(
+            @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
+        analysisService.cancelAnalysis(loginUser.getUserId(), loginUser.getCompanyId(), id);
+        return ResponseEntity.noContent().build();
     }
 }

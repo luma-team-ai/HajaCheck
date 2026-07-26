@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { flushSync } from 'react-dom';
+import { useBlocker, useNavigate, useParams } from 'react-router-dom';
 import { getApiErrorMessage } from '../../../shared/api/types';
 import { Button } from '../../../shared/components/Button';
+import { Modal } from '../../../shared/components/Modal';
 import { CHART_GRADE_COLORS } from '../../../shared/components/charts/palette';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { inspectionApi } from '../api/inspectionApi';
@@ -10,6 +12,14 @@ import type { AnalysisFileStatus, AnalysisStage, AnalysisStatusResponse } from '
 import { useAnalysisStatus } from '../hooks/useAnalysisStatus';
 import { buildEmptyAnalysisStatus } from '../mocks/aiAnalysisStatus.mock';
 import type { AiAnalysisStatus } from '../mocks/aiAnalysisStatus.mock';
+
+// 분석이 실제로 "진행 중"인지 — 이탈 확인창을 띄울지 판단하는 기준(stage 기준, "한 번에 하나만"
+// 정책 2026-07-27). upload(시작 전)·done(완료)·failed(종료)는 취소할 대상이 없다.
+const IN_PROGRESS_STAGES: ReadonlySet<AnalysisStage> = new Set([
+  'frameExtraction',
+  'aiDetection',
+  'postProcessing',
+]);
 
 const STAGES: { key: AnalysisStage; label: string }[] = [
   { key: 'upload', label: '업로드 완료' },
@@ -134,6 +144,8 @@ export function AiAnalysisStatusPage() {
   const { data: realStatus, isLoading, isError, refetch } = useAnalysisStatus(isRealMode ? inspectionId : null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   // 유효한 inspection id일 때 store에 저장 — SideNavBar의 동적 링크 생성에 사용
   useEffect(() => {
@@ -141,6 +153,29 @@ export function AiAnalysisStatusPage() {
       setActiveInspectionId(inspectionId);
     }
   }, [inspectionId, isRealMode, setActiveInspectionId]);
+
+  // "한 번에 하나만" 정책(2026-07-27) — 분석이 실제로 진행 중일 때 사이드바 등으로 이탈하려 하면
+  // 확인창을 띄우고, 그래도 나가면 진행 중이던 분석을 취소한다. isLoading/isError로 조기 반환하기
+  // 전에 계산해야 useBlocker를 매 렌더 동일한 순서로 호출할 수 있다(Hooks 규칙 — InspectionCreatePage와
+  // 동일 이유).
+  const isInProgress = isRealMode && realStatus !== undefined && IN_PROGRESS_STAGES.has(realStatus.stage);
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) => isInProgress && currentLocation.pathname !== nextLocation.pathname,
+  );
+  // "나가기" 클릭 시 모달을 닫는 렌더와 blocker.proceed()가 유발하는 목적지 페이지 마운트 렌더가 한
+  // 커밋으로 묶이는 문제 방지(InspectionCreatePage와 동일 패턴) — flushSync로 모달 제거만 분리한다.
+  // isLeaving을 다시 false로 되돌리는 코드가 없는 이유도 동일: proceed() 이후 항상 다른 라우트로
+  // 네비게이션이 완료돼 이 컴포넌트가 언마운트되므로, 재블로킹되며 남아있는 경우가 없다.
+  const [isLeaving, setIsLeaving] = useState(false);
+  const handleConfirmLeave = () => {
+    flushSync(() => setIsLeaving(true));
+    if (inspectionId !== null) {
+      // 이탈은 취소 성공 여부와 무관하게 계속 진행한다 — 실패해도 워커가 결국 자연 종료(완료/타임아웃)
+      // 되므로 사용자를 화면에 붙잡아 둘 이유가 없다(best-effort).
+      void inspectionApi.cancelAnalysis(inspectionId).catch(() => {});
+    }
+    blocker.proceed?.();
+  };
 
   if (isRealMode && isLoading) {
     return <LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />;
@@ -179,6 +214,24 @@ export function AiAnalysisStatusPage() {
       setRetryError(getApiErrorMessage(error, '재시도에 실패했습니다.'));
     } finally {
       setIsRetrying(false);
+    }
+  };
+
+  // "분석 취소" 버튼 클릭 — 이탈 확인창의 취소와 달리 페이지를 벗어나지 않고 그대로 남아,
+  // 취소 후 재조회(refetch)로 "분석 시작 전" 화면으로 되돌아온다.
+  const handleCancelClick = async () => {
+    if (!isRealMode || inspectionId === null || isCancelling) {
+      return;
+    }
+    setIsCancelling(true);
+    setCancelError(null);
+    try {
+      await inspectionApi.cancelAnalysis(inspectionId);
+      await refetch();
+    } catch (error) {
+      setCancelError(getApiErrorMessage(error, '분석 취소에 실패했습니다.'));
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -360,7 +413,9 @@ export function AiAnalysisStatusPage() {
 
         <div className="absolute inset-x-0 bottom-0 flex items-center justify-between rounded-b-[20px] border-t border-neutral-200/50 bg-white/70 px-8 py-4 backdrop-blur">
           <p className="m-0 text-[13px] text-neutral-500">
-            {retryError ? (
+            {cancelError ? (
+              <span className="font-medium text-[#BA1A1A]">{cancelError}</span>
+            ) : retryError ? (
               <span className="font-medium text-[#BA1A1A]">{retryError}</span>
             ) : isFailed ? (
               <span className="font-medium text-[#BA1A1A]">AI 분석에 실패했습니다. 다시 시도해 주세요.</span>
@@ -393,12 +448,18 @@ export function AiAnalysisStatusPage() {
               </Button>
             ) : (
               <>
-                {/* 코드 리뷰 P2(미해소 지적) — 취소 API가 아직 없다. onClick 없는 클릭 가능한
-                    버튼으로 두면 사용자가 눌러도 아무 일도 안 일어나는 오동작이라, InspectionCreatePage의
-                    "임시저장" 버튼과 동일하게 disabled+title로 명확히 "준비 중"임을 알린다. */}
-                <Button type="button" variant="secondary" disabled title="분석 취소는 준비 중입니다">
-                  분석 취소
-                </Button>
+                {/* "한 번에 하나만" 정책(2026-07-27) — 취소 API 신설로 활성화. isInProgress일 때만
+                    보여준다(이미 완료된 분석을 "취소"할 수 있는 것처럼 보이면 혼동을 준다). */}
+                {isInProgress && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => void handleCancelClick()}
+                    disabled={isCancelling}
+                  >
+                    {isCancelling ? '취소 중...' : '분석 취소'}
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="primary"
@@ -417,6 +478,29 @@ export function AiAnalysisStatusPage() {
           </div>
         </div>
       </div>
+
+      {blocker.state === 'blocked' && !isLeaving && (
+        <Modal
+          open
+          onClose={() => blocker.reset()}
+          title="분석이 진행 중입니다"
+          closeOnOverlayClick={false}
+        >
+          <div className="flex w-80 flex-col gap-6">
+            <p className="m-0 text-sm text-text-muted">
+              지금 나가면 진행 중인 분석 작업이 초기화됩니다. 계속하시겠습니까?
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="secondary" onClick={() => blocker.reset()}>
+                취소
+              </Button>
+              <Button type="button" variant="primary" onClick={handleConfirmLeave}>
+                나가기
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

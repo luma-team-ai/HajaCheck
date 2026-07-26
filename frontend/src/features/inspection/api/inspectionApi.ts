@@ -56,4 +56,6 @@ export const inspectionApi = {
   startAnalysis: (inspectionId: number) => api.post<void>(`/inspections/${inspectionId}/analyze`),
   getAnalysisStatus: (inspectionId: number) =>
     api.get<AnalysisStatusResponse>(`/inspections/${inspectionId}/analyze`),
+  // AI 분석 취소("한 번에 하나만" 정책, 2026-07-27) — ANALYZING이 아니어도 아무 효과 없이 성공(204).
+  cancelAnalysis: (inspectionId: number) => api.delete<void>(`/inspections/${inspectionId}/analyze`),
 };
