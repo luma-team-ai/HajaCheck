@@ -375,7 +375,7 @@ export function ResultViewerPage() {
   }, [data, currentDefects, selectedDefectId, isUpdating, refetch, handleNextMedia]);
 
   const handleGenerateReport = useCallback(() => {
-    navigate(`/inspections/${inspectionId}/reports/generate`);
+    navigate(`/inspections/${inspectionId}/reports`);
   }, [inspectionId, navigate]);
 
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {

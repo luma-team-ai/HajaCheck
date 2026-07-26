@@ -16,10 +16,23 @@ export interface ReportDetailResponse {
   createdAt: string;
 }
 
+export interface ReportSummaryResponse {
+  id: number;
+  inspectionId: number;
+  version: number;
+  status: 'DRAFT' | 'FINALIZED';
+  groundingCheckPassed?: boolean | null;
+  createdAt: string;
+}
+
 export const reportApi = {
   // 보고서 초안 생성
   generateReportDraft: (inspectionId: number, signal?: AbortSignal) =>
     api.post<ReportDetailResponse>(`/inspections/${inspectionId}/reports`, {}, { signal }),
+
+  // 점검별 보고서 목록 조회 (최근 작업 내역용)
+  listReports: (inspectionId: number, signal?: AbortSignal) =>
+    api.get<ReportSummaryResponse[]>(`/inspections/${inspectionId}/reports`, { signal }),
 
   // 보고서 상세 조회
   getReport: (reportId: number, signal?: AbortSignal) =>
