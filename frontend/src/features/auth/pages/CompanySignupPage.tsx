@@ -123,6 +123,11 @@ export function CompanySignupPage() {
   // 자동채움 필드 배지(#748) — OCR로 실제 채운 필드만 담는다. 사용자가 해당 필드를 직접 수정하면
   // 제거한다(각 필드 onChange 핸들러 참고).
   const [autoFilledFields, setAutoFilledFields] = useState<Set<AutoFilledFieldKey>>(new Set());
+  // 이미지 교체 시 갱신 판정용 ref(#879) — OCR onSuccess 콜백은 파일 선택 시점 렌더의 클로저를
+  // 캡처하므로, autoFilledFields state를 그대로 읽으면 OCR 왕복 동안 사용자가 필드를 수정해
+  // Set이 바뀐 경우(클로저 stale) 오판정한다. businessRegistrationNumberRef 등과 동일한 이유로,
+  // "이 필드가 지금 자동채움 상태인지"의 유일한 진실 소스로 ref를 두고 state와 항상 동기 갱신한다.
+  const autoFilledFieldsRef = useRef<Set<AutoFilledFieldKey>>(new Set());
 
   const {
     checkEmailAvailability,
@@ -208,12 +213,11 @@ export function CompanySignupPage() {
   // 자동채움 배지 해제(#748) — 사용자가 OCR로 채워진 필드를 직접 수정하면 그 필드는 더 이상
   // "자동인식" 값이 아니므로 배지를 뗀다. 이미 배지가 없는 필드면 상태 갱신을 생략한다.
   const clearAutoFilledField = (key: AutoFilledFieldKey) => {
-    setAutoFilledFields((prev) => {
-      if (!prev.has(key)) return prev;
-      const next = new Set(prev);
-      next.delete(key);
-      return next;
-    });
+    if (!autoFilledFieldsRef.current.has(key)) return;
+    const next = new Set(autoFilledFieldsRef.current);
+    next.delete(key);
+    autoFilledFieldsRef.current = next;
+    setAutoFilledFields(next);
   };
 
   // 진위확인 우회 방지(무효화) — 확인에 쓰인 3필드 중 하나라도 바뀌면 이전 결과/에러를 즉시
@@ -256,14 +260,17 @@ export function CompanySignupPage() {
 
   // 사업자등록증 OCR 자동채움(#587) — jpeg/png만 백엔드 OCR이 지원하므로 그 외 타입(PDF 등)은
   // OCR 호출 자체를 생략한다. 실패(400/429/5xx/네트워크)는 onError를 등록하지 않아 조용히
-  // 폴백되고(useBusinessLicenseOcr 참고), 성공 시에도 이미 사용자가 입력한 값(빈 문자열이
-  // 아닌 필드)은 덮어쓰지 않는다 — 자동채움은 초기값 제공일 뿐 이후 자유롭게 수정 가능해야
-  // 한다(요구사항 #587). 단, 이 규칙 때문에 파일을 다른 것으로 교체해도 이미 자동채움된
-  // 값은 재덮어쓰기 되지 않는다 — 재인식이 필요하면 사용자가 해당 필드를 직접 비우고 다시
-  // 채워야 한다(알려진 트레이드오프, 후속 개선은 별도 이슈로 분리 가능). 자동채움 배지(#748,
-  // autoFilledFields)도 새 파일 선택 시 초기화하지 않는다 — 같은 이유로 이미 채워진 필드는
-  // 다음 OCR 호출에서 newlyFilled에 잡히지 않으니 배지가 "값이 그대로 유지된다"는 사실과
-  // 항상 일치한다(리뷰어 확인 완료, non-blocking).
+  // 폴백되고(useBusinessLicenseOcr 참고), 성공 시에도 사용자가 직접 입력·수정한 값(=
+  // autoFilledFields에 없고 비어있지도 않은 필드)은 절대 덮어쓰지 않는다 — 자동채움은 초기값
+  // 제공일 뿐 이후 자유롭게 수정 가능해야 한다(요구사항 #587).
+  //
+  // 이미지 교체 시 갱신(#879) — 각 필드의 채움 조건은 "값이 비어 있음" 또는 "그 필드가 여전히
+  // autoFilledFields에 있음(OCR이 채웠고 이후 사용자가 직접 수정하지 않음)"으로 판정한다.
+  // 즉 이미지를 다른 것으로 교체하면 이전 OCR이 채운 필드는 새 OCR 결과로 갱신되고, 사용자가
+  // 직접 수정한 필드는 그대로 유지된다(과거엔 "빈 필드만 채움"이라 재교체해도 갱신되지
+  // 않는 트레이드오프가 있었으나 이번 이슈로 해소). 자동채움 배지(#748, autoFilledFields)도
+  // 새 파일 선택 시 초기화하지 않는다 — 갱신된 필드는 계속 배지가 붙어 있어야 하고, 값이 그대로
+  // 유지된 필드도 이미 배지가 있는 상태 그대로 정합이 맞다.
   //
   // stale 응답 가드(P1, 리뷰어 픽스) — 파일 A 선택 후 OCR 진행 중 파일을 삭제하거나 B로 빠르게
   // 교체하면, 뒤늦게 도착한 A의 OCR 응답이 "지금 선택과 무관한" 값을 필드에 주입할 수 있다.
@@ -301,7 +308,8 @@ export function CompanySignupPage() {
         // 콜백이 끝나기 전에 실행된다는 보장이 없다(실측 확인: 뒤쪽 updater들이 지연 실행돼
         // 판정용 accumulator가 항상 false로 읽힘). 대신 각 필드 onChange에서 setState와 함께
         // 동기 갱신해 온 ref(businessRegistrationNumberRef 등)를 "현재 값"의 유일한 진실
-        // 소스로 삼는다 — 판정과 실제 write가 항상 같은 값을 본다.
+        // 소스로 삼는다 — 판정과 실제 write가 항상 같은 값을 본다. 이미지 교체 갱신(#879)
+        // 판정도 같은 이유로 autoFilledFields state 대신 autoFilledFieldsRef를 쓴다.
         const filled: Record<AutoFilledFieldKey, boolean> = {
           brn: false,
           companyName: false,
@@ -309,24 +317,47 @@ export function CompanySignupPage() {
           startDate: false,
         };
 
-        if (!businessRegistrationNumberRef.current.trim() && data.businessRegistrationNumber) {
+        // 각 필드 채움 조건(#879) — "값이 비어 있음" 또는 "OCR이 채웠고 아직 사용자가 직접
+        // 수정하지 않음(autoFilledFieldsRef에 있음)"일 때만 새 OCR 값으로 쓴다. 값이 실제로
+        // 달라질 때만 write해 no-op 갱신(같은 값 재주입)을 filledCount·진위확인 무효화 판정에
+        // 잡히지 않게 한다.
+        if (
+          (!businessRegistrationNumberRef.current.trim() ||
+            autoFilledFieldsRef.current.has('brn')) &&
+          data.businessRegistrationNumber &&
+          data.businessRegistrationNumber !== businessRegistrationNumberRef.current
+        ) {
           filled.brn = true;
           businessRegistrationNumberRef.current = data.businessRegistrationNumber;
           setBusinessRegistrationNumber(data.businessRegistrationNumber);
         }
-        if (!companyNameRef.current.trim() && data.companyName) {
+        if (
+          (!companyNameRef.current.trim() || autoFilledFieldsRef.current.has('companyName')) &&
+          data.companyName &&
+          data.companyName !== companyNameRef.current
+        ) {
           filled.companyName = true;
           companyNameRef.current = data.companyName;
           setCompanyName(data.companyName);
         }
-        if (!representativeNameRef.current.trim() && data.representativeName) {
+        if (
+          (!representativeNameRef.current.trim() ||
+            autoFilledFieldsRef.current.has('representativeName')) &&
+          data.representativeName &&
+          data.representativeName !== representativeNameRef.current
+        ) {
           filled.representativeName = true;
           representativeNameRef.current = data.representativeName;
           setRepresentativeName(data.representativeName);
         }
-        // 개업일자 자동채움(#598, #600) — 기존 3필드와 동일 규칙: 빈 필드만 채우고, OCR이 null이면
-        // 건드리지 않는다(수기 입력 유지).
-        if (!businessStartDateRef.current.trim() && data.businessStartDate) {
+        // 개업일자 자동채움(#598, #600) — 기존 3필드와 동일 규칙(#879로 갱신 조건 확장).
+        // OCR이 null이면 건드리지 않는다(수기 입력·기존 자동채움 값 유지).
+        if (
+          (!businessStartDateRef.current.trim() ||
+            autoFilledFieldsRef.current.has('startDate')) &&
+          data.businessStartDate &&
+          data.businessStartDate !== businessStartDateRef.current
+        ) {
           filled.startDate = true;
           businessStartDateRef.current = data.businessStartDate;
           setBusinessStartDate(data.businessStartDate);
@@ -336,9 +367,10 @@ export function CompanySignupPage() {
           (key) => filled[key],
         );
 
-        // 진위확인 무효화 방어(#663) — OCR은 빈 필드만 채우므로 이미 진위확인을 통과한 상태(3필드
-        // 모두 값이 참)에선 실질적으로 값이 바뀌지 않아 자연히 안전하다. 그래도 방어적으로, 이번
-        // 자동채움이 진위확인 대상 3필드 중 하나라도 실제로 채울 예정이면 이전 결과를 무효화한다.
+        // 진위확인 무효화(#663, #879로 조건 확장) — 위 filled.* 는 "실제로 값이 달라졌을 때만"
+        // true가 되므로(no-op 재주입은 이미 걸러짐), 진위확인 대상 3필드(brn·representativeName·
+        // startDate) 중 하나라도 이번에 실제로 값이 바뀌었으면 이전 결과를 무효화한다. 같은 값으로
+        // 다시 채워졌을 뿐이면(filled=false) 불필요한 리셋을 하지 않는다.
         const willFillVerifiedField =
           filled.brn || filled.representativeName || filled.startDate;
         if (willFillVerifiedField && (businessVerificationResult || businessVerificationError)) {
@@ -346,11 +378,10 @@ export function CompanySignupPage() {
         }
 
         if (newlyFilledKeys.length > 0) {
-          setAutoFilledFields((prev) => {
-            const next = new Set(prev);
-            newlyFilledKeys.forEach((key) => next.add(key));
-            return next;
-          });
+          const nextAutoFilledFields = new Set(autoFilledFieldsRef.current);
+          newlyFilledKeys.forEach((key) => nextAutoFilledFields.add(key));
+          autoFilledFieldsRef.current = nextAutoFilledFields;
+          setAutoFilledFields(nextAutoFilledFields);
         }
         setOcrFeedback({
           status: newlyFilledKeys.length > 0 ? 'success' : 'empty',

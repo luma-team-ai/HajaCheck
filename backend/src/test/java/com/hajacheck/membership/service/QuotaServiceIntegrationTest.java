@@ -250,26 +250,25 @@ class QuotaServiceIntegrationTest extends PostgresTestSupport {
      * 결함"이라 판단해 Flyway V19 로 FREE max_seats 를 1→2 로 올렸으나, 그 판단이 틀렸다. FREE = 1석은
      * <b>티어 설계 그 자체</b>다(대표 1인 전용 — 구성원을 늘리려면 STANDARD 로 유료 전환). 이 테스트는
      * "FREE 회사는 대표가 유일 좌석을 점유하므로 첫 초대부터 PLAN_SEAT_QUOTA_EXCEEDED 로 막힌다"는
-     * 올바른 계약을 고정해, V19 류의 좌석 상향이 다시 조용히 들어오는 것을 막는다. 실패 사유를 사용자에게
-     * 명확히 안내하는 UX 개선은 #857 에서 별도로 다룬다.
+     * 올바른 계약을 고정해, V19 류의 좌석 상향이 다시 조용히 들어오는 것을 막는다.
+     *
+     * <p>#857 이후: 실패 시점이 redeem(구성원)에서 issue(관리자)로 앞당겨졌다 — 발급 시점 선검사가
+     * 좌석 여유 없음을 즉시 알리므로, 관리자가 신호를 못 받던 문제가 해소된다.
      */
     @Test
-    void FREE회사는_대표가_유일좌석을_점유해_첫_초대부터_좌석한도로_막힌다() {
+    void FREE회사는_대표가_유일좌석을_점유해_첫_초대_발급부터_좌석한도로_막힌다() {
         givenCompanyPlan(PlanName.FREE);
         int maxSeats = planRepository.findByName(PlanName.FREE).orElseThrow().getMaxSeats();
         assertThat(maxSeats).as("FREE 는 대표 1인 전용 티어라 1석이어야 한다").isEqualTo(1);
         // 대표(owner)가 이미 유일한 1석을 쓰고 있다.
         assertThat(userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE)).isEqualTo(1);
 
-        Long inviteeId = saveWaitingUser("free-invitee");
-        String code = inviteCodeService.issue(companyId).code();
-        assertThatThrownBy(() -> inviteCodeService.redeem(code, inviteeId))
+        // 발급 시점 선검사(#857)로 코드 자체가 생성되지 않는다 — redeem 까지 갈 필요가 없다.
+        assertThatThrownBy(() -> inviteCodeService.issue(companyId))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED));
 
-        // redeem 이 거부되면 초대 대상은 소속 배선도, ACTIVE 전환도 되지 않아야 한다.
-        assertThat(userRepository.findById(inviteeId).orElseThrow().getCompanyId()).isNull();
         assertThat(userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE)).isEqualTo(1);
     }
 
@@ -299,14 +298,45 @@ class QuotaServiceIntegrationTest extends PostgresTestSupport {
         assertThat(userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE)).isEqualTo(3);
         assertThat(currentUsage().getSeatCount()).isEqualTo(3);
 
-        // 3석을 모두 쓴 뒤의 초대는 좌석 한도로 막힌다(코드 자체는 유효하므로 거부 사유가 섞이지 않는다).
-        Long thirdInviteeId = saveWaitingUser("standard-third");
-        String thirdCode = inviteCodeService.issue(companyId).code();
-        assertThatThrownBy(() -> inviteCodeService.redeem(thirdCode, thirdInviteeId))
+        // 3석을 모두 쓴 뒤의 초대는 발급 시점 선검사(#857)에서 곧바로 좌석 한도로 막힌다 — redeem 까지
+        // 갈 필요 없이 코드 자체가 생성되지 않는다.
+        assertThatThrownBy(() -> inviteCodeService.issue(companyId))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED));
         assertThat(userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE)).isEqualTo(3);
+    }
+
+    // ── hasAvailableSeat(#857 발급 시점 좌석 선검사) ──
+
+    @Test
+    void hasAvailableSeat_FREE는_대표가_유일좌석을_점유하면_false다() {
+        givenCompanyPlan(PlanName.FREE);
+
+        assertThat(quotaService.hasAvailableSeat(companyId)).isFalse();
+    }
+
+    @Test
+    void hasAvailableSeat_STANDARD는_좌석여유가_있으면_true_다찬뒤에는_false다() {
+        givenCompanyPlan(PlanName.STANDARD);
+        assertThat(quotaService.hasAvailableSeat(companyId)).as("대표 1명뿐이라 3석 중 2석 여유").isTrue();
+
+        Long firstInviteeId = saveWaitingUser("hasseat-first");
+        inviteCodeService.redeem(inviteCodeService.issue(companyId).code(), firstInviteeId);
+        Long secondInviteeId = saveWaitingUser("hasseat-second");
+        inviteCodeService.redeem(inviteCodeService.issue(companyId).code(), secondInviteeId);
+
+        assertThat(userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE)).isEqualTo(3);
+        assertThat(quotaService.hasAvailableSeat(companyId)).as("3석을 모두 채웠으니 여유 없음").isFalse();
+    }
+
+    @Test
+    void hasAvailableSeat_ENTERPRISE는_무제한이라_항상_true다() {
+        Plan enterprise = planRepository.findByName(PlanName.ENTERPRISE).orElseThrow();
+        assertThat(enterprise.getMaxSeats()).as("ENTERPRISE 는 무제한(null) 시드여야 한다").isNull();
+        userPlanRepository.saveAndFlush(UserPlan.forCompany(companyId, enterprise.getId()));
+
+        assertThat(quotaService.hasAvailableSeat(companyId)).isTrue();
     }
 
     private Long saveWaitingUser(String suffix) {

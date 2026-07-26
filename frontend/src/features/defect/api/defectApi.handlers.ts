@@ -213,20 +213,45 @@ export const defectHandlers = [
 
   // --- 하자 목록·상세 개편 (HAJA-393/394, #725/#726) ---------------------------------------
 
-  // GET /api/inspections — 점검 단위 목록(신규, BE 미구현). 상태/시설물 필터 + 페이지네이션.
+  // GET /api/inspections — 점검 단위 목록. 상태/시설물 필터 + 페이지네이션 + 하자조건 필터
+  // (defectType/defectGrade/defectStatus, #878/HAJA-452, 백엔드 PR #891로 origin/dev 머지 완료).
+  // paramsSerializer(indexes:null, defectApi.ts)가 대괄호 없는 반복 키(key=v1&key=v2)로 보내므로
+  // getAll로 파싱한다. 백엔드 의미(InspectionController.list Operation description)와 동일하게:
+  // 셋 중 1개 이상 주어지면, "같은 하자 하나"가 주어진 조건 전부를 동시에 만족해야 매칭이다
+  // (서로 다른 하자가 조건을 나눠 만족하는 경우는 매칭 아님).
   http.get('/api/inspections', ({ request }) => {
     const url = new URL(request.url);
     const status = url.searchParams.get('status') as InspectionStatus | null;
     const facilityIdParam = url.searchParams.get('facilityId');
     const facilityId = facilityIdParam ? Number(facilityIdParam) : null;
+    const defectTypeParams = url.searchParams.getAll('defectType');
+    const defectGradeParams = url.searchParams.getAll('defectGrade');
+    const defectStatusParams = url.searchParams.getAll('defectStatus');
     const page = Number(url.searchParams.get('page') ?? '0');
     const size = Number(url.searchParams.get('size') ?? String(DEFAULT_INSPECTION_PAGE_SIZE));
+
+    const hasDefectConditionFilter =
+      defectTypeParams.length > 0 || defectGradeParams.length > 0 || defectStatusParams.length > 0;
+
+    function matchesDefectCondition(inspectionId: number): boolean {
+      if (!hasDefectConditionFilter) {
+        return true;
+      }
+      return mockDefects.some(
+        (defect) =>
+          defect.inspectionId === inspectionId &&
+          (defectTypeParams.length === 0 || defectTypeParams.includes(defect.type)) &&
+          (defectGradeParams.length === 0 || (defect.grade != null && defectGradeParams.includes(defect.grade))) &&
+          (defectStatusParams.length === 0 || defectStatusParams.includes(defect.status)),
+      );
+    }
 
     const filtered = mockInspections
       .filter(
         (inspection) =>
           (!status || inspection.status === status) &&
-          (facilityId == null || inspection.facilityId === facilityId),
+          (facilityId == null || inspection.facilityId === facilityId) &&
+          matchesDefectCondition(inspection.id),
       )
       .map(toInspectionListItem);
 

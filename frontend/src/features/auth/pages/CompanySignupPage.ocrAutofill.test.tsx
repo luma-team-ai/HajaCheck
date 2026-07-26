@@ -17,6 +17,10 @@ import {
   MOCK_OCR_BUSINESS_START_DATE,
   MOCK_OCR_COMPANY_NAME,
   MOCK_OCR_REPRESENTATIVE_NAME,
+  MOCK_VERIFIED_BUSINESS_NUMBER,
+  MOCK_VERIFIED_BUSINESS_START_DATE,
+  MOCK_VERIFIED_MESSAGE,
+  MOCK_VERIFIED_REPRESENTATIVE_NAME,
   companyAuthHandlers,
 } from '../mocks/companyAuth.mock';
 import { CompanySignupPage } from './CompanySignupPage';
@@ -556,5 +560,168 @@ describe('CompanySignupPage — OCR 결과 피드백·자동채움 배지(#748)'
     // 응답 시점의 실제 값(빈 문자열)을 기준으로 자동채움됐으므로 배지도 붙어야 한다.
     expect(screen.getAllByText('자동인식')).toHaveLength(4);
     expect(screen.getByText('✓ 4개 항목이 자동입력됐어요')).not.toBeNull();
+  });
+});
+
+// 이미지 교체 시 OCR 자동인식 값 갱신(#879) — "빈 필드만 채운다"였던 규칙을 "OCR이 채운
+// 필드(autoFilledFields)는 새 OCR 결과로 갱신한다"로 확장. 사용자가 직접 수정한 값은
+// 여전히 절대 덮어쓰지 않는다.
+describe('CompanySignupPage — 이미지 교체 시 OCR 자동인식 값 갱신(#879)', () => {
+  const REFILL_BUSINESS_NUMBER = '2223334445';
+  const REFILL_COMPANY_NAME = '(주)교체후상호';
+  const REFILL_REPRESENTATIVE_NAME = '최대표';
+  const REFILL_BUSINESS_START_DATE = '2020-05-05';
+
+  function mockSequentialOcrResponses(
+    first: {
+      businessRegistrationNumber: string | null;
+      companyName: string | null;
+      representativeName: string | null;
+      businessStartDate: string | null;
+    },
+    second: typeof first,
+  ) {
+    let callCount = 0;
+    server.use(
+      http.post('/api/auth/business-license/ocr', () => {
+        callCount += 1;
+        const success: ApiResponse<typeof first> = {
+          success: true,
+          data: callCount === 1 ? first : second,
+        };
+        return HttpResponse.json(success);
+      }),
+    );
+  }
+
+  it('이미지 A 업로드 후 이미지 B로 교체하면, 4필드가 B의 OCR 값으로 갱신된다', async () => {
+    mockSequentialOcrResponses(
+      {
+        businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER,
+        companyName: MOCK_OCR_COMPANY_NAME,
+        representativeName: MOCK_OCR_REPRESENTATIVE_NAME,
+        businessStartDate: MOCK_OCR_BUSINESS_START_DATE,
+      },
+      {
+        businessRegistrationNumber: REFILL_BUSINESS_NUMBER,
+        companyName: REFILL_COMPANY_NAME,
+        representativeName: REFILL_REPRESENTATIVE_NAME,
+        businessStartDate: REFILL_BUSINESS_START_DATE,
+      },
+    );
+
+    renderPage();
+    const fileInput = screen.getByLabelText('사업자등록증');
+
+    fireEvent.change(fileInput, { target: { files: [pngFile('a.png')] } });
+    await waitFor(() => {
+      expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe(
+        MOCK_OCR_BUSINESS_NUMBER,
+      );
+    });
+    expect(screen.getAllByText('자동인식')).toHaveLength(4);
+
+    fireEvent.change(fileInput, { target: { files: [pngFile('b.png')] } });
+    await waitFor(() => {
+      expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe(
+        REFILL_BUSINESS_NUMBER,
+      );
+    });
+    expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(REFILL_COMPANY_NAME);
+    expect((screen.getByLabelText('대표자명') as HTMLInputElement).value).toBe(
+      REFILL_REPRESENTATIVE_NAME,
+    );
+    expect((screen.getByLabelText('개업일자') as HTMLInputElement).value).toBe(
+      REFILL_BUSINESS_START_DATE,
+    );
+    // 갱신된 필드에도 자동인식 배지가 그대로 유지된다.
+    expect(screen.getAllByText('자동인식')).toHaveLength(4);
+    expect(screen.getByText('✓ 4개 항목이 자동입력됐어요')).not.toBeNull();
+  });
+
+  it('사용자가 직접 수정한 필드는 이미지 B 업로드 후에도 그대로 유지된다', async () => {
+    mockSequentialOcrResponses(
+      {
+        businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER,
+        companyName: MOCK_OCR_COMPANY_NAME,
+        representativeName: MOCK_OCR_REPRESENTATIVE_NAME,
+        businessStartDate: MOCK_OCR_BUSINESS_START_DATE,
+      },
+      {
+        businessRegistrationNumber: REFILL_BUSINESS_NUMBER,
+        companyName: REFILL_COMPANY_NAME,
+        representativeName: REFILL_REPRESENTATIVE_NAME,
+        businessStartDate: REFILL_BUSINESS_START_DATE,
+      },
+    );
+
+    renderPage();
+    const fileInput = screen.getByLabelText('사업자등록증');
+
+    fireEvent.change(fileInput, { target: { files: [pngFile('a.png')] } });
+    await waitFor(() => {
+      expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(
+        MOCK_OCR_COMPANY_NAME,
+      );
+    });
+
+    // 사용자가 상호명을 직접 수정 — 배지가 사라지고, 이후 이미지 교체로도 덮어써지면 안 된다.
+    fireEvent.change(screen.getByLabelText('상호명'), { target: { value: '사용자가 고친 상호명' } });
+    expect(screen.getAllByText('자동인식')).toHaveLength(3);
+
+    fireEvent.change(fileInput, { target: { files: [pngFile('b.png')] } });
+    await waitFor(() => {
+      expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe(
+        REFILL_BUSINESS_NUMBER,
+      );
+    });
+
+    expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe('사용자가 고친 상호명');
+    // 갱신된 3필드(브랜드·대표자명·개업일자)만 배지 유지, 상호명은 여전히 배지 없음.
+    expect(screen.getAllByText('자동인식')).toHaveLength(3);
+  });
+
+  it('갱신으로 진위확인 대상 필드 값이 바뀌면 진위확인 결과가 무효화된다', async () => {
+    mockSequentialOcrResponses(
+      {
+        businessRegistrationNumber: MOCK_VERIFIED_BUSINESS_NUMBER,
+        companyName: MOCK_OCR_COMPANY_NAME,
+        representativeName: MOCK_VERIFIED_REPRESENTATIVE_NAME,
+        businessStartDate: MOCK_VERIFIED_BUSINESS_START_DATE,
+      },
+      {
+        businessRegistrationNumber: REFILL_BUSINESS_NUMBER,
+        companyName: REFILL_COMPANY_NAME,
+        representativeName: REFILL_REPRESENTATIVE_NAME,
+        businessStartDate: REFILL_BUSINESS_START_DATE,
+      },
+    );
+
+    renderPage();
+    const fileInput = screen.getByLabelText('사업자등록증');
+
+    fireEvent.change(fileInput, { target: { files: [pngFile('a.png')] } });
+    await waitFor(() => {
+      expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe(
+        MOCK_VERIFIED_BUSINESS_NUMBER,
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '진위확인' }));
+    // 뱃지는 "{아이콘} {message}"로 렌더되므로(CompanySignupPage.businessVerification.test.tsx의
+    // badgeText 패턴과 동일 이유) 정확 일치 대신 부분 일치로 확인한다.
+    await waitFor(() => {
+      expect(screen.getByText(MOCK_VERIFIED_MESSAGE, { exact: false })).not.toBeNull();
+    });
+
+    // 이미지 B로 교체 — 진위확인 대상 3필드(브랜드·대표자명·개업일자) 값이 실제로 달라진다.
+    fireEvent.change(fileInput, { target: { files: [pngFile('b.png')] } });
+    await waitFor(() => {
+      expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe(
+        REFILL_BUSINESS_NUMBER,
+      );
+    });
+
+    expect(screen.queryByText(MOCK_VERIFIED_MESSAGE, { exact: false })).toBeNull();
   });
 });

@@ -24,6 +24,8 @@ const IMPLEMENTED_ROUTES = new Set([
   '/admin/users',
   '/admin/plans-quota',
   '/support/ai-assistant',
+  '/support/history', // features/counsel 내 상담 이력(#20, HAJA-33)
+  '/support/chat-bot', // features/counsel 상담 챗봇(#20, HAJA-33)
   // 플랫폼 관리자 콘솔(#535) — 7개 메뉴 placeholder. 여기 없으면 PlatformAdminShellRoute의
   // SideNavBar가 "아직 구현되지 않은 페이지입니다" 토스트를 띄우며 이동을 막는다.
   '/platform-admin/users',

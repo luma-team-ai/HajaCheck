@@ -110,7 +110,7 @@ const DEFAULT_ITEMS: SideNavItem[] = [
       { label: '점검(회차) 생성', href: '/inspections/create' },
       { id: 'ai-analysis', label: 'AI 분석 실행/상태', href: '/inspections/ai-analysis' },
       { id: 'result-viewer', label: '분석 결과 뷰어', href: '/inspections/1/viewer' },
-      { label: '보고서 생성 진입점', href: '/inspections/report-entry' },
+      { id: 'report-entry', label: '보고서 생성 진입점', href: '/inspections/1/reports' },
     ],
   },
   // '하자 상세'는 목록에서 항목을 눌러 실제 id로 /defects/:id에 진입하는 방식이라 사이드바에

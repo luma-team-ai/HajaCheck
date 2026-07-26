@@ -53,6 +53,7 @@ export interface Media {
 
 export interface InspectionResult {
   inspectionId: number;
+  roundNo: number; // 회차 번호 — 보고서 생성 진입점의 "N회차" 표기용 (#876)
   media: InspectionMedia[]; // 전체 미디어 목록 (#804)
   defects: Defect[];
   defectCode: string; // 예: DEF-0192

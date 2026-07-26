@@ -25,6 +25,13 @@ const ReportGeneratePage = lazy(() =>
   })),
 );
 
+// 보고서 생성 진입점 — GitHub #876, Jira HAJA-451
+const ReportEntryPage = lazy(() =>
+  import('../features/report/pages/ReportEntryPage').then((m) => ({
+    default: m.ReportEntryPage,
+  })),
+);
+
 // 점검(회차) 생성 — API 명세서 v0.3 AP-004
 const InspectionCreatePage = lazy(() =>
   import('../features/inspection/pages/InspectionCreatePage').then((m) => ({
@@ -239,6 +246,20 @@ const StatisticsPage = lazy(() =>
 const AiAssistantPage = lazy(() =>
   import('../features/support/pages/AiAssistantPage').then((m) => ({
     default: m.AiAssistantPage,
+  })),
+);
+
+// 고객지원 > 내 상담 이력 (#20, HAJA-33)
+const CounselHistoryPage = lazy(() =>
+  import('../features/counsel/pages/CounselHistoryPage').then((m) => ({
+    default: m.CounselHistoryPage,
+  })),
+);
+
+// 고객지원 > 상담 챗봇 (#20, HAJA-33)
+const ChatBotPage = lazy(() =>
+  import('../features/counsel/pages/ChatBotPage').then((m) => ({
+    default: m.ChatBotPage,
   })),
 );
 
@@ -544,6 +565,18 @@ export const router = createBrowserRouter([
         },
       }, // — features/inspection FR-4 (HAJA-249, #249)
       {
+        path: '/inspections/:id/reports',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <ReportEntryPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '점검 관리' }, { label: '보고서 생성' }],
+          activeHref: '/inspections/1/reports',
+        },
+      }, // — features/report 보고서 생성 진입점 (#876, HAJA-451)
+      {
         path: '/inspections/:id/reports/generate',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
@@ -689,6 +722,30 @@ export const router = createBrowserRouter([
           activeHref: '/support/ai-assistant',
         },
       }, // — features/support (dev-08-01, HAJA-32, FR-6)
+      {
+        path: '/support/history',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <CounselHistoryPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '고객지원' }, { label: '내 상담 이력' }],
+          activeHref: '/support/history',
+        },
+      }, // — features/counsel (#20, HAJA-33)
+      {
+        path: '/support/chat-bot',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <ChatBotPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '고객지원' }, { label: '상담 챗봇' }],
+          activeHref: '/support/chat-bot',
+        },
+      }, // — features/counsel (#20, HAJA-33)
     ],
   },
   {
