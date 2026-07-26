@@ -15,6 +15,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -63,7 +64,8 @@ public class AdminPlanController {
     public ResponseEntity<ApiResponse<AdminPlanChangePreviewResponse>> previewChange(
             @AuthenticationPrincipal LoginUser loginUser,
             @RequestParam PlanName planName,
-            @RequestParam(required = false) List<Long> keepUserIds) {
+            // size(@Max(100))와 일관되게 상한을 둔다(재검토 F-14).
+            @Size(max = 200) @RequestParam(required = false) List<Long> keepUserIds) {
         return ResponseEntity.ok(ApiResponse.ok(
                 adminPlanService.previewChange(loginUser.getUserId(), planName, keepUserIds)));
     }
