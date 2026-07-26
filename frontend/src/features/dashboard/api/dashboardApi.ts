@@ -3,7 +3,6 @@ import { aiClient } from '../../../shared/api/aiClient';
 import type { PageResponse } from '../../../shared/api/types';
 import type {
   AiBriefing,
-  DashboardFacilityOption,
   DashboardSummary,
   GradeDistributionItem,
   PendingPriorityItem,
@@ -18,13 +17,12 @@ export const dashboardApi = {
   getPendingPriority: () => api.get<PendingPriorityItem[]>('/dashboard/pending-priority'),
   getRecentInspections: () => api.get<RecentInspectionItem[]>('/dashboard/recent-inspections'),
   // "최근 점검 전체보기"(신규) — 기존 위젯(getRecentInspections)과 별개 엔드포인트라 별도 메서드로 둔다.
+  // 필터 바의 "시설물 종류"는 특정 시설물 select가 아니라 카테고리 문자열(facilityType)이라 별도
+  // 옵션 조회 API가 필요 없다(로컬 상수, RecentInspectionsFullListPage.tsx 참고).
   searchRecentInspections: (filters: RecentInspectionsSearchFilters = {}) =>
     api.get<PageResponse<RecentInspectionItem>>('/dashboard/recent-inspections/search', {
       params: filters,
     }),
-  // "최근 점검 전체보기" 필터 바의 시설물 select 옵션 — GET /api/facilities 재사용. defect feature의
-  // defectApi.listFacilityOptions와 동일 엔드포인트를 각자 호출하는 기존 패턴(feature 간 직접 import 금지).
-  listFacilityOptions: () => api.get<DashboardFacilityOption[]>('/facilities'),
   // dev-03-02, #469 — 다음 점검일 도래(days/limit 쿼리, 기본값은 BE가 관리)
   getUpcomingInspections: () =>
     api.get<UpcomingInspectionItem[]>('/dashboard/upcoming-inspections'),

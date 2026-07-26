@@ -49,15 +49,9 @@ export interface RecentInspectionsSearchFilters {
   page?: number;
   size?: number;
   status?: InspectionStatus;
-  facilityId?: number;
+  /** 시설물 종류 카테고리(예: "건물") 접두 매칭 — 특정 시설물 select가 아니다(Figma 재대조, 2026-07-26) */
+  facilityType?: string;
   query?: string;
-}
-
-// 필터 바 "시설물" select 옵션 — GET /api/facilities 재사용(defect feature의 InspectionFacilityOption과
-// 동일 모양이지만 feature 간 직접 import 금지 컨벤션에 따라 로컬로 재정의).
-export interface DashboardFacilityOption {
-  id: number;
-  name: string;
 }
 
 // AI 주간 브리핑 — docs/design/ai/dashboard_briefing.md §4 출력 스키마와 1:1
