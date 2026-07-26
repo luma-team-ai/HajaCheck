@@ -1,6 +1,7 @@
 package com.hajacheck.core.defect.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.CompanyMembership;
@@ -296,6 +297,40 @@ class DefectRepositoryTest extends PostgresTestSupport {
                 .filteredOn(p -> p.getInspectionId().equals(inspectionA))
                 .extracting(InspectionDefectCountProjection::getCnt)
                 .containsExactly(2L);
+    }
+
+    @Test
+    void countGroupByInspectionIdAndGrade_점검별등급별건수집계_삭제된하자와등급null은제외() {
+        // #893/HAJA-458 — 점검 목록 등급분포. 소프트 삭제된 하자(deleted=true)와 등급 미분류
+        // (grade=null, AI 미분석 등)는 다른 집계 쿼리(countGroupByGrade 등)와 동일하게 제외돼야 한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionA = seedInspection(facilityId, ownerId, 1);
+        Long inspectionB = seedInspection(facilityId, ownerId, 2);
+        defectRepository.save(newDefect(inspectionA, DefectGrade.B, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionA, DefectGrade.B, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionA, DefectGrade.C, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionA, DefectGrade.E, DefectStatus.DETECTED, true)); // 삭제됨 — 제외
+        defectRepository.save(newDefect(inspectionA, null, DefectStatus.DETECTED, false)); // 등급 미분류 — 제외
+        defectRepository.save(newDefect(inspectionB, DefectGrade.A, DefectStatus.DETECTED, false));
+
+        List<InspectionGradeCountProjection> result = defectRepository.countGroupByInspectionIdAndGrade(
+                List.of(inspectionA, inspectionB));
+
+        assertThat(result)
+                .filteredOn(p -> p.getInspectionId().equals(inspectionA) && p.getGrade() == DefectGrade.B)
+                .extracting(InspectionGradeCountProjection::getCnt)
+                .containsExactly(2L);
+        assertThat(result)
+                .filteredOn(p -> p.getInspectionId().equals(inspectionA) && p.getGrade() == DefectGrade.C)
+                .extracting(InspectionGradeCountProjection::getCnt)
+                .containsExactly(1L);
+        assertThat(result)
+                .filteredOn(p -> p.getInspectionId().equals(inspectionB))
+                .extracting(InspectionGradeCountProjection::getGrade, InspectionGradeCountProjection::getCnt)
+                .containsExactly(tuple(DefectGrade.A, 1L));
+        // 삭제된 하자(E)·등급 미분류 하자는 어떤 그룹에도 나타나지 않아야 한다.
+        assertThat(result).noneMatch(p -> p.getGrade() == DefectGrade.E);
     }
 
     // ── HAJA-30: 하자 목록·상세 조회 ──

@@ -21,6 +21,7 @@ import com.hajacheck.core.defect.entity.DefectStatus;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.InspectionDefectCountProjection;
+import com.hajacheck.core.defect.repository.InspectionGradeCountProjection;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.service.FacilityService;
@@ -38,6 +39,7 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
@@ -275,6 +277,8 @@ class InspectionServiceTest {
                 .thenReturn(page);
         when(defectRepository.countGroupByInspectionId(List.of(10L)))
                 .thenReturn(List.of(countProjection(10L, 3L)));
+        when(defectRepository.countGroupByInspectionIdAndGrade(List.of(10L)))
+                .thenReturn(List.of(gradeCountProjection(10L, DefectGrade.B, 2L), gradeCountProjection(10L, DefectGrade.C, 1L)));
         User inspector = User.builder().name("김점검").build();
         ReflectionTestUtils.setField(inspector, "id", 200L);
         when(userRepository.findAllById(List.of(200L))).thenReturn(List.of(inspector));
@@ -288,9 +292,11 @@ class InspectionServiceTest {
         assertThat(item.facilityId()).isEqualTo(1L);
         assertThat(item.facilityName()).isEqualTo("테스트빌딩");
         assertThat(item.assignedInspectorId()).isEqualTo(200L);
-        assertThat(item.assignedInspectorName()).isEqualTo("김점검");
+        assertThat(item.assigneeName()).isEqualTo("김점검");
         assertThat(item.status()).isEqualTo(InspectionStatus.ANALYZED);
         assertThat(item.defectCount()).isEqualTo(3L);
+        assertThat(item.gradeDistribution())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("A", 0L, "B", 2L, "C", 1L, "D", 0L, "E", 0L));
         verify(companyScopeGuard).requireEffectiveMembership(300L, 100L);
         verify(inspectionRepository)
                 .findPageByCompanyIdAndFilters(100L, 1L, InspectionStatus.ANALYZED, null, null, null, pageable);
@@ -327,6 +333,7 @@ class InspectionServiceTest {
         assertThat(response.content()).isEmpty();
         assertThat(response.totalElements()).isZero();
         verify(defectRepository, never()).countGroupByInspectionId(any());
+        verify(defectRepository, never()).countGroupByInspectionIdAndGrade(any());
         verify(userRepository, never()).findAllById(any());
     }
 
@@ -338,6 +345,7 @@ class InspectionServiceTest {
                 eq(100L), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(inspection), pageable, 1));
         when(defectRepository.countGroupByInspectionId(List.of(10L))).thenReturn(List.of());
+        when(defectRepository.countGroupByInspectionIdAndGrade(List.of(10L))).thenReturn(List.of());
         when(userRepository.findAllById(List.of(200L))).thenReturn(List.of());
 
         PageResponse<InspectionListItemResponse> response =
@@ -345,7 +353,26 @@ class InspectionServiceTest {
 
         InspectionListItemResponse item = response.content().get(0);
         assertThat(item.defectCount()).isZero();
-        assertThat(item.assignedInspectorName()).isEqualTo("-");
+        assertThat(item.assigneeName()).isEqualTo("-");
+    }
+
+    @Test
+    void list_점검에하자가없으면등급분포전부0() {
+        Pageable pageable = PageRequest.of(0, 20);
+        Inspection inspection = inspectionWithFacility(10L, 1L, "테스트빌딩", 200L, InspectionStatus.CREATED);
+        when(inspectionRepository.findPageByCompanyIdAndFilters(
+                eq(100L), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(inspection), pageable, 1));
+        when(defectRepository.countGroupByInspectionId(List.of(10L))).thenReturn(List.of());
+        when(defectRepository.countGroupByInspectionIdAndGrade(List.of(10L))).thenReturn(List.of());
+        when(userRepository.findAllById(List.of(200L))).thenReturn(List.of());
+
+        PageResponse<InspectionListItemResponse> response =
+                service.list(300L, 100L, null, null, null, null, null, pageable);
+
+        InspectionListItemResponse item = response.content().get(0);
+        assertThat(item.gradeDistribution())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("A", 0L, "B", 0L, "C", 0L, "D", 0L, "E", 0L));
     }
 
     @Test
@@ -366,6 +393,25 @@ class InspectionServiceTest {
             @Override
             public Long getInspectionId() {
                 return inspectionId;
+            }
+
+            @Override
+            public long getCnt() {
+                return cnt;
+            }
+        };
+    }
+
+    private static InspectionGradeCountProjection gradeCountProjection(Long inspectionId, DefectGrade grade, long cnt) {
+        return new InspectionGradeCountProjection() {
+            @Override
+            public Long getInspectionId() {
+                return inspectionId;
+            }
+
+            @Override
+            public DefectGrade getGrade() {
+                return grade;
             }
 
             @Override

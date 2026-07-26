@@ -5,7 +5,7 @@ import type { TableColumn } from '../../../shared/components/Table';
 import { Table } from '../../../shared/components/Table';
 import { GRADE_CLASSES } from './DefectTable';
 import { SelectionCheckbox } from './SelectionCheckbox';
-import { INSPECTION_STATUS_LABEL } from '../types';
+import { EMPTY_GRADE_DISTRIBUTION, INSPECTION_STATUS_LABEL } from '../types';
 import type { DefectGrade, InspectionListItem } from '../types';
 
 type Props = {
@@ -45,7 +45,9 @@ function toTableRow(inspection: InspectionListItem): InspectionTableRow {
     inspectionDate: inspection.inspectionDate,
     roundNo: inspection.roundNo,
     defectCount: inspection.defectCount,
-    gradeDistribution: inspection.gradeDistribution,
+    // #893 하드닝 — 백엔드 응답에 gradeDistribution이 없는(계약 불일치) row가 섞여 있어도
+    // "Cannot read properties of undefined" 크래시 없이 등급분포를 전부 0으로 렌더한다.
+    gradeDistribution: inspection.gradeDistribution ?? EMPTY_GRADE_DISTRIBUTION,
     status: inspection.status,
     assigneeName: inspection.assigneeName,
   };
