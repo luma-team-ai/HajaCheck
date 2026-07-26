@@ -79,9 +79,11 @@ export function ResultViewerPage() {
   const [gradeReason, setGradeReason] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isAddMissingOpen, setIsAddMissingOpen] = useState(false);
+  // 누락 추가 그리기 모드 — 메인 뷰어 이미지 위에서 직접 드래그로 박스를 지정한다(#874, 2안).
+  const [isDrawingMissing, setIsDrawingMissing] = useState(false);
   const [newDefectType, setNewDefectType] = useState<'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE' | ''>('');
   const [newDefectGrade, setNewDefectGrade] = useState<DefectGrade | ''>('');
-  // ponytail: 캔버스 드래그 상태 — 모달 열릴 때마다 리셋(모달 열 때 마다 새 박스 시작)
+  // ponytail: 캔버스 드래그 상태 — 그리기 모드 진입/모달 닫힘마다 리셋
   const [draggingBbox, setDraggingBbox] = useState<{ x: number; y: number; width: number; height: number } | undefined>();
   const [canvasMouseDown, setCanvasMouseDown] = useState(false);
   // rules-of-hooks: 훅은 조건부 return 이전에 호출해야 한다. 훅 내부 enabled 플래그가
@@ -255,6 +257,7 @@ export function ResultViewerPage() {
       await refetch();
       setSelectedDefectId(response.data.id);
       setIsAddMissingOpen(false);
+      setIsDrawingMissing(false);
       setNewDefectType('');
       setNewDefectGrade('');
       setDraggingBbox(undefined);
@@ -270,6 +273,7 @@ export function ResultViewerPage() {
   const handleCancelAddMissing = useCallback(() => {
     if (isUpdating) return;
     setIsAddMissingOpen(false);
+    setIsDrawingMissing(false);
     setNewDefectType('');
     setNewDefectGrade('');
     setDraggingBbox(undefined);
@@ -277,7 +281,28 @@ export function ResultViewerPage() {
     setErrorMessage('');
   }, [isUpdating]);
 
-  // ponytail: 캔버스 드래그 이벤트 — 마우스 위치를 이미지 좌표계(0~1 정규화)로 변환
+  // 누락 추가 버튼 클릭 — 모달을 바로 열지 않고 메인 뷰어 위 그리기 모드로 전환한다(#874, 2안).
+  const handleStartDrawingMissing = useCallback(() => {
+    setIsDrawingMissing(true);
+    setDraggingBbox(undefined);
+    setErrorMessage('');
+  }, []);
+
+  // 위치 지정 없이 바로 유형/등급 선택으로 진행(기존 "박스는 선택사항" 동작 유지).
+  const handleSkipDrawingMissing = useCallback(() => {
+    setDraggingBbox(undefined);
+    setIsDrawingMissing(false);
+    setIsAddMissingOpen(true);
+  }, []);
+
+  const handleCancelDrawingMissing = useCallback(() => {
+    setIsDrawingMissing(false);
+    setDraggingBbox(undefined);
+    setCanvasMouseDown(false);
+  }, []);
+
+  // ponytail: 캔버스 드래그 이벤트 — 마우스 위치를 이미지 좌표계(0~1 정규화)로 변환.
+  // 메인 뷰어(DefectOverlay)의 좌표계를 그대로 재사용 — 별도 축소 캔버스를 두지 않는다(#874).
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const canvas = e.currentTarget;
@@ -308,13 +333,18 @@ export function ResultViewerPage() {
   );
 
   // 드래그 없이 클릭만 하면 0크기 박스가 그대로 제출되던 것을 방지(#841) — 최소 임계값 미만이면
-  // 위치 미지정(undefined)으로 되돌린다.
+  // 위치 미지정(undefined)으로 되돌린다. 유효한 크기로 드래그가 끝나면 그리기 모드를 마치고
+  // 유형/등급 선택 모달을 연다(#874).
   const handleCanvasMouseUp = useCallback(() => {
     setCanvasMouseDown(false);
-    setDraggingBbox((prev) =>
-      prev && (prev.width < MIN_BBOX_SIZE || prev.height < MIN_BBOX_SIZE) ? undefined : prev,
-    );
-  }, []);
+    if (!draggingBbox) return;
+    if (draggingBbox.width < MIN_BBOX_SIZE || draggingBbox.height < MIN_BBOX_SIZE) {
+      setDraggingBbox(undefined);
+      return;
+    }
+    setIsDrawingMissing(false);
+    setIsAddMissingOpen(true);
+  }, [draggingBbox]);
 
   const handleConfirmReview = useCallback(async () => {
     if (!data) return;
@@ -345,7 +375,7 @@ export function ResultViewerPage() {
   }, [data, currentDefects, selectedDefectId, isUpdating, refetch, handleNextMedia]);
 
   const handleGenerateReport = useCallback(() => {
-    navigate(`/inspections/${inspectionId}/reports/generate`);
+    navigate(`/inspections/${inspectionId}/reports`);
   }, [inspectionId, navigate]);
 
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
@@ -474,6 +504,20 @@ export function ResultViewerPage() {
             )}
 
             <div className="flex flex-1 flex-col items-center justify-center gap-2">
+              {/* 누락 추가 그리기 모드 툴바 — 메인 이미지 위에서 직접 드래그(#874, 2안) */}
+              {isDrawingMissing && (
+                <div className="flex w-full items-center justify-between rounded-lg bg-primary/10 px-4 py-2 text-sm text-text-default">
+                  <span>이미지 위에 드래그해서 하자 위치를 표시하세요.</span>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="secondary" size="sm" onClick={handleSkipDrawingMissing}>
+                      박스 없이 계속
+                    </Button>
+                    <Button type="button" variant="secondary" size="sm" onClick={handleCancelDrawingMissing}>
+                      취소
+                    </Button>
+                  </div>
+                </div>
+              )}
               {currentMediaGroup ? (
                 <>
                   <DefectOverlay
@@ -484,6 +528,11 @@ export function ResultViewerPage() {
                     defects={currentDefects}
                     selectedId={selected?.id}
                     onSelect={setSelectedDefectId}
+                    drawMode={isDrawingMissing}
+                    draggingBbox={draggingBbox}
+                    onCanvasMouseDown={handleCanvasMouseDown}
+                    onCanvasMouseMove={handleCanvasMouseMove}
+                    onCanvasMouseUp={handleCanvasMouseUp}
                   />
                   {currentDefects.length === 0 && (
                     <div className="text-sm text-text-muted">
@@ -544,54 +593,61 @@ export function ResultViewerPage() {
             )}
           </div>
 
-          {/* Right: Analysis Panel */}
-          {selected && (
+          {/* Right: Analysis Panel — currentMediaGroup만 있으면 항상 렌더(#874: 하자 0건이어도
+              등급수정/누락추가 버튼이 통째로 사라지지 않도록). AI 분석 결과 섹션만 selected에 의존. */}
+          {currentMediaGroup && (
             <div className="flex w-80 flex-col border-l border-border">
               <div className="px-5 py-5">
                 <h3 className="font-medium text-text-default">AI 분석 결과</h3>
               </div>
               <div className="flex-1 overflow-y-auto px-5">
-                {/* Metadata Cards */}
-                <div className="mb-6 flex gap-3">
-                  <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
-                    <div className="mb-2 text-xs text-text-muted">신뢰도</div>
-                    <div className="text-xl font-bold text-text-default">
-                      {Math.round(selected.confidence * 100)}%
-                    </div>
-                  </div>
-                  {/* 유형별 정량 실측 지표 — 균열은 선형(폭/길이 mm), 박리박락·철근노출은 면적형(마스크 면적 비율)
-                      (하자_심각도_등급_규칙.md §3.2, PRD v0.42 탐지 클래스 3종 확정) */}
-                  {selected.type === '균열' ? (
-                    <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
-                      <div className="mb-2 text-xs text-text-muted">예상 길이</div>
-                      <div className="text-xl font-bold text-text-default">{selected.lengthMm}mm</div>
-                    </div>
-                  ) : (
-                    <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
-                      <div className="mb-2 text-xs text-text-muted">면적 비율</div>
-                      <div className="text-xl font-bold text-text-default">
-                        {selected.areaRatio !== undefined ? `${Math.round(selected.areaRatio * 100)}%` : '준비 중'}
+                {selected ? (
+                  <>
+                    {/* Metadata Cards */}
+                    <div className="mb-6 flex gap-3">
+                      <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
+                        <div className="mb-2 text-xs text-text-muted">신뢰도</div>
+                        <div className="text-xl font-bold text-text-default">
+                          {Math.round(selected.confidence * 100)}%
+                        </div>
                       </div>
+                      {/* 유형별 정량 실측 지표 — 균열은 선형(폭/길이 mm), 박리박락·철근노출은 면적형(마스크 면적 비율)
+                          (하자_심각도_등급_규칙.md §3.2, PRD v0.42 탐지 클래스 3종 확정) */}
+                      {selected.type === '균열' ? (
+                        <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
+                          <div className="mb-2 text-xs text-text-muted">예상 길이</div>
+                          <div className="text-xl font-bold text-text-default">{selected.lengthMm}mm</div>
+                        </div>
+                      ) : (
+                        <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
+                          <div className="mb-2 text-xs text-text-muted">면적 비율</div>
+                          <div className="text-xl font-bold text-text-default">
+                            {selected.areaRatio !== undefined ? `${Math.round(selected.areaRatio * 100)}%` : '준비 중'}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
 
-                {/* AI Analysis Panel */}
-                <div>
-                  <div className="mb-3 flex items-center gap-2">
-                    <svg className="h-[13px] w-[10px]" fill="currentColor" viewBox="0 0 10 13">
-                      <path d="M5 0L6 3H10L7 5L8 8L5 6L2 8L3 5L0 3H4L5 0Z" />
-                    </svg>
-                    <span className="text-xs font-medium text-text-default">분석 요약</span>
-                  </div>
-                  {data && (
-                    <InspectionDefectExplainPanel
-                      defectType={selected.type}
-                      grade={selected.grade}
-                      facilityType={data.facilityType}
-                    />
-                  )}
-                </div>
+                    {/* AI Analysis Panel */}
+                    <div>
+                      <div className="mb-3 flex items-center gap-2">
+                        <svg className="h-[13px] w-[10px]" fill="currentColor" viewBox="0 0 10 13">
+                          <path d="M5 0L6 3H10L7 5L8 8L5 6L2 8L3 5L0 3H4L5 0Z" />
+                        </svg>
+                        <span className="text-xs font-medium text-text-default">분석 요약</span>
+                      </div>
+                      {data && (
+                        <InspectionDefectExplainPanel
+                          defectType={selected.type}
+                          grade={selected.grade}
+                          facilityType={data.facilityType}
+                        />
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm text-text-muted">선택된 하자가 없습니다.</div>
+                )}
               </div>
 
               {/* Grade Edit Mode — 등급 수정 모달(#827) */}
@@ -612,10 +668,7 @@ export function ResultViewerPage() {
                     variant="secondary"
                     size="lg"
                     className="flex-1"
-                    onClick={() => {
-                      setIsAddMissingOpen(true);
-                      setErrorMessage('');
-                    }}
+                    onClick={handleStartDrawingMissing}
                     disabled={isUpdating}
                   >
                     누락 추가
@@ -713,46 +766,15 @@ export function ResultViewerPage() {
         closeOnOverlayClick={!isUpdating}
       >
         <div className="flex max-h-96 flex-col gap-4 overflow-y-auto">
+          {/* 박스 위치는 모달을 열기 전 메인 뷰어 이미지 위에서 이미 지정됐다(#874, 2안) —
+              여기서는 별도 축소 캔버스를 다시 그리지 않고 결과만 보여준다. */}
           <p className="text-xs text-text-muted">
-            이미지 위에 드래그하여 박스 위치를 지정할 수 있습니다. (선택사항)
+            {draggingBbox
+              ? '이미지 위에 하자 위치가 지정되었습니다.'
+              : '하자 위치가 지정되지 않았습니다. (전체 이미지 기준으로 추가됩니다)'}
           </p>
           {errorMessage && (
             <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
-          )}
-
-          {/* Canvas — 현재 이미지 + 드래그 박스 표시 */}
-          {currentMediaGroup && (
-            <div className="w-full rounded-lg bg-surface-sunken p-2">
-              {/* 마우스 이벤트를 이미지와 정확히 같은 크기(w-fit)인 이 div에 붙인다(#841) — 바깥
-                  패딩 div 기준으로 계산하면, 세로로 긴 사진처럼 이미지 폭이 캔버스 폭보다 좁아질 때
-                  드래그 좌표와 실제 이미지 위 위치가 어긋난다. DefectOverlay.tsx와 동일 기준. */}
-              <div
-                onMouseDown={handleCanvasMouseDown}
-                onMouseMove={handleCanvasMouseMove}
-                onMouseUp={handleCanvasMouseUp}
-                onMouseLeave={handleCanvasMouseUp}
-                className="relative w-fit max-w-full cursor-crosshair"
-              >
-                <img
-                  src={currentMediaGroup.imageUrl}
-                  alt="이미지"
-                  className="block max-w-full max-h-64 rounded"
-                />
-                {/* Dragging bounding box */}
-                {draggingBbox && (
-                  <div
-                    className="absolute border-2 border-dashed border-primary rounded-sm pointer-events-none"
-                    style={{
-                      left: `${draggingBbox.x * 100}%`,
-                      top: `${draggingBbox.y * 100}%`,
-                      width: `${draggingBbox.width * 100}%`,
-                      height: `${draggingBbox.height * 100}%`,
-                      backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                    }}
-                  />
-                )}
-              </div>
-            </div>
           )}
 
           <div>

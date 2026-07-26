@@ -12,6 +12,7 @@ const MOCK_IMAGE_URL =
 
 export const mockInspectionResult: InspectionResult = {
   inspectionId: 1,
+  roundNo: 8,
   media: [
     {
       id: 1,

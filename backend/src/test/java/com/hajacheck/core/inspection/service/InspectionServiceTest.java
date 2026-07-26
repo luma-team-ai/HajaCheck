@@ -17,6 +17,8 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.defect.entity.DefectGrade;
+import com.hajacheck.core.defect.entity.DefectStatus;
+import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.InspectionDefectCountProjection;
 import com.hajacheck.core.defect.repository.InspectionGradeCountProjection;
@@ -271,7 +273,7 @@ class InspectionServiceTest {
         Inspection inspection = inspectionWithFacility(10L, 1L, "테스트빌딩", 200L, InspectionStatus.ANALYZED);
         Page<Inspection> page = new PageImpl<>(List.of(inspection), pageable, 1);
         when(inspectionRepository.findPageByCompanyIdAndFilters(
-                eq(100L), eq(1L), eq(InspectionStatus.ANALYZED), any(Pageable.class)))
+                eq(100L), eq(1L), eq(InspectionStatus.ANALYZED), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .thenReturn(page);
         when(defectRepository.countGroupByInspectionId(List.of(10L)))
                 .thenReturn(List.of(countProjection(10L, 3L)));
@@ -282,7 +284,7 @@ class InspectionServiceTest {
         when(userRepository.findAllById(List.of(200L))).thenReturn(List.of(inspector));
 
         PageResponse<InspectionListItemResponse> response =
-                service.list(300L, 100L, 1L, InspectionStatus.ANALYZED, pageable);
+                service.list(300L, 100L, 1L, InspectionStatus.ANALYZED, null, null, null, pageable);
 
         assertThat(response.content()).hasSize(1);
         InspectionListItemResponse item = response.content().get(0);
@@ -297,17 +299,36 @@ class InspectionServiceTest {
                 .containsExactlyInAnyOrderEntriesOf(Map.of("A", 0L, "B", 2L, "C", 1L, "D", 0L, "E", 0L));
         verify(companyScopeGuard).requireEffectiveMembership(300L, 100L);
         verify(inspectionRepository)
-                .findPageByCompanyIdAndFilters(100L, 1L, InspectionStatus.ANALYZED, pageable);
+                .findPageByCompanyIdAndFilters(100L, 1L, InspectionStatus.ANALYZED, null, null, null, pageable);
+    }
+
+    @Test
+    void list_하자조건필터_레포지토리에그대로전달() {
+        // #878(HAJA-452) — nl-search 필터(defectType/defectGrade/defectStatus)가 그대로
+        // repository 호출에 실려 전달되는지 확인(EXISTS 서브쿼리 자체는 InspectionRepositoryTest에서 검증).
+        Pageable pageable = PageRequest.of(0, 20);
+        List<DefectType> types = List.of(DefectType.CRACK, DefectType.SPALLING);
+        List<DefectGrade> grades = List.of(DefectGrade.D, DefectGrade.E);
+        List<DefectStatus> statuses = List.of(DefectStatus.DETECTED);
+        when(inspectionRepository.findPageByCompanyIdAndFilters(
+                eq(100L), isNull(), isNull(), eq(types), eq(grades), eq(statuses), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+        service.list(300L, 100L, null, null, types, grades, statuses, pageable);
+
+        verify(inspectionRepository)
+                .findPageByCompanyIdAndFilters(100L, null, null, types, grades, statuses, pageable);
     }
 
     @Test
     void list_결과없으면빈페이지_하자레포사용자레포조회안함() {
         Pageable pageable = PageRequest.of(0, 20);
         when(inspectionRepository.findPageByCompanyIdAndFilters(
-                eq(100L), isNull(), isNull(), any(Pageable.class)))
+                eq(100L), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
-        PageResponse<InspectionListItemResponse> response = service.list(300L, 100L, null, null, pageable);
+        PageResponse<InspectionListItemResponse> response =
+                service.list(300L, 100L, null, null, null, null, null, pageable);
 
         assertThat(response.content()).isEmpty();
         assertThat(response.totalElements()).isZero();
@@ -321,13 +342,14 @@ class InspectionServiceTest {
         Pageable pageable = PageRequest.of(0, 20);
         Inspection inspection = inspectionWithFacility(10L, 1L, "테스트빌딩", 200L, InspectionStatus.CREATED);
         when(inspectionRepository.findPageByCompanyIdAndFilters(
-                eq(100L), isNull(), isNull(), any(Pageable.class)))
+                eq(100L), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(inspection), pageable, 1));
         when(defectRepository.countGroupByInspectionId(List.of(10L))).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionIdAndGrade(List.of(10L))).thenReturn(List.of());
         when(userRepository.findAllById(List.of(200L))).thenReturn(List.of());
 
-        PageResponse<InspectionListItemResponse> response = service.list(300L, 100L, null, null, pageable);
+        PageResponse<InspectionListItemResponse> response =
+                service.list(300L, 100L, null, null, null, null, null, pageable);
 
         InspectionListItemResponse item = response.content().get(0);
         assertThat(item.defectCount()).isZero();
@@ -339,13 +361,14 @@ class InspectionServiceTest {
         Pageable pageable = PageRequest.of(0, 20);
         Inspection inspection = inspectionWithFacility(10L, 1L, "테스트빌딩", 200L, InspectionStatus.CREATED);
         when(inspectionRepository.findPageByCompanyIdAndFilters(
-                eq(100L), isNull(), isNull(), any(Pageable.class)))
+                eq(100L), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(inspection), pageable, 1));
         when(defectRepository.countGroupByInspectionId(List.of(10L))).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionIdAndGrade(List.of(10L))).thenReturn(List.of());
         when(userRepository.findAllById(List.of(200L))).thenReturn(List.of());
 
-        PageResponse<InspectionListItemResponse> response = service.list(300L, 100L, null, null, pageable);
+        PageResponse<InspectionListItemResponse> response =
+                service.list(300L, 100L, null, null, null, null, null, pageable);
 
         InspectionListItemResponse item = response.content().get(0);
         assertThat(item.gradeDistribution())
@@ -357,11 +380,12 @@ class InspectionServiceTest {
         doThrow(new BusinessException(ErrorCode.FORBIDDEN))
                 .when(companyScopeGuard).requireEffectiveMembership(300L, null);
 
-        assertThatThrownBy(() -> service.list(300L, null, null, null, PageRequest.of(0, 10)))
+        assertThatThrownBy(() -> service.list(300L, null, null, null, null, null, null, PageRequest.of(0, 10)))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FORBIDDEN));
-        verify(inspectionRepository, never()).findPageByCompanyIdAndFilters(any(), any(), any(), any());
+        verify(inspectionRepository, never())
+                .findPageByCompanyIdAndFilters(any(), any(), any(), any(), any(), any(), any());
     }
 
     private static InspectionDefectCountProjection countProjection(Long inspectionId, long cnt) {

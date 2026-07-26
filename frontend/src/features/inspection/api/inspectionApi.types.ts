@@ -3,10 +3,24 @@ export type DefectType = '균열' | '박리박락' | '누수·백태' | '철근�
 export type DefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
 export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'ACTION_PENDING' | 'IN_PROGRESS' | 'RESOLVED';
 
+// 실제 백엔드가 주고받는 영문 enum 값 그대로(openapi.yaml DefectTypeCode, DefectType.java 직렬화 값).
+// 화면 표시용 한글 DefectType과는 다른 계층 — 응답을 컴포넌트 상태로 변환할 때
+// DEFECT_TYPE_CODE_LABELS로 번역한다(#881, 과거엔 DefectDetailItem.type이 잘못 DefectType으로
+// 선언돼 있어 이 번역이 누락돼 있었다).
+export type DefectTypeCode = 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE';
+
+export const DEFECT_TYPE_CODE_LABELS: Record<DefectTypeCode, DefectType> = {
+  CRACK: '균열',
+  SPALLING: '박리박락',
+  LEAK_EFFLORESCENCE: '누수·백태',
+  REBAR_EXPOSURE: '철근노출',
+  PAINT_DAMAGE: '도장 손상',
+};
+
 export interface DefectDetailItem {
   id: number;
   inspectionId: number;
-  type: DefectType;
+  type: DefectTypeCode;
   grade: DefectGrade;
   status: DefectStatus;
   confidence: number;
@@ -24,10 +38,8 @@ export interface DefectDetailItem {
   detailUrl?: string | null; // 분석 결과 뷰어 전용 상세 이미지(썸네일보다 큰 해상도) — /api/media/{mediaId}/detail(#788)
 }
 
-// 실제 백엔드가 받는 영문 enum 값 그대로 — 위 DefectType(한글 리터럴)과 다르게 선언한 이유는
-// 그 타입이 실제 백엔드 직렬화 값과 불일치하는 기존 버그이기 때문(이번 스코프 밖, 손대지 않음).
 export interface DefectCreateRequest {
-  type: 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE';
+  type: DefectTypeCode;
   grade: DefectGrade;
   // ponytail: bbox는 전부 있거나 다 없거나(#831) — 백엔드도 이렇게 검증함
   bboxX?: number;
