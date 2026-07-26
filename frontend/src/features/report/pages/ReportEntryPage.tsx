@@ -103,20 +103,24 @@ export function ReportEntryPage() {
     return () => controller.abort();
   }, [inspectionId]);
 
-  // 등급 분포 계산
-  const gradeDistribution = data
-    ? data.defects.reduce(
-        (acc, d) => {
-          acc[d.grade] = (acc[d.grade] || 0) + 1;
-          return acc;
-        },
-        {} as Record<string, number>,
-      )
-    : {};
+  // 등급별 분포·유형별 카드는 "확정 하자"(검수 완료, reviewedCount의 대상)만 집계한다(#886 P3).
+  // 상단 스탯의 '확정 하자' 수치와 기준을 맞추기 위함 — 미검수(오탐 가능) 하자를 섞으면
+  // 두 블록의 건수 기준이 서로 달라 보인다.
+  // Defect엔 isReviewed가 없지만 status로 동일하게 판별 가능하다 — 백엔드 ReportService의
+  // CONFIRMED_DEFECT_STATUSES(=DETECTED 제외 전부)와 정확히 같은 기준.
+  const confirmedDefects = data?.defects.filter((d) => d.status !== 'DETECTED') ?? [];
+
+  const gradeDistribution = confirmedDefects.reduce(
+    (acc, d) => {
+      acc[d.grade] = (acc[d.grade] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
 
   // 유형별 최고 등급 계산 (심각도 순: E > D > C > B > A)
   const defectTypeStats = DEFECT_TYPES.map((typeInfo) => {
-    const typeDefects = data?.defects.filter((d) => d.type === typeInfo.type) || [];
+    const typeDefects = confirmedDefects.filter((d) => d.type === typeInfo.type);
     const count = typeDefects.length;
     // 심각도가 높은 순서 (E가 가장 높음)
     const severityOrder = { E: 5, D: 4, C: 3, B: 2, A: 1 };
@@ -282,7 +286,9 @@ export function ReportEntryPage() {
               segments={GRADE_ORDER.map((grade) => ({
                 key: grade,
                 label: grade,
-                percent: ((gradeDistribution[grade] || 0) / (data.totalCount || 1)) * 100,
+                // 분자(gradeDistribution)가 확정 하자 기준이므로 분모도 맞춘다 —
+                // totalCount로 나누면 미검수분만큼 막대가 100%를 못 채운다.
+                percent: ((gradeDistribution[grade] || 0) / (confirmedDefects.length || 1)) * 100,
                 color: GRADE_COLORS[grade],
               }))}
             />

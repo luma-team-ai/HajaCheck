@@ -163,6 +163,34 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(within(screen.getByTestId('defect-type-card-도장 손상')).getByText('0')).not.toBeNull();
   });
 
+  it('등급별 분포·유형별 카드는 확정(검수완료) 하자만 집계한다 (#886 P3)', async () => {
+    server.use(
+      http.get('/api/inspections/:id/defects', () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            defect(1, '균열', 'C', true), // 확정
+            defect(2, '균열', 'E', false), // 미검수(DETECTED) — 제외돼야 함
+            defect(3, '철근노출', 'D', true), // 확정
+          ],
+        }),
+      ),
+    );
+    renderPage();
+    await screen.findByText(/점검 회차 요약/);
+
+    // 균열은 확정 1건(C)만 반영 — 미검수(E)까지 섞이면 최고등급이 E로 잘못 올라간다
+    const crackCard = within(screen.getByTestId('defect-type-card-균열'));
+    expect(crackCard.getByText('1')).not.toBeNull();
+    expect(crackCard.getByTitle('C등급 · 보통')).not.toBeNull();
+    expect(crackCard.queryByTitle('E등급 · 심각')).toBeNull();
+
+    // 전체 최고 등급(요약 스트립)도 확정 하자 기준 — D가 최고(미검수 E는 무시)
+    // D는 요약 스트립·철근노출카드 두 곳에 뜨므로 존재 여부만 확인
+    expect(screen.getAllByTitle('D등급 · 주의').length).toBeGreaterThan(0);
+    expect(screen.queryByTitle('E등급 · 심각')).toBeNull();
+  });
+
   it('"AI 초안이며 법정 제출용 아님" 고지를 노출한다 (#463 요구항목)', async () => {
     renderPage();
     await screen.findByText(/점검 회차 요약/);
