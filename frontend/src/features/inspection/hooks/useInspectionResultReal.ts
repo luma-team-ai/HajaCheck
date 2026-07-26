@@ -106,6 +106,7 @@ export function useInspectionResultReal(inspectionId: number) {
     inspection && isValidId && facilityQuery.data
       ? {
           inspectionId: inspection.id,
+          roundNo: inspection.roundNo, // 보고서 생성 진입점의 "N회차" 표기용(#876)
           media: transformedMedia, // 전체 미디어 목록(하자 유무 무관, #804)
           defects: transformedDefects,
           defectCode,

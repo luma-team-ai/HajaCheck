@@ -3,7 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
+import { DistributionBar } from '../../../shared/components/charts/DistributionBar';
 import { useInspectionResultReal } from '../../inspection/hooks/useInspectionResultReal';
+import type { DefectType } from '../../inspection/types';
 import { reportApi, type ReportSummaryResponse } from '../api/reportApi';
 
 // 등급 라벨 — 이 페이지 전용 상수 (다른 feature와의 직접 import 금지 — #832)
@@ -24,13 +26,18 @@ const GRADE_COLORS: Record<string, string> = {
   E: '#ef4444', // 빨강
 };
 
-// 유형별 정보
-const DEFECT_TYPES = [
-  { type: 'CRACK', label: '균열', defaultGrade: 'E' },
-  { type: 'SPALLING', label: '박리·박락', defaultGrade: 'D' },
-  { type: 'LEAK_EFFLORESCENCE', label: '누수·백태', defaultGrade: 'C' },
-  { type: 'REBAR_EXPOSURE', label: '철근 노출', defaultGrade: 'E' },
-  { type: 'PAINT_DAMAGE', label: '도장 손상', defaultGrade: 'B' },
+const GRADE_ORDER = ['A', 'B', 'C', 'D', 'E'] as const;
+
+// 유형별 카드 — Figma는 5종을 항상 고정 노출하므로 0건 유형도 렌더한다(AI 자동탐지는 3종이고
+// 누수·백태/도장 손상은 수동 추가로만 생기지만, 칸이 사라지면 레이아웃이 흔들린다).
+// `type`은 백엔드가 내려주는 DefectType(한글) 원본값이라 매칭 키로 그대로 쓰고,
+// `label`은 Figma 표기(가운뎃점·띄어쓰기)라 따로 둔다 — 둘을 합치면 매칭이 조용히 깨진다.
+const DEFECT_TYPES: { type: DefectType; label: string }[] = [
+  { type: '균열', label: '균열' },
+  { type: '박리박락', label: '박리·박락' },
+  { type: '누수·백태', label: '누수·백태' },
+  { type: '철근노출', label: '철근 노출' },
+  { type: '도장 손상', label: '도장 손상' },
 ];
 
 export function ReportEntryPage() {
@@ -41,9 +48,10 @@ export function ReportEntryPage() {
   // 데이터 조회
   const { data, isLoading, isError, refetch } = useInspectionResultReal(inspectionId);
 
-  // 로컬 상태 — 보고서 설정 (서버에 전송되지 않음)
-  const [template, setTemplate] = useState('정밀안전점검 표준');
-  const [language, setLanguage] = useState('국문');
+  // 보고서 설정 — 백엔드 POST /inspections/{id}/reports가 옵션을 받지 않아 아직 전송되지 않는다(#876 범위 밖).
+  // 템플릿·언어는 선택지가 하나뿐이라 상태가 아니라 상수로 둔다(고를 게 없는데 setter를 두면 죽은 코드가 된다).
+  const template = '정밀안전점검 표준';
+  const language = '국문';
   const [sections, setSections] = useState({
     overview: true,
     summary: true,
@@ -168,7 +176,7 @@ export function ReportEntryPage() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-3xl font-medium tracking-tight text-black">
-            점검 회차 요약 — {data.inspection.roundNo}회차
+            점검 회차 요약 — {data.roundNo}회차
           </h1>
           <p className="mt-2 text-base font-medium text-text-muted">
             검수가 완료된 하자를 바탕으로 점검 보고서 초안을 생성합니다.
@@ -228,6 +236,7 @@ export function ReportEntryPage() {
                   <div
                     className="flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold text-white"
                     style={{ backgroundColor: GRADE_COLORS[maxGrade] }}
+                    title={`${maxGrade}등급 · ${GRADE_LABELS[maxGrade]}`}
                   >
                     {maxGrade}
                   </div>
@@ -262,28 +271,25 @@ export function ReportEntryPage() {
         <div className="rounded-3xl border border-border bg-white p-6">
           <div className="mb-3 text-xs font-medium tracking-wide text-text-muted">등급별 분포</div>
 
-          {/* 분포 바 */}
-          <div className="mb-4 h-4 flex overflow-hidden rounded-full border border-border bg-surface">
-            {['A', 'B', 'C', 'D', 'E'].map((grade) => {
-              const count = gradeDistribution[grade] || 0;
-              const total = data.totalCount || 1;
-              const percentage = (count / total) * 100;
-              return (
-                <div
-                  key={grade}
-                  className="transition-all"
-                  style={{
-                    backgroundColor: GRADE_COLORS[grade],
-                    width: `${percentage}%`,
-                  }}
-                />
-              );
-            })}
+          {/* 분포 바 — 공용 DistributionBar 재사용. 다만 이 컴포넌트의 기본 범례는 "라벨 (퍼센트%)"라
+              Figma의 "A (13)"(건수) 표기와 달라서, 범례만 끄고 아래에서 직접 렌더한다. */}
+          <div className="mb-4">
+            <DistributionBar
+              ariaLabel="하자 등급별 분포"
+              height={16}
+              showLegend={false}
+              segments={GRADE_ORDER.map((grade) => ({
+                key: grade,
+                label: grade,
+                percent: ((gradeDistribution[grade] || 0) / (data.totalCount || 1)) * 100,
+                color: GRADE_COLORS[grade],
+              }))}
+            />
           </div>
 
           {/* 범례 */}
           <div className="flex flex-wrap gap-2">
-            {['A', 'B', 'C', 'D', 'E'].map((grade) => {
+            {GRADE_ORDER.map((grade) => {
               const count = gradeDistribution[grade] || 0;
               return (
                 <div
@@ -308,6 +314,7 @@ export function ReportEntryPage() {
           {defectTypeStats.map((stat) => (
             <div
               key={stat.type}
+              data-testid={`defect-type-card-${stat.type}`}
               className="min-w-max flex-shrink-0 rounded-3xl border border-border bg-white p-4"
             >
               <div className="mb-3 flex items-start justify-between">
@@ -316,6 +323,7 @@ export function ReportEntryPage() {
                   <div
                     className="flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold text-white"
                     style={{ backgroundColor: GRADE_COLORS[stat.maxGrade] }}
+                    title={`${stat.maxGrade}등급 · ${GRADE_LABELS[stat.maxGrade]}`}
                   >
                     {stat.maxGrade}
                   </div>
@@ -423,6 +431,13 @@ export function ReportEntryPage() {
             </div>
           </div>
 
+          {/* 고지 문구 — 이슈 #463 요구항목("AI 초안이며 법정 제출용 아님"을 설정 단계에도 배치).
+              생성 버튼을 누르기 전에 읽히도록 설정 블록 안, 액션바보다 위에 둔다. */}
+          <p className="mb-4 rounded-2xl bg-warning-soft-bg px-4 py-3 text-xs text-warning-soft-fg">
+            생성되는 문서는 <strong className="font-semibold">AI가 작성한 초안</strong>입니다. 법정 제출용
+            보고서가 아니며, 점검자의 검토·수정을 거쳐야 합니다.
+          </p>
+
           {/* 대표 사진 토글 */}
           <div className="flex items-center justify-between rounded-full border border-border bg-white p-4">
             <div className="flex flex-col gap-1">
@@ -465,7 +480,7 @@ export function ReportEntryPage() {
                     <span className="text-lg">📄</span>
                   </div>
                   <div>
-                    <div className="text-sm font-medium text-black">{data.inspection.roundNo}회차 보고서 (초안)</div>
+                    <div className="text-sm font-medium text-black">{data.roundNo}회차 보고서 (초안)</div>
                     <div className="text-xs text-text-muted">
                       {new Date(report.createdAt).toLocaleDateString('ko-KR')}
                     </div>
