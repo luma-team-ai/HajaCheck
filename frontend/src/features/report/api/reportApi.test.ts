@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { reportApi } from './reportApi';
+import { reportHandlers } from './reportApi.handlers';
 import type { ReportDetailResponse } from './reportApi';
 
 const mockReport: ReportDetailResponse = {
@@ -40,6 +41,7 @@ const server = setupServer(
       data: { ...mockReport, status: 'FINALIZED', pdfUrl: body.pdfUrl },
     });
   }),
+  ...reportHandlers,
 );
 
 beforeAll(() => server.listen());
@@ -47,6 +49,18 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 describe('reportApi', () => {
+  it('reportHandlers의 summary 라우트는 상세 :id 라우트보다 우선 매칭된다', async () => {
+    const response = await fetch('/api/reports/summary');
+    const body = (await response.json()) as {
+      success: boolean;
+      data: { totalCount: number; finalizedCount: number; draftCount: number };
+    };
+
+    expect(body.success).toBe(true);
+    expect(body.data.totalCount).toBeGreaterThan(0);
+    expect(body.data.finalizedCount + body.data.draftCount).toBe(body.data.totalCount);
+  });
+
   it('generateReportDraft는 초안 보고서를 생성한다', async () => {
     const response = await reportApi.generateReportDraft(1);
 

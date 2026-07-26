@@ -16,7 +16,11 @@ const DEFAULT_PAGE_SIZE = 10;
 // 내보내기(PDF)할 수 있다. hybrid에서는 실 API를 우선 사용하고 미구현 목록/요약만 훅에서 폴백한다.
 export function ReportListPage() {
   const [filters, setFilters] = useState<ReportListFilters>({ page: 0, size: DEFAULT_PAGE_SIZE });
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  // 현재 페이지 rows만 보관하면 페이지를 넘기는 순간 이전 선택 항목의 PDF가
+  // 일괄 내보내기 대상에서 사라진다. 선택 시 행 스냅샷을 id로 보존한다.
+  const [selectedRowsById, setSelectedRowsById] = useState<Map<number, ReportListItem>>(
+    () => new Map(),
+  );
   const [activeReport, setActiveReport] = useState<ReportListItem | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
@@ -30,7 +34,8 @@ export function ReportListPage() {
   const currentPage = (filters.page ?? 0) + 1; // TableFooterPagination은 1-based
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
-  const selectedRows = useMemo(() => rows.filter((row) => selectedIds.has(row.id)), [rows, selectedIds]);
+  const selectedIds = useMemo(() => new Set(selectedRowsById.keys()), [selectedRowsById]);
+  const selectedRows = useMemo(() => Array.from(selectedRowsById.values()), [selectedRowsById]);
   const exportableRows = useMemo(
     () => selectedRows.filter((row) => row.status === 'FINALIZED' && row.pdfUrl),
     [selectedRows],
@@ -45,7 +50,22 @@ export function ReportListPage() {
   }
 
   function handleFiltersChange(next: ReportListFilters) {
+    setSelectedRowsById(new Map());
     setFilters({ ...next, size: filters.size });
+  }
+
+  function handleSelectionChange(nextIds: Set<number>) {
+    setSelectedRowsById((previous) => {
+      const next = new Map(previous);
+      rows.forEach((row) => {
+        if (nextIds.has(row.id)) {
+          next.set(row.id, row);
+        } else {
+          next.delete(row.id);
+        }
+      });
+      return next;
+    });
   }
 
   // window.open을 여러 번 호출하면 브라우저 팝업 차단에 걸리고, PDF URL을 새 탭에서 열기만 해서는
@@ -140,7 +160,7 @@ export function ReportListPage() {
                   isError={listQuery.isError}
                   onRetry={() => listQuery.refetch()}
                   selectedIds={selectedIds}
-                  onSelectionChange={setSelectedIds}
+                  onSelectionChange={handleSelectionChange}
                   onOpenVersionHistory={setActiveReport}
                 />
               </div>

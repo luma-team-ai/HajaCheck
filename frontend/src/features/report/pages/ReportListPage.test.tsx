@@ -5,6 +5,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { facilityHandlers } from '../../facility/api/facilityApi.handlers';
@@ -62,6 +63,22 @@ describe('ReportListPage', () => {
     expect(within(row).getByText('v3')).toBeTruthy();
   });
 
+  it('실 API가 200 빈 페이지를 반환하면 목 목록으로 바꾸지 않는다', async () => {
+    server.use(
+      http.get('/api/reports', () =>
+        HttpResponse.json({
+          success: true,
+          data: { content: [], page: 0, totalElements: 0 },
+        }),
+      ),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('조건에 맞는 보고서가 없습니다')).toBeTruthy();
+    expect(screen.queryByText(REPORT_101_TITLE)).toBeNull();
+  });
+
   it('시설물 필터 적용 시 다른 시설물 보고서가 사라진다', async () => {
     renderPage();
 
@@ -73,6 +90,18 @@ describe('ReportListPage', () => {
 
     await screen.findByText(REPORT_101_TITLE);
     expect(screen.queryByText(REPORT_103_TITLE)).toBeNull();
+  });
+
+  it('페이지를 넘겨도 이전 페이지에서 선택한 완료 보고서를 일괄 내보내기 대상으로 유지한다', async () => {
+    renderPage();
+
+    const firstRow = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(firstRow).getByRole('checkbox', { name: `${REPORT_101_TITLE} 선택` }));
+    expect(screen.getByRole('button', { name: /내보내기\(일괄\)/ }).textContent).toContain('(1)');
+
+    fireEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
+    expect(await screen.findByText(/\[26-03\] 수원 스마트팩토리/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /내보내기\(일괄\)/ }).textContent).toContain('(1)');
   });
 
   // NOTES.md §2.2 "[WHEN: 보고서 목록/이력 관리 개발 시] MUST: 행 클릭 시 버전 이력 플라이아웃" —

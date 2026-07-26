@@ -22,7 +22,6 @@ export function useCompanyReports(filters: ReportListFilters) {
         totalElements: filtered.length,
       };
       },
-      isEmpty: (result) => result.content.length === 0,
     }),
   });
 }

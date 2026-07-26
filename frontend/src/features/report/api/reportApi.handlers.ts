@@ -166,6 +166,35 @@ startxref
     });
   }),
 
+  // 파라미터 라우트(/api/reports/:id)보다 먼저 선언해야 /summary가 상세 조회로
+  // 잘못 매칭되지 않는다.
+  http.get('/api/reports/summary', () => {
+    const finalizedCount = mockReportListItems.filter((item) => item.status === 'FINALIZED').length;
+    const draftCount = mockReportListItems.filter((item) => item.status === 'DRAFT').length;
+    const now = new Date();
+    const issuedThisMonthCount = mockReportListItems.filter((item) => {
+      if (item.status !== 'FINALIZED') return false;
+      const updatedAt = new Date(item.updatedAt);
+      return updatedAt.getFullYear() === now.getFullYear() && updatedAt.getMonth() === now.getMonth();
+    }).length;
+
+    const body: ApiResponse<{
+      totalCount: number;
+      finalizedCount: number;
+      draftCount: number;
+      issuedThisMonthCount: number;
+    }> = {
+      success: true,
+      data: {
+        totalCount: mockReportListItems.length,
+        finalizedCount,
+        draftCount,
+        issuedThisMonthCount,
+      },
+    };
+    return HttpResponse.json(body);
+  }),
+
   http.get('/api/reports/:id', ({ params }) => {
     const reportId = Number(params.id);
     const body: ApiResponse<ReportDetailResponse> = {
@@ -254,31 +283,4 @@ startxref
     return HttpResponse.json(body);
   }),
 
-  // GET /api/reports/summary — KPI 4종. 필터와 무관하게 항상 전체 스코프 기준.
-  http.get('/api/reports/summary', () => {
-    const finalizedCount = mockReportListItems.filter((item) => item.status === 'FINALIZED').length;
-    const draftCount = mockReportListItems.filter((item) => item.status === 'DRAFT').length;
-    const now = new Date();
-    const issuedThisMonthCount = mockReportListItems.filter((item) => {
-      if (item.status !== 'FINALIZED') return false;
-      const updatedAt = new Date(item.updatedAt);
-      return updatedAt.getFullYear() === now.getFullYear() && updatedAt.getMonth() === now.getMonth();
-    }).length;
-
-    const body: ApiResponse<{
-      totalCount: number;
-      finalizedCount: number;
-      draftCount: number;
-      issuedThisMonthCount: number;
-    }> = {
-      success: true,
-      data: {
-        totalCount: mockReportListItems.length,
-        finalizedCount,
-        draftCount,
-        issuedThisMonthCount,
-      },
-    };
-    return HttpResponse.json(body);
-  }),
 ];
