@@ -70,6 +70,16 @@ class AdminUserControllerTest extends PostgresTestSupport {
         userPlanRepository.saveAndFlush(UserPlan.forCompany(companyId, planId));
     }
 
+    // 좌석 검사(QuotaService#hasAvailableSeat)의 UserPlan 자가 프로비저닝(REQUIRES_NEW)은 이 테스트
+    // 클래스의 @Transactional(롤백 전용, 커밋 안 됨)과 격리 수준이 부딪힌다 — 자가 프로비저닝이 여는
+    // 별도 트랜잭션(별도 커넥션)은 아직 커밋되지 않은 이 테스트 트랜잭션의 Company 행을 볼 수 없어
+    // FK 위반으로 실패하고, PLAN_NOT_FOUND(404)로 표면화된다. FREE 플랜을 명시적으로 같은 트랜잭션에서
+    // 미리 만들어두면 자가 프로비저닝 자체가 트리거되지 않아 이 문제를 피한다.
+    private void givenFreePlan(Long companyId) {
+        Long planId = planRepository.findByName(PlanName.FREE).orElseThrow().getId();
+        userPlanRepository.saveAndFlush(UserPlan.forCompany(companyId, planId));
+    }
+
     // users.company_id / companies.business_registration_number 는 DDL 상 FK/unique 이므로
     // 리터럴 companyId 대신 실제 Company 행을 먼저 저장하고 그 id 를 써야 한다(FK 위반 방지,
     // MembershipRepositoryTest.saveCompany 와 동일 패턴). 사업자번호는 호출마다 겹치지 않도록 시퀀스로 발급.
@@ -233,6 +243,7 @@ class AdminUserControllerTest extends PostgresTestSupport {
     void 사용자등록_FREE회사는_대표가_유일좌석을_점유해_좌석한도로_막힌다() throws Exception {
         Company company = saveCompany();
         User admin = saveUser("관리자", "admin7b@haja.com", Role.ADMIN, company.getId());
+        givenFreePlan(company.getId());
         AdminUserCreateRequest request =
                 new AdminUserCreateRequest("blocked-by-seat@haja.com", "password1", "차단대상", Role.USER);
 

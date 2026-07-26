@@ -19,6 +19,10 @@ import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.membership.entity.PlanName;
+import com.hajacheck.membership.entity.UserPlan;
+import com.hajacheck.membership.repository.PlanRepository;
+import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserCreateRequest;
 import com.hajacheck.support.PostgresTestSupport;
 import java.util.concurrent.atomic.AtomicLong;
@@ -51,8 +55,22 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
     private CompanyRepository companyRepository;
     @Autowired
     private ObjectMapper objectMapper;
+    @Autowired
+    private PlanRepository planRepository;
+    @Autowired
+    private UserPlanRepository userPlanRepository;
 
     private static final AtomicLong BRN_SEQ = new AtomicLong(9_100_000_000L);
+
+    // 좌석 검사(QuotaService#hasAvailableSeat)의 UserPlan 자가 프로비저닝(REQUIRES_NEW)은 이 테스트
+    // 클래스의 @Transactional(롤백 전용, 커밋 안 됨)과 격리 수준이 부딪힌다 — 자가 프로비저닝이 여는
+    // 별도 트랜잭션(별도 커넥션)은 아직 커밋되지 않은 이 테스트 트랜잭션의 Company 행을 볼 수 없어
+    // FK 위반으로 실패하고, PLAN_NOT_FOUND(404)로 표면화된다(AdminUserControllerTest#givenFreePlan과
+    // 동일 이유). FREE 플랜을 명시적으로 같은 트랜잭션에서 미리 만들어두면 이 문제를 피한다.
+    private void givenFreePlan(Long companyId) {
+        Long planId = planRepository.findByName(PlanName.FREE).orElseThrow().getId();
+        userPlanRepository.saveAndFlush(UserPlan.forCompany(companyId, planId));
+    }
 
     private Company saveCompany() {
         return saveCompany(com.hajacheck.auth.entity.CompanyStatus.APPROVED);
@@ -175,6 +193,7 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
     void 사용자등록_companyId지정시_해당회사로배선() throws Exception {
         User platformAdmin = saveUser("플랫폼관리자", "pa6@haja.com", Role.PLATFORM_ADMIN);
         Company company = saveCompany();
+        givenFreePlan(company.getId());
         PlatformAdminUserCreateRequest request =
                 new PlatformAdminUserCreateRequest("pa6-new@haja.com", "password1", "신규사용자", Role.USER, company.getId());
 
@@ -196,6 +215,7 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
     void 사용자등록_좌석이_가득찬companyId지정시_좌석한도로_막힌다() throws Exception {
         User platformAdmin = saveUser("플랫폼관리자", "pa6b@haja.com", Role.PLATFORM_ADMIN);
         Company company = saveCompany();
+        givenFreePlan(company.getId());
         saveUser("기존멤버", "pa6b-existing@haja.com", Role.ADMIN, company.getId());
         PlatformAdminUserCreateRequest request = new PlatformAdminUserCreateRequest(
                 "pa6b-new@haja.com", "password1", "차단대상", Role.USER, company.getId());
