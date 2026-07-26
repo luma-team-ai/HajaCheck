@@ -274,7 +274,10 @@ public class NtsBusinessVerifyClient {
      * @param httpCall {@code RestClient} 호출+역직렬화(예: {@code .retrieve().body(Class)})
      */
     private <T> T executeWithRetry(Supplier<T> httpCall) {
-        int maxAttempts = bizVerifyProperties.getRetryMaxAttempts() + 1;
+        // 최소 1회는 반드시 시도한다 — retry-max-attempts 를 음수로 잘못 설정하면 루프가 한 번도 돌지
+        // 않아 아래 IllegalStateException 이 호출부의 fail-open catch(ResourceAccess/RestClient 계열)를
+        // 우회해 500 으로 새어 나간다. 설정 실수가 공개 가입 API 를 깨뜨리지 않도록 하한을 둔다.
+        int maxAttempts = Math.max(1, bizVerifyProperties.getRetryMaxAttempts() + 1);
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 return httpCall.get();
