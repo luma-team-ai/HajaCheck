@@ -34,6 +34,17 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
     List<Long> findLatestIdsByFacility(
             @Param("facilityId") Long facilityId, @Param("companyId") Long companyId, Pageable pageable);
 
+    // 시설물 목록 배치용(HAJA-434 갭1 P1 픽스) — findLatestIdsByFacility를 시설물 수만큼 반복 호출하면
+    // N+1이 되므로, 대상 시설물 전체의 (facilityId, defectId) 쌍을 한 번에 가져온다. facilityId asc,
+    // createdAt desc로 정렬해 서비스 계층에서 facilityId별 첫 값만 취하면 시설물당 최신 1건이 된다
+    // (Collectors.toMap의 mergeFunction으로 첫 값 유지 — listStatus()의 배치 조립 패턴과 동일 원칙).
+    @Query("select f.id as facilityId, d.id as defectId from Defect d "
+            + "join d.inspection i join i.facility f "
+            + "where f.id in :facilityIds and f.companyId = :companyId and d.deleted = false "
+            + "order by f.id asc, d.createdAt desc")
+    List<FacilityLatestDefectProjection> findLatestByFacilityIds(
+            @Param("facilityIds") Collection<Long> facilityIds, @Param("companyId") Long companyId);
+
     // 대시보드 조치대기 우선순위 목록(HAJA-17) — 등급(E→A) 우선, 미분류(grade=null)는 최하단, 동일 등급
     // 내에서는 최신순. PostgreSQL은 "ORDER BY ... DESC" 시 기본이 NULLS FIRST라, 파생 쿼리
     // (OrderByGradeDescCreatedAtDesc)로는 "nulls last"를 표현할 수 없어 미분류 하자가 등급 E보다

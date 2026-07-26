@@ -5,6 +5,7 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.repository.FacilityLatestDefectProjection;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
@@ -92,8 +93,25 @@ public class FacilityService {
             log.warn("시설물 목록 상한({}) 도달 — companyId={} 실제 보유 {}건, 상한 초과분 응답에서 누락",
                     FACILITY_LIST_MAX, companyId, actualCount);
         }
+        if (facilities.isEmpty()) {
+            return List.of();
+        }
+
+        // HAJA-434 갭1 P1 픽스 — 시설물 클릭 시 하자 오버레이 직행은 list() 응답이 latestDefectId를
+        // 채워야 실제로 동작한다(get()만 채우면 목록 화면에서 항상 null → 항상 폴백). 시설물별
+        // findLatestIdsByFacility 반복 호출은 N+1이므로 배치 쿼리 1회로 조회한다.
+        List<Long> facilityIds = facilities.stream().map(Facility::getId).toList();
+        Map<Long, Long> latestDefectIdByFacilityId =
+                defectRepository.findLatestByFacilityIds(facilityIds, companyId).stream()
+                        .collect(Collectors.toMap(
+                                FacilityLatestDefectProjection::getFacilityId,
+                                FacilityLatestDefectProjection::getDefectId,
+                                // facilityId asc, createdAt desc 정렬이므로 같은 facilityId의 첫 값이 최신이다.
+                                (first, second) -> first));
+
         return facilities.stream()
-                .map(FacilityResponse::from)
+                .map(facility -> FacilityResponse.from(
+                        facility, latestDefectIdByFacilityId.get(facility.getId())))
                 .toList();
     }
 
