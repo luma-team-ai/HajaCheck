@@ -144,10 +144,14 @@ biz-verify:
   base-url: ${BIZ_VERIFY_BASE_URL:https://api.odcloud.kr}
   service-key: ${BUSINESS_REGISTRATION_API_KEY:}
   connect-timeout-ms: 3000
-  # 5000 → 8000(#880) — odcloud 국세청 게이트웨이는 장애 없이도 5초를 자주 넘긴다(2026-07-26 실측).
-  read-timeout-ms: 8000
-  # 일시적 실패(연결실패·타임아웃·5xx)만 재시도(#880). 4xx·파싱실패·해석불가는 재시도하지 않는다
-  # (NtsBusinessVerifyClient 참고). 총 대기 시간 근거도 그 클래스 Javadoc 참고.
+  # 제출 경로 전용(CompanySignupService → validate() 단독 호출, permitAll+rate-limit 없음) — PR #880
+  # 이전 값 그대로 유지, 재시도 없음(PR #889 P1: 무인증 엔드포인트 스레드 점유 증가 방지). 자세한 근거는
+  # BizVerifyProperties.readTimeoutMs Javadoc 참고.
+  read-timeout-ms: 5000
+  # 실시간 진위확인 경로 전용(#648, rate-limit 보호되는 인터랙티브 경로) — 5000→8000 상향(#880).
+  realtime-read-timeout-ms: 8000
+  # 일시적 실패(연결실패·타임아웃·5xx)만 재시도(#880) — 실시간 진위확인 경로에만 적용, 제출 경로
+  # validate()는 재시도하지 않는다(NtsBusinessVerifyClient 참고). 총 대기 시간 근거도 그 클래스 Javadoc 참고.
   retry-max-attempts: 1
   retry-backoff-ms: 300
   # 실시간 진위확인 공개 API(#648, POST /api/auth/business-verification) rate-limit — 비로그인이라

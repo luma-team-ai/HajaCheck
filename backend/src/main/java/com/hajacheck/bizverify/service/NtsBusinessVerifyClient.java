@@ -13,8 +13,8 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.function.Supplier;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.ResourceAccessException;
@@ -34,28 +34,44 @@ import org.springframework.web.client.RestClientResponseException;
  * 실패)는 예외를 던지지 않고 {@link NtsVerificationOutcome#SKIPPED} 를 반환한다 — 외부 의존성 문제로
  * 정상 가입을 막지 않기 위함이다. NTS_* ErrorCode 는 구조화 로깅(경보)용으로만 쓴다(응답 미노출).
  *
- * <p><b>일시적 실패 재시도(#880)</b>: 2026-07-26 조사 결과 odcloud 국세청 게이트웨이가 간헐적으로
- * 503(즉답, ~0.06s)과 20초+ 타임아웃을 함께 반환하는 것으로 실측됐다. {@link #executeWithRetry}가
- * 연결 실패({@link ResourceAccessException})와 5xx({@link RestClientResponseException})에 한해
- * {@code biz-verify.retry-max-attempts}(기본 1, 총 최대 2회 시도)만큼 {@code retry-backoff-ms}(기본
- * 300ms) 간격으로 재시도한다. 4xx·응답 파싱 실패({@link RestClientException})·해석 불가는 재시도해도
- * 결과가 같으므로 재시도하지 않는다(즉시 fail-open).
+ * <p><b>일시적 실패 재시도(#880) — 실시간 경로 전용(PR #889 P1, 2026-07-26 정정)</b>: 조사 결과
+ * odcloud 국세청 게이트웨이가 간헐적으로 503(즉답, ~0.06s)과 20초+ 타임아웃을 함께 반환하는 것으로
+ * 실측됐다. {@link #executeWithRetry}가 연결 실패({@link ResourceAccessException})와 5xx
+ * ({@link RestClientResponseException})에 한해 {@code biz-verify.retry-max-attempts}(기본 1, 총 최대
+ * 2회 시도)만큼 {@code retry-backoff-ms}(기본 300ms) 간격으로 재시도한다. 4xx·응답 파싱 실패
+ * ({@link RestClientException})·해석 불가는 재시도해도 결과가 같으므로 재시도하지 않는다(즉시 fail-open).
  *
- * <p><b>대기 시간 상한 근거</b>: {@code read-timeout-ms}=8000(5000→8000 상향) 기준, 호출 1건의
- * 이론상 최악 대기는 (읽기타임아웃 8s + 백오프 0.3s) × 최대 2회 시도 ≈ 16.3s. {@link #verifyRealtime}은
- * status→validate 2단계라 이 둘이 모두 최악으로 겹치면 이론상 최대 ≈32.6s로 애초 목표(25s) 를
- * 넘는다 — 다만 실측상 5xx는 대부분 즉답(0.06s)이라 "두 단계 모두 진짜 타임아웃(20초+)이 겹치는" 경우는
- * 극히 드문 이중 장애 시나리오이고, 이 경로는 어차피 fail-open(UNAVAILABLE)이라 사용자 가입 자체를
- * 막지 않는다. 재시도 횟수를 더 낮추면 정작 재시도가 필요한 일반적 5xx/짧은 지연 케이스의 복원력이
- * 줄어들므로, 이 극단적 이중 타임아웃 케이스는 상한 초과를 감수하고 재시도 횟수를 유지한다(빈도 재발 시
- * {@code retry-max-attempts}를 0으로 낮추는 것으로 즉시 완화 가능 — 설정값이라 재배포만 필요).
+ * <p><b>재시도는 {@link #verifyRealtime}(status 호출 + 내부 {@link #validateForRealtime})에만
+ * 적용되고, 공개 {@link #validate}(회원가입 제출 경로)는 재시도하지 않는다.</b> 이유(PR #889 P1 리뷰):
+ * {@code POST /api/auth/companies}는 permitAll + rate-limit 미적용 무인증 엔드포인트라, 요청당 외부
+ * 호출 대기시간이 늘면 국세청 장애가 장기화(이 서비스는 과거에도 며칠~수주 장애 이력 반복)될 때 Tomcat
+ * 워커 스레드가 고갈될 수 있다. 제출 경로는 실패해도 fail-open이라 가입이 그대로 통과하고
+ * (verificationStatus=PENDING) 후속 #888(PENDING 자동 재검증 스케줄러)이 나중에 확정하므로, 재시도로
+ * 얻는 이득(제출 즉시 VERIFIED 확정 확률)보다 무인증 엔드포인트의 스레드 점유 비용이 크다고 판단했다.
+ * 반면 실시간 경로는 사용자가 결과를 기다리는 인터랙티브 버튼 클릭이고 전역 rate-limit(분당10/일300)으로
+ * 보호되므로 재시도 가치가 있다. 이 구분을 위해 RestClient 빈도 경로별로 분리했다
+ * ({@link com.hajacheck.bizverify.config.BizVerifyConfig} 참고).
+ *
+ * <p><b>대기 시간 상한 근거(경로별, connect-timeout 포함 — PR #889 P3 정정)</b>: {@code executeWithRetry}가
+ * 재시도 대상으로 잡는 {@link ResourceAccessException}은 connect-timeout(3s)·read-timeout 양쪽에서 모두
+ * 발생할 수 있어, 호출 1건의 이론상 최악 대기는 (connect-timeout + read-timeout)을 기준으로 잡는다.
+ * <ul>
+ *   <li><b>제출 경로</b>({@link #validate}, 재시도 없음): 단일 시도, connect(3s)+read(5s) ≈ <b>8s</b> —
+ *       PR #880 이전과 동일(변경 없음). 무인증 엔드포인트의 스레드 점유 리스크가 이 PR로 늘지 않는다.
+ *   <li><b>실시간 경로</b>({@link #verifyRealtime}, 재시도 최대 2회 시도): 단일 HTTP 호출 최악
+ *       ≈ connect(3s)+read(8s)=11s, 재시도+백오프(0.3s) 적용 시 호출 1건 최악 ≈ 11×2+0.3 ≈ <b>22.3s</b>.
+ *       status→validateForRealtime 2단계 모두 최악이 겹치면 이론상 총 최대 ≈ <b>44.6s</b>까지 갈 수
+ *       있어 애초 목표(25s)를 넘는다 — 다만 이 경로는 전역 rate-limit(분당10/일300)으로 보호되는
+ *       인터랙티브 버튼 클릭 경로라 무인증 대량 유입으로 인한 스레드 고갈 리스크가 없고, "두 단계 모두
+ *       진짜 20초+ 타임아웃이 겹치는" 경우는 실측상 극히 드문 이중 장애 시나리오다(5xx는 대부분
+ *       즉답 0.06s). 빈도 재발 시 {@code retry-max-attempts}를 0으로 낮추면 즉시 완화 가능(설정값).
+ * </ul>
  *
  * <p><b>개인정보 로깅 금지</b>: 사업자등록번호·대표자명·개업일자는 로그에 남기지 않는다(결과 코드만 기록).
  * 재시도 로그도 동일 규칙을 따른다(예외 클래스명/상태코드만 기록, 응답바디·스택 미로깅).
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class NtsBusinessVerifyClient {
 
     private static final String VALIDATE_PATH = "/api/nts-businessman/v1/validate";
@@ -71,11 +87,24 @@ public class NtsBusinessVerifyClient {
     // 달라질 수 있어(문헌마다 표기가 조금씩 다름) 부분 일치로 방어적으로 판정한다.
     private static final String NOT_REGISTERED_MARKER = "등록되지 않은 사업자등록번호";
 
-    private final RestClient bizVerifyRestClient;
+    private final RestClient submitRestClient;
+    private final RestClient realtimeRestClient;
     private final BizVerifyProperties bizVerifyProperties;
 
+    public NtsBusinessVerifyClient(
+            @Qualifier("bizVerifySubmitRestClient") RestClient submitRestClient,
+            @Qualifier("bizVerifyRealtimeRestClient") RestClient realtimeRestClient,
+            BizVerifyProperties bizVerifyProperties) {
+        this.submitRestClient = submitRestClient;
+        this.realtimeRestClient = realtimeRestClient;
+        this.bizVerifyProperties = bizVerifyProperties;
+    }
+
     /**
-     * 사업자등록번호+대표자명+개업일자를 국세청 등록정보와 대조한다.
+     * 사업자등록번호+대표자명+개업일자를 국세청 등록정보와 대조한다 — <b>회원가입 제출 경로 전용</b>
+     * ({@code CompanySignupService}). permitAll+rate-limit 없는 무인증 엔드포인트라 재시도하지 않는다
+     * (클래스 상단 Javadoc "실시간 경로 전용" 단락 참고). 실시간 진위확인 흐름에서 계속사업자 확정 후
+     * 대조할 때는 이 메서드 대신 재시도가 적용된 {@link #validateForRealtime}을 쓴다.
      *
      * @param normalizedBrn      하이픈 제거된 사업자등록번호(숫자 10자리)
      * @param representativeName 대표자명
@@ -84,6 +113,21 @@ public class NtsBusinessVerifyClient {
      */
     public NtsVerificationOutcome validate(String normalizedBrn, String representativeName,
                                            LocalDate businessStartDate) {
+        return validate(normalizedBrn, representativeName, businessStartDate, submitRestClient, false);
+    }
+
+    /**
+     * {@link #verifyRealtime}이 계속사업자(01) 확정 후 호출하는 내부용 대조 — 제출 경로와 달리 재시도가
+     * 적용된 {@link #realtimeRestClient}(read-timeout 8s)를 사용한다.
+     */
+    private NtsVerificationOutcome validateForRealtime(String normalizedBrn, String representativeName,
+                                                        LocalDate businessStartDate) {
+        return validate(normalizedBrn, representativeName, businessStartDate, realtimeRestClient, true);
+    }
+
+    private NtsVerificationOutcome validate(String normalizedBrn, String representativeName,
+                                             LocalDate businessStartDate, RestClient restClient,
+                                             boolean retryEnabled) {
         if (!StringUtils.hasText(bizVerifyProperties.getServiceKey())) {
             log.info("사업자 진위확인 스킵: serviceKey 미설정 — fail-open 가입 진행(PENDING)");
             return NtsVerificationOutcome.SKIPPED;
@@ -95,7 +139,7 @@ public class NtsBusinessVerifyClient {
                 representativeName)));
 
         try {
-            NtsValidateResponse response = executeWithRetry(() -> bizVerifyRestClient.post()
+            NtsValidateResponse response = executeWithRetry(() -> restClient.post()
                     // serviceKey 는 반드시 percent-encoding 되어야 한다(data.go.kr "Decoding" 키는 +,/,= 를
                     // 포함할 수 있고, 미인코딩 시 서버가 + 를 공백으로 해석 → 인증실패 → 조용한 no-op). 리터럴
                     // queryParam 값은 DefaultUriBuilderFactory(TEMPLATE_AND_VALUES)가 인코딩하지 않으므로,
@@ -105,7 +149,7 @@ public class NtsBusinessVerifyClient {
                             .build(bizVerifyProperties.getServiceKey()))
                     .body(body)
                     .retrieve()
-                    .body(NtsValidateResponse.class));
+                    .body(NtsValidateResponse.class), retryEnabled);
             return interpret(response);
         } catch (ResourceAccessException e) {
             // 연결 실패/타임아웃 — 원인으로 UNREACHABLE/TIMEOUT 구분(로깅용). 모두 fail-open.
@@ -154,14 +198,14 @@ public class NtsBusinessVerifyClient {
 
         NtsStatusResponse statusResponse;
         try {
-            statusResponse = executeWithRetry(() -> bizVerifyRestClient.post()
+            statusResponse = executeWithRetry(() -> realtimeRestClient.post()
                     // serviceKey 인코딩 규칙은 validate()와 동일(클래스 상단 주석 참고).
                     .uri(uriBuilder -> uriBuilder.path(STATUS_PATH)
                             .queryParam("serviceKey", "{serviceKey}")
                             .build(bizVerifyProperties.getServiceKey()))
                     .body(new NtsStatusRequest(List.of(normalizedBrn)))
                     .retrieve()
-                    .body(NtsStatusResponse.class));
+                    .body(NtsStatusResponse.class), true);
         } catch (ResourceAccessException e) {
             ErrorCode code = classifyConnectionFailure(e);
             log.warn("사업자 진위확인(실시간) 상태조회 호출 실패: {} — fail-open(UNAVAILABLE)", code, e);
@@ -182,8 +226,9 @@ public class NtsBusinessVerifyClient {
             return statusOutcome; // NOT_REGISTERED / SUSPENDED / CLOSED / SKIPPED(파싱 불가)
         }
 
-        // 상태조회가 계속사업자(01)를 확인했을 때만 validate() 로 대표자명·개업일자 일치 여부를 확정한다.
-        return validate(normalizedBrn, representativeName, businessStartDate);
+        // 상태조회가 계속사업자(01)를 확인했을 때만 validateForRealtime() 으로 대표자명·개업일자 일치
+        // 여부를 확정한다(제출 경로 전용 validate()가 아니라 재시도 적용된 실시간 전용 오버로드).
+        return validateForRealtime(normalizedBrn, representativeName, businessStartDate);
     }
 
     /**
@@ -262,8 +307,9 @@ public class NtsBusinessVerifyClient {
     }
 
     /**
-     * 일시적 실패(연결 실패·타임아웃·5xx)에만 짧게 재시도하는 공통 헬퍼(#880) — {@link #validate}와
-     * {@link #verifyRealtime}의 status 호출 양쪽에서 재사용한다(SRP, 복붙 금지).
+     * 일시적 실패(연결 실패·타임아웃·5xx)에만 짧게 재시도하는 공통 헬퍼(#880) — {@link #validate}(제출
+     * 경로 오버로드)와 {@link #validateForRealtime}, {@link #verifyRealtime}의 status 호출에서
+     * {@code retryEnabled} 로 재시도 적용 여부만 다르게 재사용한다(SRP, 복붙 금지).
      *
      * <p>재시도 대상: {@link ResourceAccessException}(연결 실패·타임아웃), 5xx
      * {@link RestClientResponseException}. <b>재시도하지 않음</b>: 4xx {@link RestClientResponseException}
@@ -271,13 +317,15 @@ public class NtsBusinessVerifyClient {
      * 동일 실패). 재시도 소진 시 마지막 예외를 그대로 던져 호출부의 기존 fail-open catch 블록이 처리한다
      * (정책·로깅 변경 없음).
      *
-     * @param httpCall {@code RestClient} 호출+역직렬화(예: {@code .retrieve().body(Class)})
+     * @param httpCall     {@code RestClient} 호출+역직렬화(예: {@code .retrieve().body(Class)})
+     * @param retryEnabled {@code false}면 1회만 시도하고 실패 즉시 던진다(제출 경로 전용, PR #889 P1).
+     *                     {@code true}면 {@code biz-verify.retry-max-attempts} 만큼 재시도한다(실시간 경로).
      */
-    private <T> T executeWithRetry(Supplier<T> httpCall) {
+    private <T> T executeWithRetry(Supplier<T> httpCall, boolean retryEnabled) {
         // 최소 1회는 반드시 시도한다 — retry-max-attempts 를 음수로 잘못 설정하면 루프가 한 번도 돌지
         // 않아 아래 IllegalStateException 이 호출부의 fail-open catch(ResourceAccess/RestClient 계열)를
         // 우회해 500 으로 새어 나간다. 설정 실수가 공개 가입 API 를 깨뜨리지 않도록 하한을 둔다.
-        int maxAttempts = Math.max(1, bizVerifyProperties.getRetryMaxAttempts() + 1);
+        int maxAttempts = retryEnabled ? Math.max(1, bizVerifyProperties.getRetryMaxAttempts() + 1) : 1;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 return httpCall.get();

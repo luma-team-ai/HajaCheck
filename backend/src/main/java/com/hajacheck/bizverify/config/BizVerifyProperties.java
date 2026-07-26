@@ -19,16 +19,36 @@ public class BizVerifyProperties {
     private String baseUrl;
     private String serviceKey;
     private long connectTimeoutMs = 3000;
-    // 5000 → 8000(#880) — odcloud 국세청 게이트웨이는 장애 없이도 5초를 자주 넘긴다(2026-07-26 실측).
-    private long readTimeoutMs = 8000;
+
+    /**
+     * <b>제출 경로 전용</b>(회원가입 게이트, {@code CompanySignupService} → {@code validate()} 단독 호출) —
+     * PR #880 이전 값(5000) 그대로 유지, 재시도도 없다. 이 엔드포인트({@code POST /api/auth/companies})는
+     * permitAll + rate-limit 미적용이라, 재시도·타임아웃 상향으로 요청당 대기시간이 늘면 국세청 장애가
+     * 장기화될 때 Tomcat 워커 스레드가 고갈될 수 있다(2026-07-26 PR #889 P1 리뷰). 실패해도 fail-open으로
+     * 가입은 그대로 통과(verificationStatus=PENDING)하고 후속 #888 스케줄러가 나중에 재검증하므로,
+     * 제출 시점 재시도로 얻는 이득(즉시 VERIFIED 확정 확률)보다 무인증 엔드포인트의 스레드 점유 비용이 더
+     * 크다고 판단했다. {@link #realtimeReadTimeoutMs}·{@link #retryMaxAttempts}와 반드시 구분할 것.
+     */
+    private long readTimeoutMs = 5000;
+
+    /**
+     * <b>실시간 진위확인 경로 전용</b>(#648, {@code POST /api/auth/business-verification} →
+     * {@code verifyRealtime()}이 쓰는 status 호출 + 내부 validate 호출) — 5000→8000 상향(#880, 2026-07-26
+     * 실측: odcloud 게이트웨이가 장애 없이도 5초를 자주 넘김). 이 경로는 전역 rate-limit({@link RateLimit},
+     * 분당10/일300)으로 보호되는 인터랙티브(사용자가 버튼 누르고 대기) 경로라 재시도·상향된 타임아웃의
+     * 스레드 점유 비용을 감수할 가치가 있다(제출 경로와 달리).
+     */
+    private long realtimeReadTimeoutMs = 8000;
 
     /**
      * 일시적 실패(연결 실패·타임아웃·5xx) 재시도 횟수(#880) — 최초 시도 제외 횟수. 기본 1(=최대 2회 시도).
-     * 4xx·응답 파싱 실패·해석 불가는 재시도하지 않는다({@link NtsBusinessVerifyClient} 참고).
+     * <b>실시간 진위확인 경로에만 적용</b>된다(제출 경로 {@code validate()}는 재시도하지 않음 — 위
+     * {@link #readTimeoutMs} javadoc 참고). 4xx·응답 파싱 실패·해석 불가는 재시도하지 않는다
+     * ({@link NtsBusinessVerifyClient} 참고).
      */
     private int retryMaxAttempts = 1;
 
-    /** 재시도 사이 대기 시간(ms, #880). */
+    /** 재시도 사이 대기 시간(ms, #880) — 실시간 진위확인 경로에만 적용. */
     private long retryBackoffMs = 300;
 
     /** 실시간 진위확인 공개 API(#648) rate-limit. */
@@ -64,6 +84,14 @@ public class BizVerifyProperties {
 
     public void setReadTimeoutMs(long readTimeoutMs) {
         this.readTimeoutMs = readTimeoutMs;
+    }
+
+    public long getRealtimeReadTimeoutMs() {
+        return realtimeReadTimeoutMs;
+    }
+
+    public void setRealtimeReadTimeoutMs(long realtimeReadTimeoutMs) {
+        this.realtimeReadTimeoutMs = realtimeReadTimeoutMs;
     }
 
     public int getRetryMaxAttempts() {
