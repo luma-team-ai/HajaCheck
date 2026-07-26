@@ -3,12 +3,14 @@ package com.hajacheck.admin.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.admin.repository.AdminPlanRepository;
 import com.hajacheck.admin.repository.AdminUserRepository;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.core.media.repository.MediaRepository;
@@ -21,7 +23,6 @@ import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,7 +32,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.Page;
 
 /**
  * AdminPlanService 단위 테스트 — PR#525 머신 리뷰 P2 지적: changePlan 의 동시성 경합(409) 경로가
@@ -56,6 +56,8 @@ class AdminPlanServiceTest {
     @Mock
     private CompanyRepository companyRepository;
     @Mock
+    private CompanyMembershipRepository companyMembershipRepository;
+    @Mock
     private MediaRepository mediaRepository;
 
     @InjectMocks
@@ -75,6 +77,8 @@ class AdminPlanServiceTest {
                 "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
 
         when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(companyMembershipRepository.existsEffectiveApprovedMembership(anyLong(), anyLong(), any()))
+                .thenReturn(true);
         when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
         when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
                 companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
@@ -103,6 +107,8 @@ class AdminPlanServiceTest {
                 "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
 
         when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(companyMembershipRepository.existsEffectiveApprovedMembership(anyLong(), anyLong(), any()))
+                .thenReturn(true);
         when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
 
         assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.STANDARD))
@@ -111,29 +117,6 @@ class AdminPlanServiceTest {
                         .isEqualTo(ErrorCode.PLAN_FORBIDDEN));
     }
 
-    @Test
-    void 플랜쿼터목록조회_승인멤버십없어도_companyId정상반환_PLAN_NOT_FOUND아님() {
-        // #887 방어 처리: 실제 가입 경로(CompanyAccountWriter)는 CompanyMembership 행을 만들지 않으므로,
-        // 승인 멤버십이 전혀 없어도(companyMembershipRepository mock 자체를 두지 않음) companyId만으로
-        // 정상 조회되어야 한다 — user_plans 도 없는 상태라 plan/quotaLimit은 null로 응답(활성 구독 없음).
-        Long adminUserId = 1L;
-        Long companyId = 10L;
-        User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
-                .passwordHash("hash").build();
-
-        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
-        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
-                companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.empty());
-        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
-                companyId, UserPlanStatus.UPGRADE_REQUESTED)).thenReturn(Optional.empty());
-        when(adminUserRepository.searchActiveMembers(any(), any(), any(), any()))
-                .thenReturn(Page.empty());
-        when(adminUserRepository.countByCompanyIdAndStatus(any(), any())).thenReturn(0L);
-        when(mediaRepository.countByAssignedInspectorInAndCreatedAtBetween(any(), any(), any()))
-                .thenReturn(List.of());
-
-        var response = service.getPlanQuota(adminUserId, 1, 20, null);
-
-        assertThat(response.stats().companyPlan()).isNull();
-    }
+    // #887 임시 완화(승인 멤버십 없어도 companyId만으로 통과) 재현 테스트는 #363 정식 복원으로
+    // 계약이 원복되면서 제거했다 — 승인 멤버십 없이는 PLAN_NOT_FOUND가 의도된 동작이다.
 }
