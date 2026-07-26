@@ -274,10 +274,10 @@ export function ReportEntryPage() {
   if (!data) return <div className="p-5 text-red-600">데이터를 불러올 수 없습니다.</div>;
 
   return (
-    <div className="pb-48">
+    <div>
       {/* Figma node 180:5040 "Background+Border+Shadow" — 섹션 1~5(제목~최근작업내역)를
           감싸는 흰색 카드. 이전 구현에 이 바깥 카드 자체가 통째로 빠져 있었다(#927).
-          6.하단 액션바는 Figma에서도 이 카드의 형제 요소(고정 오버레이)라 카드 밖에 둔다. */}
+          6.하단 액션바는 Figma에서도 이 카드의 형제 요소로 별도 카드다(고정 오버레이 아님, #961). */}
       <div className="mx-auto flex max-w-[1024px] flex-col gap-8 rounded-[20px] border border-border bg-white p-8 shadow-[0px_8px_12px_rgba(0,0,0,0.08)]">
       {/* 1. Title Section — "회차 상세"/"보고서 생성" 버튼 제거(#933 후속, 사용자 확정):
           이 페이지 자체가 이미 회차 상세 컨텍스트이고, "보고서 생성"은 하단 액션바의
@@ -594,33 +594,31 @@ export function ReportEntryPage() {
       )}
       </div>
 
-      {/* 6. Sticky Bottom Action Bar */}
-      <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-white/80 px-8 py-4 backdrop-blur-md">
-        <div className="mx-auto max-w-[1024px]">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-text-muted">
-              <Icon spec={ICONS.history} fill="#77767B" className="h-[13.5px] w-3" />
-              <span>
-                확정 하자 <span className="font-semibold text-black">{data.reviewedCount}건</span> 기준으로
-                생성합니다
+      {/* 6. Action Bar — 별도 카드 박스 (fixed 오버레이 아님, #961) */}
+      <div className="mx-auto w-full max-w-[1024px] rounded-2xl border border-border bg-white px-6 py-4 shadow-[0px_8px_12px_rgba(0,0,0,0.08)]">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm text-text-muted">
+            <Icon spec={ICONS.history} fill="#77767B" className="h-[13.5px] w-3" />
+            <span>
+              확정 하자 <span className="font-semibold text-black">{data.reviewedCount}건</span> 기준으로
+              생성합니다
+            </span>
+          </div>
+          <div className="flex gap-3">
+            <Button variant="secondary" size="md" disabled>
+              미리보기
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              disabled={data.reviewedCount !== data.totalCount || isGenerating}
+              onClick={handleGenerateReport}
+            >
+              <span className="inline-flex items-center gap-2">
+                {isGenerating ? '생성 중...' : '보고서 생성 시작'}
+                <Icon spec={ICONS.sparkle} fill="currentColor" className="h-3 w-3.5" />
               </span>
-            </div>
-            <div className="flex gap-3">
-              <Button variant="secondary" size="md" disabled>
-                미리보기
-              </Button>
-              <Button
-                variant="primary"
-                size="md"
-                disabled={data.reviewedCount !== data.totalCount || isGenerating}
-                onClick={handleGenerateReport}
-              >
-                <span className="inline-flex items-center gap-2">
-                  {isGenerating ? '생성 중...' : '보고서 생성 시작'}
-                  <Icon spec={ICONS.sparkle} fill="currentColor" className="h-3 w-3.5" />
-                </span>
-              </Button>
-            </div>
+            </Button>
           </div>
         </div>
       </div>
