@@ -220,4 +220,94 @@ class AdminPlanServiceTest {
         assertThat(plans.getAllValues()).extracting(Plan::getName)
                 .containsExactly(PlanName.FREE, PlanName.STANDARD);
     }
+
+    // ── keepUserIds 전달(#890 Phase 2) — AdminPlanService 는 PlanDowngradeService 로 그대로 넘길 뿐이라,
+    // 여기서는 "빈 값이면 기존 3-인자 오버로드, 값이 있으면 4-인자 오버로드로 정확히 위임되는지"만 본다.
+    // 실제 검증(회사 스코프·좌석 초과·owner·ACTIVE ADMIN)은 PlanDowngradeServiceTest가 고정한다.
+
+    @Test
+    void keepUserIds가_비어있으면_기존3인자_preview오버로드로_위임한다() {
+        Long adminUserId = 1L;
+        Long companyId = 10L;
+        User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
+                .passwordHash("hash").build();
+        UserPlan current = UserPlan.forCompany(companyId, 100L);
+        Plan targetPlan = Plan.create(PlanName.STANDARD, 10, 1000, 3, false, true, true,
+                new BigDecimal("29000.00"));
+        Company company = Company.createPendingReview(adminUserId, "회사", "123-45-67890",
+                "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+
+        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
+                companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(targetPlan));
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class)))
+                .thenReturn(DowngradeOverflow.none());
+        when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.changePlan(adminUserId, PlanName.STANDARD, false, List.of());
+
+        verify(planDowngradeService).preview(eq(companyId), any(Plan.class), any(Plan.class));
+        verify(planDowngradeService).applyOverflow(eq(companyId), any(Plan.class), any(Plan.class));
+        verify(planDowngradeService, never())
+                .preview(anyLong(), any(Plan.class), any(Plan.class), any());
+    }
+
+    @Test
+    void keepUserIds가_지정되면_4인자_오버로드로_그대로_위임한다() {
+        Long adminUserId = 1L;
+        Long companyId = 10L;
+        List<Long> keepUserIds = List.of(3L, 4L);
+        User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
+                .passwordHash("hash").build();
+        UserPlan current = UserPlan.forCompany(companyId, 100L);
+        Plan targetPlan = Plan.create(PlanName.FREE, 1, 50, 1, true, false, false, BigDecimal.ZERO);
+        Company company = Company.createPendingReview(adminUserId, "회사", "123-45-67890",
+                "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+
+        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
+                companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.FREE)).thenReturn(Optional.of(targetPlan));
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class), eq(keepUserIds)))
+                .thenReturn(DowngradeOverflow.none());
+        when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.changePlan(adminUserId, PlanName.FREE, false, keepUserIds);
+
+        verify(planDowngradeService).preview(eq(companyId), any(Plan.class), any(Plan.class), eq(keepUserIds));
+        verify(planDowngradeService)
+                .applyOverflow(eq(companyId), any(Plan.class), any(Plan.class), eq(keepUserIds));
+        verify(planDowngradeService, never()).preview(anyLong(), any(Plan.class), any(Plan.class));
+    }
+
+    @Test
+    void previewChange도_keepUserIds가_지정되면_4인자_오버로드로_위임한다() {
+        Long adminUserId = 1L;
+        Long companyId = 10L;
+        List<Long> keepUserIds = List.of(7L);
+        User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
+                .passwordHash("hash").build();
+        UserPlan current = UserPlan.forCompany(companyId, 100L);
+        Plan targetPlan = Plan.create(PlanName.FREE, 1, 50, 1, true, false, false, BigDecimal.ZERO);
+        Company company = Company.createPendingReview(adminUserId, "회사", "123-45-67890",
+                "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+
+        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
+                companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.FREE)).thenReturn(Optional.of(targetPlan));
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class), eq(keepUserIds)))
+                .thenReturn(new DowngradeOverflow(List.of(7L), 0));
+        when(userRepository.findAllById(List.of(7L))).thenReturn(List.of());
+
+        service.previewChange(adminUserId, PlanName.FREE, keepUserIds);
+
+        verify(planDowngradeService).preview(eq(companyId), any(Plan.class), any(Plan.class), eq(keepUserIds));
+    }
 }
