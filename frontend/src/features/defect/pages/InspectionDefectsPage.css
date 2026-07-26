@@ -256,7 +256,7 @@
 
 .defect-card-grid__thumb {
   display: flex;
-  height: 140px;
+  height: 160px;
   align-items: center;
   justify-content: center;
   background: var(--color-surface-sunken);
@@ -281,25 +281,59 @@
   padding: 14px 16px 16px;
 }
 
-.defect-card-grid__badges {
+.defect-card-grid__heading {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .defect-card-grid__type {
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
   margin: 0;
   color: var(--color-heading);
   font-size: 15px;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.defect-card-grid__badges {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+
+.defect-card-grid__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.defect-card-grid__badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: currentColor;
 }
 
 .defect-card-grid__stats {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 10px;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.defect-card-grid__stats-divider {
+  width: 1px;
+  height: 12px;
+  background: var(--color-border);
 }
 
 /* --- 점검 활동 기록 사이드바 --- */

@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+// defect-filter-bar__select 클래스는 DefectListPage.css에 정의돼 있다 — 이 컨트롤이 렌더링되는
+// InspectionDefectsPage는 그 CSS를 별도로 로드하지 않으므로 여기서 함께 임포트해 select 스타일을
+// 재사용한다(신규 스타일 중복 정의 금지).
+import '../pages/DefectListPage.css';
 import { DEFECT_GRADE_LABEL, DEFECT_TYPE_LABEL } from '../types';
 import type { DefectGrade, DefectType } from '../types';
 
