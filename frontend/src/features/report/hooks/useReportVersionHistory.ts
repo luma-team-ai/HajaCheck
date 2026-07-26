@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { reportApi, type ReportSummaryResponse } from '../api/reportApi';
 import type { ReportListItem } from '../types';
+import { hybridFetchFallback } from '../../../shared/utils/hybridFetchFallback';
 
 export function generateMockVersionHistory(report: ReportListItem): ReportSummaryResponse[] {
   const versions: ReportSummaryResponse[] = [];
@@ -30,23 +31,18 @@ export function generateMockVersionHistory(report: ReportListItem): ReportSummar
 }
 
 // 보고서 목록 우측 "버전 이력" 패널 — 선택된 보고서의 버전 목록을 조회한다.
-// BE 미구현/404 시에도 클릭된 보고서의 버전·수정일시와 100% 일치하는 폴백 이력을 제공한다.
+// 실 버전 API를 우선 사용하고, 개발 환경에서 API가 없거나 빈 경우에만 폴백 이력을 제공한다.
 export function useReportVersionHistory(activeReport: ReportListItem | null) {
   const inspectionId = activeReport?.inspectionId ?? null;
 
   return useQuery({
     queryKey: ['report', 'version-history', inspectionId, activeReport?.id] as const,
-    queryFn: async ({ signal }) => {
-      if (!activeReport) return [];
-      try {
-        const res = await reportApi.listReports(activeReport.inspectionId, signal);
-        if (Array.isArray(res.data) && res.data.length > 0) {
-          return res.data;
-        }
-      } catch (err) {
-        console.warn('[useReportVersionHistory] API 호출 실패 — 하이브리드 목 폴백 사용:', err);
-      }
-      return generateMockVersionHistory(activeReport);
+    queryFn: ({ signal }) => {
+      if (!activeReport) return Promise.resolve([]);
+      return hybridFetchFallback({
+        fetcher: () => reportApi.listReports(activeReport.inspectionId, signal).then((res) => res.data),
+        fallback: () => generateMockVersionHistory(activeReport),
+      });
     },
     enabled: activeReport != null,
   });

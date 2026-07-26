@@ -1,6 +1,6 @@
 import type { ReportFacilityOption, ReportListItem } from '../types';
 
-// 보고서 목록/이력 관리(#463) 목 데이터 — BE 미구현이라 MSW로 우선 개발한다. 총 건수는 Figma
+// 보고서 목록/이력 관리(#463) 개발 fallback fixture. 총 건수는 Figma
 // 예시값("총 47건")을 그대로 맞추지 않고 목 배열 실제 길이를 진실로 삼는다(필터/검색/페이지네이션
 // 로직 검증에 충분한 16건만 둔다 — 표시용 숫자를 부풀리지 않는다).
 // 보고서명(title)은 필드로 두지 않는다 — reports 테이블에 title 컬럼이 없어(V1 baseline schema)

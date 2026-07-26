@@ -2,15 +2,15 @@ import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../api/reportApi';
 import { mockReportListItems } from '../mocks/reportList.mock';
 import type { ReportListSummary } from '../types';
+import { hybridFetchFallback } from '../../../shared/utils/hybridFetchFallback';
 
 // 보고서 목록/이력 관리(#463) KPI 4종(전체/완료/편집 중/이번 달 발급).
-// BE 미구현 상태나 404/네트워크 에러 발생 시에도 목 데이터 기반 집계 수치를 폴백 제공한다.
+// 실 API를 우선 사용하고, 회사 요약 엔드포인트가 아직 없는 개발 환경에서만 목으로 폴백한다.
 export function useCompanyReportsSummary() {
   return useQuery({
     queryKey: ['report', 'company-summary'] as const,
-    queryFn: async ({ signal }) => {
-      try {
-        const res = await reportApi.getCompanyReportsSummary(signal);
+    queryFn: ({ signal }) => hybridFetchFallback({
+      fetcher: () => reportApi.getCompanyReportsSummary(signal).then((res) => {
         const d = (res.data ?? {}) as Partial<ReportListSummary> & Record<string, unknown>;
         if (d && (typeof d.totalCount === 'number' || typeof d.total_count === 'number')) {
           return {
@@ -32,10 +32,9 @@ export function useCompanyReportsSummary() {
                 : Number(d.issued_this_month_count ?? d.issuedThisMonthCount ?? 0),
           };
         }
-      } catch (err) {
-        console.warn('[useCompanyReportsSummary] API 호출 실패 — 하이브리드 목 폴백 사용:', err);
-      }
-
+        throw Object.assign(new Error('Invalid report summary response'), { status: 502 });
+      }),
+      fallback: () => {
       const finalizedCount = mockReportListItems.filter((i) => i.status === 'FINALIZED').length;
       const draftCount = mockReportListItems.filter((i) => i.status === 'DRAFT').length;
       const now = new Date();
@@ -51,6 +50,8 @@ export function useCompanyReportsSummary() {
         draftCount,
         issuedThisMonthCount,
       };
-    },
+      },
+      fallbackOnEmptyArray: false,
+    }),
   });
 }

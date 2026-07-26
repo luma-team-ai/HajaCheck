@@ -140,11 +140,11 @@ BT /F1 12 Tf 72 712 Td (HajaCheck Mock PDF Report) Tj ET
 endstream endobj
 xref
 0 5
-0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
-0000000212 00000 n 
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+0000000115 00000 n
+0000000212 00000 n
 trailer <</Size 5 /Root 1 0 R>>
 startxref
 306
@@ -219,7 +219,7 @@ startxref
     return HttpResponse.json(body, { status: 200 });
   }),
 
-  // GET /api/reports — 보고서 목록/이력 관리(#463) 회사 스코프 전체 목록. BE 미구현이라 필터/
+  // GET /api/reports — 테스트 전용 fallback fixture. 필터/
   // 검색/페이지네이션을 MSW 안에서 실제로 계산한다(다른 mock처럼 파라미터 무시하지 않음 —
   // 화면 개발·수동 테스트가 실제로 동작해야 의미가 있어서).
   http.get('/api/reports', ({ request }) => {
@@ -288,4 +288,3 @@ startxref
     return HttpResponse.json(body);
   }),
 ];
-

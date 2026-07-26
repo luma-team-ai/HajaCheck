@@ -23,11 +23,15 @@ import { reportHandlers } from '../features/report/api/reportApi.handlers';
 import { statisticsHandlers } from '../features/statistics/api/statisticsApi.handlers';
 import { statsHandlers } from '../features/platform-admin/api/statsApi.handlers';
 import { supportHandlers } from '../features/support/api/supportApi.handlers';
+import { getEffectiveAuthHandlers, isHybridMode } from '../shared/utils/isHybridMode';
 
 // hybrid는 실제 Spring 세션/인증을 사용해야 하므로 auth MSW가 실 로그인 요청을 가로채면 안 된다.
 // true/미설정 dev에서는 기존 목 로그인 동작을 유지한다.
-const isHybridMode = import.meta.env.VITE_ENABLE_MSW?.trim().toLowerCase() === 'hybrid';
-const effectiveAuthHandlers = isHybridMode ? [] : authHandlers;
+const hybridMode = isHybridMode(import.meta.env);
+const effectiveAuthHandlers = getEffectiveAuthHandlers(import.meta.env, authHandlers);
+// hybrid에서는 실 백엔드가 계약을 가진 보고서 요청을 MSW가 가로채지 않게 한다.
+// 백엔드 미구현 회사 목록/요약은 훅의 404 폴백으로 개발 화면을 유지한다.
+const effectiveReportHandlers = hybridMode ? [] : reportHandlers;
 
 export const handlers = [
   ...effectiveAuthHandlers,
@@ -58,7 +62,7 @@ export const handlers = [
   ...platformAdminCompanyHandlers,
   ...statsHandlers,
   ...monitoringHandlers,
-  ...reportHandlers,
+  ...effectiveReportHandlers,
   ...ragDocumentHandlers,
   ...supportHandlers,
   ...notificationHandlers,

@@ -48,8 +48,7 @@ export interface ReportContent {
 
 // ---------------------------------------------------------------------------
 // 보고서 목록 / 이력 관리 (#463, 사이드바 "보고서" 최상위 메뉴 — 회사 스코프 전체 보고서 목록)
-// GET /api/reports, /api/reports/summary — BE 미구현이라 MSW 목으로 우선 개발한다
-// (defect feature의 InspectionListItem과 동일한 선례, contract 확정 전까지 유지).
+// GET /api/reports, /api/reports/summary — 백엔드 미구현 시 hybrid 훅이 404를 목으로 폴백한다.
 // ---------------------------------------------------------------------------
 
 export type ReportListStatus = 'DRAFT' | 'FINALIZED';

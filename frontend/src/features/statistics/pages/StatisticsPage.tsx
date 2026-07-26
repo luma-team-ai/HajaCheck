@@ -64,12 +64,6 @@ export function StatisticsPage() {
 
   return (
     <div className="flex min-h-full flex-col gap-5 bg-surface-muted p-6">
-      <nav className="flex items-center gap-2 text-sm" aria-label="통계 현재 위치">
-        <span className="font-medium text-text-muted">HajaCheck</span>
-        <span className="text-text-muted">›</span>
-        <span className="font-medium text-heading">통계</span>
-      </nav>
-
       <div className="flex flex-col rounded-[20px] border border-border bg-surface p-8 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-border">
           <h1 className="m-0 text-3xl font-semibold text-heading">통계</h1>

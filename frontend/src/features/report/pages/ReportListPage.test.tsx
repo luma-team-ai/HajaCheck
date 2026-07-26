@@ -67,7 +67,8 @@ describe('ReportListPage', () => {
     expect(await screen.findByText(REPORT_101_TITLE)).toBeTruthy();
     expect(screen.getByText(REPORT_103_TITLE)).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText('시설물 필터'), { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: '시설물 필터' }));
+    fireEvent.click(await screen.findByRole('option', { name: '판교 테크원타워' }));
 
     await screen.findByText(REPORT_101_TITLE);
     expect(screen.queryByText(REPORT_103_TITLE)).toBeNull();

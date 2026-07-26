@@ -68,8 +68,7 @@ export const reportApi = {
 
   // --- 보고서 목록 / 이력 관리 (#463, 사이드바 "보고서" 최상위 메뉴) ---------------------------
   // GET /api/reports — 회사 스코프 전체 보고서 목록(페이지네이션 + 시설물/상태/검색/기간 필터).
-  // 백엔드 신규 구현 대기 상태라 MSW 목으로 우선 개발한다(defect feature InspectionListItem과
-  // 동일 선례).
+  // 회사 목록/요약 API가 준비되기 전까지는 hybrid에서 실 요청의 404를 훅이 목으로 폴백한다.
   listCompanyReports: (filters: ReportListFilters = {}, signal?: AbortSignal) =>
     api.get<PageResponse<ReportListItem>>('/reports', { params: filters, signal }),
 

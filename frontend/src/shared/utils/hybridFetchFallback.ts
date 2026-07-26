@@ -7,6 +7,8 @@ export interface HybridFallbackOptions<T> {
   env?: { DEV: boolean; VITE_ENABLE_MSW?: string };
   /** 응답이 빈 배열([])일 때 목 데이터로 폴백할지 여부 (기본값: true) */
   fallbackOnEmptyArray?: boolean;
+  /** 페이지 응답처럼 배열을 감싼 응답에서 목 폴백이 필요한 빈 상태를 판정한다. */
+  isEmpty?: (result: T) => boolean;
 }
 
 /**
@@ -21,7 +23,13 @@ export interface HybridFallbackOptions<T> {
 export async function hybridFetchFallback<T>(
   options: HybridFallbackOptions<T>,
 ): Promise<T> {
-  const { fetcher, fallback, env = import.meta.env, fallbackOnEmptyArray = true } = options;
+  const {
+    fetcher,
+    fallback,
+    env = import.meta.env,
+    fallbackOnEmptyArray = true,
+    isEmpty,
+  } = options;
 
   // 1. PROD 모드이거나 VITE_ENABLE_MSW=false 로 목이 꺼진 개발 환경에서는 무조건 실 서버 호출 결과만 전파한다.
   if (!shouldEnableMocking(env)) {
@@ -36,7 +44,8 @@ export async function hybridFetchFallback<T>(
 
     // 2. 실 서버 응답이 성공(200)했으나 데이터가 빈 배열인 경우,
     //    공유 Dev DB 레코드 0건 제약으로 통계 차트가 비는 것을 방지하기 위해 목 데이터로 폴백
-    if (fallbackOnEmptyArray && Array.isArray(result) && result.length === 0) {
+    const emptyArray = fallbackOnEmptyArray && Array.isArray(result) && result.length === 0;
+    if (emptyArray || isEmpty?.(result)) {
       return resolveFallback();
     }
 

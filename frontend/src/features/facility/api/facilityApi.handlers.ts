@@ -1,4 +1,4 @@
-import { http, HttpResponse } from 'msw';
+import { http, HttpResponse, passthrough } from 'msw';
 import type { ApiResponse } from '../../../shared/api/types';
 import { mockFacilities } from '../mocks/facility.mock';
 import type {
@@ -9,6 +9,8 @@ import type {
 } from '../types';
 import { computeNextInspectionDueAt } from '../utils/computeNextInspectionDueAt';
 import { computeDemoNextInspectionDueAt } from '../utils/inspectionCycleDemo';
+import { isHybridMode } from '../../../shared/utils/isHybridMode';
+
 
 // 메모리 목 저장소 — POST로 생성한 시설물이 이후 GET 목록 조회에 즉시 반영되도록 모듈 스코프에서 유지
 // (dashboardApi.handlers.ts처럼 고정 응답만으로는 등록 폼 E2E 확인이 불가능해 facility만 mutable로 구성)
@@ -27,6 +29,7 @@ export function resetFacilityMockStore(): void {
 
 export const facilityHandlers = [
   http.get('/api/facilities', () => {
+    if (isHybridMode(import.meta.env)) return passthrough();
     const body: ApiResponse<Facility[]> = { success: true, data: facilities };
     return HttpResponse.json(body);
   }),
