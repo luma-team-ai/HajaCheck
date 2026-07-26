@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isRouteImplemented } from '../../../app/implementedRoutes';
 import { useInspectionStore } from '../../../features/inspection/store/inspectionStore';
 import { SideNavBar } from './SideNavBar';
 
@@ -258,6 +259,27 @@ describe('SideNavBar', () => {
       expect(
         screen.getByRole('link', { name: '보고서 생성 진입점' }).getAttribute('href'),
       ).toBe('/inspections/42/reports');
+    });
+
+    // PR 리뷰 P1 — 위 두 테스트는 <Link>의 href 속성만 확인하고 SideNavBar 기본값
+    // (isRouteImplemented = () => true)으로 렌더링해서, 실제 서비스에서 주입되는
+    // app/implementedRoutes.isRouteImplemented가 activeInspectionId 기반 동적 href를
+    // "미구현"으로 막아버리는 회귀를 잡지 못했다. 실제 함수를 그대로 주입해 클릭까지 검증한다.
+    it('실제 isRouteImplemented(app/implementedRoutes)를 주입해도 진행 중인 점검의 결과 뷰어로 실제 이동한다', () => {
+      useInspectionStore.getState().setActiveInspectionId(42);
+
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" isRouteImplemented={isRouteImplemented} />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('점검 관리'));
+      fireEvent.click(screen.getByRole('link', { name: '분석 결과 뷰어' }));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/42/viewer');
+      expect(screen.queryByRole('status')).toBeNull();
     });
   });
 

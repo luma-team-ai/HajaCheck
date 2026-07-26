@@ -14,7 +14,6 @@ describe('isRouteImplemented', () => {
     '/mypage/plan',
     '/mypage/profile',
     '/mypage/inspections',
-    '/inspections/1/viewer',
     '/facilities/list',
     '/admin/plans-quota',
   ])(
@@ -33,5 +32,27 @@ describe('isRouteImplemented', () => {
 
   it("'/defects/:id' 같은 동적 세그먼트로 우연히 매치되던 플레이스홀더(예: 임의 id)는 통과하지 않는다", () => {
     expect(isRouteImplemented('/defects/999')).toBe(false);
+  });
+
+  // 점검 id 스코프 라우트 회귀 방지(PR #938 리뷰 P1) — SideNavBar가 activeInspectionId로
+  // '/inspections/{id}/analysis|viewer|reports'를 동적 생성하는데, id는 실행 시점 값이라
+  // 정확한 문자열 화이트리스트로는 커버할 수 없었다. 숫자 id로 한정한 별도 패턴을 추가했다.
+  describe('점검 id 스코프 라우트(/inspections/:id/analysis|viewer|reports)', () => {
+    it.each([
+      '/inspections/1/viewer',
+      '/inspections/42/analysis',
+      '/inspections/42/viewer',
+      '/inspections/42/reports',
+    ])('%s는 true를 반환한다', (href) => {
+      expect(isRouteImplemented(href)).toBe(true);
+    });
+
+    it.each([
+      '/inspections/42/reports/generate', // 진입점이 아닌 편집 화면 — 화이트리스트 대상 아님
+      '/inspections/abc/analysis', // 숫자가 아닌 id는 매치하지 않는다(#227 재발 방지)
+      '/inspections/42/unknown',
+    ])('%s는 false를 반환한다', (href) => {
+      expect(isRouteImplemented(href)).toBe(false);
+    });
   });
 });
