@@ -5,12 +5,38 @@ import com.hajacheck.core.report.entity.ReportStatus;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ReportRepository extends JpaRepository<Report, Long> {
+
+    @Query(value = "select r from Report r join fetch r.inspection i join fetch i.facility f "
+            + "where f.companyId = :companyId and r.status in :statuses "
+            + "and (:facilityId = -1 or f.id = :facilityId) "
+            + "and (:query = '' or lower(f.name) like lower(concat('%', :query, '%'))) "
+            + "and r.updatedAt >= :updatedAtFrom",
+            countQuery = "select count(r) from Report r join r.inspection i join i.facility f "
+                    + "where f.companyId = :companyId and r.status in :statuses "
+                    + "and (:facilityId = -1 or f.id = :facilityId) "
+                    + "and (:query = '' or lower(f.name) like lower(concat('%', :query, '%'))) "
+                    + "and r.updatedAt >= :updatedAtFrom")
+    Page<Report> findCompanyPage(@Param("companyId") Long companyId,
+            @Param("statuses") List<ReportStatus> statuses, @Param("facilityId") Long facilityId,
+            @Param("query") String query, @Param("updatedAtFrom") LocalDateTime updatedAtFrom,
+            Pageable pageable);
+
+    @Query("select count(r) as totalCount, "
+            + "coalesce(sum(case when r.status = :finalized then 1 else 0 end), 0) as finalizedCount, "
+            + "coalesce(sum(case when r.status = :draft then 1 else 0 end), 0) as draftCount, "
+            + "coalesce(sum(case when r.status = :finalized and r.updatedAt >= :monthStart then 1 else 0 end), 0) "
+            + "as issuedThisMonthCount from Report r join r.inspection i join i.facility f "
+            + "where f.companyId = :companyId")
+    CompanyReportSummaryProjection summarizeCompany(@Param("companyId") Long companyId,
+            @Param("finalized") ReportStatus finalized, @Param("draft") ReportStatus draft,
+            @Param("monthStart") LocalDateTime monthStart);
 
     // 보고서 버전 목록(최신순) — #446.
     List<Report> findByInspectionIdOrderByVersionDesc(Long inspectionId);

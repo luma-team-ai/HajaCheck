@@ -5,16 +5,23 @@ import com.hajacheck.core.report.dto.FinalizeReportRequest;
 import com.hajacheck.core.report.dto.ReportDetailResponse;
 import com.hajacheck.core.report.dto.ReportPdfResponse;
 import com.hajacheck.core.report.dto.ReportSummaryResponse;
+import com.hajacheck.core.report.dto.CompanyReportListItemResponse;
+import com.hajacheck.core.report.dto.CompanyReportSummaryResponse;
+import com.hajacheck.core.report.entity.ReportStatus;
 import com.hajacheck.core.report.dto.UpdateReportContentRequest;
 import com.hajacheck.core.report.service.ReportService;
 import com.hajacheck.core.report.support.ReportPdfStorage;
 import com.hajacheck.global.common.ApiResponse;
+import com.hajacheck.global.common.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -40,6 +47,27 @@ public class ReportController {
 
     private final ReportService reportService;
     private final ReportPdfStorage reportPdfStorage;
+
+    @Operation(summary = "회사 보고서 목록", description = "현재 회사의 보고서를 필터·페이지·정렬 조건으로 조회한다")
+    @GetMapping("/api/reports")
+    public ResponseEntity<ApiResponse<PageResponse<CompanyReportListItemResponse>>> listCompanyReports(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @RequestParam(required = false) Long facilityId,
+            @RequestParam(required = false) ReportStatus status,
+            @RequestParam(required = false, defaultValue = "") String query,
+            @RequestParam(required = false, defaultValue = "ALL") String period,
+            @PageableDefault(size = 10, sort = "updatedAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return ResponseEntity.ok(ApiResponse.ok(reportService.listCompanyReports(
+                loginUser.getUserId(), loginUser.getCompanyId(), facilityId, status, query, period, pageable)));
+    }
+
+    @Operation(summary = "회사 보고서 요약", description = "회사 보고서 KPI를 조회한다")
+    @GetMapping("/api/reports/summary")
+    public ResponseEntity<ApiResponse<CompanyReportSummaryResponse>> companyReportsSummary(
+            @AuthenticationPrincipal LoginUser loginUser) {
+        return ResponseEntity.ok(ApiResponse.ok(reportService.companyReportsSummary(
+                loginUser.getUserId(), loginUser.getCompanyId())));
+    }
 
     @Operation(summary = "보고서 초안 생성", description = "점검의 확정 하자를 근거로 AI 보고서 초안을 생성한다")
     @PostMapping("/api/inspections/{inspectionId}/reports")

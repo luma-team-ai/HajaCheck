@@ -29,6 +29,7 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.report.dto.UpdateReportContentRequest;
 import com.hajacheck.core.report.entity.Report;
+import com.hajacheck.core.report.entity.ReportStatus;
 import com.hajacheck.core.report.repository.ReportRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
@@ -443,5 +444,44 @@ class ReportControllerTest extends PostgresTestSupport {
 
         assertThat(response.getStatusCode()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
         assertThat(response.getBody().error().code()).isEqualTo("REPORT_VERSION_CONFLICT");
+    }
+
+    @Test
+    void 회사보고서목록은_회사범위와필터_페이지계약을반환한다() throws Exception {
+        User owner = seedOwner("company-report-list-owner@haja.com");
+        Inspection first = seedInspection(owner);
+        Inspection second = seedInspection(owner);
+        reportRepository.save(Report.draft(first.getId(), 1, "{}", owner.getId()));
+        reportRepository.save(Report.draft(second.getId(), 1, "{}", owner.getId()));
+
+        mockMvc.perform(get("/api/reports")
+                        .param("status", ReportStatus.DRAFT.name())
+                        .param("page", "0").param("size", "1")
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.content[0].facilityName").value("테스트빌딩"))
+                .andExpect(jsonPath("$.data.content[0].gradeDistribution.A").value(0));
+    }
+
+    @Test
+    void 회사보고서요약은_현재회사보고서만_상태별KPI로반환한다() throws Exception {
+        User owner = seedOwner("company-report-summary-owner@haja.com");
+        User stranger = seedOwner("company-report-summary-stranger@haja.com");
+        Inspection ownInspection = seedInspection(owner);
+        Inspection strangerInspection = seedInspection(stranger);
+        reportRepository.save(Report.draft(ownInspection.getId(), 1, "{}", owner.getId()));
+        reportRepository.save(Report.draft(ownInspection.getId(), 2, "{}", owner.getId()));
+        reportRepository.save(Report.draft(strangerInspection.getId(), 1, "{}", stranger.getId()));
+
+        mockMvc.perform(get("/api/reports/summary").with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.totalCount").value(2))
+                .andExpect(jsonPath("$.data.draftCount").value(2))
+                .andExpect(jsonPath("$.data.finalizedCount").value(0))
+                .andExpect(jsonPath("$.data.issuedThisMonthCount").value(0));
     }
 }

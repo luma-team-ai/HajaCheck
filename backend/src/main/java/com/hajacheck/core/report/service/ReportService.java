@@ -16,18 +16,29 @@ import com.hajacheck.core.inspection.dto.InspectionResponse;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.report.dto.ReportDetailResponse;
 import com.hajacheck.core.report.dto.ReportSummaryResponse;
+import com.hajacheck.core.report.dto.CompanyReportListItemResponse;
+import com.hajacheck.core.report.dto.CompanyReportSummaryResponse;
 import com.hajacheck.core.report.entity.GroundingCheckResult;
 import com.hajacheck.core.report.entity.GroundingRequestContext;
 import com.hajacheck.core.report.entity.Report;
+import com.hajacheck.core.report.entity.ReportStatus;
+import com.hajacheck.core.report.repository.CompanyReportSummaryProjection;
 import com.hajacheck.core.report.repository.ReportRepository;
 import com.hajacheck.core.report.support.ReportPdfStorage;
 import com.hajacheck.global.common.ApiResponse;
+import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
+import com.hajacheck.core.defect.repository.InspectionGradeCountProjection;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -121,6 +132,59 @@ public class ReportService {
         return reportRepository.findByInspectionIdOrderByVersionDesc(inspectionId).stream()
                 .map(ReportSummaryResponse::from)
                 .toList();
+    }
+
+    public PageResponse<CompanyReportListItemResponse> listCompanyReports(
+            Long userId, Long companyId, Long facilityId, ReportStatus status, String query, String period,
+            Pageable pageable) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        List<ReportStatus> statuses = status == null
+                ? List.of(ReportStatus.DRAFT, ReportStatus.FINALIZED) : List.of(status);
+        LocalDateTime from = reportPeriodStart(period);
+        Page<Report> page = reportRepository.findCompanyPage(companyId, statuses,
+                facilityId == null ? -1L : facilityId, query == null ? "" : query.trim(), from, pageable);
+        List<Long> inspectionIds = page.getContent().stream().map(Report::getInspectionId).toList();
+        Map<Long, Map<String, Long>> distributions = gradeDistribution(inspectionIds);
+        return PageResponse.from(page.map(report -> CompanyReportListItemResponse.from(report,
+                distributions.getOrDefault(report.getInspectionId(), emptyGradeDistribution()))));
+    }
+
+    public CompanyReportSummaryResponse companyReportsSummary(Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        YearMonth month = YearMonth.now();
+        CompanyReportSummaryProjection summary = reportRepository.summarizeCompany(companyId,
+                ReportStatus.FINALIZED, ReportStatus.DRAFT, month.atDay(1).atStartOfDay());
+        return new CompanyReportSummaryResponse(summary.getTotalCount(), summary.getFinalizedCount(),
+                summary.getDraftCount(), summary.getIssuedThisMonthCount());
+    }
+
+    private LocalDateTime reportPeriodStart(String period) {
+        if (period == null || period.isBlank() || "ALL".equalsIgnoreCase(period)) {
+            return LocalDateTime.of(1970, 1, 1, 0, 0);
+        }
+        int months = switch (period.toUpperCase()) {
+            case "1M" -> 1;
+            case "3M" -> 3;
+            case "6M" -> 6;
+            default -> throw new BusinessException(ErrorCode.INVALID_INPUT);
+        };
+        return LocalDateTime.now().minusMonths(months);
+    }
+
+    private Map<Long, Map<String, Long>> gradeDistribution(List<Long> inspectionIds) {
+        if (inspectionIds.isEmpty()) return Map.of();
+        Map<Long, Map<String, Long>> result = new LinkedHashMap<>();
+        for (Long inspectionId : inspectionIds) result.put(inspectionId, emptyGradeDistribution());
+        for (InspectionGradeCountProjection count : defectRepository.countGroupByInspectionIdAndGrade(inspectionIds)) {
+            result.get(count.getInspectionId()).put(count.getGrade().name(), count.getCnt());
+        }
+        return result;
+    }
+
+    private Map<String, Long> emptyGradeDistribution() {
+        Map<String, Long> result = new LinkedHashMap<>();
+        for (DefectGrade grade : DefectGrade.values()) result.put(grade.name(), 0L);
+        return result;
     }
 
     @Transactional
