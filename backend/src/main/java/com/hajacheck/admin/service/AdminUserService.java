@@ -11,6 +11,7 @@ import com.hajacheck.admin.repository.AdminUserRepository;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.entity.PlanName;
@@ -34,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AdminUserService {
 
     private final AdminUserRepository adminUserRepository;
+    private final CompanyRepository companyRepository;
     private final PasswordEncoder passwordEncoder;
     private final QuotaService quotaService;
 
@@ -71,6 +73,12 @@ public class AdminUserService {
         // 좌석 잔여 확인(#872 후속) — 초대 코드 발급과 동일하게, 관리자가 직접 등록하는 경로도
         // 좌석이 가득 찬 회사는 새 사용자를 만들지 못하게 막는다(그렇지 않으면 초대 코드 좌석
         // 강제가 이 경로로 그대로 우회된다).
+        //
+        // TOCTOU 방지(PR머신 재검토 P3): hasAvailableSeat는 advisory 판정이라(QuotaService#hasAvailableSeat
+        // javadoc 참고) 검사와 save 사이에 잠금이 없으면, 좌석이 정확히 1석 남은 회사에서 동시에 들어온
+        // 두 등록 요청이 둘 다 통과해 좌석 한도를 넘길 수 있다. requireNotLastCompanyAdmin과 동일한 패턴으로
+        // 회사 행을 PESSIMISTIC_WRITE로 먼저 잠가, 같은 회사를 대상으로 한 동시 등록 요청을 직렬화한다.
+        companyRepository.findByIdForUpdate(companyId);
         if (!quotaService.hasAvailableSeat(companyId)) {
             throw new BusinessException(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED);
         }

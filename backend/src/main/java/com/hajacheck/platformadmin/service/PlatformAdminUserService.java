@@ -87,6 +87,12 @@ public class PlatformAdminUserService {
             // 좌석 잔여 확인(#872 후속) — 회사를 지정해 등록하는 경로도 그 회사 좌석을 그대로
             // 채우므로, 개인 계정(companyId=null)과 달리 여기서는 검사해야 한다. 그렇지 않으면
             // 기업 관리자용 좌석 강제(AdminUserService.createUser)를 플랫폼 관리자 경로로 우회할 수 있다.
+            //
+            // TOCTOU 방지(PR머신 재검토 P3): hasAvailableSeat는 advisory 판정이라(QuotaService#hasAvailableSeat
+            // javadoc 참고) 검사와 save 사이에 잠금이 없으면 동시 등록 요청이 좌석 한도를 넘길 수 있다.
+            // requireNotLastCompanyAdmin(본 클래스, TOCTOU 방지 목적 동일)과 같은 패턴으로 회사 행을
+            // PESSIMISTIC_WRITE로 먼저 잠가 같은 회사를 대상으로 한 동시 등록 요청을 직렬화한다.
+            companyRepository.findByIdForUpdate(request.companyId());
             if (!quotaService.hasAvailableSeat(request.companyId())) {
                 throw new BusinessException(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED);
             }
