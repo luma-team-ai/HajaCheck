@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
+import { AuthGlassPanel } from '../components/AuthGlassPanel';
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
 import { FIND_PASSWORD_ROUTE, LOGIN_ROUTE } from '../constants';
 import {
@@ -64,20 +65,22 @@ export function ResetPasswordPage() {
 
   if (!token) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-surface-muted p-6">
-        <div className="w-full max-w-[440px] rounded-[20px] border border-border bg-surface p-10 text-center shadow-sm">
-          <h1 className="m-0 text-2xl font-bold text-heading">유효하지 않은 접근입니다</h1>
-          <p className="mt-3 text-sm text-text-muted">
-            비밀번호 재설정 링크가 없거나 올바르지 않습니다. 다시 요청해 주세요.
-          </p>
-          <Link
-            to={FIND_PASSWORD_ROUTE}
-            className="mt-6 inline-block text-sm font-medium text-heading underline"
-          >
+      <AuthGlassPanel titleId="reset-password-invalid-title">
+        <h1
+          id="reset-password-invalid-title"
+          className="mt-10 text-center text-xl font-semibold text-zinc-900"
+        >
+          유효하지 않은 접근입니다
+        </h1>
+        <p className="mt-2 text-center text-sm text-zinc-500">
+          비밀번호 재설정 링크가 없거나 올바르지 않습니다. 다시 요청해 주세요.
+        </p>
+        <div className="mt-6 text-center">
+          <Link to={FIND_PASSWORD_ROUTE} className="text-sm font-medium text-zinc-900 underline">
             비밀번호 찾기로
           </Link>
         </div>
-      </div>
+      </AuthGlassPanel>
     );
   }
 
@@ -85,28 +88,32 @@ export function ResetPasswordPage() {
   const errorMessage = error ? (ERROR_MESSAGES[error.code] ?? DEFAULT_ERROR_MESSAGE) : null;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-surface-muted p-6">
-      <div className="w-full max-w-[440px] rounded-[20px] border border-border bg-surface p-10 shadow-sm">
-        <h1 className="m-0 text-2xl font-bold text-heading">새 비밀번호 설정</h1>
+    <AuthGlassPanel titleId="reset-password-title">
+        <h1
+          id="reset-password-title"
+          className="mt-10 text-center text-xl font-semibold text-zinc-900"
+        >
+          새 비밀번호 설정
+        </h1>
 
         {isSuccess ? (
-          <div className="mt-6 flex flex-col gap-4">
-            <p className="m-0 text-sm text-text-default">비밀번호가 변경되었습니다.</p>
-            <Link to={LOGIN_ROUTE} className="text-sm font-medium text-heading underline">
+          <div className="mt-4 flex flex-col items-center gap-4">
+            <p className="m-0 text-center text-sm text-zinc-500">비밀번호가 변경되었습니다.</p>
+            <Link to={LOGIN_ROUTE} className="text-sm font-medium text-zinc-900 underline">
               로그인으로
             </Link>
           </div>
         ) : isTokenInvalid ? (
-          <div className="mt-6 flex flex-col gap-4">
+          <div className="mt-4 flex flex-col items-center gap-4">
             <p role="alert" className={ERROR_CLASSES}>
               {TOKEN_INVALID_MESSAGE}
             </p>
-            <Link to={FIND_PASSWORD_ROUTE} className="text-sm font-medium text-heading underline">
+            <Link to={FIND_PASSWORD_ROUTE} className="text-sm font-medium text-zinc-900 underline">
               비밀번호 찾기 다시 요청하기
             </Link>
           </div>
         ) : (
-          <form className="mt-6 flex flex-col gap-5" onSubmit={handleSubmit}>
+          <form className="mt-4 flex flex-col gap-5" onSubmit={handleSubmit}>
             <div className="flex flex-col gap-1.5">
               <label className={LABEL_CLASSES} htmlFor="reset-password-new">
                 새 비밀번호
@@ -175,7 +182,6 @@ export function ResetPasswordPage() {
             </Button>
           </form>
         )}
-      </div>
-    </div>
+    </AuthGlassPanel>
   );
 }

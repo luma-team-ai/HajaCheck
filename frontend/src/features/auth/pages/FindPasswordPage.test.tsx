@@ -95,3 +95,36 @@ describe('FindPasswordPage — 계정 열거 방지', () => {
     expect(screen.queryByText(/재설정 링크를 보냈습니다/)).toBeNull();
   });
 });
+
+// 소셜 전용 계정 안내(#906) — 소셜 최초 로그인이 초대 코드 흐름(#799)으로 바뀌면서 초대받은 팀원은
+// 전원 비밀번호 없는 계정이 됐다. 백엔드는 이들에게 재설정 메일을 보내지 않는데(isPasswordResettable)
+// 열거 방지 때문에 화면은 성공과 똑같아, 안내가 없으면 오지 않을 메일을 계속 기다리게 된다.
+const SOCIAL_NOTICE_PATTERN = /카카오·구글로 가입하셨다면/;
+
+describe('FindPasswordPage — 소셜 전용 계정 안내(#906)', () => {
+  it('폼 화면에 소셜 계정 안내를 보여준다', () => {
+    renderPage();
+
+    expect(screen.getByText(SOCIAL_NOTICE_PATTERN)).not.toBeNull();
+  });
+
+  it('전송 완료 화면에도 소셜 계정 안내가 유지된다', async () => {
+    renderPage();
+    await submitEmail('anything@check.com');
+
+    // 실제로 메일을 기다리게 되는 지점이라 여기가 더 중요하다 — 폼에만 있으면 무용지물이다.
+    expect(screen.getByText(SOCIAL_NOTICE_PATTERN)).not.toBeNull();
+  });
+
+  it('입력한 이메일과 무관하게 동일한 안내를 보여준다(열거 표면 없음)', async () => {
+    const { unmount } = renderPage();
+    await submitEmail('registered@check.com');
+    const registeredNotice = screen.getByText(SOCIAL_NOTICE_PATTERN).textContent;
+    unmount();
+
+    renderPage();
+    await submitEmail('never-signed-up@check.com');
+
+    expect(screen.getByText(SOCIAL_NOTICE_PATTERN).textContent).toBe(registeredNotice);
+  });
+});
