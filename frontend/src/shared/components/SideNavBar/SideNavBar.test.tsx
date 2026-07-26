@@ -281,6 +281,18 @@ describe('SideNavBar', () => {
       expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/42/viewer');
       expect(screen.queryByRole('status')).toBeNull();
     });
+
+    // 회귀 방지(AppShellRoute.test.tsx #368) — router.tsx는 실제 :id와 무관하게 항상 같은 정적
+    // activeHref(예: '/inspections/1/viewer')를 보고한다. activeInspectionId를 store에 반영하는
+    // 흐름을 타지 않고 다른 경로로 그 페이지에 들어온 경우(activeInspectionId가 null인 채로 남음)에도
+    // href가 '/inspections/create'로 바뀐 것과 무관하게 matchHref로 활성 섹션이 계속 잡혀야 한다.
+    it('진행 중인 점검이 없어도 activeHref가 분석 결과 뷰어의 고정 activeHref와 일치하면 활성 표시된다(#368)', () => {
+      render(<SideNavBar activeHref="/inspections/1/viewer" />, { wrapper: MemoryRouter });
+
+      const link = screen.getByRole('link', { name: '분석 결과 뷰어' });
+      expect(link.getAttribute('aria-current')).toBe('page');
+      expect(link.getAttribute('href')).toBe('/inspections/create');
+    });
   });
 
   describe('접힌 상태 hover 펼침(HAJA-167, #184)', () => {

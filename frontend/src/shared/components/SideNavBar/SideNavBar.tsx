@@ -24,6 +24,14 @@ export interface SideNavSubItem {
   href: string;
   /** 라벨 텍스트 변경에 안전하게 특정 항목을 찾기 위한 안정 식별자(선택) — 동적 링크 생성 등에 사용 */
   id?: string;
+  /**
+   * activeHref와의 "현재 활성 섹션" 비교에만 쓰는 고정 href(선택, 미지정 시 href로 폴백).
+   * AI 분석/결과 뷰어/보고서 생성처럼 activeInspectionId에 따라 href가 매번 바뀌는 항목用 —
+   * router.tsx는 실제 :id와 무관하게 항상 같은 정적 activeHref(예: '/inspections/1/viewer')를
+   * 보고하므로(#368), href가 '/inspections/create'나 '/inspections/{실제id}/viewer'로 바뀌어도
+   * 매칭이 끊기지 않도록 별도로 고정해둔다.
+   */
+  matchHref?: string;
 }
 
 export interface SideNavItem {
@@ -110,10 +118,27 @@ const DEFAULT_ITEMS: SideNavItem[] = [
       { label: '점검(회차) 생성', href: '/inspections/create' },
       // 아래 세 항목의 href는 렌더 시 activeInspectionId 유무로 항상 재계산되어 덮어써진다
       // (allItems useMemo 참고) — 여기 적힌 값은 "점검이 아직 없을 때"의 실제 동작(점검 생성으로
-      // 이동)과 맞춰 둔 것일 뿐, 그 자체로 쓰이지 않는다.
-      { id: 'ai-analysis', label: 'AI 분석 실행/상태', href: '/inspections/create' },
-      { id: 'result-viewer', label: '분석 결과 뷰어', href: '/inspections/create' },
-      { id: 'report-entry', label: '보고서 생성 진입점', href: '/inspections/create' },
+      // 이동)과 맞춰 둔 것일 뿐, 그 자체로 쓰이지 않는다. matchHref는 router.tsx가 실제 :id와
+      // 무관하게 보고하는 정적 activeHref(#368)와 맞춘 고정값 — href가 바뀌어도 활성 섹션 표시가
+      // 끊기지 않게 한다.
+      {
+        id: 'ai-analysis',
+        label: 'AI 분석 실행/상태',
+        href: '/inspections/create',
+        matchHref: '/inspections/ai-analysis',
+      },
+      {
+        id: 'result-viewer',
+        label: '분석 결과 뷰어',
+        href: '/inspections/create',
+        matchHref: '/inspections/1/viewer',
+      },
+      {
+        id: 'report-entry',
+        label: '보고서 생성 진입점',
+        href: '/inspections/create',
+        matchHref: '/inspections/1/reports',
+      },
     ],
   },
   // '하자 상세'는 목록에서 항목을 눌러 실제 id로 /defects/:id에 진입하는 방식이라 사이드바에
@@ -243,7 +268,7 @@ export function SideNavBar({
     return isAdmin ? [...dynamicItems, adminItem] : dynamicItems;
   }, [isAdmin, items, adminItem, activeInspectionId]);
   const [expandedLabel, setExpandedLabel] = useState<string | undefined>(() =>
-    allItems.find((item) => item.subItems?.some((sub) => sub.href === activeHref))?.label,
+    allItems.find((item) => item.subItems?.some((sub) => (sub.matchHref ?? sub.href) === activeHref))?.label,
   );
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   // 접힌 상태에서 마우스를 올렸을 때 시각적으로만 펼쳐 보이는 오버레이 트리거 — 실제 collapsed
@@ -267,7 +292,7 @@ export function SideNavBar({
   // activeHref가 마운트 이후 바뀌어도(사이드바 클릭이 아닌 다른 경로로 하위 라우트 진입 시) 해당 그룹이 펼쳐지도록 동기화
   useEffect(() => {
     const activeGroupLabel = allItems.find((item) =>
-      item.subItems?.some((sub) => sub.href === activeHref),
+      item.subItems?.some((sub) => (sub.matchHref ?? sub.href) === activeHref),
     )?.label;
     if (activeGroupLabel) {
       setExpandedLabel(activeGroupLabel);
@@ -475,11 +500,11 @@ export function SideNavBar({
                         to={sub.href}
                         onClick={(event) => handleNavClick(event, sub.href)}
                         className={`whitespace-nowrap rounded-full px-4 py-[6px] text-[13px] no-underline hover:text-primary ${
-                          sub.href === activeHref
+                          (sub.matchHref ?? sub.href) === activeHref
                             ? 'bg-surface text-primary ring-1 ring-border'
                             : 'text-[#71717a]'
                         }`}
-                        aria-current={sub.href === activeHref ? 'page' : undefined}
+                        aria-current={(sub.matchHref ?? sub.href) === activeHref ? 'page' : undefined}
                       >
                         {sub.label}
                       </Link>
