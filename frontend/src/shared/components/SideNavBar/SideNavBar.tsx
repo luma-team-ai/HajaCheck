@@ -146,13 +146,17 @@ const DEFAULT_ITEMS: SideNavItem[] = [
   // 통계/설정과 같이 하위메뉴 없는 단일 항목으로 정리.
   { label: '하자 관리', href: '/defects/list', icon: defectsIcon },
   {
+    // 생성/조회/편집·출력 3분류 (AUDIT.md §6 권고사항 1). "편집·미리보기"/"PDF 내보내기"가
+    // 동일 href(/inspections/1/reports/generate)를 가리키던 중복 항목이었던 걸 "편집·출력"
+    // 단일 항목으로 통합. "보고서 생성"은 점검 관리 그룹의 진입점(#621, 오영석 담당 미구현
+    // placeholder)과 동일 href를 공유 — 보고서 그룹 자체의 3분류 완결성을 위해 추가.
     label: '보고서',
     href: '/reports',
     icon: reportsIcon,
     subItems: [
+      { label: '보고서 생성', href: '/inspections/report-entry' },
       { label: '보고서 목록/이력 관리', href: '/mypage/inspections' },
-      { label: '보고서 편집·미리보기', href: '/inspections/1/reports/generate' },
-      { label: 'PDF 내보내기', href: '/inspections/1/reports/generate' },
+      { label: '보고서 편집·출력', href: '/inspections/1/reports/generate' },
     ],
   },
   {
