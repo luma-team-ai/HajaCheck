@@ -239,6 +239,18 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(await screen.findByText('강남 오피스타워 A동')).not.toBeNull();
   });
 
+  it('좌측 이미지 컬럼은 넘치면 버튼이 클립되지 않고 스크롤된다(#902)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    // 부모 Unified Card가 overflow-hidden이라, 이미지(max-h-[79vh], #897)가 낮은
+    // 뷰포트에서 진행률바·검수확정 버튼과 합쳐 넘치면 버튼이 영구히 안 보이게 된다 —
+    // 이 컬럼에 overflow-y-auto가 있어야 넘칠 때 스크롤로 항상 닿을 수 있다.
+    const confirmButton = screen.getByRole('button', { name: '이 하자 검수 확정' });
+    const leftColumn = confirmButton.closest('.overflow-y-auto');
+    expect(leftColumn).not.toBeNull();
+  });
+
   it('선택된 하자가 필터로 제외되면 목록의 첫 항목으로 자동 대체된다', async () => {
     renderPage();
     await screen.findByText('DEF-0001');
