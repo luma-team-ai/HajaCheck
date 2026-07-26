@@ -42,7 +42,10 @@ class NtsBusinessVerifyClientTest {
         properties.setBaseUrl(BASE_URL);
         properties.setServiceKey("test-service-key");
         properties.setConnectTimeoutMs(3000);
-        properties.setReadTimeoutMs(5000);
+        properties.setReadTimeoutMs(8000);
+        // 재시도 자체는 그대로 두되(기본 1회) 테스트 속도를 위해 백오프는 0으로 낮춘다(#880).
+        properties.setRetryMaxAttempts(1);
+        properties.setRetryBackoffMs(0);
         builder = RestClient.builder().baseUrl(BASE_URL);
         mockServer = MockRestServiceServer.bindTo(builder).build();
     }
@@ -140,38 +143,91 @@ class NtsBusinessVerifyClientTest {
         assertThat(client().validate(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.SUSPENDED);
     }
 
-    @Test
-    void validate_5xx장애_failopen_SKIPPED() {
-        expectValidate().andRespond(withServerError());
+    // ---------- 재시도(#880) — 연결실패·타임아웃·5xx만 재시도, 4xx/파싱실패/해석불가는 재시도 없음 ----------
 
-        assertThat(client().validate(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.SKIPPED);
+    @Test
+    void validate_5xx장애_재시도후_2차성공시_VERIFIED() {
+        // 1차 5xx → 재시도 → 2차 성공.
+        expectValidate().andRespond(withServerError());
+        expectValidate().andRespond(withStatus(HttpStatus.OK)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {"data":[{"b_no":"1234567890","valid":"01","status":{"b_stt_cd":"01"}}]}
+                        """));
+
+        assertThat(client().validate(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.VERIFIED);
+        mockServer.verify();
     }
 
     @Test
-    void validate_읽기타임아웃_failopen_SKIPPED() {
+    void validate_5xx장애_재시도소진_failopen_SKIPPED() {
+        // retryMaxAttempts=1 → 총 2회 시도, 둘 다 5xx면 재시도 소진 후 SKIPPED(예외 미전파).
+        expectValidate().andRespond(withServerError());
+        expectValidate().andRespond(withServerError());
+
+        assertThat(client().validate(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.SKIPPED);
+        mockServer.verify();
+    }
+
+    @Test
+    void validate_읽기타임아웃_재시도소진_failopen_SKIPPED() {
+        expectValidate().andRespond(request -> {
+            throw new HttpTimeoutException("Response timed out");
+        });
         expectValidate().andRespond(request -> {
             throw new HttpTimeoutException("Response timed out");
         });
 
         assertThat(client().validate(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.SKIPPED);
+        mockServer.verify();
     }
 
     @Test
-    void validate_연결실패_failopen_SKIPPED() {
+    void validate_연결실패_재시도소진_failopen_SKIPPED() {
+        expectValidate().andRespond(request -> {
+            throw new ConnectException("Connection refused");
+        });
         expectValidate().andRespond(request -> {
             throw new ConnectException("Connection refused");
         });
 
         assertThat(client().validate(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.SKIPPED);
+        mockServer.verify();
     }
 
     @Test
-    void validate_응답형식불량_failopen_SKIPPED() {
+    void validate_4xx는_재시도하지않고_1회호출로_failopen_SKIPPED() {
+        // 4xx(키 거부 등)는 재시도해도 동일 결과이므로 재시도하지 않는다 — mockServer 에 1개 기대만
+        // 등록하고 verify() 로 정확히 1회 호출됐음을 보증한다(2회째 호출 시 "예상 밖 요청"으로 실패).
+        expectValidate().andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"code\":-4,\"msg\":\"HTTP ERROR 400\"}"));
+
+        assertThat(client().validate(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.SKIPPED);
+        mockServer.verify();
+    }
+
+    @Test
+    void validate_응답파싱실패는_재시도하지않고_1회호출로_failopen_SKIPPED() {
+        // 정상 HTTP 200이나 역직렬화 자체가 실패하는 형식 불량(malformed JSON) — 재시도해도 동일 실패.
+        expectValidate().andRespond(withStatus(HttpStatus.OK)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("not-a-json"));
+
+        assertThat(client().validate(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.SKIPPED);
+        mockServer.verify();
+    }
+
+    @Test
+    void validate_응답형식불량_해석불가는_재시도하지않고_1회호출로_failopen_SKIPPED() {
+        // data 빈 배열 — 정상 파싱되지만 해석 불가(interpret 단계). 예외가 아니므로 애초에 재시도 대상이
+        // 아니다(1회 호출로 SKIPPED).
         expectValidate().andRespond(withStatus(HttpStatus.OK)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body("{\"data\":[]}"));
 
         assertThat(client().validate(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.SKIPPED);
+        mockServer.verify();
     }
 
     @Test
@@ -258,7 +314,9 @@ class NtsBusinessVerifyClientTest {
     }
 
     @Test
-    void verifyRealtime_상태조회_5xx장애_failopen_UNAVAILABLE_validate호출없음() {
+    void verifyRealtime_상태조회_5xx장애_재시도소진_failopen_UNAVAILABLE_validate호출없음() {
+        // retryMaxAttempts=1 → 상태조회 2회 시도 모두 5xx면 재시도 소진 후 SKIPPED, validate 는 호출 안됨.
+        expectStatus().andRespond(withServerError());
         expectStatus().andRespond(withServerError());
 
         assertThat(client().verifyRealtime(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.SKIPPED);
@@ -266,12 +324,45 @@ class NtsBusinessVerifyClientTest {
     }
 
     @Test
-    void verifyRealtime_상태조회_타임아웃_failopen_UNAVAILABLE() {
+    void verifyRealtime_상태조회_5xx장애_재시도후_2차성공시_계속진행() {
+        // 상태조회 1차 5xx → 재시도 → 2차 성공(계속사업자) → validate 정상 호출.
+        expectStatus().andRespond(withServerError());
+        expectStatus().andRespond(withStatus(HttpStatus.OK)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {"data":[{"b_no":"1234567890","b_stt_cd":"01","tax_type":"부가가치세 일반과세자"}]}
+                        """));
+        expectValidate().andRespond(withStatus(HttpStatus.OK)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {"data":[{"b_no":"1234567890","valid":"01","status":{"b_stt_cd":"01"}}]}
+                        """));
+
+        assertThat(client().verifyRealtime(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.VERIFIED);
+        mockServer.verify();
+    }
+
+    @Test
+    void verifyRealtime_상태조회_타임아웃_재시도소진_failopen_UNAVAILABLE() {
+        expectStatus().andRespond(request -> {
+            throw new HttpTimeoutException("Response timed out");
+        });
         expectStatus().andRespond(request -> {
             throw new HttpTimeoutException("Response timed out");
         });
 
         assertThat(client().verifyRealtime(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.SKIPPED);
+        mockServer.verify();
+    }
+
+    @Test
+    void verifyRealtime_상태조회_4xx는_재시도하지않고_1회호출로_failopen_UNAVAILABLE() {
+        expectStatus().andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"code\":-4,\"msg\":\"HTTP ERROR 400\"}"));
+
+        assertThat(client().verifyRealtime(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.SKIPPED);
+        mockServer.verify();
     }
 
     @Test
@@ -284,12 +375,13 @@ class NtsBusinessVerifyClientTest {
     }
 
     @Test
-    void verifyRealtime_계속사업자이나_validate호출실패_failopen_UNAVAILABLE() {
+    void verifyRealtime_계속사업자이나_validate호출실패_재시도소진_failopen_UNAVAILABLE() {
         expectStatus().andRespond(withStatus(HttpStatus.OK)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body("""
                         {"data":[{"b_no":"1234567890","b_stt_cd":"01","tax_type":"부가가치세 일반과세자"}]}
                         """));
+        expectValidate().andRespond(withServerError());
         expectValidate().andRespond(withServerError());
 
         assertThat(client().verifyRealtime(BRN, REP, START)).isEqualTo(NtsVerificationOutcome.SKIPPED);
