@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useInspectionStore } from '../../../features/inspection/store/inspectionStore';
 import { SideNavBar } from './SideNavBar';
 
 afterEach(cleanup);
@@ -206,6 +207,57 @@ describe('SideNavBar', () => {
 
       expect(screen.getByTestId('location-probe').textContent).toBe('/mypage/profile');
       expect(screen.queryByRole('status')).toBeNull();
+    });
+  });
+
+  describe('"점검 관리" 하위 항목 — activeInspectionId에 따른 동적 링크', () => {
+    function LocationProbe() {
+      const location = useLocation();
+      return <div data-testid="location-probe">{location.pathname}</div>;
+    }
+
+    afterEach(() => useInspectionStore.getState().clearActiveInspectionId());
+
+    it('진행 중인 점검이 없으면 AI 분석/결과 뷰어/보고서 생성 링크가 모두 점검 생성 화면으로 이동한다', () => {
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('점검 관리'));
+      expect(
+        screen.getByRole('link', { name: 'AI 분석 실행/상태' }).getAttribute('href'),
+      ).toBe('/inspections/create');
+      expect(
+        screen.getByRole('link', { name: '분석 결과 뷰어' }).getAttribute('href'),
+      ).toBe('/inspections/create');
+      expect(
+        screen.getByRole('link', { name: '보고서 생성 진입점' }).getAttribute('href'),
+      ).toBe('/inspections/create');
+    });
+
+    it('진행 중인 점검이 있으면 각 항목이 그 점검의 실제 경로로 이동한다', () => {
+      useInspectionStore.getState().setActiveInspectionId(42);
+
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('점검 관리'));
+      expect(
+        screen.getByRole('link', { name: 'AI 분석 실행/상태' }).getAttribute('href'),
+      ).toBe('/inspections/42/analysis');
+      expect(
+        screen.getByRole('link', { name: '분석 결과 뷰어' }).getAttribute('href'),
+      ).toBe('/inspections/42/viewer');
+      expect(
+        screen.getByRole('link', { name: '보고서 생성 진입점' }).getAttribute('href'),
+      ).toBe('/inspections/42/reports');
     });
   });
 
