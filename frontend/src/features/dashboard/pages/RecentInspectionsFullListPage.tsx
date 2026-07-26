@@ -1,0 +1,195 @@
+import type { ChangeEvent } from 'react';
+import { useState } from 'react';
+import '../../../shared/styles/layout.css';
+import { Button } from '../../../shared/components/Button';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
+import { TableFooterPagination } from '../../../shared/components/TableFooterPagination/TableFooterPagination';
+import { useDebouncedValue } from '../../../shared/hooks/useDebouncedValue';
+import { DASHBOARD_COLOR_CLASS } from '../colors';
+import { StatusBadge } from '../components/StatusBadge';
+import { useDashboardFacilityOptions } from '../hooks/useDashboardFacilityOptions';
+import { useRecentInspectionsList } from '../hooks/useRecentInspectionsList';
+import type { InspectionStatus, RecentInspectionsSearchFilters } from '../types';
+
+const DEFAULT_SIZE = 10;
+const SEARCH_DEBOUNCE_MS = 300;
+
+// 상태 필터 pills — dashboard/types.ts InspectionStatus(대시보드 4단계 한글 라벨)와 값을 그대로 재사용
+// (신규 라벨을 만들지 않는다 — StatusBadge/getInspectionStatusClass가 이 값 그대로 렌더링).
+const STATUS_PILLS: { value: InspectionStatus | undefined; label: string }[] = [
+  { value: undefined, label: '전체' },
+  { value: '분석중', label: '분석중' },
+  { value: '검수대기', label: '검수대기' },
+  { value: '조치대기', label: '조치대기' },
+  { value: '완료', label: '완료' },
+];
+
+// RecentInspectionsTable.tsx(대시보드 카드, 2026-07-25 Figma 재대조 완료)와 동일 톤 유지 — 헤더
+// bg-pink-50 text-xs uppercase, 본문 text-sm. 색 토큰은 전부 colors.ts 단일 관리를 그대로 재사용한다.
+const TH_BASE_CLASS =
+  `text-left text-xs uppercase tracking-wide ${DASHBOARD_COLOR_CLASS.labelText} font-medium py-3 px-4 bg-pink-50 border-b border-[#eee] whitespace-nowrap`;
+const TD_CLASS = 'p-3 text-sm border-b border-[#f4f4f4] whitespace-nowrap';
+
+// 대시보드 "최근 점검" 카드의 "전체보기" 버튼 진입 화면(신규) — 위젯(RecentInspectionsTable, 상위
+// 10건 고정)과 달리 페이지네이션+검색+상태/시설물 필터를 지원하는 전체 목록.
+//
+// 설계 결정(스펙에서 판단 위임된 항목, PR 설명에도 기록):
+// - "시설물 종류" 드롭다운: 백엔드가 시설물 유형(건물/교량/도로 등) 카테고리 필터를 제공하지 않는다
+//   (신규 검색 API는 facilityId만 지원). 존재하지 않는 필터를 라벨만 흉내 내는 대신, 실제로 동작하는
+//   특정 시설물 선택(facilityId, InspectionFilterBar의 "전체 시설물" 드롭다운과 동일 패턴)으로 구현하고
+//   라벨도 "시설물: 전체"로 정확히 표시한다.
+// - 행 클릭/체크박스: 스펙 미확정 항목이라 이번 1차 버전은 정보 제공용 표로만 렌더링한다(선택·네비게이션
+//   없음) — 기존 위젯의 행 선택 인터랙션(RecentInspectionsTable)은 이 페이지로 옮기지 않았다.
+export function RecentInspectionsFullListPage() {
+  const [searchInput, setSearchInput] = useState('');
+  const debouncedSearch = useDebouncedValue(searchInput, SEARCH_DEBOUNCE_MS);
+  const [filters, setFilters] = useState<RecentInspectionsSearchFilters>({
+    page: 0,
+    size: DEFAULT_SIZE,
+  });
+
+  const { data: facilityOptions } = useDashboardFacilityOptions();
+
+  const trimmedSearch = debouncedSearch.trim();
+  const effectiveFilters: RecentInspectionsSearchFilters = {
+    ...filters,
+    query: trimmedSearch === '' ? undefined : trimmedSearch,
+  };
+
+  const { data, isLoading, isError, refetch } = useRecentInspectionsList(effectiveFilters);
+
+  const size = filters.size ?? DEFAULT_SIZE;
+  const currentPage = (filters.page ?? 0) + 1; // TableFooterPagination은 1-based
+  const totalElements = data?.totalElements ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalElements / size));
+
+  function handleSearchChange(event: ChangeEvent<HTMLInputElement>) {
+    setSearchInput(event.target.value);
+    setFilters((prev) => ({ ...prev, page: 0 }));
+  }
+
+  function handleStatusChange(status: InspectionStatus | undefined) {
+    setFilters((prev) => ({ ...prev, status, page: 0 }));
+  }
+
+  function handleFacilityChange(event: ChangeEvent<HTMLSelectElement>) {
+    const value = event.target.value;
+    setFilters((prev) => ({ ...prev, facilityId: value === '' ? undefined : Number(value), page: 0 }));
+  }
+
+  function handlePageChange(page: number) {
+    setFilters((prev) => ({ ...prev, page: page - 1 }));
+  }
+
+  function handlePageSizeChange(nextSize: number) {
+    setFilters((prev) => ({ ...prev, size: nextSize, page: 0 }));
+  }
+
+  const content = data?.content ?? [];
+
+  return (
+    <div className="dashboard-content">
+      <div className="dashboard-page-header">
+        <div className="flex items-baseline gap-3">
+          <h1 className="dashboard-page-title">최근 점검 전체보기</h1>
+          <span className={`text-sm ${DASHBOARD_COLOR_CLASS.mutedText}`}>
+            총 {totalElements.toLocaleString()}건
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          type="search"
+          value={searchInput}
+          onChange={handleSearchChange}
+          placeholder="시설물, 담당자 검색"
+          aria-label="시설물, 담당자 검색"
+          className={`min-w-60 flex-1 rounded-full border ${DASHBOARD_COLOR_CLASS.filterInputBorder} px-4 py-2.5 text-sm outline-none ${DASHBOARD_COLOR_CLASS.filterInputFocusBorder}`}
+        />
+        <select
+          value={filters.facilityId ?? ''}
+          onChange={handleFacilityChange}
+          aria-label="시설물 필터"
+          className={`rounded-full border ${DASHBOARD_COLOR_CLASS.filterInputBorder} px-4 py-2.5 text-sm ${DASHBOARD_COLOR_CLASS.bodyText}`}
+        >
+          <option value="">시설물: 전체</option>
+          {(facilityOptions ?? []).map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div role="tablist" aria-label="점검 상태 필터" className="flex flex-wrap gap-2">
+        {STATUS_PILLS.map((pill) => (
+          <Button
+            key={pill.label}
+            type="button"
+            role="tab"
+            aria-selected={filters.status === pill.value}
+            variant={filters.status === pill.value ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={() => handleStatusChange(pill.value)}
+          >
+            {pill.label}
+          </Button>
+        ))}
+      </div>
+
+      {isLoading && <LoadingSpinner />}
+      {isError && (
+        <div className="dashboard-card-status flex items-center gap-3">
+          <span>최근 점검 목록을 불러오지 못했습니다.</span>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            다시 시도
+          </Button>
+        </div>
+      )}
+      {!isLoading && !isError && content.length === 0 && (
+        <p className="dashboard-card-status">조건에 맞는 점검 이력이 없습니다.</p>
+      )}
+
+      {!isLoading && !isError && content.length > 0 && (
+        <div className="overflow-x-auto rounded-lg border border-[#eee]">
+          <table aria-label="최근 점검 전체 목록" className="w-full border-collapse">
+            <thead>
+              <tr>
+                <th className={TH_BASE_CLASS}>시설물</th>
+                <th className={TH_BASE_CLASS}>점검일</th>
+                <th className={TH_BASE_CLASS}>담당자</th>
+                <th className={TH_BASE_CLASS}>하자 수</th>
+                <th className={TH_BASE_CLASS}>상태</th>
+              </tr>
+            </thead>
+            <tbody>
+              {content.map((item) => (
+                <tr key={item.id}>
+                  <td className={TD_CLASS}>{item.facilityName}</td>
+                  <td className={TD_CLASS}>{item.inspectedAt}</td>
+                  <td className={TD_CLASS}>{item.inspector}</td>
+                  <td className={TD_CLASS}>{item.defectCount}건</td>
+                  <td className={TD_CLASS}>
+                    <StatusBadge status={item.status} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!isLoading && !isError && (
+        <TableFooterPagination
+          pageSize={size}
+          onPageSizeChange={handlePageSizeChange}
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={totalElements}
+          onPageChange={handlePageChange}
+        />
+      )}
+    </div>
+  );
+}
