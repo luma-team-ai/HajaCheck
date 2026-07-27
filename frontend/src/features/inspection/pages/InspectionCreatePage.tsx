@@ -15,7 +15,6 @@ import { useUploadMedia } from '../hooks/useUploadMedia';
 import type { InspectionCreateResponse } from '../types';
 import {
   classifyMediaFile,
-  exceedsMaxFileCount,
   formatFileSize,
   validateMediaFile,
   validateVideoFile,
@@ -109,7 +108,6 @@ export function InspectionCreatePage() {
   // 게이트 없이는 어느 쪽이 먼저 커밋될지가 브라우저 구현에 암묵적으로 의존하게 된다.
   const hasHydratedMediaRef = useRef(false);
   const [uploadDone, setUploadDone] = useState(false);
-  const [fileCountError, setFileCountError] = useState<string | null>(null);
   // 회차 생성(POST /api/inspections)이 성공한 뒤 업로드가 실패하면 여기 보관해둔다 — 재제출 시
   // createInspection을 다시 호출하지 않고 이 id로 업로드만 재시도해 회차 중복 생성을 막는다(P1).
   const [createdInspection, setCreatedInspection] = useState<InspectionCreateResponse | null>(
@@ -247,15 +245,6 @@ export function InspectionCreatePage() {
   const handleFilesAdd = (newFiles: File[]) => {
     setUploadDone(false);
     const staged = stageMediaFiles(newFiles);
-
-    // 개수 상한은 실제 업로드 대상(이미지)에만 적용 — 영상은 요청에 포함되지 않는다.
-    const currentImageCount = mediaFiles.filter((entry) => entry.kind === 'image').length;
-    const addingImageCount = staged.filter((entry) => entry.kind === 'image').length;
-    if (exceedsMaxFileCount(currentImageCount, addingImageCount)) {
-      setFileCountError('이미지는 한 번에 최대 10개까지 업로드할 수 있습니다.');
-      return;
-    }
-    setFileCountError(null);
     setMediaFiles((prev) => [...prev, ...staged]);
   };
 
@@ -414,11 +403,6 @@ export function InspectionCreatePage() {
             uploadProgress={isUploading ? uploadProgress : null}
             disabled={isSubmitting}
           />
-          {fileCountError && (
-            <p role="alert" className={ERROR_CLASSES}>
-              {fileCountError}
-            </p>
-          )}
           {uploadError && (
             <p role="alert" className={ERROR_CLASSES}>
               {uploadError.message ?? '업로드에 실패했습니다.'}

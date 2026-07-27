@@ -77,7 +77,7 @@ public class MediaService {
     private final CompanyScopeGuard companyScopeGuard;
 
     /**
-     * ① 개수/소유권 검증 ② 전체 파일 매직바이트 검증(all-or-nothing) ③ 원본+썸네일 저장(트랜잭션 밖 IO)
+     * ① 소유권 검증 ② 전체 파일 매직바이트 검증(all-or-nothing) ③ 원본+썸네일 저장(트랜잭션 밖 IO)
      * + EXIF/GPS 추출 ④ DB 원자저장(writer) — 실패 시 저장한 파일 전부 보상삭제.
      *
      * <p>⚠️ NOT_SUPPORTED로 클래스 레벨 readOnly=true를 명시적으로 벗어난다 — 그렇지 않으면 파일 IO 내내
@@ -98,9 +98,6 @@ public class MediaService {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         if (files == null || files.isEmpty()) {
             throw new BusinessException(ErrorCode.FILE_REQUIRED);
-        }
-        if (files.size() > properties.getMaxFilesPerRequest()) {
-            throw new BusinessException(ErrorCode.MEDIA_COUNT_EXCEEDED);
         }
 
         // 소유권 검증 + 존재 확인 — FacilityService.get() 기반 IDOR 방지 로직을 그대로 재사용(중복 없음).
