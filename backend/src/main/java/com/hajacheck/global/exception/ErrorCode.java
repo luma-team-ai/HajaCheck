@@ -116,6 +116,9 @@ public enum ErrorCode {
     // 촬영 데이터(미디어) 업로드(dev-05-03)
     MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "미디어를 찾을 수 없습니다."),
     MEDIA_COUNT_EXCEEDED(HttpStatus.BAD_REQUEST, "한 번에 업로드할 수 있는 파일 수를 초과했습니다."),
+    // 시설물 대표 사진(#632/#652, HAJA-377) — 시설물당 최대 4장. 기존 보유분 + 이번 업로드가 4장을
+    // 넘으면 거부한다(애플리케이션 레벨 카운트 검증).
+    FACILITY_PHOTO_COUNT_EXCEEDED(HttpStatus.BAD_REQUEST, "시설물 대표 사진은 최대 4장까지 등록할 수 있습니다."),
     // PR머신 리뷰 P1(#789) — 레거시 상세이미지 폴백 세마포어가 무기한 블로킹이면 permit 대기 스레드가
     // Tomcat 워커를 점유해 전역 가용성 표면이 된다. tryAcquire(timeout) 초과 시 즉시 이 코드로 반환한다.
     MEDIA_DETAIL_GENERATION_BUSY(HttpStatus.SERVICE_UNAVAILABLE,
