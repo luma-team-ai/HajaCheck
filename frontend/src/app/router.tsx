@@ -296,15 +296,11 @@ const ChatBotPage = lazy(() =>
   })),
 );
 
-// 상담원 콘솔 (#1001, HAJA-495) — 대기열/실시간 채팅
-const CounselorQueuePage = lazy(() =>
-  import('../features/counsel/pages/CounselorQueuePage').then((m) => ({
-    default: m.CounselorQueuePage,
-  })),
-);
-const CounselorChatPage = lazy(() =>
-  import('../features/counsel/pages/CounselorChatPage').then((m) => ({
-    default: m.CounselorChatPage,
+// 상담원 콘솔 (#1001, HAJA-495) — 대기열+실시간 채팅 마스터-디테일 단일 페이지(피그마 디자인 반영,
+// CounselorQueuePage/CounselorChatPage 별도 페이지 구조를 통합).
+const CounselorConsolePage = lazy(() =>
+  import('../features/counsel/pages/CounselorConsolePage').then((m) => ({
+    default: m.CounselorConsolePage,
   })),
 );
 
@@ -967,19 +963,19 @@ export const router = createBrowserRouter([
         path: '/counsel-console/queue',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <CounselorQueuePage />
+            <CounselorConsolePage />
           </Suspense>
         ),
         handle: {
           breadcrumb: [{ label: '상담원 콘솔' }, { label: '상담 대기열' }],
           activeHref: '/counsel-console/queue',
         },
-      }, // — features/counsel 상담원 대기열(#1001, HAJA-495)
+      }, // — features/counsel 상담원 콘솔 마스터-디테일(#1001, HAJA-495) — 티켓 미선택 상태
       {
         path: '/counsel-console/tickets/:id',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <CounselorChatPage />
+            <CounselorConsolePage />
           </Suspense>
         ),
         handle: {
@@ -988,7 +984,7 @@ export const router = createBrowserRouter([
           // 그 메뉴가 강조되도록 맞춘다 — /defects/:id 등 기존 동적 상세 라우트와 동일한 관례.
           activeHref: '/counsel-console/queue',
         },
-      }, // — features/counsel 상담원 실시간 채팅(#1001, HAJA-495)
+      }, // — features/counsel 상담원 콘솔 마스터-디테일(#1001, HAJA-495) — 티켓 선택 상태(같은 컴포넌트, :id로 분기)
     ],
   }, // — features/counsel 상담원 콘솔(#1001, HAJA-495)
   // 구 '/facilities'(셸 밖) 라우트는 '/facilities/list'(셸 안, 위 AppShellRoute children)로 이동됨(#472).
