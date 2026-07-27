@@ -37,10 +37,19 @@ export function InspectionDefectsPage() {
           <span className="inspection-defects-page__breadcrumb-current">하자 상세</span>
         </nav>
 
-        <h1 className="inspection-defects-page__title">
-          점검 #{inspectionId ?? '-'}
-          <span className="inspection-defects-page__sr-only"> 하자 상세</span>
-        </h1>
+        <div className="inspection-defects-page__header">
+          <h1 className="inspection-defects-page__title">
+            점검 #{inspectionId ?? '-'}
+            <span className="inspection-defects-page__sr-only"> 하자 상세</span>
+          </h1>
+
+          {!isLoading && !isError && defects && (
+            <>
+              <span className="inspection-defects-page__header-divider" aria-hidden="true" />
+              <InspectionKpiSummary defects={defects} />
+            </>
+          )}
+        </div>
 
         {isLoading && (
           <div role="status" className="inspection-defects-page__loading">
@@ -53,14 +62,10 @@ export function InspectionDefectsPage() {
         )}
 
         {!isLoading && !isError && defects && (
-          <>
-            <InspectionKpiSummary defects={defects} />
-
-            <div className="inspection-defects-page__layout">
-              <DefectCardGrid defects={defects} onSelectDefect={setSelectedDefectId} />
-              <InspectionActivityPanel defects={defects} />
-            </div>
-          </>
+          <div className="inspection-defects-page__layout">
+            <DefectCardGrid defects={defects} onSelectDefect={setSelectedDefectId} />
+            <InspectionActivityPanel defects={defects} />
+          </div>
         )}
       </div>
 

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // InspectionKpiSummary 단위 테스트 — Figma 정렬(#966, #937/PR#950 diff 누락분 보완)로 추가된
-// 상태별 색상 dot과 "건" 단위 표기를 검증한다. "총 하자" 항목은 dot/단위 없이 기존 그대로 유지되는지도 확인.
+// 상태별 색상 dot과, 4종 전체에 붙는 "건" 단위 표기를 검증한다(#969 Header Panel 정렬로 "총 하자"도
+// 단위를 표기하도록 변경). "총 하자"는 dot 없이 유지되는지도 확인.
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Defect } from '../types';
@@ -45,10 +46,10 @@ describe('InspectionKpiSummary', () => {
 
     const kpi = screen.getByLabelText('점검 하자 요약');
     expect(within(kpi).getByText('총 하자')).not.toBeNull();
-    expect(within(kpi).getByText('5')).not.toBeNull();
+    expect(within(kpi).getByText('5건')).not.toBeNull();
   });
 
-  it('"총 하자"를 제외한 상태 3종의 값에 "건" 단위를 붙인다', () => {
+  it('4종 항목 모두의 값에 "건" 단위를 붙인다', () => {
     render(<InspectionKpiSummary defects={defects} />);
 
     const kpi = screen.getByLabelText('점검 하자 요약');
@@ -59,7 +60,7 @@ describe('InspectionKpiSummary', () => {
       return dt?.nextElementSibling?.textContent;
     }
 
-    expect(ddTextOf('총 하자')).toBe('5'); // 총 하자는 단위 없음
+    expect(ddTextOf('총 하자')).toBe('5건');
     expect(ddTextOf('검수확정')).toBe('1건');
     expect(ddTextOf('조치중')).toBe('2건');
     expect(ddTextOf('조치완료')).toBe('1건');
