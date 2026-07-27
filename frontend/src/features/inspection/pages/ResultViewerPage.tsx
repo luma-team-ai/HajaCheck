@@ -421,7 +421,7 @@ export function ResultViewerPage() {
           disabled={data.reviewedCount !== data.totalCount}
           title={data.reviewedCount !== data.totalCount ? `${data.reviewedCount}/${data.totalCount} 하자 검수 확정 필요` : ''}
         >
-          보고서 생성
+          점검 요약
         </Button>
       </div>
 
