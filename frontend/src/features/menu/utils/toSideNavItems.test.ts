@@ -111,6 +111,26 @@ describe('toSideNavItems', () => {
     expect(items[0].subItems?.[1].id).toBe('report-export');
   });
 
+  it('INSPECTIONS_REPORT_ENTRANCE도 로컬 id(report-entry)로 매핑된다 — 실재하지 않는 시드 path(/inspections/report-entrance)에 갇히지 않고 activeInspectionId 기반 동적 href로 대체되도록 한다(#1088)', () => {
+    const tree: MenuTreeItem[] = [
+      group({
+        code: 'INSPECTIONS',
+        name: '점검 관리',
+        children: [
+          leaf({
+            code: 'INSPECTIONS_REPORT_ENTRANCE',
+            name: '점검 요약 및 보고서 생성',
+            path: '/inspections/report-entrance',
+          }),
+        ],
+      }),
+    ];
+
+    const { items } = toSideNavItems(tree);
+
+    expect(items[0].subItems?.[0].id).toBe('report-entry');
+  });
+
   it('menu.enabled가 false면 SideNavItem/SideNavSubItem에도 그대로 전달된다', () => {
     const tree: MenuTreeItem[] = [
       leaf({ code: 'STATISTICS', name: '통계', enabled: false }),

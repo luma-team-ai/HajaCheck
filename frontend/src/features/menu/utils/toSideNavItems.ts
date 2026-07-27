@@ -8,12 +8,14 @@ import { DEFAULT_MENU_ICON, MENU_ICON_MAP } from './menuIcons';
 // id 없이도 href만으로 활성 판정이 되므로 매핑하지 않는다(#1003).
 // 코드값은 현재 공유 dev DB에 실제로 들어있는 시드 기준(2026-07-25, 담당자 시드)이다 — 최초 작성 시
 // 추정했던 코드명(REPORTS_EDIT/REPORTS_EXPORT/SUPPORT_CHAT_BOT)과 실제 값이 달라 매칭이 안 됐던 걸
-// 바로잡았다. 'INSPECTIONS_REPORT_ENTRANCE'(점검 요약 및 보고서 생성)는 기존 '보고서 생성 진입점'과
-// 라벨·개념이 달라(활성 점검 유무로 링크가 바뀌어야 하는 항목인지 불명확) 의도적으로 매핑하지 않는다
-// — 자체 정적 경로(/inspections/report-entrance)로 동작한다.
+// 바로잡았다. 'INSPECTIONS_REPORT_ENTRANCE'(점검 요약 및 보고서 생성)는 시드된 path가
+// `/inspections/report-entrance`라는 실재하지 않는 정적 경로라, 매핑 없이는 분석 중인 점검이 있어도
+// isRouteImplemented가 항상 미구현으로 판정해 클릭이 막혔다(#1088). AI 분석/결과뷰어와 동일하게
+// activeInspectionId 유무로 /inspections/{id}/reports ↔ /inspections/create를 오가도록 매핑한다.
 const DYNAMIC_SUB_ITEM_ID_BY_CODE: Record<string, string> = {
   INSPECTIONS_AI_ANALYSIS: 'ai-analysis',
   INSPECTIONS_RESULT_VIEWER: 'result-viewer',
+  INSPECTIONS_REPORT_ENTRANCE: 'report-entry',
   REPORTS_EDITOR: 'report-edit',
   REPORTS_EXPORT_PDF: 'report-export',
 };
