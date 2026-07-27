@@ -1021,4 +1021,81 @@ describe('ResultViewerPage (통합 테스트)', () => {
       expect(patchStatusCalledWith).toBe(999);
     });
   });
+
+  it('누락 추가한 하자를 선택하면 렌더링(버튼 활성/AI 패널)도 그 하자 기준으로 표시된다 (#975)', async () => {
+    // mockDefects[0](currentDefects[0])을 CONFIRMED로 바꿔, 렌더용 selected가
+    // currentDefects[0]로 폴백될 경우 "검수 확정" 버튼이 disabled 되는지로 버그를 검증한다.
+    server.use(
+      http.get('/api/inspections/:id/defects', () => {
+        const defectsWithNew: DefectDetailItem[] = [
+          { ...mockDefects[0], status: 'CONFIRMED' as const },
+          ...mockDefects.slice(1),
+          {
+            id: 999,
+            inspectionId: 1,
+            type: 'CRACK',
+            grade: 'A',
+            confidence: 1.0,
+            status: 'DETECTED',
+            isReviewed: false,
+            bboxX: null,
+            bboxY: null,
+            bboxW: null,
+            bboxH: null,
+            createdAt: new Date().toISOString(),
+            mediaId: null,
+          },
+        ];
+        const body: ApiResponse<DefectDetailItem[]> = { success: true, data: defectsWithNew };
+        return HttpResponse.json(body);
+      }),
+      http.post('/api/inspections/:id/defects', async ({ request }) => {
+        const body = (await request.json()) as DefectCreateRequest;
+        const newDefect: DefectDetailItem = {
+          id: 999,
+          inspectionId: 1,
+          type: body.type,
+          grade: body.grade,
+          confidence: 1.0,
+          status: 'DETECTED',
+          isReviewed: false,
+          bboxX: null,
+          bboxY: null,
+          bboxW: null,
+          bboxH: null,
+          createdAt: new Date().toISOString(),
+          mediaId: null,
+        };
+        return HttpResponse.json({ success: true, data: newDefect }, { status: 201 });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    fireEvent.click(await screen.findByRole('button', { name: '박스 없이 계속' }));
+    await screen.findByText('누락된 하자 추가');
+
+    const selects = screen.getAllByDisplayValue(/유형 선택|등급 선택/);
+    fireEvent.change(selects[0], { target: { value: 'CRACK' } });
+    fireEvent.change(selects[1], { target: { value: 'A' } });
+
+    const saveButton = screen.getAllByRole('button', { name: '저장' }).pop();
+    fireEvent.click(saveButton!);
+
+    await waitFor(() => {
+      expect(screen.queryByText('누락된 하자 추가')).toBeNull();
+    });
+
+    // 새로 추가한 하자(DETECTED)가 선택된 상태이므로 "검수 확정" 버튼은 비활성화되면 안 된다.
+    // currentDefects[0](CONFIRMED)로 잘못 폴백되면 이 버튼이 disabled된다.
+    await waitFor(() => {
+      const confirmButton = screen.getByRole('button', { name: '이 하자 검수 확정' }) as HTMLButtonElement;
+      expect(confirmButton.disabled).toBe(false);
+    });
+
+    // AI 분석 패널도 새로 추가한 하자(신뢰도 100%)를 표시해야 한다 — mockDefects[0]의 값이 아니라.
+    expect(screen.getByText('100%')).not.toBeNull();
+  });
 });
