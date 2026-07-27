@@ -21,6 +21,9 @@ describe('LandingFooter', () => {
   it('회사 컬럼을 제거하고 기존 법적 고지 경로를 유지한다', () => {
     render(<LandingFooter />);
 
+    const footerNavigation = screen.getByRole('navigation', { name: '푸터 링크' });
+
+    expect(footerNavigation.querySelectorAll('.landing-footer-column')).toHaveLength(2);
     expect(screen.queryByRole('heading', { name: '회사' })).toBeNull();
     expect(screen.queryByRole('link', { name: '소개' })).toBeNull();
     expect(screen.queryByRole('link', { name: '블로그' })).toBeNull();

@@ -13,7 +13,7 @@ export function LandingFooter() {
             기준을 제시합니다.
           </p>
         </div>
-        <div className="landing-footer-columns">
+        <nav className="landing-footer-columns" aria-label="푸터 링크">
           {FOOTER_LINKS.map((column) => (
             <div key={column.title} className="landing-footer-column">
               <h4>{column.title}</h4>
@@ -26,7 +26,7 @@ export function LandingFooter() {
               </ul>
             </div>
           ))}
-        </div>
+        </nav>
       </div>
       <div className="landing-footer-bottom">© 2026 HAJA. All rights reserved.</div>
     </footer>
