@@ -73,6 +73,14 @@ function renderAt(initialPath: string) {
               activeHref: '/inspections/1/viewer',
             },
           },
+          {
+            path: '/support/history',
+            element: <div>내 상담 이력 페이지</div>,
+            handle: {
+              breadcrumb: [{ label: '고객지원' }, { label: '내 상담 이력' }],
+              activeHref: '/support/history',
+            },
+          },
         ],
       },
     ],
@@ -109,6 +117,18 @@ describe('AppShellRoute', () => {
     fireEvent.click(screen.getByText('설정'));
 
     expect(screen.getByRole('status').textContent).toBe('아직 구현되지 않은 페이지입니다');
+  });
+
+  it('일반 페이지에서는 고객지원 FAB을 보여준다', () => {
+    renderAt('/dashboard');
+
+    expect(screen.getByRole('button', { name: '고객지원 챗봇 열기' })).not.toBeNull();
+  });
+
+  it('/support/* 페이지는 이미 상담 진입점이라 FAB을 감춘다(전송창 가림 방지)', () => {
+    renderAt('/support/history');
+
+    expect(screen.queryByRole('button', { name: '고객지원 챗봇 열기' })).toBeNull();
   });
 
   it('프로필 클릭 시 MYPAGE_PLAN_ROUTE 상수 경로로 이동한다(#280 P3)', () => {

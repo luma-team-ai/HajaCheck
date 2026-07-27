@@ -5,7 +5,7 @@
 // AppLayout을 몰라도 됨(react-router v6 표준 패턴: useMatches() + handle).
 import { useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { Outlet, useMatches, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useMatches, useNavigate } from 'react-router-dom';
 import { useLogout } from '../features/auth/hooks/useLogout';
 import { MYPAGE_PLAN_ROUTE, MYPAGE_PROFILE_ROUTE } from '../features/auth/constants';
 import { useAuthStore } from '../features/auth/store/authStore';
@@ -43,6 +43,11 @@ function hasAppShellHandle(handle: unknown): handle is AppShellHandle {
 export function AppShellRoute() {
   const matches = useMatches();
   const navigate = useNavigate();
+  const location = useLocation();
+  // 고객지원 퀵상담 FAB(BottomNavBarFab) — '/support/*' 페이지는 이미 그 자체로 상담 진입점(챗봇·AI
+  // 어시스턴트·상담 이력)이라 FAB이 화면 하단 전송창을 가리기만 한다(사용자 리포트). 그 외 페이지는
+  // 기존처럼 노출한다.
+  const showSupportFab = !location.pathname.startsWith('/support/');
   const authUser = useAuthStore((state) => state.user);
   // 관리자 메뉴/사이드바 프로필 노출 여부 — role 기반(HAJA-167, #184).
   // AppLayout이 isAdmin일 때만 SideNavBar에 user를 전달하도록 내부에서 필터링한다.
@@ -133,6 +138,7 @@ export function AppShellRoute() {
         }
         unreadCount={unreadCount}
         onNotificationClick={handleNotificationClick}
+        showSupportFab={showSupportFab}
       >
         <Outlet />
       </AppLayout>
