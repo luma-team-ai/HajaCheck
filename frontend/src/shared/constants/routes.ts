@@ -34,3 +34,9 @@ export const INVITE_CODE_ROUTE = '/invite-code';
 // 공유한다(하드코딩 금지 방지 — router.tsx와 동일 문자열을 두 곳에서 따로 관리하면 드리프트 위험).
 export const PAYMENT_SUCCESS_ROUTE = '/payments/success';
 export const PAYMENT_FAIL_ROUTE = '/payments/fail';
+
+// 상담원 콘솔(#1001, HAJA-495) — COUNSELOR 전용 대기열 화면. 로그인 후 role=COUNSELOR 리다이렉트
+// (useLogin.ts/LoginPage.tsx)와 CounselorRoute 권한 부족 리다이렉트가 같은 값을 참조하도록
+// PLATFORM_ADMIN_ROUTE와 동일한 이유로 shared 상수로 둔다. 별도 로그인 경로는 없음 — 기존 /login
+// (기업회원 탭, useLogin) 그대로 사용.
+export const COUNSELOR_QUEUE_ROUTE = '/counsel-console/queue';
