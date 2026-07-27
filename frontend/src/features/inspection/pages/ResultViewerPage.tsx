@@ -186,8 +186,9 @@ export function ResultViewerPage() {
     // currentDefects(현재 보고 있는 이미지)에서 찾는다 — 전체 하자 목록(visibleDefects)에서
     // 찾으면 다른 이미지를 보고 있어도 항상 첫 번째 이미지의 하자를 대상으로 삼는 오동작이
     // 있었다(#784, 다중 이미지 뷰어 도입 후 미반영된 버그).
+    // ponytail: 수동 추가 하자(mediaId=null)는 mediaGroups에 제외되므로 data.defects에서 먼저 찾는다(#787).
     const selected = selectedDefectId
-      ? currentDefects.find((d) => d.id === selectedDefectId)
+      ? (data.defects.find((d) => d.id === selectedDefectId && d.mediaId == null) ?? currentDefects.find((d) => d.id === selectedDefectId))
       : currentDefects[0];
     if (!selected || isUpdating) return;
     setIsUpdating(true);
@@ -205,8 +206,9 @@ export function ResultViewerPage() {
 
   const handleOpenGradeEdit = useCallback(() => {
     if (!data) return;
+    // ponytail: 수동 추가 하자(mediaId=null)는 mediaGroups에 제외되므로 data.defects에서 먼저 찾는다(#787).
     const selected = selectedDefectId
-      ? currentDefects.find((d) => d.id === selectedDefectId)
+      ? (data.defects.find((d) => d.id === selectedDefectId && d.mediaId == null) ?? currentDefects.find((d) => d.id === selectedDefectId))
       : currentDefects[0];
     if (selected) {
       setGradeEditId(selected.id);
@@ -220,8 +222,9 @@ export function ResultViewerPage() {
       setErrorMessage('수정 사유는 1-500자 범위여야 합니다.');
       return;
     }
+    // ponytail: 수동 추가 하자(mediaId=null)는 mediaGroups에 제외되므로 data.defects에서 먼저 찾는다(#787).
     const selected = selectedDefectId
-      ? currentDefects.find((d) => d.id === selectedDefectId)
+      ? (data.defects.find((d) => d.id === selectedDefectId && d.mediaId == null) ?? currentDefects.find((d) => d.id === selectedDefectId))
       : currentDefects[0];
     if (!selected || !selectedGrade || isUpdating) return;
     setIsUpdating(true);
@@ -359,8 +362,9 @@ export function ResultViewerPage() {
 
   const handleConfirmReview = useCallback(async () => {
     if (!data) return;
+    // ponytail: 수동 추가 하자(mediaId=null)는 mediaGroups에 제외되므로 data.defects에서 먼저 찾는다(#787).
     const selected = selectedDefectId
-      ? currentDefects.find((d) => d.id === selectedDefectId)
+      ? (data.defects.find((d) => d.id === selectedDefectId && d.mediaId == null) ?? currentDefects.find((d) => d.id === selectedDefectId))
       : currentDefects[0];
     if (!selected || isUpdating) return;
     setIsUpdating(true);

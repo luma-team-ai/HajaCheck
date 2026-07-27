@@ -902,4 +902,123 @@ describe('ResultViewerPage (통합 테스트)', () => {
       expect(errorMessages.length).toBeGreaterThan(0);
     });
   });
+
+  // 회귀 테스트: 누락 추가 후 생성된 하자(mediaId=null)의 검수 확정 (#787)
+  it('누락 추가로 생성한 하자를 검수 확정하면 그 하자의 id로 API를 호출한다 (#787)', async () => {
+    let patchStatusCalledWith: number | null = null;
+
+    server.use(
+      http.post('/api/inspections/:id/defects', async ({ request }) => {
+        const body = (await request.json()) as DefectCreateRequest;
+        const newDefect: DefectDetailItem = {
+          id: 999,
+          inspectionId: 1,
+          type: body.type,
+          grade: body.grade,
+          confidence: 1.0,
+          status: 'DETECTED',
+          isReviewed: false,
+          bboxX: null,
+          bboxY: null,
+          bboxW: null,
+          bboxH: null,
+          createdAt: new Date().toISOString(),
+          mediaId: null, // 누락 추가는 mediaId=null
+        };
+        return HttpResponse.json({ success: true, data: newDefect }, { status: 201 });
+      }),
+      http.get('/api/inspections/:id/defects', () => {
+        // refetch 시마다 새 하자를 포함해서 반환
+        const defectsWithNew: DefectDetailItem[] = [
+          ...mockDefects,
+          {
+            id: 999,
+            inspectionId: 1,
+            type: 'CRACK',
+            grade: 'A',
+            confidence: 1.0,
+            status: 'DETECTED',
+            isReviewed: false,
+            bboxX: null,
+            bboxY: null,
+            bboxW: null,
+            bboxH: null,
+            createdAt: new Date().toISOString(),
+            mediaId: null,
+          },
+        ];
+        const body: ApiResponse<DefectDetailItem[]> = { success: true, data: defectsWithNew };
+        return HttpResponse.json(body);
+      }),
+      http.patch('/api/defects/:id/status', ({ params }) => {
+        patchStatusCalledWith = Number(params.id);
+        const updated: DefectDetailItem = {
+          id: Number(params.id),
+          inspectionId: 1,
+          type: 'CRACK',
+          grade: 'A',
+          status: 'CONFIRMED',
+          confidence: 1.0,
+          isReviewed: true,
+          bboxX: null,
+          bboxY: null,
+          bboxW: null,
+          bboxH: null,
+          createdAt: new Date().toISOString(),
+          mediaId: null,
+        };
+        return HttpResponse.json({ success: true, data: updated });
+      }),
+      http.patch('/api/defects/:id', ({ params }) => {
+        const updated: DefectDetailItem = {
+          id: Number(params.id),
+          inspectionId: 1,
+          type: 'CRACK',
+          grade: 'B',
+          status: 'DETECTED',
+          confidence: 1.0,
+          isReviewed: false,
+          bboxX: null,
+          bboxY: null,
+          bboxW: null,
+          bboxH: null,
+          createdAt: new Date().toISOString(),
+          mediaId: null,
+        };
+        return HttpResponse.json({ success: true, data: updated });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    // 1. 누락 추가 클릭 → 모달 열기
+    fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    fireEvent.click(await screen.findByRole('button', { name: '박스 없이 계속' }));
+    await screen.findByText('누락된 하자 추가');
+
+    // 2. 유형/등급 선택 후 저장
+    const selects = screen.getAllByDisplayValue(/유형 선택|등급 선택/);
+    fireEvent.change(selects[0], { target: { value: 'CRACK' } });
+    fireEvent.change(selects[1], { target: { value: 'A' } });
+
+    const saveButton = screen.getAllByRole('button', { name: '저장' }).pop();
+    fireEvent.click(saveButton!);
+
+    // 3. 모달이 닫혀야 함
+    await waitFor(() => {
+      expect(screen.queryByText('누락된 하자 추가')).toBeNull();
+    });
+
+    // 4. 새로운 하자(id=999)가 selectedDefectId로 설정됨
+    // 5. "검수 확정" 버튼을 클릭하면 id=999가 아니라 첫 번째 하자의 id(1)로 호출되는 버그 발생
+    //    수정 후에는 id=999로 올바르게 호출되어야 함
+    const confirmButton = screen.getByRole('button', { name: '이 하자 검수 확정' });
+    fireEvent.click(confirmButton);
+
+    // PATCH /api/defects/999/status이 호출되어야 함 (버그: 1이 호출되던 것)
+    await waitFor(() => {
+      expect(patchStatusCalledWith).toBe(999);
+    });
+  });
 });
