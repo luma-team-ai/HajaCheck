@@ -54,12 +54,20 @@ public class Media {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "inspection_id", nullable = false)
+    // 폴리모픽 소유(Option B, #632): inspection_id(점검 중 사진)/facility_id(시설물 대표 사진) 중
+    // 정확히 하나만 채워진다(DB chk_media_inspection_xor_facility). 시설물 대표 사진 로우는 이 값이
+    // null 이므로 nullable/optional 로 매핑해야 한다 — 마이그레이션(V200)과 같은 커밋에서 동시 변경하지
+    // 않으면 ddl-auto=validate 부팅 가드가 스키마 불일치로 기동을 막는다(#531 재발 방지).
+    @Column(name = "inspection_id")
     private Long inspectionId;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "inspection_id", insertable = false, updatable = false)
     private Inspection inspection;
+
+    /** 시설물 대표 사진(#632/#652)이 속한 시설물 — nullable, inspectionId 와 정확히 하나만 채워진다. */
+    @Column(name = "facility_id")
+    private Long facilityId;
 
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "file_type", columnDefinition = "media_file_type", nullable = false)
@@ -106,10 +114,12 @@ public class Media {
     private String mimeType;
 
     @Builder
-    private Media(Long inspectionId, MediaFileType fileType, String originalUrl, String thumbnailUrl,
-                  String detailUrl, Long sourceVideoId, Integer frameIndex, LocalDateTime capturedAt,
-                  BigDecimal gpsLat, BigDecimal gpsLng, boolean mimeSignatureVerified, String mimeType) {
+    private Media(Long inspectionId, Long facilityId, MediaFileType fileType, String originalUrl,
+                  String thumbnailUrl, String detailUrl, Long sourceVideoId, Integer frameIndex,
+                  LocalDateTime capturedAt, BigDecimal gpsLat, BigDecimal gpsLng,
+                  boolean mimeSignatureVerified, String mimeType) {
         this.inspectionId = inspectionId;
+        this.facilityId = facilityId;
         this.fileType = fileType;
         this.originalUrl = originalUrl;
         this.thumbnailUrl = thumbnailUrl;

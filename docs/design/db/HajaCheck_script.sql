@@ -663,8 +663,10 @@ create table media
 (
     id                      bigint generated always as identity
         primary key,
-    inspection_id           bigint                                 not null
+    inspection_id           bigint
         references inspections,
+    facility_id             bigint
+        constraint fk_media_facility references facilities,
     file_type               media_file_type                        not null,
     original_url            varchar(500)                           not null,
     thumbnail_url           varchar(500),
@@ -676,14 +678,18 @@ create table media
     gps_lng                 numeric(9, 6),
     mime_signature_verified boolean                  default false not null,
     created_at              timestamp with time zone default now() not null,
-    mime_type               varchar(100)
+    mime_type               varchar(100),
+    constraint chk_media_inspection_xor_facility
+        check ((inspection_id is not null) <> (facility_id is not null))
 );
 
 comment on table media is '점검 과정에서 등록하거나 추출한 이미지 및 영상 정보를 관리한다.';
 
 comment on column media.id is '미디어 식별자';
 
-comment on column media.inspection_id is '미디어가 속한 점검 식별자';
+comment on column media.inspection_id is '미디어가 속한 점검 식별자 — nullable(Option B, #632): facility_id 와 정확히 하나만 채워진다(chk_media_inspection_xor_facility)';
+
+comment on column media.facility_id is '시설물 대표 사진(#632/#652, HAJA-377)이 속한 시설물 식별자 — nullable, inspection_id 와 정확히 하나만 채워진다(chk_media_inspection_xor_facility)';
 
 comment on column media.file_type is '미디어 파일 유형';
 
@@ -714,6 +720,10 @@ alter table media
 
 create index idx_media_inspection
     on media (inspection_id);
+
+create index idx_media_facility
+    on media (facility_id)
+    where facility_id is not null;
 
 create table defects
 (
