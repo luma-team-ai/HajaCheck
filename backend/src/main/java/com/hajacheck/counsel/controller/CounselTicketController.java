@@ -113,17 +113,22 @@ public class CounselTicketController {
                 .body(transcript.content());
     }
 
-    @Operation(summary = "상담 대기열 조회", description = "상태별 티켓 목록(생성순, 기본 WAITING). COUNSELOR/PLATFORM_ADMIN 전용.")
+    @Operation(summary = "상담 대기열 조회",
+            description = "상태별 티켓 목록(생성순, 기본 WAITING). COUNSELOR/PLATFORM_ADMIN 전용. "
+                    + "COUNSELOR 는 본인이 보유한 상담 유형(counselor_skills)으로만 필터링되고, "
+                    + "PLATFORM_ADMIN 은 운영 모니터링 목적으로 전체 대기열을 그대로 본다.")
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<CounselTicketSummaryResponse>>> getQueue(
+            @AuthenticationPrincipal LoginUser loginUser,
             @RequestParam(defaultValue = "WAITING") CounselTicketStatus status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         int safePage = Math.max(page, 0);
         int safeSize = size <= 0 ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
         Pageable pageable = PageRequest.of(safePage, safeSize);
-        return ResponseEntity.ok(
-                ApiResponse.ok(PageResponse.from(counselTicketService.getQueue(status, pageable))));
+        boolean platformAdmin = loginUser.getRole() == Role.PLATFORM_ADMIN;
+        return ResponseEntity.ok(ApiResponse.ok(PageResponse.from(
+                counselTicketService.getQueue(status, pageable, loginUser.getUserId(), platformAdmin))));
     }
 
     @Operation(summary = "상담 티켓 셀프-클레임 배정", description = "대기 티켓에 자기 자신을 배정한다. COUNSELOR/PLATFORM_ADMIN 전용.")

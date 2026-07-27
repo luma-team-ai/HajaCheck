@@ -181,17 +181,46 @@ class CounselTicketControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 대기열조회_상담원_200() throws Exception {
+    void 대기열조회_상담원_본인스킬티켓만_200() throws Exception {
         Plan plan = saveCounselorPlan(true);
         User requester = saveUser("q-user@haja.com", Role.USER);
         userPlanRepository.save(UserPlan.forUser(requester.getId(), plan.getId()));
         ticketRepository.save(CounselTicket.request(requester.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        ticketRepository.save(CounselTicket.request(requester.getId(), CounselType.USAGE, 2, "USAGE_GUIDE", "이용 방법"));
         User counselor = saveUser("counselor@haja.com", Role.COUNSELOR);
+        counselorSkillRepository.save(CounselorSkill.assign(counselor.getId(), CounselType.ANALYSIS_RESULT));
 
         mockMvc.perform(get("/api/counsel/tickets").with(authentication(authOf(counselor))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(1))
                 .andExpect(jsonPath("$.data.content[0].status").value("WAITING"));
+    }
+
+    @Test
+    void 대기열조회_상담원_스킬없으면_빈목록() throws Exception {
+        Plan plan = saveCounselorPlan(true);
+        User requester = saveUser("q-user-noskill@haja.com", Role.USER);
+        userPlanRepository.save(UserPlan.forUser(requester.getId(), plan.getId()));
+        ticketRepository.save(CounselTicket.request(requester.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        User counselor = saveUser("counselor-noskill@haja.com", Role.COUNSELOR);
+
+        mockMvc.perform(get("/api/counsel/tickets").with(authentication(authOf(counselor))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(0));
+    }
+
+    @Test
+    void 대기열조회_PLATFORM_ADMIN_전체노출_스킬무관() throws Exception {
+        Plan plan = saveCounselorPlan(true);
+        User requester = saveUser("q-user-admin@haja.com", Role.USER);
+        userPlanRepository.save(UserPlan.forUser(requester.getId(), plan.getId()));
+        ticketRepository.save(CounselTicket.request(requester.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        ticketRepository.save(CounselTicket.request(requester.getId(), CounselType.USAGE, 2, "USAGE_GUIDE", "이용 방법"));
+        User admin = saveUser("platform-admin@haja.com", Role.PLATFORM_ADMIN);
+
+        mockMvc.perform(get("/api/counsel/tickets").with(authentication(authOf(admin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(2));
     }
 
     // ── 셀프-클레임 배정 + 종료 ──

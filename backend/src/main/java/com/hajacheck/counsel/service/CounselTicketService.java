@@ -94,11 +94,30 @@ public class CounselTicketService {
         return CounselTicketResponse.from(ticket, resolveCounselorName(ticket.getCounselorId()));
     }
 
-    /** 상담원 대기열 — 상태별 목록(생성순 FIFO), 페이지네이션. 기본 사용처는 WAITING 대기열. */
-    public Page<CounselTicketSummaryResponse> getQueue(CounselTicketStatus status, Pageable pageable) {
-        Page<CounselTicket> page = ticketRepository.findByStatusOrderByCreatedAtAsc(status, pageable);
+    /**
+     * 상담원 대기열 — 상태별 목록(생성순 FIFO), 페이지네이션. 기본 사용처는 WAITING 대기열.
+     *
+     * <p>#1019/HAJA-501 — 클레임 시점({@link #validateAssignmentEligibility})에만 스킬을 검증하던 걸
+     * 조회 시점까지 당겨온다. {@code platformAdmin}은 운영 모니터링 목적으로 필터 예외(전체 노출) —
+     * {@link #resolve}의 {@code platformAdmin} 파라미터와 동일하게 컨트롤러가 role 을 판별해 넘긴다.
+     */
+    public Page<CounselTicketSummaryResponse> getQueue(
+            CounselTicketStatus status, Pageable pageable, Long requesterId, boolean platformAdmin) {
+        Page<CounselTicket> page = platformAdmin
+                ? ticketRepository.findByStatusOrderByCreatedAtAsc(status, pageable)
+                : findQueueForCounselor(status, requesterId, pageable);
         Map<Long, String> names = resolveCounselorNames(page.getContent());
         return page.map(ticket -> CounselTicketSummaryResponse.from(ticket, nameOf(names, ticket)));
+    }
+
+    /** COUNSELOR 전용 대기열 — 본인 보유 스킬(counselType) 밖 티켓은 제외한다. 스킬 미보유면 빈 페이지. */
+    private Page<CounselTicket> findQueueForCounselor(
+            CounselTicketStatus status, Long counselorId, Pageable pageable) {
+        List<CounselType> skills = counselorSkillRepository.findCounselTypesByCounselorId(counselorId);
+        if (skills.isEmpty()) {
+            return Page.empty(pageable);
+        }
+        return ticketRepository.findByStatusAndCounselTypeInOrderByCreatedAtAsc(status, skills, pageable);
     }
 
     /**

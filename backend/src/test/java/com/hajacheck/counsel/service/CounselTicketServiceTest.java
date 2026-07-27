@@ -224,7 +224,7 @@ class CounselTicketServiceTest {
                 counselorUser(COUNSELOR_ID, "김상담"), counselorUser(otherCounselorId, "이상담")));
 
         Page<CounselTicketSummaryResponse> page =
-                service.getQueue(CounselTicketStatus.WAITING, pageable);
+                service.getQueue(CounselTicketStatus.WAITING, pageable, COUNSELOR_ID, true);
 
         assertThat(page.getContent())
                 .filteredOn(r -> r.id().equals(TICKET_ID)).extracting(CounselTicketSummaryResponse::counselorName)
@@ -232,6 +232,76 @@ class CounselTicketServiceTest {
         assertThat(page.getContent())
                 .filteredOn(r -> r.id().equals(51L)).extracting(CounselTicketSummaryResponse::counselorName)
                 .containsExactly("이상담");
+        verify(ticketRepository).findByStatusOrderByCreatedAtAsc(CounselTicketStatus.WAITING, pageable);
+    }
+
+    // ── 대기열 스킬 필터(#1019/HAJA-501) ──
+
+    @Test
+    void 대기열조회_PLATFORM_ADMIN_스킬무관전체노출() {
+        Pageable pageable = PageRequest.of(0, 20);
+        CounselTicket ticket = waitingTicket();
+        when(ticketRepository.findByStatusOrderByCreatedAtAsc(CounselTicketStatus.WAITING, pageable))
+                .thenReturn(new PageImpl<>(List.of(ticket)));
+
+        Page<CounselTicketSummaryResponse> page =
+                service.getQueue(CounselTicketStatus.WAITING, pageable, 999L, true);
+
+        assertThat(page.getContent()).hasSize(1);
+        verify(ticketRepository).findByStatusOrderByCreatedAtAsc(CounselTicketStatus.WAITING, pageable);
+        verify(counselorSkillRepository, never()).findCounselTypesByCounselorId(any());
+        verify(ticketRepository, never())
+                .findByStatusAndCounselTypeInOrderByCreatedAtAsc(any(), any(), any());
+    }
+
+    @Test
+    void 대기열조회_COUNSELOR_본인스킬밖티켓제외() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(counselorSkillRepository.findCounselTypesByCounselorId(COUNSELOR_ID))
+                .thenReturn(List.of(CounselType.ANALYSIS_RESULT));
+        CounselTicket ticket = waitingTicket();
+        when(ticketRepository.findByStatusAndCounselTypeInOrderByCreatedAtAsc(
+                CounselTicketStatus.WAITING, List.of(CounselType.ANALYSIS_RESULT), pageable))
+                .thenReturn(new PageImpl<>(List.of(ticket)));
+
+        Page<CounselTicketSummaryResponse> page =
+                service.getQueue(CounselTicketStatus.WAITING, pageable, COUNSELOR_ID, false);
+
+        assertThat(page.getContent()).hasSize(1);
+        assertThat(page.getContent().get(0).id()).isEqualTo(TICKET_ID);
+        verify(ticketRepository, never()).findByStatusOrderByCreatedAtAsc(any(), any());
+    }
+
+    @Test
+    void 대기열조회_COUNSELOR_스킬여러개면모두포함() {
+        Pageable pageable = PageRequest.of(0, 20);
+        List<CounselType> skills = List.of(CounselType.ANALYSIS_RESULT, CounselType.USAGE);
+        when(counselorSkillRepository.findCounselTypesByCounselorId(COUNSELOR_ID)).thenReturn(skills);
+        CounselTicket ticketA = waitingTicket();
+        CounselTicket ticketB = CounselTicket.request(USER_ID, CounselType.USAGE, 2, "USAGE_GUIDE", "이용 방법");
+        ReflectionTestUtils.setField(ticketB, "id", 51L);
+        when(ticketRepository.findByStatusAndCounselTypeInOrderByCreatedAtAsc(
+                CounselTicketStatus.WAITING, skills, pageable))
+                .thenReturn(new PageImpl<>(List.of(ticketA, ticketB)));
+
+        Page<CounselTicketSummaryResponse> page =
+                service.getQueue(CounselTicketStatus.WAITING, pageable, COUNSELOR_ID, false);
+
+        assertThat(page.getContent()).extracting(CounselTicketSummaryResponse::id)
+                .containsExactlyInAnyOrder(TICKET_ID, 51L);
+    }
+
+    @Test
+    void 대기열조회_COUNSELOR_스킬없음_빈페이지() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(counselorSkillRepository.findCounselTypesByCounselorId(COUNSELOR_ID)).thenReturn(List.of());
+
+        Page<CounselTicketSummaryResponse> page =
+                service.getQueue(CounselTicketStatus.WAITING, pageable, COUNSELOR_ID, false);
+
+        assertThat(page.getContent()).isEmpty();
+        verify(ticketRepository, never())
+                .findByStatusAndCounselTypeInOrderByCreatedAtAsc(any(), any(), any());
     }
 
     private User counselorUser(Long id, String name) {
