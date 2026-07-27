@@ -7,6 +7,10 @@
   /`_crack_detections`(CRACK 전용 U-Net 경로)·`run_defect_detection_chain`(셋을 합치는 진입점):
   2026-07-27 6차 rebase 때 "모델 1개가 3클래스 전부 처리" 구조에서 "유형별 전용 모델 3개"
   구조로 재설계됐다(HF Hub 저장소가 그렇게 바뀜 — ai/core/yolo_client.py 모듈 docstring 참고).
+  이후 PR #973 메타 검수(P1/P2)로 등급 산정 단위·부분 실패 격리·과다 탐지 방지가 추가됐다 —
+  아래 크랙 관련 테스트는 실제 배포 해상도(CRACK_INPUT_SIZE=640)를 그대로 써서 비율 기반
+  상수(MIN_CRACK_COMPONENT_AREA_RATIO)가 의미 있게 검증되도록 한다(작은 캔버스에서는 비율이
+  사실상 0에 가까워져 필터링 자체가 무의미해진다).
 """
 import base64
 import io
@@ -18,6 +22,7 @@ import pytest
 from PIL import Image
 
 import ai.chains.defect_detection_chain as chain
+from ai.core.unet_client import CRACK_INPUT_SIZE
 from ai.chains.defect_detection_chain import (
     MAX_IMAGE_PIXELS,
     DefectDetectionError,
@@ -34,6 +39,10 @@ def _tiny_valid_png_base64() -> str:
 
 def _dummy_image() -> Image.Image:
     return Image.new("RGB", (10, 10))
+
+
+def _blank_crack_canvas() -> np.ndarray:
+    return np.zeros((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), dtype=bool)
 
 
 class _FakeHugeImage:
@@ -166,39 +175,59 @@ def test_yolo_type_detections_returns_empty_when_no_boxes(monkeypatch):
     assert chain._yolo_type_detections("SPALLING", _dummy_image()) == []
 
 
+def test_yolo_type_detections_clamps_confidence_below_manual_creation_sentinel(monkeypatch):
+    """DefectRevisionService가 confidence==1.0을 "수동 생성" sentinel로 쓰므로, round() 후 1.0이
+    될 수 있는 값은 AI 탐지분임을 잃지 않도록 클램프해야 한다(PR #973 P3 리뷰)."""
+    boxes = _FakeBoxes([[0.0, 0.0, 0.1, 0.1]], [0.999999])
+    fake_model = _FakeYoloModel(_FakeResult(boxes=boxes, masks=None))
+    monkeypatch.setattr(chain, "get_yolo_model", lambda defect_type: fake_model)
+
+    detections = chain._yolo_type_detections("SPALLING", _dummy_image())
+
+    assert detections[0].confidence == chain.CONFIDENCE_CLAMP_MAX
+
+
 def test_crack_mask_to_detections_extracts_component_bbox_area_ratio_and_confidence():
-    mask = np.zeros((10, 10), dtype=bool)
-    mask[2:7, 2:7] = True  # 5x5=25px 컴포넌트
-    probability = np.zeros((10, 10), dtype=np.float32)
-    probability[2:7, 2:7] = 0.8
+    mask = _blank_crack_canvas()
+    mask[100:200, 100:200] = True  # 100x100=10,000px
+    probability = np.zeros((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), dtype=np.float32)
+    probability[100:200, 100:200] = 0.8
 
     detections = chain._crack_mask_to_detections(mask, probability)
 
     assert len(detections) == 1
     detection = detections[0]
     assert detection.type == "CRACK"
-    assert detection.area_ratio == pytest.approx(25 / 100)
+    assert detection.area_ratio == pytest.approx(10_000 / (CRACK_INPUT_SIZE**2))
     assert detection.confidence == pytest.approx(0.8)
-    assert detection.bbox_x == pytest.approx(0.2)
-    assert detection.bbox_y == pytest.approx(0.2)
-    assert detection.bbox_w == pytest.approx(0.5)
-    assert detection.bbox_h == pytest.approx(0.5)
+    assert detection.bbox_x == pytest.approx(100 / CRACK_INPUT_SIZE)
+    assert detection.bbox_y == pytest.approx(100 / CRACK_INPUT_SIZE)
+    assert detection.bbox_w == pytest.approx(100 / CRACK_INPUT_SIZE)
+    assert detection.bbox_h == pytest.approx(100 / CRACK_INPUT_SIZE)
 
 
-def test_crack_mask_to_detections_filters_noise_specks_below_min_pixels():
-    mask = np.zeros((10, 10), dtype=bool)
-    mask[0, 0] = True  # 1px 스펙클 — MIN_CRACK_COMPONENT_PIXELS(20) 미만
-    probability = np.zeros((10, 10), dtype=np.float32)
-    probability[0, 0] = 0.9
+def test_crack_mask_to_detections_returns_empty_for_blank_mask():
+    mask = _blank_crack_canvas()
+    probability = np.zeros((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), dtype=np.float32)
+
+    assert chain._crack_mask_to_detections(mask, probability) == []
+
+
+def test_crack_mask_to_detections_filters_noise_specks_below_min_area_ratio():
+    mask = _blank_crack_canvas()
+    # MIN_CRACK_COMPONENT_AREA_RATIO(0.0002) 기준 640x640에서 컷오프는 약 82px — 5x5=25px는
+    # 그보다 훨씬 작은 잡음 스펙클이다.
+    mask[0:5, 0:5] = True
+    probability = np.where(mask, 0.9, 0.0).astype(np.float32)
 
     assert chain._crack_mask_to_detections(mask, probability) == []
 
 
 def test_crack_mask_to_detections_separates_disjoint_components():
-    mask = np.zeros((20, 20), dtype=bool)
-    mask[1:6, 1:6] = True  # 25px
-    mask[10:15, 10:15] = True  # 25px, 서로 연결 안 됨
-    probability = np.full((20, 20), 0.7, dtype=np.float32)
+    mask = _blank_crack_canvas()
+    mask[50:70, 50:70] = True  # 20x20=400px, 컷오프(~82px)보다 큼
+    mask[400:420, 400:420] = True  # 서로 멀리 떨어진 두 번째 컴포넌트
+    probability = np.where(mask, 0.7, 0.0).astype(np.float32)
 
     detections = chain._crack_mask_to_detections(mask, probability)
 
@@ -206,9 +235,68 @@ def test_crack_mask_to_detections_separates_disjoint_components():
     assert all(d.type == "CRACK" for d in detections)
 
 
+def test_crack_mask_to_detections_caps_component_count_and_keeps_largest(monkeypatch):
+    """노이즈 많은 벽면 1장이 수십~수백 개의 탐지 행을 만드는 것을 막는 상한(PR #973 P2-2)."""
+    monkeypatch.setattr(chain, "MAX_CRACK_COMPONENTS", 5)
+
+    mask = _blank_crack_canvas()
+    probability = np.zeros((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), dtype=np.float32)
+    # 서로 떨어진 10개 컴포넌트, 크기를 10~100px 간격으로 달리해 "가장 큰 5개만 남는지" 구분 가능하게 함.
+    sizes = list(range(10, 20))  # side lengths: 10..19 → area 100..361
+    for i, side in enumerate(sizes):
+        row, col = divmod(i, 5)
+        y0, x0 = row * 100 + 5, col * 100 + 5
+        mask[y0 : y0 + side, x0 : x0 + side] = True
+        probability[y0 : y0 + side, x0 : x0 + side] = 0.9
+
+    detections = chain._crack_mask_to_detections(mask, probability)
+
+    assert len(detections) == 5
+    kept_areas = sorted(round(d.area_ratio * CRACK_INPUT_SIZE**2) for d in detections)
+    largest_five_true_areas = sorted(side * side for side in sizes)[-5:]
+    assert kept_areas == largest_five_true_areas
+
+
+def test_crack_mask_to_detections_grade_is_invariant_to_fragmentation():
+    """PR #973 P1 리뷰 — 같은 총 면적이 1덩어리든 여러 조각으로 끊기든 등급이 같아야 한다.
+
+    실측 재현: 총면적 0.876%가 1덩어리면 E, 4조각(각 0.156%)이면 B로 갈리던 문제(리뷰 원문)를
+    고정한다. 등급은 이제 컴포넌트별이 아니라 이미지 전체 마스크 면적 기준 1회 산정이다.
+    """
+    single = _blank_crack_canvas()
+    single[100:180, 100:180] = True  # 80x80=6,400px
+
+    fragmented = _blank_crack_canvas()
+    for oy, ox in [(50, 50), (250, 50), (50, 250), (250, 250)]:
+        fragmented[oy : oy + 40, ox : ox + 40] = True  # 40x40=1,600px * 4 = 6,400px
+
+    assert single.sum() == fragmented.sum()  # 총 면적 동일 전제
+
+    probability_single = np.where(single, 0.9, 0.0).astype(np.float32)
+    probability_fragmented = np.where(fragmented, 0.9, 0.0).astype(np.float32)
+
+    single_detections = chain._crack_mask_to_detections(single, probability_single)
+    fragmented_detections = chain._crack_mask_to_detections(fragmented, probability_fragmented)
+
+    assert len(single_detections) == 1
+    assert len(fragmented_detections) == 4
+    single_grade = single_detections[0].grade
+    assert all(d.grade == single_grade for d in fragmented_detections)
+
+
+def test_crack_mask_to_detections_clamps_confidence_below_manual_creation_sentinel():
+    mask = _blank_crack_canvas()
+    mask[100:200, 100:200] = True
+    probability = np.where(mask, 0.999999, 0.0).astype(np.float32)
+
+    detections = chain._crack_mask_to_detections(mask, probability)
+
+    assert detections[0].confidence == chain.CONFIDENCE_CLAMP_MAX
+
+
 def test_crack_detections_thresholds_probability_before_component_analysis(monkeypatch):
-    probability = np.zeros((10, 10), dtype=np.float32)
-    probability[2:7, 2:7] = 0.9  # CRACK_MASK_THRESHOLD(0.5) 이상 25px
+    probability = np.zeros((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), dtype=np.float32)
+    probability[100:200, 100:200] = 0.9  # CRACK_MASK_THRESHOLD(0.5) 이상
 
     monkeypatch.setattr(chain, "get_crack_model", lambda: "fake-crack-model")
     monkeypatch.setattr(
@@ -240,6 +328,34 @@ def test_run_defect_detection_chain_aggregates_crack_spalling_rebar_exposure(mon
     detections = chain.run_defect_detection_chain(_tiny_valid_png_base64())
 
     assert sorted(d.type for d in detections) == ["CRACK", "REBAR_EXPOSURE", "SPALLING"]
+
+
+def test_run_defect_detection_chain_isolates_single_type_failure(monkeypatch):
+    """PR #973 P2-1 — U-Net(신규 의존성) 하나가 예외를 던져도 나머지 유형은 계속 진행해야 한다."""
+
+    def _boom(image):
+        raise RuntimeError("torch boom")
+
+    monkeypatch.setattr(chain, "_crack_detections", _boom)
+    fake_model = _FakeYoloModel(
+        _FakeResult(boxes=_FakeBoxes([[0.0, 0.0, 0.1, 0.1]], [0.9]), masks=None)
+    )
+    monkeypatch.setattr(chain, "get_yolo_model", lambda defect_type: fake_model)
+
+    detections = chain.run_defect_detection_chain(_tiny_valid_png_base64())
+
+    assert sorted(d.type for d in detections) == ["REBAR_EXPOSURE", "SPALLING"]
+
+
+def test_run_defect_detection_chain_raises_when_every_type_fails(monkeypatch):
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(chain, "_crack_detections", lambda image: _boom())
+    monkeypatch.setattr(chain, "get_yolo_model", lambda defect_type: _boom())
+
+    with pytest.raises(DefectDetectionError):
+        chain.run_defect_detection_chain(_tiny_valid_png_base64())
 
 
 def test_run_defect_detection_chain_serializes_concurrent_predict_calls(monkeypatch):

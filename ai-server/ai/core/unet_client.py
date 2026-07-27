@@ -77,12 +77,19 @@ def predict_crack_probability(model: "Unet", image: "Image.Image") -> "np.ndarra
     threshold·연결요소 분석은 호출부(defect_detection_chain)의 책임이다 — 여기서는 모델 순전파까지만
     수행한다(확률값 자체가 연결요소별 confidence 근사치로도 쓰이므로 threshold 이전 값을 반환한다).
     """
+    from PIL import Image
     import numpy as np
     import torch
 
-    resized = image.resize((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE))
+    # BILINEAR — 저장소 README 레시피의 cv2.resize 기본 보간(INTER_LINEAR)과 동일 계열로 맞춘다.
+    # PIL의 resize() 기본값(BICUBIC)을 그대로 두면 학습 시 보지 않은 보간 방식의 입력이 된다(P3 리뷰).
+    resized = image.resize((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), resample=Image.Resampling.BILINEAR)
+    # mean/std를 float32로 명시 캐스팅 — 그대로 두면 float64 파이썬 튜플과의 연산으로 배열 전체가
+    # float64로 승격돼(~9.8MB) 불필요한 메모리를 쓴다(P3 리뷰).
+    mean = np.asarray(_IMAGENET_MEAN, dtype=np.float32)
+    std = np.asarray(_IMAGENET_STD, dtype=np.float32)
     arr = np.asarray(resized, dtype=np.float32) / 255.0
-    arr = (arr - _IMAGENET_MEAN) / _IMAGENET_STD
+    arr = (arr - mean) / std
     tensor = torch.from_numpy(arr.transpose(2, 0, 1)).float().unsqueeze(0)
 
     with torch.no_grad():

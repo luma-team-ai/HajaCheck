@@ -73,7 +73,14 @@ def get_yolo_model(defect_type: str) -> "YOLO":
     from ultralytics import YOLO
 
     token = os.getenv("HF_API_TOKEN") or None
-    filename = CHECKPOINT_FILENAMES[defect_type]
+    filename = CHECKPOINT_FILENAMES.get(defect_type)
+    if filename is None:
+        # 지원 유형 밖의 호출은 프로그래밍 오류(호출부가 CRACK/SPALLING/REBAR_EXPOSURE 밖의
+        # 값을 넘김)다 — 원인을 알 수 없는 KeyError 대신 무엇이 잘못됐는지 바로 드러낸다(P3 리뷰).
+        raise ValueError(
+            f"지원하지 않는 defect_type입니다: {defect_type!r} "
+            f"(지원: {sorted(CHECKPOINT_FILENAMES)})"
+        )
     # cache_dir 미지정 시 huggingface_hub가 HF_HOME(도커 named volume /app/hf_cache, #439)
     # 하위 기본 경로를 그대로 쓴다 — easyocr/embeddings와 동일 볼륨을 재사용해 컨테이너 재기동 시
     # 재다운로드를 피한다.
@@ -95,7 +102,7 @@ def predict(model: "YOLO", **kwargs):
 
     모델 로딩(get_yolo_model)은 이 락과 무관하다 — @lru_cache는 캐시 자료구조 접근만 스레드
     세이프할 뿐 캐시 미스 시 최초 실행(다운로드+로드) 자체를 직렬화하진 않는다(코드 리뷰 P3,
-    머신 검수 2차). 정상 운영에서는 기동 시 워밍업(main.py `_warmup_yolo_model`)이 첫 호출을
+    머신 검수 2차). 정상 운영에서는 기동 시 워밍업(main.py `_warmup_defect_models`)이 첫 호출을
     미리 끝내둬 이 창을 덮으므로 별도 락은 두지 않는다 — 추론(predict)만 직렬화하면 된다.
     """
     with _predict_lock:
