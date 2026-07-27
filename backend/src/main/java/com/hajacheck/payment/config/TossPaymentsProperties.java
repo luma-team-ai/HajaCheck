@@ -53,6 +53,27 @@ public class TossPaymentsProperties {
      */
     private Duration orderTtl = Duration.ofMinutes(30);
 
+    /**
+     * 주문 하나로 PG 승인을 시도할 수 있는 최대 횟수(보안 리뷰 P2). 초과하면 주문을 CANCELED 로 닫는다.
+     *
+     * <p>"승인 결과가 불명이면 주문을 READY 로 남긴다"는 정책은 승인된 결제의 복구를 위해 필요하지만,
+     * 그 대가로 <b>"1주문 = 최대 1회 PG 호출"이라는 자연 상한이 사라진다</b>. 가상계좌처럼 즉시 승인되지
+     * 않는 수단은 매번 "승인 완료 아님"(=불명)으로 끝나므로, 같은 주문으로 confirm 을 반복해 우리 머천트
+     * 크레덴셜로 나가는 아웃바운드 호출을 공짜로 증폭시킬 수 있다.
+     *
+     * <p>5회인 이유: 정상 사용자가 일시적 오류로 재시도하는 횟수(한두 번)보다 넉넉하면서, 상한이 실질적인
+     * 증폭 차단이 되는 값이다. 엔드포인트 전면 rate limit 은 별도 과제(#1011)이고 이건 주문당 상한이다.
+     */
+    private int maxConfirmAttempts = 5;
+
+    /**
+     * 기존 READY 주문을 <b>재사용</b>하기 위해 남아 있어야 하는 최소 잔여 유효시간(리뷰 P3).
+     *
+     * <p>잔여 1초짜리 주문을 재사용하면 사용자가 결제창에서 카드 인증까지 마친 뒤 만료 404 를 맞는다.
+     * 결제창을 띄우고 승인까지 보낼 시간이 남은 주문만 재사용하고, 그보다 짧게 남았으면 새 주문을 만든다.
+     */
+    private Duration orderReuseMinRemaining = Duration.ofMinutes(5);
+
     public String getBaseUrl() {
         return baseUrl;
     }
@@ -107,5 +128,21 @@ public class TossPaymentsProperties {
 
     public void setOrderTtl(Duration orderTtl) {
         this.orderTtl = orderTtl;
+    }
+
+    public int getMaxConfirmAttempts() {
+        return maxConfirmAttempts;
+    }
+
+    public void setMaxConfirmAttempts(int maxConfirmAttempts) {
+        this.maxConfirmAttempts = maxConfirmAttempts;
+    }
+
+    public Duration getOrderReuseMinRemaining() {
+        return orderReuseMinRemaining;
+    }
+
+    public void setOrderReuseMinRemaining(Duration orderReuseMinRemaining) {
+        this.orderReuseMinRemaining = orderReuseMinRemaining;
     }
 }

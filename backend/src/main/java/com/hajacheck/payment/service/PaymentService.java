@@ -51,7 +51,7 @@ public class PaymentService {
      *       (동일 플랜 재결제 차단 포함). 하나라도 어긋나면 <b>PG 를 호출하지 않는다</b>(보안 요구 2).</li>
      *   <li><b>멱등 분기</b>(보안 요구 3): 이미 PAID 인 orderId 면 PG 를 다시 호출하지 않고 200 으로 현재
      *       상태를 돌려준다. 이때 플랜 전이가 남아 있으면(PAID 인데 user_plan_id 가 비어 있음) 승인 재호출
-     *       없이 <b>전이만</b> 재시도해 스스로 복구한다.</li>
+     *       없이 <b>전이만</b> 재시도한다(일시적 실패에 한해 자가 복구 — 결정적 원인은 대사 #1010 대상).</li>
      *   <li><b>승인</b>(트랜잭션 밖): 실패는 <b>세 갈래</b>로 갈린다 — 확정 거절만 FAILED 로 닫고, 결과
      *       불명은 READY 로 남기며, "이미 처리된 결제"는 원장을 재조회해 멱등 성공으로 흡수한다
      *       ({@link #handleApprovalFailure}). 어느 경우든 승인 없이 플랜이 바뀌지는 않는다(보안 요구 5).</li>
@@ -61,10 +61,20 @@ public class PaymentService {
     public MyPlanResponse confirm(Long userId, PaymentConfirmRequest request) {
         PaymentConfirmPreparation preparation = paymentWriter.prepareConfirm(userId, request);
 
+        if (preparation.requiresClosing()) {
+            // 만료·시도 상한 초과 — 취소 기록을 <b>먼저 커밋</b>한 뒤 404 를 던진다. 검증 트랜잭션 안에서
+            // 쓰고 곧바로 예외를 던지면 그 UPDATE 가 함께 롤백돼 저장되지 않는다(리뷰 P2).
+            paymentWriter.closeUnusableOrder(preparation.paymentId(), preparation.outcome());
+            throw new BusinessException(ErrorCode.PAYMENT_ORDER_NOT_FOUND);
+        }
         if (preparation.alreadyPaid()) {
             return settleAlreadyPaid(userId, request.orderId(), preparation.paymentId(),
                     preparation.planApplicationPending());
         }
+
+        // 주문당 PG 호출 상한의 근거 — 호출 직전에 독립 트랜잭션으로 커밋해, 이후 호출이 어떻게 끝나든
+        // 시도 횟수가 남게 한다(보안 리뷰 P2). 남지 않으면 "결과 불명 → READY 유지" 정책이 무한 반복을 연다.
+        paymentWriter.recordConfirmAttempt(preparation.paymentId());
 
         TossPaymentApproval approval;
         try {
@@ -82,7 +92,9 @@ public class PaymentService {
 
     /**
      * 이미 승인된 주문의 재확정 — PG 를 다시 호출하지 않는다(보안 요구 3). 전이가 남아 있으면 그것만
-     * 재시도해 자가 복구한다.
+     * 재시도한다. <b>자가 복구는 일시적 실패에 한한다</b> — 소속 변경·owner 교체·활성 구독 부재 같은
+     * 결정적 원인은 재요청해도 동일하게 실패하며, 그때는 PAYMENT_PLAN_APPLY_PENDING 으로 안내하고
+     * 대사(#1010)로 처리한다.
      */
     private MyPlanResponse settleAlreadyPaid(Long userId, String orderId, Long paymentId,
                                              boolean planApplicationPending) {
@@ -139,11 +151,24 @@ public class PaymentService {
      * <p>이 단계의 실패는 이미 돈이 나간 뒤에 일어난다. 원래 예외(403 PAYMENT_FORBIDDEN·409 경합 등)를
      * 그대로 돌려주면 사용자는 "결제가 실패했다"고 읽고 <b>다시 결제</b>해 중복 청구로 이어진다. 반드시
      * "결제는 됐고 반영만 남았다"가 전달돼야 한다. 원인 코드는 응답이 아니라 서버 로그로 남긴다.
+     *
+     * <p>⚠️ <b>{@link ErrorCode#PAYMENT_GATEWAY_ERROR} 만은 포장하지 않는다</b>(리뷰 P3). 그 코드는
+     * {@code PaymentWriter#applyPlanTransition} 의 "미승인 결제로는 전이하지 않는다" 방어선이 쓰는
+     * 값이라, 포장해 버리면 <b>승인되지도 않은 결제를 "결제 정상 완료"로 안내</b>하게 된다 — 정확히
+     * 반대되는 거짓말이다. 그 경우는 원래 의미(게이트웨이 오류) 그대로 올린다.
+     *
+     * <p>또한 "재요청하면 자가 복구된다"는 <b>일시적 실패에 한한다</b> — 소속 변경·owner 교체·활성 구독
+     * 부재처럼 결정적인 원인은 재요청해도 같은 결과라, 대사(#1010)로 처리해야 한다.
      */
     private void applyPlanTransitionOrPending(Long paymentId, String orderId) {
         try {
             paymentWriter.applyPlanTransition(paymentId);
         } catch (BusinessException e) {
+            if (e.getErrorCode() == ErrorCode.PAYMENT_GATEWAY_ERROR) {
+                // 미승인 결제 전이 시도 — "결제 완료"로 안내하면 안 된다. 원래 의미로 올린다.
+                log.error("미승인 결제에 대한 플랜 반영 시도 — orderId={} (도달 불가 경로)", orderId);
+                throw e;
+            }
             log.error("결제 승인 후 플랜 반영 실패 — orderId={} code={} (PAID + user_plan_id null 상태로 남는다)",
                     orderId, e.getErrorCode());
             throw new BusinessException(ErrorCode.PAYMENT_PLAN_APPLY_PENDING);

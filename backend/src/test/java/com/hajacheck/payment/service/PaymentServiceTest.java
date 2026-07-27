@@ -151,6 +151,87 @@ class PaymentServiceTest {
     }
 
     @Test
+    void PG_5xx에서_온_결과불명도_FAILED로_닫지않는다() {
+        // ⚠️ 리뷰 P1 잔존분 — 클라이언트가 5xx 를 outcomeUnknown 으로 분류하므로(TossPaymentsClientTest),
+        // 서비스도 그것을 확정 거절과 구분해 주문을 닫지 않아야 한다.
+        when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
+                .thenReturn(PaymentConfirmPreparation.readyToApprove(PAYMENT_ID, AMOUNT));
+        when(tossPaymentsClient.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                .thenThrow(TossPaymentApprovalException.outcomeUnknown(
+                        "FAILED_INTERNAL_SYSTEM_PROCESSING", "일시적인 오류입니다."));
+
+        assertThatThrownBy(() -> service.confirm(USER_ID, request()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PAYMENT_GATEWAY_ERROR));
+
+        verify(paymentWriter, never()).markFailed(any(), anyString(), anyString());
+    }
+
+    @Test
+    void 만료_시도상한_주문은_취소를_먼저_커밋한_뒤_404를_던진다() {
+        // 리뷰 P2 — 검증 트랜잭션 안에서 쓰고 던지면 롤백된다. 닫는 쓰기는 별도 트랜잭션으로 분리했다.
+        when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
+                .thenReturn(PaymentConfirmPreparation.expired(PAYMENT_ID));
+
+        assertThatThrownBy(() -> service.confirm(USER_ID, request()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PAYMENT_ORDER_NOT_FOUND));
+
+        verify(paymentWriter).closeUnusableOrder(PAYMENT_ID, PaymentConfirmOutcome.EXPIRED);
+        verify(tossPaymentsClient, never()).confirm(anyString(), anyString(), anyLong());
+    }
+
+    @Test
+    void 승인시도_상한초과도_취소_커밋_후_404다() {
+        when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
+                .thenReturn(PaymentConfirmPreparation.attemptLimitExceeded(PAYMENT_ID));
+
+        assertThatThrownBy(() -> service.confirm(USER_ID, request()))
+                .isInstanceOf(BusinessException.class);
+
+        verify(paymentWriter)
+                .closeUnusableOrder(PAYMENT_ID, PaymentConfirmOutcome.ATTEMPT_LIMIT_EXCEEDED);
+        verify(tossPaymentsClient, never()).confirm(anyString(), anyString(), anyLong());
+    }
+
+    @Test
+    void PG_호출_직전에_시도횟수를_먼저_기록한다() {
+        // 보안 리뷰 P2 — 호출이 어떻게 끝나든 시도 횟수가 남아야 상한이 의미를 갖는다.
+        when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
+                .thenReturn(PaymentConfirmPreparation.readyToApprove(PAYMENT_ID, AMOUNT));
+        when(tossPaymentsClient.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                .thenThrow(TossPaymentApprovalException.outcomeUnknown(
+                        TossPaymentApprovalException.CODE_UNREACHABLE, "연결 실패"));
+
+        assertThatThrownBy(() -> service.confirm(USER_ID, request()))
+                .isInstanceOf(BusinessException.class);
+
+        InOrder inOrder = Mockito.inOrder(paymentWriter, tossPaymentsClient);
+        inOrder.verify(paymentWriter).recordConfirmAttempt(PAYMENT_ID);
+        inOrder.verify(tossPaymentsClient).confirm(PAYMENT_KEY, ORDER_ID, AMOUNT);
+    }
+
+    @Test
+    void 미승인결제_전이시도는_결제완료로_포장하지않는다() {
+        // 리뷰 P3 — PAYMENT_GATEWAY_ERROR(미승인 전이 방어선)까지 PENDING 으로 바꾸면 승인되지도 않은
+        // 결제를 "결제 정상 완료"로 안내하게 된다.
+        TossPaymentApproval approval = new TossPaymentApproval(
+                PAYMENT_KEY, PaymentMethod.CARD, "https://receipt", Instant.now());
+        when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
+                .thenReturn(PaymentConfirmPreparation.readyToApprove(PAYMENT_ID, AMOUNT));
+        when(tossPaymentsClient.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT)).thenReturn(approval);
+        Mockito.doThrow(new BusinessException(ErrorCode.PAYMENT_GATEWAY_ERROR))
+                .when(paymentWriter).applyPlanTransition(PAYMENT_ID);
+
+        assertThatThrownBy(() -> service.confirm(USER_ID, request()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PAYMENT_GATEWAY_ERROR));
+    }
+
+    @Test
     void 응답해석불가도_결과불명이라_FAILED로_닫지않는다() {
         when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
                 .thenReturn(PaymentConfirmPreparation.readyToApprove(PAYMENT_ID, AMOUNT));

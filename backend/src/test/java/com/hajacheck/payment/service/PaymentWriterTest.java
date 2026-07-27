@@ -31,7 +31,6 @@ import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -304,20 +303,93 @@ class PaymentWriterTest {
     }
 
     @Test
-    void 유효시간이_지난_주문은_자동취소하고_거절한다() {
-        // 리뷰 P2 — 금액이 스냅샷이라 시한이 없으면 요금 인상 직전 주문을 쟁여뒀다가 구가격으로 결제할 수 있다.
+    void 유효시간이_지난_주문은_검증단계에서_만료판정만_하고_쓰지않는다() {
+        // ⚠️ 리뷰 P2 — 예전 구현은 여기서 markExpired() 후 곧바로 예외를 던졌는데, BusinessException 이
+        // RuntimeException 이라 이 트랜잭션이 롤백돼 취소 UPDATE 가 커밋되지 않았다. 지금은 판정만 하고
+        // 실제 취소는 호출부가 별도 트랜잭션으로 남긴다(커밋 여부는 PaymentExpiryCommitIntegrationTest 가 증명).
         Payment payment = readyPayment(null);
         setRequestedAt(payment, Instant.now().minus(Duration.ofHours(2)));
         when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(payment));
 
-        assertThatThrownBy(() -> writer.prepareConfirm(USER_ID,
-                new PaymentConfirmRequest("test_payment_key", ORDER_ID, 299000L)))
-                .isInstanceOf(BusinessException.class)
-                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(ErrorCode.PAYMENT_ORDER_NOT_FOUND));
+        PaymentConfirmPreparation preparation = writer.prepareConfirm(USER_ID,
+                new PaymentConfirmRequest("test_payment_key", ORDER_ID, 299000L));
+
+        assertThat(preparation.outcome()).isEqualTo(PaymentConfirmOutcome.EXPIRED);
+        assertThat(preparation.requiresClosing()).isTrue();
+        // 검증 단계에서는 상태를 바꾸지 않는다(쓰기는 closeUnusableOrder 의 책임).
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.READY);
+    }
+
+    @Test
+    void 취소는_별도메서드가_수행하며_만료사유를_기록한다() {
+        Payment payment = readyPayment(null);
+        when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(payment));
+
+        writer.closeUnusableOrder(PAYMENT_ID, PaymentConfirmOutcome.EXPIRED);
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
         assertThat(payment.getFailureCode()).isEqualTo(Payment.FAILURE_CODE_EXPIRED);
+    }
+
+    @Test
+    void 승인시도_상한을_넘기면_PG를_부르지않고_취소대상으로_판정한다() {
+        // 보안 리뷰 P2 — "결과 불명이면 READY 유지" 정책이 열어버린 무한 confirm 반복을 주문당 상한으로 막는다.
+        Payment payment = readyPayment(null);
+        for (int i = 0; i < properties.getMaxConfirmAttempts(); i++) {
+            payment.recordConfirmAttempt();
+        }
+        when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(payment));
+
+        PaymentConfirmPreparation preparation = writer.prepareConfirm(USER_ID,
+                new PaymentConfirmRequest("test_payment_key", ORDER_ID, 299000L));
+
+        assertThat(preparation.outcome()).isEqualTo(PaymentConfirmOutcome.ATTEMPT_LIMIT_EXCEEDED);
+        assertThat(preparation.requiresClosing()).isTrue();
+    }
+
+    @Test
+    void 상한_직전까지는_정상적으로_승인을_진행한다() {
+        Payment payment = readyPayment(null);
+        for (int i = 0; i < properties.getMaxConfirmAttempts() - 1; i++) {
+            payment.recordConfirmAttempt();
+        }
+        UserPlan current = withId(UserPlan.forUser(USER_ID, STANDARD_PLAN_ID), 500L);
+        when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(payment));
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(current);
+
+        PaymentConfirmPreparation preparation = writer.prepareConfirm(USER_ID,
+                new PaymentConfirmRequest("test_payment_key", ORDER_ID, 299000L));
+
+        assertThat(preparation.outcome()).isEqualTo(PaymentConfirmOutcome.READY_TO_APPROVE);
+    }
+
+    @Test
+    void 상한초과_취소는_시도상한_사유로_기록된다() {
+        Payment payment = readyPayment(null);
+        when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(payment));
+
+        writer.closeUnusableOrder(PAYMENT_ID, PaymentConfirmOutcome.ATTEMPT_LIMIT_EXCEEDED);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+        assertThat(payment.getFailureCode()).isEqualTo(Payment.FAILURE_CODE_ATTEMPT_LIMIT);
+    }
+
+    @Test
+    void 소속이_바뀐_기존주문은_재사용하지않고_새로_만든다() {
+        // ⚠️ 리뷰 P2 — 재사용 키에 companyId 가 빠지면 개인 시절 주문이 계속 반환되고, 그 주문은 승인
+        // 단계 소속 검증에서 막혀 TTL 동안 결제가 통째로 잠긴다.
+        UserPlan current = withId(UserPlan.forCompany(COMPANY_ID, STANDARD_PLAN_ID), 501L);
+        Payment staleIndividualOrder = readyPayment(null); // companyId = null (개인 시절 주문)
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, COMPANY_ID)).thenReturn(current);
+        when(paymentRepository.findFirstByUserIdAndPlanIdAndStatusAndRequestedAtAfterOrderByRequestedAtDesc(
+                eq(USER_ID), eq(ENTERPRISE_PLAN_ID), eq(PaymentStatus.READY), any(Instant.class)))
+                .thenReturn(Optional.of(staleIndividualOrder));
+
+        PaymentOrderResponse response = writer.createOrder(USER_ID, PlanName.ENTERPRISE);
+
+        assertThat(response.orderId()).isNotEqualTo(staleIndividualOrder.getOrderId());
+        verify(paymentRepository).save(any(Payment.class));
     }
 
     @Test

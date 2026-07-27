@@ -56,7 +56,8 @@ create table if not exists payments
     requested_at    timestamp with time zone default now()                   not null,
     approved_at     timestamp with time zone,
     failure_code    varchar(100),
-    failure_message text
+    failure_message text,
+    confirm_attempt_count integer            default 0                       not null
 );
 
 comment on table payments is '플랜 구독 결제 원장. 주문 사전 등록(READY)→승인(PAID) 2단계로 관리하며, 금액·요금제명을 결제 시점 스냅샷으로 보관해 이후 요금제 가격이 바뀌어도 과거 이력이 소급 변경되지 않는다.';
@@ -92,6 +93,8 @@ comment on column payments.approved_at is '결제 승인 시각(승인 성공 �
 comment on column payments.failure_code is 'PG가 반환한 실패 코드(승인 실패 시 기록)';
 
 comment on column payments.failure_message is 'PG가 반환한 실패 사유(승인 실패 시 기록)';
+
+comment on column payments.confirm_attempt_count is '이 주문으로 PG 승인을 시도한 횟수. 승인 결과가 불명이면 주문을 READY로 남겨 재확정을 허용하는데(승인이 성사된 뒤 응답만 못 받았을 수 있다), 그 대가로 "1주문=최대 1회 호출"이라는 자연 상한이 사라지므로 이 카운터가 주문당 아웃바운드 호출 상한을 강제한다.';
 
 create unique index if not exists uq_payments_order_id
     on payments (order_id);

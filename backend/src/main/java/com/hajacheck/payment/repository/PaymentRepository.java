@@ -37,11 +37,15 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
      * 있다(환불이 범위 밖이라 회수 수단이 없다). 승인 단계의 동일 플랜 차단
      * ({@code PaymentWriter#prepareConfirm})과 <b>짝을 이루는 근본 원인 차단</b>이다.
      *
-     * <p>{@code companyId} 를 조건에 넣지 않는 이유: 주문의 companyId 는 생성 시점 사용자의 소속에서
-     * 파생된 값이라 (userId, planId) 만으로 소유 주체가 특정된다. 소속이 바뀐 뒤의 재사용은
-     * {@code PaymentWriter} 가 승인 전 소속 일치 검증으로 따로 막는다.
+     * <p>⚠️ <b>{@code companyId} 일치는 호출부가 추가로 확인한다</b>(리뷰 P2 정정). 이 쿼리는 (userId,
+     * planId)까지만 좁히므로, 개인으로 만든 주문이 기업 소속 전환 뒤에도 후보로 잡힌다. 그 주문은 승인
+     * 단계의 소속 검증에서 어차피 막히는데 — 예전 주석은 "그러니 안전하다"고 썼지만 사실은 정반대다 —
+     * 재사용으로 계속 같은 주문이 반환되면 <b>TTL 동안 새 주문을 만들 수 없어 결제 경로가 통째로
+     * 잠긴다</b>. 그래서 {@code PaymentWriter} 가 후보를 받은 뒤 현재 소속과 대조해 다르면 버리고 새
+     * 주문을 만든다.
      *
-     * @param requestedAfter 유효시간(TTL) 시작점 — 이보다 오래된 주문은 만료로 보아 재사용하지 않는다
+     * @param requestedAfter 재사용 가능한 최소 생성 시각 — 만료 임박분을 걸러내기 위해 TTL 시작점보다
+     *                       보수적인 값을 넘긴다({@code PaymentWriter#reusableOrderRequestedAfter})
      */
     Optional<Payment> findFirstByUserIdAndPlanIdAndStatusAndRequestedAtAfterOrderByRequestedAtDesc(
             Long userId, Long planId, PaymentStatus status, Instant requestedAfter);

@@ -25,6 +25,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -43,8 +44,9 @@ import org.springframework.transaction.annotation.Transactional;
  *       {@link #applyPlanTransition}(엔타이틀먼트)을 뒤이어 커밋한다. 한 트랜잭션이면 전이 단계의 예외
  *       (예: 동시 플랜 변경 경합)가 <b>승인 기록까지 롤백</b>시켜 "돈은 나갔는데 원장에 없음"이 된다.
  *       분리해 두면 최악의 경우가 {@code status=PAID && user_plan_id is null} 이라는 <b>탐지 가능한 상태</b>로
- *       남고, 같은 orderId 재요청이 PG 재호출 없이 전이만 재시도해 스스로 복구된다
- *       ({@link PaymentService#confirm} 의 멱등 분기).</li>
+ *       남고, 같은 orderId 재요청이 PG 재호출 없이 전이만 재시도한다({@link PaymentService#confirm} 의
+ *       멱등 분기). ⚠️ 이 자가 복구는 <b>일시적 실패에 한한다</b> — 소속 변경·owner 교체·활성 구독
+ *       부재처럼 결정적인 원인은 재요청해도 같은 결과라 대사(#1010) 대상이다.</li>
  * </ol>
  *
  * <p>self-invocation 으로 {@code @Transactional} 프록시가 풀리는 것을 막기 위해 별도 빈으로 둔다
@@ -105,9 +107,17 @@ public class PaymentWriter {
         // 아직 유효한 같은 요금제 주문이 있으면 그것을 그대로 돌려준다(리뷰 P1-B 근본 원인 차단).
         // 새 주문을 계속 찍어내면 사용자가 결제창을 두 번 열었다가 둘 다 결제해 "2회 청구 + 구독 변화 0"이
         // 될 수 있고(환불은 이번 범위 밖이라 회수 불가), 승인되지 않은 주문도 무한히 쌓인다.
+        //
+        // ⚠️ 재사용 조건 둘(리뷰 P2):
+        //  ① companyId 가 지금 소속과 같아야 한다. 다르면(개인→기업 전환 등) 그 주문은 승인 단계의 소속
+        //     검증에서 어차피 막히는데, 재사용해서 계속 돌려주면 <b>TTL 동안 새 주문을 못 만들어 결제
+        //     자체가 잠긴다</b>. 소속이 바뀌었으면 재사용하지 않고 새 주문을 만든다.
+        //  ② 잔여 유효시간이 충분해야 한다. 1초 남은 주문을 재사용하면 사용자가 카드 인증까지 마친 뒤
+        //     만료 404 를 맞는다 — 결제창에서 보낼 시간을 확보한다.
         Optional<Payment> reusable = paymentRepository
                 .findFirstByUserIdAndPlanIdAndStatusAndRequestedAtAfterOrderByRequestedAtDesc(
-                        userId, targetPlan.getId(), PaymentStatus.READY, orderValidFrom());
+                        userId, targetPlan.getId(), PaymentStatus.READY, reusableOrderRequestedAfter())
+                .filter(existing -> Objects.equals(existing.getCompanyId(), companyId));
         if (reusable.isPresent()) {
             Payment existing = reusable.get();
             log.info("유효한 기존 결제 주문 재사용 — orderId={} planName={}", existing.getOrderId(), targetPlanName);
@@ -134,13 +144,16 @@ public class PaymentWriter {
      * 승인 호출 직전 검증 — 여기서 통과하지 못하면 <b>PG 를 호출하지 않는다</b>. 금액 대조와 플랜 전이
      * 가드를 모두 이 단계에서 다시 확인해, 돈이 움직인 뒤에 거절하는 상황을 만들지 않는다.
      *
-     * <p>읽기 전용이 아니라 <b>쓰기 트랜잭션</b>인 이유: 유효시간이 지난 READY 주문을 여기서 CANCELED 로
-     * 닫기 때문이다. 어차피 PG 호출 이전이라 트랜잭션이 짧고 외부 대기와 겹치지 않는다.
+     * <p><b>읽기 전용이다</b>(리뷰 P2 정정). 이전 구현은 만료 주문을 여기서 CANCELED 로 바꾼 뒤 곧바로
+     * {@code BusinessException} 을 던졌는데, 그 예외가 RuntimeException 이라 Spring 기본 규칙으로
+     * <b>이 트랜잭션이 롤백되어 취소 UPDATE 가 커밋되지 않았다</b> — 응답(404)과 재사용 제외(시간 조건)는
+     * 정상이라 겉으로 드러나지 않는 데이터 결함이었다. 지금은 <b>판정만</b> 하고, 주문을 닫는 쓰기는
+     * 호출부({@code PaymentService})가 별도 트랜잭션으로 수행한다({@link PaymentConfirmOutcome} 참고).
      *
      * <p>금액 불일치는 결제 주문을 FAILED 로 태우지 않는다 — 위변조 시도든 클라이언트 버그든 정상 주문
      * 하나를 못 쓰게 만들 이유가 없고, PG 호출을 막는 것으로 방어는 이미 끝났다(WARN 로깅만).
      */
-    @Transactional
+    @Transactional(readOnly = true)
     public PaymentConfirmPreparation prepareConfirm(Long userId, PaymentConfirmRequest request) {
         requireGatewayConfigured();
 
@@ -157,10 +170,15 @@ public class PaymentWriter {
         }
         if (payment.isExpired(Instant.now(), tossPaymentsProperties.getOrderTtl())) {
             // 유효시간 초과(리뷰 P2) — 금액이 스냅샷이라 시한이 없으면 요금 인상 직전 주문을 쟁여뒀다가
-            // 나중에 구가격으로 결제할 수 있다. 닫아 두면 재사용 조회에서도 자연히 빠진다.
-            payment.markExpired();
-            log.info("유효시간 초과 결제 주문 자동 취소 — orderId={}", payment.getOrderId());
-            throw new BusinessException(ErrorCode.PAYMENT_ORDER_NOT_FOUND);
+            // 나중에 구가격으로 결제할 수 있다. 취소 기록은 호출부가 별도 트랜잭션으로 남긴다.
+            return PaymentConfirmPreparation.expired(payment.getId());
+        }
+        if (payment.isConfirmable()
+                && payment.hasReachedConfirmAttemptLimit(tossPaymentsProperties.getMaxConfirmAttempts())) {
+            // 승인 시도 상한 초과(보안 리뷰 P2) — "결과 불명이면 READY 유지" 정책 때문에 사라진
+            // "1주문 = 최대 1회 PG 호출" 상한을 여기서 되살린다. 가상계좌처럼 즉시 승인되지 않는 수단은
+            // 매번 불명으로 끝나므로, 상한이 없으면 같은 주문으로 우리 머천트 크레덴셜 호출을 무한 증폭할 수 있다.
+            return PaymentConfirmPreparation.attemptLimitExceeded(payment.getId());
         }
         if (!payment.isConfirmable()) {
             // FAILED·CANCELED 는 재확정 대상이 아니다. 상태를 세분해 알려주지 않는다(ErrorCode javadoc).
@@ -188,6 +206,37 @@ public class PaymentWriter {
         }
 
         return PaymentConfirmPreparation.readyToApprove(payment.getId(), amount);
+    }
+
+    /**
+     * 더 이상 쓸 수 없는 주문을 CANCELED 로 닫는다 — <b>독립 트랜잭션</b>({@code REQUIRES_NEW})이다.
+     *
+     * <p>{@link #prepareConfirm} 안에서 닫고 예외를 던지면 그 UPDATE 가 함께 롤백된다(리뷰 P2). 호출부는
+     * 이 메서드로 취소를 <b>커밋한 뒤</b> 404 를 던진다 — 이 클래스의 다른 쓰기들과 같은 "짧은 독립
+     * 트랜잭션" 원칙이다. 이미 PAID 인 행은 엔티티 가드가 막는다(경합에서 받은 돈의 기록을 지우지 않는다).
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void closeUnusableOrder(Long paymentId, PaymentConfirmOutcome outcome) {
+        paymentRepository.findByIdForUpdate(paymentId).ifPresentOrElse(payment -> {
+            if (outcome == PaymentConfirmOutcome.ATTEMPT_LIMIT_EXCEEDED) {
+                payment.markConfirmAttemptLimitExceeded();
+                log.warn("승인 시도 상한 초과로 결제 주문 자동 취소 — orderId={} attempts={}",
+                        payment.getOrderId(), payment.getConfirmAttemptCount());
+            } else {
+                payment.markExpired();
+                log.info("유효시간 초과 결제 주문 자동 취소 — orderId={}", payment.getOrderId());
+            }
+        }, () -> log.warn("취소 대상 주문 소멸 — paymentId={}", paymentId));
+    }
+
+    /**
+     * PG 승인 호출 <b>직전</b>에 시도 횟수를 올린다 — 독립 트랜잭션이라 이어지는 PG 호출이 실패하거나
+     * 호출부가 예외를 던져도 이 증가는 남는다(보안 리뷰 P2). 남지 않으면 상한이 무의미해진다.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordConfirmAttempt(Long paymentId) {
+        paymentRepository.findByIdForUpdate(paymentId)
+                .ifPresent(Payment::recordConfirmAttempt);
     }
 
     /**
@@ -307,9 +356,15 @@ public class PaymentWriter {
         return new TransitionTarget(current, targetPlan, false);
     }
 
-    /** READY 주문이 유효한 것으로 인정되는 시작 시각 — 재사용 조회와 만료 판정이 같은 기준을 쓴다. */
-    private Instant orderValidFrom() {
-        return Instant.now().minus(tossPaymentsProperties.getOrderTtl());
+    /**
+     * <b>재사용</b> 가능한 READY 주문의 최소 생성 시각 — 만료 판정보다 {@code reuseMinRemaining} 만큼
+     * 더 보수적이다(리뷰 P3). 잔여 유효시간이 얼마 남지 않은 주문을 재사용하면 사용자가 결제창에서 카드
+     * 인증까지 마친 뒤 만료 404 를 맞기 때문에, 결제창에서 보낼 시간이 남은 주문만 재사용한다.
+     */
+    private Instant reusableOrderRequestedAfter() {
+        return Instant.now()
+                .minus(tossPaymentsProperties.getOrderTtl())
+                .plus(tossPaymentsProperties.getOrderReuseMinRemaining());
     }
 
     /**

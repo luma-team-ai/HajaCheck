@@ -48,6 +48,8 @@ public class Payment {
 
     /** 유효시간 초과로 자동 취소된 주문의 failure_code — 운영 대사에서 PG 거절과 구분하기 위한 자체 코드. */
     public static final String FAILURE_CODE_EXPIRED = "HAJA_ORDER_EXPIRED";
+    /** 승인 시도 횟수 상한 초과로 자동 취소된 주문의 failure_code. */
+    public static final String FAILURE_CODE_ATTEMPT_LIMIT = "HAJA_CONFIRM_ATTEMPT_LIMIT";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -101,6 +103,17 @@ public class Payment {
 
     @Column(name = "failure_message", columnDefinition = "text")
     private String failureMessage;
+
+    /**
+     * 이 주문으로 PG 승인을 시도한 횟수 — 주문당 아웃바운드 호출 상한의 근거(보안 리뷰 P2).
+     *
+     * <p>"결과 불명이면 주문을 READY 로 남긴다"는 정책(리뷰 P1-C)은 승인된 결제가 재확정으로 복구되게
+     * 해주지만, 그 대가로 <b>"1주문 = 최대 1회 PG 호출"이라는 자연 상한이 사라진다</b>. 가상계좌처럼
+     * 즉시 승인되지 않는 수단은 매번 "승인 완료 아님"(=불명)으로 끝나므로, 같은 주문으로 confirm 을
+     * 무한 반복해 우리 머천트 크레덴셜로 나가는 호출을 공짜로 증폭시킬 수 있다. 이 카운터가 그 상한이다.
+     */
+    @Column(name = "confirm_attempt_count", nullable = false)
+    private int confirmAttemptCount;
 
     @Builder(access = AccessLevel.PRIVATE)
     private Payment(String orderId, Long userId, Long companyId, Long planId, PlanName planName,
@@ -158,17 +171,36 @@ public class Payment {
         return isConfirmable() && this.requestedAt.plus(ttl).isBefore(now);
     }
 
+    /** 승인 시도 횟수가 상한에 도달했는지 — 도달했으면 더 이상 PG 를 호출하지 않는다. */
+    public boolean hasReachedConfirmAttemptLimit(int maxAttempts) {
+        return this.confirmAttemptCount >= maxAttempts;
+    }
+
+    /** PG 승인 호출 직전에 시도 횟수를 올린다(호출 성공·실패와 무관하게 1회로 센다). */
+    public void recordConfirmAttempt() {
+        this.confirmAttemptCount++;
+    }
+
     /**
      * 유효시간이 지난 READY 주문을 취소로 닫는다. 승인된 주문(PAID)은 절대 건드리지 않는다 — 만료 판정과
      * 승인이 겹치는 경합에서 이미 받은 돈의 기록이 지워지면 안 된다({@link #isConfirmable()} 가드).
      */
     public void markExpired() {
+        cancel(FAILURE_CODE_EXPIRED, "주문 유효시간이 지나 자동 취소되었습니다.");
+    }
+
+    /** 승인 시도 횟수 상한을 넘긴 주문을 닫는다 — 같은 주문으로 PG 호출을 무한 반복하지 못하게 한다. */
+    public void markConfirmAttemptLimitExceeded() {
+        cancel(FAILURE_CODE_ATTEMPT_LIMIT, "승인 시도 횟수를 초과해 자동 취소되었습니다.");
+    }
+
+    private void cancel(String failureCode, String failureMessage) {
         if (!isConfirmable()) {
             return;
         }
         this.status = PaymentStatus.CANCELED;
-        this.failureCode = FAILURE_CODE_EXPIRED;
-        this.failureMessage = "주문 유효시간이 지나 자동 취소되었습니다.";
+        this.failureCode = failureCode;
+        this.failureMessage = failureMessage;
     }
 
     /** 승인은 끝났는데 플랜 전이가 아직 반영되지 않은 상태 — 재확정 요청이 전이만 재시도할 근거이자 운영 대사 신호. */
