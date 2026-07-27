@@ -4,9 +4,12 @@ import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.counsel.dto.ChatMessageResponse;
 import com.hajacheck.counsel.dto.CounselTicketCreateRequest;
+import com.hajacheck.counsel.dto.CounselTicketNoteResponse;
+import com.hajacheck.counsel.dto.CounselTicketNoteUpdateRequest;
 import com.hajacheck.counsel.dto.CounselTicketResponse;
 import com.hajacheck.counsel.dto.CounselTicketSummaryResponse;
 import com.hajacheck.counsel.entity.CounselTicketStatus;
+import com.hajacheck.counsel.service.CounselTicketNoteService;
 import com.hajacheck.counsel.service.CounselTicketService;
 import com.hajacheck.counsel.service.CounselTicketService.Transcript;
 import com.hajacheck.global.common.ApiResponse;
@@ -28,6 +31,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -49,6 +53,7 @@ public class CounselTicketController {
     private static final int MAX_PAGE_SIZE = 100;
 
     private final CounselTicketService counselTicketService;
+    private final CounselTicketNoteService counselTicketNoteService;
 
     @Operation(summary = "상담 티켓 생성",
             description = "시나리오 리프(leadsToCounselor=true)에서 상담원 연결을 요청한다(WAITING). "
@@ -158,6 +163,29 @@ public class CounselTicketController {
             @AuthenticationPrincipal LoginUser loginUser) {
         CounselTicketResponse response =
                 counselTicketService.leaveOffline(id, loginUser.getUserId());
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "상담원 비공개 메모 조회",
+            description = "고객에게 노출되지 않는 상담원 전용 메모(티켓당 1개)를 조회한다. 담당 상담원 본인만.")
+    @GetMapping("/{id}/note")
+    public ResponseEntity<ApiResponse<CounselTicketNoteResponse>> getNote(
+            @PathVariable Long id,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        CounselTicketNoteResponse response =
+                counselTicketNoteService.getNote(id, loginUser.getUserId());
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "상담원 비공개 메모 저장",
+            description = "상담원 전용 메모를 저장한다(upsert — 없으면 생성, 있으면 갱신). 담당 상담원 본인만.")
+    @PutMapping("/{id}/note")
+    public ResponseEntity<ApiResponse<CounselTicketNoteResponse>> saveNote(
+            @PathVariable Long id,
+            @AuthenticationPrincipal LoginUser loginUser,
+            @Valid @RequestBody CounselTicketNoteUpdateRequest request) {
+        CounselTicketNoteResponse response =
+                counselTicketNoteService.saveNote(id, loginUser.getUserId(), request.content());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 }
