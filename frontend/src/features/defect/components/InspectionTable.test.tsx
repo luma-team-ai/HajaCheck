@@ -24,6 +24,7 @@ const BASE_INSPECTION: InspectionListItem = {
   facilityType: '건물',
   roundNo: 3,
   inspectionDate: '2026-07-01',
+  type: 'REGULAR',
   status: 'REVIEWED',
   defectCount: 3,
   gradeDistribution: { A: 0, B: 2, C: 1, D: 0, E: 0 },

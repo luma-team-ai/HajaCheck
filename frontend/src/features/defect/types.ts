@@ -108,7 +108,19 @@ export type InspectionGradeDistribution = Record<DefectGrade, number>;
 // 타입 자체는 필수 필드로 유지하고, 이 상수는 소비 지점(InspectionTable 등)에서 ?? 폴백으로만 쓴다.
 export const EMPTY_GRADE_DISTRIBUTION: InspectionGradeDistribution = { A: 0, B: 0, C: 0, D: 0, E: 0 };
 
-// GET /api/inspections 목록 항목 — 신규 엔드포인트(BE 미구현, MSW 목으로 우선 개발, contract.md 참고)
+// 점검 유형(정기/정밀/긴급) — 백엔드 inspection_type PG enum(REGULAR/DETAILED/EMERGENCY)과 동일 값.
+// #540 백엔드 갭 대응 — Inspection 엔티티/DB에는 이미 있었으나 응답 DTO에 노출되지 않던 필드를
+// InspectionListItemResponse.type으로 노출하면서 프론트도 함께 계약을 맞춘다.
+export type InspectionType = 'REGULAR' | 'DETAILED' | 'EMERGENCY';
+
+export const INSPECTION_TYPE_LABEL: Record<InspectionType, string> = {
+  REGULAR: '정기',
+  DETAILED: '정밀',
+  EMERGENCY: '긴급',
+};
+
+// GET /api/inspections 목록 항목 — 백엔드 PR #891로 origin/dev 머지 완료(defectApi.ts 참고).
+// type 필드는 #540(백엔드 갭 대응)으로 추가 — 기존 컬럼을 응답 DTO에 새로 노출한 것뿐이다.
 export interface InspectionListItem {
   id: number;
   facilityId: number;
@@ -116,6 +128,7 @@ export interface InspectionListItem {
   facilityType: string;
   roundNo: number;
   inspectionDate: string; // YYYY-MM-DD
+  type: InspectionType;
   status: InspectionStatus;
   defectCount: number;
   gradeDistribution: InspectionGradeDistribution;
