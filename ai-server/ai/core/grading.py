@@ -50,30 +50,6 @@ _AREA_RATIO_SEVERITY_BANDS_BY_TYPE: dict[str, list[tuple[float, float]]] = {
 }
 _AREA_RATIO_SEVERITY_MAX = 0.9
 
-# ultralytics model.names가 어떤 표기(영문/한글/대소문자)로 학습됐는지 몰라도 흡수하도록 느슨하게
-# 정규화한다 — 학습 데이터 라벨 표기를 우리가 통제하지 않으므로 방어적으로 매핑.
-_LABEL_ALIASES: dict[str, str] = {
-    "crack": "CRACK",
-    "균열": "CRACK",
-    "spalling": "SPALLING",
-    "박리": "SPALLING",
-    "박락": "SPALLING",
-    "박리박락": "SPALLING",
-    "박리·박락": "SPALLING",
-    "rebar_exposure": "REBAR_EXPOSURE",
-    "rebar exposure": "REBAR_EXPOSURE",
-    "rebar": "REBAR_EXPOSURE",
-    "철근노출": "REBAR_EXPOSURE",
-    "철근 노출": "REBAR_EXPOSURE",
-}
-
-
-def normalize_defect_type_label(raw_label: str) -> str | None:
-    """모델이 반환한 클래스 라벨을 Spring DefectType enum 이름(CRACK/SPALLING/REBAR_EXPOSURE)으로
-    정규화한다. 매핑 불가(3종 확정 클래스 밖의 라벨)는 None — 호출부가 해당 탐지를 건너뛴다."""
-    key = raw_label.strip().lower()
-    return _LABEL_ALIASES.get(key)
-
 
 def compute_severity_score(defect_type: str, area_ratio: float) -> float:
     """심각도 원점수 s ∈ [0, 1](높을수록 심각) — 규칙 문서 §3. 구간표는 하자 유형별로 다르다

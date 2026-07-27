@@ -1,5 +1,5 @@
-"""공통 YOLOv8-seg 하자 탐지 모델 로더 — ocr_client.py/llm_client.py와 동일한 "체인에서 직접
-생성하지 않고 이 함수를 거친다" 패턴(AI_개발_컨벤션.md §0 공통 기반 원칙).
+"""박리박락(SPALLING)·철근노출(REBAR_EXPOSURE) 전용 YOLOv8-seg 모델 로더 — ocr_client.py/llm_client.py와
+동일한 "체인에서 직접 생성하지 않고 이 함수를 거친다" 패턴(AI_개발_컨벤션.md §0 공통 기반 원칙).
 
 ## 배경 (dev-05-04, docs/_local/황승현_할일.md)
 
@@ -11,11 +11,24 @@ design-03-04(YOLOv8-seg 1차 학습) 완료 전이라 `models/MODEL_CARD.md`는 
 
 - **모델 저장소**: private HF repo(`YOLO_MODEL_REPO_ID`, 기본 `50seok/hajacheck-defect-detection`).
   HF_API_TOKEN(기존 LLM/임베딩용과 동일 토큰, .env 공유)으로 인증.
-- **체크포인트 파일명은 하드코딩하지 않는다** — repo 파일 목록을 조회해 `.pt` 확장자를 자동 탐색하고,
-  `best.pt`가 있으면 우선 선택한다(ultralytics 학습 산출물의 관례적 이름). 파일명을 몰라도 동작한다.
-- **클래스 이름도 하드코딩하지 않는다** — ultralytics 체크포인트는 학습 시 `data.yaml`의 클래스
-  순서를 `model.names`(dict[int, str])로 자체 내장한다. 인덱스 순서를 추측할 필요 없이 로드된
-  모델에서 그대로 읽는다(grading.py의 라벨 정규화가 다양한 표기를 흡수한다).
+
+## 저장소 구조 변경 (2026-07-27, 6차 rebase 중 발견 — dev-05-04 실추론 재중단 원인)
+
+원래는 "모델 1개가 균열/박리박락/철근노출 3클래스 전부 처리"를 전제로, 파일명을 하드코딩하지 않고
+저장소의 `.pt` 파일을 자동 탐색해 `best.pt`가 있으면 우선 선택하는 방식이었다. 그런데 저장소가
+**하자 유형별 전용 체크포인트 4개**(`crack_unet_resnet34.pt`, `crack_yolov8s_seg.pt`(구버전),
+`rebar_exposure_yolov8n_seg.pt`, `spalling_yolov8n_seg.pt`) 구조로 바뀌면서, `best.pt`가 없어
+자동 탐색이 목록 첫 파일(U-Net 체크포인트 — ultralytics 포맷이 아님)을 집어 `KeyError: 'model'`로
+매번 죽는 문제가 있었다(점검 #67 재현, `hajacheck-fastapi-1` 로그로 확인). 균열은 별도 U-Net
+전용 모듈(`ai/core/unet_client.py`)로 분리했고, 이 모듈은 **파일명을 유형별로 고정 매핑**한다 —
+저장소 README가 이미 파일명을 명시적 계약으로 문서화하고 있어(사용법 섹션 그대로), 더 이상
+"파일명을 몰라도 동작"할 필요가 없다.
+
+- **클래스 이름을 신뢰하지 않는다** — `rebar_exposure_yolov8n_seg.pt`의 `model.names`는
+  `{0: "good", 1: "fair", 2: "poor"}`(상태 등급이지 하자 유형이 아님)라 라벨 텍스트로 유형을
+  되짚는 게 위험하다(저장소 README 확인, 2026-07-27). 대신 **어떤 체크포인트를 호출했는지 자체가
+  유형을 결정**한다 — `get_yolo_model(defect_type)`이 반환한 모델의 모든 탐지는 호출부
+  (`defect_detection_chain.py`)가 `defect_type`으로 그대로 라벨링한다.
 """
 from __future__ import annotations
 
@@ -29,30 +42,26 @@ if TYPE_CHECKING:  # 타입 체커 전용 — 런타임 import 아님(torch/cv2 
 
 YOLO_REPO_ID = os.getenv("YOLO_MODEL_REPO_ID", "50seok/hajacheck-defect-detection")
 
+# 유형별 전용 체크포인트 파일명(저장소 README 사용법 섹션과 동일) — CRACK은 U-Net 전용
+# (ai/core/unet_client.py)이라 여기 포함하지 않는다.
+CHECKPOINT_FILENAMES: dict[str, str] = {
+    "SPALLING": "spalling_yolov8n_seg.pt",
+    "REBAR_EXPOSURE": "rebar_exposure_yolov8n_seg.pt",
+}
+
 # 공유 YOLO 인스턴스에 대한 동시 predict 직렬화(코드 리뷰 P2) — get_yolo_model()의 락과는 별개다.
+# SPALLING/REBAR_EXPOSURE 두 모델 호출 전체를 이 하나의 락으로 직렬화한다(둘 다 프로세스 전역
+# 공유 인스턴스이므로 보수적으로 함께 묶어도 무해하다 — 애초에 동시 분석 자체가 최대 2건
+# (analysisTaskExecutor core=max=2)이라 별도 락으로 세분화할 이득이 크지 않다).
 _predict_lock = threading.Lock()
 
 
-def _resolve_checkpoint_filename(token: str | None) -> str:
-    from huggingface_hub import list_repo_files
-
-    files = list_repo_files(YOLO_REPO_ID, token=token)
-    pt_files = [f for f in files if f.endswith(".pt")]
-    if not pt_files:
-        raise RuntimeError(
-            f"HF repo {YOLO_REPO_ID}에서 .pt 체크포인트를 찾지 못했습니다(파일 목록: {files})"
-        )
-    for f in pt_files:
-        if f.rsplit("/", 1)[-1] == "best.pt":
-            return f
-    return pt_files[0]
-
-
 @lru_cache
-def get_yolo_model() -> "YOLO":
-    """모든 하자 탐지 호출의 시작점. `ultralytics.YOLO(...)`를 직접 생성하지 않고 이 함수를 거친다.
+def get_yolo_model(defect_type: str) -> "YOLO":
+    """`defect_type`(SPALLING/REBAR_EXPOSURE) 전용 체크포인트를 로드한다. 모든 하자 탐지 호출의
+    시작점 — `ultralytics.YOLO(...)`를 직접 생성하지 않고 이 함수를 거친다.
 
-    lru_cache로 프로세스당 1회만 다운로드+로드(easyocr get_ocr_engine()과 동일 이유).
+    lru_cache로 유형별 프로세스당 1회만 다운로드+로드(easyocr get_ocr_engine()과 동일 이유).
 
     ## ultralytics(→torch/cv2) 지연 import 이유 (#573/ocr_client.py 패턴 유지)
     `ultralytics`는 import 시 torch·cv2(opencv)를 로드한다. 헤드리스 환경(CI/PR머신)에서 libGL이
@@ -64,7 +73,7 @@ def get_yolo_model() -> "YOLO":
     from ultralytics import YOLO
 
     token = os.getenv("HF_API_TOKEN") or None
-    filename = _resolve_checkpoint_filename(token)
+    filename = CHECKPOINT_FILENAMES[defect_type]
     # cache_dir 미지정 시 huggingface_hub가 HF_HOME(도커 named volume /app/hf_cache, #439)
     # 하위 기본 경로를 그대로 쓴다 — easyocr/embeddings와 동일 볼륨을 재사용해 컨테이너 재기동 시
     # 재다운로드를 피한다.
