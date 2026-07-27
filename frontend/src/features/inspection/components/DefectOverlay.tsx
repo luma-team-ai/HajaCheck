@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Defect, InspectionMedia } from '../types';
 
 interface DefectOverlayProps {
@@ -25,6 +26,16 @@ export function DefectOverlay({
   onCanvasMouseMove,
   onCanvasMouseUp,
 }: DefectOverlayProps) {
+  // ponytail: 이미지 로드 실패(detail 503 등) 시 thumbnail로 폴백(#796)
+  const [imgSrc, setImgSrc] = useState(media.imageUrl);
+
+  const handleImageError = () => {
+    // detail이 실패했으면 thumbnail로 대체 — 둘 다 실패하면 그대로 유지
+    if (media.thumbnailUrl && imgSrc !== media.thumbnailUrl) {
+      setImgSrc(media.thumbnailUrl);
+    }
+  };
+
   // ponytail: 겹친 박스 클릭 가능성을 위해 면적 내림차순 정렬 — 큰 박스가 먼저(아래), 작은 박스가 나중(위)에 그려짐
   const sortedDefects = defects.slice().sort((a, b) => {
     const areaA = a.bbox.width * a.bbox.height;
@@ -44,8 +55,9 @@ export function DefectOverlay({
       onMouseLeave={drawMode ? onCanvasMouseUp : undefined}
     >
       <img
-        src={media.imageUrl}
+        src={imgSrc}
         alt="점검 이미지"
+        onError={handleImageError}
         // 세로 사진이 60vh 높이 상한 때문에 양옆 여백이 과하게 크다는 실사용 피드백(#897) —
         // 79vh로 올려 여백을 줄임. 화면이 낮은 노트북에서는 진행률바·액션 버튼 행이 밀릴 여유가
         // 줄어드는 트레이드오프가 있음(60vh 대비 헤더/버튼용 여유가 40vh→21vh로 축소).
