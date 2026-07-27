@@ -99,6 +99,9 @@ public class MediaService {
         if (files == null || files.isEmpty()) {
             throw new BusinessException(ErrorCode.FILE_REQUIRED);
         }
+        // 요청 총 바이트 상한(max-request-size)과 별개로, 파일마다 동기 수행하는 매직바이트 검증+
+        // EXIF 추출+썸네일·상세이미지 인코딩이 워커 스레드를 점유하는 시간 자체를 통제한다(PR머신
+        // 리뷰 P1, #1067) — 소용량 파일을 대량으로 담으면 총 바이트 상한만으로는 처리 시간이 안 막힌다.
         if (files.size() > properties.getMaxFilesPerRequest()) {
             throw new BusinessException(ErrorCode.MEDIA_COUNT_EXCEEDED);
         }

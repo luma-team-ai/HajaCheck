@@ -23,12 +23,12 @@ describe('validateMediaFile', () => {
 });
 
 describe('exceedsMaxFileCount', () => {
-  it('합이 10 이하면 false', () => {
-    expect(exceedsMaxFileCount(5, 5)).toBe(false);
+  it('합이 50 이하면 false', () => {
+    expect(exceedsMaxFileCount(25, 25)).toBe(false);
   });
 
-  it('합이 10을 초과하면 true', () => {
-    expect(exceedsMaxFileCount(8, 3)).toBe(true);
+  it('합이 50을 초과하면 true', () => {
+    expect(exceedsMaxFileCount(40, 11)).toBe(true);
   });
 });
 

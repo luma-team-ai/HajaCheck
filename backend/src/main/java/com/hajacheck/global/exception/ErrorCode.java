@@ -168,7 +168,7 @@ public enum ErrorCode {
 
     // 촬영 데이터(미디어) 업로드(dev-05-03)
     MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "미디어를 찾을 수 없습니다."),
-    MEDIA_COUNT_EXCEEDED(HttpStatus.BAD_REQUEST, "한 번에 업로드할 수 있는 파일 수를 초과했습니다."),
+    MEDIA_COUNT_EXCEEDED(HttpStatus.BAD_REQUEST, "한 번에 업로드할 수 있는 파일 수를 초과했습니다. (최대 50장)"),
     // 시설물 대표 사진(#632/#652, HAJA-377) — 시설물당 최대 4장. 기존 보유분 + 이번 업로드가 4장을
     // 넘으면 거부한다(애플리케이션 레벨 카운트 검증).
     FACILITY_PHOTO_COUNT_EXCEEDED(HttpStatus.BAD_REQUEST, "시설물 대표 사진은 최대 4장까지 등록할 수 있습니다."),

@@ -53,7 +53,7 @@ export const mediaHandlers = [
         data: null,
         error: {
           code: 'MEDIA_COUNT_EXCEEDED',
-          message: '한 번에 업로드할 수 있는 파일 수를 초과했습니다.',
+          message: '한 번에 업로드할 수 있는 파일 수를 초과했습니다. (최대 50장)',
         },
       };
       return HttpResponse.json(failure, { status: 400 });

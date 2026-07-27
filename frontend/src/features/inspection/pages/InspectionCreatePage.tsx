@@ -269,7 +269,7 @@ export function InspectionCreatePage() {
     const currentImageCount = mediaFiles.filter((entry) => entry.kind === 'image').length;
     const addingImageCount = staged.filter((entry) => entry.kind === 'image').length;
     if (exceedsMaxFileCount(currentImageCount, addingImageCount)) {
-      setFileCountError('이미지는 한 번에 최대 10개까지 업로드할 수 있습니다.');
+      setFileCountError('이미지는 한 번에 최대 50개까지 업로드할 수 있습니다.');
       return;
     }
     setFileCountError(null);

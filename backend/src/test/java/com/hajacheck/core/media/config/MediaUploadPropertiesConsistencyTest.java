@@ -11,7 +11,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 /**
  * 미디어 다중 업로드 최악값(maxFilesPerRequest × maxSizeBytes)이 servlet 전역
- * max-request-size 한도 이내로 정합한지 고정한다(리뷰 P2). 이번 PR에서 실제로 두 값이
+ * max-request-size 한도 이내로 정합한지 고정한다(리뷰 P2, #1067). 이전에도 두 값이
  * 서로 어긋나 rebase 충돌로 드러난 적이 있었다 — 둘 중 하나만 바뀌고 다른 쪽을 놓치면
  * 정상 업로드가 servlet 단계에서 먼저 거부되거나, 반대로 servlet 한도만 불필요하게
  * 커져 다른 도메인(사업자등록증 등)의 DoS 노출면이 넓어질 수 있다.
