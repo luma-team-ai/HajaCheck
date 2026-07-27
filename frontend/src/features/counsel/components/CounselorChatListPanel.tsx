@@ -71,7 +71,7 @@ export function CounselorChatListPanel({
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pt-1 pb-4">
         {loading && <LoadingSpinner className="flex items-center justify-center py-6" />}
         {error && <p className="px-3 text-sm text-red-600">{error}</p>}
         {!loading && !error && tickets.length === 0 && (
