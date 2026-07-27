@@ -6,6 +6,7 @@ import { FacilityFilterBar } from '../components/FacilityFilterBar';
 import { FacilityFormModal } from '../components/FacilityFormModal';
 import { useCreateFacility } from '../hooks/useCreateFacility';
 import { useFacilities } from '../hooks/useFacilities';
+import { useUploadFacilityPhotos } from '../hooks/useUploadFacilityPhotos';
 import type { CreateFacilityRequest } from '../types';
 import { FACILITY_LIST_FILTERS_INITIAL, filterFacilities } from '../utils/filterFacilities';
 import type { FacilityListFilters } from '../utils/filterFacilities';
@@ -21,6 +22,7 @@ export function FacilityListPage() {
   const navigate = useNavigate();
   const { data: facilities, isLoading, isError, refetch } = useFacilities();
   const { createFacility, isPending, error, resetError } = useCreateFacility();
+  const { uploadPhotos } = useUploadFacilityPhotos();
 
   const isFilterActive =
     filters.search !== '' || filters.type !== '' || filters.region !== '' || filters.grade !== '';
@@ -48,12 +50,21 @@ export function FacilityListPage() {
     );
   };
 
-  const handleSubmit = async (payload: CreateFacilityRequest) => {
-    await createFacility(payload);
-    handleCloseModal();
+  const handleSubmit = async (payload: CreateFacilityRequest, photos: File[]) => {
     // 실패 시 여기서 잡지 않고 그대로 전파한다 — FacilityFormModal이 실패를 감지해 폼 값을
     // 초기화하지 않고 유지해야 하므로(등록 실패 시 사용자가 입력한 내용을 잃지 않도록),
     // 이 함수가 던지는 rejection을 FacilityFormModal의 handleSubmit이 catch한다.
+    const facility = await createFacility(payload);
+    // 사진 업로드는 시설물 생성이 성공한 뒤에만 가능하다(POST /api/facilities/{id}/media, #652) —
+    // 사진을 선택하지 않았으면 호출하지 않는다.
+    // 알려진 제한사항(이번 스코프에서 자동 처리 안 함): 시설물 생성 성공 후 사진 업로드만 실패하면
+    // FacilityFormModal의 catch가 폼을 유지하지만 시설물은 이미 생성된 상태라, 사용자가 그대로
+    // 재제출하면 중복 시설물이 생길 수 있다. 이 케이스를 구분하는 전용 에러 처리(예: "시설물은
+    // 등록됐지만 사진 업로드는 실패했습니다" 별도 안내)는 후속 이슈로 남긴다.
+    if (photos.length > 0) {
+      await uploadPhotos(facility.id, photos);
+    }
+    handleCloseModal();
   };
 
   // 주소 좌표 자동계산(Geocoder) 실패 best-effort 안내(#629) — 등록은 이미 좌표 없이 진행되므로
