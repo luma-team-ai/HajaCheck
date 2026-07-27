@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import counselorIcon from '../../../assets/brand/header-user-outlined.svg';
 import defaultAvatarIcon from '../../../assets/brand/sidenav-default-avatar.svg';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
+import { ChatInputBox } from '../../../shared/components/ChatInputBox/ChatInputBox';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
+import { TypingIndicatorBubble } from '../../../shared/components/TypingIndicatorBubble/TypingIndicatorBubble';
 import { useCounselorTicketThread } from '../hooks/useCounselorTicketThread';
 import type { CounselTicketDetailResponse, CounselTicketSummaryResponse } from '../types';
 
@@ -24,8 +26,18 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
   const isWaitingUnclaimed = ticket?.status === 'WAITING';
   const threadTicketId = isWaitingUnclaimed ? null : ticketId;
 
-  const { messages, messagesLoading, messagesError, connected, sendMessage, resolving, resolveError, resolve } =
-    useCounselorTicketThread(threadTicketId, onResolved);
+  const {
+    messages,
+    messagesLoading,
+    messagesError,
+    connected,
+    sendMessage,
+    sendTyping,
+    customerTyping,
+    resolving,
+    resolveError,
+    resolve,
+  } = useCounselorTicketThread(threadTicketId, onResolved);
 
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -34,13 +46,18 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
     // jsdom(vitest)에는 scrollIntoView가 없어(Element.prototype 미구현) 테스트 환경에서 호출 시
     // TypeError로 렌더 자체가 실패한다 — 실제 브라우저에서만 존재하는 메서드라 방어적으로 호출.
     scrollRef.current?.scrollIntoView?.({ block: 'end' });
-  }, [messages]);
+  }, [messages, customerTyping]);
 
   function handleSend() {
     const content = draft.trim();
     if (!content) return;
     sendMessage(content);
     setDraft('');
+  }
+
+  function handleDraftChange(value: string) {
+    setDraft(value);
+    if (value.trim() !== '') sendTyping();
   }
 
   if (ticketId === null) {
@@ -150,34 +167,18 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
               </div>
             );
           })}
+        {customerTyping && <TypingIndicatorBubble />}
         <div ref={scrollRef} />
       </div>
 
-      <div className="flex items-center gap-3 border-t border-border px-6 py-4">
-        <input
-          type="text"
-          aria-label="메시지 입력"
+      <div className="flex justify-center px-6 py-4">
+        <ChatInputBox
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') handleSend();
-          }}
+          onChange={handleDraftChange}
+          onSubmit={handleSend}
           disabled={!connected}
           placeholder="메시지를 입력하세요 (상담원 연결 시 활성화됩니다)"
-          className="min-w-0 flex-1 rounded-full border border-point px-4 py-2.5 text-sm outline-none focus:border-point disabled:opacity-50"
         />
-        <button
-          type="button"
-          onClick={handleSend}
-          disabled={!connected || !draft.trim()}
-          aria-label="전송"
-          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-50"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M22 2 11 13" />
-            <path d="M22 2 15 22 11 13 2 9 22 2Z" />
-          </svg>
-        </button>
       </div>
     </div>
   );

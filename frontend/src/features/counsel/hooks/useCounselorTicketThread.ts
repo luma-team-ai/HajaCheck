@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getApiErrorMessage } from '../../../shared/api/types';
 import { counselApi } from '../api/counselApi';
 import { useCounselSocket } from './useCounselSocket';
-import type { ChatMessageResponse } from '../types';
+import type { ChatMessageResponse, ChatMessageSender } from '../types';
 
 // 상담원 콘솔 마스터-디테일(#1001, HAJA-495) — 선택된 티켓의 대화(메시지+소켓+종료)를 캡슐화한다.
 // 기존 CounselorChatPage 내부 로직을 그대로 훅으로 분리한 것 — 대화 조회(GET .../messages)는
@@ -42,11 +42,30 @@ export function useCounselorTicketThread(ticketId: number | null, onEnded: () =>
     };
   }, [ticketId]);
 
-  const { connected, sendMessage } = useCounselSocket(ticketId, {
+  // 고객 "입력 중" 표시(#1001 후속) — 신호 수신마다 타이머를 리셋해 일정 시간 추가 신호가 없으면
+  // 자동으로 숨긴다(ConversationPanel쪽 useCounselHistory와 동일한 idle-timeout 방식).
+  const [customerTyping, setCustomerTyping] = useState(false);
+  const handleTyping = useCallback((sender: ChatMessageSender) => {
+    if (sender !== 'USER') return;
+    setCustomerTyping(true);
+  }, []);
+
+  useEffect(() => {
+    if (!customerTyping) return;
+    const timer = window.setTimeout(() => setCustomerTyping(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [customerTyping]);
+
+  useEffect(() => {
+    setCustomerTyping(false);
+  }, [ticketId]);
+
+  const { connected, sendMessage, sendTyping } = useCounselSocket(ticketId, {
     onMessage: (message) => setMessages((prev) => [...prev, message]),
     // 다른 경로(예: 이용자 오프라인 이탈, PLATFORM_ADMIN 강제 종료)로 티켓이 끝나도 화면이 이를
     // 반영하도록 onEnded도 구독한다 — 직접 종료 버튼을 누른 경우는 resolve()가 이미 처리.
     onEnded,
+    onTyping: handleTyping,
   });
 
   async function resolve() {
@@ -69,6 +88,8 @@ export function useCounselorTicketThread(ticketId: number | null, onEnded: () =>
     messagesError,
     connected,
     sendMessage,
+    sendTyping,
+    customerTyping,
     resolving,
     resolveError,
     resolve,

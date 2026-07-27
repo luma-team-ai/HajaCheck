@@ -12,12 +12,13 @@ import type { UseCounselSocketHandlers } from '../hooks/useCounselSocket';
 import { CounselorConsolePage } from './CounselorConsolePage';
 
 const sendMessage = vi.fn();
+const sendTyping = vi.fn();
 let capturedHandlers: UseCounselSocketHandlers | null = null;
 
 vi.mock('../hooks/useCounselSocket', () => ({
   useCounselSocket: (ticketId: number | null, handlers: UseCounselSocketHandlers) => {
     capturedHandlers = handlers;
-    return { connected: ticketId !== null, sendMessage };
+    return { connected: ticketId !== null, sendMessage, sendTyping };
   },
 }));
 
@@ -28,6 +29,7 @@ afterEach(() => {
   server.resetHandlers();
   cleanup();
   sendMessage.mockClear();
+  sendTyping.mockClear();
   capturedHandlers = null;
 });
 afterAll(() => server.close());
