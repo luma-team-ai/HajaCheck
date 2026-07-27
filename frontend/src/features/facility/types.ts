@@ -143,17 +143,45 @@ export interface FacilityDefectDetail {
   facilityId: number;
   facilityName: string;
   defectType: string;
-  grade: FacilityDefectGrade;
+  /** DDL상 nullable(defect_grade_type) — 미분류면 null(FacilityGradeBadge가 '-' 배지로 처리) */
+  grade: FacilityDefectGrade | null;
   confidencePercent: number;
-  widthMm: number;
-  lengthM: number;
+  /** 균열이 아닌 유형은 null(backend DefectResponse.crackWidthMm) */
+  widthMm: number | null;
+  /** 균열이 아닌 유형은 null(backend DefectResponse.crackLengthMm ÷ 1000, mm→m 변환) */
+  lengthM: number | null;
   foundCycle: number;
   /** YYYY-MM-DD */
   foundAt: string;
-  location: string;
-  assigneeName: string;
+  /** 검수자가 사후 편집하기 전에는 null(#970 갭3) */
+  location: string | null;
+  /** 시설물 담당자(Facility.assigneeUserId) 미배정이면 null(#970 갭3) */
+  assigneeName: string | null;
   status: FacilityDefectStatus;
-  imageUrl: string;
+  /** mediaId 없으면 null(HAJA-314) */
+  imageUrl: string | null;
+}
+
+// GET/PATCH /api/defects/{id}(*) 실 백엔드 DefectResponse(backend/.../defect/dto/DefectResponse.java)의
+// 얇은 로컬 사본 — 하자 정보 패널이 실제로 쓰는 필드만 옮겨온다(feature 간 직접 import 금지,
+// React_코드_컨벤션.md §1). FacilityDefectDetail(화면 소비용, facilityDefectApi가 매핑)과는 별개의
+// 원본(raw) 계약 타입이다.
+export interface FacilityDefectDetailResponse {
+  id: number;
+  facilityId: number;
+  facilityName: string;
+  location: string | null;
+  assigneeName: string | null;
+  foundCycle: number;
+  typeLabel: string;
+  grade: FacilityDefectGrade | null;
+  status: FacilityDefectStatus;
+  confidence: number;
+  crackWidthMm: number | null;
+  crackLengthMm: number | null;
+  imageUrl: string | null;
+  /** ISO 8601 (LocalDateTime) — 화면 표시는 YYYY-MM-DD로 절삭 */
+  createdAt: string;
 }
 
 export interface FacilityDefectActivityLogItem {
