@@ -28,3 +28,9 @@ export const PLATFORM_ADMIN_ROUTE = '/platform-admin';
 // 발급받은 초대 코드로 회사에 연결하는 화면. ProtectedRoute가 WAITING 사용자를 여기로 강제
 // 리다이렉트해야 하므로(보호 라우트 어디로 가든 동일하게 가로채야 함) shared 상수로 둔다.
 export const INVITE_CODE_ROUTE = '/invite-code';
+
+// 토스페이먼츠 결제창 연동(#989, HAJA-490) — 결제창(외부 페이지)에서 돌아오는 successUrl/failUrl
+// 리다이렉트 대상. features/mypage의 usePlanCheckout 훅이 절대 URL을 조립할 때도 이 값을 공유한다
+// (하드코딩 금지 방지 — router.tsx와 동일 문자열을 두 곳에서 따로 관리하면 드리프트 위험).
+export const PAYMENT_SUCCESS_ROUTE = '/payments/success';
+export const PAYMENT_FAIL_ROUTE = '/payments/fail';

@@ -18,6 +18,15 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
   return isApiError(error) ? error.message : fallback;
 }
 
+// 토스페이먼츠 결제 연동(#989) — mutationFn이 axios 요청뿐 아니라 SDK 호출(비-ApiError 형태의
+// 별도 에러 객체를 던질 수 있음)도 함께 감싸는 경우, 호출부가 error.code로 분기하려면(메시지
+// 문자열 매칭 금지 컨벤션) code 존재 여부를 먼저 안전하게 판별해야 한다. ApiError가 아니면
+// undefined를 반환해 호출부가 커스텀 에러(예: TossClientKeyMissingError)를 instanceof로 먼저
+// 분기하고 이 값은 그다음 폴백으로만 쓰게 한다.
+export function getApiErrorCode(error: unknown): string | undefined {
+  return isApiError(error) ? error.code : undefined;
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data: T;

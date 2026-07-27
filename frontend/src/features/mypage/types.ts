@@ -60,14 +60,50 @@ export interface SeatsInfo {
 // contract.md 추가 ErrorCode(마이페이지) — error.code 비교를 이 상수로 통일해 오타 시 컴파일 에러가 나게 한다.
 // (shared/api/types.ts의 ApiError.code는 앱 전역 에러코드를 아우르는 plain string이라 여기서 좁힐 수 없음 —
 // 대신 이 객체의 프로퍼티를 통해서만 비교하게 해 오타를 컴파일 타임에 잡는다.)
-// PLAN_ACTIVE_SUBSCRIPTION_CONFLICT: POST /me/plan/checkout 동시 요청 경합(409, #712/PR#714 계약).
+// PLAN_ACTIVE_SUBSCRIPTION_CONFLICT: POST /me/plan/orders(구 /me/plan/checkout) 동시 요청 경합(409) —
+// 토스페이먼츠 연동(#989, HAJA-490)으로 모의 결제 엔드포인트가 실 결제창 흐름으로 교체되며 발생 경로가
+// checkout → orders/confirm으로 바뀌었다(#712/PR#714 계약 당시의 원래 발생 지점).
+// PAYMENT_* 5종은 #989 신규 — POST /me/plan/orders(주문 생성)와 POST /me/payments/confirm(결제 승인)
+// 양쪽에서 발생할 수 있다.
 export const MYPAGE_ERROR_CODE = {
   PLAN_NOT_FOUND: 'PLAN_NOT_FOUND',
   PLAN_FORBIDDEN: 'PLAN_FORBIDDEN',
   PLAN_ACTIVE_SUBSCRIPTION_CONFLICT: 'PLAN_ACTIVE_SUBSCRIPTION_CONFLICT',
+  PAYMENT_ORDER_NOT_FOUND: 'PAYMENT_ORDER_NOT_FOUND',
+  PAYMENT_FORBIDDEN: 'PAYMENT_FORBIDDEN',
+  PAYMENT_AMOUNT_MISMATCH: 'PAYMENT_AMOUNT_MISMATCH',
+  PAYMENT_GATEWAY_ERROR: 'PAYMENT_GATEWAY_ERROR',
+  PLAN_DOWNGRADE_CONFIRMATION_REQUIRED: 'PLAN_DOWNGRADE_CONFIRMATION_REQUIRED',
 } as const;
 
 export type MyPageErrorCode = (typeof MYPAGE_ERROR_CODE)[keyof typeof MYPAGE_ERROR_CODE];
+
+// ---- 토스페이먼츠 결제창 연동(#989, HAJA-490) ----
+// handoff "API 계약" 절과 1:1. 웹훅·환불/취소 UI·정기결제·간편결제/계좌이체는 범위 밖(handoff 배경).
+
+// POST /me/plan/orders 응답 — 결제창(requestPayment)에 그대로 넘길 주문 정보.
+// amount는 서버가 계산한 금액이 source of truth다(구 PlanCheckoutModal의 UPGRADE_PLAN_PRICE
+// 하드코딩을 대체 — 클라이언트에서 금액을 추정/표시하지 않는다).
+export interface PlanOrder {
+  orderId: string;
+  planName: PlanName;
+  amount: number;
+  orderName: string;
+}
+
+// GET /me/payments 항목 status — 최신순 결제 내역.
+export type PaymentStatus = 'READY' | 'PAID' | 'FAILED' | 'CANCELED';
+
+export interface PaymentHistoryItem {
+  id: number;
+  orderId: string;
+  planName: PlanName;
+  amount: number;
+  status: PaymentStatus;
+  method: string | null;
+  approvedAt: string | null; // ISO datetime, 미승인(READY/FAILED)이면 null
+  receiptUrl: string | null;
+}
 
 // ---- 마이페이지 — 내 점검 이력 / 보고서 (HAJA-366/#668, BE 연동 #844/HAJA-442) ----
 // BE(mypage.dto.*)와 1:1 — 표시용 문자열(회차 조립·날짜 포맷·파일크기·보고서 제목)은 전부 원시값으로
