@@ -12,6 +12,7 @@ import com.hajacheck.notification.repository.NotificationRepository;
 import com.hajacheck.notification.service.NotificationService;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -68,6 +69,13 @@ import org.springframework.stereotype.Component;
  * skipped 처리). overdue 시설물도 기존과 동일하게 재스케줄 전까지 매일 재조회 대상에 잔류한다 —
  * 근본적으로 스캔 폭을 줄이려면 알림설정을 DB 쿼리 조건에 조인하는 구조가 필요하나, 사용자별로 값이
  * 달라 단순 조인만으로는 안 되고 별도 설계가 필요해 이번 범위 밖(후속 이슈로 분리).
+ *
+ * <p>⚠️ 기존 알림 조회 슬라이딩 윈도우(PR머신 P2 #1032): 위 스캔 상한 확대로 페이지당 대상 시설물(따라서
+ * 소유자 수)이 늘어나면서, 멱등성 체크용 기존 INSPECTION_DUE 알림 조회({@link NotificationRepository
+ * #findAllByUserIdInAndTypeAndCreatedAtAfter})를 소유자별 <b>전체 이력 무제한 로딩</b>으로 두면 운영
+ * 데이터가 쌓일수록 배치가 느려지고 OOM 위험이 커진다. {@code today - NOTIFICATION_LOOKBACK_DAYS} 이후
+ * 생성분만 조회해 무제한 누적을 고정 윈도우로 막는다 — 완전한 해결(멱등성을 DB 유니크 제약으로 옮기거나
+ * 페이지별 정확 매칭 조회로 좁히는 것)은 후속 이슈로 분리하고, 이번엔 1차 완화만 적용한다.
  */
 @Slf4j
 @Component
@@ -80,6 +88,10 @@ public class InspectionDueNotificationScheduler {
     // 사전 알림 최대 창(#540 ③) — inspection_notification_settings.notify_before_days 체크 제약
     // (1~365)의 상한과 동일. 이보다 넓게 스캔해도 어차피 어떤 설정으로도 도달할 수 없는 대상이라 의미가 없다.
     private static final int MAX_NOTIFY_BEFORE_DAYS = 365;
+
+    // 기존 알림 조회 슬라이딩 윈도우(PR머신 P2 #1032) — MAX_NOTIFY_BEFORE_DAYS(365) + 여유분. 정확한
+    // 최적 경계는 아니지만 "무제한 누적"을 "고정 윈도우"로 바꾸는 것 자체가 이번 완화의 목표다.
+    private static final int NOTIFICATION_LOOKBACK_DAYS = 400;
 
     // 알림설정 행이 없을 때(사용자가 한 번도 저장한 적 없는 시설물) 적용하는 기본값 — DB 컬럼 기본값
     // 및 InspectionNotificationSettingResponse.defaults()와 반드시 동일해야 한다.
@@ -98,6 +110,7 @@ public class InspectionDueNotificationScheduler {
     public void notifyFacilitiesDueToday() {
         LocalDate today = LocalDate.now(clock);
         LocalDate maxScanDueAt = today.plusDays(MAX_NOTIFY_BEFORE_DAYS);
+        LocalDateTime notificationLookbackAfter = today.minusDays(NOTIFICATION_LOOKBACK_DAYS).atStartOfDay();
 
         long totalTargets = 0;
         BatchCounts totals = BatchCounts.ZERO;
@@ -110,7 +123,7 @@ public class InspectionDueNotificationScheduler {
             List<Facility> facilities = page.getContent();
             totalTargets += facilities.size();
             if (!facilities.isEmpty()) {
-                totals = totals.plus(processPage(facilities, pageNumber, today));
+                totals = totals.plus(processPage(facilities, pageNumber, today, notificationLookbackAfter));
             }
             pageNumber++;
         } while (page.hasNext());
@@ -119,7 +132,8 @@ public class InspectionDueNotificationScheduler {
                 totalTargets, totals.published(), totals.skipped(), totals.failed());
     }
 
-    private BatchCounts processPage(List<Facility> facilities, int pageNumber, LocalDate today) {
+    private BatchCounts processPage(
+            List<Facility> facilities, int pageNumber, LocalDate today, LocalDateTime notificationLookbackAfter) {
         Set<Long> companyIds = facilities.stream()
                 .map(Facility::getCompanyId)
                 .collect(Collectors.toSet());
@@ -131,7 +145,8 @@ public class InspectionDueNotificationScheduler {
         Map<Long, Set<String>> alreadyByOwner;
         try {
             alreadyByOwner = notificationRepository
-                    .findAllByUserIdInAndType(ownerUserIds, NotificationType.INSPECTION_DUE)
+                    .findAllByUserIdInAndTypeAndCreatedAtAfter(
+                            ownerUserIds, NotificationType.INSPECTION_DUE, notificationLookbackAfter)
                     .stream()
                     .collect(Collectors.groupingBy(
                             Notification::getUserId,
