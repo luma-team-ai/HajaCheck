@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,13 +39,11 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
-import org.springframework.dao.DataIntegrityViolationException;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -62,31 +59,8 @@ class MembershipServiceTest {
     private UserPlanRepository userPlanRepository;
     @Mock
     private UsageCounterRepository usageCounterRepository;
-    // #890 — 셀프 결제(checkout)는 하향으로 한도를 넘게 되면 거절한다. 이 클래스의 기존 시나리오는
-    // 초과가 없는 상황이므로 기본값(초과 없음)으로 stub 한다.
-    @Mock
-    private PlanDowngradeService planDowngradeService;
-
     @InjectMocks
     private MembershipService service;
-
-    @org.junit.jupiter.api.BeforeEach
-    void 하향초과없음을_기본값으로_둔다() {
-        // #890 — checkout 은 하향으로 한도를 넘게 되면 거절한다. 이 클래스의 기존 시나리오는 모두
-        // 초과가 없는 상황이라 기본값으로 고정한다(초과 케이스는 PlanDowngradeServiceTest 가 다룬다).
-        org.mockito.Mockito.lenient()
-                .when(planDowngradeService.preview(org.mockito.ArgumentMatchers.anyLong(),
-                        org.mockito.ArgumentMatchers.any(com.hajacheck.membership.entity.Plan.class),
-                        org.mockito.ArgumentMatchers.any(com.hajacheck.membership.entity.Plan.class)))
-                .thenReturn(com.hajacheck.membership.dto.DowngradeOverflow.none());
-        // checkout 이 하향 판정을 위해 현재 플랜을 조회한다(#890). preview 가 목이라 값 자체는 결과에
-        // 영향을 주지 않으므로 비어 있지 않기만 하면 된다.
-        org.mockito.Mockito.lenient()
-                .when(planRepository.findById(org.mockito.ArgumentMatchers.anyLong()))
-                .thenReturn(java.util.Optional.of(com.hajacheck.membership.entity.Plan.create(
-                        com.hajacheck.membership.entity.PlanName.ENTERPRISE, null, null, null,
-                        false, true, true, new java.math.BigDecimal("59000.00"))));
-    }
 
     private static final Long USER_ID = 1L;
     private static final Long COMPANY_ID = 10L;
@@ -440,117 +414,9 @@ class MembershipServiceTest {
         assertThat(response.status()).isEqualTo("UPGRADE_REQUESTED");
     }
 
-    // ── checkout(모의 결제, #711) ──
-
-    @Test
-    void 모의결제_개인구독_소유자_성공_기존만료후_신규ACTIVE발급() {
-        UserPlan current = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
-
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
-        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
-                .thenReturn(Optional.of(current));
-        when(planRepository.findByName(PlanName.ENTERPRISE)).thenReturn(Optional.of(enterprisePlan));
-        when(userPlanRepository.saveAndFlush(any(UserPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(usageCounterRepository.findByUserPlanIdAndPeriod(any(), any())).thenReturn(Optional.empty());
-
-        MyPlanResponse response = service.checkout(USER_ID, PlanName.ENTERPRISE);
-
-        ArgumentCaptor<UserPlan> captor = ArgumentCaptor.forClass(UserPlan.class);
-        verify(userPlanRepository, times(2)).saveAndFlush(captor.capture());
-        assertThat(captor.getAllValues())
-                .extracting(UserPlan::getStatus)
-                .containsExactly(UserPlanStatus.EXPIRED, UserPlanStatus.ACTIVE);
-        assertThat(current.getStatus()).isEqualTo(UserPlanStatus.EXPIRED);
-        assertThat(response.plan().name()).isEqualTo("ENTERPRISE");
-        assertThat(response.plan().status()).isEqualTo("ACTIVE");
-    }
-
-    @Test
-    void 모의결제_회사구독_소유자본인_성공_기존만료후_신규ACTIVE발급() {
-        UserPlan current = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
-        Company company = company(COMPANY_ID, USER_ID); // 본인이 오너
-
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
-        when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
-                .thenReturn(Optional.of(current));
-        when(companyRepository.findById(COMPANY_ID)).thenReturn(Optional.of(company));
-        when(planRepository.findByName(PlanName.ENTERPRISE)).thenReturn(Optional.of(enterprisePlan));
-        when(userPlanRepository.saveAndFlush(any(UserPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(usageCounterRepository.findByUserPlanIdAndPeriod(any(), any())).thenReturn(Optional.empty());
-
-        MyPlanResponse response = service.checkout(USER_ID, PlanName.ENTERPRISE);
-
-        ArgumentCaptor<UserPlan> captor = ArgumentCaptor.forClass(UserPlan.class);
-        verify(userPlanRepository, times(2)).saveAndFlush(captor.capture());
-        assertThat(captor.getAllValues())
-                .extracting(UserPlan::getStatus)
-                .containsExactly(UserPlanStatus.EXPIRED, UserPlanStatus.ACTIVE);
-        assertThat(current.getStatus()).isEqualTo(UserPlanStatus.EXPIRED);
-        assertThat(response.plan().name()).isEqualTo("ENTERPRISE");
-        assertThat(response.plan().status()).isEqualTo("ACTIVE");
-    }
-
-    @Test
-    void 모의결제_회사구독_소유자아니면_PLAN_FORBIDDEN() {
-        UserPlan current = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
-        Company company = company(COMPANY_ID, 999L); // 다른 사람이 오너
-
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
-        when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
-                .thenReturn(Optional.of(current));
-        when(companyRepository.findById(COMPANY_ID)).thenReturn(Optional.of(company));
-
-        assertThatThrownBy(() -> service.checkout(USER_ID, PlanName.ENTERPRISE))
-                .isInstanceOf(BusinessException.class)
-                .extracting(e -> ((BusinessException) e).getErrorCode())
-                .isEqualTo(ErrorCode.PLAN_FORBIDDEN);
-        assertThat(current.getStatus()).isEqualTo(UserPlanStatus.ACTIVE);
-        verify(userPlanRepository, never()).saveAndFlush(any());
-    }
-
-    @Test
-    void 모의결제_대상이_현재ACTIVE와_동일하면_멱등_변경없음() {
-        UserPlan current = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
-
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
-        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
-                .thenReturn(Optional.of(current));
-        when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(standardPlan));
-        when(usageCounterRepository.findByUserPlanIdAndPeriod(any(), any())).thenReturn(Optional.empty());
-
-        MyPlanResponse response = service.checkout(USER_ID, PlanName.STANDARD);
-
-        assertThat(current.getStatus()).isEqualTo(UserPlanStatus.ACTIVE);
-        assertThat(response.plan().name()).isEqualTo("STANDARD");
-        assertThat(response.plan().status()).isEqualTo("ACTIVE");
-        verify(userPlanRepository, never()).saveAndFlush(any());
-    }
-
-    @Test
-    void 모의결제_FREE대상은_INVALID_INPUT() {
-        assertThatThrownBy(() -> service.checkout(USER_ID, PlanName.FREE))
-                .isInstanceOf(BusinessException.class)
-                .extracting(e -> ((BusinessException) e).getErrorCode())
-                .isEqualTo(ErrorCode.INVALID_INPUT);
-    }
-
-    @Test
-    void 모의결제_동시경합시_PLAN_ACTIVE_SUBSCRIPTION_CONFLICT() {
-        UserPlan current = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
-
-        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
-        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
-                .thenReturn(Optional.of(current));
-        when(planRepository.findByName(PlanName.ENTERPRISE)).thenReturn(Optional.of(enterprisePlan));
-        when(userPlanRepository.saveAndFlush(any(UserPlan.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0))
-                .thenThrow(new DataIntegrityViolationException("duplicate active subscription"));
-
-        assertThatThrownBy(() -> service.checkout(USER_ID, PlanName.ENTERPRISE))
-                .isInstanceOf(BusinessException.class)
-                .extracting(e -> ((BusinessException) e).getErrorCode())
-                .isEqualTo(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
-    }
+    // 모의 결제(checkout, #711) 테스트는 제거됐다 — 그 메서드가 실결제(#988)로 대체되면서
+    // MembershipService 에서 사라졌다. 이관된 전이·가드 검증은 PlanTransitionServiceTest·
+    // PaymentWriterTest 가 이어받는다.
 
     // ── fixtures ──
 
@@ -601,48 +467,4 @@ class MembershipServiceTest {
         }
     }
 
-    @Test
-    void 모의결제_하향으로_한도초과가생기면_거절하고_아무것도바꾸지않는다() {
-        // #890 — 셀프 결제 화면엔 "무엇이 바뀌는지" 확인 단계가 없다. 여기서 전환을 허용하면 관리자가
-        // 모르는 사이에 동료 계정이 정지되거나 시설물이 읽기전용이 된다. 관리자 콘솔의
-        // change-preview → confirmOverflow 경로로 유도하기 위해 거절만 한다(부작용 0).
-        Long userId = 1L;
-        Long companyId = 10L;
-        com.hajacheck.auth.entity.User user = com.hajacheck.auth.entity.User.builder()
-                .companyId(companyId).email("owner@haja.com").name("대표").passwordHash("hash").build();
-        com.hajacheck.membership.entity.UserPlan current =
-                com.hajacheck.membership.entity.UserPlan.forCompany(companyId, 100L);
-        com.hajacheck.membership.entity.Plan targetPlan = com.hajacheck.membership.entity.Plan.create(
-                com.hajacheck.membership.entity.PlanName.STANDARD, 10, 1000, 3,
-                false, true, true, new java.math.BigDecimal("29000.00"));
-        com.hajacheck.auth.entity.Company company = com.hajacheck.auth.entity.Company.createPendingReview(
-                userId, "회사", "123-45-67890", "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
-
-        org.mockito.Mockito.when(userRepository.findById(userId)).thenReturn(java.util.Optional.of(user));
-        org.mockito.Mockito.when(companyRepository.findById(companyId))
-                .thenReturn(java.util.Optional.of(company));
-        org.mockito.Mockito.when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(
-                        companyId, com.hajacheck.membership.entity.UserPlanStatus.ACTIVE))
-                .thenReturn(java.util.Optional.of(current));
-        org.mockito.Mockito.when(planRepository.findByName(
-                        com.hajacheck.membership.entity.PlanName.STANDARD))
-                .thenReturn(java.util.Optional.of(targetPlan));
-        org.mockito.Mockito.when(planDowngradeService.preview(
-                        org.mockito.ArgumentMatchers.anyLong(),
-                        org.mockito.ArgumentMatchers.any(com.hajacheck.membership.entity.Plan.class),
-                        org.mockito.ArgumentMatchers.any(com.hajacheck.membership.entity.Plan.class)))
-                .thenReturn(new com.hajacheck.membership.dto.DowngradeOverflow(java.util.List.of(7L), 3));
-
-        org.assertj.core.api.Assertions
-                .assertThatThrownBy(() -> service.checkout(
-                        userId, com.hajacheck.membership.entity.PlanName.STANDARD))
-                .isInstanceOf(com.hajacheck.global.exception.BusinessException.class)
-                .satisfies(e -> org.assertj.core.api.Assertions
-                        .assertThat(((com.hajacheck.global.exception.BusinessException) e).getErrorCode())
-                        .isEqualTo(com.hajacheck.global.exception.ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED));
-
-        // 부작용 부재 — 구독 만료도 신규 발급도 시도되지 않아야 한다.
-        org.mockito.Mockito.verify(userPlanRepository, org.mockito.Mockito.never())
-                .saveAndFlush(org.mockito.ArgumentMatchers.any());
-    }
 }

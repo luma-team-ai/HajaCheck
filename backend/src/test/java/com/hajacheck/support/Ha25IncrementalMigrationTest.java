@@ -397,7 +397,11 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V19__add_media_facility_id.sql"),
-                        CONTAINER_ROOT + "V19__add_media_facility_id.sql");
+                        CONTAINER_ROOT + "V19__add_media_facility_id.sql")
+                // #988/HAJA-489 — Flyway V20(토스페이먼츠 결제 원장 payments + payment_status/method enum).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("db/migration/V20__create_payments.sql"),
+                        CONTAINER_ROOT + "V20__create_payments.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -492,6 +496,11 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "V18__counsel_ticket_snapshot_and_chat_attachment.sql");
         // #632/#652/HAJA-377 — Flyway V19(media.facility_id 폴리모픽 확장)도 이어서 1회 forward-apply한다.
         runPsql(postgres, "V19__add_media_facility_id.sql");
+        // #988/HAJA-489 — Flyway V20(payments 결제 원장)도 이어서 1회 forward-apply한다. 이 파일은
+        // 캐노니컬 DDL에 payments가 이미 있는 baseline-on-existing 경로도 함께 지원해야 해서 전 구문이
+        // 멱등(IF NOT EXISTS / DO 블록)이라, 두 번 실행해도 안전하다는 점까지 함께 고정한다.
+        runPsql(postgres, "V20__create_payments.sql");
+        runPsql(postgres, "V20__create_payments.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

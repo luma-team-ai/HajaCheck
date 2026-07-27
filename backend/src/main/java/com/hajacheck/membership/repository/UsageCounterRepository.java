@@ -61,6 +61,45 @@ public interface UsageCounterRepository extends JpaRepository<UsageCounter, Long
                                 @Param("seatCount") int seatCount);
 
     /**
+     * 플랜 전이(기존 구독 만료 → 신규 구독 발급) 시 <b>같은 period 의 누적 사용량을 새 구독으로 이월</b>한다
+     * (#851). 이월이 없으면 결제(또는 관리자 플랜 변경) 한 번에 월 분석 한도가 0으로 리셋돼, 소유자가
+     * 플랜을 왕복하는 것만으로 한도를 무제한 복원할 수 있다 — 한도 강제(#843)가 통째로 무력화된다.
+     *
+     * <p><b>왜 전 컬럼을 그대로 복사하는가</b>: 누적 카운터(analyzed_image_count·analysis_request_count 등)는
+     * 당월 소비량이라 당연히 이어져야 하고, 스냅샷 카운터(facility_count·seat_count)는 "지금 보유량"의 미러라
+     * 구독 행이 바뀌어도 보유량 자체는 변하지 않으므로 이어지는 값이 맞다(0 으로 시작하면 다음 예약 판정
+     * 전까지 화면이 거짓을 보여준다). 스냅샷 쪽은 어차피 {@code lockPeriodRow → 실측 → 조건부 UPDATE}
+     * 경로가 다음 쓰기에서 실측으로 덮으므로 이월값이 판정 근거가 되지도 않는다.
+     *
+     * <p><b>당월만 이월한다</b>: 지난 달 행까지 복사하면 이력이 구독 수만큼 부풀고, 한도 판정은 언제나
+     * 당월 행만 보므로 얻는 것도 없다.
+     *
+     * <p>{@code on conflict do nothing}: 신규 구독 행이 방금 생성돼 충돌이 날 일은 없지만, 재시도·동시 실행에서
+     * 이월이 두 번 시도돼도 이미 만들어진 집계를 덮어쓰지 않도록(=사용량이 되돌아가지 않도록) 방어한다.
+     * 이전 구독에 당월 집계 행이 없으면 0행 삽입으로 조용히 끝난다(이월할 사용량이 없다는 뜻).
+     *
+     * @param previousUserPlanId 만료시킨 기존 구독 id
+     * @param newUserPlanId      새로 발급한 ACTIVE 구독 id(반드시 flush 되어 있어야 한다 — FK)
+     * @return 삽입된 행 수(0 = 이월 대상 없음)
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(value = """
+            insert into usage_counters
+                (user_plan_id, period, analyzed_image_count, facility_count,
+                 analysis_request_count, seat_count, counsel_ticket_count, pdf_generation_count)
+            select :newUserPlanId, previous.period, previous.analyzed_image_count, previous.facility_count,
+                   previous.analysis_request_count, previous.seat_count, previous.counsel_ticket_count,
+                   previous.pdf_generation_count
+              from usage_counters previous
+             where previous.user_plan_id = :previousUserPlanId
+               and previous.period = cast(:period as date)
+            on conflict (user_plan_id, period) do nothing
+            """, nativeQuery = true)
+    int carryOverPeriodUsage(@Param("previousUserPlanId") Long previousUserPlanId,
+                             @Param("newUserPlanId") Long newUserPlanId,
+                             @Param("period") LocalDate period);
+
+    /**
      * 당월 집계 행을 배타 잠금한다(호출 트랜잭션 커밋까지 유지).
      *
      * <p>스냅샷 한도(시설물·좌석)는 카운터 자체가 아니라 <b>실측 count(*)</b>를 기준으로 판정하는데,

@@ -69,7 +69,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V19까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V20까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -85,15 +85,17 @@ class FlywayBaselineIntegrationTest {
         // + V18(counsel 티켓 스냅샷 + 채팅 첨부, #20/HAJA-33 — V14 선점으로 재번호)
         // + V19(media.facility_id + inspection XOR facility, #632/#652/HAJA-377). 옛 V19(FREE 좌석
         //   한도 1→2, #843)는 #858에서 되돌리며 파일 자체를 삭제했다(어느 실제 DB에도 적용된 적이
-        //   없어 번호를 소모하지 않는다) — 팀 합의로 이 번호를 재사용한다. 다음은 정재봉 님 PR이 V20을
-        //   쓰기로 조율됨. 실제 적용 마이그레이션은 V1~V19 = 19개다.
-        assertThat(appliedMigrations).isEqualTo(19);
+        //   없어 번호를 소모하지 않는다) — 팀 합의로 이 번호를 재사용한다.
+        // + V20(payments 결제 원장 + payment_status/method enum, #988/HAJA-489). V19 를 #632 가 선점해
+        //   결제 원장은 V20 으로 조율됐고, 두 PR 이 모두 들어온 지금 번호는 V1~V20 으로 연속이다
+        //   (결번 여부 자체는 FlywayMigrationVersionSequenceTest 가 별도로 고정한다).
+        assertThat(appliedMigrations).isEqualTo(20);
 
-        // 최신 적용 버전이 실제로 V19 인지 확인.
+        // 최신 적용 버전이 실제로 V20 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("19");
+        assertThat(latestVersion).isEqualTo("20");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -116,6 +118,22 @@ class FlywayBaselineIntegrationTest {
                 where table_schema = 'public' and table_name = 'media' and column_name = 'inspection_id'
                 """, Boolean.class);
         assertThat(inspectionIdNullable).isTrue();
+
+        // V20이 payments 테이블(#988/HAJA-489)을 실제로 만들었는지 확인한다.
+        Long paymentsTableExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.tables
+                where table_schema = 'public' and table_name = 'payments'
+                """, Long.class);
+        assertThat(paymentsTableExists).isEqualTo(1L);
+
+        // 중복 승인 최종 방어선인 부분 유니크 인덱스(payment_key is not null)도 함께 고정한다.
+        Long paymentKeyPartialUniqueExists = jdbcTemplate.queryForObject("""
+                select count(*) from pg_indexes
+                where schemaname = 'public' and tablename = 'payments'
+                  and indexname = 'uq_payments_payment_key'
+                  and indexdef like '%WHERE (payment_key IS NOT NULL)%'
+                """, Long.class);
+        assertThat(paymentKeyPartialUniqueExists).isEqualTo(1L);
 
         // V5가 companies.business_start_date 컬럼을 실제로 추가했는지 확인(#596).
         Long businessStartDateColumnExists = jdbcTemplate.queryForObject("""

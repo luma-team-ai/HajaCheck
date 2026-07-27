@@ -65,19 +65,60 @@ class AdminPlanServiceTest {
     private MediaRepository mediaRepository;
     @Mock
     private com.hajacheck.membership.service.PlanDowngradeService planDowngradeService;
+    // #851 — changePlan 이 신규 구독 발급 직후 당월 사용량을 이월한다(결제 경로와 동일 규칙).
+    @Mock
+    private com.hajacheck.membership.service.PlanTransitionService planTransitionService;
 
     @InjectMocks
     private AdminPlanService service;
 
     @org.junit.jupiter.api.BeforeEach
     void 현재플랜조회를_기본으로_stub한다() {
-        // #890 — changePlan 이 하향 판정을 위해 현재 플랜(findPlan)을 조회한다. preview 자체는 이 클래스에서
-        // 목이라 현재 플랜 값은 결과에 영향을 주지 않으므로, 비어 있지 않기만 하면 된다.
+        // #890 — changePlan 이 상향/하향 판정을 위해 현재 플랜(findPlan)을 조회한다. preview 자체는 이
+        // 클래스에서 목이라 현재 플랜의 한도 값은 결과에 영향을 주지 않는다.
+        //
+        // ⚠️ #988 이후 <b>가격</b>은 결과에 영향을 준다 — 이 화면은 하향·FREE 전환 전용이라 현재보다 비싼
+        // 요금제로 바꾸려 하면 PLAN_UPGRADE_REQUIRES_PAYMENT 로 거절된다. 이 클래스의 시나리오는 모두
+        // 목표가 STANDARD(29000)이므로 현재 플랜을 그보다 비싼 ENTERPRISE(99000)로 두어 "하향" 상황을
+        // 만든다(목표 플랜과 구별 가능한 값이어야 인자 순서 검증도 의미를 갖는다 — 재검토 P2).
         org.mockito.Mockito.lenient()
                 .when(planRepository.findById(org.mockito.ArgumentMatchers.anyLong()))
-                // 목표 플랜(STANDARD)과 구별 가능한 값이어야 인자 순서 검증이 의미를 갖는다(재검토 P2).
-                .thenReturn(Optional.of(Plan.create(PlanName.FREE, 1, 50, 1,
-                        true, false, false, BigDecimal.ZERO)));
+                .thenReturn(Optional.of(Plan.create(PlanName.ENTERPRISE, null, null, 50,
+                        false, true, true, new BigDecimal("99000.00"))));
+    }
+
+    @Test
+    void 플랜변경_상향이면_아무것도_쓰지않고_결제경로로_돌려보낸다() {
+        // ⚠️ 리뷰 P1-A — 무결제 승격 경로 차단. 거절이 <b>쓰기 이전</b>에 일어나야 한다(구독 만료·신규
+        // 발급이 시작된 뒤 롤백에 기대지 않는다). 현재 FREE(0원) → 목표 STANDARD(29000원) = 상향.
+        Long adminUserId = 1L;
+        Long companyId = 10L;
+        User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
+                .passwordHash("hash").build();
+        UserPlan current = UserPlan.forCompany(companyId, 100L);
+        Plan targetPlan = Plan.create(PlanName.STANDARD, 10, 1000, 3, false, true, true,
+                new BigDecimal("29000.00"));
+        Company company = Company.createPendingReview(adminUserId, "회사", "123-45-67890",
+                "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+
+        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
+                companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(targetPlan));
+        // 현재 플랜을 FREE(0원)로 덮어 상향 상황을 만든다(클래스 기본 stub 은 ENTERPRISE).
+        when(planRepository.findById(anyLong())).thenReturn(Optional.of(
+                Plan.create(PlanName.FREE, 1, 50, 1, true, false, false, BigDecimal.ZERO)));
+
+        assertThatThrownBy(() -> service.changePlan(adminUserId, PlanName.STANDARD, false, List.of()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_UPGRADE_REQUIRES_PAYMENT));
+
+        // 부작용 부재 — 만료도 신규 발급도 사용량 이월도 시도되지 않는다.
+        verify(adminPlanRepository, never()).saveAndFlush(any());
+        verify(planTransitionService, never()).carryOverUsage(any(), any());
+        assertThat(current.getStatus()).isEqualTo(UserPlanStatus.ACTIVE);
     }
 
     @Test
@@ -224,7 +265,7 @@ class AdminPlanServiceTest {
         ArgumentCaptor<Plan> plans = ArgumentCaptor.forClass(Plan.class);
         verify(planDowngradeService).preview(eq(companyId), plans.capture(), plans.capture(), any());
         assertThat(plans.getAllValues()).extracting(Plan::getName)
-                .containsExactly(PlanName.FREE, PlanName.STANDARD);
+                .containsExactly(PlanName.ENTERPRISE, PlanName.STANDARD);
         verify(planDowngradeService).applyOverflow(eq(companyId), any(Plan.class), any(DowngradeOverflow.class));
     }
 
