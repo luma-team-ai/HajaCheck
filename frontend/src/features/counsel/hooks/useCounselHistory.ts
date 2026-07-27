@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getApiErrorMessage } from '../../../shared/api/types';
 import { counselApi } from '../api/counselApi';
 import { DEFAULT_PAGE_SIZE, isTicketEnded } from '../constants';
+import { useCounselSocket } from './useCounselSocket';
 import type {
   ChatMessageResponse,
   CounselTicketStatusFilter,
@@ -86,6 +87,31 @@ export function useCounselHistory() {
 
   const selectedTicket = tickets.find((t) => t.id === selectedId) ?? null;
 
+  // 실시간 소켓(#1000, HAJA-494) — WAITING(배정 대기, onAssigned로 배정 즉시 전환 감지)과
+  // IN_PROGRESS(실시간 채팅, onMessage+onEnded) 상태에서만 연결한다. RESOLVED/OFFLINE_LEFT는
+  // 이미 종료된 읽기 전용 대화라 소켓이 필요 없다.
+  const isSocketActive =
+    selectedTicket !== null &&
+    (selectedTicket.status === 'WAITING' || selectedTicket.status === 'IN_PROGRESS');
+  const socketTicketId = isSocketActive ? selectedTicket.id : null;
+
+  const handleSocketMessage = useCallback((message: ChatMessageResponse) => {
+    // REST로 이미 로드된 메시지와 겹치지 않도록 id 기준 dedupe.
+    setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
+  }, []);
+
+  // 배정/종료 이벤트는 개별 티켓 상태를 서버가 보낸 최신 스냅샷으로 그대로 갱신한다
+  // (재조회 대신 페이로드를 직접 반영해 왕복 없이 즉시 화면을 전환한다).
+  const handleTicketUpdate = useCallback((ticket: CounselTicketSummaryResponse) => {
+    setAllTickets((prev) => prev.map((t) => (t.id === ticket.id ? ticket : t)));
+  }, []);
+
+  const { connected, sendMessage } = useCounselSocket(socketTicketId, {
+    onMessage: handleSocketMessage,
+    onAssigned: handleTicketUpdate,
+    onEnded: handleTicketUpdate,
+  });
+
   return {
     status,
     setStatus,
@@ -98,5 +124,7 @@ export function useCounselHistory() {
     messages,
     messagesLoading,
     messagesError,
+    socketConnected: connected,
+    sendMessage,
   };
 }
