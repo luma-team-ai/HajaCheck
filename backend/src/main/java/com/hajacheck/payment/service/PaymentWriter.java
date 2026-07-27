@@ -15,9 +15,12 @@ import com.hajacheck.payment.config.TossPaymentsProperties;
 import com.hajacheck.payment.dto.PaymentConfirmRequest;
 import com.hajacheck.payment.dto.PaymentOrderResponse;
 import com.hajacheck.payment.entity.Payment;
+import com.hajacheck.payment.entity.PaymentStatus;
 import com.hajacheck.payment.repository.PaymentRepository;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -98,6 +101,22 @@ public class PaymentWriter {
         requireNoUnconfirmedDowngrade(companyId, current, targetPlan);
 
         long amount = toChargeableAmount(targetPlan.getPriceMonthly());
+
+        // 아직 유효한 같은 요금제 주문이 있으면 그것을 그대로 돌려준다(리뷰 P1-B 근본 원인 차단).
+        // 새 주문을 계속 찍어내면 사용자가 결제창을 두 번 열었다가 둘 다 결제해 "2회 청구 + 구독 변화 0"이
+        // 될 수 있고(환불은 이번 범위 밖이라 회수 불가), 승인되지 않은 주문도 무한히 쌓인다.
+        Optional<Payment> reusable = paymentRepository
+                .findFirstByUserIdAndPlanIdAndStatusAndRequestedAtAfterOrderByRequestedAtDesc(
+                        userId, targetPlan.getId(), PaymentStatus.READY, orderValidFrom());
+        if (reusable.isPresent()) {
+            Payment existing = reusable.get();
+            log.info("유효한 기존 결제 주문 재사용 — orderId={} planName={}", existing.getOrderId(), targetPlanName);
+            // 금액은 기존 주문의 스냅샷을 그대로 쓴다 — 그 사이 요금제 가격이 바뀌었더라도 사용자가 이미
+            // 안내받은 금액으로 결제되게 하고(TTL 안에서만 유효), 승인 단계의 금액 대조와도 일치시킨다.
+            return PaymentOrderResponse.of(existing, toChargeableAmount(existing.getAmount()),
+                    buildOrderName(existing.getPlanName()));
+        }
+
         Payment payment = paymentRepository.save(Payment.createOrder(
                 ORDER_ID_PREFIX + UUID.randomUUID(),
                 userId,
@@ -112,26 +131,36 @@ public class PaymentWriter {
     }
 
     /**
-     * 승인 호출 직전 검증(읽기 전용) — 여기서 통과하지 못하면 <b>PG 를 호출하지 않는다</b>. 금액 대조와
-     * 플랜 전이 가드를 모두 이 단계에서 다시 확인해, 돈이 움직인 뒤에 거절하는 상황을 만들지 않는다.
+     * 승인 호출 직전 검증 — 여기서 통과하지 못하면 <b>PG 를 호출하지 않는다</b>. 금액 대조와 플랜 전이
+     * 가드를 모두 이 단계에서 다시 확인해, 돈이 움직인 뒤에 거절하는 상황을 만들지 않는다.
+     *
+     * <p>읽기 전용이 아니라 <b>쓰기 트랜잭션</b>인 이유: 유효시간이 지난 READY 주문을 여기서 CANCELED 로
+     * 닫기 때문이다. 어차피 PG 호출 이전이라 트랜잭션이 짧고 외부 대기와 겹치지 않는다.
      *
      * <p>금액 불일치는 결제 주문을 FAILED 로 태우지 않는다 — 위변조 시도든 클라이언트 버그든 정상 주문
      * 하나를 못 쓰게 만들 이유가 없고, PG 호출을 막는 것으로 방어는 이미 끝났다(WARN 로깅만).
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public PaymentConfirmPreparation prepareConfirm(Long userId, PaymentConfirmRequest request) {
         requireGatewayConfigured();
 
         Payment payment = paymentRepository.findByOrderId(request.orderId())
+                // 미존재·타인 소유·재확정 불가를 전부 같은 404 로 통일한다 — 상태를 구분해 주면 남의
+                // orderId 를 넣어보며 실재하는 주문을 열거할 수 있다(FACILITY_NOT_FOUND 관례).
+                .filter(found -> found.isOwnedBy(userId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_ORDER_NOT_FOUND));
-        if (!payment.isOwnedBy(userId)) {
-            // 남의 주문 — 존재 여부를 흘리지 않기 위해 상태·금액 정보는 일절 응답에 담지 않는다.
-            throw new BusinessException(ErrorCode.PAYMENT_FORBIDDEN);
-        }
+
         if (payment.isPaid()) {
             // 멱등(보안 요구 3) — 리다이렉트 새로고침·중복 전송. PG 재호출 없이 호출부가 현재 상태를 돌려준다.
             return PaymentConfirmPreparation.alreadyPaid(
                     payment.getId(), payment.isPaidWithoutPlanApplied());
+        }
+        if (payment.isExpired(Instant.now(), tossPaymentsProperties.getOrderTtl())) {
+            // 유효시간 초과(리뷰 P2) — 금액이 스냅샷이라 시한이 없으면 요금 인상 직전 주문을 쟁여뒀다가
+            // 나중에 구가격으로 결제할 수 있다. 닫아 두면 재사용 조회에서도 자연히 빠진다.
+            payment.markExpired();
+            log.info("유효시간 초과 결제 주문 자동 취소 — orderId={}", payment.getOrderId());
+            throw new BusinessException(ErrorCode.PAYMENT_ORDER_NOT_FOUND);
         }
         if (!payment.isConfirmable()) {
             // FAILED·CANCELED 는 재확정 대상이 아니다. 상태를 세분해 알려주지 않는다(ErrorCode javadoc).
@@ -145,9 +174,32 @@ public class PaymentWriter {
         }
 
         // 승인 후 전이 단계에서 실패할 조건을 미리 걸러낸다(돈이 움직이기 전에).
-        resolveTransitionTarget(payment);
+        TransitionTarget target = resolveTransitionTarget(payment, true);
+        if (target.alreadyOnTargetPlan()) {
+            // ⚠️ 중복 청구 차단(리뷰 P1-B). createOrder 만 막으면 READY 주문 2건을 미리 만든 뒤 순차로
+            // 결제해 "2회 청구 + 구독 변화 0"을 만들 수 있고, 환불이 범위 밖이라 회수 수단이 없다.
+            // 반드시 PG 호출 전에 막아야 한다 — 승인 후에 알아차리면 이미 돈이 나간 뒤다.
+            //
+            // applyPlanTransition 쪽의 같은 조건은 "승인 후 경합 복구(연결만 수행)"라 역할이 다르다.
+            // 거기서는 이미 청구가 끝났으므로 거절이 아니라 연결이 맞다.
+            log.warn("이미 해당 요금제를 사용 중인 주문의 승인 시도 — orderId={} (PG 호출 차단)",
+                    payment.getOrderId());
+            throw new BusinessException(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
+        }
 
         return PaymentConfirmPreparation.readyToApprove(payment.getId(), amount);
+    }
+
+    /**
+     * 결제 원장의 현재 정산 상태를 읽는다(리뷰 P2) — PG 가 "이미 처리된 결제"로 거절했을 때 호출부가
+     * <b>우리 원장 기준으로도 성사됐는지</b>를 확인하는 용도. 성사됐다면 502 가 아니라 멱등 성공으로
+     * 응답해야 한다(실패로 보이면 사용자가 재결제해 중복 청구가 난다).
+     */
+    @Transactional(readOnly = true)
+    public PaymentSettlementState resolveSettlementState(Long paymentId) {
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_ORDER_NOT_FOUND));
+        return new PaymentSettlementState(payment.isPaid(), payment.isPaidWithoutPlanApplied());
     }
 
     /**
@@ -184,6 +236,12 @@ public class PaymentWriter {
      *
      * <p>인가를 <b>이 트랜잭션에서 다시</b> 확인한다. 주문 생성과 승인 사이에 소유자가 바뀌었을 수 있고,
      * 그 사이 남이 결제 콜백을 대신 던지는 경로를 인가 없이 통과시키면 안 된다.
+     *
+     * <p><b>단, 하향 확인 게이트(#890)는 여기서 적용하지 않는다</b>(리뷰 P2). 그 게이트는 "무엇이 바뀌는지
+     * 모르고 결제하지 않게" 하는 <b>결제 전 UX 가드</b>지 시스템 불변식이 아니다. 이미 청구가 끝난 뒤에
+     * 그것으로 전이를 거절하면 재요청해도 같은 예외가 반복돼 {@code PAID && user_plan_id is null} 이
+     * <b>영구 고착</b>된다 — 돈은 받고 요금제는 주지 않는 상태가 자가 복구되지 않는다. 확인은 승인 전
+     * ({@link #prepareConfirm})에 이미 끝나 있다.
      */
     @Transactional
     public void applyPlanTransition(Long paymentId) {
@@ -197,7 +255,7 @@ public class PaymentWriter {
             return; // 이미 반영됨(동시 재요청·재시도).
         }
 
-        TransitionTarget target = resolveTransitionTarget(payment);
+        TransitionTarget target = resolveTransitionTarget(payment, false);
         if (target.alreadyOnTargetPlan()) {
             // 승인과 전이 사이에 다른 경로(관리자 플랜 변경·다른 주문의 승인)로 이미 목표 플랜이 된 경우.
             // 플랜을 다시 갈아끼우면 불필요한 이력 행이 생기고 사용량 이월만 반복되므로 연결만 한다.
@@ -216,11 +274,20 @@ public class PaymentWriter {
      * 전이 대상 확정 + 전이 가드 재검증. {@link #prepareConfirm}(승인 전)과 {@link #applyPlanTransition}
      * (승인 후)이 <b>같은 판정</b>을 쓰도록 한 곳에 모은다 — 두 곳이 갈라지면 "승인 전엔 통과했는데 승인
      * 후에 거절"되는 최악의 조합이 생긴다.
+     *
+     * @param enforceDowngradeGate 하향 확인 게이트(#890) 적용 여부. <b>승인 전에만 {@code true}</b>다 —
+     *                             승인 후에 이 게이트로 거절하면 재요청해도 같은 예외가 반복돼
+     *                             "결제됨 + 요금제 없음"이 영구 고착된다({@link #applyPlanTransition} javadoc).
      */
-    private TransitionTarget resolveTransitionTarget(Payment payment) {
+    private TransitionTarget resolveTransitionTarget(Payment payment, boolean enforceDowngradeGate) {
         User user = findUser(payment.getUserId());
         if (!Objects.equals(user.getCompanyId(), payment.getCompanyId())) {
             // 주문 생성 이후 소속이 바뀐 주문 — 다른 구독에 결제를 붙이면 엉뚱한 회사가 요금제를 받는다.
+            // 승인 후 단계라면 이건 돈을 받아 놓고 반영하지 못하는 상태라 운영이 즉시 알아야 한다.
+            if (!enforceDowngradeGate) {
+                log.error("승인 완료된 결제의 소속 불일치로 플랜 반영 불가 — orderId={} (수동 대사 필요)",
+                        payment.getOrderId());
+            }
             throw new BusinessException(ErrorCode.PAYMENT_FORBIDDEN);
         }
 
@@ -234,8 +301,15 @@ public class PaymentWriter {
             return new TransitionTarget(current, targetPlan, true);
         }
 
-        requireNoUnconfirmedDowngrade(companyId, current, targetPlan);
+        if (enforceDowngradeGate) {
+            requireNoUnconfirmedDowngrade(companyId, current, targetPlan);
+        }
         return new TransitionTarget(current, targetPlan, false);
+    }
+
+    /** READY 주문이 유효한 것으로 인정되는 시작 시각 — 재사용 조회와 만료 판정이 같은 기준을 쓴다. */
+    private Instant orderValidFrom() {
+        return Instant.now().minus(tossPaymentsProperties.getOrderTtl());
     }
 
     /**

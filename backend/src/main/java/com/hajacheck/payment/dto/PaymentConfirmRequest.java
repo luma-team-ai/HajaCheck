@@ -1,6 +1,7 @@
 package com.hajacheck.payment.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
@@ -15,7 +16,9 @@ import jakarta.validation.constraints.Positive;
  * @param amount 원화 정수. 소수를 보내면 역직렬화 단계에서 INVALID_INPUT(400)으로 떨어진다.
  */
 public record PaymentConfirmRequest(
-        @NotBlank String paymentKey,
-        @NotBlank String orderId,
+        // 길이 상한은 DDL 컬럼 폭과 동일하게 맞춘다 — 초과 입력이 DB 레벨에서 잘리거나 예외로 터지기 전에
+        // 400(INVALID_INPUT)으로 걸러진다(리뷰 P3).
+        @NotBlank @Size(max = 200) String paymentKey,
+        @NotBlank @Size(max = 64) String orderId,
         @NotNull @Positive Long amount) {
 }

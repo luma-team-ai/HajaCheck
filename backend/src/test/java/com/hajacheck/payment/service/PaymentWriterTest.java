@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -24,9 +25,12 @@ import com.hajacheck.payment.dto.PaymentConfirmRequest;
 import com.hajacheck.payment.dto.PaymentOrderResponse;
 import com.hajacheck.payment.entity.Payment;
 import com.hajacheck.payment.entity.PaymentMethod;
+import com.hajacheck.payment.entity.PaymentStatus;
 import com.hajacheck.payment.repository.PaymentRepository;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -203,7 +207,8 @@ class PaymentWriterTest {
     }
 
     @Test
-    void 주문_소유자가_아니면_상태도_금액도_알려주지않고_403이다() {
+    void 주문_소유자가_아니면_미존재와_같은_404로_응답해_실재여부를_흘리지않는다() {
+        // 리뷰 P3 — 타인 소유를 403 으로 구분하면 남의 orderId 를 넣어보며 실재하는 주문을 열거할 수 있다.
         Payment payment = readyPayment(null);
         when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(payment));
 
@@ -211,7 +216,7 @@ class PaymentWriterTest {
                 new PaymentConfirmRequest("test_payment_key", ORDER_ID, 299000L)))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(ErrorCode.PAYMENT_FORBIDDEN));
+                        .isEqualTo(ErrorCode.PAYMENT_ORDER_NOT_FOUND));
     }
 
     @Test
@@ -277,6 +282,59 @@ class PaymentWriterTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PAYMENT_FORBIDDEN));
+    }
+
+    @Test
+    void 이미_사용중인_요금제의_승인은_PG호출전에_차단한다() {
+        // ⚠️ 리뷰 P1-B(중복 청구) — createOrder 만 막으면 READY 주문 2건을 미리 만든 뒤 순차 결제해
+        // "2회 청구 + 구독 변화 0"을 만들 수 있고, 환불이 범위 밖이라 회수 수단이 없다.
+        Payment payment = readyPayment(null);
+        UserPlan current = withId(UserPlan.forUser(USER_ID, ENTERPRISE_PLAN_ID), 505L); // 이미 목표 플랜
+        when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(payment));
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(current);
+
+        assertThatThrownBy(() -> writer.prepareConfirm(USER_ID,
+                new PaymentConfirmRequest("test_payment_key", ORDER_ID, 299000L)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT));
+
+        // 주문은 READY 로 남는다 — 사용자가 나중에 다른 플랜을 결제할 여지를 태우지 않는다.
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.READY);
+    }
+
+    @Test
+    void 유효시간이_지난_주문은_자동취소하고_거절한다() {
+        // 리뷰 P2 — 금액이 스냅샷이라 시한이 없으면 요금 인상 직전 주문을 쟁여뒀다가 구가격으로 결제할 수 있다.
+        Payment payment = readyPayment(null);
+        setRequestedAt(payment, Instant.now().minus(Duration.ofHours(2)));
+        when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(payment));
+
+        assertThatThrownBy(() -> writer.prepareConfirm(USER_ID,
+                new PaymentConfirmRequest("test_payment_key", ORDER_ID, 299000L)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PAYMENT_ORDER_NOT_FOUND));
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+        assertThat(payment.getFailureCode()).isEqualTo(Payment.FAILURE_CODE_EXPIRED);
+    }
+
+    @Test
+    void 유효한_기존_READY주문이_있으면_새로_만들지않고_재사용한다() {
+        // 리뷰 P1-B 근본 원인 차단 — 결제창을 여러 번 열어도 주문이 쌓이지 않는다.
+        UserPlan current = withId(UserPlan.forUser(USER_ID, STANDARD_PLAN_ID), 500L);
+        Payment existing = readyPayment(null);
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(current);
+        when(paymentRepository.findFirstByUserIdAndPlanIdAndStatusAndRequestedAtAfterOrderByRequestedAtDesc(
+                eq(USER_ID), eq(ENTERPRISE_PLAN_ID), eq(PaymentStatus.READY), any(Instant.class)))
+                .thenReturn(Optional.of(existing));
+
+        PaymentOrderResponse response = writer.createOrder(USER_ID, PlanName.ENTERPRISE);
+
+        assertThat(response.orderId()).isEqualTo(existing.getOrderId());
+        assertThat(response.amount()).isEqualTo(299000L);
+        verify(paymentRepository, never()).save(any());
     }
 
     // ── 승인 후 반영 ──
@@ -377,6 +435,17 @@ class PaymentWriterTest {
     private static UserPlan withId(UserPlan userPlan, Long id) {
         setId(userPlan, id);
         return userPlan;
+    }
+
+    /** 테스트 전용 — 주문 생성 시각을 과거로 밀어 유효시간 초과 상황을 만든다. */
+    private static void setRequestedAt(Payment payment, Instant requestedAt) {
+        try {
+            Field field = Payment.class.getDeclaredField("requestedAt");
+            field.setAccessible(true);
+            field.set(payment, requestedAt);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /** 테스트 전용 — IDENTITY 생성 id 를 리플렉션으로 세팅(엔티티에 setter 를 두지 않기 위함). */

@@ -117,7 +117,7 @@ class PaymentServiceTest {
         when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
                 .thenReturn(PaymentConfirmPreparation.readyToApprove(PAYMENT_ID, AMOUNT));
         when(tossPaymentsClient.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
-                .thenThrow(new TossPaymentApprovalException("REJECT_CARD_COMPANY", "카드사 승인 거절"));
+                .thenThrow(TossPaymentApprovalException.rejected("REJECT_CARD_COMPANY", "카드사 승인 거절"));
 
         assertThatThrownBy(() -> service.confirm(USER_ID, request()))
                 .isInstanceOf(BusinessException.class)
@@ -131,19 +131,114 @@ class PaymentServiceTest {
     }
 
     @Test
-    void 타임아웃_등_통신실패도_플랜을_바꾸지않는다() {
+    void 타임아웃_등_결과불명은_FAILED로_닫지않고_READY로_남긴다() {
+        // 리뷰 P1-C — 토스에서 승인이 성사된 뒤 응답만 못 받았을 수 있다. 여기서 FAILED 로 확정하면
+        // isConfirmable()=false 가 되어 같은 orderId 재확정이 404 로 영구 차단되고, 돈은 나갔는데
+        // 플랜은 없는 상태가 복구 불가로 굳는다.
         when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
                 .thenReturn(PaymentConfirmPreparation.readyToApprove(PAYMENT_ID, AMOUNT));
         when(tossPaymentsClient.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
-                .thenThrow(new TossPaymentApprovalException(
+                .thenThrow(TossPaymentApprovalException.outcomeUnknown(
                         TossPaymentApprovalException.CODE_UNREACHABLE, "결제 서버에 연결하지 못했습니다."));
+
+        assertThatThrownBy(() -> service.confirm(USER_ID, request()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PAYMENT_GATEWAY_ERROR));
+
+        verify(paymentWriter, never()).markFailed(any(), anyString(), anyString());
+        verify(paymentWriter, never()).applyPlanTransition(any());
+    }
+
+    @Test
+    void 응답해석불가도_결과불명이라_FAILED로_닫지않는다() {
+        when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
+                .thenReturn(PaymentConfirmPreparation.readyToApprove(PAYMENT_ID, AMOUNT));
+        when(tossPaymentsClient.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                .thenThrow(TossPaymentApprovalException.outcomeUnknown(
+                        TossPaymentApprovalException.CODE_INVALID_RESPONSE, "결제 서버 응답을 처리할 수 없습니다."));
 
         assertThatThrownBy(() -> service.confirm(USER_ID, request()))
                 .isInstanceOf(BusinessException.class);
 
-        verify(paymentWriter).markFailed(eq(PAYMENT_ID),
-                eq(TossPaymentApprovalException.CODE_UNREACHABLE), anyString());
-        verify(paymentWriter, never()).applyPlanTransition(any());
+        verify(paymentWriter, never()).markFailed(any(), anyString(), anyString());
+    }
+
+    @Test
+    void 결과불명_이후_재확정하면_원장이_READY라_승인을_다시_시도할수있다() {
+        // 위 시나리오의 후속 — 주문이 닫히지 않았으므로 재확정 요청이 prepareConfirm 을 통과해 PG 를
+        // 다시 호출하고, 이번엔 성공해 플랜이 반영된다(P1-C 가 지키려는 복구 경로 전체).
+        TossPaymentApproval approval = new TossPaymentApproval(
+                PAYMENT_KEY, PaymentMethod.CARD, "https://receipt", Instant.now());
+        when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
+                .thenReturn(PaymentConfirmPreparation.readyToApprove(PAYMENT_ID, AMOUNT));
+        when(tossPaymentsClient.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                .thenThrow(TossPaymentApprovalException.outcomeUnknown(
+                        TossPaymentApprovalException.CODE_UNREACHABLE, "결제 서버에 연결하지 못했습니다."))
+                .thenReturn(approval);
+
+        assertThatThrownBy(() -> service.confirm(USER_ID, request()))
+                .isInstanceOf(BusinessException.class);
+        MyPlanResponse response = service.confirm(USER_ID, request());
+
+        assertThat(response.plan().name()).isEqualTo("ENTERPRISE");
+        verify(paymentWriter).markApproved(PAYMENT_ID, approval);
+        verify(paymentWriter).applyPlanTransition(PAYMENT_ID);
+    }
+
+    @Test
+    void 이미처리된결제_응답이면_원장을_재조회해_멱등성공으로_응답한다() {
+        // 리뷰 P2 — 같은 주문에 confirm 두 건이 동시에 도착하면 둘 다 PG 를 호출할 수 있고, 진 쪽이
+        // "이미 처리된 결제"를 받는다. 그대로 502 를 주면 결제 성공인데 사용자는 실패로 읽고 재결제한다.
+        when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
+                .thenReturn(PaymentConfirmPreparation.readyToApprove(PAYMENT_ID, AMOUNT));
+        when(tossPaymentsClient.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                .thenThrow(TossPaymentApprovalException.rejected(
+                        TossPaymentApprovalException.CODE_ALREADY_PROCESSED, "이미 처리된 결제입니다."));
+        when(paymentWriter.resolveSettlementState(PAYMENT_ID))
+                .thenReturn(new PaymentSettlementState(true, false));
+
+        MyPlanResponse response = service.confirm(USER_ID, request());
+
+        assertThat(response.plan().name()).isEqualTo("ENTERPRISE");
+        verify(paymentWriter, never()).markFailed(any(), anyString(), anyString());
+    }
+
+    @Test
+    void 이미처리된결제_인데_원장은_미승인이면_닫지않고_502로_알린다() {
+        when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
+                .thenReturn(PaymentConfirmPreparation.readyToApprove(PAYMENT_ID, AMOUNT));
+        when(tossPaymentsClient.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                .thenThrow(TossPaymentApprovalException.rejected(
+                        TossPaymentApprovalException.CODE_ALREADY_PROCESSED, "이미 처리된 결제입니다."));
+        when(paymentWriter.resolveSettlementState(PAYMENT_ID))
+                .thenReturn(new PaymentSettlementState(false, false));
+
+        assertThatThrownBy(() -> service.confirm(USER_ID, request()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PAYMENT_GATEWAY_ERROR));
+        verify(paymentWriter, never()).markFailed(any(), anyString(), anyString());
+    }
+
+    @Test
+    void 승인후_플랜반영이_실패하면_결제완료_반영대기로_알린다() {
+        // 리뷰 P2 — 403/500 을 그대로 주면 사용자가 "결제 실패"로 읽고 재결제해 중복 청구가 난다.
+        TossPaymentApproval approval = new TossPaymentApproval(
+                PAYMENT_KEY, PaymentMethod.CARD, "https://receipt", Instant.now());
+        when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
+                .thenReturn(PaymentConfirmPreparation.readyToApprove(PAYMENT_ID, AMOUNT));
+        when(tossPaymentsClient.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT)).thenReturn(approval);
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.PAYMENT_FORBIDDEN))
+                .when(paymentWriter).applyPlanTransition(PAYMENT_ID);
+
+        assertThatThrownBy(() -> service.confirm(USER_ID, request()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PAYMENT_PLAN_APPLY_PENDING));
+
+        // 승인 기록 자체는 남아 있어야 한다(돈이 오간 사실은 롤백되지 않는다).
+        verify(paymentWriter).markApproved(PAYMENT_ID, approval);
     }
 
     @Test

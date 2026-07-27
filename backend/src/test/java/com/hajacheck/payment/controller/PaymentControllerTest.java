@@ -253,7 +253,7 @@ class PaymentControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 승인_남의_주문이면_403이고_상태를_흘리지않는다() throws Exception {
+    void 승인_남의_주문이면_미존재와_같은_404이고_상태를_흘리지않는다() throws Exception {
         Plan standard = saveStandardPlan();
         Plan enterprise = saveEnterprisePlan();
         User owner = saveUser("confirmOwner@haja.com", null);
@@ -265,8 +265,8 @@ class PaymentControllerTest extends PostgresTestSupport {
         mockMvc.perform(post("/api/me/payments/confirm").with(csrf()).with(authentication(authOf(other)))
                         .contentType("application/json")
                         .content(confirmBody(order.getOrderId(), 299000L)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error.code").value("PAYMENT_FORBIDDEN"));
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("PAYMENT_ORDER_NOT_FOUND"));
 
         verify(tossPaymentsClient, never()).confirm(anyString(), anyString(), anyLong());
     }
@@ -280,7 +280,7 @@ class PaymentControllerTest extends PostgresTestSupport {
         Payment order = saveReadyOrder(user, null, enterprise);
 
         when(tossPaymentsClient.confirm(anyString(), anyString(), anyLong()))
-                .thenThrow(new TossPaymentApprovalException("REJECT_CARD_COMPANY", "카드사 승인 거절"));
+                .thenThrow(TossPaymentApprovalException.rejected("REJECT_CARD_COMPANY", "카드사 승인 거절"));
 
         mockMvc.perform(post("/api/me/payments/confirm").with(csrf()).with(authentication(authOf(user)))
                         .contentType("application/json")
@@ -295,6 +295,79 @@ class PaymentControllerTest extends PostgresTestSupport {
         assertThat(failed.getStatus()).isEqualTo(PaymentStatus.FAILED);
         assertThat(failed.getFailureCode()).isEqualTo("REJECT_CARD_COMPANY");
         assertThat(failed.getUserPlanId()).isNull();
+    }
+
+    @Test
+    void 승인_결과불명_실패는_주문을_닫지않아_재확정으로_복구된다() throws Exception {
+        // 리뷰 P1-C — 타임아웃을 FAILED 로 확정하면 재확정이 404 로 영구 차단돼 돈만 나간 상태가 굳는다.
+        Plan standard = saveStandardPlan();
+        Plan enterprise = saveEnterprisePlan();
+        User user = saveUser("confirmUnknown@haja.com", null);
+        UserPlan original = userPlanRepository.save(UserPlan.forUser(user.getId(), standard.getId()));
+        Payment order = saveReadyOrder(user, null, enterprise);
+        String content = confirmBody(order.getOrderId(), 299000L);
+
+        // 1회차는 결과 불명(타임아웃), 2회차는 정상 승인 — 한 스텁에 연속 응답으로 지정한다
+        // (throw 로 스텁된 목을 when(...) 안에서 다시 호출하면 그 자리에서 예외가 터지므로 재스텁 불가).
+        when(tossPaymentsClient.confirm(anyString(), anyString(), anyLong()))
+                .thenThrow(TossPaymentApprovalException.outcomeUnknown(
+                        TossPaymentApprovalException.CODE_UNREACHABLE, "결제 서버에 연결하지 못했습니다."))
+                .thenReturn(new TossPaymentApproval("test_payment_key_recovered", PaymentMethod.CARD,
+                        "https://receipt.example/abc", Instant.now()));
+
+        mockMvc.perform(post("/api/me/payments/confirm").with(csrf()).with(authentication(authOf(user)))
+                        .contentType("application/json").content(content))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("PAYMENT_GATEWAY_ERROR"));
+
+        // 주문이 닫히지 않았다 — FAILED 가 아니라 READY 여야 재확정이 가능하다.
+        assertThat(paymentRepository.findByOrderId(order.getOrderId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.READY);
+        assertThat(userPlanRepository.findById(original.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserPlanStatus.ACTIVE);
+
+        // 재확정 — 이번엔 PG 가 정상 응답하고 플랜이 반영된다(복구 경로 전체를 고정한다).
+        mockMvc.perform(post("/api/me/payments/confirm").with(csrf()).with(authentication(authOf(user)))
+                        .contentType("application/json").content(content))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.plan.name").value("ENTERPRISE"));
+
+        Payment recovered = paymentRepository.findByOrderId(order.getOrderId()).orElseThrow();
+        assertThat(recovered.getStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(recovered.getUserPlanId()).isNotNull();
+    }
+
+    @Test
+    void 승인_이미_그_요금제면_PG호출없이_409로_막아_중복청구를_차단한다() throws Exception {
+        // 리뷰 P1-B — READY 주문 2건을 만든 뒤 순차 결제하는 "2회 청구 + 구독 변화 0" 시나리오.
+        Plan enterprise = saveEnterprisePlan();
+        User user = saveUser("confirmDup@haja.com", null);
+        // 이미 목표 요금제를 쓰고 있는 상태에서 남아 있던 주문을 결제하려는 상황.
+        userPlanRepository.save(UserPlan.forUser(user.getId(), enterprise.getId()));
+        Payment order = saveReadyOrder(user, null, enterprise);
+
+        mockMvc.perform(post("/api/me/payments/confirm").with(csrf()).with(authentication(authOf(user)))
+                        .contentType("application/json")
+                        .content(confirmBody(order.getOrderId(), 299000L)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("PLAN_ACTIVE_SUBSCRIPTION_CONFLICT"));
+
+        verify(tossPaymentsClient, never()).confirm(anyString(), anyString(), anyLong());
+    }
+
+    @Test
+    void 주문생성_유효한_기존주문이_있으면_같은_orderId를_돌려준다() throws Exception {
+        Plan standard = saveStandardPlan();
+        saveEnterprisePlan();
+        User user = saveUser("orderReuse@haja.com", null);
+        userPlanRepository.save(UserPlan.forUser(user.getId(), standard.getId()));
+
+        String first = createOrderAndReadOrderId(user);
+        String second = createOrderAndReadOrderId(user);
+
+        assertThat(second).isEqualTo(first);
+        assertThat(paymentRepository.findByUserIdOrderByRequestedAtDescIdDesc(
+                user.getId(), org.springframework.data.domain.PageRequest.of(0, 10))).hasSize(1);
     }
 
     @Test
@@ -370,6 +443,16 @@ class PaymentControllerTest extends PostgresTestSupport {
     }
 
     // ── fixtures ──
+
+    private String createOrderAndReadOrderId(User user) throws Exception {
+        String body = mockMvc.perform(post("/api/me/plan/orders").with(csrf())
+                        .with(authentication(authOf(user)))
+                        .contentType("application/json")
+                        .content("{\"planName\":\"ENTERPRISE\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).path("data").path("orderId").asText();
+    }
 
     private void stubApproval() {
         when(tossPaymentsClient.confirm(anyString(), anyString(), anyLong()))

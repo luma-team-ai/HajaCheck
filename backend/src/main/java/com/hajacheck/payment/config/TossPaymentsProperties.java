@@ -1,5 +1,6 @@
 package com.hajacheck.payment.config;
 
+import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -42,6 +43,15 @@ public class TossPaymentsProperties {
 
     /** 결제 이력 목록 반환 상한 — 무제한 반환 방지(마이페이지 모달은 최근 이력만 보여준다). */
     private int historyMaxSize = 100;
+
+    /**
+     * 사전 등록한 READY 주문의 유효시간(#988 리뷰 P2). 금액이 스냅샷이라 시한이 없으면 <b>요금 인상 직전에
+     * 주문을 쟁여두고 나중에 구가격으로 결제</b>할 수 있고, 승인되지 않은 주문이 무한 누적된다.
+     *
+     * <p>30분은 토스 결제창 자체의 유효시간과 정렬한 값이다 — 결제창이 만료된 뒤 우리 주문만 살아 있어도
+     * 어차피 승인할 수 없으므로, 두 시한을 맞춰 "결제창이 살아 있는 동안은 언제나 확정 가능"을 보장한다.
+     */
+    private Duration orderTtl = Duration.ofMinutes(30);
 
     public String getBaseUrl() {
         return baseUrl;
@@ -89,5 +99,13 @@ public class TossPaymentsProperties {
 
     public void setHistoryMaxSize(int historyMaxSize) {
         this.historyMaxSize = historyMaxSize;
+    }
+
+    public Duration getOrderTtl() {
+        return orderTtl;
+    }
+
+    public void setOrderTtl(Duration orderTtl) {
+        this.orderTtl = orderTtl;
     }
 }
