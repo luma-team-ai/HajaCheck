@@ -167,8 +167,8 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
 // 분리된 인스턴스라 서로의 handler/state에 영향을 주지 않는다.
 describe('InspectionDefectsPage — 전역 MSW 핸들러 등록 순서 회귀 테스트(PR머신 P1)', () => {
   it('inspectionId=202(한강대교 북단)로 온 요청이 mediaHandlers 화이트리스트를 통과한다', async () => {
-    const { handlers } = await import('../../../mocks/handlers');
-    const globalServer = setupServer(...handlers);
+    const { allMockHandlers } = await import('../../../mocks/handlers');
+    const globalServer = setupServer(...allMockHandlers);
     globalServer.listen({ onUnhandledRequest: 'error' });
 
     try {

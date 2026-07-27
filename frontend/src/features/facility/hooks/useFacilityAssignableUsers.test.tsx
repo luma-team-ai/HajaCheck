@@ -4,14 +4,14 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { setupServer } from 'msw/node';
 import type { ReactNode } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-// 개별 핸들러가 아니라 실제 앱이 등록하는 전체 handlers 배열을 그대로 써야 한다 — 등록 순서
+// 개별 핸들러가 아니라 실제 앱이 등록하는 전체 테스트용 핸들러 배열을 그대로 써야 한다 — 등록 순서
 // 회귀(PR머신 P1: GET /api/facilities/:id 캐치올이 GET /api/facilities/assignable-users보다
 // 앞에 있으면 리터럴 경로가 :id='assignable-users'로 먼저 매치되어 항상 404)를 이 테스트가 잡는다.
-import { handlers } from '../../../mocks/handlers';
+import { allMockHandlers } from '../../../mocks/handlers';
 import { mockFacilityAssignableUsers } from '../mocks/facilityAssignee.mock';
 import { useFacilityAssignableUsers } from './useFacilityAssignableUsers';
 
-const server = setupServer(...handlers);
+const server = setupServer(...allMockHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => server.resetHandlers());

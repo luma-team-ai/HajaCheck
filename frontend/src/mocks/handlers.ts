@@ -34,7 +34,7 @@ const effectiveFacilityHandlers = hybridMode ? [] : facilityHandlers;
 // 백엔드 미구현 회사 목록/요약은 훅의 404 폴백으로 개발 화면을 유지한다.
 const effectiveReportHandlers = hybridMode ? [] : reportHandlers;
 
-const allMockHandlers = [
+export const allMockHandlers = [
   ...effectiveAuthHandlers,
   // facilityAssigneeHandlers(GET /api/facilities/assignable-users, 리터럴 경로)는 msw v2 등록 순서
   // 매칭이라 inspectionHandlers/facilityHandlers가 등록하는 GET /api/facilities/:id 캐치올보다
