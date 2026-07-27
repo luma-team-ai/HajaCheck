@@ -60,6 +60,20 @@ function stageMediaFiles(files: File[]): StagedMediaFile[] {
   });
 }
 
+// 같은 시설물에 미종료(REPORTED 아님) 회차가 이미 있으면 그중 가장 최근 회차 번호를 반환한다 —
+// 실수로 중복 회차를 만드는 걸 막기 위한 "약한" 경고용(확인창만 띄우고 생성 자체를 막지는 않는다).
+// 조회 실패는 경고 없이 그냥 진행시킨다(부가 안내일 뿐, 생성 흐름을 막을 이유가 아니다).
+async function findActiveRoundNo(facilityId: number): Promise<number | null> {
+  try {
+    const res = await inspectionApi.listByFacility(facilityId);
+    const activeRounds = res.data.content.filter((item) => item.status !== 'REPORTED');
+    if (activeRounds.length === 0) return null;
+    return Math.max(...activeRounds.map((item) => item.roundNo));
+  } catch {
+    return null;
+  }
+}
+
 // 새 점검 생성 — 회의 후 반영된 시안(2026-07-22): 기존 "시설물 개요 + 모달" 2단계 플로우를
 // 폐지하고, 점검 정보 입력과 촬영 데이터 업로드를 한 화면에서 처리한다(AP-004+AP-005 통합 화면).
 // 제출 시 ① POST /api/inspections로 회차 생성 ② 응답 id로 이미지 파일만 POST .../media 업로드
@@ -121,8 +135,11 @@ export function InspectionCreatePage() {
   // 이 버튼은 저장을 트리거한다기보다 "지금 저장됐다"는 확인을 사용자에게 보여주는 역할이다.
   const [showDraftSavedNotice, setShowDraftSavedNotice] = useState(false);
   const draftSavedNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  // 같은 시설물에 이미 진행 중인 회차가 있으면 그 회차 번호를 담아 확인창을 띄운다(null이면 안 뜸).
+  const [duplicateRoundNo, setDuplicateRoundNo] = useState<number | null>(null);
+  const [isCheckingDuplicateRound, setIsCheckingDuplicateRound] = useState(false);
 
-  const isSubmitting = isCreating || isUploading;
+  const isSubmitting = isCreating || isUploading || isCheckingDuplicateRound;
   const hasFileErrors = mediaFiles.some((entry) => entry.error !== null);
   // handleSubmit이 실제로 업로드하는 대상은 kind==='image'(에러 없는 것)뿐이다(아래 handleSubmit의
   // imageFiles 필터와 동일 기준) — 영상은 업로드 대상이 아니므로 mediaFiles.length만 보면 영상만
@@ -263,20 +280,8 @@ export function InspectionCreatePage() {
     setMediaFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = async () => {
-    if (!currentUser) {
-      // 코드 리뷰 P3 — 로그인 사용자 정보가 아직 로드되지 않은 순간의 제출을 조용히 무시하면
-      // 사용자는 버튼이 왜 반응하지 않는지 알 수 없다(무피드백 오동작). 안내 문구로 사유를 알린다.
-      setSubmitBlockedMessage('사용자 정보를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
-      return;
-    }
-    setSubmitBlockedMessage(null);
-
-    const nextErrors = validateInspectionCreateForm(values);
-    setErrors(nextErrors);
-    if (hasInspectionCreateFormErrors(nextErrors) || hasFileErrors) {
-      return;
-    }
+  const submitInspection = async () => {
+    if (!currentUser) return; // handleSubmit이 이미 검증 — 방어적 재확인만.
 
     try {
       // 이미 생성된 회차가 있으면(직전 시도에서 업로드만 실패) 재생성하지 않고 재사용 — 안 그러면
@@ -318,6 +323,41 @@ export function InspectionCreatePage() {
       // 실패 사유는 error로 아래에 표시 — 입력값·선택 파일은 유지해 재시도 가능하게 둔다.
       // 회차 생성까지는 성공했다면 createdInspection에 남아있어 다음 제출은 업로드만 재시도한다.
     }
+  };
+
+  const handleSubmit = async () => {
+    if (!currentUser) {
+      // 코드 리뷰 P3 — 로그인 사용자 정보가 아직 로드되지 않은 순간의 제출을 조용히 무시하면
+      // 사용자는 버튼이 왜 반응하지 않는지 알 수 없다(무피드백 오동작). 안내 문구로 사유를 알린다.
+      setSubmitBlockedMessage('사용자 정보를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
+      return;
+    }
+    setSubmitBlockedMessage(null);
+
+    const nextErrors = validateInspectionCreateForm(values);
+    setErrors(nextErrors);
+    if (hasInspectionCreateFormErrors(nextErrors) || hasFileErrors) {
+      return;
+    }
+
+    // 회차가 이미 생성된 뒤(업로드 실패 후 재시도)라면 이 시설물로 새로 회차를 만드는 게 아니므로
+    // 중복 경고를 건너뛴다 — 안 그러면 재시도할 때마다 확인창이 다시 뜬다.
+    if (!createdInspection) {
+      setIsCheckingDuplicateRound(true);
+      const activeRoundNo = await findActiveRoundNo(Number(values.facilityId));
+      setIsCheckingDuplicateRound(false);
+      if (activeRoundNo !== null) {
+        setDuplicateRoundNo(activeRoundNo);
+        return;
+      }
+    }
+
+    await submitInspection();
+  };
+
+  const handleConfirmDuplicateCreate = () => {
+    setDuplicateRoundNo(null);
+    void submitInspection();
   };
 
   return (
@@ -481,6 +521,29 @@ export function InspectionCreatePage() {
               </Button>
               <Button type="button" variant="primary" onClick={handleConfirmLeave}>
                 나가기
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {duplicateRoundNo !== null && (
+        <Modal
+          open
+          onClose={() => setDuplicateRoundNo(null)}
+          title="이미 진행 중인 회차가 있습니다"
+          closeOnOverlayClick={false}
+        >
+          <div className="flex w-80 flex-col gap-6">
+            <p className="m-0 text-sm text-text-muted">
+              이미 진행 중인 {duplicateRoundNo}회차가 있습니다. 계속 생성하시겠습니까?
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="secondary" onClick={() => setDuplicateRoundNo(null)}>
+                취소
+              </Button>
+              <Button type="button" variant="primary" onClick={handleConfirmDuplicateCreate}>
+                계속 생성
               </Button>
             </div>
           </div>

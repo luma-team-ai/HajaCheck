@@ -270,6 +270,92 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     expect((screen.getByLabelText('시설물') as HTMLSelectElement).value).toBe('1');
   });
 
+  it('같은 시설물에 이미 진행 중인 회차가 있으면 확인창을 띄우고, 취소하면 회차를 생성하지 않는다', async () => {
+    let createCallCount = 0;
+    server.use(
+      http.get('/api/inspections', () => {
+        const body = {
+          success: true,
+          data: { content: [{ id: 900, roundNo: 2, status: 'REVIEWED' }], page: 0, totalElements: 1 },
+        };
+        return HttpResponse.json(body);
+      }),
+      http.post('/api/inspections', () => {
+        createCallCount += 1;
+        return HttpResponse.json({ success: true, data: null });
+      }),
+    );
+
+    renderPage();
+    await fillRequiredFields();
+    selectFiles([new File(['a'], 'a.jpg', { type: 'image/jpeg' })]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
+    });
+
+    expect(
+      await screen.findByText('이미 진행 중인 2회차가 있습니다. 계속 생성하시겠습니까?'),
+    ).not.toBeNull();
+    expect(createCallCount).toBe(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText('이미 진행 중인 2회차가 있습니다. 계속 생성하시겠습니까?'),
+      ).toBeNull(),
+    );
+    expect(createCallCount).toBe(0);
+    // 취소 후에도 계속 편집 가능해야 한다(회차를 만들지 않았으므로 잠기지 않음)
+    expect((screen.getByLabelText('시설물') as HTMLSelectElement).disabled).toBe(false);
+  });
+
+  it('중복 회차 확인창에서 "계속 생성"을 누르면 정상적으로 점검을 생성한다', async () => {
+    server.use(
+      http.get('/api/inspections', () => {
+        const body = {
+          success: true,
+          data: { content: [{ id: 900, roundNo: 2, status: 'ANALYZING' }], page: 0, totalElements: 1 },
+        };
+        return HttpResponse.json(body);
+      }),
+    );
+    const mockMedia: Media[] = [
+      {
+        id: 1,
+        inspectionId: 100,
+        fileType: 'IMAGE',
+        thumbnailUrl: '/api/media/1/thumbnail',
+        mimeType: 'image/jpeg',
+        capturedAt: null,
+        gpsLat: null,
+        gpsLng: null,
+        createdAt: '2026-07-22T00:00:00',
+      },
+    ];
+    vi.spyOn(mediaApi, 'upload')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockResolvedValue({ data: mockMedia } as any);
+
+    const router = renderPage();
+    await fillRequiredFields();
+    selectFiles([new File(['a'], 'a.jpg', { type: 'image/jpeg' })]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
+    });
+    await screen.findByText('이미 진행 중인 2회차가 있습니다. 계속 생성하시겠습니까?');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '계속 생성' }));
+    });
+
+    expect(await screen.findByText('AI 분석 실행/상태')).not.toBeNull();
+    // 이 파일의 다른 테스트가 목 핸들러의 공유 nextInspectionId 카운터를 먼저 소비할 수 있어
+    // (server.use로 POST를 override하지 않는 한 공용) 정확한 id 대신 경로 패턴만 확인한다.
+    expect(router.state.location.pathname).toMatch(/^\/inspections\/\d+\/analysis$/);
+  });
+
   it('currentUser=null이면 제출 시 안내 메시지가 뜨고 createInspection이 호출되지 않는다', async () => {
     // 코드 리뷰 P3 — 로그인 사용자 정보가 아직 로드되지 않은 순간의 제출을 조용히 무시하던 것을
     // 고쳤다(무피드백 오동작). currentUser가 null이면 안내 문구를 보여주고 회차 생성 요청 자체를

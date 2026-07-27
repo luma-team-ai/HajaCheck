@@ -65,6 +65,15 @@ export interface MediaResponse {
 
 export type InspectionStatus = 'CREATED' | 'UPLOADING' | 'ANALYZING' | 'ANALYZED' | 'REVIEWED' | 'REPORTED';
 
+// GET /api/inspections?facilityId= 응답 항목 중 "같은 시설물에 이미 진행 중인 회차가 있는지" 확인에
+// 필요한 최소 필드만 뽑은 것 — 전체 계약(facilityName/assigneeName 등)은 defect feature의
+// InspectionListItem 참고(feature 간 직접 import 금지, React_코드_컨벤션.md §1).
+export interface FacilityInspectionSummary {
+  id: number;
+  roundNo: number;
+  status: InspectionStatus;
+}
+
 export interface InspectionResponse {
   id: number;
   facilityId: number;
