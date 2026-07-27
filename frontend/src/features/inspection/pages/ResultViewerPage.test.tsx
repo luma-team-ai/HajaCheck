@@ -685,17 +685,17 @@ describe('ResultViewerPage (통합 테스트)', () => {
     });
   });
 
-  it('검수가 미완료일 때 "보고서 생성" 버튼이 비활성화된다 (#829)', async () => {
+  it('검수가 미완료일 때 "점검 요약" 버튼이 비활성화된다 (#829)', async () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
-    const button = screen.getByRole('button', { name: '보고서 생성' });
+    const button = screen.getByRole('button', { name: '점검 요약' });
     expect(button.hasAttribute('disabled')).toBe(true);
     // mockDefects 중 id=3(CONFIRMED), id=5(RESOLVED)가 검수 확정으로 계산 → reviewedCount=2
     expect(button.getAttribute('title')).toBe('2/5 하자 검수 확정 필요');
   });
 
-  it('모든 하자를 검수 확정하면 "보고서 생성" 버튼이 활성화된다 (#829)', async () => {
+  it('모든 하자를 검수 확정하면 "점검 요약" 버튼이 활성화된다 (#829)', async () => {
     const allConfirmedDefects: DefectDetailItem[] = mockDefects.map((d) => ({
       ...d,
       status: 'CONFIRMED' as const,
@@ -712,7 +712,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
-    const button = screen.getByRole('button', { name: '보고서 생성' });
+    const button = screen.getByRole('button', { name: '점검 요약' });
     expect(button.hasAttribute('disabled')).toBe(false);
   });
 
