@@ -454,6 +454,19 @@ class CounselTicketServiceTest {
     }
 
     @Test
+    void 종료_티켓소유고객본인_성공() {
+        CounselTicket ticket = inProgressTicket();
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
+        when(chatSessionRepository.findById(700L)).thenReturn(Optional.of(withId(
+                ChatSession.start(USER_ID, ChatSessionType.COUNSEL), 700L)));
+        when(ticketRepository.saveAndFlush(any(CounselTicket.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        CounselTicketResponse response = service.resolve(TICKET_ID, USER_ID, false);
+
+        assertThat(response.status()).isEqualTo(CounselTicketStatus.RESOLVED);
+    }
+
+    @Test
     void 종료_담당아닌상담원_403_TICKET_FORBIDDEN() {
         CounselTicket ticket = inProgressTicket();
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));

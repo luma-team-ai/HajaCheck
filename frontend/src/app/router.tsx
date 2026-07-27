@@ -4,12 +4,14 @@ import { lazy, Suspense } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AdminRoute } from '../shared/components/AdminRoute';
 import { PlatformAdminRoute } from '../shared/components/PlatformAdminRoute';
+import { CounselorRoute } from '../shared/components/CounselorRoute';
 import { ProtectedRoute } from '../shared/components/ProtectedRoute';
 import { LoadingSpinner } from '../shared/components/LoadingSpinner';
 import LandingPage from '../features/landing/LandingPage';
 import { PLATFORM_ADMIN_ROUTE } from '../shared/constants/routes';
 import { AppShellRoute } from './AppShellRoute';
 import { PlatformAdminShellRoute } from './PlatformAdminShellRoute';
+import { CounselorShellRoute } from './CounselorShellRoute';
 
 const MapPage = lazy(() => import('../features/map/MapPage'));
 const ResultViewerPage = lazy(() =>
@@ -291,6 +293,14 @@ const CounselHistoryPage = lazy(() =>
 const ChatBotPage = lazy(() =>
   import('../features/counsel/pages/ChatBotPage').then((m) => ({
     default: m.ChatBotPage,
+  })),
+);
+
+// 상담원 콘솔 (#1001, HAJA-495) — 대기열+실시간 채팅 마스터-디테일 단일 페이지(피그마 디자인 반영,
+// CounselorQueuePage/CounselorChatPage 별도 페이지 구조를 통합).
+const CounselorConsolePage = lazy(() =>
+  import('../features/counsel/pages/CounselorConsolePage').then((m) => ({
+    default: m.CounselorConsolePage,
   })),
 );
 
@@ -940,6 +950,43 @@ export const router = createBrowserRouter([
       }, // — features/platform-admin 시스템 모니터링 실 화면 (#729)
     ],
   }, // — features/platform-admin (#535). 각 메뉴 실 기능은 후속 이슈.
+  {
+    // 상담원 콘솔 전용 셸 — 일반 사용자 AppShellRoute·PlatformAdminShellRoute와 별개(#1001, HAJA-495).
+    // CounselorRoute가 미인증→/login, role≠COUNSELOR→/dashboard로 부모 단계에서 차단한다.
+    element: (
+      <CounselorRoute>
+        <CounselorShellRoute />
+      </CounselorRoute>
+    ),
+    children: [
+      {
+        path: '/counsel-console/queue',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <CounselorConsolePage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '상담원 콘솔' }, { label: '상담 대기열' }],
+          activeHref: '/counsel-console/queue',
+        },
+      }, // — features/counsel 상담원 콘솔 마스터-디테일(#1001, HAJA-495) — 티켓 미선택 상태
+      {
+        path: '/counsel-console/tickets/:id',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <CounselorConsolePage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '상담원 콘솔' }, { label: '상담 대기열' }, { label: '실시간 채팅' }],
+          // 사이드바엔 '상담 대기열' 메뉴 하나뿐이라(COUNSELOR_NAV_ITEM) 채팅 화면 진입 시에도
+          // 그 메뉴가 강조되도록 맞춘다 — /defects/:id 등 기존 동적 상세 라우트와 동일한 관례.
+          activeHref: '/counsel-console/queue',
+        },
+      }, // — features/counsel 상담원 콘솔 마스터-디테일(#1001, HAJA-495) — 티켓 선택 상태(같은 컴포넌트, :id로 분기)
+    ],
+  }, // — features/counsel 상담원 콘솔(#1001, HAJA-495)
   // 구 '/facilities'(셸 밖) 라우트는 '/facilities/list'(셸 안, 위 AppShellRoute children)로 이동됨(#472).
   // '/defects/list' 는 AppShellRoute 자식(위 children 배열)으로 등록됨 — features/defect (HAJA-30)
   // { path: '/support', ... }                  — features/support

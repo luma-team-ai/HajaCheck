@@ -66,3 +66,18 @@ export interface ChatMessageResponse {
   counselorName?: string | null;
   createdAt: string;
 }
+
+// 상담원 콘솔(#1001, HAJA-495) — GET /api/counsel/tickets(대기열, COUNSELOR/PLATFORM_ADMIN 전용)
+// 쿼리 파라미터. /mine과 달리 사용자 자신의 상담이 아니라 배정 전 대기열 전체를 본다.
+export interface CounselQueueFilters {
+  page?: number;
+  size?: number;
+}
+
+// POST .../assign, .../resolve 응답 — 백엔드 CounselTicketResponse와 1:1(CounselTicketSummaryResponse
+// 상위 호환: sessionId/endedAt이 추가된다). 목록 요약과 별개 타입인 이유는 백엔드가 실제로 별도 DTO를
+// 반환하기 때문(CounselTicketController#assign/#resolve).
+export interface CounselTicketDetailResponse extends CounselTicketSummaryResponse {
+  sessionId: number | null;
+  endedAt: string | null; // Instant, 진행 중이면 null
+}

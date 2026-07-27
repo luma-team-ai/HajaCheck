@@ -36,6 +36,9 @@ const IMPLEMENTED_ROUTES = new Set([
   '/platform-admin/rag-documents',
   '/platform-admin/stats',
   '/platform-admin/monitoring',
+  // 상담원 콘솔(#1001, HAJA-495) — 정적 경로만 등록. 채팅 화면('/counsel-console/tickets/:id')은
+  // 동적 세그먼트라 위 주석 규칙대로 화이트리스트에 넣지 않는다(#227 리뷰 P1 재발 방지).
+  '/counsel-console/queue',
 ]);
 
 // SideNavBar의 "점검 관리" 하위 항목(AI 분석/결과 뷰어/보고서 생성)은 activeInspectionId가 있으면

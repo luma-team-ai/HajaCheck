@@ -197,13 +197,16 @@ public class CounselTicketService {
     }
 
     /**
-     * 상담 종료 — 담당 상담원 본인 또는 플랫폼 관리자만 허용. 티켓을 RESOLVED 로 전이하고 상담 세션을 종료한다.
+     * 상담 종료 — 담당 상담원 본인·티켓 소유 고객 본인·플랫폼 관리자만 허용(#1000 후속: 고객도 종료 가능).
+     * 티켓을 RESOLVED 로 전이하고 상담 세션을 종료한다.
      */
     @Transactional
     public CounselTicketResponse resolve(Long ticketId, Long requesterId, boolean platformAdmin) {
         CounselTicket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND));
-        if (!platformAdmin && !requesterId.equals(ticket.getCounselorId())) {
+        boolean isOwner = requesterId.equals(ticket.getUserId());
+        boolean isCounselor = requesterId.equals(ticket.getCounselorId());
+        if (!platformAdmin && !isOwner && !isCounselor) {
             // 미존재와 동일 코드로 통일하지 않고 별도 403 — 대기열/배정은 이미 role 게이트를 통과한 상담원이라
             // 존재 자체는 열거 위협이 아니고, "담당 아님"을 명확히 알려주는 편이 콘솔 UX 에 유용하다.
             throw new BusinessException(ErrorCode.COUNSEL_TICKET_FORBIDDEN);

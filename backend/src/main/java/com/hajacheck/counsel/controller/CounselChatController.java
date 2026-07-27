@@ -36,6 +36,16 @@ public class CounselChatController {
         counselChatService.sendMessage(ticketId, senderUserId, request.content(), request.attachmentKey());
     }
 
+    /** "입력 중" 신호(#1000/#1001 후속) — {@code SEND /app/counsel/{ticketId}/typing}, 페이로드 없음. */
+    @MessageMapping("/counsel/{ticketId}/typing")
+    public void notifyTyping(@DestinationVariable Long ticketId, Principal principal) {
+        Long senderUserId = resolveUserId(principal);
+        if (senderUserId == null) {
+            return;
+        }
+        counselChatService.notifyTyping(ticketId, senderUserId);
+    }
+
     private Long resolveUserId(Principal principal) {
         if (principal instanceof StompUserPrincipal user) {
             return user.getUserId();

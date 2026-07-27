@@ -1,3 +1,5 @@
+import type { SideNavItem } from '../../shared/components/SideNavBar';
+import supportIcon from '../../assets/brand/sidenav-support.svg';
 import type { CounselTicketStatus, CounselTicketStatusFilter } from './types';
 
 // "새 상담 시작" 버튼 이동 경로 — SideNavBar DEFAULT_ITEMS(shared/components/SideNavBar/SideNavBar.tsx)의
@@ -31,3 +33,13 @@ export const STATUS_BADGE: Record<CounselTicketStatus, { label: string; dotClass
 export function isTicketEnded(status: CounselTicketStatus): boolean {
   return status === 'RESOLVED' || status === 'OFFLINE_LEFT';
 }
+
+// 상담원 콘솔 사이드바(#1001, HAJA-495) — 대기열 화면 하나뿐인 최소 구성. 채팅 화면(/counsel-console/
+// tickets/:id)은 대기열에서 클레임한 티켓을 클릭해 진입하는 동적 경로라 메뉴 항목으로 두지 않는다
+// (다른 :id 상세 라우트들과 동일한 관례 — router.tsx /defects/:id 참고). 피그마 디자인이 아직 없어
+// 기존 플랫폼 관리자 콘솔(PLATFORM_ADMIN_NAV_ITEM) 아이콘 재사용 관례를 그대로 따름(신규 아이콘 없음).
+export const COUNSELOR_NAV_ITEM: SideNavItem = {
+  label: '상담 대기열',
+  href: '/counsel-console/queue',
+  icon: supportIcon,
+};
