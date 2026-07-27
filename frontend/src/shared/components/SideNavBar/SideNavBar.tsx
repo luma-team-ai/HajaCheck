@@ -72,7 +72,7 @@ const NOT_IMPLEMENTED_MESSAGE = '아직 구현되지 않은 페이지입니다';
 const DISABLED_MESSAGE = NOT_IMPLEMENTED_MESSAGE;
 // 진행 중인 점검 없이 AI 분석/결과 뷰어/보고서 생성 항목을 클릭하면 점검 생성 화면으로 보내지는데
 // (allItems useMemo 참고), 왜 다른 화면으로 이동했는지 안내가 없어 혼란스럽다는 피드백(#1027).
-const NO_ACTIVE_INSPECTION_MESSAGE = '지금은 분석 중인 작업이 없습니다. 점검(회차) 생성으로 넘어갑니다.';
+const NO_ACTIVE_INSPECTION_MESSAGE = '점검 데이터를 먼저 생성해야 합니다. 점검(회차) 생성 화면으로 이동합니다.';
 // activeInspectionId가 없을 때 위 안내를 띄워야 하는 항목만 표시(allItems useMemo에서 href를
 // activeInspectionId 기반으로 동적 생성하는 sub.id 3종과 동일 — #1027).
 const NO_ACTIVE_INSPECTION_SUB_IDS = new Set(['ai-analysis', 'result-viewer', 'report-entry']);

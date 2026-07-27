@@ -348,7 +348,7 @@ describe('SideNavBar', () => {
       // 이동은 막히지 않는다(점검 생성 화면으로 정상 이동)
       expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/create');
       expect(screen.getByRole('status').textContent).toBe(
-        '지금은 분석 중인 작업이 없습니다. 점검(회차) 생성으로 넘어갑니다.',
+        '점검 데이터를 먼저 생성해야 합니다. 점검(회차) 생성 화면으로 이동합니다.',
       );
     });
 
