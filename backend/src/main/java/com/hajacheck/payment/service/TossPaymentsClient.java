@@ -14,6 +14,8 @@ import java.util.Base64;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -29,7 +31,8 @@ import org.springframework.web.client.RestClientResponseException;
  * <p><b>진위확인과 결정적으로 다른 점 — fail-close</b>: 국세청 진위확인은 외부 장애 시 SKIPPED 로
  * fail-open 하지만, 결제는 그럴 수 없다. 승인 여부가 불명이면 <b>플랜을 주지 않는다</b>. 그래서 이
  * 클라이언트는 어떤 실패도 삼키지 않고 {@link TossPaymentApprovalException} 으로 표면화하며, 호출부
- * ({@code PaymentService})가 그 실패를 결제 원장에 FAILED 로 기록한 뒤 PAYMENT_GATEWAY_ERROR(502)로 바꾼다.
+ * ({@code PaymentService})가 그 분류에 따라 원장에 반영한 뒤 PAYMENT_GATEWAY_ERROR(502)로 바꾼다
+ * (확정 거절만 FAILED 로 닫고, 결과 불명은 READY 로 남긴다).
  *
  * <p><b>자동 재시도는 하지 않는다</b>: 승인은 멱등이 아닌 <b>돈이 움직이는 쓰기</b>다. 타임아웃 후
  * 곧바로 재호출하면 PG 쪽에서 이미 승인된 건을 다시 건드려 중복 청구·상태 불명을 키울 수 있다.
@@ -89,14 +92,23 @@ public class TossPaymentsClient {
                     .retrieve()
                     .body(TossConfirmResponse.class);
         } catch (ResourceAccessException e) {
-            // 연결 실패·타임아웃 — 승인 여부 불명. 재시도하지 않고 실패로 확정한다(클래스 javadoc).
-            log.warn("결제 승인 외부 호출 실패(orderId={}, cause={}) — 승인 미확정으로 실패 처리",
+            // 연결 실패·타임아웃 — 승인 여부 불명. 자동 재시도하지 않되 주문도 닫지 않는다(클래스 javadoc).
+            log.warn("결제 승인 외부 호출 실패(orderId={}, cause={}) — 결과 불명으로 분류(주문 유지)",
                     orderId, e.getClass().getSimpleName());
             throw TossPaymentApprovalException.outcomeUnknown(
                     TossPaymentApprovalException.CODE_UNREACHABLE, "결제 서버에 연결하지 못했습니다.");
         } catch (RestClientResponseException e) {
             // PG 가 HTTP 오류로 응답 — 바디의 {code, message} 만 뽑아 기록한다(바디 전문 로깅 금지).
             PgError error = parsePgError(e);
+            if (isOutcomeUnknownStatus(e.getStatusCode())) {
+                // ⚠️ 5xx·429 는 "PG 가 승인을 거절했다"가 아니라 "결과를 알 수 없다"이다(리뷰 P1).
+                // 특히 504 는 업스트림이 응답하지 못했다는 뜻이라 타임아웃과 의미가 같은데, 예외 타입이
+                // 다르다는 이유만으로 정반대로 처리되면 승인이 성사된 뒤 주문이 FAILED 로 닫혀 재확정이
+                // 영구 차단된다.
+                log.warn("결제 승인 결과 불명(orderId={}, status={}, code={}) — 주문을 닫지 않는다",
+                        orderId, e.getStatusCode().value(), error.code());
+                throw TossPaymentApprovalException.outcomeUnknown(error.code(), error.message());
+            }
             log.warn("결제 승인 거부(orderId={}, status={}, code={})",
                     orderId, e.getStatusCode().value(), error.code());
             throw TossPaymentApprovalException.rejected(error.code(), error.message());
@@ -117,8 +129,10 @@ public class TossPaymentsClient {
                     TossPaymentApprovalException.CODE_INVALID_RESPONSE, "결제 승인 결과를 확인할 수 없습니다.");
         }
         if (!STATUS_DONE.equals(response.status())) {
-            // 승인 완료가 아닌 상태(대기·부분 취소 등)는 "성공"으로 취급하지 않는다 — 플랜을 먼저 주는
-            // 것보다 실패로 확정하고 사용자가 다시 시도하게 하는 편이 안전하다.
+            // 승인 완료가 아닌 상태(가상계좌 입금대기 등)는 "성공"으로 취급하지 않는다 — 플랜을 먼저
+            // 주는 것보다 보류하는 편이 안전하다. 다만 거절로 확정하지도 않는다(나중에 DONE 이 될 수
+            // 있다) — 대신 이 경로가 무한 재확정을 부르지 않도록 주문당 시도 횟수 상한이 걸려 있다
+            // ({@code PaymentWriter} 의 confirmAttemptCount).
             log.warn("결제 승인 미완료 상태(orderId={}, status={})", orderId, response.status());
             throw TossPaymentApprovalException.outcomeUnknown(
                     TossPaymentApprovalException.CODE_INVALID_RESPONSE, "결제가 승인 완료 상태가 아닙니다.");
@@ -155,6 +169,24 @@ public class TossPaymentsClient {
             log.warn("결제 승인 시각 파싱 실패 — 서버 시각으로 대체");
             return null;
         }
+    }
+
+    /**
+     * 이 HTTP 상태가 <b>승인 결과 불명</b>인가 — 5xx(업스트림 장애·처리 중 오류)와 429(스로틀)가 해당한다.
+     *
+     * <p><b>비대칭에 맞춘 분류다</b>: 불명을 거절로 잘못 보면 승인된 결제의 주문이 FAILED 로 닫혀 재확정이
+     * 막히고 돈만 나간 상태가 굳는다(복구 불가). 반대로 거절을 불명으로 잘못 보면 주문이 READY 로 남을
+     * 뿐이고, 재확정하면 PG 가 같은 거절을 다시 돌려줘 자연히 정리된다(무해). 그래서 <b>애매하면 불명</b> 쪽으로 분류한다.
+     *
+     * <p>토스의 {@code FAILED_INTERNAL_SYSTEM_PROCESSING}(재시도 안내 코드)처럼 "잠시 후 다시"를 뜻하는
+     * 응답이 5xx 로 오고, 오류 바디가 JSON 이 아닐 때의 폴백 코드({@code HTTP_5xx})도 여기로 들어온다 —
+     * 그 경우는 PG 가 실패라고 말한 적조차 없으므로 확정 거절로 다룰 근거가 없다.
+     *
+     * <p>{@link TossPaymentApprovalException#CODE_ALREADY_PROCESSED} 는 4xx 라 이 분기에 걸리지 않는다
+     * (호출부의 멱등 성공 처리로 그대로 흘러간다).
+     */
+    private boolean isOutcomeUnknownStatus(HttpStatusCode status) {
+        return status.is5xxServerError() || status.value() == HttpStatus.TOO_MANY_REQUESTS.value();
     }
 
     /** PG 오류 바디({@code {"code": "...", "message": "..."}})에서 코드·메시지만 안전하게 뽑는다. */

@@ -125,13 +125,96 @@ class TossPaymentsClientTest {
     }
 
     @Test
-    void PG_5xx도_삼키지않고_실패로_확정한다() {
+    void PG_5xx는_삼키지않되_확정거절이_아니라_결과불명이다() {
+        // ⚠️ 리뷰 P1 — 예전 구현은 RestClientResponseException 이면 상태코드와 무관하게 rejected 로 보내
+        // 주문을 FAILED 로 닫았다. 5xx 는 "PG 가 거절했다"가 아니라 "결과를 알 수 없다"이며, 특히 504 는
+        // 타임아웃과 의미가 같은데 예외 타입만 다르다는 이유로 정반대 처리를 받았다.
         mockServer.expect(requestTo(containsString("/v1/payments/confirm")))
                 .andRespond(withServerError());
 
         // 진위확인(fail-open)과 달리 결제는 "장애니까 통과"가 없다 — 승인 불명이면 플랜을 주지 않는다.
         assertThatThrownBy(() -> client().confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
-                .isInstanceOf(TossPaymentApprovalException.class);
+                .isInstanceOf(TossPaymentApprovalException.class)
+                .satisfies(e -> {
+                    TossPaymentApprovalException ex = (TossPaymentApprovalException) e;
+                    assertThat(ex.isOutcomeUnknown()).isTrue();
+                    assertThat(ex.isAlreadyProcessed()).isFalse();
+                });
+    }
+
+    @Test
+    void PG_504는_타임아웃과_같은_결과불명으로_분류한다() {
+        // 토스의 FAILED_INTERNAL_SYSTEM_PROCESSING(재시도 안내 코드)이 이 경로로 온다.
+        mockServer.expect(requestTo(containsString("/v1/payments/confirm")))
+                .andRespond(withStatus(HttpStatus.GATEWAY_TIMEOUT)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"code\": \"FAILED_INTERNAL_SYSTEM_PROCESSING\", \"message\": \"일시적인 오류입니다.\"}"));
+
+        assertThatThrownBy(() -> client().confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                .isInstanceOf(TossPaymentApprovalException.class)
+                .satisfies(e -> {
+                    TossPaymentApprovalException ex = (TossPaymentApprovalException) e;
+                    assertThat(ex.isOutcomeUnknown()).isTrue();
+                    assertThat(ex.getCode()).isEqualTo("FAILED_INTERNAL_SYSTEM_PROCESSING");
+                });
+    }
+
+    @Test
+    void PG_429_스로틀도_결과불명이다() {
+        mockServer.expect(requestTo(containsString("/v1/payments/confirm")))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"code\": \"TOO_MANY_REQUESTS\", \"message\": \"잠시 후 다시 시도해 주세요.\"}"));
+
+        assertThatThrownBy(() -> client().confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                .isInstanceOf(TossPaymentApprovalException.class)
+                .satisfies(e -> assertThat(((TossPaymentApprovalException) e).isOutcomeUnknown()).isTrue());
+    }
+
+    @Test
+    void 오류바디가_JSON이_아닌_5xx도_확정거절이_아니다() {
+        // 폴백 코드(HTTP_5xx)는 PG 가 실패라고 말한 적조차 없는 경우라 확정 거절로 다룰 근거가 없다.
+        mockServer.expect(requestTo(containsString("/v1/payments/confirm")))
+                .andRespond(withStatus(HttpStatus.BAD_GATEWAY)
+                        .contentType(MediaType.TEXT_HTML)
+                        .body("<html>gateway down</html>"));
+
+        assertThatThrownBy(() -> client().confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                .isInstanceOf(TossPaymentApprovalException.class)
+                .satisfies(e -> {
+                    TossPaymentApprovalException ex = (TossPaymentApprovalException) e;
+                    assertThat(ex.isOutcomeUnknown()).isTrue();
+                    assertThat(ex.getCode()).isEqualTo("HTTP_502");
+                });
+    }
+
+    @Test
+    void PG_4xx_확정거절은_그대로_rejected다() {
+        // 5xx 를 불명으로 넓힌 뒤에도 4xx 는 확정 거절로 남아야 한다(과분류가 반대로 번지지 않았는지).
+        mockServer.expect(requestTo(containsString("/v1/payments/confirm")))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"code\": \"REJECT_CARD_COMPANY\", \"message\": \"카드사 승인 거절\"}"));
+
+        assertThatThrownBy(() -> client().confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                .isInstanceOf(TossPaymentApprovalException.class)
+                .satisfies(e -> assertThat(((TossPaymentApprovalException) e).isOutcomeUnknown()).isFalse());
+    }
+
+    @Test
+    void 이미처리된결제_4xx는_확정거절이면서_alreadyProcessed로_표시된다() {
+        mockServer.expect(requestTo(containsString("/v1/payments/confirm")))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"code\": \"ALREADY_PROCESSED_PAYMENT\", \"message\": \"이미 처리된 결제입니다.\"}"));
+
+        assertThatThrownBy(() -> client().confirm(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                .isInstanceOf(TossPaymentApprovalException.class)
+                .satisfies(e -> {
+                    TossPaymentApprovalException ex = (TossPaymentApprovalException) e;
+                    assertThat(ex.isAlreadyProcessed()).isTrue();
+                    assertThat(ex.isOutcomeUnknown()).isFalse();
+                });
     }
 
     @Test
