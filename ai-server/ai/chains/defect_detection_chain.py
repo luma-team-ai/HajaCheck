@@ -164,24 +164,31 @@ def _crack_mask_to_detections(mask: "np.ndarray", probability: "np.ndarray") -> 
     min_component_pixels = MIN_CRACK_COMPONENT_AREA_RATIO * total_pixels
     components = []
     for label in range(1, num_labels):  # 0번 라벨=배경
-        x, y, w, h, area = stats[label]
-        if area < min_component_pixels:
+        x, y, w, h, _closed_area = stats[label]
+        # area_ratio는 close 이전 원본 마스크 기준으로 센다 — stats의 면적은 close가 채운 틈새
+        # 픽셀까지 포함해 실측상 최대 1.49배 과대 계상되고(재검수 N-3), 이 값이 Defect.areaRatio로
+        # DB에 영구 저장돼 YOLO 경로(실제 마스크 기준)와 의미가 어긋난다. confidence 계산에 이미
+        # 만드는 "원본 마스크 교집합"을 그대로 재사용해 한 번만 계산한다.
+        original_pixels = probability[(labels == label) & mask]
+        original_area = int(original_pixels.size)
+        if original_area < min_component_pixels:
             continue
-        components.append((area, label, x, y, w, h))
+        components.append((original_area, label, x, y, w, h, original_pixels))
 
     # 면적 큰 순으로 상한만큼만 남긴다(P2-2).
     components.sort(key=lambda c: c[0], reverse=True)
     components = components[:MAX_CRACK_COMPONENTS]
 
     detections: list[DetectedDefect] = []
-    for area, label, x, y, w, h in components:
+    for area, _label, x, y, w, h, original_pixels in components:
         area_ratio = float(area) / float(total_pixels)
-        original_pixels = probability[(labels == label) & mask]
         confidence = float(original_pixels.mean()) if original_pixels.size > 0 else CRACK_MASK_THRESHOLD
 
         detections.append(
             DetectedDefect(
                 type="CRACK",
+                # bbox는 close로 병합된 영역 그대로 둔다(표시용 — 잡음으로 끊긴 조각을 시각적으로
+                # 하나의 균열처럼 보여주는 게 목적이라 area_ratio와 달리 부풀림 문제가 없다).
                 bbox_x=x / width,
                 bbox_y=y / height,
                 bbox_w=w / width,
