@@ -17,12 +17,18 @@ export function useCounselorQueue() {
   // 클레임 실패 안내 — 409(경합)와 그 외 오류를 구분해 문구를 다르게 보여준다.
   const [conflictMessage, setConflictMessage] = useState<string | null>(null);
 
+  // 목록에 WAITING(배정 대기)과 IN_PROGRESS(내가 담당 중, 아직 종료 안 됨)를 함께 보여준다 —
+  // 백엔드가 status당 단일 페이지만 반환해 두 번 호출 후 합친다(#1001 후속: 종료되지 않은 담당
+  // 상담이 목록에서 사라지던 문제 수정). IN_PROGRESS를 먼저 보여줘 진행 중인 대화가 눈에 띄게 한다.
   const loadQueue = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await counselApi.getQueue({ page: 0, size: DEFAULT_PAGE_SIZE });
-      setTickets(res.data.content);
+      const [inProgress, waiting] = await Promise.all([
+        counselApi.getQueue({ status: 'IN_PROGRESS', page: 0, size: DEFAULT_PAGE_SIZE }),
+        counselApi.getQueue({ status: 'WAITING', page: 0, size: DEFAULT_PAGE_SIZE }),
+      ]);
+      setTickets([...inProgress.data.content, ...waiting.data.content]);
     } catch (err) {
       setError(getApiErrorMessage(err, '대기열을 불러오지 못했습니다.'));
       setTickets([]);

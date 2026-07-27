@@ -70,6 +70,9 @@ export interface ChatMessageResponse {
 // 상담원 콘솔(#1001, HAJA-495) — GET /api/counsel/tickets(대기열, COUNSELOR/PLATFORM_ADMIN 전용)
 // 쿼리 파라미터. /mine과 달리 사용자 자신의 상담이 아니라 배정 전 대기열 전체를 본다.
 export interface CounselQueueFilters {
+  // 미지정 시 백엔드 기본값 WAITING(대기열 조회 전용 스크린 등). 담당 상담(IN_PROGRESS)은
+  // 스킬이 아니라 담당자 본인 여부로 좁혀진다(백엔드 CounselTicketService#findQueueForCounselor).
+  status?: CounselTicketStatus;
   page?: number;
   size?: number;
 }
