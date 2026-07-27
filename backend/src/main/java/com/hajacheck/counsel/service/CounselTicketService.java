@@ -110,9 +110,16 @@ public class CounselTicketService {
         return page.map(ticket -> CounselTicketSummaryResponse.from(ticket, nameOf(names, ticket)));
     }
 
-    /** COUNSELOR 전용 대기열 — 본인 보유 스킬(counselType) 밖 티켓은 제외한다. 스킬 미보유면 빈 페이지. */
+    /**
+     * COUNSELOR 전용 대기열 — WAITING 은 본인 보유 스킬(counselType) 밖 티켓을 제외(#1019/HAJA-501)하고,
+     * 그 외 상태(IN_PROGRESS 등, #1001 후속)는 이미 배정이 끝난 티켓이라 스킬이 아니라 담당자 본인
+     * 여부로 좁힌다 — 그래야 "종료되지 않은 내 상담"이 콘솔 목록에 계속 보인다.
+     */
     private Page<CounselTicket> findQueueForCounselor(
             CounselTicketStatus status, Long counselorId, Pageable pageable) {
+        if (status != CounselTicketStatus.WAITING) {
+            return ticketRepository.findByStatusAndCounselorIdOrderByCreatedAtAsc(status, counselorId, pageable);
+        }
         List<CounselType> skills = counselorSkillRepository.findCounselTypesByCounselorId(counselorId);
         if (skills.isEmpty()) {
             return Page.empty(pageable);

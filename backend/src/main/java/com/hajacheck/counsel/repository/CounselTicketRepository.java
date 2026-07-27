@@ -20,6 +20,12 @@ public interface CounselTicketRepository extends JpaRepository<CounselTicket, Lo
     Page<CounselTicket> findByStatusAndCounselTypeInOrderByCreatedAtAsc(
             CounselTicketStatus status, Collection<CounselType> counselTypes, Pageable pageable);
 
+    // 상담원 대기열 — 배정된 내 상담(#1019/#1001 후속). WAITING 이 아닌 상태(IN_PROGRESS 등)는 스킬이
+    // 아니라 담당자 본인 여부로 좁힌다 — 이미 배정된 티켓은 스킬 매칭과 무관하게 그 상담원 전용이고,
+    // 스킬로만 거르면 같은 스킬의 다른 상담원이 진행 중인 티켓까지 노출되는 IDOR성 누출이 된다.
+    Page<CounselTicket> findByStatusAndCounselorIdOrderByCreatedAtAsc(
+            CounselTicketStatus status, Long counselorId, Pageable pageable);
+
     // 내 상담 이력 — 본인 티켓 전체(최신순), 페이지네이션. userId 는 세션 주체에서만 채운다(IDOR 방지).
     Page<CounselTicket> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 

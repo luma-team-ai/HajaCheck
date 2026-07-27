@@ -304,6 +304,21 @@ class CounselTicketServiceTest {
                 .findByStatusAndCounselTypeInOrderByCreatedAtAsc(any(), any(), any());
     }
 
+    @Test
+    void 대기열조회_COUNSELOR_IN_PROGRESS는_담당자본인기준_스킬무관() {
+        Pageable pageable = PageRequest.of(0, 20);
+        CounselTicket ticket = inProgressTicket();
+        when(ticketRepository.findByStatusAndCounselorIdOrderByCreatedAtAsc(
+                CounselTicketStatus.IN_PROGRESS, COUNSELOR_ID, pageable))
+                .thenReturn(new PageImpl<>(List.of(ticket)));
+
+        Page<CounselTicketSummaryResponse> page =
+                service.getQueue(CounselTicketStatus.IN_PROGRESS, pageable, COUNSELOR_ID, false);
+
+        assertThat(page.getContent()).extracting(CounselTicketSummaryResponse::id).containsExactly(TICKET_ID);
+        verify(counselorSkillRepository, never()).findCounselTypesByCounselorId(any());
+    }
+
     private User counselorUser(Long id, String name) {
         User user = User.builder()
                 .email(id + "@haja.com").name(name).role(Role.COUNSELOR)
