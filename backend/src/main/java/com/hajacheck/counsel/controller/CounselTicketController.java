@@ -140,7 +140,7 @@ public class CounselTicketController {
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
-    @Operation(summary = "상담 종료", description = "담당 상담원 본인 또는 PLATFORM_ADMIN 이 상담을 종료한다.")
+    @Operation(summary = "상담 종료", description = "담당 상담원 본인·티켓 소유 고객 본인·PLATFORM_ADMIN 이 상담을 종료한다.")
     @PostMapping("/{id}/resolve")
     public ResponseEntity<ApiResponse<CounselTicketResponse>> resolve(
             @PathVariable Long id,
