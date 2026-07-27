@@ -13,7 +13,7 @@ import { reportHandlers } from '../api/reportApi.handlers';
 import { platformAdminCompanyHandlers } from '../../platform-admin/api/platformAdminCompanyApi.handlers';
 import { formatReportListTitle } from '../utils/reportListFormat';
 import { ReportListPage } from './ReportListPage';
-import { AI_DRAFT_WARNING } from '../constants';
+import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../constants';
 
 // 목 데이터(mocks/reportList.mock.ts) 101/103번 항목과 1:1 대응 — title은 서버 필드가 아니라
 // facilityName+roundNo+updatedAt으로 조립되므로(reportListFormat.ts) 테스트도 동일하게 조립해 비교한다.
@@ -58,7 +58,7 @@ describe('ReportListPage', () => {
     renderPage();
 
     expect(await screen.findByText(REPORT_101_TITLE)).toBeTruthy();
-    const warnings = screen.getAllByRole('img', { name: 'AI 초안 주의 및 법적 고지' });
+    const warnings = screen.getAllByRole('img', { name: AI_DRAFT_WARNING_TITLE });
     expect(warnings.length).toBeGreaterThan(0);
     expect(warnings[0].getAttribute('title')).toBe(AI_DRAFT_WARNING);
     const row = screen.getByText(REPORT_101_TITLE).closest('tr') as HTMLElement;
