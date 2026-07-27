@@ -16,6 +16,8 @@ describe('isRouteImplemented', () => {
     '/mypage/inspections',
     '/reports',
     '/reports/42',
+    '/reports/42?mode=export',
+    '/reports/42#document',
     '/facilities/list',
     '/admin/plans-quota',
   ])(

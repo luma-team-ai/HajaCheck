@@ -50,5 +50,10 @@ const INSPECTION_ID_SCOPED_ROUTE = /^\/inspections\/\d+\/(analysis|viewer|report
 const REPORT_ID_SCOPED_ROUTE = /^\/reports\/\d+$/;
 
 export function isRouteImplemented(href: string): boolean {
-  return IMPLEMENTED_ROUTES.has(href) || INSPECTION_ID_SCOPED_ROUTE.test(href) || REPORT_ID_SCOPED_ROUTE.test(href);
+  const pathname = href.split(/[?#]/, 1)[0] ?? href;
+  return (
+    IMPLEMENTED_ROUTES.has(pathname) ||
+    INSPECTION_ID_SCOPED_ROUTE.test(pathname) ||
+    REPORT_ID_SCOPED_ROUTE.test(pathname)
+  );
 }
