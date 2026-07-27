@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 // defect-chip / defect-metrics / defect-metric-card 등은 DefectDetailPage.css에 정의돼 있다 — 이
 // 모달이 렌더링되는 InspectionDefectsPage는 그 CSS를 별도로 로드하지 않으므로 함께 임포트해 스타일을
 // 재사용한다(신규 스타일 중복 정의 금지).
@@ -35,6 +35,8 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 // 포커스 트랩/초기 포커스/포커스 복원은 shared Modal과 동일한 로직을 그대로 따른다.
 export function DefectDetailModal({ defectId, onClose }: Props) {
   const { data: defect, isLoading, isError, refetch } = useDefect(defectId);
+  // 조치 전/후 사진 탭(#969) — actionResult가 있을 때만 탭바를 노출하고, 기본은 "조치 전" 탭.
+  const [activePhotoTab, setActivePhotoTab] = useState<'before' | 'after'>('before');
   const panelRef = useRef<HTMLDivElement>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
   // onClose가 부모 렌더마다 새로 생성돼도 effect가 재실행되지 않도록 ref로 최신값만 참조(Modal.tsx와 동일)
@@ -127,15 +129,53 @@ export function DefectDetailModal({ defectId, onClose }: Props) {
 
             <div className="defect-detail-modal__body">
               <div className="defect-detail-modal__primary">
-                <p className="defect-image-viewer-label">조치 전 사진 (원본)</p>
-                <DefectImageViewer
-                  imageUrl={defect.imageUrl}
-                  typeLabel={defect.typeLabel}
-                  bboxX={defect.bboxX}
-                  bboxY={defect.bboxY}
-                  bboxW={defect.bboxW}
-                  bboxH={defect.bboxH}
-                />
+                {defect.actionResult ? (
+                  <div
+                    className="defect-detail-modal__photo-tabs"
+                    role="tablist"
+                    aria-label="조치 전/후 사진"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={activePhotoTab === 'before'}
+                      className={`defect-detail-modal__photo-tab${activePhotoTab === 'before' ? ' is-active' : ''}`}
+                      onClick={() => setActivePhotoTab('before')}
+                    >
+                      조치 전 사진
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={activePhotoTab === 'after'}
+                      className={`defect-detail-modal__photo-tab${activePhotoTab === 'after' ? ' is-active' : ''}`}
+                      onClick={() => setActivePhotoTab('after')}
+                    >
+                      조치 사진
+                    </button>
+                  </div>
+                ) : (
+                  <p className="defect-image-viewer-label">조치 전 사진 (원본)</p>
+                )}
+                {defect.actionResult && activePhotoTab === 'after' ? (
+                  <DefectImageViewer
+                    imageUrl={defect.actionResult.afterPhotoUrl ?? null}
+                    typeLabel={defect.typeLabel}
+                    bboxX={null}
+                    bboxY={null}
+                    bboxW={null}
+                    bboxH={null}
+                  />
+                ) : (
+                  <DefectImageViewer
+                    imageUrl={defect.imageUrl}
+                    typeLabel={defect.typeLabel}
+                    bboxX={defect.bboxX}
+                    bboxY={defect.bboxY}
+                    bboxW={defect.bboxW}
+                    bboxH={defect.bboxH}
+                  />
+                )}
 
                 <div className="defect-metrics">
                   <article className="defect-metric-card">
