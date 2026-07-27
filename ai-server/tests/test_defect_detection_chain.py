@@ -7,10 +7,14 @@
   /`_crack_detections`(CRACK 전용 U-Net 경로)·`run_defect_detection_chain`(셋을 합치는 진입점):
   2026-07-27 6차 rebase 때 "모델 1개가 3클래스 전부 처리" 구조에서 "유형별 전용 모델 3개"
   구조로 재설계됐다(HF Hub 저장소가 그렇게 바뀜 — ai/core/yolo_client.py 모듈 docstring 참고).
-  이후 PR #973 메타 검수(P1/P2)로 등급 산정 단위·부분 실패 격리·과다 탐지 방지가 추가됐다 —
-  아래 크랙 관련 테스트는 실제 배포 해상도(CRACK_INPUT_SIZE=640)를 그대로 써서 비율 기반
-  상수(MIN_CRACK_COMPONENT_AREA_RATIO)가 의미 있게 검증되도록 한다(작은 캔버스에서는 비율이
-  사실상 0에 가까워져 필터링 자체가 무의미해진다).
+  이후 PR #973 메타 검수(P1/P2)로 등급 산정 단위·부분 실패 격리·과다 탐지 방지가 추가됐고,
+  같은 날 실측(오영석, AI Hub 470장)으로 U-Net 추론이 squash에서 레터박스로 바뀌면서
+  `_crack_detections`가 `predict_crack_probability`의 콘텐츠 영역(패딩 제외)만 잘라 넘기도록
+  갱신됐다(ai/core/unet_client.CrackPrediction 참고) — `_crack_mask_to_detections` 자체는
+  "이미 패딩이 제거된 배열"을 받는다는 전제라 이 파일의 테스트는 여전히 정사각 캔버스로
+  직접 호출해도 유효하다. 아래 크랙 관련 테스트는 실제 배포 해상도(CRACK_INPUT_SIZE=640)를
+  그대로 써서 비율 기반 상수(MIN_CRACK_COMPONENT_AREA_RATIO)가 의미 있게 검증되도록 한다
+  (작은 캔버스에서는 비율이 사실상 0에 가까워져 필터링 자체가 무의미해진다).
 """
 import base64
 import io
@@ -22,7 +26,7 @@ import pytest
 from PIL import Image
 
 import ai.chains.defect_detection_chain as chain
-from ai.core.unet_client import CRACK_INPUT_SIZE
+from ai.core.unet_client import CRACK_INPUT_SIZE, CrackPrediction
 from ai.chains.defect_detection_chain import (
     MAX_IMAGE_PIXELS,
     DefectDetectionError,
@@ -300,13 +304,56 @@ def test_crack_detections_thresholds_probability_before_component_analysis(monke
 
     monkeypatch.setattr(chain, "get_crack_model", lambda: "fake-crack-model")
     monkeypatch.setattr(
-        chain, "predict_crack_probability", lambda model, image: probability
+        chain,
+        "predict_crack_probability",
+        lambda model, image: CrackPrediction(
+            probability=probability,
+            content_top=0, content_left=0,
+            content_height=CRACK_INPUT_SIZE, content_width=CRACK_INPUT_SIZE,
+        ),
     )
 
     detections = chain._crack_detections(_dummy_image())
 
     assert len(detections) == 1
     assert detections[0].type == "CRACK"
+
+
+def test_crack_detections_excludes_letterbox_padding_from_area_ratio_and_bbox(monkeypatch):
+    """레터박스 패딩이 area_ratio 분모·bbox 정규화에 섞이지 않는지 고정(2026-07-27 실측 수정 리뷰).
+
+    세로가 긴 원본(예: 1080x1440)을 흉내내 콘텐츠가 640 캔버스의 왼쪽 절반만 차지하게 하고
+    (좌우에 패딩), 콘텐츠 우측 가장자리에 붙은 성분을 만든다 — 패딩 오프셋을 안 빼면 bbox가
+    실제 위치보다 왼쪽으로 밀리고, area_ratio 분모에 패딩까지 포함되면 절반으로 줄어든다.
+    """
+    content_top, content_left = 0, 160
+    content_height, content_width = CRACK_INPUT_SIZE, 320
+
+    probability = np.zeros((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), dtype=np.float32)
+    # 콘텐츠(열 160~479) 우측 가장자리에 붙은 100x50 성분 — 원본 캔버스 좌표로 [430:480].
+    probability[100:200, 430:480] = 0.9
+
+    monkeypatch.setattr(chain, "get_crack_model", lambda: "fake-crack-model")
+    monkeypatch.setattr(
+        chain,
+        "predict_crack_probability",
+        lambda model, image: CrackPrediction(
+            probability=probability,
+            content_top=content_top, content_left=content_left,
+            content_height=content_height, content_width=content_width,
+        ),
+    )
+
+    detections = chain._crack_detections(_dummy_image())
+
+    assert len(detections) == 1
+    detection = detections[0]
+    # area_ratio 분모는 콘텐츠 픽셀 수(640*320)여야 한다 — 패딩 포함 640*640이면 절반으로 준다.
+    expected_area_ratio = (100 * 50) / (content_height * content_width)
+    assert detection.area_ratio == pytest.approx(expected_area_ratio)
+    # 콘텐츠 우측 가장자리에 붙은 성분이므로 bbox_x+bbox_w는 콘텐츠 기준 1.0에 딱 붙어야 한다 —
+    # 패딩 오프셋(160px)이 안 빠지면 479/640≈0.75 근처로 훨씬 작게 나온다.
+    assert detection.bbox_x + detection.bbox_w == pytest.approx(1.0)
 
 
 def _make_crack_detection() -> DetectedDefect:

@@ -55,10 +55,11 @@ MAX_IMAGE_PIXELS = 40_000_000
 # YOLO 추론 자체가 임계값을 너무 낮게 잡으면 잡음(false positive)이 쏟아진다 — 1차 보수적 기본값.
 DEFAULT_CONFIDENCE_THRESHOLD = 0.25
 
-# U-Net 마스크의 연결요소 중 이미지 전체 픽셀 대비 이 비율 미만은 노이즈 스펙클로 간주해 버린다
-# (PR #973 P2-2 리뷰) — 절대 픽셀 수(예: 20px)로 고정하면 unet_client.CRACK_INPUT_SIZE가 바뀔 때
-# 조용히 의미가 달라지므로 비율로 둔다. 균열 등급 최저 밴드(grading._CRACK_AREA_RATIO_SEVERITY_BANDS
-# 첫 항목 0.138%)의 약 1/7 — 그보다 훨씬 작으면 등급 판정에 사실상 기여하지 못하는 잡음으로 본다.
+# U-Net 마스크의 연결요소 중 콘텐츠 영역(레터박스 패딩 제외) 픽셀 대비 이 비율 미만은 노이즈
+# 스펙클로 간주해 버린다(PR #973 P2-2 리뷰) — 절대 픽셀 수(예: 20px)로 고정하면 입력 해상도가
+# 바뀔 때 조용히 의미가 달라지므로 비율로 둔다. 균열 등급 최저 밴드
+# (grading._CRACK_AREA_RATIO_SEVERITY_BANDS 첫 항목 0.275%, 2026-07-27 재보정)의 약 1/14 —
+# 그보다 훨씬 작으면 등급 판정에 사실상 기여하지 못하는 잡음으로 본다.
 MIN_CRACK_COMPONENT_AREA_RATIO = 0.0002
 
 # 노이즈 많은 벽면 사진 한 장이 수십~수백 개의 별도 탐지 행을 만드는 것을 막는 상한(P2-2) — YOLO
@@ -126,6 +127,11 @@ def _mask_area_ratio(masks, index: int, fallback_bbox_area: float) -> float:
 
 def _crack_mask_to_detections(mask: "np.ndarray", probability: "np.ndarray") -> list[DetectedDefect]:
     """균열 확률 맵 -> 연결요소별 DetectedDefect 목록.
+
+    `mask`/`probability`는 호출부(`_crack_detections`)가 **레터박스 패딩을 이미 잘라낸 콘텐츠
+    영역만** 넘긴다는 전제다 — 이 함수 자체는 패딩의 존재를 모르고, 받은 배열 전체를 "이미지"로
+    본다(area_ratio 분모·bbox 정규화 전부 이 배열의 shape 기준). 그래서 이 경계 한 곳에서만
+    패딩을 처리하면 되고, 아래 로직은 패딩 유무와 무관하게 동일하다.
 
     ## 등급은 이미지 전체 마스크 면적 기준으로 1회만 산정한다 (PR #973 P1 리뷰)
 
@@ -202,10 +208,21 @@ def _crack_mask_to_detections(mask: "np.ndarray", probability: "np.ndarray") -> 
 
 
 def _crack_detections(image: "Image.Image") -> list[DetectedDefect]:
+    """레터박스 캔버스에서 패딩을 잘라내 콘텐츠 영역만 `_crack_mask_to_detections`에 넘긴다.
+
+    unet_client가 학습과 동일한 레터박스(긴 변 640 + 중앙 0패딩)로 추론하므로(2026-07-27, #973
+    후속 실측 수정), 640x640 캔버스 중 실제 이미지 픽셀이 아닌 여백(1080x1440 입력 기준 캔버스의
+    약 25%)이 섞여 있다. 이 경계에서 한 번만 잘라내면 area_ratio 분모·bbox 정규화 모두 자동으로
+    "원본 이미지 기준"이 된다 — 패딩 오프셋을 아래 함수 곳곳에 하드코딩해 흩뿌리지 않는다(그렇게
+    두면 area_ratio가 콘텐츠 비율만큼 축소돼 #953이 고쳤던 "전부 A" 버그가 재발한다).
+    """
     model = get_crack_model()
-    probability = predict_crack_probability(model, image)
-    mask = probability > CRACK_MASK_THRESHOLD
-    return _crack_mask_to_detections(mask, probability)
+    prediction = predict_crack_probability(model, image)
+    top, left = prediction.content_top, prediction.content_left
+    height, width = prediction.content_height, prediction.content_width
+    content_probability = prediction.probability[top : top + height, left : left + width]
+    content_mask = content_probability > CRACK_MASK_THRESHOLD
+    return _crack_mask_to_detections(content_mask, content_probability)
 
 
 def _yolo_type_detections(defect_type: str, image: "Image.Image") -> list[DetectedDefect]:

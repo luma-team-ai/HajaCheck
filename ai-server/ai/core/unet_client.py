@@ -16,17 +16,27 @@ recall이 0.28에 그쳐(가늘고 긴 선형 하자에 인스턴스 탐지 구�
   얹어야 한다(저장소 README 사용법 그대로). 실제로 `strict=True`로 전체 키 일치를 확인했다
   (segmentation-models-pytorch==0.5.0 기준, requirements.txt 주석 참고 — 버전이 바뀌면 내부 레이어
   이름이 달라져 로드가 깨질 수 있으니 업그레이드 시 재검증 필수).
-- **전처리(리사이즈·정규화)·threshold는 저장소 README의 학습 시 레시피를 그대로 따른다** — 다른
-  값을 쓰면 모델이 검증받지 않은 입력 분포를 보게 된다.
 - **박스·클래스·신뢰도가 없다** — 반환값은 픽셀별 확률(0~1) 맵 하나뿐이다. 인스턴스화(연결된
   균열 영역별 바운딩박스 역산)는 `ai/chains/defect_detection_chain.py`가 연결요소 분석
   (`cv2.connectedComponentsWithStats`)으로 후처리한다.
+
+## 전처리 = 레터박스(긴 변 640 + 중앙 0패딩) — squash 아님 (2026-07-27, #973 후속 실측 수정)
+
+HF Hub 저장소 README의 빠른 시작 예제는 `cv2.resize(img, (640, 640))`(정사각 squash)를 쓰지만,
+이건 **README 저자가 편의상 든 예시일 뿐 실제 학습 코드(`train_crack_unet.py` CrackDataset,
+레포 밖 `unet_handover` 인수인계본)와 다르다** — 학습은 train/val 공통으로
+`A.LongestMaxSize(640) + A.PadIfNeeded(640,640,BORDER_CONSTANT)`, 즉 **레터박스**를 썼다.
+PR #973 초기 구현은 README 예제를 따라 squash로 넣었는데, AI Hub 아파트 균열 470장 실측
+(2026-07-27, 오영석) 결과 **탐지 성능(IoU/Recall) 자체는 squash와 거의 차이가 없었지만**
+(U-Net이 완전 합성곱 구조라 종횡비 왜곡을 어느 정도 흡수하는 것으로 보임), **균열 없는 벽의
+오탐 발생률·오탐 면적·등급 판별력(AUC)에서는 학습과 같은 레터박스가 명확히 낫다**는 게 확인돼
+정정했다 — 즉 "더 잘 찾는다"가 아니라 "없는 균열을 덜 만들어낸다"는 효과다.
 """
 from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import NamedTuple, TYPE_CHECKING
 
 from ai.core.yolo_client import YOLO_REPO_ID
 
@@ -37,15 +47,42 @@ if TYPE_CHECKING:  # 타입 체커 전용 — 런타임 import 아님(torch 로�
 
 CRACK_CHECKPOINT_FILENAME = "crack_unet_resnet34.pt"
 
-# 저장소 README 학습 설정 그대로(imgsz 640) — 모델이 검증받은 입력 해상도. 원본 종횡비는 유지하지
-# 않고 정사각형으로 리사이즈한다(README 레시피와 동일) — 정규화 좌표(0~1)로 변환하면 이 왜곡과
-# 무관하게 원본 이미지에서의 올바른 위치를 가리키므로 downstream(defect_detection_chain)에는 영향 없다.
+# 저장소 README 학습 설정 그대로(imgsz 640) — 모델이 검증받은 입력 해상도.
 CRACK_INPUT_SIZE = 640
 CRACK_MASK_THRESHOLD = 0.5
 
 # ImageNet 정규화(원 학습이 encoder_weights="imagenet" 사전학습 기준으로 진행됨) — README 레시피 그대로.
 _IMAGENET_MEAN = (0.485, 0.456, 0.406)
 _IMAGENET_STD = (0.229, 0.224, 0.225)
+
+
+class CrackPrediction(NamedTuple):
+    """`predict_crack_probability`의 반환값 — 레터박스 캔버스 전체(패딩 포함) 확률 맵 + 그 안에서
+    실제 이미지 콘텐츠가 차지하는 영역(패딩 오프셋/크기). 호출부(defect_detection_chain)가 패딩
+    영역을 하드코딩된 상수로 추측하지 않고 이 값을 그대로 써서 잘라내게 하기 위해 함께 반환한다
+    (2026-07-27 리뷰 — "패딩 오프셋/콘텐츠 크기를 호출부가 추측하지 않게 할 것").
+    """
+
+    probability: "np.ndarray"  # (CRACK_INPUT_SIZE, CRACK_INPUT_SIZE) — 패딩 영역 포함 전체 캔버스
+    content_top: int
+    content_left: int
+    content_height: int
+    content_width: int
+
+
+def _letterbox_layout(width: int, height: int) -> tuple[int, int, int, int]:
+    """원본 (width, height) -> CRACK_INPUT_SIZE 정사각 캔버스에 배치할 콘텐츠 영역
+    (top, left, content_height, content_width). 긴 변을 CRACK_INPUT_SIZE에 맞춰 종횡비를
+    유지한 채 축소하고, 남는 여백을 상하/좌우 중앙에 동일하게 나눈다 — 학습 코드
+    (`train_crack_unet.py` CrackDataset)의 `A.LongestMaxSize(640) + A.PadIfNeeded`와 동일 레이아웃
+    (배치 방식은 albumentations `PadIfNeeded` 기본값인 중앙 정렬을 따른다).
+    """
+    scale = CRACK_INPUT_SIZE / max(width, height)
+    content_width = round(width * scale)
+    content_height = round(height * scale)
+    top = (CRACK_INPUT_SIZE - content_height) // 2
+    left = (CRACK_INPUT_SIZE - content_width) // 2
+    return top, left, content_height, content_width
 
 
 @lru_cache
@@ -71,24 +108,37 @@ def get_crack_model() -> "Unet":
     return model
 
 
-def predict_crack_probability(model: "Unet", image: "Image.Image") -> "np.ndarray":
-    """RGB 이미지 -> (CRACK_INPUT_SIZE, CRACK_INPUT_SIZE) 픽셀별 균열 확률(0~1) 맵.
+def predict_crack_probability(model: "Unet", image: "Image.Image") -> CrackPrediction:
+    """RGB 이미지 -> 레터박스 캔버스 전체 확률 맵 + 콘텐츠 영역(패딩 제외) 정보.
 
     threshold·연결요소 분석은 호출부(defect_detection_chain)의 책임이다 — 여기서는 모델 순전파까지만
     수행한다(확률값 자체가 연결요소별 confidence 근사치로도 쓰이므로 threshold 이전 값을 반환한다).
+
+    레터박스 배치(`_letterbox_layout`)로 이미지를 축소해 정사각 캔버스 중앙에 놓고, 남는 여백은
+    검정(0) 픽셀로 채운다(정규화 이전 픽셀값 기준 0 — albumentations `PadIfNeeded`
+    `border_mode=BORDER_CONSTANT`와 동일). 반환하는 확률 맵은 패딩을 포함한 캔버스 전체이고,
+    패딩 영역을 실제로 잘라내는 건 호출부가 함께 반환된 콘텐츠 좌표로 수행한다.
     """
     from PIL import Image
     import numpy as np
     import torch
 
-    # BILINEAR — 저장소 README 레시피의 cv2.resize 기본 보간(INTER_LINEAR)과 동일 계열로 맞춘다.
-    # PIL의 resize() 기본값(BICUBIC)을 그대로 두면 학습 시 보지 않은 보간 방식의 입력이 된다(P3 리뷰).
-    resized = image.resize((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), resample=Image.Resampling.BILINEAR)
+    width, height = image.size
+    top, left, content_height, content_width = _letterbox_layout(width, height)
+
+    # BILINEAR — 학습 코드(albumentations LongestMaxSize)의 기본 보간과 동일 계열로 맞춘다.
+    # PIL의 resize() 기본값(BICUBIC)을 그대로 두면 학습 시 보지 않은 보간 방식의 입력이 된다.
+    resized_content = image.resize(
+        (content_width, content_height), resample=Image.Resampling.BILINEAR
+    )
+    canvas = Image.new("RGB", (CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), (0, 0, 0))
+    canvas.paste(resized_content, (left, top))
+
     # mean/std를 float32로 명시 캐스팅 — 그대로 두면 float64 파이썬 튜플과의 연산으로 배열 전체가
-    # float64로 승격돼(~9.8MB) 불필요한 메모리를 쓴다(P3 리뷰).
+    # float64로 승격돼(~9.8MB) 불필요한 메모리를 쓴다.
     mean = np.asarray(_IMAGENET_MEAN, dtype=np.float32)
     std = np.asarray(_IMAGENET_STD, dtype=np.float32)
-    arr = np.asarray(resized, dtype=np.float32) / 255.0
+    arr = np.asarray(canvas, dtype=np.float32) / 255.0
     arr = (arr - mean) / std
     tensor = torch.from_numpy(arr.transpose(2, 0, 1)).float().unsqueeze(0)
 
@@ -96,4 +146,10 @@ def predict_crack_probability(model: "Unet", image: "Image.Image") -> "np.ndarra
         logits = model(tensor)
         probability = torch.sigmoid(logits)
 
-    return probability.squeeze(0).squeeze(0).numpy()
+    return CrackPrediction(
+        probability=probability.squeeze(0).squeeze(0).numpy(),
+        content_top=top,
+        content_left=left,
+        content_height=content_height,
+        content_width=content_width,
+    )
