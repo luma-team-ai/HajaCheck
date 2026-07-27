@@ -173,6 +173,7 @@ export function ReportListPage() {
                 totalPages={totalPages}
                 totalItems={totalItems}
                 onPageChange={handlePageChange}
+                reserveBottomFabSpace={false}
               />
             </div>
 
