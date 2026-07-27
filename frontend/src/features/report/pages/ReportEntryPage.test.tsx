@@ -126,6 +126,7 @@ function renderPage(initialPath = '/inspections/1/reports') {
         <Routes>
           <Route path="/inspections/:id/reports" element={<ReportEntryPage />} />
           <Route path="/inspections/:id/reports/generate" element={<div>편집화면</div>} />
+          <Route path="/reports/:reportId" element={<div>편집화면</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -148,6 +149,7 @@ function renderPageWithLocationProbe(initialPath = '/inspections/1/reports') {
         <Routes>
           <Route path="/inspections/:id/reports" element={<ReportEntryPage />} />
           <Route path="/inspections/:id/reports/generate" element={<div>편집화면</div>} />
+          <Route path="/reports/:reportId" element={<div>편집화면</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -176,6 +178,7 @@ function renderPageWithInPlaceNavigation(initialPath: string, nextPath: string) 
         <Routes>
           <Route path="/inspections/:id/reports" element={<ReportEntryPage />} />
           <Route path="/inspections/:id/reports/generate" element={<div>편집화면</div>} />
+          <Route path="/reports/:reportId" element={<div>편집화면</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -385,7 +388,7 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
       expect(posted).toBe(true);
       expect(screen.getByText('편집화면')).not.toBeNull();
     });
-    expect(screen.getByTestId('location').textContent).toBe('/inspections/1/reports/generate?reportId=77');
+    expect(screen.getByTestId('location').textContent).toBe('/reports/77');
   });
 
   it('생성에 실패하면 편집 화면으로 이동하지 않고 오류를 표시한다', async () => {

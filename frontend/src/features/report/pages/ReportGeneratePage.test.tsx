@@ -264,7 +264,7 @@ describe('ReportGeneratePage', () => {
     expect(uploadedPdfFileName).toBeTruthy();
     expect(uploadedPdfSize).toBeGreaterThan(0);
     expect(finalizePdfUrl).toBe('/api/reports/1/pdf/storage-key');
-    expect(screen.getByRole('link', { name: 'PDF 보기' }).getAttribute('href')).toBe('/api/reports/1/pdf/storage-key');
+    expect(screen.getByRole('link', { name: 'PDF 보기' }).getAttribute('href')).toBe('/reports/1?mode=export');
     expect((screen.getByLabelText('점검 목적') as HTMLTextAreaElement).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: '저장' })).toBeNull();
   });
@@ -305,6 +305,29 @@ describe('ReportGeneratePage', () => {
     expect(uploadedPdfFileName).toBeTruthy();
     expect(uploadedPdfSize).toBeGreaterThan(0);
     expect(finalizePdfUrl).toBe('/api/reports/1/pdf/storage-key');
+  });
+
+  it('/reports/:reportId?mode=export에서 A4 문서 미리보기를 중심으로 렌더한다', async () => {
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+    };
+
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/reports/1?mode=export']}>
+          <Routes>
+            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByLabelText('보고서 문서 미리보기')).toBeTruthy();
+    expect(screen.getByText('시설물 외관 점검 보고서')).toBeTruthy();
+    expect(screen.getByRole('link', { name: '편집·미리보기' }).getAttribute('href')).toBe('/reports/1');
+    expect(screen.queryByLabelText('점검 목적')).toBeNull();
   });
 
   it('content가 편집되지 않은 상태에서는 확정 검증 버튼이 항상 비활성화되지 않는다', async () => {

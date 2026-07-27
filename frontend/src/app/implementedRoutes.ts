@@ -47,7 +47,8 @@ const IMPLEMENTED_ROUTES = new Set([
 // 세그먼트를 통째로 허용하면 위에서 경계하는 #227 문제가 재발하므로, "숫자 id + 이 3개 접미사"로만
 // 좁힌 패턴을 별도로 둔다(PR #938 리뷰 P1).
 const INSPECTION_ID_SCOPED_ROUTE = /^\/inspections\/\d+\/(analysis|viewer|reports)$/;
+const REPORT_ID_SCOPED_ROUTE = /^\/reports\/\d+$/;
 
 export function isRouteImplemented(href: string): boolean {
-  return IMPLEMENTED_ROUTES.has(href) || INSPECTION_ID_SCOPED_ROUTE.test(href);
+  return IMPLEMENTED_ROUTES.has(href) || INSPECTION_ID_SCOPED_ROUTE.test(href) || REPORT_ID_SCOPED_ROUTE.test(href);
 }

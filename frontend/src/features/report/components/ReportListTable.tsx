@@ -122,7 +122,7 @@ export function ReportListTable({
               </svg>
             </span>
             <Link
-              to={`/inspections/${row.inspectionId}/reports/generate?reportId=${row.id}`}
+              to={`/reports/${row.id}`}
               className="font-medium text-zinc-900 no-underline hover:underline"
               onClick={(event) => event.stopPropagation()}
             >

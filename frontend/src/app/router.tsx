@@ -677,6 +677,18 @@ export const router = createBrowserRouter([
         },
       }, // — features/report 보고서 목록/이력 관리 (#463)
       {
+        path: '/reports/:reportId',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <ReportGeneratePage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '보고서' }, { label: '보고서 편집·미리보기' }],
+          activeHref: '/reports',
+        },
+      }, // — features/report 보고서 상세·PDF 내보내기 (#1087)
+      {
         path: '/facilities/:id',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>

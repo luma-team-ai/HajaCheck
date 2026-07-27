@@ -260,7 +260,7 @@ export function ReportEntryPage() {
     try {
       const response = await reportApi.generateReportDraft(inspectionId);
       // 생성 완료 후 편집 화면으로 이동
-      navigate(`/inspections/${inspectionId}/reports/generate?reportId=${response.data.id}`);
+      navigate(`/reports/${response.data.id}`);
     } catch (error) {
       alert(extractErrorMessage(error, '보고서 생성에 실패했습니다.'));
       setIsGenerating(false);
@@ -269,7 +269,7 @@ export function ReportEntryPage() {
 
   const handleEditReport = useCallback(
     (reportId: number) => {
-      navigate(`/inspections/${inspectionId}/reports/generate?reportId=${reportId}`);
+      navigate(`/reports/${reportId}`);
     },
     [inspectionId, navigate],
   );
