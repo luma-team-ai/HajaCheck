@@ -34,12 +34,9 @@ export const SEAT_ROLE_BADGE_CLASS: Record<SeatMemberRole, string> = {
 };
 
 // 좌석 상태 색점 — ACTIVE는 success 색, SUSPENDED는 기존 danger 토큰 재사용.
-// INVITED(초대됨)는 Figma 시안대로 주황 점 — Tailwind 표준 팔레트(orange-500) 사용, 신규 hex 도입 없음.
-// 실 UserStatus엔 없는 프론트 전용 값(types.ts 참고, #659 마이페이지 '내 정보' 데모 표시 전용).
 export const SEAT_STATUS_DOT_CLASS: Record<SeatMemberStatus, string> = {
   ACTIVE: 'bg-[#16a34a]',
   SUSPENDED: 'bg-danger',
-  INVITED: 'bg-orange-500',
 };
 
 // 사용량 임계 도달("N% 도달") 앰버 pill 배지
@@ -81,7 +78,7 @@ export const INSPECTION_STATUS_LABEL: Record<InspectionHistoryStatus, string> = 
 };
 
 // 보고서 카드 등급 dots — 신호등 3색. RED/GREEN은 파일 내 기존 hex(#dc2626/#16a34a 계열)를 재사용하고,
-// ORANGE는 SEAT_STATUS_DOT_CLASS.INVITED와 동일하게 Tailwind 표준 팔레트(orange-500)를 쓴다.
+// ORANGE는 Tailwind 표준 팔레트(orange-500)를 쓴다(신규 hex 도입 없음).
 export const REPORT_GRADE_DOT_CLASS: Record<ReportGradeDotColor, string> = {
   RED: 'bg-danger',
   ORANGE: 'bg-orange-500',

@@ -5,16 +5,13 @@ import { ProfileSection } from '../components/ProfileSection';
 import { SeatsSection } from '../components/SeatsSection';
 import { UsageSection } from '../components/UsageSection';
 import { useMyPlan } from '../hooks/useMyPlan';
-import { mockInvitedSeatMember } from '../mocks/mypage.mock';
 import { MYPAGE_ERROR_CODE } from '../types';
 
 // 마이페이지 — 내 정보(HAJA-361, #659 / Figma "마이페이지 > 내 정보"). MyPlanPage(#212)와 동일한
-// useMyPlan/useSeats 데이터 소스를 그대로 재사용하고(PlanCard/UsageSection은 그대로, SeatsSection은
-// showActions=true로 "작업" 열만 추가) 셸 구조(흰 카드 하나, 섹션 사이 divide-y)도 동일 전략을 따른다
-// (#293 auth.css와 같은 이유로 feature 전용 마크업을 자체 구성 — 공유 클래스 결합 최소화).
-//
-// '초대됨' 상태는 실 UserStatus에 없는 프론트 전용 값(types.ts 참고)이라, mockInvitedSeatMember를
-// SeatsSection의 extraDemoMembers로 얹어 데모로만 보여준다 — 초대·행별 액션 실구현은 후속 #24/#210.
+// useMyPlan/useSeats 데이터 소스를 그대로 재사용하고 셸 구조(흰 카드 하나, 섹션 사이 divide-y)도
+// 동일 전략을 따른다(#293 auth.css와 같은 이유로 feature 전용 마크업을 자체 구성 — 공유 클래스
+// 결합 최소화). SeatsSection은 조회 전용이다 — 초대는 초대코드로 일원화됐다(관리자 AdminUsersPage
+// → InviteCodeModal, 가입측 InviteCodePage). 초대 데모 UI는 잔재라 제거했다(#1045, HAJA-508).
 // 결제 이력은 Figma "내 정보" 시안에 없는 섹션이라 렌더하지 않는다 — MyPlanPage는 PlanCard 상단
 // "결제 내역" 버튼(모달)으로 노출한다(#712 리디자인, 구 BillingHistoryPlaceholder 섹션 대체).
 //
@@ -63,7 +60,7 @@ export function MyProfilePage() {
           </>
         )}
 
-        <SeatsSection showActions extraDemoMembers={[mockInvitedSeatMember]} />
+        <SeatsSection />
       </div>
     </div>
   );
