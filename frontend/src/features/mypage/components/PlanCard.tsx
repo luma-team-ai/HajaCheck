@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import { getApiErrorCode } from '../../../shared/api/types';
 import { Button } from '../../../shared/components/Button/Button';
 import { TossClientKeyMissingError } from '../../../shared/lib/tossPayments/loadTossPaymentsSdk';
-import { usePlanCheckout } from '../hooks/usePlanCheckout';
-import { MYPAGE_ERROR_CODE, type MyPlanInfo, type PlanName } from '../types';
+import { useCreatePlanOrder } from '../hooks/useCreatePlanOrder';
+import { useRequestTossPayment } from '../hooks/useRequestTossPayment';
+import { MYPAGE_ERROR_CODE, type MyPlanInfo, type PlanName, type PlanOrder } from '../types';
 import { PLAN_NAME_LABEL, formatBillingDate, formatPriceMonthly } from '../utils/planFormat';
 import { BillingHistoryModal } from './BillingHistoryModal';
 import { PlanCheckoutModal } from './PlanCheckoutModal';
@@ -55,29 +56,54 @@ function checkoutErrorMessage(error: unknown): string {
 // 요금제 카드 — Figma 리디자인(node 1463-2786, #712). 플랜명(40px)+PLAN 고정 배지(상태 배지가
 // 아니라 "PLAN" 텍스트 고정 — 기존 PLAN_STATUS_BADGE_CLASS와 무관), 가격·다음 결제일 한 줄,
 // 사업자 인증 칩(3분기 — 아래 businessVerified 렌더 참고), "결제 여기서 해요!" 안내. 우측 버튼은
-// "결제 내역"(실 결제 이력 모달) + "플랜 업그레이드"(토스페이먼츠 결제창, #989/HAJA-490). 기존
-// 업그레이드 문의(useUpgradeInquiry, UPGRADE_REQUESTED 상태전이)는 모의 결제(#712)를 거쳐 이제
-// 실 결제창(usePlanCheckout)으로 완전히 대체한다 — PlanStatus.UPGRADE_REQUESTED는 이제 이 화면에서
-// 쓰지 않는다(BE 계약상 여전히 유효한 값이라 타입은 유지).
+// "결제 내역"(실 결제 이력 모달) + "플랜 업그레이드"(토스페이먼츠 결제창, #989/HAJA-490 — 2단계
+// 흐름: 주문 생성→금액 확인→결제창). 기존 업그레이드 문의(useUpgradeInquiry, UPGRADE_REQUESTED
+// 상태전이)는 모의 결제(#712)를 거쳐 이제 실 결제창으로 완전히 대체한다 —
+// PlanStatus.UPGRADE_REQUESTED는 이제 이 화면에서 쓰지 않는다(BE 계약상 여전히 유효한 값이라
+// 타입은 유지).
 export function PlanCard({ plan }: Props) {
-  const checkout = usePlanCheckout();
+  const createOrder = useCreatePlanOrder();
+  const requestPayment = useRequestTossPayment();
   const [isCheckoutOpen, setCheckoutOpen] = useState(false);
   const [isBillingOpen, setBillingOpen] = useState(false);
+  // null=플랜 선택 단계, 값이 있으면 주문 생성 완료 → 금액 확인 단계(코드 리뷰 P2 픽스).
+  const [order, setOrder] = useState<PlanOrder | null>(null);
 
   const candidates = useMemo(() => upgradeCandidates(plan.name), [plan.name]);
   const isTopPlan = candidates.length === 0;
 
-  // 성공 시 onSuccess는 사실상 호출되지 않는다(usePlanCheckout 참고 — redirect 방식이라 브라우저가
-  // 결제창으로 이동하며 페이지가 전환된다). 모달을 여기서 닫지 않는 이유도 동일 — 취소/에러일 때만
-  // 이 mutation이 정착(settled)되어 에러 UI를 보여줘야 하고, 성공 시엔 화면 자체가 곧 떠난다.
-  function handleCheckout(planName: PlanName) {
-    checkout.mutate(planName);
+  // 1단계: 플랜 선택 → 주문 생성. 성공하면 서버가 계산한 실 금액(order.amount)을 확인 단계에
+  // 표시한다(PlanCheckoutModal이 order!=null이면 확인 화면을 렌더링).
+  function handleSelectPlan(planName: PlanName) {
+    createOrder.mutate(planName, {
+      onSuccess: (createdOrder) => setOrder(createdOrder),
+    });
   }
 
+  // 2단계: 확인 화면에서 사용자가 승인 → 결제창 요청. 성공 시 onSuccess는 사실상 호출되지
+  // 않는다(useRequestTossPayment 참고 — redirect 방식이라 브라우저가 결제창으로 이동하며 페이지가
+  // 전환된다). 모달을 여기서 닫지 않는 이유도 동일 — 취소/에러일 때만 이 mutation이 정착
+  // (settled)되어 에러 UI를 보여줘야 하고, 성공 시엔 화면 자체가 곧 떠난다. 실패해도 order는
+  // 유지한다 — 사용자가 같은 주문으로 "결제 진행"을 다시 눌러 재시도할 수 있게(재주문 방지).
+  function handleConfirmPayment() {
+    if (!order) return;
+    requestPayment.mutate(order);
+  }
+
+  // 확인 단계에서 "취소"를 눌러도 모달만 닫는다 — 이미 생성된 READY 주문을 취소하는 API는
+  // 호출하지 않는다(백엔드 만료/재사용 정책 미확정, A가 백엔드와 별도로 정리할 영역).
   function handleCloseCheckout() {
     setCheckoutOpen(false);
-    checkout.reset();
+    setOrder(null);
+    createOrder.reset();
+    requestPayment.reset();
   }
+
+  const checkoutError = requestPayment.isError
+    ? requestPayment.error
+    : createOrder.isError
+      ? createOrder.error
+      : undefined;
 
   return (
     <section className="flex flex-col gap-4 py-6 first:pt-0 last:pb-0">
@@ -132,9 +158,12 @@ export function PlanCard({ plan }: Props) {
         open={isCheckoutOpen}
         onClose={handleCloseCheckout}
         candidates={candidates}
-        onCheckout={handleCheckout}
-        isSubmitting={checkout.isPending}
-        errorMessage={checkout.isError ? checkoutErrorMessage(checkout.error) : undefined}
+        order={order}
+        onSelectPlan={handleSelectPlan}
+        onConfirmPayment={handleConfirmPayment}
+        isCreatingOrder={createOrder.isPending}
+        isRequestingPayment={requestPayment.isPending}
+        errorMessage={checkoutError !== undefined ? checkoutErrorMessage(checkoutError) : undefined}
       />
 
       <BillingHistoryModal open={isBillingOpen} onClose={() => setBillingOpen(false)} />
