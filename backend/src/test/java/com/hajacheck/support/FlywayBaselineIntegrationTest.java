@@ -25,7 +25,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * V16(defects.area_ratio, #803)→V17(seed_bot_scenarios, #20/HAJA-33)→V18(counsel 티켓 스냅샷 +
  * 채팅 첨부, #20/HAJA-33)→V19(media.facility_id + inspection XOR facility, #632/#652/HAJA-377 —
  * 옛 V19(FREE 좌석 한도, #843)는 #858에서 되돌리며 파일이 삭제돼 번호가 비어 있었고, 팀 합의로 이
- * 마이그레이션이 재사용한다. 다음은 정재봉 님 PR이 V20을 쓰기로 조율됨)를 순서대로 적용하고,
+ * 마이그레이션이 재사용한다)→V20(payments 결제 원장, #988/HAJA-489)→V21(inspection_notification_settings.
+ * warn_on_overdue_enabled 기본값 false→true, HAJA-498 — 유병현 님 승인)를 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -69,7 +70,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V20까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V21까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -89,13 +90,15 @@ class FlywayBaselineIntegrationTest {
         // + V20(payments 결제 원장 + payment_status/method enum, #988/HAJA-489). V19 를 #632 가 선점해
         //   결제 원장은 V20 으로 조율됐고, 두 PR 이 모두 들어온 지금 번호는 V1~V20 으로 연속이다
         //   (결번 여부 자체는 FlywayMigrationVersionSequenceTest 가 별도로 고정한다).
-        assertThat(appliedMigrations).isEqualTo(20);
+        // + V21(inspection_notification_settings.warn_on_overdue_enabled DEFAULT false→true + 방어적
+        //   백필, #540/HAJA-498 — 유병현 님 승인 옵션1: 연체 알림 미수신 회귀 방지 하위호환 확보).
+        assertThat(appliedMigrations).isEqualTo(21);
 
-        // 최신 적용 버전이 실제로 V20 인지 확인.
+        // 최신 적용 버전이 실제로 V21 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("20");
+        assertThat(latestVersion).isEqualTo("21");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -134,6 +137,15 @@ class FlywayBaselineIntegrationTest {
                   and indexdef like '%WHERE (payment_key IS NOT NULL)%'
                 """, Long.class);
         assertThat(paymentKeyPartialUniqueExists).isEqualTo(1L);
+
+        // V21이 inspection_notification_settings.warn_on_overdue_enabled 컬럼 DEFAULT를
+        // true로 바꿨는지 확인(#540/HAJA-498 — 유병현 님 승인, 연체 알림 미수신 회귀 방지).
+        String warnOnOverdueEnabledDefault = jdbcTemplate.queryForObject("""
+                select column_default from information_schema.columns
+                where table_schema = 'public' and table_name = 'inspection_notification_settings'
+                  and column_name = 'warn_on_overdue_enabled'
+                """, String.class);
+        assertThat(warnOnOverdueEnabledDefault).contains("true");
 
         // V5가 companies.business_start_date 컬럼을 실제로 추가했는지 확인(#596).
         Long businessStartDateColumnExists = jdbcTemplate.queryForObject("""
