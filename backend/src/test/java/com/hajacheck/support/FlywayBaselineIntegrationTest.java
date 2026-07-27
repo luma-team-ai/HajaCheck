@@ -67,7 +67,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V19까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V20까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -81,12 +81,12 @@ class FlywayBaselineIntegrationTest {
         // + V14(counsel_type 분류, #743) + V15(user_status_type WAITING 라벨, #792)
         // + V16(defects.area_ratio, #803) + V17(seed_bot_scenarios, #20/HAJA-33 — V13 선점으로 재번호)
         // + V18(counsel 티켓 스냅샷 + 채팅 첨부, #20/HAJA-33 — V14 선점으로 재번호)
-        // + V19(payments 결제 원장 + payment_status/method enum, #988/HAJA-489)
-        // ⚠️ 구 V19(FREE 좌석 한도 1→2, #843)는 #858에서 파일째 되돌렸고, 그 커밋이 "어느 실제 DB에도
-        // 적용된 적이 없음(공유 dev=V18, prod=미승격)"을 확인했으므로 #988이 같은 번호를 재사용한다.
+        // + V20(payments 결제 원장 + payment_status/method enum, #988/HAJA-489)
+        // ⚠️ V19 는 다른 작업이 선점해 이 브랜치에 파일이 없다(그래서 #988은 V20을 쓴다) — 적용 파일 수는
+        // 번호의 최댓값이 아니라 실제 파일 수이므로 19 다. V19 가 dev 에 머지되어 들어오면 20 이 된다.
         assertThat(appliedMigrations).isEqualTo(19);
 
-        // V19가 payments 테이블(#988/HAJA-489)을 실제로 만들었는지 확인한다.
+        // V20이 payments 테이블(#988/HAJA-489)을 실제로 만들었는지 확인한다.
         Long paymentsTableExists = jdbcTemplate.queryForObject("""
                 select count(*) from information_schema.tables
                 where table_schema = 'public' and table_name = 'payments'

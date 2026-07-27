@@ -124,15 +124,15 @@ class FlywayBaselineOnExistingDbIntegrationTest {
         // 캐노니컬 DDL 시드값 1이 그대로 유지되어야 한다.
         assertThat(planRepository.findByName(PlanName.FREE).orElseThrow().getMaxSeats()).isEqualTo(1);
 
-        // 현재의 V19 는 #988/HAJA-489 결제 원장(payments)이다. 이 테스트의 기존 DB(캐노니컬 DDL)에는
-        // payments 가 이미 존재하므로, V19 는 전 구문이 멱등(IF NOT EXISTS / DO 블록)이라 실패 없이
-        // no-op 성공으로 스탬프되어야 한다 — 무가드 create table/type 재도입에 대한 회귀선(V3·V18과 동일).
-        Integer v19Applied = jdbcTemplate.queryForObject(
-                "select count(*) from flyway_schema_history where version = '19' and success = true",
+        // V20 은 #988/HAJA-489 결제 원장(payments)이다. 이 테스트의 기존 DB(캐노니컬 DDL)에는 payments 가
+        // 이미 존재하므로, V20 은 전 구문이 멱등(IF NOT EXISTS / DO 블록)이라 실패 없이 no-op 성공으로
+        // 스탬프되어야 한다 — 무가드 create table/type 재도입에 대한 회귀선(V3·V18과 동일).
+        Integer v20Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '20' and success = true",
                 Integer.class);
-        assertThat(v19Applied).isEqualTo(1);
+        assertThat(v20Applied).isEqualTo(1);
 
-        // 기존 DB에 있던 payments 는 그대로 하나만 유지된다(V19 재적용이 중복 생성하지 않음).
+        // 기존 DB에 있던 payments 는 그대로 하나만 유지된다(V20 재적용이 중복 생성하지 않음).
         Long paymentsTables = jdbcTemplate.queryForObject("""
                 select count(*) from information_schema.tables
                 where table_schema = 'public' and table_name = 'payments'

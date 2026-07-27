@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -18,7 +19,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * 플랜 구독 결제 원장 — DDL payments 테이블 대응(#988 / HAJA-489, V19).
+ * 플랜 구독 결제 원장 — DDL payments 테이블 대응(#988 / HAJA-489, V20).
  *
  * <p><b>왜 주문을 사전 등록하는가</b>: 결제창을 띄우기 전에 서버가 {@code orderId}·{@code amount} 를
  * 확정해 READY 로 저장해 두고, 승인 단계에서는 클라이언트가 보낸 금액을 <b>저장된 값과 대조만</b> 한다.
@@ -44,6 +45,9 @@ import org.hibernate.type.SqlTypes;
 })
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Payment {
+
+    /** 유효시간 초과로 자동 취소된 주문의 failure_code — 운영 대사에서 PG 거절과 구분하기 위한 자체 코드. */
+    public static final String FAILURE_CODE_EXPIRED = "HAJA_ORDER_EXPIRED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -82,7 +86,8 @@ public class Payment {
     @Column(name = "payment_key", length = 200)
     private String paymentKey;
 
-    @Column(name = "receipt_url")
+    // DDL 이 text 라 길이 제한을 두지 않는다(ChatMessage·Facility 와 동일 관례).
+    @Column(name = "receipt_url", columnDefinition = "text")
     private String receiptUrl;
 
     @Column(name = "requested_at", nullable = false)
@@ -94,7 +99,7 @@ public class Payment {
     @Column(name = "failure_code", length = 100)
     private String failureCode;
 
-    @Column(name = "failure_message")
+    @Column(name = "failure_message", columnDefinition = "text")
     private String failureMessage;
 
     @Builder(access = AccessLevel.PRIVATE)
@@ -128,7 +133,10 @@ public class Payment {
                 .build();
     }
 
-    /** 이 주문의 소유자인지 — 인가 판정용(주문 소유자가 아니면 존재 여부를 알려주지 않고 403). */
+    /**
+     * 이 주문의 소유자인지 — 인가 판정용. 소유자가 아니면 호출부는 존재 여부를 알려주지 않고
+     * {@code PAYMENT_ORDER_NOT_FOUND}(404)로 응답한다(미존재와 동일 코드 — 주문 열거 차단).
+     */
     public boolean isOwnedBy(Long candidateUserId) {
         return this.userId != null && this.userId.equals(candidateUserId);
     }
@@ -140,6 +148,27 @@ public class Payment {
     /** 승인 대기 상태(= 아직 확정 가능한 주문)인지. FAILED·CANCELED 는 재확정 대상이 아니다. */
     public boolean isConfirmable() {
         return this.status == PaymentStatus.READY;
+    }
+
+    /**
+     * 유효시간이 지난 READY 주문인지(리뷰 P2). 금액이 결제 시점 스냅샷이라 시한이 없으면 요금 인상 직전에
+     * 주문을 쟁여뒀다가 나중에 구가격으로 결제할 수 있고, 승인되지 않은 주문이 무한 누적된다.
+     */
+    public boolean isExpired(Instant now, Duration ttl) {
+        return isConfirmable() && this.requestedAt.plus(ttl).isBefore(now);
+    }
+
+    /**
+     * 유효시간이 지난 READY 주문을 취소로 닫는다. 승인된 주문(PAID)은 절대 건드리지 않는다 — 만료 판정과
+     * 승인이 겹치는 경합에서 이미 받은 돈의 기록이 지워지면 안 된다({@link #isConfirmable()} 가드).
+     */
+    public void markExpired() {
+        if (!isConfirmable()) {
+            return;
+        }
+        this.status = PaymentStatus.CANCELED;
+        this.failureCode = FAILURE_CODE_EXPIRED;
+        this.failureMessage = "주문 유효시간이 지나 자동 취소되었습니다.";
     }
 
     /** 승인은 끝났는데 플랜 전이가 아직 반영되지 않은 상태 — 재확정 요청이 전이만 재시도할 근거이자 운영 대사 신호. */
