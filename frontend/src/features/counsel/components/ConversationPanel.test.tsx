@@ -36,6 +36,11 @@ describe('ConversationPanel', () => {
         error={null}
         onStartNewCounsel={vi.fn()}
         onSendMessage={onSendMessage}
+        onTyping={vi.fn()}
+        counselorTyping={false}
+        onEndCounsel={vi.fn()}
+        ending={false}
+        endError={null}
       />,
     );
 
@@ -57,6 +62,11 @@ describe('ConversationPanel', () => {
         error={null}
         onStartNewCounsel={vi.fn()}
         onSendMessage={onSendMessage}
+        onTyping={vi.fn()}
+        counselorTyping={false}
+        onEndCounsel={vi.fn()}
+        ending={false}
+        endError={null}
       />,
     );
 
@@ -64,6 +74,52 @@ describe('ConversationPanel', () => {
     fireEvent.change(screen.getByLabelText('메시지 입력'), { target: { value: '   ' } });
     expect((screen.getByRole('button', { name: '전송' }) as HTMLButtonElement).disabled).toBe(true);
     expect(onSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('counselorTyping이 true면 타이핑 말풍선을 보여준다', () => {
+    render(
+      <ConversationPanel
+        ticket={buildTicket({ status: 'IN_PROGRESS' })}
+        messages={[]}
+        loading={false}
+        error={null}
+        onStartNewCounsel={vi.fn()}
+        onSendMessage={vi.fn()}
+        onTyping={vi.fn()}
+        counselorTyping
+        onEndCounsel={vi.fn()}
+        ending={false}
+        endError={null}
+      />,
+    );
+
+    expect(screen.getByText('입력 중입니다...')).toBeTruthy();
+  });
+
+  it('입력 중 onTyping을 호출하고, 상담 종료 버튼 클릭 시 onEndCounsel을 호출한다', () => {
+    const onTyping = vi.fn();
+    const onEndCounsel = vi.fn();
+    render(
+      <ConversationPanel
+        ticket={buildTicket({ status: 'IN_PROGRESS' })}
+        messages={[]}
+        loading={false}
+        error={null}
+        onStartNewCounsel={vi.fn()}
+        onSendMessage={vi.fn()}
+        onTyping={onTyping}
+        counselorTyping={false}
+        onEndCounsel={onEndCounsel}
+        ending={false}
+        endError={null}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('메시지 입력'), { target: { value: '안녕' } });
+    expect(onTyping).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '상담 종료' }));
+    expect(onEndCounsel).toHaveBeenCalled();
   });
 
   it.each(['WAITING', 'RESOLVED', 'OFFLINE_LEFT'] as const)(
@@ -77,6 +133,11 @@ describe('ConversationPanel', () => {
           error={null}
           onStartNewCounsel={vi.fn()}
           onSendMessage={vi.fn()}
+          onTyping={vi.fn()}
+          counselorTyping={false}
+          onEndCounsel={vi.fn()}
+          ending={false}
+          endError={null}
         />,
       );
 
