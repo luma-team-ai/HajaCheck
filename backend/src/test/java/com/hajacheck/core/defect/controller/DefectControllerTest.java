@@ -308,13 +308,13 @@ class DefectControllerTest extends PostgresTestSupport {
         User owner = saveOwner("owner10@haja.com");
         Facility facility = saveFacility(owner.getId());
         Inspection inspection = saveInspection(facility.getId(), owner.getId());
-        // DETECTED → ACTION_PENDING 은 CONFIRMED 단계를 건너뛰는 스킵 전이라 사유 없이는 거부되어야 한다.
+        // DETECTED → IN_PROGRESS 는 CONFIRMED 단계를 건너뛰는 스킵 전이라 사유 없이는 거부되어야 한다.
         Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
 
         mockMvc.perform(patch("/api/defects/{id}/status", defect.getId())
                         .with(csrf()).with(authentication(authOf(owner)))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("status", "ACTION_PENDING"))))
+                        .content(objectMapper.writeValueAsString(Map.of("status", "IN_PROGRESS"))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
     }
@@ -330,9 +330,9 @@ class DefectControllerTest extends PostgresTestSupport {
                         .with(csrf()).with(authentication(authOf(owner)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                Map.of("status", "ACTION_PENDING", "reason", "경미한 하자라 검수확정 생략"))))
+                                Map.of("status", "IN_PROGRESS", "reason", "경미한 하자라 검수확정 생략"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("ACTION_PENDING"));
+                .andExpect(jsonPath("$.data.status").value("IN_PROGRESS"));
     }
 
     @Test
@@ -416,7 +416,7 @@ class DefectControllerTest extends PostgresTestSupport {
         mockMvc.perform(patch("/api/defects/{id}/status", defect.getId())
                         .with(csrf()).with(authentication(authOf(owner)))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("status", "ACTION_PENDING"))))
+                        .content(objectMapper.writeValueAsString(Map.of("status", "IN_PROGRESS"))))
                 .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/defects/{id}/revisions", defect.getId())
@@ -424,7 +424,7 @@ class DefectControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(2))
                 .andExpect(jsonPath("$.data.content[0].oldValue").value("CONFIRMED"))
-                .andExpect(jsonPath("$.data.content[0].newValue").value("ACTION_PENDING"))
+                .andExpect(jsonPath("$.data.content[0].newValue").value("IN_PROGRESS"))
                 .andExpect(jsonPath("$.data.content[1].oldValue").value("DETECTED"))
                 .andExpect(jsonPath("$.data.content[1].newValue").value("CONFIRMED"));
     }

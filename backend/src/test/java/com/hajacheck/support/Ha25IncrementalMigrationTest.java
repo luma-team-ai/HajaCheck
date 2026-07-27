@@ -18,6 +18,15 @@ import org.testcontainers.utility.MountableFile;
  * 운영 증분 경로(v0.3 → HAJA-25)를 실제 psql autocommit으로 적용한 뒤 새 DB에 적용한
  * 캐노니컬 DDL과 PostgreSQL 카탈로그를 대조하고, JPA 전체 스키마를 validate한다.
  * CREATE INDEX CONCURRENTLY를 포함하므로 JDBC 트랜잭션 기반 SQL 실행기로 대체하지 않는다.
+ *
+ * <p><b>V22(defect_status_type 4단계 축소)은 이 파리티 체인에서 의도적으로 제외</b>한다. 재적용 안전한
+ * 마이그레이션(V12/V13/V16 등 {@code add column if not exists} 계열)은 캐노니컬 DDL에도 반영해 체인에
+ * 편입해왔지만, V22을 편입하려면 캐노니컬 DDL의 {@code defect_status_type}을 4라벨로 바꿔야 한다. 그러면
+ * 캐노니컬 DDL을 "마이그레이션 이전 기존 DB"로 쓰는 {@link FlywayBaselineOnExistingDbIntegrationTest}·
+ * {@link DefectStatusBackfillMigrationTest}에서 ACTION_PENDING 행을 심을 수 없게 되어, V22의 백필
+ * UPDATE 경로가 CI에서 영영 검증 불가가 된다(prod에서만 터지는 #531 형태). 백필 검증을 우선해
+ * 캐노니컬은 pre-V22 상태로 동결한다 — {@code docs/design/db/HajaCheck_script.sql}의
+ * defect_status_type 정의 위 주석 참고.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)

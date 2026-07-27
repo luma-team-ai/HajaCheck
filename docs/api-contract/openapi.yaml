@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.24.0-draft"
+  version: "0.25.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -59,6 +59,10 @@ info:
     `현재 >= 대상`(하향·동일가)만, 결제 경로(POST /api/me/plan/orders)는 `현재 < 대상`(상향)만 허용해
     빈틈도 겹침도 없다. 판정 기준은 티어 이름이 아니라 plans.price_monthly 다.
     사업자 미보유로 **테스트 키 샌드박스**까지만 — 웹훅·환불·정기결제(빌링키)·정산은 범위 밖.
+    2026-07-27 DefectStatusCode에서 ACTION_PENDING(조치대기) 제거 — 하자 상태를 4단계
+    (DETECTED → CONFIRMED → IN_PROGRESS → RESOLVED)로 축소하고 CONFIRMED가 "검수완료 + 조치 착수 전"을
+    겸한다(DB V22 마이그레이션). PendingPriorityItem에 inspectionId 추가 — 조치 우선순위 항목에서 하자
+    상세로 이동하려면 점검 회차 id가 필요.
     2026-07-26 DefectDetailItem에 typeLabel(한글 라벨) 추가 — 카드형 하자 목록에서 계약 불일치로
     크래시하던 문제 수정(#918/HAJA-468). DefectResponse.typeLabel과 동일 매핑.
     2026-07-25 점검 회차별 미디어 목록 조회(GET /api/inspections/{id}/media) 신설(#803) — 하자 유무
@@ -1663,7 +1667,8 @@ paths:
     get:
       summary: 조치 우선순위 목록 (HAJA-17, dev-03-01)
       description: >
-        로그인 사용자 소유 시설물의 조치대기 결함을 등급·최신순으로 반환한다. location 은 시설물 명칭까지만
+        로그인 사용자 소유 시설물의 조치대기(= CONFIRMED, 검수확정 후 조치 착수 전) 결함을 등급·최신순으로
+        반환한다. location 은 시설물 명칭까지만
         제공한다(defects/media 스키마에 세부 위치 컬럼 없음). `DashboardController.getPendingPriority` 구현됨.
       security:
         - SessionCookie: []
@@ -2231,7 +2236,7 @@ paths:
     post:
       summary: 보고서 초안 생성 (#446 / HAJA-283)
       description: >
-        점검의 확정 하자(CONFIRMED/ACTION_PENDING/IN_PROGRESS/RESOLVED, DETECTED 제외)를 근거로
+        점검의 확정 하자(CONFIRMED/IN_PROGRESS/RESOLVED, DETECTED 제외)를 근거로
         AiProxyService(`/api/ai/report`)를 호출해 AI 보고서 초안(DRAFT)을 생성한다. 확정 하자가 0건이어도
         빈 목록으로 정상 진행한다(결함 없는 정상 점검도 유효한 보고서 유스케이스). 소유권 검증은
         InspectionService.getInspection 에 위임 — 미존재/타인 소유 모두 404 통일 응답.
@@ -3207,7 +3212,11 @@ components:
 
     DefectStatusCode:
       type: string
-      enum: [DETECTED, CONFIRMED, ACTION_PENDING, IN_PROGRESS, RESOLVED]
+      description: >-
+        하자 조치 상태 4단계(DETECTED → CONFIRMED → IN_PROGRESS → RESOLVED). CONFIRMED(검수확정)가
+        "검수완료 + 아직 조치 착수 전"까지 겸한다 — 구 ACTION_PENDING(조치대기)은 CONFIRMED로 흡수되어
+        제거됐다(DB V22 마이그레이션).
+      enum: [DETECTED, CONFIRMED, IN_PROGRESS, RESOLVED]
 
     InspectionStatusCode:
       type: string
@@ -4905,10 +4914,13 @@ components:
 
     PendingPriorityItem:
       type: object
-      description: location 은 시설물 명칭까지만 제공한다(세부 위치 컬럼 없음).
-      required: [id, grade, title, location, occurredAt]
+      description: >-
+        location 은 시설물 명칭까지만 제공한다(세부 위치 컬럼 없음).
+        inspectionId 는 이 항목에서 하자 상세(점검 회차 스코프)로 바로 이동하기 위한 값.
+      required: [id, inspectionId, grade, title, location, occurredAt]
       properties:
         id: { type: integer, format: int64 }
+        inspectionId: { type: integer, format: int64, description: "하자가 속한 점검 회차 id" }
         grade: { $ref: "#/components/schemas/NullableDefectGradeCode" }
         title: { type: string, description: "하자 유형 한글 라벨", example: 균열 }
         location: { type: string, example: "하자체크 1동" }

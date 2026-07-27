@@ -33,7 +33,6 @@ class DefectTest {
                 .confidence(0.95).build();
 
         defect.changeStatus(DefectStatus.CONFIRMED);
-        defect.changeStatus(DefectStatus.ACTION_PENDING);
         defect.changeStatus(DefectStatus.IN_PROGRESS);
         defect.changeStatus(DefectStatus.RESOLVED);
 
@@ -45,7 +44,7 @@ class DefectTest {
     void changeStatus_사유없는건너뛰기와동일상태는거부하고해결상태는이탈불가() {
         Defect detected = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).build();
-        assertThatThrownBy(() -> detected.changeStatus(DefectStatus.ACTION_PENDING))
+        assertThatThrownBy(() -> detected.changeStatus(DefectStatus.IN_PROGRESS))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> detected.changeStatus(DefectStatus.DETECTED))
                 .isInstanceOf(IllegalStateException.class);
@@ -63,8 +62,8 @@ class DefectTest {
         Defect detected = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).build();
 
-        detected.changeStatus(DefectStatus.ACTION_PENDING, "경미한 하자라 검수확정 생략");
-        assertThat(detected.getStatus()).isEqualTo(DefectStatus.ACTION_PENDING);
+        detected.changeStatus(DefectStatus.IN_PROGRESS, "경미한 하자라 검수확정 생략");
+        assertThat(detected.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
         assertThat(detected.isReviewed()).isTrue();
 
         detected.changeStatus(DefectStatus.CONFIRMED, "확정 이전으로 재검토 필요");
@@ -77,8 +76,24 @@ class DefectTest {
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).build();
 
-        assertThatThrownBy(() -> defect.changeStatus(DefectStatus.ACTION_PENDING, "  "))
+        assertThatThrownBy(() -> defect.changeStatus(DefectStatus.IN_PROGRESS, "  "))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void changeStatus_검수확정에서_조치완료로_바로건너뛰면_사유없이는거부() {
+        // 4단계 축소(V21) 후 CONFIRMED 의 정방향 한 단계는 IN_PROGRESS 다. CONFIRMED → RESOLVED 는
+        // 조치중을 건너뛰는 스킵 전이이므로 사유 없이는 막혀야 한다 — "조치 없이 완료 처리" 방지 회귀선.
+        Defect confirmed = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).status(DefectStatus.CONFIRMED).build();
+
+        assertThatThrownBy(() -> confirmed.changeStatus(DefectStatus.RESOLVED))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(confirmed.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+
+        // 사유가 있으면 기존 규칙대로 허용된다(역행/건너뛰기 공통 규칙).
+        confirmed.changeStatus(DefectStatus.RESOLVED, "경미한 하자라 현장에서 즉시 조치 완료");
+        assertThat(confirmed.getStatus()).isEqualTo(DefectStatus.RESOLVED);
     }
 
     @Test

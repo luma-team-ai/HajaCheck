@@ -236,9 +236,9 @@ class DashboardServiceTest {
         Inspection myInspection =
                 inspection(200L, FACILITY_ID, OWNER_ID, LocalDate.now(), InspectionStatus.REVIEWED);
         when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of(myInspection));
-        Defect pending = defect(300L, 200L, DefectGrade.E, DefectStatus.ACTION_PENDING);
+        Defect pending = defect(300L, 200L, DefectGrade.E, DefectStatus.CONFIRMED);
         when(defectRepository.findPendingPriorityDefects(
-                List.of(200L), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10)))
+                List.of(200L), DefectStatus.CONFIRMED, PageRequest.of(0, 10)))
                 .thenReturn(List.of(pending));
 
         List<PendingPriorityResponse> result =
@@ -250,7 +250,7 @@ class DashboardServiceTest {
         // 타인(OTHER_OWNER_ID) 소유 시설물은 findByCompanyId(OWNER_ID) 결과에 없으므로
         // defectRepository 조회 인자에도 해당 시설물의 inspectionId 가 절대 섞이지 않는다.
         verify(defectRepository).findPendingPriorityDefects(
-                List.of(200L), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10));
+                List.of(200L), DefectStatus.CONFIRMED, PageRequest.of(0, 10));
     }
 
     @Test
