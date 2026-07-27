@@ -33,6 +33,7 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.repository.FacilityRepresentativeMediaProjection;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -226,6 +227,109 @@ class FacilityServiceTest {
                 return defectId;
             }
         };
+    }
+
+    // ── 시설물 목록/상세 대표 사진 썸네일(HAJA-367/#670) ──
+
+    private static FacilityRepresentativeMediaProjection mediaProjection(Long facilityId, Long mediaId) {
+        return new FacilityRepresentativeMediaProjection() {
+            public Long getFacilityId() {
+                return facilityId;
+            }
+
+            public Long getMediaId() {
+                return mediaId;
+            }
+        };
+    }
+
+    @Test
+    void list_대표사진있는시설_썸네일URL채워서반환() {
+        Facility facility = facilityWithId(10L, "강남 오피스타워", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        when(mediaRepository.findFirstIdsByFacilityIds(eq(List.of(10L)), eq(OWNER_ID)))
+                .thenReturn(List.of(mediaProjection(10L, 900L)));
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).thumbnailUrl()).isEqualTo("/api/media/900/thumbnail");
+    }
+
+    @Test
+    void list_대표사진없는시설_썸네일URL은null() {
+        Facility facility = facilityWithId(10L, "강남 오피스타워", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        when(mediaRepository.findFirstIdsByFacilityIds(eq(List.of(10L)), eq(OWNER_ID)))
+                .thenReturn(List.of());
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).thumbnailUrl()).isNull();
+    }
+
+    // code-reviewer P2 선례(latestDefectId 교차오염 테스트)와 동일 이유 — 시설물 1건짜리 테스트만으로는
+    // facilityId별 그룹핑(첫 값=최초 등록 사진 유지)이 실제로 동작하는지 못 잡는다.
+    @Test
+    void list_시설물여러건_각시설물별로썸네일이섞이지않는다() {
+        Facility facilityA = facilityWithId(10L, "강남 오피스타워", null, null, null);
+        Facility facilityB = facilityWithId(20L, "한강대교 북단", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facilityA, facilityB));
+        // facilityId asc, id asc 정렬을 그대로 재현 — 시설물별 첫 행이 최초 등록 사진이다.
+        when(mediaRepository.findFirstIdsByFacilityIds(eq(List.of(10L, 20L)), eq(OWNER_ID)))
+                .thenReturn(List.of(
+                        mediaProjection(10L, 901L),
+                        mediaProjection(10L, 902L),
+                        mediaProjection(20L, 903L)));
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).id()).isEqualTo(10L);
+        assertThat(result.get(0).thumbnailUrl()).isEqualTo("/api/media/901/thumbnail");
+        assertThat(result.get(1).id()).isEqualTo(20L);
+        assertThat(result.get(1).thumbnailUrl()).isEqualTo("/api/media/903/thumbnail");
+    }
+
+    @Test
+    void get_대표사진있는시설_썸네일URL채워서반환() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        Media photo = Media.builder()
+                .facilityId(10L)
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/1-original.png")
+                .thumbnailUrl("facility-media-thumb/1-thumb.jpg")
+                .mimeSignatureVerified(true)
+                .build();
+        setMediaId(photo, 900L);
+        when(mediaRepository.findByFacilityIdOrderByIdAsc(10L)).thenReturn(List.of(photo));
+
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
+
+        assertThat(response.thumbnailUrl()).isEqualTo("/api/media/900/thumbnail");
+    }
+
+    @Test
+    void get_대표사진없는시설_썸네일URL은null() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(mediaRepository.findByFacilityIdOrderByIdAsc(10L)).thenReturn(List.of());
+
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
+
+        assertThat(response.thumbnailUrl()).isNull();
+    }
+
+    private void setMediaId(Media media, Long id) {
+        try {
+            Field idField = Media.class.getDeclaredField("id");
+            idField.setAccessible(true);
+            idField.set(media, id);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @Test

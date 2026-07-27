@@ -1,8 +1,10 @@
 package com.hajacheck.core.media.repository;
 
+import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -30,6 +32,21 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
 
     // 시설물 대표 사진 목록 조회 — id asc 고정으로 조회 순서를 일관되게 유지한다.
     List<Media> findByFacilityIdOrderByIdAsc(Long facilityId);
+
+    // 시설물 목록 썸네일 배치 조회(HAJA-367/#670) — 시설물 수만큼 findByFacilityIdOrderByIdAsc를
+    // 반복 호출하면 N+1이므로, 대상 시설물 전체의 (facilityId, mediaId) 쌍을 한 번에 가져온다.
+    // facilityId asc, id asc로 정렬해 서비스 계층에서 facilityId별 첫 값만 취하면 시설물당 최초 등록
+    // 사진 1건이 된다(DefectRepository.findLatestByFacilityIds의 배치 조립 패턴과 동일 원칙).
+    // Media 는 Facility 와 연관관계 객체가 없어(facilityId 값 컬럼만 보유) countByAssignedInspectorIn...
+    // 처럼 "join Facility f on f.id = m.facilityId" 애드혹 조인으로 companyId 를 방어적으로 재검증한다
+    // (호출부가 이미 회사 스코프로 걸러진 facilityIds 만 넘기지만, DefectRepository.findLatestByFacilityIds
+    // 와 동일하게 리포지토리 계층에서도 한 번 더 막아 향후 다른 호출부가 생겨도 안전하게 한다).
+    @Query("select m.facilityId as facilityId, m.id as mediaId from Media m "
+            + "join Facility f on f.id = m.facilityId "
+            + "where m.facilityId in :facilityIds and f.companyId = :companyId "
+            + "order by m.facilityId asc, m.id asc")
+    List<FacilityRepresentativeMediaProjection> findFirstIdsByFacilityIds(
+            @Param("facilityIds") Collection<Long> facilityIds, @Param("companyId") Long companyId);
 
     // 관리자 플랜·쿼터 관리(#507) — 멤버별 "이번 달 분석한 이미지 장수" 근사치. media 테이블에 업로더 FK가
     // 없어(point-in-time 스키마) 담당 점검자(inspections.assigned_inspector_id) 단위로 집계한다 — 한 점검을

@@ -64,7 +64,8 @@ public class Facility extends BaseTimeEntity {
     @Column(name = "next_inspection_due_at")
     private LocalDate nextInspectionDueAt;
 
-    // 시설물 등록 필드 확장(#628 / HAJA-347) — 대표 사진은 별도 테이블(facility_photos)이라 여기 없다.
+    // 시설물 등록 필드 확장(#628 / HAJA-347) — 대표 사진은 별도 테이블(media, facility_id 폴리모픽
+    // 소유 — #632)이라 여기 없다. 목록/상세 응답의 썸네일 URL은 FacilityService가 배치 조회로 채운다.
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "initial_grade", columnDefinition = "facility_initial_grade_type")
     private FacilityInitialGrade initialGrade;
