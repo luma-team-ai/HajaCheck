@@ -20,6 +20,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 상담방 실시간 메시지 처리(FR-7, #20/HAJA-33). STOMP {@code SEND /app/counsel/{ticketId}/send} 진입점의
@@ -89,17 +91,31 @@ public class CounselChatService {
         messagingTemplate.convertAndSend(
                 TOPIC_PREFIX + ticketId, ChatMessageResponse.from(saved, ticketId, counselorName));
 
-        // 상담원 답변만 알림 대상(NOTI-01 나머지, #493) — 사용자 발신은 알림 불필요. 알림 발행 실패가 이미
-        // 저장·브로드캐스트된 메시지 처리 자체를 막으면 안 되므로, 이 메서드의 기존 방어적 설계(위 클래스
-        // 주석 L25-26)와 동일하게 예외를 흡수하고 로그만 남긴다.
+        // 상담원 답변만 알림 대상(NOTI-01 나머지, #493) — 사용자 발신은 알림 불필요. 이 메서드의 물리
+        // 트랜잭션이 실제로 커밋된 뒤에만 알림을 발행한다(#993 P2 픽스) — 저장 시점에 즉시(REQUIRES_NEW로)
+        // 발행하면, 이후 이 트랜잭션의 커밋 자체가 실패할 때(제약 위반·커넥션 오류 등) 메시지 행은 롤백되는데
+        // 알림은 이미 독립 커밋돼 남아버리는 유령 알림이 생긴다 — afterCommit 훅으로 인과성을 보장한다.
+        // 알림 발행(afterCommit 콜백) 실패가 메시지 저장·브로드캐스트에 영향을 주면 안 되므로, 이 메서드의
+        // 기존 방어적 설계(위 클래스 주석 L25-26)와 동일하게 예외를 흡수하고 로그만 남긴다.
+        //
+        // ⚠️ 알려진 한계(#1009, 사용자 확인 후 구조 변경 없이 보류 결정) — afterCommit 시점엔 이 메서드의
+        // 부모 트랜잭션 커넥션이 아직 스레드에 바인딩돼 있어(반환은 이후 doCleanupAfterCompletion), 그 안에서
+        // notify()가 REQUIRES_NEW로 여는 두 번째 커넥션과 합쳐 상담원 답변 1건당 순간적으로 커넥션 2개를
+        // 점유한다. HikariCP 기본 풀(10)을 상담 동시 처리량이 실제로 압박하는지는 미실측 — 필요 시 #1009에서
+        // ApplicationEventPublisher+@TransactionalEventListener(AFTER_COMMIT)+@Async로 완전 분리 검토.
         if (sender == ChatSenderType.COUNSELOR) {
-            try {
-                notificationService.notify(ticket.getUserId(), NotificationType.COUNSEL_REPLIED,
-                        CounselReplyNotificationPayload.serialize(ticketId));
-            } catch (Exception e) {
-                log.warn("COUNSEL_REPLIED 알림 발행 실패 — ticketId={} exception={}",
-                        ticketId, e.getClass().getSimpleName());
-            }
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        notificationService.notify(ticket.getUserId(), NotificationType.COUNSEL_REPLIED,
+                                CounselReplyNotificationPayload.serialize(ticketId));
+                    } catch (Exception e) {
+                        log.warn("COUNSEL_REPLIED 알림 발행 실패 — ticketId={} exception={}",
+                                ticketId, e.getClass().getSimpleName());
+                    }
+                }
+            });
         }
     }
 
