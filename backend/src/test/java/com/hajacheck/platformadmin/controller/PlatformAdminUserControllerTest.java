@@ -298,8 +298,8 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
     @Test
     void 사용자등록_화이트리스트밖역할이면_400() throws Exception {
         User platformAdmin = saveUser("플랫폼관리자", "pa10@haja.com", Role.PLATFORM_ADMIN);
-        PlatformAdminUserCreateRequest request =
-                new PlatformAdminUserCreateRequest("pa10-new@haja.com", "password1", "상담원시도", Role.COUNSELOR, null);
+        PlatformAdminUserCreateRequest request = new PlatformAdminUserCreateRequest(
+                "pa10-new@haja.com", "password1", "플랫폼관리자시도", Role.PLATFORM_ADMIN, null);
 
         mockMvc.perform(post("/api/platform-admin/users")
                         .with(authentication(authOf(platformAdmin))).with(csrf())
@@ -307,6 +307,22 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("ADMIN_ROLE_NOT_ASSIGNABLE"));
+    }
+
+    @Test
+    void 사용자등록_COUNSELOR역할도_등록가능하다() throws Exception {
+        User platformAdmin = saveUser("플랫폼관리자", "pa10b@haja.com", Role.PLATFORM_ADMIN);
+        PlatformAdminUserCreateRequest request = new PlatformAdminUserCreateRequest(
+                "pa10b-new@haja.com", "password1", "상담원", Role.COUNSELOR, null);
+
+        mockMvc.perform(post("/api/platform-admin/users")
+                        .with(authentication(authOf(platformAdmin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.role").value("COUNSELOR"));
+
+        assertThat(userRepository.findByEmail("pa10b-new@haja.com")).isPresent();
     }
 
     @Test
@@ -403,7 +419,7 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
     void 역할변경_화이트리스트밖역할이면_400() throws Exception {
         User platformAdmin = saveUser("플랫폼관리자", "pa17@haja.com", Role.PLATFORM_ADMIN);
         User target = saveUser("대상", "pa17-target@haja.com", Role.USER);
-        String body = objectMapper.writeValueAsString(new AdminUserRoleUpdateRequest(Role.COUNSELOR));
+        String body = objectMapper.writeValueAsString(new AdminUserRoleUpdateRequest(Role.PLATFORM_ADMIN));
 
         mockMvc.perform(patch("/api/platform-admin/users/{id}/role", target.getId())
                         .with(authentication(authOf(platformAdmin))).with(csrf())
@@ -411,6 +427,20 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
                         .content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("ADMIN_ROLE_NOT_ASSIGNABLE"));
+    }
+
+    @Test
+    void 역할변경_COUNSELOR로도_변경할수있다() throws Exception {
+        User platformAdmin = saveUser("플랫폼관리자", "pa17b@haja.com", Role.PLATFORM_ADMIN);
+        User target = saveUser("대상", "pa17b-target@haja.com", Role.USER);
+        String body = objectMapper.writeValueAsString(new AdminUserRoleUpdateRequest(Role.COUNSELOR));
+
+        mockMvc.perform(patch("/api/platform-admin/users/{id}/role", target.getId())
+                        .with(authentication(authOf(platformAdmin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.role").value("COUNSELOR"));
     }
 
     @Test

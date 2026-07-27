@@ -46,9 +46,11 @@ public class PlatformAdminUserService {
     private final PasswordEncoder passwordEncoder;
     private final QuotaService quotaService;
 
-    // AdminUserService.ASSIGNABLE_ROLES와 동일한 화이트리스트 — 플랫폼 관리자도 COUNSELOR 등
-    // 이 화면 밖의 Role은 배정할 수 없다.
-    private static final Set<Role> ASSIGNABLE_ROLES = EnumSet.of(Role.ADMIN, Role.INSPECTOR, Role.USER);
+    // AdminUserService.ASSIGNABLE_ROLES(회사 관리자 전용, ADMIN/INSPECTOR/USER)와 달리 플랫폼
+    // 관리자 콘솔은 COUNSELOR(상담사)도 등록/역할변경할 수 있다(#1008). PLATFORM_ADMIN은 여전히
+    // 이 화면 밖의 축이라 화이트리스트에 넣지 않는다.
+    private static final Set<Role> ASSIGNABLE_ROLES =
+            EnumSet.of(Role.ADMIN, Role.INSPECTOR, Role.USER, Role.COUNSELOR);
 
     public PlatformAdminUserListResponse list(String keyword, Role role, PlanName plan, UserStatus status,
                                                Pageable pageable) {
