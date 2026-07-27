@@ -13,6 +13,7 @@ import { reportHandlers } from '../api/reportApi.handlers';
 import { platformAdminCompanyHandlers } from '../../platform-admin/api/platformAdminCompanyApi.handlers';
 import { formatReportListTitle } from '../utils/reportListFormat';
 import { ReportListPage } from './ReportListPage';
+import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../constants';
 
 // 목 데이터(mocks/reportList.mock.ts) 101/103번 항목과 1:1 대응 — title은 서버 필드가 아니라
 // facilityName+roundNo+updatedAt으로 조립되므로(reportListFormat.ts) 테스트도 동일하게 조립해 비교한다.
@@ -57,11 +58,9 @@ describe('ReportListPage', () => {
     renderPage();
 
     expect(await screen.findByText(REPORT_101_TITLE)).toBeTruthy();
-    const warnings = screen.getAllByRole('img', { name: 'AI 초안 주의 및 법적 고지' });
+    const warnings = screen.getAllByRole('img', { name: AI_DRAFT_WARNING_TITLE });
     expect(warnings.length).toBeGreaterThan(0);
-    expect(warnings[0].getAttribute('title')).toBe(
-      '본 보고서는 점검 데이터 기반 AI가 작성한 초안입니다. 법정 제출 및 실무 활용 전 담당 검수자의 내용 확인 및 최종 확정(Finalize) 절차가 필수입니다.',
-    );
+    expect(warnings[0].getAttribute('title')).toBe(AI_DRAFT_WARNING);
     const row = screen.getByText(REPORT_101_TITLE).closest('tr') as HTMLElement;
     expect(within(row).getByText('판교 테크원타워')).toBeTruthy();
     expect(within(row).getByText('완료')).toBeTruthy();
@@ -132,5 +131,17 @@ describe('ReportListPage', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: '버전 이력' }));
 
     expect(await screen.findAllByText(/v\d+/)).not.toHaveLength(0);
+  });
+
+  it('스크롤하면 고정 위치 작업 메뉴를 닫아 앵커 이탈을 방지한다', async () => {
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    expect(await screen.findByRole('menuitem', { name: '버전 이력' })).toBeTruthy();
+
+    fireEvent.scroll(window);
+
+    expect(screen.queryByRole('menuitem', { name: '버전 이력' })).toBeNull();
   });
 });
