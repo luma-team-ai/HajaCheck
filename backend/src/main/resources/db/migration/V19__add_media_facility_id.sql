@@ -1,8 +1,7 @@
--- Flyway V200 — media.facility_id 추가 + 폴리모픽 소유(inspection XOR facility) 전환(#632/#652, HAJA-377).
+-- Flyway V19 — media.facility_id 추가 + 폴리모픽 소유(inspection XOR facility) 전환(#632/#652, HAJA-377).
 --
--- 번호 도약(V18 → V200) 의도: V19~V22 대역이 다른 in-flight 팀원 PR 들과 몰려 있어 충돌을 피하려고
--- 팀 합의로 V200+ 블록으로 건너뛴다. Flyway 는 비연속 버전을 허용하므로 V18→V200 도약은 유효하며
--- 의도된 것이다(중간 번호를 소모하지 않는다).
+-- 번호 조율: 정재봉 님 PR이 V20을 쓰기로 팀 합의(이 PR이 먼저 V19로 머지된 뒤 진행). 이후 갭3(#970)
+-- location 컬럼=V21, HAJA-437 previous_defect_id=V22 순으로 이어진다.
 --
 -- 설계(Option B, #632): 새 테이블을 만들지 않고 기존 media 인프라(파일 검증·저장·썸네일)를 그대로
 -- 재사용해 "시설물 대표 사진"을 저장한다. 한 media 로우는 inspection_id(점검 중 사진) 또는
