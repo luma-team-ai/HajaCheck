@@ -102,14 +102,27 @@ public enum ErrorCode {
     PLAN_KEEP_USER_INVALID(HttpStatus.FORBIDDEN,
             "선택한 구성원 중 일부가 유효하지 않습니다. 회사 소속 활성 구성원만 유지 대상으로 선택할 수 있습니다."),
 
+    // 관리자 콘솔 플랜 변경(PATCH /api/admin/plan)의 상향 거절(#988). 실결제 도입으로 이 화면은
+    // 하향·FREE 전환 전용이 됐다 — 결제 없이 상향을 발급하면 결제 흐름 전체가 우회되고, 그 우회로를 가진
+    // 사람이 곧 결제 대상자(기업 owner = 가입 시 ADMIN 자동 부여, #636)라 실질적으로 아무도 결제하지 않게 된다.
+    //
+    // 403(FORBIDDEN)인 이유: PLAN_*_QUOTA_EXCEEDED 3종과 같은 "이 경로가 허용하지 않는 요청"이다.
+    // 409(CONFLICT)는 "지금 상태와 충돌하니 확인하고 다시 보내라"(PLAN_DOWNGRADE_CONFIRMATION_REQUIRED)라
+    // 같은 요청을 재시도하면 풀린다는 잘못된 힌트를 준다 — 이 거절은 몇 번을 재시도해도 풀리지 않고,
+    // 해소 수단은 오직 결제 경로로 이동하는 것뿐이므로 메시지에 그 경로를 명시한다.
+    PLAN_UPGRADE_REQUIRES_PAYMENT(HttpStatus.FORBIDDEN,
+            "상위 요금제로의 변경은 결제가 필요합니다. 요금제 결제 화면에서 진행해 주세요."),
+
     // 토스페이먼츠 샌드박스 결제(#988 / HAJA-489) — 주문 사전 등록 → 승인 → 플랜 전이 3단계.
     //
-    // 404: orderId 로 결제 주문을 찾지 못했을 때. 재확정이 불가능해진 주문(FAILED·CANCELED)도 같은 코드로
-    // 응답한다 — 상태를 세분해 알려주면 남의 orderId 를 넣어보며 "존재하지만 실패한 주문"을 열거할 수
-    // 있게 되므로, 존재 여부를 흘리지 않는 기존 관례(PLAN_FORBIDDEN·REPORT_NOT_FOUND)를 그대로 따른다.
+    // 404: orderId 로 결제 주문을 찾지 못했을 때. <b>미존재·타인 소유·재확정 불가(FAILED·CANCELED·만료)를
+    // 전부 이 코드로 통일</b>한다 — 상태를 세분하거나 타인 소유를 403 으로 구분하면 남의 orderId 를 넣어보며
+    // "실재하는 주문"을 열거할 수 있다. 미존재/타인 소유를 한 코드로 합치는 기존 관례
+    // (FACILITY_NOT_FOUND·REPORT_NOT_FOUND·COUNSEL_TICKET_NOT_FOUND)를 그대로 따른다.
     PAYMENT_ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "결제 주문을 찾을 수 없습니다."),
-    // 403: 주문 소유자가 아닌 사용자의 승인·조회 시도(cross-user IDOR 차단). PLAN_FORBIDDEN 과 같은 403 이되
-    // "구독 소유자"가 아니라 "주문 소유자"라는 다른 경계를 가리키므로 전용 코드를 둔다(PLAN_KEEP_USER_INVALID 선례).
+    // 403: 승인이 끝난 뒤 플랜 반영 단계에서 인가가 더 이상 성립하지 않을 때만 쓰는 <b>내부 경계</b>다
+    // (주문 생성 이후 소속·소유자가 바뀐 경우). 이 시점의 호출자는 이미 주문 소유자임이 확인된 상태라
+    // 존재 여부 노출 문제가 없다 — 승인 전 단계의 타인 접근은 위 404 로 통일한다.
     PAYMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "결제 주문에 접근할 수 없습니다."),
     // 400: 승인 요청 금액이 서버가 사전 등록한 주문 금액과 다를 때. 금액은 서버(plans.price_monthly)가
     // 정하므로 이 불일치는 클라이언트 위변조이거나 계약 불일치다 — 400(요청이 잘못됨)이 맞고, 409(재시도하면
@@ -119,6 +132,15 @@ public enum ErrorCode {
     // 않는다는 기존 규칙(AI_SERVER_ERROR·NTS_REQUEST_REJECTED)과 동일 계열. 시크릿 미설정으로 결제를
     // 시작조차 할 수 없는 경우도 이 코드로 fail-close 한다(빈 문자열로 인증을 시도하거나 NPE 로 새지 않게).
     PAYMENT_GATEWAY_ERROR(HttpStatus.BAD_GATEWAY, "결제 승인 처리에 실패했습니다. 잠시 후 다시 시도해 주세요."),
+    // 202 계열의 의미를 가진 오류: PG 승인은 <b>성공</b>했는데 플랜 반영이 끝나지 않은 상태(payments 는
+    // PAID, user_plan_id 는 NULL). 이 응답을 403/500 으로 돌려주면 사용자는 "결제가 실패했다"고 읽고 다시
+    // 결제해 <b>중복 청구</b>로 이어진다 — 반드시 "결제는 됐다"가 전달돼야 한다.
+    //
+    // 409(CONFLICT)를 쓰는 이유: 재시도로 풀릴 수 있는 상태 충돌이라는 뜻이 이 상황과 정확히 맞는다
+    // (일시적 원인이면 같은 orderId 재확정이 PG 재호출 없이 전이만 재시도해 해소된다). 성공(2xx)으로
+    // 돌려주면 프론트가 갱신된 플랜을 기대하는데 실제로는 이전 플랜이라 화면이 거짓을 보여준다.
+    PAYMENT_PLAN_APPLY_PENDING(HttpStatus.CONFLICT,
+            "결제는 정상 완료되었으나 요금제 반영이 지연되고 있습니다. 중복 결제하지 마시고 잠시 후 확인해 주세요."),
 
     // 시설물(facility)
     // 미존재/타인 소유 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.
