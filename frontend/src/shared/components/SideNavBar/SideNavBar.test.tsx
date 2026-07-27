@@ -99,19 +99,6 @@ describe('SideNavBar', () => {
     );
   });
 
-  it('user 정보가 있으면 이름/플랜을 표시하고, 로그아웃 클릭 시 onLogout이 호출된다', () => {
-    const handleLogout = vi.fn();
-    render(<SideNavBar user={{ name: '김관리', plan: 'Standard' }} onLogout={handleLogout} />, {
-      wrapper: MemoryRouter,
-    });
-
-    expect(screen.getByText('김관리')).not.toBeNull();
-    expect(screen.getByText('Standard')).not.toBeNull();
-
-    fireEvent.click(screen.getByText('로그아웃'));
-    expect(handleLogout).toHaveBeenCalledTimes(1);
-  });
-
   it('접기 버튼 클릭 시 실제로 접혀서 라벨 텍스트가 사라지고, onCollapseToggle(true)이 호출된다', () => {
     const handleToggle = vi.fn();
     render(<SideNavBar onCollapseToggle={handleToggle} />, { wrapper: MemoryRouter });
@@ -207,6 +194,69 @@ describe('SideNavBar', () => {
       fireEvent.click(screen.getByText('내 정보'));
 
       expect(screen.getByTestId('location-probe').textContent).toBe('/mypage/profile');
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+  });
+
+  describe('enabled=false — 표시는 하되 클릭 차단(#1003, menus.is_enabled)', () => {
+    function LocationProbe() {
+      const location = useLocation();
+      return <div data-testid="location-probe">{location.pathname}</div>;
+    }
+
+    it('enabled=false인 서브 항목을 클릭하면 이동하지 않고 안내 메시지가 표시된다', () => {
+      const items = [
+        {
+          label: '보고서',
+          href: '/reports',
+          icon: 'icon.svg',
+          subItems: [{ label: '보고서 목록', href: '/reports/list', enabled: false }],
+        },
+      ];
+
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar items={items} activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('보고서'));
+      fireEvent.click(screen.getByText('보고서 목록'));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/dashboard');
+      expect(screen.getByRole('status').textContent).toBe('아직 구현되지 않은 페이지입니다');
+    });
+
+    it('enabled=false인 최상위(하위메뉴 없는) 항목을 클릭하면 이동하지 않는다', () => {
+      const items = [{ label: '통계', href: '/statistics', icon: 'icon.svg', enabled: false }];
+
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar items={items} activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('통계'));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/dashboard');
+      expect(screen.getByRole('status').textContent).toBe('아직 구현되지 않은 페이지입니다');
+    });
+
+    it('enabled를 지정하지 않으면(undefined) 기존처럼 정상 이동한다(하위 호환)', () => {
+      const items = [{ label: '통계', href: '/statistics', icon: 'icon.svg' }];
+
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar items={items} activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('통계'));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/statistics');
       expect(screen.queryByRole('status')).toBeNull();
     });
   });

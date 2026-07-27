@@ -12,12 +12,6 @@ import { FloatingPopup } from '../FloatingPopup';
 // 실제 시나리오 선택으로 이어진다(딥링크로 카테고리를 미리 선택하는 기능은 아직 없음).
 const SUPPORT_ENTRY_HREF = '/support/chat-bot';
 
-interface AppLayoutUser {
-  name: string;
-  plan?: string;
-  avatarUrl?: string;
-}
-
 interface AppLayoutProps {
   /** Header 브레드크럼(현재 위치) — 페이지별로 필수 지정 */
   breadcrumb: BreadcrumbItem[];
@@ -41,10 +35,6 @@ interface AppLayoutProps {
   isAdmin?: boolean;
   /** SideNavBar 브랜드 로고 링크 override(#535 플랫폼 관리자 콘솔). 미지정 시 SideNavBar 기본값('/dashboard') */
   brandHref?: string;
-  /** 사이드바 하단 프로필. 미지정 시 프로필 블록 미표시 */
-  user?: AppLayoutUser;
-  /** 로그아웃 핸들러. 미지정 시 로그아웃 버튼 자체가 렌더링되지 않음 */
-  onLogout?: () => void;
   /** Header 알림 미읽음 수 */
   unreadCount?: number;
   onNotificationClick?: () => void;
@@ -71,8 +61,6 @@ export function AppLayout({
   isRouteImplemented,
   isAdmin,
   brandHref,
-  user,
-  onLogout,
   unreadCount,
   onNotificationClick,
   onProfileClick,
@@ -126,9 +114,6 @@ export function AppLayout({
         isRouteImplemented={isRouteImplemented}
         isAdmin={isAdmin}
         brandHref={brandHref}
-        // 사이드바 하단 프로필은 관리자에게만 노출 — 일반 사용자 프로필은 별도 이슈에서 헤더에 붙일 예정(HAJA-167, #184)
-        user={isAdmin ? user : undefined}
-        onLogout={onLogout}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header

@@ -46,8 +46,6 @@ export function PlatformAdminShellRoute() {
       // 인덱스 경로('/platform-admin')가 아니라 첫 메뉴 경로를 직접 가리킨다(router.tsx의
       // '/platform-admin/users' 라우트 handle.activeHref와 동일 값이어야 사이드바가 강조된다).
       brandHref="/platform-admin/users"
-      user={authUser ? { name: authUser.name } : undefined}
-      onLogout={() => void logout()}
       // Header 프로필 드롭다운(#773) — 플랫폼 관리자는 기업 소속·구독 플랜이 없어(company_id 없음)
       // 일반 사용자 셸(AppShellRoute)의 companyName/planLabel/내 정보/내 플랜 항목을 그대로 채울 수
       // 없다. 마이페이지도 없으므로 이름·이메일 + 로그아웃만 노출한다(ProfileMenu는 그 값들이
