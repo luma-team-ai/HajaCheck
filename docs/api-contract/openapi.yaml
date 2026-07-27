@@ -2005,7 +2005,7 @@ paths:
     post:
       summary: 하자 자연어 검색 공개 게이트웨이 (FR-013, 계획/미구현)
       description: >
-        세션 인증과 점검자 역할을 검사하고 has_ai_addon=true인 활성 플랜만 허용한다.
+        세션 인증과 점검자 또는 회사 관리자 역할을 검사하고 has_ai_addon=true인 활성 플랜만 허용한다.
         회사 플랜은 회사 status=APPROVED, verification_status=VERIFIED 및 company_memberships의
         유효한 승인 멤버십(status=APPROVED, 미회수, 미만료, users.company_id 일치)을 모두 검증하며
         users.company_id만으로 상속하지 않는다. 게이트 실패 시 내부
@@ -2037,7 +2037,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "403":
-          description: 점검자 권한 없음 또는 AI 부가 기능 미보유(AI_ADDON_REQUIRED)
+          description: 점검자·회사 관리자 권한 없음 또는 AI 부가 기능 미보유(AI_ADDON_REQUIRED)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }

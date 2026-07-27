@@ -97,9 +97,11 @@ public class SecurityConfig {
                         // 플랫폼 관리자 콘솔(#576 사용자 관리) — 회사 스코프 없는 전사 데이터라 별도 role로
                         // 엄격히 분리한다. "/api/admin/**"(ADMIN)와 절대 겹치지 않아야 한다(설계 §6 원칙).
                         .requestMatchers("/api/platform-admin/**").hasRole("PLATFORM_ADMIN")
-                        // 하자 자연어 검색(HAJA-120) — 점검자 역할을 엔드포인트 레벨에서 강제(설계 §4).
+                        // 하자 자연어 검색(HAJA-120, HAJA-509) — 점검자·회사 관리자 역할을 엔드포인트
+                        // 레벨에서 강제(설계 §4).
                         // has_ai_addon 플랜 게이트는 역할과 무관한 별도 축이라 NlSearchService가 담당한다.
-                        .requestMatchers(HttpMethod.POST, "/api/defects/nl-search").hasRole("INSPECTOR")
+                        .requestMatchers(HttpMethod.POST, "/api/defects/nl-search")
+                        .hasAnyRole("INSPECTOR", "ADMIN")
                         // 전문 상담(FR-7, #20/HAJA-33) — 상담원 콘솔 축(대기열 조회·셀프-클레임 배정)은
                         // COUNSELOR/PLATFORM_ADMIN 만. 종료·이탈의 세부 소유권(담당 상담원 본인/티켓 소유자)은
                         // 서비스가 검증하므로 여기서는 대기열·배정만 role 게이트로 막는다. 티켓 생성은 로그인만

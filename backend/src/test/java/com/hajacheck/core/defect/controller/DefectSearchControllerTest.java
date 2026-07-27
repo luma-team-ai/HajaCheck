@@ -2,6 +2,7 @@ package com.hajacheck.core.defect.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -24,6 +25,8 @@ import com.hajacheck.support.PostgresTestSupport;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -56,7 +59,7 @@ class DefectSearchControllerTest extends PostgresTestSupport {
     private NlSearchService nlSearchService;
 
     private LoginUser inspectorUser;
-    private LoginUser normalUser;
+    private LoginUser adminUser;
 
     private static final String REQUEST_BODY = """
             {"query":"D등급 이상 조치 대기 하자"}
@@ -73,14 +76,14 @@ class DefectSearchControllerTest extends PostgresTestSupport {
                 .build());
         inspectorUser = new LoginUser(inspector);
 
-        User normal = userRepository.save(User.builder()
-                .email("user-nlsearch@haja.com")
-                .name("일반사용자")
-                .role(Role.USER)
+        User admin = userRepository.save(User.builder()
+                .email("admin-nlsearch@haja.com")
+                .name("회사관리자")
+                .role(Role.ADMIN)
                 .passwordHash(passwordEncoder.encode("pw123456"))
                 .status(UserStatus.ACTIVE)
                 .build());
-        normalUser = new LoginUser(normal);
+        adminUser = new LoginUser(admin);
     }
 
     @Test
@@ -93,10 +96,19 @@ class DefectSearchControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
     }
 
-    @Test
-    void 자연어검색_점검자아닌역할_403_FORBIDDEN() throws Exception {
+    @ParameterizedTest
+    @EnumSource(value = Role.class, names = {"USER", "COUNSELOR", "PLATFORM_ADMIN"})
+    void 자연어검색_허용되지않은역할_403_FORBIDDEN(Role role) throws Exception {
+        User blockedUser = userRepository.save(User.builder()
+                .email(role.name().toLowerCase() + "-nlsearch@haja.com")
+                .name("비허용사용자")
+                .role(role)
+                .passwordHash(passwordEncoder.encode("pw123456"))
+                .status(UserStatus.ACTIVE)
+                .build());
+        LoginUser loginUser = new LoginUser(blockedUser);
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                normalUser, null, normalUser.getAuthorities());
+                loginUser, null, loginUser.getAuthorities());
 
         mockMvc.perform(post("/api/defects/nl-search").with(csrf()).with(authentication(auth))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -104,6 +116,8 @@ class DefectSearchControllerTest extends PostgresTestSupport {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+
+        verifyNoInteractions(nlSearchService);
     }
 
     @Test
@@ -125,9 +139,27 @@ class DefectSearchControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 자연어검색_점검자_AI부가기능없음_403_AI_ADDON_REQUIRED() throws Exception {
+    void 자연어검색_회사관리자_게이트통과_200과필터반환() throws Exception {
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                inspectorUser, null, inspectorUser.getAuthorities());
+                adminUser, null, adminUser.getAuthorities());
+        NlSearchResult result = new NlSearchResult(
+                new NlSearchFilters(List.of(), List.of("D", "E"), List.of("ACTION_PENDING"), null),
+                List.of(), null, 0.92);
+        when(nlSearchService.search(anyLong(), any())).thenReturn(ApiResponse.ok(result));
+
+        mockMvc.perform(post("/api/defects/nl-search").with(csrf()).with(authentication(auth))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(REQUEST_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.filters.grade[0]").value("D"))
+                .andExpect(jsonPath("$.data.filters.status[0]").value("ACTION_PENDING"));
+    }
+
+    @Test
+    void 자연어검색_회사관리자_AI부가기능없음_403_AI_ADDON_REQUIRED() throws Exception {
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                adminUser, null, adminUser.getAuthorities());
         when(nlSearchService.search(anyLong(), any()))
                 .thenThrow(new BusinessException(ErrorCode.AI_ADDON_REQUIRED));
 
