@@ -71,6 +71,7 @@ class MediaServiceTest {
 
     @BeforeEach
     void setUp() {
+        when(properties.getMaxFilesPerRequest()).thenReturn(50);
         when(properties.getAllowedContentTypes()).thenReturn(List.of("image/jpeg", "image/png"));
         when(properties.getMaxSizeBytes()).thenReturn(20_000_000L);
         when(properties.getThumbnailMaxDimension()).thenReturn(400);
@@ -142,7 +143,7 @@ class MediaServiceTest {
     }
 
     @Test
-    void uploadMedia_다건_개수제한없이_전부저장() throws IOException {
+    void uploadMedia_상한이내_다건저장() throws IOException {
         byte[] png = realPngBytes();
         List<MultipartFile> files = new ArrayList<>();
         for (int i = 0; i < 21; i++) {
@@ -155,6 +156,21 @@ class MediaServiceTest {
 
         assertThat(result).hasSize(21);
         verify(inspectionService).getInspection(200L, 100L, 1L);
+    }
+
+    @Test
+    void uploadMedia_개수초과_MEDIA_COUNT_EXCEEDED_소유권검증전에거부() throws IOException {
+        byte[] png = realPngBytes();
+        List<MultipartFile> files = new ArrayList<>();
+        for (int i = 0; i < 51; i++) {
+            files.add(pngFile("a" + i + ".png", png));
+        }
+
+        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, files))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.MEDIA_COUNT_EXCEEDED));
+
+        verify(inspectionService, never()).getInspection(anyLong(), anyLong(), anyLong());
     }
 
     @Test

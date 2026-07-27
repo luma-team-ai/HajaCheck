@@ -2,6 +2,9 @@
 // 이번 PR 범위는 이미지만 — 영상(MP4)은 MediaFileType.java 주석대로 후속 PR 범위.
 export const MEDIA_ALLOWED_TYPES = ['image/jpeg', 'image/png'];
 export const MEDIA_MAX_SIZE_BYTES = 20 * 1024 * 1024;
+// 요청당 워커 스레드 점유 시간(매직바이트 검증+EXIF+썸네일·상세이미지 인코딩)을 통제하는 상한
+// (PR머신 리뷰 P1, #1067) — 기존 10장 제한이 실사용에 너무 빡빡하다는 요청에 맞춰 50장으로 완화.
+export const MEDIA_MAX_FILES_PER_REQUEST = 50;
 
 // 영상은 회의 후 반영된 새 점검 생성 화면 시안(JPG·PNG·MP4 동시 첨부)에서 선택만 허용 —
 // 백엔드 업로드 엔드포인트는 아직 이미지만 받으므로(MediaFileType.java) 실제 전송은 하지 않고

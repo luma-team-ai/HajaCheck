@@ -1,6 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse } from '../../../shared/api/types';
-import { MEDIA_ALLOWED_TYPES } from '../constants';
+import { MEDIA_ALLOWED_TYPES, MEDIA_MAX_FILES_PER_REQUEST } from '../constants';
 import type { Media } from '../types';
 
 // 목 썸네일 — 실제 사진 대신 SVG data URI(inspectionResult.mock.ts와 동일 패턴, 피그마 시안 확정 전까지 임시).
@@ -43,6 +43,18 @@ export const mediaHandlers = [
         success: false,
         data: null,
         error: { code: 'FILE_REQUIRED', message: '파일이 필요합니다.' },
+      };
+      return HttpResponse.json(failure, { status: 400 });
+    }
+
+    if (files.length > MEDIA_MAX_FILES_PER_REQUEST) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: {
+          code: 'MEDIA_COUNT_EXCEEDED',
+          message: '한 번에 업로드할 수 있는 파일 수를 초과했습니다. (최대 50장)',
+        },
       };
       return HttpResponse.json(failure, { status: 400 });
     }

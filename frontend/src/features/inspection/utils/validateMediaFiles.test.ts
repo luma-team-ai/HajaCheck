@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatFileSize, validateMediaFile } from './validateMediaFiles';
+import { exceedsMaxFileCount, formatFileSize, validateMediaFile } from './validateMediaFiles';
 
 function makeFile(name: string, type: string, sizeBytes: number): File {
   return new File([new Uint8Array(sizeBytes)], name, { type });
@@ -19,6 +19,16 @@ describe('validateMediaFile', () => {
     expect(validateMediaFile(makeFile('a.jpg', 'image/jpeg', 21 * 1024 * 1024))).toBe(
       'FILE_TOO_LARGE',
     );
+  });
+});
+
+describe('exceedsMaxFileCount', () => {
+  it('합이 50 이하면 false', () => {
+    expect(exceedsMaxFileCount(25, 25)).toBe(false);
+  });
+
+  it('합이 50을 초과하면 true', () => {
+    expect(exceedsMaxFileCount(40, 11)).toBe(true);
   });
 });
 
