@@ -4,6 +4,9 @@ import { LandingFooter } from './components/LandingFooter';
 import { LandingHeader } from './components/LandingHeader';
 import { PARTNERS, PRICING_TIERS } from './constants';
 import heroVisualImage from '../../assets/brand/landing-hero-ai-scan.svg';
+import analysisViewerImage from '../../assets/brand/landing-screens/analysis-viewer.png';
+import inspectionCycleImage from '../../assets/brand/landing-screens/inspection-cycle.png';
+import defectDetailImage from '../../assets/brand/landing-screens/defect-detail.png';
 import './landing.css';
 
 function scrollToTop() {
@@ -132,7 +135,9 @@ export default function LandingPage() {
           <br />
           접근하고 관리하세요. 최신 BIM 연동을 지원합니다.
         </p>
-        <div className="landing-visual" />
+        <div className="landing-visual landing-screen-visual">
+          <img src={analysisViewerImage} alt="분석 결과 뷰어 화면" className="landing-screen-image" />
+        </div>
       </section>
 
       <section id="inspection" className="landing-section">
@@ -142,7 +147,9 @@ export default function LandingPage() {
           정기, 수시 점검 일정을 누락 없이 관리하고, 현장에서 모바일로 즉시 결과를 입력하세요.
           데이터는 클라우드에 안전하게 동기화됩니다.
         </p>
-        <div className="landing-visual" />
+        <div className="landing-visual landing-screen-visual">
+          <img src={inspectionCycleImage} alt="시설물 점검 주기 설정 화면" className="landing-screen-image" />
+        </div>
       </section>
 
       <section id="ai-analysis" className="landing-section">
@@ -165,7 +172,9 @@ export default function LandingPage() {
             <span className="landing-pill-dot" aria-hidden="true">●</span> 누수 징후 Medium
           </span>
         </div>
-        <div className="landing-visual" />
+        <div className="landing-visual landing-screen-visual">
+          <img src={defectDetailImage} alt="하자 상세 화면" className="landing-screen-image" />
+        </div>
       </section>
 
       <section id="pricing" className="landing-pricing">

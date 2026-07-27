@@ -352,6 +352,19 @@
   overflow: hidden;
 }
 
+.landing-screen-visual {
+  background: #f7f7f8;
+  border: 1px solid var(--landing-border);
+}
+
+.landing-screen-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+}
+
 .landing-pricing {
   padding: 80px 24px;
   text-align: center;
@@ -547,9 +560,9 @@
 
 .landing-footer-columns {
   display: flex;
-  flex: 1;
-  justify-content: space-between;
-  gap: 40px;
+  flex: 0 1 auto;
+  justify-content: flex-start;
+  gap: 120px;
 }
 
 .landing-footer-column h4 {
