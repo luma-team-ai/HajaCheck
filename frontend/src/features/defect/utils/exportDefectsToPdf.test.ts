@@ -40,7 +40,7 @@ function makeDefect(overrides: Partial<Defect> = {}): Defect {
     type: 'REBAR_EXPOSURE',
     typeLabel: '철근 노출',
     grade: 'D',
-    status: 'ACTION_PENDING',
+    status: 'CONFIRMED',
     confidence: 0.92,
     reviewed: true,
     bboxX: null,
@@ -68,13 +68,13 @@ describe('buildDefectExportRows', () => {
 
   it('여러 건을 선택하면 선택 순서대로 각 행을 만든다', () => {
     const rows = buildDefectExportRows([
-      makeDefect({ id: 1, status: 'ACTION_PENDING' }),
+      makeDefect({ id: 1, status: 'CONFIRMED' }),
       makeDefect({ id: 2, typeLabel: '균열', grade: 'C', status: 'RESOLVED' }),
     ]);
 
     expect(rows).toHaveLength(2);
     expect(rows[0][0]).toBe('DEF-0001');
-    expect(rows[0][4]).toBe('조치대기');
+    expect(rows[0][4]).toBe('검수확정');
     expect(rows[1][0]).toBe('DEF-0002');
     expect(rows[1][4]).toBe('조치완료');
   });

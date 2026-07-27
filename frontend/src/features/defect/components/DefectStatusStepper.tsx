@@ -2,16 +2,15 @@ import { Button } from '../../../shared/components/Button/Button';
 import { DEFECT_STATUS_LABEL } from '../types';
 import type { DefectStatus } from '../types';
 
-// 신규→검수확정→조치대기→조치중→조치완료(FR-4) — 백엔드 Defect#changeStatus 와 동일 순서.
+// 신규→검수확정→조치중→조치완료(FR-4) — 백엔드 Defect#changeStatus 와 동일 순서.
 // 역행 버튼은 두지 않는다(백엔드가 순서를 강제하지만, UI에서도 막아 불필요한 409를 줄인다).
-const STEPS: DefectStatus[] = ['DETECTED', 'CONFIRMED', 'ACTION_PENDING', 'IN_PROGRESS', 'RESOLVED'];
+const STEPS: DefectStatus[] = ['DETECTED', 'CONFIRMED', 'IN_PROGRESS', 'RESOLVED'];
 
 // 조치 보드(HAJA-349/#630)도 같은 "칸반 성격 UI"라 이 라벨셋을 공유한다 — DEFECT_STATUS_LABEL(types.ts)과는
 // 별개 용처(그쪽은 목록/상세 요약 칩 등)라 값 통일 없이 export만 넓힌다.
 export const STEP_LABEL: Record<DefectStatus, string> = {
   DETECTED: '신규',
   CONFIRMED: '검수확정',
-  ACTION_PENDING: '조치대기',
   IN_PROGRESS: '조치중',
   RESOLVED: '조치완료',
 };
@@ -19,8 +18,7 @@ export const STEP_LABEL: Record<DefectStatus, string> = {
 // 조치 보드 드롭 핸들러가 정방향 1단계 여부를 판별할 때도 재사용(HAJA-349/#630).
 export const NEXT_STATUS: Record<DefectStatus, DefectStatus | null> = {
   DETECTED: 'CONFIRMED',
-  CONFIRMED: 'ACTION_PENDING',
-  ACTION_PENDING: 'IN_PROGRESS',
+  CONFIRMED: 'IN_PROGRESS',
   IN_PROGRESS: 'RESOLVED',
   RESOLVED: null,
 };

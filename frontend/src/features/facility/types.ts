@@ -130,12 +130,11 @@ export interface FacilityInspectionOverview {
 // feature 간 직접 import 금지(React_코드_컨벤션.md §1) — dashboard의 DefectGrade와 별개로 로컬 정의.
 export type FacilityDefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
 
-// 백엔드 DefectStatus(backend/.../defect/entity/DefectStatus.java: DETECTED/CONFIRMED/
-// ACTION_PENDING/IN_PROGRESS/RESOLVED)와 이름을 그대로 정합시킨 조치 상태.
+// 백엔드 DefectStatus(backend/.../defect/entity/DefectStatus.java:
+// DETECTED/CONFIRMED/IN_PROGRESS/RESOLVED)와 이름을 그대로 정합시킨 조치 상태.
 export type FacilityDefectStatus =
   | 'DETECTED'
   | 'CONFIRMED'
-  | 'ACTION_PENDING'
   | 'IN_PROGRESS'
   | 'RESOLVED';
 

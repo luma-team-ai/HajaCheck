@@ -42,11 +42,10 @@ function toInspectionListItem(inspection: InspectionListItem): InspectionListIte
   return { ...inspection, ...computeInspectionAggregates(inspection.id) };
 }
 
-// 백엔드 Defect#changeStatus 와 동일한 순서 — 신규→검수확정→조치대기→조치중→조치완료(역행/스킵 금지).
+// 백엔드 Defect#changeStatus 와 동일한 순서 — 신규→검수확정→조치중→조치완료(역행/스킵 금지).
 const NEXT_STATUS: Record<DefectStatus, DefectStatus | null> = {
   DETECTED: 'CONFIRMED',
-  CONFIRMED: 'ACTION_PENDING',
-  ACTION_PENDING: 'IN_PROGRESS',
+  CONFIRMED: 'IN_PROGRESS',
   IN_PROGRESS: 'RESOLVED',
   RESOLVED: null,
 };
@@ -207,7 +206,7 @@ export const defectHandlers = [
       const body: ApiResponse<NlSearchResult> = {
         success: true,
         data: {
-          filters: { type: [], grade: ['D', 'E'], status: ['ACTION_PENDING'], confidenceMin: null },
+          filters: { type: [], grade: ['D', 'E'], status: ['CONFIRMED'], confidenceMin: null },
           unsupported_terms: [],
           clarifying_question: null,
           interpretation_confidence: 0.92,

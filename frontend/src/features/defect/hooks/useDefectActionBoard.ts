@@ -12,11 +12,10 @@ import { defectKeys, useDefects } from './useDefects';
 // 규모를 넉넉히 덮는 값으로 고정 — 목록 탭의 DEFAULT_SIZE(10)와는 별도 상수다.
 export const BOARD_PAGE_SIZE = 200;
 
-// DefectStatusStepper.STEP_LABEL과 동일한 5단계 순서(handoff §구현요구사항 1).
+// DefectStatusStepper.STEP_LABEL과 동일한 4단계 순서(handoff §구현요구사항 1).
 export const BOARD_STATUSES: DefectStatus[] = [
   'DETECTED',
   'CONFIRMED',
-  'ACTION_PENDING',
   'IN_PROGRESS',
   'RESOLVED',
 ];

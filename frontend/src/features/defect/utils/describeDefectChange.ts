@@ -1,8 +1,15 @@
 import { DEFECT_STATUS_LABEL } from '../types';
 import type { DefectStatus } from '../types';
 
-function isDefectStatus(value: string): value is DefectStatus {
-  return value in DEFECT_STATUS_LABEL;
+const LEGACY_DEFECT_STATUS_LABEL: Record<string, string> = {
+  ACTION_PENDING: '조치대기',
+};
+
+export function getDefectRevisionStatusLabel(value: string | null): string | null {
+  if (value == null) {
+    return null;
+  }
+  return DEFECT_STATUS_LABEL[value as DefectStatus] ?? LEGACY_DEFECT_STATUS_LABEL[value] ?? null;
 }
 
 // ActivityHistoryPanel(하자 단건)과 InspectionActivityPanel(점검 단위 집계, HAJA-393/394)이 동일한
@@ -12,8 +19,10 @@ export function describeDefectChange(
   oldValue: string | null,
   newValue: string | null,
 ): string {
-  if (fieldChanged === 'status' && oldValue && newValue && isDefectStatus(oldValue) && isDefectStatus(newValue)) {
-    return `상태를 '${DEFECT_STATUS_LABEL[oldValue]}'에서 '${DEFECT_STATUS_LABEL[newValue]}'(으)로 변경했습니다.`;
+  const oldStatusLabel = getDefectRevisionStatusLabel(oldValue);
+  const newStatusLabel = getDefectRevisionStatusLabel(newValue);
+  if (fieldChanged === 'status' && oldStatusLabel && newStatusLabel) {
+    return `상태를 '${oldStatusLabel}'에서 '${newStatusLabel}'(으)로 변경했습니다.`;
   }
   return `${fieldChanged} 변경: ${oldValue ?? '-'} → ${newValue ?? '-'}`;
 }

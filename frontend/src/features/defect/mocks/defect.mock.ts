@@ -11,7 +11,7 @@ export const mockDefects: Defect[] = [
     type: 'REBAR_EXPOSURE',
     typeLabel: '철근 노출',
     grade: 'D',
-    status: 'ACTION_PENDING',
+    status: 'CONFIRMED',
     confidence: 0.92,
     reviewed: true,
     bboxX: 0.1,

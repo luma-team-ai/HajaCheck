@@ -195,12 +195,12 @@ describe('defectApi.getInspections', () => {
   });
 
   it('defectType/defectGrade/defectStatus 조건을 모두 만족하는 단일 하자가 있는 점검만 반환한다', async () => {
-    // mockDefects id=1: inspectionId=101, type=REBAR_EXPOSURE, grade=D, status=ACTION_PENDING —
+    // mockDefects id=1: inspectionId=101, type=REBAR_EXPOSURE, grade=D, status=CONFIRMED —
     // 세 조건을 전부 동시에 만족. id=2(같은 inspectionId=101)는 type=CRACK이라 조건 불일치.
     const res = await defectApi.getInspections({
       defectType: ['REBAR_EXPOSURE'],
       defectGrade: ['D'],
-      defectStatus: ['ACTION_PENDING'],
+      defectStatus: ['CONFIRMED'],
     });
 
     expect(res.data.content.map((inspection) => inspection.id)).toEqual([101]);

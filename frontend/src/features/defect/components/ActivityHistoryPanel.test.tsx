@@ -27,7 +27,7 @@ function renderPanel(defectId: number) {
 }
 
 describe('ActivityHistoryPanel', () => {
-  it('상태 전이 이력을 최신순으로 표시한다', async () => {
+  it('과거 ACTION_PENDING 상태 전이를 한글 설명과 상태 배지로 표시한다', async () => {
     const revisions: DefectRevision[] = [
       {
         id: 2,
@@ -52,6 +52,7 @@ describe('ActivityHistoryPanel', () => {
     renderPanel(1);
 
     expect(await screen.findByText("상태를 '확인됨'에서 '조치대기'(으)로 변경했습니다.")).not.toBeNull();
+    expect(screen.getByText('조치대기')).not.toBeNull();
   });
 
   it('이력이 없으면 빈 상태 메시지를 표시한다', async () => {
@@ -77,7 +78,7 @@ describe('ActivityHistoryPanel', () => {
         revisedBy: 1,
         fieldChanged: 'status',
         oldValue: 'DETECTED',
-        newValue: 'ACTION_PENDING',
+        newValue: 'IN_PROGRESS',
         reason: '경미한 하자라 검수확정 생략',
         createdAt: '2026-07-01T09:00:00.000Z',
       },
@@ -95,6 +96,7 @@ describe('ActivityHistoryPanel', () => {
     renderPanel(1);
 
     expect(await screen.findByText('사유: 경미한 하자라 검수확정 생략')).not.toBeNull();
+    expect(screen.getByText('조치중')).not.toBeNull();
   });
 
   it('이력이 페이지 크기(20건)를 넘으면 페이지네이션을 표시하고 다음 페이지를 조회한다(self-review 발견)', async () => {
@@ -107,7 +109,7 @@ describe('ActivityHistoryPanel', () => {
         revisedBy: 1,
         fieldChanged: 'status',
         oldValue: 'CONFIRMED',
-        newValue: 'ACTION_PENDING',
+        newValue: 'IN_PROGRESS',
         reason: null,
         createdAt: '2026-07-02T09:00:00.000Z',
       },
@@ -129,7 +131,7 @@ describe('ActivityHistoryPanel', () => {
     const nextButton = await screen.findByRole('button', { name: '다음 페이지' });
     fireEvent.click(nextButton);
 
-    expect(await screen.findByText("상태를 '확인됨'에서 '조치대기'(으)로 변경했습니다.")).not.toBeNull();
+    expect(await screen.findByText("상태를 '확인됨'에서 '조치중'(으)로 변경했습니다.")).not.toBeNull();
   });
 
   it('이력이 20건 이하면 페이지네이션을 표시하지 않는다', async () => {

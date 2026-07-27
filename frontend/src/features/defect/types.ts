@@ -3,7 +3,7 @@
 
 export type DefectType = 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE';
 export type DefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
-export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'ACTION_PENDING' | 'IN_PROGRESS' | 'RESOLVED';
+export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'IN_PROGRESS' | 'RESOLVED';
 
 export interface Defect {
   id: number;
@@ -67,7 +67,6 @@ export const DEFECT_TYPE_LABEL: Record<DefectType, string> = {
 export const DEFECT_STATUS_LABEL: Record<DefectStatus, string> = {
   DETECTED: '탐지됨',
   CONFIRMED: '확인됨',
-  ACTION_PENDING: '조치대기',
   IN_PROGRESS: '조치중',
   RESOLVED: '해결됨',
 };

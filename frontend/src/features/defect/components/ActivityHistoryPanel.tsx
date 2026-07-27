@@ -5,7 +5,10 @@ import { DEFECT_REVISIONS_PAGE_SIZE } from '../api/defectApi';
 import { useDefectRevisions } from '../hooks/useDefectRevisions';
 import { DEFECT_STATUS_LABEL } from '../types';
 import type { DefectStatus } from '../types';
-import { describeDefectChange } from '../utils/describeDefectChange';
+import {
+  describeDefectChange,
+  getDefectRevisionStatusLabel,
+} from '../utils/describeDefectChange';
 import { STATUS_PRESENTATION } from './DefectTable';
 
 type Props = {
@@ -44,10 +47,19 @@ export function ActivityHistoryPanel({ defectId }: Props) {
       {!isLoading && !isError && data && data.content.length > 0 && (
         <ol className="defect-activity-list">
           {data.content.map((revision) => {
-            const showStatusBadge = revision.fieldChanged === 'status' && isDefectStatus(revision.newValue);
-            const presentation = showStatusBadge
-              ? STATUS_PRESENTATION[revision.newValue as DefectStatus]
-              : null;
+            const revisionStatusLabel =
+              revision.fieldChanged === 'status'
+                ? getDefectRevisionStatusLabel(revision.newValue)
+                : null;
+            const presentation =
+              revisionStatusLabel && isDefectStatus(revision.newValue)
+                ? STATUS_PRESENTATION[revision.newValue]
+                : revisionStatusLabel
+                  ? {
+                      label: revisionStatusLabel,
+                      className: 'border-amber-200 bg-amber-50 text-amber-500',
+                    }
+                  : null;
 
             return (
               <li key={revision.id}>

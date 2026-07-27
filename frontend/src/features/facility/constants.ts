@@ -41,7 +41,6 @@ export const FACILITY_INITIAL_GRADE_OPTIONS: FacilityInitialGrade[] = ['A', 'B',
 export const FACILITY_DEFECT_STATUS_ORDER: FacilityDefectStatus[] = [
   'DETECTED',
   'CONFIRMED',
-  'ACTION_PENDING',
   'IN_PROGRESS',
   'RESOLVED',
 ];
@@ -49,7 +48,6 @@ export const FACILITY_DEFECT_STATUS_ORDER: FacilityDefectStatus[] = [
 export const FACILITY_DEFECT_STATUS_LABEL: Record<FacilityDefectStatus, string> = {
   DETECTED: '신규',
   CONFIRMED: '검수확정',
-  ACTION_PENDING: '조치대기',
   IN_PROGRESS: '조치중',
   RESOLVED: '조치완료',
 };

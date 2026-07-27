@@ -9,7 +9,7 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import type { ReactNode } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { ApiResponse } from '../../../shared/api/types';
+import type { ApiResponse, PageResponse } from '../../../shared/api/types';
 import { defectApi } from '../api/defectApi';
 import { defectHandlers } from '../api/defectApi.handlers';
 import { mockDefects } from '../mocks/defect.mock';
@@ -49,11 +49,11 @@ describe('resolveDropKind', () => {
 
   it('정방향 1단계 이동이면 forward다', () => {
     expect(resolveDropKind('DETECTED', 'CONFIRMED')).toBe('forward');
-    expect(resolveDropKind('ACTION_PENDING', 'IN_PROGRESS')).toBe('forward');
+    expect(resolveDropKind('CONFIRMED', 'IN_PROGRESS')).toBe('forward');
   });
 
   it('역행 이동이면 reason-required다', () => {
-    expect(resolveDropKind('ACTION_PENDING', 'DETECTED')).toBe('reason-required');
+    expect(resolveDropKind('CONFIRMED', 'DETECTED')).toBe('reason-required');
   });
 
   it('건너뛰기 이동이면 reason-required다', () => {
@@ -72,9 +72,33 @@ describe('useDefectActionBoard', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     const detected = result.current.columns.find((column) => column.status === 'DETECTED');
-    const actionPending = result.current.columns.find((column) => column.status === 'ACTION_PENDING');
+    const confirmed = result.current.columns.find((column) => column.status === 'CONFIRMED');
     expect(detected?.defects.map((defect) => defect.id).sort()).toEqual([2, 3]);
-    expect(actionPending?.defects.map((defect) => defect.id)).toEqual([1]);
+    expect(confirmed?.defects.map((defect) => defect.id)).toEqual([1]);
+  });
+
+  it('구형 ACTION_PENDING 하자를 CONFIRMED 컬럼에 노출해 조용히 누락하지 않는다', async () => {
+    const legacyDefect = {
+      ...mockDefects[0],
+      id: 999,
+      status: 'ACTION_PENDING',
+    } as unknown as Defect;
+    server.use(
+      http.get('/api/defects', () => {
+        const body: ApiResponse<PageResponse<Defect>> = {
+          success: true,
+          data: { content: [legacyDefect], page: 0, totalElements: 1 },
+        };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    const { result } = renderHook(() => useDefectActionBoard({}), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    const confirmed = result.current.columns.find((column) => column.status === 'CONFIRMED');
+    expect(confirmed?.defects.map((defect) => defect.id)).toEqual([999]);
+    expect(result.current.columns.flatMap((column) => column.defects)).toHaveLength(1);
   });
 
   it('정방향 1단계 드롭은 사유 없이 즉시 상태 전이를 호출한다', async () => {
@@ -99,7 +123,7 @@ describe('useDefectActionBoard', () => {
     const { result } = renderHook(() => useDefectActionBoard({}), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    // id=1은 ACTION_PENDING — 이전 단계 DETECTED로 드롭(역행).
+    // id=1은 CONFIRMED — 이전 단계 DETECTED로 드롭(역행).
     act(() => {
       result.current.handleDragEnd(dragEndEvent(1, 'DETECTED'));
     });
@@ -109,8 +133,8 @@ describe('useDefectActionBoard', () => {
     expect(result.current.reasonRequest?.targetStatus).toBe('DETECTED');
 
     // 사유 제출 전에는 카드가 그대로여야 한다(아직 API를 호출하지 않음).
-    const actionPendingBefore = result.current.columns.find((column) => column.status === 'ACTION_PENDING');
-    expect(actionPendingBefore?.defects.some((defect) => defect.id === 1)).toBe(true);
+    const confirmedBefore = result.current.columns.find((column) => column.status === 'CONFIRMED');
+    expect(confirmedBefore?.defects.some((defect) => defect.id === 1)).toBe(true);
 
     act(() => {
       result.current.submitReason('점검자 재확인 요청으로 되돌림');
