@@ -68,9 +68,7 @@ describe('CounselorConsolePage', () => {
     // 배정 성공 후 대화가 로드된다.
     expect(await screen.findByText('안녕하세요, 문의 주신 내용에 대해 안내드리겠습니다.')).not.toBeNull();
 
-    const input = screen.getByPlaceholderText(
-      '메시지를 입력하세요 (상담원 연결 시 활성화됩니다)',
-    ) as HTMLInputElement;
+    const input = screen.getByPlaceholderText('메시지를 입력하세요') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '안내드리겠습니다' } });
     fireEvent.click(screen.getByRole('button', { name: '전송' }));
 
@@ -92,6 +90,23 @@ describe('CounselorConsolePage', () => {
     await screen.findByText('안녕하세요, 문의 주신 내용에 대해 안내드리겠습니다.');
 
     fireEvent.click(screen.getByRole('button', { name: '이력' }));
+
+    expect(await screen.findByText('지난 요금제 변경 문의')).not.toBeNull();
+  });
+
+  it('이력 항목 클릭 시 대화 내용을 보여주고, 목록으로 버튼으로 되돌아간다', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByText(mockQueueTickets[0].title));
+    fireEvent.click(await screen.findByRole('button', { name: '상담 배정받기' }));
+    await screen.findByText('안녕하세요, 문의 주신 내용에 대해 안내드리겠습니다.');
+
+    fireEvent.click(screen.getByRole('button', { name: '이력' }));
+    fireEvent.click(await screen.findByText('지난 요금제 변경 문의'));
+
+    expect(await screen.findByText('어떤 요금제로 변경을 원하시나요?')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '목록으로' }));
 
     expect(await screen.findByText('지난 요금제 변경 문의')).not.toBeNull();
   });

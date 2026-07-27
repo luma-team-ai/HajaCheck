@@ -48,4 +48,8 @@ export const counselApi = {
   // 담당 상담원 본인/PLATFORM_ADMIN만 조회 가능 — 백엔드 CounselTicketService#getCustomerHistory).
   getCustomerHistory: (ticketId: number) =>
     api.get<CounselTicketSummaryResponse[]>(`/counsel/tickets/${ticketId}/customer-history`),
+  // GET /api/counsel/tickets/{id}/customer-history/{historyId}/messages — 이력 목록에서 클릭한 과거
+  // 티켓의 대화 내용(담당자가 요청자와 달라도 ticketId 기준 정당한 접점이면 허용).
+  getCustomerHistoryMessages: (ticketId: number, historyId: number) =>
+    api.get<ChatMessageResponse[]>(`/counsel/tickets/${ticketId}/customer-history/${historyId}/messages`),
 };

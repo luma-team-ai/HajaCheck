@@ -6,7 +6,7 @@ import headerUserIcon from '../../../assets/brand/header-user-outlined.svg';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import type { ChatMessageResponse, CounselTicketSummaryResponse } from '../types';
 
-function MessageBubble({ message }: { message: ChatMessageResponse }) {
+export function MessageBubble({ message }: { message: ChatMessageResponse }) {
   if (message.sender === 'USER') {
     return (
       <div className="flex flex-col items-end gap-1">

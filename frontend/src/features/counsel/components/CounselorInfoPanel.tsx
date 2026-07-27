@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import backIcon from '../../../assets/brand/sidenav-chevron.svg';
 import defaultAvatarIcon from '../../../assets/brand/sidenav-default-avatar.svg';
 import { counselApi } from '../api/counselApi';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { getApiErrorMessage } from '../../../shared/api/types';
-import type { CounselTicketDetailResponse, CounselTicketSummaryResponse } from '../types';
+import { MessageBubble } from './ConversationPanel';
+import type { ChatMessageResponse, CounselTicketDetailResponse, CounselTicketSummaryResponse } from '../types';
 
 type Ticket = CounselTicketSummaryResponse | CounselTicketDetailResponse;
 
@@ -24,6 +26,13 @@ export function CounselorInfoPanel({ ticket }: Props) {
   const [history, setHistory] = useState<CounselTicketSummaryResponse[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+
+  // 이력 드릴다운(#1001 후속) — 목록 항목 클릭 시 그 티켓의 대화를 같은 패널에서 보여주고,
+  // "목록으로" 버튼으로 되돌아간다(페이지 이동 없이 실시간 채팅 화면을 방해하지 않는다).
+  const [selectedHistoryTicket, setSelectedHistoryTicket] = useState<CounselTicketSummaryResponse | null>(null);
+  const [historyMessages, setHistoryMessages] = useState<ChatMessageResponse[]>([]);
+  const [historyMessagesLoading, setHistoryMessagesLoading] = useState(false);
+  const [historyMessagesError, setHistoryMessagesError] = useState<string | null>(null);
 
   useEffect(() => {
     if (tab !== 'history' || !ticket) {
@@ -51,6 +60,37 @@ export function CounselorInfoPanel({ ticket }: Props) {
     };
     // ticket.id 변경 시(다른 티켓 선택) 재조회 — tab을 'history'로 유지한 채 티켓만 바뀌는 경우 포함.
   }, [tab, ticket?.id]);
+
+  // 티켓 전환 시 드릴다운 상태를 초기화 — 다른 상담으로 넘어갔는데 이전 티켓의 이력 상세가 남아있으면 혼란스럽다.
+  useEffect(() => {
+    setSelectedHistoryTicket(null);
+  }, [ticket?.id]);
+
+  useEffect(() => {
+    if (!ticket || !selectedHistoryTicket) {
+      return;
+    }
+    let cancelled = false;
+    setHistoryMessagesLoading(true);
+    setHistoryMessagesError(null);
+    counselApi
+      .getCustomerHistoryMessages(ticket.id, selectedHistoryTicket.id)
+      .then((res) => {
+        if (!cancelled) setHistoryMessages(res.data);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setHistoryMessagesError(getApiErrorMessage(err, '대화 내용을 불러오지 못했습니다.'));
+          setHistoryMessages([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryMessagesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticket?.id, selectedHistoryTicket?.id]);
 
   return (
     <div className="flex w-72 shrink-0 flex-col border-l border-border bg-surface-muted">
@@ -118,7 +158,7 @@ export function CounselorInfoPanel({ ticket }: Props) {
         </div>
       )}
 
-      {ticket && tab === 'history' && (
+      {ticket && tab === 'history' && !selectedHistoryTicket && (
         <div className="flex flex-col gap-2 overflow-y-auto px-4 pb-4">
           {historyLoading && <LoadingSpinner className="flex items-center justify-center py-6" />}
           {historyError && <p className="px-1 text-sm text-red-600">{historyError}</p>}
@@ -128,21 +168,60 @@ export function CounselorInfoPanel({ ticket }: Props) {
           {!historyLoading &&
             !historyError &&
             history.map((past) => (
-              <div
+              <button
                 key={past.id}
-                className="flex flex-col gap-1 rounded-2xl bg-white px-4 py-3 text-xs shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]"
+                type="button"
+                onClick={() => setSelectedHistoryTicket(past)}
+                className="group flex flex-col gap-1 rounded-2xl border border-transparent bg-white px-4 py-3 text-left text-xs shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] transition-colors hover:border-point hover:bg-surface-sunken focus-visible:border-point focus-visible:outline-none"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <p className="m-0 truncate text-sm font-semibold text-primary">{past.title}</p>
+                  <p className="m-0 line-clamp-1 text-sm font-semibold text-primary group-hover:line-clamp-none">
+                    {past.title}
+                  </p>
                   <span className="shrink-0 text-[11px] text-text-muted">
                     {new Date(past.createdAt).toLocaleDateString('sv-SE').replaceAll('-', '.')}
                   </span>
                 </div>
-                <p className="m-0 truncate text-text-muted">
+                {/* 실제 마지막 메시지 미리보기 필드는 백엔드에 없다(CounselTicketSummaryResponse에
+                    lastMessage 없음) — 지어내지 않고, 대신 호버 시 잘려있던 제목/카테고리를
+                    그대로 펼쳐 보여주는 것으로 "내용을 좀 더 보여달라"는 요청에 대응한다. */}
+                <p className="m-0 line-clamp-1 text-text-muted group-hover:line-clamp-none">
                   {past.category} · #{past.ticketNumber} · {past.status}
                 </p>
-              </div>
+              </button>
             ))}
+        </div>
+      )}
+
+      {/* 이력 드릴다운 상세 — 클릭한 과거 티켓의 실제 대화 내용(#1001 후속). */}
+      {ticket && tab === 'history' && selectedHistoryTicket && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex items-center gap-2 px-4 pb-2">
+            <button
+              type="button"
+              onClick={() => setSelectedHistoryTicket(null)}
+              className="flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-text-muted hover:bg-white"
+            >
+              <img src={backIcon} alt="" className="size-3 rotate-90" aria-hidden="true" />
+              목록으로
+            </button>
+          </div>
+          <div className="px-4 pb-2">
+            <p className="m-0 truncate text-sm font-semibold text-primary">{selectedHistoryTicket.title}</p>
+            <p className="m-0 truncate text-xs text-text-muted">
+              {selectedHistoryTicket.category} · #{selectedHistoryTicket.ticketNumber}
+            </p>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
+            {historyMessagesLoading && <LoadingSpinner className="flex items-center justify-center py-6" />}
+            {historyMessagesError && <p className="text-sm text-red-600">{historyMessagesError}</p>}
+            {!historyMessagesLoading && !historyMessagesError && historyMessages.length === 0 && (
+              <p className="text-sm text-text-muted">대화 내용이 없습니다.</p>
+            )}
+            {!historyMessagesLoading &&
+              !historyMessagesError &&
+              historyMessages.map((message) => <MessageBubble key={message.id} message={message} />)}
+          </div>
         </div>
       )}
 

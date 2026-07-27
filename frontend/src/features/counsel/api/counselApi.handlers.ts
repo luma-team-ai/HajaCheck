@@ -190,6 +190,31 @@ export const counselHandlers = [
       ],
     }),
   ),
+  // GET .../customer-history/:historyId/messages(#1001 후속) — 드릴다운 상세 대화.
+  http.get('/api/counsel/tickets/:id/customer-history/:historyId/messages', () =>
+    HttpResponse.json({
+      success: true,
+      data: [
+        {
+          id: 201,
+          sessionId: 500,
+          sender: 'USER',
+          content: '요금제를 낮추고 싶어요.',
+          attachmentUrl: null,
+          createdAt: '2026-07-01T09:01:00',
+        },
+        {
+          id: 202,
+          sessionId: 500,
+          sender: 'COUNSELOR',
+          counselorName: '이상담',
+          content: '어떤 요금제로 변경을 원하시나요?',
+          attachmentUrl: null,
+          createdAt: '2026-07-01T09:02:00',
+        },
+      ],
+    }),
+  ),
   http.post('/api/counsel/tickets/:id/resolve', ({ params }) => {
     const id = Number(params.id);
     return HttpResponse.json({
