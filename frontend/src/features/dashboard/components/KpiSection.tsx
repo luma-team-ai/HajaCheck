@@ -34,7 +34,7 @@ export function KpiSection() {
         hasAlertDot
       />
       <KpiCard
-        label="조치 대기"
+        label="검수확정"
         value={`${data.pendingAction}건`}
         changeRate={data.pendingActionChangeRate}
         hasAlertDot

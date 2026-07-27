@@ -23,7 +23,6 @@ import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -60,6 +59,9 @@ public class DashboardService {
     private static final Set<InspectionStatus> ANALYZED_STATUSES =
             EnumSet.of(InspectionStatus.ANALYZED, InspectionStatus.REVIEWED, InspectionStatus.REPORTED);
     private static final Set<InspectionStatus> PENDING_REVIEW_STATUSES = EnumSet.of(InspectionStatus.ANALYZED);
+    // "조치 대기" KPI → "검수확정"으로 의미 변경(HAJA-499) — 하자 ACTION_PENDING 건수 대신 점검
+    // REVIEWED(검수확정) 건수를 센다. DTO 필드명(pendingAction)은 계약 변경을 피하려 그대로 둔다.
+    private static final Set<InspectionStatus> REVIEW_CONFIRMED_STATUSES = EnumSet.of(InspectionStatus.REVIEWED);
     private static final int RECENT_LIMIT = 10;
     private static final int PENDING_PRIORITY_LIMIT = 10;
     private static final int UPCOMING_INSPECTIONS_MAX_LIMIT = 50;
@@ -85,7 +87,6 @@ public class DashboardService {
     public DashboardSummaryResponse getSummary(Long userId, Long companyId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         List<Long> facilityIds = companyFacilityIds(companyId);
-        List<Long> inspectionIds = inspectionIdsOf(facilityIds);
 
         LocalDate thisMonthStart = LocalDate.now(KST).withDayOfMonth(1);
         LocalDate nextMonthStart = thisMonthStart.plusMonths(1);
@@ -106,15 +107,12 @@ public class DashboardService {
         long pendingReviewLastMonth =
                 countInspections(facilityIds, PENDING_REVIEW_STATUSES, lastMonthStart, thisMonthStart);
 
-        LocalDateTime thisMonthStartDt = thisMonthStart.atStartOfDay();
-        LocalDateTime nextMonthStartDt = nextMonthStart.atStartOfDay();
-        LocalDateTime lastMonthStartDt = lastMonthStart.atStartOfDay();
-
-        long pendingAction = inspectionIds.isEmpty() ? 0
-                : defectRepository.countByInspectionIdInAndStatusAndDeletedFalse(
-                        inspectionIds, DefectStatus.ACTION_PENDING);
-        long pendingActionThisMonth = countPendingActionDefects(inspectionIds, thisMonthStartDt, nextMonthStartDt);
-        long pendingActionLastMonth = countPendingActionDefects(inspectionIds, lastMonthStartDt, thisMonthStartDt);
+        long pendingAction = facilityIds.isEmpty() ? 0
+                : inspectionRepository.countByFacilityIdInAndStatusIn(facilityIds, REVIEW_CONFIRMED_STATUSES);
+        long pendingActionThisMonth =
+                countInspections(facilityIds, REVIEW_CONFIRMED_STATUSES, thisMonthStart, nextMonthStart);
+        long pendingActionLastMonth =
+                countInspections(facilityIds, REVIEW_CONFIRMED_STATUSES, lastMonthStart, thisMonthStart);
 
         return new DashboardSummaryResponse(
                 totalFacilities,
@@ -340,14 +338,6 @@ public class DashboardService {
         }
         return inspectionRepository.countByFacilityIdInAndStatusInAndInspectionDateRange(
                 facilityIds, statuses, from, to);
-    }
-
-    private long countPendingActionDefects(List<Long> inspectionIds, LocalDateTime from, LocalDateTime to) {
-        if (inspectionIds.isEmpty()) {
-            return 0;
-        }
-        return defectRepository.countByInspectionIdInAndStatusAndDeletedFalseAndCreatedAtRange(
-                inspectionIds, DefectStatus.ACTION_PENDING, from, to);
     }
 
     private Map<Long, String> toFacilityNameMap(List<Facility> facilities) {

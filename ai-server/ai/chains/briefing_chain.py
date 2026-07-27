@@ -19,7 +19,7 @@ class DashboardStats(BaseModel):
     total_facilities: int  # 전체 시설물 수
     monthly_analysis: int  # 이번 달 분석 장수
     pending_review: int  # 검수 대기 건수
-    pending_action: int  # 조치 대기 건수
+    pending_action: int  # 검수확정 건수(HAJA-499 — 필드명은 계약 변경을 피하려 유지)
     this_week_defects: int  # 이번 주 등록 하자
     last_week_defects: int  # 지난 주 등록 하자 (변화율 계산용)
     top_defect_type: str  # 주요 발생 유형

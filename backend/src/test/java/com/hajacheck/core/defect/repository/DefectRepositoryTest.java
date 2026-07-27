@@ -226,24 +226,6 @@ class DefectRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void countByInspectionIdInAndStatusAndDeletedFalseAndCreatedAtRange_기간내만집계() {
-        Long ownerId = seedOwner("owner-a@haja.com");
-        Long facilityId = seedFacility(ownerId, "테스트빌딩");
-        Long inspectionId = seedInspection(facilityId, ownerId, 1);
-        defectRepository.save(newDefect(inspectionId, DefectGrade.D, DefectStatus.ACTION_PENDING, false));
-
-        LocalDateTime from = LocalDateTime.now().minusDays(1);
-        LocalDateTime to = LocalDateTime.now().plusDays(1);
-        long inRange = defectRepository.countByInspectionIdInAndStatusAndDeletedFalseAndCreatedAtRange(
-                List.of(inspectionId), DefectStatus.ACTION_PENDING, from, to);
-        long outOfRange = defectRepository.countByInspectionIdInAndStatusAndDeletedFalseAndCreatedAtRange(
-                List.of(inspectionId), DefectStatus.ACTION_PENDING, from.minusDays(10), from.minusDays(5));
-
-        assertThat(inRange).isEqualTo(1);
-        assertThat(outOfRange).isEqualTo(0);
-    }
-
-    @Test
     void countByInspectionIdInAndDeletedFalseAndCreatedAtRange_주경계자정하자는이번주지난주중한쪽에만집계() {
         // 리뷰 P1 회귀 방지 — 과거 "-1ns" 트릭(BETWEEN 양끝 포함을 반열림처럼 흉내)은 PG timestamp
         // (defects.created_at 은 timestamp with time zone)가 마이크로초 정밀도라 .999999999 가
