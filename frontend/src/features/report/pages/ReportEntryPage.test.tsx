@@ -327,6 +327,22 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(screen.queryByText('완료')).toBeNull();
   });
 
+  it('하자가 0건(totalCount=0)이면 완료율 배지와 "보고서 생성 시작" 버튼이 둘 다 완료로 취급된다(#945)', async () => {
+    server.use(
+      http.get('/api/inspections/:id/defects', () =>
+        HttpResponse.json({ success: true, data: [] }),
+      ),
+    );
+    renderPage();
+    await screen.findByText(/점검 회차 요약/);
+
+    // 배지: "완료"(0/0은 검수할 게 없으니 완료 취급)
+    expect(screen.getByText('완료')).not.toBeNull();
+    expect(screen.queryByText('진행 중')).toBeNull();
+    // 버튼: 배지와 같은 결론 — 비활성화되면 안 된다
+    expect(screen.getByRole('button', { name: '보고서 생성 시작' }).hasAttribute('disabled')).toBe(false);
+  });
+
   it('생성에 성공하면 편집화면으로 reportId 쿼리를 달아 이동한다', async () => {
     let posted = false;
     server.use(
