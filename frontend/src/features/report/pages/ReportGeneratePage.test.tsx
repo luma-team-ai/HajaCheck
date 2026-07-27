@@ -7,8 +7,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ReportDetailResponse } from '../api/reportApi';
 import type { InspectionResponse, DefectDetailItem, MediaResponse } from '../../inspection/api/inspectionApi.types';
-import type { ReportContent } from '../types';
+import { isReportContent, type ReportContent } from '../types';
+import { mockReportDetailResponse } from '../mocks/reportDetail.mock';
 import { ReportGeneratePage } from './ReportGeneratePage';
+import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
 
 vi.mock('../utils/exportReportToPdf', () => ({
   exportReportToPdf: vi.fn().mockResolvedValue(new Blob(['fake-pdf'])),
@@ -77,20 +79,16 @@ const mockContent: ReportContent = {
 };
 
 const mockReport: ReportDetailResponse = {
-  id: 1,
-  inspectionId: 1,
-  version: 1,
+  ...mockReportDetailResponse,
   content: mockContent,
-  status: 'DRAFT',
   groundingCheckPassed: null,
-  pdfUrl: null,
-  editedBy: null,
-  createdBy: 1,
-  createdAt: '2026-07-22T10:00:00Z',
 };
 
 let generateReportCallCount = 0;
 let reportState: ReportDetailResponse = mockReport;
+let uploadedPdfFileName: string | null = null;
+let uploadedPdfSize: number | null = null;
+let finalizePdfUrl: string | null = null;
 
 const server = setupServer(
   http.get('/api/inspections/1', () => HttpResponse.json({ success: true, data: mockInspection })),
@@ -128,11 +126,22 @@ const server = setupServer(
     reportState = { ...reportState, groundingCheckPassed: true };
     return HttpResponse.json({ success: true, data: reportState });
   }),
-  http.post('/api/reports/1/pdf', () =>
-    HttpResponse.json({ success: true, data: { pdfUrl: '/api/reports/1/pdf/storage-key' } }),
-  ),
+  http.post('/api/reports/1/pdf', async ({ request }) => {
+    const formData = await request.formData();
+    const file = formData.get('file');
+    uploadedPdfFileName =
+      file && typeof file === 'object' && 'name' in file && typeof file.name === 'string'
+        ? file.name
+        : null;
+    uploadedPdfSize =
+      file && typeof file === 'object' && 'size' in file && typeof file.size === 'number'
+        ? file.size
+        : null;
+    return HttpResponse.json({ success: true, data: { pdfUrl: '/api/reports/1/pdf/storage-key' } });
+  }),
   http.post('/api/reports/1/finalize', async ({ request }) => {
     const body = (await request.json()) as { pdfUrl: string };
+    finalizePdfUrl = body.pdfUrl;
     reportState = { ...reportState, status: 'FINALIZED', pdfUrl: body.pdfUrl };
     return HttpResponse.json({ success: true, data: reportState });
   }),
@@ -142,6 +151,11 @@ beforeAll(() => server.listen());
 beforeEach(() => {
   generateReportCallCount = 0;
   reportState = mockReport;
+  uploadedPdfFileName = null;
+  uploadedPdfSize = null;
+  finalizePdfUrl = null;
+  vi.mocked(exportReportToPdf).mockClear();
+  vi.mocked(buildReportPdfFileName).mockClear();
 });
 afterEach(() => {
   server.resetHandlers();
@@ -243,8 +257,54 @@ describe('ReportGeneratePage', () => {
       expect(screen.getByText('이 보고서는 확정되어 더 이상 편집할 수 없습니다.')).toBeTruthy();
     });
 
+    expect(exportReportToPdf).toHaveBeenCalledWith(expect.objectContaining({
+      overview: expect.objectContaining({ purpose: '수정된 목적' }),
+    }));
+    expect(buildReportPdfFileName).toHaveBeenCalledWith(1);
+    expect(uploadedPdfFileName).toBeTruthy();
+    expect(uploadedPdfSize).toBeGreaterThan(0);
+    expect(finalizePdfUrl).toBe('/api/reports/1/pdf/storage-key');
+    expect(screen.getByRole('link', { name: 'PDF 보기' }).getAttribute('href')).toBe('/api/reports/1/pdf/storage-key');
     expect((screen.getByLabelText('점검 목적') as HTMLTextAreaElement).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: '저장' })).toBeNull();
+  });
+
+  it('기존 reportId 상세 content로 진입해 바로 PDF 생성 후 확정할 수 있다', async () => {
+    if (!isReportContent(mockReportDetailResponse.content)) {
+      throw new Error('report detail fixture content must match ReportContent');
+    }
+    const realContractContent = mockReportDetailResponse.content;
+
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+    };
+
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/inspections/1/reports/generate?reportId=1']}>
+          <Routes>
+            <Route path="/inspections/:id/reports/generate" element={<ReportGeneratePage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByDisplayValue(realContractContent.overview.purpose);
+
+    const finalizeButton = screen.getByRole('button', { name: 'PDF 생성 후 확정' }) as HTMLButtonElement;
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('이 보고서는 확정되어 더 이상 편집할 수 없습니다.')).toBeTruthy();
+    });
+    expect(exportReportToPdf).toHaveBeenCalledWith(realContractContent);
+    expect(buildReportPdfFileName).toHaveBeenCalledWith(1);
+    expect(uploadedPdfFileName).toBeTruthy();
+    expect(uploadedPdfSize).toBeGreaterThan(0);
+    expect(finalizePdfUrl).toBe('/api/reports/1/pdf/storage-key');
   });
 
   it('content가 편집되지 않은 상태에서는 확정 검증 버튼이 항상 비활성화되지 않는다', async () => {
