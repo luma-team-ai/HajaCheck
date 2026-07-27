@@ -503,6 +503,53 @@ class DefectRepositoryTest extends PostgresTestSupport {
                 .containsExactly(DefectGrade.C);
     }
 
+    // ── #970 갭3 / HAJA-437: location + previous_defect_id(self-referencing FK) 실 PG 검증 ──
+
+    @Test
+    void save_location과previousDefectId_실PG에저장및조회() {
+        // self-referencing FK(previous_defect_id → defects.id)가 실제 PostgreSQL DDL(V21/V22)에서
+        // 정상 동작하는지 확인 — Mockito 단위테스트로는 실제 FK 제약/컬럼 타입을 검증할 수 없다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long round1 = seedInspection(facilityId, ownerId, 1);
+        Long round2 = seedInspection(facilityId, ownerId, 2);
+
+        Defect previous = defectRepository.save(newDefect(round1, DefectGrade.C, DefectStatus.DETECTED, false));
+        Defect current = Defect.builder()
+                .inspectionId(round2)
+                .type(DefectType.CRACK)
+                .confidence(0.9)
+                .grade(DefectGrade.C)
+                .status(DefectStatus.DETECTED)
+                .location("외벽 동측 12층 부근")
+                .build();
+        current = defectRepository.save(current);
+        current.confirmPreviousDefect(previous.getId());
+        defectRepository.save(current);
+        em.flush();
+        em.clear();
+
+        Defect reloaded = defectRepository.findById(current.getId()).orElseThrow();
+        assertThat(reloaded.getLocation()).isEqualTo("외벽 동측 12층 부근");
+        assertThat(reloaded.getPreviousDefectId()).isEqualTo(previous.getId());
+    }
+
+    @Test
+    void save_location과previousDefectId_기본값은null() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+
+        Defect saved = defectRepository.save(
+                newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
+        em.flush();
+        em.clear();
+
+        Defect reloaded = defectRepository.findById(saved.getId()).orElseThrow();
+        assertThat(reloaded.getLocation()).isNull();
+        assertThat(reloaded.getPreviousDefectId()).isNull();
+    }
+
     @Test
     void findDistinctGradesByInspectionIds_대상점검없으면빈리스트() {
         Long ownerId = seedOwner("owner-a@haja.com");

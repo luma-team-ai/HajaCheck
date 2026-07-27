@@ -79,10 +79,28 @@ class DefectServiceTest {
     }
 
     private Defect existingDefect(Long facilityId, DefectStatus status) {
+        return existingDefect(10L, 100L, facilityId, status, 1, null);
+    }
+
+    // #970 갭3 — 시설물 담당자 이름 해소 검증용. 기존 existingDefect(facilityId)와 동일 id 체계
+    // (defectId=10L, inspectionId=100L, roundNo=1)를 유지하되 facility.assigneeUserId만 채운다.
+    private Defect existingDefectWithFacilityAssignee(Long facilityId, Long facilityAssigneeUserId) {
+        return existingDefect(10L, 100L, facilityId, DefectStatus.DETECTED, 1, facilityAssigneeUserId);
+    }
+
+    // HAJA-437 회차 간 대응 하자 확정 검증용 — 임의 id/시설물/회차의 별도 하자를 만든다
+    // (existingDefect의 defectId=10L/inspectionId=100L과 겹치지 않게 호출부가 다른 id를 지정).
+    private Defect otherDefect(Long defectId, Long inspectionId, Long facilityId, int roundNo) {
+        return existingDefect(defectId, inspectionId, facilityId, DefectStatus.DETECTED, roundNo, null);
+    }
+
+    private Defect existingDefect(Long defectId, Long inspectionId, Long facilityId, DefectStatus status,
+                                   int roundNo, Long facilityAssigneeUserId) {
         Facility facility = Facility.builder()
                 .companyId(COMPANY_ID)
                 .name("테스트빌딩")
                 .type("BUILDING")
+                .assigneeUserId(facilityAssigneeUserId)
                 .build();
         ReflectionTestUtils.setField(facility, "id", facilityId);
 
@@ -90,15 +108,15 @@ class DefectServiceTest {
                 .facilityId(facilityId)
                 .createdBy(USER_ID)
                 .assignedInspectorId(USER_ID)
-                .roundNo(1)
+                .roundNo(roundNo)
                 .inspectionDate(LocalDate.now())
                 .status(InspectionStatus.CREATED)
                 .build();
-        ReflectionTestUtils.setField(inspection, "id", 100L);
+        ReflectionTestUtils.setField(inspection, "id", inspectionId);
         ReflectionTestUtils.setField(inspection, "facility", facility);
 
         Defect defect = Defect.builder()
-                .inspectionId(100L)
+                .inspectionId(inspectionId)
                 .type(DefectType.CRACK)
                 .confidence(0.9)
                 .grade(DefectGrade.C)
@@ -106,7 +124,7 @@ class DefectServiceTest {
                 .reviewed(false)
                 .deleted(false)
                 .build();
-        ReflectionTestUtils.setField(defect, "id", 10L);
+        ReflectionTestUtils.setField(defect, "id", defectId);
         ReflectionTestUtils.setField(defect, "inspection", inspection);
         return defect;
     }
@@ -231,6 +249,124 @@ class DefectServiceTest {
 
         assertThat(response.actionAssigneeName()).isNull();
         verify(userRepository, never()).findById(any());
+    }
+
+    // ── #970 갭3: 시설물 담당자 이름(assigneeName) 해소 ──
+
+    @Test
+    void get_시설물담당자있으면이름조회해서포함() {
+        Defect defect = existingDefectWithFacilityAssignee(5L, 300L);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+        User facilityAssignee = User.builder().name("박담당").build();
+        ReflectionTestUtils.setField(facilityAssignee, "id", 300L);
+        when(userRepository.findById(300L)).thenReturn(Optional.of(facilityAssignee));
+
+        DefectResponse response = defectService.get(USER_ID, COMPANY_ID, 10L);
+
+        assertThat(response.assigneeName()).isEqualTo("박담당");
+    }
+
+    @Test
+    void get_시설물담당자없으면이름조회안함() {
+        Defect defect = existingDefect(5L);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+
+        DefectResponse response = defectService.get(USER_ID, COMPANY_ID, 10L);
+
+        assertThat(response.assigneeName()).isNull();
+        verify(userRepository, never()).findById(300L);
+    }
+
+    // ── #970 갭3: 하자 위치 사후 편집 ──
+
+    @Test
+    void updateLocation_본인소유하자_위치반영후응답() {
+        Defect defect = existingDefect(5L);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+
+        DefectResponse response = defectService.updateLocation(USER_ID, COMPANY_ID, 10L, "외벽 동측 12층 부근");
+
+        assertThat(response.location()).isEqualTo("외벽 동측 12층 부근");
+        assertThat(defect.getLocation()).isEqualTo("외벽 동측 12층 부근");
+    }
+
+    @Test
+    void updateLocation_타인소유하자_DEFECT_NOT_FOUND예외() {
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> defectService.updateLocation(USER_ID, COMPANY_ID, 10L, "아무 위치"))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
+    }
+
+    // ── HAJA-437: 회차 간 대응 하자 확정 ──
+
+    @Test
+    void confirmPreviousDefect_같은시설물더이전회차_확정성공() {
+        Defect defect = existingDefect(10L, 200L, 5L, DefectStatus.DETECTED, 2, null);
+        Defect previous = otherDefect(11L, 201L, 5L, 1);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+        when(defectRepository.findByIdAndCompanyId(11L, COMPANY_ID)).thenReturn(Optional.of(previous));
+
+        DefectResponse response = defectService.confirmPreviousDefect(USER_ID, COMPANY_ID, 10L, 11L);
+
+        assertThat(response.previousDefectId()).isEqualTo(11L);
+        assertThat(defect.getPreviousDefectId()).isEqualTo(11L);
+    }
+
+    @Test
+    void confirmPreviousDefect_다른시설물이면DEFECT_PREVIOUS_DEFECT_INVALID예외() {
+        Defect defect = existingDefect(10L, 200L, 5L, DefectStatus.DETECTED, 2, null);
+        Defect previous = otherDefect(11L, 201L, 6L, 1); // 다른 시설물(6L)
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+        when(defectRepository.findByIdAndCompanyId(11L, COMPANY_ID)).thenReturn(Optional.of(previous));
+
+        assertThatThrownBy(() -> defectService.confirmPreviousDefect(USER_ID, COMPANY_ID, 10L, 11L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.DEFECT_PREVIOUS_DEFECT_INVALID));
+        assertThat(defect.getPreviousDefectId()).isNull();
+    }
+
+    @Test
+    void confirmPreviousDefect_같은회차이후면DEFECT_PREVIOUS_DEFECT_INVALID예외() {
+        // 대상이 현재 하자보다 같거나 이후 회차(roundNo가 더 크거나 같음)면 거부 — 자기 자신 참조도
+        // 같은 원리(roundNo 동일)로 이 케이스에 포함된다.
+        Defect defect = existingDefect(10L, 200L, 5L, DefectStatus.DETECTED, 1, null);
+        Defect laterRound = otherDefect(11L, 201L, 5L, 2); // 더 나중 회차
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+        when(defectRepository.findByIdAndCompanyId(11L, COMPANY_ID)).thenReturn(Optional.of(laterRound));
+
+        assertThatThrownBy(() -> defectService.confirmPreviousDefect(USER_ID, COMPANY_ID, 10L, 11L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.DEFECT_PREVIOUS_DEFECT_INVALID));
+        assertThat(defect.getPreviousDefectId()).isNull();
+    }
+
+    @Test
+    void confirmPreviousDefect_타사소유대상하자_DEFECT_PREVIOUS_DEFECT_INVALID예외() {
+        // previousDefectId가 가리키는 하자가 다른 회사 소유(또는 미존재)면 findByIdAndCompanyId가
+        // 빈 값을 반환한다(cross-company IDOR 방지) — 이 경우도 동일 코드로 통일 응답.
+        Defect defect = existingDefect(10L, 200L, 5L, DefectStatus.DETECTED, 2, null);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+        when(defectRepository.findByIdAndCompanyId(999L, COMPANY_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> defectService.confirmPreviousDefect(USER_ID, COMPANY_ID, 10L, 999L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.DEFECT_PREVIOUS_DEFECT_INVALID));
+    }
+
+    @Test
+    void confirmPreviousDefect_타인소유대상하자_DEFECT_NOT_FOUND예외() {
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> defectService.confirmPreviousDefect(USER_ID, COMPANY_ID, 10L, 11L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
     }
 
     // ── HAJA-393/#725: 조치 결과 등록 ──

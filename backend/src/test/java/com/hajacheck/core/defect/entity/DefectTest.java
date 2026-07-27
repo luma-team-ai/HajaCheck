@@ -157,6 +157,59 @@ class DefectTest {
     }
 
     @Test
+    void updateLocation_값을그대로반영() {
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).build();
+
+        defect.updateLocation("외벽 동측 12층 부근");
+
+        assertThat(defect.getLocation()).isEqualTo("외벽 동측 12층 부근");
+    }
+
+    @Test
+    void updateLocation_빈문자열이나공백은null로정규화() {
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).location("기존 위치").build();
+
+        defect.updateLocation("");
+        assertThat(defect.getLocation()).isNull();
+
+        defect.updateLocation("기존 위치");
+        defect.updateLocation("   ");
+        assertThat(defect.getLocation()).isNull();
+    }
+
+    @Test
+    void updateLocation_삭제된결함이면예외() {
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).build();
+        defect.softDelete();
+
+        assertThatThrownBy(() -> defect.updateLocation("아무 위치"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void confirmPreviousDefect_이전회차하자id를반영() {
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).build();
+
+        defect.confirmPreviousDefect(99L);
+
+        assertThat(defect.getPreviousDefectId()).isEqualTo(99L);
+    }
+
+    @Test
+    void confirmPreviousDefect_삭제된결함이면예외() {
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).build();
+        defect.softDelete();
+
+        assertThatThrownBy(() -> defect.confirmPreviousDefect(99L))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void changeStatus_예외발생시reviewed는변경되지않음() {
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).build();
