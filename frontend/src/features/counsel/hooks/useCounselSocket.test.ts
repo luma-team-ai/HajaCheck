@@ -181,6 +181,38 @@ describe('useCounselSocket', () => {
     expect(onEnded).toHaveBeenCalledWith(assignedTicket);
   });
 
+  it('/topic/counsel/{ticketId}/typing 메시지 수신 시 onTyping이 호출된다', async () => {
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket;
+    const onMessage = vi.fn();
+    const onTyping = vi.fn();
+
+    renderHook(() => useCounselSocket(7, { onMessage, onTyping }));
+    const ws = await openAndConnect();
+
+    const subId = findSubscriptionId(ws, '/topic/counsel/7/typing');
+    act(() => {
+      ws.simulateFrame(messageFrame('/topic/counsel/7/typing', subId, { sender: 'COUNSELOR' }));
+    });
+
+    expect(onTyping).toHaveBeenCalledWith('COUNSELOR');
+  });
+
+  it('sendTyping 호출 시 /app/counsel/{ticketId}/typing으로 발행한다', async () => {
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket;
+    const onMessage = vi.fn();
+
+    const { result } = renderHook(() => useCounselSocket(9, { onMessage }));
+    const ws = await openAndConnect();
+    await waitFor(() => expect(result.current.connected).toBe(true));
+
+    act(() => {
+      result.current.sendTyping();
+    });
+
+    const sendFrame = ws.sent.find((f) => f.startsWith('SEND') && f.includes('destination:/app/counsel/9/typing'));
+    expect(sendFrame).toBeTruthy();
+  });
+
   it('sendMessage 호출 시 /app/counsel/{ticketId}/send로 발행한다', async () => {
     globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket;
     const onMessage = vi.fn();

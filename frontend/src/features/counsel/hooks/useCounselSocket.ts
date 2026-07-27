@@ -1,7 +1,7 @@
 import { Client, ReconnectionTimeMode } from '@stomp/stompjs';
 import type { IFrame } from '@stomp/stompjs';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChatMessageResponse, CounselTicketSummaryResponse } from '../types';
+import type { ChatMessageResponse, ChatMessageSender, CounselTicketSummaryResponse } from '../types';
 
 // 상담원-고객 실시간 연결 선행 작업(#999, HAJA-493) — STOMP 소켓 연결/구독/발행을 캡슐화한 훅.
 // 백엔드는 SockJS를 지원하지 않는 raw WebSocket 엔드포인트(`/ws`)만 제공하므로
@@ -11,6 +11,8 @@ export interface UseCounselSocketHandlers {
   onMessage: (message: ChatMessageResponse) => void;
   onAssigned?: (ticket: CounselTicketSummaryResponse) => void;
   onEnded?: (ticket: CounselTicketSummaryResponse) => void;
+  // 상대방 "입력 중" 신호(#1000/#1001 후속) — 영속화되지 않는 휘발성 이벤트라 메시지 로그에 남기지 않는다.
+  onTyping?: (sender: ChatMessageSender) => void;
 }
 
 export interface UseCounselSocketResult {
@@ -19,6 +21,9 @@ export interface UseCounselSocketResult {
   // 이 경우 재연결을 멈추므로, 소비자가 로그인 유도/토스트 등을 띄우는 신호로 쓴다.
   error: string | null;
   sendMessage: (content: string, attachmentKey?: string) => boolean;
+  // "입력 중" 신호 발행 — 페이로드 없음(발신자는 서버가 Principal로 식별). sendMessage와 동일하게
+  // 연결 안 됐으면 조용히 no-op(false 반환).
+  sendTyping: () => boolean;
 }
 
 // 프로덕션 빌드에서 WS URL 하드코딩 금지 — axios(shared/api/axios.ts)와 동일하게 상대 경로 기준으로
@@ -95,6 +100,14 @@ export function useCounselSocket(
         }
         handlersRef.current.onEnded?.(ticket);
       });
+
+      // "입력 중" 신호 — 파싱 실패해도 부가 UI일 뿐이라 error state를 채우지 않고 조용히 무시한다
+      // (메시지/배정/종료와 달리 실패해도 상담 진행 자체엔 영향 없음).
+      client.subscribe(`/topic/counsel/${ticketId}/typing`, (frame) => {
+        const typing = parseFrameBody<{ sender: ChatMessageSender }>(frame.body);
+        if (typing === null) return;
+        handlersRef.current.onTyping?.(typing.sender);
+      });
     };
 
     client.onWebSocketClose = () => {
@@ -143,5 +156,11 @@ export function useCounselSocket(
     [ticketId],
   );
 
-  return { connected, error, sendMessage };
+  const sendTyping = useCallback(() => {
+    if (ticketId === null || !clientRef.current?.connected) return false;
+    clientRef.current.publish({ destination: `/app/counsel/${ticketId}/typing`, body: '' });
+    return true;
+  }, [ticketId]);
+
+  return { connected, error, sendMessage, sendTyping };
 }
