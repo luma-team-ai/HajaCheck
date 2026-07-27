@@ -9,7 +9,9 @@ type Props = {
 // GRADE_CLASSES/STATUS_PRESENTATION은 "border-* bg-* text-*" 필(pill) 배지용 클래스 묶음이다(신규
 // 색상 상수 추가 금지 컨벤션 — DefectTable.tsx 재사용). 카드 그리드의 dot 배지는 border/bg 없이
 // text-* 색상 클래스만 뽑아 dot의 background-color: currentColor로 재사용한다(Figma 정렬, #937).
-function pickTextColorClass(classNames: string): string {
+// DefectCardGridControls.tsx의 상태 필터 탭 dot도 동일 로직이 필요해 export해서 재사용한다(#1005 —
+// 로컬에 같은 함수 재정의 금지, 단일 진실 소스 유지).
+export function pickTextColorClass(classNames: string): string {
   return classNames.split(' ').find((cls) => cls.startsWith('text-')) ?? '';
 }
 
