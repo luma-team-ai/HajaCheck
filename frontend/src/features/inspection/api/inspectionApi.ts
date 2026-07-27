@@ -1,4 +1,5 @@
 import { api } from '../../../shared/api/axios';
+import type { PageResponse } from '../../../shared/api/types';
 import type {
   FacilityDetail,
   FacilityOption,
@@ -13,6 +14,7 @@ import type {
   DefectCreateRequest,
   AnalysisStatusResponse,
   MediaResponse,
+  FacilityInspectionSummary,
 } from './inspectionApi.types';
 
 export interface DefectRevisionRequest {
@@ -50,6 +52,10 @@ export const inspectionApi = {
     api.post<InspectionCreateResponse>('/inspections', body),
   // 점검(회차) 생성 폼의 시설물 셀렉트용 — 실 GET /api/facilities(FacilityController.list)를 그대로 호출한다.
   listFacilityOptions: () => api.get<FacilityOption[]>('/facilities'),
+  // 점검(회차) 생성 폼 — 같은 시설물에 이미 진행 중(미종료, status !== 'REPORTED')인 회차가 있는지
+  // 확인용(중복 회차 생성 약한 경고 — 확인창만 띄우고 생성 자체를 막지는 않는다).
+  listByFacility: (facilityId: number) =>
+    api.get<PageResponse<FacilityInspectionSummary>>('/inspections', { params: { facilityId } }),
   // 분석 결과 뷰어(useInspectionResultReal)용 — 실 GET /api/facilities/{id}(FacilityController.get)를 그대로 호출한다.
   getFacilityDetail: (id: number) => api.get<FacilityDetail>(`/facilities/${id}`),
   // AI 분석 실행/상태(dev-05-04) — 분석 시작(202 Accepted, 바로 반환) + 진행 상태 폴링.

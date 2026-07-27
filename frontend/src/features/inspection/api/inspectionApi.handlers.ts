@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw';
-import type { ApiResponse } from '../../../shared/api/types';
+import type { ApiResponse, PageResponse } from '../../../shared/api/types';
 import type {
   FacilityDetail,
   FacilityOption,
@@ -7,7 +7,11 @@ import type {
   InspectionCreateResponse,
 } from '../types';
 import type { DefectStatusUpdateRequest } from './inspectionApi';
-import type { DefectDetailItem, DefectCreateRequest } from './inspectionApi.types';
+import type {
+  DefectDetailItem,
+  DefectCreateRequest,
+  FacilityInspectionSummary,
+} from './inspectionApi.types';
 
 // ponytail: /api/inspections/:id/result 목은 제거됨 — 실제 백엔드는
 // /api/inspections/{id} + /api/inspections/{id}/defects 로 분리되어 있음.
@@ -92,6 +96,17 @@ export const inspectionHandlers = [
       data,
     };
     return HttpResponse.json(result);
+  }),
+
+  // 점검 생성 폼의 "같은 시설물에 이미 진행 중인 회차가 있는지" 확인용 — 기본값은 항상 빈 목록
+  // (진행 중인 회차 없음)이라 기존 제출 플로우 테스트에 영향 없다. 중복 경고 시나리오는 개별
+  // 테스트에서 server.use로 override한다.
+  http.get('/api/inspections', () => {
+    const body: ApiResponse<PageResponse<FacilityInspectionSummary>> = {
+      success: true,
+      data: { content: [], page: 0, totalElements: 0 },
+    };
+    return HttpResponse.json(body);
   }),
 
   http.post('/api/inspections', async ({ request }) => {
