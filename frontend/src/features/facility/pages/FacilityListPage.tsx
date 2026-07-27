@@ -21,8 +21,30 @@ export function FacilityListPage() {
   const [filters, setFilters] = useState<FacilityListFilters>(FACILITY_LIST_FILTERS_INITIAL);
   const navigate = useNavigate();
   const { data: facilities, isLoading, isError, refetch } = useFacilities();
-  const { createFacility, isPending, error, resetError } = useCreateFacility();
-  const { uploadPhotos } = useUploadFacilityPhotos();
+  const {
+    createFacility,
+    isPending: isCreating,
+    error: createError,
+    resetError: resetCreateError,
+  } = useCreateFacility();
+  const {
+    uploadPhotos,
+    isPending: isUploading,
+    error: uploadError,
+    resetError: resetUploadError,
+  } = useUploadFacilityPhotos();
+  // 생성(POST /api/facilities) + 업로드(POST /api/facilities/{id}/media)는 handleSubmit 안에서 순차
+  // 실행되는 하나의 논리적 제출이다 — 둘 중 하나만 반영하면 두 가지 회귀가 생긴다: ① 사진 업로드가
+  // 진행 중인 동안 createFacility의 isPending만 보고 있으면 이미 false로 풀려 등록 버튼이 재활성화돼
+  // 재클릭 시 시설물이 중복 생성된다. ② uploadPhotos가 실패해도 error가 createError(=null, 생성은
+  // 이미 성공)만 가리키면 실패 배너가 전혀 뜨지 않는다(code-reviewer P1). 두 뮤테이션의 상태를 합쳐서
+  // FacilityFormModal에 전달한다.
+  const isPending = isCreating || isUploading;
+  const error = createError ?? uploadError;
+  const resetError = () => {
+    resetCreateError();
+    resetUploadError();
+  };
 
   const isFilterActive =
     filters.search !== '' || filters.type !== '' || filters.region !== '' || filters.grade !== '';
