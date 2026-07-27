@@ -187,6 +187,17 @@ class DefectServiceTest {
     }
 
     @Test
+    void get_foundCycle_점검회차값매핑() {
+        // HAJA-488/#981: Inspection.roundNo가 DefectResponse.foundCycle로 그대로 노출되는지 검증.
+        Defect defect = existingDefect(5L);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+
+        DefectResponse response = defectService.get(USER_ID, COMPANY_ID, 10L);
+
+        assertThat(response.foundCycle()).isEqualTo(1);
+    }
+
+    @Test
     void get_타인소유하자_DEFECT_NOT_FOUND예외() {
         // findByIdAndCompanyId 는 소유자 스코프라 타인 소유는 조회 자체가 빈 값으로 온다(cross-owner IDOR 방지).
         when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.empty());
