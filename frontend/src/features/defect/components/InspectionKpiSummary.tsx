@@ -14,8 +14,9 @@ function pickTextColorClass(classNames: string): string {
 }
 
 // 점검 상세(카드형, HAJA-393/394 §화면 구조 ②) KPI 4종 — contract.md 확정: 총 하자/검수확정/조치중/조치완료.
-// Figma 정렬(#966) — "총 하자"를 제외한 상태 3종엔 DefectTable.STATUS_PRESENTATION 색상 dot을 붙이고
-// 값 뒤에 "건" 단위를 표기한다(#937/PR#950 diff에서 이 컴포넌트만 누락됐던 스타일링 보완).
+// Figma 정렬(#966) — "총 하자"를 제외한 상태 3종엔 DefectTable.STATUS_PRESENTATION 색상 dot을 붙인다
+// (#937/PR#950 diff에서 이 컴포넌트만 누락됐던 스타일링 보완). "건" 단위는 #969 Header Panel 정렬로
+// 4종 전체에 표기하도록 변경(과거엔 "총 하자"만 단위 없이 표시했으나 레퍼런스 디자인과 통일).
 export function InspectionKpiSummary({ defects }: Props) {
   const summary = useMemo(
     () => ({
@@ -52,10 +53,7 @@ export function InspectionKpiSummary({ defects }: Props) {
               )}
               {item.label}
             </dt>
-            <dd>
-              {item.value.toLocaleString()}
-              {item.statusKey ? '건' : ''}
-            </dd>
+            <dd>{item.value.toLocaleString()}건</dd>
           </div>
         );
       })}
