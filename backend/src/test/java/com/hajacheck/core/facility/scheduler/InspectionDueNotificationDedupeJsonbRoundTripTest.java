@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.core.facility.scheduler.InspectionDueNotificationPayload.Kind;
 import com.hajacheck.notification.entity.Notification;
 import com.hajacheck.notification.entity.NotificationType;
 import com.hajacheck.notification.repository.NotificationRepository;
@@ -54,8 +55,8 @@ class InspectionDueNotificationDedupeJsonbRoundTripTest extends PostgresTestSupp
                 .build();
         ReflectionTestUtils.setField(facility, "id", 10L);
 
-        String expectedKey = InspectionDueNotificationPayload.dedupeKeyOf(facility);
-        String payload = InspectionDueNotificationPayload.serialize(facility);
+        String expectedKey = InspectionDueNotificationPayload.dedupeKeyOf(facility, Kind.DUE);
+        String payload = InspectionDueNotificationPayload.serialize(facility, Kind.DUE);
 
         Notification saved = notificationRepository.save(
                 Notification.create(owner.getId(), NotificationType.INSPECTION_DUE, payload));
@@ -66,6 +67,6 @@ class InspectionDueNotificationDedupeJsonbRoundTripTest extends PostgresTestSupp
 
         assertThat(InspectionDueNotificationPayload.extractDedupeKey(reread.getPayloadJson()))
                 .isEqualTo(expectedKey)
-                .isEqualTo("10|2026-07-21");
+                .isEqualTo("10|2026-07-21|DUE");
     }
 }

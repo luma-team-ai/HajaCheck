@@ -22,6 +22,7 @@ import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
+import com.hajacheck.core.facility.dto.InspectionNotificationSettingRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.entity.FacilityInitialGrade;
 import com.hajacheck.core.facility.repository.FacilityRepository;
@@ -459,6 +460,116 @@ class FacilityControllerTest extends PostgresTestSupport {
     @Test
     void 현황목록_미인증_401() throws Exception {
         mockMvc.perform(get("/api/facilities/status"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ── 점검 알림 설정 조회/저장(#540 ③) ──
+
+    @Test
+    void 알림설정조회_저장된적없음_기본값200반환() throws Exception {
+        User owner = saveUser("noti-owner1@haja.com");
+        Facility facility = saveFacility(owner.getId());
+
+        mockMvc.perform(get("/api/facilities/{id}/notification-settings", facility.getId())
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.notifyBeforeEnabled").value(true))
+                .andExpect(jsonPath("$.data.notifyBeforeDays").value(7))
+                .andExpect(jsonPath("$.data.warnOnOverdueEnabled").value(false));
+    }
+
+    @Test
+    void 알림설정저장_신규_200_저장값그대로반환() throws Exception {
+        User owner = saveUser("noti-owner2@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        InspectionNotificationSettingRequest request =
+                new InspectionNotificationSettingRequest(false, 14, true);
+
+        mockMvc.perform(put("/api/facilities/{id}/notification-settings", facility.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.notifyBeforeEnabled").value(false))
+                .andExpect(jsonPath("$.data.notifyBeforeDays").value(14))
+                .andExpect(jsonPath("$.data.warnOnOverdueEnabled").value(true));
+    }
+
+    @Test
+    void 알림설정저장_기존행있음_덮어쓰기_조회에도반영() throws Exception {
+        User owner = saveUser("noti-owner3@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        InspectionNotificationSettingRequest first =
+                new InspectionNotificationSettingRequest(true, 7, false);
+        InspectionNotificationSettingRequest second =
+                new InspectionNotificationSettingRequest(false, 30, true);
+
+        mockMvc.perform(put("/api/facilities/{id}/notification-settings", facility.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(first)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/facilities/{id}/notification-settings", facility.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(second)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.notifyBeforeDays").value(30));
+
+        mockMvc.perform(get("/api/facilities/{id}/notification-settings", facility.getId())
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.notifyBeforeEnabled").value(false))
+                .andExpect(jsonPath("$.data.notifyBeforeDays").value(30))
+                .andExpect(jsonPath("$.data.warnOnOverdueEnabled").value(true));
+    }
+
+    @Test
+    void 알림설정조회_타인소유시설_404_FACILITY_NOT_FOUND() throws Exception {
+        User owner = saveUser("noti-owner4@haja.com");
+        User stranger = saveUser("noti-stranger4@haja.com");
+        Facility facility = saveFacility(owner.getId());
+
+        mockMvc.perform(get("/api/facilities/{id}/notification-settings", facility.getId())
+                        .with(csrf()).with(authentication(authOf(stranger))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("FACILITY_NOT_FOUND"));
+    }
+
+    @Test
+    void 알림설정저장_타인소유시설_404_FACILITY_NOT_FOUND() throws Exception {
+        User owner = saveUser("noti-owner5@haja.com");
+        User stranger = saveUser("noti-stranger5@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        InspectionNotificationSettingRequest request =
+                new InspectionNotificationSettingRequest(true, 7, false);
+
+        mockMvc.perform(put("/api/facilities/{id}/notification-settings", facility.getId())
+                        .with(csrf()).with(authentication(authOf(stranger)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("FACILITY_NOT_FOUND"));
+    }
+
+    @Test
+    void 알림설정저장_유효성실패_사전알림일수범위밖_400() throws Exception {
+        User owner = saveUser("noti-owner6@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        InspectionNotificationSettingRequest request =
+                new InspectionNotificationSettingRequest(true, 366, false);
+
+        mockMvc.perform(put("/api/facilities/{id}/notification-settings", facility.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 알림설정조회_미인증_401() throws Exception {
+        mockMvc.perform(get("/api/facilities/{id}/notification-settings", 1L))
                 .andExpect(status().isUnauthorized());
     }
 }
