@@ -38,7 +38,6 @@ describe('ChatBotPage', () => {
     fireEvent.click(await screen.findByText(mockScenarioRoots[0].buttonLabel));
     fireEvent.click(await screen.findByText('상담원 연결'));
 
-    expect(await screen.findByText(/상담원과 연결됐습니다/)).toBeTruthy();
-    expect(screen.getByText('내 상담 이력에서 확인하기')).toBeTruthy();
+    expect(await screen.findByText(/상담원 연결을 요청했습니다/)).toBeTruthy();
   });
 });

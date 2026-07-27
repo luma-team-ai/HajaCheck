@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getApiErrorMessage } from '../../../shared/api/types';
 import { counselApi } from '../api/counselApi';
-import type { BotScenarioButtonResponse, CounselTicketSummaryResponse } from '../types';
+import { useCounselSocket } from './useCounselSocket';
+import type {
+  BotScenarioButtonResponse,
+  ChatMessageResponse,
+  ChatMessageSender,
+  CounselTicketSummaryResponse,
+} from '../types';
 
 let idSeq = 0;
 function nextId() {
@@ -27,6 +33,56 @@ export function useChatBot(initialCategory?: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+
+  // 실시간 상담(#1000 후속) — 생성된 티켓을 상담원 연결/종료 이벤트로 계속 최신화해, 챗봇 화면
+  // 이탈 없이(#1000 리포트: "왜 상담 이력으로 보내는지") 그 자리에서 대화를 이어간다.
+  const [activeTicket, setActiveTicket] = useState<CounselTicketSummaryResponse | null>(null);
+  const [messages, setMessages] = useState<ChatMessageResponse[]>([]);
+  const [counselorTyping, setCounselorTyping] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [endError, setEndError] = useState<string | null>(null);
+
+  const isSocketActive =
+    activeTicket !== null && (activeTicket.status === 'WAITING' || activeTicket.status === 'IN_PROGRESS');
+  const socketTicketId = isSocketActive ? activeTicket.id : null;
+
+  const handleSocketMessage = useCallback((message: ChatMessageResponse) => {
+    setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
+  }, []);
+  const handleTicketUpdate = useCallback((ticket: CounselTicketSummaryResponse) => {
+    setActiveTicket(ticket);
+  }, []);
+  const handleTyping = useCallback((sender: ChatMessageSender) => {
+    if (sender !== 'COUNSELOR') return;
+    setCounselorTyping(true);
+  }, []);
+
+  useEffect(() => {
+    if (!counselorTyping) return;
+    const timer = window.setTimeout(() => setCounselorTyping(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [counselorTyping]);
+
+  const { connected, sendMessage, sendTyping } = useCounselSocket(socketTicketId, {
+    onMessage: handleSocketMessage,
+    onAssigned: handleTicketUpdate,
+    onEnded: handleTicketUpdate,
+    onTyping: handleTyping,
+  });
+
+  const endCounsel = useCallback(async () => {
+    if (activeTicket === null) return;
+    setEnding(true);
+    setEndError(null);
+    try {
+      const res = await counselApi.resolve(activeTicket.id);
+      setActiveTicket(res.data);
+    } catch (err) {
+      setEndError(getApiErrorMessage(err, '상담 종료에 실패했습니다.'));
+    } finally {
+      setEnding(false);
+    }
+  }, [activeTicket]);
 
   const loadRoots = useCallback(async () => {
     setLoading(true);
@@ -73,6 +129,7 @@ export function useChatBot(initialCategory?: string) {
       try {
         const res = await counselApi.createTicket({ scenarioId: button.id });
         setLog((prev) => [...prev, { id: nextId(), kind: 'ticket-created', ticket: res.data }]);
+        setActiveTicket(res.data);
       } catch (err) {
         setError(getApiErrorMessage(err, '상담원 연결에 실패했습니다.'));
       } finally {
@@ -100,5 +157,21 @@ export function useChatBot(initialCategory?: string) {
     }
   }, []);
 
-  return { log, loading, error, connecting, selectButton, retry: loadRoots };
+  return {
+    log,
+    loading,
+    error,
+    connecting,
+    selectButton,
+    retry: loadRoots,
+    activeTicket,
+    messages,
+    socketConnected: connected,
+    sendMessage,
+    sendTyping,
+    counselorTyping,
+    endCounsel,
+    ending,
+    endError,
+  };
 }
