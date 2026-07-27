@@ -6,22 +6,37 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import { facilityHandlers, resetFacilityMockStore } from '../api/facilityApi.handlers';
+import { facilityMediaHandlers, resetFacilityMediaMockStore } from '../api/facilityMediaApi.handlers';
 import { FacilityListPage } from './FacilityListPage';
 
-const server = setupServer(...facilityHandlers);
+const server = setupServer(...facilityHandlers, ...facilityMediaHandlers);
+
+// jsdom은 URL.createObjectURL/revokeObjectURL을 구현하지 않으므로 대표 사진 선택을 시뮬레이션하는
+// 테스트를 위해 스텁한다(FacilityPhotoUploadField.test.tsx와 동일 이유).
+beforeEach(() => {
+  let counter = 0;
+  URL.createObjectURL = vi.fn(() => `blob:mock-${counter++}`) as unknown as typeof URL.createObjectURL;
+  URL.revokeObjectURL = vi.fn() as unknown as typeof URL.revokeObjectURL;
+});
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   server.resetHandlers();
-  // 모듈 스코프 목 저장소(facilities/nextId)는 resetHandlers()로 초기화되지 않으므로,
-  // 한 테스트에서 등록한 시설물이 다음 테스트의 목록에 새지 않도록 명시적으로 리셋한다.
+  // 모듈 스코프 목 저장소(facilities/nextId, facility 사진)는 resetHandlers()로 초기화되지
+  // 않으므로, 한 테스트에서 등록한 데이터가 다음 테스트로 새지 않도록 명시적으로 리셋한다.
   resetFacilityMockStore();
+  resetFacilityMediaMockStore();
   cleanup();
+  vi.restoreAllMocks();
 });
 afterAll(() => server.close());
+
+function makeImageFile(name: string): File {
+  return new File(['fake-image-bytes'], name, { type: 'image/png' });
+}
 
 function renderPage(): void {
   const queryClient = new QueryClient({
@@ -76,6 +91,62 @@ describe('FacilityListPage (통합 테스트)', () => {
     expect(await screen.findByText('테스트 신규 시설물')).not.toBeNull();
     // 등록 성공 후 모달이 닫혀 더 이상 폼이 렌더링되지 않는다
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // #652 — 시설물 생성 후 대표 사진이 선택돼 있으면 실제 업로드 API(POST .../media)가 호출되는지,
+  // 선택하지 않았으면 호출되지 않는지를 MSW 요청 로그로 직접 검증한다(전체 등록+업로드 플로우).
+  it('등록 성공 + 사진 선택: 시설물 생성 후 대표 사진 업로드 API가 호출된다(#652)', async () => {
+    const requestedUrls: string[] = [];
+    const captureRequest = ({ request }: { request: Request }) => {
+      requestedUrls.push(new URL(request.url).pathname);
+    };
+    server.events.on('request:match', captureRequest);
+
+    try {
+      renderPage();
+      await screen.findByText('강남 오피스타워 A동');
+
+      openCreateModal();
+      fillRequiredFields('사진 있는 시설물');
+      fireEvent.change(screen.getByLabelText('대표 사진 업로드'), {
+        target: { files: [makeImageFile('a.png')] },
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+      });
+
+      expect(await screen.findByText('사진 있는 시설물')).not.toBeNull();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(requestedUrls.some((path) => /^\/api\/facilities\/\d+\/media$/.test(path))).toBe(true);
+    } finally {
+      server.events.removeListener('request:match', captureRequest);
+    }
+  });
+
+  it('등록 성공 + 사진 미선택: 대표 사진 업로드 API가 호출되지 않는다(#652)', async () => {
+    const requestedUrls: string[] = [];
+    const captureRequest = ({ request }: { request: Request }) => {
+      requestedUrls.push(new URL(request.url).pathname);
+    };
+    server.events.on('request:match', captureRequest);
+
+    try {
+      renderPage();
+      await screen.findByText('강남 오피스타워 A동');
+
+      openCreateModal();
+      fillRequiredFields('사진 없는 시설물');
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+      });
+
+      expect(await screen.findByText('사진 없는 시설물')).not.toBeNull();
+      expect(requestedUrls.some((path) => /^\/api\/facilities\/\d+\/media$/.test(path))).toBe(false);
+    } finally {
+      server.events.removeListener('request:match', captureRequest);
+    }
   });
 
   it('등록 실패: 모달이 닫히지 않고 입력한 폼 값이 유지되며 에러 메시지가 표시된다', async () => {

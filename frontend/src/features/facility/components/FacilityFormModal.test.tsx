@@ -389,6 +389,42 @@ describe('FacilityFormModal', () => {
     });
   });
 
+  // #652 — 실 업로드 연동. onSubmit의 두 번째 인자로 선택한 사진 File[]이 전달돼야 한다.
+  it('대표 사진을 선택하고 등록하면 onSubmit의 두 번째 인자로 선택한 File[]을 전달한다(#652)', async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal open onClose={vi.fn()} onSubmit={handleSubmit} isSubmitting={false} />,
+    );
+
+    fillRequiredFields();
+    const photoFile = new File(['fake-image-bytes'], 'photo.png', { type: 'image/png' });
+    fireEvent.change(screen.getByLabelText('대표 사진 업로드'), { target: { files: [photoFile] } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+    });
+
+    expect(handleSubmit).toHaveBeenCalledTimes(1);
+    expect(handleSubmit.mock.calls[0][1]).toEqual([photoFile]);
+  });
+
+  it('사진을 선택하지 않고 등록하면 onSubmit의 두 번째 인자는 빈 배열이다(#652)', async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal open onClose={vi.fn()} onSubmit={handleSubmit} isSubmitting={false} />,
+    );
+
+    fillRequiredFields();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+    });
+
+    expect(handleSubmit.mock.calls[0][1]).toEqual([]);
+  });
+
   it('점검주기·규모 필드는 더 이상 등록 폼에 없다(#629)', () => {
     render(
       <FacilityFormModal open onClose={vi.fn()} onSubmit={vi.fn()} isSubmitting={false} />,
