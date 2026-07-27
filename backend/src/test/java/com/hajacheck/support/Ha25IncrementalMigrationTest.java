@@ -391,7 +391,13 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V18__counsel_ticket_snapshot_and_chat_attachment.sql"),
-                        CONTAINER_ROOT + "V18__counsel_ticket_snapshot_and_chat_attachment.sql");
+                        CONTAINER_ROOT + "V18__counsel_ticket_snapshot_and_chat_attachment.sql")
+                // #632/#652/HAJA-377 — Flyway V19(media.facility_id 폴리모픽 확장)도 이어서 1회
+                // forward-apply한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V19__add_media_facility_id.sql"),
+                        CONTAINER_ROOT + "V19__add_media_facility_id.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -484,6 +490,8 @@ class Ha25IncrementalMigrationTest {
         // #20/HAJA-33 — Flyway V18(상담 티켓 스냅샷 + 채팅 첨부, V13 선점으로 재번호)도 이어서 1회
         // forward-apply한다(V17 시드는 스키마 무변경이라 파리티 대상 아님).
         runPsql(postgres, "V18__counsel_ticket_snapshot_and_chat_attachment.sql");
+        // #632/#652/HAJA-377 — Flyway V19(media.facility_id 폴리모픽 확장)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V19__add_media_facility_id.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }
