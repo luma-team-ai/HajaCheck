@@ -1,6 +1,6 @@
 # 하자 자연어 검색 필터 변환 스키마 설계 — WBS design-03-18
 
-> **문서 버전:** v0.3 · **최종 수정:** 2026-07-28 · 이전 버전 `archive/`
+> **문서 버전:** v0.2 · **최종 수정:** 2026-07-27 · 이전 버전 `archive/`
 
 > 메뉴: 하자 관리 (담당: 유병현) · 관련 요구: PRD §4 메뉴 구성(IA) "자연어 검색(P1)", FR-013 · 관련 Jira: HAJA-120(설계) — 하위 HAJA-179~183
 > 구현 예정(후속): `ai-server/ai/chains/nl_search_chain.py` · 프롬프트: `ai/prompts/nl_search_convert.md` · 공개 엔드포인트(Spring Boot): `POST /api/defects/nl-search` · 내부 엔드포인트(FastAPI): `POST /ai/nl-search`
@@ -24,7 +24,7 @@ DB 설계(`docs/design/db/table_design.md` §4)의 `defects` 테이블 컬럼 �
 |---|---|---|---|
 | 하자 유형 | `defects.type` | `defect_type` | `CRACK`, `SPALLING`, `LEAK_EFFLORESCENCE`, `REBAR_EXPOSURE`, `PAINT_DAMAGE` |
 | 등급 | `defects.grade` | `defect_grade_type` | `A`, `B`, `C`, `D`, `E` |
-| 상태 | `defects.status` | `defect_status_type` | `DETECTED`, `CONFIRMED`, `IN_PROGRESS`, `RESOLVED` |
+| 상태 | `defects.status` | `defect_status_type` | `DETECTED`, `CONFIRMED`, `ACTION_PENDING`, `IN_PROGRESS`, `RESOLVED` |
 | AI 탐지 신뢰도 | `defects.confidence` | `double precision` (0~1) | 연속값 — enum 아님, 임계값(`confidenceMin`)으로만 필터 |
 
 > 필터 값 표현은 **영문 DB enum 코드로 통일**한다(HAJA-182 §4.1 참고). 프론트 표시용 한국어 라벨 매핑은 프론트가 별도로 소유하며 이 계약에는 포함하지 않는다.
@@ -41,11 +41,10 @@ DB 설계(`docs/design/db/table_design.md` §4)의 `defects` 테이블 컬럼 �
 | `REBAR_EXPOSURE` | 철근노출 | 철근 노출, 철근 드러남 |
 | `PAINT_DAMAGE` | 도장손상 | 도장 손상, 페인트 손상, 도장 벗겨짐 |
 | `DETECTED` | 신규 | 미확인, 신규 탐지, AI 탐지 |
-| `CONFIRMED` | 검수확정 | 검수 완료, 확정, 조치대기, 조치 대기, 대기중, 조치 필요 |
+| `CONFIRMED` | 검수확정 | 검수 완료, 확정 |
+| `ACTION_PENDING` | 조치대기 | 조치 대기, 대기중, 조치 필요 |
 | `IN_PROGRESS` | 조치중 | 조치 진행중, 진행중 |
 | `RESOLVED` | 조치완료 | 완료, 해결됨, 조치 끝 |
-
-> **v0.3 변경**: `ACTION_PENDING`은 백엔드 `DefectStatus`에서 제거됐다(V22 — `CONFIRMED`가 "검수완료+조치대기" 의미를 흡수). "조치대기"류 사용자 어휘는 삭제하지 않고 `CONFIRMED`로 재매핑해 계속 지원한다.
 
 ### 1.3 등급(grade) 비교 표현 처리 방향
 
@@ -92,7 +91,7 @@ from pydantic import BaseModel, Field
 
 DefectTypeCode = Literal["CRACK", "SPALLING", "LEAK_EFFLORESCENCE", "REBAR_EXPOSURE", "PAINT_DAMAGE"]
 DefectGradeCode = Literal["A", "B", "C", "D", "E"]
-DefectStatusCode = Literal["DETECTED", "CONFIRMED", "IN_PROGRESS", "RESOLVED"]
+DefectStatusCode = Literal["DETECTED", "CONFIRMED", "ACTION_PENDING", "IN_PROGRESS", "RESOLVED"]
 
 class NlSearchFilters(BaseModel):
     type: list[DefectTypeCode] = Field(default_factory=list)        # defect_type 코드 목록
@@ -110,13 +109,13 @@ class NlSearchResult(BaseModel):
 - `type`/`grade`/`status`는 `Literal[...]`로 값 자체를 §1.1 enum으로 제한한다 — LLM이 목록에 없는 값을 반환하면 structured output 파싱 단계에서 `LLM_INVALID_OUTPUT`으로 걸러진다.
 - `confidenceMin`/`interpretation_confidence`는 `Field(ge=0.0, le=1.0)`으로 0~1 범위를 모델 레벨에서 강제한다.
 
-**성공 응답 예시** ("D등급 이상 조치 대기 하자" — "조치 대기"는 `CONFIRMED`로 재매핑):
+**성공 응답 예시** ("D등급 이상 조치 대기 하자"):
 
 ```jsonc
 {
   "success": true,
   "data": {
-    "filters": { "type": [], "grade": ["D", "E"], "status": ["CONFIRMED"], "confidenceMin": null },
+    "filters": { "type": [], "grade": ["D", "E"], "status": ["ACTION_PENDING"], "confidenceMin": null },
     "unsupported_terms": [],
     "clarifying_question": null,
     "interpretation_confidence": 0.92
@@ -172,12 +171,12 @@ def run_nl_search_chain(query: str) -> NlSearchResult:
 ## 필터 대상 필드 (이 4개 외에는 unsupported_terms로 분류)
 - type (하자 유형): CRACK, SPALLING, LEAK_EFFLORESCENCE, REBAR_EXPOSURE, PAINT_DAMAGE
 - grade (등급, A=경미~E=심각): A, B, C, D, E
-- status (조치 상태): DETECTED, CONFIRMED, IN_PROGRESS, RESOLVED
+- status (조치 상태): DETECTED, CONFIRMED, ACTION_PENDING, IN_PROGRESS, RESOLVED
 - confidenceMin (AI 탐지 신뢰도 하한, 0~1)
 
 ## 한국어 표현 매핑
 (§1.2 표를 그대로 삽입 — 균열→CRACK, 박리박락→SPALLING, 누수백태→LEAK_EFFLORESCENCE, 철근노출→REBAR_EXPOSURE,
- 도장손상→PAINT_DAMAGE, 신규→DETECTED, 검수확정→CONFIRMED, 조치대기→CONFIRMED, 조치중→IN_PROGRESS, 조치완료→RESOLVED)
+ 도장손상→PAINT_DAMAGE, 신규→DETECTED, 검수확정→CONFIRMED, 조치대기→ACTION_PENDING, 조치중→IN_PROGRESS, 조치완료→RESOLVED)
 
 ## 등급 비교 표현 규칙
 등급 순서는 A(1) < B(2) < C(3) < D(4) < E(5), 뒤로 갈수록 심각.
@@ -220,8 +219,8 @@ v1은 신뢰도 **하한(`confidenceMin`)만** 지원한다. 사용자가 하한
 
 ### 4.1 필터 값 표현 원칙
 
-- **배경**: DB(`table_design.md`)의 `defect_type`/`defect_status_type`은 영문 enum 코드(`CRACK`, `CONFIRMED` 등)인데, 프론트 `inspection/types.ts`의 `DefectType`/`DefectStatus`는 한국어 문자열 리터럴(`'균열'`, `'조치대기'` 등)로 정의돼 있어 서로 어긋난다(등급 `A`~`E`만 우연히 일치). `GET /api/defects`가 아직 미구현이라 지금까지는 드러나지 않은 잠재 불일치였다.
-- **결정**: 필터 값 표현은 **영문 DB enum 코드로 통일**한다. 내부 `/ai/nl-search` 응답, 공개 `POST /api/defects/nl-search` 응답, `GET /api/defects` 쿼리 파라미터·응답 모두 코드값(`CRACK`, `CONFIRMED` 등)을 사용한다.
+- **배경**: DB(`table_design.md`)의 `defect_type`/`defect_status_type`은 영문 enum 코드(`CRACK`, `ACTION_PENDING` 등)인데, 프론트 `inspection/types.ts`의 `DefectType`/`DefectStatus`는 한국어 문자열 리터럴(`'균열'`, `'조치대기'` 등)로 정의돼 있어 서로 어긋난다(등급 `A`~`E`만 우연히 일치). `GET /api/defects`가 아직 미구현이라 지금까지는 드러나지 않은 잠재 불일치였다.
+- **결정**: 필터 값 표현은 **영문 DB enum 코드로 통일**한다. 내부 `/ai/nl-search` 응답, 공개 `POST /api/defects/nl-search` 응답, `GET /api/defects` 쿼리 파라미터·응답 모두 코드값(`CRACK`, `ACTION_PENDING` 등)을 사용한다.
 - **프론트 표시 라벨**: 한국어 라벨 매핑은 프론트가 자체 소유한다. `frontend/src/features/map/constants.ts`의 `Record<코드, 라벨>` + fallback 라벨 패턴(`GRADE_COLOR`/`GRADE_LABEL`/`FALLBACK_GRADE_LABEL`)을 그대로 재사용해 `inspection/constants.ts`에 `DEFECT_TYPE_LABEL`/`DEFECT_STATUS_LABEL`을 정의한다. 이 매핑은 API 계약에 포함하지 않는다.
 - **범위 경계**: `inspection/types.ts`의 타입을 한국어 리터럴에서 영문 코드로 바꾸는 실제 마이그레이션과 `ResultViewerPage.tsx` 등 소비 컴포넌트 수정은 이번 설계 PR 범위 밖이다. `GET /api/defects` 백엔드 구현과 함께 묶이는 후속 프론트 구현 티켓에서 처리한다.
 
@@ -237,7 +236,7 @@ v1은 신뢰도 **하한(`confidenceMin`)만** 지원한다. 사용자가 하한
 |---|---|---|
 | `filters.type` (string[]) | `type=CRACK,SPALLING` (콤마 구분) | 복수 선택 지원 |
 | `filters.grade` (string[]) | `grade=D,E` | §1.3 비교 표현 확장 결과 그대로 전달 |
-| `filters.status` (string[]) | `status=CONFIRMED` | 복수 선택 지원 |
+| `filters.status` (string[]) | `status=ACTION_PENDING` | 복수 선택 지원 |
 | `filters.confidenceMin` (number\|null) | `confidenceMin=0.8` | 미지정 시 파라미터 생략 |
 
 빈 배열(`[]`)인 필드는 쿼리 파라미터에서 생략한다(= 해당 축은 필터링 안 함).
@@ -283,7 +282,7 @@ Spring 게이트웨이가 전달한 자연어 변환 요청이 실패(`LLM_TIMEO
 |---|---|---|---|
 | "균열만 보여줘" | `{ "type": ["CRACK"] }` | `[]` | `null` |
 | "D등급 이상 하자" | `{ "grade": ["D", "E"] }` | `[]` | `null` |
-| "조치 대기 중인 누수" | `{ "type": ["LEAK_EFFLORESCENCE"], "status": ["CONFIRMED"] }`(§1.2 재매핑) | `[]` | `null` |
+| "조치 대기 중인 누수" | `{ "type": ["LEAK_EFFLORESCENCE"], "status": ["ACTION_PENDING"] }` | `[]` | `null` |
 | "신뢰도 80% 이상 철근노출" | `{ "type": ["REBAR_EXPOSURE"], "confidenceMin": 0.8 }` | `[]` | `null` |
 | "B등급 이하 조치완료된 도장손상" | `{ "type": ["PAINT_DAMAGE"], "grade": ["A", "B"], "status": ["RESOLVED"] }` | `[]` | `null` |
 
@@ -329,5 +328,4 @@ Spring 게이트웨이가 전달한 자연어 변환 요청이 실패(`LLM_TIMEO
 ---
 
 ## 변경 이력
-- v0.3 (2026-07-28): #1079 — 백엔드 `DefectStatus`에서 `ACTION_PENDING` 제거(V22, #1072/PR-1)에 맞춰 상태 enum을 4값(`DETECTED`/`CONFIRMED`/`IN_PROGRESS`/`RESOLVED`)으로 갱신. "조치대기"류 사용자 어휘는 `CONFIRMED`로 재매핑해 유지(§1.2/§2.2/§3.2/§4.2/§5.1).
 - v0.1 (2026-07-15): 최초 작성 — HAJA-179~183 설계 확정(필터 필드·enum 매핑, request/response 스키마, 프롬프트·structured output, 연동 계약, 테스트 시나리오). HAJA-120.
