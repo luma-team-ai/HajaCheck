@@ -5,6 +5,7 @@ import { counselApi } from '../api/counselApi';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { getApiErrorMessage } from '../../../shared/api/types';
+import { CATEGORY_LABEL } from '../constants';
 import { MessageBubble } from './ConversationPanel';
 import type { ChatMessageResponse, CounselTicketDetailResponse, CounselTicketSummaryResponse } from '../types';
 
@@ -129,7 +130,9 @@ export function CounselorInfoPanel({ ticket }: Props) {
             <ChatAvatar icon={defaultAvatarIcon} bgClassName="bg-surface-sunken" className="size-12" />
             <div>
               <p className="m-0 text-sm font-semibold text-primary">고객 #{ticket.userId}</p>
-              <p className="m-0 mt-0.5 text-xs text-text-muted">{ticket.category}</p>
+              <p className="m-0 mt-0.5 text-xs text-text-muted">
+                {CATEGORY_LABEL[ticket.category] ?? ticket.category}
+              </p>
             </div>
           </div>
 
@@ -176,7 +179,7 @@ export function CounselorInfoPanel({ ticket }: Props) {
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="shrink-0 rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-text-muted">
-                    {past.category}
+                    {CATEGORY_LABEL[past.category] ?? past.category}
                   </span>
                   <span className="shrink-0 text-[11px] text-text-muted">
                     {new Date(past.createdAt).toLocaleDateString('sv-SE').replaceAll('-', '.')}

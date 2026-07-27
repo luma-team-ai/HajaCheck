@@ -5,6 +5,7 @@ import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import { ChatInputBox } from '../../../shared/components/ChatInputBox/ChatInputBox';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { TypingIndicatorBubble } from '../../../shared/components/TypingIndicatorBubble/TypingIndicatorBubble';
+import { CATEGORY_LABEL } from '../constants';
 import { useCounselorTicketThread } from '../hooks/useCounselorTicketThread';
 import type { CounselTicketDetailResponse, CounselTicketSummaryResponse } from '../types';
 
@@ -75,7 +76,7 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
         <div>
           <p className="m-0 text-base font-semibold text-primary">{ticket.title}</p>
           <p className="m-0 mt-1 text-xs text-text-muted">
-            {ticket.category} · #{ticket.ticketNumber}
+            {CATEGORY_LABEL[ticket.category] ?? ticket.category} · #{ticket.ticketNumber}
           </p>
         </div>
         <button

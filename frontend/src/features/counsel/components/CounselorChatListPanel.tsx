@@ -3,6 +3,7 @@ import chevronIcon from '../../../assets/brand/sidenav-chevron.svg';
 import defaultAvatarIcon from '../../../assets/brand/sidenav-default-avatar.svg';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
+import { CATEGORY_LABEL } from '../constants';
 import { formatElapsedTime } from '../utils/formatElapsedTime';
 import type { CounselTicketSummaryResponse } from '../types';
 
@@ -97,13 +98,14 @@ export function CounselorChatListPanel({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <p className="m-0 truncate text-sm font-semibold text-primary">{ticket.title}</p>
-                    <span className="shrink-0 text-[11px] text-text-muted">
-                      {formatElapsedTime(ticket.createdAt)}
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      <span className="rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-text-muted">
+                        {CATEGORY_LABEL[ticket.category] ?? ticket.category}
+                      </span>
+                      <span className="text-[11px] text-text-muted">{formatElapsedTime(ticket.createdAt)}</span>
                     </span>
                   </div>
-                  <p className="m-0 truncate text-xs text-text-muted">
-                    {ticket.category} · #{ticket.ticketNumber}
-                  </p>
+                  <p className="m-0 truncate text-xs text-text-muted">#{ticket.ticketNumber}</p>
                 </div>
               </button>
             );
