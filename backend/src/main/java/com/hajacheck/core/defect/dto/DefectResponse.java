@@ -26,6 +26,14 @@ import java.time.LocalDateTime;
  *
  * <p>foundCycle(HAJA-488/#981)은 하자를 발견한 점검 회차이며, 별도 쿼리 없이 이미 로드된
  * {@code defect.getInspection().getRoundNo()}를 그대로 노출한다.
+ *
+ * <p>location(#970 갭3)은 검수자가 사후 편집한 하자 위치 텍스트, previousDefectId(HAJA-437)는
+ * 검수자가 확정한 이전 회차 대응 하자 id(둘 다 nullable)를 엔티티 값 그대로 노출한다.
+ *
+ * <p>assigneeName(#970 갭3)은 actionAssigneeName과 별개로, 시설물 담당자({@code Facility.assigneeUserId})의
+ * 이름이다. 신규 컬럼이 아니라 팀 결정으로 기존 Facility 필드를 재사용한 값이라 defects 테이블과
+ * 무관하다. actionAssigneeName과 동일하게 Long id만 엔티티에 있으므로 서비스 계층에서 조회해
+ * {@link #from(Defect, String, String)}로 채운다 — 목록({@link #from(Defect)})은 N+1 방지를 위해 조회하지 않는다.
  */
 public record DefectResponse(
         Long id,
@@ -33,6 +41,8 @@ public record DefectResponse(
         Long facilityId,
         String facilityName,
         String facilityType,
+        String location,
+        String assigneeName,
         Integer foundCycle,
         DefectType type,
         String typeLabel,
@@ -47,6 +57,7 @@ public record DefectResponse(
         Double crackWidthMm,
         Double crackLengthMm,
         String imageUrl,
+        Long previousDefectId,
         String actionPhotoUrl,
         String actionContent,
         LocalDate actionDate,
@@ -55,10 +66,14 @@ public record DefectResponse(
         LocalDateTime createdAt
 ) {
     public static DefectResponse from(Defect defect) {
-        return from(defect, null);
+        return from(defect, null, null);
     }
 
     public static DefectResponse from(Defect defect, String actionAssigneeName) {
+        return from(defect, actionAssigneeName, null);
+    }
+
+    public static DefectResponse from(Defect defect, String actionAssigneeName, String assigneeName) {
         Facility facility = defect.getInspection().getFacility();
         return new DefectResponse(
                 defect.getId(),
@@ -66,6 +81,8 @@ public record DefectResponse(
                 facility.getId(),
                 facility.getName(),
                 facility.getType(),
+                defect.getLocation(),
+                assigneeName,
                 defect.getInspection().getRoundNo(),
                 defect.getType(),
                 defect.getType().label(),
@@ -80,6 +97,7 @@ public record DefectResponse(
                 defect.getCrackWidthMm(),
                 defect.getCrackLengthMm(),
                 defect.getMediaId() == null ? null : "/api/media/" + defect.getMediaId() + "/thumbnail",
+                defect.getPreviousDefectId(),
                 defect.getActionMediaId() == null ? null : "/api/media/" + defect.getActionMediaId() + "/thumbnail",
                 defect.getActionContent(),
                 defect.getActionDate(),

@@ -210,6 +210,12 @@ public enum ErrorCode {
 
     // 도메인별 예시 — 각 담당이 추가
     DEFECT_NOT_FOUND(HttpStatus.NOT_FOUND, "하자를 찾을 수 없습니다."),
+    // 회차 간 대응 하자 확정(#970 갭3 / HAJA-437) — previousDefectId가 가리키는 하자가 (a) 같은 회사
+    // 스코프가 아니거나(findByIdAndCompanyId 자체가 빈 값) (b) 같은 시설물이 아니거나 (c) 현재 하자보다
+    // 더 이전 회차가 아닌 경우를 전부 이 코드로 통일 응답한다. 미존재/타사 소유까지 한 코드로 묶는 이유는
+    // DEFECT_NOT_FOUND와 동일 — 리소스 존재 여부 열거(cross-company IDOR) 방지.
+    DEFECT_PREVIOUS_DEFECT_INVALID(HttpStatus.BAD_REQUEST,
+            "이전 회차 대응 하자로 지정할 수 없습니다. 같은 시설물의 더 이전 회차 하자만 지정할 수 있습니다."),
     AI_JOB_TIMEOUT(HttpStatus.INTERNAL_SERVER_ERROR, "AI 분석 요청이 시간 초과되었습니다."),
 
     // AI 분석 실행/상태(dev-05-04)
