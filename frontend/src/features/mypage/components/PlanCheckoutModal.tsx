@@ -2,14 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../../shared/components/Button/Button';
 import { Modal } from '../../../shared/components/Modal';
 import type { PlanName } from '../types';
-import { PLAN_NAME_LABEL, formatPriceMonthly } from '../utils/planFormat';
-
-// STANDARD/ENTERPRISE 월 구독가 — platform-admin 시드값(planPolicyApi.handlers.ts)과 동일 기준.
-// 모의 결제 모달 표시 전용(실 결제 금액은 BE 응답 plan.priceMonthly가 source of truth).
-const UPGRADE_PLAN_PRICE: Partial<Record<PlanName, number>> = {
-  STANDARD: 29000,
-  ENTERPRISE: 59000,
-};
+import { PLAN_NAME_LABEL } from '../utils/planFormat';
 
 type Props = {
   open: boolean;
@@ -21,8 +14,10 @@ type Props = {
   errorMessage?: string;
 };
 
-// 모의 결제(PG 미연동) 플랜 업그레이드 모달 — "결제 여기서 해요!" 안내대로 실 카드 입력 없이
-// "결제하기" 클릭 = POST /me/plan/checkout 모의 결제(#712 Figma 리디자인).
+// 토스페이먼츠 결제창 연동(#989, HAJA-490) 플랜 업그레이드 모달 — "결제하기" 클릭 시
+// POST /me/plan/orders로 주문을 생성하고 곧바로 토스페이먼츠 결제창(카드)을 띄운다(#712 모의
+// 결제를 대체). 정확한 결제 금액은 서버 응답이 source of truth라 이 목록에서는 표시하지 않는다
+// (구 UPGRADE_PLAN_PRICE 하드코딩 삭제 — handoff §2) — 결제창에서 확인 후 결제를 진행한다.
 // 열릴 때(닫힘→열림 전환)마다 선택값을 candidates 첫 항목으로 리셋한다(PlanPolicyModal과 동일 패턴 —
 // 모달이 열려 있는 동안 부모 리렌더로 candidates 참조가 바뀌어도 사용자 선택이 유지되게).
 export function PlanCheckoutModal({
@@ -48,7 +43,8 @@ export function PlanCheckoutModal({
     <Modal open={open} onClose={onClose} closeOnOverlayClick={!isSubmitting} title="플랜 업그레이드">
       <div className="flex w-full max-w-sm flex-col gap-5">
         <p className="m-0 text-sm text-text-muted">
-          실제 카드 결제 없이 모의 결제로 플랜을 즉시 전환합니다. 결제 여기서 해요!
+          플랜을 선택하고 결제하기를 누르면 토스페이먼츠 결제창이 열립니다. 정확한 결제 금액은
+          결제창에서 확인할 수 있습니다.
         </p>
 
         {candidates.length === 0 && (
@@ -59,23 +55,18 @@ export function PlanCheckoutModal({
           {candidates.map((name) => (
             <label
               key={name}
-              className={`flex cursor-pointer items-center justify-between rounded-xl border px-4 py-3 text-sm ${
+              className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-3 text-sm ${
                 selected === name ? 'border-heading bg-surface-muted' : 'border-border'
               }`}
             >
-              <span className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="checkout-plan"
-                  value={name}
-                  checked={selected === name}
-                  onChange={() => setSelected(name)}
-                />
-                {PLAN_NAME_LABEL[name] ?? name}
-              </span>
-              <span className="text-text-muted">
-                {formatPriceMonthly(UPGRADE_PLAN_PRICE[name] ?? 0)}
-              </span>
+              <input
+                type="radio"
+                name="checkout-plan"
+                value={name}
+                checked={selected === name}
+                onChange={() => setSelected(name)}
+              />
+              {PLAN_NAME_LABEL[name] ?? name}
             </label>
           ))}
         </div>
