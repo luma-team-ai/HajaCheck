@@ -30,6 +30,7 @@ import com.hajacheck.core.inspection.dto.InspectionListItemResponse;
 import com.hajacheck.core.inspection.dto.InspectionResponse;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.inspection.entity.InspectionType;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
@@ -112,6 +113,12 @@ class InspectionServiceTest {
     // (DefectServiceTest.existingDefect() 와 동일 사유).
     private static Inspection inspectionWithFacility(Long id, Long facilityId, String facilityName,
                                                        Long assignedInspectorId, InspectionStatus status) {
+        return inspectionWithFacility(id, facilityId, facilityName, assignedInspectorId, status, InspectionType.REGULAR);
+    }
+
+    private static Inspection inspectionWithFacility(Long id, Long facilityId, String facilityName,
+                                                       Long assignedInspectorId, InspectionStatus status,
+                                                       InspectionType type) {
         Facility facility = Facility.builder().companyId(100L).name(facilityName).type("BUILDING").build();
         ReflectionTestUtils.setField(facility, "id", facilityId);
 
@@ -122,6 +129,7 @@ class InspectionServiceTest {
                 .roundNo(1)
                 .inspectionDate(LocalDate.of(2026, 7, 20))
                 .status(status)
+                .type(type)
                 .build();
         setId(inspection, id);
         ReflectionTestUtils.setField(inspection, "facility", facility);
@@ -142,6 +150,7 @@ class InspectionServiceTest {
         assertThat(response.createdBy()).isEqualTo(300L);
         assertThat(response.assignedInspectorId()).isEqualTo(200L);
         assertThat(response.status()).isEqualTo(InspectionStatus.CREATED);
+        assertThat(response.type()).isEqualTo(InspectionType.REGULAR);
         verify(companyScopeGuard).requireEffectiveMembership(300L, 100L);
         verify(facilityService).get(300L, 100L, 1L);
         verify(facilityService).lockForUpdate(1L);
@@ -257,6 +266,7 @@ class InspectionServiceTest {
         InspectionResponse response = service.getInspection(300L, 100L, 10L);
 
         assertThat(response.id()).isEqualTo(10L);
+        assertThat(response.type()).isEqualTo(InspectionType.REGULAR);
         verify(facilityService).get(300L, 100L, 1L);
     }
 
@@ -275,7 +285,7 @@ class InspectionServiceTest {
     @Test
     void list_owner스코프로위임_필터그대로전달_시설물명담당자명하자건수포함매핑() {
         Pageable pageable = PageRequest.of(0, 20);
-        Inspection inspection = inspectionWithFacility(10L, 1L, "테스트빌딩", 200L, InspectionStatus.ANALYZED);
+        Inspection inspection = inspectionWithFacility(10L, 1L, "테스트빌딩", 200L, InspectionStatus.ANALYZED, InspectionType.DETAILED);
         Page<Inspection> page = new PageImpl<>(List.of(inspection), pageable, 1);
         when(inspectionRepository.findPageByCompanyIdAndFilters(
                 eq(100L), eq(1L), eq(InspectionStatus.ANALYZED), isNull(), isNull(), isNull(), any(Pageable.class)))
@@ -299,6 +309,7 @@ class InspectionServiceTest {
         assertThat(item.assignedInspectorId()).isEqualTo(200L);
         assertThat(item.assigneeName()).isEqualTo("김점검");
         assertThat(item.status()).isEqualTo(InspectionStatus.ANALYZED);
+        assertThat(item.type()).isEqualTo(InspectionType.DETAILED);
         assertThat(item.defectCount()).isEqualTo(3L);
         assertThat(item.gradeDistribution())
                 .containsExactlyInAnyOrderEntriesOf(Map.of("A", 0L, "B", 2L, "C", 1L, "D", 0L, "E", 0L));
