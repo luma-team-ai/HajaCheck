@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Defect, InspectionMedia } from '../types';
 
 interface DefectOverlayProps {
@@ -28,6 +28,13 @@ export function DefectOverlay({
 }: DefectOverlayProps) {
   // ponytail: 이미지 로드 실패(detail 503 등) 시 thumbnail로 폴백(#796)
   const [imgSrc, setImgSrc] = useState(media.imageUrl);
+
+  // 이전/다음 이미지 네비게이션은 DefectOverlay를 리마운트하지 않고 media prop만 교체하므로
+  // (ResultViewerPage에 key 없음), media가 바뀔 때 imgSrc를 재동기화해야 img가 새 이미지로
+  // 갱신된다(P1 회귀, PR #978 리뷰).
+  useEffect(() => {
+    setImgSrc(media.imageUrl);
+  }, [media.imageUrl]);
 
   const handleImageError = () => {
     // detail이 실패했으면 thumbnail로 대체 — 둘 다 실패하면 그대로 유지
