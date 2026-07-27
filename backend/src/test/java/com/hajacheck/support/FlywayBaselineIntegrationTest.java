@@ -28,7 +28,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * 옛 V19(FREE 좌석 한도, #843)는 #858에서 되돌리며 파일이 삭제돼 번호가 비어 있었고, 팀 합의로 이
  * 마이그레이션이 재사용한다)→V20(payments 결제 원장, #988/HAJA-489)→V21(inspection_notification_settings.
  * warn_on_overdue_enabled 기본값 false→true, HAJA-498 — 유병현 님 승인)→V22(defect_status_type 에서
- * ACTION_PENDING 제거 — 하자 상태 4단계화)를 순서대로 적용하고,
+ * ACTION_PENDING 제거 — 하자 상태 4단계화)→V23(counsel_ticket_notes, #1021/HAJA-503 — V19~V22를
+ * 다른 브랜치가 선점해 번호 충돌 방지 목적으로 V23으로 이어 붙임)를 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -72,7 +73,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V22까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V23까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -95,13 +96,15 @@ class FlywayBaselineIntegrationTest {
         // + V21(inspection_notification_settings.warn_on_overdue_enabled DEFAULT false→true + 방어적
         //   백필, #540/HAJA-498 — 유병현 님 승인 옵션1: 연체 알림 미수신 회귀 방지 하위호환 확보).
         // + V22(defect_status_type 에서 ACTION_PENDING 제거 — 하자 상태 4단계화).
-        assertThat(appliedMigrations).isEqualTo(22);
+        // + V23(counsel_ticket_notes, #1021/HAJA-503). V19~V22는 다른 브랜치들이 선점(병합 완료)해
+        //   번호 충돌을 피해 V23으로 이어 붙였다 — 마이그레이션 수는 V1~V22(22개) + V23(1개) = 23이다.
+        assertThat(appliedMigrations).isEqualTo(23);
 
-        // 최신 적용 버전이 실제로 V22 인지 확인.
+        // 최신 적용 버전이 실제로 V23 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("22");
+        assertThat(latestVersion).isEqualTo("23");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -280,7 +283,7 @@ class FlywayBaselineIntegrationTest {
                 """, Long.class);
         assertThat(chatAttachmentColumnCount).isEqualTo(2L);
 
-        // V19가 defect_status_type 을 4단계로 좁혔는지 확인 — 타입 이름은 그대로 유지되고
+        // V22가 defect_status_type 을 4단계로 좁혔는지 확인 — 타입 이름은 그대로 유지되고
         // ACTION_PENDING 만 사라져야 한다(구 타입 drop + rename 이 제대로 끝났다는 뜻).
         List<String> defectStatusLabels = jdbcTemplate.queryForList("""
                 select e.enumlabel from pg_enum e
@@ -297,5 +300,18 @@ class FlywayBaselineIntegrationTest {
                 where table_schema = 'public' and table_name = 'defects' and column_name = 'status'
                 """, String.class);
         assertThat(defectStatusDefault).contains("DETECTED");
+
+        // V23가 counsel_ticket_notes 테이블(ticket_id unique, #1021/HAJA-503)을 실제로 추가했는지 확인한다.
+        Long counselTicketNotesTableExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.tables
+                where table_schema = 'public' and table_name = 'counsel_ticket_notes'
+                """, Long.class);
+        assertThat(counselTicketNotesTableExists).isEqualTo(1L);
+        Long counselTicketNotesUniqueIndexExists = jdbcTemplate.queryForObject("""
+                select count(*) from pg_indexes
+                where schemaname = 'public' and tablename = 'counsel_ticket_notes'
+                  and indexname = 'uq_counsel_ticket_notes_ticket_id'
+                """, Long.class);
+        assertThat(counselTicketNotesUniqueIndexExists).isEqualTo(1L);
     }
 }

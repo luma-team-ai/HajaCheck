@@ -5,6 +5,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -25,6 +26,7 @@ import com.hajacheck.counsel.entity.CounselorSkill;
 import com.hajacheck.counsel.repository.BotScenarioRepository;
 import com.hajacheck.counsel.repository.ChatMessageRepository;
 import com.hajacheck.counsel.repository.ChatSessionRepository;
+import com.hajacheck.counsel.repository.CounselTicketNoteRepository;
 import com.hajacheck.counsel.repository.CounselTicketRepository;
 import com.hajacheck.counsel.repository.CounselorSkillRepository;
 import com.hajacheck.membership.entity.Plan;
@@ -70,6 +72,8 @@ class CounselTicketControllerTest extends PostgresTestSupport {
     private ChatSessionRepository chatSessionRepository;
     @Autowired
     private ChatMessageRepository chatMessageRepository;
+    @Autowired
+    private CounselTicketNoteRepository ticketNoteRepository;
 
     /** INSPECTION_REPORT 서브트리(root→mid→"상담원 연결" 리프)를 시드하고 리프 id 를 반환한다. */
     private Long saveCounselorLeafScenario() {
@@ -389,6 +393,100 @@ class CounselTicketControllerTest extends PostgresTestSupport {
         mockMvc.perform(get("/api/counsel/tickets/" + ticket.getId() + "/export")
                         .with(authentication(authOf(intruder))))
                 .andExpect(status().isNotFound());
+    }
+
+    // ── 상담원 비공개 메모(#1021/HAJA-503) ──
+
+    @Test
+    void 메모조회_담당상담원본인_메모없으면_content_null() throws Exception {
+        User requester = saveUser("note-user@haja.com", Role.USER);
+        User counselor = saveUser("note-counselor@haja.com", Role.COUNSELOR);
+        CounselTicket ticket = saveInProgressTicketWithMessage(requester, counselor, "문의합니다");
+
+        mockMvc.perform(get("/api/counsel/tickets/" + ticket.getId() + "/note")
+                        .with(authentication(authOf(counselor))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ticketId").value(ticket.getId()))
+                .andExpect(jsonPath("$.data.content").doesNotExist());
+    }
+
+    @Test
+    void 메모저장_담당상담원본인_신규생성_이후조회시반영() throws Exception {
+        User requester = saveUser("note-user2@haja.com", Role.USER);
+        User counselor = saveUser("note-counselor2@haja.com", Role.COUNSELOR);
+        CounselTicket ticket = saveInProgressTicketWithMessage(requester, counselor, "문의합니다");
+
+        mockMvc.perform(put("/api/counsel/tickets/" + ticket.getId() + "/note")
+                        .with(csrf()).with(authentication(authOf(counselor)))
+                        .contentType("application/json").content("{\"content\":\"고객 재문의 예정\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content").value("고객 재문의 예정"));
+
+        assertThat(ticketNoteRepository.findByTicketId(ticket.getId())).isPresent();
+
+        mockMvc.perform(get("/api/counsel/tickets/" + ticket.getId() + "/note")
+                        .with(authentication(authOf(counselor))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content").value("고객 재문의 예정"));
+
+        // 갱신(upsert) — 같은 티켓에 다시 저장하면 새 행이 아니라 기존 행이 갱신된다.
+        mockMvc.perform(put("/api/counsel/tickets/" + ticket.getId() + "/note")
+                        .with(csrf()).with(authentication(authOf(counselor)))
+                        .contentType("application/json").content("{\"content\":\"갱신된 메모\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content").value("갱신된 메모"));
+        assertThat(ticketNoteRepository.count()).isEqualTo(1L);
+    }
+
+    @Test
+    void 메모조회_담당아닌상담원_403_TICKET_FORBIDDEN() throws Exception {
+        User requester = saveUser("note-user3@haja.com", Role.USER);
+        User counselor = saveUser("note-counselor3@haja.com", Role.COUNSELOR);
+        CounselTicket ticket = saveInProgressTicketWithMessage(requester, counselor, "문의합니다");
+        User otherCounselor = saveUser("note-other-counselor@haja.com", Role.COUNSELOR);
+
+        mockMvc.perform(get("/api/counsel/tickets/" + ticket.getId() + "/note")
+                        .with(authentication(authOf(otherCounselor))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("COUNSEL_TICKET_FORBIDDEN"));
+    }
+
+    @Test
+    void 메모저장_담당아닌상담원_403_TICKET_FORBIDDEN() throws Exception {
+        User requester = saveUser("note-user4@haja.com", Role.USER);
+        User counselor = saveUser("note-counselor4@haja.com", Role.COUNSELOR);
+        CounselTicket ticket = saveInProgressTicketWithMessage(requester, counselor, "문의합니다");
+        User otherCounselor = saveUser("note-other-counselor2@haja.com", Role.COUNSELOR);
+
+        mockMvc.perform(put("/api/counsel/tickets/" + ticket.getId() + "/note")
+                        .with(csrf()).with(authentication(authOf(otherCounselor)))
+                        .contentType("application/json").content("{\"content\":\"몰래 수정\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("COUNSEL_TICKET_FORBIDDEN"));
+    }
+
+    @Test
+    void 메모조회_일반사용자_403_role경계() throws Exception {
+        User requester = saveUser("note-user5@haja.com", Role.USER);
+        User counselor = saveUser("note-counselor5@haja.com", Role.COUNSELOR);
+        CounselTicket ticket = saveInProgressTicketWithMessage(requester, counselor, "문의합니다");
+
+        mockMvc.perform(get("/api/counsel/tickets/" + ticket.getId() + "/note")
+                        .with(authentication(authOf(requester))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 메모저장_내용길이초과_400() throws Exception {
+        User requester = saveUser("note-user6@haja.com", Role.USER);
+        User counselor = saveUser("note-counselor6@haja.com", Role.COUNSELOR);
+        CounselTicket ticket = saveInProgressTicketWithMessage(requester, counselor, "문의합니다");
+        String tooLong = "a".repeat(4001);
+
+        mockMvc.perform(put("/api/counsel/tickets/" + ticket.getId() + "/note")
+                        .with(csrf()).with(authentication(authOf(counselor)))
+                        .contentType("application/json").content("{\"content\":\"" + tooLong + "\"}"))
+                .andExpect(status().isBadRequest());
     }
 
     private CounselTicket saveInProgressTicketWithMessage(User requester, User counselor, String content) {
