@@ -304,6 +304,101 @@ class CounselTicketServiceTest {
                 .findByStatusAndCounselTypeInOrderByCreatedAtAsc(any(), any(), any());
     }
 
+    // ── 고객 상담 이력(#1001 후속) ──
+
+    @Test
+    void 고객이력_담당상담원본인_현재티켓제외_최신순조회() {
+        Pageable pageable = PageRequest.of(0, 20);
+        CounselTicket current = inProgressTicket();
+        CounselTicket past = CounselTicket.request(USER_ID, CounselType.USAGE, 2, "USAGE_GUIDE", "이용 방법");
+        ReflectionTestUtils.setField(past, "id", 51L);
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(current));
+        when(ticketRepository.findByUserIdOrderByCreatedAtDesc(USER_ID, pageable))
+                .thenReturn(new PageImpl<>(List.of(current, past)));
+
+        List<CounselTicketSummaryResponse> history = service.getCustomerHistory(TICKET_ID, COUNSELOR_ID, false);
+
+        assertThat(history).extracting(CounselTicketSummaryResponse::id).containsExactly(51L);
+    }
+
+    @Test
+    void 고객이력_담당아닌상담원_403_TICKET_FORBIDDEN() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+
+        assertThatThrownBy(() -> service.getCustomerHistory(TICKET_ID, 999L, false))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.COUNSEL_TICKET_FORBIDDEN);
+    }
+
+    @Test
+    void 고객이력_PLATFORM_ADMIN은_담당아니어도조회가능() {
+        Pageable pageable = PageRequest.of(0, 20);
+        CounselTicket current = inProgressTicket();
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(current));
+        when(ticketRepository.findByUserIdOrderByCreatedAtDesc(USER_ID, pageable))
+                .thenReturn(new PageImpl<>(List.of(current)));
+
+        List<CounselTicketSummaryResponse> history = service.getCustomerHistory(TICKET_ID, 999L, true);
+
+        assertThat(history).isEmpty();
+    }
+
+    @Test
+    void 고객이력대화_다른상담원이담당했던티켓도_현재담당티켓기준허용() {
+        Long otherCounselorId = 11L;
+        CounselTicket anchor = inProgressTicket();
+        CounselTicket past = CounselTicket.request(USER_ID, CounselType.USAGE, 2, "USAGE_GUIDE", "이용 방법");
+        ReflectionTestUtils.setField(past, "id", 51L);
+        ReflectionTestUtils.setField(past, "counselorId", otherCounselorId);
+        ReflectionTestUtils.setField(past, "sessionId", 800L);
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(anchor));
+        when(ticketRepository.findById(51L)).thenReturn(Optional.of(past));
+        ChatMessage msg = ChatMessage.create(800L, ChatSenderType.COUNSELOR, "예전 상담 내용", null, null, null);
+        when(chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(800L)).thenReturn(List.of(msg));
+
+        List<ChatMessageResponse> messages =
+                service.getCustomerHistoryMessages(TICKET_ID, 51L, COUNSELOR_ID, false);
+
+        assertThat(messages).extracting(ChatMessageResponse::content).containsExactly("예전 상담 내용");
+    }
+
+    @Test
+    void 고객이력대화_다른고객의티켓ID_404_TICKET_NOT_FOUND() {
+        CounselTicket anchor = inProgressTicket();
+        CounselTicket unrelated = CounselTicket.request(999L, CounselType.USAGE, 1, "USAGE_GUIDE", "이용 방법");
+        ReflectionTestUtils.setField(unrelated, "id", 52L);
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(anchor));
+        when(ticketRepository.findById(52L)).thenReturn(Optional.of(unrelated));
+
+        assertThatThrownBy(() -> service.getCustomerHistoryMessages(TICKET_ID, 52L, COUNSELOR_ID, false))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.COUNSEL_TICKET_NOT_FOUND);
+    }
+
+    @Test
+    void 고객이력대화_앵커티켓담당아닌상담원_403_TICKET_FORBIDDEN() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+
+        assertThatThrownBy(() -> service.getCustomerHistoryMessages(TICKET_ID, 51L, 999L, false))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.COUNSEL_TICKET_FORBIDDEN);
+    }
+
+    @Test
+    void 대기열조회_COUNSELOR_IN_PROGRESS는_담당자본인기준_스킬무관() {
+        Pageable pageable = PageRequest.of(0, 20);
+        CounselTicket ticket = inProgressTicket();
+        when(ticketRepository.findByStatusAndCounselorIdOrderByCreatedAtAsc(
+                CounselTicketStatus.IN_PROGRESS, COUNSELOR_ID, pageable))
+                .thenReturn(new PageImpl<>(List.of(ticket)));
+
+        Page<CounselTicketSummaryResponse> page =
+                service.getQueue(CounselTicketStatus.IN_PROGRESS, pageable, COUNSELOR_ID, false);
+
+        assertThat(page.getContent()).extracting(CounselTicketSummaryResponse::id).containsExactly(TICKET_ID);
+        verify(counselorSkillRepository, never()).findCounselTypesByCounselorId(any());
+    }
+
     private User counselorUser(Long id, String name) {
         User user = User.builder()
                 .email(id + "@haja.com").name(name).role(Role.COUNSELOR)

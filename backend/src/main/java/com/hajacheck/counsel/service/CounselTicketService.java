@@ -37,6 +37,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -59,6 +60,7 @@ public class CounselTicketService {
 
     private static final String DEST_ASSIGNED = "/queue/counsel/assigned";
     private static final String DEST_ENDED = "/queue/counsel/ended";
+    private static final int CUSTOMER_HISTORY_SIZE = 20;
     private static final DateTimeFormatter TRANSCRIPT_TS =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -110,9 +112,16 @@ public class CounselTicketService {
         return page.map(ticket -> CounselTicketSummaryResponse.from(ticket, nameOf(names, ticket)));
     }
 
-    /** COUNSELOR 전용 대기열 — 본인 보유 스킬(counselType) 밖 티켓은 제외한다. 스킬 미보유면 빈 페이지. */
+    /**
+     * COUNSELOR 전용 대기열 — WAITING 은 본인 보유 스킬(counselType) 밖 티켓을 제외(#1019/HAJA-501)하고,
+     * 그 외 상태(IN_PROGRESS 등, #1001 후속)는 이미 배정이 끝난 티켓이라 스킬이 아니라 담당자 본인
+     * 여부로 좁힌다 — 그래야 "종료되지 않은 내 상담"이 콘솔 목록에 계속 보인다.
+     */
     private Page<CounselTicket> findQueueForCounselor(
             CounselTicketStatus status, Long counselorId, Pageable pageable) {
+        if (status != CounselTicketStatus.WAITING) {
+            return ticketRepository.findByStatusAndCounselorIdOrderByCreatedAtAsc(status, counselorId, pageable);
+        }
         List<CounselType> skills = counselorSkillRepository.findCounselTypesByCounselorId(counselorId);
         if (skills.isEmpty()) {
             return Page.empty(pageable);
@@ -220,6 +229,53 @@ public class CounselTicketService {
         messagingTemplate.convertAndSendToUser(
                 String.valueOf(ticket.getUserId()), DEST_ENDED, response);
         return response;
+    }
+
+    /**
+     * 고객 상담 이력(#1001 후속) — 이 티켓의 담당 상담원 본인 또는 PLATFORM_ADMIN만 조회 가능하다.
+     * userId만으로 임의 고객의 이력을 열람하게 하지 않고, "지금 담당 중인 티켓"이라는 정당한 접점이
+     * 있는 요청자만 허용한다(resolve()와 동일한 인가 패턴). 현재 보고 있는 티켓 자신은 제외한다
+     * (채팅창에 이미 표시되므로 이력 목록에 중복 노출할 필요가 없다).
+     */
+    public List<CounselTicketSummaryResponse> getCustomerHistory(
+            Long ticketId, Long requesterId, boolean platformAdmin) {
+        CounselTicket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND));
+        if (!platformAdmin && !requesterId.equals(ticket.getCounselorId())) {
+            throw new BusinessException(ErrorCode.COUNSEL_TICKET_FORBIDDEN);
+        }
+        Pageable pageable = PageRequest.of(0, CUSTOMER_HISTORY_SIZE);
+        Page<CounselTicket> history = ticketRepository.findByUserIdOrderByCreatedAtDesc(ticket.getUserId(), pageable);
+        Map<Long, String> names = resolveCounselorNames(history.getContent());
+        return history.getContent().stream()
+                .filter(other -> !other.getId().equals(ticketId))
+                .map(other -> CounselTicketSummaryResponse.from(other, nameOf(names, other)))
+                .toList();
+    }
+
+    /**
+     * 고객 이력 티켓의 대화 조회(#1001 후속) — getCustomerHistory와 동일한 인가 규칙을 대화 내용에도
+     * 적용한다. historyTicketId 는 그 자체 담당자가 요청자와 다를 수 있어(과거에 다른 상담원이
+     * 처리) loadParticipantTicket(본인만 허용)을 그대로 쓰면 403이 난다 — 대신 "지금 담당 중인
+     * ticketId 티켓과 같은 고객(userId)의 티켓인가"로 접근을 허용한다.
+     */
+    public List<ChatMessageResponse> getCustomerHistoryMessages(
+            Long ticketId, Long historyTicketId, Long requesterId, boolean platformAdmin) {
+        CounselTicket anchor = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND));
+        if (!platformAdmin && !requesterId.equals(anchor.getCounselorId())) {
+            throw new BusinessException(ErrorCode.COUNSEL_TICKET_FORBIDDEN);
+        }
+        CounselTicket history = ticketRepository.findById(historyTicketId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND));
+        if (!Objects.equals(history.getUserId(), anchor.getUserId())) {
+            // 다른 고객 티켓 ID를 끼워 넣는 시도 — 존재 자체를 숨기는 통일 응답.
+            throw new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND);
+        }
+        String counselorName = resolveCounselorName(history.getCounselorId());
+        return loadMessages(history).stream()
+                .map(message -> ChatMessageResponse.from(message, history.getId(), counselorName))
+                .toList();
     }
 
     /** 오프라인 이탈 — 티켓 소유 사용자 본인만 허용. WAITING/IN_PROGRESS 티켓을 OFFLINE_LEFT 로 전이한다. */

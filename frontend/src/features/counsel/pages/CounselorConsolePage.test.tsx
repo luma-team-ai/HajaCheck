@@ -7,7 +7,7 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { counselHandlers, mockQueueTickets } from '../api/counselApi.handlers';
+import { counselHandlers, mockInProgressQueueTicket, mockQueueTickets } from '../api/counselApi.handlers';
 import type { UseCounselSocketHandlers } from '../hooks/useCounselSocket';
 import { CounselorConsolePage } from './CounselorConsolePage';
 
@@ -50,7 +50,9 @@ describe('CounselorConsolePage', () => {
     renderPage();
 
     expect(await screen.findByText(mockQueueTickets[0].title)).not.toBeNull();
-    expect(screen.getByText('활성 채팅 (1)')).not.toBeNull();
+    // 종료되지 않은 담당 상담(IN_PROGRESS)도 대기열(WAITING)과 함께 목록에 보인다(#1001 후속 버그 수정).
+    expect(screen.getByText(mockInProgressQueueTicket.title)).not.toBeNull();
+    expect(screen.getByText('활성 채팅 (2)')).not.toBeNull();
     expect(screen.getByText('왼쪽 목록에서 상담을 선택하세요.')).not.toBeNull();
   });
 
@@ -66,9 +68,7 @@ describe('CounselorConsolePage', () => {
     // 배정 성공 후 대화가 로드된다.
     expect(await screen.findByText('안녕하세요, 문의 주신 내용에 대해 안내드리겠습니다.')).not.toBeNull();
 
-    const input = screen.getByPlaceholderText(
-      '메시지를 입력하세요 (상담원 연결 시 활성화됩니다)',
-    ) as HTMLInputElement;
+    const input = screen.getByPlaceholderText('메시지를 입력하세요') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '안내드리겠습니다' } });
     fireEvent.click(screen.getByRole('button', { name: '전송' }));
 
@@ -80,6 +80,35 @@ describe('CounselorConsolePage', () => {
     await waitFor(() =>
       expect(screen.getByText('왼쪽 목록에서 상담을 선택하세요.')).not.toBeNull(),
     );
+  });
+
+  it('정보 패널 "이력" 탭에서 고객의 과거 상담 이력을 보여준다', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByText(mockQueueTickets[0].title));
+    fireEvent.click(await screen.findByRole('button', { name: '상담 배정받기' }));
+    await screen.findByText('안녕하세요, 문의 주신 내용에 대해 안내드리겠습니다.');
+
+    fireEvent.click(screen.getByRole('button', { name: '이력' }));
+
+    expect(await screen.findByText('지난 요금제 변경 문의')).not.toBeNull();
+  });
+
+  it('이력 항목 클릭 시 대화 내용을 보여주고, 목록으로 버튼으로 되돌아간다', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByText(mockQueueTickets[0].title));
+    fireEvent.click(await screen.findByRole('button', { name: '상담 배정받기' }));
+    await screen.findByText('안녕하세요, 문의 주신 내용에 대해 안내드리겠습니다.');
+
+    fireEvent.click(screen.getByRole('button', { name: '이력' }));
+    fireEvent.click(await screen.findByText('지난 요금제 변경 문의'));
+
+    expect(await screen.findByText('어떤 요금제로 변경을 원하시나요?')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '목록으로' }));
+
+    expect(await screen.findByText('지난 요금제 변경 문의')).not.toBeNull();
   });
 
   it('클레임 409 경합 시 안내 메시지를 보여주고 큐를 새로고침한다', async () => {

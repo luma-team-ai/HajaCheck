@@ -1,7 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import backIcon from '../../../assets/brand/sidenav-chevron.svg';
 import defaultAvatarIcon from '../../../assets/brand/sidenav-default-avatar.svg';
+import { counselApi } from '../api/counselApi';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
-import type { CounselTicketDetailResponse, CounselTicketSummaryResponse } from '../types';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
+import { getApiErrorMessage } from '../../../shared/api/types';
+import { CATEGORY_LABEL } from '../constants';
+import { MessageBubble } from './ConversationPanel';
+import type { ChatMessageResponse, CounselTicketDetailResponse, CounselTicketSummaryResponse } from '../types';
 
 type Ticket = CounselTicketSummaryResponse | CounselTicketDetailResponse;
 
@@ -12,12 +18,80 @@ type Props = {
 type TabKey = 'info' | 'history';
 
 // 상담원 콘솔 마스터-디테일(#1001, HAJA-495) — 우측 정보 패널.
-// 원 디자인엔 "상담 태그"/"비공개 메모 저장"/"매크로 안내 박스"/이력 조회가 있으나, 백엔드에
-// 그 기능이 전혀 없다(CounselTicketController 확인 — 태그·메모 저장 API 없음, /mine은 "본인" 이력만
-// 조회 가능해 상담원이 임의 고객의 과거 이력을 보는 API가 아님, 매크로 기능 없음) — 동작하지 않는
-// 가짜 UI를 만들지 않기 위해 해당 섹션은 생략하거나 "준비 중" 안내로 최소화한다.
+// 원 디자인엔 "상담 태그"/"비공개 메모 저장"/"매크로 안내 박스"가 있으나, 백엔드에 그 기능이 전혀
+// 없다(CounselTicketController 확인 — 태그·메모 저장 API 없음, 매크로 기능 없음) — 동작하지 않는
+// 가짜 UI를 만들지 않기 위해 해당 섹션은 생략한다. 고객 상담 이력은 GET .../customer-history(#1001
+// 후속)로 실제 연동한다.
 export function CounselorInfoPanel({ ticket }: Props) {
   const [tab, setTab] = useState<TabKey>('info');
+  const [history, setHistory] = useState<CounselTicketSummaryResponse[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  // 이력 드릴다운(#1001 후속) — 목록 항목 클릭 시 그 티켓의 대화를 같은 패널에서 보여주고,
+  // "목록으로" 버튼으로 되돌아간다(페이지 이동 없이 실시간 채팅 화면을 방해하지 않는다).
+  const [selectedHistoryTicket, setSelectedHistoryTicket] = useState<CounselTicketSummaryResponse | null>(null);
+  const [historyMessages, setHistoryMessages] = useState<ChatMessageResponse[]>([]);
+  const [historyMessagesLoading, setHistoryMessagesLoading] = useState(false);
+  const [historyMessagesError, setHistoryMessagesError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (tab !== 'history' || !ticket) {
+      return;
+    }
+    let cancelled = false;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    counselApi
+      .getCustomerHistory(ticket.id)
+      .then((res) => {
+        if (!cancelled) setHistory(res.data);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setHistoryError(getApiErrorMessage(err, '상담 이력을 불러오지 못했습니다.'));
+          setHistory([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // ticket.id 변경 시(다른 티켓 선택) 재조회 — tab을 'history'로 유지한 채 티켓만 바뀌는 경우 포함.
+  }, [tab, ticket?.id]);
+
+  // 티켓 전환 시 드릴다운 상태를 초기화 — 다른 상담으로 넘어갔는데 이전 티켓의 이력 상세가 남아있으면 혼란스럽다.
+  useEffect(() => {
+    setSelectedHistoryTicket(null);
+  }, [ticket?.id]);
+
+  useEffect(() => {
+    if (!ticket || !selectedHistoryTicket) {
+      return;
+    }
+    let cancelled = false;
+    setHistoryMessagesLoading(true);
+    setHistoryMessagesError(null);
+    counselApi
+      .getCustomerHistoryMessages(ticket.id, selectedHistoryTicket.id)
+      .then((res) => {
+        if (!cancelled) setHistoryMessages(res.data);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setHistoryMessagesError(getApiErrorMessage(err, '대화 내용을 불러오지 못했습니다.'));
+          setHistoryMessages([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryMessagesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticket?.id, selectedHistoryTicket?.id]);
 
   return (
     <div className="flex w-72 shrink-0 flex-col border-l border-border bg-surface-muted">
@@ -56,7 +130,9 @@ export function CounselorInfoPanel({ ticket }: Props) {
             <ChatAvatar icon={defaultAvatarIcon} bgClassName="bg-surface-sunken" className="size-12" />
             <div>
               <p className="m-0 text-sm font-semibold text-primary">고객 #{ticket.userId}</p>
-              <p className="m-0 mt-0.5 text-xs text-text-muted">{ticket.category}</p>
+              <p className="m-0 mt-0.5 text-xs text-text-muted">
+                {CATEGORY_LABEL[ticket.category] ?? ticket.category}
+              </p>
             </div>
           </div>
 
@@ -85,12 +161,68 @@ export function CounselorInfoPanel({ ticket }: Props) {
         </div>
       )}
 
-      {ticket && tab === 'history' && (
-        <div className="px-5 py-4">
-          {/* 상담원이 특정 고객의 과거 상담 이력을 조회하는 API가 없다(GET /mine은 로그인한 본인
-              이력만 반환 — 상담원 관점에서 고객 이력 조회 용도가 아님). 가짜 데이터를 만들지 않고
-              준비 중 안내만 표시한다. */}
-          <p className="m-0 text-sm text-text-muted">이 고객의 과거 상담 이력 조회는 준비 중입니다.</p>
+      {ticket && tab === 'history' && !selectedHistoryTicket && (
+        <div className="flex flex-col gap-2 overflow-y-auto px-4 pb-4">
+          {historyLoading && <LoadingSpinner className="flex items-center justify-center py-6" />}
+          {historyError && <p className="px-1 text-sm text-red-600">{historyError}</p>}
+          {!historyLoading && !historyError && history.length === 0 && (
+            <p className="px-1 py-4 text-sm text-text-muted">이 고객의 다른 상담 이력이 없습니다.</p>
+          )}
+          {!historyLoading &&
+            !historyError &&
+            history.map((past) => (
+              <button
+                key={past.id}
+                type="button"
+                onClick={() => setSelectedHistoryTicket(past)}
+                className="flex flex-col gap-1.5 rounded-2xl border border-transparent bg-white px-4 py-3 text-left text-xs shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] transition-colors hover:border-point hover:bg-surface-sunken focus-visible:border-point focus-visible:outline-none"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="shrink-0 rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-text-muted">
+                    {CATEGORY_LABEL[past.category] ?? past.category}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-text-muted">
+                    {new Date(past.createdAt).toLocaleDateString('sv-SE').replaceAll('-', '.')}
+                  </span>
+                </div>
+                <p className="m-0 truncate text-sm font-semibold text-primary">{past.title}</p>
+                <p className="m-0 truncate text-text-muted">
+                  #{past.ticketNumber} · {past.status}
+                </p>
+              </button>
+            ))}
+        </div>
+      )}
+
+      {/* 이력 드릴다운 상세 — 클릭한 과거 티켓의 실제 대화 내용(#1001 후속). */}
+      {ticket && tab === 'history' && selectedHistoryTicket && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex items-center gap-2 px-4 pb-2">
+            <button
+              type="button"
+              onClick={() => setSelectedHistoryTicket(null)}
+              className="flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-text-muted hover:bg-white"
+            >
+              <img src={backIcon} alt="" className="size-3 rotate-90" aria-hidden="true" />
+              목록으로
+            </button>
+          </div>
+          <div className="px-4 pb-2">
+            <p className="m-0 truncate text-sm font-semibold text-primary">{selectedHistoryTicket.title}</p>
+            <p className="m-0 truncate text-xs text-text-muted">
+              {selectedHistoryTicket.category} · #{selectedHistoryTicket.ticketNumber}
+            </p>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
+            {historyMessagesLoading && <LoadingSpinner className="flex items-center justify-center py-6" />}
+            {historyMessagesError && <p className="text-sm text-red-600">{historyMessagesError}</p>}
+            {!historyMessagesLoading && !historyMessagesError && historyMessages.length === 0 && (
+              <p className="text-sm text-text-muted">대화 내용이 없습니다.</p>
+            )}
+            {!historyMessagesLoading &&
+              !historyMessagesError &&
+              historyMessages.map((message) => <MessageBubble key={message.id} message={message} />)}
+          </div>
         </div>
       )}
 

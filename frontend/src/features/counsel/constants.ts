@@ -8,6 +8,16 @@ import type { CounselTicketStatus, CounselTicketStatusFilter } from './types';
 // 다른 경로를 새로 만들면 메뉴-라우트 불일치(#478 유형 회귀)가 생긴다 — 기존 값을 단일 소스로 따른다.
 export const CHAT_BOT_PATH = '/support/chat-bot';
 
+// 티켓의 category 필드는 BotScenario 최상위 시나리오의 category 코드가 그대로 스냅샷된 값이라
+// (V17__seed_bot_scenarios.sql 참고) 영어 코드 그대로다 — 상담원 콘솔에 노출할 때만 한글로 표시한다.
+// 매핑에 없는 값(신규 카테고리 추가 등)은 원본 문자열을 그대로 보여줘 조용히 사라지지 않게 한다.
+export const CATEGORY_LABEL: Record<string, string> = {
+  ACCOUNT_BILLING: '계정 및 결제',
+  ERROR_REPORT: '오류 신고',
+  INSPECTION_REPORT: '점검 결과서 관련',
+  USAGE_GUIDE: '이용 방법 안내',
+};
+
 // 목록 필터 탭 — 브리프 디자인(markup)이 "전체/진행중/종료" 3탭만 정의하고 있어, 백엔드가 지원하는
 // 4개 상태(WAITING/IN_PROGRESS/RESOLVED/OFFLINE_LEFT) 중 "진행중"은 IN_PROGRESS, "종료"는 RESOLVED로
 // 매핑한다(WAITING·OFFLINE_LEFT 세부 탭은 이번 스코프 밖 — 필요해지면 탭을 늘리고 이 배열만 확장).

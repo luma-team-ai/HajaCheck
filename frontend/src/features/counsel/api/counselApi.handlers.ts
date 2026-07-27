@@ -68,6 +68,21 @@ export const mockQueueTickets: CounselTicketSummaryResponse[] = [
   },
 ];
 
+// 담당 상담(IN_PROGRESS, #1001 후속) — 종료되지 않은 내 상담이 콘솔 목록에 계속 보이는지 검증용.
+// counselorId=9는 assign 목 핸들러가 배정하는 값과 동일(상담원 콘솔 통합테스트의 로그인 상담원).
+export const mockInProgressQueueTicket: CounselTicketSummaryResponse = {
+  id: 4,
+  ticketNumber: 'CS-20260726-020',
+  category: '요금제 변경',
+  title: '진행 중인 상담',
+  userId: 201,
+  counselorId: 9,
+  counselorName: '김상담',
+  status: 'IN_PROGRESS',
+  queuePosition: null,
+  createdAt: '2026-07-26T09:00:00',
+};
+
 export const mockScenarioRoots: BotScenarioButtonResponse[] = [
   { id: 10, category: 'INSPECTION_REPORT', buttonLabel: '점검 결과서 관련', leadsToCounselor: false },
   { id: 20, category: 'ACCOUNT_BILLING', buttonLabel: '계정 및 결제', leadsToCounselor: false },
@@ -128,13 +143,18 @@ export const counselHandlers = [
     }
     return HttpResponse.json({ success: true, data: mockMessages });
   }),
-  // 상담원 콘솔(#1001, HAJA-495) — GET /api/counsel/tickets(대기열)
-  http.get('/api/counsel/tickets', () =>
-    HttpResponse.json({
+  // 상담원 콘솔(#1001, HAJA-495) — GET /api/counsel/tickets(대기열). status 쿼리로 WAITING/IN_PROGRESS를
+  // 구분한다(#1001 후속: useCounselorQueue가 두 상태를 병렬 조회해 합치므로 실제 백엔드처럼 분기 필요).
+  http.get('/api/counsel/tickets', ({ request }) => {
+    const url = new URL(request.url);
+    const status = url.searchParams.get('status') ?? 'WAITING';
+    const content =
+      status === 'IN_PROGRESS' ? [mockInProgressQueueTicket] : mockQueueTickets.filter((t) => t.status === status);
+    return HttpResponse.json({
       success: true,
-      data: { content: mockQueueTickets, page: 0, totalElements: mockQueueTickets.length },
-    }),
-  ),
+      data: { content, page: 0, totalElements: content.length },
+    });
+  }),
   // POST .../assign — 기본은 성공(첫 호출). 409 경합 시나리오는 개별 테스트가 server.use()로 override.
   http.post('/api/counsel/tickets/:id/assign', ({ params }) => {
     const id = Number(params.id);
@@ -150,6 +170,51 @@ export const counselHandlers = [
       data: { ...ticket, counselorId: 9, counselorName: '김상담', status: 'IN_PROGRESS', sessionId: 700, endedAt: null },
     });
   }),
+  // GET /api/counsel/tickets/:id/customer-history(#1001 후속) — 고정 픽스처 1건 반환.
+  http.get('/api/counsel/tickets/:id/customer-history', () =>
+    HttpResponse.json({
+      success: true,
+      data: [
+        {
+          id: 99,
+          ticketNumber: 'CS-20260701-002',
+          category: '요금제 변경',
+          title: '지난 요금제 변경 문의',
+          userId: 201,
+          counselorId: 9,
+          counselorName: '김상담',
+          status: 'RESOLVED',
+          queuePosition: null,
+          createdAt: '2026-07-01T09:00:00',
+        },
+      ],
+    }),
+  ),
+  // GET .../customer-history/:historyId/messages(#1001 후속) — 드릴다운 상세 대화.
+  http.get('/api/counsel/tickets/:id/customer-history/:historyId/messages', () =>
+    HttpResponse.json({
+      success: true,
+      data: [
+        {
+          id: 201,
+          sessionId: 500,
+          sender: 'USER',
+          content: '요금제를 낮추고 싶어요.',
+          attachmentUrl: null,
+          createdAt: '2026-07-01T09:01:00',
+        },
+        {
+          id: 202,
+          sessionId: 500,
+          sender: 'COUNSELOR',
+          counselorName: '이상담',
+          content: '어떤 요금제로 변경을 원하시나요?',
+          attachmentUrl: null,
+          createdAt: '2026-07-01T09:02:00',
+        },
+      ],
+    }),
+  ),
   http.post('/api/counsel/tickets/:id/resolve', ({ params }) => {
     const id = Number(params.id);
     return HttpResponse.json({
