@@ -5,6 +5,7 @@ import { DEFAULT_PAGE_SIZE, isTicketEnded } from '../constants';
 import { useCounselSocket } from './useCounselSocket';
 import type {
   ChatMessageResponse,
+  ChatMessageSender,
   CounselTicketStatusFilter,
   CounselTicketSummaryResponse,
 } from '../types';
@@ -106,11 +107,48 @@ export function useCounselHistory() {
     setAllTickets((prev) => prev.map((t) => (t.id === ticket.id ? ticket : t)));
   }, []);
 
-  const { connected, sendMessage } = useCounselSocket(socketTicketId, {
+  // 상대방(상담원) "입력 중" 표시(#1000 후속) — 신호를 받을 때마다 타이머를 리셋해 일정 시간
+  // 추가 신호가 없으면 자동으로 숨긴다(서버가 "입력 종료" 이벤트를 별도로 주지 않음, 클라 측
+  // idle-timeout 방식으로 처리 — AiAssistantPage 로딩 버블과 달리 명시적 종료 신호가 없어서 필요).
+  const [counselorTyping, setCounselorTyping] = useState(false);
+  const handleTyping = useCallback((sender: ChatMessageSender) => {
+    if (sender !== 'COUNSELOR') return;
+    setCounselorTyping(true);
+  }, []);
+
+  useEffect(() => {
+    if (!counselorTyping) return;
+    const timer = window.setTimeout(() => setCounselorTyping(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [counselorTyping]);
+
+  useEffect(() => {
+    setCounselorTyping(false);
+  }, [selectedId]);
+
+  const { connected, sendMessage, sendTyping } = useCounselSocket(socketTicketId, {
     onMessage: handleSocketMessage,
     onAssigned: handleTicketUpdate,
     onEnded: handleTicketUpdate,
+    onTyping: handleTyping,
   });
+
+  // 상담 종료(#1000 후속: 고객도 종료 가능 — 백엔드 CounselTicketService#resolve 권한 완화와 짝).
+  const [ending, setEnding] = useState(false);
+  const [endError, setEndError] = useState<string | null>(null);
+  const endCounsel = useCallback(async () => {
+    if (selectedId === null) return;
+    setEnding(true);
+    setEndError(null);
+    try {
+      const res = await counselApi.resolve(selectedId);
+      handleTicketUpdate(res.data);
+    } catch (err) {
+      setEndError(getApiErrorMessage(err, '상담 종료에 실패했습니다.'));
+    } finally {
+      setEnding(false);
+    }
+  }, [selectedId, handleTicketUpdate]);
 
   return {
     status,
@@ -126,5 +164,10 @@ export function useCounselHistory() {
     messagesError,
     socketConnected: connected,
     sendMessage,
+    sendTyping,
+    counselorTyping,
+    endCounsel,
+    ending,
+    endError,
   };
 }

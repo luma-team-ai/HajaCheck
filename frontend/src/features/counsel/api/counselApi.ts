@@ -41,7 +41,8 @@ export const counselApi = {
   // err.status===409로 분기해 안내 메시지 + 큐 새로고침을 처리한다.
   assign: (ticketId: number) =>
     api.post<CounselTicketDetailResponse>(`/counsel/tickets/${ticketId}/assign`),
-  // POST /api/counsel/tickets/{id}/resolve — 상담 종료
+  // POST /api/counsel/tickets/{id}/resolve — 상담 종료(#1000 후속: 담당 상담원뿐 아니라 티켓 소유
+  // 고객 본인도 호출 가능, 백엔드 CounselTicketService#resolve 권한 완화와 짝).
   resolve: (ticketId: number) =>
     api.post<CounselTicketDetailResponse>(`/counsel/tickets/${ticketId}/resolve`),
   // GET /api/counsel/tickets/{id}/customer-history — 이 티켓 고객의 과거 상담 이력(현재 티켓 제외,
