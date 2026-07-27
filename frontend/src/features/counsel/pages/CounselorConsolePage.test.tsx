@@ -84,6 +84,18 @@ describe('CounselorConsolePage', () => {
     );
   });
 
+  it('정보 패널 "이력" 탭에서 고객의 과거 상담 이력을 보여준다', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByText(mockQueueTickets[0].title));
+    fireEvent.click(await screen.findByRole('button', { name: '상담 배정받기' }));
+    await screen.findByText('안녕하세요, 문의 주신 내용에 대해 안내드리겠습니다.');
+
+    fireEvent.click(screen.getByRole('button', { name: '이력' }));
+
+    expect(await screen.findByText('지난 요금제 변경 문의')).not.toBeNull();
+  });
+
   it('클레임 409 경합 시 안내 메시지를 보여주고 큐를 새로고침한다', async () => {
     server.use(
       http.post('/api/counsel/tickets/:id/assign', () =>

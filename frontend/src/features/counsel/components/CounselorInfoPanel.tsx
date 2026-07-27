@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import defaultAvatarIcon from '../../../assets/brand/sidenav-default-avatar.svg';
+import { counselApi } from '../api/counselApi';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
+import { getApiErrorMessage } from '../../../shared/api/types';
 import type { CounselTicketDetailResponse, CounselTicketSummaryResponse } from '../types';
 
 type Ticket = CounselTicketSummaryResponse | CounselTicketDetailResponse;
@@ -12,12 +15,42 @@ type Props = {
 type TabKey = 'info' | 'history';
 
 // 상담원 콘솔 마스터-디테일(#1001, HAJA-495) — 우측 정보 패널.
-// 원 디자인엔 "상담 태그"/"비공개 메모 저장"/"매크로 안내 박스"/이력 조회가 있으나, 백엔드에
-// 그 기능이 전혀 없다(CounselTicketController 확인 — 태그·메모 저장 API 없음, /mine은 "본인" 이력만
-// 조회 가능해 상담원이 임의 고객의 과거 이력을 보는 API가 아님, 매크로 기능 없음) — 동작하지 않는
-// 가짜 UI를 만들지 않기 위해 해당 섹션은 생략하거나 "준비 중" 안내로 최소화한다.
+// 원 디자인엔 "상담 태그"/"비공개 메모 저장"/"매크로 안내 박스"가 있으나, 백엔드에 그 기능이 전혀
+// 없다(CounselTicketController 확인 — 태그·메모 저장 API 없음, 매크로 기능 없음) — 동작하지 않는
+// 가짜 UI를 만들지 않기 위해 해당 섹션은 생략한다. 고객 상담 이력은 GET .../customer-history(#1001
+// 후속)로 실제 연동한다.
 export function CounselorInfoPanel({ ticket }: Props) {
   const [tab, setTab] = useState<TabKey>('info');
+  const [history, setHistory] = useState<CounselTicketSummaryResponse[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (tab !== 'history' || !ticket) {
+      return;
+    }
+    let cancelled = false;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    counselApi
+      .getCustomerHistory(ticket.id)
+      .then((res) => {
+        if (!cancelled) setHistory(res.data);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setHistoryError(getApiErrorMessage(err, '상담 이력을 불러오지 못했습니다.'));
+          setHistory([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // ticket.id 변경 시(다른 티켓 선택) 재조회 — tab을 'history'로 유지한 채 티켓만 바뀌는 경우 포함.
+  }, [tab, ticket?.id]);
 
   return (
     <div className="flex w-72 shrink-0 flex-col border-l border-border bg-surface-muted">
@@ -86,11 +119,30 @@ export function CounselorInfoPanel({ ticket }: Props) {
       )}
 
       {ticket && tab === 'history' && (
-        <div className="px-5 py-4">
-          {/* 상담원이 특정 고객의 과거 상담 이력을 조회하는 API가 없다(GET /mine은 로그인한 본인
-              이력만 반환 — 상담원 관점에서 고객 이력 조회 용도가 아님). 가짜 데이터를 만들지 않고
-              준비 중 안내만 표시한다. */}
-          <p className="m-0 text-sm text-text-muted">이 고객의 과거 상담 이력 조회는 준비 중입니다.</p>
+        <div className="flex flex-col gap-2 overflow-y-auto px-4 pb-4">
+          {historyLoading && <LoadingSpinner className="flex items-center justify-center py-6" />}
+          {historyError && <p className="px-1 text-sm text-red-600">{historyError}</p>}
+          {!historyLoading && !historyError && history.length === 0 && (
+            <p className="px-1 py-4 text-sm text-text-muted">이 고객의 다른 상담 이력이 없습니다.</p>
+          )}
+          {!historyLoading &&
+            !historyError &&
+            history.map((past) => (
+              <div
+                key={past.id}
+                className="flex flex-col gap-1 rounded-2xl bg-white px-4 py-3 text-xs shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="m-0 truncate text-sm font-semibold text-primary">{past.title}</p>
+                  <span className="shrink-0 text-[11px] text-text-muted">
+                    {new Date(past.createdAt).toLocaleDateString('sv-SE').replaceAll('-', '.')}
+                  </span>
+                </div>
+                <p className="m-0 truncate text-text-muted">
+                  {past.category} · #{past.ticketNumber} · {past.status}
+                </p>
+              </div>
+            ))}
         </div>
       )}
 

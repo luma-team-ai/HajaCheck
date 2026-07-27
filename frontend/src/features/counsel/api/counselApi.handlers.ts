@@ -170,6 +170,26 @@ export const counselHandlers = [
       data: { ...ticket, counselorId: 9, counselorName: '김상담', status: 'IN_PROGRESS', sessionId: 700, endedAt: null },
     });
   }),
+  // GET /api/counsel/tickets/:id/customer-history(#1001 후속) — 고정 픽스처 1건 반환.
+  http.get('/api/counsel/tickets/:id/customer-history', () =>
+    HttpResponse.json({
+      success: true,
+      data: [
+        {
+          id: 99,
+          ticketNumber: 'CS-20260701-002',
+          category: '요금제 변경',
+          title: '지난 요금제 변경 문의',
+          userId: 201,
+          counselorId: 9,
+          counselorName: '김상담',
+          status: 'RESOLVED',
+          queuePosition: null,
+          createdAt: '2026-07-01T09:00:00',
+        },
+      ],
+    }),
+  ),
   http.post('/api/counsel/tickets/:id/resolve', ({ params }) => {
     const id = Number(params.id);
     return HttpResponse.json({
