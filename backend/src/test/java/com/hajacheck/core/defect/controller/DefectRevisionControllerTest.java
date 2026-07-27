@@ -395,6 +395,40 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
         User inspector = saveInspector("inspector14@haja.com", company);
         Facility facility = saveFacility(owner);
         Inspection inspection = saveInspection(facility, owner, inspector);
+        Media media = saveMedia(inspection);
+
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .bboxX(0.1)
+                .bboxY(0.2)
+                .bboxW(0.3)
+                .bboxH(0.4)
+                .mediaId(media.getId())
+                .grade(DefectGrade.A)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.bboxX").value(0.1))
+                .andExpect(jsonPath("$.data.bboxY").value(0.2))
+                .andExpect(jsonPath("$.data.bboxW").value(0.3))
+                .andExpect(jsonPath("$.data.bboxH").value(0.4))
+                .andExpect(jsonPath("$.data.mediaId").value(media.getId()));
+    }
+
+    @Test
+    void POST_bboxCompleteButMediaIdNull_400() throws Exception {
+        // bbox 4개가 모두 지정되면 mediaId도 필수
+        Company company = saveCompany("회사823");
+        User owner = saveUser("owner823@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector823@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
 
         DefectCreateRequest request = DefectCreateRequest.builder()
                 .type(DefectType.CRACK)
@@ -410,11 +444,8 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .with(authentication(authOf(owner)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.bboxX").value(0.1))
-                .andExpect(jsonPath("$.data.bboxY").value(0.2))
-                .andExpect(jsonPath("$.data.bboxW").value(0.3))
-                .andExpect(jsonPath("$.data.bboxH").value(0.4));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
     }
 
     @Test
@@ -620,6 +651,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
         User inspector = saveInspector("inspector24@haja.com", company);
         Facility facility = saveFacility(owner);
         Inspection inspection = saveInspection(facility, owner, inspector);
+        Media media = saveMedia(inspection);
 
         // 경계값 0.0/1.0은 허용 범위 포함(inclusive)이라 정상 생성돼야 한다
         DefectCreateRequest request = DefectCreateRequest.builder()
@@ -628,6 +660,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .bboxY(1.0)
                 .bboxW(0.0)
                 .bboxH(1.0)
+                .mediaId(media.getId())
                 .build();
 
         mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
@@ -639,7 +672,8 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data.bboxX").value(0.0))
                 .andExpect(jsonPath("$.data.bboxY").value(1.0))
                 .andExpect(jsonPath("$.data.bboxW").value(0.0))
-                .andExpect(jsonPath("$.data.bboxH").value(1.0));
+                .andExpect(jsonPath("$.data.bboxH").value(1.0))
+                .andExpect(jsonPath("$.data.mediaId").value(media.getId()));
     }
 
     @Test
