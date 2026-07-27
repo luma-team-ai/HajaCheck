@@ -4,7 +4,9 @@ import type {
   BotScenarioButtonResponse,
   BotScenarioNodeResponse,
   ChatMessageResponse,
+  CounselQueueFilters,
   CounselTicketCreateRequest,
+  CounselTicketDetailResponse,
   CounselTicketListFilters,
   CounselTicketSummaryResponse,
 } from '../types';
@@ -30,4 +32,16 @@ export const counselApi = {
   // shared axios 인터셉터가 blob 응답은 envelope unwrap을 건너뛰도록 처리돼 있다(axios.ts 참고).
   exportConversation: (ticketId: number) =>
     api.get<Blob>(`/counsel/tickets/${ticketId}/export`, { responseType: 'blob' }),
+  // 상담원 콘솔(#1001, HAJA-495) — 아래 3개는 COUNSELOR/PLATFORM_ADMIN 전용 엔드포인트.
+  // GET /api/counsel/tickets — 배정 대기열 조회
+  getQueue: (filters: CounselQueueFilters = {}) =>
+    api.get<PageResponse<CounselTicketSummaryResponse>>('/counsel/tickets', { params: filters }),
+  // POST /api/counsel/tickets/{id}/assign — 클레임. 동시 클레임 시 409
+  // COUNSEL_SESSION_ASSIGNMENT_CONFLICT(낙관적 락 경합) — 호출부(CounselorQueuePage)가
+  // err.status===409로 분기해 안내 메시지 + 큐 새로고침을 처리한다.
+  assign: (ticketId: number) =>
+    api.post<CounselTicketDetailResponse>(`/counsel/tickets/${ticketId}/assign`),
+  // POST /api/counsel/tickets/{id}/resolve — 상담 종료
+  resolve: (ticketId: number) =>
+    api.post<CounselTicketDetailResponse>(`/counsel/tickets/${ticketId}/resolve`),
 };
