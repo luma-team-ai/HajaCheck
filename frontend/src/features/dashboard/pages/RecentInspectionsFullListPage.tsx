@@ -186,7 +186,7 @@ export function RecentInspectionsFullListPage() {
         </div>
       )}
 
-      {!isLoading && !isError && (
+      {!isLoading && !isError && content.length > 0 && (
         <TableFooterPagination
           pageSize={size}
           onPageSizeChange={handlePageSizeChange}
@@ -194,7 +194,6 @@ export function RecentInspectionsFullListPage() {
           totalPages={totalPages}
           totalItems={totalElements}
           onPageChange={handlePageChange}
-          paginationVariant="numbered"
         />
       )}
     </div>

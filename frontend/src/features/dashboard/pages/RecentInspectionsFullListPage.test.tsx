@@ -101,7 +101,7 @@ describe('RecentInspectionsFullListPage', () => {
     await screen.findByRole('cell', { name: '여의도 파크센터' });
     expect(screen.queryByRole('cell', { name: '인천 국제터미널' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: '2' }));
+    fireEvent.click(screen.getByRole('button', { name: '2페이지' }));
 
     await waitFor(() => {
       expect(screen.getByRole('cell', { name: '인천 국제터미널' })).not.toBeNull();
