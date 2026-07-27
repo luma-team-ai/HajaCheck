@@ -52,6 +52,22 @@ export const mockMessages: ChatMessageResponse[] = [
   },
 ];
 
+// 상담원 콘솔 대기열(#1001, HAJA-495) — mockTickets와 별개 픽스처. WAITING 상태 티켓만 대기열에 뜬다.
+export const mockQueueTickets: CounselTicketSummaryResponse[] = [
+  {
+    id: 3,
+    ticketNumber: 'CS-20260727-001',
+    category: '점검 결과서 관련',
+    title: 'AI 분석 결과 등급 문의',
+    userId: 200,
+    counselorId: null,
+    counselorName: null,
+    status: 'WAITING',
+    queuePosition: 1,
+    createdAt: '2026-07-27T09:00:00',
+  },
+];
+
 export const mockScenarioRoots: BotScenarioButtonResponse[] = [
   { id: 10, category: 'INSPECTION_REPORT', buttonLabel: '점검 결과서 관련', leadsToCounselor: false },
   { id: 20, category: 'ACCOUNT_BILLING', buttonLabel: '계정 및 결제', leadsToCounselor: false },
@@ -104,12 +120,54 @@ export const counselHandlers = [
   }),
   http.get('/api/counsel/tickets/:id/messages', ({ params }) => {
     const id = Number(params.id);
-    if (!mockTickets.some((t) => t.id === id)) {
+    if (!mockTickets.some((t) => t.id === id) && !mockQueueTickets.some((t) => t.id === id)) {
       return HttpResponse.json(
         { success: false, error: { code: 'COUNSEL_TICKET_NOT_FOUND', message: '상담 티켓을 찾을 수 없습니다.' } },
         { status: 404 },
       );
     }
     return HttpResponse.json({ success: true, data: mockMessages });
+  }),
+  // 상담원 콘솔(#1001, HAJA-495) — GET /api/counsel/tickets(대기열)
+  http.get('/api/counsel/tickets', () =>
+    HttpResponse.json({
+      success: true,
+      data: { content: mockQueueTickets, page: 0, totalElements: mockQueueTickets.length },
+    }),
+  ),
+  // POST .../assign — 기본은 성공(첫 호출). 409 경합 시나리오는 개별 테스트가 server.use()로 override.
+  http.post('/api/counsel/tickets/:id/assign', ({ params }) => {
+    const id = Number(params.id);
+    const ticket = mockQueueTickets.find((t) => t.id === id);
+    if (!ticket) {
+      return HttpResponse.json(
+        { success: false, error: { code: 'COUNSEL_TICKET_NOT_FOUND', message: '상담 티켓을 찾을 수 없습니다.' } },
+        { status: 404 },
+      );
+    }
+    return HttpResponse.json({
+      success: true,
+      data: { ...ticket, counselorId: 9, counselorName: '김상담', status: 'IN_PROGRESS', sessionId: 700, endedAt: null },
+    });
+  }),
+  http.post('/api/counsel/tickets/:id/resolve', ({ params }) => {
+    const id = Number(params.id);
+    return HttpResponse.json({
+      success: true,
+      data: {
+        id,
+        ticketNumber: 'CS-20260727-001',
+        category: '점검 결과서 관련',
+        title: 'AI 분석 결과 등급 문의',
+        userId: 200,
+        counselorId: 9,
+        counselorName: '김상담',
+        sessionId: 700,
+        status: 'RESOLVED',
+        queuePosition: null,
+        createdAt: '2026-07-27T09:00:00',
+        endedAt: '2026-07-27T09:30:00',
+      },
+    });
   }),
 ];
