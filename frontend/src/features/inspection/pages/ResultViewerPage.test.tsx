@@ -1099,26 +1099,20 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(screen.getByText('100%')).not.toBeNull();
   });
 
-  it('detail 이미지 로드 실패 시 thumbnail로 폴백 기능을 지원한다(#796)', async () => {
-    // 이슈: 뷰어가 detailUrl을 우선 사용하지만, detail 엔드포인트 503 등의 실패 시
-    // thumbnail로 자동 폴백해야 함. 이 테스트는 인프라 확인.
-    //
-    // 1) media.imageUrl = detailUrl ?? thumbnailUrl (useInspectionResultReal에서 우선)
-    // 2) media.thumbnailUrl = thumbnailUrl 별도 저장 (DefectOverlay의 폴백용)
-    // 3) DefectOverlay.img에 onError 핸들러 추가 (로드 실패 시 thumbnailUrl로 전환)
+  it('detail 이미지 로드 실패 시 thumbnail로 폴백한다(#796)', async () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
-    // img 요소가 renderd되었는지 확인
     const img = screen.getByAltText('점검 이미지') as HTMLImageElement;
-    expect(img).not.toBeNull();
 
-    // (1) img.src가 detailUrl로 설정되었는지 확인 (useInspectionResultReal에서 detailUrl 우선)
+    // detailUrl이 우선 로드된다(useInspectionResultReal에서 detailUrl ?? thumbnailUrl)
     expect(img.src).toContain('/api/media/67/detail');
 
-    // (2&3) DefectOverlay가 onError 핸들러를 등록했는지 확인
-    // React의 이벤트 핸들러는 DOM 속성이 아니라 내부 레지스터에 저장되므로,
-    // 여기선 img 요소가 존재하고 부모 DefectOverlay가 렌더되었음으로 확인 완료.
-    // 실제 폴백 로직은 프로덕션 브라우저에서 img 로드 실패 시 자동으로 작동.
+    // detail 로드가 실패(503 등)하면 onError 핸들러가 thumbnailUrl로 교체한다
+    fireEvent.error(img);
+    await waitFor(() => {
+      const updated = screen.getByAltText('점검 이미지') as HTMLImageElement;
+      expect(updated.src).toContain('/api/media/67/thumbnail');
+    });
   });
 });
