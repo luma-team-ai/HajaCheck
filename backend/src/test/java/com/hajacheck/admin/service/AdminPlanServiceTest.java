@@ -65,6 +65,9 @@ class AdminPlanServiceTest {
     private MediaRepository mediaRepository;
     @Mock
     private com.hajacheck.membership.service.PlanDowngradeService planDowngradeService;
+    // #851 — changePlan 이 신규 구독 발급 직후 당월 사용량을 이월한다(결제 경로와 동일 규칙).
+    @Mock
+    private com.hajacheck.membership.service.PlanTransitionService planTransitionService;
 
     @InjectMocks
     private AdminPlanService service;

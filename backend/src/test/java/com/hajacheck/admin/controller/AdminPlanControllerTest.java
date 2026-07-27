@@ -20,11 +20,16 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
+import com.hajacheck.membership.entity.UsageCounter;
 import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.repository.PlanRepository;
+import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,6 +65,8 @@ class AdminPlanControllerTest extends PostgresTestSupport {
     private PlanRepository planRepository;
     @Autowired
     private UserPlanRepository userPlanRepository;
+    @Autowired
+    private UsageCounterRepository usageCounterRepository;
 
     // ── 인가(ADMIN role) 경계 ──
 
@@ -185,6 +192,38 @@ class AdminPlanControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data.page").value(1))
                 .andExpect(jsonPath("$.data.size").value(2))
                 .andExpect(jsonPath("$.data.totalElements").value(3));
+    }
+
+    @Test
+    void 플랜변경시_당월_사용량이_새구독으로_이월된다() throws Exception {
+        // #851 — 이월하지 않으면 플랜을 바꾸는 것만으로 usage_counters 행이 새로 열려 월 분석 한도가
+        // 0 으로 리셋된다. 결제 경로(#988)와 관리자 콘솔 경로 중 한쪽만 이월하면 "관리자 콘솔로 바꾸면
+        // 한도가 리셋된다"는 우회로가 그대로 남으므로 두 경로 모두 같은 규칙을 강제한다.
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.FREE);
+        UserPlan before = userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(
+                fx.company().getId(), com.hajacheck.membership.entity.UserPlanStatus.ACTIVE).orElseThrow();
+        LocalDate period = YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1);
+        usageCounterRepository.saveAndFlush(
+                UsageCounter.create(before.getId(), period, 37, 4, 6, 2, 1, 3));
+
+        mockMvc.perform(patch("/api/admin/plan")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"STANDARD\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.plan.name").value("STANDARD"))
+                // 응답의 사용량도 이월된 값이어야 한다(변경 직후 화면이 0 으로 보이면 안 된다).
+                .andExpect(jsonPath("$.data.usage.analyzedImageCount").value(37));
+
+        UserPlan after = userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(
+                fx.company().getId(), com.hajacheck.membership.entity.UserPlanStatus.ACTIVE).orElseThrow();
+        assertThat(after.getId()).isNotEqualTo(before.getId());
+        UsageCounter carried = usageCounterRepository
+                .findByUserPlanIdAndPeriod(after.getId(), period).orElseThrow();
+        assertThat(carried.getAnalyzedImageCount()).isEqualTo(37);
+        assertThat(carried.getAnalysisRequestCount()).isEqualTo(6);
+        assertThat(carried.getFacilityCount()).isEqualTo(4);
+        assertThat(carried.getSeatCount()).isEqualTo(2);
     }
 
     @Test

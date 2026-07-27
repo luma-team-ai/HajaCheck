@@ -102,6 +102,24 @@ public enum ErrorCode {
     PLAN_KEEP_USER_INVALID(HttpStatus.FORBIDDEN,
             "선택한 구성원 중 일부가 유효하지 않습니다. 회사 소속 활성 구성원만 유지 대상으로 선택할 수 있습니다."),
 
+    // 토스페이먼츠 샌드박스 결제(#988 / HAJA-489) — 주문 사전 등록 → 승인 → 플랜 전이 3단계.
+    //
+    // 404: orderId 로 결제 주문을 찾지 못했을 때. 재확정이 불가능해진 주문(FAILED·CANCELED)도 같은 코드로
+    // 응답한다 — 상태를 세분해 알려주면 남의 orderId 를 넣어보며 "존재하지만 실패한 주문"을 열거할 수
+    // 있게 되므로, 존재 여부를 흘리지 않는 기존 관례(PLAN_FORBIDDEN·REPORT_NOT_FOUND)를 그대로 따른다.
+    PAYMENT_ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "결제 주문을 찾을 수 없습니다."),
+    // 403: 주문 소유자가 아닌 사용자의 승인·조회 시도(cross-user IDOR 차단). PLAN_FORBIDDEN 과 같은 403 이되
+    // "구독 소유자"가 아니라 "주문 소유자"라는 다른 경계를 가리키므로 전용 코드를 둔다(PLAN_KEEP_USER_INVALID 선례).
+    PAYMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "결제 주문에 접근할 수 없습니다."),
+    // 400: 승인 요청 금액이 서버가 사전 등록한 주문 금액과 다를 때. 금액은 서버(plans.price_monthly)가
+    // 정하므로 이 불일치는 클라이언트 위변조이거나 계약 불일치다 — 400(요청이 잘못됨)이 맞고, 409(재시도하면
+    // 풀림)나 402가 아니다. 이 시점에서 PG 승인 호출 자체를 하지 않는다(돈이 움직이기 전에 차단).
+    PAYMENT_AMOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "결제 금액이 주문 정보와 일치하지 않습니다."),
+    // 502: PG(토스페이먼츠) 승인 호출이 실패했을 때. 업스트림 장애·거절을 우리 서버의 500 으로 포장하지
+    // 않는다는 기존 규칙(AI_SERVER_ERROR·NTS_REQUEST_REJECTED)과 동일 계열. 시크릿 미설정으로 결제를
+    // 시작조차 할 수 없는 경우도 이 코드로 fail-close 한다(빈 문자열로 인증을 시도하거나 NPE 로 새지 않게).
+    PAYMENT_GATEWAY_ERROR(HttpStatus.BAD_GATEWAY, "결제 승인 처리에 실패했습니다. 잠시 후 다시 시도해 주세요."),
+
     // 시설물(facility)
     // 미존재/타인 소유 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.
     FACILITY_NOT_FOUND(HttpStatus.NOT_FOUND, "시설물을 찾을 수 없습니다."),

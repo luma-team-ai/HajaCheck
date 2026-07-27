@@ -59,8 +59,9 @@ public class PlanDowngradeService {
 
     /**
      * 대상 요금제로 내렸을 때 넘치게 되는 자원을 계산한다(부작용 없음). 유지 대상 선택 없이(기존 동작 —
-     * id 오름차순 자동 선정)와 동일하다. {@code MembershipService#checkout}(셀프 결제, 관리자 콘솔
-     * 확인 UX 밖) 전용 — keepUserIds 선택은 관리자 콘솔({@code AdminPlanService})에서만 의미가 있다.
+     * id 오름차순 자동 선정)와 동일하다. {@code PaymentWriter}(셀프 결제, 관리자 콘솔 확인 UX 밖) 전용 —
+     * keepUserIds 선택은 관리자 콘솔({@code AdminPlanService})에서만 의미가 있다. (모의 결제
+     * {@code MembershipService#checkout} 이 쓰던 자리를 #988 실결제 경로가 그대로 이어받았다.)
      */
     public DowngradeOverflow preview(Long companyId, Plan currentPlan, Plan targetPlan) {
         return preview(companyId, currentPlan, targetPlan, List.of());

@@ -27,6 +27,7 @@ import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.service.PlanDowngradeService;
+import com.hajacheck.membership.service.PlanTransitionService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -76,6 +77,7 @@ public class AdminPlanService {
     private final CompanyRepository companyRepository;
     private final MediaRepository mediaRepository;
     private final PlanDowngradeService planDowngradeService;
+    private final PlanTransitionService planTransitionService;
 
     /** 제공 요금제 카탈로그(변경 선택지) — 회사 스코프와 무관한 참조 데이터라 ADMIN 이면 조회 가능. */
     public AdminPlanCatalogResponse getPlanCatalog() {
@@ -152,6 +154,12 @@ public class AdminPlanService {
             // 동시 플랜 변경 경합 — 다른 트랜잭션이 이미 새 ACTIVE 를 만들어 부분 UQ 위반.
             throw new BusinessException(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
         }
+
+        // 당월 사용량 이월(#851) — 신규 구독 발급과 같은 트랜잭션에서. 이월하지 않으면 플랜을 바꾸는 것만으로
+        // usage_counters 행이 새로 열려 월 분석 한도가 0 으로 리셋되고, 한도 강제(#843)가 왕복 변경 한 번에
+        // 무력화된다. 결제 경로(PlanTransitionService#transitionTo)와 반드시 같은 규칙을 적용해야 한다 —
+        // 한쪽만 이월하면 "관리자 콘솔로 바꾸면 한도가 리셋된다"는 우회로가 남는다.
+        planTransitionService.carryOverUsage(current.getId(), saved.getId());
 
         // 초과 좌석 정지는 신규 구독 발급과 같은 트랜잭션에서 — 플랜만 내려가고 정지가 안 되면 한도가
         // 조용히 무력화된다. 위에서 이미 계산해 둔 overflow 를 그대로 적용할 뿐 재계산하지 않는다.
