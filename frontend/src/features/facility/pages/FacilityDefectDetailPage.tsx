@@ -61,8 +61,8 @@ export function FacilityDefectDetailPage() {
       <FacilityDefectAiExplainPanel
         defectId={defect.id}
         defectType={defect.defectType}
-        grade={defect.grade}
-        location={defect.location}
+        grade={defect.grade ?? ''}
+        location={defect.location ?? ''}
       />
 
       <FacilityDefectActivityTimeline facilityId={defectId} />
