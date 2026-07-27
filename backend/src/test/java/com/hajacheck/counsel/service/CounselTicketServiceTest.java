@@ -304,6 +304,45 @@ class CounselTicketServiceTest {
                 .findByStatusAndCounselTypeInOrderByCreatedAtAsc(any(), any(), any());
     }
 
+    // ── 고객 상담 이력(#1001 후속) ──
+
+    @Test
+    void 고객이력_담당상담원본인_현재티켓제외_최신순조회() {
+        Pageable pageable = PageRequest.of(0, 20);
+        CounselTicket current = inProgressTicket();
+        CounselTicket past = CounselTicket.request(USER_ID, CounselType.USAGE, 2, "USAGE_GUIDE", "이용 방법");
+        ReflectionTestUtils.setField(past, "id", 51L);
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(current));
+        when(ticketRepository.findByUserIdOrderByCreatedAtDesc(USER_ID, pageable))
+                .thenReturn(new PageImpl<>(List.of(current, past)));
+
+        List<CounselTicketSummaryResponse> history = service.getCustomerHistory(TICKET_ID, COUNSELOR_ID, false);
+
+        assertThat(history).extracting(CounselTicketSummaryResponse::id).containsExactly(51L);
+    }
+
+    @Test
+    void 고객이력_담당아닌상담원_403_TICKET_FORBIDDEN() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+
+        assertThatThrownBy(() -> service.getCustomerHistory(TICKET_ID, 999L, false))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.COUNSEL_TICKET_FORBIDDEN);
+    }
+
+    @Test
+    void 고객이력_PLATFORM_ADMIN은_담당아니어도조회가능() {
+        Pageable pageable = PageRequest.of(0, 20);
+        CounselTicket current = inProgressTicket();
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(current));
+        when(ticketRepository.findByUserIdOrderByCreatedAtDesc(USER_ID, pageable))
+                .thenReturn(new PageImpl<>(List.of(current)));
+
+        List<CounselTicketSummaryResponse> history = service.getCustomerHistory(TICKET_ID, 999L, true);
+
+        assertThat(history).isEmpty();
+    }
+
     @Test
     void 대기열조회_COUNSELOR_IN_PROGRESS는_담당자본인기준_스킬무관() {
         Pageable pageable = PageRequest.of(0, 20);

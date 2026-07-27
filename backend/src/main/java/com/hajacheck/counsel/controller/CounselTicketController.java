@@ -151,6 +151,17 @@ public class CounselTicketController {
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
+    @Operation(summary = "고객 상담 이력", description = "이 티켓의 담당 상담원 본인 또는 PLATFORM_ADMIN이 그 고객의 과거 상담 이력(현재 티켓 제외, 최신순 20건)을 조회한다.")
+    @GetMapping("/{id}/customer-history")
+    public ResponseEntity<ApiResponse<List<CounselTicketSummaryResponse>>> getCustomerHistory(
+            @PathVariable Long id,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        boolean platformAdmin = loginUser.getRole() == Role.PLATFORM_ADMIN;
+        List<CounselTicketSummaryResponse> history =
+                counselTicketService.getCustomerHistory(id, loginUser.getUserId(), platformAdmin);
+        return ResponseEntity.ok(ApiResponse.ok(history));
+    }
+
     @Operation(summary = "오프라인 이탈", description = "티켓 소유 사용자 본인이 상담을 이탈 처리한다(OFFLINE_LEFT).")
     @PostMapping("/{id}/leave-offline")
     public ResponseEntity<ApiResponse<CounselTicketResponse>> leaveOffline(

@@ -37,6 +37,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -59,6 +60,7 @@ public class CounselTicketService {
 
     private static final String DEST_ASSIGNED = "/queue/counsel/assigned";
     private static final String DEST_ENDED = "/queue/counsel/ended";
+    private static final int CUSTOMER_HISTORY_SIZE = 20;
     private static final DateTimeFormatter TRANSCRIPT_TS =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -227,6 +229,28 @@ public class CounselTicketService {
         messagingTemplate.convertAndSendToUser(
                 String.valueOf(ticket.getUserId()), DEST_ENDED, response);
         return response;
+    }
+
+    /**
+     * 고객 상담 이력(#1001 후속) — 이 티켓의 담당 상담원 본인 또는 PLATFORM_ADMIN만 조회 가능하다.
+     * userId만으로 임의 고객의 이력을 열람하게 하지 않고, "지금 담당 중인 티켓"이라는 정당한 접점이
+     * 있는 요청자만 허용한다(resolve()와 동일한 인가 패턴). 현재 보고 있는 티켓 자신은 제외한다
+     * (채팅창에 이미 표시되므로 이력 목록에 중복 노출할 필요가 없다).
+     */
+    public List<CounselTicketSummaryResponse> getCustomerHistory(
+            Long ticketId, Long requesterId, boolean platformAdmin) {
+        CounselTicket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND));
+        if (!platformAdmin && !requesterId.equals(ticket.getCounselorId())) {
+            throw new BusinessException(ErrorCode.COUNSEL_TICKET_FORBIDDEN);
+        }
+        Pageable pageable = PageRequest.of(0, CUSTOMER_HISTORY_SIZE);
+        Page<CounselTicket> history = ticketRepository.findByUserIdOrderByCreatedAtDesc(ticket.getUserId(), pageable);
+        Map<Long, String> names = resolveCounselorNames(history.getContent());
+        return history.getContent().stream()
+                .filter(other -> !other.getId().equals(ticketId))
+                .map(other -> CounselTicketSummaryResponse.from(other, nameOf(names, other)))
+                .toList();
     }
 
     /** 오프라인 이탈 — 티켓 소유 사용자 본인만 허용. WAITING/IN_PROGRESS 티켓을 OFFLINE_LEFT 로 전이한다. */
