@@ -344,6 +344,47 @@ class CounselTicketServiceTest {
     }
 
     @Test
+    void 고객이력대화_다른상담원이담당했던티켓도_현재담당티켓기준허용() {
+        Long otherCounselorId = 11L;
+        CounselTicket anchor = inProgressTicket();
+        CounselTicket past = CounselTicket.request(USER_ID, CounselType.USAGE, 2, "USAGE_GUIDE", "이용 방법");
+        ReflectionTestUtils.setField(past, "id", 51L);
+        ReflectionTestUtils.setField(past, "counselorId", otherCounselorId);
+        ReflectionTestUtils.setField(past, "sessionId", 800L);
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(anchor));
+        when(ticketRepository.findById(51L)).thenReturn(Optional.of(past));
+        ChatMessage msg = ChatMessage.create(800L, ChatSenderType.COUNSELOR, "예전 상담 내용", null, null, null);
+        when(chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(800L)).thenReturn(List.of(msg));
+
+        List<ChatMessageResponse> messages =
+                service.getCustomerHistoryMessages(TICKET_ID, 51L, COUNSELOR_ID, false);
+
+        assertThat(messages).extracting(ChatMessageResponse::content).containsExactly("예전 상담 내용");
+    }
+
+    @Test
+    void 고객이력대화_다른고객의티켓ID_404_TICKET_NOT_FOUND() {
+        CounselTicket anchor = inProgressTicket();
+        CounselTicket unrelated = CounselTicket.request(999L, CounselType.USAGE, 1, "USAGE_GUIDE", "이용 방법");
+        ReflectionTestUtils.setField(unrelated, "id", 52L);
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(anchor));
+        when(ticketRepository.findById(52L)).thenReturn(Optional.of(unrelated));
+
+        assertThatThrownBy(() -> service.getCustomerHistoryMessages(TICKET_ID, 52L, COUNSELOR_ID, false))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.COUNSEL_TICKET_NOT_FOUND);
+    }
+
+    @Test
+    void 고객이력대화_앵커티켓담당아닌상담원_403_TICKET_FORBIDDEN() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+
+        assertThatThrownBy(() -> service.getCustomerHistoryMessages(TICKET_ID, 51L, 999L, false))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.COUNSEL_TICKET_FORBIDDEN);
+    }
+
+    @Test
     void 대기열조회_COUNSELOR_IN_PROGRESS는_담당자본인기준_스킬무관() {
         Pageable pageable = PageRequest.of(0, 20);
         CounselTicket ticket = inProgressTicket();

@@ -162,6 +162,18 @@ public class CounselTicketController {
         return ResponseEntity.ok(ApiResponse.ok(history));
     }
 
+    @Operation(summary = "고객 이력 티켓 대화 조회", description = "customer-history 목록에 나온 과거 티켓의 대화 내용을 조회한다. 담당 상담원이 요청자와 달라도 ticketId(현재 담당 중)와 같은 고객이면 허용.")
+    @GetMapping("/{id}/customer-history/{historyId}/messages")
+    public ResponseEntity<ApiResponse<List<ChatMessageResponse>>> getCustomerHistoryMessages(
+            @PathVariable Long id,
+            @PathVariable Long historyId,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        boolean platformAdmin = loginUser.getRole() == Role.PLATFORM_ADMIN;
+        List<ChatMessageResponse> messages =
+                counselTicketService.getCustomerHistoryMessages(id, historyId, loginUser.getUserId(), platformAdmin);
+        return ResponseEntity.ok(ApiResponse.ok(messages));
+    }
+
     @Operation(summary = "오프라인 이탈", description = "티켓 소유 사용자 본인이 상담을 이탈 처리한다(OFFLINE_LEFT).")
     @PostMapping("/{id}/leave-offline")
     public ResponseEntity<ApiResponse<CounselTicketResponse>> leaveOffline(

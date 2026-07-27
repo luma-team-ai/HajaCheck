@@ -253,6 +253,31 @@ public class CounselTicketService {
                 .toList();
     }
 
+    /**
+     * 고객 이력 티켓의 대화 조회(#1001 후속) — getCustomerHistory와 동일한 인가 규칙을 대화 내용에도
+     * 적용한다. historyTicketId 는 그 자체 담당자가 요청자와 다를 수 있어(과거에 다른 상담원이
+     * 처리) loadParticipantTicket(본인만 허용)을 그대로 쓰면 403이 난다 — 대신 "지금 담당 중인
+     * ticketId 티켓과 같은 고객(userId)의 티켓인가"로 접근을 허용한다.
+     */
+    public List<ChatMessageResponse> getCustomerHistoryMessages(
+            Long ticketId, Long historyTicketId, Long requesterId, boolean platformAdmin) {
+        CounselTicket anchor = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND));
+        if (!platformAdmin && !requesterId.equals(anchor.getCounselorId())) {
+            throw new BusinessException(ErrorCode.COUNSEL_TICKET_FORBIDDEN);
+        }
+        CounselTicket history = ticketRepository.findById(historyTicketId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND));
+        if (!Objects.equals(history.getUserId(), anchor.getUserId())) {
+            // 다른 고객 티켓 ID를 끼워 넣는 시도 — 존재 자체를 숨기는 통일 응답.
+            throw new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND);
+        }
+        String counselorName = resolveCounselorName(history.getCounselorId());
+        return loadMessages(history).stream()
+                .map(message -> ChatMessageResponse.from(message, history.getId(), counselorName))
+                .toList();
+    }
+
     /** 오프라인 이탈 — 티켓 소유 사용자 본인만 허용. WAITING/IN_PROGRESS 티켓을 OFFLINE_LEFT 로 전이한다. */
     @Transactional
     public CounselTicketResponse leaveOffline(Long ticketId, Long requesterId) {
