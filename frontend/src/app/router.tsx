@@ -653,18 +653,6 @@ export const router = createBrowserRouter([
         },
       }, // — features/report 보고서 생성 진입점 (#876, HAJA-451)
       {
-        path: '/inspections/:id/reports/generate',
-        element: (
-          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <ReportGeneratePage />
-          </Suspense>
-        ),
-        handle: {
-          breadcrumb: [{ label: '홈' }, { label: '점검 관리' }, { label: '보고서 생성' }],
-          activeHref: '/inspections/1/reports/generate',
-        },
-      }, // — features/report 보고서 생성 (이슈 #621, HAJA-343)
-      {
         path: '/reports',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>

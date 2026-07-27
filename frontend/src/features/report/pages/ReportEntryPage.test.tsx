@@ -125,7 +125,6 @@ function renderPage(initialPath = '/inspections/1/reports') {
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
           <Route path="/inspections/:id/reports" element={<ReportEntryPage />} />
-          <Route path="/inspections/:id/reports/generate" element={<div>편집화면</div>} />
           <Route path="/reports/:reportId" element={<div>편집화면</div>} />
         </Routes>
       </MemoryRouter>
@@ -148,7 +147,6 @@ function renderPageWithLocationProbe(initialPath = '/inspections/1/reports') {
         <LocationProbe />
         <Routes>
           <Route path="/inspections/:id/reports" element={<ReportEntryPage />} />
-          <Route path="/inspections/:id/reports/generate" element={<div>편집화면</div>} />
           <Route path="/reports/:reportId" element={<div>편집화면</div>} />
         </Routes>
       </MemoryRouter>
@@ -177,7 +175,6 @@ function renderPageWithInPlaceNavigation(initialPath: string, nextPath: string) 
         <NavigateTrigger to={nextPath} />
         <Routes>
           <Route path="/inspections/:id/reports" element={<ReportEntryPage />} />
-          <Route path="/inspections/:id/reports/generate" element={<div>편집화면</div>} />
           <Route path="/reports/:reportId" element={<div>편집화면</div>} />
         </Routes>
       </MemoryRouter>
