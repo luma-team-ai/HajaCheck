@@ -1098,4 +1098,38 @@ describe('ResultViewerPage (통합 테스트)', () => {
     // AI 분석 패널도 새로 추가한 하자(신뢰도 100%)를 표시해야 한다 — mockDefects[0]의 값이 아니라.
     expect(screen.getByText('100%')).not.toBeNull();
   });
+
+  it('detail 이미지 로드 실패 시 thumbnail로 폴백한다(#796)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const img = screen.getByAltText('점검 이미지') as HTMLImageElement;
+
+    // detailUrl이 우선 로드된다(useInspectionResultReal에서 detailUrl ?? thumbnailUrl)
+    expect(img.src).toContain('/api/media/67/detail');
+
+    // detail 로드가 실패(503 등)하면 onError 핸들러가 thumbnailUrl로 교체한다
+    fireEvent.error(img);
+    await waitFor(() => {
+      const updated = screen.getByAltText('점검 이미지') as HTMLImageElement;
+      expect(updated.src).toContain('/api/media/67/thumbnail');
+    });
+  });
+
+  it('다음 이미지로 이동하면 img가 새 media의 detailUrl로 갱신된다(#978 P1 회귀)', async () => {
+    // DefectOverlay는 media prop만 바뀌고(key 없음) 리마운트되지 않으므로,
+    // imgSrc가 media 변경에 재동기화되지 않으면 img가 이전 이미지에 고정된 채 남는다.
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const img = screen.getByAltText('점검 이미지') as HTMLImageElement;
+    expect(img.src).toContain('/api/media/67/detail');
+
+    fireEvent.click(screen.getByRole('button', { name: /다음 이미지/ }));
+
+    await waitFor(() => {
+      const updated = screen.getByAltText('점검 이미지') as HTMLImageElement;
+      expect(updated.src).toContain('/api/media/68/detail');
+    });
+  });
 });

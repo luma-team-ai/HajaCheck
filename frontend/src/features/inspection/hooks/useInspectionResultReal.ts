@@ -103,9 +103,11 @@ export function useInspectionResultReal(inspectionId: number) {
 
   // 모든 데이터 준비 완료
   // media를 detailUrl(고해상도) 또는 thumbnailUrl(폴백)로 변환 (#804)
+  // DefectOverlay의 img 태그에서 detail 로드 실패 시 thumbnail로 폴백 가능하도록 둘 다 전달(#796)
   const transformedMedia: InspectionMedia[] = (mediaData || []).map((m) => ({
     id: m.id,
     imageUrl: m.detailUrl ?? m.thumbnailUrl ?? '',
+    thumbnailUrl: m.thumbnailUrl,
   }));
 
   const data: InspectionResult | null =
