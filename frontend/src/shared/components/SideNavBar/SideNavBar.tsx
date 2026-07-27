@@ -257,8 +257,8 @@ export function SideNavBar({
             }
             if (sub.id === 'report-entry') {
               // 실제 보고서 생성 진입점 라우트는 /inspections/:id/reports(#884, ReportEntryPage) —
-              // 그 화면에서 보고서를 만들면 /reports/generate(편집 화면)로 넘어가는 구조라 여기서는
-              // .../reports/generate가 아니라 .../reports로 보내야 한다.
+              // 그 화면에서 보고서를 만들면 /reports/{reportId}(편집 화면)로 넘어가는 구조라 여기서는
+              // /reports/{reportId}가 아니라 /inspections/{inspectionId}/reports로 보내야 한다.
               return {
                 ...sub,
                 href: activeInspectionId

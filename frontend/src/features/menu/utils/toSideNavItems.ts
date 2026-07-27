@@ -16,9 +16,22 @@ const DYNAMIC_SUB_ITEM_ID_BY_CODE: Record<string, string> = {
   INSPECTIONS_AI_ANALYSIS: 'ai-analysis',
   INSPECTIONS_RESULT_VIEWER: 'result-viewer',
   INSPECTIONS_REPORT_ENTRANCE: 'report-entry',
+  INSPECTIONS_REPORT_ENTRY: 'report-entry',
   REPORTS_EDITOR: 'report-edit',
+  REPORTS_EDIT: 'report-edit',
   REPORTS_EXPORT_PDF: 'report-export',
+  REPORTS_EXPORT: 'report-export',
 };
+
+const LOCALLY_IMPLEMENTED_MENU_CODES = new Set([
+  'INSPECTIONS_REPORT_ENTRANCE',
+  'INSPECTIONS_REPORT_ENTRY',
+  'REPORTS_LIST',
+  'REPORTS_EDITOR',
+  'REPORTS_EDIT',
+  'REPORTS_EXPORT_PDF',
+  'REPORTS_EXPORT',
+]);
 
 // 관리자 페이지(DEFAULT_ADMIN_ITEM)는 최상위 트리와 분리된 별도 prop(SideNavBar의 adminItem)으로
 // 전달돼야 isAdmin일 때만 노출되는 기존 동작이 재현된다. code가 아니라 표시 라벨로 식별하는 이유:
@@ -43,7 +56,7 @@ function toSubItem(menu: MenuTreeItem): SideNavSubItem {
     href: menu.path ?? '#',
     id: DYNAMIC_SUB_ITEM_ID_BY_CODE[menu.code],
     matchHref: menu.activePathPattern ?? undefined,
-    enabled: menu.enabled,
+    enabled: LOCALLY_IMPLEMENTED_MENU_CODES.has(menu.code) ? true : menu.enabled,
   };
 }
 

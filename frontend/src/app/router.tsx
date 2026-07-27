@@ -653,18 +653,6 @@ export const router = createBrowserRouter([
         },
       }, // — features/report 보고서 생성 진입점 (#876, HAJA-451)
       {
-        path: '/inspections/:id/reports/generate',
-        element: (
-          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <ReportGeneratePage />
-          </Suspense>
-        ),
-        handle: {
-          breadcrumb: [{ label: '홈' }, { label: '점검 관리' }, { label: '보고서 생성' }],
-          activeHref: '/inspections/1/reports/generate',
-        },
-      }, // — features/report 보고서 생성 (이슈 #621, HAJA-343)
-      {
         path: '/reports',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
@@ -676,6 +664,18 @@ export const router = createBrowserRouter([
           activeHref: '/reports',
         },
       }, // — features/report 보고서 목록/이력 관리 (#463)
+      {
+        path: '/reports/:reportId',
+        element: (
+          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+            <ReportGeneratePage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '보고서' }, { label: '보고서 편집·미리보기' }],
+          activeHref: '/reports',
+        },
+      }, // — features/report 보고서 상세·PDF 내보내기 (#1087)
       {
         path: '/facilities/:id',
         element: (

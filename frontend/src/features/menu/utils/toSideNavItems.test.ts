@@ -93,7 +93,7 @@ describe('toSideNavItems', () => {
     expect(items[0].subItems?.[0].id).toBeUndefined();
   });
 
-  it('REPORTS_EDITOR/REPORTS_EXPORT_PDF(실제 DB 코드)도 로컬 id로 매핑된다', () => {
+  it('REPORTS_EDITOR/REPORTS_EXPORT_PDF 및 구 목 코드도 로컬 id로 매핑된다', () => {
     const tree: MenuTreeItem[] = [
       group({
         code: 'REPORTS',
@@ -101,6 +101,8 @@ describe('toSideNavItems', () => {
         children: [
           leaf({ code: 'REPORTS_EDITOR', name: '보고서 편집·미리보기', path: '/reports' }),
           leaf({ code: 'REPORTS_EXPORT_PDF', name: 'PDF 내보내기', path: '/reports' }),
+          leaf({ code: 'REPORTS_EDIT', name: '보고서 편집·미리보기', path: '/reports' }),
+          leaf({ code: 'REPORTS_EXPORT', name: 'PDF 내보내기', path: '/reports' }),
         ],
       }),
     ];
@@ -109,6 +111,8 @@ describe('toSideNavItems', () => {
 
     expect(items[0].subItems?.[0].id).toBe('report-edit');
     expect(items[0].subItems?.[1].id).toBe('report-export');
+    expect(items[0].subItems?.[2].id).toBe('report-edit');
+    expect(items[0].subItems?.[3].id).toBe('report-export');
   });
 
   it('INSPECTIONS_REPORT_ENTRANCE도 로컬 id(report-entry)로 매핑된다 — 실재하지 않는 시드 path(/inspections/report-entrance)에 갇히지 않고 activeInspectionId 기반 동적 href로 대체되도록 한다(#1088)', () => {
@@ -131,13 +135,33 @@ describe('toSideNavItems', () => {
     expect(items[0].subItems?.[0].id).toBe('report-entry');
   });
 
+  it('INSPECTIONS_REPORT_ENTRY 구 목 코드도 로컬 id(report-entry)로 매핑된다', () => {
+    const tree: MenuTreeItem[] = [
+      group({
+        code: 'INSPECTIONS',
+        name: '점검 관리',
+        children: [
+          leaf({
+            code: 'INSPECTIONS_REPORT_ENTRY',
+            name: '보고서 생성 진입점',
+            path: '/inspections/create',
+          }),
+        ],
+      }),
+    ];
+
+    const { items } = toSideNavItems(tree);
+
+    expect(items[0].subItems?.[0].id).toBe('report-entry');
+  });
+
   it('menu.enabled가 false면 SideNavItem/SideNavSubItem에도 그대로 전달된다', () => {
     const tree: MenuTreeItem[] = [
       leaf({ code: 'STATISTICS', name: '통계', enabled: false }),
       group({
-        code: 'REPORTS',
-        name: '보고서',
-        children: [leaf({ code: 'REPORTS_LIST', name: '보고서 목록', enabled: false })],
+        code: 'SUPPORT',
+        name: '고객지원',
+        children: [leaf({ code: 'SUPPORT_HISTORY', name: '내 상담 이력', path: '/support/history', enabled: false })],
       }),
     ];
 
@@ -145,6 +169,37 @@ describe('toSideNavItems', () => {
 
     expect(items[0].enabled).toBe(false);
     expect(items[1].subItems?.[0].enabled).toBe(false);
+  });
+
+  it('이미 구현된 보고서 메뉴는 DB seed의 stale enabled=false에 막히지 않도록 활성화한다', () => {
+    const tree: MenuTreeItem[] = [
+      group({
+        code: 'INSPECTIONS',
+        name: '점검 관리',
+        children: [
+          leaf({
+            code: 'INSPECTIONS_REPORT_ENTRANCE',
+            name: '점검 요약 및 보고서 생성',
+            path: '/inspections/report-entrance',
+            enabled: false,
+          }),
+        ],
+      }),
+      group({
+        code: 'REPORTS',
+        name: '보고서',
+        children: [
+          leaf({ code: 'REPORTS_LIST', name: '보고서 목록', path: '/reports', enabled: false }),
+          leaf({ code: 'REPORTS_EXPORT_PDF', name: 'PDF 내보내기', path: '/reports', enabled: false }),
+        ],
+      }),
+    ];
+
+    const { items } = toSideNavItems(tree);
+
+    expect(items[0].subItems?.[0].enabled).toBe(true);
+    expect(items[1].subItems?.[0].enabled).toBe(true);
+    expect(items[1].subItems?.[1].enabled).toBe(true);
   });
 
   it('GROUP은 하위메뉴가 없으면 트리에서 제외돼 있다는 전제(백엔드 보장) 하에 children이 비어있는 GROUP도 안전하게 변환한다', () => {

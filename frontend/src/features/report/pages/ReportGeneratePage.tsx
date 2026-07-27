@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
@@ -23,17 +24,17 @@ function extractErrorMessage(err: unknown, fallback: string): string {
 }
 
 export function ReportGeneratePage() {
-  const { id } = useParams<{ id: string }>();
+  const { reportId: routeReportId } = useParams<{ reportId?: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const inspectionId = Number(id);
-  const reportIdParam = searchParams.get('reportId');
+  const reportIdParam = routeReportId;
+  const parsedReportId = Number(reportIdParam);
+  const hasValidReportId = Number.isInteger(parsedReportId) && parsedReportId > 0;
+  const isExportMode = searchParams.get('mode') === 'export';
 
   const [report, setReport] = useState<ReportDetailResponse | null>(null);
   const [content, setContent] = useState<ReportContent | null>(null);
   const [savedContent, setSavedContent] = useState<ReportContent | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -41,77 +42,29 @@ export function ReportGeneratePage() {
   const [recheckError, setRecheckError] = useState<string | null>(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const inspectionId = report?.inspectionId ?? 0;
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
 
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    return () => {
-      abortControllerRef.current?.abort();
-    };
-  }, []);
-
-  const applyReport = (data: ReportDetailResponse) => {
+  const applyReport = useCallback((data: ReportDetailResponse) => {
     setReport(data);
     if (isReportContent(data.content)) {
       setContent(data.content);
       setSavedContent(data.content);
     }
-  };
+  }, []);
+
+  const reportQuery = useQuery({
+    queryKey: ['report', parsedReportId],
+    queryFn: ({ signal }) => reportApi.getReport(parsedReportId, signal).then((response) => response.data),
+    enabled: hasValidReportId,
+    retry: false,
+  });
 
   useEffect(() => {
-    if (!reportIdParam) return;
-    const reportId = Number(reportIdParam);
-    if (!Number.isInteger(reportId) || reportId <= 0) return;
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    setIsLoading(true);
-    setError(null);
-
-    reportApi
-      .getReport(reportId, controller.signal)
-      .then((response) => {
-        if (!controller.signal.aborted) {
-          applyReport(response.data);
-        }
-      })
-      .catch((err) => {
-        if (!controller.signal.aborted) {
-          setError(extractErrorMessage(err, '보고서를 불러오는데 실패했습니다.'));
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
-        }
-      });
-  }, [reportIdParam]);
-
-  const handleGenerateReport = async () => {
-    if (isLoading) return;
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await reportApi.generateReportDraft(inspectionId, controller.signal);
-      if (!controller.signal.aborted) {
-        applyReport(response.data);
-      }
-    } catch (err) {
-      if (!controller.signal.aborted) {
-        setError(extractErrorMessage(err, '보고서 생성에 실패했습니다.'));
-      }
-    } finally {
-      if (!controller.signal.aborted) {
-        setIsLoading(false);
-      }
-    }
-  };
+    if (reportQuery.data) applyReport(reportQuery.data);
+  }, [applyReport, reportQuery.data]);
 
   const dirty = content !== null && savedContent !== null && JSON.stringify(content) !== JSON.stringify(savedContent);
   const isFinalized = report?.status === 'FINALIZED';
@@ -150,7 +103,7 @@ export function ReportGeneratePage() {
     setFinalizeError(null);
     try {
       const pdfBlob = await exportReportToPdf(content);
-      const fileName = buildReportPdfFileName(inspectionId);
+      const fileName = buildReportPdfFileName(report.inspectionId);
       const uploadResponse = await reportApi.uploadPdf(report.id, pdfBlob, fileName);
       const finalizeResponse = await reportApi.finalizeReport(report.id, uploadResponse.data.pdfUrl);
       applyReport(finalizeResponse.data);
@@ -161,24 +114,51 @@ export function ReportGeneratePage() {
     }
   };
 
+  const handleDownloadStoredPdf = async () => {
+    if (!report?.pdfUrl || isDownloadingPdf) return;
+    setIsDownloadingPdf(true);
+    setFinalizeError(null);
+    try {
+      const response = await fetch(report.pdfUrl, { credentials: 'include' });
+      if (!response.ok) throw new Error(`PDF ${response.status}`);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = buildReportPdfFileName(report.inspectionId);
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setFinalizeError(extractErrorMessage(err, 'PDF 다운로드에 실패했습니다.'));
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
   const handleBackToViewer = () => {
+    if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
+      navigate('/reports');
+      return;
+    }
     navigate(`/inspections/${inspectionId}/viewer`);
   };
 
-  if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
+  if (!hasValidReportId) {
     return (
-      <div className="p-5 text-red-600">잘못된 접근입니다. 유효한 검사 ID를 확인하세요.</div>
+      <div className="p-5 text-red-600">잘못된 접근입니다. 유효한 보고서 ID를 확인하세요.</div>
     );
   }
 
-  if (isLoading || isInspectionLoading) {
-    return <AILoadingIndicator message="보고서를 생성 중입니다..." />;
+  if (reportQuery.isLoading || (report && inspectionId > 0 && isInspectionLoading)) {
+    return <AILoadingIndicator message="보고서를 불러오는 중입니다..." />;
   }
 
-  if (error) {
+  if (reportQuery.isError) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-6">
-        <AIErrorFallback onRetry={handleGenerateReport} />
+        <AIErrorFallback onRetry={() => void reportQuery.refetch()} />
         <Button onClick={handleBackToViewer} variant="secondary">
           분석 화면으로 돌아가기
         </Button>
@@ -189,10 +169,7 @@ export function ReportGeneratePage() {
   if (!report) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-6">
-        <p className="text-text-muted">점검 결과를 바탕으로 보고서 초안을 생성합니다.</p>
-        <Button onClick={handleGenerateReport} variant="primary" size="lg" disabled={isLoading}>
-          보고서 초안 생성
-        </Button>
+        <p className="text-text-muted">보고서를 찾을 수 없습니다.</p>
         <Button onClick={handleBackToViewer} variant="secondary">
           분석 화면으로 돌아가기
         </Button>
@@ -214,6 +191,52 @@ export function ReportGeneratePage() {
       : 0;
 
   const canFinalize = report.groundingCheckPassed === true && !dirty && !isFinalized;
+
+  if (isExportMode) {
+    return (
+      <div className="flex min-h-full flex-col bg-neutral-50">
+        <div className="flex items-center justify-between border-b border-zinc-200 bg-white/70 px-6 py-2 backdrop-blur-[10px]">
+          <div className="flex items-center gap-2 text-base font-medium text-neutral-600">
+            <span>자동 저장됨 · 방금 전</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <Link
+              to={`/reports/${report.id}`}
+              className="rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-base font-medium text-zinc-900 no-underline"
+            >
+              편집·미리보기
+            </Link>
+            <Button
+              onClick={() => void handleDownloadStoredPdf()}
+              variant="primary"
+              disabled={isDownloadingPdf || !report.pdfUrl}
+            >
+              {isDownloadingPdf ? 'PDF 다운로드 중...' : 'PDF 다운로드'}
+            </Button>
+          </div>
+        </div>
+        <div className="flex flex-1 overflow-hidden bg-zinc-100 p-6">
+          {report.pdfUrl ? (
+            <iframe
+              title="저장된 보고서 PDF"
+              src={report.pdfUrl}
+              className="h-[calc(100vh-96px)] w-full rounded-lg border border-zinc-200 bg-white"
+            />
+          ) : (
+            <div className="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-white p-8 text-center">
+              <div className="flex max-w-md flex-col gap-3">
+                <p className="text-lg font-semibold text-text-default">저장된 PDF가 없습니다.</p>
+                <p className="text-sm text-text-muted">
+                  편집 화면에서 grounding 검증을 통과한 뒤 PDF 생성 및 확정을 먼저 완료하세요.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+        {finalizeError && <p className="m-0 bg-white px-6 py-2 text-sm text-red-600">{finalizeError}</p>}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col gap-6 py-6 pl-6 pr-28">
@@ -320,9 +343,9 @@ export function ReportGeneratePage() {
           {report.pdfUrl && (
             <>
               {' '}
-              <a href={report.pdfUrl} className="underline" target="_blank" rel="noreferrer">
+              <Link to={`/reports/${report.id}?mode=export`} className="underline">
                 PDF 보기
-              </a>
+              </Link>
             </>
           )}
         </div>

@@ -7,8 +7,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ReportDetailResponse } from '../api/reportApi';
 import type { InspectionResponse, DefectDetailItem, MediaResponse } from '../../inspection/api/inspectionApi.types';
-import type { ReportContent } from '../types';
+import { isReportContent, type ReportContent } from '../types';
+import { mockReportDetailResponse } from '../mocks/reportDetail.mock';
 import { ReportGeneratePage } from './ReportGeneratePage';
+import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
 
 vi.mock('../utils/exportReportToPdf', () => ({
   exportReportToPdf: vi.fn().mockResolvedValue(new Blob(['fake-pdf'])),
@@ -77,20 +79,16 @@ const mockContent: ReportContent = {
 };
 
 const mockReport: ReportDetailResponse = {
-  id: 1,
-  inspectionId: 1,
-  version: 1,
+  ...mockReportDetailResponse,
   content: mockContent,
-  status: 'DRAFT',
   groundingCheckPassed: null,
-  pdfUrl: null,
-  editedBy: null,
-  createdBy: 1,
-  createdAt: '2026-07-22T10:00:00Z',
 };
 
 let generateReportCallCount = 0;
 let reportState: ReportDetailResponse = mockReport;
+let uploadedPdfFileName: string | null = null;
+let uploadedPdfSize: number | null = null;
+let finalizePdfUrl: string | null = null;
 
 const server = setupServer(
   http.get('/api/inspections/1', () => HttpResponse.json({ success: true, data: mockInspection })),
@@ -128,11 +126,22 @@ const server = setupServer(
     reportState = { ...reportState, groundingCheckPassed: true };
     return HttpResponse.json({ success: true, data: reportState });
   }),
-  http.post('/api/reports/1/pdf', () =>
-    HttpResponse.json({ success: true, data: { pdfUrl: '/api/reports/1/pdf/storage-key' } }),
-  ),
+  http.post('/api/reports/1/pdf', async ({ request }) => {
+    const formData = await request.formData();
+    const file = formData.get('file');
+    uploadedPdfFileName =
+      file && typeof file === 'object' && 'name' in file && typeof file.name === 'string'
+        ? file.name
+        : null;
+    uploadedPdfSize =
+      file && typeof file === 'object' && 'size' in file && typeof file.size === 'number'
+        ? file.size
+        : null;
+    return HttpResponse.json({ success: true, data: { pdfUrl: '/api/reports/1/pdf/storage-key' } });
+  }),
   http.post('/api/reports/1/finalize', async ({ request }) => {
     const body = (await request.json()) as { pdfUrl: string };
+    finalizePdfUrl = body.pdfUrl;
     reportState = { ...reportState, status: 'FINALIZED', pdfUrl: body.pdfUrl };
     return HttpResponse.json({ success: true, data: reportState });
   }),
@@ -142,6 +151,11 @@ beforeAll(() => server.listen());
 beforeEach(() => {
   generateReportCallCount = 0;
   reportState = mockReport;
+  uploadedPdfFileName = null;
+  uploadedPdfSize = null;
+  finalizePdfUrl = null;
+  vi.mocked(exportReportToPdf).mockClear();
+  vi.mocked(buildReportPdfFileName).mockClear();
 });
 afterEach(() => {
   server.resetHandlers();
@@ -154,55 +168,32 @@ describe('ReportGeneratePage', () => {
     const queryClient = new QueryClient();
     return render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/inspections/1/reports/generate']}>
+        <MemoryRouter initialEntries={['/reports/1']}>
           <Routes>
-            <Route path="/inspections/:id/reports/generate" element={<ReportGeneratePage />} />
+            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
     );
   };
 
-  it('마운트 시점에는 초안 생성 API를 호출하지 않는다', async () => {
+  it('마운트 시점에 reportId로 기존 보고서 상세를 불러온다', async () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText('보고서 초안 생성')).toBeTruthy();
+      expect(screen.getByText('보고서 생성 결과')).toBeTruthy();
     });
 
     expect(generateReportCallCount).toBe(0);
   });
 
-  it('버튼 클릭 시 초안을 생성하고, 재마운트해도 다시 클릭하기 전에는 재호출하지 않는다', async () => {
-    const { unmount } = renderPage();
-
-    await waitFor(() => screen.getByText('보고서 초안 생성'));
-    fireEvent.click(screen.getByRole('button', { name: '보고서 초안 생성' }));
-
-    await waitFor(
-      () => {
-        expect(screen.getByText('보고서 생성 결과')).toBeTruthy();
-      },
-      { timeout: 3000 },
-    );
-    expect(generateReportCallCount).toBe(1);
-
-    unmount();
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText('보고서 초안 생성')).toBeTruthy();
-    });
-    expect(generateReportCallCount).toBe(1);
-  });
-
-  it('should handle invalid inspection ID gracefully', () => {
+  it('should handle invalid report ID gracefully', () => {
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/inspections/invalid/reports/generate']}>
+        <MemoryRouter initialEntries={['/reports/invalid']}>
           <Routes>
-            <Route path="/inspections/:id/reports/generate" element={<ReportGeneratePage />} />
+            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
@@ -214,7 +205,6 @@ describe('ReportGeneratePage', () => {
   it('편집 → 저장 → 확정 검증 → PDF 생성 후 확정 순으로 진행하면 최종 FINALIZED로 전환된다', async () => {
     renderPage();
 
-    fireEvent.click(await screen.findByRole('button', { name: '보고서 초안 생성' }));
     await screen.findByText('보고서 생성 결과');
 
     const saveButton = screen.getByRole('button', { name: '저장' }) as HTMLButtonElement;
@@ -243,14 +233,108 @@ describe('ReportGeneratePage', () => {
       expect(screen.getByText('이 보고서는 확정되어 더 이상 편집할 수 없습니다.')).toBeTruthy();
     });
 
+    expect(exportReportToPdf).toHaveBeenCalledWith(expect.objectContaining({
+      overview: expect.objectContaining({ purpose: '수정된 목적' }),
+    }));
+    expect(buildReportPdfFileName).toHaveBeenCalledWith(1);
+    expect(uploadedPdfFileName).toBeTruthy();
+    expect(uploadedPdfSize).toBeGreaterThan(0);
+    expect(finalizePdfUrl).toBe('/api/reports/1/pdf/storage-key');
+    expect(screen.getByRole('link', { name: 'PDF 보기' }).getAttribute('href')).toBe('/reports/1?mode=export');
     expect((screen.getByLabelText('점검 목적') as HTMLTextAreaElement).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: '저장' })).toBeNull();
+  });
+
+  it('기존 reportId 상세 content로 진입해 바로 PDF 생성 후 확정할 수 있다', async () => {
+    if (!isReportContent(mockReportDetailResponse.content)) {
+      throw new Error('report detail fixture content must match ReportContent');
+    }
+    const realContractContent = mockReportDetailResponse.content;
+
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+    };
+
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/reports/1']}>
+          <Routes>
+            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByDisplayValue(realContractContent.overview.purpose);
+
+    const finalizeButton = screen.getByRole('button', { name: 'PDF 생성 후 확정' }) as HTMLButtonElement;
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('이 보고서는 확정되어 더 이상 편집할 수 없습니다.')).toBeTruthy();
+    });
+    expect(exportReportToPdf).toHaveBeenCalledWith(realContractContent);
+    expect(buildReportPdfFileName).toHaveBeenCalledWith(1);
+    expect(uploadedPdfFileName).toBeTruthy();
+    expect(uploadedPdfSize).toBeGreaterThan(0);
+    expect(finalizePdfUrl).toBe('/api/reports/1/pdf/storage-key');
+  });
+
+  it('/reports/:reportId?mode=export에서 저장된 실제 PDF를 iframe으로 렌더한다', async () => {
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+      status: 'FINALIZED',
+      pdfUrl: '/api/reports/1/pdf/storage-key',
+    };
+
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/reports/1?mode=export']}>
+          <Routes>
+            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const pdfFrame = await screen.findByTitle('저장된 보고서 PDF');
+    expect(pdfFrame.getAttribute('src')).toBe('/api/reports/1/pdf/storage-key');
+    expect(screen.getByRole('link', { name: '편집·미리보기' }).getAttribute('href')).toBe('/reports/1');
+    expect(screen.queryByLabelText('점검 목적')).toBeNull();
+  });
+
+  it('/reports/:reportId?mode=export에서 pdfUrl이 없으면 코드 미리보기 대신 저장된 PDF 없음 상태를 보여준다', async () => {
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+      status: 'FINALIZED',
+      pdfUrl: null,
+    };
+
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/reports/1?mode=export']}>
+          <Routes>
+            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('저장된 PDF가 없습니다.')).toBeTruthy();
+    expect(screen.queryByTitle('저장된 보고서 PDF')).toBeNull();
+    expect(screen.queryByLabelText('점검 목적')).toBeNull();
   });
 
   it('content가 편집되지 않은 상태에서는 확정 검증 버튼이 항상 비활성화되지 않는다', async () => {
     renderPage();
 
-    fireEvent.click(await screen.findByRole('button', { name: '보고서 초안 생성' }));
     await screen.findByText('보고서 생성 결과');
 
     const recheckButton = screen.getByRole('button', { name: '확정 검증' }) as HTMLButtonElement;
@@ -272,7 +356,6 @@ describe('ReportGeneratePage', () => {
 
     renderPage();
 
-    fireEvent.click(await screen.findByRole('button', { name: '보고서 초안 생성' }));
     await screen.findByText('보고서 생성 결과');
 
     const purposeInput = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
@@ -286,7 +369,7 @@ describe('ReportGeneratePage', () => {
     expect(screen.queryByText('저장에 실패했습니다.')).toBeNull();
   });
 
-  it('URL 쿼리에 reportId가 존재하면 마운트 시 getReport를 호출하여 기존 보고서를 로드한다', async () => {
+  it('/reports/:reportId 경로의 reportId로 getReport를 호출하여 기존 보고서를 로드한다', async () => {
     let getReportCalled = false;
     server.use(
       http.get('/api/reports/99', () => {
@@ -298,9 +381,9 @@ describe('ReportGeneratePage', () => {
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/inspections/1/reports/generate?reportId=99']}>
+        <MemoryRouter initialEntries={['/reports/99']}>
           <Routes>
-            <Route path="/inspections/:id/reports/generate" element={<ReportGeneratePage />} />
+            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,

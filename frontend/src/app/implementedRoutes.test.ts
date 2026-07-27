@@ -15,6 +15,9 @@ describe('isRouteImplemented', () => {
     '/mypage/profile',
     '/mypage/inspections',
     '/reports',
+    '/reports/42',
+    '/reports/42?mode=export',
+    '/reports/42#document',
     '/facilities/list',
     '/admin/plans-quota',
   ])(
@@ -52,6 +55,7 @@ describe('isRouteImplemented', () => {
       '/inspections/42/reports/generate', // 진입점이 아닌 편집 화면 — 화이트리스트 대상 아님
       '/inspections/abc/analysis', // 숫자가 아닌 id는 매치하지 않는다(#227 재발 방지)
       '/inspections/42/unknown',
+      '/reports/abc',
     ])('%s는 false를 반환한다', (href) => {
       expect(isRouteImplemented(href)).toBe(false);
     });

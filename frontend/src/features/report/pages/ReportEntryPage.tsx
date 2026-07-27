@@ -53,6 +53,16 @@ const DEFECT_TYPES: { type: DefectType; label: string }[] = [
   { type: '도장 손상', label: '도장 손상' },
 ];
 
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message) {
+    return err.message;
+  }
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return fallback;
+}
+
 // Figma node 180:4977 원본 아이콘 에셋을 그대로 인라인 SVG로 재현(#925 — 아이콘 12곳 누락 수정).
 // path 데이터는 Figma MCP get_design_context가 반환한 원본 그대로.
 type IconSpec = { viewBox: string; path: string };
@@ -250,17 +260,16 @@ export function ReportEntryPage() {
     try {
       const response = await reportApi.generateReportDraft(inspectionId);
       // 생성 완료 후 편집 화면으로 이동
-      navigate(`/inspections/${inspectionId}/reports/generate?reportId=${response.data.id}`);
+      navigate(`/reports/${response.data.id}`);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : '보고서 생성에 실패했습니다.';
-      alert(msg);
+      alert(extractErrorMessage(error, '보고서 생성에 실패했습니다.'));
       setIsGenerating(false);
     }
   }, [inspectionId, data, isGenerating, navigate]);
 
   const handleEditReport = useCallback(
     (reportId: number) => {
-      navigate(`/inspections/${inspectionId}/reports/generate?reportId=${reportId}`);
+      navigate(`/reports/${reportId}`);
     },
     [inspectionId, navigate],
   );

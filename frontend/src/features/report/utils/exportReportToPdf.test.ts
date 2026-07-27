@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReportContent } from '../types';
+import { mockReportDetailResponse } from '../mocks/reportDetail.mock';
 import { buildReportPdfFileName, exportReportToPdf } from './exportReportToPdf';
 
 const mockOutput = vi.fn().mockReturnValue(new Blob(['fake-pdf-bytes']));
@@ -81,6 +82,15 @@ describe('exportReportToPdf', () => {
 
     expect(mockAddFont).toHaveBeenCalledWith('Pretendard-Regular.ttf', 'Pretendard', 'normal');
     expect(mockText).toHaveBeenCalled();
+    expect(mockOutput).toHaveBeenCalledWith('blob');
+    expect(blob).toBeInstanceOf(Blob);
+  });
+
+  it('실백엔드 상세 응답 fixture의 content로 PDF Blob을 생성한다', async () => {
+    const blob = await exportReportToPdf(mockReportDetailResponse.content as ReportContent);
+
+    expect(mockText).toHaveBeenCalledWith('점검 보고서', 14, 20);
+    expect(mockText).toHaveBeenCalledWith(expect.arrayContaining([expect.stringContaining('시설물 개요')]), 14, expect.any(Number));
     expect(mockOutput).toHaveBeenCalledWith('blob');
     expect(blob).toBeInstanceOf(Blob);
   });
