@@ -20,6 +20,8 @@ import com.hajacheck.counsel.entity.CounselTicketStatus;
 import com.hajacheck.counsel.entity.CounselType;
 import com.hajacheck.counsel.repository.ChatMessageRepository;
 import com.hajacheck.counsel.repository.CounselTicketRepository;
+import com.hajacheck.notification.entity.NotificationType;
+import com.hajacheck.notification.service.NotificationService;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,12 +54,15 @@ class CounselChatServiceTest {
     private UserRepository userRepository;
     @Mock
     private SimpMessagingTemplate messagingTemplate;
+    @Mock
+    private NotificationService notificationService;
 
     private CounselChatService service;
 
     @BeforeEach
     void setUp() {
-        service = new CounselChatService(ticketRepository, chatMessageRepository, userRepository, messagingTemplate);
+        service = new CounselChatService(
+                ticketRepository, chatMessageRepository, userRepository, messagingTemplate, notificationService);
         User counselor = User.builder()
                 .email("counselor@haja.com").name("상담원").role(Role.COUNSELOR)
                 .passwordHash("$2a$10$hashed").companyId(null).status(UserStatus.ACTIVE).build();
@@ -89,6 +94,41 @@ class CounselChatServiceTest {
         ArgumentCaptor<ChatMessage> captor = ArgumentCaptor.forClass(ChatMessage.class);
         verify(chatMessageRepository).save(captor.capture());
         assertThat(captor.getValue().getSender()).isEqualTo(ChatSenderType.COUNSELOR);
+    }
+
+    @Test
+    void 발신_상담원답변시_티켓사용자에게_COUNSEL_REPLIED_알림발행() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.sendMessage(TICKET_ID, COUNSELOR_ID, "무엇을 도와드릴까요", null);
+
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(notificationService).notify(eq(USER_ID), eq(NotificationType.COUNSEL_REPLIED), payloadCaptor.capture());
+        assertThat(payloadCaptor.getValue()).contains("\"ticketId\":" + TICKET_ID);
+    }
+
+    @Test
+    void 발신_사용자발신시_알림미발행() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.sendMessage(TICKET_ID, USER_ID, "안녕하세요", null);
+
+        verify(notificationService, never()).notify(any(), any(), anyString());
+    }
+
+    @Test
+    void 발신_알림발행실패해도_메시지저장및브로드캐스트는_정상수행() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(inv -> inv.getArgument(0));
+        org.mockito.Mockito.doThrow(new RuntimeException("알림 저장 실패"))
+                .when(notificationService).notify(any(), any(), anyString());
+
+        service.sendMessage(TICKET_ID, COUNSELOR_ID, "무엇을 도와드릴까요", null);
+
+        verify(chatMessageRepository).save(any(ChatMessage.class));
+        verify(messagingTemplate).convertAndSend(eq("/topic/counsel/" + TICKET_ID), any(ChatMessageResponse.class));
     }
 
     @Test

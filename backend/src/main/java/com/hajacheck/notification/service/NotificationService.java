@@ -10,6 +10,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -53,10 +54,17 @@ public class NotificationService {
      * 도메인/유형을 몰라도 되는 범용 진입점으로, 다른 도메인·다른 알림 유형도 그대로 호출할 수 있게 설계했다.
      * 시설물별 독립 커밋을 위해 클래스 기본값 대신 이 메서드에만 쓰기 트랜잭션을 건다(markAsRead 와 동일 패턴).
      *
+     * <p>⚠️ 호출부가 자체 {@code @Transactional} 메서드(예: CounselChatService.sendMessage)일 수 있어
+     * {@code REQUIRES_NEW}로 독립 트랜잭션을 강제한다(#493 P1 픽스) — {@code REQUIRED}였다면 이 메서드의
+     * DB 예외가 호출부 트랜잭션을 rollback-only로 마킹해, try/catch로 잡아도 호출부가 커밋 시점에
+     * {@code UnexpectedRollbackException}을 던지며 이미 처리(브로드캐스트 등)된 작업까지 롤백될 위험이
+     * 있었다. 호출부에 별도 트랜잭션이 없는 경우(InspectionDueNotificationScheduler 등)는 REQUIRED와
+     * 동일하게 매번 새 트랜잭션을 시작하므로 동작 차이 없다.
+     *
      * <p>⚠️ 이 메서드는 인가/소유권 검증이 없는 <b>시스템 전용 진입점</b>이다 — 사용자 입력을 직접 이 메서드에
      * 배선하지 말 것(향후 컨트롤러 등에서 임의 userId로 호출하면 알림 위조/IDOR가 된다).
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void notify(Long userId, NotificationType type, String payloadJson) {
         notificationRepository.save(Notification.create(userId, type, payloadJson));
     }
