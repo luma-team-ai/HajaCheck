@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ErrorFallback } from '../../../shared/components/ErrorFallback';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
@@ -10,9 +10,7 @@ import { ReportRowMenu } from './ReportRowMenu';
 import { ReportStatusBadge } from './ReportStatusBadge';
 import { SelectionCheckbox } from './SelectionCheckbox';
 import { formatReportListTitle } from '../utils/reportListFormat';
-
-const AI_DRAFT_WARNING =
-  '본 보고서는 점검 데이터 기반 AI가 작성한 초안입니다. 법정 제출 및 실무 활용 전 담당 검수자의 내용 확인 및 최종 확정(Finalize) 절차가 필수입니다.';
+import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../constants';
 
 type Props = {
   reports: ReportListItem[] | undefined;
@@ -35,7 +33,8 @@ function formatUpdatedAt(iso: string): string {
 }
 
 // 보고서 목록/이력 관리(#463) 테이블 — InspectionTable(하자 목록 개편)과 동일한 체크박스+shared
-// Table 조합 패턴. 행의 "⋮" 메뉴는 한 번에 하나만 열리도록 이 컴포넌트가 openMenuId를 소유한다.
+// Table 조합 패턴. 행의 "⋮" 메뉴는 한 번에 하나만 열리도록 이 컴포넌트가
+// 앵커 좌표를 포함한 openMenu 상태를 소유한다.
 export function ReportListTable({
   reports,
   isLoading,
@@ -46,6 +45,18 @@ export function ReportListTable({
   onOpenVersionHistory,
 }: Props) {
   const [openMenu, setOpenMenu] = useState<{ id: number; anchor: { top: number; left: number } } | null>(null);
+
+  useEffect(() => {
+    if (!openMenu) return undefined;
+
+    const closeMenu = () => setOpenMenu(null);
+    window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('resize', closeMenu);
+    return () => {
+      window.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('resize', closeMenu);
+    };
+  }, [openMenu]);
 
   const rows = reports ?? [];
   const visibleIds = rows.map((row) => row.id);
@@ -99,7 +110,7 @@ export function ReportListTable({
             />
             <span
               role="img"
-              aria-label="AI 초안 주의 및 법적 고지"
+              aria-label={AI_DRAFT_WARNING_TITLE}
               title={AI_DRAFT_WARNING}
               className="inline-flex shrink-0 text-warning-soft-fg"
             >

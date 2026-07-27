@@ -7,6 +7,7 @@ import { useInspectionResult } from '../../inspection/hooks/useInspectionResult'
 import { reportApi } from '../api/reportApi';
 import type { ReportDetailResponse } from '../api/reportApi';
 import { ReportContentEditor } from '../components/ReportContentEditor';
+import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../constants';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
@@ -227,10 +228,8 @@ export function ReportGeneratePage() {
       <div className="flex items-start gap-3 rounded-2xl border border-warning-soft-border bg-warning-soft-bg p-4 text-warning-soft-fg">
         <span className="text-xl">⚠️</span>
         <div className="text-sm">
-          <p className="font-semibold">AI 초안 주의 및 법적 고지</p>
-          <p className="mt-0.5 opacity-90">
-            본 보고서는 점검 데이터 기반 AI가 작성한 초안입니다. 법정 제출 및 실무 활용 전 담당 검수자의 내용 확인 및 최종 확정(Finalize) 절차가 필수입니다.
-          </p>
+          <p className="font-semibold">{AI_DRAFT_WARNING_TITLE}</p>
+          <p className="mt-0.5 opacity-90">{AI_DRAFT_WARNING}</p>
         </div>
       </div>
 
