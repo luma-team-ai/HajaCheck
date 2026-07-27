@@ -23,6 +23,9 @@ import java.time.LocalDateTime;
  * <p>actionPhotoUrl~actionAssigneeName(HAJA-393/#725)은 "조치 결과 등록"(PATCH /api/defects/{id}/action)
  * 이전에는 전부 null이다. actionAssigneeName은 엔티티가 Long id만 보유하므로 서비스 계층에서 조회해
  * {@link #from(Defect, String)}로 채운다. 이름을 조회하지 않는 목록 등에서는 기존 {@link #from(Defect)}가 null로 남긴다.
+ *
+ * <p>foundCycle(HAJA-488/#981)은 하자를 발견한 점검 회차이며, 별도 쿼리 없이 이미 로드된
+ * {@code defect.getInspection().getRoundNo()}를 그대로 노출한다.
  */
 public record DefectResponse(
         Long id,
@@ -30,6 +33,7 @@ public record DefectResponse(
         Long facilityId,
         String facilityName,
         String facilityType,
+        Integer foundCycle,
         DefectType type,
         String typeLabel,
         DefectGrade grade,
@@ -62,6 +66,7 @@ public record DefectResponse(
                 facility.getId(),
                 facility.getName(),
                 facility.getType(),
+                defect.getInspection().getRoundNo(),
                 defect.getType(),
                 defect.getType().label(),
                 defect.getGrade(),
