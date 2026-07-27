@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.entity.User;
@@ -501,6 +502,19 @@ class DashboardServiceTest {
         dashboardService.searchRecentInspections(USER_ID, OWNER_ID, null, null, null, null, PageRequest.of(0, 500));
 
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(100);
+    }
+
+    @Test
+    void searchRecentInspections_page가매우커서offset이int범위초과시_예외없이빈콘텐츠반환() {
+        // PR머신 검수 P3 — offset(=page*size)이 Integer.MAX_VALUE를 넘으면 setFirstResult((int) offset)
+        // 캐스팅이 음수가 되어 IllegalArgumentException(500)을 유발한다. DB 조회 자체를 생략하고
+        // 빈 페이지로 방어해야 한다(레포지토리 호출조차 없어야 함).
+        PageResponse<RecentInspectionResponse> result = dashboardService.searchRecentInspections(
+                USER_ID, OWNER_ID, null, null, null, null, PageRequest.of(21474837, 100));
+
+        assertThat(result.content()).isEmpty();
+        assertThat(result.totalElements()).isZero();
+        verifyNoInteractions(inspectionRepository);
     }
 
     @Test

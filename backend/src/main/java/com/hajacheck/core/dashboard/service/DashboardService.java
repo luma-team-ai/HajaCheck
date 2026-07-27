@@ -228,6 +228,14 @@ public class DashboardService {
 
         Set<InspectionStatus> statuses = resolveStatusLabel(statusLabel);
         int cappedSize = Math.min(Math.max(pageable.getPageSize(), 1), RECENT_SEARCH_MAX_SIZE);
+
+        // PR머신 검수 P3 — size는 100으로 캡되지만 page엔 상한이 없어, offset(=page*size)이
+        // int 범위를 넘으면 setFirstResult((int) offset)이 음수로 캐스팅돼 500을 유발한다
+        // (예: ?page=21474837&size=100). DB까지 갈 필요 없이 빈 페이지로 바로 응답한다.
+        long requestedOffset = (long) pageable.getPageNumber() * cappedSize;
+        if (requestedOffset > Integer.MAX_VALUE) {
+            return new PageResponse<>(List.of(), pageable.getPageNumber(), 0);
+        }
         Pageable safePageable = PageRequest.of(pageable.getPageNumber(), cappedSize);
 
         boolean hasQuery = query != null && !query.isBlank();
