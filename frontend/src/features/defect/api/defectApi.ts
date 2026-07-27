@@ -12,6 +12,7 @@ import type {
   InspectionListItem,
 } from '../types';
 import type { NlSearchResult } from '../nlSearchTypes';
+import { normalizeDefect } from '../utils/normalizeDefect';
 
 // DefectController.getRevisions @PageableDefault(size=20)과 반드시 일치시킬 것.
 export const DEFECT_REVISIONS_PAGE_SIZE = 20;
@@ -35,14 +36,29 @@ export const defectApi = {
     aiClient.post<DefectExplain>('/defect-explain', req),
   // GET /api/defects — 내 하자 목록(유형/등급/상태 필터 + 페이지네이션), 일반 백엔드 클라이언트(api) 사용
   getList: (filters: DefectListFilters = {}) =>
-    api.get<PageResponse<Defect>>('/defects', { params: filters }),
+    api.get<PageResponse<Defect>>('/defects', { params: filters }).then((response) => ({
+      ...response,
+      data: {
+        ...response.data,
+        content: response.data.content.map(normalizeDefect),
+      },
+    })),
   // GET /api/defects/{id} — 하자 상세
-  getDetail: (id: number) => api.get<Defect>(`/defects/${id}`),
+  getDetail: (id: number) =>
+    api.get<Defect>(`/defects/${id}`).then((response) => ({
+      ...response,
+      data: normalizeDefect(response.data),
+    })),
   // PATCH /api/defects/{id}/status — 하자 상태 전이. 정방향 1단계는 reason 없이 허용되고, 역행·건너뛰기
   // 전이는 reason이 없으면 400(INVALID_INPUT)이다(조치 보드 드래그 전이, HAJA-349/#630). reason이 없을 때는
   // 아예 body에서 필드를 빼서(값 undefined를 보내지 않음) 백엔드 Bean Validation과의 불필요한 충돌을 피한다.
   updateStatus: (id: number, status: DefectStatus, reason?: string) =>
-    api.patch<Defect>(`/defects/${id}/status`, reason != null ? { status, reason } : { status }),
+    api
+      .patch<Defect>(`/defects/${id}/status`, reason != null ? { status, reason } : { status })
+      .then((response) => ({
+        ...response,
+        data: normalizeDefect(response.data),
+      })),
   // GET /api/defects/{id}/revisions — 하자 활동 기록(상태 변경 이력) 페이지 조회.
   // size는 DefectController.getRevisions의 @PageableDefault(size=20)와 일치시켜 명시 전달한다 —
   // 역행/건너뛰기 전이가 반복되면 이력 건수가 4단계로 고정되지 않아(self-review 발견) 프론트가
@@ -69,7 +85,11 @@ export const defectApi = {
   // GET /api/inspections/{id}/defects — 점검별 하자 카드 목록(카드형 상세, contract.md §②).
   // inspection feature의 inspectionApi.getDefects와 동일 엔드포인트를 defect feature 안에 자체
   // 복제해서 호출한다(feature 간 직접 import 금지, React_코드_컨벤션.md §1).
-  getByInspection: (inspectionId: number) => api.get<Defect[]>(`/inspections/${inspectionId}/defects`),
+  getByInspection: (inspectionId: number) =>
+    api.get<Defect[]>(`/inspections/${inspectionId}/defects`).then((response) => ({
+      ...response,
+      data: response.data.map(normalizeDefect),
+    })),
   // GET /api/facilities — 점검 목록 필터의 시설물 select 옵션. facility/inspection feature import
   // 없이 실 엔드포인트만 재사용(이미 다른 feature도 동일 엔드포인트를 각자 호출하는 기존 패턴과 동일).
   listFacilityOptions: () => api.get<InspectionFacilityOption[]>('/facilities'),
@@ -77,5 +97,8 @@ export const defectApi = {
   // contract.md §"조치 결과 등록" 확정, #726). 상태 전이(PATCH /status)와는 분리된 별도 엔드포인트로,
   // 백엔드가 내부에서 항상 IN_PROGRESS→RESOLVED로만 전이한다.
   submitAction: (id: number, body: DefectActionSubmitRequest) =>
-    api.patch<Defect>(`/defects/${id}/action`, body),
+    api.patch<Defect>(`/defects/${id}/action`, body).then((response) => ({
+      ...response,
+      data: normalizeDefect(response.data),
+    })),
 };
