@@ -1,11 +1,6 @@
 import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import { FOOTER_LINKS } from '../constants';
 
-const LEGAL_HREFS: Record<string, string> = {
-  이용약관: '/policy/terms-of-service',
-  개인정보처리방침: '/policy/privacy',
-};
-
 export function LandingFooter() {
   return (
     <footer className="landing-footer">
@@ -18,20 +13,20 @@ export function LandingFooter() {
             기준을 제시합니다.
           </p>
         </div>
-        <div className="landing-footer-columns">
+        <nav className="landing-footer-columns" aria-label="푸터 링크">
           {FOOTER_LINKS.map((column) => (
             <div key={column.title} className="landing-footer-column">
               <h4>{column.title}</h4>
               <ul>
                 {column.links.map((link) => (
-                  <li key={link}>
-                    <a href={LEGAL_HREFS[link] ?? '#'}>{link}</a>
+                  <li key={link.href}>
+                    <a href={link.href}>{link.label}</a>
                   </li>
                 ))}
               </ul>
             </div>
           ))}
-        </div>
+        </nav>
       </div>
       <div className="landing-footer-bottom">© 2026 HAJA. All rights reserved.</div>
     </footer>

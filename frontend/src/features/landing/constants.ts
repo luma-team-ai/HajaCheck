@@ -88,7 +88,18 @@ export const PARTNERS: Partner[] = [
 ];
 
 export const FOOTER_LINKS = [
-  { title: '제품', links: ['시설물 정보 관리', '검사(점검) 관리', 'AI 하자 분석', '요금제'] },
-  { title: '회사', links: ['소개', '블로그', '채용', '문의하기'] },
-  { title: '법적 고지', links: ['이용약관', '개인정보처리방침'] },
+  {
+    title: '제품',
+    links: NAV_ITEMS.filter((item) => item.targetId !== 'partners').map((item) => ({
+      label: item.label,
+      href: `/#${item.targetId}`,
+    })),
+  },
+  {
+    title: '법적 고지',
+    links: [
+      { label: '이용약관', href: '/policy/terms-of-service' },
+      { label: '개인정보처리방침', href: '/policy/privacy' },
+    ],
+  },
 ];
