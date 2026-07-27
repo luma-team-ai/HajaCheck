@@ -177,7 +177,7 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
           onChange={handleDraftChange}
           onSubmit={handleSend}
           disabled={!connected}
-          placeholder="메시지를 입력하세요 (상담원 연결 시 활성화됩니다)"
+          placeholder="메시지를 입력하세요"
         />
       </div>
     </div>
