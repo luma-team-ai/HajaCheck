@@ -1,10 +1,12 @@
 import {
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
   type DragEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { Button } from '../../../shared/components/Button';
 import { useDefectAssignableUsers } from '../hooks/useDefectAssignableUsers';
@@ -32,12 +34,25 @@ const PHOTO_ERROR_MESSAGE: Record<'FILE_INVALID_TYPE' | 'FILE_TOO_LARGE', string
 // ③조치 결과 등록 확정).
 export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmitted }: Props) {
   const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [actionContent, setActionContent] = useState('');
   const [actionDate, setActionDate] = useState('');
   const [assigneeId, setAssigneeId] = useState<number | ''>('');
   const [isDragActive, setIsDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 업로드 드롭존 썸네일 미리보기(#969) — BusinessLicenseUpload.tsx:84-92와 동일한 단일 파일용
+  // objectURL 생성/해제 패턴(이 컴포넌트도 파일을 항상 1개만 다룬다).
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
 
   const { data: assignableUsers, isLoading: isAssigneeLoading } = useDefectAssignableUsers();
   const { uploadActionPhoto, isPending: isUploading, error: uploadError } = useUploadDefectActionPhoto();
@@ -101,6 +116,17 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
     setIsDragActive(false);
   }
 
+  // 미리보기 제거(✕) 버튼 — 드롭존 자체의 onClick(파일선택창 재오픈)이 함께 발화하지 않도록
+  // stopPropagation, 그리고 같은 파일을 다시 선택해도 onChange가 재발화하도록 input value를 비운다.
+  function handleRemoveFile(event: ReactMouseEvent<HTMLButtonElement>) {
+    event.stopPropagation();
+    setFile(null);
+    setFileError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }
+
   // 드롭존이 role="button"이라 클릭뿐 아니라 키보드(Enter/Space)로도 활성화돼야 한다(코드리뷰 P1).
   function handleDropzoneKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
@@ -146,7 +172,7 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
       <div className="defect-action-form__field">
         <label htmlFor="defect-action-photo">조치 후 사진 업로드 *</label>
         <div
-          className={`defect-action-form__dropzone${isDragActive ? ' is-drag-active' : ''}`}
+          className={`defect-action-form__dropzone${isDragActive ? ' is-drag-active' : ''}${file ? ' has-preview' : ''}`}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -156,7 +182,24 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
           tabIndex={0}
         >
           {file ? (
-            <span>{file.name}</span>
+            <>
+              <img
+                src={previewUrl ?? undefined}
+                alt="조치 후 사진 미리보기"
+                className="defect-action-form__preview-image"
+              />
+              <div className="defect-action-form__preview-chip">
+                <span>{file.name}</span>
+                <button
+                  type="button"
+                  className="defect-action-form__preview-remove"
+                  aria-label="선택한 사진 제거"
+                  onClick={handleRemoveFile}
+                >
+                  ✕
+                </button>
+              </div>
+            </>
           ) : (
             <>
               <svg
