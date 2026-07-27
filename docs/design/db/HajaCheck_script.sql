@@ -73,6 +73,13 @@ alter type defect_grade_type owner to postgres;
 
 comment on type defect_grade_type is '결함 위험 또는 심각도 등급(A~E)';
 
+-- ⚠️ 의도적으로 pre-V22 상태(ACTION_PENDING 포함)로 동결한다 — 4라벨로 갱신하지 말 것.
+-- 이 파일은 문서가 아니라 (1) FlywayBaselineOnExistingDbIntegrationTest·
+-- DefectStatusBackfillMigrationTest 의 "마이그레이션 이전 기존 DB" initScript 이고,
+-- (2) Ha25IncrementalMigrationTest 가 v0.3+증분 체인과 카탈로그를 대조하는 파리티 기준이다.
+-- 여기를 4라벨로 바꾸면 V22 의 백필 UPDATE 가 검증할 대상 자체가 사라지고(ACTION_PENDING 행을
+-- 심을 수 없게 된다), v0.3+증분 체인에는 대응 스크립트가 없어 파리티도 깨진다.
+-- V12/V13/V16 같은 재적용 안전 마이그레이션과 달리 V22 은 파리티 체인에 편입하지 않는다.
 create type defect_status_type as enum ('DETECTED', 'CONFIRMED', 'ACTION_PENDING', 'IN_PROGRESS', 'RESOLVED');
 
 alter type defect_status_type owner to postgres;
