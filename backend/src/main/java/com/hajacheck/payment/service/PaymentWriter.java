@@ -100,34 +100,37 @@ public class PaymentWriter {
             throw new BusinessException(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
         }
 
-        requireNoUnconfirmedDowngrade(companyId, current, targetPlan);
+        Plan currentPlan = findPlan(current.getPlanId());
+        requirePayableUpgrade(currentPlan, targetPlan);
+        requireNoUnconfirmedDowngrade(companyId, currentPlan, targetPlan);
 
         long amount = toChargeableAmount(targetPlan.getPriceMonthly());
 
-        // 아직 유효한 같은 요금제 주문이 있으면 그것을 그대로 돌려준다(리뷰 P1-B 근본 원인 차단).
+        // 같은 소유 주체·같은 요금제의 기존 READY 주문을 먼저 본다(리뷰 P1-B 근본 원인 차단).
         // 새 주문을 계속 찍어내면 사용자가 결제창을 두 번 열었다가 둘 다 결제해 "2회 청구 + 구독 변화 0"이
         // 될 수 있고(환불은 이번 범위 밖이라 회수 불가), 승인되지 않은 주문도 무한히 쌓인다.
         //
-        // ⚠️ 재사용 조건 둘(리뷰 P2):
-        //  ① companyId 가 지금 소속과 같아야 한다. 다르면(개인→기업 전환 등) 그 주문은 승인 단계의 소속
-        //     검증에서 어차피 막히는데, 재사용해서 계속 돌려주면 <b>TTL 동안 새 주문을 못 만들어 결제
-        //     자체가 잠긴다</b>. 소속이 바뀌었으면 재사용하지 않고 새 주문을 만든다.
-        //  ② 잔여 유효시간이 충분해야 한다. 1초 남은 주문을 재사용하면 사용자가 카드 인증까지 마친 뒤
-        //     만료 404 를 맞는다 — 결제창에서 보낼 시간을 확보한다.
-        Optional<Payment> reusable = paymentRepository
-                .findFirstByUserIdAndPlanIdAndStatusAndRequestedAtAfterOrderByRequestedAtDesc(
-                        userId, targetPlan.getId(), PaymentStatus.READY, reusableOrderRequestedAfter())
-                .filter(existing -> Objects.equals(existing.getCompanyId(), companyId));
-        if (reusable.isPresent()) {
-            Payment existing = reusable.get();
-            log.info("유효한 기존 결제 주문 재사용 — orderId={} planName={}", existing.getOrderId(), targetPlanName);
-            // 금액은 기존 주문의 스냅샷을 그대로 쓴다 — 그 사이 요금제 가격이 바뀌었더라도 사용자가 이미
-            // 안내받은 금액으로 결제되게 하고(TTL 안에서만 유효), 승인 단계의 금액 대조와도 일치시킨다.
-            return PaymentOrderResponse.of(existing, toChargeableAmount(existing.getAmount()),
-                    buildOrderName(existing.getPlanName()));
+        // ⚠️ 조회 축이 소유 주체와 정확히 같아야 한다 — 아래 부분 유니크 인덱스와 같은 키를 쓴다.
+        //    회사 구독은 (company_id, plan_id), 개인 구독은 (user_id, plan_id) where company_id is null.
+        Optional<Payment> existingReady = findExistingReadyOrder(userId, companyId, targetPlan.getId());
+        if (existingReady.isPresent()) {
+            Payment existing = existingReady.get();
+            if (isReusable(existing, userId)) {
+                log.info("유효한 기존 결제 주문 재사용 — orderId={} planName={}",
+                        existing.getOrderId(), targetPlanName);
+                // 금액은 기존 주문의 스냅샷을 그대로 쓴다 — 그 사이 요금제 가격이 바뀌었더라도 사용자가 이미
+                // 안내받은 금액으로 결제되게 하고(TTL 안에서만 유효), 승인 단계의 금액 대조와도 일치시킨다.
+                return PaymentOrderResponse.of(existing, toChargeableAmount(existing.getAmount()),
+                        buildOrderName(existing.getPlanName()));
+            }
+            // 재사용할 수 없는 잔재(만료·만료 임박·소유자 교체)는 <b>반드시 닫고</b> 진행한다. 그대로 두면
+            // 아래 부분 유니크 인덱스에 걸려 새 주문을 영영 만들지 못한다(결제 경로 잠김).
+            existing.markExpired();
+            paymentRepository.saveAndFlush(existing);
+            log.info("재사용 불가 결제 주문 정리 후 신규 발급 — orderId={}", existing.getOrderId());
         }
 
-        Payment payment = paymentRepository.save(Payment.createOrder(
+        Payment payment = paymentRepository.saveAndFlush(Payment.createOrder(
                 ORDER_ID_PREFIX + UUID.randomUUID(),
                 userId,
                 companyId,
@@ -138,6 +141,54 @@ public class PaymentWriter {
         log.info("결제 주문 생성 — orderId={} planName={} companyId={}",
                 payment.getOrderId(), targetPlanName, companyId);
         return PaymentOrderResponse.of(payment, amount, buildOrderName(targetPlanName));
+    }
+
+    /**
+     * 소유 주체 기준으로 기존 READY 주문을 찾는다 — <b>부분 유니크 인덱스와 동일한 키</b>를 쓴다.
+     * 축이 어긋나면 "조회로는 안 보이는데 INSERT 는 제약에 걸리는" 조합이 생긴다.
+     */
+    private Optional<Payment> findExistingReadyOrder(Long userId, Long companyId, Long planId) {
+        return companyId != null
+                ? paymentRepository.findFirstByCompanyIdAndPlanIdAndStatus(
+                        companyId, planId, PaymentStatus.READY)
+                : paymentRepository.findFirstByUserIdAndPlanIdAndStatusAndCompanyIdIsNull(
+                        userId, planId, PaymentStatus.READY);
+    }
+
+    /**
+     * 기존 READY 주문을 그대로 돌려줘도 되는가.
+     *
+     * <ul>
+     *   <li><b>요청자 소유여야 한다</b>: 회사 축 조회는 owner 교체 후 전 owner 의 주문을 집어올 수 있다.</li>
+     *   <li><b>잔여 유효시간이 충분해야 한다</b>(리뷰 P3): 1초 남은 주문을 재사용하면 사용자가 카드 인증까지
+     *       마친 뒤 만료 404 를 맞는다 — 결제창에서 승인까지 보낼 시간을 남긴다.</li>
+     * </ul>
+     */
+    private boolean isReusable(Payment existing, Long userId) {
+        return existing.isOwnedBy(userId)
+                && existing.getRequestedAt().isAfter(reusableOrderRequestedAfter());
+    }
+
+    /**
+     * 결제 경로는 <b>상향 전용</b>이다(리뷰 P2) — {@code AdminPlanService#requireNotUpgrade} 의 정확한 대칭.
+     *
+     * <p>관리자 콘솔이 "현재가 &gt;= 대상가"(하향·동일가)만 허용하므로, 결제 경로는 "현재가 &lt; 대상가"만
+     * 허용해야 두 경로가 빈틈도 겹침도 없이 상보적이 된다. 이 가드가 없으면 <b>관리자 콘솔에서 무료인
+     * 전환을 결제 경로에서는 과금</b>하게 된다 — 초과가 없는 하향(ENTERPRISE→STANDARD)이나 개인 구독
+     * 하향(companyId=null 이라 하향 초과 확인이 즉시 통과)이 아무 가드에도 걸리지 않고 청구까지 갔다.
+     *
+     * <p>판정 기준이 티어 이름이 아니라 {@code price_monthly} 인 이유도 관리자 콘솔과 같다 — 가격은
+     * 플랫폼 관리자가 바꿀 수 있어(#624) 이름 순서와 어긋날 수 있고, "돈을 더 내야 하는 변경인가"가
+     * 결제 대상 여부를 가르는 유일한 기준이다. null 가격은 0원으로 본다.
+     */
+    private void requirePayableUpgrade(Plan currentPlan, Plan targetPlan) {
+        if (priceOrZero(currentPlan).compareTo(priceOrZero(targetPlan)) >= 0) {
+            throw new BusinessException(ErrorCode.PLAN_CHANGE_NOT_PAYABLE);
+        }
+    }
+
+    private BigDecimal priceOrZero(Plan plan) {
+        return plan.getPriceMonthly() == null ? BigDecimal.ZERO : plan.getPriceMonthly();
     }
 
     /**
@@ -351,7 +402,7 @@ public class PaymentWriter {
         }
 
         if (enforceDowngradeGate) {
-            requireNoUnconfirmedDowngrade(companyId, current, targetPlan);
+            requireNoUnconfirmedDowngrade(companyId, findPlan(current.getPlanId()), targetPlan);
         }
         return new TransitionTarget(current, targetPlan, false);
     }
@@ -372,15 +423,18 @@ public class PaymentWriter {
      * 한도를 넘게 되면 거절하고 관리자 콘솔의 미리보기 경로로 유도한다. 좌석뿐 아니라 시설물 초과도 함께
      * 본다(시설물 읽기전용은 상태 컬럼이 아니라 계산 판정이라, 플랜 행이 바뀌는 순간 즉시 뒤집힌다).
      */
-    private void requireNoUnconfirmedDowngrade(Long companyId, UserPlan current, Plan targetPlan) {
+    private void requireNoUnconfirmedDowngrade(Long companyId, Plan currentPlan, Plan targetPlan) {
         if (companyId == null) {
             return; // 개인 구독은 좌석·회사 시설물 개념이 없다.
         }
-        Plan currentPlan = planRepository.findById(current.getPlanId())
-                .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
         if (planDowngradeService.preview(companyId, currentPlan, targetPlan).exists()) {
             throw new BusinessException(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED);
         }
+    }
+
+    private Plan findPlan(Long planId) {
+        return planRepository.findById(planId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
     }
 
     private void requireGatewayConfigured() {

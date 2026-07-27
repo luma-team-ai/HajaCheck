@@ -35,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -185,6 +186,74 @@ class PaymentOrderClosingCommitIntegrationTest extends PostgresTestSupport {
         // 상한만큼만 호출됐고 그 뒤로는 늘지 않는다.
         verify(tossPaymentsClient, org.mockito.Mockito.times(properties.getMaxConfirmAttempts()))
                 .confirm(anyString(), anyString(), anyLong());
+    }
+
+    @Test
+    void 같은_소유주체_같은요금제의_READY주문은_DB제약으로_하나만_남는다() {
+        // ⚠️ 리뷰 P2 — 재사용(dedup)이 "조회 후 없으면 INSERT"라 비원자적이다. 동시 createOrder 두 건이
+        // 서로를 못 보고 READY 2건을 만들면 이후 confirm 두 건이 각각 PG 를 호출해 같은 업그레이드에
+        // 이중 청구가 난다(환불은 범위 밖이라 회수 불가). 부분 유니크 인덱스가 그 경합을 DB 에서 직렬화한다.
+        PaymentOrderResponse first = paymentService.createOrder(
+                user.getId(), new PaymentOrderRequest(PlanName.ENTERPRISE));
+
+        // 애플리케이션 재사용 로직을 우회해 "동시 경합에서 진 쪽"이 하는 INSERT 를 직접 재현한다.
+        Long planId = planRepository.findByName(PlanName.ENTERPRISE).orElseThrow().getId();
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "insert into payments (order_id, user_id, plan_id, plan_name, amount, status) "
+                        + "values (?, ?, ?, 'ENTERPRISE'::plan_name_type, 59000.00, 'READY'::payment_status_type)",
+                "haja-duplicate-" + System.nanoTime(), user.getId(), planId))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        Integer readyCount = jdbcTemplate.queryForObject(
+                "select count(*) from payments where user_id = ? and status = 'READY'::payment_status_type",
+                Integer.class, user.getId());
+        assertThat(readyCount).isEqualTo(1);
+        assertThat(first.orderId()).isNotBlank();
+    }
+
+    @Test
+    void 순차로_두번_주문해도_같은_주문이_돌아와_청구는_한번뿐이다() {
+        // 재사용 분기가 정상 동작하면 주문 행도 1건, 따라서 PG 청구 기회도 1회뿐이다.
+        PaymentOrderResponse first = paymentService.createOrder(
+                user.getId(), new PaymentOrderRequest(PlanName.ENTERPRISE));
+        PaymentOrderResponse second = paymentService.createOrder(
+                user.getId(), new PaymentOrderRequest(PlanName.ENTERPRISE));
+
+        assertThat(second.orderId()).isEqualTo(first.orderId());
+        Integer orderCount = jdbcTemplate.queryForObject(
+                "select count(*) from payments where user_id = ?", Integer.class, user.getId());
+        assertThat(orderCount).isEqualTo(1);
+
+        // 승인까지 진행해도 청구는 그 1건뿐이다.
+        when(tossPaymentsClient.confirm(anyString(), anyString(), anyLong()))
+                .thenReturn(new TossPaymentApproval("test_payment_key_once",
+                        com.hajacheck.payment.entity.PaymentMethod.CARD, "https://receipt", Instant.now()));
+        paymentService.confirm(user.getId(),
+                new PaymentConfirmRequest("test_payment_key", first.orderId(), first.amount()));
+
+        verify(tossPaymentsClient, org.mockito.Mockito.times(1))
+                .confirm(anyString(), anyString(), anyLong());
+        assertThat(paymentRepository.findByOrderId(first.orderId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.PAID);
+    }
+
+    @Test
+    void 하향_주문은_결제경로에서_거절된다() {
+        // 리뷰 P2 — 관리자 콘솔에서 무료인 전환(ENTERPRISE→STANDARD)에 과금하지 않는다.
+        // 현재 구독을 ENTERPRISE 로 올려둔 뒤 STANDARD 주문을 시도한다.
+        Long enterprisePlanId = planRepository.findByName(PlanName.ENTERPRISE).orElseThrow().getId();
+        jdbcTemplate.update("update user_plans set plan_id = ? where id = ?",
+                enterprisePlanId, userPlan.getId());
+
+        assertThatThrownBy(() -> paymentService.createOrder(
+                user.getId(), new PaymentOrderRequest(PlanName.STANDARD)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_CHANGE_NOT_PAYABLE));
+
+        Integer orderCount = jdbcTemplate.queryForObject(
+                "select count(*) from payments where user_id = ?", Integer.class, user.getId());
+        assertThat(orderCount).isEqualTo(0);
     }
 
     /** 주문 생성 시각을 TTL 밖으로 밀어 만료 상황을 만든다(엔티티에 setter 를 두지 않으므로 DB 직접 갱신). */

@@ -633,6 +633,18 @@ comment on index idx_payments_user is '사용자별 결제 이력 조회를 위�
 
 comment on index idx_payments_company is '회사별 결제 이력 조회를 위한 인덱스';
 
+create unique index uq_payments_ready_company
+    on payments (company_id, plan_id)
+    where (status = 'READY'::payment_status_type and company_id is not null);
+
+create unique index uq_payments_ready_user
+    on payments (user_id, plan_id)
+    where (status = 'READY'::payment_status_type and company_id is null);
+
+comment on index uq_payments_ready_company is '동일 회사·동일 요금제로 승인 대기(READY) 주문이 둘 이상 만들어지는 것을 방지한다. 애플리케이션의 재사용(dedup) 로직은 "조회 후 없으면 생성"이라 비원자적이라, 동시 주문 생성 두 건이 서로를 못 보고 각각 결제되면 같은 업그레이드에 이중 청구가 난다 — 그 경합을 DB 레벨에서 직렬화한다.';
+
+comment on index uq_payments_ready_user is '동일 개인·동일 요금제로 승인 대기(READY) 주문이 둘 이상 만들어지는 것을 방지한다(개인 구독 축). 소유 주체가 user_id/company_id 양자택일이라 회사 축 인덱스와 조건이 서로 배타적이며, 개인 시절 주문과 기업 소속 이후 주문은 서로 다른 인덱스에 속해 충돌하지 않는다.';
+
 create table facilities
 (
     id                      bigint generated always as identity

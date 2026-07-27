@@ -105,7 +105,7 @@ class PaymentWriterTest {
         when(planRepository.findById(ENTERPRISE_PLAN_ID)).thenReturn(Optional.of(enterprisePlan));
         when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class)))
                 .thenReturn(DowngradeOverflow.none());
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(i -> i.getArgument(0));
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(i -> i.getArgument(0));
     }
 
     // ── 주문 사전 등록 ──
@@ -132,7 +132,7 @@ class PaymentWriterTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.INVALID_INPUT));
-        verify(paymentRepository, never()).save(any());
+        verify(paymentRepository, never()).saveAndFlush(any(Payment.class));
     }
 
     @Test
@@ -147,7 +147,7 @@ class PaymentWriterTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_FORBIDDEN));
-        verify(paymentRepository, never()).save(any());
+        verify(paymentRepository, never()).saveAndFlush(any(Payment.class));
     }
 
     @Test
@@ -161,23 +161,31 @@ class PaymentWriterTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT));
-        verify(paymentRepository, never()).save(any());
+        verify(paymentRepository, never()).saveAndFlush(any(Payment.class));
     }
 
     @Test
-    void 하향으로_한도초과가_생기면_주문단계에서_확인을_요구한다() {
+    void 상향이라도_특정한도가_좁아져_초과가_생기면_확인을_요구한다() {
         // #890 이관 — 확인 UX 없는 셀프 결제에서 조용히 동료를 정지시키지 않는다. 돈이 움직이기 전에 막는다.
-        UserPlan current = withId(UserPlan.forCompany(COMPANY_ID, ENTERPRISE_PLAN_ID), 501L);
+        //
+        // ⚠️ 가격이 내려가는 전환은 이제 그 앞의 상향 전용 가드(PLAN_CHANGE_NOT_PAYABLE)가 먼저 막으므로,
+        // 이 게이트가 실제로 발화하는 건 "가격은 오르는데 특정 자원 한도는 좁아지는" 요금제 구성이다
+        // (플랫폼 관리자가 정책값을 바꿀 수 있어 실제로 가능하다 — #624).
+        Plan pricierButFewerSeats = plan(PlanName.ENTERPRISE, ENTERPRISE_PLAN_ID,
+                new BigDecimal("299000.00"), 1); // STANDARD(3석)보다 비싸지만 좌석은 좁다
+        UserPlan current = withId(UserPlan.forCompany(COMPANY_ID, STANDARD_PLAN_ID), 501L);
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
         when(planTransitionService.resolveCurrentUserPlan(USER_ID, COMPANY_ID)).thenReturn(current);
+        when(planRepository.findByName(PlanName.ENTERPRISE)).thenReturn(Optional.of(pricierButFewerSeats));
+        when(planRepository.findById(STANDARD_PLAN_ID)).thenReturn(Optional.of(standardPlan));
         when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class)))
                 .thenReturn(new DowngradeOverflow(List.of(7L), 3));
 
-        assertThatThrownBy(() -> writer.createOrder(USER_ID, PlanName.STANDARD))
+        assertThatThrownBy(() -> writer.createOrder(USER_ID, PlanName.ENTERPRISE))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED));
-        verify(paymentRepository, never()).save(any());
+        verify(paymentRepository, never()).saveAndFlush(any(Payment.class));
     }
 
     @Test
@@ -375,21 +383,84 @@ class PaymentWriterTest {
     }
 
     @Test
-    void 소속이_바뀐_기존주문은_재사용하지않고_새로_만든다() {
-        // ⚠️ 리뷰 P2 — 재사용 키에 companyId 가 빠지면 개인 시절 주문이 계속 반환되고, 그 주문은 승인
-        // 단계 소속 검증에서 막혀 TTL 동안 결제가 통째로 잠긴다.
+    void 소속이_바뀌면_개인시절_주문을_보지않고_회사축으로_새로_만든다() {
+        // ⚠️ 리뷰 P2 — 재사용 축이 (userId, planId) 뿐이면 개인 시절 주문이 계속 반환되고, 그 주문은 승인
+        // 단계 소속 검증에서 막혀 TTL 동안 결제가 통째로 잠긴다. 이제 회사 구독은 회사 축으로만 조회하며
+        // (DB 부분 유니크 인덱스와 동일 키), 개인 시절 주문은 다른 인덱스에 속해 충돌하지도 않는다.
         UserPlan current = withId(UserPlan.forCompany(COMPANY_ID, STANDARD_PLAN_ID), 501L);
-        Payment staleIndividualOrder = readyPayment(null); // companyId = null (개인 시절 주문)
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
         when(planTransitionService.resolveCurrentUserPlan(USER_ID, COMPANY_ID)).thenReturn(current);
-        when(paymentRepository.findFirstByUserIdAndPlanIdAndStatusAndRequestedAtAfterOrderByRequestedAtDesc(
-                eq(USER_ID), eq(ENTERPRISE_PLAN_ID), eq(PaymentStatus.READY), any(Instant.class)))
-                .thenReturn(Optional.of(staleIndividualOrder));
+        when(paymentRepository.findFirstByCompanyIdAndPlanIdAndStatus(
+                COMPANY_ID, ENTERPRISE_PLAN_ID, PaymentStatus.READY))
+                .thenReturn(Optional.empty());
+
+        writer.createOrder(USER_ID, PlanName.ENTERPRISE);
+
+        // 개인 축 조회는 아예 하지 않는다(축이 섞이면 인덱스와 어긋나 결제 경로가 잠긴다).
+        verify(paymentRepository, never()).findFirstByUserIdAndPlanIdAndStatusAndCompanyIdIsNull(
+                any(), any(), any());
+        verify(paymentRepository).saveAndFlush(any(Payment.class));
+    }
+
+    @Test
+    void 재사용할수없는_잔재주문은_닫고_새로_만든다() {
+        // 만료된 READY 행을 그대로 두면 부분 유니크 인덱스에 걸려 새 주문을 영영 만들지 못한다.
+        UserPlan current = withId(UserPlan.forUser(USER_ID, STANDARD_PLAN_ID), 500L);
+        Payment stale = readyPayment(null);
+        setRequestedAt(stale, Instant.now().minus(Duration.ofHours(2)));
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(current);
+        when(paymentRepository.findFirstByUserIdAndPlanIdAndStatusAndCompanyIdIsNull(
+                USER_ID, ENTERPRISE_PLAN_ID, PaymentStatus.READY))
+                .thenReturn(Optional.of(stale));
 
         PaymentOrderResponse response = writer.createOrder(USER_ID, PlanName.ENTERPRISE);
 
-        assertThat(response.orderId()).isNotEqualTo(staleIndividualOrder.getOrderId());
-        verify(paymentRepository).save(any(Payment.class));
+        assertThat(stale.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+        assertThat(response.orderId()).isNotEqualTo(stale.getOrderId());
+    }
+
+    // ── 결제 경로는 상향 전용(리뷰 P2) ──
+
+    @Test
+    void 초과가없는_하향은_주문자체를_거절한다() {
+        // ⚠️ 관리자 콘솔에선 무료인 전환(ENTERPRISE→STANDARD)이 결제 경로에선 한 달치 청구가 됐다.
+        // 하향 초과 확인(#890)은 "초과가 없으면" 통과하므로 이 케이스를 전혀 막지 못했다.
+        UserPlan current = withId(UserPlan.forCompany(COMPANY_ID, ENTERPRISE_PLAN_ID), 501L);
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, COMPANY_ID)).thenReturn(current);
+        when(planRepository.findById(ENTERPRISE_PLAN_ID)).thenReturn(Optional.of(enterprisePlan));
+
+        assertThatThrownBy(() -> writer.createOrder(USER_ID, PlanName.STANDARD))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_CHANGE_NOT_PAYABLE));
+        verify(paymentRepository, never()).saveAndFlush(any(Payment.class));
+    }
+
+    @Test
+    void 개인구독_하향도_주문을_거절한다() {
+        // companyId 가 null 이라 하향 초과 확인이 즉시 통과하던 사각(리뷰 P2).
+        UserPlan current = withId(UserPlan.forUser(USER_ID, ENTERPRISE_PLAN_ID), 500L);
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(current);
+        when(planRepository.findById(ENTERPRISE_PLAN_ID)).thenReturn(Optional.of(enterprisePlan));
+
+        assertThatThrownBy(() -> writer.createOrder(USER_ID, PlanName.STANDARD))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_CHANGE_NOT_PAYABLE));
+        verify(paymentRepository, never()).saveAndFlush(any(Payment.class));
+    }
+
+    @Test
+    void 상향은_그대로_주문이_생성된다() {
+        // 대칭 확인 — 관리자 콘솔이 막는 방향(상향)만 결제 경로가 받는다.
+        UserPlan current = withId(UserPlan.forUser(USER_ID, STANDARD_PLAN_ID), 500L);
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(current);
+
+        PaymentOrderResponse response = writer.createOrder(USER_ID, PlanName.ENTERPRISE);
+
+        assertThat(response.planName()).isEqualTo("ENTERPRISE");
+        assertThat(response.amount()).isEqualTo(299000L);
     }
 
     @Test
@@ -398,15 +469,15 @@ class PaymentWriterTest {
         UserPlan current = withId(UserPlan.forUser(USER_ID, STANDARD_PLAN_ID), 500L);
         Payment existing = readyPayment(null);
         when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(current);
-        when(paymentRepository.findFirstByUserIdAndPlanIdAndStatusAndRequestedAtAfterOrderByRequestedAtDesc(
-                eq(USER_ID), eq(ENTERPRISE_PLAN_ID), eq(PaymentStatus.READY), any(Instant.class)))
+        when(paymentRepository.findFirstByUserIdAndPlanIdAndStatusAndCompanyIdIsNull(
+                USER_ID, ENTERPRISE_PLAN_ID, PaymentStatus.READY))
                 .thenReturn(Optional.of(existing));
 
         PaymentOrderResponse response = writer.createOrder(USER_ID, PlanName.ENTERPRISE);
 
         assertThat(response.orderId()).isEqualTo(existing.getOrderId());
         assertThat(response.amount()).isEqualTo(299000L);
-        verify(paymentRepository, never()).save(any());
+        verify(paymentRepository, never()).saveAndFlush(any(Payment.class));
     }
 
     // ── 승인 후 반영 ──

@@ -3,7 +3,6 @@ package com.hajacheck.payment.repository;
 import com.hajacheck.payment.entity.Payment;
 import com.hajacheck.payment.entity.PaymentStatus;
 import jakarta.persistence.LockModeType;
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
@@ -30,25 +29,27 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     List<Payment> findByUserIdOrderByRequestedAtDescIdDesc(Long userId, Pageable pageable);
 
     /**
-     * 재사용 가능한 READY 주문 조회(리뷰 P1-B) — 같은 사용자가 같은 요금제로 결제창을 여러 번 열어도
-     * 주문이 계속 쌓이지 않게, 아직 유효한 기존 주문을 그대로 돌려준다.
+     * 같은 <b>소유 주체·요금제</b>의 기존 READY 주문 조회(회사 구독 축) — 중복 주문 방지(리뷰 P1-B/P2).
      *
-     * <p>이 재사용이 없으면 READY 주문 2건을 만든 뒤 순차로 결제해 <b>2회 청구 + 구독 변화 0</b>을 만들 수
-     * 있다(환불이 범위 밖이라 회수 수단이 없다). 승인 단계의 동일 플랜 차단
-     * ({@code PaymentWriter#prepareConfirm})과 <b>짝을 이루는 근본 원인 차단</b>이다.
+     * <p>⚠️ 조회 축이 DB 부분 유니크 인덱스({@code uq_payments_ready_company})와 <b>정확히 같아야 한다</b>.
+     * 어긋나면 "조회로는 안 보이는데 INSERT 는 제약에 걸리는" 조합이 생겨 결제 경로가 잠긴다.
      *
-     * <p>⚠️ <b>{@code companyId} 일치는 호출부가 추가로 확인한다</b>(리뷰 P2 정정). 이 쿼리는 (userId,
-     * planId)까지만 좁히므로, 개인으로 만든 주문이 기업 소속 전환 뒤에도 후보로 잡힌다. 그 주문은 승인
-     * 단계의 소속 검증에서 어차피 막히는데 — 예전 주석은 "그러니 안전하다"고 썼지만 사실은 정반대다 —
-     * 재사용으로 계속 같은 주문이 반환되면 <b>TTL 동안 새 주문을 만들 수 없어 결제 경로가 통째로
-     * 잠긴다</b>. 그래서 {@code PaymentWriter} 가 후보를 받은 뒤 현재 소속과 대조해 다르면 버리고 새
-     * 주문을 만든다.
-     *
-     * @param requestedAfter 재사용 가능한 최소 생성 시각 — 만료 임박분을 걸러내기 위해 TTL 시작점보다
-     *                       보수적인 값을 넘긴다({@code PaymentWriter#reusableOrderRequestedAfter})
+     * <p>회사 구독 주문은 생성 인가가 회사 owner 한정이라 {@code user_id} 는 항상 그 owner 다. 다만 owner
+     * 가 교체되면 전 owner 의 주문이 잡힐 수 있어, 호출부가 요청자 소유 여부를 한 번 더 확인한다.
      */
-    Optional<Payment> findFirstByUserIdAndPlanIdAndStatusAndRequestedAtAfterOrderByRequestedAtDesc(
-            Long userId, Long planId, PaymentStatus status, Instant requestedAfter);
+    Optional<Payment> findFirstByCompanyIdAndPlanIdAndStatus(
+            Long companyId, Long planId, PaymentStatus status);
+
+    /**
+     * 같은 소유 주체·요금제의 기존 READY 주문 조회(개인 구독 축) — {@code company_id is null} 까지 조건에
+     * 넣어 DB 부분 유니크 인덱스({@code uq_payments_ready_user})와 축을 일치시킨다.
+     *
+     * <p>개인 시절 주문과 기업 소속 이후 주문은 <b>서로 다른 인덱스</b>에 속하므로 충돌하지 않는다 —
+     * 이전 구현처럼 (userId, planId) 만으로 묶으면 소속 전환 뒤 낡은 주문이 계속 잡혀 TTL 동안 결제가 잠겼다.
+     */
+    Optional<Payment> findFirstByUserIdAndPlanIdAndStatusAndCompanyIdIsNull(
+            Long userId, Long planId, PaymentStatus status);
+
 
     /**
      * 결제 행을 <b>배타 잠금</b>으로 읽는다(호출 트랜잭션 커밋까지 유지). 승인 반영·실패 반영·플랜 전이 등
