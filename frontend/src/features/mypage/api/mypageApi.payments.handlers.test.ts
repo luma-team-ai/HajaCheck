@@ -7,12 +7,18 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import type { MyPlan, PaymentHistoryItem, PlanOrder } from '../types';
-import { mypageHandlers } from './mypageApi.handlers';
+import { MYPAGE_PAYMENT_DEV_TRIGGER, mypageHandlers, resetMypagePaymentMockStore } from './mypageApi.handlers';
 
 const server = setupServer(...mypageHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  // 모듈 스코프 상태(mockMyPlanState 등)는 resetHandlers()로 초기화되지 않는다 — 특히 아래 "이미
+  // 그 플랜" 충돌 검사가 현재 mockMyPlanState에 의존해, 리셋하지 않으면 이전 it()이 바꾼 플랜이
+  // 이후 테스트의 "정상 승인" 기대와 실행 순서에 따라 충돌한다(mypageApi.handlers.ts 참고).
+  resetMypagePaymentMockStore();
+});
 afterAll(() => server.close());
 
 async function createOrder(planName: string) {
@@ -107,10 +113,11 @@ describe('POST /api/me/payments/confirm', () => {
 
   // 새로고침·중복 진입 대비(handoff §3) — 백엔드가 멱등 처리해 동일 orderId 재확인 요청도 200으로
   // 같은 결과를 돌려주고, "이미 결제되었습니다" 류 오류로 막지 않는다. 결제 내역도 중복 적재되지 않는다.
+  // 초기 mock 플랜이 STANDARD라 STANDARD 주문을 쓰면 "이미 그 플랜" 충돌과 겹치므로 ENTERPRISE로 검증한다.
   it('동일 orderId로 재확인해도(새로고침) 200으로 동일 결과를 반환하고 내역이 중복 적재되지 않는다', async () => {
-    const { body: orderBody } = await createOrder('STANDARD');
+    const { body: orderBody } = await createOrder('ENTERPRISE');
     const orderId = orderBody.data!.orderId;
-    const payload = { paymentKey: 'pay_idempotent', orderId, amount: 29000 };
+    const payload = { paymentKey: 'pay_idempotent', orderId, amount: 59000 };
 
     const first = await confirmPayment(payload);
     const second = await confirmPayment(payload);
@@ -122,5 +129,77 @@ describe('POST /api/me/payments/confirm', () => {
     const payments = await getPayments();
     const matching = payments.filter((payment) => payment.orderId === orderId);
     expect(matching).toHaveLength(1);
+  });
+
+  // #988 백엔드 리뷰 픽스(2026-07-27) — 이미 그 플랜인데 확정을 시도하면 PG 청구 전에 거절된다.
+  it('승인 시점에 이미 그 플랜이면 PG 청구 전에 409 PLAN_ACTIVE_SUBSCRIPTION_CONFLICT로 거절한다', async () => {
+    // 먼저 ENTERPRISE로 전환해 "이미 그 플랜"인 상태를 만든다.
+    const setupOrder = await createOrder('ENTERPRISE');
+    const setupOrderId = setupOrder.body.data!.orderId;
+    const setupConfirm = await confirmPayment({
+      paymentKey: 'pay_conflict_setup',
+      orderId: setupOrderId,
+      amount: 59000,
+    });
+    expect(setupConfirm.status).toBe(200);
+    expect(setupConfirm.body.data?.plan.name).toBe('ENTERPRISE');
+
+    const paymentsBefore = await getPayments();
+
+    // 이미 ENTERPRISE인 상태에서 ENTERPRISE 주문을 또 확정하려 하면 청구 전에 거절돼야 한다
+    // (setupOrderId와 다른 별도 주문 — 동일 주문 재확인의 멱등 성공 경로와 구분).
+    const conflictOrder = await createOrder('ENTERPRISE');
+    const conflictOrderId = conflictOrder.body.data!.orderId;
+    const { status, body } = await confirmPayment({
+      paymentKey: 'pay_conflict',
+      orderId: conflictOrderId,
+      amount: 59000,
+    });
+
+    expect(status).toBe(409);
+    expect(body.error?.code).toBe('PLAN_ACTIVE_SUBSCRIPTION_CONFLICT');
+
+    // 청구 전에 거절됐으므로 결제 내역에 새 레코드가 추가되지 않는다(중복 청구 없음).
+    const paymentsAfter = await getPayments();
+    expect(paymentsAfter).toHaveLength(paymentsBefore.length);
+  });
+
+  // #988 백엔드 리뷰 픽스(2026-07-27) — 결제(PG 승인)는 성공했지만 플랜 반영만 실패한 상태.
+  // "결제 실패"로 취급되면 안 된다: 결제 내역엔 PAID로 남지만(청구는 실제로 발생) 플랜은
+  // 갱신되지 않고, 같은 orderId로 재확인해도 매번 같은 코드를 반환한다(성공으로 뒤바뀌지 않음
+  // — 재결제를 유도하면 환불 불가한 중복 청구가 된다).
+  it('전용 트리거로 PAYMENT_PLAN_APPLY_PENDING을 재현하면 결제 내역엔 남지만 플랜은 갱신되지 않는다', async () => {
+    const { body: orderBody } = await createOrder('ENTERPRISE');
+    const order = orderBody.data!;
+    const paymentKey = `${MYPAGE_PAYMENT_DEV_TRIGGER.applyPending}pay_1`;
+
+    const { status, body } = await confirmPayment({
+      paymentKey,
+      orderId: order.orderId,
+      amount: order.amount,
+    });
+
+    expect(status).toBe(409);
+    expect(body.error?.code).toBe('PAYMENT_PLAN_APPLY_PENDING');
+
+    const planRes = await fetch('/api/me/plan');
+    const planBody = (await planRes.json()) as ApiResponse<MyPlan>;
+    expect(planBody.data?.plan.name).toBe('STANDARD'); // 초기 mock 플랜 그대로 — 반영 안 됨
+
+    const payments = await getPayments();
+    expect(payments.find((p) => p.orderId === order.orderId)).toMatchObject({
+      status: 'PAID', // 청구는 실제로 발생
+      planName: 'ENTERPRISE',
+      amount: 59000,
+    });
+
+    // 동일 orderId로 재확인(새로고침)해도 성공으로 뒤바뀌지 않고 같은 코드를 반환한다.
+    const retry = await confirmPayment({ paymentKey, orderId: order.orderId, amount: order.amount });
+    expect(retry.status).toBe(409);
+    expect(retry.body.error?.code).toBe('PAYMENT_PLAN_APPLY_PENDING');
+
+    // 재확인해도 결제 내역이 중복 적재되지 않는다.
+    const paymentsAfterRetry = await getPayments();
+    expect(paymentsAfterRetry.filter((p) => p.orderId === order.orderId)).toHaveLength(1);
   });
 });

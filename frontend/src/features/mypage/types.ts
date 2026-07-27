@@ -60,11 +60,18 @@ export interface SeatsInfo {
 // contract.md 추가 ErrorCode(마이페이지) — error.code 비교를 이 상수로 통일해 오타 시 컴파일 에러가 나게 한다.
 // (shared/api/types.ts의 ApiError.code는 앱 전역 에러코드를 아우르는 plain string이라 여기서 좁힐 수 없음 —
 // 대신 이 객체의 프로퍼티를 통해서만 비교하게 해 오타를 컴파일 타임에 잡는다.)
-// PLAN_ACTIVE_SUBSCRIPTION_CONFLICT: POST /me/plan/orders(구 /me/plan/checkout) 동시 요청 경합(409) —
-// 토스페이먼츠 연동(#989, HAJA-490)으로 모의 결제 엔드포인트가 실 결제창 흐름으로 교체되며 발생 경로가
-// checkout → orders/confirm으로 바뀌었다(#712/PR#714 계약 당시의 원래 발생 지점).
+// PLAN_ACTIVE_SUBSCRIPTION_CONFLICT: POST /me/plan/orders(구 /me/plan/checkout)뿐 아니라
+// POST /me/payments/confirm(결제 승인)에서도 발생한다(백엔드 #988 리뷰 픽스로 계약 확장,
+// 2026-07-27) — 이미 그 플랜인데 확정을 시도하면 PG 청구 전에 거절된다. "이미 해당 플랜을
+// 이용 중입니다" 취지로 안내하고 플랜 정보를 새로고침하면 된다(재시도 유도 아님).
 // PAYMENT_* 5종은 #989 신규 — POST /me/plan/orders(주문 생성)와 POST /me/payments/confirm(결제 승인)
-// 양쪽에서 발생할 수 있다.
+// 양쪽에서 발생할 수 있다. 비소유자 주문 접근은 PAYMENT_FORBIDDEN(403)이 아니라
+// PAYMENT_ORDER_NOT_FOUND(404)로 온다(#988 리뷰 픽스) — PAYMENT_FORBIDDEN은 이 경로에서 더 이상
+// 발생하지 않지만 계약상 값 자체는 유지한다.
+// PAYMENT_PLAN_APPLY_PENDING: 결제(PG 승인)는 성공했으나 플랜 반영(소속 변경 등)만 실패한 상태
+// (#988 리뷰 픽스, 2026-07-27). **"결제 실패"로 취급 금지** — 사용자가 재결제하면 환불 불가한
+// 중복 청구가 된다. "결제는 완료, 플랜 반영 처리 중" 취지로만 안내하고 재시도/재결제 버튼을
+// 노출하지 않는다.
 export const MYPAGE_ERROR_CODE = {
   PLAN_NOT_FOUND: 'PLAN_NOT_FOUND',
   PLAN_FORBIDDEN: 'PLAN_FORBIDDEN',
@@ -74,6 +81,7 @@ export const MYPAGE_ERROR_CODE = {
   PAYMENT_AMOUNT_MISMATCH: 'PAYMENT_AMOUNT_MISMATCH',
   PAYMENT_GATEWAY_ERROR: 'PAYMENT_GATEWAY_ERROR',
   PLAN_DOWNGRADE_CONFIRMATION_REQUIRED: 'PLAN_DOWNGRADE_CONFIRMATION_REQUIRED',
+  PAYMENT_PLAN_APPLY_PENDING: 'PAYMENT_PLAN_APPLY_PENDING',
 } as const;
 
 export type MyPageErrorCode = (typeof MYPAGE_ERROR_CODE)[keyof typeof MYPAGE_ERROR_CODE];
