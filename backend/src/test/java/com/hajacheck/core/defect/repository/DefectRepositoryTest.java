@@ -132,7 +132,7 @@ class DefectRepositoryTest extends PostgresTestSupport {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
-        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, false));
         defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.RESOLVED, false));
         defectRepository.save(newDefect(inspectionId, DefectGrade.A, DefectStatus.DETECTED, false));
         // 삭제된 결함은 집계에서 제외되어야 한다.
@@ -158,18 +158,18 @@ class DefectRepositoryTest extends PostgresTestSupport {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
-        defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.ACTION_PENDING, false));
-        defectRepository.save(newDefect(inspectionId, null, DefectStatus.ACTION_PENDING, false)); // 미분류
-        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
-        defectRepository.save(newDefect(inspectionId, DefectGrade.D, DefectStatus.ACTION_PENDING, false));
-        defectRepository.save(newDefect(inspectionId, DefectGrade.B, DefectStatus.ACTION_PENDING, false));
-        defectRepository.save(newDefect(inspectionId, DefectGrade.A, DefectStatus.ACTION_PENDING, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.CONFIRMED, false));
+        defectRepository.save(newDefect(inspectionId, null, DefectStatus.CONFIRMED, false)); // 미분류
+        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.D, DefectStatus.CONFIRMED, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.B, DefectStatus.CONFIRMED, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.A, DefectStatus.CONFIRMED, false));
         // 다른 상태(RESOLVED)와 삭제된 결함은 우선순위 목록에서 제외되어야 한다.
         defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.RESOLVED, false));
-        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, true));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, true));
 
         List<Defect> result = defectRepository.findPendingPriorityDefects(
-                List.of(inspectionId), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10));
+                List.of(inspectionId), DefectStatus.CONFIRMED, PageRequest.of(0, 10));
 
         assertThat(result).extracting(Defect::getGrade)
                 .containsExactly(
@@ -183,9 +183,9 @@ class DefectRepositoryTest extends PostgresTestSupport {
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
 
         Defect older = defectRepository.save(
-                newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+                newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, false));
         Defect newer = defectRepository.save(
-                newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+                newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, false));
         em.flush();
 
         // @CreatedDate 는 persist 시점에 auditing 이 "now" 로 덮어써 저장 순서만으로는 createdAt
@@ -196,7 +196,7 @@ class DefectRepositoryTest extends PostgresTestSupport {
         em.clear();
 
         List<Defect> result = defectRepository.findPendingPriorityDefects(
-                List.of(inspectionId), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10));
+                List.of(inspectionId), DefectStatus.CONFIRMED, PageRequest.of(0, 10));
 
         assertThat(result).extracting(Defect::getId).containsExactly(newer.getId(), older.getId());
     }
@@ -207,11 +207,11 @@ class DefectRepositoryTest extends PostgresTestSupport {
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
         for (int i = 0; i < 12; i++) {
-            defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+            defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, false));
         }
 
         List<Defect> result = defectRepository.findPendingPriorityDefects(
-                List.of(inspectionId), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10));
+                List.of(inspectionId), DefectStatus.CONFIRMED, PageRequest.of(0, 10));
 
         // @Query + Pageable 전환 후에도 findTop10 파생 쿼리와 동등한 상위 10건 제한이 유지돼야 한다.
         assertThat(result).hasSize(10);
@@ -355,7 +355,7 @@ class DefectRepositoryTest extends PostgresTestSupport {
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
         defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
-        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, false));
 
         // 등급 필터는 "이상"(임계값) 의미다 — grade=E(최고 등급)를 주면 E 자기 자신만 매치되므로
         // 임계값과 정확 일치가 동일한 결과라 이 케이스만으로는 회귀를 못 잡는다. 임계값 전용

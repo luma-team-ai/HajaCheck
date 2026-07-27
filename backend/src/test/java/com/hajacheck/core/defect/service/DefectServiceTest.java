@@ -357,12 +357,12 @@ class DefectServiceTest {
 
     @Test
     void updateStatus_사유없는건너뛰기요청_DomainValidationException() {
-        // existingDefect 는 DETECTED 상태 — CONFIRMED를 건너뛰고 ACTION_PENDING을 사유 없이 요청하면 거부된다.
+        // existingDefect 는 DETECTED 상태 — CONFIRMED를 건너뛰고 IN_PROGRESS를 사유 없이 요청하면 거부된다.
         Defect defect = existingDefect(5L);
         when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
 
         assertThatThrownBy(() ->
-                defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.ACTION_PENDING, null))
+                defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.IN_PROGRESS, null))
                 .isInstanceOf(DomainValidationException.class);
         assertThat(defect.getStatus()).isEqualTo(DefectStatus.DETECTED);
     }
@@ -374,12 +374,12 @@ class DefectServiceTest {
 
         DefectResponse response =
                 defectService.updateStatus(
-                        USER_ID, COMPANY_ID, 10L, DefectStatus.ACTION_PENDING, "경미한 하자라 검수확정 생략");
+                        USER_ID, COMPANY_ID, 10L, DefectStatus.IN_PROGRESS, "경미한 하자라 검수확정 생략");
 
-        assertThat(response.status()).isEqualTo(DefectStatus.ACTION_PENDING);
+        assertThat(response.status()).isEqualTo(DefectStatus.IN_PROGRESS);
         verify(defectRevisionRepository).save(argThat(revision ->
                 revision.getOldValue().equals("DETECTED")
-                        && revision.getNewValue().equals("ACTION_PENDING")
+                        && revision.getNewValue().equals("IN_PROGRESS")
                         && revision.getReason().equals("경미한 하자라 검수확정 생략")));
     }
 

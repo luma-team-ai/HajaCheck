@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.repository.PlanRepository;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -26,7 +27,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * 채팅 첨부, #20/HAJA-33)→V19(media.facility_id + inspection XOR facility, #632/#652/HAJA-377 —
  * 옛 V19(FREE 좌석 한도, #843)는 #858에서 되돌리며 파일이 삭제돼 번호가 비어 있었고, 팀 합의로 이
  * 마이그레이션이 재사용한다)→V20(payments 결제 원장, #988/HAJA-489)→V21(inspection_notification_settings.
- * warn_on_overdue_enabled 기본값 false→true, HAJA-498 — 유병현 님 승인)를 순서대로 적용하고,
+ * warn_on_overdue_enabled 기본값 false→true, HAJA-498 — 유병현 님 승인)→V22(defect_status_type 에서
+ * ACTION_PENDING 제거 — 하자 상태 4단계화)를 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -70,7 +72,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V21까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V22까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -92,13 +94,14 @@ class FlywayBaselineIntegrationTest {
         //   (결번 여부 자체는 FlywayMigrationVersionSequenceTest 가 별도로 고정한다).
         // + V21(inspection_notification_settings.warn_on_overdue_enabled DEFAULT false→true + 방어적
         //   백필, #540/HAJA-498 — 유병현 님 승인 옵션1: 연체 알림 미수신 회귀 방지 하위호환 확보).
-        assertThat(appliedMigrations).isEqualTo(21);
+        // + V22(defect_status_type 에서 ACTION_PENDING 제거 — 하자 상태 4단계화).
+        assertThat(appliedMigrations).isEqualTo(22);
 
-        // 최신 적용 버전이 실제로 V21 인지 확인.
+        // 최신 적용 버전이 실제로 V22 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("21");
+        assertThat(latestVersion).isEqualTo("22");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -276,5 +279,23 @@ class FlywayBaselineIntegrationTest {
                   and column_name in ('attachment_key', 'attachment_mime_type')
                 """, Long.class);
         assertThat(chatAttachmentColumnCount).isEqualTo(2L);
+
+        // V19가 defect_status_type 을 4단계로 좁혔는지 확인 — 타입 이름은 그대로 유지되고
+        // ACTION_PENDING 만 사라져야 한다(구 타입 drop + rename 이 제대로 끝났다는 뜻).
+        List<String> defectStatusLabels = jdbcTemplate.queryForList("""
+                select e.enumlabel from pg_enum e
+                join pg_type t on t.oid = e.enumtypid
+                where t.typname = 'defect_status_type'
+                order by e.enumsortorder
+                """, String.class);
+        assertThat(defectStatusLabels)
+                .containsExactly("DETECTED", "CONFIRMED", "IN_PROGRESS", "RESOLVED");
+
+        // 타입 교체 과정에서 drop 했던 컬럼 default 가 다시 붙어 있어야 한다(신규 하자 기본 상태).
+        String defectStatusDefault = jdbcTemplate.queryForObject("""
+                select column_default from information_schema.columns
+                where table_schema = 'public' and table_name = 'defects' and column_name = 'status'
+                """, String.class);
+        assertThat(defectStatusDefault).contains("DETECTED");
     }
 }

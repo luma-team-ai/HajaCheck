@@ -140,7 +140,7 @@ class DefectSearchControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.filters.grade[0]").value("D"))
-                .andExpect(jsonPath("$.data.filters.status[0]").value("ACTION_PENDING"));
+                .andExpect(jsonPath("$.data.filters.status[0]").value("CONFIRMED"));
     }
 
     @Test
@@ -155,7 +155,7 @@ class DefectSearchControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.filters.grade[0]").value("D"))
-                .andExpect(jsonPath("$.data.filters.status[0]").value("ACTION_PENDING"));
+                .andExpect(jsonPath("$.data.filters.status[0]").value("CONFIRMED"));
     }
 
     @Test
@@ -219,7 +219,7 @@ class DefectSearchControllerTest extends PostgresTestSupport {
 
     private void givenAiSearchSuccess() {
         NlSearchResult result = new NlSearchResult(
-                new NlSearchFilters(List.of(), List.of("D", "E"), List.of("ACTION_PENDING"), null),
+                new NlSearchFilters(List.of(), List.of("D", "E"), List.of("CONFIRMED"), null),
                 List.of(), null, 0.92);
         NlSearchAiEnvelope envelope = new NlSearchAiEnvelope(true, result, null);
         RestClient.RequestBodyUriSpec requestSpec = mock(RestClient.RequestBodyUriSpec.class);

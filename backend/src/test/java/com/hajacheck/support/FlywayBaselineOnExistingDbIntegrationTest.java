@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.repository.PlanRepository;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -160,6 +161,22 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 where table_schema = 'public' and table_name = 'payments'
                 """, Long.class);
         assertThat(paymentsTables).isEqualTo(1L);
+
+        // V22(하자 상태 4단계화)이 이 "기존 DB" 경로에서도 실제로 적용돼야 한다 — 캐노니컬 DDL 은
+        // ACTION_PENDING 이 살아있는 pre-V22 스냅샷이므로, 여기가 arm1 승격 때 실제로 밟는 경로다.
+        Integer v21Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '21' and success = true",
+                Integer.class);
+        assertThat(v21Applied).isEqualTo(1);
+
+        List<String> defectStatusLabels = jdbcTemplate.queryForList("""
+                select e.enumlabel from pg_enum e
+                join pg_type t on t.oid = e.enumtypid
+                where t.typname = 'defect_status_type'
+                order by e.enumsortorder
+                """, String.class);
+        assertThat(defectStatusLabels)
+                .containsExactly("DETECTED", "CONFIRMED", "IN_PROGRESS", "RESOLVED");
 
         Long planCount = jdbcTemplate.queryForObject("select count(*) from plans", Long.class);
         assertThat(planCount).isEqualTo(3L);
