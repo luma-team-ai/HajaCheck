@@ -15,7 +15,7 @@ PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 DefectTypeCode = Literal["CRACK", "SPALLING", "LEAK_EFFLORESCENCE", "REBAR_EXPOSURE", "PAINT_DAMAGE"]
 DefectGradeCode = Literal["A", "B", "C", "D", "E"]
-DefectStatusCode = Literal["DETECTED", "CONFIRMED", "ACTION_PENDING", "IN_PROGRESS", "RESOLVED"]
+DefectStatusCode = Literal["DETECTED", "CONFIRMED", "IN_PROGRESS", "RESOLVED"]
 
 
 class NlSearchFilters(BaseModel):

@@ -6,7 +6,7 @@
 ## 필터 대상 필드 (이 4개 외에는 unsupported_terms로 분류)
 - type (하자 유형): CRACK, SPALLING, LEAK_EFFLORESCENCE, REBAR_EXPOSURE, PAINT_DAMAGE
 - grade (등급, A=경미~E=심각): A, B, C, D, E
-- status (조치 상태): DETECTED, CONFIRMED, ACTION_PENDING, IN_PROGRESS, RESOLVED
+- status (조치 상태): DETECTED, CONFIRMED, IN_PROGRESS, RESOLVED
 - confidenceMin (AI 탐지 신뢰도 하한, 0~1)
 
 ## 한국어 표현 매핑
@@ -15,8 +15,7 @@
 철근노출→REBAR_EXPOSURE, 철근 노출/철근 드러남→REBAR_EXPOSURE,
 도장손상→PAINT_DAMAGE, 도장 손상/페인트 손상/도장 벗겨짐→PAINT_DAMAGE,
 신규→DETECTED, 미확인/신규 탐지/AI 탐지→DETECTED,
-검수확정→CONFIRMED, 검수 완료/확정→CONFIRMED,
-조치대기→ACTION_PENDING, 조치 대기/대기중/조치 필요→ACTION_PENDING,
+검수확정→CONFIRMED, 검수 완료/확정→CONFIRMED, 조치대기→CONFIRMED, 조치 대기/대기중/조치 필요→CONFIRMED,
 조치중→IN_PROGRESS, 조치 진행중/진행중→IN_PROGRESS,
 조치완료→RESOLVED, 완료/해결됨/조치 끝→RESOLVED
 
