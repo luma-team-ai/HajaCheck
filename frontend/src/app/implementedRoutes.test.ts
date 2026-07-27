@@ -14,6 +14,7 @@ describe('isRouteImplemented', () => {
     '/mypage/plan',
     '/mypage/profile',
     '/mypage/inspections',
+    '/reports',
     '/facilities/list',
     '/admin/plans-quota',
   ])(
