@@ -8,6 +8,7 @@ import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.media.entity.Media;
@@ -16,6 +17,7 @@ import com.hajacheck.support.PostgresTestSupport;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.TimeZone;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +36,9 @@ class MediaRepositoryTest extends PostgresTestSupport {
 
     @Autowired
     private MediaRepository mediaRepository;
+
+    @Autowired
+    private FacilityRepository facilityRepository;
 
     @Autowired
     private TestEntityManager em;
@@ -263,5 +268,63 @@ class MediaRepositoryTest extends PostgresTestSupport {
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> mediaRepository.saveAndFlush(media))
                 .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    }
+
+    /**
+     * #1024 — code-reviewer P2 반영. 위 "media 먼저 삭제 후 facility 삭제하면 성공" 테스트만으로는
+     * media 로우를 먼저 지우지 않고 바로 facility를 지워도 어차피 성공했을 가능성을 배제하지 못한다
+     * (즉 fk_media_facility 가 실제로 존재/작동하는지를 증명하지 않는다). 이 테스트가 그 반대 경로 —
+     * 정리 없이 바로 delete()하면 실 PG가 진짜로 FK 위반을 던지는지 — 를 고정해 회귀의 실체를 증명한다.
+     */
+    @Test
+    void 대표사진있는시설물_media정리없이facility바로삭제하면FK위반발생() {
+        Long facilityId = seedFacility();
+        mediaRepository.save(Media.builder()
+                .facilityId(facilityId).fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/1.png").mimeSignatureVerified(true).build());
+        em.flush();
+        em.clear();
+
+        Facility facility = em.find(Facility.class, facilityId);
+
+        assertThat(mediaRepository.findByFacilityIdOrderByIdAsc(facilityId)).hasSize(1);
+        // em.flush()(raw JPA)는 Spring 예외 변환 프록시를 거치지 않아 Hibernate 원시 예외가 그대로
+        // 튀어나온다 — repository.flush()(Spring Data JpaRepository)를 써야 다른 CHECK 제약 테스트
+        // (saveAndFlush)와 동일하게 DataIntegrityViolationException으로 변환된다.
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+            facilityRepository.delete(facility);
+            facilityRepository.flush();
+        }).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    }
+
+    /**
+     * #1024 — V19(#1017)의 fk_media_facility(NO ACTION)는 대표 사진이 남은 시설물을 그냥 delete()하면
+     * FK 위반을 낸다. 이 테스트는 이 시나리오 자체가 이전까지 전혀 검증되지 않았음을 메우는 회귀 방지용
+     * — FacilityService.delete()가 실제로 하는 순서(media 로우 먼저 삭제 → 시설물 삭제)를 실 PG 로
+     * 재현해 FK 위반 없이 성공하는지 확인한다.
+     */
+    @Test
+    void 대표사진있는시설물_media먼저삭제후facility삭제하면FK위반없이성공() {
+        Long facilityId = seedFacility();
+        mediaRepository.save(Media.builder()
+                .facilityId(facilityId).fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/1.png").mimeSignatureVerified(true).build());
+        mediaRepository.save(Media.builder()
+                .facilityId(facilityId).fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/2.png").mimeSignatureVerified(true).build());
+        em.flush();
+        em.clear();
+
+        List<Media> facilityMedia = mediaRepository.findByFacilityIdOrderByIdAsc(facilityId);
+        assertThat(facilityMedia).hasSize(2);
+        mediaRepository.deleteAll(facilityMedia);
+        em.flush();
+
+        Facility facility = em.find(Facility.class, facilityId);
+        facilityRepository.delete(facility);
+        em.flush();
+
+        assertThat(em.find(Facility.class, facilityId)).isNull();
+        assertThat(mediaRepository.findByFacilityIdOrderByIdAsc(facilityId)).isEmpty();
     }
 }

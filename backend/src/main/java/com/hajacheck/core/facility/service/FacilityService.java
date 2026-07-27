@@ -4,6 +4,7 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
+import com.hajacheck.auth.support.FileStorageService;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.FacilityLatestDefectProjection;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
@@ -15,6 +16,8 @@ import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.service.QuotaService;
@@ -55,6 +58,8 @@ public class FacilityService {
     private final UserRepository userRepository;
     private final QuotaService quotaService;
     private final DefectRepository defectRepository;
+    private final MediaRepository mediaRepository;
+    private final FileStorageService fileStorage;
 
     @Transactional
     public FacilityResponse create(Long userId, Long companyId, FacilityCreateRequest request) {
@@ -210,10 +215,36 @@ public class FacilityService {
     @Transactional
     public void delete(Long userId, Long companyId, Long facilityId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
-        facilityRepository.delete(findCompanyFacility(companyId, facilityId));
+        Facility facility = findCompanyFacility(companyId, facilityId);
+        // #1024 — V19(#1017)가 추가한 fk_media_facility(NO ACTION)는 시설물에 대표 사진이 남아있으면
+        // 삭제 시 FK 위반(처리되지 않은 500)을 낸다. 같은 트랜잭션에서 media 로우 + 스토리지 파일을
+        // 먼저 정리해 제약 위반 자체가 발생하지 않게 한다.
+        deleteFacilityMedia(facilityId);
+        facilityRepository.delete(facility);
         // 시설물은 물리 삭제라 보유량이 즉시 줄어든다(#843) — 사용량 표시값을 같은 트랜잭션에서 재동기화해
         // 카운터가 영구히 부풀어 신규 등록을 잘못 막는 드리프트를 막는다.
         quotaService.syncFacilityUsage(userId, companyId);
+    }
+
+    /**
+     * 시설물 삭제 전 대표 사진 정리(#1024) — MediaService 를 주입하면 MediaService → FacilityService
+     * 역방향 의존과 겹쳐 순환참조가 나므로(생성자 주입, {@code @Lazy} 미사용) 주입하지 않는다. 대신
+     * MediaService 자신이 쓰는 것과 동일한 두 컴포넌트(MediaRepository, FileStorageService)를 직접 써서
+     * 스토리지 파일을 지운 뒤 media 로우를 삭제한다. FileStorageService#delete 는 best-effort/never-throws
+     * (blank/null 키는 no-op)라 개별 try/catch 없이 그대로 호출한다(MediaService.uploadMedia 의
+     * {@code storedKeys.forEach(fileStorage::delete)} 와 동일 패턴).
+     */
+    private void deleteFacilityMedia(Long facilityId) {
+        List<Media> facilityMedia = mediaRepository.findByFacilityIdOrderByIdAsc(facilityId);
+        if (facilityMedia.isEmpty()) {
+            return;
+        }
+        facilityMedia.forEach(media -> {
+            fileStorage.delete(media.getOriginalUrl());
+            fileStorage.delete(media.getThumbnailUrl());
+            fileStorage.delete(media.getDetailUrl());
+        });
+        mediaRepository.deleteAll(facilityMedia);
     }
 
     /**
