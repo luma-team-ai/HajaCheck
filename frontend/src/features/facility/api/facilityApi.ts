@@ -2,8 +2,10 @@ import { api } from '../../../shared/api/axios';
 import type {
   CreateFacilityRequest,
   Facility,
+  InspectionNotificationSettings,
   SetFacilityScheduleRequest,
   SetFacilityScheduleResponse,
+  SetInspectionNotificationSettingsRequest,
 } from '../types';
 
 export const facilityApi = {
@@ -16,4 +18,9 @@ export const facilityApi = {
   // 점검 주기 설정(dev-04-03, FR-019) — 저장 버튼만 실 API로 연결(handoff §2·§3)
   setSchedule: (id: number, body: SetFacilityScheduleRequest) =>
     api.post<SetFacilityScheduleResponse>(`/facilities/${id}/schedule`, body),
+  // 점검 알림 설정 조회/저장(GitHub #540 ③, backend InspectionNotificationSettingController와 1:1)
+  getNotificationSettings: (id: number) =>
+    api.get<InspectionNotificationSettings>(`/facilities/${id}/notification-settings`),
+  setNotificationSettings: (id: number, body: SetInspectionNotificationSettingsRequest) =>
+    api.put<InspectionNotificationSettings>(`/facilities/${id}/notification-settings`, body),
 };

@@ -66,6 +66,17 @@ export interface SetFacilityScheduleResponse {
   nextInspectionDueAt: string | null;
 }
 
+// 점검 알림 설정(GitHub #540 ③) — GET/PUT /api/facilities/{id}/notification-settings,
+// backend InspectionNotificationSettingResponse/Request와 1:1. 설정을 저장한 적 없는 시설물도
+// 항상 유효한 값(서버 컬럼 기본값과 동일: 사전알림 사용/7일전/경과알림 미사용)을 반환한다.
+export interface InspectionNotificationSettings {
+  notifyBeforeEnabled: boolean;
+  notifyBeforeDays: number;
+  warnOnOverdueEnabled: boolean;
+}
+
+export type SetInspectionNotificationSettingsRequest = InspectionNotificationSettings;
+
 // 전체 시설물 점검 주기 현황 — 우측 테이블 전용 타입.
 // name/cycleMonths/nextInspectionDueAt은 Facility 실필드와 매핑 가능하지만,
 // type(점검유형 정기/정밀/긴급)·lastInspectedAt·assigneeName은 백엔드 계약에 없어 MSW 목 전용이다.
