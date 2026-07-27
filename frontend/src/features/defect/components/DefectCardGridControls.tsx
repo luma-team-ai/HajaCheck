@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 // InspectionDefectsPage는 그 CSS를 별도로 로드하지 않으므로 여기서 함께 임포트해 select 스타일을
 // 재사용한다(신규 스타일 중복 정의 금지).
 import '../pages/DefectListPage.css';
+import { pickTextColorClass } from './DefectCard';
+import { STATUS_PRESENTATION } from './DefectTable';
 import { DEFECT_GRADE_LABEL, DEFECT_TYPE_LABEL } from '../types';
 import type { DefectGrade, DefectType } from '../types';
 
@@ -73,19 +75,35 @@ export function DefectCardGridControls({
   return (
     <div className="defect-card-grid__toolbar">
       <div className="defect-card-grid__status-tabs" role="tablist" aria-label="상태 필터">
-        {STATUS_TABS.map((tab) => (
-          <button
-            key={tab.value || 'all'}
-            type="button"
-            role="tab"
-            aria-selected={statusFilter === tab.value}
-            className={`defect-card-grid__status-tab${statusFilter === tab.value ? ' is-active' : ''}`}
-            onClick={() => onStatusChange(tab.value)}
-          >
-            {tab.label}{' '}
-            <span className="defect-card-grid__status-tab-count">{statusCounts[tab.value]}</span>
-          </button>
-        ))}
+        {STATUS_TABS.map((tab) => {
+          // "전체" 탭(value === '')은 특정 상태를 가리키지 않으므로 dot 없이 유지(#1005). 나머지
+          // 탭은 하자 카드(DefectCard.tsx)와 동일하게 STATUS_PRESENTATION에서 text-* 클래스만 뽑아
+          // dot에 적용 — 신규 색상 상수 추가 금지 컨벤션 유지. 라벨 텍스트는 dot과 분리된 요소라
+          // 탭 자체의 활성/비활성 글자색(is-active 시 흰색)에는 영향을 주지 않는다.
+          const statusColorClass = tab.value
+            ? pickTextColorClass(STATUS_PRESENTATION[tab.value].className)
+            : '';
+
+          return (
+            <button
+              key={tab.value || 'all'}
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === tab.value}
+              className={`defect-card-grid__status-tab${statusFilter === tab.value ? ' is-active' : ''}`}
+              onClick={() => onStatusChange(tab.value)}
+            >
+              {tab.value && (
+                <span
+                  className={`defect-card-grid__status-tab-dot ${statusColorClass}`}
+                  aria-hidden="true"
+                />
+              )}
+              <span className="defect-card-grid__status-tab-label">{tab.label}</span>
+              <span className="defect-card-grid__status-tab-count">{statusCounts[tab.value]}</span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="defect-card-grid__toolbar-actions">
