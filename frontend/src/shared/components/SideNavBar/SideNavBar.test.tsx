@@ -308,7 +308,7 @@ describe('SideNavBar', () => {
         screen.getByRole('link', { name: '분석 결과 뷰어' }).getAttribute('href'),
       ).toBe('/inspections/create');
       expect(
-        screen.getByRole('link', { name: '보고서 생성 진입점' }).getAttribute('href'),
+        screen.getByRole('link', { name: '점검 요약 및 보고서 생성' }).getAttribute('href'),
       ).toBe('/inspections/create');
     });
 
@@ -330,8 +330,58 @@ describe('SideNavBar', () => {
         screen.getByRole('link', { name: '분석 결과 뷰어' }).getAttribute('href'),
       ).toBe('/inspections/42/viewer');
       expect(
-        screen.getByRole('link', { name: '보고서 생성 진입점' }).getAttribute('href'),
+        screen.getByRole('link', { name: '점검 요약 및 보고서 생성' }).getAttribute('href'),
       ).toBe('/inspections/42/reports');
+    });
+
+    it('진행 중인 점검이 없을 때 AI 분석/결과 뷰어/보고서 생성 링크를 클릭하면 안내 후 점검 생성 화면으로 이동한다(#1027)', () => {
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('점검 관리'));
+      fireEvent.click(screen.getByRole('link', { name: '분석 결과 뷰어' }));
+
+      // 이동은 막히지 않는다(점검 생성 화면으로 정상 이동)
+      expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/create');
+      expect(screen.getByRole('status').textContent).toBe(
+        '지금은 분석 중인 작업이 없습니다. 점검(회차) 생성으로 넘어갑니다.',
+      );
+    });
+
+    it('진행 중인 점검이 있을 때는 AI 분석/결과 뷰어/보고서 생성 링크를 클릭해도 안내가 뜨지 않는다(#1027)', () => {
+      useInspectionStore.getState().setActiveInspectionId(42);
+
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('점검 관리'));
+      fireEvent.click(screen.getByRole('link', { name: '분석 결과 뷰어' }));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/42/viewer');
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
+    it('진행 중인 점검이 없어도 "점검(회차) 생성" 자체 링크를 클릭하면 안내가 뜨지 않는다(#1027)', () => {
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('점검 관리'));
+      fireEvent.click(screen.getByRole('link', { name: '점검(회차) 생성' }));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/create');
+      expect(screen.queryByRole('status')).toBeNull();
     });
 
     // PR 리뷰 P1 — 위 두 테스트는 <Link>의 href 속성만 확인하고 SideNavBar 기본값

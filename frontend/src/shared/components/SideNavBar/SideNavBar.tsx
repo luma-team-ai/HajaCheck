@@ -70,6 +70,12 @@ const NOT_IMPLEMENTED_MESSAGE = '아직 구현되지 않은 페이지입니다';
 // is_enabled=false 메뉴("표시는 하되 비활성화")도 같은 안내를 재사용한다 — 사용자 입장에서는
 // "아직 못 들어가는 메뉴"라는 점이 미구현 라우트와 동일하다(#1003 팔로우업, Menu 엔티티 코멘트 기준).
 const DISABLED_MESSAGE = NOT_IMPLEMENTED_MESSAGE;
+// 진행 중인 점검 없이 AI 분석/결과 뷰어/보고서 생성 항목을 클릭하면 점검 생성 화면으로 보내지는데
+// (allItems useMemo 참고), 왜 다른 화면으로 이동했는지 안내가 없어 혼란스럽다는 피드백(#1027).
+const NO_ACTIVE_INSPECTION_MESSAGE = '지금은 분석 중인 작업이 없습니다. 점검(회차) 생성으로 넘어갑니다.';
+// activeInspectionId가 없을 때 위 안내를 띄워야 하는 항목만 표시(allItems useMemo에서 href를
+// activeInspectionId 기반으로 동적 생성하는 sub.id 3종과 동일 — #1027).
+const NO_ACTIVE_INSPECTION_SUB_IDS = new Set(['ai-analysis', 'result-viewer', 'report-entry']);
 
 // 접힌 상태 고정 폭(w-18 = 18*4px) / 펼친 상태 기본 폭 — 드래그 리사이즈 clamp 범위(HAJA-167, #184)
 const COLLAPSED_WIDTH = 72;
@@ -132,7 +138,7 @@ const DEFAULT_ITEMS: SideNavItem[] = [
       },
       {
         id: 'report-entry',
-        label: '보고서 생성 진입점',
+        label: '점검 요약 및 보고서 생성',
         href: '/inspections/create',
         matchHref: '/inspections/1/reports',
       },
@@ -328,14 +334,26 @@ export function SideNavBar({
     setExpandedLabel((current) => (current === label ? undefined : label));
   }
 
-  function handleNavClick(event: MouseEvent<HTMLAnchorElement>, href: string, enabled = true) {
-    if (enabled && isRouteImplemented(href)) {
+  function handleNavClick(
+    event: MouseEvent<HTMLAnchorElement>,
+    href: string,
+    enabled = true,
+    subId?: string,
+  ) {
+    if (!enabled || !isRouteImplemented(href)) {
+      event.preventDefault();
+      clearTimeout(noticeTimerRef.current);
+      setNotice(enabled ? NOT_IMPLEMENTED_MESSAGE : DISABLED_MESSAGE);
+      noticeTimerRef.current = setTimeout(() => setNotice(null), NOTICE_AUTO_DISMISS_MS);
       return;
     }
-    event.preventDefault();
-    clearTimeout(noticeTimerRef.current);
-    setNotice(enabled ? NOT_IMPLEMENTED_MESSAGE : DISABLED_MESSAGE);
-    noticeTimerRef.current = setTimeout(() => setNotice(null), NOTICE_AUTO_DISMISS_MS);
+    // 진행 중인 점검이 없어 점검 생성 화면으로 대신 보내지는 경우 — 이동은 막지 않고(정상 진행)
+    // 왜 다른 화면으로 왔는지만 안내한다(#1027).
+    if (!activeInspectionId && subId && NO_ACTIVE_INSPECTION_SUB_IDS.has(subId)) {
+      clearTimeout(noticeTimerRef.current);
+      setNotice(NO_ACTIVE_INSPECTION_MESSAGE);
+      noticeTimerRef.current = setTimeout(() => setNotice(null), NOTICE_AUTO_DISMISS_MS);
+    }
   }
 
   function handleCollapseToggle() {
@@ -515,7 +533,7 @@ export function SideNavBar({
                         // href를 key로 쓰면 React key 중복이 나서 sub.id가 있으면 그걸 우선한다.
                         key={sub.id ?? sub.href}
                         to={sub.href}
-                        onClick={(event) => handleNavClick(event, sub.href, sub.enabled)}
+                        onClick={(event) => handleNavClick(event, sub.href, sub.enabled, sub.id)}
                         className={`whitespace-nowrap rounded-full px-4 py-[6px] text-[13px] no-underline hover:text-primary ${
                           (sub.matchHref ?? sub.href) === activeHref
                             ? 'bg-surface text-primary ring-1 ring-border'
