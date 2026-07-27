@@ -113,7 +113,7 @@ public class FacilityController {
 
     @Operation(summary = "점검 알림 설정 조회",
             description = "로그인 사용자의 시설물별 점검 알림 설정을 조회한다(#540 ③). 설정을 저장한 적이 없으면"
-                    + " DB 컬럼 기본값(사전알림 사용/7일전/경과알림 미사용)을 반환한다")
+                    + " DB 컬럼 기본값(사전알림 사용/7일전/경과알림 사용, HAJA-498/V21)을 반환한다")
     @GetMapping("/{id}/notification-settings")
     public ResponseEntity<ApiResponse<InspectionNotificationSettingResponse>> getNotificationSettings(
             @AuthenticationPrincipal LoginUser loginUser,

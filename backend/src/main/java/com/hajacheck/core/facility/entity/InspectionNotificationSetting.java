@@ -19,7 +19,7 @@ import lombok.NoArgsConstructor;
  * (GitHub #540 ③, V7__inspection_admin_schema.sql). SpringBoot_코드_컨벤션.md §6/§7: @Setter 금지,
  * 상태 변경은 의도가 드러나는 메서드({@link #update})로만 허용한다.
  *
- * <p>notifyBeforeEnabled/notifyBeforeDays/warnOnOverdueEnabled 는 DB 컬럼 기본값(true/7/false)과
+ * <p>notifyBeforeEnabled/notifyBeforeDays/warnOnOverdueEnabled 는 DB 컬럼 기본값(true/7/true, HAJA-498/V21)과
  * 정확히 동일한 애플리케이션 기본값을 {@code InspectionNotificationSettingResponse.defaults()}가
  * 별도로 가진다 — 이 엔티티 행 자체가 없는(사용자가 한 번도 설정하지 않은) 시설물은 그 기본값으로
  * 취급한다({@link com.hajacheck.core.facility.scheduler.InspectionDueNotificationScheduler} 참고).

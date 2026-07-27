@@ -19,11 +19,12 @@ let facilities: Facility[] = [...mockFacilities];
 let nextId = facilities.reduce((max, facility) => Math.max(max, facility.id), 0) + 1;
 
 // 점검 알림 설정 목 저장소(#540 ③) — facilityId별 설정. 저장한 적 없는 시설물은 서버 컬럼 기본값과
-// 동일한 기본값(사전알림 사용/7일전/경과알림 미사용)으로 응답한다.
+// 동일한 기본값으로 응답한다. warnOnOverdueEnabled는 true가 기본이다(HAJA-498/V21 — false로 시작했다가
+// 연체 시설물 알림 미발행 회귀가 발견돼 Polalise 승인(옵션1)으로 되돌림).
 const DEFAULT_NOTIFICATION_SETTINGS: InspectionNotificationSettings = {
   notifyBeforeEnabled: true,
   notifyBeforeDays: 7,
-  warnOnOverdueEnabled: false,
+  warnOnOverdueEnabled: true,
 };
 let notificationSettingsByFacilityId = new Map<number, InspectionNotificationSettings>();
 
@@ -203,7 +204,7 @@ export const facilityHandlers = [
     return HttpResponse.json(responseBody);
   }),
 
-  // 점검 알림 설정 조회(#540 ③) — 저장한 적 없으면 기본값(사전알림 사용/7일전/경과알림 미사용) 반환.
+  // 점검 알림 설정 조회(#540 ③) — 저장한 적 없으면 기본값(사전알림 사용/7일전/경과알림 사용, HAJA-498/V21) 반환.
   http.get('/api/facilities/:id/notification-settings', ({ params }) => {
     const id = Number(params.id);
     const target = facilities.find((facility) => facility.id === id);

@@ -37,9 +37,14 @@ import org.springframework.stereotype.Component;
  *   <li>{@link Kind#OVERDUE} — warnOnOverdueEnabled 이고 {@code dueAt < 오늘}(예정일 경과).</li>
  * </ul>
  * 설정 행이 없는(사용자가 한 번도 저장한 적 없는) 시설물은 DB 컬럼 기본값과 동일한 기본값
- * (notifyBeforeEnabled=true, notifyBeforeDays=7, warnOnOverdueEnabled=false)으로 취급한다
- * (InspectionNotificationSettingResponse.defaults()와 동일 값 — 두 곳이 어긋나면 "설정 미저장 상태"의
- * 실제 배치 동작과 조회 API 응답이 서로 달라진다).
+ * (notifyBeforeEnabled=true, notifyBeforeDays=7, warnOnOverdueEnabled=true — HAJA-498/V21)으로
+ * 취급한다(InspectionNotificationSettingResponse.defaults()와 동일 값 — 두 곳이 어긋나면 "설정 미저장
+ * 상태"의 실제 배치 동작과 조회 API 응답이 서로 달라진다).
+ *
+ * <p>⚠️ warnOnOverdueEnabled 기본값 이력(HAJA-498): #540 ③ 최초 도입 시 false로 시작했다가, "예정일이
+ * 지난 시설물은 설정을 켜지 않는 한 더 이상 알림이 발행되지 않는" 회귀가 발견됐다. 기존에는
+ * {@code dueAt <= 오늘}이면 당일/연체 구분 없이 항상 발행했었기 때문이다. Polalise 승인(옵션1)으로
+ * V21에서 컬럼 DEFAULT와 이 폴백값을 true로 되돌려 원래 동작을 복원했다.
  *
  * <p>각 시설물의 <b>현재 도래일 + 알림 종류(kind)</b> 조합으로 이미 발행됐으면 건너뛴다(멱등, 도래일×종류당
  * 1회 — {@link InspectionDueNotificationPayload} 참고). 도래일 값이 바뀌지 않는 한(=재스케줄 전까지) 같은
@@ -80,7 +85,7 @@ public class InspectionDueNotificationScheduler {
     // 및 InspectionNotificationSettingResponse.defaults()와 반드시 동일해야 한다.
     private static final boolean DEFAULT_NOTIFY_BEFORE_ENABLED = true;
     private static final int DEFAULT_NOTIFY_BEFORE_DAYS = 7;
-    private static final boolean DEFAULT_WARN_ON_OVERDUE_ENABLED = false;
+    private static final boolean DEFAULT_WARN_ON_OVERDUE_ENABLED = true;
 
     private final FacilityRepository facilityRepository;
     private final InspectionNotificationSettingRepository notificationSettingRepository;

@@ -14,9 +14,11 @@ import type { InspectionCycleStatusRow, InspectionCycleType } from '../types';
 // 알림설정 GET이 저장한 적 없는 시설물에 대해 서버 기본값을 돌려주지만, 조회가 끝나기 전(로딩 중)
 // 잠깐 보여줄 화면 초기값도 서버 컬럼 기본값과 동일하게 맞춘다(InspectionNotificationSettingResponse
 // .defaults()와 정합 — 두 곳이 어긋나면 로딩 중/직후 토글 값이 깜빡여 보인다).
+// warnOnOverdueEnabled 기본값은 true다(HAJA-498/V21) — false로 시작했다가 연체 시설물에 알림이 더 이상
+// 발행되지 않는 회귀가 발견돼 Polalise 승인(옵션1)으로 되돌렸다.
 const DEFAULT_NOTIFY_BEFORE_ENABLED = true;
 const DEFAULT_NOTIFY_BEFORE_DAYS = 7;
-const DEFAULT_WARN_ON_OVERDUE_ENABLED = false;
+const DEFAULT_WARN_ON_OVERDUE_ENABLED = true;
 
 // 라우트에 시설물 컨텍스트가 없어(handoff §5) 쿼리파라미터(?facilityId=)로 대상 지정,
 // 미지정 시 목 대표 행(강남 오피스타워 A동, id=3 — 화면 breadcrumb과 이름이 일치)을 기본값으로 사용.
