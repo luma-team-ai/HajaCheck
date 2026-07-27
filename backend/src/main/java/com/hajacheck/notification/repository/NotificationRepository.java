@@ -54,6 +54,12 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
      * 쌓일수록 배치가 느려지고 OOM 위험이 커진다. {@code after} 이후 생성된 알림만 조회해 "영원히 무제한
      * 증가"를 "고정 슬라이딩 윈도우"로 바꾼다 — 완전한 해결(멱등성을 DB 유니크 제약으로 옮기거나 페이지별
      * 정확 매칭 조회로 좁히는 것)은 후속 이슈로 분리한다.
+     *
+     * <p>⚠️ 이 윈도우는 Kind.DUE(사전알림, lookahead 상한 365일) dedupe에는 안전하지만, Kind.OVERDUE
+     * (연체) dedupe에는 원칙적으로 무기한 이력이 필요하다 — 재점검 없이 400일 넘게 같은 dueAt으로
+     * 연체 상태가 유지된 시설물은 최초 OVERDUE 발행 기록이 윈도우 밖으로 밀려나 중복 발행될 수 있다
+     * (과다 알림 방향, 누락 아님). 근본 해결은 후속 이슈
+     * https://github.com/luma-team-ai/HajaCheck/issues/1050 참조.
      */
     List<Notification> findAllByUserIdInAndTypeAndCreatedAtAfter(
             Set<Long> userIds, NotificationType type, LocalDateTime after);

@@ -142,6 +142,18 @@ public class InspectionDueNotificationScheduler {
 
         // 회사당 1쿼리(N+1) 대신, 이 페이지에 등장하는 회사 소유자의 기존 알림을 한 번에 조회해
         // 수신 사용자별 이미-발행 dedupe 키 집합을 만든다.
+        //
+        // ⚠️ 알려진 한계(코드리뷰 발견, 옵션2로 확정 — 윈도우는 되돌리지 않고 한계만 명시): 이
+        // NOTIFICATION_LOOKBACK_DAYS(400일) 슬라이딩 윈도우는 Kind.DUE(사전알림, 최대 lookahead가
+        // notifyBeforeDays 상한인 365일이라 그 도래일의 최초 발행 기록은 항상 400일 윈도우 안에 남는다)
+        // dedupe에는 충분히 안전하지만, Kind.OVERDUE(연체) dedupe에는 원칙적으로 "무기한" 메모리가
+        // 필요하다 — 재점검 없이 같은 dueAt으로 400일 넘게 연체 상태가 유지되는 시설물은 최초 OVERDUE
+        // 발행 기록이 윈도우 밖으로 밀려나, 동일 (facilityId, dueAt, OVERDUE) 알림이 다시 발행될 수
+        // 있다. 영향 방향은 "과다 알림"이지 "알림 누락"이 아니므로 안전 영향은 낮다고 판단해, 이번
+        // PR에서는 윈도우를 되돌리지 않고(스캔 범위 +365일 확장이 핵심 요구사항이며, 무제한 조회와
+        // 결합 시 증폭 위험이 더 크다) 이 한계를 문서화하는 선에서 마무리한다. 근본 해결책(예: DB
+        // 유니크 제약 기반 멱등성으로 전환해 조회 자체를 없애는 것)은 후속 이슈로 분리한다 —
+        // https://github.com/luma-team-ai/HajaCheck/issues/1050
         Map<Long, Set<String>> alreadyByOwner;
         try {
             alreadyByOwner = notificationRepository
