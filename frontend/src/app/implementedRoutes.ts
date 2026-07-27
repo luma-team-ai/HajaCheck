@@ -23,6 +23,7 @@ const IMPLEMENTED_ROUTES = new Set([
   '/facilities/inspection-cycle',
   '/admin/users',
   '/admin/plans-quota',
+  '/admin/analysis-jobs',
   '/support/ai-assistant',
   '/support/history', // features/counsel 내 상담 이력(#20, HAJA-33)
   '/support/chat-bot', // features/counsel 상담 챗봇(#20, HAJA-33)

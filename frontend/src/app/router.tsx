@@ -219,6 +219,13 @@ const PlanQuotaPage = lazy(() =>
   })),
 );
 
+// 관리자 > AI 분석 현황 모니터링(신규) — 같은 회사 소속 검사자들의 분석 작업 진행/완료를 관리자가 확인
+const AdminAnalysisJobsPage = lazy(() =>
+  import('../features/admin/pages/AdminAnalysisJobsPage').then((m) => ({
+    default: m.AdminAnalysisJobsPage,
+  })),
+);
+
 // 플랫폼 관리자 > RAG 문서 관리 (#22/HAJA-35, PRD FR-8-B)
 const RagDocumentsPage = lazy(() =>
   import('../features/admin/pages/RagDocumentsPage').then((m) => ({
@@ -769,6 +776,21 @@ export const router = createBrowserRouter([
           activeHref: '/admin/plans-quota',
         },
       }, // — features/admin 플랜·쿼터 관리 (Figma node 1197-3519)
+      {
+        path: '/admin/analysis-jobs',
+        // 관리자 전용 — 부모 AppShell의 ProtectedRoute는 인증만 보므로 AdminRoute를 덧댄다(컨벤션 §7)
+        element: (
+          <AdminRoute>
+            <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+              <AdminAnalysisJobsPage />
+            </Suspense>
+          </AdminRoute>
+        ),
+        handle: {
+          breadcrumb: [{ label: '관리자' }, { label: 'AI 분석 현황' }],
+          activeHref: '/admin/analysis-jobs',
+        },
+      }, // — features/admin AI 분석 현황 모니터링(신규)
       {
         path: '/statistics',
         element: (

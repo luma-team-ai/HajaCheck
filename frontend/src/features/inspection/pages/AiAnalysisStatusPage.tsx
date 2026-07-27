@@ -46,7 +46,12 @@ interface ViewModel {
   riskyCrackCount: number;
   severityDistribution: { grade: 'A' | 'B' | 'C' | 'D' | 'E'; percentage: number; color: string }[];
   failedCount: number;
-  jobId: string | null;
+  // 관리자가 "이 분석이 지금 진행 중인지/끝났는지"를 추적할 때 참조할 식별자 — 별도 "분석 실행"
+  // 테이블·잡 개념은 없고(docs/_local 논의 참고), 점검 회차 1개당 분석은 최대 1건만 동시 진행되는
+  // "한 번에 하나만" 정책상 inspectionId 자체가 이미 추적 단위로 충분하다. 예전엔 목업 전용
+  // jobId(항상 null)가 있었는데 실서비스에서 렌더된 적이 없어(비어있는 화면에서만 쓰임) 그대로
+  // 걷어내고 실제 값(점검 회차 ID)으로 교체했다.
+  inspectionId: number | null;
   estimatedRemainingMinutes: number | null;
 }
 
@@ -61,7 +66,9 @@ function fromMockStatus(s: AiAnalysisStatus): ViewModel {
     riskyCrackCount: s.riskyProgressiveCrackCount,
     severityDistribution: s.severityDistribution,
     failedCount: s.failedCount,
-    jobId: s.jobId,
+    // 목업은 특정 점검 회차와 연결되지 않는 경로(사이드바 직접 진입)에서만 쓰인다 — 추적할
+    // 회차 자체가 없으므로 null.
+    inspectionId: null,
     estimatedRemainingMinutes: s.estimatedRemainingMinutes,
   };
 }
@@ -125,7 +132,7 @@ function fromRealStatus(s: AnalysisStatusResponse): ViewModel {
     riskyCrackCount: s.riskyCrackCount,
     severityDistribution,
     failedCount: s.failedCount,
-    jobId: null,
+    inspectionId: s.inspectionId,
     estimatedRemainingMinutes: null,
   };
 }
@@ -255,7 +262,7 @@ export function AiAnalysisStatusPage() {
                       <span className="text-zinc-900">{status.estimatedRemainingMinutes}분</span>
                     </>
                   )}
-                  {status.jobId !== null && <> · 잡 ID #{status.jobId}</>}
+                  {status.inspectionId !== null && <> · 점검 ID #{status.inspectionId}</>}
                 </>
               )}
             </p>

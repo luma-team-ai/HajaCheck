@@ -166,26 +166,33 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
 // 반드시 전역 handlers 배열로 별도 서버를 띄워 검증한다. 기존 describe의 격리 서버와는 완전히
 // 분리된 인스턴스라 서로의 handler/state에 영향을 주지 않는다.
 describe('InspectionDefectsPage — 전역 MSW 핸들러 등록 순서 회귀 테스트(PR머신 P1)', () => {
-  it('inspectionId=202(한강대교 북단)로 온 요청이 mediaHandlers 화이트리스트를 통과한다', async () => {
-    const { allMockHandlers } = await import('../../../mocks/handlers');
-    const globalServer = setupServer(...allMockHandlers);
-    globalServer.listen({ onUnhandledRequest: 'error' });
+  // mocks/handlers.ts가 집계하는 feature handler 수가 늘어날수록 동적 import 비용이 커진다 —
+  // 전체 스위트 병렬 실행 시 기본 5000ms 타임아웃에 종종 걸린다(router.dev-routes.test.tsx와
+  // 동일한 이유). 넉넉한 타임아웃으로 여유를 둔다.
+  it(
+    'inspectionId=202(한강대교 북단)로 온 요청이 mediaHandlers 화이트리스트를 통과한다',
+    async () => {
+      const { allMockHandlers } = await import('../../../mocks/handlers');
+      const globalServer = setupServer(...allMockHandlers);
+      globalServer.listen({ onUnhandledRequest: 'error' });
 
-    try {
-      // features/inspection/api/mediaApi.handlers.ts의 KNOWN_INSPECTION_IDS 화이트리스트에 202가
-      // 없으면(회귀 시) mediaHandlers가 defectHandlers보다 먼저 등록돼 있어(mocks/handlers.ts)
-      // 이 요청이 항상 INSPECTION_NOT_FOUND(404)로 실패한다.
-      //
-      // 실제 File을 담아 undici로 보내면 jsdom File과 Node multipart 파서가 호환되지 않아 무관한
-      // ERR_ASSERTION이 나므로(별도 환경 이슈, 실제 앱 동작과는 무관), 파일 없는 FormData로 요청해
-      // "inspectionId 화이트리스트 검사"만 특정해 확인한다 — mediaApi.handlers.ts는 그 검사를 파일
-      // 유무 확인보다 먼저 수행하므로(handler 상단), 404가 아니라 FILE_REQUIRED(400)가 오면 202가
-      // 화이트리스트를 통과했다는 뜻이다.
-      await expect(api.post('/inspections/202/media', new FormData())).rejects.toMatchObject({
-        code: 'FILE_REQUIRED',
-      });
-    } finally {
-      globalServer.close();
-    }
-  });
+      try {
+        // features/inspection/api/mediaApi.handlers.ts의 KNOWN_INSPECTION_IDS 화이트리스트에 202가
+        // 없으면(회귀 시) mediaHandlers가 defectHandlers보다 먼저 등록돼 있어(mocks/handlers.ts)
+        // 이 요청이 항상 INSPECTION_NOT_FOUND(404)로 실패한다.
+        //
+        // 실제 File을 담아 undici로 보내면 jsdom File과 Node multipart 파서가 호환되지 않아 무관한
+        // ERR_ASSERTION이 나므로(별도 환경 이슈, 실제 앱 동작과는 무관), 파일 없는 FormData로 요청해
+        // "inspectionId 화이트리스트 검사"만 특정해 확인한다 — mediaApi.handlers.ts는 그 검사를 파일
+        // 유무 확인보다 먼저 수행하므로(handler 상단), 404가 아니라 FILE_REQUIRED(400)가 오면 202가
+        // 화이트리스트를 통과했다는 뜻이다.
+        await expect(api.post('/inspections/202/media', new FormData())).rejects.toMatchObject({
+          code: 'FILE_REQUIRED',
+        });
+      } finally {
+        globalServer.close();
+      }
+    },
+    15_000,
+  );
 });
