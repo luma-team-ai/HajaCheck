@@ -8,6 +8,7 @@ import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.media.entity.Media;
@@ -16,6 +17,7 @@ import com.hajacheck.support.PostgresTestSupport;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.TimeZone;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +36,9 @@ class MediaRepositoryTest extends PostgresTestSupport {
 
     @Autowired
     private MediaRepository mediaRepository;
+
+    @Autowired
+    private FacilityRepository facilityRepository;
 
     @Autowired
     private TestEntityManager em;
@@ -263,5 +268,36 @@ class MediaRepositoryTest extends PostgresTestSupport {
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> mediaRepository.saveAndFlush(media))
                 .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    }
+
+    /**
+     * #1024 — V19(#1017)의 fk_media_facility(NO ACTION)는 대표 사진이 남은 시설물을 그냥 delete()하면
+     * FK 위반을 낸다. 이 테스트는 이 시나리오 자체가 이전까지 전혀 검증되지 않았음을 메우는 회귀 방지용
+     * — FacilityService.delete()가 실제로 하는 순서(media 로우 먼저 삭제 → 시설물 삭제)를 실 PG 로
+     * 재현해 FK 위반 없이 성공하는지 확인한다.
+     */
+    @Test
+    void 대표사진있는시설물_media먼저삭제후facility삭제하면FK위반없이성공() {
+        Long facilityId = seedFacility();
+        mediaRepository.save(Media.builder()
+                .facilityId(facilityId).fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/1.png").mimeSignatureVerified(true).build());
+        mediaRepository.save(Media.builder()
+                .facilityId(facilityId).fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/2.png").mimeSignatureVerified(true).build());
+        em.flush();
+        em.clear();
+
+        List<Media> facilityMedia = mediaRepository.findByFacilityIdOrderByIdAsc(facilityId);
+        assertThat(facilityMedia).hasSize(2);
+        mediaRepository.deleteAll(facilityMedia);
+        em.flush();
+
+        Facility facility = em.find(Facility.class, facilityId);
+        facilityRepository.delete(facility);
+        em.flush();
+
+        assertThat(em.find(Facility.class, facilityId)).isNull();
+        assertThat(mediaRepository.findByFacilityIdOrderByIdAsc(facilityId)).isEmpty();
     }
 }

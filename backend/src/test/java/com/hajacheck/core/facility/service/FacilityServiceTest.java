@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -16,6 +17,7 @@ import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
+import com.hajacheck.auth.support.FileStorageService;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
@@ -29,6 +31,9 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.service.QuotaService;
@@ -40,6 +45,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -67,6 +73,12 @@ class FacilityServiceTest {
 
     @Mock
     private DefectRepository defectRepository;
+
+    @Mock
+    private MediaRepository mediaRepository;
+
+    @Mock
+    private FileStorageService fileStorage;
 
     @InjectMocks
     private FacilityService facilityService;
@@ -380,10 +392,63 @@ class FacilityServiceTest {
     void delete_본인시설_저장소에서삭제() {
         Facility facility = existingFacility();
         when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(mediaRepository.findByFacilityIdOrderByIdAsc(10L)).thenReturn(List.of());
 
         facilityService.delete(USER_ID, OWNER_ID, 10L);
 
         verify(facilityRepository, times(1)).delete(facility);
+    }
+
+    // #1024 — fk_media_facility(NO ACTION) 위반 방지: 대표 사진이 있으면 스토리지 파일 삭제 +
+    // media 로우 삭제가 facilityRepository.delete()보다 먼저 일어나야 한다.
+    @Test
+    void delete_대표사진있는시설_미디어와스토리지정리후시설물삭제() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        Media photo1 = Media.builder()
+                .facilityId(10L)
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/1-original.png")
+                .thumbnailUrl("facility-media-thumb/1-thumb.jpg")
+                .detailUrl("facility-media-detail/1-detail.jpg")
+                .mimeSignatureVerified(true)
+                .build();
+        Media photo2 = Media.builder()
+                .facilityId(10L)
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/2-original.png")
+                .thumbnailUrl(null)
+                .detailUrl(null)
+                .mimeSignatureVerified(true)
+                .build();
+        List<Media> facilityMedia = List.of(photo1, photo2);
+        when(mediaRepository.findByFacilityIdOrderByIdAsc(10L)).thenReturn(facilityMedia);
+
+        facilityService.delete(USER_ID, OWNER_ID, 10L);
+
+        verify(fileStorage).delete("facility-media/1-original.png");
+        verify(fileStorage).delete("facility-media-thumb/1-thumb.jpg");
+        verify(fileStorage).delete("facility-media-detail/1-detail.jpg");
+        verify(fileStorage).delete("facility-media/2-original.png");
+        verify(fileStorage, times(2)).delete((String) null);
+
+        InOrder order = inOrder(mediaRepository, facilityRepository);
+        order.verify(mediaRepository).deleteAll(facilityMedia);
+        order.verify(facilityRepository).delete(facility);
+    }
+
+    // 회귀 방지 — 대표 사진이 없는 시설물은 media 관련 정리 호출이 전혀 일어나지 않아야 한다.
+    @Test
+    void delete_대표사진없는시설_미디어관련호출없이정상삭제() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(mediaRepository.findByFacilityIdOrderByIdAsc(10L)).thenReturn(List.of());
+
+        facilityService.delete(USER_ID, OWNER_ID, 10L);
+
+        verify(facilityRepository, times(1)).delete(facility);
+        verify(mediaRepository, never()).deleteAll(any());
+        verify(fileStorage, never()).delete(any());
     }
 
     @Test
