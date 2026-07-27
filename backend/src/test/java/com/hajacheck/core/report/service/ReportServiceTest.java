@@ -22,6 +22,7 @@ import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.inspection.dto.InspectionResponse;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.inspection.entity.InspectionType;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.report.dto.ReportDetailResponse;
 import com.hajacheck.core.report.dto.ReportSummaryResponse;
@@ -71,7 +72,7 @@ class ReportServiceTest {
 
     private static InspectionResponse inspection(Long facilityId) {
         return new InspectionResponse(1L, facilityId, 100L, 100L, 1,
-                LocalDate.now(), InspectionStatus.CREATED, LocalDateTime.now());
+                LocalDate.now(), InspectionType.REGULAR, InspectionStatus.CREATED, LocalDateTime.now());
     }
 
     private static FacilityResponse facility() {
