@@ -66,7 +66,7 @@ class InspectionDueNotificationDedupeJsonbRoundTripTest extends PostgresTestSupp
         Notification reread = notificationRepository.findById(saved.getId()).orElseThrow();
 
         assertThat(InspectionDueNotificationPayload.extractDedupeKey(reread.getPayloadJson()))
-                .isEqualTo(expectedKey)
-                .isEqualTo("10|2026-07-21|DUE");
+                .containsExactly(expectedKey)
+                .containsExactly("10|2026-07-21|DUE");
     }
 }

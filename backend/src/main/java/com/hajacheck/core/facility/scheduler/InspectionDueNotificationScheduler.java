@@ -15,7 +15,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -30,17 +29,23 @@ import org.springframework.stereotype.Component;
  *
  * <p>매일 06:00(KST) 실행. {@code next_inspection_due_at <= 오늘 + MAX_NOTIFY_BEFORE_DAYS}인 시설물을
  * 페이지 단위로 순회하며, 시설물 소유자(회사 소유자)의 {@link InspectionNotificationSetting}(사용자·시설
- * 조합별 알림설정)을 조회해 다음 두 게이트를 적용한다(#540 ③, 상호 배타적 — 같은 시설물이 한 배치에서
- * 둘 다 만족할 수 없다):
+ * 조합별 알림설정)을 조회해 다음 세 게이트를 적용한다(#540 ③, 3종 분리는 사람검수 P2 #1032 — 상호
+ * 배타적, 같은 시설물이 한 배치에서 둘 이상 동시에 만족할 수 없다):
  * <ul>
- *   <li>{@link Kind#DUE} — notifyBeforeEnabled 이고 {@code dueAt - notifyBeforeDays <= 오늘 <= dueAt}
- *       (사전 알림 창 안 또는 당일). notifyBeforeDays=0에 가까운 값이면 종전 "당일 발행"과 동일 시점이 된다.</li>
+ *   <li>{@link Kind#BEFORE} — notifyBeforeEnabled 이고 {@code dueAt - notifyBeforeDays <= 오늘 < dueAt}
+ *       (사전 알림 창 안, 아직 당일 아님).</li>
+ *   <li>{@link Kind#DUE} — {@code dueAt == 오늘}(예정일 당일). notifyBeforeEnabled 설정과 <b>무관하게
+ *       항상 발행</b>된다 — main의 기존 배포 동작({@code dueAt <= 오늘}이면 무조건 당일 발행)을 복원한
+ *       것이다(사람검수 P2 #1032 최우선 회귀 수정). BEFORE와 DUE를 예전처럼 같은 Kind로 묶으면 dedupe
+ *       키가 dueAt 기준 불변이라, 사전창에서 이미 1회 발행된 뒤 당일에도 같은 키로 스킵돼 "당일 발행"
+ *       자체가 사라지는 회귀가 있었다.</li>
  *   <li>{@link Kind#OVERDUE} — warnOnOverdueEnabled 이고 {@code dueAt < 오늘}(예정일 경과).</li>
  * </ul>
  * 설정 행이 없는(사용자가 한 번도 저장한 적 없는) 시설물은 DB 컬럼 기본값과 동일한 기본값
  * (notifyBeforeEnabled=true, notifyBeforeDays=7, warnOnOverdueEnabled=true — HAJA-498/V21)으로
  * 취급한다(InspectionNotificationSettingResponse.defaults()와 동일 값 — 두 곳이 어긋나면 "설정 미저장
- * 상태"의 실제 배치 동작과 조회 API 응답이 서로 달라진다).
+ * 상태"의 실제 배치 동작과 조회 API 응답이 서로 달라진다). 단, {@link Kind#DUE} 게이트는 이 설정과
+ * 무관하게 항상 통과한다(위 참고).
  *
  * <p>⚠️ warnOnOverdueEnabled 기본값 이력(HAJA-498): #540 ③ 최초 도입 시 false로 시작했다가, "예정일이
  * 지난 시설물은 설정을 켜지 않는 한 더 이상 알림이 발행되지 않는" 회귀가 발견됐다. 기존에는
@@ -49,10 +54,10 @@ import org.springframework.stereotype.Component;
  *
  * <p>각 시설물의 <b>현재 도래일 + 알림 종류(kind)</b> 조합으로 이미 발행됐으면 건너뛴다(멱등, 도래일×종류당
  * 1회 — {@link InspectionDueNotificationPayload} 참고). 도래일 값이 바뀌지 않는 한(=재스케줄 전까지) 같은
- * 종류의 알림이 매일 재발행되는 스팸이 발생하지 않는다. kind를 dedupe 키에 포함한 이유: DUE와 OVERDUE는
- * 같은 (facilityId, dueAt) 조합에 대해서도 서로 다른 정보 전달 시점이라, 한쪽을 보냈다고 다른 쪽까지
- * 건너뛰면 안 된다(#540 ③ 코드리뷰 지적 사항). 소유자별·시설물별로 실패를 격리해 한 건의 실패가 배치
- * 전체를 멈추지 않게 한다.
+ * 종류의 알림이 매일 재발행되는 스팸이 발생하지 않는다. kind를 dedupe 키에 포함한 이유: BEFORE·DUE·
+ * OVERDUE는 같은 (facilityId, dueAt) 조합에 대해서도 서로 다른 정보 전달 시점이라, 한쪽을 보냈다고
+ * 다른 쪽까지 건너뛰면 안 된다(#540 ③ 코드리뷰 지적 사항, 3종 분리는 사람검수 P2 #1032). 소유자별·
+ * 시설물별로 실패를 격리해 한 건의 실패가 배치 전체를 멈추지 않게 한다.
  *
  * <p>⚠️ 이 메서드/클래스에는 {@code @Transactional}을 붙이지 않는다 —
  * {@link NotificationService#notify}가 자체 트랜잭션을 가져 시설물별로 독립 커밋되게 하려는 의도적 설계다.
@@ -144,9 +149,10 @@ public class InspectionDueNotificationScheduler {
         // 수신 사용자별 이미-발행 dedupe 키 집합을 만든다.
         //
         // ⚠️ 알려진 한계(코드리뷰 발견, 옵션2로 확정 — 윈도우는 되돌리지 않고 한계만 명시): 이
-        // NOTIFICATION_LOOKBACK_DAYS(400일) 슬라이딩 윈도우는 Kind.DUE(사전알림, 최대 lookahead가
-        // notifyBeforeDays 상한인 365일이라 그 도래일의 최초 발행 기록은 항상 400일 윈도우 안에 남는다)
-        // dedupe에는 충분히 안전하지만, Kind.OVERDUE(연체) dedupe에는 원칙적으로 "무기한" 메모리가
+        // NOTIFICATION_LOOKBACK_DAYS(400일) 슬라이딩 윈도우는 Kind.BEFORE/Kind.DUE(사전·당일 알림,
+        // 최대 lookahead가 notifyBeforeDays 상한인 365일이라 그 도래일의 최초 발행 기록은 항상 400일
+        // 윈도우 안에 남는다) dedupe에는 충분히 안전하지만, Kind.OVERDUE(연체) dedupe에는 원칙적으로
+        // "무기한" 메모리가
         // 필요하다 — 재점검 없이 같은 dueAt으로 400일 넘게 연체 상태가 유지되는 시설물은 최초 OVERDUE
         // 발행 기록이 윈도우 밖으로 밀려나, 동일 (facilityId, dueAt, OVERDUE) 알림이 다시 발행될 수
         // 있다. 영향 방향은 "과다 알림"이지 "알림 누락"이 아니므로 안전 영향은 낮다고 판단해, 이번
@@ -156,15 +162,19 @@ public class InspectionDueNotificationScheduler {
         // https://github.com/luma-team-ai/HajaCheck/issues/1050
         Map<Long, Set<String>> alreadyByOwner;
         try {
+            // extractDedupeKey는 알림 1건당 여러 dedupe 키를 낼 수 있다(구 payload는 DUE+OVERDUE 두 키 —
+            // InspectionDueNotificationPayload 클래스 javadoc, 사람검수 P2 #1032) — flatMapping으로
+            // owner별 키 집합에 모두 펼쳐 담는다(Collectors.mapping+filtering이던 이전 구현은 알림 1건당
+            // 키 1개만 가정해 이 경우를 다루지 못했다).
             alreadyByOwner = notificationRepository
                     .findAllByUserIdInAndTypeAndCreatedAtAfter(
                             ownerUserIds, NotificationType.INSPECTION_DUE, notificationLookbackAfter)
                     .stream()
                     .collect(Collectors.groupingBy(
                             Notification::getUserId,
-                            Collectors.mapping(
-                                    n -> InspectionDueNotificationPayload.extractDedupeKey(n.getPayloadJson()),
-                                    Collectors.filtering(Objects::nonNull, Collectors.toSet()))));
+                            Collectors.flatMapping(
+                                    n -> InspectionDueNotificationPayload.extractDedupeKey(n.getPayloadJson()).stream(),
+                                    Collectors.toSet())));
         } catch (Exception e) {
             // 1회 배치 조회라 owner별로 나눠 처리할 수 없다 — 멱등성 보장 불가한 이 페이지 전체를 스킵하고 다음 페이지로.
             log.warn("INSPECTION_DUE 기존 알림 배치 조회 실패 — page={} 전체 스킵 exception={}",
@@ -242,17 +252,26 @@ public class InspectionDueNotificationScheduler {
     }
 
     /**
-     * dueAt/today/알림설정으로부터 발행할 알림 종류를 정한다(#540 ③). 두 게이트는 상호 배타적이다
-     * (DUE는 dueAt >= today, OVERDUE는 dueAt < today) — 같은 시설물이 한 번의 배치 실행에서 두 종류를
-     * 동시에 만족할 수 없다. 어느 쪽도 만족하지 못하면 null(이번 실행에서는 발행 대상 아님).
+     * dueAt/today/알림설정으로부터 발행할 알림 종류를 정한다(#540 ③, 3종 분리는 사람검수 P2 #1032).
+     * 세 게이트는 상호 배타적이다(OVERDUE는 dueAt &lt; today, DUE는 dueAt == today, BEFORE는
+     * dueAt &gt; today) — 같은 시설물이 한 번의 배치 실행에서 둘 이상을 동시에 만족할 수 없다. 어느
+     * 쪽도 만족하지 못하면 null(이번 실행에서는 발행 대상 아님).
+     *
+     * <p>⚠️ DUE(dueAt == today)는 notifyBeforeEnabled 값과 무관하게 항상 반환한다 — main의 기존
+     * 배포 동작({@code dueAt <= today}면 무조건 당일 발행)을 그대로 복원해야 하기 때문이다(사람검수
+     * P2 #1032). 사전창(BEFORE)만 notifyBeforeEnabled 게이팅의 대상이다.
      */
     private static Kind resolveKind(LocalDate dueAt, LocalDate today, boolean notifyBeforeEnabled,
             int notifyBeforeDays, boolean warnOnOverdueEnabled) {
         if (dueAt.isBefore(today)) {
             return warnOnOverdueEnabled ? Kind.OVERDUE : null;
         }
-        if (notifyBeforeEnabled && !dueAt.minusDays(notifyBeforeDays).isAfter(today)) {
+        if (dueAt.isEqual(today)) {
             return Kind.DUE;
+        }
+        // dueAt > today
+        if (notifyBeforeEnabled && !dueAt.minusDays(notifyBeforeDays).isAfter(today)) {
+            return Kind.BEFORE;
         }
         return null;
     }

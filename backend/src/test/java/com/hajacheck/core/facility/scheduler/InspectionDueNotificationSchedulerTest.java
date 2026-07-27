@@ -302,9 +302,10 @@ class InspectionDueNotificationSchedulerTest {
     // ── 알림설정 게이팅(#540 ③) ──────────────────────────────────────────────
 
     @Test
-    @DisplayName("설정 행이 없으면 기본값(사전알림 7일전)으로 사전알림 창 안이면 발행한다")
-    void 사전알림_설정없음_기본값7일전_창안이면_발행() {
-        // 도래일 = 오늘+5일 → 오늘+5 - 7일 = 오늘-2 <= 오늘 → 기본 7일 창 안.
+    @DisplayName("설정 행이 없으면 기본값(사전알림 7일전)으로 사전알림 창 안이면 BEFORE 알림을 발행한다"
+            + "(사람검수 P2 #1032 — BEFORE/DUE 3분리 전에는 이 창 전체가 DUE 하나로 묶여 있었다)")
+    void 사전알림_설정없음_기본값7일전_창안이면_BEFORE발행() {
+        // 도래일 = 오늘+5일 → 오늘+5 - 7일 = 오늘-2 <= 오늘 → 기본 7일 창 안, 아직 당일은 아니므로 BEFORE.
         Facility f = dueFacility(1L, COMPANY, "시설A", TODAY.plusDays(5));
         stubDuePage(List.of(f));
         stubNoExistingNotifications();
@@ -313,7 +314,7 @@ class InspectionDueNotificationSchedulerTest {
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), payloadCaptor.capture());
-        assertThat(payloadCaptor.getValue()).contains("\"kind\":\"DUE\"");
+        assertThat(payloadCaptor.getValue()).contains("\"kind\":\"BEFORE\"");
     }
 
     @Test
@@ -330,8 +331,12 @@ class InspectionDueNotificationSchedulerTest {
     }
 
     @Test
-    @DisplayName("사전알림을 꺼둔 설정이면 당일이어도 발행하지 않는다")
-    void 사전알림_비활성화설정_당일이어도_발행안함() {
+    @DisplayName("notifyBeforeEnabled=false여도 dueAt==오늘(당일)이면 DUE는 발행된다"
+            + "(사람검수 P2 #1032 최우선 회귀 수정 — main의 기존 배포 동작인 '당일 무조건 발행'을 복원)")
+    void 당일_notifyBeforeEnabled꺼져있어도_DUE는발행된다() {
+        // #540 ③ 최초 구현은 사전창 전체(BEFORE~DUE)를 notifyBeforeEnabled 하나로 게이팅해, 이 설정을
+        // 끄면 당일 알림까지 함께 사라지는 회귀가 있었다. DUE(dueAt==오늘)는 이 설정과 무관하게 항상
+        // 발행돼야 한다.
         Facility f = dueFacility(1L, COMPANY, "시설A", TODAY);
         stubDuePage(List.of(f));
         stubNoExistingNotifications();
@@ -339,7 +344,29 @@ class InspectionDueNotificationSchedulerTest {
 
         scheduler.notifyFacilitiesDueToday();
 
-        verify(notificationService, never()).notify(anyLong(), any(), anyString());
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), payloadCaptor.capture());
+        assertThat(payloadCaptor.getValue()).contains("\"kind\":\"DUE\"");
+    }
+
+    @Test
+    @DisplayName("D-7 시점 사전(BEFORE) 알림이 이미 발행된 뒤에도, D-day 배치에서 당일(DUE) 알림이 별도로 발행된다"
+            + "(사람검수 P2 #1032 — BEFORE와 DUE는 dedupe 키가 달라 서로를 스킵시키지 않는다)")
+    void BEFORE발행이력있어도_D_day에는_DUE가별도로발행된다() {
+        // D-7에 이미 BEFORE 알림이 발행된 상태를 재현(existingNotificationFor로 기존 이력 시뮬레이션).
+        // 오늘(TODAY)이 바로 그 dueAt이라 이번 배치는 이 시설물을 DUE로 판정해야 하고, BEFORE 이력이
+        // 있다고 해서 스킵되면 안 된다(구현이 3분리 이전으로 되돌아가면 이 테스트가 깨진다).
+        Facility f = dueFacility(1L, COMPANY, "시설A", TODAY);
+        stubDuePage(List.of(f));
+        Notification existingBefore = existingNotificationFor(f, Kind.BEFORE);
+        when(notificationRepository.findAllByUserIdInAndTypeAndCreatedAtAfter(anySet(), any(), any()))
+                .thenReturn(List.of(existingBefore));
+
+        scheduler.notifyFacilitiesDueToday();
+
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), payloadCaptor.capture());
+        assertThat(payloadCaptor.getValue()).contains("\"kind\":\"DUE\"");
     }
 
     @Test
@@ -394,6 +421,26 @@ class InspectionDueNotificationSchedulerTest {
         stubDuePage(List.of(f));
         stubNoExistingNotifications();
         stubSettings(settingRow(OWNER, 1L, true, 7, false));
+
+        scheduler.notifyFacilitiesDueToday();
+
+        verify(notificationService, never()).notify(anyLong(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("kind 필드 없는 구(舊) payload 이력이 있으면 overdue 시설물의 OVERDUE 알림이 재발행되지 않는다"
+            + "(사람검수 P2 #1032 — DUE 하나만 반환하던 이전 하위호환은 이 케이스를 못 막았다)")
+    void 구payload이력있으면_overdue시설물OVERDUE재발행안됨() {
+        // #540 이전 저장분은 {facilityId, facilityName, nextInspectionDueAt}만 담고 kind 필드가 없다.
+        Facility f = dueFacility(1L, COMPANY, "연체시설", TODAY.minusDays(1));
+        stubDuePage(List.of(f));
+        stubSettings(settingRow(OWNER, 1L, true, 7, true));
+        String legacyPayload = "{\"facilityId\":1,\"facilityName\":\"연체시설\",\"nextInspectionDueAt\":\""
+                + TODAY.minusDays(1) + "\"}";
+        Notification legacyNotification =
+                Notification.create(OWNER, NotificationType.INSPECTION_DUE, legacyPayload);
+        when(notificationRepository.findAllByUserIdInAndTypeAndCreatedAtAfter(anySet(), any(), any()))
+                .thenReturn(List.of(legacyNotification));
 
         scheduler.notifyFacilitiesDueToday();
 

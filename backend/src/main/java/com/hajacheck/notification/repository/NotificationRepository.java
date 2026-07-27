@@ -55,8 +55,8 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
      * 증가"를 "고정 슬라이딩 윈도우"로 바꾼다 — 완전한 해결(멱등성을 DB 유니크 제약으로 옮기거나 페이지별
      * 정확 매칭 조회로 좁히는 것)은 후속 이슈로 분리한다.
      *
-     * <p>⚠️ 이 윈도우는 Kind.DUE(사전알림, lookahead 상한 365일) dedupe에는 안전하지만, Kind.OVERDUE
-     * (연체) dedupe에는 원칙적으로 무기한 이력이 필요하다 — 재점검 없이 400일 넘게 같은 dueAt으로
+     * <p>⚠️ 이 윈도우는 Kind.BEFORE/Kind.DUE(사전·당일 알림, lookahead 상한 365일) dedupe에는 안전하지만,
+     * Kind.OVERDUE(연체) dedupe에는 원칙적으로 무기한 이력이 필요하다 — 재점검 없이 400일 넘게 같은 dueAt으로
      * 연체 상태가 유지된 시설물은 최초 OVERDUE 발행 기록이 윈도우 밖으로 밀려나 중복 발행될 수 있다
      * (과다 알림 방향, 누락 아님). 근본 해결은 후속 이슈
      * https://github.com/luma-team-ai/HajaCheck/issues/1050 참조.
