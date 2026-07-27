@@ -564,7 +564,8 @@ export function ReportEntryPage() {
                 className="flex items-center justify-between rounded-full border border-border bg-white p-3"
               >
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#fef2f2]">
+                  {/* ponytail: bg-danger-soft-bg는 tokens.css의 --color-danger-soft-bg(#fef2f2)와 동일값 — 하드코딩 대신 기존 토큰 재사용(#928) */}
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-danger-soft-bg">
                     <Icon spec={ICONS.documentAccent} fill="#EF4444" className="h-[17px] w-[17px]" />
                   </div>
                   <div>
