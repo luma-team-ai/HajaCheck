@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 import com.hajacheck.auth.support.FileStorageService;
 import com.hajacheck.auth.support.FileStorageService.StoredFile;
 import com.hajacheck.auth.service.CompanyScopeGuard;
+import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.config.MediaUploadProperties;
 import com.hajacheck.core.media.dto.MediaResponse;
@@ -56,6 +57,8 @@ class MediaServiceTest {
     private MediaWriter mediaWriter;
     @Mock
     private InspectionService inspectionService;
+    @Mock
+    private FacilityService facilityService;
     @Mock
     private FileStorageService fileStorage;
     @Mock
@@ -480,5 +483,117 @@ class MediaServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
                         .isEqualTo(ErrorCode.FORBIDDEN));
+    }
+
+    // ── 시설물 대표 사진(#632/#652, HAJA-377) ──────────────────────────────────────────────
+
+    @Test
+    void loadOwnedMedia_facility전용로우_본인회사_FacilityService로인가_썸네일반환() {
+        // facility_id 만 채워진 로우(inspection_id=null) — loadOwnedMedia 가 InspectionService 가 아니라
+        // FacilityService.get() 으로 인가 분기해야 한다(리스크 감사 필수처리 1). inspection 경로로 갔다면
+        // media.getInspectionId()=null 로 500/인가 누락이 났을 것이다.
+        Media media = Media.builder()
+                .facilityId(7L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        when(fileStorage.read("inspection-media-thumb/x.jpg")).thenReturn(new byte[] {4, 5, 6});
+
+        MediaService.ThumbnailFile thumbnail = service.getThumbnail(200L, 100L, 10L);
+
+        assertThat(thumbnail.content()).containsExactly(4, 5, 6);
+        verify(facilityService).get(200L, 100L, 7L);
+        verify(inspectionService, never()).getInspection(anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
+    void loadOwnedMedia_facility전용로우_타사접근_존재하지않는id와동일하게MEDIA_NOT_FOUND() {
+        // 타사 시설물 사진 조회 — FacilityService.get() 이 FACILITY_NOT_FOUND 를 던지고, loadOwnedMedia 는
+        // 이를 MEDIA_NOT_FOUND(404)로 통일해 존재 여부 열거(cross-company IDOR)를 막아야 한다.
+        Media media = Media.builder()
+                .facilityId(7L)
+                .fileType(com.hajacheck.core.media.entity.MediaFileType.IMAGE)
+                .originalUrl("inspection-media/x.png")
+                .thumbnailUrl("inspection-media-thumb/x.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .build();
+        when(mediaRepository.findById(10L)).thenReturn(java.util.Optional.of(media));
+        doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
+                .when(facilityService).get(200L, 999L, 7L);
+
+        assertThatThrownBy(() -> service.getThumbnail(200L, 999L, 10L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
+        verify(inspectionService, never()).getInspection(anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
+    void uploadFacilityPhotos_4장_정상저장_facility_id로분기() throws IOException {
+        byte[] png = realPngBytes();
+        List<MultipartFile> files = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            files.add(pngFile("f" + i + ".png", png));
+        }
+        stubStorage();
+        when(mediaRepository.countByFacilityId(7L)).thenReturn(0L);
+        when(mediaWriter.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+
+        List<MediaResponse> result = service.uploadFacilityPhotos(7L, 200L, 100L, files);
+
+        assertThat(result).hasSize(4);
+        verify(facilityService).get(200L, 100L, 7L);
+        verify(inspectionService, never()).getInspection(anyLong(), anyLong(), anyLong());
+
+        ArgumentCaptor<List<Media>> captor = ArgumentCaptor.forClass(List.class);
+        verify(mediaWriter).saveAll(captor.capture());
+        Media saved = captor.getValue().get(0);
+        assertThat(saved.getFacilityId()).isEqualTo(7L);
+        assertThat(saved.getInspectionId()).isNull();
+    }
+
+    @Test
+    void uploadFacilityPhotos_기존4장에추가업로드_5번째거부_파일저장안함() throws IOException {
+        byte[] png = realPngBytes();
+        MultipartFile file = pngFile("f.png", png);
+        // 이미 4장 보유 — 1장 더 올리면 4+1>4 로 상한 초과.
+        when(mediaRepository.countByFacilityId(7L)).thenReturn(4L);
+
+        assertThatThrownBy(() -> service.uploadFacilityPhotos(7L, 200L, 100L, List.of(file)))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.FACILITY_PHOTO_COUNT_EXCEEDED));
+
+        // 상한 검증은 파일 저장 전에 이뤄져야 한다 — 아무 파일도 저장/보상삭제되지 않는다.
+        verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
+        verify(mediaWriter, never()).saveAll(anyList());
+    }
+
+    @Test
+    void uploadFacilityPhotos_타사시설물_예외전파_카운트조회나저장안함() throws IOException {
+        byte[] png = realPngBytes();
+        MultipartFile file = pngFile("f.png", png);
+        doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
+                .when(facilityService).get(200L, 999L, 7L);
+
+        assertThatThrownBy(() -> service.uploadFacilityPhotos(7L, 200L, 999L, List.of(file)))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
+
+        verify(mediaRepository, never()).countByFacilityId(anyLong());
+        verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
+    }
+
+    @Test
+    void uploadFacilityPhotos_빈목록_FILE_REQUIRED_소유권검증전거부() {
+        assertThatThrownBy(() -> service.uploadFacilityPhotos(7L, 200L, 100L, List.of()))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.FILE_REQUIRED));
+
+        verify(facilityService, never()).get(anyLong(), anyLong(), anyLong());
+        verify(mediaWriter, never()).saveAll(anyList());
     }
 }

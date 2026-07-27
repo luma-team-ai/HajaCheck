@@ -273,6 +273,10 @@ export function ReportEntryPage() {
   if (isError) return <AIErrorFallback onRetry={() => void refetch()} />;
   if (!data) return <div className="p-5 text-red-600">데이터를 불러올 수 없습니다.</div>;
 
+  // 완료율 배지·"보고서 생성 시작" 버튼(247/614행)이 같은 기준을 쓰도록 통일 — totalCount=0(하자
+  // 0건)이면 검수할 게 없으니 완료로 취급한다(#945).
+  const isComplete = data.reviewedCount === data.totalCount;
+
   return (
     <div>
       {/* Figma node 180:5040 "Background+Border+Shadow" — 섹션 1~5(제목~최근작업내역)를
@@ -334,7 +338,7 @@ export function ReportEntryPage() {
               {data.totalCount > 0 ? Math.round((data.reviewedCount / data.totalCount) * 100) : 0}%
             </div>
           </div>
-          {data.reviewedCount === data.totalCount && data.totalCount > 0 ? (
+          {isComplete ? (
             <div className="inline-flex items-center gap-1 rounded-full bg-success-soft-bg px-3 py-1">
               <div className="h-1.5 w-1.5 rounded-full bg-success" />
               <span className="text-xs font-medium text-success">완료</span>
@@ -612,7 +616,7 @@ export function ReportEntryPage() {
             <Button
               variant="primary"
               size="md"
-              disabled={data.reviewedCount !== data.totalCount || isGenerating}
+              disabled={!isComplete || isGenerating}
               onClick={handleGenerateReport}
             >
               <span className="inline-flex items-center gap-2">
