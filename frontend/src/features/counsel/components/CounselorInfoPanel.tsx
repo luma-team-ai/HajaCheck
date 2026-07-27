@@ -172,21 +172,19 @@ export function CounselorInfoPanel({ ticket }: Props) {
                 key={past.id}
                 type="button"
                 onClick={() => setSelectedHistoryTicket(past)}
-                className="group flex flex-col gap-1 rounded-2xl border border-transparent bg-white px-4 py-3 text-left text-xs shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] transition-colors hover:border-point hover:bg-surface-sunken focus-visible:border-point focus-visible:outline-none"
+                className="flex flex-col gap-1.5 rounded-2xl border border-transparent bg-white px-4 py-3 text-left text-xs shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] transition-colors hover:border-point hover:bg-surface-sunken focus-visible:border-point focus-visible:outline-none"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <p className="m-0 line-clamp-1 text-sm font-semibold text-primary group-hover:line-clamp-none">
-                    {past.title}
-                  </p>
+                  <span className="shrink-0 rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-text-muted">
+                    {past.category}
+                  </span>
                   <span className="shrink-0 text-[11px] text-text-muted">
                     {new Date(past.createdAt).toLocaleDateString('sv-SE').replaceAll('-', '.')}
                   </span>
                 </div>
-                {/* 실제 마지막 메시지 미리보기 필드는 백엔드에 없다(CounselTicketSummaryResponse에
-                    lastMessage 없음) — 지어내지 않고, 대신 호버 시 잘려있던 제목/카테고리를
-                    그대로 펼쳐 보여주는 것으로 "내용을 좀 더 보여달라"는 요청에 대응한다. */}
-                <p className="m-0 line-clamp-1 text-text-muted group-hover:line-clamp-none">
-                  {past.category} · #{past.ticketNumber} · {past.status}
+                <p className="m-0 truncate text-sm font-semibold text-primary">{past.title}</p>
+                <p className="m-0 truncate text-text-muted">
+                  #{past.ticketNumber} · {past.status}
                 </p>
               </button>
             ))}
