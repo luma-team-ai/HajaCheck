@@ -99,7 +99,7 @@ export function DefectCardGridControls({
                   aria-hidden="true"
                 />
               )}
-              <span className="defect-card-grid__status-tab-label">{tab.label}</span>
+              <span className="defect-card-grid__status-tab-label">{tab.label}</span>{' '}
               <span className="defect-card-grid__status-tab-count">{statusCounts[tab.value]}</span>
             </button>
           );
