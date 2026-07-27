@@ -1155,6 +1155,35 @@ comment on index uq_counsel_tickets_session is
 create unique index uq_counsel_tickets_ticket_number
     on counsel_tickets (ticket_number);
 
+create table counsel_ticket_notes
+(
+    id           bigint generated always as identity
+        primary key,
+    ticket_id    bigint                                 not null
+        references counsel_tickets,
+    counselor_id bigint                                 not null,
+    content      text,
+    updated_at   timestamp with time zone default now() not null
+);
+
+comment on table counsel_ticket_notes is '상담원 전용 비공개 메모(고객 비노출, 티켓당 1개, #1021/HAJA-503)';
+
+comment on column counsel_ticket_notes.id is '상담 티켓 메모 식별자';
+
+comment on column counsel_ticket_notes.ticket_id is 'counsel_tickets FK, 티켓당 1개(unique)';
+
+comment on column counsel_ticket_notes.counselor_id is '최근 메모 작성/갱신 상담원 ID';
+
+comment on column counsel_ticket_notes.content is '메모 본문(nullable — 빈 메모 허용)';
+
+comment on column counsel_ticket_notes.updated_at is '메모 최종 갱신 시각';
+
+alter table counsel_ticket_notes
+    owner to postgres;
+
+create unique index uq_counsel_ticket_notes_ticket_id
+    on counsel_ticket_notes (ticket_id);
+
 create table counselor_skills
 (
     counselor_id bigint       not null
