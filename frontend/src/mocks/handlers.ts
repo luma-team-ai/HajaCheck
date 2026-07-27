@@ -12,6 +12,7 @@ import { facilityDefectHandlers } from '../features/facility/api/facilityDefectA
 import { facilityHandlers } from '../features/facility/api/facilityApi.handlers';
 import { inspectionHandlers } from '../features/inspection/api/inspectionApi.handlers';
 import { mediaHandlers } from '../features/inspection/api/mediaApi.handlers';
+import { menuHandlers } from '../features/menu/api/menuApi.handlers';
 import { mypageHandlers } from '../features/mypage/api/mypageApi.handlers';
 import { notificationHandlers } from '../features/notification/api/notificationApi.handlers';
 import { monitoringHandlers } from '../features/platform-admin/api/monitoringApi.handlers';
@@ -50,6 +51,7 @@ export const allMockHandlers = [
   ...defectHandlers,
   ...dashboardHandlers,
   ...statisticsHandlers,
+  ...menuHandlers,
   ...mypageHandlers,
   ...effectiveFacilityHandlers,
   ...facilityDefectHandlers,

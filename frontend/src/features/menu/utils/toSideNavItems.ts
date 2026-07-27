@@ -1,0 +1,72 @@
+import type { SideNavItem, SideNavSubItem } from '../../../shared/components/SideNavBar';
+import type { MenuTreeItem } from '../types';
+import { DEFAULT_MENU_ICON, MENU_ICON_MAP } from './menuIcons';
+
+// SideNavBar.tsx의 activeInspectionId 후처리(allItems useMemo)는 sub.id 값으로 대상 서브 항목을
+// 식별한다(점검 관리/보고서 그룹) — 백엔드는 안정적인 code만 내려주므로, 그 후처리가 백엔드 응답에도
+// 그대로 동작하도록 이 코드들만 SideNavBar가 원래 쓰던 로컬 id로 옮겨 담는다. 그 외 서브 항목은
+// id 없이도 href만으로 활성 판정이 되므로 매핑하지 않는다(#1003).
+// 코드값은 현재 공유 dev DB에 실제로 들어있는 시드 기준(2026-07-25, 담당자 시드)이다 — 최초 작성 시
+// 추정했던 코드명(REPORTS_EDIT/REPORTS_EXPORT/SUPPORT_CHAT_BOT)과 실제 값이 달라 매칭이 안 됐던 걸
+// 바로잡았다. 'INSPECTIONS_REPORT_ENTRANCE'(점검 요약 및 보고서 생성)는 기존 '보고서 생성 진입점'과
+// 라벨·개념이 달라(활성 점검 유무로 링크가 바뀌어야 하는 항목인지 불명확) 의도적으로 매핑하지 않는다
+// — 자체 정적 경로(/inspections/report-entrance)로 동작한다.
+const DYNAMIC_SUB_ITEM_ID_BY_CODE: Record<string, string> = {
+  INSPECTIONS_AI_ANALYSIS: 'ai-analysis',
+  INSPECTIONS_RESULT_VIEWER: 'result-viewer',
+  REPORTS_EDITOR: 'report-edit',
+  REPORTS_EXPORT_PDF: 'report-export',
+};
+
+// 관리자 페이지(DEFAULT_ADMIN_ITEM)는 최상위 트리와 분리된 별도 prop(SideNavBar의 adminItem)으로
+// 전달돼야 isAdmin일 때만 노출되는 기존 동작이 재현된다. code가 아니라 표시 라벨로 식별하는 이유:
+// menus 시드는 DB 담당자가 별도로 확정 중이라 최상위 관리자 그룹의 code 값(예: 'ADMIN' vs
+// 'ADMIN_CONSOLE')이 아직 안정적이지 않다 — code로 매칭하면 실제 값이 다를 때 조용히 매칭 실패해
+// DB의 진짜 관리자 그룹이 adminItem이 아니라 일반 items에 섞여 들어가고, 동시에 SideNavBar 자체
+// 기본값(DEFAULT_ADMIN_ITEM)까지 겹쳐 붙어 "관리자 페이지"가 2개로 보이는 사고가 있었다. 라벨
+// "관리자 페이지"는 SideNavBar의 다른 label 기반 매칭(예: '점검 관리')과 동일한 관례라 code 명명이
+// 바뀌어도 안전하다.
+const ADMIN_GROUP_LABEL = '관리자 페이지';
+
+function resolveIcon(iconKey: string | null): string {
+  if (!iconKey) {
+    return DEFAULT_MENU_ICON;
+  }
+  return MENU_ICON_MAP[iconKey] ?? DEFAULT_MENU_ICON;
+}
+
+function toSubItem(menu: MenuTreeItem): SideNavSubItem {
+  return {
+    label: menu.name,
+    href: menu.path ?? '#',
+    id: DYNAMIC_SUB_ITEM_ID_BY_CODE[menu.code],
+    matchHref: menu.activePathPattern ?? undefined,
+    enabled: menu.enabled,
+  };
+}
+
+function toItem(menu: MenuTreeItem): SideNavItem {
+  return {
+    label: menu.name,
+    // GROUP은 DB상 path가 항상 null이다(menus.ck_menus_path_by_type) — SideNavBar가 GROUP 항목을
+    // 실제로 네비게이션에 쓰지 않고 React key로만 쓰므로, 링크로 오인되지 않는 값이면 충분하다.
+    href: menu.path ?? `#${menu.code}`,
+    icon: resolveIcon(menu.iconKey),
+    subItems: menu.children.length > 0 ? menu.children.map(toSubItem) : undefined,
+    // GROUP 자체는 토글 버튼이라(handleNavClick을 안 탐) enabled가 의미 없지만, 리프는 그대로 전달해
+    // is_enabled=false인 메뉴가 표시는 되되 클릭이 막히도록 한다(#1003 팔로우업).
+    enabled: menu.enabled,
+  };
+}
+
+export interface SideNavItemsFromTree {
+  items: SideNavItem[];
+  adminItem?: SideNavItem;
+}
+
+// GET /api/menus 응답(role로 이미 필터링됨)을 SideNavBar props 형태로 변환한다(#1003).
+export function toSideNavItems(tree: MenuTreeItem[]): SideNavItemsFromTree {
+  const adminMenu = tree.find((menu) => menu.menuType === 'GROUP' && menu.name === ADMIN_GROUP_LABEL);
+  const items = tree.filter((menu) => menu !== adminMenu).map(toItem);
+  return { items, adminItem: adminMenu ? toItem(adminMenu) : undefined };
+}
