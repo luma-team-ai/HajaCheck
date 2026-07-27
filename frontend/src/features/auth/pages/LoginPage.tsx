@@ -5,6 +5,8 @@ import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import type { ApiError } from '../../../shared/api/types';
 import { Button } from '../../../shared/components/Button';
 import { isSafeInternalPath } from '../../../shared/utils/safeInternalPath';
+import { isCounselorRole } from '../../../shared/constants/roles';
+import { COUNSELOR_QUEUE_ROUTE } from '../../../shared/constants/routes';
 import { authApi } from '../api/authApi';
 import { AuthSignupCta } from '../components/AuthSignupCta';
 import { CompanyLoginTab } from '../components/CompanyLoginTab';
@@ -53,7 +55,10 @@ export function LoginPage() {
       const from = (location.state as { from?: string } | null)?.from;
       // state.from은 라우터 state에 실린 값이라 외부에서 임의로 주입 가능 — 내부 절대경로임을
       // 검증하지 않고 그대로 navigate에 넘기면 오픈 리다이렉트로 악용될 수 있다(#280 P3).
-      navigate(isSafeInternalPath(from) ? from : '/dashboard');
+      // from이 없을 때의 기본 목적지는 role에 따라 갈린다 — COUNSELOR는 일반 대시보드에 볼일이
+      // 없어 상담원 콘솔 대기열로 보낸다(#1001, HAJA-495, useLogin.ts와 동일 분기).
+      const fallback = isCounselorRole(me.role) ? COUNSELOR_QUEUE_ROUTE : '/dashboard';
+      navigate(isSafeInternalPath(from) ? from : fallback);
     }
   }, [isSuccess, me, navigate, setUser, location.state]);
 
