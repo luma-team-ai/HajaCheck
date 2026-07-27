@@ -44,8 +44,6 @@ export function CounselorShellRoute() {
       // 상담원은 관리자가 아니므로 오해를 부른다 — 그래서 adminItem이 아니라 일반 items로 전달한다.
       items={[COUNSELOR_NAV_ITEM]}
       brandHref="/counsel-console/queue"
-      user={authUser ? { name: authUser.name } : undefined}
-      onLogout={() => void logout()}
       profileMenu={
         authUser
           ? {
