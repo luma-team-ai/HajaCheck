@@ -41,7 +41,7 @@ def test_build_prompt_wraps_query_as_untrusted():
 def test_nl_search_endpoint_success(mock_get_llm):
     mock_llm = MagicMock()
     mock_llm.with_structured_output.return_value.invoke.return_value = _result(
-        filters={"type": [], "grade": ["D", "E"], "status": ["ACTION_PENDING"], "confidenceMin": None},
+        filters={"type": [], "grade": ["D", "E"], "status": ["CONFIRMED"], "confidenceMin": None},
     )
     mock_get_llm.return_value = mock_llm
 
@@ -50,7 +50,7 @@ def test_nl_search_endpoint_success(mock_get_llm):
     body = res.json()
     assert body["success"] is True
     assert body["data"]["filters"]["grade"] == ["D", "E"]
-    assert body["data"]["filters"]["status"] == ["ACTION_PENDING"]
+    assert body["data"]["filters"]["status"] == ["CONFIRMED"]
     assert body["data"]["clarifying_question"] is None
 
 
