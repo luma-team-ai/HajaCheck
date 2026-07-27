@@ -120,14 +120,24 @@ class FlywayBaselineOnExistingDbIntegrationTest {
         assertThat(planRepository.findByName(PlanName.ENTERPRISE)).isPresent();
         assertThat(planRepository.findByName(PlanName.ENTERPRISE).orElseThrow().getMaxSeats()).isNull();
 
-        // FREE 는 대표 1인 전용 티어다(#858 — #843/V19 좌석 상향을 되돌리며 V19 파일 자체를 삭제했다).
-        // 캐노니컬 DDL 시드값 1이 그대로 유지되어야 하며, V19 가 더 이상 존재하지 않으므로
-        // flyway_schema_history 에 version='19' 레코드도 남지 않는다.
+        // FREE 는 대표 1인 전용 티어다(#858 — #843/구 V19 좌석 상향을 되돌리며 그 파일을 삭제했다).
+        // 캐노니컬 DDL 시드값 1이 그대로 유지되어야 한다.
         assertThat(planRepository.findByName(PlanName.FREE).orElseThrow().getMaxSeats()).isEqualTo(1);
+
+        // 현재의 V19 는 #988/HAJA-489 결제 원장(payments)이다. 이 테스트의 기존 DB(캐노니컬 DDL)에는
+        // payments 가 이미 존재하므로, V19 는 전 구문이 멱등(IF NOT EXISTS / DO 블록)이라 실패 없이
+        // no-op 성공으로 스탬프되어야 한다 — 무가드 create table/type 재도입에 대한 회귀선(V3·V18과 동일).
         Integer v19Applied = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where version = '19' and success = true",
                 Integer.class);
-        assertThat(v19Applied).isEqualTo(0);
+        assertThat(v19Applied).isEqualTo(1);
+
+        // 기존 DB에 있던 payments 는 그대로 하나만 유지된다(V19 재적용이 중복 생성하지 않음).
+        Long paymentsTables = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.tables
+                where table_schema = 'public' and table_name = 'payments'
+                """, Long.class);
+        assertThat(paymentsTables).isEqualTo(1L);
 
         Long planCount = jdbcTemplate.queryForObject("select count(*) from plans", Long.class);
         assertThat(planCount).isEqualTo(3L);
