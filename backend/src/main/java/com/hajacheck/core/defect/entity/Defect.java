@@ -192,8 +192,7 @@ public class Defect {
 
         DefectStatus expectedNext = switch (this.status) {
             case DETECTED -> DefectStatus.CONFIRMED;
-            case CONFIRMED -> DefectStatus.ACTION_PENDING;
-            case ACTION_PENDING -> DefectStatus.IN_PROGRESS;
+            case CONFIRMED -> DefectStatus.IN_PROGRESS;
             case IN_PROGRESS -> DefectStatus.RESOLVED;
             case RESOLVED -> null;
         };

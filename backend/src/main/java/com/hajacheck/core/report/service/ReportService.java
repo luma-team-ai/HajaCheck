@@ -57,7 +57,7 @@ public class ReportService {
 
     // 확정 하자 범위 — DETECTED(AI 자동탐지 직후, 사람 검토 전)는 AI 보고서 입력에서 제외한다.
     private static final List<DefectStatus> CONFIRMED_DEFECT_STATUSES = List.of(
-            DefectStatus.CONFIRMED, DefectStatus.ACTION_PENDING, DefectStatus.IN_PROGRESS, DefectStatus.RESOLVED);
+            DefectStatus.CONFIRMED, DefectStatus.IN_PROGRESS, DefectStatus.RESOLVED);
     private static final String DEFAULT_ON_MISMATCH = "regenerate";
     // 내부 AI 서버가 이미 grounding_ok/근거 대조까지 마친 응답만 신뢰하므로(GroundingCheckResultFactory
     // 참고), 별도 경고 수집 파이프라인이 붙기 전까지는 항상 빈 배열로 기록한다(GroundingCheckResult가

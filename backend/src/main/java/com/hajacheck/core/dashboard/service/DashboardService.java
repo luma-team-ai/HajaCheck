@@ -168,7 +168,7 @@ public class DashboardService {
         }
 
         List<Defect> defects = defectRepository.findPendingPriorityDefects(
-                inspectionIds, DefectStatus.ACTION_PENDING, PageRequest.of(0, PENDING_PRIORITY_LIMIT));
+                inspectionIds, DefectStatus.CONFIRMED, PageRequest.of(0, PENDING_PRIORITY_LIMIT));
 
         return defects.stream()
                 .map(defect -> {
