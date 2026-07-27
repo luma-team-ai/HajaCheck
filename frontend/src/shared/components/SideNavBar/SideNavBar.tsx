@@ -281,7 +281,9 @@ export function SideNavBar({
             if (sub.id !== 'report-edit' && sub.id !== 'report-export') return sub;
             return {
               ...sub,
-              href: activeInspectionId ? `/inspections/${activeInspectionId}/reports` : '/reports',
+              // 편집·미리보기와 PDF 내보내기는 특정 점검의 생성 진입점이 아니라
+              // 회사 보고서 목록에서 대상 보고서를 선택하는 후속 관리 흐름이다.
+              href: '/reports',
             };
           }),
         };

@@ -57,6 +57,11 @@ describe('ReportListPage', () => {
     renderPage();
 
     expect(await screen.findByText(REPORT_101_TITLE)).toBeTruthy();
+    const warnings = screen.getAllByRole('img', { name: 'AI 초안 주의 및 법적 고지' });
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings[0].getAttribute('title')).toBe(
+      '본 보고서는 점검 데이터 기반 AI가 작성한 초안입니다. 법정 제출 및 실무 활용 전 담당 검수자의 내용 확인 및 최종 확정(Finalize) 절차가 필수입니다.',
+    );
     const row = screen.getByText(REPORT_101_TITLE).closest('tr') as HTMLElement;
     expect(within(row).getByText('판교 테크원타워')).toBeTruthy();
     expect(within(row).getByText('완료')).toBeTruthy();
@@ -75,7 +80,7 @@ describe('ReportListPage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('조건에 맞는 보고서가 없습니다')).toBeTruthy();
+    expect(await screen.findByText('조회된 보고서가 없습니다')).toBeTruthy();
     expect(screen.queryByText(REPORT_101_TITLE)).toBeNull();
   });
 
@@ -124,7 +129,7 @@ describe('ReportListPage', () => {
 
     const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
-    fireEvent.click(within(row).getByRole('menuitem', { name: '버전 이력' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '버전 이력' }));
 
     expect(await screen.findAllByText(/v\d+/)).not.toHaveLength(0);
   });

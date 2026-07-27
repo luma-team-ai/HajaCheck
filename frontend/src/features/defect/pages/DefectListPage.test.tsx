@@ -43,8 +43,8 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-// 목록→점검 상세(카드형) 이동, 보고서 생성(목록→점검 회차 뷰어) 이동을 검증하기 위해
-// /inspections/:id/defects, /inspections/:id/viewer에 마커를 렌더링하는 스텁 라우트를 둔다.
+// 목록→점검 상세(카드형) 이동, 보고서 생성(목록→회차 요약·생성 페이지) 이동을 검증하기 위해
+// /inspections/:id/defects, /inspections/:id/reports에 마커를 렌더링하는 스텁 라우트를 둔다.
 function renderPage(): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -60,8 +60,8 @@ function renderPage(): void {
             element={<div>점검 상세 스텁</div>}
           />
           <Route
-            path="/inspections/:id/viewer"
-            element={<div>점검 회차 뷰어 스텁</div>}
+            path="/inspections/:id/reports"
+            element={<div>회차 요약·생성 페이지 스텁</div>}
           />
         </Routes>
       </MemoryRouter>
@@ -165,7 +165,7 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
     expect(exportButton.disabled).toBe(true);
   });
 
-  it("점검 1건을 선택하면 보고서 생성 버튼이 활성화되고, 클릭 시 해당 점검 회차 뷰어로 이동한다", async () => {
+  it("점검 1건을 선택하면 보고서 생성 버튼이 활성화되고, 클릭 시 회차 요약·생성 페이지로 이동한다", async () => {
     renderPage();
     const table = await screen.findByRole("table");
 
@@ -178,7 +178,7 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
 
     fireEvent.click(reportButton);
 
-    expect(await screen.findByText("점검 회차 뷰어 스텁")).not.toBeNull();
+    expect(await screen.findByText("회차 요약·생성 페이지 스텁")).not.toBeNull();
   });
 
   it("점검을 2건 이상 선택하면 보고서 생성 버튼이 비활성화된다", async () => {

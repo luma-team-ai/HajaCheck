@@ -101,7 +101,7 @@ export function ReportListPage() {
 
   return (
     <div className="flex min-h-full flex-col gap-5 bg-surface-muted p-6">
-      <div className="flex overflow-hidden rounded-[20px] border border-border bg-surface shadow-sm">
+      <div className="flex min-h-full flex-1 overflow-hidden rounded-[20px] border border-border bg-surface shadow-sm">
         <div className="flex flex-1 flex-col">
           <div className="flex items-end justify-between border-b border-border px-8 py-6">
             <div className="flex items-baseline gap-3">
@@ -149,11 +149,11 @@ export function ReportListPage() {
             isError={summaryQuery.isError}
           />
 
-          <div className="flex overflow-hidden">
+          <div className="flex min-h-0 flex-1 overflow-hidden">
             <div className="flex flex-1 flex-col">
               <ReportListFilterBar filters={filters} onChange={handleFiltersChange} />
 
-              <div className="px-6 pb-2">
+              <div className="flex flex-1 flex-col px-6 pb-2">
                 <ReportListTable
                   reports={rows}
                   isLoading={listQuery.isLoading}
@@ -173,6 +173,7 @@ export function ReportListPage() {
                 totalPages={totalPages}
                 totalItems={totalItems}
                 onPageChange={handlePageChange}
+                reserveBottomFabSpace={false}
               />
             </div>
 

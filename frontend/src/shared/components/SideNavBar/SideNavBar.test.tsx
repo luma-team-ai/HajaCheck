@@ -279,8 +279,8 @@ describe('SideNavBar', () => {
 
       fireEvent.click(screen.getByText('보고서'));
 
-      expect(screen.getByRole('link', { name: '보고서 편집·미리보기' }).getAttribute('href')).toBe('/inspections/42/reports');
-      expect(screen.getByRole('link', { name: 'PDF 내보내기' }).getAttribute('href')).toBe('/inspections/42/reports');
+      expect(screen.getByRole('link', { name: '보고서 편집·미리보기' }).getAttribute('href')).toBe('/reports');
+      expect(screen.getByRole('link', { name: 'PDF 내보내기' }).getAttribute('href')).toBe('/reports');
     });
   });
 
