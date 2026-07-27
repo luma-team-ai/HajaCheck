@@ -21,8 +21,9 @@ export interface Facility {
   nextInspectionDueAt: string | null;
   createdAt: string;
   updatedAt: string;
-  // #628(HAJA-347) 등록 필드 확장 — 전부 선택 입력. 대표 사진은 등록 시 함께 전송하지 않고
-  // 등록 후 별도 업로드 API(#652)로 붙인다.
+  // #628(HAJA-347) 등록 필드 확장 — 전부 선택 입력. 대표 사진은 별도 엔드포인트
+  // (POST/GET /api/facilities/{id}/media, #1017/#632)로 시설물 생성 후 조회/업로드한다 — Facility
+  // 자체 응답에는 사진 필드가 없다(#652).
   initialGrade: FacilityInitialGrade | null;
   assigneeUserId: number | null;
   memo: string | null;
@@ -51,6 +52,23 @@ export interface CreateFacilityRequest {
   initialGrade?: FacilityInitialGrade | null;
   assigneeUserId?: number | null;
   memo?: string | null;
+}
+
+// 시설물 대표 사진(#652) — POST/GET /api/facilities/{id}/media, backend MediaResponse와 1:1.
+// feature 간 직접 import 금지(React_코드_컨벤션.md §1) — inspection/types.ts의 Media와 필드 셋이
+// 같지만(같은 MediaResponse를 공유) 로컬로 복제한다. facility 사진은 점검 회차에 속하지 않으므로
+// inspectionId는 항상 null로 내려온다(응답 자체에 facilityId 필드는 없음 — 호출한 엔드포인트로만 구분).
+export interface FacilityPhoto {
+  id: number;
+  inspectionId: number | null;
+  fileType: 'IMAGE' | 'VIDEO';
+  thumbnailUrl: string;
+  detailUrl: string;
+  mimeType: string;
+  capturedAt: string | null;
+  gpsLat: number | null;
+  gpsLng: number | null;
+  createdAt: string;
 }
 
 // 담당자 select 옵션 — 배정 가능한 사용자 목록. 실 API 없음(2026-07-23 조사, auth 쪽에
