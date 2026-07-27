@@ -5,16 +5,16 @@
 -- 인가(담당 상담원 본인 확인)는 애플리케이션 레이어(CounselTicketNoteService)에서 처리하므로 여기서는
 -- 데이터 정합성(unique, FK)만 보장한다.
 --
--- 캐노니컬 DDL(HajaCheck_script.sql)에는 아직 이 테이블이 없어 신규 생성이지만, 혹시 모를 재실행/기존 환경
--- 대비 IF NOT EXISTS로 멱등 처리한다(V12/V18과 동일 컨벤션).
+-- 캐노니컬 DDL(HajaCheck_script.sql)에 이미 이 테이블이 반영돼 있어, 혹시 모를 재실행/기존 환경 대비
+-- IF NOT EXISTS로 멱등 처리한다(V12/V18과 동일 컨벤션). id/FK 스타일은 캐노니컬·V20(payments)과
+-- 동일한 컨벤션(identity 컬럼 + 이름 없는 references, Postgres 기본 제약 이름)을 따른다 —
+-- Ha25IncrementalMigrationTest가 두 경로(캐노니컬 DDL vs Flyway 전체 적용)의 카탈로그를 대조한다.
 create table if not exists counsel_ticket_notes (
-    id            bigserial primary key,
-    ticket_id     bigint not null,
+    id            bigint generated always as identity primary key,
+    ticket_id     bigint not null references counsel_tickets,
     counselor_id  bigint not null,
     content       text,
-    updated_at    timestamp with time zone not null default now(),
-    constraint fk_counsel_ticket_notes_ticket
-        foreign key (ticket_id) references counsel_tickets (id)
+    updated_at    timestamp with time zone not null default now()
 );
 
 create unique index if not exists uq_counsel_ticket_notes_ticket_id
