@@ -37,7 +37,7 @@ export const counselApi = {
   getQueue: (filters: CounselQueueFilters = {}) =>
     api.get<PageResponse<CounselTicketSummaryResponse>>('/counsel/tickets', { params: filters }),
   // POST /api/counsel/tickets/{id}/assign — 클레임. 동시 클레임 시 409
-  // COUNSEL_SESSION_ASSIGNMENT_CONFLICT(낙관적 락 경합) — 호출부(CounselorQueuePage)가
+  // COUNSEL_SESSION_ASSIGNMENT_CONFLICT(낙관적 락 경합) — 호출부(useCounselorQueue)가
   // err.status===409로 분기해 안내 메시지 + 큐 새로고침을 처리한다.
   assign: (ticketId: number) =>
     api.post<CounselTicketDetailResponse>(`/counsel/tickets/${ticketId}/assign`),
