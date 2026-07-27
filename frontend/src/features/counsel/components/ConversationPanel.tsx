@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { api } from '../../../shared/api/axios';
 import { getApiErrorMessage } from '../../../shared/api/types';
@@ -46,11 +46,21 @@ type Props = {
   loading: boolean;
   error: string | null;
   onStartNewCounsel: () => void;
+  // 실시간 채팅 전송(#1000, HAJA-494) — ticket.status === 'IN_PROGRESS'일 때만 사용된다.
+  onSendMessage: (content: string, attachmentKey?: string) => void;
 };
 
-export function ConversationPanel({ ticket, messages, loading, error, onStartNewCounsel }: Props) {
+export function ConversationPanel({
+  ticket,
+  messages,
+  loading,
+  error,
+  onStartNewCounsel,
+  onSendMessage,
+}: Props) {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
 
   async function handleExport() {
     if (!ticket) return;
@@ -72,6 +82,17 @@ export function ConversationPanel({ ticket, messages, loading, error, onStartNew
     } finally {
       setExporting(false);
     }
+  }
+
+  // 낙관적 UI는 두지 않는다 — 서버가 저장 후 `/topic/counsel/{ticketId}`로 다시 브로드캐스트하고,
+  // 그 프레임을 useCounselHistory의 onMessage가 그대로 받아 messages에 append한다(단일 소스 유지,
+  // 중복 렌더 방지).
+  function handleSend(e: FormEvent) {
+    e.preventDefault();
+    const content = draft.trim();
+    if (!content) return;
+    onSendMessage(content);
+    setDraft('');
   }
 
   if (!ticket) {
@@ -123,6 +144,29 @@ export function ConversationPanel({ ticket, messages, loading, error, onStartNew
           !error &&
           messages.map((message) => <MessageBubble key={message.id} message={message} />)}
       </div>
+
+      {ticket.status === 'IN_PROGRESS' && (
+        <form
+          onSubmit={handleSend}
+          className="flex items-center gap-2 border-t border-border px-6 py-4"
+        >
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="메시지를 입력하세요"
+            aria-label="메시지 입력"
+            className="min-w-0 flex-1 rounded-full border border-border bg-white px-4 py-2.5 text-sm text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+          <button
+            type="submit"
+            disabled={!draft.trim()}
+            className="shrink-0 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            전송
+          </button>
+        </form>
+      )}
     </div>
   );
 }

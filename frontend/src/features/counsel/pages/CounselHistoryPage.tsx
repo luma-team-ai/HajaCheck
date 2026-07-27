@@ -21,6 +21,7 @@ export function CounselHistoryPage() {
     messages,
     messagesLoading,
     messagesError,
+    sendMessage,
   } = useCounselHistory();
 
   function goToNewCounsel() {
@@ -78,6 +79,7 @@ export function CounselHistoryPage() {
           loading={messagesLoading}
           error={messagesError}
           onStartNewCounsel={goToNewCounsel}
+          onSendMessage={sendMessage}
         />
       </div>
     </div>
