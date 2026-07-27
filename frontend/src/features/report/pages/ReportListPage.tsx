@@ -153,7 +153,7 @@ export function ReportListPage() {
             <div className="flex flex-1 flex-col">
               <ReportListFilterBar filters={filters} onChange={handleFiltersChange} />
 
-              <div className="px-6 pb-2">
+              <div className="flex flex-1 flex-col px-6 pb-2">
                 <ReportListTable
                   reports={rows}
                   isLoading={listQuery.isLoading}
