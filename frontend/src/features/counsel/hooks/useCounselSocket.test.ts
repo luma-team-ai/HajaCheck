@@ -52,6 +52,10 @@ function connectedFrame() {
   return 'CONNECTED\nversion:1.2\n\n\0';
 }
 
+function errorFrame(message: string) {
+  return `ERROR\nmessage:${message}\n\n\0`;
+}
+
 function messageFrame(destination: string, subscriptionId: string, body: unknown) {
   return `MESSAGE\ndestination:${destination}\nsubscription:${subscriptionId}\nmessage-id:1\ncontent-type:application/json\n\n${JSON.stringify(
     body,
@@ -91,6 +95,7 @@ describe('useCounselSocket', () => {
     MockWebSocket.instances = [];
     globalThis.WebSocket = originalWebSocket;
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('ticketId가 없으면 연결하지 않는다', () => {
@@ -204,5 +209,102 @@ describe('useCounselSocket', () => {
     unmount();
 
     await waitFor(() => expect(ws.closed).toBe(true));
+  });
+
+  it('예기치 않은 연결 종료 후 재연결되면 구독을 다시 발행한다', async () => {
+    vi.useFakeTimers();
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket;
+    const onMessage = vi.fn();
+
+    const { result } = renderHook(() => useCounselSocket(30, { onMessage }));
+
+    await vi.advanceTimersByTimeAsync(0);
+    const ws0 = MockWebSocket.instances[0];
+    act(() => {
+      ws0.simulateOpen();
+    });
+    act(() => {
+      ws0.simulateFrame(connectedFrame());
+    });
+    expect(result.current.connected).toBe(true);
+
+    act(() => {
+      ws0.close();
+    });
+    expect(result.current.connected).toBe(false);
+
+    // reconnectDelay 5000ms — LINEAR/EXPONENTIAL 첫 시도는 base delay와 동일
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+    const ws1 = MockWebSocket.instances[1];
+    act(() => {
+      ws1.simulateOpen();
+    });
+    act(() => {
+      ws1.simulateFrame(connectedFrame());
+    });
+
+    expect(result.current.connected).toBe(true);
+    expect(ws1.sent.some((f) => f.includes('destination:/topic/counsel/30'))).toBe(true);
+  });
+
+  it('ERROR 프레임 수신 시 재연결을 멈추고 error를 노출한다', async () => {
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket;
+    const onMessage = vi.fn();
+
+    const { result } = renderHook(() => useCounselSocket(40, { onMessage }));
+    const ws = await openAndConnect();
+
+    act(() => {
+      ws.simulateFrame(errorFrame('상담방 구독 권한 없음'));
+    });
+
+    expect(result.current.error).toBe('상담방 구독 권한 없음');
+    expect(result.current.connected).toBe(false);
+    expect(ws.closed).toBe(true);
+    // deactivate가 재연결 타이머를 즉시 정리하므로 새 소켓이 생기지 않는다
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it('연결이 끊긴 상태에서 sendMessage 호출 시 false를 반환하고 발행하지 않는다', async () => {
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket;
+    const onMessage = vi.fn();
+
+    const { result } = renderHook(() => useCounselSocket(13, { onMessage }));
+    const ws = await openAndConnect();
+    await waitFor(() => expect(result.current.connected).toBe(true));
+
+    act(() => {
+      ws.close();
+    });
+    await waitFor(() => expect(result.current.connected).toBe(false));
+
+    let sendResult: boolean | undefined;
+    act(() => {
+      sendResult = result.current.sendMessage('테스트');
+    });
+
+    expect(sendResult).toBe(false);
+    expect(ws.sent.some((f) => f.startsWith('SEND'))).toBe(false);
+  });
+
+  it('ticketId 변경 시 이전 소켓을 정리하고 새 ticketId로 재연결한다', async () => {
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket;
+    const onMessage = vi.fn();
+
+    const { result, rerender } = renderHook(
+      ({ ticketId }) => useCounselSocket(ticketId, { onMessage }),
+      { initialProps: { ticketId: 21 } },
+    );
+    const ws0 = await openAndConnect(0);
+    await waitFor(() => expect(result.current.connected).toBe(true));
+
+    rerender({ ticketId: 22 });
+
+    await waitFor(() => expect(ws0.closed).toBe(true));
+    const ws1 = await openAndConnect(1);
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    expect(ws1.sent.some((f) => f.includes('destination:/topic/counsel/22'))).toBe(true);
   });
 });

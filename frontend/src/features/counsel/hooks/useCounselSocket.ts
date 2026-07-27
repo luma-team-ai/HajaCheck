@@ -1,4 +1,5 @@
-import { Client } from '@stomp/stompjs';
+import { Client, ReconnectionTimeMode } from '@stomp/stompjs';
+import type { IFrame } from '@stomp/stompjs';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessageResponse, CounselTicketSummaryResponse } from '../types';
 
@@ -12,6 +13,14 @@ export interface UseCounselSocketHandlers {
   onEnded?: (ticket: CounselTicketSummaryResponse) => void;
 }
 
+export interface UseCounselSocketResult {
+  connected: boolean;
+  // CONNECT 재검증 실패(세션 만료) 또는 SUBSCRIBE 인가 거부(비당사자 ticketId) 시 채워진다.
+  // 이 경우 재연결을 멈추므로, 소비자가 로그인 유도/토스트 등을 띄우는 신호로 쓴다.
+  error: string | null;
+  sendMessage: (content: string, attachmentKey?: string) => boolean;
+}
+
 // 프로덕션 빌드에서 WS URL 하드코딩 금지 — axios(shared/api/axios.ts)와 동일하게 상대 경로 기준으로
 // 현재 오리진의 프로토콜(ws/wss)만 붙인다. dev에서는 vite.config.ts의 '/ws' 프록시(ws:true)가
 // 프론트 포트→스프링 포트로 그대로 전달한다.
@@ -20,8 +29,22 @@ function buildWsUrl(): string {
   return `${protocol}//${window.location.host}/ws`;
 }
 
-export function useCounselSocket(ticketId: number | null, handlers: UseCounselSocketHandlers) {
+// STOMP 프레임 바디는 서버가 보낸 JSON을 그대로 신뢰할 수 없다(레이스로 인한 프레임 순서 꼬임 등) —
+// throw하면 stompjs 내부 catch가 콘솔 로그만 남기고 삼켜, 메시지가 흔적 없이 사라진다.
+function parseFrameBody<T>(raw: string): T | null {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+export function useCounselSocket(
+  ticketId: number | null,
+  handlers: UseCounselSocketHandlers,
+): UseCounselSocketResult {
   const [connected, setConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const clientRef = useRef<Client | null>(null);
   // 콜백 최신값을 ref로 들고 있어야 STOMP 구독 콜백(연결 시점에 클로저로 고정)이
   // 매 렌더마다 재구독 없이도 최신 핸들러를 참조할 수 있다.
@@ -31,39 +54,65 @@ export function useCounselSocket(ticketId: number | null, handlers: UseCounselSo
   useEffect(() => {
     if (ticketId === null) {
       setConnected(false);
+      setError(null);
       return;
     }
 
     const client = new Client({
       webSocketFactory: () => new WebSocket(buildWsUrl()),
       reconnectDelay: 5000,
+      maxReconnectDelay: 60000,
+      reconnectTimeMode: ReconnectionTimeMode.EXPONENTIAL,
     });
 
     client.onConnect = () => {
       setConnected(true);
+      setError(null);
 
       client.subscribe(`/topic/counsel/${ticketId}`, (frame) => {
-        const message = JSON.parse(frame.body) as ChatMessageResponse;
+        const message = parseFrameBody<ChatMessageResponse>(frame.body);
+        if (message === null) {
+          setError('상담 메시지 파싱 실패');
+          return;
+        }
         handlersRef.current.onMessage(message);
       });
 
-      if (handlersRef.current.onAssigned) {
-        client.subscribe('/user/queue/counsel/assigned', (frame) => {
-          const ticket = JSON.parse(frame.body) as CounselTicketSummaryResponse;
-          handlersRef.current.onAssigned?.(ticket);
-        });
-      }
+      client.subscribe('/user/queue/counsel/assigned', (frame) => {
+        const ticket = parseFrameBody<CounselTicketSummaryResponse>(frame.body);
+        if (ticket === null) {
+          setError('상담 배정 알림 파싱 실패');
+          return;
+        }
+        handlersRef.current.onAssigned?.(ticket);
+      });
 
-      if (handlersRef.current.onEnded) {
-        client.subscribe('/user/queue/counsel/ended', (frame) => {
-          const ticket = JSON.parse(frame.body) as CounselTicketSummaryResponse;
-          handlersRef.current.onEnded?.(ticket);
-        });
-      }
+      client.subscribe('/user/queue/counsel/ended', (frame) => {
+        const ticket = parseFrameBody<CounselTicketSummaryResponse>(frame.body);
+        if (ticket === null) {
+          setError('상담 종료 알림 파싱 실패');
+          return;
+        }
+        handlersRef.current.onEnded?.(ticket);
+      });
     };
 
     client.onWebSocketClose = () => {
       setConnected(false);
+    };
+
+    // 서버는 CONNECT 재검증(세션 만료) 또는 SUBSCRIBE 인가(비당사자 ticketId)를 거부할 때만
+    // ERROR 프레임을 보낸다(StompAuthChannelInterceptor) — 즉 이 콜백이 불리는 경우는 전부
+    // 인증/인가 실패다. 아무 조치 없이 두면 소켓 close → active 상태라 재시도 스케줄 →
+    // 같은 사유로 다시 거부되는 영구 루프가 된다. deactivate로 재시도를 끊고 에러를 노출해
+    // 소비자가 로그인 유도/에러 표시를 하게 한다.
+    client.onStompError = (frame: IFrame) => {
+      setError(frame.headers.message ?? '상담 연결이 거부되었습니다');
+      void client.deactivate({ force: true });
+    };
+
+    client.onWebSocketError = () => {
+      setError('상담 서버에 연결할 수 없습니다');
     };
 
     client.activate();
@@ -81,14 +130,18 @@ export function useCounselSocket(ticketId: number | null, handlers: UseCounselSo
 
   const sendMessage = useCallback(
     (content: string, attachmentKey?: string) => {
-      if (ticketId === null) return;
-      clientRef.current?.publish({
+      // 옵셔널 체이닝은 client가 null인 경우만 막는다 — 재연결 대기 중(client는 있지만
+      // STOMP 연결은 끊긴 상태)엔 stompjs의 publish()가 TypeError를 던져 이벤트 핸들러
+      // 밖으로 uncaught 예외가 튀고 메시지가 흔적 없이 사라진다. connected로 직접 가드한다.
+      if (ticketId === null || !clientRef.current?.connected) return false;
+      clientRef.current.publish({
         destination: `/app/counsel/${ticketId}/send`,
         body: JSON.stringify({ content, attachmentKey }),
       });
+      return true;
     },
     [ticketId],
   );
 
-  return { connected, sendMessage };
+  return { connected, error, sendMessage };
 }
