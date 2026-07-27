@@ -172,6 +172,23 @@ biz-verify:
     max-batch-size: 20
     cron: "0 30 5 * * *"
 
+# 토스페이먼츠 샌드박스 결제(#988 / HAJA-489) — 시크릿(secret-key)은 env 참조, 커밋된 값 없음.
+# ⚠️ TOSS_SECRET_KEY는 서버 전용 시크릿이다. 절대 VITE_ 접두사를 붙이지 말 것 — Vite는 VITE_*를 빌드
+#    시점에 번들에 인라인하므로, 붙이는 순간 시크릿이 프론트 정적 자산으로 공개된다. 프론트가 쓰는 건
+#    클라이언트 키(VITE_TOSS_CLIENT_KEY)뿐이며 그건 공개돼도 되는 값이다.
+# 미설정 정책은 fail-close이되 기동은 막지 않는다: 결제 진입점(POST /api/me/plan/orders,
+# POST /api/me/payments/confirm)만 PAYMENT_GATEWAY_ERROR(502)로 거절되고 나머지 기능은 정상 동작한다
+# (근거는 TossPaymentsProperties javadoc — compose 가드를 :- 소프트로 둔 것과 세트).
+toss-payments:
+  base-url: ${TOSS_API_BASE_URL:https://api.tosspayments.com}
+  secret-key: ${TOSS_SECRET_KEY:}
+  connect-timeout-ms: 3000
+  # 승인은 카드사 왕복이 포함돼 조회성 호출보다 느리고, 타임아웃이 곧 "승인 여부 불명"이라 짧게 끊을수록
+  # 미확정 결제가 늘어난다. 사용자가 결제창 앞에서 기다리는 인터랙티브 경로라 10초로 둔다.
+  read-timeout-ms: 10000
+  order-name-prefix: HajaCheck
+  history-max-size: 100
+
 management:
   endpoints:
     web:

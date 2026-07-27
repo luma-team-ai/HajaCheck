@@ -53,20 +53,26 @@ async def _purge_llm_cache_loop() -> None:
             logger.exception("LLM 캐시 주기 purge 실패 — 다음 주기에 재시도")
 
 
-def _load_yolo_model_sync() -> None:
-    # 지연 임포트 — ultralytics/huggingface_hub는 무거운 의존성이라 모듈 최상단에서 임포트하면
-    # main.py를 import하는 모든 테스트(TestClient 미사용 포함)가 그 비용을 진다.
+def _load_defect_models_sync() -> None:
+    # 지연 임포트 — ultralytics/huggingface_hub/segmentation_models_pytorch는 무거운 의존성이라
+    # 모듈 최상단에서 임포트하면 main.py를 import하는 모든 테스트(TestClient 미사용 포함)가 그
+    # 비용을 진다.
+    from ai.core.unet_client import get_crack_model
     from ai.core.yolo_client import get_yolo_model
 
-    get_yolo_model()
+    # 유형별 전용 체크포인트 3개(2026-07-27, 6차 rebase — yolo_client.py 모듈 docstring 참고) —
+    # 하나라도 워밍업에서 빠지면 그 유형의 첫 실제 분석 요청이 콜드스타트 다운로드를 그대로 떠안는다.
+    get_crack_model()
+    get_yolo_model("SPALLING")
+    get_yolo_model("REBAR_EXPOSURE")
 
 
-async def _warmup_yolo_model() -> None:
-    """YOLO 모델을 앱 기동 시 백그라운드로 미리 로드한다(코드 리뷰 P2, 사용자 확인 완료).
+async def _warmup_defect_models() -> None:
+    """하자 탐지 모델 3종을 앱 기동 시 백그라운드로 미리 로드한다(코드 리뷰 P2, 사용자 확인 완료).
 
-    get_yolo_model()은 `@lru_cache`라 최초 호출이 HF Hub 체크포인트 다운로드(콜드스타트, 네트워크·
-    캐시 상태에 따라 수 분)를 동반한다. 미리 로드해두지 않으면 배포 직후 첫 실제 분석 요청이 이
-    다운로드를 그대로 떠안고, 그 시간이 백엔드 하트비트 임계값(InspectionAnalysisService.
+    get_crack_model()/get_yolo_model()은 각각 `@lru_cache`라 최초 호출이 HF Hub 체크포인트
+    다운로드(콜드스타트, 네트워크·캐시 상태에 따라 수 분)를 동반한다. 미리 로드해두지 않으면 배포
+    직후 첫 실제 분석 요청이 이 다운로드를 그대로 떠안고, 그 시간이 백엔드 하트비트 임계값(InspectionAnalysisService.
     STUCK_HEARTBEAT_THRESHOLD, 5분)을 넘기면 정상 진행 중인 잡을 고착으로 오판해 이중 워커 실행까지
     이어질 수 있다(#701 코드 리뷰).
 
@@ -74,10 +80,10 @@ async def _warmup_yolo_model() -> None:
     동일 패턴) — 컨테이너 헬스체크 start_period(20s)를 모델 다운로드 시간에 맞춰 늘릴 필요가 없다.
     """
     try:
-        await asyncio.to_thread(_load_yolo_model_sync)
-        logger.info("YOLO 모델 워밍업 완료")
+        await asyncio.to_thread(_load_defect_models_sync)
+        logger.info("하자 탐지 모델 워밍업 완료")
     except Exception:  # noqa: BLE001 — 워밍업 실패해도 앱은 계속 뜬다(첫 실제 요청에서 지연 로드로 재시도)
-        logger.exception("YOLO 모델 워밍업 실패 — 첫 실제 분석 요청에서 지연 로드로 재시도된다")
+        logger.exception("하자 탐지 모델 워밍업 실패 — 첫 실제 분석 요청에서 지연 로드로 재시도된다")
 
 
 @contextlib.asynccontextmanager
@@ -87,7 +93,7 @@ async def lifespan(_app: FastAPI):
     # 중 자연히 무해하지만, 이 태스크는 곧바로 실제 네트워크 I/O(HF Hub)를 시도해 같은 보호를 못
     # 받는다. TestClient(main.app)를 쓰는 여러 테스트 파일이 patch 없이도 lifespan을 그대로 타므로,
     # 가드가 없으면 그런 테스트 전부가 느려지고 네트워크에 의존하게 된다.
-    warmup_task = None if "PYTEST_CURRENT_TEST" in os.environ else asyncio.create_task(_warmup_yolo_model())
+    warmup_task = None if "PYTEST_CURRENT_TEST" in os.environ else asyncio.create_task(_warmup_defect_models())
     try:
         yield
     finally:

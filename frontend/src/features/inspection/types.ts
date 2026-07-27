@@ -30,7 +30,8 @@ export interface Defect {
 
 export interface InspectionMedia {
   id: number;
-  imageUrl: string;
+  imageUrl: string; // 상세 이미지 URL(detailUrl 우선, 폴백은 thumbnail)
+  thumbnailUrl?: string; // 폴백용 썸네일 URL — imageUrl(detail)이 실패했을 때 사용(#796)
   // 백엔드가 실제 이미지 크기를 제공하지 않음(#781) — 항상 undefined. DefectOverlay는 값이
   // 없으면 maxWidth 제약을 걸지 않고 컨테이너 폭 그대로(w-full) 렌더링한다.
   width?: number;

@@ -27,6 +27,8 @@ import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.service.PlanDowngradeService;
+import com.hajacheck.membership.service.PlanTransitionService;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -76,6 +78,7 @@ public class AdminPlanService {
     private final CompanyRepository companyRepository;
     private final MediaRepository mediaRepository;
     private final PlanDowngradeService planDowngradeService;
+    private final PlanTransitionService planTransitionService;
 
     /** 제공 요금제 카탈로그(변경 선택지) — 회사 스코프와 무관한 참조 데이터라 ADMIN 이면 조회 가능. */
     public AdminPlanCatalogResponse getPlanCatalog() {
@@ -100,9 +103,17 @@ public class AdminPlanService {
      * 회사 구독의 요금제 변경 — 기존 ACTIVE(또는 UPGRADE_REQUESTED) 구독을 EXPIRED 로 내리고 새 ACTIVE 구독을
      * 발급한다(단일 트랜잭션). 대상 요금제가 현재와 같고 이미 ACTIVE 면 멱등 no-op(200).
      *
-     * <p><b>인가</b>: 회사 플랜을 즉시 발급(결제·플랫폼 승인 없이)하는 동작이라, {@link
+     * <p><b>인가</b>: 회사 플랜을 즉시 발급(플랫폼 승인 없이)하는 동작이라, {@link
      * com.hajacheck.membership.service.MembershipService#requestUpgrade} 와 동일하게 <b>회사 소유자(owner)</b>
      * 로 한정한다 — 승인된 멤버십만으로는 허용하지 않는다(그 외 ADMIN 멤버는 요청/조회만 가능).
+     *
+     * <p><b>⚠️ 이 화면은 하향·FREE 전환 전용이다(#988).</b> 실결제 도입 전에는 이 경로가 상향까지 처리했지만,
+     * 그대로 두면 <b>결제를 통째로 우회하는 무결제 승격 경로</b>가 된다 — 결제 주체(구독 소유자)와 이 API 의
+     * 인가 주체({@link #requireCompanyOwner})가 <b>같은 사람</b>이고, 기업 owner 는 가입 시 ADMIN 이 자동
+     * 부여되므로(#636) 결제 대상자 전원이 이 우회로를 갖는다. 따라서 상향
+     * (현재 {@code price_monthly} &lt; 대상 {@code price_monthly})은
+     * {@link ErrorCode#PLAN_UPGRADE_REQUIRES_PAYMENT} 로 거절하고, 상향은 결제 경로
+     * ({@code POST /api/me/plan/orders} → {@code /api/me/payments/confirm})로만 처리한다.
      *
      * @param keepUserIds 하향으로 좌석이 넘칠 때 관리자가 직접 유지할 구성원(#890 Phase 2). 비어 있으면
      *                    (null 포함) 기존 동작(id 오름차순 자동 선정) — 검증·정합 보장은
@@ -123,8 +134,11 @@ public class AdminPlanService {
             return buildResponseWithUsage(current, targetPlan);
         }
 
-        // 현재 플랜은 "하향인지" 판정에만 쓰이므로 멱등 조기반환 뒤에 조회한다(재검토 P3).
+        // 현재 플랜은 "상향/하향" 판정에 쓰이므로 멱등 조기반환 뒤에 조회한다(재검토 P3).
         Plan currentPlan = findPlan(current.getPlanId());
+
+        // 무결제 승격 차단(#988) — 쓰기가 시작되기 전에, 하향 확인 게이트보다도 먼저 판정한다.
+        requireNotUpgrade(currentPlan, targetPlan);
 
         // ⚠️ preview 는 여기서 "정확히 한 번만" 호출하고 그 결과를 아래 confirmOverflow 판정과
         // applyOverflow 양쪽에 그대로 재사용한다(재검토 F-7/F-9). overflowConfirmed=true 로 확인을
@@ -152,6 +166,12 @@ public class AdminPlanService {
             // 동시 플랜 변경 경합 — 다른 트랜잭션이 이미 새 ACTIVE 를 만들어 부분 UQ 위반.
             throw new BusinessException(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
         }
+
+        // 당월 사용량 이월(#851) — 신규 구독 발급과 같은 트랜잭션에서. 이월하지 않으면 플랜을 바꾸는 것만으로
+        // usage_counters 행이 새로 열려 월 분석 한도가 0 으로 리셋되고, 한도 강제(#843)가 왕복 변경 한 번에
+        // 무력화된다. 결제 경로(PlanTransitionService#transitionTo)와 반드시 같은 규칙을 적용해야 한다 —
+        // 한쪽만 이월하면 "관리자 콘솔로 바꾸면 한도가 리셋된다"는 우회로가 남는다.
+        planTransitionService.carryOverUsage(current.getId(), saved.getId());
 
         // 초과 좌석 정지는 신규 구독 발급과 같은 트랜잭션에서 — 플랜만 내려가고 정지가 안 되면 한도가
         // 조용히 무력화된다. 위에서 이미 계산해 둔 overflow 를 그대로 적용할 뿐 재계산하지 않는다.
@@ -278,7 +298,31 @@ public class AdminPlanService {
         return companyId;
     }
 
-    // 요금제 즉시 변경(무결제 발급)은 회사 소유자만 허용 — requestUpgrade 와 인가 기준을 일치시킨다.
+    /**
+     * 관리자 콘솔 플랜 변경에서 <b>상향을 거절</b>한다(#988) — 이 경로에는 청구가 없으므로 상향을 허용하면
+     * 결제 흐름 전체가 우회된다({@link #changePlan} javadoc).
+     *
+     * <p><b>판정 기준은 {@code plans.price_monthly}</b>다. 티어 이름의 순서(FREE&lt;STANDARD&lt;ENTERPRISE)나
+     * 한도 비교가 아니라 <b>"돈을 더 내야 하는 변경인가"</b>가 결제 우회 여부를 가르는 유일한 기준이고,
+     * 가격은 플랫폼 관리자가 변경할 수 있어(#624 {@code Plan#updatePolicy}) 이름 순서와 어긋날 수 있기
+     * 때문이다. null 가격은 0(무료)으로 본다 — FREE 시드가 그렇다.
+     *
+     * <p>같은 가격끼리의 전환은 막지 않는다. 추가 청구가 발생하지 않아 우회로가 아니고, 하향 확인
+     * 게이트(#890)가 뒤에서 한도 초과를 따로 막는다.
+     */
+    private void requireNotUpgrade(Plan currentPlan, Plan targetPlan) {
+        BigDecimal currentPrice = priceOrZero(currentPlan);
+        BigDecimal targetPrice = priceOrZero(targetPlan);
+        if (currentPrice.compareTo(targetPrice) < 0) {
+            throw new BusinessException(ErrorCode.PLAN_UPGRADE_REQUIRES_PAYMENT);
+        }
+    }
+
+    private BigDecimal priceOrZero(Plan plan) {
+        return plan.getPriceMonthly() == null ? BigDecimal.ZERO : plan.getPriceMonthly();
+    }
+
+    // 요금제 즉시 변경(하향·FREE 전환)은 회사 소유자만 허용 — requestUpgrade 와 인가 기준을 일치시킨다.
     private void requireCompanyOwner(Long companyId, Long adminUserId) {
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_FORBIDDEN));

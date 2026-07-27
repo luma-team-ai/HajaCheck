@@ -24,6 +24,13 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
     // id asc 고정으로 조회 순서를 일관되게 유지한다.
     List<Media> findByInspectionIdOrderByIdAsc(Long inspectionId);
 
+    // 시설물 대표 사진(#632/#652, HAJA-377) — 최대 4장 제한을 업로드 전 애플리케이션 레벨에서 검증하기
+    // 위한 현재 보유 장수 집계. facility_id 만 채워진 로우(inspection_id=null)만 센다.
+    long countByFacilityId(Long facilityId);
+
+    // 시설물 대표 사진 목록 조회 — id asc 고정으로 조회 순서를 일관되게 유지한다.
+    List<Media> findByFacilityIdOrderByIdAsc(Long facilityId);
+
     // 관리자 플랜·쿼터 관리(#507) — 멤버별 "이번 달 분석한 이미지 장수" 근사치. media 테이블에 업로더 FK가
     // 없어(point-in-time 스키마) 담당 점검자(inspections.assigned_inspector_id) 단위로 집계한다 — 한 점검을
     // 여러 사람이 함께 촬영/업로드하면 실제 기여자 분포와 다를 수 있는 근사값이며, 회사 전체 합계(KPI 카드)는

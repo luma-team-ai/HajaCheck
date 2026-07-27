@@ -10,6 +10,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -53,10 +54,21 @@ public class NotificationService {
      * 도메인/유형을 몰라도 되는 범용 진입점으로, 다른 도메인·다른 알림 유형도 그대로 호출할 수 있게 설계했다.
      * 시설물별 독립 커밋을 위해 클래스 기본값 대신 이 메서드에만 쓰기 트랜잭션을 건다(markAsRead 와 동일 패턴).
      *
+     * <p>⚠️ {@code REQUIRES_NEW}로 항상 독립 트랜잭션을 강제한다 — 실측으로 확인된 두 가지 이유가 함께 있다.
+     * (1) 호출부가 자체 {@code @Transactional} 메서드일 때 {@code REQUIRED}면 같은 물리 트랜잭션에 합류해,
+     * 이 메서드의 DB 예외가 호출부를 rollback-only로 마킹하고 호출부가 커밋 시점에
+     * {@code UnexpectedRollbackException}을 던진다(#493 P1). (2) 호출부의 {@code TransactionSynchronization}
+     * {@code afterCommit} 콜백 안에서 호출할 때(예: CounselChatService.sendMessage, #993 P2 — "메시지가 실제
+     * 커밋된 뒤에만 알림 발행") {@code REQUIRED}로는 이 메서드의 쓰기가 실제로 커밋되지 않고 조용히
+     * 유실된다(afterCommit 시점엔 호출부의 트랜잭션 리소스가 스레드에 아직 바인딩돼 있어 REQUIRED가 새
+     * 트랜잭션을 열지 않고 이미 커밋 처리 중인 리소스에 편승해버림 — Spring
+     * {@code TransactionSynchronization#afterCommit} 공식 문서가 명시적으로 경고하는 함정, 통합테스트로
+     * 실제 유실을 재현·확인함). 두 시나리오 모두 {@code REQUIRES_NEW}만이 안전하다.
+     *
      * <p>⚠️ 이 메서드는 인가/소유권 검증이 없는 <b>시스템 전용 진입점</b>이다 — 사용자 입력을 직접 이 메서드에
      * 배선하지 말 것(향후 컨트롤러 등에서 임의 userId로 호출하면 알림 위조/IDOR가 된다).
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void notify(Long userId, NotificationType type, String payloadJson) {
         notificationRepository.save(Notification.create(userId, type, payloadJson));
     }

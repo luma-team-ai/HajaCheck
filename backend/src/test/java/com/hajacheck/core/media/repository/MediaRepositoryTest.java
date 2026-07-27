@@ -38,6 +38,40 @@ class MediaRepositoryTest extends PostgresTestSupport {
     @Autowired
     private TestEntityManager em;
 
+    // 시설물 대표 사진(#632/#652) 테스트용 — user→company→facility 까지만 시드하고 facility_id 를 돌려준다
+    // (inspection 없이 facility 전용 media 로우를 검증하기 위함). 이메일은 seedInspection() 과 겹치지 않게 한다.
+    private Long seedFacility() {
+        User owner = User.builder()
+                .email("owner-fac@haja.com")
+                .name("시설소유자")
+                .role(Role.INSPECTOR)
+                .passwordHash("$2a$10$testtesttesttesttesttes")
+                .status(UserStatus.ACTIVE)
+                .build();
+        em.persist(owner);
+        em.flush();
+
+        Company company = Company.createPendingReview(
+                owner.getId(), "시설사진테스트회사", "REG-FAC-" + owner.getId(), "대표자",
+                "서울시", null, "https://files.example/business.pdf", "{}");
+        em.persist(company);
+        em.flush();
+        company.markBusinessVerified();
+        company.approve(owner.getId());
+        em.flush();
+
+        em.persist(CompanyMembership.approvedOwner(company.getId(), owner.getId()));
+        owner.assignToCompany(company.getId());
+        em.persist(owner);
+        em.flush();
+
+        Facility facility = Facility.builder().companyId(company.getId()).name("대표사진빌딩").type("BUILDING").build();
+        em.persist(facility);
+        em.flush();
+
+        return facility.getId();
+    }
+
     private Long seedInspection() {
         // HAJA-25 배정 검증 트리거: created_by·assigned_inspector 는 승인+검증된 회사의 유효한 APPROVED
         // 멤버여야 하고 담당자는 INSPECTOR/ADMIN 역할이어야 한다. owner 를 두 역할로 함께 재사용하므로
@@ -160,5 +194,74 @@ class MediaRepositoryTest extends PostgresTestSupport {
         } finally {
             TimeZone.setDefault(originalDefault);
         }
+    }
+
+    // ── 시설물 대표 사진(#632/#652, HAJA-377) ──────────────────────────────────────────────
+
+    @Test
+    void save_facility전용로우_inspectionId없이_facilityId만저장() {
+        Long facilityId = seedFacility();
+        Media media = Media.builder()
+                .facilityId(facilityId)
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/a.png")
+                .mimeSignatureVerified(true)
+                .build();
+
+        Media saved = mediaRepository.save(media);
+        em.flush();
+
+        assertThat(saved.getId()).isNotNull();
+        assertThat(saved.getFacilityId()).isEqualTo(facilityId);
+        assertThat(saved.getInspectionId()).isNull();
+    }
+
+    @Test
+    void countByFacilityId와_findByFacilityIdOrderByIdAsc_해당시설물사진만반환() {
+        Long facilityId = seedFacility();
+        Media first = mediaRepository.save(Media.builder()
+                .facilityId(facilityId).fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/1.png").mimeSignatureVerified(true).build());
+        Media second = mediaRepository.save(Media.builder()
+                .facilityId(facilityId).fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/2.png").mimeSignatureVerified(true).build());
+        em.flush();
+
+        assertThat(mediaRepository.countByFacilityId(facilityId)).isEqualTo(2L);
+        assertThat(mediaRepository.findByFacilityIdOrderByIdAsc(facilityId))
+                .extracting(Media::getId)
+                .containsExactly(first.getId(), second.getId());
+    }
+
+    @Test
+    void save_inspectionId와facilityId_둘다null이면_XOR_CHECK제약위반() {
+        // chk_media_inspection_xor_facility — 둘 다 비면 DB 레벨에서 거부되어야 한다(오염 로우 차단).
+        Media media = Media.builder()
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("orphan/a.png")
+                .mimeSignatureVerified(true)
+                .build();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> mediaRepository.saveAndFlush(media))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void save_inspectionId와facilityId_둘다채우면_XOR_CHECK제약위반() {
+        // chk_media_inspection_xor_facility — 둘 다 채워도 DB 레벨에서 거부되어야 한다(정확히 하나만 허용).
+        // 두 FK(inspection_id, facility_id) 모두 실재 로우를 참조해야 CHECK 위반만 격리 검증된다.
+        Long inspectionId = seedInspection();
+        Long facilityId = seedFacility();
+
+        Media media = Media.builder()
+                .inspectionId(inspectionId)
+                .facilityId(facilityId)
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("both/a.png")
+                .mimeSignatureVerified(true)
+                .build();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> mediaRepository.saveAndFlush(media))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
     }
 }

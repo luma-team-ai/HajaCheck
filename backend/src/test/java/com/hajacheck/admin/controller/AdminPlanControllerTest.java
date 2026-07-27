@@ -20,11 +20,16 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
+import com.hajacheck.membership.entity.UsageCounter;
 import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.repository.PlanRepository;
+import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,6 +65,8 @@ class AdminPlanControllerTest extends PostgresTestSupport {
     private PlanRepository planRepository;
     @Autowired
     private UserPlanRepository userPlanRepository;
+    @Autowired
+    private UsageCounterRepository usageCounterRepository;
 
     // ── 인가(ADMIN role) 경계 ──
 
@@ -134,36 +141,87 @@ class AdminPlanControllerTest extends PostgresTestSupport {
     // ── 플랜 변경 + 이력 ──
 
     @Test
-    void 플랜변경_FREE에서STANDARD_200_이력보존() throws Exception {
-        Fixture fx = approvedCompanyAdminWithPlan(PlanName.FREE);
+    void 플랜변경_STANDARD에서FREE_200_이력보존() throws Exception {
+        // ⚠️ #988 이후 이 화면은 하향·FREE 전환 전용이다(상향은 결제 경로로만) — 그래서 이력 테스트도
+        // 상향(FREE→STANDARD)이 아니라 하향(STANDARD→FREE)으로 고정한다.
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.STANDARD);
 
         mockMvc.perform(patch("/api/admin/plan")
                         .with(csrf()).with(authentication(authOf(fx.admin())))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"planName\":\"STANDARD\"}"))
+                        .content("{\"planName\":\"FREE\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.plan.name").value("STANDARD"))
+                .andExpect(jsonPath("$.data.plan.name").value("FREE"))
                 .andExpect(jsonPath("$.data.status").value("ACTIVE"));
 
-        // 변경 이력: 최신순 = STANDARD(ACTIVE) → FREE(EXPIRED)
+        // 변경 이력: 최신순 = FREE(ACTIVE) → STANDARD(EXPIRED)
         mockMvc.perform(get("/api/admin/plan/history").with(authentication(authOf(fx.admin()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.history.length()").value(2))
                 .andExpect(jsonPath("$.data.page").value(1))
                 .andExpect(jsonPath("$.data.size").value(20))
                 .andExpect(jsonPath("$.data.totalElements").value(2))
-                .andExpect(jsonPath("$.data.history[0].planName").value("STANDARD"))
+                .andExpect(jsonPath("$.data.history[0].planName").value("FREE"))
                 .andExpect(jsonPath("$.data.history[0].status").value("ACTIVE"))
                 .andExpect(jsonPath("$.data.history[0].endedAt").doesNotExist())
-                .andExpect(jsonPath("$.data.history[1].planName").value("FREE"))
+                .andExpect(jsonPath("$.data.history[1].planName").value("STANDARD"))
                 .andExpect(jsonPath("$.data.history[1].status").value("EXPIRED"))
                 .andExpect(jsonPath("$.data.history[1].endedAt").exists());
     }
 
     @Test
+    void 플랜변경_상향은_403_결제경로로만_가능하다() throws Exception {
+        // ⚠️ 리뷰 P1-A(무결제 승격 차단) — checkout 을 지워도 이 경로가 남아 있으면 결제가 통째로 우회된다.
+        // 이 API 의 인가 주체(회사 owner)가 곧 결제 주체이고, owner 는 가입 시 ADMIN 이 자동 부여되므로(#636)
+        // 결제 대상자 전원이 우회로를 갖게 된다.
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.FREE);
+
+        mockMvc.perform(patch("/api/admin/plan")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"STANDARD\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("PLAN_UPGRADE_REQUIRES_PAYMENT"));
+
+        // 부작용 부재 — 구독은 그대로 FREE 이고 이력 행도 늘지 않는다.
+        mockMvc.perform(get("/api/admin/plan/history").with(authentication(authOf(fx.admin()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.history.length()").value(1))
+                .andExpect(jsonPath("$.data.history[0].planName").value("FREE"))
+                .andExpect(jsonPath("$.data.history[0].status").value("ACTIVE"));
+    }
+
+    @Test
+    void 플랜변경_상향은_중간티어에서도_403이다() throws Exception {
+        // STANDARD(29000) → ENTERPRISE(99000) 도 같은 이유로 막힌다.
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.STANDARD);
+
+        mockMvc.perform(patch("/api/admin/plan")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"ENTERPRISE\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("PLAN_UPGRADE_REQUIRES_PAYMENT"));
+    }
+
+    @Test
+    void 플랜변경_하향은_그대로_허용된다() throws Exception {
+        // 관리자 콘솔은 하향·FREE 전환 전용으로 남는다 — 하향까지 막으면 해지 수단이 사라진다.
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.ENTERPRISE);
+
+        mockMvc.perform(patch("/api/admin/plan")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"STANDARD\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.plan.name").value("STANDARD"));
+    }
+
+    @Test
     void 플랜변경이력조회_size로상한_totalElements는전체건수() throws Exception {
         // PR#525 머신 리뷰 P3: 이력이 페이지 크기를 초과해도 content 는 상한만, totalElements 는 전체 수.
-        Fixture fx = approvedCompanyAdminWithPlan(PlanName.FREE);
+        // #988 이후 이 화면은 하향만 가능하므로 이력도 하향 체인(ENTERPRISE→STANDARD→FREE)으로 만든다.
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.ENTERPRISE);
         mockMvc.perform(patch("/api/admin/plan")
                         .with(csrf()).with(authentication(authOf(fx.admin())))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -172,19 +230,52 @@ class AdminPlanControllerTest extends PostgresTestSupport {
         mockMvc.perform(patch("/api/admin/plan")
                         .with(csrf()).with(authentication(authOf(fx.admin())))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"planName\":\"ENTERPRISE\"}"))
+                        .content("{\"planName\":\"FREE\"}"))
                 .andExpect(status().isOk());
-        // 이 시점 이력 3건(FREE→STANDARD→ENTERPRISE). size=2 로 조회하면 content 는 2건, totalElements 는 3.
+        // 이 시점 이력 3건(ENTERPRISE→STANDARD→FREE). size=2 로 조회하면 content 는 2건, totalElements 는 3.
 
         mockMvc.perform(get("/api/admin/plan/history")
                         .param("size", "2")
                         .with(authentication(authOf(fx.admin()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.history.length()").value(2))
-                .andExpect(jsonPath("$.data.history[0].planName").value("ENTERPRISE"))
+                .andExpect(jsonPath("$.data.history[0].planName").value("FREE"))
                 .andExpect(jsonPath("$.data.page").value(1))
                 .andExpect(jsonPath("$.data.size").value(2))
                 .andExpect(jsonPath("$.data.totalElements").value(3));
+    }
+
+    @Test
+    void 플랜변경시_당월_사용량이_새구독으로_이월된다() throws Exception {
+        // #851 — 이월하지 않으면 플랜을 바꾸는 것만으로 usage_counters 행이 새로 열려 월 분석 한도가
+        // 0 으로 리셋된다. 결제 경로(#988)와 관리자 콘솔 경로 중 한쪽만 이월하면 "관리자 콘솔로 바꾸면
+        // 한도가 리셋된다"는 우회로가 그대로 남으므로 두 경로 모두 같은 규칙을 강제한다.
+        // 상향은 #988 이후 이 경로에서 막히므로 하향(STANDARD→FREE)으로 검증한다 — 이월 규칙은 방향과 무관하다.
+        Fixture fx = approvedCompanyAdminWithPlan(PlanName.STANDARD);
+        UserPlan before = userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(
+                fx.company().getId(), com.hajacheck.membership.entity.UserPlanStatus.ACTIVE).orElseThrow();
+        LocalDate period = YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1);
+        usageCounterRepository.saveAndFlush(
+                UsageCounter.create(before.getId(), period, 37, 4, 6, 2, 1, 3));
+
+        mockMvc.perform(patch("/api/admin/plan")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"FREE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.plan.name").value("FREE"))
+                // 응답의 사용량도 이월된 값이어야 한다(변경 직후 화면이 0 으로 보이면 안 된다).
+                .andExpect(jsonPath("$.data.usage.analyzedImageCount").value(37));
+
+        UserPlan after = userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(
+                fx.company().getId(), com.hajacheck.membership.entity.UserPlanStatus.ACTIVE).orElseThrow();
+        assertThat(after.getId()).isNotEqualTo(before.getId());
+        UsageCounter carried = usageCounterRepository
+                .findByUserPlanIdAndPeriod(after.getId(), period).orElseThrow();
+        assertThat(carried.getAnalyzedImageCount()).isEqualTo(37);
+        assertThat(carried.getAnalysisRequestCount()).isEqualTo(6);
+        assertThat(carried.getFacilityCount()).isEqualTo(4);
+        assertThat(carried.getSeatCount()).isEqualTo(2);
     }
 
     @Test

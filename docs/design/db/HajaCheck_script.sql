@@ -31,6 +31,18 @@ alter type user_plan_status_type owner to postgres;
 
 comment on type user_plan_status_type is '사용자 구독 상태(이용중/만료/업그레이드 요청)';
 
+create type payment_status_type as enum ('READY', 'PAID', 'FAILED', 'CANCELED');
+
+alter type payment_status_type owner to postgres;
+
+comment on type payment_status_type is '결제 상태(주문생성/승인완료/실패/취소)';
+
+create type payment_method_type as enum ('CARD');
+
+alter type payment_method_type owner to postgres;
+
+comment on type payment_method_type is '결제 수단(이번 범위는 카드 단일 — 간편결제·계좌이체는 범위 밖)';
+
 create type inspection_status_type as enum ('CREATED', 'UPLOADING', 'ANALYZING', 'ANALYZED', 'REVIEWED', 'REPORTED');
 
 alter type inspection_status_type owner to postgres;
@@ -535,6 +547,104 @@ comment on column usage_counters.created_at is '사용량 집계 레코드 생�
 alter table usage_counters
     owner to postgres;
 
+create table payments
+(
+    id              bigint generated always as identity
+        primary key,
+    order_id        varchar(64)                                                  not null,
+    user_id         bigint                                                       not null
+        references users,
+    company_id      bigint
+        references companies,
+    user_plan_id    bigint
+        references user_plans,
+    plan_id         bigint                                                       not null
+        references plans,
+    plan_name       plan_name_type                                               not null,
+    amount          numeric(10, 2)                                               not null,
+    status          payment_status_type      default 'READY'::payment_status_type not null,
+    method          payment_method_type,
+    payment_key     varchar(200),
+    receipt_url     text,
+    requested_at    timestamp with time zone default now()                       not null,
+    approved_at     timestamp with time zone,
+    failure_code    varchar(100),
+    failure_message text,
+    confirm_attempt_count integer            default 0                             not null
+);
+
+comment on table payments is '플랜 구독 결제 원장. 주문 사전 등록(READY)→승인(PAID) 2단계로 관리하며, 금액·요금제명을 결제 시점 스냅샷으로 보관해 이후 요금제 가격이 바뀌어도 과거 이력이 소급 변경되지 않는다.';
+
+comment on column payments.id is '결제 식별자';
+
+comment on column payments.order_id is '서버가 발급한 주문 식별자(UUID 기반). 클라이언트 제공 값을 신뢰하지 않는다.';
+
+comment on column payments.user_id is '결제를 요청한 사용자 식별자(구독 소유자)';
+
+comment on column payments.company_id is '회사 구독 결제일 때의 기업 계정 식별자(개인 구독은 NULL)';
+
+comment on column payments.user_plan_id is '승인 성공으로 발급된 구독 식별자. READY 단계에서는 NULL이며, PAID인데 NULL이면 승인은 됐으나 플랜 전이가 끝나지 않은 상태(운영 대사 신호)다.';
+
+comment on column payments.plan_id is '결제 대상 요금제 식별자';
+
+comment on column payments.plan_name is '결제 시점 요금제명 스냅샷(요금제 개명·재정의와 무관하게 이력 보존)';
+
+comment on column payments.amount is '결제 시점 청구 금액 스냅샷(서버가 plans.price_monthly로 결정하며 클라이언트 전달값을 쓰지 않는다)';
+
+comment on column payments.status is '결제 상태';
+
+comment on column payments.method is '결제 수단(승인 성공 시 기록, 카드 외 수단은 NULL)';
+
+comment on column payments.payment_key is 'PG(토스페이먼츠)가 발급한 결제 키. 승인 성공 시 기록하며 부분 유니크 인덱스로 중복 승인을 최종 차단한다.';
+
+comment on column payments.receipt_url is 'PG 영수증 URL(승인 성공 시 기록)';
+
+comment on column payments.requested_at is '주문 생성 시각';
+
+comment on column payments.approved_at is '결제 승인 시각(승인 성공 시 기록)';
+
+comment on column payments.failure_code is 'PG가 반환한 실패 코드(승인 실패 시 기록)';
+
+comment on column payments.failure_message is 'PG가 반환한 실패 사유(승인 실패 시 기록)';
+
+comment on column payments.confirm_attempt_count is '이 주문으로 PG 승인을 시도한 횟수. 승인 결과가 불명이면 주문을 READY로 남겨 재확정을 허용하는데(승인이 성사된 뒤 응답만 못 받았을 수 있다), 그 대가로 "1주문=최대 1회 호출"이라는 자연 상한이 사라지므로 이 카운터가 주문당 아웃바운드 호출 상한을 강제한다.';
+
+alter table payments
+    owner to postgres;
+
+create unique index uq_payments_order_id
+    on payments (order_id);
+
+create unique index uq_payments_payment_key
+    on payments (payment_key)
+    where (payment_key is not null);
+
+create index idx_payments_user
+    on payments (user_id);
+
+create index idx_payments_company
+    on payments (company_id);
+
+comment on index uq_payments_order_id is '동일 주문 식별자가 둘 이상 존재하는 것을 방지한다(주문 사전 등록의 유일성 보장).';
+
+comment on index uq_payments_payment_key is '동일 PG 결제 키로 두 건 이상이 승인되는 것을 방지한다(중복 승인·중복 청구 최종 방어선).';
+
+comment on index idx_payments_user is '사용자별 결제 이력 조회를 위한 인덱스';
+
+comment on index idx_payments_company is '회사별 결제 이력 조회를 위한 인덱스';
+
+create unique index uq_payments_ready_company
+    on payments (company_id, plan_id)
+    where (status = 'READY'::payment_status_type and company_id is not null);
+
+create unique index uq_payments_ready_user
+    on payments (user_id, plan_id)
+    where (status = 'READY'::payment_status_type and company_id is null);
+
+comment on index uq_payments_ready_company is '동일 회사·동일 요금제로 승인 대기(READY) 주문이 둘 이상 만들어지는 것을 방지한다. 애플리케이션의 재사용(dedup) 로직은 "조회 후 없으면 생성"이라 비원자적이라, 동시 주문 생성 두 건이 서로를 못 보고 각각 결제되면 같은 업그레이드에 이중 청구가 난다 — 그 경합을 DB 레벨에서 직렬화한다.';
+
+comment on index uq_payments_ready_user is '동일 개인·동일 요금제로 승인 대기(READY) 주문이 둘 이상 만들어지는 것을 방지한다(개인 구독 축). 소유 주체가 user_id/company_id 양자택일이라 회사 축 인덱스와 조건이 서로 배타적이며, 개인 시절 주문과 기업 소속 이후 주문은 서로 다른 인덱스에 속해 충돌하지 않는다.';
+
 create table facilities
 (
     id                      bigint generated always as identity
@@ -663,8 +773,10 @@ create table media
 (
     id                      bigint generated always as identity
         primary key,
-    inspection_id           bigint                                 not null
+    inspection_id           bigint
         references inspections,
+    facility_id             bigint
+        constraint fk_media_facility references facilities,
     file_type               media_file_type                        not null,
     original_url            varchar(500)                           not null,
     thumbnail_url           varchar(500),
@@ -676,14 +788,18 @@ create table media
     gps_lng                 numeric(9, 6),
     mime_signature_verified boolean                  default false not null,
     created_at              timestamp with time zone default now() not null,
-    mime_type               varchar(100)
+    mime_type               varchar(100),
+    constraint chk_media_inspection_xor_facility
+        check ((inspection_id is not null) <> (facility_id is not null))
 );
 
 comment on table media is '점검 과정에서 등록하거나 추출한 이미지 및 영상 정보를 관리한다.';
 
 comment on column media.id is '미디어 식별자';
 
-comment on column media.inspection_id is '미디어가 속한 점검 식별자';
+comment on column media.inspection_id is '미디어가 속한 점검 식별자 — nullable(Option B, #632): facility_id 와 정확히 하나만 채워진다(chk_media_inspection_xor_facility)';
+
+comment on column media.facility_id is '시설물 대표 사진(#632/#652, HAJA-377)이 속한 시설물 식별자 — nullable, inspection_id 와 정확히 하나만 채워진다(chk_media_inspection_xor_facility)';
 
 comment on column media.file_type is '미디어 파일 유형';
 
@@ -714,6 +830,10 @@ alter table media
 
 create index idx_media_inspection
     on media (inspection_id);
+
+create index idx_media_facility
+    on media (facility_id)
+    where facility_id is not null;
 
 create table defects
 (

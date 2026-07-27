@@ -64,7 +64,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
 
     const kpi = screen.getByLabelText('점검 하자 요약');
     expect(within(kpi).getByText('총 하자')).not.toBeNull();
-    expect(within(kpi).getByText('2')).not.toBeNull();
+    expect(within(kpi).getByText('2건')).not.toBeNull();
   });
 
   it('헤더에 점검 ID 텍스트를 렌더링한다', async () => {

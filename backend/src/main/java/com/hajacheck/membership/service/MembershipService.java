@@ -11,7 +11,6 @@ import com.hajacheck.membership.dto.MyPlanResponse;
 import com.hajacheck.membership.dto.SeatsResponse;
 import com.hajacheck.membership.dto.UpgradeInquiryResponse;
 import com.hajacheck.membership.entity.Plan;
-import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UsageCounter;
 import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
@@ -23,7 +22,6 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,7 +51,6 @@ public class MembershipService {
     private final PlanRepository planRepository;
     private final UserPlanRepository userPlanRepository;
     private final UsageCounterRepository usageCounterRepository;
-    private final PlanDowngradeService planDowngradeService;
 
     public MyPlanResponse getMyPlan(Long userId) {
         User user = findUser(userId);
@@ -104,74 +101,12 @@ public class MembershipService {
     }
 
     /**
-     * 모의 결제(PG 실결제 없음, #711) — {@code AdminPlanService#changePlan} 과 동일한 전이 패턴을 개인/회사
-     * 구독 양쪽에 적용한다: 기존 ACTIVE(또는 UPGRADE_REQUESTED) 구독을 {@link UserPlan#expire()} 로 내리고
-     * 신규 ACTIVE 구독을 발급한다(단일 트랜잭션). 대상 요금제가 이미 ACTIVE 구독과 같으면 멱등 no-op(200).
+     * 현재 구독 조회 — ACTIVE 우선, 없으면 UPGRADE_REQUESTED(여전히 유효한 구독).
      *
-     * <p><b>인가</b>: {@link #requestUpgrade} 와 동일 기준 — 회사 구독은 {@code company.ownerUserId}, 개인
-     * 구독은 {@link UserPlan#isOwnedByUser}.
+     * <p>결제 쓰기 경로({@code PaymentWriter})는 같은 규칙을 {@link PlanTransitionService#resolveCurrentUserPlan}
+     * 으로 수행한다. 두 곳이 <b>같은 우선순위 판정</b>을 쓴다는 사실을 고정해 두기 위해 서로를 참조한다 —
+     * 한쪽만 바꾸면 조회 화면과 결제 대상 구독이 어긋난다.
      */
-    @Transactional
-    public MyPlanResponse checkout(Long userId, PlanName targetPlanName) {
-        if (targetPlanName == PlanName.FREE) {
-            // FREE 다운그레이드는 이 모의 결제 범위 밖(계획서 §1-3) — 업그레이드 결제 대체 흐름만 다룬다.
-            throw new BusinessException(ErrorCode.INVALID_INPUT);
-        }
-
-        User user = findUser(userId);
-        Long companyId = user.getCompanyId();
-        UserPlan current = resolveCurrentUserPlan(userId, companyId);
-
-        Company company = null;
-        if (companyId != null) {
-            company = companyRepository.findById(companyId)
-                    .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_FORBIDDEN));
-            if (!userId.equals(company.getOwnerUserId())) {
-                throw new BusinessException(ErrorCode.PLAN_FORBIDDEN);
-            }
-        } else if (!current.isOwnedByUser(userId)) {
-            throw new BusinessException(ErrorCode.PLAN_FORBIDDEN);
-        }
-
-        Plan targetPlan = planRepository.findByName(targetPlanName)
-                .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
-
-        // 대상이 현재와 동일 + 이미 ACTIVE → 변경 없음(불필요한 이력 행/한도 리셋 방지).
-        if (current.getStatus() == UserPlanStatus.ACTIVE && current.getPlanId().equals(targetPlan.getId())) {
-            return buildResponseWithUsage(current, targetPlan, company);
-        }
-
-        // 이 흐름에서는 초과분을 전환하지 않는다(#890) — 셀프 결제 화면에는 "무엇이 바뀌는지" 확인 단계가
-        // 없어서, 여기서 전환을 허용하면 관리자가 모르는 사이에 동료 계정이 끊기거나 시설물이 읽기전용이
-        // 된다. 하향으로 한도를 넘게 되면 거절하고 관리자 콘솔의 "변경 미리보기 → 명시적 확인"
-        // 경로(AdminPlanService#changePlan)로 유도한다. FREE 다운그레이드는 위에서 이미 막혀 있으므로,
-        // 여기 걸리는 건 ENTERPRISE→STANDARD 처럼 한도가 낮아지는 전환이다.
-        //
-        // ⚠️ 좌석뿐 아니라 시설물 초과도 함께 본다(재검토 P2). 시설물 읽기전용은 상태 컬럼이 아니라
-        // 계산 판정이라 applyOverflow 가 하는 일이 없을 뿐, 플랜 행이 바뀌는 순간 판정이 뒤집혀
-        // 효과는 즉시 발생한다 — "정지될 사람이 없으니 통과"시키면 경고 없이 수십 개가 읽기전용이 된다.
-        if (companyId != null
-                && planDowngradeService.preview(companyId, findPlan(current.getPlanId()), targetPlan).exists()) {
-            throw new BusinessException(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED);
-        }
-
-        // 기존 구독 만료 후 신규 ACTIVE 발급 — 부분 UQ(ACTIVE 최대 1건)를 만족하도록 만료 UPDATE 를 먼저
-        // flush 한 뒤 INSERT 한다(AdminPlanService#changePlan 과 동일 순서).
-        current.expire();
-        userPlanRepository.saveAndFlush(current);
-
-        UserPlan renewed = companyId != null
-                ? UserPlan.forCompany(companyId, targetPlan.getId())
-                : UserPlan.forUser(userId, targetPlan.getId());
-        try {
-            UserPlan saved = userPlanRepository.saveAndFlush(renewed);
-            return buildResponseWithUsage(saved, targetPlan, company);
-        } catch (DataIntegrityViolationException e) {
-            // 동시 결제 경합 — 다른 트랜잭션이 이미 새 ACTIVE 를 만들어 부분 UQ 위반.
-            throw new BusinessException(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
-        }
-    }
-
     private UserPlan resolveCurrentUserPlan(Long userId, Long companyId) {
         if (companyId != null) {
             return userPlanRepository

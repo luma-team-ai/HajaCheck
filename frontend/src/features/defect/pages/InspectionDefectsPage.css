@@ -28,8 +28,23 @@
   font-weight: 600;
 }
 
+.inspection-defects-page__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.inspection-defects-page__header-divider {
+  width: 1px;
+  height: 28px;
+  flex: none;
+  background: var(--color-border);
+}
+
 .inspection-defects-page__title {
-  margin: 0 0 20px;
+  margin: 0;
   color: var(--color-heading);
   font-size: 28px;
   font-weight: 900;
@@ -694,6 +709,10 @@
   .inspection-defects-page__layout,
   .defect-detail-modal__body {
     grid-template-columns: 1fr;
+  }
+
+  .inspection-defects-page__header-divider {
+    display: none;
   }
 
   .inspection-kpi-summary {

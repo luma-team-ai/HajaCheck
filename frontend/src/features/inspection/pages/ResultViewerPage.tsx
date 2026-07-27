@@ -139,6 +139,7 @@ export function ResultViewerPage() {
       .map((media) => ({
         mediaId: media.id,
         imageUrl: media.imageUrl,
+        thumbnailUrl: media.thumbnailUrl,
         defects: defectsByMediaId.get(media.id) ?? [], // 이 media의 필터된 하자 목록(없으면 빈 배열)
       }));
   }, [data?.media, visibleDefects]);
@@ -528,6 +529,7 @@ export function ResultViewerPage() {
                     media={{
                       id: currentMediaGroup.mediaId,
                       imageUrl: currentMediaGroup.imageUrl ?? '',
+                      thumbnailUrl: currentMediaGroup.thumbnailUrl,
                     }}
                     defects={currentDefects}
                     selectedId={selected?.id}

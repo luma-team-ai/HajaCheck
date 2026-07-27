@@ -89,6 +89,10 @@ services:
       # 운영 갭이었다. 아래 문장이 한동안 사실이 아니었던 이유).
       - oci-db-uploads:/app/uploads/hajacheck-files
     environment:
+      # ⚠️ 이 파일은 base(docker-compose.yml) 위에 얹는 오버레이다(.env COMPOSE_FILE 이 3개 파일을
+      #    나열한다) — environment 맵은 파일 간 병합되므로 base 가 주는 TOSS_SECRET_KEY(#988)·
+      #    BUSINESS_REGISTRATION_API_KEY 등은 여기 다시 적지 않아도 그대로 전달된다. 아래는 base 값을
+      #    "덮어써야 하는" 항목만 나열한다. base 를 빼고 이 파일만으로 띄우면 결제 시크릿이 유실된다.
       SPRING_DATASOURCE_URL: jdbc:postgresql://db-tunnel:5432/hajacheck_dev
       SPRING_DATA_REDIS_HOST: db-tunnel
       SPRING_DATA_REDIS_PORT: 6380

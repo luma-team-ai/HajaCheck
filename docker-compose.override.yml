@@ -64,6 +64,8 @@ services:
       # 컨테이너에 없으므로(볼륨 미마운트) 여기서 명시하지 않으면 undefined 가 된다.
       # Vite dev 서버는 environment 를 런타임에 읽으므로 값 변경 시 재빌드 없이 재생성만 하면 된다.
       VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:-}
+      # 토스 결제창 SDK 클라이언트 키(#988) — dev 서버는 environment 를 런타임에 읽는다.
+      VITE_TOSS_CLIENT_KEY: ${VITE_TOSS_CLIENT_KEY:-}
       VITE_APP_TITLE: ${VITE_APP_TITLE:-hajaCheck}
       # Docker Desktop(Windows) 바인드 마운트는 네이티브 fs 이벤트가 컨테이너로 전파되지 않아
       # 기본 chokidar 감시로 HMR이 소스 변경을 못 잡는다(수정해도 이전 코드가 계속 서빙됨) —
