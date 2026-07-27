@@ -38,10 +38,12 @@ def test_build_prompt_wraps_query_as_untrusted():
 
 
 @patch("ai.chains.nl_search_chain.get_llm")
-def test_nl_search_endpoint_success(mock_get_llm):
+def test_nl_search_endpoint_action_pending_query_maps_to_confirmed(mock_get_llm):
+    # #1079: 백엔드 DefectStatus에서 "조치대기" 상태값이 제거됐다(V22, CONFIRMED가 의미 흡수).
+    # "조치 대기" 같은 사용자 어휘는 지우지 않고 CONFIRMED로 재매핑해 계속 지원한다.
     mock_llm = MagicMock()
     mock_llm.with_structured_output.return_value.invoke.return_value = _result(
-        filters={"type": [], "grade": ["D", "E"], "status": ["ACTION_PENDING"], "confidenceMin": None},
+        filters={"type": [], "grade": ["D", "E"], "status": ["CONFIRMED"], "confidenceMin": None},
     )
     mock_get_llm.return_value = mock_llm
 
@@ -50,7 +52,7 @@ def test_nl_search_endpoint_success(mock_get_llm):
     body = res.json()
     assert body["success"] is True
     assert body["data"]["filters"]["grade"] == ["D", "E"]
-    assert body["data"]["filters"]["status"] == ["ACTION_PENDING"]
+    assert body["data"]["filters"]["status"] == ["CONFIRMED"]
     assert body["data"]["clarifying_question"] is None
 
 
