@@ -58,6 +58,33 @@ class BusinessLicenseFileServiceTest {
     }
 
     @Test
+    void captureTheRest_선행slash가_붙어도_정상파일키로_정규화한다() {
+        Company company = org.mockito.Mockito.mock(Company.class);
+        when(company.getBusinessRegistrationFileUrl()).thenReturn("/files/" + STORAGE_KEY);
+        when(companyRepository.findById(COMPANY_ID)).thenReturn(Optional.of(company));
+        when(fileStorage.read(STORAGE_KEY)).thenReturn(new byte[] {4, 5, 6});
+
+        BusinessLicenseFileService.LicenseFile result =
+                service.load(COMPANY_ID, USER_ID, "/" + STORAGE_KEY);
+
+        verify(fileStorage).read(STORAGE_KEY);
+        org.assertj.core.api.Assertions.assertThat(result.content()).containsExactly(4, 5, 6);
+    }
+
+    @Test
+    void 선행slash가_두개면_경로조작으로_거부한다() {
+        Company company = org.mockito.Mockito.mock(Company.class);
+        when(company.getBusinessRegistrationFileUrl()).thenReturn("/files/" + STORAGE_KEY);
+        when(companyRepository.findById(COMPANY_ID)).thenReturn(Optional.of(company));
+
+        assertThatThrownBy(() -> service.load(COMPANY_ID, USER_ID, "//" + STORAGE_KEY))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.FILE_NOT_FOUND);
+        verify(fileStorage, never()).read(any());
+    }
+
+    @Test
     void 비로그인_회사스코프검증에서_거부() {
         org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.UNAUTHORIZED))
                 .when(companyScopeGuard).requireEffectiveMembership(null, COMPANY_ID);

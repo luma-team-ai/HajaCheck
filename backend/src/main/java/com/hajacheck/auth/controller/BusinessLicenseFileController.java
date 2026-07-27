@@ -37,6 +37,7 @@ public class BusinessLicenseFileController {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore().cachePrivate())
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header("X-Content-Type-Options", "nosniff")
                 .contentType(MediaType.parseMediaType(file.contentType()))
                 .body(file.content());
     }
