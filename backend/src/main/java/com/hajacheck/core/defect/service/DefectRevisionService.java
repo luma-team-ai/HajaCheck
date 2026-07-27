@@ -94,6 +94,11 @@ public class DefectRevisionService {
             throw new BusinessException(ErrorCode.INVALID_INPUT);
         }
 
+        // bbox 4개가 모두 지정되면 mediaId도 필수 (정규화 좌표가 어느 이미지에 속하는지 식별 필수)
+        if (hasBboxX && hasBboxY && hasBboxW && hasBboxH && request.getMediaId() == null) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT);
+        }
+
         // mediaId 검증(지정 시에만) — 해당 점검 회차 소속 사진인지 확인(DefectService.actionMediaId와 동일 패턴)
         if (request.getMediaId() != null) {
             mediaRepository.findByIdAndInspectionId(request.getMediaId(), inspectionId)
