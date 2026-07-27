@@ -13,6 +13,7 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.counsel.dto.ChatMessageResponse;
+import com.hajacheck.counsel.dto.TypingIndicatorResponse;
 import com.hajacheck.counsel.entity.ChatMessage;
 import com.hajacheck.counsel.entity.ChatSenderType;
 import com.hajacheck.counsel.entity.CounselTicket;
@@ -103,6 +104,37 @@ class CounselChatServiceTest {
         assertThat(captor.getValue().getSender()).isEqualTo(ChatSenderType.USER);
         assertThat(captor.getValue().getSessionId()).isEqualTo(SESSION_ID);
         verify(messagingTemplate).convertAndSend(eq("/topic/counsel/" + TICKET_ID), any(ChatMessageResponse.class));
+    }
+
+    @Test
+    void 타이핑_사용자참여자_USER발신자로_브로드캐스트() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+
+        service.notifyTyping(TICKET_ID, USER_ID);
+
+        ArgumentCaptor<TypingIndicatorResponse> captor = ArgumentCaptor.forClass(TypingIndicatorResponse.class);
+        verify(messagingTemplate).convertAndSend(eq("/topic/counsel/" + TICKET_ID + "/typing"), captor.capture());
+        assertThat(captor.getValue().sender()).isEqualTo(ChatSenderType.USER);
+    }
+
+    @Test
+    void 타이핑_비참여자_드롭() {
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(inProgressTicket()));
+
+        service.notifyTyping(TICKET_ID, 999L);
+
+        verify(messagingTemplate, never()).convertAndSend(anyString(), any(TypingIndicatorResponse.class));
+    }
+
+    @Test
+    void 타이핑_비진행티켓_드롭() {
+        CounselTicket waiting = inProgressTicket();
+        ReflectionTestUtils.setField(waiting, "status", CounselTicketStatus.WAITING);
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(waiting));
+
+        service.notifyTyping(TICKET_ID, USER_ID);
+
+        verify(messagingTemplate, never()).convertAndSend(anyString(), any(TypingIndicatorResponse.class));
     }
 
     @Test

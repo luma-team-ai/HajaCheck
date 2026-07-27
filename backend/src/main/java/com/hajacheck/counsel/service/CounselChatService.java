@@ -3,6 +3,7 @@ package com.hajacheck.counsel.service;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.counsel.dto.ChatMessageResponse;
+import com.hajacheck.counsel.dto.TypingIndicatorResponse;
 import com.hajacheck.counsel.entity.ChatMessage;
 import com.hajacheck.counsel.entity.ChatSenderType;
 import com.hajacheck.counsel.entity.CounselTicket;
@@ -117,6 +118,22 @@ public class CounselChatService {
                 }
             });
         }
+    }
+
+    /**
+     * "입력 중" 신호 브로드캐스트(#1000/#1001 후속) — 영속화하지 않는 휘발성 신호라 sendMessage와 달리
+     * 저장/알림 로직이 없다. 참여자·IN_PROGRESS 검증은 동일하게 적용해 비참여자의 신호 주입을 막는다.
+     */
+    public void notifyTyping(Long ticketId, Long senderUserId) {
+        CounselTicket ticket = ticketRepository.findById(ticketId).orElse(null);
+        if (ticket == null || ticket.getStatus() != CounselTicketStatus.IN_PROGRESS) {
+            return;
+        }
+        ChatSenderType sender = resolveSender(ticket, senderUserId);
+        if (sender == null) {
+            return;
+        }
+        messagingTemplate.convertAndSend(TOPIC_PREFIX + ticketId + "/typing", new TypingIndicatorResponse(sender));
     }
 
     /** 발신자가 티켓 사용자면 USER, 담당 상담원이면 COUNSELOR, 둘 다 아니면 null(비참여자). */
