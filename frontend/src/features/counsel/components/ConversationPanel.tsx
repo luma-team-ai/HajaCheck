@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { api } from '../../../shared/api/axios';
 import { getApiErrorMessage } from '../../../shared/api/types';
 import counselorIcon from '../../../assets/brand/support-fab-icon.svg';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
+import { ChatInputBox } from '../../../shared/components/ChatInputBox/ChatInputBox';
+import { TypingIndicatorBubble } from '../../../shared/components/TypingIndicatorBubble/TypingIndicatorBubble';
 import type { ChatMessageResponse, CounselTicketSummaryResponse } from '../types';
 
 export function MessageBubble({ message }: { message: ChatMessageResponse }) {
@@ -46,11 +48,39 @@ type Props = {
   loading: boolean;
   error: string | null;
   onStartNewCounsel: () => void;
+  // 실시간 채팅 전송(#1000, HAJA-494) — ticket.status === 'IN_PROGRESS'일 때만 사용된다.
+  onSendMessage: (content: string, attachmentKey?: string) => void;
+  // "입력 중" 신호 발행(#1000 후속) — sendTyping 그대로 전달.
+  onTyping: () => void;
+  // 상담원이 현재 입력 중인지(#1000 후속) — true면 말풍선 로딩 인디케이터를 보여준다.
+  counselorTyping: boolean;
+  // 고객측 상담 종료(#1000 후속: 백엔드 CounselTicketService#resolve 권한 완화와 짝).
+  onEndCounsel: () => void;
+  ending: boolean;
+  endError: string | null;
 };
 
-export function ConversationPanel({ ticket, messages, loading, error, onStartNewCounsel }: Props) {
+export function ConversationPanel({
+  ticket,
+  messages,
+  loading,
+  error,
+  onStartNewCounsel,
+  onSendMessage,
+  onTyping,
+  counselorTyping,
+  onEndCounsel,
+  ending,
+  endError,
+}: Props) {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView?.({ block: 'end' });
+  }, [messages, counselorTyping]);
 
   async function handleExport() {
     if (!ticket) return;
@@ -72,6 +102,21 @@ export function ConversationPanel({ ticket, messages, loading, error, onStartNew
     } finally {
       setExporting(false);
     }
+  }
+
+  // 낙관적 UI는 두지 않는다 — 서버가 저장 후 `/topic/counsel/{ticketId}`로 다시 브로드캐스트하고,
+  // 그 프레임을 useCounselHistory의 onMessage가 그대로 받아 messages에 append한다(단일 소스 유지,
+  // 중복 렌더 방지).
+  function handleSend() {
+    const content = draft.trim();
+    if (!content) return;
+    onSendMessage(content);
+    setDraft('');
+  }
+
+  function handleDraftChange(value: string) {
+    setDraft(value);
+    if (value.trim() !== '') onTyping();
   }
 
   if (!ticket) {
@@ -96,22 +141,35 @@ export function ConversationPanel({ ticket, messages, loading, error, onStartNew
           <h1 className="m-0 text-lg font-semibold text-primary">{ticket.title}</h1>
           <span className="text-xs text-text-muted">#{ticket.ticketNumber}</span>
         </div>
-        <button
-          type="button"
-          onClick={() => void handleExport()}
-          disabled={exporting}
-          className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-surface-sunken disabled:opacity-50"
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <path d="M7 10l5 5 5-5" />
-            <path d="M12 15V3" />
-          </svg>
-          대화 내보내기
-        </button>
+        <div className="flex items-center gap-2">
+          {ticket.status === 'IN_PROGRESS' && (
+            <button
+              type="button"
+              onClick={onEndCounsel}
+              disabled={ending}
+              className="shrink-0 rounded-full border border-border px-4 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-surface-sunken disabled:opacity-50"
+            >
+              {ending ? '종료 중...' : '상담 종료'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void handleExport()}
+            disabled={exporting}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-surface-sunken disabled:opacity-50"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <path d="M7 10l5 5 5-5" />
+              <path d="M12 15V3" />
+            </svg>
+            대화 내보내기
+          </button>
+        </div>
       </div>
 
       {exportError && <p className="mx-6 mt-2 text-xs text-red-600">{exportError}</p>}
+      {endError && <p className="mx-6 mt-2 text-xs text-red-600">{endError}</p>}
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-6">
         {loading && <LoadingSpinner className="flex items-center justify-center py-6" />}
@@ -122,7 +180,20 @@ export function ConversationPanel({ ticket, messages, loading, error, onStartNew
         {!loading &&
           !error &&
           messages.map((message) => <MessageBubble key={message.id} message={message} />)}
+        {counselorTyping && <TypingIndicatorBubble />}
+        <div ref={bottomRef} />
       </div>
+
+      {ticket.status === 'IN_PROGRESS' && (
+        <div className="flex justify-center px-6 py-4">
+          <ChatInputBox
+            value={draft}
+            onChange={handleDraftChange}
+            onSubmit={handleSend}
+            placeholder="메시지를 입력하세요"
+          />
+        </div>
+      )}
     </div>
   );
 }

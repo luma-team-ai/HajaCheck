@@ -22,7 +22,8 @@ export interface CounselTicketSummaryResponse {
   title: string; // 구체 제목 스냅샷, 예: "AI 분석 결과 등급 문의"
   userId: number;
   counselorId: number | null;
-  // 백엔드에 지금 추가 중인 필드(counselorName) — 미배포 응답엔 없을 수 있어 optional 겸 null 허용
+  // 상담원이 배정되기 전(WAITING)에는 null. 항상 내려오는 필드이므로 optional이 아니라
+  // null만 허용하면 되지만, 과거 미배포 응답과의 호환을 위해 optional도 함께 열어둔다.
   counselorName?: string | null;
   status: CounselTicketStatus;
   queuePosition: number | null;
@@ -62,7 +63,7 @@ export interface ChatMessageResponse {
   sender: ChatMessageSender;
   content: string;
   attachmentUrl: string | null;
-  // sender=COUNSELOR일 때만 채워짐(백엔드 추가 중) — optional
+  // sender=COUNSELOR일 때만 채워짐(그 외에는 null)
   counselorName?: string | null;
   createdAt: string;
 }

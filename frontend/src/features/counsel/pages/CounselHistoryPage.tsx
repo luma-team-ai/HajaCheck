@@ -21,6 +21,12 @@ export function CounselHistoryPage() {
     messages,
     messagesLoading,
     messagesError,
+    sendMessage,
+    sendTyping,
+    counselorTyping,
+    endCounsel,
+    ending,
+    endError,
   } = useCounselHistory();
 
   function goToNewCounsel() {
@@ -78,6 +84,12 @@ export function CounselHistoryPage() {
           loading={messagesLoading}
           error={messagesError}
           onStartNewCounsel={goToNewCounsel}
+          onSendMessage={sendMessage}
+          onTyping={sendTyping}
+          counselorTyping={counselorTyping}
+          onEndCounsel={endCounsel}
+          ending={ending}
+          endError={endError}
         />
       </div>
     </div>
