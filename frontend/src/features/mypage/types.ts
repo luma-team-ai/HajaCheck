@@ -60,14 +60,58 @@ export interface SeatsInfo {
 // contract.md 추가 ErrorCode(마이페이지) — error.code 비교를 이 상수로 통일해 오타 시 컴파일 에러가 나게 한다.
 // (shared/api/types.ts의 ApiError.code는 앱 전역 에러코드를 아우르는 plain string이라 여기서 좁힐 수 없음 —
 // 대신 이 객체의 프로퍼티를 통해서만 비교하게 해 오타를 컴파일 타임에 잡는다.)
-// PLAN_ACTIVE_SUBSCRIPTION_CONFLICT: POST /me/plan/checkout 동시 요청 경합(409, #712/PR#714 계약).
+// PLAN_ACTIVE_SUBSCRIPTION_CONFLICT: POST /me/plan/orders(구 /me/plan/checkout)뿐 아니라
+// POST /me/payments/confirm(결제 승인)에서도 발생한다(백엔드 #988 리뷰 픽스로 계약 확장,
+// 2026-07-27) — 이미 그 플랜인데 확정을 시도하면 PG 청구 전에 거절된다. "이미 해당 플랜을
+// 이용 중입니다" 취지로 안내하고 플랜 정보를 새로고침하면 된다(재시도 유도 아님).
+// PAYMENT_* 5종은 #989 신규 — POST /me/plan/orders(주문 생성)와 POST /me/payments/confirm(결제 승인)
+// 양쪽에서 발생할 수 있다. 비소유자 주문 접근은 PAYMENT_FORBIDDEN(403)이 아니라
+// PAYMENT_ORDER_NOT_FOUND(404)로 온다(#988 리뷰 픽스) — PAYMENT_FORBIDDEN은 이 경로에서 더 이상
+// 발생하지 않지만 계약상 값 자체는 유지한다.
+// PAYMENT_PLAN_APPLY_PENDING: 결제(PG 승인)는 성공했으나 플랜 반영(소속 변경 등)만 실패한 상태
+// (#988 리뷰 픽스, 2026-07-27). **"결제 실패"로 취급 금지** — 사용자가 재결제하면 환불 불가한
+// 중복 청구가 된다. "결제는 완료, 플랜 반영 처리 중" 취지로만 안내하고 재시도/재결제 버튼을
+// 노출하지 않는다.
 export const MYPAGE_ERROR_CODE = {
   PLAN_NOT_FOUND: 'PLAN_NOT_FOUND',
   PLAN_FORBIDDEN: 'PLAN_FORBIDDEN',
   PLAN_ACTIVE_SUBSCRIPTION_CONFLICT: 'PLAN_ACTIVE_SUBSCRIPTION_CONFLICT',
+  PAYMENT_ORDER_NOT_FOUND: 'PAYMENT_ORDER_NOT_FOUND',
+  PAYMENT_FORBIDDEN: 'PAYMENT_FORBIDDEN',
+  PAYMENT_AMOUNT_MISMATCH: 'PAYMENT_AMOUNT_MISMATCH',
+  PAYMENT_GATEWAY_ERROR: 'PAYMENT_GATEWAY_ERROR',
+  PLAN_DOWNGRADE_CONFIRMATION_REQUIRED: 'PLAN_DOWNGRADE_CONFIRMATION_REQUIRED',
+  PAYMENT_PLAN_APPLY_PENDING: 'PAYMENT_PLAN_APPLY_PENDING',
 } as const;
 
 export type MyPageErrorCode = (typeof MYPAGE_ERROR_CODE)[keyof typeof MYPAGE_ERROR_CODE];
+
+// ---- 토스페이먼츠 결제창 연동(#989, HAJA-490) ----
+// handoff "API 계약" 절과 1:1. 웹훅·환불/취소 UI·정기결제·간편결제/계좌이체는 범위 밖(handoff 배경).
+
+// POST /me/plan/orders 응답 — 결제창(requestPayment)에 그대로 넘길 주문 정보.
+// amount는 서버가 계산한 금액이 source of truth다(구 PlanCheckoutModal의 UPGRADE_PLAN_PRICE
+// 하드코딩을 대체 — 클라이언트에서 금액을 추정/표시하지 않는다).
+export interface PlanOrder {
+  orderId: string;
+  planName: PlanName;
+  amount: number;
+  orderName: string;
+}
+
+// GET /me/payments 항목 status — 최신순 결제 내역.
+export type PaymentStatus = 'READY' | 'PAID' | 'FAILED' | 'CANCELED';
+
+export interface PaymentHistoryItem {
+  id: number;
+  orderId: string;
+  planName: PlanName;
+  amount: number;
+  status: PaymentStatus;
+  method: string | null;
+  approvedAt: string | null; // ISO datetime, 미승인(READY/FAILED)이면 null
+  receiptUrl: string | null;
+}
 
 // ---- 마이페이지 — 내 점검 이력 / 보고서 (HAJA-366/#668, BE 연동 #844/HAJA-442) ----
 // BE(mypage.dto.*)와 1:1 — 표시용 문자열(회차 조립·날짜 포맷·파일크기·보고서 제목)은 전부 원시값으로

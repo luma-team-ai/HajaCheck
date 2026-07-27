@@ -1,45 +1,84 @@
 import { Button } from '../../../shared/components/Button/Button';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { Modal } from '../../../shared/components/Modal';
-import type { MyPlanInfo } from '../types';
-import { PLAN_NAME_LABEL, formatBillingDate, formatPriceMonthly } from '../utils/planFormat';
+import { usePayments } from '../hooks/usePayments';
+import type { PaymentHistoryItem, PaymentStatus } from '../types';
+import { PLAN_NAME_LABEL } from '../utils/planFormat';
 
 type Props = {
   open: boolean;
   onClose: () => void;
-  plan: MyPlanInfo;
 };
 
-// nextBillingDate(다음 결제 예정일)에서 한 달을 역산해 "직전 결제일"을 표시용으로만 만든다 —
-// 실 결제 이력 레코드가 없어(아래 주석 참고) 현재 활성 구독 기준 근사치다.
-function previousBillingDate(nextBillingDate: string | null): string | null {
-  if (!nextBillingDate) return null;
-  const date = new Date(`${nextBillingDate.slice(0, 10)}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return null;
-  date.setMonth(date.getMonth() - 1);
-  return formatBillingDate(date.toISOString());
+const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
+  READY: '결제 대기',
+  PAID: '결제 완료',
+  FAILED: '결제 실패',
+  CANCELED: '결제 취소',
+};
+
+// 결제 건별 금액 — planFormat.formatPriceMonthly는 "월 구독가"(현재 플랜 요금) 표기용이라 "/월"
+// 접미사가 붙는다. 결제 내역은 그 회차에 실제로 청구된 1회성 금액이라 접미사 없이 표기한다
+// (FAILED 건에 "₩29,000/월"처럼 오인 소지가 있는 문구가 붙는 것도 방지).
+function formatAmount(amount: number): string {
+  return `₩${amount.toLocaleString()}`;
 }
 
-// 결제 내역(#712 Figma 리디자인, PlanCard "결제 내역" 버튼) — 실 결제 이력 API/스키마가 없다(PG
-// 실결제 Out-of-scope, plan.md "범위 밖(후속)" — 기존 BillingHistoryPlaceholder와 동일 사유).
-// 대신 현재 활성 구독을 "모의 결제 1건"으로 보여준다. FREE(유료 이력 없음)는 빈 상태로 표시.
-export function BillingHistoryModal({ open, onClose, plan }: Props) {
-  const paidAt = previousBillingDate(plan.nextBillingDate);
+function formatApprovedAt(approvedAt: string | null): string {
+  if (!approvedAt) return '-';
+  const date = new Date(approvedAt);
+  if (Number.isNaN(date.getTime())) return approvedAt;
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function PaymentRow({ payment }: { payment: PaymentHistoryItem }) {
+  const isFailed = payment.status === 'FAILED' || payment.status === 'CANCELED';
+
+  return (
+    <div className="flex items-center justify-between rounded-xl border border-border px-4 py-3 text-sm">
+      <div className="flex flex-col gap-1">
+        <span className="font-semibold text-heading">
+          {PLAN_NAME_LABEL[payment.planName] ?? payment.planName} 플랜 구독
+        </span>
+        <span className={isFailed ? 'text-danger' : 'text-text-muted'}>
+          {formatApprovedAt(payment.approvedAt)} · {PAYMENT_STATUS_LABEL[payment.status]}
+        </span>
+      </div>
+      <span className="font-semibold text-heading">{formatAmount(payment.amount)}</span>
+    </div>
+  );
+}
+
+// 결제 내역 실연동(#864, 토스페이먼츠 #989/HAJA-490) — GET /me/payments 실데이터를 최신순으로
+// 보여준다(previousBillingDate 1개월 역산 근사치 로직 삭제 — handoff §4). FAILED/CANCELED 건은
+// 문구 색상으로 구분 표기한다. 모달이 열려 있을 때만 조회한다(enabled=open, 불필요한 선조회 방지).
+export function BillingHistoryModal({ open, onClose }: Props) {
+  const { data: payments, isLoading, isError } = usePayments(open);
 
   return (
     <Modal open={open} onClose={onClose} title="결제 내역">
       <div className="flex w-full max-w-sm flex-col gap-5">
-        {paidAt ? (
-          <div className="flex items-center justify-between rounded-xl border border-border px-4 py-3 text-sm">
-            <div className="flex flex-col gap-1">
-              <span className="font-semibold text-heading">
-                {PLAN_NAME_LABEL[plan.name] ?? plan.name} 플랜 구독
-              </span>
-              <span className="text-text-muted">{paidAt} 결제 완료</span>
-            </div>
-            <span className="font-semibold text-heading">{formatPriceMonthly(plan.priceMonthly)}</span>
-          </div>
-        ) : (
+        {isLoading && <LoadingSpinner className="flex items-center justify-center gap-2 py-6" />}
+
+        {isError && (
+          <p role="alert" className="m-0 text-sm text-danger">
+            결제 내역을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+          </p>
+        )}
+
+        {!isLoading && !isError && payments?.length === 0 && (
           <p className="m-0 text-sm text-text-muted">결제 이력이 없습니다.</p>
+        )}
+
+        {!isLoading && !isError && payments && payments.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {payments.map((payment) => (
+              <PaymentRow key={payment.id} payment={payment} />
+            ))}
+          </div>
         )}
 
         <div className="flex justify-end">

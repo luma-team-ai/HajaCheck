@@ -1,4 +1,4 @@
-import type { MyPlan, SeatMember, SeatsInfo } from '../types';
+import type { MyPlan, PaymentHistoryItem, SeatMember, SeatsInfo } from '../types';
 
 // 백엔드 #211(HAJA-177) 미배포 대비 예제 데이터(HAJA-185) — Figma "My Page - My Plan Management" 시안 기준.
 // priceMonthly=29000은 PRD 확정 STANDARD가(platform-admin planPolicyApi.handlers.ts 시드값과 동일 기준,
@@ -48,3 +48,19 @@ export const mockInvitedSeatMember: SeatMember = {
   role: 'INSPECTOR',
   status: 'INVITED',
 };
+
+// 결제 내역 실연동(#864, 토스페이먼츠 #989/HAJA-490) 예제 데이터 — 백엔드(#988) 미배포 시 usePayments
+// 네이티브 폴백용(fetchWithFallback). MSW 핸들러(mypageApi.handlers.ts)는 이 값을 초기 상태로 삼아
+// 결제 승인 성공 시 새 레코드를 앞에 추가한다.
+export const mockPayments: PaymentHistoryItem[] = [
+  {
+    id: 1,
+    orderId: 'order_mock_20260701',
+    planName: 'STANDARD',
+    amount: 29000,
+    status: 'PAID',
+    method: '카드',
+    approvedAt: '2026-07-01T09:12:00',
+    receiptUrl: 'https://mock.tosspayments.com/receipt/order_mock_20260701',
+  },
+];
