@@ -12,6 +12,7 @@ import com.hajacheck.payment.dto.PaymentOrderResponse;
 import com.hajacheck.payment.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,9 +38,32 @@ public class PaymentService {
     private final TossPaymentsProperties tossPaymentsProperties;
     private final MembershipService membershipService;
 
-    /** 주문 사전 등록 — 서버가 orderId·금액을 확정한다(보안 요구 1·2). 검증·저장은 단일 트랜잭션. */
+    /**
+     * 주문 사전 등록 — 서버가 orderId·금액을 확정한다(보안 요구 1·2). 검증·저장은 단일 트랜잭션.
+     *
+     * <p><b>동시 주문 생성 경합 처리</b>(리뷰 P2): 중복 주문 방지는 "기존 READY 조회 → 없으면 INSERT"라
+     * 그 자체로는 원자적이지 않다. 그래서 DB 에 부분 유니크 인덱스({@code uq_payments_ready_company}/
+     * {@code uq_payments_ready_user})를 두어 경합을 직렬화하는데, 진 쪽은
+     * {@link DataIntegrityViolationException} 을 받고 그 트랜잭션은 롤백된다.
+     *
+     * <p>진 쪽은 <b>여기서 한 번만 재시도</b>한다 — 그 시점엔 이긴 쪽 주문이 이미 커밋돼 있으므로, 재시도가
+     * 재사용 분기를 타 <b>같은 주문을 그대로</b> 돌려준다(사용자에겐 경합이 보이지 않는다). 재시도까지
+     * 실패하면 500 을 내보내지 않고 409 로 변환한다. 재시도는 트랜잭션 밖인 이 계층에서만 가능하다 —
+     * {@code PaymentWriter} 안에서 잡으면 이미 롤백 전용으로 오염된 트랜잭션이라 재조회가 불가능하다.
+     */
     public PaymentOrderResponse createOrder(Long userId, PaymentOrderRequest request) {
-        return paymentWriter.createOrder(userId, request.planName());
+        try {
+            return paymentWriter.createOrder(userId, request.planName());
+        } catch (DataIntegrityViolationException e) {
+            log.info("동시 결제 주문 생성 경합 — 기존 주문 재사용을 위해 1회 재시도(userId={})", userId);
+        }
+        try {
+            return paymentWriter.createOrder(userId, request.planName());
+        } catch (DataIntegrityViolationException e) {
+            // 재시도에서도 충돌 = 그 사이 또 다른 경합. 사용자에게 500 을 내보내지 않는다.
+            log.warn("결제 주문 생성 재시도 실패(userId={}) — 상태 충돌로 응답", userId);
+            throw new BusinessException(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
+        }
     }
 
     /**
@@ -171,6 +195,15 @@ public class PaymentService {
             }
             log.error("결제 승인 후 플랜 반영 실패 — orderId={} code={} (PAID + user_plan_id null 상태로 남는다)",
                     orderId, e.getErrorCode());
+            throw new BusinessException(ErrorCode.PAYMENT_PLAN_APPLY_PENDING);
+        } catch (RuntimeException e) {
+            // ⚠️ BusinessException 만 잡으면 안 된다(리뷰 P2). 전이 경로(만료 UPDATE·사용량 이월 등)에서
+            // DataAccessException 같은 일반 런타임 예외가 나면 그대로 전파돼 confirm 이 500 이 되는데,
+            // 이 시점은 이미 PG 청구 + markApproved(PAID) 커밋 이후다. 사용자가 실패로 오인해 재결제하면
+            // 이중 청구가 나므로, PAYMENT_PLAN_APPLY_PENDING 이 막으려던 시나리오가 그대로 뚫린다.
+            // 원인은 응답이 아니라 로그로만 남긴다(스택 포함 — 여기 예외엔 시크릿이 실리지 않는다).
+            log.error("결제 승인 후 플랜 반영 중 예기치 못한 오류 — orderId={} cause={} "
+                    + "(PAID + user_plan_id null 상태로 남는다)", orderId, e.getClass().getSimpleName(), e);
             throw new BusinessException(ErrorCode.PAYMENT_PLAN_APPLY_PENDING);
         }
     }

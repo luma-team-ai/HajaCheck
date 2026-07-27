@@ -15,7 +15,10 @@ import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.dto.MyPlanResponse;
 import com.hajacheck.membership.service.MembershipService;
 import com.hajacheck.payment.config.TossPaymentsProperties;
+import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.payment.dto.PaymentConfirmRequest;
+import com.hajacheck.payment.dto.PaymentOrderRequest;
+import com.hajacheck.payment.dto.PaymentOrderResponse;
 import com.hajacheck.payment.entity.PaymentMethod;
 import com.hajacheck.payment.repository.PaymentRepository;
 import java.time.Instant;
@@ -27,6 +30,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
@@ -211,6 +215,55 @@ class PaymentServiceTest {
         InOrder inOrder = Mockito.inOrder(paymentWriter, tossPaymentsClient);
         inOrder.verify(paymentWriter).recordConfirmAttempt(PAYMENT_ID);
         inOrder.verify(tossPaymentsClient).confirm(PAYMENT_KEY, ORDER_ID, AMOUNT);
+    }
+
+    @Test
+    void 전이중_일반런타임예외도_결제완료_반영대기로_수렴한다() {
+        // ⚠️ 리뷰 P2 — catch(BusinessException)만 있으면 DataAccessException 같은 일반 런타임 예외가
+        // 그대로 전파돼 confirm 이 500 이 된다. 이 시점은 이미 PG 청구 + markApproved(PAID) 커밋 이후라,
+        // 사용자가 실패로 오인해 재결제하면 이중 청구가 난다.
+        TossPaymentApproval approval = new TossPaymentApproval(
+                PAYMENT_KEY, PaymentMethod.CARD, "https://receipt", Instant.now());
+        when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
+                .thenReturn(PaymentConfirmPreparation.readyToApprove(PAYMENT_ID, AMOUNT));
+        when(tossPaymentsClient.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT)).thenReturn(approval);
+        Mockito.doThrow(new DataIntegrityViolationException("usage carry-over failed"))
+                .when(paymentWriter).applyPlanTransition(PAYMENT_ID);
+
+        assertThatThrownBy(() -> service.confirm(USER_ID, request()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PAYMENT_PLAN_APPLY_PENDING));
+
+        // 승인 기록은 보존된다(돈이 오간 사실은 별도 트랜잭션으로 이미 커밋됐다).
+        verify(paymentWriter).markApproved(PAYMENT_ID, approval);
+    }
+
+    @Test
+    void 주문생성_동시경합에_지면_1회_재시도해_기존주문을_돌려준다() {
+        // 리뷰 P2 — 부분 유니크 인덱스가 경합을 직렬화하고, 진 쪽은 재시도로 이긴 쪽 주문을 재사용한다.
+        PaymentOrderResponse existing = new PaymentOrderResponse(
+                ORDER_ID, "ENTERPRISE", AMOUNT, "HajaCheck ENTERPRISE 플랜 구독");
+        when(paymentWriter.createOrder(USER_ID, PlanName.ENTERPRISE))
+                .thenThrow(new DataIntegrityViolationException("uq_payments_ready_user violated"))
+                .thenReturn(existing);
+
+        PaymentOrderResponse response =
+                service.createOrder(USER_ID, new PaymentOrderRequest(PlanName.ENTERPRISE));
+
+        assertThat(response.orderId()).isEqualTo(ORDER_ID);
+        verify(paymentWriter, org.mockito.Mockito.times(2)).createOrder(USER_ID, PlanName.ENTERPRISE);
+    }
+
+    @Test
+    void 주문생성_재시도까지_충돌하면_500이_아니라_409다() {
+        when(paymentWriter.createOrder(USER_ID, PlanName.ENTERPRISE))
+                .thenThrow(new DataIntegrityViolationException("uq_payments_ready_user violated"));
+
+        assertThatThrownBy(() -> service.createOrder(USER_ID, new PaymentOrderRequest(PlanName.ENTERPRISE)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT));
     }
 
     @Test
