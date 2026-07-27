@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import counselorIcon from '../../../assets/brand/header-user-outlined.svg';
+import counselorIcon from '../../../assets/brand/support-fab-icon.svg';
 import defaultAvatarIcon from '../../../assets/brand/sidenav-default-avatar.svg';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import { ChatInputBox } from '../../../shared/components/ChatInputBox/ChatInputBox';

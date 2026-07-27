@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { api } from '../../../shared/api/axios';
 import { getApiErrorMessage } from '../../../shared/api/types';
-import headerUserIcon from '../../../assets/brand/header-user-outlined.svg';
+import counselorIcon from '../../../assets/brand/support-fab-icon.svg';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import type { ChatMessageResponse, CounselTicketSummaryResponse } from '../types';
 
@@ -27,9 +27,7 @@ export function MessageBubble({ message }: { message: ChatMessageResponse }) {
   // COUNSELOR/BOT — 좌측 정렬, 상담 챗봇 화면(ChatBotPage)과 동일한 아바타+말풍선 배치로 통일.
   return (
     <div className="flex items-start gap-2.5">
-      {message.sender === 'COUNSELOR' && (
-        <ChatAvatar icon={headerUserIcon} bgClassName="bg-surface-sunken" className="border border-border" />
-      )}
+      {message.sender === 'COUNSELOR' && <ChatAvatar icon={counselorIcon} bgClassName="bg-primary" />}
       <div className="flex flex-col items-start gap-1">
         {message.sender === 'COUNSELOR' && message.counselorName && (
           <span className="text-xs font-medium text-text-muted">상담원 {message.counselorName}</span>
