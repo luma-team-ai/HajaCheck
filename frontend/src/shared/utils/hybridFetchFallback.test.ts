@@ -82,9 +82,9 @@ describe('hybridFetchFallback', () => {
     expect(result).toEqual(mockFallbackData);
   });
 
-  it('401 Unauthorized 또는 500 에러 발생 시 폴백하지 않고 에러를 전파한다', async () => {
-    const err500 = { response: { status: 500 } };
-    const fetcher = vi.fn().mockRejectedValue(err500);
+  it.each([401, 403, 500])('%i 에러 발생 시 폴백하지 않고 에러를 전파한다', async (status) => {
+    const error = { response: { status } };
+    const fetcher = vi.fn().mockRejectedValue(error);
 
     await expect(
       hybridFetchFallback({
@@ -92,7 +92,7 @@ describe('hybridFetchFallback', () => {
         fallback: mockFallbackData,
         env: { DEV: true },
       }),
-    ).rejects.toEqual(err500);
+    ).rejects.toEqual(error);
   });
 
   it('PROD 환경(DEV: false)에서는 404나 NETWORK_ERROR가 나도 절대 목 데이터로 폴백하지 않는다 (#213 가드)', async () => {

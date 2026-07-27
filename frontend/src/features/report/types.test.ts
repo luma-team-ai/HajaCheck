@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isReportContent } from './types';
+import { mockReportDetailResponse } from './mocks/reportDetail.mock';
 
 describe('isReportContent', () => {
   const validContent = {
@@ -11,6 +12,10 @@ describe('isReportContent', () => {
 
   it('returns true for a complete ReportContent object', () => {
     expect(isReportContent(validContent)).toBe(true);
+  });
+
+  it('실백엔드 상세 응답 fixture의 content 계약을 통과시킨다', () => {
+    expect(isReportContent(mockReportDetailResponse.content)).toBe(true);
   });
 
   it('returns false when value is null or not an object', () => {

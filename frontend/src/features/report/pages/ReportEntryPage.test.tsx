@@ -3,8 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { within } from '@testing-library/react';
 import type { ApiResponse } from '../../../shared/api/types';
 import type {
@@ -123,6 +123,28 @@ function renderPage(initialPath = '/inspections/1/reports') {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route path="/inspections/:id/reports" element={<ReportEntryPage />} />
+          <Route path="/inspections/:id/reports/generate" element={<div>편집화면</div>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{location.pathname + location.search}</div>;
+}
+
+function renderPageWithLocationProbe(initialPath = '/inspections/1/reports') {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <LocationProbe />
         <Routes>
           <Route path="/inspections/:id/reports" element={<ReportEntryPage />} />
           <Route path="/inspections/:id/reports/generate" element={<div>편집화면</div>} />
@@ -343,7 +365,7 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(screen.getByRole('button', { name: '보고서 생성 시작' }).hasAttribute('disabled')).toBe(false);
   });
 
-  it('생성에 성공하면 편집화면으로 reportId 쿼리를 달아 이동한다', async () => {
+  it('생성에 성공하면 백엔드가 반환한 실제 reportId 쿼리로 이동한다', async () => {
     let posted = false;
     server.use(
       http.post('/api/inspections/:id/reports', () => {
@@ -354,7 +376,7 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
         });
       }),
     );
-    renderPage();
+    renderPageWithLocationProbe();
     await screen.findByText(/점검 회차 요약/);
 
     fireEvent.click(screen.getByRole('button', { name: '보고서 생성 시작' }));
@@ -363,6 +385,28 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
       expect(posted).toBe(true);
       expect(screen.getByText('편집화면')).not.toBeNull();
     });
+    expect(screen.getByTestId('location').textContent).toBe('/inspections/1/reports/generate?reportId=77');
+  });
+
+  it('생성에 실패하면 편집 화면으로 이동하지 않고 오류를 표시한다', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    server.use(
+      http.post('/api/inspections/:id/reports', () =>
+        HttpResponse.json(
+          { success: false, error: { code: 'REPORT_GENERATION_FAILED', message: 'AI 서버 응답이 없습니다.' } },
+          { status: 503 },
+        ),
+      ),
+    );
+    renderPageWithLocationProbe();
+    await screen.findByText(/점검 회차 요약/);
+
+    fireEvent.click(screen.getByRole('button', { name: '보고서 생성 시작' }));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('AI 서버 응답이 없습니다.'));
+    expect(screen.getByTestId('location').textContent).toBe('/inspections/1/reports');
+    expect(screen.queryByText('편집화면')).toBeNull();
+    alertSpy.mockRestore();
   });
 
   it('최근 작업 내역이 있으면 목록과 "이어서 편집" 버튼을 노출한다', async () => {
