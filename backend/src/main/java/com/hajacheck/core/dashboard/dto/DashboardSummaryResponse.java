@@ -6,9 +6,11 @@ package com.hajacheck.core.dashboard.dto;
  * <p>changeRate 계산 기준(스냅샷 테이블이 없어 아래 근사치로 계산 — 후속 계약 확정 시 조정):
  * <ul>
  *   <li>totalFacilitiesChangeRate: 누적 시설물 수 기준 — (현재 총합 - 이번 달 시작 시점 총합) / 이번 달 시작 시점 총합 * 100</li>
- *   <li>monthlyAnalyzedChangeRate/pendingReviewChangeRate: 점검(inspection_date) 기준 이번 달 vs 지난 달</li>
- *   <li>pendingActionChangeRate: 하자(defects.created_at) 기준 이번 달 vs 지난 달</li>
+ *   <li>monthlyAnalyzedChangeRate/pendingReviewChangeRate/pendingActionChangeRate: 점검(inspection_date)
+ *       기준 이번 달 vs 지난 달</li>
  * </ul>
+ * <p>pendingAction은 "조치 대기"에서 "검수확정"으로 의미가 바뀌었다(HAJA-499) — 하자 ACTION_PENDING
+ * 건수가 아니라 점검 REVIEWED(검수확정) 건수를 센다. 계약 변경을 피하려 필드명은 그대로 유지한다.
  * 분모가 0이면 분자가 0보다 클 때만 100%로, 그 외엔 0%로 처리한다(0으로 나누기 방지).
  */
 public record DashboardSummaryResponse(

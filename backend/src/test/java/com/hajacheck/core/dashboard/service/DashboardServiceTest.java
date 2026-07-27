@@ -137,11 +137,14 @@ class DashboardServiceTest {
         when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "A")));
         when(facilityRepository.countByCompanyId(OWNER_ID)).thenReturn(3L);
         when(facilityRepository.countByCompanyIdAndCreatedAtBefore(eq(OWNER_ID), any())).thenReturn(2L);
-        when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of());
         when(inspectionRepository.countByFacilityIdInAndStatusInAndInspectionDateRange(
                 eq(List.of(FACILITY_ID)), anyCollection(), any(), any())).thenReturn(4L);
-        when(inspectionRepository.countByFacilityIdInAndStatusIn(eq(List.of(FACILITY_ID)), anyCollection()))
+        when(inspectionRepository.countByFacilityIdInAndStatusIn(
+                eq(List.of(FACILITY_ID)), eq(EnumSet.of(InspectionStatus.ANALYZED))))
                 .thenReturn(7L);
+        when(inspectionRepository.countByFacilityIdInAndStatusIn(
+                eq(List.of(FACILITY_ID)), eq(EnumSet.of(InspectionStatus.REVIEWED))))
+                .thenReturn(5L);
 
         DashboardSummaryResponse response = dashboardService.getSummary(USER_ID, OWNER_ID);
 
@@ -149,6 +152,8 @@ class DashboardServiceTest {
         assertThat(response.totalFacilitiesChangeRate()).isEqualTo(50.0); // (3-2)/2*100
         assertThat(response.monthlyAnalyzed()).isEqualTo(4L);
         assertThat(response.pendingReview()).isEqualTo(7L);
+        // HAJA-499 — pendingAction은 하자 ACTION_PENDING이 아니라 점검 REVIEWED(검수확정) 건수다.
+        assertThat(response.pendingAction()).isEqualTo(5L);
     }
 
     @Test

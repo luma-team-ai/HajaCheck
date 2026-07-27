@@ -33,6 +33,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.EnumSet;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -172,9 +173,11 @@ class BriefingStatsServiceTest {
                 .thenReturn(List.of(inspection(INSPECTION_ID, FACILITY_ID, InspectionStatus.REVIEWED)));
         when(inspectionRepository.countByFacilityIdInAndStatusInAndInspectionDateRange(
                 eq(List.of(FACILITY_ID)), anyCollection(), any(), any())).thenReturn(4L);
-        when(inspectionRepository.countByFacilityIdInAndStatusIn(eq(List.of(FACILITY_ID)), anyCollection()))
+        when(inspectionRepository.countByFacilityIdInAndStatusIn(
+                eq(List.of(FACILITY_ID)), eq(EnumSet.of(InspectionStatus.ANALYZED))))
                 .thenReturn(2L);
-        when(defectRepository.countByInspectionIdInAndStatusAndDeletedFalse(eq(List.of(INSPECTION_ID)), any()))
+        when(inspectionRepository.countByFacilityIdInAndStatusIn(
+                eq(List.of(FACILITY_ID)), eq(EnumSet.of(InspectionStatus.REVIEWED))))
                 .thenReturn(3L);
         when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
                 eq(List.of(INSPECTION_ID)), any(), any())).thenReturn(0L);
@@ -186,6 +189,7 @@ class BriefingStatsServiceTest {
         assertThat(stats.totalFacilities()).isEqualTo(1L);
         assertThat(stats.monthlyAnalysis()).isEqualTo(4L);
         assertThat(stats.pendingReview()).isEqualTo(2L);
+        // HAJA-499 — pendingAction은 하자 ACTION_PENDING이 아니라 점검 REVIEWED(검수확정) 건수다.
         assertThat(stats.pendingAction()).isEqualTo(3L);
     }
 
@@ -199,8 +203,6 @@ class BriefingStatsServiceTest {
         when(inspectionRepository.countByFacilityIdInAndStatusInAndInspectionDateRange(
                 eq(List.of(FACILITY_ID)), anyCollection(), any(), any())).thenReturn(0L);
         when(inspectionRepository.countByFacilityIdInAndStatusIn(eq(List.of(FACILITY_ID)), anyCollection()))
-                .thenReturn(0L);
-        when(defectRepository.countByInspectionIdInAndStatusAndDeletedFalse(eq(List.of(INSPECTION_ID)), any()))
                 .thenReturn(0L);
         when(defectRepository.countGroupByGrade(List.of(INSPECTION_ID))).thenReturn(List.of());
         when(defectRepository.countGroupByTypeOrderByCntDesc(List.of(INSPECTION_ID))).thenReturn(List.of());
@@ -241,8 +243,6 @@ class BriefingStatsServiceTest {
                 eq(List.of(FACILITY_ID)), anyCollection(), any(), any())).thenReturn(0L);
         when(inspectionRepository.countByFacilityIdInAndStatusIn(eq(List.of(FACILITY_ID)), anyCollection()))
                 .thenReturn(0L);
-        when(defectRepository.countByInspectionIdInAndStatusAndDeletedFalse(eq(List.of(INSPECTION_ID)), any()))
-                .thenReturn(0L);
         when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
                 eq(List.of(INSPECTION_ID)), any(), any())).thenReturn(0L);
         when(defectRepository.countGroupByGrade(List.of(INSPECTION_ID))).thenReturn(List.of(
@@ -270,8 +270,6 @@ class BriefingStatsServiceTest {
                 eq(List.of(FACILITY_ID)), anyCollection(), any(), any())).thenReturn(0L);
         when(inspectionRepository.countByFacilityIdInAndStatusIn(eq(List.of(FACILITY_ID)), anyCollection()))
                 .thenReturn(0L);
-        when(defectRepository.countByInspectionIdInAndStatusAndDeletedFalse(eq(List.of(INSPECTION_ID)), any()))
-                .thenReturn(0L);
         when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
                 eq(List.of(INSPECTION_ID)), any(), any())).thenReturn(0L);
         when(defectRepository.countGroupByGrade(List.of(INSPECTION_ID))).thenReturn(List.of());
@@ -298,8 +296,6 @@ class BriefingStatsServiceTest {
         when(inspectionRepository.countByFacilityIdInAndStatusInAndInspectionDateRange(
                 eq(List.of(FACILITY_ID)), anyCollection(), any(), any())).thenReturn(0L);
         when(inspectionRepository.countByFacilityIdInAndStatusIn(eq(List.of(FACILITY_ID)), anyCollection()))
-                .thenReturn(0L);
-        when(defectRepository.countByInspectionIdInAndStatusAndDeletedFalse(eq(List.of(INSPECTION_ID)), any()))
                 .thenReturn(0L);
         when(defectRepository.countByInspectionIdInAndDeletedFalseAndCreatedAtRange(
                 eq(List.of(INSPECTION_ID)), any(), any())).thenReturn(0L);
@@ -330,8 +326,6 @@ class BriefingStatsServiceTest {
         assertThat(stats.thisWeekDefects()).isZero();
         assertThat(stats.lastWeekDefects()).isZero();
         assertThat(stats.topDefectType()).isEmpty();
-        verify(defectRepository, never())
-                .countByInspectionIdInAndStatusAndDeletedFalse(anyCollection(), any());
         verify(defectRepository, never())
                 .countByInspectionIdInAndDeletedFalseAndCreatedAtRange(anyCollection(), any(), any());
         verify(defectRepository, never()).countGroupByTypeOrderByCntDesc(anyCollection());

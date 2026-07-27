@@ -4,7 +4,6 @@ import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.ai.dto.BriefingStatsRequest;
 import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.core.defect.entity.DefectGrade;
-import com.hajacheck.core.defect.entity.DefectStatus;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.DefectTypeCountProjection;
 import com.hajacheck.core.defect.repository.GradeCountProjection;
@@ -50,6 +49,9 @@ public class BriefingStatsService {
     private static final Set<InspectionStatus> ANALYZED_OR_LATER_STATUSES =
             EnumSet.of(InspectionStatus.ANALYZED, InspectionStatus.REVIEWED, InspectionStatus.REPORTED);
     private static final Set<InspectionStatus> PENDING_REVIEW_STATUSES = EnumSet.of(InspectionStatus.ANALYZED);
+    // DashboardService와 동일 의미 변경(HAJA-499) — "조치 대기"(하자 ACTION_PENDING) 대신 "검수확정"
+    // (점검 REVIEWED) 건수를 센다. 필드명(pendingAction)은 계약 변경을 피하려 유지.
+    private static final Set<InspectionStatus> REVIEW_CONFIRMED_STATUSES = EnumSet.of(InspectionStatus.REVIEWED);
     private static final Set<DefectGrade> CRITICAL_GRADES = EnumSet.of(DefectGrade.D, DefectGrade.E);
 
     private final FacilityRepository facilityRepository;
@@ -78,9 +80,8 @@ public class BriefingStatsService {
                         facilityIds, ANALYZED_OR_LATER_STATUSES, thisMonthStart, nextMonthStart);
         long pendingReview = facilityIds.isEmpty() ? 0
                 : inspectionRepository.countByFacilityIdInAndStatusIn(facilityIds, PENDING_REVIEW_STATUSES);
-        long pendingAction = inspectionIds.isEmpty() ? 0
-                : defectRepository.countByInspectionIdInAndStatusAndDeletedFalse(
-                        inspectionIds, DefectStatus.ACTION_PENDING);
+        long pendingAction = facilityIds.isEmpty() ? 0
+                : inspectionRepository.countByFacilityIdInAndStatusIn(facilityIds, REVIEW_CONFIRMED_STATUSES);
 
         LocalDate thisWeekStart = LocalDate.now(KST).with(DayOfWeek.MONDAY);
         LocalDate nextWeekStart = thisWeekStart.plusWeeks(1);
