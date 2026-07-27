@@ -3,12 +3,14 @@
 // 새 페이지를 이 셸에 포함하려면 router.tsx의 children 배열에 라우트를 추가하고,
 // 그 라우트의 `handle`에 breadcrumb/activeHref를 선언하기만 하면 된다 — 페이지 컴포넌트 자체는
 // AppLayout을 몰라도 됨(react-router v6 표준 패턴: useMatches() + handle).
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Outlet, useMatches, useNavigate } from 'react-router-dom';
 import { useLogout } from '../features/auth/hooks/useLogout';
 import { MYPAGE_PLAN_ROUTE, MYPAGE_PROFILE_ROUTE } from '../features/auth/constants';
 import { useAuthStore } from '../features/auth/store/authStore';
+import { useMenuTree } from '../features/menu/hooks/useMenuTree';
+import { toSideNavItems } from '../features/menu/utils/toSideNavItems';
 import { NotificationCenter } from '../features/notification/components/NotificationCenter';
 import { useNotifications } from '../features/notification/hooks/useNotifications';
 import { useMyPlan } from '../features/mypage/hooks/useMyPlan';
@@ -48,6 +50,13 @@ export function AppShellRoute() {
   // — 각자 role === 'ADMIN'을 따로 비교하면 한쪽만 바뀌었을 때 메뉴·접근 판정이 어긋난다(#378).
   const isAdmin = isAdminRole(authUser?.role);
   const { logout } = useLogout();
+  // 사이드바 메뉴(#1003) — role 기준으로 이미 필터링된 트리를 DB에서 조회한다. 로딩/실패 중에는
+  // items/adminItem이 undefined라 AppLayout→SideNavBar가 자체 기본값(DEFAULT_ITEMS)으로 렌더한다.
+  const { data: menuTree } = useMenuTree();
+  const { items: menuItems, adminItem: menuAdminItem } = useMemo(
+    () => (menuTree ? toSideNavItems(menuTree) : { items: undefined, adminItem: undefined }),
+    [menuTree],
+  );
   // Header 프로필 드롭다운(HAJA-758) 상단 플랜 뱃지용 — 마이페이지 "내 플랜"과 동일 소스(useMyPlan)를 재사용해
   // 표기가 어긋나지 않게 한다. 백엔드 미배포 시에도 useMyPlan 자체가 예제 데이터로 폴백한다(HAJA-185).
   const { data: myPlan } = useMyPlan();
@@ -104,14 +113,10 @@ export function AppShellRoute() {
       <AppLayout
         breadcrumb={handle?.breadcrumb ?? []}
         activeHref={handle?.activeHref}
+        items={menuItems}
+        adminItem={menuAdminItem}
         isRouteImplemented={isRouteImplemented}
         isAdmin={isAdmin}
-        user={
-          authUser
-            ? { name: authUser.name, avatarUrl: authUser.profileImageUrl ?? undefined }
-            : undefined
-        }
-        onLogout={() => void logout()}
         onProfileClick={() => navigate(MYPAGE_PLAN_ROUTE)}
         profileMenu={
           authUser

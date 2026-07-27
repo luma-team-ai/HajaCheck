@@ -82,14 +82,6 @@ describe('PlatformAdminShellRoute', () => {
     expect(logoLink.getAttribute('href')).toBe('/platform-admin/users');
   });
 
-  it('로그인 사용자 이름을 사이드바 하단에 표시한다', () => {
-    useAuthStore.setState({ user: platformAdminUser });
-
-    renderAt('/platform-admin/users');
-
-    expect(screen.getByText('플랫폼 운영진')).not.toBeNull();
-  });
-
   it('헤더 프로필 버튼 클릭 시 드롭다운이 열리고 기업명/내 플랜 없이 이름·이메일·로그아웃만 노출한다(#773)', () => {
     useAuthStore.setState({ user: platformAdminUser });
 

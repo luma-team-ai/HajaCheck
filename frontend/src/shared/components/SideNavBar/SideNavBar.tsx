@@ -14,10 +14,8 @@ import reportsIcon from '../../../assets/brand/sidenav-reports.svg';
 import supportIcon from '../../../assets/brand/sidenav-support.svg';
 import mypageIcon from '../../../assets/brand/sidenav-mypage.svg';
 import settingsIcon from '../../../assets/brand/sidenav-settings.svg';
-import logoutIcon from '../../../assets/brand/sidenav-logout.svg';
 import adminIcon from '../../../assets/brand/sidenav-admin.svg';
 import statisticsIcon from '../../../assets/brand/sidenav-statistics.svg';
-import defaultAvatarIcon from '../../../assets/brand/sidenav-default-avatar.svg';
 
 export interface SideNavSubItem {
   label: string;
@@ -32,6 +30,8 @@ export interface SideNavSubItem {
    * 매칭이 끊기지 않도록 별도로 고정해둔다.
    */
   matchHref?: string;
+  /** 클릭 가능 여부(미지정 시 true) — false면 표시는 하되 클릭을 막고 미구현 라우트와 동일한 안내를 띄운다(#1003, menus.is_enabled). */
+  enabled?: boolean;
 }
 
 export interface SideNavItem {
@@ -39,12 +39,8 @@ export interface SideNavItem {
   href: string;
   icon: string;
   subItems?: SideNavSubItem[];
-}
-
-interface SideNavBarUser {
-  name: string;
-  plan?: string;
-  avatarUrl?: string;
+  /** 클릭 가능 여부(미지정 시 true) — subItems가 있는 GROUP 항목은 토글 버튼이라 적용되지 않는다. */
+  enabled?: boolean;
 }
 
 interface SideNavBarProps {
@@ -55,8 +51,6 @@ interface SideNavBarProps {
    * 콘솔처럼 일반 대시보드가 없는 셸에서 override) */
   brandHref?: string;
   activeHref?: string;
-  user?: SideNavBarUser;
-  onLogout?: () => void;
   /** 초기 접힘 상태(비제어). 기본값 false — 펼쳐진 상태로 시작 */
   defaultCollapsed?: boolean;
   /** 접기/펼치기 토글마다 호출(레이아웃 쪽에서 margin 조정 등에 사용) */
@@ -73,6 +67,9 @@ interface SideNavBarProps {
 
 const NOTICE_AUTO_DISMISS_MS = 2500;
 const NOT_IMPLEMENTED_MESSAGE = '아직 구현되지 않은 페이지입니다';
+// is_enabled=false 메뉴("표시는 하되 비활성화")도 같은 안내를 재사용한다 — 사용자 입장에서는
+// "아직 못 들어가는 메뉴"라는 점이 미구현 라우트와 동일하다(#1003 팔로우업, Menu 엔티티 코멘트 기준).
+const DISABLED_MESSAGE = NOT_IMPLEMENTED_MESSAGE;
 
 // 접힌 상태 고정 폭(w-18 = 18*4px) / 펼친 상태 기본 폭 — 드래그 리사이즈 clamp 범위(HAJA-167, #184)
 const COLLAPSED_WIDTH = 72;
@@ -211,19 +208,12 @@ const DEFAULT_ADMIN_ITEM: SideNavItem = {
 const LINK_BASE =
   'flex w-full items-center rounded-full border-none bg-none text-base font-medium text-text-default no-underline cursor-pointer hover:bg-surface-muted hover:text-primary';
 
-// w-full: 다른 메뉴 링크(LINK_BASE)와 동일하게 전체 폭을 채운 뒤 justify-center로 가운데 정렬—
-// 이전엔 w-fit이라 폭을 안 채워 접힘 상태에서 justify-center가 먹지 않고 왼쪽으로 치우쳐 보였다(#499).
-const LOGOUT_BASE =
-  'flex w-full items-center gap-3 whitespace-nowrap border-none bg-none text-sm font-medium text-[#3f3f46] cursor-pointer';
-
 export function SideNavBar({
   items = DEFAULT_ITEMS,
   adminItem = DEFAULT_ADMIN_ITEM,
   isAdmin = false,
   brandHref = '/dashboard',
   activeHref,
-  user,
-  onLogout,
   defaultCollapsed = false,
   onCollapseToggle,
   onWidthChange,
@@ -338,13 +328,13 @@ export function SideNavBar({
     setExpandedLabel((current) => (current === label ? undefined : label));
   }
 
-  function handleNavClick(event: MouseEvent<HTMLAnchorElement>, href: string) {
-    if (isRouteImplemented(href)) {
+  function handleNavClick(event: MouseEvent<HTMLAnchorElement>, href: string, enabled = true) {
+    if (enabled && isRouteImplemented(href)) {
       return;
     }
     event.preventDefault();
     clearTimeout(noticeTimerRef.current);
-    setNotice(NOT_IMPLEMENTED_MESSAGE);
+    setNotice(enabled ? NOT_IMPLEMENTED_MESSAGE : DISABLED_MESSAGE);
     noticeTimerRef.current = setTimeout(() => setNotice(null), NOTICE_AUTO_DISMISS_MS);
   }
 
@@ -525,13 +515,14 @@ export function SideNavBar({
                         // href를 key로 쓰면 React key 중복이 나서 sub.id가 있으면 그걸 우선한다.
                         key={sub.id ?? sub.href}
                         to={sub.href}
-                        onClick={(event) => handleNavClick(event, sub.href)}
+                        onClick={(event) => handleNavClick(event, sub.href, sub.enabled)}
                         className={`whitespace-nowrap rounded-full px-4 py-[6px] text-[13px] no-underline hover:text-primary ${
                           (sub.matchHref ?? sub.href) === activeHref
                             ? 'bg-surface text-primary ring-1 ring-border'
                             : 'text-[#71717a]'
-                        }`}
+                        } ${sub.enabled === false ? 'cursor-not-allowed opacity-50 hover:text-[#71717a]' : ''}`}
                         aria-current={(sub.matchHref ?? sub.href) === activeHref ? 'page' : undefined}
+                        aria-disabled={sub.enabled === false ? true : undefined}
                       >
                         {sub.label}
                       </Link>
@@ -543,9 +534,12 @@ export function SideNavBar({
               <Link
                 key={item.href}
                 to={item.href}
-                onClick={(event) => handleNavClick(event, item.href)}
-                className={getLinkClassName(item.href === activeHref)}
+                onClick={(event) => handleNavClick(event, item.href, item.enabled)}
+                className={`${getLinkClassName(item.href === activeHref)} ${
+                  item.enabled === false ? 'cursor-not-allowed opacity-50' : ''
+                }`}
                 aria-current={item.href === activeHref ? 'page' : undefined}
+                aria-disabled={item.enabled === false ? true : undefined}
                 title={!visuallyExpanded ? item.label : undefined}
               >
                 <span
@@ -559,9 +553,9 @@ export function SideNavBar({
           )}
         </nav>
 
-        {/* 메뉴 항목 수와 무관하게 프로필·로그아웃을 사이드바 맨 아래에 고정한다 — 예전엔 nav 자체가
-            flex-1이라 항목이 적을 때(관리자 메뉴 축소 등) 아코디언 바로 아래에 거대한 빈 공간이
-            생겼다(#525 팔로우업). 남는 공간은 nav가 아니라 이 스페이서가 흡수한다. */}
+        {/* 프로필/로그아웃은 Header(우측 상단 프로필 드롭다운)에서 확인 가능해 사이드바 하단 중복
+            블록을 제거했다(#1003 팔로우업) — 스페이서는 항목 수와 무관하게 리사이즈 핸들을 맨 아래에
+            고정하기 위해 유지한다. */}
         <div className="flex-1" aria-hidden="true" />
 
         {notice && (
@@ -574,55 +568,6 @@ export function SideNavBar({
               {notice}
             </div>
           </div>
-        )}
-
-        {user && (
-          <div
-            // 접힘 상태에서도 px-4를 그대로 쓰면(72px 폭 - aside 자체 padding까지 겹쳐) 아바타(32px)가
-            // 들어갈 공간이 부족해 flex-shrink로 폭만 눌려 타원으로 보였다 — 다른 nav 항목처럼
-            // 접힘 상태 전용 패딩(px-2)으로 분기(#499).
-            className={`border-t border-[#cbc4d2]/30 pt-[17px] pb-2.5 ${visuallyExpanded ? 'px-4' : 'px-2'}`}
-          >
-            <div className={`flex items-center gap-2 ${visuallyExpanded ? '' : 'justify-center'}`}>
-              {user.avatarUrl ? (
-                <img
-                  className="h-8 w-8 flex-shrink-0 rounded-full bg-[#cbc4d2] object-cover"
-                  src={user.avatarUrl}
-                  alt=""
-                />
-              ) : (
-                // 사진 없을 때 빈 원이 아니라 기본 아이콘(건물 모양)을 넣는다 — Figma node 163-663 기준(#499)
-                <span
-                  className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#cbc4d2]"
-                  aria-hidden="true"
-                >
-                  <img className="h-[27px] w-[27px] object-contain" src={defaultAvatarIcon} alt="" />
-                </span>
-              )}
-              {visuallyExpanded && (
-                <span className="flex flex-col overflow-hidden">
-                  <span className="truncate text-sm text-heading">{user.name}</span>
-                  {user.plan && (
-                    <span className="truncate text-[11px] tracking-[0.05em] text-text-default">
-                      {user.plan}
-                    </span>
-                  )}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {onLogout && (
-          <button
-            type="button"
-            className={`${LOGOUT_BASE} ${visuallyExpanded ? 'px-4 py-2' : 'justify-center p-2'}`}
-            onClick={onLogout}
-            title={!visuallyExpanded ? '로그아웃' : undefined}
-          >
-            <img className="h-[18px] w-[18px]" src={logoutIcon} alt="" />
-            {visuallyExpanded && '로그아웃'}
-          </button>
         )}
 
         {!collapsed && (
