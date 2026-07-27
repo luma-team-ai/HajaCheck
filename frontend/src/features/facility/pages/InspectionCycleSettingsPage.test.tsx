@@ -15,6 +15,25 @@ vi.mock('../hooks/useSetInspectionSchedule', () => ({
   }),
 }));
 
+// 점검 알림 설정(#540 ③) — useInspectionCycleStatusRows/useSetInspectionSchedule과 동일하게 전부
+// 목으로 대체한다(이 파일은 QueryClientProvider 없이 렌더하므로 실 useQuery/useMutation을 그대로
+// 쓰면 "No QueryClient set" 에러가 난다).
+const mockSaveNotificationSettings = vi.fn();
+vi.mock('../hooks/useInspectionNotificationSettings', () => ({
+  useInspectionNotificationSettings: () => ({
+    // warnOnOverdueEnabled 기본값은 true다(HAJA-498/V21).
+    data: { notifyBeforeEnabled: true, notifyBeforeDays: 7, warnOnOverdueEnabled: true },
+  }),
+}));
+vi.mock('../hooks/useSaveInspectionNotificationSettings', () => ({
+  useSaveInspectionNotificationSettings: () => ({
+    saveNotificationSettings: mockSaveNotificationSettings,
+    isPending: false,
+    error: null,
+    resetError: vi.fn(),
+  }),
+}));
+
 vi.mock('../hooks/useInspectionCycleStatusRows', () => ({
   useInspectionCycleStatusRows: () => ({
     data: [
@@ -52,6 +71,11 @@ function renderPage() {
 
 beforeEach(() => {
   vi.stubEnv('VITE_ENABLE_MSW', 'true');
+  mockSaveNotificationSettings.mockResolvedValue({
+    notifyBeforeEnabled: true,
+    notifyBeforeDays: 7,
+    warnOnOverdueEnabled: true,
+  });
 });
 
 afterEach(() => {

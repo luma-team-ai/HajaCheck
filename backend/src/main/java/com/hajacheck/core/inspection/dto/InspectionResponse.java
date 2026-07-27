@@ -2,6 +2,7 @@ package com.hajacheck.core.inspection.dto;
 
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.inspection.entity.InspectionType;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -12,6 +13,7 @@ public record InspectionResponse(
         Long assignedInspectorId,
         Integer roundNo,
         LocalDate inspectionDate,
+        InspectionType type,
         InspectionStatus status,
         LocalDateTime createdAt
 ) {
@@ -23,6 +25,7 @@ public record InspectionResponse(
                 inspection.getAssignedInspectorId(),
                 inspection.getRoundNo(),
                 inspection.getInspectionDate(),
+                inspection.getType(),
                 inspection.getStatus(),
                 inspection.getCreatedAt()
         );

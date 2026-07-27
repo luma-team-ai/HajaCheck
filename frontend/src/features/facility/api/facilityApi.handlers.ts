@@ -4,8 +4,10 @@ import { mockFacilities } from '../mocks/facility.mock';
 import type {
   CreateFacilityRequest,
   Facility,
+  InspectionNotificationSettings,
   SetFacilityScheduleRequest,
   SetFacilityScheduleResponse,
+  SetInspectionNotificationSettingsRequest,
 } from '../types';
 import { computeNextInspectionDueAt } from '../utils/computeNextInspectionDueAt';
 import { computeDemoNextInspectionDueAt } from '../utils/inspectionCycleDemo';
@@ -16,6 +18,16 @@ import { computeDemoNextInspectionDueAt } from '../utils/inspectionCycleDemo';
 let facilities: Facility[] = [...mockFacilities];
 let nextId = facilities.reduce((max, facility) => Math.max(max, facility.id), 0) + 1;
 
+// 점검 알림 설정 목 저장소(#540 ③) — facilityId별 설정. 저장한 적 없는 시설물은 서버 컬럼 기본값과
+// 동일한 기본값으로 응답한다. warnOnOverdueEnabled는 true가 기본이다(HAJA-498/V21 — false로 시작했다가
+// 연체 시설물 알림 미발행 회귀가 발견돼 Polalise 승인(옵션1)으로 되돌림).
+const DEFAULT_NOTIFICATION_SETTINGS: InspectionNotificationSettings = {
+  notifyBeforeEnabled: true,
+  notifyBeforeDays: 7,
+  warnOnOverdueEnabled: true,
+};
+let notificationSettingsByFacilityId = new Map<number, InspectionNotificationSettings>();
+
 // 테스트에서 setupServer(...facilityHandlers) + afterEach(() => server.resetHandlers())로 격리해도
 // 이 모듈 스코프 상태(facilities/nextId)는 resetHandlers()로 초기화되지 않는다 — POST 등록 후
 // GET 목록을 검증하는 테스트가 여러 it() 블록에 걸쳐 있을 때 상태가 새는 것을 막기 위해
@@ -24,6 +36,7 @@ let nextId = facilities.reduce((max, facility) => Math.max(max, facility.id), 0)
 export function resetFacilityMockStore(): void {
   facilities = [...mockFacilities];
   nextId = facilities.reduce((max, facility) => Math.max(max, facility.id), 0) + 1;
+  notificationSettingsByFacilityId = new Map<number, InspectionNotificationSettings>();
 }
 
 export const facilityHandlers = [
@@ -189,5 +202,45 @@ export const facilityHandlers = [
       data: { nextInspectionDueAt },
     };
     return HttpResponse.json(responseBody);
+  }),
+
+  // 점검 알림 설정 조회(#540 ③) — 저장한 적 없으면 기본값(사전알림 사용/7일전/경과알림 사용, HAJA-498/V21) 반환.
+  http.get('/api/facilities/:id/notification-settings', ({ params }) => {
+    const id = Number(params.id);
+    const target = facilities.find((facility) => facility.id === id);
+
+    if (!target) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'FACILITY_NOT_FOUND', message: '시설물을 찾을 수 없습니다.' },
+      };
+      return HttpResponse.json(failure, { status: 404 });
+    }
+
+    const data = notificationSettingsByFacilityId.get(id) ?? DEFAULT_NOTIFICATION_SETTINGS;
+    const body: ApiResponse<InspectionNotificationSettings> = { success: true, data };
+    return HttpResponse.json(body);
+  }),
+
+  // 점검 알림 설정 저장(upsert, #540 ③).
+  http.put('/api/facilities/:id/notification-settings', async ({ params, request }) => {
+    const id = Number(params.id);
+    const target = facilities.find((facility) => facility.id === id);
+
+    if (!target) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'FACILITY_NOT_FOUND', message: '시설물을 찾을 수 없습니다.' },
+      };
+      return HttpResponse.json(failure, { status: 404 });
+    }
+
+    const reqBody = (await request.json()) as SetInspectionNotificationSettingsRequest;
+    notificationSettingsByFacilityId.set(id, reqBody);
+
+    const body: ApiResponse<InspectionNotificationSettings> = { success: true, data: reqBody };
+    return HttpResponse.json(body);
   }),
 ];

@@ -2,6 +2,7 @@ package com.hajacheck.notification.repository;
 
 import com.hajacheck.notification.entity.Notification;
 import com.hajacheck.notification.entity.NotificationType;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import org.springframework.data.domain.Pageable;
@@ -39,6 +40,27 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
      * 여러 사용자의 특정 유형 알림 이력을 한 번에 조회. INSPECTION_DUE 배치(NOTI-01, #425)가 owner별 개별 조회
      * (N+1)를 피해 대상 owner 전체 알림을 1쿼리로 가져와 dedupe 키 집합을 만드는 데 쓴다. 유형을 파라미터로
      * 받아 다른 트리거의 멱등성 체크에도 재사용 가능하게 둔다.
+     *
+     * @deprecated 날짜 제한이 없어 전체 이력을 무제한 로딩한다(PR머신 P2 #1032) — INSPECTION_DUE 배치는
+     *         {@link #findAllByUserIdInAndTypeAndCreatedAtAfter}로 대체됐다. 다른 트리거가 정말 전체
+     *         이력이 필요할 때만 남겨둔다.
      */
+    @Deprecated
     List<Notification> findAllByUserIdInAndType(Set<Long> userIds, NotificationType type);
+
+    /**
+     * {@link #findAllByUserIdInAndType}의 날짜 제한 버전(PR머신 P2 #1032). INSPECTION_DUE 배치의 스캔
+     * 상한이 오늘+365일로 넓어지면서(#540 ③) 무제한 전체 이력 로딩이 소유자 축으로 증폭돼, 운영 데이터가
+     * 쌓일수록 배치가 느려지고 OOM 위험이 커진다. {@code after} 이후 생성된 알림만 조회해 "영원히 무제한
+     * 증가"를 "고정 슬라이딩 윈도우"로 바꾼다 — 완전한 해결(멱등성을 DB 유니크 제약으로 옮기거나 페이지별
+     * 정확 매칭 조회로 좁히는 것)은 후속 이슈로 분리한다.
+     *
+     * <p>⚠️ 이 윈도우는 Kind.DUE(사전알림, lookahead 상한 365일) dedupe에는 안전하지만, Kind.OVERDUE
+     * (연체) dedupe에는 원칙적으로 무기한 이력이 필요하다 — 재점검 없이 400일 넘게 같은 dueAt으로
+     * 연체 상태가 유지된 시설물은 최초 OVERDUE 발행 기록이 윈도우 밖으로 밀려나 중복 발행될 수 있다
+     * (과다 알림 방향, 누락 아님). 근본 해결은 후속 이슈
+     * https://github.com/luma-team-ai/HajaCheck/issues/1050 참조.
+     */
+    List<Notification> findAllByUserIdInAndTypeAndCreatedAtAfter(
+            Set<Long> userIds, NotificationType type, LocalDateTime after);
 }

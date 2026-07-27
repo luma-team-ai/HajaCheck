@@ -2,6 +2,7 @@ package com.hajacheck.core.inspection.dto;
 
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.inspection.entity.InspectionType;
 import java.time.LocalDate;
 import java.util.Map;
 
@@ -13,6 +14,8 @@ import java.util.Map;
  * assigneeName은 프론트 InspectionListItem.assigneeName과 이름을 맞춘 필드명이다(#893 계약 정합화 —
  * 과거 assignedInspectorName 이었음). gradeDistribution 은 A~E 5개 키를 항상 포함하며(값 없는 등급은 0),
  * BriefingStatsService.gradeDistribution() 과 동일한 "기본값 세팅 후 덮어쓰기" 패턴을 따른다.
+ * type(점검유형 REGULAR/DETAILED/EMERGENCY)은 #540 갭 대응 — Inspection 엔티티에는 이미 존재했으나
+ * 응답 DTO에 노출되지 않고 있었다(신규 마이그레이션 불필요, 기존 컬럼 노출뿐).
  */
 public record InspectionListItemResponse(
         Long id,
@@ -20,6 +23,7 @@ public record InspectionListItemResponse(
         String facilityName,
         Integer roundNo,
         LocalDate inspectionDate,
+        InspectionType type,
         Long assignedInspectorId,
         String assigneeName,
         InspectionStatus status,
@@ -36,6 +40,7 @@ public record InspectionListItemResponse(
                 facilityName,
                 inspection.getRoundNo(),
                 inspection.getInspectionDate(),
+                inspection.getType(),
                 inspection.getAssignedInspectorId(),
                 assigneeName,
                 inspection.getStatus(),
