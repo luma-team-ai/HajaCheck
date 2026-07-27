@@ -66,7 +66,7 @@ export function DefectListPage() {
 
   const handleGenerateReport = () => {
     if (!canGenerateReport) return;
-    navigate(`/inspections/${selectedInspections[0].id}/viewer`);
+    navigate(`/inspections/${selectedInspections[0].id}/reports`);
   };
 
   // "내보내기"는 선택된 점검(들)에 속한 하자 전체를 모아 PDF로 내보낸다 — 기존(하자 단건 선택 후

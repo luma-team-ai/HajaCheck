@@ -11,6 +11,9 @@ import { ReportStatusBadge } from './ReportStatusBadge';
 import { SelectionCheckbox } from './SelectionCheckbox';
 import { formatReportListTitle } from '../utils/reportListFormat';
 
+const AI_DRAFT_WARNING =
+  '본 보고서는 점검 데이터 기반 AI가 작성한 초안입니다. 법정 제출 및 실무 활용 전 담당 검수자의 내용 확인 및 최종 확정(Finalize) 절차가 필수입니다.';
+
 type Props = {
   reports: ReportListItem[] | undefined;
   isLoading: boolean;
@@ -42,7 +45,7 @@ export function ReportListTable({
   onSelectionChange,
   onOpenVersionHistory,
 }: Props) {
-  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const [openMenu, setOpenMenu] = useState<{ id: number; anchor: { top: number; left: number } } | null>(null);
 
   const rows = reports ?? [];
   const visibleIds = rows.map((row) => row.id);
@@ -94,6 +97,19 @@ export function ReportListTable({
               checked={selectedIds.has(row.id)}
               onChange={() => handleToggleRow(row.id)}
             />
+            <span
+              role="img"
+              aria-label="AI 초안 주의 및 법적 고지"
+              title={AI_DRAFT_WARNING}
+              className="inline-flex shrink-0 text-warning-soft-fg"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 18.3333 15.8333" fill="none" aria-hidden="true">
+                <path
+                  d="M0 15.8333L9.16667 0L18.3333 15.8333H0V15.8333M2.875 14.1667H15.4583L9.16667 3.33333L2.875 14.1667V14.1667M9.16667 13.3333C9.40278 13.3333 9.60069 13.2535 9.76042 13.0938C9.92014 12.934 10 12.7361 10 12.5C10 12.2639 9.92014 12.066 9.76042 11.9062C9.60069 11.7465 9.40278 11.6667 9.16667 11.6667C8.93056 11.6667 8.73264 11.7465 8.57292 11.9062C8.41319 12.066 8.33333 12.2639 8.33333 12.5C8.33333 12.7361 8.41319 12.934 8.57292 13.0938C8.73264 13.2535 8.93056 13.3333 9.16667 13.3333V13.3333M8.33333 10.8333H10V6.66667H8.33333V10.8333V10.8333M9.16667 8.75V8.75V8.75V8.75V8.75"
+                  fill="currentColor"
+                />
+              </svg>
+            </span>
             <Link
               to={`/inspections/${row.inspectionId}/reports/generate?reportId=${row.id}`}
               className="font-medium text-zinc-900 no-underline hover:underline"
@@ -126,15 +142,27 @@ export function ReportListTable({
             className="cursor-pointer rounded-full border-none bg-none px-1.5 py-1 text-zinc-500"
             onClick={(event) => {
               event.stopPropagation();
-              setOpenMenuId((current) => (current === row.id ? null : row.id));
+              const rect = event.currentTarget.getBoundingClientRect();
+              setOpenMenu((current) =>
+                current?.id === row.id
+                  ? null
+                  : {
+                      id: row.id,
+                      anchor: {
+                        top: rect.bottom + 4,
+                        left: Math.max(8, rect.right - 128),
+                      },
+                    },
+              );
             }}
           >
             ⋮
           </button>
-          {openMenuId === row.id && (
+          {openMenu?.id === row.id && (
             <ReportRowMenu
               onOpenHistory={() => onOpenVersionHistory(row)}
-              onClose={() => setOpenMenuId(null)}
+              onClose={() => setOpenMenu(null)}
+              anchor={openMenu.anchor}
             />
           )}
         </span>
@@ -163,7 +191,7 @@ export function ReportListTable({
       <Table
         columns={columns}
         data={rows}
-        emptyMessage="조건에 맞는 보고서가 없습니다"
+        emptyMessage="조회된 보고서가 없습니다"
         onRowClick={onOpenVersionHistory}
       />
     </div>
