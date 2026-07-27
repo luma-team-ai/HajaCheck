@@ -21,7 +21,8 @@ vi.mock('../hooks/useSetInspectionSchedule', () => ({
 const mockSaveNotificationSettings = vi.fn();
 vi.mock('../hooks/useInspectionNotificationSettings', () => ({
   useInspectionNotificationSettings: () => ({
-    data: { notifyBeforeEnabled: true, notifyBeforeDays: 7, warnOnOverdueEnabled: false },
+    // warnOnOverdueEnabled 기본값은 true다(HAJA-498/V21).
+    data: { notifyBeforeEnabled: true, notifyBeforeDays: 7, warnOnOverdueEnabled: true },
   }),
 }));
 vi.mock('../hooks/useSaveInspectionNotificationSettings', () => ({
@@ -73,7 +74,7 @@ beforeEach(() => {
   mockSaveNotificationSettings.mockResolvedValue({
     notifyBeforeEnabled: true,
     notifyBeforeDays: 7,
-    warnOnOverdueEnabled: false,
+    warnOnOverdueEnabled: true,
   });
 });
 

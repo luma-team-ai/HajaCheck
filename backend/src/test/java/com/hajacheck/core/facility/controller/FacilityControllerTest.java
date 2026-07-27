@@ -467,6 +467,8 @@ class FacilityControllerTest extends PostgresTestSupport {
 
     @Test
     void 알림설정조회_저장된적없음_기본값200반환() throws Exception {
+        // warnOnOverdueEnabled 기본값은 true다(HAJA-498/V21) — false로 시작했다가 연체 시설물 알림
+        // 미발행 회귀가 발견돼 Polalise 승인(옵션1)으로 되돌렸다.
         User owner = saveUser("noti-owner1@haja.com");
         Facility facility = saveFacility(owner.getId());
 
@@ -475,7 +477,7 @@ class FacilityControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.notifyBeforeEnabled").value(true))
                 .andExpect(jsonPath("$.data.notifyBeforeDays").value(7))
-                .andExpect(jsonPath("$.data.warnOnOverdueEnabled").value(false));
+                .andExpect(jsonPath("$.data.warnOnOverdueEnabled").value(true));
     }
 
     @Test

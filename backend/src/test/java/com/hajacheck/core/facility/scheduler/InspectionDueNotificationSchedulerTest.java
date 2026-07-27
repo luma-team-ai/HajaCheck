@@ -339,20 +339,24 @@ class InspectionDueNotificationSchedulerTest {
     }
 
     @Test
-    @DisplayName("경과알림 설정이 기본값(false)이면 overdue 시설물은 발행하지 않는다")
-    void 경과알림_기본값비활성_발행안함() {
+    @DisplayName("경과알림 설정 행이 없으면 기본값(true, HAJA-498/V21)으로 overdue 시설물에 발행한다")
+    void 경과알림_설정없음_기본값true로_발행() {
+        // #540 ③ 최초 도입 시 이 기본값이 false였다가, 연체 시설물에 알림이 더 이상 발행되지 않는 회귀가
+        // 발견돼 Polalise 승인(옵션1, HAJA-498/V21)으로 true로 되돌렸다 — 이 테스트가 그 회귀 고정이다.
         Facility f = dueFacility(1L, COMPANY, "연체시설", TODAY.minusDays(1));
         stubDuePage(List.of(f));
         stubNoExistingNotifications();
 
         scheduler.notifyFacilitiesDueToday();
 
-        verify(notificationService, never()).notify(anyLong(), any(), anyString());
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), payloadCaptor.capture());
+        assertThat(payloadCaptor.getValue()).contains("\"kind\":\"OVERDUE\"");
     }
 
     @Test
-    @DisplayName("경과알림 설정을 켜면 overdue 시설물에 OVERDUE 알림을 발행한다")
-    void 경과알림_설정켜짐_발행() {
+    @DisplayName("경과알림 설정을 명시적으로 켜도(기본값과 동일) overdue 시설물에 OVERDUE 알림을 발행한다")
+    void 경과알림_설정명시적으로켜짐_발행() {
         Facility f = dueFacility(1L, COMPANY, "연체시설", TODAY.minusDays(1));
         stubDuePage(List.of(f));
         stubNoExistingNotifications();
@@ -363,6 +367,19 @@ class InspectionDueNotificationSchedulerTest {
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), payloadCaptor.capture());
         assertThat(payloadCaptor.getValue()).contains("\"kind\":\"OVERDUE\"");
+    }
+
+    @Test
+    @DisplayName("경과알림 설정을 명시적으로 끄면(기본값 true와 반대) overdue 시설물에 발행하지 않는다")
+    void 경과알림_설정명시적으로꺼짐_발행안함() {
+        Facility f = dueFacility(1L, COMPANY, "연체시설", TODAY.minusDays(1));
+        stubDuePage(List.of(f));
+        stubNoExistingNotifications();
+        stubSettings(settingRow(OWNER, 1L, true, 7, false));
+
+        scheduler.notifyFacilitiesDueToday();
+
+        verify(notificationService, never()).notify(anyLong(), any(), anyString());
     }
 
     @Test
