@@ -17,11 +17,13 @@ import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.support.PageableExecutionUtils;
+import org.springframework.util.StringUtils;
 
 /**
  * 점검 목록 조회(HAJA-393/#725) — JPQL {@code :param is null or col = :param} 패턴은 PostgreSQL
@@ -190,5 +192,88 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
             predicates.add(cb.greaterThanOrEqualTo(root.get("inspectionDate"), periodFrom));
         }
         return predicates;
+    }
+
+    @Override
+    public Page<Inspection> findRecentInspectionsPage(
+            Long companyId, Long facilityId, String facilityTypeCategory, Collection<InspectionStatus> statuses,
+            String query, Collection<Long> matchingCreatorIds, Pageable pageable) {
+
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+
+        CriteriaQuery<Inspection> selectQuery = cb.createQuery(Inspection.class);
+        Root<Inspection> root = selectQuery.from(Inspection.class);
+        Join<Inspection, Facility> facility = root.join("facility");
+        // 시설물명은 companyId/facilityId 등의 predicate에만 쓰이고 응답 매핑은 서비스가
+        // facilityRepository.findAllById로 배치 재조회하므로, 여기서 fetch join으로 전체 Facility를
+        // 함께 로딩할 필요가 없다(중복 로딩 방지, code review P3 반영).
+
+        selectQuery.select(root)
+                .where(buildRecentPredicates(cb, root, facility, companyId, facilityId, facilityTypeCategory,
+                                statuses, query, matchingCreatorIds)
+                        .toArray(new Predicate[0]))
+                // 대시보드 기존 최근 점검 정렬(findRecentByFacilityIds)과 동일 기준 — 기본 호출(필터 없음)의
+                // 결과 순서가 오늘의 위젯과 100% 일치해야 하므로 Pageable.getSort()는 쓰지 않는다.
+                .orderBy(cb.desc(root.get("inspectionDate")), cb.desc(root.get("id")));
+
+        List<Inspection> content = em.createQuery(selectQuery)
+                .setFirstResult((int) pageable.getOffset())
+                .setMaxResults(pageable.getPageSize())
+                .getResultList();
+
+        CriteriaQuery<Long> countQuery = cb.createQuery(Long.class);
+        Root<Inspection> countRoot = countQuery.from(Inspection.class);
+        Join<Inspection, Facility> countFacility = countRoot.join("facility");
+        countQuery.select(cb.count(countRoot))
+                .where(buildRecentPredicates(cb, countRoot, countFacility, companyId, facilityId,
+                                facilityTypeCategory, statuses, query, matchingCreatorIds)
+                        .toArray(new Predicate[0]));
+
+        Long total = em.createQuery(countQuery).getSingleResult();
+
+        return PageableExecutionUtils.getPage(content, pageable, () -> total);
+    }
+
+    private List<Predicate> buildRecentPredicates(
+            CriteriaBuilder cb, Root<Inspection> root, Join<Inspection, Facility> facility,
+            Long companyId, Long facilityId, String facilityTypeCategory, Collection<InspectionStatus> statuses,
+            String query, Collection<Long> matchingCreatorIds) {
+        List<Predicate> predicates = new ArrayList<>();
+        predicates.add(cb.equal(facility.get("companyId"), companyId));
+        if (facilityId != null) {
+            predicates.add(cb.equal(root.get("facilityId"), facilityId));
+        }
+        if (StringUtils.hasText(facilityTypeCategory)) {
+            // facility.type은 "건물"처럼 단순값이거나(레거시) #731 등록 모달이 저장하는
+            // "건물-긴급-1개월"류 컴파운드 값일 수 있어, 접두(prefix) LIKE로 종류 카테고리만 매칭한다.
+            // 사용자가 카테고리 문자열에 LIKE 와일드카드(%, _)를 리터럴로 넣어도 매칭 오작동이 없도록
+            // 이스케이프한 뒤, 실제 접두 매칭용 "%" 는 이스케이프하지 않은 채로 뒤에 붙인다.
+            predicates.add(cb.like(facility.get("type"), escapeLikeWildcards(facilityTypeCategory.trim()) + "%",
+                    LIKE_ESCAPE_CHAR));
+        }
+        if (statuses != null && !statuses.isEmpty()) {
+            predicates.add(root.get("status").in(statuses));
+        }
+        if (StringUtils.hasText(query)) {
+            // query는 호출부(DashboardService.escapeLikeWildcards)에서 이미 이스케이프해 넘어온다 —
+            // findIdsByCompanyIdAndNameContaining(UserRepository)에 넘기는 값과 동일 이스케이프를
+            // 공유해야 하므로 여기서 다시 이스케이프하지 않는다.
+            String pattern = "%" + query.trim().toLowerCase() + "%";
+            Predicate nameMatch = cb.like(cb.lower(facility.get("name")), pattern, LIKE_ESCAPE_CHAR);
+            predicates.add(matchingCreatorIds == null || matchingCreatorIds.isEmpty()
+                    ? nameMatch
+                    : cb.or(nameMatch, root.get("createdBy").in(matchingCreatorIds)));
+        }
+        return predicates;
+    }
+
+    private static final char LIKE_ESCAPE_CHAR = '\\';
+
+    // AdminUserService.normalizeKeyword와 동일 컨벤션 — 백슬래시부터 먼저 이스케이프해야 뒤이어
+    // 삽입하는 이스케이프 문자와 충돌하지 않는다.
+    private static String escapeLikeWildcards(String raw) {
+        return raw.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
 }

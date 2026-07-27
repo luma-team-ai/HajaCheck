@@ -8,12 +8,15 @@ import com.hajacheck.core.dashboard.dto.RecentInspectionResponse;
 import com.hajacheck.core.dashboard.dto.UpcomingInspectionResponse;
 import com.hajacheck.core.dashboard.service.DashboardService;
 import com.hajacheck.global.common.ApiResponse;
+import com.hajacheck.global.common.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
@@ -65,6 +68,23 @@ public class DashboardController {
             @AuthenticationPrincipal LoginUser loginUser) {
         return ResponseEntity.ok(ApiResponse.ok(
                 dashboardService.getRecentInspections(loginUser.getUserId(), loginUser.getCompanyId())));
+    }
+
+    @Operation(summary = "최근 점검 전체보기(페이지네이션+검색)",
+            description = "로그인 사용자 소유 시설물의 점검을 시설물/상태(한글 라벨)/텍스트(시설물명·담당자명)로 "
+                    + "필터링해 페이지 단위로 반환한다. /recent-inspections(위젯, 상위 10건 고정)와 별개 엔드포인트 — "
+                    + "위젯 호출 경로에는 영향이 없다.")
+    @GetMapping("/recent-inspections/search")
+    public ResponseEntity<ApiResponse<PageResponse<RecentInspectionResponse>>> searchRecentInspections(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @RequestParam(required = false) Long facilityId,
+            @RequestParam(required = false) String facilityType,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String query,
+            @PageableDefault(size = 10) Pageable pageable) {
+        return ResponseEntity.ok(ApiResponse.ok(dashboardService.searchRecentInspections(
+                loginUser.getUserId(), loginUser.getCompanyId(), facilityId, facilityType, status, query,
+                pageable)));
     }
 
     @Operation(summary = "다가오는 점검 예정 시설물 조회",

@@ -38,6 +38,22 @@ export interface RecentInspectionItem {
   status: InspectionStatus;
 }
 
+// ---------------------------------------------------------------------------
+// "최근 점검 전체보기"(신규) — GET /api/dashboard/recent-inspections/search
+// 기존 위젯(/dashboard/recent-inspections, 상위 10건 고정 배열)과는 별개 엔드포인트.
+// contract.md §"대시보드 '최근 점검 전체보기' 페이지네이션+검색 API" 참고.
+// ---------------------------------------------------------------------------
+
+// GET .../search 쿼리 파라미터 — page는 Spring Data 관례대로 0-based
+export interface RecentInspectionsSearchFilters {
+  page?: number;
+  size?: number;
+  status?: InspectionStatus;
+  /** 시설물 종류 카테고리(예: "건물") 접두 매칭 — 특정 시설물 select가 아니다(Figma 재대조, 2026-07-26) */
+  facilityType?: string;
+  query?: string;
+}
+
 // AI 주간 브리핑 — docs/design/ai/dashboard_briefing.md §4 출력 스키마와 1:1
 export type BriefingTrend = '감소' | '증가' | '유지';
 

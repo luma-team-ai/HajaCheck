@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RecentInspectionsTable } from './RecentInspectionsTable';
 import { DASHBOARD_COLOR_CLASS } from '../colors';
@@ -9,6 +10,18 @@ const mockUseRecentInspections = vi.fn();
 vi.mock('../hooks/useRecentInspections', () => ({
   useRecentInspections: () => mockUseRecentInspections(),
 }));
+
+// 전체보기 버튼(useNavigate)이 Router 컨텍스트를 요구하므로 모든 렌더를 MemoryRouter로 감싼다.
+function renderTable() {
+  return render(
+    <MemoryRouter initialEntries={['/dashboard']}>
+      <Routes>
+        <Route path="/dashboard" element={<RecentInspectionsTable />} />
+        <Route path="/dashboard/recent-inspections" element={<div>최근 점검 전체보기 화면</div>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
 
 const SAMPLE: RecentInspectionItem[] = [
   { id: 1, facilityName: 'A동', inspectedAt: '2026-07-01', inspector: '홍길동', defectCount: 2, status: '완료' },
@@ -35,7 +48,7 @@ afterEach(() => {
 describe('RecentInspectionsTable', () => {
   it('데이터가 있으면 각 점검 행을 렌더링한다', () => {
     mockData(SAMPLE);
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     expect(screen.getByText('A동')).toBeTruthy();
     expect(screen.getByText('B동')).toBeTruthy();
@@ -43,7 +56,7 @@ describe('RecentInspectionsTable', () => {
 
   it('초기 상태에서는 선택된 행이 없다(aria-selected=false)', () => {
     mockData(SAMPLE);
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     expect(rowOf('A동').getAttribute('aria-selected')).toBe('false');
     expect(rowOf('B동').getAttribute('aria-selected')).toBe('false');
@@ -51,7 +64,7 @@ describe('RecentInspectionsTable', () => {
 
   it('행을 클릭하면 선택되고 선택 배경 클래스가 적용된다', () => {
     mockData(SAMPLE);
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     fireEvent.click(rowOf('A동'));
 
@@ -65,7 +78,7 @@ describe('RecentInspectionsTable', () => {
 
   it('선택된 행을 다시 클릭하면 선택이 해제된다(토글)', () => {
     mockData(SAMPLE);
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     fireEvent.click(rowOf('A동'));
     expect(rowOf('A동').getAttribute('aria-selected')).toBe('true');
@@ -76,7 +89,7 @@ describe('RecentInspectionsTable', () => {
 
   it('다른 행을 클릭하면 선택이 그 행으로 이동한다', () => {
     mockData(SAMPLE);
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     fireEvent.click(rowOf('A동'));
     fireEvent.click(rowOf('B동'));
@@ -87,7 +100,7 @@ describe('RecentInspectionsTable', () => {
 
   it('Enter 키로 행을 선택할 수 있다', () => {
     mockData(SAMPLE);
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     fireEvent.keyDown(rowOf('A동'), { key: 'Enter' });
 
@@ -96,7 +109,7 @@ describe('RecentInspectionsTable', () => {
 
   it('Space 키로 행을 선택할 수 있다', () => {
     mockData(SAMPLE);
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     fireEvent.keyDown(rowOf('B동'), { key: ' ' });
 
@@ -105,7 +118,7 @@ describe('RecentInspectionsTable', () => {
 
   it('roving tabindex — 초기엔 첫 행만 Tab 정지점(0), 나머지는 -1', () => {
     mockData(SAMPLE);
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     expect(rowOf('A동').getAttribute('tabindex')).toBe('0');
     expect(rowOf('B동').getAttribute('tabindex')).toBe('-1');
@@ -113,7 +126,7 @@ describe('RecentInspectionsTable', () => {
 
   it('ArrowDown으로 포커스가 다음 행으로 이동한다(roving)', () => {
     mockData(SAMPLE);
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     fireEvent.keyDown(rowOf('A동'), { key: 'ArrowDown' });
 
@@ -123,7 +136,7 @@ describe('RecentInspectionsTable', () => {
 
   it('ArrowUp/Home/End로 포커스 행이 이동하며 경계를 넘지 않는다', () => {
     mockData(SAMPLE);
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     // End → 마지막 행
     fireEvent.keyDown(rowOf('A동'), { key: 'End' });
@@ -141,7 +154,7 @@ describe('RecentInspectionsTable', () => {
 
   it('방향키 이동은 선택 상태를 바꾸지 않는다(포커스와 선택 분리)', () => {
     mockData(SAMPLE);
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     fireEvent.keyDown(rowOf('A동'), { key: 'ArrowDown' });
 
@@ -155,7 +168,7 @@ describe('RecentInspectionsTable', () => {
       { id: 3, facilityName: 'C동', inspectedAt: '2026-07-03', inspector: '이영희', defectCount: 1, status: '검수대기' },
     ];
     mockData(THREE);
-    const { rerender } = render(<RecentInspectionsTable />);
+    const { rerender } = renderTable();
 
     // 마지막 행으로 포커스 이동(focusedIndex=2)
     fireEvent.keyDown(rowOf('A동'), { key: 'End' });
@@ -163,14 +176,21 @@ describe('RecentInspectionsTable', () => {
 
     // 데이터가 2행으로 줄어들면 어떤 행이든 tabIndex=0 이 정확히 하나 존재해야 함(도달 불가 방지)
     mockData(SAMPLE);
-    rerender(<RecentInspectionsTable />);
+    rerender(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <Routes>
+          <Route path="/dashboard" element={<RecentInspectionsTable />} />
+          <Route path="/dashboard/recent-inspections" element={<div>최근 점검 전체보기 화면</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
     const tabbable = [rowOf('A동'), rowOf('B동')].filter((r) => r.getAttribute('tabindex') === '0');
     expect(tabbable.length).toBe(1);
   });
 
   it('표에 접근성 이름(aria-label)을 부여한다', () => {
     mockData(SAMPLE);
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     // 행 단위 roving + aria-selected와 일치하도록 암시적 table role 유지(grid 승격 안 함)
     expect(screen.getByRole('table', { name: '최근 점검 목록' })).toBeTruthy();
@@ -179,22 +199,31 @@ describe('RecentInspectionsTable', () => {
 
   it('데이터가 비어 있으면 안내 문구를 렌더링한다', () => {
     mockData([]);
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     expect(screen.getByText('최근 점검 이력이 없습니다.')).toBeTruthy();
   });
 
   it('로딩 중이면 로딩 문구를 렌더링한다', () => {
     mockUseRecentInspections.mockReturnValue({ data: undefined, isLoading: true, isError: false });
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     expect(screen.getByText('불러오는 중...')).toBeTruthy();
   });
 
   it('에러면 에러 문구를 렌더링한다', () => {
     mockUseRecentInspections.mockReturnValue({ data: undefined, isLoading: false, isError: true });
-    render(<RecentInspectionsTable />);
+    renderTable();
 
     expect(screen.getByText('최근 점검 목록을 불러오지 못했습니다.')).toBeTruthy();
+  });
+
+  it('"전체보기" 클릭 시 최근 점검 전체보기 화면으로 이동한다', async () => {
+    mockData(SAMPLE);
+    renderTable();
+
+    fireEvent.click(screen.getByRole('button', { name: '전체보기' }));
+
+    expect(await screen.findByText('최근 점검 전체보기 화면')).toBeTruthy();
   });
 });

@@ -62,6 +62,10 @@ export const DASHBOARD_COLOR_CLASS = {
   upcomingSafeBg: 'bg-[#dcfce7] text-[#16a34a]',
   /** 다가오는 점검 알림배너 좌측 강조 보더 */
   upcomingBannerBorder: 'border-[#fbbf24]',
+  /** "최근 점검 전체보기" 검색 입력·필터 select 테두리(신규) */
+  filterInputBorder: 'border-[#e5e5e5]',
+  /** "최근 점검 전체보기" 검색 입력 포커스 강조 — 행 선택 강조색(rowSelectedBar)과 동일 팔레트 #9333ea 재사용 */
+  filterInputFocusBorder: 'focus:border-[#9333ea]',
 } as const;
 
 /**

@@ -5,9 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.entity.User;
@@ -30,17 +32,22 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.lang.reflect.Field;
 import java.time.LocalDate;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
@@ -108,6 +115,7 @@ class DashboardServiceTest {
             throw new IllegalStateException(e);
         }
     }
+
 
     @Test
     void getSummary_소유시설물없으면_전부0() {
@@ -361,6 +369,165 @@ class DashboardServiceTest {
             }
         };
     }
+    // ── 대시보드 "최근 점검 전체보기"(신규) — searchRecentInspections ──
+
+    @Test
+    void searchRecentInspections_필터없으면_빈상태집합과빈검색조건으로위임() {
+        Page<Inspection> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
+        when(inspectionRepository.findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), isNull(), eq(Set.of()), isNull(), eq(List.of()), eq(PageRequest.of(0, 10))))
+                .thenReturn(emptyPage);
+
+        PageResponse<RecentInspectionResponse> result = dashboardService.searchRecentInspections(
+                USER_ID, OWNER_ID, null, null, null, null, PageRequest.of(0, 10));
+
+        assertThat(result.content()).isEmpty();
+        assertThat(result.totalElements()).isZero();
+        assertThat(result.page()).isZero();
+    }
+
+    @Test
+    void searchRecentInspections_상태라벨_분석중은3개raw상태집합으로변환() {
+        Inspection insp = inspection(500L, FACILITY_ID, 99L, LocalDate.of(2026, 7, 1), InspectionStatus.UPLOADING);
+        Page<Inspection> page = new PageImpl<>(List.of(insp), PageRequest.of(0, 10), 1);
+        when(inspectionRepository.findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), isNull(),
+                eq(EnumSet.of(InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZING)),
+                isNull(), eq(List.of()), eq(PageRequest.of(0, 10))))
+                .thenReturn(page);
+        when(defectRepository.countGroupByInspectionId(List.of(500L))).thenReturn(List.of());
+        when(facilityRepository.findAllById(List.of(FACILITY_ID)))
+                .thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "테스트빌딩")));
+        User creator = User.createCompanyOwner("inspector@haja.com", "김검사", "$2a$10$testtesttesttesttesttes");
+        setId(creator, "id", 99L);
+        when(userRepository.findAllById(List.of(99L))).thenReturn(List.of(creator));
+
+        PageResponse<RecentInspectionResponse> result = dashboardService.searchRecentInspections(
+                USER_ID, OWNER_ID, null, null, "분석중", null, PageRequest.of(0, 10));
+
+        assertThat(result.content()).hasSize(1);
+        RecentInspectionResponse item = result.content().get(0);
+        assertThat(item.status()).isEqualTo("분석중");
+        assertThat(item.facilityName()).isEqualTo("테스트빌딩");
+        assertThat(item.inspector()).isEqualTo("김검사");
+    }
+
+    @Test
+    void searchRecentInspections_알수없는상태라벨_INVALID_INPUT예외() {
+        assertThatThrownBy(() -> dashboardService.searchRecentInspections(
+                USER_ID, OWNER_ID, null, null, "존재하지않는상태", null, PageRequest.of(0, 10)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.INVALID_INPUT));
+    }
+
+    @Test
+    void searchRecentInspections_query있으면_담당자명매칭id를레포지토리에전달() {
+        when(userRepository.findIdsByCompanyIdAndNameContaining(OWNER_ID, "김검사")).thenReturn(List.of(99L));
+        Page<Inspection> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
+        when(inspectionRepository.findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), isNull(), eq(Set.of()), eq("김검사"), eq(List.of(99L)),
+                eq(PageRequest.of(0, 10))))
+                .thenReturn(emptyPage);
+
+        dashboardService.searchRecentInspections(USER_ID, OWNER_ID, null, null, null, "김검사", PageRequest.of(0, 10));
+
+        verify(inspectionRepository).findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), isNull(), eq(Set.of()), eq("김검사"), eq(List.of(99L)),
+                eq(PageRequest.of(0, 10)));
+    }
+
+    @Test
+    void searchRecentInspections_query에LIKE와일드카드포함시_이스케이프해서양쪽레포지토리에동일하게전달() {
+        // code review P2 — "%"/"_"를 리터럴로 검색해도 LIKE 와일드카드로 새지 않도록 서비스가
+        // 이스케이프한 뒤, userRepository(담당자명)와 inspectionRepository(시설물명) 양쪽에 동일한
+        // 이스케이프 값을 넘겨야 한다(둘이 다르면 한쪽만 리터럴 취급되는 불일치가 생긴다).
+        // 원본 검색어 "김%검사"(리터럴 %) → 이스케이프 후 "김\%검사"(백슬래시+%, Java 문자열
+        // 리터럴로는 "김\\%검사").
+        when(userRepository.findIdsByCompanyIdAndNameContaining(OWNER_ID, "김\\%검사")).thenReturn(List.of());
+        Page<Inspection> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
+        when(inspectionRepository.findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), isNull(), eq(Set.of()), eq("김\\%검사"), eq(List.of()),
+                eq(PageRequest.of(0, 10))))
+                .thenReturn(emptyPage);
+
+        dashboardService.searchRecentInspections(USER_ID, OWNER_ID, null, null, null, "김%검사", PageRequest.of(0, 10));
+
+        verify(userRepository).findIdsByCompanyIdAndNameContaining(OWNER_ID, "김\\%검사");
+        verify(inspectionRepository).findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), isNull(), eq(Set.of()), eq("김\\%검사"), eq(List.of()),
+                eq(PageRequest.of(0, 10)));
+    }
+
+    @Test
+    void searchRecentInspections_facilityId가레포지토리에그대로전달() {
+        Page<Inspection> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
+        when(inspectionRepository.findRecentInspectionsPage(
+                eq(OWNER_ID), eq(FACILITY_ID), isNull(), eq(Set.of()), isNull(), eq(List.of()),
+                eq(PageRequest.of(0, 10))))
+                .thenReturn(emptyPage);
+
+        dashboardService.searchRecentInspections(
+                USER_ID, OWNER_ID, FACILITY_ID, null, null, null, PageRequest.of(0, 10));
+
+        verify(inspectionRepository).findRecentInspectionsPage(
+                eq(OWNER_ID), eq(FACILITY_ID), isNull(), eq(Set.of()), isNull(), eq(List.of()),
+                eq(PageRequest.of(0, 10)));
+    }
+
+    @Test
+    void searchRecentInspections_facilityType이레포지토리에그대로전달() {
+        Page<Inspection> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
+        when(inspectionRepository.findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), eq("건물"), eq(Set.of()), isNull(), eq(List.of()),
+                eq(PageRequest.of(0, 10))))
+                .thenReturn(emptyPage);
+
+        dashboardService.searchRecentInspections(
+                USER_ID, OWNER_ID, null, "건물", null, null, PageRequest.of(0, 10));
+
+        verify(inspectionRepository).findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), eq("건물"), eq(Set.of()), isNull(), eq(List.of()),
+                eq(PageRequest.of(0, 10)));
+    }
+
+    @Test
+    void searchRecentInspections_size상한초과요청은100으로캡() {
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        Page<Inspection> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 100), 0);
+        when(inspectionRepository.findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), isNull(), eq(Set.of()), isNull(), eq(List.of()), pageableCaptor.capture()))
+                .thenReturn(emptyPage);
+
+        dashboardService.searchRecentInspections(USER_ID, OWNER_ID, null, null, null, null, PageRequest.of(0, 500));
+
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(100);
+    }
+
+    @Test
+    void searchRecentInspections_page가매우커서offset이int범위초과시_예외없이빈콘텐츠반환() {
+        // PR머신 검수 P3 — offset(=page*size)이 Integer.MAX_VALUE를 넘으면 setFirstResult((int) offset)
+        // 캐스팅이 음수가 되어 IllegalArgumentException(500)을 유발한다. DB 조회 자체를 생략하고
+        // 빈 페이지로 방어해야 한다(레포지토리 호출조차 없어야 함).
+        PageResponse<RecentInspectionResponse> result = dashboardService.searchRecentInspections(
+                USER_ID, OWNER_ID, null, null, null, null, PageRequest.of(21474837, 100));
+
+        assertThat(result.content()).isEmpty();
+        assertThat(result.totalElements()).isZero();
+        verifyNoInteractions(inspectionRepository);
+    }
+
+    @Test
+    void searchRecentInspections_회사없는사용자_FORBIDDEN예외() {
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN))
+                .when(companyScopeGuard).requireEffectiveMembership(USER_ID, null);
+        assertThatThrownBy(() -> dashboardService.searchRecentInspections(
+                USER_ID, null, null, null, null, null, PageRequest.of(0, 10)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.FORBIDDEN));
+    }
+
     @Test
     void getSummary_회사없는사용자_FORBIDDEN예외() {
         doThrow(new BusinessException(ErrorCode.FORBIDDEN))

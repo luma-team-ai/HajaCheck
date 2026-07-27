@@ -150,6 +150,13 @@ const UpcomingInspectionsPage = lazy(() =>
   })),
 );
 
+// "최근 점검" 카드 "전체보기"(신규) — 위젯(RecentInspectionsTable, 상위 10건 고정)의 전체 목록 화면
+const RecentInspectionsFullListPage = lazy(() =>
+  import('../features/dashboard/pages/RecentInspectionsFullListPage').then((m) => ({
+    default: m.RecentInspectionsFullListPage,
+  })),
+);
+
 const DefectDetailPage = lazy(() =>
   import('../features/defect/pages/DefectDetailPage').then((m) => ({
     default: m.DefectDetailPage,
@@ -413,6 +420,18 @@ export const router = createBrowserRouter([
           activeHref: '/dashboard/upcoming-inspections',
         },
       }, // — features/dashboard 다음 점검일 도래 (dev-03-02, #543)
+      {
+        path: '/dashboard/recent-inspections',
+        element: (
+          <Suspense fallback={<div>불러오는 중...</div>}>
+            <RecentInspectionsFullListPage />
+          </Suspense>
+        ),
+        handle: {
+          breadcrumb: [{ label: '홈' }, { label: '대시보드' }, { label: '최근 점검 전체보기' }],
+          activeHref: '/dashboard/recent-inspections',
+        },
+      }, // — features/dashboard "최근 점검" 카드 전체보기(신규)
       {
         // 정적 경로라 SideNavBar href('/defects/list')와 동일하게 맞춰 activeHref 매핑 없이도
         // 사이드바 클릭이 그대로 동작한다(하위 :id 상세는 동적 세그먼트라 SideNavBar 플레이스홀더
