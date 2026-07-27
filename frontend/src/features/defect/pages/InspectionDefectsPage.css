@@ -524,7 +524,6 @@
   grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
   gap: 22px;
   align-items: start;
-  margin-bottom: 22px;
 }
 
 .defect-detail-modal__primary,
