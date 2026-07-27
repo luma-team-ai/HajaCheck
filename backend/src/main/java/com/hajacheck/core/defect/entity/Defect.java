@@ -38,6 +38,14 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
  * <p>mediaId(HAJA-314)는 이 결함이 어느 촬영 이미지에서 탐지됐는지 가리키는 nullable FK다 — bbox 좌표가
  * 있어도 그 좌표가 속한 이미지를 알 수 없어 하자 상세 화면에 실사진을 띄울 방법이 없었다. AI 탐지 파이프라인이
  * 아직 없어 기존 행은 전부 NULL로 남는다(백필 대상 없음).
+ *
+ * <p>location(#970 갭3)은 하자 위치 텍스트(예: "외벽 동측 12층 부근")다 — 조치 등록 시점이 아니라
+ * 검수자가 사후에 편집하는 값이라 생성 시점엔 항상 null이지만, 필드 자체는 단순 nullable 컬럼이라
+ * 빌더에도 포함한다(생성 직후 값을 채워 넣는 시드/테스트 편의).
+ *
+ * <p>previousDefectId(HAJA-437)는 회차 간 비교를 위해 검수자가 화면에서 확정한 이전 회차 대응 하자
+ * id(self-referencing FK)다. actionMediaId와 동일한 이유로 빌더에는 포함하지 않는다 — 자동 매칭이
+ * 아니라 검수자의 명시적 확정 행위이므로 생성 시점 값이 아니라 {@link #confirmPreviousDefect(Long)}로만 설정한다.
  */
 @Entity
 @Getter
@@ -131,10 +139,16 @@ public class Defect {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    @Column(columnDefinition = "text")
+    private String location;
+
+    @Column(name = "previous_defect_id")
+    private Long previousDefectId;
+
     @Builder
     private Defect(Long inspectionId, Long mediaId, DefectType type, Double bboxX, Double bboxY, Double bboxW,
                     Double bboxH, Double confidence, DefectGrade grade, DefectStatus status, boolean reviewed,
-                    boolean deleted, Double crackWidthMm, Double crackLengthMm, Double areaRatio) {
+                    boolean deleted, Double crackWidthMm, Double crackLengthMm, Double areaRatio, String location) {
         this.inspectionId = inspectionId;
         this.mediaId = mediaId;
         this.type = type;
@@ -150,6 +164,7 @@ public class Defect {
         this.crackWidthMm = crackWidthMm;
         this.crackLengthMm = crackLengthMm;
         this.areaRatio = areaRatio;
+        this.location = location;
     }
 
     public void review(DefectGrade grade) {
@@ -231,6 +246,27 @@ public class Defect {
         }
         this.crackWidthMm = crackWidthMm;
         this.crackLengthMm = crackLengthMm;
+    }
+
+    /**
+     * 하자 위치 사후 편집(#970 갭3) — 조치 등록 흐름과 분리된 가벼운 편집이라 상태 전이 규칙과 무관하게
+     * 삭제되지 않은 하자라면 언제든 허용한다. 빈 문자열/공백은 null로 정규화한다(호출부가 지우기 위해
+     * 빈 문자열을 보내는 경우와 실제 null을 구분할 필요가 없음).
+     */
+    public void updateLocation(String location) {
+        requireNotDeleted("updateLocation");
+        this.location = (location == null || location.isBlank()) ? null : location;
+    }
+
+    /**
+     * 회차 간 대응 하자 확정(HAJA-437) — 검수자가 화면에서 확인한 이전 회차 하자 id를 저장한다.
+     * 같은 시설물·더 이전 회차인지 등 참조 유효성 검증은 서비스 계층(DefectService)이 수행하고,
+     * 이 메서드는 순수하게 값을 반영만 한다(actionMediaId 등 다른 "확정 행위" 필드와 동일 원칙 —
+     * 자동 매칭이 아닌 사람의 명시적 확정이므로 빌더가 아닌 별도 메서드로만 설정).
+     */
+    public void confirmPreviousDefect(Long previousDefectId) {
+        requireNotDeleted("confirmPreviousDefect");
+        this.previousDefectId = previousDefectId;
     }
 
     public void softDelete() {

@@ -870,7 +870,10 @@ create table defects
     action_date        date,
     action_assignee_id bigint
         references users,
-    created_at      timestamp with time zone default now()                          not null
+    created_at      timestamp with time zone default now()                          not null,
+    location            text,
+    previous_defect_id  bigint
+        references defects
 );
 
 comment on table defects is '점검 이미지에서 탐지되거나 검토된 시설 결함 정보를 관리한다.';
@@ -918,6 +921,10 @@ comment on column defects.action_date is '조치일(HAJA-393/#725) — 조치 �
 comment on column defects.action_assignee_id is '조치 담당자(HAJA-393/#725) — GET /api/facilities/assignable-users 로 선택된 회사 소속 사용자, nullable';
 
 comment on column defects.created_at is '결함 생성 시각';
+
+comment on column defects.location is '하자 위치 텍스트(예: 외벽 동측 12층 부근) — 검수자 사후 편집';
+
+comment on column defects.previous_defect_id is '이전 회차 대응 하자 id(검수자 확정, self-referencing) — 회차 간 비교용';
 
 alter table defects
     owner to postgres;
