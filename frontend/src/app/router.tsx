@@ -195,6 +195,16 @@ const MyInspectionsPage = lazy(() =>
   })),
 );
 
+// 토스페이먼츠 결제창 연동 — 성공/실패 리다이렉트 진입점 (#989, HAJA-490)
+const PaymentSuccessPage = lazy(() =>
+  import('../features/mypage/pages/PaymentSuccessPage').then((m) => ({
+    default: m.PaymentSuccessPage,
+  })),
+);
+const PaymentFailPage = lazy(() =>
+  import('../features/mypage/pages/PaymentFailPage').then((m) => ({ default: m.PaymentFailPage })),
+);
+
 // 관리자 > 사용자 관리 (Figma node 177-2017)
 const AdminUsersPage = lazy(() =>
   import('../features/admin/pages/AdminUsersPage').then((m) => ({
@@ -388,6 +398,29 @@ export const router = createBrowserRouter([
       </ProtectedRoute>
     ),
   }, // — features/auth 초대 코드 입력 (#799)
+  {
+    path: '/payments/success',
+    // 토스페이먼츠 결제창(외부 페이지)에서 successUrl로 돌아오는 착지점 — AppShell(사이드바) 밖,
+    // ProtectedRoute만으로 감싼 독립 화면(InviteCodePage와 동일한 스탠드얼론 패턴, handoff §3
+    // "두 라우트 모두 인증 필요 영역에 배치"). 비로그인 진입 시 기존 가드 흐름 그대로 /login으로.
+    element: (
+      <ProtectedRoute>
+        <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+          <PaymentSuccessPage />
+        </Suspense>
+      </ProtectedRoute>
+    ),
+  }, // — features/mypage 토스페이먼츠 결제 성공 콜백 (#989, HAJA-490)
+  {
+    path: '/payments/fail',
+    element: (
+      <ProtectedRoute>
+        <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+          <PaymentFailPage />
+        </Suspense>
+      </ProtectedRoute>
+    ),
+  }, // — features/mypage 토스페이먼츠 결제 실패 콜백 (#989, HAJA-490)
   {
     // 로그인 후 내부 페이지 공통 앱 셸(SideNavBar+Header, AppLayout) — nested route로 강제 연결(HAJA-186, #217 후속).
     // ProtectedRoute로 부모 전체를 감싸 자식 라우트를 일괄 보호한다(#231, HAJA-189) —
