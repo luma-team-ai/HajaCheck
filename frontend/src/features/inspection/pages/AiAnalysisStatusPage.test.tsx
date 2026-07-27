@@ -146,6 +146,18 @@ describe('AiAnalysisStatusPage', () => {
     expect(screen.getByRole('button', { name: '분석 시작' })).not.toBeNull();
   });
 
+  it('진행률 요약 옆에 점검 ID를 노출한다 — 관리자가 진행/완료 여부를 추적할 식별자', async () => {
+    server.use(
+      http.get('/api/inspections/:id/analyze', () =>
+        HttpResponse.json({ success: true, data: analyzingStatus() }),
+      ),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('점검 ID #100', { exact: false })).not.toBeNull();
+  });
+
   describe('"한 번에 하나만" 정책(2026-07-27) — 분석 진행 중 이탈/취소', () => {
     it('분석이 진행 중일 때 다른 라우트로 이동을 시도하면 확인창이 뜨고, 취소를 누르면 머무른다', async () => {
       server.use(

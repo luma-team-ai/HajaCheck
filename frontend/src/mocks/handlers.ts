@@ -1,4 +1,5 @@
 // MSW 핸들러 집합 — feature가 늘어나면 각 feature의 `api/*.handlers.ts`를 여기 추가
+import { adminAnalysisJobHandlers } from '../features/admin/api/adminAnalysisJobApi.handlers';
 import { adminHandlers } from '../features/admin/api/adminApi.handlers';
 import { adminPlanHandlers } from '../features/admin/api/adminPlanApi.handlers';
 import { planQuotaHandlers } from '../features/admin/api/planQuotaApi.handlers';
@@ -57,6 +58,7 @@ export const allMockHandlers = [
   ...facilityDefectHandlers,
   ...facilityComparisonHandlers,
   ...adminHandlers,
+  ...adminAnalysisJobHandlers,
   ...adminPlanHandlers,
   ...planQuotaHandlers,
   ...platformAdminUserHandlers,

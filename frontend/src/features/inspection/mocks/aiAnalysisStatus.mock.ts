@@ -15,7 +15,6 @@ export interface SeverityDistributionEntry {
 }
 
 export interface AiAnalysisStatus {
-  jobId: string | null;
   progressPercent: number;
   totalFileCount: number;
   analyzedFileCount: number;
@@ -32,7 +31,6 @@ export interface AiAnalysisStatus {
 // 상태다. 점검 생성 화면을 거친 실제 분석은 이제 useAnalysisStatus(백엔드 폴링, dev-05-04)를 쓴다.
 export function buildEmptyAnalysisStatus(): AiAnalysisStatus {
   return {
-    jobId: null,
     progressPercent: 0,
     totalFileCount: 0,
     analyzedFileCount: 0,

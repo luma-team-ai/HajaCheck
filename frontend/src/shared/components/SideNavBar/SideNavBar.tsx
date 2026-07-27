@@ -208,6 +208,7 @@ const DEFAULT_ADMIN_ITEM: SideNavItem = {
   subItems: [
     { label: '사용자 관리', href: '/admin/users' },
     { label: '플랜·쿼터 관리', href: '/admin/plans-quota' },
+    { label: 'AI 분석 현황', href: '/admin/analysis-jobs' },
   ],
 };
 

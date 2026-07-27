@@ -6,12 +6,19 @@ describe('MSW handler exports', () => {
     vi.unstubAllEnvs();
   });
 
-  it('hybrid 런타임은 브라우저용 handlers만 비우고 테스트용 전체 집합은 유지한다', async () => {
-    vi.stubEnv('VITE_ENABLE_MSW', 'hybrid');
+  // 이 파일이 집계하는 feature handler 수가 늘어날수록(신규 feature 추가마다) 동적 import 비용이
+  // 커진다 — 전체 스위트 병렬 실행 시 기본 5000ms 타임아웃에 종종 걸린다(router.dev-routes.test.tsx와
+  // 동일한 이유). 넉넉한 타임아웃으로 여유를 둔다.
+  it(
+    'hybrid 런타임은 브라우저용 handlers만 비우고 테스트용 전체 집합은 유지한다',
+    async () => {
+      vi.stubEnv('VITE_ENABLE_MSW', 'hybrid');
 
-    const { allMockHandlers, handlers } = await import('./handlers');
+      const { allMockHandlers, handlers } = await import('./handlers');
 
-    expect(handlers).toEqual([]);
-    expect(allMockHandlers.length).toBeGreaterThan(0);
-  });
+      expect(handlers).toEqual([]);
+      expect(allMockHandlers.length).toBeGreaterThan(0);
+    },
+    15_000,
+  );
 });
