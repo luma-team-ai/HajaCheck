@@ -17,6 +17,7 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.repository.FacilityRepresentativeMediaProjection;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -114,9 +115,21 @@ public class FacilityService {
                                 // facilityId asc, createdAt desc 정렬이므로 같은 facilityId의 첫 값이 최신이다.
                                 (first, second) -> first));
 
+        // 시설물 목록 대표 사진 썸네일(HAJA-367/#670) — 시설물별 findByFacilityIdOrderByIdAsc 반복 호출은
+        // N+1이므로 배치 쿼리 1회로 조회(위 latestDefectId와 동일한 조립 패턴).
+        Map<Long, String> thumbnailUrlByFacilityId =
+                mediaRepository.findFirstIdsByFacilityIds(facilityIds, companyId).stream()
+                        .collect(Collectors.toMap(
+                                FacilityRepresentativeMediaProjection::getFacilityId,
+                                p -> thumbnailPath(p.getMediaId()),
+                                // facilityId asc, id asc 정렬이므로 같은 facilityId의 첫 값이 최초 등록 사진이다.
+                                (first, second) -> first));
+
         return facilities.stream()
                 .map(facility -> FacilityResponse.from(
-                        facility, latestDefectIdByFacilityId.get(facility.getId())))
+                        facility,
+                        latestDefectIdByFacilityId.get(facility.getId()),
+                        thumbnailUrlByFacilityId.get(facility.getId())))
                 .toList();
     }
 
@@ -128,7 +141,17 @@ public class FacilityService {
                 .stream()
                 .findFirst()
                 .orElse(null);
-        return FacilityResponse.from(facility, latestDefectId);
+        String thumbnailUrl = mediaRepository.findByFacilityIdOrderByIdAsc(facilityId).stream()
+                .findFirst()
+                .map(media -> thumbnailPath(media.getId()))
+                .orElse(null);
+        return FacilityResponse.from(facility, latestDefectId, thumbnailUrl);
+    }
+
+    // MediaResponse.from()과 동일한 경로 조립 — Media.thumbnailUrl(저장키)을 그대로 반환하지 않고
+    // 인가된 컨트롤러 엔드포인트 경로만 노출한다.
+    private static String thumbnailPath(Long mediaId) {
+        return "/api/media/" + mediaId + "/thumbnail";
     }
 
     /**

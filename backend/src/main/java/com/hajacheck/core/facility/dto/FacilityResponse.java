@@ -26,13 +26,21 @@ public record FacilityResponse(
         Long assigneeUserId,
         String memo,
         // 시설물 상세→하자 오버레이 직행(HAJA-434 갭1) — 대표(최신) 하자 id, 하자가 없으면 null.
-        Long latestDefectId
+        Long latestDefectId,
+        // 시설물 목록/상세 대표 사진(HAJA-367/#670) — /api/media/{id}/thumbnail 경로, 사진이 없으면 null.
+        // Media.thumbnailUrl(저장키)을 그대로 반환하지 않는다(MediaResponse와 동일 원칙 — 인가된
+        // 컨트롤러 엔드포인트를 통해서만 서빙).
+        String thumbnailUrl
 ) {
     public static FacilityResponse from(Facility facility) {
-        return from(facility, null);
+        return from(facility, null, null);
     }
 
     public static FacilityResponse from(Facility facility, Long latestDefectId) {
+        return from(facility, latestDefectId, null);
+    }
+
+    public static FacilityResponse from(Facility facility, Long latestDefectId, String thumbnailUrl) {
         return new FacilityResponse(
                 facility.getId(),
                 facility.getName(),
@@ -49,7 +57,8 @@ public record FacilityResponse(
                 facility.getInitialGrade(),
                 facility.getAssigneeUserId(),
                 facility.getMemo(),
-                latestDefectId
+                latestDefectId,
+                thumbnailUrl
         );
     }
 }

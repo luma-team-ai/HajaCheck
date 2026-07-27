@@ -46,8 +46,14 @@ class MediaRepositoryTest extends PostgresTestSupport {
     // 시설물 대표 사진(#632/#652) 테스트용 — user→company→facility 까지만 시드하고 facility_id 를 돌려준다
     // (inspection 없이 facility 전용 media 로우를 검증하기 위함). 이메일은 seedInspection() 과 겹치지 않게 한다.
     private Long seedFacility() {
+        return seedFacility("");
+    }
+
+    // HAJA-367 교차오염 테스트처럼 한 테스트 안에서 시설물을 여러 개 시드해야 할 때 이메일 충돌을
+    // 피하기 위한 접미사 파라미터 오버로드 — 기존 무인자 호출부는 seedFacility() 그대로 유지.
+    private Long seedFacility(String emailSuffix) {
         User owner = User.builder()
-                .email("owner-fac@haja.com")
+                .email("owner-fac" + emailSuffix + "@haja.com")
                 .name("시설소유자")
                 .role(Role.INSPECTOR)
                 .passwordHash("$2a$10$testtesttesttesttesttes")
@@ -326,5 +332,80 @@ class MediaRepositoryTest extends PostgresTestSupport {
 
         assertThat(em.find(Facility.class, facilityId)).isNull();
         assertThat(mediaRepository.findByFacilityIdOrderByIdAsc(facilityId)).isEmpty();
+    }
+
+    // ── 시설물 목록 썸네일 배치 조회(HAJA-367/#670) ──────────────────────────────────────────
+
+    // 리포지토리는 대상 시설물의 사진 전체를 (facilityId asc, id asc)로 정렬해 반환한다 — "시설물당
+    // 첫 값(최초 등록 사진)만 채택"은 DefectRepository.findLatestByFacilityIds와 동일하게 서비스 계층
+    // (FacilityService.list())의 Collectors.toMap 조립 책임이다. 이 테스트는 정렬·필터가 시설물별로
+    // 교차오염 없이 정확한지만 검증한다(같은 회사 소속 시설물 2건).
+    @Test
+    void findFirstIdsByFacilityIds_시설물별로필터링되고id오름차순정렬_교차오염없음() {
+        Long facilityA = seedFacility();
+        Long companyId = em.find(Facility.class, facilityA).getCompanyId();
+        Facility facilityBEntity =
+                Facility.builder().companyId(companyId).name("두번째빌딩").type("BUILDING").build();
+        em.persist(facilityBEntity);
+        em.flush();
+        Long facilityB = facilityBEntity.getId();
+
+        Media firstOfA = mediaRepository.save(Media.builder()
+                .facilityId(facilityA).fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/a1.png").mimeSignatureVerified(true).build());
+        Media secondOfA = mediaRepository.save(Media.builder()
+                .facilityId(facilityA).fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/a2.png").mimeSignatureVerified(true).build());
+        Media firstOfB = mediaRepository.save(Media.builder()
+                .facilityId(facilityB).fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/b1.png").mimeSignatureVerified(true).build());
+        em.flush();
+
+        List<FacilityRepresentativeMediaProjection> result =
+                mediaRepository.findFirstIdsByFacilityIds(List.of(facilityA, facilityB), companyId);
+
+        assertThat(result)
+                .filteredOn(p -> p.getFacilityId().equals(facilityA))
+                .extracting(FacilityRepresentativeMediaProjection::getMediaId)
+                .containsExactly(firstOfA.getId(), secondOfA.getId());
+        assertThat(result)
+                .filteredOn(p -> p.getFacilityId().equals(facilityB))
+                .extracting(FacilityRepresentativeMediaProjection::getMediaId)
+                .containsExactly(firstOfB.getId());
+    }
+
+    @Test
+    void findFirstIdsByFacilityIds_사진없는시설물은결과행자체가없음() {
+        Long facilityId = seedFacility();
+        Long companyId = em.find(Facility.class, facilityId).getCompanyId();
+
+        List<FacilityRepresentativeMediaProjection> result =
+                mediaRepository.findFirstIdsByFacilityIds(List.of(facilityId), companyId);
+
+        assertThat(result).isEmpty();
+    }
+
+    // code-reviewer P2 — 리포지토리 계층에서도 companyId 로 방어적 재검증(DefectRepository.
+    // findLatestByFacilityIds 와 동일 원칙). 타 회사 시설물 id 가 facilityIds 에 섞여 들어와도
+    // companyId 불일치로 결과에서 제외되어야 한다.
+    @Test
+    void findFirstIdsByFacilityIds_다른회사시설물은companyId불일치로제외() {
+        Long myFacility = seedFacility("-mine");
+        Long myCompanyId = em.find(Facility.class, myFacility).getCompanyId();
+        Long otherFacility = seedFacility("-other");
+        mediaRepository.save(Media.builder()
+                .facilityId(myFacility).fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/mine.png").mimeSignatureVerified(true).build());
+        mediaRepository.save(Media.builder()
+                .facilityId(otherFacility).fileType(MediaFileType.IMAGE)
+                .originalUrl("facility-media/other.png").mimeSignatureVerified(true).build());
+        em.flush();
+
+        List<FacilityRepresentativeMediaProjection> result =
+                mediaRepository.findFirstIdsByFacilityIds(List.of(myFacility, otherFacility), myCompanyId);
+
+        assertThat(result)
+                .extracting(FacilityRepresentativeMediaProjection::getFacilityId)
+                .containsExactly(myFacility);
     }
 }
