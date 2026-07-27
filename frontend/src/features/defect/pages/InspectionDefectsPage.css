@@ -167,6 +167,18 @@
   transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
 }
 
+.defect-card-grid__status-tab-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+.defect-card-grid__status-tab-label {
+  color: inherit;
+}
+
 .defect-card-grid__status-tab-count {
   border-radius: 9999px;
   background: var(--color-surface-sunken);
