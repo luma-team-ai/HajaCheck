@@ -1,6 +1,6 @@
 # 하자 자연어 검색 필터 변환 스키마 설계 — WBS design-03-18
 
-> **문서 버전:** v0.2 · **최종 수정:** 2026-07-23 · 이전 버전 `archive/`
+> **문서 버전:** v0.2 · **최종 수정:** 2026-07-27 · 이전 버전 `archive/`
 
 > 메뉴: 하자 관리 (담당: 유병현) · 관련 요구: PRD §4 메뉴 구성(IA) "자연어 검색(P1)", FR-013 · 관련 Jira: HAJA-120(설계) — 하위 HAJA-179~183
 > 구현 예정(후속): `ai-server/ai/chains/nl_search_chain.py` · 프롬프트: `ai/prompts/nl_search_convert.md` · 공개 엔드포인트(Spring Boot): `POST /api/defects/nl-search` · 내부 엔드포인트(FastAPI): `POST /ai/nl-search`
@@ -211,7 +211,7 @@ v1은 신뢰도 **하한(`confidenceMin`)만** 지원한다. 사용자가 하한
 
 자연어 검색은 PRD §2.3/§2.4의 인증·플랜 집행 원칙과 §6 내부 네트워크 아키텍처를 따른다.
 
-- **공개 호출 경로**: 프론트는 Spring Boot의 `POST /api/defects/nl-search`만 호출한다. Spring Security 세션 인증을 통과한 점검자 요청만 허용한다.
+- **공개 호출 경로**: 프론트는 Spring Boot의 `POST /api/defects/nl-search`만 호출한다. Spring Security 세션 인증을 통과한 `INSPECTOR` 또는 `ADMIN` 요청만 허용한다.
 - **플랜 게이트**: Spring Boot는 개인 활성 플랜 또는 회사 활성 플랜을 조회해 `plans.has_ai_addon = true`인지 검사한다. 회사 플랜 상속은 회사가 `status = APPROVED`이면서 `verification_status = VERIFIED`이고, `company_memberships`에 요청 사용자와 회사를 잇는 행이 `status = APPROVED`, `approved_at IS NOT NULL`, `revoked_at IS NULL`, `expires_at IS NULL OR expires_at > now()`이며 사용자도 `ACTIVE`, `users.company_id = company_memberships.company_id`일 때만 허용한다. 회사 오너도 동일한 멤버십 행을 가져야 하며 `users.company_id` 존재만으로 상속하지 않는다(`table_design.md` §2.6/§5.1). Free 등 AI 부가 기능이 없는 플랜과 회사·멤버십 검증 실패 요청은 FastAPI를 호출하지 않고 `403 AI_ADDON_REQUIRED`로 거부한다. 프론트에서 버튼을 숨기는 것은 보조 UX일 뿐 서버 검사를 대체하지 않는다.
 - **내부 호출 경로**: 위 검사를 통과한 경우에만 Spring Boot가 내부 네트워크의 FastAPI `POST /ai/nl-search`를 호출한다. 환경변수로 주입한 `X-Internal-Service-Token`을 전달하고 FastAPI는 누락·불일치 요청을 처리 전에 거부한다.
 - **외부 노출 차단**: 운영 nginx는 `/ai/nl-search`를 FastAPI로 직접 프록시하지 않는다. 현재의 포괄적인 `/ai/**` 프록시는 이 기능 배포 전에 Spring 경유 또는 외부 차단으로 변경하며, 프론트도 `aiClient`가 아니라 인증·CSRF 처리가 적용되는 Spring API 클라이언트를 사용한다.
@@ -250,7 +250,7 @@ v1은 신뢰도 **하한(`confidenceMin`)만** 지원한다. 사용자가 하한
 ### 4.3 프론트 수동 필터 ↔ 자연어 필터 동기화 방식
 
 1. 사용자가 자연어 질의 입력 → 프론트가 Spring Boot `POST /api/defects/nl-search` 호출.
-2. Spring Boot가 세션·점검자 권한·`has_ai_addon`을 검사하고, 통과한 요청만 내부 FastAPI `POST /ai/nl-search`로 전달.
+2. Spring Boot가 세션·`INSPECTOR` 또는 `ADMIN` 권한·`has_ai_addon`을 검사하고, 통과한 요청만 내부 FastAPI `POST /ai/nl-search`로 전달.
 3. 응답 성공 + `clarifying_question`이 `null`이면, 응답의 `filters`로 **기존 수동 필터 상태를 통째로 교체**한다(부분 병합 아님 — 자연어 질의 결과가 새 필터 기준이 된다).
 4. `clarifying_question`이 있으면 필터 상태는 그대로 두고 질문만 노출한다(§2.3).
 5. `unsupported_terms`가 있으면 인식된 나머지 필터는 적용하되, 무시된 표현을 안내한다(§2.3).
@@ -268,7 +268,7 @@ Spring 게이트웨이가 전달한 자연어 변환 요청이 실패(`LLM_TIMEO
 ### 4.5 완료 기준 반영
 
 - AI/백엔드/프론트가 위 4.1~4.4 계약을 기준으로 각자 구현 가능.
-- HAJA-120 후속 구현 티켓 범위: ① `company_memberships`·`inspections.assigned_inspector_id` 마이그레이션과 기존 데이터 검증/백필, 기업 가입·승인·초대 트랜잭션 확장, ② AI 서버 내부 `/ai/nl-search` + 내부 토큰 검증 구현, ③ Spring Boot 공개 `POST /api/defects/nl-search` 게이트웨이(인증·점검자 권한·`has_ai_addon`)와 `GET /api/defects` 구현(§4.2 파라미터 기준), ④ 운영 nginx 직접 노출 차단, ⑤ 프론트 `inspection/types.ts` 영문 코드 마이그레이션 + Spring API 기반 자연어 검색 UI(§4.3 동기화 로직). 회사 플랜 게이트는 멤버십 백필 검증이 완료되기 전에 활성화하지 않는다.
+- HAJA-120 후속 구현 티켓 범위: ① `company_memberships`·`inspections.assigned_inspector_id` 마이그레이션과 기존 데이터 검증/백필, 기업 가입·승인·초대 트랜잭션 확장, ② AI 서버 내부 `/ai/nl-search` + 내부 토큰 검증 구현, ③ Spring Boot 공개 `POST /api/defects/nl-search` 게이트웨이(인증·`INSPECTOR` 또는 `ADMIN` 권한·`has_ai_addon`)와 `GET /api/defects` 구현(§4.2 파라미터 기준), ④ 운영 nginx 직접 노출 차단, ⑤ 프론트 `inspection/types.ts` 영문 코드 마이그레이션 + Spring API 기반 자연어 검색 UI(§4.3 동기화 로직). 회사 플랜 게이트는 멤버십 백필 검증이 완료되기 전에 활성화하지 않는다.
 
 ---
 
@@ -315,7 +315,7 @@ Spring 게이트웨이가 전달한 자연어 변환 요청이 실패(`LLM_TIMEO
 ### 5.5 스택별 재사용 기준
 
 - **AI 서버**: 5.1~5.4를 `test_nl_search_chain.py`의 케이스로 사용. 5.1(정상)·5.3(미지원 조건 포함)은 `filters`/`unsupported_terms`가 표에 명시된 값과 **정확히 일치**하는지 검증한다. 5.2(애매한 질의)는 `clarifying_question` 문구까지 고정하지 않고 `filters == 표의 빈 값` && `clarifying_question is not None`라는 **구조적 조건**만 검증한다(§5.2 참고). 5.4는 LLM mock이 호출되지 않고 `VALIDATION_ERROR` envelope이 반환되는지 검증한다.
-- **Spring 백엔드 — 인증·플랜 게이트**: 미인증 요청은 `401`, AI 부가 기능이 없는 Free 플랜은 `403 AI_ADDON_REQUIRED`이며 두 경우 FastAPI 클라이언트가 호출되지 않는지 검증한다. 개인 활성 플랜 또는 `APPROVED`+`VERIFIED` 회사와 `company_memberships`의 유효한 승인 멤버십을 모두 만족하는 회사 활성 플랜이 `has_ai_addon=true`인 점검자 요청만 내부 토큰을 포함해 전달되는지 검증한다. `users.company_id`만 일치하거나 회사/멤버십이 대기·반려·회수·만료된 요청, 비활성 사용자는 `403`이고 FastAPI가 호출되지 않아야 한다. 회사 오너도 멤버십 행이 없으면 상속하지 않는지 검증한다.
+- **Spring 백엔드 — 인증·플랜 게이트**: 미인증 요청은 `401`, AI 부가 기능이 없는 Free 플랜은 `403 AI_ADDON_REQUIRED`이며 두 경우 FastAPI 클라이언트가 호출되지 않는지 검증한다. 개인 활성 플랜 또는 `APPROVED`+`VERIFIED` 회사와 `company_memberships`의 유효한 승인 멤버십을 모두 만족하는 회사 활성 플랜이 `has_ai_addon=true`인 `INSPECTOR` 또는 `ADMIN` 요청만 내부 토큰을 포함해 전달되는지 검증한다. `users.company_id`만 일치하거나 회사/멤버십이 대기·반려·회수·만료된 요청, 비활성 사용자는 `403`이고 FastAPI가 호출되지 않아야 한다. 회사 오너도 멤버십 행이 없으면 상속하지 않는지 검증한다.
 - **Spring 백엔드 — 조회 소유권·논리 삭제·페이지**: 통과 케이스에서는 5.1의 기대 `filters`를 §4.2 매핑표로 변환한 쿼리 파라미터가 `GET /api/defects`에서 올바른 결과를 반환하는지 검증한다. APPROVED+VERIFIED 회사와 유효 멤버십을 가진 ACTIVE 사용자는 `facilities.company_id`가 자신의 회사인 하자만 조회하며, 관리자와 타회사 배정 담당자도 범위를 확장하지 못해야 한다. PENDING/미검증 회사, 멤버십 없음·REVOKED·EXPIRED, stale `users.company_id`, 타회사 시설은 `403` 또는 범위 밖으로 차단하는 회귀 테스트를 둔다. 모든 역할에서 `is_deleted=true` 행은 제외하고, `page`/`size` 경계(0/1/100 및 음수·101 거부), `created_at DESC, id DESC` 고정 정렬, `totalElements`/`totalPages` 계산도 검증한다.
 - **AI 서버 호출 경계**: `X-Internal-Service-Token` 누락·불일치 요청을 LLM 호출 전에 거부하고, 올바른 내부 호출만 허용하는지 검증한다.
 - **프론트**: 5.1~5.4를 MSW mock 핸들러 fixture로 사용 — 공개 Spring 경로(`/api/defects/nl-search`)만 호출하며 `clarifying_question`/`unsupported_terms` 분기 UI, `401` 로그인 유도, `403 AI_ADDON_REQUIRED` 업그레이드 안내가 각각 올바르게 렌더링되는지 검증한다.
