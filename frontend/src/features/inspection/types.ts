@@ -2,7 +2,7 @@
 // 탐지 클래스 5종(AI 탐지 3종 + 수동 입력 확대 2종) — 누수백태·도장손상은 수동 입력 기능으로 확대
 export type DefectType = '균열' | '박리박락' | '누수·백태' | '철근노출' | '도장 손상';
 export type DefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
-export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'ACTION_PENDING' | 'IN_PROGRESS' | 'RESOLVED';
+export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'IN_PROGRESS' | 'RESOLVED';
 
 export interface DefectBoundingBox {
   x: number; // 0~1 정규화 좌표 (이미지 너비 기준)

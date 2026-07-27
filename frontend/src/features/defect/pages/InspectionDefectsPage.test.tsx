@@ -152,7 +152,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     await screen.findByRole('button', { name: '철근 노출 하자 상세 보기' });
 
     const activityPanel = screen.getByLabelText('점검 활동 기록');
-    // mockDefectRevisions[1]: 상태 확인됨→조치대기 변경 이력이 존재(defect.mock.ts).
+    // mockDefectRevisions[1]: 과거 CONFIRMED→ACTION_PENDING 변경 이력이 존재(defect.mock.ts).
     expect(
       await within(activityPanel).findByText("상태를 '확인됨'에서 '조치대기'(으)로 변경했습니다."),
     ).not.toBeNull();

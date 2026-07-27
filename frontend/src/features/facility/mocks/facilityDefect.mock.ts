@@ -21,7 +21,7 @@ export const mockFacilityDefectDetail: FacilityDefectDetail = {
   foundAt: '2026-06-21',
   location: '외벽 동측 12층 부근',
   assigneeName: '김검수',
-  status: 'ACTION_PENDING',
+  status: 'CONFIRMED',
   imageUrl: buildDefectImagePlaceholder('원본 이미지'),
 };
 

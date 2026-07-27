@@ -32,7 +32,7 @@ describe("DefectFilterBar", () => {
     renderFilterBar({
       type: "CRACK",
       grade: "D",
-      status: "ACTION_PENDING",
+      status: "CONFIRMED",
       page: 0,
       size: 10,
     });
@@ -47,7 +47,7 @@ describe("DefectFilterBar", () => {
       screen.getByRole("button", { name: "등급: D 이상 필터 제거" }),
     ).not.toBeNull();
     expect(
-      screen.getByRole("button", { name: "상태: 조치대기 필터 제거" }),
+      screen.getByRole("button", { name: "상태: 확인됨 필터 제거" }),
     ).not.toBeNull();
     const typeSelect = screen.getByRole(
       "combobox",
@@ -103,7 +103,7 @@ describe("DefectFilterBar", () => {
         size: 20,
         type: undefined,
         grade: "D",
-        status: "ACTION_PENDING",
+        status: "CONFIRMED",
       }),
     );
     expect(screen.queryByText(/등급 E/)).toBeNull();

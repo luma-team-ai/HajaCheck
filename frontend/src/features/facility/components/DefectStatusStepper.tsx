@@ -5,7 +5,7 @@ type Props = {
   status: FacilityDefectStatus;
 };
 
-// 하자 조치 상태 스테퍼(신규→검수확정→조치대기→조치중→조치완료) — dev-04-02, #489.
+// 하자 조치 상태 스테퍼(신규→검수확정→조치중→조치완료) — dev-04-02, #489.
 // facility/components/InspectionCycleStepper.tsx(개월수 +/- 입력, 전혀 다른 용도)와 이름 충돌 주의.
 export function DefectStatusStepper({ status }: Props) {
   const currentIndex = FACILITY_DEFECT_STATUS_ORDER.indexOf(status);

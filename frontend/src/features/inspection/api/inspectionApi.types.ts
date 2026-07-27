@@ -1,7 +1,7 @@
 // Backend API response types — DO NOT import from ../types (that's for component state)
 export type DefectType = '균열' | '박리박락' | '누수·백태' | '철근노출' | '도장 손상';
 export type DefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
-export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'ACTION_PENDING' | 'IN_PROGRESS' | 'RESOLVED';
+export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'IN_PROGRESS' | 'RESOLVED';
 
 // 실제 백엔드가 주고받는 영문 enum 값 그대로(openapi.yaml DefectTypeCode, DefectType.java 직렬화 값).
 // 화면 표시용 한글 DefectType과는 다른 계층 — 응답을 컴포넌트 상태로 변환할 때

@@ -61,8 +61,8 @@ describe('DefectDetailPage (통합 테스트)', () => {
     // 남아 화면에서 사라지는 회귀를 잡기 위해 className으로 실제 노출 여부까지 확인한다.
     const locationEl = screen.getByText('강남 오피스타워 A동');
     expect(locationEl.className).toContain('defect-chip');
-    // '조치대기'는 상태 요약(dd)과 상태 전이 스텝퍼(HAJA-30 2단계)에 중복 노출되므로 dd로 범위를 좁힌다.
-    expect(screen.getByText('상태').nextElementSibling?.textContent).toBe('조치대기');
+    // '확인됨'은 상태 요약(dd)과 상태 전이 스텝퍼에 중복 노출되므로 dd로 범위를 좁힌다.
+    expect(screen.getByText('상태').nextElementSibling?.textContent).toBe('확인됨');
   });
 
   it('균열폭/길이 정보가 없으면(id=1, null) "정보 없음"을 표시한다', async () => {
@@ -108,7 +108,7 @@ describe('DefectDetailPage (통합 테스트)', () => {
     renderPage('1');
     await screen.findByText('철근 노출');
 
-    // id=1 목데이터는 ACTION_PENDING(조치대기) — 다음 단계는 IN_PROGRESS(조치중).
+    // id=1 목데이터는 CONFIRMED(검수확정) — 다음 단계는 IN_PROGRESS(조치중).
     const advanceButton = await screen.findByRole('button', { name: '조치중(으)로 다음 단계' });
     fireEvent.click(advanceButton);
 
@@ -159,7 +159,7 @@ describe('DefectDetailPage (통합 테스트)', () => {
     fireEvent.click(advanceButton);
 
     expect(await screen.findByText('현재 상태에서는 처리할 수 없는 요청입니다.')).not.toBeNull();
-    // 실패했으므로 상태는 그대로 조치대기여야 한다.
-    expect(screen.getByText('상태').nextElementSibling?.textContent).toBe('조치대기');
+    // 실패했으므로 상태는 그대로 확인됨이어야 한다.
+    expect(screen.getByText('상태').nextElementSibling?.textContent).toBe('확인됨');
   });
 });

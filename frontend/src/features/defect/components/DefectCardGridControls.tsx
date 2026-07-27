@@ -9,7 +9,7 @@ import { DEFECT_GRADE_LABEL, DEFECT_TYPE_LABEL } from '../types';
 import type { DefectGrade, DefectType } from '../types';
 
 // 상태 탭 값 — 이 화면(점검 상세 카드형)엔 검수확정 이후 하자만 들어온다는 비즈니스 규칙 확인됨
-// (사용자 확정 지시, #937) — DETECTED/ACTION_PENDING 탭은 만들지 않는다.
+// (사용자 확정 지시, #937) — DETECTED만 탭에서 제외한다.
 export type StatusTabValue = '' | 'CONFIRMED' | 'IN_PROGRESS' | 'RESOLVED';
 
 export type SortOption = 'createdAt-desc' | 'createdAt-asc' | 'confidence-desc' | 'confidence-asc';

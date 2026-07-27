@@ -27,6 +27,6 @@ describe('useFacilityDefectDetail', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.defectType).toBe('균열');
-    expect(result.current.data?.status).toBe('ACTION_PENDING');
+    expect(result.current.data?.status).toBe('CONFIRMED');
   });
 });

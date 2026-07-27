@@ -28,12 +28,11 @@ function renderBoard() {
 }
 
 describe('DefectActionBoard', () => {
-  it('DefectStatus 5단계를 STEP_LABEL 표기로 컬럼 렌더링한다', async () => {
+  it('DefectStatus 4단계를 STEP_LABEL 표기로 컬럼 렌더링한다', async () => {
     renderBoard();
 
     expect(await screen.findByLabelText('신규 컬럼')).not.toBeNull();
     expect(screen.getByLabelText('검수확정 컬럼')).not.toBeNull();
-    expect(screen.getByLabelText('조치대기 컬럼')).not.toBeNull();
     expect(screen.getByLabelText('조치중 컬럼')).not.toBeNull();
     expect(screen.getByLabelText('조치완료 컬럼')).not.toBeNull();
   });
@@ -41,13 +40,13 @@ describe('DefectActionBoard', () => {
   it('각 하자를 현재 상태에 해당하는 컬럼에 카드로 배치한다', async () => {
     renderBoard();
 
-    // mockDefects: id 1(철근 노출)은 ACTION_PENDING(조치대기), id 2(균열)·3(박리·박락)은 DETECTED(신규).
+    // mockDefects: id 1(철근 노출)은 CONFIRMED(검수확정), id 2(균열)·3(박리·박락)은 DETECTED(신규).
     const detectedColumn = await screen.findByLabelText('신규 컬럼');
     expect(within(detectedColumn).getByText('균열')).not.toBeNull();
     expect(within(detectedColumn).getByText('박리·박락')).not.toBeNull();
 
-    const actionPendingColumn = screen.getByLabelText('조치대기 컬럼');
-    expect(within(actionPendingColumn).getByText('철근 노출')).not.toBeNull();
+    const confirmedColumn = screen.getByLabelText('검수확정 컬럼');
+    expect(within(confirmedColumn).getByText('철근 노출')).not.toBeNull();
   });
 
   it('빈 컬럼에는 안내 문구를 표시한다', async () => {

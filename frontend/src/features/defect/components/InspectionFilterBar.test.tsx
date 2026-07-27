@@ -36,7 +36,7 @@ describe('InspectionFilterBar — 하자조건 필터 칩', () => {
     renderFilterBar({
       defectType: ['CRACK', 'SPALLING'],
       defectGrade: ['D', 'E'],
-      defectStatus: ['ACTION_PENDING'],
+      defectStatus: ['CONFIRMED'],
       page: 0,
       size: 10,
     });
@@ -49,7 +49,7 @@ describe('InspectionFilterBar — 하자조건 필터 칩', () => {
       screen.getByRole('button', { name: '하자등급: 경고, 중대 필터 제거' }),
     ).not.toBeNull();
     expect(
-      screen.getByRole('button', { name: '하자상태: 조치대기 필터 제거' }),
+      screen.getByRole('button', { name: '하자상태: 확인됨 필터 제거' }),
     ).not.toBeNull();
   });
 
@@ -106,7 +106,7 @@ describe('InspectionFilterBar — 자연어(하자조건) 검색', () => {
         size: 20,
         defectType: [],
         defectGrade: ['D', 'E'],
-        defectStatus: ['ACTION_PENDING'],
+        defectStatus: ['CONFIRMED'],
       }),
     );
   });

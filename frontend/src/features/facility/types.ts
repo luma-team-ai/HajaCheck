@@ -131,11 +131,10 @@ export interface FacilityInspectionOverview {
 export type FacilityDefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
 
 // 백엔드 DefectStatus(backend/.../defect/entity/DefectStatus.java: DETECTED/CONFIRMED/
-// ACTION_PENDING/IN_PROGRESS/RESOLVED)와 이름을 그대로 정합시킨 조치 상태.
+// CONFIRMED/IN_PROGRESS/RESOLVED)와 이름을 그대로 정합시킨 조치 상태.
 export type FacilityDefectStatus =
   | 'DETECTED'
   | 'CONFIRMED'
-  | 'ACTION_PENDING'
   | 'IN_PROGRESS'
   | 'RESOLVED';
 

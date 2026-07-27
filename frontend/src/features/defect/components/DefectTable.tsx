@@ -53,10 +53,6 @@ export const STATUS_PRESENTATION: Record<
     label: "검수확정",
     className: "border-zinc-200 bg-zinc-50 text-zinc-700",
   },
-  ACTION_PENDING: {
-    label: "조치대기",
-    className: "border-amber-200 bg-amber-50 text-amber-500",
-  },
   IN_PROGRESS: {
     label: "조치중",
     className: "border-orange-200 bg-orange-50 text-orange-500",
