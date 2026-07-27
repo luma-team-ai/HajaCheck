@@ -220,10 +220,9 @@ export function DefectDetailModal({ defectId, onClose }: Props) {
                   inspectionId={defect.inspectionId}
                   actionResult={defect.actionResult}
                 />
+                <ActivityHistoryPanel key={defect.id} defectId={defect.id} />
               </div>
             </div>
-
-            <ActivityHistoryPanel key={defect.id} defectId={defect.id} />
           </>
         )}
       </div>
