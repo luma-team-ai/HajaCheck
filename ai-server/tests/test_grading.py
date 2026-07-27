@@ -1,40 +1,19 @@
 """ai.core.grading 단위 테스트(HAJA-109 심각도 등급 규칙) — area_ratio 구간 경계(유형별 구간표
-포함, 2026-07-26 균열 재보정), 철근노출 floor, 라벨 정규화 별칭/미매칭 케이스를 문서
-(docs/conventions/하자_심각도_등급_규칙.md) §2/§3 그대로 고정한다.
+포함, 2026-07-26 균열 재보정), 철근노출 floor 케이스를 문서(docs/conventions/하자_심각도_등급_규칙.md)
+§2/§3 그대로 고정한다.
+
+라벨 정규화(normalize_defect_type_label)는 2026-07-27 6차 rebase 때 제거됐다 — HF Hub 저장소가
+유형별 전용 체크포인트 구조로 바뀌면서 어떤 모델을 호출했는지 자체가 유형을 결정하게 됐고(특히
+rebar_exposure 모델의 내부 클래스가 good/fair/poor라 라벨 텍스트로는 애초에 유형을 되짚을 수
+없었다), defect_detection_chain.py가 더 이상 라벨 기반 정규화를 거치지 않는다.
 """
 import pytest
 
 from ai.core.grading import (
     compute_grade,
     compute_severity_score,
-    normalize_defect_type_label,
     severity_score_to_grade,
 )
-
-
-@pytest.mark.parametrize(
-    "raw_label,expected",
-    [
-        ("crack", "CRACK"),
-        ("CRACK", "CRACK"),
-        (" Crack ", "CRACK"),
-        ("균열", "CRACK"),
-        ("spalling", "SPALLING"),
-        ("박리", "SPALLING"),
-        ("박락", "SPALLING"),
-        ("박리·박락", "SPALLING"),
-        ("rebar_exposure", "REBAR_EXPOSURE"),
-        ("rebar exposure", "REBAR_EXPOSURE"),
-        ("철근 노출", "REBAR_EXPOSURE"),
-    ],
-)
-def test_normalize_defect_type_label_known_aliases(raw_label, expected):
-    assert normalize_defect_type_label(raw_label) == expected
-
-
-def test_normalize_defect_type_label_unknown_returns_none():
-    assert normalize_defect_type_label("leak_efflorescence") is None
-    assert normalize_defect_type_label("") is None
 
 
 @pytest.mark.parametrize(
