@@ -58,6 +58,33 @@ public class MediaController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
     }
 
+    @Operation(
+            summary = "시설물 대표 사진 목록 조회",
+            description = "시설물에 등록된 대표 사진(#632/#652)을 반환한다. 각 항목에 thumbnailUrl/detailUrl 포함."
+    )
+    @GetMapping("/api/facilities/{facilityId}/media")
+    public ResponseEntity<ApiResponse<List<MediaResponse>>> getFacilityPhotos(
+            @PathVariable Long facilityId,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        List<MediaResponse> response = mediaService.getFacilityPhotos(
+                loginUser.getUserId(), loginUser.getCompanyId(), facilityId);
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(
+            summary = "시설물 대표 사진 업로드",
+            description = "시설물 대표 사진(JPG/PNG) 다중 업로드 — 시설물당 최대 4장(#632/#652)"
+    )
+    @PostMapping("/api/facilities/{facilityId}/media")
+    public ResponseEntity<ApiResponse<List<MediaResponse>>> uploadFacilityPhotos(
+            @PathVariable Long facilityId,
+            @RequestParam("files") List<MultipartFile> files,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        List<MediaResponse> response = mediaService.uploadFacilityPhotos(
+                facilityId, loginUser.getUserId(), loginUser.getCompanyId(), files);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
+    }
+
     @Operation(summary = "미디어 썸네일 조회", description = "원본은 서빙하지 않고 재인코딩된 썸네일만 반환")
     @GetMapping("/api/media/{id}/thumbnail")
     public ResponseEntity<byte[]> getThumbnail(

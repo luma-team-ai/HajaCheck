@@ -120,13 +120,35 @@ class FlywayBaselineOnExistingDbIntegrationTest {
         assertThat(planRepository.findByName(PlanName.ENTERPRISE)).isPresent();
         assertThat(planRepository.findByName(PlanName.ENTERPRISE).orElseThrow().getMaxSeats()).isNull();
 
-        // FREE 는 대표 1인 전용 티어다(#858 — #843/구 V19 좌석 상향을 되돌리며 그 파일을 삭제했다).
+        // FREE 는 대표 1인 전용 티어다(#858 — #843/옛 V19 좌석 상향을 되돌리며 그 파일을 삭제했었다).
         // 캐노니컬 DDL 시드값 1이 그대로 유지되어야 한다.
         assertThat(planRepository.findByName(PlanName.FREE).orElseThrow().getMaxSeats()).isEqualTo(1);
 
+        // 옛 V19(FREE 좌석 상향)는 삭제됐지만, 그 번호를 media.facility_id 마이그레이션(#632/#652/HAJA-377)이
+        // 재사용한다 — 캐노니컬 DDL이 이미 facility_id 컬럼·XOR CHECK 제약을 포함하므로 이 "기존 DB" 경로에서도
+        // V4~V14와 동일하게 no-op 성공(success=true)으로 적용된다.
+        Integer v19Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '19' and success = true",
+                Integer.class);
+        assertThat(v19Applied).isEqualTo(1);
+
+        // 기존 DB(캐노니컬 DDL)에 있던 media.facility_id/XOR CHECK도 V19 재실행이 깨거나 중복 생성하지 않는다.
+        Long mediaFacilityIdColumnExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'media' and column_name = 'facility_id'
+                """, Long.class);
+        assertThat(mediaFacilityIdColumnExists).isEqualTo(1L);
+
+        Long mediaXorCheckExists = jdbcTemplate.queryForObject("""
+                select count(*) from pg_constraint
+                where conname = 'chk_media_inspection_xor_facility'
+                  and conrelid = 'public.media'::regclass and contype = 'c'
+                """, Long.class);
+        assertThat(mediaXorCheckExists).isEqualTo(1L);
+
         // V20 은 #988/HAJA-489 결제 원장(payments)이다. 이 테스트의 기존 DB(캐노니컬 DDL)에는 payments 가
-        // 이미 존재하므로, V20 은 전 구문이 멱등(IF NOT EXISTS / DO 블록)이라 실패 없이 no-op 성공으로
-        // 스탬프되어야 한다 — 무가드 create table/type 재도입에 대한 회귀선(V3·V18과 동일).
+        // 이미 존재하므로, V20 도 V19 와 마찬가지로 전 구문이 멱등(IF NOT EXISTS / DO 블록)이라 실패 없이
+        // no-op 성공으로 스탬프되어야 한다 — 무가드 create table/type 재도입에 대한 회귀선(V3·V18과 동일).
         Integer v20Applied = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where version = '20' and success = true",
                 Integer.class);

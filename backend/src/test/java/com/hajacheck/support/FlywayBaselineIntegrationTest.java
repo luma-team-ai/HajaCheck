@@ -23,7 +23,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * V11(facilities company scope, #637)→V12(defects 조치 결과 등록 필드, #725/HAJA-393)→V13(media.
  * detail_url, #788/#789)→V14(counsel_type 분류, #743)→V15(user_status_type WAITING 라벨, #792)→
  * V16(defects.area_ratio, #803)→V17(seed_bot_scenarios, #20/HAJA-33)→V18(counsel 티켓 스냅샷 +
- * 채팅 첨부, #20/HAJA-33)를 순서대로 적용하고,
+ * 채팅 첨부, #20/HAJA-33)→V19(media.facility_id + inspection XOR facility, #632/#652/HAJA-377 —
+ * 옛 V19(FREE 좌석 한도, #843)는 #858에서 되돌리며 파일이 삭제돼 번호가 비어 있었고, 팀 합의로 이
+ * 마이그레이션이 재사용한다. 다음은 정재봉 님 PR이 V20을 쓰기로 조율됨)를 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -81,10 +83,41 @@ class FlywayBaselineIntegrationTest {
         // + V14(counsel_type 분류, #743) + V15(user_status_type WAITING 라벨, #792)
         // + V16(defects.area_ratio, #803) + V17(seed_bot_scenarios, #20/HAJA-33 — V13 선점으로 재번호)
         // + V18(counsel 티켓 스냅샷 + 채팅 첨부, #20/HAJA-33 — V14 선점으로 재번호)
-        // + V20(payments 결제 원장 + payment_status/method enum, #988/HAJA-489)
-        // ⚠️ V19 는 다른 작업이 선점해 이 브랜치에 파일이 없다(그래서 #988은 V20을 쓴다) — 적용 파일 수는
-        // 번호의 최댓값이 아니라 실제 파일 수이므로 19 다. V19 가 dev 에 머지되어 들어오면 20 이 된다.
-        assertThat(appliedMigrations).isEqualTo(19);
+        // + V19(media.facility_id + inspection XOR facility, #632/#652/HAJA-377). 옛 V19(FREE 좌석
+        //   한도 1→2, #843)는 #858에서 되돌리며 파일 자체를 삭제했다(어느 실제 DB에도 적용된 적이
+        //   없어 번호를 소모하지 않는다) — 팀 합의로 이 번호를 재사용한다.
+        // + V20(payments 결제 원장 + payment_status/method enum, #988/HAJA-489). V19 를 #632 가 선점해
+        //   결제 원장은 V20 으로 조율됐고, 두 PR 이 모두 들어온 지금 번호는 V1~V20 으로 연속이다
+        //   (결번 여부 자체는 FlywayMigrationVersionSequenceTest 가 별도로 고정한다).
+        assertThat(appliedMigrations).isEqualTo(20);
+
+        // 최신 적용 버전이 실제로 V20 인지 확인.
+        String latestVersion = jdbcTemplate.queryForObject(
+                "select version from flyway_schema_history where success = true "
+                        + "order by installed_rank desc limit 1", String.class);
+        assertThat(latestVersion).isEqualTo("20");
+
+        // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
+        Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'media' and column_name = 'facility_id'
+                """, Long.class);
+        assertThat(facilityIdColumnExists).isEqualTo(1L);
+
+        // V19 가 inspection XOR facility CHECK 제약을 실제로 추가했는지 확인.
+        Long xorCheckExists = jdbcTemplate.queryForObject("""
+                select count(*) from pg_constraint
+                where conname = 'chk_media_inspection_xor_facility'
+                  and conrelid = 'public.media'::regclass and contype = 'c'
+                """, Long.class);
+        assertThat(xorCheckExists).isEqualTo(1L);
+
+        // V19 가 media.inspection_id 의 NOT NULL 을 제거했는지 확인(폴리모픽 소유 전제).
+        Boolean inspectionIdNullable = jdbcTemplate.queryForObject("""
+                select is_nullable = 'YES' from information_schema.columns
+                where table_schema = 'public' and table_name = 'media' and column_name = 'inspection_id'
+                """, Boolean.class);
+        assertThat(inspectionIdNullable).isTrue();
 
         // V20이 payments 테이블(#988/HAJA-489)을 실제로 만들었는지 확인한다.
         Long paymentsTableExists = jdbcTemplate.queryForObject("""

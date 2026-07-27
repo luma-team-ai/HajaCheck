@@ -3,6 +3,7 @@ package com.hajacheck.core.media.service;
 import com.hajacheck.auth.support.FileStorageService;
 import com.hajacheck.auth.support.FileStorageService.StoredFile;
 import com.hajacheck.auth.service.CompanyScopeGuard;
+import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.config.MediaUploadProperties;
 import com.hajacheck.core.media.dto.MediaResponse;
@@ -63,9 +64,14 @@ public class MediaService {
     private final Semaphore legacyDetailGenerationLimiter =
             new Semaphore(MAX_CONCURRENT_LEGACY_DETAIL_GENERATION);
 
+    // 시설물 대표 사진(#632/#652, HAJA-377) — 시설물당 최대 등록 장수. 애플리케이션 레벨 카운트로 강제한다
+    // (기존 보유분 + 이번 업로드 합계가 이 값을 넘으면 거부).
+    private static final int MAX_FACILITY_PHOTOS = 4;
+
     private final MediaRepository mediaRepository;
     private final MediaWriter mediaWriter;
     private final InspectionService inspectionService;
+    private final FacilityService facilityService;
     private final FileStorageService fileStorage;
     private final MediaUploadProperties properties;
     private final CompanyScopeGuard companyScopeGuard;
@@ -112,7 +118,7 @@ public class MediaService {
         try {
             List<Media> mediaList = new ArrayList<>();
             for (MultipartFile file : files) {
-                mediaList.add(storeAndBuild(inspectionId, file, storedKeys));
+                mediaList.add(storeAndBuild(inspectionId, null, file, storedKeys));
             }
             return mediaWriter.saveAll(mediaList).stream().map(MediaResponse::from).toList();
         } catch (RuntimeException e) {
@@ -122,7 +128,72 @@ public class MediaService {
         }
     }
 
-    private Media storeAndBuild(Long inspectionId, MultipartFile file, List<String> storedKeys) {
+    /**
+     * 시설물 대표 사진 업로드(#632/#652, HAJA-377) — Option B. 새 테이블/새 저장 파이프라인을 만들지 않고
+     * {@link #uploadMedia}와 동일한 검증·저장·썸네일·보상삭제 로직을 그대로 재사용하되, 소유권 검증은
+     * 점검이 아니라 시설물 회사 스코프({@link FacilityService#get})로 하고, 저장하는 Media 로우는
+     * inspection_id 대신 facility_id 만 채운다(폴리모픽 XOR).
+     *
+     * <p>최대 {@value #MAX_FACILITY_PHOTOS}장 제한은 DB 제약이 아니라 애플리케이션 레벨 카운트로 강제한다 —
+     * 기존 보유분({@link MediaRepository#countByFacilityId})과 이번 업로드 개수의 합이 상한을 넘으면
+     * 파일을 하나도 저장하기 전에 거부한다(FACILITY_PHOTO_COUNT_EXCEEDED).
+     *
+     * <p>⚠️ {@link #uploadMedia}와 동일하게 NOT_SUPPORTED 로 클래스 레벨 readOnly=true 를 벗어난다.
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public List<MediaResponse> uploadFacilityPhotos(
+            Long facilityId, Long userId, Long companyId, List<MultipartFile> files) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        if (files == null || files.isEmpty()) {
+            throw new BusinessException(ErrorCode.FILE_REQUIRED);
+        }
+
+        // 소유권 검증 + 존재 확인 — FacilityService.get() 의 회사 스코프 조회로 cross-company IDOR 방지.
+        // companyId 는 인증 주체에서 유래하며(컨트롤러가 LoginUser 에서 전달) 클라이언트 파라미터가 아니다.
+        facilityService.get(userId, companyId, facilityId);
+
+        // 최대 4장 제한(애플리케이션 레벨) — 기존 보유분 + 이번 업로드 합계 검증. 파일 저장 전에 거부한다.
+        long existing = mediaRepository.countByFacilityId(facilityId);
+        if (existing + files.size() > MAX_FACILITY_PHOTOS) {
+            throw new BusinessException(ErrorCode.FACILITY_PHOTO_COUNT_EXCEEDED);
+        }
+
+        // 전체 파일을 먼저 검증한다(all-or-nothing) — 하나라도 실패하면 아무것도 저장하지 않는다.
+        for (MultipartFile file : files) {
+            if (file == null || file.isEmpty()) {
+                throw new BusinessException(ErrorCode.FILE_REQUIRED);
+            }
+            ImageSignatureValidator.validate(file);
+        }
+
+        List<String> storedKeys = new ArrayList<>();
+        try {
+            List<Media> mediaList = new ArrayList<>();
+            for (MultipartFile file : files) {
+                mediaList.add(storeAndBuild(null, facilityId, file, storedKeys));
+            }
+            return mediaWriter.saveAll(mediaList).stream().map(MediaResponse::from).toList();
+        } catch (RuntimeException e) {
+            storedKeys.forEach(fileStorage::delete);
+            throw e;
+        }
+    }
+
+    /**
+     * 시설물 대표 사진 목록 조회(#632/#652) — 소유권 검증 후 facility_id 만 채워진 로우를 id asc 로 반환한다.
+     */
+    @Transactional(readOnly = true)
+    public List<MediaResponse> getFacilityPhotos(Long userId, Long companyId, Long facilityId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        facilityService.get(userId, companyId, facilityId);
+
+        return mediaRepository.findByFacilityIdOrderByIdAsc(facilityId).stream()
+                .map(MediaResponse::from)
+                .toList();
+    }
+
+    private Media storeAndBuild(
+            Long inspectionId, Long facilityId, MultipartFile file, List<String> storedKeys) {
         StoredFile original = fileStorage.store(file, ORIGINAL_CATEGORY,
                 properties.getAllowedContentTypes(), properties.getMaxSizeBytes());
         storedKeys.add(original.storageKey());
@@ -166,6 +237,7 @@ public class MediaService {
 
         return Media.builder()
                 .inspectionId(inspectionId)
+                .facilityId(facilityId)
                 .fileType(MediaFileType.IMAGE)
                 .originalUrl(original.storageKey())
                 .thumbnailUrl(thumbnail.storageKey())
@@ -275,7 +347,15 @@ public class MediaService {
         Media media = mediaRepository.findById(mediaId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
         try {
-            inspectionService.getInspection(userId, companyId, media.getInspectionId());
+            // 폴리모픽 소유(Option B, #632) — facility_id 만 채워진 시설물 대표 사진 로우는 inspection_id 가
+            // null 이라 getInspection() 으로 인가하면 null FK 조회로 500/인가 누락이 난다. 소유 주체별로
+            // 분기해 facility 전용 로우는 FacilityService.get() 의 회사 스코프 조회로 인가한다(리스크 감사
+            // 필수처리 1). 두 조회 모두 companyId 는 인증 주체에서 유래한다(클라이언트 파라미터 아님).
+            if (media.getFacilityId() != null) {
+                facilityService.get(userId, companyId, media.getFacilityId());
+            } else {
+                inspectionService.getInspection(userId, companyId, media.getInspectionId());
+            }
         } catch (BusinessException e) {
             if (e.getErrorCode() == ErrorCode.INSPECTION_NOT_FOUND
                     || e.getErrorCode() == ErrorCode.FACILITY_NOT_FOUND) {
