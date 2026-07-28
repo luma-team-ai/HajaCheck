@@ -7,3 +7,9 @@ export function formatDefectCode(id: number): string {
 export function formatDefectDate(createdAt: string): string {
   return createdAt.slice(2, 10).replaceAll('-', '.');
 }
+
+// 점검 목록(InspectionTable)과 하자 상세 헤더(InspectionDefectsPage)가 동일한 표기를 쓰도록
+// 공용화(#1179 — 하자 상세 헤더가 "점검 #101" 형식으로 따로 노출돼 목록의 INS-0101 표기와 어긋났다).
+export function formatInspectionCode(id: number): string {
+  return `INS-${String(id).padStart(4, '0')}`;
+}

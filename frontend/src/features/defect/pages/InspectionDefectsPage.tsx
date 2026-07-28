@@ -6,6 +6,7 @@ import { DefectDetailModal } from '../components/DefectDetailModal';
 import { InspectionActivityPanel } from '../components/InspectionActivityPanel';
 import { InspectionKpiSummary } from '../components/InspectionKpiSummary';
 import { useInspectionDefects } from '../hooks/useInspectionDefects';
+import { formatInspectionCode } from '../utils/defectFormat';
 import './InspectionDefectsPage.css';
 
 // 점검 상세(카드형, HAJA-393/394 §화면 구조 ②, contract.md 확정) — 하자 목록의 점검 로우를 클릭하면
@@ -38,7 +39,7 @@ export function InspectionDefectsPage() {
 
         <div className="inspection-defects-page__header">
           <h1 className="inspection-defects-page__title">
-            점검 #{inspectionId ?? '-'}
+            {inspectionId != null ? formatInspectionCode(inspectionId) : '-'}
             <span className="inspection-defects-page__sr-only"> 하자 상세</span>
           </h1>
 
