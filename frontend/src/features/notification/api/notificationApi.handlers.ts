@@ -14,4 +14,10 @@ export const notificationHandlers = [
     const body: ApiResponse<null> = { success: true, data: null };
     return HttpResponse.json(body);
   }),
+
+  // 개별 닫기(X) — 실 DELETE /api/notifications/{id}. 목에서는 항상 성공으로 응답한다.
+  http.delete('/api/notifications/:id', () => {
+    const body: ApiResponse<null> = { success: true, data: null };
+    return HttpResponse.json(body);
+  }),
 ];
