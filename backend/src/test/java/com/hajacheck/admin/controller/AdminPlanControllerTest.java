@@ -634,12 +634,14 @@ class AdminPlanControllerTest extends PostgresTestSupport {
     void 하향예약_회사owner_200_이후_현재플랜조회에_노출되고_취소된다() throws Exception {
         Fixture fx = approvedCompanyAdminWithPlanAndBillingPeriod(PlanName.ENTERPRISE);
 
+        // ⚠️ 예약 대상은 무료 요금제만 허용한다(#1105 보안 리뷰 P1) — 유료 대상은 결제 없이 새 유료
+        // 주기를 여는 셈이라 청구되지 않는 무상 1개월이 발급된다.
         mockMvc.perform(post("/api/admin/plan/scheduled-change")
                         .with(csrf()).with(authentication(authOf(fx.admin())))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"planName\":\"STANDARD\",\"confirmOverflow\":true}"))
+                        .content("{\"planName\":\"FREE\",\"confirmOverflow\":true}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.targetPlanName").value("STANDARD"))
+                .andExpect(jsonPath("$.data.targetPlanName").value("FREE"))
                 .andExpect(jsonPath("$.data.status").value("PENDING"))
                 .andExpect(jsonPath("$.data.effectiveAt").exists());
 
@@ -647,11 +649,14 @@ class AdminPlanControllerTest extends PostgresTestSupport {
         mockMvc.perform(get("/api/admin/plan").with(authentication(authOf(fx.admin()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.plan.name").value("ENTERPRISE"))
-                .andExpect(jsonPath("$.data.scheduledChange.targetPlanName").value("STANDARD"));
+                .andExpect(jsonPath("$.data.scheduledChange.targetPlanName").value("FREE"));
 
+        // 취소 응답은 본문으로 취소된 예약 스냅샷을 돌려준다(계약 일치) — status 는 CANCELED 여야 한다.
         mockMvc.perform(delete("/api/admin/plan/scheduled-change")
                         .with(csrf()).with(authentication(authOf(fx.admin()))))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.targetPlanName").value("FREE"))
+                .andExpect(jsonPath("$.data.status").value("CANCELED"));
 
         mockMvc.perform(get("/api/admin/plan").with(authentication(authOf(fx.admin()))))
                 .andExpect(status().isOk())
@@ -671,6 +676,19 @@ class AdminPlanControllerTest extends PostgresTestSupport {
                         .with(csrf()).with(authentication(authOf(fx.admin())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"planName\":\"ENTERPRISE\",\"confirmOverflow\":true}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 하향예약_유료대상은_403() throws Exception {
+        // ENTERPRISE → STANDARD 는 정상적인 하향이지만, 예약 실행은 결제 없이 새 유료 주기를 연다 —
+        // 빌링키가 없어 청구되지 않는 무상 1개월이 발급되므로 계약상 무료 대상만 허용한다(#1105 P1).
+        Fixture fx = approvedCompanyAdminWithPlanAndBillingPeriod(PlanName.ENTERPRISE);
+
+        mockMvc.perform(post("/api/admin/plan/scheduled-change")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"STANDARD\",\"confirmOverflow\":true}"))
                 .andExpect(status().isForbidden());
     }
 

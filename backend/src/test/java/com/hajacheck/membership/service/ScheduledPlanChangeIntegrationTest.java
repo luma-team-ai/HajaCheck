@@ -32,6 +32,8 @@ import com.hajacheck.notification.entity.Notification;
 import com.hajacheck.notification.entity.NotificationType;
 import com.hajacheck.notification.repository.NotificationRepository;
 import com.hajacheck.support.PostgresTestSupport;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -75,6 +77,8 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
     @Autowired
     private ScheduledPlanChangeWriter scheduledPlanChangeWriter;
     @Autowired
+    private PlanExpiryWriter planExpiryWriter;
+    @Autowired
     private ScheduledPlanChangeScheduler scheduledPlanChangeScheduler;
     @Autowired
     private ScheduledPlanChangeProperties scheduledPlanChangeProperties;
@@ -96,6 +100,8 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
     private NotificationRepository notificationRepository;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private final List<Long> createdUserPlanIds = new ArrayList<>();
     private final List<Long> createdMembershipIds = new ArrayList<>();
@@ -238,11 +244,27 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
     }
 
     private List<Notification> downgradedNotifications(Long userId) {
+        return notificationsOf(userId, NotificationType.PLAN_DOWNGRADED);
+    }
+
+    private List<Notification> notificationsOf(Long userId, NotificationType type) {
         return notificationRepository
                 .findAllByUserIdOrderByCreatedAtDescIdDesc(userId, PageRequest.of(0, 100))
                 .stream()
-                .filter(n -> n.getType() == NotificationType.PLAN_DOWNGRADED)
+                .filter(n -> n.getType() == type)
                 .toList();
+    }
+
+    /**
+     * 요금제 좌석 한도를 직접 바꾼다(플랫폼 관리자 "플랜 정책 설정"과 같은 결과, #624). 시드 행을
+     * 건드리므로 호출한 테스트가 <b>반드시 원복</b>해야 한다 — FREE=1석은 티어 설계 의도이지 결함이 아니다.
+     */
+    private void setPlanMaxSeats(PlanName planName, Integer maxSeats) {
+        jdbcTemplate.update("update plans set max_seats = ? where name = ?::plan_name_type",
+                maxSeats, planName.name());
+        planRepository.flush();
+        // 1차 캐시에 남은 옛 Plan 스냅샷이 이후 조회에 섞이지 않게 비운다.
+        entityManager.clear();
     }
 
     private UserStatus statusOf(User user) {
@@ -271,14 +293,14 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         User member3 = newCompanyMember(company.getId());
         Instant now = Instant.now();
         Instant periodEnd = now.plusSeconds(10 * 24 * 3600L);
-        // ENTERPRISE(좌석 무제한) → STANDARD(3석). 활성 4명이라 적용 시점에 1명이 정지된다.
+        // ENTERPRISE(좌석 무제한) → FREE(1석). 활성 4명이라 적용 시점에 owner 를 뺀 3명이 정지된다.
         UserPlan current = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
                 now.minusSeconds(20 * 24 * 3600L), periodEnd);
 
         AdminScheduledPlanChangeResponse response = adminPlanService.scheduleChange(
-                owner.getId(), PlanName.STANDARD, true, List.of());
+                owner.getId(), PlanName.FREE, true, List.of());
 
-        assertThat(response.targetPlanName()).isEqualTo("STANDARD");
+        assertThat(response.targetPlanName()).isEqualTo("FREE");
         assertThat(response.status()).isEqualTo("PENDING");
         assertThat(response.effectiveAt())
                 .as("적용 시각은 신청 시점의 결제 주기 종료 시각(#1104)이다 — 그 시점이 잔여 기간의 끝이다")
@@ -295,7 +317,7 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         // 현재 플랜 조회에 대기 예약이 노출된다(프론트가 "예약 있음"을 이 필드로 판정한다).
         assertThat(adminPlanService.getCurrentPlan(owner.getId()).scheduledChange())
                 .isNotNull()
-                .satisfies(scheduled -> assertThat(scheduled.targetPlanName()).isEqualTo("STANDARD"));
+                .satisfies(scheduled -> assertThat(scheduled.targetPlanName()).isEqualTo("FREE"));
     }
 
     @Test
@@ -307,7 +329,7 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
                 now.minusSeconds(86_400L), now.plusSeconds(10 * 24 * 3600L));
 
-        adminPlanService.scheduleChange(owner.getId(), PlanName.STANDARD, true, List.of());
+        adminPlanService.scheduleChange(owner.getId(), PlanName.FREE, true, List.of());
 
         assertThatThrownBy(() -> adminPlanService.scheduleChange(
                 owner.getId(), PlanName.FREE, true, List.of()))
@@ -368,7 +390,7 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
                 now.minusSeconds(86_400L), now.plusSeconds(10 * 24 * 3600L));
 
         assertThatThrownBy(() -> adminPlanService.scheduleChange(
-                owner.getId(), PlanName.STANDARD, false, List.of()))
+                owner.getId(), PlanName.FREE, false, List.of()))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED));
@@ -392,7 +414,7 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
                 now.minusSeconds(86_400L), now.plusSeconds(10 * 24 * 3600L));
 
         assertThatThrownBy(() -> adminPlanService.scheduleChange(
-                otherAdmin.getId(), PlanName.STANDARD, true, List.of()))
+                otherAdmin.getId(), PlanName.FREE, true, List.of()))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_FORBIDDEN));
@@ -413,10 +435,15 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
                 now.minusSeconds(86_400L), now.plusSeconds(10 * 24 * 3600L));
         AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
-                owner.getId(), PlanName.STANDARD, true, List.of());
+                owner.getId(), PlanName.FREE, true, List.of());
 
-        adminPlanService.cancelScheduledChange(owner.getId());
+        AdminScheduledPlanChangeResponse canceledResponse =
+                adminPlanService.cancelScheduledChange(owner.getId());
 
+        assertThat(canceledResponse.id()).isEqualTo(scheduled.id());
+        assertThat(canceledResponse.status())
+                .as("취소 응답이 PENDING 으로 나가면 프론트가 '취소했는데 대기 중'으로 표시한다(1차 캐시 스냅샷 함정)")
+                .isEqualTo("CANCELED");
         assertThat(reload(scheduled.id()).getStatus()).isEqualTo(ScheduledPlanChangeStatus.CANCELED);
         assertThat(adminPlanService.getCurrentPlan(owner.getId()).scheduledChange())
                 .as("취소된 예약이 화면에 남으면 '예약 있음'으로 오인한다")
@@ -427,7 +454,7 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
                         .isEqualTo(ErrorCode.PLAN_SCHEDULED_CHANGE_NOT_FOUND));
 
         // 취소했으면 같은 조건으로 다시 예약할 수 있어야 한다(부분 UQ 는 PENDING 만 대상이다).
-        assertThat(adminPlanService.scheduleChange(owner.getId(), PlanName.STANDARD, true, List.of()))
+        assertThat(adminPlanService.scheduleChange(owner.getId(), PlanName.FREE, true, List.of()))
                 .isNotNull();
     }
 
@@ -440,9 +467,9 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
                 now.minusSeconds(86_400L), now.plusSeconds(10 * 24 * 3600L));
         AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
-                owner.getId(), PlanName.STANDARD, true, List.of());
+                owner.getId(), PlanName.FREE, true, List.of());
 
-        adminPlanService.changePlan(owner.getId(), PlanName.FREE, true, List.of());
+        adminPlanService.changePlan(owner.getId(), PlanName.STANDARD, true, List.of());
 
         assertThat(reload(scheduled.id()).getStatus())
                 .as("남겨 두면 한 달 뒤 스케줄러가 '이미 반영된 하향'을 한 번 더 실행하려 든다")
@@ -462,25 +489,25 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         User member4 = newCompanyMember(company.getId());
         Instant now = Instant.now();
         Instant effectiveAt = now.minusSeconds(60).truncatedTo(ChronoUnit.MICROS);
-        // ENTERPRISE(무제한) → STANDARD(3석). 활성 5명이라 owner + 앞의 2명만 남고 2명이 정지된다.
+        // ENTERPRISE(무제한) → FREE(1석). 활성 5명이라 owner 만 남고 나머지 4명이 정지된다.
         UserPlan current = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
                 now.minusSeconds(31 * 24 * 3600L), effectiveAt);
         usageCounterRepository.saveAndFlush(UsageCounter.create(
                 current.getId(), currentPeriod(), 7, 2, 3, 3, 1, 0));
         AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
-                owner.getId(), PlanName.STANDARD, true, List.of());
+                owner.getId(), PlanName.FREE, true, List.of());
 
         ScheduledPlanChangeResult result = scheduledPlanChangeWriter.applyDueChange(scheduled.id(), now);
 
         assertThat(result.applied()).isTrue();
         assertThat(result.previousPlanName()).isEqualTo(PlanName.ENTERPRISE);
-        assertThat(result.targetPlanName()).isEqualTo(PlanName.STANDARD);
+        assertThat(result.targetPlanName()).isEqualTo(PlanName.FREE);
         assertThat(result.recipientUserId())
                 .as("회사 구독의 알림 수신자는 회사 owner 다")
                 .isEqualTo(owner.getId());
         assertThat(result.suspendedUserIds())
                 .as("오적용 시 되돌릴 대상 목록을 복원할 유일한 근거다 — 건수만으로는 부족하다")
-                .containsExactlyInAnyOrder(member3.getId(), member4.getId());
+                .containsExactlyInAnyOrder(member1.getId(), member2.getId(), member3.getId(), member4.getId());
 
         assertThat(reload(scheduled.id()).getStatus()).isEqualTo(ScheduledPlanChangeStatus.APPLIED);
         assertThat(reload(scheduled.id()).getAppliedAt()).isNotNull();
@@ -488,17 +515,16 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         assertThat(userPlanRepository.findById(current.getId()).orElseThrow().getStatus())
                 .isEqualTo(UserPlanStatus.EXPIRED);
         UserPlan renewed = activeCompanyPlan(company.getId());
-        assertThat(renewed.getPlanId()).isEqualTo(plan(PlanName.STANDARD).getId());
+        assertThat(renewed.getPlanId()).isEqualTo(plan(PlanName.FREE).getId());
         assertThat(activeCompanyPlanCount(company.getId())).isEqualTo(1L);
 
-        // ⚠️ 새 결제 주기를 연다(승계가 아니다). 지나간 만료일을 승계하면 새 유료 구독이 즉시 만료 강등
-        // 배치(PlanExpiryScheduler)의 대상이 되어 하루 만에 FREE 로 떨어진다.
+        // ⚠️ 대상이 무료라 결제 주기 종료는 NULL(무기한)이다(#1104 규칙). 여기에 값이 남으면 마이페이지가
+        // "무료인데 다음 결제일"을 표시하고 만료 강등 배치가 이 행을 다시 대상으로 잡는다. 유료 대상을
+        // 허용하지 않는 이유(무결제 유료 1개월 발급)는 ScheduledPlanChangeWriter javadoc 참고.
+        assertThat(renewed.getCurrentPeriodEnd()).isNull();
         assertThat(renewed.getCurrentPeriodStart().truncatedTo(ChronoUnit.MICROS))
-                .isEqualTo(effectiveAt);
-        assertThat(renewed.getCurrentPeriodEnd())
-                .as("적용 시점부터 한 달이 새 주기다 — 여기가 과거면 곧바로 만료 강등 대상이 된다")
-                .isEqualTo(effectiveAt.atZone(KST).plusMonths(1).toInstant());
-        assertThat(renewed.getCurrentPeriodEnd()).isAfter(now);
+                .as("주기 시작은 승계한다 — 구독 개시 시점 자체는 여전히 유효한 정보다")
+                .isEqualTo(now.minusSeconds(31 * 24 * 3600L).truncatedTo(ChronoUnit.MICROS));
 
         // 사용량 이월(#851) — 이월하지 않으면 예약 하향이 곧 월 분석 한도 리셋이 된다.
         UsageCounter carried = usageCounterRepository
@@ -508,8 +534,8 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         assertThat(statusOf(owner))
                 .as("owner 가 정지되면 회사가 관리 불능이 된다 — 좌석 한도와 무관하게 항상 유지")
                 .isEqualTo(UserStatus.ACTIVE);
-        assertThat(statusOf(member1)).isEqualTo(UserStatus.ACTIVE);
-        assertThat(statusOf(member2)).isEqualTo(UserStatus.ACTIVE);
+        assertThat(statusOf(member1)).isEqualTo(UserStatus.SUSPENDED);
+        assertThat(statusOf(member2)).isEqualTo(UserStatus.SUSPENDED);
         assertThat(statusOf(member3)).isEqualTo(UserStatus.SUSPENDED);
         assertThat(statusOf(member4)).isEqualTo(UserStatus.SUSPENDED);
     }
@@ -523,7 +549,7 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
                 now.minusSeconds(31 * 24 * 3600L), now.minusSeconds(60));
         AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
-                owner.getId(), PlanName.STANDARD, true, List.of());
+                owner.getId(), PlanName.FREE, true, List.of());
 
         ScheduledPlanChangeResult first = scheduledPlanChangeWriter.applyDueChange(scheduled.id(), now);
         ScheduledPlanChangeResult second = scheduledPlanChangeWriter.applyDueChange(scheduled.id(), now);
@@ -534,7 +560,7 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
                 .isFalse();
         assertThat(activeCompanyPlanCount(company.getId())).isEqualTo(1L);
         assertThat(activeCompanyPlan(company.getId()).getPlanId())
-                .isEqualTo(plan(PlanName.STANDARD).getId());
+                .isEqualTo(plan(PlanName.FREE).getId());
     }
 
     @Test
@@ -546,7 +572,7 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         Instant future = now.plusSeconds(10 * 24 * 3600L);
         newCompanyPlan(company.getId(), PlanName.ENTERPRISE, now.minusSeconds(86_400L), future);
         AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
-                owner.getId(), PlanName.STANDARD, true, List.of());
+                owner.getId(), PlanName.FREE, true, List.of());
 
         assertThat(scheduledPlanChangeRepository.findDueIds(now, 0L, PageRequest.of(0, 500)))
                 .doesNotContain(scheduled.id());
@@ -570,7 +596,7 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         UserPlan current = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
                 now.minusSeconds(31 * 24 * 3600L), now.minusSeconds(60));
         AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
-                owner.getId(), PlanName.STANDARD, true, List.of());
+                owner.getId(), PlanName.FREE, true, List.of());
         // 예약이 걸린 구독을 SQL 로 직접 만료시킨다(다른 경로가 먼저 전이시킨 상황 — 자동 취소 경로를
         // 타지 않고도 무효 판정이 동작하는지 봐야 하므로 서비스가 아니라 SQL 로 만든다).
         jdbcTemplate.update("update user_plans set status = 'EXPIRED' where id = ?", current.getId());
@@ -585,7 +611,7 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
     }
 
     @Test
-    @DisplayName("저장된 유지 대상 중 퇴사·정지된 id 는 실행 시점에 드롭되고 부족분은 자동 규칙으로 보충된다")
+    @DisplayName("저장된 유지 대상 중 퇴사·정지된 id 는 드롭되고, 되채움은 드롭된 수만큼만 한다(확인한 정지 규모 유지)")
     void 유지대상_재검증() {
         User owner = newUser("예약하향유지검증", Role.ADMIN);
         Company company = newApprovedCompany(owner);
@@ -596,35 +622,173 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         Instant now = Instant.now();
         UserPlan current = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
                 now.minusSeconds(31 * 24 * 3600L), now.minusSeconds(60));
-        // owner + member1 + member2 를 유지하도록 예약한다(STANDARD = 3석).
+
+        // 예약 대상은 무료 요금제뿐인데(보안 리뷰 P1) FREE 는 1석이라 유지 대상 선택 자체가 불가능하다.
+        // 유지 목록 재검증 로직은 좌석이 2 이상인 무료 티어에서만 의미가 있으므로, 플랫폼 관리자가 FREE
+        // 좌석 정책을 올린 상황(#624 Plan#updatePolicy)을 재현해 그 경로를 검증한다. 시드 값을 건드리므로
+        // 반드시 원복한다(FREE=1석은 티어 설계 의도이며 여기서 바꾸려는 게 아니다).
+        Integer originalFreeSeats = plan(PlanName.FREE).getMaxSeats();
+        setPlanMaxSeats(PlanName.FREE, 3);
+        try {
+            // owner + member1 + member2 를 유지하도록 예약한다(3석) → 확인 시점 정지 대상은 2명.
+            AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
+                    owner.getId(), PlanName.FREE, true, List.of(member1.getId(), member2.getId()));
+            assertThat(reload(scheduled.id()).keepUserIdList())
+                    .containsExactly(member1.getId(), member2.getId());
+            assertThat(reload(scheduled.id()).getConfirmedSeatOverflow()).isEqualTo(2);
+
+            // 예약 이후 member1 이 정지됐다(퇴사·정지). 저장된 목록을 그대로 넘기면
+            // PlanDowngradeService 의 스코프 검증(PLAN_KEEP_USER_INVALID)에 걸려 예약이 통째로 죽는다.
+            User staleMember = userRepository.findById(member1.getId()).orElseThrow();
+            staleMember.changeStatus(UserStatus.SUSPENDED);
+            userRepository.saveAndFlush(staleMember);
+
+            ScheduledPlanChangeResult result = scheduledPlanChangeWriter.applyDueChange(scheduled.id(), now);
+
+            assertThat(result.applied())
+                    .as("무효 id 하나 때문에 예약이 실패하면 안 된다 — 드롭 후 그만큼만 되채운다")
+                    .isTrue();
+            assertThat(statusOf(member2))
+                    .as("여전히 유효한 선택은 그대로 존중한다")
+                    .isEqualTo(UserStatus.ACTIVE);
+            assertThat(statusOf(owner)).isEqualTo(UserStatus.ACTIVE);
+            // 드롭 1건 → 되채움 예산도 1건. owner 는 어차피 항상 유지되므로 예산을 쓰지 않고 건너뛰고
+            // (그러지 않으면 생존자는 그대로인데 예산만 소모된다) id 오름차순으로 member3 가 들어온다.
+            assertThat(statusOf(member3))
+                    .as("드롭된 자리는 자동 규칙(id 오름차순)으로 정확히 그만큼만 채운다")
+                    .isEqualTo(UserStatus.ACTIVE);
+            assertThat(statusOf(member4)).isEqualTo(UserStatus.SUSPENDED);
+            assertThat(result.suspendedUserIds())
+                    .as("확인받은 정지 규모(2명)를 넘지 않아야 한다")
+                    .containsExactly(member4.getId());
+            assertThat(userPlanRepository.findById(current.getId()).orElseThrow().getStatus())
+                    .isEqualTo(UserPlanStatus.EXPIRED);
+        } finally {
+            setPlanMaxSeats(PlanName.FREE, originalFreeSeats);
+        }
+    }
+
+    @Test
+    @DisplayName("드롭이 없으면 좌석이 남아도 임의로 채우지 않는다 — 관리자가 확인한 정지 대상과 결과가 어긋나면 안 된다")
+    void 드롭이_없으면_보충하지_않는다() {
+        User owner = newUser("예약하향무보충", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        User member1 = newCompanyMember(company.getId());
+        User member2 = newCompanyMember(company.getId());
+        User member3 = newCompanyMember(company.getId());
+        Instant now = Instant.now();
+        newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minusSeconds(31 * 24 * 3600L), now.minusSeconds(60));
+
+        Integer originalFreeSeats = plan(PlanName.FREE).getMaxSeats();
+        setPlanMaxSeats(PlanName.FREE, 3);
+        try {
+            // owner + member1 만 유지 선택(3석 중 2석만 사용) → 확인 시점 정지 대상은 member2·member3 2명.
+            AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
+                    owner.getId(), PlanName.FREE, true, List.of(member1.getId()));
+            assertThat(reload(scheduled.id()).getConfirmedSeatOverflow()).isEqualTo(2);
+
+            ScheduledPlanChangeResult result = scheduledPlanChangeWriter.applyDueChange(scheduled.id(), now);
+
+            assertThat(result.applied()).isTrue();
+            assertThat(result.suspendedUserIds())
+                    .as("무효화된 id 가 하나도 없는데 좌석이 남는다고 채우면, 확인한 정지 대상(2명)과 "
+                            + "실제 결과(1명)가 달라진다 — 즉시 변경 경로는 '선택을 있는 그대로 존중'한다")
+                    .containsExactlyInAnyOrder(member2.getId(), member3.getId());
+            assertThat(statusOf(member1)).isEqualTo(UserStatus.ACTIVE);
+            assertThat(statusOf(owner)).isEqualTo(UserStatus.ACTIVE);
+        } finally {
+            setPlanMaxSeats(PlanName.FREE, originalFreeSeats);
+        }
+    }
+
+    // ── 보안 리뷰 P1 / P2 회귀선 ────────────────────────────────────────
+
+    @Test
+    @DisplayName("유료 요금제는 예약 대상이 될 수 없다 — 청구되지 않는 유료 1개월이 발급되는 것을 막는다")
+    void 유료대상은_예약할_수_없다() {
+        User owner = newUser("예약하향유료대상", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now();
+        UserPlan current = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minusSeconds(86_400L), now.plusSeconds(10 * 24 * 3600L));
+
+        // ENTERPRISE → STANDARD 는 정상적인 "하향"이지만, 실행 시 결제 없이 새 유료 주기가 열린다.
+        // 빌링키가 없어 그 주기는 어떤 경로로도 청구되지 않으므로 티어를 한 단계씩 내리는 것만으로
+        // 무상 1개월을 반복 취득할 수 있다(#988이 막은 무결제 승격과 같은 성격의 우회로).
+        assertThatThrownBy(() -> adminPlanService.scheduleChange(
+                owner.getId(), PlanName.STANDARD, true, List.of()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED));
+
+        assertThat(scheduledPlanChangeRepository.findFirstByUserPlanIdAndStatus(
+                current.getId(), ScheduledPlanChangeStatus.PENDING)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("실행 시점 정지 인원이 신청 시 확인한 수를 넘으면 적용하지 않고 FAILED 로 종료한다(+실패 알림)")
+    void 확인범위를_넘으면_적용하지_않는다() {
+        User owner = newUser("예약하향확인범위", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        User member1 = newCompanyMember(company.getId());
+        Instant now = Instant.now();
+        UserPlan current = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minusSeconds(31 * 24 * 3600L), now.minusSeconds(60));
+        // 신청 시점 정지 대상은 member1 하나뿐 — 관리자는 "1명 정지"에 동의했다.
         AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
-                owner.getId(), PlanName.STANDARD, true, List.of(member1.getId(), member2.getId()));
-        assertThat(reload(scheduled.id()).keepUserIdList())
-                .containsExactly(member1.getId(), member2.getId());
+                owner.getId(), PlanName.FREE, true, List.of());
+        assertThat(reload(scheduled.id()).getConfirmedSeatOverflow()).isEqualTo(1);
 
-        // 예약 이후 member1 이 정지됐다(퇴사·정지). 이 상태로 저장된 목록을 그대로 넘기면
-        // PlanDowngradeService 의 스코프 검증(PLAN_KEEP_USER_INVALID)에 걸려 예약이 통째로 죽는다.
-        User staleMember = userRepository.findById(member1.getId()).orElseThrow();
-        staleMember.changeStatus(UserStatus.SUSPENDED);
-        userRepository.saveAndFlush(staleMember);
+        // 예약 이후 구성원이 늘었다 — 이제 실행하면 3명이 정지된다(동의 범위를 크게 벗어난다).
+        User member2 = newCompanyMember(company.getId());
+        User member3 = newCompanyMember(company.getId());
 
-        ScheduledPlanChangeResult result = scheduledPlanChangeWriter.applyDueChange(scheduled.id(), now);
+        giveSchedulerHeadroom();
+        scheduledPlanChangeScheduler.applyDueScheduledChanges();
 
-        assertThat(result.applied())
-                .as("무효 id 하나 때문에 예약이 실패하면 안 된다 — 드롭 후 자동 규칙으로 보충한다")
-                .isTrue();
-        assertThat(statusOf(member2))
-                .as("여전히 유효한 선택은 그대로 존중한다")
-                .isEqualTo(UserStatus.ACTIVE);
-        assertThat(statusOf(owner)).isEqualTo(UserStatus.ACTIVE);
-        // 좌석 3개 = owner + member2 + (보충된 member3). 남은 member4 가 정지 대상이다.
-        assertThat(statusOf(member3))
-                .as("드롭된 자리는 자동 규칙(owner + id 오름차순)으로 채운다")
-                .isEqualTo(UserStatus.ACTIVE);
-        assertThat(statusOf(member4)).isEqualTo(UserStatus.SUSPENDED);
-        assertThat(result.suspendedUserIds()).containsExactly(member4.getId());
+        assertThat(reload(scheduled.id()).getStatus())
+                .as("동의 범위를 넘는 대량 정지는 적용하지 않고 종료시킨다(fail-safe)")
+                .isEqualTo(ScheduledPlanChangeStatus.FAILED);
+        assertThat(reload(scheduled.id()).getFailureReason())
+                .contains("PLAN_SCHEDULE_CONFIRMED_OVERFLOW_EXCEEDED");
+        // 상위 요금제가 그대로 유지되므로 아무도 잘못 정지되지 않는다.
         assertThat(userPlanRepository.findById(current.getId()).orElseThrow().getStatus())
-                .isEqualTo(UserPlanStatus.EXPIRED);
+                .isEqualTo(UserPlanStatus.ACTIVE);
+        assertThat(activeCompanyPlan(company.getId()).getPlanId())
+                .isEqualTo(plan(PlanName.ENTERPRISE).getId());
+        assertThat(statusOf(member1)).isEqualTo(UserStatus.ACTIVE);
+        assertThat(statusOf(member2)).isEqualTo(UserStatus.ACTIVE);
+        assertThat(statusOf(member3)).isEqualTo(UserStatus.ACTIVE);
+
+        // FAILED 는 종료 상태라 재시도가 없고 조회는 PENDING 만 노출한다 — 알림이 없으면 신청자는
+        // 예약이 사라진 사실을 영원히 모른다(리뷰 P2-5).
+        assertThat(notificationsOf(owner.getId(), NotificationType.PLAN_DOWNGRADE_FAILED))
+                .hasSize(1);
+        assertThat(downgradedNotifications(owner.getId()))
+                .as("적용되지 않았으므로 적용 알림은 나가면 안 된다")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("만료 강등이 구독을 내리면 그 구독의 예약도 함께 무효화된다 — owner 가 취소할 수 없는 유령 예약 방지")
+    void 만료강등시_예약이_무효화된다() {
+        User owner = newUser("예약하향만료강등", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now();
+        UserPlan current = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minusSeconds(31 * 24 * 3600L), now.minusSeconds(60));
+        AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
+                owner.getId(), PlanName.FREE, true, List.of());
+
+        // 결제 주기 만료 강등(#1145)이 먼저 이 구독을 EXPIRED 로 내린다.
+        planExpiryWriter.expireToFreePlan(current.getId(), now);
+
+        assertThat(reload(scheduled.id()).getStatus())
+                .as("남겨 두면 예약이 옛 user_plan_id 에 매달린 채 PENDING 으로 남아, 조회·취소가 모두 "
+                        + "현재 구독 id 기준이라 owner 가 취소할 수 없는 유령 예약이 된다")
+                .isEqualTo(ScheduledPlanChangeStatus.CANCELED);
+        assertThat(adminPlanService.getCurrentPlan(owner.getId()).scheduledChange()).isNull();
     }
 
     @Test
@@ -636,7 +800,7 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         UserPlan current = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
                 now.minusSeconds(31 * 24 * 3600L), now.minusSeconds(60));
         AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
-                owner.getId(), PlanName.STANDARD, true, List.of());
+                owner.getId(), PlanName.FREE, true, List.of());
 
         giveSchedulerHeadroom();
         scheduledPlanChangeScheduler.applyDueScheduledChanges();

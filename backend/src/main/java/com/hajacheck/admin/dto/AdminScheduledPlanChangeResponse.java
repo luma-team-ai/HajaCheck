@@ -2,6 +2,7 @@ package com.hajacheck.admin.dto;
 
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.ScheduledPlanChange;
+import com.hajacheck.membership.entity.ScheduledPlanChangeStatus;
 import java.time.Instant;
 import java.util.List;
 
@@ -33,5 +34,22 @@ public record AdminScheduledPlanChangeResponse(
                 change.getEffectiveAt(),
                 change.keepUserIdList(),
                 change.getStatus().name());
+    }
+
+    /**
+     * 취소 응답 전용 — 상태를 {@link ScheduledPlanChangeStatus#CANCELED} 로 <b>명시</b>한다.
+     *
+     * <p>취소는 조건부 벌크 UPDATE 로 수행하는데, 그 쿼리는 결제 승인 트랜잭션 안전을 위해
+     * {@code clearAutomatically} 를 쓰지 않는다({@code ScheduledPlanChangeRepository
+     * #transitionByUserPlanId} javadoc). 그래서 호출부가 들고 있는 엔티티는 1차 캐시의 옛 스냅샷이라
+     * {@code status} 가 아직 PENDING 이다 — 그 값을 그대로 응답에 실으면 "취소했는데 대기 중"으로 보인다.
+     */
+    public static AdminScheduledPlanChangeResponse canceled(ScheduledPlanChange change, Plan targetPlan) {
+        return new AdminScheduledPlanChangeResponse(
+                change.getId(),
+                targetPlan.getName().name(),
+                change.getEffectiveAt(),
+                change.keepUserIdList(),
+                ScheduledPlanChangeStatus.CANCELED.name());
     }
 }

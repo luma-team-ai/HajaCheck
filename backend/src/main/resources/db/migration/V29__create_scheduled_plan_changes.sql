@@ -33,6 +33,7 @@ create table if not exists scheduled_plan_changes
         references plans,
     effective_at   timestamp with time zone                                                        not null,
     keep_user_ids  bigint[]                         default '{}'::bigint[]                         not null,
+    confirmed_seat_overflow integer                  default 0                                      not null,
     status         scheduled_plan_change_status_type default 'PENDING'::scheduled_plan_change_status_type not null,
     created_by     bigint                                                                          not null
         references users,
@@ -47,11 +48,13 @@ comment on column scheduled_plan_changes.id is '예약 식별자';
 
 comment on column scheduled_plan_changes.user_plan_id is '예약을 건 시점의 구독 식별자(user_plans). 이 구독이 다른 경로로 전이(결제 승인·즉시 변경·만료 강등)되면 예약은 실행 시점에 무효(CANCELED)로 판정된다.';
 
-comment on column scheduled_plan_changes.target_plan_id is '하향 대상 요금제 식별자';
+comment on column scheduled_plan_changes.target_plan_id is '하향 대상 요금제 식별자. ⚠️ 무료 요금제(price_monthly = 0)만 허용한다 — 정기결제(빌링키)가 없어 유료 대상을 허용하면 청구 없이 유료 1개월이 발급되고, 티어를 한 단계씩 내릴 때마다 무상 기간을 반복 취득할 수 있다(#1105 보안 리뷰 P1).';
 
 comment on column scheduled_plan_changes.effective_at is '예약 실행 기준 시각. 예약 생성 시점의 user_plans.current_period_end(#1104)를 그대로 복사한다 — 잔여 기간이 끝나는 순간이 곧 적용 시점이다.';
 
 comment on column scheduled_plan_changes.keep_user_ids is '하향으로 좌석이 넘칠 때 관리자가 유지하도록 선택한 구성원 id(#890 Phase 2와 같은 의미). 빈 배열이면 자동 규칙(owner + id 오름차순). ⚠️ 예약은 이 목록을 한 달 가까이 보관하므로 실행 시점에 반드시 재검증한다(퇴사·정지 id 드롭 → 자동 규칙 보충 → ACTIVE ADMIN 잔존 재확인).';
+
+comment on column scheduled_plan_changes.confirmed_seat_overflow is '신청 시점에 관리자가 confirmOverflow=true 로 확인한 정지 예정 인원 수(#1105 리뷰 P2-4). confirmOverflow 는 "그 시점 미리보기"에 대한 동의이므로, 실행 시점 정지 인원이 이 값을 넘으면 동의 범위를 벗어난 것이다 — 그때는 적용하지 않고 FAILED 로 종료해 상위 요금제를 유지한다(아무도 잘못 정지되지 않는 fail-safe).';
 
 comment on column scheduled_plan_changes.status is '예약 상태. PENDING 만 실행 대상이며 전이는 UPDATE ... WHERE status = PENDING 조건부로만 이뤄진다(중복 실행 차단).';
 

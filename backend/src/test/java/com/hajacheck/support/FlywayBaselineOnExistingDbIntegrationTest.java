@@ -313,16 +313,18 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 """, Long.class);
         assertThat(pendingPartialUniqueCount).isEqualTo(1L);
 
-        // V30(notification_type PLAN_DOWNGRADED 라벨, #1105/HAJA-526)도 no-op 성공으로 적용된다.
+        // V30(notification_type PLAN_DOWNGRADED·PLAN_DOWNGRADE_FAILED 라벨, #1105/HAJA-526)도 no-op
+        // 성공으로 적용된다.
         Integer v30Applied = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where version = '30' and success = true",
                 Integer.class);
         assertThat(v30Applied).isEqualTo(1);
-        Long planDowngradedLabelCount = jdbcTemplate.queryForObject("""
+        Long scheduledDowngradeLabelCount = jdbcTemplate.queryForObject("""
                 select count(*) from pg_enum e
                 join pg_type t on e.enumtypid = t.oid
-                where t.typname = 'notification_type' and e.enumlabel = 'PLAN_DOWNGRADED'
+                where t.typname = 'notification_type'
+                  and e.enumlabel in ('PLAN_DOWNGRADED', 'PLAN_DOWNGRADE_FAILED')
                 """, Long.class);
-        assertThat(planDowngradedLabelCount).isEqualTo(1L);
+        assertThat(scheduledDowngradeLabelCount).isEqualTo(2L);
     }
 }

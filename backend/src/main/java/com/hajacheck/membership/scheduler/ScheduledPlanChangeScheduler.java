@@ -4,6 +4,7 @@ import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.config.ScheduledPlanChangeProperties;
 import com.hajacheck.membership.repository.ScheduledPlanChangeRepository;
+import com.hajacheck.membership.service.ScheduledPlanChangeFailure;
 import com.hajacheck.membership.service.ScheduledPlanChangeResult;
 import com.hajacheck.membership.service.ScheduledPlanChangeWriter;
 import com.hajacheck.notification.entity.NotificationType;
@@ -55,8 +56,11 @@ import org.springframework.stereotype.Component;
  * </ul>
  *
  * <p><b>알림</b>: 적용이 커밋된 뒤 {@link NotificationType#PLAN_DOWNGRADED} 를 1건 발행한다 — 신청자가
- * 화면을 보고 있지 않는 사이 구성원 계정이 정지되므로 필수다. 알림 발행 실패는 이미 커밋된 하향을
- * 되돌리지 않고 WARN 으로 표면화만 한다.
+ * 화면을 보고 있지 않는 사이 구성원 계정이 정지되므로 필수다. <b>FAILED 로 종료될 때도</b>
+ * {@link NotificationType#PLAN_DOWNGRADE_FAILED} 를 1건 발행한다(리뷰 P2-5): FAILED 는 종료 상태라
+ * 재시도가 없고 조회({@code AdminPlanResponse.scheduledChange})는 PENDING 만 노출하므로, 알리지 않으면
+ * 신청자에게는 "예약을 걸었는데 어느 날 조용히 사라지고 요금제는 그대로"가 된다. 어느 쪽이든 알림 발행
+ * 실패는 이미 커밋된 상태 변경을 되돌리지 않고 WARN 으로 표면화만 한다.
  *
  * <p><b>시각 판정</b>: {@code SchedulingConfig} 의 KST {@link Clock} 빈을 주입해 쓴다. 비교 자체는
  * {@link Instant} 끼리라 존에 흔들리지 않지만, Clock 주입으로 테스트가 특정 시점을 결정적으로 재현할 수
@@ -203,19 +207,49 @@ public class ScheduledPlanChangeScheduler {
         counts.failed++;
         // ⚠️ 실행 트랜잭션은 이미 롤백됐으므로 별도 트랜잭션(REQUIRES_NEW)에서 FAILED 를 기록한다.
         // 이 기록마저 실패하면 예약은 PENDING 으로 남아 다음 회차에 다시 시도된다(같은 예외 반복).
-        boolean marked;
+        String failureReason = "errorCode=" + e.getErrorCode().name();
+        ScheduledPlanChangeFailure failure;
         try {
-            marked = scheduledPlanChangeWriter.markFailed(
-                    scheduledChangeId, "errorCode=" + e.getErrorCode().name());
+            failure = scheduledPlanChangeWriter.markFailed(scheduledChangeId, failureReason);
         } catch (Exception markFailure) {
-            marked = false;
+            failure = ScheduledPlanChangeFailure.notMarked();
             log.warn("예약 하향 FAILED 기록 실패 — scheduledChangeId={} exception={}",
                     scheduledChangeId, markFailure.getClass().getSimpleName());
         }
         // ErrorCode 를 반드시 남긴다 — FREE 는 max_seats=1 이라 owner 가 ACTIVE ADMIN 이 아닌 회사는
         // requireSurvivingActiveAdmin 에 걸리는 등, 코드를 버리면 운영자가 원인을 특정할 수 없다.
         log.warn("예약 하향 적용 실패 — scheduledChangeId={} errorCode={} message={} failedMarked={}",
-                scheduledChangeId, e.getErrorCode(), e.getErrorCode().getMessage(), marked);
+                scheduledChangeId, e.getErrorCode(), e.getErrorCode().getMessage(), failure.marked());
+        // ⚠️ 실패 알림(리뷰 P2-5) — FAILED 는 종료 상태라 재시도가 없고 조회는 PENDING 만 노출한다.
+        // 알리지 않으면 신청자에게는 "예약을 걸었는데 어느 날 조용히 사라지고 요금제는 그대로"가 된다.
+        if (publishFailureNotification(scheduledChangeId, failure, failureReason)) {
+            counts.notified++;
+        }
+    }
+
+    /**
+     * 실패 알림 1건 발행 — <b>FAILED 기록이 커밋된 뒤</b>에 호출된다. 이번 실행이 실제로 종료시킨
+     * 경우에만 보내 중복 통지를 막는다. 발행 실패는 이미 확정된 상태 기록을 되돌리지 않고 WARN 으로만
+     * 표면화한다(적용 알림과 같은 원칙).
+     */
+    private boolean publishFailureNotification(Long scheduledChangeId, ScheduledPlanChangeFailure failure,
+            String failureReason) {
+        if (!failure.marked()) {
+            return false;
+        }
+        if (failure.recipientUserId() == null) {
+            log.warn("예약 하향 실패 알림 수신자 없음 — scheduledChangeId={}", scheduledChangeId);
+            return false;
+        }
+        try {
+            notificationService.notify(failure.recipientUserId(), NotificationType.PLAN_DOWNGRADE_FAILED,
+                    ScheduledPlanChangeNotificationPayload.serializeFailed(failure, failureReason));
+            return true;
+        } catch (Exception e) {
+            log.warn("예약 하향 실패 알림 발행 실패 — scheduledChangeId={} exception={}",
+                    scheduledChangeId, e.getClass().getSimpleName());
+            return false;
+        }
     }
 
     /** 실행 결과를 집계하고, 실제로 적용됐으면 알림을 1건 발행한다. */
@@ -250,7 +284,7 @@ public class ScheduledPlanChangeScheduler {
         }
         try {
             notificationService.notify(recipientUserId, NotificationType.PLAN_DOWNGRADED,
-                    ScheduledPlanDowngradedNotificationPayload.serialize(result));
+                    ScheduledPlanChangeNotificationPayload.serializeApplied(result));
             return true;
         } catch (Exception e) {
             log.warn("예약 하향 알림 발행 실패 — scheduledChangeId={} exception={}",

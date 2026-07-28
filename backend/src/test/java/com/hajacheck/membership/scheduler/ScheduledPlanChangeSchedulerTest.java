@@ -20,6 +20,7 @@ import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.config.ScheduledPlanChangeProperties;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.repository.ScheduledPlanChangeRepository;
+import com.hajacheck.membership.service.ScheduledPlanChangeFailure;
 import com.hajacheck.membership.service.ScheduledPlanChangeResult;
 import com.hajacheck.membership.service.ScheduledPlanChangeWriter;
 import com.hajacheck.notification.entity.NotificationType;
@@ -71,8 +72,8 @@ class ScheduledPlanChangeSchedulerTest {
     }
 
     private ScheduledPlanChangeResult applied(Long recipientUserId) {
-        return ScheduledPlanChangeResult.applied(recipientUserId, PlanName.ENTERPRISE,
-                PlanName.STANDARD, 900L, null, NOW.minusSeconds(60), List.of(7L, 8L));
+        return ScheduledPlanChangeResult.applied(recipientUserId, PlanName.STANDARD,
+                PlanName.FREE, 900L, null, NOW.minusSeconds(60), List.of(7L, 8L));
     }
 
     private void stubTargets(long totalCount, List<Long> firstPage) {
@@ -164,7 +165,7 @@ class ScheduledPlanChangeSchedulerTest {
         verify(notificationService).notify(eq(42L), eq(NotificationType.PLAN_DOWNGRADED), payload.capture());
         assertThat(payload.getValue())
                 .as("사용자가 무엇이 어떻게 바뀌었는지 알 수 있어야 한다(정지 좌석 수 포함)")
-                .contains("ENTERPRISE").contains("STANDARD").contains("\"suspendedSeatCount\":2");
+                .contains("STANDARD").contains("FREE").contains("\"suspendedSeatCount\":2");
         assertThat(payload.getValue())
                 .as("알림 payload 에 개인정보(구성원 id 목록 등)를 싣지 않는다")
                 .doesNotContain("suspendedUserIds");
@@ -187,20 +188,58 @@ class ScheduledPlanChangeSchedulerTest {
     }
 
     @Test
-    @DisplayName("도메인 위반은 예약을 FAILED 로 종료시킨다 — 매시 재시도해도 같은 예외만 반복되기 때문")
-    void 도메인위반은_FAILED로_종료된다() {
+    @DisplayName("도메인 위반은 예약을 FAILED 로 종료시키고 신청자에게 실패 알림을 1건 보낸다")
+    void 도메인위반은_FAILED로_종료되고_알림이_나간다() {
         stubTargets(1L, List.of(11L));
         when(writer.applyDueChange(eq(11L), eq(NOW)))
                 .thenThrow(new BusinessException(ErrorCode.ADMIN_PROTECTED_ACCOUNT));
-        when(writer.markFailed(eq(11L), anyString())).thenReturn(true);
+        when(writer.markFailed(eq(11L), anyString()))
+                .thenReturn(new ScheduledPlanChangeFailure(true, 42L, PlanName.FREE));
 
         ListAppender<ILoggingEvent> appender = runCapturingLogs();
 
         verify(writer).markFailed(eq(11L), eq("errorCode=ADMIN_PROTECTED_ACCOUNT"));
-        verifyNoInteractions(notificationService);
         assertThat(loggedAt(appender, Level.WARN, "ADMIN_PROTECTED_ACCOUNT"))
                 .as("ErrorCode 를 버리면 운영자가 로그만 보고 원인을 특정할 수 없다")
                 .isTrue();
+
+        // FAILED 는 종료 상태라 재시도가 없고 조회는 PENDING 만 노출한다 — 알리지 않으면 신청자에게는
+        // "예약을 걸었는데 어느 날 조용히 사라지고 요금제는 그대로"가 된다(리뷰 P2-5).
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        verify(notificationService).notify(eq(42L), eq(NotificationType.PLAN_DOWNGRADE_FAILED),
+                payload.capture());
+        assertThat(payload.getValue()).contains("FREE").contains("ADMIN_PROTECTED_ACCOUNT");
+    }
+
+    @Test
+    @DisplayName("이번 실행이 종료시킨 게 아니면(이미 다른 상태) 실패 알림을 보내지 않는다 — 중복 통지 방지")
+    void 이미_종료된_예약은_실패알림을_보내지_않는다() {
+        stubTargets(1L, List.of(11L));
+        when(writer.applyDueChange(eq(11L), eq(NOW)))
+                .thenThrow(new BusinessException(ErrorCode.ADMIN_PROTECTED_ACCOUNT));
+        when(writer.markFailed(eq(11L), anyString())).thenReturn(ScheduledPlanChangeFailure.notMarked());
+
+        scheduler.applyDueScheduledChanges();
+
+        verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    @DisplayName("확인 범위를 넘는 정지 규모는 도메인 위반으로 취급돼 FAILED 로 종료된다(적용 알림은 나가지 않는다)")
+    void 확인범위_초과는_FAILED로_종료된다() {
+        stubTargets(1L, List.of(11L));
+        when(writer.applyDueChange(eq(11L), eq(NOW)))
+                .thenThrow(new BusinessException(ErrorCode.PLAN_SCHEDULE_CONFIRMED_OVERFLOW_EXCEEDED));
+        when(writer.markFailed(eq(11L), anyString()))
+                .thenReturn(new ScheduledPlanChangeFailure(true, 42L, PlanName.FREE));
+
+        scheduler.applyDueScheduledChanges();
+
+        verify(writer).markFailed(eq(11L), eq("errorCode=PLAN_SCHEDULE_CONFIRMED_OVERFLOW_EXCEEDED"));
+        verify(notificationService).notify(eq(42L), eq(NotificationType.PLAN_DOWNGRADE_FAILED), anyString());
+        // 적용 알림은 절대 나가면 안 된다 — 아무것도 적용되지 않았다.
+        verify(notificationService, never())
+                .notify(anyLong(), eq(NotificationType.PLAN_DOWNGRADED), anyString());
     }
 
     @Test

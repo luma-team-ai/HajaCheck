@@ -20,7 +20,15 @@ public enum NotificationType {
      *
      * <p>{@link #PLAN_EXPIRED}와 합치지 않는 이유: 사용자에게 전혀 다른 사건이다. PLAN_EXPIRED 는
      * "결제 주기가 끝나 FREE로 내려갔다"(신청한 적 없음)이고, 이 유형은 "내가 신청한 하향이 예정대로
-     * 적용됐다"(대상 요금제가 FREE가 아닐 수도 있다)라 문구·후속 안내가 갈린다.
+     * 적용됐다"라 문구·후속 안내가 갈린다.
      */
-    PLAN_DOWNGRADED
+    PLAN_DOWNGRADED,
+    /**
+     * 신청해 둔 플랜 하향 예약이 <b>실패로 종료</b>됨(#1105 / HAJA-526) — Flyway V30이 PG 라벨을 추가한다.
+     *
+     * <p>FAILED 는 종료 상태라 자동 재시도가 없고, 조회({@code AdminPlanResponse.scheduledChange})는
+     * 대기(PENDING) 예약만 노출한다. 그래서 알림이 없으면 신청자에게는 "예약을 걸었는데 어느 날 조용히
+     * 사라지고 요금제는 그대로"가 된다 — 서버 로그에만 남기면 사용자는 영원히 알 수 없다.
+     */
+    PLAN_DOWNGRADE_FAILED
 }

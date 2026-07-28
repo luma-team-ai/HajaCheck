@@ -467,8 +467,8 @@ class Ha25IncrementalMigrationTest {
                 // forward-apply한다(V28과 같은 이유·같은 멱등 규칙).
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
-                                "db/migration/V30__add_notification_type_plan_downgraded.sql"),
-                        CONTAINER_ROOT + "V30__add_notification_type_plan_downgraded.sql");
+                                "db/migration/V30__add_notification_type_scheduled_downgrade.sql"),
+                        CONTAINER_ROOT + "V30__add_notification_type_scheduled_downgrade.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -590,8 +590,8 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "V29__create_scheduled_plan_changes.sql");
         runPsql(postgres, "V29__create_scheduled_plan_changes.sql");
         // #1105/HAJA-526 — Flyway V30(notification_type PLAN_DOWNGRADED 라벨)도 이어서 forward-apply한다.
-        runPsql(postgres, "V30__add_notification_type_plan_downgraded.sql");
-        runPsql(postgres, "V30__add_notification_type_plan_downgraded.sql");
+        runPsql(postgres, "V30__add_notification_type_scheduled_downgrade.sql");
+        runPsql(postgres, "V30__add_notification_type_scheduled_downgrade.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

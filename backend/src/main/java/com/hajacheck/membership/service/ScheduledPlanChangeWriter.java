@@ -44,13 +44,19 @@ import org.springframework.transaction.annotation.Transactional;
  * 번) → {@link UserPlan#expire()} → flush → 신규 ACTIVE 발급 → {@link PlanTransitionService#carryOverUsage}
  * → {@link PlanDowngradeService#applyOverflow}.
  *
- * <p><b>결제 주기(#1104)만 다르다</b>: 만료 강등은 주기가 끝나 FREE 로 내리는 것이라 주기를 NULL 로
- * 비우지만, 예약 하향은 <b>다음 주기의 시작</b>이다. 그래서 대상이 유료면
- * {@link UserPlan#startNewBillingPeriod}{@code (effectiveAt)} 로 <b>새 주기를 연다</b> — 여기서
- * {@code carryOverBillingPeriod} 로 이미 지나간 만료일을 승계하면, 새 유료 구독이 발급되는 즉시 만료
- * 강등 배치({@code PlanExpiryScheduler})의 대상이 되어 하루 만에 FREE 로 떨어진다(예약 기능이 통째로
- * 무의미해진다). 대상이 무료면 {@code carryOverBillingPeriod(current, false)} 로 주기 종료를
- * NULL(무기한)로 둔다(#1104 규칙).
+ * <p><b>⚠️ 대상은 무료 요금제만이다</b>(보안 리뷰 P1). 이 경로는 <b>결제 없이</b> 구독을 전이시키는데
+ * 빌링키(정기결제)가 없어 새 유료 주기를 열면 <b>어떤 경로로도 청구되지 않는다</b> — 티어를 한 단계씩
+ * 내리는 것만으로 무상 1개월을 반복 취득할 수 있다(무결제 승격을 막은 #988과 같은 성격의 우회로다).
+ * 그래서 생성 시점({@code AdminPlanService#scheduleChange})이 유료 대상을 거절하고, 여기서도 이중으로
+ * 막는다({@link #applyBillingPeriod}). 대상이 항상 무료이므로 신규 구독의 결제 주기는
+ * {@code carryOverBillingPeriod(previous, false)} 로 <b>종료가 NULL(무기한)</b> 이 된다(#1104 규칙) —
+ * "지나간 만료일을 승계하면 새 구독이 즉시 만료 강등 대상이 된다"는 딜레마 자체가 사라진다.
+ *
+ * <p><b>⚠️ 확인받은 정지 규모를 넘지 않는다</b>(리뷰 P2-4): {@code confirmOverflow=true} 는 <b>신청
+ * 시점 미리보기</b>에 대한 동의다. 예약은 한 달 가까이 보관되므로 그 사이 구성원이 늘면 실행 시점 정지
+ * 인원이 동의받은 수를 크게 넘어설 수 있다(확인 2명 → 실행 15명). 그래서
+ * {@code scheduled_plan_changes.confirmed_seat_overflow} 와 대조해 초과하면 적용하지 않고 FAILED 로
+ * 종료한다 — 상위 요금제가 유지되므로 <b>아무도 잘못 정지되지 않는다</b>.
  *
  * <p><b>멱등</b>: 상태 전이는 {@code UPDATE ... WHERE status = 'PENDING'}
  * ({@link ScheduledPlanChangeRepository#markApplied}) 조건부로만 하고, <b>갱신 행 수가 1일 때만</b> 실제
@@ -60,8 +66,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><b>⚠️ 저장된 {@code keep_user_ids} 는 반드시 실행 시점에 재검증한다</b>(#947 흡수) — 예약은 이
  * 목록을 한 달 가까이 보관하므로 그 사이 퇴사·정지된 id 가 섞일 수 있다. 그대로 넘기면
  * {@link PlanDowngradeService#preview} 의 스코프 검증({@code PLAN_KEEP_USER_INVALID})에 걸려 예약이
- * 통째로 죽는다. {@link #resolveKeepUserIds} 가 무효 id 를 드롭하고 부족분을 자동 규칙(owner + id
- * 오름차순)으로 보충한 뒤, ACTIVE ADMIN 잔존 불변식은 {@code PlanDowngradeService
+ * 통째로 죽는다. {@link #resolveKeepUserIds} 가 무효 id 를 드롭하고 <b>드롭된 수만큼만</b> 자동
+ * 규칙(owner + id 오름차순)으로 되채운 뒤, ACTIVE ADMIN 잔존 불변식은 {@code PlanDowngradeService
  * #requireSurvivingActiveAdmin} 이 그대로 재확인한다.
  *
  * <p><b>알려진 한계(#913)</b>: 이 트랜잭션은 예약 행과 구독 행만 잠그고, {@code preview} 가 읽는 활성
@@ -167,6 +173,18 @@ public class ScheduledPlanChangeWriter {
                 ? planDowngradeService.preview(companyId, currentPlan, targetPlan, keepUserIds)
                 : null;
 
+        // ⚠️ 확인받은 정지 규모를 넘지 않는다(리뷰 P2-4) — confirmOverflow 는 "신청 시점 미리보기"에 대한
+        // 동의이지 백지수표가 아니다. 한 달 사이 구성원이 늘면 실행 시점 정지 인원이 동의받은 수를 크게
+        // 넘어설 수 있고(확인 2명 → 실행 15명), 정지는 SessionUserRevalidationFilter 가 세션까지 즉시
+        // 죽인다. 넘으면 적용하지 않고 FAILED 로 종료한다 — 상위 요금제가 유지되므로 아무도 잘못
+        // 정지되지 않는다(PLAN_SEAT_QUOTA_EXCEEDED 에 채택한 fail-safe 와 같은 논리).
+        int seatsToSuspend = overflow == null ? 0 : overflow.seatUserIdsToSuspend().size();
+        if (seatsToSuspend > scheduled.getConfirmedSeatOverflow()) {
+            log.warn("예약 하향 적용 거부(확인 범위 초과) — scheduledChangeId={} companyId={} confirmed={} actual={}",
+                    scheduledChangeId, companyId, scheduled.getConfirmedSeatOverflow(), seatsToSuspend);
+            throw new BusinessException(ErrorCode.PLAN_SCHEDULE_CONFIRMED_OVERFLOW_EXCEEDED);
+        }
+
         // ⚠️ 점유(claim) — 여기가 멱등성의 핵심이다. 조건부 UPDATE 가 1행을 갱신했을 때만 "이번 실행이
         // 이 예약을 가져갔다"고 인정한다. 행 잠금이 이미 직렬화하고 있지만, 잠금은 트랜잭션 경계 안에서만
         // 유효하고 이 UPDATE 는 <b>상태 자체</b>로 재실행을 막는다(다중 인스턴스·수동 재호출 포함).
@@ -189,7 +207,7 @@ public class ScheduledPlanChangeWriter {
         UserPlan renewed = companyId != null
                 ? UserPlan.forCompany(companyId, targetPlan.getId())
                 : UserPlan.forUser(userId, targetPlan.getId());
-        applyBillingPeriod(renewed, reloaded, targetPlan, effectiveAt);
+        applyBillingPeriod(renewed, reloaded, targetPlan);
 
         UserPlan saved;
         try {
@@ -231,34 +249,55 @@ public class ScheduledPlanChangeWriter {
      * 메서드({@code REQUIRES_NEW})로 둔다. 실패한 실행은 롤백되므로 같은 트랜잭션에 실으면 실패 기록까지
      * 함께 사라진다.
      *
-     * @return 실제로 FAILED 로 바뀌었는지(이미 다른 상태면 false)
+     * <p>알림 수신자·대상 요금제를 함께 돌려주는 이유(리뷰 P2-5): FAILED 는 종료 상태라 재시도가 없고
+     * 조회는 PENDING 만 노출하므로, 신청자에게 알리지 않으면 "예약을 걸었는데 어느 날 조용히 사라지고
+     * 요금제는 그대로"가 된다. 호출부(스케줄러)는 트랜잭션 밖에서 이 값으로 알림을 발행한다.
+     *
+     * @return 기록 결과({@link ScheduledPlanChangeFailure}). 이미 다른 상태면 {@code marked=false} 라
+     *         알림도 발행하지 않는다(중복 통지 방지).
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean markFailed(Long scheduledChangeId, String failureReason) {
-        return scheduledPlanChangeRepository.markFailed(scheduledChangeId, failureReason) == 1;
+    public ScheduledPlanChangeFailure markFailed(Long scheduledChangeId, String failureReason) {
+        if (scheduledPlanChangeRepository.markFailed(scheduledChangeId, failureReason) != 1) {
+            return ScheduledPlanChangeFailure.notMarked();
+        }
+        // 알림 수신자 해석은 조회 전용이라 실패해도 FAILED 기록 자체를 되돌리지 않는다 — 그 경우
+        // recipientUserId 가 null 이 되어 호출부가 "수신자 없음"으로 WARN 만 남긴다.
+        return scheduledPlanChangeRepository.findById(scheduledChangeId)
+                .map(scheduled -> new ScheduledPlanChangeFailure(true,
+                        resolveNotificationRecipient(scheduled.getUserPlanId()),
+                        planRepository.findById(scheduled.getTargetPlanId())
+                                .map(Plan::getName).orElse(null)))
+                .orElseGet(() -> new ScheduledPlanChangeFailure(true, null, null));
+    }
+
+    /** 예약이 걸린 구독의 알림 수신자(회사면 owner, 개인이면 본인). 해석 불가면 {@code null}. */
+    private Long resolveNotificationRecipient(Long userPlanId) {
+        return userPlanRepository.findById(userPlanId)
+                .map(userPlan -> userPlan.getCompanyId() != null
+                        ? companyRepository.findById(userPlan.getCompanyId())
+                                .map(Company::getOwnerUserId).orElse(null)
+                        : userPlan.getUserId())
+                .orElse(null);
     }
 
     /**
      * 신규 구독의 결제 주기를 정한다(#1104).
      *
-     * <p><b>유료 대상이면 새 주기를 연다</b>({@code effectiveAt} 부터 1개월). 예약 하향의 적용 시점은
-     * 이전 주기가 <b>끝나는</b> 순간이고 그때부터가 새 주기이기 때문이다. 여기서 이전 주기를 승계하면
-     * 이미 지나간 만료일이 그대로 실려 새 유료 구독이 즉시 {@code PlanExpiryScheduler} 의 강등 대상이
-     * 된다 — 예약 기능이 하루 만에 무의미해진다.
+     * <p><b>대상은 무료 요금제만이므로</b>({@code AdminPlanService#scheduleChange} 가 생성 시점에 거절)
+     * {@code carryOverBillingPeriod(previous, false)} 로 <b>주기 종료를 NULL(무기한)</b> 로 둔다. FREE 에
+     * 만료일이 남으면 마이페이지가 "무료인데 다음 결제일"을 표시하고 만료 강등 배치가 그 행을 다시 대상으로
+     * 잡는다(#1104 규칙). 주기 시작은 승계한다(구독 개시 시점 자체는 여전히 유효한 정보다).
      *
-     * <p><b>무료 대상이면 종료를 NULL(무기한)로</b> 둔다({@code carryOverBillingPeriod(previous, false)}).
-     * FREE 에 만료일이 남으면 마이페이지가 "무료인데 다음 결제일"을 표시하고 만료 강등 배치가 그 행을
-     * 다시 대상으로 잡는다(#1104 규칙). 유료 여부 판정 근거는 다른 두 경로와 같은
-     * {@code plans.price_monthly} 다.
-     *
-     * <p>⚠️ 알려진 한계: 배치가 한 달 넘게 멈춰 있다가 돌면 {@code effectiveAt + 1개월} 이 이미 과거라
-     * 새 유료 구독이 곧바로 만료 대상이 된다. 그 경우 만료 강등 배치가 FREE 로 내리는 것이 오히려 맞는
-     * 결과(그 주기의 요금을 받지 않았다)라 별도 보정을 두지 않는다.
+     * <p>⚠️ <b>유료 대상이면 여기서 거절한다</b>(보안 리뷰 P1 이중 방어). 이 경로는 결제 없이 전이하므로
+     * 유료 주기를 열면 <b>어떤 경로로도 청구되지 않는 유료 1개월</b>이 발급된다 — 티어를 한 단계씩 내리는
+     * 것만으로 무상 기간을 반복 취득할 수 있다. 생성 시점 가드가 유일한 방어선이면, 가격 정책 변경
+     * (#624 {@code Plan#updatePolicy})으로 대상 요금제가 나중에 유료가 되는 순간 그 우회로가 열린다.
+     * 예약을 FAILED 로 종료시켜 사람을 부른다(상위 요금제 유지 — 아무도 잘못 정지되지 않는다).
      */
-    private void applyBillingPeriod(UserPlan renewed, UserPlan previous, Plan targetPlan, Instant effectiveAt) {
+    private void applyBillingPeriod(UserPlan renewed, UserPlan previous, Plan targetPlan) {
         if (isPaid(targetPlan)) {
-            renewed.startNewBillingPeriod(effectiveAt);
-            return;
+            throw new BusinessException(ErrorCode.PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED);
         }
         renewed.carryOverBillingPeriod(previous, false);
     }
@@ -270,11 +309,18 @@ public class ScheduledPlanChangeWriter {
      *   <li>지금 이 회사의 ACTIVE 구성원이 아닌 id(퇴사·정지·초대 대기·타 회사)를 <b>드롭</b>한다 —
      *       그대로 넘기면 {@code PlanDowngradeService#validateKeepUserIdsScope} 가
      *       {@code PLAN_KEEP_USER_INVALID} 로 예약을 통째로 죽인다.</li>
-     *   <li>드롭으로 좌석이 남으면 <b>자동 규칙</b>(owner 우선 → id 오름차순)으로 한도까지 보충한다.
-     *       보충하지 않으면 관리자가 고르지도 않은 사람이 정지된다.</li>
+     *   <li><b>드롭이 발생했을 때만, 드롭된 수만큼만</b> 자동 규칙(owner 우선 → id 오름차순)으로
+     *       되채운다.</li>
      *   <li>선택이 통째로 비면 빈 리스트를 돌려준다 — {@code PlanDowngradeService} 가 "선택 없음 = 자동
      *       규칙"으로 처리하는 기존 계약을 그대로 탄다.</li>
      * </ol>
+     *
+     * <p><b>⚠️ 좌석이 남는다고 임의로 채우지 않는다</b>(리뷰 P2-2). 즉시 변경 경로
+     * ({@code PlanDowngradeService#resolveSeatsToSuspend})의 계약은 <b>"한도까지 자동으로 채워주는 게
+     * 아니라 관리자의 선택을 있는 그대로 존중한다"</b>이다. 여기만 한도까지 채우면, 저장된 목록이 하나도
+     * 무효화되지 않았는데도 관리자가 확인한 정지 대상(예: 3명)과 실제 결과(2명)가 달라진다. 되채움의
+     * 목적은 "무효화된 자리를 원래 인원 수로 되돌리는 것"이지 한도를 채우는 것이 아니므로, 예산을
+     * <b>드롭된 수</b>로 못박는다(그래야 유지 인원이 신청 시점 인원과 같아진다).
      *
      * <p>ACTIVE ADMIN 잔존 불변식({@code requireSurvivingActiveAdmin})은 여기서 흉내내지 않고
      * {@code PlanDowngradeService} 가 그대로 재확인한다 — 같은 규칙을 두 곳에 복제하면 어긋난다.
@@ -304,27 +350,48 @@ public class ScheduledPlanChangeWriter {
             return List.of();
         }
 
-        Integer maxSeats = targetPlan.getMaxSeats();
-        if (maxSeats != null && keep.size() < maxSeats) {
-            // owner 는 PlanDowngradeService 가 어차피 항상 유지하므로, 좌석 수 계산이 어긋나지 않도록
-            // 보충도 owner 부터 채운다(그쪽 resolveSeatsToSuspend 와 같은 우선순위).
-            companyRepository.findById(companyId)
+        if (dropped > 0) {
+            // ⚠️ 예산은 정확히 "드롭된 수"다 — 좌석이 남는다고 한도까지 채우면 관리자가 확인한 정지
+            // 대상과 실제 결과가 달라진다(위 javadoc, 리뷰 P2-2).
+            //
+            // ⚠️ owner 는 되채움 후보에서 <b>제외</b>한다. PlanDowngradeService#resolveSeatsToSuspend 가
+            // 선택 여부와 무관하게 owner 를 항상 유지 집합의 첫 원소로 넣기 때문에, 여기서 owner 를
+            // 추가하면 <b>생존자는 그대로인데 예산만 소모</b>돼 실제 빈자리가 메워지지 않는다.
+            Integer maxSeats = targetPlan.getMaxSeats();
+            Long activeOwnerUserId = companyRepository.findById(companyId)
                     .map(Company::getOwnerUserId)
                     .filter(activeIds::contains)
-                    .ifPresent(keep::add);
+                    .orElse(null);
+            int budget = dropped;
             for (User user : active) {
-                if (keep.size() >= maxSeats) {
+                if (budget <= 0) {
                     break;
                 }
-                keep.add(user.getId());
+                if (activeOwnerUserId != null && activeOwnerUserId.equals(user.getId())) {
+                    continue;
+                }
+                // 한도 판정은 PlanDowngradeService 와 같은 기준(owner 를 포함한 union)으로 센다.
+                if (maxSeats != null && survivorCount(keep, activeOwnerUserId) >= maxSeats) {
+                    break;
+                }
+                if (keep.add(user.getId())) {
+                    budget--;
+                }
             }
-        }
-        if (dropped > 0) {
             log.warn("예약 하향 유지 대상 재검증 — scheduledChangeId={} companyId={} 무효 {}건 드롭, "
-                            + "최종 유지 {}건(자동 보충 포함)",
+                            + "최종 선택 {}건(드롭된 수만큼만 자동 보충)",
                     scheduledChangeId, companyId, dropped, keep.size());
         }
         return List.copyOf(keep);
+    }
+
+    /**
+     * 실제 생존 인원 수 — {@code PlanDowngradeService#resolveSeatsToSuspend} 가 세는 것과 같은 기준이다
+     * (선택 집합 ∪ 활성 owner). owner 는 선택 여부와 무관하게 항상 유지되므로 좌석 한도 판정에
+     * 포함해야 두 곳의 계산이 어긋나지 않는다.
+     */
+    private int survivorCount(Set<Long> keep, Long activeOwnerUserId) {
+        return keep.size() + (activeOwnerUserId != null && !keep.contains(activeOwnerUserId) ? 1 : 0);
     }
 
     /**

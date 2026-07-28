@@ -151,6 +151,24 @@ public enum ErrorCode {
     PLAN_SCHEDULE_PERIOD_END_MISSING(HttpStatus.CONFLICT,
             "현재 구독에 다음 결제일이 없어 예약할 수 없습니다. 즉시 변경을 이용해 주세요."),
 
+    // 403: 예약 대상이 유료 요금제일 때(보안 리뷰 P1). 예약 실행은 결제 없이 새 결제 주기를 여는데,
+    // 빌링키(정기결제)가 없어 그 주기는 어떤 경로로도 청구되지 않는다. 허용하면 ENTERPRISE→STANDARD 처럼
+    // 티어를 한 단계씩 내릴 때마다 무상 1개월을 반복 취득할 수 있다 — 무결제 승격을 막은 #988과 같은
+    // 성격의 우회로다. 그래서 예약 대상은 무료 요금제(price_monthly = 0)로 한정한다.
+    //
+    // 403 인 이유는 PLAN_UPGRADE_REQUIRES_PAYMENT 와 같다: 재시도로 풀리지 않고 해소 수단이 "무료
+    // 요금제로 예약" 또는 "즉시 변경"뿐이라, 메시지에 그 경로를 명시한다.
+    PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED(HttpStatus.FORBIDDEN,
+            "다음 결제 주기 적용 예약은 무료 요금제로의 변경만 지원합니다. 유료 요금제로의 변경은 요금제 변경 화면에서 즉시 진행해 주세요."),
+
+    // 409: 실행 시점 정지 인원이 신청 시점에 확인받은 인원 수(confirmed_seat_overflow)를 초과할 때
+    // (리뷰 P2-4). confirmOverflow 는 "그 시점 미리보기"에 대한 동의라, 예약 보관 기간(최대 한 달) 사이에
+    // 구성원이 늘면 동의 범위를 벗어난 대량 정지가 된다. 그때는 적용하지 않고 예약을 FAILED 로 종료해
+    // 상위 요금제를 유지한다 — PLAN_SEAT_QUOTA_EXCEEDED 에 채택한 fail-safe(아무도 잘못 정지되지 않는
+    // 쪽)와 같은 논리다. 사용자 요청 응답이 아니라 배치 실패 사유(failure_reason·알림)로 쓰이는 코드다.
+    PLAN_SCHEDULE_CONFIRMED_OVERFLOW_EXCEEDED(HttpStatus.CONFLICT,
+            "예약 신청 시 확인한 정지 인원보다 실제 정지 대상이 많아 예약을 적용하지 않았습니다. 변경 내용을 다시 확인한 뒤 예약해 주세요."),
+
     // 토스페이먼츠 샌드박스 결제(#988 / HAJA-489) — 주문 사전 등록 → 승인 → 플랜 전이 3단계.
     //
     // 404: orderId 로 결제 주문을 찾지 못했을 때. <b>미존재·타인 소유·재확정 불가(FAILED·CANCELED·만료)를

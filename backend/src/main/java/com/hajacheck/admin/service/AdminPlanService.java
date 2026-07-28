@@ -32,6 +32,7 @@ import com.hajacheck.membership.repository.ScheduledPlanChangeRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.service.PlanDowngradeService;
 import com.hajacheck.membership.service.PlanTransitionService;
+import com.hajacheck.membership.service.ScheduledPlanChangeCanceller;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -85,6 +86,7 @@ public class AdminPlanService {
     private final PlanDowngradeService planDowngradeService;
     private final PlanTransitionService planTransitionService;
     private final ScheduledPlanChangeRepository scheduledPlanChangeRepository;
+    private final ScheduledPlanChangeCanceller scheduledPlanChangeCanceller;
 
     /** 제공 요금제 카탈로그(변경 선택지) — 회사 스코프와 무관한 참조 데이터라 ADMIN 이면 조회 가능. */
     public AdminPlanCatalogResponse getPlanCatalog() {
@@ -157,6 +159,18 @@ public class AdminPlanService {
             throw new BusinessException(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED);
         }
 
+        // 즉시 변경이 시작됐으므로 이 구독에 걸린 하향 예약(#1105)은 의미를 잃는다 — 남겨 두면 한 달 뒤
+        // 스케줄러가 "이미 반영된 하향"을 한 번 더 실행하려 들고, 그 예약은 옛 user_plan_id 에 매달린 채
+        // PENDING 으로 남아 owner 가 취소할 수도 없는 유령이 된다.
+        //
+        // ⚠️ 이 호출은 반드시 아래 expire()/applyOverflow() <b>이전</b>이어야 한다(리뷰 P2-1). 예약 실행
+        // 배치는 scheduled_plan_changes → user_plans → users 순으로 잠그는데, 여기서 순서를 뒤집으면
+        // (user_plans → users → scheduled_plan_changes) 사용자 요청과 배치 사이에 ABBA 교착이 생긴다 —
+        // lock_timeout 3000ms 는 PostgreSQL 기본 deadlock_timeout(1s)보다 길어 방어가 되지 않는다.
+        // 취소는 아래 신규 발급 결과와 무관하고 실패 시 트랜잭션 전체가 롤백되므로 앞으로 옮겨도 부작용이
+        // 없다. PlanTransitionService#transitionTo 도 같은 위치에서 호출한다.
+        scheduledPlanChangeCanceller.cancelOnTransition(current.getId(), "구독이 즉시 변경돼 예약이 무효화됨");
+
         // 기존 구독 만료 후 신규 ACTIVE 발급 — 부분 UQ(uq_user_plans_active_company: ACTIVE 최대 1건)를
         // 만족하도록 만료 UPDATE 를 먼저 flush 한 뒤 INSERT 한다.
         current.expire();
@@ -194,12 +208,6 @@ public class AdminPlanService {
         // 직렬화되지 않는다) 커밋 후 새 플랜 한도를 넘는 인원이 남을 수 있다. reserveSeat 는 신규
         // 활성화만 막으므로 그 초과는 스스로 해소되지 않는다.
         planDowngradeService.applyOverflow(companyId, targetPlan, overflow);
-
-        // 즉시 변경이 끝났으므로 이 구독에 걸려 있던 하향 예약은 의미를 잃는다(#1105) — 남겨 두면 한 달
-        // 뒤 스케줄러가 "이미 반영된 하향"을 한 번 더 실행하려 든다. 실행 시점 재검증(구독이 EXPIRED 라
-        // 무효 판정)이 최종 방어선이지만, 그때까지 화면에 유령 예약이 남는 것 자체가 오해를 부르므로
-        // 여기서 명시적으로 끊는다.
-        cancelPendingScheduledChange(current.getId(), "구독이 즉시 변경돼 예약이 무효화됨");
         return buildResponseWithUsage(saved, targetPlan);
     }
 
@@ -219,6 +227,13 @@ public class AdminPlanService {
      * <ul>
      *   <li>하향인가 — 상향·동일 가격은 {@link ErrorCode#PLAN_SCHEDULE_NOT_DOWNGRADE}. 상향은 결제
      *       경로 전용이고(#988) 예약 개념 자체가 없다.</li>
+     *   <li><b>대상이 무료 요금제인가</b> — 유료 대상은
+     *       {@link ErrorCode#PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED}(보안 리뷰 P1). 예약 실행은 결제 없이
+     *       새 결제 주기를 여는데 빌링키(정기결제)가 없어 그 주기는 <b>어떤 경로로도 청구되지 않는다</b>.
+     *       허용하면 ENTERPRISE→STANDARD 처럼 티어를 한 단계씩 내릴 때마다 무상 1개월을 반복 취득할 수
+     *       있다 — 무결제 승격을 막은 #988과 같은 성격의 우회로다. 대상을 무료로 한정하면 신규 구독의
+     *       {@code currentPeriodEnd} 가 항상 NULL(무기한)이 되어, "지나간 만료일을 승계하면 즉시 만료
+     *       강등 대상이 된다"는 딜레마도 함께 사라진다.</li>
      *   <li>적용 시각이 있는가 — {@code current_period_end} 가 없으면(무기한 구독)
      *       {@link ErrorCode#PLAN_SCHEDULE_PERIOD_END_MISSING}.</li>
      *   <li>초과 자원 확인 — {@code confirmOverflow} 없이는
@@ -250,6 +265,14 @@ public class AdminPlanService {
             throw new BusinessException(ErrorCode.PLAN_SCHEDULE_NOT_DOWNGRADE);
         }
 
+        // ⚠️ 대상은 무료 요금제만 허용한다(보안 리뷰 P1) — 예약 실행은 결제 없이 새 결제 주기를 여는데
+        // 빌링키가 없어 그 주기가 청구되지 않는다. 유료 대상을 허용하면 티어를 한 단계씩 내리는 것만으로
+        // 무상 1개월을 반복 취득할 수 있다(위 javadoc 참고). 판정 근거는 위 하향 판정과 같은
+        // plans.price_monthly 다 — 두 판정이 갈라지면 우회로가 생긴다.
+        if (priceOrZero(targetPlan).signum() > 0) {
+            throw new BusinessException(ErrorCode.PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED);
+        }
+
         Instant effectiveAt = current.getCurrentPeriodEnd();
         if (effectiveAt == null) {
             // 무기한 구독(FREE 등)은 "다음 결제 주기"가 없어 실행 기준일을 정할 수 없다. 위 하향 판정에서
@@ -272,8 +295,14 @@ public class AdminPlanService {
             throw new BusinessException(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED);
         }
 
+        // ⚠️ 확인받은 정지 규모를 예약 행에 함께 저장한다(리뷰 P2-4) — confirmOverflow 는 "이 미리보기"에
+        // 대한 동의이지 백지수표가 아니다. 예약은 한 달 가까이 보관되므로 그 사이 구성원이 늘면 실행 시점
+        // 정지 인원이 동의받은 수를 크게 넘어설 수 있고, 대상이 FREE(1석)라 폭발 반경이 특히 크다.
+        // 실행 시점에 이 값과 대조해 초과하면 적용하지 않는다(ScheduledPlanChangeWriter).
+        int confirmedSeatOverflow = overflow.seatUserIdsToSuspend().size();
         ScheduledPlanChange scheduled = ScheduledPlanChange.schedule(
-                current.getId(), targetPlan.getId(), effectiveAt, keepUserIds, adminUserId);
+                current.getId(), targetPlan.getId(), effectiveAt, keepUserIds, confirmedSeatOverflow,
+                adminUserId);
         try {
             scheduled = scheduledPlanChangeRepository.saveAndFlush(scheduled);
         } catch (DataIntegrityViolationException e) {
@@ -290,17 +319,28 @@ public class AdminPlanService {
      *
      * <p>취소 성공 여부는 조회가 아니라 <b>조건부 UPDATE 의 갱신 행 수</b>로 판정한다 — 동시에 두 번
      * 취소해도 한쪽만 성공하고 다른 쪽은 {@link ErrorCode#PLAN_SCHEDULED_CHANGE_NOT_FOUND} 를 받는다.
+     * (선조회는 응답 본문을 만들기 위한 것일 뿐 판정 근거가 아니다.)
+     *
+     * @return 취소된 예약의 스냅샷 — 프론트가 "무엇이 취소됐는지"를 재조회 없이 표시할 수 있게 한다.
      */
     @Transactional
-    public void cancelScheduledChange(Long adminUserId) {
+    public AdminScheduledPlanChangeResponse cancelScheduledChange(Long adminUserId) {
         Long companyId = resolveInheritedCompanyId(adminUserId);
         requireCompanyOwner(companyId, adminUserId);
         UserPlan current = resolveCurrentCompanyPlan(companyId);
+        ScheduledPlanChange pending = scheduledPlanChangeRepository
+                .findFirstByUserPlanIdAndStatus(current.getId(), ScheduledPlanChangeStatus.PENDING)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_SCHEDULED_CHANGE_NOT_FOUND));
         int canceled = scheduledPlanChangeRepository
                 .cancelPendingByUserPlanId(current.getId(), "신청자가 취소함(userId=" + adminUserId + ")");
         if (canceled == 0) {
+            // 선조회와 갱신 사이에 다른 요청/배치가 먼저 처리한 경우 — 최종 판정은 갱신 행 수다.
             throw new BusinessException(ErrorCode.PLAN_SCHEDULED_CHANGE_NOT_FOUND);
         }
+        // ⚠️ pending 은 벌크 UPDATE 를 우회한 1차 캐시 스냅샷이라 status 가 아직 PENDING 이다
+        // (cancelPendingByUserPlanId 는 clearAutomatically 를 쓰지 않는다 — 그 이유는 리포지토리 javadoc).
+        // 그래서 응답 상태는 엔티티에서 읽지 않고 CANCELED 로 명시한다.
+        return AdminScheduledPlanChangeResponse.canceled(pending, findPlan(pending.getTargetPlanId()));
     }
 
     /**
@@ -406,11 +446,6 @@ public class AdminPlanService {
                 .findFirstByUserPlanIdAndStatus(userPlanId, ScheduledPlanChangeStatus.PENDING)
                 .map(change -> AdminScheduledPlanChangeResponse.of(change, findPlan(change.getTargetPlanId())))
                 .orElse(null);
-    }
-
-    /** 구독이 다른 방식으로 전이돼 예약이 의미를 잃었을 때 끊는다(#1105) — 대기 예약이 없으면 no-op. */
-    private void cancelPendingScheduledChange(Long userPlanId, String reason) {
-        scheduledPlanChangeRepository.cancelPendingByUserPlanId(userPlanId, reason);
     }
 
     // 요청 관리자의 회사를 확정한다. companyId 없음(개인 회원 등) = 회사 관리 대상 아님(FORBIDDEN).

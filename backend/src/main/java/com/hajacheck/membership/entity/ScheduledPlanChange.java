@@ -66,6 +66,18 @@ public class ScheduledPlanChange {
     @Column(name = "keep_user_ids", nullable = false)
     private Long[] keepUserIds;
 
+    /**
+     * 신청 시점에 관리자가 {@code confirmOverflow=true} 로 확인한 <b>정지 예정 인원 수</b>(리뷰 P2-4).
+     *
+     * <p>{@code confirmOverflow} 는 "그 시점 미리보기"에 대한 동의다. 예약은 한 달 가까이 보관되므로 그
+     * 사이 구성원이 늘면 실행 시점 정지 인원이 동의받은 수를 크게 넘어설 수 있다(확인 2명 → 실행 15명).
+     * 대상이 FREE(1석)라 폭발 반경이 특히 크고, 정지 즉시 {@code SessionUserRevalidationFilter} 가 그
+     * 사용자의 세션을 죽인다. 그래서 실행 시점에 이 값과 대조해, 넘으면 적용하지 않고 FAILED 로 종료한다
+     * ({@code ScheduledPlanChangeWriter}) — 상위 요금제가 유지되므로 아무도 잘못 정지되지 않는다.
+     */
+    @Column(name = "confirmed_seat_overflow", nullable = false)
+    private int confirmedSeatOverflow;
+
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(columnDefinition = "scheduled_plan_change_status_type", nullable = false)
     private ScheduledPlanChangeStatus status;
@@ -84,11 +96,12 @@ public class ScheduledPlanChange {
     private String failureReason;
 
     private ScheduledPlanChange(Long userPlanId, Long targetPlanId, Instant effectiveAt,
-            List<Long> keepUserIds, Long createdBy) {
+            List<Long> keepUserIds, int confirmedSeatOverflow, Long createdBy) {
         this.userPlanId = userPlanId;
         this.targetPlanId = targetPlanId;
         this.effectiveAt = effectiveAt;
         this.keepUserIds = toArray(keepUserIds);
+        this.confirmedSeatOverflow = confirmedSeatOverflow;
         this.status = ScheduledPlanChangeStatus.PENDING;
         this.createdBy = createdBy;
         this.createdAt = Instant.now();
@@ -97,13 +110,18 @@ public class ScheduledPlanChange {
     /**
      * 하향 예약 생성 — 항상 {@link ScheduledPlanChangeStatus#PENDING} 으로 시작한다.
      *
-     * @param effectiveAt 적용 시각. 호출부가 <b>신청 시점의 {@code user_plans.current_period_end}</b> 를
-     *                    그대로 넘긴다(#1104) — 잔여 기간이 끝나는 순간이 곧 적용 시점이다.
-     * @param keepUserIds 유지할 구성원 선택. {@code null}·빈 리스트는 자동 규칙(owner + id 오름차순)을 뜻한다.
+     * @param effectiveAt           적용 시각. 호출부가 <b>신청 시점의
+     *                              {@code user_plans.current_period_end}</b> 를 그대로 넘긴다(#1104) —
+     *                              잔여 기간이 끝나는 순간이 곧 적용 시점이다.
+     * @param keepUserIds           유지할 구성원 선택. {@code null}·빈 리스트는 자동 규칙(owner + id
+     *                              오름차순)을 뜻한다.
+     * @param confirmedSeatOverflow 신청 시점 미리보기의 정지 예정 인원 수 — 실행 시점 상한이 된다
+     *                              ({@link #getConfirmedSeatOverflow()} javadoc).
      */
     public static ScheduledPlanChange schedule(Long userPlanId, Long targetPlanId, Instant effectiveAt,
-            List<Long> keepUserIds, Long createdBy) {
-        return new ScheduledPlanChange(userPlanId, targetPlanId, effectiveAt, keepUserIds, createdBy);
+            List<Long> keepUserIds, int confirmedSeatOverflow, Long createdBy) {
+        return new ScheduledPlanChange(userPlanId, targetPlanId, effectiveAt, keepUserIds,
+                confirmedSeatOverflow, createdBy);
     }
 
     /** 유지 대상 선택을 불변 리스트로 노출한다(배열 필드를 밖으로 흘리지 않는다). */

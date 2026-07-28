@@ -115,9 +115,9 @@ class FlywayBaselineIntegrationTest {
         //   강등 배치가 강등 시점에 발행하는 알림 유형).
         // + V29(scheduled_plan_changes 플랜 하향 예약 원장 + scheduled_plan_change_status_type enum,
         //   #1105/HAJA-526 — 하향을 즉시가 아니라 다음 결제 주기에 적용).
-        // + V30(notification_type PLAN_DOWNGRADED 라벨, #1105/HAJA-526 — 예약 하향이 적용된 시점에
-        //   신청자(회사 owner)에게 나가는 알림 유형. 만료 강등(PLAN_EXPIRED)과 사용자에게 전혀 다른
-        //   사건이라 라벨을 나눈다).
+        // + V30(notification_type PLAN_DOWNGRADED·PLAN_DOWNGRADE_FAILED 라벨, #1105/HAJA-526 — 예약
+        //   하향이 적용/실패로 종료된 시점에 신청자(회사 owner)에게 나가는 알림 유형. 만료 강등
+        //   (PLAN_EXPIRED)과 사용자에게 전혀 다른 사건이라 라벨을 나눈다).
         //   마이그레이션 수는 V1~V24(24개) + V25·V26·V27·V28·V29·V30(6개) = 30이다.
         assertThat(appliedMigrations).isEqualTo(30);
 
@@ -416,13 +416,23 @@ class FlywayBaselineIntegrationTest {
                 """, String.class);
         assertThat(keepUserIdsUdtName).isEqualTo("_int8");
 
-        // V30이 notification_type PG enum에 PLAN_DOWNGRADED 라벨을 실제로 추가했는지 확인한다
-        // (#1105/HAJA-526 — 라벨이 없으면 예약 하향 적용 알림 INSERT가 런타임에 실패한다).
-        Long planDowngradedLabelExists = jdbcTemplate.queryForObject("""
+        // 확인받은 정지 규모 스냅샷 컬럼(#1105 리뷰 P2-4) — 이 컬럼이 없으면 실행 시점 정지 인원이
+        // 신청 시점 동의 범위를 넘었는지 판정할 근거가 사라진다(NOT NULL + 기본값 0이어야 한다).
+        String confirmedSeatOverflowNullable = jdbcTemplate.queryForObject("""
+                select is_nullable from information_schema.columns
+                where table_schema = 'public' and table_name = 'scheduled_plan_changes'
+                  and column_name = 'confirmed_seat_overflow'
+                """, String.class);
+        assertThat(confirmedSeatOverflowNullable).isEqualTo("NO");
+
+        // V30이 notification_type PG enum에 예약 하향 알림 라벨 2종을 실제로 추가했는지 확인한다
+        // (#1105/HAJA-526 — 라벨이 없으면 적용/실패 알림 INSERT가 런타임에 실패한다).
+        Long scheduledDowngradeLabels = jdbcTemplate.queryForObject("""
                 select count(*) from pg_enum e
                 join pg_type t on e.enumtypid = t.oid
-                where t.typname = 'notification_type' and e.enumlabel = 'PLAN_DOWNGRADED'
+                where t.typname = 'notification_type'
+                  and e.enumlabel in ('PLAN_DOWNGRADED', 'PLAN_DOWNGRADE_FAILED')
                 """, Long.class);
-        assertThat(planDowngradedLabelExists).isEqualTo(1L);
+        assertThat(scheduledDowngradeLabels).isEqualTo(2L);
     }
 }

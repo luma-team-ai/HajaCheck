@@ -1,18 +1,24 @@
--- Flyway V30 — notification_type PG enum에 PLAN_DOWNGRADED 라벨 추가(#1105 / HAJA-526).
+-- Flyway V30 — notification_type PG enum에 예약 하향 알림 라벨 2종 추가(#1105 / HAJA-526).
 --
 -- 배경: 예약된 플랜 하향(scheduled_plan_changes, V29)은 사람 개입 없이 스케줄러가 실행하며, 그 시점에
 -- 초과 좌석이 SUSPENDED 된다. 신청자(회사 owner)가 화면을 보고 있지 않는 사이 구성원 계정이 정지되므로
--- 적용 시점에 알림이 반드시 함께 나가야 한다. NotificationType.PLAN_DOWNGRADED 를 코드에만 추가하고 이
--- 라벨이 PG enum에 없으면 알림 INSERT가 런타임에 실패한다(V4가 role_type, V28이 notification_type 에서
--- 겪은 것과 같은 형태).
+-- 적용 시점에 알림이 반드시 함께 나가야 한다. 코드에만 추가하고 이 라벨이 PG enum에 없으면 알림 INSERT가
+-- 런타임에 실패한다(V4가 role_type, V28이 notification_type 에서 겪은 것과 같은 형태).
+--
+-- PLAN_DOWNGRADED       — 예약이 예정대로 적용됨.
+-- PLAN_DOWNGRADE_FAILED — 예약이 FAILED 로 종료됨(리뷰 P2-5). FAILED 는 종료 상태라 자동 재시도가 없고
+--   조회(scheduledChange)는 PENDING 만 노출하므로, 알림이 없으면 owner 에게는 "예약을 걸었는데 어느 날
+--   조용히 사라지고 요금제는 그대로"가 된다. 서버 로그에만 남기면 신청자는 영원히 알 수 없다.
 --
 -- 만료 강등(PLAN_EXPIRED, V28/#1145)과 라벨을 나누는 이유: 사용자에게 전혀 다른 사건이다. PLAN_EXPIRED 는
 -- "결제 주기가 끝나 FREE로 내려갔다"(신청한 적 없음), PLAN_DOWNGRADED 는 "내가 신청한 하향이 예정대로
--- 적용됐다"(대상 요금제도 FREE가 아닐 수 있다)라, 같은 라벨로 합치면 알림 문구·후속 안내가 갈린다.
+-- 적용됐다"라, 같은 라벨로 합치면 알림 문구·후속 안내가 갈린다.
 --
 -- ALTER TYPE ... ADD VALUE는 PG12+에서는 트랜잭션 안에서도 실행 가능(단, 같은 트랜잭션에서 그 값을
 -- 바로 사용하지만 않으면 됨) — Flyway 기본 트랜잭션 실행으로 문제없다. 그래서 이 파일에는 새 라벨을
 -- 참조하는 DML을 두지 않는다(V4/V15/V28과 동일 규칙). IF NOT EXISTS(PG12+)로 재실행 안전 —
--- 캐노니컬 DDL(HajaCheck_script.sql)에도 이 라벨을 함께 반영하므로 baseline-on-existing 경로(이미
+-- 캐노니컬 DDL(HajaCheck_script.sql)에도 두 라벨을 함께 반영하므로 baseline-on-existing 경로(이미
 -- 전체 스키마가 적재된 DB)에서 이 파일이 처음 적용될 때도 no-op 성공으로 지나간다.
 alter type notification_type add value if not exists 'PLAN_DOWNGRADED';
+
+alter type notification_type add value if not exists 'PLAN_DOWNGRADE_FAILED';
