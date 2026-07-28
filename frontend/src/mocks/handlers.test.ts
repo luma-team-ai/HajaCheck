@@ -21,4 +21,17 @@ describe('MSW handler exports', () => {
     },
     15_000,
   );
+
+  it(
+    '순수 목 런타임은 시설물 핸들러를 전역 handlers에 포함한다',
+    async () => {
+      vi.stubEnv('VITE_ENABLE_MSW', 'true');
+
+      const { handlers } = await import('./handlers');
+      const { facilityHandlers } = await import('../features/facility/api/facilityApi.handlers');
+
+      expect(handlers).toEqual(expect.arrayContaining(facilityHandlers));
+    },
+    15_000,
+  );
 });

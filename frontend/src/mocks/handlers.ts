@@ -75,9 +75,6 @@ export const allMockHandlers = [
   ...notificationHandlers,
 ];
 
-// hybrid에서는 서비스워커가 데이터 요청을 가로채지 않아야 한다. 일반 DEV worker에서도
-// /api/facilities는 지도/시설 목록의 실 집계 필드를 가리지 않도록 전역 등록에서 제외한다.
-// 명시 테스트는 allMockHandlers 또는 feature별 handlers를 직접 등록해 fixture를 계속 사용할 수 있다.
-export const handlers = hybridMode
-  ? []
-  : allMockHandlers.filter((handler) => !facilityHandlers.includes(handler));
+// hybrid에서는 서비스워커가 데이터 요청을 가로채지 않아야 한다.
+// true/미설정 dev의 순수 목 모드는 시설 fixture까지 포함해 기존 mock-only 화면을 유지한다.
+export const handlers = hybridMode ? [] : allMockHandlers;

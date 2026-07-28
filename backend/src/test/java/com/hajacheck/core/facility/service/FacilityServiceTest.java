@@ -351,7 +351,7 @@ class FacilityServiceTest {
                 .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(1)
                 .inspectionDate(LocalDate.of(2026, 6, 21)).status(InspectionStatus.REVIEWED).build();
         setInspectionId(inspection, 100L);
-        when(inspectionRepository.findByFacilityIdIn(List.of(10L))).thenReturn(List.of(inspection));
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L))).thenReturn(List.of(inspection));
         when(defectRepository.countGroupByFacilityIdAndGrade(List.of(100L))).thenReturn(List.of(
                 facilityGradeCount(10L, DefectGrade.C, 2L),
                 facilityGradeCount(10L, DefectGrade.E, 1L),
