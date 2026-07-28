@@ -507,7 +507,7 @@ class DefectRepositoryTest extends PostgresTestSupport {
 
     @Test
     void save_location과previousDefectId_실PG에저장및조회() {
-        // self-referencing FK(previous_defect_id → defects.id)가 실제 PostgreSQL DDL(V21/V22)에서
+        // self-referencing FK(previous_defect_id → defects.id)가 실제 PostgreSQL DDL(V24)에서
         // 정상 동작하는지 확인 — Mockito 단위테스트로는 실제 FK 제약/컬럼 타입을 검증할 수 없다.
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
