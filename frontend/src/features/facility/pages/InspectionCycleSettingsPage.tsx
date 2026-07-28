@@ -93,10 +93,12 @@ function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: Content
         </p>
       </div>
 
-      {/* 카드(폭 제한) 위 → 현황 테이블 전체 너비 아래로 스택. Figma 'Table Content'처럼 7컬럼이
-          가로 스크롤 없이 모두 보이도록 테이블을 컨테이너 전체 폭으로 배치한다. */}
-      <div className="flex flex-col gap-6">
-        <div className="w-full lg:max-w-2xl">
+      {/* Figma 레이아웃대로 좌(카드)/우(테이블) 배치 — lg 미만은 세로 스택으로 폴백.
+          테이블 쪽(min-w-0)이 flex 아이템 기본폭 제약 없이 줄어들 수 있어야 그 안의
+          overflow-x-auto(InspectionCycleStatusTable 자체 래퍼)가 실제로 가로 스크롤을 낸다 —
+          7컬럼이 좁아진 우측 칸에 다 안 들어가면 테이블 내부만 스크롤되고 페이지 전체는 안 밀린다. */}
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        <div className="w-full lg:w-[420px] lg:flex-shrink-0">
           {selectedRow ? (
             // key로 행 전환 시 폼 전체를 리마운트한다 — cycleType/months/알림토글/에러 상태가 훅
             // 초기값으로 자동 리셋되어, 이전 시설물 상태가 새 시설물로 새는 것을 수동 리셋 코드 없이 방지한다.
@@ -112,11 +114,13 @@ function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: Content
             </div>
           )}
         </div>
-        <InspectionCycleStatusTable
-          selectedId={selectedRow?.id ?? null}
-          onSelectRow={setSelectedRow}
-          today={demoToday}
-        />
+        <div className="min-w-0 flex-1">
+          <InspectionCycleStatusTable
+            selectedId={selectedRow?.id ?? null}
+            onSelectRow={setSelectedRow}
+            today={demoToday}
+          />
+        </div>
       </div>
     </div>
   );
