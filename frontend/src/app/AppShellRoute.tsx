@@ -5,7 +5,7 @@
 // AppLayout을 몰라도 됨(react-router v6 표준 패턴: useMatches() + handle).
 import { useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { Outlet, useLocation, useMatches, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useMatches, useNavigate, useSearchParams } from 'react-router-dom';
 import { useLogout } from '../features/auth/hooks/useLogout';
 import { MYPAGE_PLAN_ROUTE, MYPAGE_PROFILE_ROUTE } from '../features/auth/constants';
 import { useAuthStore } from '../features/auth/store/authStore';
@@ -65,9 +65,21 @@ export function AppShellRoute() {
   // Header 프로필 드롭다운(HAJA-758) 상단 플랜 뱃지용 — 마이페이지 "내 플랜"과 동일 소스(useMyPlan)를 재사용해
   // 표기가 어긋나지 않게 한다. 백엔드 미배포 시에도 useMyPlan 자체가 예제 데이터로 폴백한다(HAJA-185).
   const { data: myPlan } = useMyPlan();
+  const [searchParams] = useSearchParams();
+  const isExportMode = searchParams.get('mode') === 'export';
+
   // 가장 깊은(마지막) match부터 breadcrumb/activeHref를 선언한 handle을 찾는다.
   const current = [...matches].reverse().find((match) => hasAppShellHandle(match.handle));
   const handle = current?.handle as AppShellHandle | undefined;
+
+  // PDF 내보내기 모드에서 breadcrumb 마지막 항목을 "PDF 내보내기"로 변경
+  const breadcrumb = useMemo(() => {
+    const base = handle?.breadcrumb ?? [];
+    if (!isExportMode || base.length === 0) return base;
+    const updated = [...base];
+    updated[updated.length - 1] = { ...updated[updated.length - 1], label: 'PDF 내보내기' };
+    return updated;
+  }, [handle?.breadcrumb, isExportMode]);
 
   // 알림 센터(HAJA-38) — Header 벨 버튼은 AppLayout 내부(shared, 미터치)라 열림 상태와 unreadCount는
   // 이 통합지점(app/)이 들고 NotificationCenter(컨테이너)에 boolean으로만 내려준다.
@@ -116,7 +128,7 @@ export function AppShellRoute() {
   return (
     <div onMouseDownCapture={handleShellMouseDownCapture}>
       <AppLayout
-        breadcrumb={handle?.breadcrumb ?? []}
+        breadcrumb={breadcrumb}
         activeHref={handle?.activeHref}
         items={menuItems}
         adminItem={menuAdminItem}

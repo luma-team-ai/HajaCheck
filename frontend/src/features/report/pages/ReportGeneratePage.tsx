@@ -267,9 +267,9 @@ export function ReportGeneratePage() {
       <div className="flex min-h-full flex-col bg-neutral-50">
         <div className="flex items-center justify-between border-b border-zinc-200 bg-white/70 px-6 py-2 backdrop-blur-[10px]">
           <div className="flex items-center gap-2 text-base font-medium text-neutral-600">
-            <svg width="18" height="18" viewBox="0 0 20 18" fill="none" aria-hidden>
-              <path d="M5.5 14.5a4 4 0 0 1-.5-7.96A5 5 0 0 1 14.5 6a4 4 0 0 1 .5 7.96" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M8.5 10.5l1.5 1.5 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            <svg width="20" height="17" viewBox="0 0 24 20" fill="none" aria-hidden>
+              <path d="M6.5 16.5a4.5 4.5 0 0 1-.6-8.96A5.5 5.5 0 0 1 16.2 5.9 4.75 4.75 0 0 1 17.5 15h-.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M9 10.5l2.5 2.5 5-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             <span>자동 저장됨 · {lastSavedAt ? formatElapsedTime(lastSavedAt) : '방금 전'}</span>
           </div>
@@ -297,9 +297,9 @@ export function ReportGeneratePage() {
             </Button>
           </div>
         </div>
-        <div className="flex flex-1 overflow-hidden bg-zinc-100 p-6">
+        <div className="flex flex-1 overflow-hidden">
           {report.pdfUrl && pdfLoadError ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-zinc-200 bg-white p-8 text-center">
+            <div className="m-6 flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-zinc-200 bg-white p-8 text-center">
               <p className="text-lg font-semibold text-text-default">PDF를 불러올 수 없습니다.</p>
               <p className="text-sm text-text-muted">{pdfLoadError}</p>
               <Button onClick={() => void handleDownloadStoredPdf()} variant="secondary">
@@ -307,17 +307,13 @@ export function ReportGeneratePage() {
               </Button>
             </div>
           ) : pdfBlobUrl ? (
-            <iframe
-              title="저장된 보고서 PDF"
-              src={pdfBlobUrl}
-              className="h-[calc(100vh-96px)] w-full rounded-lg border border-zinc-200 bg-white"
-            />
+            <iframe title="보고서 PDF" src={pdfBlobUrl} className="h-full w-full" />
           ) : report.pdfUrl && !pdfLoadError ? (
             <div className="flex flex-1 items-center justify-center">
               <AILoadingIndicator message="PDF를 불러오는 중..." />
             </div>
           ) : (
-            <div className="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-white p-8 text-center">
+            <div className="m-6 flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-white p-8 text-center">
               <div className="flex max-w-md flex-col gap-3">
                 <p className="text-lg font-semibold text-text-default">저장된 PDF가 없습니다.</p>
                 <p className="text-sm text-text-muted">
