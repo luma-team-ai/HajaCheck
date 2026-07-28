@@ -422,7 +422,14 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V24__add_defect_location_and_previous_defect_id.sql"),
-                        CONTAINER_ROOT + "V24__add_defect_location_and_previous_defect_id.sql");
+                        CONTAINER_ROOT + "V24__add_defect_location_and_previous_defect_id.sql")
+                // #1104/HAJA-525 — Flyway V25(user_plans 결제 주기 실체화)도 이어서 1회 forward-apply한다
+                // (단순 add column if not exists + 백필 UPDATE 계열이라 V12/V13/V16/V24와 동일하게 캐노니컬
+                // DDL에도 반영돼 있다).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V25__add_user_plan_billing_period.sql"),
+                        CONTAINER_ROOT + "V25__add_user_plan_billing_period.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -527,6 +534,8 @@ class Ha25IncrementalMigrationTest {
         // #970 갭3/HAJA-437 — Flyway V24(defects.location + defects.previous_defect_id)도 이어서
         // 1회 forward-apply한다.
         runPsql(postgres, "V24__add_defect_location_and_previous_defect_id.sql");
+        // #1104/HAJA-525 — Flyway V25(user_plans 결제 주기 실체화)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V25__add_user_plan_billing_period.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }
