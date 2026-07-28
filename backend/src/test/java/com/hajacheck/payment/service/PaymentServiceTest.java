@@ -243,7 +243,7 @@ class PaymentServiceTest {
     void 주문생성_동시경합에_지면_1회_재시도해_기존주문을_돌려준다() {
         // 리뷰 P2 — 부분 유니크 인덱스가 경합을 직렬화하고, 진 쪽은 재시도로 이긴 쪽 주문을 재사용한다.
         PaymentOrderResponse existing = new PaymentOrderResponse(
-                ORDER_ID, "ENTERPRISE", AMOUNT, "HajaCheck ENTERPRISE 플랜 구독");
+                ORDER_ID, "ENTERPRISE", AMOUNT, 0L, AMOUNT, "HajaCheck ENTERPRISE 플랜 구독");
         when(paymentWriter.createOrder(USER_ID, PlanName.ENTERPRISE))
                 .thenThrow(new DataIntegrityViolationException("uq_payments_ready_user violated"))
                 .thenReturn(existing);

@@ -3,7 +3,7 @@ import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { Modal } from '../../../shared/components/Modal';
 import { usePayments } from '../hooks/usePayments';
 import type { PaymentHistoryItem, PaymentStatus } from '../types';
-import { PLAN_NAME_LABEL } from '../utils/planFormat';
+import { formatAmount, PLAN_NAME_LABEL } from '../utils/planFormat';
 
 type Props = {
   open: boolean;
@@ -16,13 +16,6 @@ const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
   FAILED: '결제 실패',
   CANCELED: '결제 취소',
 };
-
-// 결제 건별 금액 — planFormat.formatPriceMonthly는 "월 구독가"(현재 플랜 요금) 표기용이라 "/월"
-// 접미사가 붙는다. 결제 내역은 그 회차에 실제로 청구된 1회성 금액이라 접미사 없이 표기한다
-// (FAILED 건에 "₩29,000/월"처럼 오인 소지가 있는 문구가 붙는 것도 방지).
-function formatAmount(amount: number): string {
-  return `₩${amount.toLocaleString()}`;
-}
 
 function formatApprovedAt(approvedAt: string | null): string {
   if (!approvedAt) return '-';
