@@ -130,6 +130,27 @@ class MediaServiceTest {
         assertThat(saved.getOriginalUrl()).isEqualTo("inspection-media/x.png");
         assertThat(saved.getThumbnailUrl()).isEqualTo("inspection-media-thumb/x.jpg");
         assertThat(saved.getDetailUrl()).isEqualTo("inspection-media-detail/x.jpg");
+        assertThat(saved.getOriginalFilename()).isEqualTo("a.png");
+    }
+
+    @Test
+    void uploadMedia_255자_초과_파일명은_잘라서_저장하되_서로게이트_페어_경계를_보존한다() throws IOException {
+        // PR 리뷰 P3 — 절단 경계(255번째 코드유닛)가 서로게이트 페어(이모지 등 BMP 밖 문자) 중간이면
+        // 안 잘리고 페어 전체가 빠져야 한다(반쪽만 남아 깨진 문자(U+FFFD)로 표시되면 안 됨).
+        String surrogatePair = "😀"; // 😀, high+low surrogate 2코드유닛
+        String longName = "a".repeat(254) + surrogatePair + ".png"; // 254 + 2(서로게이트) + 4(".png") = 260자
+        byte[] png = realPngBytes();
+        stubStorage();
+        when(mediaWriter.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.uploadMedia(1L, 200L, 100L, List.of(pngFile(longName, png)));
+
+        ArgumentCaptor<List<Media>> captor = ArgumentCaptor.forClass(List.class);
+        verify(mediaWriter).saveAll(captor.capture());
+        String saved = captor.getValue().get(0).getOriginalFilename();
+        assertThat(saved).hasSize(254); // 서로게이트 페어를 통째로 버려 254자리에서 끊긴다(255자가 아님).
+        assertThat(saved.charAt(saved.length() - 1)).isEqualTo('a');
+        assertThat(Character.isSurrogate(saved.charAt(saved.length() - 1))).isFalse();
     }
 
     @Test

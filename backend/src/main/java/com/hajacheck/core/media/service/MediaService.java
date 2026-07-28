@@ -263,7 +263,14 @@ public class MediaService {
         if (filename == null || filename.length() <= MAX_ORIGINAL_FILENAME_LENGTH) {
             return filename;
         }
-        return filename.substring(0, MAX_ORIGINAL_FILENAME_LENGTH);
+        // PR 리뷰 P3 — substring은 UTF-16 코드유닛 기준이라, 자르는 경계가 서로게이트 페어(이모지 등
+        // BMP 밖 문자) 중간이면 뒤쪽 low surrogate가 잘려 나가 깨진 문자(U+FFFD)로 표시된다. 경계 직전
+        // 코드유닛이 high surrogate면 한 유닛 덜 잘라 페어를 통째로 보존한다.
+        int cut = MAX_ORIGINAL_FILENAME_LENGTH;
+        if (Character.isHighSurrogate(filename.charAt(cut - 1))) {
+            cut -= 1;
+        }
+        return filename.substring(0, cut);
     }
 
     /**
