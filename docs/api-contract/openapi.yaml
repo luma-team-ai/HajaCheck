@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.31.0-draft"
+  version: "0.32.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -32,6 +32,12 @@ info:
     - **브로커**: 인메모리 심플 브로커(`/topic`, `/queue`), 애플리케이션 목적지 prefix `/app`, 사용자 목적지
       prefix `/user`.
 
+
+    2026-07-28 구독 만료 FREE 자동 강등 알림 추가(#1145 / HAJA-549, Flyway V28) — `NotificationTypeCode`
+    에 **PLAN_EXPIRED** 신설. 결제 주기(`current_period_end`)가 지난 유료 구독을 배치가 FREE 로 내리면서
+    발행한다. 기존 enum 값은 그대로라 하위호환이며, 프론트는 미지원 타입 폴백("기타")을 갖고 있으므로
+    문구 대응 전에도 깨지지 않는다. 배치는 `enabled=false`·`mode=DRY_RUN` 기본값이라 이 계약이 실제로
+    발행되기 전 운영 승격 절차를 거친다.
 
     2026-07-28 알림 삭제 계약 추가(FR-9) — DELETE /api/notifications/{id} 신설. 알림 센터의 개별 닫기(X)가
     클라이언트 숨김이 아니라 실제 삭제(notifications 행 물리 삭제)로 동작한다. 인가·404 통일 정책은
@@ -5017,7 +5023,11 @@ components:
     # ── notification 도메인 (AP-020, #25 / HAJA-38 FR-9) ──
     NotificationTypeCode:
       type: string
-      enum: [ANALYSIS_DONE, REVIEW_PENDING, COUNSEL_REPLIED, INSPECTION_DUE]
+      description: >
+        PLAN_EXPIRED(#1145 / HAJA-549) — 구독 결제 주기 만료로 FREE 자동 강등됐음을 알린다.
+        수신자는 회사 구독이면 회사 owner, 개인 구독이면 구독 소유자다. payload는
+        {previousPlanName, newPlanName, periodEndAt, suspendedSeatCount} 형태다.
+      enum: [ANALYSIS_DONE, REVIEW_PENDING, COUNSEL_REPLIED, INSPECTION_DUE, PLAN_EXPIRED]
 
     NotificationResponse:
       type: object
