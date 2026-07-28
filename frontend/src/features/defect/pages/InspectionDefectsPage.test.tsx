@@ -2,7 +2,7 @@
 // InspectionDefectsPage 통합 테스트 — 점검 상세(카드형, HAJA-393/394 §화면 구조 ②) KPI/카드 그리드/
 // 활동 기록 사이드바 렌더링과, 카드 클릭 시 하자 상세 모달(§화면 구조 ③)이 열리고 닫히는 흐름을 검증한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -105,7 +105,11 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     expect(screen.queryByRole('dialog', { name: '하자 상세' })).toBeNull();
   });
 
-  it('조치 결과 등록 폼을 제출하면 상태가 해결됨으로 바뀌고 읽기 전용 요약으로 전환된다', async () => {
+  // #1128 — targetStatus 도입 이후 "검수확정→조치완료" 한 번의 제출로 바로 가지 않는다. 백엔드의
+  // 정방향 1단계 전이 규칙상 CONFIRMED에서 유효한 다음 단계는 IN_PROGRESS뿐이라, 조치완료까지
+  // 가려면 같은 폼을 두 번(조치중 등록 → 조치완료 등록) 제출해야 한다. RESOLVED(종료 상태)에
+  // 도달했을 때만 폼이 읽기 전용 요약으로 전환된다.
+  it('조치 결과 등록 폼을 두 번 제출하면 검수확정→조치중→조치완료로 순차 전이하고, 조치완료 시점에만 읽기 전용 요약으로 전환된다', async () => {
     // 실 axios→MSW 네트워크 경로로 File/FormData를 태우면 jsdom File과 Node undici의 multipart
     // 파서가 호환되지 않아 테스트가 깨진다(inspection feature의 InspectionCreatePage.test.tsx와
     // 동일하게 이미 겪은 문제) — 업로드 API 자체는 mediaApi.upload처럼 spy로 우회하고, 이 테스트는
@@ -134,15 +138,42 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
       target: { value: (await within(modal).findByRole('option', { name: '김도현 검사자' })).getAttribute('value') },
     });
 
-    const submitButton = within(modal).getByRole('button', {
-      name: '조치 완료 등록',
-    }) as HTMLButtonElement;
-    expect(submitButton.disabled).toBe(false);
-    fireEvent.click(submitButton);
+    // 1차 제출 — 검수확정(CONFIRMED)에서 유효한 다음 단계는 조치중(IN_PROGRESS)뿐(#1128 1단계 전이).
+    expect((within(modal).getByLabelText('진행상태 *') as HTMLSelectElement).value).toBe('IN_PROGRESS');
+    fireEvent.click(within(modal).getByRole('button', { name: '상태 저장' }));
 
-    expect(await within(modal).findByText('균열 부위 에폭시 주입 및 표면 도포 완료')).not.toBeNull();
-    expect(await within(modal).findByText('해결됨')).not.toBeNull();
-    expect(uploadSpy).toHaveBeenCalledWith(101, file, expect.any(Function));
+    // 조치중은 종료 상태가 아니므로 폼이 계속 보인다(읽기 전용 전환 아님) — 다음 제출 대상은 조치완료.
+    // 뮤테이션 성공 후 setQueryData로 상세 캐시가 갱신되는 게 비동기라, select 값이 실제로
+    // IN_PROGRESS 파생값(RESOLVED가 다음 단계)으로 바뀔 때까지 기다린다.
+    await waitFor(() =>
+      expect((within(modal).getByLabelText('진행상태 *') as HTMLSelectElement).value).toBe('RESOLVED'),
+    );
+    expect(within(modal).getByLabelText('조치 후 사진 업로드 *')).not.toBeNull();
+    expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('조치중');
+    // #1128 코드리뷰 P2-2 — 성공 후 폼 필드가 초기화되고 성공 알림이 뜬다(중복 업로드/의도치 않은
+    // 완결 방지). 초기화된 상태라 재제출은 필드를 다시 채워야만 가능하다.
+    expect(within(modal).getByText('조치중(으)로 저장되었습니다.')).not.toBeNull();
+    expect((within(modal).getByRole('button', { name: '상태 저장' }) as HTMLButtonElement).disabled).toBe(true);
+
+    // 2차 제출 — 조치중(IN_PROGRESS)에서 유효한 다음 단계는 조치완료(RESOLVED). 초기화된 필드를
+    // 다시 채운 뒤 제출한다. RESOLVED는 종료 상태라 이번엔 폼이 읽기 전용 요약으로 전환된다.
+    const secondFile = new File(['dummy2'], 'after2.png', { type: 'image/png' });
+    fireEvent.change(within(modal).getByLabelText('조치 후 사진 업로드 *'), { target: { files: [secondFile] } });
+    fireEvent.change(within(modal).getByLabelText('조치 내용 *'), {
+      target: { value: '보수 완료 확인 — 재발 없음' },
+    });
+    fireEvent.change(within(modal).getByLabelText('조치일 *'), { target: { value: '2026-07-21' } });
+    fireEvent.change(within(modal).getByLabelText('담당자 *'), {
+      target: { value: (await within(modal).findByRole('option', { name: '김도현 검사자' })).getAttribute('value') },
+    });
+    fireEvent.click(within(modal).getByRole('button', { name: '상태 저장' }));
+
+    await waitFor(() => expect(within(modal).queryByLabelText('조치 후 사진 업로드 *')).toBeNull());
+    // 조치 필드는 1세트뿐이라 2차 등록 내용이 최종 요약에 남는다(1차 내용은 감사기록으로만 보존,
+    // #1128 코드리뷰 P2-1).
+    expect(within(modal).getByText('보수 완료 확인 — 재발 없음')).not.toBeNull();
+    expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('해결됨');
+    expect(uploadSpy).toHaveBeenCalledTimes(2);
 
     uploadSpy.mockRestore();
   });

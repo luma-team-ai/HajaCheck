@@ -372,7 +372,66 @@ class DefectServiceTest {
     // ── HAJA-393/#725: 조치 결과 등록 ──
 
     private DefectActionResultRequest actionResultRequest() {
-        return new DefectActionResultRequest(50L, "균열 부위 보수 완료", LocalDate.of(2026, 7, 24), 200L);
+        return actionResultRequest(DefectStatus.RESOLVED);
+    }
+
+    private DefectActionResultRequest actionResultRequest(DefectStatus targetStatus) {
+        return new DefectActionResultRequest(
+                50L, "균열 부위 보수 완료", LocalDate.of(2026, 7, 24), 200L, targetStatus);
+    }
+
+    /** targetStatus 시나리오 공통 스텁 — 하자 조회와 조치 후 사진 검증까지 정상 경로로 통과시킨다. */
+    private void stubActionRegistrationDeps(Defect defect) {
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));
+        Media media = Media.builder().inspectionId(100L).build();
+        ReflectionTestUtils.setField(media, "id", 50L);
+        when(mediaRepository.findByIdAndInspectionId(50L, 100L)).thenReturn(Optional.of(media));
+    }
+
+    @Test
+    void registerActionResult_CONFIRMED에서_targetStatus_IN_PROGRESS전이및이력기록() {
+        // #1128: 같은 폼으로 "조치중"도 저장한다 — CONFIRMED→IN_PROGRESS는 정방향 한 단계라 사유 없이 허용.
+        Defect defect = existingDefect(5L, DefectStatus.CONFIRMED);
+        stubActionRegistrationDeps(defect);
+        User assignee = User.builder().name("김현수").build();
+        ReflectionTestUtils.setField(assignee, "id", 200L);
+        when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
+
+        DefectResponse response = defectService.registerActionResult(
+                USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.IN_PROGRESS));
+
+        assertThat(response.status()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(defect.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(response.actionContent()).isEqualTo("균열 부위 보수 완료");
+        assertThat(response.actionAssigneeName()).isEqualTo("김현수");
+        // 활동 기록은 실제 전이된 상태를 남겨야 한다(RESOLVED 하드코딩 회귀 방지).
+        verify(defectRevisionRepository).save(argThat(revision ->
+                revision.getFieldChanged().equals("status")
+                        && revision.getOldValue().equals("CONFIRMED")
+                        && revision.getNewValue().equals("IN_PROGRESS")));
+    }
+
+    @Test
+    void registerActionResult_CONFIRMED에서_targetStatus_RESOLVED_건너뛴전이차단() {
+        // CONFIRMED→RESOLVED는 한 단계 건너뛴 전이라 사유 없는 폼에서는 거부된다(조기 완료 방지).
+        Defect defect = existingDefect(5L, DefectStatus.CONFIRMED);
+        stubActionRegistrationDeps(defect);
+
+        assertThatThrownBy(() -> defectService.registerActionResult(
+                USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.RESOLVED)))
+                .isInstanceOf(DomainValidationException.class);
+        assertThat(defect.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+        verify(defectRevisionRepository, never()).save(any());
+    }
+
+    @Test
+    void registerActionResult_targetStatus가조치대상아님_도메인검증거부() {
+        // DETECTED/CONFIRMED는 조치 등록의 타겟이 될 수 없다 — 하자 조회 전에 먼저 거부한다.
+        assertThatThrownBy(() -> defectService.registerActionResult(
+                USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.CONFIRMED)))
+                .isInstanceOf(DomainValidationException.class);
+        verify(defectRepository, never()).findByIdAndCompanyId(any(), any());
+        verify(defectRevisionRepository, never()).save(any());
     }
 
     @Test
