@@ -8,7 +8,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ReportDetailResponse } from '../api/reportApi';
 import type { InspectionResponse, DefectDetailItem, MediaResponse } from '../../inspection/api/inspectionApi.types';
 import { isReportContent, type ReportContent } from '../types';
-import { AI_DRAFT_WARNING_TITLE } from '../constants';
+import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../constants';
 import { mockReportDetailResponse } from '../mocks/reportDetail.mock';
 import { ReportGeneratePage } from './ReportGeneratePage';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
@@ -228,12 +228,9 @@ describe('ReportGeneratePage', () => {
     expect(recheckButton.disabled).toBe(false);
     fireEvent.click(recheckButton);
 
-    await waitFor(() => {
-      expect(screen.getByText('✓ 검증 완료')).toBeTruthy();
-    });
-
     const finalizeButton = screen.getByRole('button', { name: 'PDF 생성 후 확정' }) as HTMLButtonElement;
-    expect(finalizeButton.disabled).toBe(false);
+    await waitFor(() => expect(finalizeButton.disabled).toBe(false));
+    expect(screen.queryByText('✓ 검증 완료')).toBeNull();
     fireEvent.click(finalizeButton);
 
     await waitFor(() => {
@@ -464,6 +461,7 @@ describe('ReportGeneratePage', () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
     expect(screen.getByText(AI_DRAFT_WARNING_TITLE)).toBeTruthy();
+    expect(screen.getByText((_, node) => node?.textContent === AI_DRAFT_WARNING)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'PDF 미리보기' })).toBeTruthy();
   });
 });

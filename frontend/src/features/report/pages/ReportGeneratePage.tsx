@@ -368,12 +368,7 @@ export function ReportGeneratePage() {
           onFinalize={() => void handleGeneratePdfAndFinalize()}
         />
 
-      {/* grounding 검증 상태 — 기존 "✓ 검증 완료" 텍스트 보존(테스트 의존) */}
-      {report.groundingCheckPassed === true && (
-        <div className="rounded-lg bg-info-soft-bg p-3 text-sm text-info-soft-fg">
-          ✓ 검증 완료
-        </div>
-      )}
+      {/* grounding 검증 실패 상태 — 통과 완료 표시는 상단 단계/확정 버튼 상태로만 드러낸다. */}
       {report.groundingCheckPassed === false && (
         <div className="rounded-lg bg-warning-soft-bg p-3 text-sm text-warning-soft-fg">
           ⚠ 검증 실패 — 내용을 확인 후 다시 검증하세요.
