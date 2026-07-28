@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import { statisticsApi } from './statisticsApi';
 
