@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.28.0-draft"
+  version: "0.29.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -32,6 +32,10 @@ info:
     - **브로커**: 인메모리 심플 브로커(`/topic`, `/queue`), 애플리케이션 목적지 prefix `/app`, 사용자 목적지
       prefix `/user`.
 
+
+    2026-07-28 알림 삭제 계약 추가(FR-9) — DELETE /api/notifications/{id} 신설. 알림 센터의 개별 닫기(X)가
+    클라이언트 숨김이 아니라 실제 삭제(notifications 행 물리 삭제)로 동작한다. 인가·404 통일 정책은
+    PATCH /{id}/read 와 동일(타인 소유·미존재 모두 NOTIFICATION_NOT_FOUND).
 
     2026-07-28 구독 결제 주기 실체화(#1104 / HAJA-525, Flyway V27) — `user_plans.current_period_start`
     /`current_period_end` 컬럼 신설로 nextBillingDate·remainingDays 의 산출 근거가 **조회 시점 파생 계산
@@ -2776,7 +2780,8 @@ paths:
         AP-020(#25 / HAJA-38 FR-9). 로그인 사용자에게 온 알림을 읽음/미읽음 모두 포함해(센터는 이력 표시)
         생성일 최신순(동률 시 id desc) 상위 30건으로 반환한다. 수신자(userId)는 인증 주체에서만 취득하며
         요청 파라미터/바디로 받지 않는다(cross-owner IDOR 방지). 이 엔드포인트는 조회만 다룬다 —
-        읽음처리는 PATCH /api/notifications/{id}/read(HAJA-274), 이벤트 발행(트리거)은 별도 계약(후속).
+        읽음처리는 PATCH /api/notifications/{id}/read(HAJA-274), 삭제는 DELETE /api/notifications/{id},
+        이벤트 발행(트리거)은 별도 계약(후속).
       security:
         - SessionCookie: []
       tags: [notification]
@@ -2811,6 +2816,40 @@ paths:
       responses:
         "200":
           description: 읽음 처리 성공(멱등 — 이미 읽음도 200)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoidApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 타인 소유 (NOTIFICATION_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/notifications/{id}:
+    delete:
+      summary: 알림 삭제
+      description: >
+        FR-9. 알림 센터에서 개별 알림의 닫기(X)를 누르면 해당 알림을 삭제한다(notifications 행 물리 삭제 —
+        알림은 파생 통지라 보존하지 않는다). 읽음 여부와 무관하게 삭제하며, 수신자(userId)는 인증 주체에서만
+        취득한다. 미존재 또는 타인 소유 알림은 리소스 존재 열거(cross-user IDOR)를 막기 위해 모두 404로
+        통일 응답한다(읽음 처리와 동일 원칙).
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [notification]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: 삭제 성공
           content:
             application/json:
               schema: { $ref: "#/components/schemas/VoidApiResponse" }
