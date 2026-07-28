@@ -139,8 +139,8 @@ class FlywayBaselineIntegrationTest {
                 """, Boolean.class);
         assertThat(inspectionIdNullable).isTrue();
 
-        // V26이 media.original_filename 컬럼을 실제로 추가했는지 확인(AI 분석 실행/상태 화면
-        // "이미지 N" 순번 표시 문제 수정, V25는 팀원 작업 선점으로 아직 dev 미병합).
+        // V26이 media.original_filename 컬럼을 실제로 추가했는지 확인(#1116 — AI 분석 실행/상태 화면
+        // "이미지 N" 순번 표시 문제 수정).
         Long originalFilenameColumnExists = jdbcTemplate.queryForObject("""
                 select count(*) from information_schema.columns
                 where table_schema = 'public' and table_name = 'media' and column_name = 'original_filename'
@@ -361,7 +361,7 @@ class FlywayBaselineIntegrationTest {
                 """, Long.class);
         assertThat(previousDefectIdFkExists).isGreaterThanOrEqualTo(1L);
 
-        // V25가 user_plans.current_period_start/current_period_end 컬럼(#1104/HAJA-525)을
+        // V27이 user_plans.current_period_start/current_period_end 컬럼(#1104/HAJA-525)을
         // 실제로 추가했는지 확인한다.
         Long billingPeriodColumnCount = jdbcTemplate.queryForObject("""
                 select count(*) from information_schema.columns
