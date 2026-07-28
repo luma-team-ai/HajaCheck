@@ -6,7 +6,13 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.core.defect.dto.NlSearchAiEnvelope;
+import com.hajacheck.core.defect.dto.NlSearchFilters;
 import com.hajacheck.core.defect.dto.NlSearchResult;
+import com.hajacheck.core.defect.entity.DefectGrade;
+import com.hajacheck.core.defect.entity.DefectStatus;
+import com.hajacheck.core.defect.entity.DefectType;
+import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.inspection.entity.InspectionType;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -18,7 +24,10 @@ import com.hajacheck.membership.repository.UserPlanRepository;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -63,6 +72,7 @@ public class NlSearchService {
     private final PlanRepository planRepository;
     private final CompanyMembershipRepository companyMembershipRepository;
     private final AiProxyRateLimiter aiProxyRateLimiter;
+    private final Clock clock;
 
     public ApiResponse<NlSearchResult> search(Long userId, String rawQuery) {
         String query = validateQuery(rawQuery);
@@ -84,7 +94,7 @@ public class NlSearchService {
             }
             return ApiResponse.fail(error.code(), error.message());
         }
-        if (envelope.data() == null) {
+        if (envelope.data() == null || !isValidResult(envelope.data())) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
         }
         return ApiResponse.ok(envelope.data());
@@ -111,7 +121,8 @@ public class NlSearchService {
 
         Optional<UserPlan> userPlan;
         if (companyId != null) {
-            if (!companyMembershipRepository.existsEffectiveApprovedMembership(companyId, userId, Instant.now())) {
+            if (!companyMembershipRepository.existsEffectiveApprovedMembership(
+                    companyId, userId, Instant.now(clock))) {
                 throw new BusinessException(ErrorCode.AI_ADDON_REQUIRED);
             }
             userPlan = userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(
@@ -138,7 +149,7 @@ public class NlSearchService {
             return aiServerRestClient.post()
                     .uri(NL_SEARCH_PATH)
                     .headers(this::attachInternalServiceTokenIfPresent)
-                    .body(new QueryBody(query))
+                    .body(new InternalNlSearchRequest(query, LocalDate.now(clock).toString()))
                     .retrieve()
                     .body(NlSearchAiEnvelope.class);
         } catch (ResourceAccessException e) {
@@ -151,7 +162,63 @@ public class NlSearchService {
         }
     }
 
-    private record QueryBody(String query) {
+    private record InternalNlSearchRequest(String query, String referenceDate) {
+    }
+
+    private boolean isValidResult(NlSearchResult result) {
+        if (result.filters() == null
+                || result.unsupportedTerms() == null
+                || result.interpretationConfidence() == null
+                || !Double.isFinite(result.interpretationConfidence())
+                || result.interpretationConfidence() < 0.0
+                || result.interpretationConfidence() > 1.0) {
+            return false;
+        }
+        NlSearchFilters filters = result.filters();
+        if (!areValidEnums(filters.type(), DefectType.class)
+                || !areValidEnums(filters.grade(), DefectGrade.class)
+                || !areValidEnums(filters.status(), DefectStatus.class)
+                || !areValidEnums(filters.inspectionType(), InspectionType.class)
+                || !areValidEnums(filters.inspectionStatus(), InspectionStatus.class)
+                || !isValidConfidence(filters.confidenceMin())
+                || isAfter(filters.inspectionDateFrom(), filters.inspectionDateTo())
+                || !isValidRange(filters.roundNoMin(), filters.roundNoMax(), 1)
+                || !isValidRange(filters.defectCountMin(), filters.defectCountMax(), 0L)) {
+            return false;
+        }
+        return result.unsupportedTerms().stream().allMatch(StringUtils::hasText);
+    }
+
+    private static <E extends Enum<E>> boolean areValidEnums(List<String> values, Class<E> enumType) {
+        if (values == null) {
+            return false;
+        }
+        try {
+            for (String value : values) {
+                if (!StringUtils.hasText(value)) {
+                    return false;
+                }
+                Enum.valueOf(enumType, value);
+            }
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private static boolean isValidConfidence(Double confidence) {
+        return confidence == null
+                || (Double.isFinite(confidence) && confidence >= 0.0 && confidence <= 1.0);
+    }
+
+    private static boolean isAfter(LocalDate min, LocalDate max) {
+        return min != null && max != null && min.isAfter(max);
+    }
+
+    private static <T extends Comparable<T>> boolean isValidRange(T min, T max, T lowerBound) {
+        return (min == null || min.compareTo(lowerBound) >= 0)
+                && (max == null || max.compareTo(lowerBound) >= 0)
+                && (min == null || max == null || min.compareTo(max) <= 0);
     }
 
     /** AiProxyService.mapConnectionFailure와 동일 분류 기준(JdkClientHttpRequestFactory 타임아웃 유형). */
