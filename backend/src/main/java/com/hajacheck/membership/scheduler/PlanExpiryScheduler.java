@@ -8,11 +8,13 @@ import com.hajacheck.membership.service.PlanExpiryResult;
 import com.hajacheck.membership.service.PlanExpiryWriter;
 import com.hajacheck.notification.entity.NotificationType;
 import com.hajacheck.notification.service.NotificationService;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -52,11 +54,17 @@ import org.springframework.stereotype.Component;
  *   <li>{@link PlanExpiryProperties#getMode()} — <b>기본 DRY_RUN</b>. 대상 조회·집계·대상 id 로그까지만
  *       하고 단 한 건도 강등하지 않는다. 운영자가 그 목록을 결제 이력과 대조한 뒤 ENFORCE 로 올린다.</li>
  *   <li>{@link PlanExpiryProperties#getNotBefore()} — 설정되면 그보다 이른 만료일은 <b>쿼리 단계에서</b>
- *       빠진다. V27 백필 추정치 구간을 <b>건수와 무관하게</b> 배제하는 컷오프다.</li>
+ *       빠진다. V27 백필 추정치 구간을 <b>건수와 무관하게</b> 배제하는 컷오프이며,
+ *       {@code mode=ENFORCE} 에서는 <b>필수</b>다(미설정이면 기동 실패 — 전 구간을 의도적으로 대상으로
+ *       삼으려면 {@code not-before-unbounded=true} 를 명시해야 한다). "무설정 = 무제한" 기본값을 두면
+ *       {@code enabled=true} 와 {@code mode=ENFORCE} 를 같은 배포에 함께 넣는 것만으로 DRY_RUN 단계를
+ *       건너뛴 채 첫 회차 일괄 강등이 일어난다.</li>
  *   <li>{@link PlanExpiryProperties#getMaxPerRun()} — 대상 건수가 상한을 넘으면 <b>아무것도 하지 않고</b>
  *       ERROR 로그 후 중단한다. 부분 강등도 남기지 않는다(조회 후 건수 검사 → 초과면 즉시 return).
  *       단, 이 상한은 대상이 상한 이하이면 통과하므로 <b>단독으로는 소급 대량 강등을 막지 못한다</b> —
- *       실질 통제는 위의 mode·not-before 다.</li>
+ *       실질 통제는 위의 mode·not-before 다. 또한 이 검사는 <b>DRY_RUN 판정 뒤에</b> 온다: DRY_RUN 은
+ *       아무것도 쓰지 않으므로 상한으로 막으면 "목록을 보려면 상한을 올려야 하고, 상한을 올리려면 목록을
+ *       봐야 하는" 순환이 생긴다.</li>
  * </ol>
  *
  * <p><b>트랜잭션</b>: 이 클래스/메서드에는 {@code @Transactional} 을 붙이지 않는다. 전이는
@@ -107,19 +115,24 @@ public class PlanExpiryScheduler {
             log.info("구독 만료 강등 배치 완료 — 대상 0건 (기준시각 {} notBefore={})", threshold, notBefore);
             return;
         }
+        // ⚠️ DRY_RUN 판정이 1회 상한 검사보다 <b>먼저</b> 와야 한다(리뷰 4). 상한은 "쓰기를 막는" 장치인데
+        // DRY_RUN 은 정의상 아무것도 쓰지 않으므로 막을 이유가 없다. 순서를 반대로 두면 승격 절차가
+        // 순환한다 — 1단계(DRY_RUN 으로 목록 확인)의 예상 결과가 바로 "대상 > 상한"(백필 추정치로 기존
+        // 유료 구독이 이미 전부 만료 상태)인데, 그때 목록 없이 ERROR 만 남고 끝나면 상한을 올릴 근거를
+        // 얻을 수 없다. 관측 수단이 가장 필요한 상황에서 정확히 꺼지는 구조가 된다.
+        if (!properties.isEnforcing()) {
+            reportDryRun(threshold, notBefore, targetCount);
+            return;
+        }
+
         if (targetCount > maxPerRun) {
             // ⚠️ 부분 강등도 만들지 않는다 — 상한을 넘는 대량 강등은 정상 운영이 아니라 사고 신호다
             // (current_period_end 백필 오염 등). 운영자가 원인을 확인할 때까지 아무것도 하지 않는다.
             log.error("구독 만료 강등 배치 중단 — 대상 {}건이 1회 상한 {}건을 초과했다(강등 0건). "
-                            + "hajacheck.plan.expiry.max-per-run 을 올리기 전에 대상 목록이 실제 만료가 "
-                            + "맞는지(결제 이력 대조) 먼저 확인할 것. 기준시각 {} notBefore={}",
+                            + "hajacheck.plan.expiry.max-per-run 을 올리기 전에 mode=DRY_RUN 으로 대상 "
+                            + "목록을 뽑아 실제 만료가 맞는지(결제 이력 대조) 먼저 확인할 것. "
+                            + "기준시각 {} notBefore={}",
                     targetCount, maxPerRun, threshold, notBefore);
-            return;
-        }
-
-        if (!properties.isEnforcing()) {
-            // DRY_RUN — 대상만 관찰하고 단 한 건도 강등하지 않는다(#1145 리뷰 P1-2).
-            reportDryRun(threshold, notBefore, targetCount);
             return;
         }
 
@@ -142,15 +155,22 @@ public class PlanExpiryScheduler {
      * DRY_RUN 회차 보고 — 강등 없이 <b>대상 id 목록</b>까지 로그로 남긴다. 운영자가 이 목록을 결제 이력과
      * 대조해 "정말 만료된 구독이 맞는지" 확인한 뒤에야 {@code mode=ENFORCE} 로 승격한다.
      * id 만 남기므로 개인정보는 로그에 들어가지 않는다.
+     *
+     * <p>목록은 {@value #PAGE_SIZE}건까지만 출력하고 나머지는 "이하 생략"으로 표기한다 — 첫 회차에는
+     * 대상이 수백 건일 수 있어(백필 추정치) 로그 한 줄이 통제 불가능하게 길어질 수 있다. 승격 판단에는
+     * 표본과 총 건수면 충분하고, 전수 확인은 어차피 DB 조회로 한다.
      */
     private void reportDryRun(Instant threshold, Instant notBefore, long targetCount) {
-        List<Long> targetIds = userPlanRepository.findExpiryTargetIds(
+        List<Long> sampleIds = userPlanRepository.findExpiryTargetIds(
                 PlanExpiryWriter.LIVE_STATUSES, threshold, notBefore, 0L,
-                PageRequest.of(0, properties.getMaxPerRun()));
+                PageRequest.of(0, PAGE_SIZE));
+        String omitted = targetCount > sampleIds.size()
+                ? " (이하 " + (targetCount - sampleIds.size()) + "건 생략)"
+                : "";
         log.warn("구독 만료 강등 배치 DRY_RUN — 대상 {}건, 강등 0건(모드가 DRY_RUN 이라 아무것도 바꾸지 "
-                        + "않았다). 대상 userPlanIds={} (기준시각 {} notBefore={}). 실제 반영하려면 "
-                        + "hajacheck.plan.expiry.mode=ENFORCE 로 올릴 것.",
-                targetCount, targetIds, threshold, notBefore);
+                        + "않았다). 대상 userPlanIds={}{} (기준시각 {} notBefore={}). 실제 반영하려면 "
+                        + "이 목록을 결제 이력과 대조한 뒤 hajacheck.plan.expiry.mode=ENFORCE 로 올릴 것.",
+                targetCount, sampleIds, omitted, threshold, notBefore);
     }
 
     private BatchCounts process(Instant threshold, Instant notBefore, int maxPerRun) {
@@ -196,8 +216,15 @@ public class PlanExpiryScheduler {
             // 진짜 데이터 결함이 매일 밤 INFO 한 줄로 사라진다(리뷰 P2-1,
             // InspectionDueNotificationScheduler 가 dedupe 인덱스명을 대조해 구분하는 것과 같은 취지).
             counts.failed++;
-            log.warn("구독 만료 강등 실패(예상 밖 무결성 제약 위반) — userPlanId={} cause={}",
-                    userPlanId, e.getMostSpecificCause().getMessage(), e);
+            // ⚠️ 예외 메시지 원문을 싣지 않는다(리뷰 NEW-3) — PostgreSQL 무결성 위반 메시지는
+            // "Detail: Key (col)=(value)" 형태로 <b>위반 컬럼의 실제 값</b>을 담는다. 지금 이 트랜잭션의
+            // 쓰기 대상은 id·status 뿐이라 당장 유출될 개인정보는 없지만, 이 경로에 이메일·사업자번호를
+            // 건드리는 쓰기가 하나만 추가돼도 즉시 평문 유출이 된다(전역 규칙 위반). 제약명·SQLState 는
+            // 원인 특정에 충분하면서 값을 담지 않는다.
+            log.warn("구독 만료 강등 실패(예상 밖 무결성 제약 위반) — userPlanId={} {}",
+                    userPlanId, describeIntegrityViolation(e));
+            // 전체 스택(메시지 포함)은 진단이 필요할 때만 DEBUG 로 본다.
+            log.debug("구독 만료 강등 무결성 위반 상세 — userPlanId={}", userPlanId, e);
             return;
         } catch (Exception e) {
             // 1건 실패를 격리 — 같은 회차의 나머지 구독 처리는 계속한다. 스택을 버리지 않는다(리뷰 P3-1):
@@ -208,6 +235,29 @@ public class PlanExpiryScheduler {
             return;
         }
 
+        recordOutcome(userPlanId, result, counts);
+    }
+
+    /**
+     * 무결성 위반의 <b>값 없는</b> 식별 정보 — 제약명(Hibernate)과 SQLState(JDBC)만 뽑는다.
+     * 예외 메시지 원문에는 위반 컬럼 값이 그대로 들어 있어 로그에 남기지 않는다(리뷰 NEW-3).
+     */
+    private String describeIntegrityViolation(DataIntegrityViolationException e) {
+        String constraint = null;
+        String sqlState = null;
+        for (Throwable cause = e; cause != null && cause != cause.getCause(); cause = cause.getCause()) {
+            if (constraint == null && cause instanceof ConstraintViolationException violation) {
+                constraint = violation.getConstraintName();
+            }
+            if (sqlState == null && cause instanceof SQLException sqlException) {
+                sqlState = sqlException.getSQLState();
+            }
+        }
+        return "constraint=" + constraint + " sqlState=" + sqlState;
+    }
+
+    /** 전이 성공 결과를 집계하고, 실제로 강등됐으면 알림을 1건 발행한다. */
+    private void recordOutcome(Long userPlanId, PlanExpiryResult result, BatchCounts counts) {
         if (!result.downgraded()) {
             counts.skipped++;
             log.info("구독 만료 강등 스킵 — userPlanId={} reason={}", userPlanId, result.skipReason());

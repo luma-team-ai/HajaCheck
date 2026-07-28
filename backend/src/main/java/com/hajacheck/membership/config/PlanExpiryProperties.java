@@ -89,9 +89,43 @@ public class PlanExpiryProperties {
      * 만료된 구독만 강등하게 만들 수 있다. {@code max-per-run} 은 "대상이 많으면 멈춘다"는 사후 방어라
      * 대상이 소수일 때는 작동하지 않는 반면, 이 컷오프는 <b>건수와 무관하게</b> 과거 구간을 막는다.
      *
+     * <p>⚠️ <b>{@code mode=ENFORCE} 에서는 필수다</b>({@link #isNotBeforeSetWhenEnforcing()} 위반 시 기동
+     * 실패). "무설정 = 무제한"을 허용하면 {@code enabled=true} 와 {@code mode=ENFORCE} 를 <b>같은 배포에서
+     * 함께</b> 넣는 것만으로 DRY_RUN 단계를 한 번도 거치지 않고 백필 추정치 전 구간이 첫 회차에 일괄
+     * 강등된다 — 절차 문서로만 막는 것은 통제가 아니라 조언이다. 의도적으로 제한 없이 돌려야 하면
+     * {@link #isNotBeforeUnbounded()} 를 <b>명시적으로</b> true 로 선언해야 한다.
+     *
      * <p>ISO-8601 instant 로 설정한다(예: {@code 2026-08-01T00:00:00Z}).
      */
     private Instant notBefore;
+
+    /**
+     * 컷오프 없이(전 구간 대상) ENFORCE 를 돌리겠다는 <b>명시적 선언</b> — 기본 false.
+     *
+     * <p>{@link #getNotBefore()} 의 "무설정 = 무제한" 기본값을 금지하는 대신, 정말 전 구간을 강등해야 하는
+     * 상황(예: 백필 구간을 이미 손으로 정리해 둔 뒤)을 위해 남겨 둔 탈출구다. 값을 넣는 행위 자체가
+     * "이 결과를 알고 있다"는 기록이 되므로 실수로 미설정된 상태와 구분된다.
+     *
+     * <p>{@code notBefore} 와 <b>동시에</b> 설정할 수 없다({@link #isNotBeforeUnambiguous()}) — 둘 다 있으면
+     * 어느 쪽이 의도인지 코드가 알 수 없다.
+     */
+    private boolean notBeforeUnbounded = false;
+
+    /**
+     * 강등 대상 행 잠금 대기 상한(ms) — 기본 3000. 0 이면 무제한 대기(권장하지 않음).
+     *
+     * <p>{@code @Scheduled} 기본 스레드 풀은 1개인데 이 앱에는 스케줄러가 여럿이다. 한 건의 잠금 대기가
+     * 무한정 늘어지면 그 스레드가 묶여 <b>다른 배치까지 통째로 멈춘다</b>. 대기 상한을 걸면 획득 실패가
+     * 해당 1건의 실패로 격리되고 다음 회차에 자연 재시도된다.
+     *
+     * <p>⚠️ 이 값은 JPA {@code jakarta.persistence.lock.timeout} 힌트로는 적용되지 않는다 —
+     * {@code PostgreSQLDialect.supportsWait()} 가 <b>false</b> 라(hibernate-core 6.5.3 바이트코드로 확인)
+     * 밀리초 단위 힌트가 조용히 무시되고 평범한 {@code for update} 로 나간다. 그래서 트랜잭션 로컬
+     * {@code set_config('lock_timeout', …, true)} 로 적용한다
+     * ({@code UserPlanRepository#applyLockTimeout}).
+     */
+    @Min(0)
+    private int lockTimeoutMs = 3000;
 
     /**
      * 1회 실행당 강등 상한 — 기본 50. <b>초과하면 아무것도 하지 않고 중단</b>한다(부분 강등도 만들지
@@ -113,6 +147,25 @@ public class PlanExpiryProperties {
             + "음수면 만료 기준시각이 미래가 되어 아직 유효한 유료 구독까지 강등 대상이 된다")
     public boolean isGracePeriodNotNegative() {
         return gracePeriod != null && !gracePeriod.isNegative();
+    }
+
+    /**
+     * ENFORCE 로 올릴 때 컷오프 선언 필수(기동 실패 조건) — 자세한 이유는 {@link #getNotBefore()} javadoc.
+     * 읽기 전용 파생 속성이라 설정 바인딩 대상이 아니다(setter 없음).
+     */
+    @AssertTrue(message = "hajacheck.plan.expiry.not-before 는 mode=ENFORCE 일 때 필수다 — "
+            + "컷오프 없이 ENFORCE 로 올리면 V27 백필 추정치 구간이 첫 회차에 일괄 강등되고, "
+            + "제품 안에는 되돌릴 경로가 없다(#988 무결제 상향 차단). 의도적으로 전 구간을 대상으로 "
+            + "삼아야 하면 not-before-unbounded=true 를 명시할 것")
+    public boolean isNotBeforeSetWhenEnforcing() {
+        return mode != Mode.ENFORCE || notBefore != null || notBeforeUnbounded;
+    }
+
+    /** {@code not-before} 와 {@code not-before-unbounded} 를 동시에 선언할 수 없다(의도 모호). */
+    @AssertTrue(message = "hajacheck.plan.expiry 의 not-before 와 not-before-unbounded 는 "
+            + "동시에 설정할 수 없다 — 둘 다 있으면 어느 쪽이 의도인지 알 수 없다")
+    public boolean isNotBeforeUnambiguous() {
+        return !(notBefore != null && notBeforeUnbounded);
     }
 
     public boolean isEnabled() {
@@ -150,6 +203,22 @@ public class PlanExpiryProperties {
 
     public void setNotBefore(Instant notBefore) {
         this.notBefore = notBefore;
+    }
+
+    public boolean isNotBeforeUnbounded() {
+        return notBeforeUnbounded;
+    }
+
+    public void setNotBeforeUnbounded(boolean notBeforeUnbounded) {
+        this.notBeforeUnbounded = notBeforeUnbounded;
+    }
+
+    public int getLockTimeoutMs() {
+        return lockTimeoutMs;
+    }
+
+    public void setLockTimeoutMs(int lockTimeoutMs) {
+        this.lockTimeoutMs = lockTimeoutMs;
     }
 
     public int getMaxPerRun() {
