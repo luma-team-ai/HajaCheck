@@ -29,7 +29,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * 마이그레이션이 재사용한다)→V20(payments 결제 원장, #988/HAJA-489)→V21(inspection_notification_settings.
  * warn_on_overdue_enabled 기본값 false→true, HAJA-498 — 유병현 님 승인)→V22(defect_status_type 에서
  * ACTION_PENDING 제거 — 하자 상태 4단계화)→V23(counsel_ticket_notes, #1021/HAJA-503 — V19~V22를
- * 다른 브랜치가 선점해 번호 충돌 방지 목적으로 V23으로 이어 붙임)를 순서대로 적용하고,
+ * 다른 브랜치가 선점해 번호 충돌 방지 목적으로 V23으로 이어 붙임)→V24(defects.location + defects.
+ * previous_defect_id, #970 갭3/HAJA-437)를 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -73,7 +74,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V23까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V24까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -97,14 +98,16 @@ class FlywayBaselineIntegrationTest {
         //   백필, #540/HAJA-498 — 유병현 님 승인 옵션1: 연체 알림 미수신 회귀 방지 하위호환 확보).
         // + V22(defect_status_type 에서 ACTION_PENDING 제거 — 하자 상태 4단계화).
         // + V23(counsel_ticket_notes, #1021/HAJA-503). V19~V22는 다른 브랜치들이 선점(병합 완료)해
-        //   번호 충돌을 피해 V23으로 이어 붙였다 — 마이그레이션 수는 V1~V22(22개) + V23(1개) = 23이다.
-        assertThat(appliedMigrations).isEqualTo(23);
+        //   번호 충돌을 피해 V23으로 이어 붙였다.
+        // + V24(defects.location + defects.previous_defect_id, #970 갭3/HAJA-437) — 마이그레이션 수는
+        //   V1~V23(23개) + V24(1개) = 24이다.
+        assertThat(appliedMigrations).isEqualTo(24);
 
-        // 최신 적용 버전이 실제로 V23 인지 확인.
+        // 최신 적용 버전이 실제로 V24 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("23");
+        assertThat(latestVersion).isEqualTo("24");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -313,5 +316,25 @@ class FlywayBaselineIntegrationTest {
                   and indexname = 'uq_counsel_ticket_notes_ticket_id'
                 """, Long.class);
         assertThat(counselTicketNotesUniqueIndexExists).isEqualTo(1L);
+
+        // V24가 defects.location + defects.previous_defect_id 컬럼(#970 갭3/HAJA-437)을
+        // 실제로 추가했는지 확인한다.
+        Long defectDetailColumnCount = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'defects'
+                  and column_name in ('location', 'previous_defect_id')
+                """, Long.class);
+        assertThat(defectDetailColumnCount).isEqualTo(2L);
+
+        // previous_defect_id가 defects.id를 가리키는 self-referencing FK인지 확인한다.
+        Long previousDefectIdFkExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.table_constraints tc
+                join information_schema.constraint_column_usage ccu
+                  on tc.constraint_name = ccu.constraint_name and tc.table_schema = ccu.table_schema
+                where tc.table_schema = 'public' and tc.table_name = 'defects'
+                  and tc.constraint_type = 'FOREIGN KEY'
+                  and ccu.table_name = 'defects' and ccu.column_name = 'id'
+                """, Long.class);
+        assertThat(previousDefectIdFkExists).isGreaterThanOrEqualTo(1L);
     }
 }

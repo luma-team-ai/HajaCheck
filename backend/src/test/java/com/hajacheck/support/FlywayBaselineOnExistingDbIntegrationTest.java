@@ -242,5 +242,21 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 where table_schema = 'public' and table_name = 'counselor_skills'
                 """, Long.class);
         assertThat(counselorSkillsTableExists).isEqualTo(1L);
+
+        // V24(defects.location + defects.previous_defect_id, #970 갭3/HAJA-437)도 이 "기존 DB" 경로에서
+        // no-op 성공으로 적용된다 — 캐노니컬 DDL이 이미 두 컬럼을 포함한다.
+        Integer v24Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '24' and success = true",
+                Integer.class);
+        assertThat(v24Applied).isEqualTo(1);
+
+        // 기존 DB에 있던 defects.location/previous_defect_id도 그대로 유지된다
+        // (V24 재실행이 깨거나 중복 생성하지 않음).
+        Long defectDetailColumnCount = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'defects'
+                  and column_name in ('location', 'previous_defect_id')
+                """, Long.class);
+        assertThat(defectDetailColumnCount).isEqualTo(2L);
     }
 }
