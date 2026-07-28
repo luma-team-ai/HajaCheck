@@ -26,10 +26,23 @@ export function FacilityCard({ facility, onSelect }: Props) {
     facility.builtYear != null ? `준공 ${facility.builtYear}` : null,
   ].filter((part): part is string => Boolean(part));
 
+  // code-reviewer P2 — 카드 전체를 버튼으로 감싸면서 aria-label을 이름만으로 두면 등급·다음
+  // 점검일·최근 점검일 등 시각적으로는 보이는 정보가 스크린리더에서 사라진다. 카드 내용을
+  // 요약한 라벨을 명시적으로 조립해 접근성 손실 없이 전체-카드-클릭 UX를 유지한다.
+  const ariaLabel = [
+    facility.name,
+    subtitleParts.join(', '),
+    facility.initialGrade ? `${facility.initialGrade} 등급` : null,
+    showUpcomingBadge ? `다음 점검일 ${dueStatus.label}` : null,
+    lastInspectedLabel ? `최근 점검 ${lastInspectedLabel}` : '점검 이력 없음',
+  ]
+    .filter(Boolean)
+    .join(', ');
+
   return (
     <button
       type="button"
-      aria-label={facility.name}
+      aria-label={ariaLabel}
       onClick={() => onSelect(facility.id, facility.latestDefectId)}
       className="flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-surface text-left shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] transition-colors hover:bg-surface-sunken"
     >
@@ -73,8 +86,8 @@ export function FacilityCard({ facility, onSelect }: Props) {
         <p className="m-0 text-xl font-medium text-heading">{facility.name}</p>
         <p className="m-0 text-sm text-text-muted">{subtitleParts.join(' · ')}</p>
 
-        <div className="mt-3 flex items-center justify-between border-t border-border/50 pt-4">
-          <span />
+        {/* 좌측에는 하자 건수 배지가 들어갈 자리(HAJA-515/#1075 후속 — 근거 데이터가 아직 없어 생략) */}
+        <div className="mt-3 flex items-center justify-end border-t border-border/50 pt-4">
           <span className="text-sm text-text-muted">
             {lastInspectedLabel ? `최근 점검 ${lastInspectedLabel}` : '점검 이력 없음'}
           </span>

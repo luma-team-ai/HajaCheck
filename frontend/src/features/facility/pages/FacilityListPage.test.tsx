@@ -110,7 +110,7 @@ describe('FacilityListPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('강남 오피스타워 A동');
 
-    fireEvent.click(screen.getByRole('button', { name: '강남 오피스타워 A동' }));
+    fireEvent.click(screen.getByRole('button', { name: /강남 오피스타워 A동/ }));
 
     expect(await screen.findByText('시설물 상세 화면')).not.toBeNull();
   });
