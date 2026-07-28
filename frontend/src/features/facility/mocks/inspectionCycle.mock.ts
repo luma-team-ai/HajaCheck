@@ -1,10 +1,11 @@
 import type { InspectionCycleStatusRow } from '../types';
 
-// 전체 시설물 점검 주기 현황 — handoff §3 예시 5행(합성). 백엔드 계약에 없는 필드(type/lastInspectedAt/
-// assigneeName)를 포함하므로 feature 로컬 목 모듈로만 관리한다. 실연동 확장 지점은 types.ts 주석 참고.
-//
-// facilityApi.handlers.ts의 `facilities` 모듈 스코프 mutable 배열과 동일한 패턴 — 저장(POST
-// /schedule) 성공 시 해당 행을 갱신해야 좌측 카드와 우측 현황 테이블이 같은 값을 보여준다(react-reviewer P1).
+// ⚠️ #1136 이후 프로덕션 미사용(legacy) — useInspectionCycleStatusRows가 이제 실
+// GET /api/facilities/status(facilityApi.getStatusList)를 쓴다. 이 모듈은 아무 프로덕션
+// 코드도 더 이상 import하지 않으며, resetInspectionCycleStatusMockStore만 기존(머지된)
+// InspectionCycleSettingsPage.test.tsx의 afterEach가 참조해 남겨둔다(삭제 시 그 테스트가 깨짐).
+// 새 코드에서 getInspectionCycleStatusRows/updateInspectionCycleStatusRow를 데이터 소스로
+// 다시 끌어다 쓰지 말 것 — 실 회사 소유 시설물과 무관한 합성 mock이다(#1129 원인).
 const INITIAL_ROWS: InspectionCycleStatusRow[] = [
   {
     id: 1,
