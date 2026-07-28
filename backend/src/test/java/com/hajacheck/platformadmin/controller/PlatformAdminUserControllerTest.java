@@ -19,10 +19,14 @@ import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.counsel.entity.CounselType;
+import com.hajacheck.counsel.entity.CounselorSkill;
+import com.hajacheck.counsel.repository.CounselorSkillRepository;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
+import com.hajacheck.platformadmin.dto.AdminUserSkillUpdateRequest;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserCreateRequest;
 import com.hajacheck.support.PostgresTestSupport;
 import java.util.concurrent.atomic.AtomicLong;
@@ -59,6 +63,8 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
     private PlanRepository planRepository;
     @Autowired
     private UserPlanRepository userPlanRepository;
+    @Autowired
+    private CounselorSkillRepository counselorSkillRepository;
 
     private static final AtomicLong BRN_SEQ = new AtomicLong(9_100_000_000L);
 
@@ -501,5 +507,97 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
         mockMvc.perform(get("/api/platform-admin/users").with(authentication(staleAuth)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    // 스킬 조회/변경(#1001, HAJA-495) — PR머신 2차 검토 P2(테스트 미동반) 후속. requireCounselor
+    // 화이트리스트(비-COUNSELOR 400)와 changeSkill의 전체 교체(replace) 시맨틱을 회귀로 고정한다.
+
+    @Test
+    void 사용자등록_COUNSELOR역할이면_지정한스킬이배선된다() throws Exception {
+        User platformAdmin = saveUser("플랫폼관리자", "pa22@haja.com", Role.PLATFORM_ADMIN);
+        PlatformAdminUserCreateRequest request = new PlatformAdminUserCreateRequest(
+                "pa22-new@haja.com", "password1", "상담원", Role.COUNSELOR, null, CounselType.USAGE);
+
+        mockMvc.perform(post("/api/platform-admin/users")
+                        .with(authentication(authOf(platformAdmin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+
+        User saved = userRepository.findByEmail("pa22-new@haja.com").orElseThrow();
+        assertThat(counselorSkillRepository.findCounselTypesByCounselorId(saved.getId()))
+                .containsExactly(CounselType.USAGE);
+    }
+
+    @Test
+    void 사용자등록_COUNSELOR가아니면_스킬을지정해도무시된다() throws Exception {
+        User platformAdmin = saveUser("플랫폼관리자", "pa23@haja.com", Role.PLATFORM_ADMIN);
+        PlatformAdminUserCreateRequest request = new PlatformAdminUserCreateRequest(
+                "pa23-new@haja.com", "password1", "일반사용자", Role.USER, null, CounselType.USAGE);
+
+        mockMvc.perform(post("/api/platform-admin/users")
+                        .with(authentication(authOf(platformAdmin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+
+        User saved = userRepository.findByEmail("pa23-new@haja.com").orElseThrow();
+        assertThat(counselorSkillRepository.findCounselTypesByCounselorId(saved.getId())).isEmpty();
+    }
+
+    @Test
+    void 스킬조회_COUNSELOR대상이면_배정된스킬을반환한다() throws Exception {
+        User platformAdmin = saveUser("플랫폼관리자", "pa24@haja.com", Role.PLATFORM_ADMIN);
+        User counselor = saveUser("상담원", "pa24-counselor@haja.com", Role.COUNSELOR);
+        counselorSkillRepository.save(CounselorSkill.assign(counselor.getId(), CounselType.ANALYSIS_RESULT));
+
+        mockMvc.perform(get("/api/platform-admin/users/{id}/skills", counselor.getId())
+                        .with(authentication(authOf(platformAdmin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.skills[0]").value("ANALYSIS_RESULT"));
+    }
+
+    @Test
+    void 스킬조회_COUNSELOR가아니면_400_ADMIN_SKILL_TARGET_NOT_COUNSELOR() throws Exception {
+        User platformAdmin = saveUser("플랫폼관리자", "pa25@haja.com", Role.PLATFORM_ADMIN);
+        User nonCounselor = saveUser("일반사용자", "pa25-user@haja.com", Role.USER);
+
+        mockMvc.perform(get("/api/platform-admin/users/{id}/skills", nonCounselor.getId())
+                        .with(authentication(authOf(platformAdmin))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("ADMIN_SKILL_TARGET_NOT_COUNSELOR"));
+    }
+
+    @Test
+    void 스킬변경_기존배정을_전량삭제하고_새스킬하나로교체한다() throws Exception {
+        User platformAdmin = saveUser("플랫폼관리자", "pa26@haja.com", Role.PLATFORM_ADMIN);
+        User counselor = saveUser("상담원", "pa26-counselor@haja.com", Role.COUNSELOR);
+        counselorSkillRepository.save(CounselorSkill.assign(counselor.getId(), CounselType.USAGE));
+        counselorSkillRepository.save(CounselorSkill.assign(counselor.getId(), CounselType.ANALYSIS_RESULT));
+        String body = objectMapper.writeValueAsString(new AdminUserSkillUpdateRequest(CounselType.BILLING_ETC));
+
+        mockMvc.perform(patch("/api/platform-admin/users/{id}/skills", counselor.getId())
+                        .with(authentication(authOf(platformAdmin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.skill").value("BILLING_ETC"));
+
+        assertThat(counselorSkillRepository.findCounselTypesByCounselorId(counselor.getId()))
+                .containsExactly(CounselType.BILLING_ETC);
+    }
+
+    @Test
+    void 스킬변경_COUNSELOR가아니면_400_ADMIN_SKILL_TARGET_NOT_COUNSELOR() throws Exception {
+        User platformAdmin = saveUser("플랫폼관리자", "pa27@haja.com", Role.PLATFORM_ADMIN);
+        User nonCounselor = saveUser("일반사용자", "pa27-user@haja.com", Role.USER);
+        String body = objectMapper.writeValueAsString(new AdminUserSkillUpdateRequest(CounselType.USAGE));
+
+        mockMvc.perform(patch("/api/platform-admin/users/{id}/skills", nonCounselor.getId())
+                        .with(authentication(authOf(platformAdmin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("ADMIN_SKILL_TARGET_NOT_COUNSELOR"));
     }
 }

@@ -303,6 +303,7 @@ export function PlatformAdminUsersPage() {
         <SkillChangeModal
           user={skillModalUser}
           currentSkill={skillModalUserSkills?.skills[0] ?? null}
+          currentSkills={skillModalUserSkills?.skills ?? []}
           isLoadingCurrentSkill={isSkillModalUserSkillsLoading}
           onClose={handleCloseSkillModal}
           onConfirm={handleSkillConfirm}

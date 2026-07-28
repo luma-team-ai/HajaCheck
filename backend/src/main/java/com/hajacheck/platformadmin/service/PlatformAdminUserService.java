@@ -162,10 +162,17 @@ public class PlatformAdminUserService {
 
     // 모달은 라디오 버튼(단일 선택)이라 "저장"은 항상 기존 배정 전체를 새 스킬 하나로 교체한다 —
     // 부분 추가/제거 개념이 없다.
+    //
+    // 원자성 보호(PR머신 2차 검토 P2): delete-then-insert는 기본 격리수준(READ COMMITTED)에서
+    // 원자적이지 않다 — 같은 상담사를 대상으로 한 두 요청이 동시에 실행되면 각자의 DELETE가 상대의
+    // 신규 INSERT를 스냅샷상 보지 못해 두 스킬 행이 함께 남을 수 있다(requireNotLastCompanyAdmin과
+    // 동일 이유). 삭제·삽입 전에 대상 사용자 행을 PESSIMISTIC_WRITE로 잠가 같은 사용자에 대한 요청을
+    // 직렬화한다.
     @Transactional
     public AdminUserSkillUpdateResponse changeSkill(Long userId, CounselType skill) {
         User user = findUser(userId);
         requireCounselor(user);
+        platformAdminUserRepository.findByIdForUpdate(userId);
         counselorSkillRepository.deleteByCounselorId(userId);
         counselorSkillRepository.save(CounselorSkill.assign(userId, skill));
         return new AdminUserSkillUpdateResponse(userId, skill);

@@ -7,6 +7,7 @@ import type { AdminUser, CounselType } from '../types';
 interface SkillChangeModalProps {
   user: AdminUser | null;
   currentSkill: CounselType | null;
+  currentSkills: CounselType[];
   isLoadingCurrentSkill: boolean;
   onClose: () => void;
   onConfirm: (user: AdminUser, skill: CounselType) => Promise<void>;
@@ -19,6 +20,7 @@ interface SkillChangeModalProps {
 export function SkillChangeModal({
   user,
   currentSkill,
+  currentSkills,
   isLoadingCurrentSkill,
   onClose,
   onConfirm,
@@ -63,6 +65,16 @@ export function SkillChangeModal({
         <p className="m-0 text-sm text-text-muted">
           상담원의 전문 분야를 지정하여 배정 로직을 최적화합니다.
         </p>
+
+        {/* 다중 스킬 상담원을 라디오(단일 선택)로 저장하면 나머지 배정이 경고 없이 사라진다
+            (PR머신 2차 검토 P2) — 저장 전에 현재 보유 중인 전체 목록과 축소 사실을 명시한다. */}
+        {!isLoadingCurrentSkill && currentSkills.length > 1 && (
+          <p role="alert" className="m-0 rounded-xl bg-warning-soft-bg p-3 text-sm text-warning-soft-fg">
+            현재 배정된 스킬이 {currentSkills.length}개입니다 (
+            {currentSkills.map((skill) => SKILL_LABEL[skill]).join(', ')}). 저장하면 아래에서
+            선택한 스킬 하나로 교체되어 나머지 배정은 삭제됩니다.
+          </p>
+        )}
 
         <div role="radiogroup" aria-label="상담원 스킬" className="flex flex-col gap-3">
           {SKILL_CHANGE_OPTIONS.map((skill) => (

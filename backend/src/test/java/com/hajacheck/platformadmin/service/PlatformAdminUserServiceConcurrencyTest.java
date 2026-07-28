@@ -8,6 +8,8 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.counsel.entity.CounselType;
+import com.hajacheck.counsel.repository.CounselorSkillRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.support.PostgresTestSupport;
@@ -44,6 +46,8 @@ class PlatformAdminUserServiceConcurrencyTest extends PostgresTestSupport {
     private UserRepository userRepository;
     @Autowired
     private CompanyRepository companyRepository;
+    @Autowired
+    private CounselorSkillRepository counselorSkillRepository;
 
     private Long companyId;
     private Long admin1Id;
@@ -148,5 +152,55 @@ class PlatformAdminUserServiceConcurrencyTest extends PostgresTestSupport {
                 .filter(u -> u.getStatus() == UserStatus.ACTIVE)
                 .count();
         assertThat(remainingActiveAdmins).isEqualTo(1);
+    }
+
+    /**
+     * changeSkill의 delete-then-insert 원자성 보호(PR머신 2차 검토 P2) — 스킬이 없는 상담사에
+     * 두 관리자가 서로 다른 스킬로 동시에 changeSkill을 호출해도, PlatformAdminUserRepository
+     * #findByIdForUpdate 행 잠금이 직렬화해 counselor_skills에 정확히 1행(마지막 커밋한 요청의
+     * 스킬)만 남는지 검증한다. 잠금이 없었다면 두 요청의 DELETE가 서로의 신규 INSERT를 보지 못해
+     * 2행이 남을 수 있다.
+     */
+    @Test
+    void 스킬0개상담원에_동시changeSkill요청은_counselor_skills가_정확히1행으로수렴한다() throws Exception {
+        User counselor = userRepository.save(User.builder()
+                .email("pa-concurrency-counselor-" + System.nanoTime() + "@haja.com")
+                .name("동시성테스트상담원")
+                .role(Role.COUNSELOR)
+                .passwordHash("$2a$10$testtesttesttesttesttes")
+                .status(UserStatus.ACTIVE)
+                .build());
+        Long counselorId = counselor.getId();
+
+        try {
+            ExecutorService executor = Executors.newFixedThreadPool(2);
+            CountDownLatch ready = new CountDownLatch(2);
+            CountDownLatch start = new CountDownLatch(1);
+            List<CounselType> targetSkills = List.of(CounselType.USAGE, CounselType.ANALYSIS_RESULT);
+            List<Future<Void>> futures = new ArrayList<>();
+
+            for (CounselType skill : targetSkills) {
+                futures.add(executor.submit(() -> {
+                    ready.countDown();
+                    start.await();
+                    platformAdminUserService.changeSkill(counselorId, skill);
+                    return null;
+                }));
+            }
+            ready.await();
+            start.countDown();
+
+            for (Future<Void> future : futures) {
+                future.get(30, TimeUnit.SECONDS);
+            }
+            executor.shutdown();
+
+            List<CounselType> remaining = counselorSkillRepository.findCounselTypesByCounselorId(counselorId);
+            assertThat(remaining).hasSize(1);
+            assertThat(targetSkills).contains(remaining.get(0));
+        } finally {
+            counselorSkillRepository.deleteByCounselorId(counselorId);
+            userRepository.deleteById(counselorId);
+        }
     }
 }
