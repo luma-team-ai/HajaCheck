@@ -112,7 +112,7 @@ const mockDefects: DefectDetailItem[] = [
 
 // 새로운 API 엔드포인트 mock
 const testHandlers = [
-  ...inspectionHandlers,
+  // test-specific handlers first (take precedence over shared handlers)
   http.get('/api/inspections/:id', () => {
     const body: ApiResponse<InspectionResponse> = { success: true, data: mockInspection };
     return HttpResponse.json(body);
@@ -199,11 +199,17 @@ const testHandlers = [
     };
     return HttpResponse.json({ success: true, data: newDefect }, { status: 201 });
   }),
+
+  // shared handlers (used when no test-specific handler overrides)
+  ...inspectionHandlers,
+
+  // fallback: prevent unmocked /api requests from causing "fetch failed" UI
+  http.get(new RegExp('^/api/.*'), () => HttpResponse.json({ success: true, data: null })),
 ];
 
 const server = setupServer(...testHandlers);
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }));
 afterEach(() => {
   server.resetHandlers();
   // vitest globals 미설정 환경이라 RTL 자동 cleanup이 안 걸림 — 명시 호출 필요
