@@ -12,6 +12,7 @@ import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { notificationHandlers } from '../api/notificationApi.handlers';
+import { mockNotifications } from '../mocks/notification.mock';
 import { NotificationCenter } from './NotificationCenter';
 
 const server = setupServer(...notificationHandlers);
@@ -138,6 +139,63 @@ describe('NotificationCenter', () => {
     await waitFor(() => {
       expect(screen.getByText('미읽음 3')).toBeTruthy();
     });
+  });
+
+  // 개별 닫기(X)는 로컬 숨김이 아니라 DELETE /api/notifications/{id} — 서버에서 실제로 삭제되고,
+  // 성공 후 목록 invalidate로 다시 조회해도 그 항목이 돌아오지 않아야 한다. GET 목을 상태 있게
+  // 구성해(삭제된 id를 실제로 빼서 응답) 낙관적 제거가 아니라 서버 반영까지 검증한다.
+  it('알림의 X를 누르면 서버에 DELETE 요청이 나가고 목록에서 사라진다', async () => {
+    let remaining = [...mockNotifications];
+    const deletedIds: number[] = [];
+    server.use(
+      http.get('/api/notifications', () => HttpResponse.json({ success: true, data: remaining })),
+      http.delete('/api/notifications/:id', ({ params }) => {
+        const id = Number(params.id);
+        deletedIds.push(id);
+        remaining = remaining.filter((item) => item.id !== id);
+        return HttpResponse.json({ success: true, data: null });
+      }),
+    );
+
+    renderHarness();
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    const target = await screen.findByText('검수 대기 알림');
+
+    const dismissButton = target.closest('li')?.querySelector('button[aria-label="알림 닫기"]');
+    fireEvent.click(dismissButton as HTMLElement);
+
+    await waitFor(() => {
+      expect(screen.queryByText('검수 대기 알림')).toBeNull();
+    });
+    expect(deletedIds).toEqual([2]);
+    // 미읽음 3건 중 1건(id 2)이 삭제돼 2건으로 줄고, 재조회 후에도 되돌아오지 않는다.
+    expect(await screen.findByText('미읽음 2')).toBeTruthy();
+  });
+
+  it('DELETE가 실패하면 낙관적으로 지웠던 알림이 목록에 복원된다', async () => {
+    server.use(
+      http.delete('/api/notifications/:id', () => HttpResponse.json({ success: false }, { status: 500 })),
+    );
+
+    renderHarness();
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    const target = await screen.findByText('검수 대기 알림');
+
+    const dismissButton = target.closest('li')?.querySelector('button[aria-label="알림 닫기"]');
+    fireEvent.click(dismissButton as HTMLElement);
+
+    await waitFor(() => {
+      expect(screen.getByText('검수 대기 알림')).toBeTruthy();
+    });
+    expect(screen.getByText('미읽음 3')).toBeTruthy();
+  });
+
+  it('하단 "알림 전체 보기" 버튼은 노출하지 않는다', async () => {
+    renderHarness();
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    await screen.findByText('검수 대기 알림');
+
+    expect(screen.queryByRole('button', { name: '알림 전체 보기' })).toBeNull();
   });
 
   // PR머신 P1: BE NotificationType이 constants.ts의 4종 밖의 값을 내려주면(예: enum이 FE 배포보다
