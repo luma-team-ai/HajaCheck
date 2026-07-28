@@ -6,7 +6,6 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -20,7 +19,6 @@ import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.entity.InspectionNotificationSetting;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.facility.repository.InspectionNotificationSettingRepository;
-import com.hajacheck.core.facility.scheduler.InspectionDueNotificationPayload.Kind;
 import com.hajacheck.notification.entity.Notification;
 import com.hajacheck.notification.entity.NotificationType;
 import com.hajacheck.notification.repository.NotificationRepository;
@@ -28,7 +26,6 @@ import com.hajacheck.notification.service.NotificationService;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Collection;
 import java.util.List;
@@ -38,13 +35,22 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.SliceImpl;
 
 /**
- * InspectionDueNotificationScheduler 단위 테스트(NOTI-01, #425 / 알림설정 게이팅, #540 ③). BuiltYearValidatorTest
- * 와 같이 고정 Clock 을 수동 주입하고, 협력자는 Mockito mock 을 직접 생성자 주입한다(@InjectMocks 미사용).
+ * InspectionDueNotificationScheduler 단위 테스트(NOTI-01, #425 / 알림설정 게이팅, #540 ③ / DB 유니크
+ * 제약 기반 멱등성 전환, #1050). BuiltYearValidatorTest 와 같이 고정 Clock 을 수동 주입하고, 협력자는
+ * Mockito mock 을 직접 생성자 주입한다(@InjectMocks 미사용).
+ *
+ * <p>#1050 이후 kind가 있는(신규) payload의 멱등성은 DB 유니크 인덱스가 전담한다 — 이 단위 테스트는
+ * 실제 제약을 검증할 수 없으므로(Mockito는 DB가 아님), "notify()가 unique violation을 던지면 스케줄러가
+ * 그것을 skip으로 처리하고 예외를 전파하지 않는지"만 검증한다. 실제 제약 자체(같은 키 재삽입 거부,
+ * kind가 다르면 통과, kind가 NULL인 레거시 행은 못 잡음)는 Testcontainers 기반
+ * V24InspectionDueNotificationDedupeUniqueIndexTest가 증명한다. kind 없는 레거시 payload의 애플리케이션
+ * 레벨 dedupe(그 사각지대 방어)는 이 클래스에서 여전히 목으로 검증한다.
  */
 class InspectionDueNotificationSchedulerTest {
 
@@ -76,6 +82,9 @@ class InspectionDueNotificationSchedulerTest {
                                 companyId -> companyId.equals(COMPANY) ? OWNER : companyId)));
         // 대부분의 테스트는 알림설정 행이 없는(=기본값 적용) 시나리오라 기본 스텁으로 빈 리스트를 둔다.
         lenient().when(notificationSettingRepository.findAllByUserIdInAndFacilityIdIn(any(), any()))
+                .thenReturn(List.of());
+        // 대부분의 테스트는 kind 없는 레거시 이력도 없는(=DB 유니크 인덱스에만 맡기는) 시나리오다.
+        lenient().when(notificationRepository.findLegacyKindLessInspectionDueByUserIdIn(any()))
                 .thenReturn(List.of());
         scheduler = new InspectionDueNotificationScheduler(
                 facilityRepository, notificationSettingRepository, companyOwnerLookupService,
@@ -115,26 +124,20 @@ class InspectionDueNotificationSchedulerTest {
                 .thenReturn(singlePage(content));
     }
 
-    private void stubNoExistingNotifications() {
-        when(notificationRepository.findAllByUserIdInAndTypeAndCreatedAtAfter(anySet(), any(), any())).thenReturn(List.of());
-    }
-
     private void stubSettings(InspectionNotificationSetting... settings) {
         when(notificationSettingRepository.findAllByUserIdInAndFacilityIdIn(any(), any()))
                 .thenReturn(List.of(settings));
     }
 
-    /** 시설물 자신을 직렬화한 payload로 "이미 발행된 알림"을 만든다(도래일 포함 dedupe 키가 정확히 일치). */
-    private Notification existingNotificationFor(Facility facility, Kind kind) {
-        return Notification.create(OWNER, NotificationType.INSPECTION_DUE,
-                InspectionDueNotificationPayload.serialize(facility, kind));
+    private static DataIntegrityViolationException uniqueViolation() {
+        return new DataIntegrityViolationException(
+                "duplicate key value violates unique constraint \"uq_notifications_inspection_due_dedupe\"");
     }
 
     @Test
     @DisplayName("오늘 마감 시설물에 INSPECTION_DUE 알림을 발행한다")
     void 오늘마감시설_알림발행() {
         stubDuePage(List.of(dueFacility(1L, COMPANY, "시설A")));
-        stubNoExistingNotifications();
 
         scheduler.notifyFacilitiesDueToday();
 
@@ -142,41 +145,21 @@ class InspectionDueNotificationSchedulerTest {
     }
 
     @Test
-    @DisplayName("현재 도래일로 이미 발행된 알림이 있으면 발행하지 않는다(멱등)")
-    void 이미알림존재_스킵() {
-        Facility f = dueFacility(1L, COMPANY, "시설A");
-        stubDuePage(List.of(f));
-        Notification existing = existingNotificationFor(f, Kind.DUE);
-        when(notificationRepository.findAllByUserIdInAndTypeAndCreatedAtAfter(anySet(), any(), any()))
-                .thenReturn(List.of(existing));
+    @DisplayName("DB 유니크 인덱스가 unique violation을 던지면 이미 발행된 것으로 간주해 조용히 skip한다(#1050)")
+    void notify가unique_violation을던지면_예외전파없이skip한다() {
+        stubDuePage(List.of(dueFacility(1L, COMPANY, "시설A")));
+        doThrow(uniqueViolation()).when(notificationService).notify(anyLong(), any(), anyString());
 
+        // 예외가 스케줄러 밖으로 전파되지 않아야 한다 — 배치가 계속 정상 종료된다.
         scheduler.notifyFacilitiesDueToday();
 
-        verify(notificationService, never()).notify(anyLong(), any(), anyString());
-    }
-
-    @Test
-    @DisplayName("같은 owner의 시설물 2개 중 1개만 이미 알림 있으면 나머지 1개만 발행한다")
-    void 일부만알림존재_나머지만발행() {
-        Facility f1 = dueFacility(1L, COMPANY, "시설1");
-        Facility f2 = dueFacility(2L, COMPANY, "시설2");
-        stubDuePage(List.of(f1, f2));
-        Notification existingForF1 = existingNotificationFor(f1, Kind.DUE);
-        when(notificationRepository.findAllByUserIdInAndTypeAndCreatedAtAfter(anySet(), any(), any()))
-                .thenReturn(List.of(existingForF1));
-
-        scheduler.notifyFacilitiesDueToday();
-
-        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
-        verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), payloadCaptor.capture());
-        assertThat(InspectionDueNotificationPayload.extractFacilityId(payloadCaptor.getValue())).isEqualTo(2L);
+        verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), anyString());
     }
 
     @Test
     @DisplayName("한 시설물의 notify가 예외를 던져도 같은 owner의 다음 시설물은 계속 처리한다")
     void notify예외_격리_다음시설계속() {
         stubDuePage(List.of(dueFacility(1L, COMPANY, "시설1"), dueFacility(2L, COMPANY, "시설2")));
-        stubNoExistingNotifications();
         doThrow(new RuntimeException("발행 실패")).doNothing()
                 .when(notificationService).notify(anyLong(), any(), anyString());
 
@@ -210,60 +193,42 @@ class InspectionDueNotificationSchedulerTest {
     }
 
     @Test
-    @DisplayName("기존 알림 조회는 무제한이 아니라 오늘-400일 자정 이후로 제한된 슬라이딩 윈도우로 호출된다(PR머신 P2 #1032)")
-    void 기존알림조회_슬라이딩윈도우_컷오프로_호출된다() {
-        // 스캔 상한이 오늘+365일로 넓어지면서 무제한 전체 이력 로딩(findAllByUserIdInAndType)이 소유자
-        // 축으로 증폭되는 위험이 있어, 날짜 제한 조회(findAllByUserIdInAndTypeAndCreatedAtAfter)로
-        // 교체했다 — 실제 날짜 필터링 자체는 NotificationRepositoryTest(Testcontainers)가 증명한다.
-        stubDuePage(List.of(dueFacility(1L, COMPANY, "시설A")));
-        stubNoExistingNotifications();
-
-        scheduler.notifyFacilitiesDueToday();
-
-        ArgumentCaptor<LocalDateTime> captor = ArgumentCaptor.forClass(LocalDateTime.class);
-        verify(notificationRepository)
-                .findAllByUserIdInAndTypeAndCreatedAtAfter(anySet(), eq(NotificationType.INSPECTION_DUE), captor.capture());
-        assertThat(captor.getValue()).isEqualTo(TODAY.minusDays(400).atStartOfDay());
-    }
-
-    @Test
-    @DisplayName("경과알림 설정이 켜진 overdue 시설물은 도래일이 그대로면 재실행해도 두 번째엔 스킵된다(스팸 방지)")
-    void overdue_경과알림설정켜짐_도래일불변_재실행시_스킵() {
+    @DisplayName("경과알림 설정이 켜진 overdue 시설물은 재실행 시 DB 유니크 인덱스가 막아 재발행되지 않는다"
+            + "(스팸 방지, #1050 — 조회 기반 dedupe 대신 unique violation 발생 시 skip으로 처리)")
+    void overdue_경과알림설정켜짐_재실행시_unique_violation으로_스킵() {
         // overdue(어제 마감) 시설물 — 도래일 값은 재스케줄 전까지 바뀌지 않는다. warnOnOverdueEnabled=true로
         // 명시 설정해야 #540 ③ 게이팅상 OVERDUE 알림이 발행된다(기본값은 false — 별도 테스트로 커버).
         Facility f = dueFacility(1L, COMPANY, "연체시설", TODAY.minusDays(1));
         stubDuePage(List.of(f));
         stubSettings(settingRow(OWNER, 1L, true, 7, true));
 
-        // 1회차: 기존 알림 없음 → 발행
-        when(notificationRepository.findAllByUserIdInAndTypeAndCreatedAtAfter(anySet(), any(), any())).thenReturn(List.of());
+        // 1회차: 정상 발행
         scheduler.notifyFacilitiesDueToday();
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), payloadCaptor.capture());
         assertThat(payloadCaptor.getValue()).contains("\"kind\":\"OVERDUE\"");
 
-        // 2회차(재실행): 1회차에 발행된 알림이 이미 존재(도래일 불변) → 재발행 없음
-        Notification firstRun = Notification.create(OWNER, NotificationType.INSPECTION_DUE, payloadCaptor.getValue());
-        when(notificationRepository.findAllByUserIdInAndTypeAndCreatedAtAfter(anySet(), any(), any())).thenReturn(List.of(firstRun));
+        // 2회차(재실행): 실제 운영에서는 V24 유니크 인덱스가 같은 (facilityId, dueAt, kind) 재삽입을
+        // unique violation으로 거부한다 — 여기서는 그 결과를 시뮬레이션한다.
+        doThrow(uniqueViolation()).when(notificationService).notify(anyLong(), any(), anyString());
         scheduler.notifyFacilitiesDueToday();
 
-        // 총 발행은 여전히 1회 — overdue라고 매일 재알림되지 않는다.
-        verify(notificationService, times(1)).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), anyString());
+        // 총 notify 시도는 2회(1회 성공 + 1회 unique violation으로 skip) — 예외 없이 배치가 정상 종료된다.
+        verify(notificationService, times(2)).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), anyString());
     }
 
     @Test
-    @DisplayName("owner가 3명이어도 기존 알림 조회는 정확히 1회만 호출된다(N+1 방지)")
-    void owner3명_기존알림조회_1회만() {
+    @DisplayName("owner가 3명이어도 레거시 알림 조회는 정확히 1회만 호출된다(N+1 방지)")
+    void owner3명_레거시알림조회_1회만() {
         stubDuePage(List.of(
                 dueFacility(1L, 100L, "A시설"),
                 dueFacility(2L, 200L, "B시설"),
                 dueFacility(3L, 300L, "C시설")));
-        stubNoExistingNotifications();
 
         scheduler.notifyFacilitiesDueToday();
 
         verify(notificationRepository, times(1))
-                .findAllByUserIdInAndTypeAndCreatedAtAfter(anySet(), eq(NotificationType.INSPECTION_DUE), any());
+                .findLegacyKindLessInspectionDueByUserIdIn(anySet());
         verify(notificationService, times(3))
                 .notify(anyLong(), eq(NotificationType.INSPECTION_DUE), anyString());
     }
@@ -278,7 +243,6 @@ class InspectionDueNotificationSchedulerTest {
         Slice<Facility> page1 = new SliceImpl<>(List.of(p1), PageRequest.of(1, 1), false);
         when(facilityRepository.findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(any(), any()))
                 .thenReturn(page0, page1);
-        stubNoExistingNotifications();
 
         scheduler.notifyFacilitiesDueToday();
 
@@ -288,10 +252,10 @@ class InspectionDueNotificationSchedulerTest {
     }
 
     @Test
-    @DisplayName("기존 알림 배치 조회가 실패하면 그 페이지는 스킵하고 발행하지 않는다")
-    void 배치조회실패_페이지스킵() {
+    @DisplayName("레거시 알림 조회가 실패하면 그 페이지는 스킵하고 발행하지 않는다")
+    void 레거시조회실패_페이지스킵() {
         stubDuePage(List.of(dueFacility(1L, COMPANY, "시설A")));
-        when(notificationRepository.findAllByUserIdInAndTypeAndCreatedAtAfter(anySet(), any(), any()))
+        when(notificationRepository.findLegacyKindLessInspectionDueByUserIdIn(any()))
                 .thenThrow(new RuntimeException("DB 오류"));
 
         scheduler.notifyFacilitiesDueToday();
@@ -308,7 +272,6 @@ class InspectionDueNotificationSchedulerTest {
         // 도래일 = 오늘+5일 → 오늘+5 - 7일 = 오늘-2 <= 오늘 → 기본 7일 창 안, 아직 당일은 아니므로 BEFORE.
         Facility f = dueFacility(1L, COMPANY, "시설A", TODAY.plusDays(5));
         stubDuePage(List.of(f));
-        stubNoExistingNotifications();
 
         scheduler.notifyFacilitiesDueToday();
 
@@ -323,7 +286,6 @@ class InspectionDueNotificationSchedulerTest {
         // 도래일 = 오늘+10일 → 오늘+10 - 7일 = 오늘+3 > 오늘 → 아직 창 밖.
         Facility f = dueFacility(1L, COMPANY, "시설A", TODAY.plusDays(10));
         stubDuePage(List.of(f));
-        stubNoExistingNotifications();
 
         scheduler.notifyFacilitiesDueToday();
 
@@ -339,28 +301,7 @@ class InspectionDueNotificationSchedulerTest {
         // 발행돼야 한다.
         Facility f = dueFacility(1L, COMPANY, "시설A", TODAY);
         stubDuePage(List.of(f));
-        stubNoExistingNotifications();
         stubSettings(settingRow(OWNER, 1L, false, 7, false));
-
-        scheduler.notifyFacilitiesDueToday();
-
-        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
-        verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), payloadCaptor.capture());
-        assertThat(payloadCaptor.getValue()).contains("\"kind\":\"DUE\"");
-    }
-
-    @Test
-    @DisplayName("D-7 시점 사전(BEFORE) 알림이 이미 발행된 뒤에도, D-day 배치에서 당일(DUE) 알림이 별도로 발행된다"
-            + "(사람검수 P2 #1032 — BEFORE와 DUE는 dedupe 키가 달라 서로를 스킵시키지 않는다)")
-    void BEFORE발행이력있어도_D_day에는_DUE가별도로발행된다() {
-        // D-7에 이미 BEFORE 알림이 발행된 상태를 재현(existingNotificationFor로 기존 이력 시뮬레이션).
-        // 오늘(TODAY)이 바로 그 dueAt이라 이번 배치는 이 시설물을 DUE로 판정해야 하고, BEFORE 이력이
-        // 있다고 해서 스킵되면 안 된다(구현이 3분리 이전으로 되돌아가면 이 테스트가 깨진다).
-        Facility f = dueFacility(1L, COMPANY, "시설A", TODAY);
-        stubDuePage(List.of(f));
-        Notification existingBefore = existingNotificationFor(f, Kind.BEFORE);
-        when(notificationRepository.findAllByUserIdInAndTypeAndCreatedAtAfter(anySet(), any(), any()))
-                .thenReturn(List.of(existingBefore));
 
         scheduler.notifyFacilitiesDueToday();
 
@@ -375,7 +316,6 @@ class InspectionDueNotificationSchedulerTest {
         // 도래일 = 오늘+10일 → 기본 7일 창은 밖이지만, 커스텀 14일 설정이면 오늘+10-14 = 오늘-4 <= 오늘 → 창 안.
         Facility f = dueFacility(1L, COMPANY, "시설A", TODAY.plusDays(10));
         stubDuePage(List.of(f));
-        stubNoExistingNotifications();
         stubSettings(settingRow(OWNER, 1L, true, 14, false));
 
         scheduler.notifyFacilitiesDueToday();
@@ -390,7 +330,6 @@ class InspectionDueNotificationSchedulerTest {
         // 발견돼 Polalise 승인(옵션1, HAJA-498/V21)으로 true로 되돌렸다 — 이 테스트가 그 회귀 고정이다.
         Facility f = dueFacility(1L, COMPANY, "연체시설", TODAY.minusDays(1));
         stubDuePage(List.of(f));
-        stubNoExistingNotifications();
 
         scheduler.notifyFacilitiesDueToday();
 
@@ -404,7 +343,6 @@ class InspectionDueNotificationSchedulerTest {
     void 경과알림_설정명시적으로켜짐_발행() {
         Facility f = dueFacility(1L, COMPANY, "연체시설", TODAY.minusDays(1));
         stubDuePage(List.of(f));
-        stubNoExistingNotifications();
         stubSettings(settingRow(OWNER, 1L, true, 7, true));
 
         scheduler.notifyFacilitiesDueToday();
@@ -419,7 +357,6 @@ class InspectionDueNotificationSchedulerTest {
     void 경과알림_설정명시적으로꺼짐_발행안함() {
         Facility f = dueFacility(1L, COMPANY, "연체시설", TODAY.minusDays(1));
         stubDuePage(List.of(f));
-        stubNoExistingNotifications();
         stubSettings(settingRow(OWNER, 1L, true, 7, false));
 
         scheduler.notifyFacilitiesDueToday();
@@ -429,7 +366,7 @@ class InspectionDueNotificationSchedulerTest {
 
     @Test
     @DisplayName("kind 필드 없는 구(舊) payload 이력이 있으면 overdue 시설물의 OVERDUE 알림이 재발행되지 않는다"
-            + "(사람검수 P2 #1032 — DUE 하나만 반환하던 이전 하위호환은 이 케이스를 못 막았다)")
+            + "(#1050 — V24 유니크 인덱스는 kind가 NULL인 레거시 행을 못 잡으므로 앱 레벨 레거시 체크가 여전히 필요)")
     void 구payload이력있으면_overdue시설물OVERDUE재발행안됨() {
         // #540 이전 저장분은 {facilityId, facilityName, nextInspectionDueAt}만 담고 kind 필드가 없다.
         Facility f = dueFacility(1L, COMPANY, "연체시설", TODAY.minusDays(1));
@@ -439,7 +376,7 @@ class InspectionDueNotificationSchedulerTest {
                 + TODAY.minusDays(1) + "\"}";
         Notification legacyNotification =
                 Notification.create(OWNER, NotificationType.INSPECTION_DUE, legacyPayload);
-        when(notificationRepository.findAllByUserIdInAndTypeAndCreatedAtAfter(anySet(), any(), any()))
+        when(notificationRepository.findLegacyKindLessInspectionDueByUserIdIn(any()))
                 .thenReturn(List.of(legacyNotification));
 
         scheduler.notifyFacilitiesDueToday();
@@ -448,21 +385,25 @@ class InspectionDueNotificationSchedulerTest {
     }
 
     @Test
-    @DisplayName("같은 시설물·같은 도래일이라도 DUE와 OVERDUE는 서로 다른 알림으로 취급돼 dedup이 섞이지 않는다")
-    void DUE와OVERDUE_dedup키가달라_서로독립적으로판정된다() {
-        // 오늘 마감(DUE 창 안)이면서, 이미 같은 도래일로 OVERDUE 알림만 발행된 적이 있는 상황을 재현 —
-        // 종류가 다르므로 DUE는 여전히 새로 발행돼야 한다(dedup 키에 kind가 없다면 잘못 스킵될 시나리오).
-        Facility f = dueFacility(1L, COMPANY, "시설A", TODAY);
+    @DisplayName("kind 필드 없는 구(舊) payload 이력이 있어도 dueAt이 다르면 새로 발행된다"
+            + "(레거시 체크가 dueAt까지 정확히 매칭하는지 — facilityId만 비교하는 회귀가 없는지 고정)")
+    void 구payload이력있어도_dueAt다르면_새로발행된다() {
+        Facility f = dueFacility(1L, COMPANY, "연체시설", TODAY.minusDays(1));
         stubDuePage(List.of(f));
-        Notification existingOverdue = existingNotificationFor(f, Kind.OVERDUE);
-        when(notificationRepository.findAllByUserIdInAndTypeAndCreatedAtAfter(anySet(), any(), any()))
-                .thenReturn(List.of(existingOverdue));
+        stubSettings(settingRow(OWNER, 1L, true, 7, true));
+        // 같은 facilityId=1 이지만 도래일이 다른(예전 회차) 레거시 이력 — 이번 회차와는 매칭되면 안 된다.
+        String legacyPayload = "{\"facilityId\":1,\"facilityName\":\"연체시설\",\"nextInspectionDueAt\":\""
+                + TODAY.minusDays(30) + "\"}";
+        Notification legacyNotification =
+                Notification.create(OWNER, NotificationType.INSPECTION_DUE, legacyPayload);
+        when(notificationRepository.findLegacyKindLessInspectionDueByUserIdIn(any()))
+                .thenReturn(List.of(legacyNotification));
 
         scheduler.notifyFacilitiesDueToday();
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), payloadCaptor.capture());
-        assertThat(payloadCaptor.getValue()).contains("\"kind\":\"DUE\"");
+        assertThat(payloadCaptor.getValue()).contains("\"kind\":\"OVERDUE\"");
     }
 
     @Test
@@ -476,7 +417,6 @@ class InspectionDueNotificationSchedulerTest {
         // InspectionNotificationSettingServiceTest 참고).
         Facility f = dueFacility(1L, COMPANY, "연체시설", TODAY.minusDays(1));
         stubDuePage(List.of(f));
-        stubNoExistingNotifications();
         stubSettings(settingRow(OWNER, 1L, true, 7, false));
 
         scheduler.notifyFacilitiesDueToday();
@@ -489,7 +429,6 @@ class InspectionDueNotificationSchedulerTest {
     void 알림설정조회실패_기본값으로계속() {
         Facility f = dueFacility(1L, COMPANY, "시설A", TODAY);
         stubDuePage(List.of(f));
-        stubNoExistingNotifications();
         when(notificationSettingRepository.findAllByUserIdInAndFacilityIdIn(any(), any()))
                 .thenThrow(new RuntimeException("설정 조회 실패"));
 
