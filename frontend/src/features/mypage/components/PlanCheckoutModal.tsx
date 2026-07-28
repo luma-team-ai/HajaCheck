@@ -90,9 +90,26 @@ export function PlanCheckoutModal({
             <span className="font-semibold text-heading">
               {PLAN_NAME_LABEL[order.planName] ?? order.planName} 플랜
             </span>
-            <span className="text-text-muted">
-              {formatPriceMonthly(order.amount)} 결제를 진행할까요?
-            </span>
+            {/* 잔여 기간 일할 크레딧(#1146, HAJA-550) — 정가에서 안내 없이 금액만 바뀌면 문의가 나서
+                정가/크레딧/실청구액 3줄을 그대로 보여준다. 크레딧이 0이면(주기 정보 없음·FREE→유료 등)
+                굳이 "-0원" 줄을 넣지 않고 정가 == 실청구액 2줄만 보인다. */}
+            <div className="flex flex-col gap-1">
+              <span className="flex justify-between text-text-muted">
+                <span>정가</span>
+                <span>{formatPriceMonthly(order.listPrice)}</span>
+              </span>
+              {order.credit > 0 && (
+                <span className="flex justify-between text-text-muted">
+                  <span>잔여 기간 크레딧</span>
+                  <span>-{formatPriceMonthly(order.credit)}</span>
+                </span>
+              )}
+              <span className="flex justify-between font-semibold text-heading">
+                <span>실 결제 금액</span>
+                <span>{formatPriceMonthly(order.amount)}</span>
+              </span>
+            </div>
+            <span className="text-text-muted">이 금액으로 결제를 진행할까요?</span>
           </div>
         )}
 
