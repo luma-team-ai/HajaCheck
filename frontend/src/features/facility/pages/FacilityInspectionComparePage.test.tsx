@@ -1,10 +1,14 @@
 ﻿// @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { ApiResponse } from '../../../shared/api/types';
 import { facilityComparisonHandlers } from '../api/facilityComparisonApi.handlers';
+import { mockInspectionComparison } from '../mocks/facilityComparison.mock';
+import type { InspectionComparisonResult } from '../types';
 import { FacilityInspectionComparePage } from './FacilityInspectionComparePage';
 
 // html2canvas는 실 canvas 렌더링에 의존해 jsdom에서 재현 불가능한 브라우저 API 경계라
@@ -85,5 +89,34 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
 
     expect(exportComparisonReportAsPngMock).toHaveBeenCalledTimes(1);
     expect(exportComparisonReportAsPngMock.mock.calls[0][1]).toBe('1');
+  });
+
+  // 회귀 고정 — 실 백엔드(HAJA-531/#1112)는 beforeImageUrl/afterImageUrl/crackTrend를 응답에서
+  // 아예 생략한다(null/undefined). 이 필드들을 필수로 선언했던 예전 타입 그대로 두면
+  // CrackTrendChart가 data.length에서 크래시하고 <img>는 깨진 아이콘만 보였다.
+  it('백엔드가 이미지/균열추이 필드를 생략해도(실 API 응답 형태) 크래시 없이 플레이스홀더를 보여준다', async () => {
+    server.use(
+      http.get('/api/facilities/:id/compare', () => {
+        const body: ApiResponse<Omit<InspectionComparisonResult, 'beforeImageUrl' | 'afterImageUrl' | 'crackTrend'>> = {
+          success: true,
+          data: {
+            facilityId: mockInspectionComparison.facilityId,
+            facilityName: mockInspectionComparison.facilityName,
+            beforeCycle: mockInspectionComparison.beforeCycle,
+            afterCycle: mockInspectionComparison.afterCycle,
+            kpis: mockInspectionComparison.kpis,
+            changes: mockInspectionComparison.changes,
+            availableCycles: mockInspectionComparison.availableCycles,
+          },
+        };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('회차 간 비교')).not.toBeNull();
+    expect(await screen.findAllByText('사진 없음')).toHaveLength(2);
+    expect(await screen.findByText('표시할 데이터가 없습니다.')).not.toBeNull();
   });
 });

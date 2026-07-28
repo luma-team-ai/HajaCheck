@@ -274,10 +274,14 @@ export interface InspectionComparisonResult {
   facilityName: string;
   beforeCycle: InspectionCycleOption;
   afterCycle: InspectionCycleOption;
-  beforeImageUrl: string;
-  afterImageUrl: string;
+  // 실 백엔드(GET /api/facilities/{id}/compare, HAJA-531/#1112)는 실 데이터 근거가 없어 이 세 필드를
+  // 응답에서 아예 생략한다(2026-07-28 사용자 결정) — 타입을 그 실제 부재와 맞춘다. 이전엔 필수 string/
+  // 배열로 선언돼 있어, 실 API 응답을 그대로 쓰면 undefined가 되어 CrackTrendChart가 `data.length`에서
+  // 크래시했다(react-reviewer 발견, 즉시 수정).
+  beforeImageUrl: string | null;
+  afterImageUrl: string | null;
   kpis: ComparisonKpi[];
-  crackTrend: CrackTrendPoint[];
+  crackTrend?: CrackTrendPoint[];
   changes: DefectChangeRow[];
   /** 회차 선택 드롭다운에 노출할 전체 선택지 */
   availableCycles: InspectionCycleOption[];
