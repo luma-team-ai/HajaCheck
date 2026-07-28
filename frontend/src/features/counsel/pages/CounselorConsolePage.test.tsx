@@ -59,6 +59,9 @@ describe('CounselorConsolePage', () => {
     // 종료되지 않은 담당 상담(IN_PROGRESS)도 대기열(WAITING)과 함께 목록에 보인다(#1001 후속 버그 수정).
     expect(screen.getByText(mockInProgressQueueTicket.title)).not.toBeNull();
     expect(screen.getByText('활성 채팅 (2)')).not.toBeNull();
+    // 상담 중(IN_PROGRESS)과 배정 가능(WAITING)이 구분된 섹션으로 보인다(사용자 피드백).
+    expect(screen.getByText('상담 중 (1)')).not.toBeNull();
+    expect(screen.getByText('배정 가능 (1)')).not.toBeNull();
     expect(screen.getByText('왼쪽 목록에서 상담을 선택하세요.')).not.toBeNull();
   });
 
