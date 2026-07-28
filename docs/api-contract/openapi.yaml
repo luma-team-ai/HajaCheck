@@ -1226,14 +1226,28 @@ paths:
         초과 좌석 정지를 수행한다. 이미 낸 요금 기간을 온전히 쓰게 하려는 것이 목적이다.
 
 
-        **상향은 이 경로로 받지 않는다** — 즉시 적용 + 결제가 필요하므로 `PLAN_SCHEDULE_NOT_DOWNGRADE`(403).
-        상향 결제(`POST /api/me/plan/orders`)나 관리자 즉시 변경(`PUT /api/admin/plan`)이 일어나면 대기 중인
-        예약은 자동으로 무효화된다.
+        ⚠️ **대상은 무료 요금제(FREE)만 지원한다**(`PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED`, 403).
+        유료→유료 하향(예: ENTERPRISE→STANDARD)은 적용 시점에 새 유료 주기를 열어야 하는데, 정기결제
+        (빌링키)가 없어 그 주기를 청구할 수단이 없다 — 즉 **무결제로 유료 요금제가 발급**된다. 결제 경로
+        우회를 막기 위해 이 조합 자체를 범위 밖으로 둔다(`PLAN_UPGRADE_REQUIRES_PAYMENT`와 같은 근거).
+        유료→유료 하향이 필요하면 관리자 즉시 변경(`PATCH /api/admin/plan`)을 쓴다 — 다만 그 경로는 잔여
+        기간을 정산하지 않는다.
 
 
-        ⚠️ `keepUserIds`는 실행 시점까지 보관되므로, 그 사이 퇴사·정지·타사 이동한 id는 실행 시 드롭하고
-        owner 우선으로 자동 보충한다. 좌석 한도가 예약 이후 더 좁아졌으면 임의로 절삭하지 않고 예약을
-        FAILED로 종료한다(아무도 잘못 정지되지 않는 방향).
+        **상향도 이 경로로 받지 않는다** — 즉시 적용 + 결제가 필요하므로 `PLAN_SCHEDULE_NOT_DOWNGRADE`(403).
+        상향 결제(`POST /api/me/plan/orders`)·관리자 즉시 변경(`PATCH /api/admin/plan`)·만료 강등(#1145)이
+        일어나면 대기 중인 예약은 자동으로 무효화된다.
+
+
+        ⚠️ `keepUserIds`는 실행 시점까지 보관되므로, 그 사이 퇴사·정지·타사 이동한 id는 실행 시 드롭한다.
+        **드롭이 발생한 경우에만 그 수만큼** 자동 보충하며(owner는 항상 유지되므로 보충 예산을 쓰지 않는다),
+        드롭이 없으면 신청 시점 선택을 그대로 존중한다 — 미리보기로 확인한 정지 규모가 보존된다.
+
+
+        신청 시점에 확인한 정지 인원 수가 예약 행에 스냅샷된다. 실행 시점 정지 대상이 그 수를 초과하면
+        (예약 이후 구성원이 늘어난 경우) 적용하지 않고 **FAILED로 종료**하며 상위 요금제를 유지한다
+        (`PLAN_SCHEDULE_CONFIRMED_OVERFLOW_EXCEEDED`) — 확인받지 않은 규모로 사람을 정지시키지 않는다.
+        FAILED 종료 시 owner에게 알림(`PLAN_DOWNGRADE_FAILED`)이 발행된다.
       security:
         - SessionCookie: []
       tags: [admin]
