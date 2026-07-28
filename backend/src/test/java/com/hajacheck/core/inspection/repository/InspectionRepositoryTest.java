@@ -583,7 +583,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void findPageByCompanyIdAndFilters_점검축과하자프로파일과전체하자건수_AND결합() {
+    void findPageByCompanyIdAndFilters_점검축과하자프로파일과전체하자건수양쪽범위_AND결합() {
         Long ownerId = seedOwner("owner-filter-combined@haja.com");
         Long facilityId = seedFacility(ownerId, "복합필터시설");
         Inspection matching = inspectionRepository.save(newInspection(
@@ -613,7 +613,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 List.of(InspectionStatus.REVIEWED, InspectionStatus.REPORTED),
                 List.of(InspectionType.REGULAR),
                 LocalDate.of(2026, 6, 1), LocalDate.of(2026, 6, 30),
-                1, 2, 3L, 3L,
+                1, 2, 2L, 3L,
                 List.of(DefectType.CRACK), List.of(DefectGrade.D), List.of(DefectStatus.CONFIRMED));
 
         Page<Inspection> result =

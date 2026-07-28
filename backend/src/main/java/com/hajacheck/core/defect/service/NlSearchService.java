@@ -27,6 +27,7 @@ import java.net.http.HttpTimeoutException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -191,6 +192,9 @@ public class NlSearchService {
 
     private static <E extends Enum<E>> boolean areValidEnums(List<String> values, Class<E> enumType) {
         if (values == null) {
+            return false;
+        }
+        if (new HashSet<>(values).size() != values.size()) {
             return false;
         }
         try {

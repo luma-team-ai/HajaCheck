@@ -499,7 +499,8 @@ Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?no
 공개 `POST /api/defects/nl-search` 요청은 계속 `{query}`만 받는다. Spring은 내부 FastAPI
 `POST /ai/nl-search`에 `{query, referenceDate}`를 보내며, `referenceDate`는 브라우저 입력이 아니라
 서버의 KST `Clock`으로 산출한다. FastAPI가 반환한 최종 날짜·회차·건수 범위와 enum을 Spring이 한 번 더
-검증하며, 계약 밖 값이나 역전된 범위는 `502 AI_INVALID_RESPONSE`로 처리한다.
+검증하며, 계약 밖 enum·중복 배열 값이나 역전된 범위는 공개 게이트웨이에서 `ErrorApiResponse` 형태의
+`502 AI_INVALID_RESPONSE`로 처리한다.
 
 ## GET /api/platform-admin/monitoring — 플랫폼 관리자 시스템 모니터링 (#728, frontend PR #732 계약 확정 2026-07-24)
 

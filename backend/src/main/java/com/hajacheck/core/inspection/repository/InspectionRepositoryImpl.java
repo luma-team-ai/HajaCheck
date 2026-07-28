@@ -123,10 +123,12 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
                 .where(
                         cb.equal(defectRoot.get("inspectionId"), inspectionRoot.get("id")),
                         cb.isFalse(defectRoot.get("deleted")));
-        if (criteria.defectCountMin() != null) {
+        if (criteria.defectCountMin() != null && criteria.defectCountMax() != null) {
+            predicates.add(cb.between(
+                    countSubquery, criteria.defectCountMin(), criteria.defectCountMax()));
+        } else if (criteria.defectCountMin() != null) {
             predicates.add(cb.greaterThanOrEqualTo(countSubquery, criteria.defectCountMin()));
-        }
-        if (criteria.defectCountMax() != null) {
+        } else {
             predicates.add(cb.lessThanOrEqualTo(countSubquery, criteria.defectCountMax()));
         }
     }

@@ -2305,6 +2305,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "502":
+          description: AI 응답의 필터 enum·배열 고유성·범위 제약 위반(AI_INVALID_RESPONSE)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
   /api/defects/{id}:
     patch:

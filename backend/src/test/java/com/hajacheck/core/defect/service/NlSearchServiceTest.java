@@ -317,6 +317,48 @@ class NlSearchServiceTest {
         mockServer.verify();
     }
 
+    @Test
+    void 검색_AI가중복하자Enum배열반환_AI_INVALID_RESPONSE() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L)));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(addonPlan));
+
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"filters":{"type":["CRACK","CRACK"],"grade":[],"status":[],"confidenceMin":null,"inspectionType":[],"inspectionStatus":[],"inspectionDateFrom":null,"inspectionDateTo":null,"roundNoMin":null,"roundNoMax":null,"defectCountMin":null,"defectCountMax":null},"unsupported_terms":[],"clarifying_question":null,"interpretation_confidence":0.9}}
+                                """));
+
+        assertThatThrownBy(() -> service.search(USER_ID, "균열 점검"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.AI_INVALID_RESPONSE);
+        mockServer.verify();
+    }
+
+    @Test
+    void 검색_AI가중복점검Enum배열반환_AI_INVALID_RESPONSE() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L)));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(addonPlan));
+
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"filters":{"type":[],"grade":[],"status":[],"confidenceMin":null,"inspectionType":[],"inspectionStatus":["REVIEWED","REVIEWED"],"inspectionDateFrom":null,"inspectionDateTo":null,"roundNoMin":null,"roundNoMax":null,"defectCountMin":null,"defectCountMax":null},"unsupported_terms":[],"clarifying_question":null,"interpretation_confidence":0.9}}
+                                """));
+
+        assertThatThrownBy(() -> service.search(USER_ID, "검토 완료 점검"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.AI_INVALID_RESPONSE);
+        mockServer.verify();
+    }
+
     // ── fixtures ──
 
     private static User user(Long id, Long companyId) {
