@@ -35,6 +35,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -313,9 +314,12 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
         assertThat(renewed.getCurrentPeriodEnd())
                 .as("FREE 는 무기한이다 — 여기에 값이 남으면 한 달 뒤 다시 강등 대상이 되는 무한 루프가 된다")
                 .isNull();
-        assertThat(renewed.getCurrentPeriodStart())
+        // ⚠️ 마이크로초로 절삭해 비교한다 — PostgreSQL timestamptz 는 마이크로초(6자리)까지만 저장하는데
+        // Instant.now() 는 플랫폼에 따라 나노초(9자리)를 준다(리눅스 CI 는 나노초, macOS 는 마이크로초).
+        // 원본 Instant 를 그대로 비교하면 로컬에서는 통과하고 CI 에서만 깨지는 환경 의존 실패가 된다.
+        assertThat(renewed.getCurrentPeriodStart().truncatedTo(ChronoUnit.MICROS))
                 .as("결제가 없었으므로 주기 시작은 승계한다(#1104 carryOverBillingPeriod 규칙)")
-                .isEqualTo(periodStart);
+                .isEqualTo(periodStart.truncatedTo(ChronoUnit.MICROS));
 
         // 사용량 이월(#851) — 이월하지 않으면 강등이 곧 월 분석 한도 리셋이 되어 한도 강제(#843)가
         // 무력화된다(이전 행은 이력으로 남기고 새 구독에 같은 값을 복사하는 방식).
