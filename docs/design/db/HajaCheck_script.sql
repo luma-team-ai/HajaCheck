@@ -1404,6 +1404,19 @@ create index idx_notifications_user_unread
 create index idx_notifications_user_history
     on notifications (user_id, created_at desc, id desc);
 
+-- INSPECTION_DUE 알림 멱등성(dedup)을 DB 유니크 제약으로 원자적으로 보장한다(V22, #1050). kind가 있는
+-- (#540 이후 생성된) payload만 방어하며, kind가 NULL인 레거시 payload는 이 인덱스로 못 잡는다(PostgreSQL
+-- unique index는 NULL을 서로 다른 값으로 취급) — 그 사각지대는 애플리케이션 레벨에서 별도로 방어한다
+-- (InspectionDueNotificationScheduler.findLegacyKindLessInspectionDueByUserIdIn 참고).
+create unique index uq_notifications_inspection_due_dedupe
+    on notifications (
+        user_id,
+        ((payload_json ->> 'facilityId')::bigint),
+        (payload_json ->> 'nextInspectionDueAt'),
+        (payload_json ->> 'kind')
+    )
+    where type = 'INSPECTION_DUE';
+
 create table inspection_notification_settings
 (
     id                         bigint generated always as identity

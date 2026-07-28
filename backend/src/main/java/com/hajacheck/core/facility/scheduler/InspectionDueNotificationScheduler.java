@@ -12,20 +12,21 @@ import com.hajacheck.notification.repository.NotificationRepository;
 import com.hajacheck.notification.service.NotificationService;
 import java.time.Clock;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 점검 예정일 관련 알림(사전/당일/경과)을 발행하는 일 배치(NOTI-01, #425 / 알림설정 게이팅, #540 ③).
+ * 점검 예정일 관련 알림(사전/당일/경과)을 발행하는 일 배치(NOTI-01, #425 / 알림설정 게이팅, #540 ③ /
+ * DB 유니크 제약 기반 멱등성 전환, #1050).
  *
  * <p>매일 06:00(KST) 실행. {@code next_inspection_due_at <= 오늘 + MAX_NOTIFY_BEFORE_DAYS}인 시설물을
  * 페이지 단위로 순회하며, 시설물 소유자(회사 소유자)의 {@link InspectionNotificationSetting}(사용자·시설
@@ -52,35 +53,45 @@ import org.springframework.stereotype.Component;
  * {@code dueAt <= 오늘}이면 당일/연체 구분 없이 항상 발행했었기 때문이다. Polalise 승인(옵션1)으로
  * V21에서 컬럼 DEFAULT와 이 폴백값을 true로 되돌려 원래 동작을 복원했다.
  *
- * <p>각 시설물의 <b>현재 도래일 + 알림 종류(kind)</b> 조합으로 이미 발행됐으면 건너뛴다(멱등, 도래일×종류당
- * 1회 — {@link InspectionDueNotificationPayload} 참고). 도래일 값이 바뀌지 않는 한(=재스케줄 전까지) 같은
- * 종류의 알림이 매일 재발행되는 스팸이 발생하지 않는다. kind를 dedupe 키에 포함한 이유: BEFORE·DUE·
- * OVERDUE는 같은 (facilityId, dueAt) 조합에 대해서도 서로 다른 정보 전달 시점이라, 한쪽을 보냈다고
- * 다른 쪽까지 건너뛰면 안 된다(#540 ③ 코드리뷰 지적 사항, 3종 분리는 사람검수 P2 #1032). 소유자별·
- * 시설물별로 실패를 격리해 한 건의 실패가 배치 전체를 멈추지 않게 한다.
+ * <p><b>멱등성 = DB 유니크 제약 기반(#1050)</b>. V24 마이그레이션이 {@code notifications} 테이블에
+ * {@code (user_id, payload_json->>'facilityId', payload_json->>'nextInspectionDueAt',
+ * payload_json->>'kind')} 조합의 부분 유니크 인덱스({@code uq_notifications_inspection_due_dedupe},
+ * {@code WHERE type='INSPECTION_DUE'})를 추가했다. 이제 이 배치는 <b>사전 조회 없이 바로 발행을
+ * 시도</b>하고, DB가 unique violation({@link DataIntegrityViolationException})을 던지면 "이미
+ * 발행됨"으로 간주해 조용히 skip한다({@code com.hajacheck.core.inspection.service.InspectionService}의
+ * 회차 채번 unique violation 처리와
+ * 동일한 catch 패턴 — 다만 거긴 폴백 응답이고 여긴 skip이 맞다). kind를 dedupe 키에 포함한 이유는
+ * 여전히 유효하다 — BEFORE·DUE·OVERDUE는 같은 (facilityId, dueAt) 조합에 대해서도 서로 다른 정보
+ * 전달 시점이라, 한쪽을 보냈다고 다른 쪽까지 막히면 안 된다(#540 ③ 코드리뷰 지적, 3종 분리는 사람검수
+ * P2 #1032).
+ *
+ * <p>⚠️ <b>레거시(kind 없는) payload 사각지대</b>: 위 유니크 인덱스는 {@code payload_json->>'kind'}가
+ * NULL인 행을 원자적으로 방어하지 못한다(PostgreSQL unique index는 NULL을 서로 다른 값으로 취급).
+ * {@code kind} 필드가 없는 #540 이전 저장분이 이 사각지대에 해당하므로, 이 배치는 DB insert를
+ * 시도하기 전에 먼저 {@link NotificationRepository#findLegacyKindLessInspectionDueByUserIdIn}로
+ * 좁힌 애플리케이션 레벨 체크를 한 번 거친다(#1056이 고친 "구 payload가 kind 없이 DUE/OVERDUE 둘 다로
+ * 매칭돼야 한다"는 하위호환 규칙은 여기서도 그대로 적용 — {@link InspectionDueNotificationPayload
+ * #extractDedupeKey} 참고). 이 조회 대상은 #540 배포 이후로 늘어나지 않는 유한 집합이라(신규 발행은
+ * 항상 kind를 채움) 날짜 윈도우 없이 조회해도 무제한 누적 문제가 재발하지 않는다.
  *
  * <p>⚠️ 이 메서드/클래스에는 {@code @Transactional}을 붙이지 않는다 —
- * {@link NotificationService#notify}가 자체 트랜잭션을 가져 시설물별로 독립 커밋되게 하려는 의도적 설계다.
+ * {@link NotificationService#notify}가 자체 트랜잭션({@code REQUIRES_NEW})을 가져 시설물별로 독립
+ * 커밋되게 하려는 의도적 설계다. 이 덕분에 한 시설물의 unique violation(트랜잭션 rollback)이 다른
+ * 시설물의 발행에 영향을 주지 않는다.
  *
- * <p>⚠️ <b>단일 인스턴스 실행 전제</b>: 멱등성은 DB 유니크 제약이 아니라 애플리케이션 레벨 read-then-write
- * (기존 알림 조회 → 없는 것만 발행)로 보장된다. 따라서 다중 인스턴스로 스케일아웃하면 레플리카마다 각자 발화해
- * <b>확정적으로 중복 발행</b>된다. 스케일아웃 시점에는 ShedLock 같은 분산 락 또는 (user_id, type, facility_id, 도래일, kind)
- * DB 유니크 제약 도입이 선행돼야 한다.
+ * <p>✅ <b>다중 인스턴스 스케일아웃 안전(#1050의 핵심 이득)</b>: 멱등성이 이제 DB 유니크 제약(원자적
+ * 연산)으로 보장되므로, 여러 인스턴스가 동시에 같은 시설물을 처리해도 먼저 커밋한 쪽만 성공하고
+ * 나머지는 unique violation으로 skip된다 — 더 이상 read-then-write 레이스가 없다. (레거시 kind-null
+ * 사각지대 체크는 여전히 조회 기반이라 그 좁은 범위에서는 이론상 레이스가 남지만, 대상 집합이 #540
+ * 이전 데이터로 고정돼 있어 신규 트래픽에는 영향이 없다.)
  *
  * <p>스캔 비용: {@code next_inspection_due_at}는 V9 마이그레이션(#509)에서 부분 인덱스가 추가돼 있어
- * (idx_facilities_next_inspection_due_at) 이 조건의 범위 스캔 자체는 인덱스를 탄다. 다만 #540 ③으로
- * 스캔 상한이 "오늘"에서 "오늘 + 최대 365일(notify_before_days 상한)"로 넓어져, 알림설정과 무관하게
- * 도래일이 향후 1년 내인 시설물까지 매일 페이지 조회 대상에 포함된다(대부분은 게이트 조건 불충족으로
- * skipped 처리). overdue 시설물도 기존과 동일하게 재스케줄 전까지 매일 재조회 대상에 잔류한다 —
- * 근본적으로 스캔 폭을 줄이려면 알림설정을 DB 쿼리 조건에 조인하는 구조가 필요하나, 사용자별로 값이
- * 달라 단순 조인만으로는 안 되고 별도 설계가 필요해 이번 범위 밖(후속 이슈로 분리).
- *
- * <p>⚠️ 기존 알림 조회 슬라이딩 윈도우(PR머신 P2 #1032): 위 스캔 상한 확대로 페이지당 대상 시설물(따라서
- * 소유자 수)이 늘어나면서, 멱등성 체크용 기존 INSPECTION_DUE 알림 조회({@link NotificationRepository
- * #findAllByUserIdInAndTypeAndCreatedAtAfter})를 소유자별 <b>전체 이력 무제한 로딩</b>으로 두면 운영
- * 데이터가 쌓일수록 배치가 느려지고 OOM 위험이 커진다. {@code today - NOTIFICATION_LOOKBACK_DAYS} 이후
- * 생성분만 조회해 무제한 누적을 고정 윈도우로 막는다 — 완전한 해결(멱등성을 DB 유니크 제약으로 옮기거나
- * 페이지별 정확 매칭 조회로 좁히는 것)은 후속 이슈로 분리하고, 이번엔 1차 완화만 적용한다.
+ * (idx_facilities_next_inspection_due_at) 이 조건의 범위 스캔 자체는 인덱스를 탄다. #540 ③으로 스캔
+ * 상한이 "오늘"에서 "오늘 + 최대 365일(notify_before_days 상한)"로 넓어져, 알림설정과 무관하게 도래일이
+ * 향후 1년 내인 시설물까지 매일 페이지 조회 대상에 포함된다(대부분은 게이트 조건 불충족으로 skipped
+ * 처리). overdue 시설물도 기존과 동일하게 재스케줄 전까지 매일 재조회 대상에 잔류한다 — 근본적으로
+ * 스캔 폭을 줄이려면 알림설정을 DB 쿼리 조건에 조인하는 구조가 필요하나, 사용자별로 값이 달라 단순
+ * 조인만으로는 안 되고 별도 설계가 필요해 이번 범위 밖(후속 이슈로 분리).
  */
 @Slf4j
 @Component
@@ -93,10 +104,6 @@ public class InspectionDueNotificationScheduler {
     // 사전 알림 최대 창(#540 ③) — inspection_notification_settings.notify_before_days 체크 제약
     // (1~365)의 상한과 동일. 이보다 넓게 스캔해도 어차피 어떤 설정으로도 도달할 수 없는 대상이라 의미가 없다.
     private static final int MAX_NOTIFY_BEFORE_DAYS = 365;
-
-    // 기존 알림 조회 슬라이딩 윈도우(PR머신 P2 #1032) — MAX_NOTIFY_BEFORE_DAYS(365) + 여유분. 정확한
-    // 최적 경계는 아니지만 "무제한 누적"을 "고정 윈도우"로 바꾸는 것 자체가 이번 완화의 목표다.
-    private static final int NOTIFICATION_LOOKBACK_DAYS = 400;
 
     // 알림설정 행이 없을 때(사용자가 한 번도 저장한 적 없는 시설물) 적용하는 기본값 — DB 컬럼 기본값
     // 및 InspectionNotificationSettingResponse.defaults()와 반드시 동일해야 한다.
@@ -115,7 +122,6 @@ public class InspectionDueNotificationScheduler {
     public void notifyFacilitiesDueToday() {
         LocalDate today = LocalDate.now(clock);
         LocalDate maxScanDueAt = today.plusDays(MAX_NOTIFY_BEFORE_DAYS);
-        LocalDateTime notificationLookbackAfter = today.minusDays(NOTIFICATION_LOOKBACK_DAYS).atStartOfDay();
 
         long totalTargets = 0;
         BatchCounts totals = BatchCounts.ZERO;
@@ -128,7 +134,7 @@ public class InspectionDueNotificationScheduler {
             List<Facility> facilities = page.getContent();
             totalTargets += facilities.size();
             if (!facilities.isEmpty()) {
-                totals = totals.plus(processPage(facilities, pageNumber, today, notificationLookbackAfter));
+                totals = totals.plus(processPage(facilities, pageNumber, today));
             }
             pageNumber++;
         } while (page.hasNext());
@@ -137,38 +143,19 @@ public class InspectionDueNotificationScheduler {
                 totalTargets, totals.published(), totals.skipped(), totals.failed());
     }
 
-    private BatchCounts processPage(
-            List<Facility> facilities, int pageNumber, LocalDate today, LocalDateTime notificationLookbackAfter) {
+    private BatchCounts processPage(List<Facility> facilities, int pageNumber, LocalDate today) {
         Set<Long> companyIds = facilities.stream()
                 .map(Facility::getCompanyId)
                 .collect(Collectors.toSet());
         Map<Long, Long> ownerUserIdByCompany = companyOwnerLookupService.findOwnerUserIds(companyIds);
         Set<Long> ownerUserIds = Set.copyOf(ownerUserIdByCompany.values());
 
-        // 회사당 1쿼리(N+1) 대신, 이 페이지에 등장하는 회사 소유자의 기존 알림을 한 번에 조회해
-        // 수신 사용자별 이미-발행 dedupe 키 집합을 만든다.
-        //
-        // ⚠️ 알려진 한계(코드리뷰 발견, 옵션2로 확정 — 윈도우는 되돌리지 않고 한계만 명시): 이
-        // NOTIFICATION_LOOKBACK_DAYS(400일) 슬라이딩 윈도우는 Kind.BEFORE/Kind.DUE(사전·당일 알림,
-        // 최대 lookahead가 notifyBeforeDays 상한인 365일이라 그 도래일의 최초 발행 기록은 항상 400일
-        // 윈도우 안에 남는다) dedupe에는 충분히 안전하지만, Kind.OVERDUE(연체) dedupe에는 원칙적으로
-        // "무기한" 메모리가
-        // 필요하다 — 재점검 없이 같은 dueAt으로 400일 넘게 연체 상태가 유지되는 시설물은 최초 OVERDUE
-        // 발행 기록이 윈도우 밖으로 밀려나, 동일 (facilityId, dueAt, OVERDUE) 알림이 다시 발행될 수
-        // 있다. 영향 방향은 "과다 알림"이지 "알림 누락"이 아니므로 안전 영향은 낮다고 판단해, 이번
-        // PR에서는 윈도우를 되돌리지 않고(스캔 범위 +365일 확장이 핵심 요구사항이며, 무제한 조회와
-        // 결합 시 증폭 위험이 더 크다) 이 한계를 문서화하는 선에서 마무리한다. 근본 해결책(예: DB
-        // 유니크 제약 기반 멱등성으로 전환해 조회 자체를 없애는 것)은 후속 이슈로 분리한다 —
-        // https://github.com/luma-team-ai/HajaCheck/issues/1050
-        Map<Long, Set<String>> alreadyByOwner;
+        // 레거시(kind 없음) payload dedupe 체크(#1050) — V24 유니크 인덱스가 못 잡는 좁은 사각지대만
+        // 대상으로 한다(#540 배포 이후로 늘어나지 않는 유한 집합 — NotificationRepository 참고).
+        Map<Long, Set<String>> legacyKeysByOwner;
         try {
-            // extractDedupeKey는 알림 1건당 여러 dedupe 키를 낼 수 있다(구 payload는 DUE+OVERDUE 두 키 —
-            // InspectionDueNotificationPayload 클래스 javadoc, 사람검수 P2 #1032) — flatMapping으로
-            // owner별 키 집합에 모두 펼쳐 담는다(Collectors.mapping+filtering이던 이전 구현은 알림 1건당
-            // 키 1개만 가정해 이 경우를 다루지 못했다).
-            alreadyByOwner = notificationRepository
-                    .findAllByUserIdInAndTypeAndCreatedAtAfter(
-                            ownerUserIds, NotificationType.INSPECTION_DUE, notificationLookbackAfter)
+            legacyKeysByOwner = notificationRepository
+                    .findLegacyKindLessInspectionDueByUserIdIn(ownerUserIds)
                     .stream()
                     .collect(Collectors.groupingBy(
                             Notification::getUserId,
@@ -177,7 +164,7 @@ public class InspectionDueNotificationScheduler {
                                     Collectors.toSet())));
         } catch (Exception e) {
             // 1회 배치 조회라 owner별로 나눠 처리할 수 없다 — 멱등성 보장 불가한 이 페이지 전체를 스킵하고 다음 페이지로.
-            log.warn("INSPECTION_DUE 기존 알림 배치 조회 실패 — page={} 전체 스킵 exception={}",
+            log.warn("INSPECTION_DUE 레거시 알림 조회 실패 — page={} 전체 스킵 exception={}",
                     pageNumber, e.getClass().getSimpleName());
             return new BatchCounts(0, 0, facilities.size());
         }
@@ -232,15 +219,25 @@ public class InspectionDueNotificationScheduler {
                 continue;
             }
 
-            Set<String> already = alreadyByOwner.getOrDefault(recipientUserId, Set.of());
-            if (already.contains(InspectionDueNotificationPayload.dedupeKeyOf(facility, kind))) {
+            Set<String> legacyKeys = legacyKeysByOwner.getOrDefault(recipientUserId, Set.of());
+            if (legacyKeys.contains(InspectionDueNotificationPayload.dedupeKeyOf(facility, kind))) {
                 skipped++;
                 continue;
             }
+
+            // #1050 — 조회 기반 dedupe 대신 바로 발행을 시도하고, DB 유니크 인덱스가 unique violation을
+            // 던지면 "이미 발행됨"으로 간주해 skip한다(InspectionService.createInspection의 회차 채번
+            // unique violation 처리와 동일한 catch 패턴). notify()가 REQUIRES_NEW로 독립 트랜잭션을 열어
+            // 커밋하므로, 여기서 던져지는 예외는 이 시설물의 발행 시도만 롤백시키고 다른 시설물에는
+            // 영향을 주지 않는다.
             try {
                 notificationService.notify(recipientUserId, NotificationType.INSPECTION_DUE,
                         InspectionDueNotificationPayload.serialize(facility, kind));
                 published++;
+            } catch (DataIntegrityViolationException e) {
+                // 동시 실행(다중 인스턴스 또는 같은 인스턴스 내 레이스)이 먼저 커밋해 유니크 인덱스가
+                // 막은 경우 — 이미 발행된 것으로 간주하고 조용히 skip한다(정상 동작, 에러 아님).
+                skipped++;
             } catch (Exception e) {
                 // 시설물 1건 실패를 격리 — 같은 owner의 나머지 시설물 처리는 계속한다.
                 failed++;
