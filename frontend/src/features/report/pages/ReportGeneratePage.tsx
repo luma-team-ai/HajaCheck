@@ -280,8 +280,8 @@ export function ReportGeneratePage() {
               className="inline-flex items-center justify-center gap-1.5 rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-base font-medium text-zinc-900"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-                <path d="M2.2 7a4.8 4.8 0 0 1 8.2-3.4M11.8 7a4.8 4.8 0 0 1-8.2 3.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                <path d="M10.6 1.6v2.4h-2.4M3.4 12.4V10h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M3 7a5 5 0 0 1 9-2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                <path d="M11 3l2 2-2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               미리보기 새로고침
             </button>
@@ -291,15 +291,15 @@ export function ReportGeneratePage() {
               disabled={isDownloadingPdf || !report.pdfUrl}
             >
               {isDownloadingPdf ? '내보내는 중...' : 'PDF 내보내기'}
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden className="ml-1.5">
-                <path d="M7 1.8v7m0 0L4.4 6.2M7 8.8l2.6-2.6M2 11.2h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="ml-1">
+                <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </Button>
           </div>
         </div>
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 overflow-hidden bg-zinc-100 p-6">
           {report.pdfUrl && pdfLoadError ? (
-            <div className="m-6 flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-zinc-200 bg-white p-8 text-center">
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-zinc-200 bg-white p-8 text-center">
               <p className="text-lg font-semibold text-text-default">PDF를 불러올 수 없습니다.</p>
               <p className="text-sm text-text-muted">{pdfLoadError}</p>
               <Button onClick={() => void handleDownloadStoredPdf()} variant="secondary">
@@ -307,13 +307,17 @@ export function ReportGeneratePage() {
               </Button>
             </div>
           ) : pdfBlobUrl ? (
-            <iframe title="보고서 PDF" src={pdfBlobUrl} className="h-full w-full" />
+            <iframe
+              title="저장된 보고서 PDF"
+              src={pdfBlobUrl}
+              className="h-[calc(100vh-96px)] w-full rounded-lg border border-zinc-200 bg-white"
+            />
           ) : report.pdfUrl && !pdfLoadError ? (
             <div className="flex flex-1 items-center justify-center">
               <AILoadingIndicator message="PDF를 불러오는 중..." />
             </div>
           ) : (
-            <div className="m-6 flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-white p-8 text-center">
+            <div className="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-white p-8 text-center">
               <div className="flex max-w-md flex-col gap-3">
                 <p className="text-lg font-semibold text-text-default">저장된 PDF가 없습니다.</p>
                 <p className="text-sm text-text-muted">
