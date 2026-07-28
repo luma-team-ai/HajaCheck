@@ -33,6 +33,13 @@ info:
       prefix `/user`.
 
 
+    2026-07-28 구독 결제 주기 실체화(#1104 / HAJA-525, Flyway V27) — `user_plans.current_period_start`
+    /`current_period_end` 컬럼 신설로 nextBillingDate·remainingDays 의 산출 근거가 **조회 시점 파생 계산
+    (startedAt + 1개월)에서 DB 컬럼값으로 교체**됐다. 응답 필드 이름·타입은 그대로라 하위호환이지만
+    **의미가 바뀐 지점이 하나 있다**: `remainingDays=null` 이 이제 "만료"뿐 아니라 "무기한(FREE)"도
+    뜻하므로(FREE = `remainingDays=null` + `status=ACTIVE`), 소비자는 만료 판정을 **status 로만** 해야
+    한다. 결제 승인 전이 시 주기 리셋, 관리자 플랜 변경(무결제) 시 기존 주기 승계.
+
     2026-07-28 하자 위치 편집·회차 간 대응 하자 확정 계약화(#970/HAJA-437, PR #1103 dev 머지 반영) —
     PATCH /api/defects/{id}/location · PATCH /api/defects/{id}/previous-defect 신설(Flyway V24로
     defects.location + defects.previous_defect_id 추가). previousDefectId는 **같은 회사 스코프 + 같은
@@ -89,13 +96,6 @@ info:
     2026-07-24 내 정보 조회(GET /api/users/me, 로그인 응답 포함) UserResponse에 createdAt(가입일)·
     companyName(소속 기업명, 개인 회원/회사 미조회 시 null) 추가(#740 / HAJA-401) — 마이페이지 "내 정보"
     프로필 섹션용. 기존 필드 순서·이름 유지한 추가형(하위호환).
-    2026-07-28 구독 결제 주기 실체화(#1104 / HAJA-525, Flyway V27) — `user_plans.current_period_start`
-    /`current_period_end` 컬럼 신설로 nextBillingDate·remainingDays 의 산출 근거가 **조회 시점 파생 계산
-    (startedAt + 1개월)에서 DB 컬럼값으로 교체**됐다. 응답 필드 이름·타입은 그대로라 하위호환이지만
-    **의미가 바뀐 지점이 하나 있다**: `remainingDays=null` 이 이제 "만료"뿐 아니라 "무기한(FREE)"도
-    뜻하므로(FREE = `remainingDays=null` + `status=ACTIVE`), 소비자는 만료 판정을 **status 로만** 해야
-    한다. 결제 승인 전이 시 주기 리셋, 관리자 플랜 변경(무결제) 시 기존 주기 승계.
-
     2026-07-23 마이페이지 "내 플랜" Figma 리디자인 + 모의 결제(#711) — MyPlanResponse.plan에
     nextBillingDate(유료 플랜만, startedAt KST 기준 +1개월)·businessVerified(회사 구독만, Company.
     verificationStatus==VERIFIED) 추가. POST /api/me/plan/checkout 신설 — PG 실결제 없는 모의 결제로

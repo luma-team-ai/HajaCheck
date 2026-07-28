@@ -3,6 +3,7 @@ package com.hajacheck.support;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.sql.Timestamp;
+import java.time.Instant;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
@@ -92,6 +93,19 @@ class V27BillingPeriodBackfillMigrationTest {
                 returning id
                 """, Long.class, paidCompanyId, standardPlanId, startedAt);
 
+        // 타임존 경계 케이스(코드리뷰 P3 회귀 고정) — KST 00:00~09:00 구간은 UTC로는 "전날"이라,
+        // 백필이 `started_at + interval '1 month'`(세션 TimeZone 기준)로 계산되면 세션 TZ가 UTC인
+        // 환경에서 결과가 어긋난다: 2026-03-01 05:00 KST 는 KST 달력으로 2026-04-01 이지만 UTC
+        // 달력으로는 2026-02-28 이라 +1개월이 2026-03-28(=3/29 05:00 KST)로 3일 빨라진다.
+        // V27은 `at time zone 'Asia/Seoul'`로 감싸 이 의존을 끊었으므로, 래핑이 되돌려지면
+        // 이 케이스가 실패해야 한다(위 6/15 케이스는 구·신 표현식 결과가 같아 회귀를 못 잡는다).
+        Instant boundaryStartedAt = Instant.parse("2026-02-28T20:00:00Z"); // = 2026-03-01 05:00 KST
+        Long boundaryUserPlanId = jdbc.queryForObject("""
+                insert into user_plans (company_id, plan_id, status, started_at)
+                values (?, ?, 'EXPIRED'::user_plan_status_type, ?)
+                returning id
+                """, Long.class, paidCompanyId, standardPlanId, Timestamp.from(boundaryStartedAt));
+
         // 여기서 V27만 추가 적용해 백필 UPDATE 가 기존 행에 어떻게 반영되는지를 본다.
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
@@ -114,5 +128,11 @@ class V27BillingPeriodBackfillMigrationTest {
                 "select current_period_end from user_plans where id = ?", Timestamp.class, paidUserPlanId);
         assertThat(paidPeriodStart).isEqualTo(startedAt);
         assertThat(paidPeriodEnd).isEqualTo(Timestamp.valueOf("2026-07-15 09:00:00"));
+
+        // 타임존 경계 — 2026-03-01 05:00 KST + 1개월(KST 달력) = 2026-04-01 05:00 KST.
+        // 기대값을 Instant 로 두어 세션·JVM 타임존과 무관하게 같은 시점을 단정한다.
+        Timestamp boundaryPeriodEnd = jdbc.queryForObject(
+                "select current_period_end from user_plans where id = ?", Timestamp.class, boundaryUserPlanId);
+        assertThat(boundaryPeriodEnd.toInstant()).isEqualTo(Instant.parse("2026-03-31T20:00:00Z"));
     }
 }
