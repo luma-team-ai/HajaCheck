@@ -3480,6 +3480,12 @@ components:
           nullable: true
           description: >
             대표 사진 썸네일 조회 경로(HAJA-367/#670, 예: /api/media/{id}/thumbnail). 대표 사진이 없으면 null.
+        lastInspectedAt:
+          type: string
+          format: date
+          nullable: true
+          description: >
+            가장 최근 점검의 inspectionDate(HAJA-514/#1074). 점검 이력이 없으면 null.
 
     FacilityDetailResponse:
       type: object

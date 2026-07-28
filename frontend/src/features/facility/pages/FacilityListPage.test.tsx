@@ -56,7 +56,7 @@ function fillRequiredFields(name: string) {
 }
 
 describe('FacilityListPage (통합 테스트)', () => {
-  it('초기 목록: MSW 목 데이터를 불러와 테이블에 렌더링한다', async () => {
+  it('초기 목록: MSW 목 데이터를 불러와 카드 그리드에 렌더링한다', async () => {
     renderPage();
 
     expect(await screen.findByText('강남 오피스타워 A동')).not.toBeNull();
@@ -76,9 +76,6 @@ describe('FacilityListPage (통합 테스트)', () => {
     expect(await screen.findByText('테스트 신규 시설물')).not.toBeNull();
     // 등록 성공 후 모달이 닫혀 더 이상 폼이 렌더링되지 않는다
     expect(screen.queryByRole('dialog')).toBeNull();
-    // #731 — 유형 "건물-정기-4개월" 선택으로 파생된 점검주기(4개월)가 MSW 목 POST 응답을 거쳐
-    // 목록 테이블의 "점검주기" 컬럼까지 그대로 반영돼야 한다(등록 폼 → 요청 → 목 저장소 → 렌더링 전체 경로).
-    expect(await screen.findByText('4개월')).not.toBeNull();
   });
 
   it('등록 실패: 모달이 닫히지 않고 입력한 폼 값이 유지되며 에러 메시지가 표시된다', async () => {
@@ -113,7 +110,7 @@ describe('FacilityListPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('강남 오피스타워 A동');
 
-    fireEvent.click(screen.getByRole('button', { name: '강남 오피스타워 A동' }));
+    fireEvent.click(screen.getByRole('button', { name: /강남 오피스타워 A동/ }));
 
     expect(await screen.findByText('시설물 상세 화면')).not.toBeNull();
   });

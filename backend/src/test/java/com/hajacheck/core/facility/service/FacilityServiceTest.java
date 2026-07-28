@@ -322,6 +322,60 @@ class FacilityServiceTest {
         assertThat(response.thumbnailUrl()).isNull();
     }
 
+    // ── 시설물 카드 "최근 점검 MM.dd"(HAJA-514/#1074) ──
+
+    @Test
+    void list_점검이력있는시설_최근점검일채워서반환() {
+        Facility facility = facilityWithId(10L, "강남 오피스타워", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        Inspection lastInspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(2)
+                .inspectionDate(LocalDate.of(2026, 6, 21)).status(InspectionStatus.CREATED).build();
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L))).thenReturn(List.of(lastInspection));
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).lastInspectedAt()).isEqualTo(LocalDate.of(2026, 6, 21));
+    }
+
+    @Test
+    void list_점검이력없는시설_최근점검일은null() {
+        Facility facility = facilityWithId(10L, "강남 오피스타워", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L))).thenReturn(List.of());
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).lastInspectedAt()).isNull();
+    }
+
+    @Test
+    void get_점검이력있는시설_최근점검일채워서반환() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        Inspection lastInspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(1)
+                .inspectionDate(LocalDate.of(2026, 6, 28)).status(InspectionStatus.CREATED).build();
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L))).thenReturn(List.of(lastInspection));
+
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
+
+        assertThat(response.lastInspectedAt()).isEqualTo(LocalDate.of(2026, 6, 28));
+    }
+
+    @Test
+    void get_점검이력없는시설_최근점검일은null() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L))).thenReturn(List.of());
+
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
+
+        assertThat(response.lastInspectedAt()).isNull();
+    }
+
     private void setMediaId(Media media, Long id) {
         try {
             Field idField = Media.class.getDeclaredField("id");

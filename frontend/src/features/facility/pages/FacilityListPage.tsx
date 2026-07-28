@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
+import { FacilityCardGrid } from '../components/FacilityCardGrid';
 import { FacilityFilterBar } from '../components/FacilityFilterBar';
 import { FacilityFormModal } from '../components/FacilityFormModal';
-import { FacilityTable } from '../components/FacilityTable';
 import { useCreateFacility } from '../hooks/useCreateFacility';
 import { useFacilities } from '../hooks/useFacilities';
 import type { CreateFacilityRequest } from '../types';
@@ -84,20 +84,18 @@ export function FacilityListPage() {
 
       <FacilityFilterBar facilities={facilities ?? []} filters={filters} onChange={setFilters} />
 
-      <div className="overflow-hidden rounded-2xl border border-border bg-surface">
-        <FacilityTable
-          facilities={filteredFacilities}
-          isLoading={isLoading}
-          isError={isError}
-          onRetry={refetch}
-          onSelectFacility={handleSelectFacility}
-          emptyMessage={
-            isFilterActive
-              ? '검색/필터 조건에 맞는 시설물이 없습니다.'
-              : '등록된 시설물이 없습니다. 시설물을 등록해 주세요.'
-          }
-        />
-      </div>
+      <FacilityCardGrid
+        facilities={filteredFacilities}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={refetch}
+        onSelectFacility={handleSelectFacility}
+        emptyMessage={
+          isFilterActive
+            ? '검색/필터 조건에 맞는 시설물이 없습니다.'
+            : '등록된 시설물이 없습니다. 시설물을 등록해 주세요.'
+        }
+      />
 
       <FacilityFormModal
         open={isModalOpen}
