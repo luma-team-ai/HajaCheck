@@ -4,10 +4,16 @@
 // 호출해 messages/allTickets 상태를 갱신하는지만 검증한다(연결 자체는 useCounselSocket.test.ts가 담당).
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { setupServer } from 'msw/node';
+import { MemoryRouter } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { counselHandlers, mockMessages, mockTickets } from '../api/counselApi.handlers';
 import type { UseCounselSocketHandlers } from './useCounselSocket';
 import { useCounselHistory } from './useCounselHistory';
+
+// 딥링크(?ticketId=)용 useSearchParams가 <Router> 컨텍스트를 필요로 한다(#1022 후속 버그 수정).
+function renderUseCounselHistory() {
+  return renderHook(() => useCounselHistory(), { wrapper: MemoryRouter });
+}
 
 let capturedTicketId: number | null = null;
 let capturedHandlers: UseCounselSocketHandlers | null = null;
@@ -34,7 +40,7 @@ afterAll(() => server.close());
 
 describe('useCounselHistory 소켓 연동', () => {
   it('선택된 티켓이 IN_PROGRESS면 해당 ticketId로 소켓을 연결한다', async () => {
-    const { result } = renderHook(() => useCounselHistory());
+    const { result } = renderUseCounselHistory();
 
     await waitFor(() => expect(result.current.selectedTicket?.id).toBe(mockTickets[0].id));
     expect(mockTickets[0].status).toBe('IN_PROGRESS');
@@ -42,7 +48,7 @@ describe('useCounselHistory 소켓 연동', () => {
   });
 
   it('onMessage 수신 시 id 기준으로 dedupe해 messages에 append한다', async () => {
-    const { result } = renderHook(() => useCounselHistory());
+    const { result } = renderUseCounselHistory();
     await waitFor(() => expect(result.current.messages.length).toBe(mockMessages.length));
 
     const existingId = mockMessages[0].id;
@@ -73,7 +79,7 @@ describe('useCounselHistory 소켓 연동', () => {
   });
 
   it('onAssigned/onEnded 수신 시 해당 티켓 상태를 갱신한다', async () => {
-    const { result } = renderHook(() => useCounselHistory());
+    const { result } = renderUseCounselHistory();
     await waitFor(() => expect(result.current.tickets.length).toBe(mockTickets.length));
 
     const ended = { ...mockTickets[0], status: 'RESOLVED' as const };
@@ -88,7 +94,7 @@ describe('useCounselHistory 소켓 연동', () => {
   });
 
   it('sendMessage를 그대로 노출한다', async () => {
-    const { result } = renderHook(() => useCounselHistory());
+    const { result } = renderUseCounselHistory();
     await waitFor(() => expect(result.current.selectedTicket).not.toBeNull());
 
     act(() => {

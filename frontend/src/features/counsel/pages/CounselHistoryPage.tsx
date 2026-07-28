@@ -36,8 +36,10 @@ export function CounselHistoryPage() {
   return (
     <div className="flex h-full flex-col bg-surface-muted p-5">
       <div className="flex min-h-0 flex-1 overflow-hidden rounded-[20px] border border-border bg-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
-        {/* 좌측: 목록 */}
-        <div className="flex w-[320px] shrink-0 flex-col border-r border-border">
+        {/* 좌측: 목록 — min-h-0 없으면 이력이 많을 때 이 칼럼이 콘텐츠 높이만큼 늘어나려 해
+            부모(overflow-hidden)의 클리핑에 기대게 되고, 우측 채팅창과 스크롤이 뒤섞여 보이는
+            원인이 된다(사용자 피드백: "이력 많으면 채팅창도 길어짐") — 명시적으로 고정한다. */}
+        <div className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border">
           <div className="flex flex-col gap-3 border-b border-border px-5 py-4">
             <h1 className="m-0 text-lg font-semibold text-primary">내 상담 이력 ({tickets.length}건)</h1>
             <div role="tablist" aria-label="상담 이력 상태 필터" className="inline-flex w-fit gap-1 rounded-full bg-surface-muted p-1">
