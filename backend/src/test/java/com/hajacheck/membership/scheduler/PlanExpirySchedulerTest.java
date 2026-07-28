@@ -45,6 +45,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DataIntegrityViolationException;
 
 /**
@@ -523,6 +524,28 @@ class PlanExpirySchedulerTest {
                 .as("ErrorCode 를 버리면 운영자가 로그만으로 영구 실패의 원인을 좁힐 수 없다")
                 .isTrue();
         verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    @DisplayName("행 잠금 대기 초과는 경합이므로 skip으로 집계한다 — failed로 세면 영구 실패 경보가 희석된다")
+    void 잠금대기_초과는_스킵() {
+        stubTargets(2L, List.of(1L, 2L));
+        // lock_timeout 만료(PG 55P03)를 Spring 이 CannotAcquireLockException 으로 번역한다
+        // (PessimisticLockingFailureException 의 하위 타입).
+        when(planExpiryWriter.expireToFreePlan(eq(1L), any()))
+                .thenThrow(new CannotAcquireLockException("55P03: canceling statement due to lock timeout"));
+        when(planExpiryWriter.expireToFreePlan(eq(2L), any())).thenReturn(downgraded(7L));
+
+        ListAppender<ILoggingEvent> appender = runCapturingLogs();
+
+        assertThat(loggedAt(appender, Level.INFO, "행 잠금 대기 초과")).isTrue();
+        // 실패 0건이어야 회차 요약이 INFO 로 남는다 — 일상적 경합으로 "영구 실패" WARN 경보가 켜지면
+        // 그 신호가 희석된다(리뷰 NEW-D).
+        assertThat(loggedAt(appender, Level.INFO, "배치 완료")).isTrue();
+        assertThat(loggedAt(appender, Level.WARN, "배치 완료")).isFalse();
+        // 나머지 건은 정상 처리된다.
+        verify(notificationService, times(1))
+                .notify(eq(7L), eq(NotificationType.PLAN_EXPIRED), anyString());
     }
 
     @Test
