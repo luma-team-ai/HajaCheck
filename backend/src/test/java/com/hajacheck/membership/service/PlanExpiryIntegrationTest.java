@@ -219,10 +219,15 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
      * "기준시각과 정확히 같은 순간"을 만들어야 하므로 SQL 로 세팅한다(운영 코드 경로는 그대로 둔다).
      */
     private void setBillingPeriod(Long userPlanId, Instant periodStart, Instant periodEnd) {
+        // ⚠️ 마이크로초로 절삭해 저장한다. PostgreSQL timestamptz 는 마이크로초(6자리)까지만 보관하고
+        // 그 아래 자리를 **반올림**한다(절삭이 아니다). Instant.now() 가 나노초를 주는 플랫폼(리눅스 CI)
+        // 에서 원본을 그대로 넣으면 저장값이 1μs 밀려, 주기 승계를 비교하는 단정이 CI 에서만 깨진다
+        // (macOS 는 Instant.now() 자체가 마이크로초라 로컬에서는 재현되지 않는다).
+        // 여기서 미리 마이크로초로 맞춰 두면 반올림이 일어날 자리가 없어진다.
         jdbcTemplate.update(
                 "update user_plans set current_period_start = ?, current_period_end = ? where id = ?",
-                periodStart == null ? null : java.sql.Timestamp.from(periodStart),
-                periodEnd == null ? null : java.sql.Timestamp.from(periodEnd),
+                periodStart == null ? null : java.sql.Timestamp.from(periodStart.truncatedTo(ChronoUnit.MICROS)),
+                periodEnd == null ? null : java.sql.Timestamp.from(periodEnd.truncatedTo(ChronoUnit.MICROS)),
                 userPlanId);
         // JPA 1차 캐시에 남은 옛 스냅샷이 이후 조회에 섞이지 않게 비운다.
         userPlanRepository.flush();
