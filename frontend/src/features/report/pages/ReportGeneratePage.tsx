@@ -294,9 +294,9 @@ export function ReportGeneratePage() {
             </Button>
           </div>
         </div>
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 justify-center overflow-auto bg-neutral-100 px-6 py-5">
           {report.pdfUrl && pdfLoadError ? (
-            <div className="m-6 flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-zinc-200 bg-white p-8 text-center">
+            <div className="m-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-4 rounded-lg border border-zinc-200 bg-white p-8 text-center shadow-sm">
               <p className="text-lg font-semibold text-text-default">PDF를 불러올 수 없습니다.</p>
               <p className="text-sm text-text-muted">{pdfLoadError}</p>
               <Button onClick={() => void handleDownloadStoredPdf()} variant="secondary">
@@ -304,17 +304,19 @@ export function ReportGeneratePage() {
               </Button>
             </div>
           ) : pdfBlobUrl ? (
-            <iframe
-              title="저장된 보고서 PDF"
-              src={pdfBlobUrl}
-              className="h-[calc(100vh-96px)] w-full"
-            />
+            <div className="w-full max-w-[860px] overflow-hidden bg-white shadow-sm">
+              <iframe
+                title="저장된 보고서 PDF"
+                src={`${pdfBlobUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                className="block h-[calc(100vh-136px)] min-h-[720px] w-full border-0 bg-white"
+              />
+            </div>
           ) : report.pdfUrl && !pdfLoadError ? (
             <div className="flex flex-1 items-center justify-center">
               <AILoadingIndicator message="PDF를 불러오는 중..." />
             </div>
           ) : (
-            <div className="m-6 flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-white p-8 text-center">
+            <div className="m-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-white p-8 text-center shadow-sm">
               <div className="flex max-w-md flex-col gap-3">
                 <p className="text-lg font-semibold text-text-default">저장된 PDF가 없습니다.</p>
                 <p className="text-sm text-text-muted">
