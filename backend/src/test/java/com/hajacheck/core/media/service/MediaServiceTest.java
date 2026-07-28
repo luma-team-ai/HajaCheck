@@ -154,6 +154,21 @@ class MediaServiceTest {
     }
 
     @Test
+    void uploadMedia_빈_파일명은_null로_정규화해_저장한다() throws IOException {
+        // PR머신 P3 — MultipartFile#getOriginalFilename()은 계약상 ""를 반환할 수 있다. ""가 그대로
+        // 저장되면 표시 단계의 "이미지 N" 폴백(null 검사)이 발동하지 않아 파일명 셀이 빈칸이 된다.
+        byte[] png = realPngBytes();
+        stubStorage();
+        when(mediaWriter.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.uploadMedia(1L, 200L, 100L, List.of(pngFile("   ", png)));
+
+        ArgumentCaptor<List<Media>> captor = ArgumentCaptor.forClass(List.class);
+        verify(mediaWriter).saveAll(captor.capture());
+        assertThat(captor.getValue().get(0).getOriginalFilename()).isNull();
+    }
+
+    @Test
     void uploadMedia_빈목록_FILE_REQUIRED_아무것도호출안함() {
         assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, List.of()))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())

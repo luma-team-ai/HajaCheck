@@ -260,6 +260,12 @@ public class MediaService {
     private static final int MAX_ORIGINAL_FILENAME_LENGTH = 255;
 
     private static String truncateOriginalFilename(String filename) {
+        // MultipartFile#getOriginalFilename()은 계약상 빈 문자열을 반환할 수 있다. ""를 그대로 저장하면
+        // 표시 단계의 "이미지 N" 폴백이 null만 검사할 경우 발동하지 않아 빈칸으로 표시되므로,
+        // 저장 시점에 null로 정규화해 "값 없음"을 한 가지 형태로 통일한다(PR머신 P3).
+        if (filename != null && filename.isBlank()) {
+            return null;
+        }
         if (filename == null || filename.length() <= MAX_ORIGINAL_FILENAME_LENGTH) {
             return filename;
         }
