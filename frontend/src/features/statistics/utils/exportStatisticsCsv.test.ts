@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment jsdom
+import { describe, expect, it, vi } from 'vitest';
 import type { ExportStatisticsDataParams } from './exportStatisticsCsv';
-import { buildStatisticsCsvRows, renderCsvContent } from './exportStatisticsCsv';
+import { buildStatisticsCsvRows, exportStatisticsToCsv, renderCsvContent } from './exportStatisticsCsv';
 
 const defaultData: ExportStatisticsDataParams = {
   periodLabel: '3개월',
@@ -86,6 +87,23 @@ describe('renderCsvContent — CSV 문자열 렌더링', () => {
     // BOM은 Blob 생성 시 추가되므로 실제 파일에서 BOM을 확인
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     expect(blob.size).toBeGreaterThan(0);
+  });
+
+  it('내보내기 Blob의 첫 문자가 UTF-8 BOM이다', async () => {
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:statistics');
+    const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    exportStatisticsToCsv(defaultData);
+
+    const blob = createObjectUrl.mock.calls[0][0] as Blob;
+    expect(Array.from(new Uint8Array(await blob.arrayBuffer()).slice(0, 3))).toEqual([0xef, 0xbb, 0xbf]);
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:statistics');
+
+    createObjectUrl.mockRestore();
+    revokeObjectUrl.mockRestore();
+    click.mockRestore();
   });
 
   it('쉼표가 포함된 값은 큰따옴표로 감싸진다', () => {
