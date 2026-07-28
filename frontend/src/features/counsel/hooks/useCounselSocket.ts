@@ -29,9 +29,13 @@ export interface UseCounselSocketResult {
 // 프로덕션 빌드에서 WS URL 하드코딩 금지 — axios(shared/api/axios.ts)와 동일하게 상대 경로 기준으로
 // 현재 오리진의 프로토콜(ws/wss)만 붙인다. dev에서는 vite.config.ts의 '/ws' 프록시(ws:true)가
 // 프론트 포트→스프링 포트로 그대로 전달한다.
+// 끝에 슬래시 필수 — nginx(dev.conf/default.conf) 경유 시 트레일링 슬래시 없는 정확히 '/ws'만
+// 301 Moved Permanently를 돌려주고(nginx 자체가 응답 — Set-Cookie 등 Spring 헤더가 전혀 없어
+// 백엔드까지 도달하지 않은 게 curl로 확인됨), 브라우저 WebSocket은 리다이렉트를 따라가지 못해
+// 그대로 연결 실패로 끝난다. '/ws/'·'/ws/아무거나'는 전부 정상 통과 확인.
 function buildWsUrl(): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/ws`;
+  return `${protocol}//${window.location.host}/ws/`;
 }
 
 // STOMP 프레임 바디는 서버가 보낸 JSON을 그대로 신뢰할 수 없다(레이스로 인한 프레임 순서 꼬임 등) —

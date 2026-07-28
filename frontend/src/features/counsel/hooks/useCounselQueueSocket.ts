@@ -3,9 +3,11 @@ import { useEffect, useRef, useState } from 'react';
 
 // 상담원 대기열 실시간 갱신(#1001 후속, 사용자 피드백: "신청하면 상담원이 새로고침해야 보임").
 // 동일 오리진 handshake라 세션 쿠키가 자동 포함된다(useCounselSocket과 동일한 전제).
+// 끝에 슬래시 필수 — nginx 경유 시 트레일링 슬래시 없는 '/ws'만 301을 돌려줘 브라우저 WebSocket
+// 연결이 실패한다(useCounselSocket.ts의 buildWsUrl 주석 참고, 동일 원인).
 function buildWsUrl(): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/ws`;
+  return `${protocol}//${window.location.host}/ws/`;
 }
 
 // 새 상담 신청 시 백엔드(CounselTicketService#createTicket)가 /topic/counsel-queue로 신호만
