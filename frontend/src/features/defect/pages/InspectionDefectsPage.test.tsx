@@ -57,10 +57,10 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
   it('점검(inspectionId=101)에 속한 하자 카드와 KPI를 렌더링한다', async () => {
     renderPage('101');
 
-    // 카드 그리드의 유형 필터 select에도 같은 라벨의 option이 있어(§DefectCardGrid) 카드 자체는
-    // 버튼 role(aria-label)로 특정한다 — 단순 getByText는 select option과 모호(ambiguous)해진다.
+    // inspectionId=101 mock은 철근 노출(CONFIRMED)과 균열(DETECTED)이다. 카드 그리드는 검수 전
+    // DETECTED를 숨기므로 철근 노출만 버튼으로 렌더링하고, KPI의 원본 하자 집계는 2건을 유지한다.
     expect(await screen.findByRole('button', { name: '철근 노출 하자 상세 보기' })).not.toBeNull();
-    expect(screen.getByRole('button', { name: '균열 하자 상세 보기' })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '균열 하자 상세 보기' })).toBeNull();
 
     const kpi = screen.getByLabelText('점검 하자 요약');
     expect(within(kpi).getByText('총 하자')).not.toBeNull();
