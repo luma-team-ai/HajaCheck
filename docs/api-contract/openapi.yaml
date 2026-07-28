@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.28.0-draft"
+  version: "0.29.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -4623,7 +4623,11 @@ components:
     # ── notification 도메인 (AP-020, #25 / HAJA-38 FR-9) ──
     NotificationTypeCode:
       type: string
-      enum: [ANALYSIS_DONE, REVIEW_PENDING, COUNSEL_REPLIED, INSPECTION_DUE]
+      description: >
+        PLAN_EXPIRED(#1145 / HAJA-549) — 구독 결제 주기 만료로 FREE 자동 강등됐음을 알린다.
+        수신자는 회사 구독이면 회사 owner, 개인 구독이면 구독 소유자다. payload는
+        {previousPlanName, newPlanName, periodEndAt, suspendedSeatCount} 형태다.
+      enum: [ANALYSIS_DONE, REVIEW_PENDING, COUNSEL_REPLIED, INSPECTION_DUE, PLAN_EXPIRED]
 
     NotificationResponse:
       type: object
