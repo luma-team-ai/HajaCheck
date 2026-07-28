@@ -44,6 +44,10 @@ let mockMyPlanState: MyPlan = mockMyPlan;
 // 들어와도(멱등) 결제 내역이 중복 적재되지 않게 막는다.
 let mockOrderSeq = 1;
 let mockPaymentIdSeq = mockPayments.length + 1;
+// listPrice/credit(#1146, HAJA-550 잔여 기간 일할 크레딧)은 MSW 목에서는 재현하지 않는다 — 계산이
+// current_period_start/end(KST 일할)에 의존해 BE 전용이고, FE 목은 계약 형태(listPrice - credit ===
+// amount)만 지키면 된다. listPrice === amount(credit 0)로 고정 — 기존 FE 테스트의 amount 기대값을
+// 그대로 유지한다.
 const mockOrders = new Map<string, { planName: PlanName; amount: number; orderName: string }>();
 const confirmedOrderIds = new Set<string>();
 // 결제 성공+플랜 반영 실패(PAYMENT_PLAN_APPLY_PENDING) 시나리오로 처리된 주문 — 이후 동일 orderId로
@@ -110,7 +114,7 @@ export const mypageHandlers = [
 
     const body: ApiResponse<PlanOrder> = {
       success: true,
-      data: { orderId, planName, amount, orderName },
+      data: { orderId, planName, listPrice: amount, credit: 0, amount, orderName },
     };
     return HttpResponse.json(body);
   }),
