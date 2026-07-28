@@ -38,6 +38,20 @@ function formatDateParts(iso: string) {
   };
 }
 
+function PaperPlaneIcon() {
+  return (
+    <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M21.5 3.5 10.6 14.4M21.5 3.5 14.7 21l-4.1-6.6-7.1-3.2 18-7.7Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function ReportEditorHero({
   reportId,
   createdAt,
@@ -85,12 +99,10 @@ export function ReportEditorHero({
             variant="primary"
             size="md"
             disabled={!canFinalize || isFinalizing}
-            className="min-w-[150px] bg-black text-xs text-white"
+            className="min-w-[168px] gap-2 bg-black px-5 text-xs text-white"
           >
             {isFinalizing ? 'PDF 생성/확정 중...' : '최종 보고서 확정'}
-            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="m6 4 4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <PaperPlaneIcon />
           </Button>
         </div>
       </div>

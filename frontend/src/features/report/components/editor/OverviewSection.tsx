@@ -44,8 +44,8 @@ export function OverviewSection({ content, onChange, readOnly }: OverviewSection
           label="점검 범위"
           value={content.overview.scope}
           readOnly={readOnly}
-          rows={2}
-          textareaClassName={PILL_FIELD_CLASS}
+          rows={3}
+          textareaClassName={`min-h-28 ${PILL_FIELD_CLASS}`}
           onChange={(value) => updateOverview({ scope: value })}
         />
       </div>
