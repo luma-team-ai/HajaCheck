@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.30.0-draft"
+  version: "0.31.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -52,6 +52,15 @@ info:
     으로 근사 매핑한다(HAJA-532/#1119 후속에서 정확화 예정). beforeImageUrl/afterImageUrl/crackTrend는
     실 데이터 근거가 없어 이번 범위에서 생략(프론트 InspectionComparisonResult 타입과 완전히 1:1은 아님).
 
+    2026-07-28 조치 결과 등록 계약화 + 진행상태 선택 도입(#1128) — 실구현은 있었으나 미문서였던
+    **PATCH /api/defects/{id}/action** 을 신규 계약화하면서, 요청 스키마 DefectActionResultRequest에
+    **targetStatus**(전이 목표 상태)를 추가했다. 이전에는 이 엔드포인트가 항상 RESOLVED로만 고정 전이했으나,
+    하자 상세 모달의 조치 등록 폼에 "진행상태" select가 생기면서 같은 폼으로 조치중(IN_PROGRESS)·
+    조치완료(RESOLVED)를 모두 저장한다. targetStatus 허용 값은 IN_PROGRESS/RESOLVED 두 개뿐이며
+    (DETECTED/CONFIRMED는 조치 등록의 타겟이 될 수 없어 400), 실제 전이 가능 여부는 기존 정방향 한 단계
+    규칙을 그대로 따른다 — CONFIRMED→IN_PROGRESS, IN_PROGRESS→RESOLVED만 허용되고 건너뛴 전이
+    (CONFIRMED→RESOLVED)는 400으로 거부된다. defect_revisions 이력도 실제 전이된 상태를 기록한다.
+
     2026-07-28 하자 위치 편집·회차 간 대응 하자 확정 계약화(#970/HAJA-437, PR #1103 dev 머지 반영) —
     PATCH /api/defects/{id}/location · PATCH /api/defects/{id}/previous-defect 신설(Flyway V24로
     defects.location + defects.previous_defect_id 추가). previousDefectId는 **같은 회사 스코프 + 같은
@@ -59,8 +68,8 @@ info:
     DEFECT_PREVIOUS_DEFECT_INVALID(400) 하나로 통일 응답한다(리소스 존재 여부 열거 방지 — DEFECT_NOT_FOUND
     와 동일 원칙). 함께 **실구현은 있었으나 미문서였던 GET /api/defects/{id}** 와 그 응답 스키마
     DefectResponse(location·assigneeName·previousDefectId·foundCycle 포함, 프론트 하자 정보 패널이 실제로
-    소비하는 계약)를 소급 반영했다. ⚠️ 아직 미문서로 남은 하자 엔드포인트: PATCH /api/defects/{id}/status ·
-    PATCH /api/defects/{id}/action(후속 이슈에서 계약화). 기존 `PATCH /api/defects/{id}`(DefectRevisionRequest)
+    소비하는 계약)를 소급 반영했다. ⚠️ 아직 미문서로 남은 하자 엔드포인트: PATCH /api/defects/{id}/status
+    (후속 이슈에서 계약화 — /action 은 위 2026-07-28 #1128 항목에서 계약화됨). 기존 `PATCH /api/defects/{id}`(DefectRevisionRequest)
     항목은 현행 DefectController에 대응 핸들러가 없어 stale 의심 — 함께 후속 확인 대상.
     2026-07-28 상담원 전용 비공개 메모 계약화(#1021/HAJA-503, PR #1091 dev 머지 반영) — GET/PUT
     /api/counsel/tickets/{id}/note 신설. 티켓당 1개(counsel_ticket_notes.ticket_id unique, Flyway V23),
@@ -2396,6 +2405,71 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
+  /api/defects/{id}/action:
+    patch:
+      summary: 조치 결과 등록 (HAJA-393/#725, targetStatus 도입 #1128)
+      description: >
+        하자 상세 모달 조치 등록 폼("상태 저장" 버튼)의 제출 대상. 조치 후 사진(actionMediaId)·조치 내용·
+        조치일·담당자 4개 필드를 한 번에 저장하면서 **targetStatus로 상태를 전이**한다.
+
+        - targetStatus 허용 값은 **IN_PROGRESS / RESOLVED** 두 개뿐이다. DETECTED·CONFIRMED는 조치 등록의
+          타겟이 될 수 없어 400(INVALID_INPUT)으로 거부된다.
+        - 실제 전이 가능 여부는 기존 정방향 한 단계 규칙(Defect#changeStatus)을 그대로 따른다 —
+          **CONFIRMED→IN_PROGRESS**, **IN_PROGRESS→RESOLVED** 만 사유 없이 허용되고, 건너뛴 전이
+          (예: CONFIRMED→RESOLVED)나 종료 상태(RESOLVED)에서의 재등록은 거부된다(폼에 사유 입력란이 없음).
+        - actionAssigneeId는 `GET /api/facilities/assignable-users`(#690)와 동일 자격 조건
+          (활성·INSPECTOR/ADMIN·유효 승인 멤버십)으로 검증하고, actionMediaId는 **해당 하자와 같은 점검 소속
+          media인지** 확인해 타 점검/타사 media 연결과 cross-company IDOR을 차단한다.
+        - 전이가 성공하면 defect_revisions에 `status` 변경 이력(이전 상태 → **실제 전이된 상태**)을 남긴다.
+
+        `DefectController.registerActionResult` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [defect]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DefectActionResultRequest" }
+      responses:
+        "200":
+          description: 조치 결과가 반영된 하자 상세(actionAssigneeName 포함)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DefectResponseApiResponse" }
+        "400":
+          description: >
+            필수 필드 누락·조치 내용 2000자 초과(VALIDATION_ERROR), targetStatus가 IN_PROGRESS/RESOLVED가
+            아님, 또는 건너뛴 전이(INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 회사 멤버십 없음/회수·만료(회사 스코프 가드) 또는 담당자 자격 불충족
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: >
+            하자 미존재 또는 타사 소유(DEFECT_NOT_FOUND) · 조치 후 사진이 해당 점검 소속이 아님
+            (MEDIA_NOT_FOUND) — 둘 다 통일 응답
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: 종료 상태(RESOLVED)에서의 재전이 등 상태 전이 가드 위반(INVALID_STATE_TRANSITION)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
   /api/defects/{id}/previous-defect:
     patch:
       summary: 회차 간 대응 하자 확정 (HAJA-437)
@@ -4211,6 +4285,40 @@ components:
           nullable: true
           maxLength: 300
           example: 외벽 동측 12층 부근
+
+    DefectActionResultRequest:
+      type: object
+      description: >
+        조치 결과 등록 요청(HAJA-393/#725, targetStatus 도입 #1128). 4개 조치 필드는 폼상 전부 필수이며,
+        targetStatus는 폼의 "진행상태" select 값이다.
+      required: [actionMediaId, actionContent, actionDate, actionAssigneeId, targetStatus]
+      properties:
+        actionMediaId:
+          type: integer
+          format: int64
+          description: 조치 후 사진 media id — 해당 하자와 같은 점검 소속이어야 한다(POST /api/inspections/{id}/media 업로드 결과)
+          example: 4821
+        actionContent:
+          type: string
+          maxLength: 2000
+          description: 조치 내용(공백만 입력 불가)
+          example: 균열부 에폭시 주입 후 표면 마감
+        actionDate:
+          type: string
+          format: date
+          example: "2026-07-28"
+        actionAssigneeId:
+          type: integer
+          format: int64
+          description: 조치 담당자 user id — GET /api/facilities/assignable-users 옵션 중 하나
+          example: 12
+        targetStatus:
+          type: string
+          enum: [IN_PROGRESS, RESOLVED]
+          description: >
+            전이 목표 상태. IN_PROGRESS/RESOLVED만 허용된다(DETECTED·CONFIRMED는 400). 현재 상태 기준
+            정방향 한 단계만 가능 — CONFIRMED면 IN_PROGRESS, IN_PROGRESS면 RESOLVED.
+          example: RESOLVED
 
     DefectPreviousDefectUpdateRequest:
       type: object
