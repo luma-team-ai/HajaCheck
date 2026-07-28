@@ -26,6 +26,7 @@ export interface Defect {
   summary: string; // 분석 요약
   mediaId?: number | null; // 이미지 ID — 백엔드에서 제공. null이면 미지정(수동 추가 등)
   imageUrl?: string | null; // 이미지 URL — 백엔드 형식: /api/media/{mediaId}/thumbnail
+  thumbnailUrl?: string | null; // PDF 사진대지용 축소본 — 원본/상세 이미지는 PDF에 넣지 않는다.
 }
 
 export interface InspectionMedia {

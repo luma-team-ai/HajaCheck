@@ -197,6 +197,10 @@ describe('ReportListPage', () => {
           },
         });
       }),
+      http.get('/api/inspections/3/defects', () => {
+        calls.push('defects');
+        return HttpResponse.json({ success: true, data: [] });
+      }),
       http.post('/api/reports/103/pdf', () => {
         calls.push('upload');
         return HttpResponse.json({ success: true, data: { pdfUrl: '/api/reports/103/pdf/generated.pdf' } });
@@ -228,7 +232,7 @@ describe('ReportListPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
     fireEvent.click(await screen.findByRole('menuitem', { name: '제출 처리' }));
 
-    await waitFor(() => expect(calls).toEqual(['detail', 'recheck', 'upload', 'finalize']));
+    await waitFor(() => expect(calls).toEqual(['detail', 'recheck', 'defects', 'upload', 'finalize']));
   });
 
   it('FINALIZED 행의 제출 처리는 disabled다', async () => {

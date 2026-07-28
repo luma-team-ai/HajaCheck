@@ -95,6 +95,7 @@ export function useInspectionResultReal(inspectionId: number) {
       summary: `${typeLabel} 하자 — 신뢰도 ${Math.round(d.confidence * 100)}%`,
       mediaId: d.mediaId ?? null,
       imageUrl: resolveDefectImageUrl(d.imageUrl, d.detailUrl),
+      thumbnailUrl: d.imageUrl ?? null,
     };
   });
 
