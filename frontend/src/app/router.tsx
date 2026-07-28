@@ -652,6 +652,7 @@ export const router = createBrowserRouter([
           handle: {
             breadcrumb: [{ label: '홈' }, { label: '보고서' }, { label: '보고서 편집·미리보기' }],
             activeHref: '/reports/1',
+            exportActiveHref: '/reports/1?mode=export',
           },
         }, // — features/report 보고서 상세·PDF 내보내기 (#1087)
       {

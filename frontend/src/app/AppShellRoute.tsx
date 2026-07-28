@@ -29,6 +29,8 @@ export interface AppShellHandle {
    * 명시적으로 지정해 해당 메뉴가 강조되도록 한다.
    */
   activeHref?: string;
+  /** 동일 pathname에서 query mode에 따라 다른 사이드바 항목을 활성화할 때 사용한다. */
+  exportActiveHref?: string;
 }
 
 function hasAppShellHandle(handle: unknown): handle is AppShellHandle {
@@ -81,6 +83,10 @@ export function AppShellRoute() {
     return updated;
   }, [handle?.breadcrumb, isExportMode]);
 
+  const activeHref = isExportMode
+    ? (handle?.exportActiveHref ?? handle?.activeHref)
+    : handle?.activeHref;
+
   // 알림 센터(HAJA-38) — Header 벨 버튼은 AppLayout 내부(shared, 미터치)라 열림 상태와 unreadCount는
   // 이 통합지점(app/)이 들고 NotificationCenter(컨테이너)에 boolean으로만 내려준다.
   // useNotifications는 NotificationCenter 안에서도 같은 쿼리 키로 호출되므로 TanStack Query 캐시가
@@ -129,7 +135,7 @@ export function AppShellRoute() {
     <div onMouseDownCapture={handleShellMouseDownCapture}>
       <AppLayout
         breadcrumb={breadcrumb}
-        activeHref={handle?.activeHref}
+        activeHref={activeHref}
         items={menuItems}
         adminItem={menuAdminItem}
         isRouteImplemented={isRouteImplemented}

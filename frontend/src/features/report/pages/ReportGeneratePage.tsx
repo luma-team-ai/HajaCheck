@@ -9,7 +9,7 @@ import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import { reportApi } from '../api/reportApi';
 import type { ReportDetailResponse } from '../api/reportApi';
 import { ReportContentEditor } from '../components/ReportContentEditor';
-import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../constants';
+import { ReportEditorHero } from '../components/editor/ReportEditorHero';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
@@ -270,6 +270,17 @@ export function ReportGeneratePage() {
       : 0;
 
   const canFinalize = report.groundingCheckPassed === true && !dirty && !isFinalized;
+  const reportStepViews = REPORT_STEPS.map((step) => ({
+    key: step.key,
+    label: step.label,
+    active: step.isActive({
+      isFinalized,
+      hasContent: Boolean(content),
+      groundingCheckPassed: report.groundingCheckPassed,
+      dirty,
+      hasPdf: Boolean(report.pdfUrl),
+    }),
+  }));
 
   if (isExportMode) {
     return (
@@ -341,135 +352,21 @@ export function ReportGeneratePage() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-6 px-6 py-6">
-      {/* 1. 상단 헤더 — breadcrumb + 분석 화면으로 돌아가기 (Figma §1) */}
-      <nav aria-label="상단 경로">
-        <ol className="flex flex-wrap items-center gap-2 text-sm text-text-muted">
-          <li>
-            <Link to="/" className="hover:text-text-default">홈</Link>
-          </li>
-          <li aria-hidden>/</li>
-          <li>
-            <Link to="/reports" className="hover:text-text-default">보고서</Link>
-          </li>
-          <li aria-hidden>/</li>
-          <li className="text-text-default" aria-current="page">보고서 편집·미리보기</li>
-        </ol>
-      </nav>
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-text-default">보고서 생성 결과</h1>
-        <Button onClick={handleBackToViewer} variant="secondary" size="md">
-          분석 화면으로 돌아가기
-        </Button>
-      </div>
-
-      {/* 2. AI 경고 배너 + 액션 버튼 (Figma §2) */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch lg:justify-between">
-        <div className="flex flex-1 items-start gap-3 rounded-2xl border border-warning-soft-border bg-warning-soft-bg p-4 text-warning-soft-fg">
-          <span className="text-xl" aria-hidden>⚠️</span>
-          <div className="text-sm">
-            <p className="font-semibold">{AI_DRAFT_WARNING_TITLE}</p>
-            <p className="mt-0.5 opacity-90">{AI_DRAFT_WARNING}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link
-            to={`/reports/${report.id}?mode=export`}
-            className="inline-flex items-center justify-center gap-1.5 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:opacity-85"
-          >
-            PDF 미리보기
-          </Link>
-          <Button
-            onClick={() => void handleGeneratePdfAndFinalize()}
-            variant="primary"
-            disabled={!canFinalize || isFinalizing}
-          >
-            {isFinalizing ? 'PDF 생성/확정 중...' : '최종 보고서 확정'}
-          </Button>
-        </div>
-      </div>
-
-      {/* 3. 통계 카드 4개 (Figma §3) */}
-      <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-          <dt className="mb-1 text-xs font-medium text-text-muted">현재 상태</dt>
-          <dd className="flex items-center justify-between">
-            <span className="text-lg font-bold text-text-default">
-              {isFinalized ? '확정' : '검수 중'}
-            </span>
-            <span
-              className={
-                'h-2.5 w-2.5 rounded-full ' +
-                (isFinalized ? 'bg-emerald-500' : 'bg-amber-500')
-              }
-              aria-hidden
-            />
-          </dd>
-          <p className="mt-1 text-xs text-text-muted">
-            {isFinalized ? '최종 확정 완료' : '초안 제출 완료 (임시 저장)'}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-          <dt className="mb-1 text-xs font-medium text-text-muted">생성일시</dt>
-          <dd className="text-sm font-semibold text-text-default">
-            {new Date(report.createdAt).toLocaleString('ko-KR')}
-          </dd>
-        </div>
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-          <dt className="mb-1 text-xs font-medium text-text-muted">검수 완료율</dt>
-          <dd className="text-lg font-bold text-text-default">
-            {progressPercent.toFixed(0)}%
-          </dd>
-          <p className="mt-1 text-xs text-text-muted">
-            {inspectionData ? `${inspectionData.reviewedCount} / ${inspectionData.totalCount}` : '—'}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-          <dt className="mb-1 text-xs font-medium text-text-muted">총 지적 수</dt>
-          <dd className="text-lg font-bold text-red-600">
-            {content?.summary.total_count ?? 0}
-          </dd>
-        </div>
-      </dl>
-
-      {/* 4. 단계 표시 A → E (Figma §4) */}
-      <ol className="flex flex-wrap items-center gap-3" aria-label="보고서 작성 단계">
-        {REPORT_STEPS.map((step, i) => {
-          const active = step.isActive({
-            isFinalized,
-            hasContent: !!content,
-            groundingCheckPassed: report.groundingCheckPassed,
-            dirty,
-            hasPdf: !!report.pdfUrl,
-          });
-          return (
-            <li key={step.key} className="flex items-center gap-2">
-              <span
-                className={
-                  'inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ' +
-                  (active
-                    ? 'bg-black text-white'
-                    : 'border border-zinc-300 bg-white text-text-muted opacity-30')
-                }
-                aria-current={active ? 'step' : undefined}
-              >
-                {step.key}
-              </span>
-              <span
-                className={
-                  'text-sm ' +
-                  (active ? 'font-semibold text-text-default' : 'text-text-muted opacity-30')
-                }
-              >
-                {step.label}
-              </span>
-              {i < REPORT_STEPS.length - 1 && (
-                <span className="text-text-muted opacity-30" aria-hidden>→</span>
-              )}
-            </li>
-          );
-        })}
-      </ol>
+    <div className="min-h-full bg-neutral-50 px-6 py-6 lg:px-8 lg:py-8">
+      <div className="mx-auto flex w-full max-w-[1024px] flex-col gap-6">
+        <ReportEditorHero
+          reportId={report.id}
+          createdAt={report.createdAt}
+          isFinalized={isFinalized}
+          progressPercent={progressPercent}
+          reviewedCount={inspectionData?.reviewedCount}
+          totalCount={inspectionData?.totalCount}
+          defectCount={content?.summary.total_count ?? 0}
+          steps={reportStepViews}
+          canFinalize={canFinalize}
+          isFinalizing={isFinalizing}
+          onFinalize={() => void handleGeneratePdfAndFinalize()}
+        />
 
       {/* grounding 검증 상태 — 기존 "✓ 검증 완료" 텍스트 보존(테스트 의존) */}
       {report.groundingCheckPassed === true && (
@@ -504,12 +401,13 @@ export function ReportGeneratePage() {
           content={content}
           onChange={setContent}
           readOnly={isFinalized || isSaving || isRechecking || isFinalizing}
+          defectImageUrls={inspectionData?.defects.map((defect) => defect.imageUrl)}
         />
       )}
 
       {/* 9. 하단 액션 바 (기존 로직 유지) */}
       {!isFinalized && (
-        <div className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-6">
+        <div className="sticky bottom-4 z-20 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white/95 p-6 shadow-lg backdrop-blur-[10px]">
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={handleSave} variant="primary" disabled={!dirty || isSaving}>
               {isSaving ? '저장 중...' : '저장'}
@@ -544,6 +442,7 @@ export function ReportGeneratePage() {
           {finalizeError && <p className="text-sm text-red-600">{finalizeError}</p>}
         </div>
       )}
+      </div>
     </div>
   );
 }

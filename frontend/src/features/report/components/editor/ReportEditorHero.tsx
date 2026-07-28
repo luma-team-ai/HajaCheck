@@ -1,0 +1,178 @@
+import { Link } from 'react-router-dom';
+import { Button } from '../../../../shared/components/Button';
+import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../../constants';
+
+export interface ReportStepView {
+  key: string;
+  label: string;
+  active: boolean;
+}
+
+interface ReportEditorHeroProps {
+  reportId: number;
+  createdAt: string;
+  isFinalized: boolean;
+  progressPercent: number;
+  reviewedCount?: number;
+  totalCount?: number;
+  defectCount: number;
+  steps: ReportStepView[];
+  canFinalize: boolean;
+  isFinalizing: boolean;
+  onFinalize: () => void;
+}
+
+function formatDateParts(iso: string) {
+  const date = new Date(iso);
+  return {
+    date: new Intl.DateTimeFormat('ko-KR', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+    }).format(date),
+    time: new Intl.DateTimeFormat('ko-KR', {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(date),
+  };
+}
+
+export function ReportEditorHero({
+  reportId,
+  createdAt,
+  isFinalized,
+  progressPercent,
+  reviewedCount,
+  totalCount,
+  defectCount,
+  steps,
+  canFinalize,
+  isFinalizing,
+  onFinalize,
+}: ReportEditorHeroProps) {
+  const created = formatDateParts(createdAt);
+  const currentStepIndex = steps.reduce(
+    (lastActiveIndex, step, index) => (step.active ? index : lastActiveIndex),
+    0,
+  );
+
+  return (
+    <div className="flex flex-col gap-6">
+      <h1 className="sr-only">보고서 생성 결과</h1>
+
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex min-h-24 flex-1 items-start gap-4 rounded-2xl border border-amber-200/70 bg-amber-50 p-4 text-amber-900">
+          <svg className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M10 2.4 18 17H2L10 2.4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+            <path d="M10 7v4.2M10 14.2v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+          <div className="text-sm leading-6">
+            <p className="font-medium">{AI_DRAFT_WARNING_TITLE}</p>
+            <p className="mt-0.5 whitespace-pre-line text-amber-800/90">{AI_DRAFT_WARNING}</p>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-2 xl:justify-end">
+          <Link
+            to={`/reports/${reportId}?mode=export`}
+            className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-6 py-2 text-xs font-medium text-zinc-900 no-underline transition hover:bg-zinc-50"
+          >
+            PDF 미리보기
+          </Link>
+          <Button
+            onClick={onFinalize}
+            variant="primary"
+            size="md"
+            disabled={!canFinalize || isFinalizing}
+            className="min-w-[150px] bg-black text-xs text-white"
+          >
+            {isFinalizing ? 'PDF 생성/확정 중...' : '최종 보고서 확정'}
+            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="m6 4 4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </Button>
+        </div>
+      </div>
+
+      <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="flex min-h-[120px] flex-col justify-between rounded-2xl border border-zinc-200 bg-white p-6">
+          <dt className="text-xs font-medium tracking-wide text-zinc-700">현재 상태</dt>
+          <dd className="m-0 flex items-center justify-between">
+            <div>
+              <p className="text-3xl font-medium leading-9 text-zinc-900">
+                {isFinalized ? '확정' : '검수 중'}
+              </p>
+              <p className="mt-1 text-xs text-zinc-700">
+                {isFinalized ? '최종 확정 완료' : '초안 제출 완료 (임시 저장)'}
+              </p>
+            </div>
+            <span
+              className={`h-3 w-3 rounded-full ${isFinalized ? 'bg-emerald-500' : 'bg-amber-500'}`}
+              aria-hidden="true"
+            />
+          </dd>
+        </div>
+
+        <div className="flex min-h-[120px] flex-col gap-2 rounded-2xl border border-zinc-200 bg-white p-6">
+          <dt className="text-xs font-medium tracking-wide text-zinc-700">생성일시</dt>
+          <dd className="m-0 text-base font-bold leading-6 text-zinc-900">
+            <span className="block">{created.date}</span>
+            <span className="block">{created.time}</span>
+          </dd>
+        </div>
+
+        <div className="flex min-h-[120px] flex-col gap-2 rounded-2xl border border-zinc-200 bg-white p-6">
+          <dt className="text-xs font-medium tracking-wide text-zinc-700">검수 완료율</dt>
+          <dd className="m-0 text-3xl font-bold leading-9 text-zinc-900">
+            {progressPercent.toFixed(0)}%
+          </dd>
+          {typeof reviewedCount === 'number' && typeof totalCount === 'number' && (
+            <span className="sr-only">
+              {reviewedCount} / {totalCount}
+            </span>
+          )}
+        </div>
+
+        <div className="flex min-h-[120px] flex-col gap-2 rounded-2xl border border-zinc-200 bg-white p-6">
+          <dt className="text-xs font-medium tracking-wide text-zinc-700">총 지적 수</dt>
+          <dd className="m-0 flex items-baseline gap-1">
+            <span className="text-3xl font-bold leading-9 text-red-500">{defectCount}</span>
+            <span className="text-sm text-zinc-700">건</span>
+          </dd>
+        </div>
+      </dl>
+
+      <section className="rounded-2xl border border-zinc-200 bg-white px-4 py-8 sm:px-8 sm:pb-10">
+        <ol className="relative grid grid-cols-5" aria-label="보고서 작성 단계">
+          <div
+            className="absolute left-[10%] right-[10%] top-5 h-px bg-zinc-200"
+            aria-hidden="true"
+          />
+          {steps.map((step, index) => (
+            <li
+              key={step.key}
+              className={`relative z-10 flex min-w-0 flex-col items-center gap-2 text-center ${
+                step.active ? 'opacity-100' : 'opacity-30'
+              }`}
+            >
+              <span
+                className={`inline-flex h-10 w-10 items-center justify-center rounded-full text-base font-bold ${
+                  step.active
+                    ? 'bg-black text-white'
+                    : 'border-2 border-zinc-300 bg-white text-zinc-700'
+                }`}
+                aria-current={index === currentStepIndex ? 'step' : undefined}
+              >
+                {step.key}
+              </span>
+              <span className="truncate text-[11px] font-medium tracking-wide text-zinc-900 sm:text-xs">
+                {step.label}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </section>
+    </div>
+  );
+}

@@ -12,24 +12,25 @@ export function SummarySection({ content, onChange, readOnly }: SummarySectionPr
     onChange({ ...content, summary: { ...content.summary, ...patch } });
 
   return (
-    <section className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-8">
-      <h2 className="text-lg font-semibold text-text-default">요약 결론</h2>
-      <LabeledTextArea
-        label="종합 의견"
-        value={content.summary.overall_opinion}
-        readOnly={readOnly}
-        onChange={(v) => updateSummary({ overall_opinion: v })}
-      />
-      <div className="flex flex-wrap items-center gap-3 rounded-lg bg-surface-muted p-3 text-xs text-text-muted">
-        <span className="inline-flex items-center gap-1 rounded-full bg-info-soft-bg px-2 py-0.5 font-medium text-info-soft-fg">
-          ✨ AI 요약 생성됨
-        </span>
-        <span>
-          총 {content.summary.total_count}건 ·{' '}
-          {Object.entries(content.summary.count_by_grade)
-            .map(([grade, count]) => `${grade}등급 ${count}건`)
-            .join(', ')}
-        </span>
+    <section className="flex flex-col gap-6 rounded-2xl border border-zinc-200 bg-white p-6 sm:p-8">
+      <h2 className="text-xl font-medium leading-7 text-zinc-900">요약 결론</h2>
+
+      <div className="rounded-[32px] border border-zinc-200 bg-zinc-50/70 px-5 py-4">
+        <LabeledTextArea
+          label="종합 의견"
+          hideLabel
+          value={content.summary.overall_opinion}
+          readOnly={readOnly}
+          rows={3}
+          textareaClassName="min-h-20 resize-y border-0 bg-transparent p-0 shadow-none focus:border-transparent focus:ring-0 disabled:bg-transparent"
+          onChange={(value) => updateSummary({ overall_opinion: value })}
+        />
+        <div className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-indigo-600">
+          <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="m8 1 .8 2.2L11 4l-2.2.8L8 7l-.8-2.2L5 4l2.2-.8L8 1ZM3.5 7l.6 1.4L5.5 9l-1.4.6L3.5 11l-.6-1.4L1.5 9l1.4-.6L3.5 7Zm8.5 1 .9 2.1L15 11l-2.1.9L12 14l-.9-2.1L9 11l2.1-.9L12 8Z" fill="currentColor" />
+          </svg>
+          AI 요약 생성됨
+        </div>
       </div>
     </section>
   );

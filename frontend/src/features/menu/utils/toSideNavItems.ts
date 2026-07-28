@@ -24,6 +24,11 @@ const DYNAMIC_SUB_ITEM_ID_BY_CODE: Record<string, string> = {
   REPORTS_EXPORT: 'report-export',
 };
 
+const DYNAMIC_MATCH_HREF_BY_ID: Record<string, string> = {
+  'report-edit': '/reports/1',
+  'report-export': '/reports/1?mode=export',
+};
+
 const LOCALLY_IMPLEMENTED_MENU_CODES = new Set([
   'INSPECTIONS_REPORT_ENTRANCE',
   'INSPECTIONS_REPORT_ENTRY',
@@ -52,11 +57,12 @@ function resolveIcon(iconKey: string | null): string {
 }
 
 function toSubItem(menu: MenuTreeItem): SideNavSubItem {
+  const id = DYNAMIC_SUB_ITEM_ID_BY_CODE[menu.code];
   return {
     label: menu.name,
     href: menu.path ?? '#',
-    id: DYNAMIC_SUB_ITEM_ID_BY_CODE[menu.code],
-    matchHref: menu.activePathPattern ?? undefined,
+    id,
+    matchHref: (id ? DYNAMIC_MATCH_HREF_BY_ID[id] : undefined) ?? menu.activePathPattern ?? undefined,
     enabled: LOCALLY_IMPLEMENTED_MENU_CODES.has(menu.code) ? true : menu.enabled,
   };
 }

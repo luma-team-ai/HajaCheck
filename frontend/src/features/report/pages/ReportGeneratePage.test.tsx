@@ -405,10 +405,11 @@ describe('ReportGeneratePage', () => {
   });
 
   // --- #1095 Figma 시안 재설계 테스트 ---
-  it('상단 breadcrumb에 현재 페이지 이름이 표시된다', async () => {
+  it('페이지 내부 breadcrumb를 다시 그리지 않고 공용 Header breadcrumb에 위임한다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
-    expect(screen.getByText('보고서 편집·미리보기')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '보고서 생성 결과' })).toBeTruthy();
+    expect(screen.queryByRole('navigation', { name: '상단 경로' })).toBeNull();
   });
 
   it('통계 카드 4개(현재 상태/생성일시/검수 완료율/총 지적 수)가 렌더링된다', async () => {
@@ -430,14 +431,16 @@ describe('ReportGeneratePage', () => {
     expect(screen.getByText('발행')).toBeTruthy();
   });
 
-  it('상세 내역 등급 필터 pills(전체/A/B/C/D/E)가 렌더링된다', async () => {
+  it('상세 내역 등급 필터 pills가 데이터에 맞게 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
     const filterGroup = screen.getByRole('group', { name: '등급 필터' });
     expect(filterGroup).toBeTruthy();
-    for (const g of ['전체', 'A', 'B', 'C', 'D', 'E']) {
+    for (const g of ['전체', 'A', 'B', 'C']) {
       expect(screen.getByRole('button', { name: g })).toBeTruthy();
     }
+    expect(screen.queryByRole('button', { name: 'D' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'E' })).toBeNull();
   });
 
   it('상세 내역 페이지네이션 컨트롤이 렌더링된다', async () => {
@@ -445,13 +448,13 @@ describe('ReportGeneratePage', () => {
     await screen.findByText('보고서 생성 결과');
     expect(screen.getByRole('button', { name: '이전 페이지' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '다음 페이지' })).toBeTruthy();
-    expect(screen.getByText('1 / 1')).toBeTruthy();
+    expect(screen.getByText((_, node) => node?.textContent === '1 / 1')).toBeTruthy();
   });
 
   it('조치 권고에 시급성 pill과 #DEF-NN badge가 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
-    expect(screen.getByText(/보수 시급성/)).toBeTruthy();
+    expect(screen.getByLabelText(/보수 시급성/)).toBeTruthy();
     expect(screen.getByText(/#DEF-01 이동/)).toBeTruthy();
   });
 

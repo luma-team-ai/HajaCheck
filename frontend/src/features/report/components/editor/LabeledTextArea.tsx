@@ -5,13 +5,16 @@ interface LabeledTextAreaProps {
   readOnly: boolean;
   rows?: number;
   placeholder?: string;
+  className?: string;
+  labelClassName?: string;
+  textareaClassName?: string;
+  hideLabel?: boolean;
 }
 
 const FIELD_CLASSES =
-  'w-full rounded-lg border border-border bg-surface p-2 text-sm text-text-default disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-text-muted';
+  'w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm leading-6 text-text-default outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-50 disabled:text-text-muted';
 
-// <label>이 <span> 라벨 + <textarea>를 감싸는 구조 — `getByLabelText('점검 목적')` 등
-// 역할 기반 쿼리가 textarea를 잡도록 보존(기존 Field 컴포넌트와 동일 패턴).
+// label이 textarea를 감싸므로 getByLabelText 기반 테스트와 접근성 이름을 그대로 유지한다.
 export function LabeledTextArea({
   label,
   value,
@@ -19,17 +22,25 @@ export function LabeledTextArea({
   readOnly,
   rows = 3,
   placeholder,
+  className = '',
+  labelClassName = '',
+  textareaClassName = '',
+  hideLabel = false,
 }: LabeledTextAreaProps) {
   return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-text-muted">{label}</span>
+    <label className={`flex flex-col gap-2 ${className}`}>
+      <span
+        className={`${hideLabel ? 'sr-only' : 'text-xs font-medium tracking-wide text-zinc-700'} ${labelClassName}`}
+      >
+        {label}
+      </span>
       <textarea
-        className={FIELD_CLASSES}
+        className={`${FIELD_CLASSES} ${textareaClassName}`}
         rows={rows}
         value={value}
         disabled={readOnly}
         placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) => onChange(event.target.value)}
       />
     </label>
   );

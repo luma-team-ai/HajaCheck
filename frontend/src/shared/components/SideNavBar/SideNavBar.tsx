@@ -168,7 +168,7 @@ const DEFAULT_ITEMS: SideNavItem[] = [
         id: 'report-export',
         label: 'PDF 내보내기',
         href: '/reports',
-        matchHref: '/reports/1',
+        matchHref: '/reports/1?mode=export',
       },
     ],
   },

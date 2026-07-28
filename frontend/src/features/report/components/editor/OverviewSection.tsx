@@ -7,31 +7,48 @@ interface OverviewSectionProps {
   readOnly: boolean;
 }
 
+const PILL_FIELD_CLASS = 'min-h-20 rounded-[32px] px-5 py-4';
+
 export function OverviewSection({ content, onChange, readOnly }: OverviewSectionProps) {
   const updateOverview = (patch: Partial<ReportContent['overview']>) =>
     onChange({ ...content, overview: { ...content.overview, ...patch } });
 
   return (
-    <section className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-8">
-      <h2 className="text-lg font-semibold text-text-default">개요</h2>
+    <section className="flex flex-col gap-6 rounded-2xl border border-zinc-200 bg-white p-6 sm:p-8">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-medium leading-7 text-zinc-900">개요</h2>
+        <svg className="h-4 w-4 text-zinc-900" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="m4 10 4-4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+
       <LabeledTextArea
         label="점검 목적"
         value={content.overview.purpose}
         readOnly={readOnly}
-        onChange={(v) => updateOverview({ purpose: v })}
+        rows={3}
+        textareaClassName={`min-h-24 ${PILL_FIELD_CLASS}`}
+        onChange={(value) => updateOverview({ purpose: value })}
       />
-      <LabeledTextArea
-        label="시설물 개요"
-        value={content.overview.facility_summary}
-        readOnly={readOnly}
-        onChange={(v) => updateOverview({ facility_summary: v })}
-      />
-      <LabeledTextArea
-        label="점검 범위"
-        value={content.overview.scope}
-        readOnly={readOnly}
-        onChange={(v) => updateOverview({ scope: v })}
-      />
+
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <LabeledTextArea
+          label="시설물 개요"
+          value={content.overview.facility_summary}
+          readOnly={readOnly}
+          rows={2}
+          textareaClassName={PILL_FIELD_CLASS}
+          onChange={(value) => updateOverview({ facility_summary: value })}
+        />
+        <LabeledTextArea
+          label="점검 범위"
+          value={content.overview.scope}
+          readOnly={readOnly}
+          rows={2}
+          textareaClassName={PILL_FIELD_CLASS}
+          onChange={(value) => updateOverview({ scope: value })}
+        />
+      </div>
     </section>
   );
 }
