@@ -230,7 +230,7 @@ class FacilityComparisonServiceTest {
     }
 
     @Test
-    void compare_이전회차RESOLVED가재연결_재발생은worsened로근사매핑() {
+    void compare_이전회차RESOLVED가재연결_recurring으로분류하고worsening_KPI에도합산() {
         Inspection before = inspection(10L, 1, LocalDate.of(2026, 1, 1));
         Inspection after = inspection(11L, 2, LocalDate.of(2026, 2, 1));
         stubFacilityAndInspections(before, after);
@@ -244,11 +244,13 @@ class FacilityComparisonServiceTest {
         FacilityComparisonResponse response =
                 facilityComparisonService.compare(USER_ID, COMPANY_ID, FACILITY_ID, 1, 2);
 
-        // 재발생(이전 RESOLVED + 이후 회차 재연결)은 프론트 DefectChangeType에 대응 타입이 없어
-        // worsened로 근사 매핑된다(HAJA-532 후속에서 정확화 예정) — before 행은 matchedBeforeIds에
-        // 걸려 별도 resolved 행으로 중복 표시되지 않아야 한다.
+        // HAJA-532/#1119 — 재발생(이전 RESOLVED + 이후 회차 재연결)은 이제 recurring으로 정확히
+        // 분류된다(초기(#1112)엔 근사 매핑했었음). before 행은 matchedBeforeIds에 걸려 별도 resolved
+        // 행으로 중복 표시되지 않아야 한다. "진행성 (악화)" KPI는 worsened와 함께 recurring도 센다.
         assertThat(response.changes()).hasSize(1);
-        assertThat(response.changes().get(0).changeType()).isEqualTo("worsened");
+        assertThat(response.changes().get(0).changeType()).isEqualTo("recurring");
+        assertThat(kpiValue(response, "worsening")).isEqualTo(1);
+        assertThat(kpiValue(response, "gradeEscalated")).isEqualTo(0);
     }
 
     @Test

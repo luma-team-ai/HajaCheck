@@ -15,4 +15,7 @@ export const DEFECT_CHANGE_TYPE_BADGE_CLASS = {
   new: 'bg-[#fdf0d5] text-[#b5670a]',
   unchanged: 'bg-[#f0f1f3] text-[#6b7280]',
   resolved: 'bg-[#e3f5e6] text-[#16a34a]',
+  // 재발생(HAJA-532/#1119) — worsened(적색)와 시각적으로 구분되는 보라 계열, "악화"와는 다른
+  // 경고 뉘앙스("한 번 해결됐다가 되돌아옴")를 전달한다.
+  recurring: 'bg-[#f3e8fd] text-[#9333ea]',
 } as const;

@@ -257,7 +257,9 @@ export interface CrackTrendPoint {
   avgWidthMm: number;
 }
 
-export type DefectChangeType = 'worsened' | 'new' | 'unchanged' | 'resolved';
+// recurring(재발생, HAJA-532/#1119) — 이전 회차 RESOLVED였던 하자가 이후 회차에 previousDefectId로
+// 재연결된 경우. 초기(#1112)엔 대응 타입이 없어 worsened로 근사 매핑했었으나 이제 정확히 구분한다.
+export type DefectChangeType = 'worsened' | 'new' | 'unchanged' | 'resolved' | 'recurring';
 
 export interface DefectChangeRow {
   id: number;

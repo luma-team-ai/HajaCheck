@@ -25,4 +25,10 @@ describe('DefectChangeBadge', () => {
     render(<DefectChangeBadge changeType="resolved" />);
     expect(screen.getByText('조치완료').className).toContain('text-[#16a34a]');
   });
+
+  // HAJA-532/#1119 — 재발생을 worsened(악화)와 시각적으로 구분되는 별도 색상으로 렌더링한다.
+  it('재발생은 보라 계열 배지 클래스를 사용해 악화와 구분된다', () => {
+    render(<DefectChangeBadge changeType="recurring" />);
+    expect(screen.getByText('재발생').className).toContain('text-[#9333ea]');
+  });
 });
