@@ -142,7 +142,8 @@ public class FacilityController {
             description = "로그인 사용자의 회사가 소유한 시설물의 두 점검 회차(before/after)를 비교해 "
                     + "KPI(신규/진행중/개선완료/등급상승 4종)와 하자 변화 목록을 반환한다(HAJA-531/#1112). "
                     + "previous_defect_id로 확정된 회차 간 대응(HAJA-437)을 기준으로 분류하며, "
-                    + "\"재발생\"은 이번 범위에서 진행중(worsened)으로 근사 매핑한다(HAJA-532 후속에서 정확화 예정).")
+                    + "\"재발생\"(이전 회차 RESOLVED가 이후 회차에 재연결된 경우)은 recurring으로 별도 "
+                    + "구분한다(HAJA-532/#1119).")
     @GetMapping("/{id}/compare")
     public ResponseEntity<ApiResponse<FacilityComparisonResponse>> compare(
             @AuthenticationPrincipal LoginUser loginUser,

@@ -28,8 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 회차 간 비교 조회(HAJA-531/#1112, HAJA-437 후속) — previous_defect_id로 두 회차의 하자를 매칭해
- * 신규/진행중(악화 포함)/개선완료 3가지로 분류한다("재발생"은 프론트 DefectChangeType에 대응 타입이
- * 없어 이번 범위에서 진행중(worsened)으로 근사 매핑 — HAJA-532(#1119)에서 정확히 분리 예정).
+ * 신규/진행중(악화 포함)/재발생/개선완료 4가지로 분류한다. "재발생"(이전 회차 RESOLVED였던 하자가
+ * 이후 회차에 previousDefectId로 재연결된 경우)은 처음엔 프론트 DefectChangeType에 대응 타입이 없어
+ * 진행중(worsened)으로 근사 매핑했으나, HAJA-532(#1119)에서 별도 타입("recurring")으로 정확히 분리했다.
  *
  * <p>IDOR/회차 유효성 검증은 DefectService.confirmPreviousDefect의 기존 패턴(같은 시설물·회사 스코프)을
  * 재사용한다 — 시설물을 회사 스코프로 먼저 조회하고, 각 회차를 그 시설물 범위 안에서만 조회한다.
@@ -109,8 +110,8 @@ public class FacilityComparisonService {
             }
             String changeType;
             if (before.getStatus() == DefectStatus.RESOLVED) {
-                // 재발생(이전 RESOLVED + 이후 회차 재연결) — worsened로 근사 매핑(클래스 주석 참조).
-                changeType = "worsened";
+                // 재발생(HAJA-532/#1119) — 이전 회차 RESOLVED였던 하자가 이후 회차에 재연결됨.
+                changeType = "recurring";
             } else if (after.getStatus() == DefectStatus.RESOLVED) {
                 // 코드 리뷰 P1 — 이후 회차 하자 자체가 RESOLVED로 개별 종결된 경우(등급/상태 불변이라도
                 // registerActionResult는 연결된 이전 회차 하자를 되돌아보지 않는 행 단위 조치라 이 분기가
@@ -149,9 +150,14 @@ public class FacilityComparisonService {
     // KPI changeValue — 이전 회차 대비 추이 기준선(3번째 회차 등)이 없어 "악화/신규=양수, 개선=음수"
     // 부호 규칙(프론트 formatComparisonChange.ts, #489 스펙)만 반영한 단순화. 실제 회차간 KPI 추이
     // 비교는 스펙 부재 — 필요 시 별도 이슈로 분리.
+    //
+    // "진행성 (악화)" KPI는 worsened와 recurring(HAJA-532/#1119)을 함께 센다 — 재발생도 "다시 조치가
+    // 필요한, 좋지 않은 상태"라는 점에서 개념적으로 동일 버킷이다. gradeEscalated는 worsened만 본다 —
+    // recurring의 이전 등급은 "이미 조치 완료됐던 시점"의 등급이라 이후 등급과 비교해도 진짜 등급
+    // 악화를 의미하지 않는다(재발생 자체가 이미 그 사실을 말해준다).
     private List<ComparisonKpi> buildKpis(List<DefectChangeRow> changes) {
         long newCount = countByType(changes, "new");
-        long worseningCount = countByType(changes, "worsened");
+        long worseningCount = countByType(changes, "worsened") + countByType(changes, "recurring");
         long resolvedCount = countByType(changes, "resolved");
         long gradeEscalatedCount = changes.stream()
                 .filter(row -> "worsened".equals(row.changeType()))
