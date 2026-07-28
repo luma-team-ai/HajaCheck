@@ -1,0 +1,14 @@
+-- Flyway V28 — notification_type PG enum에 PLAN_EXPIRED 라벨 추가(#1145 / HAJA-549).
+--
+-- 배경: 구독 결제 주기 만료 시 FREE로 자동 강등하는 배치(PlanExpiryScheduler)가 강등 시점에 알림을
+-- 1건 발행한다. 사람 개입 없이 유료 권한이 내려가고 좌석이 정지되는 동작이라, 사용자가 모르는 사이
+-- 기능을 잃는 상황을 만들지 않으려면 알림이 반드시 함께 나가야 한다. NotificationType.PLAN_EXPIRED를
+-- 코드에만 추가하고 이 라벨이 PG enum에 없으면 알림 INSERT가 런타임에 실패한다(V4가 role_type에서
+-- 겪은 것과 같은 형태).
+--
+-- ALTER TYPE ... ADD VALUE는 PG12+에서는 트랜잭션 안에서도 실행 가능(단, 같은 트랜잭션에서 그 값을
+-- 바로 사용하지만 않으면 됨) — Flyway 기본 트랜잭션 실행으로 문제없다. 그래서 이 파일에는 새 라벨을
+-- 참조하는 DML을 두지 않는다(V4/V15와 동일 규칙). IF NOT EXISTS(PG12+)로 재실행 안전 —
+-- 캐노니컬 DDL(HajaCheck_script.sql)에도 이 라벨을 함께 반영하므로 baseline-on-existing 경로(이미
+-- 전체 스키마가 적재된 DB)에서 이 파일이 처음 적용될 때도 no-op 성공으로 지나간다.
+alter type notification_type add value if not exists 'PLAN_EXPIRED';

@@ -13,11 +13,13 @@ import com.hajacheck.core.defect.repository.InspectionGradeCountProjection;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.inspection.dto.InspectionCreateRequest;
+import com.hajacheck.core.inspection.dto.InspectionListFilterRequest;
 import com.hajacheck.core.inspection.dto.InspectionListItemResponse;
 import com.hajacheck.core.inspection.dto.InspectionResponse;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.inspection.repository.InspectionSearchCriteria;
 import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -126,12 +128,25 @@ public class InspectionService {
      * 위 기존 로직 그대로이며, 새 파라미터는 repository 의 EXISTS 서브쿼리로만 매칭에 관여한다.
      */
     public PageResponse<InspectionListItemResponse> list(
-            Long userId, Long companyId, Long facilityId, InspectionStatus status,
-            List<DefectType> defectTypes, List<DefectGrade> defectGrades, List<DefectStatus> defectStatuses,
-            Pageable pageable) {
+            Long userId, Long companyId, InspectionListFilterRequest filters, Pageable pageable) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        validateListFilters(filters);
+        InspectionSearchCriteria criteria = new InspectionSearchCriteria(
+                companyId,
+                filters.facilityId(),
+                filters.status(),
+                filters.inspectionType(),
+                filters.inspectionDateFrom(),
+                filters.inspectionDateTo(),
+                filters.roundNoMin(),
+                filters.roundNoMax(),
+                filters.defectCountMin(),
+                filters.defectCountMax(),
+                filters.defectType(),
+                filters.defectGrade(),
+                filters.defectStatus());
         Page<Inspection> page = inspectionRepository.findPageByCompanyIdAndFilters(
-                companyId, facilityId, status, defectTypes, defectGrades, defectStatuses, pageable);
+                criteria, pageable);
 
         List<Long> inspectionIds = page.getContent().stream().map(Inspection::getId).toList();
         Map<Long, Long> defectCountByInspectionId = inspectionIds.isEmpty() ? Map.of()
@@ -155,6 +170,44 @@ public class InspectionService {
                 inspectorNameById.getOrDefault(inspection.getAssignedInspectorId(), "-"),
                 defectCountByInspectionId.getOrDefault(inspection.getId(), 0L),
                 gradeDistributionByInspectionId.getOrDefault(inspection.getId(), emptyGradeDistribution()))));
+    }
+
+    /**
+     * 기존 내부 테스트·호출 호환 어댑터. HTTP 요청 경로는 {@link InspectionListFilterRequest}를 사용한다.
+     */
+    public PageResponse<InspectionListItemResponse> list(
+            Long userId, Long companyId, Long facilityId, InspectionStatus status,
+            List<DefectType> defectTypes, List<DefectGrade> defectGrades, List<DefectStatus> defectStatuses,
+            Pageable pageable) {
+        return list(userId, companyId, new InspectionListFilterRequest(
+                facilityId,
+                status == null ? null : List.of(status),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                defectTypes,
+                defectGrades,
+                defectStatuses), pageable);
+    }
+
+    private void validateListFilters(InspectionListFilterRequest filters) {
+        if (isAfter(filters.inspectionDateFrom(), filters.inspectionDateTo())
+                || isGreater(filters.roundNoMin(), filters.roundNoMax())
+                || isGreater(filters.defectCountMin(), filters.defectCountMax())) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT);
+        }
+    }
+
+    private static boolean isAfter(LocalDate min, LocalDate max) {
+        return min != null && max != null && min.isAfter(max);
+    }
+
+    private static <T extends Comparable<T>> boolean isGreater(T min, T max) {
+        return min != null && max != null && min.compareTo(max) > 0;
     }
 
     // 점검 목록 등급분포(#893/HAJA-458) — inspectionId 마다 A~E 5개 키를 전부 채운 뒤(기본값 0)

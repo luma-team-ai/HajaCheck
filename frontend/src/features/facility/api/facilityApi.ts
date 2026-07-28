@@ -2,6 +2,7 @@ import { api } from '../../../shared/api/axios';
 import type {
   CreateFacilityRequest,
   Facility,
+  FacilityStatusRow,
   InspectionNotificationSettings,
   SetFacilityScheduleRequest,
   SetFacilityScheduleResponse,
@@ -10,6 +11,8 @@ import type {
 
 export const facilityApi = {
   getList: () => api.get<Facility[]>('/facilities'),
+  // 시설물 현황 목록(#540 ⑥, HAJA-378) — 점검 주기 설정 화면(#1136)이 실연동에 재사용.
+  getStatusList: () => api.get<FacilityStatusRow[]>('/facilities/status'),
   getDetail: (id: number) => api.get<Facility>(`/facilities/${id}`),
   create: (body: CreateFacilityRequest) => api.post<Facility>('/facilities', body),
   // 시설물 수정(PUT — 전체 교체, backend FacilityUpdateRequest와 1:1). 좌표 소급 재-geocoding(#618)이
