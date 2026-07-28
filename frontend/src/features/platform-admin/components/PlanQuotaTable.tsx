@@ -6,6 +6,7 @@ import {
   PLAN_QUOTA_STATUS_DOT_CLASS,
   PLAN_QUOTA_STATUS_LABEL,
   PLAN_QUOTA_STATUS_TEXT_CLASS,
+  PLAN_QUOTA_UNLIMITED_PERIOD_LABEL,
 } from '../planQuota.constants';
 import type { PlanQuotaUser } from '../planQuota.types';
 import { QuotaUsageBar } from './QuotaUsageBar';
@@ -98,8 +99,15 @@ export function PlanQuotaTable({ users, isLoading, isError, onRetry }: PlanQuota
                 <QuotaUsageBar used={user.quotaUsed} limit={user.quotaLimit} label={user.name} />
               </td>
               <td className="px-4 py-4 align-middle text-sm">
-                {user.remainingDays === null ? (
+                {/*
+                  만료 판정은 status 로만 한다(#1104/HAJA-525) — remainingDays=null 은 V27 이후
+                  "만료"와 "무기한(FREE)" 둘 다를 뜻하므로 null 로 판정하면 FREE 회사가
+                  "만료됨(빨강) + 상태 활성"으로 모순 표시된다. planQuota.constants 주석 참고.
+                */}
+                {user.status === 'EXPIRED' ? (
                   <span className="font-semibold text-danger">{PLAN_QUOTA_EXPIRED_LABEL}</span>
+                ) : user.remainingDays === null ? (
+                  <span className="text-text-muted">{PLAN_QUOTA_UNLIMITED_PERIOD_LABEL}</span>
                 ) : (
                   <span className="text-text-default">{user.remainingDays}일</span>
                 )}

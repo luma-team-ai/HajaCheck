@@ -31,8 +31,16 @@ update user_plans
  where current_period_start is null;
 
 -- current_period_end 는 유료 플랜(plans.price_monthly > 0)만 채운다. FREE 는 만료가 없으므로 NULL로 둔다.
+--
+-- ⚠️ 타임존을 KST로 명시한다(코드리뷰 P3). `timestamptz + interval '1 month'` 는 **세션 TimeZone 기준
+-- 로컬 시각**으로 월을 더하는데, 런타임 계산(UserPlan#startNewBillingPeriod)은 Asia/Seoul 고정이다.
+-- 세션 TZ가 UTC인 환경(로컬·CI·psql 직접 실행 등)에서는 KST 00:00~09:00 구간(=UTC 전날)의 행에서
+-- 월말 클램핑이 갈려 최대 3일까지 어긋난다 — 예: started_at = 2026-03-01 05:00 KST 는 KST 기준
+-- 2026-04-01 이지만 UTC 세션에서는 2026-03-29 가 된다. 결제 주기 컬럼은 한 번 써서 굳는 값이고
+-- 마이그레이션은 환경마다 같은 결과를 내야 하므로 세션 설정에 의존시키지 않는다.
 update user_plans up
-   set current_period_end = up.started_at + interval '1 month'
+   set current_period_end =
+           ((up.started_at at time zone 'Asia/Seoul' + interval '1 month') at time zone 'Asia/Seoul')
   from plans p
  where up.plan_id = p.id
    and p.price_monthly is not null

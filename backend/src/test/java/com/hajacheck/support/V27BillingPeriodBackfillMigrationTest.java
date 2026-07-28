@@ -26,7 +26,7 @@ class V27BillingPeriodBackfillMigrationTest {
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16")
-            .withDatabaseName("hajacheck_v25_billing_period_backfill")
+            .withDatabaseName("hajacheck_v27_billing_period_backfill")
             .withUsername("postgres");
 
     @Test

@@ -55,5 +55,14 @@ export const PLAN_QUOTA_STATUS_TEXT_CLASS: Record<PlanQuotaUserStatus, string> =
   EXPIRED: 'text-danger',
 };
 
-/** "남은 기간" 컬럼 — 만료(remainingDays=null)면 "만료됨"으로 강조 표시 */
+/**
+ * "남은 기간" 컬럼 — 만료 판정은 **`status === 'EXPIRED'` 로만** 한다(#1104/HAJA-525).
+ * `remainingDays === null` 로 판정하면 안 된다: V27로 결제 주기가 실체화되면서 null 의 의미가
+ * "만료" 하나에서 **"만료 또는 무기한(FREE)"** 둘로 늘어났기 때문이다. FREE 회사는
+ * `remainingDays=null` + `status=ACTIVE` 로 내려오므로, null 로 판정하면 한 행 안에서
+ * "남은 기간=만료됨(빨강) / 상태=활성" 이라는 모순이 표시된다.
+ */
 export const PLAN_QUOTA_EXPIRED_LABEL = '만료됨';
+
+/** 무기한(FREE) — 만료가 아니라 종료일 자체가 없는 상태. */
+export const PLAN_QUOTA_UNLIMITED_PERIOD_LABEL = '무기한';
