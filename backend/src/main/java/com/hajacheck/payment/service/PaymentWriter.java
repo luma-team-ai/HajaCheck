@@ -18,7 +18,11 @@ import com.hajacheck.payment.entity.Payment;
 import com.hajacheck.payment.entity.PaymentStatus;
 import com.hajacheck.payment.repository.PaymentRepository;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -59,6 +63,17 @@ public class PaymentWriter {
 
     /** 주문 식별자 접두사 — 토스 규격(6~64자, 영숫자·'-'·'_')을 만족하고 운영 로그에서 식별하기 쉽게. */
     private static final String ORDER_ID_PREFIX = "haja-";
+
+    // 결제 주기 계산 존(#1104 startNewBillingPeriod·#1145 PlanExpiryScheduler 와 동일하게 KST 고정) —
+    // 어긋나면 자정 전후(KST 00~09시 = UTC 전날)에 잔여일 계산이 하루 밀린다.
+    private static final ZoneId BILLING_ZONE = ZoneId.of("Asia/Seoul");
+
+    /**
+     * 토스페이먼츠 결제창의 최소 결제금액(원) — 이 아래로는 결제창을 열 수 없다. 인접한 가격의 두 플랜
+     * 사이에서 크레딧을 차감하면 청구액이 이 아래로 내려갈 수 있어(#1146), 그 경우 이 금액으로 올린다
+     * (아래 {@link #createOrder} 가드 참고).
+     */
+    private static final long MIN_CHARGEABLE_AMOUNT = 100L;
 
     private final PaymentRepository paymentRepository;
     private final UserRepository userRepository;
@@ -104,7 +119,15 @@ public class PaymentWriter {
         requirePayableUpgrade(currentPlan, targetPlan);
         requireNoUnconfirmedDowngrade(companyId, currentPlan, targetPlan);
 
-        long amount = toChargeableAmount(targetPlan.getPriceMonthly());
+        long listPrice = toChargeableAmount(targetPlan.getPriceMonthly());
+        long credit = computeProratedCredit(current, currentPlan);
+        // 정가 - 크레딧 이 최소 결제금액 아래로 내려가면 그 금액으로 올린다(가드 아래 javadoc). 크레딧은
+        // 항상 목표 플랜가보다 작다(requirePayableUpgrade 가 현재가 < 목표가를 보장하고, 크레딧은 현재가를
+        // 넘지 못한다) — 즉 raw 청구액은 항상 0보다 크고, 이 가드는 "0 초과 & 100원 미만" 구간만 끌어올린다.
+        long amount = Math.max(listPrice - credit, MIN_CHARGEABLE_AMOUNT);
+        // 화면에는 실제로 적용된 차감액을 보여준다 — 위 최소금액 가드로 조정된 뒤에도
+        // listPrice - appliedCredit == amount 가 항상 성립해야 "정가/크레딧/실청구액" 3줄이 어긋나지 않는다.
+        long appliedCredit = listPrice - amount;
 
         // 같은 소유 주체·같은 요금제의 기존 READY 주문을 먼저 본다(리뷰 P1-B 근본 원인 차단).
         // 새 주문을 계속 찍어내면 사용자가 결제창을 두 번 열었다가 둘 다 결제해 "2회 청구 + 구독 변화 0"이
@@ -120,7 +143,12 @@ public class PaymentWriter {
                         existing.getOrderId(), targetPlanName);
                 // 금액은 기존 주문의 스냅샷을 그대로 쓴다 — 그 사이 요금제 가격이 바뀌었더라도 사용자가 이미
                 // 안내받은 금액으로 결제되게 하고(TTL 안에서만 유효), 승인 단계의 금액 대조와도 일치시킨다.
-                return PaymentOrderResponse.of(existing, toChargeableAmount(existing.getAmount()),
+                // 정가만 방금 조회한 targetPlan 기준으로 다시 보여주고, 표시용 크레딧은 그 정가에서
+                // 스냅샷 금액을 뺀 값으로 역산한다(0 미만이면 0 — 그 사이 정가가 내렸다면 크레딧 없음으로
+                // 보여준다. amount 스냅샷 자체는 절대 재계산하지 않는다).
+                long reusedAmount = toChargeableAmount(existing.getAmount());
+                long reusedCredit = Math.max(listPrice - reusedAmount, 0L);
+                return PaymentOrderResponse.of(existing, listPrice, reusedCredit, reusedAmount,
                         buildOrderName(existing.getPlanName()));
             }
             // 재사용할 수 없는 잔재(만료·만료 임박·소유자 교체)는 <b>반드시 닫고</b> 진행한다. 그대로 두면
@@ -136,11 +164,57 @@ public class PaymentWriter {
                 companyId,
                 targetPlan.getId(),
                 targetPlanName,
-                targetPlan.getPriceMonthly()));
+                BigDecimal.valueOf(amount)));
 
-        log.info("결제 주문 생성 — orderId={} planName={} companyId={}",
-                payment.getOrderId(), targetPlanName, companyId);
-        return PaymentOrderResponse.of(payment, amount, buildOrderName(targetPlanName));
+        log.info("결제 주문 생성 — orderId={} planName={} companyId={} listPrice={} credit={} amount={}",
+                payment.getOrderId(), targetPlanName, companyId, listPrice, appliedCredit, amount);
+        return PaymentOrderResponse.of(payment, listPrice, appliedCredit, amount, buildOrderName(targetPlanName));
+    }
+
+    /**
+     * 잔여 기간 일할 크레딧(#1146 / HAJA-550) — 상향 결제 시 현재 플랜의 남은 결제 주기를 크레딧으로
+     * 차감한다(B안: 잔여 크레딧 차감 + 주기 리셋, 종료일 승계 A안은 빌링키 자동갱신이 없어 채택하지
+     * 않음 — {@code PlanTransitionService#transitionTo} 가 승인 후에도 그대로 주기를 리셋한다).
+     *
+     * <p>잔여일·주기일수는 {@link #BILLING_ZONE}(KST) 기준 <b>달력일 수</b>로 센다({@code UserPlan}
+     * 의 {@code BILLING_ZONE} 과 동일 존) — {@code Instant} 그대로 빼면 존과 무관하지만, 자정 전후
+     * (KST 00~09시 = UTC 로는 여전히 전날)에 다른 존으로 날짜를 계산하면 최대 하루가 밀린다.
+     *
+     * <p>크레딧은 <b>원 단위로 내림</b> 한다(#1146 결정) — 사용자에게 불리하게 반올림하지 않는다.
+     *
+     * @return {@code current.getCurrentPeriodEnd() == null}(FREE·주기 정보 없음)이거나 잔여일이 0 이하
+     *         (만료 경과 — #1145 강등 배치와 경합해도 안전한 방향)면 0
+     */
+    private long computeProratedCredit(UserPlan current, Plan currentPlan) {
+        Instant periodEnd = current.getCurrentPeriodEnd();
+        if (periodEnd == null) {
+            return 0L;
+        }
+        Instant periodStart = current.getCurrentPeriodStart();
+        LocalDate endDate = periodEnd.atZone(BILLING_ZONE).toLocalDate();
+        LocalDate nowDate = Instant.now().atZone(BILLING_ZONE).toLocalDate();
+
+        long remainingDays = ChronoUnit.DAYS.between(nowDate, endDate);
+        if (remainingDays <= 0) {
+            return 0L;
+        }
+        LocalDate startDate = periodStart.atZone(BILLING_ZONE).toLocalDate();
+        long totalDays = ChronoUnit.DAYS.between(startDate, endDate);
+        if (totalDays <= 0) {
+            // 주기 데이터가 역전된 이상 상태 — 안전하게 크레딧을 주지 않는다(정가 청구).
+            return 0L;
+        }
+        // now > periodStart 가 정상이라 remainingDays <= totalDays 이지만, 데이터 이상으로 역전되더라도
+        // 크레딧이 정가를 넘는 일이 없도록 상한을 건다.
+        remainingDays = Math.min(remainingDays, totalDays);
+
+        BigDecimal price = priceOrZero(currentPlan);
+        if (price.signum() <= 0) {
+            return 0L;
+        }
+        return price.multiply(BigDecimal.valueOf(remainingDays))
+                .divide(BigDecimal.valueOf(totalDays), 0, RoundingMode.DOWN)
+                .longValueExact();
     }
 
     /**
