@@ -2,6 +2,7 @@ package com.hajacheck.core.facility.dto;
 
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.entity.FacilityInitialGrade;
+import com.hajacheck.core.inspection.entity.InspectionType;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 
@@ -15,6 +16,11 @@ import java.time.temporal.ChronoUnit;
  * <p>dDay 는 호출 시점 today 기준 nextInspectionDueAt 까지의 잔여일(dev-03-02 UpcomingInspectionResponse
  * 와 동일한 ChronoUnit.DAYS.between(today, dueAt) 관례) — nextInspectionDueAt 이 없으면 null.
  * assigneeUserId/assigneeName 은 담당자 미배정 시 null, lastInspectedAt 은 점검 이력이 없으면 null.
+ *
+ * <p>inspectionCycleMonths(#1136)는 {@link Facility}의 기존 컬럼을 그대로 노출한다.
+ * inspectionType(#1136, 정기/정밀/긴급)은 Facility 자체에 "기본 점검유형" 개념이 없어(별도 컬럼 신설은
+ * DB 마이그레이션 필요, 팀 결정으로 보류) 가장 최근 점검 회차({@link InspectionType})를 근사값으로
+ * 재사용한다 — 점검 이력이 없으면 null.
  */
 public record FacilityStatusResponse(
         Long facilityId,
@@ -24,11 +30,14 @@ public record FacilityStatusResponse(
         Long dDay,
         Long assigneeUserId,
         String assigneeName,
-        LocalDate lastInspectedAt
+        LocalDate lastInspectedAt,
+        Integer inspectionCycleMonths,
+        InspectionType inspectionType
 ) {
 
     public static FacilityStatusResponse of(
-            Facility facility, LocalDate today, String assigneeName, LocalDate lastInspectedAt) {
+            Facility facility, LocalDate today, String assigneeName, LocalDate lastInspectedAt,
+            InspectionType inspectionType) {
         LocalDate dueAt = facility.getNextInspectionDueAt();
         Long dDay = dueAt == null ? null : ChronoUnit.DAYS.between(today, dueAt);
         return new FacilityStatusResponse(
@@ -39,6 +48,8 @@ public record FacilityStatusResponse(
                 dDay,
                 facility.getAssigneeUserId(),
                 assigneeName,
-                lastInspectedAt);
+                lastInspectedAt,
+                facility.getInspectionCycleMonths(),
+                inspectionType);
     }
 }

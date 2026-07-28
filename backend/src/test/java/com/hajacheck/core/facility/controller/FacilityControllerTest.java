@@ -419,6 +419,7 @@ class FacilityControllerTest extends PostgresTestSupport {
                 .initialGrade(FacilityInitialGrade.B)
                 .nextInspectionDueAt(dueAt)
                 .assigneeUserId(inspector.getId())
+                .inspectionCycleMonths(6)
                 .build());
         LocalDate lastInspectedAt = LocalDate.now().minusDays(3);
         saveInspection(facility.getId(), owner.getId(), inspector.getId(), 1, LocalDate.now().minusDays(20));
@@ -435,7 +436,12 @@ class FacilityControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data[0].dDay").value(7))
                 .andExpect(jsonPath("$.data[0].assigneeUserId").value(inspector.getId()))
                 .andExpect(jsonPath("$.data[0].assigneeName").value("점검자"))
-                .andExpect(jsonPath("$.data[0].lastInspectedAt").value(lastInspectedAt.toString()));
+                .andExpect(jsonPath("$.data[0].lastInspectedAt").value(lastInspectedAt.toString()))
+                .andExpect(jsonPath("$.data[0].inspectionCycleMonths").value(6))
+                // #1136 — saveInspection은 type을 지정하지 않아 Inspection.builder() 기본값(REGULAR)이
+                // 최근 회차(roundNo=2)에도 그대로 적용된다(선택 로직 자체는 FacilityServiceTest에서
+                // 비-기본값인 DETAILED로 별도 검증).
+                .andExpect(jsonPath("$.data[0].inspectionType").value("REGULAR"));
     }
 
     @Test
