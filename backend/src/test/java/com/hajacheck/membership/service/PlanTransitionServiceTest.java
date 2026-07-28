@@ -38,6 +38,9 @@ class PlanTransitionServiceTest {
     private UserPlanRepository userPlanRepository;
     @Mock
     private UsageCounterRepository usageCounterRepository;
+    // #1105 — 결제 전이가 일어나면 그 구독에 걸린 하향 예약(PENDING)을 무효화한다.
+    @Mock
+    private com.hajacheck.membership.repository.ScheduledPlanChangeRepository scheduledPlanChangeRepository;
 
     @InjectMocks
     private PlanTransitionService service;

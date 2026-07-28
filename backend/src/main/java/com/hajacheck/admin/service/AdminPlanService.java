@@ -8,6 +8,7 @@ import com.hajacheck.admin.dto.AdminPlanQuotaMember;
 import com.hajacheck.admin.dto.AdminPlanQuotaResponse;
 import com.hajacheck.admin.dto.AdminPlanQuotaStats;
 import com.hajacheck.admin.dto.AdminPlanResponse;
+import com.hajacheck.admin.dto.AdminScheduledPlanChangeResponse;
 import com.hajacheck.admin.repository.AdminPlanRepository;
 import com.hajacheck.admin.repository.AdminUserRepository;
 import com.hajacheck.auth.entity.Company;
@@ -21,14 +22,18 @@ import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.dto.DowngradeOverflow;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
+import com.hajacheck.membership.entity.ScheduledPlanChange;
+import com.hajacheck.membership.entity.ScheduledPlanChangeStatus;
 import com.hajacheck.membership.entity.UsageCounter;
 import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
+import com.hajacheck.membership.repository.ScheduledPlanChangeRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.service.PlanDowngradeService;
 import com.hajacheck.membership.service.PlanTransitionService;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -79,6 +84,7 @@ public class AdminPlanService {
     private final MediaRepository mediaRepository;
     private final PlanDowngradeService planDowngradeService;
     private final PlanTransitionService planTransitionService;
+    private final ScheduledPlanChangeRepository scheduledPlanChangeRepository;
 
     /** 제공 요금제 카탈로그(변경 선택지) — 회사 스코프와 무관한 참조 데이터라 ADMIN 이면 조회 가능. */
     public AdminPlanCatalogResponse getPlanCatalog() {
@@ -96,7 +102,7 @@ public class AdminPlanService {
         UsageCounter usage = usageCounterRepository
                 .findByUserPlanIdAndPeriod(userPlan.getId(), period)
                 .orElse(null);
-        return AdminPlanResponse.from(userPlan, plan, usage, period);
+        return AdminPlanResponse.from(userPlan, plan, usage, period, findPendingScheduledChange(userPlan.getId()));
     }
 
     /**
@@ -188,7 +194,113 @@ public class AdminPlanService {
         // 직렬화되지 않는다) 커밋 후 새 플랜 한도를 넘는 인원이 남을 수 있다. reserveSeat 는 신규
         // 활성화만 막으므로 그 초과는 스스로 해소되지 않는다.
         planDowngradeService.applyOverflow(companyId, targetPlan, overflow);
+
+        // 즉시 변경이 끝났으므로 이 구독에 걸려 있던 하향 예약은 의미를 잃는다(#1105) — 남겨 두면 한 달
+        // 뒤 스케줄러가 "이미 반영된 하향"을 한 번 더 실행하려 든다. 실행 시점 재검증(구독이 EXPIRED 라
+        // 무효 판정)이 최종 방어선이지만, 그때까지 화면에 유령 예약이 남는 것 자체가 오해를 부르므로
+        // 여기서 명시적으로 끊는다.
+        cancelPendingScheduledChange(current.getId(), "구독이 즉시 변경돼 예약이 무효화됨");
         return buildResponseWithUsage(saved, targetPlan);
+    }
+
+    /**
+     * 플랜 하향 <b>예약</b> — 지금 신청하되 실제 적용은 현재 결제 주기가 끝나는 시점
+     * ({@code user_plans.current_period_end}, #1104)에 스케줄러가 수행한다(#1105 / HAJA-526).
+     *
+     * <p><b>왜 필요한가</b>: {@link #changePlan} 은 즉시 전이라 하향을 신청하는 순간 초과 좌석이 그 자리에서
+     * {@code SUSPENDED} 된다. 이미 낸 요금 기간이 남아 있어도 권한이 바로 내려가므로, 통상의 SaaS 관례
+     * ("다음 결제 주기부터 적용")와 어긋난다. 이 경로는 <b>예약 행만 만들고 좌석·구독을 전혀 건드리지
+     * 않는다</b>.
+     *
+     * <p><b>인가</b>: {@link #changePlan} 과 동일하게 회사 owner 한정이다 — 예약은 결국 같은 하향을
+     * 실행하므로 권한 경계가 더 넓으면 안 된다.
+     *
+     * <p><b>신청 시점에 검증하는 것</b>(실행 시점에 다시 하지만, 한 달 뒤에야 실패를 알게 하지 않는다):
+     * <ul>
+     *   <li>하향인가 — 상향·동일 가격은 {@link ErrorCode#PLAN_SCHEDULE_NOT_DOWNGRADE}. 상향은 결제
+     *       경로 전용이고(#988) 예약 개념 자체가 없다.</li>
+     *   <li>적용 시각이 있는가 — {@code current_period_end} 가 없으면(무기한 구독)
+     *       {@link ErrorCode#PLAN_SCHEDULE_PERIOD_END_MISSING}.</li>
+     *   <li>초과 자원 확인 — {@code confirmOverflow} 없이는
+     *       {@link ErrorCode#PLAN_DOWNGRADE_CONFIRMATION_REQUIRED}. 예약 경로에서 <b>더</b> 중요하다:
+     *       실제 정지는 한 달 뒤 사람 없는 스케줄러가 수행하므로, 신청 시점에 결과를 인지시키지 못하면
+     *       아무도 모르는 사이 계정이 정지된다.</li>
+     *   <li>유지 대상 선택의 유효성 — {@code PlanDowngradeService#preview} 가 회사 스코프·좌석 한도·
+     *       ACTIVE ADMIN 잔존을 검증한다(부작용 없음).</li>
+     * </ul>
+     *
+     * <p><b>중복 예약</b>은 부분 UQ({@code uq_scheduled_plan_changes_pending})가 DB 레벨에서 막는다 —
+     * 조회 선검사도 하지만 그것만으로는 동시 요청을 막지 못하므로 무결성 위반을
+     * {@link ErrorCode#PLAN_SCHEDULED_CHANGE_EXISTS} 로 번역하는 쪽이 최종 방어선이다.
+     */
+    @Transactional
+    public AdminScheduledPlanChangeResponse scheduleChange(
+            Long adminUserId, PlanName targetPlanName, boolean overflowConfirmed, List<Long> keepUserIds) {
+        Long companyId = resolveInheritedCompanyId(adminUserId);
+        requireCompanyOwner(companyId, adminUserId);
+        UserPlan current = resolveCurrentCompanyPlan(companyId);
+        Plan targetPlan = planRepository.findByName(targetPlanName)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
+        Plan currentPlan = findPlan(current.getPlanId());
+
+        // 하향만 예약 대상이다 — 판정 기준은 requireNotUpgrade 와 같은 plans.price_monthly(그쪽 javadoc
+        // 참고: 가격은 플랫폼 관리자가 바꿀 수 있어 티어 이름 순서와 어긋날 수 있다). 동일 가격 전환도
+        // 거절한다: 추가 청구가 없어 지금 바꾸면 그만이라, 굳이 기간을 기다릴 이유가 없다.
+        if (priceOrZero(targetPlan).compareTo(priceOrZero(currentPlan)) >= 0) {
+            throw new BusinessException(ErrorCode.PLAN_SCHEDULE_NOT_DOWNGRADE);
+        }
+
+        Instant effectiveAt = current.getCurrentPeriodEnd();
+        if (effectiveAt == null) {
+            // 무기한 구독(FREE 등)은 "다음 결제 주기"가 없어 실행 기준일을 정할 수 없다. 위 하향 판정에서
+            // 대부분 먼저 걸리지만, 유료인데 주기가 비어 있는 데이터 이상도 여기서 표면화한다.
+            throw new BusinessException(ErrorCode.PLAN_SCHEDULE_PERIOD_END_MISSING);
+        }
+
+        // 선검사 — 동시 요청은 아래 부분 UQ 가 최종적으로 막는다. 그래도 여기서 먼저 보는 이유는 단일
+        // 요청에서 409 를 정확한 코드로 돌려주기 위해서다.
+        if (scheduledPlanChangeRepository
+                .findFirstByUserPlanIdAndStatus(current.getId(), ScheduledPlanChangeStatus.PENDING)
+                .isPresent()) {
+            throw new BusinessException(ErrorCode.PLAN_SCHEDULED_CHANGE_EXISTS);
+        }
+
+        // 부작용 없는 계산 — 실행 시점에 다시 하지만(그때가 진짜 판정이다), 신청 시점에 결과를 보여주고
+        // 확인을 받지 않으면 "아무도 모르는 사이 정지"가 된다.
+        DowngradeOverflow overflow = planDowngradeService.preview(companyId, currentPlan, targetPlan, keepUserIds);
+        if (!overflowConfirmed && overflow.exists()) {
+            throw new BusinessException(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED);
+        }
+
+        ScheduledPlanChange scheduled = ScheduledPlanChange.schedule(
+                current.getId(), targetPlan.getId(), effectiveAt, keepUserIds, adminUserId);
+        try {
+            scheduled = scheduledPlanChangeRepository.saveAndFlush(scheduled);
+        } catch (DataIntegrityViolationException e) {
+            // 동시 예약 경합 — 부분 UQ(uq_scheduled_plan_changes_pending) 위반.
+            throw new BusinessException(ErrorCode.PLAN_SCHEDULED_CHANGE_EXISTS);
+        }
+        return AdminScheduledPlanChangeResponse.of(scheduled, targetPlan);
+    }
+
+    /**
+     * 대기 중인 하향 예약 취소(#1105) — 인가는 {@link #scheduleChange} 와 동일(회사 owner 한정)하고,
+     * 대상은 <b>요청자의 회사 현재 구독</b>에 걸린 예약으로 한정한다. 클라이언트가 예약 id 를 넘기지
+     * 않으므로 cross-company IDOR 표면 자체가 없다.
+     *
+     * <p>취소 성공 여부는 조회가 아니라 <b>조건부 UPDATE 의 갱신 행 수</b>로 판정한다 — 동시에 두 번
+     * 취소해도 한쪽만 성공하고 다른 쪽은 {@link ErrorCode#PLAN_SCHEDULED_CHANGE_NOT_FOUND} 를 받는다.
+     */
+    @Transactional
+    public void cancelScheduledChange(Long adminUserId) {
+        Long companyId = resolveInheritedCompanyId(adminUserId);
+        requireCompanyOwner(companyId, adminUserId);
+        UserPlan current = resolveCurrentCompanyPlan(companyId);
+        int canceled = scheduledPlanChangeRepository
+                .cancelPendingByUserPlanId(current.getId(), "신청자가 취소함(userId=" + adminUserId + ")");
+        if (canceled == 0) {
+            throw new BusinessException(ErrorCode.PLAN_SCHEDULED_CHANGE_NOT_FOUND);
+        }
     }
 
     /**
@@ -282,7 +394,23 @@ public class AdminPlanService {
         UsageCounter usage = usageCounterRepository
                 .findByUserPlanIdAndPeriod(userPlan.getId(), period)
                 .orElse(null);
-        return AdminPlanResponse.from(userPlan, plan, usage, period);
+        return AdminPlanResponse.from(userPlan, plan, usage, period, findPendingScheduledChange(userPlan.getId()));
+    }
+
+    /**
+     * 이 구독에 걸린 대기 예약(#1105) — 없으면 {@code null}. 적용·취소·실패한 예약은 노출하지 않는다
+     * (화면이 "예약 있음"으로 오인하면 안 된다).
+     */
+    private AdminScheduledPlanChangeResponse findPendingScheduledChange(Long userPlanId) {
+        return scheduledPlanChangeRepository
+                .findFirstByUserPlanIdAndStatus(userPlanId, ScheduledPlanChangeStatus.PENDING)
+                .map(change -> AdminScheduledPlanChangeResponse.of(change, findPlan(change.getTargetPlanId())))
+                .orElse(null);
+    }
+
+    /** 구독이 다른 방식으로 전이돼 예약이 의미를 잃었을 때 끊는다(#1105) — 대기 예약이 없으면 no-op. */
+    private void cancelPendingScheduledChange(Long userPlanId, String reason) {
+        scheduledPlanChangeRepository.cancelPendingByUserPlanId(userPlanId, reason);
     }
 
     // 요청 관리자의 회사를 확정한다. companyId 없음(개인 회원 등) = 회사 관리 대상 아님(FORBIDDEN).

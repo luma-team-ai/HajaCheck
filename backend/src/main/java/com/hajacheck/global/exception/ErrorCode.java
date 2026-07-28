@@ -126,6 +126,31 @@ public enum ErrorCode {
     PLAN_CHANGE_NOT_PAYABLE(HttpStatus.FORBIDDEN,
             "결제가 필요한 변경이 아닙니다. 하위 요금제로의 변경은 요금제 변경 화면에서 진행해 주세요."),
 
+    // 플랜 하향 예약(#1105 / HAJA-526) — 하향을 즉시가 아니라 다음 결제 주기에 적용한다.
+    //
+    // 409: 이미 대기 중(PENDING) 예약이 있는데 또 예약하려 할 때. 부분 UQ(uq_scheduled_plan_changes_pending)
+    // 가 DB 레벨에서도 막는다. "지금 상태와 충돌하니 확인하고 다시 보내라"라 409 가 맞다 — 기존 예약을
+    // 취소하면 같은 요청이 그대로 성공하기 때문이다(PLAN_DOWNGRADE_CONFIRMATION_REQUIRED 와 같은 계열).
+    PLAN_SCHEDULED_CHANGE_EXISTS(HttpStatus.CONFLICT,
+            "이미 예약된 요금제 변경이 있습니다. 기존 예약을 취소한 뒤 다시 요청해 주세요."),
+
+    // 404: 취소할 대기 예약이 없을 때. 조회 후 판정이 아니라 조건부 UPDATE 의 갱신 행 수가 0일 때 던진다
+    // (동시에 두 번 취소해도 한쪽만 성공하고 다른 쪽은 이 코드를 받는다).
+    PLAN_SCHEDULED_CHANGE_NOT_FOUND(HttpStatus.NOT_FOUND, "예약된 요금제 변경이 없습니다."),
+
+    // 403: 예약 대상이 하향이 아닐 때(상향·동일 가격). 상향은 결제 경로 전용이고 즉시 적용이라 예약
+    // 개념 자체가 없으며(PLAN_UPGRADE_REQUIRES_PAYMENT 와 같은 이유), 동일 가격 전환도 "기간을 기다릴
+    // 이유"가 없다. 403 인 근거는 PLAN_UPGRADE_REQUIRES_PAYMENT 와 같다 — 재시도로 풀리지 않는다.
+    PLAN_SCHEDULE_NOT_DOWNGRADE(HttpStatus.FORBIDDEN,
+            "다음 결제 주기 적용 예약은 하위 요금제로의 변경에만 사용할 수 있습니다."),
+
+    // 409: 현재 구독에 다음 결제일(current_period_end, #1104)이 없어 예약 실행 시점을 정할 수 없을 때.
+    // FREE 등 무기한 구독이 여기 해당한다(FREE 는 애초에 더 내려갈 곳이 없어 위 코드에서 먼저 걸리지만,
+    // 유료인데 주기가 비어 있는 데이터 이상도 이 코드로 표면화한다 — 500 으로 감추면 신청자가 원인을
+    // 알 수 없다). 즉시 변경 경로(PATCH /api/admin/plan)로 우회할 수 있어 409 가 맞다.
+    PLAN_SCHEDULE_PERIOD_END_MISSING(HttpStatus.CONFLICT,
+            "현재 구독에 다음 결제일이 없어 예약할 수 없습니다. 즉시 변경을 이용해 주세요."),
+
     // 토스페이먼츠 샌드박스 결제(#988 / HAJA-489) — 주문 사전 등록 → 승인 → 플랜 전이 3단계.
     //
     // 404: orderId 로 결제 주문을 찾지 못했을 때. <b>미존재·타인 소유·재확정 불가(FAILED·CANCELED·만료)를
