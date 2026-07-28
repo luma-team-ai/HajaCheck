@@ -63,4 +63,5 @@ export const DEFECT_CHANGE_TYPE_LABEL: Record<DefectChangeType, string> = {
   new: '신규',
   unchanged: '유지',
   resolved: '조치완료',
+  recurring: '재발생',
 };
