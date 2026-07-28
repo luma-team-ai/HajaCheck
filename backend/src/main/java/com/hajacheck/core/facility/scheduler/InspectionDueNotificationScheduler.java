@@ -85,6 +85,13 @@ import org.springframework.stereotype.Component;
  * 사각지대 체크는 여전히 조회 기반이라 그 좁은 범위에서는 이론상 레이스가 남지만, 대상 집합이 #540
  * 이전 데이터로 고정돼 있어 신규 트래픽에는 영향이 없다.)
  *
+ * <p>💸 <b>이 전환의 운영 비용(의도된 트레이드오프)</b>: 조회 없이 바로 INSERT를 시도하므로, 이미 발행돼
+ * 있고 아직 재스케줄되지 않은 시설물은 <b>매일 1회씩 실패하는 INSERT</b>를 반복한다. 그 결과 PostgreSQL
+ * 서버 에러 로그에 unique violation이 (해당 시설물 수 × 1)/일 만큼 쌓이고 identity 시퀀스에도 갭이
+ * 생긴다 — <b>정상 동작이며 장애가 아니다</b>(운영자가 DB 에러 로그를 볼 때 오탐하지 않도록 명시).
+ * 규모가 커져 이 로그가 부담이 되면 {@code ON CONFLICT DO NOTHING} 네이티브 삽입으로 전환해 서버
+ * 에러 자체를 발생시키지 않는 방식을 검토한다.
+ *
  * <p>스캔 비용: {@code next_inspection_due_at}는 V9 마이그레이션(#509)에서 부분 인덱스가 추가돼 있어
  * (idx_facilities_next_inspection_due_at) 이 조건의 범위 스캔 자체는 인덱스를 탄다. #540 ③으로 스캔
  * 상한이 "오늘"에서 "오늘 + 최대 365일(notify_before_days 상한)"로 넓어져, 알림설정과 무관하게 도래일이
@@ -114,7 +121,10 @@ public class InspectionDueNotificationScheduler {
     // V25 마이그레이션이 만든 dedupe 유니크 인덱스명(#1050) — DataIntegrityViolationException의 원인
     // 메시지가 이 이름을 포함하는지로 "예상된 dedupe 충돌"과 "그 외 무결성 위반"을 구분한다. 인덱스명이
     // 바뀌면 이 상수도 함께 갱신해야 한다.
-    private static final String DEDUPE_UNIQUE_INDEX_NAME = "uq_notifications_inspection_due_dedupe";
+    // package-private: skip 판정이 이 이름의 문자열 매칭에 전적으로 의존하므로,
+    // V25InspectionDueNotificationDedupeUniqueIndexTest가 실 PostgreSQL 예외 메시지에
+    // 이 이름이 실제로 담기는지를 상수로 직접 참조해 고정한다(이름을 바꾸면 테스트도 같이 따라간다).
+    static final String DEDUPE_UNIQUE_INDEX_NAME = "uq_notifications_inspection_due_dedupe";
 
     private final FacilityRepository facilityRepository;
     private final InspectionNotificationSettingRepository notificationSettingRepository;

@@ -424,9 +424,10 @@ class Ha25IncrementalMigrationTest {
                                 "db/migration/V24__add_defect_location_and_previous_defect_id.sql"),
                         CONTAINER_ROOT + "V24__add_defect_location_and_previous_defect_id.sql")
                 // #1050 — Flyway V25(notifications.uq_notifications_inspection_due_dedupe 부분 유니크
-                // 인덱스)도 이어서 1회 forward-apply한다. V12/V13/V16처럼 재적용 안전한 순수 스키마 추가
-                // (CREATE INDEX IF NOT EXISTS, 데이터 의존 backfill 없음)라 V21/V22와 달리 제외할 이유가
-                // 없다.
+                // 인덱스)도 이어서 1회 forward-apply한다. V12/V13/V16과 달리 순수 additive는 아니고
+                // 인덱스 생성 직전에 기존 중복 행을 정리하는 DELETE를 포함하지만, 그 DELETE는 2회차에
+                // 대상이 0건이고 인덱스도 IF NOT EXISTS라 재적용이 안전하므로 V21/V22와 달리 제외할
+                // 이유가 없다.
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V25__inspection_due_notification_dedupe_unique_index.sql"),

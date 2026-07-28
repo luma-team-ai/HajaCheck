@@ -68,7 +68,14 @@ class V25InspectionDueNotificationDedupeUniqueIndexTest extends PostgresTestSupp
 
         assertThatThrownBy(() -> notificationRepository.saveAndFlush(
                 Notification.create(user.getId(), NotificationType.INSPECTION_DUE, payload)))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOf(DataIntegrityViolationException.class)
+                // InspectionDueNotificationScheduler의 skip 판정은 "예외 메시지에 인덱스명이 담긴다"는
+                // 문자열 계약에 전적으로 의존한다(#1050). 그 계약을 실 PostgreSQL 예외 체인으로 고정한다 —
+                // 드라이버·Hibernate 업그레이드로 메시지 포맷이 바뀌면 여기서 먼저 깨져야, 운영에서
+                // "이미 발행된 전 시설물이 skipped 대신 failed로 집계되고 warn이 매일 쏟아지는" 회귀를 막는다.
+                .extracting(e -> ((DataIntegrityViolationException) e).getMostSpecificCause().getMessage())
+                .asString()
+                .contains(InspectionDueNotificationScheduler.DEDUPE_UNIQUE_INDEX_NAME);
     }
 
     @Test
