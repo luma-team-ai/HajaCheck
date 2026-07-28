@@ -95,6 +95,19 @@ describe('hybridFetchFallback', () => {
     ).rejects.toEqual(error);
   });
 
+  it.each([502, 503])('%i 게이트웨이 에러 발생 시 목 데이터로 폴백한다', async (status) => {
+    const error = { response: { status } };
+    const fetcher = vi.fn().mockRejectedValue(error);
+
+    const result = await hybridFetchFallback({
+      fetcher,
+      fallback: mockFallbackData,
+      env: { DEV: true },
+    });
+
+    expect(result).toEqual(mockFallbackData);
+  });
+
   it('PROD 환경(DEV: false)에서는 404나 NETWORK_ERROR가 나도 절대 목 데이터로 폴백하지 않는다 (#213 가드)', async () => {
     const networkErr = { code: 'NETWORK_ERROR' };
     const fetcher = vi.fn().mockRejectedValue(networkErr);
