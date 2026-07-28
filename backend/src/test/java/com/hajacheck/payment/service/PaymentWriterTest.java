@@ -112,6 +112,11 @@ class PaymentWriterTest {
         when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class)))
                 .thenReturn(DowngradeOverflow.none());
         when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(i -> i.getArgument(0));
+        // #1146 리뷰 P1-A 크레딧 상한(실제 낸 돈) 기본값 — 넉넉한 금액으로 스텁해 이 파일의 다른
+        // 크레딧 계산 테스트가 상한에 걸리지 않게 한다. 상한 자체를 검증하는 테스트는 이 스텁을
+        // 각자 오버라이드한다("── 크레딧 상한(#1146 리뷰 P1-A) ──" 섹션).
+        when(paymentRepository.sumAmountByUserPlanIdAndStatus(anyLong(), eq(PaymentStatus.PAID)))
+                .thenReturn(new BigDecimal("1000000.00"));
     }
 
     // ── 주문 사전 등록 ──
@@ -604,6 +609,69 @@ class PaymentWriterTest {
         assertThat(response.credit()).isEqualTo(99050L - 100L);
     }
 
+    // ── 크레딧 상한(#1146 / HAJA-550 리뷰 P1-A — "실제로 낸 돈"을 넘을 수 없다) ──
+
+    @Test
+    void 결제이력이_없는_구독은_주기가남아있어도_크레딧없이_정가청구한다() {
+        // V27 백필 추정치·payments 도입(V20) 이전 모의 결제 시절 구독처럼 current_period_end 는 있지만
+        // 연결된 PAID 결제가 하나도 없는 경우 — 낸 적 없는 돈을 환급할 근거가 없다.
+        LocalDate today = LocalDate.now(KST);
+        Instant periodStart = kstMidnight(today);
+        Instant periodEnd = kstMidnight(today.plusDays(30)); // 주기 첫날 — 스냅샷만 보면 전액(99000) 크레딧
+        UserPlan current = withBillingPeriod(
+                withId(UserPlan.forUser(USER_ID, STANDARD_PLAN_ID), 500L), periodStart, periodEnd);
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(current);
+        when(paymentRepository.sumAmountByUserPlanIdAndStatus(500L, PaymentStatus.PAID))
+                .thenReturn(BigDecimal.ZERO);
+
+        PaymentOrderResponse response = writer.createOrder(USER_ID, PlanName.ENTERPRISE);
+
+        assertThat(response.credit()).isEqualTo(0L);
+        assertThat(response.amount()).isEqualTo(299000L);
+    }
+
+    @Test
+    void 계산된_크레딧이_실제_결제액보다_크면_결제액으로_클램프한다() {
+        LocalDate today = LocalDate.now(KST);
+        Instant periodStart = kstMidnight(today);
+        Instant periodEnd = kstMidnight(today.plusDays(30)); // 주기 첫날 — 스냅샷 계산은 99000
+        UserPlan current = withBillingPeriod(
+                withId(UserPlan.forUser(USER_ID, STANDARD_PLAN_ID), 500L), periodStart, periodEnd);
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(current);
+        // 실제로는 프로모션 등으로 40000원만 냈던 구독이라고 가정 — 상한은 그 40000원이다.
+        when(paymentRepository.sumAmountByUserPlanIdAndStatus(500L, PaymentStatus.PAID))
+                .thenReturn(new BigDecimal("40000.00"));
+
+        PaymentOrderResponse response = writer.createOrder(USER_ID, PlanName.ENTERPRISE);
+
+        assertThat(response.credit()).isEqualTo(40000L);
+        assertThat(response.amount()).isEqualTo(299000L - 40000L);
+    }
+
+    @Test
+    void 정가가_오른_뒤에도_크레딧은_실제_결제액_상한을_넘지않는다() {
+        // 플랫폼 관리자가 STANDARD 가격을 99000 → 150000으로 올린 뒤 상향하는 경우 — 라이브 가격으로
+        // 계산하면 크레딧이 150000까지 나오지만, 사용자가 실제로 낸 돈은 99000원뿐이다.
+        Plan raisedStandard = plan(PlanName.STANDARD, STANDARD_PLAN_ID, new BigDecimal("150000.00"), 3);
+        when(planRepository.findById(STANDARD_PLAN_ID)).thenReturn(Optional.of(raisedStandard));
+
+        LocalDate today = LocalDate.now(KST);
+        Instant periodStart = kstMidnight(today);
+        Instant periodEnd = kstMidnight(today.plusDays(30)); // 주기 첫날 — 라이브 가격 전액이면 150000
+        UserPlan current = withBillingPeriod(
+                withId(UserPlan.forUser(USER_ID, STANDARD_PLAN_ID), 500L), periodStart, periodEnd);
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(current);
+        when(paymentRepository.sumAmountByUserPlanIdAndStatus(500L, PaymentStatus.PAID))
+                .thenReturn(new BigDecimal("99000.00")); // 실제로 낸 금액(구가격)
+
+        PaymentOrderResponse response = writer.createOrder(USER_ID, PlanName.ENTERPRISE);
+
+        assertThat(response.credit()).isEqualTo(99000L);
+        assertThat(response.amount()).isEqualTo(299000L - 99000L);
+    }
+
+    // ── 기존 READY 주문 재사용 ──
+
     @Test
     void 유효한_기존_READY주문이_있으면_새로_만들지않고_재사용한다() {
         // 리뷰 P1-B 근본 원인 차단 — 결제창을 여러 번 열어도 주문이 쌓이지 않는다.
@@ -622,6 +690,52 @@ class PaymentWriterTest {
         // (가격이 그 사이 바뀌지 않았다면) 크레딧 0으로 보인다.
         assertThat(response.credit()).isEqualTo(0L);
         verify(paymentRepository, never()).saveAndFlush(any(Payment.class));
+    }
+
+    @Test
+    void 재사용대상_정가가_오르면_재사용하지않고_새로_견적한다() {
+        // #1146 / HAJA-550 리뷰 P1-B — TTL 안에 정가가 오르면 기존 스냅샷(299000)을 그대로 재사용해선
+        // 안 된다(listPrice - credit == amount 불변식이 깨진다). 재견적 비용은 없다(미결제 READY 주문).
+        Plan raisedEnterprise = plan(PlanName.ENTERPRISE, ENTERPRISE_PLAN_ID, new BigDecimal("350000.00"), null);
+        when(planRepository.findByName(PlanName.ENTERPRISE)).thenReturn(Optional.of(raisedEnterprise));
+        UserPlan current = withId(UserPlan.forUser(USER_ID, STANDARD_PLAN_ID), 500L); // 주기 정보 없음 → 크레딧 0
+        Payment existing = readyPayment(null); // 스냅샷 299000(구가격)
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(current);
+        when(paymentRepository.findFirstByUserIdAndPlanIdAndStatusAndCompanyIdIsNull(
+                USER_ID, ENTERPRISE_PLAN_ID, PaymentStatus.READY))
+                .thenReturn(Optional.of(existing));
+
+        PaymentOrderResponse response = writer.createOrder(USER_ID, PlanName.ENTERPRISE);
+
+        assertThat(existing.getStatus()).isEqualTo(PaymentStatus.CANCELED); // 잔재는 닫힌다
+        assertThat(response.orderId()).isNotEqualTo(existing.getOrderId());
+        assertThat(response.listPrice()).isEqualTo(350000L);
+        assertThat(response.amount()).isEqualTo(350000L); // 새 정가 그대로(크레딧 0)
+        assertThat(response.credit()).isEqualTo(0L);
+        // 잔재 주문 닫기(1회) + 신규 주문 저장(1회) — 2회 saveAndFlush.
+        verify(paymentRepository, org.mockito.Mockito.times(2)).saveAndFlush(any(Payment.class));
+    }
+
+    @Test
+    void 재사용대상_정가가_내리면_재사용하지않고_새로_견적한다() {
+        // 정가가 내려간 경우도 스냅샷(299000)을 그대로 청구하면 "정가보다 비싼 금액"이 되어 안 된다.
+        Plan loweredEnterprise = plan(PlanName.ENTERPRISE, ENTERPRISE_PLAN_ID, new BigDecimal("250000.00"), null);
+        when(planRepository.findByName(PlanName.ENTERPRISE)).thenReturn(Optional.of(loweredEnterprise));
+        UserPlan current = withId(UserPlan.forUser(USER_ID, STANDARD_PLAN_ID), 500L);
+        Payment existing = readyPayment(null); // 스냅샷 299000(구가격)
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(current);
+        when(paymentRepository.findFirstByUserIdAndPlanIdAndStatusAndCompanyIdIsNull(
+                USER_ID, ENTERPRISE_PLAN_ID, PaymentStatus.READY))
+                .thenReturn(Optional.of(existing));
+
+        PaymentOrderResponse response = writer.createOrder(USER_ID, PlanName.ENTERPRISE);
+
+        assertThat(existing.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+        assertThat(response.orderId()).isNotEqualTo(existing.getOrderId());
+        assertThat(response.listPrice()).isEqualTo(250000L);
+        assertThat(response.amount()).isEqualTo(250000L);
+        assertThat(response.credit()).isEqualTo(0L);
+        verify(paymentRepository, org.mockito.Mockito.times(2)).saveAndFlush(any(Payment.class));
     }
 
     // ── 승인 후 반영 ──
