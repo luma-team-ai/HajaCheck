@@ -76,7 +76,7 @@ export function ReportEditorHero({
       <h1 className="sr-only">보고서 생성 결과</h1>
 
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex min-h-24 flex-1 items-start gap-4 rounded-lg border border-warning-soft-border bg-warning-soft-bg p-4 text-warning-soft-fg">
+        <div className="flex min-h-24 w-full max-w-[660px] items-start gap-4 rounded-lg border border-warning-soft-border bg-warning-soft-bg p-4 text-warning-soft-fg xl:flex-none">
           <svg className="mt-0.5 h-5 w-5 shrink-0 text-warning-soft-fg" viewBox="0 0 20 20" fill="none" aria-hidden="true">
             <path d="M10 2.4 18 17H2L10 2.4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
             <path d="M10 7v4.2M10 14.2v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />

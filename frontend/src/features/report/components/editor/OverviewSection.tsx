@@ -36,8 +36,8 @@ export function OverviewSection({ content, onChange, readOnly }: OverviewSection
           label="시설물 개요"
           value={content.overview.facility_summary}
           readOnly={readOnly}
-          rows={2}
-          textareaClassName={FIELD_CLASS}
+          rows={3}
+          textareaClassName={`min-h-28 ${FIELD_CLASS}`}
           onChange={(value) => updateOverview({ facility_summary: value })}
         />
         <LabeledTextArea

@@ -450,11 +450,11 @@ describe('ReportGeneratePage', () => {
     expect(screen.getByText((_, node) => node?.textContent === '1 / 1')).toBeTruthy();
   });
 
-  it('조치 권고에 시급성 pill과 #DEF-NN badge가 렌더링된다', async () => {
+  it('조치 권고에 시급성 pill과 DEFECT badge가 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
-    expect(screen.getByLabelText(/보수 시급성/)).toBeTruthy();
-    expect(screen.getByText(/#DEF-01 이동/)).toBeTruthy();
+    expect(screen.getByDisplayValue('보수 시급성: 중')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'DEFECT #01' })).toBeTruthy();
   });
 
   it('AI 경고 배너와 PDF 미리보기 링크가 렌더링된다', async () => {
