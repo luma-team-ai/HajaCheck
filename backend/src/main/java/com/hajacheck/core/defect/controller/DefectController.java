@@ -2,6 +2,8 @@ package com.hajacheck.core.defect.controller;
 
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.defect.dto.DefectActionResultRequest;
+import com.hajacheck.core.defect.dto.DefectLocationUpdateRequest;
+import com.hajacheck.core.defect.dto.DefectPreviousDefectUpdateRequest;
 import com.hajacheck.core.defect.dto.DefectResponse;
 import com.hajacheck.core.defect.dto.DefectRevisionResponse;
 import com.hajacheck.core.defect.dto.DefectStatusUpdateRequest;
@@ -89,6 +91,32 @@ public class DefectController {
             @Valid @RequestBody DefectActionResultRequest request) {
         DefectResponse response =
                 defectService.registerActionResult(loginUser.getUserId(), loginUser.getCompanyId(), id, request);
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "하자 위치 사후 편집",
+            description = "검수자가 하자 위치 텍스트를 사후에 편집한다(조치 등록과 별개). "
+                    + "빈 문자열/공백은 null로 정규화된다.")
+    @PatchMapping("/{id}/location")
+    public ResponseEntity<ApiResponse<DefectResponse>> updateLocation(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long id,
+            @Valid @RequestBody DefectLocationUpdateRequest request) {
+        DefectResponse response = defectService.updateLocation(
+                loginUser.getUserId(), loginUser.getCompanyId(), id, request.location());
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "회차 간 대응 하자 확정",
+            description = "검수자가 화면에서 확인한 이전 회차의 대응 하자 id를 확정 저장한다. "
+                    + "같은 시설물의 더 이전 회차 하자만 지정할 수 있으며, 그 외에는 400(DEFECT_PREVIOUS_DEFECT_INVALID)으로 거부된다.")
+    @PatchMapping("/{id}/previous-defect")
+    public ResponseEntity<ApiResponse<DefectResponse>> confirmPreviousDefect(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long id,
+            @Valid @RequestBody DefectPreviousDefectUpdateRequest request) {
+        DefectResponse response = defectService.confirmPreviousDefect(
+                loginUser.getUserId(), loginUser.getCompanyId(), id, request.previousDefectId());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 

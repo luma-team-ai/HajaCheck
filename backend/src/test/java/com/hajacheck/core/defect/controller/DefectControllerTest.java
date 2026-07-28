@@ -111,12 +111,17 @@ class DefectControllerTest extends PostgresTestSupport {
     }
 
     private Inspection saveInspection(Long facilityId, Long ownerId) {
+        return saveInspection(facilityId, ownerId, 1);
+    }
+
+    // HAJA-437 회차 간 대응 하자 확정 테스트용 — 같은 시설물의 다른 회차 점검을 만들 때 사용.
+    private Inspection saveInspection(Long facilityId, Long ownerId, int roundNo) {
         return inspectionRepository.save(Inspection.builder()
                 .facilityId(facilityId)
                 .createdBy(ownerId)
                 .assignedInspectorId(ownerId)
-                .roundNo(1)
-                .inspectionDate(LocalDate.of(2026, 7, 1))
+                .roundNo(roundNo)
+                .inspectionDate(LocalDate.of(2026, 7, 1).plusMonths(roundNo - 1))
                 .status(InspectionStatus.REVIEWED)
                 .build());
     }
@@ -471,6 +476,170 @@ class DefectControllerTest extends PostgresTestSupport {
     @Test
     void 하자활동기록조회_미인증_401() throws Exception {
         mockMvc.perform(get("/api/defects/{id}/revisions", 1L).with(csrf()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ── #970 갭3: 하자 위치 사후 편집 ──
+
+    @Test
+    void 하자위치편집_본인소유_200_위치반영() throws Exception {
+        User owner = saveOwner("owner19@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(patch("/api/defects/{id}/location", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("location", "외벽 동측 12층 부근"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.location").value("외벽 동측 12층 부근"));
+    }
+
+    @Test
+    void 하자위치편집_빈문자열은null로정규화() throws Exception {
+        User owner = saveOwner("owner20@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(patch("/api/defects/{id}/location", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("location", ""))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.location").doesNotExist());
+    }
+
+    // IDOR 회귀 테스트(필수) — 타 사용자 소유 하자 위치 편집은 404(리소스 존재 여부 비노출).
+    @Test
+    void 하자위치편집_타인소유하자_404_DEFECT_NOT_FOUND() throws Exception {
+        User owner = saveOwner("owner21@haja.com");
+        User stranger = saveOwner("stranger21@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(patch("/api/defects/{id}/location", defect.getId())
+                        .with(csrf()).with(authentication(authOf(stranger)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("location", "외벽 동측 12층 부근"))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_NOT_FOUND"));
+    }
+
+    @Test
+    void 하자위치편집_미인증_401() throws Exception {
+        mockMvc.perform(patch("/api/defects/{id}/location", 1L).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("location", "아무 위치"))))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ── HAJA-437: 회차 간 대응 하자 확정 ──
+
+    @Test
+    void 이전회차하자확정_같은시설물더이전회차_200() throws Exception {
+        User owner = saveOwner("owner22@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection round1 = saveInspection(facility.getId(), owner.getId(), 1);
+        Inspection round2 = saveInspection(facility.getId(), owner.getId(), 2);
+        Defect previous = saveDefect(round1.getId(), DefectGrade.C, DefectStatus.DETECTED);
+        Defect current = saveDefect(round2.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(patch("/api/defects/{id}/previous-defect", current.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("previousDefectId", previous.getId()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.previousDefectId").value(previous.getId()));
+    }
+
+    @Test
+    void 이전회차하자확정_다른시설물이면400_DEFECT_PREVIOUS_DEFECT_INVALID() throws Exception {
+        User owner = saveOwner("owner23@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Facility otherFacility = saveFacility(owner.getId());
+        Inspection round1 = saveInspection(otherFacility.getId(), owner.getId(), 1);
+        Inspection round2 = saveInspection(facility.getId(), owner.getId(), 2);
+        Defect otherFacilityDefect = saveDefect(round1.getId(), DefectGrade.C, DefectStatus.DETECTED);
+        Defect current = saveDefect(round2.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(patch("/api/defects/{id}/previous-defect", current.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("previousDefectId", otherFacilityDefect.getId()))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_PREVIOUS_DEFECT_INVALID"));
+    }
+
+    @Test
+    void 이전회차하자확정_같은회차이후면400_DEFECT_PREVIOUS_DEFECT_INVALID() throws Exception {
+        User owner = saveOwner("owner24@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection round1 = saveInspection(facility.getId(), owner.getId(), 1);
+        Inspection round2 = saveInspection(facility.getId(), owner.getId(), 2);
+        Defect earlier = saveDefect(round1.getId(), DefectGrade.C, DefectStatus.DETECTED);
+        Defect later = saveDefect(round2.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        // earlier(1회차)를 later(2회차)보다 "더 나중" 것으로 지정 시도 — 방향이 반대라 거부되어야 한다.
+        mockMvc.perform(patch("/api/defects/{id}/previous-defect", earlier.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("previousDefectId", later.getId()))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_PREVIOUS_DEFECT_INVALID"));
+    }
+
+    // IDOR 회귀 테스트(필수) — 대상 하자가 타사 소유(또는 미존재)면 404가 아니라 400으로 통일 응답
+    // (previousDefectId 자체가 리소스 식별자가 아니라 body 필드라 DEFECT_NOT_FOUND와 분리).
+    @Test
+    void 이전회차하자확정_대상하자가타사소유_400_DEFECT_PREVIOUS_DEFECT_INVALID() throws Exception {
+        User owner = saveOwner("owner25@haja.com");
+        User stranger = saveOwner("stranger25@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Facility strangerFacility = saveFacility(stranger.getId());
+        Inspection round1 = saveInspection(strangerFacility.getId(), stranger.getId(), 1);
+        Inspection round2 = saveInspection(facility.getId(), owner.getId(), 2);
+        Defect strangerDefect = saveDefect(round1.getId(), DefectGrade.C, DefectStatus.DETECTED);
+        Defect current = saveDefect(round2.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(patch("/api/defects/{id}/previous-defect", current.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("previousDefectId", strangerDefect.getId()))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_PREVIOUS_DEFECT_INVALID"));
+    }
+
+    // IDOR 회귀 테스트(필수) — 편집 대상(현재) 하자 자체가 타인 소유면 404(리소스 존재 여부 비노출).
+    @Test
+    void 이전회차하자확정_현재하자가타인소유_404_DEFECT_NOT_FOUND() throws Exception {
+        User owner = saveOwner("owner26@haja.com");
+        User stranger = saveOwner("stranger26@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection round1 = saveInspection(facility.getId(), owner.getId(), 1);
+        Inspection round2 = saveInspection(facility.getId(), owner.getId(), 2);
+        Defect previous = saveDefect(round1.getId(), DefectGrade.C, DefectStatus.DETECTED);
+        Defect current = saveDefect(round2.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(patch("/api/defects/{id}/previous-defect", current.getId())
+                        .with(csrf()).with(authentication(authOf(stranger)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("previousDefectId", previous.getId()))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_NOT_FOUND"));
+    }
+
+    @Test
+    void 이전회차하자확정_미인증_401() throws Exception {
+        mockMvc.perform(patch("/api/defects/{id}/previous-defect", 1L).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("previousDefectId", 2L))))
                 .andExpect(status().isUnauthorized());
     }
 }

@@ -415,7 +415,14 @@ class Ha25IncrementalMigrationTest {
                 // forward-apply한다. V21/V22는 위 클래스 주석대로 이 파리티 체인에서 의도적으로 제외.
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource("db/migration/V23__counsel_ticket_note.sql"),
-                        CONTAINER_ROOT + "V23__counsel_ticket_note.sql");
+                        CONTAINER_ROOT + "V23__counsel_ticket_note.sql")
+                // #970 갭3/HAJA-437 — Flyway V24(defects.location + defects.previous_defect_id)도 이어서
+                // 1회 forward-apply한다(단순 add column if not exists 계열이라 V12/V13/V16과 동일하게 캐노니컬
+                // DDL에도 반영돼 있다).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V24__add_defect_location_and_previous_defect_id.sql"),
+                        CONTAINER_ROOT + "V24__add_defect_location_and_previous_defect_id.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -517,6 +524,9 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "V20__create_payments.sql");
         // #1021/HAJA-503 — Flyway V23(상담원 비공개 메모)도 이어서 1회 forward-apply한다.
         runPsql(postgres, "V23__counsel_ticket_note.sql");
+        // #970 갭3/HAJA-437 — Flyway V24(defects.location + defects.previous_defect_id)도 이어서
+        // 1회 forward-apply한다.
+        runPsql(postgres, "V24__add_defect_location_and_previous_defect_id.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

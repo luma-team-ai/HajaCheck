@@ -1,5 +1,5 @@
 ﻿import { useState } from 'react';
-import { buildDefectOverlayMarkingImage } from '../utils/defectImagePlaceholder';
+import { buildDefectImagePlaceholder, buildDefectOverlayMarkingImage } from '../utils/defectImagePlaceholder';
 import type { FacilityDefectDetail } from '../types';
 
 type ImageTab = 'original' | 'overlay';
@@ -12,6 +12,9 @@ type Props = {
 const TAB_LABEL: Record<ImageTab, string> = { original: '원본', overlay: '오버레이' };
 const IMAGE_TABS: ImageTab[] = ['original', 'overlay'];
 const OVERLAY_MARKING_URL = buildDefectOverlayMarkingImage();
+const NO_IMAGE_PLACEHOLDER = buildDefectImagePlaceholder('이미지 없음');
+const LOCATION_PLACEHOLDER = '—';
+const GRADE_PLACEHOLDER = '-'; // FacilityGradeBadge의 미분류 표기와 동일한 문자('-')로 맞춘다
 
 // 좌측 하자 이미지 패널 — 이미지+배지+확대 아이콘, 하단 원본/오버레이/회차비교 탭, 위치 정보(dev-04-02, #489).
 // "원본"은 defect.imageUrl 단독, "오버레이"는 같은 이미지 위에 마킹 레이어(overlay marking)를 absolute로
@@ -24,7 +27,7 @@ export function FacilityDefectImagePanel({ defect, onCompareClick }: Props) {
     <div className="flex flex-col gap-3">
       <div className="relative overflow-hidden rounded-2xl border border-border">
         <img
-          src={defect.imageUrl}
+          src={defect.imageUrl ?? NO_IMAGE_PLACEHOLDER}
           alt={`${defect.defectType} 하자 이미지`}
           className="aspect-[4/3] w-full object-cover"
         />
@@ -37,7 +40,7 @@ export function FacilityDefectImagePanel({ defect, onCompareClick }: Props) {
           />
         )}
         <span className="absolute left-3 top-3 rounded-full bg-black/65 px-2.5 py-1 text-xs font-bold text-white">
-          {defect.defectType} · {defect.grade} · 신뢰도 {defect.confidencePercent}%
+          {defect.defectType} · {defect.grade ?? GRADE_PLACEHOLDER} · 신뢰도 {defect.confidencePercent}%
         </span>
         <button
           type="button"
@@ -85,7 +88,9 @@ export function FacilityDefectImagePanel({ defect, onCompareClick }: Props) {
           >
             📍
           </span>
-          <span className="text-sm font-semibold text-heading">{defect.location}</span>
+          <span className="text-sm font-semibold text-heading">
+            {defect.location ?? LOCATION_PLACEHOLDER}
+          </span>
         </div>
       </div>
     </div>

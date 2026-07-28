@@ -8,10 +8,19 @@ type Props = {
   onTransitionClick: () => void;
 };
 
+const PLACEHOLDER = '—';
+
 // 우측 하자 정보 패널 — 유형/등급/크기/발견/담당 + 조치 상태 스테퍼(dev-04-02, #489).
 // "다음 단계로 전이" 버튼은 상태 mutation이 아니라 /defects/:id(하자 관리 도메인)로 이동하는
 // 단순 navigation이라(#489 확정) 상태에 따른 비활성화·진행중 표시는 두지 않는다.
 export function FacilityDefectInfoPanel({ defect, onTransitionClick }: Props) {
+  // widthMm/lengthM은 균열이 아닌 유형이면 backend가 null로 내려준다(DefectResponse.crackWidthMm/
+  // crackLengthMm) — 실 연동 전환(#970 갭3)으로 nullable이 되어 placeholder 처리가 필요해졌다.
+  const sizeLabel =
+    defect.widthMm != null && defect.lengthM != null
+      ? `폭 ${defect.widthMm}mm · 길이 ${defect.lengthM}m`
+      : PLACEHOLDER;
+
   return (
     <section className="flex flex-col gap-5">
       <h2 className="m-0 text-base font-bold text-heading">하자 정보</h2>
@@ -28,9 +37,7 @@ export function FacilityDefectInfoPanel({ defect, onTransitionClick }: Props) {
         </div>
         <div className="flex items-center justify-between">
           <dt className="text-text-muted">크기</dt>
-          <dd className="m-0 font-semibold text-heading">
-            폭 {defect.widthMm}mm · 길이 {defect.lengthM}m
-          </dd>
+          <dd className="m-0 font-semibold text-heading">{sizeLabel}</dd>
         </div>
         <div className="flex items-center justify-between">
           <dt className="text-text-muted">발견</dt>
@@ -47,7 +54,7 @@ export function FacilityDefectInfoPanel({ defect, onTransitionClick }: Props) {
             >
               👤
             </span>
-            {defect.assigneeName}
+            {defect.assigneeName ?? PLACEHOLDER}
           </dd>
         </div>
       </dl>

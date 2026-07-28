@@ -87,7 +87,55 @@ public class DefectService {
         // 채워지도록, actionAssigneeId가 있으면 조회한다(list()는 요약형이라 이 조회를 생략).
         String actionAssigneeName = defect.getActionAssigneeId() == null ? null
                 : userRepository.findById(defect.getActionAssigneeId()).map(User::getName).orElse(null);
-        return DefectResponse.from(defect, actionAssigneeName);
+        // 시설물 담당자 이름(#970 갭3) — Facility.assigneeUserId 재사용(팀 결정, defects 테이블 변경
+        // 없음). findByIdAndCompanyId가 join fetch d.inspection i join fetch i.facility f로 이미
+        // Facility까지 즉시 로딩하므로 추가 쿼리 없이 필드만 읽는다.
+        Long facilityAssigneeUserId = defect.getInspection().getFacility().getAssigneeUserId();
+        String assigneeName = facilityAssigneeUserId == null ? null
+                : userRepository.findById(facilityAssigneeUserId).map(User::getName).orElse(null);
+        return DefectResponse.from(defect, actionAssigneeName, assigneeName);
+    }
+
+    /**
+     * 하자 위치 사후 편집(#970 갭3) — 조치 등록과 분리된 가벼운 편집 엔드포인트라 회사 스코프
+     * 인가만 재사용하고 상태 전이 규칙은 관여하지 않는다(삭제된 하자만 Defect#updateLocation이 거부).
+     */
+    @Transactional
+    public DefectResponse updateLocation(Long userId, Long companyId, Long defectId, String location) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Defect defect = defectRepository.findByIdAndCompanyId(defectId, companyId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
+        defect.updateLocation(location);
+        return DefectResponse.from(defect);
+    }
+
+    /**
+     * 회차 간 대응 하자 확정(HAJA-437) — previousDefectId가 가리키는 하자를 findByIdAndCompanyId로
+     * 조회해 (a) 같은 회사 스코프인지부터 확인하고(미존재/타사 소유는 이미 여기서 걸러짐), 이어서
+     * (b) 같은 시설물, (c) 현재 하자보다 더 이전 회차(roundNo가 더 작음)인지를 검증한다. 셋 중
+     * 하나라도 어긋나면 DEFECT_PREVIOUS_DEFECT_INVALID로 통일 응답한다(구체적으로 어느 조건이
+     * 깨졌는지는 노출하지 않음 — 다른 회사 하자 id를 넣어보며 존재 여부를 추정하는 것을 방지).
+     * previousDefectId == defectId(자기 자신 참조)인 경우도 roundNo 비교(같은 값은 "더 이전"이
+     * 아님)로 자연히 거부된다.
+     */
+    @Transactional
+    public DefectResponse confirmPreviousDefect(Long userId, Long companyId, Long defectId, Long previousDefectId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Defect defect = defectRepository.findByIdAndCompanyId(defectId, companyId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
+        Defect previousDefect = defectRepository.findByIdAndCompanyId(previousDefectId, companyId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_PREVIOUS_DEFECT_INVALID));
+
+        Long facilityId = defect.getInspection().getFacility().getId();
+        Long previousFacilityId = previousDefect.getInspection().getFacility().getId();
+        boolean sameFacility = facilityId.equals(previousFacilityId);
+        boolean earlierRound = previousDefect.getInspection().getRoundNo() < defect.getInspection().getRoundNo();
+        if (!sameFacility || !earlierRound) {
+            throw new BusinessException(ErrorCode.DEFECT_PREVIOUS_DEFECT_INVALID);
+        }
+
+        defect.confirmPreviousDefect(previousDefectId);
+        return DefectResponse.from(defect);
     }
 
     /**
