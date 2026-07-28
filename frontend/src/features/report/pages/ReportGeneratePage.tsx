@@ -280,8 +280,8 @@ export function ReportGeneratePage() {
               className="inline-flex items-center justify-center gap-1.5 rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-base font-medium text-zinc-900"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-                <path d="M3 7a5 5 0 0 1 9-2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                <path d="M11 3l2 2-2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M3.5 10a5.5 5.5 0 0 1 8-5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                <path d="M10.5 3.5l1 2.5M10.5 3.5l2.5 0" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               미리보기 새로고침
             </button>
@@ -291,8 +291,8 @@ export function ReportGeneratePage() {
               disabled={isDownloadingPdf || !report.pdfUrl}
             >
               {isDownloadingPdf ? '내보내는 중...' : 'PDF 내보내기'}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="ml-1">
-                <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <svg className="h-4 w-4 text-text-muted ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
             </Button>
           </div>
