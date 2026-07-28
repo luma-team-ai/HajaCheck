@@ -19,7 +19,11 @@ vi.mock('../hooks/useSetInspectionSchedule', () => ({
 // 목으로 대체한다(이 파일은 QueryClientProvider 없이 렌더하므로 실 useQuery/useMutation을 그대로
 // 쓰면 "No QueryClient set" 에러가 난다).
 const mockSaveNotificationSettings = vi.fn();
-const mockUseInspectionNotificationSettings = vi.fn((_facilityId: number) => ({
+// 구현 함수 자체는 인자를 쓰지 않지만(고정 응답), 타입은 실 훅 시그니처와 맞춰 vi.fn<T>()로
+// 명시한다 — 이름 있는 미사용 매개변수를 두면 no-unused-vars에 걸린다(이 프로젝트는
+// argsIgnorePattern 미설정이라 `_` 접두사로 면제되지 않는다). Vitest는 구현 함수의 자체 인자
+// 선언과 무관하게 실제 호출 인자를 mock.calls에 기록하므로 toHaveBeenCalledWith 검증엔 영향 없다.
+const mockUseInspectionNotificationSettings = vi.fn<(facilityId: number) => { data: unknown }>(() => ({
   // warnOnOverdueEnabled 기본값은 true다(HAJA-498/V21).
   data: { notifyBeforeEnabled: true, notifyBeforeDays: 7, warnOnOverdueEnabled: true },
 }));
