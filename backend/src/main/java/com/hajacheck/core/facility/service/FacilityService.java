@@ -129,12 +129,11 @@ public class FacilityService {
                                 (first, second) -> first));
 
         // 시설물 카드 "최근 점검 MM.dd"(HAJA-514/#1074) — listStatus()가 이미 쓰는 배치 조회와 동일 패턴.
-        Map<Long, LocalDate> lastInspectedByFacilityId =
-                nullToEmpty(inspectionRepository.findLatestByFacilityIds(facilityIds)).stream()
-                        .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getInspectionDate));
+        List<Inspection> latestInspections = nullToEmpty(inspectionRepository.findLatestByFacilityIds(facilityIds));
+        Map<Long, LocalDate> lastInspectedByFacilityId = latestInspections.stream()
+                .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getInspectionDate));
 
-        List<Inspection> inspections = nullToEmpty(inspectionRepository.findByFacilityIdIn(facilityIds));
-        FacilityDefectSummary defectSummary = summarizeFacilityDefects(inspections);
+        FacilityDefectSummary defectSummary = summarizeFacilityDefects(latestInspections);
 
         return facilities.stream()
                 .map(facility -> FacilityResponse.from(
@@ -160,12 +159,13 @@ public class FacilityService {
                 .findFirst()
                 .map(media -> thumbnailPath(media.getId()))
                 .orElse(null);
-        LocalDate lastInspectedAt = nullToEmpty(inspectionRepository.findLatestByFacilityIds(List.of(facilityId))).stream()
+        List<Inspection> latestInspections =
+                nullToEmpty(inspectionRepository.findLatestByFacilityIds(List.of(facilityId)));
+        LocalDate lastInspectedAt = latestInspections.stream()
                 .findFirst()
                 .map(Inspection::getInspectionDate)
                 .orElse(null);
-        FacilityDefectSummary defectSummary =
-                summarizeFacilityDefects(nullToEmpty(inspectionRepository.findByFacilityIdIn(List.of(facilityId))));
+        FacilityDefectSummary defectSummary = summarizeFacilityDefects(latestInspections);
         return FacilityResponse.from(
                 facility,
                 latestDefectId,
