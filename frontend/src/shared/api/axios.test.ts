@@ -203,3 +203,27 @@ describe('axios 401 인터셉터 — 플랫폼 관리자 콘솔(#535, base=/)', 
     }
   });
 });
+
+describe('axios 401 인터셉터 — 상담원 콘솔(base=/)', () => {
+  it('/counsel-console 하위 경로에서 401이면 /counsel-console/login으로 리다이렉트한다(일반 /login이 아님)', async () => {
+    const api = await importFreshApi();
+    const { hrefSetter, restore } = mockLocation('/counsel-console/queue');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(hrefSetter).toHaveBeenCalledWith('/counsel-console/login');
+    } finally {
+      restore();
+    }
+  });
+
+  it('/counsel-console/login 경로면 401이어도 재대입하지 않는다(무한 리로드 방지)', async () => {
+    const api = await importFreshApi();
+    const { hrefSetter, restore } = mockLocation('/counsel-console/login');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(hrefSetter).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+});

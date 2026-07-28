@@ -36,7 +36,10 @@ export const PAYMENT_SUCCESS_ROUTE = '/payments/success';
 export const PAYMENT_FAIL_ROUTE = '/payments/fail';
 
 // 상담원 콘솔(#1001, HAJA-495) — COUNSELOR 전용 대기열 화면. 로그인 후 role=COUNSELOR 리다이렉트
-// (useLogin.ts/LoginPage.tsx)와 CounselorRoute 권한 부족 리다이렉트가 같은 값을 참조하도록
-// PLATFORM_ADMIN_ROUTE와 동일한 이유로 shared 상수로 둔다. 별도 로그인 경로는 없음 — 기존 /login
-// (기업회원 탭, useLogin) 그대로 사용.
+// (useCounselorLogin.ts/CounselorLoginPage.tsx)와 CounselorRoute 권한 부족 리다이렉트가 같은 값을
+// 참조하도록 PLATFORM_ADMIN_ROUTE와 동일한 이유로 shared 상수로 둔다.
 export const COUNSELOR_QUEUE_ROUTE = '/counsel-console/queue';
+
+// 상담원 전용 로그인(플랫폼 관리자 로그인과 동일 디자인, 라벨만 "상담원 로그인") — 기업회원 로그인
+// (LOGIN_ROUTE)과 분리된 전용 경로. CounselorRoute가 미인증 시 이 값으로 리다이렉트한다.
+export const COUNSELOR_LOGIN_ROUTE = '/counsel-console/login';

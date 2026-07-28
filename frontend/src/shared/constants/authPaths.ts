@@ -17,3 +17,11 @@ export const PLATFORM_ADMIN_LOGIN_PATH = normalizePath(`${import.meta.env.BASE_U
 // 비교하면, 실제 pathname은 '/app/platform-admin/...'이라 startsWith가 항상 false가 되어 401 시
 // 기업회원 로그인(LOGIN_PATH)으로 잘못 리다이렉트된다(PR머신 리뷰 P2, #558).
 export const PLATFORM_ADMIN_PATH_PREFIX = normalizePath(`${import.meta.env.BASE_URL}platform-admin`);
+
+// 상담원 콘솔 전용 401 리다이렉트 대상 — PLATFORM_ADMIN_LOGIN_PATH와 동일한 이유로 존재.
+// axios.ts 인터셉터가 pathname이 COUNSELOR_PATH_PREFIX로 시작하면 LOGIN_PATH 대신 이 값으로 리다이렉트한다.
+export const COUNSELOR_LOGIN_PATH = normalizePath(`${import.meta.env.BASE_URL}counsel-console/login`);
+
+// axios.ts 인터셉터가 "이 요청이 상담원 콘솔 경로에서 발생했는가"를 판별하는 접두사.
+// PLATFORM_ADMIN_PATH_PREFIX와 동일한 이유로 BASE_URL을 반영해 계산한다(basename 배포 대응).
+export const COUNSELOR_PATH_PREFIX = normalizePath(`${import.meta.env.BASE_URL}counsel-console`);

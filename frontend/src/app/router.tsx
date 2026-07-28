@@ -65,6 +65,13 @@ const PlatformAdminLoginPage = lazy(() =>
     default: m.PlatformAdminLoginPage,
   })),
 );
+
+// 상담원 전용 로그인 — PlatformAdminLoginPage와 동일 디자인, 라벨만 "상담원 로그인"
+const CounselorLoginPage = lazy(() =>
+  import('../features/counsel/pages/CounselorLoginPage').then((m) => ({
+    default: m.CounselorLoginPage,
+  })),
+);
 const PlatformAdminPlaceholderPage = lazy(() =>
   import('../features/platform-admin/pages/PlatformAdminPlaceholderPage').then((m) => ({
     default: m.PlatformAdminPlaceholderPage,
@@ -340,6 +347,14 @@ export const router = createBrowserRouter([
       </Suspense>
     ),
   }, // — features/platform-admin 플랫폼 관리자 전용 로그인, 기업회원 /login과 분리(#535)
+  {
+    path: '/counsel-console/login',
+    element: (
+      <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
+        <CounselorLoginPage />
+      </Suspense>
+    ),
+  }, // — features/counsel 상담원 전용 로그인, 기업회원 /login과 분리
   {
     path: '/policy/terms-of-service',
     element: (
@@ -930,7 +945,7 @@ export const router = createBrowserRouter([
   }, // — features/platform-admin (#535). 각 메뉴 실 기능은 후속 이슈.
   {
     // 상담원 콘솔 전용 셸 — 일반 사용자 AppShellRoute·PlatformAdminShellRoute와 별개(#1001, HAJA-495).
-    // CounselorRoute가 미인증→/login, role≠COUNSELOR→/dashboard로 부모 단계에서 차단한다.
+    // CounselorRoute가 미인증→/counsel-console/login, role≠COUNSELOR→/dashboard로 부모 단계에서 차단한다.
     element: (
       <CounselorRoute>
         <CounselorShellRoute />

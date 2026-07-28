@@ -1,21 +1,21 @@
 import type { ReactNode } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../../features/auth/store/authStore';
-import { DASHBOARD_ROUTE, LOGIN_ROUTE } from '../constants/routes';
+import { COUNSELOR_LOGIN_ROUTE, DASHBOARD_ROUTE } from '../constants/routes';
 import { isCounselorRole } from '../constants/roles';
 
 type Props = { children?: ReactNode };
 
-// 상담원 콘솔 전용 가드(#1001, HAJA-495) — PlatformAdminRoute와 동일 패턴이나, COUNSELOR는
-// 별도 로그인 화면이 없어(기업회원 로그인 /login을 그대로 씀) 미인증 리다이렉트 대상도
-// PLATFORM_ADMIN_LOGIN_ROUTE가 아니라 일반 LOGIN_ROUTE다.
+// 상담원 콘솔 전용 가드(#1001, HAJA-495) — PlatformAdminRoute와 동일 패턴. COUNSELOR 전용
+// 로그인 화면(CounselorLoginPage)이 신설되어 미인증 리다이렉트 대상도 일반 LOGIN_ROUTE가 아니라
+// PlatformAdminRoute와 동일하게 전용 로그인 경로(COUNSELOR_LOGIN_ROUTE)로 보낸다.
 // 역할 판정은 isCounselorRole 하나로 통일 — CounselorShellRoute(nav 노출)와 기준이 갈리면
 // "메뉴는 보이는데 클릭하면 튕기는" 화면이 생긴다(roles.ts isAdminRole 주석과 동일 이유, #378).
 export function CounselorRoute({ children }: Props) {
   const user = useAuthStore((state) => state.user);
 
   if (!user) {
-    return <Navigate to={LOGIN_ROUTE} replace />;
+    return <Navigate to={COUNSELOR_LOGIN_ROUTE} replace />;
   }
 
   // 권한 부족은 미인증과 다르게 다룬다 — 이미 로그인한(상담원이 아닌) 사용자를 로그인 화면으로
