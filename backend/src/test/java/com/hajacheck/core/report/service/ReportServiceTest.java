@@ -453,11 +453,53 @@ class ReportServiceTest {
     }
 
     @Test
+    void deleteDraftReport_DRAFT보고서를softDelete한다() {
+        Report report = Report.draft(1L, 1, "{}", 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+
+        reportService.deleteDraftReport(5L, 100L, 200L);
+
+        assertThat(report.getDeletedAt()).isNotNull();
+        assertThat(report.getEditedBy()).isEqualTo(200L);
+    }
+
+    @Test
+    void deleteDraftReport_FINALIZED보고서는INVALID_STATE_TRANSITION() {
+        Report report = Report.draft(1L, 1, "{}", 100L);
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        report.finalizeReport("/api/reports/5/pdf/r.pdf", 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+
+        assertThatThrownBy(() -> reportService.deleteDraftReport(5L, 100L, 200L))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(report.getDeletedAt()).isNull();
+    }
+
+    @Test
+    void getReport_softDeleted보고서는REPORT_NOT_FOUND() {
+        Report report = Report.draft(1L, 1, "{}", 100L);
+        report.markDeleted(100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+
+        assertThatThrownBy(() -> reportService.getReport(5L, 200L, 100L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.REPORT_NOT_FOUND));
+        verify(inspectionService, never()).getInspection(anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
     void listReports_소유권검증후버전목록을최신순으로반환() {
         when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
         Report v1 = Report.draft(1L, 1, "{}", 100L);
         Report v2 = Report.draft(1L, 2, "{}", 100L);
-        when(reportRepository.findByInspectionIdOrderByVersionDesc(1L)).thenReturn(List.of(v2, v1));
+        when(reportRepository.findByInspectionIdAndDeletedAtIsNullOrderByVersionDesc(1L)).thenReturn(List.of(v2, v1));
 
         List<ReportSummaryResponse> result = reportService.listReports(1L, 200L, 100L);
 

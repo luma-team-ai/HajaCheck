@@ -24,6 +24,14 @@ function extractErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+function formatElapsedTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (diffMs < 60000) return '방금 전';
+  if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)}분 전`;
+  if (diffMs < 86400000) return `${Math.floor(diffMs / 3600000)}시간 전`;
+  return `${Math.floor(diffMs / 86400000)}일 전`;
+}
+
 // Figma 시안 §4 — 보고서 작성 단계 A→E. 활성 조건은 핸드오프 §4 참조.
 interface StepContext {
   isFinalized: boolean;
@@ -40,6 +48,41 @@ const REPORT_STEPS: ReadonlyArray<{ key: string; label: string; isActive: (ctx: 
   { key: 'D', label: '최종 승인', isActive: (ctx) => ctx.isFinalized },
   { key: 'E', label: '발행', isActive: (ctx) => ctx.isFinalized && ctx.hasPdf },
 ];
+
+const PDF_VIEWER_FRAGMENT = 'toolbar=0&navpanes=0&view=FitH';
+
+function normalizePdfPreviewUrl(pdfUrl: string): string {
+  const trimmed = pdfUrl.trim();
+  const candidate = /^localhost(?::\d+)?\//i.test(trimmed)
+    ? `${window.location.protocol}//${trimmed}`
+    : trimmed;
+
+  try {
+    const url = new URL(candidate, window.location.origin);
+    if (url.pathname.startsWith('/api/reports/')) {
+      return `${url.pathname}${url.search}`;
+    }
+    return url.href;
+  } catch {
+    return candidate;
+  }
+}
+
+function buildPdfPreviewSrc(pdfUrl: string): string {
+  const normalized = normalizePdfPreviewUrl(pdfUrl);
+  const hashIndex = normalized.indexOf('#');
+  const baseUrl = hashIndex >= 0 ? normalized.slice(0, hashIndex) : normalized;
+  return `${baseUrl}#${PDF_VIEWER_FRAGMENT}`;
+}
+
+function shouldPreflightPdf(pdfUrl: string): boolean {
+  try {
+    const url = new URL(normalizePdfPreviewUrl(pdfUrl), window.location.origin);
+    return url.origin === window.location.origin && url.pathname.startsWith('/api/reports/');
+  } catch {
+    return false;
+  }
+}
 
 export function ReportGeneratePage() {
   const { reportId: routeReportId } = useParams<{ reportId?: string }>();
@@ -61,11 +104,10 @@ export function ReportGeneratePage() {
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
-  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfPreviewKey, setPdfPreviewKey] = useState(0);
   const [pdfLoadError, setPdfLoadError] = useState<string | null>(null);
-  const pdfBlobUrlRef = useRef<string | null>(null);
-  const pdfAbortControllerRef = useRef<AbortController | null>(null);
-  const pdfLoadGenerationRef = useRef(0);
+  const [isPdfChecking, setIsPdfChecking] = useState(false);
+  const manualRefreshControllerRef = useRef<AbortController | null>(null);
   const inspectionId = report?.inspectionId ?? 0;
   const setActiveReportId = useInspectionStore((state) => state.setActiveReportId);
 
@@ -75,59 +117,46 @@ export function ReportGeneratePage() {
     }
   }, [parsedReportId, hasValidReportId, setActiveReportId]);
 
-  const revokePdfBlobUrl = useCallback(() => {
-    if (pdfBlobUrlRef.current) URL.revokeObjectURL(pdfBlobUrlRef.current);
-    pdfBlobUrlRef.current = null;
-  }, []);
-
-  const cancelPdfLoad = useCallback(() => {
-    pdfLoadGenerationRef.current += 1;
-    pdfAbortControllerRef.current?.abort();
-    pdfAbortControllerRef.current = null;
-    revokePdfBlobUrl();
-  }, [revokePdfBlobUrl]);
-
-  const loadPdfPreview = useCallback(async (pdfUrl: string) => {
-    const generation = pdfLoadGenerationRef.current + 1;
-    pdfLoadGenerationRef.current = generation;
-    pdfAbortControllerRef.current?.abort();
-    const controller = new AbortController();
-    pdfAbortControllerRef.current = controller;
-    revokePdfBlobUrl();
-    setPdfBlobUrl(null);
+  const verifyPdfPreview = useCallback(async (pdfUrl: string, signal?: AbortSignal) => {
     setPdfLoadError(null);
 
+    if (!shouldPreflightPdf(pdfUrl)) {
+      setPdfPreviewKey((current) => current + 1);
+      return;
+    }
+
+    setIsPdfChecking(true);
     try {
-      const url = new URL(pdfUrl, window.location.origin);
-      const isSameOrigin = url.origin === window.location.origin;
-      const response = await fetch(url, {
-        mode: 'cors',
-        credentials: isSameOrigin ? 'include' : 'omit',
-        signal: controller.signal,
+      const requestUrl = normalizePdfPreviewUrl(pdfUrl);
+      const response = await fetch(requestUrl, {
+        method: 'HEAD',
+        credentials: 'include',
+        cache: 'no-store',
+        signal,
       });
       if (!response.ok) throw new Error(`PDF 응답 오류 (${response.status})`);
-      const blob = await response.blob();
-      if (generation !== pdfLoadGenerationRef.current || controller.signal.aborted) return;
-
-      const blobUrl = URL.createObjectURL(blob);
-      pdfBlobUrlRef.current = blobUrl;
-      setPdfBlobUrl(blobUrl);
+      setPdfPreviewKey((current) => current + 1);
     } catch (err) {
-      if (generation !== pdfLoadGenerationRef.current || controller.signal.aborted) return;
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setPdfLoadError(extractErrorMessage(err, 'PDF를 불러올 수 없습니다.'));
     } finally {
-      if (pdfAbortControllerRef.current === controller) pdfAbortControllerRef.current = null;
+      setIsPdfChecking(false);
     }
-  }, [revokePdfBlobUrl]);
+  }, []);
 
-  // export 모드에서 pdfUrl을 fetch → Blob URL 생성 (iframe이 직접 API 호출 시 인증/프록시 문제 방지)
   useEffect(() => {
+    setPdfLoadError(null);
     if (!report?.pdfUrl || !isExportMode) return;
-    void loadPdfPreview(report.pdfUrl);
-    return cancelPdfLoad;
-  }, [cancelPdfLoad, isExportMode, loadPdfPreview, report?.pdfUrl]);
 
-  useEffect(() => cancelPdfLoad, [cancelPdfLoad]);
+    const controller = new AbortController();
+    void verifyPdfPreview(report.pdfUrl, controller.signal);
+    return () => controller.abort();
+  }, [isExportMode, report?.pdfUrl, verifyPdfPreview]);
+
+  useEffect(() => () => {
+    manualRefreshControllerRef.current?.abort();
+    manualRefreshControllerRef.current = null;
+  }, []);
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
   const defectImageUrls = useMemo(
@@ -190,7 +219,14 @@ export function ReportGeneratePage() {
     setIsFinalizing(true);
     setFinalizeError(null);
     try {
-      const pdfBlob = await exportReportToPdf(content);
+      const pdfBlob = await exportReportToPdf(content, {
+        facilityName: inspectionData?.facilityName,
+        inspectionRound: inspectionData?.roundNo,
+        issuedAt: new Date(report.createdAt),
+        defectImages: inspectionData?.defects.flatMap((defect) =>
+          defect.thumbnailUrl ? [{ defectType: defect.type, imageUrl: defect.thumbnailUrl }] : [],
+        ),
+      });
       const fileName = buildReportPdfFileName(report.inspectionId);
       const uploadResponse = await reportApi.uploadPdf(report.id, pdfBlob, fileName);
       const finalizeResponse = await reportApi.finalizeReport(report.id, uploadResponse.data.pdfUrl);
@@ -207,7 +243,7 @@ export function ReportGeneratePage() {
     setIsDownloadingPdf(true);
     setFinalizeError(null);
     try {
-      const response = await fetch(report.pdfUrl, { credentials: 'include' });
+      const response = await fetch(normalizePdfPreviewUrl(report.pdfUrl), { credentials: 'include' });
       if (!response.ok) throw new Error(`PDF ${response.status}`);
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
@@ -226,7 +262,15 @@ export function ReportGeneratePage() {
   };
 
   const handleRefreshPdf = () => {
-    if (report?.pdfUrl) void loadPdfPreview(report.pdfUrl);
+    if (!report?.pdfUrl) return;
+    manualRefreshControllerRef.current?.abort();
+    const controller = new AbortController();
+    manualRefreshControllerRef.current = controller;
+    void verifyPdfPreview(report.pdfUrl, controller.signal).finally(() => {
+      if (manualRefreshControllerRef.current === controller) {
+        manualRefreshControllerRef.current = null;
+      }
+    });
   };
 
   const handleBackToViewer = () => {
@@ -289,14 +333,14 @@ export function ReportGeneratePage() {
 
   if (isExportMode) {
     return (
-      <div className="flex min-h-full flex-col bg-surface-muted">
+      <div className="flex h-[calc(100vh-80px)] min-h-0 flex-col overflow-hidden bg-surface-muted">
         <div className="flex items-center justify-between border-b border-border bg-surface/70 px-6 py-2 backdrop-blur-[10px]">
           <div className="flex items-center gap-2 text-base font-medium text-text-default">
             <svg width="20" height="17" viewBox="0 0 24 20" fill="none" aria-hidden>
               <path d="M6.5 16.5a4.5 4.5 0 0 1-.6-8.96A5.5 5.5 0 0 1 16.2 5.9 4.75 4.75 0 0 1 17.5 15h-.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M9 10.5l2.5 2.5 5-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <span>저장된 보고서 PDF</span>
+            <span>자동 저장됨 · {formatElapsedTime(report.createdAt)}</span>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -319,21 +363,23 @@ export function ReportGeneratePage() {
             </Button>
           </div>
         </div>
-        <div className="flex flex-1 justify-center overflow-auto bg-surface-sunken px-6 py-5">
+        <div className="flex min-h-0 flex-1 overflow-hidden bg-surface-sunken px-6 py-5">
           {report.pdfUrl && pdfLoadError ? (
-            <div className="m-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-4 rounded-lg border border-border bg-surface p-8 text-center shadow-sm">
+            <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-4 rounded-lg border border-border bg-surface p-8 text-center shadow-sm">
               <p className="text-lg font-semibold text-text-default">PDF를 불러올 수 없습니다.</p>
               <p className="text-sm text-text-muted">{pdfLoadError}</p>
               <Button onClick={() => void handleDownloadStoredPdf()} variant="secondary">
                 PDF 내보내기 시도
               </Button>
             </div>
-          ) : pdfBlobUrl ? (
-            <div className="w-full max-w-[860px] overflow-hidden bg-surface shadow-sm">
+          ) : report.pdfUrl && !isPdfChecking ? (
+            <div className="mx-auto h-full w-full max-w-[860px] overflow-hidden bg-surface shadow-sm">
               <iframe
+                key={pdfPreviewKey}
                 title="저장된 보고서 PDF"
-                src={`${pdfBlobUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
-                className="block h-[calc(100vh-136px)] min-h-[720px] w-full border-0 bg-surface"
+                src={buildPdfPreviewSrc(report.pdfUrl)}
+                className="block h-full w-full border-0 bg-surface"
+                onErrorCapture={() => setPdfLoadError('저장된 PDF URL을 브라우저에서 직접 열 수 없습니다.')}
               />
             </div>
           ) : report.pdfUrl && !pdfLoadError ? (
@@ -341,7 +387,7 @@ export function ReportGeneratePage() {
               <AILoadingIndicator message="PDF를 불러오는 중..." />
             </div>
           ) : (
-            <div className="m-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-surface p-8 text-center shadow-sm">
+            <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-surface p-8 text-center shadow-sm">
               <div className="flex max-w-md flex-col gap-3">
                 <p className="text-lg font-semibold text-text-default">저장된 PDF가 없습니다.</p>
                 <p className="text-sm text-text-muted">
@@ -405,9 +451,9 @@ export function ReportGeneratePage() {
         />
       )}
 
-      {/* 9. 하단 액션 바 (기존 로직 유지) */}
+      {/* 9. 하단 저장/검증 상태 바 */}
       {!isFinalized && (
-        <div className="sticky bottom-4 z-20 flex flex-col gap-3 rounded-lg border border-border bg-surface/95 p-6 shadow-lg backdrop-blur-[10px]">
+        <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-6">
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={handleSave} variant="primary" disabled={!dirty || isSaving}>
               {isSaving ? '저장 중...' : '저장'}
@@ -418,13 +464,6 @@ export function ReportGeneratePage() {
               disabled={dirty || isRechecking}
             >
               {isRechecking ? '검증 중...' : '확정 검증'}
-            </Button>
-            <Button
-              onClick={handleGeneratePdfAndFinalize}
-              variant="primary"
-              disabled={!canFinalize || isFinalizing}
-            >
-              {isFinalizing ? 'PDF 생성/확정 중...' : 'PDF 생성 후 확정'}
             </Button>
           </div>
           {dirty && (

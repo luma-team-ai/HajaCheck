@@ -5,11 +5,14 @@ type Props = {
   onOpenHistory: () => void;
   onClone: () => void;
   onSubmit: () => void;
+  onDelete: () => void;
   onClose: () => void;
   anchor: { top: number; left: number };
   canSubmit: boolean;
+  canDelete: boolean;
   isClonePending?: boolean;
   isSubmitPending?: boolean;
+  isDeletePending?: boolean;
   actionError?: string | null;
 };
 
@@ -17,15 +20,18 @@ export function ReportRowMenu({
   onOpenHistory,
   onClone,
   onSubmit,
+  onDelete,
   onClose,
   anchor,
   canSubmit,
+  canDelete,
   isClonePending = false,
   isSubmitPending = false,
+  isDeletePending = false,
   actionError = null,
 }: Props) {
   const rootRef = useOutsideDismiss<HTMLDivElement>(onClose);
-  const isBusy = isClonePending || isSubmitPending;
+  const isBusy = isClonePending || isSubmitPending || isDeletePending;
 
   return createPortal(
     <div
@@ -74,11 +80,12 @@ export function ReportRowMenu({
       <button
         type="button"
         role="menuitem"
-        disabled
-        title="삭제는 지원하지 않습니다"
-        className="w-full cursor-not-allowed border-none bg-none px-3 py-1.5 text-left text-sm text-red-300"
+        disabled={!canDelete || isBusy}
+        title={!canDelete ? 'DRAFT 보고서만 삭제할 수 있습니다' : undefined}
+        className="w-full cursor-pointer border-none bg-none px-3 py-1.5 text-left text-sm font-medium text-red-600 disabled:cursor-not-allowed disabled:text-red-300"
+        onClick={onDelete}
       >
-        삭제
+        {isDeletePending ? '삭제 중' : '삭제'}
       </button>
     </div>,
     document.body,

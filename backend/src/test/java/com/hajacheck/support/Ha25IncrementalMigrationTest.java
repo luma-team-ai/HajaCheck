@@ -454,7 +454,13 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V28__add_notification_type_plan_expired.sql"),
-                        CONTAINER_ROOT + "V28__add_notification_type_plan_expired.sql");
+                        CONTAINER_ROOT + "V28__add_notification_type_plan_expired.sql")
+                // #1172 — Flyway V29(reports.deleted_at DRAFT soft delete 시각)도 이어서 1회
+                // forward-apply한다. 캐노니컬 DDL에도 같은 컬럼이 반영돼 파리티가 유지된다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V29__add_reports_deleted_at.sql"),
+                        CONTAINER_ROOT + "V29__add_reports_deleted_at.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -571,6 +577,10 @@ class Ha25IncrementalMigrationTest {
         // ALTER TYPE ... ADD VALUE IF NOT EXISTS 라 재실행이 안전하다는 점까지 함께 고정한다(V4/V15와 동일).
         runPsql(postgres, "V28__add_notification_type_plan_expired.sql");
         runPsql(postgres, "V28__add_notification_type_plan_expired.sql");
+        // #1172 — Flyway V29(reports.deleted_at DRAFT soft delete 시각)도 이어서 forward-apply한다.
+        // ADD COLUMN IF NOT EXISTS 라 재실행이 안전하다는 점까지 함께 고정한다.
+        runPsql(postgres, "V29__add_reports_deleted_at.sql");
+        runPsql(postgres, "V29__add_reports_deleted_at.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }
