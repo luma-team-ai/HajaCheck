@@ -195,7 +195,7 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
         Company company = saveCompany();
         givenFreePlan(company.getId());
         PlatformAdminUserCreateRequest request =
-                new PlatformAdminUserCreateRequest("pa6-new@haja.com", "password1", "신규사용자", Role.USER, company.getId());
+                new PlatformAdminUserCreateRequest("pa6-new@haja.com", "password1", "신규사용자", Role.USER, company.getId(), null);
 
         mockMvc.perform(post("/api/platform-admin/users")
                         .with(authentication(authOf(platformAdmin))).with(csrf())
@@ -218,7 +218,7 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
         givenFreePlan(company.getId());
         saveUser("기존멤버", "pa6b-existing@haja.com", Role.ADMIN, company.getId());
         PlatformAdminUserCreateRequest request = new PlatformAdminUserCreateRequest(
-                "pa6b-new@haja.com", "password1", "차단대상", Role.USER, company.getId());
+                "pa6b-new@haja.com", "password1", "차단대상", Role.USER, company.getId(), null);
 
         mockMvc.perform(post("/api/platform-admin/users")
                         .with(authentication(authOf(platformAdmin))).with(csrf())
@@ -234,7 +234,7 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
     void 사용자등록_companyId없으면_개인계정으로등록() throws Exception {
         User platformAdmin = saveUser("플랫폼관리자", "pa7@haja.com", Role.PLATFORM_ADMIN);
         PlatformAdminUserCreateRequest request =
-                new PlatformAdminUserCreateRequest("pa7-new@haja.com", "password1", "개인신규", Role.USER, null);
+                new PlatformAdminUserCreateRequest("pa7-new@haja.com", "password1", "개인신규", Role.USER, null, null);
 
         mockMvc.perform(post("/api/platform-admin/users")
                         .with(authentication(authOf(platformAdmin))).with(csrf())
@@ -251,7 +251,7 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
     void 사용자등록_존재하지않는companyId면_404_COMPANY_NOT_FOUND() throws Exception {
         User platformAdmin = saveUser("플랫폼관리자", "pa8@haja.com", Role.PLATFORM_ADMIN);
         PlatformAdminUserCreateRequest request =
-                new PlatformAdminUserCreateRequest("pa8-new@haja.com", "password1", "실패대상", Role.USER, 999_999L);
+                new PlatformAdminUserCreateRequest("pa8-new@haja.com", "password1", "실패대상", Role.USER, 999_999L, null);
 
         mockMvc.perform(post("/api/platform-admin/users")
                         .with(authentication(authOf(platformAdmin))).with(csrf())
@@ -268,7 +268,7 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
         User platformAdmin = saveUser("플랫폼관리자", "pa8b@haja.com", Role.PLATFORM_ADMIN);
         Company pendingCompany = saveCompany(com.hajacheck.auth.entity.CompanyStatus.PENDING_REVIEW);
         PlatformAdminUserCreateRequest request = new PlatformAdminUserCreateRequest(
-                "pa8b-new@haja.com", "password1", "실패대상2", Role.USER, pendingCompany.getId());
+                "pa8b-new@haja.com", "password1", "실패대상2", Role.USER, pendingCompany.getId(), null);
 
         mockMvc.perform(post("/api/platform-admin/users")
                         .with(authentication(authOf(platformAdmin))).with(csrf())
@@ -285,7 +285,7 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
         User platformAdmin = saveUser("플랫폼관리자", "pa9@haja.com", Role.PLATFORM_ADMIN);
         saveUser("기존사용자", "pa9-dup@haja.com", Role.USER);
         PlatformAdminUserCreateRequest request =
-                new PlatformAdminUserCreateRequest("pa9-dup@haja.com", "password1", "중복", Role.USER, null);
+                new PlatformAdminUserCreateRequest("pa9-dup@haja.com", "password1", "중복", Role.USER, null, null);
 
         mockMvc.perform(post("/api/platform-admin/users")
                         .with(authentication(authOf(platformAdmin))).with(csrf())
@@ -299,7 +299,7 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
     void 사용자등록_화이트리스트밖역할이면_400() throws Exception {
         User platformAdmin = saveUser("플랫폼관리자", "pa10@haja.com", Role.PLATFORM_ADMIN);
         PlatformAdminUserCreateRequest request = new PlatformAdminUserCreateRequest(
-                "pa10-new@haja.com", "password1", "플랫폼관리자시도", Role.PLATFORM_ADMIN, null);
+                "pa10-new@haja.com", "password1", "플랫폼관리자시도", Role.PLATFORM_ADMIN, null, null);
 
         mockMvc.perform(post("/api/platform-admin/users")
                         .with(authentication(authOf(platformAdmin))).with(csrf())
@@ -313,7 +313,7 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
     void 사용자등록_COUNSELOR역할도_등록가능하다() throws Exception {
         User platformAdmin = saveUser("플랫폼관리자", "pa10b@haja.com", Role.PLATFORM_ADMIN);
         PlatformAdminUserCreateRequest request = new PlatformAdminUserCreateRequest(
-                "pa10b-new@haja.com", "password1", "상담원", Role.COUNSELOR, null);
+                "pa10b-new@haja.com", "password1", "상담원", Role.COUNSELOR, null, com.hajacheck.counsel.entity.CounselType.USAGE);
 
         mockMvc.perform(post("/api/platform-admin/users")
                         .with(authentication(authOf(platformAdmin))).with(csrf())
@@ -330,7 +330,7 @@ class PlatformAdminUserControllerTest extends PostgresTestSupport {
         Company company = saveCompany();
         User companyAdmin = saveUser("회사관리자", "pa11-admin@haja.com", Role.ADMIN, company.getId());
         PlatformAdminUserCreateRequest request =
-                new PlatformAdminUserCreateRequest("pa11-new@haja.com", "password1", "차단대상", Role.USER, null);
+                new PlatformAdminUserCreateRequest("pa11-new@haja.com", "password1", "차단대상", Role.USER, null, null);
 
         mockMvc.perform(post("/api/platform-admin/users")
                         .with(authentication(authOf(companyAdmin))).with(csrf())
