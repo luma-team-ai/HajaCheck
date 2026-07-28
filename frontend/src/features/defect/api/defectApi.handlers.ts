@@ -15,7 +15,6 @@ import type {
   InspectionFacilityOption,
   InspectionGradeDistribution,
   InspectionListItem,
-  InspectionStatus,
 } from '../types';
 
 const DEFAULT_SIZE = 20;
@@ -202,6 +201,32 @@ export const defectHandlers = [
   http.post('/api/defects/nl-search', async ({ request }) => {
     const { query } = (await request.json()) as { query: string };
 
+    if (query.includes('지난 두 달') && query.includes('1회차')) {
+      const body: ApiResponse<NlSearchResult> = {
+        success: true,
+        data: {
+          filters: {
+            type: [],
+            grade: [],
+            status: [],
+            confidenceMin: null,
+            inspectionType: [],
+            inspectionStatus: [],
+            inspectionDateFrom: '2026-05-28',
+            inspectionDateTo: '2026-07-28',
+            roundNoMin: 1,
+            roundNoMax: 1,
+            defectCountMin: null,
+            defectCountMax: null,
+          },
+          unsupported_terms: [],
+          clarifying_question: null,
+          interpretation_confidence: 0.96,
+        },
+      };
+      return HttpResponse.json(body);
+    }
+
     if (query.includes('D등급 이상')) {
       const body: ApiResponse<NlSearchResult> = {
         success: true,
@@ -237,9 +262,16 @@ export const defectHandlers = [
   // (서로 다른 하자가 조건을 나눠 만족하는 경우는 매칭 아님).
   http.get('/api/inspections', ({ request }) => {
     const url = new URL(request.url);
-    const status = url.searchParams.get('status') as InspectionStatus | null;
+    const statusParams = url.searchParams.getAll('status');
+    const inspectionTypeParams = url.searchParams.getAll('inspectionType');
     const facilityIdParam = url.searchParams.get('facilityId');
     const facilityId = facilityIdParam ? Number(facilityIdParam) : null;
+    const inspectionDateFrom = url.searchParams.get('inspectionDateFrom');
+    const inspectionDateTo = url.searchParams.get('inspectionDateTo');
+    const roundNoMin = url.searchParams.get('roundNoMin');
+    const roundNoMax = url.searchParams.get('roundNoMax');
+    const defectCountMin = url.searchParams.get('defectCountMin');
+    const defectCountMax = url.searchParams.get('defectCountMax');
     const defectTypeParams = url.searchParams.getAll('defectType');
     const defectGradeParams = url.searchParams.getAll('defectGrade');
     const defectStatusParams = url.searchParams.getAll('defectStatus');
@@ -263,13 +295,20 @@ export const defectHandlers = [
     }
 
     const filtered = mockInspections
+      .map(toInspectionListItem)
       .filter(
         (inspection) =>
-          (!status || inspection.status === status) &&
+          (statusParams.length === 0 || statusParams.includes(inspection.status)) &&
+          (inspectionTypeParams.length === 0 || inspectionTypeParams.includes(inspection.type)) &&
           (facilityId == null || inspection.facilityId === facilityId) &&
+          (!inspectionDateFrom || inspection.inspectionDate >= inspectionDateFrom) &&
+          (!inspectionDateTo || inspection.inspectionDate <= inspectionDateTo) &&
+          (!roundNoMin || inspection.roundNo >= Number(roundNoMin)) &&
+          (!roundNoMax || inspection.roundNo <= Number(roundNoMax)) &&
+          (!defectCountMin || inspection.defectCount >= Number(defectCountMin)) &&
+          (!defectCountMax || inspection.defectCount <= Number(defectCountMax)) &&
           matchesDefectCondition(inspection.id),
-      )
-      .map(toInspectionListItem);
+      );
 
     const content = filtered.slice(page * size, page * size + size);
     const body: ApiResponse<PageResponse<InspectionListItem>> = {
