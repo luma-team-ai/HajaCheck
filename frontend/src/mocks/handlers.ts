@@ -49,7 +49,10 @@ export const allMockHandlers = [
   // 위 inspectionHandlers/mediaHandlers/facilityAssigneeHandlers가 이미 처리하는 /api/facilities,
   // /api/facilities/assignable-users, POST /api/inspections/:id/media에 대한 자체 목도 포함하지만
   // (feature 간 직접 import 금지로 각자 복제) msw는 먼저 등록된 핸들러가 우선하므로 여기서는 실제로
-  // 새로 추가되는 두 엔드포인트만 유효하게 동작한다.
+  // 새로 추가되는 두 엔드포인트만 유효하게 동작한다. GET /api/inspections만 예외 — inspectionHandlers의
+  // 동명 핸들러(facilityId 단건 중복확인 전용)가 page 파라미터 유무로 스스로 분기해, 하자 목록의
+  // page/size 포함 요청은 undefined를 반환해 여기 defectHandlers의 실 필터 구현으로 폴스루한다
+  // (inspectionApi.handlers.ts 참고 — 하자 목록 자연어 검색 필터링 무동작 버그 수정).
   ...defectHandlers,
   ...dashboardHandlers,
   ...statisticsHandlers,

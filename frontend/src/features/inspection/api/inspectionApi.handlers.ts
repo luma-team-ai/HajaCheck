@@ -101,7 +101,20 @@ export const inspectionHandlers = [
   // 점검 생성 폼의 "같은 시설물에 이미 진행 중인 회차가 있는지" 확인용 — 기본값은 항상 빈 목록
   // (진행 중인 회차 없음)이라 기존 제출 플로우 테스트에 영향 없다. 중복 경고 시나리오는 개별
   // 테스트에서 server.use로 override한다.
-  http.get('/api/inspections', () => {
+  //
+  // 이 핸들러는 inspectionApi.listByFacility(facilityId만 전송, page/size 없음) 전용이다.
+  // 하자 목록(defect feature)의 실 점검 목록 조회(useInspections)는 DefectListPage 기본값부터
+  // page/size를 항상 함께 보내는데, mocks/handlers.ts 등록 순서상 inspectionHandlers가
+  // defectHandlers보다 먼저라 이 핸들러가 먼저 매치돼 필터(자연어 검색 결과 포함)를 전부 무시한 채
+  // 항상 빈 목록을 반환해버렸다(하자 목록 자연어 검색 필터링 무동작 버그). page 파라미터가 있으면
+  // 이 핸들러가 응답을 만들지 않고 undefined를 반환해 다음으로 매칭되는 defectApi.handlers.ts의
+  // 실제 필터 구현 핸들러로 폴스루한다(msw v2 — resolver가 응답을 반환하지 않으면 다음 매칭
+  // 핸들러를 시도).
+  http.get('/api/inspections', ({ request }) => {
+    const url = new URL(request.url);
+    if (url.searchParams.has('page')) {
+      return;
+    }
     const body: ApiResponse<PageResponse<FacilityInspectionSummary>> = {
       success: true,
       data: { content: [], page: 0, totalElements: 0 },
