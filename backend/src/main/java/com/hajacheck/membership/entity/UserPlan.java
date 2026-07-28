@@ -149,9 +149,22 @@ public class UserPlan {
      * 결제 주기 승계(#1104) — 관리자 콘솔의 무결제 플랜 변경({@code AdminPlanService#changePlan})에서
      * 신규 발급된 구독에 호출한다. 결제가 없었으므로 {@code previous} 의 현재 결제 주기를 그대로
      * 물려받는다 — 여기서 리셋하면 관리자가 플랜만 바꿔도 결제일이 밀리는 버그가 그대로 남는다.
+     *
+     * <p><b>단, 대상 플랜이 무료면 {@code currentPeriodEnd} 는 승계하지 않고 NULL(무기한)로 둔다</b>
+     * (리뷰 P1, #1104). 유료→FREE 하향은 {@code AdminPlanService#requireNotUpgrade} 가 막는 "상향"이
+     * 아니라 정상 허용 경로인데, 여기서 무조건 승계하면 FREE 구독에 과거 유료 주기의 만료일이 그대로
+     * 남아 (1) 마이페이지에 무료인데 다음 결제일이 표시되고 (2) 그 날짜가 지나면
+     * {@code PlatformAdminPlanQuotaService} 가 EXPIRED 로 오판한다 — 이 PR 이 고치겠다고 선언한 바로 그
+     * 버그(FREE 는 {@code currentPeriodEnd == null})가 승계 경로로 재발한다. {@code currentPeriodStart}
+     * 는 무료여도 승계한다(구독 개시 시점 자체는 여전히 유효한 정보라 굳이 지울 이유가 없다).
+     *
+     * @param targetIsPaid 신규 발급되는 대상 플랜이 유료인지 — 호출부가 {@code plans.price_monthly}
+     *                     기준으로 판정해 넘긴다(티어 이름이 아니라 가격이 유일한 기준 —
+     *                     {@code AdminPlanService#requireNotUpgrade} javadoc과 동일 근거: 가격은
+     *                     플랫폼 관리자가 바꿀 수 있어 이름 순서와 어긋날 수 있다).
      */
-    public void carryOverBillingPeriod(UserPlan previous) {
+    public void carryOverBillingPeriod(UserPlan previous, boolean targetIsPaid) {
         this.currentPeriodStart = previous.currentPeriodStart;
-        this.currentPeriodEnd = previous.currentPeriodEnd;
+        this.currentPeriodEnd = targetIsPaid ? previous.currentPeriodEnd : null;
     }
 }

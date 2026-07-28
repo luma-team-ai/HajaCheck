@@ -306,6 +306,43 @@ class AdminPlanServiceTest {
         assertThat(renewed.getCurrentPeriodEnd()).isEqualTo(current.getCurrentPeriodEnd());
     }
 
+    @Test
+    void 플랜변경_유료에서FREE로하향하면_신규구독의_currentPeriodEnd는_null이다() {
+        // 리뷰 P1(#1104) 회귀 고정 — 유료→FREE 하향은 requireNotUpgrade가 막는 "상향"이 아니라 정상
+        // 허용 경로다. carryOverBillingPeriod가 대상 플랜을 보지 않고 무조건 이전 만료일을 복사하면,
+        // FREE 구독인데 마이페이지에 "다음 결제일"이 뜨고, 그 날짜가 지나면 PlatformAdminPlanQuotaService
+        // 가 EXPIRED로 오판한다 — FREE는 currentPeriodEnd == null(무기한)이어야 하는 이 PR의 불변식이
+        // 승계 경로에서만 깨졌던 버그다. currentPeriodStart는 무료여도 그대로 승계된다.
+        Long adminUserId = 1L;
+        Long companyId = 10L;
+        User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
+                .passwordHash("hash").build();
+        UserPlan current = UserPlan.forCompany(companyId, 100L);
+        Instant existingPeriodStart = Instant.parse("2026-06-15T00:00:00Z");
+        current.startNewBillingPeriod(existingPeriodStart); // 기존 유료 구독의 결제 주기.
+        Plan targetPlan = Plan.create(PlanName.FREE, 1, 50, 1, true, false, false, BigDecimal.ZERO);
+        Company company = Company.createPendingReview(adminUserId, "회사", "123-45-67890",
+                "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+
+        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
+                companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.FREE)).thenReturn(Optional.of(targetPlan));
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class), any()))
+                .thenReturn(DowngradeOverflow.none());
+        when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.changePlan(adminUserId, PlanName.FREE, false, List.of());
+
+        ArgumentCaptor<UserPlan> saved = ArgumentCaptor.forClass(UserPlan.class);
+        verify(adminPlanRepository, org.mockito.Mockito.times(2)).saveAndFlush(saved.capture());
+        UserPlan renewed = saved.getAllValues().get(1);
+        assertThat(renewed.getCurrentPeriodStart()).isEqualTo(existingPeriodStart);
+        assertThat(renewed.getCurrentPeriodEnd()).isNull();
+    }
+
     // ── keepUserIds 전달(#890 Phase 2) — AdminPlanService는 preview()를 정확히 한 번 호출해 그 결과를
     // overflowConfirmed 판정과 applyOverflow 양쪽에 재사용한다(재검토 F-7/F-9). 오버로드 선택 여부가 아니라
     // "어떤 keepUserIds 값이 그대로 preview에 전달됐는가"를 ArgumentCaptor로 단정한다 — 오버로드 구조 자체는

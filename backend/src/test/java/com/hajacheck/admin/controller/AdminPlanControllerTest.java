@@ -22,14 +22,17 @@ import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UsageCounter;
 import com.hajacheck.membership.entity.UserPlan;
+import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -167,6 +170,46 @@ class AdminPlanControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data.history[1].planName").value("STANDARD"))
                 .andExpect(jsonPath("$.data.history[1].status").value("EXPIRED"))
                 .andExpect(jsonPath("$.data.history[1].endedAt").exists());
+    }
+
+    @Test
+    void 플랜변경_유료에서FREE로하향시_지난유료주기가_신규FREE구독에승계되지않는다() throws Exception {
+        // 리뷰 P1(#1104) 회귀 고정 — 실제 결제로 확정됐던(이미 지난) 유료 결제 주기를 가진 STANDARD
+        // 구독을 FREE로 하향한다. carryOverBillingPeriod가 대상 플랜을 무시하고 무조건 이전
+        // currentPeriodEnd를 복사하면, FREE 구독인데 이미 지난 만료일이 그대로 남아 마이페이지에
+        // "다음 결제일"이 뜨고 플랫폼 관리자 화면에서는 EXPIRED로 오판된다(이 PR이 고치겠다고 선언한
+        // 바로 그 버그가 하향 경로로 재발하는 케이스).
+        int n = SEQ.incrementAndGet();
+        User admin = saveUser(Role.ADMIN, null);
+        Company company = Company.createPendingReview(
+                admin.getId(), "회사" + n, "BRN-1104-" + n, "대표", "서울", null,
+                "https://files.example/brn.pdf", "{\"source\":\"MANUAL_INPUT\"}");
+        company.markBusinessVerified();
+        company.approve(admin.getId());
+        company = companyRepository.save(company);
+        admin.assignToCompany(company.getId());
+        admin = userRepository.save(admin);
+        companyMembershipRepository.save(CompanyMembership.approvedOwner(company.getId(), admin.getId()));
+        seedPlans();
+        UserPlan standardPlan = UserPlan.forCompany(company.getId(), planId(PlanName.STANDARD));
+        // 이미 지난 결제 주기(90일 전 시작 → 60일 전 만료)를 시뮬레이션 — 실제 결제 승인 전이라면
+        // PlanTransitionService#transitionTo가 이렇게 채워 뒀을 값이다.
+        standardPlan.startNewBillingPeriod(Instant.now().minus(90, ChronoUnit.DAYS));
+        userPlanRepository.save(standardPlan);
+
+        mockMvc.perform(patch("/api/admin/plan")
+                        .with(csrf()).with(authentication(authOf(admin)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"FREE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.plan.name").value("FREE"));
+
+        UserPlan renewed = userPlanRepository
+                .findFirstByCompanyIdAndStatusOrderByStartedAtDesc(company.getId(), UserPlanStatus.ACTIVE)
+                .orElseThrow();
+        assertThat(renewed.getCurrentPeriodEnd()).isNull();
+        // currentPeriodStart는 무료여도 승계된다(구독 개시 시점 자체는 여전히 유효한 정보).
+        assertThat(renewed.getCurrentPeriodStart()).isEqualTo(standardPlan.getCurrentPeriodStart());
     }
 
     @Test
