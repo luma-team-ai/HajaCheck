@@ -3,6 +3,7 @@ package com.hajacheck.core.report.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -321,6 +322,50 @@ class ReportControllerTest extends PostgresTestSupport {
                         .with(authentication(authOf(stranger))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("REPORT_NOT_FOUND"));
+    }
+
+    @Test
+    void 삭제_DRAFT상태_200과softDelete처리() throws Exception {
+        User owner = seedOwner("report-delete-owner@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+
+        mockMvc.perform(delete("/api/reports/{id}", report.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        Report deleted = reportRepository.findById(report.getId()).orElseThrow();
+        assertThat(deleted.getDeletedAt()).isNotNull();
+
+        mockMvc.perform(get("/api/reports/{id}", report.getId()).with(authentication(authOf(owner))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("REPORT_NOT_FOUND"));
+    }
+
+    @Test
+    void 삭제_FINALIZED상태_409_INVALID_STATE_TRANSITION() throws Exception {
+        User owner = seedOwner("report-delete-finalized-owner@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = Report.draft(inspection.getId(), 1, "{}", owner.getId());
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                owner.getId());
+        report.finalizeReport("/api/reports/1/pdf/source.pdf", owner.getId());
+        report = reportRepository.save(report);
+
+        mockMvc.perform(delete("/api/reports/{id}", report.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATE_TRANSITION"));
+
+        Report finalized = reportRepository.findById(report.getId()).orElseThrow();
+        assertThat(finalized.getDeletedAt()).isNull();
     }
 
     /**
