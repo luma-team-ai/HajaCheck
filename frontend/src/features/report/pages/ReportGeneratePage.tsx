@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
@@ -44,6 +44,9 @@ export function ReportGeneratePage() {
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfLoadError, setPdfLoadError] = useState<string | null>(null);
+  const pdfBlobUrlRef = useRef<string | null>(null);
   const inspectionId = report?.inspectionId ?? 0;
   const setActiveReportId = useInspectionStore((state) => state.setActiveReportId);
 
@@ -52,6 +55,35 @@ export function ReportGeneratePage() {
       setActiveReportId(parsedReportId);
     }
   }, [parsedReportId, hasValidReportId, setActiveReportId]);
+
+  // export 모드에서 pdfUrl을 fetch → Blob URL 생성 (iframe이 직접 API 호출 시 인증/프록시 문제 방지)
+  useEffect(() => {
+    if (!report?.pdfUrl || !isExportMode) return;
+    let cancelled = false;
+    setPdfLoadError(null);
+    setPdfBlobUrl(null);
+    if (pdfBlobUrlRef.current) URL.revokeObjectURL(pdfBlobUrlRef.current);
+    pdfBlobUrlRef.current = null;
+    fetch(report.pdfUrl, { credentials: 'include' })
+      .then((res) => {
+        if (!res.ok) throw new Error(`PDF 응답 오류 (${res.status})`);
+        return res.blob();
+      })
+      .then((blob) => {
+        if (!cancelled) {
+          const url = URL.createObjectURL(blob);
+          pdfBlobUrlRef.current = url;
+          setPdfBlobUrl(url);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setPdfLoadError(err.message || 'PDF를 불러올 수 없습니다.');
+      });
+    return () => {
+      cancelled = true;
+      if (pdfBlobUrlRef.current) URL.revokeObjectURL(pdfBlobUrlRef.current);
+    };
+  }, [report?.pdfUrl, isExportMode]);
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
 
@@ -224,12 +256,24 @@ export function ReportGeneratePage() {
           </div>
         </div>
         <div className="flex flex-1 overflow-hidden bg-zinc-100 p-6">
-          {report.pdfUrl ? (
+          {report.pdfUrl && pdfLoadError ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-zinc-200 bg-white p-8 text-center">
+              <p className="text-lg font-semibold text-text-default">PDF를 불러올 수 없습니다.</p>
+              <p className="text-sm text-text-muted">{pdfLoadError}</p>
+              <Button onClick={() => void handleDownloadStoredPdf()} variant="secondary">
+                PDF 다운로드 시도
+              </Button>
+            </div>
+          ) : pdfBlobUrl ? (
             <iframe
               title="저장된 보고서 PDF"
-              src={report.pdfUrl}
+              src={pdfBlobUrl}
               className="h-[calc(100vh-96px)] w-full rounded-lg border border-zinc-200 bg-white"
             />
+          ) : report.pdfUrl && !pdfLoadError ? (
+            <div className="flex flex-1 items-center justify-center">
+              <AILoadingIndicator message="PDF를 불러오는 중..." />
+            </div>
           ) : (
             <div className="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-white p-8 text-center">
               <div className="flex max-w-md flex-col gap-3">
