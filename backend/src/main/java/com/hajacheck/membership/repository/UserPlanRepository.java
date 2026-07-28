@@ -110,4 +110,28 @@ public interface UserPlanRepository extends JpaRepository<UserPlan, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select up from UserPlan up where up.id = :id")
     Optional<UserPlan> findByIdForUpdate(@Param("id") Long id);
+
+    /**
+     * 현재 트랜잭션의 잠금 대기 상한을 설정한다(#1145, 리뷰 NEW-2) — {@link #findByIdForUpdate} 를 부르기
+     * <b>직전</b>에 같은 트랜잭션에서 호출한다.
+     *
+     * <p><b>왜 {@code @QueryHints(jakarta.persistence.lock.timeout)} 가 아닌가</b>: 그 힌트는 이 스택에서
+     * <b>아무 효과가 없다</b>. {@code PostgreSQLDialect.supportsWait()} 가 false 라(hibernate-core 6.5.3
+     * 바이트코드로 확인) 밀리초 단위 타임아웃은 조용히 버려지고 평범한 {@code for update} 로 나간다 —
+     * 값을 넣어도 무한 대기 그대로다. PostgreSQL 에서 실제로 동작하는 수단은 {@code NOWAIT}(대기 0) /
+     * {@code SKIP_LOCKED} / 세션·트랜잭션 {@code lock_timeout} 뿐이다.
+     *
+     * <p>{@code NOWAIT} 대신 {@code lock_timeout} 을 고른 이유: NOWAIT 는 순간적인 경합(같은 구독에 대한
+     * 결제 승인 등)에도 즉시 실패해 정당한 강등이 <b>하루</b> 미뤄진다. 짧은 상한을 두면 그 정도 경합은
+     * 기다려 넘기고 진짜로 오래 잡힌 행만 실패로 격리된다. 게다가 {@code lock_timeout} 은 이어지는
+     * UPDATE/INSERT 의 잠금 대기까지 함께 덮어 "배치 스레드가 묶이는" 상황을 더 넓게 막는다.
+     *
+     * <p>{@code set_config(..., is_local = true)} 라 <b>트랜잭션 스코프</b>다 — 커밋/롤백과 함께 원복되므로
+     * 커넥션 풀을 통해 다른 작업으로 새지 않는다({@code SET LOCAL} 은 파라미터 바인딩이 안 돼 같은 기능의
+     * 함수 형태를 쓴다).
+     *
+     * @param timeoutMs 대기 상한(ms) 문자열. PostgreSQL 규약상 {@code "0"} 은 무제한이다.
+     */
+    @Query(value = "select set_config('lock_timeout', :timeoutMs, true)", nativeQuery = true)
+    String applyLockTimeout(@Param("timeoutMs") String timeoutMs);
 }

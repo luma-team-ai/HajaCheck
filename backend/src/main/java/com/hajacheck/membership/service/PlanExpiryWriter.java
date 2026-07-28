@@ -4,6 +4,7 @@ import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.membership.config.PlanExpiryProperties;
 import com.hajacheck.membership.dto.DowngradeOverflow;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
@@ -42,24 +43,33 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>{@link UserPlan#expire()} → flush → FREE ACTIVE 신규 발급. 부분 UQ
  *       ({@code uq_user_plans_active_company}/{@code uq_user_plans_active_user}: ACTIVE 최대 1건)를
  *       만족시키려 만료 UPDATE 를 먼저 flush 한다.</li>
- *   <li>{@link UserPlan#carryOverBillingPeriod}{@code (previous, false)} — 결제가 없었으므로 주기
- *       시작은 승계하고, 대상이 무료이므로 {@code currentPeriodEnd} 는 <b>NULL(무기한)</b> 로 둔다
- *       (#1104 규칙). 여기서 주기를 리셋하면(=startNewBillingPeriod) FREE 구독이 한 달 뒤 다시 이
- *       배치의 대상이 되는 무한 강등 루프가 된다.</li>
+ *   <li>{@link UserPlan#carryOverBillingPeriod}{@code (previous, isPaid(freePlan))} — 결제가 없었으므로
+ *       주기 시작은 승계하고, 대상이 무료이므로 {@code currentPeriodEnd} 는 <b>NULL(무기한)</b> 이 된다
+ *       (#1104 규칙). 유료 여부 판정 근거는 {@code AdminPlanService} 와 같은 {@code plans.price_monthly}
+ *       다. 여기서 주기가 남으면 FREE 구독이 다음 회차에 다시 이 배치의 대상이 되는 <b>무한 강등
+ *       루프</b>가 되므로, 값이 아니라 <b>결과</b>를 사후 단정으로 막는다(아래 §안전 불변식).</li>
  *   <li>{@link PlanTransitionService#carryOverUsage} — 당월 사용량 이월(#851). 이월하지 않으면 강등이
  *       곧 월 분석 한도 리셋이 되어 한도 강제(#843)가 무력화된다.</li>
  *   <li>{@link PlanDowngradeService#applyOverflow} — 초과 좌석 SUSPENDED. 같은 트랜잭션에서 처리한다
  *       (플랜만 내려가고 정지가 안 되면 한도가 조용히 무력화된다).</li>
  * </ol>
  *
+ * <p><b>⚠️ 안전 불변식 — 강등 결과의 {@code currentPeriodEnd} 는 반드시 NULL(리뷰 NEW-1)</b>: 유료 여부를
+ * 가격으로 판정하게 되면서, <b>FREE 요금제에 양수 가격이 설정되면</b>({@code PlatformAdminPlanPolicy
+ * UpdateRequest} 의 가격 제약이 {@code @DecimalMin("0")} 이라 가능하고 서비스에도 FREE 전용 가드가 없다)
+ * 과거 만료일이 그대로 승계돼 새 FREE 행이 <b>즉시 다음 회차 대상</b>이 된다 — 매일 밤 강등·알림·행 증식이
+ * 무한 반복된다. 그래서 전이 직후 결과를 단정하고, 어긋나면 이 1건만 롤백시켜 사람을 부른다
+ * ({@link ErrorCode#PLAN_DATA_INVALID}). 원인이 요금제 설정 오류라 배치가 스스로 고칠 수 없기 때문이다.
+ *
  * <p><b>멱등(#1145 §3-3)</b>: 강등이 끝난 구독은 EXPIRED 가 되고 신규 FREE 행은
  * {@code current_period_end = NULL} 이라, 다음 회차의 대상 조회 조건
- * ({@code ACTIVE AND current_period_end < threshold})에 더 이상 걸리지 않는다. 게다가 이 메서드는
- * 트랜잭션 안에서 대상 조건을 <b>다시 확인</b>하므로(아래 재검증), 스케줄러가 대상 id 를 읽은 뒤
- * 처리하기 전에 다른 경로(결제 승인·관리자 변경)가 먼저 전이시킨 경우에도 이중 강등하지 않는다.
- * 부분 UQ 위반({@link org.springframework.dao.DataIntegrityViolationException})은 여기서 잡지 않고
- * 그대로 던져 호출부(스케줄러)가 "이미 다른 경로가 활성 구독을 만듦"으로 스킵 처리하게 한다 —
- * 다음 회차에 자연 재시도된다.
+ * ({@code status in LIVE_STATUSES AND current_period_end < threshold})에 더 이상 걸리지 않는다. 게다가
+ * 이 메서드는 트랜잭션 안에서 대상 조건을 <b>다시 확인</b>하므로(아래 재검증), 스케줄러가 대상 id 를 읽은
+ * 뒤 처리하기 전에 다른 경로(결제 승인·관리자 변경)가 먼저 전이시킨 경우에도 이중 강등하지 않는다.
+ * 신규 ACTIVE 발급이 부분 UQ 를 밟으면 <b>그 한 줄에서 잡아</b>
+ * {@link ErrorCode#PLAN_ACTIVE_SUBSCRIPTION_CONFLICT} 로 번역해 던진다 — 호출부(스케줄러)가 그 코드만
+ * "이미 다른 경로가 활성 구독을 만듦"으로 스킵하고 다음 회차에 자연 재시도한다. 사용량 이월·좌석 정지
+ * 등에서 나온 <b>그 외</b> 무결성 위반은 번역하지 않고 그대로 올려보내 실패로 집계되게 한다(조용한 skip 금지).
  *
  * <p><b>알림은 여기서 발행하지 않는다</b> — 강등이 실제로 커밋된 뒤에 나가야 하므로 호출부가
  * {@link PlanExpiryResult} 를 받아 트랜잭션 밖에서 발행한다(그 record javadoc 참고).
@@ -82,6 +92,7 @@ public class PlanExpiryWriter {
     private final UserPlanRepository userPlanRepository;
     private final PlanTransitionService planTransitionService;
     private final PlanDowngradeService planDowngradeService;
+    private final PlanExpiryProperties properties;
 
     /**
      * 결제 주기가 만료된 구독 1건을 FREE 로 강등한다.
@@ -96,6 +107,11 @@ public class PlanExpiryWriter {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public PlanExpiryResult expireToFreePlan(Long userPlanId, Instant threshold) {
+        // 잠금 대기 상한을 트랜잭션 로컬로 건다(리뷰 NEW-2) — @Scheduled 기본 스레드 풀이 1개라 한 건의
+        // 무한 대기가 다른 배치까지 멈춘다. JPA lock.timeout 힌트는 PostgreSQL 에서 무시되므로 쓰지 않는다
+        // (UserPlanRepository#applyLockTimeout javadoc 에 근거).
+        userPlanRepository.applyLockTimeout(Integer.toString(properties.getLockTimeoutMs()));
+
         // 행 잠금과 함께 읽는다(리뷰 P3-5) — 재검증이 보는 상태가 판정 시점의 확정 상태가 되도록,
         // 그리고 다중 인스턴스가 같은 구독을 동시에 강등하지 않도록 직렬화한다. 잠금으로도 남는 한계
         // (@Version 부재로 인한 lost update)는 UserPlanRepository#findByIdForUpdate javadoc 참고.
@@ -148,6 +164,13 @@ public class PlanExpiryWriter {
         // (리뷰 P3-2) — 여기서 false 를 하드코딩하면 결과는 같아도 판정 근거가 갈라져, 나중에 FREE 가격
         // 정책이 바뀌면 두 경로가 조용히 어긋난다.
         renewed.carryOverBillingPeriod(current, isPaid(freePlan));
+        if (renewed.getCurrentPeriodEnd() != null) {
+            // ⚠️ 안전 불변식(리뷰 NEW-1) — FREE 로 내리는데 주기가 남으면 이 구독이 다음 회차 대상 조건을
+            // 즉시 다시 만족해 매일 밤 강등·알림·행 증식이 무한 반복된다. 여기까지 왔다는 건 FREE 요금제에
+            // 양수 가격이 설정됐다는 뜻이고, 그건 배치가 스스로 고칠 수 없는 요금제 설정 오류다.
+            // 이 1건만 롤백하고 사람을 부른다(스케줄러가 ErrorCode 를 WARN 으로 남긴다).
+            throw new BusinessException(ErrorCode.PLAN_DATA_INVALID);
+        }
         UserPlan saved;
         try {
             // ⚠️ try 범위를 이 한 줄로 좁힌다(AdminPlanService·PlanTransitionService 의 동일 주석과 같은
