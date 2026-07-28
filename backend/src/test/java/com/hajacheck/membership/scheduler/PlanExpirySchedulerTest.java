@@ -150,7 +150,11 @@ class PlanExpirySchedulerTest {
                 .isEqualTo(Mode.DRY_RUN);
         assertThat(defaults.getGracePeriod()).isEqualTo(Duration.ZERO);
         assertThat(defaults.getNotBefore()).isNull();
+        assertThat(defaults.isNotBeforeUnbounded())
+                .as("'무설정 = 무제한'이 기본이면 컷오프 강제가 무의미해진다")
+                .isFalse();
         assertThat(defaults.getMaxPerRun()).isEqualTo(50);
+        assertThat(defaults.getLockTimeoutMs()).isEqualTo(3000);
         assertThat(defaults.isEnforcing()).isFalse();
 
         defaults.setEnabled(true);
@@ -182,16 +186,39 @@ class PlanExpirySchedulerTest {
     }
 
     @Test
-    @DisplayName("DRY_RUN이라도 상한 초과면 대상 목록을 뽑지 않고 먼저 중단한다")
-    void dryRun에서도_상한초과가_우선한다() {
+    @DisplayName("DRY_RUN은 상한을 초과해도 대상 목록을 보여준다 — 상한은 쓰기를 막는 장치라 관찰까지 막으면 승격 절차가 순환한다")
+    void dryRun은_상한초과여도_목록을_보여준다() {
         properties.setMode(Mode.DRY_RUN);
         properties.setMaxPerRun(1);
         when(userPlanRepository.countExpiryTargets(any(), any(), any())).thenReturn(5L);
+        when(userPlanRepository.findExpiryTargetIds(any(), any(), any(), eq(0L), any()))
+                .thenReturn(List.of(11L, 12L, 13L, 14L, 15L));
 
         ListAppender<ILoggingEvent> appender = runCapturingLogs();
 
-        verify(userPlanRepository, never()).findExpiryTargetIds(any(), any(), any(), anyLong(), any());
-        assertThat(loggedAt(appender, Level.ERROR, "1회 상한")).isTrue();
+        // 승격 절차 1단계의 예상 결과가 바로 "대상 > 상한"이다(백필 추정치 때문에 기존 유료 구독이 이미
+        // 전부 만료 상태). 여기서 목록이 안 나오면 상한을 올릴 근거를 얻을 수 없어 절차가 막힌다.
+        assertThat(loggedAt(appender, Level.WARN, "DRY_RUN")).isTrue();
+        assertThat(loggedAt(appender, Level.WARN, "11")).isTrue();
+        // 관찰만 하고 쓰기는 여전히 0건이다.
+        verifyNoInteractions(planExpiryWriter);
+        verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    @DisplayName("DRY_RUN 대상 목록은 페이지 크기까지만 출력하고 나머지는 생략 표기한다")
+    void dryRun_목록은_페이지크기까지만() {
+        properties.setMode(Mode.DRY_RUN);
+        properties.setMaxPerRun(1000);
+        when(userPlanRepository.countExpiryTargets(any(), any(), any())).thenReturn(120L);
+        when(userPlanRepository.findExpiryTargetIds(any(), any(), any(), eq(0L), any()))
+                .thenReturn(LongStream.rangeClosed(1, 50).boxed().toList());
+
+        ListAppender<ILoggingEvent> appender = runCapturingLogs();
+
+        assertThat(loggedAt(appender, Level.WARN, "이하 70건 생략"))
+                .as("첫 회차 대상이 수백 건일 수 있어 로그 한 줄이 통제 불가능하게 길어지면 안 된다")
+                .isTrue();
     }
 
     // ── 안전장치 3: not-before 컷오프 ────────────────────────────────────
@@ -299,6 +326,56 @@ class PlanExpirySchedulerTest {
 
         try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
             assertThat(factory.getValidator().validate(invalid)).isNotEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("ENFORCE인데 not-before가 없으면 기동이 실패한다 — 컷오프 없는 전 구간 강등을 코드가 막는다")
+    void ENFORCE인데_컷오프없으면_기동실패() {
+        PlanExpiryProperties props = new PlanExpiryProperties();
+        props.setEnabled(true);
+        props.setMode(Mode.ENFORCE);
+
+        try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+            Validator validator = factory.getValidator();
+            // enabled=true 와 mode=ENFORCE 를 같은 배포에 함께 넣으면 DRY_RUN 단계를 한 번도 거치지 않는다.
+            // 절차 문서로만 막는 건 통제가 아니므로 기동 자체를 실패시킨다.
+            assertThat(validator.validate(props))
+                    .as("컷오프 없이 ENFORCE 로 올리면 V27 백필 추정치 전 구간이 첫 회차에 일괄 강등된다")
+                    .isNotEmpty();
+
+            props.setNotBefore(Instant.parse("2026-08-01T00:00:00Z"));
+            assertThat(validator.validate(props)).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("컷오프 없이 ENFORCE 하려면 not-before-unbounded를 명시해야 한다(무설정=무제한 금지)")
+    void 전구간_강등은_명시적_선언을_요구한다() {
+        PlanExpiryProperties props = new PlanExpiryProperties();
+        props.setEnabled(true);
+        props.setMode(Mode.ENFORCE);
+        props.setNotBeforeUnbounded(true);
+
+        try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+            Validator validator = factory.getValidator();
+            // 명시적으로 선언하면 통과한다 — "깜빡한 상태"와 "알고서 고른 상태"를 구분하는 것이 목적이다.
+            assertThat(validator.validate(props)).isEmpty();
+
+            // 둘 다 설정하면 어느 쪽이 의도인지 알 수 없으므로 거부한다.
+            props.setNotBefore(Instant.parse("2026-08-01T00:00:00Z"));
+            assertThat(validator.validate(props)).isNotEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("DRY_RUN이면 not-before가 없어도 기동한다 — 관찰 단계까지 막을 이유는 없다")
+    void DRY_RUN은_컷오프없이도_기동한다() {
+        PlanExpiryProperties props = new PlanExpiryProperties();
+        props.setEnabled(true);
+
+        try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+            assertThat(factory.getValidator().validate(props)).isEmpty();
         }
     }
 

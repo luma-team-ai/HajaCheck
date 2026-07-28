@@ -1,6 +1,7 @@
 package com.hajacheck.membership.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.CompanyMembership;
@@ -10,6 +11,8 @@ import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.config.PlanExpiryProperties;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
@@ -24,6 +27,9 @@ import com.hajacheck.notification.entity.Notification;
 import com.hajacheck.notification.entity.NotificationType;
 import com.hajacheck.notification.repository.NotificationRepository;
 import com.hajacheck.support.PostgresTestSupport;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -85,6 +91,8 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
     private NotificationRepository notificationRepository;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private final List<Long> createdUserPlanIds = new ArrayList<>();
     private final List<Long> createdMembershipIds = new ArrayList<>();
@@ -93,6 +101,7 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
     private boolean originalEnabled;
     private PlanExpiryProperties.Mode originalMode;
     private int originalMaxPerRun;
+    private boolean originalNotBeforeUnbounded;
 
     @BeforeEach
     void captureProperties() {
@@ -100,6 +109,7 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
         originalEnabled = planExpiryProperties.isEnabled();
         originalMode = planExpiryProperties.getMode();
         originalMaxPerRun = planExpiryProperties.getMaxPerRun();
+        originalNotBeforeUnbounded = planExpiryProperties.isNotBeforeUnbounded();
     }
 
     @AfterEach
@@ -107,6 +117,7 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
         planExpiryProperties.setEnabled(originalEnabled);
         planExpiryProperties.setMode(originalMode);
         planExpiryProperties.setMaxPerRun(originalMaxPerRun);
+        planExpiryProperties.setNotBeforeUnbounded(originalNotBeforeUnbounded);
 
         createdUserIds.forEach(userId -> notificationRepository
                 .findAllByUserIdOrderByCreatedAtDescIdDesc(userId, PageRequest.of(0, 100))
@@ -223,6 +234,18 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
     private List<Long> expiryTargetIds(Instant threshold, Instant notBefore) {
         return userPlanRepository.findExpiryTargetIds(
                 PlanExpiryWriter.LIVE_STATUSES, threshold, notBefore, 0L, PageRequest.of(0, 500));
+    }
+
+    /**
+     * 요금제 가격을 직접 바꾼다(플랫폼 관리자 "플랜 정책 설정"과 같은 결과). 시드 행을 건드리므로
+     * 호출한 테스트가 반드시 원복해야 한다.
+     */
+    private void setPlanPrice(PlanName planName, BigDecimal priceMonthly) {
+        jdbcTemplate.update("update plans set price_monthly = ? where name = ?::plan_name_type",
+                priceMonthly, planName.name());
+        planRepository.flush();
+        // 1차 캐시에 남은 옛 Plan 스냅샷이 이후 조회에 섞이지 않게 비운다.
+        entityManager.clear();
     }
 
     /** 업그레이드 문의 전이({@code UserPlan#requestUpgrade})와 같은 결과를 SQL 로 만든다. */
@@ -459,6 +482,12 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
                 .isFalse();
         assertThat(originalMode).isEqualTo(PlanExpiryProperties.Mode.DRY_RUN);
         assertThat(originalMaxPerRun).isEqualTo(50);
+        assertThat(originalNotBeforeUnbounded)
+                .as("'무설정 = 무제한'이 기본이면 ENFORCE 컷오프 강제가 무의미해진다")
+                .isFalse();
+        assertThat(planExpiryProperties.getLockTimeoutMs())
+                .as("잠금 대기 상한이 0(무제한)이면 한 건의 대기가 다른 배치까지 멈춘다")
+                .isEqualTo(3000);
         assertThat(planExpiryProperties.getNotBefore())
                 .as("빈 값은 '제한 없음'(null)으로 바인딩돼야 한다")
                 .isNull();
@@ -518,6 +547,44 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
     }
 
     @Test
+    @DisplayName("FREE 요금제에 양수 가격이 설정되면 강등을 거부한다 — 주기가 승계돼 무한 강등 루프가 되는 것을 막는다")
+    void FREE에_가격이_설정되면_강등을_거부한다() {
+        User owner = newUser("만료테스트가격오설정", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now();
+        UserPlan expiring = newCompanyPlan(company.getId(), PlanName.STANDARD,
+                now.minusSeconds(31 * 24 * 3600L), now.minusSeconds(60));
+
+        // 플랫폼 관리자 "플랜 정책 설정"의 가격 제약은 @DecimalMin("0") 이라 FREE 에 양수 가격을 넣을 수
+        // 있고 서비스에도 FREE 전용 가드가 없다. 그 상태면 isPaid(freePlan)=true 가 되어
+        // carryOverBillingPeriod 가 과거 만료일을 그대로 승계하고, 새 FREE 행이 다음 회차 대상 조건을
+        // 즉시 다시 만족해 매일 밤 강등·알림·행 증식이 무한 반복된다(리뷰 NEW-1).
+        BigDecimal originalFreePrice = plan(PlanName.FREE).getPriceMonthly();
+        setPlanPrice(PlanName.FREE, new BigDecimal("9900.00"));
+        try {
+            assertThatThrownBy(() -> planExpiryWriter.expireToFreePlan(expiring.getId(), now))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(ErrorCode.PLAN_DATA_INVALID));
+        } finally {
+            setPlanPrice(PlanName.FREE, originalFreePrice);
+        }
+
+        // fail-safe 여야 한다 — 이 1건만 롤백되고 원래 구독은 그대로 남는다(부분 상태 금지).
+        assertThat(userPlanRepository.findById(expiring.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserPlanStatus.ACTIVE);
+        assertThat(activeCompanyPlanCount(company.getId())).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("FREE 시드 가격은 0이라 정상 경로에서는 가격 기준 판정이 기존 하드코딩과 같은 결과를 낸다")
+    void FREE_시드가격은_0이다() {
+        assertThat(plan(PlanName.FREE).getPriceMonthly())
+                .as("가격 기준 판정(isPaid)과 과거 하드코딩(false)이 같은 결과임을 보장하는 전제다")
+                .isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
     @DisplayName("DRY_RUN이면 스케줄러를 돌려도 구독이 그대로 유지되고 알림도 나가지 않는다")
     void dryRun이면_실제로_아무것도_바뀌지_않는다() {
         User owner = newUser("만료테스트드라이런", Role.ADMIN);
@@ -546,6 +613,9 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
     private void enableEnforcingWithHeadroom() {
         planExpiryProperties.setEnabled(true);
         planExpiryProperties.setMode(PlanExpiryProperties.Mode.ENFORCE);
+        // 운영에서 유효한 조합만 재현한다 — ENFORCE 는 컷오프 선언이 있어야 기동하므로(@AssertTrue),
+        // 테스트도 "컷오프 없음을 명시한" 형태로 켠다(픽스처가 최근 시각이라 실제 배제 대상은 없다).
+        planExpiryProperties.setNotBeforeUnbounded(true);
         planExpiryProperties.setMaxPerRun(expiryTargetIds(Instant.now()).size() + 10);
     }
 }
