@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-07-27
+> 마지막 갱신: 2026-07-28
 
 ## 인프라
 
@@ -35,6 +35,8 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 > ⚠️ 지난 세션 이슈였던 JDK가 **PRD·`build.gradle`·Dockerfile·OCI 실측 네 곳 모두 17로 정합** 확인됨. (호스트 직접 `./gradlew build` 시 JDK 부재 문제는 컨테이너 빌드와 별개 — 아래 [알려진 이슈] 참조)
 
 ## 마지막 머지 PR
+
+- **상담원 비공개 메모(counsel_ticket_notes) + Flyway V23 (→ dev, 2026-07-28, HAJA-503)** — **#1091**(#1021, 작성자 EunSeok-222, squash `2ac086b7`, **사람 수동 머지** — SecurityConfig·마이그레이션 민감영역 `ai:needs-human` 가드). 티켓당 1개(`ticket_id` unique) 상담원 전용 메모 + `GET/PUT /api/counsel/tickets/{id}/note`. **인가**: `CounselTicketNoteService.loadOwnedTicket`이 조회·저장 양쪽 진입점 첫 줄에서 `requesterId.equals(ticket.getCounselorId())`를 검증 — 타 상담원·**미배정 티켓(counselorId=null)** 모두 403(`COUNSEL_TICKET_FORBIDDEN`, cross-counselor IDOR 차단). 서비스 9 + 컨트롤러 7 테스트로 고정(타 상담원 저장 시 `save` 미호출 단언, role 경계 403, 4000자 초과 400 포함). **Flyway V23**: 원래 V22로 준비했으나 #1072가 V22를 선점해 재조정 — 번호 충돌·결번 없음(`FlywayMigrationVersionSequenceTest`), `create table`+unique index만이라 destructive 없음, 캐노니컬 DDL 동시 반영 + `Ha25IncrementalMigrationTest` 파리티 체인·`FlywayBaselineIntegrationTest`(23건/latest=23) 갱신. id/FK 스타일은 V20(payments) 컨벤션(identity + 이름 없는 references) 통일. **PR머신 2패스 P1 0건**, 잔존 P3 3건(upsert read-then-write 최초 저장 경쟁 / `PLATFORM_ADMIN` role 게이트가 서비스 소유권 검증에 막혀 항상 403인 죽은 경로 — fail-closed / `@Version` 부재 last-write-wins). **메타 검수**: CI 이후 dev가 5커밋 전진(같은 `CounselTicketController.java`를 건드린 #1086 포함)해 **로컬 트라이얼 머지 후 재검증** — 충돌 0, 컴파일 PASS, counsel+flyway 테스트 **122/122 PASS**(testcontainers). G6 PASS(R1 마이그레이션 목록 실측 · R2 등급 격하 없음 · R3 env/nginx 무영향 · R4 destructive 없음). 후속: 계약 동기화 **#1100**(`/note` 2종 계약화 + `info.version` 0.26.0-draft + `AdminPlanChangePreviewApiResponse`의 존재하지 않는 `ApiResponseBase` allOf 참조 정정), 프론트 메모 UI는 **HAJA-504(#1022)** 미착수. GitHub #1021 `awaiting-promotion`.
 
 - **시설물 목록/상세 API에 대표 사진 썸네일 URL 노출 (→ dev, 2026-07-28, HAJA-367)** — **#1065**(#670, `7cd9af9b`, **PR머신 자동머지**). #628(사진 스키마)·#652(업로드 API) 선행 완료 후 대표 사진(media 테이블, facility_id 폴리모픽 소유 — #632)의 최초 등록 사진 썸네일 경로(`/api/media/{id}/thumbnail`)를 `FacilityResponse.thumbnailUrl`로 노출. `list()`는 `MediaRepository.findFirstIdsByFacilityIds` 배치 조회 + `Collectors.toMap`(기존 `latestDefectId` 조립 패턴과 동일)으로 N+1 방지, `get()`은 기존 `findByFacilityIdOrderByIdAsc().findFirst()` 재사용. **code-reviewer P2 1건**(배치 쿼리에 `DefectRepository.findLatestByFacilityIds`와 달리 companyId 방어적 재검증이 빠짐 — 현재 호출부는 이미 회사 스코프로 걸러진 facilityIds만 넘겨 실제 취약점은 아니었으나 향후 다른 호출부 대비 defense-in-depth로 픽스) 반영, P3 1건(신규 프로젝션을 다른 배치 프로젝션 7/7과 동일하게 top-level 파일로 이동) 반영. **PR머신 P1 1건**(`openapi.yaml`에 `thumbnailUrl` 실질 스키마 변경을 담으면서 `info.version` bump 누락 — 이 레포의 문서 버전 관리 강제 규칙 위반) → 0.23.0-draft→0.24.0-draft로 즉시 픽스, 재검수 통과. 백엔드 테스트(FacilityServiceTest·MediaRepositoryTest — Testcontainers 실 PostgreSQL, companyId 교차오염 방지 테스트 포함) PASS. GitHub #670 `awaiting-promotion`.
 > ⚠️ **미기재 4건(2026-07-27, 다른 작업자 건)** — #1041(보고서 목록 P3 후속·OpenAPI 보완, `b3ff7a7b`) · #1047(대기열 상담원 스킬 필터, `684a322d`) · #1049(상담원 콘솔 대기열·클레임·실시간 채팅, `883eb5ed`) · #1053(대표 사진 있는 시설물 삭제 시 `fk_media_facility` 위반 500, `4629caaa`). 담당자가 상세를 채워주세요 — 아래는 이번 세션이 직접 검수·머지한 건만 기재.
