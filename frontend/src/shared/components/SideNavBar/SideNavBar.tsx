@@ -274,13 +274,12 @@ export function SideNavBar({
         return {
           ...item,
           subItems: (item.subItems || []).map((sub) => {
-            if (sub.id !== 'report-edit' && sub.id !== 'report-export' && sub.id !== 'report-list') return sub;
-            return {
-              ...sub,
-              // 편집·미리보기와 PDF 내보내기는 특정 점검의 생성 진입점이 아니라
-              // 회사 보고서 목록에서 대상 보고서를 선택하는 후속 관리 흐름이다.
-              href: '/reports',
-            };
+            // 보고서 편집·미리보기와 PDF 내보내기는 DB 시드의 path/activePathPattern을
+            // 그대로 사용하되, 보고서 목록/이력 관리만 /reports로 고정한다(#1088).
+            if (sub.id === 'report-list') {
+              return { ...sub, href: '/reports' };
+            }
+            return sub;
           }),
         };
       }
