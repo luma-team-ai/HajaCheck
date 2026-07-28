@@ -156,4 +156,32 @@ describe('CounselorConsolePage', () => {
       expect(screen.getByText('왼쪽 목록에서 상담을 선택하세요.')).not.toBeNull(),
     );
   });
+
+  it('정보 패널 "정보/메모" 탭에서 기존 비공개 메모를 불러와 보여준다(#1022)', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByText(mockInProgressQueueTicket.title));
+
+    expect(await screen.findByLabelText('비공개 메모')).toHaveProperty(
+      'value',
+      '고객이 등급 산정 기준 재설명 요청함.',
+    );
+    expect(screen.getByText('고객 프로필')).not.toBeNull();
+  });
+
+  it('비공개 메모를 수정하고 저장하면 저장 시각이 갱신된다(#1022)', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByText(mockQueueTickets[0].title));
+    fireEvent.click(await screen.findByRole('button', { name: '상담 배정받기' }));
+    await screen.findByText('안녕하세요, 문의 주신 내용에 대해 안내드리겠습니다.');
+
+    const textarea = await screen.findByLabelText('비공개 메모');
+    expect((textarea as HTMLTextAreaElement).value).toBe('');
+
+    fireEvent.change(textarea, { target: { value: '새 메모 내용' } });
+    fireEvent.click(screen.getByRole('button', { name: '메모 저장' }));
+
+    expect(await screen.findByText(/마지막 저장:/)).not.toBeNull();
+  });
 });

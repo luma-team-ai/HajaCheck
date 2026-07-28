@@ -85,3 +85,17 @@ export interface CounselTicketDetailResponse extends CounselTicketSummaryRespons
   sessionId: number | null;
   endedAt: string | null; // Instant, 진행 중이면 null
 }
+
+// GET/PUT .../note 응답 — 상담원 전용 비공개 메모(#1021/HAJA-503, 티켓당 1개, 고객 비노출).
+// 메모가 아직 없으면 counselorId/content/updatedAt이 모두 null(백엔드 CounselTicketNoteResponse.empty).
+export interface CounselTicketNoteResponse {
+  ticketId: number;
+  counselorId: number | null;
+  content: string | null;
+  updatedAt: string | null;
+}
+
+// PUT .../note 요청 — 빈 메모(공백/빈 문자열)도 허용한다(초기화 용도).
+export interface CounselTicketNoteUpdateRequest {
+  content: string;
+}
