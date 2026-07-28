@@ -44,6 +44,28 @@ class ReportTest {
     }
 
     @Test
+    void markDeleted_DRAFT만삭제시각과수정자를기록() {
+        Report report = Report.draft(10L, 1, "{}", 20L);
+
+        report.markDeleted(30L);
+
+        assertThat(report.getStatus()).isEqualTo(ReportStatus.DRAFT);
+        assertThat(report.getDeletedAt()).isNotNull();
+        assertThat(report.getEditedBy()).isEqualTo(30L);
+    }
+
+    @Test
+    void markDeleted_FINALIZED상태에서는예외() {
+        Report report = Report.draft(10L, 1, "{}", 20L);
+        report.recordGroundingResult(grounding(report, true, null), 30L);
+        report.finalizeReport("https://files.example/report.pdf", 30L);
+
+        assertThatThrownBy(() -> report.markDeleted(31L))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(report.getDeletedAt()).isNull();
+    }
+
+    @Test
     void finalizeReport_확정후재확정하거나수정하면예외() {
         Report report = Report.draft(10L, 1, "{}", 20L);
         report.recordGroundingResult(grounding(report, true, null), 30L);

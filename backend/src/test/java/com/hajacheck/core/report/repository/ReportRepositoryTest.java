@@ -185,4 +185,44 @@ class ReportRepositoryTest extends PostgresTestSupport {
 
         assertThat(count).isEqualTo(2);
     }
+
+    @Test
+    void findByInspectionIdAndDeletedAtIsNullOrderByVersionDesc_softDeletedDraft제외() {
+        Long ownerId = seedOwner("owner-version@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, ownerId, 1);
+        Report active = reportRepository.save(Report.draft(inspectionId, 1, "{}", ownerId));
+        Report deleted = Report.draft(inspectionId, 2, "{}", ownerId);
+        deleted.markDeleted(ownerId);
+        reportRepository.save(deleted);
+        em.flush();
+        em.clear();
+
+        List<Report> result = reportRepository.findByInspectionIdAndDeletedAtIsNullOrderByVersionDesc(inspectionId);
+
+        assertThat(result).extracting(Report::getId).containsExactly(active.getId());
+    }
+
+    @Test
+    void findCompanyPage와Summary_softDeletedDraft제외() {
+        Long ownerId = seedOwner("owner-company-report@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, ownerId, 1);
+        Report active = reportRepository.save(Report.draft(inspectionId, 1, "{}", ownerId));
+        Report deleted = Report.draft(inspectionId, 2, "{}", ownerId);
+        deleted.markDeleted(ownerId);
+        reportRepository.save(deleted);
+        em.flush();
+        em.clear();
+
+        var page = reportRepository.findCompanyPage(
+                companyId(ownerId), List.of(ReportStatus.DRAFT), -1L, "", FAR_PAST, PageRequest.of(0, 10));
+        var summary = reportRepository.summarizeCompany(
+                companyId(ownerId), ReportStatus.FINALIZED, ReportStatus.DRAFT, FAR_PAST);
+
+        assertThat(page.getContent()).extracting(Report::getId).containsExactly(active.getId());
+        assertThat(page.getTotalElements()).isEqualTo(1);
+        assertThat(summary.getTotalCount()).isEqualTo(1);
+        assertThat(summary.getDraftCount()).isEqualTo(1);
+    }
 }

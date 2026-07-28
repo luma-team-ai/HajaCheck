@@ -290,5 +290,17 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 where t.typname = 'notification_type' and e.enumlabel = 'PLAN_EXPIRED'
                 """, Long.class);
         assertThat(planExpiredLabelCount).isEqualTo(1L);
+
+        // V29(reports.deleted_at, #1172)도 이 "기존 DB" 경로에서 no-op 성공으로 적용된다.
+        Integer v29Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '29' and success = true",
+                Integer.class);
+        assertThat(v29Applied).isEqualTo(1);
+
+        Long reportsDeletedAtColumnExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'reports' and column_name = 'deleted_at'
+                """, Long.class);
+        assertThat(reportsDeletedAtColumnExists).isEqualTo(1L);
     }
 }
