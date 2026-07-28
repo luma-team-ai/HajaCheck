@@ -6,6 +6,14 @@ import type { ApiResponse } from '../../../shared/api/types';
 import { statisticsApi } from './statisticsApi';
 
 const captured = new Map<string, string>();
+const endpointKeys = {
+  getSummary: 'summary',
+  getMonthlyTrend: 'monthly-trend',
+  getDefectTypeDistribution: 'defect-type-distribution',
+  getGradeDistribution: 'grade-distribution',
+  getFacilityTypeHeatmap: 'facility-type-heatmap',
+  getFacilitySummary: 'facility-summary',
+} as const;
 
 const server = setupServer(
   http.get('/api/statistics/summary', ({ request }) => {
@@ -93,5 +101,19 @@ describe('6종 통계 API — facilityId 파라미터 전달', () => {
     const url = new URL(captured.get('summary') ?? '');
     expect(url.searchParams.has('period')).toBe(false);
     expect(url.searchParams.has('facilityId')).toBe(false);
+  });
+
+  it.each([
+    ['getSummary', statisticsApi.getSummary],
+    ['getMonthlyTrend', statisticsApi.getMonthlyTrend],
+    ['getDefectTypeDistribution', statisticsApi.getDefectTypeDistribution],
+    ['getGradeDistribution', statisticsApi.getGradeDistribution],
+    ['getFacilityTypeHeatmap', statisticsApi.getFacilityTypeHeatmap],
+    ['getFacilitySummary', statisticsApi.getFacilitySummary],
+  ] as const)('%s: period와 facilityId를 함께 전달한다', async (endpoint, request) => {
+    await request({ period: '3m', facilityId: '7' });
+    const endpointKey = endpointKeys[endpoint];
+    assertParam(endpointKey, 'period', '3m');
+    assertParam(endpointKey, 'facilityId', '7');
   });
 });
