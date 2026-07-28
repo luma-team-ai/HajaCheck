@@ -99,10 +99,24 @@ export interface InspectionNotificationSettings {
 
 export type SetInspectionNotificationSettingsRequest = InspectionNotificationSettings;
 
-// 전체 시설물 점검 주기 현황 — 우측 테이블 전용 타입.
-// name/cycleMonths/nextInspectionDueAt은 Facility 실필드와 매핑 가능하지만,
-// type(점검유형 정기/정밀/긴급)·lastInspectedAt·assigneeName은 백엔드 계약에 없어 MSW 목 전용이다.
-// 실연동 시 Facility 계약 확장 필요(핸드오프 §8 — [CONTRACT-CHANGE-REQUEST]로 A에 요청 예정).
+// 전체 시설물 점검 주기 현황(#1136 실연동) — GET /api/facilities/status, backend
+// FacilityStatusResponse와 1:1. inspectionType은 Facility 자체가 아니라 가장 최근 점검 회차의
+// 값을 근사 재사용한다(팀 결정 — DB 마이그레이션 없이 진행, option a). 점검 이력이 없으면 null.
+export interface FacilityStatusRow {
+  facilityId: number;
+  facilityName: string;
+  initialGrade: FacilityInitialGrade | null;
+  nextInspectionDueAt: string | null;
+  dDay: number | null;
+  assigneeUserId: number | null;
+  assigneeName: string | null;
+  lastInspectedAt: string | null;
+  inspectionCycleMonths: number | null;
+  inspectionType: 'REGULAR' | 'DETAILED' | 'EMERGENCY' | null;
+}
+
+// 전체 시설물 점검 주기 현황 — 우측 테이블/좌측 카드 전용 화면 타입(FacilityStatusRow를
+// useInspectionCycleStatusRows가 이 형태로 매핑한다 — mapFacilityStatusRow 참고).
 export type InspectionCycleType = '정기' | '정밀' | '긴급';
 
 export interface InspectionCycleStatusRow {

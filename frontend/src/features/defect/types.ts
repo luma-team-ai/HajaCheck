@@ -171,12 +171,14 @@ export interface DefectActionResult {
   afterPhotoUrl: string | null;
 }
 
-// 하자 상세 모달 "조치 완료 등록" 제출 body — PATCH /api/defects/{id}/action, DefectActionResultRequest
-// 1:1(contract.md §"조치 결과 등록" 확정, #726). status는 보내지 않는다 — 백엔드가 내부에서 항상
-// RESOLVED로만 전이한다(Defect#registerActionResult).
+// 하자 상세 모달 "상태 저장" 제출 body — PATCH /api/defects/{id}/action, DefectActionResultRequest
+// 1:1(contract.md §"조치 결과 등록" 확정, #726). targetStatus(#1128) — "진행상태" select 값으로,
+// 이제 IN_PROGRESS(조치중)/RESOLVED(조치완료) 중 백엔드가 실제로 전이한 상태를 명시적으로 보낸다
+// (과거엔 항상 RESOLVED로만 전이해 이 필드가 없었음).
 export interface DefectActionSubmitRequest {
   actionContent: string;
   actionDate: string;
   actionAssigneeId: number;
   actionMediaId: number;
+  targetStatus: 'IN_PROGRESS' | 'RESOLVED';
 }

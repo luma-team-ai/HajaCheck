@@ -6,4 +6,6 @@ export const notificationApi = {
   // NotificationController.java 주석: 읽음처리 PATCH는 이벤트 발행 트리거와 함께 별도 PR(HAJA-274)
   // 범위라 아직 BE 미배포일 수 있다 — 호출부(useNotifications.ts)가 실패를 삼킨다.
   markAsRead: (id: number) => api.patch<null>(`/notifications/${id}/read`),
+  // 알림 센터 개별 닫기(X) — 서버에서 실제로 삭제한다(notifications 테이블 물리 삭제).
+  remove: (id: number) => api.delete<null>(`/notifications/${id}`),
 };

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import type { NotificationItem } from '../../../shared/components/NotificationDropdown';
 import { NotificationDropdown } from '../../../shared/components/NotificationDropdown';
 import { NOTIFICATION_ALL_FILTER_KEY, NOTIFICATION_FILTERS, getNotificationTypeMeta } from '../constants';
-import { useMarkNotificationsAsRead, useNotifications } from '../hooks/useNotifications';
+import { useDeleteNotification, useMarkNotificationsAsRead, useNotifications } from '../hooks/useNotifications';
 import type { NotificationApiItem } from '../types';
 import { formatElapsedTime } from '../utils/formatElapsedTime';
 
@@ -34,14 +34,11 @@ function extractDescription(payload: NotificationApiItem['payload']): string | u
 export function NotificationCenter({ open, onClose, enabled }: NotificationCenterProps) {
   const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState(NOTIFICATION_ALL_FILTER_KEY);
-  // 개별 닫기(X) 로컬 상태 — 전용 삭제 API가 없어(#564) 서버엔 읽음처리만 반영하고, 화면에서
-  // 실제로 사라지는 동작은 이 클라이언트 전용 dismiss 목록으로 구현한다(재검수 반영: 읽음처리만으로는
-  // X를 눌러도 목록에 그대로 남아 "닫기"라는 라벨과 실제 동작이 어긋났었다).
-  const [dismissedIds, setDismissedIds] = useState<Set<number>>(() => new Set());
   const { data } = useNotifications(enabled);
   const { markAsRead, markAllAsRead } = useMarkNotificationsAsRead();
+  const { deleteNotification } = useDeleteNotification();
 
-  const notifications = (data ?? []).filter((raw) => !dismissedIds.has(raw.id));
+  const notifications = data ?? [];
 
   // markAsRead(useMutation.mutate 래퍼)는 렌더마다 identity가 바뀌어 useMemo 의존성으로 써도
   // 매 렌더 재계산됐다(P2) — 목록 규모가 작아(최대 30건, BE 컷 기준) 순수 계산으로 충분하다.
@@ -68,10 +65,8 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
             },
           }
         : {}),
-      onDismiss: () => {
-        markAsRead(raw.id);
-        setDismissedIds((prev) => new Set(prev).add(raw.id));
-      },
+      // X는 "숨김"이 아니라 실제 삭제 — DELETE /api/notifications/{id}로 notifications 행을 지운다.
+      onDismiss: () => deleteNotification(raw.id),
     };
   });
 
@@ -92,9 +87,6 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
         activeFilter={activeFilter}
         onFilterChange={setActiveFilter}
         onMarkAllRead={() => markAllAsRead(notifications.filter((item) => !item.isRead).map((item) => item.id))}
-        onViewAll={() => {
-          // TODO(HAJA-38 후속): 알림 전체 보기 페이지(/notifications) 라우트가 생기면 navigate 연결
-        }}
         onClose={onClose}
       />
     </div>

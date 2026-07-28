@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.29.0-draft"
+  version: "0.32.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -33,12 +33,39 @@ info:
       prefix `/user`.
 
 
+    2026-07-28 구독 만료 FREE 자동 강등 알림 추가(#1145 / HAJA-549, Flyway V28) — `NotificationTypeCode`
+    에 **PLAN_EXPIRED** 신설. 결제 주기(`current_period_end`)가 지난 유료 구독을 배치가 FREE 로 내리면서
+    발행한다. 기존 enum 값은 그대로라 하위호환이며, 프론트는 미지원 타입 폴백("기타")을 갖고 있으므로
+    문구 대응 전에도 깨지지 않는다. 배치는 `enabled=false`·`mode=DRY_RUN` 기본값이라 이 계약이 실제로
+    발행되기 전 운영 승격 절차를 거친다.
+
+    2026-07-28 알림 삭제 계약 추가(FR-9) — DELETE /api/notifications/{id} 신설. 알림 센터의 개별 닫기(X)가
+    클라이언트 숨김이 아니라 실제 삭제(notifications 행 물리 삭제)로 동작한다. 인가·404 통일 정책은
+    PATCH /{id}/read 와 동일(타인 소유·미존재 모두 NOTIFICATION_NOT_FOUND).
+
     2026-07-28 구독 결제 주기 실체화(#1104 / HAJA-525, Flyway V27) — `user_plans.current_period_start`
     /`current_period_end` 컬럼 신설로 nextBillingDate·remainingDays 의 산출 근거가 **조회 시점 파생 계산
     (startedAt + 1개월)에서 DB 컬럼값으로 교체**됐다. 응답 필드 이름·타입은 그대로라 하위호환이지만
     **의미가 바뀐 지점이 하나 있다**: `remainingDays=null` 이 이제 "만료"뿐 아니라 "무기한(FREE)"도
     뜻하므로(FREE = `remainingDays=null` + `status=ACTIVE`), 소비자는 만료 판정을 **status 로만** 해야
     한다. 결제 승인 전이 시 주기 리셋, 관리자 플랜 변경(무결제) 시 기존 주기 승계.
+
+
+    2026-07-28 회차 간 비교 조회 계약화(HAJA-531/#1112, HAJA-437 후속) — GET /api/facilities/{id}/compare
+    신설. previous_defect_id로 확정된 회차 간 대응을 기준으로 하자를 신규/진행중(악화 포함)/개선완료로
+    분류하고 KPI 4종(신규/진행성/개선완료/등급상승)을 반환한다. "재발생"(이전 회차 RESOLVED가 이후
+    회차에 재연결된 경우)은 프론트 DefectChangeType에 대응 타입이 없어 이번 범위에서 진행중(worsened)
+    으로 근사 매핑한다(HAJA-532/#1119 후속에서 정확화 예정). beforeImageUrl/afterImageUrl/crackTrend는
+    실 데이터 근거가 없어 이번 범위에서 생략(프론트 InspectionComparisonResult 타입과 완전히 1:1은 아님).
+
+    2026-07-28 조치 결과 등록 계약화 + 진행상태 선택 도입(#1128) — 실구현은 있었으나 미문서였던
+    **PATCH /api/defects/{id}/action** 을 신규 계약화하면서, 요청 스키마 DefectActionResultRequest에
+    **targetStatus**(전이 목표 상태)를 추가했다. 이전에는 이 엔드포인트가 항상 RESOLVED로만 고정 전이했으나,
+    하자 상세 모달의 조치 등록 폼에 "진행상태" select가 생기면서 같은 폼으로 조치중(IN_PROGRESS)·
+    조치완료(RESOLVED)를 모두 저장한다. targetStatus 허용 값은 IN_PROGRESS/RESOLVED 두 개뿐이며
+    (DETECTED/CONFIRMED는 조치 등록의 타겟이 될 수 없어 400), 실제 전이 가능 여부는 기존 정방향 한 단계
+    규칙을 그대로 따른다 — CONFIRMED→IN_PROGRESS, IN_PROGRESS→RESOLVED만 허용되고 건너뛴 전이
+    (CONFIRMED→RESOLVED)는 400으로 거부된다. defect_revisions 이력도 실제 전이된 상태를 기록한다.
 
     2026-07-28 하자 위치 편집·회차 간 대응 하자 확정 계약화(#970/HAJA-437, PR #1103 dev 머지 반영) —
     PATCH /api/defects/{id}/location · PATCH /api/defects/{id}/previous-defect 신설(Flyway V24로
@@ -47,8 +74,8 @@ info:
     DEFECT_PREVIOUS_DEFECT_INVALID(400) 하나로 통일 응답한다(리소스 존재 여부 열거 방지 — DEFECT_NOT_FOUND
     와 동일 원칙). 함께 **실구현은 있었으나 미문서였던 GET /api/defects/{id}** 와 그 응답 스키마
     DefectResponse(location·assigneeName·previousDefectId·foundCycle 포함, 프론트 하자 정보 패널이 실제로
-    소비하는 계약)를 소급 반영했다. ⚠️ 아직 미문서로 남은 하자 엔드포인트: PATCH /api/defects/{id}/status ·
-    PATCH /api/defects/{id}/action(후속 이슈에서 계약화). 기존 `PATCH /api/defects/{id}`(DefectRevisionRequest)
+    소비하는 계약)를 소급 반영했다. ⚠️ 아직 미문서로 남은 하자 엔드포인트: PATCH /api/defects/{id}/status
+    (후속 이슈에서 계약화 — /action 은 위 2026-07-28 #1128 항목에서 계약화됨). 기존 `PATCH /api/defects/{id}`(DefectRevisionRequest)
     항목은 현행 DefectController에 대응 핸들러가 없어 stale 의심 — 함께 후속 확인 대상.
     2026-07-28 상담원 전용 비공개 메모 계약화(#1021/HAJA-503, PR #1091 dev 머지 반영) — GET/PUT
     /api/counsel/tickets/{id}/note 신설. 티켓당 1개(counsel_ticket_notes.ticket_id unique, Flyway V23),
@@ -1640,6 +1667,57 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
+  /api/facilities/{id}/compare:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+      - name: before
+        in: query
+        required: true
+        schema: { type: integer }
+        description: 비교 기준(이전) 점검 회차 번호.
+      - name: after
+        in: query
+        required: true
+        schema: { type: integer }
+        description: 비교 대상(이후) 점검 회차 번호. before보다 커야 한다.
+    get:
+      summary: 회차 간 비교 조회 (HAJA-531/#1112, HAJA-437 후속)
+      description: >
+        인증 사용자의 회사가 소유한 시설물의 두 점검 회차(before/after)를 비교해 KPI(신규/진행중(악화
+        포함)/개선완료/등급상승 4종)와 하자 변화 목록을 반환한다. previous_defect_id로 확정된 회차 간
+        대응(HAJA-437)을 기준으로 분류하며, "재발생"(이전 회차 RESOLVED가 이후 회차에 재연결된 경우)은
+        프론트 DefectChangeType에 대응 타입이 없어 진행중(worsened)으로 근사 매핑한다(HAJA-532/#1119
+        후속에서 정확화 예정). beforeImageUrl/afterImageUrl/crackTrend는 실 데이터 근거가 없어 이번
+        범위에서 생략한다. 미존재/타인 소유 시설 모두 404 FACILITY_NOT_FOUND, before>=after 또는 존재
+        하지 않는 회차는 각각 400 INVALID_INPUT / 404 INSPECTION_NOT_FOUND.
+      security:
+        - SessionCookie: []
+      tags: [facility]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityComparisonApiResponse" }
+        "400":
+          description: before >= after 등 입력값 오류 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재/타인 소유 시설(FACILITY_NOT_FOUND) 또는 존재하지 않는 회차(INSPECTION_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
   /api/dashboard/summary:
     get:
       summary: 대시보드 요약 카드 (HAJA-17, dev-03-01)
@@ -2333,6 +2411,71 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
+  /api/defects/{id}/action:
+    patch:
+      summary: 조치 결과 등록 (HAJA-393/#725, targetStatus 도입 #1128)
+      description: >
+        하자 상세 모달 조치 등록 폼("상태 저장" 버튼)의 제출 대상. 조치 후 사진(actionMediaId)·조치 내용·
+        조치일·담당자 4개 필드를 한 번에 저장하면서 **targetStatus로 상태를 전이**한다.
+
+        - targetStatus 허용 값은 **IN_PROGRESS / RESOLVED** 두 개뿐이다. DETECTED·CONFIRMED는 조치 등록의
+          타겟이 될 수 없어 400(INVALID_INPUT)으로 거부된다.
+        - 실제 전이 가능 여부는 기존 정방향 한 단계 규칙(Defect#changeStatus)을 그대로 따른다 —
+          **CONFIRMED→IN_PROGRESS**, **IN_PROGRESS→RESOLVED** 만 사유 없이 허용되고, 건너뛴 전이
+          (예: CONFIRMED→RESOLVED)나 종료 상태(RESOLVED)에서의 재등록은 거부된다(폼에 사유 입력란이 없음).
+        - actionAssigneeId는 `GET /api/facilities/assignable-users`(#690)와 동일 자격 조건
+          (활성·INSPECTOR/ADMIN·유효 승인 멤버십)으로 검증하고, actionMediaId는 **해당 하자와 같은 점검 소속
+          media인지** 확인해 타 점검/타사 media 연결과 cross-company IDOR을 차단한다.
+        - 전이가 성공하면 defect_revisions에 `status` 변경 이력(이전 상태 → **실제 전이된 상태**)을 남긴다.
+
+        `DefectController.registerActionResult` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [defect]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DefectActionResultRequest" }
+      responses:
+        "200":
+          description: 조치 결과가 반영된 하자 상세(actionAssigneeName 포함)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DefectResponseApiResponse" }
+        "400":
+          description: >
+            필수 필드 누락·조치 내용 2000자 초과(VALIDATION_ERROR), targetStatus가 IN_PROGRESS/RESOLVED가
+            아님, 또는 건너뛴 전이(INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 회사 멤버십 없음/회수·만료(회사 스코프 가드) 또는 담당자 자격 불충족
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: >
+            하자 미존재 또는 타사 소유(DEFECT_NOT_FOUND) · 조치 후 사진이 해당 점검 소속이 아님
+            (MEDIA_NOT_FOUND) — 둘 다 통일 응답
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: 종료 상태(RESOLVED)에서의 재전이 등 상태 전이 가드 위반(INVALID_STATE_TRANSITION)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
   /api/defects/{id}/previous-defect:
     patch:
       summary: 회차 간 대응 하자 확정 (HAJA-437)
@@ -2776,7 +2919,8 @@ paths:
         AP-020(#25 / HAJA-38 FR-9). 로그인 사용자에게 온 알림을 읽음/미읽음 모두 포함해(센터는 이력 표시)
         생성일 최신순(동률 시 id desc) 상위 30건으로 반환한다. 수신자(userId)는 인증 주체에서만 취득하며
         요청 파라미터/바디로 받지 않는다(cross-owner IDOR 방지). 이 엔드포인트는 조회만 다룬다 —
-        읽음처리는 PATCH /api/notifications/{id}/read(HAJA-274), 이벤트 발행(트리거)은 별도 계약(후속).
+        읽음처리는 PATCH /api/notifications/{id}/read(HAJA-274), 삭제는 DELETE /api/notifications/{id},
+        이벤트 발행(트리거)은 별도 계약(후속).
       security:
         - SessionCookie: []
       tags: [notification]
@@ -2811,6 +2955,40 @@ paths:
       responses:
         "200":
           description: 읽음 처리 성공(멱등 — 이미 읽음도 200)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoidApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 타인 소유 (NOTIFICATION_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/notifications/{id}:
+    delete:
+      summary: 알림 삭제
+      description: >
+        FR-9. 알림 센터에서 개별 알림의 닫기(X)를 누르면 해당 알림을 삭제한다(notifications 행 물리 삭제 —
+        알림은 파생 통지라 보존하지 않는다). 읽음 여부와 무관하게 삭제하며, 수신자(userId)는 인증 주체에서만
+        취득한다. 미존재 또는 타인 소유 알림은 리소스 존재 열거(cross-user IDOR)를 막기 위해 모두 404로
+        통일 응답한다(읽음 처리와 동일 원칙).
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [notification]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: 삭제 성공
           content:
             application/json:
               schema: { $ref: "#/components/schemas/VoidApiResponse" }
@@ -3682,6 +3860,84 @@ components:
           oneOf:
             - { $ref: "#/components/schemas/ApiError" }
 
+    FacilityComparisonCycleOption:
+      type: object
+      additionalProperties: false
+      required: [cycle, date]
+      properties:
+        cycle: { type: integer, description: 점검 회차 번호(roundNo). }
+        date: { type: string, format: date, description: 해당 회차의 inspectionDate. }
+
+    FacilityComparisonKpi:
+      type: object
+      additionalProperties: false
+      required: [key, label, value, changeValue]
+      properties:
+        key:
+          type: string
+          enum: [newDefects, worsening, resolved, gradeEscalated]
+        label: { type: string, description: KPI 한글 라벨. }
+        value: { type: integer, description: 해당 KPI 분류 건수. }
+        changeValue:
+          type: integer
+          description: >
+            악화/신규=양수, 개선=음수 부호 규칙만 반영한 값(#489 스펙). 회차간 KPI 추이 비교의
+            정식 기준선은 아직 없어 value와 부호만 다른 단순화된 값이다.
+
+    FacilityComparisonDefectChangeRow:
+      type: object
+      additionalProperties: false
+      required: [id, location, defectType, gradeBefore, gradeAfter, changeType, note]
+      properties:
+        id: { type: integer, format: int64 }
+        location: { type: string, nullable: true }
+        defectType: { type: string, description: DefectType.label() 한글 라벨(예=균열). }
+        gradeBefore: { type: string, nullable: true, description: 이전 회차 등급(A~E). 신규면 null. }
+        gradeAfter: { type: string, nullable: true, description: 이후 회차 등급(A~E). 개선완료면 null. }
+        changeType:
+          type: string
+          enum: [new, unchanged, worsened, resolved]
+          description: >
+            "재발생"(이전 RESOLVED + 이후 회차 재연결)은 이 4종에 대응 타입이 없어 worsened로
+            근사 매핑된다(HAJA-532/#1119 후속에서 정확화 예정).
+        note: { type: string, description: 이번 범위에서는 항상 빈 문자열. }
+
+    FacilityComparisonResponse:
+      type: object
+      additionalProperties: false
+      required: [facilityId, facilityName, beforeCycle, afterCycle, kpis, changes, availableCycles]
+      description: >
+        HAJA-531/#1112 — 프론트 InspectionComparisonResult와 완전히 1:1은 아니다. 실 데이터 근거가
+        없는 beforeImageUrl/afterImageUrl/crackTrend는 이번 범위에서 생략한다.
+      properties:
+        facilityId: { type: integer, format: int64 }
+        facilityName: { type: string }
+        beforeCycle: { $ref: "#/components/schemas/FacilityComparisonCycleOption" }
+        afterCycle: { $ref: "#/components/schemas/FacilityComparisonCycleOption" }
+        kpis:
+          type: array
+          items: { $ref: "#/components/schemas/FacilityComparisonKpi" }
+        changes:
+          type: array
+          items: { $ref: "#/components/schemas/FacilityComparisonDefectChangeRow" }
+        availableCycles:
+          type: array
+          items: { $ref: "#/components/schemas/FacilityComparisonCycleOption" }
+
+    FacilityComparisonApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/FacilityComparisonResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
     UpcomingInspectionResponse:
       type: object
       additionalProperties: false
@@ -4035,6 +4291,40 @@ components:
           nullable: true
           maxLength: 300
           example: 외벽 동측 12층 부근
+
+    DefectActionResultRequest:
+      type: object
+      description: >
+        조치 결과 등록 요청(HAJA-393/#725, targetStatus 도입 #1128). 4개 조치 필드는 폼상 전부 필수이며,
+        targetStatus는 폼의 "진행상태" select 값이다.
+      required: [actionMediaId, actionContent, actionDate, actionAssigneeId, targetStatus]
+      properties:
+        actionMediaId:
+          type: integer
+          format: int64
+          description: 조치 후 사진 media id — 해당 하자와 같은 점검 소속이어야 한다(POST /api/inspections/{id}/media 업로드 결과)
+          example: 4821
+        actionContent:
+          type: string
+          maxLength: 2000
+          description: 조치 내용(공백만 입력 불가)
+          example: 균열부 에폭시 주입 후 표면 마감
+        actionDate:
+          type: string
+          format: date
+          example: "2026-07-28"
+        actionAssigneeId:
+          type: integer
+          format: int64
+          description: 조치 담당자 user id — GET /api/facilities/assignable-users 옵션 중 하나
+          example: 12
+        targetStatus:
+          type: string
+          enum: [IN_PROGRESS, RESOLVED]
+          description: >
+            전이 목표 상태. IN_PROGRESS/RESOLVED만 허용된다(DETECTED·CONFIRMED는 400). 현재 상태 기준
+            정방향 한 단계만 가능 — CONFIRMED면 IN_PROGRESS, IN_PROGRESS면 RESOLVED.
+          example: RESOLVED
 
     DefectPreviousDefectUpdateRequest:
       type: object

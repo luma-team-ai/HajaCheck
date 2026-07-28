@@ -3,6 +3,7 @@ package com.hajacheck.notification.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -182,6 +183,51 @@ class NotificationControllerTest extends PostgresTestSupport {
     @Test
     void 알림읽음처리_미인증_401() throws Exception {
         mockMvc.perform(patch("/api/notifications/{id}/read", 1L).with(csrf()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 알림삭제_본인알림_200_DB에서제거() throws Exception {
+        User user = saveUser("notif-del1@haja.com");
+        Notification notification = notificationRepository.saveAndFlush(
+                Notification.create(user.getId(), NotificationType.INSPECTION_DUE, null));
+
+        mockMvc.perform(delete("/api/notifications/{id}", notification.getId())
+                        .with(csrf()).with(authentication(authOf(user))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        assertThat(notificationRepository.findById(notification.getId())).isEmpty();
+    }
+
+    @Test
+    void 알림삭제_없는알림_404_NOTIFICATION_NOT_FOUND() throws Exception {
+        User user = saveUser("notif-del2@haja.com");
+
+        mockMvc.perform(delete("/api/notifications/{id}", 999999L)
+                        .with(csrf()).with(authentication(authOf(user))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("NOTIFICATION_NOT_FOUND"));
+    }
+
+    @Test
+    void 알림삭제_타인알림_404_IDOR방지_원본유지() throws Exception {
+        User owner = saveUser("notif-del-owner@haja.com");
+        User stranger = saveUser("notif-del-stranger@haja.com");
+        Notification notification = notificationRepository.saveAndFlush(
+                Notification.create(owner.getId(), NotificationType.INSPECTION_DUE, null));
+
+        mockMvc.perform(delete("/api/notifications/{id}", notification.getId())
+                        .with(csrf()).with(authentication(authOf(stranger))))
+                .andExpect(status().isNotFound());
+
+        assertThat(notificationRepository.findById(notification.getId())).isPresent();
+    }
+
+    @Test
+    void 알림삭제_미인증_401() throws Exception {
+        mockMvc.perform(delete("/api/notifications/{id}", 1L).with(csrf()))
                 .andExpect(status().isUnauthorized());
     }
 }

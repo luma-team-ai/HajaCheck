@@ -6,6 +6,7 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -37,6 +38,9 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     // 점검 회차 생성(dev-05-02) — 시설물별 다음 회차 번호 계산.
     @Query("select coalesce(max(i.roundNo), 0) from Inspection i where i.facilityId = :facilityId")
     int findMaxRoundNoByFacilityId(@Param("facilityId") Long facilityId);
+
+    // 회차 간 비교(HAJA-531/#1112) — 시설물 1건의 특정 회차 단건 조회.
+    Optional<Inspection> findByFacilityIdAndRoundNo(Long facilityId, Integer roundNo);
 
     // 시설물 현황 목록(#540 ⑥, HAJA-378) — 시설물별 "최근 점검일" 1건씩만 필요하다.
     // findRecentByFacilityIds 는 전체 시설물이 뒤섞인 플랫 리스트라 시설물별 최신 1건 추출에는

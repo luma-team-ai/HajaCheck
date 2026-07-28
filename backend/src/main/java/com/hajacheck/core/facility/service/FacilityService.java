@@ -187,9 +187,11 @@ public class FacilityService {
         LocalDate today = LocalDate.now(KST);
         List<Long> facilityIds = facilities.stream().map(Facility::getId).toList();
 
-        Map<Long, LocalDate> lastInspectedByFacilityId =
+        // #1136 — 최근 점검 1건을 한 번만 조회해 lastInspectedAt/inspectionType 둘 다 파생한다
+        // (같은 조회를 두 번 하지 않도록 Inspection 자체를 값으로 두는 단일 맵).
+        Map<Long, Inspection> latestInspectionByFacilityId =
                 inspectionRepository.findLatestByFacilityIds(facilityIds).stream()
-                        .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getInspectionDate));
+                        .collect(Collectors.toMap(Inspection::getFacilityId, inspection -> inspection));
 
         List<Long> assigneeIds = facilities.stream()
                 .map(Facility::getAssigneeUserId)
@@ -202,14 +204,18 @@ public class FacilityService {
                         .collect(Collectors.toMap(User::getId, User::getName));
 
         return facilities.stream()
-                .map(facility -> FacilityStatusResponse.of(
-                        facility,
-                        today,
-                        // assigneeUserId 가 null 이면 Map.of()(불변 빈 맵)의 get(null) 이 NPE 를 던지므로
-                        // (ImmutableCollections 는 null 키 조회 자체를 금지) null 키는 조회 전에 걸러낸다.
-                        facility.getAssigneeUserId() == null
-                                ? null : assigneeNameById.get(facility.getAssigneeUserId()),
-                        lastInspectedByFacilityId.get(facility.getId())))
+                .map(facility -> {
+                    Inspection latestInspection = latestInspectionByFacilityId.get(facility.getId());
+                    return FacilityStatusResponse.of(
+                            facility,
+                            today,
+                            // assigneeUserId 가 null 이면 Map.of()(불변 빈 맵)의 get(null) 이 NPE 를 던지므로
+                            // (ImmutableCollections 는 null 키 조회 자체를 금지) null 키는 조회 전에 걸러낸다.
+                            facility.getAssigneeUserId() == null
+                                    ? null : assigneeNameById.get(facility.getAssigneeUserId()),
+                            latestInspection == null ? null : latestInspection.getInspectionDate(),
+                            latestInspection == null ? null : latestInspection.getType());
+                })
                 .toList();
     }
 
