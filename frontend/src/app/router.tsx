@@ -713,11 +713,11 @@ export const router = createBrowserRouter([
           </Suspense>
         ),
         handle: {
-          breadcrumb: [
-            { label: '시설물 관리' },
-            { label: '강남 오피스타워 A동' },
-            { label: '점검 주기' },
-          ],
+          // #1135 — 특정 시설물명(강남 오피스타워 A동)을 하드코딩하지 않는다. #1129 이전
+          // DEFAULT_FACILITY_ID=3 폴백 시절 "항상 그 시설물이 선택됨"을 전제로 붙인 값이었는데,
+          // #1129 이후엔 시설물이 선택되지 않은 채로도 진입 가능해 실제와 다른 이름이 떴다.
+          // Figma는 일반 텍스트("점검 주기 설정")만 쓴다.
+          breadcrumb: [{ label: '시설물 관리' }, { label: '점검 주기 설정' }],
           activeHref: '/facilities/inspection-cycle',
         },
       }, // — features/facility 점검 주기 설정 (dev-04-03, FR-019)
