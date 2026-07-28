@@ -410,7 +410,12 @@ class Ha25IncrementalMigrationTest {
                 // #988/HAJA-489 — Flyway V20(토스페이먼츠 결제 원장 payments + payment_status/method enum).
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource("db/migration/V20__create_payments.sql"),
-                        CONTAINER_ROOT + "V20__create_payments.sql");
+                        CONTAINER_ROOT + "V20__create_payments.sql")
+                // #1021/HAJA-503 — Flyway V23(상담원 비공개 메모 counsel_ticket_notes)도 이어서 1회
+                // forward-apply한다. V21/V22는 위 클래스 주석대로 이 파리티 체인에서 의도적으로 제외.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("db/migration/V23__counsel_ticket_note.sql"),
+                        CONTAINER_ROOT + "V23__counsel_ticket_note.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -510,6 +515,8 @@ class Ha25IncrementalMigrationTest {
         // 멱등(IF NOT EXISTS / DO 블록)이라, 두 번 실행해도 안전하다는 점까지 함께 고정한다.
         runPsql(postgres, "V20__create_payments.sql");
         runPsql(postgres, "V20__create_payments.sql");
+        // #1021/HAJA-503 — Flyway V23(상담원 비공개 메모)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V23__counsel_ticket_note.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

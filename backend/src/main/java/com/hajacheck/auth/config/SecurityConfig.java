@@ -108,6 +108,10 @@ public class SecurityConfig {
                         // 요구하고 요금제 게이트(has_counselor_access)는 CounselTicketService가 담당한다.
                         .requestMatchers(HttpMethod.GET, "/api/counsel/tickets").hasAnyRole("COUNSELOR", "PLATFORM_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/counsel/tickets/*/assign").hasAnyRole("COUNSELOR", "PLATFORM_ADMIN")
+                        // 상담원 비공개 메모(#1021/HAJA-503) — 고객 비노출, 담당 상담원 본인만. role 게이트는
+                        // 최소 방어선이고, "담당 상담원 본인" 세부 소유권은 CounselTicketNoteService가 검증한다.
+                        .requestMatchers(HttpMethod.GET, "/api/counsel/tickets/*/note").hasAnyRole("COUNSELOR", "PLATFORM_ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/counsel/tickets/*/note").hasAnyRole("COUNSELOR", "PLATFORM_ADMIN")
                         // WebSocket 핸드셰이크 — 실질 인증은 CounselHandshakeInterceptor(SESSION 쿠키 검증)와
                         // StompAuthChannelInterceptor(CONNECT 재검증·SUBSCRIBE 당사자 검증)가 담당한다. 이 매처는
                         // "인증 필요"를 명시적으로 문서화하는 최소 경계다(anyRequest로도 커버되지만 의도 고정).
