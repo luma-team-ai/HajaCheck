@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.29.0-draft"
+  version: "0.30.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -43,6 +43,14 @@ info:
     **의미가 바뀐 지점이 하나 있다**: `remainingDays=null` 이 이제 "만료"뿐 아니라 "무기한(FREE)"도
     뜻하므로(FREE = `remainingDays=null` + `status=ACTIVE`), 소비자는 만료 판정을 **status 로만** 해야
     한다. 결제 승인 전이 시 주기 리셋, 관리자 플랜 변경(무결제) 시 기존 주기 승계.
+
+
+    2026-07-28 회차 간 비교 조회 계약화(HAJA-531/#1112, HAJA-437 후속) — GET /api/facilities/{id}/compare
+    신설. previous_defect_id로 확정된 회차 간 대응을 기준으로 하자를 신규/진행중(악화 포함)/개선완료로
+    분류하고 KPI 4종(신규/진행성/개선완료/등급상승)을 반환한다. "재발생"(이전 회차 RESOLVED가 이후
+    회차에 재연결된 경우)은 프론트 DefectChangeType에 대응 타입이 없어 이번 범위에서 진행중(worsened)
+    으로 근사 매핑한다(HAJA-532/#1119 후속에서 정확화 예정). beforeImageUrl/afterImageUrl/crackTrend는
+    실 데이터 근거가 없어 이번 범위에서 생략(프론트 InspectionComparisonResult 타입과 완전히 1:1은 아님).
 
     2026-07-28 하자 위치 편집·회차 간 대응 하자 확정 계약화(#970/HAJA-437, PR #1103 dev 머지 반영) —
     PATCH /api/defects/{id}/location · PATCH /api/defects/{id}/previous-defect 신설(Flyway V24로
@@ -1640,6 +1648,57 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "404":
           description: 미존재 또는 타인 소유 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/facilities/{id}/compare:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+      - name: before
+        in: query
+        required: true
+        schema: { type: integer }
+        description: 비교 기준(이전) 점검 회차 번호.
+      - name: after
+        in: query
+        required: true
+        schema: { type: integer }
+        description: 비교 대상(이후) 점검 회차 번호. before보다 커야 한다.
+    get:
+      summary: 회차 간 비교 조회 (HAJA-531/#1112, HAJA-437 후속)
+      description: >
+        인증 사용자의 회사가 소유한 시설물의 두 점검 회차(before/after)를 비교해 KPI(신규/진행중(악화
+        포함)/개선완료/등급상승 4종)와 하자 변화 목록을 반환한다. previous_defect_id로 확정된 회차 간
+        대응(HAJA-437)을 기준으로 분류하며, "재발생"(이전 회차 RESOLVED가 이후 회차에 재연결된 경우)은
+        프론트 DefectChangeType에 대응 타입이 없어 진행중(worsened)으로 근사 매핑한다(HAJA-532/#1119
+        후속에서 정확화 예정). beforeImageUrl/afterImageUrl/crackTrend는 실 데이터 근거가 없어 이번
+        범위에서 생략한다. 미존재/타인 소유 시설 모두 404 FACILITY_NOT_FOUND, before>=after 또는 존재
+        하지 않는 회차는 각각 400 INVALID_INPUT / 404 INSPECTION_NOT_FOUND.
+      security:
+        - SessionCookie: []
+      tags: [facility]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityComparisonApiResponse" }
+        "400":
+          description: before >= after 등 입력값 오류 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재/타인 소유 시설(FACILITY_NOT_FOUND) 또는 존재하지 않는 회차(INSPECTION_NOT_FOUND)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
@@ -3716,6 +3775,84 @@ components:
           nullable: true
           type: array
           items: { $ref: "#/components/schemas/FacilityResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    FacilityComparisonCycleOption:
+      type: object
+      additionalProperties: false
+      required: [cycle, date]
+      properties:
+        cycle: { type: integer, description: 점검 회차 번호(roundNo). }
+        date: { type: string, format: date, description: 해당 회차의 inspectionDate. }
+
+    FacilityComparisonKpi:
+      type: object
+      additionalProperties: false
+      required: [key, label, value, changeValue]
+      properties:
+        key:
+          type: string
+          enum: [newDefects, worsening, resolved, gradeEscalated]
+        label: { type: string, description: KPI 한글 라벨. }
+        value: { type: integer, description: 해당 KPI 분류 건수. }
+        changeValue:
+          type: integer
+          description: >
+            악화/신규=양수, 개선=음수 부호 규칙만 반영한 값(#489 스펙). 회차간 KPI 추이 비교의
+            정식 기준선은 아직 없어 value와 부호만 다른 단순화된 값이다.
+
+    FacilityComparisonDefectChangeRow:
+      type: object
+      additionalProperties: false
+      required: [id, location, defectType, gradeBefore, gradeAfter, changeType, note]
+      properties:
+        id: { type: integer, format: int64 }
+        location: { type: string, nullable: true }
+        defectType: { type: string, description: DefectType.label() 한글 라벨(예=균열). }
+        gradeBefore: { type: string, nullable: true, description: 이전 회차 등급(A~E). 신규면 null. }
+        gradeAfter: { type: string, nullable: true, description: 이후 회차 등급(A~E). 개선완료면 null. }
+        changeType:
+          type: string
+          enum: [new, unchanged, worsened, resolved]
+          description: >
+            "재발생"(이전 RESOLVED + 이후 회차 재연결)은 이 4종에 대응 타입이 없어 worsened로
+            근사 매핑된다(HAJA-532/#1119 후속에서 정확화 예정).
+        note: { type: string, description: 이번 범위에서는 항상 빈 문자열. }
+
+    FacilityComparisonResponse:
+      type: object
+      additionalProperties: false
+      required: [facilityId, facilityName, beforeCycle, afterCycle, kpis, changes, availableCycles]
+      description: >
+        HAJA-531/#1112 — 프론트 InspectionComparisonResult와 완전히 1:1은 아니다. 실 데이터 근거가
+        없는 beforeImageUrl/afterImageUrl/crackTrend는 이번 범위에서 생략한다.
+      properties:
+        facilityId: { type: integer, format: int64 }
+        facilityName: { type: string }
+        beforeCycle: { $ref: "#/components/schemas/FacilityComparisonCycleOption" }
+        afterCycle: { $ref: "#/components/schemas/FacilityComparisonCycleOption" }
+        kpis:
+          type: array
+          items: { $ref: "#/components/schemas/FacilityComparisonKpi" }
+        changes:
+          type: array
+          items: { $ref: "#/components/schemas/FacilityComparisonDefectChangeRow" }
+        availableCycles:
+          type: array
+          items: { $ref: "#/components/schemas/FacilityComparisonCycleOption" }
+
+    FacilityComparisonApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/FacilityComparisonResponse" }
         error:
           nullable: true
           oneOf:
