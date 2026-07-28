@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { getApiErrorMessage } from '../../../shared/api/types';
 import { counselApi } from '../api/counselApi';
 import { DEFAULT_PAGE_SIZE, isTicketEnded } from '../constants';
@@ -17,6 +18,17 @@ export function useCounselHistory() {
   const [allTickets, setAllTickets] = useState<CounselTicketSummaryResponse[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [ticketsError, setTicketsError] = useState<string | null>(null);
+
+  // 알림센터 "대화 열기"(COUNSEL_REPLIED) 딥링크 — 진입 시 ?ticketId=로 특정 티켓을 바로 선택한다
+  // (이전엔 이 값을 아예 읽지 않아 버튼을 눌러도 상담창으로 넘어가지 않는 버그였다). 목록 로드 후
+  // 그 티켓이 실제로 있으면 1회만 선택에 반영하고 소진한다 — 계속 강제 선택하면 이후 사용자가 다른
+  // 티켓을 고른 뒤에도 소켓 갱신 등으로 tickets가 바뀔 때마다 도로 튕겨나가는 회귀가 생긴다.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [pendingDeepLinkTicketId, setPendingDeepLinkTicketId] = useState<number | null>(() => {
+    const raw = searchParams.get('ticketId');
+    const parsed = raw ? Number(raw) : NaN;
+    return Number.isFinite(parsed) ? parsed : null;
+  });
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessageResponse[]>([]);
@@ -52,12 +64,23 @@ export function useCounselHistory() {
   }, [status, allTickets]);
 
   useEffect(() => {
+    const deepLinkTicket =
+      pendingDeepLinkTicketId !== null ? tickets.find((t) => t.id === pendingDeepLinkTicketId) : undefined;
     // 필터 전환 후 이전 선택이 새 목록에 없으면(예: '진행중'에서 '종료'로 전환) 첫 항목으로 갱신.
     setSelectedId((prev) => {
+      if (deepLinkTicket) return deepLinkTicket.id;
       if (prev !== null && tickets.some((t) => t.id === prev)) return prev;
       return tickets[0]?.id ?? null;
     });
-  }, [tickets]);
+    if (deepLinkTicket) {
+      setPendingDeepLinkTicketId(null);
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('ticketId');
+        return next;
+      }, { replace: true });
+    }
+  }, [tickets, pendingDeepLinkTicketId, setSearchParams]);
 
   useEffect(() => {
     if (selectedId === null) {

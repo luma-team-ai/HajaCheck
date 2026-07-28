@@ -144,4 +144,47 @@ describe('ConversationPanel', () => {
       expect(screen.queryByLabelText('메시지 입력')).toBeNull();
     },
   );
+
+  it.each(['RESOLVED', 'OFFLINE_LEFT'] as const)(
+    '%s 티켓이면 종료 안내 문구를 보여준다(#1022 후속: 종료 표시 없어 헷갈리던 문제 수정)',
+    (status) => {
+      render(
+        <ConversationPanel
+          ticket={buildTicket({ status })}
+          messages={[]}
+          loading={false}
+          error={null}
+          onStartNewCounsel={vi.fn()}
+          onSendMessage={vi.fn()}
+          onTyping={vi.fn()}
+          counselorTyping={false}
+          onEndCounsel={vi.fn()}
+          ending={false}
+          endError={null}
+        />,
+      );
+
+      expect(screen.getByText(/상담이 종료되었습니다/)).not.toBeNull();
+    },
+  );
+
+  it('WAITING 티켓이면 종료 안내 문구를 보여주지 않는다', () => {
+    render(
+      <ConversationPanel
+        ticket={buildTicket({ status: 'WAITING' })}
+        messages={[]}
+        loading={false}
+        error={null}
+        onStartNewCounsel={vi.fn()}
+        onSendMessage={vi.fn()}
+        onTyping={vi.fn()}
+        counselorTyping={false}
+        onEndCounsel={vi.fn()}
+        ending={false}
+        endError={null}
+      />,
+    );
+
+    expect(screen.queryByText(/상담이 종료되었습니다/)).toBeNull();
+  });
 });

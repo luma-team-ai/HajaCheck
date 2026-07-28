@@ -22,6 +22,12 @@ vi.mock('../hooks/useCounselSocket', () => ({
   },
 }));
 
+// 대기열 실시간 갱신(#1001 후속) — 별도 단위 테스트가 없으므로 여기서는 실제 STOMP 연결을 막고
+// no-op으로 대체한다(이 페이지 테스트는 REST 목록 로직에 집중).
+vi.mock('../hooks/useCounselQueueSocket', () => ({
+  useCounselQueueSocket: () => ({ connected: false }),
+}));
+
 const server = setupServer(...counselHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
@@ -53,6 +59,9 @@ describe('CounselorConsolePage', () => {
     // 종료되지 않은 담당 상담(IN_PROGRESS)도 대기열(WAITING)과 함께 목록에 보인다(#1001 후속 버그 수정).
     expect(screen.getByText(mockInProgressQueueTicket.title)).not.toBeNull();
     expect(screen.getByText('활성 채팅 (2)')).not.toBeNull();
+    // 상담 중(IN_PROGRESS)과 배정 가능(WAITING)이 구분된 섹션으로 보인다(사용자 피드백).
+    expect(screen.getByText('상담 중 (1)')).not.toBeNull();
+    expect(screen.getByText('배정 가능 (1)')).not.toBeNull();
     expect(screen.getByText('왼쪽 목록에서 상담을 선택하세요.')).not.toBeNull();
   });
 
@@ -155,5 +164,33 @@ describe('CounselorConsolePage', () => {
     await waitFor(() =>
       expect(screen.getByText('왼쪽 목록에서 상담을 선택하세요.')).not.toBeNull(),
     );
+  });
+
+  it('정보 패널 "정보/메모" 탭에서 기존 비공개 메모를 불러와 보여준다(#1022)', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByText(mockInProgressQueueTicket.title));
+
+    expect(await screen.findByLabelText('비공개 메모')).toHaveProperty(
+      'value',
+      '고객이 등급 산정 기준 재설명 요청함.',
+    );
+    expect(screen.getByText('고객 프로필')).not.toBeNull();
+  });
+
+  it('비공개 메모를 수정하고 저장하면 저장 시각이 갱신된다(#1022)', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByText(mockQueueTickets[0].title));
+    fireEvent.click(await screen.findByRole('button', { name: '상담 배정받기' }));
+    await screen.findByText('안녕하세요, 문의 주신 내용에 대해 안내드리겠습니다.');
+
+    const textarea = await screen.findByLabelText('비공개 메모');
+    expect((textarea as HTMLTextAreaElement).value).toBe('');
+
+    fireEvent.change(textarea, { target: { value: '새 메모 내용' } });
+    fireEvent.click(screen.getByRole('button', { name: '메모 저장' }));
+
+    expect(await screen.findByText(/마지막 저장:/)).not.toBeNull();
   });
 });

@@ -60,6 +60,10 @@ public class CounselTicketService {
 
     private static final String DEST_ASSIGNED = "/queue/counsel/assigned";
     private static final String DEST_ENDED = "/queue/counsel/ended";
+    // 상담원 대기열 실시간 갱신(#1001 후속, 사용자 피드백: "신청하면 상담원이 새로고침해야 보임").
+    // 티켓 내용은 담지 않고 신호만 보낸다 — 구독은 COUNSELOR/PLATFORM_ADMIN로 제한되지만
+    // (StompAuthChannelInterceptor), 그래도 최소 정보 원칙을 지켜 프론트가 REST로 재조회하게 한다.
+    private static final String DEST_QUEUE_UPDATED = "/topic/counsel-queue";
     private static final int CUSTOMER_HISTORY_SIZE = 20;
     private static final DateTimeFormatter TRANSCRIPT_TS =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -93,6 +97,7 @@ public class CounselTicketService {
         ticket.assignTicketNumber(
                 CounselTicket.formatTicketNumber(ticket.getCreatedAt(), ticket.getId()));
         ticketRepository.saveAndFlush(ticket);
+        messagingTemplate.convertAndSend(DEST_QUEUE_UPDATED, "WAITING_TICKET_CREATED");
         return CounselTicketResponse.from(ticket, resolveCounselorName(ticket.getCounselorId()));
     }
 

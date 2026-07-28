@@ -1,10 +1,19 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { NotificationItem } from '../../../shared/components/NotificationDropdown';
 import { NotificationDropdown } from '../../../shared/components/NotificationDropdown';
 import { NOTIFICATION_ALL_FILTER_KEY, NOTIFICATION_FILTERS, getNotificationTypeMeta } from '../constants';
 import { useMarkNotificationsAsRead, useNotifications } from '../hooks/useNotifications';
 import type { NotificationApiItem } from '../types';
 import { formatElapsedTime } from '../utils/formatElapsedTime';
+
+// "대화 열기" 버튼이 markAsRead만 호출하고 실제로 어디로도 이동하지 않던 버그 수정(사용자 피드백).
+// COUNSEL_REPLIED payload는 백엔드가 항상 {ticketId}로 직렬화한다(CounselReplyNotificationPayload
+// 확인 완료) — 다른 타입은 payload 구조가 확정돼 있지 않아 이번 수정 범위에서 제외한다.
+function resolveCounselTicketId(raw: NotificationApiItem): number | null {
+  const ticketId = raw.payload?.ticketId;
+  return typeof ticketId === 'number' ? ticketId : null;
+}
 
 interface NotificationCenterProps {
   /** 패널 열림 여부 — Header 벨(shared, AppLayout 내부)이 AppShellRoute에 있어 토글 핸들러도
@@ -23,6 +32,7 @@ function extractDescription(payload: NotificationApiItem['payload']): string | u
 // Header 벨 클릭 시 열리는 알림 패널 컨테이너 — shared NotificationDropdown(프리젠테이션, 이은석 소유·
 // 미터치)을 그대로 렌더한다(HAJA-38, Figma node-id 208-2458 / Anima 파트3 NotificationPanelSection).
 export function NotificationCenter({ open, onClose, enabled }: NotificationCenterProps) {
+  const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState(NOTIFICATION_ALL_FILTER_KEY);
   // 개별 닫기(X) 로컬 상태 — 전용 삭제 API가 없어(#564) 서버엔 읽음처리만 반영하고, 화면에서
   // 실제로 사라지는 동작은 이 클라이언트 전용 dismiss 목록으로 구현한다(재검수 반영: 읽음처리만으로는
@@ -37,6 +47,7 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
   // 매 렌더 재계산됐다(P2) — 목록 규모가 작아(최대 30건, BE 컷 기준) 순수 계산으로 충분하다.
   const items: NotificationItem[] = notifications.map((raw) => {
     const meta = getNotificationTypeMeta(raw.type);
+    const counselTicketId = raw.type === 'COUNSEL_REPLIED' ? resolveCounselTicketId(raw) : null;
     return {
       id: raw.id,
       category: meta.category,
@@ -45,7 +56,18 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
       timestamp: formatElapsedTime(raw.createdAt),
       read: raw.isRead,
       // 폴백(미지의 type) 메타는 actionLabel이 없다 — 의미를 모르는 액션 버튼을 노출하지 않는다.
-      ...(meta.actionLabel ? { actionLabel: meta.actionLabel, onAction: () => markAsRead(raw.id) } : {}),
+      ...(meta.actionLabel
+        ? {
+            actionLabel: meta.actionLabel,
+            onAction: () => {
+              markAsRead(raw.id);
+              if (counselTicketId !== null) {
+                navigate(`/support/history?ticketId=${counselTicketId}`);
+                onClose();
+              }
+            },
+          }
+        : {}),
       onDismiss: () => {
         markAsRead(raw.id);
         setDismissedIds((prev) => new Set(prev).add(raw.id));

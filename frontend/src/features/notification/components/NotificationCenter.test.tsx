@@ -9,6 +9,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { notificationHandlers } from '../api/notificationApi.handlers';
 import { NotificationCenter } from './NotificationCenter';
@@ -37,13 +38,36 @@ function Harness() {
 function renderHarness() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <Harness />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <Harness />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
 describe('NotificationCenter', () => {
+  it('COUNSEL_REPLIED "대화 열기" 클릭 시 상담 이력 페이지로 이동한다(#1022 후속: 이동 안 하던 버그 수정)', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/" element={<Harness />} />
+            <Route path="/support/history" element={<p>상담 이력 페이지</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    await screen.findByText('검수 대기 알림');
+
+    fireEvent.click(screen.getByRole('button', { name: '대화 열기' }));
+
+    expect(await screen.findByText('상담 이력 페이지')).not.toBeNull();
+  });
+
   it('벨을 클릭하면 드롭다운이 열리고 목 데이터를 렌더링한다', async () => {
     renderHarness();
 
