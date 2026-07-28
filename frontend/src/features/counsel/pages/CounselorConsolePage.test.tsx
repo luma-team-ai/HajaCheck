@@ -22,6 +22,12 @@ vi.mock('../hooks/useCounselSocket', () => ({
   },
 }));
 
+// 대기열 실시간 갱신(#1001 후속) — 별도 단위 테스트가 없으므로 여기서는 실제 STOMP 연결을 막고
+// no-op으로 대체한다(이 페이지 테스트는 REST 목록 로직에 집중).
+vi.mock('../hooks/useCounselQueueSocket', () => ({
+  useCounselQueueSocket: () => ({ connected: false }),
+}));
+
 const server = setupServer(...counselHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
