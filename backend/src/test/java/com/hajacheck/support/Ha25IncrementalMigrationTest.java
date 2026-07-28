@@ -460,7 +460,21 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V29__add_reports_deleted_at.sql"),
-                        CONTAINER_ROOT + "V29__add_reports_deleted_at.sql");
+                        CONTAINER_ROOT + "V29__add_reports_deleted_at.sql")
+                // #1105/HAJA-526 — Flyway V30(scheduled_plan_changes 플랜 하향 예약 원장)도 이어서 1회
+                // forward-apply한다. assertCanonicalSchemaParity가 테이블·컬럼·인덱스·enum을 전수 대조하는데
+                // 캐노니컬 DDL에 이 테이블이 반영돼 있으므로, 이 증분 경로에서도 적용해야 파리티가 유지된다.
+                // 전 구문이 멱등(IF NOT EXISTS / DO 블록)이라 V20과 동일하게 재실행도 안전하다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V30__create_scheduled_plan_changes.sql"),
+                        CONTAINER_ROOT + "V30__create_scheduled_plan_changes.sql")
+                // #1105/HAJA-526 — Flyway V31(notification_type 예약 하향 알림 라벨 2종)도 이어서 1회
+                // forward-apply한다(V28과 같은 이유·같은 멱등 규칙).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V31__add_notification_type_scheduled_downgrade.sql"),
+                        CONTAINER_ROOT + "V31__add_notification_type_scheduled_downgrade.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -581,6 +595,13 @@ class Ha25IncrementalMigrationTest {
         // ADD COLUMN IF NOT EXISTS 라 재실행이 안전하다는 점까지 함께 고정한다.
         runPsql(postgres, "V29__add_reports_deleted_at.sql");
         runPsql(postgres, "V29__add_reports_deleted_at.sql");
+        // #1105/HAJA-526 — Flyway V30(scheduled_plan_changes 하향 예약 원장)도 이어서 forward-apply한다.
+        // 전 구문이 멱등(IF NOT EXISTS / DO 블록)이라 두 번 실행해도 안전하다는 점까지 함께 고정한다(V20과 동일).
+        runPsql(postgres, "V30__create_scheduled_plan_changes.sql");
+        runPsql(postgres, "V30__create_scheduled_plan_changes.sql");
+        // #1105/HAJA-526 — Flyway V31(notification_type 예약 하향 알림 라벨 2종)도 이어서 forward-apply한다.
+        runPsql(postgres, "V31__add_notification_type_scheduled_downgrade.sql");
+        runPsql(postgres, "V31__add_notification_type_scheduled_downgrade.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

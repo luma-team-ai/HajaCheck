@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -626,6 +628,97 @@ class AdminPlanControllerTest extends PostgresTestSupport {
                 .andExpect(status().isForbidden());
     }
 
+    // ── 플랜 하향 예약(#1105 / HAJA-526) ──
+
+    @Test
+    void 하향예약_회사owner_200_이후_현재플랜조회에_노출되고_취소된다() throws Exception {
+        Fixture fx = approvedCompanyAdminWithPlanAndBillingPeriod(PlanName.ENTERPRISE);
+
+        // ⚠️ 예약 대상은 무료 요금제만 허용한다(#1105 보안 리뷰 P1) — 유료 대상은 결제 없이 새 유료
+        // 주기를 여는 셈이라 청구되지 않는 무상 1개월이 발급된다.
+        mockMvc.perform(post("/api/admin/plan/scheduled-change")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"FREE\",\"confirmOverflow\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.targetPlanName").value("FREE"))
+                .andExpect(jsonPath("$.data.status").value("PENDING"))
+                .andExpect(jsonPath("$.data.effectiveAt").exists());
+
+        // 예약은 신청만 기록한다 — 잔여 기간에는 현재 요금제가 그대로여야 한다.
+        mockMvc.perform(get("/api/admin/plan").with(authentication(authOf(fx.admin()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.plan.name").value("ENTERPRISE"))
+                .andExpect(jsonPath("$.data.scheduledChange.targetPlanName").value("FREE"));
+
+        // 취소 응답은 본문으로 취소된 예약 스냅샷을 돌려준다(계약 일치) — status 는 CANCELED 여야 한다.
+        mockMvc.perform(delete("/api/admin/plan/scheduled-change")
+                        .with(csrf()).with(authentication(authOf(fx.admin()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.targetPlanName").value("FREE"))
+                .andExpect(jsonPath("$.data.status").value("CANCELED"));
+
+        mockMvc.perform(get("/api/admin/plan").with(authentication(authOf(fx.admin()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.scheduledChange").value(nullValue()));
+
+        // 대기 예약이 없으면 취소는 404(조회가 아니라 조건부 UPDATE 의 갱신 행 수로 판정한다).
+        mockMvc.perform(delete("/api/admin/plan/scheduled-change")
+                        .with(csrf()).with(authentication(authOf(fx.admin()))))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void 하향예약_상향은_403() throws Exception {
+        Fixture fx = approvedCompanyAdminWithPlanAndBillingPeriod(PlanName.STANDARD);
+
+        mockMvc.perform(post("/api/admin/plan/scheduled-change")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"ENTERPRISE\",\"confirmOverflow\":true}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 하향예약_유료대상은_403() throws Exception {
+        // ENTERPRISE → STANDARD 는 정상적인 하향이지만, 예약 실행은 결제 없이 새 유료 주기를 연다 —
+        // 빌링키가 없어 청구되지 않는 무상 1개월이 발급되므로 계약상 무료 대상만 허용한다(#1105 P1).
+        Fixture fx = approvedCompanyAdminWithPlanAndBillingPeriod(PlanName.ENTERPRISE);
+
+        mockMvc.perform(post("/api/admin/plan/scheduled-change")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"STANDARD\",\"confirmOverflow\":true}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 하향예약_planName누락_400() throws Exception {
+        Fixture fx = approvedCompanyAdminWithPlanAndBillingPeriod(PlanName.ENTERPRISE);
+
+        mockMvc.perform(post("/api/admin/plan/scheduled-change")
+                        .with(csrf()).with(authentication(authOf(fx.admin())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"confirmOverflow\":true}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 하향예약_일반사용자_403() throws Exception {
+        User user = saveUser(Role.USER, null);
+        mockMvc.perform(post("/api/admin/plan/scheduled-change")
+                        .with(csrf()).with(authentication(authOf(user)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planName\":\"FREE\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 하향예약취소_미인증_401() throws Exception {
+        mockMvc.perform(delete("/api/admin/plan/scheduled-change").with(csrf()))
+                .andExpect(status().isUnauthorized());
+    }
+
     // ── 픽스처 헬퍼 ──
 
     private record Fixture(User admin, Company company) {
@@ -649,6 +742,22 @@ class AdminPlanControllerTest extends PostgresTestSupport {
         seedPlans();
         userPlanRepository.save(UserPlan.forCompany(company.getId(), planId(planName)));
         return new Fixture(admin, company);
+    }
+
+    /**
+     * 위와 같되 <b>진행 중인 결제 주기</b>를 채운 픽스처(#1105) — 하향 예약은 적용 시각을
+     * {@code current_period_end} 에서 가져오므로, 주기가 비어 있으면 PLAN_SCHEDULE_PERIOD_END_MISSING
+     * 으로 거절돼 예약 경로 자체를 검증할 수 없다.
+     */
+    private Fixture approvedCompanyAdminWithPlanAndBillingPeriod(PlanName planName) {
+        Fixture fx = approvedCompanyAdminWithPlan(planName);
+        UserPlan current = userPlanRepository
+                .findFirstByCompanyIdAndStatusOrderByStartedAtDesc(fx.company().getId(), UserPlanStatus.ACTIVE)
+                .orElseThrow();
+        // 아직 끝나지 않은 주기(오늘 시작 → 한 달 뒤 만료) — 결제 승인 전이가 채워 뒀을 값과 같은 형태.
+        current.startNewBillingPeriod(Instant.now());
+        userPlanRepository.saveAndFlush(current);
+        return fx;
     }
 
     private Company saveApprovedCompany() {

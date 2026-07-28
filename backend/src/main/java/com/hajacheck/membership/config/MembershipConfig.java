@@ -8,6 +8,6 @@ import org.springframework.context.annotation.Configuration;
  * {@code @EnableConfigurationProperties} 로 묶는다).
  */
 @Configuration
-@EnableConfigurationProperties(PlanExpiryProperties.class)
+@EnableConfigurationProperties({PlanExpiryProperties.class, ScheduledPlanChangeProperties.class})
 public class MembershipConfig {
 }
