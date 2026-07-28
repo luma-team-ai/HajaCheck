@@ -133,4 +133,30 @@ describe('hybridFetchFallback', () => {
 
     expect(result).toEqual([]);
   });
+
+  it.each([
+    { label: '404', error: { response: { status: 404 } } },
+    { label: 'NETWORK_ERROR', error: { code: 'NETWORK_ERROR' } },
+    { label: '503', error: { response: { status: 503 } } },
+  ])('MSW가 비활성화된 DEV 환경에서는 $label 오류를 그대로 전파한다', async ({ error }) => {
+    const fetcher = vi.fn().mockRejectedValue(error);
+
+    await expect(
+      hybridFetchFallback({
+        fetcher,
+        fallback: mockFallbackData,
+        env: { DEV: true, VITE_ENABLE_MSW: 'false' },
+      }),
+    ).rejects.toEqual(error);
+  });
+
+  it('오류 status가 response 밖에 있어도 DEV fallback 대상이면 목 데이터를 반환한다', async () => {
+    const result = await hybridFetchFallback({
+      fetcher: vi.fn().mockRejectedValue({ status: 502 }),
+      fallback: mockFallbackData,
+      env: { DEV: true },
+    });
+
+    expect(result).toEqual(mockFallbackData);
+  });
 });
