@@ -5,8 +5,8 @@ import { useEmailAvailability } from '../../auth/hooks/useEmailAvailability';
 import { EmailDomainField } from '../../auth/components/EmailDomainField';
 import { Button } from '../../../shared/components/Button';
 import { Modal } from '../../../shared/components/Modal';
-import { ROLE_CHANGE_OPTIONS, ROLE_LABEL } from '../constants';
-import type { AdminUserRole, CompanyOption } from '../types';
+import { ROLE_CHANGE_OPTIONS, ROLE_LABEL, SKILL_CHANGE_OPTIONS, SKILL_LABEL } from '../constants';
+import type { AdminUserRole, CompanyOption, CounselType } from '../types';
 
 /** '' selectbox 값 = 회사 미소속(개인 계정)으로 등록 */
 const NO_COMPANY_VALUE = '';
@@ -20,6 +20,8 @@ interface CreateUserModalProps {
     name: string;
     role: AdminUserRole;
     companyId: number | null;
+    /** role이 COUNSELOR일 때만 전달한다(#1001, HAJA-495). */
+    skill?: CounselType;
   }) => Promise<void>;
   isSubmitting: boolean;
   submitErrorMessage?: string;
@@ -69,6 +71,7 @@ export function CreateUserModal({
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState<AdminUserRole>('USER');
+  const [skill, setSkill] = useState<CounselType>(SKILL_CHANGE_OPTIONS[0]);
   const [companyIdInput, setCompanyIdInput] = useState(NO_COMPANY_VALUE);
   const [touched, setTouched] = useState(false);
 
@@ -123,6 +126,7 @@ export function CreateUserModal({
     setPasswordConfirm('');
     setName('');
     setRole('USER');
+    setSkill(SKILL_CHANGE_OPTIONS[0]);
     setCompanyIdInput(NO_COMPANY_VALUE);
     setTouched(false);
     resetEmailCheck();
@@ -142,7 +146,14 @@ export function CreateUserModal({
     // catch만 해서 콘솔에 unhandled rejection이 찍히지 않게 한다 — 실패 메시지는
     // submitErrorMessage(mutation.error)로 아래에 표시된다(다른 관리자 모달과 동일 패턴).
     const companyId = companyIdInput === NO_COMPANY_VALUE ? null : Number(companyIdInput);
-    onConfirm({ email: email.trim(), password, name: name.trim(), role, companyId })
+    onConfirm({
+      email: email.trim(),
+      password,
+      name: name.trim(),
+      role,
+      companyId,
+      ...(role === 'COUNSELOR' ? { skill } : {}),
+    })
       .then(resetForm)
       .catch(() => {});
   }
@@ -289,6 +300,26 @@ export function CreateUserModal({
             ))}
           </select>
         </div>
+
+        {role === 'COUNSELOR' && (
+          <div className="flex flex-col gap-2">
+            <label htmlFor="create-user-skill" className={LABEL_CLASS}>
+              스킬
+            </label>
+            <select
+              id="create-user-skill"
+              className={INPUT_CLASS}
+              value={skill}
+              onChange={(event) => setSkill(event.target.value as CounselType)}
+            >
+              {SKILL_CHANGE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {SKILL_LABEL[option]}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {submitErrorMessage && (
           <p role="alert" className="m-0 text-sm text-danger">

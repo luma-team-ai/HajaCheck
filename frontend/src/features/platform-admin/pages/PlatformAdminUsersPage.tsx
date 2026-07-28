@@ -11,14 +11,17 @@ import { AdminUserStatsCard } from '../components/AdminUserStatsCard';
 import { AdminUserTable } from '../components/AdminUserTable';
 import { CreateUserModal } from '../components/CreateUserModal';
 import { RoleChangeModal } from '../components/RoleChangeModal';
+import { SkillChangeModal } from '../components/SkillChangeModal';
 import { StatusChangeModal } from '../components/StatusChangeModal';
-import { DEFAULT_PAGE_SIZE, EMPTY_CELL, ROLE_LABEL, STATUS_LABEL } from '../constants';
+import { DEFAULT_PAGE_SIZE, EMPTY_CELL, ROLE_LABEL, SKILL_LABEL, STATUS_LABEL } from '../constants';
 import { usePlatformAdminUsers } from '../hooks/usePlatformAdminUsers';
 import { useChangeUserRole } from '../hooks/useChangeUserRole';
+import { useChangeUserSkill } from '../hooks/useChangeUserSkill';
 import { useChangeUserStatus } from '../hooks/useChangeUserStatus';
 import { useCreateUser } from '../hooks/useCreateUser';
 import { useCompanyOptions } from '../hooks/useCompanyOptions';
-import type { AdminUser, AdminUserPlan, AdminUserRole, AdminUserStatus } from '../types';
+import { useUserSkills } from '../hooks/useUserSkills';
+import type { AdminUser, AdminUserPlan, AdminUserRole, AdminUserStatus, CounselType } from '../types';
 import { DownloadIcon } from '../components/icons/DownloadIcon';
 import { InviteIcon } from '../components/icons/InviteIcon';
 
@@ -41,6 +44,7 @@ export function PlatformAdminUsersPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [roleModalUser, setRoleModalUser] = useState<AdminUser | null>(null);
   const [statusModalUser, setStatusModalUser] = useState<AdminUser | null>(null);
+  const [skillModalUser, setSkillModalUser] = useState<AdminUser | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportUsers, setExportUsers] = useState<AdminUser[] | null>(null);
@@ -58,6 +62,12 @@ export function PlatformAdminUsersPage() {
     resetError: resetStatusChangeError,
   } = useChangeUserStatus();
   const {
+    changeSkill,
+    isPending: isSkillChanging,
+    error: skillChangeError,
+    resetError: resetSkillChangeError,
+  } = useChangeUserSkill();
+  const {
     createUser,
     isPending: isCreatingUser,
     error: createUserError,
@@ -69,6 +79,9 @@ export function PlatformAdminUsersPage() {
     isError: isCompanyOptionsError,
     refetch: refetchCompanyOptions,
   } = useCompanyOptions();
+  const { data: skillModalUserSkills, isFetching: isSkillModalUserSkillsLoading } = useUserSkills(
+    skillModalUser?.id ?? null,
+  );
 
   // 필터·검색어·페이지 크기가 바뀌면 1페이지로 되돌린다 — AdminUsersPage와 동일한 이유(#378 리뷰 지적).
   const filterSignature = `${keyword}|${role}|${plan}|${status}|${pageSize}`;
@@ -128,7 +141,11 @@ export function PlatformAdminUsersPage() {
       setRoleModalUser(user);
       return;
     }
-    setStatusModalUser(user);
+    if (action === 'CHANGE_STATUS') {
+      setStatusModalUser(user);
+      return;
+    }
+    setSkillModalUser(user);
   }
 
   function handleCloseRoleModal() {
@@ -141,6 +158,11 @@ export function PlatformAdminUsersPage() {
     resetStatusChangeError();
   }
 
+  function handleCloseSkillModal() {
+    setSkillModalUser(null);
+    resetSkillChangeError();
+  }
+
   async function handleRoleConfirm(user: AdminUser, newRole: AdminUserRole) {
     await changeRole({ id: user.id, role: newRole });
     setRoleModalUser(null);
@@ -151,6 +173,12 @@ export function PlatformAdminUsersPage() {
     await changeStatus({ id: user.id, status: newStatus });
     setStatusModalUser(null);
     setNotice(`${user.name ?? user.email} · 상태가 ${STATUS_LABEL[newStatus]}(으)로 변경되었습니다`);
+  }
+
+  async function handleSkillConfirm(user: AdminUser, newSkill: CounselType) {
+    await changeSkill({ id: user.id, skill: newSkill });
+    setSkillModalUser(null);
+    setNotice(`${user.name ?? user.email} · 스킬이 ${SKILL_LABEL[newSkill]}(으)로 변경되었습니다`);
   }
 
   async function handleExport() {
@@ -182,6 +210,7 @@ export function PlatformAdminUsersPage() {
     name: string;
     role: AdminUserRole;
     companyId: number | null;
+    skill?: CounselType;
   }) {
     const created = await createUser(input);
     setIsCreateModalOpen(false);
@@ -270,6 +299,15 @@ export function PlatformAdminUsersPage() {
           onConfirm={handleStatusConfirm}
           isSubmitting={isStatusChanging}
           submitErrorMessage={statusChangeError?.message}
+        />
+        <SkillChangeModal
+          user={skillModalUser}
+          currentSkill={skillModalUserSkills?.skills[0] ?? null}
+          isLoadingCurrentSkill={isSkillModalUserSkillsLoading}
+          onClose={handleCloseSkillModal}
+          onConfirm={handleSkillConfirm}
+          isSubmitting={isSkillChanging}
+          submitErrorMessage={skillChangeError?.message}
         />
 
         {notice && (

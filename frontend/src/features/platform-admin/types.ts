@@ -9,6 +9,10 @@ import type { Role } from '../../shared/constants/roles';
 export type AdminUserRole = Exclude<Role, 'PLATFORM_ADMIN'>;
 export type AdminUserStatus = 'ACTIVE' | 'SUSPENDED';
 
+// backend counsel_type과 값이 일치한다(com.hajacheck.counsel.entity.CounselType) — 상담원(COUNSELOR)
+// 전용 스킬 배정(#1001, HAJA-495). 스킬 변경 모달이 라디오(단일 선택)라 한 번에 하나만 저장된다.
+export type CounselType = 'USAGE' | 'ANALYSIS_RESULT' | 'BILLING_ETC';
+
 export type AdminUserPlan = 'FREE' | 'STANDARD' | 'ENTERPRISE';
 
 // 회사 소속 없이 개인으로 가입한 사용자(예: USER 개인 플랜)는 companyId/companyName이 null이다.

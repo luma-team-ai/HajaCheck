@@ -8,7 +8,15 @@ import type {
   AdminUserPlan,
   AdminUserRole,
   AdminUserStatus,
+  CounselType,
 } from '../types';
+
+// 상담원 스킬 목(#1001, HAJA-495) — 실 DB의 counselor_skills처럼 counselorId → 배정 스킬 하나를
+// 들고 있는다(모달이 라디오라 항상 단일 값). 모듈 스코프라 페이지 새로고침 전까지는 저장한 값이
+// 유지된다(다른 role/status 목 패턴과 동일).
+const mockCounselorSkills = new Map<number, CounselType>(
+  mockPlatformAdminUsers.filter((user) => user.role === 'COUNSELOR').map((user) => [user.id, 'USAGE']),
+);
 
 // 플랫폼 관리자 > 사용자 관리(#577) — features/admin/api/adminApi.handlers.ts(#405)를 그대로
 // 옮긴 것. 실 백엔드 /api/platform-admin/users가 준비되기 전까지(backend/576) 로컬 개발/테스트는
@@ -67,11 +75,12 @@ export const platformAdminUserHandlers = [
   }),
 
   http.post('/api/platform-admin/users', async ({ request }) => {
-    const { email, name, role, companyId } = (await request.json()) as {
+    const { email, name, role, companyId, skill } = (await request.json()) as {
       email: string;
       name: string;
       role: AdminUserRole;
       companyId: number | null;
+      skill?: CounselType;
     };
 
     if (mockPlatformAdminUsers.some((candidate) => candidate.email === email)) {
@@ -99,6 +108,9 @@ export const platformAdminUserHandlers = [
       status: 'ACTIVE',
     };
     mockPlatformAdminUsers.unshift(created);
+    if (role === 'COUNSELOR' && skill) {
+      mockCounselorSkills.set(created.id, skill);
+    }
 
     const body: ApiResponse<AdminUser> = { success: true, data: created };
     return HttpResponse.json(body, { status: 201 });
@@ -136,6 +148,49 @@ export const platformAdminUserHandlers = [
     const body: ApiResponse<{ id: number; status: AdminUserStatus }> = {
       success: true,
       data: { id, status },
+    };
+    return HttpResponse.json(body);
+  }),
+
+  http.get('/api/platform-admin/users/:id/skills', ({ params }) => {
+    const id = Number(params.id);
+    const user = mockPlatformAdminUsers.find((candidate) => candidate.id === id);
+    if (!user || user.role !== 'COUNSELOR') {
+      return HttpResponse.json(
+        {
+          success: false,
+          data: null,
+          error: { code: 'ADMIN_SKILL_TARGET_NOT_COUNSELOR', message: '상담원에게만 스킬을 배정할 수 있습니다.' },
+        },
+        { status: 400 },
+      );
+    }
+    const skill = mockCounselorSkills.get(id);
+    const body: ApiResponse<{ id: number; skills: CounselType[] }> = {
+      success: true,
+      data: { id, skills: skill ? [skill] : [] },
+    };
+    return HttpResponse.json(body);
+  }),
+
+  http.patch('/api/platform-admin/users/:id/skills', async ({ params, request }) => {
+    const id = Number(params.id);
+    const user = mockPlatformAdminUsers.find((candidate) => candidate.id === id);
+    if (!user || user.role !== 'COUNSELOR') {
+      return HttpResponse.json(
+        {
+          success: false,
+          data: null,
+          error: { code: 'ADMIN_SKILL_TARGET_NOT_COUNSELOR', message: '상담원에게만 스킬을 배정할 수 있습니다.' },
+        },
+        { status: 400 },
+      );
+    }
+    const { skill } = (await request.json()) as { skill: CounselType };
+    mockCounselorSkills.set(id, skill);
+    const body: ApiResponse<{ id: number; skill: CounselType }> = {
+      success: true,
+      data: { id, skill },
     };
     return HttpResponse.json(body);
   }),

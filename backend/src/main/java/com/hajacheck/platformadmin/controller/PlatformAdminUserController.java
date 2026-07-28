@@ -8,9 +8,12 @@ import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.membership.entity.PlanName;
+import com.hajacheck.platformadmin.dto.AdminUserSkillUpdateRequest;
+import com.hajacheck.platformadmin.dto.AdminUserSkillUpdateResponse;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserCreateRequest;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserListResponse;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserResponse;
+import com.hajacheck.platformadmin.dto.PlatformAdminUserSkillsResponse;
 import com.hajacheck.platformadmin.service.PlatformAdminUserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -87,6 +90,21 @@ public class PlatformAdminUserController {
     public ResponseEntity<ApiResponse<AdminUserStatusUpdateResponse>> changeStatus(
             @PathVariable Long id, @Valid @RequestBody AdminUserStatusUpdateRequest request) {
         AdminUserStatusUpdateResponse response = platformAdminUserService.changeStatus(id, request.status());
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "상담원 스킬 조회", description = "대상 상담원의 현재 배정 스킬을 조회한다(PLATFORM_ADMIN 전용). 대상이 COUNSELOR가 아니면 400.")
+    @GetMapping("/{id}/skills")
+    public ResponseEntity<ApiResponse<PlatformAdminUserSkillsResponse>> getSkills(@PathVariable Long id) {
+        PlatformAdminUserSkillsResponse response = platformAdminUserService.getSkills(id);
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "상담원 스킬 변경", description = "대상 상담원의 스킬을 전달받은 값 하나로 교체한다(PLATFORM_ADMIN 전용). 대상이 COUNSELOR가 아니면 400.")
+    @PatchMapping("/{id}/skills")
+    public ResponseEntity<ApiResponse<AdminUserSkillUpdateResponse>> changeSkill(
+            @PathVariable Long id, @Valid @RequestBody AdminUserSkillUpdateRequest request) {
+        AdminUserSkillUpdateResponse response = platformAdminUserService.changeSkill(id, request.skill());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 }
