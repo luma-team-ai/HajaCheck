@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-07-28
+> 마지막 갱신: 2026-07-29
 
 ## 인프라
 
@@ -35,6 +35,8 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 > ⚠️ 지난 세션 이슈였던 JDK가 **PRD·`build.gradle`·Dockerfile·OCI 실측 네 곳 모두 17로 정합** 확인됨. (호스트 직접 `./gradlew build` 시 JDK 부재 문제는 컨테이너 빌드와 별개 — 아래 [알려진 이슈] 참조)
 
 ## 마지막 머지 PR
+
+- **하자 상세 점검 코드 표기 통일 + 조치 결과 패널 레이아웃 (→ dev, 2026-07-29, #1179·#1180)** — **#1181**(작성자 Polalise, squash `46d8dead`, **PR머신 자동머지**). Trivial 사이클(프론트 표기·레이아웃 전용) → 메타 code-reviewer 생략, PR머신 티어 검수에 위임. ① 하자 상세(`InspectionDefectsPage`) 상단 헤더가 "점검 #101"로 표시돼 목록(`InspectionTable`)의 "INS-0101" 표기와 어긋나던 문제 — `formatInspectionCode`를 `InspectionTable` 로컬 함수에서 `utils/defectFormat.ts` 공용 유틸로 승격해 두 화면이 같은 포맷터를 공유하도록 정리. ② 하자 상세 모달 우측 "조치 결과 등록" 패널이 조치일·진행상태·담당자 select 3개를 3열 그리드 한 행에 배치해 패널 폭이 좁을 때 담당자 select가 밖으로 밀려나던 문제 — 조치일+진행상태 2열 행, 담당자 별도 행으로 재배치(`.defect-action-form__row` 3열→2열). 영향 테스트 23/23 PASS, `npm run build` PASS, dev 서버+브라우저(1440px/900px) 육안 확인 완료. GitHub #1179·#1180 `awaiting-promotion`, Jira HAJA-559·HAJA-560 `dev-pr-check`.
 
 - **회차 간 비교 조회 API + 점검 주기 설정 FACILITY_NOT_FOUND 버그 3건 (→ dev, 2026-07-28, HAJA-531/#1112·#1129·#1135)** — 작성자 vapsnamheo-dev, 순차 머지.
   - **#1130**(#1129, squash `20eea893`) — 점검 주기 설정 메뉴 진입 시 하드코딩 `DEFAULT_FACILITY_ID=3` 폴백이 실 회사 소유와 무관한 mock 시설물 id를 실 백엔드 `GET /notification-settings`에 즉시 흘려 `FACILITY_NOT_FOUND`가 나던 버그. `rows[0]` 폴백도 동일 문제(현황 목록 자체가 mock)라 근본 해결 불가 — facilityId 미지정/미매칭 시 선택 UI를 먼저 보여주고, 실 백엔드를 부르는 모든 훅을 선택 후에만 마운트되는 `InspectionCycleSettingsForm`으로 분리(조건부 자식 마운트). Figma 좌(카드)/우(테이블) 배치도 원복(세로 스택은 의도적 절충이었으나 Figma 불일치로 되돌림). react-reviewer P2 1건(facilityId 파라미터가 라우트 유지 중 바뀌는 latent case) `key` prop으로 픽스.
