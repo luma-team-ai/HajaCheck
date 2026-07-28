@@ -489,6 +489,84 @@ class CounselTicketControllerTest extends PostgresTestSupport {
                 .andExpect(status().isBadRequest());
     }
 
+    // ── 플랫폼 관리자 날짜별 상담 목록(#1168) ──
+
+    @Test
+    void 관리자날짜별목록_PLATFORM_ADMIN_200_고객프로필포함() throws Exception {
+        Plan plan = saveCounselorPlan(true);
+        User customer = saveUser("admin-list-customer@haja.com", Role.USER);
+        userPlanRepository.save(UserPlan.forUser(customer.getId(), plan.getId()));
+        ticketRepository.save(CounselTicket.request(
+                customer.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        User admin = saveUser("admin-list-admin@haja.com", Role.PLATFORM_ADMIN);
+        String today = java.time.LocalDate.now().toString();
+
+        mockMvc.perform(get("/api/counsel/tickets/admin")
+                        .param("date", today)
+                        .with(authentication(authOf(admin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].customerName").value("사용자"))
+                .andExpect(jsonPath("$.data.content[0].customerEmail").value("admin-list-customer@haja.com"))
+                .andExpect(jsonPath("$.data.content[0].customerPlan").value("STANDARD"));
+    }
+
+    @Test
+    void 관리자날짜별목록_COUNSELOR_403() throws Exception {
+        User counselor = saveUser("admin-list-counselor@haja.com", Role.COUNSELOR);
+
+        mockMvc.perform(get("/api/counsel/tickets/admin")
+                        .param("date", java.time.LocalDate.now().toString())
+                        .with(authentication(authOf(counselor))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("COUNSEL_TICKET_FORBIDDEN"));
+    }
+
+    @Test
+    void 관리자날짜별목록_USER_403() throws Exception {
+        User user = saveUser("admin-list-user@haja.com", Role.USER);
+
+        mockMvc.perform(get("/api/counsel/tickets/admin")
+                        .param("date", java.time.LocalDate.now().toString())
+                        .with(authentication(authOf(user))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("COUNSEL_TICKET_FORBIDDEN"));
+    }
+
+    @Test
+    void 관리자날짜별목록_date파라미터_누락_400() throws Exception {
+        User admin = saveUser("admin-list-admin2@haja.com", Role.PLATFORM_ADMIN);
+
+        mockMvc.perform(get("/api/counsel/tickets/admin")
+                        .with(authentication(authOf(admin))))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 관리자날짜별목록_date형식오류_400_INVALID_INPUT() throws Exception {
+        User admin = saveUser("admin-list-admin3@haja.com", Role.PLATFORM_ADMIN);
+
+        mockMvc.perform(get("/api/counsel/tickets/admin")
+                        .param("date", "2026/07/20")
+                        .with(authentication(authOf(admin))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void 대화조회_PLATFORM_ADMIN_비당사자여도_200_회귀없음() throws Exception {
+        User requester = saveUser("admin-msg-user@haja.com", Role.USER);
+        User counselor = saveUser("admin-msg-counselor@haja.com", Role.COUNSELOR);
+        CounselTicket ticket = saveInProgressTicketWithMessage(requester, counselor, "관리자가 볼 대화");
+        User admin = saveUser("admin-msg-admin@haja.com", Role.PLATFORM_ADMIN);
+
+        mockMvc.perform(get("/api/counsel/tickets/" + ticket.getId() + "/messages")
+                        .with(authentication(authOf(admin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].content").value("관리자가 볼 대화"));
+    }
+
     private CounselTicket saveInProgressTicketWithMessage(User requester, User counselor, String content) {
         ChatSession session = chatSessionRepository.save(
                 ChatSession.start(requester.getId(), ChatSessionType.COUNSEL));
