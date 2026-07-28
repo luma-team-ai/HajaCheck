@@ -111,6 +111,8 @@ public class PlanTransitionService {
         UserPlan renewed = companyId != null
                 ? UserPlan.forCompany(companyId, targetPlan.getId())
                 : UserPlan.forUser(userId, targetPlan.getId());
+        // 새로 돈을 냈으므로 주기를 리셋한다(#1104) — 관리자 무결제 변경(AdminPlanService)의 승계와 반대 규칙.
+        renewed.startNewBillingPeriod(renewed.getStartedAt());
         UserPlan saved;
         try {
             // try 범위를 이 한 줄로 좁힌다 — 아래 사용량 이월에서 나온 무결성 위반까지 "이미 활성 구독

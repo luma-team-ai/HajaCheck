@@ -157,6 +157,9 @@ public class AdminPlanService {
         adminPlanRepository.saveAndFlush(current);
 
         UserPlan renewed = UserPlan.forCompany(companyId, targetPlan.getId());
+        // 결제 없는 플랜 변경이므로 결제일이 밀리지 않도록 기존 결제 주기를 그대로 승계한다(#1104) —
+        // 결제 승인 전이(PlanTransitionService#transitionTo)의 리셋과 반대 규칙.
+        renewed.carryOverBillingPeriod(current);
         UserPlan saved;
         try {
             // try 범위를 이 한 줄로 좁힌다(리뷰 P3) — 아래 좌석 정지 flush 에서 나온 무결성 위반까지

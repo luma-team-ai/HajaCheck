@@ -41,10 +41,11 @@ import org.springframework.transaction.annotation.Transactional;
  * 플랜(=한도)이 다를 수 있어(#507 은 단일 회사라 한도가 모든 행에서 동일) 행마다 자기 소속 회사의 플랜을
  * 개별 조회한다.
  *
- * <p><b>"남은 기간" 산출 근거</b>: user_plans 에는 구독 만료 예정일 컬럼이 없다(ended_at 은 실제 종료 시각만
- * 기록, #507 설계 그대로). 이 화면은 구독을 "월 단위"로 간주해 {@code startedAt + 1개월}을 만료 예정일로
- * 근사 계산한다(계약 확정 — 사용자 지시, 2026-07-23). 이 계산은 순수 조회 시점 파생값이라 user_plans 에
- * 아무것도 쓰지 않는다(엔티티/스키마 변경 없음, 회원가입·플랜변경 등 다른 흐름에 영향 없음).
+ * <p><b>"남은 기간" 산출 근거</b>: {@code user_plans.current_period_end}(#1104 / HAJA-525)를 만료 예정일로
+ * 그대로 쓴다. 과거에는 이 컬럼이 없어 {@code startedAt + 1개월}을 조회 시점마다 근사 계산했는데, 그 계산에
+ * FREE 제외 필터가 없어 가입한 지 한 달 넘은 FREE 회사가 전부 "만료됨"으로 표시되던 버그가 있었다(#1104가
+ * 함께 고침). {@code current_period_end == null}(FREE, 무기한)은 이제 컬럼 자체가 그 의미를 담고 있으므로
+ * EXPIRED 로 판정하지 않는다.
  */
 @Service
 @Transactional(readOnly = true)
@@ -117,7 +118,7 @@ public class PlatformAdminPlanQuotaService {
     // 평균(회사마다 한도가 다를 수 있어 #507처럼 단일 한도로 나눌 수 없다).
     private PlatformAdminPlanQuotaStats buildStats(Map<Long, UserPlan> planByCompany, Map<Long, Plan> planById) {
         List<Long> validCompanyIds = planByCompany.entrySet().stream()
-                .filter(entry -> resolveRemaining(entry.getValue().getStartedAt()).status()
+                .filter(entry -> resolveRemaining(entry.getValue().getCurrentPeriodEnd()).status()
                         != PlatformAdminPlanQuotaStatus.EXPIRED)
                 .map(Map.Entry::getKey)
                 .toList();
@@ -164,7 +165,7 @@ public class PlatformAdminPlanQuotaService {
         }
 
         Plan plan = planById.get(userPlan.getPlanId());
-        RemainingPlan remaining = resolveRemaining(userPlan.getStartedAt());
+        RemainingPlan remaining = resolveRemaining(userPlan.getCurrentPeriodEnd());
         return new PlatformAdminPlanQuotaUser(
                 user.getId(), user.getName(), user.getEmail(), user.getCompanyId(), companyName,
                 plan.getName(), quotaUsed, plan.getMaxMonthlyAnalyses(), remaining.days(), remaining.status());
@@ -181,10 +182,13 @@ public class PlatformAdminPlanQuotaService {
                 .collect(Collectors.toMap(Plan::getId, Function.identity()));
     }
 
-    // startedAt + 1개월을 만료 예정일로 근사해 남은 일수를 계산한다(클래스 상단 javadoc 참고).
-    private RemainingPlan resolveRemaining(Instant startedAt) {
-        Instant expiresAt = startedAt.atZone(KST).plusMonths(1).toInstant();
-        long remainingDays = ChronoUnit.DAYS.between(Instant.now(), expiresAt);
+    // current_period_end 로 남은 일수를 계산한다(클래스 상단 javadoc 참고). NULL(FREE, 무기한)은
+    // 만료가 없으므로 EXPIRED 로 판정하지 않는다(#1104 — 이 조건 부재가 원래 버그였다).
+    private RemainingPlan resolveRemaining(Instant currentPeriodEnd) {
+        if (currentPeriodEnd == null) {
+            return new RemainingPlan(null, PlatformAdminPlanQuotaStatus.ACTIVE);
+        }
+        long remainingDays = ChronoUnit.DAYS.between(Instant.now(), currentPeriodEnd);
         if (remainingDays <= 0) {
             return new RemainingPlan(null, PlatformAdminPlanQuotaStatus.EXPIRED);
         }
