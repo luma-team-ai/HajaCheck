@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
@@ -113,6 +113,10 @@ export function ReportGeneratePage() {
   }, [report?.pdfUrl, isExportMode]);
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
+  const defectImageUrls = useMemo(
+    () => inspectionData?.defects.map((defect) => defect.imageUrl) ?? [],
+    [inspectionData?.defects],
+  );
 
   const applyReport = useCallback((data: ReportDetailResponse) => {
     setReport(data);
@@ -395,8 +399,8 @@ export function ReportGeneratePage() {
         <ReportContentEditor
           content={content}
           onChange={setContent}
-          readOnly={isFinalized}
-          defectImageUrls={inspectionData?.defects.map((defect) => defect.imageUrl)}
+          readOnly={isFinalized || isSaving || isRechecking || isFinalizing}
+          defectImageUrls={defectImageUrls}
         />
       )}
 

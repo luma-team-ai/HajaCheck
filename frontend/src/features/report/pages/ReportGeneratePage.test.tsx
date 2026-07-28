@@ -12,6 +12,7 @@ import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../constants';
 import { mockReportDetailResponse } from '../mocks/reportDetail.mock';
 import { ReportGeneratePage } from './ReportGeneratePage';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import { DetailSection } from '../components/editor/DetailSection';
 
 vi.mock('../utils/exportReportToPdf', () => ({
   exportReportToPdf: vi.fn().mockResolvedValue(new Blob(['fake-pdf'])),
@@ -251,6 +252,31 @@ describe('ReportGeneratePage', () => {
     expect(screen.queryByRole('button', { name: '저장' })).toBeNull();
   });
 
+  it('저장 요청 중에는 편집 입력을 잠가 진행 중 응답이 최신 입력을 덮어쓰지 않게 한다', async () => {
+    let resolveSave: (() => void) | undefined;
+    server.use(
+      http.patch('/api/reports/1', async ({ request }) => {
+        const body = (await request.json()) as { contentJson: string };
+        await new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        });
+        reportState = { ...reportState, content: JSON.parse(body.contentJson) };
+        return HttpResponse.json({ success: true, data: reportState });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const purposeInput = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
+    fireEvent.change(purposeInput, { target: { value: '저장 중 변경 방지' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+
+    await waitFor(() => expect(purposeInput.readOnly).toBe(true));
+    resolveSave?.();
+    await waitFor(() => expect(purposeInput.readOnly).toBe(false));
+  });
+
   it('기존 reportId 상세 content로 진입해 바로 PDF 생성 후 확정할 수 있다', async () => {
     if (!isReportContent(mockReportDetailResponse.content)) {
       throw new Error('report detail fixture content must match ReportContent');
@@ -463,5 +489,46 @@ describe('ReportGeneratePage', () => {
     expect(screen.getByText(AI_DRAFT_WARNING_TITLE)).toBeTruthy();
     expect(screen.getByText((_, node) => node?.textContent === AI_DRAFT_WARNING)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'PDF 미리보기' })).toBeTruthy();
+  });
+});
+
+describe('DetailSection', () => {
+  it('상세 항목을 삭제해도 남은 항목의 현장 이미지 순서를 유지한다', () => {
+    const content: ReportContent = {
+      ...mockContent,
+      detail: {
+        items: [
+          { defect_type: '첫 번째', location: 'A', severity_grade: 'A', description: '', cause: '' },
+          { defect_type: '두 번째', location: 'B', severity_grade: 'B', description: '', cause: '' },
+        ],
+      },
+    };
+    let currentContent = content;
+    const imageUrls = ['/images/first.jpg', '/images/second.jpg'];
+    const onChange = (next: ReportContent) => {
+      currentContent = next;
+    };
+    const { rerender } = render(
+      <DetailSection
+        content={currentContent}
+        onChange={onChange}
+        readOnly={false}
+        imageUrls={imageUrls}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: '이 항목 삭제' })[0]);
+    rerender(
+      <DetailSection
+        content={currentContent}
+        onChange={onChange}
+        readOnly={false}
+        imageUrls={imageUrls}
+      />,
+    );
+
+    expect(screen.getAllByRole('img').map((image) => image.getAttribute('src'))).toEqual([
+      '/images/second.jpg',
+    ]);
   });
 });

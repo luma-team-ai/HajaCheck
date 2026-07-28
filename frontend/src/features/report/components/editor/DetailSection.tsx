@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { DefectDetailItem, ReportContent } from '../../types';
 import { Button } from '../../../../shared/components/Button';
 import { LabeledTextArea } from './LabeledTextArea';
@@ -64,6 +64,11 @@ export function DetailSection({
 }: DetailSectionProps) {
   const [grade, setGrade] = useState<GradeFilter>('ALL');
   const [page, setPage] = useState(0);
+  const [visibleImageUrls, setVisibleImageUrls] = useState(imageUrls);
+
+  useEffect(() => {
+    setVisibleImageUrls(imageUrls);
+  }, [imageUrls]);
 
   const items = content.detail.items;
   const indexedItems = items.map((item, index) => ({ item, index }));
@@ -92,6 +97,7 @@ export function DetailSection({
 
   const removeItem = (index: number) => {
     const next = items.filter((_, itemIndex) => itemIndex !== index);
+    setVisibleImageUrls((current) => current.filter((_, imageIndex) => imageIndex !== index));
     onChange({ ...content, detail: { items: next } });
     setPage((previous) => {
       const newTotal = Math.max(1, Math.ceil(next.length / PAGE_SIZE));
@@ -176,7 +182,7 @@ export function DetailSection({
               <div className="grid gap-0 border-y border-border lg:grid-cols-[minmax(240px,325px)_minmax(200px,236px)_minmax(0,1fr)]">
                 <div className="relative min-h-72 overflow-hidden bg-surface-sunken">
                   <DefectImage
-                    src={imageUrls[index]}
+                    src={visibleImageUrls[index]}
                     alt={`지적 ${index + 1} 현장 이미지`}
                   />
                   <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-surface/90 px-3 py-1.5 text-xs font-semibold tracking-wide text-heading backdrop-blur-[10px]">
