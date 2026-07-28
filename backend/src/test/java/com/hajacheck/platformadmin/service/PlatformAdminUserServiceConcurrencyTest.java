@@ -9,6 +9,7 @@ import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.counsel.entity.CounselType;
+import com.hajacheck.counsel.entity.CounselorSkillId;
 import com.hajacheck.counsel.repository.CounselorSkillRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -199,7 +200,13 @@ class PlatformAdminUserServiceConcurrencyTest extends PostgresTestSupport {
             assertThat(remaining).hasSize(1);
             assertThat(targetSkills).contains(remaining.get(0));
         } finally {
-            counselorSkillRepository.deleteByCounselorId(counselorId);
+            // deleteByCounselorId(@Modifying, flushAutomatically=true)는 changeSkill의 @Transactional
+            // 경계 안에서 호출되는 걸 전제하므로, 트랜잭션 없는 이 정리 코드에서 직접 부르면 "No
+            // EntityManager with actual transaction available" 로 실패한다 — 상속받은 CRUD 메서드
+            // (deleteAllById)로 대체한다(admin1/admin2 정리에 쓰는 deleteById와 동일 이유로 안전).
+            List<CounselType> leftoverSkills = counselorSkillRepository.findCounselTypesByCounselorId(counselorId);
+            counselorSkillRepository.deleteAllById(
+                    leftoverSkills.stream().map(skill -> new CounselorSkillId(counselorId, skill)).toList());
             userRepository.deleteById(counselorId);
         }
     }
