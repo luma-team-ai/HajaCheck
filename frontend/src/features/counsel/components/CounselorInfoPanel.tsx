@@ -216,9 +216,10 @@ export function CounselorInfoPanel({ ticket }: Props) {
             </dl>
           </div>
 
-          {/* 비공개 메모(#1022, HAJA-504) — 고객에게 노출되지 않는 상담원 전용 메모. */}
-          <div className="flex flex-col gap-2 rounded-2xl bg-white px-4 py-4 shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
-            <p className="m-0 text-xs font-semibold uppercase tracking-wide text-text-muted">비공개 메모</p>
+          {/* 비공개 메모(#1022, HAJA-504) — 고객에게 노출되지 않는 상담원 전용 메모.
+              포인트 컬러 계열로 강조(ChatInputBox 포커스 스타일과 동일한 톤 재사용). */}
+          <div className="flex flex-col gap-2 rounded-2xl border border-point/15 bg-point/5 px-4 py-4 shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
+            <p className="m-0 text-xs font-semibold uppercase tracking-wide text-point">비공개 메모</p>
             {noteLoading ? (
               <LoadingSpinner className="flex items-center justify-center py-4" />
             ) : (
@@ -231,7 +232,7 @@ export function CounselorInfoPanel({ ticket }: Props) {
                   rows={4}
                   maxLength={4000}
                   placeholder="고객에게 보이지 않는 메모를 남겨보세요."
-                  className="w-full resize-none rounded-xl border border-border bg-surface-muted px-3 py-2 text-xs text-primary outline-none transition-colors focus:border-point"
+                  className="w-full resize-none rounded-xl border border-point/20 bg-white px-3 py-2 text-xs text-primary caret-point outline-none transition-colors focus:border-point focus:ring-2 focus:ring-point/30"
                 />
                 <div className="flex items-center justify-between gap-2">
                   {noteSaveError ? (
@@ -247,7 +248,7 @@ export function CounselorInfoPanel({ ticket }: Props) {
                     type="button"
                     onClick={handleSaveNote}
                     disabled={noteSaving}
-                    className="shrink-0 rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-50"
+                    className="shrink-0 rounded-full bg-point px-4 py-1.5 text-xs font-semibold text-white transition-colors hover:opacity-90 disabled:opacity-50"
                   >
                     {noteSaving ? '저장 중...' : '메모 저장'}
                   </button>
