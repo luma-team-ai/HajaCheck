@@ -235,8 +235,13 @@ public class InspectionDueNotificationScheduler {
                         InspectionDueNotificationPayload.serialize(facility, kind));
                 published++;
             } catch (DataIntegrityViolationException e) {
-                // 동시 실행(다중 인스턴스 또는 같은 인스턴스 내 레이스)이 먼저 커밋해 유니크 인덱스가
-                // 막은 경우 — 이미 발행된 것으로 간주하고 조용히 skip한다(정상 동작, 에러 아님).
+                // 대부분은 동시 실행(다중 인스턴스 또는 같은 인스턴스 내 레이스)이 먼저 커밋해 유니크
+                // 인덱스가 막은 정상 케이스(이미 발행됨)라 skip 처리한다. 다만 JPA는 유니크 위반과
+                // FK 위반(예: user_id 정합성 깨짐)을 모두 DataIntegrityViolationException으로 뭉뚱그리므로
+                // (하위 타입으로 세분화되지 않음), 실제로는 발행 실패인 경우를 조용히 놓치지 않도록
+                // debug 로그로 caught 예외를 남겨 관측 가능하게 한다(코드리뷰 P2 반영).
+                log.debug("INSPECTION_DUE 알림 발행 시 무결성 제약 위반 — facilityId={} kind={} 이미 발행됨으로 간주 exception={}",
+                        facility.getId(), kind, e.getMostSpecificCause().getMessage());
                 skipped++;
             } catch (Exception e) {
                 // 시설물 1건 실패를 격리 — 같은 owner의 나머지 시설물 처리는 계속한다.
