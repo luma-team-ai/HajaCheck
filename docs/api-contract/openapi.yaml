@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.25.0-draft"
+  version: "0.26.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -33,6 +33,11 @@ info:
       prefix `/user`.
 
 
+    2026-07-28 상담원 전용 비공개 메모 계약화(#1021/HAJA-503, PR #1091 dev 머지 반영) — GET/PUT
+    /api/counsel/tickets/{id}/note 신설. 티켓당 1개(counsel_ticket_notes.ticket_id unique, Flyway V23),
+    **고객에게는 어떤 경로로도 노출되지 않으며** 담당 상담원 본인만 조회·저장한다(요청자 != 티켓
+    counselorId 또는 미배정 티켓이면 403 COUNSEL_TICKET_FORBIDDEN — cross-counselor IDOR 방지).
+    저장은 upsert(없으면 생성/있으면 갱신)이고 빈 내용(null/blank)도 허용한다(메모 초기화 용도).
     2026-07-27 점검유형·알림설정 계약 소급 반영(#540 ①③, PR#1032 사람검수 P2-3) — InspectionResponse에
     type(InspectionTypeCode: REGULAR/DETAILED/EMERGENCY) 추가(엔티티/DB 컬럼은 이미 있었으나 응답에 미노출
     상태였던 것을 소급 반영). 실구현은 있었으나(#725/HAJA-393, PR #891) 미문서였던 GET /api/inspections
@@ -2985,6 +2990,96 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
+  /api/counsel/tickets/{id}/note:
+    get:
+      summary: 상담원 비공개 메모 조회
+      description: >
+        #1021/HAJA-503. 고객에게 노출되지 않는 상담원 전용 메모(티켓당 1개)를 조회한다. **담당 상담원
+        본인만** — 요청자가 티켓의 counselorId 와 다르거나 아직 아무에게도 배정되지 않은 티켓
+        (counselorId=null)이면 403(COUNSEL_TICKET_FORBIDDEN). 아직 메모가 없으면 200 + content=null
+        (빈 메모)로 응답한다(404 아님). SecurityConfig 의 role 게이트는 COUNSELOR/PLATFORM_ADMIN 이지만
+        실질 인가는 서비스의 담당자 검증이므로 PLATFORM_ADMIN 도 담당 상담원이 아니면 403이다.
+        `CounselTicketController.getNote` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [counsel]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: 조회 성공(메모 없으면 content=null)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CounselTicketNoteApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: >
+            COUNSELOR/PLATFORM_ADMIN 아님 (FORBIDDEN) 또는 담당 상담원 본인 아님/미배정 티켓
+            (COUNSEL_TICKET_FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 티켓 없음 (COUNSEL_TICKET_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+    put:
+      summary: 상담원 비공개 메모 저장
+      description: >
+        #1021/HAJA-503. 상담원 전용 메모를 저장한다 — upsert(없으면 생성, 있으면 갱신). **담당 상담원
+        본인만**(403 규칙은 조회와 동일). content 는 null/빈 문자열도 허용해 메모 초기화에 쓰며, 4000자를
+        넘으면 400. `CounselTicketController.saveNote` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [counsel]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CounselTicketNoteUpdateRequest" }
+      responses:
+        "200":
+          description: 저장 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CounselTicketNoteApiResponse" }
+        "400":
+          description: content 4000자 초과 (VALIDATION_ERROR)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: >
+            COUNSELOR/PLATFORM_ADMIN 아님 (FORBIDDEN) 또는 담당 상담원 본인 아님/미배정 티켓
+            (COUNSEL_TICKET_FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 티켓 없음 (COUNSEL_TICKET_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
 components:
   securitySchemes:
     InternalKey:
@@ -3137,6 +3232,49 @@ components:
       properties:
         success: { type: boolean, example: true }
         data: { $ref: "#/components/schemas/CounselTicketSummaryPage" }
+        error: { type: object, nullable: true, example: null }
+
+    CounselTicketNoteUpdateRequest:
+      type: object
+      description: >
+        상담원 전용 비공개 메모 저장(upsert) 요청. content 는 선택 — null/빈 문자열이면 메모를 비운다.
+      properties:
+        content:
+          type: string
+          nullable: true
+          maxLength: 4000
+          example: 고객 재문의 예정 — 다음 주 점검 보고서 재발송 필요
+
+    CounselTicketNoteResponse:
+      type: object
+      description: >
+        상담원 전용 비공개 메모(고객 비노출, 티켓당 1개). 메모가 아직 없는 티켓이면 counselorId/content/
+        updatedAt 이 모두 null 인 "빈 메모"로 응답한다.
+      properties:
+        ticketId: { type: integer, format: int64, example: 501 }
+        counselorId:
+          type: integer
+          format: int64
+          nullable: true
+          description: 최근 메모를 작성/갱신한 상담원 ID(메모 없으면 null)
+          example: 7
+        content:
+          type: string
+          nullable: true
+          description: 메모 본문(메모 없음/초기화 시 null)
+          example: 고객 재문의 예정 — 다음 주 점검 보고서 재발송 필요
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2026-07-28T09:20:00"
+
+    CounselTicketNoteApiResponse:
+      type: object
+      description: 성공 envelope — data=CounselTicketNoteResponse
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/CounselTicketNoteResponse" }
         error: { type: object, nullable: true, example: null }
 
     ChatMessageResponse:
@@ -4644,11 +4782,14 @@ components:
           example: 10
 
     AdminPlanChangePreviewApiResponse:
-      allOf:
-        - $ref: "#/components/schemas/ApiResponseBase"
-        - type: object
-          properties:
-            data: { $ref: "#/components/schemas/AdminPlanChangePreviewResponse" }
+      type: object
+      description: >
+        성공 envelope — data=AdminPlanChangePreviewResponse. (원래 존재하지 않는
+        `ApiResponseBase` 를 allOf 로 참조해 스펙이 깨져 있던 것을 다른 envelope 들과 동일한 형태로 정정.)
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/AdminPlanChangePreviewResponse" }
+        error: { type: object, nullable: true, example: null }
 
     AdminPlanHistoryEntry:
       type: object
