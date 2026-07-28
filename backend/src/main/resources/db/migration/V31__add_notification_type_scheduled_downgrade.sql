@@ -1,6 +1,10 @@
--- Flyway V30 — notification_type PG enum에 예약 하향 알림 라벨 2종 추가(#1105 / HAJA-526).
+-- Flyway V31 — notification_type PG enum에 예약 하향 알림 라벨 2종 추가(#1105 / HAJA-526).
 --
--- 배경: 예약된 플랜 하향(scheduled_plan_changes, V29)은 사람 개입 없이 스케줄러가 실행하며, 그 시점에
+-- 번호(2026-07-29 재번호): 다른 팀원이 V29(reports.deleted_at)를 선점해 이 작업의 두 파일을 V29→V30·
+-- V30→V31로 밀었다. 앞 파일(V30 scheduled_plan_changes) 헤더에 재번호 경위와 결번 [29] 해소 조건을
+-- 남겨 뒀다.
+--
+-- 배경: 예약된 플랜 하향(scheduled_plan_changes, V30)은 사람 개입 없이 스케줄러가 실행하며, 그 시점에
 -- 초과 좌석이 SUSPENDED 된다. 신청자(회사 owner)가 화면을 보고 있지 않는 사이 구성원 계정이 정지되므로
 -- 적용 시점에 알림이 반드시 함께 나가야 한다. 코드에만 추가하고 이 라벨이 PG enum에 없으면 알림 INSERT가
 -- 런타임에 실패한다(V4가 role_type, V28이 notification_type 에서 겪은 것과 같은 형태).

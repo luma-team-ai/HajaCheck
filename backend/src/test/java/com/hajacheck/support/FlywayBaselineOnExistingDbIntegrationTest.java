@@ -291,16 +291,17 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 """, Long.class);
         assertThat(planExpiredLabelCount).isEqualTo(1L);
 
-        // V29(scheduled_plan_changes 플랜 하향 예약 원장, #1105/HAJA-526)도 이 "기존 DB" 경로에서 no-op
+        // V30(scheduled_plan_changes 플랜 하향 예약 원장, #1105/HAJA-526)도 이 "기존 DB" 경로에서 no-op
         // 성공으로 적용된다 — 캐노니컬 DDL이 이미 이 테이블·enum·인덱스를 포함하고 마이그레이션 전 구문이
         // 멱등(IF NOT EXISTS / DO 블록)이라 'already exists' 로 기동을 깨뜨리지 않는다(#544 P1 회귀선).
-        Integer v29Applied = jdbcTemplate.queryForObject(
-                "select count(*) from flyway_schema_history where version = '29' and success = true",
+        // (V29는 다른 팀원이 선점해 2026-07-29 에 V29→V30 으로 재번호했다.)
+        Integer v30Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '30' and success = true",
                 Integer.class);
-        assertThat(v29Applied).isEqualTo(1);
+        assertThat(v30Applied).isEqualTo(1);
 
         // 기존 DB에 있던 scheduled_plan_changes 테이블과 부분 유니크 인덱스도 그대로 유지된다
-        // (V29 재실행이 깨거나 중복 생성하지 않음).
+        // (V30 재실행이 깨거나 중복 생성하지 않음).
         Long scheduledPlanChangesTableCount = jdbcTemplate.queryForObject("""
                 select count(*) from information_schema.tables
                 where table_schema = 'public' and table_name = 'scheduled_plan_changes'
@@ -313,12 +314,12 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 """, Long.class);
         assertThat(pendingPartialUniqueCount).isEqualTo(1L);
 
-        // V30(notification_type PLAN_DOWNGRADED·PLAN_DOWNGRADE_FAILED 라벨, #1105/HAJA-526)도 no-op
+        // V31(notification_type PLAN_DOWNGRADED·PLAN_DOWNGRADE_FAILED 라벨, #1105/HAJA-526)도 no-op
         // 성공으로 적용된다.
-        Integer v30Applied = jdbcTemplate.queryForObject(
-                "select count(*) from flyway_schema_history where version = '30' and success = true",
+        Integer v31Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '31' and success = true",
                 Integer.class);
-        assertThat(v30Applied).isEqualTo(1);
+        assertThat(v31Applied).isEqualTo(1);
         Long scheduledDowngradeLabelCount = jdbcTemplate.queryForObject("""
                 select count(*) from pg_enum e
                 join pg_type t on e.enumtypid = t.oid

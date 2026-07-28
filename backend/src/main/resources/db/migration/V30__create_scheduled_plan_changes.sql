@@ -1,12 +1,19 @@
--- Flyway V29 — 플랜 하향 예약(scheduled_plan_changes) 신설(#1105 / HAJA-526).
+-- Flyway V30 — 플랜 하향 예약(scheduled_plan_changes) 신설(#1105 / HAJA-526).
 --
 -- 배경: 지금까지 관리자 콘솔의 요금제 변경(AdminPlanService#changePlan)은 즉시 전이만 지원했다. 하향을
 -- 신청하는 순간 초과 좌석이 그 자리에서 SUSPENDED 되므로, 이미 낸 요금 기간이 남아 있어도 권한이 바로
 -- 내려간다. 이 테이블이 "지금 신청하고 다음 결제 주기에 적용"을 표현하는 예약 원장이 되어, 잔여 기간
 -- 동안은 현재 요금제를 그대로 유지하고 current_period_end(#1104 / V27)에 스케줄러가 무결제 전이한다.
 --
--- 번호: dev 최신이 V28(#1145 notification_type PLAN_EXPIRED)이라 이 변경은 V29를 쓴다
--- (FlywayMigrationVersionSequenceTest 가 결번을 막는다).
+-- 번호(2026-07-29 재번호): 착수 시점 dev 최신이 V28(#1145 notification_type PLAN_EXPIRED)이라 처음엔
+-- V29로 잡았으나, 다른 팀원이 V29(reports.deleted_at)를 선점한 것이 확인돼 V30으로 밀었다(뒤따르는
+-- notification_type 라벨 파일도 V30→V31). 그 V29는 아직 dev에도 열린 PR에도 없고 공유 dev DB
+-- (hajacheck_dev)에만 찍혀 있는 상태라, 지금 이 브랜치만 놓고 보면 [29]가 비어 있다.
+--
+-- ⚠️ 따라서 이 브랜치는 그 V29 PR이 dev에 머지된 뒤에야 결번 없이 들어갈 수 있다. spring.flyway.
+-- out-of-order 가 기본 false 라, 결번 상태로 배포되면 나중에 V29가 도착하는 순간 validate 실패로 앱
+-- 기동이 거부된다(#531 형태) — FlywayMigrationVersionSequenceTest 가 그 상태를 CI에서 막는다.
+-- 그때까지 이 테스트가 [29] 결번으로 빨간 것은 예상된 상태이며, 번호를 당기거나 테스트를 우회하지 않는다.
 --
 -- 멱등 가드(IF NOT EXISTS / DO 블록): 캐노니컬 DDL(HajaCheck_script.sql)에 이 스키마를 함께 반영하므로,
 -- baseline-on-existing 경로(이미 캐노니컬 전체 스키마가 적재된 DB)에서 이 파일이 처음 적용될 때

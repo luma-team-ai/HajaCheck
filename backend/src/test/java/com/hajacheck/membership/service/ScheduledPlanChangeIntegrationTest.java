@@ -808,7 +808,7 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         assertThat(userPlanRepository.findById(current.getId()).orElseThrow().getStatus())
                 .isEqualTo(UserPlanStatus.EXPIRED);
         assertThat(reload(scheduled.id()).getStatus()).isEqualTo(ScheduledPlanChangeStatus.APPLIED);
-        // PG enum 라벨(V30)이 없으면 이 INSERT 자체가 실패한다 — 라벨까지 함께 고정된다.
+        // PG enum 라벨(V31)이 없으면 이 INSERT 자체가 실패한다 — 라벨까지 함께 고정된다.
         assertThat(downgradedNotifications(owner.getId())).hasSize(1);
 
         scheduledPlanChangeScheduler.applyDueScheduledChanges();

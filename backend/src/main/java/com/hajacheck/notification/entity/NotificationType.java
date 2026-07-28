@@ -15,7 +15,7 @@ public enum NotificationType {
     /** 구독 결제 주기 만료로 FREE 자동 강등됨(#1145 / HAJA-549) — Flyway V28이 PG 라벨을 추가한다. */
     PLAN_EXPIRED,
     /**
-     * 신청해 둔 플랜 하향 예약이 결제 주기 종료 시점에 적용됨(#1105 / HAJA-526) — Flyway V30이 PG 라벨을
+     * 신청해 둔 플랜 하향 예약이 결제 주기 종료 시점에 적용됨(#1105 / HAJA-526) — Flyway V31이 PG 라벨을
      * 추가한다.
      *
      * <p>{@link #PLAN_EXPIRED}와 합치지 않는 이유: 사용자에게 전혀 다른 사건이다. PLAN_EXPIRED 는
@@ -24,7 +24,7 @@ public enum NotificationType {
      */
     PLAN_DOWNGRADED,
     /**
-     * 신청해 둔 플랜 하향 예약이 <b>실패로 종료</b>됨(#1105 / HAJA-526) — Flyway V30이 PG 라벨을 추가한다.
+     * 신청해 둔 플랜 하향 예약이 <b>실패로 종료</b>됨(#1105 / HAJA-526) — Flyway V31이 PG 라벨을 추가한다.
      *
      * <p>FAILED 는 종료 상태라 자동 재시도가 없고, 조회({@code AdminPlanResponse.scheduledChange})는
      * 대기(PENDING) 예약만 노출한다. 그래서 알림이 없으면 신청자에게는 "예약을 걸었는데 어느 날 조용히
