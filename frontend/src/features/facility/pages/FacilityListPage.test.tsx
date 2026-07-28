@@ -189,6 +189,65 @@ describe('FacilityListPage (통합 테스트)', () => {
     expect(screen.queryByRole('dialog')).not.toBeNull();
   });
 
+  // #1098 회귀고정 — 생성 성공+업로드만 실패한 뒤 같은 폼으로 재제출하면, 시설물을 다시 생성하지
+  // 않고(POST /api/facilities는 최초 1회만) 기억해둔 facility.id로 업로드만 재시도해야 한다.
+  it('사진 업로드만 실패한 뒤 재제출하면 시설물을 다시 생성하지 않고 업로드만 재시도한다(#1098)', async () => {
+    let mediaAttempt = 0;
+    server.use(
+      http.post('/api/facilities/:facilityId/media', () => {
+        mediaAttempt += 1;
+        if (mediaAttempt === 1) {
+          const failure: ApiResponse<null> = {
+            success: false,
+            data: null,
+            error: { code: 'FACILITY_PHOTO_UPLOAD_FAILED', message: '대표 사진 업로드에 실패했습니다.' },
+          };
+          return HttpResponse.json(failure, { status: 500 });
+        }
+        const success: ApiResponse<null> = { success: true, data: null };
+        return HttpResponse.json(success);
+      }),
+    );
+
+    const createFacilityRequests: string[] = [];
+    const captureRequest = ({ request }: { request: Request }) => {
+      const url = new URL(request.url);
+      if (request.method === 'POST' && url.pathname === '/api/facilities') {
+        createFacilityRequests.push(url.pathname);
+      }
+    };
+    server.events.on('request:match', captureRequest);
+
+    try {
+      renderPage();
+      await screen.findByText('강남 오피스타워 A동');
+
+      openCreateModal();
+      fillRequiredFields('재시도 시설물');
+      fireEvent.change(screen.getByLabelText('대표 사진 업로드'), {
+        target: { files: [makeImageFile('a.png')] },
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+      });
+      await screen.findByText('대표 사진 업로드에 실패했습니다.');
+      expect(screen.queryByRole('dialog')).not.toBeNull();
+
+      // 실패 시 폼 값·선택 사진이 그대로 유지되므로(FacilityFormModal), 같은 버튼을 다시 누르는
+      // 것만으로 "동일 폼 재제출"을 재현할 수 있다.
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+      });
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(createFacilityRequests).toHaveLength(1);
+      expect(mediaAttempt).toBe(2);
+    } finally {
+      server.events.removeListener('request:match', captureRequest);
+    }
+  });
+
   it('등록 실패: 모달이 닫히지 않고 입력한 폼 값이 유지되며 에러 메시지가 표시된다', async () => {
     server.use(
       http.post('/api/facilities', () => {
