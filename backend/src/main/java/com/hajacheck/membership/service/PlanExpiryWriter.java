@@ -11,9 +11,12 @@ import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -66,6 +69,14 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class PlanExpiryWriter {
 
+    /**
+     * 강등 대상으로 인정하는 "살아있는 구독" 상태 — {@code QuotaService#findLivePlan}·
+     * {@code PlanTransitionService#resolveCurrentUserPlan} 과 <b>같은 집합</b>이어야 한다(리뷰 P1).
+     * {@code PlanExpiryScheduler} 가 조회에 쓰는 집합과도 동일하다.
+     */
+    public static final List<UserPlanStatus> LIVE_STATUSES =
+            List.of(UserPlanStatus.ACTIVE, UserPlanStatus.UPGRADE_REQUESTED);
+
     private final CompanyRepository companyRepository;
     private final PlanRepository planRepository;
     private final UserPlanRepository userPlanRepository;
@@ -79,10 +90,16 @@ public class PlanExpiryWriter {
      * @param threshold  만료 판정 기준 시각({@code now - gracePeriod}) — 조회 시점과 <b>같은 값</b>을
      *                   넘겨야 재검증이 조회 조건과 일치한다
      * @return 강등 결과(스킵이면 {@link PlanExpiryResult#downgraded()} 가 false)
+     * @throws BusinessException {@link ErrorCode#PLAN_ACTIVE_SUBSCRIPTION_CONFLICT} — 신규 ACTIVE 발급이
+     *                           부분 UQ 를 밟은 경우(다른 경로가 먼저 활성 구독을 만듦). 호출부는 이
+     *                           코드만 "경합 스킵"으로 처리하고 그 외 무결성 위반은 실패로 집계해야 한다.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public PlanExpiryResult expireToFreePlan(Long userPlanId, Instant threshold) {
-        UserPlan current = userPlanRepository.findById(userPlanId).orElse(null);
+        // 행 잠금과 함께 읽는다(리뷰 P3-5) — 재검증이 보는 상태가 판정 시점의 확정 상태가 되도록,
+        // 그리고 다중 인스턴스가 같은 구독을 동시에 강등하지 않도록 직렬화한다. 잠금으로도 남는 한계
+        // (@Version 부재로 인한 lost update)는 UserPlanRepository#findByIdForUpdate javadoc 참고.
+        UserPlan current = userPlanRepository.findByIdForUpdate(userPlanId).orElse(null);
         if (current == null) {
             // 조회~처리 사이에 사라진 행. 이론적으로 발생하지 않지만 배치를 죽이지 않는다.
             return PlanExpiryResult.skipped("구독 행 없음");
@@ -90,8 +107,12 @@ public class PlanExpiryWriter {
         // ⚠️ 대상 조건 재검증 — 스케줄러의 조회는 잠금 없는 스냅샷이라, id 를 읽은 뒤 처리 전에 다른
         // 경로(결제 승인·관리자 플랜 변경)가 먼저 전이시켰을 수 있다. 그 상태에서 강등하면 방금 결제한
         // 유료 구독을 곧바로 내리게 된다.
-        if (current.getStatus() != UserPlanStatus.ACTIVE) {
-            return PlanExpiryResult.skipped("이미 ACTIVE 아님(status=" + current.getStatus() + ")");
+        //
+        // ⚠️ 판정 집합은 조회 쿼리(findExpiryTargetIds)·엔타이틀먼트 판정(QuotaService#findLivePlan)과
+        // 반드시 같아야 한다(리뷰 P1). 여기만 ACTIVE 로 좁히면 UPGRADE_REQUESTED 구독이 조회에는 잡히고
+        // 재검증에서 매번 스킵돼 강등이 영영 일어나지 않는다.
+        if (!LIVE_STATUSES.contains(current.getStatus())) {
+            return PlanExpiryResult.skipped("이미 유효 구독 아님(status=" + current.getStatus() + ")");
         }
         Instant periodEnd = current.getCurrentPeriodEnd();
         if (periodEnd == null || !periodEnd.isBefore(threshold)) {
@@ -122,26 +143,53 @@ public class PlanExpiryWriter {
         UserPlan renewed = companyId != null
                 ? UserPlan.forCompany(companyId, freePlan.getId())
                 : UserPlan.forUser(userId, freePlan.getId());
-        // 결제가 아니라 만료에 의한 전이다 — 주기 시작은 승계하고 종료는 NULL(무기한). targetIsPaid=false
-        // 는 대상이 FREE 라서 고정이다(가격 기준 판정과 결과가 같다).
-        renewed.carryOverBillingPeriod(current, false);
-        UserPlan saved = userPlanRepository.saveAndFlush(renewed);
+        // 결제가 아니라 만료에 의한 전이다 — 주기 시작은 승계하고 종료는 대상이 무료면 NULL(무기한).
+        // 유료 여부 판정은 AdminPlanService#changePlan 과 <b>같은 근거</b>(plans.price_monthly)를 쓴다
+        // (리뷰 P3-2) — 여기서 false 를 하드코딩하면 결과는 같아도 판정 근거가 갈라져, 나중에 FREE 가격
+        // 정책이 바뀌면 두 경로가 조용히 어긋난다.
+        renewed.carryOverBillingPeriod(current, isPaid(freePlan));
+        UserPlan saved;
+        try {
+            // ⚠️ try 범위를 이 한 줄로 좁힌다(AdminPlanService·PlanTransitionService 의 동일 주석과 같은
+            // 이유, 리뷰 P2-1) — 아래 사용량 이월·좌석 정지에서 나온 무결성 위반까지 "이미 활성 구독
+            // 존재"로 오분류하면, 진짜 데이터 결함이 매일 밤 INFO 스킵 한 줄로 사라진다.
+            saved = userPlanRepository.saveAndFlush(renewed);
+        } catch (DataIntegrityViolationException e) {
+            // 동시 전이 경합 — 다른 경로(결제 승인·관리자 변경)가 먼저 ACTIVE 를 만들어 부분 UQ
+            // (uq_user_plans_active_company/user) 를 밟았다. 호출부가 이 코드만 보고 "경합 스킵"으로
+            // 처리하고 다음 회차에 자연 재시도한다.
+            throw new BusinessException(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
+        }
 
         planTransitionService.carryOverUsage(current.getId(), saved.getId());
 
-        int suspendedSeatCount = 0;
+        List<Long> suspendedUserIds = List.of();
         if (overflow != null) {
             planDowngradeService.applyOverflow(companyId, freePlan, overflow);
-            suspendedSeatCount = overflow.seatOverflowCount();
+            suspendedUserIds = List.copyOf(overflow.seatUserIdsToSuspend());
         }
 
         // 운영 로그(#1145 §5) — 누가(companyId/userId) 어느 플랜에서 언제 내려갔는지.
+        // ⚠️ 정지된 좌석의 user id 를 반드시 남긴다(리뷰 P2-3). 오강등이 발생하면 되돌릴 대상 목록을
+        // 이 로그 말고는 복원할 방법이 없다(users.status 는 이전 값을 보관하지 않는다). id 만 남기므로
+        // 개인정보(이메일·이름)는 로그에 들어가지 않는다.
         log.info("구독 만료 FREE 강등 — companyId={} userId={} previousPlan={} periodEnd={} "
-                        + "expiredAt={} suspendedSeats={}",
-                companyId, userId, currentPlan.getName(), periodEnd, Instant.now(), suspendedSeatCount);
+                        + "expiredAt={} suspendedSeats={} suspendedUserIds={}",
+                companyId, userId, currentPlan.getName(), periodEnd, Instant.now(),
+                suspendedUserIds.size(), suspendedUserIds);
 
-        return PlanExpiryResult.downgraded(
-                recipientUserId, currentPlan.getName(), companyId, userId, periodEnd, suspendedSeatCount);
+        return PlanExpiryResult.downgraded(recipientUserId, currentPlan.getName(), companyId, userId,
+                periodEnd, suspendedUserIds);
+    }
+
+    /**
+     * 유료 요금제인가 — {@code AdminPlanService#priceOrZero} 와 같은 기준({@code plans.price_monthly}).
+     * 티어 이름이 아니라 가격이 유일한 기준인 이유는 그쪽 javadoc 과 같다(가격은 플랫폼 관리자가 바꿀 수
+     * 있어 이름 순서와 어긋날 수 있다). null 가격은 0원으로 본다.
+     */
+    private boolean isPaid(Plan plan) {
+        BigDecimal price = plan.getPriceMonthly();
+        return price != null && price.signum() > 0;
     }
 
     private Long resolveCompanyOwnerUserId(Long companyId) {

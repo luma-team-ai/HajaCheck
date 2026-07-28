@@ -1,7 +1,8 @@
 package com.hajacheck.membership.scheduler;
 
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.config.PlanExpiryProperties;
-import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.membership.service.PlanExpiryResult;
 import com.hajacheck.membership.service.PlanExpiryWriter;
@@ -22,24 +23,40 @@ import org.springframework.stereotype.Component;
  * (점검 알림 배치 06:00과 겹치지 않게).
  *
  * <p><b>왜 필요한가</b>: {@code user_plans.current_period_end} 가 #1104로 실체화됐지만 아무도 그것을
- * 강제하지 않았다 — 엔타이틀먼트 판정({@code QuotaService} 등)은 {@code status = ACTIVE} 만 보므로,
- * 한 번 결제하면 유료 플랜이 무기한 유지된다. 빌링키(정기결제)가 없어 만료 시점 자동 청구가 불가능하므로
- * 실행 가능한 정책은 "만료 시 FREE 강등"이다(2026-07-28 확정).
+ * 강제하지 않았다 — 엔타이틀먼트 판정({@code QuotaService} 등)은 구독 상태만 보므로, 한 번 결제하면
+ * 유료 플랜이 무기한 유지된다. 빌링키(정기결제)가 없어 만료 시점 자동 청구가 불가능하므로 실행 가능한
+ * 정책은 "만료 시 FREE 강등"이다(2026-07-28 확정).
  *
- * <p><b>대상</b>: {@code status = ACTIVE AND current_period_end IS NOT NULL AND
- * current_period_end < now - gracePeriod}. FREE 는 {@code current_period_end IS NULL}(#1104 규칙)이라
- * 자연 배제된다 — <b>plans 가격으로 다시 필터하지 않는다</b>(두 판정이 갈라지면 #1104의 승계 규칙과
- * 어긋난다). 개인 구독({@code company_id IS NULL})도 포함하며, 좌석·회사 시설물 개념만 건너뛴다.
+ * <p><b>대상</b>: {@code status in (ACTIVE, UPGRADE_REQUESTED) AND current_period_end IS NOT NULL AND
+ * current_period_end < now - gracePeriod}(+ {@code not-before} 컷오프). FREE 는
+ * {@code current_period_end IS NULL}(#1104 규칙)이라 자연 배제된다 — <b>plans 가격으로 다시 필터하지
+ * 않는다</b>(두 판정이 갈라지면 #1104의 승계 규칙과 어긋난다). 개인 구독({@code company_id IS NULL})도
+ * 포함하며, 좌석·회사 시설물 개념만 건너뛴다.
+ *
+ * <p><b>⚠️ {@code UPGRADE_REQUESTED} 를 포함하는 이유(리뷰 P1)</b>: 강제 판정은 <b>엔타이틀먼트 판정과
+ * 같은 집합</b>이어야 한다({@link PlanExpiryWriter#LIVE_STATUSES}). {@code QuotaService#findLivePlan} 은
+ * UPGRADE_REQUESTED 를 살아있는 구독으로 인정해 유료 한도를 계속 적용하는데,
+ * {@code UserPlan#requestUpgrade} 는 새 행을 만들지 않고 <b>기존 행의 status 만</b> 바꾸고
+ * {@code current_period_end} 는 그대로 둔다. 그래서 ACTIVE 만 대상으로 삼으면 구독자가
+ * {@code POST /api/me/plan/upgrade-inquiry} 를 <b>한 번</b> 호출하는 것만으로 만료 강제를 영구히
+ * 회피하면서 유료 한도를 계속 쓸 수 있다 — 이 배치가 없애려던 "한 번 결제하면 무기한"이 요청 1건으로
+ * 복원된다.
  *
  * <p><b>⚠️ 이 배치의 가장 큰 위험 — 소급 대량 강등</b>: V27 백필은 {@code current_period_end} 를 실제
  * 결제일이 아니라 {@code started_at + 1개월} 이라는 파생 추정치로 채웠다. 따라서 가입한 지 한 달이 넘은
  * 유료 구독은 이미 전부 "만료" 상태로 DB에 들어 있다. 아무 가드 없이 켜면 첫 실행에서 기존 유료 회사가
- * 일괄 강등되고 좌석까지 정지된다. 그래서 <b>두 개의 안전장치가 핵심</b>이며, 둘 다 테스트로 고정돼 있다:
+ * 일괄 강등되고 좌석까지 정지되며, <b>제품 안에는 되돌릴 경로가 없다</b>(무결제 상향이 #988로 차단됨).
+ * 그래서 <b>4중 안전장치</b>를 두고 전부 테스트로 고정한다:
  * <ol>
- *   <li>{@link PlanExpiryProperties#isEnabled()} — <b>기본 false</b>. 운영자가 프리플라이트(prod 강등
- *       대상 행 수 확인 + 실제 결제 이력 대조)를 마친 뒤에만 켠다. false면 대상 조회조차 하지 않는다.</li>
+ *   <li>{@link PlanExpiryProperties#isEnabled()} — <b>기본 false</b>. false면 대상 조회조차 하지 않는다.</li>
+ *   <li>{@link PlanExpiryProperties#getMode()} — <b>기본 DRY_RUN</b>. 대상 조회·집계·대상 id 로그까지만
+ *       하고 단 한 건도 강등하지 않는다. 운영자가 그 목록을 결제 이력과 대조한 뒤 ENFORCE 로 올린다.</li>
+ *   <li>{@link PlanExpiryProperties#getNotBefore()} — 설정되면 그보다 이른 만료일은 <b>쿼리 단계에서</b>
+ *       빠진다. V27 백필 추정치 구간을 <b>건수와 무관하게</b> 배제하는 컷오프다.</li>
  *   <li>{@link PlanExpiryProperties#getMaxPerRun()} — 대상 건수가 상한을 넘으면 <b>아무것도 하지 않고</b>
- *       ERROR 로그 후 중단한다. 부분 강등도 남기지 않는다(조회 후 건수 검사 → 초과면 즉시 return).</li>
+ *       ERROR 로그 후 중단한다. 부분 강등도 남기지 않는다(조회 후 건수 검사 → 초과면 즉시 return).
+ *       단, 이 상한은 대상이 상한 이하이면 통과하므로 <b>단독으로는 소급 대량 강등을 막지 못한다</b> —
+ *       실질 통제는 위의 mode·not-before 다.</li>
  * </ol>
  *
  * <p><b>트랜잭션</b>: 이 클래스/메서드에는 {@code @Transactional} 을 붙이지 않는다. 전이는
@@ -82,10 +99,12 @@ public class PlanExpiryScheduler {
         }
 
         Instant threshold = Instant.now(clock).minus(properties.getGracePeriod());
+        Instant notBefore = properties.getNotBefore();
         int maxPerRun = properties.getMaxPerRun();
-        long targetCount = userPlanRepository.countExpiryTargets(UserPlanStatus.ACTIVE, threshold);
+        long targetCount = userPlanRepository.countExpiryTargets(
+                PlanExpiryWriter.LIVE_STATUSES, threshold, notBefore);
         if (targetCount == 0) {
-            log.info("구독 만료 강등 배치 완료 — 대상 0건 (기준시각 {})", threshold);
+            log.info("구독 만료 강등 배치 완료 — 대상 0건 (기준시각 {} notBefore={})", threshold, notBefore);
             return;
         }
         if (targetCount > maxPerRun) {
@@ -93,24 +112,56 @@ public class PlanExpiryScheduler {
             // (current_period_end 백필 오염 등). 운영자가 원인을 확인할 때까지 아무것도 하지 않는다.
             log.error("구독 만료 강등 배치 중단 — 대상 {}건이 1회 상한 {}건을 초과했다(강등 0건). "
                             + "hajacheck.plan.expiry.max-per-run 을 올리기 전에 대상 목록이 실제 만료가 "
-                            + "맞는지(결제 이력 대조) 먼저 확인할 것. 기준시각 {}",
-                    targetCount, maxPerRun, threshold);
+                            + "맞는지(결제 이력 대조) 먼저 확인할 것. 기준시각 {} notBefore={}",
+                    targetCount, maxPerRun, threshold, notBefore);
             return;
         }
 
-        BatchCounts counts = process(threshold, maxPerRun);
-        log.info("구독 만료 강등 배치 완료 — 대상 {}건, 강등 {}건, 스킵 {}건, 실패 {}건, 알림 {}건 (기준시각 {})",
-                targetCount, counts.downgraded, counts.skipped, counts.failed, counts.notified, threshold);
+        if (!properties.isEnforcing()) {
+            // DRY_RUN — 대상만 관찰하고 단 한 건도 강등하지 않는다(#1145 리뷰 P1-2).
+            reportDryRun(threshold, notBefore, targetCount);
+            return;
+        }
+
+        BatchCounts counts = process(threshold, notBefore, maxPerRun);
+        // 실패가 하나라도 있으면 INFO 로 묻지 않는다 — 매일 밤 같은 건이 계속 실패하는 상황(예: owner 가
+        // ACTIVE ADMIN 이 아니라 requireSurvivingActiveAdmin 에 영구히 걸리는 회사)을 관측 가능하게
+        // 유지해야 한다(리뷰 P2-2).
+        String summary = "구독 만료 강등 배치 완료 — 대상 {}건, 강등 {}건, 스킵 {}건, 실패 {}건, 알림 {}건 "
+                + "(기준시각 {} notBefore={})";
+        if (counts.failed > 0) {
+            log.warn(summary, targetCount, counts.downgraded, counts.skipped, counts.failed,
+                    counts.notified, threshold, notBefore);
+        } else {
+            log.info(summary, targetCount, counts.downgraded, counts.skipped, counts.failed,
+                    counts.notified, threshold, notBefore);
+        }
     }
 
-    private BatchCounts process(Instant threshold, int maxPerRun) {
+    /**
+     * DRY_RUN 회차 보고 — 강등 없이 <b>대상 id 목록</b>까지 로그로 남긴다. 운영자가 이 목록을 결제 이력과
+     * 대조해 "정말 만료된 구독이 맞는지" 확인한 뒤에야 {@code mode=ENFORCE} 로 승격한다.
+     * id 만 남기므로 개인정보는 로그에 들어가지 않는다.
+     */
+    private void reportDryRun(Instant threshold, Instant notBefore, long targetCount) {
+        List<Long> targetIds = userPlanRepository.findExpiryTargetIds(
+                PlanExpiryWriter.LIVE_STATUSES, threshold, notBefore, 0L,
+                PageRequest.of(0, properties.getMaxPerRun()));
+        log.warn("구독 만료 강등 배치 DRY_RUN — 대상 {}건, 강등 0건(모드가 DRY_RUN 이라 아무것도 바꾸지 "
+                        + "않았다). 대상 userPlanIds={} (기준시각 {} notBefore={}). 실제 반영하려면 "
+                        + "hajacheck.plan.expiry.mode=ENFORCE 로 올릴 것.",
+                targetCount, targetIds, threshold, notBefore);
+    }
+
+    private BatchCounts process(Instant threshold, Instant notBefore, int maxPerRun) {
         BatchCounts counts = new BatchCounts();
         long lastId = 0L;
         while (true) {
             // keyset 페이징 — 처리한 구독은 EXPIRED 가 되어 결과집합에서 빠지므로 offset 페이징이면
             // 두 번째 페이지부터 대상이 통째로 건너뛰어진다(UserPlanRepository javadoc 참고).
             List<Long> targetIds = userPlanRepository.findExpiryTargetIds(
-                    UserPlanStatus.ACTIVE, threshold, lastId, PageRequest.of(0, PAGE_SIZE));
+                    PlanExpiryWriter.LIVE_STATUSES, threshold, notBefore, lastId,
+                    PageRequest.of(0, PAGE_SIZE));
             if (targetIds.isEmpty()) {
                 return counts;
             }
@@ -135,18 +186,25 @@ public class PlanExpiryScheduler {
         PlanExpiryResult result;
         try {
             result = planExpiryWriter.expireToFreePlan(userPlanId, threshold);
+        } catch (BusinessException e) {
+            handleBusinessFailure(userPlanId, e, counts);
+            return;
         } catch (DataIntegrityViolationException e) {
-            // 부분 UQ(uq_user_plans_active_company/user: ACTIVE 최대 1건) — 다른 경로가 먼저 활성 구독을
-            // 만들었다. 조용히 skip 하고 다음 회차에 자연 재시도한다(InspectionDueNotificationScheduler
-            // 의 catch 패턴과 동일).
-            counts.skipped++;
-            log.info("구독 만료 강등 스킵(활성 구독 경합) — userPlanId={}", userPlanId);
+            // ⚠️ writer 는 신규 ACTIVE 발급(saveAndFlush)의 부분 UQ 위반만 골라
+            // PLAN_ACTIVE_SUBSCRIPTION_CONFLICT 로 번역해 던진다(위 catch). 그러니 여기까지 올라온
+            // 무결성 위반은 사용량 이월·좌석 정지·커밋 시점 등 <b>예상 밖</b>의 것이다 — 조용히 스킵하면
+            // 진짜 데이터 결함이 매일 밤 INFO 한 줄로 사라진다(리뷰 P2-1,
+            // InspectionDueNotificationScheduler 가 dedupe 인덱스명을 대조해 구분하는 것과 같은 취지).
+            counts.failed++;
+            log.warn("구독 만료 강등 실패(예상 밖 무결성 제약 위반) — userPlanId={} cause={}",
+                    userPlanId, e.getMostSpecificCause().getMessage(), e);
             return;
         } catch (Exception e) {
-            // 1건 실패를 격리 — 같은 회차의 나머지 구독 처리는 계속한다.
+            // 1건 실패를 격리 — 같은 회차의 나머지 구독 처리는 계속한다. 스택을 버리지 않는다(리뷰 P3-1):
+            // 클래스명만 남기면 영구 실패의 원인을 로그만으로 좁힐 수 없다.
             counts.failed++;
-            log.warn("구독 만료 강등 실패 — userPlanId={} exception={}",
-                    userPlanId, e.getClass().getSimpleName());
+            log.warn("구독 만료 강등 실패 — userPlanId={} exception={} message={}",
+                    userPlanId, e.getClass().getSimpleName(), e.getMessage(), e);
             return;
         }
 
@@ -159,6 +217,27 @@ public class PlanExpiryScheduler {
         if (publishNotification(userPlanId, result)) {
             counts.notified++;
         }
+    }
+
+    /**
+     * 도메인 예외 분류 — 활성 구독 경합만 "다음 회차에 자연 재시도"로 스킵하고, 나머지 ErrorCode 는
+     * 실패로 집계하며 <b>코드를 로그에 남긴다</b>(리뷰 P2-2).
+     *
+     * <p>이 구분이 중요한 이유: FREE 는 {@code max_seats=1} 이라, owner 가 ACTIVE 가 아니거나 ADMIN 이
+     * 아닌 회사는 {@code PlanDowngradeService#requireSurvivingActiveAdmin} 에 걸려 <b>매일 밤 같은
+     * 예외로 영구 실패</b>한다. ErrorCode 를 버리면 운영자가 로그만 보고는 그 원인을 특정할 수 없다.
+     */
+    private void handleBusinessFailure(Long userPlanId, BusinessException e, BatchCounts counts) {
+        if (e.getErrorCode() == ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT) {
+            // 부분 UQ(uq_user_plans_active_company/user: ACTIVE 최대 1건) — 다른 경로가 먼저 활성 구독을
+            // 만들었다. 조용히 skip 하고 다음 회차에 자연 재시도한다.
+            counts.skipped++;
+            log.info("구독 만료 강등 스킵(활성 구독 경합) — userPlanId={}", userPlanId);
+            return;
+        }
+        counts.failed++;
+        log.warn("구독 만료 강등 실패 — userPlanId={} errorCode={} message={}",
+                userPlanId, e.getErrorCode(), e.getErrorCode().getMessage());
     }
 
     /**

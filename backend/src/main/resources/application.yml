@@ -142,27 +142,42 @@ ai:
 
 # 구독 결제 주기 만료 → FREE 자동 강등 배치(#1145 / HAJA-549).
 #
-# ⚠️ enabled 기본값이 false 인 것은 실수가 아니라 안전장치다. V27 백필이 current_period_end 를 실제
-# 결제일이 아니라 started_at + 1개월(파생 추정치)로 채웠기 때문에, 가입한 지 한 달이 넘은 유료 구독은
-# 이미 전부 "만료" 상태로 DB에 들어 있다. 그대로 켜면 첫 실행에서 기존 유료 회사가 일괄 FREE 로 강등되고
-# 좌석까지 정지된다(되돌리려면 수동 복구가 필요하다).
+# ⚠️ enabled=false + mode=DRY_RUN 기본값은 실수가 아니라 안전장치다. V27 백필이 current_period_end 를
+# 실제 결제일이 아니라 started_at + 1개월(파생 추정치)로 채웠기 때문에, 가입한 지 한 달이 넘은 유료
+# 구독은 이미 전부 "만료" 상태로 DB에 들어 있다. 그대로 켜면 첫 실행에서 기존 유료 회사가 일괄 FREE 로
+# 강등되고 좌석까지 정지된다. 게다가 제품 안에는 되돌릴 경로가 없다 — 무결제 상향이 #988로 차단돼
+# FREE→STANDARD 복구는 운영자가 DB를 직접 만져야 한다.
 #
-# 켜기 전 프리플라이트(운영자, main 승격 전 의무):
-#   1) prod(전용 postgres 컨테이너 hajacheck-arm1-postgres-1, DB hajacheck)에서 대상 행 수를 센다
+# 운영 승격 순서(단계마다 로그로 확인하고 다음으로):
+#   1) PLAN_EXPIRY_ENABLED=true (mode 는 DRY_RUN 유지) → 배치가 대상만 조회해 userPlanIds 를 WARN
+#      로그로 남긴다. 아무것도 바뀌지 않는다.
+#   2) 그 목록이 정말 만료된 게 맞는지 payments 결제 이력과 대조한다. prod 대상 행 수 직접 확인은
+#      docker exec 로 전용 postgres 컨테이너(hajacheck-arm1-postgres-1, DB hajacheck)에서:
 #      select count(*) from user_plans
-#       where status='ACTIVE' and current_period_end is not null and current_period_end < now();
-#   2) 0건이 아니면 그 목록이 정말 만료된 게 맞는지 payments 결제 이력과 대조한다
-#   3) 확인 후에만 PLAN_EXPIRY_ENABLED=true
-# max-per-run 은 그 이후에도 남는 2차 방어선이다 — 대상이 상한을 넘으면 아무것도 하지 않고 중단한다
-# (자세한 근거는 PlanExpiryProperties / PlanExpiryScheduler javadoc 참고).
+#       where status in ('ACTIVE','UPGRADE_REQUESTED') and current_period_end is not null
+#         and current_period_end < now();
+#      (호스트 psql 은 hajacheck_dev 라 대상이 다르다)
+#   3) PLAN_EXPIRY_NOT_BEFORE 를 설정해 V27 백필 추정치 구간을 쿼리 단계에서 배제한다(권장 — 건수와
+#      무관하게 과거 구간을 막는 유일한 수단).
+#   4) 마지막으로 PLAN_EXPIRY_MODE=ENFORCE 로 올린다.
+# max-per-run 은 그 이후에도 남는 방어선이지만, 대상이 상한 이하이면 그대로 통과하므로 단독으로는 소급
+# 대량 강등을 막지 못한다(자세한 근거는 PlanExpiryProperties / PlanExpiryScheduler javadoc 참고).
 hajacheck:
   plan:
     expiry:
       enabled: ${PLAN_EXPIRY_ENABLED:false}
+      # DRY_RUN = 대상 조회·id 로그만(강등 0건) · ENFORCE = 실제 반영.
+      # 강등이 일어나려면 enabled=true 와 mode=ENFORCE 를 모두 켜야 한다.
+      mode: ${PLAN_EXPIRY_MODE:DRY_RUN}
       # 매일 KST 04:00 — 점검 알림 배치(06:00)와 겹치지 않게.
       cron: ${PLAN_EXPIRY_CRON:0 0 4 * * *}
       # 만료 즉시 강등(P0D). 자동 청구 수단(빌링키)이 없어 유예를 둬도 결제를 유도할 방법이 없다.
+      # ⚠️ 음수를 넣으면 기준시각이 미래가 되어 유효한 구독까지 대상이 되므로 기동이 실패한다(의도적).
       grace-period: ${PLAN_EXPIRY_GRACE_PERIOD:P0D}
+      # 강등 하한 컷오프(ISO-8601 instant, 예: 2026-08-01T00:00:00Z). 비우면 제한 없음.
+      # 설정하면 current_period_end 가 이 시각 이후인 구독만 대상이 된다 — V27 백필 추정치로 채워진
+      # 과거 구간을 코드가 직접 배제한다(사람 절차에만 기대지 않는다).
+      not-before: ${PLAN_EXPIRY_NOT_BEFORE:}
       max-per-run: ${PLAN_EXPIRY_MAX_PER_RUN:50}
 
 # 국세청 사업자등록정보 진위확인(data.go.kr) — #596. service-key 미설정 시 진위확인을 스킵하고

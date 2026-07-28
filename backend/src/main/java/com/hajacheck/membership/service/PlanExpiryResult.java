@@ -2,6 +2,7 @@ package com.hajacheck.membership.service;
 
 import com.hajacheck.membership.entity.PlanName;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * 구독 1건에 대한 만료 강등 처리 결과(#1145 / HAJA-549) — {@link PlanExpiryWriter} 가 반환하고
@@ -19,7 +20,10 @@ import java.time.Instant;
  * @param companyId          회사 구독이면 회사 id, 개인 구독이면 {@code null}.
  * @param userId             개인 구독이면 사용자 id, 회사 구독이면 {@code null}(owner XOR).
  * @param periodEndAt        만료된 결제 주기 종료 시각.
- * @param suspendedSeatCount 이 강등으로 정지된 좌석 수(개인 구독은 항상 0 — 좌석 개념이 없다).
+ * @param suspendedUserIds   이 강등으로 정지된 좌석의 사용자 id(개인 구독은 항상 비어 있다 — 좌석 개념이
+ *                           없다). <b>건수가 아니라 id 목록</b>인 이유(리뷰 P2-3): 오강등이 발생하면
+ *                           되돌릴 대상을 이 값 말고는 복원할 수 없다({@code users.status} 는 이전 값을
+ *                           보관하지 않는다). id 만 담으므로 개인정보는 포함되지 않는다.
  * @param skipReason         {@code downgraded=false} 일 때의 사유(로깅 전용). 강등됐으면 {@code null}.
  */
 public record PlanExpiryResult(
@@ -29,17 +33,26 @@ public record PlanExpiryResult(
         Long companyId,
         Long userId,
         Instant periodEndAt,
-        int suspendedSeatCount,
+        List<Long> suspendedUserIds,
         String skipReason) {
+
+    public PlanExpiryResult {
+        suspendedUserIds = suspendedUserIds == null ? List.of() : List.copyOf(suspendedUserIds);
+    }
 
     /** 대상 조건이 이미 해소된 구독 — 아무것도 바꾸지 않았다(재조회~처리 사이에 다른 경로가 전이시킨 경우 등). */
     public static PlanExpiryResult skipped(String skipReason) {
-        return new PlanExpiryResult(false, null, null, null, null, null, 0, skipReason);
+        return new PlanExpiryResult(false, null, null, null, null, null, List.of(), skipReason);
     }
 
     public static PlanExpiryResult downgraded(Long recipientUserId, PlanName previousPlanName,
-            Long companyId, Long userId, Instant periodEndAt, int suspendedSeatCount) {
+            Long companyId, Long userId, Instant periodEndAt, List<Long> suspendedUserIds) {
         return new PlanExpiryResult(true, recipientUserId, previousPlanName, companyId, userId,
-                periodEndAt, suspendedSeatCount, null);
+                periodEndAt, suspendedUserIds, null);
+    }
+
+    /** 알림 payload·집계용 정지 좌석 수. */
+    public int suspendedSeatCount() {
+        return suspendedUserIds.size();
     }
 }

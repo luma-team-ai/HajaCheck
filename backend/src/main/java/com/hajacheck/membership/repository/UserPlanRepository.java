@@ -2,12 +2,14 @@ package com.hajacheck.membership.repository;
 
 import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -35,14 +37,20 @@ public interface UserPlanRepository extends JpaRepository<UserPlan, Long> {
      * <b>전에</b> 1회 실행 상한({@code hajacheck.plan.expiry.max-per-run})과 대조하는 데 쓴다.
      * 조회 조건은 {@link #findExpiryTargetIds} 와 <b>정확히 같아야 한다</b> — 두 판정이 갈라지면 상한
      * 검사를 통과한 뒤 그보다 많은 행을 강등하게 된다.
+     *
+     * <p>⚠️ {@code cast(:notBefore as Instant)} 의 cast 는 장식이 아니다. 그냥 {@code :notBefore is null}
+     * 로 쓰면 PostgreSQL 이 바인딩 파라미터의 타입을 추론하지 못해 "could not determine data type of
+     * parameter" 로 쿼리 자체가 실패한다(실측 확인). 선택적 컷오프를 표현하려면 이 cast 가 필요하다.
      */
     @Query("""
             select count(up) from UserPlan up
-            where up.status = :status
+            where up.status in :statuses
               and up.currentPeriodEnd is not null
               and up.currentPeriodEnd < :threshold
+              and (cast(:notBefore as Instant) is null or up.currentPeriodEnd >= :notBefore)
             """)
-    long countExpiryTargets(@Param("status") UserPlanStatus status, @Param("threshold") Instant threshold);
+    long countExpiryTargets(@Param("statuses") Collection<UserPlanStatus> statuses,
+            @Param("threshold") Instant threshold, @Param("notBefore") Instant notBefore);
 
     /**
      * 결제 주기 만료 강등 대상 id(#1145 / HAJA-549) — id 오름차순 keyset 페이징이다.
@@ -56,17 +64,50 @@ public interface UserPlanRepository extends JpaRepository<UserPlan, Long> {
      * ({@code PlanExpiryWriter}, REQUIRES_NEW)에서 <b>다시 로딩</b>해 수행해야 하므로(스케줄러 자신은
      * 트랜잭션을 열지 않는다) 여기서 읽은 엔티티는 어차피 준영속이다.
      *
+     * <p><b>⚠️ {@code statuses} 는 반드시 엔타이틀먼트 판정과 같은 집합이어야 한다</b>(리뷰 P1) —
+     * {@code ACTIVE} + {@code UPGRADE_REQUESTED}. {@code QuotaService#findLivePlan} 이 두 상태를 모두
+     * "살아있는 구독"으로 인정해 유료 한도를 계속 적용하는데, 여기서 ACTIVE 만 보면
+     * {@code POST /api/me/plan/upgrade-inquiry}({@code UserPlan#requestUpgrade} 가 새 행을 만들지 않고
+     * 기존 행의 status 만 바꾼다) 를 <b>한 번</b> 호출하는 것만으로 만료 강제를 영구히 회피하면서 유료
+     * 한도를 계속 쓸 수 있다 — 이 배치가 없애려던 "한 번 결제하면 무기한"이 요청 1건으로 복원된다.
+     *
      * <p>FREE 는 {@code current_period_end IS NULL}(#1104 규칙)이라 이 조건에서 자연 배제된다 —
      * plans 가격으로 다시 필터하지 않는다(#1145 §2 확정: 두 판정이 갈라지면 #1104의 승계 규칙과 어긋난다).
+     *
+     * @param notBefore 강등 하한 컷오프({@code hajacheck.plan.expiry.not-before}). {@code null} 이면 제한
+     *                  없음. V27 백필이 채운 "추정 만료일" 과거 구간을 <b>쿼리 단계에서</b> 배제하는 용도라
+     *                  건수 기반 상한과 달리 대상이 소수여도 작동한다.
      */
     @Query("""
             select up.id from UserPlan up
-            where up.status = :status
+            where up.status in :statuses
               and up.currentPeriodEnd is not null
               and up.currentPeriodEnd < :threshold
+              and (cast(:notBefore as Instant) is null or up.currentPeriodEnd >= :notBefore)
               and up.id > :lastId
             order by up.id asc
             """)
-    List<Long> findExpiryTargetIds(@Param("status") UserPlanStatus status,
-            @Param("threshold") Instant threshold, @Param("lastId") Long lastId, Pageable pageable);
+    List<Long> findExpiryTargetIds(@Param("statuses") Collection<UserPlanStatus> statuses,
+            @Param("threshold") Instant threshold, @Param("notBefore") Instant notBefore,
+            @Param("lastId") Long lastId, Pageable pageable);
+
+    /**
+     * 강등 대상 구독을 <b>행 잠금</b>과 함께 읽는다(#1145, 리뷰 P3-5) — {@code PlanExpiryWriter} 의
+     * 트랜잭션 내 재검증 전용.
+     *
+     * <p>재검증을 잠금 없는 {@code findById} 로 하면, 스케줄러가 id 를 읽은 뒤 writer 가 flush 하기까지의
+     * 창에서 다른 트랜잭션(업그레이드 문의·결제 승인·관리자 변경)이 같은 행을 커밋할 수 있고 그 갱신이
+     * 조용히 덮인다. {@code PESSIMISTIC_WRITE} 로 읽으면 그 창에서 경쟁 트랜잭션의 UPDATE 가 우리 커밋까지
+     * 대기하므로, 우리가 보는 상태가 곧 판정 시점의 확정 상태가 된다(다중 인스턴스에서 같은 구독을 동시에
+     * 강등하는 것도 이 잠금이 직렬화한다).
+     *
+     * <p>⚠️ <b>남는 한계</b>: {@code UserPlan} 에는 {@code @Version} 이 없어, 잠금 해제 후 실행되는 상대
+     * 트랜잭션이 <b>자신이 먼저 읽어 둔 준영속 스냅샷</b>으로 UPDATE 하면 우리 결과를 되덮을 수 있다(lost
+     * update). 이는 이 배치만의 문제가 아니라 {@code AdminPlanService}·{@code PaymentWriter} 등 기존 전이
+     * 경로 전체가 공유하는 노출이라, 낙관적 락 도입은 별도 과제로 둔다({@code PaymentRepository
+     * #findByIdForUpdate} 와 같은 수준의 방어까지가 이번 범위).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select up from UserPlan up where up.id = :id")
+    Optional<UserPlan> findByIdForUpdate(@Param("id") Long id);
 }
