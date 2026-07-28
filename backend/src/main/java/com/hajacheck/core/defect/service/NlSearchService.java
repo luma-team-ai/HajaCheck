@@ -192,7 +192,10 @@ public class NlSearchService {
 
     private static <E extends Enum<E>> boolean areValidEnums(List<String> values, Class<E> enumType) {
         if (values == null) {
-            return false;
+            // 신규 필터 축(inspectionType/inspectionStatus)을 아직 산출하지 않는 구버전 AI 응답과의
+            // 하위 호환 — 필드 부재를 "미지정"으로 간주한다(isValidConfidence/isValidRange와 동일 패턴,
+            // NlSearchFilters 구버전 호환 생성자가 이 필드들을 List.of()로 채우는 것과도 의미가 일치, 리뷰 P1).
+            return true;
         }
         if (new HashSet<>(values).size() != values.size()) {
             return false;

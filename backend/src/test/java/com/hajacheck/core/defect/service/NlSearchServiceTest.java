@@ -134,6 +134,35 @@ class NlSearchServiceTest {
         mockServer.verify();
     }
 
+    /**
+     * 구버전 ai-server(HAJA-538 신규 8필드 미도입, nl_search_chain.py의 NlSearchFilters가 여전히
+     * type/grade/status/confidenceMin 4필드만 반환) 응답과의 하위 호환 회귀 방지(PR #1155 리뷰 P1).
+     * 신규 필드 키가 JSON에 아예 없어도(null 역직렬화) isValidResult()가 이를 "미지정"으로 수용해야
+     * 기존 하자 자연어 검색(HAJA-120)이 계속 동작한다.
+     */
+    @Test
+    void 검색_구버전AI응답_신규필터필드부재_성공() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L)));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(addonPlan));
+
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"filters":{"type":[],"grade":["D","E"],"status":[],"confidenceMin":null},"unsupported_terms":[],"clarifying_question":null,"interpretation_confidence":0.9}}
+                                """));
+
+        ApiResponse<NlSearchResult> response = service.search(USER_ID, "D등급 이상 하자");
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data().filters().grade()).containsExactly("D", "E");
+        assertThat(response.data().filters().inspectionType()).isNull();
+        assertThat(response.data().filters().inspectionStatus()).isNull();
+        mockServer.verify();
+    }
+
     @Test
     void 검색_회사소속_유효멤버십_addon있음_성공() {
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
