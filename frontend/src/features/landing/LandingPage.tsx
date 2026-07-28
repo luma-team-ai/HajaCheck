@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuthStore } from '../auth/store/authStore';
 import { LandingFooter } from './components/LandingFooter';
 import { LandingHeader } from './components/LandingHeader';
 import { PARTNERS, PRICING_TIERS } from './constants';
@@ -19,6 +20,16 @@ function scrollToBottom() {
 
 export default function LandingPage() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const user = useAuthStore((state) => state.user);
+
+  // 이미 로그인된 사용자는 랜딩 대신 대시보드로 이동
+  useEffect(() => {
+    if (user) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, navigate]);
+
   const [isAtTop, setIsAtTop] = useState(true);
   const [isAtBottom, setIsAtBottom] = useState(false);
   const [aiAnalysisPercent, setAiAnalysisPercent] = useState(0);
