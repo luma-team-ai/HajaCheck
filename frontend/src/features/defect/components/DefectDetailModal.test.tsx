@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-// 하자 상세 모달 — 조치 전/후 사진 탭(#969) 단위 테스트. DefectDetailPage.test.tsx와 동일하게
-// 훅을 모킹하지 않고 QueryClientProvider + MSW(defectHandlers, mockDefects)로 실제 데이터 흐름을
+// 하자 상세 모달 — 조치 전/후 사진 탭(#969) 단위 테스트. 훅을 모킹하지 않고
+// QueryClientProvider + MSW(defectHandlers, mockDefects)로 실제 데이터 흐름을
 // 그대로 태운다(이 프로젝트 관례 — feature 훅을 직접 mock하는 기존 사례 없음).
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -13,8 +13,7 @@ import { mockDefects } from '../mocks/defect.mock';
 import type { Defect } from '../types';
 import { DefectDetailModal } from './DefectDetailModal';
 
-// DefectExplainPanel이 마운트 시 자동으로 호출하는 AI 설명 엔드포인트 — DefectDetailPage.test.tsx와
-// 동일한 최소 목(모달 자체의 관심사가 아니므로 응답 형태만 맞춘다).
+// DefectExplainPanel이 마운트 시 자동으로 호출하는 AI 설명 엔드포인트의 최소 목이다.
 const explainHandler = http.post('/api/ai/defect-explain', () =>
   HttpResponse.json({
     success: true,

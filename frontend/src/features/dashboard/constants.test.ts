@@ -3,7 +3,7 @@ import {
   AI_WEEKLY_BRIEFING_ANCHOR_ID,
   AI_WEEKLY_BRIEFING_PATH,
   INSPECTION_NEW_PATH,
-  defectDetailPath,
+  inspectionDefectsPath,
 } from './constants';
 
 // 스토리보드 DASH-01 action 이동 경로 회귀 방지
@@ -12,8 +12,8 @@ describe('대시보드 action 경로', () => {
     expect(INSPECTION_NEW_PATH).toBe('/inspections/create');
   });
 
-  it('A2: 검수하기는 해당 하자의 상세(/defects/:id) 경로로 이동한다', () => {
-    expect(defectDetailPath(192)).toBe('/defects/192');
+  it('A2: 검수하기는 해당 점검의 하자 목록 경로로 이동한다', () => {
+    expect(inspectionDefectsPath(192)).toBe('/inspections/192/defects');
   });
 
   // SideNavBar(shared, 미터치) href와 router.tsx의 라우트 등록이 여기 정의된 같은 값을 참조해야

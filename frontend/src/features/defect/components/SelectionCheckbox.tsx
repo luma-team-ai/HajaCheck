@@ -8,8 +8,7 @@ type SelectionCheckboxProps = {
   onChange: () => void;
 };
 
-// DefectTable(하자 단건)과 InspectionTable(점검 단위, HAJA-393/394·#725/#726)이 동일한 선택
-// 체크박스 UI를 공유하도록 분리했다(원래 DefectTable.tsx 로컬 컴포넌트였음).
+// 점검 단위 표가 사용하는 선택 체크박스 UI다.
 export function SelectionCheckbox({
   ariaLabel,
   checked,

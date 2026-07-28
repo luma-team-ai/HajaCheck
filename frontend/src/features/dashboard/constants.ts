@@ -5,8 +5,9 @@
 // A1: 새 점검 시작 → 점검 회차 생성(INSP-01, FR-2-01 업로드). router.tsx에는 '/inspections/create'로만
 // 등록돼 있고 '/inspections/new'는 등록된 적이 없어 실제로는 미매치 경로였다(#543에서 발견·수정).
 export const INSPECTION_NEW_PATH = '/inspections/create';
-// A2: 검수하기 → 처리 대기 하자의 상세(하자 상세, /defects/:id)로 이동 (Figma node 1-1588 동기화)
-export const defectDetailPath = (defectId: number): string => `/defects/${defectId}`;
+// A2: 검수하기 → 처리 대기 하자가 속한 점검의 하자 목록으로 이동한다.
+export const inspectionDefectsPath = (inspectionId: number): string =>
+  `/inspections/${inspectionId}/defects`;
 
 // 사이드바 "AI 주간 브리핑 카드" 메뉴는 별도 화면이 아니라 이 페이지 안의 AiBriefingCard 인라인 위젯을
 // 가리킨다(#478, #472와 동일한 라우트-메뉴 불일치 유형). 새 화면 대신 이 경로로 진입하면 위젯 위치로

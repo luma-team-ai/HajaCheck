@@ -1,4 +1,4 @@
-import { GRADE_CLASSES, STATUS_PRESENTATION } from './DefectTable';
+import { GRADE_CLASSES, STATUS_PRESENTATION } from '../constants/defectPresentation';
 import type { Defect } from '../types';
 
 type Props = {
@@ -7,7 +7,7 @@ type Props = {
 };
 
 // GRADE_CLASSES/STATUS_PRESENTATION은 "border-* bg-* text-*" 필(pill) 배지용 클래스 묶음이다(신규
-// 색상 상수 추가 금지 컨벤션 — DefectTable.tsx 재사용). 카드 그리드의 dot 배지는 border/bg 없이
+// 색상 상수 추가 금지 컨벤션 — defectPresentation.ts 재사용). 카드 그리드의 dot 배지는 border/bg 없이
 // text-* 색상 클래스만 뽑아 dot의 background-color: currentColor로 재사용한다(Figma 정렬, #937).
 // DefectCardGridControls.tsx의 상태 필터 탭 dot도 동일 로직이 필요해 export해서 재사용한다(#1005 —
 // 로컬에 같은 함수 재정의 금지, 단일 진실 소스 유지).
@@ -16,7 +16,7 @@ export function pickTextColorClass(classNames: string): string {
 }
 
 // 점검 상세(카드형, HAJA-393/394 §화면 구조 ②) 하자 카드 — contract.md 확정: 유형/등급뱃지/상태뱃지/
-// 썸네일/AI신뢰도/최대폭. 등급·상태 배지 색상은 DefectTable의 기존 상수를 재사용(신규 색상 상수
+// 썸네일/AI신뢰도/최대폭. 등급·상태 배지 색상은 defectPresentation의 상수를 재사용(신규 색상 상수
 // 추가 금지 컨벤션).
 export function DefectCard({ defect, onSelect }: Props) {
   const statusPresentation = STATUS_PRESENTATION[defect.status];

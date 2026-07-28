@@ -18,7 +18,7 @@ interface AppLayoutProps {
   children: ReactNode;
   /**
    * SideNavBar 활성 항목 경로. 미지정 시 현재 URL(useLocation) 기준.
-   * 실제 라우트가 Figma 메뉴 href와 다른 페이지(예: /defects/:id → /defects/detail)는
+   * 실제 라우트가 Figma 메뉴 href와 다른 페이지(예: /inspections/:id/defects)는
    * 명시적으로 넘겨 해당 메뉴가 펼쳐/강조되도록 한다.
    */
   activeHref?: string;

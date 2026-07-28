@@ -43,6 +43,7 @@ function hoursAgo(hours: number): string {
 export const mockPendingPriority: PendingPriorityItem[] = [
   {
     id: 1,
+    inspectionId: 101,
     grade: 'E',
     title: '철근 노출',
     location: '여의도 파크센터 - 지하 3층 기둥',
@@ -50,6 +51,7 @@ export const mockPendingPriority: PendingPriorityItem[] = [
   },
   {
     id: 2,
+    inspectionId: 102,
     grade: 'D',
     title: '균열 (관통)',
     location: '강남 오피스타워 A동 - 외벽 북측',
@@ -57,6 +59,7 @@ export const mockPendingPriority: PendingPriorityItem[] = [
   },
   {
     id: 3,
+    inspectionId: 103,
     grade: 'D',
     title: '누수·백태',
     location: '한강대교 북단 - 교각 하부 3번',
@@ -66,6 +69,7 @@ export const mockPendingPriority: PendingPriorityItem[] = [
   // 육안 확인할 수 있도록 미분류 샘플을 1건 포함한다(HAJA-17 dev-03-01).
   {
     id: 4,
+    inspectionId: 104,
     grade: null,
     title: '도장 손상',
     location: '판교 테크노밸리 - 외벽 동측',

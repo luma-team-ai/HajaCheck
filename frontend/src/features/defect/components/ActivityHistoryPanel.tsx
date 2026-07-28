@@ -9,7 +9,7 @@ import {
   describeDefectChange,
   getDefectRevisionStatusLabel,
 } from '../utils/describeDefectChange';
-import { STATUS_PRESENTATION } from './DefectTable';
+import { STATUS_PRESENTATION } from '../constants/defectPresentation';
 
 type Props = {
   defectId: number;

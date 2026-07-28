@@ -4,7 +4,7 @@ import { useDefectActionBoard } from '../hooks/useDefectActionBoard';
 import type { DefectListFilters } from '../types';
 import { DefectBoardColumn } from './DefectBoardColumn';
 import { DefectStatusReasonModal } from './DefectStatusReasonModal';
-import { STEP_LABEL } from './DefectStatusStepper';
+import { STEP_LABEL } from '../constants/defectStatusWorkflow';
 import './DefectActionBoard.css';
 
 interface Props {

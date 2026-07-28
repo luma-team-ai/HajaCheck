@@ -16,7 +16,7 @@ interface Props {
 
 // 조치 보드 역행·건너뛰기 드롭(HAJA-349/#630) — 사유 입력을 요구하는 모달. 별도 Toast 시스템을 도입하지
 // 않는 컨벤션에 맞춰 성공/실패 알림은 이 모달을 닫은 뒤 보드 쪽 인라인 role="alert"로 처리한다
-// (DefectStatusStepper.tsx가 쓰는 패턴, DefectActionBoard 참조).
+// (DefectActionBoard의 인라인 오류 표시 패턴 참조).
 export function DefectStatusReasonModal({ defect, targetStatus, onCancel, onSubmit }: Props) {
   const [reason, setReason] = useState('');
   const trimmed = reason.trim();

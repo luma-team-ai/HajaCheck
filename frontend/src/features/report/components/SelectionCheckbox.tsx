@@ -8,7 +8,7 @@ type Props = {
   onChange: () => void;
 };
 
-// defect feature의 동일 컴포넌트(InspectionTable/DefectTable)와 시각·동작이 같지만 feature 간
+// defect feature의 선택 체크박스와 시각·동작이 같지만 feature 간
 // 직접 import 금지 컨벤션(React_코드_컨벤션.md §1)에 따라 로컬로 재정의한다.
 export function SelectionCheckbox({ ariaLabel, checked, disabled = false, indeterminate = false, onChange }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);

@@ -1,14 +1,14 @@
 import type { CSSProperties } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import type { Defect } from '../types';
-import { GRADE_CLASSES } from './DefectTable';
+import { GRADE_CLASSES } from '../constants/defectPresentation';
 
 interface Props {
   defect: Defect;
 }
 
 // 조치 보드 카드(HAJA-349/#630) — 유형/등급/시설물명/썸네일 요약만 노출한다(handoff §구현요구사항 3).
-// 등급 배지 색상은 DefectTable.GRADE_CLASSES를 그대로 재사용(신규 색상 상수 추가 금지 컨벤션).
+// 등급 배지 색상은 defectPresentation.GRADE_CLASSES를 그대로 재사용(신규 색상 상수 추가 금지 컨벤션).
 export function DefectBoardCard({ defect }: Props) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: defect.id,

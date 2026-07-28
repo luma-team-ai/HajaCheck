@@ -25,7 +25,7 @@ export interface AppShellHandle {
   breadcrumb: BreadcrumbItem[];
   /**
    * SideNavBar 활성 항목 경로. 미지정 시 AppLayout이 현재 URL(useLocation) 기준으로 계산.
-   * 실제 라우트가 SideNavBar 메뉴 href와 다른 페이지(예: /defects/:id → /defects/detail)는
+   * 실제 라우트가 SideNavBar 메뉴 href와 다른 페이지(예: /inspections/:id/defects)는
    * 명시적으로 지정해 해당 메뉴가 강조되도록 한다.
    */
   activeHref?: string;

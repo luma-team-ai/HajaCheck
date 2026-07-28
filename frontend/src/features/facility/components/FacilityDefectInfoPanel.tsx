@@ -11,7 +11,7 @@ type Props = {
 const PLACEHOLDER = '—';
 
 // 우측 하자 정보 패널 — 유형/등급/크기/발견/담당 + 조치 상태 스테퍼(dev-04-02, #489).
-// "다음 단계로 전이" 버튼은 상태 mutation이 아니라 /defects/:id(하자 관리 도메인)로 이동하는
+// "다음 단계로 전이" 버튼은 상태 mutation이 아니라 점검 단위 하자 목록으로 이동하는
 // 단순 navigation이라(#489 확정) 상태에 따른 비활성화·진행중 표시는 두지 않는다.
 export function FacilityDefectInfoPanel({ defect, onTransitionClick }: Props) {
   // widthMm/lengthM은 균열이 아닌 유형이면 backend가 null로 내려준다(DefectResponse.crackWidthMm/

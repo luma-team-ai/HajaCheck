@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 // 재사용한다(신규 스타일 중복 정의 금지).
 import '../pages/DefectListPage.css';
 import { pickTextColorClass } from './DefectCard';
-import { STATUS_PRESENTATION } from './DefectTable';
+import { STATUS_PRESENTATION } from '../constants/defectPresentation';
 import { DEFECT_GRADE_LABEL, DEFECT_TYPE_LABEL } from '../types';
 import type { DefectGrade, DefectType } from '../types';
 

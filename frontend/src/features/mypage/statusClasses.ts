@@ -64,7 +64,7 @@ export const INSPECTION_ROLE_LABEL: Record<InspectionHistoryRole, string> = {
 };
 
 // 점검 이력 상태 점 — 검수완료=emerald·검수대기=amber·분석중=blue(handoff 지시). Tailwind 표준
-// 팔레트만 사용(신규 hex 도입 없음) — DefectTable.tsx의 emerald/amber 사용례와 동일 계열.
+// 팔레트만 사용(신규 hex 도입 없음) — 하자 표현 상수와 동일 계열.
 export const INSPECTION_STATUS_DOT_CLASS: Record<InspectionHistoryStatus, string> = {
   REVIEW_DONE: 'bg-emerald-500',
   REVIEW_PENDING: 'bg-amber-500',

@@ -22,7 +22,7 @@ const DEFAULT_SIZE = 20;
 const DEFAULT_INSPECTION_PAGE_SIZE = 10;
 
 // 점검별 하자 건수/등급분포는 mockInspections에 정적으로 박아두지 않고 mockDefects에서 매번 계산한다 —
-// DefectDetailPage 통합 테스트가 mockDefects의 status/grade를 in-place로 바꾸는 것과 별개로, 목록
+// 일부 통합 테스트가 mockDefects의 status/grade를 in-place로 바꾸는 것과 별개로, 목록
 // 화면(HAJA-393/394)도 항상 최신 하자 데이터를 반영해야 하기 때문(단일 진실 소스).
 function computeInspectionAggregates(inspectionId: number): {
   defectCount: number;

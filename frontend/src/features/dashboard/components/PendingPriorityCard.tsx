@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import userAvatar from '../../../assets/brand/header-user-outlined.svg';
 import { DASHBOARD_COLOR_CLASS } from '../colors';
-import { defectDetailPath } from '../constants';
+import { inspectionDefectsPath } from '../constants';
 import { usePendingPriority } from '../hooks/usePendingPriority';
 import { formatElapsedTime } from '../utils/formatElapsedTime';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
@@ -11,9 +11,9 @@ export function PendingPriorityCard() {
   const { data, isLoading, isError } = usePendingPriority();
   const navigate = useNavigate();
 
-  // DASH-01 A2: "검수하기" → 해당 하자의 상세(하자 상세, /defects/:id)로 이동 (Figma node 1-1588 동기화)
-  const handleReview = (defectId: number) => {
-    navigate(defectDetailPath(defectId));
+  // DASH-01 A2: "검수하기" → 해당 하자가 속한 점검의 하자 목록으로 이동한다.
+  const handleReview = (inspectionId: number) => {
+    navigate(inspectionDefectsPath(inspectionId));
   };
 
   return (
@@ -60,7 +60,7 @@ export function PendingPriorityCard() {
                 <button
                   type="button"
                   className={`shrink-0 bg-white border border-[#d8dbe6] rounded-lg py-1.75 px-3.5 text-[13px] font-semibold ${DASHBOARD_COLOR_CLASS.bodyText} cursor-pointer`}
-                  onClick={() => handleReview(item.id)}
+                  onClick={() => handleReview(item.inspectionId)}
                 >
                   검수하기
                 </button>
