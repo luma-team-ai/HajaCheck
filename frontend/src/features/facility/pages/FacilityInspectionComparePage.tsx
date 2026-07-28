@@ -105,7 +105,9 @@ export function FacilityInspectionComparePage() {
         />
         <div className="flex flex-col gap-3">
           <h2 className="m-0 text-base font-bold text-heading">진행성 균열 추이</h2>
-          <CrackTrendChart data={data.crackTrend} />
+          {/* 실 백엔드(HAJA-531/#1112)는 crackTrend를 응답에서 생략한다(null/undefined) — LineChart가
+              data.length에 바로 접근해 크래시하므로 빈 배열로 방어한다(react-reviewer 발견, 즉시 수정). */}
+          <CrackTrendChart data={data.crackTrend ?? []} />
         </div>
       </div>
 
