@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.11 · **최종 수정:** 2026-07-28 · 이전 버전 `archive/`
+> **문서 버전:** v0.10 · **최종 수정:** 2026-07-26 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -297,7 +297,7 @@ FastAPI validation error(`detail[]`)를 반환한다.
 ## 다음 추가 예정 (각 담당자)
 
 - `/api/ai/rag-chat` — Spring 프록시(session_id 소유·session_type='RAG' 검증) + `/api/chat-sessions`, `chat_message_citations` 영속화 (이은석, 후속 이슈)
-- `/api/defects/nl-search` — 구현 완료. 자연어 검색 공개 게이트웨이(Spring Boot, 인증·플랜 검사) → 내부 `/ai/nl-search`(FastAPI, 외부 직접 노출 금지)
+- `/api/defects/nl-search` — 자연어 검색 공개 게이트웨이(Spring Boot, 인증·플랜 검사) → 내부 `/ai/nl-search`(FastAPI, 외부 직접 노출 금지)
 - Spring Boot REST 엔드포인트 전체 (백엔드 담당)
 
 ---
@@ -477,30 +477,8 @@ Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?no
 ### 설계 정정 — "목록 보기/보드 보기" 2탭 구조 폐기 (사용자 확정 지시, 2026-07-26 → PR #899로 구현 완료)
 `DefectListPage`가 실제 구현되면서 위 ①점검 단위 목록과 `#630`(조치 보드 칸반, 하자 단건 기준)이 같은 페이지 안에 탭(`목록 보기`/`보드 보기`)으로 얹혀버렸던 것을 설계 오류로 확정하고 제거했다. `DefectListPage`(`/defects/list`)는 이제 **①점검 단위 목록만** 표시한다(탭 없음) — `DefectActionBoard`/`DefectFilterBar` 컴포넌트는 삭제하지 않고 참조만 제거(`#630`을 별도 라우트로 분리할지 완전 폐기할지는 후속 이슈). `/defects/:id`(`DefectDetailPage`)는 대시보드 `PendingPriorityCard`·시설물 `FacilityDefectDetailPage`가 독립적으로 딥링크하므로 그대로 유지.
 
-### GET /api/inspections — 점검·하자 자연어 필터 확장 (2026-07-28, #1139/HAJA-538)
+### GET /api/inspections — 하자 조건(자연어) 필터 확장 (신규, 2026-07-26 → PR #891/#899로 구현 완료)
 기존 `POST /api/defects/nl-search`(HAJA-120)는 자연어를 `{type[], grade[], status[], confidenceMin}` 필터 조건으로만 변환하고 조회는 하지 않는다. "검색한 하자 조건에 해당하는 점검을 보여줘야 함"이라는 요구사항에 따라, 점검 목록 화면에 자연어 검색창(`InspectionNlSearchBar`)을 신설하고 `GET /api/inspections`에 선택 파라미터 `defectType`/`defectGrade`/`defectStatus`(배열)를 추가했다. 매칭 조건: 해당 점검에 속한 하자 **하나가** 세 조건을 동시에 만족해야 포함(EXISTS 서브쿼리 — JOIN+독립 IN이 아님, 서로 다른 하자가 조건을 나눠 만족하는 false positive 방지). `defectGrade`는 기존 단일 등급 임계값(`>=`) 필터와 달리 **정확 매칭(IN)** — nl-search 출력 배열 시맨틱에 맞춤. 프론트는 axios `paramsSerializer:{indexes:null}`로 배열 쿼리 파라미터를 Spring `List<T>` 바인딩과 정합시켰다. 관련: #878(BE, HAJA-452)·#726(FE, HAJA-394).
-
-이번 확장으로 날짜·점검 종류·점검 진행 상태·점검 회차·하자 건수를 같은 목록 API에서 필터링한다.
-
-| 파라미터 | 의미 |
-|---|---|
-| `status`(반복) | raw 점검 상태 `CREATED|UPLOADING|ANALYZING|ANALYZED|REVIEWED|REPORTED`. 기존 단일 `status` 요청도 호환 |
-| `inspectionType`(반복) | `REGULAR|DETAILED|EMERGENCY` |
-| `inspectionDateFrom` / `inspectionDateTo` | `inspectionDate` 기준 포함 범위 |
-| `roundNoMin` / `roundNoMax` | 시설물별 점검 회차 포함 범위, 1 이상 |
-| `defectCountMin` / `defectCountMax` | 해당 점검의 `deleted=false` **전체 하자 건수** 포함 범위, 0 이상 |
-| `defectType` / `defectGrade` / `defectStatus`(반복) | 같은 비삭제 하자 하나가 지정된 축을 모두 만족하는 프로파일 |
-
-배열 안에서는 OR, 서로 다른 축 사이에서는 AND다. 하자 건수는 유형·등급·상태 필터에 매칭된 하자
-건수가 아니라 응답 `defectCount`와 동일한 전체 비삭제 하자 집계다. 날짜·회차·건수의 시작값이 종료값보다
-크거나 하한을 위반하면 `400 INVALID_INPUT`이다. 정렬과 회사 스코프는 기존대로
-`inspectionDate DESC, id DESC` 및 인증 주체의 단일 회사 범위를 유지한다.
-
-공개 `POST /api/defects/nl-search` 요청은 계속 `{query}`만 받는다. Spring은 내부 FastAPI
-`POST /ai/nl-search`에 `{query, referenceDate}`를 보내며, `referenceDate`는 브라우저 입력이 아니라
-서버의 KST `Clock`으로 산출한다. FastAPI가 반환한 최종 날짜·회차·건수 범위와 enum을 Spring이 한 번 더
-검증하며, 계약 밖 enum·중복 배열 값이나 역전된 범위는 공개 게이트웨이에서 `ErrorApiResponse` 형태의
-`502 AI_INVALID_RESPONSE`로 처리한다.
 
 ## GET /api/platform-admin/monitoring — 플랫폼 관리자 시스템 모니터링 (#728, frontend PR #732 계약 확정 2026-07-24)
 
