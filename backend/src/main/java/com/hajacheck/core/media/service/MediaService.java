@@ -250,7 +250,20 @@ public class MediaService {
                 .gpsLng(exif.gpsLng())
                 .mimeSignatureVerified(true)
                 .mimeType(file.getContentType())
+                .originalFilename(truncateOriginalFilename(file.getOriginalFilename()))
                 .build();
+    }
+
+    // media.original_filename 컬럼 상한(varchar(255))을 넘는 파일명이 들어오면 그대로 저장 시도해
+    // DataIntegrityViolationException(500)으로 업로드 전체가 실패한다 — 표시 전용 메타데이터 하나 때문에
+    // 정상 업로드를 막을 이유가 없어 방어적으로 잘라 저장한다(초과분은 화면 표시에만 영향).
+    private static final int MAX_ORIGINAL_FILENAME_LENGTH = 255;
+
+    private static String truncateOriginalFilename(String filename) {
+        if (filename == null || filename.length() <= MAX_ORIGINAL_FILENAME_LENGTH) {
+            return filename;
+        }
+        return filename.substring(0, MAX_ORIGINAL_FILENAME_LENGTH);
     }
 
     /**
