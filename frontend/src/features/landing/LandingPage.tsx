@@ -136,7 +136,7 @@ export default function LandingPage() {
           접근하고 관리하세요. 최신 BIM 연동을 지원합니다.
         </p>
         <div className="landing-visual landing-screen-visual">
-          <img src={analysisViewerImage} alt="분석 결과 뷰어 화면" className="landing-screen-image" />
+          <img src={analysisViewerImage} alt="분석 결과 뷰어 화면" className="landing-screen-image" loading="lazy" />
         </div>
       </section>
 
@@ -148,7 +148,7 @@ export default function LandingPage() {
           데이터는 클라우드에 안전하게 동기화됩니다.
         </p>
         <div className="landing-visual landing-screen-visual">
-          <img src={inspectionCycleImage} alt="시설물 점검 주기 설정 화면" className="landing-screen-image" />
+          <img src={inspectionCycleImage} alt="시설물 점검 주기 설정 화면" className="landing-screen-image" loading="lazy" />
         </div>
       </section>
 
@@ -173,7 +173,7 @@ export default function LandingPage() {
           </span>
         </div>
         <div className="landing-visual landing-screen-visual">
-          <img src={defectDetailImage} alt="하자 상세 화면" className="landing-screen-image" />
+          <img src={defectDetailImage} alt="하자 상세 화면" className="landing-screen-image" loading="lazy" />
         </div>
       </section>
 
