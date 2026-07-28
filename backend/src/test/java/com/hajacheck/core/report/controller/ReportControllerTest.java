@@ -272,6 +272,57 @@ class ReportControllerTest extends PostgresTestSupport {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void 복제_본인소유_다음버전DRAFT를생성하고검증필드를초기화() throws Exception {
+        User owner = seedOwner("report-clone-owner@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report source = Report.draft(inspection.getId(), 1, "{\"summary\":\"복제 원본\"}", owner.getId());
+        source.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                source.captureGroundingRequestContext(), source.getContentJson()),
+                        null),
+                owner.getId());
+        source.finalizeReport("/api/reports/1/pdf/source.pdf", owner.getId());
+        source = reportRepository.save(source);
+
+        String response = mockMvc.perform(post("/api/reports/{id}/clone", source.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.inspectionId").value(inspection.getId()))
+                .andExpect(jsonPath("$.data.version").value(2))
+                .andExpect(jsonPath("$.data.status").value("DRAFT"))
+                .andExpect(jsonPath("$.data.content.summary").value("복제 원본"))
+                .andExpect(jsonPath("$.data.groundingCheckPassed").doesNotExist())
+                .andExpect(jsonPath("$.data.pdfUrl").doesNotExist())
+                .andExpect(jsonPath("$.data.createdBy").value(owner.getId()))
+                .andReturn().getResponse().getContentAsString();
+
+        Long clonedId = objectMapper.readTree(response).path("data").path("id").asLong();
+        Report cloned = reportRepository.findById(clonedId).orElseThrow();
+        assertThat(cloned.getContentJson()).contains("복제 원본");
+        assertThat(cloned.getStatus()).isEqualTo(ReportStatus.DRAFT);
+        assertThat(cloned.getGroundingCheckPassed()).isNull();
+        assertThat(cloned.getGroundingWarnings()).isNull();
+        assertThat(cloned.getPdfUrl()).isNull();
+    }
+
+    @Test
+    void 복제_타인소유_404() throws Exception {
+        User owner = seedOwner("report-clone-owner2@haja.com");
+        User stranger = seedOwner("report-clone-stranger@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report source = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+
+        mockMvc.perform(post("/api/reports/{id}/clone", source.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(stranger))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("REPORT_NOT_FOUND"));
+    }
+
     /**
      * PDF 업로드(POST /api/reports/{id}/pdf) 후 반환된 pdfUrl 을 실제로 GET 해서 200 과 원본 바이트가
      * 서빙되는지 검증(PR #455 P2-1). 정적 리소스 핸들러가 아니라 소유권 검증을 거치는

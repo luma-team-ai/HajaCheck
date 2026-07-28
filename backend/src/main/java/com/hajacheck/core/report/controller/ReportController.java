@@ -96,6 +96,15 @@ public class ReportController {
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
+    @Operation(summary = "보고서 복제", description = "기존 보고서 content를 복제해 같은 점검의 다음 버전 DRAFT를 생성한다")
+    @PostMapping("/api/reports/{id}/clone")
+    public ResponseEntity<ApiResponse<ReportDetailResponse>> cloneReport(
+            @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
+        ReportDetailResponse response =
+                reportService.cloneReport(id, loginUser.getCompanyId(), loginUser.getUserId());
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
+    }
+
     @Operation(summary = "보고서 본문 수정", description = "DRAFT 상태 보고서의 본문(JSON)을 수정한다 — 수정 시 grounding 판정은 초기화된다")
     @PatchMapping("/api/reports/{id}")
     public ResponseEntity<ApiResponse<ReportDetailResponse>> updateContent(

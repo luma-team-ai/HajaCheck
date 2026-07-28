@@ -3,17 +3,29 @@ import { useOutsideDismiss } from '../../../shared/hooks/useOutsideDismiss';
 
 type Props = {
   onOpenHistory: () => void;
+  onClone: () => void;
+  onSubmit: () => void;
   onClose: () => void;
   anchor: { top: number; left: number };
+  canSubmit: boolean;
+  isClonePending?: boolean;
+  isSubmitPending?: boolean;
+  actionError?: string | null;
 };
 
-const UNSUPPORTED_TITLE = '후속 지원 예정(BE 미구현)';
-
-// 보고서 목록 행 "⋮" 컨텍스트 메뉴(Figma 시안) — 버전 이력만 실제로 동작한다. 복제/제출 처리/삭제는
-// 백엔드에 대응 엔드포인트가 없어(ReportController 참고) disabled+안내 문구로 렌더한다
-// (MyInspectionsTable "결과 보기" 버튼과 동일한 선례 — 가짜 성공을 만들지 않는다).
-export function ReportRowMenu({ onOpenHistory, onClose, anchor }: Props) {
+export function ReportRowMenu({
+  onOpenHistory,
+  onClone,
+  onSubmit,
+  onClose,
+  anchor,
+  canSubmit,
+  isClonePending = false,
+  isSubmitPending = false,
+  actionError = null,
+}: Props) {
   const rootRef = useOutsideDismiss<HTMLDivElement>(onClose);
+  const isBusy = isClonePending || isSubmitPending;
 
   return createPortal(
     <div
@@ -37,27 +49,33 @@ export function ReportRowMenu({ onOpenHistory, onClose, anchor }: Props) {
       <button
         type="button"
         role="menuitem"
-        disabled
-        title={UNSUPPORTED_TITLE}
-        className="w-full cursor-not-allowed border-none bg-none px-3 py-1.5 text-left text-sm text-zinc-400"
+        disabled={isBusy}
+        className="w-full cursor-pointer border-none bg-none px-3 py-1.5 text-left text-sm font-medium text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-400"
+        onClick={onClone}
       >
-        복제
+        {isClonePending ? '복제 중' : '복제'}
       </button>
       <button
         type="button"
         role="menuitem"
-        disabled
-        title={UNSUPPORTED_TITLE}
-        className="w-full cursor-not-allowed border-none bg-none px-3 py-1.5 text-left text-sm text-zinc-400"
+        disabled={!canSubmit || isBusy}
+        title={!canSubmit ? 'DRAFT 보고서만 제출할 수 있습니다' : undefined}
+        className="w-full cursor-pointer border-none bg-none px-3 py-1.5 text-left text-sm font-medium text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-400"
+        onClick={onSubmit}
       >
-        제출 처리
+        {isSubmitPending ? '제출 중' : '제출 처리'}
       </button>
+      {actionError && (
+        <p role="alert" className="m-0 px-3 py-1 text-xs leading-4 text-red-600">
+          {actionError}
+        </p>
+      )}
       <div className="my-1 h-px bg-zinc-200" />
       <button
         type="button"
         role="menuitem"
         disabled
-        title={UNSUPPORTED_TITLE}
+        title="삭제는 지원하지 않습니다"
         className="w-full cursor-not-allowed border-none bg-none px-3 py-1.5 text-left text-sm text-red-300"
       >
         삭제

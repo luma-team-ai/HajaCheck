@@ -41,6 +41,10 @@ export const reportApi = {
   getReport: (reportId: number, signal?: AbortSignal) =>
     api.get<ReportDetailResponse>(`/reports/${reportId}`, { signal }),
 
+  // 보고서 복제 — 같은 inspection의 다음 버전 DRAFT를 생성한다.
+  cloneReport: (reportId: number, signal?: AbortSignal) =>
+    api.post<ReportDetailResponse>(`/reports/${reportId}/clone`, undefined, { signal }),
+
   // 보고서 본문 수정 — DRAFT 상태에서만 허용(FINALIZED면 서버가 거부).
   // 서버는 성공 시 groundingCheckPassed를 null로 리셋한 최신 상태를 반환한다.
   updateContent: (reportId: number, content: object, signal?: AbortSignal) =>
