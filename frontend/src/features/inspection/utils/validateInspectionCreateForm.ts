@@ -1,4 +1,4 @@
-import type { InspectionCreateRequest } from '../types';
+import type { InspectionCreateRequest, InspectionType } from '../types';
 
 // 폼 입력은 모두 문자열로 관리(빈 문자열 = 미입력) 후 제출 시 InspectionCreateRequest로 변환한다
 // (validateFacilityForm.ts와 동일 패턴).
@@ -8,6 +8,7 @@ export interface InspectionCreateFormValues {
   facilityId: string;
   /** YYYY-MM-DD */
   inspectionDate: string;
+  inspectionType: InspectionType;
 }
 
 export type InspectionCreateFormErrors = Partial<Record<keyof InspectionCreateFormValues, string>>;
@@ -15,6 +16,7 @@ export type InspectionCreateFormErrors = Partial<Record<keyof InspectionCreateFo
 export const INSPECTION_CREATE_FORM_INITIAL_VALUES: InspectionCreateFormValues = {
   facilityId: '',
   inspectionDate: '',
+  inspectionType: 'REGULAR',
 };
 
 // 백엔드 InspectionService.MAX_FUTURE_MONTHS(12개월)와 동일 규칙 — API 왕복 없이 즉시 피드백 제공.
@@ -57,5 +59,6 @@ export function toInspectionCreateRequest(
     facilityId: Number(values.facilityId),
     inspectionDate: values.inspectionDate,
     assignedInspectorId,
+    type: values.inspectionType,
   };
 }
