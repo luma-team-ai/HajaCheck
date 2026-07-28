@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../../shared/components/Button/Button';
 import { Modal } from '../../../shared/components/Modal';
 import type { PlanName, PlanOrder } from '../types';
-import { PLAN_NAME_LABEL, formatPriceMonthly } from '../utils/planFormat';
+import { PLAN_NAME_LABEL, formatAmount, formatPriceMonthly } from '../utils/planFormat';
 
 type Props = {
   open: boolean;
@@ -92,23 +92,31 @@ export function PlanCheckoutModal({
             </span>
             {/* 잔여 기간 일할 크레딧(#1146, HAJA-550) — 정가에서 안내 없이 금액만 바뀌면 문의가 나서
                 정가/크레딧/실청구액 3줄을 그대로 보여준다. 크레딧이 0이면(주기 정보 없음·FREE→유료 등)
-                굳이 "-0원" 줄을 넣지 않고 정가 == 실청구액 2줄만 보인다. */}
+                굳이 "-0원" 줄을 넣지 않고 정가 == 실청구액 2줄만 보인다.
+                금액은 formatAmount(접미사 없음)를 쓴다 — 이번 1회만 청구되는 금액이라 formatPriceMonthly의
+                "/월" 접미사를 붙이면 "월 85,000원 구독"처럼 정기 금액으로 오인된다(리뷰 P2-1). 다음
+                결제부터의 정기 금액은 아래 별도 문구로 안내한다. */}
             <div className="flex flex-col gap-1">
               <span className="flex justify-between text-text-muted">
                 <span>정가</span>
-                <span>{formatPriceMonthly(order.listPrice)}</span>
+                <span>{formatAmount(order.listPrice)}</span>
               </span>
               {order.credit > 0 && (
                 <span className="flex justify-between text-text-muted">
                   <span>잔여 기간 크레딧</span>
-                  <span>-{formatPriceMonthly(order.credit)}</span>
+                  <span>-{formatAmount(order.credit)}</span>
                 </span>
               )}
               <span className="flex justify-between font-semibold text-heading">
                 <span>실 결제 금액</span>
-                <span>{formatPriceMonthly(order.amount)}</span>
+                <span>{formatAmount(order.amount)}</span>
               </span>
             </div>
+            {order.credit > 0 && (
+              <span className="text-xs text-text-muted">
+                다음 결제부터는 정가 {formatPriceMonthly(order.listPrice)}이 청구됩니다.
+              </span>
+            )}
             <span className="text-text-muted">이 금액으로 결제를 진행할까요?</span>
           </div>
         )}

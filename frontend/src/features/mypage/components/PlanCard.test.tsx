@@ -116,11 +116,14 @@ describe('PlanCard', () => {
     // STANDARD → ENTERPRISE 유일 후보, MSW 핸들러(CHECKOUT_PLAN_PRICE) 기준 59,000원.
     // MSW 목은 잔여 기간 크레딧(#1146, HAJA-550)을 재현하지 않아(listPrice === amount, credit 0)
     // "크레딧" 줄은 렌더되지 않고 정가/실 결제 금액 2줄만 보인다(PlanCheckoutModal의 credit > 0 가드).
+    // 금액은 formatAmount(1회성, "/월" 접미사 없음, 리뷰 P2-1)로 표기한다.
     expect(await within(dialog).findByText('Enterprise 플랜')).toBeTruthy();
     expect(within(dialog).getByText('정가')).toBeTruthy();
     expect(within(dialog).getByText('실 결제 금액')).toBeTruthy();
-    expect(within(dialog).getAllByText('₩59,000/월')).toHaveLength(2);
+    expect(within(dialog).getAllByText('₩59,000')).toHaveLength(2);
     expect(within(dialog).queryByText('잔여 기간 크레딧')).toBeNull();
+    // 크레딧 0이면 "다음 결제부터" 안내 문구도 렌더하지 않는다(credit > 0 가드).
+    expect(within(dialog).queryByText(/다음 결제부터는/)).toBeNull();
     expect(within(dialog).getByText('이 금액으로 결제를 진행할까요?')).toBeTruthy();
     expect(loadTossPaymentsSdkMock).not.toHaveBeenCalled();
     expect(requestPaymentMock).not.toHaveBeenCalled();

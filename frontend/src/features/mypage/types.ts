@@ -92,7 +92,8 @@ export type MyPageErrorCode = (typeof MYPAGE_ERROR_CODE)[keyof typeof MYPAGE_ERR
 // amount는 서버가 계산한 금액이 source of truth다(구 PlanCheckoutModal의 UPGRADE_PLAN_PRICE
 // 하드코딩을 대체 — 클라이언트에서 금액을 추정/표시하지 않는다).
 // listPrice/credit은 상향 결제 잔여 기간 일할 크레딧(#1146, HAJA-550) 노출용 — listPrice - credit ===
-// amount가 항상 성립한다(서버가 보장). 크레딧이 없으면(주기 정보 없음·만료 경과·FREE→유료) 0으로 온다.
+// amount가 항상 성립한다(서버가 불변식으로 보장, PaymentWriter#requireOrderInvariant). 크레딧이
+// 없으면(주기 정보 없음·만료 경과·FREE→유료·실제 결제 이력 없음) 0으로 온다.
 export interface PlanOrder {
   orderId: string;
   planName: PlanName;
