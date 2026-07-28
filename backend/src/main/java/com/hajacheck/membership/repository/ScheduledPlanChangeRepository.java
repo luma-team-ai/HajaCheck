@@ -118,6 +118,20 @@ public interface ScheduledPlanChangeRepository extends JpaRepository<ScheduledPl
     @Query("select s from ScheduledPlanChange s where s.id = :id")
     Optional<ScheduledPlanChange> findByIdForUpdate(@Param("id") Long id);
 
+    /**
+     * 이 구독의 대기 예약에 <b>행 잠금만</b> 걸어 둔다(취소하지 않는다) —
+     * {@code ScheduledPlanChangeCanceller#lockPendingForTransition} 전용이며, 존재 이유는 그쪽 javadoc 의
+     * <b>잠금 순서</b> 절이다. 대기 예약이 없으면 잠글 행이 없어 아무 잠금도 잡지 않는다(그게 대부분의 경우다).
+     */
+    default List<ScheduledPlanChange> lockPendingByUserPlanId(Long userPlanId) {
+        return lockPendingByUserPlanId(userPlanId, ScheduledPlanChangeStatus.PENDING);
+    }
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from ScheduledPlanChange s where s.userPlanId = :userPlanId and s.status = :status")
+    List<ScheduledPlanChange> lockPendingByUserPlanId(@Param("userPlanId") Long userPlanId,
+            @Param("status") ScheduledPlanChangeStatus status);
+
     // ── 아래는 default 래퍼 전용 쿼리다(상태를 파라미터로 받는 이유는 클래스 javadoc 참고) ────────────
 
     long countByStatusAndEffectiveAtLessThanEqual(ScheduledPlanChangeStatus status, Instant effectiveAt);

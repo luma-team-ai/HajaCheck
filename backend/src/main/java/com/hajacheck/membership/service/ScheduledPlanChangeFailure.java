@@ -23,8 +23,8 @@ public record ScheduledPlanChangeFailure(boolean marked, Long recipientUserId, P
         return new ScheduledPlanChangeFailure(false, null, null);
     }
 
-    /** 알림을 발행해야 하는가 — 이번 실행이 종료시켰고 수신자를 알아냈을 때만. */
-    public boolean notifiable() {
-        return marked && recipientUserId != null;
-    }
+    // 참고: "발행 대상인가"를 한 메서드로 합치지 않는다(리뷰 지적 — 미사용 notifiable() 제거).
+    // 호출부(ScheduledPlanChangeScheduler#publishFailureNotification)는 marked=false(이미 처리됨)와
+    // recipientUserId=null(수신자 해석 실패)을 <b>다른 로그</b>로 남겨야 한다 — 전자는 정상 흐름이고
+    // 후자는 운영이 들여다봐야 할 데이터 이상이다. 합친 술어를 쓰면 그 구분이 사라진다.
 }

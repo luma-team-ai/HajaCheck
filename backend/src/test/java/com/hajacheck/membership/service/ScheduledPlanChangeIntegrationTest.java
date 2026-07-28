@@ -792,6 +792,36 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
     }
 
     @Test
+    @DisplayName("만료 강등이 스킵되면(주기가 아직 남음) 예약은 그대로 PENDING 이다 — 잠금만 먼저 잡고 취소는 재검증 뒤에 정한다")
+    void 만료강등이_스킵되면_예약을_취소하지_않는다() {
+        User owner = newUser("예약하향만료스킵", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now();
+        // 결제 주기가 아직 남아 있는 구독 — 만료 강등 대상이 아니다("결제 주기가 갱신됨" 스킵 경로).
+        UserPlan current = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minusSeconds(24 * 3600L), now.plusSeconds(10 * 24 * 3600L));
+        AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
+                owner.getId(), PlanName.FREE, true, List.of());
+
+        PlanExpiryResult result = planExpiryWriter.expireToFreePlan(current.getId(), now);
+
+        assertThat(result.downgraded()).isFalse();
+        // ⚠️ 이 단정이 잠금 순서 픽스(2차 검증 P2)의 안전선이다. ABBA 교착을 없애겠다고 취소 호출 자체를
+        // 구독 행 잠금 앞으로 옮기면, 아직 유효한 이 예약이 스킵 경로에서 조용히 사라진다(스킵은 예외가
+        // 아니라 정상 반환이라 트랜잭션이 커밋되고, 롤백으로도 되돌아오지 않는다). 그래서 <b>잠금만</b>
+        // 먼저 잡고 취소 여부는 재검증 뒤에 정한다 —
+        // ScheduledPlanChangeCanceller#lockPendingForTransition javadoc 참고.
+        assertThat(reload(scheduled.id()).getStatus())
+                .as("강등되지 않았으므로 예약은 살아 있어야 한다 — 다음 결제 주기에 정상 적용될 예약이다")
+                .isEqualTo(ScheduledPlanChangeStatus.PENDING);
+        assertThat(adminPlanService.getCurrentPlan(owner.getId()).scheduledChange())
+                .isNotNull()
+                .satisfies(pending -> assertThat(pending.status()).isEqualTo("PENDING"));
+        assertThat(userPlanRepository.findById(current.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserPlanStatus.ACTIVE);
+    }
+
+    @Test
     @DisplayName("스케줄러 실행 시 적용 1건마다 PLAN_DOWNGRADED 알림이 정확히 1건 발행되고, 재실행해도 중복되지 않는다")
     void 스케줄러_적용알림_1건() {
         User owner = newUser("예약하향알림", Role.ADMIN);
