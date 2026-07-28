@@ -671,11 +671,11 @@ export const router = createBrowserRouter([
             <ReportGeneratePage />
           </Suspense>
         ),
-        handle: {
-          breadcrumb: [{ label: '홈' }, { label: '보고서' }, { label: '보고서 편집·미리보기' }],
-          activeHref: '/reports',
-        },
-      }, // — features/report 보고서 상세·PDF 내보내기 (#1087)
+          handle: {
+            breadcrumb: [{ label: '홈' }, { label: '보고서' }, { label: '보고서 편집·미리보기' }],
+            activeHref: '/reports/1',
+          },
+        }, // — features/report 보고서 상세·PDF 내보내기 (#1087)
       {
         path: '/facilities/:id',
         element: (

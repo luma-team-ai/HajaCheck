@@ -60,8 +60,8 @@ export const mockMenuTree: MenuTreeItem[] = [
     opensNewTab: false, enabled: true,
     children: [
       { code: 'REPORTS_LIST', name: '보고서 목록/이력 관리', menuType: 'INTERNAL', iconKey: 'reports', path: '/reports', activePathPattern: null, opensNewTab: false, enabled: true, children: [] },
-      { code: 'REPORTS_EDIT', name: '보고서 편집·미리보기', menuType: 'INTERNAL', iconKey: 'reports', path: '/reports', activePathPattern: '/reports', opensNewTab: false, enabled: true, children: [] },
-      { code: 'REPORTS_EXPORT', name: 'PDF 내보내기', menuType: 'INTERNAL', iconKey: 'reports', path: '/reports', activePathPattern: '/reports', opensNewTab: false, enabled: true, children: [] },
+      { code: 'REPORTS_EDIT', name: '보고서 편집·미리보기', menuType: 'INTERNAL', iconKey: 'reports', path: '/reports', activePathPattern: '/reports/1', opensNewTab: false, enabled: true, children: [] },
+      { code: 'REPORTS_EXPORT', name: 'PDF 내보내기', menuType: 'INTERNAL', iconKey: 'reports', path: '/reports', activePathPattern: '/reports/1', opensNewTab: false, enabled: true, children: [] },
     ],
   },
   {
