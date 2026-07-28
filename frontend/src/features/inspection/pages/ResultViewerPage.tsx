@@ -391,8 +391,7 @@ export function ResultViewerPage() {
 
   if (isLoading) return <AILoadingIndicator message="점검 결과를 분석 중입니다..." />;
   if (isError) return <AIErrorFallback onRetry={() => void refetch()} />;
-  if (!data || data.defects.length === 0)
-    return <div className="p-5">탐지된 하자가 없습니다.</div>;
+  if (!data) return <div className="p-5">탐지된 하자가 없습니다.</div>;
 
   const selected = findSelectedDefect(data.defects, currentDefects, selectedDefectId);
 
@@ -542,7 +541,11 @@ export function ResultViewerPage() {
                   />
                   {currentDefects.length === 0 && (
                     <div className="text-sm text-text-muted">
-                      {visibleDefects.length === 0 ? '조건에 맞는 하자가 없습니다.' : '이 이미지에 해당하는 하자가 없습니다.'}
+                      {data.defects.length === 0
+                        ? '탐지된 하자가 없습니다.'
+                        : visibleDefects.length === 0
+                          ? '조건에 맞는 하자가 없습니다.'
+                          : '이 이미지에 해당하는 하자가 없습니다.'}
                     </div>
                   )}
                 </>

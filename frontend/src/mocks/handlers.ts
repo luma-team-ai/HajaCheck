@@ -11,6 +11,7 @@ import { facilityAssigneeHandlers } from '../features/facility/api/facilityAssig
 import { facilityComparisonHandlers } from '../features/facility/api/facilityComparisonApi.handlers';
 import { facilityDefectHandlers } from '../features/facility/api/facilityDefectApi.handlers';
 import { facilityHandlers } from '../features/facility/api/facilityApi.handlers';
+import { facilityMediaHandlers } from '../features/facility/api/facilityMediaApi.handlers';
 import { inspectionHandlers } from '../features/inspection/api/inspectionApi.handlers';
 import { mediaHandlers } from '../features/inspection/api/mediaApi.handlers';
 import { menuHandlers } from '../features/menu/api/menuApi.handlers';
@@ -55,6 +56,7 @@ export const allMockHandlers = [
   ...menuHandlers,
   ...mypageHandlers,
   ...effectiveFacilityHandlers,
+  ...facilityMediaHandlers,
   ...facilityDefectHandlers,
   ...facilityComparisonHandlers,
   ...adminHandlers,

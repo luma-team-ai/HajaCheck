@@ -110,6 +110,8 @@ export function InspectionCreatePage() {
       INSPECTION_CREATE_FORM_INITIAL_VALUES.facilityId,
     inspectionDate:
       inspectionCreateDraft?.inspectionDate ?? INSPECTION_CREATE_FORM_INITIAL_VALUES.inspectionDate,
+    inspectionType:
+      inspectionCreateDraft?.inspectionType ?? INSPECTION_CREATE_FORM_INITIAL_VALUES.inspectionType,
   }));
   const [errors, setErrors] = useState<InspectionCreateFormErrors>({});
   // 메모 — 시안에는 있으나 backend InspectionCreateRequest 계약에 아직 필드가 없어(facilityId·
@@ -173,9 +175,10 @@ export function InspectionCreatePage() {
     saveInspectionCreateDraft({
       facilityId: values.facilityId,
       inspectionDate: values.inspectionDate,
+      inspectionType: values.inspectionType,
       memo,
     });
-  }, [values.facilityId, values.inspectionDate, memo, hasDraftInput]);
+  }, [values.facilityId, values.inspectionDate, values.inspectionType, memo, hasDraftInput]);
 
   // 마운트 시 1회 — 텍스트 초안이 있을 때만(=같은 세션) IndexedDB의 첨부 파일을 복원한다.
   // 텍스트 초안이 없다면(탭을 새로 열었거나 sessionStorage가 이미 소거된 상태) IndexedDB에
@@ -220,6 +223,7 @@ export function InspectionCreatePage() {
     saveInspectionCreateDraft({
       facilityId: values.facilityId,
       inspectionDate: values.inspectionDate,
+      inspectionType: values.inspectionType,
       memo,
     });
     setShowDraftSavedNotice(true);
@@ -393,6 +397,23 @@ export function InspectionCreatePage() {
                   {errors.facilityId}
                 </p>
               )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="inspection-type" className={LABEL_CLASSES}>
+                점검 유형
+              </label>
+              <select
+                id="inspection-type"
+                value={values.inspectionType}
+                onChange={handleFieldChange('inspectionType')}
+                className={INPUT_CLASSES}
+                disabled={isFieldsLocked}
+              >
+                <option value="REGULAR">정기</option>
+                <option value="DETAILED">정밀</option>
+                <option value="EMERGENCY">긴급</option>
+              </select>
             </div>
 
             <div className="flex flex-col gap-1.5">

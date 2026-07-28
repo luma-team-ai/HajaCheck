@@ -28,9 +28,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * 옛 V19(FREE 좌석 한도, #843)는 #858에서 되돌리며 파일이 삭제돼 번호가 비어 있었고, 팀 합의로 이
  * 마이그레이션이 재사용한다)→V20(payments 결제 원장, #988/HAJA-489)→V21(inspection_notification_settings.
  * warn_on_overdue_enabled 기본값 false→true, HAJA-498 — 유병현 님 승인)→V22(defect_status_type 에서
- * ACTION_PENDING 제거 — 하자 상태 4단계화)→V23(counsel_ticket_notes, #1021/HAJA-503 — V19~V22를
- * 다른 브랜치가 선점해 번호 충돌 방지 목적으로 V23으로 이어 붙임)→V24(defects.location + defects.
- * previous_defect_id, #970 갭3/HAJA-437)를 순서대로 적용하고,
+ * ACTION_PENDING 제거 — 하자 상태 4단계화, #1072/#1079/#1083)→V23(counsel_ticket_notes 상담원 비공개
+ * 메모, #1021/HAJA-503/#1091)→V24(defects.location + defects.previous_defect_id, #970 갭3/HAJA-437)→
+ * V25(notifications.uq_notifications_inspection_due_dedupe 부분 유니크 인덱스, #1050 — INSPECTION_DUE
+ * 알림 멱등성을 애플리케이션 메모리 조회에서 DB 유니크 제약 기반으로 전환. 번호 조율 이력은 V25 마이그레이션
+ * 파일 헤더 주석 참고 — 최초 안내 V24 → 로컬 재확인으로 V22 임시배정 → V22/V23 실머지 확인 후 V24 재배정 →
+ * rebase까지 마친 뒤 진짜 V24(defects.location, 위)가 그 사이 실제로 dev에 먼저 머지된 사실을 확인해 최종
+ * V25로 확정)를 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -96,13 +100,15 @@ class FlywayBaselineIntegrationTest {
         //   (결번 여부 자체는 FlywayMigrationVersionSequenceTest 가 별도로 고정한다).
         // + V21(inspection_notification_settings.warn_on_overdue_enabled DEFAULT false→true + 방어적
         //   백필, #540/HAJA-498 — 유병현 님 승인 옵션1: 연체 알림 미수신 회귀 방지 하위호환 확보).
-        // + V22(defect_status_type 에서 ACTION_PENDING 제거 — 하자 상태 4단계화).
-        // + V23(counsel_ticket_notes, #1021/HAJA-503). V19~V22는 다른 브랜치들이 선점(병합 완료)해
-        //   번호 충돌을 피해 V23으로 이어 붙였다.
+        // + V22(defect_status_type 에서 ACTION_PENDING 제거 — 하자 상태 4단계화, #1072/#1079/#1083).
+        // + V23(counsel_ticket_notes 상담원 비공개 메모, #1021/HAJA-503/#1091).
         // + V24(defects.location + defects.previous_defect_id, #970 갭3/HAJA-437).
-        // + V26(media.original_filename — AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정, V25는
-        //   다른 브랜치가 선점) — 마이그레이션 수는 V1~V24(24개) + V26(1개) = 25이다.
-        assertThat(appliedMigrations).isEqualTo(25);
+        // + V25(notifications.uq_notifications_inspection_due_dedupe 부분 유니크 인덱스, #1050 —
+        //   INSPECTION_DUE 알림 멱등성을 애플리케이션 메모리 조회에서 DB 유니크 제약 기반으로 전환).
+        // + V26(media.original_filename — AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정, #1116).
+        //   V25는 #1050이 선점해 이 작업이 V26으로 이어 붙였다(팀 배분: V25=#1050 · V26=#1116).
+        //   마이그레이션 수는 V1~V24(24개) + V25(1개) + V26(1개) = 26이다.
+        assertThat(appliedMigrations).isEqualTo(26);
 
         // 최신 적용 버전이 실제로 V26 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
@@ -164,6 +170,14 @@ class FlywayBaselineIntegrationTest {
                   and column_name = 'warn_on_overdue_enabled'
                 """, String.class);
         assertThat(warnOnOverdueEnabledDefault).contains("true");
+
+        // V25가 INSPECTION_DUE 알림 멱등성용 부분 유니크 인덱스를 실제로 만들었는지 확인(#1050).
+        Long dedupeIndexExists = jdbcTemplate.queryForObject("""
+                select count(*) from pg_indexes
+                where schemaname = 'public' and tablename = 'notifications'
+                  and indexname = 'uq_notifications_inspection_due_dedupe'
+                """, Long.class);
+        assertThat(dedupeIndexExists).isEqualTo(1L);
 
         // V5가 companies.business_start_date 컬럼을 실제로 추가했는지 확인(#596).
         Long businessStartDateColumnExists = jdbcTemplate.queryForObject("""

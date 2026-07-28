@@ -1,8 +1,6 @@
 package com.hajacheck.notification.repository;
 
 import com.hajacheck.notification.entity.Notification;
-import com.hajacheck.notification.entity.NotificationType;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import org.springframework.data.domain.Pageable;
@@ -37,30 +35,24 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     boolean existsByIdAndUserIdAndReadTrue(Long notificationId, Long userId);
 
     /**
-     * 여러 사용자의 특정 유형 알림 이력을 한 번에 조회. INSPECTION_DUE 배치(NOTI-01, #425)가 owner별 개별 조회
-     * (N+1)를 피해 대상 owner 전체 알림을 1쿼리로 가져와 dedupe 키 집합을 만드는 데 쓴다. 유형을 파라미터로
-     * 받아 다른 트리거의 멱등성 체크에도 재사용 가능하게 둔다.
+     * INSPECTION_DUE 알림 중 {@code kind} 필드가 없는(#540 이전 저장분) 레거시 payload만 조회한다(#1050).
+     * V25 유니크 인덱스({@code uq_notifications_inspection_due_dedupe})는 {@code payload_json->>'kind'}가
+     * NULL인 행을 원자적으로 방어하지 못한다 — PostgreSQL unique index는 NULL을 서로 다른 값으로 취급해
+     * NULL 값이 있는 행끼리는 유니크 제약을 통과시킨다. 이 메서드는 그 좁은 사각지대만 별도로 방어하기
+     * 위한 애플리케이션 레벨 체크에 쓰인다({@link com.hajacheck.core.facility.scheduler
+     * .InspectionDueNotificationScheduler} 참고).
      *
-     * @deprecated 날짜 제한이 없어 전체 이력을 무제한 로딩한다(PR머신 P2 #1032) — INSPECTION_DUE 배치는
-     *         {@link #findAllByUserIdInAndTypeAndCreatedAtAfter}로 대체됐다. 다른 트리거가 정말 전체
-     *         이력이 필요할 때만 남겨둔다.
+     * <p>⚠️ 이 조회 대상은 <b>#540 배포 시점 이후로 늘어나지 않는 유한 집합</b>이다 — #540 이후 모든
+     * 발행 경로({@code InspectionDueNotificationPayload#serialize})가 kind를 필수 인자로 받아 항상
+     * 채우므로, 신규로 저장되는 INSPECTION_DUE payload는 전부 kind를 갖는다. 따라서 날짜 윈도우 없이
+     * 조회해도 #1050 이전에 있었던 "무제한 누적" 문제(구 {@code NOTIFICATION_LOOKBACK_DAYS} 400일
+     * 슬라이딩 윈도우, PR머신+사람검수 P2 #1032)가 재발하지 않는다.
      */
-    @Deprecated
-    List<Notification> findAllByUserIdInAndType(Set<Long> userIds, NotificationType type);
-
-    /**
-     * {@link #findAllByUserIdInAndType}의 날짜 제한 버전(PR머신 P2 #1032). INSPECTION_DUE 배치의 스캔
-     * 상한이 오늘+365일로 넓어지면서(#540 ③) 무제한 전체 이력 로딩이 소유자 축으로 증폭돼, 운영 데이터가
-     * 쌓일수록 배치가 느려지고 OOM 위험이 커진다. {@code after} 이후 생성된 알림만 조회해 "영원히 무제한
-     * 증가"를 "고정 슬라이딩 윈도우"로 바꾼다 — 완전한 해결(멱등성을 DB 유니크 제약으로 옮기거나 페이지별
-     * 정확 매칭 조회로 좁히는 것)은 후속 이슈로 분리한다.
-     *
-     * <p>⚠️ 이 윈도우는 Kind.BEFORE/Kind.DUE(사전·당일 알림, lookahead 상한 365일) dedupe에는 안전하지만,
-     * Kind.OVERDUE(연체) dedupe에는 원칙적으로 무기한 이력이 필요하다 — 재점검 없이 400일 넘게 같은 dueAt으로
-     * 연체 상태가 유지된 시설물은 최초 OVERDUE 발행 기록이 윈도우 밖으로 밀려나 중복 발행될 수 있다
-     * (과다 알림 방향, 누락 아님). 근본 해결은 후속 이슈
-     * https://github.com/luma-team-ai/HajaCheck/issues/1050 참조.
-     */
-    List<Notification> findAllByUserIdInAndTypeAndCreatedAtAfter(
-            Set<Long> userIds, NotificationType type, LocalDateTime after);
+    @Query(value = """
+            select * from notifications
+             where user_id in (:userIds)
+               and type = 'INSPECTION_DUE'
+               and payload_json ->> 'kind' is null
+            """, nativeQuery = true)
+    List<Notification> findLegacyKindLessInspectionDueByUserIdIn(@Param("userIds") Set<Long> userIds);
 }

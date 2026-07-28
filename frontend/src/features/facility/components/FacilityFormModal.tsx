@@ -25,7 +25,9 @@ import { FacilityPhotoUploadField } from './FacilityPhotoUploadField';
 type Props = {
   open: boolean;
   onClose: () => void;
-  onSubmit: (payload: CreateFacilityRequest) => Promise<void>;
+  // #652 — 시설물 생성 후에만 사진 업로드가 가능하므로(POST /api/facilities/{id}/media는 facilityId가
+  // 필요), 선택된 File[]을 payload와 별개로 넘겨 상위(FacilityListPage)가 생성 응답의 id로 업로드하게 한다.
+  onSubmit: (payload: CreateFacilityRequest, photos: File[]) => Promise<void>;
   isSubmitting: boolean;
   submitErrorMessage?: string;
   // 주소는 있는데 Geocoder(좌표 변환)가 실패했을 때 호출된다 — 등록 자체는 막지 않고 좌표
@@ -44,6 +46,9 @@ export function FacilityFormModal({
 }: Props) {
   const [values, setValues] = useState<FacilityFormValues>(FACILITY_FORM_INITIAL_VALUES);
   const [errors, setErrors] = useState<FacilityFormErrors>({});
+  // 대표 사진 선택 파일(#652) — FacilityPhotoUploadField가 관리하는 미리보기/objectURL과 별개로,
+  // 실제 업로드 시 전송할 File[]만 이 상위 state에 미러링한다.
+  const [stagedPhotoFiles, setStagedPhotoFiles] = useState<File[]>([]);
   // 주소 → 좌표 변환(Geocoder) 진행 중 여부와 실패 메시지 — 수동 위도/경도 입력을 대체한다(#618).
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [geocodeErrorMessage, setGeocodeErrorMessage] = useState<string | undefined>(undefined);
@@ -76,6 +81,7 @@ export function FacilityFormModal({
   const handleClose = () => {
     setValues(FACILITY_FORM_INITIAL_VALUES);
     setErrors({});
+    setStagedPhotoFiles([]);
     setGeocodeErrorMessage(undefined);
     onClose();
   };
@@ -126,10 +132,11 @@ export function FacilityFormModal({
     }
 
     try {
-      await onSubmit(payload);
+      await onSubmit(payload, stagedPhotoFiles);
       // 성공 확정 후에만 폼을 초기화 — 실패 시(catch)에는 아무것도 하지 않고 사용자가 입력한
       // 값과 에러 배너(submitErrorMessage)를 그대로 유지한다.
       setValues(FACILITY_FORM_INITIAL_VALUES);
+      setStagedPhotoFiles([]);
       // 성공 시 모달은 부모(open=false)로 인해 화면에서만 사라질 뿐 이 컴포넌트 자체는 언마운트되지
       // 않는다 — geocodeErrorMessage를 여기서 지우지 않으면 다음에 모달을 다시 열 때(핸들클로즈를
       // 거치지 않은 경로로) 지난 실패 메시지가 잔류해 보일 수 있어 함께 초기화한다.
@@ -252,8 +259,8 @@ export function FacilityFormModal({
           </div>
         </div>
 
-        {/* 대표 사진 — UI만 구성(#629), 실 업로드 연동은 #652 대기 */}
-        <FacilityPhotoUploadField />
+        {/* 대표 사진 — UI(#629) + 실 업로드 연동(#652) */}
+        <FacilityPhotoUploadField onFilesChange={setStagedPhotoFiles} />
 
         {/* 초기 등급 설정(선택) */}
         <FacilityInitialGradeSelect value={values.initialGrade} onChange={handleInitialGradeChange} />

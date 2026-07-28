@@ -84,4 +84,10 @@ export const mediaHandlers = [
     const body: ApiResponse<Media[]> = { success: true, data: created };
     return HttpResponse.json(body, { status: 201 });
   }),
+
+  // 점검 미디어 목록 조회 — useInspectionResultReal에서 사용. 기본적으로 빈 배열 반환.
+  http.get('/api/inspections/:inspectionId/media', () => {
+    const body: ApiResponse<Media[]> = { success: true, data: [] };
+    return HttpResponse.json(body);
+  }),
 ];

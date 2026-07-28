@@ -65,13 +65,17 @@ export interface InspectionResult {
   totalCount: number; // 예: 214
 }
 
+// backend InspectionType(정기/정밀/긴급)과 1:1.
+export type InspectionType = 'REGULAR' | 'DETAILED' | 'EMERGENCY';
+
 // 점검(회차) 생성 — API 명세서 v0.3 AP-004, POST /api/inspections.
-// backend InspectionCreateRequest(facilityId/inspectionDate/assignedInspectorId)와 1:1.
+// backend InspectionCreateRequest(facilityId/inspectionDate/assignedInspectorId/type)와 1:1.
 export interface InspectionCreateRequest {
   facilityId: number;
   /** YYYY-MM-DD */
   inspectionDate: string;
   assignedInspectorId: number;
+  type: InspectionType;
 }
 
 // backend InspectionResponse와 1:1

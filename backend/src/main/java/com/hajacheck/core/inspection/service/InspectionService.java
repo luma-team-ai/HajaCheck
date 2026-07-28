@@ -86,6 +86,7 @@ public class InspectionService {
                 .assignedInspectorId(request.assignedInspectorId())
                 .roundNo(nextRoundNo)
                 .inspectionDate(request.inspectionDate())
+                .type(request.type())
                 .build();
 
         try {

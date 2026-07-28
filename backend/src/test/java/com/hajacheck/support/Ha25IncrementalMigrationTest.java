@@ -423,10 +423,18 @@ class Ha25IncrementalMigrationTest {
                         MountableFile.forClasspathResource(
                                 "db/migration/V24__add_defect_location_and_previous_defect_id.sql"),
                         CONTAINER_ROOT + "V24__add_defect_location_and_previous_defect_id.sql")
-                // media.original_filename — AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정도
+                // #1050 — Flyway V25(notifications.uq_notifications_inspection_due_dedupe 부분 유니크
+                // 인덱스)도 이어서 1회 forward-apply한다. V12/V13/V16과 달리 순수 additive는 아니고
+                // 인덱스 생성 직전에 기존 중복 행을 정리하는 DELETE를 포함하지만, 그 DELETE는 2회차에
+                // 대상이 0건이고 인덱스도 IF NOT EXISTS라 재적용이 안전하므로 V21/V22와 달리 제외할
+                // 이유가 없다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V25__inspection_due_notification_dedupe_unique_index.sql"),
+                        CONTAINER_ROOT + "V25__inspection_due_notification_dedupe_unique_index.sql")
+                // #1116 — media.original_filename(AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정)도
                 // 이어서 1회 forward-apply한다(단순 add column if not exists 계열이라 V12/V13/V16/V24와
-                // 동일하게 캐노니컬 DDL에도 반영돼 있다). V25는 팀원 작업이 선점(아직 dev 미병합)해
-                // 번호 충돌 방지를 위해 V26으로 이어 붙인다.
+                // 동일하게 캐노니컬 DDL에도 반영돼 있다). V25는 #1050이 선점해 V26으로 이어 붙였다.
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V26__add_media_original_filename.sql"),
@@ -535,8 +543,11 @@ class Ha25IncrementalMigrationTest {
         // #970 갭3/HAJA-437 — Flyway V24(defects.location + defects.previous_defect_id)도 이어서
         // 1회 forward-apply한다.
         runPsql(postgres, "V24__add_defect_location_and_previous_defect_id.sql");
-        // media.original_filename — AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정도 이어서
-        // 1회 forward-apply한다(V25는 팀원 작업 선점으로 V26).
+        // #1050 — Flyway V25(notifications.uq_notifications_inspection_due_dedupe 부분 유니크 인덱스)도
+        // 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V25__inspection_due_notification_dedupe_unique_index.sql");
+        // #1116 — media.original_filename(AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정)도 이어서
+        // 1회 forward-apply한다(V25는 #1050이 선점해 V26).
         runPsql(postgres, "V26__add_media_original_filename.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
