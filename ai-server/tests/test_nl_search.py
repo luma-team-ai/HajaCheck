@@ -3,6 +3,7 @@
 import os
 from datetime import date
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfoNotFoundError
 
 import pytest
 from fastapi.testclient import TestClient
@@ -249,6 +250,20 @@ def test_endpoint_invalid_reference_date_returns_validation_error_without_llm_ca
 
     assert res.status_code == 200
     assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+    mock_get_llm.assert_not_called()
+
+
+def test_endpoint_reference_date_resolution_failure_returns_envelope_not_raw_500():
+    """ZoneInfo("Asia/Seoul") 조회가 예상 밖 예외(tzdata 미탑재 등 ZoneInfoNotFoundError)를
+    던져도 raw 500이 아니라 AIResponse envelope으로 응답해야 한다(PR머신 P1, HAJA-537)."""
+
+    with patch("routers.nl_search_router.ZoneInfo", side_effect=ZoneInfoNotFoundError("Asia/Seoul")), patch(
+        "ai.chains.nl_search_chain.get_llm"
+    ) as mock_get_llm:
+        res = client.post("/ai/nl-search", json={"query": "균열"})
+
+    assert res.status_code == 200
+    assert res.json()["error"]["code"] == "LLM_INVALID_OUTPUT"
     mock_get_llm.assert_not_called()
 
 

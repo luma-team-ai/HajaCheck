@@ -63,6 +63,11 @@ def nl_search(req: NlSearchRequest) -> AIResponse:
         reference_date = _resolve_reference_date(req.referenceDate)
     except ValueError as exc:
         return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, str(exc))
+    except Exception:  # noqa: BLE001 — ZoneInfoNotFoundError(tzdata 미탑재 런타임) 등 예상치 못한
+        # 예외까지 포괄하는 표준 폴백(다른 엔드포인트와 동일 정책). ValueError가 아니면 여기로 떨어져
+        # AIResponse envelope 없이 500이 새는 것을 막는다.
+        logger.exception("POST /ai/nl-search 기준일 결정 중 예상치 못한 예외 발생")
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "자연어 검색 변환 중 오류가 발생했습니다")
 
     try:
         result = run_nl_search_chain(query, reference_date)
