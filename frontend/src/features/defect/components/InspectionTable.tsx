@@ -7,6 +7,7 @@ import { GRADE_CLASSES } from '../constants/defectPresentation';
 import { SelectionCheckbox } from './SelectionCheckbox';
 import { EMPTY_GRADE_DISTRIBUTION, INSPECTION_STATUS_LABEL } from '../types';
 import type { DefectGrade, InspectionListItem } from '../types';
+import { formatInspectionCode } from '../utils/defectFormat';
 
 type Props = {
   inspections: InspectionListItem[] | undefined;
@@ -30,12 +31,6 @@ interface InspectionTableRow {
 }
 
 const GRADE_ORDER: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
-
-// 하자 코드 표기와 대응되는 점검 코드 표기 — 별도 유틸로 승격할
-// 만큼 재사용처가 많지 않아 이 컴포넌트에 로컬로 둔다.
-function formatInspectionCode(id: number): string {
-  return `INS-${String(id).padStart(4, '0')}`;
-}
 
 function toTableRow(inspection: InspectionListItem): InspectionTableRow {
   return {
