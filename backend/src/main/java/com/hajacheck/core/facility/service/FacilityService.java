@@ -125,11 +125,17 @@ public class FacilityService {
                                 // facilityId asc, id asc 정렬이므로 같은 facilityId의 첫 값이 최초 등록 사진이다.
                                 (first, second) -> first));
 
+        // 시설물 카드 "최근 점검 MM.dd"(HAJA-514/#1074) — listStatus()가 이미 쓰는 배치 조회와 동일 패턴.
+        Map<Long, LocalDate> lastInspectedByFacilityId =
+                inspectionRepository.findLatestByFacilityIds(facilityIds).stream()
+                        .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getInspectionDate));
+
         return facilities.stream()
                 .map(facility -> FacilityResponse.from(
                         facility,
                         latestDefectIdByFacilityId.get(facility.getId()),
-                        thumbnailUrlByFacilityId.get(facility.getId())))
+                        thumbnailUrlByFacilityId.get(facility.getId()),
+                        lastInspectedByFacilityId.get(facility.getId())))
                 .toList();
     }
 
@@ -145,7 +151,11 @@ public class FacilityService {
                 .findFirst()
                 .map(media -> thumbnailPath(media.getId()))
                 .orElse(null);
-        return FacilityResponse.from(facility, latestDefectId, thumbnailUrl);
+        LocalDate lastInspectedAt = inspectionRepository.findLatestByFacilityIds(List.of(facilityId)).stream()
+                .findFirst()
+                .map(Inspection::getInspectionDate)
+                .orElse(null);
+        return FacilityResponse.from(facility, latestDefectId, thumbnailUrl, lastInspectedAt);
     }
 
     // MediaResponse.from()과 동일한 경로 조립 — Media.thumbnailUrl(저장키)을 그대로 반환하지 않고

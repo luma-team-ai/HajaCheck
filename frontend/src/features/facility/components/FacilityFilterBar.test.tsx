@@ -25,6 +25,8 @@ const facilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: null,
+    lastInspectedAt: null,
   },
   {
     id: 2,
@@ -43,6 +45,8 @@ const facilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: null,
+    lastInspectedAt: null,
   },
 ];
 

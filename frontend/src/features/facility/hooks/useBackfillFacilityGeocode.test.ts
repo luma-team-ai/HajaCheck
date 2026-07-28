@@ -44,6 +44,8 @@ function makeFacility(overrides: Partial<Facility>): Facility {
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: null,
+    lastInspectedAt: null,
     ...overrides,
   };
 }

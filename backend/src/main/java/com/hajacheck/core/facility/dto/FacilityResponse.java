@@ -30,17 +30,22 @@ public record FacilityResponse(
         // 시설물 목록/상세 대표 사진(HAJA-367/#670) — /api/media/{id}/thumbnail 경로, 사진이 없으면 null.
         // Media.thumbnailUrl(저장키)을 그대로 반환하지 않는다(MediaResponse와 동일 원칙 — 인가된
         // 컨트롤러 엔드포인트를 통해서만 서빙).
-        String thumbnailUrl
+        String thumbnailUrl,
+        // 시설물 카드 목록 "최근 점검 MM.dd"(HAJA-514/#1074, HAJA-368 선행) — 가장 최근 점검의
+        // inspectionDate, 점검 이력이 없으면 null. FacilityStatusResponse.lastInspectedAt과
+        // 동일 조회(inspectionRepository.findLatestByFacilityIds)를 재사용한다.
+        LocalDate lastInspectedAt
 ) {
     public static FacilityResponse from(Facility facility) {
-        return from(facility, null, null);
+        return from(facility, null, null, null);
     }
 
     public static FacilityResponse from(Facility facility, Long latestDefectId) {
-        return from(facility, latestDefectId, null);
+        return from(facility, latestDefectId, null, null);
     }
 
-    public static FacilityResponse from(Facility facility, Long latestDefectId, String thumbnailUrl) {
+    public static FacilityResponse from(
+            Facility facility, Long latestDefectId, String thumbnailUrl, LocalDate lastInspectedAt) {
         return new FacilityResponse(
                 facility.getId(),
                 facility.getName(),
@@ -58,7 +63,8 @@ public record FacilityResponse(
                 facility.getAssigneeUserId(),
                 facility.getMemo(),
                 latestDefectId,
-                thumbnailUrl
+                thumbnailUrl,
+                lastInspectedAt
         );
     }
 }

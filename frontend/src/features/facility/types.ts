@@ -21,13 +21,17 @@ export interface Facility {
   nextInspectionDueAt: string | null;
   createdAt: string;
   updatedAt: string;
-  // #628(HAJA-347) 등록 필드 확장 — 전부 선택 입력. 대표 사진(photoUrls)은 별도 테이블이라
-  // 백엔드 계약에 아직 없다(#632 후속) — FE도 이번 범위에서는 UI만 구성하고 전송하지 않는다.
+  // #628(HAJA-347) 등록 필드 확장 — 전부 선택 입력. 대표 사진은 등록 시 함께 전송하지 않고
+  // 등록 후 별도 업로드 API(#652)로 붙인다.
   initialGrade: FacilityInitialGrade | null;
   assigneeUserId: number | null;
   memo: string | null;
   // 시설물 상세→하자 오버레이 직행(HAJA-434 갭1) — 대표(최신) 하자 id, 하자가 없으면 null.
   latestDefectId: number | null;
+  // 시설물 카드 대표 사진(HAJA-367/#670) — /api/media/{id}/thumbnail 경로, 사진이 없으면 null.
+  thumbnailUrl: string | null;
+  // 시설물 카드 "최근 점검 MM.dd"(HAJA-514/#1074) — ISO date(YYYY-MM-DD), 점검 이력이 없으면 null.
+  lastInspectedAt: string | null;
 }
 
 export interface CreateFacilityRequest {

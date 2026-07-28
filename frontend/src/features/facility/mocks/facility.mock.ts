@@ -1,6 +1,8 @@
 import type { Facility } from '../types';
 
 // docs/design/db/seed_dev_facilities.sql 12개 시드 시설물 데이터 + Figma 캡처 기준 예제 시설물 완벽 연동
+// thumbnailUrl/lastInspectedAt(HAJA-367/#670, HAJA-514/#1074) — 카드 그리드(HAJA-368) "사진 없음"/
+// "점검 이력 없음" 폴백 경로를 함께 검증할 수 있도록 일부는 null로 남긴다.
 export const mockFacilities: Facility[] = [
   {
     id: 1,
@@ -19,6 +21,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: 101,
     memo: '외벽 균열 재점검 예정',
     latestDefectId: null,
+    thumbnailUrl: 'https://placehold.co/285x192',
+    lastInspectedAt: '2026-06-21',
   },
   {
     id: 2,
@@ -37,6 +41,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: 'https://placehold.co/285x192',
+    lastInspectedAt: '2026-04-10',
   },
   {
     id: 3,
@@ -55,6 +61,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: null,
+    lastInspectedAt: '2026-03-15',
   },
   {
     id: 4,
@@ -73,6 +81,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: 'https://placehold.co/285x192',
+    lastInspectedAt: null,
   },
   {
     id: 5,
@@ -91,6 +101,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: null,
+    lastInspectedAt: null,
   },
   {
     id: 6,
@@ -109,6 +121,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: 'https://placehold.co/285x192',
+    lastInspectedAt: '2026-06-01',
   },
   {
     id: 7,
@@ -127,6 +141,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: null,
+    lastInspectedAt: null,
   },
   {
     id: 8,
@@ -145,6 +161,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: 'https://placehold.co/285x192',
+    lastInspectedAt: '2026-06-28',
   },
   {
     id: 9,
@@ -163,6 +181,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: null,
+    lastInspectedAt: null,
   },
   {
     id: 10,
@@ -181,6 +201,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: 'https://placehold.co/285x192',
+    lastInspectedAt: '2026-03-15',
   },
   {
     id: 11,
@@ -199,6 +221,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: null,
+    lastInspectedAt: null,
   },
   {
     id: 12,
@@ -217,6 +241,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: 'https://placehold.co/285x192',
+    lastInspectedAt: '2026-06-01',
   },
   {
     id: 13,
@@ -235,6 +261,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: null,
+    lastInspectedAt: null,
   },
   {
     id: 14,
@@ -253,6 +281,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: 'https://placehold.co/285x192',
+    lastInspectedAt: null,
   },
   {
     id: 15,
@@ -271,6 +301,8 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: null,
+    lastInspectedAt: null,
   },
   {
     id: 16,
@@ -289,5 +321,7 @@ export const mockFacilities: Facility[] = [
     assigneeUserId: null,
     memo: null,
     latestDefectId: null,
+    thumbnailUrl: 'https://placehold.co/285x192',
+    lastInspectedAt: '2026-04-30',
   },
 ];

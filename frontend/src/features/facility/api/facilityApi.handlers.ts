@@ -98,6 +98,10 @@ export const facilityHandlers = [
       assigneeUserId: reqBody.assigneeUserId ?? null,
       memo: reqBody.memo ?? null,
       latestDefectId: null,
+      // 대표 사진은 등록 후 별도 업로드 API로 붙는다(#652) — 등록 직후엔 항상 null.
+      thumbnailUrl: null,
+      // 신규 등록 시설물은 아직 점검 이력이 없다.
+      lastInspectedAt: null,
     };
     nextId += 1;
     facilities = [created, ...facilities];
