@@ -833,7 +833,7 @@ comment on column media.created_at is '미디어 레코드 생성 시각';
 
 comment on column media.mime_type is '미디어 MIME 타입(예: image/jpeg, video/mp4)';
 
-comment on column media.original_filename is '업로드 시 클라이언트가 보낸 원본 파일명(표시 전용) — nullable, V25 이전 업로드 행은 NULL(조회 시 "이미지 N" 순번으로 폴백)';
+comment on column media.original_filename is '업로드 시 클라이언트가 보낸 원본 파일명(표시 전용) — nullable, V26 이전 업로드 행은 NULL(조회 시 "이미지 N" 순번으로 폴백)';
 
 alter table media
     owner to postgres;

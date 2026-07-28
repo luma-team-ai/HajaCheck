@@ -4,7 +4,7 @@ import com.hajacheck.core.media.entity.Media;
 
 /**
  * AI 분석 실행/상태 화면(이미지별 처리 현황 테이블)에 표시할 파일명 — {@link Media#getOriginalFilename()}
- * (V25)이 있으면 그대로 쓰고, 없으면(V25 이전 업로드 행) 기존과 동일한 "이미지 N" 순번 라벨로 폴백한다.
+ * (V26)이 있으면 그대로 쓰고, 없으면(V26 이전 업로드 행) 기존과 동일한 "이미지 N" 순번 라벨로 폴백한다.
  * InspectionAnalysisWorker/InspectionAnalysisService 양쪽이 동일 기준을 공유해야 하므로 이 클래스로 뺀다.
  */
 public final class AnalysisFileDisplayNames {

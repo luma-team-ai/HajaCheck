@@ -114,7 +114,7 @@ public class Media {
     private String mimeType;
 
     /**
-     * 업로드 시 클라이언트가 보낸 원본 파일명(표시 전용, V25) — nullable, V25 이전 업로드 행은 NULL.
+     * 업로드 시 클라이언트가 보낸 원본 파일명(표시 전용, V26) — nullable, V26 이전 업로드 행은 NULL.
      * originalUrl(저장키)은 여전히 UUID다 — 이 필드는 저장 경로가 아니라 AI 분석 실행/상태 화면 등에서
      * "이미지 N" 순번 라벨 대신 보여줄 표시용 메타데이터일 뿐이라 PRD FR-2 원본 비공개 서빙 정책과 무관하다.
      */
