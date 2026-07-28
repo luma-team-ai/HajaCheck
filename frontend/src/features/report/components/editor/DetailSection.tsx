@@ -192,6 +192,7 @@ export function DetailSection({
                     />
                     DEFECT #{String(index + 1).padStart(2, '0')}
                   </div>
+                </div>
 
                 <div className="grid min-w-0 content-start gap-5 border-t border-border px-8 py-8 lg:border-l lg:border-t-0">
                   <label className="flex min-w-0 flex-col gap-1">
@@ -254,7 +255,6 @@ export function DetailSection({
                     )}
                   </div>
                 </div>
-              </div>
             </article>
           ))}
         </div>
