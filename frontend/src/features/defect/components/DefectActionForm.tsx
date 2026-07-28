@@ -13,11 +13,12 @@ import { useDefectAssignableUsers } from '../hooks/useDefectAssignableUsers';
 import { useSubmitDefectAction } from '../hooks/useSubmitDefectAction';
 import { useUploadDefectActionPhoto } from '../hooks/useUploadDefectActionPhoto';
 import { validateActionPhoto } from '../utils/validateActionPhoto';
-import type { DefectActionResult } from '../types';
+import type { DefectActionResult, DefectStatus } from '../types';
 
 type Props = {
   defectId: number;
   inspectionId: number;
+  status: DefectStatus;
   actionResult: DefectActionResult | null | undefined;
   onSubmitted?: () => void;
 };
@@ -27,12 +28,26 @@ const PHOTO_ERROR_MESSAGE: Record<'FILE_INVALID_TYPE' | 'FILE_TOO_LARGE', string
   FILE_TOO_LARGE: '파일 용량이 너무 큽니다. (최대 10MB)',
 };
 
-// 하자 상세 모달 "조치 결과 등록" 폼 — contract.md §"조치 결과 등록" 필드 표 확정: 조치 후 사진
-// (필수, 드래그앤드롭), 조치 내용(필수), 조치일(필수), 담당자(필수). 제출 시 PATCH
-// /api/defects/{id}/action(DefectActionResultRequest)을 호출한다 — 상태 전이(RESOLVED)는 백엔드가
-// 내부에서 항상 고정 처리하므로 요청 바디에 status를 싣지 않는다(contract.md §엔드포인트 매핑
-// ③조치 결과 등록 확정).
-export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmitted }: Props) {
+// "진행상태" select(#1128) — 백엔드가 정방향 1단계 전이만 허용하므로(Defect#changeStatus), 현재
+// 상태에서 유효한 다음 단계는 항상 하나뿐이다. 자유 2지선다가 아니라 이 맵으로 도출한 단일 값만
+// select에 노출한다(실질적으로 값이 고정된 select — 자유 선택 UI가 아님).
+const NEXT_ACTION_STATUS: Partial<Record<DefectStatus, 'IN_PROGRESS' | 'RESOLVED'>> = {
+  CONFIRMED: 'IN_PROGRESS',
+  IN_PROGRESS: 'RESOLVED',
+};
+
+const ACTION_STATUS_LABEL: Record<'IN_PROGRESS' | 'RESOLVED', string> = {
+  IN_PROGRESS: '조치중',
+  RESOLVED: '조치완료',
+};
+
+// 하자 상세 모달 "상태 저장" 폼(#1128) — contract.md §"조치 결과 등록" 필드 표 확정: 조치 후 사진
+// (필수, 드래그앤드롭), 조치 내용(필수), 조치일(필수), 담당자(필수) + 진행상태(select, 필수). 제출 시
+// PATCH /api/defects/{id}/action(DefectActionResultRequest)을 호출하며, targetStatus로 IN_PROGRESS
+// (조치중)/RESOLVED(조치완료) 중 실제 전이할 상태를 명시한다 — 과거엔 항상 RESOLVED 고정이었으나
+// 이제 CONFIRMED→IN_PROGRESS 등록도 이 폼으로 한다.
+export function DefectActionForm({ defectId, inspectionId, status, actionResult, onSubmitted }: Props) {
+  const nextStatus = NEXT_ACTION_STATUS[status];
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -61,8 +76,11 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
     inspectionId,
   );
 
-  // 이미 등록된 조치 결과가 있으면 폼 대신 읽기 전용 요약을 보여준다(재등록 방지).
-  if (actionResult) {
+  // RESOLVED(조치완료)는 종료 상태라 더 이상 전이가 없으므로, 등록된 조치 결과를 읽기 전용
+  // 요약으로 보여주고 폼을 닫는다(재등록 방지). CONFIRMED→IN_PROGRESS 단계에서도 actionResult가
+  // 채워지지만(같은 등록 필드를 공유), IN_PROGRESS는 아직 RESOLVED로 한 번 더 전이해야 하므로
+  // 이 시점엔 폼을 계속 보여준다(#1128).
+  if (actionResult && status === 'RESOLVED') {
     return (
       <section className="defect-action-form defect-action-form--registered" aria-label="조치 결과">
         <h2>조치 결과 등록</h2>
@@ -79,6 +97,12 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
         )}
       </section>
     );
+  }
+
+  // DETECTED(신규, 검수 전)는 조치 등록 대상이 될 수 없다 — 정상 플로우에선 카드그리드에서 이미
+  // 숨겨지지만(#1128과 별개 PR), 방어적으로 이 패널 자체를 렌더링하지 않는다.
+  if (nextStatus == null) {
+    return null;
   }
 
   function applyFile(candidate: File) {
@@ -145,7 +169,9 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSubmit || file == null || typeof assigneeId !== 'number') return;
+    // nextStatus는 컴포넌트 최상단의 이른 반환(94-96행)으로 이미 null이 아님이 보장되지만, TS는
+    // 중첩 함수 경계를 넘어 그 좁히기를 유지하지 않는다 — 여기서 다시 한번 방어적으로 확인한다.
+    if (!canSubmit || file == null || typeof assigneeId !== 'number' || nextStatus == null) return;
 
     try {
       const uploaded = await uploadActionPhoto({ inspectionId, file });
@@ -158,6 +184,7 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
         actionDate,
         actionAssigneeId: assigneeId,
         actionMediaId: uploadedMediaId,
+        targetStatus: nextStatus,
       });
       onSubmitted?.();
     } catch {
@@ -261,6 +288,13 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
         </div>
 
         <div className="defect-action-form__field">
+          <label htmlFor="defect-action-target-status">진행상태 *</label>
+          <select id="defect-action-target-status" value={nextStatus} disabled>
+            <option value={nextStatus}>{ACTION_STATUS_LABEL[nextStatus]}</option>
+          </select>
+        </div>
+
+        <div className="defect-action-form__field">
           <label htmlFor="defect-action-assignee">담당자 *</label>
           <select
             id="defect-action-assignee"
@@ -291,7 +325,7 @@ export function DefectActionForm({ defectId, inspectionId, actionResult, onSubmi
       )}
 
       <Button type="submit" variant="primary" size="lg" disabled={!canSubmit}>
-        {isUploading || isSubmitting ? '등록하는 중...' : '조치 완료 등록'}
+        {isUploading || isSubmitting ? '저장하는 중...' : '상태 저장'}
       </Button>
     </form>
   );

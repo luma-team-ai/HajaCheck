@@ -3,11 +3,13 @@
 // useDefectAssignableUsers/useUploadDefectActionPhoto/useSubmitDefectAction의 실제 요청 경로를
 // DefectActionBoard.test.tsx와 동일하게 재사용한다(defectApi.handlers.ts 단일 소스).
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defectHandlers } from '../api/defectApi.handlers';
+import { defectMediaApi } from '../api/defectMediaApi';
 import { DefectActionForm } from './DefectActionForm';
+import type { DefectStatus } from '../types';
 
 const server = setupServer(...defectHandlers);
 
@@ -35,11 +37,11 @@ function makeImageFile(name: string): File {
   return new File(['fake-image-bytes'], name, { type: 'image/png' });
 }
 
-function renderForm() {
+function renderForm(status: DefectStatus = 'CONFIRMED') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  return render(
     <QueryClientProvider client={queryClient}>
-      <DefectActionForm defectId={1} inspectionId={101} actionResult={null} />
+      <DefectActionForm defectId={1} inspectionId={101} status={status} actionResult={null} />
     </QueryClientProvider>,
   );
 }
@@ -84,7 +86,7 @@ describe('DefectActionForm — 업로드 드롭존 미리보기', () => {
   it('언마운트 시 생성된 objectURL을 revoke한다', () => {
     const { unmount } = render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <DefectActionForm defectId={1} inspectionId={101} actionResult={null} />
+        <DefectActionForm defectId={1} inspectionId={101} status="CONFIRMED" actionResult={null} />
       </QueryClientProvider>,
     );
 
@@ -99,13 +101,14 @@ describe('DefectActionForm — 업로드 드롭존 미리보기', () => {
 });
 
 describe('DefectActionForm — actionResult 등록 완료 상태(회귀 확인)', () => {
-  it('actionResult가 있으면 읽기 전용 요약을 렌더링하고 드롭존은 렌더링하지 않는다', () => {
+  it('RESOLVED이고 actionResult가 있으면 읽기 전용 요약을 렌더링하고 드롭존은 렌더링하지 않는다', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
         <DefectActionForm
           defectId={1}
           inspectionId={101}
+          status="RESOLVED"
           actionResult={{
             actionContent: '에폭시 주입 처리',
             actionDate: '2026-07-20',
@@ -119,5 +122,93 @@ describe('DefectActionForm — actionResult 등록 완료 상태(회귀 확인)'
 
     expect(screen.getByText('에폭시 주입 처리')).not.toBeNull();
     expect(screen.queryByLabelText('조치 후 사진 업로드 *')).toBeNull();
+  });
+
+  // #1128 회귀 방지 — CONFIRMED→IN_PROGRESS 등록 직후에도 actionResult가 채워지지만, IN_PROGRESS는
+  // 아직 종료 상태가 아니므로(RESOLVED로 한 번 더 전이 필요) 읽기 전용 요약이 아니라 폼이 계속
+  // 보여야 한다.
+  it('IN_PROGRESS이고 actionResult가 있어도 폼을 계속 렌더링한다(종료 상태 아님)', () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DefectActionForm
+          defectId={1}
+          inspectionId={101}
+          status="IN_PROGRESS"
+          actionResult={{
+            actionContent: '균열 부위 실측 완료',
+            actionDate: '2026-07-24',
+            assigneeId: 1,
+            assigneeName: '홍길동',
+            afterPhotoUrl: '/api/media/998/thumbnail',
+          }}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByLabelText('조치 후 사진 업로드 *')).not.toBeNull();
+    expect(screen.queryByText('에폭시 주입 처리')).toBeNull();
+  });
+});
+
+describe('DefectActionForm — 진행상태 select(#1128)', () => {
+  it('CONFIRMED 상태에서는 진행상태가 "조치중"으로 고정 표시된다', () => {
+    renderForm('CONFIRMED');
+
+    const select = screen.getByLabelText('진행상태 *') as HTMLSelectElement;
+    expect(select.value).toBe('IN_PROGRESS');
+    expect(select.disabled).toBe(true);
+    expect(screen.getByText('조치중')).not.toBeNull();
+  });
+
+  it('IN_PROGRESS 상태에서는 진행상태가 "조치완료"로 고정 표시된다', () => {
+    renderForm('IN_PROGRESS');
+
+    const select = screen.getByLabelText('진행상태 *') as HTMLSelectElement;
+    expect(select.value).toBe('RESOLVED');
+    expect(screen.getByText('조치완료')).not.toBeNull();
+  });
+
+  // DETECTED(신규, 검수 전)는 조치 등록 대상이 아니므로 패널 자체가 렌더링되지 않아야 한다(방어적 가드).
+  it('DETECTED 상태에서는 폼 자체를 렌더링하지 않는다', () => {
+    const { container } = renderForm('DETECTED');
+
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('제출 시 현재 상태에서 유효한 targetStatus가 요청 바디에 포함된다', async () => {
+    // 실 axios→MSW 네트워크 경로로 File/FormData를 태우면 jsdom File과 Node undici의 multipart
+    // 파서가 호환되지 않아 테스트가 깨진다(InspectionDefectsPage.test.tsx와 동일 패턴) — 업로드
+    // API 자체는 spy로 우회하고, 이 테스트는 PATCH /action 요청 바디의 targetStatus에 집중한다.
+    const uploadSpy = vi
+      .spyOn(defectMediaApi, 'uploadActionPhoto')
+      .mockResolvedValue({ data: [{ id: 9001, thumbnailUrl: '/api/media/9001/thumbnail' }] } as Awaited<
+        ReturnType<typeof defectMediaApi.uploadActionPhoto>
+      >);
+
+    let capturedBody: Record<string, unknown> | null = null;
+    const listener = async ({ request }: { request: Request }) => {
+      if (request.method === 'PATCH' && request.url.includes('/action')) {
+        capturedBody = (await request.clone().json()) as Record<string, unknown>;
+      }
+    };
+    server.events.on('request:start', listener);
+
+    renderForm('CONFIRMED');
+    fireEvent.change(screen.getByLabelText('조치 후 사진 업로드 *'), {
+      target: { files: [makeImageFile('after.png')] },
+    });
+    fireEvent.change(screen.getByLabelText('조치 내용 *'), { target: { value: '조치중 실측 완료' } });
+    fireEvent.change(screen.getByLabelText('조치일 *'), { target: { value: '2026-07-28' } });
+    await screen.findByText('김도현 검사자');
+    fireEvent.change(screen.getByLabelText('담당자 *'), { target: { value: '101' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '상태 저장' }));
+
+    await waitFor(() => expect(capturedBody).not.toBeNull());
+    expect((capturedBody as unknown as Record<string, unknown>).targetStatus).toBe('IN_PROGRESS');
+
+    server.events.removeListener('request:start', listener);
+    uploadSpy.mockRestore();
   });
 });
