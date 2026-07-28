@@ -92,9 +92,10 @@ class V27BillingPeriodBackfillMigrationTest {
                 returning id
                 """, Long.class, paidCompanyId, standardPlanId, startedAt);
 
+        // 여기서 V27만 추가 적용해 백필 UPDATE 가 기존 행에 어떻게 반영되는지를 본다.
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-                .target("25")
+                .target("27")
                 .load()
                 .migrate();
 
