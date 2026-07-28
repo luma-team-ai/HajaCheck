@@ -3,6 +3,7 @@ package com.hajacheck.core.facility.controller;
 import com.hajacheck.auth.dto.AssignableUserResponse;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.auth.service.AuthService;
+import com.hajacheck.core.facility.dto.FacilityComparisonResponse;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
@@ -10,6 +11,7 @@ import com.hajacheck.core.facility.dto.FacilityStatusResponse;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.dto.InspectionNotificationSettingRequest;
 import com.hajacheck.core.facility.dto.InspectionNotificationSettingResponse;
+import com.hajacheck.core.facility.service.FacilityComparisonService;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.facility.service.InspectionNotificationSettingService;
 import com.hajacheck.global.common.ApiResponse;
@@ -28,6 +30,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -43,6 +46,7 @@ public class FacilityController {
     private final FacilityService facilityService;
     private final AuthService authService;
     private final InspectionNotificationSettingService inspectionNotificationSettingService;
+    private final FacilityComparisonService facilityComparisonService;
 
     @Operation(summary = "시설물 등록", description = "로그인 사용자의 회사 소유로 시설물을 신규 등록한다")
     @PostMapping
@@ -132,6 +136,21 @@ public class FacilityController {
         InspectionNotificationSettingResponse response = inspectionNotificationSettingService.save(
                 loginUser.getUserId(), loginUser.getCompanyId(), id, request);
         return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "회차 간 비교 조회",
+            description = "로그인 사용자의 회사가 소유한 시설물의 두 점검 회차(before/after)를 비교해 "
+                    + "KPI(신규/진행중/개선완료/등급상승 4종)와 하자 변화 목록을 반환한다(HAJA-531/#1112). "
+                    + "previous_defect_id로 확정된 회차 간 대응(HAJA-437)을 기준으로 분류하며, "
+                    + "\"재발생\"은 이번 범위에서 진행중(worsened)으로 근사 매핑한다(HAJA-532 후속에서 정확화 예정).")
+    @GetMapping("/{id}/compare")
+    public ResponseEntity<ApiResponse<FacilityComparisonResponse>> compare(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long id,
+            @RequestParam Integer before,
+            @RequestParam Integer after) {
+        return ResponseEntity.ok(ApiResponse.ok(facilityComparisonService.compare(
+                loginUser.getUserId(), loginUser.getCompanyId(), id, before, after)));
     }
 
     @Operation(summary = "배정 가능한 담당자 목록 조회",
