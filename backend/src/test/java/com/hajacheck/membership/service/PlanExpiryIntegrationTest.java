@@ -24,6 +24,7 @@ import com.hajacheck.notification.entity.Notification;
 import com.hajacheck.notification.entity.NotificationType;
 import com.hajacheck.notification.repository.NotificationRepository;
 import com.hajacheck.support.PostgresTestSupport;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -90,18 +91,21 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
     private final List<Long> createdCompanyIds = new ArrayList<>();
     private final List<Long> createdUserIds = new ArrayList<>();
     private boolean originalEnabled;
+    private PlanExpiryProperties.Mode originalMode;
     private int originalMaxPerRun;
 
     @BeforeEach
     void captureProperties() {
         // PlanExpiryProperties 는 싱글턴 빈이라 테스트가 바꾼 값이 다음 테스트로 새지 않게 원복한다.
         originalEnabled = planExpiryProperties.isEnabled();
+        originalMode = planExpiryProperties.getMode();
         originalMaxPerRun = planExpiryProperties.getMaxPerRun();
     }
 
     @AfterEach
     void tearDown() {
         planExpiryProperties.setEnabled(originalEnabled);
+        planExpiryProperties.setMode(originalMode);
         planExpiryProperties.setMaxPerRun(originalMaxPerRun);
 
         createdUserIds.forEach(userId -> notificationRepository
@@ -213,8 +217,19 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
     }
 
     private List<Long> expiryTargetIds(Instant threshold) {
+        return expiryTargetIds(threshold, null);
+    }
+
+    private List<Long> expiryTargetIds(Instant threshold, Instant notBefore) {
         return userPlanRepository.findExpiryTargetIds(
-                UserPlanStatus.ACTIVE, threshold, 0L, PageRequest.of(0, 500));
+                PlanExpiryWriter.LIVE_STATUSES, threshold, notBefore, 0L, PageRequest.of(0, 500));
+    }
+
+    /** 업그레이드 문의 전이({@code UserPlan#requestUpgrade})와 같은 결과를 SQL 로 만든다. */
+    private void markUpgradeRequested(Long userPlanId) {
+        jdbcTemplate.update(
+                "update user_plans set status = 'UPGRADE_REQUESTED' where id = ?", userPlanId);
+        userPlanRepository.flush();
     }
 
     private UserPlan activeCompanyPlan(Long companyId) {
@@ -261,6 +276,9 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
                 .as("회사 구독의 알림 수신자는 회사 owner 다")
                 .isEqualTo(owner.getId());
         assertThat(result.suspendedSeatCount()).isEqualTo(2);
+        assertThat(result.suspendedUserIds())
+                .as("오강등 시 되돌릴 대상 목록을 복원할 유일한 근거다(리뷰 P2-3) — 건수만으로는 부족하다")
+                .containsExactlyInAnyOrder(member1.getId(), member2.getId());
 
         UserPlan previous = userPlanRepository.findById(expiring.getId()).orElseThrow();
         assertThat(previous.getStatus()).isEqualTo(UserPlanStatus.EXPIRED);
@@ -414,12 +432,7 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
         UserPlan expiring = newCompanyPlan(company.getId(), PlanName.STANDARD,
                 now.minusSeconds(31 * 24 * 3600L), now.minusSeconds(60));
 
-        planExpiryProperties.setEnabled(true);
-        // 공유 컨테이너에 다른 테스트가 남긴 대상 행이 있어도 상한에 걸려 중단되지 않도록 넉넉히 잡는다
-        // (상한 자체의 계약은 PlanExpirySchedulerTest 가 목으로 고정한다).
-        planExpiryProperties.setMaxPerRun(
-                userPlanRepository.findExpiryTargetIds(
-                        UserPlanStatus.ACTIVE, Instant.now(), 0L, PageRequest.of(0, 500)).size() + 10);
+        enableEnforcingWithHeadroom();
 
         planExpiryScheduler.expireOverduePlans();
 
@@ -433,5 +446,106 @@ class PlanExpiryIntegrationTest extends PostgresTestSupport {
         assertThat(planExpiredNotifications(owner.getId()))
                 .as("재실행에도 대상이 아니므로 알림이 중복 발행되면 안 된다")
                 .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("배포 기본 설정이 실제로 바인딩된다 — 비활성 + DRY_RUN이고 not-before 빈 값은 null(제한 없음)이다")
+    void 배포_기본설정이_안전하게_바인딩된다() {
+        // application.yml 의 ${PLAN_EXPIRY_*} 기본값이 의도대로 바인딩되는지 실 컨텍스트로 확인한다.
+        // 특히 not-before 는 `${PLAN_EXPIRY_NOT_BEFORE:}`(빈 문자열)이라, 바인딩이 깨지면 기동 자체가
+        // 실패하거나 엉뚱한 시각으로 잡혀 대상이 통째로 사라질 수 있다.
+        assertThat(originalEnabled)
+                .as("배포 기본값이 활성이면 프리플라이트 전에 기존 유료 회사가 일괄 강등된다")
+                .isFalse();
+        assertThat(originalMode).isEqualTo(PlanExpiryProperties.Mode.DRY_RUN);
+        assertThat(originalMaxPerRun).isEqualTo(50);
+        assertThat(planExpiryProperties.getNotBefore())
+                .as("빈 값은 '제한 없음'(null)으로 바인딩돼야 한다")
+                .isNull();
+        assertThat(planExpiryProperties.getGracePeriod()).isEqualTo(Duration.ZERO);
+    }
+
+    @Test
+    @DisplayName("업그레이드 문의(UPGRADE_REQUESTED) 구독도 강등된다 — 만료 강제를 요청 1건으로 우회할 수 없다")
+    void 업그레이드문의_상태도_강등된다() {
+        User owner = newUser("만료테스트문의", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now();
+        UserPlan expiring = newCompanyPlan(company.getId(), PlanName.STANDARD,
+                now.minusSeconds(31 * 24 * 3600L), now.minusSeconds(60));
+        // POST /api/me/plan/upgrade-inquiry 를 한 번 호출한 상태 — 새 행이 생기지 않고 기존 행의 status
+        // 만 바뀌며 current_period_end 는 그대로다. QuotaService 는 이 상태에도 유료 한도를 계속 준다.
+        markUpgradeRequested(expiring.getId());
+
+        assertThat(expiryTargetIds(now))
+                .as("ACTIVE 만 대상으로 삼으면 이 구독이 영원히 조회되지 않아 유료 한도를 무기한 유지한다")
+                .contains(expiring.getId());
+
+        PlanExpiryResult result = planExpiryWriter.expireToFreePlan(expiring.getId(), now);
+
+        assertThat(result.downgraded()).isTrue();
+        assertThat(userPlanRepository.findById(expiring.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserPlanStatus.EXPIRED);
+        // 부분 UQ(uq_user_plans_active_company)는 status='ACTIVE' 행만 대상이라, UPGRADE_REQUESTED →
+        // FREE ACTIVE 발급은 충돌하지 않는다. 그 사실을 실 제약으로 고정한다.
+        assertThat(activeCompanyPlanCount(company.getId())).isEqualTo(1L);
+        assertThat(activeCompanyPlan(company.getId()).getPlanId()).isEqualTo(plan(PlanName.FREE).getId());
+    }
+
+    @Test
+    @DisplayName("not-before 컷오프보다 이른 만료일은 쿼리 단계에서 대상에서 빠진다(V27 백필 추정치 구간 배제)")
+    void notBefore_컷오프가_과거구간을_배제한다() {
+        User oldUser = newUser("만료테스트백필", Role.USER);
+        User newUser = newUser("만료테스트신규", Role.USER);
+        Instant now = Instant.now();
+        Instant cutoff = now.minusSeconds(7 * 24 * 3600L);
+
+        // V27 백필이 만든 "실제 결제일이 아닌 추정 만료일" — 컷오프보다 이르다.
+        UserPlan backfilled = newPersonalPlan(oldUser.getId(), PlanName.STANDARD,
+                now.minusSeconds(400 * 24 * 3600L), cutoff.minusSeconds(3600));
+        // 컷오프 이후에 정상적으로 만료된 구독.
+        UserPlan genuinelyExpired = newPersonalPlan(newUser.getId(), PlanName.STANDARD,
+                now.minusSeconds(31 * 24 * 3600L), cutoff.plusSeconds(3600));
+
+        List<Long> withoutCutoff = expiryTargetIds(now);
+        assertThat(withoutCutoff).contains(backfilled.getId(), genuinelyExpired.getId());
+
+        List<Long> withCutoff = expiryTargetIds(now, cutoff);
+        assertThat(withCutoff)
+                .as("건수 기반 상한과 달리, 컷오프는 대상이 소수여도 과거 구간을 막아야 한다")
+                .doesNotContain(backfilled.getId());
+        assertThat(withCutoff).contains(genuinelyExpired.getId());
+    }
+
+    @Test
+    @DisplayName("DRY_RUN이면 스케줄러를 돌려도 구독이 그대로 유지되고 알림도 나가지 않는다")
+    void dryRun이면_실제로_아무것도_바뀌지_않는다() {
+        User owner = newUser("만료테스트드라이런", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now();
+        UserPlan expiring = newCompanyPlan(company.getId(), PlanName.STANDARD,
+                now.minusSeconds(31 * 24 * 3600L), now.minusSeconds(60));
+
+        enableEnforcingWithHeadroom();
+        planExpiryProperties.setMode(PlanExpiryProperties.Mode.DRY_RUN);
+
+        planExpiryScheduler.expireOverduePlans();
+
+        assertThat(userPlanRepository.findById(expiring.getId()).orElseThrow().getStatus())
+                .as("DRY_RUN 은 관찰 전용이다 — 한 건이라도 바뀌면 '켜자마자 일괄 강등' 사고를 막지 못한다")
+                .isEqualTo(UserPlanStatus.ACTIVE);
+        assertThat(activeCompanyPlan(company.getId()).getPlanId())
+                .isEqualTo(plan(PlanName.STANDARD).getId());
+        assertThat(planExpiredNotifications(owner.getId())).isEmpty();
+    }
+
+    /**
+     * 실제 반영 모드로 켜되, 공유 컨테이너에 다른 테스트가 남긴 대상 행이 있어도 1회 상한에 걸려 중단되지
+     * 않도록 여유를 둔다(상한 자체의 계약은 {@code PlanExpirySchedulerTest} 가 목으로 고정한다).
+     */
+    private void enableEnforcingWithHeadroom() {
+        planExpiryProperties.setEnabled(true);
+        planExpiryProperties.setMode(PlanExpiryProperties.Mode.ENFORCE);
+        planExpiryProperties.setMaxPerRun(expiryTargetIds(Instant.now()).size() + 10);
     }
 }
