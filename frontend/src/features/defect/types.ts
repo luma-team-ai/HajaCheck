@@ -27,8 +27,9 @@ export interface Defect {
   imageUrl: string | null;
   createdAt: string;
   // "조치 결과 등록"(하자 상세 모달, HAJA-394/#726) 제출값 — 미등록이면 null/undefined.
-  // 실제 저장 컬럼은 백엔드 Flyway V5 대기(TBD, docs/api-contract/contract.md §"하자 목록·상세 화면
-  // 개편" 참고) — 필드가 옵셔널이라 기존 mock/테스트 데이터를 건드리지 않아도 된다.
+  // 백엔드 DefectResponse는 이 값을 중첩 객체가 아니라 actionPhotoUrl/actionContent/actionDate/
+  // actionAssigneeId/actionAssigneeName flat 필드로 응답한다 — normalizeDefect()가 API 경계에서
+  // 이 형태로 조립한다(#1182). 필드가 옵셔널이라 기존 mock/테스트 데이터를 건드리지 않아도 된다.
   actionResult?: DefectActionResult | null;
 }
 
