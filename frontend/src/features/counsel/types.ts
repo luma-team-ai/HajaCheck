@@ -28,6 +28,13 @@ export interface CounselTicketSummaryResponse {
   status: CounselTicketStatus;
   queuePosition: number | null;
   createdAt: string; // ISO LocalDateTime
+  // 플랫폼 관리자 상담 관리(#1168) — GET /api/counsel/tickets/admin 전용 응답에서만 채워지는
+  // 고객 프로필 스냅샷. 기존 사용처(마이페이지/상담원 콘솔 대기열)의 응답엔 이 필드들이 없어도
+  // optional이라 영향 없음.
+  customerName?: string;
+  customerEmail?: string;
+  customerPlan?: string;
+  customerJoinedAt?: string;
 }
 
 // GET /api/counsel/scenarios/roots, 자식 버튼 목록 — 시나리오 버튼(노드) 요약
