@@ -18,9 +18,20 @@ public interface InspectionRepositoryCustom {
      * 기존 동작(하자 조건 무시)과 동일 — predicate 자체를 추가하지 않는다.
      */
     Page<Inspection> findPageByCompanyIdAndFilters(
+            InspectionSearchCriteria criteria, Pageable pageable);
+
+    /**
+     * 기존 내부 호출 호환 어댑터. 신규 코드는 {@link InspectionSearchCriteria}를 사용한다.
+     */
+    default Page<Inspection> findPageByCompanyIdAndFilters(
             Long companyId, Long facilityId, InspectionStatus status,
             List<DefectType> defectTypes, List<DefectGrade> defectGrades, List<DefectStatus> defectStatuses,
-            Pageable pageable);
+            Pageable pageable) {
+        return findPageByCompanyIdAndFilters(new InspectionSearchCriteria(
+                companyId, facilityId, status == null ? null : List.of(status), null,
+                null, null, null, null, null, null,
+                defectTypes, defectGrades, defectStatuses), pageable);
+    }
 
     // 마이페이지 "내 점검 이력" 목록(#844) — periodFrom(nullable, KST 기준 산출)이 없으면(ALL) 기간 필터
     // predicate 자체를 생성하지 않는다(위 메서드와 동일한 Criteria API 우회 이유는 아니지만 — LocalDate는

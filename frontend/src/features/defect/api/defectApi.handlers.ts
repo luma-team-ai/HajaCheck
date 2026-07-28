@@ -136,9 +136,10 @@ export const defectHandlers = [
     return HttpResponse.json(body);
   }),
 
-  // PATCH /api/defects/:id/action — "조치 완료 등록"(HAJA-394/#726, contract.md §"조치 결과 등록"
-  // 확정). DefectActionResultRequest(actionMediaId/actionContent/actionDate/actionAssigneeId) 1:1
-  // 미러 — 상태전이(PATCH /status)와 분리된 별도 엔드포인트이며, 항상 RESOLVED로 고정 전이한다.
+  // PATCH /api/defects/:id/action — "상태 저장"(HAJA-394/#726, #1128, contract.md §"조치 결과 등록"
+  // 확정). DefectActionResultRequest(actionMediaId/actionContent/actionDate/actionAssigneeId/
+  // targetStatus) 1:1 미러 — 상태전이(PATCH /status)와 분리된 별도 엔드포인트다. targetStatus(#1128)
+  // 도입 전에는 항상 RESOLVED로 고정 전이했으나, 이제 요청받은 값(IN_PROGRESS/RESOLVED)으로 전이한다.
   http.patch('/api/defects/:id/action', async ({ params, request }) => {
     const id = Number(params.id);
     const found = mockDefects.find((defect) => defect.id === id);
@@ -157,6 +158,7 @@ export const defectHandlers = [
       actionContent: string;
       actionDate: string;
       actionAssigneeId: number;
+      targetStatus: 'IN_PROGRESS' | 'RESOLVED';
     };
 
     const assignee = mockDefectAssignees.find((candidate) => candidate.id === reqBody.actionAssigneeId);
@@ -167,7 +169,7 @@ export const defectHandlers = [
       assigneeName: assignee?.name ?? '담당자 미상',
       afterPhotoUrl: `/api/media/${reqBody.actionMediaId}/thumbnail`,
     };
-    found.status = 'RESOLVED';
+    found.status = reqBody.targetStatus;
 
     const body: ApiResponse<Defect> = { success: true, data: found };
     return HttpResponse.json(body);

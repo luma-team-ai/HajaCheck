@@ -9,11 +9,13 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
+import com.hajacheck.core.defect.entity.DefectStatus;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.inspection.entity.InspectionType;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
 import java.util.List;
@@ -141,6 +143,12 @@ class InspectionRepositoryTest extends PostgresTestSupport {
 
     private Inspection newInspection(Long facilityId, Long createdBy, Long assignedInspectorId, int roundNo,
                                       LocalDate inspectionDate, InspectionStatus status) {
+        return newInspection(
+                facilityId, createdBy, assignedInspectorId, roundNo, inspectionDate, status, InspectionType.REGULAR);
+    }
+
+    private Inspection newInspection(Long facilityId, Long createdBy, Long assignedInspectorId, int roundNo,
+                                     LocalDate inspectionDate, InspectionStatus status, InspectionType type) {
         return Inspection.builder()
                 .facilityId(facilityId)
                 .createdBy(createdBy)
@@ -148,6 +156,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 .roundNo(roundNo)
                 .inspectionDate(inspectionDate)
                 .status(status)
+                .type(type)
                 .build();
     }
 
@@ -571,6 +580,77 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         assertThat(result.getContent()).hasSize(2);
         assertThat(result.getContent()).extracting(Inspection::getId)
                 .containsExactlyInAnyOrder(noDefects.getId(), withDefect.getId());
+    }
+
+    @Test
+    void findPageByCompanyIdAndFilters_점검축과하자프로파일과전체하자건수양쪽범위_AND결합() {
+        Long ownerId = seedOwner("owner-filter-combined@haja.com");
+        Long facilityId = seedFacility(ownerId, "복합필터시설");
+        Inspection matching = inspectionRepository.save(newInspection(
+                facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 6, 15),
+                InspectionStatus.REVIEWED, InspectionType.REGULAR));
+        Inspection wrongCount = inspectionRepository.save(newInspection(
+                facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 6, 20),
+                InspectionStatus.REVIEWED, InspectionType.REGULAR));
+
+        em.persist(Defect.builder().inspectionId(matching.getId()).type(DefectType.CRACK).grade(DefectGrade.D)
+                .status(DefectStatus.CONFIRMED).confidence(0.9).build());
+        em.persist(Defect.builder().inspectionId(matching.getId()).type(DefectType.SPALLING).grade(DefectGrade.A)
+                .status(DefectStatus.DETECTED).confidence(0.9).build());
+        em.persist(Defect.builder().inspectionId(matching.getId()).type(DefectType.PAINT_DAMAGE).grade(DefectGrade.B)
+                .status(DefectStatus.RESOLVED).confidence(0.9).build());
+        Defect deleted = Defect.builder().inspectionId(matching.getId()).type(DefectType.REBAR_EXPOSURE)
+                .grade(DefectGrade.E).status(DefectStatus.CONFIRMED).confidence(0.9).build();
+        deleted.softDelete();
+        em.persist(deleted);
+
+        em.persist(Defect.builder().inspectionId(wrongCount.getId()).type(DefectType.CRACK).grade(DefectGrade.D)
+                .status(DefectStatus.CONFIRMED).confidence(0.9).build());
+        em.flush();
+
+        InspectionSearchCriteria criteria = new InspectionSearchCriteria(
+                companyId(ownerId), null,
+                List.of(InspectionStatus.REVIEWED, InspectionStatus.REPORTED),
+                List.of(InspectionType.REGULAR),
+                LocalDate.of(2026, 6, 1), LocalDate.of(2026, 6, 30),
+                1, 2, 2L, 3L,
+                List.of(DefectType.CRACK), List.of(DefectGrade.D), List.of(DefectStatus.CONFIRMED));
+
+        Page<Inspection> result =
+                inspectionRepository.findPageByCompanyIdAndFilters(criteria, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getId).containsExactly(matching.getId());
+        assertThat(result.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
+    void findPageByCompanyIdAndFilters_전체하자0건_논리삭제하자는집계제외() {
+        Long ownerId = seedOwner("owner-count-zero@haja.com");
+        Long facilityId = seedFacility(ownerId, "하자0건시설");
+        Inspection noDefect = inspectionRepository.save(newInspection(
+                facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.CREATED));
+        Inspection deletedOnly = inspectionRepository.save(newInspection(
+                facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 2), InspectionStatus.CREATED));
+        Inspection liveDefect = inspectionRepository.save(newInspection(
+                facilityId, ownerId, ownerId, 3, LocalDate.of(2026, 7, 3), InspectionStatus.CREATED));
+
+        Defect deleted = Defect.builder().inspectionId(deletedOnly.getId()).type(DefectType.CRACK)
+                .confidence(0.9).build();
+        deleted.softDelete();
+        em.persist(deleted);
+        em.persist(Defect.builder().inspectionId(liveDefect.getId()).type(DefectType.CRACK).confidence(0.9).build());
+        em.flush();
+
+        InspectionSearchCriteria criteria = new InspectionSearchCriteria(
+                companyId(ownerId), null, null, null, null, null,
+                null, null, 0L, 0L, null, null, null);
+
+        Page<Inspection> result =
+                inspectionRepository.findPageByCompanyIdAndFilters(criteria, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getId)
+                .containsExactlyInAnyOrder(noDefect.getId(), deletedOnly.getId());
+        assertThat(result.getTotalElements()).isEqualTo(2);
     }
 
     // ── 대시보드 "최근 점검 전체보기"(신규) — findRecentInspectionsPage ──

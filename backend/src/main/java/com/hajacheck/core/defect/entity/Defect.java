@@ -223,15 +223,17 @@ public class Defect {
     }
 
     /**
-     * 조치 결과 등록(HAJA-393/#725, "조치 완료 등록" 버튼) — 조치 후 사진/조치 내용/조치일/담당자를
-     * 한 번에 저장하면서 RESOLVED로 상태를 전이한다. 별도 사유 입력란이 없는 폼이라 changeStatus()를
-     * reason 없이 호출한다 — 정방향 한 단계(IN_PROGRESS→RESOLVED)만 사유 없이 허용하는 기존 규칙을
-     * 그대로 재사용하므로, 순서를 건너뛴 상태에서 호출하면 DomainValidationException으로 자연히
-     * 막힌다(조기 완료 방지).
+     * 조치 결과 등록(HAJA-393/#725, "상태 저장" 버튼) — 조치 후 사진/조치 내용/조치일/담당자를
+     * 한 번에 저장하면서 {@code targetStatus}로 상태를 전이한다. 별도 사유 입력란이 없는 폼이라
+     * changeStatus()를 reason 없이 호출한다 — 정방향 한 단계(CONFIRMED→IN_PROGRESS,
+     * IN_PROGRESS→RESOLVED)만 사유 없이 허용하는 기존 규칙을 그대로 재사용하므로, 순서를 건너뛴
+     * 전이(예: CONFIRMED에서 바로 RESOLVED)는 DomainValidationException으로 자연히 막힌다
+     * (조기 완료 방지). 조치 등록의 타겟이 될 수 없는 값(DETECTED/CONFIRMED) 자체를 걸러내는 것은
+     * 서비스 계층(DefectService#registerActionResult)의 책임이다.
      */
     public void registerActionResult(Long actionMediaId, String actionContent, LocalDate actionDate,
-                                      Long actionAssigneeId) {
-        changeStatus(DefectStatus.RESOLVED);
+                                      Long actionAssigneeId, DefectStatus targetStatus) {
+        changeStatus(targetStatus);
         this.actionMediaId = actionMediaId;
         this.actionContent = actionContent;
         this.actionDate = actionDate;

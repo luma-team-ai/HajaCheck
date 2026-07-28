@@ -4,6 +4,7 @@ import { mockFacilities } from '../mocks/facility.mock';
 import type {
   CreateFacilityRequest,
   Facility,
+  FacilityStatusRow,
   InspectionNotificationSettings,
   SetFacilityScheduleRequest,
   SetFacilityScheduleResponse,
@@ -42,6 +43,39 @@ export function resetFacilityMockStore(): void {
 export const facilityHandlers = [
   http.get('/api/facilities', () => {
     const body: ApiResponse<Facility[]> = { success: true, data: facilities };
+    return HttpResponse.json(body);
+  }),
+
+  // 시설물 현황 목록(#540 ⑥, HAJA-378) — 점검 주기 설정 화면(#1136)이 실연동에 재사용.
+  // assigneeName/inspectionType은 이 mock 계층에 사용자 이름·점검 회차 개념이 없어 항상 null로
+  // 반환한다(프론트가 이미 null-tolerant — 표시만 "-"/기본값으로 폴백, 크래시 없음).
+  // ⚠️ 아래 GET /api/facilities/:id 보다 반드시 먼저 등록해야 한다 — MSW는 배열 등록 순서대로
+  // 첫 매치를 쓰므로, 순서가 뒤바뀌면 "status"가 :id로 잡혀(Number("status")=NaN) 항상
+  // FACILITY_NOT_FOUND(404)가 난다(실제로 이 순서 실수로 재현·수정함).
+  http.get('/api/facilities/status', () => {
+    const today = new Date();
+    const data: FacilityStatusRow[] = facilities.map((facility) => {
+      const dDay = facility.nextInspectionDueAt
+        ? Math.round(
+            (new Date(`${facility.nextInspectionDueAt}T00:00:00`).getTime() -
+              new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()) /
+              (1000 * 60 * 60 * 24),
+          )
+        : null;
+      return {
+        facilityId: facility.id,
+        facilityName: facility.name,
+        initialGrade: facility.initialGrade,
+        nextInspectionDueAt: facility.nextInspectionDueAt,
+        dDay,
+        assigneeUserId: facility.assigneeUserId,
+        assigneeName: null,
+        lastInspectedAt: facility.lastInspectedAt,
+        inspectionCycleMonths: facility.inspectionCycleMonths,
+        inspectionType: null,
+      };
+    });
+    const body: ApiResponse<FacilityStatusRow[]> = { success: true, data };
     return HttpResponse.json(body);
   }),
 

@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -32,6 +31,7 @@ import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.entity.InspectionType;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.inspection.repository.InspectionSearchCriteria;
 import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -288,7 +288,7 @@ class InspectionServiceTest {
         Inspection inspection = inspectionWithFacility(10L, 1L, "테스트빌딩", 200L, InspectionStatus.ANALYZED, InspectionType.DETAILED);
         Page<Inspection> page = new PageImpl<>(List.of(inspection), pageable, 1);
         when(inspectionRepository.findPageByCompanyIdAndFilters(
-                eq(100L), eq(1L), eq(InspectionStatus.ANALYZED), isNull(), isNull(), isNull(), any(Pageable.class)))
+                eq(criteria(100L, 1L, InspectionStatus.ANALYZED, null, null, null)), any(Pageable.class)))
                 .thenReturn(page);
         when(defectRepository.countGroupByInspectionId(List.of(10L)))
                 .thenReturn(List.of(countProjection(10L, 3L)));
@@ -315,7 +315,8 @@ class InspectionServiceTest {
                 .containsExactlyInAnyOrderEntriesOf(Map.of("A", 0L, "B", 2L, "C", 1L, "D", 0L, "E", 0L));
         verify(companyScopeGuard).requireEffectiveMembership(300L, 100L);
         verify(inspectionRepository)
-                .findPageByCompanyIdAndFilters(100L, 1L, InspectionStatus.ANALYZED, null, null, null, pageable);
+                .findPageByCompanyIdAndFilters(
+                        criteria(100L, 1L, InspectionStatus.ANALYZED, null, null, null), pageable);
     }
 
     @Test
@@ -327,20 +328,20 @@ class InspectionServiceTest {
         List<DefectGrade> grades = List.of(DefectGrade.D, DefectGrade.E);
         List<DefectStatus> statuses = List.of(DefectStatus.DETECTED);
         when(inspectionRepository.findPageByCompanyIdAndFilters(
-                eq(100L), isNull(), isNull(), eq(types), eq(grades), eq(statuses), any(Pageable.class)))
+                eq(criteria(100L, null, null, types, grades, statuses)), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
         service.list(300L, 100L, null, null, types, grades, statuses, pageable);
 
         verify(inspectionRepository)
-                .findPageByCompanyIdAndFilters(100L, null, null, types, grades, statuses, pageable);
+                .findPageByCompanyIdAndFilters(criteria(100L, null, null, types, grades, statuses), pageable);
     }
 
     @Test
     void list_결과없으면빈페이지_하자레포사용자레포조회안함() {
         Pageable pageable = PageRequest.of(0, 20);
         when(inspectionRepository.findPageByCompanyIdAndFilters(
-                eq(100L), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
+                eq(criteria(100L, null, null, null, null, null)), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
         PageResponse<InspectionListItemResponse> response =
@@ -358,7 +359,7 @@ class InspectionServiceTest {
         Pageable pageable = PageRequest.of(0, 20);
         Inspection inspection = inspectionWithFacility(10L, 1L, "테스트빌딩", 200L, InspectionStatus.CREATED);
         when(inspectionRepository.findPageByCompanyIdAndFilters(
-                eq(100L), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
+                eq(criteria(100L, null, null, null, null, null)), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(inspection), pageable, 1));
         when(defectRepository.countGroupByInspectionId(List.of(10L))).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionIdAndGrade(List.of(10L))).thenReturn(List.of());
@@ -377,7 +378,7 @@ class InspectionServiceTest {
         Pageable pageable = PageRequest.of(0, 20);
         Inspection inspection = inspectionWithFacility(10L, 1L, "테스트빌딩", 200L, InspectionStatus.CREATED);
         when(inspectionRepository.findPageByCompanyIdAndFilters(
-                eq(100L), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
+                eq(criteria(100L, null, null, null, null, null)), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(inspection), pageable, 1));
         when(defectRepository.countGroupByInspectionId(List.of(10L))).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionIdAndGrade(List.of(10L))).thenReturn(List.of());
@@ -401,7 +402,26 @@ class InspectionServiceTest {
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FORBIDDEN));
         verify(inspectionRepository, never())
-                .findPageByCompanyIdAndFilters(any(), any(), any(), any(), any(), any(), any());
+                .findPageByCompanyIdAndFilters(any(InspectionSearchCriteria.class), any(Pageable.class));
+    }
+
+    private static InspectionSearchCriteria criteria(
+            Long companyId, Long facilityId, InspectionStatus status,
+            List<DefectType> defectTypes, List<DefectGrade> defectGrades, List<DefectStatus> defectStatuses) {
+        return new InspectionSearchCriteria(
+                companyId,
+                facilityId,
+                status == null ? null : List.of(status),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                defectTypes,
+                defectGrades,
+                defectStatuses);
     }
 
     private static InspectionDefectCountProjection countProjection(Long inspectionId, long cnt) {

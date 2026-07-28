@@ -6,19 +6,19 @@ import { setupServer } from 'msw/node';
 import type { ReactNode } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { facilityHandlers, resetFacilityMockStore } from '../api/facilityApi.handlers';
-import { resetInspectionCycleStatusMockStore } from '../mocks/inspectionCycle.mock';
 import { useInspectionCycleStatusRows } from './useInspectionCycleStatusRows';
 import { useSetInspectionSchedule } from './useSetInspectionSchedule';
 
 // react-reviewer P1 회귀 방지: 저장 성공 시 현황 목록 쿼리(inspectionCycleStatusListKey)가
-// invalidate되고, mutable 목 store가 실제로 갱신되어 좌측 카드와 우측 현황 테이블이 같은 값을 본다.
+// invalidate되어, 우측 현황 테이블(GET /api/facilities/status, #1136 실연동)이 좌측 카드 저장
+// 결과와 같은 값을 본다. facilityId=1("강남 오피스타워 A동", mockFacilities 고정값 cycleMonths=6)을
+// 기준행으로 쓴다.
 const server = setupServer(...facilityHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   resetFacilityMockStore();
-  resetInspectionCycleStatusMockStore();
 });
 afterAll(() => server.close());
 
@@ -44,16 +44,16 @@ describe('useSetInspectionSchedule', () => {
     const { result } = renderHarness();
 
     await waitFor(() => expect(result.current.statusList.isSuccess).toBe(true));
-    const before = result.current.statusList.data?.find((row) => row.id === 3);
+    const before = result.current.statusList.data?.find((row) => row.id === 1);
     expect(before?.cycleMonths).toBe(6);
 
     await result.current.mutation.setSchedule({
-      facilityId: 3,
+      facilityId: 1,
       body: { inspectionCycleMonths: 9 },
     });
 
     await waitFor(() => {
-      const after = result.current.statusList.data?.find((row) => row.id === 3);
+      const after = result.current.statusList.data?.find((row) => row.id === 1);
       expect(after?.cycleMonths).toBe(9);
     });
   });
@@ -63,12 +63,12 @@ describe('useSetInspectionSchedule', () => {
     await waitFor(() => expect(result.current.statusList.isSuccess).toBe(true));
 
     const saveResult = await result.current.mutation.setSchedule({
-      facilityId: 3,
+      facilityId: 1,
       body: { inspectionCycleMonths: 3 },
     });
 
     await waitFor(() => {
-      const after = result.current.statusList.data?.find((row) => row.id === 3);
+      const after = result.current.statusList.data?.find((row) => row.id === 1);
       expect(after?.nextInspectionDueAt).toBe(saveResult.nextInspectionDueAt);
     });
   });
@@ -84,8 +84,8 @@ describe('useSetInspectionSchedule', () => {
       }),
     ).rejects.toMatchObject({ code: 'FACILITY_NOT_FOUND' });
 
-    const row3 = result.current.statusList.data?.find((row) => row.id === 3);
-    expect(row3?.cycleMonths).toBe(6);
+    const row1 = result.current.statusList.data?.find((row) => row.id === 1);
+    expect(row1?.cycleMonths).toBe(6);
   });
 
   it('서버 검증 실패(0개월 이하) 시 목 store를 갱신하지 않는다', async () => {
@@ -105,10 +105,10 @@ describe('useSetInspectionSchedule', () => {
     await waitFor(() => expect(result.current.statusList.isSuccess).toBe(true));
 
     await expect(
-      result.current.mutation.setSchedule({ facilityId: 3, body: { inspectionCycleMonths: 0 } }),
+      result.current.mutation.setSchedule({ facilityId: 1, body: { inspectionCycleMonths: 0 } }),
     ).rejects.toMatchObject({ code: 'SCHEDULE_VALIDATION_ERROR' });
 
-    const row3 = result.current.statusList.data?.find((row) => row.id === 3);
-    expect(row3?.cycleMonths).toBe(6);
+    const row1 = result.current.statusList.data?.find((row) => row.id === 1);
+    expect(row1?.cycleMonths).toBe(6);
   });
 });

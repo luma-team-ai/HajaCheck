@@ -218,6 +218,7 @@ export function DefectDetailModal({ defectId, onClose }: Props) {
                 <DefectActionForm
                   defectId={defect.id}
                   inspectionId={defect.inspectionId}
+                  status={defect.status}
                   actionResult={defect.actionResult}
                 />
                 <ActivityHistoryPanel key={defect.id} defectId={defect.id} />

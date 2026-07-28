@@ -45,9 +45,7 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
 
     @Override
     public Page<Inspection> findPageByCompanyIdAndFilters(
-            Long companyId, Long facilityId, InspectionStatus status,
-            List<DefectType> defectTypes, List<DefectGrade> defectGrades, List<DefectStatus> defectStatuses,
-            Pageable pageable) {
+            InspectionSearchCriteria criteria, Pageable pageable) {
 
         CriteriaBuilder cb = em.getCriteriaBuilder();
 
@@ -57,8 +55,7 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
         root.fetch("facility");
 
         query.select(root)
-                .where(buildPredicates(cb, query, root, facility, companyId, facilityId, status,
-                                defectTypes, defectGrades, defectStatuses)
+                .where(buildPredicates(cb, query, root, facility, criteria)
                         .toArray(new Predicate[0]))
                 .orderBy(cb.desc(root.get("inspectionDate")), cb.desc(root.get("id")));
 
@@ -71,8 +68,7 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
         Root<Inspection> countRoot = countQuery.from(Inspection.class);
         Join<Inspection, Facility> countFacility = countRoot.join("facility");
         countQuery.select(cb.count(countRoot))
-                .where(buildPredicates(cb, countQuery, countRoot, countFacility, companyId, facilityId, status,
-                                defectTypes, defectGrades, defectStatuses)
+                .where(buildPredicates(cb, countQuery, countRoot, countFacility, criteria)
                         .toArray(new Predicate[0]));
 
         Long total = em.createQuery(countQuery).getSingleResult();
@@ -82,22 +78,59 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
 
     private List<Predicate> buildPredicates(
             CriteriaBuilder cb, AbstractQuery<?> query, Root<Inspection> root, Join<Inspection, Facility> facility,
-            Long companyId, Long facilityId, InspectionStatus status,
-            List<DefectType> defectTypes, List<DefectGrade> defectGrades, List<DefectStatus> defectStatuses) {
+            InspectionSearchCriteria criteria) {
         List<Predicate> predicates = new ArrayList<>();
-        predicates.add(cb.equal(facility.get("companyId"), companyId));
-        if (facilityId != null) {
-            predicates.add(cb.equal(root.get("facilityId"), facilityId));
+        predicates.add(cb.equal(facility.get("companyId"), criteria.companyId()));
+        if (criteria.facilityId() != null) {
+            predicates.add(cb.equal(root.get("facilityId"), criteria.facilityId()));
         }
-        if (status != null) {
-            predicates.add(cb.equal(root.get("status"), status));
+        if (hasValues(criteria.statuses())) {
+            predicates.add(root.get("status").in(criteria.statuses()));
+        }
+        if (hasValues(criteria.inspectionTypes())) {
+            predicates.add(root.get("type").in(criteria.inspectionTypes()));
+        }
+        if (criteria.inspectionDateFrom() != null) {
+            predicates.add(cb.greaterThanOrEqualTo(root.get("inspectionDate"), criteria.inspectionDateFrom()));
+        }
+        if (criteria.inspectionDateTo() != null) {
+            predicates.add(cb.lessThanOrEqualTo(root.get("inspectionDate"), criteria.inspectionDateTo()));
+        }
+        if (criteria.roundNoMin() != null) {
+            predicates.add(cb.greaterThanOrEqualTo(root.get("roundNo"), criteria.roundNoMin()));
+        }
+        if (criteria.roundNoMax() != null) {
+            predicates.add(cb.lessThanOrEqualTo(root.get("roundNo"), criteria.roundNoMax()));
         }
         Predicate defectExists = buildDefectFilterExistsPredicate(
-                cb, query, root, defectTypes, defectGrades, defectStatuses);
+                cb, query, root, criteria.defectTypes(), criteria.defectGrades(), criteria.defectStatuses());
         if (defectExists != null) {
             predicates.add(defectExists);
         }
+        addDefectCountPredicates(cb, query, root, criteria, predicates);
         return predicates;
+    }
+
+    private void addDefectCountPredicates(
+            CriteriaBuilder cb, AbstractQuery<?> query, Root<Inspection> inspectionRoot,
+            InspectionSearchCriteria criteria, List<Predicate> predicates) {
+        if (criteria.defectCountMin() == null && criteria.defectCountMax() == null) {
+            return;
+        }
+        Subquery<Long> countSubquery = query.subquery(Long.class);
+        Root<Defect> defectRoot = countSubquery.from(Defect.class);
+        countSubquery.select(cb.count(defectRoot))
+                .where(
+                        cb.equal(defectRoot.get("inspectionId"), inspectionRoot.get("id")),
+                        cb.isFalse(defectRoot.get("deleted")));
+        if (criteria.defectCountMin() != null && criteria.defectCountMax() != null) {
+            predicates.add(cb.between(
+                    countSubquery, criteria.defectCountMin(), criteria.defectCountMax()));
+        } else if (criteria.defectCountMin() != null) {
+            predicates.add(cb.greaterThanOrEqualTo(countSubquery, criteria.defectCountMin()));
+        } else {
+            predicates.add(cb.lessThanOrEqualTo(countSubquery, criteria.defectCountMax()));
+        }
     }
 
     /**
@@ -140,6 +173,10 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
         subquery.where(defectPredicates.toArray(new Predicate[0]));
 
         return cb.exists(subquery);
+    }
+
+    private static boolean hasValues(Collection<?> values) {
+        return values != null && !values.isEmpty();
     }
 
     /**

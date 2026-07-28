@@ -681,13 +681,19 @@
 
 .defect-action-form__row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 16px;
 }
 
 .defect-action-form__error {
   margin: 0;
   color: var(--color-danger);
+  font-size: 12px;
+}
+
+.defect-action-form__success {
+  margin: 0;
+  color: var(--color-info-soft-fg);
   font-size: 12px;
 }
 

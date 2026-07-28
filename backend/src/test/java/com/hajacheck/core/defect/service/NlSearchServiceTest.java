@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -17,7 +18,6 @@ import com.hajacheck.auth.support.RateLimiter;
 import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.core.defect.dto.NlSearchResult;
-import com.hajacheck.support.InMemoryRateLimiter;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -27,10 +27,13 @@ import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
+import com.hajacheck.support.InMemoryRateLimiter;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.net.ConnectException;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,6 +61,8 @@ class NlSearchServiceTest {
     private static final Long USER_ID = 1L;
     private static final Long COMPANY_ID = 10L;
     private static final Long PLAN_ID = 100L;
+    private static final Clock FIXED_CLOCK =
+            Clock.fixed(Instant.parse("2026-07-28T00:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     @Mock
     private UserRepository userRepository;
@@ -99,7 +104,7 @@ class NlSearchServiceTest {
 
     private NlSearchService newService(RateLimiter rateLimiter) {
         return new NlSearchService(builder.build(), properties, userRepository, userPlanRepository,
-                planRepository, companyMembershipRepository, new AiProxyRateLimiter(rateLimiter));
+                planRepository, companyMembershipRepository, new AiProxyRateLimiter(rateLimiter), FIXED_CLOCK);
     }
 
     // ── 성공 경로 ──
@@ -113,6 +118,36 @@ class NlSearchServiceTest {
 
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andExpect(header("X-Internal-Service-Token", "test-service-token"))
+                .andExpect(content().json("""
+                        {"query":"D등급 이상 하자","referenceDate":"2026-07-28"}
+                        """))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"filters":{"type":[],"grade":["D","E"],"status":[],"confidenceMin":null,"inspectionType":[],"inspectionStatus":[],"inspectionDateFrom":null,"inspectionDateTo":null,"roundNoMin":null,"roundNoMax":null,"defectCountMin":null,"defectCountMax":null},"unsupported_terms":[],"clarifying_question":null,"interpretation_confidence":0.9}}
+                                """));
+
+        ApiResponse<NlSearchResult> response = service.search(USER_ID, "D등급 이상 하자");
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data().filters().grade()).containsExactly("D", "E");
+        mockServer.verify();
+    }
+
+    /**
+     * 구버전 ai-server(HAJA-538 신규 8필드 미도입, nl_search_chain.py의 NlSearchFilters가 여전히
+     * type/grade/status/confidenceMin 4필드만 반환) 응답과의 하위 호환 회귀 방지(PR #1155 리뷰 P1).
+     * 신규 필드 키가 JSON에 아예 없어도(null 역직렬화) isValidResult()가 이를 "미지정"으로 수용해야
+     * 기존 하자 자연어 검색(HAJA-120)이 계속 동작한다.
+     */
+    @Test
+    void 검색_구버전AI응답_신규필터필드부재_성공() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L)));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(addonPlan));
+
+        mockServer.expect(requestTo(AI_SERVER_URL))
                 .andRespond(withStatus(HttpStatus.OK)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("""
@@ -123,6 +158,8 @@ class NlSearchServiceTest {
 
         assertThat(response.success()).isTrue();
         assertThat(response.data().filters().grade()).containsExactly("D", "E");
+        assertThat(response.data().filters().inspectionType()).isNull();
+        assertThat(response.data().filters().inspectionStatus()).isNull();
         mockServer.verify();
     }
 
@@ -140,7 +177,7 @@ class NlSearchServiceTest {
                 .andRespond(withStatus(HttpStatus.OK)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("""
-                                {"success":true,"data":{"filters":{"type":["CRACK"],"grade":[],"status":[],"confidenceMin":null},"unsupported_terms":[],"clarifying_question":null,"interpretation_confidence":0.9}}
+                                {"success":true,"data":{"filters":{"type":["CRACK"],"grade":[],"status":[],"confidenceMin":null,"inspectionType":[],"inspectionStatus":[],"inspectionDateFrom":null,"inspectionDateTo":null,"roundNoMin":null,"roundNoMax":null,"defectCountMin":null,"defectCountMax":null},"unsupported_terms":[],"clarifying_question":null,"interpretation_confidence":0.9}}
                                 """));
 
         ApiResponse<NlSearchResult> response = service.search(USER_ID, "균열만 보여줘");
@@ -286,6 +323,69 @@ class NlSearchServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.AI_SERVER_UNREACHABLE);
+    }
+
+    @Test
+    void 검색_AI가역전범위반환_AI_INVALID_RESPONSE() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L)));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(addonPlan));
+
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"filters":{"type":[],"grade":[],"status":[],"confidenceMin":null,"inspectionType":["REGULAR"],"inspectionStatus":["REVIEWED"],"inspectionDateFrom":"2026-07-20","inspectionDateTo":"2026-07-01","roundNoMin":1,"roundNoMax":1,"defectCountMin":0,"defectCountMax":5},"unsupported_terms":[],"clarifying_question":null,"interpretation_confidence":0.9}}
+                                """));
+
+        assertThatThrownBy(() -> service.search(USER_ID, "지난 점검"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.AI_INVALID_RESPONSE);
+        mockServer.verify();
+    }
+
+    @Test
+    void 검색_AI가중복하자Enum배열반환_AI_INVALID_RESPONSE() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L)));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(addonPlan));
+
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"filters":{"type":["CRACK","CRACK"],"grade":[],"status":[],"confidenceMin":null,"inspectionType":[],"inspectionStatus":[],"inspectionDateFrom":null,"inspectionDateTo":null,"roundNoMin":null,"roundNoMax":null,"defectCountMin":null,"defectCountMax":null},"unsupported_terms":[],"clarifying_question":null,"interpretation_confidence":0.9}}
+                                """));
+
+        assertThatThrownBy(() -> service.search(USER_ID, "균열 점검"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.AI_INVALID_RESPONSE);
+        mockServer.verify();
+    }
+
+    @Test
+    void 검색_AI가중복점검Enum배열반환_AI_INVALID_RESPONSE() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L)));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(addonPlan));
+
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"filters":{"type":[],"grade":[],"status":[],"confidenceMin":null,"inspectionType":[],"inspectionStatus":["REVIEWED","REVIEWED"],"inspectionDateFrom":null,"inspectionDateTo":null,"roundNoMin":null,"roundNoMax":null,"defectCountMin":null,"defectCountMax":null},"unsupported_terms":[],"clarifying_question":null,"interpretation_confidence":0.9}}
+                                """));
+
+        assertThatThrownBy(() -> service.search(USER_ID, "검토 완료 점검"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.AI_INVALID_RESPONSE);
+        mockServer.verify();
     }
 
     // ── fixtures ──
