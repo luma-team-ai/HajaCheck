@@ -158,6 +158,9 @@ export function ReportListPage() {
 
   async function handleDeleteReport(row: ReportListItem) {
     if (pendingAction || row.status !== 'DRAFT') return;
+    if (!window.confirm('이 보고서 초안을 삭제하면 되돌릴 수 없습니다. 계속하시겠습니까?')) {
+      return;
+    }
     setPendingAction({ reportId: row.id, type: 'delete' });
     setActionErrors((prev) => ({ ...prev, [row.id]: undefined }));
     try {

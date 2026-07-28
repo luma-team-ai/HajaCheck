@@ -146,6 +146,19 @@ describe('exportReportToPdf', () => {
     )).toBe(true);
   });
 
+  it('점검 축소본이 없어도 사진대지 섹션을 해당 없음으로 출력해 섹션 번호를 유지한다', async () => {
+    await exportReportToPdf(makeContent(), { defectImages: [] });
+
+    const renderedText = mockText.mock.calls.map(([text]) => text).flat();
+    expect(renderedText).toContain('3. 대상시설물 부위별 사진');
+    expect(mockAutoTable).toHaveBeenCalledWith(expect.any(MockJsPDF), expect.objectContaining({
+      head: [['대상시설물 부위별 사진']],
+      body: [['점검 촬영 축소본이 없습니다.']],
+    }));
+    expect(renderedText).toContain('4. 보수·보강방안');
+    expect(renderedText).toContain('5. 종합결론 및 건의');
+  });
+
   it('공식 용어에 가까운 제목과 섹션명을 쓰되 지원되지 않는 서명·참여자 필드는 만들지 않는다', async () => {
     await exportReportToPdf(makeContent(), { issuedAt: new Date('2026-07-26T00:00:00') });
 
@@ -153,6 +166,7 @@ describe('exportReportToPdf', () => {
     expect(renderedText).toContain('정밀안전점검 보고서');
     expect(renderedText).toContain('1. 정밀안전점검 결과표');
     expect(renderedText).toContain('2. 정밀안전점검 실시결과 요약문');
+    expect(renderedText).toContain('3. 대상시설물 부위별 사진');
     expect(renderedText).toContain('4. 보수·보강방안');
     expect(renderedText).toContain('5. 종합결론 및 건의');
     expect(renderedText).not.toContain('책임기술자 종합의견');

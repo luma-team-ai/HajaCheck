@@ -272,6 +272,17 @@ export async function exportReportToPdf(
         doc.text('점검 촬영 축소본', PAGE_MARGIN_X, imageY + 105);
       });
     }
+  } else {
+    doc.addPage();
+    y = sectionTitle(3, '대상시설물 부위별 사진', 25);
+    autoTable(doc, {
+      ...tableDefaults,
+      startY: y,
+      head: [['대상시설물 부위별 사진']],
+      body: [['점검 촬영 축소본이 없습니다.']],
+      styles: { ...tableDefaults.styles, halign: 'center' },
+      bodyStyles: { minCellHeight: 42, valign: 'middle' },
+    });
   }
 
   doc.addPage();
