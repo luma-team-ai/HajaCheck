@@ -8,6 +8,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ReportDetailResponse } from '../api/reportApi';
 import type { InspectionResponse, DefectDetailItem, MediaResponse } from '../../inspection/api/inspectionApi.types';
 import { isReportContent, type ReportContent } from '../types';
+import { AI_DRAFT_WARNING_TITLE } from '../constants';
 import { mockReportDetailResponse } from '../mocks/reportDetail.mock';
 import { ReportGeneratePage } from './ReportGeneratePage';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
@@ -401,5 +402,63 @@ describe('ReportGeneratePage', () => {
       expect(screen.getByText('보고서 생성 결과')).toBeTruthy();
     });
     expect(getReportCalled).toBe(true);
+  });
+
+  // --- #1095 Figma 시안 재설계 테스트 ---
+  it('상단 breadcrumb에 현재 페이지 이름이 표시된다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    expect(screen.getByText('보고서 편집·미리보기')).toBeTruthy();
+  });
+
+  it('통계 카드 4개(현재 상태/생성일시/검수 완료율/총 지적 수)가 렌더링된다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    expect(screen.getByText('현재 상태')).toBeTruthy();
+    expect(screen.getByText('생성일시')).toBeTruthy();
+    expect(screen.getByText('검수 완료율')).toBeTruthy();
+    expect(screen.getByText('총 지적 수')).toBeTruthy();
+  });
+
+  it('단계 표시 A→E(초안 생성/AI 분류/엔지니어 확인/최종 승인/발행)가 렌더링된다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    expect(screen.getByText('초안 생성')).toBeTruthy();
+    expect(screen.getByText('AI 분류')).toBeTruthy();
+    expect(screen.getByText('엔지니어 확인')).toBeTruthy();
+    expect(screen.getByText('최종 승인')).toBeTruthy();
+    expect(screen.getByText('발행')).toBeTruthy();
+  });
+
+  it('상세 내역 등급 필터 pills(전체/A/B/C/D/E)가 렌더링된다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    const filterGroup = screen.getByRole('group', { name: '등급 필터' });
+    expect(filterGroup).toBeTruthy();
+    for (const g of ['전체', 'A', 'B', 'C', 'D', 'E']) {
+      expect(screen.getByRole('button', { name: g })).toBeTruthy();
+    }
+  });
+
+  it('상세 내역 페이지네이션 컨트롤이 렌더링된다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    expect(screen.getByRole('button', { name: '이전 페이지' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '다음 페이지' })).toBeTruthy();
+    expect(screen.getByText('1 / 1')).toBeTruthy();
+  });
+
+  it('조치 권고에 시급성 pill과 #DEF-NN badge가 렌더링된다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    expect(screen.getByText(/보수 시급성/)).toBeTruthy();
+    expect(screen.getByText(/#DEF-01 이동/)).toBeTruthy();
+  });
+
+  it('AI 경고 배너와 PDF 미리보기 링크가 렌더링된다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    expect(screen.getByText(AI_DRAFT_WARNING_TITLE)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'PDF 미리보기' })).toBeTruthy();
   });
 });
