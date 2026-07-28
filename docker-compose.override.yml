@@ -31,11 +31,35 @@ services:
     # (도입 c5b1f2e4 / PR #101 — 커밋 메시지에 그 플래그에 대한 언급 없음).
     #
     # 정상 동작 확인: 소스 저장 → ①에서 "Change detected, executing build..." → ② devtools 재기동.
-    command: ["sh", "-c", "./gradlew classes --continuous & ./gradlew bootRun"]
+    # ⚠️ 첫 줄(블로킹 `classes`)을 빼지 말 것 — 두 gradle 프로세스가 같은 build/classes 에 **동시에**
+    #    풀 컴파일을 쓰면 bootRun 의 resolveMainClassName 이 아직 0바이트인 .class 를 읽어
+    #    `Index 6 out of bounds for length 0` 으로 죽는다(2026-07-28 재현: 로그에 `> Task :compileJava`
+    #    가 두 번 찍힘 = 동시 컴파일). build/ 가 빈 상태(볼륨 신규 생성·clean 직후)에서 특히 확정적으로
+    #    터진다. 먼저 한 번 끝까지 컴파일해 두면 이후 ①②는 증분만 다뤄 충돌하지 않는다.
+    command:
+      - sh
+      - -c
+      - |
+        ./gradlew classes
+        ./gradlew classes --continuous &
+        ./gradlew bootRun
     volumes:
       - ./backend:/workspace
       - ./docs:/docs:ro # build.gradle의 verifyHa25SchemaInputs가 ../docs/design/db/*.sql을 참조 — ./gradlew test에 필요
       - gradle-cache:/root/.gradle
+      # build/ 를 바인드 마운트에서 빼 named volume(리눅스 fs)에 둔다 — Windows Docker Desktop
+      # 바인드 마운트의 두 가지 고질병을 동시에 없앤다(2026-07-28 실측, 작은 파일 2000개 기준).
+      #
+      #   ① 느림: 생성 14,231ms vs 79ms(180배) · 삭제 4,318ms vs 31ms(139배).
+      #      Gradle build/ 는 클래스 파일이 수천 개라 바인드 마운트가 가장 취약한 워크로드다.
+      #   ② `IOException: Unable to delete directory '/workspace/build/classes/java/main'`:
+      #      bootRun JVM 이 .class 를 연 채로 `classes --continuous` 가 그 디렉터리를 지우려 할 때
+      #      Windows 는 열린 파일 삭제를 거부한다 → build/ 가 반쯤 지워진 채 깨지고, 이후
+      #      bootRun 이 mainClass 를 못 찾는다. 리눅스 fs 는 열린 파일도 unlink 되므로 발생하지 않는다.
+      #
+      # 소스(./backend)는 바인드 마운트 그대로라 핫리로드 동작에는 영향이 없다 — 빌드 산출물만 분리.
+      # 트레이드오프: 호스트(Windows)에서 backend/build/ 내부를 직접 열어볼 수 없다(IDE 는 자체 빌드라 무관).
+      - gradle-build:/workspace/build
     environment:
       SPRING_DEVTOOLS_RESTART_ENABLED: "true"
     ports:
@@ -104,3 +128,4 @@ services:
 
 volumes:
   gradle-cache:
+  gradle-build:
