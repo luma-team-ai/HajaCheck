@@ -86,7 +86,11 @@ export function FacilityListPage() {
     // 초기화하지 않고 유지해야 하므로(등록 실패 시 사용자가 입력한 내용을 잃지 않도록),
     // 이 함수가 던지는 rejection을 FacilityFormModal의 handleSubmit이 catch한다.
     // #1098 — pendingFacilityId가 있으면 이전 시도에서 생성까지는 성공하고 업로드만 실패한
-    // 상태다. 재생성하지 않고 그 id로 업로드만 재시도한다.
+    // 상태다. 재생성하지 않고 그 id로 업로드만 재시도한다. 이 경로에서는 방금 다시 빌드된
+    // payload(폼의 최신 값)를 의도적으로 사용하지 않는다 — 즉, 실패 후 재시도 전에 사용자가
+    // 이름/유형/주소 등을 고쳤더라도 이미 생성된 시설물에는 반영되지 않는다. 필드를 잠그거나
+    // 별도 안내를 추가하는 건 더 큰 UX 작업(옵션 b)이라 이번 스코프에서는 의도적으로
+    // 보류한다 — 알려진 트레이드오프이지 누락이 아니다.
     const facilityId = pendingFacilityId ?? (await createFacility(payload)).id;
     // 사진 업로드는 시설물 생성이 성공한 뒤에만 가능하다(POST /api/facilities/{id}/media, #652) —
     // 사진을 선택하지 않았으면 호출하지 않는다.
