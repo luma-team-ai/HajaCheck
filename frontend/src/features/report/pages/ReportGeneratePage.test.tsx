@@ -153,15 +153,13 @@ const server = setupServer(
       headers: { 'Content-Type': 'application/pdf' },
     }),
   ),
+  http.head('/api/reports/1/pdf/storage-key', () =>
+    new Response(null, {
+      status: 200,
+      headers: { 'Content-Type': 'application/pdf' },
+    }),
+  ),
 );
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((promiseResolve) => {
-    resolve = promiseResolve;
-  });
-  return { promise, resolve };
-}
 
 beforeAll(() => server.listen());
 beforeEach(() => {
@@ -239,7 +237,7 @@ describe('ReportGeneratePage', () => {
     expect(recheckButton.disabled).toBe(false);
     fireEvent.click(recheckButton);
 
-    const finalizeButton = screen.getByRole('button', { name: 'PDF 생성 후 확정' }) as HTMLButtonElement;
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
     await waitFor(() => expect(finalizeButton.disabled).toBe(false));
     expect(screen.queryByText('✓ 검증 완료')).toBeNull();
     fireEvent.click(finalizeButton);
@@ -248,9 +246,10 @@ describe('ReportGeneratePage', () => {
       expect(screen.getByText('이 보고서는 확정되어 더 이상 편집할 수 없습니다.')).toBeTruthy();
     });
 
-    expect(exportReportToPdf).toHaveBeenCalledWith(expect.objectContaining({
-      overview: expect.objectContaining({ purpose: '수정된 목적' }),
-    }));
+    expect(exportReportToPdf).toHaveBeenCalledWith(
+      expect.objectContaining({ overview: expect.objectContaining({ purpose: '수정된 목적' }) }),
+      expect.objectContaining({ facilityName: '테스트 시설물', inspectionRound: 1 }),
+    );
     expect(buildReportPdfFileName).toHaveBeenCalledWith(1);
     expect(uploadedPdfFileName).toBeTruthy();
     expect(uploadedPdfSize).toBeGreaterThan(0);
@@ -311,14 +310,17 @@ describe('ReportGeneratePage', () => {
 
     await screen.findByDisplayValue(realContractContent.overview.purpose);
 
-    const finalizeButton = screen.getByRole('button', { name: 'PDF 생성 후 확정' }) as HTMLButtonElement;
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
     expect(finalizeButton.disabled).toBe(false);
     fireEvent.click(finalizeButton);
 
     await waitFor(() => {
       expect(screen.getByText('이 보고서는 확정되어 더 이상 편집할 수 없습니다.')).toBeTruthy();
     });
-    expect(exportReportToPdf).toHaveBeenCalledWith(realContractContent);
+    expect(exportReportToPdf).toHaveBeenCalledWith(
+      realContractContent,
+      expect.objectContaining({ facilityName: '테스트 시설물', inspectionRound: 1 }),
+    );
     expect(buildReportPdfFileName).toHaveBeenCalledWith(1);
     expect(uploadedPdfFileName).toBeTruthy();
     expect(uploadedPdfSize).toBeGreaterThan(0);
@@ -326,6 +328,16 @@ describe('ReportGeneratePage', () => {
   });
 
   it('/reports/:reportId?mode=export에서 저장된 실제 PDF를 iframe으로 렌더한다', async () => {
+    let preflightCount = 0;
+    server.use(
+      http.head('/api/reports/1/pdf/storage-key', () => {
+        preflightCount += 1;
+        return new Response(null, {
+          status: 200,
+          headers: { 'Content-Type': 'application/pdf' },
+        });
+      }),
+    );
     reportState = {
       ...mockReportDetailResponse,
       groundingCheckPassed: true,
@@ -345,18 +357,71 @@ describe('ReportGeneratePage', () => {
     );
 
     const pdfFrame = await screen.findByTitle('저장된 보고서 PDF');
-    expect(pdfFrame.getAttribute('src')).toMatch(/^blob:/);
+    expect(preflightCount).toBe(1);
+    expect(pdfFrame.getAttribute('src')).toContain('/api/reports/1/pdf/storage-key#');
     expect(pdfFrame.getAttribute('src')).toContain('toolbar=0');
     expect(pdfFrame.getAttribute('src')).toContain('navpanes=0');
+    expect(pdfFrame.getAttribute('src')).toContain('view=FitH');
     expect(pdfFrame.className).toContain('border-0');
     expect(screen.queryByLabelText('점검 목적')).toBeNull();
   });
 
-  it('cross-origin pdfUrl은 CORS credentials 없이 요청한다', async () => {
-    let requestCredentials: RequestCredentials | undefined;
+  it('localhost 절대 pdfUrl은 현재 origin의 /api 경로로 정규화해 iframe으로 연다', async () => {
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+      status: 'FINALIZED',
+      pdfUrl: 'http://localhost:8080/api/reports/1/pdf/storage-key',
+    };
+
+    renderPageWithPath('/reports/1?mode=export');
+
+    const pdfFrame = await screen.findByTitle('저장된 보고서 PDF');
+    expect(pdfFrame.getAttribute('src')).toContain('/api/reports/1/pdf/storage-key#');
+    expect(pdfFrame.getAttribute('src')).not.toContain('localhost:8080');
+  });
+
+  it('내부 호스트 pdfUrl도 현재 origin의 /api 경로로 정규화해 iframe으로 연다', async () => {
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+      status: 'FINALIZED',
+      pdfUrl: 'http://spring:8080/api/reports/1/pdf/storage-key',
+    };
+
+    renderPageWithPath('/reports/1?mode=export');
+
+    const pdfFrame = await screen.findByTitle('저장된 보고서 PDF');
+    expect(pdfFrame.getAttribute('src')).toContain('/api/reports/1/pdf/storage-key#');
+    expect(pdfFrame.getAttribute('src')).not.toContain('spring:8080');
+  });
+
+  it('same-origin PDF 사전 확인 실패 시 PDF 내보내기 폴백을 표시한다', async () => {
     server.use(
-      http.get('https://cdn.example.test/reports/1.pdf', ({ request }) => {
-        requestCredentials = request.credentials;
+      http.head('/api/reports/1/pdf/storage-key', () =>
+        new Response(null, { status: 403 }),
+      ),
+    );
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+      status: 'FINALIZED',
+      pdfUrl: '/api/reports/1/pdf/storage-key',
+    };
+
+    renderPageWithPath('/reports/1?mode=export');
+
+    const errorTitle = await screen.findByText('PDF를 불러올 수 없습니다.');
+    expect(errorTitle.closest('div')?.className).toContain('mx-auto');
+    expect(screen.getByRole('button', { name: 'PDF 내보내기' })).toBeTruthy();
+    expect(screen.queryByTitle('저장된 보고서 PDF')).toBeNull();
+  });
+
+  it('cross-origin pdfUrl은 사전 fetch 없이 iframe이 직접 열게 한다', async () => {
+    let requestCount = 0;
+    server.use(
+      http.get('https://cdn.example.test/reports/1.pdf', () => {
+        requestCount += 1;
         return new Response('fake-pdf-binary', {
           status: 200,
           headers: { 'Content-Type': 'application/pdf', 'Access-Control-Allow-Origin': '*' },
@@ -372,38 +437,20 @@ describe('ReportGeneratePage', () => {
 
     renderPageWithPath('/reports/1?mode=export');
 
-    await screen.findByTitle('저장된 보고서 PDF');
-    expect(requestCredentials).toBe('omit');
+    const pdfFrame = await screen.findByTitle('저장된 보고서 PDF');
+    expect(pdfFrame.getAttribute('src')).toContain('https://cdn.example.test/reports/1.pdf#');
+    expect(requestCount).toBe(0);
   });
 
-  it('cross-origin PDF 로드 실패 시 PDF 내보내기 폴백을 표시한다', async () => {
+  it('미리보기 새로고침은 같은-origin PDF 사전 확인을 다시 수행한다', async () => {
+    let preflightCount = 0;
     server.use(
-      http.get('https://cdn.example.test/reports/1.pdf', () =>
-        HttpResponse.json({ error: 'cors denied' }, { status: 403 }),
-      ),
-    );
-    reportState = {
-      ...mockReportDetailResponse,
-      groundingCheckPassed: true,
-      status: 'FINALIZED',
-      pdfUrl: 'https://cdn.example.test/reports/1.pdf',
-    };
-
-    renderPageWithPath('/reports/1?mode=export');
-
-    expect(await screen.findByText('PDF를 불러올 수 없습니다.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'PDF 내보내기' })).toBeTruthy();
-    expect(screen.queryByTitle('저장된 보고서 PDF')).toBeNull();
-  });
-
-  it('새로고침 요청이 경합해도 최신 PDF만 사용하고 Blob URL을 정리한다', async () => {
-    const firstResponse = deferred<Response>();
-    const secondResponse = deferred<Response>();
-    let requestCount = 0;
-    server.use(
-      http.get('/api/reports/1/pdf/storage-key', () => {
-        requestCount += 1;
-        return requestCount === 1 ? firstResponse.promise : secondResponse.promise;
+      http.head('/api/reports/1/pdf/storage-key', () => {
+        preflightCount += 1;
+        return new Response(null, {
+          status: 200,
+          headers: { 'Content-Type': 'application/pdf' },
+        });
       }),
     );
     reportState = {
@@ -412,25 +459,13 @@ describe('ReportGeneratePage', () => {
       status: 'FINALIZED',
       pdfUrl: '/api/reports/1/pdf/storage-key',
     };
-    const createObjectUrl = vi.spyOn(URL, 'createObjectURL')
-      .mockReturnValueOnce('blob:latest')
-      .mockReturnValueOnce('blob:stale');
-    const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
 
-    const { unmount } = renderPageWithPath('/reports/1?mode=export');
+    renderPageWithPath('/reports/1?mode=export');
     const refreshButton = await screen.findByRole('button', { name: '미리보기 새로고침' });
-    await waitFor(() => expect(requestCount).toBe(1));
+    await waitFor(() => expect(preflightCount).toBe(1));
+
     fireEvent.click(refreshButton);
-
-    secondResponse.resolve(new Response('second-pdf', { status: 200 }));
-    expect((await screen.findByTitle('저장된 보고서 PDF')).getAttribute('src')).toContain('blob:latest');
-    firstResponse.resolve(new Response('first-pdf', { status: 200 }));
-    await waitFor(() => expect(createObjectUrl).toHaveBeenCalledTimes(1));
-
-    unmount();
-    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:latest');
-    createObjectUrl.mockRestore();
-    revokeObjectUrl.mockRestore();
+    await waitFor(() => expect(preflightCount).toBe(2));
   });
 
   it('/reports/:reportId?mode=export에서 pdfUrl이 없으면 코드 미리보기 대신 저장된 PDF 없음 상태를 보여준다', async () => {
@@ -452,7 +487,8 @@ describe('ReportGeneratePage', () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByText('저장된 PDF가 없습니다.')).toBeTruthy();
+    const emptyTitle = await screen.findByText('저장된 PDF가 없습니다.');
+    expect(emptyTitle.closest('div')?.parentElement?.className).toContain('mx-auto');
     expect(screen.queryByTitle('저장된 보고서 PDF')).toBeNull();
     expect(screen.queryByLabelText('점검 목적')).toBeNull();
   });
@@ -465,8 +501,9 @@ describe('ReportGeneratePage', () => {
     const recheckButton = screen.getByRole('button', { name: '확정 검증' }) as HTMLButtonElement;
     expect(recheckButton.disabled).toBe(false);
 
-    const finalizeButton = screen.getByRole('button', { name: 'PDF 생성 후 확정' }) as HTMLButtonElement;
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
     expect(finalizeButton.disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'PDF 생성 후 확정' })).toBeNull();
   });
 
   it('저장 실패 시 axios 인터셉터가 던진 ApiError의 실제 message를 그대로 노출한다(제네릭 문구로 덮지 않는다)', async () => {

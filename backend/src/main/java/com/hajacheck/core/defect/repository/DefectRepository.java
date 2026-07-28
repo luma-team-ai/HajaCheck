@@ -83,6 +83,26 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
     List<InspectionGradeCountProjection> countGroupByInspectionIdAndGrade(
             @Param("inspectionIds") Collection<Long> inspectionIds);
 
+    @Query("select d.status as status, count(d) as cnt from Defect d "
+            + "where d.inspectionId in :inspectionIds and d.deleted = false group by d.status")
+    List<DefectStatusCountProjection> countGroupByStatus(@Param("inspectionIds") Collection<Long> inspectionIds);
+
+    @Query("select d.type as type, count(d) as cnt from Defect d "
+            + "where d.inspectionId in :inspectionIds and d.deleted = false group by d.type")
+    List<InspectionTypeCountProjection> countGroupByType(@Param("inspectionIds") Collection<Long> inspectionIds);
+
+    @Query("select i.facilityId as facilityId, d.grade as grade, count(d) as cnt from Defect d "
+            + "join d.inspection i where d.inspectionId in :inspectionIds "
+            + "and d.deleted = false and d.grade is not null group by i.facilityId, d.grade")
+    List<FacilityGradeCountProjection> countGroupByFacilityIdAndGrade(
+            @Param("inspectionIds") Collection<Long> inspectionIds);
+
+    @Query("select d from Defect d where d.inspectionId in :inspectionIds and d.deleted = false "
+            + "and d.status = :status and d.actionDate is not null")
+    List<Defect> findResolvedWithActionDateByInspectionIds(
+            @Param("inspectionIds") Collection<Long> inspectionIds,
+            @Param("status") DefectStatus status);
+
     // AI 주간 브리핑(#248 / HAJA-197) — 등록 기준 주간 하자 count(전 상태 포함), createdAt 기준
     // 명시적 반열림 [from,to) — PG timestamp 는 마이크로초 정밀도라 "-1ns" 트릭은 다음 자정으로
     // 반올림되어 BETWEEN(양끝 포함)과 사실상 동일해지고 주 경계 자정 값이 이중집계된다(리뷰 P1 픽스).

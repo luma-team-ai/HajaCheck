@@ -308,23 +308,23 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
             <option value={nextStatus}>{ACTION_STATUS_LABEL[nextStatus]}</option>
           </select>
         </div>
+      </div>
 
-        <div className="defect-action-form__field">
-          <label htmlFor="defect-action-assignee">담당자 *</label>
-          <select
-            id="defect-action-assignee"
-            value={assigneeId}
-            disabled={isAssigneeLoading}
-            onChange={(event) => setAssigneeId(event.target.value === '' ? '' : Number(event.target.value))}
-          >
-            <option value="">담당자를 선택하세요</option>
-            {(assignableUsers ?? []).map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="defect-action-form__field">
+        <label htmlFor="defect-action-assignee">담당자 *</label>
+        <select
+          id="defect-action-assignee"
+          value={assigneeId}
+          disabled={isAssigneeLoading}
+          onChange={(event) => setAssigneeId(event.target.value === '' ? '' : Number(event.target.value))}
+        >
+          <option value="">담당자를 선택하세요</option>
+          {(assignableUsers ?? []).map((user) => (
+            <option key={user.id} value={user.id}>
+              {user.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       {justSavedLabel && (

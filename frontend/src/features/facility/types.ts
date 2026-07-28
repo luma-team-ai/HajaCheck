@@ -33,6 +33,10 @@ export interface Facility {
   thumbnailUrl: string | null;
   // 시설물 카드 "최근 점검 MM.dd"(HAJA-514/#1074) — ISO date(YYYY-MM-DD), 점검 이력이 없으면 null.
   lastInspectedAt: string | null;
+  // 지도/목록 실데이터 집계 — 백엔드가 기존 inspections/defects에서 계산한다.
+  highestGrade?: FacilityInitialGrade | null;
+  warningCount?: number | null;
+  cautionCount?: number | null;
 }
 
 export interface CreateFacilityRequest {

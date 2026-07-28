@@ -247,6 +247,9 @@ public enum ErrorCode {
     // 수락하면 companyId는 그대로 둔 채 status만 WAITING이 되어 "WAITING=companyId 없음" 불변식이
     // 깨진다 — ADMIN_ROLE_NOT_ASSIGNABLE과 동일한 화이트리스트 강제.
     ADMIN_STATUS_NOT_ASSIGNABLE(HttpStatus.BAD_REQUEST, "부여할 수 없는 상태입니다."),
+    // 플랫폼 관리자 콘솔 — 상담원 스킬 변경(#1001, HAJA-495). role=COUNSELOR가 아닌 대상에게
+    // counselor_skills 행을 배선하면 배정 로직(CounselTicketService)이 참조하지 않는 죽은 데이터가 된다.
+    ADMIN_SKILL_TARGET_NOT_COUNSELOR(HttpStatus.BAD_REQUEST, "상담원에게만 스킬을 배정할 수 있습니다."),
 
     // 플랫폼 관리자 콘솔 — 사용자 관리(#576). 사용자 등록 시 지정한 companyId가 존재하지 않는 경우.
     COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "기업을 찾을 수 없습니다."),

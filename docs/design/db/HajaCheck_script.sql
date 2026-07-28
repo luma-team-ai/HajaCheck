@@ -1067,6 +1067,7 @@ create table reports
         constraint fk_reports_created_by
             references users,
     updated_at             timestamp with time zone default now()                       not null,
+    deleted_at             timestamp with time zone,
     unique (inspection_id, version)
 );
 
@@ -1097,6 +1098,8 @@ comment on column reports.created_at is '보고서 생성 시각';
 comment on column reports.created_by is '보고서 최초 작성자 사용자 식별자';
 
 comment on column reports.updated_at is '보고서 최종 수정 시각';
+
+comment on column reports.deleted_at is '보고서 DRAFT soft delete 시각. NULL = 활성. FINALIZED 보고서는 삭제 불가 정책으로 유지한다.';
 
 alter table reports
     owner to postgres;

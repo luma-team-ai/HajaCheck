@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useOutsideDismiss } from '../../../shared/hooks/useOutsideDismiss';
+import { isCounselorRole } from '../../../shared/constants/roles';
 import type { AdminUser } from '../types';
 import { MoreIcon } from './icons/MoreIcon';
 import { ShieldIcon } from './icons/ShieldIcon';
+import { SkillIcon } from './icons/SkillIcon';
 import { StatusIcon } from './icons/StatusIcon';
 
-export type AdminUserRowAction = 'CHANGE_ROLE' | 'CHANGE_STATUS';
+export type AdminUserRowAction = 'CHANGE_ROLE' | 'CHANGE_STATUS' | 'CHANGE_SKILL';
 
 interface AdminUserRowMenuProps {
   user: AdminUser;
@@ -22,6 +24,8 @@ export function AdminUserRowMenu({ user, onAction }: AdminUserRowMenuProps) {
   const menuItems: { action: AdminUserRowAction; label: string; icon: ReactNode }[] = [
     { action: 'CHANGE_ROLE', label: '역할 변경', icon: <ShieldIcon /> },
     { action: 'CHANGE_STATUS', label: '상태 변경', icon: <StatusIcon /> },
+    // 스킬은 상담원 전용 축(#1001, HAJA-495)이라 다른 역할 행에는 노출하지 않는다.
+    ...(isCounselorRole(user.role) ? [{ action: 'CHANGE_SKILL' as const, label: '스킬 변경', icon: <SkillIcon /> }] : []),
   ];
 
   return (

@@ -291,10 +291,23 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 """, Long.class);
         assertThat(planExpiredLabelCount).isEqualTo(1L);
 
+        // V29(reports.deleted_at, #1172)도 이 "기존 DB" 경로에서 no-op 성공으로 적용된다.
+        Integer v29Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '29' and success = true",
+                Integer.class);
+        assertThat(v29Applied).isEqualTo(1);
+
+        Long reportsDeletedAtColumnExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'reports' and column_name = 'deleted_at'
+                """, Long.class);
+        assertThat(reportsDeletedAtColumnExists).isEqualTo(1L);
+
         // V30(scheduled_plan_changes 플랜 하향 예약 원장, #1105/HAJA-526)도 이 "기존 DB" 경로에서 no-op
         // 성공으로 적용된다 — 캐노니컬 DDL이 이미 이 테이블·enum·인덱스를 포함하고 마이그레이션 전 구문이
         // 멱등(IF NOT EXISTS / DO 블록)이라 'already exists' 로 기동을 깨뜨리지 않는다(#544 P1 회귀선).
-        // (V29는 다른 팀원이 선점해 2026-07-29 에 V29→V30 으로 재번호했다.)
+        // (#1105는 착수 시 V29로 잡았다가 #1172가 선점해 V30·V31로 재번호했고, #1172가 dev에 머지되며
+        //  결번은 해소됐다 — 2026-07-29.)
         Integer v30Applied = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where version = '30' and success = true",
                 Integer.class);
