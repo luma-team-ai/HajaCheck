@@ -155,6 +155,14 @@ const server = setupServer(
   ),
 );
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
+
 beforeAll(() => server.listen());
 beforeEach(() => {
   generateReportCallCount = 0;
@@ -172,11 +180,11 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe('ReportGeneratePage', () => {
-  const renderPage = () => {
+  const renderPageWithPath = (path: string) => {
     const queryClient = new QueryClient();
     return render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/reports/1']}>
+        <MemoryRouter initialEntries={[path]}>
           <Routes>
             <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
           </Routes>
@@ -184,6 +192,8 @@ describe('ReportGeneratePage', () => {
       </QueryClientProvider>,
     );
   };
+
+  const renderPage = () => renderPageWithPath('/reports/1');
 
   it('마운트 시점에 reportId로 기존 보고서 상세를 불러온다', async () => {
     renderPage();
@@ -340,6 +350,87 @@ describe('ReportGeneratePage', () => {
     expect(pdfFrame.getAttribute('src')).toContain('navpanes=0');
     expect(pdfFrame.className).toContain('border-0');
     expect(screen.queryByLabelText('점검 목적')).toBeNull();
+  });
+
+  it('cross-origin pdfUrl은 CORS credentials 없이 요청한다', async () => {
+    let requestCredentials: RequestCredentials | undefined;
+    server.use(
+      http.get('https://cdn.example.test/reports/1.pdf', ({ request }) => {
+        requestCredentials = request.credentials;
+        return new Response('fake-pdf-binary', {
+          status: 200,
+          headers: { 'Content-Type': 'application/pdf', 'Access-Control-Allow-Origin': '*' },
+        });
+      }),
+    );
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+      status: 'FINALIZED',
+      pdfUrl: 'https://cdn.example.test/reports/1.pdf',
+    };
+
+    renderPageWithPath('/reports/1?mode=export');
+
+    await screen.findByTitle('저장된 보고서 PDF');
+    expect(requestCredentials).toBe('omit');
+  });
+
+  it('cross-origin PDF 로드 실패 시 PDF 내보내기 폴백을 표시한다', async () => {
+    server.use(
+      http.get('https://cdn.example.test/reports/1.pdf', () =>
+        HttpResponse.json({ error: 'cors denied' }, { status: 403 }),
+      ),
+    );
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+      status: 'FINALIZED',
+      pdfUrl: 'https://cdn.example.test/reports/1.pdf',
+    };
+
+    renderPageWithPath('/reports/1?mode=export');
+
+    expect(await screen.findByText('PDF를 불러올 수 없습니다.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'PDF 내보내기' })).toBeTruthy();
+    expect(screen.queryByTitle('저장된 보고서 PDF')).toBeNull();
+  });
+
+  it('새로고침 요청이 경합해도 최신 PDF만 사용하고 Blob URL을 정리한다', async () => {
+    const firstResponse = deferred<Response>();
+    const secondResponse = deferred<Response>();
+    let requestCount = 0;
+    server.use(
+      http.get('/api/reports/1/pdf/storage-key', () => {
+        requestCount += 1;
+        return requestCount === 1 ? firstResponse.promise : secondResponse.promise;
+      }),
+    );
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+      status: 'FINALIZED',
+      pdfUrl: '/api/reports/1/pdf/storage-key',
+    };
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL')
+      .mockReturnValueOnce('blob:latest')
+      .mockReturnValueOnce('blob:stale');
+    const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+
+    const { unmount } = renderPageWithPath('/reports/1?mode=export');
+    const refreshButton = await screen.findByRole('button', { name: '미리보기 새로고침' });
+    await waitFor(() => expect(requestCount).toBe(1));
+    fireEvent.click(refreshButton);
+
+    secondResponse.resolve(new Response('second-pdf', { status: 200 }));
+    expect((await screen.findByTitle('저장된 보고서 PDF')).getAttribute('src')).toContain('blob:latest');
+    firstResponse.resolve(new Response('first-pdf', { status: 200 }));
+    await waitFor(() => expect(createObjectUrl).toHaveBeenCalledTimes(1));
+
+    unmount();
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:latest');
+    createObjectUrl.mockRestore();
+    revokeObjectUrl.mockRestore();
   });
 
   it('/reports/:reportId?mode=export에서 pdfUrl이 없으면 코드 미리보기 대신 저장된 PDF 없음 상태를 보여준다', async () => {
