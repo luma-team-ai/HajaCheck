@@ -56,7 +56,7 @@ export function FacilityListPage() {
   // catch가 "이미 포기한" facilityId로 pendingFacilityId를 되살릴 수 있다 — 그러면 다음의
   // 전혀 무관한 새 등록이 재생성 없이 그 옛 시설물에 사진을 붙이는 경쟁 조건이 생긴다. 제출마다
   // 값을 올리는 토큰으로 "이 제출이 아직 유효한가"를 판별해 뒤늦은 catch를 무시한다.
-  const submissionTokenRef = useRef(0);
+  const submissionAttemptRef = useRef(0);
 
   const isFilterActive =
     filters.search !== '' || filters.type !== '' || filters.region !== '' || filters.grade !== '';
@@ -79,8 +79,8 @@ export function FacilityListPage() {
     // 엉뚱하게 이전 시설물에 사진을 붙이게 된다(#1098).
     setPendingFacilityId(null);
     // 현재 제출을 무효화 — 이 시점 이후 도착하는 handleSubmit의 catch는 더 이상 pendingFacilityId를
-    // 되살리지 못한다(#1098 P1, 위 submissionTokenRef 주석 참고).
-    submissionTokenRef.current += 1;
+    // 되살리지 못한다(#1098 P1, 위 submissionAttemptRef 주석 참고).
+    submissionAttemptRef.current += 1;
   };
 
   // 시설물 이름 클릭 → 하자 오버레이(HAJA-434 갭1, Figma node-id=1-3958 흐름)로 직행.
@@ -101,7 +101,7 @@ export function FacilityListPage() {
     // 이름/유형/주소 등을 고쳤더라도 이미 생성된 시설물에는 반영되지 않는다. 필드를 잠그거나
     // 별도 안내를 추가하는 건 더 큰 UX 작업(옵션 b)이라 이번 스코프에서는 의도적으로
     // 보류한다 — 알려진 트레이드오프이지 누락이 아니다.
-    const submissionToken = ++submissionTokenRef.current;
+    const submissionAttempt = ++submissionAttemptRef.current;
     const facilityId = pendingFacilityId ?? (await createFacility(payload)).id;
     // 사진 업로드는 시설물 생성이 성공한 뒤에만 가능하다(POST /api/facilities/{id}/media, #652) —
     // 사진을 선택하지 않았으면 호출하지 않는다.
@@ -111,8 +111,8 @@ export function FacilityListPage() {
       } catch (uploadFailure) {
         // 시설물 생성은 이미 끝났다 — 재생성을 막기 위해 id를 기억해두고 다시 던진다(#1098).
         // 단, 이 catch가 실행되기 전에 사용자가 이미 모달을 닫았다면(Escape 등, #1098 P1)
-        // submissionToken이 더 이상 최신이 아니므로 되살리지 않는다 — 이미 포기된 시도다.
-        if (submissionTokenRef.current === submissionToken) {
+        // submissionAttempt이 더 이상 최신이 아니므로 되살리지 않는다 — 이미 포기된 시도다.
+        if (submissionAttemptRef.current === submissionAttempt) {
           setPendingFacilityId(facilityId);
         }
         throw uploadFailure;
@@ -122,7 +122,7 @@ export function FacilityListPage() {
     // 이미 포기된(stale) 제출의 뒤늦은 성공 응답이, 그 사이 사용자가 새로 시작한 완전히 다른
     // 제출의 모달을 강제로 닫고 그 제출의 토큰까지 어긋나게 만드는 2차 경쟁 조건이 생긴다.
     // stale 제출은 성공/실패와 무관하게 다른 제출의 상태를 건드리지 않고 조용히 끝나야 한다.
-    if (submissionTokenRef.current === submissionToken) {
+    if (submissionAttemptRef.current === submissionAttempt) {
       setPendingFacilityId(null);
       handleCloseModal();
     }

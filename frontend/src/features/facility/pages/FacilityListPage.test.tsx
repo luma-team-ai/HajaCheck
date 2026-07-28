@@ -252,7 +252,7 @@ describe('FacilityListPage (통합 테스트)', () => {
   // 닫으면, Modal의 키보드 핸들러는 isSubmitting을 모르고 즉시 onClose를 호출한다(취소 버튼의
   // disabled={isSubmitting}과 달리 보호되지 않음). 이후 뒤늦게 도착하는 업로드 실패 응답이
   // "이미 포기한" facilityId로 pendingFacilityId를 되살리면, 완전히 무관한 다음 등록이 재생성 없이
-  // 그 옛 시설물에 사진을 붙이는 경쟁 조건이 생긴다 — submissionTokenRef가 이를 막아야 한다.
+  // 그 옛 시설물에 사진을 붙이는 경쟁 조건이 생긴다 — submissionAttemptRef가 이를 막아야 한다.
   it('업로드 진행 중 Escape로 모달을 닫아도 이후의 무관한 새 등록이 이전 시설물에 사진을 붙이지 않는다(#1098 P1)', async () => {
     let releaseMediaResponse: (() => void) | undefined;
     const mediaGate = new Promise<void>((resolve) => {
