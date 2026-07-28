@@ -123,11 +123,15 @@ public class PaymentWriter {
         long credit = computeProratedCredit(current, currentPlan);
         // 정가 - 크레딧 이 최소 결제금액 아래로 내려가면 그 금액으로 올린다(가드 아래 javadoc). 크레딧은
         // 항상 목표 플랜가보다 작다(requirePayableUpgrade 가 현재가 < 목표가를 보장하고, 크레딧은 현재가를
-        // 넘지 못한다) — 즉 raw 청구액은 항상 0보다 크고, 이 가드는 "0 초과 & 100원 미만" 구간만 끌어올린다.
+        // 넘지 못한다) — 즉 raw 청구액은 통상 0보다 크고, 이 가드는 "0 초과 & 100원 미만" 구간을 끌어올린다.
         long amount = Math.max(listPrice - credit, MIN_CHARGEABLE_AMOUNT);
         // 화면에는 실제로 적용된 차감액을 보여준다 — 위 최소금액 가드로 조정된 뒤에도
         // listPrice - appliedCredit == amount 가 항상 성립해야 "정가/크레딧/실청구액" 3줄이 어긋나지 않는다.
-        long appliedCredit = listPrice - amount;
+        // 0 이상으로 클램프한다(리뷰 P1-B) — 정가 자체가 최소 결제금액보다 낮은 이상 데이터라면 그 클램프로도
+        // 위 불변식을 만족시킬 수 없어(어떤 credit 을 대입해도 listPrice - credit == amount 가 안 나온다),
+        // 잘못된 화면 대신 아래 requireOrderInvariant 가 즉시 표면화한다(fail-fast, 조용한 오표시 금지).
+        long appliedCredit = Math.max(listPrice - amount, 0L);
+        requireOrderInvariant(listPrice, appliedCredit, amount);
 
         // 같은 소유 주체·같은 요금제의 기존 READY 주문을 먼저 본다(리뷰 P1-B 근본 원인 차단).
         // 새 주문을 계속 찍어내면 사용자가 결제창을 두 번 열었다가 둘 다 결제해 "2회 청구 + 구독 변화 0"이
@@ -138,21 +142,21 @@ public class PaymentWriter {
         Optional<Payment> existingReady = findExistingReadyOrder(userId, companyId, targetPlan.getId());
         if (existingReady.isPresent()) {
             Payment existing = existingReady.get();
-            if (isReusable(existing, userId)) {
+            if (isReusable(existing, userId, amount)) {
                 log.info("유효한 기존 결제 주문 재사용 — orderId={} planName={}",
                         existing.getOrderId(), targetPlanName);
-                // 금액은 기존 주문의 스냅샷을 그대로 쓴다 — 그 사이 요금제 가격이 바뀌었더라도 사용자가 이미
-                // 안내받은 금액으로 결제되게 하고(TTL 안에서만 유효), 승인 단계의 금액 대조와도 일치시킨다.
-                // 정가만 방금 조회한 targetPlan 기준으로 다시 보여주고, 표시용 크레딧은 그 정가에서
-                // 스냅샷 금액을 뺀 값으로 역산한다(0 미만이면 0 — 그 사이 정가가 내렸다면 크레딧 없음으로
-                // 보여준다. amount 스냅샷 자체는 절대 재계산하지 않는다).
-                long reusedAmount = toChargeableAmount(existing.getAmount());
-                long reusedCredit = Math.max(listPrice - reusedAmount, 0L);
-                return PaymentOrderResponse.of(existing, listPrice, reusedCredit, reusedAmount,
+                // amount 는 기존 주문의 스냅샷 그대로다(isReusable 이 방금 그 스냅샷이 지금 계산한 amount와
+                // 같음을 확인했으므로 재계산과 동치다) — listPrice/appliedCredit 도 지금 막 계산한 값이라
+                // 세 값이 항상 같은 계산에서 나온다(리뷰 P1-B, 위 requireOrderInvariant 로 이미 검증됨).
+                return PaymentOrderResponse.of(existing, listPrice, appliedCredit, amount,
                         buildOrderName(existing.getPlanName()));
             }
-            // 재사용할 수 없는 잔재(만료·만료 임박·소유자 교체)는 <b>반드시 닫고</b> 진행한다. 그대로 두면
-            // 아래 부분 유니크 인덱스에 걸려 새 주문을 영영 만들지 못한다(결제 경로 잠김).
+            // 재사용할 수 없는 잔재(만료·만료 임박·소유자 교체·가격/크레딧 드리프트)는 <b>반드시 닫고</b>
+            // 진행한다. 그대로 두면 아래 부분 유니크 인덱스에 걸려 새 주문을 영영 만들지 못한다(결제 경로
+            // 잠김). 가격 드리프트(TTL 안에 요금제 정가가 바뀌거나 크레딧 산정이 달라진 경우)로 닫히는
+            // 것도 손해가 없다 — 아직 미결제 READY 주문이라 재견적에 비용이 들지 않는다
+            // ({@code prepareConfirm} 의 TTL 주석과 같은 근거: "요금 인상 직전 주문을 쟁여뒀다가 나중에
+            // 구가격으로 결제"를 막는 것과 대칭으로, 정가가 바뀌면 그 시점 가격으로 다시 견적한다).
             existing.markExpired();
             paymentRepository.saveAndFlush(existing);
             log.info("재사용 불가 결제 주문 정리 후 신규 발급 — orderId={}", existing.getOrderId());
@@ -172,6 +176,20 @@ public class PaymentWriter {
     }
 
     /**
+     * 응답 계약 불변식(#1146 / HAJA-550 리뷰 P1-B) — {@code listPrice - credit == amount && credit >= 0}
+     * 은 DTO javadoc·OpenAPI·프론트 타입이 모두 "서버가 보장"이라 명시한 값이고, 프론트는 그 전제로
+     * 크레딧 줄을 무가드 렌더한다. 계산 경로가 늘어날수록(재사용·최소금액 가드) 조용히 어긋날 여지가
+     * 생기므로, 반환 직전에 실제로 지켜지는지 코드로 고정한다 — 어긋나면 잘못된 화면을 내보내는 대신
+     * 즉시 실패한다(fail-fast, PLAN_DATA_INVALID — {@link #toChargeableAmount} 와 같은 급의 데이터 이상).
+     */
+    private void requireOrderInvariant(long listPrice, long credit, long amount) {
+        if (credit < 0 || listPrice - credit != amount) {
+            log.error("결제 주문 금액 불변식 위반 — listPrice={} credit={} amount={}", listPrice, credit, amount);
+            throw new BusinessException(ErrorCode.PLAN_DATA_INVALID);
+        }
+    }
+
+    /**
      * 잔여 기간 일할 크레딧(#1146 / HAJA-550) — 상향 결제 시 현재 플랜의 남은 결제 주기를 크레딧으로
      * 차감한다(B안: 잔여 크레딧 차감 + 주기 리셋, 종료일 승계 A안은 빌링키 자동갱신이 없어 채택하지
      * 않음 — {@code PlanTransitionService#transitionTo} 가 승인 후에도 그대로 주기를 리셋한다).
@@ -182,15 +200,23 @@ public class PaymentWriter {
      *
      * <p>크레딧은 <b>원 단위로 내림</b> 한다(#1146 결정) — 사용자에게 불리하게 반올림하지 않는다.
      *
-     * @return {@code current.getCurrentPeriodEnd() == null}(FREE·주기 정보 없음)이거나 잔여일이 0 이하
-     *         (만료 경과 — #1145 강등 배치와 경합해도 안전한 방향)면 0
+     * <p><b>상한 = 실제로 낸 돈</b>(리뷰 P1-A). 위 계산은 {@code current_period_start/end} 와 <b>라이브</b>
+     * {@code plans.price_monthly} 파생치일 뿐 결제 이력을 전혀 보지 않는다 — 그대로 두면 (1) 무결제 유료
+     * 구독(V27 백필 추정치·{@code payments} 도입(V20) 이전 모의 결제 시절 구독)이 정가 전액까지 차감받고,
+     * (2) 플랫폼 관리자가 나중에 가격을 올리면 구가격으로 결제한 구독자의 청구액이 인상분만큼 내려가
+     * <b>낸 적 없는 돈을 환급</b>하게 된다. 그래서 이 구독({@code current.getId()})에 실제로 연결된 PAID
+     * 결제 합계({@link PaymentRepository#sumAmountByUserPlanIdAndStatus}, SUM 근거는 그 메서드 javadoc)로
+     * 상한을 건다 — 연결된 PAID 가 없으면(무결제 구독) 크레딧은 무조건 0이다.
+     *
+     * @return {@code current_period_start/end} 가 없거나(FREE·주기 정보 없음) 잔여일이 0 이하(만료 경과 —
+     *         #1145 강등 배치와 경합해도 안전한 방향)이거나 실제 결제액이 0(무결제 구독)이면 0
      */
     private long computeProratedCredit(UserPlan current, Plan currentPlan) {
         Instant periodEnd = current.getCurrentPeriodEnd();
-        if (periodEnd == null) {
+        Instant periodStart = current.getCurrentPeriodStart();
+        if (periodEnd == null || periodStart == null) {
             return 0L;
         }
-        Instant periodStart = current.getCurrentPeriodStart();
         LocalDate endDate = periodEnd.atZone(BILLING_ZONE).toLocalDate();
         LocalDate nowDate = Instant.now().atZone(BILLING_ZONE).toLocalDate();
 
@@ -212,9 +238,24 @@ public class PaymentWriter {
         if (price.signum() <= 0) {
             return 0L;
         }
-        return price.multiply(BigDecimal.valueOf(remainingDays))
+        long rawCredit = price.multiply(BigDecimal.valueOf(remainingDays))
                 .divide(BigDecimal.valueOf(totalDays), 0, RoundingMode.DOWN)
                 .longValueExact();
+
+        return Math.min(rawCredit, paidAmountCap(current.getId()));
+    }
+
+    /**
+     * {@code userPlanId} 에 실제로 연결된 PAID 결제 합계를 크레딧 상한으로 반환한다(리뷰 P1-A 근거는
+     * {@link #computeProratedCredit} javadoc). {@code payments.amount} 는 항상 정수 원 스냅샷이라
+     * (이 클래스가 {@link #createOrder} 에서 그렇게 저장한다) {@code longValueExact} 가 안전하다.
+     */
+    private long paidAmountCap(Long userPlanId) {
+        BigDecimal paid = paymentRepository.sumAmountByUserPlanIdAndStatus(userPlanId, PaymentStatus.PAID);
+        if (paid == null || paid.signum() <= 0) {
+            return 0L;
+        }
+        return paid.longValueExact();
     }
 
     /**
@@ -236,11 +277,20 @@ public class PaymentWriter {
      *   <li><b>요청자 소유여야 한다</b>: 회사 축 조회는 owner 교체 후 전 owner 의 주문을 집어올 수 있다.</li>
      *   <li><b>잔여 유효시간이 충분해야 한다</b>(리뷰 P3): 1초 남은 주문을 재사용하면 사용자가 카드 인증까지
      *       마친 뒤 만료 404 를 맞는다 — 결제창에서 승인까지 보낼 시간을 남긴다.</li>
+     *   <li><b>가격/크레딧 드리프트가 없어야 한다</b>(#1146 / HAJA-550 리뷰 P1-B). {@code currentAmount} 는
+     *       호출부가 지금 막 다시 계산한 {@code listPrice - credit}(최소 결제금액 가드까지 적용된 값)이다.
+     *       TTL(30분) 안에 대상 플랜 정가가 바뀌거나(관리자 콘솔) 크레딧 산정이 달라지면(날짜가 넘어가
+     *       잔여일이 줄어드는 등) 스냅샷과 어긋나는데, 그 스냅샷을 그대로 재사용하면
+     *       {@code listPrice(지금) - credit(스냅샷 역산) == amount(스냅샷)} 불변식이 깨진다 — 정가보다
+     *       비싼 금액이 설명 없이 청구되거나(정가 하락) 표시 크레딧이 실제 적용액과 달라진다(정가 상승).
+     *       미결제 READY 주문의 재견적은 손해가 없으므로({@code prepareConfirm} 의 TTL 주석과 같은 근거)
+     *       어긋나면 재사용하지 않고 새로 견적한다.</li>
      * </ul>
      */
-    private boolean isReusable(Payment existing, Long userId) {
+    private boolean isReusable(Payment existing, Long userId, long currentAmount) {
         return existing.isOwnedBy(userId)
-                && existing.getRequestedAt().isAfter(reusableOrderRequestedAfter());
+                && existing.getRequestedAt().isAfter(reusableOrderRequestedAfter())
+                && toChargeableAmount(existing.getAmount()) == currentAmount;
     }
 
     /**

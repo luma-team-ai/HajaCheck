@@ -13,7 +13,9 @@ import com.hajacheck.payment.entity.Payment;
  * @param orderId   서버가 발급한 주문 식별자(클라이언트 생성 금지)
  * @param planName  결제 대상 요금제명
  * @param listPrice 대상 플랜의 정가({@code plans.price_monthly}, 크레딧 차감 전)
- * @param credit    잔여 기간 일할 크레딧(차감액, 항상 0 이상) — FREE→유료·주기 정보 없음·만료 경과면 0
+ * @param credit    잔여 기간 일할 크레딧(차감액, 항상 0 이상) — FREE→유료·주기 정보 없음·만료 경과면 0.
+ *                  그 구독에 실제로 연결된 PAID 결제 합계를 상한으로 잡는다(무결제 구독·정가 인상 후에도
+ *                  낸 적 없는 돈을 환급하지 않는다 — {@code PaymentWriter#computeProratedCredit} 참고)
  * @param amount    서버가 결정한 최종 청구 금액({@code listPrice - credit}, 최소 결제금액 가드 적용 후).
  *                  원화는 소수점이 없고 토스 결제창·승인 API 도 정수를 요구하므로 {@code long} 으로
  *                  노출한다(엔티티는 numeric(10,2) 스냅샷을 그대로 보관).
