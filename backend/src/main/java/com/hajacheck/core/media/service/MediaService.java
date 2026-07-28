@@ -250,7 +250,33 @@ public class MediaService {
                 .gpsLng(exif.gpsLng())
                 .mimeSignatureVerified(true)
                 .mimeType(file.getContentType())
+                .originalFilename(truncateOriginalFilename(file.getOriginalFilename()))
                 .build();
+    }
+
+    // media.original_filename 컬럼 상한(varchar(255))을 넘는 파일명이 들어오면 그대로 저장 시도해
+    // DataIntegrityViolationException(500)으로 업로드 전체가 실패한다 — 표시 전용 메타데이터 하나 때문에
+    // 정상 업로드를 막을 이유가 없어 방어적으로 잘라 저장한다(초과분은 화면 표시에만 영향).
+    private static final int MAX_ORIGINAL_FILENAME_LENGTH = 255;
+
+    private static String truncateOriginalFilename(String filename) {
+        // MultipartFile#getOriginalFilename()은 계약상 빈 문자열을 반환할 수 있다. ""를 그대로 저장하면
+        // 표시 단계의 "이미지 N" 폴백이 null만 검사할 경우 발동하지 않아 빈칸으로 표시되므로,
+        // 저장 시점에 null로 정규화해 "값 없음"을 한 가지 형태로 통일한다(PR머신 P3).
+        if (filename != null && filename.isBlank()) {
+            return null;
+        }
+        if (filename == null || filename.length() <= MAX_ORIGINAL_FILENAME_LENGTH) {
+            return filename;
+        }
+        // PR 리뷰 P3 — substring은 UTF-16 코드유닛 기준이라, 자르는 경계가 서로게이트 페어(이모지 등
+        // BMP 밖 문자) 중간이면 뒤쪽 low surrogate가 잘려 나가 깨진 문자(U+FFFD)로 표시된다. 경계 직전
+        // 코드유닛이 high surrogate면 한 유닛 덜 잘라 페어를 통째로 보존한다.
+        int cut = MAX_ORIGINAL_FILENAME_LENGTH;
+        if (Character.isHighSurrogate(filename.charAt(cut - 1))) {
+            cut -= 1;
+        }
+        return filename.substring(0, cut);
     }
 
     /**

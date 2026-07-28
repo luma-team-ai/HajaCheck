@@ -5,6 +5,7 @@ import com.hajacheck.core.ai.dto.DetectedDefectItem;
 import com.hajacheck.core.ai.service.AiProxyService;
 import com.hajacheck.core.analysis.dto.AnalysisStatusResponse;
 import com.hajacheck.core.analysis.dto.AnalysisStatusResponse.FileProgress;
+import com.hajacheck.core.analysis.support.AnalysisFileDisplayNames;
 import com.hajacheck.core.analysis.support.AnalysisProgressStore;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
@@ -119,7 +120,8 @@ public class InspectionAnalysisWorker {
                           AnalysisQuotaCharge charge) {
         List<FileProgress> files = new ArrayList<>(images.size());
         for (int i = 0; i < images.size(); i++) {
-            files.add(new FileProgress(images.get(i).getId(), displayName(i), "waiting", null, "-"));
+            files.add(new FileProgress(
+                    images.get(i).getId(), AnalysisFileDisplayNames.of(images.get(i), i), "waiting", null, "-"));
         }
 
         int detectedDefectCount = 0;
@@ -135,7 +137,7 @@ public class InspectionAnalysisWorker {
 
         for (int i = 0; i < images.size(); i++) {
             Media media = images.get(i);
-            files.set(i, new FileProgress(media.getId(), displayName(i), "analyzing", null, "처리중..."));
+            files.set(i, new FileProgress(media.getId(), AnalysisFileDisplayNames.of(media, i), "analyzing", null, "처리중..."));
             publish(inspectionId, images.size(), i, files, detectedDefectCount, riskyCrackCount,
                     gradeCounts, failedCount);
 
@@ -182,13 +184,14 @@ public class InspectionAnalysisWorker {
                 successCount++;
 
                 String elapsed = formatElapsed(startedAt);
-                files.set(i, new FileProgress(media.getId(), displayName(i), "completed", toSave.size(), elapsed));
+                files.set(i, new FileProgress(
+                        media.getId(), AnalysisFileDisplayNames.of(media, i), "completed", toSave.size(), elapsed));
             } catch (Exception e) {
                 // 이미지 1장 실패를 격리 — 회차 전체를 중단하지 않는다.
                 failedCount++;
                 log.warn("AI 분석 실패 — inspectionId={} mediaId={} exception={}",
                         inspectionId, media.getId(), e.getClass().getSimpleName());
-                files.set(i, new FileProgress(media.getId(), displayName(i), "failed", null, "오류"));
+                files.set(i, new FileProgress(media.getId(), AnalysisFileDisplayNames.of(media, i), "failed", null, "오류"));
             }
 
             publish(inspectionId, images.size(), i + 1, files, detectedDefectCount, riskyCrackCount,
@@ -315,11 +318,6 @@ public class InspectionAnalysisWorker {
             result.put(grade.name(), gradeCounts.getOrDefault(grade, 0));
         }
         return result;
-    }
-
-    private String displayName(int index) {
-        // 원본 파일명은 저장하지 않는다(LocalFileStorage: 보안상 UUID로만 저장, PRD FR-2) — 순번 라벨만 표시.
-        return "이미지 " + (index + 1);
     }
 
     private String formatElapsed(Instant startedAt) {

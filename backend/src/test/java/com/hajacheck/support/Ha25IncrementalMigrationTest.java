@@ -431,7 +431,14 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V25__inspection_due_notification_dedupe_unique_index.sql"),
-                        CONTAINER_ROOT + "V25__inspection_due_notification_dedupe_unique_index.sql");
+                        CONTAINER_ROOT + "V25__inspection_due_notification_dedupe_unique_index.sql")
+                // #1116 — media.original_filename(AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정)도
+                // 이어서 1회 forward-apply한다(단순 add column if not exists 계열이라 V12/V13/V16/V24와
+                // 동일하게 캐노니컬 DDL에도 반영돼 있다). V25는 #1050이 선점해 V26으로 이어 붙였다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V26__add_media_original_filename.sql"),
+                        CONTAINER_ROOT + "V26__add_media_original_filename.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -539,6 +546,9 @@ class Ha25IncrementalMigrationTest {
         // #1050 — Flyway V25(notifications.uq_notifications_inspection_due_dedupe 부분 유니크 인덱스)도
         // 이어서 1회 forward-apply한다.
         runPsql(postgres, "V25__inspection_due_notification_dedupe_unique_index.sql");
+        // #1116 — media.original_filename(AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정)도 이어서
+        // 1회 forward-apply한다(V25는 #1050이 선점해 V26).
+        runPsql(postgres, "V26__add_media_original_filename.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

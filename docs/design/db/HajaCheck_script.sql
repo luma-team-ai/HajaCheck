@@ -796,6 +796,7 @@ create table media
     mime_signature_verified boolean                  default false not null,
     created_at              timestamp with time zone default now() not null,
     mime_type               varchar(100),
+    original_filename       varchar(255),
     constraint chk_media_inspection_xor_facility
         check ((inspection_id is not null) <> (facility_id is not null))
 );
@@ -831,6 +832,8 @@ comment on column media.mime_signature_verified is '파일 시그니처와 MIME 
 comment on column media.created_at is '미디어 레코드 생성 시각';
 
 comment on column media.mime_type is '미디어 MIME 타입(예: image/jpeg, video/mp4)';
+
+comment on column media.original_filename is '업로드 시 클라이언트가 보낸 원본 파일명(표시 전용) — nullable, V26 이전 업로드 행은 NULL(조회 시 "이미지 N" 순번으로 폴백)';
 
 alter table media
     owner to postgres;

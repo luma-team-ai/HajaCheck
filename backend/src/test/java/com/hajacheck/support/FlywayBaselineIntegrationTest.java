@@ -78,7 +78,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V25까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V26까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -105,13 +105,16 @@ class FlywayBaselineIntegrationTest {
         // + V24(defects.location + defects.previous_defect_id, #970 갭3/HAJA-437).
         // + V25(notifications.uq_notifications_inspection_due_dedupe 부분 유니크 인덱스, #1050 —
         //   INSPECTION_DUE 알림 멱등성을 애플리케이션 메모리 조회에서 DB 유니크 제약 기반으로 전환).
-        assertThat(appliedMigrations).isEqualTo(25);
+        // + V26(media.original_filename — AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정, #1116).
+        //   V25는 #1050이 선점해 이 작업이 V26으로 이어 붙였다(팀 배분: V25=#1050 · V26=#1116).
+        //   마이그레이션 수는 V1~V24(24개) + V25(1개) + V26(1개) = 26이다.
+        assertThat(appliedMigrations).isEqualTo(26);
 
-        // 최신 적용 버전이 실제로 V25 인지 확인.
+        // 최신 적용 버전이 실제로 V26 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("25");
+        assertThat(latestVersion).isEqualTo("26");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -134,6 +137,14 @@ class FlywayBaselineIntegrationTest {
                 where table_schema = 'public' and table_name = 'media' and column_name = 'inspection_id'
                 """, Boolean.class);
         assertThat(inspectionIdNullable).isTrue();
+
+        // V26이 media.original_filename 컬럼을 실제로 추가했는지 확인(AI 분석 실행/상태 화면
+        // "이미지 N" 순번 표시 문제 수정, V25는 팀원 작업 선점으로 아직 dev 미병합).
+        Long originalFilenameColumnExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'media' and column_name = 'original_filename'
+                """, Long.class);
+        assertThat(originalFilenameColumnExists).isEqualTo(1L);
 
         // V20이 payments 테이블(#988/HAJA-489)을 실제로 만들었는지 확인한다.
         Long paymentsTableExists = jdbcTemplate.queryForObject("""
