@@ -118,10 +118,14 @@ export function FacilityListPage() {
         throw uploadFailure;
       }
     }
+    // #1098 P1(PR머신 3차 재검수) — handleCloseModal()도 토큰 검증 안에 넣는다. 그러지 않으면
+    // 이미 포기된(stale) 제출의 뒤늦은 성공 응답이, 그 사이 사용자가 새로 시작한 완전히 다른
+    // 제출의 모달을 강제로 닫고 그 제출의 토큰까지 어긋나게 만드는 2차 경쟁 조건이 생긴다.
+    // stale 제출은 성공/실패와 무관하게 다른 제출의 상태를 건드리지 않고 조용히 끝나야 한다.
     if (submissionTokenRef.current === submissionToken) {
       setPendingFacilityId(null);
+      handleCloseModal();
     }
-    handleCloseModal();
   };
 
   // 주소 좌표 자동계산(Geocoder) 실패 best-effort 안내(#629) — 등록은 이미 좌표 없이 진행되므로

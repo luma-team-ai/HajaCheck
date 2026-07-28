@@ -332,6 +332,87 @@ describe('FacilityListPage (통합 테스트)', () => {
     }
   });
 
+  // #1098 P1 회귀고정(PR머신 3차 재검수) — 포기된(stale) 제출A의 뒤늦은 완료가 handleCloseModal()을
+  // 무조건 호출하면, 그 사이 사용자가 시작한 완전히 다른 제출B가 진행 중이던 모달까지 강제로
+  // 닫아버린다. stale 제출은 다른 제출의 상태에 부수효과를 내면 안 된다.
+  it('포기된 제출이 뒤늦게 완료돼도 그 사이 새로 진행 중인 다른 제출의 모달을 강제로 닫지 않는다(#1098 P1)', async () => {
+    let releaseA: (() => void) | undefined;
+    let releaseB: (() => void) | undefined;
+    const gateA = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+    const gateB = new Promise<void>((resolve) => {
+      releaseB = resolve;
+    });
+    let mediaAttempt = 0;
+    server.use(
+      http.post('/api/facilities/:facilityId/media', async () => {
+        mediaAttempt += 1;
+        // 첫 번째 호출(제출A)은 releaseA(), 두 번째 호출(제출B)은 releaseB()가 불릴 때까지
+        // 응답하지 않는다 — 둘 다 in-flight인 상태를 임의로 만들기 위한 지연.
+        await (mediaAttempt === 1 ? gateA : gateB);
+        const success: ApiResponse<null> = { success: true, data: null };
+        return HttpResponse.json(success);
+      }),
+    );
+
+    const createFacilityRequests: string[] = [];
+    const captureRequest = ({ request }: { request: Request }) => {
+      const url = new URL(request.url);
+      if (request.method === 'POST' && url.pathname === '/api/facilities') {
+        createFacilityRequests.push(url.pathname);
+      }
+    };
+    server.events.on('request:match', captureRequest);
+
+    try {
+      renderPage();
+      await screen.findByText('강남 오피스타워 A동');
+
+      // 제출A — 생성은 성공하지만 업로드는 gateA가 풀릴 때까지 pending.
+      openCreateModal();
+      fillRequiredFields('제출A');
+      fireEvent.change(screen.getByLabelText('대표 사진 업로드'), {
+        target: { files: [makeImageFile('a.png')] },
+      });
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+      await waitFor(() => expect(createFacilityRequests).toHaveLength(1));
+
+      // Escape로 A를 포기한다(A는 이제 stale).
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByRole('dialog')).toBeNull();
+
+      // 제출B — 완전히 다른 시설물을 새로 등록한다. 생성은 성공하고 업로드는 gateB가 풀릴
+      // 때까지 pending 상태로 남아 모달이 계속 열려 있어야 한다.
+      openCreateModal();
+      fillRequiredFields('제출B');
+      fireEvent.change(screen.getByLabelText('대표 사진 업로드'), {
+        target: { files: [makeImageFile('b.png')] },
+      });
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+      await waitFor(() => expect(createFacilityRequests).toHaveLength(2));
+      expect(screen.queryByRole('dialog')).not.toBeNull();
+
+      // 이제 포기됐던 A의 업로드를 뒤늦게 성공으로 귀결시킨다 — B가 여전히 진행 중인 동안.
+      await act(async () => {
+        releaseA?.();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+      // 핵심 단언 — stale A의 완료가 B의(아직 진행 중인) 모달을 강제로 닫으면 안 된다.
+      expect(screen.queryByRole('dialog')).not.toBeNull();
+
+      // 뒷정리 — B의 업로드도 마저 완료시켜 정상적으로 모달이 닫히는지 확인한다.
+      await act(async () => {
+        releaseB?.();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      server.events.removeListener('request:match', captureRequest);
+    }
+  });
+
   it('등록 실패: 모달이 닫히지 않고 입력한 폼 값이 유지되며 에러 메시지가 표시된다', async () => {
     server.use(
       http.post('/api/facilities', () => {
