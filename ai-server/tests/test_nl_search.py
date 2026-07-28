@@ -76,7 +76,8 @@ def test_prompt_preserves_v1_grade_status_confidence_and_ambiguity_rules():
     assert "신뢰도 상한/미만은 지원하지 않으므로" in prompt
     assert '"심각한", "위험한"만으로 등급을 추측하지 말고' in prompt
     assert '"검수 완료"만 있어 하자 상태인지 점검 상태인지 불명확하면' in prompt
-    assert '"완료된 점검", "진행 중인 점검"처럼 단계를 특정하지 않으면' in prompt
+    assert '"완료된 점검", "진행 중인 점검"' in prompt
+    assert "점검 단계를 되물어라" in prompt
 
 
 def test_v2_intent_version_is_required_discriminator():
