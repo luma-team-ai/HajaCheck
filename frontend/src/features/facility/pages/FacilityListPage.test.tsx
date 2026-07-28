@@ -6,22 +6,37 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import { facilityHandlers, resetFacilityMockStore } from '../api/facilityApi.handlers';
+import { facilityMediaHandlers, resetFacilityMediaMockStore } from '../api/facilityMediaApi.handlers';
 import { FacilityListPage } from './FacilityListPage';
 
-const server = setupServer(...facilityHandlers);
+const server = setupServer(...facilityHandlers, ...facilityMediaHandlers);
+
+// jsdom은 URL.createObjectURL/revokeObjectURL을 구현하지 않으므로 대표 사진 선택을 시뮬레이션하는
+// 테스트를 위해 스텁한다(FacilityPhotoUploadField.test.tsx와 동일 이유).
+beforeEach(() => {
+  let counter = 0;
+  URL.createObjectURL = vi.fn(() => `blob:mock-${counter++}`) as unknown as typeof URL.createObjectURL;
+  URL.revokeObjectURL = vi.fn() as unknown as typeof URL.revokeObjectURL;
+});
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   server.resetHandlers();
-  // 모듈 스코프 목 저장소(facilities/nextId)는 resetHandlers()로 초기화되지 않으므로,
-  // 한 테스트에서 등록한 시설물이 다음 테스트의 목록에 새지 않도록 명시적으로 리셋한다.
+  // 모듈 스코프 목 저장소(facilities/nextId, facility 사진)는 resetHandlers()로 초기화되지
+  // 않으므로, 한 테스트에서 등록한 데이터가 다음 테스트로 새지 않도록 명시적으로 리셋한다.
   resetFacilityMockStore();
+  resetFacilityMediaMockStore();
   cleanup();
+  vi.restoreAllMocks();
 });
 afterAll(() => server.close());
+
+function makeImageFile(name: string): File {
+  return new File(['fake-image-bytes'], name, { type: 'image/png' });
+}
 
 function renderPage(): void {
   const queryClient = new QueryClient({
@@ -76,6 +91,102 @@ describe('FacilityListPage (통합 테스트)', () => {
     expect(await screen.findByText('테스트 신규 시설물')).not.toBeNull();
     // 등록 성공 후 모달이 닫혀 더 이상 폼이 렌더링되지 않는다
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // #652 — 시설물 생성 후 대표 사진이 선택돼 있으면 실제 업로드 API(POST .../media)가 호출되는지,
+  // 선택하지 않았으면 호출되지 않는지를 MSW 요청 로그로 직접 검증한다(전체 등록+업로드 플로우).
+  it('등록 성공 + 사진 선택: 시설물 생성 후 대표 사진 업로드 API가 호출된다(#652)', async () => {
+    const requestedUrls: string[] = [];
+    const captureRequest = ({ request }: { request: Request }) => {
+      requestedUrls.push(new URL(request.url).pathname);
+    };
+    server.events.on('request:match', captureRequest);
+
+    try {
+      renderPage();
+      await screen.findByText('강남 오피스타워 A동');
+
+      openCreateModal();
+      fillRequiredFields('사진 있는 시설물');
+      fireEvent.change(screen.getByLabelText('대표 사진 업로드'), {
+        target: { files: [makeImageFile('a.png')] },
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+      });
+
+      expect(await screen.findByText('사진 있는 시설물')).not.toBeNull();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(requestedUrls.some((path) => /^\/api\/facilities\/\d+\/media$/.test(path))).toBe(true);
+    } finally {
+      server.events.removeListener('request:match', captureRequest);
+    }
+  });
+
+  it('등록 성공 + 사진 미선택: 대표 사진 업로드 API가 호출되지 않는다(#652)', async () => {
+    const requestedUrls: string[] = [];
+    const captureRequest = ({ request }: { request: Request }) => {
+      requestedUrls.push(new URL(request.url).pathname);
+    };
+    server.events.on('request:match', captureRequest);
+
+    try {
+      renderPage();
+      await screen.findByText('강남 오피스타워 A동');
+
+      openCreateModal();
+      fillRequiredFields('사진 없는 시설물');
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+      });
+
+      expect(await screen.findByText('사진 없는 시설물')).not.toBeNull();
+      expect(requestedUrls.some((path) => /^\/api\/facilities\/\d+\/media$/.test(path))).toBe(false);
+    } finally {
+      server.events.removeListener('request:match', captureRequest);
+    }
+  });
+
+  // code-reviewer P1 회귀고정 — 시설물 생성은 성공했지만 사진 업로드만 실패하면, isPending/error를
+  // useCreateFacility에서만 읽던 예전 코드는 (1) 생성 성공 즉시 isPending이 false로 풀려 업로드가
+  // 진행 중인 동안 등록 버튼이 재활성화되고(중복 생성 위험), (2) uploadPhotos의 에러는 별개
+  // 뮤테이션(error가 null)이라 배너가 전혀 뜨지 않아 사용자가 실패 사실을 전혀 알 수 없었다.
+  // isCreating||isUploading, createError??uploadError로 합친 뒤에는 최소한 에러 배너가 반드시
+  // 표시돼야 한다(모달이 열린 채 남아 사용자가 무언가 실패했음을 알 수 있어야 함).
+  it('시설물 생성 후 대표 사진 업로드만 실패하면 에러 배너를 표시하고 모달을 유지한다(#652, code-reviewer P1)', async () => {
+    server.use(
+      http.post('/api/facilities/:facilityId/media', () => {
+        const failure: ApiResponse<null> = {
+          success: false,
+          data: null,
+          error: { code: 'FACILITY_PHOTO_UPLOAD_FAILED', message: '대표 사진 업로드에 실패했습니다.' },
+        };
+        return HttpResponse.json(failure, { status: 500 });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('강남 오피스타워 A동');
+
+    openCreateModal();
+    fillRequiredFields('사진 업로드만 실패하는 시설물');
+    fireEvent.change(screen.getByLabelText('대표 사진 업로드'), {
+      target: { files: [makeImageFile('a.png')] },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+    });
+
+    // 시설물 생성 자체는 이미 성공해 목록/목 저장소에 반영돼 있다(P1이 지적한 "이미 생성됐는데
+    // 아무 표시도 없는" 상황 그 자체) — 그럼에도 사용자에게 실패 배너가 보여야 한다.
+    expect(await screen.findByText('사진 업로드만 실패하는 시설물')).not.toBeNull();
+    expect(await screen.findByText('대표 사진 업로드에 실패했습니다.')).not.toBeNull();
+    // 모달은 자동으로 닫히지 않는다 — uploadPhotos의 rejection이 FacilityFormModal의 handleSubmit
+    // catch로 전파돼 handleCloseModal이 호출되지 않는다.
+    expect(screen.queryByRole('dialog')).not.toBeNull();
   });
 
   it('등록 실패: 모달이 닫히지 않고 입력한 폼 값이 유지되며 에러 메시지가 표시된다', async () => {

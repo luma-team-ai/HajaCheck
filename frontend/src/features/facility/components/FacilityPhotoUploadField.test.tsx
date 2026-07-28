@@ -132,4 +132,39 @@ describe('FacilityPhotoUploadField', () => {
     expect(screen.getByAltText('d.png')).not.toBeNull();
     expect(screen.queryByAltText('e.png')).toBeNull();
   });
+
+  // #652 — 실 업로드 연동을 위해 선택된 File[]을 상위(FacilityFormModal)에 노출한다.
+  it('사진을 추가하면 onFilesChange에 선택된 File 배열을 전달한다(#652)', () => {
+    const handleFilesChange = vi.fn();
+    render(<FacilityPhotoUploadField onFilesChange={handleFilesChange} />);
+
+    const input = screen.getByLabelText('대표 사진 업로드');
+    const fileA = makeImageFile('a.png');
+    const fileB = makeImageFile('b.png');
+    fireEvent.change(input, { target: { files: [fileA, fileB] } });
+
+    expect(handleFilesChange).toHaveBeenCalledWith([fileA, fileB]);
+  });
+
+  it('사진을 제거하면 onFilesChange에 제거된 뒤의 File 배열을 전달한다(#652)', () => {
+    const handleFilesChange = vi.fn();
+    render(<FacilityPhotoUploadField onFilesChange={handleFilesChange} />);
+
+    const input = screen.getByLabelText('대표 사진 업로드');
+    const fileA = makeImageFile('a.png');
+    fireEvent.change(input, { target: { files: [fileA] } });
+    handleFilesChange.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'a.png 제거' }));
+
+    expect(handleFilesChange).toHaveBeenCalledWith([]);
+  });
+
+  it('onFilesChange 없이도 정상 동작한다(선택적 prop)', () => {
+    render(<FacilityPhotoUploadField />);
+
+    const input = screen.getByLabelText('대표 사진 업로드');
+    expect(() => fireEvent.change(input, { target: { files: [makeImageFile('a.png')] } })).not.toThrow();
+    expect(screen.getByAltText('a.png')).not.toBeNull();
+  });
 });

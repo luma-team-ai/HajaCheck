@@ -36,6 +36,11 @@ export function findFacilityTypeCycleMonths(type: string): number | null {
 // 등록 모달 "초기 등급 설정" pill 토글 옵션(#628/HAJA-347) — backend FacilityInitialGrade와 순서 정합.
 export const FACILITY_INITIAL_GRADE_OPTIONS: FacilityInitialGrade[] = ['A', 'B', 'C', 'D', 'E'];
 
+// 대표 사진 최대 장수(#652) — 백엔드 누적 기준 제한(FACILITY_PHOTO_COUNT_EXCEEDED)과 정합.
+// FacilityPhotoUploadField(선택 단계 클라이언트 제한)와 facilityMediaApi.handlers(목 서버측 검증)가
+// 같은 상수를 참조해 두 값이 어긋나지 않게 한다.
+export const FACILITY_PHOTO_MAX_COUNT = 4;
+
 // 하자 상세 — 조치 상태 스테퍼(dev-04-02, #489). 순서는 백엔드 DefectStatus 정의 순서와 동일.
 
 export const FACILITY_DEFECT_STATUS_ORDER: FacilityDefectStatus[] = [

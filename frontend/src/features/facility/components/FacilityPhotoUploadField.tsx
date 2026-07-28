@@ -1,8 +1,9 @@
 import type { ChangeEvent, DragEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { FACILITY_PHOTO_MAX_COUNT } from '../constants';
 import { LABEL_CLASSES } from '../formClasses';
 
-const MAX_PHOTO_COUNT = 4;
+const MAX_PHOTO_COUNT = FACILITY_PHOTO_MAX_COUNT;
 
 interface StagedPhoto {
   id: string;
@@ -10,11 +11,17 @@ interface StagedPhoto {
   previewUrl: string;
 }
 
-// 등록 모달 "대표 사진(최대 4장)" — UI만 구성한다(#629 범위). 실제 멀티파트 업로드 연동은
-// 대표 사진 백엔드 계약(facility_photos 테이블, #632)이 아직 없어 #652 대기 중 — 선택한 파일은
-// 로컬 미리보기(objectURL)까지만 처리하고, 저장 요청(CreateFacilityRequest)에는 포함하지 않는다.
-// 실 업로드 연동 시 이 컴포넌트가 onFilesChange로 선택 파일 목록을 상위에 노출하도록 확장한다.
-export function FacilityPhotoUploadField() {
+type Props = {
+  // 선택된 파일 배열이 바뀔 때마다(추가/삭제) 호출 — 상위(FacilityFormModal)가 실제 업로드 시점에
+  // 쓸 File[]을 들고 있도록 노출한다(#652). 미리보기/objectURL 관리는 이 컴포넌트가 계속 전담하고,
+  // 상위는 File 객체 배열만 받는다.
+  onFilesChange?: (files: File[]) => void;
+};
+
+// 등록 모달 "대표 사진(최대 4장)" — UI(#629) + 실 업로드 연동(#652, POST /api/facilities/{id}/media).
+// 미리보기/드래그드롭/개별삭제/objectURL cleanup은 이 컴포넌트가 계속 전담하고, 선택된 File 배열만
+// onFilesChange로 상위에 노출한다 — 실제 전송(FormData 구성, 진행률)은 useUploadFacilityPhotos가 담당.
+export function FacilityPhotoUploadField({ onFilesChange }: Props) {
   const [photos, setPhotos] = useState<StagedPhoto[]>([]);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -33,6 +40,14 @@ export function FacilityPhotoUploadField() {
       photosRef.current.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
     };
   }, []);
+
+  // photos가 바뀔 때마다(추가/삭제) 선택된 File 배열을 상위에 노출한다(#652). setPhotos 업데이터
+  // 내부에서 직접 호출하지 않는 이유 — React가 개발 모드(StrictMode)에서 useState 업데이터 함수를
+  // 두 번 호출해 순수성을 검증하는데, 그 안에서 onFilesChange 같은 부수효과를 호출하면 이중 호출될
+  // 수 있다. photos state 자체를 단일 진실로 삼아 effect에서 파생시키는 편이 안전하다.
+  useEffect(() => {
+    onFilesChange?.(photos.map((photo) => photo.file));
+  }, [photos, onFilesChange]);
 
   const addFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -152,10 +167,6 @@ export function FacilityPhotoUploadField() {
           ))}
         </div>
       )}
-
-      <p className="m-0 text-xs text-text-muted">
-        사진 업로드 연동은 준비 중입니다(#652) — 현재는 미리보기만 제공되며 등록 시 전송되지 않습니다.
-      </p>
     </div>
   );
 }
