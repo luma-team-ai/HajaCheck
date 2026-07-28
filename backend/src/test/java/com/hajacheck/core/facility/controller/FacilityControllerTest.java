@@ -696,4 +696,18 @@ class FacilityControllerTest extends PostgresTestSupport {
                         .param("before", "1").param("after", "2"))
                 .andExpect(status().isUnauthorized());
     }
+
+    @Test
+    void 회차간비교_before파라미터생략_400_INVALID_INPUT() throws Exception {
+        // PR머신 P2 회귀 고정 — 필수 @RequestParam 자체 누락은 값 타입 오류와 달리 기존엔
+        // GlobalExceptionHandler의 하위 포괄 handleException(500)으로 샜다.
+        User owner = saveUser("compare-owner6@haja.com");
+        Facility facility = saveFacility(owner.getId());
+
+        mockMvc.perform(get("/api/facilities/{id}/compare", facility.getId())
+                        .param("after", "2")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
 }
