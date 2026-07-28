@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.30.0-draft"
+  version: "0.31.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -4281,11 +4281,33 @@ components:
           maxLength: 500
           description: 양끝 공백 제거 후 1~500자인 자연어 질의
           example: D등급 이상 조치 대기 하자
+        referenceDate:
+          type: string
+          format: date
+          nullable: true
+          description: >
+            Spring이 전달하는 KST 기준일(YYYY-MM-DD, HAJA-537). 상대 날짜("지난 두 달간" 등)를
+            결정적으로 정규화하는 데 쓰인다. 점진 배포 중 구버전 Spring 호출을 수용하기 위해
+            생략 가능하며, 생략 시 FastAPI가 Asia/Seoul의 현재 날짜를 사용한다.
 
     NlSearchFilters:
       type: object
       additionalProperties: false
-      required: [type, grade, status, confidenceMin]
+      required:
+        [
+          type,
+          grade,
+          status,
+          confidenceMin,
+          inspectionType,
+          inspectionStatus,
+          inspectionDateFrom,
+          inspectionDateTo,
+          roundNoMin,
+          roundNoMax,
+          defectCountMin,
+          defectCountMax,
+        ]
       properties:
         type:
           type: array
@@ -4305,6 +4327,46 @@ components:
           minimum: 0
           maximum: 1
           nullable: true
+        inspectionType:
+          type: array
+          uniqueItems: true
+          items: { $ref: "#/components/schemas/InspectionTypeCode" }
+          description: HAJA-537 — 자연어 검색 필터 스키마 V2에서 추가된 점검 종류 축.
+        inspectionStatus:
+          type: array
+          uniqueItems: true
+          items: { $ref: "#/components/schemas/InspectionStatusCode" }
+          description: HAJA-537 — 대시보드 그룹이 아닌 점검 원시 진행 상태.
+        inspectionDateFrom:
+          type: string
+          format: date
+          nullable: true
+          description: HAJA-537 — inspections.inspection_date 기준 inclusive 하한.
+        inspectionDateTo:
+          type: string
+          format: date
+          nullable: true
+          description: HAJA-537 — inspections.inspection_date 기준 inclusive 상한.
+        roundNoMin:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: HAJA-537 — 시설별 점검 회차 inclusive 하한.
+        roundNoMax:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: HAJA-537 — 시설별 점검 회차 inclusive 상한.
+        defectCountMin:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: HAJA-537 — 점검에 속한 전체 미삭제 하자 건수 inclusive 하한.
+        defectCountMax:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: HAJA-537 — 점검에 속한 전체 미삭제 하자 건수 inclusive 상한.
 
     NlSearchResult:
       type: object
