@@ -31,10 +31,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * ACTION_PENDING 제거 — 하자 상태 4단계화, #1072/#1079/#1083)→V23(counsel_ticket_notes 상담원 비공개
  * 메모, #1021/HAJA-503/#1091)→V24(defects.location + defects.previous_defect_id, #970 갭3/HAJA-437)→
  * V25(notifications.uq_notifications_inspection_due_dedupe 부분 유니크 인덱스, #1050 — INSPECTION_DUE
- * 알림 멱등성을 애플리케이션 메모리 조회에서 DB 유니크 제약 기반으로 전환. 번호 조율 이력은 V25 마이그레이션
- * 파일 헤더 주석 참고 — 최초 안내 V24 → 로컬 재확인으로 V22 임시배정 → V22/V23 실머지 확인 후 V24 재배정 →
- * rebase까지 마친 뒤 진짜 V24(defects.location, 위)가 그 사이 실제로 dev에 먼저 머지된 사실을 확인해 최종
- * V25로 확정)를 순서대로 적용하고,
+ * 알림 멱등성을 애플리케이션 메모리 조회에서 DB 유니크 제약 기반으로 전환)→V26(media.original_filename,
+ * #1116 — AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정)→V27(user_plans.current_period_start/
+ * current_period_end 결제 주기 실체화, #1104/HAJA-525)를 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -78,7 +77,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V26까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V27까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -106,15 +105,17 @@ class FlywayBaselineIntegrationTest {
         // + V25(notifications.uq_notifications_inspection_due_dedupe 부분 유니크 인덱스, #1050 —
         //   INSPECTION_DUE 알림 멱등성을 애플리케이션 메모리 조회에서 DB 유니크 제약 기반으로 전환).
         // + V26(media.original_filename — AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정, #1116).
-        //   V25는 #1050이 선점해 이 작업이 V26으로 이어 붙였다(팀 배분: V25=#1050 · V26=#1116).
-        //   마이그레이션 수는 V1~V24(24개) + V25(1개) + V26(1개) = 26이다.
-        assertThat(appliedMigrations).isEqualTo(26);
+        // + V27(user_plans.current_period_start/current_period_end 결제 주기 실체화, #1104/HAJA-525).
+        //   번호 배분(2026-07-28 팀 확정): V25=#1050 · V26=#1116 · V27=#1104 — 착수 시점엔 이 작업이
+        //   V25였으나 앞의 두 건이 먼저 dev에 확정돼 재번호했다.
+        //   마이그레이션 수는 V1~V24(24개) + V25·V26·V27(3개) = 27이다.
+        assertThat(appliedMigrations).isEqualTo(27);
 
-        // 최신 적용 버전이 실제로 V26 인지 확인.
+        // 최신 적용 버전이 실제로 V27 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("26");
+        assertThat(latestVersion).isEqualTo("27");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -138,8 +139,8 @@ class FlywayBaselineIntegrationTest {
                 """, Boolean.class);
         assertThat(inspectionIdNullable).isTrue();
 
-        // V26이 media.original_filename 컬럼을 실제로 추가했는지 확인(AI 분석 실행/상태 화면
-        // "이미지 N" 순번 표시 문제 수정, V25는 팀원 작업 선점으로 아직 dev 미병합).
+        // V26이 media.original_filename 컬럼을 실제로 추가했는지 확인(#1116 — AI 분석 실행/상태 화면
+        // "이미지 N" 순번 표시 문제 수정).
         Long originalFilenameColumnExists = jdbcTemplate.queryForObject("""
                 select count(*) from information_schema.columns
                 where table_schema = 'public' and table_name = 'media' and column_name = 'original_filename'
@@ -359,5 +360,14 @@ class FlywayBaselineIntegrationTest {
                   and ccu.table_name = 'defects' and ccu.column_name = 'id'
                 """, Long.class);
         assertThat(previousDefectIdFkExists).isGreaterThanOrEqualTo(1L);
+
+        // V27이 user_plans.current_period_start/current_period_end 컬럼(#1104/HAJA-525)을
+        // 실제로 추가했는지 확인한다.
+        Long billingPeriodColumnCount = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'user_plans'
+                  and column_name in ('current_period_start', 'current_period_end')
+                """, Long.class);
+        assertThat(billingPeriodColumnCount).isEqualTo(2L);
     }
 }

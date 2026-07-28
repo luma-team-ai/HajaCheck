@@ -11,6 +11,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.time.ZoneId;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -26,6 +27,12 @@ import org.hibernate.type.SqlTypes;
  * 이 엔티티는 팩토리 메서드 {@link #forUser}/{@link #forCompany} 로만 생성해 애플리케이션 레벨에서도 XOR 을 강제한다.
  *
  * <p>created_at/updated_at 컬럼이 DDL 에 없어 BaseTimeEntity 를 상속하지 않는다(startedAt 이 생성시각 역할).
+ *
+ * <p><b>결제 주기(#1104 / HAJA-525)</b>: {@code currentPeriodStart}/{@code currentPeriodEnd} 는
+ * {@code nextBillingDate}(과거 {@code startedAt + 1개월} 파생 계산) 를 실체화한 컬럼이다. FREE 는
+ * {@code currentPeriodEnd == null}(무기한)이고, 유료 플랜은 결제 승인 시 {@link #startNewBillingPeriod}
+ * 로 리셋되거나 관리자 플랜 변경(무결제) 시 {@link #carryOverBillingPeriod} 로 이전 값이 승계된다 —
+ * 어느 쪽이든 서비스가 필드를 직접 대입하지 않고 이 엔티티 메서드로만 전이한다(Setter 금지 컨벤션).
  */
 @Entity
 @Getter
@@ -35,6 +42,10 @@ import org.hibernate.type.SqlTypes;
 })
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class UserPlan {
+
+    // 결제 주기 1개월 계산 존 — MyPlanResponse/PlatformAdminPlanQuotaService 등 기존 파생 계산이 쓰던
+    // 존과 동일하게 KST 로 고정한다(서버 JVM 기본존도 Dockerfile 에서 Asia/Seoul 로 고정돼 있어 정합).
+    private static final ZoneId BILLING_ZONE = ZoneId.of("Asia/Seoul");
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -62,6 +73,12 @@ public class UserPlan {
 
     @Column(name = "ended_at")
     private Instant endedAt;
+
+    @Column(name = "current_period_start")
+    private Instant currentPeriodStart;
+
+    @Column(name = "current_period_end")
+    private Instant currentPeriodEnd;
 
     @Builder(access = AccessLevel.PRIVATE)
     private UserPlan(Long userId, Long companyId, Long planId, UserPlanStatus status, Instant startedAt) {
@@ -115,5 +132,39 @@ public class UserPlan {
 
     public boolean isOwnedByUser(Long candidateUserId) {
         return this.userId != null && this.userId.equals(candidateUserId);
+    }
+
+    /**
+     * 새 결제 주기 개시(#1104) — 결제 승인 전이({@code PlanTransitionService#transitionTo})에서 신규
+     * 발급된 구독에 호출한다. 새로 돈을 냈으므로 이전 주기를 승계하지 않고 {@code periodStart} 부터
+     * 1개월을 새로 연다({@link #carryOverBillingPeriod} 와 반대 규칙 — 둘을 혼동하면 "결제일이 밀리는"
+     * 원래 버그(파생 계산 시절 startedAt 리셋)가 재발한다).
+     */
+    public void startNewBillingPeriod(Instant periodStart) {
+        this.currentPeriodStart = periodStart;
+        this.currentPeriodEnd = periodStart.atZone(BILLING_ZONE).plusMonths(1).toInstant();
+    }
+
+    /**
+     * 결제 주기 승계(#1104) — 관리자 콘솔의 무결제 플랜 변경({@code AdminPlanService#changePlan})에서
+     * 신규 발급된 구독에 호출한다. 결제가 없었으므로 {@code previous} 의 현재 결제 주기를 그대로
+     * 물려받는다 — 여기서 리셋하면 관리자가 플랜만 바꿔도 결제일이 밀리는 버그가 그대로 남는다.
+     *
+     * <p><b>단, 대상 플랜이 무료면 {@code currentPeriodEnd} 는 승계하지 않고 NULL(무기한)로 둔다</b>
+     * (리뷰 P1, #1104). 유료→FREE 하향은 {@code AdminPlanService#requireNotUpgrade} 가 막는 "상향"이
+     * 아니라 정상 허용 경로인데, 여기서 무조건 승계하면 FREE 구독에 과거 유료 주기의 만료일이 그대로
+     * 남아 (1) 마이페이지에 무료인데 다음 결제일이 표시되고 (2) 그 날짜가 지나면
+     * {@code PlatformAdminPlanQuotaService} 가 EXPIRED 로 오판한다 — 이 PR 이 고치겠다고 선언한 바로 그
+     * 버그(FREE 는 {@code currentPeriodEnd == null})가 승계 경로로 재발한다. {@code currentPeriodStart}
+     * 는 무료여도 승계한다(구독 개시 시점 자체는 여전히 유효한 정보라 굳이 지울 이유가 없다).
+     *
+     * @param targetIsPaid 신규 발급되는 대상 플랜이 유료인지 — 호출부가 {@code plans.price_monthly}
+     *                     기준으로 판정해 넘긴다(티어 이름이 아니라 가격이 유일한 기준 —
+     *                     {@code AdminPlanService#requireNotUpgrade} javadoc과 동일 근거: 가격은
+     *                     플랫폼 관리자가 바꿀 수 있어 이름 순서와 어긋날 수 있다).
+     */
+    public void carryOverBillingPeriod(UserPlan previous, boolean targetIsPaid) {
+        this.currentPeriodStart = previous.currentPeriodStart;
+        this.currentPeriodEnd = targetIsPaid ? previous.currentPeriodEnd : null;
     }
 }

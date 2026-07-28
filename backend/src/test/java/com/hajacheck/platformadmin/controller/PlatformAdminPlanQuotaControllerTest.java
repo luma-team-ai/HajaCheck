@@ -20,6 +20,8 @@ import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +29,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -204,6 +207,48 @@ class PlatformAdminPlanQuotaControllerTest extends PostgresTestSupport {
         saveUser(Role.USER, null); // 회사 미소속 — 활성 사용자 카운트 제외
 
         // saveApprovedCompany()가 만든 owner(ADMIN, 같은 회사 소속)까지 포함해 2명 — 회사 미소속 1명은 제외.
+        mockMvc.perform(get("/api/platform-admin/plans-quota").param("size", "50")
+                        .with(authentication(authOf(platformAdmin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.stats.activeUsers").value(2));
+    }
+
+    @Test
+    void 목록조회_가입한지한달넘은FREE회사도_만료로표시되지않는다() throws Exception {
+        // #1104 회귀 고정 — 과거에는 resolveRemaining이 startedAt + 1개월로 무조건 만료를 판정해(FREE
+        // 제외 필터 없음), 가입한 지 한 달 넘은 FREE 회사가 전부 "만료됨"으로 표시됐다. current_period_end
+        // 는 FREE 면 항상 NULL(무기한)이므로 startedAt 이 아무리 오래됐어도 EXPIRED 가 되면 안 된다.
+        seedPlans();
+        User platformAdmin = saveUser(Role.PLATFORM_ADMIN, null);
+        Company company = saveApprovedCompany();
+        UserPlan freePlan = UserPlan.forCompany(company.getId(), planId(PlanName.FREE));
+        ReflectionTestUtils.setField(freePlan, "startedAt", Instant.now().minus(60, ChronoUnit.DAYS));
+        userPlanRepository.save(freePlan);
+        User member = saveUser(Role.USER, company.getId());
+
+        mockMvc.perform(get("/api/platform-admin/plans-quota").param("size", "50")
+                        .with(authentication(authOf(platformAdmin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[1].email").value(member.getEmail()))
+                .andExpect(jsonPath("$.data.content[1].plan").value("FREE"))
+                .andExpect(jsonPath("$.data.content[1].remainingDays").value(nullValue()))
+                .andExpect(jsonPath("$.data.content[1].status").value("ACTIVE"));
+    }
+
+    @Test
+    void 목록조회_가입한지한달넘은FREE회사도_활성사용자KPI에포함된다() throws Exception {
+        // #1104 회귀 고정 — buildStats() 의 "유효(비만료) 플랜" 집계에서 FREE가 빠져 활성 사용자 KPI가
+        // 실제보다 작게 나오던 버그. current_period_end == null 은 EXPIRED 가 아니므로 이제 포함돼야 한다.
+        seedPlans();
+        User platformAdmin = saveUser(Role.PLATFORM_ADMIN, null);
+        Company company = saveApprovedCompany();
+        UserPlan freePlan = UserPlan.forCompany(company.getId(), planId(PlanName.FREE));
+        ReflectionTestUtils.setField(freePlan, "startedAt", Instant.now().minus(60, ChronoUnit.DAYS));
+        userPlanRepository.save(freePlan);
+        saveUser(Role.USER, company.getId());
+        saveUser(Role.USER, null); // 회사 미소속 — 활성 사용자 카운트 제외
+
+        // saveApprovedCompany()가 만든 owner(ADMIN, 같은 회사 소속)까지 포함해 2명.
         mockMvc.perform(get("/api/platform-admin/plans-quota").param("size", "50")
                         .with(authentication(authOf(platformAdmin))))
                 .andExpect(status().isOk())

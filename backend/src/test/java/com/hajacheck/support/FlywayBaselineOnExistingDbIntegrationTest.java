@@ -258,5 +258,21 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                   and column_name in ('location', 'previous_defect_id')
                 """, Long.class);
         assertThat(defectDetailColumnCount).isEqualTo(2L);
+
+        // V27(user_plans.current_period_start/current_period_end 결제 주기 실체화, #1104/HAJA-525)도
+        // 이 "기존 DB" 경로에서 no-op 성공으로 적용된다 — 캐노니컬 DDL이 이미 두 컬럼을 포함한다.
+        Integer v27Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '27' and success = true",
+                Integer.class);
+        assertThat(v27Applied).isEqualTo(1);
+
+        // 기존 DB에 있던 user_plans.current_period_start/current_period_end도 그대로 유지된다
+        // (V27 재실행이 깨거나 중복 생성하지 않음).
+        Long billingPeriodColumnCount = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'user_plans'
+                  and column_name in ('current_period_start', 'current_period_end')
+                """, Long.class);
+        assertThat(billingPeriodColumnCount).isEqualTo(2L);
     }
 }

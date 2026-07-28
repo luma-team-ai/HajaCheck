@@ -26,6 +26,7 @@ import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -267,6 +268,79 @@ class AdminPlanServiceTest {
         assertThat(plans.getAllValues()).extracting(Plan::getName)
                 .containsExactly(PlanName.ENTERPRISE, PlanName.STANDARD);
         verify(planDowngradeService).applyOverflow(eq(companyId), any(Plan.class), any(DowngradeOverflow.class));
+    }
+
+    @Test
+    void 플랜변경_기존결제주기가_신규구독에_승계된다() {
+        // #1104 — 관리자 콘솔 플랜 변경은 무결제 경로라, 결제일이 밀리지 않도록 기존 current_period_*
+        // 를 그대로 승계해야 한다(결제 승인 전이의 리셋과 반대 규칙 — PlanTransitionServiceTest 참고).
+        Long adminUserId = 1L;
+        Long companyId = 10L;
+        User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
+                .passwordHash("hash").build();
+        UserPlan current = UserPlan.forCompany(companyId, 100L);
+        Instant existingPeriodStart = Instant.parse("2026-06-15T00:00:00Z");
+        current.startNewBillingPeriod(existingPeriodStart); // 기존에 결제로 확정돼 있던 주기를 시뮬레이션.
+        Plan targetPlan = Plan.create(PlanName.STANDARD, 10, 1000, 3, false, true, true,
+                new BigDecimal("29000.00"));
+        Company company = Company.createPendingReview(adminUserId, "회사", "123-45-67890",
+                "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+
+        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
+                companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(targetPlan));
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class), any()))
+                .thenReturn(DowngradeOverflow.none());
+        when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.changePlan(adminUserId, PlanName.STANDARD, false, List.of());
+
+        // 첫 번째 saveAndFlush는 만료 처리(current 그대로), 두 번째가 신규 발급된 renewed다.
+        ArgumentCaptor<UserPlan> saved = ArgumentCaptor.forClass(UserPlan.class);
+        verify(adminPlanRepository, org.mockito.Mockito.times(2)).saveAndFlush(saved.capture());
+        UserPlan renewed = saved.getAllValues().get(1);
+        assertThat(renewed.getCurrentPeriodStart()).isEqualTo(existingPeriodStart);
+        assertThat(renewed.getCurrentPeriodEnd()).isEqualTo(current.getCurrentPeriodEnd());
+    }
+
+    @Test
+    void 플랜변경_유료에서FREE로하향하면_신규구독의_currentPeriodEnd는_null이다() {
+        // 리뷰 P1(#1104) 회귀 고정 — 유료→FREE 하향은 requireNotUpgrade가 막는 "상향"이 아니라 정상
+        // 허용 경로다. carryOverBillingPeriod가 대상 플랜을 보지 않고 무조건 이전 만료일을 복사하면,
+        // FREE 구독인데 마이페이지에 "다음 결제일"이 뜨고, 그 날짜가 지나면 PlatformAdminPlanQuotaService
+        // 가 EXPIRED로 오판한다 — FREE는 currentPeriodEnd == null(무기한)이어야 하는 이 PR의 불변식이
+        // 승계 경로에서만 깨졌던 버그다. currentPeriodStart는 무료여도 그대로 승계된다.
+        Long adminUserId = 1L;
+        Long companyId = 10L;
+        User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
+                .passwordHash("hash").build();
+        UserPlan current = UserPlan.forCompany(companyId, 100L);
+        Instant existingPeriodStart = Instant.parse("2026-06-15T00:00:00Z");
+        current.startNewBillingPeriod(existingPeriodStart); // 기존 유료 구독의 결제 주기.
+        Plan targetPlan = Plan.create(PlanName.FREE, 1, 50, 1, true, false, false, BigDecimal.ZERO);
+        Company company = Company.createPendingReview(adminUserId, "회사", "123-45-67890",
+                "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+
+        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
+                companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.FREE)).thenReturn(Optional.of(targetPlan));
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class), any()))
+                .thenReturn(DowngradeOverflow.none());
+        when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.changePlan(adminUserId, PlanName.FREE, false, List.of());
+
+        ArgumentCaptor<UserPlan> saved = ArgumentCaptor.forClass(UserPlan.class);
+        verify(adminPlanRepository, org.mockito.Mockito.times(2)).saveAndFlush(saved.capture());
+        UserPlan renewed = saved.getAllValues().get(1);
+        assertThat(renewed.getCurrentPeriodStart()).isEqualTo(existingPeriodStart);
+        assertThat(renewed.getCurrentPeriodEnd()).isNull();
     }
 
     // ── keepUserIds 전달(#890 Phase 2) — AdminPlanService는 preview()를 정확히 한 번 호출해 그 결과를

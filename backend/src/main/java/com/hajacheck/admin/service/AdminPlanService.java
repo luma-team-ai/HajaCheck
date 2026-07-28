@@ -157,6 +157,12 @@ public class AdminPlanService {
         adminPlanRepository.saveAndFlush(current);
 
         UserPlan renewed = UserPlan.forCompany(companyId, targetPlan.getId());
+        // 결제 없는 플랜 변경이므로 결제일이 밀리지 않도록 기존 결제 주기를 그대로 승계한다(#1104) —
+        // 결제 승인 전이(PlanTransitionService#transitionTo)의 리셋과 반대 규칙. 단, 대상이 FREE(하향)
+        // 면 currentPeriodEnd 는 승계하지 않고 NULL(무기한)로 둔다(리뷰 P1 — requireNotUpgrade 와 동일하게
+        // plans.price_monthly 기준으로 유료 여부를 판정, priceOrZero 헬퍼를 그대로 재사용해 두 판정이
+        // 어긋나지 않도록 한다).
+        renewed.carryOverBillingPeriod(current, priceOrZero(targetPlan).signum() > 0);
         UserPlan saved;
         try {
             // try 범위를 이 한 줄로 좁힌다(리뷰 P3) — 아래 좌석 정지 flush 에서 나온 무결성 위반까지

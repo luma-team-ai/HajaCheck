@@ -466,6 +466,8 @@ create table user_plans
     status     user_plan_status_type    default 'ACTIVE'::user_plan_status_type not null,
     started_at timestamp with time zone default now()                           not null,
     ended_at   timestamp with time zone,
+    current_period_start timestamptz,
+    current_period_end   timestamptz,
     constraint ck_user_plans_owner_xor
         check ((user_id is not null) <> (company_id is not null))
 );
@@ -485,6 +487,10 @@ comment on column user_plans.status is '구독 상태';
 comment on column user_plans.started_at is '구독 시작 시각';
 
 comment on column user_plans.ended_at is '구독 종료 시각';
+
+comment on column user_plans.current_period_start is '현재 결제 주기 시작 시각(#1104). 신규 발급/전이 시각으로 채워진다.';
+
+comment on column user_plans.current_period_end is '현재 결제 주기 종료 시각(#1104). NULL = 무기한(FREE). 결제 승인 전이 시 리셋(now~now+1개월), 관리자 플랜 변경(무결제) 시 기존 값이 승계된다.';
 
 alter table user_plans
     owner to postgres;

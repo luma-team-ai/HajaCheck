@@ -175,10 +175,12 @@ class MembershipServiceTest {
     }
 
     @Test
-    void 내플랜조회_유료플랜_다음결제일은_startedAt_KST에서_한달후() {
-        Instant startedAt = ZonedDateTime.of(2026, 1, 15, 10, 0, 0, 0, ZoneId.of("Asia/Seoul")).toInstant();
+    void 내플랜조회_유료플랜_다음결제일은_currentPeriodEnd를_KST_LocalDate로변환한값() {
+        // #1104 — nextBillingDate는 더 이상 startedAt에서 파생되지 않고 current_period_end 컬럼을
+        // 그대로 읽는다. startNewBillingPeriod가 KST 기준 1개월 후로 채우므로 그 값을 그대로 검증한다.
+        Instant periodStart = ZonedDateTime.of(2026, 1, 15, 10, 0, 0, 0, ZoneId.of("Asia/Seoul")).toInstant();
         UserPlan userPlan = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
-        setStartedAt(userPlan, startedAt);
+        userPlan.startNewBillingPeriod(periodStart);
 
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
         when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
@@ -451,17 +453,6 @@ class MembershipServiceTest {
             Field field = entity.getClass().getDeclaredField("id");
             field.setAccessible(true);
             field.set(entity, id);
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    /** 테스트 전용 — nextBillingDate(startedAt 기준 파생 계산) 검증을 위해 고정 시각을 세팅. */
-    private static void setStartedAt(UserPlan userPlan, Instant startedAt) {
-        try {
-            Field field = UserPlan.class.getDeclaredField("startedAt");
-            field.setAccessible(true);
-            field.set(userPlan, startedAt);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(e);
         }
