@@ -14,6 +14,14 @@ import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
 
+function formatElapsedTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (diffMs < 60000) return '방금 전';
+  if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)}분 전`;
+  if (diffMs < 86400000) return `${Math.floor(diffMs / 3600000)}시간 전`;
+  return `${Math.floor(diffMs / 86400000)}일 전`;
+}
+
 function extractErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message) {
     return err.message;
@@ -46,6 +54,7 @@ export function ReportGeneratePage() {
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfLoadError, setPdfLoadError] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const pdfBlobUrlRef = useRef<string | null>(null);
   const inspectionId = report?.inspectionId ?? 0;
   const setActiveReportId = useInspectionStore((state) => state.setActiveReportId);
@@ -74,6 +83,7 @@ export function ReportGeneratePage() {
           const url = URL.createObjectURL(blob);
           pdfBlobUrlRef.current = url;
           setPdfBlobUrl(url);
+          setLastSavedAt(new Date().toISOString());
         }
       })
       .catch((err) => {
@@ -177,6 +187,26 @@ export function ReportGeneratePage() {
     }
   };
 
+  const handleRefreshPdf = () => {
+    setPdfBlobUrl(null);
+    setPdfLoadError(null);
+    if (pdfBlobUrlRef.current) URL.revokeObjectURL(pdfBlobUrlRef.current);
+    pdfBlobUrlRef.current = null;
+    if (!report?.pdfUrl) return;
+    fetch(report.pdfUrl, { credentials: 'include' })
+      .then((res) => {
+        if (!res.ok) throw new Error(`PDF 응답 오류 (${res.status})`);
+        return res.blob();
+      })
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        pdfBlobUrlRef.current = url;
+        setPdfBlobUrl(url);
+        setLastSavedAt(new Date().toISOString());
+      })
+      .catch((err) => setPdfLoadError(err.message || 'PDF를 불러올 수 없습니다.'));
+  };
+
   const handleBackToViewer = () => {
     if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
       navigate('/reports');
@@ -237,21 +267,33 @@ export function ReportGeneratePage() {
       <div className="flex min-h-full flex-col bg-neutral-50">
         <div className="flex items-center justify-between border-b border-zinc-200 bg-white/70 px-6 py-2 backdrop-blur-[10px]">
           <div className="flex items-center gap-2 text-base font-medium text-neutral-600">
-            <span>자동 저장됨 · 방금 전</span>
+            <svg width="18" height="18" viewBox="0 0 20 18" fill="none" aria-hidden>
+              <path d="M5.5 14.5a4 4 0 0 1-.5-7.96A5 5 0 0 1 14.5 6a4 4 0 0 1 .5 7.96" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M8.5 10.5l1.5 1.5 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span>자동 저장됨 · {lastSavedAt ? formatElapsedTime(lastSavedAt) : '방금 전'}</span>
           </div>
           <div className="flex items-center gap-3">
-            <Link
-              to={`/reports/${report.id}`}
-              className="rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-base font-medium text-zinc-900 no-underline"
+            <button
+              type="button"
+              onClick={handleRefreshPdf}
+              className="inline-flex items-center justify-center gap-1.5 rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-base font-medium text-zinc-900"
             >
-              편집·미리보기
-            </Link>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                <path d="M2.2 7a4.8 4.8 0 0 1 8.2-3.4M11.8 7a4.8 4.8 0 0 1-8.2 3.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                <path d="M10.6 1.6v2.4h-2.4M3.4 12.4V10h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              미리보기 새로고침
+            </button>
             <Button
               onClick={() => void handleDownloadStoredPdf()}
               variant="primary"
               disabled={isDownloadingPdf || !report.pdfUrl}
             >
-              {isDownloadingPdf ? 'PDF 다운로드 중...' : 'PDF 다운로드'}
+              {isDownloadingPdf ? '내보내는 중...' : 'PDF 내보내기'}
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden className="ml-1.5">
+                <path d="M7 1.8v7m0 0L4.4 6.2M7 8.8l2.6-2.6M2 11.2h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </Button>
           </div>
         </div>
@@ -261,7 +303,7 @@ export function ReportGeneratePage() {
               <p className="text-lg font-semibold text-text-default">PDF를 불러올 수 없습니다.</p>
               <p className="text-sm text-text-muted">{pdfLoadError}</p>
               <Button onClick={() => void handleDownloadStoredPdf()} variant="secondary">
-                PDF 다운로드 시도
+                PDF 내보내기 시도
               </Button>
             </div>
           ) : pdfBlobUrl ? (
