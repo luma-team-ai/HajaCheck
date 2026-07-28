@@ -2,7 +2,7 @@
 // FacilityListPage 통합 테스트 — 실제 useFacilities/useCreateFacility 훅 + MSW facilityHandlers를 통해
 // "등록 성공 시 목록 반영(invalidateQueries)"과 "등록 실패 시 모달 유지·폼 값 보존"을 검증한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -243,6 +243,90 @@ describe('FacilityListPage (통합 테스트)', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
       expect(createFacilityRequests).toHaveLength(1);
       expect(mediaAttempt).toBe(2);
+    } finally {
+      server.events.removeListener('request:match', captureRequest);
+    }
+  });
+
+  // #1098 P1 회귀고정(PR머신 재검수) — 업로드가 아직 응답을 받기 전(in-flight)에 Escape로 모달을
+  // 닫으면, Modal의 키보드 핸들러는 isSubmitting을 모르고 즉시 onClose를 호출한다(취소 버튼의
+  // disabled={isSubmitting}과 달리 보호되지 않음). 이후 뒤늦게 도착하는 업로드 실패 응답이
+  // "이미 포기한" facilityId로 pendingFacilityId를 되살리면, 완전히 무관한 다음 등록이 재생성 없이
+  // 그 옛 시설물에 사진을 붙이는 경쟁 조건이 생긴다 — submissionTokenRef가 이를 막아야 한다.
+  it('업로드 진행 중 Escape로 모달을 닫아도 이후의 무관한 새 등록이 이전 시설물에 사진을 붙이지 않는다(#1098 P1)', async () => {
+    let releaseMediaResponse: (() => void) | undefined;
+    const mediaGate = new Promise<void>((resolve) => {
+      releaseMediaResponse = resolve;
+    });
+    let mediaAttempt = 0;
+    server.use(
+      http.post('/api/facilities/:facilityId/media', async () => {
+        mediaAttempt += 1;
+        if (mediaAttempt === 1) {
+          // 테스트가 releaseMediaResponse()를 호출할 때까지 응답하지 않는다 — 업로드가
+          // in-flight인 동안 사용자가 Escape를 누르는 타이밍을 재현하기 위한 지연.
+          await mediaGate;
+          const failure: ApiResponse<null> = {
+            success: false,
+            data: null,
+            error: { code: 'FACILITY_PHOTO_UPLOAD_FAILED', message: '대표 사진 업로드에 실패했습니다.' },
+          };
+          return HttpResponse.json(failure, { status: 500 });
+        }
+        const success: ApiResponse<null> = { success: true, data: null };
+        return HttpResponse.json(success);
+      }),
+    );
+
+    const createFacilityRequests: string[] = [];
+    const captureRequest = ({ request }: { request: Request }) => {
+      const url = new URL(request.url);
+      if (request.method === 'POST' && url.pathname === '/api/facilities') {
+        createFacilityRequests.push(url.pathname);
+      }
+    };
+    server.events.on('request:match', captureRequest);
+
+    try {
+      renderPage();
+      await screen.findByText('강남 오피스타워 A동');
+
+      openCreateModal();
+      fillRequiredFields('경쟁 조건 시설물');
+      fireEvent.change(screen.getByLabelText('대표 사진 업로드'), {
+        target: { files: [makeImageFile('a.png')] },
+      });
+
+      // 등록 클릭 — 시설물 생성은 성공하지만 업로드는 mediaGate가 풀릴 때까지 pending 상태로
+      // 남는다. act로 감싸지 않고 진행 중인 상태를 그대로 유지한다.
+      fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+      await waitFor(() => expect(createFacilityRequests).toHaveLength(1));
+
+      // 업로드가 in-flight인 동안 Escape로 모달을 닫는다 — 취소 버튼은 disabled라 눌리지 않지만
+      // Modal의 Escape 리스너는 isSubmitting을 모르므로 즉시 닫힌다(이 PR이 고치는 P1의 재현 조건).
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByRole('dialog')).toBeNull();
+
+      // 이제 지연됐던 첫 업로드를 실패로 귀결시킨다 — 모달이 닫힌 뒤 도착하는 "뒤늦은 catch".
+      await act(async () => {
+        releaseMediaResponse?.();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+      // 완전히 새로운 등록을 시도한다 — pendingFacilityId가 되살아나 있다면 createFacility가
+      // 다시 호출되지 않고 새로 선택한 사진이 옛(버려진) 시설물에 업로드될 것이다.
+      openCreateModal();
+      fillRequiredFields('전혀 다른 새 시설물');
+      fireEvent.change(screen.getByLabelText('대표 사진 업로드'), {
+        target: { files: [makeImageFile('b.png')] },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
+      });
+
+      expect(await screen.findByText('전혀 다른 새 시설물')).not.toBeNull();
+      // 두 번째 등록도 자기 자신의 시설물을 새로 생성해야 한다 — 1회(첫 시도)가 아니라 2회.
+      expect(createFacilityRequests).toHaveLength(2);
     } finally {
       server.events.removeListener('request:match', captureRequest);
     }
