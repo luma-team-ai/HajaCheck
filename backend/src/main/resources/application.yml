@@ -236,6 +236,21 @@ hajacheck:
       # 다른 배치까지 멈춘다. JPA lock.timeout 힌트는 PostgreSQL 에서 무시되므로
       # set_config('lock_timeout', …, true) 로 트랜잭션 로컬 적용한다(UserPlanRepository 참고).
       lock-timeout-ms: ${PLAN_EXPIRY_LOCK_TIMEOUT_MS:3000}
+    # 플랜 하향 예약 적용 배치(#1105 / HAJA-526) — 관리자가 신청해 둔 하향을 다음 결제 주기에 반영한다.
+    # ⚠️ 만료 강등(expiry)과 달리 기본값이 "켜짐"이다: 대상이 소급 백필 데이터가 아니라 사람이 명시적으로
+    # 만든 예약 행뿐이라 소급 대량 실행 표면이 없고, 꺼 두면 "신청은 받아 놓고 영원히 적용되지 않는" 더
+    # 나쁜 상태가 된다(자세한 근거는 ScheduledPlanChangeProperties javadoc).
+    scheduled-change:
+      # 사고 시 배포 없이 배치만 끄기 위한 비상 스위치.
+      enabled: ${PLAN_SCHEDULED_CHANGE_ENABLED:true}
+      # 매시 정각(KST) — 적용 시각이 결제 주기 종료 시각이라 하루 중 아무 때나 걸린다. 일 1회면 최악의
+      # 경우 하루 가까이 상위 요금제가 무료로 연장되므로 지연을 1시간 이내로 제한한다.
+      cron: ${PLAN_SCHEDULED_CHANGE_CRON:0 0 * * * *}
+      # 1회 실행 상한 — 초과하면 아무것도 하지 않고 중단한다(부분 적용 금지). 사람이 만든 예약뿐이라
+      # 정상 운영에서 넘길 일이 없고, 넘겼다면 그 자체가 사고 신호다.
+      max-per-run: ${PLAN_SCHEDULED_CHANGE_MAX_PER_RUN:100}
+      # 예약·구독 행 잠금 대기 상한(ms, 0=무제한). 근거·적용 방식은 위 expiry.lock-timeout-ms 와 동일.
+      lock-timeout-ms: ${PLAN_SCHEDULED_CHANGE_LOCK_TIMEOUT_MS:3000}
 
 # 국세청 사업자등록정보 진위확인(data.go.kr) — #596. service-key 미설정 시 진위확인을 스킵하고
 # 가입을 그대로 진행한다(fail-open). service-key 는 data.go.kr "일반 인증키(Decoding)" 를 주입한다.
