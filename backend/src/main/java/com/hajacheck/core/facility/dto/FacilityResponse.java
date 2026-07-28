@@ -34,8 +34,60 @@ public record FacilityResponse(
         // 시설물 카드 목록 "최근 점검 MM.dd"(HAJA-514/#1074, HAJA-368 선행) — 가장 최근 점검의
         // inspectionDate, 점검 이력이 없으면 null. FacilityStatusResponse.lastInspectedAt과
         // 동일 조회(inspectionRepository.findLatestByFacilityIds)를 재사용한다.
-        LocalDate lastInspectedAt
+        LocalDate lastInspectedAt,
+        // 지도/목록 실데이터 집계 — 기존 inspections/defects만으로 계산한다. 하자 등급이 없으면 null.
+        String highestGrade,
+        // 지도 경고/주의 건수 — D/E는 경고, C는 주의로 집계한다. 집계 가능한 하자가 없으면 0.
+        Long warningCount,
+        Long cautionCount
 ) {
+    /**
+     * 지도 집계 필드가 추가되기 전의 호출부와 호환한다.
+     * 기존 계약의 값은 그대로 두고 새 집계 값은 미집계 상태로 반환한다.
+     */
+    public FacilityResponse(
+            Long id,
+            String name,
+            String type,
+            String address,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            Integer builtYear,
+            String scale,
+            Integer inspectionCycleMonths,
+            LocalDate nextInspectionDueAt,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt,
+            FacilityInitialGrade initialGrade,
+            Long assigneeUserId,
+            String memo,
+            Long latestDefectId,
+            String thumbnailUrl,
+            LocalDate lastInspectedAt) {
+        this(
+                id,
+                name,
+                type,
+                address,
+                latitude,
+                longitude,
+                builtYear,
+                scale,
+                inspectionCycleMonths,
+                nextInspectionDueAt,
+                createdAt,
+                updatedAt,
+                initialGrade,
+                assigneeUserId,
+                memo,
+                latestDefectId,
+                thumbnailUrl,
+                lastInspectedAt,
+                null,
+                0L,
+                0L);
+    }
+
     public static FacilityResponse from(Facility facility) {
         return from(facility, null, null, null);
     }
@@ -46,6 +98,12 @@ public record FacilityResponse(
 
     public static FacilityResponse from(
             Facility facility, Long latestDefectId, String thumbnailUrl, LocalDate lastInspectedAt) {
+        return from(facility, latestDefectId, thumbnailUrl, lastInspectedAt, null, 0L, 0L);
+    }
+
+    public static FacilityResponse from(
+            Facility facility, Long latestDefectId, String thumbnailUrl, LocalDate lastInspectedAt,
+            String highestGrade, Long warningCount, Long cautionCount) {
         return new FacilityResponse(
                 facility.getId(),
                 facility.getName(),
@@ -64,7 +122,10 @@ public record FacilityResponse(
                 facility.getMemo(),
                 latestDefectId,
                 thumbnailUrl,
-                lastInspectedAt
+                lastInspectedAt,
+                highestGrade,
+                warningCount,
+                cautionCount
         );
     }
 }

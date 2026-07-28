@@ -64,5 +64,5 @@ export interface FacilitySummaryItem {
   facilityType: string; // facilities.type 원본 문자열 그대로(파싱 전)
   totalDefects: number;
   latestGrade: DefectGrade | null;
-  lastInspectedAt: string; // ISO date
+  lastInspectedAt: string | null; // ISO date, 점검 이력이 없으면 null
 }
