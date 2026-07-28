@@ -248,7 +248,9 @@ describe('ReportGeneratePage', () => {
     expect(uploadedPdfSize).toBeGreaterThan(0);
     expect(finalizePdfUrl).toBe('/api/reports/1/pdf/storage-key');
     expect(screen.getByRole('link', { name: 'PDF 보기' }).getAttribute('href')).toBe('/reports/1?mode=export');
-    expect((screen.getByLabelText('점검 목적') as HTMLTextAreaElement).disabled).toBe(true);
+    const purposeTextarea = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
+    expect(purposeTextarea.readOnly).toBe(true);
+    expect(purposeTextarea.disabled).toBe(false);
     expect(screen.queryByRole('button', { name: '저장' })).toBeNull();
   });
 

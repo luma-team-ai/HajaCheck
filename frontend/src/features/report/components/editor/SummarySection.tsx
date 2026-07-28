@@ -22,7 +22,7 @@ export function SummarySection({ content, onChange, readOnly }: SummarySectionPr
           value={content.summary.overall_opinion}
           readOnly={readOnly}
           rows={3}
-          textareaClassName="min-h-20 resize-y border-0 bg-transparent p-0 shadow-none focus:border-transparent focus:ring-0 disabled:bg-transparent"
+          textareaClassName="min-h-20 border-0 bg-transparent p-0 shadow-none focus:border-transparent focus:ring-0 read-only:bg-transparent"
           onChange={(value) => updateSummary({ overall_opinion: value })}
         />
         <div className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-indigo-600">

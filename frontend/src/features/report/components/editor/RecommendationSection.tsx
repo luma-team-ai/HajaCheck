@@ -20,7 +20,7 @@ function priorityPillClass(priority: string): string {
 }
 
 const INLINE_INPUT_CLASSES =
-  'w-full rounded-lg border border-transparent bg-transparent px-1 py-0.5 text-base font-medium text-zinc-900 outline-none transition focus:border-zinc-300 focus:bg-white focus:ring-2 focus:ring-zinc-100 disabled:cursor-not-allowed disabled:text-zinc-900';
+  'w-full rounded-lg border border-transparent bg-transparent px-1 py-0.5 text-base font-medium text-zinc-900 outline-none transition focus:border-zinc-300 focus:bg-white focus:ring-2 focus:ring-zinc-100 disabled:cursor-not-allowed read-only:text-zinc-900';
 
 export function RecommendationSection({
   content,
@@ -118,7 +118,7 @@ export function RecommendationSection({
                   value={item.method}
                   readOnly={readOnly}
                   rows={3}
-                  textareaClassName="min-h-20 resize-y border-transparent bg-transparent px-1 py-1 focus:border-zinc-300 focus:bg-white disabled:bg-transparent disabled:text-zinc-900"
+                  textareaClassName="min-h-20 border-transparent bg-transparent px-1 py-1 focus:border-zinc-300 focus:bg-white read-only:bg-transparent read-only:text-zinc-900"
                   onChange={(value) => updateItem(index, { method: value })}
                 />
                 <LabeledTextArea
@@ -126,7 +126,7 @@ export function RecommendationSection({
                   value={item.legal_basis}
                   readOnly={readOnly}
                   rows={2}
-                  textareaClassName="min-h-16 resize-y border-transparent bg-transparent px-1 py-1 text-zinc-700 focus:border-zinc-300 focus:bg-white disabled:bg-transparent"
+                  textareaClassName="min-h-16 border-transparent bg-transparent px-1 py-1 text-zinc-700 focus:border-zinc-300 focus:bg-white read-only:bg-transparent"
                   onChange={(value) =>
                     updateItem(index, { legal_basis: value, legal_basis_verified: false })
                   }

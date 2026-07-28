@@ -400,7 +400,7 @@ export function ReportGeneratePage() {
         <ReportContentEditor
           content={content}
           onChange={setContent}
-          readOnly={isFinalized || isSaving || isRechecking || isFinalizing}
+          readOnly={isFinalized}
           defectImageUrls={inspectionData?.defects.map((defect) => defect.imageUrl)}
         />
       )}
