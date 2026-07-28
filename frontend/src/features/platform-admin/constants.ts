@@ -1,6 +1,6 @@
 import type { SideNavItem } from '../../shared/components/SideNavBar';
 import adminIcon from '../../assets/brand/sidenav-admin.svg';
-import type { AdminUserPlan, AdminUserRole, AdminUserStatus, CompanyOption } from './types';
+import type { AdminUserPlan, AdminUserRole, AdminUserStatus, CompanyOption, CounselType } from './types';
 
 // 플랫폼 관리자 콘솔 사이드바(#535) — 7개 메뉴 라벨은 기존 SideNavBar DEFAULT_ADMIN_ITEM(기업
 // 관리자 콘솔)의 subItems 라벨과 동일하게 유지하고, 경로만 /platform-admin/* 로 분리한다.
@@ -95,3 +95,14 @@ export const STATUS_CHANGE_OPTIONS: { status: AdminUserStatus; description: stri
   { status: 'ACTIVE', description: '시스템 모든 기능을 정상적으로 이용할 수 있습니다.' },
   { status: 'SUSPENDED', description: '시스템 로그인이 차단되며 모든 서비스 이용이 제한됩니다.' },
 ];
+
+// 상담원 스킬 변경(#1001, HAJA-495) — 값·순서는 backend CounselType(USAGE/ANALYSIS_RESULT/
+// BILLING_ETC)과 일치시킨다. 라벨은 CounselorConsolePage 쪽 CATEGORY_LABEL(봇 시나리오 카테고리
+// 코드용, 값이 다른 축)과 무관하게 이 화면 전용으로 둔다 — 그대로 재사용하면 값 집합이 어긋난다.
+export const SKILL_LABEL: Record<CounselType, string> = {
+  USAGE: '이용 방법',
+  ANALYSIS_RESULT: '분석 결과',
+  BILLING_ETC: '결제·기타',
+};
+
+export const SKILL_CHANGE_OPTIONS: CounselType[] = ['USAGE', 'ANALYSIS_RESULT', 'BILLING_ETC'];

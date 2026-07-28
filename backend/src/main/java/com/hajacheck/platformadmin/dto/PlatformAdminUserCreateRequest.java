@@ -1,6 +1,7 @@
 package com.hajacheck.platformadmin.dto;
 
 import com.hajacheck.auth.entity.Role;
+import com.hajacheck.counsel.entity.CounselType;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -30,6 +31,9 @@ public record PlatformAdminUserCreateRequest(
         Role role,
 
         /** null = 회사 미소속(개인 계정)으로 등록. */
-        Long companyId
+        Long companyId,
+
+        /** role=COUNSELOR일 때만 의미가 있다(#1001, HAJA-495) — 그 외 역할이면 서비스에서 무시한다. */
+        CounselType skill
 ) {
 }
