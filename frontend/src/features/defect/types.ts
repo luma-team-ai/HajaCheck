@@ -134,13 +134,21 @@ export interface InspectionListItem {
   assigneeName: string | null;
 }
 
-// GET /api/inspections 쿼리 파라미터 — page는 Spring Data 관례대로 0-based
+// GET /api/inspections 쿼리 파라미터 — page는 Spring Data 관례대로 0-based. inspectionStatus는
+// 클라이언트 내부 이름이며 API 레이어에서 반복 쿼리 키 status로 명시 변환한다.
 // defectType/defectGrade/defectStatus(#878/HAJA-452, 백엔드 PR #891로 origin/dev 머지 완료)는 자연어
 // 하자조건 검색(POST /api/defects/nl-search)이 산출한 필터를 그대로 실어 재조회하는 용도 — 셋 중
 // 1개 이상 주어지면 같은 하자 하나가 조건을 전부 만족하는 점검만 반환한다(EXISTS 서브쿼리, 서로 다른
 // 하자로 나눠 만족하면 매칭 아님. InspectionController.list 설명 참고).
 export interface InspectionListFilters {
-  status?: InspectionStatus;
+  inspectionType?: InspectionType[];
+  inspectionStatus?: InspectionStatus[];
+  inspectionDateFrom?: string;
+  inspectionDateTo?: string;
+  roundNoMin?: number;
+  roundNoMax?: number;
+  defectCountMin?: number;
+  defectCountMax?: number;
   facilityId?: number;
   defectType?: DefectType[];
   defectGrade?: DefectGrade[];
@@ -171,12 +179,14 @@ export interface DefectActionResult {
   afterPhotoUrl: string | null;
 }
 
-// 하자 상세 모달 "조치 완료 등록" 제출 body — PATCH /api/defects/{id}/action, DefectActionResultRequest
-// 1:1(contract.md §"조치 결과 등록" 확정, #726). status는 보내지 않는다 — 백엔드가 내부에서 항상
-// RESOLVED로만 전이한다(Defect#registerActionResult).
+// 하자 상세 모달 "상태 저장" 제출 body — PATCH /api/defects/{id}/action, DefectActionResultRequest
+// 1:1(contract.md §"조치 결과 등록" 확정, #726). targetStatus(#1128) — "진행상태" select 값으로,
+// 이제 IN_PROGRESS(조치중)/RESOLVED(조치완료) 중 백엔드가 실제로 전이한 상태를 명시적으로 보낸다
+// (과거엔 항상 RESOLVED로만 전이해 이 필드가 없었음).
 export interface DefectActionSubmitRequest {
   actionContent: string;
   actionDate: string;
   actionAssigneeId: number;
   actionMediaId: number;
+  targetStatus: 'IN_PROGRESS' | 'RESOLVED';
 }

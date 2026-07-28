@@ -445,7 +445,16 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V27__add_user_plan_billing_period.sql"),
-                        CONTAINER_ROOT + "V27__add_user_plan_billing_period.sql");
+                        CONTAINER_ROOT + "V27__add_user_plan_billing_period.sql")
+                // #1145/HAJA-549 — Flyway V28(notification_type PLAN_EXPIRED 라벨)도 이어서 1회
+                // forward-apply한다. assertCanonicalSchemaParity가 enum 라벨까지 대조하는데 캐노니컬
+                // DDL의 notification_type에 이 라벨이 반영돼 있으므로, 이 증분 경로에서도 적용해야
+                // 파리티가 유지된다. ALTER TYPE ... ADD VALUE IF NOT EXISTS 라 V4/V15와 동일하게
+                // 재실행도 안전하다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V28__add_notification_type_plan_expired.sql"),
+                        CONTAINER_ROOT + "V28__add_notification_type_plan_expired.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -558,6 +567,10 @@ class Ha25IncrementalMigrationTest {
         runPsql(postgres, "V26__add_media_original_filename.sql");
         // #1104/HAJA-525 — Flyway V27(user_plans 결제 주기 실체화)도 이어서 1회 forward-apply한다.
         runPsql(postgres, "V27__add_user_plan_billing_period.sql");
+        // #1145/HAJA-549 — Flyway V28(notification_type PLAN_EXPIRED 라벨)도 이어서 forward-apply한다.
+        // ALTER TYPE ... ADD VALUE IF NOT EXISTS 라 재실행이 안전하다는 점까지 함께 고정한다(V4/V15와 동일).
+        runPsql(postgres, "V28__add_notification_type_plan_expired.sql");
+        runPsql(postgres, "V28__add_notification_type_plan_expired.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

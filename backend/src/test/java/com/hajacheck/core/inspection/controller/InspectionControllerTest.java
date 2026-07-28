@@ -232,6 +232,85 @@ class InspectionControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void 점검목록조회_기존단일상태파라미터_호환유지() throws Exception {
+        User owner = saveOwner("owner-legacy-status@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection analyzed = saveInspection(facility.getId(), owner.getId(), 1, InspectionStatus.ANALYZED);
+        saveInspection(facility.getId(), owner.getId(), 2, InspectionStatus.REVIEWED);
+
+        mockMvc.perform(get("/api/inspections").param("status", "ANALYZED")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(analyzed.getId()));
+    }
+
+    @Test
+    void 점검목록조회_점검축과전체하자건수필터_반복상태와포함범위바인딩() throws Exception {
+        User owner = saveOwner("owner-inspection-axes@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection matching = saveInspection(facility.getId(), owner.getId(), 1, InspectionStatus.ANALYZED);
+        saveInspection(facility.getId(), owner.getId(), 2, InspectionStatus.CREATED);
+        saveDefect(matching.getId(), DefectType.CRACK, DefectGrade.D, DefectStatus.CONFIRMED);
+
+        mockMvc.perform(get("/api/inspections")
+                        .param("status", "ANALYZED", "REVIEWED")
+                        .param("inspectionType", "REGULAR")
+                        .param("inspectionDateFrom", "2026-07-01")
+                        .param("inspectionDateTo", "2026-07-01")
+                        .param("roundNoMin", "1")
+                        .param("roundNoMax", "1")
+                        .param("defectCountMin", "1")
+                        .param("defectCountMax", "1")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(matching.getId()))
+                .andExpect(jsonPath("$.data.content[0].defectCount").value(1));
+    }
+
+    @Test
+    void 점검목록조회_역전된범위_400_INVALID_INPUT() throws Exception {
+        User owner = saveOwner("owner-invalid-range@haja.com");
+
+        mockMvc.perform(get("/api/inspections")
+                        .param("inspectionDateFrom", "2026-07-20")
+                        .param("inspectionDateTo", "2026-07-01")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+
+        mockMvc.perform(get("/api/inspections")
+                        .param("roundNoMin", "3")
+                        .param("roundNoMax", "1")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+
+        mockMvc.perform(get("/api/inspections")
+                        .param("defectCountMin", "5")
+                        .param("defectCountMax", "2")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void 점검목록조회_음수및0회차_400_INVALID_INPUT() throws Exception {
+        User owner = saveOwner("owner-invalid-lower-bound@haja.com");
+
+        mockMvc.perform(get("/api/inspections").param("roundNoMin", "0")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+
+        mockMvc.perform(get("/api/inspections").param("defectCountMin", "-1")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
     void 점검목록조회_미인증_401() throws Exception {
         mockMvc.perform(get("/api/inspections").with(csrf()))
                 .andExpect(status().isUnauthorized());

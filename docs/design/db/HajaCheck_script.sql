@@ -140,11 +140,11 @@ alter type rag_embedding_status_type owner to postgres;
 
 comment on type rag_embedding_status_type is 'RAG 문서 임베딩 처리 상태(대기/임베딩중/완료/실패)';
 
-create type notification_type as enum ('ANALYSIS_DONE', 'REVIEW_PENDING', 'COUNSEL_REPLIED', 'INSPECTION_DUE');
+create type notification_type as enum ('ANALYSIS_DONE', 'REVIEW_PENDING', 'COUNSEL_REPLIED', 'INSPECTION_DUE', 'PLAN_EXPIRED');
 
 alter type notification_type owner to postgres;
 
-comment on type notification_type is '알림 유형(분석완료/검토대기/상담답변/점검예정)';
+comment on type notification_type is '알림 유형(분석완료/검토대기/상담답변/점검예정/구독만료강등)';
 
 create type company_status_type as enum ('PENDING_REVIEW', 'APPROVED', 'REJECTED');
 

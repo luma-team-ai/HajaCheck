@@ -30,6 +30,28 @@ type DefectExplain = {
   action: string;
 };
 
+export function toInspectionListParams(filters: InspectionListFilters) {
+  const nonEmpty = <T>(values: T[] | null | undefined) =>
+    values && values.length > 0 ? values : undefined;
+
+  return {
+    facilityId: filters.facilityId,
+    inspectionType: nonEmpty(filters.inspectionType),
+    status: nonEmpty(filters.inspectionStatus),
+    inspectionDateFrom: filters.inspectionDateFrom || undefined,
+    inspectionDateTo: filters.inspectionDateTo || undefined,
+    roundNoMin: filters.roundNoMin ?? undefined,
+    roundNoMax: filters.roundNoMax ?? undefined,
+    defectCountMin: filters.defectCountMin ?? undefined,
+    defectCountMax: filters.defectCountMax ?? undefined,
+    defectType: nonEmpty(filters.defectType),
+    defectGrade: nonEmpty(filters.defectGrade),
+    defectStatus: nonEmpty(filters.defectStatus),
+    page: filters.page,
+    size: filters.size,
+  };
+}
+
 export const defectApi = {
   // POST /api/ai/defect-explain — AI 하자 원인·조치방안 설명
   getExplanation: (req: DefectExplainRequest) =>
@@ -79,7 +101,7 @@ export const defectApi = {
   // 반복 키 직렬화를 명시 강제한다(axios 1.x `indexes: null` 옵션).
   getInspections: (filters: InspectionListFilters = {}) =>
     api.get<PageResponse<InspectionListItem>>('/inspections', {
-      params: filters,
+      params: toInspectionListParams(filters),
       paramsSerializer: { indexes: null },
     }),
   // GET /api/inspections/{id}/defects — 점검별 하자 카드 목록(카드형 상세, contract.md §②).

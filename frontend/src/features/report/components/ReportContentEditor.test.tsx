@@ -71,4 +71,13 @@ describe('ReportContentEditor', () => {
       }),
     );
   });
+
+  it('renders narrative fields as non-resizable editable text inputs until finalized', () => {
+    render(<ReportContentEditor content={mockContent} onChange={() => {}} readOnly={false} />);
+
+    const purposeTextarea = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
+    expect(purposeTextarea.readOnly).toBe(false);
+    expect(purposeTextarea.className).toContain('resize-none');
+    expect(purposeTextarea.className).not.toContain('resize-y');
+  });
 });

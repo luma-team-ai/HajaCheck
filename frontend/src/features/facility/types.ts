@@ -99,10 +99,24 @@ export interface InspectionNotificationSettings {
 
 export type SetInspectionNotificationSettingsRequest = InspectionNotificationSettings;
 
-// 전체 시설물 점검 주기 현황 — 우측 테이블 전용 타입.
-// name/cycleMonths/nextInspectionDueAt은 Facility 실필드와 매핑 가능하지만,
-// type(점검유형 정기/정밀/긴급)·lastInspectedAt·assigneeName은 백엔드 계약에 없어 MSW 목 전용이다.
-// 실연동 시 Facility 계약 확장 필요(핸드오프 §8 — [CONTRACT-CHANGE-REQUEST]로 A에 요청 예정).
+// 전체 시설물 점검 주기 현황(#1136 실연동) — GET /api/facilities/status, backend
+// FacilityStatusResponse와 1:1. inspectionType은 Facility 자체가 아니라 가장 최근 점검 회차의
+// 값을 근사 재사용한다(팀 결정 — DB 마이그레이션 없이 진행, option a). 점검 이력이 없으면 null.
+export interface FacilityStatusRow {
+  facilityId: number;
+  facilityName: string;
+  initialGrade: FacilityInitialGrade | null;
+  nextInspectionDueAt: string | null;
+  dDay: number | null;
+  assigneeUserId: number | null;
+  assigneeName: string | null;
+  lastInspectedAt: string | null;
+  inspectionCycleMonths: number | null;
+  inspectionType: 'REGULAR' | 'DETAILED' | 'EMERGENCY' | null;
+}
+
+// 전체 시설물 점검 주기 현황 — 우측 테이블/좌측 카드 전용 화면 타입(FacilityStatusRow를
+// useInspectionCycleStatusRows가 이 형태로 매핑한다 — mapFacilityStatusRow 참고).
 export type InspectionCycleType = '정기' | '정밀' | '긴급';
 
 export interface InspectionCycleStatusRow {
@@ -243,7 +257,9 @@ export interface CrackTrendPoint {
   avgWidthMm: number;
 }
 
-export type DefectChangeType = 'worsened' | 'new' | 'unchanged' | 'resolved';
+// recurring(재발생, HAJA-532/#1119) — 이전 회차 RESOLVED였던 하자가 이후 회차에 previousDefectId로
+// 재연결된 경우. 초기(#1112)엔 대응 타입이 없어 worsened로 근사 매핑했었으나 이제 정확히 구분한다.
+export type DefectChangeType = 'worsened' | 'new' | 'unchanged' | 'resolved' | 'recurring';
 
 export interface DefectChangeRow {
   id: number;
@@ -260,10 +276,14 @@ export interface InspectionComparisonResult {
   facilityName: string;
   beforeCycle: InspectionCycleOption;
   afterCycle: InspectionCycleOption;
-  beforeImageUrl: string;
-  afterImageUrl: string;
+  // 실 백엔드(GET /api/facilities/{id}/compare, HAJA-531/#1112)는 실 데이터 근거가 없어 이 세 필드를
+  // 응답에서 아예 생략한다(2026-07-28 사용자 결정) — 타입을 그 실제 부재와 맞춘다. 이전엔 필수 string/
+  // 배열로 선언돼 있어, 실 API 응답을 그대로 쓰면 undefined가 되어 CrackTrendChart가 `data.length`에서
+  // 크래시했다(react-reviewer 발견, 즉시 수정).
+  beforeImageUrl: string | null;
+  afterImageUrl: string | null;
   kpis: ComparisonKpi[];
-  crackTrend: CrackTrendPoint[];
+  crackTrend?: CrackTrendPoint[];
   changes: DefectChangeRow[];
   /** 회차 선택 드롭다운에 노출할 전체 선택지 */
   availableCycles: InspectionCycleOption[];

@@ -62,6 +62,23 @@ class NotificationServiceTest {
     }
 
     @Test
+    void delete_본인알림_삭제성공() {
+        when(notificationRepository.deleteByIdAndUserId(10L, 20L)).thenReturn(1);
+
+        notificationService.delete(10L, 20L);
+
+        verify(notificationRepository).deleteByIdAndUserId(10L, 20L);
+    }
+
+    @Test
+    void delete_없는알림또는타인소유_NOTIFICATION_NOT_FOUND() {
+        when(notificationRepository.deleteByIdAndUserId(10L, 20L)).thenReturn(0);
+
+        assertThatThrownBy(() -> notificationService.delete(10L, 20L))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
     void getNotifications_읽음미읽음모두포함_DTO로변환하여반환() {
         Notification unread = Notification.create(20L, NotificationType.ANALYSIS_DONE, "{\"inspectionId\":1}");
         Notification read = Notification.create(20L, NotificationType.REVIEW_PENDING, null);

@@ -274,5 +274,21 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                   and column_name in ('current_period_start', 'current_period_end')
                 """, Long.class);
         assertThat(billingPeriodColumnCount).isEqualTo(2L);
+
+        // V28(notification_type PLAN_EXPIRED 라벨, #1145/HAJA-549)도 이 "기존 DB" 경로에서 no-op 성공으로
+        // 적용된다 — 캐노니컬 DDL이 이미 이 라벨을 포함하고 마이그레이션이 ADD VALUE IF NOT EXISTS 라서
+        // 재적용이 안전하다.
+        Integer v28Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '28' and success = true",
+                Integer.class);
+        assertThat(v28Applied).isEqualTo(1);
+
+        // 기존 DB에 있던 notification_type PLAN_EXPIRED 라벨도 그대로 유지된다(중복 생성되지 않음).
+        Long planExpiredLabelCount = jdbcTemplate.queryForObject("""
+                select count(*) from pg_enum e
+                join pg_type t on e.enumtypid = t.oid
+                where t.typname = 'notification_type' and e.enumlabel = 'PLAN_EXPIRED'
+                """, Long.class);
+        assertThat(planExpiredLabelCount).isEqualTo(1L);
     }
 }

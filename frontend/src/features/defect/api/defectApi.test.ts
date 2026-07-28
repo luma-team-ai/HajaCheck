@@ -188,10 +188,25 @@ describe('defectApi.getInspections', () => {
     expect(inspection101?.gradeDistribution).toMatchObject({ C: 1, D: 1 });
   });
 
-  it('status 필터를 적용하면 해당 상태의 점검만 반환한다', async () => {
-    const res = await defectApi.getInspections({ status: 'REPORTED' });
+  it('inspectionStatus 필터를 적용하면 해당 상태의 점검만 반환한다', async () => {
+    const res = await defectApi.getInspections({ inspectionStatus: ['REPORTED'] });
 
     expect(res.data.content.every((inspection) => inspection.status === 'REPORTED')).toBe(true);
+  });
+
+  it('점검 유형·날짜·회차·전체 하자 건수 조건을 AND로 적용한다', async () => {
+    const res = await defectApi.getInspections({
+      inspectionType: ['DETAILED'],
+      inspectionStatus: ['ANALYZED', 'REVIEWED'],
+      inspectionDateFrom: '2026-05-28',
+      inspectionDateTo: '2026-07-28',
+      roundNoMin: 1,
+      roundNoMax: 1,
+      defectCountMin: 1,
+      defectCountMax: 1,
+    });
+
+    expect(res.data.content.map((inspection) => inspection.id)).toEqual([202]);
   });
 
   it('defectType/defectGrade/defectStatus 조건을 모두 만족하는 단일 하자가 있는 점검만 반환한다', async () => {
@@ -233,15 +248,68 @@ describe('defectApi.getInspections', () => {
       }),
     );
 
-    await defectApi.getInspections({ defectType: ['CRACK', 'SPALLING'], defectGrade: ['D'] });
+    await defectApi.getInspections({
+      inspectionType: ['REGULAR', 'DETAILED'],
+      inspectionStatus: ['ANALYZED', 'REVIEWED'],
+      defectType: ['CRACK', 'SPALLING'],
+      defectGrade: ['D'],
+      inspectionDateFrom: '2026-05-28',
+      inspectionDateTo: '2026-07-28',
+      roundNoMin: 1,
+      roundNoMax: 3,
+      defectCountMin: 1,
+      defectCountMax: 5,
+    });
 
     const queryString = capturedUrl.split('?')[1] ?? '';
+    expect(queryString).toContain('inspectionType=REGULAR');
+    expect(queryString).toContain('inspectionType=DETAILED');
+    expect(queryString).toContain('status=ANALYZED');
+    expect(queryString).toContain('status=REVIEWED');
     expect(queryString).toContain('defectType=CRACK');
     expect(queryString).toContain('defectType=SPALLING');
     expect(queryString).toContain('defectGrade=D');
     // 대괄호가 인코딩되어(%5B%5D) 붙거나 리터럴로 붙는 어느 경우도 없어야 한다.
     expect(queryString).not.toMatch(/defectType(%5B%5D|\[\])/);
     expect(queryString).not.toMatch(/defectGrade(%5B%5D|\[\])/);
+    expect(queryString).not.toMatch(/inspectionType(%5B%5D|\[\])/);
+    expect(queryString).not.toMatch(/status(%5B%5D|\[\])/);
+    expect(queryString).toContain('inspectionDateFrom=2026-05-28');
+    expect(queryString).toContain('inspectionDateTo=2026-07-28');
+    expect(queryString).toContain('roundNoMin=1');
+    expect(queryString).toContain('roundNoMax=3');
+    expect(queryString).toContain('defectCountMin=1');
+    expect(queryString).toContain('defectCountMax=5');
+  });
+
+  it('빈 배열과 null 성격의 값은 쿼리에서 제외한다', async () => {
+    let capturedUrl = '';
+    server.use(
+      http.get('/api/inspections', ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({
+          success: true,
+          data: { content: [], page: 0, totalElements: 0 },
+        });
+      }),
+    );
+
+    await defectApi.getInspections({
+      inspectionType: [],
+      inspectionStatus: [],
+      defectType: [],
+      inspectionDateFrom: '',
+      page: 0,
+      size: 10,
+    });
+
+    const queryString = capturedUrl.split('?')[1] ?? '';
+    expect(queryString).not.toContain('inspectionType');
+    expect(queryString).not.toContain('status=');
+    expect(queryString).not.toContain('defectType');
+    expect(queryString).not.toContain('inspectionDateFrom');
+    expect(queryString).toContain('page=0');
+    expect(queryString).toContain('size=10');
   });
 });
 
@@ -268,12 +336,13 @@ describe('defectApi.listFacilityOptions', () => {
 });
 
 describe('defectApi.submitAction', () => {
-  it('PATCH /api/defects/{id}/action 호출 시 상태가 RESOLVED로 바뀌고 actionResult가 채워진다', async () => {
+  it('targetStatus=RESOLVED로 호출 시 상태가 RESOLVED로 바뀌고 actionResult가 채워진다', async () => {
     const res = await defectApi.submitAction(2, {
       actionContent: '균열 부위 보수 완료',
       actionDate: '2026-07-20',
       actionAssigneeId: 101,
       actionMediaId: 9001,
+      targetStatus: 'RESOLVED',
     });
 
     expect(res.data.status).toBe('RESOLVED');

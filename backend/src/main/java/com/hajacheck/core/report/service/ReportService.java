@@ -125,6 +125,15 @@ public class ReportService {
         return ReportDetailResponse.from(findCompanyReport(reportId, userId, companyId));
     }
 
+    @Transactional
+    public ReportDetailResponse cloneReport(Long reportId, Long companyId, Long userId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Report source = findCompanyReport(reportId, userId, companyId);
+        int nextVersion = nextVersion(source.getInspectionId());
+        Report clone = Report.draft(source.getInspectionId(), nextVersion, source.getContentJson(), userId);
+        return ReportDetailResponse.from(reportRepository.saveAndFlush(clone));
+    }
+
     public List<ReportSummaryResponse> listReports(Long inspectionId, Long userId, Long companyId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         // 소유권 검증(IDOR 방지) — 미존재/타인소유 모두 InspectionService.getInspection() 이 통일 응답.

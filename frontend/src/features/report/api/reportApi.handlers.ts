@@ -129,8 +129,29 @@ startxref
     return HttpResponse.json(body, { status: 200 });
   }),
 
+  http.post('/api/reports/:id/clone', ({ params }) => {
+    const sourceId = Number(params.id);
+    currentReportState = {
+      ...currentReportState,
+      id: sourceId + 1000,
+      version: currentReportState.version + 1,
+      status: 'DRAFT',
+      groundingCheckPassed: null,
+      pdfUrl: null,
+    };
+    const body: ApiResponse<ReportDetailResponse> = {
+      success: true,
+      data: currentReportState,
+    };
+    return HttpResponse.json(body, { status: 201 });
+  }),
+
   http.patch('/api/reports/:id', async ({ request, params }) => {
-    const newContent = (await request.json()) as ReportContent;
+    const requestBody = (await request.json()) as { contentJson?: string } | ReportContent;
+    const newContent =
+      'contentJson' in requestBody && typeof requestBody.contentJson === 'string'
+        ? JSON.parse(requestBody.contentJson)
+        : requestBody;
     currentReportState = {
       ...currentReportState,
       id: Number(params.id),

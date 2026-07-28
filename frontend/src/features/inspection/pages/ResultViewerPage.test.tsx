@@ -203,13 +203,11 @@ const testHandlers = [
   // shared handlers (used when no test-specific handler overrides)
   ...inspectionHandlers,
 
-  // fallback: prevent unmocked /api requests from causing "fetch failed" UI
-  http.get(new RegExp('^/api/.*'), () => HttpResponse.json({ success: true, data: null })),
 ];
 
 const server = setupServer(...testHandlers);
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }));
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   // vitest globals 미설정 환경이라 RTL 자동 cleanup이 안 걸림 — 명시 호출 필요

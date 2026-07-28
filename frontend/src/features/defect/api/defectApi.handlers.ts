@@ -15,7 +15,6 @@ import type {
   InspectionFacilityOption,
   InspectionGradeDistribution,
   InspectionListItem,
-  InspectionStatus,
 } from '../types';
 
 const DEFAULT_SIZE = 20;
@@ -136,9 +135,10 @@ export const defectHandlers = [
     return HttpResponse.json(body);
   }),
 
-  // PATCH /api/defects/:id/action — "조치 완료 등록"(HAJA-394/#726, contract.md §"조치 결과 등록"
-  // 확정). DefectActionResultRequest(actionMediaId/actionContent/actionDate/actionAssigneeId) 1:1
-  // 미러 — 상태전이(PATCH /status)와 분리된 별도 엔드포인트이며, 항상 RESOLVED로 고정 전이한다.
+  // PATCH /api/defects/:id/action — "상태 저장"(HAJA-394/#726, #1128, contract.md §"조치 결과 등록"
+  // 확정). DefectActionResultRequest(actionMediaId/actionContent/actionDate/actionAssigneeId/
+  // targetStatus) 1:1 미러 — 상태전이(PATCH /status)와 분리된 별도 엔드포인트다. targetStatus(#1128)
+  // 도입 전에는 항상 RESOLVED로 고정 전이했으나, 이제 요청받은 값(IN_PROGRESS/RESOLVED)으로 전이한다.
   http.patch('/api/defects/:id/action', async ({ params, request }) => {
     const id = Number(params.id);
     const found = mockDefects.find((defect) => defect.id === id);
@@ -157,6 +157,7 @@ export const defectHandlers = [
       actionContent: string;
       actionDate: string;
       actionAssigneeId: number;
+      targetStatus: 'IN_PROGRESS' | 'RESOLVED';
     };
 
     const assignee = mockDefectAssignees.find((candidate) => candidate.id === reqBody.actionAssigneeId);
@@ -167,7 +168,7 @@ export const defectHandlers = [
       assigneeName: assignee?.name ?? '담당자 미상',
       afterPhotoUrl: `/api/media/${reqBody.actionMediaId}/thumbnail`,
     };
-    found.status = 'RESOLVED';
+    found.status = reqBody.targetStatus;
 
     const body: ApiResponse<Defect> = { success: true, data: found };
     return HttpResponse.json(body);
@@ -201,6 +202,32 @@ export const defectHandlers = [
   // "D등급 이상" 질의는 정상 필터 변환, 그 외는 되묻는 질문 응답 — 테스트 fixture 단순화(HAJA-120).
   http.post('/api/defects/nl-search', async ({ request }) => {
     const { query } = (await request.json()) as { query: string };
+
+    if (query.includes('지난 두 달') && query.includes('1회차')) {
+      const body: ApiResponse<NlSearchResult> = {
+        success: true,
+        data: {
+          filters: {
+            type: [],
+            grade: [],
+            status: [],
+            confidenceMin: null,
+            inspectionType: [],
+            inspectionStatus: [],
+            inspectionDateFrom: '2026-05-28',
+            inspectionDateTo: '2026-07-28',
+            roundNoMin: 1,
+            roundNoMax: 1,
+            defectCountMin: null,
+            defectCountMax: null,
+          },
+          unsupported_terms: [],
+          clarifying_question: null,
+          interpretation_confidence: 0.96,
+        },
+      };
+      return HttpResponse.json(body);
+    }
 
     if (query.includes('D등급 이상')) {
       const body: ApiResponse<NlSearchResult> = {
@@ -237,9 +264,16 @@ export const defectHandlers = [
   // (서로 다른 하자가 조건을 나눠 만족하는 경우는 매칭 아님).
   http.get('/api/inspections', ({ request }) => {
     const url = new URL(request.url);
-    const status = url.searchParams.get('status') as InspectionStatus | null;
+    const statusParams = url.searchParams.getAll('status');
+    const inspectionTypeParams = url.searchParams.getAll('inspectionType');
     const facilityIdParam = url.searchParams.get('facilityId');
     const facilityId = facilityIdParam ? Number(facilityIdParam) : null;
+    const inspectionDateFrom = url.searchParams.get('inspectionDateFrom');
+    const inspectionDateTo = url.searchParams.get('inspectionDateTo');
+    const roundNoMin = url.searchParams.get('roundNoMin');
+    const roundNoMax = url.searchParams.get('roundNoMax');
+    const defectCountMin = url.searchParams.get('defectCountMin');
+    const defectCountMax = url.searchParams.get('defectCountMax');
     const defectTypeParams = url.searchParams.getAll('defectType');
     const defectGradeParams = url.searchParams.getAll('defectGrade');
     const defectStatusParams = url.searchParams.getAll('defectStatus');
@@ -263,13 +297,20 @@ export const defectHandlers = [
     }
 
     const filtered = mockInspections
+      .map(toInspectionListItem)
       .filter(
         (inspection) =>
-          (!status || inspection.status === status) &&
+          (statusParams.length === 0 || statusParams.includes(inspection.status)) &&
+          (inspectionTypeParams.length === 0 || inspectionTypeParams.includes(inspection.type)) &&
           (facilityId == null || inspection.facilityId === facilityId) &&
+          (!inspectionDateFrom || inspection.inspectionDate >= inspectionDateFrom) &&
+          (!inspectionDateTo || inspection.inspectionDate <= inspectionDateTo) &&
+          (!roundNoMin || inspection.roundNo >= Number(roundNoMin)) &&
+          (!roundNoMax || inspection.roundNo <= Number(roundNoMax)) &&
+          (!defectCountMin || inspection.defectCount >= Number(defectCountMin)) &&
+          (!defectCountMax || inspection.defectCount <= Number(defectCountMax)) &&
           matchesDefectCondition(inspection.id),
-      )
-      .map(toInspectionListItem);
+      );
 
     const content = filtered.slice(page * size, page * size + size);
     const body: ApiResponse<PageResponse<InspectionListItem>> = {

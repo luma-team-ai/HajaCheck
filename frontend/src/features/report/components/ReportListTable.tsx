@@ -20,6 +20,10 @@ type Props = {
   selectedIds: Set<number>;
   onSelectionChange: (ids: Set<number>) => void;
   onOpenVersionHistory: (report: ReportListItem) => void;
+  onCloneReport: (report: ReportListItem) => void;
+  onSubmitReport: (report: ReportListItem) => void;
+  pendingAction?: { reportId: number; type: 'clone' | 'submit' } | null;
+  actionErrors?: Record<number, string | undefined>;
 };
 
 function formatUpdatedAt(iso: string): string {
@@ -43,6 +47,10 @@ export function ReportListTable({
   selectedIds,
   onSelectionChange,
   onOpenVersionHistory,
+  onCloneReport,
+  onSubmitReport,
+  pendingAction = null,
+  actionErrors = {},
 }: Props) {
   const [openMenu, setOpenMenu] = useState<{ id: number; anchor: { top: number; left: number } } | null>(null);
 
@@ -172,8 +180,14 @@ export function ReportListTable({
           {openMenu?.id === row.id && (
             <ReportRowMenu
               onOpenHistory={() => onOpenVersionHistory(row)}
+              onClone={() => onCloneReport(row)}
+              onSubmit={() => onSubmitReport(row)}
               onClose={() => setOpenMenu(null)}
               anchor={openMenu.anchor}
+              canSubmit={row.status === 'DRAFT'}
+              isClonePending={pendingAction?.reportId === row.id && pendingAction.type === 'clone'}
+              isSubmitPending={pendingAction?.reportId === row.id && pendingAction.type === 'submit'}
+              actionError={actionErrors[row.id] ?? null}
             />
           )}
         </span>

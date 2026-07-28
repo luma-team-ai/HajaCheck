@@ -135,7 +135,11 @@ export function DefectListPage() {
           </div>
         </div>
 
-        <InspectionFilterBar filters={inspectionFilters} onChange={setInspectionFilters} />
+        <InspectionFilterBar
+          filters={inspectionFilters}
+          onChange={setInspectionFilters}
+          onNlApplied={() => setSelectedIds(new Set())}
+        />
       </header>
 
       <div className="defect-list-page__table-region">
