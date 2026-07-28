@@ -22,12 +22,14 @@ describe('inspectionCreateDraft', () => {
     saveInspectionCreateDraft({
       facilityId: '1',
       inspectionDate: '2026-08-01',
+      inspectionType: 'DETAILED',
       memo: '균열 확인 필요',
     });
 
     expect(loadInspectionCreateDraft()).toEqual({
       facilityId: '1',
       inspectionDate: '2026-08-01',
+      inspectionType: 'DETAILED',
       memo: '균열 확인 필요',
     });
   });
@@ -38,7 +40,12 @@ describe('inspectionCreateDraft', () => {
   });
 
   it('clear 후에는 조회 시 null을 반환한다', () => {
-    saveInspectionCreateDraft({ facilityId: '1', inspectionDate: '2026-08-01', memo: '' });
+    saveInspectionCreateDraft({
+      facilityId: '1',
+      inspectionDate: '2026-08-01',
+      inspectionType: 'REGULAR',
+      memo: '',
+    });
     clearInspectionCreateDraft();
     expect(loadInspectionCreateDraft()).toBeNull();
   });
@@ -48,7 +55,12 @@ describe('inspectionCreateDraft', () => {
       throw new Error('storage blocked');
     });
     expect(() =>
-      saveInspectionCreateDraft({ facilityId: '1', inspectionDate: '2026-08-01', memo: '' }),
+      saveInspectionCreateDraft({
+        facilityId: '1',
+        inspectionDate: '2026-08-01',
+        inspectionType: 'REGULAR',
+        memo: '',
+      }),
     ).not.toThrow();
   });
 
