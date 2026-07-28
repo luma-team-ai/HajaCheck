@@ -26,7 +26,7 @@ const explainHandler = http.post('/api/ai/defect-explain', () =>
 
 const server = setupServer(...defectHandlers, explainHandler);
 // PATCH 핸들러가 mockDefects를 in-place로 변경한다(조치 결과 등록 테스트가 상태를 RESOLVED로 바꿈) —
-// 다음 테스트를 오염시키지 않도록 매 테스트 후 스냅샷으로 복원한다(DefectDetailPage.test.tsx와 동일 패턴).
+// 다음 테스트를 오염시키지 않도록 매 테스트 후 스냅샷으로 복원한다.
 const mockDefectsSnapshot = JSON.parse(JSON.stringify(mockDefects)) as typeof mockDefects;
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

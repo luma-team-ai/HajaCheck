@@ -159,12 +159,6 @@ const RecentInspectionsFullListPage = lazy(() =>
   })),
 );
 
-const DefectDetailPage = lazy(() =>
-  import('../features/defect/pages/DefectDetailPage').then((m) => ({
-    default: m.DefectDetailPage,
-  })),
-);
-
 const DefectListPage = lazy(() =>
   import('../features/defect/pages/DefectListPage').then((m) => ({
     default: m.DefectListPage,
@@ -172,8 +166,7 @@ const DefectListPage = lazy(() =>
 );
 
 // 점검 상세(카드형) — HAJA-393/394(#725/#726), 하자 목록 "목록 보기" 탭(점검 단위) 로우 클릭 시 이동.
-// 기존 /defects/:id(하자 단건 상세, 보드 보기에서 여전히 사용 — dashboard/facility feature 등에서도
-// 참조하므로 라우트 의미를 바꾸지 않음)와 별개 경로를 쓴다.
+// 하자 단건 상세 대신 점검 단위 하자 목록 경로를 사용한다.
 const InspectionDefectsPage = lazy(() =>
   import('../features/defect/pages/InspectionDefectsPage').then((m) => ({
     default: m.InspectionDefectsPage,
@@ -512,21 +505,6 @@ export const router = createBrowserRouter([
       // 아니라 /dashboard 인라인 위젯이라 같은 DashboardPage를 렌더링하고 위젯 위치로 스크롤한다
       // (DashboardPage.tsx 참조) — #472와 동일한 라우트-메뉴 불일치 유형.
       {
-        path: '/defects/:id',
-        element: (
-          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <DefectDetailPage />
-          </Suspense>
-        ),
-        handle: {
-          breadcrumb: [{ label: '홈' }, { label: '하자 관리' }, { label: '하자 상세' }],
-          // '하자 관리'는 하위메뉴 없는 단일 링크(href='/defects/list')로 정리돼(#499) 더 이상
-          // '/defects/detail' href를 가진 항목이 없다 — 그 값을 쓰면 사이드바가 하이라이트되지
-          // 않는 회귀가 생겨 '/defects/list'로 맞춘다(코드 리뷰 P1 지적).
-          activeHref: '/defects/list',
-        },
-      }, // — features/defect (HAJA-171)
-      {
         path: '/inspections/:id/defects',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
@@ -536,7 +514,7 @@ export const router = createBrowserRouter([
         handle: {
           breadcrumb: [{ label: '홈' }, { label: '하자 관리' }, { label: '하자 상세' }],
           // '하자 관리'는 하위메뉴 없는 단일 링크(href='/defects/list')로 정리돼(#499) 있어
-          // 그 값으로 맞춘다(DefectDetailPage 라우트와 동일한 이유).
+          // 그 값으로 맞춘다.
           activeHref: '/defects/list',
         },
       }, // — features/defect 점검 상세(카드형, HAJA-393/394, #725/#726)
@@ -981,7 +959,7 @@ export const router = createBrowserRouter([
         handle: {
           breadcrumb: [{ label: '상담원 콘솔' }, { label: '상담 대기열' }, { label: '실시간 채팅' }],
           // 사이드바엔 '상담 대기열' 메뉴 하나뿐이라(COUNSELOR_NAV_ITEM) 채팅 화면 진입 시에도
-          // 그 메뉴가 강조되도록 맞춘다 — /defects/:id 등 기존 동적 상세 라우트와 동일한 관례.
+          // 그 메뉴가 강조되도록 맞춘다 — 다른 동적 상세 라우트와 동일한 관례.
           activeHref: '/counsel-console/queue',
         },
       }, // — features/counsel 상담원 콘솔 마스터-디테일(#1001, HAJA-495) — 티켓 선택 상태(같은 컴포넌트, :id로 분기)

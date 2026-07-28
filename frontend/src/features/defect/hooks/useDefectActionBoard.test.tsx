@@ -18,7 +18,7 @@ import { resolveDropKind, useDefectActionBoard } from './useDefectActionBoard';
 
 const server = setupServer(...defectHandlers);
 // PATCH 핸들러가 mockDefects를 in-place로 변경한다 — 테스트 간 오염 방지를 위해 스냅샷 복원한다
-// (DefectDetailPage.test.tsx와 동일 패턴).
+// 테스트마다 스냅샷으로 복원한다.
 const mockDefectsSnapshot = JSON.parse(JSON.stringify(mockDefects)) as typeof mockDefects;
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

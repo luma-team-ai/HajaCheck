@@ -9,8 +9,7 @@ import { useInspectionDefects } from '../hooks/useInspectionDefects';
 import './InspectionDefectsPage.css';
 
 // 점검 상세(카드형, HAJA-393/394 §화면 구조 ②, contract.md 확정) — 하자 목록의 점검 로우를 클릭하면
-// 이동하는 페이지. 라우트는 기존 /defects/:id(하자 단건 상세, 보드 보기에서 여전히 사용)와 의미가
-// 겹치지 않도록 신규 경로 /inspections/:id/defects를 쓴다(:id는 inspectionId).
+// 이동하는 페이지. 하자 단건 상세 화면을 대체하는 /inspections/:id/defects 경로를 쓴다(:id는 inspectionId).
 //
 // 카드 클릭 시 뜨는 하자 상세 모달(§화면 구조 ③)은 사이드바/헤더를 침범하면 안 되므로, 이 페이지
 // 컨테이너를 position:relative + 뷰포트 높이로 고정(.inspection-defects-page)하고 모달을 그 안에서

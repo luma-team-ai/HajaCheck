@@ -21,6 +21,7 @@ export interface GradeDistributionItem {
 
 export interface PendingPriorityItem {
   id: number;
+  inspectionId: number;
   grade: DefectGrade | null; // BE PendingPriorityResponse — 미분류 하자는 null 반환
   title: string;
   location: string;

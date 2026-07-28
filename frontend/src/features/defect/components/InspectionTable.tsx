@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ErrorFallback } from '../../../shared/components/ErrorFallback';
 import type { TableColumn } from '../../../shared/components/Table';
 import { Table } from '../../../shared/components/Table';
-import { GRADE_CLASSES } from './DefectTable';
+import { GRADE_CLASSES } from '../constants/defectPresentation';
 import { SelectionCheckbox } from './SelectionCheckbox';
 import { EMPTY_GRADE_DISTRIBUTION, INSPECTION_STATUS_LABEL } from '../types';
 import type { DefectGrade, InspectionListItem } from '../types';
@@ -31,7 +31,7 @@ interface InspectionTableRow {
 
 const GRADE_ORDER: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
 
-// 하자 목록(DefectTable)의 'DEF-0001' 코드 표기와 대응되는 점검 코드 표기 — 별도 유틸로 승격할
+// 하자 코드 표기와 대응되는 점검 코드 표기 — 별도 유틸로 승격할
 // 만큼 재사용처가 많지 않아 이 컴포넌트에 로컬로 둔다.
 function formatInspectionCode(id: number): string {
   return `INS-${String(id).padStart(4, '0')}`;
@@ -149,8 +149,7 @@ function createColumns({
 }
 
 // 하자 목록(DefectListPage) "목록 보기" 탭 — 점검(Inspection) 단위 테이블(HAJA-393/394, #725/#726).
-// 시각 디자인(DefectTable과 동일한 CSS 클래스 재사용)은 유지하되 로우 단위를 점검으로 재해석했다
-// (사용자 확정 지시). 로딩/에러/빈 데이터 처리는 DefectTable과 동일 패턴.
+// 기존 하자 목록 CSS 클래스를 재사용하되 로우 단위를 점검으로 재해석했다(사용자 확정 지시).
 export function InspectionTable({
   inspections,
   isLoading,

@@ -9,7 +9,7 @@ interface Props {
 }
 
 // 조치 보드 컬럼(HAJA-349/#630) — DefectStatus 4단계(신규/검수확정/조치중/조치완료) 중 하나를
-// 담당하는 드롭 영역. label은 DefectStatusStepper.STEP_LABEL을 그대로 넘겨받는다(호출부: DefectActionBoard).
+// 담당하는 드롭 영역. label은 defectStatusWorkflow.STEP_LABEL을 그대로 넘겨받는다(호출부: DefectActionBoard).
 export function DefectBoardColumn({ status, label, defects }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
 

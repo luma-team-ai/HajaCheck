@@ -1,5 +1,5 @@
 import pretendardRegularUrl from 'pretendard/dist/public/static/alternative/Pretendard-Regular.ttf?url';
-import { STATUS_PRESENTATION } from '../components/DefectTable';
+import { STATUS_PRESENTATION } from '../constants/defectPresentation';
 import type { Defect } from '../types';
 import { formatDefectCode, formatDefectDate } from './defectFormat';
 

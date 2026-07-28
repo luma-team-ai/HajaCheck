@@ -12,6 +12,7 @@ import type {
 // FacilityDefectImagePanel이 buildDefectOverlayMarkingImage()로 별도 absolute 레이어로 얹는다.
 export const mockFacilityDefectDetailResponse: FacilityDefectDetailResponse = {
   id: 101,
+  inspectionId: 8,
   facilityId: 1,
   facilityName: '강남 오피스타워 A동',
   location: '외벽 동측 12층 부근',

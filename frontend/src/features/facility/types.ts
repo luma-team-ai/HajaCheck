@@ -162,6 +162,7 @@ export type FacilityDefectStatus =
 
 export interface FacilityDefectDetail {
   id: number;
+  inspectionId: number;
   facilityId: number;
   facilityName: string;
   defectType: string;
@@ -190,6 +191,7 @@ export interface FacilityDefectDetail {
 // 원본(raw) 계약 타입이다.
 export interface FacilityDefectDetailResponse {
   id: number;
+  inspectionId: number;
   facilityId: number;
   facilityName: string;
   location: string | null;

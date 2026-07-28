@@ -11,6 +11,7 @@ const MM_PER_M = 1000;
 function toFacilityDefectDetail(raw: FacilityDefectDetailResponse): FacilityDefectDetail {
   return {
     id: raw.id,
+    inspectionId: raw.inspectionId,
     facilityId: raw.facilityId,
     facilityName: raw.facilityName,
     defectType: raw.typeLabel,

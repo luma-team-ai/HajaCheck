@@ -28,7 +28,7 @@ function renderPage(): void {
         <Routes>
           <Route path="/facilities/:id/defects/:defectId" element={<FacilityDefectDetailPage />} />
           <Route path="/facilities/:id/defects/:defectId/compare" element={<div>회차비교 화면</div>} />
-          <Route path="/defects/:id" element={<div>하자 관리 상세 화면</div>} />
+          <Route path="/inspections/:id/defects" element={<div>점검 하자 목록 화면</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -82,13 +82,13 @@ describe('FacilityDefectDetailPage (통합 테스트)', () => {
     expect(screen.getByText('AI 탐지 등록')).not.toBeNull();
   });
 
-  it('"다음 단계로 전이" 클릭 시 /defects/:id(하자 관리 도메인)로 이동한다', async () => {
+  it('"다음 단계로 전이" 클릭 시 해당 점검의 하자 목록으로 이동한다', async () => {
     renderPage();
     await screen.findByText('하자 상세');
 
     fireEvent.click(screen.getByRole('button', { name: '다음 단계로 전이' }));
 
-    expect(await screen.findByText('하자 관리 상세 화면')).not.toBeNull();
+    expect(await screen.findByText('점검 하자 목록 화면')).not.toBeNull();
   });
 
   it('"회차비교" 탭 클릭 시 /facilities/:id/compare로 이동한다', async () => {
