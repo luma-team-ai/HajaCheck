@@ -140,6 +140,31 @@ ai:
     # 플랫폼 관리자 모니터링(#728) ai-server 헬스체크 전용 — 위 read-timeout-ms 와 별개로 짧게 끊는다.
     health-check-timeout-ms: 3000
 
+# 구독 결제 주기 만료 → FREE 자동 강등 배치(#1145 / HAJA-549).
+#
+# ⚠️ enabled 기본값이 false 인 것은 실수가 아니라 안전장치다. V27 백필이 current_period_end 를 실제
+# 결제일이 아니라 started_at + 1개월(파생 추정치)로 채웠기 때문에, 가입한 지 한 달이 넘은 유료 구독은
+# 이미 전부 "만료" 상태로 DB에 들어 있다. 그대로 켜면 첫 실행에서 기존 유료 회사가 일괄 FREE 로 강등되고
+# 좌석까지 정지된다(되돌리려면 수동 복구가 필요하다).
+#
+# 켜기 전 프리플라이트(운영자, main 승격 전 의무):
+#   1) prod(전용 postgres 컨테이너 hajacheck-arm1-postgres-1, DB hajacheck)에서 대상 행 수를 센다
+#      select count(*) from user_plans
+#       where status='ACTIVE' and current_period_end is not null and current_period_end < now();
+#   2) 0건이 아니면 그 목록이 정말 만료된 게 맞는지 payments 결제 이력과 대조한다
+#   3) 확인 후에만 PLAN_EXPIRY_ENABLED=true
+# max-per-run 은 그 이후에도 남는 2차 방어선이다 — 대상이 상한을 넘으면 아무것도 하지 않고 중단한다
+# (자세한 근거는 PlanExpiryProperties / PlanExpiryScheduler javadoc 참고).
+hajacheck:
+  plan:
+    expiry:
+      enabled: ${PLAN_EXPIRY_ENABLED:false}
+      # 매일 KST 04:00 — 점검 알림 배치(06:00)와 겹치지 않게.
+      cron: ${PLAN_EXPIRY_CRON:0 0 4 * * *}
+      # 만료 즉시 강등(P0D). 자동 청구 수단(빌링키)이 없어 유예를 둬도 결제를 유도할 방법이 없다.
+      grace-period: ${PLAN_EXPIRY_GRACE_PERIOD:P0D}
+      max-per-run: ${PLAN_EXPIRY_MAX_PER_RUN:50}
+
 # 국세청 사업자등록정보 진위확인(data.go.kr) — #596. service-key 미설정 시 진위확인을 스킵하고
 # 가입을 그대로 진행한다(fail-open). service-key 는 data.go.kr "일반 인증키(Decoding)" 를 주입한다.
 biz-verify:
