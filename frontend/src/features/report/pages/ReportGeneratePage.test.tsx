@@ -145,6 +145,12 @@ const server = setupServer(
     reportState = { ...reportState, status: 'FINALIZED', pdfUrl: body.pdfUrl };
     return HttpResponse.json({ success: true, data: reportState });
   }),
+  http.get('/api/reports/1/pdf/storage-key', () =>
+    new Response('fake-pdf-binary', {
+      status: 200,
+      headers: { 'Content-Type': 'application/pdf' },
+    }),
+  ),
 );
 
 beforeAll(() => server.listen());

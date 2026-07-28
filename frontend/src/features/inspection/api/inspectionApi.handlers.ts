@@ -166,4 +166,19 @@ export const inspectionHandlers = [
   // AI 분석 시작(dev-05-04) — InspectionCreatePage 제출 흐름이 업로드 직후 호출한다. 실제 진행률은
   // useAnalysisStatus 전용 테스트에서 다루므로 여기서는 202만 흉내낸다.
   http.post('/api/inspections/:id/analyze', () => new HttpResponse(null, { status: 202 })),
+
+  // 점검 상세 조회 — useInspectionResultReal에서 사용. mockInspections 데이터를 기반으로 응답한다.
+  http.get('/api/inspections/:id', ({ params }) => {
+    const id = Number(params.id);
+    const mockInspectionsData = [
+      { id: 101, facilityId: 1, roundNo: 3, inspectionDate: '2026-07-01', type: 'REGULAR', status: 'REVIEWED' },
+      { id: 202, facilityId: 3, roundNo: 1, inspectionDate: '2026-07-03', type: 'DETAILED', status: 'ANALYZED' },
+      { id: 301, facilityId: 2, roundNo: 2, inspectionDate: '2026-06-20', type: 'EMERGENCY', status: 'REPORTED' },
+    ];
+    const found = mockInspectionsData.find((i) => i.id === id);
+    if (!found) {
+      return HttpResponse.json({ success: false, data: null, error: { code: 'INSPECTION_NOT_FOUND', message: '점검을 찾을 수 없습니다.' } }, { status: 404 });
+    }
+    return HttpResponse.json({ success: true, data: found });
+  }),
 ];

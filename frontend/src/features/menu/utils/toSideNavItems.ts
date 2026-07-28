@@ -17,6 +17,7 @@ const DYNAMIC_SUB_ITEM_ID_BY_CODE: Record<string, string> = {
   INSPECTIONS_RESULT_VIEWER: 'result-viewer',
   INSPECTIONS_REPORT_ENTRANCE: 'report-entry',
   INSPECTIONS_REPORT_ENTRY: 'report-entry',
+  REPORTS_LIST: 'report-list',
   REPORTS_EDITOR: 'report-edit',
   REPORTS_EDIT: 'report-edit',
   REPORTS_EXPORT_PDF: 'report-export',

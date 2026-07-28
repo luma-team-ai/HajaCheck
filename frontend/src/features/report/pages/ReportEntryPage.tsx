@@ -5,6 +5,7 @@ import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicato
 import { Button } from '../../../shared/components/Button';
 import { DistributionBar } from '../../../shared/components/charts/DistributionBar';
 import { useInspectionResultReal } from '../../inspection/hooks/useInspectionResultReal';
+import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import type { DefectType } from '../../inspection/types';
 import { reportApi, type ReportSummaryResponse } from '../api/reportApi';
 
@@ -156,6 +157,8 @@ export function ReportEntryPage() {
   const navigate = useNavigate();
   const inspectionId = Number(id);
 
+  const setActiveReportId = useInspectionStore((state) => state.setActiveReportId);
+
   // 데이터 조회
   const { data, isLoading, isError, refetch } = useInspectionResultReal(inspectionId);
 
@@ -259,7 +262,7 @@ export function ReportEntryPage() {
     setIsGenerating(true);
     try {
       const response = await reportApi.generateReportDraft(inspectionId);
-      // 생성 완료 후 편집 화면으로 이동
+      setActiveReportId(response.data.id);
       navigate(`/reports/${response.data.id}`);
     } catch (error) {
       alert(extractErrorMessage(error, '보고서 생성에 실패했습니다.'));
@@ -269,9 +272,10 @@ export function ReportEntryPage() {
 
   const handleEditReport = useCallback(
     (reportId: number) => {
+      setActiveReportId(reportId);
       navigate(`/reports/${reportId}`);
     },
-    [inspectionId, navigate],
+    [inspectionId, navigate, setActiveReportId],
   );
 
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
