@@ -9,6 +9,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { setupServer } from "msw/node";
@@ -240,6 +241,53 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
     );
 
     consoleErrorSpy.mockRestore();
+  });
+
+  it("자연어 검색 결과를 실제 점검 목록 요청에 적용하고 날짜·회차 칩을 표시한다", async () => {
+    renderPage();
+    await screen.findByRole("table");
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "지난 두 달간의 1회차 점검 알려줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+
+    expect(
+      await screen.findByRole("button", {
+        name: "점검일: 2026-05-28 ~ 2026-07-28 필터 제거",
+      }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "점검회차: 1회차 필터 제거" }),
+    ).not.toBeNull();
+
+    await waitFor(() => {
+      const table = screen.getByRole("table");
+      expect(within(table).getByText("한강대교 북단")).not.toBeNull();
+      expect(within(table).queryByText("강남 오피스타워 A동")).toBeNull();
+    });
+  });
+
+  it("AI 필터가 적용되면 기존 점검 선택을 지운다", async () => {
+    renderPage();
+    let table = await screen.findByRole("table");
+    fireEvent.click(within(table).getByRole("checkbox", { name: "INS-0101 선택" }));
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "지난 두 달간의 1회차 점검 알려줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "점검회차: 1회차 필터 제거" }),
+    );
+
+    await waitFor(() => {
+      table = screen.getByRole("table");
+      const checkbox = within(table).getByRole("checkbox", {
+        name: "INS-0101 선택",
+      }) as HTMLInputElement;
+      expect(checkbox.checked).toBe(false);
+    });
   });
 });
 
