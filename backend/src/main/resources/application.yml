@@ -175,26 +175,40 @@ ai:
 #      "구독 만료 FREE 강등 — companyId=.. userId=.. previousPlan=.. periodEnd=.. expiredAt=..
 #       suspendedSeats=.. suspendedUserIds=[..]"
 #      여기서 (companyId 또는 userId) · previousPlan · suspendedUserIds 를 확보한다.
-#   2) 배치가 새로 발급한 FREE ACTIVE 행과 그 행으로 이월된 당월 사용량을 지운다.
-#      ⚠️ 반드시 이 순서 — 부분 UQ(uq_user_plans_active_company/user)가 ACTIVE 1건만 허용하므로
-#      새 FREE 행을 먼저 치우지 않으면 3)의 복원이 제약 위반으로 실패한다.
-#      begin;
+#      ⚠️ 이 절차는 그 INFO 로그가 남아 있어야 성립한다(users.status 는 이전 값을 보관하지 않는다).
+#      컨테이너 로그 로테이션으로 유실되기 전에 먼저 수집해 따로 저장할 것.
+#   2) 배치가 새로 발급한 FREE ACTIVE 행의 id 를 먼저 특정한다.
+#      ⚠️ "그 회사의 ACTIVE 행"으로 뭉뚱그려 지우면 안 된다 — 오강등을 겪은 고객이 그 사이 재결제했다면
+#      그 대상은 방금 결제한 유료 구독이다(payments.user_plan_id FK 가 NO ACTION 이라 트랜잭션이 통째로
+#      abort 되면서 원인 불명 FK 에러로 나타난다). 반드시 FREE 플랜 행으로 좁히고, 각 DELETE 앞에
+#      같은 조건의 select 를 먼저 돌려 대상이 1건이고 그것이 배치가 만든 행이 맞는지 눈으로 확인한다.
 #      -- 회사 구독 예시(개인 구독이면 company_id = :companyId 대신 user_id = :userId 사용)
-#      delete from usage_counters
-#       where user_plan_id in (select id from user_plans
-#                               where company_id = :companyId and status = 'ACTIVE');
-#      delete from user_plans where company_id = :companyId and status = 'ACTIVE';
-#   3) 배치가 EXPIRED 로 내린 원래 구독을 되살린다(ended_at 도 함께 지운다).
+#      select id, plan_id, status, started_at, current_period_end from user_plans
+#       where company_id = :companyId and status = 'ACTIVE'
+#         and plan_id = (select id from plans where name = 'FREE');
+#      -- 위 결과가 정확히 1건이고 started_at 이 강등 시각(expiredAt)과 일치하는지 확인한 뒤 그 id 를
+#      -- :newFreeUserPlanId 로 삼는다. 2건 이상이거나 일치하지 않으면 멈추고 원인부터 확인할 것.
+#   3) 그 행과 그 행으로 이월된 당월 사용량을 지운다.
+#      ⚠️ 반드시 이 순서 — 부분 UQ(uq_user_plans_active_company/user)가 ACTIVE 1건만 허용하므로
+#      새 FREE 행을 먼저 치우지 않으면 4)의 복원이 제약 위반으로 실패한다.
+#      begin;
+#      select count(*) from usage_counters where user_plan_id = :newFreeUserPlanId;  -- 사전 확인
+#      delete from usage_counters where user_plan_id = :newFreeUserPlanId;
+#      delete from user_plans where id = :newFreeUserPlanId;
+#   4) 배치가 EXPIRED 로 내린 원래 구독을 되살린다(ended_at 도 함께 지운다).
+#      select id, plan_id, status, ended_at from user_plans where id = :expiredUserPlanId;  -- 사전 확인
 #      update user_plans
 #         set status = 'ACTIVE', ended_at = null
 #       where id = :expiredUserPlanId;   -- 1)에서 확보한 그 회사의 previousPlan 행
-#   4) 정지된 좌석을 되살린다(1)의 suspendedUserIds).
+#   5) 정지된 좌석을 되살린다(1)의 suspendedUserIds).
+#      ⚠️ status='SUSPENDED' 조건을 반드시 유지한다 — 이 강등과 무관하게 원래 정지돼 있던 계정을
+#      되살리지 않기 위해서다(로그의 id 목록은 이 강등이 정지시킨 대상만 담고 있다).
 #      update users set status = 'ACTIVE' where id in (:suspendedUserIds) and status = 'SUSPENDED';
 #      commit;
-#   5) 검증: 해당 소유 주체의 ACTIVE 구독이 정확히 1건이고 플랜이 previousPlan 인지,
+#   6) 검증: 해당 소유 주체의 ACTIVE 구독이 정확히 1건이고 플랜이 previousPlan 인지,
 #      복구 대상 사용자 status 가 전부 ACTIVE 인지 확인한다.
 #      select id, plan_id, status, current_period_end from user_plans where company_id = :companyId;
-#   6) 재발 방지: current_period_end 가 실제 결제일과 맞는지 payments 와 대조해 바로잡은 뒤에만
+#   7) 재발 방지: current_period_end 가 실제 결제일과 맞는지 payments 와 대조해 바로잡은 뒤에만
 #      PLAN_EXPIRY_NOT_BEFORE 를 다시 설정하고 ENFORCE 로 올린다.
 # ────────────────────────────────────────────────────────────────────────────────────────────
 hajacheck:

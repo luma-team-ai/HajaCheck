@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -208,6 +209,16 @@ public class PlanExpiryScheduler {
             result = planExpiryWriter.expireToFreePlan(userPlanId, threshold);
         } catch (BusinessException e) {
             handleBusinessFailure(userPlanId, e, counts);
+            return;
+        } catch (PessimisticLockingFailureException e) {
+            // 행 잠금 대기 상한 초과(PG 55P03 → CannotAcquireLockException) — 다른 트랜잭션이 같은 구독
+            // 행을 오래 잡고 있었다는 뜻이라 <b>결함이 아니라 경합</b>이다. 이미 skip 으로 분류한
+            // PLAN_ACTIVE_SUBSCRIPTION_CONFLICT 와 같은 부류로 취급해 다음 회차에 자연 재시도한다.
+            //
+            // ⚠️ failed 로 세면 안 된다(리뷰 NEW-D) — 회차 요약 WARN 승격(리뷰 P2-2)은 "매일 밤 같은 건이
+            // 영구 실패한다"는 신호인데, 일상적인 경합으로도 켜지면 그 경보가 희석된다.
+            counts.skipped++;
+            log.info("구독 만료 강등 스킵(행 잠금 대기 초과) — userPlanId={}", userPlanId);
             return;
         } catch (DataIntegrityViolationException e) {
             // ⚠️ writer 는 신규 ACTIVE 발급(saveAndFlush)의 부분 UQ 위반만 골라

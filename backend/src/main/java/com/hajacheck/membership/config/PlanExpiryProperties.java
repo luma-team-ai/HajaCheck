@@ -150,15 +150,22 @@ public class PlanExpiryProperties {
     }
 
     /**
-     * ENFORCE 로 올릴 때 컷오프 선언 필수(기동 실패 조건) — 자세한 이유는 {@link #getNotBefore()} javadoc.
-     * 읽기 전용 파생 속성이라 설정 바인딩 대상이 아니다(setter 없음).
+     * <b>실제로 강등하는 조합</b>에서만 컷오프 선언을 강제한다(기동 실패 조건) — 자세한 이유는
+     * {@link #getNotBefore()} javadoc. 읽기 전용 파생 속성이라 설정 바인딩 대상이 아니다(setter 없음).
+     *
+     * <p>⚠️ {@code mode} 만 보지 않고 {@link #isEnforcing()}({@code enabled && ENFORCE})을 보는 이유
+     * (리뷰 NEW-A): {@code mode} 만 보면 {@code enabled=false + mode=ENFORCE + 컷오프 미설정} 처럼
+     * <b>배치가 꺼져 있어 아무 일도 할 수 없는</b> 조합에서도 앱 전체가 부팅되지 않는다. 이 레포는 기동
+     * 검증 실패로 prod 가 내려간 이력(#531)이 있고 arm1 은 main 승격 시 자동배포라, <b>꺼진 배치의 설정
+     * 하나가 서비스 전체를 내리는 표면</b>은 남기지 않는다. fail-fast 방향은 그대로다 — 진짜로 강등이
+     * 일어나는 조합에서만 막는다.
      */
-    @AssertTrue(message = "hajacheck.plan.expiry.not-before 는 mode=ENFORCE 일 때 필수다 — "
-            + "컷오프 없이 ENFORCE 로 올리면 V27 백필 추정치 구간이 첫 회차에 일괄 강등되고, "
-            + "제품 안에는 되돌릴 경로가 없다(#988 무결제 상향 차단). 의도적으로 전 구간을 대상으로 "
-            + "삼아야 하면 not-before-unbounded=true 를 명시할 것")
+    @AssertTrue(message = "hajacheck.plan.expiry.not-before 는 실제로 강등하는 조합"
+            + "(enabled=true + mode=ENFORCE)에서 필수다 — 컷오프 없이 ENFORCE 로 올리면 V27 백필 추정치 "
+            + "구간이 첫 회차에 일괄 강등되고, 제품 안에는 되돌릴 경로가 없다(#988 무결제 상향 차단). "
+            + "의도적으로 전 구간을 대상으로 삼아야 하면 not-before-unbounded=true 를 명시할 것")
     public boolean isNotBeforeSetWhenEnforcing() {
-        return mode != Mode.ENFORCE || notBefore != null || notBeforeUnbounded;
+        return !isEnforcing() || notBefore != null || notBeforeUnbounded;
     }
 
     /** {@code not-before} 와 {@code not-before-unbounded} 를 동시에 선언할 수 없다(의도 모호). */
