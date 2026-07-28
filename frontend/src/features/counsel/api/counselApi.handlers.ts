@@ -180,7 +180,11 @@ export const counselHandlers = [
   }),
   http.get('/api/counsel/tickets/:id/messages', ({ params }) => {
     const id = Number(params.id);
-    if (!mockTickets.some((t) => t.id === id) && !mockQueueTickets.some((t) => t.id === id)) {
+    if (
+      !mockTickets.some((t) => t.id === id) &&
+      !mockQueueTickets.some((t) => t.id === id) &&
+      !mockAdminTickets.some((t) => t.id === id)
+    ) {
       return HttpResponse.json(
         { success: false, error: { code: 'COUNSEL_TICKET_NOT_FOUND', message: '상담 티켓을 찾을 수 없습니다.' } },
         { status: 404 },
