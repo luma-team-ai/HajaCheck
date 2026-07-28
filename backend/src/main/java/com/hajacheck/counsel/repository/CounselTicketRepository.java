@@ -3,6 +3,7 @@ package com.hajacheck.counsel.repository;
 import com.hajacheck.counsel.entity.CounselTicket;
 import com.hajacheck.counsel.entity.CounselTicketStatus;
 import com.hajacheck.counsel.entity.CounselType;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -32,4 +33,9 @@ public interface CounselTicketRepository extends JpaRepository<CounselTicket, Lo
     // 내 상담 이력 — 본인 + 상태 필터(최신순).
     Page<CounselTicket> findByUserIdAndStatusOrderByCreatedAtDesc(
             Long userId, CounselTicketStatus status, Pageable pageable);
+
+    // 플랫폼 관리자 날짜별 상담 목록(#1168) — 접수일(createdAt) 기준 [start, end) 반열린구간, 최신순.
+    // 필터 기준은 접수일이며 종료일(endedAt)이 아니다(그날 접수됐지만 아직 진행 중/미종료인 티켓도 포함).
+    Page<CounselTicket> findByCreatedAtBetweenOrderByCreatedAtDesc(
+            LocalDateTime start, LocalDateTime end, Pageable pageable);
 }
