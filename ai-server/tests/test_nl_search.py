@@ -66,10 +66,28 @@ def test_prompt_preserves_v1_grade_status_confidence_and_ambiguity_rules():
     prompt = _build_prompt("규칙 회귀 검증")
 
     assert '"D등급 이상"→["D","E"]' in prompt
-    assert "조치대기/조치 대기→CONFIRMED" in prompt
+    assert "콘크리트 박리" in prompt
+    assert "누수 흔적" in prompt
+    assert "철근 드러남" in prompt
+    assert "도장 벗겨짐" in prompt
+    assert "신규/미확인/신규 탐지/AI 탐지→DETECTED" in prompt
+    assert "검수확정/조치대기/조치 대기/대기중/조치 필요→CONFIRMED" in prompt
     assert '"80% 이상"→0.8' in prompt
     assert "신뢰도 상한/미만은 지원하지 않으므로" in prompt
     assert '"심각한", "위험한"만으로 등급을 추측하지 말고' in prompt
+    assert '"검수 완료"만 있어 하자 상태인지 점검 상태인지 불명확하면' in prompt
+    assert '"완료된 점검", "진행 중인 점검"처럼 단계를 특정하지 않으면' in prompt
+
+
+def test_v2_intent_version_is_required_discriminator():
+    payload = {"interpretation_confidence": 0.9}
+
+    with pytest.raises(ValidationError):
+        NlSearchIntentV2(**payload)
+    with pytest.raises(ValidationError):
+        NlSearchIntentV2(**payload, intentVersion="1")
+
+    assert "intentVersion" in NlSearchIntentV2.model_json_schema()["required"]
 
 
 def test_normalizer_resolves_two_months_and_exact_first_round_inclusively():

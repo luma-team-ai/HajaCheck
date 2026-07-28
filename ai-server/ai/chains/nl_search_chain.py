@@ -84,7 +84,7 @@ def _validate_numeric_range(intent):
 class NlSearchIntentV2(BaseModel):
     """LLM structured output 및 캐시 단위. 최종 조회 파라미터와 의도적으로 분리한다."""
 
-    intentVersion: Literal["2"] = "2"
+    intentVersion: Literal["2"]
     type: list[DefectTypeCode] = Field(default_factory=list)
     grade: list[DefectGradeCode] = Field(default_factory=list)
     defectStatus: list[DefectStatusCode] = Field(default_factory=list)

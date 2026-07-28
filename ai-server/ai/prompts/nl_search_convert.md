@@ -20,11 +20,13 @@ DB 쿼리, SQL, 현재 날짜를 추측한 날짜값은 만들지 마라. 상대
 `intentVersion`은 항상 문자열 `"2"`로 반환하라.
 
 ## 하자 표현
-균열/크랙/금 감/갈라짐→CRACK, 박리박락/박리/박락→SPALLING,
-누수백태/누수/백태/물샘→LEAK_EFFLORESCENCE, 철근노출/철근 노출→REBAR_EXPOSURE,
-도장손상/도장 손상/페인트 손상→PAINT_DAMAGE.
+균열/크랙/금 감/갈라짐→CRACK, 박리박락/박리/박락/콘크리트 박리→SPALLING,
+누수백태/누수/백태/물샘/누수 흔적→LEAK_EFFLORESCENCE,
+철근노출/철근 노출/철근 드러남→REBAR_EXPOSURE,
+도장손상/도장 손상/페인트 손상/도장 벗겨짐→PAINT_DAMAGE.
 
-신규/미확인→DETECTED, 검수확정/조치대기/조치 대기→CONFIRMED,
+신규/미확인/신규 탐지/AI 탐지→DETECTED,
+검수확정/조치대기/조치 대기/대기중/조치 필요→CONFIRMED,
 조치중/조치 진행중→IN_PROGRESS, 조치완료/해결됨→RESOLVED.
 하자라는 대상이 명시된 "검수 완료 하자", "검수확정 하자"는 defectStatus=CONFIRMED다.
 
