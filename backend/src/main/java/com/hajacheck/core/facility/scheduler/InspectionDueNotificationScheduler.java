@@ -53,7 +53,7 @@ import org.springframework.stereotype.Component;
  * {@code dueAt <= 오늘}이면 당일/연체 구분 없이 항상 발행했었기 때문이다. Polalise 승인(옵션1)으로
  * V21에서 컬럼 DEFAULT와 이 폴백값을 true로 되돌려 원래 동작을 복원했다.
  *
- * <p><b>멱등성 = DB 유니크 제약 기반(#1050)</b>. V24 마이그레이션이 {@code notifications} 테이블에
+ * <p><b>멱등성 = DB 유니크 제약 기반(#1050)</b>. V25 마이그레이션이 {@code notifications} 테이블에
  * {@code (user_id, payload_json->>'facilityId', payload_json->>'nextInspectionDueAt',
  * payload_json->>'kind')} 조합의 부분 유니크 인덱스({@code uq_notifications_inspection_due_dedupe},
  * {@code WHERE type='INSPECTION_DUE'})를 추가했다. 이제 이 배치는 <b>사전 조회 없이 바로 발행을
@@ -150,7 +150,7 @@ public class InspectionDueNotificationScheduler {
         Map<Long, Long> ownerUserIdByCompany = companyOwnerLookupService.findOwnerUserIds(companyIds);
         Set<Long> ownerUserIds = Set.copyOf(ownerUserIdByCompany.values());
 
-        // 레거시(kind 없음) payload dedupe 체크(#1050) — V24 유니크 인덱스가 못 잡는 좁은 사각지대만
+        // 레거시(kind 없음) payload dedupe 체크(#1050) — V25 유니크 인덱스가 못 잡는 좁은 사각지대만
         // 대상으로 한다(#540 배포 이후로 늘어나지 않는 유한 집합 — NotificationRepository 참고).
         Map<Long, Set<String>> legacyKeysByOwner;
         try {

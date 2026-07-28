@@ -36,7 +36,7 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     /**
      * INSPECTION_DUE 알림 중 {@code kind} 필드가 없는(#540 이전 저장분) 레거시 payload만 조회한다(#1050).
-     * V24 유니크 인덱스({@code uq_notifications_inspection_due_dedupe})는 {@code payload_json->>'kind'}가
+     * V25 유니크 인덱스({@code uq_notifications_inspection_due_dedupe})는 {@code payload_json->>'kind'}가
      * NULL인 행을 원자적으로 방어하지 못한다 — PostgreSQL unique index는 NULL을 서로 다른 값으로 취급해
      * NULL 값이 있는 행끼리는 유니크 제약을 통과시킨다. 이 메서드는 그 좁은 사각지대만 별도로 방어하기
      * 위한 애플리케이션 레벨 체크에 쓰인다({@link com.hajacheck.core.facility.scheduler

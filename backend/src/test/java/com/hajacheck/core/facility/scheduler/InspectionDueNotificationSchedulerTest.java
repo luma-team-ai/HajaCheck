@@ -49,7 +49,7 @@ import org.springframework.data.domain.SliceImpl;
  * 실제 제약을 검증할 수 없으므로(Mockito는 DB가 아님), "notify()가 unique violation을 던지면 스케줄러가
  * 그것을 skip으로 처리하고 예외를 전파하지 않는지"만 검증한다. 실제 제약 자체(같은 키 재삽입 거부,
  * kind가 다르면 통과, kind가 NULL인 레거시 행은 못 잡음)는 Testcontainers 기반
- * V24InspectionDueNotificationDedupeUniqueIndexTest가 증명한다. kind 없는 레거시 payload의 애플리케이션
+ * V25InspectionDueNotificationDedupeUniqueIndexTest가 증명한다. kind 없는 레거시 payload의 애플리케이션
  * 레벨 dedupe(그 사각지대 방어)는 이 클래스에서 여전히 목으로 검증한다.
  */
 class InspectionDueNotificationSchedulerTest {
@@ -208,7 +208,7 @@ class InspectionDueNotificationSchedulerTest {
         verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), payloadCaptor.capture());
         assertThat(payloadCaptor.getValue()).contains("\"kind\":\"OVERDUE\"");
 
-        // 2회차(재실행): 실제 운영에서는 V24 유니크 인덱스가 같은 (facilityId, dueAt, kind) 재삽입을
+        // 2회차(재실행): 실제 운영에서는 V25 유니크 인덱스가 같은 (facilityId, dueAt, kind) 재삽입을
         // unique violation으로 거부한다 — 여기서는 그 결과를 시뮬레이션한다.
         doThrow(uniqueViolation()).when(notificationService).notify(anyLong(), any(), anyString());
         scheduler.notifyFacilitiesDueToday();
@@ -366,7 +366,7 @@ class InspectionDueNotificationSchedulerTest {
 
     @Test
     @DisplayName("kind 필드 없는 구(舊) payload 이력이 있으면 overdue 시설물의 OVERDUE 알림이 재발행되지 않는다"
-            + "(#1050 — V24 유니크 인덱스는 kind가 NULL인 레거시 행을 못 잡으므로 앱 레벨 레거시 체크가 여전히 필요)")
+            + "(#1050 — V25 유니크 인덱스는 kind가 NULL인 레거시 행을 못 잡으므로 앱 레벨 레거시 체크가 여전히 필요)")
     void 구payload이력있으면_overdue시설물OVERDUE재발행안됨() {
         // #540 이전 저장분은 {facilityId, facilityName, nextInspectionDueAt}만 담고 kind 필드가 없다.
         Facility f = dueFacility(1L, COMPANY, "연체시설", TODAY.minusDays(1));

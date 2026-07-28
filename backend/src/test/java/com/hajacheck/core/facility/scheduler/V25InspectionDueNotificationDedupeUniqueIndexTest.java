@@ -19,7 +19,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * V24 마이그레이션이 추가한 {@code uq_notifications_inspection_due_dedupe} 부분 유니크 인덱스를 실제
+ * V25 마이그레이션이 추가한 {@code uq_notifications_inspection_due_dedupe} 부분 유니크 인덱스를 실제
  * PostgreSQL로 검증한다(#1050). InspectionDueNotificationScheduler는 이제 조회 없이 바로 발행을 시도하고
  * {@link DataIntegrityViolationException}이 나면 skip으로 처리하는데(insert-then-catch), 이 계약이
  * 실제로 성립하려면 (1) 같은 (user_id, facilityId, dueAt, kind) 재삽입이 정말 unique violation을
@@ -30,7 +30,7 @@ import org.springframework.test.context.ActiveProfiles;
  *
  * <p>이 클래스는 {@link PostgresTestSupport}를 확장하지만, 그 기반 컨테이너는 Flyway가 아니라 canonical
  * DDL({@code docs/design/db/HajaCheck_script.sql})로 초기화된다({@code spring.flyway.enabled=false}가
- * 테스트 프로파일 기본값) — 그래서 이 인덱스가 실제로 존재하려면 그 canonical DDL에도 V24와 동일한
+ * 테스트 프로파일 기본값) — 그래서 이 인덱스가 실제로 존재하려면 그 canonical DDL에도 V25와 동일한
  * 인덱스 정의를 추가해둬야 한다(반영 완료, HajaCheck_script.sql 참고). 두 파일이 어긋나면 이 테스트가
  * "인덱스가 없어서" 조용히 실패한다(#1050 구현 중 실제로 겪음 — canonical DDL 미동기화로 최초 실행 시
  * unique violation이 안 던져졌다).
@@ -43,7 +43,7 @@ import org.springframework.test.context.ActiveProfiles;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)
 @ActiveProfiles("test")
-class V24InspectionDueNotificationDedupeUniqueIndexTest extends PostgresTestSupport {
+class V25InspectionDueNotificationDedupeUniqueIndexTest extends PostgresTestSupport {
 
     @Autowired
     private UserRepository userRepository;
@@ -53,13 +53,13 @@ class V24InspectionDueNotificationDedupeUniqueIndexTest extends PostgresTestSupp
 
     private User seedUser(String emailPrefix) {
         return userRepository.saveAndFlush(User.createCompanyOwner(
-                emailPrefix + "-" + UUID.randomUUID() + "@haja.test", "V24테스트유저",
+                emailPrefix + "-" + UUID.randomUUID() + "@haja.test", "V25테스트유저",
                 "<password-hash-placeholder>"));
     }
 
     @Test
     void 같은_facilityId_dueAt_kind로_두번째저장시도는_unique_violation을던진다() {
-        User user = seedUser("v24-dup");
+        User user = seedUser("v25-dup");
         String payload = "{\"facilityId\":1,\"facilityName\":\"시설A\",\"nextInspectionDueAt\":\"2026-07-21\","
                 + "\"kind\":\"DUE\"}";
 
@@ -73,7 +73,7 @@ class V24InspectionDueNotificationDedupeUniqueIndexTest extends PostgresTestSupp
 
     @Test
     void kind가다르면_같은_facilityId_dueAt이어도_모두저장된다() {
-        User user = seedUser("v24-kind-differs");
+        User user = seedUser("v25-kind-differs");
         String before = "{\"facilityId\":2,\"facilityName\":\"시설B\",\"nextInspectionDueAt\":\"2026-07-21\","
                 + "\"kind\":\"BEFORE\"}";
         String due = "{\"facilityId\":2,\"facilityName\":\"시설B\",\"nextInspectionDueAt\":\"2026-07-21\","
@@ -95,8 +95,8 @@ class V24InspectionDueNotificationDedupeUniqueIndexTest extends PostgresTestSupp
 
     @Test
     void 다른사용자면_같은_facilityId_dueAt_kind여도_모두저장된다() {
-        User owner1 = seedUser("v24-user1");
-        User owner2 = seedUser("v24-user2");
+        User owner1 = seedUser("v25-user1");
+        User owner2 = seedUser("v25-user2");
         String payload = "{\"facilityId\":3,\"facilityName\":\"시설C\",\"nextInspectionDueAt\":\"2026-07-21\","
                 + "\"kind\":\"DUE\"}";
 
@@ -115,7 +115,7 @@ class V24InspectionDueNotificationDedupeUniqueIndexTest extends PostgresTestSupp
         // 취급하므로, kind 필드가 없는(#540 이전) payload끼리는 완전히 동일해도 이 인덱스가 막지 못한다.
         // 그래서 InspectionDueNotificationScheduler가 findLegacyKindLessInspectionDueByUserIdIn으로
         // 이 사각지대만 별도로 방어한다 — 이 테스트는 그 별도 방어가 왜 필요한지를 실제 DB로 증명한다.
-        User user = seedUser("v24-legacy-null");
+        User user = seedUser("v25-legacy-null");
         String legacyPayload = "{\"facilityId\":4,\"facilityName\":\"시설D\",\"nextInspectionDueAt\":\"2026-07-21\"}";
 
         Notification saved1 = notificationRepository.saveAndFlush(

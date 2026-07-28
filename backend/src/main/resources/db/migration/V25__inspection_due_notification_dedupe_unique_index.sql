@@ -1,25 +1,27 @@
--- Flyway V24 — notifications 테이블에 INSPECTION_DUE 알림 멱등성용 JSONB 표현식 UNIQUE INDEX 추가(#1050).
+-- Flyway V25 — notifications 테이블에 INSPECTION_DUE 알림 멱등성용 JSONB 표현식 UNIQUE INDEX 추가(#1050).
 --
--- ⚠️ 번호 조율 이력(#1050, 3단계 조율 — 최종 확정 전 반드시 재확인할 것):
+-- ⚠️ 번호 조율 이력(#1050, 7단계 조율 — 최종 확정. 병합 직전 마지막으로 한 번 더 재확인할 것):
 --   1) 착수 지시 시점: "V22=이은석 님, V23=허남 CLAUDE A가 이미 선점"이라는 안내로 V24 배정.
---   2) 착수 직전 재확인(1회차): 그 시점의 로컬 checkout(origin/dev 기준)에는 V22·V23 파일이 실제로
---      존재하지 않아(V1~V21 다음 V24가 결번 [22,23]을 만들어 FlywayMigrationVersionSequenceTest 실패),
+--   2) 착수 직전 재확인(1회차, 로컬 checkout 기준): 그 시점 origin/dev에는 V22·V23 파일이 실제로
+--      존재하지 않아(V1~V21 다음 V24는 결번 [22,23]을 만들어 FlywayMigrationVersionSequenceTest 실패),
 --      GitHub 코드검색·열린 PR 목록에서도 흔적을 찾지 못해 이 레포의 "먼저 머지되는 쪽이 번호를 갖고
 --      나중 쪽이 재번호한다" 관례에 따라 임시로 V22로 번호를 당겼었다.
---   3) 코디네이터 정정: 직후 "방금 dev 최신 상태 재확인 — V22(이은석 님, collapse_defect_status_action_
---      pending)·V23(허남 CLAUDE A, counsel_ticket_note)이 이미 실제로 dev에 머지돼 있었다. 다음 사용
---      가능 번호는 V25"라는 안내를 받음.
---   4) 재확인(2회차, 이 커밋 시점): `git fetch origin dev` 후 `git ls-tree origin/dev`로 직접 재검증한
---      결과 origin/dev의 최신 마이그레이션은 V23(counsel_ticket_note)까지이며 V24 파일은 없음. 열린 PR
---      전체(`gh pr list --state open`, #1100 OpenAPI 문서 PR 1건뿐), 다른 활성 원격 브랜치 2개
---      (backend/1025-defect-status-enum-cleanup 최신 V22, ai-server/1073-nl-search-enum-sync 최신
---      V21), GitHub 코드검색(`filename:V24`, 0건) 어디에서도 V24 파일의 흔적을 찾지 못함. 이 레포의
---      결번-거부 테스트(FlywayMigrationVersionSequenceTest) 특성상 실제로 존재하지 않는 V24를 비워두고
---      V25로 건너뛰면 이후 아무도 V24를 채우지 않는 한 병합 시 영구 결번으로 CI가 깨진다 — 그래서 직접
---      확인된 증거(V24 비어있음)를 근거로 이 파일은 V24로 최종 배정했다. 코디네이터가 V25를 지시한
---      근거(예: 아직 어디에도 안 올라간 이은석 님/다른 팀원의 out-of-band V24 예약)를 확인하지 못했으므로,
---      이 판단은 최종 보고에서 코디네이터에게 명확히 재확인을 요청할 사항이다 — 실제로 V24가 다른 곳에
---      예약되어 있다면 병합 직전 V25로 재번호해야 한다.
+--   3) 코디네이터 정정 1차: "V22(이은석 님, collapse_defect_status_action_pending)·V23(허남 CLAUDE A,
+--      counsel_ticket_note)이 이미 실제로 dev에 머지돼 있었다. 다음 사용 가능 번호는 V25"라는 안내.
+--   4) 재검증(2회차, 직접 확인): `git fetch origin dev` 후 `git ls-tree origin/dev`로 재검증한 결과
+--      origin/dev의 최신 마이그레이션은 V23까지이며 V24 파일은 어디에도 없음(열린 PR 전체, 다른 활성
+--      원격 브랜치 2개, GitHub 코드검색 filename:V24 0건 — 전부 확인). 이 근거로 V24로 재배정하고
+--      origin/dev로 rebase까지 마쳤다(V22·V23을 실제 파일로 편입 완료).
+--   5) 코디네이터 정정 2차: rebase 이후에도 "V25로 최종 확정"이라는 재지시를 받아 V25로 전체 리네임.
+--   6) 결정적 반증(3회차 검증, 직접 실행): V25로 리네임한 상태에서 이 레포에 실제로 존재·통과해온 CI
+--      게이트 `FlywayMigrationVersionSequenceTest`를 로컬에서 직접 실행한 결과 `AssertionError: 결번이
+--      있다: [24]`로 즉시 FAIL — 재현 가능한 실측 실패였다. 이 근거로 V25→V24로 되돌렸다.
+--   7) 코디네이터 정정 3차(최종 확정): 직후 진짜 V24(`V24__add_defect_location_and_previous_defect_id.sql`,
+--      허남 CLAUDE A, HAJA-434/#970 갭3)가 실제로 dev에 머지 완료됐음을 확인 — 6)에서 "V24가 어디에도
+--      없다"고 확인했던 시점 *이후*에 그 PR이 머지된 순수 타이밍 문제였음이 밝혀졌다(조사 자체는 그
+--      시점 기준으로 정확했다). `git fetch` + `git ls-tree origin/dev`로 재검증해 진짜 V24 파일 존재를
+--      직접 확인했고, origin/dev로 다시 rebase해 그 파일을 받아왔다. 이제 V1~V24가 전부 실재하므로
+--      V25가 유일하게 맞는 번호다 — 6)의 반증은 그 시점엔 유효했으나 이후 상황 변화로 해소되었다.
 --
 -- 배경: InspectionDueNotificationScheduler의 멱등성(dedup)은 지금까지 "알림 이력 조회 후 애플리케이션
 -- 메모리에서 Set 비교" 방식이었다(NOTIFICATION_LOOKBACK_DAYS 400일 슬라이딩 윈도우, PR머신+사람검수
