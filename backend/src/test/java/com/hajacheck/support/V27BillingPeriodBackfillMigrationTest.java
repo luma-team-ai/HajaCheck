@@ -14,15 +14,15 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * V25가 user_plans.current_period_start/current_period_end 를 기존 파생 규칙
+ * V27가 user_plans.current_period_start/current_period_end 를 기존 파생 규칙
  * (startedAt / startedAt + 1개월, 유료만) 그대로 백필하는지 검증한다(#1104 / HAJA-525).
  *
- * <p>{@link V21WarnOnOverdueEnabledDefaultMigrationTest}와 동일 패턴 — V24까지 적용된 상태를 재현해
- * "V25 배포 이전에 이미 존재하던 user_plans 행"을 만든 뒤 V25만 추가 적용해 백필 UPDATE 를 검증한다.
+ * <p>{@link V21WarnOnOverdueEnabledDefaultMigrationTest}와 동일 패턴 — V26까지 적용된 상태를 재현해
+ * "V27 배포 이전에 이미 존재하던 user_plans 행"을 만든 뒤 V27만 추가 적용해 백필 UPDATE 를 검증한다.
  */
 @Testcontainers
 @Execution(ExecutionMode.SAME_THREAD)
-class V25BillingPeriodBackfillMigrationTest {
+class V27BillingPeriodBackfillMigrationTest {
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16")
@@ -30,18 +30,18 @@ class V25BillingPeriodBackfillMigrationTest {
             .withUsername("postgres");
 
     @Test
-    void V25는_유료플랜만_currentPeriodEnd를_채우고_FREE는_NULL로둔다() {
+    void V27는_유료플랜만_currentPeriodEnd를_채우고_FREE는_NULL로둔다() {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .cleanDisabled(false)
                 .load()
                 .clean();
 
-        // V25 배포 이전 상태(V24)까지만 적용 — plans 3티어(V2 시드: FREE 0원, STANDARD 29000원)가
+        // V27 배포 이전 상태(V26)까지만 적용 — plans 3티어(V2 시드: FREE 0원, STANDARD 29000원)가
         // 이미 존재하고, user_plans 는 아직 current_period_* 컬럼이 없는 시점을 재현한다.
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-                .target("24")
+                .target("26")
                 .load()
                 .migrate();
 
@@ -55,27 +55,27 @@ class V25BillingPeriodBackfillMigrationTest {
 
         Long freeOwnerId = jdbc.queryForObject("""
                 insert into users (email, name, role, password_hash)
-                values ('v25-free-owner@haja.test', 'V25 무료 소유자', 'USER'::role_type, 'test-password-hash')
+                values ('v27-free-owner@haja.test', 'V27 무료 소유자', 'USER'::role_type, 'test-password-hash')
                 returning id
                 """, Long.class);
         Long freeCompanyId = jdbc.queryForObject("""
                 insert into companies
                     (owner_user_id, name, business_registration_number, representative_name,
                      address, business_registration_file_url)
-                values (?, 'V25 무료 회사', '000-00-00001', '대표자', '서울시', 'https://example.com/brn.pdf')
+                values (?, 'V27 무료 회사', '000-00-00001', '대표자', '서울시', 'https://example.com/brn.pdf')
                 returning id
                 """, Long.class, freeOwnerId);
 
         Long paidOwnerId = jdbc.queryForObject("""
                 insert into users (email, name, role, password_hash)
-                values ('v25-paid-owner@haja.test', 'V25 유료 소유자', 'USER'::role_type, 'test-password-hash')
+                values ('v27-paid-owner@haja.test', 'V27 유료 소유자', 'USER'::role_type, 'test-password-hash')
                 returning id
                 """, Long.class);
         Long paidCompanyId = jdbc.queryForObject("""
                 insert into companies
                     (owner_user_id, name, business_registration_number, representative_name,
                      address, business_registration_file_url)
-                values (?, 'V25 유료 회사', '000-00-00002', '대표자', '서울시', 'https://example.com/brn.pdf')
+                values (?, 'V27 유료 회사', '000-00-00002', '대표자', '서울시', 'https://example.com/brn.pdf')
                 returning id
                 """, Long.class, paidOwnerId);
 

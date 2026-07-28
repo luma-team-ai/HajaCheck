@@ -802,6 +802,7 @@ create table media
     mime_signature_verified boolean                  default false not null,
     created_at              timestamp with time zone default now() not null,
     mime_type               varchar(100),
+    original_filename       varchar(255),
     constraint chk_media_inspection_xor_facility
         check ((inspection_id is not null) <> (facility_id is not null))
 );
@@ -837,6 +838,8 @@ comment on column media.mime_signature_verified is '파일 시그니처와 MIME 
 comment on column media.created_at is '미디어 레코드 생성 시각';
 
 comment on column media.mime_type is '미디어 MIME 타입(예: image/jpeg, video/mp4)';
+
+comment on column media.original_filename is '업로드 시 클라이언트가 보낸 원본 파일명(표시 전용) — nullable, V26 이전 업로드 행은 NULL(조회 시 "이미지 N" 순번으로 폴백)';
 
 alter table media
     owner to postgres;
@@ -1409,6 +1412,19 @@ create index idx_notifications_user_unread
 -- 조회(폴링마다 실행)는 seq scan+sort로 빠진다 — 정렬 컬럼까지 포함한 일반 인덱스로 별도 커버한다.
 create index idx_notifications_user_history
     on notifications (user_id, created_at desc, id desc);
+
+-- INSPECTION_DUE 알림 멱등성(dedup)을 DB 유니크 제약으로 원자적으로 보장한다(V25, #1050). kind가 있는
+-- (#540 이후 생성된) payload만 방어하며, kind가 NULL인 레거시 payload는 이 인덱스로 못 잡는다(PostgreSQL
+-- unique index는 NULL을 서로 다른 값으로 취급) — 그 사각지대는 애플리케이션 레벨에서 별도로 방어한다
+-- (InspectionDueNotificationScheduler.findLegacyKindLessInspectionDueByUserIdIn 참고).
+create unique index uq_notifications_inspection_due_dedupe
+    on notifications (
+        user_id,
+        ((payload_json ->> 'facilityId')::bigint),
+        (payload_json ->> 'nextInspectionDueAt'),
+        (payload_json ->> 'kind')
+    )
+    where type = 'INSPECTION_DUE';
 
 create table inspection_notification_settings
 (

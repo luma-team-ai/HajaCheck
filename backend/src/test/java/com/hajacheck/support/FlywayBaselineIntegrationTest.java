@@ -28,10 +28,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * 옛 V19(FREE 좌석 한도, #843)는 #858에서 되돌리며 파일이 삭제돼 번호가 비어 있었고, 팀 합의로 이
  * 마이그레이션이 재사용한다)→V20(payments 결제 원장, #988/HAJA-489)→V21(inspection_notification_settings.
  * warn_on_overdue_enabled 기본값 false→true, HAJA-498 — 유병현 님 승인)→V22(defect_status_type 에서
- * ACTION_PENDING 제거 — 하자 상태 4단계화)→V23(counsel_ticket_notes, #1021/HAJA-503 — V19~V22를
- * 다른 브랜치가 선점해 번호 충돌 방지 목적으로 V23으로 이어 붙임)→V24(defects.location + defects.
- * previous_defect_id, #970 갭3/HAJA-437)→V25(user_plans.current_period_start/current_period_end
- * 결제 주기 실체화, #1104/HAJA-525)를 순서대로 적용하고,
+ * ACTION_PENDING 제거 — 하자 상태 4단계화, #1072/#1079/#1083)→V23(counsel_ticket_notes 상담원 비공개
+ * 메모, #1021/HAJA-503/#1091)→V24(defects.location + defects.previous_defect_id, #970 갭3/HAJA-437)→
+ * V25(notifications.uq_notifications_inspection_due_dedupe 부분 유니크 인덱스, #1050 — INSPECTION_DUE
+ * 알림 멱등성을 애플리케이션 메모리 조회에서 DB 유니크 제약 기반으로 전환)→V26(media.original_filename,
+ * #1116 — AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정)→V27(user_plans.current_period_start/
+ * current_period_end 결제 주기 실체화, #1104/HAJA-525)를 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -75,7 +77,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V25까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V27까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -97,19 +99,23 @@ class FlywayBaselineIntegrationTest {
         //   (결번 여부 자체는 FlywayMigrationVersionSequenceTest 가 별도로 고정한다).
         // + V21(inspection_notification_settings.warn_on_overdue_enabled DEFAULT false→true + 방어적
         //   백필, #540/HAJA-498 — 유병현 님 승인 옵션1: 연체 알림 미수신 회귀 방지 하위호환 확보).
-        // + V22(defect_status_type 에서 ACTION_PENDING 제거 — 하자 상태 4단계화).
-        // + V23(counsel_ticket_notes, #1021/HAJA-503). V19~V22는 다른 브랜치들이 선점(병합 완료)해
-        //   번호 충돌을 피해 V23으로 이어 붙였다.
-        // + V24(defects.location + defects.previous_defect_id, #970 갭3/HAJA-437)
-        // + V25(user_plans.current_period_start/current_period_end 결제 주기 실체화, #1104/HAJA-525)
-        //   — 마이그레이션 수는 V1~V23(23개) + V24(1개) + V25(1개) = 25이다.
-        assertThat(appliedMigrations).isEqualTo(25);
+        // + V22(defect_status_type 에서 ACTION_PENDING 제거 — 하자 상태 4단계화, #1072/#1079/#1083).
+        // + V23(counsel_ticket_notes 상담원 비공개 메모, #1021/HAJA-503/#1091).
+        // + V24(defects.location + defects.previous_defect_id, #970 갭3/HAJA-437).
+        // + V25(notifications.uq_notifications_inspection_due_dedupe 부분 유니크 인덱스, #1050 —
+        //   INSPECTION_DUE 알림 멱등성을 애플리케이션 메모리 조회에서 DB 유니크 제약 기반으로 전환).
+        // + V26(media.original_filename — AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정, #1116).
+        // + V27(user_plans.current_period_start/current_period_end 결제 주기 실체화, #1104/HAJA-525).
+        //   번호 배분(2026-07-28 팀 확정): V25=#1050 · V26=#1116 · V27=#1104 — 착수 시점엔 이 작업이
+        //   V25였으나 앞의 두 건이 먼저 dev에 확정돼 재번호했다.
+        //   마이그레이션 수는 V1~V24(24개) + V25·V26·V27(3개) = 27이다.
+        assertThat(appliedMigrations).isEqualTo(27);
 
-        // 최신 적용 버전이 실제로 V25 인지 확인.
+        // 최신 적용 버전이 실제로 V27 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("25");
+        assertThat(latestVersion).isEqualTo("27");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -132,6 +138,14 @@ class FlywayBaselineIntegrationTest {
                 where table_schema = 'public' and table_name = 'media' and column_name = 'inspection_id'
                 """, Boolean.class);
         assertThat(inspectionIdNullable).isTrue();
+
+        // V26이 media.original_filename 컬럼을 실제로 추가했는지 확인(AI 분석 실행/상태 화면
+        // "이미지 N" 순번 표시 문제 수정, V25는 팀원 작업 선점으로 아직 dev 미병합).
+        Long originalFilenameColumnExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'media' and column_name = 'original_filename'
+                """, Long.class);
+        assertThat(originalFilenameColumnExists).isEqualTo(1L);
 
         // V20이 payments 테이블(#988/HAJA-489)을 실제로 만들었는지 확인한다.
         Long paymentsTableExists = jdbcTemplate.queryForObject("""
@@ -157,6 +171,14 @@ class FlywayBaselineIntegrationTest {
                   and column_name = 'warn_on_overdue_enabled'
                 """, String.class);
         assertThat(warnOnOverdueEnabledDefault).contains("true");
+
+        // V25가 INSPECTION_DUE 알림 멱등성용 부분 유니크 인덱스를 실제로 만들었는지 확인(#1050).
+        Long dedupeIndexExists = jdbcTemplate.queryForObject("""
+                select count(*) from pg_indexes
+                where schemaname = 'public' and tablename = 'notifications'
+                  and indexname = 'uq_notifications_inspection_due_dedupe'
+                """, Long.class);
+        assertThat(dedupeIndexExists).isEqualTo(1L);
 
         // V5가 companies.business_start_date 컬럼을 실제로 추가했는지 확인(#596).
         Long businessStartDateColumnExists = jdbcTemplate.queryForObject("""

@@ -1,4 +1,8 @@
--- Flyway V25 — user_plans 결제 주기 실체화(#1104 / HAJA-525).
+-- Flyway V27 — user_plans 결제 주기 실체화(#1104 / HAJA-525).
+--
+-- 번호 배분(2026-07-28 팀 확정): V25=#1050(INSPECTION_DUE dedupe 유니크 인덱스) · V26=#1116
+-- (media.original_filename) · V27=이 작업. 착수 시점엔 V25로 준비했으나 앞의 두 건이 먼저 dev에
+-- 확정돼 재번호했다(결번이 생기면 FlywayMigrationVersionSequenceTest가 CI를 막는다).
 --
 -- 배경: nextBillingDate 가 DB 필드가 아니라 startedAt + 1개월로 파생 계산됐다. 플랜을 바꿀 때마다 새
 -- user_plans 행이 생기고 startedAt = now 로 리셋돼 "결제일이 변경할 때마다 밀리는" 버그가 있었고, 같은

@@ -2,6 +2,7 @@ package com.hajacheck.core.analysis.service;
 
 import com.hajacheck.core.analysis.dto.AnalysisStatusResponse;
 import com.hajacheck.core.analysis.dto.AnalysisStatusResponse.FileProgress;
+import com.hajacheck.core.analysis.support.AnalysisFileDisplayNames;
 import com.hajacheck.core.analysis.support.AnalysisProgressStore;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
@@ -230,7 +231,8 @@ public class InspectionAnalysisService {
         // P1 — 선점 성공과 캐시 기록 사이에 무거운 작업을 두지 않는다(클래스 javadoc 참고).
         List<FileProgress> initialFiles = new java.util.ArrayList<>(images.size());
         for (int i = 0; i < images.size(); i++) {
-            initialFiles.add(new FileProgress(images.get(i).getId(), "이미지 " + (i + 1), "waiting", null, "-"));
+            initialFiles.add(new FileProgress(
+                    images.get(i).getId(), AnalysisFileDisplayNames.of(images.get(i), i), "waiting", null, "-"));
         }
         progressStore.save(new AnalysisStatusResponse(
                 inspectionId, "aiDetection", 0, images.size(), 0, initialFiles, 0, 0,
@@ -409,7 +411,8 @@ public class InspectionAnalysisService {
             // 분석이 끝난 적 없는 회차 — 캐시도 없으면 "아직 분석 안 됨"이 사실이다(가짜 진행률 금지).
             List<FileProgress> files = new java.util.ArrayList<>(images.size());
             for (int i = 0; i < images.size(); i++) {
-                files.add(new FileProgress(images.get(i).getId(), "이미지 " + (i + 1), "waiting", null, "-"));
+                files.add(new FileProgress(
+                        images.get(i).getId(), AnalysisFileDisplayNames.of(images.get(i), i), "waiting", null, "-"));
             }
             return new AnalysisStatusResponse(
                     inspectionId, "upload", 0, images.size(), 0, files, 0, 0, emptyGradeMap(), 0, Instant.now());
@@ -437,7 +440,7 @@ public class InspectionAnalysisService {
         for (int i = 0; i < images.size(); i++) {
             Media media = images.get(i);
             int count = defectCountByMedia.getOrDefault(media.getId(), 0);
-            files.add(new FileProgress(media.getId(), "이미지 " + (i + 1), "completed", count, "-"));
+            files.add(new FileProgress(media.getId(), AnalysisFileDisplayNames.of(media, i), "completed", count, "-"));
         }
 
         Map<String, Integer> gradeMap = emptyGradeMap();
