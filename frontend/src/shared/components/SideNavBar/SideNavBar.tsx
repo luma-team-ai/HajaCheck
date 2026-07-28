@@ -109,6 +109,10 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     icon: facilitiesIcon,
     subItems: [
       { label: '시설물 목록/등록', href: '/facilities/list' },
+      // facilityId 쿼리파라미터를 의도적으로 붙이지 않는다(#1129) — 전역 메뉴는 어느 시설물을
+      // 열지 알 수 없으므로, 대상 없이 진입시키고 InspectionCycleSettingsPage가 선택 UI를 보여준다.
+      // 과거엔 화면이 이 미지정 상태를 하드코딩된 목 시설물 id로 임의 폴백해 FACILITY_NOT_FOUND가
+      // 났다 — 여기서 임의 facilityId를 채워 "고치려" 하지 말 것(같은 버그 재발).
       { label: '점검 주기 설정', href: '/facilities/inspection-cycle' },
       { label: '지도 뷰', href: '/facilities/map' },
     ],
