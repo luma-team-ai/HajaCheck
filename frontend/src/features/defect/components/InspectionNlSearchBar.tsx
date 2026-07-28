@@ -1,44 +1,17 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react';
+import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
+import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { useNlSearch } from '../hooks/useNlSearch';
-import type { NlSearchFilters } from '../nlSearchTypes';
 import type { InspectionListFilters } from '../types';
+import {
+  describeUnsupported,
+  hasApplicableInspectionFilters,
+  toInspectionFilters,
+} from '../utils/inspectionNlSearch';
 
 type Props = {
-  onApply: (filters: Partial<InspectionListFilters>) => void;
+  onApply: (filters: InspectionListFilters) => void;
 };
-
-// GET /api/inspections의 defectType/defectGrade/defectStatus(#878/HAJA-452, 백엔드 PR #891)는
-// 배열을 그대로 받는 EXISTS 서브쿼리라, GET /api/defects(단일값 파라미터)를 겨냥해 만들어진
-// DefectFilterBar.toDefectListFilters류의 "배열→단일값" 트렁케이션이 필요 없다 — 인식된 값을
-// 그대로 매핑한다.
-function toInspectionFilters(nlFilters: NlSearchFilters): Partial<InspectionListFilters> {
-  return {
-    defectType: nlFilters.type,
-    defectGrade: nlFilters.grade,
-    defectStatus: nlFilters.status,
-  };
-}
-
-// 셋 다 빈 배열이면(적용 가능한 조건 0건) 기존 필터를 조용히 유지한다(DefectFilterBar와 동일한
-// §4.4 fallback 원칙).
-function hasApplicableFilters(nlFilters: NlSearchFilters): boolean {
-  return nlFilters.type.length > 0 || nlFilters.grade.length > 0 || nlFilters.status.length > 0;
-}
-
-// confidenceMin은 GET /api/inspections가 지원하지 않는 필드라 unsupported_terms와 마찬가지로
-// 안내만 하고 적용에서는 제외한다.
-function describeUnsupported(nlFilters: NlSearchFilters, unsupportedTerms: string[]): string[] {
-  const messages: string[] = [];
-  if (unsupportedTerms.length > 0) {
-    messages.push(`다음 조건은 아직 지원하지 않아 제외했어요: ${unsupportedTerms.join(', ')}`);
-  }
-  if (nlFilters.confidenceMin !== null) {
-    messages.push(
-      `신뢰도 ${Math.round(nlFilters.confidenceMin * 100)}% 이상 조건은 아직 점검 목록 필터에 적용할 수 없어 제외했어요`,
-    );
-  }
-  return messages;
-}
 
 // 점검 목록(#726/HAJA-394) 자연어 검색 — 점검 자체가 아니라 "그 점검에 속한 하자 조건"을 검색
 // 대상으로 삼는다(GET /api/inspections의 defectType/defectGrade/defectStatus 재조회). 칩 표시/제거는
@@ -46,10 +19,28 @@ function describeUnsupported(nlFilters: NlSearchFilters, unsupportedTerms: strin
 // 메시지만 담당한다.
 export function InspectionNlSearchBar({ onApply }: Props) {
   const [query, setQuery] = useState('');
+  const lastSubmittedQuery = useRef('');
   const { search, data, error, isPending, reset } = useNlSearch();
 
   function handleQueryChange(event: ChangeEvent<HTMLInputElement>) {
     setQuery(event.target.value);
+  }
+
+  function executeSearch(trimmed: string) {
+    reset();
+    search(trimmed, {
+      onSuccess: (result) => {
+        // 되묻는 질문이 있으면 필터를 적용하지 않고 질문만 노출한다(§2.3/§4.3).
+        if (result.clarifying_question) {
+          return;
+        }
+        const nextFilters = toInspectionFilters(result.filters);
+        if (!hasApplicableInspectionFilters(nextFilters)) {
+          return;
+        }
+        onApply(nextFilters);
+      },
+    });
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -58,26 +49,15 @@ export function InspectionNlSearchBar({ onApply }: Props) {
     if (!trimmed || isPending) {
       return;
     }
-    reset();
-    search(trimmed, {
-      onSuccess: (result) => {
-        // 되묻는 질문이 있으면 필터를 적용하지 않고 질문만 노출한다(§2.3/§4.3).
-        if (result.clarifying_question) {
-          return;
-        }
-        if (!hasApplicableFilters(result.filters)) {
-          return;
-        }
-        onApply(toInspectionFilters(result.filters));
-      },
-    });
+    lastSubmittedQuery.current = trimmed;
+    executeSearch(trimmed);
   }
 
-  const errorMessage = error
-    ? error.code === 'AI_ADDON_REQUIRED'
-      ? 'AI 자연어 검색은 AI 부가 기능이 포함된 플랜에서만 사용할 수 있습니다.'
-      : 'AI 검색을 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.'
-    : null;
+  function handleRetry() {
+    if (lastSubmittedQuery.current && !isPending) {
+      executeSearch(lastSubmittedQuery.current);
+    }
+  }
 
   return (
     <div>
@@ -106,11 +86,15 @@ export function InspectionNlSearchBar({ onApply }: Props) {
         </button>
       </form>
 
-      {errorMessage && (
+      {isPending && <AILoadingIndicator message="검색 조건을 분석하고 있습니다..." />}
+
+      {error?.code === 'AI_ADDON_REQUIRED' && (
         <div className="defect-filter-bar__ai-message defect-filter-bar__ai-message--error" role="alert">
-          {errorMessage}
+          AI 자연어 검색은 AI 부가 기능이 포함된 플랜에서만 사용할 수 있습니다.
         </div>
       )}
+
+      {error && error.code !== 'AI_ADDON_REQUIRED' && <AIErrorFallback onRetry={handleRetry} />}
 
       {!error && data?.clarifying_question && (
         <div className="defect-filter-bar__ai-message" role="status">
