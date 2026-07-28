@@ -29,7 +29,7 @@ const mockFacilityOptions: FacilityOption[] = [
   { id: 3, name: '한강대교 북단' },
 ];
 
-// 분석 결과 뷰어(useInspectionResultReal)용 시설물 상세 목 — facility feature의 mockFacilities id=1과
+// 분석 결과 뷰어(useInspectionResultReal)용 시설물 상세 목 — facility feature의 mockFacilities id=1~3과
 // 동일 데모 시설물(값만 로컬 복제, cross-feature import 금지).
 const mockFacilityDetails: Record<number, FacilityDetail> = {
   1: {
@@ -40,6 +40,24 @@ const mockFacilityDetails: Record<number, FacilityDetail> = {
     builtYear: 2008,
     scale: '지상 20층, 지하 5층',
     nextInspectionDueAt: '2026-09-15',
+  },
+  2: {
+    id: 2,
+    name: '판교 테크노밸리 B동',
+    type: '건물',
+    address: '경기 성남시 분당구 판교역로 235',
+    builtYear: 2012,
+    scale: '지상 15층, 지하 3층',
+    nextInspectionDueAt: '2027-01-05',
+  },
+  3: {
+    id: 3,
+    name: '한강대교 북단',
+    type: '교량',
+    address: '서울 용산구 한강대로 인근',
+    builtYear: 1985,
+    scale: '연장 1,005m, 왕복 8차로',
+    nextInspectionDueAt: '2026-08-01',
   },
 };
 

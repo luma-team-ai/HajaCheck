@@ -14,14 +14,6 @@ import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
 
-function formatElapsedTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  if (diffMs < 60000) return '방금 전';
-  if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)}분 전`;
-  if (diffMs < 86400000) return `${Math.floor(diffMs / 3600000)}시간 전`;
-  return `${Math.floor(diffMs / 86400000)}일 전`;
-}
-
 function extractErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message) {
     return err.message;
@@ -71,8 +63,9 @@ export function ReportGeneratePage() {
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfLoadError, setPdfLoadError] = useState<string | null>(null);
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const pdfBlobUrlRef = useRef<string | null>(null);
+  const pdfAbortControllerRef = useRef<AbortController | null>(null);
+  const pdfLoadGenerationRef = useRef(0);
   const inspectionId = report?.inspectionId ?? 0;
   const setActiveReportId = useInspectionStore((state) => state.setActiveReportId);
 
@@ -82,35 +75,59 @@ export function ReportGeneratePage() {
     }
   }, [parsedReportId, hasValidReportId, setActiveReportId]);
 
+  const revokePdfBlobUrl = useCallback(() => {
+    if (pdfBlobUrlRef.current) URL.revokeObjectURL(pdfBlobUrlRef.current);
+    pdfBlobUrlRef.current = null;
+  }, []);
+
+  const cancelPdfLoad = useCallback(() => {
+    pdfLoadGenerationRef.current += 1;
+    pdfAbortControllerRef.current?.abort();
+    pdfAbortControllerRef.current = null;
+    revokePdfBlobUrl();
+  }, [revokePdfBlobUrl]);
+
+  const loadPdfPreview = useCallback(async (pdfUrl: string) => {
+    const generation = pdfLoadGenerationRef.current + 1;
+    pdfLoadGenerationRef.current = generation;
+    pdfAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    pdfAbortControllerRef.current = controller;
+    revokePdfBlobUrl();
+    setPdfBlobUrl(null);
+    setPdfLoadError(null);
+
+    try {
+      const url = new URL(pdfUrl, window.location.origin);
+      const isSameOrigin = url.origin === window.location.origin;
+      const response = await fetch(url, {
+        mode: 'cors',
+        credentials: isSameOrigin ? 'include' : 'omit',
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`PDF 응답 오류 (${response.status})`);
+      const blob = await response.blob();
+      if (generation !== pdfLoadGenerationRef.current || controller.signal.aborted) return;
+
+      const blobUrl = URL.createObjectURL(blob);
+      pdfBlobUrlRef.current = blobUrl;
+      setPdfBlobUrl(blobUrl);
+    } catch (err) {
+      if (generation !== pdfLoadGenerationRef.current || controller.signal.aborted) return;
+      setPdfLoadError(extractErrorMessage(err, 'PDF를 불러올 수 없습니다.'));
+    } finally {
+      if (pdfAbortControllerRef.current === controller) pdfAbortControllerRef.current = null;
+    }
+  }, [revokePdfBlobUrl]);
+
   // export 모드에서 pdfUrl을 fetch → Blob URL 생성 (iframe이 직접 API 호출 시 인증/프록시 문제 방지)
   useEffect(() => {
     if (!report?.pdfUrl || !isExportMode) return;
-    let cancelled = false;
-    setPdfLoadError(null);
-    setPdfBlobUrl(null);
-    if (pdfBlobUrlRef.current) URL.revokeObjectURL(pdfBlobUrlRef.current);
-    pdfBlobUrlRef.current = null;
-    fetch(report.pdfUrl, { credentials: 'include' })
-      .then((res) => {
-        if (!res.ok) throw new Error(`PDF 응답 오류 (${res.status})`);
-        return res.blob();
-      })
-      .then((blob) => {
-        if (!cancelled) {
-          const url = URL.createObjectURL(blob);
-          pdfBlobUrlRef.current = url;
-          setPdfBlobUrl(url);
-          setLastSavedAt(new Date().toISOString());
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setPdfLoadError(err.message || 'PDF를 불러올 수 없습니다.');
-      });
-    return () => {
-      cancelled = true;
-      if (pdfBlobUrlRef.current) URL.revokeObjectURL(pdfBlobUrlRef.current);
-    };
-  }, [report?.pdfUrl, isExportMode]);
+    void loadPdfPreview(report.pdfUrl);
+    return cancelPdfLoad;
+  }, [cancelPdfLoad, isExportMode, loadPdfPreview, report?.pdfUrl]);
+
+  useEffect(() => cancelPdfLoad, [cancelPdfLoad]);
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
   const defectImageUrls = useMemo(
@@ -209,23 +226,7 @@ export function ReportGeneratePage() {
   };
 
   const handleRefreshPdf = () => {
-    setPdfBlobUrl(null);
-    setPdfLoadError(null);
-    if (pdfBlobUrlRef.current) URL.revokeObjectURL(pdfBlobUrlRef.current);
-    pdfBlobUrlRef.current = null;
-    if (!report?.pdfUrl) return;
-    fetch(report.pdfUrl, { credentials: 'include' })
-      .then((res) => {
-        if (!res.ok) throw new Error(`PDF 응답 오류 (${res.status})`);
-        return res.blob();
-      })
-      .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        pdfBlobUrlRef.current = url;
-        setPdfBlobUrl(url);
-        setLastSavedAt(new Date().toISOString());
-      })
-      .catch((err) => setPdfLoadError(err.message || 'PDF를 불러올 수 없습니다.'));
+    if (report?.pdfUrl) void loadPdfPreview(report.pdfUrl);
   };
 
   const handleBackToViewer = () => {
@@ -295,7 +296,7 @@ export function ReportGeneratePage() {
               <path d="M6.5 16.5a4.5 4.5 0 0 1-.6-8.96A5.5 5.5 0 0 1 16.2 5.9 4.75 4.75 0 0 1 17.5 15h-.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M9 10.5l2.5 2.5 5-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <span>자동 저장됨 · {lastSavedAt ? formatElapsedTime(lastSavedAt) : '방금 전'}</span>
+            <span>저장된 보고서 PDF</span>
           </div>
           <div className="flex items-center gap-3">
             <button
