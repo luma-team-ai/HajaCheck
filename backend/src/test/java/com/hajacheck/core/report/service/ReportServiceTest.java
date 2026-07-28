@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.service.CompanyScopeGuard;
@@ -403,6 +404,52 @@ class ReportServiceTest {
         assertThatThrownBy(() -> reportService.getReport(5L, 200L, 999L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.REPORT_NOT_FOUND));
+    }
+
+    @Test
+    void cloneReport_원본content를다음버전DRAFT로복제하고검증필드는초기화() {
+        Report source = Report.draft(1L, 2, "{\"overview\":{\"purpose\":\"copy\"}}", 100L);
+        source.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                source.captureGroundingRequestContext(), source.getContentJson()),
+                        null),
+                100L);
+        source.finalizeReport("/api/reports/5/pdf/source.pdf", 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(source));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.of(source));
+        when(reportRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ReportDetailResponse response = reportService.cloneReport(5L, 100L, 200L);
+
+        assertThat(response.inspectionId()).isEqualTo(1L);
+        assertThat(response.version()).isEqualTo(3);
+        assertThat(response.status()).isEqualTo(com.hajacheck.core.report.entity.ReportStatus.DRAFT);
+        assertThat(response.content().path("overview").path("purpose").asText()).isEqualTo("copy");
+        assertThat(response.groundingCheckPassed()).isNull();
+        assertThat(response.pdfUrl()).isNull();
+
+        ArgumentCaptor<Report> captor = ArgumentCaptor.forClass(Report.class);
+        verify(reportRepository).saveAndFlush(captor.capture());
+        Report clone = captor.getValue();
+        assertThat(clone.getCreatedBy()).isEqualTo(200L);
+        assertThat(clone.getEditedBy()).isNull();
+        assertThat(clone.getGroundingWarnings()).isNull();
+    }
+
+    @Test
+    void cloneReport_타인소유_REPORT_NOT_FOUND() {
+        Report report = Report.draft(1L, 1, "{}", 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
+                .when(inspectionService).getInspection(200L, 999L, 1L);
+
+        assertThatThrownBy(() -> reportService.cloneReport(5L, 999L, 200L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.REPORT_NOT_FOUND));
+        verify(reportRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(defectRepository, aiProxyService);
     }
 
     @Test
