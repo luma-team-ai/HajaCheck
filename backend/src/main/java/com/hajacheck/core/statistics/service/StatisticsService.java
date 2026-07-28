@@ -178,14 +178,15 @@ public class StatisticsService {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         List<Facility> facilities = resolveFacilities(companyId, facilityIdParam);
         List<Long> facilityIds = facilities.stream().map(Facility::getId).toList();
-        List<Inspection> inspections = facilityIds.isEmpty()
-                ? List.of()
-                : inspectionRepository.findByFacilityIdIn(facilityIds);
 
         int months = monthsOf(period);
         YearMonth endMonth = YearMonth.now(KST).plusMonths(1);
         YearMonth startMonth = endMonth.minusMonths(months);
         YearMonth previousStartMonth = startMonth.minusMonths(months);
+        List<Inspection> inspections = facilityIds.isEmpty()
+                ? List.of()
+                : inspectionRepository.findByFacilityIdInAndInspectionDateGreaterThanEqualAndInspectionDateLessThan(
+                        facilityIds, previousStartMonth.atDay(1), endMonth.atDay(1));
 
         List<Inspection> currentInspections = inspections.stream()
                 .filter(inspection -> inRange(inspection.getInspectionDate(), startMonth, endMonth))

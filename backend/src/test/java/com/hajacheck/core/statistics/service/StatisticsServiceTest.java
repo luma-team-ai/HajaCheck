@@ -1,6 +1,7 @@
 package com.hajacheck.core.statistics.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -57,7 +58,9 @@ class StatisticsServiceTest {
         Facility facility = facility(1L, "건물-정기-4개월");
         Inspection inspection = inspection(100L, facility.getId(), YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1));
         when(facilityRepository.findByCompanyId(COMPANY_ID)).thenReturn(List.of(facility));
-        when(inspectionRepository.findByFacilityIdIn(List.of(facility.getId()))).thenReturn(List.of(inspection));
+        when(inspectionRepository.findByFacilityIdInAndInspectionDateGreaterThanEqualAndInspectionDateLessThan(
+                        eq(List.of(facility.getId())), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of(inspection));
         when(defectRepository.countGroupByInspectionId(List.of(inspection.getId()))).thenReturn(List.of(defectCount(100L, 5L)));
         when(defectRepository.countGroupByStatus(List.of(inspection.getId()))).thenReturn(List.of(
                 statusCount(DefectStatus.RESOLVED, 2L),
@@ -79,7 +82,9 @@ class StatisticsServiceTest {
         YearMonth thisMonth = YearMonth.now(ZoneId.of("Asia/Seoul"));
         Inspection inspection = inspection(100L, facility.getId(), thisMonth.atDay(1));
         when(facilityRepository.findByCompanyId(COMPANY_ID)).thenReturn(List.of(facility));
-        when(inspectionRepository.findByFacilityIdIn(List.of(facility.getId()))).thenReturn(List.of(inspection));
+        when(inspectionRepository.findByFacilityIdInAndInspectionDateGreaterThanEqualAndInspectionDateLessThan(
+                        eq(List.of(facility.getId())), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of(inspection));
         when(defectRepository.countGroupByInspectionId(List.of(inspection.getId()))).thenReturn(List.of(defectCount(100L, 7L)));
 
         List<MonthlyDefectTrendResponse> result =
@@ -96,7 +101,9 @@ class StatisticsServiceTest {
         Facility facility = facility(1L, "교량-정밀-12개월");
         Inspection inspection = inspection(100L, facility.getId(), YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(2));
         when(facilityRepository.findByCompanyId(COMPANY_ID)).thenReturn(List.of(facility));
-        when(inspectionRepository.findByFacilityIdIn(List.of(facility.getId()))).thenReturn(List.of(inspection));
+        when(inspectionRepository.findByFacilityIdInAndInspectionDateGreaterThanEqualAndInspectionDateLessThan(
+                        eq(List.of(facility.getId())), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of(inspection));
         when(defectRepository.countGroupByInspectionId(List.of(inspection.getId()))).thenReturn(List.of(defectCount(100L, 2L)));
         when(defectRepository.countGroupByInspectionIdAndGrade(List.of(inspection.getId()))).thenReturn(List.of(
                 inspectionGradeCount(100L, DefectGrade.C, 1L),
@@ -117,7 +124,9 @@ class StatisticsServiceTest {
         Facility facility = facility(1L, "건물");
         Inspection inspection = inspection(100L, facility.getId(), YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1));
         when(facilityRepository.findByCompanyId(COMPANY_ID)).thenReturn(List.of(facility));
-        when(inspectionRepository.findByFacilityIdIn(List.of(facility.getId()))).thenReturn(List.of(inspection));
+        when(inspectionRepository.findByFacilityIdInAndInspectionDateGreaterThanEqualAndInspectionDateLessThan(
+                        eq(List.of(facility.getId())), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of(inspection));
         when(defectRepository.countGroupByType(List.of(inspection.getId()))).thenReturn(List.of(
                 typeCount(DefectType.CRACK, 3L),
                 typeCount(DefectType.PAINT_DAMAGE, 2L)));

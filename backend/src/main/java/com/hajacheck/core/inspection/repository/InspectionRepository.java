@@ -18,6 +18,9 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     // 대시보드 개요(HAJA-17) — 소유 시설물 범위 내 점검 전체(최근 점검 목록 조합용 createdBy/facilityId 매핑 포함).
     List<Inspection> findByFacilityIdIn(Collection<Long> facilityIds);
 
+    List<Inspection> findByFacilityIdInAndInspectionDateGreaterThanEqualAndInspectionDateLessThan(
+            Collection<Long> facilityIds, LocalDate from, LocalDate to);
+
     // 대시보드 최근 점검 목록 — 건수 제한을 파생 쿼리(findTop10)가 아니라 Pageable 로 받는다(#351).
     // 메서드명에 매직넘버 10 이 박히면 호출부의 RECENT_LIMIT 상수가 죽는다. PR #349 의
     // pending-priority 패턴(@Query + Pageable + 상수)과 동일하게 맞춘다.
