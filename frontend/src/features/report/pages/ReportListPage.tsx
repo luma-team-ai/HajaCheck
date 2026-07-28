@@ -33,7 +33,7 @@ export function ReportListPage() {
   const [activeReport, setActiveReport] = useState<ReportListItem | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<{ reportId: number; type: 'clone' | 'submit' } | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ reportId: number; type: 'clone' | 'submit' | 'delete' } | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<number, string | undefined>>({});
 
   const summaryQuery = useCompanyReportsSummary();
@@ -156,6 +156,28 @@ export function ReportListPage() {
     }
   }
 
+  async function handleDeleteReport(row: ReportListItem) {
+    if (pendingAction || row.status !== 'DRAFT') return;
+    setPendingAction({ reportId: row.id, type: 'delete' });
+    setActionErrors((prev) => ({ ...prev, [row.id]: undefined }));
+    try {
+      await reportApi.deleteReport(row.id);
+      setSelectedRowsById((previous) => {
+        const next = new Map(previous);
+        next.delete(row.id);
+        return next;
+      });
+      if (activeReport?.id === row.id) {
+        setActiveReport(null);
+      }
+      await refreshReportQueries(row.inspectionId);
+    } catch (error) {
+      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage(error) }));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
   // window.open을 여러 번 호출하면 브라우저 팝업 차단에 걸리고, PDF URL을 새 탭에서 열기만 해서는
   // '내보내기'가 다운로드로 보장되지 않는다. 기존 소유권 검증 PDF GET을 세션 쿠키로 받아 파일로 저장한다.
   async function handleBulkExport() {
@@ -252,6 +274,7 @@ export function ReportListPage() {
                   onOpenVersionHistory={setActiveReport}
                   onCloneReport={(row) => void handleCloneReport(row)}
                   onSubmitReport={(row) => void handleSubmitReport(row)}
+                  onDeleteReport={(row) => void handleDeleteReport(row)}
                   pendingAction={pendingAction}
                   actionErrors={actionErrors}
                 />

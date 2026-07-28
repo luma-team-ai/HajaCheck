@@ -346,7 +346,7 @@ export function ReportGeneratePage() {
         </div>
         <div className="flex min-h-0 flex-1 overflow-hidden bg-surface-sunken px-6 py-5">
           {report.pdfUrl && pdfLoadError ? (
-            <div className="m-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-4 rounded-lg border border-border bg-surface p-8 text-center shadow-sm">
+            <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-4 rounded-lg border border-border bg-surface p-8 text-center shadow-sm">
               <p className="text-lg font-semibold text-text-default">PDF를 불러올 수 없습니다.</p>
               <p className="text-sm text-text-muted">{pdfLoadError}</p>
               <Button onClick={() => void handleDownloadStoredPdf()} variant="secondary">
@@ -368,7 +368,7 @@ export function ReportGeneratePage() {
               <AILoadingIndicator message="PDF를 불러오는 중..." />
             </div>
           ) : (
-            <div className="m-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-surface p-8 text-center shadow-sm">
+            <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-surface p-8 text-center shadow-sm">
               <div className="flex max-w-md flex-col gap-3">
                 <p className="text-lg font-semibold text-text-default">저장된 PDF가 없습니다.</p>
                 <p className="text-sm text-text-muted">
@@ -432,9 +432,9 @@ export function ReportGeneratePage() {
         />
       )}
 
-      {/* 9. 하단 액션 바 (기존 로직 유지) */}
+      {/* 9. 하단 저장/검증 상태 바 */}
       {!isFinalized && (
-        <div className="sticky bottom-4 z-20 flex flex-col gap-3 rounded-lg border border-border bg-surface/95 p-6 shadow-lg backdrop-blur-[10px]">
+        <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-6">
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={handleSave} variant="primary" disabled={!dirty || isSaving}>
               {isSaving ? '저장 중...' : '저장'}
@@ -445,13 +445,6 @@ export function ReportGeneratePage() {
               disabled={dirty || isRechecking}
             >
               {isRechecking ? '검증 중...' : '확정 검증'}
-            </Button>
-            <Button
-              onClick={handleGeneratePdfAndFinalize}
-              variant="primary"
-              disabled={!canFinalize || isFinalizing}
-            >
-              {isFinalizing ? 'PDF 생성/확정 중...' : 'PDF 생성 후 확정'}
             </Button>
           </div>
           {dirty && (

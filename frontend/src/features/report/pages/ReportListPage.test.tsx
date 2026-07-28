@@ -244,6 +244,56 @@ describe('ReportListPage', () => {
     expect((await screen.findByRole('menuitem', { name: '제출 처리' })).hasAttribute('disabled')).toBe(true);
   });
 
+  it('DRAFT 행 삭제는 DELETE 호출 후 목록에서 해당 보고서를 제외한다', async () => {
+    let deleted = false;
+    server.use(
+      http.delete('/api/reports/103', () => {
+        deleted = true;
+        return HttpResponse.json({ success: true, data: null });
+      }),
+      http.get('/api/reports', () => {
+        const content = deleted
+          ? []
+          : [
+              {
+                id: 103,
+                inspectionId: 3,
+                facilityId: 4,
+                facilityName: '강남 파이낸스센터',
+                roundNo: 1,
+                gradeDistribution: { B: 1, C: 12 },
+                status: 'DRAFT',
+                version: 3,
+                updatedAt: '2026-06-23T09:15:00',
+                pdfUrl: null,
+              },
+            ];
+        return HttpResponse.json({
+          success: true,
+          data: { content, page: 0, totalElements: content.length },
+        });
+      }),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_103_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '삭제' }));
+
+    await waitFor(() => expect(screen.queryByText(REPORT_103_TITLE)).toBeNull());
+    expect(deleted).toBe(true);
+  });
+
+  it('FINALIZED 행의 삭제는 disabled다', async () => {
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+
+    expect((await screen.findByRole('menuitem', { name: '삭제' })).hasAttribute('disabled')).toBe(true);
+  });
+
   it('제출 실패 후 메뉴 안에 오류를 표시하고 다시 시도할 수 있다', async () => {
     let detailCount = 0;
     server.use(

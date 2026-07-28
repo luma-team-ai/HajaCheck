@@ -231,7 +231,7 @@ describe('ReportGeneratePage', () => {
     expect(recheckButton.disabled).toBe(false);
     fireEvent.click(recheckButton);
 
-    const finalizeButton = screen.getByRole('button', { name: 'PDF 생성 후 확정' }) as HTMLButtonElement;
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
     await waitFor(() => expect(finalizeButton.disabled).toBe(false));
     expect(screen.queryByText('✓ 검증 완료')).toBeNull();
     fireEvent.click(finalizeButton);
@@ -304,7 +304,7 @@ describe('ReportGeneratePage', () => {
 
     await screen.findByDisplayValue(realContractContent.overview.purpose);
 
-    const finalizeButton = screen.getByRole('button', { name: 'PDF 생성 후 확정' }) as HTMLButtonElement;
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
     expect(finalizeButton.disabled).toBe(false);
     fireEvent.click(finalizeButton);
 
@@ -405,7 +405,8 @@ describe('ReportGeneratePage', () => {
 
     renderPageWithPath('/reports/1?mode=export');
 
-    expect(await screen.findByText('PDF를 불러올 수 없습니다.')).toBeTruthy();
+    const errorTitle = await screen.findByText('PDF를 불러올 수 없습니다.');
+    expect(errorTitle.closest('div')?.className).toContain('mx-auto');
     expect(screen.getByRole('button', { name: 'PDF 내보내기' })).toBeTruthy();
     expect(screen.queryByTitle('저장된 보고서 PDF')).toBeNull();
   });
@@ -480,7 +481,8 @@ describe('ReportGeneratePage', () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByText('저장된 PDF가 없습니다.')).toBeTruthy();
+    const emptyTitle = await screen.findByText('저장된 PDF가 없습니다.');
+    expect(emptyTitle.closest('div')?.parentElement?.className).toContain('mx-auto');
     expect(screen.queryByTitle('저장된 보고서 PDF')).toBeNull();
     expect(screen.queryByLabelText('점검 목적')).toBeNull();
   });
@@ -493,8 +495,9 @@ describe('ReportGeneratePage', () => {
     const recheckButton = screen.getByRole('button', { name: '확정 검증' }) as HTMLButtonElement;
     expect(recheckButton.disabled).toBe(false);
 
-    const finalizeButton = screen.getByRole('button', { name: 'PDF 생성 후 확정' }) as HTMLButtonElement;
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
     expect(finalizeButton.disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'PDF 생성 후 확정' })).toBeNull();
   });
 
   it('저장 실패 시 axios 인터셉터가 던진 ApiError의 실제 message를 그대로 노출한다(제네릭 문구로 덮지 않는다)', async () => {

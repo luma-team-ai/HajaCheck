@@ -70,6 +70,10 @@ export const reportApi = {
   finalizeReport: (reportId: number, pdfUrl: string, signal?: AbortSignal) =>
     api.post<ReportDetailResponse>(`/reports/${reportId}/finalize`, { pdfUrl }, { signal }),
 
+  // 보고서 초안 삭제 — 서버 정책상 DRAFT만 soft delete 가능하고 FINALIZED는 거부된다.
+  deleteReport: (reportId: number, signal?: AbortSignal) =>
+    api.delete<void>(`/reports/${reportId}`, { signal }),
+
   // --- 보고서 목록 / 이력 관리 (#463, 사이드바 "보고서" 최상위 메뉴) ---------------------------
   // GET /api/reports — 회사 스코프 전체 보고서 목록(페이지네이션 + 시설물/상태/검색/기간 필터).
   // 회사 목록/요약 API가 준비되기 전까지는 hybrid에서 실 요청의 404를 훅이 목으로 폴백한다.
