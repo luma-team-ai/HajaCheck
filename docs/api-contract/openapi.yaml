@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.33.0-draft"
+  version: "0.34.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -848,17 +848,24 @@ paths:
 
   /api/me/plan/orders:
     post:
-      summary: 결제 주문 생성 (토스페이먼츠 3-step 1단계, #988 / HAJA-489)
+      summary: 결제 주문 생성 (토스페이먼츠 3-step 1단계, #988 / HAJA-489, 잔여기간 크레딧 #1146 / HAJA-550)
       description: >
         결제창을 열기 전에 서버가 주문을 선등록한다. **금액은 서버가 결정한다** — 요청 바디에 금액 필드가
-        없고, `plans.price_monthly` 를 스냅샷해 `payments`(status=READY) 행으로 저장한다. 이 저장값이
-        이후 승인 단계의 금액 위변조 대조 기준이 된다.
+        없고, 대상 플랜 정가(`plans.price_monthly`)에서 **현재 플랜의 잔여 기간 크레딧을 차감한 금액**을
+        `payments`(status=READY) 행에 스냅샷으로 저장한다(#1146, B안 — 잔여 크레딧 차감 + 주기 리셋. 승인
+        후 주기는 항상 `now ~ now+1개월`로 리셋된다). 크레딧 = 현재 플랜 정가 × 잔여일/주기일수(KST 기준
+        달력일, 원 단위 내림) — `current_period_end` 가 없거나(FREE→유료 등) 만료가 지났으면 크레딧 0(정가
+        청구). 차감 후 금액이 토스 최소 결제금액(100원) 미만이면 100원으로 올린다. 이 저장값이 이후 승인
+        단계의 금액 위변조 대조 기준이며, **승인 시 재계산하지 않는다**(응답의 `listPrice`/`credit`/`amount`
+        3필드가 안내 금액과 청구 금액을 일치시킨다).
         대상 플랜은 STANDARD/ENTERPRISE만 허용(FREE 는 INVALID_INPUT 400). 회사 구독은
         company.ownerUserId만, 개인 구독은 그 구독의 소유 사용자만 요청할 수 있다.
         이미 대상 플랜을 이용 중이면 청구 전에 PLAN_ACTIVE_SUBSCRIPTION_CONFLICT(409)로 거절한다.
         동일 소유주체·동일 플랜의 **유효한 READY 주문이 이미 있으면 새로 만들지 않고 그 주문을 반환**한다
-        (주문 난립·중복 청구 방지). READY 주문의 유효기간은 30분(`toss-payments.order-ttl`)이며 만료분은
-        승인 단계에서 CANCELED 처리된다 — 요금 인상 전 주문을 쟁여두고 구가격으로 결제하는 것을 막는다.
+        (주문 난립·중복 청구 방지) — 이때 `amount` 는 기존 스냅샷 그대로이고 `listPrice`/`credit` 만 현재
+        정가 기준으로 다시 계산해 보여준다. READY 주문의 유효기간은 30분(`toss-payments.order-ttl`)이며
+        만료분은 승인 단계에서 CANCELED 처리된다 — 요금 인상 전 주문을 쟁여두고 구가격으로 결제하는 것을
+        막는다.
         `PaymentController.createOrder` 구현됨.
       security:
         - SessionCookie: []
@@ -5207,12 +5214,34 @@ components:
 
     PaymentOrderResponse:
       type: object
-      description: 결제 주문 선등록 결과(#988). 금액은 서버가 plans.price_monthly 에서 스냅샷한 값이다.
-      required: [orderId, planName, amount, orderName]
+      description: >
+        결제 주문 선등록 결과(#988). 상향 결제는 잔여 기간 일할 크레딧을 차감한다(#1146 / HAJA-550,
+        B안 — 잔여 크레딧 차감 + 주기 리셋). `listPrice - credit == amount` 가 항상 성립한다.
+        `amount` 는 이 시점에 확정돼 `payments` 행에 스냅샷으로 굳으며, 승인 단계에서 재계산하지 않는다.
+      required: [orderId, planName, listPrice, credit, amount, orderName]
       properties:
         orderId: { type: string, description: 서버 발급 주문 식별자(UUID), example: "b1e4f0c2-..." }
         planName: { type: string, enum: [STANDARD, ENTERPRISE] }
-        amount: { type: integer, format: int64, description: 결제 금액(원) — 서버 결정값, example: 29000 }
+        listPrice:
+          type: integer
+          format: int64
+          description: 대상 플랜 정가(plans.price_monthly, 크레딧 차감 전)
+          example: 100000
+        credit:
+          type: integer
+          format: int64
+          description: >
+            잔여 기간 일할 크레딧(차감액, 0 이상). 현재 플랜 정가 × 잔여일/주기일수(KST 기준 달력일,
+            원 단위 내림). current_period_end 가 없거나(FREE·주기 정보 없음) 만료가 지났으면 0.
+            최소 결제금액(100원) 가드로 amount 가 올림 조정된 경우 그 조정 후 값 기준으로 역산한다.
+          example: 15000
+        amount:
+          type: integer
+          format: int64
+          description: >
+            결제 금액(원) — 서버 결정값(listPrice - credit, 토스 최소 결제금액 100원 미만이면 100원으로
+            올림)
+          example: 85000
         orderName: { type: string, description: 결제창 표시용 주문명, example: "HajaCheck STANDARD 플랜 구독" }
 
     PaymentOrderApiResponse:
