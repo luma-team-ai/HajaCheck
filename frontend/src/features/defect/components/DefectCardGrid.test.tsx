@@ -38,6 +38,15 @@ const defects: Defect[] = [
   makeDefect({ id: 3, type: 'SPALLING', typeLabel: '박리·박락', grade: 'E', status: 'RESOLVED' }),
 ];
 
+const detectedDefect = makeDefect({
+  id: 4,
+  type: 'PAINT_DAMAGE',
+  typeLabel: '도장 손상',
+  grade: 'B',
+  status: 'DETECTED',
+  reviewed: false,
+});
+
 describe('DefectCardGrid — 상태 탭 필터', () => {
   it('전체 탭은 모든 카드를 보여주고 각 탭에 건수를 표시한다', () => {
     render(<DefectCardGrid defects={defects} onSelectDefect={vi.fn()} />);
@@ -61,6 +70,25 @@ describe('DefectCardGrid — 상태 탭 필터', () => {
     expect(screen.getByRole('button', { name: '철근 노출 하자 상세 보기' })).not.toBeNull();
     expect(screen.queryByRole('button', { name: '균열 하자 상세 보기' })).toBeNull();
     expect(screen.queryByRole('button', { name: '박리·박락 하자 상세 보기' })).toBeNull();
+  });
+
+  it('DETECTED 하자는 statusFilter 값과 무관하게 렌더링하지 않는다', () => {
+    render(<DefectCardGrid defects={[...defects, detectedDefect]} onSelectDefect={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: '도장 손상 하자 상세 보기' })).toBeNull();
+
+    for (const tabName of ['검수확정 1', '조치중 1', '조치완료 1', '전체 3']) {
+      fireEvent.click(screen.getByRole('tab', { name: tabName }));
+      expect(screen.queryByRole('button', { name: '도장 손상 하자 상세 보기' })).toBeNull();
+    }
+  });
+
+  it('전체 탭 카운트는 DETECTED를 제외한 하자 수와 일치한다', () => {
+    render(<DefectCardGrid defects={[...defects, detectedDefect]} onSelectDefect={vi.fn()} />);
+
+    const tabs = screen.getByRole('tablist', { name: '상태 필터' });
+    expect(within(tabs).getByRole('tab', { name: '전체 3' })).not.toBeNull();
+    expect(within(tabs).queryByRole('tab', { name: '전체 4' })).toBeNull();
   });
 });
 
