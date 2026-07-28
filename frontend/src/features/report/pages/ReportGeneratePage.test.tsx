@@ -310,7 +310,9 @@ describe('ReportGeneratePage', () => {
 
     const pdfFrame = await screen.findByTitle('저장된 보고서 PDF');
     expect(pdfFrame.getAttribute('src')).toMatch(/^blob:/);
-    expect(screen.getByRole('link', { name: '편집·미리보기' }).getAttribute('href')).toBe('/reports/1');
+    expect(pdfFrame.getAttribute('src')).toContain('toolbar=0');
+    expect(pdfFrame.getAttribute('src')).toContain('navpanes=0');
+    expect(pdfFrame.className).toContain('border-0');
     expect(screen.queryByLabelText('점검 목적')).toBeNull();
   });
 
