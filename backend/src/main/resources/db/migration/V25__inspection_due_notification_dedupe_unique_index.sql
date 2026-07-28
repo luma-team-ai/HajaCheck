@@ -44,7 +44,37 @@
 --
 -- 착수 전 안전 확인(2026-07-28, 공유 dev DB read-only 조회): notifications 테이블의 type='INSPECTION_DUE'
 -- 행(총 6건, 전부 kind 필드 없는 레거시 payload)에서 (user_id, facilityId, nextInspectionDueAt, kind)
--- 조합 중복 없음을 확인 — UNIQUE INDEX 생성이 기존 데이터로 인해 실패할 위험 없음.
+-- 조합 중복 없음을 확인 — 다만 이건 공유 dev DB일 뿐이고, 실제 배포 대상인 prod(별도 물리 postgres,
+-- CLAUDE.md DB 지형)는 도구로 조회할 수 없어 검증되지 않았다(PR머신 2차 검수 P1 지적).
+--
+-- ⚠️ prod 자가방어(PR머신 P1 반영, 2026-07-28): 이 PR이 대체하는 기존 구현(400일 슬라이딩 윈도우)이
+-- 스스로 문서화했던 한계 — "OVERDUE가 400일 넘게 창 밖으로 밀려나면 동일 (facilityId, dueAt, OVERDUE)이
+-- 중복 발행될 수 있다" — 이 실제로 발동했다면 prod에 이미 kind가 채워진 중복 행이 존재할 수 있고, 그
+-- 상태로 바로 CREATE UNIQUE INDEX를 실행하면 인덱스 생성 자체가 실패해 main 승격 자동배포 시 앱 부팅이
+-- 죽는다(#531 계열). 사람이 미리 prod를 수동 조회해 확인하는 절차에 의존하지 않도록, 인덱스 생성 직전에
+-- 마이그레이션 스스로 중복을 정리한다 — 같은 (user_id, facilityId, nextInspectionDueAt, kind) 키를 가진
+-- 행이 여럿이면 가장 먼저 생성된(id가 가장 작은) 1건만 남기고 나머지는 삭제한다(중복은 정의상 같은
+-- 알림을 두 번 보낸 것이므로, 더 늦게 생성된 중복 사본을 지워도 사용자에게 실질적 정보 손실이 없다 —
+-- 알림 자체가 사라지는 게 아니라 "같은 알림의 두 번째 사본"만 사라진다). kind가 NULL인 레거시 행은
+-- 이 인덱스 대상이 아니므로(위 문단 참고) 정리 대상에서 제외한다.
+delete from notifications n
+using notifications keep
+where n.type = 'INSPECTION_DUE'
+  and keep.type = 'INSPECTION_DUE'
+  and n.payload_json ->> 'kind' is not null
+  and keep.payload_json ->> 'kind' is not null
+  and n.user_id = keep.user_id
+  and (n.payload_json ->> 'facilityId')::bigint = (keep.payload_json ->> 'facilityId')::bigint
+  and n.payload_json ->> 'nextInspectionDueAt' = keep.payload_json ->> 'nextInspectionDueAt'
+  and n.payload_json ->> 'kind' = keep.payload_json ->> 'kind'
+  and n.id > keep.id;
+
+-- ⚠️ CONCURRENTLY 미사용(PR머신 2차 검수 P2 참고, 검토 후 유지 결정): notifications는 알림 발행 경로의
+-- 핫 테이블이라 규모가 크면 인덱스 생성 중 ACCESS EXCLUSIVE 락으로 부팅/배포가 지연될 수 있다. 다만 이
+-- 서비스는 아직 초기 개발 단계로 실사용 알림 데이터가 미미하고(공유 dev DB 기준 6건), Flyway는 기본적으로
+-- 마이그레이션을 트랜잭션 안에서 실행해 CONCURRENTLY와 함께 쓸 수 없어(별도 executeInTransaction=false
+-- 설정과 위 DELETE와의 트랜잭션 분리가 추가로 필요) 도입 비용 대비 지금 시점 이득이 작다고 판단했다.
+-- 테이블이 커지면(예: 알림 수만 건 이상) 이 판단을 재검토할 것.
 create unique index if not exists uq_notifications_inspection_due_dedupe
     on notifications (
         user_id,

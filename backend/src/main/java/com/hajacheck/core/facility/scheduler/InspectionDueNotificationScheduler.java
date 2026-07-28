@@ -111,6 +111,11 @@ public class InspectionDueNotificationScheduler {
     private static final int DEFAULT_NOTIFY_BEFORE_DAYS = 7;
     private static final boolean DEFAULT_WARN_ON_OVERDUE_ENABLED = true;
 
+    // V25 마이그레이션이 만든 dedupe 유니크 인덱스명(#1050) — DataIntegrityViolationException의 원인
+    // 메시지가 이 이름을 포함하는지로 "예상된 dedupe 충돌"과 "그 외 무결성 위반"을 구분한다. 인덱스명이
+    // 바뀌면 이 상수도 함께 갱신해야 한다.
+    private static final String DEDUPE_UNIQUE_INDEX_NAME = "uq_notifications_inspection_due_dedupe";
+
     private final FacilityRepository facilityRepository;
     private final InspectionNotificationSettingRepository notificationSettingRepository;
     private final CompanyOwnerLookupService companyOwnerLookupService;
@@ -235,14 +240,19 @@ public class InspectionDueNotificationScheduler {
                         InspectionDueNotificationPayload.serialize(facility, kind));
                 published++;
             } catch (DataIntegrityViolationException e) {
-                // 대부분은 동시 실행(다중 인스턴스 또는 같은 인스턴스 내 레이스)이 먼저 커밋해 유니크
-                // 인덱스가 막은 정상 케이스(이미 발행됨)라 skip 처리한다. 다만 JPA는 유니크 위반과
-                // FK 위반(예: user_id 정합성 깨짐)을 모두 DataIntegrityViolationException으로 뭉뚱그리므로
-                // (하위 타입으로 세분화되지 않음), 실제로는 발행 실패인 경우를 조용히 놓치지 않도록
-                // debug 로그로 caught 예외를 남겨 관측 가능하게 한다(코드리뷰 P2 반영).
-                log.debug("INSPECTION_DUE 알림 발행 시 무결성 제약 위반 — facilityId={} kind={} 이미 발행됨으로 간주 exception={}",
-                        facility.getId(), kind, e.getMostSpecificCause().getMessage());
-                skipped++;
+                // JPA는 유니크 위반과 FK/NOT NULL/CHECK 위반 등 모든 무결성 오류를 이 예외 하나로
+                // 뭉뚱그리므로(하위 타입으로 세분화되지 않음), 제약명을 직접 확인해 dedupe 인덱스 위반만
+                // "이미 발행됨"으로 skip 처리한다. 그 외(예: user_id FK 정합성 깨짐)는 실제 발행 실패이므로
+                // failed로 집계하고 warn으로 표면화한다(코드리뷰 P1/P2 반영 — 조용한 알림 유실 방지).
+                String cause = e.getMostSpecificCause().getMessage();
+                if (cause != null && cause.contains(DEDUPE_UNIQUE_INDEX_NAME)) {
+                    skipped++;
+                } else {
+                    failed++;
+                    log.warn("INSPECTION_DUE 알림 발행 시 예상 밖 무결성 제약 위반(dedupe 인덱스 아님) — "
+                            + "facilityId={} kind={} exception={}",
+                            facility.getId(), kind, cause);
+                }
             } catch (Exception e) {
                 // 시설물 1건 실패를 격리 — 같은 owner의 나머지 시설물 처리는 계속한다.
                 failed++;

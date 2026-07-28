@@ -1,5 +1,8 @@
 package com.hajacheck.core.facility.scheduler;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -35,6 +38,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
@@ -134,6 +138,12 @@ class InspectionDueNotificationSchedulerTest {
                 "duplicate key value violates unique constraint \"uq_notifications_inspection_due_dedupe\"");
     }
 
+    /** dedupe 인덱스가 아닌 다른 무결성 제약(예: FK) 위반 — #1050 코드리뷰 P2가 지적한 오분류 시나리오용. */
+    private static DataIntegrityViolationException foreignKeyViolation() {
+        return new DataIntegrityViolationException(
+                "insert or update on table \"notifications\" violates foreign key constraint \"fk_notifications_user_id\"");
+    }
+
     @Test
     @DisplayName("오늘 마감 시설물에 INSPECTION_DUE 알림을 발행한다")
     void 오늘마감시설_알림발행() {
@@ -154,6 +164,30 @@ class InspectionDueNotificationSchedulerTest {
         scheduler.notifyFacilitiesDueToday();
 
         verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), anyString());
+    }
+
+    @Test
+    @DisplayName("dedupe 인덱스가 아닌 다른 무결성 제약(FK 등) 위반은 조용히 skip하지 않고 실패로 집계·경고 로그를 남긴다(#1050 코드리뷰 P2)")
+    void notify가dedupe아닌무결성위반을던지면_failed로집계하고경고로그를남긴다() {
+        stubDuePage(List.of(dueFacility(1L, COMPANY, "시설A")));
+        doThrow(foreignKeyViolation()).when(notificationService).notify(anyLong(), any(), anyString());
+
+        Logger logger = (Logger) LoggerFactory.getLogger(InspectionDueNotificationScheduler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            scheduler.notifyFacilitiesDueToday();
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        verify(notificationService).notify(eq(OWNER), eq(NotificationType.INSPECTION_DUE), anyString());
+        boolean warnedAboutUnexpectedViolation = appender.list.stream()
+                .anyMatch(event -> event.getFormattedMessage().contains("예상 밖 무결성 제약 위반"));
+        assertThat(warnedAboutUnexpectedViolation)
+                .as("dedupe 인덱스 위반이 아닌데도 조용히 skip 처리되면 알림 유실이 관측 불가능해진다")
+                .isTrue();
     }
 
     @Test
