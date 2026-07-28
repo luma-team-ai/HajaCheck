@@ -16,11 +16,11 @@ function priorityPillClass(priority: string): string {
   if (/^(낮|하|low)/i.test(normalized)) {
     return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   }
-  return 'border-zinc-200 bg-zinc-100 text-zinc-700';
+  return 'border-border bg-surface-muted text-text-default';
 }
 
 const INLINE_INPUT_CLASSES =
-  'w-full rounded-lg border border-transparent bg-transparent px-1 py-0.5 text-base font-medium text-zinc-900 outline-none transition focus:border-zinc-300 focus:bg-white focus:ring-2 focus:ring-zinc-100 disabled:cursor-not-allowed read-only:text-zinc-900';
+  'w-full rounded-lg border border-transparent bg-transparent px-1 py-0.5 text-base font-medium text-heading outline-none transition focus:border-primary focus:bg-surface focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed read-only:text-heading';
 
 export function RecommendationSection({
   content,
@@ -71,10 +71,10 @@ export function RecommendationSection({
 
   return (
     <section className="flex flex-col gap-6">
-      <h2 className="text-xl font-medium leading-7 text-zinc-900">조치 권고</h2>
+      <h2 className="text-xl font-medium leading-7 text-heading">조치 권고</h2>
 
       {items.length === 0 ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">
+        <div className="rounded-lg border border-border bg-surface p-8 text-center text-sm text-text-muted">
           조치 권고 항목이 없습니다.
         </div>
       ) : (
@@ -82,7 +82,7 @@ export function RecommendationSection({
           {items.map((item, index) => (
             <article
               key={index}
-              className="flex flex-col gap-6 rounded-2xl border border-zinc-200 bg-white p-6"
+              className="flex flex-col gap-6 rounded-lg border border-border bg-surface p-6"
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <input
@@ -97,7 +97,7 @@ export function RecommendationSection({
                 <button
                   type="button"
                   onClick={() => moveToDefect(index)}
-                  className="rounded-full bg-zinc-200 px-2.5 py-1 text-xs font-bold text-black transition hover:bg-zinc-300"
+                  className="rounded-full bg-surface-muted px-2.5 py-1 text-xs font-bold text-primary transition hover:bg-border"
                 >
                   #DEF-{String(index + 1).padStart(2, '0')} 이동
                 </button>
@@ -105,7 +105,7 @@ export function RecommendationSection({
 
               <div className="flex flex-col gap-4">
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs font-medium tracking-wide text-zinc-700">대상</span>
+                  <span className="text-xs font-medium tracking-wide text-text-default">대상</span>
                   <input
                     className={INLINE_INPUT_CLASSES}
                     value={item.target}
@@ -118,7 +118,7 @@ export function RecommendationSection({
                   value={item.method}
                   readOnly={readOnly}
                   rows={3}
-                  textareaClassName="min-h-20 border-transparent bg-transparent px-1 py-1 focus:border-zinc-300 focus:bg-white read-only:bg-transparent read-only:text-zinc-900"
+                  textareaClassName="min-h-20 border-transparent bg-transparent px-1 py-1 focus:border-primary focus:bg-surface read-only:bg-transparent read-only:text-heading"
                   onChange={(value) => updateItem(index, { method: value })}
                 />
                 <LabeledTextArea
@@ -126,7 +126,7 @@ export function RecommendationSection({
                   value={item.legal_basis}
                   readOnly={readOnly}
                   rows={2}
-                  textareaClassName="min-h-16 border-transparent bg-transparent px-1 py-1 text-zinc-700 focus:border-zinc-300 focus:bg-white read-only:bg-transparent"
+                  textareaClassName="min-h-16 border-transparent bg-transparent px-1 py-1 text-text-default focus:border-primary focus:bg-surface read-only:bg-transparent"
                   onChange={(value) =>
                     updateItem(index, { legal_basis: value, legal_basis_verified: false })
                   }
@@ -154,9 +154,9 @@ export function RecommendationSection({
       )}
 
       {content.recommendation.monitoring_points.length > 0 && (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <p className="mb-2 text-xs font-medium tracking-wide text-zinc-700">모니터링 포인트</p>
-          <ul className="flex flex-col gap-1 text-sm text-zinc-900">
+        <div className="rounded-lg border border-border bg-surface p-5">
+          <p className="mb-2 text-xs font-medium tracking-wide text-text-default">모니터링 포인트</p>
+          <ul className="flex flex-col gap-1 text-sm text-heading">
             {content.recommendation.monitoring_points.map((point, index) => (
               <li key={index}>· {point}</li>
             ))}

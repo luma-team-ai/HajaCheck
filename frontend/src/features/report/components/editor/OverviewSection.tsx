@@ -7,17 +7,17 @@ interface OverviewSectionProps {
   readOnly: boolean;
 }
 
-const PILL_FIELD_CLASS = 'min-h-20 rounded-[32px] px-5 py-4';
+const FIELD_CLASS = 'min-h-20 px-5 py-4';
 
 export function OverviewSection({ content, onChange, readOnly }: OverviewSectionProps) {
   const updateOverview = (patch: Partial<ReportContent['overview']>) =>
     onChange({ ...content, overview: { ...content.overview, ...patch } });
 
   return (
-    <section className="flex flex-col gap-6 rounded-2xl border border-zinc-200 bg-white p-6 sm:p-8">
+    <section className="flex flex-col gap-6 rounded-lg border border-border bg-surface p-6 sm:p-8">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-medium leading-7 text-zinc-900">개요</h2>
-        <svg className="h-4 w-4 text-zinc-900" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <h2 className="text-xl font-medium leading-7 text-heading">개요</h2>
+        <svg className="h-4 w-4 text-heading" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="m4 10 4-4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
@@ -27,7 +27,7 @@ export function OverviewSection({ content, onChange, readOnly }: OverviewSection
         value={content.overview.purpose}
         readOnly={readOnly}
         rows={3}
-        textareaClassName={`min-h-24 ${PILL_FIELD_CLASS}`}
+        textareaClassName={`min-h-24 ${FIELD_CLASS}`}
         onChange={(value) => updateOverview({ purpose: value })}
       />
 
@@ -37,7 +37,7 @@ export function OverviewSection({ content, onChange, readOnly }: OverviewSection
           value={content.overview.facility_summary}
           readOnly={readOnly}
           rows={2}
-          textareaClassName={PILL_FIELD_CLASS}
+          textareaClassName={FIELD_CLASS}
           onChange={(value) => updateOverview({ facility_summary: value })}
         />
         <LabeledTextArea
@@ -45,7 +45,7 @@ export function OverviewSection({ content, onChange, readOnly }: OverviewSection
           value={content.overview.scope}
           readOnly={readOnly}
           rows={3}
-          textareaClassName={`min-h-28 ${PILL_FIELD_CLASS}`}
+          textareaClassName={`min-h-28 ${FIELD_CLASS}`}
           onChange={(value) => updateOverview({ scope: value })}
         />
       </div>

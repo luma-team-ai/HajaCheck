@@ -76,21 +76,21 @@ export function ReportEditorHero({
       <h1 className="sr-only">보고서 생성 결과</h1>
 
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex min-h-24 flex-1 items-start gap-4 rounded-2xl border border-amber-200/70 bg-amber-50 p-4 text-amber-900">
-          <svg className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <div className="flex min-h-24 flex-1 items-start gap-4 rounded-lg border border-warning-soft-border bg-warning-soft-bg p-4 text-warning-soft-fg">
+          <svg className="mt-0.5 h-5 w-5 shrink-0 text-warning-soft-fg" viewBox="0 0 20 20" fill="none" aria-hidden="true">
             <path d="M10 2.4 18 17H2L10 2.4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
             <path d="M10 7v4.2M10 14.2v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
           </svg>
           <div className="text-sm leading-6">
             <p className="font-medium">{AI_DRAFT_WARNING_TITLE}</p>
-            <p className="mt-0.5 whitespace-pre-line text-amber-800/90">{AI_DRAFT_WARNING}</p>
+            <p className="mt-0.5 whitespace-pre-line text-warning-soft-fg">{AI_DRAFT_WARNING}</p>
           </div>
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2 xl:justify-end">
           <Link
             to={`/reports/${reportId}?mode=export`}
-            className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-6 py-2 text-xs font-medium text-zinc-900 no-underline transition hover:bg-zinc-50"
+            className="inline-flex items-center justify-center rounded-full border border-border bg-surface px-6 py-2 text-xs font-medium text-heading no-underline transition hover:bg-surface-muted"
           >
             PDF 미리보기
           </Link>
@@ -99,7 +99,7 @@ export function ReportEditorHero({
             variant="primary"
             size="md"
             disabled={!canFinalize || isFinalizing}
-            className="min-w-[168px] gap-2 bg-black px-5 text-xs text-white"
+            className="min-w-[168px] gap-2 bg-primary px-5 text-xs text-surface"
           >
             {isFinalizing ? 'PDF 생성/확정 중...' : '최종 보고서 확정'}
             <PaperPlaneIcon />
@@ -108,14 +108,14 @@ export function ReportEditorHero({
       </div>
 
       <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="flex min-h-[120px] flex-col justify-between rounded-2xl border border-zinc-200 bg-white p-6">
-          <dt className="text-xs font-medium tracking-wide text-zinc-700">현재 상태</dt>
+        <div className="flex min-h-[120px] flex-col justify-between rounded-lg border border-border bg-surface p-6">
+          <dt className="text-xs font-medium tracking-wide text-text-default">현재 상태</dt>
           <dd className="m-0 flex items-center justify-between">
             <div>
-              <p className="text-3xl font-medium leading-9 text-zinc-900">
+              <p className="text-3xl font-medium leading-9 text-heading">
                 {isFinalized ? '확정' : '검수 중'}
               </p>
-              <p className="mt-1 text-xs text-zinc-700">
+              <p className="mt-1 text-xs text-text-default">
                 {isFinalized ? '최종 확정 완료' : '초안 제출 완료 (임시 저장)'}
               </p>
             </div>
@@ -126,17 +126,17 @@ export function ReportEditorHero({
           </dd>
         </div>
 
-        <div className="flex min-h-[120px] flex-col gap-2 rounded-2xl border border-zinc-200 bg-white p-6">
-          <dt className="text-xs font-medium tracking-wide text-zinc-700">생성일시</dt>
-          <dd className="m-0 text-base font-bold leading-6 text-zinc-900">
+        <div className="flex min-h-[120px] flex-col gap-2 rounded-lg border border-border bg-surface p-6">
+          <dt className="text-xs font-medium tracking-wide text-text-default">생성일시</dt>
+          <dd className="m-0 text-base font-bold leading-6 text-heading">
             <span className="block">{created.date}</span>
             <span className="block">{created.time}</span>
           </dd>
         </div>
 
-        <div className="flex min-h-[120px] flex-col gap-2 rounded-2xl border border-zinc-200 bg-white p-6">
-          <dt className="text-xs font-medium tracking-wide text-zinc-700">검수 완료율</dt>
-          <dd className="m-0 text-3xl font-bold leading-9 text-zinc-900">
+        <div className="flex min-h-[120px] flex-col gap-2 rounded-lg border border-border bg-surface p-6">
+          <dt className="text-xs font-medium tracking-wide text-text-default">검수 완료율</dt>
+          <dd className="m-0 text-3xl font-bold leading-9 text-heading">
             {progressPercent.toFixed(0)}%
           </dd>
           {typeof reviewedCount === 'number' && typeof totalCount === 'number' && (
@@ -146,19 +146,19 @@ export function ReportEditorHero({
           )}
         </div>
 
-        <div className="flex min-h-[120px] flex-col gap-2 rounded-2xl border border-zinc-200 bg-white p-6">
-          <dt className="text-xs font-medium tracking-wide text-zinc-700">총 지적 수</dt>
+        <div className="flex min-h-[120px] flex-col gap-2 rounded-lg border border-border bg-surface p-6">
+          <dt className="text-xs font-medium tracking-wide text-text-default">총 지적 수</dt>
           <dd className="m-0 flex items-baseline gap-1">
             <span className="text-3xl font-bold leading-9 text-red-500">{defectCount}</span>
-            <span className="text-sm text-zinc-700">건</span>
+            <span className="text-sm text-text-default">건</span>
           </dd>
         </div>
       </dl>
 
-      <section className="rounded-2xl border border-zinc-200 bg-white px-4 py-8 sm:px-8 sm:pb-10">
+      <section className="rounded-lg border border-border bg-surface px-4 py-8 sm:px-8 sm:pb-10">
         <ol className="relative grid grid-cols-5" aria-label="보고서 작성 단계">
           <div
-            className="absolute left-[10%] right-[10%] top-5 h-px bg-zinc-200"
+            className="absolute left-[10%] right-[10%] top-5 h-px bg-border"
             aria-hidden="true"
           />
           {steps.map((step, index) => (
@@ -171,14 +171,14 @@ export function ReportEditorHero({
               <span
                 className={`inline-flex h-10 w-10 items-center justify-center rounded-full text-base font-bold ${
                   step.active
-                    ? 'bg-black text-white'
-                    : 'border-2 border-zinc-300 bg-white text-zinc-700'
+                    ? 'bg-primary text-surface'
+                    : 'border-2 border-border bg-surface text-text-default'
                 }`}
                 aria-current={index === currentStepIndex ? 'step' : undefined}
               >
                 {step.key}
               </span>
-              <span className="truncate text-[11px] font-medium tracking-wide text-zinc-900 sm:text-xs">
+              <span className="truncate text-[11px] font-medium tracking-wide text-heading sm:text-xs">
                 {step.label}
               </span>
             </li>
