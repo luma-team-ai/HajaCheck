@@ -309,7 +309,7 @@ describe('ReportGeneratePage', () => {
     );
 
     const pdfFrame = await screen.findByTitle('저장된 보고서 PDF');
-    expect(pdfFrame.getAttribute('src')).toBe('/api/reports/1/pdf/storage-key');
+    expect(pdfFrame.getAttribute('src')).toMatch(/^blob:/);
     expect(screen.getByRole('link', { name: '편집·미리보기' }).getAttribute('href')).toBe('/reports/1');
     expect(screen.queryByLabelText('점검 목적')).toBeNull();
   });
