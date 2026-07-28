@@ -8,9 +8,11 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ReportDetailResponse } from '../api/reportApi';
 import type { InspectionResponse, DefectDetailItem, MediaResponse } from '../../inspection/api/inspectionApi.types';
 import { isReportContent, type ReportContent } from '../types';
+import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../constants';
 import { mockReportDetailResponse } from '../mocks/reportDetail.mock';
 import { ReportGeneratePage } from './ReportGeneratePage';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import { DetailSection } from '../components/editor/DetailSection';
 
 vi.mock('../utils/exportReportToPdf', () => ({
   exportReportToPdf: vi.fn().mockResolvedValue(new Blob(['fake-pdf'])),
@@ -227,12 +229,9 @@ describe('ReportGeneratePage', () => {
     expect(recheckButton.disabled).toBe(false);
     fireEvent.click(recheckButton);
 
-    await waitFor(() => {
-      expect(screen.getByText('✓ 검증 완료')).toBeTruthy();
-    });
-
     const finalizeButton = screen.getByRole('button', { name: 'PDF 생성 후 확정' }) as HTMLButtonElement;
-    expect(finalizeButton.disabled).toBe(false);
+    await waitFor(() => expect(finalizeButton.disabled).toBe(false));
+    expect(screen.queryByText('✓ 검증 완료')).toBeNull();
     fireEvent.click(finalizeButton);
 
     await waitFor(() => {
@@ -247,8 +246,35 @@ describe('ReportGeneratePage', () => {
     expect(uploadedPdfSize).toBeGreaterThan(0);
     expect(finalizePdfUrl).toBe('/api/reports/1/pdf/storage-key');
     expect(screen.getByRole('link', { name: 'PDF 보기' }).getAttribute('href')).toBe('/reports/1?mode=export');
-    expect((screen.getByLabelText('점검 목적') as HTMLTextAreaElement).disabled).toBe(true);
+    const purposeTextarea = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
+    expect(purposeTextarea.readOnly).toBe(true);
+    expect(purposeTextarea.disabled).toBe(false);
     expect(screen.queryByRole('button', { name: '저장' })).toBeNull();
+  });
+
+  it('저장 요청 중에는 편집 입력을 잠가 진행 중 응답이 최신 입력을 덮어쓰지 않게 한다', async () => {
+    let resolveSave: (() => void) | undefined;
+    server.use(
+      http.patch('/api/reports/1', async ({ request }) => {
+        const body = (await request.json()) as { contentJson: string };
+        await new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        });
+        reportState = { ...reportState, content: JSON.parse(body.contentJson) };
+        return HttpResponse.json({ success: true, data: reportState });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const purposeInput = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
+    fireEvent.change(purposeInput, { target: { value: '저장 중 변경 방지' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+
+    await waitFor(() => expect(purposeInput.readOnly).toBe(true));
+    resolveSave?.();
+    await waitFor(() => expect(purposeInput.readOnly).toBe(false));
   });
 
   it('기존 reportId 상세 content로 진입해 바로 PDF 생성 후 확정할 수 있다', async () => {
@@ -401,5 +427,108 @@ describe('ReportGeneratePage', () => {
       expect(screen.getByText('보고서 생성 결과')).toBeTruthy();
     });
     expect(getReportCalled).toBe(true);
+  });
+
+  // --- #1095 Figma 시안 재설계 테스트 ---
+  it('페이지 내부 breadcrumb를 다시 그리지 않고 공용 Header breadcrumb에 위임한다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    expect(screen.getByRole('heading', { name: '보고서 생성 결과' })).toBeTruthy();
+    expect(screen.queryByRole('navigation', { name: '상단 경로' })).toBeNull();
+  });
+
+  it('통계 카드 4개(현재 상태/생성일시/검수 완료율/총 지적 수)가 렌더링된다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    expect(screen.getByText('현재 상태')).toBeTruthy();
+    expect(screen.getByText('생성일시')).toBeTruthy();
+    expect(screen.getByText('검수 완료율')).toBeTruthy();
+    expect(screen.getByText('총 지적 수')).toBeTruthy();
+  });
+
+  it('단계 표시 A→E(초안 생성/AI 분류/엔지니어 확인/최종 승인/발행)가 렌더링된다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    expect(screen.getByText('초안 생성')).toBeTruthy();
+    expect(screen.getByText('AI 분류')).toBeTruthy();
+    expect(screen.getByText('엔지니어 확인')).toBeTruthy();
+    expect(screen.getByText('최종 승인')).toBeTruthy();
+    expect(screen.getByText('발행')).toBeTruthy();
+  });
+
+  it('상세 내역 등급 필터 pills가 데이터에 맞게 렌더링된다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    const filterGroup = screen.getByRole('group', { name: '등급 필터' });
+    expect(filterGroup).toBeTruthy();
+    for (const g of ['전체', 'A', 'B', 'C']) {
+      expect(screen.getByRole('button', { name: g })).toBeTruthy();
+    }
+    expect(screen.queryByRole('button', { name: 'D' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'E' })).toBeNull();
+  });
+
+  it('상세 내역 페이지네이션 컨트롤이 렌더링된다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    expect(screen.getByRole('button', { name: '이전 페이지' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '다음 페이지' })).toBeTruthy();
+    expect(screen.getByText((_, node) => node?.textContent === '1 / 1')).toBeTruthy();
+  });
+
+  it('조치 권고에 시급성 pill과 DEFECT badge가 렌더링된다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    expect(screen.getByDisplayValue('보수 시급성: 중')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'DEFECT #01' })).toBeTruthy();
+  });
+
+  it('AI 경고 배너와 PDF 미리보기 링크가 렌더링된다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    expect(screen.getByText(AI_DRAFT_WARNING_TITLE)).toBeTruthy();
+    expect(screen.getByText((_, node) => node?.textContent === AI_DRAFT_WARNING)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'PDF 미리보기' })).toBeTruthy();
+  });
+});
+
+describe('DetailSection', () => {
+  it('상세 항목을 삭제해도 남은 항목의 현장 이미지 순서를 유지한다', () => {
+    const content: ReportContent = {
+      ...mockContent,
+      detail: {
+        items: [
+          { defect_type: '첫 번째', location: 'A', severity_grade: 'A', description: '', cause: '' },
+          { defect_type: '두 번째', location: 'B', severity_grade: 'B', description: '', cause: '' },
+        ],
+      },
+    };
+    let currentContent = content;
+    const imageUrls = ['/images/first.jpg', '/images/second.jpg'];
+    const onChange = (next: ReportContent) => {
+      currentContent = next;
+    };
+    const { rerender } = render(
+      <DetailSection
+        content={currentContent}
+        onChange={onChange}
+        readOnly={false}
+        imageUrls={imageUrls}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: '이 항목 삭제' })[0]);
+    rerender(
+      <DetailSection
+        content={currentContent}
+        onChange={onChange}
+        readOnly={false}
+        imageUrls={imageUrls}
+      />,
+    );
+
+    expect(screen.getAllByRole('img').map((image) => image.getAttribute('src'))).toEqual([
+      '/images/second.jpg',
+    ]);
   });
 });
