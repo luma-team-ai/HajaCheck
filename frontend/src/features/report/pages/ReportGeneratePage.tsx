@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
@@ -107,6 +107,7 @@ export function ReportGeneratePage() {
   const [pdfPreviewKey, setPdfPreviewKey] = useState(0);
   const [pdfLoadError, setPdfLoadError] = useState<string | null>(null);
   const [isPdfChecking, setIsPdfChecking] = useState(false);
+  const manualRefreshControllerRef = useRef<AbortController | null>(null);
   const inspectionId = report?.inspectionId ?? 0;
   const setActiveReportId = useInspectionStore((state) => state.setActiveReportId);
 
@@ -127,7 +128,12 @@ export function ReportGeneratePage() {
     setIsPdfChecking(true);
     try {
       const requestUrl = normalizePdfPreviewUrl(pdfUrl);
-      const response = await fetch(requestUrl, { credentials: 'include', cache: 'no-store', signal });
+      const response = await fetch(requestUrl, {
+        method: 'HEAD',
+        credentials: 'include',
+        cache: 'no-store',
+        signal,
+      });
       if (!response.ok) throw new Error(`PDF 응답 오류 (${response.status})`);
       setPdfPreviewKey((current) => current + 1);
     } catch (err) {
@@ -146,6 +152,11 @@ export function ReportGeneratePage() {
     void verifyPdfPreview(report.pdfUrl, controller.signal);
     return () => controller.abort();
   }, [isExportMode, report?.pdfUrl, verifyPdfPreview]);
+
+  useEffect(() => () => {
+    manualRefreshControllerRef.current?.abort();
+    manualRefreshControllerRef.current = null;
+  }, []);
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
   const defectImageUrls = useMemo(
@@ -251,7 +262,15 @@ export function ReportGeneratePage() {
   };
 
   const handleRefreshPdf = () => {
-    if (report?.pdfUrl) void verifyPdfPreview(report.pdfUrl);
+    if (!report?.pdfUrl) return;
+    manualRefreshControllerRef.current?.abort();
+    const controller = new AbortController();
+    manualRefreshControllerRef.current = controller;
+    void verifyPdfPreview(report.pdfUrl, controller.signal).finally(() => {
+      if (manualRefreshControllerRef.current === controller) {
+        manualRefreshControllerRef.current = null;
+      }
+    });
   };
 
   const handleBackToViewer = () => {
