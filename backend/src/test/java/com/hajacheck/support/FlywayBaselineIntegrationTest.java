@@ -34,7 +34,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * 알림 멱등성을 애플리케이션 메모리 조회에서 DB 유니크 제약 기반으로 전환)→V26(media.original_filename,
  * #1116 — AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정)→V27(user_plans.current_period_start/
  * current_period_end 결제 주기 실체화, #1104/HAJA-525)→V28(notification_type PLAN_EXPIRED 라벨,
- * #1145/HAJA-549 — 구독 결제 주기 만료 FREE 자동 강등 알림)을 순서대로 적용하고,
+ * #1145/HAJA-549 — 구독 결제 주기 만료 FREE 자동 강등 알림)→V29(scheduled_plan_changes 플랜 하향 예약
+ * 원장, #1105/HAJA-526)→V30(notification_type PLAN_DOWNGRADED 라벨, #1105/HAJA-526 — 예약 하향 적용
+ * 알림)을 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -78,7 +80,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V28까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V30까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -111,14 +113,19 @@ class FlywayBaselineIntegrationTest {
         //   V25였으나 앞의 두 건이 먼저 dev에 확정돼 재번호했다.
         // + V28(notification_type PLAN_EXPIRED 라벨, #1145/HAJA-549 — 구독 결제 주기 만료 FREE 자동
         //   강등 배치가 강등 시점에 발행하는 알림 유형).
-        //   마이그레이션 수는 V1~V24(24개) + V25·V26·V27·V28(4개) = 28이다.
-        assertThat(appliedMigrations).isEqualTo(28);
+        // + V29(scheduled_plan_changes 플랜 하향 예약 원장 + scheduled_plan_change_status_type enum,
+        //   #1105/HAJA-526 — 하향을 즉시가 아니라 다음 결제 주기에 적용).
+        // + V30(notification_type PLAN_DOWNGRADED 라벨, #1105/HAJA-526 — 예약 하향이 적용된 시점에
+        //   신청자(회사 owner)에게 나가는 알림 유형. 만료 강등(PLAN_EXPIRED)과 사용자에게 전혀 다른
+        //   사건이라 라벨을 나눈다).
+        //   마이그레이션 수는 V1~V24(24개) + V25·V26·V27·V28·V29·V30(6개) = 30이다.
+        assertThat(appliedMigrations).isEqualTo(30);
 
-        // 최신 적용 버전이 실제로 V28 인지 확인.
+        // 최신 적용 버전이 실제로 V30 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("28");
+        assertThat(latestVersion).isEqualTo("30");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -381,5 +388,41 @@ class FlywayBaselineIntegrationTest {
                 where t.typname = 'notification_type' and e.enumlabel = 'PLAN_EXPIRED'
                 """, Long.class);
         assertThat(planExpiredLabelExists).isEqualTo(1L);
+
+        // V29가 scheduled_plan_changes 테이블(#1105/HAJA-526)을 실제로 만들었는지 확인한다.
+        Long scheduledPlanChangesTableExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.tables
+                where table_schema = 'public' and table_name = 'scheduled_plan_changes'
+                """, Long.class);
+        assertThat(scheduledPlanChangesTableExists).isEqualTo(1L);
+
+        // 중복 예약 최종 방어선인 부분 유니크 인덱스(status = PENDING)도 함께 고정한다 — 이 인덱스가
+        // 없으면 동시 예약 두 건이 같은 주기에 하향을 두 번 실행해 좌석 정지 결과가 예측 불가능해진다.
+        Long pendingPartialUniqueExists = jdbcTemplate.queryForObject("""
+                select count(*) from pg_indexes
+                where schemaname = 'public' and tablename = 'scheduled_plan_changes'
+                  and indexname = 'uq_scheduled_plan_changes_pending'
+                  and indexdef like '%PENDING%'
+                """, Long.class);
+        assertThat(pendingPartialUniqueExists).isEqualTo(1L);
+
+        // keep_user_ids 가 실제로 bigint[] 인지 고정한다 — 엔티티가 Long[] + SqlTypes.ARRAY 로 매핑하므로
+        // 타입이 어긋나면 ddl-auto=validate 가 기동을 거부한다(컨텍스트 기동 자체가 그 검증이지만,
+        // 회귀 시 원인이 바로 보이도록 컬럼 타입을 명시적으로 단정한다).
+        String keepUserIdsUdtName = jdbcTemplate.queryForObject("""
+                select udt_name from information_schema.columns
+                where table_schema = 'public' and table_name = 'scheduled_plan_changes'
+                  and column_name = 'keep_user_ids'
+                """, String.class);
+        assertThat(keepUserIdsUdtName).isEqualTo("_int8");
+
+        // V30이 notification_type PG enum에 PLAN_DOWNGRADED 라벨을 실제로 추가했는지 확인한다
+        // (#1105/HAJA-526 — 라벨이 없으면 예약 하향 적용 알림 INSERT가 런타임에 실패한다).
+        Long planDowngradedLabelExists = jdbcTemplate.queryForObject("""
+                select count(*) from pg_enum e
+                join pg_type t on e.enumtypid = t.oid
+                where t.typname = 'notification_type' and e.enumlabel = 'PLAN_DOWNGRADED'
+                """, Long.class);
+        assertThat(planDowngradedLabelExists).isEqualTo(1L);
     }
 }
