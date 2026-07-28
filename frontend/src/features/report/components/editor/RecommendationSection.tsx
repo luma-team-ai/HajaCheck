@@ -31,7 +31,7 @@ const INLINE_INPUT_CLASSES =
   'w-full rounded-lg border border-transparent bg-transparent px-0 py-0 text-base font-medium leading-6 text-heading outline-none transition focus:border-primary focus:bg-surface focus:px-2 focus:py-1 focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed read-only:text-heading';
 
 const INLINE_TEXTAREA_CLASS =
-  'min-h-20 border-transparent bg-transparent px-0 py-0 leading-6 focus:border-primary focus:bg-surface focus:px-2 focus:py-1 read-only:bg-transparent read-only:text-heading';
+  'min-h-0 border-transparent bg-transparent px-0 py-0 leading-6 focus:border-primary focus:bg-surface focus:px-2 focus:py-1 read-only:bg-transparent read-only:text-heading';
 
 export function RecommendationSection({
   content,
@@ -91,11 +91,11 @@ export function RecommendationSection({
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {items.map((item, index) => (
-            <article key={index} className="flex flex-col gap-5 rounded-lg border border-border bg-surface p-5">
-              <div className="flex flex-wrap items-start justify-between gap-2">
+            <article key={index} className="flex flex-col gap-6 rounded-lg border border-border bg-surface px-7 py-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <input
                   aria-label={`권고 ${index + 1} 보수 시급성`}
-                  className={`w-32 rounded-full border px-2.5 py-1 text-xs font-medium outline-none focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed ${priorityPillClass(
+                  className={`w-32 rounded-full border px-3 py-1 text-xs font-medium outline-none focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed ${priorityPillClass(
                     item.priority,
                   )}`}
                   value={formatPriorityLabel(item.priority)}
@@ -107,15 +107,15 @@ export function RecommendationSection({
                 <button
                   type="button"
                   onClick={() => moveToDefect(index)}
-                  className="rounded-lg bg-text-default px-2.5 py-1 text-xs font-bold text-surface transition hover:bg-heading"
+                  className="rounded-full bg-text-default px-3 py-1.5 text-xs font-bold text-surface transition hover:bg-heading"
                 >
                   DEFECT #{String(index + 1).padStart(2, '0')}
                 </button>
               </div>
 
-              <div className="grid gap-4">
-                <label className="grid gap-2 sm:grid-cols-[88px_minmax(0,1fr)] sm:items-start">
-                  <span className="text-xs font-medium tracking-wide text-text-default">대상</span>
+              <div className="grid gap-5">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium tracking-wide text-text-muted">대상</span>
                   <input
                     className={INLINE_INPUT_CLASSES}
                     value={item.target}
@@ -127,8 +127,8 @@ export function RecommendationSection({
                   label="방법"
                   value={item.method}
                   readOnly={readOnly}
-                  rows={3}
-                  className="grid gap-2 sm:grid-cols-[88px_minmax(0,1fr)] sm:items-start"
+                  rows={2}
+                  className="flex flex-col gap-1.5"
                   textareaClassName={INLINE_TEXTAREA_CLASS}
                   onChange={(value) => updateItem(index, { method: value })}
                 />
@@ -137,8 +137,8 @@ export function RecommendationSection({
                   value={item.legal_basis}
                   readOnly={readOnly}
                   rows={2}
-                  className="grid gap-2 sm:grid-cols-[88px_minmax(0,1fr)] sm:items-start"
-                  textareaClassName={`${INLINE_TEXTAREA_CLASS} min-h-16 text-text-default`}
+                  className="flex flex-col gap-1.5"
+                  textareaClassName={`${INLINE_TEXTAREA_CLASS} text-text-default`}
                   onChange={(value) =>
                     updateItem(index, { legal_basis: value, legal_basis_verified: false })
                   }

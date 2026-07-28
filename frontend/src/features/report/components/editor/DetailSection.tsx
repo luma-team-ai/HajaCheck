@@ -23,7 +23,10 @@ function gradePillClass(grade: string): string {
 }
 
 const INLINE_INPUT_CLASSES =
-  'w-full rounded-lg border border-transparent bg-transparent px-1 py-0.5 text-base font-semibold text-heading outline-none transition focus:border-primary focus:bg-surface focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed read-only:text-heading';
+  'w-full rounded-lg border border-transparent bg-transparent px-0 py-0 text-base font-semibold leading-6 text-heading outline-none transition focus:border-primary focus:bg-surface focus:px-2 focus:py-1 focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed read-only:text-heading';
+
+const INLINE_TEXTAREA_CLASSES =
+  'min-h-0 border-transparent bg-transparent px-0 py-0 text-sm leading-6 focus:border-primary focus:bg-surface focus:px-2 focus:py-1 read-only:bg-transparent read-only:text-heading';
 
 interface DetailSectionProps {
   content: ReportContent;
@@ -126,7 +129,7 @@ export function DetailSection({
                 type="button"
                 onClick={() => selectFilter(filterGrade)}
                 aria-pressed={grade === filterGrade}
-                className={`inline-flex min-w-8 items-center justify-center rounded-full px-3 py-1 text-xs transition ${
+              className={`inline-flex min-w-8 items-center justify-center rounded-full px-3 py-1 text-xs transition ${
                   grade === filterGrade
                     ? 'bg-primary font-medium text-surface'
                     : 'border border-border bg-surface text-heading hover:bg-surface-muted'
@@ -169,18 +172,14 @@ export function DetailSection({
       ) : (
         <div className="flex flex-col gap-4">
           {pageItems.map(({ item, index }) => (
-            <article
-              id={`report-defect-${index + 1}`}
-              key={index}
-              className="overflow-hidden rounded-lg border border-border bg-surface"
-            >
-              <div className="grid gap-0 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
-                <div className="relative min-h-56 overflow-hidden border-b border-border bg-surface-sunken lg:border-b-0 lg:border-r">
+            <article id={`report-defect-${index + 1}`} key={index} className="overflow-hidden bg-surface">
+              <div className="grid gap-0 border-y border-border lg:grid-cols-[minmax(240px,325px)_minmax(200px,236px)_minmax(0,1fr)]">
+                <div className="relative min-h-72 overflow-hidden bg-surface-sunken">
                   <DefectImage
                     src={imageUrls[index]}
                     alt={`지적 ${index + 1} 현장 이미지`}
                   />
-                  <div className="absolute left-3 top-3 inline-flex items-center gap-2 rounded-lg border border-border bg-surface/85 px-3 py-1.5 text-xs font-semibold tracking-wide text-heading backdrop-blur-[10px]">
+                  <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-surface/90 px-3 py-1.5 text-xs font-semibold tracking-wide text-heading backdrop-blur-[10px]">
                     <span
                       className={`h-2 w-2 rounded-full ${
                         item.severity_grade === 'A'
@@ -193,12 +192,10 @@ export function DetailSection({
                     />
                     DEFECT #{String(index + 1).padStart(2, '0')}
                   </div>
-                </div>
 
-                <div className="flex min-w-0 flex-col">
-                  <div className="grid gap-px bg-border md:grid-cols-3">
-                    <label className="flex min-w-0 flex-col gap-1 bg-surface-muted px-4 py-3">
-                      <span className="text-xs font-medium tracking-wide text-text-default">지적 유형</span>
+                <div className="grid min-w-0 content-start gap-5 border-t border-border px-8 py-8 lg:border-l lg:border-t-0">
+                  <label className="flex min-w-0 flex-col gap-1">
+                      <span className="text-xs font-medium tracking-wide text-text-muted">지적 유형</span>
                       <input
                         aria-label={`지적 ${index + 1} 유형`}
                         className={INLINE_INPUT_CLASSES}
@@ -206,9 +203,9 @@ export function DetailSection({
                         disabled={readOnly}
                         onChange={(event) => updateItem(index, { defect_type: event.target.value })}
                       />
-                    </label>
-                    <label className="flex min-w-0 flex-col gap-1 bg-surface-muted px-4 py-3">
-                      <span className="text-xs font-medium tracking-wide text-text-default">위치</span>
+                  </label>
+                  <label className="flex min-w-0 flex-col gap-1">
+                      <span className="text-xs font-medium tracking-wide text-text-muted">위치</span>
                       <input
                         aria-label={`지적 ${index + 1} 위치`}
                         className={INLINE_INPUT_CLASSES}
@@ -216,9 +213,9 @@ export function DetailSection({
                         disabled={readOnly}
                         onChange={(event) => updateItem(index, { location: event.target.value })}
                       />
-                    </label>
-                    <label className="flex min-w-0 flex-col gap-2 bg-surface-muted px-4 py-3">
-                      <span className="text-xs font-medium tracking-wide text-text-default">등급</span>
+                  </label>
+                  <label className="flex min-w-0 flex-col gap-2">
+                      <span className="text-xs font-medium tracking-wide text-text-muted">등급</span>
                       <input
                         aria-label={`지적 ${index + 1} 등급`}
                         className={`w-24 rounded-full border px-3 py-1 text-center text-sm font-medium outline-none focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed ${gradePillClass(
@@ -228,28 +225,28 @@ export function DetailSection({
                         disabled={readOnly}
                         onChange={(event) => updateItem(index, { severity_grade: event.target.value })}
                       />
-                    </label>
-                  </div>
+                  </label>
+                </div>
 
-                  <div className="grid gap-5 p-5 md:grid-cols-2">
+                <div className="grid min-w-0 content-start gap-5 border-t border-border px-8 py-8 lg:border-l lg:border-t-0">
                     <LabeledTextArea
                       label="설명"
                       value={item.description}
                       readOnly={readOnly}
-                      rows={3}
-                      textareaClassName="min-h-20 border-transparent bg-transparent px-1 py-1 focus:border-primary focus:bg-surface read-only:bg-transparent read-only:text-heading"
+                      rows={2}
+                      textareaClassName={INLINE_TEXTAREA_CLASSES}
                       onChange={(value) => updateItem(index, { description: value })}
                     />
                     <LabeledTextArea
                       label="원인 분석"
                       value={item.cause}
                       readOnly={readOnly}
-                      rows={3}
-                      textareaClassName="min-h-20 border-transparent bg-transparent px-1 py-1 text-text-default focus:border-primary focus:bg-surface read-only:bg-transparent"
+                      rows={2}
+                      textareaClassName={`${INLINE_TEXTAREA_CLASSES} text-text-default`}
                       onChange={(value) => updateItem(index, { cause: value })}
                     />
                     {!readOnly && (
-                      <div className="flex justify-end md:col-span-2">
+                      <div className="flex justify-end">
                         <Button variant="secondary" size="sm" onClick={() => removeItem(index)}>
                           이 항목 삭제
                         </Button>
