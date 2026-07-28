@@ -45,7 +45,14 @@
 -- 착수 전 안전 확인(2026-07-28, 공유 dev DB read-only 조회): notifications 테이블의 type='INSPECTION_DUE'
 -- 행(총 6건, 전부 kind 필드 없는 레거시 payload)에서 (user_id, facilityId, nextInspectionDueAt, kind)
 -- 조합 중복 없음을 확인 — 다만 이건 공유 dev DB일 뿐이고, 실제 배포 대상인 prod(별도 물리 postgres,
--- CLAUDE.md DB 지형)는 도구로 조회할 수 없어 검증되지 않았다(PR머신 2차 검수 P1 지적).
+-- CLAUDE.md DB 지형)는 도구로 조회할 수 없어 검증되지 않았었다(PR머신 2차 검수 P1 지적).
+--
+-- ✅ prod 프리플라이트 실측 결과(2026-07-28 04:0x UTC, arm1 prod 전용 postgres `hajacheck` read-only
+-- 조회 — PR머신이 지정한 쿼리 원문 그대로 실행): notifications 테이블에 type='INSPECTION_DUE' 행 자체가
+-- **0건**이다(kind 유무와 무관하게). 이 인덱스의 predicate이 `where type = 'INSPECTION_DUE'`이므로
+-- 대상 행이 애초에 존재하지 않아, 기존 데이터 중복으로 인한 CREATE UNIQUE INDEX 실패는 prod에서
+-- 구조적으로 불가능함을 확인했다(#531 계열 위험 해소). 아래 자가정리 DELETE는 prod 실측과 무관하게
+-- 방어적으로 유지한다(향후 데이터가 쌓인 뒤 재적용되는 시나리오·다른 환경 대비 defense-in-depth).
 --
 -- ⚠️ prod 자가방어(PR머신 P1 반영, 2026-07-28): 이 PR이 대체하는 기존 구현(400일 슬라이딩 윈도우)이
 -- 스스로 문서화했던 한계 — "OVERDUE가 400일 넘게 창 밖으로 밀려나면 동일 (facilityId, dueAt, OVERDUE)이
