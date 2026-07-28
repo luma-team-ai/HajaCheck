@@ -150,13 +150,28 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     );
     expect(within(modal).getByLabelText('조치 후 사진 업로드 *')).not.toBeNull();
     expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('조치중');
+    // #1128 코드리뷰 P2-2 — 성공 후 폼 필드가 초기화되고 성공 알림이 뜬다(중복 업로드/의도치 않은
+    // 완결 방지). 초기화된 상태라 재제출은 필드를 다시 채워야만 가능하다.
+    expect(within(modal).getByText('조치중(으)로 저장되었습니다.')).not.toBeNull();
+    expect((within(modal).getByRole('button', { name: '상태 저장' }) as HTMLButtonElement).disabled).toBe(true);
 
-    // 2차 제출 — 조치중(IN_PROGRESS)에서 유효한 다음 단계는 조치완료(RESOLVED). RESOLVED는 종료
-    // 상태라 이번엔 폼이 읽기 전용 요약으로 전환된다 — 업로드 input이 사라질 때까지 기다린다.
+    // 2차 제출 — 조치중(IN_PROGRESS)에서 유효한 다음 단계는 조치완료(RESOLVED). 초기화된 필드를
+    // 다시 채운 뒤 제출한다. RESOLVED는 종료 상태라 이번엔 폼이 읽기 전용 요약으로 전환된다.
+    const secondFile = new File(['dummy2'], 'after2.png', { type: 'image/png' });
+    fireEvent.change(within(modal).getByLabelText('조치 후 사진 업로드 *'), { target: { files: [secondFile] } });
+    fireEvent.change(within(modal).getByLabelText('조치 내용 *'), {
+      target: { value: '보수 완료 확인 — 재발 없음' },
+    });
+    fireEvent.change(within(modal).getByLabelText('조치일 *'), { target: { value: '2026-07-21' } });
+    fireEvent.change(within(modal).getByLabelText('담당자 *'), {
+      target: { value: (await within(modal).findByRole('option', { name: '김도현 검사자' })).getAttribute('value') },
+    });
     fireEvent.click(within(modal).getByRole('button', { name: '상태 저장' }));
 
     await waitFor(() => expect(within(modal).queryByLabelText('조치 후 사진 업로드 *')).toBeNull());
-    expect(within(modal).getByText('균열 부위 에폭시 주입 및 표면 도포 완료')).not.toBeNull();
+    // 조치 필드는 1세트뿐이라 2차 등록 내용이 최종 요약에 남는다(1차 내용은 감사기록으로만 보존,
+    // #1128 코드리뷰 P2-1).
+    expect(within(modal).getByText('보수 완료 확인 — 재발 없음')).not.toBeNull();
     expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('해결됨');
     expect(uploadSpy).toHaveBeenCalledTimes(2);
 

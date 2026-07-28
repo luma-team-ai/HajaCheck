@@ -55,6 +55,10 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
   const [actionDate, setActionDate] = useState('');
   const [assigneeId, setAssigneeId] = useState<number | ''>('');
   const [isDragActive, setIsDragActive] = useState(false);
+  // 제출 성공 알림(#1128 코드리뷰 P2-2) — IN_PROGRESS 등록 후에도 같은 폼이 계속 보이므로, 성공
+  // 피드백 없이 필드가 그대로 남아있으면 사용자가 재클릭해 같은 사진을 중복 업로드하거나 의도치
+  // 않게 다음 단계(조치완료)까지 가버릴 수 있다. 새 파일을 선택하면(재등록 시작) 지운다.
+  const [justSavedLabel, setJustSavedLabel] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 업로드 드롭존 썸네일 미리보기(#969) — BusinessLicenseUpload.tsx:84-92와 동일한 단일 파일용
@@ -113,6 +117,7 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
     }
     setFileError(null);
     setFile(candidate);
+    setJustSavedLabel(null);
   }
 
   function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
@@ -186,6 +191,16 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
         actionMediaId: uploadedMediaId,
         targetStatus: nextStatus,
       });
+      // 저장 성공 후 필드를 초기화한다(#1128 코드리뷰 P2-2) — 초기화하지 않으면 폼이 그대로 채워진
+      // 채 남아 재클릭 시 같은 사진이 중복 업로드되고 사유 없이 다음 단계까지 넘어갈 수 있다.
+      setJustSavedLabel(ACTION_STATUS_LABEL[nextStatus]);
+      setFile(null);
+      setActionContent('');
+      setActionDate('');
+      setAssigneeId('');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       onSubmitted?.();
     } catch {
       // 에러 메시지는 submitError/업로드 훅 error를 통해 아래에서 노출한다 — 여기서는 흐름만 중단.
@@ -311,6 +326,12 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
           </select>
         </div>
       </div>
+
+      {justSavedLabel && (
+        <p className="defect-action-form__success" role="status">
+          {justSavedLabel}(으)로 저장되었습니다.
+        </p>
+      )}
 
       {uploadError && (
         <p className="defect-action-form__error" role="alert">

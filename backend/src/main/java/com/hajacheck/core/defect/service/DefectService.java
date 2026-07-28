@@ -80,6 +80,19 @@ public class DefectService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
 
         DefectStatus previousStatus = defect.getStatus();
+        // 조치 필드(사진/내용)는 1세트만 존재해 targetStatus=RESOLVED 2차 등록이 IN_PROGRESS 1차
+        // 등록분을 덮어쓴다(#1128 코드리뷰 P2-1) — 덮어써지기 직전 값을 감사기록으로 먼저 남겨
+        // 무기록 소실을 막는다. previousActionContent가 null이면 최초 등록이라 남길 이전 값이 없다.
+        String previousActionContent = defect.getActionContent();
+        Long previousActionMediaId = defect.getActionMediaId();
+        if (previousActionContent != null) {
+            defectRevisionRepository.save(DefectRevision.record(
+                    defect.getId(), userId, "actionContent",
+                    truncateForRevision(previousActionContent), truncateForRevision(request.actionContent()), null));
+            defectRevisionRepository.save(DefectRevision.record(
+                    defect.getId(), userId, "actionMediaId",
+                    String.valueOf(previousActionMediaId), String.valueOf(request.actionMediaId()), null));
+        }
         defect.registerActionResult(
                 request.actionMediaId(), request.actionContent(), request.actionDate(), request.actionAssigneeId(),
                 targetStatus);
@@ -90,6 +103,12 @@ public class DefectService {
                 .map(User::getName)
                 .orElse(null);
         return DefectResponse.from(defect, actionAssigneeName);
+    }
+
+    // defect_revisions.old_value/new_value 는 varchar(255)인데 조치 내용은 최대 2000자까지
+    // 허용되므로(DefectActionResultRequest), 감사기록 저장 전 컬럼 폭에 맞춰 자른다.
+    private static String truncateForRevision(String value) {
+        return value.length() > 255 ? value.substring(0, 255) : value;
     }
 
     public DefectResponse get(Long userId, Long companyId, Long defectId) {

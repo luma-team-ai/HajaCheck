@@ -691,6 +691,12 @@
   font-size: 12px;
 }
 
+.defect-action-form__success {
+  margin: 0;
+  color: var(--color-info-soft-fg);
+  font-size: 12px;
+}
+
 .defect-action-form__summary {
   display: grid;
   grid-template-columns: max-content 1fr;
