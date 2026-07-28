@@ -227,6 +227,7 @@ export function SideNavBar({
   isRouteImplemented = () => true,
 }: SideNavBarProps) {
   const activeInspectionId = useInspectionStore((state) => state.activeInspectionId);
+  const activeReportId = useInspectionStore((state) => state.activeReportId);
 
   // isAdmin=true일 때 spread로 매 렌더 새 배열이 생기면 activeHref 동기화 effect가 매 렌더 재실행되어
   // 수동으로 펼친 다른 그룹이 즉시 스냅백되는 버그가 있었음(PR#154 리뷰 P1) — useMemo로 참조 안정화
@@ -274,8 +275,21 @@ export function SideNavBar({
         return {
           ...item,
           subItems: (item.subItems || []).map((sub) => {
-            // 보고서 편집·미리보기와 PDF 내보내기는 DB 시드의 path/activePathPattern을
-            // 그대로 사용하되, 보고서 목록/이력 관리만 /reports로 고정한다(#1088).
+            // 보고서 편집·미리보기 — activeReportId가 있으면 해당 보고서 편집 화면으로 이동
+            if (sub.id === 'report-edit') {
+              return {
+                ...sub,
+                href: activeReportId ? `/reports/${activeReportId}` : '/reports',
+              };
+            }
+            // PDF 내보내기 — activeReportId가 있으면 해당 보고서의 내보내기 화면으로 이동
+            if (sub.id === 'report-export') {
+              return {
+                ...sub,
+                href: activeReportId ? `/reports/${activeReportId}?mode=export` : '/reports',
+              };
+            }
+            // 보고서 목록/이력 관리 — 항상 /reposts 목록 화면으로 이동(#1088)
             if (sub.id === 'report-list') {
               return { ...sub, href: '/reports' };
             }
@@ -286,7 +300,7 @@ export function SideNavBar({
       return item;
     });
     return isAdmin ? [...dynamicItems, adminItem] : dynamicItems;
-  }, [isAdmin, items, adminItem, activeInspectionId]);
+  }, [isAdmin, items, adminItem, activeInspectionId, activeReportId]);
   const [expandedLabel, setExpandedLabel] = useState<string | undefined>(() =>
     allItems.find((item) => item.subItems?.some((sub) => (sub.matchHref ?? sub.href) === activeHref))?.label,
   );

@@ -16,6 +16,7 @@ export function useLogout(redirectTo: string = LOGIN_ROUTE) {
   const queryClient = useQueryClient();
   const clearUser = useAuthStore((state) => state.clearUser);
   const clearActiveInspectionId = useInspectionStore((state) => state.clearActiveInspectionId);
+  const clearActiveReportId = useInspectionStore((state) => state.clearActiveReportId);
 
   const logout = async (): Promise<void> => {
     try {
@@ -36,6 +37,7 @@ export function useLogout(redirectTo: string = LOGIN_ROUTE) {
       queryClient.setQueryData(AUTH_ME_QUERY_KEY, null);
       clearUser();
       clearActiveInspectionId();
+      clearActiveReportId();
       navigate(redirectTo);
     }
   };

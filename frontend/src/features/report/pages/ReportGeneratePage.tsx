@@ -5,6 +5,7 @@ import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
 import { useInspectionResult } from '../../inspection/hooks/useInspectionResult';
+import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import { reportApi } from '../api/reportApi';
 import type { ReportDetailResponse } from '../api/reportApi';
 import { ReportContentEditor } from '../components/ReportContentEditor';
@@ -44,6 +45,13 @@ export function ReportGeneratePage() {
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const inspectionId = report?.inspectionId ?? 0;
+  const setActiveReportId = useInspectionStore((state) => state.setActiveReportId);
+
+  useEffect(() => {
+    if (hasValidReportId) {
+      setActiveReportId(parsedReportId);
+    }
+  }, [parsedReportId, hasValidReportId, setActiveReportId]);
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
 
