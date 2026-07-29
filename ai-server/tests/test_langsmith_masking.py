@@ -278,16 +278,87 @@ def test_boot_guard_blocks_partial_masking(monkeypatch):
         enforce_masked_tracing()
 
 
+_FRAMEWORK_TRACING_ENV_NAMES = (
+    "LANGCHAIN_TRACING_V2", "LANGSMITH_TRACING", "LANGSMITH_TRACING_V2", "LANGCHAIN_TRACING",
+)
+
+
+def _clear_tracing_env(monkeypatch):
+    for key in _FRAMEWORK_TRACING_ENV_NAMES:
+        monkeypatch.delenv(key, raising=False)
+
+
 def test_boot_guard_noop_when_tracing_off(monkeypatch):
     """트레이싱 OFF면 아무것도 하지 않는다 — 전송이 없으니 유출 표면도 없고, 싱글턴도 안 만든다."""
-    for key in ("LANGCHAIN_TRACING_V2", "LANGSMITH_TRACING"):
-        monkeypatch.setenv(key, "false")
+    _clear_tracing_env(monkeypatch)
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "false")
     monkeypatch.delenv("LANGSMITH_HIDE_INPUTS", raising=False)
     monkeypatch.delenv("LANGSMITH_HIDE_OUTPUTS", raising=False)
 
     enforce_masked_tracing()
 
     assert ls_run_trees._CLIENT is None, "트레이싱 OFF인데 Client 싱글턴을 만들었다(불필요)"
+
+
+@pytest.mark.parametrize("env_name", _FRAMEWORK_TRACING_ENV_NAMES)
+def test_boot_guard_covers_all_framework_tracing_env_names(monkeypatch, env_name):
+    """프레임워크가 인식하는 4개 트레이싱 env 이름 어느 것으로 켜도 가드가 발동해야 한다.
+
+    2차 리뷰 P1 회귀 고정 — 초기 구현은 키 2개만 자체 목록으로 봐서 `LANGSMITH_TRACING_V2=true`
+    등으로 켜면 가드(기동 차단·error 스크럽)가 통째로 우회됐다. 판정을
+    `ls_utils.tracing_is_enabled()` 위임으로 바꿔 키 집합이 구조적으로 일치함을 고정한다.
+    """
+    _clear_tracing_env(monkeypatch)
+    monkeypatch.setenv(env_name, "true")
+    monkeypatch.delenv("LANGSMITH_HIDE_INPUTS", raising=False)
+    monkeypatch.delenv("LANGSMITH_HIDE_OUTPUTS", raising=False)
+
+    with pytest.raises(RuntimeError, match="LANGSMITH_HIDE"):
+        enforce_masked_tracing()
+
+
+@pytest.mark.parametrize("value", ["1", "yes", "on", "TRUE", "t"])
+def test_boot_guard_stays_aligned_with_framework_on_truthy_variants(monkeypatch, value):
+    """관례적 truthy 값("1"·"yes" 등)에서 가드와 프레임워크의 판정이 일치해야 한다.
+
+    실측(langsmith 0.10.10): `tracing_is_enabled()`는 소문자 "true"만 인정하므로 이 값들은
+    실제로 트레이싱을 켜지 **않는다** — 따라서 가드도 발동하지 않는 게 정합이다(켜지지도 않을
+    트레이싱 때문에 기동을 막으면 오탐 fail-closed). 가드가 같은 함수에 위임하므로 구조적으로
+    일치하지만, 훗날 langsmith가 truthy 판정을 넓히면 아래 첫 단언이 깨져 이 전제의 만료를
+    시끄럽게 알린다(그때는 이 테스트의 기대치를 갱신하면 가드는 위임 덕에 이미 정합이다).
+    """
+    _clear_tracing_env(monkeypatch)
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", value)
+    monkeypatch.delenv("LANGSMITH_HIDE_INPUTS", raising=False)
+    monkeypatch.delenv("LANGSMITH_HIDE_OUTPUTS", raising=False)
+
+    assert not ls_utils.tracing_is_enabled(), (
+        f"langsmith가 {value!r}를 트레이싱 ON으로 판정하기 시작했다 — 이 테스트의 기대치를 갱신하라"
+    )
+    enforce_masked_tracing()  # 프레임워크가 OFF로 보는 값이므로 예외 없이 통과해야 한다
+    assert ls_run_trees._CLIENT is None
+
+
+@pytest.mark.parametrize("hide_value", ["TRUE", "True", "1"])
+def test_boot_guard_rejects_hide_values_client_ignores(monkeypatch, hide_value):
+    """Client가 마스킹 OFF로 해석하는 HIDE 값("TRUE" 등)이면 가드가 기동을 막아야 한다.
+
+    Client는 `get_env_var("HIDE_*") == "true"`로 **소문자 "true"만** 마스킹 ON으로 인식한다
+    (실측: HIDE_INPUTS=TRUE -> _hide_inputs=False). 초기 가드는 대소문자를 무시해 이 조합을
+    통과시켰다 — "가드는 만족, Client는 마스킹 안 함"이라는 정반대 fail-open. 가드가 Client와
+    동일 술어를 쓰는지 여기서 고정한다.
+    """
+    _clear_tracing_env(monkeypatch)
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
+    monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", hide_value)
+    monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", hide_value)
+
+    # 전제 고정 — 이 값에서 Client는 실제로 마스킹하지 않는다.
+    assert Client(api_key="lsv2_pt_testonly")._hide_inputs is False, (
+        f"Client가 {hide_value!r}를 마스킹 ON으로 인식하기 시작했다 — 가드 술어를 재검토하라"
+    )
+    with pytest.raises(RuntimeError, match="LANGSMITH_HIDE"):
+        enforce_masked_tracing()
 
 
 def test_boot_guard_installs_error_anonymizer(monkeypatch):
