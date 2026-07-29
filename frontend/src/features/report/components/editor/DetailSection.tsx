@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import type { DefectDetailItem, ReportContent } from '../../types';
-import { Button } from '../../../../shared/components/Button';
 import { LabeledTextArea } from './LabeledTextArea';
 
 type GradeFilter = 'ALL' | 'A' | 'B' | 'C' | 'D' | 'E';

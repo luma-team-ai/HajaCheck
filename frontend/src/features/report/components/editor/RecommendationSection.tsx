@@ -1,5 +1,4 @@
 import type { RecommendationItem, ReportContent } from '../../types';
-import { Button } from '../../../../shared/components/Button';
 import { LabeledTextArea } from './LabeledTextArea';
 
 interface RecommendationSectionProps {
