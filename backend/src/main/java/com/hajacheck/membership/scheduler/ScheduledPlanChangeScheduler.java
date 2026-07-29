@@ -4,6 +4,10 @@ import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.config.ScheduledPlanChangeProperties;
 import com.hajacheck.membership.repository.ScheduledPlanChangeRepository;
+import com.hajacheck.membership.repository.UserPlanRepository;
+import com.hajacheck.membership.service.PaymentGraceService;
+import com.hajacheck.membership.service.PlanExpiryResult;
+import com.hajacheck.membership.service.PlanExpiryWriter;
 import com.hajacheck.membership.service.ScheduledPlanChangeFailure;
 import com.hajacheck.membership.service.ScheduledPlanChangeResult;
 import com.hajacheck.membership.service.ScheduledPlanChangeWriter;
@@ -26,6 +30,16 @@ import org.springframework.stereotype.Component;
  * 예약된 플랜 하향 적용 배치(#1105 / HAJA-526). <b>매시 정각(KST)</b> 실행 — 적용 시각
  * ({@code effective_at} = 예약 시점의 {@code user_plans.current_period_end})이 지난 예약을 찾아 하향을
  * 반영한다.
+ *
+ * <p><b>2단계 구성(#1177 유료→유료 하향 C안)</b>: 한 회차가 같은 기준시각으로 두 가지를 처리한다.
+ * <ol>
+ *   <li><b>예약 적용</b>(원래 동작) — 적용 시각이 지난 하향 예약을 반영한다. 대상이 <b>유료</b>면 결제
+ *       없이 그 요금제를 발급하되 <b>미결제 유예</b>로 들어간다(한도는 FREE).</li>
+ *   <li><b>유예 만료 강등</b> — 유예 마감이 지났는데 결제되지 않은 구독을 FREE 로 강등한다
+ *       ({@link #expirePaymentGracePeriods}). 만료 강등 배치(#1145)에 얹지 않은 이유는 그 배치가
+ *       {@code enabled=false} 로 잠겨 있어 이 기능까지 함께 잠기기 때문이다.</li>
+ * </ol>
+ * 두 단계 모두 비상 스위치({@code enabled=false})와 1회 상한({@code max-per-run})의 통제를 받는다.
  *
  * <p><b>왜 필요한가</b>: 관리자 콘솔의 요금제 변경은 즉시 전이라, 하향을 신청하는 순간 초과 좌석이 그
  * 자리에서 정지된다. 이미 낸 요금 기간이 남아 있어도 권한이 바로 내려가므로 통상의 SaaS 관례("다음 결제
@@ -82,6 +96,11 @@ public class ScheduledPlanChangeScheduler {
 
     private final ScheduledPlanChangeRepository scheduledPlanChangeRepository;
     private final ScheduledPlanChangeWriter scheduledPlanChangeWriter;
+    // 2단계(#1177 미결제 유예 강등) — 후보 조회·유예 확정 판정·강등 실행. 강등 자체는 만료 강등 경로를
+    // 그대로 재사용한다(expirePaymentGracePeriods javadoc).
+    private final UserPlanRepository userPlanRepository;
+    private final PaymentGraceService paymentGraceService;
+    private final PlanExpiryWriter planExpiryWriter;
     private final NotificationService notificationService;
     private final ScheduledPlanChangeProperties properties;
     private final Clock clock;
@@ -94,6 +113,15 @@ public class ScheduledPlanChangeScheduler {
         }
 
         Instant now = Instant.now(clock);
+        applyDueReservations(now);
+        // 2단계 — 미결제 유예가 만료된 구독의 FREE 강등(#1177). 1단계와 <b>같은 기준시각</b>을 쓴다.
+        // 순서가 1단계 뒤인 이유: 같은 회차에서 방금 유예로 진입한 구독(유예 종료가 미래)이 2단계 조회에
+        // 걸리지 않으므로 "발급하자마자 강등"이 구조적으로 불가능하다(payment-grace-days >= 1 과 함께).
+        expirePaymentGracePeriods(now);
+    }
+
+    /** 1단계 — 적용 시각이 지난 하향 예약을 반영한다(#1105 원래 동작). */
+    private void applyDueReservations(Instant now) {
         int maxPerRun = properties.getMaxPerRun();
         long targetCount = scheduledPlanChangeRepository.countDue(now);
         if (targetCount == 0) {
@@ -122,6 +150,149 @@ public class ScheduledPlanChangeScheduler {
         } else {
             log.info(summary, targetCount, counts.applied, counts.canceled, counts.skipped,
                     counts.failed, counts.notified, now);
+        }
+    }
+
+    /**
+     * 2단계 — <b>미결제 유예가 만료된 구독을 FREE 로 강등</b>한다(#1177 C안).
+     *
+     * <p><b>왜 이 배치인가</b>: 만료 강등 배치({@code PlanExpiryScheduler}, #1145)는 V27 백필 추정 만료일
+     * 때문에 {@code enabled=false} 로 잠겨 있다. 거기에 얹으면 이 기능도 함께 잠긴다. 반면 이 배치는 매시
+     * 활성이고 유예 자체가 이 배치가 만든 상태라, 발급과 만료를 같은 배치가 책임지는 편이 일관된다.
+     *
+     * <p><b>강등 로직은 새로 짜지 않는다</b> — 결과가 "유료 구독을 FREE 로 내리고 초과 좌석을 정지"로
+     * 만료 강등과 <b>완전히 같은 사건</b>이므로 {@link PlanExpiryWriter#expireToFreePlan} 을 그대로
+     * 호출한다(그 writer 는 {@code PlanExpiryProperties.enabled} 를 보지 않는다 — 스위치는 스케줄러 쪽에만
+     * 있다). 유예 구독은 {@code current_period_end} 가 유예 마감이라 그 writer 의 재검증 조건
+     * ({@code currentPeriodEnd < threshold})을 그대로 만족한다. 알림도 같은 이유로
+     * {@link NotificationType#PLAN_EXPIRED} 를 재사용한다(사용자에게는 "결제가 되지 않아 FREE 로
+     * 전환됐다"는 동일한 사건이고, 새 라벨은 PG enum 변경 = 스키마 변경을 부른다).
+     *
+     * <p><b>후보 → 확정 2단 판정</b>: 조회({@code findPaymentGraceExpiredIds})는 "예약 실행이 발급했고
+     * 주기가 끝난 유료 구독"까지만 좁히고, <b>실제 강등 여부는 {@link PaymentGraceService#isInGracePeriod}
+     * 이 최종 확인</b>한다. 결제가 이미 끝난 구독을 강등하지 않기 위해서다 — 정상 경로에서는 결제가 새 행을
+     * 발급하며 유예 행을 EXPIRED 로 내리므로 조회에서 이미 빠지지만, 그 사이(조회~처리)의 경합과
+     * "PAID 인데 전이가 끝나지 않은" 대사 대상(#1010)까지 여기서 막는다.
+     */
+    private void expirePaymentGracePeriods(Instant now) {
+        int maxPerRun = properties.getMaxPerRun();
+        long targetCount = userPlanRepository.countPaymentGraceExpired(PlanExpiryWriter.LIVE_STATUSES, now);
+        if (targetCount == 0) {
+            log.debug("미결제 유예 강등 배치 완료 — 대상 0건 (기준시각 {})", now);
+            return;
+        }
+        if (targetCount > maxPerRun) {
+            // 1단계와 같은 원칙 — 상한을 넘는 대량 강등은 정상 운영이 아니라 사고 신호다(부분 적용 금지).
+            log.error("미결제 유예 강등 배치 중단 — 대상 {}건이 1회 상한 {}건을 초과했다(강등 0건). "
+                            + "user_plans 의 유예 후보가 실제 예약 실행 결과가 맞는지 먼저 확인할 것. 기준시각 {}",
+                    targetCount, maxPerRun, now);
+            return;
+        }
+
+        BatchCounts counts = processGraceExpiry(now, maxPerRun);
+        String summary = "미결제 유예 강등 배치 완료 — 대상 {}건, 강등 {}건, 스킵 {}건, 실패 {}건, "
+                + "알림 {}건 (기준시각 {})";
+        if (counts.failed > 0) {
+            log.warn(summary, targetCount, counts.applied, counts.skipped, counts.failed,
+                    counts.notified, now);
+        } else {
+            log.info(summary, targetCount, counts.applied, counts.skipped, counts.failed,
+                    counts.notified, now);
+        }
+    }
+
+    private BatchCounts processGraceExpiry(Instant now, int maxPerRun) {
+        BatchCounts counts = new BatchCounts();
+        long lastId = 0L;
+        while (true) {
+            // keyset 페이징 — 강등된 구독은 EXPIRED 가 되어 결과집합에서 빠지므로 offset 페이징이면 두
+            // 번째 페이지부터 대상이 통째로 건너뛰어진다(1단계와 같은 이유).
+            List<Long> targetIds = userPlanRepository.findPaymentGraceExpiredIds(
+                    PlanExpiryWriter.LIVE_STATUSES, now, lastId, PageRequest.of(0, PAGE_SIZE));
+            if (targetIds.isEmpty()) {
+                return counts;
+            }
+            for (Long userPlanId : targetIds) {
+                lastId = userPlanId;
+                if (counts.applied >= maxPerRun) {
+                    log.error("미결제 유예 강등 중단 — 1회 상한 {}건에 도달했다(강등 {}건). 남은 대상은 "
+                            + "다음 회차로 미룬다.", maxPerRun, counts.applied);
+                    return counts;
+                }
+                processGraceExpiryOne(userPlanId, now, counts);
+            }
+            if (targetIds.size() < PAGE_SIZE) {
+                return counts;
+            }
+        }
+    }
+
+    private void processGraceExpiryOne(Long userPlanId, Instant now, BatchCounts counts) {
+        PlanExpiryResult result;
+        try {
+            if (!paymentGraceService.isInGracePeriodById(userPlanId)) {
+                // 결제가 끝났거나(정산 완료) 유예 후보가 아니게 됐다 — 강등하지 않는다(위 javadoc).
+                counts.skipped++;
+                log.info("미결제 유예 강등 스킵(이미 정산됨 또는 유예 아님) — userPlanId={}", userPlanId);
+                return;
+            }
+            result = planExpiryWriter.expireToFreePlan(userPlanId, now);
+        } catch (BusinessException e) {
+            if (e.getErrorCode() == ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT) {
+                // 다른 경로가 먼저 활성 구독을 만들었다 — 경합이지 결함이 아니므로 다음 회차에 자연 재시도.
+                counts.skipped++;
+                log.info("미결제 유예 강등 스킵(활성 구독 경합) — userPlanId={}", userPlanId);
+                return;
+            }
+            counts.failed++;
+            log.warn("미결제 유예 강등 실패 — userPlanId={} errorCode={}", userPlanId, e.getErrorCode());
+            return;
+        } catch (PessimisticLockingFailureException e) {
+            counts.skipped++;
+            log.info("미결제 유예 강등 스킵(행 잠금 대기 초과) — userPlanId={}", userPlanId);
+            return;
+        } catch (DataIntegrityViolationException e) {
+            // 값 없는 식별 정보만 남긴다(1단계와 같은 규칙 — PG 위반 메시지는 컬럼 값을 담는다).
+            counts.failed++;
+            log.warn("미결제 유예 강등 실패(예상 밖 무결성 제약 위반) — userPlanId={} {}",
+                    userPlanId, describeIntegrityViolation(e));
+            log.debug("미결제 유예 강등 무결성 위반 상세 — userPlanId={}", userPlanId, e);
+            return;
+        } catch (Exception e) {
+            counts.failed++;
+            log.warn("미결제 유예 강등 실패 — userPlanId={} exception={} message={}",
+                    userPlanId, e.getClass().getSimpleName(), e.getMessage(), e);
+            return;
+        }
+
+        if (!result.downgraded()) {
+            counts.skipped++;
+            log.info("미결제 유예 강등 스킵 — userPlanId={} reason={}", userPlanId, result.skipReason());
+            return;
+        }
+        counts.applied++;
+        if (publishGraceExpiryNotification(userPlanId, result)) {
+            counts.notified++;
+        }
+    }
+
+    /**
+     * 유예 만료 강등 알림 1건({@link NotificationType#PLAN_EXPIRED}) — <b>강등이 커밋된 뒤</b> 발행한다.
+     * 발행 실패가 이미 확정된 강등을 되돌리지 않도록 예외를 삼키고 WARN 으로만 표면화한다(1단계와 동일).
+     */
+    private boolean publishGraceExpiryNotification(Long userPlanId, PlanExpiryResult result) {
+        if (result.recipientUserId() == null) {
+            log.warn("미결제 유예 강등 알림 수신자 없음 — userPlanId={}", userPlanId);
+            return false;
+        }
+        try {
+            notificationService.notify(result.recipientUserId(), NotificationType.PLAN_EXPIRED,
+                    PlanExpiredNotificationPayload.serialize(result));
+            return true;
+        } catch (Exception e) {
+            log.warn("미결제 유예 강등 알림 발행 실패 — userPlanId={} exception={}",
+                    userPlanId, e.getClass().getSimpleName());
+            return false;
         }
     }
 

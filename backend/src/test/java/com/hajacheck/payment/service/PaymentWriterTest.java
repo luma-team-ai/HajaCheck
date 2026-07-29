@@ -18,6 +18,7 @@ import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.repository.PlanRepository;
+import com.hajacheck.membership.service.PaymentGraceService;
 import com.hajacheck.membership.service.PlanDowngradeService;
 import com.hajacheck.membership.service.PlanTransitionService;
 import com.hajacheck.payment.config.TossPaymentsProperties;
@@ -83,6 +84,9 @@ class PaymentWriterTest {
     private PlanDowngradeService planDowngradeService;
     @Mock
     private TossPaymentsClient tossPaymentsClient;
+    // 미결제 유예(#1177) 판정 — 기본 스텁이 false 라 기존 시나리오 동작이 그대로 유지된다.
+    @Mock
+    private PaymentGraceService paymentGraceService;
 
     private TossPaymentsProperties properties;
     private PaymentWriter writer;
@@ -96,7 +100,8 @@ class PaymentWriterTest {
     void setUp() {
         properties = new TossPaymentsProperties();
         writer = new PaymentWriter(paymentRepository, userRepository, planRepository,
-                planTransitionService, planDowngradeService, tossPaymentsClient, properties);
+                planTransitionService, planDowngradeService, paymentGraceService,
+                tossPaymentsClient, properties);
 
         individualUser = user(USER_ID, null);
         companyUser = user(USER_ID, COMPANY_ID);
@@ -173,6 +178,42 @@ class PaymentWriterTest {
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT));
         verify(paymentRepository, never()).saveAndFlush(any(Payment.class));
+    }
+
+    // ── 미결제 유예 정산 결제(#1177) ──
+
+    @Test
+    void 유예중_같은_요금제_결제는_허용하고_정가를_청구한다() {
+        // 유예 구독은 결제 없이 발급돼 한도가 FREE 로 묶여 있다 — "같은 요금제라 no-op" 이 아니라
+        // 그 상태를 정상 주기로 되돌리는 유일한 결제 경로다. 여기서 409 로 막으면 사용자는 FREE 강등
+        // 외에 선택지가 없어진다.
+        UserPlan grace = withId(UserPlan.forUser(USER_ID, STANDARD_PLAN_ID), 520L);
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(grace);
+        when(paymentGraceService.isInGracePeriod(eq(grace), any())).thenReturn(true);
+
+        PaymentOrderResponse response = writer.createOrder(USER_ID, PlanName.STANDARD);
+
+        assertThat(response.planName()).isEqualTo("STANDARD");
+        assertThat(response.amount())
+                .as("유예 구독은 한 번도 결제된 적이 없고 그 기간 한도도 FREE 였다 — 잔여 크레딧 없이 정가다")
+                .isEqualTo(99000L);
+        assertThat(response.credit()).isZero();
+    }
+
+    @Test
+    void 유예중_같은_요금제_승인은_이미_사용중으로_차단되지_않는다() {
+        // 승인 후에 alreadyOnTargetPlan 으로 판정되면 결제만 연결되고 주기·한도는 그대로 남아
+        // "돈은 받고 요금제는 주지 않는" 상태가 된다.
+        Payment payment = readyPayment(null);
+        UserPlan grace = withId(UserPlan.forUser(USER_ID, ENTERPRISE_PLAN_ID), 521L);
+        when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(payment));
+        when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(grace);
+        when(paymentGraceService.isInGracePeriod(eq(grace), any())).thenReturn(true);
+
+        PaymentConfirmPreparation preparation = writer.prepareConfirm(USER_ID,
+                new PaymentConfirmRequest("test_payment_key", ORDER_ID, 299000L));
+
+        assertThat(preparation.outcome()).isEqualTo(PaymentConfirmOutcome.READY_TO_APPROVE);
     }
 
     @Test

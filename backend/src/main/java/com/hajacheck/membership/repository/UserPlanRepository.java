@@ -1,5 +1,6 @@
 package com.hajacheck.membership.repository;
 
+import com.hajacheck.membership.entity.ScheduledPlanChangeStatus;
 import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import jakarta.persistence.LockModeType;
@@ -89,6 +90,87 @@ public interface UserPlanRepository extends JpaRepository<UserPlan, Long> {
             """)
     List<Long> findExpiryTargetIds(@Param("statuses") Collection<UserPlanStatus> statuses,
             @Param("threshold") Instant threshold, @Param("notBefore") Instant notBefore,
+            @Param("lastId") Long lastId, Pageable pageable);
+
+    /**
+     * <b>미결제 유예가 만료된</b> 구독 건수(#1177) — {@code ScheduledPlanChangeScheduler} 2단계가 강등을
+     * 시작하기 전에 1회 실행 상한과 대조하는 데 쓴다. 조회 조건은
+     * {@link #findPaymentGraceExpiredIds} 와 <b>정확히 같아야 한다</b>.
+     */
+    default long countPaymentGraceExpired(Collection<UserPlanStatus> statuses, Instant now) {
+        return countPaymentGraceExpired(statuses, ScheduledPlanChangeStatus.APPLIED, now);
+    }
+
+    /**
+     * <b>미결제 유예가 만료된</b> 구독 id(#1177) — id 오름차순 keyset 페이징
+     * ({@link #findExpiryTargetIds} 와 같은 이유로 offset 페이징을 쓰지 않는다: 처리된 구독은 EXPIRED 가
+     * 되어 결과집합에서 빠진다).
+     *
+     * <p><b>유예 판정을 컬럼이 아니라 조인으로 하는 이유</b>는 {@code ScheduledPlanChangeRepository
+     * #existsAppliedOriginForCompany} javadoc 에 정리돼 있다 — 요약하면 "PAID 결제가 없는 유료 구독"에는
+     * 레거시 무결제 유료 구독(모의 결제 #711 시절)이 섞여 있어, 그것까지 강등하면 정상 고객을 끊는다.
+     * 그래서 <b>예약 실행이 발급했다는 증거</b>({@code applied_at == current_period_start} + 대상 요금제
+     * 일치 + 소유 주체 일치)를 반드시 함께 요구한다.
+     *
+     * <p><b>PAID 결제 유무는 여기서 보지 않는다</b> — {@code payments} 는 다른 모듈의 테이블이라 조회를
+     * 섞지 않고, 호출부(스케줄러)가 후보별로
+     * {@code PaymentGraceService#isInGracePeriod} 로 최종 확인한 뒤에만 강등한다. 후보는 극소수라 비용이
+     * 문제되지 않는다.
+     *
+     * <p>FREE 는 {@code current_period_end IS NULL}(#1104 규칙)이라 자연 배제되고, 정상 결제된 유료 구독은
+     * {@code current_period_start} 가 배치 {@code now} 와 일치할 이유가 없어 조인에서 빠진다.
+     *
+     * @param statuses 엔타이틀먼트 판정과 같은 집합({@code PlanExpiryWriter#LIVE_STATUSES})이어야 한다 —
+     *                 근거는 {@link #findExpiryTargetIds} javadoc 과 동일하다.
+     */
+    default List<Long> findPaymentGraceExpiredIds(Collection<UserPlanStatus> statuses, Instant now,
+            Long lastId, Pageable pageable) {
+        return findPaymentGraceExpiredIds(statuses, ScheduledPlanChangeStatus.APPLIED, now, lastId, pageable);
+    }
+
+    @Query("""
+            select count(up) from UserPlan up
+            where up.status in :statuses
+              and up.currentPeriodStart is not null
+              and up.currentPeriodEnd is not null
+              and up.currentPeriodEnd < :now
+              and exists (
+                    select 1 from ScheduledPlanChange s
+                    where s.status = :appliedStatus
+                      and s.targetPlanId = up.planId
+                      and s.appliedAt = up.currentPeriodStart
+                      and s.userPlanId in (
+                            select prev.id from UserPlan prev
+                            where (prev.companyId is not null and prev.companyId = up.companyId)
+                               or (prev.userId is not null and prev.userId = up.userId)
+                      )
+              )
+            """)
+    long countPaymentGraceExpired(@Param("statuses") Collection<UserPlanStatus> statuses,
+            @Param("appliedStatus") ScheduledPlanChangeStatus appliedStatus, @Param("now") Instant now);
+
+    @Query("""
+            select up.id from UserPlan up
+            where up.status in :statuses
+              and up.currentPeriodStart is not null
+              and up.currentPeriodEnd is not null
+              and up.currentPeriodEnd < :now
+              and up.id > :lastId
+              and exists (
+                    select 1 from ScheduledPlanChange s
+                    where s.status = :appliedStatus
+                      and s.targetPlanId = up.planId
+                      and s.appliedAt = up.currentPeriodStart
+                      and s.userPlanId in (
+                            select prev.id from UserPlan prev
+                            where (prev.companyId is not null and prev.companyId = up.companyId)
+                               or (prev.userId is not null and prev.userId = up.userId)
+                      )
+              )
+            order by up.id asc
+            """)
+    List<Long> findPaymentGraceExpiredIds(@Param("statuses") Collection<UserPlanStatus> statuses,
+            @Param("appliedStatus") ScheduledPlanChangeStatus appliedStatus, @Param("now") Instant now,
             @Param("lastId") Long lastId, Pageable pageable);
 
     /**

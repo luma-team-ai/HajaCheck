@@ -44,13 +44,24 @@ import org.springframework.transaction.annotation.Transactional;
  * 번) → {@link UserPlan#expire()} → flush → 신규 ACTIVE 발급 → {@link PlanTransitionService#carryOverUsage}
  * → {@link PlanDowngradeService#applyOverflow}.
  *
- * <p><b>⚠️ 대상은 무료 요금제만이다</b>(보안 리뷰 P1). 이 경로는 <b>결제 없이</b> 구독을 전이시키는데
- * 빌링키(정기결제)가 없어 새 유료 주기를 열면 <b>어떤 경로로도 청구되지 않는다</b> — 티어를 한 단계씩
- * 내리는 것만으로 무상 1개월을 반복 취득할 수 있다(무결제 승격을 막은 #988과 같은 성격의 우회로다).
- * 그래서 생성 시점({@code AdminPlanService#scheduleChange})이 유료 대상을 거절하고, 여기서도 이중으로
- * 막는다({@link #applyBillingPeriod}). 대상이 항상 무료이므로 신규 구독의 결제 주기는
- * {@code carryOverBillingPeriod(previous, false)} 로 <b>종료가 NULL(무기한)</b> 이 된다(#1104 규칙) —
- * "지나간 만료일을 승계하면 새 구독이 즉시 만료 강등 대상이 된다"는 딜레마 자체가 사라진다.
+ * <p><b>⚠️ 대상 요금제에 따라 결제 주기 규칙이 다르다</b>({@link #applyBillingPeriod}).
+ * <ul>
+ *   <li><b>무료 대상</b>(#1105 원래 범위) — {@code carryOverBillingPeriod(previous, false)} 로
+ *       <b>종료가 NULL(무기한)</b> 이 된다(#1104 규칙). "지나간 만료일을 승계하면 새 구독이 즉시 만료
+ *       강등 대상이 된다"는 딜레마가 사라진다.</li>
+ *   <li><b>유료 대상</b>(#1177 C안 "유예 후 강등") — {@code startPaymentGracePeriod(now, graceDays)} 로
+ *       <b>유예 기간만</b> 연다. 이 경로는 결제 없이 전이하므로 새 유료 1개월을 열면 어떤 경로로도
+ *       청구되지 않는 유료 한 달이 발급되는데(#1105 보안 리뷰 P1), 유예는 그 구멍을 닫는다: 유예 중
+ *       한도는 FREE 이고({@link PaymentGraceService#resolveEffectivePlan}) 유예 안에 결제하지 않으면
+ *       FREE 로 강등된다({@code ScheduledPlanChangeScheduler} 2단계). 즉 <b>무결제로 얻는 유료 혜택이
+ *       0</b> 이라 반복 취득 우회로가 성립하지 않는다.</li>
+ * </ul>
+ *
+ * <p><b>⚠️ 유료 대상의 좌석·시설물 초과는 대상 요금제가 아니라 FREE 기준으로 계산한다</b>
+ * ({@link #entitlementPlan}). 유예 중 실제 적용 한도가 FREE 이므로, STANDARD 기준으로 정리하면 "정지되지
+ * 않았는데 아무것도 못 하는" 인원이 남는다. 신청 시점 미리보기
+ * ({@code AdminPlanService#scheduleChange})도 같은 기준을 쓴다 — 갈라지면 확인받은 정지 인원과 실제
+ * 결과가 어긋나고 {@code confirmed_seat_overflow} 방어에 정상 예약이 걸려 죽는다.
  *
  * <p><b>⚠️ 확인받은 정지 규모를 넘지 않는다</b>(리뷰 P2-4): {@code confirmOverflow=true} 는 <b>신청
  * 시점 미리보기</b>에 대한 동의다. 예약은 한 달 가까이 보관되므로 그 사이 구성원이 늘면 실행 시점 정지
@@ -89,6 +100,8 @@ public class ScheduledPlanChangeWriter {
     private final CompanyRepository companyRepository;
     private final PlanDowngradeService planDowngradeService;
     private final PlanTransitionService planTransitionService;
+    // 미결제 유예(#1177) 판정·FREE 한도 해석 단일 소스 — 신청 시점 미리보기와 같은 규칙을 쓰기 위해.
+    private final PaymentGraceService paymentGraceService;
     private final ScheduledPlanChangeProperties properties;
 
     /**
@@ -164,13 +177,18 @@ public class ScheduledPlanChangeWriter {
         // 부분 상태를 남기지 않도록 여기서 먼저 끊는다(PlanExpiryWriter 와 동일 순서).
         Long recipientUserId = companyId != null ? resolveCompanyOwnerUserId(companyId) : userId;
 
+        // ⚠️ 초과 계산의 기준은 "적용 직후 실제로 적용될 한도"다(#1177) — 유료 대상은 미결제 유예로
+        // 들어가 그 동안 FREE 한도가 적용되므로 여기서도 FREE 로 계산한다(위 javadoc). 무료 대상은
+        // 대상 요금제 그대로다(#1105 기존 동작 유지).
+        Plan entitlementPlan = entitlementPlan(targetPlan);
+
         // ⚠️ preview 는 쓰기 이전에 정확히 한 번(PlanDowngradeService F-7) — 결과를 그대로 applyOverflow 에
         // 재사용한다. 개인 구독(companyId=null)은 좌석·회사 시설물 개념이 없어 계산 자체를 건너뛴다.
         List<Long> keepUserIds = companyId != null
-                ? resolveKeepUserIds(scheduledChangeId, companyId, targetPlan, storedKeepUserIds)
+                ? resolveKeepUserIds(scheduledChangeId, companyId, entitlementPlan, storedKeepUserIds)
                 : List.of();
         DowngradeOverflow overflow = companyId != null
-                ? planDowngradeService.preview(companyId, currentPlan, targetPlan, keepUserIds)
+                ? planDowngradeService.preview(companyId, currentPlan, entitlementPlan, keepUserIds)
                 : null;
 
         // ⚠️ 확인받은 정지 규모를 넘지 않는다(리뷰 P2-4) — confirmOverflow 는 "신청 시점 미리보기"에 대한
@@ -207,7 +225,7 @@ public class ScheduledPlanChangeWriter {
         UserPlan renewed = companyId != null
                 ? UserPlan.forCompany(companyId, targetPlan.getId())
                 : UserPlan.forUser(userId, targetPlan.getId());
-        applyBillingPeriod(renewed, reloaded, targetPlan);
+        applyBillingPeriod(renewed, reloaded, targetPlan, now);
 
         UserPlan saved;
         try {
@@ -228,20 +246,28 @@ public class ScheduledPlanChangeWriter {
         if (overflow != null) {
             // 초과 좌석 정지는 신규 구독 발급과 같은 트랜잭션에서 — 플랜만 내려가고 정지가 안 되면
             // 한도가 조용히 무력화된다. 위에서 계산해 둔 overflow 를 그대로 적용할 뿐 재계산하지 않는다.
-            planDowngradeService.applyOverflow(companyId, targetPlan, overflow);
+            planDowngradeService.applyOverflow(companyId, entitlementPlan, overflow);
             suspendedUserIds = List.copyOf(overflow.seatUserIdsToSuspend());
         }
+
+        // 유예로 발급됐으면 결제 마감(= 유예 종료)을 알림에 실어 보낸다(#1177). 값은 방금 세팅한
+        // current_period_end 다 — 강등 배치가 실제로 강제하는 기준과 같은 값이어야 화면·알림이 어긋나지
+        // 않는다(PaymentGraceService#resolveGraceDeadline 과 같은 근거).
+        Instant paymentPendingUntil = isPaid(targetPlan) ? saved.getCurrentPeriodEnd() : null;
 
         // 운영 로그 — 누가(companyId/userId) 어느 플랜에서 어디로 언제 내려갔는지. ⚠️ 정지된 좌석의
         // user id 를 반드시 남긴다(PlanExpiryWriter 리뷰 P2-3 과 같은 이유): 오적용을 되돌릴 대상 목록을
         // 이 로그 말고는 복원할 방법이 없다. id 만 남기므로 개인정보는 로그에 들어가지 않는다.
         log.info("예약 하향 적용 — scheduledChangeId={} companyId={} userId={} {}→{} effectiveAt={} "
-                        + "appliedAt={} suspendedSeats={} suspendedUserIds={}",
+                        + "appliedAt={} entitlementPlan={} paymentPendingUntil={} suspendedSeats={} "
+                        + "suspendedUserIds={}",
                 scheduledChangeId, companyId, userId, currentPlan.getName(), targetPlan.getName(),
-                effectiveAt, now, suspendedUserIds.size(), suspendedUserIds);
+                effectiveAt, now, entitlementPlan.getName(), paymentPendingUntil,
+                suspendedUserIds.size(), suspendedUserIds);
 
         return ScheduledPlanChangeResult.applied(recipientUserId, currentPlan.getName(),
-                targetPlan.getName(), companyId, userId, effectiveAt, suspendedUserIds);
+                targetPlan.getName(), companyId, userId, effectiveAt, suspendedUserIds,
+                paymentPendingUntil);
     }
 
     /**
@@ -282,24 +308,51 @@ public class ScheduledPlanChangeWriter {
     }
 
     /**
-     * 신규 구독의 결제 주기를 정한다(#1104).
+     * 신규 구독의 결제 주기를 정한다(#1104 / #1177).
      *
-     * <p><b>대상은 무료 요금제만이므로</b>({@code AdminPlanService#scheduleChange} 가 생성 시점에 거절)
-     * {@code carryOverBillingPeriod(previous, false)} 로 <b>주기 종료를 NULL(무기한)</b> 로 둔다. FREE 에
-     * 만료일이 남으면 마이페이지가 "무료인데 다음 결제일"을 표시하고 만료 강등 배치가 그 행을 다시 대상으로
-     * 잡는다(#1104 규칙). 주기 시작은 승계한다(구독 개시 시점 자체는 여전히 유효한 정보다).
+     * <p><b>무료 대상</b>: {@code carryOverBillingPeriod(previous, false)} 로 <b>주기 종료를
+     * NULL(무기한)</b> 로 둔다. FREE 에 만료일이 남으면 마이페이지가 "무료인데 다음 결제일"을 표시하고
+     * 만료 강등 배치가 그 행을 다시 대상으로 잡는다(#1104 규칙). 주기 시작은 승계한다(구독 개시 시점
+     * 자체는 여전히 유효한 정보다).
      *
-     * <p>⚠️ <b>유료 대상이면 여기서 거절한다</b>(보안 리뷰 P1 이중 방어). 이 경로는 결제 없이 전이하므로
-     * 유료 주기를 열면 <b>어떤 경로로도 청구되지 않는 유료 1개월</b>이 발급된다 — 티어를 한 단계씩 내리는
-     * 것만으로 무상 기간을 반복 취득할 수 있다. 생성 시점 가드가 유일한 방어선이면, 가격 정책 변경
-     * (#624 {@code Plan#updatePolicy})으로 대상 요금제가 나중에 유료가 되는 순간 그 우회로가 열린다.
-     * 예약을 FAILED 로 종료시켜 사람을 부른다(상위 요금제 유지 — 아무도 잘못 정지되지 않는다).
+     * <p><b>유료 대상</b>(#1177 C안): {@code startPaymentGracePeriod(now, graceDays)} — 새 유료 1개월이
+     * 아니라 <b>유예 기간만</b> 연다. 결제 없이 1개월을 열면 어떤 경로로도 청구되지 않는 유료 한 달이
+     * 발급되지만(#1105 보안 리뷰 P1), 유예 중에는 한도가 FREE 이고 유예 안에 결제하지 않으면 FREE 로
+     * 강등되므로 <b>무결제로 얻는 유료 혜택이 0</b> 이다.
+     *
+     * <p>⚠️ <b>{@code now} 는 {@code markApplied} 에 넘긴 것과 같은 값이어야 한다</b> — 유예 여부는 표식
+     * 컬럼이 아니라 {@code scheduled_plan_changes.applied_at == user_plans.current_period_start} 로
+     * 판정되기 때문이다({@link PaymentGraceService} · {@code UserPlan#startPaymentGracePeriod}). 다른
+     * 값을 넘기면 방금 발급한 유예 구독을 아무도 유예로 인식하지 못해 <b>청구되지 않는 유료 구독이 영구히
+     * 남는다</b>. 아래 사후 단정이 그 회귀를 막는다.
+     *
+     * <p>⚠️ <b>사후 단정</b>({@code PlanExpiryWriter} 의 "강등 결과는 반드시 NULL" 불변식과 같은 취지):
+     * 유료 대상인데 주기 종료가 비어 있으면 유예가 성립하지 않은 것이므로(만료 판정 기준이 사라져 영구
+     * 무료 유료 구독이 된다) 이 1건만 롤백하고 사람을 부른다.
      */
-    private void applyBillingPeriod(UserPlan renewed, UserPlan previous, Plan targetPlan) {
-        if (isPaid(targetPlan)) {
-            throw new BusinessException(ErrorCode.PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED);
+    private void applyBillingPeriod(UserPlan renewed, UserPlan previous, Plan targetPlan, Instant now) {
+        if (!isPaid(targetPlan)) {
+            renewed.carryOverBillingPeriod(previous, false);
+            return;
         }
-        renewed.carryOverBillingPeriod(previous, false);
+        renewed.startPaymentGracePeriod(now, properties.getPaymentGraceDays());
+        if (renewed.getCurrentPeriodEnd() == null || !now.equals(renewed.getCurrentPeriodStart())) {
+            log.error("유예 발급 불변식 위반 — targetPlan={} now={} periodStart={} periodEnd={}",
+                    targetPlan.getName(), now, renewed.getCurrentPeriodStart(),
+                    renewed.getCurrentPeriodEnd());
+            throw new BusinessException(ErrorCode.PLAN_DATA_INVALID);
+        }
+    }
+
+    /**
+     * 적용 직후 <b>실제로 적용될 한도</b>의 요금제(#1177) — 유료 대상이면 FREE(미결제 유예 중 한도),
+     * 무료 대상이면 대상 요금제 그대로.
+     *
+     * <p>{@code AdminPlanService#scheduleEntitlementPlan}(신청 시점 미리보기)과 <b>같은 규칙</b>이어야
+     * 한다 — 자세한 근거는 이 클래스 javadoc 참고.
+     */
+    private Plan entitlementPlan(Plan targetPlan) {
+        return isPaid(targetPlan) ? paymentGraceService.freePlan() : targetPlan;
     }
 
     /**

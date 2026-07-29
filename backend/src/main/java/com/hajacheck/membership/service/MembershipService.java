@@ -17,6 +17,7 @@ import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
@@ -51,6 +52,8 @@ public class MembershipService {
     private final PlanRepository planRepository;
     private final UserPlanRepository userPlanRepository;
     private final UsageCounterRepository usageCounterRepository;
+    // 미결제 유예(#1177) — 한도 표시를 실제 강제 기준(FREE)과 일치시키고 결제 마감을 노출한다.
+    private final PaymentGraceService paymentGraceService;
 
     public MyPlanResponse getMyPlan(Long userId) {
         User user = findUser(userId);
@@ -137,7 +140,12 @@ public class MembershipService {
         UsageCounter usage = usageCounterRepository
                 .findByUserPlanIdAndPeriod(userPlan.getId(), period)
                 .orElse(null);
-        return MyPlanResponse.from(userPlan, plan, usage, period, company, KST);
+        // 미결제 유예(#1177)면 한도는 FREE, 마감은 결제 유도 배너용으로 함께 내려준다 — 판정은
+        // PaymentGraceService 단일 소스를 쓴다(QuotaService 의 실제 차단 기준과 같은 값이어야 한다).
+        Plan effectivePlan = paymentGraceService.resolveEffectivePlan(userPlan, plan);
+        Instant paymentPendingUntil = paymentGraceService.resolveGraceDeadline(userPlan, plan);
+        return MyPlanResponse.from(userPlan, plan, usage, period, company, KST, effectivePlan,
+                paymentPendingUntil);
     }
 
     private LocalDate currentPeriod() {

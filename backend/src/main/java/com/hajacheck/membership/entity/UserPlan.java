@@ -167,4 +167,36 @@ public class UserPlan {
         this.currentPeriodStart = previous.currentPeriodStart;
         this.currentPeriodEnd = targetIsPaid ? previous.currentPeriodEnd : null;
     }
+
+    /**
+     * 미결제 유예 주기 개시(#1177 — 유료→유료 하향 C안 "유예 후 강등") — 예약 하향 실행 배치
+     * ({@code ScheduledPlanChangeWriter})가 <b>유료 대상</b>으로 신규 발급한 구독에 호출한다.
+     *
+     * <p>적용 시점이 무인 배치라 그 순간 결제를 받을 수 없다. 그렇다고 {@link #startNewBillingPeriod} 로
+     * 새 유료 1개월을 열면 <b>어떤 경로로도 청구되지 않는 유료 한 달</b>이 발급된다(#1105 보안 리뷰 P1 =
+     * 결제 경로 우회). 그래서 여기서는 <b>{@code graceDays} 만큼만</b> 주기를 연다 — 그 안에 결제하면
+     * 결제 경로가 정상 1개월 주기로 새 구독을 발급하고, 넘기면 예약 스케줄러 2단계가 FREE 로 강등한다.
+     *
+     * <p><b>유예 중 한도는 FREE 다</b>({@code QuotaService} 가
+     * {@code PaymentGraceService#resolveEffectivePlan} 으로 낮춘다) — 유료 한도를 주면 예약을 반복해
+     * 유예기간만큼 무료로 쓰는 구멍이 생긴다(#1177 결정표). 즉 이 기간에 무결제로 얻는 유료 혜택은 없고,
+     * 유료인 것은 티어 이름과 "결제하면 그 요금제가 된다"는 예약뿐이다.
+     *
+     * <p><b>⚠️ {@code periodStart} 는 예약 실행 배치의 기준 시각({@code now})과 정확히 같은 값이어야
+     * 한다</b> — 유예 여부는 컬럼이 아니라 <b>파생 판정</b>이고({@code PaymentGraceService}) 그 판정이
+     * "이 구독이 예약 실행으로 생겼다"는 증거로 {@code scheduled_plan_changes.applied_at == user_plans
+     * .current_period_start} 를 쓰기 때문이다. 같은 트랜잭션에서 두 값을 같은 {@code now} 로 쓰므로
+     * 성립하며, 다른 값을 넘기면 발급된 유예 구독을 아무도 유예로 인식하지 못한다(= 청구되지 않는 유료
+     * 구독이 영구히 남는다).
+     *
+     * <p>일수 가산은 {@link #BILLING_ZONE}(KST) 기준이다 — {@link #startNewBillingPeriod} 의 월 가산과
+     * 같은 존을 쓰지 않으면 자정 전후(KST 00~09시 = UTC 전날)에 하루가 밀린다.
+     *
+     * @param periodStart 유예 시작 시각(= 예약 적용 기준 시각 {@code now})
+     * @param graceDays   유예 일수({@code hajacheck.plan.scheduled-change.payment-grace-days}, 기본 7)
+     */
+    public void startPaymentGracePeriod(Instant periodStart, int graceDays) {
+        this.currentPeriodStart = periodStart;
+        this.currentPeriodEnd = periodStart.atZone(BILLING_ZONE).plusDays(graceDays).toInstant();
+    }
 }

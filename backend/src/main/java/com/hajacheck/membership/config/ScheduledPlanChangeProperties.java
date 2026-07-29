@@ -47,6 +47,26 @@ public class ScheduledPlanChangeProperties {
     @Min(0)
     private int lockTimeoutMs = 3000;
 
+    /**
+     * 유료→유료 하향(#1177 C안)의 <b>미결제 유예 일수</b> — 기본 7일.
+     *
+     * <p>예약 적용 시점에 유료 대상 구독을 발급하되 결제는 아직 없으므로, 1개월이 아니라 이 일수만큼만
+     * 결제 주기를 연다({@code UserPlan#startPaymentGracePeriod}). 그 안에 결제하면 정상 1개월 주기가
+     * 시작되고, 넘기면 이 배치의 <b>2단계</b>가 FREE 로 강등한다.
+     *
+     * <p>유예 중 한도는 FREE 라 이 값을 키워도 무상으로 얻는 유료 혜택은 늘지 않는다 — 늘어나는 것은
+     * "결제할 시간"뿐이다. 그래서 상한을 두지 않는다.
+     *
+     * <p>{@code @Min(1)} — 0이면 발급 즉시 만료라 유예의 의미가 없고, 같은 회차 안에서 발급(유예 진입
+     * 알림)과 강등(만료 알림)이 겹쳐 사용자가 알림 두 건을 동시에 받는다.
+     *
+     * <p>⚠️ 이 값은 <b>발급 시점에만</b> 쓰인다. 이미 발급된 유예 구독의 마감은
+     * {@code user_plans.current_period_end} 에 굳어 있으므로, 운영 중 이 값을 바꿔도 진행 중인 유예가
+     * 소급해 늘거나 줄지 않는다(유예 판정 자체도 이 값에 의존하지 않는다 — {@code PaymentGraceService}).
+     */
+    @Min(1)
+    private int paymentGraceDays = 7;
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -69,5 +89,13 @@ public class ScheduledPlanChangeProperties {
 
     public void setLockTimeoutMs(int lockTimeoutMs) {
         this.lockTimeoutMs = lockTimeoutMs;
+    }
+
+    public int getPaymentGraceDays() {
+        return paymentGraceDays;
+    }
+
+    public void setPaymentGraceDays(int paymentGraceDays) {
+        this.paymentGraceDays = paymentGraceDays;
     }
 }

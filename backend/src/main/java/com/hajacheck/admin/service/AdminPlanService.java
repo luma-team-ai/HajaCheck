@@ -30,6 +30,7 @@ import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.ScheduledPlanChangeRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
+import com.hajacheck.membership.service.PaymentGraceService;
 import com.hajacheck.membership.service.PlanDowngradeService;
 import com.hajacheck.membership.service.PlanTransitionService;
 import com.hajacheck.membership.service.ScheduledPlanChangeCanceller;
@@ -87,6 +88,8 @@ public class AdminPlanService {
     private final PlanTransitionService planTransitionService;
     private final ScheduledPlanChangeRepository scheduledPlanChangeRepository;
     private final ScheduledPlanChangeCanceller scheduledPlanChangeCanceller;
+    // 미결제 유예(#1177) 판정 단일 소스 — 예약 생성 차단·미리보기 한도 기준을 실행 경로와 일치시킨다.
+    private final PaymentGraceService paymentGraceService;
 
     /** 제공 요금제 카탈로그(변경 선택지) — 회사 스코프와 무관한 참조 데이터라 ADMIN 이면 조회 가능. */
     public AdminPlanCatalogResponse getPlanCatalog() {
@@ -227,13 +230,13 @@ public class AdminPlanService {
      * <ul>
      *   <li>하향인가 — 상향·동일 가격은 {@link ErrorCode#PLAN_SCHEDULE_NOT_DOWNGRADE}. 상향은 결제
      *       경로 전용이고(#988) 예약 개념 자체가 없다.</li>
-     *   <li><b>대상이 무료 요금제인가</b> — 유료 대상은
-     *       {@link ErrorCode#PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED}(보안 리뷰 P1). 예약 실행은 결제 없이
-     *       새 결제 주기를 여는데 빌링키(정기결제)가 없어 그 주기는 <b>어떤 경로로도 청구되지 않는다</b>.
-     *       허용하면 ENTERPRISE→STANDARD 처럼 티어를 한 단계씩 내릴 때마다 무상 1개월을 반복 취득할 수
-     *       있다 — 무결제 승격을 막은 #988과 같은 성격의 우회로다. 대상을 무료로 한정하면 신규 구독의
-     *       {@code currentPeriodEnd} 가 항상 NULL(무기한)이 되어, "지나간 만료일을 승계하면 즉시 만료
-     *       강등 대상이 된다"는 딜레마도 함께 사라진다.</li>
+     *   <li><b>이미 미결제 유예 중은 아닌가</b> — 유예 중이면
+     *       {@link ErrorCode#PLAN_SCHEDULE_PAYMENT_PENDING}(#1177). 유예 중 구독은 이미 FREE 한도로
+     *       동작하는 <b>미정산 상태</b>라, 거기서 또 하향을 예약하면 유예가 유예를 낳는 사슬이 생긴다
+     *       (STANDARD 유예 → 만료일에 BASIC 유예 → …). 어느 단계에서도 결제는 일어나지 않고 한도는 계속
+     *       FREE 라 이득은 없지만, 청구되지 않는 유료 이름의 구독이 무한히 이어지는 상태 자체를 만들지
+     *       않는다. 유예에서 벗어나는 정상 경로는 <b>결제</b>(정상 주기 시작)나 <b>즉시 FREE 변경</b>
+     *       ({@link #changePlan})이며 둘 다 막지 않는다.</li>
      *   <li>적용 시각이 있는가 — {@code current_period_end} 가 없으면(무기한 구독)
      *       {@link ErrorCode#PLAN_SCHEDULE_PERIOD_END_MISSING}.</li>
      *   <li>초과 자원 확인 — {@code confirmOverflow} 없이는
@@ -265,12 +268,10 @@ public class AdminPlanService {
             throw new BusinessException(ErrorCode.PLAN_SCHEDULE_NOT_DOWNGRADE);
         }
 
-        // ⚠️ 대상은 무료 요금제만 허용한다(보안 리뷰 P1) — 예약 실행은 결제 없이 새 결제 주기를 여는데
-        // 빌링키가 없어 그 주기가 청구되지 않는다. 유료 대상을 허용하면 티어를 한 단계씩 내리는 것만으로
-        // 무상 1개월을 반복 취득할 수 있다(위 javadoc 참고). 판정 근거는 위 하향 판정과 같은
-        // plans.price_monthly 다 — 두 판정이 갈라지면 우회로가 생긴다.
-        if (priceOrZero(targetPlan).signum() > 0) {
-            throw new BusinessException(ErrorCode.PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED);
+        // ⚠️ 유예 중 구독에는 새 예약을 걸 수 없다(#1177) — 위 javadoc 의 "유예 사슬" 참고. 판정은
+        // PaymentGraceService 단일 소스를 쓴다(여기서 조건을 흉내내면 한도 판정·강등 배치와 갈라진다).
+        if (paymentGraceService.isInGracePeriod(current, currentPlan)) {
+            throw new BusinessException(ErrorCode.PLAN_SCHEDULE_PAYMENT_PENDING);
         }
 
         Instant effectiveAt = current.getCurrentPeriodEnd();
@@ -288,9 +289,15 @@ public class AdminPlanService {
             throw new BusinessException(ErrorCode.PLAN_SCHEDULED_CHANGE_EXISTS);
         }
 
-        // 부작용 없는 계산 — 실행 시점에 다시 하지만(그때가 진짜 판정이다), 신청 시점에 결과를 보여주고
-        // 확인을 받지 않으면 "아무도 모르는 사이 정지"가 된다.
-        DowngradeOverflow overflow = planDowngradeService.preview(companyId, currentPlan, targetPlan, keepUserIds);
+        // ⚠️ 미리보기 기준은 "적용 직후 실제로 적용될 한도" 여야 한다(#1177). 유료 대상은 적용 시점에
+        // 미결제 유예로 들어가고 그 동안 한도는 FREE 다(PaymentGraceService#resolveEffectivePlan) —
+        // 여기서 STANDARD 한도로 미리보기를 만들면 (1) 관리자가 확인한 정지 인원과 실제 정지 인원이 크게
+        // 달라지고 (2) 저장되는 confirmed_seat_overflow 가 과소 계상돼 실행 시점 초과 방어
+        // (PLAN_SCHEDULE_CONFIRMED_OVERFLOW_EXCEEDED)에 매번 걸려 예약이 통째로 FAILED 로 죽는다.
+        // 실행 경로(ScheduledPlanChangeWriter)와 반드시 같은 기준을 써야 한다.
+        Plan entitlementPlan = scheduleEntitlementPlan(targetPlan);
+        DowngradeOverflow overflow =
+                planDowngradeService.preview(companyId, currentPlan, entitlementPlan, keepUserIds);
         if (!overflowConfirmed && overflow.exists()) {
             throw new BusinessException(ErrorCode.PLAN_DOWNGRADE_CONFIRMATION_REQUIRED);
         }
@@ -489,6 +496,18 @@ public class AdminPlanService {
 
     private BigDecimal priceOrZero(Plan plan) {
         return plan.getPriceMonthly() == null ? BigDecimal.ZERO : plan.getPriceMonthly();
+    }
+
+    /**
+     * 예약이 적용된 <b>직후에 실제로 적용될 한도</b>의 요금제(#1177) — 유료 대상이면 FREE(미결제 유예 중
+     * 한도), 무료 대상이면 대상 요금제 그대로.
+     *
+     * <p>{@code ScheduledPlanChangeWriter} 의 같은 이름 헬퍼와 <b>반드시 같은 규칙</b>이어야 한다. 신청
+     * 시점 미리보기와 실행 시점 적용이 다른 한도를 보면 관리자가 확인한 정지 인원과 실제 결과가 어긋나고,
+     * 실행 시점 초과 방어({@code PLAN_SCHEDULE_CONFIRMED_OVERFLOW_EXCEEDED})가 정상 예약을 죽인다.
+     */
+    private Plan scheduleEntitlementPlan(Plan targetPlan) {
+        return priceOrZero(targetPlan).signum() > 0 ? paymentGraceService.freePlan() : targetPlan;
     }
 
     // 요금제 즉시 변경(하향·FREE 전환)은 회사 소유자만 허용 — requestUpgrade 와 인가 기준을 일치시킨다.
