@@ -173,9 +173,19 @@ public class CounselTicketService {
     }
 
     /**
-     * 플랫폼 관리자 날짜별 상담 목록(#1168) — 접수일(createdAt) 기준 해당 날짜(00:00~23:59:59.999999999,
-     * 로컬 타임존)에 접수된 티켓 전체(최신순). 인가는 컨트롤러의 PLATFORM_ADMIN role 게이트를 전제한다
+     * 플랫폼 관리자 날짜별 상담 목록(#1168) — 접수일(createdAt) 기준 해당 날짜(00:00~23:59:59.999999,
+     * 서버 기본 타임존)에 접수된 티켓 전체(최신순). 인가는 컨트롤러의 PLATFORM_ADMIN role 게이트를 전제한다
      * (이 메서드 자체는 그 role 게이트를 통과한 컨트롤러 경로에서만 참조돼야 한다).
+     *
+     * <p><b>타임존 계약(#1205 머신 리뷰 P3 확인 결과)</b> — 경계 계산에 {@code ZoneId}를 명시하지 않는 것은
+     * 누락이 아니라 의도된 설계다. {@link CounselTicket#getCreatedAt()} 은 {@code @CreatedDate} 가 채우는
+     * 존 정보 없는 {@code LocalDateTime}(= 서버 벽시계 그대로)이고, 여기서 만드는 조회 경계도 같은 서버
+     * 벽시계다 — 저장과 조회가 동일 기준이라 구조적으로 정합하며, 이 값을 {@code ZoneId} 로 UTC 환산하면
+     * 오히려 저장값과 9시간 어긋난다. 따라서 이 조회의 정확성은 "서버 기본 타임존 고정"에만 의존한다:
+     * {@code backend/Dockerfile}({@code -Duser.timezone=Asia/Seoul})과 {@code docker-compose.yml}
+     * ({@code TZ: Asia/Seoul})이 이를 이중으로 고정한다(과거 가입일이 9시간 밀려 보이던 회귀의 재발 방지책).
+     * 서버를 다른 타임존으로 띄우면 저장·조회가 함께 밀려 관리자가 보는 날짜 경계가 어긋나므로, 배포 환경의
+     * TZ 설정을 바꾸려면 이 조회와 {@code createdAt} 저장 경로를 함께 재검토해야 한다.
      */
     public Page<CounselTicketSummaryResponse> getAdminTicketsByDate(LocalDate date, Pageable pageable) {
         LocalDateTime start = date.atStartOfDay();

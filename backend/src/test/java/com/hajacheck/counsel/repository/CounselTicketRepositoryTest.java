@@ -9,6 +9,7 @@ import com.hajacheck.counsel.entity.CounselTicket;
 import com.hajacheck.counsel.entity.CounselType;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDateTime;
+import java.util.TimeZone;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -85,6 +86,40 @@ class CounselTicketRepositoryTest extends PostgresTestSupport {
                 PageRequest.of(0, 20));
 
         assertThat(page.getContent()).isEmpty();
+    }
+
+    /**
+     * #1205 머신 리뷰 P3 — "날짜 경계가 서버 타임존에 따라 밀릴 수 있다"는 지적에 대한 회귀 고정.
+     *
+     * <p>createdAt 은 존 정보 없는 {@code LocalDateTime}(@CreatedDate = 서버 벽시계) 이고 조회 경계도
+     * 같은 벽시계라, 저장·조회 경로 전체가 JVM 기본 타임존과 무관해야 한다. JVM 기본 타임존을 KST가
+     * 아닌 값(UTC)으로 바꿔도 자정 경계 판정이 그대로임을 확인해 "ZoneId 미명시는 의도된 설계"라는
+     * 계약을 고정한다(여기서 ZoneId 로 UTC 환산하는 수정을 넣으면 이 테스트가 깨진다).
+     */
+    @Test
+    void 접수일_경계값은_JVM_기본타임존이_바뀌어도_동일하다() {
+        Long userId = seedUser("boundary-tz@haja.com");
+        LocalDateTime midnight = LocalDateTime.of(2026, 7, 20, 0, 0, 0);
+        LocalDateTime nextDayMidnight = LocalDateTime.of(2026, 7, 21, 0, 0, 0);
+        CounselTicket included = seedTicketAt(userId, midnight);
+        seedTicketAt(userId, nextDayMidnight);
+
+        TimeZone original = TimeZone.getDefault();
+        try {
+            // 배포 환경 TZ 고정(Asia/Seoul)이 빠진 상황을 모사 — 컨테이너 기본값 UTC.
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+
+            Page<CounselTicket> page = ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(
+                    LocalDateTime.of(2026, 7, 20, 0, 0, 0),
+                    LocalDateTime.of(2026, 7, 20, 23, 59, 59, 999_999_000),
+                    PageRequest.of(0, 20));
+
+            // 당일 자정 건만 포함되고 다음날 자정 건은 제외 — KST 기준 결과와 동일해야 한다.
+            assertThat(page.getContent()).extracting(CounselTicket::getId)
+                    .containsExactly(included.getId());
+        } finally {
+            TimeZone.setDefault(original);
+        }
     }
 
     @Test
