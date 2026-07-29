@@ -14,6 +14,7 @@ import { useAuthStore } from '../../auth/store/authStore';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
 import { mediaApi } from '../api/mediaApi';
 import type { Media } from '../types';
+import { todayDateString } from '../utils/validateInspectionCreateForm';
 import { InspectionCreatePage } from './InspectionCreatePage';
 
 const server = setupServer(...inspectionHandlers);
@@ -84,7 +85,7 @@ function renderPage() {
 async function fillRequiredFields() {
   await screen.findByText('판교 테크노밸리 B동');
   fireEvent.change(screen.getByLabelText('시설물'), { target: { value: '1' } });
-  fireEvent.change(screen.getByLabelText('점검일'), { target: { value: '2026-08-01' } });
+  fireEvent.change(screen.getByLabelText('점검일'), { target: { value: todayDateString() } });
 }
 
 function selectFiles(files: File[]) {

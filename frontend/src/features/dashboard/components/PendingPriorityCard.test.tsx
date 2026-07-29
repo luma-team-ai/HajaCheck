@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../hooks/usePendingPriority', () => ({
@@ -25,18 +25,26 @@ import { PendingPriorityCard } from './PendingPriorityCard';
 afterEach(() => cleanup());
 
 describe('PendingPriorityCard', () => {
-  it('검수하기는 하자 id가 아닌 inspectionId의 하자 목록으로 이동한다', async () => {
+  it('검수하기는 inspectionId의 하자 목록으로 이동하면서 defectId를 쿼리파라미터로 실어 상세 모달을 딥링크한다', async () => {
     render(
       <MemoryRouter initialEntries={['/dashboard']}>
         <Routes>
           <Route path="/dashboard" element={<PendingPriorityCard />} />
-          <Route path="/inspections/42/defects" element={<div>점검 42 하자 목록</div>} />
+          <Route
+            path="/inspections/42/defects"
+            element={<DefectsPathProbe />}
+          />
         </Routes>
       </MemoryRouter>,
     );
 
     fireEvent.click(screen.getByRole('button', { name: '검수하기' }));
 
-    expect(await screen.findByText('점검 42 하자 목록')).not.toBeNull();
+    expect(await screen.findByText('점검 42 하자 목록, defectId=91')).not.toBeNull();
   });
 });
+
+function DefectsPathProbe() {
+  const [searchParams] = useSearchParams();
+  return <div>점검 42 하자 목록, defectId={searchParams.get('defectId')}</div>;
+}

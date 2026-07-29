@@ -19,9 +19,21 @@ export const INSPECTION_CREATE_FORM_INITIAL_VALUES: InspectionCreateFormValues =
   inspectionType: 'REGULAR',
 };
 
-// 백엔드 InspectionService.MAX_FUTURE_MONTHS(12개월)와 동일 규칙 — API 왕복 없이 즉시 피드백 제공.
-const MAX_FUTURE_MONTHS = 12;
+// 로컬 타임존 기준 오늘 날짜(YYYY-MM-DD) — new Date(dateString) UTC 파싱과 비교하면 타임존
+// 경계에서 하루가 밀릴 수 있어, 문자열끼리(둘 다 YYYY-MM-DD 고정폭이라 사전식 비교=날짜 비교) 비교한다.
+// InspectionCreatePage가 <input type="date" max={...}>에도 그대로 재사용한다 — 네이티브 날짜
+// 선택기에서부터 미래 날짜를 못 고르게 막아 제출 후에야 에러를 보여주는 것보다 먼저 막는다.
+export function todayDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
+// 점검일은 실제로 점검을 수행한 날짜를 기록하는 필드다(회차 생성과 동시에 촬영 데이터를 업로드해
+// AI 분석까지 이어지는 흐름) — 미래 날짜는 의미가 없어 거부한다. 백엔드
+// InspectionService.validateInspectionDate와 동일 규칙 — API 왕복 없이 즉시 피드백 제공.
 export function validateInspectionCreateForm(
   values: InspectionCreateFormValues,
 ): InspectionCreateFormErrors {
@@ -33,12 +45,8 @@ export function validateInspectionCreateForm(
 
   if (!values.inspectionDate) {
     errors.inspectionDate = '점검일을 선택해 주세요.';
-  } else {
-    const maxDate = new Date();
-    maxDate.setMonth(maxDate.getMonth() + MAX_FUTURE_MONTHS);
-    if (new Date(values.inspectionDate) > maxDate) {
-      errors.inspectionDate = `점검일은 오늘로부터 ${MAX_FUTURE_MONTHS}개월 이내여야 합니다.`;
-    }
+  } else if (values.inspectionDate > todayDateString()) {
+    errors.inspectionDate = '점검일은 미래 날짜로 설정할 수 없습니다.';
   }
 
   return errors;

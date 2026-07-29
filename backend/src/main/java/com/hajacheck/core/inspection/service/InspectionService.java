@@ -42,9 +42,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class InspectionService {
 
-    // 점검일 상한 — 원거리 미래 날짜(연도 오타 등 비정상 입력) 방어용 여유폭. 정식 "점검 예약" 정책이
-    // 확정되면 재조정 필요(현재 PRD 는 사전 예약 스케줄링을 명시하지 않음).
-    private static final int MAX_FUTURE_MONTHS = 12;
 
     // PG 가 unique(facility_id, round_no) 에 명시적 이름을 주지 않아 자동 생성되는 제약명
     // (HajaCheck_script.sql, testcontainers-users-init.sql 양쪽 다 동일 정의).
@@ -322,11 +319,15 @@ public class InspectionService {
                 inspectionId, InspectionStatus.ANALYZING, allowedStatuses) > 0;
     }
 
+    // 점검일은 "실제로 점검을 수행한 날짜"를 기록하는 필드다(회차 생성과 동시에 촬영 데이터를
+    // 업로드해 AI 분석까지 이어지는 흐름) — 미래 날짜는 애초에 의미가 없어 전부 거부한다. PRD가
+    // 사전 예약 스케줄링을 명시하지 않는 한(기존 12개월 여유폭은 "정식 정책 확정 전 임시 여유폭"
+    // 이었을 뿐, 실제 예약 기능은 아니었음) 오늘까지만 허용한다.
     private void validateInspectionDate(LocalDate inspectionDate, FacilityResponse facility) {
         if (inspectionDate.isBefore(facility.createdAt().toLocalDate())) {
             throw new BusinessException(ErrorCode.INSPECTION_DATE_INVALID);
         }
-        if (inspectionDate.isAfter(LocalDate.now().plusMonths(MAX_FUTURE_MONTHS))) {
+        if (inspectionDate.isAfter(LocalDate.now())) {
             throw new BusinessException(ErrorCode.INSPECTION_DATE_INVALID);
         }
     }

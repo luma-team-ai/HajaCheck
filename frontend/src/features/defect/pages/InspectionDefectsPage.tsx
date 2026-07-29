@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { ErrorFallback } from '../../../shared/components/ErrorFallback';
 import { DefectCardGrid } from '../components/DefectCardGrid';
 import { DefectDetailModal } from '../components/DefectDetailModal';
@@ -19,7 +19,30 @@ export function InspectionDefectsPage() {
   const { id } = useParams<{ id: string }>();
   const inspectionId = id != null ? Number(id) : undefined;
   const { data: defects, isLoading, isError, refetch } = useInspectionDefects(inspectionId);
-  const [selectedDefectId, setSelectedDefectId] = useState<number | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // 대시보드 "검수하기"의 defectId 딥링크(#1117 회귀 수정) — 진입 시점의 쿼리파라미터로만 초기값을
+  // 정하고, 이후 URL이 바뀌어도 모달은 사용자의 명시적 조작(카드 클릭/닫기)으로만 열고 닫는다.
+  const [selectedDefectId, setSelectedDefectId] = useState<number | null>(() => {
+    const raw = searchParams.get('defectId');
+    const parsed = raw != null ? Number(raw) : NaN;
+    return Number.isFinite(parsed) ? parsed : null;
+  });
+
+  // defectId는 초기값으로만 한 번 소비하고 URL에서 곧바로 제거한다(features/counsel/hooks/
+  // useCounselHistory.ts의 ticketId 딥링크와 동일 패턴) — 남겨두면 모달을 닫은 뒤 새로고침하거나
+  // URL을 공유했을 때 같은 하자 모달이 사용자 의사와 무관하게 계속 재오픈된다(코드리뷰 P2).
+  useEffect(() => {
+    if (!searchParams.has('defectId')) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('defectId');
+        return next;
+      },
+      { replace: true },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 마운트 시 1회만 소비, 이후 URL 변경엔 반응하지 않는다
+  }, []);
 
   const isModalOpen = selectedDefectId != null;
 

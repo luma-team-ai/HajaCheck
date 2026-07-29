@@ -16,6 +16,11 @@ describe('대시보드 action 경로', () => {
     expect(inspectionDefectsPath(192)).toBe('/inspections/192/defects');
   });
 
+  // #1117 회귀 수정 — defectId를 함께 넘기면 모달이 자동으로 열리도록 쿼리파라미터로 딥링크한다.
+  it('A2: defectId를 함께 전달하면 쿼리파라미터로 실어 하자 상세 모달을 딥링크한다', () => {
+    expect(inspectionDefectsPath(192, 908)).toBe('/inspections/192/defects?defectId=908');
+  });
+
   // SideNavBar(shared, 미터치) href와 router.tsx의 라우트 등록이 여기 정의된 같은 값을 참조해야
   // #478 유형(라우트-메뉴 불일치)이 재발하지 않는다.
   it('#478: AI 주간 브리핑 경로/앵커 id는 SideNavBar href("/dashboard/ai-weekly-briefing")와 일치한다', () => {
