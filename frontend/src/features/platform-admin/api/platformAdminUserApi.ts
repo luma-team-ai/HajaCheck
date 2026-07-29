@@ -5,6 +5,7 @@ import type {
   AdminUserListResponse,
   AdminUserRole,
   AdminUserStatus,
+  CounselType,
 } from '../types';
 
 interface RoleUpdateResult {
@@ -17,6 +18,16 @@ interface StatusUpdateResult {
   status: AdminUserStatus;
 }
 
+interface SkillsResult {
+  id: number;
+  skills: CounselType[];
+}
+
+interface SkillUpdateResult {
+  id: number;
+  skill: CounselType;
+}
+
 export interface CreateUserPayload {
   email: string;
   password: string;
@@ -24,6 +35,8 @@ export interface CreateUserPayload {
   role: AdminUserRole;
   /** null = 회사 미소속(개인 계정)으로 등록 */
   companyId: number | null;
+  /** role이 COUNSELOR일 때만 전달한다(#1001, HAJA-495) — 그 외 역할이면 서버가 무시한다. */
+  skill?: CounselType;
 }
 
 // 플랫폼 관리자 > 사용자 관리(#577) — features/admin/api/adminApi.ts(#405)를 그대로 옮긴 것.
@@ -42,6 +55,9 @@ export const platformAdminUserApi = {
     api.patch<RoleUpdateResult>(`/platform-admin/users/${id}/role`, { role }),
   changeStatus: (id: number, status: AdminUserStatus) =>
     api.patch<StatusUpdateResult>(`/platform-admin/users/${id}/status`, { status }),
+  getSkills: (id: number) => api.get<SkillsResult>(`/platform-admin/users/${id}/skills`),
+  changeSkill: (id: number, skill: CounselType) =>
+    api.patch<SkillUpdateResult>(`/platform-admin/users/${id}/skills`, { skill }),
 };
 
 const EXPORT_PAGE_SIZE = 100;

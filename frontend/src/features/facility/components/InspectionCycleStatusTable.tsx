@@ -217,9 +217,6 @@ export function InspectionCycleStatusTable({ selectedId, onSelectRow, today }: P
               <tbody>
                 {pageRows.map((row, index) => {
                   const isSelected = row.id === selectedId;
-                  const status = deriveInspectionCycleStatus(row.nextInspectionDueAt, today);
-                  const rowBg =
-                    status.kind === 'overdue' && !isSelected ? INSPECTION_CYCLE_COLOR_CLASS.overdueRowBg : '';
                   return (
                     <tr
                       key={row.id}
@@ -236,7 +233,7 @@ export function InspectionCycleStatusTable({ selectedId, onSelectRow, today }: P
                       className={`cursor-pointer transition-colors ${INSPECTION_CYCLE_COLOR_CLASS.rowFocusOutline} ${
                         isSelected
                           ? INSPECTION_CYCLE_COLOR_CLASS.rowSelectedBg
-                          : `${rowBg} ${INSPECTION_CYCLE_COLOR_CLASS.rowHoverBg}`
+                          : INSPECTION_CYCLE_COLOR_CLASS.rowHoverBg
                       }`}
                     >
                       <td

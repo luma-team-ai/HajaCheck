@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.entity.Role;
 import com.hajacheck.counsel.entity.CounselTicket;
 import com.hajacheck.counsel.entity.CounselTicketStatus;
 import com.hajacheck.counsel.entity.CounselType;
@@ -59,6 +60,7 @@ class StompAuthChannelInterceptorTest {
     @Test
     void CONNECT_세션재검증통과_주체설정() {
         when(sessionAuthenticator.resolveUserId(SESSION_ID)).thenReturn(USER_ID);
+        when(sessionAuthenticator.resolveRole(SESSION_ID)).thenReturn(Role.USER);
         Message<byte[]> message = connectMessage(SESSION_ID, USER_ID);
 
         Message<?> result = interceptor.preSend(message, channel);
@@ -66,6 +68,7 @@ class StompAuthChannelInterceptorTest {
         StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(result, StompHeaderAccessor.class);
         assertThat(accessor.getUser()).isInstanceOf(StompUserPrincipal.class);
         assertThat(((StompUserPrincipal) accessor.getUser()).getUserId()).isEqualTo(USER_ID);
+        assertThat(((StompUserPrincipal) accessor.getUser()).getRole()).isEqualTo(Role.USER);
     }
 
     @Test
@@ -92,7 +95,7 @@ class StompAuthChannelInterceptorTest {
     @Test
     void SUBSCRIBE_본인티켓_통과() {
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket()));
-        Message<byte[]> message = subscribeMessage("/topic/counsel/" + TICKET_ID, USER_ID);
+        Message<byte[]> message = subscribeMessage("/topic/counsel/" + TICKET_ID, USER_ID, Role.USER);
 
         interceptor.preSend(message, channel); // no throw
     }
@@ -100,7 +103,7 @@ class StompAuthChannelInterceptorTest {
     @Test
     void SUBSCRIBE_담당상담원_통과() {
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket()));
-        Message<byte[]> message = subscribeMessage("/topic/counsel/" + TICKET_ID, COUNSELOR_ID);
+        Message<byte[]> message = subscribeMessage("/topic/counsel/" + TICKET_ID, COUNSELOR_ID, Role.COUNSELOR);
 
         interceptor.preSend(message, channel); // no throw
     }
@@ -108,7 +111,7 @@ class StompAuthChannelInterceptorTest {
     @Test
     void SUBSCRIBE_타인티켓_거부_도청차단() {
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket()));
-        Message<byte[]> message = subscribeMessage("/topic/counsel/" + TICKET_ID, 999L);
+        Message<byte[]> message = subscribeMessage("/topic/counsel/" + TICKET_ID, 999L, Role.USER);
 
         assertThatThrownBy(() -> interceptor.preSend(message, channel))
                 .isInstanceOf(MessageDeliveryException.class);
@@ -117,7 +120,7 @@ class StompAuthChannelInterceptorTest {
     @Test
     void SUBSCRIBE_존재하지않는티켓_거부() {
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.empty());
-        Message<byte[]> message = subscribeMessage("/topic/counsel/" + TICKET_ID, USER_ID);
+        Message<byte[]> message = subscribeMessage("/topic/counsel/" + TICKET_ID, USER_ID, Role.USER);
 
         assertThatThrownBy(() -> interceptor.preSend(message, channel))
                 .isInstanceOf(MessageDeliveryException.class);
@@ -126,9 +129,33 @@ class StompAuthChannelInterceptorTest {
     @Test
     void SUBSCRIBE_사용자큐목적지_통과() {
         // /user/** 는 Spring 이 세션별로 격리하므로 티켓 검증 없이 통과.
-        Message<byte[]> message = subscribeMessage("/user/queue/counsel/assigned", USER_ID);
+        Message<byte[]> message = subscribeMessage("/user/queue/counsel/assigned", USER_ID, Role.USER);
 
         interceptor.preSend(message, channel); // no throw
+    }
+
+    // ── SUBSCRIBE 대기열 토픽(#1001 후속) ──
+
+    @Test
+    void SUBSCRIBE_대기열토픽_COUNSELOR_통과() {
+        Message<byte[]> message = subscribeMessage("/topic/counsel-queue", COUNSELOR_ID, Role.COUNSELOR);
+
+        interceptor.preSend(message, channel); // no throw
+    }
+
+    @Test
+    void SUBSCRIBE_대기열토픽_PLATFORM_ADMIN_통과() {
+        Message<byte[]> message = subscribeMessage("/topic/counsel-queue", 5L, Role.PLATFORM_ADMIN);
+
+        interceptor.preSend(message, channel); // no throw
+    }
+
+    @Test
+    void SUBSCRIBE_대기열토픽_일반유저_거부() {
+        Message<byte[]> message = subscribeMessage("/topic/counsel-queue", USER_ID, Role.USER);
+
+        assertThatThrownBy(() -> interceptor.preSend(message, channel))
+                .isInstanceOf(MessageDeliveryException.class);
     }
 
     // ── message builders (mutable accessor) ──
@@ -143,10 +170,10 @@ class StompAuthChannelInterceptorTest {
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
     }
 
-    private Message<byte[]> subscribeMessage(String destination, Long principalUserId) {
+    private Message<byte[]> subscribeMessage(String destination, Long principalUserId, Role role) {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
         accessor.setDestination(destination);
-        accessor.setUser(new StompUserPrincipal(principalUserId));
+        accessor.setUser(new StompUserPrincipal(principalUserId, role));
         accessor.setLeaveMutable(true);
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
     }

@@ -34,6 +34,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashMap;
+import java.util.Set;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import com.hajacheck.core.defect.repository.InspectionGradeCountProjection;
@@ -91,6 +92,12 @@ public class ReportService {
     // 각 메서드가 자체 @Transactional 을 걸어주므로(활성 트랜잭션이 없으면 각자 짧게 시작) 별도 처리가 필요 없다.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ReportDetailResponse generateDraft(Long inspectionId, Long companyId, Long userId) {
+        return generateDraft(inspectionId, companyId, userId, null, null);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public ReportDetailResponse generateDraft(Long inspectionId, Long companyId, Long userId,
+                                               Set<String> sections, Boolean includePhoto) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         InspectionResponse inspection = inspectionService.getInspection(userId, companyId, inspectionId);
         FacilityResponse facility = facilityService.get(userId, companyId, inspection.facilityId());
@@ -125,11 +132,20 @@ public class ReportService {
         return ReportDetailResponse.from(findCompanyReport(reportId, userId, companyId));
     }
 
+    @Transactional
+    public ReportDetailResponse cloneReport(Long reportId, Long companyId, Long userId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Report source = findCompanyReport(reportId, userId, companyId);
+        int nextVersion = nextVersion(source.getInspectionId());
+        Report clone = Report.draft(source.getInspectionId(), nextVersion, source.getContentJson(), userId);
+        return ReportDetailResponse.from(reportRepository.saveAndFlush(clone));
+    }
+
     public List<ReportSummaryResponse> listReports(Long inspectionId, Long userId, Long companyId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         // 소유권 검증(IDOR 방지) — 미존재/타인소유 모두 InspectionService.getInspection() 이 통일 응답.
         inspectionService.getInspection(userId, companyId, inspectionId);
-        return reportRepository.findByInspectionIdOrderByVersionDesc(inspectionId).stream()
+        return reportRepository.findByInspectionIdAndDeletedAtIsNullOrderByVersionDesc(inspectionId).stream()
                 .map(ReportSummaryResponse::from)
                 .toList();
     }
@@ -306,6 +322,13 @@ public class ReportService {
         return ReportDetailResponse.from(report);
     }
 
+    @Transactional
+    public void deleteDraftReport(Long reportId, Long companyId, Long editedByUserId) {
+        companyScopeGuard.requireEffectiveMembership(editedByUserId, companyId);
+        Report report = findCompanyReport(reportId, editedByUserId, companyId);
+        report.markDeleted(editedByUserId);
+    }
+
     /**
      * pdfUrl이 이 보고서의 업로드 엔드포인트(/api/reports/{id}/pdf/{storageKey})를 가리키는지 확인하고
      * storageKey를 추출한다 (#455 P2-2, #463 P2).
@@ -343,6 +366,9 @@ public class ReportService {
     private Report findCompanyReport(Long reportId, Long userId, Long companyId) {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.REPORT_NOT_FOUND));
+        if (report.getDeletedAt() != null) {
+            throw new BusinessException(ErrorCode.REPORT_NOT_FOUND);
+        }
         try {
             inspectionService.getInspection(userId, companyId, report.getInspectionId());
         } catch (BusinessException e) {

@@ -9,6 +9,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { setupServer } from "msw/node";
@@ -23,6 +24,7 @@ import {
   it,
   vi,
 } from "vitest";
+import { api } from "../../../shared/api/axios";
 import { defectHandlers } from "../api/defectApi.handlers";
 import { DefectListPage } from "./DefectListPage";
 
@@ -240,4 +242,82 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
 
     consoleErrorSpy.mockRestore();
   });
+
+  it("자연어 검색 결과를 실제 점검 목록 요청에 적용하고 날짜·회차 칩을 표시한다", async () => {
+    renderPage();
+    await screen.findByRole("table");
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "지난 두 달간의 1회차 점검 알려줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+
+    expect(
+      await screen.findByRole("button", {
+        name: "점검일: 2026-05-28 ~ 2026-07-28 필터 제거",
+      }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "점검회차: 1회차 필터 제거" }),
+    ).not.toBeNull();
+
+    await waitFor(() => {
+      const table = screen.getByRole("table");
+      expect(within(table).getByText("한강대교 북단")).not.toBeNull();
+      expect(within(table).queryByText("강남 오피스타워 A동")).toBeNull();
+    });
+  });
+
+  it("AI 필터가 적용되면 기존 점검 선택을 지운다", async () => {
+    renderPage();
+    let table = await screen.findByRole("table");
+    fireEvent.click(within(table).getByRole("checkbox", { name: "INS-0101 선택" }));
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "지난 두 달간의 1회차 점검 알려줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "점검회차: 1회차 필터 제거" }),
+    );
+
+    await waitFor(() => {
+      table = screen.getByRole("table");
+      const checkbox = within(table).getByRole("checkbox", {
+        name: "INS-0101 선택",
+      }) as HTMLInputElement;
+      expect(checkbox.checked).toBe(false);
+    });
+  });
+});
+
+// 전역 MSW 핸들러 등록 순서 회귀 방지 — mocks/handlers.ts는 inspectionHandlers를 defectHandlers보다
+// 먼저 등록한다. inspectionApi.handlers.ts의 GET /api/inspections(시설물 단건 중복확인 전용, facilityId만
+// 전송)가 page 파라미터 유무로 스스로 분기하지 않으면, 하자 목록(useInspections)의 page/size 포함
+// 요청까지 먼저 가로채 항상 빈 목록을 반환해버려 자연어 검색을 포함한 모든 필터가 무동작으로
+// 보인다(이번에 실제로 재현된 버그) — 위 describe들은 격리된 setupServer(...defectHandlers)만 써서
+// 이 충돌을 잡지 못했으므로(InspectionDefectsPage.test.tsx의 동일 패턴 참고), 반드시 전역 handlers
+// 배열로 별도 서버를 띄워 검증한다.
+describe("DefectListPage — 전역 MSW 핸들러 등록 순서 회귀 테스트", () => {
+  it(
+    "page 파라미터를 포함한 점검 목록 조회는 inspectionHandlers의 중복확인 목이 아니라 defectHandlers의 실 데이터를 반환한다",
+    async () => {
+      const { allMockHandlers } = await import("../../../mocks/handlers");
+      const globalServer = setupServer(...allMockHandlers);
+      globalServer.listen({ onUnhandledRequest: "error" });
+
+      try {
+        const response = await api.get("/inspections", {
+          params: { page: 0, size: 10 },
+        });
+        // 회귀 시(inspectionHandlers가 무조건 가로챔): totalElements === 0, content === [].
+        // mockInspections(101/202/301) 기준 실제로는 3건이 반환돼야 한다.
+        expect(response.data.totalElements).toBeGreaterThan(0);
+        expect(response.data.content.length).toBeGreaterThan(0);
+      } finally {
+        globalServer.close();
+      }
+    },
+    15_000,
+  );
 });

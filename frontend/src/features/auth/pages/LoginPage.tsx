@@ -13,6 +13,7 @@ import { CompanyLoginTab } from '../components/CompanyLoginTab';
 import { LoginHeroPanel } from '../components/LoginHeroPanel';
 import { PersonalLoginTab } from '../components/PersonalLoginTab';
 import { AUTH_ME_QUERY_KEY, AUTH_ME_QUERY_STALE_TIME_MS, LANDING_ROUTE } from '../constants';
+import { useCsrfPrime } from '../hooks/useCsrfPrime';
 import { useAuthStore } from '../store/authStore';
 import type { UserResponse } from '../types';
 
@@ -24,7 +25,14 @@ export function LoginPage() {
   const location = useLocation();
   const setUser = useAuthStore((state) => state.setUser);
 
-  // CSRF 쿠키 프리밍 겸 세션 확인 — 서버 상태는 React Query로(React_코드_컨벤션.md §4)
+  // CSRF 쿠키 프라이밍 전용 GET(#1200) — 다른 인증 폼 4개(FindId/FindPassword/ResetPassword/
+  // PlatformAdminLogin)와 동일 패턴. 아래 getMe 쿼리에 프라이밍을 얹으면, 로그아웃 직후처럼
+  // ['auth','me']가 settled-null로 고정(useLogout)돼 staleTime 내내 fresh인 상태에서는
+  // getMe가 아예 나가지 않아 프라이밍이 통째로 소실된다 → 재로그인 첫 POST가 403으로 실패했다.
+  // 세션 조회 캐시 정책과 무관한 독립 훅으로 분리해 마운트 시 항상 쿠키를 확보한다.
+  useCsrfPrime();
+
+  // 세션 확인 — 서버 상태는 React Query로(React_코드_컨벤션.md §4)
   // AuthGate(app/AuthGate.tsx)와 동일 queryKey·staleTime 공유 — 로그아웃 직후 useLogout이
   // setQueryData(AUTH_ME_QUERY_KEY, null)로 고정한 값이 staleTime 동안 fresh로 간주돼,
   // /login으로 전환되며 이 컴포넌트가 마운트돼도 getMe를 즉시 재요청하지 않는다.

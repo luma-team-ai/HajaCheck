@@ -3,6 +3,7 @@ package com.hajacheck.payment.repository;
 import com.hajacheck.payment.entity.Payment;
 import com.hajacheck.payment.entity.PaymentStatus;
 import jakarta.persistence.LockModeType;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
@@ -71,4 +72,28 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p where p.id = :id")
     Optional<Payment> findByIdForUpdate(@Param("id") Long id);
+
+    /**
+     * 특정 구독(user_plan)에 실제로 청구되어 승인 완료(PAID)된 금액 합계 — 잔여 기간 크레딧 상한
+     * (#1146 / HAJA-550 리뷰 P1-A)의 근거 데이터.
+     *
+     * <p>크레딧 계산은 {@code current_period_start/end} × <b>라이브</b> {@code plans.price_monthly}
+     * 파생치라, 그 자체로는 "실제로 낸 돈"을 전혀 보지 않는다 — 무결제 구독(V27 백필 추정치·
+     * {@code payments} 테이블 도입(V20) 이전 모의 결제 시절 구독)이나 관리자 무결제 플랜 변경으로 이어진
+     * 구독, 혹은 플랫폼 관리자가 나중에 가격을 올린 구독이면 <b>낸 적 없는 돈을 환급</b>하게 된다. 이
+     * 합계로 크레딧 상한을 걸어 그 상한을 막는다({@code PaymentWriter#computeProratedCredit}).
+     *
+     * <p><b>SUM(합산) — 최신 1건이 아니다.</b> 같은 {@code user_plan} 에 PAID 가 여러 건 연결될 수 있다
+     * (동시 승인 경합에서 먼저 커밋된 결제가 구독을 새로 만들고, 뒤이어 도착한 다른 READY 주문의 승인이
+     * "이미 목표 플랜"으로 판정돼 같은 {@code user_plan} 에 연결만 하는 경로 —
+     * {@code PaymentWriter#applyPlanTransition} 의 {@code target.alreadyOnTargetPlan()} 분기). 그 경우도
+     * 사용자가 그 구독을 위해 실제로 낸 금액의 합이 정확한 상한이다 — 최신 1건만 보면 실제로 청구된
+     * 금액보다 낮게 잡혀 상한이 부당하게 타이트해진다(사용자가 두 번 낸 돈인데 한 번만 인정하는 셈).
+     *
+     * @return 연결된 PAID 결제가 없으면 0
+     */
+    @Query("select coalesce(sum(p.amount), 0) from Payment p "
+            + "where p.userPlanId = :userPlanId and p.status = :status")
+    BigDecimal sumAmountByUserPlanIdAndStatus(
+            @Param("userPlanId") Long userPlanId, @Param("status") PaymentStatus status);
 }

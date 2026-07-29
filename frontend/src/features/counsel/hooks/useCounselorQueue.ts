@@ -3,6 +3,7 @@ import type { ApiError } from '../../../shared/api/types';
 import { getApiErrorMessage } from '../../../shared/api/types';
 import { counselApi } from '../api/counselApi';
 import { DEFAULT_PAGE_SIZE } from '../constants';
+import { useCounselQueueSocket } from './useCounselQueueSocket';
 import type { CounselTicketDetailResponse, CounselTicketSummaryResponse } from '../types';
 
 // 상담원 콘솔 > 대기열(#1001, HAJA-495) — GET /api/counsel/tickets 목록 + POST .../assign 클레임을
@@ -40,6 +41,11 @@ export function useCounselorQueue() {
   useEffect(() => {
     void loadQueue();
   }, [loadQueue]);
+
+  // 신규 상담 신청 실시간 반영(#1001 후속, 사용자 피드백: "신청하면 상담원이 새로고침해야 보임") —
+  // /topic/counsel-queue 신호를 받으면 큐를 재조회한다. 이 훅이 마운트돼 있는 동안(콘솔 화면을
+  // 보고 있는 동안)은 항상 연결한다.
+  useCounselQueueSocket(true, loadQueue);
 
   // 클레임 성공 시 배정된 티켓을 돌려준다(호출부가 채팅 화면으로 navigate) — 실패 시 null.
   // 메시지는 서버 응답 그대로 노출한다(.status 기반 분기, 메시지 매칭 금지 — 프로젝트 리뷰 관례).

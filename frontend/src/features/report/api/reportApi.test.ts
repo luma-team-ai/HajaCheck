@@ -21,6 +21,9 @@ const server = setupServer(
     HttpResponse.json({ success: true, data: mockReport }, { status: 201 }),
   ),
   http.get('/api/reports/1', () => HttpResponse.json({ success: true, data: mockReport })),
+  http.post('/api/reports/1/clone', () =>
+    HttpResponse.json({ success: true, data: { ...mockReport, id: 2, version: 2 } }, { status: 201 }),
+  ),
   http.patch('/api/reports/1', async ({ request }) => {
     const body = (await request.json()) as { contentJson: string };
     return HttpResponse.json({
@@ -72,12 +75,19 @@ describe('reportApi', () => {
     const controller = new AbortController();
     controller.abort();
 
-    await expect(reportApi.generateReportDraft(1, controller.signal)).rejects.toThrow();
+    await expect(reportApi.generateReportDraft(1, undefined, controller.signal)).rejects.toThrow();
   });
 
   it('getReport는 보고서 상세를 조회한다', async () => {
     const response = await reportApi.getReport(1);
     expect(response.data.id).toBe(1);
+  });
+
+  it('cloneReport는 다음 버전 초안을 생성한다', async () => {
+    const response = await reportApi.cloneReport(1);
+    expect(response.data.id).toBe(2);
+    expect(response.data.version).toBe(2);
+    expect(response.data.status).toBe('DRAFT');
   });
 
   it('updateContent는 content를 JSON 문자열로 감싸 PATCH하고, groundingCheckPassed가 리셋된 응답을 받는다', async () => {

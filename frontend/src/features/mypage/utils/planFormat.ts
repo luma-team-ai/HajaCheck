@@ -21,6 +21,14 @@ export function formatPriceMonthly(price: number): string {
   return `₩${price.toLocaleString()}/월`;
 }
 
+// 1회성 금액 표기(#864 BillingHistoryModal에서 이관, #1146/HAJA-550 리뷰 P2-1 — PlanCheckoutModal도
+// 공유). formatPriceMonthly는 "월 구독가"(정기 청구액) 표기용이라 "/월" 접미사가 붙는데, 결제
+// 내역·주문 확인 화면의 크레딧·실 결제 금액은 그 시점 1회만 청구되는 금액이라 접미사를 붙이면
+// "월 85,000원 구독"처럼 오인된다(다음 달부터는 정가 전액이 청구된다).
+export function formatAmount(amount: number): string {
+  return `₩${amount.toLocaleString()}`;
+}
+
 // 다음 결제일 표기(HAJA-?, #712 Figma 리디자인) — BE는 LocalDate를 "YYYY-MM-DD" ISO로 직렬화해
 // 내려준다(계약 그대로 표기). Date 파싱을 거쳐 시:분 등 예상 밖 포맷이 섞여 와도 안전하게
 // YYYY-MM-DD로 정규화하고, 파싱 불가한 값은 원문을 그대로 반환한다(빈 화면보다 원문 노출이 낫다).

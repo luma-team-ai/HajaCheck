@@ -2,6 +2,7 @@ package com.hajacheck.core.report.controller;
 
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.report.dto.FinalizeReportRequest;
+import com.hajacheck.core.report.dto.GenerateDraftRequest;
 import com.hajacheck.core.report.dto.ReportDetailResponse;
 import com.hajacheck.core.report.dto.ReportPdfResponse;
 import com.hajacheck.core.report.dto.ReportSummaryResponse;
@@ -26,6 +27,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -72,9 +74,12 @@ public class ReportController {
     @Operation(summary = "보고서 초안 생성", description = "점검의 확정 하자를 근거로 AI 보고서 초안을 생성한다")
     @PostMapping("/api/inspections/{inspectionId}/reports")
     public ResponseEntity<ApiResponse<ReportDetailResponse>> generateDraft(
-            @PathVariable Long inspectionId, @AuthenticationPrincipal LoginUser loginUser) {
+            @PathVariable Long inspectionId,
+            @Valid @RequestBody GenerateDraftRequest request,
+            @AuthenticationPrincipal LoginUser loginUser) {
         ReportDetailResponse response = reportService.generateDraft(
-                inspectionId, loginUser.getCompanyId(), loginUser.getUserId());
+                inspectionId, loginUser.getCompanyId(), loginUser.getUserId(),
+                request.sections(), request.includePhoto());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
     }
 
@@ -94,6 +99,15 @@ public class ReportController {
         ReportDetailResponse response =
                 reportService.getReport(id, loginUser.getUserId(), loginUser.getCompanyId());
         return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "보고서 복제", description = "기존 보고서 content를 복제해 같은 점검의 다음 버전 DRAFT를 생성한다")
+    @PostMapping("/api/reports/{id}/clone")
+    public ResponseEntity<ApiResponse<ReportDetailResponse>> cloneReport(
+            @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
+        ReportDetailResponse response =
+                reportService.cloneReport(id, loginUser.getCompanyId(), loginUser.getUserId());
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
     }
 
     @Operation(summary = "보고서 본문 수정", description = "DRAFT 상태 보고서의 본문(JSON)을 수정한다 — 수정 시 grounding 판정은 초기화된다")
@@ -129,6 +143,15 @@ public class ReportController {
                 reportService.finalizeReport(
                         id, request.pdfUrl(), loginUser.getCompanyId(), loginUser.getUserId());
         return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "보고서 초안 삭제", description = "DRAFT 보고서만 soft delete 처리한다. FINALIZED 보고서는 삭제할 수 없다")
+    @DeleteMapping("/api/reports/{id}")
+    public ResponseEntity<ApiResponse<Void>> deleteDraftReport(
+            @PathVariable Long id,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        reportService.deleteDraftReport(id, loginUser.getCompanyId(), loginUser.getUserId());
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     @Operation(summary = "보고서 PDF 업로드", description = "확정용 PDF 파일을 저장하고 접근 URL을 반환한다(별도로 /finalize에 전달)")

@@ -9,15 +9,20 @@ import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyRepository;
+import com.hajacheck.counsel.entity.CounselType;
+import com.hajacheck.counsel.entity.CounselorSkill;
+import com.hajacheck.counsel.repository.CounselorSkillRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.service.QuotaService;
+import com.hajacheck.platformadmin.dto.AdminUserSkillUpdateResponse;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserCreateRequest;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserListResponse;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserProjection;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserResponse;
+import com.hajacheck.platformadmin.dto.PlatformAdminUserSkillsResponse;
 import com.hajacheck.platformadmin.repository.PlatformAdminUserRepository;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
@@ -45,6 +50,7 @@ public class PlatformAdminUserService {
     private final CompanyRepository companyRepository;
     private final PasswordEncoder passwordEncoder;
     private final QuotaService quotaService;
+    private final CounselorSkillRepository counselorSkillRepository;
 
     // AdminUserService.ASSIGNABLE_ROLES(회사 관리자 전용, ADMIN/INSPECTOR/USER)와 달리 플랫폼
     // 관리자 콘솔은 COUNSELOR(상담사)도 등록/역할변경할 수 있다(#1008). PLATFORM_ADMIN은 여전히
@@ -106,12 +112,21 @@ public class PlatformAdminUserService {
         User user = User.createByAdmin(
                 request.email(), request.name(), request.role(), passwordHash, request.companyId());
 
+        User saved;
         try {
-            User saved = platformAdminUserRepository.save(user);
-            return PlatformAdminUserResponse.from(saved, companyName);
+            saved = platformAdminUserRepository.save(user);
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(ErrorCode.AUTH_EMAIL_DUPLICATED);
         }
+
+        // role=COUNSELOR로 등록하면서 스킬을 함께 지정한 경우에만 배선한다 — 그 외 역할에 skill이
+        // 실려 와도(프론트가 안 보내지만 방어적으로) 조용히 무시한다. 저장이 성공한 뒤라 counselor_id
+        // FK가 이미 존재하는 상태에서 배정한다.
+        if (saved.getRole() == Role.COUNSELOR && request.skill() != null) {
+            counselorSkillRepository.save(CounselorSkill.assign(saved.getId(), request.skill()));
+        }
+
+        return PlatformAdminUserResponse.from(saved, companyName);
     }
 
     @Transactional
@@ -133,6 +148,40 @@ public class PlatformAdminUserService {
         }
         user.changeStatus(status);
         return new AdminUserStatusUpdateResponse(user.getId(), user.getStatus());
+    }
+
+    // 스킬 변경 모달이 열릴 때 현재 배정을 채운다(#1001, HAJA-495). COUNSELOR가 아닌 대상을 조회하면
+    // "스킬 변경" 메뉴 자체가 상담원 행에만 노출되므로 정상 흐름에서는 도달하지 않지만, 요청을 직접
+    // 조작한 경우까지 대비해 changeSkill과 동일한 화이트리스트를 조회에도 강제한다.
+    public PlatformAdminUserSkillsResponse getSkills(Long userId) {
+        User user = findUser(userId);
+        requireCounselor(user);
+        List<CounselType> skills = counselorSkillRepository.findCounselTypesByCounselorId(userId);
+        return new PlatformAdminUserSkillsResponse(userId, skills);
+    }
+
+    // 모달은 라디오 버튼(단일 선택)이라 "저장"은 항상 기존 배정 전체를 새 스킬 하나로 교체한다 —
+    // 부분 추가/제거 개념이 없다.
+    //
+    // 원자성 보호(PR머신 2차 검토 P2): delete-then-insert는 기본 격리수준(READ COMMITTED)에서
+    // 원자적이지 않다 — 같은 상담사를 대상으로 한 두 요청이 동시에 실행되면 각자의 DELETE가 상대의
+    // 신규 INSERT를 스냅샷상 보지 못해 두 스킬 행이 함께 남을 수 있다(requireNotLastCompanyAdmin과
+    // 동일 이유). 삭제·삽입 전에 대상 사용자 행을 PESSIMISTIC_WRITE로 잠가 같은 사용자에 대한 요청을
+    // 직렬화한다.
+    @Transactional
+    public AdminUserSkillUpdateResponse changeSkill(Long userId, CounselType skill) {
+        User user = findUser(userId);
+        requireCounselor(user);
+        platformAdminUserRepository.findByIdForUpdate(userId);
+        counselorSkillRepository.deleteByCounselorId(userId);
+        counselorSkillRepository.save(CounselorSkill.assign(userId, skill));
+        return new AdminUserSkillUpdateResponse(userId, skill);
+    }
+
+    private void requireCounselor(User user) {
+        if (user.getRole() != Role.COUNSELOR) {
+            throw new BusinessException(ErrorCode.ADMIN_SKILL_TARGET_NOT_COUNSELOR);
+        }
     }
 
     // 대상 회사의 마지막 ACTIVE ADMIN을 강등/정지하면 그 회사는 자체 관리자 콘솔 접근 수단을

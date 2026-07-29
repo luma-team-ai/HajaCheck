@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useInspectionStore } from '../../../features/inspection/store/inspectionStore';
+import type { Role } from '../../constants/roles';
 import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import brandIcon from '../../../assets/brand/sidenav-brand-icon.png';
 import collapseIcon from '../../../assets/brand/sidenav-collapse.svg';
@@ -47,6 +48,10 @@ interface SideNavBarProps {
   items?: SideNavItem[];
   adminItem?: SideNavItem;
   isAdmin?: boolean;
+  /** 상단 브랜드 로고 옆 역할 배지에 표시할 값(예: ADMIN/INSPECTOR/USER). 미지정 시 배지 미표시.
+   * 배지는 클릭 액션이 없으므로 브랜드 로고 Link 바깥에 별도로 렌더한다(#1199 — 기존엔 Link 안에
+   * 있어 배지를 눌러도 대시보드로 이동하는 오동작이 있었음). */
+  role?: Role;
   /** 상단 브랜드 로고 클릭 시 이동 대상. 미지정 시 기존 동작대로 '/dashboard'(#535 플랫폼 관리자
    * 콘솔처럼 일반 대시보드가 없는 셸에서 override) */
   brandHref?: string;
@@ -109,6 +114,10 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     icon: facilitiesIcon,
     subItems: [
       { label: '시설물 목록/등록', href: '/facilities/list' },
+      // facilityId 쿼리파라미터를 의도적으로 붙이지 않는다(#1129) — 전역 메뉴는 어느 시설물을
+      // 열지 알 수 없으므로, 대상 없이 진입시키고 InspectionCycleSettingsPage가 선택 UI를 보여준다.
+      // 과거엔 화면이 이 미지정 상태를 하드코딩된 목 시설물 id로 임의 폴백해 FACILITY_NOT_FOUND가
+      // 났다 — 여기서 임의 facilityId를 채워 "고치려" 하지 말 것(같은 버그 재발).
       { label: '점검 주기 설정', href: '/facilities/inspection-cycle' },
       { label: '지도 뷰', href: '/facilities/map' },
     ],
@@ -164,7 +173,7 @@ const DEFAULT_ITEMS: SideNavItem[] = [
         id: 'report-export',
         label: 'PDF 내보내기',
         href: '/reports',
-        matchHref: '/reports/1',
+        matchHref: '/reports/1?mode=export',
       },
     ],
   },
@@ -219,6 +228,7 @@ export function SideNavBar({
   items = DEFAULT_ITEMS,
   adminItem = DEFAULT_ADMIN_ITEM,
   isAdmin = false,
+  role,
   brandHref = '/dashboard',
   activeHref,
   defaultCollapsed = false,
@@ -476,27 +486,31 @@ export function SideNavBar({
               : 'flex-col items-center h-auto justify-center gap-3'
           }`}
         >
-          <Link
-            to={brandHref}
-            onClick={(event) => handleNavClick(event, brandHref)}
-            className={`flex w-full items-center gap-1.5 no-underline ${
-              visuallyExpanded ? '' : 'justify-center'
-            }`}
-            // brandHref override(#535 플랫폼 관리자 콘솔)에서도 문구가 어긋나지 않도록 "대시보드"
-            // 특정 문구 대신 범용 문구를 쓴다.
-            aria-label="HajaCheck 홈으로 이동"
+          <div
+            className={`flex min-w-0 items-center gap-1.5 ${visuallyExpanded ? '' : 'w-full justify-center'}`}
           >
-            {visuallyExpanded ? (
-              <img className="h-7 w-auto object-contain" src={brandLogo} alt="HajaCheck" />
-            ) : (
-              <img className="h-8 w-8 object-contain" src={brandIcon} alt="HajaCheck" />
-            )}
-            {visuallyExpanded && isAdmin && (
-              <span className="rounded-full border border-[#e5e7eb] bg-[#f3f4f6] px-[7px] py-[3px] text-[10px] tracking-[0.05em] text-[#6b7280]">
-                ADMIN
+            <Link
+              to={brandHref}
+              onClick={(event) => handleNavClick(event, brandHref)}
+              className="flex items-center no-underline"
+              // brandHref override(#535 플랫폼 관리자 콘솔)에서도 문구가 어긋나지 않도록 "대시보드"
+              // 특정 문구 대신 범용 문구를 쓴다.
+              aria-label="HajaCheck 홈으로 이동"
+            >
+              {visuallyExpanded ? (
+                <img className="h-7 w-auto object-contain" src={brandLogo} alt="HajaCheck" />
+              ) : (
+                <img className="h-8 w-8 object-contain" src={brandIcon} alt="HajaCheck" />
+              )}
+            </Link>
+            {/* 역할 배지 — 클릭 액션이 없으므로 브랜드 로고 Link 바깥에 둔다(#1199). 이전엔 Link 안에
+                있어 배지를 눌러도 대시보드로 이동하는 오동작이 있었다. */}
+            {visuallyExpanded && role && (
+              <span className="cursor-default select-none whitespace-nowrap rounded-full border border-[#e5e7eb] bg-[#f3f4f6] px-[7px] py-[3px] text-[10px] tracking-[0.05em] text-[#6b7280]">
+                {role}
               </span>
             )}
-          </Link>
+          </div>
           <button
             type="button"
             className="inline-flex h-5 w-5 cursor-pointer items-center justify-center border-none bg-none p-0"

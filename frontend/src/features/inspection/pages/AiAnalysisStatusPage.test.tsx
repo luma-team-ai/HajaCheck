@@ -158,31 +158,8 @@ describe('AiAnalysisStatusPage', () => {
     expect(await screen.findByText('점검 ID #100', { exact: false })).not.toBeNull();
   });
 
-  describe('"한 번에 하나만" 정책(2026-07-27) — 분석 진행 중 이탈/취소', () => {
-    it('분석이 진행 중일 때 다른 라우트로 이동을 시도하면 확인창이 뜨고, 취소를 누르면 머무른다', async () => {
-      server.use(
-        http.get('/api/inspections/:id/analyze', () =>
-          HttpResponse.json({ success: true, data: analyzingStatus() }),
-        ),
-      );
-
-      const router = renderPage();
-      await screen.findByText('50%');
-
-      fireEvent.click(screen.getByText('대시보드로 이동(사이드바 대역)'));
-
-      expect(await screen.findByText('분석이 진행 중입니다')).not.toBeNull();
-      expect(
-        screen.getByText('지금 나가면 진행 중인 분석 작업이 초기화됩니다. 계속하시겠습니까?'),
-      ).not.toBeNull();
-
-      fireEvent.click(screen.getByRole('button', { name: '취소' }));
-
-      expect(screen.queryByText('분석이 진행 중입니다')).toBeNull();
-      expect(router.state.location.pathname).toBe('/inspections/100/analysis');
-    });
-
-    it('확인창에서 나가기를 누르면 분석 취소(DELETE)를 호출하고 실제로 이동한다', async () => {
+  describe('이탈해도 안전하게 계속 진행(정책 변경, 2026-07-28) — 분석 진행 중 이탈/취소', () => {
+    it('분석이 진행 중이어도 다른 라우트로 이동하면 확인창 없이 바로 이동하고, 분석 취소(DELETE)는 호출되지 않는다', async () => {
       let cancelCallCount = 0;
       server.use(
         http.get('/api/inspections/:id/analyze', () =>
@@ -198,15 +175,13 @@ describe('AiAnalysisStatusPage', () => {
       await screen.findByText('50%');
 
       fireEvent.click(screen.getByText('대시보드로 이동(사이드바 대역)'));
-      await screen.findByText('분석이 진행 중입니다');
 
-      fireEvent.click(screen.getByRole('button', { name: '나가기' }));
-
+      expect(screen.queryByText('분석이 진행 중입니다')).toBeNull();
       await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard'));
-      await waitFor(() => expect(cancelCallCount).toBe(1));
+      expect(cancelCallCount).toBe(0);
     });
 
-    it('분석이 아직 시작 전(stage=upload)이면 이탈해도 확인창이 뜨지 않는다', async () => {
+    it('분석이 아직 시작 전(stage=upload)이어도 이탈은 동일하게 확인창 없이 바로 된다', async () => {
       server.use(
         http.get('/api/inspections/:id/analyze', () =>
           HttpResponse.json({ success: true, data: preAnalysisStatus() }),

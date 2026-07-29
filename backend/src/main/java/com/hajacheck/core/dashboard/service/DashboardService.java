@@ -72,10 +72,12 @@ public class DashboardService {
 
     // 대시보드 4단계 한글 상태 라벨 → raw InspectionStatus 집합 역매핑. RecentInspectionResponse의
     // statusLabel()(정방향: raw → 한글)과 반드시 대칭 유지 — 그쪽이 바뀌면 여기도 같이 바꿀 것.
+    // REVIEWED 라벨은 "검수확정"(HAJA-499로 KPI 카드와 통일, #1044) — 구 라벨 "조치대기"는 더 이상
+    // 쓰지 않는다.
     private static final Map<String, Set<InspectionStatus>> RECENT_STATUS_LABEL_GROUPS = Map.of(
             "분석중", EnumSet.of(InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZING),
             "검수대기", EnumSet.of(InspectionStatus.ANALYZED),
-            "조치대기", EnumSet.of(InspectionStatus.REVIEWED),
+            "검수확정", EnumSet.of(InspectionStatus.REVIEWED),
             "완료", EnumSet.of(InspectionStatus.REPORTED));
 
     private final FacilityRepository facilityRepository;

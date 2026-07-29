@@ -19,7 +19,7 @@ const STATUS_PILLS: { value: InspectionStatus | undefined; label: string }[] = [
   { value: undefined, label: '전체' },
   { value: '분석중', label: '분석중' },
   { value: '검수대기', label: '검수대기' },
-  { value: '조치대기', label: '조치대기' },
+  { value: '검수확정', label: '검수확정' },
   { value: '완료', label: '완료' },
 ];
 

@@ -37,7 +37,7 @@ export function DefectCardGrid({ defects, onSelectDefect }: Props) {
 
   const statusCounts = useMemo<Record<StatusTabValue, number>>(
     () => ({
-      '': defects.length,
+      '': defects.filter((defect) => defect.status !== 'DETECTED').length,
       CONFIRMED: defects.filter((defect) => defect.status === 'CONFIRMED').length,
       IN_PROGRESS: defects.filter((defect) => defect.status === 'IN_PROGRESS').length,
       RESOLVED: defects.filter((defect) => defect.status === 'RESOLVED').length,
@@ -48,6 +48,7 @@ export function DefectCardGrid({ defects, onSelectDefect }: Props) {
   const visibleDefects = useMemo(() => {
     const filtered = defects.filter(
       (defect) =>
+        defect.status !== 'DETECTED' &&
         (typeFilter === '' || defect.type === typeFilter) &&
         (gradeFilter === '' || defect.grade === gradeFilter) &&
         (statusFilter === '' || defect.status === statusFilter),

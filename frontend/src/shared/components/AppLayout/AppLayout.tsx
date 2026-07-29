@@ -5,6 +5,7 @@ import { Header } from '../Header';
 import type { BreadcrumbItem, HeaderProfileMenu } from '../Header';
 import { SideNavBar } from '../SideNavBar';
 import type { SideNavItem } from '../SideNavBar';
+import type { Role } from '../../constants/roles';
 import { BottomNavBarFab } from '../BottomNavBarFab';
 import { FloatingPopup } from '../FloatingPopup';
 
@@ -33,6 +34,8 @@ interface AppLayoutProps {
    */
   isRouteImplemented?: (href: string) => boolean;
   isAdmin?: boolean;
+  /** SideNavBar 브랜드 로고 옆 역할 배지(예: ADMIN/INSPECTOR/USER). 미지정 시 배지 미표시(#1199). */
+  role?: Role;
   /** SideNavBar 브랜드 로고 링크 override(#535 플랫폼 관리자 콘솔). 미지정 시 SideNavBar 기본값('/dashboard') */
   brandHref?: string;
   /** Header 알림 미읽음 수 */
@@ -60,6 +63,7 @@ export function AppLayout({
   adminItem,
   isRouteImplemented,
   isAdmin,
+  role,
   brandHref,
   unreadCount,
   onNotificationClick,
@@ -113,6 +117,7 @@ export function AppLayout({
         activeHref={resolvedActiveHref}
         isRouteImplemented={isRouteImplemented}
         isAdmin={isAdmin}
+        role={role}
         brandHref={brandHref}
       />
       <div className="flex min-w-0 flex-1 flex-col">

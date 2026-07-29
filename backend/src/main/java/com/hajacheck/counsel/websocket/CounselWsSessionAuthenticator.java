@@ -1,5 +1,6 @@
 package com.hajacheck.counsel.websocket;
 
+import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.security.LoginUser;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.core.Authentication;
@@ -57,6 +58,38 @@ public class CounselWsSessionAuthenticator {
         }
         if (authentication.getPrincipal() instanceof LoginUser loginUser) {
             return loginUser.getUserId();
+        }
+        return null;
+    }
+
+    /**
+     * {@link #resolveUserId}와 동일한 세션을 재조회해 role을 돌려준다(상담원 대기열 실시간 갱신,
+     * #1001 후속 — {@code /topic/counsel-queue} 구독을 COUNSELOR/PLATFORM_ADMIN으로만 제한하려면
+     * SUBSCRIBE 시점에 role이 필요하다). 별도 캐시 없이 그때그때 재조회해 세션 무효화/역할 변경을
+     * 즉시 반영한다(resolveUserId와 동일한 fail-closed 원칙).
+     */
+    public Role resolveRole(String springSessionId) {
+        if (springSessionId == null) {
+            return null;
+        }
+        SessionRepository<? extends Session> repository = sessionRepositoryProvider.getIfAvailable();
+        if (repository == null) {
+            return null;
+        }
+        Session session = repository.findById(springSessionId);
+        if (session == null) {
+            return null;
+        }
+        Object context = session.getAttribute(SPRING_SECURITY_CONTEXT);
+        if (!(context instanceof SecurityContext securityContext)) {
+            return null;
+        }
+        Authentication authentication = securityContext.getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return null;
+        }
+        if (authentication.getPrincipal() instanceof LoginUser loginUser) {
+            return loginUser.getRole();
         }
         return null;
     }

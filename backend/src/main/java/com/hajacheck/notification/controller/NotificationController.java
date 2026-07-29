@@ -10,6 +10,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,7 +22,8 @@ import org.springframework.web.bind.annotation.RestController;
  * (@AuthenticationPrincipal)에서만 취득 — 요청 바디/파라미터로 userId를 받지 않는다
  * (cross-owner IDOR 방지, DashboardController/FacilityController와 동일 원칙).
  *
- * <p>읽음처리(PATCH /{id}/read)는 HAJA-274에서 추가. 이벤트 발행(트리거)은 이 범위 밖이다.
+ * <p>읽음처리(PATCH /{id}/read)는 HAJA-274에서 추가. 삭제(DELETE /{id})는 알림 센터 개별 닫기(X)용이며
+ * 읽음처리와 동일한 소유자 검증·404 통일 정책을 따른다. 이벤트 발행(트리거)은 이 범위 밖이다.
  */
 @Tag(name = "Notification", description = "알림 API")
 @RestController
@@ -46,6 +48,16 @@ public class NotificationController {
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long id) {
         notificationService.markAsRead(id, loginUser.getUserId());
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    @Operation(summary = "알림 삭제",
+            description = "로그인 사용자 소유의 알림을 삭제한다(알림 센터 개별 닫기). 미존재/타인 소유는 404")
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse<Void>> delete(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long id) {
+        notificationService.delete(id, loginUser.getUserId());
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 }

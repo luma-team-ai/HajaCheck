@@ -7,8 +7,9 @@ import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
+import { AUTH_ME_QUERY_KEY } from '../constants';
 import { useAuthStore } from '../store/authStore';
-import type { User } from '../types';
+import type { EmailAvailabilityResponse, User } from '../types';
 import { LoginPage } from './LoginPage';
 
 const mockUser: User = {
@@ -24,8 +25,16 @@ const mockUser: User = {
 };
 
 let getMeCallCount = 0;
+let csrfPrimeCallCount = 0;
 
-const server = setupServer();
+// useCsrfPrime이 마운트 시 호출하는 GET(더미 이메일 중복확인) — 다른 인증 폼 테스트와 동일 패턴.
+const csrfPrimeHandler = http.get('/api/auth/email-availability', () => {
+  csrfPrimeCallCount += 1;
+  const success: ApiResponse<EmailAvailabilityResponse> = { success: true, data: { available: true } };
+  return HttpResponse.json(success);
+});
+
+const server = setupServer(csrfPrimeHandler);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
@@ -93,6 +102,7 @@ function mockGetMeUnauthorized() {
 describe('LoginPage', () => {
   beforeEach(() => {
     getMeCallCount = 0;
+    csrfPrimeCallCount = 0;
   });
 
   it('세션 있음 + state.from이 안전한 내부 경로면 그 경로로 이동한다', async () => {
@@ -196,5 +206,27 @@ describe('LoginPage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('location').textContent).toBe('/');
     });
+  });
+
+  // #1200 회귀 — 로그아웃(useLogout)은 ['auth','me']를 settled-null로 고정하므로, /login으로
+  // 전환돼 LoginPage가 마운트돼도 staleTime(5s) 내에는 getMe가 나가지 않는다. 예전에는 CSRF
+  // 프라이밍이 그 getMe 쿼리에 얹혀 있어서 프라이밍이 통째로 소실됐고, XSRF-TOKEN 쿠키 없이
+  // 보낸 재로그인 첫 POST가 403으로 실패했다(두 번째 시도에 성공). 프라이밍은 세션 조회 캐시와
+  // 무관한 전용 GET(useCsrfPrime)이어야 한다.
+  it('로그아웃으로 세션조회 캐시가 고정돼 getMe가 안 나가도 CSRF 프라이밍 GET은 발생한다(#1200)', async () => {
+    mockGetMeUnauthorized();
+    const queryClient = new QueryClient();
+    // useLogout이 로그아웃 직후 하는 것과 동일한 캐시 고정
+    queryClient.setQueryData(AUTH_ME_QUERY_KEY, null);
+
+    renderLoginPage(queryClient, { pathname: '/login' });
+
+    await waitFor(() => {
+      expect(csrfPrimeCallCount).toBe(1);
+    });
+    // 로그인 폼은 그대로 노출되고(캐시가 null이라 리다이렉트 없음),
+    expect(screen.getByRole('tablist')).not.toBeNull();
+    // getMe는 캐시가 fresh라 나가지 않는다 — #280 P3 / PR #232 P2-D 방어장치가 그대로 유지되는지 고정.
+    expect(getMeCallCount).toBe(0);
   });
 });

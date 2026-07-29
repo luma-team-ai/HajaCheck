@@ -1,5 +1,6 @@
 package com.hajacheck.counsel.websocket;
 
+import com.hajacheck.auth.entity.Role;
 import com.hajacheck.counsel.entity.CounselTicket;
 import com.hajacheck.counsel.repository.CounselTicketRepository;
 import java.security.Principal;
@@ -34,6 +35,11 @@ import org.springframework.stereotype.Component;
 public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
     private static final String TOPIC_PREFIX = "/topic/counsel/";
+    // 상담원 대기열 실시간 갱신(#1001 후속) — 새 상담 신청 시 이 토픽으로 신호만 브로드캐스트하고
+    // (CounselTicketService#createTicket), 프론트는 REST 재조회로 목록을 채운다(토픽 자체엔 티켓
+    // 내용을 담지 않음). COUNSELOR/PLATFORM_ADMIN만 구독 가능 — 고객 계정이 "새 상담 발생" 신호를
+    // 엿듣는 것도 막는다(내용이 없어도 트래픽 패턴 자체가 정보가 될 수 있음).
+    private static final String QUEUE_TOPIC = "/topic/counsel-queue";
 
     private final CounselWsSessionAuthenticator sessionAuthenticator;
     private final CounselTicketRepository ticketRepository;
@@ -68,13 +74,24 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             log.debug("상담 WebSocket CONNECT 거부 — 세션 재검증 실패");
             throw new MessageDeliveryException("상담 WebSocket 세션 재검증 실패");
         }
-        accessor.setUser(new StompUserPrincipal(revalidatedUserId));
+        Role revalidatedRole = sessionAuthenticator.resolveRole(springSessionId);
+        accessor.setUser(new StompUserPrincipal(revalidatedUserId, revalidatedRole));
     }
 
-    /** SUBSCRIBE 인가 — 티켓 토픽은 당사자만. 사용자 목적지(/user/**)는 Spring 이 세션별로 격리하므로 통과. */
+    /**
+     * SUBSCRIBE 인가 — 티켓 토픽은 당사자만, 대기열 토픽은 COUNSELOR/PLATFORM_ADMIN만.
+     * 사용자 목적지(/user/**)는 Spring 이 세션별로 격리하므로 통과.
+     */
     private void authorizeSubscribe(StompHeaderAccessor accessor) {
         String destination = accessor.getDestination();
-        if (destination == null || !destination.startsWith(TOPIC_PREFIX)) {
+        if (destination == null) {
+            return;
+        }
+        if (destination.equals(QUEUE_TOPIC)) {
+            authorizeQueueSubscribe(accessor);
+            return;
+        }
+        if (!destination.startsWith(TOPIC_PREFIX)) {
             return;
         }
         Long ticketId = parseTicketId(destination);
@@ -82,6 +99,16 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         if (ticketId == null || userId == null || !isParticipant(ticketId, userId)) {
             log.debug("상담 WebSocket SUBSCRIBE 거부 — 비당사자 구독 시도: destination={}", destination);
             throw new MessageDeliveryException("상담방 구독 권한 없음");
+        }
+    }
+
+    /** 대기열 토픽 SUBSCRIBE 인가 — COUNSELOR/PLATFORM_ADMIN만. */
+    private void authorizeQueueSubscribe(StompHeaderAccessor accessor) {
+        Principal user = accessor.getUser();
+        Role role = user instanceof StompUserPrincipal principal ? principal.getRole() : null;
+        if (role != Role.COUNSELOR && role != Role.PLATFORM_ADMIN) {
+            log.debug("상담 WebSocket SUBSCRIBE 거부 — 대기열 토픽 비상담원 구독 시도");
+            throw new MessageDeliveryException("상담 대기열 구독 권한 없음");
         }
     }
 

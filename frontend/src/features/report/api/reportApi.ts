@@ -29,9 +29,17 @@ export interface ReportSummaryResponse {
 }
 
 export const reportApi = {
-  // 보고서 초안 생성
-  generateReportDraft: (inspectionId: number, signal?: AbortSignal) =>
-    api.post<ReportDetailResponse>(`/inspections/${inspectionId}/reports`, {}, { signal }),
+  // 보고서 초안 생성 — sections/includePhoto는 사용자가 선택한 설정 옵션
+  generateReportDraft: (
+    inspectionId: number,
+    options?: { sections: string[]; includePhoto: boolean },
+    signal?: AbortSignal,
+  ) =>
+    api.post<ReportDetailResponse>(
+      `/inspections/${inspectionId}/reports`,
+      options ?? {},
+      { signal },
+    ),
 
   // 점검별 보고서 목록 조회 (최근 작업 내역용)
   listReports: (inspectionId: number, signal?: AbortSignal) =>
@@ -40,6 +48,10 @@ export const reportApi = {
   // 보고서 상세 조회
   getReport: (reportId: number, signal?: AbortSignal) =>
     api.get<ReportDetailResponse>(`/reports/${reportId}`, { signal }),
+
+  // 보고서 복제 — 같은 inspection의 다음 버전 DRAFT를 생성한다.
+  cloneReport: (reportId: number, signal?: AbortSignal) =>
+    api.post<ReportDetailResponse>(`/reports/${reportId}/clone`, undefined, { signal }),
 
   // 보고서 본문 수정 — DRAFT 상태에서만 허용(FINALIZED면 서버가 거부).
   // 서버는 성공 시 groundingCheckPassed를 null로 리셋한 최신 상태를 반환한다.
@@ -65,6 +77,10 @@ export const reportApi = {
   // 확정 — groundingCheckPassed !== true 면 서버가 거부한다.
   finalizeReport: (reportId: number, pdfUrl: string, signal?: AbortSignal) =>
     api.post<ReportDetailResponse>(`/reports/${reportId}/finalize`, { pdfUrl }, { signal }),
+
+  // 보고서 초안 삭제 — 서버 정책상 DRAFT만 soft delete 가능하고 FINALIZED는 거부된다.
+  deleteReport: (reportId: number, signal?: AbortSignal) =>
+    api.delete<void>(`/reports/${reportId}`, { signal }),
 
   // --- 보고서 목록 / 이력 관리 (#463, 사이드바 "보고서" 최상위 메뉴) ---------------------------
   // GET /api/reports — 회사 스코프 전체 보고서 목록(페이지네이션 + 시설물/상태/검색/기간 필터).

@@ -1,21 +1,16 @@
 import type { ChangeEvent } from 'react';
-import { Button } from '../../../shared/components/Button';
 import { useInspectionFacilityOptions } from '../hooks/useInspectionFacilityOptions';
 import { InspectionNlSearchBar } from './InspectionNlSearchBar';
-import {
-  DEFECT_GRADE_LABEL,
-  DEFECT_STATUS_LABEL,
-  DEFECT_TYPE_LABEL,
-  INSPECTION_STATUS_LABEL,
-} from '../types';
+import { InspectionAppliedFilters } from './InspectionAppliedFilters';
+import type { InspectionFilterAxis } from './InspectionAppliedFilters';
+import { INSPECTION_STATUS_LABEL } from '../types';
 import type { InspectionListFilters, InspectionStatus } from '../types';
 
 type Props = {
   filters: InspectionListFilters;
   onChange: (filters: InspectionListFilters) => void;
+  onNlApplied?: () => void;
 };
-
-type AppliedFilterKey = 'status' | 'facilityId' | 'defectType' | 'defectGrade' | 'defectStatus';
 
 // 점검 목록(HAJA-393/394, #725/#726) 필터.
 //
@@ -24,12 +19,16 @@ type AppliedFilterKey = 'status' | 'facilityId' | 'defectType' | 'defectGrade' |
 // 대상이다 — 기존 "점검 단위는 AI 검색 대상이 아니다" 주석은 더 이상 유효하지 않다. 시각 톤은
 // DefectFilterBar와 동일한 클래스(defect-filter-bar*)를 그대로 재사용해 화면 스타일을 통일한다
 // (사용자 확정 지시 — 시각 디자인은 유지, 컬럼/필터 대상만 점검 단위로 재해석).
-export function InspectionFilterBar({ filters, onChange }: Props) {
+export function InspectionFilterBar({ filters, onChange, onNlApplied }: Props) {
   const { data: facilityOptions } = useInspectionFacilityOptions();
 
   function handleStatusChange(event: ChangeEvent<HTMLSelectElement>) {
     const value = event.target.value as InspectionStatus | '';
-    onChange({ ...filters, status: value === '' ? undefined : value, page: 0 });
+    onChange({
+      ...filters,
+      inspectionStatus: value === '' ? undefined : [value],
+      page: 0,
+    });
   }
 
   function handleFacilityChange(event: ChangeEvent<HTMLSelectElement>) {
@@ -37,49 +36,31 @@ export function InspectionFilterBar({ filters, onChange }: Props) {
     onChange({ ...filters, facilityId: value === '' ? undefined : Number(value), page: 0 });
   }
 
-  function handleNlApply(patch: Partial<InspectionListFilters>) {
-    onChange({ ...filters, ...patch, page: 0 });
+  function handleNlApply(nextFilters: InspectionListFilters) {
+    onChange({ ...nextFilters, page: 0, size: filters.size });
+    onNlApplied?.();
   }
 
-  function handleRemoveFilter(key: AppliedFilterKey) {
-    onChange({ ...filters, [key]: undefined, page: 0 });
+  function handleRemoveFilter(axis: InspectionFilterAxis) {
+    const next = { ...filters, page: 0 };
+    if (axis === 'inspectionDate') {
+      next.inspectionDateFrom = undefined;
+      next.inspectionDateTo = undefined;
+    } else if (axis === 'roundNo') {
+      next.roundNoMin = undefined;
+      next.roundNoMax = undefined;
+    } else if (axis === 'defectCount') {
+      next.defectCountMin = undefined;
+      next.defectCountMax = undefined;
+    } else {
+      next[axis] = undefined;
+    }
+    onChange(next);
   }
 
   function handleReset() {
     onChange({ page: 0, size: filters.size });
   }
-
-  const appliedFilters: { key: AppliedFilterKey; label: string }[] = [
-    filters.status
-      ? { key: 'status', label: `상태: ${INSPECTION_STATUS_LABEL[filters.status]}` }
-      : null,
-    filters.facilityId != null
-      ? {
-          key: 'facilityId',
-          label: `시설물: ${
-            facilityOptions?.find((option) => option.id === filters.facilityId)?.name ?? filters.facilityId
-          }`,
-        }
-      : null,
-    filters.defectType && filters.defectType.length > 0
-      ? {
-          key: 'defectType',
-          label: `하자유형: ${filters.defectType.map((value) => DEFECT_TYPE_LABEL[value]).join(', ')}`,
-        }
-      : null,
-    filters.defectGrade && filters.defectGrade.length > 0
-      ? {
-          key: 'defectGrade',
-          label: `하자등급: ${filters.defectGrade.map((value) => DEFECT_GRADE_LABEL[value]).join(', ')}`,
-        }
-      : null,
-    filters.defectStatus && filters.defectStatus.length > 0
-      ? {
-          key: 'defectStatus',
-          label: `하자상태: ${filters.defectStatus.map((value) => DEFECT_STATUS_LABEL[value]).join(', ')}`,
-        }
-      : null,
-  ].filter((filter): filter is { key: AppliedFilterKey; label: string } => filter !== null);
 
   return (
     <section className="defect-filter-bar" aria-label="점검 목록 검색 및 필터">
@@ -89,10 +70,21 @@ export function InspectionFilterBar({ filters, onChange }: Props) {
         <select
           className="defect-filter-bar__select"
           aria-label="점검 상태 필터"
-          value={filters.status ?? ''}
+          value={
+            filters.inspectionStatus?.length === 1
+              ? filters.inspectionStatus[0]
+              : filters.inspectionStatus && filters.inspectionStatus.length > 1
+                ? '__MULTIPLE__'
+                : ''
+          }
           onChange={handleStatusChange}
         >
           <option value="">전체 상태</option>
+          {filters.inspectionStatus && filters.inspectionStatus.length > 1 && (
+            <option value="__MULTIPLE__" disabled>
+              {filters.inspectionStatus.length}개 상태 적용 중
+            </option>
+          )}
           {(Object.entries(INSPECTION_STATUS_LABEL) as [InspectionStatus, string][]).map(
             ([value, label]) => (
               <option key={value} value={value}>
@@ -117,33 +109,12 @@ export function InspectionFilterBar({ filters, onChange }: Props) {
         </select>
       </div>
 
-      {appliedFilters.length > 0 && (
-        <div className="defect-filter-bar__controls">
-          <span className="defect-filter-bar__label">적용된 필터:</span>
-          {appliedFilters.map((filter) => (
-            <button
-              type="button"
-              className="defect-filter-bar__chip"
-              key={filter.key}
-              aria-label={`${filter.label} 필터 제거`}
-              onClick={() => handleRemoveFilter(filter.key)}
-            >
-              <span>{filter.label}</span>
-              <span aria-hidden="true">×</span>
-            </button>
-          ))}
-
-          <Button
-            variant="secondary"
-            size="sm"
-            className="defect-filter-bar__reset"
-            aria-label="필터 초기화"
-            onClick={handleReset}
-          >
-            초기화
-          </Button>
-        </div>
-      )}
+      <InspectionAppliedFilters
+        filters={filters}
+        facilityName={facilityOptions?.find((option) => option.id === filters.facilityId)?.name}
+        onRemove={handleRemoveFilter}
+        onReset={handleReset}
+      />
     </section>
   );
 }

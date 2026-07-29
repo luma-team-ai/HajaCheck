@@ -6,6 +6,7 @@ import counselorIcon from '../../../assets/brand/support-fab-icon.svg';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import { ChatInputBox } from '../../../shared/components/ChatInputBox/ChatInputBox';
 import { TypingIndicatorBubble } from '../../../shared/components/TypingIndicatorBubble/TypingIndicatorBubble';
+import { isTicketEnded } from '../constants';
 import type { ChatMessageResponse, CounselTicketSummaryResponse } from '../types';
 
 export function MessageBubble({ message }: { message: ChatMessageResponse }) {
@@ -192,6 +193,15 @@ export function ConversationPanel({
             onSubmit={handleSend}
             placeholder="메시지를 입력하세요"
           />
+        </div>
+      )}
+
+      {/* 종료 후 명확한 표시(사용자 피드백: "종료는 되는데 끝났다는 표시가 없어 헷갈려") —
+          입력창 자리를 대체해 더 이상 메시지를 보낼 수 없는 읽기 전용 상태임을 알린다. */}
+      {isTicketEnded(ticket.status) && (
+        <div className="flex items-center justify-center gap-1.5 border-t border-border px-6 py-4 text-sm text-text-muted">
+          <span aria-hidden="true">🔒</span>
+          상담이 종료되었습니다. 더 이상 메시지를 보낼 수 없습니다.
         </div>
       )}
     </div>

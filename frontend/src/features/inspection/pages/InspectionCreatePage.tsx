@@ -43,6 +43,18 @@ import {
 
 const INPUT_CLASSES =
   'w-full rounded-full border border-border bg-white px-4 py-2.5 text-base text-text-default outline-none focus:ring-2 focus:ring-primary';
+// 네이티브 select의 브라우저 기본 화살표는 padding-right를 무시하고 테두리에 바짝 붙어 그려져,
+// 옆의 점검일(input[type=date]) 캘린더 아이콘보다 오른쪽 여백이 좁아 보였다(디자인 QA 지적).
+// appearance-none으로 기본 아이콘을 지우고 커스텀 화살표를 넣어 여백을 직접 제어한다 — 오프셋 16px는
+// INPUT_CLASSES의 px-4(16px)와 맞춰, 옆 필드들과 같은 여백으로 보이게 한 값(FacilityFilterBar 등과
+// 동일한 패턴, feature 간 직접 import 금지라 로컬 재정의).
+const SELECT_CLASSES = `${INPUT_CLASSES} appearance-none pr-9`;
+const SELECT_ARROW_STYLE = {
+  backgroundImage:
+    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2371717a' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'right 16px center',
+};
 const LABEL_CLASSES = 'text-xs font-medium tracking-wide text-text-muted';
 // SideNavBar의 "구현되지 않은 페이지" 안내와 동일한 자동 소멸 시간(#217 컨벤션 재사용)
 const DRAFT_SAVED_NOTICE_MS = 2500;
@@ -60,15 +72,23 @@ function stageMediaFiles(files: File[]): StagedMediaFile[] {
   });
 }
 
-// 같은 시설물에 미종료(REPORTED 아님) 회차가 이미 있으면 그중 가장 최근 회차 번호를 반환한다 —
+interface ActiveRound {
+  id: number;
+  roundNo: number;
+}
+
+// 같은 시설물에 미종료(REPORTED 아님) 회차가 이미 있으면 그중 가장 최근 회차를 반환한다 —
 // 실수로 중복 회차를 만드는 걸 막기 위한 "약한" 경고용(확인창만 띄우고 생성 자체를 막지는 않는다).
+// id까지 반환하는 이유(팀 리뷰 반영, 2026-07-28): 예전엔 roundNo만 반환해 확인창이 "새로 만들까/
+// 취소할까"만 물었는데, 그 회차로 바로 돌아갈 방법(이어서 하기)이 없어 브라우저를 한 번만 벗어나도
+// 진행 중이던 회차를 사실상 잃어버렸다(activeInspectionId가 메모리 전용이라 새로고침 시 소실).
 // 조회 실패는 경고 없이 그냥 진행시킨다(부가 안내일 뿐, 생성 흐름을 막을 이유가 아니다).
-async function findActiveRoundNo(facilityId: number): Promise<number | null> {
+async function findActiveRound(facilityId: number): Promise<ActiveRound | null> {
   try {
     const res = await inspectionApi.listByFacility(facilityId);
     const activeRounds = res.data.content.filter((item) => item.status !== 'REPORTED');
     if (activeRounds.length === 0) return null;
-    return Math.max(...activeRounds.map((item) => item.roundNo));
+    return activeRounds.reduce((latest, item) => (item.roundNo > latest.roundNo ? item : latest));
   } catch {
     return null;
   }
@@ -137,8 +157,8 @@ export function InspectionCreatePage() {
   // 이 버튼은 저장을 트리거한다기보다 "지금 저장됐다"는 확인을 사용자에게 보여주는 역할이다.
   const [showDraftSavedNotice, setShowDraftSavedNotice] = useState(false);
   const draftSavedNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  // 같은 시설물에 이미 진행 중인 회차가 있으면 그 회차 번호를 담아 확인창을 띄운다(null이면 안 뜸).
-  const [duplicateRoundNo, setDuplicateRoundNo] = useState<number | null>(null);
+  // 같은 시설물에 이미 진행 중인 회차가 있으면 그 회차 정보를 담아 확인창을 띄운다(null이면 안 뜸).
+  const [duplicateActiveRound, setDuplicateActiveRound] = useState<ActiveRound | null>(null);
   const [isCheckingDuplicateRound, setIsCheckingDuplicateRound] = useState(false);
 
   const isSubmitting = isCreating || isUploading || isCheckingDuplicateRound;
@@ -348,10 +368,10 @@ export function InspectionCreatePage() {
     // 중복 경고를 건너뛴다 — 안 그러면 재시도할 때마다 확인창이 다시 뜬다.
     if (!createdInspection) {
       setIsCheckingDuplicateRound(true);
-      const activeRoundNo = await findActiveRoundNo(Number(values.facilityId));
+      const activeRound = await findActiveRound(Number(values.facilityId));
       setIsCheckingDuplicateRound(false);
-      if (activeRoundNo !== null) {
-        setDuplicateRoundNo(activeRoundNo);
+      if (activeRound !== null) {
+        setDuplicateActiveRound(activeRound);
         return;
       }
     }
@@ -360,8 +380,22 @@ export function InspectionCreatePage() {
   };
 
   const handleConfirmDuplicateCreate = () => {
-    setDuplicateRoundNo(null);
+    setDuplicateActiveRound(null);
     void submitInspection();
+  };
+
+  // "이어서 하기"(팀 리뷰 반영, 2026-07-28) — 새 회차를 만드는 대신 기존 진행 중 회차로 바로
+  // 돌아간다. AI 분석 실행/상태 화면은 어떤 단계(대기·진행 중·완료)든 그 회차 id 하나로 알아서
+  // 재구성하므로(rebuildFromDb) stage를 미리 알 필요 없이 /analysis로 보내면 된다.
+  // hasSubmittedRef를 먼저 세우지 않으면 hasDraftInput이 true인 채(폼을 이미 채워둔 상태)라 바로
+  // 아래 navigate가 이 페이지 자신의 useBlocker에 걸려 이탈 확인창이 또 뜨고 이동이 막힌다 —
+  // submitInspection 성공 경로와 동일한 이유(PR머신 리뷰 발견, CI에서 재현).
+  const handleResumeExisting = () => {
+    if (duplicateActiveRound === null) return;
+    hasSubmittedRef.current = true;
+    clearInspectionCreateDraft();
+    void clearDraftMediaFiles();
+    navigate(`/inspections/${duplicateActiveRound.id}/analysis`);
   };
 
   return (
@@ -378,7 +412,8 @@ export function InspectionCreatePage() {
                 id="inspection-facility"
                 value={values.facilityId}
                 onChange={handleFieldChange('facilityId')}
-                className={INPUT_CLASSES}
+                className={SELECT_CLASSES}
+                style={SELECT_ARROW_STYLE}
                 disabled={isFacilitiesLoading || isFieldsLocked}
                 aria-invalid={Boolean(errors.facilityId)}
                 aria-describedby={errors.facilityId ? 'inspection-facility-error' : undefined}
@@ -407,7 +442,8 @@ export function InspectionCreatePage() {
                 id="inspection-type"
                 value={values.inspectionType}
                 onChange={handleFieldChange('inspectionType')}
-                className={INPUT_CLASSES}
+                className={SELECT_CLASSES}
+                style={SELECT_ARROW_STYLE}
                 disabled={isFieldsLocked}
               >
                 <option value="REGULAR">정기</option>
@@ -548,20 +584,24 @@ export function InspectionCreatePage() {
         </Modal>
       )}
 
-      {duplicateRoundNo !== null && (
+      {duplicateActiveRound !== null && (
         <Modal
           open
-          onClose={() => setDuplicateRoundNo(null)}
+          onClose={() => setDuplicateActiveRound(null)}
           title="이미 진행 중인 회차가 있습니다"
           closeOnOverlayClick={false}
         >
           <div className="flex w-80 flex-col gap-6">
             <p className="m-0 text-sm text-text-muted">
-              이미 진행 중인 {duplicateRoundNo}회차가 있습니다. 계속 생성하시겠습니까?
+              이미 진행 중인 {duplicateActiveRound.roundNo}회차가 있습니다. 이어서 진행하시겠습니까,
+              새 회차를 만드시겠습니까?
             </p>
             <div className="flex justify-end gap-3">
-              <Button type="button" variant="secondary" onClick={() => setDuplicateRoundNo(null)}>
+              <Button type="button" variant="secondary" onClick={() => setDuplicateActiveRound(null)}>
                 취소
+              </Button>
+              <Button type="button" variant="secondary" onClick={handleResumeExisting}>
+                이어서 하기
               </Button>
               <Button type="button" variant="primary" onClick={handleConfirmDuplicateCreate}>
                 계속 생성

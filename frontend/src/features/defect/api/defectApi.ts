@@ -3,6 +3,8 @@ import { api } from '../../../shared/api/axios';
 import type { PageResponse } from '../../../shared/api/types';
 import type {
   Defect,
+  DefectActionLogEntry,
+  DefectActionLogPhase,
   DefectActionSubmitRequest,
   DefectListFilters,
   DefectRevision,
@@ -29,6 +31,28 @@ type DefectExplain = {
   risk: string;
   action: string;
 };
+
+export function toInspectionListParams(filters: InspectionListFilters) {
+  const nonEmpty = <T>(values: T[] | null | undefined) =>
+    values && values.length > 0 ? values : undefined;
+
+  return {
+    facilityId: filters.facilityId,
+    inspectionType: nonEmpty(filters.inspectionType),
+    status: nonEmpty(filters.inspectionStatus),
+    inspectionDateFrom: filters.inspectionDateFrom || undefined,
+    inspectionDateTo: filters.inspectionDateTo || undefined,
+    roundNoMin: filters.roundNoMin ?? undefined,
+    roundNoMax: filters.roundNoMax ?? undefined,
+    defectCountMin: filters.defectCountMin ?? undefined,
+    defectCountMax: filters.defectCountMax ?? undefined,
+    defectType: nonEmpty(filters.defectType),
+    defectGrade: nonEmpty(filters.defectGrade),
+    defectStatus: nonEmpty(filters.defectStatus),
+    page: filters.page,
+    size: filters.size,
+  };
+}
 
 export const defectApi = {
   // POST /api/ai/defect-explain — AI 하자 원인·조치방안 설명
@@ -79,7 +103,7 @@ export const defectApi = {
   // 반복 키 직렬화를 명시 강제한다(axios 1.x `indexes: null` 옵션).
   getInspections: (filters: InspectionListFilters = {}) =>
     api.get<PageResponse<InspectionListItem>>('/inspections', {
-      params: filters,
+      params: toInspectionListParams(filters),
       paramsSerializer: { indexes: null },
     }),
   // GET /api/inspections/{id}/defects — 점검별 하자 카드 목록(카드형 상세, contract.md §②).
@@ -101,4 +125,9 @@ export const defectApi = {
       ...response,
       data: normalizeDefect(response.data),
     })),
+  // GET /api/defects/{id}/action-logs?phase= — 조치 등록 제출 이력 조회(#1193/HAJA-569 백엔드,
+  // #1211/HAJA-574). 페이지네이션 없이 배열 전체를 반환하며, 백엔드가 createdAt 내림차순(최신 우선)
+  // 으로 이미 정렬해 내려준다.
+  getActionLogs: (id: number, phase: DefectActionLogPhase) =>
+    api.get<DefectActionLogEntry[]>(`/defects/${id}/action-logs`, { params: { phase } }),
 };

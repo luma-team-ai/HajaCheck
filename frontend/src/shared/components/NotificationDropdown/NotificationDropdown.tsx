@@ -26,7 +26,6 @@ interface NotificationDropdownProps {
   activeFilter?: string;
   onFilterChange?: (key: string) => void;
   onMarkAllRead?: () => void;
-  onViewAll?: () => void;
   /** 바깥 클릭·ESC 시 호출 — 열림 상태 자체는 여전히 상위 컴포넌트가 소유(조건부 렌더링) */
   onClose?: () => void;
 }
@@ -40,7 +39,6 @@ export function NotificationDropdown({
   activeFilter = 'all',
   onFilterChange,
   onMarkAllRead,
-  onViewAll,
   onClose,
 }: NotificationDropdownProps) {
   const rootRef = useOutsideDismiss<HTMLDivElement>(onClose);
@@ -53,11 +51,11 @@ export function NotificationDropdown({
   return (
     <div
       ref={rootRef}
-      className="flex max-h-160 w-95 flex-col overflow-hidden rounded-2xl border border-border bg-white/90 shadow-2xl backdrop-blur-[10px]"
+      className="flex max-h-160 w-95 flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-2xl"
       role="menu"
       aria-label="알림"
     >
-      <div className="flex items-end justify-between border-b border-neutral-100/50 px-5 pt-5 pb-[13px]">
+      <div className="flex shrink-0 items-end justify-between border-b border-neutral-100/50 px-5 pt-5 pb-[13px]">
         <div className="flex items-center gap-2">
           <h2 className="m-0 text-base font-semibold text-primary">알림</h2>
           <span className="text-sm text-text-muted">미읽음 {unreadCount}</span>
@@ -85,13 +83,15 @@ export function NotificationDropdown({
         </div>
       </div>
 
+      {/* shrink-0: 알림이 많을 때 flex-col 부모(max-h-160)가 목록(flex-1)을 채우면서 이 필터 행과
+          헤더까지 세로로 눌러 칩 텍스트가 잘려 보였다 — 두 행은 고정 높이를 유지한다. */}
       {filters && filters.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto border-b border-neutral-100/50 px-5 pt-3 pb-[13px]">
+        <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-neutral-100/50 px-5 pt-3 pb-[13px]">
           {filters.map((filter) => (
             <button
               key={filter.key}
               type="button"
-              className={`cursor-pointer rounded-full border px-[13px] py-[5px] text-xs whitespace-nowrap ${
+              className={`shrink-0 cursor-pointer rounded-full border px-[13px] py-[5px] text-xs whitespace-nowrap ${
                 filter.key === activeFilter
                   ? 'border-primary bg-primary text-surface'
                   : 'border-border bg-none text-primary'
@@ -151,16 +151,6 @@ export function NotificationDropdown({
           </li>
         ))}
       </ul>
-
-      {onViewAll && (
-        <button
-          type="button"
-          className="w-full cursor-pointer border-none border-t border-neutral-100/50 bg-white/30 px-0 pt-[13px] pb-3 text-[13px] text-text-muted backdrop-blur-[2px]"
-          onClick={onViewAll}
-        >
-          알림 전체 보기
-        </button>
-      )}
     </div>
   );
 }

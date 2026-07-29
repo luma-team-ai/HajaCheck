@@ -4,20 +4,25 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
+import com.hajacheck.core.defect.dto.DefectActionLogResponse;
 import com.hajacheck.core.defect.dto.DefectActionResultRequest;
 import com.hajacheck.core.defect.dto.DefectResponse;
 import com.hajacheck.core.defect.dto.DefectRevisionResponse;
 import com.hajacheck.core.defect.entity.Defect;
+import com.hajacheck.core.defect.entity.DefectActionLog;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectRevision;
 import com.hajacheck.core.defect.entity.DefectStatus;
 import com.hajacheck.core.defect.entity.DefectType;
+import com.hajacheck.core.defect.repository.DefectActionLogRepository;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.DefectRevisionRepository;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.DomainValidationException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +42,7 @@ public class DefectService {
 
     private final DefectRepository defectRepository;
     private final DefectRevisionRepository defectRevisionRepository;
+    private final DefectActionLogRepository defectActionLogRepository;
     private final CompanyScopeGuard companyScopeGuard;
     private final AuthService authService;
     private final MediaRepository mediaRepository;
@@ -54,13 +60,24 @@ public class DefectService {
      * 조치 결과 등록(HAJA-393/#725, "조치 완료 등록" 버튼) — 담당자는 #690과 동일 자격 조건
      * (authService.validateAssignableInspector, 활성·INSPECTOR/ADMIN·유효 승인 멤버십)으로 검증하고,
      * 조치 후 사진은 같은 점검 소속 media인지 확인해(findByIdAndInspectionId) 둘 다 cross-company
-     * IDOR을 차단한다. 상태전이(RESOLVED)는 Defect#registerActionResult 가 changeStatus() 규칙을
+     * IDOR을 차단한다. 상태전이(targetStatus)는 Defect#registerActionResult 가 changeStatus() 규칙을
      * 재사용해 처리하므로, 여기서는 기존 updateStatus()와 동일하게 defect_revisions에 이력만 남긴다.
+     *
+     * <p>targetStatus(#1128)는 폼의 "진행상태" select 값이다. 조치 등록의 타겟이 될 수 있는 값은
+     * IN_PROGRESS/RESOLVED 두 개뿐이라 그 외(DETECTED/CONFIRMED)는 여기서 먼저 거부한다 — 실제로도
+     * changeStatus()의 정방향 규칙에 걸려 대부분 막히지만, "타겟이 될 수 없는 값"이라는 의도를 명시적
+     * 검증으로 남겨 둔다(요청 바디는 신뢰하지 않는다는 원칙).
      */
     @Transactional
     public DefectResponse registerActionResult(
             Long userId, Long companyId, Long defectId, DefectActionResultRequest request) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        DefectStatus targetStatus = request.targetStatus();
+        if (targetStatus != DefectStatus.IN_PROGRESS && targetStatus != DefectStatus.RESOLVED) {
+            throw new DomainValidationException(
+                    "조치 결과 등록 불가: 진행상태는 IN_PROGRESS/RESOLVED만 지정할 수 있다 (요청 상태=%s)"
+                            .formatted(targetStatus));
+        }
         Defect defect = defectRepository.findByIdAndCompanyId(defectId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
         authService.validateAssignableInspector(userId, request.actionAssigneeId());
@@ -68,15 +85,70 @@ public class DefectService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
 
         DefectStatus previousStatus = defect.getStatus();
+        // 조치 필드(사진/내용)는 1세트만 존재해 targetStatus=RESOLVED 2차 등록이 IN_PROGRESS 1차
+        // 등록분을 덮어쓴다(#1128 코드리뷰 P2-1) — 덮어써지기 직전 값을 감사기록으로 먼저 남겨
+        // 무기록 소실을 막는다. previousActionContent가 null이면 최초 등록이라 남길 이전 값이 없다.
+        String previousActionContent = defect.getActionContent();
+        Long previousActionMediaId = defect.getActionMediaId();
+        if (previousActionContent != null) {
+            defectRevisionRepository.save(DefectRevision.record(
+                    defect.getId(), userId, "actionContent",
+                    truncateForRevision(previousActionContent), truncateForRevision(request.actionContent()), null));
+            defectRevisionRepository.save(DefectRevision.record(
+                    defect.getId(), userId, "actionMediaId",
+                    String.valueOf(previousActionMediaId), String.valueOf(request.actionMediaId()), null));
+        }
         defect.registerActionResult(
-                request.actionMediaId(), request.actionContent(), request.actionDate(), request.actionAssigneeId());
-        defectRevisionRepository.save(DefectRevision.record(
-                defect.getId(), userId, "status", previousStatus.name(), DefectStatus.RESOLVED.name(), null));
+                request.actionMediaId(), request.actionContent(), request.actionDate(), request.actionAssigneeId(),
+                targetStatus);
+        // 이번 제출을 append-only 이력으로 남긴다(#1193/HAJA-569) — flat 필드(위)는 "최신 스냅샷"만
+        // 유지하지만, 이 테이블은 targetStatus=IN_PROGRESS 유지 재제출을 포함해 모든 제출을 보존한다.
+        defectActionLogRepository.save(DefectActionLog.record(
+                defect.getId(), request.actionMediaId(), targetStatus, request.actionContent(),
+                request.actionDate(), request.actionAssigneeId()));
+        // 상태가 실제로 바뀐 제출만 활동기록 타임라인(defect_revisions)에 남긴다 — IN_PROGRESS 유지
+        // 재제출은 상태 변경이 아니므로 타임라인에 안 남기고 위 이력 테이블에만 남는다(#1193/HAJA-569,
+        // 활동기록은 "상태 변경"만 다루는 기존 의미 유지).
+        if (previousStatus != defect.getStatus()) {
+            defectRevisionRepository.save(DefectRevision.record(
+                    defect.getId(), userId, "status", previousStatus.name(), defect.getStatus().name(), null));
+        }
 
         String actionAssigneeName = userRepository.findById(request.actionAssigneeId())
                 .map(User::getName)
                 .orElse(null);
         return DefectResponse.from(defect, actionAssigneeName);
+    }
+
+    /**
+     * 조치 등록 제출 이력 조회(#1193/HAJA-569) — 하자 상세 모달 "조치 사진"/"조치 완료 사진" 탭이
+     * 항목 2개 이상일 때 등록일 select로 넘겨보는 이력이다. findByIdAndCompanyId로 회사 범위를
+     * 먼저 검증해 cross-company IDOR을 차단한다(get()/getRevisions()와 동일 원칙). 담당자 이름은
+     * 건수가 적어(조치 등록 폼 제출 횟수만큼) row별 조회로 충분하다.
+     */
+    public List<DefectActionLogResponse> getActionLogs(
+            Long userId, Long companyId, Long defectId, DefectStatus phase) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        if (phase != DefectStatus.IN_PROGRESS && phase != DefectStatus.RESOLVED) {
+            throw new DomainValidationException(
+                    "조치 이력 조회 불가: phase는 IN_PROGRESS/RESOLVED만 지정할 수 있다 (요청 phase=%s)"
+                            .formatted(phase));
+        }
+        defectRepository.findByIdAndCompanyId(defectId, companyId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
+        List<DefectActionLog> logs =
+                defectActionLogRepository.findByDefectIdAndPhaseOrderByCreatedAtDesc(defectId, phase);
+        return logs.stream()
+                .map(log -> DefectActionLogResponse.from(log, userRepository.findById(log.getActionAssigneeId())
+                        .map(User::getName)
+                        .orElse(null)))
+                .toList();
+    }
+
+    // defect_revisions.old_value/new_value 는 varchar(255)인데 조치 내용은 최대 2000자까지
+    // 허용되므로(DefectActionResultRequest), 감사기록 저장 전 컬럼 폭에 맞춰 자른다.
+    private static String truncateForRevision(String value) {
+        return value.length() > 255 ? value.substring(0, 255) : value;
     }
 
     public DefectResponse get(Long userId, Long companyId, Long defectId) {

@@ -1,13 +1,20 @@
 import { useMemo, useState } from 'react';
-import { formatReportListTitle } from '../utils/reportListFormat';
+import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { TableFooterPagination } from '../../../shared/components/TableFooterPagination/TableFooterPagination';
+import { reportApi } from '../api/reportApi';
 import { useCompanyReports } from '../hooks/useCompanyReports';
 import { useCompanyReportsSummary } from '../hooks/useCompanyReportsSummary';
 import { ReportListFilterBar } from '../components/ReportListFilterBar';
 import { ReportListKpiBar } from '../components/ReportListKpiBar';
 import { ReportListTable } from '../components/ReportListTable';
 import { ReportVersionHistoryPanel } from '../components/ReportVersionHistoryPanel';
+import { inspectionApi } from '../../inspection/api/inspectionApi';
+import { DEFECT_TYPE_CODE_LABELS } from '../../inspection/api/inspectionApi.types';
+import { isReportContent } from '../types';
 import type { ReportListFilters, ReportListItem } from '../types';
+import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import { formatReportListTitle } from '../utils/reportListFormat';
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -15,6 +22,8 @@ const DEFAULT_PAGE_SIZE = 10;
 // 시설물/상태/기간/검색으로 필터링하고, 행 단위로 버전 이력을 확인하거나 선택 항목을 일괄
 // 내보내기(PDF)할 수 있다. hybrid에서는 실 API를 우선 사용하고 미구현 목록/요약만 훅에서 폴백한다.
 export function ReportListPage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [filters, setFilters] = useState<ReportListFilters>({ page: 0, size: DEFAULT_PAGE_SIZE });
   // 현재 페이지 rows만 보관하면 페이지를 넘기는 순간 이전 선택 항목의 PDF가
   // 일괄 내보내기 대상에서 사라진다. 선택 시 행 스냅샷을 id로 보존한다.
@@ -24,6 +33,8 @@ export function ReportListPage() {
   const [activeReport, setActiveReport] = useState<ReportListItem | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ reportId: number; type: 'clone' | 'submit' | 'delete' } | null>(null);
+  const [actionErrors, setActionErrors] = useState<Record<number, string | undefined>>({});
 
   const summaryQuery = useCompanyReportsSummary();
   const listQuery = useCompanyReports(filters);
@@ -66,6 +77,108 @@ export function ReportListPage() {
       });
       return next;
     });
+  }
+
+  async function refreshReportQueries(inspectionId?: number) {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['report', 'company-list'] }),
+      queryClient.invalidateQueries({ queryKey: ['report', 'company-summary'] }),
+      inspectionId
+        ? queryClient.invalidateQueries({ queryKey: ['report', 'version-history', inspectionId] })
+        : Promise.resolve(),
+    ]);
+  }
+
+  function actionErrorMessage(error: unknown): string {
+    if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+      return error.message;
+    }
+    return '처리하지 못했습니다. 다시 시도해 주세요.';
+  }
+
+  async function handleCloneReport(row: ReportListItem) {
+    if (pendingAction) return;
+    setPendingAction({ reportId: row.id, type: 'clone' });
+    setActionErrors((prev) => ({ ...prev, [row.id]: undefined }));
+    try {
+      const response = await reportApi.cloneReport(row.id);
+      await refreshReportQueries(response.data.inspectionId);
+      navigate(`/reports/${response.data.id}`);
+    } catch (error) {
+      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage(error) }));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function handleSubmitReport(row: ReportListItem) {
+    if (pendingAction || row.status !== 'DRAFT') return;
+    setPendingAction({ reportId: row.id, type: 'submit' });
+    setActionErrors((prev) => ({ ...prev, [row.id]: undefined }));
+    try {
+      let report = (await reportApi.getReport(row.id)).data;
+      if (report.status !== 'DRAFT') {
+        throw new Error('DRAFT 보고서만 제출할 수 있습니다.');
+      }
+      if (!isReportContent(report.content)) {
+        throw new Error('보고서 본문 형식이 올바르지 않습니다.');
+      }
+      const content = report.content;
+      if (report.groundingCheckPassed !== true) {
+        report = (await reportApi.groundingRecheck(row.id)).data;
+        if (report.groundingCheckPassed !== true) {
+          throw new Error('근거 재검증을 통과하지 못했습니다.');
+        }
+      }
+      let defectImages: { defectType: string; imageUrl: string }[] = [];
+      try {
+        const defects = await inspectionApi.getDefects(report.inspectionId);
+        defectImages = defects.data.flatMap((defect) =>
+          defect.imageUrl ? [{ defectType: DEFECT_TYPE_CODE_LABELS[defect.type], imageUrl: defect.imageUrl }] : [],
+        );
+      } catch {
+        // 사진 조회 실패는 확정 흐름을 막지 않는다. PDF는 본문만으로도 유효하며 사진대지만 생략한다.
+      }
+      const pdfBlob = await exportReportToPdf(content, {
+        facilityName: row.facilityName,
+        inspectionRound: row.roundNo,
+        issuedAt: new Date(report.createdAt),
+        defectImages,
+      });
+      const fileName = buildReportPdfFileName(report.inspectionId);
+      const uploadResponse = await reportApi.uploadPdf(row.id, pdfBlob, fileName);
+      await reportApi.finalizeReport(row.id, uploadResponse.data.pdfUrl);
+      await refreshReportQueries(report.inspectionId);
+    } catch (error) {
+      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage(error) }));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function handleDeleteReport(row: ReportListItem) {
+    if (pendingAction || row.status !== 'DRAFT') return;
+    if (!window.confirm('이 보고서 초안을 삭제하면 되돌릴 수 없습니다. 계속하시겠습니까?')) {
+      return;
+    }
+    setPendingAction({ reportId: row.id, type: 'delete' });
+    setActionErrors((prev) => ({ ...prev, [row.id]: undefined }));
+    try {
+      await reportApi.deleteReport(row.id);
+      setSelectedRowsById((previous) => {
+        const next = new Map(previous);
+        next.delete(row.id);
+        return next;
+      });
+      if (activeReport?.id === row.id) {
+        setActiveReport(null);
+      }
+      await refreshReportQueries(row.inspectionId);
+    } catch (error) {
+      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage(error) }));
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   // window.open을 여러 번 호출하면 브라우저 팝업 차단에 걸리고, PDF URL을 새 탭에서 열기만 해서는
@@ -162,6 +275,11 @@ export function ReportListPage() {
                   selectedIds={selectedIds}
                   onSelectionChange={handleSelectionChange}
                   onOpenVersionHistory={setActiveReport}
+                  onCloneReport={(row) => void handleCloneReport(row)}
+                  onSubmitReport={(row) => void handleSubmitReport(row)}
+                  onDeleteReport={(row) => void handleDeleteReport(row)}
+                  pendingAction={pendingAction}
+                  actionErrors={actionErrors}
                 />
               </div>
 

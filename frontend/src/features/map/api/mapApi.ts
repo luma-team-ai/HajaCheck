@@ -5,7 +5,6 @@ import type { FacilityLocation } from '../types';
 
 interface FacilityResponse {
   id: number;
-  ownerId: number;
   name: string;
   type: string;
   address: string | null;
@@ -15,6 +14,10 @@ interface FacilityResponse {
   scale: string | null;
   inspectionCycleMonths: number | null;
   nextInspectionDueAt: string | null;
+  highestGrade: FacilityLocation['highestGrade'];
+  warningCount: number | null;
+  cautionCount: number | null;
+  thumbnailUrl: string | null;
 }
 
 export const mapApi = {
@@ -30,13 +33,10 @@ export const mapApi = {
         category: f.type ?? '기타',
         latitude: Number(f.latitude),
         longitude: Number(f.longitude),
-        // 백엔드 FacilityResponse에 등급/하자건수 필드가 아직 없다(등급 산정 API 미구현, #661).
-        // 실데이터가 없는 값을 임의 공식으로 지어내 실제 안전등급처럼 노출하지 않도록 null로
-        // 내려보내고, UI(마커/팝업/목록)는 null을 "등급 미정"으로 폴백 처리한다.
-        highestGrade: null,
-        warningCount: null,
-        cautionCount: null,
-        thumbnailUrl: null,
+        highestGrade: f.highestGrade ?? null,
+        warningCount: f.warningCount ?? 0,
+        cautionCount: f.cautionCount ?? 0,
+        thumbnailUrl: f.thumbnailUrl ?? null,
       }));
   },
 };

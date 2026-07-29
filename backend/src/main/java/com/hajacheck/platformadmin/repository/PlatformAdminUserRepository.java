@@ -6,10 +6,13 @@ import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.platformadmin.dto.PlatformAdminUserProjection;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -68,4 +71,12 @@ public interface PlatformAdminUserRepository extends JpaRepository<User, Long> {
     long countByCompanyIdAndRoleAndStatus(Long companyId, Role role, UserStatus status);
 
     boolean existsByEmail(String email);
+
+    // 스킬 변경(changeSkill) delete-then-insert 원자성 보호(PR머신 2차 검토 P2). 대상 상담사 행을
+    // 먼저 잠가 동일 상담사에 대한 동시 스킬 교체 요청을 직렬화한다 — 그렇지 않으면 두 요청의 DELETE가
+    // 서로의 신규 INSERT를 보지 못해(READ COMMITTED) counselor_skills에 행이 2개 남을 수 있다
+    // (CompanyRepository#findByIdForUpdate와 동일 패턴 — 값 자체는 쓰지 않고 잠금 획득 용도).
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.id = :id")
+    Optional<User> findByIdForUpdate(@Param("id") Long id);
 }

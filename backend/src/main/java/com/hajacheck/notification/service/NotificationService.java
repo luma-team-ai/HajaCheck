@@ -50,6 +50,20 @@ public class NotificationService {
     }
 
     /**
+     * 알림 1건을 삭제한다(알림 센터 개별 닫기 X). 미존재 또는 타인 소유 알림은 markAsRead 와 동일하게
+     * 리소스 존재 열거(cross-user IDOR)를 막기 위해 NOTIFICATION_NOT_FOUND(404)로 통일한다.
+     *
+     * <p>읽음 여부와 무관하게 지운다 — 사용자가 X를 누른 알림은 다시 보이지 않아야 하므로, 읽음 플래그
+     * 토글이 아니라 물리 삭제로 처리한다(알림은 원본이 아니라 파생 통지라 보존 가치가 없다).
+     */
+    @Transactional
+    public void delete(Long notificationId, Long userId) {
+        if (notificationRepository.deleteByIdAndUserId(notificationId, userId) == 0) {
+            throw new BusinessException(ErrorCode.NOTIFICATION_NOT_FOUND);
+        }
+    }
+
+    /**
      * 사용자에게 알림 1건을 발행한다(NOTI-01, #425). {@code Facility}·{@code INSPECTION_DUE} 같은 특정
      * 도메인/유형을 몰라도 되는 범용 진입점으로, 다른 도메인·다른 알림 유형도 그대로 호출할 수 있게 설계했다.
      * 시설물별 독립 커밋을 위해 클래스 기본값 대신 이 메서드에만 쓰기 트랜잭션을 건다(markAsRead 와 동일 패턴).

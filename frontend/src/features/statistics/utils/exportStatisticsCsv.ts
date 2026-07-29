@@ -16,7 +16,16 @@ export interface ExportStatisticsDataParams {
   facilitySummary?: FacilitySummaryItem[] | null;
 }
 
-export function exportStatisticsToCsv(data: ExportStatisticsDataParams): void {
+function escapeCsvCell(value: string): string {
+  const raw = String(value ?? '');
+  const str = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+export function buildStatisticsCsvRows(data: ExportStatisticsDataParams): string[][] {
   const rows: string[][] = [];
 
   rows.push(['HajaCheck 통계 대시보드 리포트']);
@@ -95,23 +104,15 @@ export function exportStatisticsToCsv(data: ExportStatisticsDataParams): void {
     rows.push([]);
   }
 
-  const csvContent = rows
-    .map((row) =>
-      row
-        .map((cell) => {
-          const raw = String(cell ?? '');
-          // 시설물명 등 사용자 입력값이 CSV로 그대로 나가므로, Excel 등이 셀을 수식으로 해석하지
-          // 않도록 =/+/-/@로 시작하는 값은 앞에 작은따옴표를 붙여 무력화한다(CSV formula injection).
-          const str = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
-          if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-            return `"${str.replace(/"/g, '""')}"`;
-          }
-          return str;
-        })
-        .join(','),
-    )
-    .join('\r\n');
+  return rows;
+}
 
+export function renderCsvContent(rows: string[][]): string {
+  return rows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
+}
+
+export function exportStatisticsToCsv(data: ExportStatisticsDataParams): void {
+  const csvContent = renderCsvContent(buildStatisticsCsvRows(data));
   const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

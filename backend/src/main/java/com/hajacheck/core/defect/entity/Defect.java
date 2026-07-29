@@ -223,15 +223,29 @@ public class Defect {
     }
 
     /**
-     * 조치 결과 등록(HAJA-393/#725, "조치 완료 등록" 버튼) — 조치 후 사진/조치 내용/조치일/담당자를
-     * 한 번에 저장하면서 RESOLVED로 상태를 전이한다. 별도 사유 입력란이 없는 폼이라 changeStatus()를
-     * reason 없이 호출한다 — 정방향 한 단계(IN_PROGRESS→RESOLVED)만 사유 없이 허용하는 기존 규칙을
-     * 그대로 재사용하므로, 순서를 건너뛴 상태에서 호출하면 DomainValidationException으로 자연히
-     * 막힌다(조기 완료 방지).
+     * 조치 결과 등록(HAJA-393/#725, "상태 저장" 버튼) — 조치 후 사진/조치 내용/조치일/담당자를
+     * 한 번에 저장하면서 {@code targetStatus}로 상태를 전이한다. 별도 사유 입력란이 없는 폼이라
+     * changeStatus()를 reason 없이 호출한다 — 정방향 한 단계(CONFIRMED→IN_PROGRESS,
+     * IN_PROGRESS→RESOLVED)만 사유 없이 허용하는 기존 규칙을 그대로 재사용하므로, 순서를 건너뛴
+     * 전이(예: CONFIRMED에서 바로 RESOLVED)는 DomainValidationException으로 자연히 막힌다
+     * (조기 완료 방지). 조치 등록의 타겟이 될 수 없는 값(DETECTED/CONFIRMED) 자체를 걸러내는 것은
+     * 서비스 계층(DefectService#registerActionResult)의 책임이다.
+     *
+     * <p>targetStatus == 현재 상태(#1193/HAJA-569)는 조치중(IN_PROGRESS) 단계에서 시간차를 두고 여러
+     * 번 등록하는 "진행 중 유지 재제출"에 한해서만 허용한다 — changeStatus()는 동일 상태 재전이를
+     * 항상 거부하므로 여기서 우회 분기를 둔다. 그 외(RESOLVED 유지 재제출 포함)는 그대로
+     * changeStatus()에 위임해 기존 예외 의미를 보존한다 — 이미 RESOLVED인 하자는 changeStatus()의
+     * "RESOLVED 이탈 금지" 검사(동일 상태 검사보다 우선)에 걸려 DomainStateTransitionException으로
+     * 막힌다(회귀 방지). flat 필드(actionMediaId 등)는 두 경우 모두 "최신 스냅샷"으로 계속 덮어쓴다
+     * (기존 계약 유지 — 이력 자체는 서비스 계층이 DefectActionLog로 별도 append한다).
      */
     public void registerActionResult(Long actionMediaId, String actionContent, LocalDate actionDate,
-                                      Long actionAssigneeId) {
-        changeStatus(DefectStatus.RESOLVED);
+                                      Long actionAssigneeId, DefectStatus targetStatus) {
+        if (targetStatus == DefectStatus.IN_PROGRESS && this.status == DefectStatus.IN_PROGRESS) {
+            requireNotDeleted("registerActionResult");
+        } else {
+            changeStatus(targetStatus);
+        }
         this.actionMediaId = actionMediaId;
         this.actionContent = actionContent;
         this.actionDate = actionDate;

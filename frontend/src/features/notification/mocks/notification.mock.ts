@@ -24,7 +24,7 @@ export const mockNotifications: NotificationApiItem[] = [
   {
     id: 3,
     type: 'COUNSEL_REPLIED',
-    payload: { description: '요금제 문의' },
+    payload: { description: '요금제 문의', ticketId: 501 },
     isRead: false,
     createdAt: minutesAgo(60),
   },

@@ -1,4 +1,5 @@
 import { http, HttpResponse } from 'msw';
+import { extractFacilityCategory } from '../../../shared/lib/facilityCategory';
 import type { ApiResponse } from '../../../shared/api/types';
 import {
   mockDefectTypeDistribution,
@@ -134,9 +135,7 @@ export const statisticsHandlers = [
 
     if (facilityId && facilityId !== 'all') {
       const facility = mockFacilitySummary.find((f) => String(f.facilityId) === facilityId);
-      // facilityType은 "건물-정기-4개월" 같은 원본 복합 문자열(파싱 전) — 히트맵 카테고리는
-      // 접두어만 쓰므로(PRD §3.3, 실 API는 이 파싱을 백엔드가 수행) mock에서만 접두어를 비교한다.
-      const category = facility?.facilityType.split('-')[0];
+      const category = extractFacilityCategory(facility?.facilityType);
       if (category) {
         heatmap = heatmap.filter((cell) => cell.facilityTypeCategory === category);
       }

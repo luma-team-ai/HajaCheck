@@ -8,6 +8,8 @@ import type {
   CounselTicketCreateRequest,
   CounselTicketDetailResponse,
   CounselTicketListFilters,
+  CounselTicketNoteResponse,
+  CounselTicketNoteUpdateRequest,
   CounselTicketSummaryResponse,
 } from '../types';
 
@@ -53,4 +55,10 @@ export const counselApi = {
   // 티켓의 대화 내용(담당자가 요청자와 달라도 ticketId 기준 정당한 접점이면 허용).
   getCustomerHistoryMessages: (ticketId: number, historyId: number) =>
     api.get<ChatMessageResponse[]>(`/counsel/tickets/${ticketId}/customer-history/${historyId}/messages`),
+  // GET/PUT /api/counsel/tickets/{id}/note — 상담원 전용 비공개 메모(#1022/HAJA-504, 고객 비노출,
+  // 티켓당 1개). 담당 상담원 본인만 조회/저장 가능(백엔드 CounselTicketNoteService).
+  getNote: (ticketId: number) =>
+    api.get<CounselTicketNoteResponse>(`/counsel/tickets/${ticketId}/note`),
+  saveNote: (ticketId: number, request: CounselTicketNoteUpdateRequest) =>
+    api.put<CounselTicketNoteResponse>(`/counsel/tickets/${ticketId}/note`, request),
 };

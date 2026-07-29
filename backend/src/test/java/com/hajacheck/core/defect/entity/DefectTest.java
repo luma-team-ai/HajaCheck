@@ -3,6 +3,7 @@ package com.hajacheck.core.defect.entity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 
 class DefectTest {
@@ -206,6 +207,92 @@ class DefectTest {
         defect.softDelete();
 
         assertThatThrownBy(() -> defect.confirmPreviousDefect(99L))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    // ── #1128: 조치 결과 등록의 전이 목표(targetStatus) 가변화 ──
+
+    private Defect defectWithStatus(DefectStatus status) {
+        return Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).status(status).build();
+    }
+
+    @Test
+    void registerActionResult_CONFIRMED에서_IN_PROGRESS로전이하고조치필드저장() {
+        Defect defect = defectWithStatus(DefectStatus.CONFIRMED);
+
+        defect.registerActionResult(50L, "1차 보수 착수", LocalDate.of(2026, 7, 28), 200L,
+                DefectStatus.IN_PROGRESS);
+
+        assertThat(defect.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(defect.getActionMediaId()).isEqualTo(50L);
+        assertThat(defect.getActionContent()).isEqualTo("1차 보수 착수");
+        assertThat(defect.getActionDate()).isEqualTo(LocalDate.of(2026, 7, 28));
+        assertThat(defect.getActionAssigneeId()).isEqualTo(200L);
+    }
+
+    @Test
+    void registerActionResult_IN_PROGRESS에서_RESOLVED로전이하고조치필드저장() {
+        Defect defect = defectWithStatus(DefectStatus.IN_PROGRESS);
+
+        defect.registerActionResult(51L, "보수 완료", LocalDate.of(2026, 7, 28), 201L,
+                DefectStatus.RESOLVED);
+
+        assertThat(defect.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+        assertThat(defect.getActionMediaId()).isEqualTo(51L);
+        assertThat(defect.getActionAssigneeId()).isEqualTo(201L);
+    }
+
+    @Test
+    void registerActionResult_CONFIRMED에서_RESOLVED는건너뛴전이라거부되고조치필드도남지않음() {
+        Defect defect = defectWithStatus(DefectStatus.CONFIRMED);
+
+        assertThatThrownBy(() -> defect.registerActionResult(50L, "조기 완료 시도",
+                LocalDate.of(2026, 7, 28), 200L, DefectStatus.RESOLVED))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        assertThat(defect.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+        // changeStatus()가 먼저 실행되므로 실패 시 조치 필드는 전혀 채워지지 않아야 한다.
+        assertThat(defect.getActionContent()).isNull();
+        assertThat(defect.getActionMediaId()).isNull();
+    }
+
+    // ── #1193/HAJA-569: 조치중(IN_PROGRESS) 유지 재제출 허용 ──
+
+    @Test
+    void registerActionResult_IN_PROGRESS유지재제출은상태그대로필드만갱신() {
+        Defect defect = defectWithStatus(DefectStatus.IN_PROGRESS);
+
+        defect.registerActionResult(50L, "1차 보수", LocalDate.of(2026, 7, 28), 200L,
+                DefectStatus.IN_PROGRESS);
+        defect.registerActionResult(51L, "2차 보수", LocalDate.of(2026, 7, 29), 201L,
+                DefectStatus.IN_PROGRESS);
+
+        assertThat(defect.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(defect.getActionMediaId()).isEqualTo(51L);
+        assertThat(defect.getActionContent()).isEqualTo("2차 보수");
+        assertThat(defect.getActionAssigneeId()).isEqualTo(201L);
+    }
+
+    @Test
+    void registerActionResult_RESOLVED유지재제출은종료상태이탈금지규칙으로거부() {
+        // RESOLVED는 changeStatus()에 그대로 위임되므로 "이탈 금지" 검사가 먼저 걸려
+        // IllegalStateException(DomainStateTransitionException)으로 막힌다 — 회귀 방지.
+        Defect defect = defectWithStatus(DefectStatus.RESOLVED);
+
+        assertThatThrownBy(() -> defect.registerActionResult(50L, "재등록 시도",
+                LocalDate.of(2026, 7, 28), 200L, DefectStatus.RESOLVED))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(defect.getActionContent()).isNull();
+    }
+
+    @Test
+    void registerActionResult_삭제된하자는IN_PROGRESS유지재제출도거부() {
+        Defect defect = defectWithStatus(DefectStatus.IN_PROGRESS);
+        defect.softDelete();
+
+        assertThatThrownBy(() -> defect.registerActionResult(50L, "삭제 후 시도",
+                LocalDate.of(2026, 7, 28), 200L, DefectStatus.IN_PROGRESS))
                 .isInstanceOf(IllegalStateException.class);
     }
 

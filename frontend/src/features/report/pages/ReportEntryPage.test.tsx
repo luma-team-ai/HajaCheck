@@ -242,27 +242,35 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(screen.queryByTitle('E등급 · 심각')).toBeNull();
   });
 
-  it('"AI 초안이며 법정 제출용 아님" 고지를 노출한다 (#463 요구항목)', async () => {
+  it('법정 제출용 경고 고지를 노출하지 않는다 (#925 UI 정리)', async () => {
     renderPage();
     await screen.findByText(/점검 회차 요약/);
 
-    expect(screen.getByText(/법정 제출용/)).not.toBeNull();
+    expect(screen.queryByText(/법정 제출용/)).toBeNull();
   });
 
-  it('설정 토글은 전부 비활성이고 미반영 안내를 노출한다 (#886 P2)', async () => {
+  it('설정 토글은 활성 상태로 표시되고 선택 상태를 전환할 수 있다 (#925 UI 정리)', async () => {
     renderPage();
     await screen.findByText(/점검 회차 요약/);
 
-    // grounding 근거(요약·상세)뿐 아니라 조치 권고·종합 의견까지 전부 잠긴다 —
-    // 생성 요청에 실리지 않는 값을 켜고 끄게 두면 반영된다고 오인한다.
     for (const name of [/점검 개요/, /하자 현황 요약/, /유형별 상세/, /조치 권고/, /종합 의견/]) {
-      expect(screen.getByRole('button', { name }).hasAttribute('disabled')).toBe(true);
+      expect(screen.getByRole('button', { name }).hasAttribute('disabled')).toBe(false);
     }
-    // hover 없이도 보이는 안내가 있어야 한다
-    expect(screen.getByText(/아직 생성 결과에 반영되지 않습니다/)).not.toBeNull();
+
+    const opinionButton = screen.getByRole('button', { name: /종합 의견/ });
+    expect(opinionButton.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(opinionButton);
+    expect(opinionButton.getAttribute('aria-pressed')).toBe('true');
+
+    const photoToggle = screen.getByRole('button', { name: /대표 사진 자동 삽입/ });
+    expect(photoToggle.hasAttribute('disabled')).toBe(false);
+    expect(photoToggle.className).toContain('bg-black');
+    fireEvent.click(photoToggle);
+    expect(photoToggle.className).toContain('bg-border');
+    expect(screen.queryByText(/아직 생성 결과에 반영되지 않습니다/)).toBeNull();
   });
 
-  it('생성 요청 바디에 설정 옵션을 싣지 않는다 (백엔드 연동 시 이 테스트를 갱신할 것)', async () => {
+  it('생성 요청 바디에 설정 옵션(sections/includePhoto)을 실어 보낸다', async () => {
     let body: unknown = 'NOT_CALLED';
     server.use(
       http.post('/api/inspections/:id/reports', async ({ request }) => {
@@ -279,9 +287,12 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     fireEvent.click(screen.getByRole('button', { name: '보고서 생성 시작' }));
 
     await waitFor(() => expect(screen.getByText('편집화면')).not.toBeNull());
-    // sections/includePhoto 같은 옵션 키가 전혀 실리지 않는다
-    expect(JSON.stringify(body ?? {})).not.toContain('section');
-    expect(JSON.stringify(body ?? {})).not.toContain('Photo');
+    const bodyStr = JSON.stringify(body ?? {});
+    expect(bodyStr).toContain('"sections"');
+    expect(bodyStr).toContain('"includePhoto"');
+    // 모든 기본 섹션이 포함되어 있어야 함
+    expect(bodyStr).toContain('"overview"');
+    expect(bodyStr).toContain('"summary"');
   });
 
   it('inspectionId가 바뀌면 이전 최근작업 요청을 취소해 늦은 응답이 화면을 덮어쓰지 않는다 (#886 P2)', async () => {

@@ -1,6 +1,7 @@
 package com.hajacheck.core.defect.controller;
 
 import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.core.defect.dto.DefectActionLogResponse;
 import com.hajacheck.core.defect.dto.DefectActionResultRequest;
 import com.hajacheck.core.defect.dto.DefectLocationUpdateRequest;
 import com.hajacheck.core.defect.dto.DefectPreviousDefectUpdateRequest;
@@ -16,6 +17,7 @@ import com.hajacheck.global.common.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -81,9 +83,12 @@ public class DefectController {
     }
 
     @Operation(summary = "조치 결과 등록",
-            description = "조치 후 사진(mediaId)/조치 내용/조치일/담당자를 등록하며 상태를 조치완료(RESOLVED)로 전이한다. "
-                    + "IN_PROGRESS 상태에서만 호출 가능 — 순서를 건너뛴 완료 처리는 400으로 거부된다("
-                    + "\"조치 완료 등록\" 버튼 전용이라 사유 입력란이 없음, HAJA-393/#725)")
+            description = "조치 후 사진(mediaId)/조치 내용/조치일/담당자를 등록하며 상태를 요청 바디의 "
+                    + "targetStatus로 전이한다. targetStatus는 조치중(IN_PROGRESS)/조치완료(RESOLVED)만 "
+                    + "허용하며(그 외는 400), 실제 전이 가능 여부는 정방향 한 단계 규칙을 따른다 — "
+                    + "CONFIRMED에서는 IN_PROGRESS로, IN_PROGRESS에서는 RESOLVED로만 가능하고 순서를 건너뛴 "
+                    + "전이(예: CONFIRMED→RESOLVED)는 400으로 거부된다"
+                    + "(\"상태 저장\" 버튼 전용이라 사유 입력란이 없음, HAJA-393/#725, #1128)")
     @PatchMapping("/{id}/action")
     public ResponseEntity<ApiResponse<DefectResponse>> registerActionResult(
             @AuthenticationPrincipal LoginUser loginUser,
@@ -130,6 +135,21 @@ public class DefectController {
         PageResponse<DefectRevisionResponse> response =
                 defectService.getRevisions(
                         loginUser.getUserId(), loginUser.getCompanyId(), id, pageable);
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "조치 등록 이력 조회",
+            description = "조치중(IN_PROGRESS)/조치완료(RESOLVED) 단계별로 등록된 조치 결과 제출 이력을 "
+                    + "최신순으로 전체 반환한다(#1193/HAJA-569, 조치중 단계 다중 등록 지원). phase는 "
+                    + "IN_PROGRESS/RESOLVED만 허용하며 그 외는 400으로 거부된다. 상세 모달 사진 탭이 항목 "
+                    + "2개 이상일 때 등록일 select로 넘겨보는 용도.")
+    @GetMapping("/{id}/action-logs")
+    public ResponseEntity<ApiResponse<List<DefectActionLogResponse>>> getActionLogs(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long id,
+            @RequestParam DefectStatus phase) {
+        List<DefectActionLogResponse> response =
+                defectService.getActionLogs(loginUser.getUserId(), loginUser.getCompanyId(), id, phase);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 }

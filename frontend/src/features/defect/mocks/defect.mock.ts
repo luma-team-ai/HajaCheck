@@ -1,4 +1,4 @@
-import type { Defect, DefectRevision } from '../types';
+import type { Defect, DefectActionLogEntry, DefectRevision } from '../types';
 
 // HAJA-30 목록/상세 통합 테스트용 목 데이터 — 유형/등급/상태 다양화
 export const mockDefects: Defect[] = [
@@ -90,4 +90,33 @@ export const mockDefectRevisions: Record<number, DefectRevision[]> = {
       createdAt: '2026-07-01T09:10:00.000Z',
     },
   ],
+};
+
+// GET /api/defects/{id}/action-logs?phase= 통합 테스트용 목 데이터(#1193/HAJA-569 백엔드,
+// #1211/HAJA-574 프론트) — id=1 하자에 IN_PROGRESS 2건(등록일 select 노출 조건 충족), RESOLVED는
+// 기본적으로 비워두고 각 테스트가 필요할 때 server.use()로 오버라이드한다.
+export const mockDefectActionLogs: Record<number, { IN_PROGRESS: DefectActionLogEntry[]; RESOLVED: DefectActionLogEntry[] }> = {
+  1: {
+    IN_PROGRESS: [
+      {
+        id: 2,
+        photoUrl: '/api/media/998/thumbnail',
+        actionContent: '2차 보수 진행',
+        actionDate: '2026-07-22',
+        actionAssigneeId: 1,
+        actionAssigneeName: '홍길동',
+        createdAt: '2026-07-22T09:00:00.000Z',
+      },
+      {
+        id: 1,
+        photoUrl: '/api/media/997/thumbnail',
+        actionContent: '1차 실측 완료',
+        actionDate: '2026-07-20',
+        actionAssigneeId: 1,
+        actionAssigneeName: '홍길동',
+        createdAt: '2026-07-20T09:00:00.000Z',
+      },
+    ],
+    RESOLVED: [],
+  },
 };

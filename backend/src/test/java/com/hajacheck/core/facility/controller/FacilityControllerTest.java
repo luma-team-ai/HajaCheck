@@ -19,6 +19,11 @@ import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.core.defect.entity.Defect;
+import com.hajacheck.core.defect.entity.DefectGrade;
+import com.hajacheck.core.defect.entity.DefectStatus;
+import com.hajacheck.core.defect.entity.DefectType;
+import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
@@ -31,6 +36,8 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.membership.service.PlanProvisioningService;
 import com.hajacheck.support.PostgresTestSupport;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import org.junit.jupiter.api.Test;
@@ -69,7 +76,11 @@ class FacilityControllerTest extends PostgresTestSupport {
     @Autowired
     private InspectionRepository inspectionRepository;
     @Autowired
+    private DefectRepository defectRepository;
+    @Autowired
     private PlanProvisioningService planProvisioningService;
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private User saveUser(String email) {
         User user = userRepository.saveAndFlush(User.builder()
@@ -408,6 +419,7 @@ class FacilityControllerTest extends PostgresTestSupport {
                 .initialGrade(FacilityInitialGrade.B)
                 .nextInspectionDueAt(dueAt)
                 .assigneeUserId(inspector.getId())
+                .inspectionCycleMonths(6)
                 .build());
         LocalDate lastInspectedAt = LocalDate.now().minusDays(3);
         saveInspection(facility.getId(), owner.getId(), inspector.getId(), 1, LocalDate.now().minusDays(20));
@@ -424,7 +436,12 @@ class FacilityControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data[0].dDay").value(7))
                 .andExpect(jsonPath("$.data[0].assigneeUserId").value(inspector.getId()))
                 .andExpect(jsonPath("$.data[0].assigneeName").value("점검자"))
-                .andExpect(jsonPath("$.data[0].lastInspectedAt").value(lastInspectedAt.toString()));
+                .andExpect(jsonPath("$.data[0].lastInspectedAt").value(lastInspectedAt.toString()))
+                .andExpect(jsonPath("$.data[0].inspectionCycleMonths").value(6))
+                // #1136 — saveInspection은 type을 지정하지 않아 Inspection.builder() 기본값(REGULAR)이
+                // 최근 회차(roundNo=2)에도 그대로 적용된다(선택 로직 자체는 FacilityServiceTest에서
+                // 비-기본값인 DETAILED로 별도 검증).
+                .andExpect(jsonPath("$.data[0].inspectionType").value("REGULAR"));
     }
 
     @Test
@@ -573,5 +590,130 @@ class FacilityControllerTest extends PostgresTestSupport {
     void 알림설정조회_미인증_401() throws Exception {
         mockMvc.perform(get("/api/facilities/{id}/notification-settings", 1L))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // ── 회차 간 비교 조회(HAJA-531/#1112) ──
+
+    private Defect saveDefect(Long inspectionId, DefectGrade grade, DefectStatus status) {
+        Defect saved = defectRepository.save(Defect.builder()
+                .inspectionId(inspectionId)
+                .type(DefectType.CRACK)
+                .confidence(0.9)
+                .grade(grade)
+                .status(status)
+                .reviewed(true)
+                .deleted(false)
+                .build());
+        entityManager.flush();
+        entityManager.clear();
+        return saved;
+    }
+
+    private void linkPreviousDefect(Long defectId, Long previousDefectId) {
+        Defect defect = defectRepository.findById(defectId).orElseThrow();
+        defect.confirmPreviousDefect(previousDefectId);
+        defectRepository.saveAndFlush(defect);
+        entityManager.clear();
+    }
+
+    @Test
+    void 회차간비교_본인시설_200_신규와등급악화분류반영() throws Exception {
+        User owner = saveUser("compare-owner1@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        User inspector = saveInspector("compare-inspector1@haja.com", owner.getCompanyId());
+        Inspection before = saveInspection(facility.getId(), owner.getId(), inspector.getId(), 1, LocalDate.of(2026, 1, 1));
+        Inspection after = saveInspection(facility.getId(), owner.getId(), inspector.getId(), 2, LocalDate.of(2026, 2, 1));
+        Defect beforeDefect = saveDefect(before.getId(), DefectGrade.C, DefectStatus.CONFIRMED);
+        Defect worsenedAfter = saveDefect(after.getId(), DefectGrade.D, DefectStatus.CONFIRMED);
+        saveDefect(after.getId(), DefectGrade.C, DefectStatus.DETECTED);
+        linkPreviousDefect(worsenedAfter.getId(), beforeDefect.getId());
+
+        mockMvc.perform(get("/api/facilities/{id}/compare", facility.getId())
+                        .param("before", "1").param("after", "2")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.facilityId").value(facility.getId()))
+                .andExpect(jsonPath("$.data.beforeCycle.cycle").value(1))
+                .andExpect(jsonPath("$.data.afterCycle.cycle").value(2))
+                .andExpect(jsonPath("$.data.changes.length()").value(2))
+                .andExpect(jsonPath("$.data.availableCycles.length()").value(2));
+    }
+
+    @Test
+    void 회차간비교_없는시설_404_FACILITY_NOT_FOUND() throws Exception {
+        User owner = saveUser("compare-owner2@haja.com");
+
+        mockMvc.perform(get("/api/facilities/{id}/compare", 999999L)
+                        .param("before", "1").param("after", "2")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("FACILITY_NOT_FOUND"));
+    }
+
+    @Test
+    void 회차간비교_타인소유시설_404_FACILITY_NOT_FOUND() throws Exception {
+        User owner = saveUser("compare-owner3@haja.com");
+        User stranger = saveUser("compare-stranger3@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        User inspector = saveInspector("compare-inspector3@haja.com", owner.getCompanyId());
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 1, LocalDate.of(2026, 1, 1));
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 2, LocalDate.of(2026, 2, 1));
+
+        mockMvc.perform(get("/api/facilities/{id}/compare", facility.getId())
+                        .param("before", "1").param("after", "2")
+                        .with(csrf()).with(authentication(authOf(stranger))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("FACILITY_NOT_FOUND"));
+    }
+
+    @Test
+    void 회차간비교_beforeAfter역순_400_INVALID_INPUT() throws Exception {
+        User owner = saveUser("compare-owner4@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        User inspector = saveInspector("compare-inspector4@haja.com", owner.getCompanyId());
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 1, LocalDate.of(2026, 1, 1));
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 2, LocalDate.of(2026, 2, 1));
+
+        mockMvc.perform(get("/api/facilities/{id}/compare", facility.getId())
+                        .param("before", "2").param("after", "1")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void 회차간비교_존재하지않는회차_404_INSPECTION_NOT_FOUND() throws Exception {
+        User owner = saveUser("compare-owner5@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        User inspector = saveInspector("compare-inspector5@haja.com", owner.getCompanyId());
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 1, LocalDate.of(2026, 1, 1));
+
+        mockMvc.perform(get("/api/facilities/{id}/compare", facility.getId())
+                        .param("before", "1").param("after", "9")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("INSPECTION_NOT_FOUND"));
+    }
+
+    @Test
+    void 회차간비교_미인증_401() throws Exception {
+        mockMvc.perform(get("/api/facilities/{id}/compare", 1L)
+                        .param("before", "1").param("after", "2"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 회차간비교_before파라미터생략_400_INVALID_INPUT() throws Exception {
+        // PR머신 P2 회귀 고정 — 필수 @RequestParam 자체 누락은 값 타입 오류와 달리 기존엔
+        // GlobalExceptionHandler의 하위 포괄 handleException(500)으로 샜다.
+        User owner = saveUser("compare-owner6@haja.com");
+        Facility facility = saveFacility(owner.getId());
+
+        mockMvc.perform(get("/api/facilities/{id}/compare", facility.getId())
+                        .param("after", "2")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
     }
 }

@@ -35,6 +35,21 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     boolean existsByIdAndUserIdAndReadTrue(Long notificationId, Long userId);
 
     /**
+     * 알림 센터 개별 닫기(X) — 본인 소유 알림 1건을 물리 삭제한다. userId를 where에 함께 걸어
+     * 타인 소유 행은 애초에 매칭되지 않게 하고(cross-user IDOR 방지), 영향 행 수로 존재/소유를
+     * 한 번에 판정한다(markAsReadIfUnread 와 동일 패턴 — 조회 후 삭제하면 TOCTOU가 생긴다).
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            delete from Notification n
+            where n.id = :notificationId
+              and n.userId = :userId
+            """)
+    int deleteByIdAndUserId(
+            @Param("notificationId") Long notificationId,
+            @Param("userId") Long userId);
+
+    /**
      * INSPECTION_DUE 알림 중 {@code kind} 필드가 없는(#540 이전 저장분) 레거시 payload만 조회한다(#1050).
      * V25 유니크 인덱스({@code uq_notifications_inspection_due_dedupe})는 {@code payload_json->>'kind'}가
      * NULL인 행을 원자적으로 방어하지 못한다 — PostgreSQL unique index는 NULL을 서로 다른 값으로 취급해

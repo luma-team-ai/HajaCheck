@@ -28,7 +28,7 @@ export interface PendingPriorityItem {
   occurredAt: string; // ISO datetime — 발생 시각
 }
 
-export type InspectionStatus = '분석중' | '검수대기' | '조치대기' | '완료';
+export type InspectionStatus = '분석중' | '검수대기' | '검수확정' | '완료';
 
 export interface RecentInspectionItem {
   id: number;
