@@ -4,6 +4,7 @@ import { Modal } from '../../../shared/components/Modal';
 import { useFacilityTypeHeatmap } from '../hooks/useFacilityTypeHeatmap';
 import type { StatisticsFilterParams } from '../types';
 import { formatMonthLabel } from '../utils/formatMonthLabel';
+import { getMonthsForPeriod } from '../utils/getMonthsForPeriod';
 
 // Figma 시안(node 77-1454)의 히트맵은 "지하주차장/외벽/공용부/옥상"처럼 시설물 내부 세부구역을
 // 행으로 쓰지만, PRD §3.2 C안으로 팀이 "시설물 유형(건물/교량/도로/기타) × 월별" 축으로 이미
@@ -98,8 +99,11 @@ export function FacilityTypeHeatmap({ filterParams }: FacilityTypeHeatmapProps) 
   const { data, isLoading, isError } = useFacilityTypeHeatmap(filterParams);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const categories = data ? [...new Set(data.map((cell) => cell.facilityTypeCategory))] : [];
-  const months = data ? [...new Set(data.map((cell) => cell.month))].sort() : [];
+  const rawCategories = data ? [...new Set(data.map((cell) => cell.facilityTypeCategory))] : [];
+  const categories = rawCategories.length > 0 ? rawCategories : ['건물', '교량', '도로', '기타'];
+
+  const dataMonths = data ? [...new Set(data.map((cell) => cell.month))].sort() : [];
+  const months = getMonthsForPeriod(filterParams?.period, dataMonths);
   const maxCount = data && data.length > 0 ? Math.max(...data.map((cell) => cell.defectCount)) : 0;
   const hasMore = categories.length > VISIBLE_LIMIT;
   const visibleCategories = categories.slice(0, VISIBLE_LIMIT);
