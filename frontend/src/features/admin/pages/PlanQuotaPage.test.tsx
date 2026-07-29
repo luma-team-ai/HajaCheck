@@ -11,7 +11,7 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { adminPlanHandlers } from '../api/adminPlanApi.handlers';
+import { adminPlanHandlers, resetAdminPlanScheduleMockStore } from '../api/adminPlanApi.handlers';
 import { planQuotaHandlers } from '../api/planQuotaApi.handlers';
 import { PLAN_QUOTA_KPI_TEST_ID } from '../components/PlanQuotaKpiCards';
 import { mockPlanQuotaUsers } from '../mocks/planQuotaUsers.mock';
@@ -25,6 +25,9 @@ const server = setupServer(...planQuotaHandlers, ...adminPlanHandlers);
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   server.resetHandlers();
+  // 하향 예약(#1105 / HAJA-526, #1191) 목 상태는 resetHandlers()로 초기화되지 않는 모듈 스코프
+  // 상태라 매 테스트마다 명시적으로 되돌린다(mypageApi.handlers.ts와 동일 패턴).
+  resetAdminPlanScheduleMockStore();
   cleanup();
   useAuthStore.setState({ user: null });
 });
@@ -515,5 +518,119 @@ describe('PlanQuotaPage — 플랜 하향 확인 모달 재검토(#930 2차)', (
       );
     });
     expect(dialog.getByText('정지될 구성원 1명')).toBeTruthy();
+  });
+});
+
+// 플랜 하향 예약(#1105 / HAJA-526 백엔드 dev 완결, #1191 FE 배선) — 현재 플랜(STANDARD)에서 FREE로
+// 하향할 때만 "즉시/다음 결제일" 선택지가 나타난다. GET /api/admin/plan(useAdminCurrentPlan)의
+// currentPeriodEnd·scheduledChange를 그대로 쓴다(mockAdminCurrentPlan 기본값: currentPeriodEnd
+// 2026-08-21T09:00:00Z, scheduledChange null).
+describe('PlanQuotaPage — 플랜 하향 예약(#1191)', () => {
+  it('FREE를 선택할 때만 적용 시점(즉시/다음 결제일) 선택지가 나타난다', async () => {
+    renderPage();
+    await screen.findByText('김민준');
+
+    // STANDARD → ENTERPRISE(상향)는 예약 대상이 아니다 — 선택지 자체가 없다.
+    fireEvent.change(screen.getByLabelText('변경할 요금제'), { target: { value: 'ENTERPRISE' } });
+    expect(screen.queryByRole('radiogroup', { name: '적용 시점' })).toBeNull();
+
+    // STANDARD → FREE(하향)는 즉시/예약 선택지가 나타난다.
+    fireEvent.change(screen.getByLabelText('변경할 요금제'), { target: { value: 'FREE' } });
+    expect(await screen.findByRole('radiogroup', { name: '적용 시점' })).toBeTruthy();
+    expect(screen.getByLabelText('즉시 적용')).toBeTruthy();
+    expect(screen.getByLabelText(/다음 결제일 적용/)).toBeTruthy();
+  });
+
+  it('다음 결제일 적용으로 예약하면 확인 모달에 적용 예정일·FREE 1석 경고가 뜨고, 확정 후 카드에 예약 배너가 나타난다', async () => {
+    renderPage();
+    await screen.findByText('김민준');
+
+    fireEvent.change(screen.getByLabelText('변경할 요금제'), { target: { value: 'FREE' } });
+    await screen.findByRole('radiogroup', { name: '적용 시점' });
+    fireEvent.click(screen.getByLabelText(/다음 결제일 적용/));
+    fireEvent.click(screen.getByRole('button', { name: '변경' }));
+
+    // 즉시 변경과 다른 제목 — "…변경 예약"
+    expect(await screen.findByText('Free 플랜으로 변경 예약')).toBeTruthy();
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByText(/2026-08-21부터 적용됩니다/)).toBeTruthy();
+    expect(dialog.getByText(/FREE 요금제는 좌석이 1개입니다/)).toBeTruthy();
+    // 정지 인원 문구도 "적용 시점에" 미래형으로 바뀐다(즉시 하향의 "정지될 구성원"과 구분).
+    await dialog.findByText('적용 시점에 정지될 구성원 6명');
+
+    fireEvent.click(dialog.getByRole('button', { name: '예약 확정' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    // CurrentPlanCard 배너 — GET /api/admin/plan이 재조회되어 scheduledChange를 반영한다.
+    expect(await screen.findByText('Free로 변경 예정 (2026-08-21)')).toBeTruthy();
+    expect(screen.getByText(/그때까지 현재 요금제를 그대로 사용합니다/)).toBeTruthy();
+
+    // 배너의 취소 버튼으로 예약을 취소하면 배너가 사라진다.
+    fireEvent.click(screen.getByRole('button', { name: '예약 취소' }));
+    await waitFor(() => {
+      expect(screen.queryByText('Free로 변경 예정 (2026-08-21)')).toBeNull();
+    });
+  });
+
+  it('현재 요금제에 결제 주기(currentPeriodEnd)가 없으면 다음 결제일 적용 선택지가 비활성화된다', async () => {
+    server.use(
+      http.get('/api/admin/plan', () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            subscriptionId: 1,
+            plan: { id: 2, name: 'STANDARD', maxFacilities: 10, maxMonthlyAnalyses: 1000, maxSeats: 3,
+              hasPdfWatermark: false, hasCounselorAccess: true, hasAiAddon: true, priceMonthly: 29000 },
+            status: 'ACTIVE',
+            startedAt: '2026-01-01T00:00:00Z',
+            currentPeriodEnd: null,
+            scheduledChange: null,
+            usage: { analyzedImageCount: 0, analysisRequestCount: 0, facilityCount: 0, seatCount: 1, period: '2026-07-01' },
+          },
+        }),
+      ),
+    );
+    renderPage();
+    await screen.findByText('김민준');
+
+    fireEvent.change(screen.getByLabelText('변경할 요금제'), { target: { value: 'FREE' } });
+    const scheduledRadio = (await screen.findByLabelText(
+      /다음 결제일 적용/,
+    )) as HTMLInputElement;
+    await screen.findByText('현재 요금제는 결제 주기가 없어 예약할 수 없습니다.');
+    expect(scheduledRadio.disabled).toBe(true);
+  });
+
+  it('예약 생성이 서버에서 409(PLAN_SCHEDULED_CHANGE_EXISTS)로 거절되면 확인 모달에 안내 문구가 뜬다', async () => {
+    // 이미 대기 중인 예약이 있는 경합 상황(신청 사이 다른 관리자가 먼저 예약)을 재현한다 —
+    // UI는 hasPendingSchedule로 선택지를 미리 막지만, 그 판정 이후 실제 요청 사이의 경합은
+    // 서버 응답(에러 코드)으로만 방어할 수 있다.
+    server.use(
+      http.post('/api/admin/plan/scheduled-change', () =>
+        HttpResponse.json(
+          {
+            success: false,
+            data: null,
+            error: { code: 'PLAN_SCHEDULED_CHANGE_EXISTS', message: '이미 대기 중인 예약이 있습니다.' },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    renderPage();
+    await screen.findByText('김민준');
+
+    fireEvent.change(screen.getByLabelText('변경할 요금제'), { target: { value: 'FREE' } });
+    await screen.findByRole('radiogroup', { name: '적용 시점' });
+    fireEvent.click(screen.getByLabelText(/다음 결제일 적용/));
+    fireEvent.click(screen.getByRole('button', { name: '변경' }));
+
+    const dialog = within(await screen.findByRole('dialog'));
+    await dialog.findByText('적용 시점에 정지될 구성원 6명');
+    fireEvent.click(dialog.getByRole('button', { name: '예약 확정' }));
+
+    expect(await dialog.findByText('이미 예약된 변경이 있습니다.')).toBeTruthy();
   });
 });
