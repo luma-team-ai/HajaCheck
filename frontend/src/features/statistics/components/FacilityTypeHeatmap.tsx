@@ -2,9 +2,15 @@ import { Fragment, useState } from 'react';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { Modal } from '../../../shared/components/Modal';
 import { useFacilityTypeHeatmap } from '../hooks/useFacilityTypeHeatmap';
-import type { StatisticsFilterParams } from '../types';
+import type { FacilityTypeCategory, StatisticsFilterParams } from '../types';
 import { formatMonthLabel } from '../utils/formatMonthLabel';
 import { getMonthsForPeriod } from '../utils/getMonthsForPeriod';
+
+// 행(시설물 유형 카테고리)은 실데이터에 존재하는 값만으로 구성하면 등록/점검 이력이 전혀 없는
+// 카테고리(예: '기타')가 통째로 행에서 빠진다(사용자 리포트) — 열(월)은 이미 항상 고정 표기되는데
+// 행만 데이터 유무에 좌우되는 비대칭이었다. types.ts에 이미 확정된 FacilityTypeCategory 4종을
+// 그대로 고정 행 목록으로 써서, 데이터가 0건인 카테고리도 항상 0건 행으로 노출한다.
+const ALL_FACILITY_TYPE_CATEGORIES: FacilityTypeCategory[] = ['건물', '교량', '도로', '기타'];
 
 // Figma 시안(node 77-1454)의 히트맵은 "지하주차장/외벽/공용부/옥상"처럼 시설물 내부 세부구역을
 // 행으로 쓰지만, PRD §3.2 C안으로 팀이 "시설물 유형(건물/교량/도로/기타) × 월별" 축으로 이미
@@ -110,9 +116,7 @@ export function FacilityTypeHeatmap({ filterParams }: FacilityTypeHeatmapProps) 
   const { data, isLoading, isError } = useFacilityTypeHeatmap(filterParams);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const rawCategories = data ? [...new Set(data.map((cell) => cell.facilityTypeCategory))] : [];
-  const categories = rawCategories.length > 0 ? rawCategories : ['건물', '교량', '도로', '기타'];
-
+  const categories = ALL_FACILITY_TYPE_CATEGORIES;
   const dataMonths = data ? [...new Set(data.map((cell) => cell.month))].sort() : [];
   const months = getMonthsForPeriod(filterParams?.period, dataMonths);
   const maxCount = data && data.length > 0 ? Math.max(...data.map((cell) => cell.defectCount)) : 0;
@@ -147,10 +151,10 @@ export function FacilityTypeHeatmap({ filterParams }: FacilityTypeHeatmapProps) 
       </div>
       {isLoading && <LoadingSpinner />}
       {isError && <p className="dashboard-card-status">히트맵 데이터를 불러오지 못했습니다.</p>}
-      {!isLoading && !isError && categories.length === 0 && (
+      {!isLoading && !isError && months.length === 0 && (
         <p className="dashboard-card-status">표시할 데이터가 없습니다.</p>
       )}
-      {!isLoading && !isError && categories.length > 0 && (
+      {!isLoading && !isError && months.length > 0 && (
         <HeatmapGrid categories={visibleCategories} months={months} findCount={findCount} maxCount={maxCount} />
       )}
       {hasMore && (
