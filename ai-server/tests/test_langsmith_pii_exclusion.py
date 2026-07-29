@@ -7,9 +7,10 @@
 - rag_chat_chain: 고객 질의 원문 (회사명·시설명이 섞여 들어올 수 있음)
 - nl_search_chain: 사용자 자유 검색어 (위와 동일 — 자유 입력이라 무엇이든 섞일 수 있음)
 - briefing_chain: 회사 현황 수치·주요 하자유형 (조합 시 회사 식별 가능)
+- defect_explain_chain: location이 자유 입력이라 시설 식별 정보가 섞일 수 있음
 
-defect_explain_chain은 defect_type/severity_grade/location/facility_type만 받아 고객사 식별이
-불가능하므로 의도적으로 제외한다 — 트레이싱 디버깅 가치를 남겨두기 위함.
+즉 라우터에 연결된 체인 전부가 대상이다. 한 필드만 자유 입력이어도 프롬프트 전체가 전송되므로
+체인 단위로 차단한다.
 
 이 테스트는 전역 트레이싱이 켜진 상태를 가정하고, LLM 호출이 실제로 일어나는 시점에
 트레이싱이 꺼져 있는지를 확인한다 — 감싸는 코드를 나중에 지우면 여기서 실패한다.
@@ -27,6 +28,7 @@ from ai.chains.business_license_ocr_chain import (
     BusinessLicenseOcrExtract,
     run_business_license_ocr_chain,
 )
+from ai.chains.defect_explain_chain import run_defect_explain_chain
 from ai.chains.nl_search_chain import run_nl_search_chain
 from ai.chains.rag_chat_chain import run_rag_chat_chain
 from ai.chains.report_chain import run_report_chain
@@ -130,6 +132,24 @@ def test_rag_chat_chain_disables_tracing_during_llm_call(mock_get_llm, mock_redi
     assert tracing_states, "LLM이 호출되지 않아 검증이 무의미하다"
     assert all(enabled is False for _thread, enabled in tracing_states), (
         f"rag_chat_chain의 LLM 호출이 트레이싱된다(고객 질의 외부 전송): {tracing_states}"
+    )
+
+
+@patch("ai.chains.defect_explain_chain.get_llm")
+def test_defect_explain_chain_disables_tracing_during_llm_call(mock_get_llm):
+    """location에 섞일 수 있는 시설 식별 정보가 전송되지 않아야 한다."""
+    tracing_states: list = []
+    mock_get_llm.return_value = _tracing_recording_llm(tracing_states)
+
+    with tracing_context(enabled=True):
+        try:
+            run_defect_explain_chain("CRACK", "C", "OO빌딩 3층 북벽", "건물")
+        except Exception:  # noqa: BLE001 — MagicMock 응답이라 후속 처리가 깨질 수 있다.
+            pass
+
+    assert tracing_states, "LLM이 호출되지 않아 검증이 무의미하다"
+    assert all(enabled is False for _thread, enabled in tracing_states), (
+        f"defect_explain_chain의 LLM 호출이 트레이싱된다(시설 정보 외부 전송): {tracing_states}"
     )
 
 
