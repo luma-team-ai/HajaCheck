@@ -245,7 +245,9 @@ class DashboardServiceTest {
                 dashboardService.getPendingPriority(USER_ID, OWNER_ID);
 
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).location()).isEqualTo("내시설");
+        // location은 이름·유형·주소를 " · "로 이어붙인다(Figma "이름+세부정보" 정합) — 이 fixture는
+        // type("BUILDING")만 채워져 있고 address는 없어(null은 필터링) "내시설 · BUILDING"이 된다.
+        assertThat(result.get(0).location()).isEqualTo("내시설 · BUILDING");
         assertThat(result.get(0).grade()).isEqualTo("E");
         // 타인(OTHER_OWNER_ID) 소유 시설물은 findByCompanyId(OWNER_ID) 결과에 없으므로
         // defectRepository 조회 인자에도 해당 시설물의 inspectionId 가 절대 섞이지 않는다.

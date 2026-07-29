@@ -159,7 +159,10 @@ public class DashboardService {
     public List<PendingPriorityResponse> getPendingPriority(Long userId, Long companyId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         List<Facility> facilities = facilityRepository.findByCompanyId(companyId);
-        Map<Long, String> facilityNameById = toFacilityNameMap(facilities);
+        // 처리 대기 카드에 시설물명뿐 아니라 유형·주소까지 함께 표시(Figma "이름+세부정보" 정합 —
+        // #556 후속) 하려면 이름만 담긴 맵이 아니라 Facility 엔티티 자체가 필요하다.
+        Map<Long, Facility> facilityById = facilities.stream()
+                .collect(Collectors.toMap(Facility::getId, facility -> facility));
         List<Long> facilityIds = facilities.stream().map(Facility::getId).toList();
 
         List<Inspection> inspections = inspectionsOf(facilityIds);
@@ -175,8 +178,8 @@ public class DashboardService {
         return defects.stream()
                 .map(defect -> {
                     Long facilityId = facilityIdByInspectionId.get(defect.getInspectionId());
-                    String facilityName = facilityNameById.getOrDefault(facilityId, "-");
-                    return PendingPriorityResponse.from(defect, facilityName);
+                    Facility facility = facilityById.get(facilityId);
+                    return PendingPriorityResponse.from(defect, facility);
                 })
                 .toList();
     }
