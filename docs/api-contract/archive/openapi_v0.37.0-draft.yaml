@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.38.0-draft"
+  version: "0.37.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -31,32 +31,6 @@ info:
         {id}/resolve` 성공 시) `CounselTicketResponse` 를 수신한다.
     - **브로커**: 인메모리 심플 브로커(`/topic`, `/queue`), 애플리케이션 목적지 prefix `/app`, 사용자 목적지
       prefix `/user`.
-
-
-    2026-07-30 플랫폼 관리자 날짜별 상담 목록 계약화(#1168/HAJA-252, PR #1205 dev 머지 반영) — GET
-    /api/counsel/tickets/admin 신설. 접수일(`createdAt`) 기준 특정 날짜의 상담 티켓 전체를 최신순으로
-    반환하며 **PLATFORM_ADMIN 전용**이다. `date`(YYYY-MM-DD)는 필수이고 누락·형식 오류를 모두
-    INVALID_INPUT(400)으로 표면화한다(파싱 실패가 500으로 새지 않게). 비-PLATFORM_ADMIN 은
-    COUNSEL_TICKET_FORBIDDEN(403).
-
-
-    함께 `CounselTicketSummaryResponse` 에 고객 프로필 4필드(`customerName`/`customerEmail`/
-    `customerPlan`/`customerJoinedAt`)를 **전부 nullable additive** 로 추가했다. 이 필드들은 위 관리자
-    날짜별 목록에서만 채워지고 **기존 경로(대기열·내 이력·고객 이력)에서는 항상 null** 이다 — 같은
-    스키마를 공유하되 PII 노출 표면은 관리자 경로 하나로 제한한다는 뜻이므로, 소비자는 이 필드의
-    존재를 근거로 다른 경로에서도 값이 온다고 가정하면 안 된다. ⚠️ `customerPlan` 은 현재 개인 구독만
-    해석해 **회사 소속 고객이면 항상 null** 이다(후속 #1263에서 회사 구독까지 해석하도록 수정 예정) —
-    "미가입"과 구분되지 않는 값이라 화면에서 단정적으로 표기하면 안 된다.
-
-
-    같은 PR 로 GET /api/counsel/tickets/{id}/messages 의 인가가 **당사자 전용 → 당사자 또는
-    PLATFORM_ADMIN** 으로 완화됐다(관리자 콘솔이 목록에서 대화로 드릴다운하기 위함). 비당사자·미존재를
-    통일 404로 응답하는 열거 방지 정책 자체는 그대로다.
-
-
-    ⚠️ 아직 미문서로 남은 상담 엔드포인트(#1086 도입, 후속 계약화 대상):
-    GET /api/counsel/tickets/{id}/customer-history · GET
-    /api/counsel/tickets/{id}/customer-history/{historyId}/messages.
 
 
     2026-07-29 유료→유료 하향의 미결제 유예 도입(#1177, Flyway V33) — 하향 예약 대상을 FREE 로만 제한하던
@@ -3359,64 +3333,12 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
-  /api/counsel/tickets/admin:
-    get:
-      summary: 플랫폼 관리자 날짜별 상담 목록
-      description: >
-        #1168/HAJA-252. 접수일(`createdAt`) 기준 특정 날짜에 접수된 상담 티켓 전체를 최신순으로 반환한다
-        (고객 프로필 4필드 포함). **PLATFORM_ADMIN 전용** — 컨트롤러에서 role 을 확인해 그 외 역할은
-        COUNSEL_TICKET_FORBIDDEN(403). 날짜 경계는 서버 JVM 기본 타임존 기준
-        `[date 00:00:00.000000, date 23:59:59.999999]`(다음날 자정 -1μs) 폐구간으로 계산한다 — PG
-        timestamp 가 마이크로초 정밀도라 -1ns 로 끊으면 저장 시 자정으로 올림돼 다음날 티켓이 섞인다.
-        `CounselTicketController.getAdminTicketsByDate` 구현됨.
-      security:
-        - SessionCookie: []
-      tags: [counsel]
-      parameters:
-        - name: date
-          in: query
-          required: true
-          description: "조회할 접수일(YYYY-MM-DD). 누락·형식 오류 모두 400 INVALID_INPUT."
-          schema: { type: string, format: date, example: "2026-07-30" }
-        - name: page
-          in: query
-          schema: { type: integer, default: 0, minimum: 0 }
-        - name: size
-          in: query
-          description: "상한 100 — 초과 시 100으로 클램프(거부 아님). 0 이하는 기본값 20."
-          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
-      responses:
-        "200":
-          description: >
-            조회 성공. `content[]` 는 CounselTicketSummaryResponse 이며 이 경로에서만 고객 프로필 4필드
-            (customerName/customerEmail/customerPlan/customerJoinedAt)가 채워진다.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CounselTicketSummaryPageApiResponse" }
-        "400":
-          description: date 누락 또는 YYYY-MM-DD 형식 아님 (INVALID_INPUT)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "401":
-          description: 미인증 (UNAUTHORIZED)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "403":
-          description: PLATFORM_ADMIN 아님 (COUNSEL_TICKET_FORBIDDEN)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-
   /api/counsel/tickets/{id}/messages:
     get:
       summary: 상담 대화 조회
       description: >
-        FR-7(#20/HAJA-33). 티켓의 전체 대화 이력(시간순). 당사자(사용자 본인/담당 상담원) 또는
-        PLATFORM_ADMIN — 비당사자·미존재 모두 열거 방지를 위해 통일된 404로 응답한다.
-        (PLATFORM_ADMIN 우회는 #1168/PR #1205 에서 관리자 콘솔 드릴다운을 위해 추가됐다.)
-        `CounselTicketController.getMessages` 구현됨.
+        FR-7(#20/HAJA-33). 티켓의 전체 대화 이력(시간순). 당사자(사용자 본인/담당 상담원)만 — 비당사자·미존재
+        모두 열거 방지를 위해 통일된 404로 응답한다. `CounselTicketController.getMessages` 구현됨.
       security:
         - SessionCookie: []
       tags: [counsel]
@@ -3810,9 +3732,7 @@ components:
 
     CounselTicketSummaryResponse:
       type: object
-      description: >
-        상담원 대기열/내 이력/고객 이력/관리자 날짜별 목록 항목 — 대화 내용 등 민감 정보는 제외.
-        `customer*` 4필드는 GET /api/counsel/tickets/admin 전용이며 그 외 경로에서는 항상 null 이다(#1168).
+      description: 상담원 대기열/내 이력 목록 항목 — 대화 내용 등 민감 정보는 제외.
       properties:
         id: { type: integer, format: int64, example: 501 }
         ticketNumber: { type: string, example: "C-20260727-501" }
@@ -3824,30 +3744,6 @@ components:
         status: { $ref: "#/components/schemas/CounselTicketStatus" }
         queuePosition: { type: integer, nullable: true, example: 3 }
         createdAt: { type: string, format: date-time, example: "2026-07-27T10:00:00" }
-        customerName:
-          type: string
-          nullable: true
-          description: "PLATFORM_ADMIN 날짜별 목록 전용. 그 외 경로(대기열·내 이력·고객 이력)에서는 항상 null."
-          example: 홍길동
-        customerEmail:
-          type: string
-          nullable: true
-          description: "PLATFORM_ADMIN 날짜별 목록 전용. 그 외 경로(대기열·내 이력·고객 이력)에서는 항상 null."
-          example: user@example.com
-        customerPlan:
-          type: string
-          nullable: true
-          description: >
-            활성 구독 요금제명. PLATFORM_ADMIN 날짜별 목록 전용 — 그 외 경로(대기열·내 이력·고객 이력)
-            에서는 항상 null. ⚠️ 현재는 개인 구독만 해석하므로 **회사 소속 고객이면 유료여도 null** 이며
-            (후속 #1263에서 회사 구독까지 해석 예정), 유예 중(#1177) 실효 요금제도 반영하지 않는다.
-          example: PREMIUM
-        customerJoinedAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: "가입일. PLATFORM_ADMIN 날짜별 목록 전용. 그 외 경로에서는 항상 null."
-          example: "2026-05-01T09:00:00"
 
     CounselTicketSummaryPage:
       type: object
