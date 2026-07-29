@@ -27,6 +27,7 @@ function buildFacility(overrides: Partial<Facility>): Facility {
     latestDefectId: null,
     thumbnailUrl: null,
     lastInspectedAt: null,
+    defectCount: 0,
     ...overrides,
   };
 }

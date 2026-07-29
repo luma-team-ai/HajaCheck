@@ -330,9 +330,9 @@ describe('ReportGeneratePage', () => {
   it('/reports/:reportId?mode=export에서 저장된 실제 PDF를 iframe으로 렌더한다', async () => {
     let preflightCount = 0;
     server.use(
-      http.head('/api/reports/1/pdf/storage-key', () => {
+      http.get('/api/reports/1/pdf/storage-key', () => {
         preflightCount += 1;
-        return new Response(null, {
+        return new Response('fake-pdf-binary', {
           status: 200,
           headers: { 'Content-Type': 'application/pdf' },
         });
@@ -358,7 +358,7 @@ describe('ReportGeneratePage', () => {
 
     const pdfFrame = await screen.findByTitle('저장된 보고서 PDF');
     expect(preflightCount).toBe(1);
-    expect(pdfFrame.getAttribute('src')).toContain('/api/reports/1/pdf/storage-key#');
+    expect(pdfFrame.getAttribute('src')).toContain('blob:');
     expect(pdfFrame.getAttribute('src')).toContain('toolbar=0');
     expect(pdfFrame.getAttribute('src')).toContain('navpanes=0');
     expect(pdfFrame.getAttribute('src')).toContain('view=FitH');
@@ -377,7 +377,7 @@ describe('ReportGeneratePage', () => {
     renderPageWithPath('/reports/1?mode=export');
 
     const pdfFrame = await screen.findByTitle('저장된 보고서 PDF');
-    expect(pdfFrame.getAttribute('src')).toContain('/api/reports/1/pdf/storage-key#');
+    expect(pdfFrame.getAttribute('src')).toContain('blob:');
     expect(pdfFrame.getAttribute('src')).not.toContain('localhost:8080');
   });
 
@@ -392,13 +392,13 @@ describe('ReportGeneratePage', () => {
     renderPageWithPath('/reports/1?mode=export');
 
     const pdfFrame = await screen.findByTitle('저장된 보고서 PDF');
-    expect(pdfFrame.getAttribute('src')).toContain('/api/reports/1/pdf/storage-key#');
+    expect(pdfFrame.getAttribute('src')).toContain('blob:');
     expect(pdfFrame.getAttribute('src')).not.toContain('spring:8080');
   });
 
   it('same-origin PDF 사전 확인 실패 시 PDF 내보내기 폴백을 표시한다', async () => {
     server.use(
-      http.head('/api/reports/1/pdf/storage-key', () =>
+      http.get('/api/reports/1/pdf/storage-key', () =>
         new Response(null, { status: 403 }),
       ),
     );
@@ -445,9 +445,9 @@ describe('ReportGeneratePage', () => {
   it('미리보기 새로고침은 같은-origin PDF 사전 확인을 다시 수행한다', async () => {
     let preflightCount = 0;
     server.use(
-      http.head('/api/reports/1/pdf/storage-key', () => {
+      http.get('/api/reports/1/pdf/storage-key', () => {
         preflightCount += 1;
-        return new Response(null, {
+        return new Response('fake-pdf-binary', {
           status: 200,
           headers: { 'Content-Type': 'application/pdf' },
         });

@@ -84,6 +84,16 @@ describe('NotificationCenter', () => {
     expect(screen.getByText('미읽음 3')).toBeTruthy();
   });
 
+  // #1233 — 백엔드가 COUNSEL_REPLIED/INSPECTION_DUE payload에 description을 채우기 시작했다.
+  // extractDescription()이 그 값을 그대로 부제목으로 렌더링하는지 확인한다(목 데이터는 이미 채워둔 상태).
+  it('payload.description이 있으면 알림 부제목으로 표시한다(#1233)', async () => {
+    renderHarness();
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+
+    expect(await screen.findByText('요금제 문의')).toBeTruthy();
+    expect(screen.getByText('한강대교 북단 D-3')).toBeTruthy();
+  });
+
   it('카테고리 필터를 클릭하면 해당 카테고리 항목만 보인다', async () => {
     renderHarness();
     fireEvent.click(screen.getByRole('button', { name: '벨' }));

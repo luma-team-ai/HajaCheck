@@ -139,7 +139,9 @@ export function FacilityListPage() {
       <div className="flex items-center justify-between">
         <h1 className="m-0 flex items-center gap-2 text-xl font-bold text-heading">
           시설물 관리
-          {facilities && <span className="text-base font-normal text-text-muted">{facilities.length}</span>}
+          {facilities && (
+            <span className="text-base font-normal text-text-muted">전체 {facilities.length}개</span>
+          )}
         </h1>
         <div className="flex items-center gap-2">
           <Button variant="primary" onClick={handleOpenModal}>

@@ -61,4 +61,10 @@ export const counselApi = {
     api.get<CounselTicketNoteResponse>(`/counsel/tickets/${ticketId}/note`),
   saveNote: (ticketId: number, request: CounselTicketNoteUpdateRequest) =>
     api.put<CounselTicketNoteResponse>(`/counsel/tickets/${ticketId}/note`, request),
+  // 플랫폼 관리자 상담 관리(#1168) — GET /api/counsel/tickets/admin, PLATFORM_ADMIN 전용. 접수일
+  // (createdAt) 기준 특정 날짜의 상담 티켓 전체를 조회한다(종료일 endedAt 아님 — 계획 확정 사항).
+  getAdminTicketsByDate: (date: string, page = 0, size = 20) =>
+    api.get<PageResponse<CounselTicketSummaryResponse>>('/counsel/tickets/admin', {
+      params: { date, page, size },
+    }),
 };

@@ -59,8 +59,20 @@ class MembershipServiceTest {
     private UserPlanRepository userPlanRepository;
     @Mock
     private UsageCounterRepository usageCounterRepository;
+    @Mock
+    private PaymentGraceService paymentGraceService;
     @InjectMocks
     private MembershipService service;
+
+    /**
+     * 미결제 유예(#1177) 판정 — 이 테스트들은 유예와 무관하므로 <b>항상 구독 요금제 그대로</b>를
+     * 돌려주도록 스텁한다(유예가 아닐 때의 실제 동작과 같다).
+     */
+    @BeforeEach
+    void stubNoPaymentGrace() {
+        when(paymentGraceService.resolveEffectivePlan(any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+    }
 
     private static final Long USER_ID = 1L;
     private static final Long COMPANY_ID = 10L;

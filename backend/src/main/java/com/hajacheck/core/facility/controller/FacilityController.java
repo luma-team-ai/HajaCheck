@@ -148,8 +148,9 @@ public class FacilityController {
     public ResponseEntity<ApiResponse<FacilityComparisonResponse>> compare(
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long id,
-            @RequestParam Integer before,
-            @RequestParam Integer after) {
+            // #1157 — 생략 시 서비스가 이 시설물의 실제 최근 2개 회차로 자동 대체한다.
+            @RequestParam(required = false) Integer before,
+            @RequestParam(required = false) Integer after) {
         return ResponseEntity.ok(ApiResponse.ok(facilityComparisonService.compare(
                 loginUser.getUserId(), loginUser.getCompanyId(), id, before, after)));
     }

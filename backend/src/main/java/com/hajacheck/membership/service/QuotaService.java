@@ -61,6 +61,8 @@ public class QuotaService {
     private final PlanRepository planRepository;
     private final UsageCounterRepository usageCounterRepository;
     private final PlanProvisioningService planProvisioningService;
+    // 미결제 유예(#1177) 판정 — 유예 중이면 한도를 FREE 로 낮춘다(resolveEffectivePlan).
+    private final PaymentGraceService paymentGraceService;
     private final FacilityRepository facilityRepository;
     private final UserRepository userRepository;
     // SchedulingConfig 가 KST 로 고정해 제공하는 빈 — 서버 기본 타임존에 흔들리지 않게 하고,
@@ -79,7 +81,7 @@ public class QuotaService {
     @Transactional(propagation = Propagation.MANDATORY)
     public void reserveFacilitySlot(Long userId, Long companyId) {
         UserPlan userPlan = resolveLivePlan(userId, companyId);
-        Plan plan = findPlan(userPlan.getPlanId());
+        Plan plan = resolveEffectivePlan(userPlan);
         LocalDate period = currentPeriod();
         long usageCounterId = lockPeriodRow(userPlan, period, companyId);
 
@@ -124,7 +126,7 @@ public class QuotaService {
     @Transactional(propagation = Propagation.MANDATORY)
     public void reserveSeat(Long companyId) {
         UserPlan userPlan = resolveLivePlan(null, companyId);
-        Plan plan = findPlan(userPlan.getPlanId());
+        Plan plan = resolveEffectivePlan(userPlan);
         LocalDate period = currentPeriod();
         long usageCounterId = lockPeriodRow(userPlan, period, companyId);
 
@@ -154,7 +156,7 @@ public class QuotaService {
      */
     public boolean hasAvailableSeat(Long companyId) {
         UserPlan userPlan = resolveLivePlan(null, companyId);
-        Plan plan = findPlan(userPlan.getPlanId());
+        Plan plan = resolveEffectivePlan(userPlan);
         Integer maxSeats = plan.getMaxSeats();
         if (maxSeats == null) {
             // null = 무제한(Plan javadoc, reserveSeat과 동일 관례).
@@ -182,7 +184,7 @@ public class QuotaService {
             return false;
         }
         Integer maxFacilities = findLivePlan(null, companyId)
-                .map(userPlan -> findPlan(userPlan.getPlanId()).getMaxFacilities())
+                .map(userPlan -> resolveEffectivePlan(userPlan).getMaxFacilities())
                 .orElse(null);
         if (maxFacilities == null) {
             // 무제한이거나 활성 구독 없음 — 어느 쪽이든 읽기 전용으로 떨어지는 시설물이 없다.
@@ -206,7 +208,7 @@ public class QuotaService {
             return AnalysisQuotaCharge.none();
         }
         UserPlan userPlan = resolveLivePlan(userId, companyId);
-        Plan plan = findPlan(userPlan.getPlanId());
+        Plan plan = resolveEffectivePlan(userPlan);
         LocalDate period = currentPeriod();
         ensurePeriodRow(userPlan, period, companyId);
 
@@ -347,6 +349,27 @@ public class QuotaService {
     private Plan findPlan(Long planId) {
         return planRepository.findById(planId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
+    }
+
+    /**
+     * 이 구독에 <b>실제로 적용할</b> 요금제 — 미결제 유예 중이면 FREE, 아니면 구독 요금제 그대로(#1177).
+     *
+     * <p><b>왜 필요한가</b>: 유료→유료 하향(C안)은 적용 시점이 무인 배치라 결제를 받을 수 없어 대상
+     * 요금제를 <b>결제 없이</b> 발급하고 유예 안에 결제받는다. 그 유예 동안 대상 요금제의 한도를 그대로
+     * 주면 <b>예약을 반복하는 것만으로 유예기간만큼 상위 한도를 무료로</b> 쓸 수 있다 — #1105 보안 P1
+     * (무결제 유료 발급)과 같은 부류의 우회로다. 유예 중 FREE 한도를 적용해 "무결제로 얻는 유료 혜택 0"을
+     * 만든다.
+     *
+     * <p><b>⚠️ 이 클래스가 요금제를 해석하는 모든 지점이 이 메서드를 거쳐야 한다</b> — 한 곳이라도
+     * {@code findPlan(userPlan.getPlanId())} 로 남으면 그 자원(시설물·좌석·월 분석)만 유예 중에도 유료
+     * 한도로 열려 구멍이 된다. 이 클래스를 <b>거치지 않는</b> 엔타이틀먼트(상담사 연결·AI 부가기능)는
+     * 각 서비스가 같은 방식으로 {@code PaymentGraceService#resolveEffectivePlan} 을 경유한다.
+     *
+     * <p>비용: 판정은 이미 로딩된 {@code user_plans.payment_pending_until} 한 컬럼이라 <b>추가 조회가
+     * 없다</b>(유예 중일 때만 FREE 요금제를 한 번 더 읽는다).
+     */
+    private Plan resolveEffectivePlan(UserPlan userPlan) {
+        return paymentGraceService.resolveEffectivePlan(userPlan, findPlan(userPlan.getPlanId()));
     }
 
     private LocalDate currentPeriod() {

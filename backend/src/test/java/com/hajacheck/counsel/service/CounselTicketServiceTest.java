@@ -38,6 +38,7 @@ import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
+import com.hajacheck.membership.service.PaymentGraceService;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -92,6 +93,8 @@ class CounselTicketServiceTest {
     private CompanyMembershipRepository companyMembershipRepository;
     @Mock
     private SimpMessagingTemplate messagingTemplate;
+    @Mock
+    private PaymentGraceService paymentGraceService;
 
     private CounselTicketService service;
 
@@ -99,7 +102,17 @@ class CounselTicketServiceTest {
     void setUp() {
         service = new CounselTicketService(ticketRepository, chatSessionRepository, chatMessageRepository,
                 botScenarioRepository, counselorSkillRepository, userRepository, userPlanRepository, planRepository,
-                companyMembershipRepository, messagingTemplate);
+                paymentGraceService, companyMembershipRepository, messagingTemplate);
+    }
+
+    /**
+     * 미결제 유예(#1177) — 이 테스트들은 유예와 무관하므로 <b>항상 구독 요금제 그대로</b>를 돌려주도록
+     * 스텁한다(유예가 아닐 때의 실제 동작과 같다). 유예 중 차단은 별도 회귀 테스트가 검증한다.
+     */
+    @BeforeEach
+    void stubNoPaymentGrace() {
+        when(paymentGraceService.resolveEffectivePlan(any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
     }
 
     // ── createTicket: 플랜 게이팅 + 시나리오 스냅샷 ──
@@ -164,6 +177,25 @@ class CounselTicketServiceTest {
     @Test
     void 티켓생성_상담원접근불가플랜_403_COUNSEL_PLAN_REQUIRED() {
         givenCounselorAccess(false);
+
+        assertThatThrownBy(() -> service.createTicket(USER_ID, SCENARIO_LEAF_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.COUNSEL_PLAN_REQUIRED);
+        verify(botScenarioRepository, never()).findById(any());
+    }
+
+    @Test
+    void 티켓생성_미결제유예중이면_403_COUNSEL_PLAN_REQUIRED() {
+        // #1177 리뷰 P1 회귀선 — 유료→유료 하향은 결제 없이 대상 요금제를 발급한다. 그 유예 구독의
+        // plan_id 는 STANDARD 라 이 게이트가 원본 요금제를 그대로 읽으면 <b>상담사 연결을 무상으로</b>
+        // 쓸 수 있다. QuotaService 가 낮추는 한도 3종과 달리 이 판정은 QuotaService 를 거치지 않으므로,
+        // 여기서 PaymentGraceService 를 경유하지 않으면 막을 방법이 없다.
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser()));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan()));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(plan(true)));
+        // 유예 중이면 엔타이틀먼트가 FREE 로 낮아진다(hasCounselorAccess=false).
+        when(paymentGraceService.resolveEffectivePlan(any(), any())).thenReturn(plan(false));
 
         assertThatThrownBy(() -> service.createTicket(USER_ID, SCENARIO_LEAF_ID))
                 .isInstanceOf(BusinessException.class)

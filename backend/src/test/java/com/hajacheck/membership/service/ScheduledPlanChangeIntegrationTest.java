@@ -3,6 +3,8 @@ package com.hajacheck.membership.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.hajacheck.admin.dto.AdminPlanQuotaResponse;
+import com.hajacheck.admin.dto.AdminPlanResponse;
 import com.hajacheck.admin.dto.AdminScheduledPlanChangeResponse;
 import com.hajacheck.admin.service.AdminPlanService;
 import com.hajacheck.auth.entity.Company;
@@ -23,6 +25,7 @@ import com.hajacheck.membership.entity.ScheduledPlanChangeStatus;
 import com.hajacheck.membership.entity.UsageCounter;
 import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
+import com.hajacheck.membership.dto.MyPlanResponse;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.ScheduledPlanChangeRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
@@ -34,6 +37,7 @@ import com.hajacheck.notification.repository.NotificationRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -98,6 +102,11 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
     private UsageCounterRepository usageCounterRepository;
     @Autowired
     private NotificationRepository notificationRepository;
+    // #1177 미결제 유예 — 판정 단일 소스와 마이페이지 노출, 정산 결제 픽스처.
+    @Autowired
+    private PaymentGraceService paymentGraceService;
+    @Autowired
+    private MembershipService membershipService;
     @Autowired
     private JdbcTemplate jdbcTemplate;
     @PersistenceContext
@@ -109,18 +118,21 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
     private final List<Long> createdUserIds = new ArrayList<>();
     private int originalMaxPerRun;
     private boolean originalEnabled;
+    private boolean originalPaidTargetEnabled;
 
     @BeforeEach
     void captureProperties() {
         // 싱글턴 빈이라 테스트가 바꾼 값이 다음 테스트로 새지 않게 원복한다.
         originalMaxPerRun = scheduledPlanChangeProperties.getMaxPerRun();
         originalEnabled = scheduledPlanChangeProperties.isEnabled();
+        originalPaidTargetEnabled = scheduledPlanChangeProperties.isPaidTargetEnabled();
     }
 
     @AfterEach
     void tearDown() {
         scheduledPlanChangeProperties.setMaxPerRun(originalMaxPerRun);
         scheduledPlanChangeProperties.setEnabled(originalEnabled);
+        scheduledPlanChangeProperties.setPaidTargetEnabled(originalPaidTargetEnabled);
 
         createdUserIds.forEach(userId -> notificationRepository
                 .findAllByUserIdOrderByCreatedAtDescIdDesc(userId, PageRequest.of(0, 100))
@@ -225,6 +237,43 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
                 periodEnd == null ? null : java.sql.Timestamp.from(periodEnd.truncatedTo(ChronoUnit.MICROS)),
                 userPlanId);
         userPlanRepository.flush();
+    }
+
+    /**
+     * 유료 대상 예약 킬 스위치를 이 테스트에서만 연다(#1177) — 기본값은 false(닫힘)라, 유료 대상 시나리오를
+     * 검증하려면 명시적으로 열어야 한다. 원복은 {@link #tearDown()} 이 한다.
+     */
+    private void allowPaidTarget() {
+        scheduledPlanChangeProperties.setPaidTargetEnabled(true);
+    }
+
+    /**
+     * 유예 마감을 과거로 당긴다(7일을 실제로 기다릴 수 없다). 불변식 ①대로
+     * {@code payment_pending_until} 과 {@code current_period_end} 를 <b>함께</b> 옮긴다 — 강등 배치는
+     * 전자로 대상을 찾고 {@code PlanExpiryWriter} 는 후자로 재검증하므로, 한쪽만 옮기면 대상으로 잡히고도
+     * 매번 스킵된다.
+     *
+     * <p>⚠️ 마이크로초 절삭은 {@link #setBillingPeriod} 와 같은 이유다(PG 는 마이크로초 반올림, 리눅스
+     * {@code Instant.now()} 는 나노초 — 로컬 macOS 에서는 재현되지 않는 CI 전용 실패가 난다).
+     */
+    private void expireGrace(Long userPlanId, Instant deadline) {
+        java.sql.Timestamp value = java.sql.Timestamp.from(deadline.truncatedTo(ChronoUnit.MICROS));
+        jdbcTemplate.update(
+                "update user_plans set payment_pending_until = ?, current_period_end = ? where id = ?",
+                value, value, userPlanId);
+        userPlanRepository.flush();
+        entityManager.clear();
+    }
+
+    /**
+     * 요금제 가격을 직접 바꾼다(플랫폼 관리자 "플랜 정책 설정"과 같은 결과, #624). 시드 행을 건드리므로
+     * 호출한 테스트가 <b>반드시 원복</b>해야 한다.
+     */
+    private void setPlanPrice(PlanName planName, Integer priceMonthly) {
+        jdbcTemplate.update("update plans set price_monthly = ? where name = ?::plan_name_type",
+                priceMonthly, planName.name());
+        planRepository.flush();
+        entityManager.clear();
     }
 
     private UserPlan activeCompanyPlan(Long companyId) {
@@ -704,18 +753,20 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
 
     // ── 보안 리뷰 P1 / P2 회귀선 ────────────────────────────────────────
 
-    @Test
-    @DisplayName("유료 요금제는 예약 대상이 될 수 없다 — 청구되지 않는 유료 1개월이 발급되는 것을 막는다")
-    void 유료대상은_예약할_수_없다() {
-        User owner = newUser("예약하향유료대상", Role.ADMIN);
-        Company company = newApprovedCompany(owner);
-        Instant now = Instant.now();
-        UserPlan current = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
-                now.minusSeconds(86_400L), now.plusSeconds(10 * 24 * 3600L));
+    // ── #1177 유료→유료 하향(C안 "유예 후 강등") ───────────────────────────────
 
-        // ENTERPRISE → STANDARD 는 정상적인 "하향"이지만, 실행 시 결제 없이 새 유료 주기가 열린다.
-        // 빌링키가 없어 그 주기는 어떤 경로로도 청구되지 않으므로 티어를 한 단계씩 내리는 것만으로
-        // 무상 1개월을 반복 취득할 수 있다(#988이 막은 무결제 승격과 같은 성격의 우회로).
+    @Test
+    @DisplayName("킬 스위치가 꺼져 있으면 유료 대상 예약은 기존과 동일하게 403으로 거절된다 — 프론트 안내 UI 공백 보호")
+    void 킬스위치가_꺼져있으면_유료대상_예약을_거절한다() {
+        User owner = newUser("유예킬스위치", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        UserPlan current = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minus(31, ChronoUnit.DAYS), now.minusSeconds(60));
+        // 기본값(false)을 그대로 쓴다 — 프론트에 결제 마감 안내·유예 배너가 붙기 전까지는 API 로
+        // 진입해도 안내 없이 좌석 정지·FREE 강등을 맞지 않아야 한다.
+        scheduledPlanChangeProperties.setPaidTargetEnabled(false);
+
         assertThatThrownBy(() -> adminPlanService.scheduleChange(
                 owner.getId(), PlanName.STANDARD, true, List.of()))
                 .isInstanceOf(BusinessException.class)
@@ -724,6 +775,280 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
 
         assertThat(scheduledPlanChangeRepository.findFirstByUserPlanIdAndStatus(
                 current.getId(), ScheduledPlanChangeStatus.PENDING)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("스위치를 되돌리면 이미 만들어진 유료 대상 PENDING 예약도 실행되지 않고 FAILED 로 끝난다(+실패 알림)")
+    void 킬스위치를_되돌리면_기존_PENDING도_실행되지_않는다() {
+        User owner = newUser("유예킬스위치실행", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        UserPlan current = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minus(31, ChronoUnit.DAYS), now.minusSeconds(60));
+
+        // 스위치가 열린 동안 예약이 생성됐다(예약은 최대 한 달 보관된다).
+        allowPaidTarget();
+        AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
+                owner.getId(), PlanName.STANDARD, true, List.of());
+
+        // 프론트 문제로 스위치를 되돌린다 — 생성 가드만 있으면 이 예약은 그대로 실행돼 안내 없이
+        // 좌석 정지·FREE 강등이 일어난다(스위치의 존재 이유가 실행 시점에 성립하지 않는다).
+        scheduledPlanChangeProperties.setPaidTargetEnabled(false);
+
+        giveSchedulerHeadroom();
+        scheduledPlanChangeScheduler.applyDueScheduledChanges();
+
+        assertThat(reload(scheduled.id()).getStatus())
+                .as("실행 시점 가드가 없으면 APPLIED 가 된다 — 스위치를 내려도 못 막는다")
+                .isEqualTo(ScheduledPlanChangeStatus.FAILED);
+        assertThat(reload(scheduled.id()).getFailureReason())
+                .contains("PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED");
+        // 상위 요금제가 유지되므로 아무도 잘못 정지되지 않는다.
+        assertThat(userPlanRepository.findById(current.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserPlanStatus.ACTIVE);
+        assertThat(activeCompanyPlan(company.getId()).getPlanId())
+                .isEqualTo(plan(PlanName.ENTERPRISE).getId());
+        assertThat(activeCompanyPlan(company.getId()).isPaymentPending()).isFalse();
+        // FAILED 는 종료 상태라 재시도가 없다 — 알리지 않으면 신청자에게는 예약이 조용히 사라진 것이 된다.
+        assertThat(notificationsOf(owner.getId(), NotificationType.PLAN_DOWNGRADE_FAILED)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("유료 대상 예약이 적용되면 미결제 유예로 발급된다 — 요금제는 STANDARD, 표식·마감이 서고, 엔타이틀먼트는 FREE")
+    void 유료대상_적용시_미결제유예로_발급된다() {
+        User owner = newUser("유예진입", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minus(31, ChronoUnit.DAYS), now.minusSeconds(60));
+        allowPaidTarget();
+
+        AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
+                owner.getId(), PlanName.STANDARD, true, List.of());
+
+        ScheduledPlanChangeResult result = scheduledPlanChangeWriter.applyDueChange(scheduled.id(), now);
+
+        assertThat(result.applied()).isTrue();
+        assertThat(result.paymentPending())
+                .as("유료 대상은 결제 없이 발급되므로 반드시 유예로 표시돼야 한다")
+                .isTrue();
+
+        UserPlan renewed = activeCompanyPlan(company.getId());
+        assertThat(renewed.getPlanId()).isEqualTo(plan(PlanName.STANDARD).getId());
+        assertThat(renewed.isPaymentPending())
+                .as("표식이 없으면 엔타이틀먼트도 유료로 열리고 만료 강등 대상도 되지 않는다 "
+                        + "— 청구되지 않는 유료 구독이 영구히 남는다")
+                .isTrue();
+        Instant expectedDeadline = now.atZone(KST)
+                .plusDays(scheduledPlanChangeProperties.getPaymentGraceDays()).toInstant();
+        assertThat(renewed.getPaymentPendingUntil()).isEqualTo(expectedDeadline);
+        assertThat(renewed.getCurrentPeriodEnd())
+                .as("불변식 ① — 유예 만료 강등이 기존 만료 강등 경로(current_period_end 기준)를 그대로 "
+                        + "재사용하므로 두 값이 같아야 한다")
+                .isEqualTo(expectedDeadline);
+
+        assertThat(paymentGraceService.isPaymentPending(renewed)).isTrue();
+        assertThat(paymentGraceService.resolveEffectivePlan(renewed, plan(PlanName.STANDARD)).getName())
+                .as("유예 중 엔타이틀먼트는 FREE — 유료 혜택을 주면 예약 반복만으로 무상 사용이 가능해진다")
+                .isEqualTo(PlanName.FREE);
+        assertThat(result.paymentPendingUntil()).isEqualTo(expectedDeadline);
+    }
+
+    @Test
+    @DisplayName("유예 중에는 마이페이지·관리자 콘솔 모두 FREE 한도와 결제 마감을 보여준다")
+    void 유예중_조회화면은_FREE한도와_결제마감을_보여준다() {
+        User owner = newUser("유예조회", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minus(31, ChronoUnit.DAYS), now.minusSeconds(60));
+        allowPaidTarget();
+        AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
+                owner.getId(), PlanName.STANDARD, true, List.of());
+        scheduledPlanChangeWriter.applyDueChange(scheduled.id(), now);
+
+        MyPlanResponse myPlan = membershipService.getMyPlan(owner.getId());
+
+        assertThat(myPlan.plan().name())
+                .as("구독한 요금제 이름은 그대로 STANDARD 다 — 결제하면 그 요금제가 된다")
+                .isEqualTo(PlanName.STANDARD.name());
+        assertThat(myPlan.plan().paymentPendingUntil()).isNotNull();
+        assertThat(myPlan.limits().maxSeats())
+                .as("화면 숫자는 서버가 실제로 강제하는 기준(FREE)과 같아야 한다")
+                .isEqualTo(plan(PlanName.FREE).getMaxSeats());
+
+        // ⚠️ 하향을 신청한 바로 그 화면이다 — 여기서 구독 요금제 한도를 보여주면 owner 는 좌석이
+        // 정지된 화면에서 "STANDARD, 좌석 5"를 보게 되고 무엇이 왜 막혔는지 알 수 없다.
+        AdminPlanResponse adminPlan = adminPlanService.getCurrentPlan(owner.getId());
+        assertThat(adminPlan.plan().name()).isEqualTo(PlanName.STANDARD.name());
+        assertThat(adminPlan.paymentPendingUntil()).isNotNull();
+        assertThat(adminPlan.plan().maxSeats()).isEqualTo(plan(PlanName.FREE).getMaxSeats());
+        assertThat(adminPlan.plan().hasCounselorAccess())
+                .as("상담사 연결·AI 부가기능도 FREE 기준이어야 한다 — 한도 3종만 낮추면 유료 기능이 열린다")
+                .isEqualTo(plan(PlanName.FREE).isHasCounselorAccess());
+        assertThat(adminPlan.plan().hasAiAddon()).isEqualTo(plan(PlanName.FREE).isHasAiAddon());
+
+        // ⚠️ 좌석 화면(GET /api/me/seats)도 같은 기준이어야 한다(리뷰 P2-A) — 여기만 구독 요금제를 쓰면
+        // 화면은 "1/5"인데 실제 초대는 QuotaService(FREE=1석)에서 막힌다.
+        assertThat(membershipService.getSeats(owner.getId()).limit())
+                .isEqualTo(plan(PlanName.FREE).getMaxSeats());
+
+        // ⚠️ 쿼터 사용 현황(GET /api/admin/plan/quota)도 같은 부류다(2차 검증 P2) — 한도가 구독 요금제
+        // 기준이면 남은 양도 사용률 퍼센트도 실제 차단 기준과 어긋난다.
+        AdminPlanQuotaResponse quota = adminPlanService.getPlanQuota(owner.getId(), 1, 20, null);
+        assertThat(quota.stats().companyPlan())
+                .as("요금제 이름은 구독 요금제 그대로 — 정체성은 실효 요금제로 바꾸지 않는다")
+                .isEqualTo(PlanName.STANDARD.name());
+        assertThat(quota.content()).isNotEmpty();
+        assertThat(quota.content().get(0).quotaLimit())
+                .as("한도는 실효 요금제(FREE) 기준이어야 실제 차단(QuotaService)과 일치한다")
+                .isEqualTo(plan(PlanName.FREE).getMaxMonthlyAnalyses());
+        assertThat(quota.content().get(0).plan()).isEqualTo(PlanName.STANDARD.name());
+    }
+
+    @Test
+    @DisplayName("유예 중 쿼터 사용률은 FREE 한도 기준으로 계산된다 — 같은 사용량이라도 퍼센트가 달라진다")
+    void 유예중_쿼터사용률은_FREE한도_기준이다() {
+        User owner = newUser("유예사용률", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minus(31, ChronoUnit.DAYS), now.minusSeconds(60));
+        allowPaidTarget();
+        AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
+                owner.getId(), PlanName.STANDARD, true, List.of());
+        scheduledPlanChangeWriter.applyDueChange(scheduled.id(), now);
+        UserPlan grace = activeCompanyPlan(company.getId());
+
+        // FREE 한도의 절반을 소비한다 — STANDARD 기준이면 훨씬 낮은 퍼센트가 나온다.
+        // ⚠️ 이 테스트 클래스는 트랜잭션을 열지 않으므로(writer 가 REQUIRES_NEW 라 그렇다) 집계 행은
+        // JPA 벌크 쿼리가 아니라 jdbcTemplate 으로 직접 만든다.
+        int freeLimit = plan(PlanName.FREE).getMaxMonthlyAnalyses();
+        jdbcTemplate.update(
+                "insert into usage_counters (user_plan_id, period, analyzed_image_count) values (?, ?, ?)",
+                grace.getId(), java.sql.Date.valueOf(currentPeriod()), freeLimit / 2);
+
+        AdminPlanQuotaResponse quota = adminPlanService.getPlanQuota(owner.getId(), 1, 20, null);
+
+        assertThat(quota.stats().totalQuotaUsagePercent())
+                .as("구독 요금제(STANDARD) 한도로 계산하면 퍼센트가 크게 낮아져 사용자가 여유가 있다고 오인한다")
+                .isEqualTo(50);
+    }
+
+    @Test
+    @DisplayName("유예 중 구독에는 새 하향 예약을 걸 수 없다 — 유예가 유예를 낳는 사슬 차단")
+    void 유예중에는_새_예약을_걸_수_없다() {
+        User owner = newUser("유예사슬", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minus(31, ChronoUnit.DAYS), now.minusSeconds(60));
+        allowPaidTarget();
+        AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
+                owner.getId(), PlanName.STANDARD, true, List.of());
+        scheduledPlanChangeWriter.applyDueChange(scheduled.id(), now);
+
+        assertThatThrownBy(() -> adminPlanService.scheduleChange(
+                owner.getId(), PlanName.FREE, true, List.of()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_SCHEDULE_PAYMENT_PENDING));
+    }
+
+    @Test
+    @DisplayName("관리자 즉시 변경으로 다른 유료 요금제에 갈아타도 유예 마감은 승계된다 — 유예 세탁 차단")
+    void 즉시변경으로_유료요금제를_갈아타도_유예가_승계된다() {
+        User owner = newUser("유예세탁", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minus(31, ChronoUnit.DAYS), now.minusSeconds(60));
+        allowPaidTarget();
+        AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
+                owner.getId(), PlanName.STANDARD, true, List.of());
+        scheduledPlanChangeWriter.applyDueChange(scheduled.id(), now);
+        Instant deadline = activeCompanyPlan(company.getId()).getPaymentPendingUntil();
+        assertThat(deadline).isNotNull();
+
+        // STANDARD(유예) → 더 싼 유료 요금제로 즉시 변경. 카탈로그상 지금은 ENTERPRISE·STANDARD·FREE 뿐이라
+        // FREE 를 제외한 하향 대상이 없으므로, 플랫폼 관리자가 가격 정책을 바꾼 상황을 재현한다(#624).
+        Integer originalFreePrice = plan(PlanName.FREE).getPriceMonthly() == null
+                ? null : plan(PlanName.FREE).getPriceMonthly().intValue();
+        setPlanPrice(PlanName.FREE, 1000);
+        try {
+            adminPlanService.changePlan(owner.getId(), PlanName.FREE, true, List.of());
+
+            UserPlan switched = activeCompanyPlan(company.getId());
+            assertThat(switched.getPlanId()).isEqualTo(plan(PlanName.FREE).getId());
+            assertThat(switched.getPaymentPendingUntil())
+                    .as("승계하지 않으면 유료 요금제를 갈아타는 것만으로 표식이 지워져(유예 세탁) "
+                            + "청구 없는 유료 구독이 무기한 유지된다")
+                    .isEqualTo(deadline);
+        } finally {
+            setPlanPrice(PlanName.FREE, originalFreePrice);
+        }
+    }
+
+    @Test
+    @DisplayName("유예가 만료되면 스케줄러 2단계가 FREE 로 강등하고 PLAN_EXPIRED 알림을 1건 발행한다")
+    void 유예만료시_FREE로_강등된다() {
+        User owner = newUser("유예만료", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minus(31, ChronoUnit.DAYS), now.minusSeconds(60));
+        allowPaidTarget();
+        AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
+                owner.getId(), PlanName.STANDARD, true, List.of());
+        scheduledPlanChangeWriter.applyDueChange(scheduled.id(), now);
+        UserPlan grace = activeCompanyPlan(company.getId());
+
+        // 유예 마감을 과거로 당긴다(7일을 기다릴 수 없다). 불변식 ①대로 두 컬럼을 함께 옮긴다.
+        expireGrace(grace.getId(), now.minusSeconds(1));
+
+        giveSchedulerHeadroom();
+        scheduledPlanChangeScheduler.applyDueScheduledChanges();
+
+        assertThat(userPlanRepository.findById(grace.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserPlanStatus.EXPIRED);
+        UserPlan downgraded = activeCompanyPlan(company.getId());
+        assertThat(downgraded.getPlanId()).isEqualTo(plan(PlanName.FREE).getId());
+        assertThat(downgraded.getPaymentPendingUntil())
+                .as("강등이 완료됐으므로 표식이 남으면 안 된다 — 남으면 FREE 구독이 영원히 유예로 판정된다")
+                .isNull();
+        assertThat(downgraded.getCurrentPeriodEnd())
+                .as("FREE 는 무기한이어야 한다 — 남아 있으면 다음 회차에 다시 강등 대상이 된다")
+                .isNull();
+        assertThat(notificationsOf(owner.getId(), NotificationType.PLAN_EXPIRED)).hasSize(1);
+
+        scheduledPlanChangeScheduler.applyDueScheduledChanges();
+        assertThat(notificationsOf(owner.getId(), NotificationType.PLAN_EXPIRED))
+                .as("재실행에도 대상이 아니므로 알림이 중복되면 안 된다")
+                .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("표식이 없는 구독은 주기가 지나도 유예 강등 대상이 아니다 — 레거시 무결제 유료 구독 오인 방지")
+    void 표식없는_구독은_유예강등_대상이_아니다() {
+        User owner = newUser("레거시무결제", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        // 모의 결제(#711)·payments 도입(V20) 이전에 만들어진 유료 구독 — 결제 이력이 없고 주기도 지났다.
+        // 파생 판정(1차 구현)이었다면 "PAID 없는 유료 구독"으로 오인돼 강등됐을 대상이다.
+        UserPlan legacy = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minus(31, ChronoUnit.DAYS), now.minusSeconds(1));
+
+        assertThat(legacy.isPaymentPending()).isFalse();
+        assertThat(paymentGraceService.isPaymentPending(legacy)).isFalse();
+
+        giveSchedulerHeadroom();
+        scheduledPlanChangeScheduler.applyDueScheduledChanges();
+
+        assertThat(userPlanRepository.findById(legacy.getId()).orElseThrow().getStatus())
+                .as("만료 강등(#1145)은 별도 배치(enabled=false)의 책임이다 — 유예 강등이 대신 끊으면 안 된다")
+                .isEqualTo(UserPlanStatus.ACTIVE);
+        assertThat(activeCompanyPlan(company.getId()).getPlanId())
+                .isEqualTo(plan(PlanName.ENTERPRISE).getId());
     }
 
     @Test

@@ -27,6 +27,7 @@ import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.entity.FacilityInitialGrade;
 import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.repository.FacilityDefectCountProjection;
 import com.hajacheck.core.defect.repository.FacilityGradeCountProjection;
 import com.hajacheck.core.defect.repository.FacilityLatestDefectProjection;
 import com.hajacheck.core.facility.repository.FacilityRepository;
@@ -230,6 +231,94 @@ class FacilityServiceTest {
                 return defectId;
             }
         };
+    }
+
+    // ── 시설물 카드 하자건수 배지(HAJA-515/#1075) ──
+
+    private static FacilityDefectCountProjection countProjection(Long facilityId, long cnt) {
+        return new FacilityDefectCountProjection() {
+            public Long getFacilityId() {
+                return facilityId;
+            }
+
+            public long getCnt() {
+                return cnt;
+            }
+        };
+    }
+
+    @Test
+    void list_하자있는시설_하자건수채워서반환() {
+        Facility facility = facilityWithId(10L, "강남 오피스타워", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        when(defectRepository.countGroupByFacilityIds(eq(List.of(10L)), eq(OWNER_ID)))
+                .thenReturn(List.of(countProjection(10L, 3L)));
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).defectCount()).isEqualTo(3L);
+    }
+
+    // 하자가 0건인 시설물은 group by 결과에 로우 자체가 없다(count(d)를 만들 대상 행이 없음) — 서비스가
+    // getOrDefault로 0을 명시 채우는지, 즉 defectCount가 null이 아니라 정말 0인지 고정한다.
+    @Test
+    void list_하자없는시설_하자건수는0() {
+        Facility facility = facilityWithId(10L, "강남 오피스타워", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        when(defectRepository.countGroupByFacilityIds(eq(List.of(10L)), eq(OWNER_ID)))
+                .thenReturn(List.of());
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).defectCount()).isEqualTo(0L);
+    }
+
+    // code-reviewer P2 선례(latestDefectId/썸네일 교차오염 테스트)와 동일 이유 — 시설물 1건짜리 테스트만으로는
+    // facilityId별 Map 조립이 실제로 동작하는지(다른 시설물의 건수가 섞이지 않는지) 못 잡는다. 이 테스트가
+    // countGroupByFacilityIds를 시설물 수만큼 반복 호출하지 않고 배치(합쳐진 facilityIds) 1회로만
+    // 호출하는지도 함께 고정한다 — 개별 호출이었다면 이 스텁(List.of(10L, 20L) 키)이 매칭되지 않아 실패한다.
+    @Test
+    void list_시설물여러건_각시설물별로하자건수가섞이지않는다() {
+        Facility facilityA = facilityWithId(10L, "강남 오피스타워", null, null, null);
+        Facility facilityB = facilityWithId(20L, "한강대교 북단", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facilityA, facilityB));
+        when(defectRepository.countGroupByFacilityIds(eq(List.of(10L, 20L)), eq(OWNER_ID)))
+                .thenReturn(List.of(countProjection(10L, 5L), countProjection(20L, 2L)));
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).id()).isEqualTo(10L);
+        assertThat(result.get(0).defectCount()).isEqualTo(5L);
+        assertThat(result.get(1).id()).isEqualTo(20L);
+        assertThat(result.get(1).defectCount()).isEqualTo(2L);
+        verify(defectRepository, times(1)).countGroupByFacilityIds(eq(List.of(10L, 20L)), eq(OWNER_ID));
+    }
+
+    @Test
+    void get_하자있는시설_하자건수채워서반환() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(defectRepository.countGroupByFacilityIds(eq(List.of(10L)), eq(OWNER_ID)))
+                .thenReturn(List.of(countProjection(10L, 4L)));
+
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
+
+        assertThat(response.defectCount()).isEqualTo(4L);
+    }
+
+    @Test
+    void get_하자없는시설_하자건수는0() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(defectRepository.countGroupByFacilityIds(eq(List.of(10L)), eq(OWNER_ID)))
+                .thenReturn(List.of());
+
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
+
+        assertThat(response.defectCount()).isEqualTo(0L);
     }
 
     // ── 시설물 목록/상세 대표 사진 썸네일(HAJA-367/#670) ──

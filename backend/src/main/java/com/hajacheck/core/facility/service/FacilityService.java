@@ -7,6 +7,7 @@ import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.auth.support.FileStorageService;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.repository.FacilityDefectCountProjection;
 import com.hajacheck.core.defect.repository.FacilityGradeCountProjection;
 import com.hajacheck.core.defect.repository.FacilityLatestDefectProjection;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
@@ -135,6 +136,15 @@ public class FacilityService {
 
         FacilityDefectSummary defectSummary = summarizeFacilityDefects(latestInspections);
 
+        // 시설물 카드 하자건수 배지(HAJA-515/#1075) — 시설물별 findLatestIdsByFacility 반복 호출을 피하는
+        // 것과 동일한 이유로 배치 쿼리 1회. 하자가 0건인 시설물은 결과에 로우 자체가 없으므로
+        // getOrDefault(id, 0L)로 명시적으로 0을 채운다(defectCount는 non-null 필드).
+        Map<Long, Long> defectCountByFacilityId =
+                defectRepository.countGroupByFacilityIds(facilityIds, companyId).stream()
+                        .collect(Collectors.toMap(
+                                FacilityDefectCountProjection::getFacilityId,
+                                FacilityDefectCountProjection::getCnt));
+
         return facilities.stream()
                 .map(facility -> FacilityResponse.from(
                         facility,
@@ -143,7 +153,8 @@ public class FacilityService {
                         lastInspectedByFacilityId.get(facility.getId()),
                         defectSummary.highestGradeByFacilityId().get(facility.getId()),
                         defectSummary.warningCountByFacilityId().getOrDefault(facility.getId(), 0L),
-                        defectSummary.cautionCountByFacilityId().getOrDefault(facility.getId(), 0L)))
+                        defectSummary.cautionCountByFacilityId().getOrDefault(facility.getId(), 0L),
+                        defectCountByFacilityId.getOrDefault(facility.getId(), 0L)))
                 .toList();
     }
 
@@ -166,6 +177,10 @@ public class FacilityService {
                 .map(Inspection::getInspectionDate)
                 .orElse(null);
         FacilityDefectSummary defectSummary = summarizeFacilityDefects(latestInspections);
+        long defectCount = defectRepository.countGroupByFacilityIds(List.of(facilityId), companyId).stream()
+                .findFirst()
+                .map(FacilityDefectCountProjection::getCnt)
+                .orElse(0L);
         return FacilityResponse.from(
                 facility,
                 latestDefectId,
@@ -173,7 +188,8 @@ public class FacilityService {
                 lastInspectedAt,
                 defectSummary.highestGradeByFacilityId().get(facilityId),
                 defectSummary.warningCountByFacilityId().getOrDefault(facilityId, 0L),
-                defectSummary.cautionCountByFacilityId().getOrDefault(facilityId, 0L));
+                defectSummary.cautionCountByFacilityId().getOrDefault(facilityId, 0L),
+                defectCount);
     }
 
     // MediaResponse.from()과 동일한 경로 조립 — Media.thumbnailUrl(저장키)을 그대로 반환하지 않고

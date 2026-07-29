@@ -138,6 +138,40 @@ class FacilityComparisonServiceTest {
     }
 
     @Test
+    void compare_beforeAfter둘다null_점검이력2회미만_예외() {
+        // #1157 — 회차 지정이 아예 없는데 비교할 회차 자체가 2회 미만이면 여전히 명시적으로 막아야 한다.
+        when(facilityRepository.findByIdAndCompanyId(FACILITY_ID, COMPANY_ID)).thenReturn(Optional.of(facility()));
+        when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of());
+
+        assertThatThrownBy(() -> facilityComparisonService.compare(USER_ID, COMPANY_ID, FACILITY_ID, null, null))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INSPECTION_COMPARISON_INSUFFICIENT_ROUNDS);
+    }
+
+    @Test
+    void compare_beforeAfter둘다null_최근2개회차로자동선택() {
+        // #1157 회귀 고정 — 프론트가 하드코딩된 회차(예: 7/8)로 요청해 그 회차가 없는 시설물에서
+        // INSPECTION_NOT_FOUND로 항상 실패하던 버그. before/after 생략 시 이 시설물이 실제로 가진
+        // 회차 중 가장 최근 2개(2·3회차)를 서버가 자동으로 골라 비교해야 한다.
+        Inspection round1 = inspection(10L, 1, LocalDate.of(2026, 1, 1));
+        Inspection round2 = inspection(11L, 2, LocalDate.of(2026, 2, 1));
+        Inspection round3 = inspection(12L, 3, LocalDate.of(2026, 3, 1));
+        when(facilityRepository.findByIdAndCompanyId(FACILITY_ID, COMPANY_ID)).thenReturn(Optional.of(facility()));
+        when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID)))
+                .thenReturn(List.of(round1, round2, round3));
+        when(inspectionRepository.findByFacilityIdAndRoundNo(FACILITY_ID, 2)).thenReturn(Optional.of(round2));
+        when(inspectionRepository.findByFacilityIdAndRoundNo(FACILITY_ID, 3)).thenReturn(Optional.of(round3));
+        when(defectRepository.findByInspectionIdAndNotDeleted(any())).thenReturn(List.of());
+
+        FacilityComparisonResponse response =
+                facilityComparisonService.compare(USER_ID, COMPANY_ID, FACILITY_ID, null, null);
+
+        assertThat(response.beforeCycle().cycle()).isEqualTo(2);
+        assertThat(response.afterCycle().cycle()).isEqualTo(3);
+        assertThat(response.availableCycles()).hasSize(3);
+    }
+
+    @Test
     void compare_previousDefectId없는하자_new로분류() {
         Inspection before = inspection(10L, 1, LocalDate.of(2026, 1, 1));
         Inspection after = inspection(11L, 2, LocalDate.of(2026, 2, 1));

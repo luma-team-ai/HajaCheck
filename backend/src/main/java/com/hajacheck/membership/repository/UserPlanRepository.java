@@ -97,6 +97,44 @@ public interface UserPlanRepository extends JpaRepository<UserPlan, Long> {
             @Param("lastId") Long lastId, Pageable pageable);
 
     /**
+     * <b>미결제 유예가 만료된</b> 구독 건수(#1177) — {@code ScheduledPlanChangeScheduler} 2단계가 강등을
+     * 시작하기 전에 1회 실행 상한과 대조하는 데 쓴다. 조회 조건은 {@link #findPaymentGraceExpiredIds} 와
+     * <b>정확히 같아야 한다</b>(두 판정이 갈라지면 상한 검사를 통과한 뒤 그보다 많은 행을 강등한다).
+     */
+    @Query("""
+            select count(up) from UserPlan up
+            where up.status in :statuses
+              and up.paymentPendingUntil is not null
+              and up.paymentPendingUntil < :now
+            """)
+    long countPaymentGraceExpired(@Param("statuses") Collection<UserPlanStatus> statuses,
+            @Param("now") Instant now);
+
+    /**
+     * <b>미결제 유예가 만료된</b> 구독 id(#1177) — id 오름차순 keyset 페이징
+     * ({@link #findExpiryTargetIds} 와 같은 이유로 offset 페이징을 쓰지 않는다: 강등된 구독은 EXPIRED 가
+     * 되어 결과집합에서 빠진다).
+     *
+     * <p>판정이 {@code payment_pending_until} 컬럼 하나인 이유는 {@code PaymentGraceService} javadoc
+     * 참고(파생 판정이 만들던 네 가지 결함이 명시 컬럼으로 사라진다). 부분 인덱스
+     * {@code idx_user_plans_payment_pending}(V33)이 이 조회 전용이다 — 정상 구독은 컬럼이 NULL 이라
+     * 인덱스에서 통째로 빠진다.
+     *
+     * @param statuses 엔타이틀먼트 판정과 같은 집합({@code PlanExpiryWriter#LIVE_STATUSES})이어야 한다 —
+     *                 근거는 {@link #findExpiryTargetIds} javadoc 과 동일하다.
+     */
+    @Query("""
+            select up.id from UserPlan up
+            where up.status in :statuses
+              and up.paymentPendingUntil is not null
+              and up.paymentPendingUntil < :now
+              and up.id > :lastId
+            order by up.id asc
+            """)
+    List<Long> findPaymentGraceExpiredIds(@Param("statuses") Collection<UserPlanStatus> statuses,
+            @Param("now") Instant now, @Param("lastId") Long lastId, Pageable pageable);
+
+    /**
      * 강등 대상 구독을 <b>행 잠금</b>과 함께 읽는다(#1145, 리뷰 P3-5) — {@code PlanExpiryWriter} 의
      * 트랜잭션 내 재검증 전용.
      *

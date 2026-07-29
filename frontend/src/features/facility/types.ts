@@ -37,6 +37,8 @@ export interface Facility {
   highestGrade?: FacilityInitialGrade | null;
   warningCount?: number | null;
   cautionCount?: number | null;
+  // 시설물 카드 하자건수 배지(HAJA-515/#1075) — 비삭제 하자 총건수, 하자가 없으면 0(null 아님).
+  defectCount: number;
 }
 
 export interface CreateFacilityRequest {

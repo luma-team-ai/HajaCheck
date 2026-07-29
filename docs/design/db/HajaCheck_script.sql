@@ -483,6 +483,7 @@ create table user_plans
     ended_at   timestamp with time zone,
     current_period_start timestamptz,
     current_period_end   timestamptz,
+    payment_pending_until timestamptz,
     constraint ck_user_plans_owner_xor
         check ((user_id is not null) <> (company_id is not null))
 );
@@ -507,6 +508,8 @@ comment on column user_plans.current_period_start is '현재 결제 주기 시�
 
 comment on column user_plans.current_period_end is '현재 결제 주기 종료 시각(#1104). NULL = 무기한(FREE). 결제 승인 전이 시 리셋(now~now+1개월), 관리자 플랜 변경(무결제) 시 기존 값이 승계된다.';
 
+comment on column user_plans.payment_pending_until is '미결제 유예 마감 시각(#1177). NULL = 정상 구독. NOT NULL = 유료→유료 하향(C안)으로 결제 없이 발급된 유료 구독이며, 이 시각까지 결제되지 않으면 FREE로 강등된다. 유예 중에는 티어 이름과 무관하게 FREE 엔타이틀먼트(한도 3종 + 상담사 연결·AI 부가기능)가 적용된다 — 무결제 유료 혜택 차단. 유예 중 행은 current_period_end 도 같은 값을 갖는다(유예 만료 강등이 기존 만료 강등 경로를 그대로 재사용하기 때문). 관리자 즉시 변경으로 다른 유료 요금제로 옮겨도 이 값은 승계된다(유예 세탁 방지).';
+
 alter table user_plans
     owner to postgres;
 
@@ -527,6 +530,12 @@ create unique index uq_user_plans_active_company
 comment on index uq_user_plans_active_user is '동일 사용자에게 ACTIVE 구독이 둘 이상 존재하는 것을 방지한다(중복 과금·엔타이틀먼트 혼선 차단).';
 
 comment on index uq_user_plans_active_company is '동일 회사에 ACTIVE 구독이 둘 이상 존재하는 것을 방지한다(중복 과금·엔타이틀먼트 혼선 차단).';
+
+create index idx_user_plans_payment_pending
+    on user_plans (payment_pending_until, id)
+    where (payment_pending_until is not null);
+
+comment on index idx_user_plans_payment_pending is '미결제 유예(#1177) 만료 강등 배치의 대상 조회(payment_pending_until < now, id keyset 순회)를 위한 부분 인덱스. 정상 구독은 payment_pending_until 이 NULL 이라 인덱스에서 제외된다.';
 
 create table usage_counters
 (

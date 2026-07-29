@@ -25,6 +25,7 @@ import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
+import com.hajacheck.membership.service.PaymentGraceService;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -79,6 +80,8 @@ public class CounselTicketService {
     private final UserRepository userRepository;
     private final UserPlanRepository userPlanRepository;
     private final PlanRepository planRepository;
+    // 미결제 유예(#1177) — 유예 중이면 엔타이틀먼트를 FREE 로 낮춘다(무결제 유료 기능 사용 차단).
+    private final PaymentGraceService paymentGraceService;
     private final CompanyMembershipRepository companyMembershipRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
@@ -512,6 +515,11 @@ public class CounselTicketService {
         // 활성 플랜은 있는데 참조 Plan 행이 없으면 데이터 정합성 오류(500) — MembershipService.findPlan 과 동일 기준.
         Plan plan = planRepository.findById(userPlan.get().getPlanId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.PLAN_DATA_INVALID));
+        // ⚠️ 미결제 유예(#1177)면 요금제 이름이 유료여도 엔타이틀먼트는 FREE 다(리뷰 P1). 유료→유료
+        // 하향은 결제 없이 대상 요금제를 발급하는데, 이 게이트가 원본 요금제를 그대로 읽으면
+        // <b>상담사 연결을 무상으로</b> 쓸 수 있다 — QuotaService 의 한도 3종만 낮추는 것으로는 막히지
+        // 않는 경로다(이 판정은 QuotaService 를 거치지 않는다). 판정은 PaymentGraceService 단일 소스.
+        plan = paymentGraceService.resolveEffectivePlan(userPlan.get(), plan);
         if (!plan.isHasCounselorAccess()) {
             throw new BusinessException(ErrorCode.COUNSEL_PLAN_REQUIRED);
         }

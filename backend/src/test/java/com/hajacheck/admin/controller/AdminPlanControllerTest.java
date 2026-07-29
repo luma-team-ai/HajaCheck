@@ -72,6 +72,9 @@ class AdminPlanControllerTest extends PostgresTestSupport {
     private UserPlanRepository userPlanRepository;
     @Autowired
     private UsageCounterRepository usageCounterRepository;
+    // #1177 — 유료 대상 예약 킬 스위치(기본 false). 열고 닫는 테스트가 각각 원복한다.
+    @Autowired
+    private com.hajacheck.membership.config.ScheduledPlanChangeProperties scheduledPlanChangeProperties;
 
     // ── 인가(ADMIN role) 경계 ──
 
@@ -680,9 +683,10 @@ class AdminPlanControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 하향예약_유료대상은_403() throws Exception {
-        // ENTERPRISE → STANDARD 는 정상적인 하향이지만, 예약 실행은 결제 없이 새 유료 주기를 연다 —
-        // 빌링키가 없어 청구되지 않는 무상 1개월이 발급되므로 계약상 무료 대상만 허용한다(#1105 P1).
+    void 하향예약_유료대상은_킬스위치가_닫혀있으면_403() throws Exception {
+        // #1177 — 유료 대상(ENTERPRISE → STANDARD) 자체는 지원되지만, 프론트에 안내 UI(결제 마감·유예
+        // 배너·결제 유도)가 붙기 전까지 킬 스위치(paid-target-enabled, 기본 false)로 닫아 둔다. 그 공백에서
+        // API 로 진입하면 사용자는 안내 없이 좌석 정지와 FREE 강등을 맞는다.
         Fixture fx = approvedCompanyAdminWithPlanAndBillingPeriod(PlanName.ENTERPRISE);
 
         mockMvc.perform(post("/api/admin/plan/scheduled-change")
@@ -690,6 +694,27 @@ class AdminPlanControllerTest extends PostgresTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"planName\":\"STANDARD\",\"confirmOverflow\":true}"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 하향예약_유료대상은_킬스위치가_열리면_허용된다() throws Exception {
+        // 스위치를 열면 유료 대상 예약이 통과한다 — 적용 시점에 "미결제 유예"로 발급되고(엔타이틀먼트는
+        // FREE) 유예 안에 결제하지 않으면 FREE 로 강등되므로, #1105 가 막았던 "청구되지 않는 유료 한 달"
+        // 우회로가 성립하지 않는다.
+        Fixture fx = approvedCompanyAdminWithPlanAndBillingPeriod(PlanName.ENTERPRISE);
+        boolean original = scheduledPlanChangeProperties.isPaidTargetEnabled();
+        scheduledPlanChangeProperties.setPaidTargetEnabled(true);
+        try {
+            mockMvc.perform(post("/api/admin/plan/scheduled-change")
+                            .with(csrf()).with(authentication(authOf(fx.admin())))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"planName\":\"STANDARD\",\"confirmOverflow\":true}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.targetPlanName").value("STANDARD"))
+                    .andExpect(jsonPath("$.data.status").value("PENDING"));
+        } finally {
+            scheduledPlanChangeProperties.setPaidTargetEnabled(original);
+        }
     }
 
     @Test

@@ -101,6 +101,14 @@ const PlatformAdminMonitoringPage = lazy(() =>
     default: m.PlatformAdminMonitoringPage,
   })),
 );
+// 플랫폼 관리자 > 상담 관리(#1168) — placeholder를 실 화면으로 교체. 페이지 파일은
+// features/counsel/pages에 있다(패널·훅·API가 전부 counsel feature 소속이라 cross-feature import
+// 회피 — 위 PlatformAdminCounselsPage.tsx 상단 주석 참고).
+const PlatformAdminCounselsPage = lazy(() =>
+  import('../features/counsel/pages/PlatformAdminCounselsPage').then((m) => ({
+    default: m.PlatformAdminCounselsPage,
+  })),
+);
 
 // 이용약관 / 개인정보처리방침 — 랜딩 푸터 "법적 고지" 연결
 const TermsOfServicePage = lazy(() =>
@@ -898,7 +906,7 @@ export const router = createBrowserRouter([
         path: '/platform-admin/counsels',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <PlatformAdminPlaceholderPage title="상담 관리" />
+            <PlatformAdminCounselsPage />
           </Suspense>
         ),
         handle: {

@@ -483,7 +483,14 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V32__create_defect_action_logs.sql"),
-                        CONTAINER_ROOT + "V32__create_defect_action_logs.sql");
+                        CONTAINER_ROOT + "V32__create_defect_action_logs.sql")
+                // #1177 — Flyway V33(user_plans.payment_pending_until 미결제 유예 표식 + 부분 인덱스)도
+                // 이어서 1회 forward-apply한다. 캐노니컬 DDL에 컬럼·인덱스가 반영돼 있으므로 이 증분
+                // 경로에서도 적용해야 assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V33__add_user_plan_payment_pending_until.sql"),
+                        CONTAINER_ROOT + "V33__add_user_plan_payment_pending_until.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -616,6 +623,10 @@ class Ha25IncrementalMigrationTest {
         // 재실행이 안전하다는 점까지 함께 고정한다(V20/V28과 동일).
         runPsql(postgres, "V32__create_defect_action_logs.sql");
         runPsql(postgres, "V32__create_defect_action_logs.sql");
+        // #1177 — Flyway V33(user_plans.payment_pending_until 미결제 유예 표식 + 부분 인덱스)도 이어서
+        // forward-apply한다. 전 구문이 멱등(IF NOT EXISTS)이라 두 번 실행해도 안전하다는 점까지 고정한다.
+        runPsql(postgres, "V33__add_user_plan_payment_pending_until.sql");
+        runPsql(postgres, "V33__add_user_plan_payment_pending_until.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

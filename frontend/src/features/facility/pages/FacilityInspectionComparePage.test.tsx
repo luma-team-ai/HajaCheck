@@ -51,6 +51,55 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
     expect(screen.getByLabelText('현재 회차')).not.toBeNull();
   });
 
+  // #1157 회귀고정 — 과거엔 DEFAULT_BEFORE_CYCLE=7/DEFAULT_AFTER_CYCLE=8이 하드코딩돼 있어
+  // 그 회차가 없는 시설물에서 화면 진입 즉시 실패했다. 최초 요청은 before/after를 아예 보내지
+  // 않아야 한다(서버가 자동 대체하도록) — 하드코딩 값이 되살아나면 이 테스트가 잡는다.
+  it('최초 진입 시 before/after 파라미터 없이 요청한다(#1157, 하드코딩 회차 회귀 방지)', async () => {
+    let capturedSearch: string | null = null;
+    const captureRequest = ({ request }: { request: Request }) => {
+      capturedSearch = new URL(request.url).search;
+    };
+    server.events.on('request:match', captureRequest);
+
+    try {
+      renderPage();
+      await screen.findByText('회차 간 비교');
+
+      expect(capturedSearch).not.toBeNull();
+      expect(capturedSearch).not.toContain('before=');
+      expect(capturedSearch).not.toContain('after=');
+    } finally {
+      server.events.removeListener('request:match', captureRequest);
+    }
+  });
+
+  // code-reviewer P1 회귀고정 — "이전 회차"만 바꾸면 afterCycle 상태가 undefined로 남아, 재요청이
+  // before만 보내고 after는 생략된다. 서버는 이걸 "둘 다 생략"으로 오인해 방금 고른 before값까지
+  // 자동 대체로 덮어쓴다(select엔 사용자가 고른 값이 남는데 실제 데이터는 다시 자동선택된 값이
+  // 되는 불일치). 한쪽만 바꿔도 두 파라미터가 항상 함께 실려야 한다.
+  it('회차 하나만 다시 선택해도 before/after 둘 다 실어 재요청한다(#1157 P1)', async () => {
+    const capturedSearches: string[] = [];
+    const captureRequest = ({ request }: { request: Request }) => {
+      capturedSearches.push(new URL(request.url).search);
+    };
+    server.events.on('request:match', captureRequest);
+
+    try {
+      renderPage();
+      await screen.findByText('회차 간 비교');
+
+      fireEvent.change(screen.getByLabelText('이전 회차'), { target: { value: '5' } });
+
+      await screen.findByText('회차 간 비교');
+      const lastSearch = capturedSearches[capturedSearches.length - 1];
+      expect(lastSearch).toContain('before=5');
+      expect(lastSearch).toContain('after=');
+      expect(lastSearch).not.toBe('');
+    } finally {
+      server.events.removeListener('request:match', captureRequest);
+    }
+  });
+
   it('KPI 카드 4개를 값과 함께 렌더링한다', async () => {
     renderPage();
 
