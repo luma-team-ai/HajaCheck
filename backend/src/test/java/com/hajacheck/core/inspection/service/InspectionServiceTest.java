@@ -205,15 +205,27 @@ class InspectionServiceTest {
     }
 
     @Test
-    void createInspection_점검일이너무먼미래_예외전파되고저장안됨() {
+    void createInspection_점검일이미래_예외전파되고저장안됨() {
         InspectionCreateRequest request =
-                new InspectionCreateRequest(1L, LocalDate.now().plusYears(2), 200L);
+                new InspectionCreateRequest(1L, LocalDate.now().plusDays(1), 200L);
         when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
 
         assertThatThrownBy(() -> service.createInspection(request, 100L, 300L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.INSPECTION_DATE_INVALID));
         verify(inspectionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void createInspection_점검일이오늘_정상생성됨() {
+        InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.now(), 200L);
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+        when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(0);
+        when(inspectionRepository.saveAndFlush(any(Inspection.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        InspectionResponse response = service.createInspection(request, 100L, 300L);
+
+        assertThat(response.roundNo()).isEqualTo(1);
     }
 
     @Test

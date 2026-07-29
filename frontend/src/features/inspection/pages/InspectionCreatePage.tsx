@@ -27,6 +27,7 @@ import type {
 import {
   INSPECTION_CREATE_FORM_INITIAL_VALUES,
   hasInspectionCreateFormErrors,
+  todayDateString,
   toInspectionCreateRequest,
   validateInspectionCreateForm,
 } from '../utils/validateInspectionCreateForm';
@@ -463,6 +464,7 @@ export function InspectionCreatePage() {
                 onChange={handleFieldChange('inspectionDate')}
                 className={INPUT_CLASSES}
                 disabled={isFieldsLocked}
+                max={todayDateString()}
                 aria-invalid={Boolean(errors.inspectionDate)}
                 aria-describedby={errors.inspectionDate ? 'inspection-date-error' : undefined}
               />
