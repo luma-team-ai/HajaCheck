@@ -363,12 +363,13 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(button.hasAttribute('disabled')).toBe(true);
   });
 
-  it('이 이미지의 마지막 하자를 확정하면 다음 이미지로 자동 이동한다(#784)', async () => {
+  it('이 이미지의 마지막 하자를 확정하면 안내 배너의 "다음 이미지" CTA로 이동한다(#1255)', async () => {
     // mediaId=67(이미지1)은 id=2(박리박락)만 DETECTED로 남기고 나머지는 이미 확정/해결 상태로,
     // mediaId=68(이미지2)에 별도 하자 하나를 추가한 2-이미지 시나리오.
+    // 확정 PATCH가 GET 응답에도 반영되도록 가변 배열로 둔다(refetch 후 배너 조건 검증).
     const twoImageDefectsMock: DefectDetailItem[] = [
       { ...mockDefects[0], status: 'CONFIRMED' },
-      mockDefects[1], // id=2, status: 'DETECTED' — 이미지1의 마지막 미확정 하자
+      { ...mockDefects[1] }, // id=2, status: 'DETECTED' — 이미지1의 마지막 미확정 하자
       { ...mockDefects[2], status: 'CONFIRMED' },
       { ...mockDefects[3], status: 'CONFIRMED' },
       { ...mockDefects[4], status: 'RESOLVED' },
@@ -394,6 +395,14 @@ describe('ResultViewerPage (통합 테스트)', () => {
         const body: ApiResponse<DefectDetailItem[]> = { success: true, data: twoImageDefectsMock };
         return HttpResponse.json(body);
       }),
+      http.patch('/api/defects/:id/status', ({ params }) => {
+        const target = twoImageDefectsMock.find((d) => d.id === Number(params.id));
+        if (target) {
+          target.status = 'CONFIRMED';
+          target.isReviewed = true;
+        }
+        return HttpResponse.json({ success: true, data: target });
+      }),
     );
 
     renderPage();
@@ -404,7 +413,76 @@ describe('ResultViewerPage (통합 테스트)', () => {
     fireEvent.click(screen.getByTitle(/박리박락/));
     fireEvent.click(screen.getByRole('button', { name: '이 하자 검수 확정' }));
 
+    // 자동 이동하지 않는다 — 안내 배너(문구만)가 뜨고, 상단 네비게이션으로 직접 이동한다(#1255).
+    expect(
+      await screen.findByText("이 이미지의 검수가 완료되었습니다. 상단의 '다음 이미지' 버튼으로 이동하세요."),
+    ).not.toBeNull();
+    expect(screen.getByText('이미지 1/2')).not.toBeNull();
+
+    // 배너에 중복 CTA를 두지 않으므로 "다음 이미지 →" 버튼은 상단 네비게이션 하나뿐이다.
+    expect(screen.getAllByRole('button', { name: '다음 이미지 →' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: '다음 이미지 →' }));
     expect(await screen.findByText('이미지 2/2')).not.toBeNull();
+  });
+
+  it('이 이미지 검수가 끝나면 오탐 삭제·등급 수정·누락 추가가 잠긴다(#1255)', async () => {
+    // 이미지1(mediaId=67)의 하자를 전부 확정/해결 상태로 둔다 — 더 손댈 게 없는 이미지.
+    const reviewedMock: DefectDetailItem[] = mockDefects.map((d) => ({
+      ...d,
+      status: 'CONFIRMED' as const,
+      isReviewed: true,
+    }));
+    server.use(
+      http.get('/api/inspections/:id/defects', () => {
+        const body: ApiResponse<DefectDetailItem[]> = { success: true, data: reviewedMock };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    expect(screen.getByRole('button', { name: '오탐 삭제' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: '이 하자 검수 확정' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: '등급 수정' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: '누락 추가' }).hasAttribute('disabled')).toBe(true);
+    // 모든 검수가 끝났으므로 점검 요약만 열려 있어야 한다
+    expect(screen.getByRole('button', { name: '점검 요약' }).hasAttribute('disabled')).toBe(false);
+    // 배너는 안내 문구만 — 헤더의 '점검 요약'과 중복되는 CTA 버튼은 두지 않는다.
+    expect(
+      screen.getByText("모든 하자의 검수가 완료되었습니다. 우측 상단 '점검 요약' 버튼으로 이동하세요."),
+    ).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '점검 요약으로 이동' })).toBeNull();
+  });
+
+  it('오탐 삭제는 브라우저 prompt이 아니라 모달로 사유를 받는다(#1255)', async () => {
+    let patchPayload: DefectRevisionRequest | null = null;
+    server.use(
+      http.patch('/api/defects/:id', async ({ request }) => {
+        patchPayload = (await request.json()) as DefectRevisionRequest;
+        return HttpResponse.json({ success: true, data: mockDefects[0] });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '오탐 삭제' }));
+
+    // 모달이 열리고, 사유가 비면 삭제 버튼은 비활성
+    const textarea = await screen.findByPlaceholderText('삭제 사유를 입력해주세요 (1-500자)');
+    const submit = screen.getByRole('button', { name: '삭제' });
+    expect(submit.hasAttribute('disabled')).toBe(true);
+
+    fireEvent.change(textarea, { target: { value: '그림자를 균열로 오인' } });
+    expect(submit.hasAttribute('disabled')).toBe(false);
+    fireEvent.click(submit);
+
+    await waitFor(() => {
+      expect(patchPayload?.isDeleted).toBe(true);
+      expect(patchPayload?.reason).toBe('그림자를 균열로 오인');
+      expect(screen.queryByPlaceholderText('삭제 사유를 입력해주세요 (1-500자)')).toBeNull();
+    });
   });
 
   it('하자 0건 이미지로 이동해도 이미지 자체는 렌더되고 문구만 같이 뜬다(#815)', async () => {

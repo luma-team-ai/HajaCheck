@@ -90,6 +90,9 @@ export function ResultViewerPage() {
   const [selectedGrade, setSelectedGrade] = useState<DefectGrade | ''>('');
   const [gradeReason, setGradeReason] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  // 오탐 삭제 사유 입력 — 브라우저 prompt()가 아니라 등급 수정·누락 추가와 같은 모달로 받는다(#1255).
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [deleteReason, setDeleteReason] = useState('');
   const [isAddMissingOpen, setIsAddMissingOpen] = useState(false);
   // 누락 추가 그리기 모드 — 메인 뷰어 이미지 위에서 직접 드래그로 박스를 지정한다(#874, 2안).
   const [isDrawingMissing, setIsDrawingMissing] = useState(false);
@@ -158,6 +161,20 @@ export function ResultViewerPage() {
   // 현재 media 인디케이터 (예: "이미지 1/2")
   const currentMediaIndex = mediaGroups.findIndex((g) => g.mediaId === currentMediaGroup?.mediaId);
   const mediaIndicator = mediaGroups.length > 0 ? `이미지 ${currentMediaIndex + 1}/${mediaGroups.length}` : '';
+  const isLastMedia = currentMediaIndex === mediaGroups.length - 1;
+
+  // 이 이미지의 검수 완료 여부 — 신뢰도·등급 필터와 무관하게 원본(data.defects) 기준으로 센다.
+  // 필터로 가려진 하자를 "완료"로 오인하면 마지막에 점검 요약이 열리지 않아 사용자가 갇힌다.
+  const currentMediaCounts = useMemo(() => {
+    const mediaId = currentMediaGroup?.mediaId;
+    const own = (data?.defects ?? []).filter((d) => d.mediaId === mediaId);
+    return { total: own.length, pending: own.filter((d) => d.status === 'DETECTED').length };
+  }, [data?.defects, currentMediaGroup?.mediaId]);
+
+  // 하자가 있고 전부 확정된 이미지 = 검수 완료(하자 0건 이미지는 완료로 보지 않는다 — 누락 추가 여지를 남김).
+  const isCurrentMediaReviewed = currentMediaCounts.total > 0 && currentMediaCounts.pending === 0;
+  // 점검 요약 버튼의 활성 조건과 같은 식을 쓴다 — 안내 문구와 버튼 상태가 어긋나지 않도록.
+  const allReviewed = !!data && data.totalCount > 0 && data.reviewedCount === data.totalCount;
 
   // 이전/다음 이미지 네비게이션 — rules-of-hooks: 훅은 조건부 return 이전에 호출
   const handlePrevMedia = useCallback(() => {
@@ -178,10 +195,23 @@ export function ResultViewerPage() {
   // 콜백 내부에서 data/selected를 참조하지만, 클로저 캡처는 실행 시점에 일어나므로 정의 시점에 존재할 필요 없음.
   // 콜백 내부 guards가 조기 return을 처리한다.
 
-  const handleDeleteFalsePositive = useCallback(async () => {
+  const handleOpenDeleteFalsePositive = useCallback(() => {
+    setDeleteReason('');
+    setErrorMessage('');
+    setIsDeleteOpen(true);
+  }, []);
+
+  const handleCancelDeleteFalsePositive = useCallback(() => {
+    if (isUpdating) return;
+    setIsDeleteOpen(false);
+    setDeleteReason('');
+    setErrorMessage('');
+  }, [isUpdating]);
+
+  const handleConfirmDeleteFalsePositive = useCallback(async () => {
     if (!data) return;
-    const reason = prompt('오탐 삭제 사유를 입력해주세요 (1-500자):');
-    if (!reason || reason.trim().length === 0 || reason.trim().length > 500) {
+    const reason = deleteReason.trim();
+    if (reason.length === 0 || reason.length > 500) {
       setErrorMessage('사유는 1-500자 범위여야 합니다.');
       return;
     }
@@ -193,15 +223,17 @@ export function ResultViewerPage() {
     setIsUpdating(true);
     setErrorMessage('');
     try {
-      await inspectionApi.reviewDefect(selected.id, { isDeleted: true, reason: reason.trim() });
+      await inspectionApi.reviewDefect(selected.id, { isDeleted: true, reason });
       await refetch();
+      setIsDeleteOpen(false);
+      setDeleteReason('');
     } catch (error) {
       const msg = error instanceof Error ? error.message : '오탐 삭제에 실패했습니다.';
       setErrorMessage(msg);
     } finally {
       setIsUpdating(false);
     }
-  }, [data, currentDefects, selectedDefectId, isUpdating, refetch]);
+  }, [data, deleteReason, currentDefects, selectedDefectId, isUpdating, refetch]);
 
   const handleOpenGradeEdit = useCallback(() => {
     if (!data) return;
@@ -362,22 +394,15 @@ export function ResultViewerPage() {
     try {
       await inspectionApi.updateDefectStatus(selected.id, { status: 'CONFIRMED' });
       await refetch();
-      // 이 이미지에 더 확정할 하자가 없으면 다음 이미지로 자동 이동(요청 반영, #784).
-      // refetch()의 서버 응답을 기다리지 않고 방금 확정한 것 기준으로 낙관적으로 판단한다 —
-      // currentDefects는 확정 이전 스냅샷이라 selected를 제외하고 계산해야 한다.
-      const hasMoreToConfirm = currentDefects.some(
-        (d) => d.id !== selected.id && d.status === 'DETECTED',
-      );
-      if (!hasMoreToConfirm) {
-        handleNextMedia();
-      }
+      // 자동 이동하지 않는다(#1255) — 확정 직후 화면이 저절로 바뀌면 무엇이 확정됐는지 확인할 수
+      // 없다. 대신 검수 완료 안내 배너의 "다음 이미지 / 점검 요약" CTA로 다음 행동을 명시한다.
     } catch (error) {
       const msg = error instanceof Error ? error.message : '검수 확정에 실패했습니다.';
       setErrorMessage(msg);
     } finally {
       setIsUpdating(false);
     }
-  }, [data, currentDefects, selectedDefectId, isUpdating, refetch, handleNextMedia]);
+  }, [data, currentDefects, selectedDefectId, isUpdating, refetch]);
 
   const handleGenerateReport = useCallback(() => {
     navigate(`/inspections/${inspectionId}/reports`);
@@ -570,7 +595,21 @@ export function ResultViewerPage() {
               </div>
             </div>
 
-            {/* Action Buttons — 우측 패널의 등급수정/누락추가와 동일 높이로 하단 정렬 */}
+            {/* 검수 완료 안내 — 확정이 끝난 뒤 "다음에 뭘 눌러야 하는지"를 문구로 알린다(#1255).
+                CTA 버튼은 두지 않는다 — 가리키는 버튼(상단 '다음 이미지', 헤더 '점검 요약')이
+                이미 화면에 있고 그때 활성화되므로, 같은 동작을 하는 버튼이 둘이 된다. */}
+            {(isCurrentMediaReviewed || allReviewed) && (
+              <div className="rounded-lg bg-primary/10 px-4 py-3 text-sm text-text-default">
+                {allReviewed
+                  ? "모든 하자의 검수가 완료되었습니다. 우측 상단 '점검 요약' 버튼으로 이동하세요."
+                  : isLastMedia
+                    ? `이 이미지의 검수가 완료되었습니다. 아직 확정되지 않은 하자가 ${data.totalCount - data.reviewedCount}건 남아 있습니다.`
+                    : "이 이미지의 검수가 완료되었습니다. 상단의 '다음 이미지' 버튼으로 이동하세요."}
+              </div>
+            )}
+
+            {/* Action Buttons — 우측 패널의 등급수정/누락추가와 동일 높이로 하단 정렬.
+                확정이 끝난 하자(status !== 'DETECTED')에는 오탐 삭제·검수 확정 모두 잠근다(#1255). */}
             {visibleDefects.length > 0 && (
               <div className="flex flex-col gap-2">
                 {errorMessage && (
@@ -582,8 +621,8 @@ export function ResultViewerPage() {
                   variant="danger-soft"
                   size="lg"
                   className="flex-[3]"
-                  onClick={handleDeleteFalsePositive}
-                  disabled={isUpdating || !selected}
+                  onClick={handleOpenDeleteFalsePositive}
+                  disabled={isUpdating || !selected || selected.status !== 'DETECTED'}
                 >
                   오탐 삭제
                 </Button>
@@ -668,7 +707,7 @@ export function ResultViewerPage() {
                     size="lg"
                     className="flex-1"
                     onClick={handleOpenGradeEdit}
-                    disabled={isUpdating || !selected}
+                    disabled={isUpdating || !selected || selected.status !== 'DETECTED'}
                   >
                     등급 수정
                   </Button>
@@ -678,7 +717,7 @@ export function ResultViewerPage() {
                     size="lg"
                     className="flex-1"
                     onClick={handleStartDrawingMissing}
-                    disabled={isUpdating}
+                    disabled={isUpdating || isCurrentMediaReviewed || allReviewed}
                   >
                     누락 추가
                   </Button>
@@ -688,6 +727,59 @@ export function ResultViewerPage() {
           )}
         </div>
       </div>
+
+      {/* False Positive Delete Modal (#1255) — 브라우저 prompt() 대신 등급 수정·누락 추가와 같은 모달 */}
+      <Modal
+        open={isDeleteOpen}
+        onClose={handleCancelDeleteFalsePositive}
+        title="오탐 삭제"
+        closeOnOverlayClick={!isUpdating}
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-text-muted">
+            AI가 잘못 탐지한 하자로 판단한 이유를 남겨주세요. 삭제된 하자는 보고서에 포함되지 않습니다.
+          </p>
+          {errorMessage && (
+            <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
+          )}
+          <div>
+            <label htmlFor="delete-reason-textarea" className="mb-2 block text-sm font-medium text-text-default">
+              삭제 사유
+            </label>
+            <textarea
+              id="delete-reason-textarea"
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              placeholder="삭제 사유를 입력해주세요 (1-500자)"
+              maxLength={500}
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+              rows={3}
+            />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="lg"
+              className="flex-1"
+              onClick={handleCancelDeleteFalsePositive}
+              disabled={isUpdating}
+            >
+              취소
+            </Button>
+            <Button
+              type="button"
+              variant="danger-soft"
+              size="lg"
+              className="flex-1"
+              onClick={handleConfirmDeleteFalsePositive}
+              disabled={!deleteReason.trim() || isUpdating}
+            >
+              삭제
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Grade Edit Modal (#827) */}
       <Modal
