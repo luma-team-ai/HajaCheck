@@ -31,4 +31,17 @@ describe('useFacilityComparison', () => {
     expect(result.current.data?.kpis).toHaveLength(4);
     expect(result.current.data?.changes.length).toBeGreaterThan(0);
   });
+
+  // #1157 회귀고정 — beforeCycle/afterCycle을 아예 생략해도(화면 최초 진입 상태) 조회가
+  // 정상적으로 성립해야 한다. 서버가 해당 시설물의 실제 최근 2개 회차로 자동 대체해 응답한다.
+  it('beforeCycle/afterCycle을 생략해도 정상 조회된다(#1157)', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useFacilityComparison('detail'), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.kpis).toHaveLength(4);
+  });
 });
