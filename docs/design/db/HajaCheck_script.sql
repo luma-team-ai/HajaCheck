@@ -1277,6 +1277,9 @@ create index idx_counsel_tickets_user
 create index idx_counsel_tickets_session
     on counsel_tickets (session_id);
 
+create index idx_counsel_tickets_created_at
+    on counsel_tickets (created_at);
+
 create unique index uq_counsel_tickets_session
     on counsel_tickets (session_id)
     where (session_id is not null);
