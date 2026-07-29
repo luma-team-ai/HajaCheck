@@ -365,6 +365,36 @@ class FacilityServiceTest {
     }
 
     @Test
+    void list_여러점검중최신점검만하자등급집계에반영된다() {
+        Facility facility = facilityWithId(10L, "한강대교 북단", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        // 과거 점검(100L) — E등급 3건 + D등급 1건 (심각)
+        Inspection pastInspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(1)
+                .inspectionDate(LocalDate.of(2026, 5, 1)).status(InspectionStatus.REVIEWED).build();
+        setInspectionId(pastInspection, 100L);
+        // 최신 점검(200L) — C등급 2건 (경미) — 이 점검의 하자만 집계되어야 함
+        Inspection latestInspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(2)
+                .inspectionDate(LocalDate.of(2026, 6, 21)).status(InspectionStatus.REVIEWED).build();
+        setInspectionId(latestInspection, 200L);
+        // findLatestByFacilityIds는 최신 점검 1건만 반환
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L)))
+                .thenReturn(List.of(latestInspection));
+        // countGroupByFacilityIdAndGrade는 최신 점검(200L)의 하자만 조회
+        when(defectRepository.countGroupByFacilityIdAndGrade(List.of(200L))).thenReturn(List.of(
+                facilityGradeCount(10L, DefectGrade.C, 2L)));
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        // 과거 점검의 E등급 하자는 집계에서 제외되어야 함
+        assertThat(result.get(0).highestGrade()).isEqualTo("C");
+        assertThat(result.get(0).warningCount()).isEqualTo(0L);
+        assertThat(result.get(0).cautionCount()).isEqualTo(2L);
+    }
+
+    @Test
     void list_점검이력없는시설_최근점검일은null() {
         Facility facility = facilityWithId(10L, "강남 오피스타워", null, null, null);
         when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
@@ -388,6 +418,32 @@ class FacilityServiceTest {
         FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
 
         assertThat(response.lastInspectedAt()).isEqualTo(LocalDate.of(2026, 6, 28));
+    }
+
+    @Test
+    void get_여러점검중최신점검만하자등급집계에반영된다() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        // 과거 점검(100L) — E등급 1건 (심각)
+        Inspection pastInspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(1)
+                .inspectionDate(LocalDate.of(2026, 5, 1)).status(InspectionStatus.REVIEWED).build();
+        setInspectionId(pastInspection, 100L);
+        // 최신 점검(200L) — D등급 2건 (경고) — 이 점검의 하자만 집계되어야 함
+        Inspection latestInspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(2)
+                .inspectionDate(LocalDate.of(2026, 6, 21)).status(InspectionStatus.REVIEWED).build();
+        setInspectionId(latestInspection, 200L);
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L)))
+                .thenReturn(List.of(latestInspection));
+        when(defectRepository.countGroupByFacilityIdAndGrade(List.of(200L))).thenReturn(List.of(
+                facilityGradeCount(10L, DefectGrade.D, 2L)));
+
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
+
+        assertThat(response.highestGrade()).isEqualTo("D");
+        assertThat(response.warningCount()).isEqualTo(2L);
+        assertThat(response.cautionCount()).isEqualTo(0L);
     }
 
     @Test
