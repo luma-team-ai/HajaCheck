@@ -161,7 +161,10 @@ class CounselChatServiceTest {
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(notificationService).notify(eq(USER_ID), eq(NotificationType.COUNSEL_REPLIED), payloadCaptor.capture());
-        assertThat(payloadCaptor.getValue()).contains("\"ticketId\":" + TICKET_ID);
+        assertThat(payloadCaptor.getValue())
+                .contains("\"ticketId\":" + TICKET_ID)
+                // 알림센터 부제목(#1233) — 티켓의 진입 시나리오 제목을 그대로 담는다.
+                .contains("\"description\":\"AI 분석 결과 등급 문의\"");
     }
 
     @Test

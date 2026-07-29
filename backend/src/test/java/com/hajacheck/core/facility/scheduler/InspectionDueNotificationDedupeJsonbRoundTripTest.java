@@ -56,7 +56,7 @@ class InspectionDueNotificationDedupeJsonbRoundTripTest extends PostgresTestSupp
         ReflectionTestUtils.setField(facility, "id", 10L);
 
         String expectedKey = InspectionDueNotificationPayload.dedupeKeyOf(facility, Kind.DUE);
-        String payload = InspectionDueNotificationPayload.serialize(facility, Kind.DUE);
+        String payload = InspectionDueNotificationPayload.serialize(facility, Kind.DUE, LocalDate.of(2026, 7, 21));
 
         Notification saved = notificationRepository.save(
                 Notification.create(owner.getId(), NotificationType.INSPECTION_DUE, payload));

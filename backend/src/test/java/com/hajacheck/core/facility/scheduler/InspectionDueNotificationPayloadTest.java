@@ -32,7 +32,7 @@ class InspectionDueNotificationPayloadTest {
     @DisplayName("serialize 는 facilityId/facilityName/nextInspectionDueAt/kind 필드를 담는다")
     void serialize_필드포함() {
         String json = InspectionDueNotificationPayload.serialize(
-                facility(7L, "강남빌딩", LocalDate.of(2026, 7, 21)), Kind.DUE);
+                facility(7L, "강남빌딩", LocalDate.of(2026, 7, 21)), Kind.DUE, LocalDate.of(2026, 7, 21));
 
         assertThat(json)
                 .contains("\"facilityId\":7")
@@ -46,15 +46,30 @@ class InspectionDueNotificationPayloadTest {
     void serialize_beforeOverdueKind포함() {
         Facility f = facility(7L, "강남빌딩", LocalDate.of(2026, 7, 21));
 
-        assertThat(InspectionDueNotificationPayload.serialize(f, Kind.BEFORE)).contains("\"kind\":\"BEFORE\"");
-        assertThat(InspectionDueNotificationPayload.serialize(f, Kind.OVERDUE)).contains("\"kind\":\"OVERDUE\"");
+        assertThat(InspectionDueNotificationPayload.serialize(f, Kind.BEFORE, LocalDate.of(2026, 7, 14)))
+                .contains("\"kind\":\"BEFORE\"");
+        assertThat(InspectionDueNotificationPayload.serialize(f, Kind.OVERDUE, LocalDate.of(2026, 7, 25)))
+                .contains("\"kind\":\"OVERDUE\"");
+    }
+
+    @Test
+    @DisplayName("serialize 는 알림센터 부제목(description)에 시설물명과 D-day 라벨을 담는다(#1233)")
+    void serialize_description_Dday라벨포함() {
+        Facility f = facility(7L, "한강대교 북단", LocalDate.of(2026, 7, 21));
+
+        assertThat(InspectionDueNotificationPayload.serialize(f, Kind.BEFORE, LocalDate.of(2026, 7, 18)))
+                .contains("\"description\":\"한강대교 북단 D-3\"");
+        assertThat(InspectionDueNotificationPayload.serialize(f, Kind.DUE, LocalDate.of(2026, 7, 21)))
+                .contains("\"description\":\"한강대교 북단 D-DAY\"");
+        assertThat(InspectionDueNotificationPayload.serialize(f, Kind.OVERDUE, LocalDate.of(2026, 7, 24)))
+                .contains("\"description\":\"한강대교 북단 D+3\"");
     }
 
     @Test
     @DisplayName("extractFacilityId 는 정상 payload 에서 올바른 값을 추출한다")
     void extractFacilityId_정상추출() {
         String json = InspectionDueNotificationPayload.serialize(
-                facility(42L, "테스트시설", LocalDate.of(2026, 7, 21)), Kind.DUE);
+                facility(42L, "테스트시설", LocalDate.of(2026, 7, 21)), Kind.DUE, LocalDate.of(2026, 7, 21));
 
         assertThat(InspectionDueNotificationPayload.extractFacilityId(json)).isEqualTo(42L);
     }
@@ -80,7 +95,7 @@ class InspectionDueNotificationPayloadTest {
     @DisplayName("extractDedupeKey 는 kind 필드가 있는 payload 에서 그 kind 하나만 담은 단일 원소 Set을 반환한다")
     void extractDedupeKey_kind있으면_단일키Set() {
         String json = InspectionDueNotificationPayload.serialize(
-                facility(7L, "강남빌딩", LocalDate.of(2026, 7, 21)), Kind.DUE);
+                facility(7L, "강남빌딩", LocalDate.of(2026, 7, 21)), Kind.DUE, LocalDate.of(2026, 7, 21));
 
         assertThat(InspectionDueNotificationPayload.extractDedupeKey(json)).containsExactly("7|2026-07-21|DUE");
     }
@@ -89,7 +104,7 @@ class InspectionDueNotificationPayloadTest {
     @DisplayName("extractDedupeKey 는 BEFORE kind도 단일 키로 정확히 추출한다")
     void extractDedupeKey_beforeKind추출() {
         String json = InspectionDueNotificationPayload.serialize(
-                facility(7L, "강남빌딩", LocalDate.of(2026, 7, 21)), Kind.BEFORE);
+                facility(7L, "강남빌딩", LocalDate.of(2026, 7, 21)), Kind.BEFORE, LocalDate.of(2026, 7, 14));
 
         assertThat(InspectionDueNotificationPayload.extractDedupeKey(json)).containsExactly("7|2026-07-21|BEFORE");
     }
@@ -101,7 +116,7 @@ class InspectionDueNotificationPayloadTest {
 
         String fromFacility = InspectionDueNotificationPayload.dedupeKeyOf(f, Kind.DUE);
         Set<String> fromPayload = InspectionDueNotificationPayload.extractDedupeKey(
-                InspectionDueNotificationPayload.serialize(f, Kind.DUE));
+                InspectionDueNotificationPayload.serialize(f, Kind.DUE, LocalDate.of(2026, 7, 21)));
 
         assertThat(fromFacility).isEqualTo("42|2026-07-21|DUE");
         assertThat(fromPayload).containsExactly(fromFacility);
