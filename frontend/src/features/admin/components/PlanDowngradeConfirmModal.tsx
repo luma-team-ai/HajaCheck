@@ -6,8 +6,12 @@ import { getApiErrorMessage } from '../../../shared/api/types';
 import { useChangePlan } from '../hooks/useChangePlan';
 import { usePlanChangePreview } from '../hooks/usePlanChangePreview';
 import { usePlanQuotaUsers } from '../hooks/usePlanQuotaUsers';
-import { PLAN_LABEL } from '../planQuota.constants';
+import { useScheduleDowngrade } from '../hooks/useScheduleDowngrade';
+import { formatScheduledDate, PLAN_LABEL } from '../planQuota.constants';
 import type { AdminUserPlan } from '../types';
+
+/** '즉시' = 기존 PATCH 경로. '예약' = 다음 결제일 적용(#1105 / HAJA-526, #1191, FREE 대상 전용). */
+export type PlanChangeTiming = 'IMMEDIATE' | 'SCHEDULED';
 
 // 유지 대상 선택 UI에서 한 번에 보여줄 회사 멤버 수 상한 — 서버 @Max(100)과 맞춘다. 회사 규모가
 // 100명을 넘으면 이 모달에서 전원을 선택지로 보여주지 못한다(이 요금제 정책상 좌석 한도가 최대
@@ -20,8 +24,12 @@ interface PlanDowngradeConfirmModalProps {
   planName: AdminUserPlan | null;
   /** 대상 요금제의 좌석 한도(catalog 기준) — null=무제한. 좌석 카운터·체크박스 disabled 판정에 쓴다. */
   maxSeats: number | null;
+  /** '즉시'(기존 PATCH) | '예약'(다음 결제일, FREE 전용) — PlanChangeControl이 고른 값을 그대로 받는다. */
+  timing: PlanChangeTiming;
+  /** 예약 적용 예정일 표시용(= 신청 시점 currentPeriodEnd). timing='IMMEDIATE'면 쓰이지 않는다. */
+  currentPeriodEnd: string | null;
   onClose: () => void;
-  /** 변경이 성공적으로 반영된 뒤 호출 — 부모가 선택 상태를 리셋한다. */
+  /** 변경(또는 예약)이 성공적으로 반영된 뒤 호출 — 부모가 선택 상태를 리셋한다. */
   onChanged: () => void;
 }
 
@@ -33,6 +41,8 @@ export function PlanDowngradeConfirmModal({
   open,
   planName,
   maxSeats,
+  timing,
+  currentPeriodEnd,
   onClose,
   onChanged,
 }: PlanDowngradeConfirmModalProps) {
@@ -69,7 +79,24 @@ export function PlanDowngradeConfirmModal({
     [preview],
   );
 
-  const { changePlan, isPending, error, resetError } = useChangePlan();
+  const { changePlan, isPending: isChangePending, error: changeError, resetError: resetChangeError } =
+    useChangePlan();
+  const {
+    scheduleDowngrade,
+    isPending: isSchedulePending,
+    error: scheduleError,
+    resetError: resetScheduleError,
+  } = useScheduleDowngrade();
+
+  const isScheduled = timing === 'SCHEDULED';
+  const isPending = isScheduled ? isSchedulePending : isChangePending;
+  const error = isScheduled ? scheduleError : changeError;
+  const resetError = isScheduled ? resetScheduleError : resetChangeError;
+  // SCHEDULED인데 currentPeriodEnd가 없으면(정상 경로에서는 PlanChangeControl이 '예약' 선택지 자체를
+  // 막아 도달하지 않는다) 확정을 막는다 — 백엔드도 동일 상황을 PLAN_SCHEDULE_PERIOD_END_MISSING(409)
+  // 으로 거절하므로, 방어적으로 요청 자체를 보내지 않는다.
+  const periodEndMissingForSchedule = isScheduled && !currentPeriodEnd;
+  const effectiveDateLabel = isScheduled ? formatScheduledDate(currentPeriodEnd) : null;
 
   if (!open || !planName) {
     return null;
@@ -124,15 +151,20 @@ export function PlanDowngradeConfirmModal({
   const rosterInteractionDisabled = preview === undefined;
 
   async function handleConfirm() {
-    if (!planName) {
+    if (!planName || periodEndMissingForSchedule) {
       return;
     }
     try {
-      await changePlan({
+      const payload = {
         planName,
         confirmOverflow: true,
         keepUserIds: customKeepUserIds ?? undefined,
-      });
+      };
+      if (isScheduled) {
+        await scheduleDowngrade(payload);
+      } else {
+        await changePlan(payload);
+      }
       onChanged();
     } catch {
       // 에러는 아래 error(mutation.error)로 표시한다 — 에러 코드 기준으로 안내만 바꾸고(메시지
@@ -144,6 +176,11 @@ export function PlanDowngradeConfirmModal({
   const isSeatQuotaExceeded = error?.code === 'PLAN_SEAT_QUOTA_EXCEEDED';
   const isProtectedAdmin = error?.code === 'ADMIN_PROTECTED_ACCOUNT';
   const isKeepUserInvalid = error?.code === 'PLAN_KEEP_USER_INVALID';
+  // 예약(POST /admin/plan/scheduled-change) 전용 에러 코드(#1105 / HAJA-526, #1191).
+  const isScheduledChangeExists = error?.code === 'PLAN_SCHEDULED_CHANGE_EXISTS';
+  const isPeriodEndMissing = error?.code === 'PLAN_SCHEDULE_PERIOD_END_MISSING';
+  const isPaidTargetUnsupported = error?.code === 'PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED';
+  const isNotDowngrade = error?.code === 'PLAN_SCHEDULE_NOT_DOWNGRADE';
 
   function errorMessage(): string {
     if (isStaleConfirmation) {
@@ -160,24 +197,59 @@ export function PlanDowngradeConfirmModal({
     if (isKeepUserInvalid) {
       return '유지 대상 선택에 문제가 있습니다. 목록을 다시 확인한 뒤 선택해 주세요.';
     }
-    return getApiErrorMessage(error, '플랜 변경에 실패했습니다.');
+    if (isScheduledChangeExists) {
+      return '이미 예약된 변경이 있습니다.';
+    }
+    if (isPeriodEndMissing) {
+      return '현재 요금제는 결제 주기가 없어 예약할 수 없습니다.';
+    }
+    if (isPaidTargetUnsupported) {
+      return '유료 요금제 간 예약 변경은 현재 지원하지 않습니다.';
+    }
+    if (isNotDowngrade) {
+      return '상향은 예약할 수 없습니다.';
+    }
+    return getApiErrorMessage(error, isScheduled ? '플랜 예약에 실패했습니다.' : '플랜 변경에 실패했습니다.');
   }
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={`${PLAN_LABEL[planName]} 플랜으로 변경`}
+      title={
+        isScheduled ? `${PLAN_LABEL[planName]} 플랜으로 변경 예약` : `${PLAN_LABEL[planName]} 플랜으로 변경`
+      }
       closeOnOverlayClick={!isPending}
     >
       <div className="flex w-[440px] max-w-full flex-col gap-5">
+        {/* 예약(SCHEDULED) 전용 고지 — 적용 예정일 + FREE 1석 blast radius(#1191). 이 확인 없이 예약이
+            진행되면 사람이 잘리는 시점이 신청 몇 주 뒤로 미뤄져 안내가 특히 중요하다(핸드오프 §3). */}
+        {isScheduled && (
+          <div className="flex flex-col gap-1.5 rounded-2xl border border-[#f97316]/40 bg-[#fff7ed] p-3 text-xs text-[#9a3412]">
+            <p className="m-0 font-semibold">
+              {effectiveDateLabel ? `${effectiveDateLabel}부터 적용됩니다.` : '다음 결제일부터 적용됩니다.'}{' '}
+              그때까지 현재 요금제를 그대로 사용합니다.
+            </p>
+            <p className="m-0">
+              ⚠️ FREE 요금제는 좌석이 1개입니다. 적용 시점에 회사 소유자를 제외한 전원이 정지되고
+              즉시 로그아웃됩니다.
+            </p>
+            {periodEndMissingForSchedule && (
+              <p className="m-0 font-semibold text-danger">
+                현재 요금제는 결제 주기가 없어 예약할 수 없습니다.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* 유지 대상 체크박스는 preview 로딩 상태와 무관하게 항상 마운트해 둔다 — {preview && …}로
             통째로 감싸면 선택을 바꿀 때마다(재조회 도중) 목록이 통째로 사라졌다 다시 나타나
             깜빡이고, 이미 커스터마이즈한 체크 상태(customKeepUserIds)를 다루는 DOM 참조도 매번
             새로 마운트돼 뒤이은 상호작용(연속 토글)이 불안정해진다(리뷰에서 재현된 버그). */}
         <div className="flex flex-col gap-1">
           <p className="m-0 text-sm font-semibold text-heading">
-            정지될 구성원 {preview ? `${preview.seatsToSuspend.length}명` : '계산 중...'}
+            {isScheduled ? '적용 시점에 정지될 구성원 ' : '정지될 구성원 '}
+            {preview ? `${preview.seatsToSuspend.length}명` : '계산 중...'}
           </p>
           {maxSeats !== null && (
             <p className="m-0 text-xs text-text-muted">
@@ -185,8 +257,17 @@ export function PlanDowngradeConfirmModal({
             </p>
           )}
           <p className="m-0 text-xs text-text-muted">
-            아래에서 유지할 구성원을 직접 선택할 수 있습니다. 선택하지 않은 구성원은 로그인할 수
-            없게 정지됩니다(계정은 삭제되지 않으며, 좌석 여유가 생기면 다시 활성화할 수 있습니다).
+            {isScheduled ? (
+              <>
+                아래에서 유지할 구성원을 직접 선택할 수 있습니다. 선택하지 않은 구성원은 적용
+                시점에 로그인할 수 없게 정지됩니다(예약을 취소하면 아무 일도 일어나지 않습니다).
+              </>
+            ) : (
+              <>
+                아래에서 유지할 구성원을 직접 선택할 수 있습니다. 선택하지 않은 구성원은 로그인할 수
+                없게 정지됩니다(계정은 삭제되지 않으며, 좌석 여유가 생기면 다시 활성화할 수 있습니다).
+              </>
+            )}
           </p>
         </div>
 
@@ -260,9 +341,9 @@ export function PlanDowngradeConfirmModal({
             type="button"
             variant="primary"
             onClick={handleConfirm}
-            disabled={isPending || previewIsFetching || previewIsError}
+            disabled={isPending || previewIsFetching || previewIsError || periodEndMissingForSchedule}
           >
-            {isPending ? '변경 중...' : '변경 확정'}
+            {isPending ? (isScheduled ? '예약 중...' : '변경 중...') : isScheduled ? '예약 확정' : '변경 확정'}
           </Button>
         </div>
       </div>

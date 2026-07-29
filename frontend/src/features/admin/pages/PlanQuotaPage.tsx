@@ -5,6 +5,7 @@ import { PlanChangeControl } from '../components/PlanChangeControl';
 import { PlanQuotaKpiCards } from '../components/PlanQuotaKpiCards';
 import { PlanQuotaTable } from '../components/PlanQuotaTable';
 import { SearchIcon } from '../components/icons/SearchIcon';
+import { useAdminCurrentPlan } from '../hooks/useAdminCurrentPlan';
 import { useAdminPlanCatalog } from '../hooks/useAdminPlanCatalog';
 import { usePlanQuotaUsers } from '../hooks/usePlanQuotaUsers';
 import { PLAN_QUOTA_DEFAULT_PAGE_SIZE } from '../planQuota.constants';
@@ -46,6 +47,9 @@ export function PlanQuotaPage() {
 
   const { data, isLoading, isError, refetch } = usePlanQuotaUsers(params);
   const { data: catalogData } = useAdminPlanCatalog();
+  // 하향 예약(#1105 / HAJA-526, #1191) 배너·"즉시/예약" 선택에 쓰는 currentPeriodEnd·scheduledChange는
+  // GET /api/admin/plan에서만 내려온다 — plan-quota 목록의 companyPlan(#508)과는 별개 조회다.
+  const { data: currentPlanData } = useAdminCurrentPlan();
 
   const users = data?.content ?? [];
   const totalElements = data?.totalElements ?? 0;
@@ -112,8 +116,17 @@ export function PlanQuotaPage() {
           </div>
           <div className="flex flex-col gap-3">
             <p className="px-4 py-3 text-xs font-medium text-text-muted">현재 플랜</p>
-            <CurrentPlanCard plan={companyPlan} catalog={catalogData?.plans} />
-            <PlanChangeControl currentPlan={companyPlan} catalog={catalogData?.plans} />
+            <CurrentPlanCard
+              plan={companyPlan}
+              catalog={catalogData?.plans}
+              scheduledChange={currentPlanData?.scheduledChange ?? null}
+            />
+            <PlanChangeControl
+              currentPlan={companyPlan}
+              catalog={catalogData?.plans}
+              currentPeriodEnd={currentPlanData?.currentPeriodEnd ?? null}
+              hasPendingSchedule={currentPlanData?.scheduledChange != null}
+            />
           </div>
         </div>
 
