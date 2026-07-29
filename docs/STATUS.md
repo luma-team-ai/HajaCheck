@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-07-29
+> 마지막 갱신: 2026-07-30
 
 ## 인프라
 
@@ -35,6 +35,11 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 > ⚠️ 지난 세션 이슈였던 JDK가 **PRD·`build.gradle`·Dockerfile·OCI 실측 네 곳 모두 17로 정합** 확인됨. (호스트 직접 `./gradlew build` 시 JDK 부재 문제는 컨테이너 빌드와 별개 — 아래 [알려진 이슈] 참조)
 
 ## 마지막 머지 PR
+
+- **보고서 P2 후속 — createdByName 옵셔널 정합화 + 미리보기 blob 잔상 정리 (→ dev, 2026-07-30, #1264)** — **#1268**(작성자 Ketose333, squash `704a535c`, `ai:merge-pending`). #1256의 PR머신 P2 2건 해소: ①`ReportSummaryResponse.createdByName`을 옵셔널로 되돌려 백엔드 계약과 일치 ②`ReportGeneratePage` 미리보기 effect 최상단에서 `previewBlobUrl`을 무조건 revoke+null 처리해 가드 조기 return 시에도 이전 리포트 잔상이 남지 않게 보완.
+  **⚠️ 메타 검수 — 뮤테이션으로 실증한 테스트 무력화**: 함께 추가된 회귀 테스트(`확정 전 미리보기가 뜬 상태에서 …`)는 **픽스 4줄을 되돌려도 PASS**한다(워크트리 실측). `unmount()` 경로를 검증하는데 언마운트 revoke는 이번 픽스가 아니라 **#1235 P3의 언마운트 전용 effect**가 처리하기 때문. 원 지적이 요구한 **"리포트 A → pdfUrl 있는 B로 같은 라우트 패턴 내 전환"(언마운트 없음)** 은 여전히 미검증. **픽스 코드 자체는 정확**(effect deps에 `previewBlobUrl` 부재 → 무한 루프 없음, `report` 교체 시 잔상 제거).
+  **createdByName**: 백엔드 `ReportSummaryResponse`(`core.report.dto`)에 **필드 자체가 없음**을 실측(6필드뿐, `backend/src/main/java` grep 0건) → 옵셔널 전환은 정직한 올바른 조치. 다만 증상("작성자명 항상 알 수 없음")은 그대로 남고 타입만 정직해진 상태 → BE DTO 확장 여부 결정 필요.
+  **선존재 실패**: `ReportGeneratePage.test.tsx` 2건은 **dev 베이스에서도 동일 재현**(CI는 PASS — 환경 의존 플레이키 의심), 이 PR 무관. 후속 **#1272**(실효 있는 A→B 전환 회귀 테스트 — 머지 조건에 "픽스를 되돌리면 FAIL" 명시 + createdByName 표시/제거 결정 + 플레이키 조사). GitHub #1264 `awaiting-promotion`.
 
 - **플랫폼 관리자 날짜별 상담 조회 API + Flyway V34 (→ dev, 2026-07-29, #1168)** — **#1205**(작성자 EunSeok-222, squash `bfb59816`, **메타 수동 머지** — 마이그레이션 민감영역 `ai:needs-human` 가드, P1 반려 아님). `GET /api/counsel/tickets/admin?date=YYYY-MM-DD`(PLATFORM_ADMIN 전용, 접수일 `createdAt` 기준 최신순 + 고객 프로필) 신설 · `getMessages`에 `platformAdmin` 우회 파라미터 추가(관리자는 비당사자여도 임의 티켓 대화 열람) · **V34** `idx_counsel_tickets_created_at`(WHERE·ORDER BY 양쪽이 이 컬럼이라 인덱스 없이는 누적될수록 풀스캔 — PR머신 P2 반영).
   **검수**: Critical 사이클(인가 우회 신설) — 메타 code-reviewer opus **P1 0 · P2 3 · P3 5**. 머신 리뷰가 제기했던 위험 4건은 전부 **코드 근거로 오탐 확인**: ①`/admin` 인가 우회 — `SecurityConfig`의 `/api/counsel/tickets`는 **정확 경로 매처**라 `/admin`은 `anyRequest().authenticated()`로 떨어지고 컨트롤러 `PLATFORM_ADMIN` 엄격 비교가 게이트(RoleHierarchy 빈 0건 → ADMIN 승격 경로 없음, `@GetMapping("/{id}")` 미존재 → 경로 충돌 없음) ②`getMessages` 당사자 검증 회귀 — `platformAdmin`은 요청 파라미터가 아니라 **세션 principal role에서만 파생** ③`resolveCustomerProfiles`의 `Collectors.toMap` duplicate key 500 — `uq_user_plans_active_user` 부분 유니크가 userId당 ACTIVE 1건 보장, 회사 구독 행은 owner XOR로 `user_id IS NULL`이라 IN에 미포함 → **발생 불가** ④기존 응답 PII 누출 — 나머지 3개 경로는 전부 `from()`이라 신규 4필드 항상 null.
