@@ -2,6 +2,7 @@ package com.hajacheck.core.report.controller;
 
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.report.dto.FinalizeReportRequest;
+import com.hajacheck.core.report.dto.GenerateDraftRequest;
 import com.hajacheck.core.report.dto.ReportDetailResponse;
 import com.hajacheck.core.report.dto.ReportPdfResponse;
 import com.hajacheck.core.report.dto.ReportSummaryResponse;
@@ -73,9 +74,12 @@ public class ReportController {
     @Operation(summary = "보고서 초안 생성", description = "점검의 확정 하자를 근거로 AI 보고서 초안을 생성한다")
     @PostMapping("/api/inspections/{inspectionId}/reports")
     public ResponseEntity<ApiResponse<ReportDetailResponse>> generateDraft(
-            @PathVariable Long inspectionId, @AuthenticationPrincipal LoginUser loginUser) {
+            @PathVariable Long inspectionId,
+            @Valid @RequestBody GenerateDraftRequest request,
+            @AuthenticationPrincipal LoginUser loginUser) {
         ReportDetailResponse response = reportService.generateDraft(
-                inspectionId, loginUser.getCompanyId(), loginUser.getUserId());
+                inspectionId, loginUser.getCompanyId(), loginUser.getUserId(),
+                request.sections(), request.includePhoto());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
     }
 

@@ -34,6 +34,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashMap;
+import java.util.Set;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import com.hajacheck.core.defect.repository.InspectionGradeCountProjection;
@@ -91,6 +92,12 @@ public class ReportService {
     // 각 메서드가 자체 @Transactional 을 걸어주므로(활성 트랜잭션이 없으면 각자 짧게 시작) 별도 처리가 필요 없다.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ReportDetailResponse generateDraft(Long inspectionId, Long companyId, Long userId) {
+        return generateDraft(inspectionId, companyId, userId, null, null);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public ReportDetailResponse generateDraft(Long inspectionId, Long companyId, Long userId,
+                                               Set<String> sections, Boolean includePhoto) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         InspectionResponse inspection = inspectionService.getInspection(userId, companyId, inspectionId);
         FacilityResponse facility = facilityService.get(userId, companyId, inspection.facilityId());
