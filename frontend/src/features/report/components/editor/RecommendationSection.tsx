@@ -50,30 +50,6 @@ export function RecommendationSection({
     });
   };
 
-  const removeItem = (index: number) => {
-    onChange({
-      ...content,
-      recommendation: {
-        ...content.recommendation,
-        items: items.filter((_, itemIndex) => itemIndex !== index),
-      },
-    });
-  };
-
-  const addItem = () => {
-    const blank: RecommendationItem = {
-      target: '',
-      method: '',
-      priority: '',
-      legal_basis: '',
-      legal_basis_verified: false,
-    };
-    onChange({
-      ...content,
-      recommendation: { ...content.recommendation, items: [...items, blank] },
-    });
-  };
-
   const moveToDefect = (index: number) => {
     document
       .getElementById(`report-defect-${index + 1}`)
@@ -144,24 +120,8 @@ export function RecommendationSection({
                   }
                 />
               </div>
-
-              {!readOnly && (
-                <div className="flex justify-end">
-                  <Button variant="secondary" size="sm" onClick={() => removeItem(index)}>
-                    이 항목 삭제
-                  </Button>
-                </div>
-              )}
             </article>
           ))}
-        </div>
-      )}
-
-      {!readOnly && (
-        <div>
-          <Button variant="secondary" size="sm" onClick={addItem}>
-            + 권고 항목 추가
-          </Button>
         </div>
       )}
 

@@ -95,28 +95,6 @@ export function DetailSection({
     onChange({ ...content, detail: { items: next } });
   };
 
-  const removeItem = (index: number) => {
-    const next = items.filter((_, itemIndex) => itemIndex !== index);
-    setVisibleImageUrls((current) => current.filter((_, imageIndex) => imageIndex !== index));
-    onChange({ ...content, detail: { items: next } });
-    setPage((previous) => {
-      const newTotal = Math.max(1, Math.ceil(next.length / PAGE_SIZE));
-      return Math.min(previous, newTotal - 1);
-    });
-  };
-
-  const addItem = () => {
-    const blank: DefectDetailItem = {
-      defect_type: '',
-      location: '',
-      severity_grade: '',
-      description: '',
-      cause: '',
-    };
-    onChange({ ...content, detail: { items: [...items, blank] } });
-    setPage(Math.max(0, Math.ceil((items.length + 1) / PAGE_SIZE) - 1));
-  };
-
   const selectFilter = (next: GradeFilter) => {
     setGrade(next);
     setPage(0);
@@ -252,25 +230,10 @@ export function DetailSection({
                       textareaClassName={`${INLINE_TEXTAREA_CLASSES} text-text-default`}
                       onChange={(value) => updateItem(index, { cause: value })}
                     />
-                    {!readOnly && (
-                      <div className="flex justify-end">
-                        <Button variant="secondary" size="sm" onClick={() => removeItem(index)}>
-                          이 항목 삭제
-                        </Button>
-                      </div>
-                    )}
                   </div>
                 </div>
             </article>
           ))}
-        </div>
-      )}
-
-      {!readOnly && (
-        <div>
-          <Button variant="secondary" size="sm" onClick={addItem}>
-            + 상세 항목 추가
-          </Button>
         </div>
       )}
     </section>

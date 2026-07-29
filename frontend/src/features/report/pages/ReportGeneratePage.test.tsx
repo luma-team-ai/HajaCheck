@@ -622,7 +622,7 @@ describe('ReportGeneratePage', () => {
 });
 
 describe('DetailSection', () => {
-  it('상세 항목을 삭제해도 남은 항목의 현장 이미지 순서를 유지한다', () => {
+  it('상세 항목과 현장 이미지 목록을 정상적으로 렌더링한다', () => {
     const content: ReportContent = {
       ...mockContent,
       detail: {
@@ -632,32 +632,21 @@ describe('DetailSection', () => {
         ],
       },
     };
-    let currentContent = content;
     const imageUrls = ['/images/first.jpg', '/images/second.jpg'];
-    const onChange = (next: ReportContent) => {
-      currentContent = next;
-    };
-    const { rerender } = render(
+    render(
       <DetailSection
-        content={currentContent}
-        onChange={onChange}
-        readOnly={false}
-        imageUrls={imageUrls}
-      />,
-    );
-
-    fireEvent.click(screen.getAllByRole('button', { name: '이 항목 삭제' })[0]);
-    rerender(
-      <DetailSection
-        content={currentContent}
-        onChange={onChange}
+        content={content}
+        onChange={() => {}}
         readOnly={false}
         imageUrls={imageUrls}
       />,
     );
 
     expect(screen.getAllByRole('img').map((image) => image.getAttribute('src'))).toEqual([
+      '/images/first.jpg',
       '/images/second.jpg',
     ]);
+    expect(screen.queryByText('이 항목 삭제')).toBeNull();
+    expect(screen.queryByText('+ 상세 항목 추가')).toBeNull();
   });
 });
