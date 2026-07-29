@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.35.0-draft"
+  version: "0.36.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -31,6 +31,13 @@ info:
         {id}/resolve` 성공 시) `CounselTicketResponse` 를 수신한다.
     - **브로커**: 인메모리 심플 브로커(`/topic`, `/queue`), 애플리케이션 목적지 prefix `/app`, 사용자 목적지
       prefix `/user`.
+
+
+    2026-07-29 최근 점검 목록 REVIEWED 상태 라벨 통일(#1044, PR#1040 P2 후속) — GET
+    /api/dashboard/recent-inspections 의 status 값이 REVIEWED 를 "조치대기"로 표기하던 것을 대시보드
+    KPI 카드(HAJA-499)와 동일한 "검수확정"으로 변경. RecentInspectionItem.status enum 값도 함께 수정
+    (기존 값 "조치대기" 제거, "검수확정" 추가) — 이 값을 그대로 필터 쿼리파라미터로 보내는
+    프론트(RecentInspectionsFullListPage)도 동시 반영.
 
 
     2026-07-28 구독 만료 FREE 자동 강등 알림 추가(#1145 / HAJA-549, Flyway V28) — `NotificationTypeCode`
@@ -1905,7 +1912,7 @@ paths:
       description: >
         로그인 사용자 소유 시설물의 최근 점검을 점검일 최신순으로 반환한다. status 는 DB 6단계
         (inspection_status_type)를 화면 4단계로 축약한다: CREATED/UPLOADING/ANALYZING→분석중,
-        ANALYZED→검수대기, REVIEWED→조치대기, REPORTED→완료. `DashboardController.getRecentInspections` 구현됨.
+        ANALYZED→검수대기, REVIEWED→검수확정, REPORTED→완료. `DashboardController.getRecentInspections` 구현됨.
       security:
         - SessionCookie: []
       tags: [dashboard]
@@ -5955,7 +5962,7 @@ components:
       type: object
       description: >
         status 는 DB 6단계를 화면 4단계로 축약: CREATED/UPLOADING/ANALYZING→분석중, ANALYZED→검수대기,
-        REVIEWED→조치대기, REPORTED→완료.
+        REVIEWED→검수확정, REPORTED→완료.
       required: [id, facilityName, inspectedAt, inspector, defectCount, status]
       properties:
         id: { type: integer, format: int64 }
@@ -5963,7 +5970,7 @@ components:
         inspectedAt: { type: string, format: date }
         inspector: { type: string }
         defectCount: { type: integer, format: int64, minimum: 0 }
-        status: { type: string, enum: [분석중, 검수대기, 조치대기, 완료] }
+        status: { type: string, enum: [분석중, 검수대기, 검수확정, 완료] }
 
     RecentInspectionListApiResponse:
       type: object
