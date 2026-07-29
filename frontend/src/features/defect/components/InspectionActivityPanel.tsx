@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useInspectionActivity } from '../hooks/useInspectionActivity';
-import { describeDefectChange } from '../utils/describeDefectChange';
+import {
+  describeDefectChange,
+  getDefectRevisionStatusPresentation,
+} from '../utils/describeDefectChange';
 import type { Defect } from '../types';
 
 type Props = {
@@ -42,19 +45,34 @@ export function InspectionActivityPanel({ defects }: Props) {
       {!isLoading && !isError && items.length > 0 && (
         <>
           <ol className="defect-activity-list">
-            {visibleItems.map((item) => (
-              <li key={item.id}>
-                <span className="defect-activity-dot" aria-hidden="true" />
-                <div className="inspection-activity-panel__entry">
-                  <div className="defect-activity-meta">
-                    <span className="inspection-activity-panel__code">{item.defectCode}</span>
-                    <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString('ko-KR')}</time>
+            {visibleItems.map((item) => {
+              const presentation =
+                item.fieldChanged === 'status'
+                  ? getDefectRevisionStatusPresentation(item.newValue)
+                  : null;
+
+              return (
+                <li key={item.id}>
+                  <span className="defect-activity-dot" aria-hidden="true" />
+                  <div className="inspection-activity-panel__entry">
+                    <div className="defect-activity-meta">
+                      <span className="inspection-activity-panel__code">{item.defectCode}</span>
+                      {presentation && (
+                        <span className={`defect-activity-status-badge ${presentation.className}`}>
+                          <span aria-hidden="true" />
+                          {presentation.label}
+                        </span>
+                      )}
+                      <time dateTime={item.createdAt}>
+                        {new Date(item.createdAt).toLocaleString('ko-KR')}
+                      </time>
+                    </div>
+                    <p>{describeDefectChange(item.fieldChanged, item.oldValue, item.newValue)}</p>
+                    {item.reason && <p>사유: {item.reason}</p>}
                   </div>
-                  <p>{describeDefectChange(item.fieldChanged, item.oldValue, item.newValue)}</p>
-                  {item.reason && <p>사유: {item.reason}</p>}
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ol>
 
           {hiddenCount > 0 && (
