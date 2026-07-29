@@ -19,6 +19,8 @@ import com.hajacheck.global.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.PageRequest;
@@ -95,14 +97,47 @@ public class CounselTicketController {
         }
     }
 
-    @Operation(summary = "상담 대화 조회", description = "티켓의 전체 대화 이력(시간순). 당사자(사용자 본인/담당 상담원)만.")
+    @Operation(summary = "상담 대화 조회",
+            description = "티켓의 전체 대화 이력(시간순). 당사자(사용자 본인/담당 상담원) 또는 PLATFORM_ADMIN.")
     @GetMapping("/{id}/messages")
     public ResponseEntity<ApiResponse<List<ChatMessageResponse>>> getMessages(
             @PathVariable Long id,
             @AuthenticationPrincipal LoginUser loginUser) {
+        boolean platformAdmin = loginUser.getRole() == Role.PLATFORM_ADMIN;
         List<ChatMessageResponse> messages =
-                counselTicketService.getMessages(id, loginUser.getUserId());
+                counselTicketService.getMessages(id, loginUser.getUserId(), platformAdmin);
         return ResponseEntity.ok(ApiResponse.ok(messages));
+    }
+
+    @Operation(summary = "플랫폼 관리자 날짜별 상담 목록",
+            description = "접수일(createdAt) 기준 특정 날짜에 접수된 상담 티켓 전체(최신순, 고객 프로필 포함). PLATFORM_ADMIN 전용.")
+    @GetMapping("/admin")
+    public ResponseEntity<ApiResponse<PageResponse<CounselTicketSummaryResponse>>> getAdminTicketsByDate(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @RequestParam(required = false) String date,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        if (loginUser.getRole() != Role.PLATFORM_ADMIN) {
+            throw new BusinessException(ErrorCode.COUNSEL_TICKET_FORBIDDEN);
+        }
+        LocalDate targetDate = parseDate(date);
+        int safePage = Math.max(page, 0);
+        int safeSize = size <= 0 ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+        return ResponseEntity.ok(ApiResponse.ok(PageResponse.from(
+                counselTicketService.getAdminTicketsByDate(targetDate, pageable))));
+    }
+
+    /** date 파라미터(YYYY-MM-DD) 파싱 — 누락·형식 오류 모두 500이 아닌 400(INVALID_INPUT)으로 표면화한다. */
+    private LocalDate parseDate(String date) {
+        if (date == null || date.isBlank()) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT);
+        }
+        try {
+            return LocalDate.parse(date);
+        } catch (DateTimeParseException e) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT);
+        }
     }
 
     @Operation(summary = "대화 내보내기", description = "티켓의 전체 대화를 평문 텍스트(.txt)로 다운로드한다. 당사자만.")

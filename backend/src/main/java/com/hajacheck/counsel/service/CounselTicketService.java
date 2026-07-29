@@ -29,7 +29,10 @@ import com.hajacheck.membership.service.PaymentGraceService;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -150,14 +153,59 @@ public class CounselTicketService {
         return tickets.map(ticket -> CounselTicketSummaryResponse.from(ticket, nameOf(names, ticket)));
     }
 
-    /** 티켓 전체 대화 이력(시간순). 당사자(사용자 본인/담당 상담원)만 — 아니면 열거 방지 통일 응답. */
-    public List<ChatMessageResponse> getMessages(Long ticketId, Long requesterId) {
-        CounselTicket ticket = loadParticipantTicket(ticketId, requesterId);
+    /**
+     * 티켓 전체 대화 이력(시간순). 당사자(사용자 본인/담당 상담원)만 — 아니면 열거 방지 통일 응답.
+     *
+     * <p>{@code platformAdmin=true}(#1168) 면 당사자 여부와 무관하게 조회를 허용한다(관리자 콘솔의
+     * 날짜별 상담 목록에서 임의 티켓의 대화를 열람). 기존 호출부(고객/상담원 콘솔)는 항상
+     * {@code platformAdmin=false} 고정 전달 — 비당사자는 여전히 거부된다(회귀 없음).
+     */
+    public List<ChatMessageResponse> getMessages(Long ticketId, Long requesterId, boolean platformAdmin) {
+        CounselTicket ticket = platformAdmin
+                ? ticketRepository.findById(ticketId)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND))
+                : loadParticipantTicket(ticketId, requesterId);
         // 티켓의 담당 상담원 이름을 1회 조회해 COUNSELOR 발신 메시지에만 부여한다(DTO from 이 발신자 유형으로 분기).
         String counselorName = resolveCounselorName(ticket.getCounselorId());
         return loadMessages(ticket).stream()
                 .map(message -> ChatMessageResponse.from(message, ticket.getId(), counselorName))
                 .toList();
+    }
+
+    /**
+     * 플랫폼 관리자 날짜별 상담 목록(#1168) — 접수일(createdAt) 기준 해당 날짜(00:00~23:59:59.999999,
+     * 서버 기본 타임존)에 접수된 티켓 전체(최신순). 인가는 컨트롤러의 PLATFORM_ADMIN role 게이트를 전제한다
+     * (이 메서드 자체는 그 role 게이트를 통과한 컨트롤러 경로에서만 참조돼야 한다).
+     *
+     * <p><b>타임존 계약(#1205 머신 리뷰 P3 확인 결과)</b> — 경계 계산에 {@code ZoneId}를 명시하지 않는 것은
+     * 누락이 아니라 의도된 설계다. {@link CounselTicket#getCreatedAt()} 은 {@code @CreatedDate} 가 채우는
+     * 존 정보 없는 {@code LocalDateTime}(= 서버 벽시계 그대로)이고, 여기서 만드는 조회 경계도 같은 서버
+     * 벽시계다 — 저장과 조회가 동일 기준이라 구조적으로 정합하며, 이 값을 {@code ZoneId} 로 UTC 환산하면
+     * 오히려 저장값과 9시간 어긋난다. 따라서 이 조회의 정확성은 "서버 기본 타임존 고정"에만 의존한다:
+     * {@code backend/Dockerfile}({@code -Duser.timezone=Asia/Seoul})과 {@code docker-compose.yml}
+     * ({@code TZ: Asia/Seoul})이 이를 이중으로 고정한다(과거 가입일이 9시간 밀려 보이던 회귀의 재발 방지책).
+     * 서버를 다른 타임존으로 띄우면 저장·조회가 함께 밀려 관리자가 보는 날짜 경계가 어긋나므로, 배포 환경의
+     * TZ 설정을 바꾸려면 이 조회와 {@code createdAt} 저장 경로를 함께 재검토해야 한다.
+     */
+    public Page<CounselTicketSummaryResponse> getAdminTicketsByDate(LocalDate date, Pageable pageable) {
+        LocalDateTime start = date.atStartOfDay();
+        // PG timestamp 컬럼은 마이크로초 정밀도까지만 저장한다 — 나노초 단위(minusNanos(1))로 끊으면
+        // 999999999ns가 저장 시 마이크로초로 반올림돼 자정으로 올림(캐리)되는 경계 버그가 난다
+        // (리뷰에서 실제 재현: 다음날 자정 티켓이 당일 조회에 포함됨). 1마이크로초(1000ns) 앞에서 끊는다.
+        LocalDateTime end = date.plusDays(1).atStartOfDay().minusNanos(1000);
+        Page<CounselTicket> page = ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(start, end, pageable);
+        Map<Long, String> counselorNames = resolveCounselorNames(page.getContent());
+        Map<Long, CustomerProfile> customerProfiles = resolveCustomerProfiles(page.getContent());
+        return page.map(ticket -> {
+            CustomerProfile profile = customerProfiles.get(ticket.getUserId());
+            return CounselTicketSummaryResponse.fromAdmin(
+                    ticket,
+                    nameOf(counselorNames, ticket),
+                    profile == null ? null : profile.name(),
+                    profile == null ? null : profile.email(),
+                    profile == null ? null : profile.planName(),
+                    profile == null ? null : profile.joinedAt());
+        });
     }
 
     /** 대화 내보내기 — 당사자만. 전체 대화를 평문 텍스트 트랜스크립트(UTF-8)로 변환해 반환한다. */
@@ -407,6 +455,43 @@ public class CounselTicketService {
         }
         return userRepository.findAllById(counselorIds).stream()
                 .collect(Collectors.toMap(User::getId, User::getName));
+    }
+
+    /**
+     * 플랫폼 관리자 날짜별 목록용 배치 고객 프로필 조회(#1168) — 이름/이메일은 {@code UserRepository}에서,
+     * 활성 개인 플랜명·가입일은 {@code UserPlanRepository}/{@code PlanRepository}에서 배치로 모아
+     * {@code resolveCounselorNames}와 동일한 N+1 방지 패턴으로 조합한다. 활성 구독이 없거나 회사 소속
+     * 구독(owner XOR)이면 플랜명은 null.
+     */
+    private Map<Long, CustomerProfile> resolveCustomerProfiles(List<CounselTicket> tickets) {
+        Set<Long> userIds = tickets.stream()
+                .map(CounselTicket::getUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, UserPlan> activePlanByUserId = userPlanRepository
+                .findByUserIdInAndStatus(userIds, UserPlanStatus.ACTIVE).stream()
+                .collect(Collectors.toMap(UserPlan::getUserId, up -> up));
+        Set<Long> planIds = activePlanByUserId.values().stream()
+                .map(UserPlan::getPlanId)
+                .collect(Collectors.toSet());
+        Map<Long, String> planNameById = planIds.isEmpty() ? Map.of()
+                : planRepository.findAllById(planIds).stream()
+                        .collect(Collectors.toMap(Plan::getId, plan -> plan.getName().name()));
+
+        Map<Long, CustomerProfile> profiles = new HashMap<>();
+        for (User user : userRepository.findAllById(userIds)) {
+            UserPlan activePlan = activePlanByUserId.get(user.getId());
+            String planName = activePlan == null ? null : planNameById.get(activePlan.getPlanId());
+            profiles.put(user.getId(),
+                    new CustomerProfile(user.getName(), user.getEmail(), planName, user.getCreatedAt()));
+        }
+        return profiles;
+    }
+
+    private record CustomerProfile(String name, String email, String planName, LocalDateTime joinedAt) {
     }
 
     private String nameOf(Map<Long, String> names, CounselTicket ticket) {

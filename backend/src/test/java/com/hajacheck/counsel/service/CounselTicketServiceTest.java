@@ -41,6 +41,7 @@ import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.service.PaymentGraceService;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -449,20 +450,34 @@ class CounselTicketServiceTest {
         ReflectionTestUtils.setField(msg, "id", 5L);
         when(chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(700L)).thenReturn(List.of(msg));
 
-        List<ChatMessageResponse> messages = service.getMessages(TICKET_ID, USER_ID);
+        List<ChatMessageResponse> messages = service.getMessages(TICKET_ID, USER_ID, false);
 
         assertThat(messages).hasSize(1);
         assertThat(messages.get(0).content()).isEqualTo("안녕하세요");
     }
 
     @Test
-    void 대화조회_비당사자_404_TICKET_NOT_FOUND_열거방지() {
+    void 대화조회_비당사자_platformAdmin_false면_404_TICKET_NOT_FOUND_열거방지_회귀() {
         CounselTicket ticket = inProgressTicket();
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
 
-        assertThatThrownBy(() -> service.getMessages(TICKET_ID, 999L))
+        assertThatThrownBy(() -> service.getMessages(TICKET_ID, 999L, false))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.COUNSEL_TICKET_NOT_FOUND);
+    }
+
+    @Test
+    void 대화조회_비당사자여도_platformAdmin_true면_조회허용() {
+        CounselTicket ticket = inProgressTicket();
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
+        ChatMessage msg = ChatMessage.create(700L, ChatSenderType.USER, "관리자 조회 대상 대화", null, null, null);
+        ReflectionTestUtils.setField(msg, "id", 6L);
+        when(chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(700L)).thenReturn(List.of(msg));
+
+        List<ChatMessageResponse> messages = service.getMessages(TICKET_ID, 999L, true);
+
+        assertThat(messages).hasSize(1);
+        assertThat(messages.get(0).content()).isEqualTo("관리자 조회 대상 대화");
     }
 
     @Test
@@ -684,5 +699,53 @@ class CounselTicketServiceTest {
     private static ChatSession withId(ChatSession session, Long id) {
         ReflectionTestUtils.setField(session, "id", id);
         return session;
+    }
+
+    // ── 플랫폼 관리자 날짜별 상담 목록(#1168) ──
+
+    @Test
+    void 관리자_날짜별목록_정상_고객프로필포함() {
+        LocalDate date = LocalDate.of(2026, 7, 20);
+        Pageable pageable = PageRequest.of(0, 20);
+        CounselTicket ticket = waitingTicket();
+        when(ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(
+                eq(date.atStartOfDay()), any(), eq(pageable)))
+                .thenReturn(new PageImpl<>(List.of(ticket)));
+
+        User customer = User.builder()
+                .email("customer@haja.com").name("고객").role(Role.USER)
+                .passwordHash("$2a$10$hashed").companyId(null).status(UserStatus.ACTIVE).build();
+        ReflectionTestUtils.setField(customer, "id", USER_ID);
+        ReflectionTestUtils.setField(customer, "createdAt", LocalDateTime.of(2026, 1, 1, 0, 0));
+        when(userRepository.findAllById(any())).thenReturn(List.of(customer));
+
+        UserPlan userPlan = UserPlan.forUser(USER_ID, PLAN_ID);
+        when(userPlanRepository.findByUserIdInAndStatus(any(), eq(UserPlanStatus.ACTIVE)))
+                .thenReturn(List.of(userPlan));
+        Plan plan = plan(true);
+        ReflectionTestUtils.setField(plan, "id", PLAN_ID);
+        when(planRepository.findAllById(any())).thenReturn(List.of(plan));
+
+        Page<CounselTicketSummaryResponse> page = service.getAdminTicketsByDate(date, pageable);
+
+        assertThat(page.getContent()).hasSize(1);
+        CounselTicketSummaryResponse summary = page.getContent().get(0);
+        assertThat(summary.customerName()).isEqualTo("고객");
+        assertThat(summary.customerEmail()).isEqualTo("customer@haja.com");
+        assertThat(summary.customerPlan()).isEqualTo("STANDARD");
+        assertThat(summary.customerJoinedAt()).isEqualTo(LocalDateTime.of(2026, 1, 1, 0, 0));
+    }
+
+    @Test
+    void 관리자_날짜별목록_빈케이스() {
+        LocalDate date = LocalDate.of(2026, 7, 20);
+        Pageable pageable = PageRequest.of(0, 20);
+        when(ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(any(), any(), eq(pageable)))
+                .thenReturn(Page.empty(pageable));
+
+        Page<CounselTicketSummaryResponse> page = service.getAdminTicketsByDate(date, pageable);
+
+        assertThat(page.getContent()).isEmpty();
+        verify(userRepository, never()).findAllById(any());
     }
 }
