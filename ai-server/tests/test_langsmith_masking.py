@@ -11,7 +11,11 @@
 conftest.py가 테스트 프로세스의 LANGCHAIN_TRACING_V2를 false로 강제하므로, 각 테스트는
 `tracing_context(enabled=True)`로 "켜진 상태"를 재현한다.
 """
+import os
+import subprocess
+import sys
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,7 +29,11 @@ from ai.core.langsmith_guard import enforce_masked_tracing, scrub_error_anonymiz
 
 SENSITIVE_INPUT = "사업자등록번호 123-45-67890 대표자 홍길동"
 SENSITIVE_OUTPUT = "원인은 콘크리트 중성화로 추정됩니다"
-FAKE_HF_TOKEN = "hf_TESTONLY_NOT_A_REAL_TOKEN"
+# 실키 패턴(lsv2_pt_* / hf_*)과 일치하지 않는 명백한 더미 — PR머신 시크릿 스캐너 오탐 방지.
+FAKE_LANGSMITH_KEY = "test-dummy-langsmith-key-not-a-real-secret"
+FAKE_HF_TOKEN = "test-dummy-hf-token-not-a-real-secret"
+
+_AI_SERVER_DIR = Path(__file__).resolve().parent.parent
 
 
 def _wait_for_flush(captured: list, *, timeout: float = 8.0, settle: float = 0.4) -> None:
@@ -77,7 +85,7 @@ def _run_and_capture_payload(monkeypatch, *, hide: bool, error_message: str | No
     재현한다 — run의 `error` 필드는 HIDE_INPUTS/OUTPUTS 대상이 아니라 별도 검증이 필요하다
     (P1, langsmith_guard.py 모듈 docstring 참고).
     """
-    monkeypatch.setenv("LANGCHAIN_API_KEY", "lsv2_pt_testonly")
+    monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
     monkeypatch.setenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
     monkeypatch.setenv("LANGCHAIN_PROJECT", "masking-test")
     monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true" if hide else "false")
@@ -182,7 +190,7 @@ def test_masking_env_is_honored_by_client(monkeypatch, env_value):
     monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", env_value)
     monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", env_value)
 
-    client = Client(api_key="lsv2_pt_testonly")
+    client = Client(api_key=FAKE_LANGSMITH_KEY)
 
     expected = env_value == "true"
     assert client._hide_inputs is expected
@@ -220,7 +228,7 @@ def test_error_path_masked_with_boot_guard_anonymizer(monkeypatch):
     계약을 고정한다 — 가드 호출을 main.py에서 지우면 위 대조군과 같은 결과가 되어 실패한다.
     """
     monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
-    monkeypatch.setenv("LANGCHAIN_API_KEY", "lsv2_pt_testonly")
+    monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
     monkeypatch.setenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
     monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true")
     monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "true")
@@ -354,7 +362,7 @@ def test_boot_guard_rejects_hide_values_client_ignores(monkeypatch, hide_value):
     monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", hide_value)
 
     # 전제 고정 — 이 값에서 Client는 실제로 마스킹하지 않는다.
-    assert Client(api_key="lsv2_pt_testonly")._hide_inputs is False, (
+    assert Client(api_key=FAKE_LANGSMITH_KEY)._hide_inputs is False, (
         f"Client가 {hide_value!r}를 마스킹 ON으로 인식하기 시작했다 — 가드 술어를 재검토하라"
     )
     with pytest.raises(RuntimeError, match="LANGSMITH_HIDE"):
@@ -364,7 +372,7 @@ def test_boot_guard_rejects_hide_values_client_ignores(monkeypatch, hide_value):
 def test_boot_guard_installs_error_anonymizer(monkeypatch):
     """정상 조합(트레이싱 ON + 마스킹 완전)이면 싱글턴에 error 스크럽이 선점 설치된다."""
     monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
-    monkeypatch.setenv("LANGCHAIN_API_KEY", "lsv2_pt_testonly")
+    monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
     monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true")
     monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "true")
 
@@ -400,15 +408,22 @@ def test_report_chain_graph_payload_masking(monkeypatch, hide):
     hide=False 대조군이 민감 문자열의 실제 유입을 증명하고, hide=True가 차단을 고정한다 —
     단일 모델 경로만 보던 기존 테스트의 공백(P3)을 메운다.
     """
-    monkeypatch.setenv("LANGCHAIN_API_KEY", "lsv2_pt_testonly")
+    monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
     monkeypatch.setenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
     monkeypatch.setenv("LANGCHAIN_PROJECT", "masking-test")
     monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true" if hide else "false")
     monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "true" if hide else "false")
 
+    if hide:
+        # 프로덕션 부팅 순서 재현 — 가드가 싱글턴을 선점(anonymizer 포함)한 뒤 체인이 돈다.
+        monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
+        enforce_masked_tracing()
+
     captured: list[bytes] = []
+    spy_clients: list = []
 
     def _spy(self, method, path, **kwargs):
+        spy_clients.append(self)
         data = kwargs.get("request_kwargs", {}).get("data") or kwargs.get("data")
         if data:
             captured.append(data if isinstance(data, bytes) else str(data).encode("utf-8"))
@@ -429,6 +444,16 @@ def test_report_chain_graph_payload_masking(monkeypatch, hide):
 
     payload = b"".join(captured)
     assert payload, "전송 페이로드를 가로채지 못했다 — 검증 자체가 성립하지 않는다"
+    # 3차 리뷰 P3 — 체인의 모든 전송이 "부팅 가드가 선점한 단일 공유 Client"를 지나는지 고정.
+    # 미래 체인이 별도 langsmith.Client()를 만들거나 get_llm()을 우회하면 여기서 즉시 실패한다.
+    assert spy_clients and ls_run_trees._CLIENT is not None
+    assert all(c is ls_run_trees._CLIENT for c in spy_clients), (
+        "체인 트레이스가 공유 싱글턴이 아닌 별도 Client로 전송됐다 — error 스크럽이 없는 경로(유출 표면)"
+    )
+    if hide:
+        assert ls_run_trees._CLIENT._anonymizer is scrub_error_anonymizer, (
+            "가드가 선점한 싱글턴에 error 스크럽이 없다"
+        )
     if hide:
         assert SENSITIVE_INPUT.encode("utf-8") not in payload, (
             "그래프 체인 경로(노드 상태·프롬프트)에서 시설 정보가 LangSmith로 전송된다"
@@ -437,3 +462,62 @@ def test_report_chain_graph_payload_masking(monkeypatch, hide):
         assert SENSITIVE_INPUT.encode("utf-8") in payload, (
             "마스킹을 껐는데도 시설 정보가 전송되지 않았다 — 대조군 전제가 깨졌다"
         )
+
+
+# ── 진입점 독립성 — 3차 리뷰 P2 (main.py를 거치지 않아도 가드가 작동) ─────────────
+
+
+def _run_import_in_subprocess(code: str, extra_env: dict) -> subprocess.CompletedProcess:
+    """별도 파이썬 프로세스에서 임포트를 실행한다.
+
+    현 pytest 프로세스에는 llm_client가 이미 임포트돼 있어 임포트 시점 가드가 다시 돌지
+    않으므로, "main.py 없이 체인만 임포트하는 보조 진입점"은 새 프로세스로만 재현할 수 있다.
+    """
+    env = {**os.environ, **extra_env}
+    for key in ("LANGSMITH_HIDE_INPUTS", "LANGSMITH_HIDE_OUTPUTS"):
+        if key not in extra_env:
+            env.pop(key, None)
+    return subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env=env, cwd=str(_AI_SERVER_DIR), timeout=120,
+    )
+
+
+def test_guard_fires_without_main_entrypoint(monkeypatch):
+    """main.py를 거치지 않는 진입점(배치 스크립트·`python -c` 등)에서도 fail-closed가 작동한다.
+
+    보호가 main.py 부팅 훅에만 결합돼 있으면 보조 진입점이 체인을 임포트할 때 가드가 없다는
+    3차 리뷰 P2 지적의 회귀 고정 — llm_client는 "유일한 LLM 호출 지점"이라 모든 체인 임포트가
+    반드시 지나므로, 그 모듈 임포트 자체가 가드를 강제하는지 검증한다.
+    """
+    result = _run_import_in_subprocess(
+        "import ai.core.llm_client",
+        {"LANGCHAIN_TRACING_V2": "true"},  # HIDE는 의도적으로 미설정
+    )
+
+    assert result.returncode != 0, (
+        "트레이싱 ON + 마스킹 미설정인데 체인 공통 모듈 임포트가 성공했다 — "
+        f"보조 진입점에서 PII가 전송될 수 있다(P2)\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "LANGSMITH_HIDE" in result.stderr, "기동 중단 사유가 운영자에게 안내되지 않는다"
+
+
+def test_guard_installs_anonymizer_without_main_entrypoint(monkeypatch):
+    """정상 조합에선 main.py 없이도 error 스크럽이 싱글턴에 선점된다 — 예외 경로 보호의 진입점 독립성."""
+    result = _run_import_in_subprocess(
+        "import ai.core.llm_client, langsmith.run_trees as rt;"
+        "print('ANON_OK' if rt._CLIENT is not None and rt._CLIENT._anonymizer is not None"
+        " else 'ANON_MISSING')",
+        {
+            "LANGCHAIN_TRACING_V2": "true",
+            "LANGSMITH_HIDE_INPUTS": "true",
+            "LANGSMITH_HIDE_OUTPUTS": "true",
+            "LANGCHAIN_API_KEY": FAKE_LANGSMITH_KEY,
+        },
+    )
+
+    assert result.returncode == 0, f"정상 조합인데 임포트가 실패했다\nstderr: {result.stderr}"
+    assert "ANON_OK" in result.stdout, (
+        "main.py를 거치지 않으면 error 스크럽이 설치되지 않는다 — 예외 경로 유출 표면(P2)"
+    )
