@@ -112,7 +112,7 @@ export function ReportEditorHero({
           <dt className="text-xs font-medium tracking-wide text-text-default">현재 상태</dt>
           <dd className="m-0 flex items-center justify-between">
             <div>
-              <p className="text-3xl font-medium leading-9 text-heading">
+              <p className="text-3xl font-bold leading-9 text-heading">
                 {isFinalized ? '확정' : '검수 중'}
               </p>
               <p className="mt-1 text-xs text-text-default">
