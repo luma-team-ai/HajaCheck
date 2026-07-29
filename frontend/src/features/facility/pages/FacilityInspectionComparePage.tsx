@@ -6,7 +6,6 @@ import { ComparisonKpiCard } from '../components/ComparisonKpiCard';
 import { ComparisonVisualPanel } from '../components/ComparisonVisualPanel';
 import { CrackTrendChart } from '../components/CrackTrendChart';
 import { DefectChangeTable } from '../components/DefectChangeTable';
-import { InspectionCycleSelect } from '../components/InspectionCycleSelect';
 import { exportComparisonReportAsPng } from '../utils/exportComparisonReportAsPng';
 import { useFacilityComparison } from '../hooks/useFacilityComparison';
 
@@ -15,15 +14,13 @@ const DEFAULT_FACILITY_ID = 'detail';
 // 회차 간 비교(dev-04-02, #489) — 하자 상세 화면의 "회차비교" 탭에서 navigate로 진입.
 export function FacilityInspectionComparePage() {
   const { id = DEFAULT_FACILITY_ID } = useParams<{ id: string }>();
-  // #1157 — 시설물마다 실제 점검 회차가 다르므로 화면 진입 시 유효한 회차를 미리 알 수 없다
-  // (과거엔 7/8회차로 하드코딩해 그 회차가 없는 시설물에서 항상 실패했다). undefined면 서버가
-  // 이 시설물의 실제 최근 2개 회차로 자동 대체해 응답하고, 그 값을 select 표시에 그대로 반영한다.
-  const [beforeCycle, setBeforeCycle] = useState<number | undefined>(undefined);
-  const [afterCycle, setAfterCycle] = useState<number | undefined>(undefined);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const exportTargetRef = useRef<HTMLDivElement | null>(null);
-  const { data, isLoading, isError, refetch } = useFacilityComparison(id, beforeCycle, afterCycle);
+  // #1157 — before/after를 지정하지 않으면 서버가 이 시설물의 실제 최근 2개 회차로 자동
+  // 대체해 응답한다. 회차를 사용자가 직접 고르는 UI는 제공하지 않는다(2026-07-29 사용자
+  // 결정) — 항상 서버가 고른 최근 2개 회차만 읽기 전용으로 보여준다.
+  const { data, isLoading, isError, refetch } = useFacilityComparison(id);
 
   const handleExportClick = async () => {
     if (!exportTargetRef.current) return;
@@ -57,25 +54,6 @@ export function FacilityInspectionComparePage() {
     );
   }
 
-  // 서버가 자동 대체한 회차를 select 표시값으로 사용한다(#1157) — 사용자가 아직 명시적으로
-  // 고르지 않았으면(undefined) 응답에 실린 beforeCycle/afterCycle이 곧 서버가 고른 실제 값이다.
-  const displayedBeforeCycle = beforeCycle ?? data.beforeCycle.cycle;
-  const displayedAfterCycle = afterCycle ?? data.afterCycle.cycle;
-
-  // code-reviewer P1 — 한쪽 회차만 바꾸고 다른 쪽을 undefined로 남겨두면, 재요청 시 서버가
-  // "둘 다 생략" 경로로 오인해 방금 고른 값까지 자동 대체로 덮어써 버린다(select엔 사용자가
-  // 고른 값이 남아 있는데 실제 비교 데이터는 서버가 다시 고른 값이 되는 불일치). 한쪽을 바꿀 때
-  // 다른 쪽도 현재 표시값으로 함께 명시해, 사용자가 한 번이라도 선택한 뒤로는 두 값이 항상
-  // 같이 정의되도록 한다.
-  const handleBeforeCycleChange = (cycle: number) => {
-    setBeforeCycle(cycle);
-    setAfterCycle(displayedAfterCycle);
-  };
-  const handleAfterCycleChange = (cycle: number) => {
-    setAfterCycle(cycle);
-    setBeforeCycle(displayedBeforeCycle);
-  };
-
   return (
     // 사이드바·헤더는 AppLayout(shared)이 별도로 렌더링하므로, 이 콘텐츠 영역만 캡처하면
     // "메인 콘텐츠 영역만" PNG로 내보내는 요구사항이 자연히 충족된다(#489 확정).
@@ -84,19 +62,20 @@ export function FacilityInspectionComparePage() {
         <div className="flex flex-col gap-3">
           <h1 className="dashboard-page-title">회차 간 비교</h1>
           <div className="flex items-center gap-3">
-            <InspectionCycleSelect
-              label="이전 회차"
-              options={data.availableCycles}
-              value={displayedBeforeCycle}
-              onChange={handleBeforeCycleChange}
-            />
+            {/* 회차는 서버가 자동으로 고른 최근 2개로 고정 표시한다(읽기 전용, 2026-07-29
+                사용자 결정) — 선택 가능한 드롭다운을 제공하지 않는다.
+                code-reviewer P2 — aria-label을 쓰면 접근성 트리에서 자식 텍스트(실제 회차·날짜
+                값)가 통째로 가려져 스크린리더 사용자에게 값 자체가 전달되지 않는다. 시각적으로만
+                숨긴 라벨 텍스트 뒤에 실제 값을 그대로 두어 라벨·값 둘 다 전달되게 한다. */}
+            <span className="rounded-full border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text-default">
+              <span className="sr-only">이전 회차: </span>
+              {data.beforeCycle.cycle}회차 {data.beforeCycle.date}
+            </span>
             <span className="text-sm font-semibold text-text-muted">VS</span>
-            <InspectionCycleSelect
-              label="현재 회차"
-              options={data.availableCycles}
-              value={displayedAfterCycle}
-              onChange={handleAfterCycleChange}
-            />
+            <span className="rounded-full border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text-default">
+              <span className="sr-only">현재 회차: </span>
+              {data.afterCycle.cycle}회차 {data.afterCycle.date}
+            </span>
           </div>
         </div>
         <Button variant="secondary" size="sm" onClick={handleExportClick} disabled={isExporting}>

@@ -43,12 +43,22 @@ function renderPage(): void {
 }
 
 describe('FacilityInspectionComparePage (통합 테스트)', () => {
-  it('제목과 회차 선택 드롭다운을 렌더링한다', async () => {
+  // 2026-07-29 사용자 결정 — 회차를 직접 고르는 드롭다운을 제거하고, 서버가 자동으로 고른
+  // 최근 2개 회차를 읽기 전용으로만 보여준다.
+  it('제목과 서버가 고른 회차 1쌍을 읽기 전용으로 렌더링한다', async () => {
     renderPage();
 
     expect(await screen.findByText('회차 간 비교')).not.toBeNull();
-    expect(screen.getByLabelText('이전 회차')).not.toBeNull();
-    expect(screen.getByLabelText('현재 회차')).not.toBeNull();
+    // code-reviewer P2 픽스 — aria-label 대신 sr-only 라벨 텍스트 뒤에 실제 값을 두므로,
+    // sr-only 라벨의 부모 요소 전체 텍스트로 라벨·값이 함께 있는지 확인한다.
+    expect(screen.getByText('이전 회차:', { exact: false }).parentElement?.textContent).toContain(
+      `${mockInspectionComparison.beforeCycle.cycle}회차`,
+    );
+    expect(screen.getByText('현재 회차:', { exact: false }).parentElement?.textContent).toContain(
+      `${mockInspectionComparison.afterCycle.cycle}회차`,
+    );
+    // select가 아니라 읽기 전용 표시라 편집 가능한 폼 컨트롤이 없어야 한다.
+    expect(screen.queryByRole('combobox')).toBeNull();
   });
 
   // #1157 회귀고정 — 과거엔 DEFAULT_BEFORE_CYCLE=7/DEFAULT_AFTER_CYCLE=8이 하드코딩돼 있어
@@ -68,33 +78,6 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
       expect(capturedSearch).not.toBeNull();
       expect(capturedSearch).not.toContain('before=');
       expect(capturedSearch).not.toContain('after=');
-    } finally {
-      server.events.removeListener('request:match', captureRequest);
-    }
-  });
-
-  // code-reviewer P1 회귀고정 — "이전 회차"만 바꾸면 afterCycle 상태가 undefined로 남아, 재요청이
-  // before만 보내고 after는 생략된다. 서버는 이걸 "둘 다 생략"으로 오인해 방금 고른 before값까지
-  // 자동 대체로 덮어쓴다(select엔 사용자가 고른 값이 남는데 실제 데이터는 다시 자동선택된 값이
-  // 되는 불일치). 한쪽만 바꿔도 두 파라미터가 항상 함께 실려야 한다.
-  it('회차 하나만 다시 선택해도 before/after 둘 다 실어 재요청한다(#1157 P1)', async () => {
-    const capturedSearches: string[] = [];
-    const captureRequest = ({ request }: { request: Request }) => {
-      capturedSearches.push(new URL(request.url).search);
-    };
-    server.events.on('request:match', captureRequest);
-
-    try {
-      renderPage();
-      await screen.findByText('회차 간 비교');
-
-      fireEvent.change(screen.getByLabelText('이전 회차'), { target: { value: '5' } });
-
-      await screen.findByText('회차 간 비교');
-      const lastSearch = capturedSearches[capturedSearches.length - 1];
-      expect(lastSearch).toContain('before=5');
-      expect(lastSearch).toContain('after=');
-      expect(lastSearch).not.toBe('');
     } finally {
       server.events.removeListener('request:match', captureRequest);
     }
