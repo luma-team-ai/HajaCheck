@@ -432,7 +432,7 @@ export function ReportEntryPage() {
           <div className="inline-flex items-center gap-1 rounded-full bg-surface-muted px-3 py-1">
             <Icon spec={ICONS.infoCircle} fill="#77767B" className="h-3 w-3" />
             <span className="text-xs text-text-muted">
-              AI가 수치를 자동 대조합니다 (Grounding Check)
+              AI가 수치를 자동 대조합니다
             </span>
           </div>
         </div>

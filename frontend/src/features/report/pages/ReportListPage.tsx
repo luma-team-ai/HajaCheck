@@ -283,9 +283,6 @@ export function ReportListPage() {
               <span className="text-base font-medium text-text-muted">총 {totalItems}건</span>
             </div>
             <div className="flex items-center gap-3">
-              <span className="rounded-full border border-border bg-surface-muted px-3 py-1.5 text-sm text-text-muted">
-                보고서 생성은 점검 회차 상세에서 →
-              </span>
               <button
                 type="button"
                 disabled={exportableRows.length === 0 || isExporting}

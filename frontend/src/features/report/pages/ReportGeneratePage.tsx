@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
@@ -115,6 +115,12 @@ export function ReportGeneratePage() {
   }, [parsedReportId, hasValidReportId, setActiveReportId]);
 
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  // 확정 전 미리보기(사용자 리포트 픽스) — "PDF 미리보기" 링크는 확정 여부와 무관하게 항상
+  // 노출되는데, 실제로는 report.pdfUrl(확정 시 업로드된 저장본)이 있을 때만 내용을 보여주고
+  // 그 전에는 "저장된 PDF가 없습니다"만 떴다. 확정 검증을 통과한 뒤에는, 서버에 올리기 전
+  // 클라이언트에서 exportReportToPdf로 즉석 렌더링해 진짜 미리보기를 제공한다.
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const verifyPdfPreview = useCallback(async (pdfUrl: string, signal?: AbortSignal) => {
     setPdfLoadError(null);
@@ -186,6 +192,51 @@ export function ReportGeneratePage() {
 
   const dirty = content !== null && savedContent !== null && JSON.stringify(content) !== JSON.stringify(savedContent);
   const isFinalized = report?.status === 'FINALIZED';
+
+  // 확정 검증을 통과하고(groundingCheckPassed === true) 저장되지 않은 변경이 없으면(!dirty),
+  // 최종 확정 시 생성될 것과 동일한 조건으로 미리 PDF를 렌더링해둔다 — handleGeneratePdfAndFinalize와
+  // 동일한 옵션을 쓰되 서버 업로드/확정은 하지 않는다(순수 클라이언트 미리보기).
+  const canPreviewBeforeFinalize =
+    Boolean(content) && report?.groundingCheckPassed === true && !dirty;
+
+  // useInspectionResult(useInspectionResultReal)은 매 렌더마다 새 data 객체를 만든다(메모이제이션
+  // 없음) — 아래 effect 의존성 배열에 inspectionData를 직접 넣으면 setPreviewBlobUrl → 리렌더 →
+  // inspectionData 참조 변경 → effect 재실행이 무한 반복돼 메모리 초과로 죽는다. ref로만 최신값을
+  // 읽고 의존성에서는 제외한다.
+  const inspectionDataRef = useRef(inspectionData);
+  inspectionDataRef.current = inspectionData;
+
+  useEffect(() => {
+    setPreviewError(null);
+    if (!isExportMode || !report || report.pdfUrl || isFinalized || !content) return;
+    if (!canPreviewBeforeFinalize) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const latestInspectionData = inspectionDataRef.current;
+        const blob = await exportReportToPdf(content, {
+          facilityName: latestInspectionData?.facilityName,
+          inspectionRound: latestInspectionData?.roundNo,
+          issuedAt: new Date(report.createdAt),
+          defectImages: latestInspectionData?.defects.flatMap((defect) =>
+            defect.thumbnailUrl ? [{ defectType: defect.type, imageUrl: defect.thumbnailUrl }] : [],
+          ),
+        });
+        if (cancelled) return;
+        const objectUrl = URL.createObjectURL(blob);
+        setPreviewBlobUrl((prevUrl) => {
+          if (prevUrl) URL.revokeObjectURL(prevUrl);
+          return objectUrl;
+        });
+      } catch (err) {
+        if (!cancelled) setPreviewError(extractErrorMessage(err, '미리보기를 만들지 못했습니다.'));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isExportMode, report, isFinalized, content, canPreviewBeforeFinalize]);
 
   const handleSave = async () => {
     if (!report || !content || isSaving) return;
@@ -367,12 +418,44 @@ export function ReportGeneratePage() {
             <div className="flex flex-1 items-center justify-center">
               <AILoadingIndicator message="PDF를 불러오는 중..." />
             </div>
-          ) : (
+          ) : isFinalized ? (
+            // 확정 완료됐는데 저장된 PDF가 없는 데이터 이상 상태 — 편집 화면 자체가 잠겨 있어
+            // "돌아가서 다시 시도" 안내가 성립하지 않는다.
             <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-surface p-8 text-center shadow-sm">
               <div className="flex max-w-md flex-col gap-3">
                 <p className="text-lg font-semibold text-text-default">저장된 PDF가 없습니다.</p>
+                <p className="text-sm text-text-muted">PDF 파일을 찾을 수 없습니다. 관리자에게 문의해 주세요.</p>
+              </div>
+            </div>
+          ) : previewError ? (
+            <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-4 rounded-lg border border-border bg-surface p-8 text-center shadow-sm">
+              <p className="text-lg font-semibold text-text-default">미리보기를 만들지 못했습니다.</p>
+              <p className="text-sm text-text-muted">{previewError}</p>
+            </div>
+          ) : previewBlobUrl ? (
+            // 확정 전 미리보기 — 아직 서버에 저장되지 않은 임시 렌더링임을 명확히 표시한다.
+            <div className="mx-auto flex h-full w-full max-w-[860px] flex-col overflow-hidden bg-surface shadow-sm">
+              <p className="m-0 border-b border-warning-soft-border bg-warning-soft-bg px-4 py-2 text-xs text-warning-soft-fg">
+                아직 확정되지 않은 미리보기입니다. 실제 발행 후 저장되는 최종 PDF와 다를 수 있습니다.
+              </p>
+              <iframe
+                title="보고서 PDF 미리보기(확정 전)"
+                src={buildPdfPreviewSrc(previewBlobUrl, previewBlobUrl)}
+                className="block h-full w-full flex-1 border-0 bg-surface"
+              />
+            </div>
+          ) : canPreviewBeforeFinalize ? (
+            <div className="flex flex-1 items-center justify-center">
+              <AILoadingIndicator message="미리보기를 만드는 중..." />
+            </div>
+          ) : (
+            <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-surface p-8 text-center shadow-sm">
+              <div className="flex max-w-md flex-col gap-3">
+                <p className="text-lg font-semibold text-text-default">아직 미리 볼 수 없습니다.</p>
                 <p className="text-sm text-text-muted">
-                  편집 화면에서 grounding 검증을 통과한 뒤 PDF 생성 및 확정을 먼저 완료하세요.
+                  {dirty
+                    ? '편집한 내용을 아직 저장하지 않았습니다. 저장한 뒤 다시 시도해 주세요.'
+                    : '편집 화면으로 돌아가 확정 검증을 통과한 뒤 다시 시도해 주세요.'}
                 </p>
               </div>
             </div>

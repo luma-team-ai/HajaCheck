@@ -468,6 +468,44 @@ describe('ReportGeneratePage', () => {
     expect(screen.queryByLabelText('점검 목적')).toBeNull();
   });
 
+  // 회귀 테스트(사용자 리포트 픽스) — 확정 검증을 통과했는데도 아직 확정(PDF 업로드)하지 않은
+  // 상태에서 "PDF 미리보기"에 들어가면, 서버에 저장된 PDF가 없어도 클라이언트에서 즉석
+  // 렌더링한 미리보기가 떠야 한다("확정하기 전 PDF를 보는 기능"의 본래 의도).
+  it('/reports/:reportId?mode=export에서 확정 전이어도 검증을 통과했으면 즉석 미리보기를 렌더한다', async () => {
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+      status: 'DRAFT',
+      pdfUrl: null,
+    };
+
+    renderPageWithPath('/reports/1?mode=export');
+
+    const pdfFrame = await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
+    expect(pdfFrame.getAttribute('src')).toContain('blob:');
+    expect(screen.getByText(/아직 확정되지 않은 미리보기입니다/)).toBeTruthy();
+    expect(screen.queryByText('저장된 PDF가 없습니다.')).toBeNull();
+  });
+
+  // 검증 전(그리고 grounding이라는 단어를 노출하지 않는지) 확인 — 일반 점검자가 이해할 수 있는
+  // 문구여야 한다.
+  it('확정 검증을 아직 통과하지 못했으면 미리보기 대신 안내 문구를 plain하게 보여준다', async () => {
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: null,
+      status: 'DRAFT',
+      pdfUrl: null,
+    };
+
+    renderPageWithPath('/reports/1?mode=export');
+
+    const guidance = await screen.findByText('아직 미리 볼 수 없습니다.');
+    expect(guidance).toBeTruthy();
+    expect(screen.getByText(/확정 검증을 통과한 뒤 다시 시도해 주세요/)).toBeTruthy();
+    expect(screen.queryByText(/grounding/i)).toBeNull();
+    expect(screen.queryByTitle('보고서 PDF 미리보기(확정 전)')).toBeNull();
+  });
+
   it('content가 편집되지 않은 상태에서는 확정 검증 버튼이 항상 비활성화되지 않는다', async () => {
     renderPage();
 
