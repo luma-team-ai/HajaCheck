@@ -40,17 +40,22 @@ interface HeatmapGridProps {
 
 // 미리보기(상위 N행)와 "전체보기" 모달이 동일한 마크업을 쓰도록 분리.
 function HeatmapGrid({ categories, months, findCount, maxCount }: HeatmapGridProps) {
+  const isDense = months.length > 8; // 12개월(1년) 선택 시 간격 및 폰트를 조밀하게 맞춰 가로 스크롤 방지
+  const headerWidth = isDense ? '2.75rem' : '3.5rem';
+  const gapClass = isDense ? 'gap-x-1' : 'gap-x-2';
+  const fontSizeClass = isDense ? 'text-[11px]' : 'text-xs';
+
   return (
-    <div className="min-w-[500px] flex-1 overflow-x-auto">
+    <div className="w-full flex-1 overflow-x-auto overflow-y-visible">
       {/* 카드 폭이 넓어져도(등급별 분포 대비 3.5:6.5) 셀이 좌상단에 뭉치지 않도록, 고정폭
           flex 대신 월 열을 1fr 그리드 컬럼으로 잡아 카드 전체 폭에 맞춰 늘어나게 한다. */}
       <div
-        className="grid w-full items-center gap-x-2 gap-y-2"
-        style={{ gridTemplateColumns: `3.5rem repeat(${months.length}, 1fr)` }}
+        className={`grid w-full items-center ${gapClass} gap-y-2 min-w-[360px]`}
+        style={{ gridTemplateColumns: `${headerWidth} repeat(${months.length}, 1fr)` }}
       >
         <span aria-hidden="true" />
         {months.map((month) => (
-          <span key={month} className="text-center text-zinc-500 text-xs font-medium">
+          <span key={month} className={`text-center text-zinc-500 font-medium ${fontSizeClass}`}>
             {formatMonthLabel(month)}
           </span>
         ))}
@@ -61,7 +66,7 @@ function HeatmapGrid({ categories, months, findCount, maxCount }: HeatmapGridPro
           const isFirstRow = rowIndex === 0;
           return (
             <Fragment key={category}>
-              <span className="text-right text-zinc-500 text-xs font-medium">{category}</span>
+              <span className={`text-right text-zinc-500 font-medium truncate ${fontSizeClass}`}>{category}</span>
               {months.map((month) => {
                 const count = findCount(category, month);
                 return (
