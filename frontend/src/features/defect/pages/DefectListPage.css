@@ -531,12 +531,6 @@
 
 /* --- 점검 목록(InspectionTable, HAJA-393/394 · #725/#726) --- */
 
-.inspection-table__id-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .inspection-table__grade-group {
   display: inline-flex;
   flex-wrap: wrap;

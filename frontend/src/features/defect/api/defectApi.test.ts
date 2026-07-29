@@ -5,8 +5,9 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse, PageResponse } from '../../../shared/api/types';
 import { mockDefects } from '../mocks/defect.mock';
+import { mockInspections } from '../mocks/inspection.mock';
 import type { InspectionListItem } from '../types';
-import { defectApi } from './defectApi';
+import { defectApi, fetchAllFilteredInspections } from './defectApi';
 import { defectHandlers } from './defectApi.handlers';
 
 const mockDefectExplain = {
@@ -324,6 +325,47 @@ describe('defectApi.getByInspection', () => {
     await expect(defectApi.getByInspection(999999)).rejects.toMatchObject({
       code: 'INSPECTION_NOT_FOUND',
     });
+  });
+});
+
+describe('fetchAllFilteredInspections', () => {
+  it('화면 페이지·크기를 무시하고 필터를 유지한 채 모든 페이지를 순회한다', async () => {
+    const requests: Array<{ facilityId: string | null; page: string | null; size: string | null }> = [];
+    server.use(
+      http.get('/api/inspections', ({ request }) => {
+        const url = new URL(request.url);
+        const page = Number(url.searchParams.get('page'));
+        requests.push({
+          facilityId: url.searchParams.get('facilityId'),
+          page: url.searchParams.get('page'),
+          size: url.searchParams.get('size'),
+        });
+        const content = page === 0 ? mockInspections.slice(0, 2) : mockInspections.slice(2);
+        const body: ApiResponse<PageResponse<InspectionListItem>> = {
+          success: true,
+          data: {
+            content,
+            page,
+            totalElements: mockInspections.length,
+          },
+        };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    const result = await fetchAllFilteredInspections({
+      facilityId: 1,
+      page: 7,
+      size: 1,
+    });
+
+    expect(requests).toEqual([
+      { facilityId: '1', page: '0', size: '100' },
+      { facilityId: '1', page: '1', size: '100' },
+    ]);
+    expect(result.map((inspection) => inspection.id)).toEqual(
+      mockInspections.map((inspection) => inspection.id),
+    );
   });
 });
 

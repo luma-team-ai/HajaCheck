@@ -120,51 +120,21 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
     expect(await screen.findByText("점검 상세 스텁")).not.toBeNull();
   });
 
-  it("행 선택을 클릭해도 상세 페이지로 이동하지 않는다", async () => {
+  it("보고서 생성 버튼과 점검 선택 체크박스를 표시하지 않고, 필터 결과가 있으면 내보내기를 활성화한다", async () => {
     renderPage();
     const table = await screen.findByRole("table");
-    const checkbox = within(table).getByRole("checkbox", {
-      name: "INS-0101 선택",
-    });
-
-    fireEvent.click(checkbox);
-
-    expect(screen.queryByText("점검 상세 스텁")).toBeNull();
-  });
-
-  it("헤더에서 현재 페이지의 점검을 전체 선택하고 해제한다", async () => {
-    renderPage();
-    const table = await screen.findByRole("table");
-    const selectAll = within(table).getByRole("checkbox", {
-      name: "현재 페이지 점검 전체 선택",
-    });
-    const rowSelections = within(table)
-      .getAllByRole("checkbox")
-      .filter((checkbox) => checkbox !== selectAll) as HTMLInputElement[];
-
-    fireEvent.click(selectAll);
-    expect(rowSelections.every((checkbox) => checkbox.checked)).toBe(true);
-
-    fireEvent.click(selectAll);
-    expect(rowSelections.every((checkbox) => !checkbox.checked)).toBe(true);
-  });
-
-  it("보고서 생성 버튼을 표시하지 않고, 선택된 점검이 없으면 내보내기 버튼이 비활성화된다", async () => {
-    renderPage();
-    await screen.findByRole("table");
 
     const exportButton = screen.getByRole("button", {
       name: "내보내기",
     }) as HTMLButtonElement;
     expect(screen.queryByRole("button", { name: "보고서 생성" })).toBeNull();
-    expect(exportButton.disabled).toBe(true);
+    expect(within(table).queryByRole("checkbox")).toBeNull();
+    expect(exportButton.disabled).toBe(false);
   });
 
-  it("점검을 하나 이상 선택하면 내보내기 버튼이 활성화되고, 선택된 점검에 속한 하자를 모아 PDF로 내보낸다", async () => {
+  it("현재 페이지와 무관하게 필터 결과의 모든 점검에 속한 하자를 모아 PDF로 내보낸다", async () => {
     renderPage();
-    const table = await screen.findByRole("table");
-
-    fireEvent.click(within(table).getByRole("checkbox", { name: "INS-0101 선택" }));
+    await screen.findByRole("table");
 
     const exportButton = screen.getByRole("button", {
       name: "내보내기",
@@ -173,12 +143,11 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
 
     fireEvent.click(exportButton);
 
-    await screen.findByRole("button", { name: "내보내기" });
-    expect(mockExportDefectsToPdf).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockExportDefectsToPdf).toHaveBeenCalledTimes(1));
     const [calledDefects] = mockExportDefectsToPdf.mock.calls[0];
-    // mockInspections id=101 → mockDefects(inspectionId=101)의 id 1, 2가 그대로 모여야 한다.
-    expect(calledDefects).toHaveLength(2);
-    expect(calledDefects.map((defect: { id: number }) => defect.id).sort()).toEqual([1, 2]);
+    // mockInspections 전체(101/202/301) 중 301은 하자 0건 → mockDefects id 1, 2, 3 전체가 모인다.
+    expect(calledDefects).toHaveLength(3);
+    expect(calledDefects.map((defect: { id: number }) => defect.id).sort()).toEqual([1, 2, 3]);
   });
 
   it("PDF 내보내기가 실패해도 버튼이 다시 클릭 가능한 상태로 복원된다", async () => {
@@ -188,21 +157,20 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
       .mockImplementation(() => {});
 
     renderPage();
-    const table = await screen.findByRole("table");
-
-    fireEvent.click(within(table).getByRole("checkbox", { name: "INS-0101 선택" }));
+    await screen.findByRole("table");
 
     const exportButton = screen.getByRole("button", {
       name: "내보내기",
     }) as HTMLButtonElement;
     fireEvent.click(exportButton);
 
-    await screen.findByRole("button", { name: "내보내기" });
-    expect(exportButton.disabled).toBe(false);
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      "점검 하자 목록 PDF 내보내기 실패",
-      expect.any(Error),
-    );
+    await waitFor(() => {
+      expect(exportButton.disabled).toBe(false);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "점검 하자 목록 PDF 내보내기 실패",
+        expect.any(Error),
+      );
+    });
 
     consoleErrorSpy.mockRestore();
   });
@@ -232,26 +200,26 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
     });
   });
 
-  it("AI 필터가 적용되면 기존 점검 선택을 지운다", async () => {
+  it("AI 필터를 적용한 뒤 내보내면 해당 필터 결과의 하자만 PDF에 포함한다", async () => {
     renderPage();
-    let table = await screen.findByRole("table");
-    fireEvent.click(within(table).getByRole("checkbox", { name: "INS-0101 선택" }));
+    await screen.findByRole("table");
 
     fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
       target: { value: "지난 두 달간의 1회차 점검 알려줘" },
     });
     fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: "점검회차: 1회차 필터 제거" }),
-    );
 
     await waitFor(() => {
-      table = screen.getByRole("table");
-      const checkbox = within(table).getByRole("checkbox", {
-        name: "INS-0101 선택",
-      }) as HTMLInputElement;
-      expect(checkbox.checked).toBe(false);
+      const table = screen.getByRole("table");
+      expect(within(table).getByText("한강대교 북단")).not.toBeNull();
+      expect(within(table).queryByText("강남 오피스타워 A동")).toBeNull();
     });
+
+    fireEvent.click(screen.getByRole("button", { name: "내보내기" }));
+
+    await waitFor(() => expect(mockExportDefectsToPdf).toHaveBeenCalledTimes(1));
+    const [calledDefects] = mockExportDefectsToPdf.mock.calls[0];
+    expect(calledDefects.map((defect: { id: number }) => defect.id)).toEqual([3]);
   });
 });
 

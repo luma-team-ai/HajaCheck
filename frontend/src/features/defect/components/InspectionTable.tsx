@@ -4,7 +4,6 @@ import { ErrorFallback } from '../../../shared/components/ErrorFallback';
 import type { TableColumn } from '../../../shared/components/Table';
 import { Table } from '../../../shared/components/Table';
 import { GRADE_CLASSES } from '../constants/defectPresentation';
-import { SelectionCheckbox } from './SelectionCheckbox';
 import { EMPTY_GRADE_DISTRIBUTION, INSPECTION_STATUS_LABEL } from '../types';
 import type { DefectGrade, InspectionListItem } from '../types';
 import { formatInspectionCode } from '../utils/defectFormat';
@@ -14,8 +13,6 @@ type Props = {
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
-  selectedIds: Set<number>;
-  onSelectionChange: (ids: Set<number>) => void;
 };
 
 interface InspectionTableRow {
@@ -48,48 +45,19 @@ function toTableRow(inspection: InspectionListItem): InspectionTableRow {
   };
 }
 
-function createColumns({
-  isAllSelected,
-  isPartiallySelected,
-  selectedIds,
-  hasRows,
-  onToggleAll,
-  onToggleRow,
-}: {
-  isAllSelected: boolean;
-  isPartiallySelected: boolean;
-  selectedIds: Set<number>;
-  hasRows: boolean;
-  onToggleAll: () => void;
-  onToggleRow: (id: number) => void;
-}): TableColumn<InspectionTableRow>[] {
+function createColumns(): TableColumn<InspectionTableRow>[] {
   return [
     {
       key: 'inspectionCode',
-      header: (
-        <SelectionCheckbox
-          ariaLabel="현재 페이지 점검 전체 선택"
-          checked={isAllSelected}
-          disabled={!hasRows}
-          indeterminate={isPartiallySelected}
-          onChange={onToggleAll}
-        />
-      ),
+      header: '점검 ID',
       render: (row) => (
-        <span className="inspection-table__id-cell">
-          <SelectionCheckbox
-            ariaLabel={`${row.inspectionCode} 선택`}
-            checked={selectedIds.has(row.id)}
-            onChange={() => onToggleRow(row.id)}
-          />
-          <Link
-            aria-label="점검 상세보기"
-            className="defect-list-table__id"
-            to={`/inspections/${row.id}/defects`}
-          >
-            {row.inspectionCode}
-          </Link>
-        </span>
+        <Link
+          aria-label="점검 상세보기"
+          className="defect-list-table__id"
+          to={`/inspections/${row.id}/defects`}
+        >
+          {row.inspectionCode}
+        </Link>
       ),
     },
     { key: 'facilityName', header: '시설물' },
@@ -150,44 +118,10 @@ export function InspectionTable({
   isLoading,
   isError,
   onRetry,
-  selectedIds,
-  onSelectionChange,
 }: Props) {
   const navigate = useNavigate();
   const rows = useMemo(() => (inspections ?? []).map(toTableRow), [inspections]);
-  const visibleIds = useMemo(() => rows.map((row) => row.id), [rows]);
-  const selectedVisibleCount = visibleIds.filter((id) => selectedIds.has(id)).length;
-  const isAllSelected = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
-  const isPartiallySelected = selectedVisibleCount > 0 && !isAllSelected;
-
-  const handleToggleAll = () => {
-    const next = new Set(selectedIds);
-    if (visibleIds.every((id) => next.has(id))) {
-      visibleIds.forEach((id) => next.delete(id));
-    } else {
-      visibleIds.forEach((id) => next.add(id));
-    }
-    onSelectionChange(next);
-  };
-
-  const handleToggleRow = (id: number) => {
-    const next = new Set(selectedIds);
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
-      next.add(id);
-    }
-    onSelectionChange(next);
-  };
-
-  const columns = createColumns({
-    isAllSelected,
-    isPartiallySelected,
-    selectedIds,
-    hasRows: rows.length > 0,
-    onToggleAll: handleToggleAll,
-    onToggleRow: handleToggleRow,
-  });
+  const columns = createColumns();
 
   if (isLoading) {
     return (

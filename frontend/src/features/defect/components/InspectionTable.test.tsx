@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InspectionTable } from './InspectionTable';
 import type { InspectionListItem } from '../types';
 
-// 컬럼 순서(InspectionTable.createColumns): 선택/ID, 시설물, 점검일, 회차, 하자건수, 등급분포, 상태, 담당자
+// 컬럼 순서(InspectionTable.createColumns): 점검ID, 시설물, 점검일, 회차, 하자건수, 등급분포, 상태, 담당자
 const GRADE_DISTRIBUTION_CELL_INDEX = 5;
 const ASSIGNEE_CELL_INDEX = 7;
 
@@ -39,8 +39,6 @@ function renderTable(inspections: InspectionListItem[] | undefined) {
         isLoading={false}
         isError={false}
         onRetry={vi.fn()}
-        selectedIds={new Set()}
-        onSelectionChange={vi.fn()}
       />
     </MemoryRouter>,
   );
@@ -90,8 +88,6 @@ describe('InspectionTable', () => {
           isLoading
           isError={false}
           onRetry={vi.fn()}
-          selectedIds={new Set()}
-          onSelectionChange={vi.fn()}
         />
       </MemoryRouter>,
     );
@@ -107,8 +103,6 @@ describe('InspectionTable', () => {
           isLoading={false}
           isError
           onRetry={vi.fn()}
-          selectedIds={new Set()}
-          onSelectionChange={vi.fn()}
         />
       </MemoryRouter>,
     );

@@ -18,6 +18,8 @@ import { normalizeDefect } from '../utils/normalizeDefect';
 
 // DefectController.getRevisions @PageableDefault(size=20)과 반드시 일치시킬 것.
 export const DEFECT_REVISIONS_PAGE_SIZE = 20;
+const INSPECTION_EXPORT_PAGE_SIZE = 100;
+const INSPECTION_EXPORT_MAX_PAGES = 50;
 
 type DefectExplainRequest = {
   defect_type: string;
@@ -131,3 +133,28 @@ export const defectApi = {
   getActionLogs: (id: number, phase: DefectActionLogPhase) =>
     api.get<DefectActionLogEntry[]>(`/defects/${id}/action-logs`, { params: { phase } }),
 };
+
+// 하자 목록 PDF 내보내기 — 화면 페이지와 무관하게 현재 필터에 해당하는 점검 전체를 모은다.
+// 관리자 사용자 목록 fetchAllAdminUsers와 동일하게 100건씩 순회하며, 비정상 응답에 의한 무한
+// 요청을 막기 위해 최대 50페이지(5,000건)로 제한한다.
+export async function fetchAllFilteredInspections(
+  filters: InspectionListFilters,
+): Promise<InspectionListItem[]> {
+  const filterOnly = { ...filters };
+  delete filterOnly.page;
+  delete filterOnly.size;
+
+  const all: InspectionListItem[] = [];
+  for (let page = 0; page < INSPECTION_EXPORT_MAX_PAGES; page += 1) {
+    const response = await defectApi.getInspections({
+      ...filterOnly,
+      page,
+      size: INSPECTION_EXPORT_PAGE_SIZE,
+    });
+    all.push(...response.data.content);
+    if (all.length >= response.data.totalElements || response.data.content.length === 0) {
+      break;
+    }
+  }
+  return all;
+}

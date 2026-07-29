@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "../../../shared/components/Button";
 import { TableFooterPagination } from "../../../shared/components/TableFooterPagination";
-import { defectApi } from "../api/defectApi";
+import { defectApi, fetchAllFilteredInspections } from "../api/defectApi";
 import { InspectionFilterBar } from "../components/InspectionFilterBar";
 import { InspectionTable } from "../components/InspectionTable";
 import { useInspections } from "../hooks/useInspections";
@@ -26,7 +26,6 @@ export function DefectListPage() {
     page: 0,
     size: DEFAULT_SIZE,
   });
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [isExporting, setIsExporting] = useState(false);
 
   const {
@@ -41,11 +40,7 @@ export function DefectListPage() {
   const totalElements = inspectionData?.totalElements ?? 0;
   const inspectionTotalPages = Math.max(1, Math.ceil(totalElements / inspectionSize));
 
-  const selectedInspections = useMemo(
-    () => (inspectionData?.content ?? []).filter((inspection) => selectedIds.has(inspection.id)),
-    [inspectionData, selectedIds],
-  );
-  const canExport = selectedInspections.length > 0;
+  const canExport = totalElements > 0;
 
   const handleInspectionPageChange = (page: number) => {
     setInspectionFilters((prev) => ({ ...prev, page: page - 1 }));
@@ -55,14 +50,15 @@ export function DefectListPage() {
     setInspectionFilters((prev) => ({ ...prev, size: nextSize, page: 0 }));
   };
 
-  // "내보내기"는 선택된 점검(들)에 속한 하자 전체를 모아 PDF로 내보낸다 — 기존(하자 단건 선택 후
-  // 바로 내보내기)과 달리 점검 단위 선택이라 하자 목록을 먼저 조회해야 한다(HAJA-393/394 재해석).
+  // "내보내기"는 선택 여부·현재 페이지와 무관하게 현재 필터에 해당하는 모든 점검의 하자를 모아
+  // PDF로 내보낸다. 관리자 사용자 목록 내보내기와 동일한 "필터 결과 전체" 계약이다.
   const handleExport = async () => {
     if (!canExport || isExporting) return;
     setIsExporting(true);
     try {
+      const filteredInspections = await fetchAllFilteredInspections(inspectionFilters);
       const defectsByInspection = await Promise.all(
-        selectedInspections.map((inspection) =>
+        filteredInspections.map((inspection) =>
           defectApi.getByInspection(inspection.id).then((res) => res.data),
         ),
       );
@@ -104,7 +100,7 @@ export function DefectListPage() {
               variant="secondary"
               size="md"
               disabled={!canExport || isExporting}
-              title={canExport ? undefined : "내보낼 점검을 선택하세요"}
+              title={canExport ? undefined : "내보낼 필터 결과가 없습니다"}
               onClick={handleExport}
             >
               {isExporting ? "내보내는 중..." : "내보내기"}
@@ -115,7 +111,6 @@ export function DefectListPage() {
         <InspectionFilterBar
           filters={inspectionFilters}
           onChange={setInspectionFilters}
-          onNlApplied={() => setSelectedIds(new Set())}
         />
       </header>
 
@@ -126,8 +121,6 @@ export function DefectListPage() {
             isLoading={isInspectionLoading}
             isError={isInspectionError}
             onRetry={refetchInspections}
-            selectedIds={selectedIds}
-            onSelectionChange={setSelectedIds}
           />
         </div>
 
