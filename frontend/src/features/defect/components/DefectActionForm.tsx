@@ -28,12 +28,14 @@ const PHOTO_ERROR_MESSAGE: Record<'FILE_INVALID_TYPE' | 'FILE_TOO_LARGE', string
   FILE_TOO_LARGE: '파일 용량이 너무 큽니다. (최대 10MB)',
 };
 
-// "진행상태" select(#1128) — 백엔드가 정방향 1단계 전이만 허용하므로(Defect#changeStatus), 현재
-// 상태에서 유효한 다음 단계는 항상 하나뿐이다. 자유 2지선다가 아니라 이 맵으로 도출한 단일 값만
-// select에 노출한다(실질적으로 값이 고정된 select — 자유 선택 UI가 아님).
-const NEXT_ACTION_STATUS: Partial<Record<DefectStatus, 'IN_PROGRESS' | 'RESOLVED'>> = {
-  CONFIRMED: 'IN_PROGRESS',
-  IN_PROGRESS: 'RESOLVED',
+// "진행상태" select(#1128, #1193/HAJA-569로 확장) — CONFIRMED에서는 백엔드가 정방향 1단계 전이만
+// 허용하므로(Defect#changeStatus) 유효한 값이 IN_PROGRESS 하나뿐이라 여전히 고정 select다. 반면
+// IN_PROGRESS에서는 백엔드가 "같은 상태 유지 재제출"을 허용하도록 완화됐다(조치중 사진을 시간차를
+// 두고 여러 번 등록하기 위함, 이 select를 원래 만든 의도) — 그래서 IN_PROGRESS일 때는 두 값
+// (IN_PROGRESS=유지/RESOLVED=완료) 중 사용자가 실제로 고른다.
+const ACTION_STATUS_OPTIONS: Partial<Record<DefectStatus, ReadonlyArray<'IN_PROGRESS' | 'RESOLVED'>>> = {
+  CONFIRMED: ['IN_PROGRESS'],
+  IN_PROGRESS: ['IN_PROGRESS', 'RESOLVED'],
 };
 
 const ACTION_STATUS_LABEL: Record<'IN_PROGRESS' | 'RESOLVED', string> = {
@@ -47,7 +49,12 @@ const ACTION_STATUS_LABEL: Record<'IN_PROGRESS' | 'RESOLVED', string> = {
 // (조치중)/RESOLVED(조치완료) 중 실제 전이할 상태를 명시한다 — 과거엔 항상 RESOLVED 고정이었으나
 // 이제 CONFIRMED→IN_PROGRESS 등록도 이 폼으로 한다.
 export function DefectActionForm({ defectId, inspectionId, status, actionResult, onSubmitted }: Props) {
-  const nextStatus = NEXT_ACTION_STATUS[status];
+  const statusOptions = ACTION_STATUS_OPTIONS[status];
+  // 보수적 기본값(#1128 코드리뷰 P2-2 취지 계승) — IN_PROGRESS처럼 옵션이 2개면 "완료"가 아니라
+  // "유지(IN_PROGRESS)"를 기본 선택해, select를 건드리지 않고 실수로 조치완료까지 가는 걸 막는다.
+  const [targetStatus, setTargetStatus] = useState<'IN_PROGRESS' | 'RESOLVED'>(
+    statusOptions?.[0] ?? 'IN_PROGRESS',
+  );
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -105,7 +112,7 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
 
   // DETECTED(신규, 검수 전)는 조치 등록 대상이 될 수 없다 — 정상 플로우에선 카드그리드에서 이미
   // 숨겨지지만(#1128과 별개 PR), 방어적으로 이 패널 자체를 렌더링하지 않는다.
-  if (nextStatus == null) {
+  if (statusOptions == null) {
     return null;
   }
 
@@ -174,9 +181,9 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // nextStatus는 컴포넌트 최상단의 이른 반환(94-96행)으로 이미 null이 아님이 보장되지만, TS는
-    // 중첩 함수 경계를 넘어 그 좁히기를 유지하지 않는다 — 여기서 다시 한번 방어적으로 확인한다.
-    if (!canSubmit || file == null || typeof assigneeId !== 'number' || nextStatus == null) return;
+    // statusOptions는 컴포넌트 최상단의 이른 반환으로 이미 null이 아님이 보장되지만, TS는 중첩 함수
+    // 경계를 넘어 그 좁히기를 유지하지 않는다 — 여기서 다시 한번 방어적으로 확인한다.
+    if (!canSubmit || file == null || typeof assigneeId !== 'number' || statusOptions == null) return;
 
     try {
       const uploaded = await uploadActionPhoto({ inspectionId, file });
@@ -189,15 +196,18 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
         actionDate,
         actionAssigneeId: assigneeId,
         actionMediaId: uploadedMediaId,
-        targetStatus: nextStatus,
+        targetStatus,
       });
       // 저장 성공 후 필드를 초기화한다(#1128 코드리뷰 P2-2) — 초기화하지 않으면 폼이 그대로 채워진
       // 채 남아 재클릭 시 같은 사진이 중복 업로드되고 사유 없이 다음 단계까지 넘어갈 수 있다.
-      setJustSavedLabel(ACTION_STATUS_LABEL[nextStatus]);
+      setJustSavedLabel(ACTION_STATUS_LABEL[targetStatus]);
       setFile(null);
       setActionContent('');
       setActionDate('');
       setAssigneeId('');
+      // IN_PROGRESS 유지 제출 직후엔 select를 다시 안전한 기본값(유지)으로 되돌린다 — RESOLVED로
+      // 전이됐다면 이 컴포넌트는 다음 렌더에서 읽기 전용 요약 분기로 대체되므로 이 리셋은 무해하다.
+      setTargetStatus(statusOptions[0]);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -304,8 +314,17 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
 
         <div className="defect-action-form__field">
           <label htmlFor="defect-action-target-status">진행상태 *</label>
-          <select id="defect-action-target-status" value={nextStatus} disabled>
-            <option value={nextStatus}>{ACTION_STATUS_LABEL[nextStatus]}</option>
+          <select
+            id="defect-action-target-status"
+            value={targetStatus}
+            disabled={statusOptions.length < 2}
+            onChange={(event) => setTargetStatus(event.target.value as 'IN_PROGRESS' | 'RESOLVED')}
+          >
+            {statusOptions.map((option) => (
+              <option key={option} value={option}>
+                {ACTION_STATUS_LABEL[option]}
+              </option>
+            ))}
           </select>
         </div>
       </div>
