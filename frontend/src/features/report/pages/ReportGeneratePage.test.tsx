@@ -585,16 +585,14 @@ describe('ReportGeneratePage', () => {
     expect(screen.queryByText('최종 승인')).toBeNull();
   });
 
-  it('상세 내역 등급 필터 pills가 데이터에 맞게 렌더링된다', async () => {
+  it('상세 내역 등급 필터 pills(전체, A, B, C, D, E)가 항상 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
     const filterGroup = screen.getByRole('group', { name: '등급 필터' });
     expect(filterGroup).toBeTruthy();
-    for (const g of ['전체', 'A', 'B', 'C']) {
+    for (const g of ['전체', 'A', 'B', 'C', 'D', 'E']) {
       expect(screen.getByRole('button', { name: g })).toBeTruthy();
     }
-    expect(screen.queryByRole('button', { name: 'D' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'E' })).toBeNull();
   });
 
   it('상세 내역 페이지네이션 컨트롤이 렌더링된다', async () => {

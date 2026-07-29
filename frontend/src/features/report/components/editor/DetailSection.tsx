@@ -7,19 +7,15 @@ type Grade = Exclude<GradeFilter, 'ALL'>;
 
 const PAGE_SIZE = 2;
 const GRADES: Grade[] = ['A', 'B', 'C', 'D', 'E'];
-const FIGMA_DEFAULT_GRADES = new Set<Grade>(['A', 'B', 'C']);
 
-const SEVERITY_PILL_CLASS: Record<string, string> = {
-  A: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  B: 'border-lime-200 bg-lime-50 text-lime-700',
-  C: 'border-amber-200 bg-amber-50 text-amber-700',
-  D: 'border-orange-200 bg-orange-50 text-orange-700',
-  E: 'border-red-200 bg-red-50 text-red-700',
+// 점검 요약 및 보고서 생성 페이지(ReportEntryPage)와 동일한 등급 배지 색상 스펙
+const GRADE_BADGE_STYLE: Record<string, { bg: string; text: string }> = {
+  A: { bg: '#e3f5e6', text: '#16a34a' },
+  B: { bg: '#eef6df', text: '#65a30d' },
+  C: { bg: '#fef9c3', text: '#a16207' },
+  D: { bg: '#ffedd5', text: '#c2410c' },
+  E: { bg: '#fef2f2', text: '#dc2626' },
 };
-
-function gradePillClass(grade: string): string {
-  return SEVERITY_PILL_CLASS[grade] ?? 'border-border bg-surface-muted text-text-default';
-}
 
 const INLINE_INPUT_CLASSES =
   'w-full rounded-lg border border-transparent bg-transparent px-0 py-0 text-base font-semibold leading-6 text-heading outline-none transition focus:border-primary focus:bg-surface focus:px-2 focus:py-1 focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed read-only:text-heading';
@@ -78,14 +74,7 @@ export function DetailSection({
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(Math.max(0, page), totalPages - 1);
   const pageItems = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
-  const visibleGradeFilters: GradeFilter[] = [
-    'ALL',
-    ...GRADES.filter(
-      (candidate) =>
-        FIGMA_DEFAULT_GRADES.has(candidate) ||
-        items.some((item) => item.severity_grade === candidate),
-    ),
-  ];
+  const visibleGradeFilters: GradeFilter[] = ['ALL', 'A', 'B', 'C', 'D', 'E'];
 
   const updateItem = (index: number, patch: Partial<DefectDetailItem>) => {
     const next = items.map((item, itemIndex) =>
@@ -106,21 +95,37 @@ export function DetailSection({
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs font-medium tracking-wide text-text-default">등급:</span>
           <div className="flex flex-wrap items-center gap-1" role="group" aria-label="등급 필터">
-            {visibleGradeFilters.map((filterGrade) => (
-              <button
-                key={filterGrade}
-                type="button"
-                onClick={() => selectFilter(filterGrade)}
-                aria-pressed={grade === filterGrade}
-              className={`inline-flex min-w-8 items-center justify-center rounded-full px-3 py-1 text-xs transition ${
-                  grade === filterGrade
-                    ? 'bg-primary font-medium text-surface'
-                    : 'border border-border bg-surface text-heading hover:bg-surface-muted'
-                }`}
-              >
-                {filterGrade === 'ALL' ? '전체' : filterGrade}
-              </button>
-            ))}
+            {visibleGradeFilters.map((filterGrade) => {
+              const isSelected = grade === filterGrade;
+              const badgeStyle = filterGrade !== 'ALL' ? GRADE_BADGE_STYLE[filterGrade] : null;
+
+              return (
+                <button
+                  key={filterGrade}
+                  type="button"
+                  onClick={() => selectFilter(filterGrade)}
+                  aria-pressed={isSelected}
+                  className={`inline-flex min-w-8 items-center justify-center rounded-full px-3 py-1 text-xs font-bold transition ${
+                    isSelected
+                      ? 'ring-2 ring-primary/40 shadow-xs scale-105'
+                      : 'opacity-70 hover:opacity-100'
+                  } ${
+                    filterGrade === 'ALL'
+                      ? isSelected
+                        ? 'bg-primary text-surface'
+                        : 'border border-border bg-surface text-heading hover:bg-surface-muted'
+                      : ''
+                  }`}
+                  style={
+                    badgeStyle
+                      ? { backgroundColor: badgeStyle.bg, color: badgeStyle.text }
+                      : undefined
+                  }
+                >
+                  {filterGrade === 'ALL' ? '전체' : filterGrade}
+                </button>
+              );
+            })}
           </div>
           <div className="ml-1 flex items-center gap-2 text-xs text-text-muted">
             <button
@@ -202,9 +207,15 @@ export function DetailSection({
                       <span className="text-xs font-medium tracking-wide text-text-muted">등급</span>
                       <input
                         aria-label={`지적 ${index + 1} 등급`}
-                        className={`w-24 rounded-full border px-3 py-1 text-center text-sm font-medium outline-none focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed ${gradePillClass(
-                          item.severity_grade,
-                        )}`}
+                        className="w-24 rounded-full px-3 py-1 text-center text-sm font-bold border-0 outline-none focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed"
+                        style={
+                          GRADE_BADGE_STYLE[item.severity_grade]
+                            ? {
+                                backgroundColor: GRADE_BADGE_STYLE[item.severity_grade].bg,
+                                color: GRADE_BADGE_STYLE[item.severity_grade].text,
+                              }
+                            : { backgroundColor: '#f4f4f5', color: '#52525b' }
+                        }
                         value={item.severity_grade}
                         disabled={readOnly}
                         onChange={(event) => updateItem(index, { severity_grade: event.target.value })}
