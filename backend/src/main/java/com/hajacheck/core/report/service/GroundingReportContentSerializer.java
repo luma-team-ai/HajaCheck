@@ -81,11 +81,15 @@ public final class GroundingReportContentSerializer {
 
         private static ReportOptions from(Set<String> sections, Boolean includePhoto) {
             Set<String> effectiveSections = sections == null ? ALL_SECTIONS : sections;
-            return new ReportOptions(
-                    effectiveSections.stream()
+            List<String> normalizedSections = effectiveSections.stream()
                             .filter(ALL_SECTIONS::contains)
                             .sorted()
-                            .toList(),
+                            .toList();
+            if (normalizedSections.isEmpty()) {
+                throw new DomainValidationException("보고서에는 최소 1개 섹션이 포함되어야 한다");
+            }
+            return new ReportOptions(
+                    normalizedSections,
                     includePhoto == null || includePhoto);
         }
 

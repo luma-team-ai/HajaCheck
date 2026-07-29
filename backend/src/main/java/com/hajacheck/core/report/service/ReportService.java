@@ -124,7 +124,7 @@ public class ReportService {
                 GroundingCheckResultFactory.fromAiReport(context, aiReport, NO_GROUNDING_WARNINGS);
         report.recordGroundingResult(result, userId);
         if (sections != null || includePhoto != null) {
-            report.updateContent(
+            report.applyGeneratedOptions(
                     GroundingReportContentSerializer.serialize(aiReport, sections, includePhoto),
                     userId);
         }
@@ -235,7 +235,9 @@ public class ReportService {
                 .map(defect -> new DefectContentKey(defect.getType().label(), gradeLabel(defect.getGrade())))
                 .map(ReportService::normalizeKey)
                 .toList());
-        Map<DefectContentKey, Integer> actual = toMultiset(extractDetailKeys(report.getContentJson()));
+        Map<DefectContentKey, Integer> actual = skipsDetailGroundingCheck(report.getContentJson())
+                ? expected
+                : toMultiset(extractDetailKeys(report.getContentJson()));
 
         boolean matched = expected.equals(actual);
         report.recordStructuralGroundingRecheck(
@@ -301,6 +303,23 @@ public class ReportService {
             keys.add(new DefectContentKey(type, grade));
         }
         return keys;
+    }
+
+    private static boolean skipsDetailGroundingCheck(String contentJson) {
+        try {
+            JsonNode sections = RECHECK_MAPPER.readTree(contentJson).path("reportOptions").path("sections");
+            if (!sections.isArray()) {
+                return false;
+            }
+            for (JsonNode section : sections) {
+                if ("details".equals(section.asText())) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static String textOf(JsonNode node, String primaryField, String fallbackField) {
