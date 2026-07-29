@@ -21,7 +21,7 @@ import { formatMonthLabel } from '../utils/formatMonthLabel';
 
 // PRD §2 월별 하자 추이. Figma 시안(node 77-1454)은 영역 그라데이션 채우기 + 최고점 강조 dot +
 // 검정 배지 툴팁을 요구한다 — shared LineChart 래퍼(단순 선만 지원)로는 표현할 수 없어 이 카드
-// 전용으로 recharts AreaChart를 직접 구성한다(공용 컴포넌트 확장은 스코프 최소화 방침상 보류).
+// 전용으로 recharts AreaChart를 직접 구성한다.
 function TrendTooltip({ active, payload }: TooltipContentProps) {
   if (!active || !payload?.length) return null;
   const value = payload[0]?.value;
@@ -40,9 +40,16 @@ export function MonthlyTrendCard({ filterParams }: MonthlyTrendCardProps) {
   const { data, isLoading, isError } = useMonthlyDefectTrend(filterParams);
   const maxCount = data && data.length > 0 ? Math.max(...data.map((item) => item.defectCount)) : null;
 
+  // 실데이터 수치에 맞춰 Y축 도메인 및 틱을 동적으로 확장 (상단 25% 여유로 피크 배지 클리핑 방지)
+  const calculatedMax = maxCount != null ? Math.max(maxCount, 100) : 400;
+  const yMax = Math.max(400, Math.ceil((calculatedMax * 1.25) / 100) * 100);
+  const step = Math.max(50, Math.ceil(yMax / 4 / 50) * 50);
+  const ticks: number[] = [];
+  for (let i = 0; i <= yMax; i += step) {
+    ticks.push(i);
+  }
+
   const renderPeakDot = (props: DotItemDotProps) => {
-    // Dot(SVGCircleElement)의 points는 string 타입이라 DotItemDotProps.points(DotPoint[])를
-    // 그대로 spread하면 타입 충돌 — Dot에 필요 없는 필드라 명시적으로 제외한다.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { points, payload, index, ...rest } = props;
     const isPeak = (payload as MonthlyDefectTrendItem | undefined)?.defectCount === maxCount;
@@ -89,8 +96,8 @@ export function MonthlyTrendCard({ filterParams }: MonthlyTrendCardProps) {
     const width = text.length * 8 + 20;
     return (
       <g key="peak-label">
-        <rect x={numX - width / 2} y={numY - 36} width={width} height={24} rx={5} fill="#18181b" />
-        <text x={numX} y={numY - 19} textAnchor="middle" fill="#fff" fontSize={12} fontWeight={600}>
+        <rect x={numX - width / 2} y={numY - 34} width={width} height={24} rx={5} fill="#18181b" />
+        <text x={numX} y={numY - 17} textAnchor="middle" fill="#fff" fontSize={12} fontWeight={600}>
           {text}
         </text>
       </g>
@@ -112,7 +119,7 @@ export function MonthlyTrendCard({ filterParams }: MonthlyTrendCardProps) {
       {!isLoading && !isError && data && data.length > 0 && (
         <div className="flex-1" role="img" aria-label="월별 하자 추이">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 24, right: 28, left: 0, bottom: 0 }}>
+            <AreaChart data={data} margin={{ top: 38, right: 28, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="monthlyTrendFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#18181b" stopOpacity={0.18} />
@@ -127,16 +134,13 @@ export function MonthlyTrendCard({ filterParams }: MonthlyTrendCardProps) {
                 axisLine={{ stroke: '#e4e4e7' }}
                 tickLine={false}
               />
-              {/* Figma는 0~400을 100 단위로 표기한다. recharts 기본 auto-tick은 데이터 최댓값 기준
-                  임의 간격(예: 90단위)을 잡으므로, 현재 6개월 목데이터 범위(최대 342)에 맞춰 도메인/틱을
-                  고정한다 — 실 API 연동 시 데이터 최댓값에 맞게 재계산 필요(후속 이슈 대상). */}
               <YAxis
                 tick={{ fontSize: 12, fill: '#a1a1aa' }}
                 axisLine={false}
                 tickLine={false}
                 width={36}
-                domain={[0, 400]}
-                ticks={[0, 100, 200, 300, 400]}
+                domain={[0, yMax]}
+                ticks={ticks}
               />
               <Tooltip
                 content={(props) => <TrendTooltip {...props} />}

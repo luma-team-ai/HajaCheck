@@ -42,9 +42,9 @@ export function StatisticsKpiSection({ filterParams }: StatisticsKpiSectionProps
   ];
 
   return (
-    <div className="grid grid-cols-4 max-[1100px]:grid-cols-2 max-[640px]:grid-cols-1 bg-white border border-zinc-200">
+    <div className="grid grid-cols-4 max-[1100px]:grid-cols-2 max-[640px]:grid-cols-1 bg-white border border-zinc-200 divide-y divide-zinc-200 min-[1101px]:divide-y-0 min-[1101px]:divide-x max-[1100px]:divide-x-0">
       {cards.map((card, index) => (
-        <StatisticsKpiCard key={card.label} {...card} showDivider={index < cards.length - 1} />
+        <StatisticsKpiCard key={card.label} {...card} isLast={index === cards.length - 1} />
       ))}
     </div>
   );

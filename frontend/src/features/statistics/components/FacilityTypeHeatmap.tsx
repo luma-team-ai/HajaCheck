@@ -108,7 +108,7 @@ export function FacilityTypeHeatmap({ filterParams }: FacilityTypeHeatmapProps) 
     data?.find((cell) => cell.facilityTypeCategory === category && cell.month === month)?.defectCount ?? 0;
 
   return (
-    <section className="flex min-h-72 flex-col bg-white border border-zinc-200 p-6">
+    <section className="flex h-full min-h-[320px] flex-col bg-white border border-zinc-200 p-6">
       <div className="mb-6 flex items-center justify-between">
         <h3 className="text-zinc-900 text-base font-medium leading-6">시설물군별 히트맵</h3>
         <div className="flex items-center gap-3">
