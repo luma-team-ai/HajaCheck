@@ -270,7 +270,7 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(screen.queryByText(/아직 생성 결과에 반영되지 않습니다/)).toBeNull();
   });
 
-  it('생성 요청 바디에 설정 옵션을 싣지 않는다 (백엔드 연동 시 이 테스트를 갱신할 것)', async () => {
+  it('생성 요청 바디에 설정 옵션(sections/includePhoto)을 실어 보낸다', async () => {
     let body: unknown = 'NOT_CALLED';
     server.use(
       http.post('/api/inspections/:id/reports', async ({ request }) => {
@@ -287,9 +287,12 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     fireEvent.click(screen.getByRole('button', { name: '보고서 생성 시작' }));
 
     await waitFor(() => expect(screen.getByText('편집화면')).not.toBeNull());
-    // sections/includePhoto 같은 옵션 키가 전혀 실리지 않는다
-    expect(JSON.stringify(body ?? {})).not.toContain('section');
-    expect(JSON.stringify(body ?? {})).not.toContain('Photo');
+    const bodyStr = JSON.stringify(body ?? {});
+    expect(bodyStr).toContain('"sections"');
+    expect(bodyStr).toContain('"includePhoto"');
+    // 모든 기본 섹션이 포함되어 있어야 함
+    expect(bodyStr).toContain('"overview"');
+    expect(bodyStr).toContain('"summary"');
   });
 
   it('inspectionId가 바뀌면 이전 최근작업 요청을 취소해 늦은 응답이 화면을 덮어쓰지 않는다 (#886 P2)', async () => {
