@@ -3,10 +3,8 @@ import type { DefectDetailItem, ReportContent } from '../../types';
 import { LabeledTextArea } from './LabeledTextArea';
 
 type GradeFilter = 'ALL' | 'A' | 'B' | 'C' | 'D' | 'E';
-type Grade = Exclude<GradeFilter, 'ALL'>;
 
 const PAGE_SIZE = 2;
-const GRADES: Grade[] = ['A', 'B', 'C', 'D', 'E'];
 
 // 점검 요약 및 보고서 생성 페이지(ReportEntryPage)와 동일한 등급 배지 색상 스펙
 const GRADE_BADGE_STYLE: Record<string, { bg: string; text: string }> = {
