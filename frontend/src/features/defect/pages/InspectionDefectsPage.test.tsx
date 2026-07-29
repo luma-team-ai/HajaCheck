@@ -39,12 +39,12 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-function renderPage(inspectionId: string) {
+function renderPage(inspectionId: string, search = '') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/inspections/${inspectionId}/defects`]}>
+      <MemoryRouter initialEntries={[`/inspections/${inspectionId}/defects${search}`]}>
         <Routes>
           <Route path="/inspections/:id/defects" element={<InspectionDefectsPage />} />
         </Routes>
@@ -91,6 +91,15 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     expect(await within(modal).findByText('DEF-0001')).not.toBeNull();
     expect(within(modal).getByRole('heading', { name: '조치 결과 등록' })).not.toBeNull();
     expect(within(modal).getByLabelText('조치 내용 *')).not.toBeNull();
+  });
+
+  // 대시보드 "검수하기" → defectId 쿼리파라미터 딥링크(#1117 회귀 수정) — 카드를 클릭하지 않아도
+  // 진입 시점에 모달이 자동으로 열려야 한다.
+  it('URL에 defectId 쿼리파라미터가 있으면 카드 클릭 없이도 하자 상세 모달이 자동으로 열린다', async () => {
+    renderPage('101', '?defectId=1');
+
+    const modal = await screen.findByRole('dialog', { name: '하자 상세' });
+    expect(await within(modal).findByText('DEF-0001')).not.toBeNull();
   });
 
   it('모달의 닫기 버튼을 클릭하면 모달이 닫힌다', async () => {

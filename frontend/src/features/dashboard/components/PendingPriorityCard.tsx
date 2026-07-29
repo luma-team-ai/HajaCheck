@@ -11,9 +11,10 @@ export function PendingPriorityCard() {
   const { data, isLoading, isError } = usePendingPriority();
   const navigate = useNavigate();
 
-  // DASH-01 A2: "검수하기" → 해당 하자가 속한 점검의 하자 목록으로 이동한다.
-  const handleReview = (inspectionId: number) => {
-    navigate(inspectionDefectsPath(inspectionId));
+  // DASH-01 A2: "검수하기" → 해당 하자가 속한 점검의 하자 목록으로 이동하고, defectId를 쿼리파라미터로
+  // 실어 그 하자의 상세 모달이 자동으로 열리게 한다(#1117 회귀 수정 — 모달 딥링크).
+  const handleReview = (inspectionId: number, defectId: number) => {
+    navigate(inspectionDefectsPath(inspectionId, defectId));
   };
 
   return (
@@ -60,7 +61,7 @@ export function PendingPriorityCard() {
                 <button
                   type="button"
                   className={`shrink-0 bg-white border border-[#d8dbe6] rounded-lg py-1.75 px-3.5 text-[13px] font-semibold ${DASHBOARD_COLOR_CLASS.bodyText} cursor-pointer`}
-                  onClick={() => handleReview(item.inspectionId)}
+                  onClick={() => handleReview(item.inspectionId, item.id)}
                 >
                   검수하기
                 </button>

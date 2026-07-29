@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { ErrorFallback } from '../../../shared/components/ErrorFallback';
 import { DefectCardGrid } from '../components/DefectCardGrid';
 import { DefectDetailModal } from '../components/DefectDetailModal';
@@ -19,7 +19,14 @@ export function InspectionDefectsPage() {
   const { id } = useParams<{ id: string }>();
   const inspectionId = id != null ? Number(id) : undefined;
   const { data: defects, isLoading, isError, refetch } = useInspectionDefects(inspectionId);
-  const [selectedDefectId, setSelectedDefectId] = useState<number | null>(null);
+  const [searchParams] = useSearchParams();
+  // 대시보드 "검수하기"의 defectId 딥링크(#1117 회귀 수정) — 진입 시점의 쿼리파라미터로만 초기값을
+  // 정하고, 이후 URL이 바뀌어도 모달은 사용자의 명시적 조작(카드 클릭/닫기)으로만 열고 닫는다.
+  const [selectedDefectId, setSelectedDefectId] = useState<number | null>(() => {
+    const raw = searchParams.get('defectId');
+    const parsed = raw != null ? Number(raw) : NaN;
+    return Number.isFinite(parsed) ? parsed : null;
+  });
 
   const isModalOpen = selectedDefectId != null;
 
