@@ -60,15 +60,23 @@ function stageMediaFiles(files: File[]): StagedMediaFile[] {
   });
 }
 
-// 같은 시설물에 미종료(REPORTED 아님) 회차가 이미 있으면 그중 가장 최근 회차 번호를 반환한다 —
+interface ActiveRound {
+  id: number;
+  roundNo: number;
+}
+
+// 같은 시설물에 미종료(REPORTED 아님) 회차가 이미 있으면 그중 가장 최근 회차를 반환한다 —
 // 실수로 중복 회차를 만드는 걸 막기 위한 "약한" 경고용(확인창만 띄우고 생성 자체를 막지는 않는다).
+// id까지 반환하는 이유(팀 리뷰 반영, 2026-07-28): 예전엔 roundNo만 반환해 확인창이 "새로 만들까/
+// 취소할까"만 물었는데, 그 회차로 바로 돌아갈 방법(이어서 하기)이 없어 브라우저를 한 번만 벗어나도
+// 진행 중이던 회차를 사실상 잃어버렸다(activeInspectionId가 메모리 전용이라 새로고침 시 소실).
 // 조회 실패는 경고 없이 그냥 진행시킨다(부가 안내일 뿐, 생성 흐름을 막을 이유가 아니다).
-async function findActiveRoundNo(facilityId: number): Promise<number | null> {
+async function findActiveRound(facilityId: number): Promise<ActiveRound | null> {
   try {
     const res = await inspectionApi.listByFacility(facilityId);
     const activeRounds = res.data.content.filter((item) => item.status !== 'REPORTED');
     if (activeRounds.length === 0) return null;
-    return Math.max(...activeRounds.map((item) => item.roundNo));
+    return activeRounds.reduce((latest, item) => (item.roundNo > latest.roundNo ? item : latest));
   } catch {
     return null;
   }
@@ -137,8 +145,8 @@ export function InspectionCreatePage() {
   // 이 버튼은 저장을 트리거한다기보다 "지금 저장됐다"는 확인을 사용자에게 보여주는 역할이다.
   const [showDraftSavedNotice, setShowDraftSavedNotice] = useState(false);
   const draftSavedNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  // 같은 시설물에 이미 진행 중인 회차가 있으면 그 회차 번호를 담아 확인창을 띄운다(null이면 안 뜸).
-  const [duplicateRoundNo, setDuplicateRoundNo] = useState<number | null>(null);
+  // 같은 시설물에 이미 진행 중인 회차가 있으면 그 회차 정보를 담아 확인창을 띄운다(null이면 안 뜸).
+  const [duplicateActiveRound, setDuplicateActiveRound] = useState<ActiveRound | null>(null);
   const [isCheckingDuplicateRound, setIsCheckingDuplicateRound] = useState(false);
 
   const isSubmitting = isCreating || isUploading || isCheckingDuplicateRound;
@@ -348,10 +356,10 @@ export function InspectionCreatePage() {
     // 중복 경고를 건너뛴다 — 안 그러면 재시도할 때마다 확인창이 다시 뜬다.
     if (!createdInspection) {
       setIsCheckingDuplicateRound(true);
-      const activeRoundNo = await findActiveRoundNo(Number(values.facilityId));
+      const activeRound = await findActiveRound(Number(values.facilityId));
       setIsCheckingDuplicateRound(false);
-      if (activeRoundNo !== null) {
-        setDuplicateRoundNo(activeRoundNo);
+      if (activeRound !== null) {
+        setDuplicateActiveRound(activeRound);
         return;
       }
     }
@@ -360,8 +368,16 @@ export function InspectionCreatePage() {
   };
 
   const handleConfirmDuplicateCreate = () => {
-    setDuplicateRoundNo(null);
+    setDuplicateActiveRound(null);
     void submitInspection();
+  };
+
+  // "이어서 하기"(팀 리뷰 반영, 2026-07-28) — 새 회차를 만드는 대신 기존 진행 중 회차로 바로
+  // 돌아간다. AI 분석 실행/상태 화면은 어떤 단계(대기·진행 중·완료)든 그 회차 id 하나로 알아서
+  // 재구성하므로(rebuildFromDb) stage를 미리 알 필요 없이 /analysis로 보내면 된다.
+  const handleResumeExisting = () => {
+    if (duplicateActiveRound === null) return;
+    navigate(`/inspections/${duplicateActiveRound.id}/analysis`);
   };
 
   return (
@@ -548,20 +564,24 @@ export function InspectionCreatePage() {
         </Modal>
       )}
 
-      {duplicateRoundNo !== null && (
+      {duplicateActiveRound !== null && (
         <Modal
           open
-          onClose={() => setDuplicateRoundNo(null)}
+          onClose={() => setDuplicateActiveRound(null)}
           title="이미 진행 중인 회차가 있습니다"
           closeOnOverlayClick={false}
         >
           <div className="flex w-80 flex-col gap-6">
             <p className="m-0 text-sm text-text-muted">
-              이미 진행 중인 {duplicateRoundNo}회차가 있습니다. 계속 생성하시겠습니까?
+              이미 진행 중인 {duplicateActiveRound.roundNo}회차가 있습니다. 이어서 진행하시겠습니까,
+              새 회차를 만드시겠습니까?
             </p>
             <div className="flex justify-end gap-3">
-              <Button type="button" variant="secondary" onClick={() => setDuplicateRoundNo(null)}>
+              <Button type="button" variant="secondary" onClick={() => setDuplicateActiveRound(null)}>
                 취소
+              </Button>
+              <Button type="button" variant="secondary" onClick={handleResumeExisting}>
+                이어서 하기
               </Button>
               <Button type="button" variant="primary" onClick={handleConfirmDuplicateCreate}>
                 계속 생성
