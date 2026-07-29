@@ -63,7 +63,7 @@ function HeatmapGrid({ categories, months, findCount, maxCount }: HeatmapGridPro
                 const isFirstCol = colIndex === 0;
                 const isLastCol = colIndex === months.length - 1;
 
-                const verticalPosClass = isFirstRow ? 'top-full mt-2.5' : 'bottom-full mb-2.5';
+                const verticalPosClass = isFirstRow ? 'top-full mt-2' : 'bottom-full mb-2';
                 const horizontalPosClass = isLastCol
                   ? 'right-1 translate-x-0'
                   : isFirstCol
@@ -71,11 +71,11 @@ function HeatmapGrid({ categories, months, findCount, maxCount }: HeatmapGridPro
                   : 'left-1/2 -translate-x-1/2';
 
                 const arrowPosClass = isFirstRow
-                  ? `after:content-[''] after:absolute after:-top-1 after:size-2 after:bg-white after:rotate-45 after:border-l after:border-t after:border-zinc-200/80 ${
-                      isLastCol ? 'after:right-3' : isFirstCol ? 'after:left-3' : 'after:left-1/2 after:-translate-x-1/2'
+                  ? `after:content-[''] after:absolute after:-top-[5px] after:size-2.5 after:bg-white after:rotate-45 after:border-l after:border-t after:border-zinc-200 ${
+                      isLastCol ? 'after:right-3.5' : isFirstCol ? 'after:left-3.5' : 'after:left-1/2 after:-translate-x-1/2'
                     }`
-                  : `after:content-[''] after:absolute after:-bottom-1 after:size-2 after:bg-white after:rotate-45 after:border-r after:border-b after:border-zinc-200/80 ${
-                      isLastCol ? 'after:right-3' : isFirstCol ? 'after:left-3' : 'after:left-1/2 after:-translate-x-1/2'
+                  : `after:content-[''] after:absolute after:-bottom-[5px] after:size-2.5 after:bg-white after:rotate-45 after:border-r after:border-b after:border-zinc-200 ${
+                      isLastCol ? 'after:right-3.5' : isFirstCol ? 'after:left-3.5' : 'after:left-1/2 after:-translate-x-1/2'
                     }`;
 
                 return (
@@ -84,10 +84,10 @@ function HeatmapGrid({ categories, months, findCount, maxCount }: HeatmapGridPro
                       aria-label={`${category} · ${formatMonthLabel(month)} · ${count}건`}
                       className={`block h-10 w-full rounded-xs transition-colors duration-150 ${getHeatShade(count, maxCount)}`}
                     />
-                    {/* 마이크로 인터랙션(200ms ease-out) + 화살표(Caret) + 테두리 충돌 안전 마진(Inset) 4방향 앵커링 */}
+                    {/* 마이크로 인터랙션(100ms 반응형) + 일체형 화살표(Caret) + 테두리 충돌 안전 마진(Inset) */}
                     <span
                       role="tooltip"
-                      className={`pointer-events-none absolute z-30 whitespace-nowrap rounded-[10px] bg-white px-3.5 py-2 text-[13px] font-semibold text-zinc-800 shadow-[0_8px_24px_rgba(0,0,0,0.18)] border border-zinc-200/60 opacity-0 scale-95 invisible transition-all duration-200 ease-out group-hover:opacity-100 group-hover:scale-100 group-hover:visible ${verticalPosClass} ${horizontalPosClass} ${arrowPosClass}`}
+                      className={`pointer-events-none absolute z-30 whitespace-nowrap rounded-[10px] bg-white px-3.5 py-2 text-[13px] font-semibold text-zinc-900 shadow-[0_6px_20px_rgba(0,0,0,0.15)] border border-zinc-200 opacity-0 scale-[0.98] invisible transition-all duration-100 ease-out group-hover:opacity-100 group-hover:scale-100 group-hover:visible ${verticalPosClass} ${horizontalPosClass} ${arrowPosClass}`}
                     >
                       {category} · {formatMonthLabel(month)} · {count}건
                     </span>
