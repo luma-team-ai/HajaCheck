@@ -42,11 +42,9 @@ interface StepContext {
 }
 
 const REPORT_STEPS: ReadonlyArray<{ key: string; label: string; isActive: (ctx: StepContext) => boolean }> = [
-  { key: 'A', label: '초안 생성', isActive: () => true },
-  { key: 'B', label: 'AI 분류', isActive: (ctx) => ctx.hasContent },
-  { key: 'C', label: '엔지니어 확인', isActive: (ctx) => ctx.groundingCheckPassed === true || ctx.dirty },
-  { key: 'D', label: '최종 승인', isActive: (ctx) => ctx.isFinalized },
-  { key: 'E', label: '발행', isActive: (ctx) => ctx.isFinalized && ctx.hasPdf },
+  { key: 'A', label: 'AI 분류', isActive: (ctx) => ctx.hasContent },
+  { key: 'B', label: '작성자 확인', isActive: (ctx) => ctx.groundingCheckPassed === true || ctx.dirty },
+  { key: 'C', label: '발행', isActive: (ctx) => ctx.isFinalized && ctx.hasPdf },
 ];
 
 const PDF_VIEWER_FRAGMENT = 'toolbar=0&navpanes=0&view=FitH';

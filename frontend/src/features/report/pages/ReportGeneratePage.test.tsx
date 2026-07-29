@@ -574,14 +574,15 @@ describe('ReportGeneratePage', () => {
     expect(screen.getByText('총 지적 수')).toBeTruthy();
   });
 
-  it('단계 표시 A→E(초안 생성/AI 분류/엔지니어 확인/최종 승인/발행)가 렌더링된다', async () => {
+  it('단계 표시 A→C(AI 분류/작성자 확인/발행)가 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
-    expect(screen.getByText('초안 생성')).toBeTruthy();
     expect(screen.getByText('AI 분류')).toBeTruthy();
-    expect(screen.getByText('엔지니어 확인')).toBeTruthy();
-    expect(screen.getByText('최종 승인')).toBeTruthy();
+    expect(screen.getByText('작성자 확인')).toBeTruthy();
     expect(screen.getByText('발행')).toBeTruthy();
+    expect(screen.queryByText('초안 생성')).toBeNull();
+    expect(screen.queryByText('엔지니어 확인')).toBeNull();
+    expect(screen.queryByText('최종 승인')).toBeNull();
   });
 
   it('상세 내역 등급 필터 pills가 데이터에 맞게 렌더링된다', async () => {
