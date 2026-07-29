@@ -40,33 +40,24 @@ interface HeatmapGridProps {
 
 // 미리보기(상위 N행)와 "전체보기" 모달이 동일한 마크업을 쓰도록 분리.
 function HeatmapGrid({ categories, months, findCount, maxCount }: HeatmapGridProps) {
-  const isDense = months.length > 8; // 12개월(1년) 선택 시 간격 및 폰트를 조밀하게 맞춰 가로 스크롤 방지
-  const headerWidth = isDense ? '2.75rem' : '3.5rem';
-  const gapClass = isDense ? 'gap-x-1' : 'gap-x-2';
-  const fontSizeClass = isDense ? 'text-[11px]' : 'text-xs';
-
   return (
-    <div className="w-full flex-1 overflow-x-auto overflow-y-visible">
-      {/* 카드 폭이 넓어져도(등급별 분포 대비 3.5:6.5) 셀이 좌상단에 뭉치지 않도록, 고정폭
-          flex 대신 월 열을 1fr 그리드 컬럼으로 잡아 카드 전체 폭에 맞춰 늘어나게 한다. */}
+    <div className="my-auto w-full overflow-x-auto overflow-y-visible">
+      {/* 카드 폭이 넓어져도(등급별 분포 대비 3.5:6.5) 셀이 균등하게 조화되도록 1fr 컬럼으로 배치 */}
       <div
-        className={`grid w-full items-center ${gapClass} gap-y-2 min-w-[360px]`}
-        style={{ gridTemplateColumns: `${headerWidth} repeat(${months.length}, 1fr)` }}
+        className="grid w-full items-center gap-x-2 gap-y-2 min-w-[480px]"
+        style={{ gridTemplateColumns: `3rem repeat(${months.length}, 1fr)` }}
       >
         <span aria-hidden="true" />
         {months.map((month) => (
-          <span key={month} className={`text-center text-zinc-500 font-medium ${fontSizeClass}`}>
+          <span key={month} className="text-center text-zinc-500 font-medium text-xs">
             {formatMonthLabel(month)}
           </span>
         ))}
         {categories.map((category, rowIndex) => {
-          // 부모 컨테이너(overflow-x-auto)는 overflow-y도 암묵적으로 auto가 되어(CSS 스펙상
-          // 두 축 중 하나만 visible이 아니면 나머지도 auto로 강제됨) 위로 벗어나는 절대배치
-          // 엘리먼트를 잘라낸다. 맨 윗줄만 툴팁을 셀 아래쪽에 띄워 위쪽 클리핑을 피한다.
           const isFirstRow = rowIndex === 0;
           return (
             <Fragment key={category}>
-              <span className={`text-right text-zinc-500 font-medium truncate ${fontSizeClass}`}>{category}</span>
+              <span className="text-right text-zinc-500 font-medium text-xs truncate pr-1">{category}</span>
               {months.map((month, colIndex) => {
                 const count = findCount(category, month);
                 const isFirstCol = colIndex === 0;
@@ -85,7 +76,7 @@ function HeatmapGrid({ categories, months, findCount, maxCount }: HeatmapGridPro
                       aria-label={`${category} · ${formatMonthLabel(month)} · ${count}건`}
                       className={`block h-10 w-full rounded-xs ${getHeatShade(count, maxCount)}`}
                     />
-                    {/* 상하좌우 경계선 안쪽으로 칩이 팝업되도록 4방향 앵커링 조율 (가로 스크롤바 방지) */}
+                    {/* 상하좌우 경계선 안쪽으로 칩이 팝업되도록 4방향 앵커링 조율 */}
                     <span
                       role="tooltip"
                       className={`pointer-events-none absolute z-10 hidden whitespace-nowrap rounded-[10px] bg-white px-3.5 py-2 text-[13px] font-semibold text-zinc-800 shadow-[0_8px_24px_rgba(0,0,0,0.25)] group-hover:block ${verticalPosClass} ${horizontalPosClass}`}
