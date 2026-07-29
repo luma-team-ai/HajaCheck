@@ -106,7 +106,8 @@ describe('InspectionCycleSettingsPage', () => {
 
     expect(screen.getByText('점검 주기를 설정할 시설물을 선택해주세요')).toBeTruthy();
     expect(screen.queryByText('이 시설물 주기 설정')).toBeNull();
-    expect(screen.queryByRole('button', { name: '저장' })).toBeNull();
+    // 저장 버튼은 Figma대로 페이지 헤더에 항상 존재하되(선택 여부와 무관), 선택 전에는 비활성 상태다.
+    expect((screen.getByRole('button', { name: '저장' }) as HTMLButtonElement).disabled).toBe(true);
     expect(mockUseInspectionNotificationSettings).not.toHaveBeenCalled();
   });
 

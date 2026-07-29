@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
 import { shouldEnableMocking } from '../../../shared/utils/shouldEnableMocking';
@@ -79,6 +79,12 @@ function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: Content
   const [selectedRow, setSelectedRow] = useState<InspectionCycleStatusRow | null>(() =>
     findRow(rows, initialFacilityId),
   );
+  // Figma대로 저장 버튼은 시설물 선택과 무관하게 항상 페이지 헤더(제목 옆) 우측에 고정된다 —
+  // 저장 동작 자체(알림설정 훅 포함)는 선택 후에만 마운트되는 InspectionCycleSettingsForm 안에
+  // 있으므로, 헤더 버튼은 ref로 그 form의 저장 함수를 간접 호출한다(#1129의 "선택 전엔 훅 미호출"
+  // 설계는 그대로 유지 — 훅을 조건부로 호출하는 게 아니라 버튼 위치만 페이지 레벨로 옮긴 것).
+  const [isSaving, setIsSaving] = useState(false);
+  const formRef = useRef<InspectionCycleSettingsFormHandle>(null);
 
   // 데모 기준일은 MSW 목이 실제로 켜져 있을 때만 주입한다 — 프로덕션(실 백엔드) 빌드에서
   // 고정 과거/미래 날짜가 새어 들어가 D-day가 잘못 계산되는 침묵 버그를 막는다(react-reviewer P2).
@@ -86,11 +92,21 @@ function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: Content
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8">
-      <div className="flex flex-col gap-1">
-        <h1 className="m-0 text-xl font-bold text-heading">점검 주기 설정</h1>
-        <p className="m-0 text-sm text-text-muted">
-          시설물별 점검 주기를 설정하면 다음 점검일을 자동 계산해 대시보드·알림에 표시합니다
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="m-0 text-xl font-bold text-heading">점검 주기 설정</h1>
+          <p className="m-0 text-sm text-text-muted">
+            시설물별 점검 주기를 설정하면 다음 점검일을 자동 계산해 대시보드·알림에 표시합니다
+          </p>
+        </div>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => formRef.current?.save()}
+          disabled={!selectedRow || isSaving}
+        >
+          {isSaving ? '저장 중...' : '저장'}
+        </Button>
       </div>
 
       {/* Figma 레이아웃대로 좌(카드)/우(테이블) 배치 — lg 미만은 세로 스택으로 폴백.
@@ -102,7 +118,13 @@ function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: Content
           {selectedRow ? (
             // key로 행 전환 시 폼 전체를 리마운트한다 — cycleType/months/알림토글/에러 상태가 훅
             // 초기값으로 자동 리셋되어, 이전 시설물 상태가 새 시설물로 새는 것을 수동 리셋 코드 없이 방지한다.
-            <InspectionCycleSettingsForm key={selectedRow.id} row={selectedRow} today={demoToday} />
+            <InspectionCycleSettingsForm
+              ref={formRef}
+              key={selectedRow.id}
+              row={selectedRow}
+              today={demoToday}
+              onSavingChange={setIsSaving}
+            />
           ) : (
             <div className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-border bg-surface p-10 text-center">
               <p className="m-0 text-sm font-medium text-text-default">
@@ -129,90 +151,93 @@ function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: Content
 type FormProps = {
   row: InspectionCycleStatusRow;
   today?: Date;
+  onSavingChange: (isSaving: boolean) => void;
+};
+
+type InspectionCycleSettingsFormHandle = {
+  save: () => void;
 };
 
 // 시설물이 실제로 선택된 뒤에만 마운트된다 — useInspectionNotificationSettings(실 백엔드 GET)를
 // 포함한 모든 시설물 스코프 훅이 이 컴포넌트 안에 있어, 선택 전에는 어떤 facilityId로도 백엔드를
-// 호출하지 않는다(#1129).
-function InspectionCycleSettingsForm({ row, today }: FormProps) {
-  const [cycleType, setCycleType] = useState<InspectionCycleType>(row.type);
-  const [months, setMonths] = useState(row.cycleMonths);
-  const [nextDueAt, setNextDueAt] = useState<string | null>(row.nextInspectionDueAt);
-  const [notifyBeforeEnabled, setNotifyBeforeEnabled] = useState(DEFAULT_NOTIFY_BEFORE_ENABLED);
-  // notifyBeforeDays는 화면에 입력 UI가 없다(#540 ③ 범위 — 토글만 노출) — 조회된 값을 그대로
-  // 보존했다가 저장 시 되돌려 보내, 다른 경로로 커스텀된 값이 있어도 저장 시 7일로 덮어쓰지 않는다.
-  const [notifyBeforeDays, setNotifyBeforeDays] = useState(DEFAULT_NOTIFY_BEFORE_DAYS);
-  const [warnOnOverdueEnabled, setWarnOnOverdueEnabled] = useState(DEFAULT_WARN_ON_OVERDUE_ENABLED);
+// 호출하지 않는다(#1129). 저장 버튼 자체는 페이지 헤더에 있어(Figma 배치) ref로 노출한 save()만
+// 호출된다 — 로딩 상태는 onSavingChange로 부모에 올려보내 헤더 버튼의 disabled/라벨에 반영한다.
+const InspectionCycleSettingsForm = forwardRef<InspectionCycleSettingsFormHandle, FormProps>(
+  function InspectionCycleSettingsForm({ row, today, onSavingChange }, ref) {
+    const [cycleType, setCycleType] = useState<InspectionCycleType>(row.type);
+    const [months, setMonths] = useState(row.cycleMonths);
+    const [nextDueAt, setNextDueAt] = useState<string | null>(row.nextInspectionDueAt);
+    const [notifyBeforeEnabled, setNotifyBeforeEnabled] = useState(DEFAULT_NOTIFY_BEFORE_ENABLED);
+    // notifyBeforeDays는 화면에 입력 UI가 없다(#540 ③ 범위 — 토글만 노출) — 조회된 값을 그대로
+    // 보존했다가 저장 시 되돌려 보내, 다른 경로로 커스텀된 값이 있어도 저장 시 7일로 덮어쓰지 않는다.
+    const [notifyBeforeDays, setNotifyBeforeDays] = useState(DEFAULT_NOTIFY_BEFORE_DAYS);
+    const [warnOnOverdueEnabled, setWarnOnOverdueEnabled] = useState(DEFAULT_WARN_ON_OVERDUE_ENABLED);
 
-  const { setSchedule, isPending, error } = useSetInspectionSchedule();
-  const { data: notificationSettings } = useInspectionNotificationSettings(row.id);
-  const {
-    saveNotificationSettings,
-    isPending: isNotificationSettingsSaving,
-    error: notificationSettingsError,
-  } = useSaveInspectionNotificationSettings();
+    const { setSchedule, isPending, error } = useSetInspectionSchedule();
+    const { data: notificationSettings } = useInspectionNotificationSettings(row.id);
+    const {
+      saveNotificationSettings,
+      isPending: isNotificationSettingsSaving,
+      error: notificationSettingsError,
+    } = useSaveInspectionNotificationSettings();
 
-  // 선택된 시설물의 알림설정 조회가 끝나면 토글 상태를 그 값으로 동기화한다(폼 초기화 — 비동기로
-  // 가져온 값을 편집 가능한 로컬 상태의 시작값으로 삼는 통상적인 패턴).
-  useEffect(() => {
-    if (notificationSettings) {
-      setNotifyBeforeEnabled(notificationSettings.notifyBeforeEnabled);
-      setNotifyBeforeDays(notificationSettings.notifyBeforeDays);
-      setWarnOnOverdueEnabled(notificationSettings.warnOnOverdueEnabled);
-    }
-  }, [notificationSettings]);
+    // 선택된 시설물의 알림설정 조회가 끝나면 토글 상태를 그 값으로 동기화한다(폼 초기화 — 비동기로
+    // 가져온 값을 편집 가능한 로컬 상태의 시작값으로 삼는 통상적인 패턴).
+    useEffect(() => {
+      if (notificationSettings) {
+        setNotifyBeforeEnabled(notificationSettings.notifyBeforeEnabled);
+        setNotifyBeforeDays(notificationSettings.notifyBeforeDays);
+        setWarnOnOverdueEnabled(notificationSettings.warnOnOverdueEnabled);
+      }
+    }, [notificationSettings]);
 
-  const handleSave = async () => {
-    try {
-      const [scheduleResult] = await Promise.all([
-        setSchedule({
-          facilityId: row.id,
-          body: { inspectionCycleMonths: months },
-        }),
-        saveNotificationSettings({
-          facilityId: row.id,
-          body: { notifyBeforeEnabled, notifyBeforeDays, warnOnOverdueEnabled },
-        }),
-      ]);
-      setNextDueAt(scheduleResult.nextInspectionDueAt);
-    } catch {
-      // 에러는 각 훅의 error → 상단 배너로 이미 노출됨. 여기선 unhandled rejection만 방지.
-    }
-  };
+    const isSaving = isPending || isNotificationSettingsSaving;
+    useEffect(() => {
+      onSavingChange(isSaving);
+    }, [isSaving, onSavingChange]);
 
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-4">
-        <span className="text-sm font-medium text-text-default">{row.name}</span>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={handleSave}
-          disabled={isPending || isNotificationSettingsSaving}
-        >
-          {isPending || isNotificationSettingsSaving ? '저장 중...' : '저장'}
-        </Button>
+    const handleSave = useCallback(async () => {
+      try {
+        const [scheduleResult] = await Promise.all([
+          setSchedule({
+            facilityId: row.id,
+            body: { inspectionCycleMonths: months },
+          }),
+          saveNotificationSettings({
+            facilityId: row.id,
+            body: { notifyBeforeEnabled, notifyBeforeDays, warnOnOverdueEnabled },
+          }),
+        ]);
+        setNextDueAt(scheduleResult.nextInspectionDueAt);
+      } catch {
+        // 에러는 각 훅의 error → 상단 배너로 이미 노출됨. 여기선 unhandled rejection만 방지.
+      }
+    }, [row.id, months, notifyBeforeEnabled, notifyBeforeDays, warnOnOverdueEnabled, setSchedule, saveNotificationSettings]);
+
+    useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave]);
+
+    return (
+      <div className="flex flex-col gap-3">
+        {(error || notificationSettingsError) && (
+          <p role="alert" className="m-0 text-sm text-danger">
+            {error?.message ?? notificationSettingsError?.message ?? '점검 주기 저장에 실패했습니다.'}
+          </p>
+        )}
+
+        <InspectionCycleSettingsCard
+          cycleType={cycleType}
+          onCycleTypeChange={setCycleType}
+          months={months}
+          onMonthsChange={setMonths}
+          lastInspectedAt={row.lastInspectedAt}
+          nextInspectionDueAt={nextDueAt}
+          notifyBeforeEnabled={notifyBeforeEnabled}
+          onNotifyBeforeChange={setNotifyBeforeEnabled}
+          warnOnOverdueEnabled={warnOnOverdueEnabled}
+          onWarnOnOverdueChange={setWarnOnOverdueEnabled}
+          today={today}
+        />
       </div>
-
-      {(error || notificationSettingsError) && (
-        <p role="alert" className="m-0 text-sm text-danger">
-          {error?.message ?? notificationSettingsError?.message ?? '점검 주기 저장에 실패했습니다.'}
-        </p>
-      )}
-
-      <InspectionCycleSettingsCard
-        cycleType={cycleType}
-        onCycleTypeChange={setCycleType}
-        months={months}
-        onMonthsChange={setMonths}
-        lastInspectedAt={row.lastInspectedAt}
-        nextInspectionDueAt={nextDueAt}
-        notifyBeforeEnabled={notifyBeforeEnabled}
-        onNotifyBeforeChange={setNotifyBeforeEnabled}
-        warnOnOverdueEnabled={warnOnOverdueEnabled}
-        onWarnOnOverdueChange={setWarnOnOverdueEnabled}
-        today={today}
-      />
-    </div>
-  );
-}
+    );
+  },
+);

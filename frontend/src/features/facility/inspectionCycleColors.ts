@@ -21,8 +21,6 @@ export const INSPECTION_CYCLE_COLOR_CLASS = {
   overdueBadgeBg: 'bg-[#fee2e2]',
   overdueBadgeText: 'text-[#dc2626]',
   overdueDotBg: 'bg-[#dc2626]',
-  /** 초과 행 전체 배경 — 연핑크(handoff §2) */
-  overdueRowBg: 'bg-[#fef2f2]',
 
   /** 상태뱃지 — 임박(D-n, ≤7일) */
   upcomingBadgeBg: 'bg-[#fef3c7]',
