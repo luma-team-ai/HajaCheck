@@ -62,8 +62,6 @@ export function InspectionMediaUploadPanel({
     if (dropped.length > 0) onFilesAdd(dropped);
   };
 
-  const totalSize = files.reduce((sum, entry) => sum + entry.file.size, 0);
-
   return (
     <div className="flex flex-col gap-4">
       <div
@@ -118,12 +116,6 @@ export function InspectionMediaUploadPanel({
             />
           ))}
         </div>
-      )}
-
-      {files.length > 0 && (
-        <p className="m-0 text-sm text-neutral-600">
-          총 {files.length}개 파일 · {formatFileSize(totalSize)}
-        </p>
       )}
     </div>
   );
