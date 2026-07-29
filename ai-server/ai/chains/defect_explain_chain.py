@@ -1,9 +1,14 @@
 """하자 원인·조치방안 설명 체인 (점검B 담당, FR-4 P1)
 
 AI_개발_컨벤션.md §8 예시 체인 절차를 따름.
+
+`location`이 자유 입력이라 "OO빌딩 3층 북벽"처럼 시설 식별 정보가 섞일 수 있어 LangSmith
+트레이싱에서 제외한다 — 나머지 3개 필드는 분류 코드라 그 자체로는 식별 불가지만, 한 필드만
+자유 입력이어도 프롬프트 전체가 전송되므로 체인 단위로 차단한다.
 """
 from pathlib import Path
 
+from langsmith.run_helpers import tracing_context
 from pydantic import BaseModel
 
 from ai.core.llm_client import get_llm
@@ -47,5 +52,8 @@ def run_defect_explain_chain(
     defect_type: str, severity_grade: str, location: str, facility_type: str
 ) -> DefectExplain:
     prompt = _build_prompt(defect_type, severity_grade, location, facility_type)
-    llm = get_llm().with_structured_output(DefectExplain)
-    return llm.invoke(prompt)
+    # location에 시설 식별 정보가 섞일 수 있어 외부 전송 차단 — 모듈 docstring 참고.
+    # 전역 LANGCHAIN_TRACING_V2 값과 무관하게 항상 비전송(트레이싱이 꺼져 있어도 무해).
+    with tracing_context(enabled=False):
+        llm = get_llm().with_structured_output(DefectExplain)
+        return llm.invoke(prompt)

@@ -7,6 +7,10 @@ docs/design/ai/rag_chatbot_design.md §3·§4, docs/design/ai/rag_chroma_schema.
 구성한다(설계 §3 "LLM 창작 아님"). LLM structured output(`_RagChatAnswer`)에는 `answer` 하나만 둔다.
 
 LangGraph StateGraph 기반 구현 — 캐시·검색·LLM·출처 빌드 노드 + 조건부 엣지로 분기.
+
+고객 질의(`question`)가 프롬프트에 그대로 들어가므로 LangSmith 트레이싱에서 제외한다
+(run_rag_chat_chain 참고) — 질의에 회사명·시설명 등이 섞여 들어오면 그대로 외부 LangSmith
+서버에 평문 저장된다.
 """
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ from pathlib import Path
 from typing import Literal, Optional, TypedDict
 
 from langgraph.graph import END, StateGraph
+from langsmith.run_helpers import tracing_context
 from pydantic import BaseModel, Field
 
 from ai.core.llm_client import CACHE_TTL_SECONDS, get_llm, get_redis_client
@@ -296,9 +301,13 @@ def run_rag_chat_chain(question: str) -> AIResponse:
         "final_response": None,
     }
 
-    result_state = compiled_graph.invoke(
-        initial_state,
-        config={"recursion_limit": 10}
-    )
+    # 고객 질의 외부 전송 차단 — 모듈 docstring 참고.
+    # ponytail: 그래프를 한 번만 감싸면 하위 노드의 모든 LLM 호출까지 전부 비전송된다.
+    # 전역 LANGCHAIN_TRACING_V2 값과 무관하게 항상 비전송(트레이싱이 꺼져 있어도 무해).
+    with tracing_context(enabled=False):
+        result_state = compiled_graph.invoke(
+            initial_state,
+            config={"recursion_limit": 10}
+        )
 
     return result_state["final_response"]

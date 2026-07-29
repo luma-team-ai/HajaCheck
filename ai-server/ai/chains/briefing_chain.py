@@ -3,9 +3,13 @@
 현황 데이터 → 자연어 주간 브리핑. 설계 원칙:
 - **수치는 코드로 계산·주입, LLM은 자연어만 생성** (전주 대비 변화율·추세를 LLM이 지어내지 않도록 — 수치 환각 방지).
 - AI_개발_컨벤션.md §8 예시 체인 절차 준수: 프롬프트 파일 분리 + structured output.
+- stats(회사 현황 수치·주요 하자유형)가 프롬프트에 섞이므로 LangSmith 트레이싱에서 제외한다
+  — 조합하면 회사 식별이 가능한 데이터라, 이미 #623에서 Redis 캐시 TTL을 1시간으로 줄여둔
+  대상이다(LangSmith는 14일 보관이라 그 조치가 무의미해진다).
 """
 from pathlib import Path
 
+from langsmith.run_helpers import tracing_context
 from pydantic import BaseModel, Field
 
 from ai.core.llm_client import SHORT_CACHE_TTL_SECONDS, get_llm
@@ -92,5 +96,7 @@ def run_briefing_chain(stats: DashboardStats) -> tuple[WeeklyBriefing, BriefingF
     facts = derive_facts(stats)
     prompt = _build_prompt(stats, facts)
     # stats(회사 현황 수치·주요 하자유형)가 프롬프트에 섞이므로 캐시 TTL을 짧게 둔다(#623 P2 픽스).
-    briefing = get_llm().with_structured_output(WeeklyBriefing, ttl=SHORT_CACHE_TTL_SECONDS).invoke(prompt)
+    # 같은 이유로 LangSmith 트레이싱에서도 제외한다 — 모듈 docstring 참고.
+    with tracing_context(enabled=False):
+        briefing = get_llm().with_structured_output(WeeklyBriefing, ttl=SHORT_CACHE_TTL_SECONDS).invoke(prompt)
     return briefing, facts

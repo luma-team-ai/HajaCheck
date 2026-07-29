@@ -9,6 +9,8 @@
 - detail 섹션의 items 개수 대조는 grounding 공통 모듈의 범위 밖이므로 이 파일에서 별도로 검증한다 (design §5-4)
 - recommendation 섹션의 RAG 조회(ai.core.vectorstore.get_vectorstore)는 LangChain Chroma 기반으로 구현됨.
   실패 시(0건 검색과 동일하게) legal_basis를 "관련 근거 없음"으로 고정하고 체인 전체는 정상 진행한다
+- 프롬프트에 고객사 정보(시설명·위치·하자내용)가 들어가므로 LangSmith 트레이싱에서 제외한다
+  (run_report_chain 참고) — 켜져 있으면 그 내용이 외부 LangSmith 서버에 평문 저장된다
 """
 import logging
 from collections import Counter
@@ -17,6 +19,7 @@ from typing import Any, TypedDict
 
 from langchain_core.runnables import RunnableLambda, RunnableParallel
 from langgraph.graph import END, StateGraph
+from langsmith.run_helpers import tracing_context
 from pydantic import BaseModel, Field
 
 from ai.core.grounding import (
@@ -603,7 +606,11 @@ def run_report_chain(
         "grounding_result_action": None,  # type: ignore
     }
 
-    result = _compiled_graph.invoke(initial_state, config={"recursion_limit": 20})
+    # 고객사 정보(시설명·위치·하자내용) 외부 전송 차단 — 모듈 docstring 참고.
+    # ponytail: 그래프를 한 번만 감싸면 하위 노드의 모든 LLM 호출까지 전부 비전송된다.
+    # 전역 LANGCHAIN_TRACING_V2 값과 무관하게 항상 비전송(트레이싱이 꺼져 있어도 무해).
+    with tracing_context(enabled=False):
+        result = _compiled_graph.invoke(initial_state, config={"recursion_limit": 20})
 
     return {
         "overview": result["overview"].model_dump(),
