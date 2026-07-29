@@ -170,6 +170,10 @@ services:
       LANGCHAIN_ENDPOINT: ${LANGCHAIN_ENDPOINT:-}
       LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
       LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-}
+      # 입출력 마스킹(#1240) — 프롬프트·응답 내용 비전송. 프로덕션은 실제 고객 개인정보가
+      # 흐르므로 이 둘이 반드시 true여야 한다. 기본값 true(fail-safe) — 끄려면 .env에서 명시.
+      LANGSMITH_HIDE_INPUTS: ${LANGSMITH_HIDE_INPUTS:-true}
+      LANGSMITH_HIDE_OUTPUTS: ${LANGSMITH_HIDE_OUTPUTS:-true}
     volumes:
       - chroma_data:/app/chroma_data
       - hf_cache:/app/hf_cache

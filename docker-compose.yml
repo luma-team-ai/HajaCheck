@@ -127,6 +127,12 @@ services:
       LANGCHAIN_ENDPOINT: ${LANGCHAIN_ENDPOINT:-}
       LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
       LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-}
+      # 입출력 마스킹(#1240) — 프롬프트·응답 내용을 LangSmith로 보내지 않는다(호출 횟수·지연시간·
+      # 에러만 남음). 체인 6개 전부가 민감정보(개인정보·고객사 정보·사용자 자유입력)를 프롬프트에
+      # 담으므로 트레이싱을 켤 때 이 둘이 반드시 true여야 한다. 기본값 true — 설정 누락 시에도
+      # 새지 않도록 fail-safe 방향으로 둔다(끄려면 .env에서 명시적으로 false).
+      LANGSMITH_HIDE_INPUTS: ${LANGSMITH_HIDE_INPUTS:-true}
+      LANGSMITH_HIDE_OUTPUTS: ${LANGSMITH_HIDE_OUTPUTS:-true}
       # ultralytics(dev-05-04)가 기본으로 쓰려는 /app/.config는 non-root(fastapi, uid 999) 컨테이너에서
       # 쓰기 불가 — 미지정 시 매 요청마다 "not writeable, defaulting to /tmp" 경고가 반복된다.
       # 기존 hf_cache 볼륨(이미 fastapi 소유) 하위로 고정해 재기동해도 설정이 유지되게 한다.
