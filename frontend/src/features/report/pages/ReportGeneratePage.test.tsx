@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, RouterProvider, createMemoryRouter } from 'react-router-dom';
 import type { ReportDetailResponse } from '../api/reportApi';
 import type { InspectionResponse, DefectDetailItem, MediaResponse } from '../../inspection/api/inspectionApi.types';
 import { isReportContent, type ReportContent } from '../types';
@@ -442,6 +442,66 @@ describe('ReportGeneratePage', () => {
     expect(requestCount).toBe(0);
   });
 
+  // 회귀 테스트(#1235 P2) — 언마운트 없이(같은 라우트 패턴, reportId만 바뀌는 클라이언트 라우팅)
+  // same-origin 프리플라이트 대상 리포트에서 프리플라이트 비대상(cross-origin) 리포트로 전환하면,
+  // verifyPdfPreview가 pdfBlobUrl을 건드리지 않고 조기 종료해 이전 리포트의 blob이 새 화면에
+  // 그대로 남아있던 문제를 검증한다.
+  it('#1235 P2: 리포트 전환 시 이전 리포트의 blob URL을 재사용하지 않는다', async () => {
+    const report2: ReportDetailResponse = {
+      ...mockReportDetailResponse,
+      id: 2,
+      groundingCheckPassed: true,
+      status: 'FINALIZED',
+      pdfUrl: 'https://cdn.example.test/report2.pdf',
+    };
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+      status: 'FINALIZED',
+      pdfUrl: '/api/reports/1/pdf/storage-key',
+    };
+
+    server.use(
+      http.get('/api/reports/1/pdf/storage-key', () =>
+        new Response('fake-pdf-binary', {
+          status: 200,
+          headers: { 'Content-Type': 'application/pdf' },
+        }),
+      ),
+      http.get('/api/reports/1', () => HttpResponse.json({ success: true, data: reportState })),
+      http.get('/api/reports/2', () => HttpResponse.json({ success: true, data: report2 })),
+      http.get('https://cdn.example.test/report2.pdf', () =>
+        new Response('fake-pdf-binary-2', {
+          status: 200,
+          headers: { 'Content-Type': 'application/pdf', 'Access-Control-Allow-Origin': '*' },
+        }),
+      ),
+    );
+
+    const queryClient = new QueryClient();
+    const router = createMemoryRouter(
+      [{ path: '/reports/:reportId', element: <ReportGeneratePage /> }],
+      { initialEntries: ['/reports/1?mode=export'] },
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    const firstFrame = await screen.findByTitle('저장된 보고서 PDF');
+    expect(firstFrame.getAttribute('src')).toContain('blob:');
+
+    await router.navigate('/reports/2?mode=export');
+
+    // pdfPreviewKey가 바뀌면 iframe이 새 DOM 노드로 리마운트되므로, 특정 노드를 미리 붙잡지 않고
+    // waitFor 콜백마다 현재 DOM을 다시 조회해 최종 정착 상태를 확인한다.
+    await waitFor(() => {
+      const frame = screen.getByTitle('저장된 보고서 PDF');
+      expect(frame.getAttribute('src')).toContain('https://cdn.example.test/report2.pdf');
+      expect(frame.getAttribute('src')).not.toContain('blob:');
+    });
+  });
 
   it('/reports/:reportId?mode=export에서 pdfUrl이 없으면 코드 미리보기 대신 저장된 PDF 없음 상태를 보여준다', async () => {
     reportState = {

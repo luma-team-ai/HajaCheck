@@ -157,12 +157,37 @@ export function ReportGeneratePage() {
 
   useEffect(() => {
     setPdfLoadError(null);
+    // #1235 P2 픽스 — 리포트 전환(같은 라우트 패턴 안에서 reportId만 바뀌는 클라이언트 라우팅,
+    // 언마운트 없음) 시 이전 리포트의 blob URL을 무조건 먼저 리셋한다. shouldPreflightPdf가
+    // false를 반환하거나 새 report에 pdfUrl 자체가 없는 경우 verifyPdfPreview가 pdfBlobUrl을
+    // 건드리지 않고 조기 종료해, buildPdfPreviewSrc의 `blobUrl || normalizePdfPreviewUrl(pdfUrl)`
+    // 우선순위 때문에 이전 리포트의 PDF가 새 리포트 화면에 그대로 남아있던 문제를 막는다.
+    setPdfBlobUrl((prevUrl) => {
+      if (prevUrl) URL.revokeObjectURL(prevUrl);
+      return null;
+    });
     if (!report?.pdfUrl || !isExportMode) return;
 
     const controller = new AbortController();
     void verifyPdfPreview(report.pdfUrl, controller.signal);
     return () => controller.abort();
   }, [isExportMode, report?.pdfUrl, verifyPdfPreview]);
+
+  // #1235 P3 픽스 — 마지막 blob URL(pdfBlobUrl/previewBlobUrl)은 새 blob으로 교체될 때만
+  // revoke됐고, 컴포넌트가 언마운트될 때(다른 라우트로 이동) 정리되지 않았다. ref로 최신값을
+  // 추적해 언마운트 시점에만 한 번 revoke한다(교체 시 이미 일어나는 revoke와 중복되지 않도록
+  // 별도 effect로 분리).
+  const pdfBlobUrlRef = useRef<string | null>(null);
+  pdfBlobUrlRef.current = pdfBlobUrl;
+  const previewBlobUrlRef = useRef<string | null>(null);
+  previewBlobUrlRef.current = previewBlobUrl;
+
+  useEffect(() => {
+    return () => {
+      if (pdfBlobUrlRef.current) URL.revokeObjectURL(pdfBlobUrlRef.current);
+      if (previewBlobUrlRef.current) URL.revokeObjectURL(previewBlobUrlRef.current);
+    };
+  }, []);
 
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
