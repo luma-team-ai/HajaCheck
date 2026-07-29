@@ -161,12 +161,51 @@ describe('DefectActionForm — 진행상태 select(#1128)', () => {
     expect(screen.getByText('조치중')).not.toBeNull();
   });
 
-  it('IN_PROGRESS 상태에서는 진행상태가 "조치완료"로 고정 표시된다', () => {
+  // #1193/HAJA-569 — IN_PROGRESS 단계에서 조치중 사진을 시간차를 두고 여러 번 등록할 수 있어야
+  // 하므로, 더 이상 "조치완료"로 고정되지 않고 두 옵션 중 사용자가 고른다. 기본값은 실수로 바로
+  // 완료 처리되지 않도록 "조치중"(유지)이다.
+  it('IN_PROGRESS 상태에서는 진행상태 select가 활성화되고 "조치중"/"조치완료" 두 옵션을 노출하며 기본값은 "조치중"이다', () => {
     renderForm('IN_PROGRESS');
 
     const select = screen.getByLabelText('진행상태 *') as HTMLSelectElement;
-    expect(select.value).toBe('RESOLVED');
-    expect(screen.getByText('조치완료')).not.toBeNull();
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe('IN_PROGRESS');
+    const optionLabels = Array.from(select.options).map((option) => option.textContent);
+    expect(optionLabels).toEqual(['조치중', '조치완료']);
+  });
+
+  it('IN_PROGRESS 상태에서 "조치완료"를 선택해 제출하면 요청 바디의 targetStatus가 RESOLVED가 된다', async () => {
+    const uploadSpy = vi
+      .spyOn(defectMediaApi, 'uploadActionPhoto')
+      .mockResolvedValue({ data: [{ id: 9002, thumbnailUrl: '/api/media/9002/thumbnail' }] } as Awaited<
+        ReturnType<typeof defectMediaApi.uploadActionPhoto>
+      >);
+
+    let capturedBody: Record<string, unknown> | null = null;
+    const listener = async ({ request }: { request: Request }) => {
+      if (request.method === 'PATCH' && request.url.includes('/action')) {
+        capturedBody = (await request.clone().json()) as Record<string, unknown>;
+      }
+    };
+    server.events.on('request:start', listener);
+
+    renderForm('IN_PROGRESS');
+    fireEvent.change(screen.getByLabelText('진행상태 *'), { target: { value: 'RESOLVED' } });
+    fireEvent.change(screen.getByLabelText('조치 후 사진 업로드 *'), {
+      target: { files: [makeImageFile('resolved.png')] },
+    });
+    fireEvent.change(screen.getByLabelText('조치 내용 *'), { target: { value: '조치 완료 처리' } });
+    fireEvent.change(screen.getByLabelText('조치일 *'), { target: { value: '2026-07-29' } });
+    await screen.findByText('김도현 검사자');
+    fireEvent.change(screen.getByLabelText('담당자 *'), { target: { value: '101' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '상태 저장' }));
+
+    await waitFor(() => expect(capturedBody).not.toBeNull());
+    expect((capturedBody as unknown as Record<string, unknown>).targetStatus).toBe('RESOLVED');
+
+    server.events.removeListener('request:start', listener);
+    uploadSpy.mockRestore();
   });
 
   // DETECTED(신규, 검수 전)는 조치 등록 대상이 아니므로 패널 자체가 렌더링되지 않아야 한다(방어적 가드).
