@@ -115,18 +115,22 @@ class AuthControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 로그아웃_세션무효화_쿠키만료() throws Exception {
+    void 로그아웃_세션무효화_세션쿠키만료() throws Exception {
         MockHttpSession session = new MockHttpSession();
 
         mockMvc.perform(post("/api/auth/logout").session(session).with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                // SESSION·XSRF-TOKEN 쿠키가 Max-Age=0 으로 만료돼야 한다.
-                .andExpect(cookie().maxAge("SESSION", 0))
-                .andExpect(cookie().maxAge("XSRF-TOKEN", 0));
+                // SESSION 쿠키는 Max-Age=0 으로 만료돼야 한다.
+                .andExpect(cookie().maxAge("SESSION", 0));
 
         assertThat(session.isInvalid()).isTrue();
     }
+
+    // #1200 회귀(로그아웃 시 CSRF 토큰 삭제 대신 회전)는 AuthCsrfRotationIntegrationTest 로 분리했다.
+    // MockMvc 로는 검증이 불가능하다: with(csrf()) 가 필터체인의 CsrfTokenRepository 를
+    // TestCsrfTokenRepository(HttpSessionCsrfTokenRepository) 로 리플렉션 교체하고 그 교체가 캐시된
+    // 컨텍스트에 남아, 이후 어떤 요청도 필터 경로로 XSRF-TOKEN "쿠키" 를 심지 못한다(사유 상세는 그 클래스 주석).
 
     @Test
     void 내정보_미인증_401_UNAUTHORIZED() throws Exception {

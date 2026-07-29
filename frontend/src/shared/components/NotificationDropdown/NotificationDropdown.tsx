@@ -51,7 +51,7 @@ export function NotificationDropdown({
   return (
     <div
       ref={rootRef}
-      className="flex max-h-160 w-95 flex-col overflow-hidden rounded-2xl border border-border bg-white/90 shadow-2xl backdrop-blur-[10px]"
+      className="flex max-h-160 w-95 flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-2xl"
       role="menu"
       aria-label="알림"
     >

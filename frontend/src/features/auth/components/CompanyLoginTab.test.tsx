@@ -52,4 +52,28 @@ describe('CompanyLoginTab', () => {
       expect(screen.getByRole('alert').textContent).toContain('아이디 또는 비밀번호가 올바르지 않습니다.'),
     );
   });
+
+  // #1200 — CSRF 토큰 누락·만료로 로그인 POST가 403 FORBIDDEN으로 거부될 때, 매핑이 없어
+  // 기본 문구("로그인에 실패했습니다")가 떠서 자격 증명 오류로 오인됐다. 재시도 유도 문구로 고정.
+  it('403 FORBIDDEN(CSRF)은 재시도 안내 문구로 표시한다(#1200)', async () => {
+    server.use(
+      http.post('/api/auth/login', () => {
+        const failure: ApiResponse<null> = {
+          success: false,
+          data: null,
+          error: { code: 'FORBIDDEN', message: '접근 권한이 없습니다.' },
+        };
+        return HttpResponse.json(failure, { status: 403 });
+      }),
+    );
+    renderTab();
+
+    fireEvent.change(screen.getByLabelText('아이디'), { target: { value: 'hajacheck' } });
+    fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'pw12345678' } });
+    fireEvent.click(screen.getByRole('button', { name: '로그인' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toContain('요청이 만료되었습니다. 다시 시도해 주세요.'),
+    );
+  });
 });

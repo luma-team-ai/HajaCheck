@@ -243,14 +243,20 @@ export function ReportEntryPage() {
 
     setIsGenerating(true);
     try {
-      const response = await reportApi.generateReportDraft(inspectionId);
+      const selectedSectionKeys = Object.entries(sections)
+        .filter(([, v]) => v)
+        .map(([k]) => k);
+      const response = await reportApi.generateReportDraft(inspectionId, {
+        sections: selectedSectionKeys,
+        includePhoto,
+      });
       setActiveReportId(response.data.id);
       navigate(`/reports/${response.data.id}`);
     } catch (error) {
       alert(extractErrorMessage(error, '보고서 생성에 실패했습니다.'));
       setIsGenerating(false);
     }
-  }, [inspectionId, data, isGenerating, navigate]);
+  }, [inspectionId, data, isGenerating, sections, includePhoto, navigate]);
 
   const handleEditReport = useCallback(
     (reportId: number) => {

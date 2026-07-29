@@ -2,6 +2,7 @@ package com.hajacheck.core.report.controller;
 
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.report.dto.FinalizeReportRequest;
+import com.hajacheck.core.report.dto.GenerateDraftRequest;
 import com.hajacheck.core.report.dto.ReportDetailResponse;
 import com.hajacheck.core.report.dto.ReportPdfResponse;
 import com.hajacheck.core.report.dto.ReportSummaryResponse;
@@ -17,6 +18,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Pageable;
@@ -73,9 +75,14 @@ public class ReportController {
     @Operation(summary = "보고서 초안 생성", description = "점검의 확정 하자를 근거로 AI 보고서 초안을 생성한다")
     @PostMapping("/api/inspections/{inspectionId}/reports")
     public ResponseEntity<ApiResponse<ReportDetailResponse>> generateDraft(
-            @PathVariable Long inspectionId, @AuthenticationPrincipal LoginUser loginUser) {
+            @PathVariable Long inspectionId,
+            @Valid @RequestBody(required = false) GenerateDraftRequest request,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        Set<String> sections = request != null ? request.sections() : null;
+        Boolean includePhoto = request != null ? request.includePhoto() : null;
         ReportDetailResponse response = reportService.generateDraft(
-                inspectionId, loginUser.getCompanyId(), loginUser.getUserId());
+                inspectionId, loginUser.getCompanyId(), loginUser.getUserId(),
+                sections, includePhoto);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
     }
 

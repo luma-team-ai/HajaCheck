@@ -585,7 +585,7 @@ PLATFORM_ADMIN 전용(SecurityConfig `hasRole(PLATFORM_ADMIN)`). companyId 스�
 > **완전히 무변경**으로 남긴다 — 아래는 완전히 별도의 신규 엔드포인트다(회귀 위험 없는 additive 확장).
 > `defectApi.getInspections`/`GET /api/inspections`(하자 목록 개편, HAJA-393/394, §"하자 목록·상세 화면 개편")를
 > 재사용하지 않는 이유: 그쪽 `InspectionStatus`는 raw 6단계(`CREATED|UPLOADING|ANALYZING|ANALYZED|REVIEWED|REPORTED`)이고,
-> 대시보드는 이미 화면용 4단계 한글 라벨(`분석중|검수대기|조치대기|완료`)로 서버에서 번역해 반환한다 — 두 체계를
+> 대시보드는 이미 화면용 4단계 한글 라벨(`분석중|검수대기|검수확정|완료`)로 서버에서 번역해 반환한다 — 두 체계를
 > 다시 매핑하는 대신 대시보드가 이미 가진 번역 로직을 확장하는 쪽이 안전하다.
 
 ### GET /api/dashboard/recent-inspections/search
@@ -597,7 +597,7 @@ PLATFORM_ADMIN 전용(SecurityConfig `hasRole(PLATFORM_ADMIN)`). companyId 스�
 |---|---|---|---|
 | `page` | int | 0 | Spring Data 관례(0-based) |
 | `size` | int | 10 | 페이지 크기, 서버가 **최대 100**으로 캡(과다조회 방지 — `FacilityService.FACILITY_LIST_MAX` 방어 컨벤션과 동일 원칙) |
-| `status` | string | 없음 | 대시보드 4단계 한글 라벨 중 하나: `분석중`/`검수대기`/`조치대기`/`완료`. 그 외 값은 400 `INVALID_INPUT` |
+| `status` | string | 없음 | 대시보드 4단계 한글 라벨 중 하나: `분석중`/`검수대기`/`검수확정`/`완료`. 그 외 값은 400 `INVALID_INPUT` |
 | `facilityId` | Long | 없음 | 특정 시설물로 한정 |
 | `facilityType` | string | 없음 | 시설물 종류 카테고리(예: `건물`/`교량`/`도로`/`기타`) 접두(prefix) 매칭. `facility.type`이 레거시 단순값("건물")과 #731 등록 모달의 컴파운드값("건물-긴급-1개월")을 함께 가질 수 있어 접두 LIKE로 매칭한다 |
 | `query` | string | 없음 | 시설물명 또는 담당자명(대소문자 무시 부분일치) 자유 텍스트 검색. 담당자명은 `RecentInspectionResponse.inspector`와 동일하게 `Inspection.createdBy` 기준(기존 위젯 관례 유지 — `assignedInspectorId`가 아님) |
