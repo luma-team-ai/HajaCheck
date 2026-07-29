@@ -43,6 +43,18 @@ import {
 
 const INPUT_CLASSES =
   'w-full rounded-full border border-border bg-white px-4 py-2.5 text-base text-text-default outline-none focus:ring-2 focus:ring-primary';
+// 네이티브 select의 브라우저 기본 화살표는 padding-right를 무시하고 테두리에 바짝 붙어 그려져,
+// 옆의 점검일(input[type=date]) 캘린더 아이콘보다 오른쪽 여백이 좁아 보였다(디자인 QA 지적).
+// appearance-none으로 기본 아이콘을 지우고 커스텀 화살표를 넣어 여백을 직접 제어한다 — 오프셋 16px는
+// INPUT_CLASSES의 px-4(16px)와 맞춰, 옆 필드들과 같은 여백으로 보이게 한 값(FacilityFilterBar 등과
+// 동일한 패턴, feature 간 직접 import 금지라 로컬 재정의).
+const SELECT_CLASSES = `${INPUT_CLASSES} appearance-none pr-9`;
+const SELECT_ARROW_STYLE = {
+  backgroundImage:
+    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2371717a' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'right 16px center',
+};
 const LABEL_CLASSES = 'text-xs font-medium tracking-wide text-text-muted';
 // SideNavBar의 "구현되지 않은 페이지" 안내와 동일한 자동 소멸 시간(#217 컨벤션 재사용)
 const DRAFT_SAVED_NOTICE_MS = 2500;
@@ -400,7 +412,8 @@ export function InspectionCreatePage() {
                 id="inspection-facility"
                 value={values.facilityId}
                 onChange={handleFieldChange('facilityId')}
-                className={INPUT_CLASSES}
+                className={SELECT_CLASSES}
+                style={SELECT_ARROW_STYLE}
                 disabled={isFacilitiesLoading || isFieldsLocked}
                 aria-invalid={Boolean(errors.facilityId)}
                 aria-describedby={errors.facilityId ? 'inspection-facility-error' : undefined}
@@ -429,7 +442,8 @@ export function InspectionCreatePage() {
                 id="inspection-type"
                 value={values.inspectionType}
                 onChange={handleFieldChange('inspectionType')}
-                className={INPUT_CLASSES}
+                className={SELECT_CLASSES}
+                style={SELECT_ARROW_STYLE}
                 disabled={isFieldsLocked}
               >
                 <option value="REGULAR">정기</option>
