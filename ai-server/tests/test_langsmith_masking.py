@@ -15,6 +15,7 @@ import io
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -105,7 +106,9 @@ def _reset_langsmith_process_state():
     _reset()
 
 
-def _run_and_capture_payload(monkeypatch, *, hide: bool, error_message: str | None = None) -> bytes:
+def _run_and_capture_payload(
+    monkeypatch, *, hide: bool, error_message: str | None = None, set_api_key: bool = True
+) -> bytes:
     """LLM을 1회 호출하고, LangSmith로 나가려던 멀티파트 본문을 그대로 돌려준다.
 
     실제 네트워크 전송은 막는다(예외로 중단) — 페이로드만 확보하면 충분하고, 테스트가 외부
@@ -114,8 +117,12 @@ def _run_and_capture_payload(monkeypatch, *, hide: bool, error_message: str | No
     `error_message`를 주면 LLM 호출이 그 메시지를 담은 예외를 던지게 해 **예외 경로**를
     재현한다 — run의 `error` 필드는 HIDE_INPUTS/OUTPUTS 대상이 아니라 별도 검증이 필요하다
     (P1, langsmith_guard.py 모듈 docstring 참고).
+
+    `set_api_key=False`면 API 키 env를 세팅하지 않는다 — "키 없음" 상태에서도 전송이
+    실제로 시도됨(본문이 인증 거부 전에 프로세스를 떠남, 6차 리뷰 P1 실측)을 검증할 때 쓴다.
     """
-    monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
+    if set_api_key:
+        monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
     monkeypatch.setenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
     monkeypatch.setenv("LANGCHAIN_PROJECT", "masking-test")
     monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true" if hide else "false")
@@ -370,17 +377,42 @@ def _clear_api_key_env(monkeypatch):
         monkeypatch.delenv(key, raising=False)
 
 
-def test_boot_guard_noop_when_no_api_key(monkeypatch):
-    """API 키가 없으면 아무것도 하지 않는다 — Client를 만들 이유가 없다(전송 자체가 불가능)."""
+@pytest.mark.parametrize("hide", [False, True], ids=["HIDE없음", "HIDE있음"])
+@pytest.mark.parametrize("tracing", [False, True], ids=["트레이싱OFF", "트레이싱ON"])
+@pytest.mark.parametrize("api_key", [False, True], ids=["키없음", "키있음"])
+def test_guard_full_state_matrix(monkeypatch, api_key, tracing, hide):
+    """전체 상태 행렬(K×T×H = 8조합) — 가드의 완전한 행동 계약을 한 곳에 고정한다(6차 리뷰 P1).
+
+    4~6차 리뷰가 매번 찾아낸 결함은 전부 "보호장치 2개의 조건식이 갈라지는 조합"이었다.
+    이 테스트는 남은 조합이 없도록 전 상태를 열거한다:
+    - RuntimeError는 정확히 `(K or T) and not H`일 때만.
+    - anonymizer는 **모든** 조합에서 설치된다(조건식 자체가 없음 — 갈라질 짝이 없다).
+    """
     _clear_tracing_env(monkeypatch)
     _clear_api_key_env(monkeypatch)
-    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "false")
-    monkeypatch.delenv("LANGSMITH_HIDE_INPUTS", raising=False)
-    monkeypatch.delenv("LANGSMITH_HIDE_OUTPUTS", raising=False)
+    if api_key:
+        monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true" if tracing else "false")
+    if hide:
+        monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true")
+        monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "true")
+    else:
+        monkeypatch.delenv("LANGSMITH_HIDE_INPUTS", raising=False)
+        monkeypatch.delenv("LANGSMITH_HIDE_OUTPUTS", raising=False)
+
+    should_block = (api_key or tracing) and not hide
+    if should_block:
+        with pytest.raises(RuntimeError, match="LANGSMITH_HIDE"):
+            enforce_masked_tracing()
+        return
 
     enforce_masked_tracing()
-
-    assert ls_run_trees._CLIENT is None, "API 키도 없는데 Client 싱글턴을 만들었다(불필요)"
+    client = ls_run_trees._CLIENT
+    assert client is not None, "anonymizer 백스톱은 조건 없이 항상 설치돼야 한다"
+    assert client._anonymizer is scrub_error_anonymizer, (
+        f"조합(키={api_key}, 트레이싱={tracing}, HIDE={hide})에서 error 스크럽이 빠졌다 — "
+        "게이트 비대칭 재발"
+    )
 
 
 def test_boot_guard_installs_anonymizer_even_when_tracing_off_at_boot(monkeypatch):
@@ -446,7 +478,7 @@ def test_boot_guard_stays_aligned_with_framework_on_truthy_variants(monkeypatch,
     시끄럽게 알린다(그때는 이 테스트의 기대치를 갱신하면 가드는 위임 덕에 이미 정합이다).
     """
     _clear_tracing_env(monkeypatch)
-    _clear_api_key_env(monkeypatch)  # API 키가 없어야 "가드가 아무것도 안 만든다"를 관찰 가능
+    _clear_api_key_env(monkeypatch)
     monkeypatch.setenv("LANGCHAIN_TRACING_V2", value)
     monkeypatch.delenv("LANGSMITH_HIDE_INPUTS", raising=False)
     monkeypatch.delenv("LANGSMITH_HIDE_OUTPUTS", raising=False)
@@ -455,7 +487,9 @@ def test_boot_guard_stays_aligned_with_framework_on_truthy_variants(monkeypatch,
         f"langsmith가 {value!r}를 트레이싱 ON으로 판정하기 시작했다 — 이 테스트의 기대치를 갱신하라"
     )
     enforce_masked_tracing()  # 프레임워크가 OFF로 보는 값이므로 예외 없이 통과해야 한다
-    assert ls_run_trees._CLIENT is None
+    # anonymizer 백스톱은 트레이싱 판정과 무관하게 항상 설치된다(6차 리뷰 P1 — 게이트 제거).
+    assert ls_run_trees._CLIENT is not None
+    assert ls_run_trees._CLIENT._anonymizer is scrub_error_anonymizer
 
 
 @pytest.mark.parametrize("hide_value", ["TRUE", "True", "1"])
@@ -519,6 +553,57 @@ def test_boot_guard_forces_anonymizer_onto_preexisting_client(monkeypatch):
     )
 
 
+def test_boot_guard_installs_anonymizer_when_tracing_on_without_api_key(monkeypatch):
+    """6차 리뷰 P1 회귀 — '키 없음 + 트레이싱 ON'에서도 anonymizer가 설치된다.
+
+    실측으로 확인된 전제: API 키가 없어도 트레이싱이 켜지면 langsmith는 전송을 **시도**하고,
+    본문은 서버의 인증 거부(401/403) 전에 이미 프로세스를 떠난다 — "키가 없으면 어차피
+    전송 실패"는 유출 방지가 아니다. 따라서 이 조합에서도 error 스크럽이 실려 있어야 한다.
+    """
+    _clear_tracing_env(monkeypatch)
+    _clear_api_key_env(monkeypatch)
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
+    monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true")
+    monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "true")
+
+    enforce_masked_tracing()
+
+    client = ls_run_trees._CLIENT
+    assert client is not None, "키 없음 + 트레이싱 ON에서 싱글턴이 선점되지 않았다"
+    assert client._anonymizer is scrub_error_anonymizer, (
+        "키 없음 + 트레이싱 ON에서 error 스크럽이 빠졌다 — 예외 원문이 인증 거부 전에 전송된다(P1)"
+    )
+
+
+def test_error_path_masked_when_tracing_on_without_api_key(monkeypatch):
+    """6차 리뷰 P1 회귀(페이로드 검증) — 키 없음 상태의 예외 전송 본문에 원문이 없어야 한다.
+
+    payload가 비어 있지 않다는 첫 단언 자체가 "키 없이도 전송이 시도된다"는 실측 전제를
+    테스트로 고정하는 역할을 겸한다 — 훗날 langsmith가 키 없으면 아예 전송하지 않도록
+    바뀌면 이 단언이 실패해 전제 변화를 알린다(그 경우 이 테스트는 완화해도 안전하다).
+    """
+    _clear_tracing_env(monkeypatch)
+    _clear_api_key_env(monkeypatch)
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
+    monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true")
+    monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "true")
+    enforce_masked_tracing()  # 키 없는 싱글턴에 anonymizer 선점
+
+    payload = _run_and_capture_payload(
+        monkeypatch, hide=True, set_api_key=False,
+        error_message=f"structured output 파싱 실패: {SENSITIVE_INPUT} / {SENSITIVE_OUTPUT}",
+    )
+
+    assert payload, (
+        "키 없음 + 트레이싱 ON인데 전송 시도가 없다 — 실측 전제(본문이 인증 거부 전에 "
+        "떠난다)가 바뀌었는지 langsmith 버전을 확인하라"
+    )
+    assert SENSITIVE_INPUT.encode("utf-8") not in payload, (
+        "키 없음 상태의 예외 경로에서 OCR 원문이 전송된다(P1)"
+    )
+    assert SENSITIVE_OUTPUT.encode("utf-8") not in payload
+
+
 # ── 그래프 체인 경로 — P3 (LangGraph 노드 상태·병렬 워커까지 마스킹 검증) ─────────
 
 
@@ -528,10 +613,21 @@ class _FakeStructuredLLM:
     MagicMock과 달리 RunnableLambda는 langchain 콜백 체계를 그대로 타므로, LangGraph 노드
     상태·RunnableParallel 워커 스레드의 run이 실제로 LangSmith 전송 큐에 들어간다 — 이
     테스트의 검증 대상이 바로 그 전송 본문이다.
+
+    `invocations`에 (스레드명, 프롬프트 원문)을 남긴다 — 6차 리뷰 P3: "병렬 경로를 실제로
+    지나갔고 그 경로에 민감 문자열이 흘렀다"를 관측 가능하게 만들어, 페이로드 부재 단언이
+    "원래 안 잡혀서 통과"가 아님을 증명하기 위함(삭제된 구 테스트의 스레드 실증 축 복원).
     """
 
+    def __init__(self):
+        self.invocations: list[tuple[str, str]] = []
+
     def with_structured_output(self, _schema, **_kwargs):
-        return RunnableLambda(lambda _prompt: MagicMock())
+        def _record_and_return(prompt):
+            self.invocations.append((threading.current_thread().name, str(prompt)))
+            return MagicMock()
+
+        return RunnableLambda(_record_and_return)
 
 
 def test_report_chain_graph_payload_masking(monkeypatch):
@@ -573,8 +669,9 @@ def test_report_chain_graph_payload_masking(monkeypatch):
     # patch()의 pkgutil 경로 해석은 서브모듈을 임포트해주지 않으므로 먼저 임포트해둔다.
     from ai.chains.report_chain import run_report_chain
 
+    fake_llm = _FakeStructuredLLM()
     with patch.object(Client, "request_with_retries", _spy), patch(
-        "ai.chains.report_chain.get_llm", return_value=_FakeStructuredLLM()
+        "ai.chains.report_chain.get_llm", return_value=fake_llm
     ):
         with tracing_context(enabled=True):
             try:
@@ -591,6 +688,18 @@ def test_report_chain_graph_payload_masking(monkeypatch):
     # 전송하면 여기서 즉시 실패한다.
     assert all(c._anonymizer is scrub_error_anonymizer for c in spy_clients), (
         "그래프 체인 전송에 쓰인 클라이언트에 error 스크럽이 없다 — 유출 표면(P1/P3)"
+    )
+    # 6차 리뷰 P3 — 병렬(RunnableParallel) 워커 스레드 경로를 실제로 지나갔고 그 경로에
+    # 민감 문자열이 흘렀음을 실증한다 — 이게 있어야 아래 "페이로드에 없음" 단언이
+    # "원래 안 잡혀서 통과"가 아니라 "흘렀는데 마스킹돼서 없음"으로 증명된다.
+    worker_invocations = [
+        (name, prompt) for name, prompt in fake_llm.invocations if name != "MainThread"
+    ]
+    assert worker_invocations, (
+        "병렬 섹션이 워커 스레드에서 실행되지 않았다 — 병렬 경로 검증이 성립하지 않는다"
+    )
+    assert any(SENSITIVE_INPUT in prompt for _name, prompt in worker_invocations), (
+        "워커 스레드 프롬프트에 민감 문자열이 흐르지 않았다 — 마스킹 검증이 헛돈다"
     )
     assert SENSITIVE_INPUT.encode("utf-8") not in payload, (
         "그래프 체인 경로(노드 상태·프롬프트)에서 시설 정보가 LangSmith로 전송된다"

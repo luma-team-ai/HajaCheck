@@ -60,6 +60,38 @@ anonymizer 없는 싱글턴을 만들어 버리면 이 함수가 호출돼도 �
 명시적으로 재할당한다 — "이미 있으니 통과"가 아니라 "이미 있어도 우리가 원하는 상태로
 맞춘다."
 
+## anonymizer는 게이트 없이 무조건 설치한다 — 비대칭의 뿌리 제거 (6차 리뷰 P1 후속)
+
+4~6차 리뷰가 매번 찾아낸 결함은 전부 같은 구조였다: 보호장치 2개(HIDE 강제, anonymizer
+설치)가 **각자 다른 조건식**을 갖고 있어서, 조건이 갈라지는 조합이 반드시 하나 남았다.
+4차는 "API키 있음+트레이싱 OFF"에서 HIDE 강제가 빠졌고, 5차 수정 후 6차는 정반대
+"API키 없음+트레이싱 ON"에서 anonymizer가 빠졌다. 조건식이 2개인 한 이 두더지잡기는
+끝나지 않는다.
+
+그래서 anonymizer 쪽 조건식을 **아예 없앤다** — 이 함수가 호출되면 항상 설치한다.
+근거(2026-07-30 실측):
+- API 키 없이도 `Client()`는 정상 생성된다(경고 1줄, 예외 없음).
+- **API 키 없이도 트레이싱이 켜지면 전송을 실제로 시도한다** — `request_with_retries`에
+  본문(bytes)이 도달함을 확인. "키가 없으면 어차피 전송 실패"라던 이전 가정은 틀렸다:
+  전송 실패는 서버의 인증 거부(401/403)이고, **본문은 그 전에 이미 프로세스를 떠난다.**
+- 우리 anonymizer는 error가 아닌 형태(inputs/outputs)에는 `{}`를 돌려주므로, 무조건
+  설치는 "HIDE env가 어떤 상태든 내용은 절대 안 나간다"는 **전 필드 백스톱**을 겸한다.
+
+무조건 설치 후의 전체 상태 행렬 (K=API키, T=부팅시 트레이싱, H=HIDE 둘 다 "true"):
+
+| K | T | H | 동작 |
+|---|---|---|---|
+| ✗ | ✗ | 무관 | 기동 허용. anonymizer 설치됨 — 훗날 코드가 트레이싱을 켜도 내용·error 비전송 |
+| ✗ | ✓ | ✗ | RuntimeError 기동 중단 (전송 시도가 실재하므로 — 위 실측) |
+| ✗ | ✓ | ✓ | 기동 허용. HIDE가 내용 차단 + anonymizer가 error 차단 |
+| ✓ | ✗ | ✗ | RuntimeError 기동 중단 (싱글턴에 HIDE=false가 영구 고정되는 것을 차단) |
+| ✓ | ✗ | ✓ | 기동 허용. 마스킹 고정 + anonymizer 설치 — 훗날 재도입 대비 완비 |
+| ✓ | ✓ | ✗ | RuntimeError 기동 중단 |
+| ✓ | ✓ | ✓ | 기동 허용. 정상 운영 상태 |
+
+남는 조건식은 "HIDE 강제를 언제 하나" 하나뿐이고(K∨T), anonymizer에는 조건식 자체가
+없다 — 갈라질 짝이 없으므로 이 계열의 비대칭은 구조적으로 재발할 수 없다.
+
 ## 판정은 자체 파싱하지 않고 프레임워크 함수에 위임한다 (2차 리뷰 P1 후속)
 
 env를 직접 파싱하면 프레임워크의 실제 판정과 어긋나는 순간 가드가 헛돈다. 실측
@@ -133,20 +165,19 @@ def _hide_env_missing() -> list[str]:
 
 
 def enforce_masked_tracing() -> None:
-    """API 키·부팅 시 트레이싱 여부에 맞춰 마스킹 완전성을 강제하고 error 스크럽을 선점 설치한다.
+    """HIDE 완전성을 강제(전송 가능 조건일 때)하고, error 스크럽을 **무조건** 선점 설치한다.
 
-    - API 키도 없고 부팅 시 트레이싱도 꺼져 있음: 아무것도 하지 않는다 — 이 프로세스에서
-      LangSmith로 뭔가 나갈 조건 자체가 없다.
-    - **API 키가 있거나 부팅 시 트레이싱이 켜져 있으면**(둘 중 하나만 참이어도) HIDE 완전성을
-      강제한다 — 둘 중 하나라도 정확히 "true"가 아니면 RuntimeError로 기동 중단(fail-closed).
-      API 키만 있고 트레이싱은 꺼져 있는 상태에서도 검사하는 이유(5차 리뷰 P2): API 키
-      존재만으로 Client 싱글턴이 만들어지고, 그 순간의 HIDE 값이 `_hide_inputs/_hide_outputs`에
-      영구 고정된다 — 나중에 트레이싱이 켜져도 그 고정값이 그대로 간다. 지금 당장 트레이싱
-      중이 아니라고 검사를 건너뛰면, 나중에 새는 걸 막을 기회를 놓친다.
-    - 이어서 API 키가 있으면 `get_cached_client(anonymizer=...)`로 전역 싱글턴을 선점
-      생성하고, 반환된 인스턴스의 `_anonymizer`가 우리 함수가 아니면 명시적으로 재할당한다
-      (5차 리뷰 P2 — `get_cached_client`가 이미 존재하는 싱글턴을 돌려주며 kwargs를 조용히
-      무시하는 경로를 막기 위함).
+    두 동작의 조건이 다르다 — 이 차이는 의도된 것이다(모듈 docstring의 상태 행렬 참고):
+
+    - **HIDE 완전성 강제(RuntimeError)**: API 키가 있거나 부팅 시 트레이싱이 켜져 있을 때만.
+      전송이 실제로 가능한 조건에서 마스킹이 불완전하면 기동을 중단한다(fail-closed).
+      둘 다 없으면 강제하지 않는다 — 아무것도 설정 안 한 개발·테스트 프로세스까지 HIDE
+      설정을 요구하면 과잉이고, 그 경우의 잔여 위험은 아래 무조건 설치가 흡수한다.
+    - **anonymizer 선점 설치**: 조건 없음, 항상. 조건식을 두면 HIDE 강제 조건과 갈라지는
+      조합이 반드시 생긴다는 것이 4~6차 리뷰의 교훈이다(6차 리뷰 P1 — 모듈 docstring
+      "비대칭의 뿌리 제거" 참고). API 키 없이도 Client 생성·전송 시도가 모두 가능함을
+      실측으로 확인했고, 우리 anonymizer는 inputs/outputs에 `{}`를 돌려주는 전 필드
+      백스톱이라 어떤 상태에서 설치돼도 마스킹 방향으로만 작동한다.
     """
     api_key_configured = ls_utils.get_env_var("API_KEY", default=None) is not None
     # 부팅 시점엔 활성 run tree·컨텍스트 오버라이드가 없으므로 순수 env 판정이다.
@@ -161,16 +192,16 @@ def enforce_masked_tracing() -> None:
                 f"불완전합니다 — {', '.join(missing)} 를 정확히 소문자 \"true\"로 설정하거나 "
                 "API 키를 제거하고 트레이싱을 끄세요"
                 "(Client는 소문자 \"true\" 외의 값을 전부 마스킹 OFF로 해석합니다). "
-                "마스킹 없이 API 키만 있어도, 나중에 트레이싱이 켜지는 순간 OCR 원문·고객 "
-                "개인정보가 외부 LangSmith로 전송됩니다(#1240)."
+                "API 키가 없어도 트레이싱이 켜져 있으면 전송은 시도되고 본문은 인증 거부 "
+                "전에 이미 프로세스를 떠납니다 — 마스킹 없인 OCR 원문·고객 개인정보가 "
+                "외부 LangSmith로 나갑니다(#1240)."
             )
 
-    if api_key_configured:
-        from langsmith.run_trees import get_cached_client
+    from langsmith.run_trees import get_cached_client
 
-        # 첫 트레이스 전에 싱글턴을 선점해야 anonymizer가 실린다.
-        client = get_cached_client(anonymizer=scrub_error_anonymizer)
-        if client._anonymizer is not scrub_error_anonymizer:
-            # 싱글턴이 이미 존재했다면(정상 부팅 순서에선 불가능하지만 보조 진입점에서는
-            # 가능) 위 호출의 kwargs가 조용히 무시된다 — 그 경우를 명시적으로 감지해 강제한다.
-            client._anonymizer = scrub_error_anonymizer
+    # 첫 트레이스 전에 싱글턴을 선점해야 anonymizer가 실린다 — 게이트 없이 항상 설치한다.
+    client = get_cached_client(anonymizer=scrub_error_anonymizer)
+    if client._anonymizer is not scrub_error_anonymizer:
+        # 싱글턴이 이미 존재했다면(정상 부팅 순서에선 불가능하지만 보조 진입점에서는
+        # 가능) 위 호출의 kwargs가 조용히 무시된다 — 그 경우를 명시적으로 감지해 강제한다.
+        client._anonymizer = scrub_error_anonymizer
