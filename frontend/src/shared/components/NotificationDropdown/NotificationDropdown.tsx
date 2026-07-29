@@ -117,20 +117,15 @@ export function NotificationDropdown({
               item.read ? '' : 'bg-surface-muted/50'
             }`}
           >
-            {item.iconSrc ? (
-              <span className="relative mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-muted">
+            {/* 미읽음 점은 항상 아이콘(또는 아이콘 없을 땐 텍스트) 왼쪽 고정 위치 — 아이콘 유무와
+                무관하게 같은 자리, 읽음 여부에만 의존한다. */}
+            {!item.read && (
+              <span className="absolute top-6 left-2 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
+            )}
+            {item.iconSrc && (
+              <span className="mt-0.5 ml-3 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-muted">
                 <img className="h-4.5 w-4.5" src={item.iconSrc} alt="" data-testid="notification-badge-icon" />
-                {!item.read && (
-                  <span
-                    className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-[#f59e0b] ring-2 ring-white"
-                    aria-hidden="true"
-                  />
-                )}
               </span>
-            ) : (
-              !item.read && (
-                <span className="absolute top-6 left-2 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
-              )
             )}
             <div className={`flex min-w-0 flex-1 flex-col gap-1 ${item.iconSrc ? '' : 'pl-3.5'}`}>
               <div className="flex items-start justify-between gap-2">

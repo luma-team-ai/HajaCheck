@@ -2,17 +2,34 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { NotificationItem } from '../../../shared/components/NotificationDropdown';
 import { NotificationDropdown } from '../../../shared/components/NotificationDropdown';
-import { NOTIFICATION_ALL_FILTER_KEY, NOTIFICATION_FILTERS, getNotificationTypeMeta } from '../constants';
+import {
+  INSPECTION_NEW_PATH,
+  NOTIFICATION_ALL_FILTER_KEY,
+  NOTIFICATION_FILTERS,
+  getNotificationTypeMeta,
+} from '../constants';
 import { useDeleteNotification, useMarkNotificationsAsRead, useNotifications } from '../hooks/useNotifications';
 import type { NotificationApiItem } from '../types';
 import { formatElapsedTime } from '../utils/formatElapsedTime';
 
-// "대화 열기" 버튼이 markAsRead만 호출하고 실제로 어디로도 이동하지 않던 버그 수정(사용자 피드백).
-// COUNSEL_REPLIED payload는 백엔드가 항상 {ticketId}로 직렬화한다(CounselReplyNotificationPayload
-// 확인 완료) — 다른 타입은 payload 구조가 확정돼 있지 않아 이번 수정 범위에서 제외한다.
+// "대화 열기" 버튼이 markAsRead만 호출하고 실제로 어디로도 이동하지 않던 버그 수정(사용자 피드백,
+// #1262 1차). COUNSEL_REPLIED payload는 백엔드가 항상 {ticketId}로 직렬화한다
+// (CounselReplyNotificationPayload 확인 완료).
 function resolveCounselTicketId(raw: NotificationApiItem): number | null {
   const ticketId = raw.payload?.ticketId;
   return typeof ticketId === 'number' ? ticketId : null;
+}
+
+// "점검 시작" 버튼 이동(#1262 2차). INSPECTION_DUE payload는 백엔드가 항상 {facilityId, ...}로
+// 직렬화한다(InspectionDueNotificationPayload 확인 완료) — 대시보드 UpcomingInspectionCard와
+// 동일하게 /inspections/create?facilityId=... 로 이동한다.
+//
+// ANALYSIS_DONE("결과 보기")/REVIEW_PENDING("검수하기")은 이번 범위에서 제외한다 — 백엔드에
+// 발행 트리거 자체가 없어(#494/#495, 아직 미구현) payload 구조가 확정되지 않았고, 이동에 필요한
+// inspectionId 등을 아직 얻을 수 없다.
+function resolveInspectionDueFacilityId(raw: NotificationApiItem): number | null {
+  const facilityId = raw.payload?.facilityId;
+  return typeof facilityId === 'number' ? facilityId : null;
 }
 
 interface NotificationCenterProps {
@@ -46,6 +63,7 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
   const items: NotificationItem[] = notifications.map((raw) => {
     const meta = getNotificationTypeMeta(raw.type);
     const counselTicketId = raw.type === 'COUNSEL_REPLIED' ? resolveCounselTicketId(raw) : null;
+    const inspectionDueFacilityId = raw.type === 'INSPECTION_DUE' ? resolveInspectionDueFacilityId(raw) : null;
     return {
       id: raw.id,
       category: meta.category,
@@ -62,6 +80,9 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
               markAsRead(raw.id);
               if (counselTicketId !== null) {
                 navigate(`/support/history?ticketId=${counselTicketId}`);
+                onClose();
+              } else if (inspectionDueFacilityId !== null) {
+                navigate(`${INSPECTION_NEW_PATH}?facilityId=${inspectionDueFacilityId}`);
                 onClose();
               }
             },

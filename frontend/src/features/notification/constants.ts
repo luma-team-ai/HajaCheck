@@ -1,4 +1,4 @@
-import analysisIcon from '../../assets/brand/chet-robot.svg';
+import analysisIcon from '../../assets/brand/notification-icon-analysis.svg';
 import counselIcon from '../../assets/brand/notification-icon-counsel.svg';
 import inspectionIcon from '../../assets/brand/notification-icon-inspection.svg';
 import reviewIcon from '../../assets/brand/notification-icon-review.svg';
@@ -40,6 +40,10 @@ const NOTIFICATION_UNKNOWN_TYPE_META: NotificationTypeMeta = {
 export function getNotificationTypeMeta(type: string): NotificationTypeMeta {
   return (NOTIFICATION_TYPE_META as Record<string, NotificationTypeMeta>)[type] ?? NOTIFICATION_UNKNOWN_TYPE_META;
 }
+
+// dashboard/constants.ts의 INSPECTION_NEW_PATH와 같은 값이지만 feature 간 직접 import는 금지라
+// 로컬로 재정의한다(#1262 — "점검 시작" 알림 액션 이동, facility.constants.ts 등과 동일 패턴).
+export const INSPECTION_NEW_PATH = '/inspections/create';
 
 export const NOTIFICATION_ALL_FILTER_KEY = 'all';
 
