@@ -256,6 +256,44 @@ class DashboardServiceTest {
     }
 
     @Test
+    void getPendingPriority_이름유형주소모두있으면_3파트를이어붙인다() {
+        Facility facility = Facility.builder()
+                .companyId(OWNER_ID).name("여의도 파크센터").type("BUILDING").address("서울시 영등포구").build();
+        setId(facility, "id", FACILITY_ID);
+        when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of(facility));
+        Inspection myInspection =
+                inspection(200L, FACILITY_ID, OWNER_ID, LocalDate.now(), InspectionStatus.REVIEWED);
+        when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of(myInspection));
+        Defect pending = defect(300L, 200L, DefectGrade.E, DefectStatus.CONFIRMED);
+        when(defectRepository.findPendingPriorityDefects(
+                List.of(200L), DefectStatus.CONFIRMED, PageRequest.of(0, 10)))
+                .thenReturn(List.of(pending));
+
+        List<PendingPriorityResponse> result = dashboardService.getPendingPriority(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).location()).isEqualTo("여의도 파크센터 · BUILDING · 서울시 영등포구");
+    }
+
+    @Test
+    void getPendingPriority_시설물매핑실패하면_location은대시로표시된다() {
+        // facilityIdByInspectionId가 가리키는 시설물이 facilityById에 없는(이론상 거의 불가능하나
+        // 방어 로직 검증 목적의) 경계 케이스 — locationOf(null)이 "-"를 반환하는지 확인한다.
+        when(facilityRepository.findByCompanyId(OWNER_ID))
+                .thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "내시설")));
+        Inspection orphanInspection =
+                inspection(200L, 999L, OWNER_ID, LocalDate.now(), InspectionStatus.REVIEWED);
+        when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of(orphanInspection));
+        Defect pending = defect(300L, 200L, DefectGrade.E, DefectStatus.CONFIRMED);
+        when(defectRepository.findPendingPriorityDefects(
+                List.of(200L), DefectStatus.CONFIRMED, PageRequest.of(0, 10)))
+                .thenReturn(List.of(pending));
+
+        List<PendingPriorityResponse> result = dashboardService.getPendingPriority(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).location()).isEqualTo("-");
+    }
+
+    @Test
     void getPendingPriority_소유시설물없으면_빈목록() {
         when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of());
 
