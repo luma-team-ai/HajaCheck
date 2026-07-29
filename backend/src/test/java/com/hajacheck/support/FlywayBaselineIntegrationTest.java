@@ -36,7 +36,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * current_period_end 결제 주기 실체화, #1104/HAJA-525)→V28(notification_type PLAN_EXPIRED 라벨,
  * #1145/HAJA-549 — 구독 결제 주기 만료 FREE 자동 강등 알림)→V29(reports.deleted_at DRAFT soft delete
  * 시각, #1172)→V30(scheduled_plan_changes 플랜 하향 예약 원장, #1105/HAJA-526)→V31(notification_type
- * 예약 하향 알림 라벨 2종, #1105/HAJA-526)을 순서대로 적용하고,
+ * 예약 하향 알림 라벨 2종, #1105/HAJA-526)→V33(user_plans.payment_pending_until 미결제 유예 표식 +
+ * 부분 인덱스, #1177 — 유료→유료 하향 C안. ⚠️ V32는 다른 작업자가 선점해 결번이다)을 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -121,14 +122,19 @@ class FlywayBaselineIntegrationTest {
         //   (PLAN_EXPIRED)과 사용자에게 전혀 다른 사건이라 라벨을 나눈다).
         //   ⚠️ #1105는 착수 시 V29로 잡았다가 #1172가 그 번호를 선점해 V30·V31로 재번호했고,
         //   #1172가 dev에 머지되면서(2026-07-29) 결번 [29]가 해소돼 번호열이 다시 연속이 됐다.
-        //   마이그레이션 수는 V1~V24(24개) + V25·V26·V27·V28·V29·V30·V31(7개) = 31이다.
-        assertThat(appliedMigrations).isEqualTo(31);
+        // + V33(user_plans.payment_pending_until 미결제 유예 표식 + idx_user_plans_payment_pending
+        //   부분 인덱스, #1177 — 유료→유료 하향 C안 "유예 후 강등"의 상태 표식).
+        //   ⚠️ V32는 다른 작업자가 선점해 이 작업이 V33을 쓴다(2026-07-29). 그래서 <b>파일 수는 32개인데
+        //   최신 버전은 33</b>이고, V32가 dev에 도착할 때까지 FlywayMigrationVersionSequenceTest 가
+        //   결번 [32]로 실패한다 — 예상된 상태이며 번호를 당겨 우회하지 않는다(V33 파일 헤더 참고).
+        //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V33(1개) = 32이다.
+        assertThat(appliedMigrations).isEqualTo(32);
 
-        // 최신 적용 버전이 실제로 V31 인지 확인.
+        // 최신 적용 버전이 실제로 V33 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("31");
+        assertThat(latestVersion).isEqualTo("33");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -444,5 +450,21 @@ class FlywayBaselineIntegrationTest {
                   and e.enumlabel in ('PLAN_DOWNGRADED', 'PLAN_DOWNGRADE_FAILED')
                 """, Long.class);
         assertThat(scheduledDowngradeLabels).isEqualTo(2L);
+
+        // V33이 user_plans.payment_pending_until 컬럼과 전용 부분 인덱스를 실제로 만들었는지 확인한다
+        // (#1177 — 컬럼이 없으면 미결제 유예 판정 자체가 성립하지 않고 ddl-auto=validate 가 기동을 막는다).
+        Long paymentPendingColumn = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'user_plans'
+                  and column_name = 'payment_pending_until'
+                """, Long.class);
+        assertThat(paymentPendingColumn).isEqualTo(1L);
+
+        Long paymentPendingIndex = jdbcTemplate.queryForObject("""
+                select count(*) from pg_indexes
+                where schemaname = 'public' and tablename = 'user_plans'
+                  and indexname = 'idx_user_plans_payment_pending'
+                """, Long.class);
+        assertThat(paymentPendingIndex).isEqualTo(1L);
     }
 }

@@ -21,7 +21,6 @@ import com.hajacheck.membership.config.ScheduledPlanChangeProperties;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.repository.ScheduledPlanChangeRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
-import com.hajacheck.membership.service.PaymentGraceService;
 import com.hajacheck.membership.service.PlanExpiryWriter;
 import com.hajacheck.membership.service.ScheduledPlanChangeFailure;
 import com.hajacheck.membership.service.ScheduledPlanChangeResult;
@@ -63,7 +62,6 @@ class ScheduledPlanChangeSchedulerTest {
     // 2단계(#1177 미결제 유예 강등) 협력자 — 이 테스트는 1단계(예약 적용)의 통제 로직만 검증하므로
     // 기본 스텁(대상 0건)으로 두어 2단계가 아무것도 하지 않게 한다.
     private UserPlanRepository userPlanRepository;
-    private PaymentGraceService paymentGraceService;
     private PlanExpiryWriter planExpiryWriter;
     private NotificationService notificationService;
     private ScheduledPlanChangeProperties properties;
@@ -74,13 +72,12 @@ class ScheduledPlanChangeSchedulerTest {
         repository = mock(ScheduledPlanChangeRepository.class);
         writer = mock(ScheduledPlanChangeWriter.class);
         userPlanRepository = mock(UserPlanRepository.class);
-        paymentGraceService = mock(PaymentGraceService.class);
         planExpiryWriter = mock(PlanExpiryWriter.class);
         notificationService = mock(NotificationService.class);
         properties = new ScheduledPlanChangeProperties();
         when(userPlanRepository.countPaymentGraceExpired(any(), any())).thenReturn(0L);
         scheduler = new ScheduledPlanChangeScheduler(
-                repository, writer, userPlanRepository, paymentGraceService, planExpiryWriter,
+                repository, writer, userPlanRepository, planExpiryWriter,
                 notificationService, properties, FIXED);
     }
 

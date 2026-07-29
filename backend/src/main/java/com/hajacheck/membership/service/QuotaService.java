@@ -362,10 +362,11 @@ public class QuotaService {
      *
      * <p><b>⚠️ 이 클래스가 요금제를 해석하는 모든 지점이 이 메서드를 거쳐야 한다</b> — 한 곳이라도
      * {@code findPlan(userPlan.getPlanId())} 로 남으면 그 자원(시설물·좌석·월 분석)만 유예 중에도 유료
-     * 한도로 열려 구멍이 된다.
+     * 한도로 열려 구멍이 된다. 이 클래스를 <b>거치지 않는</b> 엔타이틀먼트(상담사 연결·AI 부가기능)는
+     * 각 서비스가 같은 방식으로 {@code PaymentGraceService#resolveEffectivePlan} 을 경유한다.
      *
-     * <p>비용: 판정은 {@code PaymentGraceService} 가 <b>무료 요금제면 추가 조회 없이</b> 끝내고, 유료
-     * 요금제여도 대부분 작은 테이블 조회 1건에서 false 로 끝난다(그쪽 javadoc §성능).
+     * <p>비용: 판정은 이미 로딩된 {@code user_plans.payment_pending_until} 한 컬럼이라 <b>추가 조회가
+     * 없다</b>(유예 중일 때만 FREE 요금제를 한 번 더 읽는다).
      */
     private Plan resolveEffectivePlan(UserPlan userPlan) {
         return paymentGraceService.resolveEffectivePlan(userPlan, findPlan(userPlan.getPlanId()));

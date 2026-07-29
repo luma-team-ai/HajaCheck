@@ -5,7 +5,6 @@ import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.config.ScheduledPlanChangeProperties;
 import com.hajacheck.membership.repository.ScheduledPlanChangeRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
-import com.hajacheck.membership.service.PaymentGraceService;
 import com.hajacheck.membership.service.PlanExpiryResult;
 import com.hajacheck.membership.service.PlanExpiryWriter;
 import com.hajacheck.membership.service.ScheduledPlanChangeFailure;
@@ -99,7 +98,6 @@ public class ScheduledPlanChangeScheduler {
     // 2단계(#1177 미결제 유예 강등) — 후보 조회·유예 확정 판정·강등 실행. 강등 자체는 만료 강등 경로를
     // 그대로 재사용한다(expirePaymentGracePeriods javadoc).
     private final UserPlanRepository userPlanRepository;
-    private final PaymentGraceService paymentGraceService;
     private final PlanExpiryWriter planExpiryWriter;
     private final NotificationService notificationService;
     private final ScheduledPlanChangeProperties properties;
@@ -168,11 +166,12 @@ public class ScheduledPlanChangeScheduler {
      * {@link NotificationType#PLAN_EXPIRED} 를 재사용한다(사용자에게는 "결제가 되지 않아 FREE 로
      * 전환됐다"는 동일한 사건이고, 새 라벨은 PG enum 변경 = 스키마 변경을 부른다).
      *
-     * <p><b>후보 → 확정 2단 판정</b>: 조회({@code findPaymentGraceExpiredIds})는 "예약 실행이 발급했고
-     * 주기가 끝난 유료 구독"까지만 좁히고, <b>실제 강등 여부는 {@link PaymentGraceService#isInGracePeriod}
-     * 이 최종 확인</b>한다. 결제가 이미 끝난 구독을 강등하지 않기 위해서다 — 정상 경로에서는 결제가 새 행을
-     * 발급하며 유예 행을 EXPIRED 로 내리므로 조회에서 이미 빠지지만, 그 사이(조회~처리)의 경합과
-     * "PAID 인데 전이가 끝나지 않은" 대사 대상(#1010)까지 여기서 막는다.
+     * <p><b>결제로 해소된 구독은 조회에 잡히지 않는다</b>: 결제 승인은 새 구독 행을 발급하며
+     * ({@code PlanTransitionService#transitionTo}) 유예 행을 EXPIRED 로 내리므로, 표식이 남은 행 자체가
+     * 더 이상 {@code LIVE_STATUSES} 가 아니다. 조회~처리 사이의 경합은 {@link PlanExpiryWriter} 가
+     * 트랜잭션 안에서 상태·주기를 다시 확인해 스킵한다(그 writer 의 재검증). 별도의 결제 조회를 여기서
+     * 다시 하지 않는 이유: {@code payments.user_plan_id} 는 전이가 성공한 뒤에만 채워져 유예 행에 대해선
+     * 항상 비어 있어(1차 구현의 죽은 조건) 판정에 아무 정보도 주지 못한다.
      */
     private void expirePaymentGracePeriods(Instant now) {
         int maxPerRun = properties.getMaxPerRun();
@@ -209,6 +208,7 @@ public class ScheduledPlanChangeScheduler {
             // 번째 페이지부터 대상이 통째로 건너뛰어진다(1단계와 같은 이유).
             List<Long> targetIds = userPlanRepository.findPaymentGraceExpiredIds(
                     PlanExpiryWriter.LIVE_STATUSES, now, lastId, PageRequest.of(0, PAGE_SIZE));
+
             if (targetIds.isEmpty()) {
                 return counts;
             }
@@ -230,12 +230,6 @@ public class ScheduledPlanChangeScheduler {
     private void processGraceExpiryOne(Long userPlanId, Instant now, BatchCounts counts) {
         PlanExpiryResult result;
         try {
-            if (!paymentGraceService.isInGracePeriodById(userPlanId)) {
-                // 결제가 끝났거나(정산 완료) 유예 후보가 아니게 됐다 — 강등하지 않는다(위 javadoc).
-                counts.skipped++;
-                log.info("미결제 유예 강등 스킵(이미 정산됨 또는 유예 아님) — userPlanId={}", userPlanId);
-                return;
-            }
             result = planExpiryWriter.expireToFreePlan(userPlanId, now);
         } catch (BusinessException e) {
             if (e.getErrorCode() == ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT) {

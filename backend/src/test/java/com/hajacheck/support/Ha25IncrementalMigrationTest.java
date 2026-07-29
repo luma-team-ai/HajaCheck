@@ -474,7 +474,16 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V31__add_notification_type_scheduled_downgrade.sql"),
-                        CONTAINER_ROOT + "V31__add_notification_type_scheduled_downgrade.sql");
+                        CONTAINER_ROOT + "V31__add_notification_type_scheduled_downgrade.sql")
+                // #1177 — Flyway V33(user_plans.payment_pending_until 미결제 유예 표식 + 부분 인덱스)도
+                // 이어서 1회 forward-apply한다. 캐노니컬 DDL에 컬럼·인덱스가 반영돼 있으므로 이 증분
+                // 경로에서도 적용해야 assertCanonicalSchemaParity 가 통과한다.
+                // ⚠️ V32는 다른 작업자가 선점해 이 작업이 V33을 쓴다(2026-07-29) — 파일 번호가 32를
+                //    건너뛴다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V33__add_user_plan_payment_pending_until.sql"),
+                        CONTAINER_ROOT + "V33__add_user_plan_payment_pending_until.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -602,6 +611,10 @@ class Ha25IncrementalMigrationTest {
         // #1105/HAJA-526 — Flyway V31(notification_type 예약 하향 알림 라벨 2종)도 이어서 forward-apply한다.
         runPsql(postgres, "V31__add_notification_type_scheduled_downgrade.sql");
         runPsql(postgres, "V31__add_notification_type_scheduled_downgrade.sql");
+        // #1177 — Flyway V33(user_plans.payment_pending_until 미결제 유예 표식 + 부분 인덱스)도 이어서
+        // forward-apply한다. 전 구문이 멱등(IF NOT EXISTS)이라 두 번 실행해도 안전하다는 점까지 고정한다.
+        runPsql(postgres, "V33__add_user_plan_payment_pending_until.sql");
+        runPsql(postgres, "V33__add_user_plan_payment_pending_until.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

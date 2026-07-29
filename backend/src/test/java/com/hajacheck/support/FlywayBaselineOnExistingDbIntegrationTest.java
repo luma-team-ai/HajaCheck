@@ -340,5 +340,29 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                   and e.enumlabel in ('PLAN_DOWNGRADED', 'PLAN_DOWNGRADE_FAILED')
                 """, Long.class);
         assertThat(scheduledDowngradeLabelCount).isEqualTo(2L);
+
+        // V33(user_plans.payment_pending_until 미결제 유예 표식 + 부분 인덱스, #1177)도 이 "기존 DB"
+        // 경로에서 no-op 성공으로 적용된다 — 캐노니컬 DDL이 이미 컬럼·인덱스를 포함하고 마이그레이션
+        // 구문이 멱등(IF NOT EXISTS)이라 'already exists' 로 기동을 깨뜨리지 않는다(#544 P1 회귀선).
+        // ⚠️ V32는 다른 작업자가 선점해 이 작업이 V33을 쓴다(2026-07-29) — V32가 dev에 도착할 때까지
+        //    번호열에 결번 [32]가 남고 FlywayMigrationVersionSequenceTest 가 그 결번으로 실패한다.
+        Integer v33Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '33' and success = true",
+                Integer.class);
+        assertThat(v33Applied).isEqualTo(1);
+
+        // 기존 DB에 있던 컬럼·부분 인덱스가 그대로 유지된다(V33 재실행이 깨거나 중복 생성하지 않음).
+        Long paymentPendingColumnCount = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'user_plans'
+                  and column_name = 'payment_pending_until'
+                """, Long.class);
+        assertThat(paymentPendingColumnCount).isEqualTo(1L);
+        Long paymentPendingIndexCount = jdbcTemplate.queryForObject("""
+                select count(*) from pg_indexes
+                where schemaname = 'public' and tablename = 'user_plans'
+                  and indexname = 'idx_user_plans_payment_pending'
+                """, Long.class);
+        assertThat(paymentPendingIndexCount).isEqualTo(1L);
     }
 }

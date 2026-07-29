@@ -189,7 +189,7 @@ class PaymentWriterTest {
         // 외에 선택지가 없어진다.
         UserPlan grace = withId(UserPlan.forUser(USER_ID, STANDARD_PLAN_ID), 520L);
         when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(grace);
-        when(paymentGraceService.isInGracePeriod(eq(grace), any())).thenReturn(true);
+        when(paymentGraceService.isPaymentPending(grace)).thenReturn(true);
 
         PaymentOrderResponse response = writer.createOrder(USER_ID, PlanName.STANDARD);
 
@@ -208,7 +208,7 @@ class PaymentWriterTest {
         UserPlan grace = withId(UserPlan.forUser(USER_ID, ENTERPRISE_PLAN_ID), 521L);
         when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(payment));
         when(planTransitionService.resolveCurrentUserPlan(USER_ID, null)).thenReturn(grace);
-        when(paymentGraceService.isInGracePeriod(eq(grace), any())).thenReturn(true);
+        when(paymentGraceService.isPaymentPending(grace)).thenReturn(true);
 
         PaymentConfirmPreparation preparation = writer.prepareConfirm(USER_ID,
                 new PaymentConfirmRequest("test_payment_key", ORDER_ID, 299000L));

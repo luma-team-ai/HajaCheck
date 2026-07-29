@@ -107,7 +107,11 @@ public class AdminPlanService {
         UsageCounter usage = usageCounterRepository
                 .findByUserPlanIdAndPeriod(userPlan.getId(), period)
                 .orElse(null);
-        return AdminPlanResponse.from(userPlan, plan, usage, period, findPendingScheduledChange(userPlan.getId()));
+        // ⚠️ 한도·기능은 "실제로 적용 중인" 요금제 기준이다(#1177) — 유예 중이면 FREE. 하향을 신청한
+        // 바로 그 화면이라, 구독 요금제 기준으로 내보내면 owner 가 좌석이 정지된 화면에서 "좌석 5"를 본다.
+        return AdminPlanResponse.from(userPlan, plan, usage, period,
+                findPendingScheduledChange(userPlan.getId()),
+                paymentGraceService.resolveEffectivePlan(userPlan, plan));
     }
 
     /**
@@ -268,9 +272,18 @@ public class AdminPlanService {
             throw new BusinessException(ErrorCode.PLAN_SCHEDULE_NOT_DOWNGRADE);
         }
 
+        // ⚠️ 킬 스위치(#1177) — 유료 대상 예약은 프론트에 안내 UI(결제 마감·유예 배너·결제 유도)가
+        // 붙기 전까지 닫아 둔다. 그 공백에서 API 로 직접 진입하면 사용자는 안내를 한 번도 받지 못한 채
+        // 유예 진입 시점의 좌석 정지와 만료 시점의 FREE 강등을 맞는다. 닫혀 있는 동안의 응답은 기존과
+        // 동일한 PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED 라 프론트의 현행 안내가 그대로 동작한다.
+        if (priceOrZero(targetPlan).signum() > 0 && !paymentGraceService.isPaidTargetScheduleEnabled()) {
+            throw new BusinessException(ErrorCode.PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED);
+        }
+
         // ⚠️ 유예 중 구독에는 새 예약을 걸 수 없다(#1177) — 위 javadoc 의 "유예 사슬" 참고. 판정은
-        // PaymentGraceService 단일 소스를 쓴다(여기서 조건을 흉내내면 한도 판정·강등 배치와 갈라진다).
-        if (paymentGraceService.isInGracePeriod(current, currentPlan)) {
+        // PaymentGraceService 단일 소스를 쓴다(여기서 조건을 흉내내면 엔타이틀먼트 판정·강등 배치와
+        // 갈라진다).
+        if (paymentGraceService.isPaymentPending(current)) {
             throw new BusinessException(ErrorCode.PLAN_SCHEDULE_PAYMENT_PENDING);
         }
 
@@ -441,7 +454,11 @@ public class AdminPlanService {
         UsageCounter usage = usageCounterRepository
                 .findByUserPlanIdAndPeriod(userPlan.getId(), period)
                 .orElse(null);
-        return AdminPlanResponse.from(userPlan, plan, usage, period, findPendingScheduledChange(userPlan.getId()));
+        // ⚠️ 한도·기능은 "실제로 적용 중인" 요금제 기준이다(#1177) — 유예 중이면 FREE. 하향을 신청한
+        // 바로 그 화면이라, 구독 요금제 기준으로 내보내면 owner 가 좌석이 정지된 화면에서 "좌석 5"를 본다.
+        return AdminPlanResponse.from(userPlan, plan, usage, period,
+                findPendingScheduledChange(userPlan.getId()),
+                paymentGraceService.resolveEffectivePlan(userPlan, plan));
     }
 
     /**

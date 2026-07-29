@@ -143,7 +143,7 @@ public class MembershipService {
         // 미결제 유예(#1177)면 한도는 FREE, 마감은 결제 유도 배너용으로 함께 내려준다 — 판정은
         // PaymentGraceService 단일 소스를 쓴다(QuotaService 의 실제 차단 기준과 같은 값이어야 한다).
         Plan effectivePlan = paymentGraceService.resolveEffectivePlan(userPlan, plan);
-        Instant paymentPendingUntil = paymentGraceService.resolveGraceDeadline(userPlan, plan);
+        Instant paymentPendingUntil = paymentGraceService.resolveGraceDeadline(userPlan);
         return MyPlanResponse.from(userPlan, plan, usage, period, company, KST, effectivePlan,
                 paymentPendingUntil);
     }

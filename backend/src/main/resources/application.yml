@@ -251,9 +251,13 @@ hajacheck:
       max-per-run: ${PLAN_SCHEDULED_CHANGE_MAX_PER_RUN:100}
       # 예약·구독 행 잠금 대기 상한(ms, 0=무제한). 근거·적용 방식은 위 expiry.lock-timeout-ms 와 동일.
       lock-timeout-ms: ${PLAN_SCHEDULED_CHANGE_LOCK_TIMEOUT_MS:3000}
-      # 유료→유료 하향(#1177 C안)의 미결제 유예 일수. 유료 대상 예약이 적용되면 결제 없이 그 요금제가
-      # 발급되되, 이 일수 안에 결제하지 않으면 FREE 로 강등된다(이 배치의 2단계). 유예 중 한도는 FREE 라
-      # 값을 키워도 무상으로 얻는 유료 혜택은 늘지 않는다 — 늘어나는 건 "결제할 시간"뿐이다.
+      # 유료→유료 하향(#1177 C안) 허용 스위치 — 기본 false(닫힘). 프론트에 유료 대상 예약 UI(결제 마감
+      # 안내·유예 배너·결제 유도)가 없는 동안 API 로 직접 진입하면 안내 없이 좌석 정지·FREE 강등을
+      # 맞는다. 프론트 연동 후 배포 없이 이 값만 뒤집는다.
+      paid-target-enabled: ${PLAN_SCHEDULED_CHANGE_PAID_TARGET_ENABLED:false}
+      # 유료→유료 하향의 미결제 유예 일수(1~14). 유료 대상 예약이 적용되면 결제 없이 그 요금제가
+      # 발급되되, 이 일수 안에 결제하지 않으면 FREE 로 강등된다(이 배치의 2단계). 유예 구간은 어떤
+      # 경우에도 청구가 발생하지 않으므로 길수록 미결제 노출이 커진다 — 상한 2주.
       payment-grace-days: ${PLAN_SCHEDULED_CHANGE_PAYMENT_GRACE_DAYS:7}
 
 # 국세청 사업자등록정보 진위확인(data.go.kr) — #596. service-key 미설정 시 진위확인을 스킵하고

@@ -50,11 +50,12 @@ import org.springframework.transaction.annotation.Transactional;
  *       <b>종료가 NULL(무기한)</b> 이 된다(#1104 규칙). "지나간 만료일을 승계하면 새 구독이 즉시 만료
  *       강등 대상이 된다"는 딜레마가 사라진다.</li>
  *   <li><b>유료 대상</b>(#1177 C안 "유예 후 강등") — {@code startPaymentGracePeriod(now, graceDays)} 로
- *       <b>유예 기간만</b> 연다. 이 경로는 결제 없이 전이하므로 새 유료 1개월을 열면 어떤 경로로도
- *       청구되지 않는 유료 한 달이 발급되는데(#1105 보안 리뷰 P1), 유예는 그 구멍을 닫는다: 유예 중
- *       한도는 FREE 이고({@link PaymentGraceService#resolveEffectivePlan}) 유예 안에 결제하지 않으면
- *       FREE 로 강등된다({@code ScheduledPlanChangeScheduler} 2단계). 즉 <b>무결제로 얻는 유료 혜택이
- *       0</b> 이라 반복 취득 우회로가 성립하지 않는다.</li>
+ *       <b>유예 기간만</b> 열고 {@code payment_pending_until} 표식을 세운다. 이 경로는 결제 없이
+ *       전이하므로 새 유료 1개월을 열면 어떤 경로로도 청구되지 않는 유료 한 달이 발급되는데(#1105 보안
+ *       리뷰 P1), 유예는 그 구멍을 닫는다: 유예 중 엔타이틀먼트는 FREE 이고
+ *       ({@link PaymentGraceService#resolveEffectivePlan}) 유예 안에 결제하지 않으면 FREE 로 강등된다
+ *       ({@code ScheduledPlanChangeScheduler} 2단계). 즉 <b>무결제로 얻는 유료 혜택이 0</b> 이라 반복
+ *       취득 우회로가 성립하지 않는다.</li>
  * </ul>
  *
  * <p><b>⚠️ 유료 대상의 좌석·시설물 초과는 대상 요금제가 아니라 FREE 기준으로 계산한다</b>
@@ -253,7 +254,7 @@ public class ScheduledPlanChangeWriter {
         // 유예로 발급됐으면 결제 마감(= 유예 종료)을 알림에 실어 보낸다(#1177). 값은 방금 세팅한
         // current_period_end 다 — 강등 배치가 실제로 강제하는 기준과 같은 값이어야 화면·알림이 어긋나지
         // 않는다(PaymentGraceService#resolveGraceDeadline 과 같은 근거).
-        Instant paymentPendingUntil = isPaid(targetPlan) ? saved.getCurrentPeriodEnd() : null;
+        Instant paymentPendingUntil = saved.getPaymentPendingUntil();
 
         // 운영 로그 — 누가(companyId/userId) 어느 플랜에서 어디로 언제 내려갔는지. ⚠️ 정지된 좌석의
         // user id 를 반드시 남긴다(PlanExpiryWriter 리뷰 P2-3 과 같은 이유): 오적용을 되돌릴 대상 목록을
@@ -320,26 +321,20 @@ public class ScheduledPlanChangeWriter {
      * 발급되지만(#1105 보안 리뷰 P1), 유예 중에는 한도가 FREE 이고 유예 안에 결제하지 않으면 FREE 로
      * 강등되므로 <b>무결제로 얻는 유료 혜택이 0</b> 이다.
      *
-     * <p>⚠️ <b>{@code now} 는 {@code markApplied} 에 넘긴 것과 같은 값이어야 한다</b> — 유예 여부는 표식
-     * 컬럼이 아니라 {@code scheduled_plan_changes.applied_at == user_plans.current_period_start} 로
-     * 판정되기 때문이다({@link PaymentGraceService} · {@code UserPlan#startPaymentGracePeriod}). 다른
-     * 값을 넘기면 방금 발급한 유예 구독을 아무도 유예로 인식하지 못해 <b>청구되지 않는 유료 구독이 영구히
-     * 남는다</b>. 아래 사후 단정이 그 회귀를 막는다.
-     *
      * <p>⚠️ <b>사후 단정</b>({@code PlanExpiryWriter} 의 "강등 결과는 반드시 NULL" 불변식과 같은 취지):
-     * 유료 대상인데 주기 종료가 비어 있으면 유예가 성립하지 않은 것이므로(만료 판정 기준이 사라져 영구
-     * 무료 유료 구독이 된다) 이 1건만 롤백하고 사람을 부른다.
+     * 유료 대상인데 표식({@code payment_pending_until})이 서지 않으면 <b>청구되지 않는 유료 구독이 영구히
+     * 남는다</b> — 엔타이틀먼트도 유료로 열리고 만료 강등 대상도 되지 않는다. 이 1건만 롤백하고 사람을
+     * 부른다.
      */
     private void applyBillingPeriod(UserPlan renewed, UserPlan previous, Plan targetPlan, Instant now) {
         if (!isPaid(targetPlan)) {
             renewed.carryOverBillingPeriod(previous, false);
             return;
         }
-        renewed.startPaymentGracePeriod(now, properties.getPaymentGraceDays());
-        if (renewed.getCurrentPeriodEnd() == null || !now.equals(renewed.getCurrentPeriodStart())) {
-            log.error("유예 발급 불변식 위반 — targetPlan={} now={} periodStart={} periodEnd={}",
-                    targetPlan.getName(), now, renewed.getCurrentPeriodStart(),
-                    renewed.getCurrentPeriodEnd());
+        renewed.startPaymentGracePeriod(now, paymentGraceService.graceDays());
+        if (!renewed.isPaymentPending()) {
+            log.error("유예 발급 불변식 위반(표식 없음) — targetPlan={} now={} periodEnd={}",
+                    targetPlan.getName(), now, renewed.getCurrentPeriodEnd());
             throw new BusinessException(ErrorCode.PLAN_DATA_INVALID);
         }
     }

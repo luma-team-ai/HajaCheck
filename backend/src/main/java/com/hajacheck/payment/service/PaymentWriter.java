@@ -11,6 +11,7 @@ import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.service.PaymentGraceService;
 import com.hajacheck.membership.service.PlanDowngradeService;
+import com.hajacheck.membership.service.PlanExpiryWriter;
 import com.hajacheck.membership.service.PlanTransitionService;
 import com.hajacheck.payment.config.TossPaymentsProperties;
 import com.hajacheck.payment.dto.PaymentConfirmRequest;
@@ -116,14 +117,22 @@ public class PaymentWriter {
         // 유예 구독은 결제 없이 발급돼 한도가 FREE 로 묶여 있고, 이 결제가 그것을 정상 주기로 되돌린다.
         // 아래 두 가드(동일 요금제 차단·상향 전용)를 그대로 두면 유예를 해소할 방법이 결제 경로에 아예
         // 없어져 사용자는 FREE 강등 외에 선택지가 없다.
-        boolean graceSettlement = current.getStatus() == UserPlanStatus.ACTIVE
+        // ⚠️ 판정 집합은 ACTIVE 단독이 아니라 LIVE_STATUSES 다(리뷰 P2). 유예 중 사용자가
+        // POST /api/me/plan/upgrade-inquiry 를 한 번 누르면 같은 구독 행의 status 가 UPGRADE_REQUESTED 로
+        // 바뀌는데(UserPlan#requestUpgrade 는 새 행을 만들지 않는다) 되돌리는 API 가 없다. ACTIVE 만
+        // 인정하면 그 순간부터 정산 결제 주문을 만들 수 없어(requirePayableUpgrade 가
+        // PLAN_CHANGE_NOT_PAYABLE) <b>결제 의사가 있는 고객이 강제로 FREE 강등</b>된다. 이 레포는
+        // PlanExpiryWriter 가 "판정 집합은 조회·엔타이틀먼트와 반드시 같아야 한다"고 이미 못박아 뒀으므로
+        // 그 상수를 그대로 재사용한다.
+        boolean graceSettlement = PlanExpiryWriter.LIVE_STATUSES.contains(current.getStatus())
                 && current.getPlanId().equals(targetPlan.getId())
-                && paymentGraceService.isInGracePeriod(current, currentPlan);
+                && paymentGraceService.isPaymentPending(current);
 
         // 이미 그 요금제를 쓰고 있으면 주문을 만들지 않는다. 모의 결제 시절엔 "멱등 no-op(200)" 이었지만,
         // 실결제에서 no-op 주문을 내주면 사용자가 아무것도 바뀌지 않는 데 돈을 낸다 — 청구 전에 거절하는
         // 것이 맞다. 상태 충돌이라 409(PLAN_ACTIVE_SUBSCRIPTION_CONFLICT)로 계약 안에서 표현한다.
-        // (유예 정산은 "아무것도 바뀌지 않는" 결제가 아니다 — 한도가 FREE 에서 대상 요금제로 올라간다.)
+        // (유예 정산은 "아무것도 바뀌지 않는" 결제가 아니다 — 엔타이틀먼트가 FREE 에서 대상 요금제로
+        // 올라간다.)
         if (!graceSettlement && current.getStatus() == UserPlanStatus.ACTIVE
                 && current.getPlanId().equals(targetPlan.getId())) {
             throw new BusinessException(ErrorCode.PLAN_ACTIVE_SUBSCRIPTION_CONFLICT);
@@ -548,7 +557,7 @@ public class PaymentWriter {
             // 여기서 alreadyOnTargetPlan=true 로 판정하면 승인 전에는 409 로 결제 자체가 막히고(유예를
             // 해소할 방법이 사라진다), 승인 후에는 결제만 연결되고 주기·한도가 그대로 남아 <b>돈은 받고
             // 요금제는 주지 않는</b> 상태가 된다.
-            if (!paymentGraceService.isInGracePeriod(current, findPlan(current.getPlanId()))) {
+            if (!paymentGraceService.isPaymentPending(current)) {
                 return new TransitionTarget(current, targetPlan, true);
             }
         }
