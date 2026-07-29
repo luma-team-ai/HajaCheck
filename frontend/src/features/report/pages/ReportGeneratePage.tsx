@@ -105,7 +105,6 @@ export function ReportGeneratePage() {
   const [pdfPreviewKey, setPdfPreviewKey] = useState(0);
   const [pdfLoadError, setPdfLoadError] = useState<string | null>(null);
   const [isPdfChecking, setIsPdfChecking] = useState(false);
-  const manualRefreshControllerRef = useRef<AbortController | null>(null);
   const inspectionId = report?.inspectionId ?? 0;
   const setActiveReportId = useInspectionStore((state) => state.setActiveReportId);
 
@@ -159,10 +158,6 @@ export function ReportGeneratePage() {
     return () => controller.abort();
   }, [isExportMode, report?.pdfUrl, verifyPdfPreview]);
 
-  useEffect(() => () => {
-    manualRefreshControllerRef.current?.abort();
-    manualRefreshControllerRef.current = null;
-  }, []);
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
   const defectImageUrls = useMemo(
@@ -267,18 +262,6 @@ export function ReportGeneratePage() {
     }
   };
 
-  const handleRefreshPdf = () => {
-    if (!report?.pdfUrl) return;
-    manualRefreshControllerRef.current?.abort();
-    const controller = new AbortController();
-    manualRefreshControllerRef.current = controller;
-    void verifyPdfPreview(report.pdfUrl, controller.signal).finally(() => {
-      if (manualRefreshControllerRef.current === controller) {
-        manualRefreshControllerRef.current = null;
-      }
-    });
-  };
-
   const handleBackToViewer = () => {
     if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
       navigate('/reports');
@@ -349,14 +332,6 @@ export function ReportGeneratePage() {
             <span>자동 저장됨 · {formatElapsedTime(report.createdAt)}</span>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleRefreshPdf}
-              className="inline-flex items-center justify-center gap-1.5 rounded-full border border-border bg-surface px-4 py-1.5 text-base font-medium text-heading"
-            >
-              <span className="inline-block select-none text-base leading-none" aria-hidden="true">↻</span>
-              미리보기 새로고침
-            </button>
             <Button
               onClick={() => void handleDownloadStoredPdf()}
               variant="primary"

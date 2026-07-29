@@ -442,31 +442,6 @@ describe('ReportGeneratePage', () => {
     expect(requestCount).toBe(0);
   });
 
-  it('미리보기 새로고침은 같은-origin PDF 사전 확인을 다시 수행한다', async () => {
-    let preflightCount = 0;
-    server.use(
-      http.get('/api/reports/1/pdf/storage-key', () => {
-        preflightCount += 1;
-        return new Response('fake-pdf-binary', {
-          status: 200,
-          headers: { 'Content-Type': 'application/pdf' },
-        });
-      }),
-    );
-    reportState = {
-      ...mockReportDetailResponse,
-      groundingCheckPassed: true,
-      status: 'FINALIZED',
-      pdfUrl: '/api/reports/1/pdf/storage-key',
-    };
-
-    renderPageWithPath('/reports/1?mode=export');
-    const refreshButton = await screen.findByRole('button', { name: '미리보기 새로고침' });
-    await waitFor(() => expect(preflightCount).toBe(1));
-
-    fireEvent.click(refreshButton);
-    await waitFor(() => expect(preflightCount).toBe(2));
-  });
 
   it('/reports/:reportId?mode=export에서 pdfUrl이 없으면 코드 미리보기 대신 저장된 PDF 없음 상태를 보여준다', async () => {
     reportState = {
