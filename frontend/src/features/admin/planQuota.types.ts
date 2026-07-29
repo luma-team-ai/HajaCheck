@@ -145,10 +145,39 @@ export interface AdminCurrentPlanUsage {
   period: string;
 }
 
+// ── 플랜 하향 예약(#1105 / HAJA-526, POST·DELETE /api/admin/plan/scheduled-change) ──
+// 즉시 전이 대신 다음 결제 주기(currentPeriodEnd)에 적용되도록 예약한다. 대상은 FREE만
+// 지원(정기결제 미지원 — 유료↔유료 예약은 #1177로 분리) — 백엔드가 PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED
+// (403)로 막으므로 UI도 FREE 대상일 때만 예약 선택지를 노출한다(#1191).
+
+/** 예약 하향 상태값. GET /api/admin/plan.scheduledChange 에는 PENDING 건만 채워진다(없으면 null). */
+export type ScheduledPlanChangeStatus = 'PENDING' | 'APPLIED' | 'CANCELED' | 'FAILED';
+
+/** 대기 중인 하향 예약 1건 — POST/DELETE 응답, GET /api/admin/plan.scheduledChange 와 동일 타입. */
+export interface AdminScheduledPlanChange {
+  id: number;
+  targetPlanName: AdminUserPlan;
+  /** 적용 예정 시각(= 신청 시점의 currentPeriodEnd). 그때까지는 기존 플랜·좌석이 그대로 유지된다. */
+  effectiveAt: string;
+  keepUserIds: number[];
+  status: ScheduledPlanChangeStatus;
+}
+
+/**
+ * POST /api/admin/plan/scheduled-change 요청 바디 — PlanChangeRequestPayload와 필드가 동일해
+ * 그대로 재사용한다(계약: AdminScheduledPlanChangeRequest 1:1). planName은 FREE만 허용되고, 그 외
+ * 값을 보내면 백엔드가 PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED(403)로 거절한다.
+ */
+export type AdminScheduledPlanChangeRequestPayload = PlanChangeRequestPayload;
+
 export interface AdminCurrentPlanResponse {
   subscriptionId: number;
   plan: AdminPlanCatalogItem;
   status: string;
   startedAt: string;
+  /** 현재 결제 주기 종료 시각. null = 무기한(FREE). 하향 예약의 적용 예정일이 곧 이 값이다(#1105). */
+  currentPeriodEnd: string | null;
+  /** 대기 중인 하향 예약(#1105). 없으면 null — 프론트는 이 필드의 존재로 예약 유무를 판정한다. */
+  scheduledChange: AdminScheduledPlanChange | null;
   usage: AdminCurrentPlanUsage;
 }

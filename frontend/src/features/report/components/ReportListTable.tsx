@@ -22,7 +22,8 @@ type Props = {
   onOpenVersionHistory: (report: ReportListItem) => void;
   onCloneReport: (report: ReportListItem) => void;
   onSubmitReport: (report: ReportListItem) => void;
-  pendingAction?: { reportId: number; type: 'clone' | 'submit' } | null;
+  onDeleteReport: (report: ReportListItem) => void;
+  pendingAction?: { reportId: number; type: 'clone' | 'submit' | 'delete' } | null;
   actionErrors?: Record<number, string | undefined>;
 };
 
@@ -49,6 +50,7 @@ export function ReportListTable({
   onOpenVersionHistory,
   onCloneReport,
   onSubmitReport,
+  onDeleteReport,
   pendingAction = null,
   actionErrors = {},
 }: Props) {
@@ -182,11 +184,14 @@ export function ReportListTable({
               onOpenHistory={() => onOpenVersionHistory(row)}
               onClone={() => onCloneReport(row)}
               onSubmit={() => onSubmitReport(row)}
+              onDelete={() => onDeleteReport(row)}
               onClose={() => setOpenMenu(null)}
               anchor={openMenu.anchor}
               canSubmit={row.status === 'DRAFT'}
+              canDelete={row.status === 'DRAFT'}
               isClonePending={pendingAction?.reportId === row.id && pendingAction.type === 'clone'}
               isSubmitPending={pendingAction?.reportId === row.id && pendingAction.type === 'submit'}
+              isDeletePending={pendingAction?.reportId === row.id && pendingAction.type === 'delete'}
               actionError={actionErrors[row.id] ?? null}
             />
           )}

@@ -197,6 +197,10 @@ describe('ReportListPage', () => {
           },
         });
       }),
+      http.get('/api/inspections/3/defects', () => {
+        calls.push('defects');
+        return HttpResponse.json({ success: true, data: [] });
+      }),
       http.post('/api/reports/103/pdf', () => {
         calls.push('upload');
         return HttpResponse.json({ success: true, data: { pdfUrl: '/api/reports/103/pdf/generated.pdf' } });
@@ -228,7 +232,7 @@ describe('ReportListPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
     fireEvent.click(await screen.findByRole('menuitem', { name: '제출 처리' }));
 
-    await waitFor(() => expect(calls).toEqual(['detail', 'recheck', 'upload', 'finalize']));
+    await waitFor(() => expect(calls).toEqual(['detail', 'recheck', 'defects', 'upload', 'finalize']));
   });
 
   it('FINALIZED 행의 제출 처리는 disabled다', async () => {
@@ -238,6 +242,79 @@ describe('ReportListPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
 
     expect((await screen.findByRole('menuitem', { name: '제출 처리' })).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('DRAFT 행 삭제는 DELETE 호출 후 목록에서 해당 보고서를 제외한다', async () => {
+    let deleted = false;
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    server.use(
+      http.delete('/api/reports/103', () => {
+        deleted = true;
+        return HttpResponse.json({ success: true, data: null });
+      }),
+      http.get('/api/reports', () => {
+        const content = deleted
+          ? []
+          : [
+              {
+                id: 103,
+                inspectionId: 3,
+                facilityId: 4,
+                facilityName: '강남 파이낸스센터',
+                roundNo: 1,
+                gradeDistribution: { B: 1, C: 12 },
+                status: 'DRAFT',
+                version: 3,
+                updatedAt: '2026-06-23T09:15:00',
+                pdfUrl: null,
+              },
+            ];
+        return HttpResponse.json({
+          success: true,
+          data: { content, page: 0, totalElements: content.length },
+        });
+      }),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_103_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '삭제' }));
+
+    await waitFor(() => expect(screen.queryByText(REPORT_103_TITLE)).toBeNull());
+    expect(confirmSpy).toHaveBeenCalledWith('이 보고서 초안을 삭제하면 되돌릴 수 없습니다. 계속하시겠습니까?');
+    expect(deleted).toBe(true);
+  });
+
+  it('DRAFT 행 삭제를 확인창에서 취소하면 DELETE를 호출하지 않는다', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    let deleteCount = 0;
+    server.use(
+      http.delete('/api/reports/103', () => {
+        deleteCount += 1;
+        return HttpResponse.json({ success: true, data: null });
+      }),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_103_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '삭제' }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(deleteCount).toBe(0);
+    expect(screen.getByText(REPORT_103_TITLE)).toBeTruthy();
+  });
+
+  it('FINALIZED 행의 삭제는 disabled다', async () => {
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+
+    expect((await screen.findByRole('menuitem', { name: '삭제' })).hasAttribute('disabled')).toBe(true);
   });
 
   it('제출 실패 후 메뉴 안에 오류를 표시하고 다시 시도할 수 있다', async () => {

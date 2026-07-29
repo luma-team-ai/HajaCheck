@@ -28,7 +28,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.test.context.ActiveProfiles;
 
-// 실 PG DDL(defect_action_logs, V29)과의 대조를 위해 Testcontainers PostgreSQL 사용(#1193/HAJA-569).
+// 실 PG DDL(defect_action_logs, V32)과의 대조를 위해 Testcontainers PostgreSQL 사용(#1193/HAJA-569).
 // users → facilities → inspections → defects/media 순으로 FK를 충족하며 시드한다(DefectRepositoryTest와 동일 패턴).
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)

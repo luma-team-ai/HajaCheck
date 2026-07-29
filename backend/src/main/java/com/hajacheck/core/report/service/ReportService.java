@@ -138,7 +138,7 @@ public class ReportService {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         // 소유권 검증(IDOR 방지) — 미존재/타인소유 모두 InspectionService.getInspection() 이 통일 응답.
         inspectionService.getInspection(userId, companyId, inspectionId);
-        return reportRepository.findByInspectionIdOrderByVersionDesc(inspectionId).stream()
+        return reportRepository.findByInspectionIdAndDeletedAtIsNullOrderByVersionDesc(inspectionId).stream()
                 .map(ReportSummaryResponse::from)
                 .toList();
     }
@@ -315,6 +315,13 @@ public class ReportService {
         return ReportDetailResponse.from(report);
     }
 
+    @Transactional
+    public void deleteDraftReport(Long reportId, Long companyId, Long editedByUserId) {
+        companyScopeGuard.requireEffectiveMembership(editedByUserId, companyId);
+        Report report = findCompanyReport(reportId, editedByUserId, companyId);
+        report.markDeleted(editedByUserId);
+    }
+
     /**
      * pdfUrl이 이 보고서의 업로드 엔드포인트(/api/reports/{id}/pdf/{storageKey})를 가리키는지 확인하고
      * storageKey를 추출한다 (#455 P2-2, #463 P2).
@@ -352,6 +359,9 @@ public class ReportService {
     private Report findCompanyReport(Long reportId, Long userId, Long companyId) {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.REPORT_NOT_FOUND));
+        if (report.getDeletedAt() != null) {
+            throw new BusinessException(ErrorCode.REPORT_NOT_FOUND);
+        }
         try {
             inspectionService.getInspection(userId, companyId, report.getInspectionId());
         } catch (BusinessException e) {

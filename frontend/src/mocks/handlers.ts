@@ -23,7 +23,6 @@ import { planQuotaHandlers as platformAdminPlanQuotaHandlers } from '../features
 import { platformAdminCompanyHandlers } from '../features/platform-admin/api/platformAdminCompanyApi.handlers';
 import { platformAdminUserHandlers } from '../features/platform-admin/api/platformAdminUserApi.handlers';
 import { reportHandlers } from '../features/report/api/reportApi.handlers';
-import { statisticsHandlers } from '../features/statistics/api/statisticsApi.handlers';
 import { statsHandlers } from '../features/platform-admin/api/statsApi.handlers';
 import { supportHandlers } from '../features/support/api/supportApi.handlers';
 import { getEffectiveAuthHandlers, isHybridMode } from '../shared/utils/isHybridMode';
@@ -32,7 +31,6 @@ import { getEffectiveAuthHandlers, isHybridMode } from '../shared/utils/isHybrid
 // true/미설정 dev에서는 기존 목 로그인 동작을 유지한다.
 const hybridMode = isHybridMode(import.meta.env);
 const effectiveAuthHandlers = getEffectiveAuthHandlers(import.meta.env, authHandlers);
-const effectiveFacilityHandlers = hybridMode ? [] : facilityHandlers;
 // hybrid에서는 실 백엔드가 계약을 가진 보고서 요청을 MSW가 가로채지 않게 한다.
 // 백엔드 미구현 회사 목록/요약은 훅의 404 폴백으로 개발 화면을 유지한다.
 const effectiveReportHandlers = hybridMode ? [] : reportHandlers;
@@ -55,10 +53,9 @@ export const allMockHandlers = [
   // (inspectionApi.handlers.ts 참고 — 하자 목록 자연어 검색 필터링 무동작 버그 수정).
   ...defectHandlers,
   ...dashboardHandlers,
-  ...statisticsHandlers,
   ...menuHandlers,
   ...mypageHandlers,
-  ...effectiveFacilityHandlers,
+  ...facilityHandlers,
   ...facilityMediaHandlers,
   ...facilityDefectHandlers,
   ...facilityComparisonHandlers,
@@ -79,7 +76,5 @@ export const allMockHandlers = [
 ];
 
 // hybrid에서는 서비스워커가 데이터 요청을 가로채지 않아야 한다.
-// 실서버 우선/실패 시 목 폴백은 각 query hook의 hybridFetchFallback이 담당한다.
-// 이 경계를 두지 않으면 MSW가 200 목 응답을 먼저 반환해 실제 DB 데이터와 CUD 결과를
-// 영구적으로 가리게 된다(#941, #943).
+// true/미설정 dev의 순수 목 모드는 시설 fixture까지 포함해 기존 mock-only 화면을 유지한다.
 export const handlers = hybridMode ? [] : allMockHandlers;

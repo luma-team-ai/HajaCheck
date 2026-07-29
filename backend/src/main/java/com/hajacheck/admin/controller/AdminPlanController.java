@@ -6,6 +6,8 @@ import com.hajacheck.admin.dto.AdminPlanChangeRequest;
 import com.hajacheck.admin.dto.AdminPlanHistoryResponse;
 import com.hajacheck.admin.dto.AdminPlanQuotaResponse;
 import com.hajacheck.admin.dto.AdminPlanResponse;
+import com.hajacheck.admin.dto.AdminScheduledPlanChangeRequest;
+import com.hajacheck.admin.dto.AdminScheduledPlanChangeResponse;
 import com.hajacheck.admin.service.AdminPlanService;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.membership.entity.PlanName;
@@ -21,8 +23,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -82,6 +86,42 @@ public class AdminPlanController {
         return ResponseEntity.ok(ApiResponse.ok(adminPlanService.changePlan(
                 loginUser.getUserId(), request.planName(), request.overflowConfirmed(),
                 request.resolvedKeepUserIds())));
+    }
+
+    @Operation(summary = "회사 플랜 하향 예약",
+            description = "요금제 하향을 즉시 반영하지 않고 <b>다음 결제 주기</b>(현재 구독의 current_period_end)에 "
+                    + "적용되도록 예약한다(#1105). 예약 시점에는 좌석·구독을 전혀 건드리지 않으며, 적용 시점에 "
+                    + "스케줄러가 무결제 전이 + 초과 좌석 정지를 수행한다. 회사 owner 전용. "
+                    + "⚠️ <b>대상은 무료 요금제만 지원한다</b> — 정기결제(빌링키)가 없어 유료 대상을 허용하면 "
+                    + "청구 없이 유료 1개월이 발급되므로, 유료 요금제로의 변경은 즉시 변경(PATCH /api/admin/plan)이나 "
+                    + "결제 경로를 쓴다(유료 대상은 403 PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED). "
+                    + "상향·동일 가격은 403(PLAN_SCHEDULE_NOT_DOWNGRADE), 다음 결제일이 없으면 "
+                    + "409(PLAN_SCHEDULE_PERIOD_END_MISSING), 이미 대기 중인 예약이 있으면 "
+                    + "409(PLAN_SCHEDULED_CHANGE_EXISTS)로 거절한다. 하향으로 한도를 넘는 구성원·시설물이 생기면 "
+                    + "confirmOverflow=true 없이는 409(PLAN_DOWNGRADE_CONFIRMATION_REQUIRED)로 거절하고 "
+                    + "예약을 만들지 않는다 — 실제 정지는 사람 없는 스케줄러가 수행하므로 신청 시점 확인이 필수다. "
+                    + "이때 확인한 정지 인원 수가 예약에 함께 저장되며, 적용 시점 정지 대상이 그 수를 넘으면 "
+                    + "예약은 적용되지 않고 실패로 종료된다(상위 요금제 유지 + 알림).")
+    @PostMapping("/plan/scheduled-change")
+    public ResponseEntity<ApiResponse<AdminScheduledPlanChangeResponse>> scheduleChange(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @Valid @RequestBody AdminScheduledPlanChangeRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(adminPlanService.scheduleChange(
+                loginUser.getUserId(), request.planName(), request.overflowConfirmed(),
+                request.resolvedKeepUserIds())));
+    }
+
+    @Operation(summary = "회사 플랜 하향 예약 취소",
+            description = "대기 중인 하향 예약을 취소한다(#1105). 대상은 요청자 회사의 현재 구독에 걸린 예약이며 "
+                    + "예약 id 를 받지 않는다(회사 스코프 밖 예약을 지정할 수 없다). 회사 owner 전용. "
+                    + "취소할 대기 예약이 없으면 404(PLAN_SCHEDULED_CHANGE_NOT_FOUND). "
+                    + "응답 본문으로 취소된 예약의 스냅샷(status=CANCELED)을 돌려준다 — 프론트가 무엇이 "
+                    + "취소됐는지 재조회 없이 표시할 수 있게 한다.")
+    @DeleteMapping("/plan/scheduled-change")
+    public ResponseEntity<ApiResponse<AdminScheduledPlanChangeResponse>> cancelScheduledChange(
+            @AuthenticationPrincipal LoginUser loginUser) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                adminPlanService.cancelScheduledChange(loginUser.getUserId())));
     }
 
     @Operation(summary = "회사 플랜 변경 이력 조회",

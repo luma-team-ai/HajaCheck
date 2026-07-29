@@ -18,6 +18,7 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.auth.support.FileStorageService;
+import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
@@ -26,6 +27,7 @@ import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.entity.FacilityInitialGrade;
 import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.repository.FacilityGradeCountProjection;
 import com.hajacheck.core.defect.repository.FacilityLatestDefectProjection;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
@@ -341,6 +343,58 @@ class FacilityServiceTest {
     }
 
     @Test
+    void list_점검하자등급집계_지도용최고등급과경고주의건수를채운다() {
+        Facility facility = facilityWithId(10L, "한강대교 북단", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        Inspection inspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(1)
+                .inspectionDate(LocalDate.of(2026, 6, 21)).status(InspectionStatus.REVIEWED).build();
+        setInspectionId(inspection, 100L);
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L))).thenReturn(List.of(inspection));
+        when(defectRepository.countGroupByFacilityIdAndGrade(List.of(100L))).thenReturn(List.of(
+                facilityGradeCount(10L, DefectGrade.C, 2L),
+                facilityGradeCount(10L, DefectGrade.E, 1L),
+                facilityGradeCount(10L, DefectGrade.D, 3L)));
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).highestGrade()).isEqualTo("E");
+        assertThat(result.get(0).warningCount()).isEqualTo(4L);
+        assertThat(result.get(0).cautionCount()).isEqualTo(2L);
+    }
+
+    @Test
+    void list_여러점검중최신점검만하자등급집계에반영된다() {
+        Facility facility = facilityWithId(10L, "한강대교 북단", null, null, null);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        // 과거 점검(100L) — E등급 3건 + D등급 1건 (심각)
+        Inspection pastInspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(1)
+                .inspectionDate(LocalDate.of(2026, 5, 1)).status(InspectionStatus.REVIEWED).build();
+        setInspectionId(pastInspection, 100L);
+        // 최신 점검(200L) — C등급 2건 (경미) — 이 점검의 하자만 집계되어야 함
+        Inspection latestInspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(2)
+                .inspectionDate(LocalDate.of(2026, 6, 21)).status(InspectionStatus.REVIEWED).build();
+        setInspectionId(latestInspection, 200L);
+        // findLatestByFacilityIds는 최신 점검 1건만 반환
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L)))
+                .thenReturn(List.of(latestInspection));
+        // countGroupByFacilityIdAndGrade는 최신 점검(200L)의 하자만 조회
+        when(defectRepository.countGroupByFacilityIdAndGrade(List.of(200L))).thenReturn(List.of(
+                facilityGradeCount(10L, DefectGrade.C, 2L)));
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        // 과거 점검의 E등급 하자는 집계에서 제외되어야 함
+        assertThat(result.get(0).highestGrade()).isEqualTo("C");
+        assertThat(result.get(0).warningCount()).isEqualTo(0L);
+        assertThat(result.get(0).cautionCount()).isEqualTo(2L);
+    }
+
+    @Test
     void list_점검이력없는시설_최근점검일은null() {
         Facility facility = facilityWithId(10L, "강남 오피스타워", null, null, null);
         when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
@@ -367,6 +421,32 @@ class FacilityServiceTest {
     }
 
     @Test
+    void get_여러점검중최신점검만하자등급집계에반영된다() {
+        Facility facility = existingFacility();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        // 과거 점검(100L) — E등급 1건 (심각)
+        Inspection pastInspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(1)
+                .inspectionDate(LocalDate.of(2026, 5, 1)).status(InspectionStatus.REVIEWED).build();
+        setInspectionId(pastInspection, 100L);
+        // 최신 점검(200L) — D등급 2건 (경고) — 이 점검의 하자만 집계되어야 함
+        Inspection latestInspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(2)
+                .inspectionDate(LocalDate.of(2026, 6, 21)).status(InspectionStatus.REVIEWED).build();
+        setInspectionId(latestInspection, 200L);
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L)))
+                .thenReturn(List.of(latestInspection));
+        when(defectRepository.countGroupByFacilityIdAndGrade(List.of(200L))).thenReturn(List.of(
+                facilityGradeCount(10L, DefectGrade.D, 2L)));
+
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
+
+        assertThat(response.highestGrade()).isEqualTo("D");
+        assertThat(response.warningCount()).isEqualTo(2L);
+        assertThat(response.cautionCount()).isEqualTo(0L);
+    }
+
+    @Test
     void get_점검이력없는시설_최근점검일은null() {
         Facility facility = existingFacility();
         when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
@@ -385,6 +465,32 @@ class FacilityServiceTest {
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    private void setInspectionId(Inspection inspection, Long id) {
+        try {
+            Field idField = Inspection.class.getDeclaredField("id");
+            idField.setAccessible(true);
+            idField.set(inspection, id);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static FacilityGradeCountProjection facilityGradeCount(Long facilityId, DefectGrade grade, Long count) {
+        return new FacilityGradeCountProjection() {
+            public Long getFacilityId() {
+                return facilityId;
+            }
+
+            public DefectGrade getGrade() {
+                return grade;
+            }
+
+            public Long getCnt() {
+                return count;
+            }
+        };
     }
 
     @Test

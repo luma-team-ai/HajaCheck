@@ -45,7 +45,7 @@ public class DefectActionLog {
     private Long mediaId;
 
     // defect_status_type(defects.status)이 아니라 별도의 defect_action_log_phase_type(2라벨,
-    // IN_PROGRESS/RESOLVED)를 쓴다 — V29 마이그레이션 헤더 주석 참고(V22가 defect_status_type을
+    // IN_PROGRESS/RESOLVED)를 쓴다 — V32 마이그레이션 헤더 주석 참고(V22가 defect_status_type을
     // drop/rename하는 경로와의 의존성 충돌 회피). Java 쪽은 그대로 DefectStatus를 재사용해도
     // 무방하다(NAMED_ENUM은 값 이름만 대조하고 두 타입 다 IN_PROGRESS/RESOLVED 라벨을 갖는다).
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)

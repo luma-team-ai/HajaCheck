@@ -5,7 +5,9 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.auth.support.FileStorageService;
+import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.repository.FacilityGradeCountProjection;
 import com.hajacheck.core.defect.repository.FacilityLatestDefectProjection;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
@@ -24,6 +26,7 @@ import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.service.QuotaService;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -108,7 +111,7 @@ public class FacilityService {
         // findLatestIdsByFacility 반복 호출은 N+1이므로 배치 쿼리 1회로 조회한다.
         List<Long> facilityIds = facilities.stream().map(Facility::getId).toList();
         Map<Long, Long> latestDefectIdByFacilityId =
-                defectRepository.findLatestByFacilityIds(facilityIds, companyId).stream()
+                nullToEmpty(defectRepository.findLatestByFacilityIds(facilityIds, companyId)).stream()
                         .collect(Collectors.toMap(
                                 FacilityLatestDefectProjection::getFacilityId,
                                 FacilityLatestDefectProjection::getDefectId,
@@ -118,7 +121,7 @@ public class FacilityService {
         // 시설물 목록 대표 사진 썸네일(HAJA-367/#670) — 시설물별 findByFacilityIdOrderByIdAsc 반복 호출은
         // N+1이므로 배치 쿼리 1회로 조회(위 latestDefectId와 동일한 조립 패턴).
         Map<Long, String> thumbnailUrlByFacilityId =
-                mediaRepository.findFirstIdsByFacilityIds(facilityIds, companyId).stream()
+                nullToEmpty(mediaRepository.findFirstIdsByFacilityIds(facilityIds, companyId)).stream()
                         .collect(Collectors.toMap(
                                 FacilityRepresentativeMediaProjection::getFacilityId,
                                 p -> thumbnailPath(p.getMediaId()),
@@ -126,42 +129,103 @@ public class FacilityService {
                                 (first, second) -> first));
 
         // 시설물 카드 "최근 점검 MM.dd"(HAJA-514/#1074) — listStatus()가 이미 쓰는 배치 조회와 동일 패턴.
-        Map<Long, LocalDate> lastInspectedByFacilityId =
-                inspectionRepository.findLatestByFacilityIds(facilityIds).stream()
-                        .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getInspectionDate));
+        List<Inspection> latestInspections = nullToEmpty(inspectionRepository.findLatestByFacilityIds(facilityIds));
+        Map<Long, LocalDate> lastInspectedByFacilityId = latestInspections.stream()
+                .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getInspectionDate));
+
+        FacilityDefectSummary defectSummary = summarizeFacilityDefects(latestInspections);
 
         return facilities.stream()
                 .map(facility -> FacilityResponse.from(
                         facility,
                         latestDefectIdByFacilityId.get(facility.getId()),
                         thumbnailUrlByFacilityId.get(facility.getId()),
-                        lastInspectedByFacilityId.get(facility.getId())))
+                        lastInspectedByFacilityId.get(facility.getId()),
+                        defectSummary.highestGradeByFacilityId().get(facility.getId()),
+                        defectSummary.warningCountByFacilityId().getOrDefault(facility.getId(), 0L),
+                        defectSummary.cautionCountByFacilityId().getOrDefault(facility.getId(), 0L)))
                 .toList();
     }
 
     public FacilityResponse get(Long userId, Long companyId, Long facilityId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         Facility facility = findCompanyFacility(companyId, facilityId);
-        Long latestDefectId = defectRepository
-                .findLatestIdsByFacility(facilityId, companyId, PageRequest.of(0, 1))
+        Long latestDefectId = nullToEmpty(defectRepository
+                .findLatestIdsByFacility(facilityId, companyId, PageRequest.of(0, 1)))
                 .stream()
                 .findFirst()
                 .orElse(null);
-        String thumbnailUrl = mediaRepository.findByFacilityIdOrderByIdAsc(facilityId).stream()
+        String thumbnailUrl = nullToEmpty(mediaRepository.findByFacilityIdOrderByIdAsc(facilityId)).stream()
                 .findFirst()
                 .map(media -> thumbnailPath(media.getId()))
                 .orElse(null);
-        LocalDate lastInspectedAt = inspectionRepository.findLatestByFacilityIds(List.of(facilityId)).stream()
+        List<Inspection> latestInspections =
+                nullToEmpty(inspectionRepository.findLatestByFacilityIds(List.of(facilityId)));
+        LocalDate lastInspectedAt = latestInspections.stream()
                 .findFirst()
                 .map(Inspection::getInspectionDate)
                 .orElse(null);
-        return FacilityResponse.from(facility, latestDefectId, thumbnailUrl, lastInspectedAt);
+        FacilityDefectSummary defectSummary = summarizeFacilityDefects(latestInspections);
+        return FacilityResponse.from(
+                facility,
+                latestDefectId,
+                thumbnailUrl,
+                lastInspectedAt,
+                defectSummary.highestGradeByFacilityId().get(facilityId),
+                defectSummary.warningCountByFacilityId().getOrDefault(facilityId, 0L),
+                defectSummary.cautionCountByFacilityId().getOrDefault(facilityId, 0L));
     }
 
     // MediaResponse.from()과 동일한 경로 조립 — Media.thumbnailUrl(저장키)을 그대로 반환하지 않고
     // 인가된 컨트롤러 엔드포인트 경로만 노출한다.
     private static String thumbnailPath(Long mediaId) {
         return "/api/media/" + mediaId + "/thumbnail";
+    }
+
+    private FacilityDefectSummary summarizeFacilityDefects(List<Inspection> inspections) {
+        if (inspections.isEmpty()) {
+            return FacilityDefectSummary.empty();
+        }
+        List<Long> inspectionIds = inspections.stream().map(Inspection::getId).toList();
+
+        Map<Long, DefectGrade> highestByFacilityId = new java.util.HashMap<>();
+        Map<Long, Long> warningByFacilityId = new java.util.HashMap<>();
+        Map<Long, Long> cautionByFacilityId = new java.util.HashMap<>();
+
+        for (FacilityGradeCountProjection projection :
+                nullToEmpty(defectRepository.countGroupByFacilityIdAndGrade(inspectionIds))) {
+            Long facilityId = projection.getFacilityId();
+            DefectGrade grade = projection.getGrade();
+            long count = projection.getCnt();
+            highestByFacilityId.merge(facilityId, grade, FacilityService::worseGrade);
+            if (grade == DefectGrade.D || grade == DefectGrade.E) {
+                warningByFacilityId.merge(facilityId, count, Long::sum);
+            } else if (grade == DefectGrade.C) {
+                cautionByFacilityId.merge(facilityId, count, Long::sum);
+            }
+        }
+
+        Map<Long, String> highestGradeByFacilityId = highestByFacilityId.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().name()));
+        return new FacilityDefectSummary(highestGradeByFacilityId, warningByFacilityId, cautionByFacilityId);
+    }
+
+    private static DefectGrade worseGrade(DefectGrade left, DefectGrade right) {
+        return left.ordinal() >= right.ordinal() ? left : right;
+    }
+
+    private static <T> List<T> nullToEmpty(List<T> values) {
+        return values == null ? List.of() : values;
+    }
+
+    private record FacilityDefectSummary(
+            Map<Long, String> highestGradeByFacilityId,
+            Map<Long, Long> warningCountByFacilityId,
+            Map<Long, Long> cautionCountByFacilityId
+    ) {
+        static FacilityDefectSummary empty() {
+            return new FacilityDefectSummary(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap());
+        }
     }
 
     /**

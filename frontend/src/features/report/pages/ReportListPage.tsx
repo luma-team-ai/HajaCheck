@@ -9,6 +9,8 @@ import { ReportListFilterBar } from '../components/ReportListFilterBar';
 import { ReportListKpiBar } from '../components/ReportListKpiBar';
 import { ReportListTable } from '../components/ReportListTable';
 import { ReportVersionHistoryPanel } from '../components/ReportVersionHistoryPanel';
+import { inspectionApi } from '../../inspection/api/inspectionApi';
+import { DEFECT_TYPE_CODE_LABELS } from '../../inspection/api/inspectionApi.types';
 import { isReportContent } from '../types';
 import type { ReportListFilters, ReportListItem } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
@@ -31,7 +33,7 @@ export function ReportListPage() {
   const [activeReport, setActiveReport] = useState<ReportListItem | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<{ reportId: number; type: 'clone' | 'submit' } | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ reportId: number; type: 'clone' | 'submit' | 'delete' } | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<number, string | undefined>>({});
 
   const summaryQuery = useCompanyReportsSummary();
@@ -128,11 +130,50 @@ export function ReportListPage() {
           throw new Error('근거 재검증을 통과하지 못했습니다.');
         }
       }
-      const pdfBlob = await exportReportToPdf(content);
+      let defectImages: { defectType: string; imageUrl: string }[] = [];
+      try {
+        const defects = await inspectionApi.getDefects(report.inspectionId);
+        defectImages = defects.data.flatMap((defect) =>
+          defect.imageUrl ? [{ defectType: DEFECT_TYPE_CODE_LABELS[defect.type], imageUrl: defect.imageUrl }] : [],
+        );
+      } catch {
+        // 사진 조회 실패는 확정 흐름을 막지 않는다. PDF는 본문만으로도 유효하며 사진대지만 생략한다.
+      }
+      const pdfBlob = await exportReportToPdf(content, {
+        facilityName: row.facilityName,
+        inspectionRound: row.roundNo,
+        issuedAt: new Date(report.createdAt),
+        defectImages,
+      });
       const fileName = buildReportPdfFileName(report.inspectionId);
       const uploadResponse = await reportApi.uploadPdf(row.id, pdfBlob, fileName);
       await reportApi.finalizeReport(row.id, uploadResponse.data.pdfUrl);
       await refreshReportQueries(report.inspectionId);
+    } catch (error) {
+      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage(error) }));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function handleDeleteReport(row: ReportListItem) {
+    if (pendingAction || row.status !== 'DRAFT') return;
+    if (!window.confirm('이 보고서 초안을 삭제하면 되돌릴 수 없습니다. 계속하시겠습니까?')) {
+      return;
+    }
+    setPendingAction({ reportId: row.id, type: 'delete' });
+    setActionErrors((prev) => ({ ...prev, [row.id]: undefined }));
+    try {
+      await reportApi.deleteReport(row.id);
+      setSelectedRowsById((previous) => {
+        const next = new Map(previous);
+        next.delete(row.id);
+        return next;
+      });
+      if (activeReport?.id === row.id) {
+        setActiveReport(null);
+      }
+      await refreshReportQueries(row.inspectionId);
     } catch (error) {
       setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage(error) }));
     } finally {
@@ -236,6 +277,7 @@ export function ReportListPage() {
                   onOpenVersionHistory={setActiveReport}
                   onCloneReport={(row) => void handleCloneReport(row)}
                   onSubmitReport={(row) => void handleSubmitReport(row)}
+                  onDeleteReport={(row) => void handleDeleteReport(row)}
                   pendingAction={pendingAction}
                   actionErrors={actionErrors}
                 />

@@ -1,4 +1,8 @@
--- Flyway V29 — 조치 등록 이력 append-only 테이블 신설(#1193/HAJA-569).
+-- Flyway V32 — 조치 등록 이력 append-only 테이블 신설(#1193/HAJA-569).
+--
+-- 번호 조율: 착수 시점엔 V29였으나 그 사이 V29(reports.deleted_at, #1172)·V30(scheduled_plan_changes,
+-- #1105/HAJA-526)·V31(notification_type 예약 하향 라벨, #1105/HAJA-526)이 먼저 dev에 들어와 다음 빈
+-- 번호인 V32로 재조정한다(V1~V31 전부 무수정, project convention — 먼저 머지되는 쪽이 번호를 가져간다).
 --
 -- defects.action_media_id/action_content/action_date/action_assignee_id는 "최신 스냅샷"만 저장하는
 -- 단일 값 컬럼이라(V12), 조치중(IN_PROGRESS) 단계에서 시간차를 두고 여러 번 등록하는 사진/조치내용

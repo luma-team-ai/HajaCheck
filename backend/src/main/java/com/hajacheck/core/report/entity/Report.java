@@ -17,6 +17,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
+import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -80,6 +81,9 @@ public class Report extends BaseTimeEntity {
 
     @Column(name = "created_by")
     private Long createdBy;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
 
     @Builder(access = AccessLevel.PRIVATE)
     private Report(Long inspectionId, int version, String contentJson,
@@ -167,6 +171,15 @@ public class Report extends BaseTimeEntity {
         this.pdfUrl = pdfUrl;
         this.editedBy = editedBy;
         this.status = ReportStatus.FINALIZED;
+    }
+
+    public void markDeleted(Long editedBy) {
+        requireDraft("delete");
+        if (this.deletedAt != null) {
+            return;
+        }
+        this.deletedAt = LocalDateTime.now();
+        this.editedBy = editedBy;
     }
 
     private void requireDraft(String action) {

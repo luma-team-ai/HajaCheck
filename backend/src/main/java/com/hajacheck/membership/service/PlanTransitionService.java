@@ -49,6 +49,7 @@ public class PlanTransitionService {
     private final CompanyRepository companyRepository;
     private final UserPlanRepository userPlanRepository;
     private final UsageCounterRepository usageCounterRepository;
+    private final ScheduledPlanChangeCanceller scheduledPlanChangeCanceller;
 
     /**
      * 현재 구독 조회 — ACTIVE 우선, 없으면 UPGRADE_REQUESTED(여전히 유효한 구독). EXPIRED 만 남았으면
@@ -105,6 +106,12 @@ public class PlanTransitionService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public UserPlan transitionTo(Long userId, Long companyId, UserPlan current, Plan targetPlan) {
+        // 이 구독에 걸린 하향 예약(#1105)은 여기서 무효화한다 — 결제로 요금제가 올라간(또는 바뀐) 뒤에도
+        // 예약이 남아 있으면 방금 결제한 구독을 한 달 뒤 스케줄러가 다시 내리려 들고, 그 예약은 옛
+        // user_plan_id 에 매달린 채 PENDING 으로 남아 owner 가 취소할 수도 없는 유령이 된다. 세 전이
+        // 경로가 공유하는 규칙이라 별도 빈에 모아 뒀다(ScheduledPlanChangeCanceller javadoc).
+        scheduledPlanChangeCanceller.cancelOnTransition(current.getId(), "결제 전이로 예약이 무효화됨");
+
         current.expire();
         userPlanRepository.saveAndFlush(current);
 

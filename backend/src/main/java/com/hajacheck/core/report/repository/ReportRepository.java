@@ -15,11 +15,13 @@ public interface ReportRepository extends JpaRepository<Report, Long> {
 
     @Query(value = "select r from Report r join fetch r.inspection i join fetch i.facility f "
             + "where f.companyId = :companyId and r.status in :statuses "
+            + "and r.deletedAt is null "
             + "and (:facilityId = -1 or f.id = :facilityId) "
             + "and (:query = '' or lower(f.name) like lower(concat('%', :query, '%'))) "
             + "and r.updatedAt >= :updatedAtFrom",
             countQuery = "select count(r) from Report r join r.inspection i join i.facility f "
                     + "where f.companyId = :companyId and r.status in :statuses "
+                    + "and r.deletedAt is null "
                     + "and (:facilityId = -1 or f.id = :facilityId) "
                     + "and (:query = '' or lower(f.name) like lower(concat('%', :query, '%'))) "
                     + "and r.updatedAt >= :updatedAtFrom")
@@ -33,13 +35,13 @@ public interface ReportRepository extends JpaRepository<Report, Long> {
             + "coalesce(sum(case when r.status = :draft then 1 else 0 end), 0) as draftCount, "
             + "coalesce(sum(case when r.status = :finalized and r.updatedAt >= :monthStart then 1 else 0 end), 0) "
             + "as issuedThisMonthCount from Report r join r.inspection i join i.facility f "
-            + "where f.companyId = :companyId")
+            + "where f.companyId = :companyId and r.deletedAt is null")
     CompanyReportSummaryProjection summarizeCompany(@Param("companyId") Long companyId,
             @Param("finalized") ReportStatus finalized, @Param("draft") ReportStatus draft,
             @Param("monthStart") LocalDateTime monthStart);
 
     // 보고서 버전 목록(최신순) — #446.
-    List<Report> findByInspectionIdOrderByVersionDesc(Long inspectionId);
+    List<Report> findByInspectionIdAndDeletedAtIsNullOrderByVersionDesc(Long inspectionId);
 
     // 다음 버전 계산용 — 최신 버전 1건만 조회해 서비스에서 +1 한다.
     Optional<Report> findFirstByInspectionIdOrderByVersionDesc(Long inspectionId);
@@ -54,6 +56,7 @@ public interface ReportRepository extends JpaRepository<Report, Long> {
     // 않음 — 이 리포지토리는 Criteria API 대신 항상-바인딩 sentinel로 우회).
     @Query("select r from Report r join fetch r.inspection i join fetch i.facility f "
             + "where r.status = :status and f.companyId = :companyId "
+            + "and r.deletedAt is null "
             + "and (i.assignedInspectorId = :userId or i.createdBy = :userId) "
             + "and r.updatedAt >= :issuedAtFrom "
             + "order by r.updatedAt desc, r.id desc")
@@ -67,6 +70,7 @@ public interface ReportRepository extends JpaRepository<Report, Long> {
     // 마이페이지 "내 점검 이력" 요약의 issuedReportCount(#844) — 위와 동일 스코프의 FINALIZED 건수만.
     @Query("select count(r) from Report r join r.inspection i "
             + "where r.status = :status and i.facility.companyId = :companyId "
+            + "and r.deletedAt is null "
             + "and (i.assignedInspectorId = :userId or i.createdBy = :userId)")
     long countMyFinalizedReports(
             @Param("userId") Long userId, @Param("companyId") Long companyId, @Param("status") ReportStatus status);

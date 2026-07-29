@@ -26,6 +26,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -138,6 +139,15 @@ public class ReportController {
                 reportService.finalizeReport(
                         id, request.pdfUrl(), loginUser.getCompanyId(), loginUser.getUserId());
         return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "보고서 초안 삭제", description = "DRAFT 보고서만 soft delete 처리한다. FINALIZED 보고서는 삭제할 수 없다")
+    @DeleteMapping("/api/reports/{id}")
+    public ResponseEntity<ApiResponse<Void>> deleteDraftReport(
+            @PathVariable Long id,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        reportService.deleteDraftReport(id, loginUser.getCompanyId(), loginUser.getUserId());
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     @Operation(summary = "보고서 PDF 업로드", description = "확정용 PDF 파일을 저장하고 접근 URL을 반환한다(별도로 /finalize에 전달)")

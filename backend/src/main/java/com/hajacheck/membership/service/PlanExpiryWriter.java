@@ -92,6 +92,7 @@ public class PlanExpiryWriter {
     private final UserPlanRepository userPlanRepository;
     private final PlanTransitionService planTransitionService;
     private final PlanDowngradeService planDowngradeService;
+    private final ScheduledPlanChangeCanceller scheduledPlanChangeCanceller;
     private final PlanExpiryProperties properties;
 
     /**
@@ -111,6 +112,16 @@ public class PlanExpiryWriter {
         // 무한 대기가 다른 배치까지 멈춘다. JPA lock.timeout 힌트는 PostgreSQL 에서 무시되므로 쓰지 않는다
         // (UserPlanRepository#applyLockTimeout javadoc 에 근거).
         userPlanRepository.applyLockTimeout(Integer.toString(properties.getLockTimeoutMs()));
+
+        // ⚠️ 구독 행보다 <b>먼저</b> 이 구독의 대기 예약(#1105) 행 잠금을 잡는다(2차 검증 P2).
+        // 강등이 확정되면 아래에서 그 예약을 취소해야 하는데, 취소를 재검증 뒤에만 두면 이 경로의 잠금
+        // 순서가 "구독 → 예약"이 되어 같은 구독을 건드리는 사용자 요청(즉시 변경·결제 승인: "예약 →
+        // 구독")과 ABBA 교착이 생긴다. lock_timeout(3초)은 PG 기본 deadlock_timeout(1초)보다 길어 방어가
+        // 되지 않고, 교착 희생자가 사용자 요청이면 500 응답이 나간다(배치끼리와 달리 재시도로 흡수되지
+        // 않는다). 여기서 잠금만 미리 확보하고 취소 여부는 재검증 뒤에 정하면, 순서도 맞고 "주기가
+        // 갱신된 구독의 예약을 잘못 취소하지 않는다"는 규칙도 그대로 지켜진다
+        // (ScheduledPlanChangeCanceller javadoc 의 <b>잠금 순서</b> 절에 대안·기각 사유까지 정리).
+        scheduledPlanChangeCanceller.lockPendingForTransition(userPlanId);
 
         // 행 잠금과 함께 읽는다(리뷰 P3-5) — 재검증이 보는 상태가 판정 시점의 확정 상태가 되도록,
         // 그리고 다중 인스턴스가 같은 구독을 동시에 강등하지 않도록 직렬화한다. 잠금으로도 남는 한계
@@ -152,6 +163,14 @@ public class PlanExpiryWriter {
         DowngradeOverflow overflow = companyId != null
                 ? planDowngradeService.preview(companyId, currentPlan, freePlan)
                 : null;
+
+        // 이 구독에 걸린 하향 예약(#1105)을 무효화한다 — 세 전이 경로가 공유해야 하는 규칙이고, 여기만
+        // 빠져 있으면 예약이 옛 user_plan_id 에 매달린 채 PENDING 으로 남아 owner 가 취소할 수도 없는
+        // 유령 예약이 된다(조회·취소가 모두 현재 구독 id 기준이라 화면에서는 사라진다 — 보안 리뷰 P2-3).
+        // ⚠️ 위 재검증(상태·주기)을 <b>통과한 뒤</b>여야 한다 — "결제 주기가 갱신됨" 스킵 경로에서 취소하면
+        // 아직 유효한 예약을 잘못 없앤다. 잠금은 이미 위(lockPendingForTransition)에서 순서대로 확보해
+        // 뒀으므로 여기서 추가 대기가 발생하지 않는다.
+        scheduledPlanChangeCanceller.cancelOnTransition(current.getId(), "구독 만료 강등으로 예약이 무효화됨");
 
         current.expire();
         userPlanRepository.saveAndFlush(current);

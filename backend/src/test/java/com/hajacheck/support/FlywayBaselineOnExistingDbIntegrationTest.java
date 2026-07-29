@@ -290,5 +290,55 @@ class FlywayBaselineOnExistingDbIntegrationTest {
                 where t.typname = 'notification_type' and e.enumlabel = 'PLAN_EXPIRED'
                 """, Long.class);
         assertThat(planExpiredLabelCount).isEqualTo(1L);
+
+        // V29(reports.deleted_at, #1172)도 이 "기존 DB" 경로에서 no-op 성공으로 적용된다.
+        Integer v29Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '29' and success = true",
+                Integer.class);
+        assertThat(v29Applied).isEqualTo(1);
+
+        Long reportsDeletedAtColumnExists = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'reports' and column_name = 'deleted_at'
+                """, Long.class);
+        assertThat(reportsDeletedAtColumnExists).isEqualTo(1L);
+
+        // V30(scheduled_plan_changes 플랜 하향 예약 원장, #1105/HAJA-526)도 이 "기존 DB" 경로에서 no-op
+        // 성공으로 적용된다 — 캐노니컬 DDL이 이미 이 테이블·enum·인덱스를 포함하고 마이그레이션 전 구문이
+        // 멱등(IF NOT EXISTS / DO 블록)이라 'already exists' 로 기동을 깨뜨리지 않는다(#544 P1 회귀선).
+        // (#1105는 착수 시 V29로 잡았다가 #1172가 선점해 V30·V31로 재번호했고, #1172가 dev에 머지되며
+        //  결번은 해소됐다 — 2026-07-29.)
+        Integer v30Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '30' and success = true",
+                Integer.class);
+        assertThat(v30Applied).isEqualTo(1);
+
+        // 기존 DB에 있던 scheduled_plan_changes 테이블과 부분 유니크 인덱스도 그대로 유지된다
+        // (V30 재실행이 깨거나 중복 생성하지 않음).
+        Long scheduledPlanChangesTableCount = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.tables
+                where table_schema = 'public' and table_name = 'scheduled_plan_changes'
+                """, Long.class);
+        assertThat(scheduledPlanChangesTableCount).isEqualTo(1L);
+        Long pendingPartialUniqueCount = jdbcTemplate.queryForObject("""
+                select count(*) from pg_indexes
+                where schemaname = 'public' and tablename = 'scheduled_plan_changes'
+                  and indexname = 'uq_scheduled_plan_changes_pending'
+                """, Long.class);
+        assertThat(pendingPartialUniqueCount).isEqualTo(1L);
+
+        // V31(notification_type PLAN_DOWNGRADED·PLAN_DOWNGRADE_FAILED 라벨, #1105/HAJA-526)도 no-op
+        // 성공으로 적용된다.
+        Integer v31Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '31' and success = true",
+                Integer.class);
+        assertThat(v31Applied).isEqualTo(1);
+        Long scheduledDowngradeLabelCount = jdbcTemplate.queryForObject("""
+                select count(*) from pg_enum e
+                join pg_type t on e.enumtypid = t.oid
+                where t.typname = 'notification_type'
+                  and e.enumlabel in ('PLAN_DOWNGRADED', 'PLAN_DOWNGRADE_FAILED')
+                """, Long.class);
+        assertThat(scheduledDowngradeLabelCount).isEqualTo(2L);
     }
 }
