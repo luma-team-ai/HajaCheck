@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { api } from '../../../shared/api/axios';
 import { defectHandlers } from '../api/defectApi.handlers';
@@ -100,6 +100,35 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
 
     const modal = await screen.findByRole('dialog', { name: '하자 상세' });
     expect(await within(modal).findByText('DEF-0001')).not.toBeNull();
+  });
+
+  // 코드리뷰 P2 — defectId를 URL에 남겨두면 모달을 닫은 뒤 새로고침/공유 시 같은 모달이 사용자 의사와
+  // 무관하게 재오픈된다. 초기값으로 소비한 즉시 URL에서 제거되는지 검증한다.
+  it('defectId 쿼리파라미터는 진입 시 모달을 연 뒤 URL에서 즉시 제거된다', async () => {
+    function PageWithUrlProbe() {
+      const [searchParams] = useSearchParams();
+      return (
+        <>
+          <InspectionDefectsPage />
+          <div data-testid="url-probe">{searchParams.toString()}</div>
+        </>
+      );
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/inspections/101/defects?defectId=1']}>
+          <Routes>
+            <Route path="/inspections/:id/defects" element={<PageWithUrlProbe />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole('dialog', { name: '하자 상세' });
+
+    await waitFor(() => expect(screen.getByTestId('url-probe').textContent).toBe(''));
   });
 
   it('모달의 닫기 버튼을 클릭하면 모달이 닫힌다', async () => {
