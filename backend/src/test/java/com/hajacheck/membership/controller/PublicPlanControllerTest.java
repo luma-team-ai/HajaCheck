@@ -1,6 +1,7 @@
 package com.hajacheck.membership.controller;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -39,5 +40,15 @@ class PublicPlanControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data.plans[1].priceMonthly").value(29000))
                 .andExpect(jsonPath("$.data.plans[2].name").value("ENTERPRISE"))
                 .andExpect(jsonPath("$.data.plans[2].priceMonthly").value(59000));
+    }
+
+    @Test
+    @DisplayName("비GET 요청 또는 하위 경로(/api/plans/admin)는 permitAll 대상이 아니므로 비인증 접근 시 4xx 에러(401/403)로 차단된다")
+    void nonGetOrSubPath_unauthenticated_unauthorized() throws Exception {
+        mockMvc.perform(post("/api/plans"))
+                .andExpect(status().is4xxClientError());
+
+        mockMvc.perform(get("/api/plans/admin"))
+                .andExpect(status().is4xxClientError());
     }
 }

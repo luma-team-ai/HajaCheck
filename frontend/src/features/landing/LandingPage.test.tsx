@@ -2,11 +2,13 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import LandingPage from './LandingPage';
+import { publicPlanApi } from './api/publicPlanApi';
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 function renderWithProviders(ui: React.ReactElement) {
@@ -43,6 +45,17 @@ describe('LandingPage 제품 스크린샷 및 요금제', () => {
       expect(screen.getByText('₩0')).toBeTruthy();
       expect(screen.getByText('₩29,000')).toBeTruthy();
       expect(screen.getByText('₩59,000')).toBeTruthy();
+    });
+  });
+
+  it('공개 요금제 API 호출 실패 시 하드코딩 요금제가 아닌 에러 안내 메시지와 다시 시도 버튼을 렌더링한다', async () => {
+    vi.spyOn(publicPlanApi, 'getPlans').mockRejectedValueOnce(new Error('Network error'));
+
+    renderWithProviders(<LandingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('요금제 정보를 불러오지 못했습니다.')).toBeTruthy();
+      expect(screen.getByRole('button', { name: '다시 시도' })).toBeTruthy();
     });
   });
 });

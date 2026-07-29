@@ -100,9 +100,13 @@ export function formatPricingTiersFromApi(
       name = 'Enterprise';
       subtitle = '관리업체·공공기관';
       ctaLabel = '도입 문의';
+    } else {
+      name = plan.name;
+      subtitle = '맞춤형 요금제';
+      ctaLabel = '문의하기';
     }
 
-    const price = plan.priceMonthly === 0 ? '₩0' : `₩${Math.floor(plan.priceMonthly).toLocaleString()}`;
+    const price = plan.priceMonthly === 0 ? '₩0' : `₩${Math.round(plan.priceMonthly).toLocaleString('ko-KR')}`;
     const period = '/월';
 
     const facilitiesText = plan.maxFacilities === null ? '시설물 무제한' : `시설물 ${plan.maxFacilities}개`;
