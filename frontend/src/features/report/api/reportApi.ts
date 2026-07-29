@@ -25,7 +25,8 @@ export interface ReportSummaryResponse {
   status: 'DRAFT' | 'FINALIZED';
   groundingCheckPassed?: boolean | null;
   createdAt: string;
-  createdByName?: string;
+  /** GET /api/inspections/{id}/reports 응답 — 백엔드가 항상 포함해야 한다. 빠진 경우 UI에서 '알 수 없음'으로 표시. */
+  createdByName: string;
 }
 
 export const reportApi = {

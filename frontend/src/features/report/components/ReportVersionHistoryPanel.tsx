@@ -167,7 +167,7 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
                 const isInitial = version.version === 1;
                 const isLast = index === (versions ?? []).length - 1;
                 const isBusy = busyVersion === version.id;
-                const authorName = version.createdByName ?? (isInitial ? '시스템' : `사용자 ${version.version}`);
+                const authorName = version.createdByName || '알 수 없음';
                 return (
                   <li key={version.id} className="flex gap-4">
                     <div className="flex w-[18px] shrink-0 flex-col items-center">
