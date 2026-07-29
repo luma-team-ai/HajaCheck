@@ -9,7 +9,6 @@ import com.hajacheck.counsel.entity.CounselTicket;
 import com.hajacheck.counsel.entity.CounselType;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDateTime;
-import java.util.TimeZone;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -65,7 +64,7 @@ class CounselTicketRepositoryTest extends PostgresTestSupport {
         LocalDateTime target = LocalDateTime.of(2026, 7, 20, 0, 0, 0);
         CounselTicket ticket = seedTicketAt(userId, target);
 
-        Page<CounselTicket> page = ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(
+        Page<CounselTicket> page = ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(
                 LocalDateTime.of(2026, 7, 20, 0, 0, 0),
                 LocalDateTime.of(2026, 7, 20, 23, 59, 59, 999_999_000),
                 PageRequest.of(0, 20));
@@ -80,7 +79,7 @@ class CounselTicketRepositoryTest extends PostgresTestSupport {
         LocalDateTime nextDayMidnight = LocalDateTime.of(2026, 7, 21, 0, 0, 0);
         seedTicketAt(userId, nextDayMidnight);
 
-        Page<CounselTicket> page = ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(
+        Page<CounselTicket> page = ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(
                 LocalDateTime.of(2026, 7, 20, 0, 0, 0),
                 LocalDateTime.of(2026, 7, 20, 23, 59, 59, 999_999_000),
                 PageRequest.of(0, 20));
@@ -88,39 +87,12 @@ class CounselTicketRepositoryTest extends PostgresTestSupport {
         assertThat(page.getContent()).isEmpty();
     }
 
-    /**
-     * #1205 머신 리뷰 P3 — "날짜 경계가 서버 타임존에 따라 밀릴 수 있다"는 지적에 대한 회귀 고정.
-     *
-     * <p>createdAt 은 존 정보 없는 {@code LocalDateTime}(@CreatedDate = 서버 벽시계) 이고 조회 경계도
-     * 같은 벽시계라, 저장·조회 경로 전체가 JVM 기본 타임존과 무관해야 한다. JVM 기본 타임존을 KST가
-     * 아닌 값(UTC)으로 바꿔도 자정 경계 판정이 그대로임을 확인해 "ZoneId 미명시는 의도된 설계"라는
-     * 계약을 고정한다(여기서 ZoneId 로 UTC 환산하는 수정을 넣으면 이 테스트가 깨진다).
+    /*
+     * 타임존 회귀 고정 테스트는 이 클래스에 있었으나 삭제했다(#1263) — 리포지토리를 직접 호출해 이미
+     * 확정된 LocalDateTime 경계를 넘기는 구조라, 경계를 만드는 쪽(서비스)이 ZoneId 환산을 넣어도 이
+     * 테스트는 통과했다(= 실패할 수 없는 테스트). 계약을 실제로 지키는 회귀 테스트는 경계 계산 주체인
+     * CounselTicketServiceTest#관리자_날짜별목록_조회경계는_JVM_기본타임존과_무관하다 로 옮겼다.
      */
-    @Test
-    void 접수일_경계값은_JVM_기본타임존이_바뀌어도_동일하다() {
-        Long userId = seedUser("boundary-tz@haja.com");
-        LocalDateTime midnight = LocalDateTime.of(2026, 7, 20, 0, 0, 0);
-        LocalDateTime nextDayMidnight = LocalDateTime.of(2026, 7, 21, 0, 0, 0);
-        CounselTicket included = seedTicketAt(userId, midnight);
-        seedTicketAt(userId, nextDayMidnight);
-
-        TimeZone original = TimeZone.getDefault();
-        try {
-            // 배포 환경 TZ 고정(Asia/Seoul)이 빠진 상황을 모사 — 컨테이너 기본값 UTC.
-            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
-
-            Page<CounselTicket> page = ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(
-                    LocalDateTime.of(2026, 7, 20, 0, 0, 0),
-                    LocalDateTime.of(2026, 7, 20, 23, 59, 59, 999_999_000),
-                    PageRequest.of(0, 20));
-
-            // 당일 자정 건만 포함되고 다음날 자정 건은 제외 — KST 기준 결과와 동일해야 한다.
-            assertThat(page.getContent()).extracting(CounselTicket::getId)
-                    .containsExactly(included.getId());
-        } finally {
-            TimeZone.setDefault(original);
-        }
-    }
 
     @Test
     void 접수일_같은날_여러건_최신순정렬() {
@@ -128,12 +100,38 @@ class CounselTicketRepositoryTest extends PostgresTestSupport {
         CounselTicket early = seedTicketAt(userId, LocalDateTime.of(2026, 7, 20, 9, 0, 0));
         CounselTicket late = seedTicketAt(userId, LocalDateTime.of(2026, 7, 20, 18, 0, 0));
 
-        Page<CounselTicket> page = ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(
+        Page<CounselTicket> page = ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(
                 LocalDateTime.of(2026, 7, 20, 0, 0, 0),
                 LocalDateTime.of(2026, 7, 20, 23, 59, 59, 999_999_000),
                 PageRequest.of(0, 20));
 
         assertThat(page.getContent()).extracting(CounselTicket::getId)
                 .containsExactly(late.getId(), early.getId());
+    }
+
+    /**
+     * 정렬 타이브레이커 회귀 고정(#1263) — createdAt 이 완전히 같은 티켓들이 페이지 경계에 걸려도 중복·누락이
+     * 없어야 한다. createdAt 단일 키 정렬이면 동률 행의 순서가 쿼리마다 달라질 수 있어 같은 티켓이 두 페이지에
+     * 나오거나 아예 빠질 수 있다. id DESC 타이브레이커가 전순서를 확정한다.
+     */
+    @Test
+    void 접수시각이_동일해도_페이지경계에서_중복이나누락이_없다() {
+        Long userId = seedUser("boundary-tie@haja.com");
+        LocalDateTime sameInstant = LocalDateTime.of(2026, 7, 20, 13, 0, 0);
+        CounselTicket first = seedTicketAt(userId, sameInstant);
+        CounselTicket second = seedTicketAt(userId, sameInstant);
+        CounselTicket third = seedTicketAt(userId, sameInstant);
+
+        LocalDateTime start = LocalDateTime.of(2026, 7, 20, 0, 0, 0);
+        LocalDateTime end = LocalDateTime.of(2026, 7, 20, 23, 59, 59, 999_999_000);
+        Page<CounselTicket> page0 =
+                ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(start, end, PageRequest.of(0, 2));
+        Page<CounselTicket> page1 =
+                ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(start, end, PageRequest.of(1, 2));
+
+        assertThat(page0.getContent()).extracting(CounselTicket::getId)
+                .containsExactly(third.getId(), second.getId());
+        assertThat(page1.getContent()).extracting(CounselTicket::getId)
+                .containsExactly(first.getId());
     }
 }
