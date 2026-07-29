@@ -38,6 +38,7 @@ function renderAt(path: string) {
           }
         />
         <Route path="/login" element={<div>기업회원 로그인 페이지</div>} />
+        <Route path="/counsel-console/login" element={<div>상담원 로그인 페이지</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -70,10 +71,11 @@ describe('CounselorRoute', () => {
     expect(screen.getByText('대시보드 콘텐츠')).not.toBeNull();
   });
 
-  it('미인증이면 기업회원 /login으로 보낸다(PLATFORM_ADMIN 전용 로그인이 아님)', () => {
+  it('미인증이면 상담원 전용 로그인(/counsel-console/login)으로 보낸다(기업회원 /login 아님)', () => {
     renderAt('/counsel-console/queue');
 
-    expect(screen.getByText('기업회원 로그인 페이지')).not.toBeNull();
+    expect(screen.getByText('상담원 로그인 페이지')).not.toBeNull();
+    expect(screen.queryByText('기업회원 로그인 페이지')).toBeNull();
     expect(screen.queryByText('상담원 콘솔 콘텐츠')).toBeNull();
   });
 });

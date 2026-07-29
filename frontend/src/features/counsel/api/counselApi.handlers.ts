@@ -102,6 +102,44 @@ export const mockCounselTicketNotes = new Map<number, CounselTicketNoteResponse>
   [4, { ticketId: 4, counselorId: 9, content: '고객이 등급 산정 기준 재설명 요청함.', updatedAt: '2026-07-27T10:00:00' }],
 ]);
 
+// 플랫폼 관리자 상담 관리(#1168) — 날짜별 관리자 조회 목록 픽스처. createdAt이 서로 다른 날짜라
+// AdminCounselDatePanel의 날짜 변경 시 재조회 테스트에 쓴다. 고객 프로필 스냅샷(이름/이메일/플랜/
+// 가입일)까지 채워져 있는 것이 마이페이지/상담원 콘솔 픽스처와의 차이점.
+export const mockAdminTickets: CounselTicketSummaryResponse[] = [
+  {
+    id: 5,
+    ticketNumber: 'CS-20260728-003',
+    category: '점검 결과서 관련',
+    title: 'AI 분석 결과 등급 문의',
+    userId: 300,
+    counselorId: 9,
+    counselorName: '김상담',
+    status: 'RESOLVED',
+    queuePosition: null,
+    createdAt: '2026-07-28T09:00:00',
+    customerName: '박고객',
+    customerEmail: 'customer300@example.com',
+    customerPlan: '프로',
+    customerJoinedAt: '2026-01-10T00:00:00',
+  },
+  {
+    id: 6,
+    ticketNumber: 'CS-20260728-004',
+    category: '계정 및 결제',
+    title: '요금제 변경 문의',
+    userId: 301,
+    counselorId: null,
+    counselorName: null,
+    status: 'WAITING',
+    queuePosition: 1,
+    createdAt: '2026-07-28T10:30:00',
+    customerName: '이고객',
+    customerEmail: 'customer301@example.com',
+    customerPlan: '베이직',
+    customerJoinedAt: '2026-03-05T00:00:00',
+  },
+];
+
 export const counselHandlers = [
   http.get('/api/counsel/scenarios/roots', () =>
     HttpResponse.json({ success: true, data: mockScenarioRoots }),
@@ -142,7 +180,11 @@ export const counselHandlers = [
   }),
   http.get('/api/counsel/tickets/:id/messages', ({ params }) => {
     const id = Number(params.id);
-    if (!mockTickets.some((t) => t.id === id) && !mockQueueTickets.some((t) => t.id === id)) {
+    if (
+      !mockTickets.some((t) => t.id === id) &&
+      !mockQueueTickets.some((t) => t.id === id) &&
+      !mockAdminTickets.some((t) => t.id === id)
+    ) {
       return HttpResponse.json(
         { success: false, error: { code: 'COUNSEL_TICKET_NOT_FOUND', message: '상담 티켓을 찾을 수 없습니다.' } },
         { status: 404 },
@@ -239,6 +281,17 @@ export const counselHandlers = [
     };
     mockCounselTicketNotes.set(id, note);
     return HttpResponse.json({ success: true, data: note });
+  }),
+  // GET /api/counsel/tickets/admin(#1168) — 플랫폼 관리자 날짜별 조회. date(YYYY-MM-DD) 쿼리로
+  // createdAt이 같은 날짜인 티켓만 필터한다(접수일 기준, 종료일 아님 — 계획 확정 사항).
+  http.get('/api/counsel/tickets/admin', ({ request }) => {
+    const url = new URL(request.url);
+    const date = url.searchParams.get('date');
+    const content = !date ? mockAdminTickets : mockAdminTickets.filter((t) => t.createdAt.startsWith(date));
+    return HttpResponse.json({
+      success: true,
+      data: { content, page: 0, totalElements: content.length },
+    });
   }),
   http.post('/api/counsel/tickets/:id/resolve', ({ params }) => {
     const id = Number(params.id);

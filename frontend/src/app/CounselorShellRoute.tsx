@@ -8,6 +8,7 @@ import { useAuthStore } from '../features/auth/store/authStore';
 import { COUNSELOR_NAV_ITEM } from '../features/counsel/constants';
 import type { BreadcrumbItem } from '../shared/components/Header';
 import { AppLayout } from '../shared/components/AppLayout';
+import { COUNSELOR_LOGIN_ROUTE } from '../shared/constants/routes';
 import { isRouteImplemented } from './implementedRoutes';
 
 export interface CounselorShellHandle {
@@ -27,9 +28,9 @@ function hasCounselorShellHandle(handle: unknown): handle is CounselorShellHandl
 export function CounselorShellRoute() {
   const matches = useMatches();
   const authUser = useAuthStore((state) => state.user);
-  // 로그아웃 후에도 기업회원 /login으로 돌아가면 된다(COUNSELOR는 PLATFORM_ADMIN과 달리 전용
-  // 로그인 화면이 없다) — useLogout 기본값(LOGIN_ROUTE) 그대로 사용.
-  const { logout } = useLogout();
+  // 로그아웃 후 기업회원 /login이 아니라 /counsel-console/login으로 돌아가야 한다
+  // (useLogout redirectTo, PlatformAdminShellRoute와 동일 패턴).
+  const { logout } = useLogout(COUNSELOR_LOGIN_ROUTE);
   const current = [...matches].reverse().find((match) => hasCounselorShellHandle(match.handle));
   const handle = current?.handle as CounselorShellHandle | undefined;
 
