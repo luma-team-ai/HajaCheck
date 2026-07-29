@@ -102,6 +102,11 @@ public class AuthController {
         // 남아 있어도 그것만으로는 어떤 권한도 얻지 못한다. 값을 새로 발급하므로 "stale 토큰
         // 재사용 방지" 라는 원래 의도도 그대로 유지된다.
         // CsrfCookieFilter 는 이 컨트롤러보다 먼저 실행되므로, 여기서 심는 새 값이 응답의 최종값이다.
+        // ⚠️ 전제: 이 엔드포인트가 CSRF 보호 대상이라는 것 — 유효한 XSRF-TOKEN 쿠키 없이는 CsrfFilter 가
+        // 403 으로 끊어 이 지점에 도달하지 못한다. 즉 "여기 도달 = 쿠키가 이미 있었다 = 필터는 쿠키를
+        // 새로 심지 않았다" 이므로 응답의 XSRF-TOKEN Set-Cookie 는 아래 saveToken 하나뿐이다.
+        // 훗날 csrf().ignoringRequestMatchers("/api/auth/logout") 같은 예외가 붙으면 이 전제가 깨져
+        // 필터×컨트롤러 이중 Set-Cookie 가 되므로, 그때는 이 로직도 함께 재검토할 것.
         csrfTokenRepository.saveToken(csrfTokenRepository.generateToken(httpRequest),
                 httpRequest, httpResponse);
         return ResponseEntity.ok(ApiResponse.ok(null));

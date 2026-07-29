@@ -17,20 +17,17 @@ import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.support.PostgresTestSupport;
-import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -130,32 +127,10 @@ class AuthControllerTest extends PostgresTestSupport {
         assertThat(session.isInvalid()).isTrue();
     }
 
-    /**
-     * #1200 회귀 — 이전 정책은 로그아웃 시 XSRF-TOKEN 도 Max-Age=0 으로 삭제했다. 그러면 로그아웃
-     * 직후 /login 화면에서 곧바로 재로그인할 때 double-submit 쿠키가 없어 첫 POST 가 403 으로
-     * 실패했다(전 계정 공통). 이제는 삭제 대신 새 값으로 회전한다 — 삭제 지시(Max-Age=0) 없이
-     * 새 토큰 Set-Cookie 가 정확히 1개만 나가야 한다.
-     */
-    @Test
-    void 로그아웃_CSRF쿠키는_삭제가아니라_새값으로회전() throws Exception {
-        MockHttpSession session = new MockHttpSession();
-
-        MvcResult result = mockMvc.perform(post("/api/auth/logout").session(session).with(csrf()))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        List<String> csrfSetCookies = result.getResponse().getHeaders(HttpHeaders.SET_COOKIE).stream()
-                .filter(header -> header.startsWith("XSRF-TOKEN="))
-                .toList();
-
-        assertThat(csrfSetCookies).hasSize(1);
-        String setCookie = csrfSetCookies.get(0);
-        // 삭제 지시가 아니어야 한다(Max-Age=0 / Expires 로 지우지 않음).
-        assertThat(setCookie).doesNotContain("Max-Age=0");
-        // 값이 비어 있지 않은 새 토큰이어야 한다.
-        String value = setCookie.substring("XSRF-TOKEN=".length()).split(";", 2)[0];
-        assertThat(value).isNotBlank();
-    }
+    // #1200 회귀(로그아웃 시 CSRF 토큰 삭제 대신 회전)는 AuthCsrfRotationIntegrationTest 로 분리했다.
+    // MockMvc 로는 검증이 불가능하다: with(csrf()) 가 필터체인의 CsrfTokenRepository 를
+    // TestCsrfTokenRepository(HttpSessionCsrfTokenRepository) 로 리플렉션 교체하고 그 교체가 캐시된
+    // 컨텍스트에 남아, 이후 어떤 요청도 필터 경로로 XSRF-TOKEN "쿠키" 를 심지 못한다(사유 상세는 그 클래스 주석).
 
     @Test
     void 내정보_미인증_401_UNAUTHORIZED() throws Exception {
