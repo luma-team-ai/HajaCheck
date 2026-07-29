@@ -2,6 +2,8 @@ import { api } from '../../../shared/api/axios';
 import type {
   AdminCurrentPlanResponse,
   AdminPlanCatalogResponse,
+  AdminScheduledPlanChange,
+  AdminScheduledPlanChangeRequestPayload,
   PlanChangePreviewResponse,
   PlanChangeRequestPayload,
 } from '../planQuota.types';
@@ -31,4 +33,12 @@ export const adminPlanApi = {
   // keepUserIds는 #890 Phase 1/2 — 응답 바디는 화면이 성공 여부·재조회 트리거로만 쓰므로 세부 타입을
   // 두지 않는다(변경 후 usePlanQuotaUsers/useAdminPlanCatalog를 무효화해 실제 값은 그쪽에서 다시 받는다).
   changePlan: (payload: PlanChangeRequestPayload) => api.patch<unknown>('/admin/plan', payload),
+
+  // POST /api/admin/plan/scheduled-change — FREE 하향을 다음 결제 주기(currentPeriodEnd)에 적용되도록
+  // 예약한다(#1105 / HAJA-526, #1191). confirmOverflow·keepUserIds 의미는 changePlan과 동일(#890 재사용).
+  scheduleChange: (payload: AdminScheduledPlanChangeRequestPayload) =>
+    api.post<AdminScheduledPlanChange>('/admin/plan/scheduled-change', payload),
+
+  // DELETE /api/admin/plan/scheduled-change — 대기 중(PENDING) 하향 예약을 취소한다(#1105 / HAJA-526).
+  cancelScheduledChange: () => api.delete<AdminScheduledPlanChange>('/admin/plan/scheduled-change'),
 };

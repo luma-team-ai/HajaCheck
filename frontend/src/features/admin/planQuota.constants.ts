@@ -63,6 +63,24 @@ function formatSeatLimit(item: AdminPlanCatalogItem): string {
   return `점검자 좌석 ${item.maxSeats}명`;
 }
 
+/**
+ * ISO datetime(Instant, UTC "...Z") → "YYYY-MM-DD"(로컬 시간대로 변환됨). null/파싱 불가 시 null.
+ * 하향 예약 배너·확인 모달의 "YYYY-MM-DD부터 적용됩니다" 문구에 쓴다(#1105 / HAJA-526, #1191).
+ * utils/formatUserDates.ts의 formatAbsoluteAccess와 동일하게 new Date()로 UTC→로컬 변환을 거친다
+ * (currentPeriodEnd·effectiveAt은 Instant라 오프셋 없는 LocalDateTime 전용 정규식 파싱을 쓰면 안 된다).
+ */
+export function formatScheduledDate(isoDateTime: string | null | undefined): string | null {
+  if (!isoDateTime) {
+    return null;
+  }
+  const date = new Date(isoDateTime);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 /** plans 테이블 응답(AdminPlanCatalogItem) → "현재 플랜" 카드 표시용 상세로 변환한다. */
 export function buildPlanDetail(item: AdminPlanCatalogItem): PlanDetail {
   return {
