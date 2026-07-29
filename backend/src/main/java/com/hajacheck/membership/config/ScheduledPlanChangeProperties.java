@@ -82,9 +82,24 @@ public class ScheduledPlanChangeProperties {
      * 시점의 좌석 정지와 유예 만료 시점의 FREE 강등을 맞는다 — 사람 없는 배치가 권한을 내리는 기능이라
      * "모르는 사이 당하는" 경로를 열어 두면 안 된다.
      *
-     * <p>false 이면 {@code AdminPlanService#scheduleChange} 가 유료 대상을 기존과 동일하게
-     * {@code PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED} 로 거절한다(프론트의 기존 안내 UI 가 그대로 동작).
-     * 프론트 연동이 끝나면 <b>배포 없이</b> 이 값만 뒤집는다.
+     * <p><b>생성과 실행 양쪽을 게이팅한다</b>(리뷰 P2-B): false 이면
+     * {@code AdminPlanService#scheduleChange} 가 유료 대상을 기존과 동일하게
+     * {@code PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED} 로 거절하고(프론트의 기존 안내 UI 가 그대로 동작),
+     * {@code ScheduledPlanChangeWriter#applyBillingPeriod} 도 <b>이미 만들어진 PENDING 예약의 실행</b>을
+     * 같은 코드로 거절한다. 생성만 막으면 스위치를 켠 동안 쌓인 예약이 최대 한 달 보관되므로 되돌려도
+     * 그대로 실행돼, 이 스위치의 존재 이유가 정작 좌석이 정지되는 시점에 성립하지 않는다(실행 거절은
+     * 예약을 FAILED 로 종료시키고 신청자에게 알림을 보낸다).
+     *
+     * <p><b>⚠️ true 로 올리기 전 선결 조건</b>(#1177 후속 이슈) — 전부 해소되기 전에는 켜지 않는다:
+     * <ol>
+     *   <li>프론트 유료 대상 예약 UI(결제 마감 안내·유예 배너·결제 유도) 연동</li>
+     *   <li><b>P2-C</b> 2단계(유예 만료 강등)에 종료 상태·실패 알림 추가 — 지금은 결정적 실패가 매시 영구
+     *       재시도되고, 누적되면 {@link #getMaxPerRun()} 상한에 걸려 2단계 전체가 봉쇄된다</li>
+     *   <li><b>P2-D</b> 2단계에 "PAID && {@code user_plan_id IS NULL} 이면 스킵 + 알람" fail-safe —
+     *       유예 정산 결제가 승인은 됐는데 전이가 끝나지 않은 대사 대상(#1010)이 예정대로 FREE 로
+     *       강등되는 것을 막는다</li>
+     *   <li><b>P2-E</b> 결제해도 유예 진입 시 정지된 좌석이 자동 복구되지 않는다는 안내(최소 문구)</li>
+     * </ol>
      */
     private boolean paidTargetEnabled = false;
 

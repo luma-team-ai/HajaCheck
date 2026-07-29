@@ -49,7 +49,10 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li><b>무료 대상</b>(#1105 원래 범위) — {@code carryOverBillingPeriod(previous, false)} 로
  *       <b>종료가 NULL(무기한)</b> 이 된다(#1104 규칙). "지나간 만료일을 승계하면 새 구독이 즉시 만료
  *       강등 대상이 된다"는 딜레마가 사라진다.</li>
- *   <li><b>유료 대상</b>(#1177 C안 "유예 후 강등") — {@code startPaymentGracePeriod(now, graceDays)} 로
+ *   <li><b>유료 대상</b>(#1177 C안 "유예 후 강등") — <b>킬 스위치가 열려 있을 때만</b> 실행한다
+ *       ({@code paid-target-enabled}; 닫혀 있으면 예약을 FAILED 로 종료해 신청자에게 알린다 —
+ *       생성 시점 가드만으로는 이미 쌓인 PENDING 을 멈출 수 없기 때문이다).
+ *       {@code startPaymentGracePeriod(now, graceDays)} 로
  *       <b>유예 기간만</b> 열고 {@code payment_pending_until} 표식을 세운다. 이 경로는 결제 없이
  *       전이하므로 새 유료 1개월을 열면 어떤 경로로도 청구되지 않는 유료 한 달이 발급되는데(#1105 보안
  *       리뷰 P1), 유예는 그 구멍을 닫는다: 유예 중 엔타이틀먼트는 FREE 이고
@@ -330,6 +333,24 @@ public class ScheduledPlanChangeWriter {
         if (!isPaid(targetPlan)) {
             renewed.carryOverBillingPeriod(previous, false);
             return;
+        }
+        // ⚠️ 킬 스위치는 <b>실행 시점에도</b> 확인한다(리뷰 P2-B). 생성 시점 가드
+        // ({@code AdminPlanService#scheduleChange})만 있으면, 스위치를 켠 동안 쌓인 예약이 최대 한 달
+        // 보관되므로 <b>프론트 문제로 스위치를 되돌려도 이미 만들어진 PENDING 은 그대로 실행</b>된다 —
+        // 안내 UI 공백을 막겠다는 이 스위치의 존재 이유가 정작 좌석이 정지되는 시점에 성립하지 않는다.
+        // 여기서 끊으면 스위치를 내리는 것만으로 미실행 예약까지 함께 멈춘다.
+        //
+        // 이 가드는 <b>가격 정책 변경 이중 방어</b>이기도 하다(#1105 원래 근거): 생성 시점에는 무료였던
+        // 대상이 나중에 유료가 되면({@code Plan#updatePolicy}, #624) 무결제 유료 발급이 열리는데,
+        // 스위치가 닫혀 있는 한 그 경로도 여기서 막힌다.
+        //
+        // 도메인 예외라 호출부(1단계)가 예약을 <b>FAILED 로 종료 + PLAN_DOWNGRADE_FAILED 알림</b>으로
+        // 처리한다 — 신청자에게 조용히 사라지지 않고, 상위 요금제가 유지되므로 아무도 잘못 정지되지 않는다.
+        if (!paymentGraceService.isPaidTargetScheduleEnabled()) {
+            log.warn("유료 대상 예약 실행 거부(킬 스위치 닫힘) — targetPlan={} "
+                            + "hajacheck.plan.scheduled-change.paid-target-enabled=false",
+                    targetPlan.getName());
+            throw new BusinessException(ErrorCode.PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED);
         }
         renewed.startPaymentGracePeriod(now, paymentGraceService.graceDays());
         if (!renewed.isPaymentPending()) {

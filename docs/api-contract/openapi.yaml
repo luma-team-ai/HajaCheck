@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.35.0-draft"
+  version: "0.36.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -31,6 +31,21 @@ info:
         {id}/resolve` 성공 시) `CounselTicketResponse` 를 수신한다.
     - **브로커**: 인메모리 심플 브로커(`/topic`, `/queue`), 애플리케이션 목적지 prefix `/app`, 사용자 목적지
       prefix `/user`.
+
+
+    2026-07-29 유료→유료 하향의 미결제 유예 도입(#1177, Flyway V33) — 하향 예약 대상을 FREE 로만 제한하던
+    것을 **킬 스위치 게이팅 하에 유료 대상까지** 확대한다(`PLAN_SCHEDULED_CHANGE_PAID_TARGET_ENABLED`,
+    **기본 false**). 스위치가 닫힌 동안 유료 대상은 기존대로 `PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED`(403).
+    열린 경우 적용 시점에 대상 유료 요금제로 전환하되 `user_plans.payment_pending_until`(유예 마감, 기본
+    7일·최대 14일)을 세우고, **유예 중에는 한도와 기능 플래그(상담사 연결·AI 부가기능)가 모두 FREE 기준**
+    으로 내려간다 — 무결제로 얻는 유료 혜택이 없어야 결제 경로 우회가 되지 않기 때문이다. 마감 전 정산
+    결제 시 정상 주기 시작, 미결제 시 FREE 강등.
+
+
+    응답 변화(additive): `GET /api/me/plan`·`GET·PATCH /api/admin/plan` 의 `plan.paymentPendingUntil`
+    (nullable) 신설. **유예 중 `limits.*`·기능 플래그가 FREE 값으로 내려가는 반면 `plan.name` 은 구독
+    요금제를 그대로 보여주므로**, 이 필드 없이는 "STANDARD 인데 좌석 한도가 1"이라는 화면 모순을 설명할 수
+    없다. 에러 계약: 유예 중 재예약은 `PLAN_SCHEDULE_PAYMENT_PENDING`(409) 신설.
 
 
     2026-07-28 구독 만료 FREE 자동 강등 알림 추가(#1145 / HAJA-549, Flyway V28) — `NotificationTypeCode`
@@ -1233,12 +1248,22 @@ paths:
         초과 좌석 정지를 수행한다. 이미 낸 요금 기간을 온전히 쓰게 하려는 것이 목적이다.
 
 
-        ⚠️ **대상은 무료 요금제(FREE)만 지원한다**(`PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED`, 403).
-        유료→유료 하향(예: ENTERPRISE→STANDARD)은 적용 시점에 새 유료 주기를 열어야 하는데, 정기결제
-        (빌링키)가 없어 그 주기를 청구할 수단이 없다 — 즉 **무결제로 유료 요금제가 발급**된다. 결제 경로
-        우회를 막기 위해 이 조합 자체를 범위 밖으로 둔다(`PLAN_UPGRADE_REQUIRES_PAYMENT`와 같은 근거).
-        유료→유료 하향이 필요하면 관리자 즉시 변경(`PATCH /api/admin/plan`)을 쓴다 — 다만 그 경로는 잔여
-        기간을 정산하지 않는다.
+        ⚠️ **유료→유료 하향은 킬 스위치로 게이팅된다**(#1177). 기본값은 **닫힘**이며 닫힌 상태에서는
+        `PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED`(403)로 거절한다. 프론트가 유예 안내 UI(결제 마감·유예
+        배너·결제 유도)를 갖추기 전까지는 이 스위치를 열지 않는다 — API 로만 진입하면 사용자가 **결제
+        마감 안내를 받지 못한 채** 유예 만료 시 좌석 정지·FREE 강등을 맞기 때문이다.
+
+
+        **스위치를 연 경우의 동작(미결제 유예, C안)**: 적용 시점에 대상 유료 요금제로 전환하되
+        `payment_pending_until`(유예 마감)을 세운다. 유예 중에는 **한도·기능 플래그가 모두 FREE 기준**이라
+        무결제로 얻는 유료 혜택이 없고, 마감 전에 정산 결제를 하면 정상 주기가 시작되며, 결제하지 않으면
+        **FREE 로 강등**된다. 빌링키(정기결제)가 없어 무인 배치가 청구할 수단이 없다는 제약을 이렇게 우회한다
+        — 새 유료 주기를 그냥 열면 **무결제로 유료 요금제가 발급**되는 결제 경로 우회가 된다
+        (`PLAN_UPGRADE_REQUIRES_PAYMENT`와 같은 근거).
+
+
+        ⚠️ **유예 진입 시점에 초과 좌석이 FREE 기준(1석)으로 정지**되고, 이후 결제해도 정지된 구성원은
+        자동 복구되지 않는다(재활성화 필요). 유예 중 재예약은 `PLAN_SCHEDULE_PAYMENT_PENDING`(409)로 막는다.
 
 
         **상향도 이 경로로 받지 않는다** — 즉시 적용 + 결제가 필요하므로 `PLAN_SCHEDULE_NOT_DOWNGRADE`(403).
@@ -1291,7 +1316,9 @@ paths:
           description: >
             이미 대기 중인 예약 존재 (PLAN_SCHEDULED_CHANGE_EXISTS) · `current_period_end` 가 없어 실행
             기준일을 정할 수 없음 (PLAN_SCHEDULE_PERIOD_END_MISSING — FREE 무기한 구독 등) · 한도 초과를
-            확인하지 않음 (PLAN_DOWNGRADE_CONFIRMATION_REQUIRED)
+            확인하지 않음 (PLAN_DOWNGRADE_CONFIRMATION_REQUIRED) · **미결제 유예 중이라 재예약 불가**
+            (PLAN_SCHEDULE_PAYMENT_PENDING, #1177 — 유예→유예 사슬 방지. 먼저 정산 결제하거나 FREE 로
+            즉시 변경해 유예를 벗어나야 한다)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
@@ -5277,6 +5304,20 @@ components:
             name: { type: string, enum: [FREE, STANDARD, ENTERPRISE], example: STANDARD }
             priceMonthly: { type: number, example: 99000 }
             status: { type: string, enum: [ACTIVE, EXPIRED, UPGRADE_REQUESTED], example: ACTIVE }
+            paymentPendingUntil:
+              type: string
+              format: date-time
+              nullable: true
+              description: >
+                미결제 유예 마감(#1177). NULL = 정상. 값이 있으면 **유료→유료 하향 예약이 적용됐으나 아직
+                정산 결제가 되지 않은 상태**이며, 그 시각까지 결제하지 않으면 FREE 로 강등된다.
+
+
+                ⚠️ 유예 중에는 `limits.*` 와 요금제 기능 플래그(상담사 연결·AI 부가기능)가 **FREE 기준**으로
+                내려간다 — `name` 은 구독 요금제(예: STANDARD)를 그대로 보여주므로, 이 필드가 없으면 화면은
+                "STANDARD 인데 좌석 한도가 1"이라는 모순을 설명할 수 없다. 유예 진입 시점에 초과 좌석이
+                FREE 기준으로 정지되며, 결제해도 정지된 구성원은 자동 복구되지 않는다(재활성화 필요).
+              example: "2026-08-05T00:00:00Z"
             nextBillingDate:
               type: string
               format: date

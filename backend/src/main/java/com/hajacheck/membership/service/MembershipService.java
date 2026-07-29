@@ -69,14 +69,19 @@ public class MembershipService {
         User user = findUser(userId);
         Long companyId = user.getCompanyId();
 
+        // ⚠️ 좌석 한도도 "실제로 적용 중인" 요금제 기준이다(#1177 리뷰 P2-A) — 미결제 유예 중이면 FREE.
+        // 여기만 구독 요금제를 그대로 쓰면 화면은 "점검자 좌석 (1/5)"인데 실제 초대는
+        // QuotaService#hasAvailableSeat(FREE=1석)에서 막힌다. MyPlanResponse·AdminPlanItem 이 같은
+        // 이유로 이미 실효 요금제를 쓰므로, 한 곳만 남기면 같은 종류의 모순이 그대로 남는다.
         if (companyId == null) {
             UserPlan userPlan = resolveCurrentUserPlan(userId, null);
-            Plan plan = findPlan(userPlan.getPlanId());
+            Plan plan = paymentGraceService.resolveEffectivePlan(
+                    userPlan, findPlan(userPlan.getPlanId()));
             return SeatsResponse.of(1, List.of(user), plan.getMaxSeats());
         }
 
         UserPlan userPlan = resolveCurrentUserPlan(userId, companyId);
-        Plan plan = findPlan(userPlan.getPlanId());
+        Plan plan = paymentGraceService.resolveEffectivePlan(userPlan, findPlan(userPlan.getPlanId()));
         long totalActive = userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE);
         List<User> members = userRepository.findByCompanyIdAndStatusOrderByIdAsc(
                 companyId, UserStatus.ACTIVE, PageRequest.of(0, MEMBERSHIP_SEATS_MAX));

@@ -777,6 +777,42 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
     }
 
     @Test
+    @DisplayName("스위치를 되돌리면 이미 만들어진 유료 대상 PENDING 예약도 실행되지 않고 FAILED 로 끝난다(+실패 알림)")
+    void 킬스위치를_되돌리면_기존_PENDING도_실행되지_않는다() {
+        User owner = newUser("유예킬스위치실행", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        UserPlan current = newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minus(31, ChronoUnit.DAYS), now.minusSeconds(60));
+
+        // 스위치가 열린 동안 예약이 생성됐다(예약은 최대 한 달 보관된다).
+        allowPaidTarget();
+        AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
+                owner.getId(), PlanName.STANDARD, true, List.of());
+
+        // 프론트 문제로 스위치를 되돌린다 — 생성 가드만 있으면 이 예약은 그대로 실행돼 안내 없이
+        // 좌석 정지·FREE 강등이 일어난다(스위치의 존재 이유가 실행 시점에 성립하지 않는다).
+        scheduledPlanChangeProperties.setPaidTargetEnabled(false);
+
+        giveSchedulerHeadroom();
+        scheduledPlanChangeScheduler.applyDueScheduledChanges();
+
+        assertThat(reload(scheduled.id()).getStatus())
+                .as("실행 시점 가드가 없으면 APPLIED 가 된다 — 스위치를 내려도 못 막는다")
+                .isEqualTo(ScheduledPlanChangeStatus.FAILED);
+        assertThat(reload(scheduled.id()).getFailureReason())
+                .contains("PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED");
+        // 상위 요금제가 유지되므로 아무도 잘못 정지되지 않는다.
+        assertThat(userPlanRepository.findById(current.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserPlanStatus.ACTIVE);
+        assertThat(activeCompanyPlan(company.getId()).getPlanId())
+                .isEqualTo(plan(PlanName.ENTERPRISE).getId());
+        assertThat(activeCompanyPlan(company.getId()).isPaymentPending()).isFalse();
+        // FAILED 는 종료 상태라 재시도가 없다 — 알리지 않으면 신청자에게는 예약이 조용히 사라진 것이 된다.
+        assertThat(notificationsOf(owner.getId(), NotificationType.PLAN_DOWNGRADE_FAILED)).hasSize(1);
+    }
+
+    @Test
     @DisplayName("유료 대상 예약이 적용되면 미결제 유예로 발급된다 — 요금제는 STANDARD, 표식·마감이 서고, 엔타이틀먼트는 FREE")
     void 유료대상_적용시_미결제유예로_발급된다() {
         User owner = newUser("유예진입", Role.ADMIN);
@@ -850,6 +886,11 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
                 .as("상담사 연결·AI 부가기능도 FREE 기준이어야 한다 — 한도 3종만 낮추면 유료 기능이 열린다")
                 .isEqualTo(plan(PlanName.FREE).isHasCounselorAccess());
         assertThat(adminPlan.plan().hasAiAddon()).isEqualTo(plan(PlanName.FREE).isHasAiAddon());
+
+        // ⚠️ 좌석 화면(GET /api/me/seats)도 같은 기준이어야 한다(리뷰 P2-A) — 여기만 구독 요금제를 쓰면
+        // 화면은 "1/5"인데 실제 초대는 QuotaService(FREE=1석)에서 막힌다.
+        assertThat(membershipService.getSeats(owner.getId()).limit())
+                .isEqualTo(plan(PlanName.FREE).getMaxSeats());
     }
 
     @Test
