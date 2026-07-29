@@ -21,12 +21,13 @@ const HEAT_SCALE = ['bg-zinc-100', 'bg-zinc-200', 'bg-zinc-400', 'bg-zinc-600', 
 const VISIBLE_LIMIT = 4;
 
 function getHeatShade(count: number, max: number): string {
-  if (max <= 0 || count <= 0) return HEAT_SCALE[0];
+  if (count <= 0) return HEAT_SCALE[0]; // 0건은 가장 옅은 백그라운드 색상(Level 0)
+  if (max <= 0) return HEAT_SCALE[1];
+
   const ratio = count / max;
-  if (ratio <= 0.2) return HEAT_SCALE[0];
-  if (ratio <= 0.4) return HEAT_SCALE[1];
-  if (ratio <= 0.6) return HEAT_SCALE[2];
-  if (ratio <= 0.8) return HEAT_SCALE[3];
+  if (ratio <= 0.25) return HEAT_SCALE[1]; // 데이터가 1건이라도 존재하면 Level 1 이상 적용
+  if (ratio <= 0.5) return HEAT_SCALE[2];
+  if (ratio <= 0.75) return HEAT_SCALE[3];
   return HEAT_SCALE[4];
 }
 
