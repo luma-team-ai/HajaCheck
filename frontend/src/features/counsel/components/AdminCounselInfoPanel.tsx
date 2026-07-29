@@ -138,9 +138,9 @@ export function AdminCounselInfoPanel({ ticket, selectedHistoryTicketId, onSelec
       )}
 
       {ticket && tab === 'history' && (
-        // 목록 자체를 최대 높이로 제한하고 내부 스크롤 — 이력이 많아도 패널(그리고 3단 레이아웃
-        // 전체) 높이가 늘어지지 않는다(사용자 요청). 클릭 시 대화는 중앙 패널에서 보여준다.
-        <div className="flex max-h-[420px] min-h-0 flex-col gap-2 overflow-y-auto px-4 pb-4">
+        // 목록 자체를 최대 높이(600px)로 제한하고 내부 스크롤 — 이력이 많아도 패널(그리고 3단 레이아웃
+        // 전체) 높이가 너무 늘어지지 않게 함(사용자 피드백 반영: 420px -> 600px 완화). 클릭 시 대화는 중앙 패널에서 보여준다.
+        <div className="flex max-h-[600px] min-h-0 flex-col gap-2 overflow-y-auto px-4 pb-4">
           {historyLoading && <LoadingSpinner className="flex items-center justify-center py-6" />}
           {historyError && <p className="px-1 text-sm text-red-600">{historyError}</p>}
           {!historyLoading && !historyError && history.length === 0 && (

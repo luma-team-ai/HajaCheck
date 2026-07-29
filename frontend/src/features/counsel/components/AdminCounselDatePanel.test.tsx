@@ -16,7 +16,7 @@ const tickets: CounselTicketSummaryResponse[] = [
     userId: 300,
     counselorId: 9,
     counselorName: '김상담',
-    status: 'RESOLVED',
+    status: 'WAITING',
     queuePosition: null,
     createdAt: '2026-07-28T09:00:00',
     customerName: '박고객',

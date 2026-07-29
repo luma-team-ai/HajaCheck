@@ -33,14 +33,24 @@ describe('PlatformAdminCounselsPage', () => {
 
     fireEvent.change(screen.getByLabelText('날짜 검색'), { target: { value: '2026-07-28' } });
 
+    // 1. 기본적으로 '상담 대기'가 열려 있으므로 '이고객'(WAITING)이 먼저 노출됩니다.
+    expect(await screen.findByText(mockAdminTickets[1].customerName as string)).toBeTruthy();
+
+    // 2. '종료' 아코디언 그룹을 클릭하여 펼칩니다 (이때 '상담 대기'는 접히고 '종료'만 열립니다)
+    fireEvent.click(await screen.findByText(/종료 \(/));
+
+    // 3. '종료' 그룹이 열렸으므로 '박고객'(RESOLVED)이 노출됩니다.
     expect(await screen.findByText(mockAdminTickets[0].customerName as string)).toBeTruthy();
-    expect(screen.getByText(mockAdminTickets[1].customerName as string)).toBeTruthy();
   });
 
   it('티켓을 선택하면 트랜스크립트와 정보 패널이 함께 채워진다', async () => {
     renderPage();
 
     fireEvent.change(screen.getByLabelText('날짜 검색'), { target: { value: '2026-07-28' } });
+
+    // '종료' 아코디언 그룹을 클릭하여 펼칩니다
+    fireEvent.click(await screen.findByText(/종료 \(/));
+
     fireEvent.click(await screen.findByText(mockAdminTickets[0].customerName as string));
 
     expect(await screen.findByText('안녕하세요, 문의 주신 내용에 대해 안내드리겠습니다.')).toBeTruthy();
