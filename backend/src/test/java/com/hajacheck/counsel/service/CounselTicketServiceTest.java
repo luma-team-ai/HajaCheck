@@ -829,14 +829,14 @@ class CounselTicketServiceTest {
 
         Plan oldPlan = plan(true);
         ReflectionTestUtils.setField(oldPlan, "id", PLAN_ID);
-        Plan newPlan = Plan.create(PlanName.PREMIUM, 50, 5000, 10, true, true, true,
+        Plan newPlan = Plan.create(PlanName.ENTERPRISE, 50, 5000, 10, true, true, true,
                 BigDecimal.valueOf(199000));
         ReflectionTestUtils.setField(newPlan, "id", newerPlanId);
         when(planRepository.findAllById(any())).thenReturn(List.of(oldPlan, newPlan));
 
         Page<CounselTicketSummaryResponse> page = service.getAdminTicketsByDate(date, pageable);
 
-        assertThat(page.getContent().get(0).customerPlan()).isEqualTo("PREMIUM");
+        assertThat(page.getContent().get(0).customerPlan()).isEqualTo("ENTERPRISE");
     }
 
     /**
