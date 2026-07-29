@@ -3,6 +3,7 @@ package com.hajacheck.membership.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.hajacheck.admin.dto.AdminPlanQuotaResponse;
 import com.hajacheck.admin.dto.AdminPlanResponse;
 import com.hajacheck.admin.dto.AdminScheduledPlanChangeResponse;
 import com.hajacheck.admin.service.AdminPlanService;
@@ -891,6 +892,47 @@ class ScheduledPlanChangeIntegrationTest extends PostgresTestSupport {
         // 화면은 "1/5"인데 실제 초대는 QuotaService(FREE=1석)에서 막힌다.
         assertThat(membershipService.getSeats(owner.getId()).limit())
                 .isEqualTo(plan(PlanName.FREE).getMaxSeats());
+
+        // ⚠️ 쿼터 사용 현황(GET /api/admin/plan/quota)도 같은 부류다(2차 검증 P2) — 한도가 구독 요금제
+        // 기준이면 남은 양도 사용률 퍼센트도 실제 차단 기준과 어긋난다.
+        AdminPlanQuotaResponse quota = adminPlanService.getPlanQuota(owner.getId(), 1, 20, null);
+        assertThat(quota.stats().companyPlan())
+                .as("요금제 이름은 구독 요금제 그대로 — 정체성은 실효 요금제로 바꾸지 않는다")
+                .isEqualTo(PlanName.STANDARD.name());
+        assertThat(quota.content()).isNotEmpty();
+        assertThat(quota.content().get(0).quotaLimit())
+                .as("한도는 실효 요금제(FREE) 기준이어야 실제 차단(QuotaService)과 일치한다")
+                .isEqualTo(plan(PlanName.FREE).getMaxMonthlyAnalyses());
+        assertThat(quota.content().get(0).plan()).isEqualTo(PlanName.STANDARD.name());
+    }
+
+    @Test
+    @DisplayName("유예 중 쿼터 사용률은 FREE 한도 기준으로 계산된다 — 같은 사용량이라도 퍼센트가 달라진다")
+    void 유예중_쿼터사용률은_FREE한도_기준이다() {
+        User owner = newUser("유예사용률", Role.ADMIN);
+        Company company = newApprovedCompany(owner);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        newCompanyPlan(company.getId(), PlanName.ENTERPRISE,
+                now.minus(31, ChronoUnit.DAYS), now.minusSeconds(60));
+        allowPaidTarget();
+        AdminScheduledPlanChangeResponse scheduled = adminPlanService.scheduleChange(
+                owner.getId(), PlanName.STANDARD, true, List.of());
+        scheduledPlanChangeWriter.applyDueChange(scheduled.id(), now);
+        UserPlan grace = activeCompanyPlan(company.getId());
+
+        // FREE 한도의 절반을 소비한다 — STANDARD 기준이면 훨씬 낮은 퍼센트가 나온다.
+        // ⚠️ 이 테스트 클래스는 트랜잭션을 열지 않으므로(writer 가 REQUIRES_NEW 라 그렇다) 집계 행은
+        // JPA 벌크 쿼리가 아니라 jdbcTemplate 으로 직접 만든다.
+        int freeLimit = plan(PlanName.FREE).getMaxMonthlyAnalyses();
+        jdbcTemplate.update(
+                "insert into usage_counters (user_plan_id, period, analyzed_image_count) values (?, ?, ?)",
+                grace.getId(), java.sql.Date.valueOf(currentPeriod()), freeLimit / 2);
+
+        AdminPlanQuotaResponse quota = adminPlanService.getPlanQuota(owner.getId(), 1, 20, null);
+
+        assertThat(quota.stats().totalQuotaUsagePercent())
+                .as("구독 요금제(STANDARD) 한도로 계산하면 퍼센트가 크게 낮아져 사용자가 여유가 있다고 오인한다")
+                .isEqualTo(50);
     }
 
     @Test

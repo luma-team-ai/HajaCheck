@@ -402,6 +402,10 @@ public class AdminPlanService {
      * 회사 소속 활성 멤버별 이번 달 쿼터 사용 현황(#507, frontend PlanQuotaPage.tsx). 회사에 활성 구독이
      * 없으면(PLAN_NOT_FOUND) 목록 조회 자체는 실패시키지 않고 plan/quotaLimit 을 전부 null 로 반환한다 —
      * getCurrentPlan/getHistory 와 달리 이 화면은 "구독 없음"도 정상 상태로 보여줘야 하는 목록 뷰이기 때문이다.
+     *
+     * <p><b>미결제 유예(#1177)</b>: {@code quotaLimit}·{@code totalQuotaUsagePercent} 는 <b>실효 요금제</b>
+     * (유예 중이면 FREE) 기준이고, {@code planName} 은 <b>구독 요금제</b> 그대로다 —
+     * {@code AdminPlanItem#of} 와 같은 원칙(정체성은 구독 요금제, 엔타이틀먼트는 실효 요금제).
      */
     public AdminPlanQuotaResponse getPlanQuota(Long adminUserId, int page, int size, String keyword) {
         Long companyId = resolveInheritedCompanyId(adminUserId);
@@ -412,7 +416,16 @@ public class AdminPlanService {
         try {
             UserPlan current = resolveCurrentCompanyPlan(companyId);
             companyPlan = findPlan(current.getPlanId());
-            companyQuotaLimit = companyPlan.getMaxMonthlyAnalyses();
+            // ⚠️ 한도·사용률은 "실제로 적용 중인" 요금제 기준이다(#1177) — 미결제 유예 중이면 FREE.
+            // 구독 요금제로 내보내면 이 화면이 STANDARD 한도(1000)를 보여주는데 실제 차단은 FREE
+            // 기준(50)이라 남은 양도 사용률 퍼센트도 어긋난다(MyPlanResponse·AdminPlanItem·
+            // MembershipService#getSeats 와 같은 규칙 — 화면 숫자와 서버 차단 기준이 갈라지면 안 된다).
+            //
+            // 반면 <b>요금제 이름은 구독 요금제 그대로</b> 둔다(companyPlan 을 바꾸지 않는 이유) —
+            // AdminPlanItem#of 에서 세운 원칙과 같다: 정체성(이름·가격)은 구독한 요금제, 엔타이틀먼트만
+            // 실효 요금제. 유예 중에도 사용자가 구독한 것은 여전히 STANDARD 이고, 결제하면 그 요금제가 된다.
+            companyQuotaLimit = paymentGraceService.resolveEffectivePlan(current, companyPlan)
+                    .getMaxMonthlyAnalyses();
             LocalDate period = currentPeriod();
             UsageCounter usage = usageCounterRepository
                     .findByUserPlanIdAndPeriod(current.getId(), period)
