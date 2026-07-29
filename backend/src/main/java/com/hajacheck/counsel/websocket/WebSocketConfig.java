@@ -31,7 +31,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         // 동일 오리진 프록시 전제 — 기본(same-origin) 오리진 정책 유지, SockJS 미사용.
-        registry.addEndpoint("/ws")
+        // "/ws/"(trailing slash)도 등록 — 클라이언트(buildWsUrl)가 trailing slash를 붙여 연결하는데,
+        // "/ws"만 등록하면 "/ws/"가 WebSocket 핸들러 대신 MVC DispatcherServlet으로 fallback돼
+        // NoResourceFoundException(404)이 발생한다(nginx 로그 404, Spring 로그 "No static resource ws." 확인됨).
+        registry.addEndpoint("/ws", "/ws/")
                 .addInterceptors(counselHandshakeInterceptor);
     }
 
