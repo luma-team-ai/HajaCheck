@@ -18,6 +18,23 @@
    중단**한다(RuntimeError). 조용히 강제 활성화하지 않는 이유: 운영자가 의도적으로 끈 것인지
    실수인지 코드가 구분할 수 없고, 이 레포는 fail-closed가 관례다(main.py의 /docs 가드와 동일).
 
+## error 스크럽 설치는 부팅 시점 tracing 여부와 분리한다 (4차 리뷰 P3 후속)
+
+기존 구현은 "부팅 시 트레이싱이 켜져 있을 때만" anonymizer를 선점 설치했다. 그런데 표준
+프로덕션 상태(docker-compose 기본값)는 `HIDE_*=true`이지만 `LANGCHAIN_TRACING_V2`는
+대개 미설정이다 — 즉 "부팅 시 트레이싱 OFF"가 흔한 정상 상태다. 이 PR 이전까지 모든 체인이
+요청 단위로 `tracing_context(enabled=...)`를 직접 감싸던 패턴이었으므로, 누군가 나중에
+그 패턴을 되살리면(현실적인 회귀) 부팅 시점엔 anonymizer가 없던 채로 예외가 나 원문이
+새어나간다 — 이 PR이 막으려던 P1이 그대로 재발한다.
+
+그래서 anonymizer 선점은 **트레이스가 나갈 수 있는 조건(API 키 존재)** 하나로만 판단한다.
+API 키가 있으면 트레이싱이 부팅 시 꺼져 있어도 싱글턴을 미리 만들어 anonymizer를 실어둔다 —
+이러면 그 순간 `HIDE_*` env 값이 `Client._hide_inputs/_hide_outputs`에 함께 고정되므로(둘 다
+Client 생성 시점 값), 이후 언제 트레이싱이 켜지든 입출력 마스킹도 그대로 유지된다. 부팅
+시점에 트레이싱이 실제로 켜져 있을 때만 적용되는 RuntimeError(fail-closed)는 그대로 둔다 —
+이건 "지금 이 순간 새는지"를 막는 것이고, anonymizer 선점은 "나중에 새는 것까지" 막는
+별도 안전장치다. API 키 자체가 없으면 Client를 만들 이유가 없다(어차피 전송 실패).
+
 ## 판정은 자체 파싱하지 않고 프레임워크 함수에 위임한다 (2차 리뷰 P1 후속)
 
 env를 직접 파싱하면 프레임워크의 실제 판정과 어긋나는 순간 가드가 헛돈다. 실측
@@ -84,14 +101,26 @@ def _hide_env_missing() -> list[str]:
 
 
 def enforce_masked_tracing() -> None:
-    """트레이싱이 켜져 있으면 마스킹 완전성을 강제하고 error 스크럽을 싱글턴에 선점 설치한다.
+    """error 스크럽을 선점 설치하고, 부팅 시점에 트레이싱이 켜져 있으면 마스킹 완전성을 강제한다.
 
-    - 트레이싱 OFF(기본): 아무것도 하지 않는다 — 전송 자체가 없어 유출 표면이 없고,
-      불필요한 Client 생성(API 키 경고 등)도 피한다.
-    - 트레이싱 ON + HIDE 둘 중 하나라도 정확히 "true"가 아님: RuntimeError로 기동 중단.
-    - 트레이싱 ON + HIDE 둘 다 "true": `get_cached_client(anonymizer=...)`로 전역 싱글턴을
-      선점 생성해 이후 모든 트레이스의 error 필드가 스크럽되게 한다.
+    - API 키 없음: 아무것도 하지 않는다 — Client를 만들 이유가 없다(전송 자체가 불가능).
+    - API 키 있음: `get_cached_client(anonymizer=...)`로 전역 싱글턴을 선점 생성한다.
+      **부팅 시 트레이싱이 꺼져 있어도 실행한다**(4차 리뷰 P3) — 나중에 요청 단위
+      `tracing_context(enabled=True)`가 재도입돼도 error 스크럽이 이미 걸려 있게 하기 위함.
+      이 시점의 HIDE_* env 값이 Client에 고정되므로 입출력 마스킹도 함께 미리 잠긴다.
+    - 그중에서도 **부팅 시점에 트레이싱이 실제로 켜져 있으면** HIDE 완전성을 추가로 강제한다 —
+      둘 중 하나라도 정확히 "true"가 아니면 RuntimeError로 기동 중단(fail-closed). 이건
+      "지금 이 순간 새는지"를 막는 것이고, 위 anonymizer 선점은 "나중에 새는 것까지" 막는
+      별도 안전장치다(둘 다 필요 — 모듈 docstring "4차 리뷰 P3 후속" 참고).
     """
+    api_key_configured = ls_utils.get_env_var("API_KEY", default=None) is not None
+    if api_key_configured:
+        from langsmith.run_trees import get_cached_client
+
+        # 첫 트레이스 전에 싱글턴을 선점해야 anonymizer가 실린다 — 이미 생성돼 있으면(정상
+        # 부팅 순서에선 불가능) 기존 인스턴스가 반환되며 kwargs는 무시된다.
+        get_cached_client(anonymizer=scrub_error_anonymizer)
+
     # 부팅 시점엔 활성 run tree·컨텍스트 오버라이드가 없으므로 순수 env 판정이다.
     # 반환값 "local"(코드로만 설정 가능)도 truthy로 취급 — 마스킹을 강제하는 안전한 방향.
     if not ls_utils.tracing_is_enabled():
@@ -105,9 +134,3 @@ def enforce_masked_tracing() -> None:
             "(Client는 소문자 \"true\" 외의 값을 전부 마스킹 OFF로 해석합니다). "
             "마스킹 없이 트레이싱하면 OCR 원문·고객 개인정보가 외부 LangSmith로 전송됩니다(#1240)."
         )
-
-    from langsmith.run_trees import get_cached_client
-
-    # 첫 트레이스 전에 싱글턴을 선점해야 anonymizer가 실린다 — 이미 생성돼 있으면(정상 부팅
-    # 순서에선 불가능) 기존 인스턴스가 반환되며 kwargs는 무시된다.
-    get_cached_client(anonymizer=scrub_error_anonymizer)

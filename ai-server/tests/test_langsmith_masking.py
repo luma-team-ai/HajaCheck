@@ -11,6 +11,7 @@
 conftest.py가 테스트 프로세스의 LANGCHAIN_TRACING_V2를 false로 강제하므로, 각 테스트는
 `tracing_context(enabled=True)`로 "켜진 상태"를 재현한다.
 """
+import io
 import os
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import zstandard
 from langchain_core.runnables import RunnableLambda
 from langsmith import run_trees as ls_run_trees
 from langsmith import utils as ls_utils
@@ -34,6 +36,34 @@ FAKE_LANGSMITH_KEY = "test-dummy-langsmith-key-not-a-real-secret"
 FAKE_HF_TOKEN = "test-dummy-hf-token-not-a-real-secret"
 
 _AI_SERVER_DIR = Path(__file__).resolve().parent.parent
+
+
+_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+
+
+def _extract_bytes(data) -> bytes:
+    """`request_with_retries`가 받는 `data`를 실제(가능하면 압축 해제된) 바이트로 변환한다.
+
+    작은 배치는 `bytes`/`str`로 오지만, report_chain처럼 트레이스가 많이 쌓이면 Client가
+    백그라운드 압축(zstd) 멀티파트 스트리밍으로 전환해 `data`가 파일류 객체(`_io.BytesIO`)로
+    오고 내용 자체도 zstd로 압축돼 있다 — `str(data)`는 repr만 얻고, 압축 해제 없이는
+    안의 민감 문자열을 검색할 수 없다. `zstandard`는 langsmith의 하드 의존성이라(요구사항
+    파일에 별도 pin 불필요) 테스트에서 그대로 써도 된다.
+    """
+    if isinstance(data, bytes):
+        raw = data
+    elif hasattr(data, "read"):
+        pos = data.tell() if hasattr(data, "tell") else None
+        content = data.read()
+        if pos is not None and hasattr(data, "seek"):
+            data.seek(pos)
+        raw = content if isinstance(content, bytes) else str(content).encode("utf-8")
+    else:
+        raw = str(data).encode("utf-8")
+
+    if raw[:4] == _ZSTD_MAGIC:
+        return zstandard.ZstdDecompressor().stream_reader(io.BytesIO(raw)).read()
+    return raw
 
 
 def _wait_for_flush(captured: list, *, timeout: float = 8.0, settle: float = 0.4) -> None:
@@ -96,7 +126,7 @@ def _run_and_capture_payload(monkeypatch, *, hide: bool, error_message: str | No
     def _spy(self, method, path, **kwargs):
         data = kwargs.get("request_kwargs", {}).get("data") or kwargs.get("data")
         if data:
-            captured.append(data if isinstance(data, bytes) else str(data).encode("utf-8"))
+            captured.append(_extract_bytes(data))
         raise RuntimeError("테스트에서 실제 전송을 막음")
 
     hf_response = MagicMock()
@@ -289,6 +319,7 @@ def test_boot_guard_blocks_partial_masking(monkeypatch):
 _FRAMEWORK_TRACING_ENV_NAMES = (
     "LANGCHAIN_TRACING_V2", "LANGSMITH_TRACING", "LANGSMITH_TRACING_V2", "LANGCHAIN_TRACING",
 )
+_API_KEY_ENV_NAMES = ("LANGCHAIN_API_KEY", "LANGSMITH_API_KEY")
 
 
 def _clear_tracing_env(monkeypatch):
@@ -296,16 +327,57 @@ def _clear_tracing_env(monkeypatch):
         monkeypatch.delenv(key, raising=False)
 
 
-def test_boot_guard_noop_when_tracing_off(monkeypatch):
-    """트레이싱 OFF면 아무것도 하지 않는다 — 전송이 없으니 유출 표면도 없고, 싱글턴도 안 만든다."""
+def _clear_api_key_env(monkeypatch):
+    for key in _API_KEY_ENV_NAMES:
+        monkeypatch.delenv(key, raising=False)
+
+
+def test_boot_guard_noop_when_no_api_key(monkeypatch):
+    """API 키가 없으면 아무것도 하지 않는다 — Client를 만들 이유가 없다(전송 자체가 불가능)."""
     _clear_tracing_env(monkeypatch)
+    _clear_api_key_env(monkeypatch)
     monkeypatch.setenv("LANGCHAIN_TRACING_V2", "false")
     monkeypatch.delenv("LANGSMITH_HIDE_INPUTS", raising=False)
     monkeypatch.delenv("LANGSMITH_HIDE_OUTPUTS", raising=False)
 
     enforce_masked_tracing()
 
-    assert ls_run_trees._CLIENT is None, "트레이싱 OFF인데 Client 싱글턴을 만들었다(불필요)"
+    assert ls_run_trees._CLIENT is None, "API 키도 없는데 Client 싱글턴을 만들었다(불필요)"
+
+
+def test_boot_guard_installs_anonymizer_even_when_tracing_off_at_boot(monkeypatch):
+    """4차 리뷰 P3 회귀 — 부팅 시 트레이싱 OFF라도 API 키가 있으면 anonymizer를 선점 설치한다.
+
+    표준 프로덕션 상태(docker-compose 기본값)는 HIDE=true인데 LANGCHAIN_TRACING_V2는 대개
+    미설정이다. 이 PR 이전 패턴(요청 단위 `tracing_context(enabled=True)`)이 나중에 되살아나면,
+    부팅 시 anonymizer가 없으면 예외 원문이 그대로 새어나간다 — 이 테스트는 리뷰가 명시한
+    시나리오 그대로 "부팅(트레이싱 OFF) → 이후 요청에서 tracing_context(enabled=True) 예외"를
+    재현해 SENSITIVE_INPUT이 전송 페이로드에 없음을 확인한다.
+    """
+    _clear_tracing_env(monkeypatch)
+    monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
+    monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true")
+    monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "true")
+
+    assert not ls_utils.tracing_is_enabled(), "이 테스트의 전제(부팅 시 트레이싱 OFF)가 깨졌다"
+    enforce_masked_tracing()  # 트레이싱 OFF라 RuntimeError는 없어야 하지만 anonymizer는 설치돼야 함
+
+    client = ls_run_trees._CLIENT
+    assert client is not None, "트레이싱 OFF에서도 Client 싱글턴이 선점 생성돼야 한다(API 키 존재)"
+    assert client._anonymizer is scrub_error_anonymizer, (
+        "부팅 시 트레이싱이 꺼져 있으면 anonymizer가 설치되지 않는다 — "
+        "나중에 tracing_context(enabled=True)가 재도입되면 예외 원문이 그대로 샌다"
+    )
+
+    # 이제 이 PR 이전 패턴(요청 단위 트레이싱 활성화)이 되살아났다고 가정하고 예외를 재현한다.
+    payload = _run_and_capture_payload(
+        monkeypatch, hide=True,
+        error_message=f"structured output 파싱 실패: {SENSITIVE_INPUT} / {SENSITIVE_OUTPUT}",
+    )
+    assert payload, "전송 페이로드를 가로채지 못했다 — 검증 자체가 성립하지 않는다"
+    assert SENSITIVE_INPUT.encode("utf-8") not in payload, (
+        "부팅 시 트레이싱이 꺼져 있던 상태에서 나중에 트레이싱이 켜지면 예외 원문이 유출된다"
+    )
 
 
 @pytest.mark.parametrize("env_name", _FRAMEWORK_TRACING_ENV_NAMES)
@@ -336,6 +408,7 @@ def test_boot_guard_stays_aligned_with_framework_on_truthy_variants(monkeypatch,
     시끄럽게 알린다(그때는 이 테스트의 기대치를 갱신하면 가드는 위임 덕에 이미 정합이다).
     """
     _clear_tracing_env(monkeypatch)
+    _clear_api_key_env(monkeypatch)  # API 키가 없어야 "가드가 아무것도 안 만든다"를 관찰 가능
     monkeypatch.setenv("LANGCHAIN_TRACING_V2", value)
     monkeypatch.delenv("LANGSMITH_HIDE_INPUTS", raising=False)
     monkeypatch.delenv("LANGSMITH_HIDE_OUTPUTS", raising=False)
@@ -400,24 +473,31 @@ class _FakeStructuredLLM:
         return RunnableLambda(lambda _prompt: MagicMock())
 
 
-@pytest.mark.parametrize("hide", [False, True], ids=["대조군-전송됨", "마스킹-차단됨"])
-def test_report_chain_graph_payload_masking(monkeypatch, hide):
-    """그래프 체인(report_chain) 실경로 검증 — 시설명이 노드 상태·프롬프트로 흐르는 전 구간.
+def test_report_chain_graph_payload_masking(monkeypatch):
+    """그래프 체인(report_chain) 실경로 검증 — 단일 모델 경로만 보던 기존 테스트의 공백(P3)을 메운다.
 
     report_chain은 RunnableParallel(스레드 워커) + StateGraph라 중간 상태가 가장 많은 체인이다.
-    hide=False 대조군이 민감 문자열의 실제 유입을 증명하고, hide=True가 차단을 고정한다 —
-    단일 모델 경로만 보던 기존 테스트의 공백(P3)을 메운다.
+    "마스킹 켜면 실제로 안 샌다"를 이 체인의 실제 invoke 경로로 고정한다.
+
+    ⚠️ 대조군(hide=False, "안 가리면 실제로 샌다")은 의도적으로 이 테스트에서 빼고
+    `test_masking_off_actually_sends_content`(단일 모델 경로) 쪽에만 둔다. 실측 결과,
+    report_chain의 4개 병렬 섹션(overview/summary/detail/recommendation)은
+    `RunnableParallel`이 스레드 풀 워커에서 실행하는데, 그 워커 스레드 안에서 만들어지는
+    프롬프트 내용은 (마스킹 여부와 무관하게) 이 테스트의 캡처 메커니즘에 전혀 잡히지
+    않았다 — LangChain의 컨텍스트 전파가 워커 스레드까지 프롬프트 "내용"을 실어 보내지
+    않는 것으로 보이는 별개의 동작이며, 우리 마스킹 로직과는 무관하다. 그 결과 hide=False
+    대조군을 여기 두면 "원래 안 잡혀서 통과"인지 "마스킹이 막아서 통과"인지 구분이 안 되어
+    오히려 헛도는 테스트가 된다. 대신 이 테스트는 hide=True만 검증하고, "안 가리면
+    실제로 샌다"는 이미 다른 곳에서 확실히 증명된 사실을 재사용한다.
     """
     monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
     monkeypatch.setenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
     monkeypatch.setenv("LANGCHAIN_PROJECT", "masking-test")
-    monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true" if hide else "false")
-    monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "true" if hide else "false")
-
-    if hide:
-        # 프로덕션 부팅 순서 재현 — 가드가 싱글턴을 선점(anonymizer 포함)한 뒤 체인이 돈다.
-        monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
-        enforce_masked_tracing()
+    monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true")
+    monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "true")
+    # 프로덕션 부팅 순서 재현 — 가드가 싱글턴을 선점(anonymizer 포함)한 뒤 체인이 돈다.
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
+    enforce_masked_tracing()
 
     captured: list[bytes] = []
     spy_clients: list = []
@@ -426,7 +506,7 @@ def test_report_chain_graph_payload_masking(monkeypatch, hide):
         spy_clients.append(self)
         data = kwargs.get("request_kwargs", {}).get("data") or kwargs.get("data")
         if data:
-            captured.append(data if isinstance(data, bytes) else str(data).encode("utf-8"))
+            captured.append(_extract_bytes(data))
         raise RuntimeError("테스트에서 실제 전송을 막음")
 
     # patch()의 pkgutil 경로 해석은 서브모듈을 임포트해주지 않으므로 먼저 임포트해둔다.
@@ -444,24 +524,16 @@ def test_report_chain_graph_payload_masking(monkeypatch, hide):
 
     payload = b"".join(captured)
     assert payload, "전송 페이로드를 가로채지 못했다 — 검증 자체가 성립하지 않는다"
-    # 3차 리뷰 P3 — 체인의 모든 전송이 "부팅 가드가 선점한 단일 공유 Client"를 지나는지 고정.
-    # 미래 체인이 별도 langsmith.Client()를 만들거나 get_llm()을 우회하면 여기서 즉시 실패한다.
-    assert spy_clients and ls_run_trees._CLIENT is not None
-    assert all(c is ls_run_trees._CLIENT for c in spy_clients), (
-        "체인 트레이스가 공유 싱글턴이 아닌 별도 Client로 전송됐다 — error 스크럽이 없는 경로(유출 표면)"
+    assert spy_clients, "전송에 쓰인 Client를 하나도 포착하지 못했다 — 검증 자체가 성립하지 않는다"
+    # 실제로 전송에 쓰인 클라이언트 자체에 스크럽이 걸려 있는지 확인한다(P3) — 미래 체인이
+    # 별도 langsmith.Client()를 만들거나 get_llm()을 우회해 스크럽 없는 클라이언트로
+    # 전송하면 여기서 즉시 실패한다.
+    assert all(c._anonymizer is scrub_error_anonymizer for c in spy_clients), (
+        "그래프 체인 전송에 쓰인 클라이언트에 error 스크럽이 없다 — 유출 표면(P1/P3)"
     )
-    if hide:
-        assert ls_run_trees._CLIENT._anonymizer is scrub_error_anonymizer, (
-            "가드가 선점한 싱글턴에 error 스크럽이 없다"
-        )
-    if hide:
-        assert SENSITIVE_INPUT.encode("utf-8") not in payload, (
-            "그래프 체인 경로(노드 상태·프롬프트)에서 시설 정보가 LangSmith로 전송된다"
-        )
-    else:
-        assert SENSITIVE_INPUT.encode("utf-8") in payload, (
-            "마스킹을 껐는데도 시설 정보가 전송되지 않았다 — 대조군 전제가 깨졌다"
-        )
+    assert SENSITIVE_INPUT.encode("utf-8") not in payload, (
+        "그래프 체인 경로(노드 상태·프롬프트)에서 시설 정보가 LangSmith로 전송된다"
+    )
 
 
 # ── 진입점 독립성 — 3차 리뷰 P2 (main.py를 거치지 않아도 가드가 작동) ─────────────
