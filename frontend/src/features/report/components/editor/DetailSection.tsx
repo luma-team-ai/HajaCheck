@@ -191,8 +191,12 @@ export function DetailSection({
       ) : (
         <div className="flex flex-col gap-4">
           {pageItems.map(({ item, index }) => (
-            <article id={`report-defect-${index + 1}`} key={index} className="overflow-hidden bg-surface">
-              <div className="grid gap-0 border-y border-border lg:grid-cols-[minmax(240px,325px)_minmax(200px,236px)_minmax(0,1fr)]">
+            <article
+              id={`report-defect-${index + 1}`}
+              key={index}
+              className="rounded-lg border border-border bg-surface overflow-hidden"
+            >
+              <div className="grid gap-0 lg:grid-cols-[minmax(240px,325px)_minmax(200px,236px)_minmax(0,1fr)]">
                 <div className="relative min-h-72 overflow-hidden bg-surface-sunken">
                   <DefectImage
                     src={visibleImageUrls[index]}
