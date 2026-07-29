@@ -21,6 +21,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,13 +38,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class AuthController {
 
-    // Spring Session 기본 쿠키명 / CSRF 쿠키명 — 로그아웃 시 만료 처리 대상.
+    // Spring Session 기본 쿠키명 — 로그아웃 시 만료 처리 대상.
     private static final String SESSION_COOKIE = "SESSION";
-    private static final String CSRF_COOKIE = "XSRF-TOKEN";
 
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository securityContextRepository;
     private final AuthService authService;
+    // SecurityConfig.csrfTokenRepository() 와 동일 인스턴스 — 로그아웃 응답에 새 CSRF 토큰을 심는다.
+    private final CsrfTokenRepository csrfTokenRepository;
 
     @Operation(summary = "자체 로그인", description = "email/password 로 인증 후 세션 발급")
     @PostMapping("/login")
@@ -82,7 +84,7 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
-    @Operation(summary = "로그아웃", description = "세션 무효화 + SecurityContext clear + 쿠키 만료")
+    @Operation(summary = "로그아웃", description = "세션 무효화 + SecurityContext clear + 세션 쿠키 만료 + CSRF 토큰 회전")
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest httpRequest,
                                                     HttpServletResponse httpResponse) {
@@ -91,17 +93,25 @@ public class AuthController {
             session.invalidate();
         }
         SecurityContextHolder.clearContext();
-        // 브라우저에 남은 세션·CSRF 쿠키를 즉시 만료(Max-Age=0)시켜 stale 쿠키 재사용 방지.
-        expireCookie(httpResponse, SESSION_COOKIE, true);
-        expireCookie(httpResponse, CSRF_COOKIE, false);
+        // 브라우저에 남은 세션 쿠키를 즉시 만료(Max-Age=0)시켜 stale 세션 재사용 방지.
+        expireSessionCookie(httpResponse);
+        // CSRF 쿠키는 "삭제"가 아니라 "회전"한다(#1200). 삭제하면 로그아웃 화면(/login)에서 곧바로
+        // 재로그인할 때 double-submit 쿠키가 없어 첫 POST 가 403 으로 실패했다.
+        // CookieCsrfTokenRepository 는 세션 바인딩 없는 double-submit 이라 서버가 토큰을 저장하지
+        // 않는다(쿠키 값 == 헤더 값 일치만 검증) → 세션이 무효화된 뒤 유효한 CSRF 토큰이 쿠키에
+        // 남아 있어도 그것만으로는 어떤 권한도 얻지 못한다. 값을 새로 발급하므로 "stale 토큰
+        // 재사용 방지" 라는 원래 의도도 그대로 유지된다.
+        // CsrfCookieFilter 는 이 컨트롤러보다 먼저 실행되므로, 여기서 심는 새 값이 응답의 최종값이다.
+        csrfTokenRepository.saveToken(csrfTokenRepository.generateToken(httpRequest),
+                httpRequest, httpResponse);
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
-    private void expireCookie(HttpServletResponse response, String name, boolean httpOnly) {
-        Cookie cookie = new Cookie(name, "");
+    private void expireSessionCookie(HttpServletResponse response) {
+        Cookie cookie = new Cookie(SESSION_COOKIE, "");
         cookie.setPath("/");
         cookie.setMaxAge(0);
-        cookie.setHttpOnly(httpOnly);
+        cookie.setHttpOnly(true);
         response.addCookie(cookie);
     }
 }
