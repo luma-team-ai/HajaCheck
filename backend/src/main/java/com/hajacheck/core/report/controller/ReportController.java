@@ -18,6 +18,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Pageable;
@@ -75,11 +76,13 @@ public class ReportController {
     @PostMapping("/api/inspections/{inspectionId}/reports")
     public ResponseEntity<ApiResponse<ReportDetailResponse>> generateDraft(
             @PathVariable Long inspectionId,
-            @Valid @RequestBody GenerateDraftRequest request,
+            @Valid @RequestBody(required = false) GenerateDraftRequest request,
             @AuthenticationPrincipal LoginUser loginUser) {
+        Set<String> sections = request != null ? request.sections() : null;
+        Boolean includePhoto = request != null ? request.includePhoto() : null;
         ReportDetailResponse response = reportService.generateDraft(
                 inspectionId, loginUser.getCompanyId(), loginUser.getUserId(),
-                request.sections(), request.includePhoto());
+                sections, includePhoto);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
     }
 
