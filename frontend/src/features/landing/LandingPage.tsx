@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../auth/store/authStore';
 import { LandingFooter } from './components/LandingFooter';
 import { LandingHeader } from './components/LandingHeader';
-import { PARTNERS, PRICING_TIERS } from './constants';
+import { PARTNERS, PRICING_TIERS, formatPricingTiersFromApi } from './constants';
+import { publicPlanApi } from './api/publicPlanApi';
 import heroVisualImage from '../../assets/brand/landing-hero-ai-scan.svg';
 import analysisViewerImage from '../../assets/brand/landing-screens/analysis-viewer.png';
 import inspectionCycleImage from '../../assets/brand/landing-screens/inspection-cycle.png';
@@ -29,6 +31,17 @@ export default function LandingPage() {
       navigate('/dashboard', { replace: true });
     }
   }, [user, navigate]);
+
+  const { data: planData } = useQuery({
+    queryKey: ['publicPlans'],
+    queryFn: ({ signal }) => publicPlanApi.getPlans(signal).then((res) => res.data.data.plans),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const pricingTiers = useMemo(
+    () => (planData ? formatPricingTiersFromApi(planData) : PRICING_TIERS),
+    [planData],
+  );
 
   const [isAtTop, setIsAtTop] = useState(true);
   const [isAtBottom, setIsAtBottom] = useState(false);
@@ -194,7 +207,7 @@ export default function LandingPage() {
         <p>시설물 규모와 필요 기능에 맞춰 최적의 플랜을 선택하세요.</p>
 
         <div className="landing-pricing-cards">
-          {PRICING_TIERS.map((tier) => (
+          {pricingTiers.map((tier) => (
             <div
               key={tier.name}
               className={`landing-pricing-card${tier.inverted ? ' landing-pricing-card--inverted' : ''}`}

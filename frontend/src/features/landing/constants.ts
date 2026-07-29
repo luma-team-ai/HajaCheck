@@ -60,6 +60,84 @@ export const PRICING_TIERS: PricingTier[] = [
   },
 ];
 
+export function formatPricingTiersFromApi(
+  plans: Array<{
+    id: number;
+    name: string;
+    maxFacilities: number | null;
+    maxMonthlyAnalyses: number | null;
+    maxSeats: number | null;
+    hasPdfWatermark: boolean;
+    hasCounselorAccess: boolean;
+    hasAiAddon: boolean;
+    priceMonthly: number;
+  }>,
+): PricingTier[] {
+  if (!plans || plans.length === 0) return PRICING_TIERS;
+
+  return plans.map((plan) => {
+    const isFree = plan.name === 'FREE';
+    const isStandard = plan.name === 'STANDARD';
+    const isEnterprise = plan.name === 'ENTERPRISE';
+
+    let name = plan.name;
+    let subtitle = '';
+    let ctaLabel = '무료 시작';
+    let badge: string | undefined;
+    let inverted = false;
+
+    if (isFree) {
+      name = 'Free';
+      subtitle = '체험·개인 사용자';
+      ctaLabel = '무료 시작';
+    } else if (isStandard) {
+      name = 'Standard';
+      subtitle = '소규모 점검 업체';
+      ctaLabel = '업그레이드 문의';
+      badge = 'MOST POPULAR';
+      inverted = true;
+    } else if (isEnterprise) {
+      name = 'Enterprise';
+      subtitle = '관리업체·공공기관';
+      ctaLabel = '도입 문의';
+    }
+
+    const price = plan.priceMonthly === 0 ? '₩0' : `₩${Math.floor(plan.priceMonthly).toLocaleString()}`;
+    const period = '/월';
+
+    const facilitiesText = plan.maxFacilities === null ? '시설물 무제한' : `시설물 ${plan.maxFacilities}개`;
+    const analysesText = plan.maxMonthlyAnalyses === null ? '월 분석 협의' : `월 분석 ${plan.maxMonthlyAnalyses.toLocaleString()}장`;
+    const feature1 = `${facilitiesText} · ${analysesText}`;
+
+    let feature2 = '점검자 좌석 없음(1인 계정)';
+    if (plan.maxSeats === null || plan.maxSeats >= 1000) {
+      feature2 = '점검자 좌석 무제한 · 데이터 반출';
+    } else if (plan.maxSeats > 1) {
+      feature2 = `점검자 좌석 ${plan.maxSeats}명 · 정식 PDF 보고서`;
+    }
+
+    const features: PricingFeature[] = [
+      { label: feature1 },
+      { label: feature2 },
+      {
+        label: isFree ? 'AI 부가 기능(설명·브리핑)' : 'AI 부가 기능 · 상담원 연결',
+        included: isFree ? false : plan.hasAiAddon || plan.hasCounselorAccess,
+      },
+    ];
+
+    return {
+      name,
+      subtitle,
+      price,
+      period,
+      badge,
+      features,
+      ctaLabel,
+      inverted,
+    };
+  });
+}
+
 export interface NavItem {
   label: string;
   targetId: string;
