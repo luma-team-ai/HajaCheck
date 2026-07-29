@@ -29,8 +29,9 @@ function extractDescription(payload: NotificationApiItem['payload']): string | u
   return typeof raw === 'string' ? raw : undefined;
 }
 
-// Header 벨 클릭 시 열리는 알림 패널 컨테이너 — shared NotificationDropdown(프리젠테이션, 이은석 소유·
-// 미터치)을 그대로 렌더한다(HAJA-38, Figma node-id 208-2458 / Anima 파트3 NotificationPanelSection).
+// Header 벨 클릭 시 열리는 알림 패널 컨테이너 — shared NotificationDropdown(프리젠테이션, 이은석 소유,
+// 이번 유형별 아이콘 배선(#1244)만 예외적으로 함께 수정)을 그대로 렌더한다(HAJA-38, Figma node-id
+// 208-2458 / Anima 파트3 NotificationPanelSection).
 export function NotificationCenter({ open, onClose, enabled }: NotificationCenterProps) {
   const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState(NOTIFICATION_ALL_FILTER_KEY);
@@ -52,6 +53,7 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
       description: extractDescription(raw.payload),
       timestamp: formatElapsedTime(raw.createdAt),
       read: raw.isRead,
+      iconSrc: meta.iconSrc,
       // 폴백(미지의 type) 메타는 actionLabel이 없다 — 의미를 모르는 액션 버튼을 노출하지 않는다.
       ...(meta.actionLabel
         ? {

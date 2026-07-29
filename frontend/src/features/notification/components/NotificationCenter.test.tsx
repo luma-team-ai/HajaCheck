@@ -94,6 +94,23 @@ describe('NotificationCenter', () => {
     expect(screen.getByText('한강대교 북단 D-3')).toBeTruthy();
   });
 
+  // #1244 — 유형별 아이콘(NOTIFICATION_TYPE_META.iconSrc)이 각 알림 뱃지에 실제로 전달되는지 확인.
+  // 목 데이터 5건 중 ANALYSIS_DONE 2건이 같은 로봇 아이콘을 쓴다. data-testid로 뱃지 아이콘만
+  // 골라낸다(테스트 환경에서 svg import가 data URI로 인라인돼 src 문자열 기반 구분은 불가능하고,
+  // 개별 닫기(X) 아이콘도 같은 li 안에 별도로 존재한다).
+  it('알림 유형별로 서로 다른 아이콘을 뱃지로 렌더링한다(#1244)', async () => {
+    const { container } = renderHarness();
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    await screen.findByText('검수 대기 알림');
+
+    const badgeIconSrcs = Array.from(container.querySelectorAll('[data-testid="notification-badge-icon"]')).map(
+      (img) => img.getAttribute('src'),
+    );
+    expect(badgeIconSrcs).toHaveLength(5);
+    // AI 분석(x2, 동일 아이콘)·검수·상담·점검일 = 서로 다른 아이콘 4종
+    expect(new Set(badgeIconSrcs).size).toBe(4);
+  });
+
   it('카테고리 필터를 클릭하면 해당 카테고리 항목만 보인다', async () => {
     renderHarness();
     fireEvent.click(screen.getByRole('button', { name: '벨' }));
