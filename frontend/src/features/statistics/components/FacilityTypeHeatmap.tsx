@@ -2,8 +2,15 @@ import { Fragment, useState } from 'react';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { Modal } from '../../../shared/components/Modal';
 import { useFacilityTypeHeatmap } from '../hooks/useFacilityTypeHeatmap';
-import type { StatisticsFilterParams } from '../types';
+import type { FacilityTypeCategory, StatisticsFilterParams } from '../types';
 import { formatMonthLabel } from '../utils/formatMonthLabel';
+import { getMonthsForPeriod } from '../utils/getMonthsForPeriod';
+
+// 행(시설물 유형 카테고리)은 실데이터에 존재하는 값만으로 구성하면 등록/점검 이력이 전혀 없는
+// 카테고리(예: '기타')가 통째로 행에서 빠진다(사용자 리포트) — 열(월)은 이미 항상 고정 표기되는데
+// 행만 데이터 유무에 좌우되는 비대칭이었다. types.ts에 이미 확정된 FacilityTypeCategory 4종을
+// 그대로 고정 행 목록으로 써서, 데이터가 0건인 카테고리도 항상 0건 행으로 노출한다.
+const ALL_FACILITY_TYPE_CATEGORIES: FacilityTypeCategory[] = ['건물', '교량', '도로', '기타'];
 
 // Figma 시안(node 77-1454)의 히트맵은 "지하주차장/외벽/공용부/옥상"처럼 시설물 내부 세부구역을
 // 행으로 쓰지만, PRD §3.2 C안으로 팀이 "시설물 유형(건물/교량/도로/기타) × 월별" 축으로 이미
@@ -20,12 +27,13 @@ const HEAT_SCALE = ['bg-zinc-100', 'bg-zinc-200', 'bg-zinc-400', 'bg-zinc-600', 
 const VISIBLE_LIMIT = 4;
 
 function getHeatShade(count: number, max: number): string {
-  if (max <= 0 || count <= 0) return HEAT_SCALE[0];
+  if (count <= 0) return HEAT_SCALE[0]; // 0건은 가장 옅은 백그라운드 색상(Level 0)
+  if (max <= 0) return HEAT_SCALE[1];
+
   const ratio = count / max;
-  if (ratio <= 0.2) return HEAT_SCALE[0];
-  if (ratio <= 0.4) return HEAT_SCALE[1];
-  if (ratio <= 0.6) return HEAT_SCALE[2];
-  if (ratio <= 0.8) return HEAT_SCALE[3];
+  if (ratio <= 0.25) return HEAT_SCALE[1]; // 데이터가 1건이라도 존재하면 Level 1 이상 적용
+  if (ratio <= 0.5) return HEAT_SCALE[2];
+  if (ratio <= 0.75) return HEAT_SCALE[3];
   return HEAT_SCALE[4];
 }
 
@@ -39,43 +47,53 @@ interface HeatmapGridProps {
 // 미리보기(상위 N행)와 "전체보기" 모달이 동일한 마크업을 쓰도록 분리.
 function HeatmapGrid({ categories, months, findCount, maxCount }: HeatmapGridProps) {
   return (
-    <div className="min-w-[500px] flex-1 overflow-x-auto">
-      {/* 카드 폭이 넓어져도(등급별 분포 대비 3.5:6.5) 셀이 좌상단에 뭉치지 않도록, 고정폭
-          flex 대신 월 열을 1fr 그리드 컬럼으로 잡아 카드 전체 폭에 맞춰 늘어나게 한다. */}
+    <div className="my-auto w-full overflow-x-auto overflow-y-visible">
+      {/* 카드 폭이 넓어져도(등급별 분포 대비 3.5:6.5) 셀이 균등하게 조화되도록 1fr 컬럼으로 배치 */}
       <div
-        className="grid w-full items-center gap-x-2 gap-y-2"
-        style={{ gridTemplateColumns: `3.5rem repeat(${months.length}, 1fr)` }}
+        className="grid w-full items-center gap-x-2 gap-y-2 min-w-[480px]"
+        style={{ gridTemplateColumns: `3rem repeat(${months.length}, 1fr)` }}
       >
         <span aria-hidden="true" />
         {months.map((month) => (
-          <span key={month} className="text-center text-zinc-500 text-xs font-medium">
+          <span key={month} className="text-center text-zinc-500 font-medium text-xs">
             {formatMonthLabel(month)}
           </span>
         ))}
         {categories.map((category, rowIndex) => {
-          // 부모 컨테이너(overflow-x-auto)는 overflow-y도 암묵적으로 auto가 되어(CSS 스펙상
-          // 두 축 중 하나만 visible이 아니면 나머지도 auto로 강제됨) 위로 벗어나는 절대배치
-          // 엘리먼트를 잘라낸다. 맨 윗줄만 툴팁을 셀 아래쪽에 띄워 위쪽 클리핑을 피한다.
           const isFirstRow = rowIndex === 0;
           return (
             <Fragment key={category}>
-              <span className="text-right text-zinc-500 text-xs font-medium">{category}</span>
-              {months.map((month) => {
+              <span className="text-right text-zinc-500 font-medium text-xs truncate pr-1">{category}</span>
+              {months.map((month, colIndex) => {
                 const count = findCount(category, month);
+                const isFirstCol = colIndex === 0;
+                const isLastCol = colIndex === months.length - 1;
+
+                const verticalPosClass = isFirstRow ? 'top-full mt-2' : 'bottom-full mb-2';
+                const horizontalPosClass = isLastCol
+                  ? 'right-1 translate-x-0'
+                  : isFirstCol
+                  ? 'left-1 translate-x-0'
+                  : 'left-1/2 -translate-x-1/2';
+
+                const arrowPosClass = isFirstRow
+                  ? `after:content-[''] after:absolute after:-top-[5px] after:size-2.5 after:bg-white after:rotate-45 after:border-l after:border-t after:border-zinc-200 ${
+                      isLastCol ? 'after:right-3.5' : isFirstCol ? 'after:left-3.5' : 'after:left-1/2 after:-translate-x-1/2'
+                    }`
+                  : `after:content-[''] after:absolute after:-bottom-[5px] after:size-2.5 after:bg-white after:rotate-45 after:border-r after:border-b after:border-zinc-200 ${
+                      isLastCol ? 'after:right-3.5' : isFirstCol ? 'after:left-3.5' : 'after:left-1/2 after:-translate-x-1/2'
+                    }`;
+
                 return (
                   <span key={month} className="group relative">
                     <span
                       aria-label={`${category} · ${formatMonthLabel(month)} · ${count}건`}
-                      className={`block h-10 w-full rounded-xs ${getHeatShade(count, maxCount)}`}
+                      className={`block h-10 w-full rounded-xs transition-colors duration-150 ${getHeatShade(count, maxCount)}`}
                     />
-                    {/* 랜딩 히어로 칩(landing-chip, features/landing/landing.css)과 동일 양식 —
-                        흰 배경 + rounded-[10px] + shadow + 13px bold. cross-feature import 금지
-                        컨벤션상 클래스를 직접 재사용할 수 없어 동일 스펙을 로컬 Tailwind로 재현. */}
+                    {/* 마이크로 인터랙션(100ms 반응형) + 일체형 화살표(Caret) + 테두리 충돌 안전 마진(Inset) */}
                     <span
                       role="tooltip"
-                      className={`pointer-events-none absolute left-1/2 z-10 hidden -translate-x-1/2 whitespace-nowrap rounded-[10px] bg-white px-3.5 py-2 text-[13px] font-semibold text-zinc-800 shadow-[0_8px_24px_rgba(0,0,0,0.25)] group-hover:block ${
-                        isFirstRow ? 'top-full mt-1.5' : 'bottom-full mb-1.5'
-                      }`}
+                      className={`pointer-events-none absolute z-30 whitespace-nowrap rounded-[10px] bg-white px-3.5 py-2 text-[13px] font-semibold text-zinc-900 shadow-[0_6px_20px_rgba(0,0,0,0.15)] border border-zinc-200 opacity-0 scale-[0.98] invisible transition-all duration-100 ease-out group-hover:opacity-100 group-hover:scale-100 group-hover:visible ${verticalPosClass} ${horizontalPosClass} ${arrowPosClass}`}
                     >
                       {category} · {formatMonthLabel(month)} · {count}건
                     </span>
@@ -98,8 +116,9 @@ export function FacilityTypeHeatmap({ filterParams }: FacilityTypeHeatmapProps) 
   const { data, isLoading, isError } = useFacilityTypeHeatmap(filterParams);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const categories = data ? [...new Set(data.map((cell) => cell.facilityTypeCategory))] : [];
-  const months = data ? [...new Set(data.map((cell) => cell.month))].sort() : [];
+  const categories = ALL_FACILITY_TYPE_CATEGORIES;
+  const dataMonths = data ? [...new Set(data.map((cell) => cell.month))].sort() : [];
+  const months = getMonthsForPeriod(filterParams?.period, dataMonths);
   const maxCount = data && data.length > 0 ? Math.max(...data.map((cell) => cell.defectCount)) : 0;
   const hasMore = categories.length > VISIBLE_LIMIT;
   const visibleCategories = categories.slice(0, VISIBLE_LIMIT);
@@ -108,7 +127,7 @@ export function FacilityTypeHeatmap({ filterParams }: FacilityTypeHeatmapProps) 
     data?.find((cell) => cell.facilityTypeCategory === category && cell.month === month)?.defectCount ?? 0;
 
   return (
-    <section className="flex min-h-72 flex-col bg-white border border-zinc-200 p-6">
+    <section className="flex h-full min-h-[320px] flex-col bg-white border border-zinc-200 p-6">
       <div className="mb-6 flex items-center justify-between">
         <h3 className="text-zinc-900 text-base font-medium leading-6">시설물군별 히트맵</h3>
         <div className="flex items-center gap-3">
@@ -132,10 +151,10 @@ export function FacilityTypeHeatmap({ filterParams }: FacilityTypeHeatmapProps) 
       </div>
       {isLoading && <LoadingSpinner />}
       {isError && <p className="dashboard-card-status">히트맵 데이터를 불러오지 못했습니다.</p>}
-      {!isLoading && !isError && categories.length === 0 && (
+      {!isLoading && !isError && data && data.length === 0 && (
         <p className="dashboard-card-status">표시할 데이터가 없습니다.</p>
       )}
-      {!isLoading && !isError && categories.length > 0 && (
+      {!isLoading && !isError && data && data.length > 0 && (
         <HeatmapGrid categories={visibleCategories} months={months} findCount={findCount} maxCount={maxCount} />
       )}
       {hasMore && (
