@@ -6,9 +6,8 @@ import { useAdminCounselTicketsByDate } from '../hooks/useAdminCounselTicketsByD
 import { useAdminCounselTranscript } from '../hooks/useAdminCounselTranscript';
 import { useAdminCounselHistoryTranscript } from '../hooks/useAdminCounselHistoryTranscript';
 import { getApiErrorMessage } from '../../../shared/api/types';
+import { DEFAULT_PAGE_SIZE } from '../constants';
 import type { CounselTicketSummaryResponse } from '../types';
-
-const DEFAULT_PAGE_SIZE = 20;
 
 function todayDateString(): string {
   return new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD
