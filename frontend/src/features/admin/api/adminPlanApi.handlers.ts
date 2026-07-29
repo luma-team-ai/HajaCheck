@@ -254,6 +254,12 @@ export const adminPlanHandlers = [
       );
     }
 
+    // 즉시 변경은 대기 중이던 하향 예약을 자동 취소한다(백엔드 AdminPlanService#changePlan →
+    // ScheduledPlanChangeCanceller, #1105 / HAJA-526). 이걸 목에서 재현하지 않으면 GET /api/admin/plan
+    // 재조회(useChangePlan onSuccess invalidate, #1191 P2 픽스)가 여전히 이미 취소된 예약을 돌려주게
+    // 되어, 회귀 테스트가 실제로는 아무것도 검증하지 못한다.
+    mockScheduledChangeState = null;
+
     const body: ApiResponse<{ plan: { name: string } }> = {
       success: true,
       data: { plan: { name: target.name } },

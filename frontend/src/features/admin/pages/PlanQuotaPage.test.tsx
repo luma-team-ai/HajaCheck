@@ -633,4 +633,47 @@ describe('PlanQuotaPage — 플랜 하향 예약(#1191)', () => {
 
     expect(await dialog.findByText('이미 예약된 변경이 있습니다.')).toBeTruthy();
   });
+
+  // 리뷰 P2 회귀 테스트 — 백엔드 AdminPlanService#changePlan(즉시 변경)은 대기 중이던 하향 예약을
+  // ScheduledPlanChangeCanceller로 자동 취소한다. useChangePlan의 onSuccess가 ['admin','plan','current']
+  // 를 무효화하지 않으면 화면에 이미 취소된 예약 배너가 남고, 그 배너의 "예약 취소"를 누르면
+  // 404(PLAN_SCHEDULED_CHANGE_NOT_FOUND)가 뜬다 — ['admin','plan-quota']·['admin','plan','change-preview']
+  // 는 prefix 매칭상 이 키를 포함하지 않아 별도 무효화가 필요했다(useChangePlan.ts 픽스).
+  it('예약이 걸린 상태에서 즉시 변경을 하면(자동 취소) 예약 배너가 사라진다', async () => {
+    renderPage();
+    await screen.findByText('김민준');
+
+    // 1) FREE로 예약을 건다 — 배너가 뜬다.
+    fireEvent.change(screen.getByLabelText('변경할 요금제'), { target: { value: 'FREE' } });
+    await screen.findByRole('radiogroup', { name: '적용 시점' });
+    fireEvent.click(screen.getByLabelText(/다음 결제일 적용/));
+    fireEvent.click(screen.getByRole('button', { name: '변경' }));
+
+    const scheduleDialog = within(await screen.findByRole('dialog'));
+    await scheduleDialog.findByText('적용 시점에 정지될 구성원 6명');
+    fireEvent.click(scheduleDialog.getByRole('button', { name: '예약 확정' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(await screen.findByText('Free로 변경 예정 (2026-08-21)')).toBeTruthy();
+
+    // 2) 예약이 걸린 채로 ENTERPRISE(넘치는 자원 없음)로 즉시 변경한다 — 백엔드가 예약을
+    // 자동 취소하므로(목의 PATCH 핸들러도 동일하게 mockScheduledChangeState를 비운다), 성공 후
+    // 재조회에서 scheduledChange가 null로 돌아와야 한다.
+    fireEvent.change(screen.getByLabelText('변경할 요금제'), { target: { value: 'ENTERPRISE' } });
+    expect(screen.queryByRole('radiogroup', { name: '적용 시점' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '변경' }));
+
+    // 확인 모달 없이 바로 처리된다(ENTERPRISE는 좌석·시설물 초과가 없다).
+    await waitFor(() => {
+      expect((screen.getByLabelText('변경할 요금제') as HTMLSelectElement).value).toBe('');
+    });
+
+    // 무효화가 실제로 GET /api/admin/plan 재조회를 유발해 배너가 사라지는지까지 단정한다.
+    await waitFor(() => {
+      expect(screen.queryByText('Free로 변경 예정 (2026-08-21)')).toBeNull();
+    });
+    expect(screen.queryByRole('button', { name: '예약 취소' })).toBeNull();
+  });
 });
