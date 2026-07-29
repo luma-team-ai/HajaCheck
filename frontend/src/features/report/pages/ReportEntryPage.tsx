@@ -480,6 +480,7 @@ export function ReportEntryPage() {
             </div>
             <button
               type="button"
+              aria-label="대표 사진 자동 삽입"
               onClick={() => setIncludePhoto((prev) => !prev)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                 includePhoto ? 'bg-black' : 'bg-border'
