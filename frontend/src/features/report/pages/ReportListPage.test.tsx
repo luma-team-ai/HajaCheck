@@ -14,6 +14,7 @@ import { platformAdminCompanyHandlers } from '../../platform-admin/api/platformA
 import { formatReportListTitle } from '../utils/reportListFormat';
 import { ReportListPage } from './ReportListPage';
 import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../constants';
+import { exportReportToPdf } from '../utils/exportReportToPdf';
 
 const navigateMock = vi.fn();
 
@@ -233,6 +234,68 @@ describe('ReportListPage', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: '발행' }));
 
     await waitFor(() => expect(calls).toEqual(['detail', 'recheck', 'defects', 'upload', 'finalize']));
+  });
+
+  it('DRAFT 행 제출 시 대표 사진 제외 옵션이면 PDF에 하자 이미지를 넣지 않는다', async () => {
+    const contentWithoutPhotos = {
+      ...reportContent,
+      reportOptions: { sections: ['overview'], includePhoto: false },
+    };
+    server.use(
+      http.get('/api/reports/103', () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            id: 103,
+            inspectionId: 3,
+            version: 3,
+            status: 'DRAFT',
+            groundingCheckPassed: true,
+            content: contentWithoutPhotos,
+            createdBy: 1,
+            createdAt: '2026-06-23T09:15:00',
+          },
+        }),
+      ),
+      http.get('/api/inspections/3/defects', () =>
+        HttpResponse.json({
+          success: true,
+          data: [{ id: 1, type: 'CRACK', imageUrl: '/api/media/1/detail' }],
+        }),
+      ),
+      http.post('/api/reports/103/pdf', () =>
+        HttpResponse.json({ success: true, data: { pdfUrl: '/api/reports/103/pdf/generated.pdf' } }),
+      ),
+      http.post('/api/reports/103/finalize', () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            id: 103,
+            inspectionId: 3,
+            version: 3,
+            status: 'FINALIZED',
+            groundingCheckPassed: true,
+            pdfUrl: '/api/reports/103/pdf/generated.pdf',
+            content: contentWithoutPhotos,
+            createdBy: 1,
+            createdAt: '2026-06-23T09:15:00',
+          },
+        }),
+      ),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_103_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '발행' }));
+
+    await waitFor(() =>
+      expect(exportReportToPdf).toHaveBeenCalledWith(
+        expect.objectContaining({ reportOptions: expect.objectContaining({ includePhoto: false }) }),
+        expect.objectContaining({ defectImages: [] }),
+      ),
+    );
   });
 
   it('FINALIZED 행의 제출 처리는 disabled다', async () => {

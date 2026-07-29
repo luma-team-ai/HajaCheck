@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
@@ -238,14 +238,19 @@ export function ReportEntryPage() {
       null
     : null;
 
+  const selectedSectionKeys = useMemo(
+    () => Object.entries(sections)
+      .filter(([, v]) => v)
+      .map(([k]) => k),
+    [sections],
+  );
+  const hasSelectedSections = selectedSectionKeys.length > 0;
+
   const handleGenerateReport = useCallback(async () => {
-    if (!data || data.reviewedCount !== data.totalCount || isGenerating) return;
+    if (!data || data.reviewedCount !== data.totalCount || isGenerating || !hasSelectedSections) return;
 
     setIsGenerating(true);
     try {
-      const selectedSectionKeys = Object.entries(sections)
-        .filter(([, v]) => v)
-        .map(([k]) => k);
       const response = await reportApi.generateReportDraft(inspectionId, {
         sections: selectedSectionKeys,
         includePhoto,
@@ -256,7 +261,7 @@ export function ReportEntryPage() {
       alert(extractErrorMessage(error, '보고서 생성에 실패했습니다.'));
       setIsGenerating(false);
     }
-  }, [inspectionId, data, isGenerating, sections, includePhoto, navigate]);
+  }, [inspectionId, data, isGenerating, hasSelectedSections, selectedSectionKeys, includePhoto, navigate]);
 
   const handleEditReport = useCallback(
     (reportId: number) => {
@@ -569,7 +574,7 @@ export function ReportEntryPage() {
             <Button
               variant="primary"
               size="md"
-              disabled={!isComplete || isGenerating}
+              disabled={!isComplete || isGenerating || !hasSelectedSections}
               onClick={handleGenerateReport}
             >
               <span className="inline-flex items-center gap-2">

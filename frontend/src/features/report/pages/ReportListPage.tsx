@@ -147,7 +147,7 @@ export function ReportListPage() {
         facilityName: row.facilityName,
         inspectionRound: row.roundNo,
         issuedAt: new Date(report.createdAt),
-        defectImages,
+        defectImages: content.reportOptions?.includePhoto === false ? [] : defectImages,
       });
       const fileName = buildReportPdfFileName(report.inspectionId);
       const uploadResponse = await reportApi.uploadPdf(row.id, pdfBlob, fileName);

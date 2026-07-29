@@ -38,6 +38,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -151,6 +152,29 @@ class ReportServiceTest {
         verify(aiProxyService).generateReport(anyLong(), captor.capture());
         assertThat(captor.getValue().reportVersion()).isEqualTo(1);
         assertThat(captor.getValue().confirmedDefects()).isEmpty();
+    }
+
+    @Test
+    void generateDraft_선택옵션을저장Content에반영한다() {
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of());
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
+        when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
+        when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ReportDetailResponse response = reportService.generateDraft(
+                1L, 100L, 200L, Set.of("overview", "opinion"), false);
+
+        assertThat(response.groundingCheckPassed()).isNull();
+        assertThat(response.content().get("overview").get("purpose").asText()).isNotBlank();
+        assertThat(response.content().get("summary").get("overall_opinion").asText()).isNotBlank();
+        assertThat(response.content().get("summary").get("total_count").asInt()).isZero();
+        assertThat(response.content().get("detail").get("items")).isEmpty();
+        assertThat(response.content().get("recommendation").get("items")).isEmpty();
+        assertThat(response.content().get("reportOptions").get("includePhoto").asBoolean()).isFalse();
+        assertThat(response.content().get("reportOptions").get("sections").toString()).contains("overview", "opinion");
     }
 
     @Test

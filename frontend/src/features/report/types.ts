@@ -39,11 +39,17 @@ export interface ReportRecommendation {
   monitoring_points: string[];
 }
 
+export interface ReportOptions {
+  sections?: string[];
+  includePhoto?: boolean;
+}
+
 export interface ReportContent {
   overview: ReportOverview;
   summary: ReportSummary;
   detail: ReportDetail;
   recommendation: ReportRecommendation;
+  reportOptions?: ReportOptions;
 }
 
 // ---------------------------------------------------------------------------

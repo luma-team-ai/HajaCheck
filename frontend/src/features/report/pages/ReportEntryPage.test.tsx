@@ -295,6 +295,31 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(bodyStr).toContain('"summary"');
   });
 
+  it('포함 섹션을 모두 해제하면 초안 생성 요청을 보내지 않는다', async () => {
+    let posted = false;
+    server.use(
+      http.post('/api/inspections/:id/reports', () => {
+        posted = true;
+        return HttpResponse.json({
+          success: true,
+          data: { id: 77, inspectionId: 1, version: 1, content: {}, status: 'DRAFT', createdBy: 1, createdAt: '2026-07-22T10:00:00Z' },
+        });
+      }),
+    );
+    renderPage();
+    await screen.findByText(/점검 회차 요약/);
+
+    for (const name of ['점검 개요', '하자 현황 요약', '유형별 상세', '조치 권고']) {
+      fireEvent.click(screen.getByRole('button', { name }));
+    }
+
+    const generateButton = screen.getByRole('button', { name: '보고서 생성 시작' });
+    expect(generateButton.hasAttribute('disabled')).toBe(true);
+    fireEvent.click(generateButton);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(posted).toBe(false);
+  });
+
   it('inspectionId가 바뀌면 이전 최근작업 요청을 취소해 늦은 응답이 화면을 덮어쓰지 않는다 (#886 P2)', async () => {
     // id=1 응답은 테스트가 명시적으로 resolve할 때까지 붙잡아둔다(setTimeout 기반 타이밍 추측 대신
     // deferred promise로 "id=2 화면이 이미 뜬 뒤에 도착"하는 순서를 결정적으로 만든다).

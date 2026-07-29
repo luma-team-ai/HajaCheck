@@ -117,12 +117,17 @@ public class ReportService {
 
         ReportResponse aiReport = callAiServer(userId, request);
 
-        String contentJson = GroundingReportContentSerializer.serialize(aiReport);
-        Report report = Report.draft(inspectionId, nextVersion, contentJson, userId);
+        String aiContentJson = GroundingReportContentSerializer.serialize(aiReport);
+        Report report = Report.draft(inspectionId, nextVersion, aiContentJson, userId);
 
         GroundingCheckResult result =
                 GroundingCheckResultFactory.fromAiReport(context, aiReport, NO_GROUNDING_WARNINGS);
         report.recordGroundingResult(result, userId);
+        if (sections != null || includePhoto != null) {
+            report.updateContent(
+                    GroundingReportContentSerializer.serialize(aiReport, sections, includePhoto),
+                    userId);
+        }
 
         return ReportDetailResponse.from(reportRepository.save(report));
     }

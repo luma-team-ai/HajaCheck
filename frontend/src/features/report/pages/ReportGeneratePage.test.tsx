@@ -327,6 +327,36 @@ describe('ReportGeneratePage', () => {
     expect(finalizePdfUrl).toBe('/api/reports/1/pdf/storage-key');
   });
 
+  it('대표 사진 제외 옵션이면 PDF 생성 컨텍스트에 하자 이미지를 넣지 않는다', async () => {
+    server.use(
+      http.get('/api/inspections/1/defects', () =>
+        HttpResponse.json({
+          success: true,
+          data: [{ ...mockDefects[0], thumbnailUrl: '/api/media/1/thumbnail' }],
+        }),
+      ),
+    );
+    reportState = {
+      ...mockReport,
+      groundingCheckPassed: true,
+      content: { ...mockContent, reportOptions: { sections: ['overview'], includePhoto: false } },
+    };
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    await waitFor(() => {
+      expect(exportReportToPdf).toHaveBeenCalledWith(
+        expect.objectContaining({ reportOptions: expect.objectContaining({ includePhoto: false }) }),
+        expect.objectContaining({ defectImages: [] }),
+      );
+    });
+  });
+
   it('/reports/:reportId?mode=export에서 저장된 실제 PDF를 iframe으로 렌더한다', async () => {
     let preflightCount = 0;
     server.use(
