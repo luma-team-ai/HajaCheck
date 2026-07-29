@@ -33,6 +33,7 @@ export function PlatformAdminCounselsPage() {
 
   const { data, isLoading, isError, error } = useAdminCounselTicketsByDate(date, page, DEFAULT_PAGE_SIZE);
   const tickets = data?.content ?? [];
+  const totalElements = data?.totalElements ?? 0;
 
   const {
     data: messages,
@@ -57,6 +58,12 @@ export function PlatformAdminCounselsPage() {
     setHistoryTicket(null);
   }
 
+  function handlePageChange(nextPage: number) {
+    setPage(nextPage);
+    setSelectedTicket(null);
+    setHistoryTicket(null);
+  }
+
   function handleSelect(ticket: CounselTicketSummaryResponse) {
     setSelectedTicket(ticket);
     setHistoryTicket(null);
@@ -70,6 +77,9 @@ export function PlatformAdminCounselsPage() {
           date={date}
           onDateChange={handleDateChange}
           tickets={tickets}
+          totalElements={totalElements}
+          page={page}
+          onPageChange={handlePageChange}
           loading={isLoading}
           error={isError ? getApiErrorMessage(error, '상담 목록을 불러오지 못했습니다.') : null}
           selectedTicketId={selectedTicket?.id ?? null}

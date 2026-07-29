@@ -1,13 +1,17 @@
 import defaultAvatarIcon from '../../../assets/brand/sidenav-default-avatar.svg';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
-import { CATEGORY_LABEL, STATUS_BADGE } from '../constants';
+import { Pagination } from '../../../shared/components/Pagination/Pagination';
+import { CATEGORY_LABEL, DEFAULT_PAGE_SIZE, STATUS_BADGE } from '../constants';
 import type { CounselTicketStatus, CounselTicketSummaryResponse } from '../types';
 
 type Props = {
   date: string;
   onDateChange: (date: string) => void;
   tickets: CounselTicketSummaryResponse[];
+  totalElements: number;
+  page: number;
+  onPageChange: (page: number) => void;
   loading: boolean;
   error: string | null;
   selectedTicketId: number | null;
@@ -32,6 +36,16 @@ const GROUPS: {
   },
 ];
 
+// 카드 배지 전용 — STATUS_BADGE는 WAITING을 IN_PROGRESS와 동일한 "진행중"으로 묶지만(상담원 콘솔 전용
+// 의미), 이 패널은 WAITING을 "상담 대기" 그룹으로 별도 분리했으므로 카드에도 "진행중"이 아닌 "대기"를
+// 표시해야 그룹 취지와 어긋나지 않는다(PR머신 리뷰 P2).
+function getCardBadge(status: CounselTicketStatus) {
+  if (status === 'WAITING') {
+    return { label: '대기', dotClassName: 'bg-amber-500', textClassName: 'text-amber-600' };
+  }
+  return STATUS_BADGE[status];
+}
+
 // 플랫폼 관리자 상담 관리(#1168) — 좌측 날짜별 세션 목록 패널. 라이브 큐(CounselorChatListPanel)와
 // 달리 온라인 토글이 없다(읽기 전용 조회 화면이라 상담원 상태 개념 자체가 없음). 날짜는 네이티브
 // <input type="date">(ErrorLogFilterBar.tsx 컨벤션)로 고르고, 그 날짜의 접수(createdAt) 기준 티켓
@@ -40,14 +54,18 @@ export function AdminCounselDatePanel({
   date,
   onDateChange,
   tickets,
+  totalElements,
+  page,
+  onPageChange,
   loading,
   error,
   selectedTicketId,
   onSelect,
 }: Props) {
+  const totalPages = Math.max(1, Math.ceil(totalElements / DEFAULT_PAGE_SIZE));
   function renderTicketCard(ticket: CounselTicketSummaryResponse) {
     const selected = ticket.id === selectedTicketId;
-    const badge = STATUS_BADGE[ticket.status];
+    const badge = getCardBadge(ticket.status);
     return (
       <button
         key={ticket.id}
@@ -125,6 +143,13 @@ export function AdminCounselDatePanel({
             );
           })}
       </div>
+
+      {/* 하루 티켓이 DEFAULT_PAGE_SIZE(20)를 넘으면 21건째부터 조회 불가하던 문제 대응(PR머신 리뷰 P3) */}
+      {!loading && !error && totalPages > 1 && (
+        <div className="flex justify-center border-t border-border p-3">
+          <Pagination currentPage={page + 1} totalPages={totalPages} onPageChange={(p) => onPageChange(p - 1)} />
+        </div>
+      )}
     </div>
   );
 }

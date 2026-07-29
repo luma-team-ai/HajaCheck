@@ -4,7 +4,7 @@ import { counselApi } from '../api/counselApi';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { getApiErrorMessage } from '../../../shared/api/types';
-import { CATEGORY_LABEL } from '../constants';
+import { CATEGORY_LABEL, STATUS_BADGE } from '../constants';
 import type { CounselTicketSummaryResponse } from '../types';
 
 type Props = {
@@ -170,7 +170,7 @@ export function AdminCounselInfoPanel({ ticket, selectedHistoryTicketId, onSelec
                   </div>
                   <p className="m-0 truncate text-sm font-semibold text-primary">{past.title}</p>
                   <p className="m-0 truncate text-text-muted">
-                    #{past.ticketNumber} · {past.status}
+                    #{past.ticketNumber} · {STATUS_BADGE[past.status].label}
                   </p>
                 </button>
               );
