@@ -11,8 +11,8 @@ describe('getInspectionStatusClass', () => {
     expect(getInspectionStatusClass('검수대기')).toBe('bg-[#fdf0d5] text-[#b5670a]');
   });
 
-  it('조치대기는 orange 계열 클래스를 반환한다', () => {
-    expect(getInspectionStatusClass('조치대기')).toBe('bg-[#fdf0d5] text-[#b5670a]');
+  it('검수확정은 orange 계열 클래스를 반환한다', () => {
+    expect(getInspectionStatusClass('검수확정')).toBe('bg-[#fdf0d5] text-[#b5670a]');
   });
 
   it('완료는 green 계열 클래스를 반환한다', () => {
@@ -20,7 +20,7 @@ describe('getInspectionStatusClass', () => {
   });
 
   it('모든 InspectionStatus 값에 대해 매핑이 존재한다', () => {
-    const statuses: InspectionStatus[] = ['분석중', '검수대기', '조치대기', '완료'];
+    const statuses: InspectionStatus[] = ['분석중', '검수대기', '검수확정', '완료'];
     statuses.forEach((status) => {
       expect(getInspectionStatusClass(status)).toBeTruthy();
     });

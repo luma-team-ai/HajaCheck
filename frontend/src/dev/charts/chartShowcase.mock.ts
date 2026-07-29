@@ -25,7 +25,7 @@ export const showcaseRecentInspections = [
     inspectedAt: '2026-07-03',
     inspector: '점검 담당자 B',
     defectCount: 8,
-    status: '조치대기',
+    status: '검수확정',
   },
   {
     id: 903,
