@@ -63,18 +63,17 @@ export function FacilityInspectionComparePage() {
           <h1 className="dashboard-page-title">회차 간 비교</h1>
           <div className="flex items-center gap-3">
             {/* 회차는 서버가 자동으로 고른 최근 2개로 고정 표시한다(읽기 전용, 2026-07-29
-                사용자 결정) — 선택 가능한 드롭다운을 제공하지 않는다. */}
-            <span
-              aria-label="이전 회차"
-              className="rounded-full border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text-default"
-            >
+                사용자 결정) — 선택 가능한 드롭다운을 제공하지 않는다.
+                code-reviewer P2 — aria-label을 쓰면 접근성 트리에서 자식 텍스트(실제 회차·날짜
+                값)가 통째로 가려져 스크린리더 사용자에게 값 자체가 전달되지 않는다. 시각적으로만
+                숨긴 라벨 텍스트 뒤에 실제 값을 그대로 두어 라벨·값 둘 다 전달되게 한다. */}
+            <span className="rounded-full border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text-default">
+              <span className="sr-only">이전 회차: </span>
               {data.beforeCycle.cycle}회차 {data.beforeCycle.date}
             </span>
             <span className="text-sm font-semibold text-text-muted">VS</span>
-            <span
-              aria-label="현재 회차"
-              className="rounded-full border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text-default"
-            >
+            <span className="rounded-full border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text-default">
+              <span className="sr-only">현재 회차: </span>
               {data.afterCycle.cycle}회차 {data.afterCycle.date}
             </span>
           </div>

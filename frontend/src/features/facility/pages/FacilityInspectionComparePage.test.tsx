@@ -49,10 +49,12 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
     renderPage();
 
     expect(await screen.findByText('회차 간 비교')).not.toBeNull();
-    expect(screen.getByLabelText('이전 회차').textContent).toContain(
+    // code-reviewer P2 픽스 — aria-label 대신 sr-only 라벨 텍스트 뒤에 실제 값을 두므로,
+    // sr-only 라벨의 부모 요소 전체 텍스트로 라벨·값이 함께 있는지 확인한다.
+    expect(screen.getByText('이전 회차:', { exact: false }).parentElement?.textContent).toContain(
       `${mockInspectionComparison.beforeCycle.cycle}회차`,
     );
-    expect(screen.getByLabelText('현재 회차').textContent).toContain(
+    expect(screen.getByText('현재 회차:', { exact: false }).parentElement?.textContent).toContain(
       `${mockInspectionComparison.afterCycle.cycle}회차`,
     );
     // select가 아니라 읽기 전용 표시라 편집 가능한 폼 컨트롤이 없어야 한다.
