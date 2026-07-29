@@ -391,6 +391,23 @@ class ReportServiceTest {
     }
 
     @Test
+    void updateContent_details제외로생성된보고서의빈상세옵션은보존한다() {
+        Report report = Report.draft(1L, 1, contentJsonWithoutDetailsSection(), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
+
+        ReportDetailResponse updateResponse = reportService.updateContent(
+                5L, contentJsonWithoutDetailsSection(), 500L, 200L);
+        ReportDetailResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
+
+        assertThat(updateResponse.content().has("reportOptions")).isTrue();
+        assertThat(recheckResponse.groundingCheckPassed()).isTrue();
+    }
+
+    @Test
     void recheckGrounding_reportOptions를조작해도detailItems가있으면실제하자와비교한다() {
         Report report = Report.draft(
                 1L, 1, contentJsonWithForgedOptionsAndDetailItems("박리·박락", "B"), 100L);
@@ -402,6 +419,26 @@ class ReportServiceTest {
 
         ReportDetailResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
 
+        assertThat(recheckResponse.groundingCheckPassed()).isFalse();
+        assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 500L, 200L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("근거 검증");
+    }
+
+    @Test
+    void recheckGrounding_details포함생성후Patch로상세를비우면불일치로판정한다() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
+
+        ReportDetailResponse updateResponse = reportService.updateContent(
+                5L, contentJsonWithoutDetailsSection(), 500L, 200L);
+        ReportDetailResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
+
+        assertThat(updateResponse.content().has("reportOptions")).isFalse();
         assertThat(recheckResponse.groundingCheckPassed()).isFalse();
         assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 500L, 200L))
                 .isInstanceOf(IllegalStateException.class)

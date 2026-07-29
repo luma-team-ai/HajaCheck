@@ -2,6 +2,7 @@ package com.hajacheck.core.report.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
@@ -213,7 +214,7 @@ public class ReportService {
             Long reportId, String contentJson, Long companyId, Long editedByUserId) {
         companyScopeGuard.requireEffectiveMembership(editedByUserId, companyId);
         Report report = findCompanyReport(reportId, editedByUserId, companyId);
-        report.updateContent(contentJson, editedByUserId);
+        report.updateContent(sanitizeClientContentJson(report.getContentJson(), contentJson), editedByUserId);
         return ReportDetailResponse.from(report);
     }
 
@@ -236,7 +237,8 @@ public class ReportService {
                 .map(ReportService::normalizeKey)
                 .toList());
         Map<DefectContentKey, Integer> actual = toMultiset(extractDetailKeys(report.getContentJson()));
-        boolean matched = actual.isEmpty() || expected.equals(actual);
+        boolean matched = expected.equals(actual)
+                || (actual.isEmpty() && excludesDetailsByGeneratedOptions(report.getContentJson()));
         report.recordStructuralGroundingRecheck(
                 matched, matched ? NO_GROUNDING_WARNINGS : STRUCTURAL_MISMATCH_WARNINGS, userId);
         return ReportDetailResponse.from(report);
@@ -300,6 +302,39 @@ public class ReportService {
             keys.add(new DefectContentKey(type, grade));
         }
         return keys;
+    }
+
+    private static String sanitizeClientContentJson(String currentContentJson, String nextContentJson) {
+        if (excludesDetailsByGeneratedOptions(currentContentJson) && extractDetailKeys(nextContentJson).isEmpty()) {
+            return nextContentJson;
+        }
+        try {
+            JsonNode root = RECHECK_MAPPER.readTree(nextContentJson);
+            if (root instanceof ObjectNode objectNode) {
+                objectNode.remove("reportOptions");
+                return RECHECK_MAPPER.writeValueAsString(objectNode);
+            }
+        } catch (Exception ignored) {
+            // 유효하지 않은 JSON은 Report.updateContent의 기존 검증 경로에서 동일하게 거부한다.
+        }
+        return nextContentJson;
+    }
+
+    private static boolean excludesDetailsByGeneratedOptions(String contentJson) {
+        try {
+            JsonNode sections = RECHECK_MAPPER.readTree(contentJson).path("reportOptions").path("sections");
+            if (!sections.isArray()) {
+                return false;
+            }
+            for (JsonNode section : sections) {
+                if ("details".equals(section.asText())) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static String textOf(JsonNode node, String primaryField, String fallbackField) {
