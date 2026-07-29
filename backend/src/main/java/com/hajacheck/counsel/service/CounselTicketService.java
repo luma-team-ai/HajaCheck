@@ -39,6 +39,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -193,7 +194,8 @@ public class CounselTicketService {
         // 999999999ns가 저장 시 마이크로초로 반올림돼 자정으로 올림(캐리)되는 경계 버그가 난다
         // (리뷰에서 실제 재현: 다음날 자정 티켓이 당일 조회에 포함됨). 1마이크로초(1000ns) 앞에서 끊는다.
         LocalDateTime end = date.plusDays(1).atStartOfDay().minusNanos(1000);
-        Page<CounselTicket> page = ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(start, end, pageable);
+        Page<CounselTicket> page =
+                ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(start, end, pageable);
         Map<Long, String> counselorNames = resolveCounselorNames(page.getContent());
         Map<Long, CustomerProfile> customerProfiles = resolveCustomerProfiles(page.getContent());
         return page.map(ticket -> {
@@ -459,9 +461,19 @@ public class CounselTicketService {
 
     /**
      * 플랫폼 관리자 날짜별 목록용 배치 고객 프로필 조회(#1168) — 이름/이메일은 {@code UserRepository}에서,
-     * 활성 개인 플랜명·가입일은 {@code UserPlanRepository}/{@code PlanRepository}에서 배치로 모아
-     * {@code resolveCounselorNames}와 동일한 N+1 방지 패턴으로 조합한다. 활성 구독이 없거나 회사 소속
-     * 구독(owner XOR)이면 플랜명은 null.
+     * 활성 플랜명·가입일은 {@code UserPlanRepository}/{@code PlanRepository}에서 배치로 모아
+     * {@code resolveCounselorNames}와 동일한 N+1 방지 패턴으로 조합한다.
+     *
+     * <p><b>플랜 소유 주체 분기(#1263)</b> — {@code user_plans} 는 owner XOR
+     * ({@code ck_user_plans_owner_xor})라 회사 귀속 구독 행은 {@code user_id IS NULL} 이다. 따라서 개인
+     * 구독만 조회하면 <b>회사 소속 고객의 요금제가 항상 null</b> 로 떨어진다(권한은 유료인데 관리자 화면엔
+     * "-" 로 보임). 상담 권한 판정이 {@link #requireCounselorAccess} 에서 companyId 유무로 갈리는 것과
+     * 동일하게, 여기서도 {@code user.companyId != null} 이면 회사 구독을, 아니면 개인 구독을 읽는다.
+     * 두 조회 모두 IN 배치라 고객 수와 무관하게 쿼리는 2개 고정이다.
+     *
+     * <p><b>표시 요금제는 effective plan</b>(#1177) — 미결제 유예 중이면 발급된 요금제 이름이 유료여도
+     * 실제 엔타이틀먼트는 FREE 다. 원본 이름을 그대로 보여주면 관리자 화면의 "PREMIUM" 과 실권한(FREE)이
+     * 어긋나므로 {@code PaymentGraceService#resolveEffectivePlan} 단일 소스를 거쳐 이름을 얻는다.
      */
     private Map<Long, CustomerProfile> resolveCustomerProfiles(List<CounselTicket> tickets) {
         Set<Long> userIds = tickets.stream()
@@ -471,24 +483,72 @@ public class CounselTicketService {
         if (userIds.isEmpty()) {
             return Map.of();
         }
-        Map<Long, UserPlan> activePlanByUserId = userPlanRepository
-                .findByUserIdInAndStatus(userIds, UserPlanStatus.ACTIVE).stream()
-                .collect(Collectors.toMap(UserPlan::getUserId, up -> up));
-        Set<Long> planIds = activePlanByUserId.values().stream()
+        List<User> users = userRepository.findAllById(userIds);
+        Set<Long> individualIds = users.stream()
+                .filter(user -> user.getCompanyId() == null)
+                .map(User::getId)
+                .collect(Collectors.toSet());
+        Set<Long> companyIds = users.stream()
+                .map(User::getCompanyId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<Long, UserPlan> planByUserId = individualIds.isEmpty() ? Map.of()
+                : userPlanRepository.findByUserIdInAndStatus(individualIds, UserPlanStatus.ACTIVE).stream()
+                        .collect(Collectors.toMap(UserPlan::getUserId, up -> up, CounselTicketService::latestPlan));
+        Map<Long, UserPlan> planByCompanyId = companyIds.isEmpty() ? Map.of()
+                : userPlanRepository.findByCompanyIdInAndStatus(companyIds, UserPlanStatus.ACTIVE).stream()
+                        .collect(Collectors.toMap(UserPlan::getCompanyId, up -> up, CounselTicketService::latestPlan));
+
+        Set<Long> planIds = Stream.concat(planByUserId.values().stream(), planByCompanyId.values().stream())
                 .map(UserPlan::getPlanId)
                 .collect(Collectors.toSet());
-        Map<Long, String> planNameById = planIds.isEmpty() ? Map.of()
+        Map<Long, Plan> planById = planIds.isEmpty() ? Map.of()
                 : planRepository.findAllById(planIds).stream()
-                        .collect(Collectors.toMap(Plan::getId, plan -> plan.getName().name()));
+                        .collect(Collectors.toMap(Plan::getId, plan -> plan));
 
         Map<Long, CustomerProfile> profiles = new HashMap<>();
-        for (User user : userRepository.findAllById(userIds)) {
-            UserPlan activePlan = activePlanByUserId.get(user.getId());
-            String planName = activePlan == null ? null : planNameById.get(activePlan.getPlanId());
-            profiles.put(user.getId(),
-                    new CustomerProfile(user.getName(), user.getEmail(), planName, user.getCreatedAt()));
+        for (User user : users) {
+            UserPlan activePlan = user.getCompanyId() == null
+                    ? planByUserId.get(user.getId())
+                    : planByCompanyId.get(user.getCompanyId());
+            profiles.put(user.getId(), new CustomerProfile(
+                    user.getName(), user.getEmail(), resolvePlanName(activePlan, planById), user.getCreatedAt()));
         }
         return profiles;
+    }
+
+    /**
+     * 표시용 요금제 이름 — 구독이 없거나 참조 {@code Plan} 행이 사라진 경우는 null(관리자 화면에서 "-").
+     * 여기서 500을 던지지 않는 것은 {@link #requireCounselorAccess} 와 의도적으로 다르다: 저쪽은 권한
+     * 판정이라 정합성 오류를 숨기면 안 되지만, 이쪽은 읽기 전용 목록이라 고객 한 명의 데이터 이상으로
+     * 페이지 전체가 500이 되는 편이 더 나쁘다.
+     */
+    private String resolvePlanName(UserPlan activePlan, Map<Long, Plan> planById) {
+        if (activePlan == null) {
+            return null;
+        }
+        Plan plan = planById.get(activePlan.getPlanId());
+        if (plan == null) {
+            return null;
+        }
+        return paymentGraceService.resolveEffectivePlan(activePlan, plan).getName().name();
+    }
+
+    /**
+     * 같은 주체에 활성 구독 행이 둘 이상일 때의 타이브레이커 — {@code startedAt} 최신을 고른다
+     * ({@code findFirstBy...OrderByStartedAtDesc} 를 쓰는 권한 판정 경로와 같은 기준). 배치 조회에서
+     * {@code Collectors.toMap} 의 기본 동작은 키 중복 시 예외라, 병합 함수 없이 두면 데이터 이상 하나로
+     * 관리자 목록 전체가 500이 된다.
+     */
+    private static UserPlan latestPlan(UserPlan left, UserPlan right) {
+        if (left.getStartedAt() == null) {
+            return right;
+        }
+        if (right.getStartedAt() == null) {
+            return left;
+        }
+        return right.getStartedAt().isAfter(left.getStartedAt()) ? right : left;
     }
 
     private record CustomerProfile(String name, String email, String planName, LocalDateTime joinedAt) {

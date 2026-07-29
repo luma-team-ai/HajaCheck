@@ -36,6 +36,9 @@ public interface CounselTicketRepository extends JpaRepository<CounselTicket, Lo
 
     // 플랫폼 관리자 날짜별 상담 목록(#1168) — 접수일(createdAt) 기준 [start, end) 반열린구간, 최신순.
     // 필터 기준은 접수일이며 종료일(endedAt)이 아니다(그날 접수됐지만 아직 진행 중/미종료인 티켓도 포함).
-    Page<CounselTicket> findByCreatedAtBetweenOrderByCreatedAtDesc(
+    // id DESC 타이브레이커(#1263): createdAt 만으로 정렬하면 같은 마이크로초에 접수된 티켓들의 순서가
+    // 쿼리마다 달라질 수 있어, 페이지 경계에서 같은 티켓이 두 페이지에 나오거나 아예 빠질 수 있다.
+    // id 는 유일하므로 전순서가 확정된다.
+    Page<CounselTicket> findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(
             LocalDateTime start, LocalDateTime end, Pageable pageable);
 }
