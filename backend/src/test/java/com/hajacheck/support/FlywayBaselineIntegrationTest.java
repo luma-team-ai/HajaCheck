@@ -36,7 +36,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * current_period_end 결제 주기 실체화, #1104/HAJA-525)→V28(notification_type PLAN_EXPIRED 라벨,
  * #1145/HAJA-549 — 구독 결제 주기 만료 FREE 자동 강등 알림)→V29(reports.deleted_at DRAFT soft delete
  * 시각, #1172)→V30(scheduled_plan_changes 플랜 하향 예약 원장, #1105/HAJA-526)→V31(notification_type
- * 예약 하향 알림 라벨 2종, #1105/HAJA-526)을 순서대로 적용하고,
+ * 예약 하향 알림 라벨 2종, #1105/HAJA-526)→V32(defect_action_logs 조치 등록 이력 append-only 테이블,
+ * #1193/HAJA-569 — 조치중 단계 다중 등록 지원)을 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -80,7 +81,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V31까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V32까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -121,14 +122,17 @@ class FlywayBaselineIntegrationTest {
         //   (PLAN_EXPIRED)과 사용자에게 전혀 다른 사건이라 라벨을 나눈다).
         //   ⚠️ #1105는 착수 시 V29로 잡았다가 #1172가 그 번호를 선점해 V30·V31로 재번호했고,
         //   #1172가 dev에 머지되면서(2026-07-29) 결번 [29]가 해소돼 번호열이 다시 연속이 됐다.
-        //   마이그레이션 수는 V1~V24(24개) + V25·V26·V27·V28·V29·V30·V31(7개) = 31이다.
-        assertThat(appliedMigrations).isEqualTo(31);
+        // + V32(defect_action_logs 조치 등록 이력 append-only 테이블 + 전용 defect_action_log_phase_type
+        //   enum, #1193/HAJA-569 — 조치중(IN_PROGRESS) 단계 다중 등록 지원). 착수 시 V29로 잡았다가
+        //   #1172/#1105가 먼저 dev에 들어와 V32로 재번호했다.
+        //   마이그레이션 수는 V1~V24(24개) + V25·V26·V27·V28·V29·V30·V31·V32(8개) = 32이다.
+        assertThat(appliedMigrations).isEqualTo(32);
 
-        // 최신 적용 버전이 실제로 V31 인지 확인.
+        // 최신 적용 버전이 실제로 V32 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("31");
+        assertThat(latestVersion).isEqualTo("32");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
