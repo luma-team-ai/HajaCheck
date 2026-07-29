@@ -407,7 +407,7 @@ class PaymentServiceTest {
 
     private static MyPlanResponse myPlan(String planName) {
         return new MyPlanResponse(
-                new MyPlanResponse.PlanInfo(planName, null, "ACTIVE", null, null),
+                new MyPlanResponse.PlanInfo(planName, null, "ACTIVE", null, null, null),
                 new MyPlanResponse.Limits(null, null, null),
                 new MyPlanResponse.Usage(0, 0, 0, LocalDate.of(2026, 7, 1)));
     }

@@ -21,6 +21,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -56,11 +57,23 @@ class QuotaServiceFacilityReadOnlyTest {
     private FacilityRepository facilityRepository;
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private PaymentGraceService paymentGraceService;
     @Spy
     private Clock clock = Clock.fixed(Instant.parse("2026-07-26T00:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     @InjectMocks
     private QuotaService service;
+
+    /**
+     * 미결제 유예(#1177) 판정 — 이 테스트들은 유예와 무관하므로 <b>항상 구독 요금제 그대로</b>를
+     * 돌려주도록 스텁한다(유예가 아닐 때의 실제 동작과 같다).
+     */
+    @BeforeEach
+    void stubNoPaymentGrace() {
+        when(paymentGraceService.resolveEffectivePlan(any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+    }
 
     private void givenCompanyPlan(Integer maxFacilities) {
         UserPlan userPlan = UserPlan.forCompany(COMPANY_ID, 100L);

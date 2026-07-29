@@ -27,6 +27,7 @@ import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
+import com.hajacheck.membership.service.PaymentGraceService;
 import com.hajacheck.support.InMemoryRateLimiter;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
@@ -72,6 +73,8 @@ class NlSearchServiceTest {
     private PlanRepository planRepository;
     @Mock
     private CompanyMembershipRepository companyMembershipRepository;
+    @Mock
+    private PaymentGraceService paymentGraceService;
 
     private MockRestServiceServer mockServer;
     private RestClient.Builder builder;
@@ -104,7 +107,18 @@ class NlSearchServiceTest {
 
     private NlSearchService newService(RateLimiter rateLimiter) {
         return new NlSearchService(builder.build(), properties, userRepository, userPlanRepository,
-                planRepository, companyMembershipRepository, new AiProxyRateLimiter(rateLimiter), FIXED_CLOCK);
+                planRepository, paymentGraceService, companyMembershipRepository,
+                new AiProxyRateLimiter(rateLimiter), FIXED_CLOCK);
+    }
+
+    /**
+     * 미결제 유예(#1177) — 이 테스트들은 유예와 무관하므로 <b>항상 구독 요금제 그대로</b>를 돌려주도록
+     * 스텁한다(유예가 아닐 때의 실제 동작과 같다). 유예 중 차단은 별도 회귀 테스트가 검증한다.
+     */
+    @BeforeEach
+    void stubNoPaymentGrace() {
+        when(paymentGraceService.resolveEffectivePlan(any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
     }
 
     // ── 성공 경로 ──
@@ -200,6 +214,26 @@ class NlSearchServiceTest {
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.AI_ADDON_REQUIRED);
         mockServer.verify(); // 설정된 기대치 없음 = 어떤 요청도 발생하지 않아야 통과
+    }
+
+    @Test
+    void 검색_미결제유예중이면_AI_ADDON_REQUIRED_내부호출없음() {
+        // #1177 리뷰 P1 회귀선 — 유료→유료 하향은 결제 없이 대상 요금제를 발급한다. 그 유예 구독의
+        // plan_id 는 STANDARD(hasAiAddon=true)라 이 게이트가 원본 요금제를 그대로 읽으면 <b>AI
+        // 부가기능을 무상으로</b> 쓸 수 있다. 이 판정은 QuotaService 를 거치지 않으므로 한도 3종을
+        // 낮추는 것만으로는 막히지 않는다.
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L)));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(addonPlan));
+        // 유예 중이면 엔타이틀먼트가 FREE 로 낮아진다(hasAiAddon=false).
+        when(paymentGraceService.resolveEffectivePlan(any(), any())).thenReturn(noAddonPlan);
+
+        assertThatThrownBy(() -> service.search(USER_ID, "균열만 보여줘"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.AI_ADDON_REQUIRED);
+        mockServer.verify(); // 설정된 기대치 없음 = FastAPI 로 어떤 요청도 나가지 않아야 통과
     }
 
     @Test

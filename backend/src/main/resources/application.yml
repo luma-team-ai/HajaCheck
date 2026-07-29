@@ -251,6 +251,23 @@ hajacheck:
       max-per-run: ${PLAN_SCHEDULED_CHANGE_MAX_PER_RUN:100}
       # 예약·구독 행 잠금 대기 상한(ms, 0=무제한). 근거·적용 방식은 위 expiry.lock-timeout-ms 와 동일.
       lock-timeout-ms: ${PLAN_SCHEDULED_CHANGE_LOCK_TIMEOUT_MS:3000}
+      # 유료→유료 하향(#1177 C안) 허용 스위치 — 기본 false(닫힘). 생성(AdminPlanService#scheduleChange)과
+      # 실행(ScheduledPlanChangeWriter#applyBillingPeriod) 양쪽을 게이팅한다 — 생성만 막으면 스위치를 켠
+      # 동안 쌓인 예약이 최대 한 달 보관되므로, 되돌려도 이미 만들어진 PENDING 이 그대로 실행돼 안내 없이
+      # 좌석 정지·FREE 강등이 일어난다(닫힌 상태에서 실행되면 예약은 FAILED 로 끝나고 신청자에게 알림이 간다).
+      #
+      # ⚠️ 이 값을 true 로 올리기 전 선결 조건(#1177 후속) — 전부 해소되기 전에는 켜지 말 것:
+      #   1) 프론트 유료 대상 예약 UI(결제 마감 안내·유예 배너·결제 유도) 연동
+      #   2) [P2-C] 2단계(유예 만료 강등)에 종료 상태·실패 알림 추가 — 지금은 결정적 실패가 매시 영구
+      #      재시도되고, 누적되면 max-per-run 상한에 걸려 2단계 전체가 봉쇄된다
+      #   3) [P2-D] 2단계에 "PAID && user_plan_id IS NULL 이면 스킵 + 알람" fail-safe — 유예 정산 결제가
+      #      승인은 됐는데 전이가 끝나지 않은 대사 대상(#1010)이 예정대로 FREE 강등되는 것을 막는다
+      #   4) [P2-E] 결제해도 유예 진입 때 정지된 좌석이 자동 복구되지 않는다는 안내(최소 문구)
+      paid-target-enabled: ${PLAN_SCHEDULED_CHANGE_PAID_TARGET_ENABLED:false}
+      # 유료→유료 하향의 미결제 유예 일수(1~14). 유료 대상 예약이 적용되면 결제 없이 그 요금제가
+      # 발급되되, 이 일수 안에 결제하지 않으면 FREE 로 강등된다(이 배치의 2단계). 유예 구간은 어떤
+      # 경우에도 청구가 발생하지 않으므로 길수록 미결제 노출이 커진다 — 상한 2주.
+      payment-grace-days: ${PLAN_SCHEDULED_CHANGE_PAYMENT_GRACE_DAYS:7}
 
 # 국세청 사업자등록정보 진위확인(data.go.kr) — #596. service-key 미설정 시 진위확인을 스킵하고
 # 가입을 그대로 진행한다(fail-open). service-key 는 data.go.kr "일반 인증키(Decoding)" 를 주입한다.

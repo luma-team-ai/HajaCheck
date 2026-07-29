@@ -27,6 +27,12 @@ import java.util.List;
  *                          이 값 말고는 복원할 수 없다({@code users.status} 는 이전 값을 보관하지 않는다).
  *                          id 만 담으므로 개인정보는 포함되지 않는다.
  * @param reason            {@code applied=false} 일 때의 사유(로깅·failure_reason 전용).
+ * @param paymentPendingUntil <b>미결제 유예 마감</b>(#1177). 유료 대상 하향은 결제 없이 전이하므로 그
+ *                          요금제가 "미결제 유예"로 발급되고, 이 시각까지 결제하지 않으면 FREE 로
+ *                          강등된다. 무료 대상(#1105 기존 경로)이면 {@code null} 이다. 알림 payload 에
+ *                          실어 화면이 <b>"N일 안에 결제하지 않으면 FREE 로 전환됩니다"</b>를 정확한
+ *                          날짜로 표시하게 한다 — 유예 중 한도가 FREE 라 사용자 체감 변화가 크므로,
+ *                          사유와 마감을 알리지 않으면 "요금제는 내려갔는데 왜 좌석까지 정지됐나"가 된다.
  */
 public record ScheduledPlanChangeResult(
         boolean applied,
@@ -38,7 +44,8 @@ public record ScheduledPlanChangeResult(
         Long userId,
         Instant effectiveAt,
         List<Long> suspendedUserIds,
-        String reason) {
+        String reason,
+        Instant paymentPendingUntil) {
 
     public ScheduledPlanChangeResult {
         suspendedUserIds = suspendedUserIds == null ? List.of() : List.copyOf(suspendedUserIds);
@@ -47,24 +54,30 @@ public record ScheduledPlanChangeResult(
     /** 아무것도 바꾸지 않고 지나간 예약(이미 처리됨·다른 실행이 점유함 등) — 상태도 그대로 둔다. */
     public static ScheduledPlanChangeResult skipped(String reason) {
         return new ScheduledPlanChangeResult(false, false, null, null, null, null, null, null,
-                List.of(), reason);
+                List.of(), reason, null);
     }
 
     /** 예약이 의미를 잃어 CANCELED 로 종료된 경우(구독이 이미 전이됨·더 이상 하향이 아님 등). */
     public static ScheduledPlanChangeResult canceled(String reason) {
         return new ScheduledPlanChangeResult(false, true, null, null, null, null, null, null,
-                List.of(), reason);
+                List.of(), reason, null);
     }
 
     public static ScheduledPlanChangeResult applied(Long recipientUserId, PlanName previousPlanName,
             PlanName targetPlanName, Long companyId, Long userId, Instant effectiveAt,
-            List<Long> suspendedUserIds) {
+            List<Long> suspendedUserIds, Instant paymentPendingUntil) {
         return new ScheduledPlanChangeResult(true, false, recipientUserId, previousPlanName,
-                targetPlanName, companyId, userId, effectiveAt, suspendedUserIds, null);
+                targetPlanName, companyId, userId, effectiveAt, suspendedUserIds, null,
+                paymentPendingUntil);
     }
 
     /** 알림 payload·집계용 정지 좌석 수. */
     public int suspendedSeatCount() {
         return suspendedUserIds.size();
+    }
+
+    /** 미결제 유예로 발급됐는가(#1177) — 알림 문구·화면 배너 분기용. */
+    public boolean paymentPending() {
+        return paymentPendingUntil != null;
     }
 }

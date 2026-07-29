@@ -74,9 +74,21 @@ class AdminPlanServiceTest {
     private com.hajacheck.membership.repository.ScheduledPlanChangeRepository scheduledPlanChangeRepository;
     @Mock
     private com.hajacheck.membership.service.ScheduledPlanChangeCanceller scheduledPlanChangeCanceller;
+    // #1177 — 미결제 유예 판정(예약 생성 차단·응답 한도 기준). 이 클래스의 시나리오는 유예와 무관하므로
+    // 아래 BeforeEach 가 "유예 아님"(= 구독 요금제 그대로)으로 스텁한다.
+    @Mock
+    private com.hajacheck.membership.service.PaymentGraceService paymentGraceService;
 
     @InjectMocks
     private AdminPlanService service;
+
+    @org.junit.jupiter.api.BeforeEach
+    void 유예아님을_기본으로_stub한다() {
+        org.mockito.Mockito.lenient()
+                .when(paymentGraceService.resolveEffectivePlan(
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+    }
 
     @org.junit.jupiter.api.BeforeEach
     void 현재플랜조회를_기본으로_stub한다() {

@@ -132,6 +132,7 @@ public interface ScheduledPlanChangeRepository extends JpaRepository<ScheduledPl
     List<ScheduledPlanChange> lockPendingByUserPlanId(@Param("userPlanId") Long userPlanId,
             @Param("status") ScheduledPlanChangeStatus status);
 
+
     // ── 아래는 default 래퍼 전용 쿼리다(상태를 파라미터로 받는 이유는 클래스 javadoc 참고) ────────────
 
     long countByStatusAndEffectiveAtLessThanEqual(ScheduledPlanChangeStatus status, Instant effectiveAt);
