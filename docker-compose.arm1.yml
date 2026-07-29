@@ -171,7 +171,10 @@ services:
       LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
       LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-}
       # 입출력 마스킹(#1240) — 프롬프트·응답 내용 비전송. 프로덕션은 실제 고객 개인정보가
-      # 흐르므로 이 둘이 반드시 true여야 한다. 기본값 true(fail-safe) — 끄려면 .env에서 명시.
+      # 흐르므로 이 둘이 반드시 true여야 한다. 기본값 true(fail-safe).
+      # ⚠️ false는 "마스킹 끄기" 토글이 아니다(9차 리뷰 P3): 트레이싱 ON 또는 API 키 존재
+      # 상태에서 false면 부팅 가드가 기동을 거부하고, 그 외에도 anonymizer 백스톱이 내용을
+      # {}로 치환한다 — 내용 마스킹은 항상 강제. 원문 가시성은 가드·마스킹 제거 PR로만.
       LANGSMITH_HIDE_INPUTS: ${LANGSMITH_HIDE_INPUTS:-true}
       LANGSMITH_HIDE_OUTPUTS: ${LANGSMITH_HIDE_OUTPUTS:-true}
     volumes:
