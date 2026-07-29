@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.37.0-draft"
+  version: "0.36.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -3956,7 +3956,7 @@ components:
     FacilityResponse:
       type: object
       additionalProperties: false
-      required: [id, name, type, createdAt, updatedAt, defectCount]
+      required: [id, name, type, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int64 }
         name: { type: string }
@@ -3981,13 +3981,6 @@ components:
           nullable: true
           description: >
             가장 최근 점검의 inspectionDate(HAJA-514/#1074). 점검 이력이 없으면 null.
-        defectCount:
-          type: integer
-          format: int64
-          description: >
-            시설물 카드 하자건수 배지(HAJA-515/#1075) — 비삭제 하자 총건수. facilityIds 배치 조회 후
-            그룹핑(DefectRepository.countGroupByFacilityIds)해 N+1 없이 채운다. 하자가 없으면 null이
-            아니라 0.
 
     FacilityDetailResponse:
       type: object

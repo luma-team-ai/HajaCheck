@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.37.0-draft"
+  version: "0.32.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -33,13 +33,6 @@ info:
       prefix `/user`.
 
 
-    2026-07-29 최근 점검 목록 REVIEWED 상태 라벨 통일(#1044, PR#1040 P2 후속) — GET
-    /api/dashboard/recent-inspections 의 status 값이 REVIEWED 를 "조치대기"로 표기하던 것을 대시보드
-    KPI 카드(HAJA-499)와 동일한 "검수확정"으로 변경. RecentInspectionItem.status enum 값도 함께 수정
-    (기존 값 "조치대기" 제거, "검수확정" 추가) — 이 값을 그대로 필터 쿼리파라미터로 보내는
-    프론트(RecentInspectionsFullListPage)도 동시 반영.
-
-
     2026-07-28 구독 만료 FREE 자동 강등 알림 추가(#1145 / HAJA-549, Flyway V28) — `NotificationTypeCode`
     에 **PLAN_EXPIRED** 신설. 결제 주기(`current_period_end`)가 지난 유료 구독을 배치가 FREE 로 내리면서
     발행한다. 기존 enum 값은 그대로라 하위호환이며, 프론트는 미지원 타입 폴백("기타")을 갖고 있으므로
@@ -64,13 +57,6 @@ info:
     회차에 재연결된 경우)은 프론트 DefectChangeType에 대응 타입이 없어 이번 범위에서 진행중(worsened)
     으로 근사 매핑한다(HAJA-532/#1119 후속에서 정확화 예정). beforeImageUrl/afterImageUrl/crackTrend는
     실 데이터 근거가 없어 이번 범위에서 생략(프론트 InspectionComparisonResult 타입과 완전히 1:1은 아님).
-
-    2026-07-28 회차 간 비교 "재발생" 정확 분류(HAJA-532/#1119, HAJA-531/#1112 후속) — #1112 당시
-    프론트 DefectChangeType에 대응 타입이 없어 worsened로 근사 매핑했던 "재발생"(이전 회차 RESOLVED가
-    이후 회차에 재연결된 경우)을 별도 changeType 값 `recurring`으로 정확히 분리한다. "진행성 (악화)"
-    KPI는 worsened와 recurring을 함께 센다(둘 다 "다시 조치가 필요한" 상태라는 점에서 동일 버킷).
-    gradeEscalated KPI는 worsened만 본다(recurring의 이전 등급은 "이미 조치 완료 시점" 기준이라
-    이후 등급과 비교해도 진짜 등급 악화를 의미하지 않음).
 
     2026-07-28 조치 결과 등록 계약화 + 진행상태 선택 도입(#1128) — 실구현은 있었으나 미문서였던
     **PATCH /api/defects/{id}/action** 을 신규 계약화하면서, 요청 스키마 DefectActionResultRequest에
@@ -855,24 +841,17 @@ paths:
 
   /api/me/plan/orders:
     post:
-      summary: 결제 주문 생성 (토스페이먼츠 3-step 1단계, #988 / HAJA-489, 잔여기간 크레딧 #1146 / HAJA-550)
+      summary: 결제 주문 생성 (토스페이먼츠 3-step 1단계, #988 / HAJA-489)
       description: >
         결제창을 열기 전에 서버가 주문을 선등록한다. **금액은 서버가 결정한다** — 요청 바디에 금액 필드가
-        없고, 대상 플랜 정가(`plans.price_monthly`)에서 **현재 플랜의 잔여 기간 크레딧을 차감한 금액**을
-        `payments`(status=READY) 행에 스냅샷으로 저장한다(#1146, B안 — 잔여 크레딧 차감 + 주기 리셋. 승인
-        후 주기는 항상 `now ~ now+1개월`로 리셋된다). 크레딧 = 현재 플랜 정가 × 잔여일/주기일수(KST 기준
-        달력일, 원 단위 내림) — `current_period_end` 가 없거나(FREE→유료 등) 만료가 지났으면 크레딧 0(정가
-        청구). 차감 후 금액이 토스 최소 결제금액(100원) 미만이면 100원으로 올린다. 이 저장값이 이후 승인
-        단계의 금액 위변조 대조 기준이며, **승인 시 재계산하지 않는다**(응답의 `listPrice`/`credit`/`amount`
-        3필드가 안내 금액과 청구 금액을 일치시킨다).
+        없고, `plans.price_monthly` 를 스냅샷해 `payments`(status=READY) 행으로 저장한다. 이 저장값이
+        이후 승인 단계의 금액 위변조 대조 기준이 된다.
         대상 플랜은 STANDARD/ENTERPRISE만 허용(FREE 는 INVALID_INPUT 400). 회사 구독은
         company.ownerUserId만, 개인 구독은 그 구독의 소유 사용자만 요청할 수 있다.
         이미 대상 플랜을 이용 중이면 청구 전에 PLAN_ACTIVE_SUBSCRIPTION_CONFLICT(409)로 거절한다.
         동일 소유주체·동일 플랜의 **유효한 READY 주문이 이미 있으면 새로 만들지 않고 그 주문을 반환**한다
-        (주문 난립·중복 청구 방지) — 이때 `amount` 는 기존 스냅샷 그대로이고 `listPrice`/`credit` 만 현재
-        정가 기준으로 다시 계산해 보여준다. READY 주문의 유효기간은 30분(`toss-payments.order-ttl`)이며
-        만료분은 승인 단계에서 CANCELED 처리된다 — 요금 인상 전 주문을 쟁여두고 구가격으로 결제하는 것을
-        막는다.
+        (주문 난립·중복 청구 방지). READY 주문의 유효기간은 30분(`toss-payments.order-ttl`)이며 만료분은
+        승인 단계에서 CANCELED 처리된다 — 요금 인상 전 주문을 쟁여두고 구가격으로 결제하는 것을 막는다.
         `PaymentController.createOrder` 구현됨.
       security:
         - SessionCookie: []
@@ -1227,105 +1206,6 @@ paths:
             정지 후 ACTIVE 관리자가 한 명도 남지 않는 산출 (ADMIN_PROTECTED_ACCOUNT) — 회사가 관리
             불능이 되는 결과를 만들지 않기 위한 방어선이다. owner 는 항상 유지되므로 현행 경로에서는
             발화하지 않지만, 계약상 가능한 응답으로 명시한다.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-
-  /api/admin/plan/scheduled-change:
-    post:
-      summary: 회사 플랜 하향 예약 (관리자 플랜·쿼터, #1105 / HAJA-526)
-      description: >
-        하향을 **즉시 적용하지 않고 다음 결제 주기에 적용**하도록 예약한다. 예약 시점에는 아무것도 바뀌지
-        않는다 — 요금제도 좌석도 그대로이고, `current_period_end`에 도달하면 스케줄러가 무결제 전이 +
-        초과 좌석 정지를 수행한다. 이미 낸 요금 기간을 온전히 쓰게 하려는 것이 목적이다.
-
-
-        ⚠️ **대상은 무료 요금제(FREE)만 지원한다**(`PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED`, 403).
-        유료→유료 하향(예: ENTERPRISE→STANDARD)은 적용 시점에 새 유료 주기를 열어야 하는데, 정기결제
-        (빌링키)가 없어 그 주기를 청구할 수단이 없다 — 즉 **무결제로 유료 요금제가 발급**된다. 결제 경로
-        우회를 막기 위해 이 조합 자체를 범위 밖으로 둔다(`PLAN_UPGRADE_REQUIRES_PAYMENT`와 같은 근거).
-        유료→유료 하향이 필요하면 관리자 즉시 변경(`PATCH /api/admin/plan`)을 쓴다 — 다만 그 경로는 잔여
-        기간을 정산하지 않는다.
-
-
-        **상향도 이 경로로 받지 않는다** — 즉시 적용 + 결제가 필요하므로 `PLAN_SCHEDULE_NOT_DOWNGRADE`(403).
-        상향 결제(`POST /api/me/plan/orders`)·관리자 즉시 변경(`PATCH /api/admin/plan`)·만료 강등(#1145)이
-        일어나면 대기 중인 예약은 자동으로 무효화된다.
-
-
-        ⚠️ `keepUserIds`는 실행 시점까지 보관되므로, 그 사이 퇴사·정지·타사 이동한 id는 실행 시 드롭한다.
-        **드롭이 발생한 경우에만 그 수만큼** 자동 보충하며(owner는 항상 유지되므로 보충 예산을 쓰지 않는다),
-        드롭이 없으면 신청 시점 선택을 그대로 존중한다 — 미리보기로 확인한 정지 규모가 보존된다.
-
-
-        신청 시점에 확인한 정지 인원 수가 예약 행에 스냅샷된다. 실행 시점 정지 대상이 그 수를 초과하면
-        (예약 이후 구성원이 늘어난 경우) 적용하지 않고 **FAILED로 종료**하며 상위 요금제를 유지한다
-        (`PLAN_SCHEDULE_CONFIRMED_OVERFLOW_EXCEEDED`) — 확인받지 않은 규모로 사람을 정지시키지 않는다.
-        FAILED 종료 시 owner에게 알림(`PLAN_DOWNGRADE_FAILED`)이 발행된다.
-      security:
-        - SessionCookie: []
-      tags: [admin]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AdminScheduledPlanChangeRequest" }
-      responses:
-        "200":
-          description: 예약 생성됨
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AdminScheduledPlanChangeApiResponse" }
-        "401":
-          description: 미인증 (UNAUTHORIZED)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "403":
-          description: >
-            ADMIN 아님 / 회사 owner 아님 (FORBIDDEN / PLAN_FORBIDDEN) · 상향은 예약 대상이 아님
-            (PLAN_SCHEDULE_NOT_DOWNGRADE) · keepUserIds 에 요청자 회사의 ACTIVE 구성원이 아닌 id 포함
-            (PLAN_KEEP_USER_INVALID) · 선택 인원이 대상 요금제 좌석 수 초과 (PLAN_SEAT_QUOTA_EXCEEDED)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "404":
-          description: 상속 가능한 활성 구독 없음 (PLAN_NOT_FOUND)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "409":
-          description: >
-            이미 대기 중인 예약 존재 (PLAN_SCHEDULED_CHANGE_EXISTS) · `current_period_end` 가 없어 실행
-            기준일을 정할 수 없음 (PLAN_SCHEDULE_PERIOD_END_MISSING — FREE 무기한 구독 등) · 한도 초과를
-            확인하지 않음 (PLAN_DOWNGRADE_CONFIRMATION_REQUIRED)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-    delete:
-      summary: 회사 플랜 하향 예약 취소 (관리자 플랜·쿼터, #1105 / HAJA-526)
-      description: "대기 중인(PENDING) 하향 예약을 취소한다. 이미 적용·실패한 예약은 대상이 아니다."
-      security:
-        - SessionCookie: []
-      tags: [admin]
-      responses:
-        "200":
-          description: 예약 취소됨
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AdminScheduledPlanChangeApiResponse" }
-        "401":
-          description: 미인증 (UNAUTHORIZED)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "403":
-          description: ADMIN 아님 / 회사 owner 아님 (FORBIDDEN / PLAN_FORBIDDEN)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "404":
-          description: 대기 중인 예약 없음 (PLAN_SCHEDULED_CHANGE_NOT_FOUND)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
@@ -1809,9 +1689,10 @@ paths:
         인증 사용자의 회사가 소유한 시설물의 두 점검 회차(before/after)를 비교해 KPI(신규/진행중(악화
         포함)/개선완료/등급상승 4종)와 하자 변화 목록을 반환한다. previous_defect_id로 확정된 회차 간
         대응(HAJA-437)을 기준으로 분류하며, "재발생"(이전 회차 RESOLVED가 이후 회차에 재연결된 경우)은
-        recurring으로 별도 구분한다(HAJA-532/#1119). beforeImageUrl/afterImageUrl/crackTrend는 실
-        데이터 근거가 없어 이번 범위에서 생략한다. 미존재/타인 소유 시설 모두 404 FACILITY_NOT_FOUND,
-        before>=after 또는 존재하지 않는 회차는 각각 400 INVALID_INPUT / 404 INSPECTION_NOT_FOUND.
+        프론트 DefectChangeType에 대응 타입이 없어 진행중(worsened)으로 근사 매핑한다(HAJA-532/#1119
+        후속에서 정확화 예정). beforeImageUrl/afterImageUrl/crackTrend는 실 데이터 근거가 없어 이번
+        범위에서 생략한다. 미존재/타인 소유 시설 모두 404 FACILITY_NOT_FOUND, before>=after 또는 존재
+        하지 않는 회차는 각각 400 INVALID_INPUT / 404 INSPECTION_NOT_FOUND.
       security:
         - SessionCookie: []
       tags: [facility]
@@ -1912,7 +1793,7 @@ paths:
       description: >
         로그인 사용자 소유 시설물의 최근 점검을 점검일 최신순으로 반환한다. status 는 DB 6단계
         (inspection_status_type)를 화면 4단계로 축약한다: CREATED/UPLOADING/ANALYZING→분석중,
-        ANALYZED→검수대기, REVIEWED→검수확정, REPORTED→완료. `DashboardController.getRecentInspections` 구현됨.
+        ANALYZED→검수대기, REVIEWED→조치대기, REPORTED→완료. `DashboardController.getRecentInspections` 구현됨.
       security:
         - SessionCookie: []
       tags: [dashboard]
@@ -3956,7 +3837,7 @@ components:
     FacilityResponse:
       type: object
       additionalProperties: false
-      required: [id, name, type, createdAt, updatedAt, defectCount]
+      required: [id, name, type, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int64 }
         name: { type: string }
@@ -3981,13 +3862,6 @@ components:
           nullable: true
           description: >
             가장 최근 점검의 inspectionDate(HAJA-514/#1074). 점검 이력이 없으면 null.
-        defectCount:
-          type: integer
-          format: int64
-          description: >
-            시설물 카드 하자건수 배지(HAJA-515/#1075) — 비삭제 하자 총건수. facilityIds 배치 조회 후
-            그룹핑(DefectRepository.countGroupByFacilityIds)해 N+1 없이 채운다. 하자가 없으면 null이
-            아니라 0.
 
     FacilityDetailResponse:
       type: object
@@ -4067,12 +3941,10 @@ components:
         gradeAfter: { type: string, nullable: true, description: 이후 회차 등급(A~E). 개선완료면 null. }
         changeType:
           type: string
-          enum: [new, unchanged, worsened, resolved, recurring]
+          enum: [new, unchanged, worsened, resolved]
           description: >
-            recurring(재발생, HAJA-532/#1119) — 이전 회차 RESOLVED였던 하자가 이후 회차에
-            previousDefectId로 재연결된 경우. 초기(#1112)엔 대응 타입이 없어 worsened로
-            근사 매핑했었으나 이제 정확히 구분한다. "진행성 (악화)" KPI는 worsened와 recurring을
-            함께 센다.
+            "재발생"(이전 RESOLVED + 이후 회차 재연결)은 이 4종에 대응 타입이 없어 worsened로
+            근사 매핑된다(HAJA-532/#1119 후속에서 정확화 예정).
         note: { type: string, description: 이번 범위에서는 항상 빈 문자열. }
 
     FacilityComparisonResponse:
@@ -5327,36 +5199,12 @@ components:
 
     PaymentOrderResponse:
       type: object
-      description: >
-        결제 주문 선등록 결과(#988). 상향 결제는 잔여 기간 일할 크레딧을 차감한다(#1146 / HAJA-550,
-        B안 — 잔여 크레딧 차감 + 주기 리셋). `listPrice - credit == amount` 가 항상 성립한다.
-        `amount` 는 이 시점에 확정돼 `payments` 행에 스냅샷으로 굳으며, 승인 단계에서 재계산하지 않는다.
-      required: [orderId, planName, listPrice, credit, amount, orderName]
+      description: 결제 주문 선등록 결과(#988). 금액은 서버가 plans.price_monthly 에서 스냅샷한 값이다.
+      required: [orderId, planName, amount, orderName]
       properties:
         orderId: { type: string, description: 서버 발급 주문 식별자(UUID), example: "b1e4f0c2-..." }
         planName: { type: string, enum: [STANDARD, ENTERPRISE] }
-        listPrice:
-          type: integer
-          format: int64
-          description: 대상 플랜 정가(plans.price_monthly, 크레딧 차감 전)
-          example: 100000
-        credit:
-          type: integer
-          format: int64
-          description: >
-            잔여 기간 일할 크레딧(차감액, 0 이상). 현재 플랜 정가 × 잔여일/주기일수(KST 기준 달력일,
-            원 단위 내림) — 단, 그 구독에 실제로 연결된 PAID 결제 합계를 넘지 않는다(무결제 구독·V27
-            백필 추정치·모의 결제 시절 구독은 크레딧 0, 정가 인상 후에도 실제로 낸 금액이 상한).
-            current_period_end/start 가 없거나(FREE·주기 정보 없음) 만료가 지났으면 0. 최소 결제금액
-            (100원) 가드로 amount 가 올림 조정된 경우 그 조정 후 값 기준으로 역산한다.
-          example: 15000
-        amount:
-          type: integer
-          format: int64
-          description: >
-            결제 금액(원) — 서버 결정값(listPrice - credit, 토스 최소 결제금액 100원 미만이면 100원으로
-            올림)
-          example: 85000
+        amount: { type: integer, format: int64, description: 결제 금액(원) — 서버 결정값, example: 29000 }
         orderName: { type: string, description: 결제창 표시용 주문명, example: "HajaCheck STANDARD 플랜 구독" }
 
     PaymentOrderApiResponse:
@@ -5522,19 +5370,6 @@ components:
         plan: { $ref: "#/components/schemas/AdminPlanItem" }
         status: { type: string, enum: [ACTIVE, EXPIRED, UPGRADE_REQUESTED], example: ACTIVE }
         startedAt: { type: string, format: date-time, example: "2026-07-21T09:00:00Z" }
-        currentPeriodEnd:
-          type: string
-          format: date-time
-          nullable: true
-          description: >
-            현재 결제 주기 종료 시각(#1104). NULL = 무기한(FREE). 하향 예약(#1105)의 적용 예정일이 곧 이 값이라,
-            화면이 "언제부터 적용되는지"를 별도 조회 없이 표시할 수 있게 함께 내려준다.
-          example: "2026-08-21T09:00:00Z"
-        scheduledChange:
-          nullable: true
-          allOf:
-            - { $ref: "#/components/schemas/AdminScheduledPlanChangeResponse" }
-          description: "대기 중인 하향 예약(#1105). 없으면 null — 프론트는 이 필드의 존재로 예약 유무를 판정한다."
         usage:
           type: object
           required: [analyzedImageCount, analysisRequestCount, facilityCount, seatCount, period]
@@ -5544,58 +5379,6 @@ components:
             facilityCount: { type: integer, example: 3 }
             seatCount: { type: integer, example: 2 }
             period: { type: string, format: date, description: "집계 기준월 1일(KST)", example: "2026-07-01" }
-
-    AdminScheduledPlanChangeRequest:
-      type: object
-      description: >
-        하향 예약 생성 요청(#1105). 상향은 이 경로로 받지 않는다 — 즉시 적용 + 결제가 필요하므로
-        `PLAN_SCHEDULE_NOT_DOWNGRADE`(403)로 거절한다.
-      required: [planName]
-      properties:
-        planName: { type: string, enum: [FREE, STANDARD, ENTERPRISE], example: STANDARD }
-        confirmOverflow:
-          type: boolean
-          nullable: true
-          description: "한도 초과(좌석·시설물)를 확인했는지. 초과가 있는데 false/미지정이면 PLAN_DOWNGRADE_CONFIRMATION_REQUIRED(409)."
-          example: true
-        keepUserIds:
-          type: array
-          maxItems: 200
-          nullable: true
-          items: { type: integer, format: int64 }
-          description: >
-            좌석 초과 시 유지할 구성원. 미지정이면 자동 규칙(owner 우선). ⚠️ 이 목록은 예약 실행 시점까지
-            보관되므로, 실행 시 퇴사·정지·타사 이동한 id는 드롭하고 owner 우선으로 자동 보충한다.
-          example: [7, 12]
-
-    AdminScheduledPlanChangeResponse:
-      type: object
-      description: "하향 예약 상태(#1105)."
-      required: [id, targetPlanName, effectiveAt, keepUserIds, status]
-      properties:
-        id: { type: integer, format: int64, example: 5 }
-        targetPlanName: { type: string, enum: [FREE, STANDARD, ENTERPRISE], example: STANDARD }
-        effectiveAt:
-          type: string
-          format: date-time
-          description: "적용 예정 시각 = 신청 시점의 current_period_end. 그때까지는 기존 플랜이 그대로 유지된다."
-          example: "2026-08-21T09:00:00Z"
-        keepUserIds:
-          type: array
-          items: { type: integer, format: int64 }
-          example: [7, 12]
-        status: { type: string, enum: [PENDING, APPLIED, CANCELED, FAILED], example: PENDING }
-
-    AdminScheduledPlanChangeApiResponse:
-      type: object
-      required: [success, data, error]
-      properties:
-        success: { type: boolean }
-        data:
-          nullable: true
-          oneOf:
-            - { $ref: "#/components/schemas/AdminScheduledPlanChangeResponse" }
-        error: { type: object, nullable: true, example: null }
 
     AdminPlanApiResponse:
       type: object
@@ -5969,7 +5752,7 @@ components:
       type: object
       description: >
         status 는 DB 6단계를 화면 4단계로 축약: CREATED/UPLOADING/ANALYZING→분석중, ANALYZED→검수대기,
-        REVIEWED→검수확정, REPORTED→완료.
+        REVIEWED→조치대기, REPORTED→완료.
       required: [id, facilityName, inspectedAt, inspector, defectCount, status]
       properties:
         id: { type: integer, format: int64 }
@@ -5977,7 +5760,7 @@ components:
         inspectedAt: { type: string, format: date }
         inspector: { type: string }
         defectCount: { type: integer, format: int64, minimum: 0 }
-        status: { type: string, enum: [분석중, 검수대기, 검수확정, 완료] }
+        status: { type: string, enum: [분석중, 검수대기, 조치대기, 완료] }
 
     RecentInspectionListApiResponse:
       type: object
