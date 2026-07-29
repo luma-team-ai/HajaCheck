@@ -32,7 +32,12 @@ describe('SelectedFacilityPopup', () => {
     };
 
     render(
-      <SelectedFacilityPopup facility={facility} onViewDetail={() => {}} onGoToInspectionResult={() => {}} />,
+      <SelectedFacilityPopup
+        facility={facility}
+        canGoToInspectionResult
+        onViewDetail={() => {}}
+        onGoToInspectionResult={() => {}}
+      />,
     );
 
     // jest-dom 매처는 이 프로젝트에 setup되어 있지 않아 기본 매처로 검증.
@@ -48,6 +53,7 @@ describe('SelectedFacilityPopup', () => {
     render(
       <SelectedFacilityPopup
         facility={baseFacility}
+        canGoToInspectionResult
         onViewDetail={() => {}}
         onGoToInspectionResult={handleGoToInspectionResult}
       />,
@@ -57,5 +63,18 @@ describe('SelectedFacilityPopup', () => {
     resultButton.click();
 
     expect(handleGoToInspectionResult).toHaveBeenCalledTimes(1);
+  });
+
+  it('점검 이력이 없으면 결과 검수 버튼을 비활성화한다', () => {
+    render(
+      <SelectedFacilityPopup
+        facility={baseFacility}
+        canGoToInspectionResult={false}
+        onViewDetail={() => {}}
+        onGoToInspectionResult={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '결과 검수' }).hasAttribute('disabled')).toBe(true);
   });
 });
