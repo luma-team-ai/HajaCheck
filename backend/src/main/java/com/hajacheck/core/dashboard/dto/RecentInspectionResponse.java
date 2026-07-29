@@ -9,7 +9,8 @@ import java.time.LocalDate;
  * { id, facilityName, inspectedAt, inspector, defectCount, status } 과 1:1.
  *
  * <p>status 는 DB의 6단계(inspection_status_type)를 화면 4단계로 축약해서 매핑한다:
- * CREATED/UPLOADING/ANALYZING → 분석중, ANALYZED → 검수대기, REVIEWED → 조치대기, REPORTED → 완료.
+ * CREATED/UPLOADING/ANALYZING → 분석중, ANALYZED → 검수대기, REVIEWED → 검수확정, REPORTED → 완료.
+ * REVIEWED 라벨은 KPI 카드와 통일해 "검수확정"을 쓴다(HAJA-499/#1044) — 구 라벨 "조치대기" 폐기.
  */
 public record RecentInspectionResponse(
         Long id,
@@ -35,7 +36,7 @@ public record RecentInspectionResponse(
         return switch (status) {
             case CREATED, UPLOADING, ANALYZING -> "분석중";
             case ANALYZED -> "검수대기";
-            case REVIEWED -> "조치대기";
+            case REVIEWED -> "검수확정";
             case REPORTED -> "완료";
         };
     }
