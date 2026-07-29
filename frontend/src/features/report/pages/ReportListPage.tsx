@@ -224,7 +224,7 @@ export function ReportListPage() {
   // 진행 중 레이블 (복제 중 / 삭제 중)
   const progressLabel =
     pendingAction?.type === 'clone'
-      ? '보고서를 복제하는 중입니다...'
+      ? '보고서를 복사하는 중입니다...'
       : pendingAction?.type === 'delete'
         ? '보고서를 삭제하는 중입니다...'
         : null;

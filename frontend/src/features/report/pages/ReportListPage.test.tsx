@@ -127,13 +127,13 @@ describe('ReportListPage', () => {
     expect(screen.getByRole('button', { name: /내보내기\(일괄\)/ }).textContent).toContain('(1)');
   });
 
-  // NOTES.md §2.2 "[WHEN: 보고서 목록/이력 관리 개발 시] MUST: 행 클릭 시 버전 이력 플라이아웃" —
+  // NOTES.md §2.2 "[WHEN: 보고서 목록/이력 관리 개발 시] MUST: 행 클릭 시 변경 이력 플라이아웃" —
   // ⋮ 메뉴 경유가 아니라 행 자체 클릭으로 열려야 하는 PRD 필수 요구사항을 고정하는 테스트.
-  it('행을 클릭하면 우측 패널에 해당 보고서의 버전 이력이 표시된다', async () => {
+  it('행을 클릭하면 우측 패널에 해당 보고서의 변경 이력이 표시된다', async () => {
     renderPage();
 
     expect(
-      screen.getByText('행의 ⋮ 메뉴에서 "버전 이력"을 선택하면 여기에 보고서 버전 목록이 표시됩니다.'),
+      screen.getByText('행의 ⋮ 메뉴에서 "변경 이력"을 선택하면 여기에 보고서 버전 목록이 표시됩니다.'),
     ).toBeTruthy();
 
     const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
@@ -142,22 +142,22 @@ describe('ReportListPage', () => {
     expect(await screen.findAllByText(/v\d+/)).not.toHaveLength(0);
   });
 
-  it('행 ⋮ 메뉴의 "버전 이력" 항목으로도 동일하게 패널을 열 수 있다', async () => {
+  it('행 ⋮ 메뉴의 "변경 이력" 항목으로도 동일하게 패널을 열 수 있다', async () => {
     renderPage();
 
     const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
-    fireEvent.click(await screen.findByRole('menuitem', { name: '버전 이력' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '변경 이력' }));
 
     expect(await screen.findAllByText(/v\d+/)).not.toHaveLength(0);
   });
 
-  it('행 메뉴에서 복제하면 API 호출 후 새 초안 편집 화면으로 이동한다', async () => {
+  it('행 메뉴에서 복사하면 API 호출 후 새 초안 편집 화면으로 이동한다', async () => {
     renderPage();
 
     const row = (await screen.findByText(REPORT_103_TITLE)).closest('tr') as HTMLElement;
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
-    fireEvent.click(await screen.findByRole('menuitem', { name: '복제' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '복사' }));
 
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/reports/1103'));
   });
@@ -230,7 +230,7 @@ describe('ReportListPage', () => {
 
     const row = (await screen.findByText(REPORT_103_TITLE)).closest('tr') as HTMLElement;
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
-    fireEvent.click(await screen.findByRole('menuitem', { name: '제출 처리' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '발행' }));
 
     await waitFor(() => expect(calls).toEqual(['detail', 'recheck', 'defects', 'upload', 'finalize']));
   });
@@ -241,7 +241,7 @@ describe('ReportListPage', () => {
     const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
 
-    expect((await screen.findByRole('menuitem', { name: '제출 처리' })).hasAttribute('disabled')).toBe(true);
+    expect((await screen.findByRole('menuitem', { name: '발행' })).hasAttribute('disabled')).toBe(true);
   });
 
   it('DRAFT 행 삭제는 DELETE 호출 후 목록에서 해당 보고서를 제외한다', async () => {
@@ -384,10 +384,10 @@ describe('ReportListPage', () => {
 
     const row = (await screen.findByText(REPORT_103_TITLE)).closest('tr') as HTMLElement;
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
-    fireEvent.click(await screen.findByRole('menuitem', { name: '제출 처리' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '발행' }));
 
     expect(await screen.findByRole('alert')).toBeTruthy();
-    fireEvent.click(screen.getByRole('menuitem', { name: '제출 처리' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '발행' }));
 
     await waitFor(() => expect(detailCount).toBe(2));
   });
@@ -397,10 +397,10 @@ describe('ReportListPage', () => {
 
     const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
-    expect(await screen.findByRole('menuitem', { name: '버전 이력' })).toBeTruthy();
+    expect(await screen.findByRole('menuitem', { name: '변경 이력' })).toBeTruthy();
 
     fireEvent.scroll(window);
 
-    expect(screen.queryByRole('menuitem', { name: '버전 이력' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: '변경 이력' })).toBeNull();
   });
 });

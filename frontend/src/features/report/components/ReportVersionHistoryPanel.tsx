@@ -129,12 +129,12 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
       <Modal
         open={pendingRevert !== null}
         onClose={() => setPendingRevert(null)}
-        title="이전 버전으로 되돌리기"
+        title="이전 버전 적용"
         closeOnOverlayClick={false}
       >
         <div className="flex flex-col gap-6">
           <p className="text-sm leading-6 text-text-default">
-            <span className="font-semibold">v{pendingRevert?.version}</span> 내용으로 되돌리면{' '}
+            <span className="font-semibold">v{pendingRevert?.version}</span> 내용을 현재 보고서에 적용하면{' '}
             <span className="font-semibold text-danger">현재 편집 내용이 대체됩니다.</span>
             <br />계속하시겠습니까?
           </p>
@@ -143,7 +143,7 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
               취소
             </Button>
             <Button variant="danger" onClick={() => void confirmRevert()}>
-              되돌리기
+              적용
             </Button>
           </div>
         </div>
@@ -151,11 +151,11 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
 
       <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-surface-muted p-5">
         <div className="flex items-center justify-between pb-6">
-          <h3 className="m-0 text-base font-semibold text-zinc-900">버전 이력</h3>
-          <button type="button" aria-label="버전 이력 패널 닫기" onClick={onClose} className="cursor-pointer border-none bg-none text-zinc-500">✕</button>
+          <h3 className="m-0 text-base font-semibold text-zinc-900">변경 이력</h3>
+          <button type="button" aria-label="변경 이력 패널 닫기" onClick={onClose} className="cursor-pointer border-none bg-none text-zinc-500">✕</button>
         </div>
 
-        {!activeReport && <p className="text-sm text-text-muted">행의 ⋮ 메뉴에서 "버전 이력"을 선택하면 여기에 보고서 버전 목록이 표시됩니다.</p>}
+        {!activeReport && <p className="text-sm text-text-muted">행의 ⋮ 메뉴에서 "변경 이력"을 선택하면 여기에 보고서 버전 목록이 표시됩니다.</p>}
         {activeReport && isLoading && <LoadingSpinner className="flex items-center gap-2" />}
         {activeReport && isError && <p className="text-sm text-danger">버전 이력을 불러오지 못했습니다.</p>}
 
@@ -191,7 +191,7 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
                         </button>
                         {!isCurrent && (
                           <button type="button" disabled={isBusy} onClick={() => handleRevert(version.id, version.version)} className="rounded-full border border-border bg-surface px-3.5 py-1 text-xs font-medium text-text-muted shadow-2xs disabled:cursor-not-allowed disabled:opacity-50">
-                            되돌리기
+                            이 버전 적용
                           </button>
                         )}
                       </div>
