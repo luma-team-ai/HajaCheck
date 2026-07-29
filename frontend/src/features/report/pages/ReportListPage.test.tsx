@@ -403,4 +403,34 @@ describe('ReportListPage', () => {
 
     expect(screen.queryByRole('menuitem', { name: '변경 이력' })).toBeNull();
   });
+
+  it('createdByName이 백엔드 응답에서 빠져 있어도(undefined) 변경 이력 패널에 "알 수 없음"으로 안전하게 표시된다', async () => {
+    server.use(
+      http.get('/api/inspections/:id/reports', () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            {
+              id: 101,
+              inspectionId: 1,
+              version: 1,
+              status: 'FINALIZED',
+              groundingCheckPassed: true,
+              createdAt: '2026-06-21T09:00:00',
+              // createdByName 필드 미포함
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '변경 이력' }));
+
+    expect(await screen.findByText('변경 이력')).toBeTruthy();
+    expect(await screen.findByText(/알 수 없음/)).toBeTruthy();
+  });
 });

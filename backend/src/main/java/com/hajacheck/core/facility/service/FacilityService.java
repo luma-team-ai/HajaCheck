@@ -133,6 +133,8 @@ public class FacilityService {
         List<Inspection> latestInspections = nullToEmpty(inspectionRepository.findLatestByFacilityIds(facilityIds));
         Map<Long, LocalDate> lastInspectedByFacilityId = latestInspections.stream()
                 .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getInspectionDate));
+        Map<Long, Long> latestInspectionIdByFacilityId = latestInspections.stream()
+                .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getId));
 
         FacilityDefectSummary defectSummary = summarizeFacilityDefects(latestInspections);
 
@@ -151,6 +153,7 @@ public class FacilityService {
                         latestDefectIdByFacilityId.get(facility.getId()),
                         thumbnailUrlByFacilityId.get(facility.getId()),
                         lastInspectedByFacilityId.get(facility.getId()),
+                        latestInspectionIdByFacilityId.get(facility.getId()),
                         defectSummary.highestGradeByFacilityId().get(facility.getId()),
                         defectSummary.warningCountByFacilityId().getOrDefault(facility.getId(), 0L),
                         defectSummary.cautionCountByFacilityId().getOrDefault(facility.getId(), 0L),
@@ -176,6 +179,10 @@ public class FacilityService {
                 .findFirst()
                 .map(Inspection::getInspectionDate)
                 .orElse(null);
+        Long latestInspectionId = latestInspections.stream()
+                .findFirst()
+                .map(Inspection::getId)
+                .orElse(null);
         FacilityDefectSummary defectSummary = summarizeFacilityDefects(latestInspections);
         long defectCount = defectRepository.countGroupByFacilityIds(List.of(facilityId), companyId).stream()
                 .findFirst()
@@ -186,6 +193,7 @@ public class FacilityService {
                 latestDefectId,
                 thumbnailUrl,
                 lastInspectedAt,
+                latestInspectionId,
                 defectSummary.highestGradeByFacilityId().get(facilityId),
                 defectSummary.warningCountByFacilityId().getOrDefault(facilityId, 0L),
                 defectSummary.cautionCountByFacilityId().getOrDefault(facilityId, 0L),

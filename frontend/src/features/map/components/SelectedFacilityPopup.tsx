@@ -3,12 +3,14 @@ import type { DefectGrade, FacilityLocation } from '../types';
 
 interface SelectedFacilityPopupProps {
   facility: FacilityLocation;
+  canGoToInspectionResult: boolean;
   onViewDetail: () => void;
   onGoToInspectionResult: () => void;
 }
 
 export function SelectedFacilityPopup({
   facility,
+  canGoToInspectionResult,
   onViewDetail,
   onGoToInspectionResult,
 }: SelectedFacilityPopupProps) {
@@ -85,7 +87,9 @@ export function SelectedFacilityPopup({
         <button
           type="button"
           onClick={onGoToInspectionResult}
-          className="flex h-10 flex-1 w-full items-center justify-center rounded-[999px] bg-primary font-medium text-white text-[14px] leading-[21px] transition hover:opacity-85"
+          disabled={!canGoToInspectionResult}
+          title={canGoToInspectionResult ? undefined : '점검 이력이 없어 결과 검수를 열 수 없습니다.'}
+          className="flex h-10 flex-1 w-full items-center justify-center rounded-[999px] bg-primary font-medium text-white text-[14px] leading-[21px] transition hover:opacity-85 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500 disabled:hover:opacity-100"
         >
           결과 검수
         </button>

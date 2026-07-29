@@ -424,11 +424,13 @@ class FacilityServiceTest {
         Inspection lastInspection = Inspection.builder()
                 .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(2)
                 .inspectionDate(LocalDate.of(2026, 6, 21)).status(InspectionStatus.CREATED).build();
+        setInspectionId(lastInspection, 100L);
         when(inspectionRepository.findLatestByFacilityIds(List.of(10L))).thenReturn(List.of(lastInspection));
 
         List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
 
         assertThat(result.get(0).lastInspectedAt()).isEqualTo(LocalDate.of(2026, 6, 21));
+        assertThat(result.get(0).latestInspectionId()).isEqualTo(100L);
     }
 
     @Test
@@ -493,6 +495,7 @@ class FacilityServiceTest {
         List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
 
         assertThat(result.get(0).lastInspectedAt()).isNull();
+        assertThat(result.get(0).latestInspectionId()).isNull();
     }
 
     @Test
@@ -502,11 +505,13 @@ class FacilityServiceTest {
         Inspection lastInspection = Inspection.builder()
                 .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(1)
                 .inspectionDate(LocalDate.of(2026, 6, 28)).status(InspectionStatus.CREATED).build();
+        setInspectionId(lastInspection, 100L);
         when(inspectionRepository.findLatestByFacilityIds(List.of(10L))).thenReturn(List.of(lastInspection));
 
         FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
 
         assertThat(response.lastInspectedAt()).isEqualTo(LocalDate.of(2026, 6, 28));
+        assertThat(response.latestInspectionId()).isEqualTo(100L);
     }
 
     @Test
@@ -544,6 +549,7 @@ class FacilityServiceTest {
         FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
 
         assertThat(response.lastInspectedAt()).isNull();
+        assertThat(response.latestInspectionId()).isNull();
     }
 
     private void setMediaId(Media media, Long id) {

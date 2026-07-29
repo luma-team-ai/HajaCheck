@@ -1,6 +1,7 @@
 package com.hajacheck.counsel.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -225,6 +226,30 @@ class CounselTicketControllerTest extends PostgresTestSupport {
         mockMvc.perform(get("/api/counsel/tickets").with(authentication(authOf(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(2));
+    }
+
+    /**
+     * PII 누출 안전망(#1263) — 고객 프로필(이름·이메일·요금제·가입일)은 관리자 날짜별 목록
+     * ({@code fromAdmin}) 전용이다. 대기열은 상담원도 보는 목록이라 {@code from()} 이 그 네 필드를 null 로
+     * 둬야 한다. 향후 {@code from()} → {@code fromAdmin()} 오치환이 생기면 이 테스트가 잡는다.
+     */
+    @Test
+    void 대기열조회_응답에_고객PII가_실리지_않는다() throws Exception {
+        Plan plan = saveCounselorPlan(true);
+        User requester = saveUser("q-user-pii@haja.com", Role.USER);
+        userPlanRepository.save(UserPlan.forUser(requester.getId(), plan.getId()));
+        ticketRepository.save(CounselTicket.request(
+                requester.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        User counselor = saveUser("counselor-pii@haja.com", Role.COUNSELOR);
+        counselorSkillRepository.save(CounselorSkill.assign(counselor.getId(), CounselType.ANALYSIS_RESULT));
+
+        mockMvc.perform(get("/api/counsel/tickets").with(authentication(authOf(counselor))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].customerName").value(nullValue()))
+                .andExpect(jsonPath("$.data.content[0].customerEmail").value(nullValue()))
+                .andExpect(jsonPath("$.data.content[0].customerPlan").value(nullValue()))
+                .andExpect(jsonPath("$.data.content[0].customerJoinedAt").value(nullValue()));
     }
 
     // ── 셀프-클레임 배정 + 종료 ──
@@ -511,6 +536,12 @@ class CounselTicketControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data.content[0].customerPlan").value("STANDARD"));
     }
 
+    /*
+     * 아래 두 403 은 SecurityConfig 매처(#1263)가 필터 레벨에서 먼저 차단하므로 응답 코드가
+     * COUNSEL_TICKET_FORBIDDEN(컨트롤러) 이 아니라 FORBIDDEN(RestAccessDeniedHandler) 이다.
+     * 컨트롤러의 role 분기는 이중 방어로 그대로 남아 있다 — PII 반환 경로라 방어선을 하나로 두지 않는다.
+     */
+
     @Test
     void 관리자날짜별목록_COUNSELOR_403() throws Exception {
         User counselor = saveUser("admin-list-counselor@haja.com", Role.COUNSELOR);
@@ -519,7 +550,7 @@ class CounselTicketControllerTest extends PostgresTestSupport {
                         .param("date", java.time.LocalDate.now().toString())
                         .with(authentication(authOf(counselor))))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error.code").value("COUNSEL_TICKET_FORBIDDEN"));
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     }
 
     @Test
@@ -530,7 +561,19 @@ class CounselTicketControllerTest extends PostgresTestSupport {
                         .param("date", java.time.LocalDate.now().toString())
                         .with(authentication(authOf(user))))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error.code").value("COUNSEL_TICKET_FORBIDDEN"));
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    }
+
+    /** ADMIN(회사 관리자)도 플랫폼 관리자 전용 경로에 접근할 수 없다 — role 경계 회귀 고정(#1263). */
+    @Test
+    void 관리자날짜별목록_회사관리자_403() throws Exception {
+        User companyAdmin = saveUser("admin-list-company-admin@haja.com", Role.ADMIN);
+
+        mockMvc.perform(get("/api/counsel/tickets/admin")
+                        .param("date", java.time.LocalDate.now().toString())
+                        .with(authentication(authOf(companyAdmin))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     }
 
     @Test

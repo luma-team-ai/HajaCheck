@@ -3,7 +3,7 @@
 // Kakao Maps SDK는 실제 스크립트 로드 없이 최소 스텁으로 대체하고, loadKakaoMapSdk/mapApi는 모듈 목으로 우회한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FacilityLocation } from './types';
 
@@ -24,6 +24,7 @@ const mockFacilities: FacilityLocation[] = [
     warningCount: 12,
     cautionCount: 5,
     thumbnailUrl: null,
+    latestInspectionId: 10,
   },
   {
     id: 2,
@@ -36,6 +37,7 @@ const mockFacilities: FacilityLocation[] = [
     warningCount: 3,
     cautionCount: 1,
     thumbnailUrl: null,
+    latestInspectionId: null,
   },
 ];
 
@@ -50,6 +52,11 @@ import { mapApi } from './api/mapApi';
 
 // MapPage를 동적 import하여 위 vi.mock이 먼저 적용된 뒤 로드되도록 한다
 let MapPage: typeof import('./MapPage').default;
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location-probe">{location.pathname}</div>;
+}
 
 /**
  * jsdom에는 ResizeObserver가 구현돼 있지 않으므로 최소 스텁으로 대체한다.
@@ -146,6 +153,7 @@ function renderMapPage() {
     <MemoryRouter>
       <QueryClientProvider client={queryClient}>
         <MapPage />
+        <LocationProbe />
       </QueryClientProvider>
     </MemoryRouter>,
   );
@@ -436,5 +444,28 @@ describe('MapPage', () => {
 
     expect(await screen.findByText('상세 보기')).not.toBeNull();
     expect(mapInstance.panTo).toHaveBeenCalled();
+  });
+
+  it('결과 검수 버튼 클릭 시 선택 시설물의 latestInspectionId로 결과 뷰어에 이동한다', async () => {
+    renderMapPage();
+    await screen.findByText('한강대교 북단');
+
+    fireEvent.click(screen.getByText('한강대교 북단'));
+    fireEvent.click(await screen.findByRole('button', { name: '결과 검수' }));
+
+    expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/10/viewer');
+  });
+
+  it('latestInspectionId가 없는 시설물은 결과 검수 버튼이 비활성화되고 점검 ID 1로 대체 이동하지 않는다', async () => {
+    renderMapPage();
+    await screen.findByText('남산1호터널');
+
+    fireEvent.click(screen.getByText('남산1호터널'));
+
+    const resultButton = await screen.findByRole('button', { name: '결과 검수' });
+    expect(resultButton.hasAttribute('disabled')).toBe(true);
+    fireEvent.click(resultButton);
+
+    expect(screen.getByTestId('location-probe').textContent).toBe('/');
   });
 });

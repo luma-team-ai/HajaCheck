@@ -41,13 +41,16 @@ import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.service.PaymentGraceService;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.TimeZone;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -70,6 +73,7 @@ class CounselTicketServiceTest {
     private static final Long USER_ID = 1L;
     private static final Long COUNSELOR_ID = 9L;
     private static final Long PLAN_ID = 100L;
+    private static final Long COMPANY_ID = 77L;
     private static final Long TICKET_ID = 50L;
     private static final Long SCENARIO_LEAF_ID = 30L;
 
@@ -708,7 +712,7 @@ class CounselTicketServiceTest {
         LocalDate date = LocalDate.of(2026, 7, 20);
         Pageable pageable = PageRequest.of(0, 20);
         CounselTicket ticket = waitingTicket();
-        when(ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(
+        when(ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(
                 eq(date.atStartOfDay()), any(), eq(pageable)))
                 .thenReturn(new PageImpl<>(List.of(ticket)));
 
@@ -740,12 +744,144 @@ class CounselTicketServiceTest {
     void 관리자_날짜별목록_빈케이스() {
         LocalDate date = LocalDate.of(2026, 7, 20);
         Pageable pageable = PageRequest.of(0, 20);
-        when(ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(any(), any(), eq(pageable)))
+        when(ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(any(), any(), eq(pageable)))
                 .thenReturn(Page.empty(pageable));
 
         Page<CounselTicketSummaryResponse> page = service.getAdminTicketsByDate(date, pageable);
 
         assertThat(page.getContent()).isEmpty();
         verify(userRepository, never()).findAllById(any());
+    }
+
+    // ── 회사 소속 고객 요금제 표시(#1263) ──
+
+    /**
+     * 회귀 고정(#1263 P2-1) — user_plans 는 owner XOR 라 회사 귀속 구독 행은 user_id 가 NULL 이다.
+     * 개인 구독만 조회하던 1차 구현에서는 회사 소속 고객의 요금제가 항상 null("-")로 떨어졌다
+     * (상담 권한은 회사 구독에서 나오는데 화면만 미가입처럼 보임).
+     */
+    @Test
+    void 관리자_날짜별목록_회사소속고객은_회사구독_요금제를_표시한다() {
+        LocalDate date = LocalDate.of(2026, 7, 20);
+        Pageable pageable = PageRequest.of(0, 20);
+        when(ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(any(), any(), eq(pageable)))
+                .thenReturn(new PageImpl<>(List.of(waitingTicket())));
+        when(userRepository.findAllById(any())).thenReturn(List.of(companyUser()));
+
+        UserPlan companyPlan = UserPlan.forCompany(COMPANY_ID, PLAN_ID);
+        when(userPlanRepository.findByCompanyIdInAndStatus(any(), eq(UserPlanStatus.ACTIVE)))
+                .thenReturn(List.of(companyPlan));
+        Plan plan = plan(true);
+        ReflectionTestUtils.setField(plan, "id", PLAN_ID);
+        when(planRepository.findAllById(any())).thenReturn(List.of(plan));
+
+        Page<CounselTicketSummaryResponse> page = service.getAdminTicketsByDate(date, pageable);
+
+        assertThat(page.getContent().get(0).customerPlan()).isEqualTo("STANDARD");
+        // 회사 소속 고객은 개인 구독을 조회할 이유가 없다(빈 IN 절 쿼리도 나가지 않는다).
+        verify(userPlanRepository, never()).findByUserIdInAndStatus(any(), any());
+    }
+
+    /**
+     * 미결제 유예(#1177/#1263 P3) — 발급된 요금제 이름이 유료여도 실제 엔타이틀먼트는 FREE 다.
+     * 관리자 화면이 원본 이름을 그대로 보여주면 표시("STANDARD")와 실권한(FREE)이 어긋난다.
+     */
+    @Test
+    void 관리자_날짜별목록_미결제유예_고객은_실효요금제로_표시한다() {
+        LocalDate date = LocalDate.of(2026, 7, 20);
+        Pageable pageable = PageRequest.of(0, 20);
+        when(ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(any(), any(), eq(pageable)))
+                .thenReturn(new PageImpl<>(List.of(waitingTicket())));
+        when(userRepository.findAllById(any())).thenReturn(List.of(individualCustomer()));
+        when(userPlanRepository.findByUserIdInAndStatus(any(), eq(UserPlanStatus.ACTIVE)))
+                .thenReturn(List.of(UserPlan.forUser(USER_ID, PLAN_ID)));
+        Plan paidPlan = plan(true);
+        ReflectionTestUtils.setField(paidPlan, "id", PLAN_ID);
+        when(planRepository.findAllById(any())).thenReturn(List.of(paidPlan));
+
+        Plan freePlan = Plan.create(PlanName.FREE, 1, 10, 1, false, false, false, BigDecimal.ZERO);
+        when(paymentGraceService.resolveEffectivePlan(any(), any())).thenReturn(freePlan);
+
+        Page<CounselTicketSummaryResponse> page = service.getAdminTicketsByDate(date, pageable);
+
+        assertThat(page.getContent().get(0).customerPlan()).isEqualTo("FREE");
+    }
+
+    /**
+     * 같은 주체에 활성 구독 행이 둘 이상이어도 목록 전체가 500이 되지 않고 최신 구독(startedAt DESC)이
+     * 표시돼야 한다(#1263) — 배치 조회의 {@code Collectors.toMap} 은 키 중복 시 기본이 예외다.
+     */
+    @Test
+    void 관리자_날짜별목록_활성구독이_중복이면_최신구독을_쓴다() {
+        LocalDate date = LocalDate.of(2026, 7, 20);
+        Pageable pageable = PageRequest.of(0, 20);
+        when(ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(any(), any(), eq(pageable)))
+                .thenReturn(new PageImpl<>(List.of(waitingTicket())));
+        when(userRepository.findAllById(any())).thenReturn(List.of(individualCustomer()));
+
+        Long newerPlanId = 101L;
+        UserPlan older = UserPlan.forUser(USER_ID, PLAN_ID);
+        ReflectionTestUtils.setField(older, "startedAt", Instant.parse("2026-01-01T00:00:00Z"));
+        UserPlan newer = UserPlan.forUser(USER_ID, newerPlanId);
+        ReflectionTestUtils.setField(newer, "startedAt", Instant.parse("2026-06-01T00:00:00Z"));
+        when(userPlanRepository.findByUserIdInAndStatus(any(), eq(UserPlanStatus.ACTIVE)))
+                .thenReturn(List.of(older, newer));
+
+        Plan oldPlan = plan(true);
+        ReflectionTestUtils.setField(oldPlan, "id", PLAN_ID);
+        Plan newPlan = Plan.create(PlanName.ENTERPRISE, 50, 5000, 10, true, true, true,
+                BigDecimal.valueOf(199000));
+        ReflectionTestUtils.setField(newPlan, "id", newerPlanId);
+        when(planRepository.findAllById(any())).thenReturn(List.of(oldPlan, newPlan));
+
+        Page<CounselTicketSummaryResponse> page = service.getAdminTicketsByDate(date, pageable);
+
+        assertThat(page.getContent().get(0).customerPlan()).isEqualTo("ENTERPRISE");
+    }
+
+    /**
+     * 타임존 계약 회귀 고정(#1263) — 경계를 만드는 주체는 이 서비스다. createdAt 은 존 정보 없는
+     * 서버 벽시계({@code @CreatedDate})이므로 조회 경계도 같은 벽시계여야 하고, JVM 기본 타임존이
+     * 무엇이든 같은 값이 나가야 한다. 여기에 {@code ZoneId} 환산을 넣으면(저장값과 9시간 어긋나는
+     * 수정) 이 단정이 깨진다 — 리포지토리를 직접 호출하던 기존 테스트는 이 회귀를 잡지 못했다.
+     */
+    @Test
+    void 관리자_날짜별목록_조회경계는_JVM_기본타임존과_무관하다() {
+        LocalDate date = LocalDate.of(2026, 7, 20);
+        Pageable pageable = PageRequest.of(0, 20);
+        when(ticketRepository.findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(any(), any(), eq(pageable)))
+                .thenReturn(Page.empty(pageable));
+
+        TimeZone original = TimeZone.getDefault();
+        try {
+            // 배포 환경 TZ 고정(Asia/Seoul)이 빠진 상황을 모사 — 컨테이너 기본값 UTC.
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+            service.getAdminTicketsByDate(date, pageable);
+        } finally {
+            TimeZone.setDefault(original);
+        }
+
+        ArgumentCaptor<LocalDateTime> start = ArgumentCaptor.forClass(LocalDateTime.class);
+        ArgumentCaptor<LocalDateTime> end = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(ticketRepository).findByCreatedAtBetweenOrderByCreatedAtDescIdDesc(
+                start.capture(), end.capture(), eq(pageable));
+        assertThat(start.getValue()).isEqualTo(LocalDateTime.of(2026, 7, 20, 0, 0, 0));
+        // PG timestamp 는 마이크로초 정밀도 — 999_999_000ns(=999999µs)에서 끊어야 자정 캐리가 없다.
+        assertThat(end.getValue()).isEqualTo(LocalDateTime.of(2026, 7, 20, 23, 59, 59, 999_999_000));
+    }
+
+    private User individualCustomer() {
+        User customer = User.builder()
+                .email("customer@haja.com").name("고객").role(Role.USER)
+                .passwordHash("$2a$10$hashed").companyId(null).status(UserStatus.ACTIVE).build();
+        ReflectionTestUtils.setField(customer, "id", USER_ID);
+        ReflectionTestUtils.setField(customer, "createdAt", LocalDateTime.of(2026, 1, 1, 0, 0));
+        return customer;
+    }
+
+    private User companyUser() {
+        User customer = individualCustomer();
+        ReflectionTestUtils.setField(customer, "companyId", COMPANY_ID);
+        return customer;
     }
 }

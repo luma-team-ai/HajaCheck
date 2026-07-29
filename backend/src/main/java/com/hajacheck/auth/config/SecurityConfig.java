@@ -110,6 +110,11 @@ public class SecurityConfig {
                         // 서비스가 검증하므로 여기서는 대기열·배정만 role 게이트로 막는다. 티켓 생성은 로그인만
                         // 요구하고 요금제 게이트(has_counselor_access)는 CounselTicketService가 담당한다.
                         .requestMatchers(HttpMethod.GET, "/api/counsel/tickets").hasAnyRole("COUNSELOR", "PLATFORM_ADMIN")
+                        // 관리자 날짜별 상담 목록(#1168) — 전 고객의 이름·이메일·가입일(PII)을 반환하므로
+                        // 컨트롤러의 role 분기 한 줄을 유일 방어선으로 두지 않는다(#1263). 위 대기열 매처는
+                        // 정확 경로라 이 하위 경로를 덮지 않아, 매처가 없으면 anyRequest().authenticated() 로
+                        // 떨어져 "리팩터링 중 컨트롤러 if 유실 = PII 전량 노출"이 된다. 컨트롤러 체크는 유지(이중 방어).
+                        .requestMatchers(HttpMethod.GET, "/api/counsel/tickets/admin").hasRole("PLATFORM_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/counsel/tickets/*/assign").hasAnyRole("COUNSELOR", "PLATFORM_ADMIN")
                         // 상담원 비공개 메모(#1021/HAJA-503) — 고객 비노출, 담당 상담원 본인만. role 게이트는
                         // 최소 방어선이고, "담당 상담원 본인" 세부 소유권은 CounselTicketNoteService가 검증한다.

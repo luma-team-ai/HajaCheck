@@ -33,9 +33,16 @@ public interface UserPlanRepository extends JpaRepository<UserPlan, Long> {
     List<UserPlan> findByCompanyIdIsNotNull();
 
     // 플랫폼 관리자 날짜별 상담 목록(#1168) — 페이지 내 고객(userId) 들의 활성 개인 구독을 배치 조회
-    // (resolveCounselorNames 와 동일한 N+1 방지 패턴). 회사 소속 고객의 플랜은 이 메서드로 잡히지 않지만
-    // (owner XOR 상 companyId 구독), 상담 티켓 주체는 userId 이므로 개인 구독 조회만으로 충분하다.
+    // (resolveCounselorNames 와 동일한 N+1 방지 패턴).
+    // ⚠️ 개인 구독 전용이다(#1263) — user_plans 는 owner XOR(ck_user_plans_owner_xor)라 회사 귀속 구독 행은
+    // user_id IS NULL 이므로 이 IN 절에 애초에 걸리지 않는다. 회사 소속 고객(user.companyId != null)의
+    // 상담 권한은 CounselTicketService#requireCounselorAccess 가 보여주듯 회사 구독에서 나오므로,
+    // 호출부는 companyId 집합에 대해 findByCompanyIdInAndStatus 를 함께 조회해야 한다.
     List<UserPlan> findByUserIdInAndStatus(Collection<Long> userIds, UserPlanStatus status);
+
+    // 플랫폼 관리자 날짜별 상담 목록(#1263) — 위 메서드의 회사 짝. 페이지 내 고객들이 속한 회사(companyId)
+    // 들의 활성 구독을 한 번에 모아 조회한다(고객 수와 무관하게 쿼리 1개 — N+1 없음).
+    List<UserPlan> findByCompanyIdInAndStatus(Collection<Long> companyIds, UserPlanStatus status);
 
     /**
      * 결제 주기 만료 강등 대상 건수(#1145 / HAJA-549) — {@code PlanExpiryScheduler} 가 강등을 시작하기
