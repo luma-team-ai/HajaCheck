@@ -56,8 +56,8 @@ describe('SideNavBar', () => {
     expect(screen.getByText('내 플랜')).not.toBeNull();
   });
 
-  it('isAdmin=true면 관리자 페이지 그룹과 ADMIN 배지가 표시되고, 펼치면 플랜·쿼터 관리가 보인다', () => {
-    render(<SideNavBar isAdmin />, { wrapper: MemoryRouter });
+  it('isAdmin=true + role="ADMIN"이면 관리자 페이지 그룹과 ADMIN 배지가 표시되고, 펼치면 플랜·쿼터 관리가 보인다', () => {
+    render(<SideNavBar isAdmin role="ADMIN" />, { wrapper: MemoryRouter });
 
     expect(screen.getByText('ADMIN')).not.toBeNull();
     expect(screen.getByText('관리자 페이지')).not.toBeNull();
@@ -65,6 +65,23 @@ describe('SideNavBar', () => {
     fireEvent.click(screen.getByText('관리자 페이지'));
 
     expect(screen.getByText('플랜·쿼터 관리')).not.toBeNull();
+  });
+
+  it('role="USER"/"INSPECTOR"처럼 관리자가 아닌 역할도 배지가 표시된다(#1199)', () => {
+    render(<SideNavBar role="USER" />, { wrapper: MemoryRouter });
+    expect(screen.getByText('USER')).not.toBeNull();
+
+    cleanup();
+
+    render(<SideNavBar role="INSPECTOR" />, { wrapper: MemoryRouter });
+    expect(screen.getByText('INSPECTOR')).not.toBeNull();
+  });
+
+  it('role 배지는 브랜드 로고 Link 바깥에 있어 클릭해도 이동 액션이 없다(#1199)', () => {
+    render(<SideNavBar role="ADMIN" />, { wrapper: MemoryRouter });
+
+    const badge = screen.getByText('ADMIN');
+    expect(badge.closest('a')).toBeNull();
   });
 
   it('isAdmin=true + activeHref가 다른 그룹의 하위 항목이어도, 수동으로 펼친 그룹이 스냅백되지 않는다', () => {

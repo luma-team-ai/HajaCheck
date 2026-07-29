@@ -140,6 +140,7 @@ export function AppShellRoute() {
         adminItem={menuAdminItem}
         isRouteImplemented={isRouteImplemented}
         isAdmin={isAdmin}
+        role={authUser?.role}
         onProfileClick={() => navigate(MYPAGE_PLAN_ROUTE)}
         profileMenu={
           authUser
