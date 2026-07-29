@@ -3,6 +3,7 @@
 // useMyInspectionsSummary/useMyInspections/useMyReports 훅 + MSW mypageHandlers를 통해
 // KPI·테이블·탭 전환·보고서 카드·페이지네이션 렌더를 검증한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -25,7 +26,9 @@ function renderPage(): void {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <MyInspectionsPage />
+      <MemoryRouter>
+        <MyInspectionsPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -54,7 +57,8 @@ describe('MyInspectionsPage', () => {
     const firstRow = screen.getByText('강남 오피스타워 A동').closest('tr') as HTMLElement;
     expect(within(firstRow).getByText('점검자')).toBeTruthy();
     expect(within(firstRow).getByText('검수완료')).toBeTruthy();
-    expect(within(firstRow).getByText('결과 보기')).toBeTruthy();
+    const resultLink = within(firstRow).getByRole('link', { name: '결과 보기' });
+    expect(resultLink.getAttribute('href')).toBe('/inspections/1/viewer');
 
     const ownerRow = screen.getByText('성수동 지식산업센터 1차').closest('tr') as HTMLElement;
     expect(within(ownerRow).getByText('소유자')).toBeTruthy();
@@ -76,6 +80,10 @@ describe('MyInspectionsPage', () => {
     expect(screen.getByText('[24-03] 강남 오피스타워 A동 점검 보고서')).toBeTruthy();
     expect(screen.getByText('2024.03.16 · 1.2MB')).toBeTruthy();
 
+    const previewLink = screen.getAllByRole('link', { name: '미리보기' })[0];
+    expect(previewLink.getAttribute('href')).toBe('/reports/1');
+
+    // 다운로드 버튼은 이번 스코프 밖 — storageKey/pdfUrl이 목록 API 응답에 없어 여전히 비활성이어야 한다.
     const downloadButtons = screen.getAllByRole('button', { name: /다운로드/ });
     expect(downloadButtons.length).toBe(3);
     downloadButtons.forEach((button) => expect(button).toHaveProperty('disabled', true));

@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import type { TableColumn } from '../../../shared/components/Table/Table';
 import { Table } from '../../../shared/components/Table/Table';
 import { TableFooterPagination } from '../../../shared/components/TableFooterPagination/TableFooterPagination';
@@ -18,9 +19,9 @@ type Props = {
   onPageSizeChange: (size: number) => void;
 };
 
-// "결과 보기" 링크 클릭 핸들러 — 점검 상세/뷰어로 이동할 실 라우트가 아직 없어(후속 BE #24/#210
-// 계열, contract 부재) 항상 비활성으로 렌더한다. onClick 자체를 두지 않고 disabled 버튼으로
-// 렌더해 클릭이 아무 동작도 하지 않음을 명확히 한다.
+// "결과 보기" 링크 — 점검 회차 id로 분석 결과 뷰어(/inspections/:id/viewer, ResultViewerPage,
+// router.tsx)로 이동한다(#1236). implementedRoutes.ts의 INSPECTION_ID_SCOPED_ROUTE 화이트리스트가
+// 이미 이 패턴을 커버한다.
 const COLUMNS: TableColumn<InspectionHistoryRow>[] = [
   { key: 'facilityName', header: '시설물' },
   {
@@ -39,15 +40,13 @@ const COLUMNS: TableColumn<InspectionHistoryRow>[] = [
   {
     key: 'id',
     header: 'ACTION',
-    render: () => (
-      <button
-        type="button"
-        className="cursor-not-allowed text-sm font-semibold text-primary opacity-60"
-        disabled
-        title="점검 상세/결과 뷰어 연동 후 지원 예정(BE 미구현)"
+    render: (row) => (
+      <Link
+        to={`/inspections/${row.id}/viewer`}
+        className="text-sm font-semibold text-primary no-underline hover:underline"
       >
         결과 보기
-      </button>
+      </Link>
     ),
   },
 ];
