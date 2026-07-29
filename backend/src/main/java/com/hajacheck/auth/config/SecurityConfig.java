@@ -77,6 +77,7 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**")
                         .permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/plans").permitAll()
                         // Actuator 과노출 차단(#728 리뷰 지적) — health 를 제외한 나머지(예: metrics)는
                         // management.endpoints.web.exposure.include(application.yml) 로 이미 열려 있어
                         // 위 permitAll 목록에 없으면 anyRequest().authenticated() 로 떨어져 "로그인만 하면"

@@ -24,6 +24,7 @@ import { platformAdminCompanyHandlers } from '../features/platform-admin/api/pla
 import { platformAdminUserHandlers } from '../features/platform-admin/api/platformAdminUserApi.handlers';
 import { reportHandlers } from '../features/report/api/reportApi.handlers';
 import { statsHandlers } from '../features/platform-admin/api/statsApi.handlers';
+import { publicPlanHandlers } from '../features/landing/api/publicPlanApi.handlers';
 import { supportHandlers } from '../features/support/api/supportApi.handlers';
 import { getEffectiveAuthHandlers, isHybridMode } from '../shared/utils/isHybridMode';
 
@@ -73,6 +74,7 @@ export const allMockHandlers = [
   ...ragDocumentHandlers,
   ...supportHandlers,
   ...notificationHandlers,
+  ...publicPlanHandlers,
 ];
 
 // hybrid에서는 서비스워커가 데이터 요청을 가로채지 않아야 한다.

@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../auth/store/authStore';
 import { LandingFooter } from './components/LandingFooter';
 import { LandingHeader } from './components/LandingHeader';
-import { PARTNERS, PRICING_TIERS } from './constants';
+import { PARTNERS, PRICING_TIERS, formatPricingTiersFromApi } from './constants';
+import { publicPlanApi } from './api/publicPlanApi';
 import heroVisualImage from '../../assets/brand/landing-hero-ai-scan.svg';
 import analysisViewerImage from '../../assets/brand/landing-screens/analysis-viewer.png';
 import inspectionCycleImage from '../../assets/brand/landing-screens/inspection-cycle.png';
@@ -29,6 +31,17 @@ export default function LandingPage() {
       navigate('/dashboard', { replace: true });
     }
   }, [user, navigate]);
+
+  const { data: planData, isError, refetch } = useQuery({
+    queryKey: ['publicPlans'],
+    queryFn: ({ signal }) => publicPlanApi.getPlans(signal).then((res) => res.data.data.plans),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const pricingTiers = useMemo(
+    () => (planData ? formatPricingTiersFromApi(planData) : PRICING_TIERS),
+    [planData],
+  );
 
   const [isAtTop, setIsAtTop] = useState(true);
   const [isAtBottom, setIsAtBottom] = useState(false);
@@ -193,38 +206,47 @@ export default function LandingPage() {
         <h2>합리적인 요금제</h2>
         <p>시설물 규모와 필요 기능에 맞춰 최적의 플랜을 선택하세요.</p>
 
-        <div className="landing-pricing-cards">
-          {PRICING_TIERS.map((tier) => (
-            <div
-              key={tier.name}
-              className={`landing-pricing-card${tier.inverted ? ' landing-pricing-card--inverted' : ''}`}
-            >
-              {tier.badge && <span className="landing-pricing-badge">{tier.badge}</span>}
-              <p className="landing-pricing-name">{tier.name}</p>
-              <p className="landing-pricing-subtitle">{tier.subtitle}</p>
-              <p>
-                <span className="landing-pricing-price">{tier.price}</span>
-                {tier.period && <span className="landing-pricing-period"> {tier.period}</span>}
-              </p>
-              <ul className="landing-pricing-features">
-                {tier.features.map((feature) => (
-                  <li
-                    key={feature.label}
-                    className={`landing-pricing-feature${feature.included === false ? ' landing-pricing-feature--excluded' : ''}`}
-                  >
-                    <span className="landing-pricing-feature-label">{feature.label}</span>
-                  </li>
-                ))}
-              </ul>
-              <a
-                className={`landing-pricing-cta${tier.inverted ? ' landing-pricing-cta--white' : ''}`}
-                href="/login"
+        {isError ? (
+          <div className="landing-pricing-error" role="alert">
+            <p>요금제 정보를 불러오지 못했습니다.</p>
+            <button type="button" onClick={() => refetch()} className="landing-pricing-retry-btn">
+              다시 시도
+            </button>
+          </div>
+        ) : (
+          <div className="landing-pricing-cards">
+            {pricingTiers.map((tier) => (
+              <div
+                key={tier.name}
+                className={`landing-pricing-card${tier.inverted ? ' landing-pricing-card--inverted' : ''}`}
               >
-                {tier.ctaLabel}
-              </a>
-            </div>
-          ))}
-        </div>
+                {tier.badge && <span className="landing-pricing-badge">{tier.badge}</span>}
+                <p className="landing-pricing-name">{tier.name}</p>
+                <p className="landing-pricing-subtitle">{tier.subtitle}</p>
+                <p>
+                  <span className="landing-pricing-price">{tier.price}</span>
+                  {tier.period && <span className="landing-pricing-period"> {tier.period}</span>}
+                </p>
+                <ul className="landing-pricing-features">
+                  {tier.features.map((feature) => (
+                    <li
+                      key={feature.label}
+                      className={`landing-pricing-feature${feature.included === false ? ' landing-pricing-feature--excluded' : ''}`}
+                    >
+                      <span className="landing-pricing-feature-label">{feature.label}</span>
+                    </li>
+                  ))}
+                </ul>
+                <a
+                  className={`landing-pricing-cta${tier.inverted ? ' landing-pricing-cta--white' : ''}`}
+                  href="/login"
+                >
+                  {tier.ctaLabel}
+                </a>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="landing-banner">
