@@ -38,7 +38,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * 시각, #1172)→V30(scheduled_plan_changes 플랜 하향 예약 원장, #1105/HAJA-526)→V31(notification_type
  * 예약 하향 알림 라벨 2종, #1105/HAJA-526)→V32(defect_action_logs 조치 등록 이력 append-only 테이블,
  * #1193/HAJA-569 — 조치중 단계 다중 등록 지원)→V33(user_plans.payment_pending_until 미결제 유예 표식 +
- * 부분 인덱스, #1177 — 유료→유료 하향 C안 "유예 후 강등")을 순서대로 적용하고,
+ * 부분 인덱스, #1177 — 유료→유료 하향 C안 "유예 후 강등")→V34(counsel_tickets.created_at 인덱스, #1168 —
+ * 플랫폼 관리자 상담 관리 페이지 날짜별 조회 성능, PR머신 리뷰 P2)을 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -130,14 +131,16 @@ class FlywayBaselineIntegrationTest {
         //   부분 인덱스, #1177 — 유료→유료 하향 C안 "유예 후 강등"의 상태 표식).
         //   착수 시점에는 #1193이 V32를 선점한 상태라 이 작업이 V33을 쓰면서 결번 [32]가 생겼지만,
         //   #1193이 dev에 머지되면서(2026-07-29) 해소돼 번호열이 V1…V32·V33으로 다시 연속이 됐다.
-        //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V32·V33(2개) = 33이다.
-        assertThat(appliedMigrations).isEqualTo(33);
+        // + V34(counsel_tickets.created_at 인덱스, #1168 — 플랫폼 관리자 상담 관리 페이지 날짜별 조회
+        //   성능, PR머신 리뷰 P2 지적 반영).
+        //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V32~V34(3개) = 34이다.
+        assertThat(appliedMigrations).isEqualTo(34);
 
-        // 최신 적용 버전이 실제로 V33 인지 확인.
+        // 최신 적용 버전이 실제로 V34 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("33");
+        assertThat(latestVersion).isEqualTo("34");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -469,5 +472,14 @@ class FlywayBaselineIntegrationTest {
                   and indexname = 'idx_user_plans_payment_pending'
                 """, Long.class);
         assertThat(paymentPendingIndex).isEqualTo(1L);
+
+        // V34가 counsel_tickets.created_at 인덱스를 실제로 만들었는지 확인한다(#1168, PR머신 리뷰 P2 —
+        // 상담 관리 페이지 날짜별 조회가 인덱스 없이 created_at으로 필터링/정렬돼 풀스캔 위험이 있었다).
+        Long counselTicketsCreatedAtIndex = jdbcTemplate.queryForObject("""
+                select count(*) from pg_indexes
+                where schemaname = 'public' and tablename = 'counsel_tickets'
+                  and indexname = 'idx_counsel_tickets_created_at'
+                """, Long.class);
+        assertThat(counselTicketsCreatedAtIndex).isEqualTo(1L);
     }
 }
