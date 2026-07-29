@@ -3,6 +3,7 @@ import type { Facility } from '../types';
 // docs/design/db/seed_dev_facilities.sql 12개 시드 시설물 데이터 + Figma 캡처 기준 예제 시설물 완벽 연동
 // thumbnailUrl/lastInspectedAt(HAJA-367/#670, HAJA-514/#1074) — 카드 그리드(HAJA-368) "사진 없음"/
 // "점검 이력 없음" 폴백 경로를 함께 검증할 수 있도록 일부는 null로 남긴다.
+// defectCount(HAJA-515/#1075) — 하자건수 배지 폴백(0건) 경로도 함께 검증할 수 있도록 일부는 0으로 둔다.
 export const mockFacilities: Facility[] = [
   {
     id: 1,
@@ -23,6 +24,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: 'https://placehold.co/285x192',
     lastInspectedAt: '2026-06-21',
+    defectCount: 3,
   },
   {
     id: 2,
@@ -43,6 +45,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: 'https://placehold.co/285x192',
     lastInspectedAt: '2026-04-10',
+    defectCount: 0,
   },
   {
     id: 3,
@@ -63,6 +66,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: null,
     lastInspectedAt: '2026-03-15',
+    defectCount: 1,
   },
   {
     id: 4,
@@ -83,6 +87,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: 'https://placehold.co/285x192',
     lastInspectedAt: null,
+    defectCount: 2,
   },
   {
     id: 5,
@@ -103,6 +108,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: null,
     lastInspectedAt: null,
+    defectCount: 0,
   },
   {
     id: 6,
@@ -123,6 +129,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: 'https://placehold.co/285x192',
     lastInspectedAt: '2026-06-01',
+    defectCount: 4,
   },
   {
     id: 7,
@@ -143,6 +150,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: null,
     lastInspectedAt: null,
+    defectCount: 0,
   },
   {
     id: 8,
@@ -163,6 +171,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: 'https://placehold.co/285x192',
     lastInspectedAt: '2026-06-28',
+    defectCount: 1,
   },
   {
     id: 9,
@@ -183,6 +192,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: null,
     lastInspectedAt: null,
+    defectCount: 0,
   },
   {
     id: 10,
@@ -203,6 +213,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: 'https://placehold.co/285x192',
     lastInspectedAt: '2026-03-15',
+    defectCount: 5,
   },
   {
     id: 11,
@@ -223,6 +234,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: null,
     lastInspectedAt: null,
+    defectCount: 0,
   },
   {
     id: 12,
@@ -243,6 +255,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: 'https://placehold.co/285x192',
     lastInspectedAt: '2026-06-01',
+    defectCount: 2,
   },
   {
     id: 13,
@@ -263,6 +276,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: null,
     lastInspectedAt: null,
+    defectCount: 0,
   },
   {
     id: 14,
@@ -283,6 +297,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: 'https://placehold.co/285x192',
     lastInspectedAt: null,
+    defectCount: 1,
   },
   {
     id: 15,
@@ -303,6 +318,7 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: null,
     lastInspectedAt: null,
+    defectCount: 0,
   },
   {
     id: 16,
@@ -323,5 +339,6 @@ export const mockFacilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: 'https://placehold.co/285x192',
     lastInspectedAt: '2026-04-30',
+    defectCount: 3,
   },
 ];

@@ -34,6 +34,7 @@ export function FacilityCard({ facility, onSelect }: Props) {
     subtitleParts.join(', '),
     facility.initialGrade ? `${facility.initialGrade} 등급` : null,
     showUpcomingBadge ? `다음 점검일 ${dueStatus.label}` : null,
+    `하자 ${facility.defectCount}건`,
     lastInspectedLabel ? `최근 점검 ${lastInspectedLabel}` : '점검 이력 없음',
   ]
     .filter(Boolean)
@@ -86,8 +87,12 @@ export function FacilityCard({ facility, onSelect }: Props) {
         <p className="m-0 text-xl font-medium text-heading">{facility.name}</p>
         <p className="m-0 text-sm text-text-muted">{subtitleParts.join(' · ')}</p>
 
-        {/* 좌측에는 하자 건수 배지가 들어갈 자리(HAJA-515/#1075 후속 — 근거 데이터가 아직 없어 생략) */}
-        <div className="mt-3 flex items-center justify-end border-t border-border/50 pt-4">
+        <div className="mt-3 flex items-center justify-between border-t border-border/50 pt-4">
+          <span
+            className="inline-flex items-center rounded-full bg-surface-sunken px-2.5 py-1 text-xs font-medium text-text"
+          >
+            하자 {facility.defectCount}건
+          </span>
           <span className="text-sm text-text-muted">
             {lastInspectedLabel ? `최근 점검 ${lastInspectedLabel}` : '점검 이력 없음'}
           </span>

@@ -27,6 +27,7 @@ const facilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: null,
     lastInspectedAt: null,
+    defectCount: 0,
   },
   {
     id: 2,
@@ -47,6 +48,7 @@ const facilities: Facility[] = [
     latestDefectId: null,
     thumbnailUrl: null,
     lastInspectedAt: null,
+    defectCount: 0,
   },
 ];
 
