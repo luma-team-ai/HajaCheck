@@ -62,7 +62,9 @@ export async function exportDefectsToPdf(defects: Defect[]): Promise<void> {
     body: buildDefectExportRows(defects),
     startY: 20,
     styles: { font: FONT_NAME },
-    headStyles: { font: FONT_NAME },
+    // autoTable의 기본 헤더 스타일은 bold다. Pretendard regular만 등록한 상태에서 bold를 요청하면
+    // Helvetica로 폴백해 한글 헤더가 깨지므로 등록된 normal 스타일을 명시한다.
+    headStyles: { font: FONT_NAME, fontStyle: 'normal' },
   });
 
   doc.save(buildFileName());

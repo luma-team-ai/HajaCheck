@@ -112,6 +112,10 @@ describe('exportDefectsToPdf', () => {
       ['하자 ID', '유형', '등급', '시설물', '상태', '발견일'],
     ]);
     expect(options.body).toEqual(buildDefectExportRows(defects));
+    expect(options.headStyles).toEqual({
+      font: 'Pretendard',
+      fontStyle: 'normal',
+    });
 
     expect(mockAddFont).toHaveBeenCalledWith(
       'Pretendard-Regular.ttf',

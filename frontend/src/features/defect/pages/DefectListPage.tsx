@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { Button } from "../../../shared/components/Button";
 import { TableFooterPagination } from "../../../shared/components/TableFooterPagination";
 import { defectApi } from "../api/defectApi";
@@ -23,7 +22,6 @@ const DEFAULT_SIZE = 10;
 // DefectStatusReasonModal/useDefectActionBoard)와 DefectFilterBar는 삭제하지 않고 참조만 제거한다 —
 // #630을 별도 라우트로 분리할지 완전 폐기할지는 후속 이슈에서 결정(이번 세션 범위 밖).
 export function DefectListPage() {
-  const navigate = useNavigate();
   const [inspectionFilters, setInspectionFilters] = useState<InspectionListFilters>({
     page: 0,
     size: DEFAULT_SIZE,
@@ -47,14 +45,7 @@ export function DefectListPage() {
     () => (inspectionData?.content ?? []).filter((inspection) => selectedIds.has(inspection.id)),
     [inspectionData, selectedIds],
   );
-  const canGenerateReport = selectedInspections.length === 1;
   const canExport = selectedInspections.length > 0;
-  const reportButtonTitle =
-    selectedInspections.length === 0
-      ? "보고서를 생성할 점검을 선택하세요"
-      : selectedInspections.length > 1
-        ? "보고서는 점검 1건씩만 생성할 수 있습니다"
-        : undefined;
 
   const handleInspectionPageChange = (page: number) => {
     setInspectionFilters((prev) => ({ ...prev, page: page - 1 }));
@@ -62,11 +53,6 @@ export function DefectListPage() {
 
   const handleInspectionPageSizeChange = (nextSize: number) => {
     setInspectionFilters((prev) => ({ ...prev, size: nextSize, page: 0 }));
-  };
-
-  const handleGenerateReport = () => {
-    if (!canGenerateReport) return;
-    navigate(`/inspections/${selectedInspections[0].id}/reports`);
   };
 
   // "내보내기"는 선택된 점검(들)에 속한 하자 전체를 모아 PDF로 내보낸다 — 기존(하자 단건 선택 후
@@ -122,15 +108,6 @@ export function DefectListPage() {
               onClick={handleExport}
             >
               {isExporting ? "내보내는 중..." : "내보내기"}
-            </Button>
-            <Button
-              variant="primary"
-              size="md"
-              disabled={!canGenerateReport}
-              title={reportButtonTitle}
-              onClick={handleGenerateReport}
-            >
-              보고서 생성
             </Button>
           </div>
         </div>

@@ -45,8 +45,8 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-// 목록→점검 상세(카드형) 이동, 보고서 생성(목록→회차 요약·생성 페이지) 이동을 검증하기 위해
-// /inspections/:id/defects, /inspections/:id/reports에 마커를 렌더링하는 스텁 라우트를 둔다.
+// 목록→점검 상세(카드형) 이동을 검증하기 위해
+// /inspections/:id/defects에 마커를 렌더링하는 스텁 라우트를 둔다.
 function renderPage(): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -60,10 +60,6 @@ function renderPage(): void {
           <Route
             path="/inspections/:id/defects"
             element={<div>점검 상세 스텁</div>}
-          />
-          <Route
-            path="/inspections/:id/reports"
-            element={<div>회차 요약·생성 페이지 스텁</div>}
           />
         </Routes>
       </MemoryRouter>
@@ -153,47 +149,15 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
     expect(rowSelections.every((checkbox) => !checkbox.checked)).toBe(true);
   });
 
-  it("선택된 점검이 없으면 보고서 생성·내보내기 버튼이 비활성화된다", async () => {
+  it("보고서 생성 버튼을 표시하지 않고, 선택된 점검이 없으면 내보내기 버튼이 비활성화된다", async () => {
     renderPage();
     await screen.findByRole("table");
 
-    const reportButton = screen.getByRole("button", {
-      name: "보고서 생성",
-    }) as HTMLButtonElement;
     const exportButton = screen.getByRole("button", {
       name: "내보내기",
     }) as HTMLButtonElement;
-    expect(reportButton.disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "보고서 생성" })).toBeNull();
     expect(exportButton.disabled).toBe(true);
-  });
-
-  it("점검 1건을 선택하면 보고서 생성 버튼이 활성화되고, 클릭 시 회차 요약·생성 페이지로 이동한다", async () => {
-    renderPage();
-    const table = await screen.findByRole("table");
-
-    fireEvent.click(within(table).getByRole("checkbox", { name: "INS-0101 선택" }));
-
-    const reportButton = screen.getByRole("button", {
-      name: "보고서 생성",
-    }) as HTMLButtonElement;
-    expect(reportButton.disabled).toBe(false);
-
-    fireEvent.click(reportButton);
-
-    expect(await screen.findByText("회차 요약·생성 페이지 스텁")).not.toBeNull();
-  });
-
-  it("점검을 2건 이상 선택하면 보고서 생성 버튼이 비활성화된다", async () => {
-    renderPage();
-    const table = await screen.findByRole("table");
-
-    fireEvent.click(within(table).getByRole("checkbox", { name: "INS-0101 선택" }));
-    fireEvent.click(within(table).getByRole("checkbox", { name: "INS-0202 선택" }));
-
-    const reportButton = screen.getByRole("button", {
-      name: "보고서 생성",
-    }) as HTMLButtonElement;
-    expect(reportButton.disabled).toBe(true);
   });
 
   it("점검을 하나 이상 선택하면 내보내기 버튼이 활성화되고, 선택된 점검에 속한 하자를 모아 PDF로 내보낸다", async () => {
