@@ -728,4 +728,138 @@ class DefectControllerTest extends PostgresTestSupport {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
     }
+
+    // ── #1193/HAJA-569: 조치 등록 이력 조회 — IN_PROGRESS 다중 등록 지원 ──
+
+    @Test
+    void 조치이력조회_IN_PROGRESS유지재제출_두건이력_최신순반환() throws Exception {
+        User owner = saveOwner("owner30@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.IN_PROGRESS);
+        Media media1 = saveMedia(inspection.getId());
+        Media media2 = saveMedia(inspection.getId());
+
+        mockMvc.perform(patch("/api/defects/{id}/action", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "actionMediaId", media1.getId(),
+                                "actionContent", "1차 보수",
+                                "actionDate", "2026-07-28",
+                                "actionAssigneeId", owner.getId(),
+                                "targetStatus", "IN_PROGRESS"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("IN_PROGRESS"));
+        mockMvc.perform(patch("/api/defects/{id}/action", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "actionMediaId", media2.getId(),
+                                "actionContent", "2차 보수",
+                                "actionDate", "2026-07-29",
+                                "actionAssigneeId", owner.getId(),
+                                "targetStatus", "IN_PROGRESS"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("IN_PROGRESS"));
+
+        mockMvc.perform(get("/api/defects/{id}/action-logs", defect.getId())
+                        .param("phase", "IN_PROGRESS")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].actionContent").value("2차 보수"))
+                .andExpect(jsonPath("$.data[0].photoUrl").value("/api/media/" + media2.getId() + "/thumbnail"))
+                .andExpect(jsonPath("$.data[1].actionContent").value("1차 보수"));
+
+        // 상태가 실제로 바뀌지 않은 제출이라 "status" 필드 변경 이력은 남지 않는다(defect_revisions
+        // 미기록) — 단, 2차 제출이 1차 제출의 actionContent/actionMediaId를 덮어쓴 감사기록(#1128
+        // P2-1, 상태 변경과 무관하게 항상 남는 기존 동작)은 별개로 남는다.
+        mockMvc.perform(get("/api/defects/{id}/revisions", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(jsonPath("$.data.content[*].fieldChanged")
+                        .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("status"))));
+    }
+
+    @Test
+    void 조치이력조회_RESOLVED로전이하면_해당제출도IN_PROGRESS이력에그대로남음() throws Exception {
+        // RESOLVED 전이 후에도 과거 조치중 이력은 계속 조회 가능해야 한다(플랜 요구사항 §3).
+        User owner = saveOwner("owner31@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.IN_PROGRESS);
+        Media media = saveMedia(inspection.getId());
+
+        mockMvc.perform(patch("/api/defects/{id}/action", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "actionMediaId", media.getId(),
+                                "actionContent", "보수 완료",
+                                "actionDate", "2026-07-28",
+                                "actionAssigneeId", owner.getId(),
+                                "targetStatus", "RESOLVED"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("RESOLVED"));
+
+        mockMvc.perform(get("/api/defects/{id}/action-logs", defect.getId())
+                        .param("phase", "RESOLVED")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].actionContent").value("보수 완료"));
+    }
+
+    @Test
+    void 조치이력조회_허용안된phase_400_INVALID_INPUT() throws Exception {
+        User owner = saveOwner("owner32@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(get("/api/defects/{id}/action-logs", defect.getId())
+                        .param("phase", "CONFIRMED")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void 조치이력조회_이력없으면빈배열() throws Exception {
+        User owner = saveOwner("owner33@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(get("/api/defects/{id}/action-logs", defect.getId())
+                        .param("phase", "IN_PROGRESS")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    // IDOR 회귀 테스트(필수) — 타 사용자 소유 하자의 조치 이력 조회는 404(리소스 존재 여부 비노출).
+    @Test
+    void 조치이력조회_타인소유하자_404_DEFECT_NOT_FOUND() throws Exception {
+        User owner = saveOwner("owner34@haja.com");
+        User stranger = saveOwner("stranger34@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(get("/api/defects/{id}/action-logs", defect.getId())
+                        .param("phase", "IN_PROGRESS")
+                        .with(csrf()).with(authentication(authOf(stranger))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_NOT_FOUND"));
+    }
+
+    @Test
+    void 조치이력조회_미인증_401() throws Exception {
+        mockMvc.perform(get("/api/defects/{id}/action-logs", 1L)
+                        .param("phase", "IN_PROGRESS")
+                        .with(csrf()))
+                .andExpect(status().isUnauthorized());
+    }
 }

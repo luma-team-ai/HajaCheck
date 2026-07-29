@@ -454,7 +454,15 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V28__add_notification_type_plan_expired.sql"),
-                        CONTAINER_ROOT + "V28__add_notification_type_plan_expired.sql");
+                        CONTAINER_ROOT + "V28__add_notification_type_plan_expired.sql")
+                // #1193/HAJA-569 — Flyway V29(조치 등록 이력 append-only 테이블 defect_action_logs)도
+                // 이어서 forward-apply한다. 캐노니컬 DDL에 defect_action_logs가 이미 있는
+                // baseline-on-existing 경로도 함께 지원해야 해서 전 구문이 멱등(IF NOT EXISTS)이라,
+                // V20/V28과 동일하게 두 번 실행해도 안전하다는 점까지 함께 고정한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V29__create_defect_action_logs.sql"),
+                        CONTAINER_ROOT + "V29__create_defect_action_logs.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -571,6 +579,10 @@ class Ha25IncrementalMigrationTest {
         // ALTER TYPE ... ADD VALUE IF NOT EXISTS 라 재실행이 안전하다는 점까지 함께 고정한다(V4/V15와 동일).
         runPsql(postgres, "V28__add_notification_type_plan_expired.sql");
         runPsql(postgres, "V28__add_notification_type_plan_expired.sql");
+        // #1193/HAJA-569 — Flyway V29(defect_action_logs)도 이어서 forward-apply한다. CREATE TABLE/INDEX
+        // IF NOT EXISTS라 재실행이 안전하다는 점까지 함께 고정한다(V20/V28과 동일).
+        runPsql(postgres, "V29__create_defect_action_logs.sql");
+        runPsql(postgres, "V29__create_defect_action_logs.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

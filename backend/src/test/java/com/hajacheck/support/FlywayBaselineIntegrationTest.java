@@ -34,7 +34,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * 알림 멱등성을 애플리케이션 메모리 조회에서 DB 유니크 제약 기반으로 전환)→V26(media.original_filename,
  * #1116 — AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정)→V27(user_plans.current_period_start/
  * current_period_end 결제 주기 실체화, #1104/HAJA-525)→V28(notification_type PLAN_EXPIRED 라벨,
- * #1145/HAJA-549 — 구독 결제 주기 만료 FREE 자동 강등 알림)을 순서대로 적용하고,
+ * #1145/HAJA-549 — 구독 결제 주기 만료 FREE 자동 강등 알림)→V29(defect_action_logs 조치 등록 이력
+ * append-only 테이블, #1193/HAJA-569 — 조치중 단계 다중 등록 지원)을 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -111,14 +112,16 @@ class FlywayBaselineIntegrationTest {
         //   V25였으나 앞의 두 건이 먼저 dev에 확정돼 재번호했다.
         // + V28(notification_type PLAN_EXPIRED 라벨, #1145/HAJA-549 — 구독 결제 주기 만료 FREE 자동
         //   강등 배치가 강등 시점에 발행하는 알림 유형).
-        //   마이그레이션 수는 V1~V24(24개) + V25·V26·V27·V28(4개) = 28이다.
-        assertThat(appliedMigrations).isEqualTo(28);
+        // + V29(defect_action_logs 조치 등록 이력 append-only 테이블 + 전용 defect_action_log_phase_type
+        //   enum, #1193/HAJA-569 — 조치중(IN_PROGRESS) 단계 다중 등록 지원).
+        //   마이그레이션 수는 V1~V24(24개) + V25·V26·V27·V28·V29(5개) = 29이다.
+        assertThat(appliedMigrations).isEqualTo(29);
 
-        // 최신 적용 버전이 실제로 V28 인지 확인.
+        // 최신 적용 버전이 실제로 V29 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("28");
+        assertThat(latestVersion).isEqualTo("29");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
