@@ -219,6 +219,9 @@ public enum ErrorCode {
     INSPECTION_ROUND_CONFLICT(HttpStatus.CONFLICT, "다른 요청과 충돌하여 점검 회차를 생성하지 못했습니다. 다시 시도해 주세요."),
     // 점검일 도메인 검증 — 시설물 등록일 이전이거나 지나치게 먼 미래는 비정상 입력으로 간주.
     INSPECTION_DATE_INVALID(HttpStatus.BAD_REQUEST, "점검일이 올바르지 않습니다."),
+    // 회차 간 비교(#1157) — before/after 미지정 시 최근 2개 회차로 자동 대체하는데, 점검 이력이
+    // 2회 미만이면 비교 자체가 성립하지 않는다.
+    INSPECTION_COMPARISON_INSUFFICIENT_ROUNDS(HttpStatus.BAD_REQUEST, "비교할 점검 회차가 2회 미만입니다."),
 
     // 촬영 데이터(미디어) 업로드(dev-05-03)
     MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "미디어를 찾을 수 없습니다."),

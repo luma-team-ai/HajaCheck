@@ -1824,14 +1824,18 @@ paths:
         schema: { type: integer, format: int64 }
       - name: before
         in: query
-        required: true
+        required: false
         schema: { type: integer }
-        description: 비교 기준(이전) 점검 회차 번호.
+        description: >
+          비교 기준(이전) 점검 회차 번호. after와 함께 생략하면 이 시설물이 실제로 가진 가장
+          최근 2개 회차로 서버가 자동 대체한다(#1157 — 프론트가 화면 진입 시 유효한 회차를
+          미리 알 방법이 없어 하드코딩된 값으로 요청하다 INSPECTION_NOT_FOUND로 실패하던
+          문제를 해소).
       - name: after
         in: query
-        required: true
+        required: false
         schema: { type: integer }
-        description: 비교 대상(이후) 점검 회차 번호. before보다 커야 한다.
+        description: 비교 대상(이후) 점검 회차 번호. before보다 커야 한다. before 설명 참고.
     get:
       summary: 회차 간 비교 조회 (HAJA-531/#1112, HAJA-437 후속)
       description: >
@@ -1839,8 +1843,10 @@ paths:
         포함)/개선완료/등급상승 4종)와 하자 변화 목록을 반환한다. previous_defect_id로 확정된 회차 간
         대응(HAJA-437)을 기준으로 분류하며, "재발생"(이전 회차 RESOLVED가 이후 회차에 재연결된 경우)은
         recurring으로 별도 구분한다(HAJA-532/#1119). beforeImageUrl/afterImageUrl/crackTrend는 실
-        데이터 근거가 없어 이번 범위에서 생략한다. 미존재/타인 소유 시설 모두 404 FACILITY_NOT_FOUND,
-        before>=after 또는 존재하지 않는 회차는 각각 400 INVALID_INPUT / 404 INSPECTION_NOT_FOUND.
+        데이터 근거가 없어 이번 범위에서 생략한다. before/after를 둘 다 생략하면 최근 2개 회차로
+        자동 비교하며, 비교 가능한 점검 이력이 2회 미만이면 400 INSPECTION_COMPARISON_INSUFFICIENT_ROUNDS
+        (#1157). 미존재/타인 소유 시설 모두 404 FACILITY_NOT_FOUND, before>=after 또는 존재하지 않는
+        회차는 각각 400 INVALID_INPUT / 404 INSPECTION_NOT_FOUND.
       security:
         - SessionCookie: []
       tags: [facility]
@@ -1851,7 +1857,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/FacilityComparisonApiResponse" }
         "400":
-          description: before >= after 등 입력값 오류 (INVALID_INPUT)
+          description: >
+            before >= after 등 입력값 오류(INVALID_INPUT), 또는 before/after 생략 시 비교
+            가능한 점검 회차가 2회 미만(INSPECTION_COMPARISON_INSUFFICIENT_ROUNDS, #1157).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }

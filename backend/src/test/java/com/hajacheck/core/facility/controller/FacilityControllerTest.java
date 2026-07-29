@@ -704,16 +704,40 @@ class FacilityControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 회차간비교_before파라미터생략_400_INVALID_INPUT() throws Exception {
-        // PR머신 P2 회귀 고정 — 필수 @RequestParam 자체 누락은 값 타입 오류와 달리 기존엔
-        // GlobalExceptionHandler의 하위 포괄 handleException(500)으로 샜다.
+    void 회차간비교_회차파라미터전부생략_점검이력2회미만_400_INSUFFICIENT_ROUNDS() throws Exception {
+        // PR머신 P2 회귀 고정(원본 취지 유지) — 필수 @RequestParam 자체 누락은 값 타입 오류와 달리
+        // 기존엔 GlobalExceptionHandler의 하위 포괄 handleException(500)으로 샜다. #1157부터는
+        // before/after 생략 자체는 정상 경로(자동 대체)이지만, 비교할 회차가 2회 미만이면 여전히
+        // 500이 아닌 명시적 400으로 응답해야 한다.
         User owner = saveUser("compare-owner6@haja.com");
         Facility facility = saveFacility(owner.getId());
 
         mockMvc.perform(get("/api/facilities/{id}/compare", facility.getId())
-                        .param("after", "2")
                         .with(csrf()).with(authentication(authOf(owner))))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+                .andExpect(jsonPath("$.error.code").value("INSPECTION_COMPARISON_INSUFFICIENT_ROUNDS"));
+    }
+
+    @Test
+    void 회차간비교_회차파라미터전부생략_최근2개회차로자동비교_200() throws Exception {
+        // #1157 — 프론트(FacilityInspectionComparePage)가 시설물마다 다른 실제 회차를 모른 채
+        // 하드코딩된 7/8회차로 요청해 회차 이력이 다른 시설물에서 항상 INSPECTION_NOT_FOUND로
+        // 실패하던 버그의 회귀 고정. before/after를 아예 생략해도 이 시설물의 가장 최근 2개
+        // 회차(3회차 vs 4회차)로 서버가 자동 비교해야 한다.
+        User owner = saveUser("compare-owner7@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        User inspector = saveInspector("compare-inspector7@haja.com", owner.getCompanyId());
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 1, LocalDate.of(2026, 1, 1));
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 2, LocalDate.of(2026, 2, 1));
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 3, LocalDate.of(2026, 3, 1));
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 4, LocalDate.of(2026, 4, 1));
+
+        mockMvc.perform(get("/api/facilities/{id}/compare", facility.getId())
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.beforeCycle.cycle").value(3))
+                .andExpect(jsonPath("$.data.afterCycle.cycle").value(4))
+                .andExpect(jsonPath("$.data.availableCycles.length()").value(4));
     }
 }

@@ -58,7 +58,22 @@ public class FacilityComparisonService {
         Facility facility = facilityRepository.findByIdAndCompanyId(facilityId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.FACILITY_NOT_FOUND));
 
-        if (beforeRound == null || afterRound == null || beforeRound >= afterRound) {
+        List<Inspection> allInspections = inspectionRepository.findByFacilityIdIn(List.of(facilityId));
+        List<CycleOption> availableCycles = allInspections.stream()
+                .sorted((a, b) -> Integer.compare(a.getRoundNo(), b.getRoundNo()))
+                .map(i -> new CycleOption(i.getRoundNo(), i.getInspectionDate()))
+                .toList();
+
+        if (beforeRound == null || afterRound == null) {
+            // #1157 — 프론트가 시설물마다 다른 실제 회차를 알지 못한 채 최초 진입하므로, 미지정 시
+            // 이 시설물이 실제로 가진 가장 최근 2개 회차로 서버가 대신 골라준다(과거 프론트 하드코딩
+            // 7/8회차가 회차 이력이 다른 시설물에서 INSPECTION_NOT_FOUND로 항상 실패하던 문제).
+            if (availableCycles.size() < 2) {
+                throw new BusinessException(ErrorCode.INSPECTION_COMPARISON_INSUFFICIENT_ROUNDS);
+            }
+            afterRound = availableCycles.get(availableCycles.size() - 1).cycle();
+            beforeRound = availableCycles.get(availableCycles.size() - 2).cycle();
+        } else if (beforeRound >= afterRound) {
             throw new BusinessException(ErrorCode.INVALID_INPUT);
         }
 
@@ -71,12 +86,6 @@ public class FacilityComparisonService {
         List<Defect> afterDefects = defectRepository.findByInspectionIdAndNotDeleted(afterInspection.getId());
 
         List<DefectChangeRow> changes = classify(beforeDefects, afterDefects);
-
-        List<Inspection> allInspections = inspectionRepository.findByFacilityIdIn(List.of(facilityId));
-        List<CycleOption> availableCycles = allInspections.stream()
-                .sorted((a, b) -> Integer.compare(a.getRoundNo(), b.getRoundNo()))
-                .map(i -> new CycleOption(i.getRoundNo(), i.getInspectionDate()))
-                .toList();
 
         return new FacilityComparisonResponse(
                 facility.getId(),
