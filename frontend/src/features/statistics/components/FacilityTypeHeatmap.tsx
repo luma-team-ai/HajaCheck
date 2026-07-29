@@ -67,22 +67,28 @@ function HeatmapGrid({ categories, months, findCount, maxCount }: HeatmapGridPro
           return (
             <Fragment key={category}>
               <span className={`text-right text-zinc-500 font-medium truncate ${fontSizeClass}`}>{category}</span>
-              {months.map((month) => {
+              {months.map((month, colIndex) => {
                 const count = findCount(category, month);
+                const isFirstCol = colIndex === 0;
+                const isLastCol = colIndex === months.length - 1;
+
+                const verticalPosClass = isFirstRow ? 'top-full mt-1.5' : 'bottom-full mb-1.5';
+                const horizontalPosClass = isLastCol
+                  ? 'right-0 translate-x-0'
+                  : isFirstCol
+                  ? 'left-0 translate-x-0'
+                  : 'left-1/2 -translate-x-1/2';
+
                 return (
                   <span key={month} className="group relative">
                     <span
                       aria-label={`${category} · ${formatMonthLabel(month)} · ${count}건`}
                       className={`block h-10 w-full rounded-xs ${getHeatShade(count, maxCount)}`}
                     />
-                    {/* 랜딩 히어로 칩(landing-chip, features/landing/landing.css)과 동일 양식 —
-                        흰 배경 + rounded-[10px] + shadow + 13px bold. cross-feature import 금지
-                        컨벤션상 클래스를 직접 재사용할 수 없어 동일 스펙을 로컬 Tailwind로 재현. */}
+                    {/* 상하좌우 경계선 안쪽으로 칩이 팝업되도록 4방향 앵커링 조율 (가로 스크롤바 방지) */}
                     <span
                       role="tooltip"
-                      className={`pointer-events-none absolute left-1/2 z-10 hidden -translate-x-1/2 whitespace-nowrap rounded-[10px] bg-white px-3.5 py-2 text-[13px] font-semibold text-zinc-800 shadow-[0_8px_24px_rgba(0,0,0,0.25)] group-hover:block ${
-                        isFirstRow ? 'top-full mt-1.5' : 'bottom-full mb-1.5'
-                      }`}
+                      className={`pointer-events-none absolute z-10 hidden whitespace-nowrap rounded-[10px] bg-white px-3.5 py-2 text-[13px] font-semibold text-zinc-800 shadow-[0_8px_24px_rgba(0,0,0,0.25)] group-hover:block ${verticalPosClass} ${horizontalPosClass}`}
                     >
                       {category} · {formatMonthLabel(month)} · {count}건
                     </span>
