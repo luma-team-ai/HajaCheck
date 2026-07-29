@@ -121,10 +121,10 @@ export function DetailSection({
                     type="button"
                     onClick={() => selectFilter('ALL')}
                     aria-pressed={isSelected}
-                    className={`inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
+                    className={`inline-flex h-7 items-center justify-center rounded-full border px-3 py-1.5 text-xs font-medium transition cursor-pointer box-border ${
                       isSelected
-                        ? 'bg-black text-white'
-                        : 'bg-neutral-50 border border-zinc-200 text-zinc-900 hover:bg-zinc-100'
+                        ? 'bg-black border-black text-white'
+                        : 'bg-neutral-50 border-zinc-200 text-zinc-900 hover:bg-zinc-100'
                     }`}
                   >
                     전체 ({count})
@@ -138,10 +138,10 @@ export function DetailSection({
                   type="button"
                   onClick={() => selectFilter(filterGrade)}
                   aria-pressed={isSelected}
-                  className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition cursor-pointer border ${
+                  className={`inline-flex h-7 items-center justify-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition cursor-pointer box-border ${
                     isSelected
-                      ? 'bg-black text-white border-black'
-                      : 'bg-neutral-50 text-zinc-900 border-zinc-200 hover:bg-zinc-100'
+                      ? 'bg-black border-black text-white'
+                      : 'bg-neutral-50 border-zinc-200 text-zinc-900 hover:bg-zinc-100'
                   }`}
                 >
                   <span className={`size-2 rounded-full shrink-0 ${dotColor}`} />
