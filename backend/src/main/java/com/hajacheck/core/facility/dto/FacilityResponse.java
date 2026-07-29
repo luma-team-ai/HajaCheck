@@ -35,6 +35,8 @@ public record FacilityResponse(
         // inspectionDate, 점검 이력이 없으면 null. FacilityStatusResponse.lastInspectedAt과
         // 동일 조회(inspectionRepository.findLatestByFacilityIds)를 재사용한다.
         LocalDate lastInspectedAt,
+        // 지도 팝업 결과 검수 버튼 라우팅용 최신 점검 id. 점검 이력이 없으면 null.
+        Long latestInspectionId,
         // 지도/목록 실데이터 집계 — 기존 inspections/defects만으로 계산한다. 하자 등급이 없으면 null.
         String highestGrade,
         // 지도 경고/주의 건수 — D/E는 경고, C는 주의로 집계한다. 집계 가능한 하자가 없으면 0.
@@ -87,6 +89,7 @@ public record FacilityResponse(
                 thumbnailUrl,
                 lastInspectedAt,
                 null,
+                null,
                 0L,
                 0L,
                 0L);
@@ -115,6 +118,13 @@ public record FacilityResponse(
     public static FacilityResponse from(
             Facility facility, Long latestDefectId, String thumbnailUrl, LocalDate lastInspectedAt,
             String highestGrade, Long warningCount, Long cautionCount, long defectCount) {
+        return from(facility, latestDefectId, thumbnailUrl, lastInspectedAt, null,
+                highestGrade, warningCount, cautionCount, defectCount);
+    }
+
+    public static FacilityResponse from(
+            Facility facility, Long latestDefectId, String thumbnailUrl, LocalDate lastInspectedAt,
+            Long latestInspectionId, String highestGrade, Long warningCount, Long cautionCount, long defectCount) {
         return new FacilityResponse(
                 facility.getId(),
                 facility.getName(),
@@ -134,6 +144,7 @@ public record FacilityResponse(
                 latestDefectId,
                 thumbnailUrl,
                 lastInspectedAt,
+                latestInspectionId,
                 highestGrade,
                 warningCount,
                 cautionCount,

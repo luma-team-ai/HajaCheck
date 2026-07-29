@@ -18,6 +18,7 @@ interface FacilityResponse {
   warningCount: number | null;
   cautionCount: number | null;
   thumbnailUrl: string | null;
+  latestInspectionId?: number | null;
 }
 
 export const mapApi = {
@@ -37,6 +38,7 @@ export const mapApi = {
         warningCount: f.warningCount ?? 0,
         cautionCount: f.cautionCount ?? 0,
         thumbnailUrl: f.thumbnailUrl ?? null,
+        latestInspectionId: f.latestInspectionId ?? null,
       }));
   },
 };

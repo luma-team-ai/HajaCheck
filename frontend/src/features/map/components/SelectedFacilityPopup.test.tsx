@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // SelectedFacilityPopup 등급 배지 fallback 색상 테스트 — GradeBadge와 동일한 FALLBACK_GRADE_COLOR
 // 상수를 쓰는지 확인한다(P3, PR #265/#130 리뷰 — 이전엔 '#9CA3AF' 하드코딩이 중복돼 있었음).
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FALLBACK_GRADE_COLOR } from '../constants';
 import type { DefectGrade, FacilityLocation } from '../types';
 import { SelectedFacilityPopup } from './SelectedFacilityPopup';
@@ -21,6 +21,9 @@ const baseFacility: FacilityLocation = {
 };
 
 describe('SelectedFacilityPopup', () => {
+  afterEach(() => {
+    cleanup();
+  });
   it('실 API가 A~E 밖의 예상치 못한 등급 값을 내려줘도 GradeBadge와 동일한 FALLBACK_GRADE_COLOR를 배지 배경색으로 쓴다', () => {
     const facility: FacilityLocation = {
       ...baseFacility,
@@ -29,7 +32,12 @@ describe('SelectedFacilityPopup', () => {
     };
 
     render(
-      <SelectedFacilityPopup facility={facility} onViewDetail={() => {}} onGoToInspectionResult={() => {}} />,
+      <SelectedFacilityPopup
+        facility={facility}
+        canGoToInspectionResult
+        onViewDetail={() => {}}
+        onGoToInspectionResult={() => {}}
+      />,
     );
 
     // jest-dom 매처는 이 프로젝트에 setup되어 있지 않아 기본 매처로 검증.
@@ -38,5 +46,35 @@ describe('SelectedFacilityPopup', () => {
     const probe = document.createElement('div');
     probe.style.backgroundColor = FALLBACK_GRADE_COLOR;
     expect((badge.parentElement as HTMLElement).style.backgroundColor).toBe(probe.style.backgroundColor);
+  });
+
+  it('결과 검수 버튼 클릭 시 onGoToInspectionResult 핸들러가 호출된다', () => {
+    const handleGoToInspectionResult = vi.fn();
+    render(
+      <SelectedFacilityPopup
+        facility={baseFacility}
+        canGoToInspectionResult
+        onViewDetail={() => {}}
+        onGoToInspectionResult={handleGoToInspectionResult}
+      />,
+    );
+
+    const resultButton = screen.getByRole('button', { name: '결과 검수' });
+    resultButton.click();
+
+    expect(handleGoToInspectionResult).toHaveBeenCalledTimes(1);
+  });
+
+  it('점검 이력이 없으면 결과 검수 버튼을 비활성화한다', () => {
+    render(
+      <SelectedFacilityPopup
+        facility={baseFacility}
+        canGoToInspectionResult={false}
+        onViewDetail={() => {}}
+        onGoToInspectionResult={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '결과 검수' }).hasAttribute('disabled')).toBe(true);
   });
 });
