@@ -60,6 +60,7 @@ services:
       # 소스(./backend)는 바인드 마운트 그대로라 핫리로드 동작에는 영향이 없다 — 빌드 산출물만 분리.
       # 트레이드오프: 호스트(Windows)에서 backend/build/ 내부를 직접 열어볼 수 없다(IDE 는 자체 빌드라 무관).
       - gradle-build:/workspace/build
+      - report-pdfs:/app/uploads/hajacheck-report-pdf
     environment:
       SPRING_DEVTOOLS_RESTART_ENABLED: "true"
     ports:
@@ -129,3 +130,4 @@ services:
 volumes:
   gradle-cache:
   gradle-build:
+  report-pdfs:

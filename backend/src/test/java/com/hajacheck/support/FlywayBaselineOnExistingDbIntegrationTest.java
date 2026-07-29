@@ -344,8 +344,8 @@ class FlywayBaselineOnExistingDbIntegrationTest {
         // V33(user_plans.payment_pending_until 미결제 유예 표식 + 부분 인덱스, #1177)도 이 "기존 DB"
         // 경로에서 no-op 성공으로 적용된다 — 캐노니컬 DDL이 이미 컬럼·인덱스를 포함하고 마이그레이션
         // 구문이 멱등(IF NOT EXISTS)이라 'already exists' 로 기동을 깨뜨리지 않는다(#544 P1 회귀선).
-        // ⚠️ V32는 다른 작업자가 선점해 이 작업이 V33을 쓴다(2026-07-29) — V32가 dev에 도착할 때까지
-        //    번호열에 결번 [32]가 남고 FlywayMigrationVersionSequenceTest 가 그 결번으로 실패한다.
+        // (V32는 #1193(defect_action_logs)이 선점해 이 작업이 V33을 잡았고, #1193이 dev에 머지되며
+        //  결번 [32]는 해소됐다 — 2026-07-29.)
         Integer v33Applied = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where version = '33' and success = true",
                 Integer.class);

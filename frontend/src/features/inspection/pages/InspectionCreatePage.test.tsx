@@ -295,14 +295,14 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     });
 
     expect(
-      await screen.findByText('이미 진행 중인 2회차가 있습니다. 계속 생성하시겠습니까?'),
+      await screen.findByText('이미 진행 중인 2회차가 있습니다. 이어서 진행하시겠습니까, 새 회차를 만드시겠습니까?'),
     ).not.toBeNull();
     expect(createCallCount).toBe(0);
 
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
     await waitFor(() =>
       expect(
-        screen.queryByText('이미 진행 중인 2회차가 있습니다. 계속 생성하시겠습니까?'),
+        screen.queryByText('이미 진행 중인 2회차가 있습니다. 이어서 진행하시겠습니까, 새 회차를 만드시겠습니까?'),
       ).toBeNull(),
     );
     expect(createCallCount).toBe(0);
@@ -344,7 +344,7 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
     });
-    await screen.findByText('이미 진행 중인 2회차가 있습니다. 계속 생성하시겠습니까?');
+    await screen.findByText('이미 진행 중인 2회차가 있습니다. 이어서 진행하시겠습니까, 새 회차를 만드시겠습니까?');
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '계속 생성' }));
@@ -354,6 +354,39 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     // 이 파일의 다른 테스트가 목 핸들러의 공유 nextInspectionId 카운터를 먼저 소비할 수 있어
     // (server.use로 POST를 override하지 않는 한 공용) 정확한 id 대신 경로 패턴만 확인한다.
     expect(router.state.location.pathname).toMatch(/^\/inspections\/\d+\/analysis$/);
+  });
+
+  it('중복 회차 확인창에서 "이어서 하기"를 누르면 새로 만들지 않고 기존 회차의 분석 화면으로 바로 이동한다', async () => {
+    let createCallCount = 0;
+    server.use(
+      http.get('/api/inspections', () => {
+        const body = {
+          success: true,
+          data: { content: [{ id: 900, roundNo: 2, status: 'ANALYZING' }], page: 0, totalElements: 1 },
+        };
+        return HttpResponse.json(body);
+      }),
+      http.post('/api/inspections', () => {
+        createCallCount += 1;
+        return HttpResponse.json({ success: true, data: null });
+      }),
+    );
+
+    const router = renderPage();
+    await fillRequiredFields();
+    selectFiles([new File(['a'], 'a.jpg', { type: 'image/jpeg' })]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
+    });
+    await screen.findByText('이미 진행 중인 2회차가 있습니다. 이어서 진행하시겠습니까, 새 회차를 만드시겠습니까?');
+
+    fireEvent.click(screen.getByRole('button', { name: '이어서 하기' }));
+
+    expect(await screen.findByText('AI 분석 실행/상태')).not.toBeNull();
+    expect(router.state.location.pathname).toBe('/inspections/900/analysis');
+    // 새 회차를 만들지 않는다 — 기존 회차로 그대로 이동만 한다.
+    expect(createCallCount).toBe(0);
   });
 
   it('currentUser=null이면 제출 시 안내 메시지가 뜨고 createInspection이 호출되지 않는다', async () => {

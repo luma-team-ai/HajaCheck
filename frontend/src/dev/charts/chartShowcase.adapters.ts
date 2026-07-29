@@ -20,7 +20,7 @@ export interface StatusDistributionChartItem {
   count: number;
 }
 
-const INSPECTION_STATUS_ORDER: readonly InspectionStatus[] = ['분석중', '검수대기', '조치대기', '완료'];
+const INSPECTION_STATUS_ORDER: readonly InspectionStatus[] = ['분석중', '검수대기', '검수확정', '완료'];
 
 export function toInspectionTrendChartData(items: readonly RecentInspectionItem[]): InspectionTrendChartItem[] {
   const defectCountByDate = new Map<string, number>();

@@ -142,12 +142,14 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     expect((within(modal).getByLabelText('진행상태 *') as HTMLSelectElement).value).toBe('IN_PROGRESS');
     fireEvent.click(within(modal).getByRole('button', { name: '상태 저장' }));
 
-    // 조치중은 종료 상태가 아니므로 폼이 계속 보인다(읽기 전용 전환 아님) — 다음 제출 대상은 조치완료.
-    // 뮤테이션 성공 후 setQueryData로 상세 캐시가 갱신되는 게 비동기라, select 값이 실제로
-    // IN_PROGRESS 파생값(RESOLVED가 다음 단계)으로 바뀔 때까지 기다린다.
+    // 조치중은 종료 상태가 아니므로 폼이 계속 보인다(읽기 전용 전환 아님). #1193/HAJA-569 —
+    // IN_PROGRESS에서는 select가 "조치중"(유지)/"조치완료" 두 옵션으로 활성화되고, 실수 방지를
+    // 위해 기본값은 여전히 "조치중"(자동으로 다음 단계까지 넘어가지 않음). 뮤테이션 성공 후
+    // setQueryData로 상세 캐시가 갱신되는 게 비동기라, select가 활성화될 때까지 기다린다.
     await waitFor(() =>
-      expect((within(modal).getByLabelText('진행상태 *') as HTMLSelectElement).value).toBe('RESOLVED'),
+      expect((within(modal).getByLabelText('진행상태 *') as HTMLSelectElement).disabled).toBe(false),
     );
+    expect((within(modal).getByLabelText('진행상태 *') as HTMLSelectElement).value).toBe('IN_PROGRESS');
     expect(within(modal).getByLabelText('조치 후 사진 업로드 *')).not.toBeNull();
     expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('조치중');
     // #1128 코드리뷰 P2-2 — 성공 후 폼 필드가 초기화되고 성공 알림이 뜬다(중복 업로드/의도치 않은
@@ -155,8 +157,9 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     expect(within(modal).getByText('조치중(으)로 저장되었습니다.')).not.toBeNull();
     expect((within(modal).getByRole('button', { name: '상태 저장' }) as HTMLButtonElement).disabled).toBe(true);
 
-    // 2차 제출 — 조치중(IN_PROGRESS)에서 유효한 다음 단계는 조치완료(RESOLVED). 초기화된 필드를
-    // 다시 채운 뒤 제출한다. RESOLVED는 종료 상태라 이번엔 폼이 읽기 전용 요약으로 전환된다.
+    // 2차 제출 — 조치중(IN_PROGRESS)에서 select 기본값은 "조치중"(유지)이므로, 종료 상태인
+    // 조치완료(RESOLVED)로 전이하려면 이번엔 사용자가 명시적으로 "조치완료"를 선택해야 한다
+    // (#1193/HAJA-569 — 자동 다음 단계 강제 제거). 초기화된 필드를 다시 채운 뒤 제출한다.
     const secondFile = new File(['dummy2'], 'after2.png', { type: 'image/png' });
     fireEvent.change(within(modal).getByLabelText('조치 후 사진 업로드 *'), { target: { files: [secondFile] } });
     fireEvent.change(within(modal).getByLabelText('조치 내용 *'), {
@@ -166,6 +169,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     fireEvent.change(within(modal).getByLabelText('담당자 *'), {
       target: { value: (await within(modal).findByRole('option', { name: '김도현 검사자' })).getAttribute('value') },
     });
+    fireEvent.change(within(modal).getByLabelText('진행상태 *'), { target: { value: 'RESOLVED' } });
     fireEvent.click(within(modal).getByRole('button', { name: '상태 저장' }));
 
     await waitFor(() => expect(within(modal).queryByLabelText('조치 후 사진 업로드 *')).toBeNull());

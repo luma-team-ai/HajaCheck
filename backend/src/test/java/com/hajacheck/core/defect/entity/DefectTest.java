@@ -257,6 +257,45 @@ class DefectTest {
         assertThat(defect.getActionMediaId()).isNull();
     }
 
+    // ── #1193/HAJA-569: 조치중(IN_PROGRESS) 유지 재제출 허용 ──
+
+    @Test
+    void registerActionResult_IN_PROGRESS유지재제출은상태그대로필드만갱신() {
+        Defect defect = defectWithStatus(DefectStatus.IN_PROGRESS);
+
+        defect.registerActionResult(50L, "1차 보수", LocalDate.of(2026, 7, 28), 200L,
+                DefectStatus.IN_PROGRESS);
+        defect.registerActionResult(51L, "2차 보수", LocalDate.of(2026, 7, 29), 201L,
+                DefectStatus.IN_PROGRESS);
+
+        assertThat(defect.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(defect.getActionMediaId()).isEqualTo(51L);
+        assertThat(defect.getActionContent()).isEqualTo("2차 보수");
+        assertThat(defect.getActionAssigneeId()).isEqualTo(201L);
+    }
+
+    @Test
+    void registerActionResult_RESOLVED유지재제출은종료상태이탈금지규칙으로거부() {
+        // RESOLVED는 changeStatus()에 그대로 위임되므로 "이탈 금지" 검사가 먼저 걸려
+        // IllegalStateException(DomainStateTransitionException)으로 막힌다 — 회귀 방지.
+        Defect defect = defectWithStatus(DefectStatus.RESOLVED);
+
+        assertThatThrownBy(() -> defect.registerActionResult(50L, "재등록 시도",
+                LocalDate.of(2026, 7, 28), 200L, DefectStatus.RESOLVED))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(defect.getActionContent()).isNull();
+    }
+
+    @Test
+    void registerActionResult_삭제된하자는IN_PROGRESS유지재제출도거부() {
+        Defect defect = defectWithStatus(DefectStatus.IN_PROGRESS);
+        defect.softDelete();
+
+        assertThatThrownBy(() -> defect.registerActionResult(50L, "삭제 후 시도",
+                LocalDate.of(2026, 7, 28), 200L, DefectStatus.IN_PROGRESS))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
     @Test
     void changeStatus_예외발생시reviewed는변경되지않음() {
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)

@@ -1,6 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse, PageResponse } from '../../../shared/api/types';
-import { mockDefectRevisions, mockDefects } from '../mocks/defect.mock';
+import { mockDefectActionLogs, mockDefectRevisions, mockDefects } from '../mocks/defect.mock';
 import {
   mockDefectAssignees,
   mockInspectionFacilityOptions,
@@ -9,6 +9,7 @@ import {
 import type { NlSearchResult } from '../nlSearchTypes';
 import type {
   Defect,
+  DefectActionLogEntry,
   DefectAssignee,
   DefectRevision,
   DefectStatus,
@@ -170,7 +171,45 @@ export const defectHandlers = [
     };
     found.status = reqBody.targetStatus;
 
+    // 백엔드 registerActionResult()와 동일하게 제출마다 이력을 append한다(#1193/HAJA-569) — 프론트
+    // 테스트가 "IN_PROGRESS 유지 재제출로 이력이 쌓인다"를 실제 요청 흐름으로 검증할 수 있게 한다.
+    const logs = (mockDefectActionLogs[id] ??= { IN_PROGRESS: [], RESOLVED: [] });
+    const phaseLogs = logs[reqBody.targetStatus];
+    phaseLogs.unshift({
+      id: Date.now(),
+      photoUrl: `/api/media/${reqBody.actionMediaId}/thumbnail`,
+      actionContent: reqBody.actionContent,
+      actionDate: reqBody.actionDate,
+      actionAssigneeId: reqBody.actionAssigneeId,
+      actionAssigneeName: assignee?.name ?? '담당자 미상',
+      createdAt: new Date().toISOString(),
+    });
+
     const body: ApiResponse<Defect> = { success: true, data: found };
+    return HttpResponse.json(body);
+  }),
+
+  // GET /api/defects/:id/action-logs?phase= — 조치 등록 제출 이력 조회(#1193/HAJA-569 백엔드,
+  // #1211/HAJA-574 프론트). phase 외 값은 실제 백엔드처럼 400을 흉내내지 않고 빈 배열로 방어한다
+  // (프론트 테스트에서 phase 값은 항상 union 타입으로 강제되므로 굳이 재현할 필요가 없음).
+  http.get('/api/defects/:id/action-logs', ({ params, request }) => {
+    const id = Number(params.id);
+    const found = mockDefects.find((defect) => defect.id === id);
+
+    if (!found) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'DEFECT_NOT_FOUND', message: '하자를 찾을 수 없습니다.' },
+      };
+      return HttpResponse.json(failure, { status: 404 });
+    }
+
+    const url = new URL(request.url);
+    const phase = url.searchParams.get('phase') as 'IN_PROGRESS' | 'RESOLVED' | null;
+    const logs = mockDefectActionLogs[id] ?? { IN_PROGRESS: [], RESOLVED: [] };
+    const data: DefectActionLogEntry[] = phase === 'RESOLVED' ? logs.RESOLVED : phase === 'IN_PROGRESS' ? logs.IN_PROGRESS : [];
+    const body: ApiResponse<DefectActionLogEntry[]> = { success: true, data };
     return HttpResponse.json(body);
   }),
 

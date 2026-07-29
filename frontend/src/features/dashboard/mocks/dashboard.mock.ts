@@ -92,7 +92,7 @@ export const mockRecentInspections: RecentInspectionItem[] = [
     inspectedAt: '2026-07-12',
     inspector: '이서연',
     defectCount: 3,
-    status: '조치대기',
+    status: '검수확정',
   },
   {
     id: 3,
@@ -140,7 +140,7 @@ export const mockRecentInspectionsFull: RecentInspectionItem[] = [
     inspectedAt: '2026-07-08',
     inspector: '김현수',
     defectCount: 1,
-    status: '조치대기',
+    status: '검수확정',
   },
   {
     id: 8,
@@ -172,7 +172,7 @@ export const mockRecentInspectionsFull: RecentInspectionItem[] = [
     inspectedAt: '2026-07-06',
     inspector: '정민준',
     defectCount: 5,
-    status: '조치대기',
+    status: '검수확정',
   },
   {
     id: 12,
@@ -204,7 +204,7 @@ export const mockRecentInspectionsFull: RecentInspectionItem[] = [
     inspectedAt: '2026-07-04',
     inspector: '박도윤',
     defectCount: 1,
-    status: '조치대기',
+    status: '검수확정',
   },
   {
     id: 16,
@@ -236,7 +236,7 @@ export const mockRecentInspectionsFull: RecentInspectionItem[] = [
     inspectedAt: '2026-07-02',
     inspector: '김현수',
     defectCount: 4,
-    status: '조치대기',
+    status: '검수확정',
   },
   {
     id: 20,
