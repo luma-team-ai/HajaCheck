@@ -69,6 +69,13 @@ public class Report extends BaseTimeEntity {
     @Column(name = "grounding_warnings", columnDefinition = "jsonb")
     private String groundingWarnings;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "sections", columnDefinition = "jsonb")
+    private String sections;
+
+    @Column(name = "include_photo")
+    private Boolean includePhoto;
+
     @Column(name = "pdf_url", length = 500)
     private String pdfUrl;
 
@@ -88,12 +95,15 @@ public class Report extends BaseTimeEntity {
     @Builder(access = AccessLevel.PRIVATE)
     private Report(Long inspectionId, int version, String contentJson,
                    Boolean groundingCheckPassed, String groundingWarnings,
+                   String sections, Boolean includePhoto,
                    String pdfUrl, Long editedBy, ReportStatus status, Long createdBy) {
         this.inspectionId = inspectionId;
         this.version = version;
         this.contentJson = contentJson;
         this.groundingCheckPassed = groundingCheckPassed;
         this.groundingWarnings = groundingWarnings;
+        this.sections = sections;
+        this.includePhoto = includePhoto;
         this.pdfUrl = pdfUrl;
         this.editedBy = editedBy;
         this.status = status == null ? ReportStatus.DRAFT : status;
@@ -101,6 +111,11 @@ public class Report extends BaseTimeEntity {
     }
 
     public static Report draft(Long inspectionId, int version, String contentJson, Long createdBy) {
+        return draft(inspectionId, version, contentJson, null, null, createdBy);
+    }
+
+    public static Report draft(Long inspectionId, int version, String contentJson,
+                                String sections, Boolean includePhoto, Long createdBy) {
         if (version < 1) {
             throw new DomainValidationException("보고서 버전은 1 이상이어야 한다");
         }
@@ -109,6 +124,8 @@ public class Report extends BaseTimeEntity {
                 .inspectionId(inspectionId)
                 .version(version)
                 .contentJson(contentJson)
+                .sections(sections)
+                .includePhoto(includePhoto)
                 .status(ReportStatus.DRAFT)
                 .createdBy(createdBy)
                 .build();

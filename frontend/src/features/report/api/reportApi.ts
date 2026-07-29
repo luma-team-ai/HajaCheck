@@ -29,9 +29,17 @@ export interface ReportSummaryResponse {
 }
 
 export const reportApi = {
-  // 보고서 초안 생성
-  generateReportDraft: (inspectionId: number, signal?: AbortSignal) =>
-    api.post<ReportDetailResponse>(`/inspections/${inspectionId}/reports`, {}, { signal }),
+  // 보고서 초안 생성 — sections/includePhoto는 사용자가 선택한 설정 옵션
+  generateReportDraft: (
+    inspectionId: number,
+    options?: { sections: string[]; includePhoto: boolean },
+    signal?: AbortSignal,
+  ) =>
+    api.post<ReportDetailResponse>(
+      `/inspections/${inspectionId}/reports`,
+      options ?? {},
+      { signal },
+    ),
 
   // 점검별 보고서 목록 조회 (최근 작업 내역용)
   listReports: (inspectionId: number, signal?: AbortSignal) =>

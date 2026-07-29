@@ -33,9 +33,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.LinkedHashMap;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.util.stream.Collectors;
 import com.hajacheck.core.defect.repository.InspectionGradeCountProjection;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -91,6 +93,12 @@ public class ReportService {
     // 각 메서드가 자체 @Transactional 을 걸어주므로(활성 트랜잭션이 없으면 각자 짧게 시작) 별도 처리가 필요 없다.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ReportDetailResponse generateDraft(Long inspectionId, Long companyId, Long userId) {
+        return generateDraft(inspectionId, companyId, userId, null, null);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public ReportDetailResponse generateDraft(Long inspectionId, Long companyId, Long userId,
+                                               Set<String> sections, Boolean includePhoto) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         InspectionResponse inspection = inspectionService.getInspection(userId, companyId, inspectionId);
         FacilityResponse facility = facilityService.get(userId, companyId, inspection.facilityId());
@@ -111,13 +119,18 @@ public class ReportService {
         ReportResponse aiReport = callAiServer(userId, request);
 
         String contentJson = GroundingReportContentSerializer.serialize(aiReport);
-        Report report = Report.draft(inspectionId, nextVersion, contentJson, userId);
+        String sectionsJson = sections != null ? toJsonArray(sections) : null;
+        Report report = Report.draft(inspectionId, nextVersion, contentJson, sectionsJson, includePhoto, userId);
 
         GroundingCheckResult result =
                 GroundingCheckResultFactory.fromAiReport(context, aiReport, NO_GROUNDING_WARNINGS);
         report.recordGroundingResult(result, userId);
 
         return ReportDetailResponse.from(reportRepository.save(report));
+    }
+
+    private static String toJsonArray(Set<String> values) {
+        return "[" + values.stream().map(v -> "\"" + v + "\"").collect(java.util.stream.Collectors.joining(",")) + "]";
     }
 
     public ReportDetailResponse getReport(Long reportId, Long userId, Long companyId) {
