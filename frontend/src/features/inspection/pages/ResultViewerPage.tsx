@@ -595,23 +595,16 @@ export function ResultViewerPage() {
               </div>
             </div>
 
-            {/* 검수 완료 안내 — 확정이 끝난 뒤 "다음에 뭘 눌러야 하는지"를 CTA로 명시한다(#1255). */}
+            {/* 검수 완료 안내 — 확정이 끝난 뒤 "다음에 뭘 눌러야 하는지"를 문구로 알린다(#1255).
+                CTA 버튼은 두지 않는다 — 가리키는 버튼(상단 '다음 이미지', 헤더 '점검 요약')이
+                이미 화면에 있고 그때 활성화되므로, 같은 동작을 하는 버튼이 둘이 된다. */}
             {(isCurrentMediaReviewed || allReviewed) && (
-              <div className="flex items-center justify-between gap-3 rounded-lg bg-primary/10 px-4 py-3 text-sm text-text-default">
-                <span>
-                  {allReviewed
-                    ? "모든 하자의 검수가 완료되었습니다. 우측 상단 '점검 요약' 버튼으로 이동하세요."
-                    : isLastMedia
-                      ? `이 이미지의 검수가 완료되었습니다. 아직 확정되지 않은 하자가 ${data.totalCount - data.reviewedCount}건 남아 있습니다.`
-                      : '이 이미지의 검수가 완료되었습니다. 다음 이미지로 이동하세요.'}
-                </span>
-                {/* 전체 완료 시엔 CTA를 두지 않는다 — 헤더의 '점검 요약' 버튼이 그때 활성화되므로
-                    같은 동작을 하는 버튼이 둘이 된다. 배너는 문구로 그 버튼을 가리키기만 한다. */}
-                {!allReviewed && !isLastMedia && (
-                  <Button type="button" variant="primary" size="sm" onClick={handleNextMedia}>
-                    다음 이미지 →
-                  </Button>
-                )}
+              <div className="rounded-lg bg-primary/10 px-4 py-3 text-sm text-text-default">
+                {allReviewed
+                  ? "모든 하자의 검수가 완료되었습니다. 우측 상단 '점검 요약' 버튼으로 이동하세요."
+                  : isLastMedia
+                    ? `이 이미지의 검수가 완료되었습니다. 아직 확정되지 않은 하자가 ${data.totalCount - data.reviewedCount}건 남아 있습니다.`
+                    : "이 이미지의 검수가 완료되었습니다. 상단의 '다음 이미지' 버튼으로 이동하세요."}
               </div>
             )}
 

@@ -413,14 +413,15 @@ describe('ResultViewerPage (통합 테스트)', () => {
     fireEvent.click(screen.getByTitle(/박리박락/));
     fireEvent.click(screen.getByRole('button', { name: '이 하자 검수 확정' }));
 
-    // 자동 이동하지 않는다 — 안내 배너가 뜨고, 그 CTA를 눌러야 다음 이미지로 간다(#1255).
+    // 자동 이동하지 않는다 — 안내 배너(문구만)가 뜨고, 상단 네비게이션으로 직접 이동한다(#1255).
     expect(
-      await screen.findByText('이 이미지의 검수가 완료되었습니다. 다음 이미지로 이동하세요.'),
+      await screen.findByText("이 이미지의 검수가 완료되었습니다. 상단의 '다음 이미지' 버튼으로 이동하세요."),
     ).not.toBeNull();
     expect(screen.getByText('이미지 1/2')).not.toBeNull();
 
-    // 배너 CTA(하단)와 상단 네비게이션 둘 다 "다음 이미지 →" — 아무거나 눌러도 이동
-    fireEvent.click(screen.getAllByRole('button', { name: '다음 이미지 →' }).pop()!);
+    // 배너에 중복 CTA를 두지 않으므로 "다음 이미지 →" 버튼은 상단 네비게이션 하나뿐이다.
+    expect(screen.getAllByRole('button', { name: '다음 이미지 →' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: '다음 이미지 →' }));
     expect(await screen.findByText('이미지 2/2')).not.toBeNull();
   });
 
