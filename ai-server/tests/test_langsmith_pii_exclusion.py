@@ -5,7 +5,11 @@
 - business_license_ocr_chain: 사업자등록번호·대표자명 (개인정보)
 - report_chain: 시설명·위치·하자내용 (고객사 정보)
 - rag_chat_chain: 고객 질의 원문 (회사명·시설명이 섞여 들어올 수 있음)
+- nl_search_chain: 사용자 자유 검색어 (위와 동일 — 자유 입력이라 무엇이든 섞일 수 있음)
 - briefing_chain: 회사 현황 수치·주요 하자유형 (조합 시 회사 식별 가능)
+
+defect_explain_chain은 defect_type/severity_grade/location/facility_type만 받아 고객사 식별이
+불가능하므로 의도적으로 제외한다 — 트레이싱 디버깅 가치를 남겨두기 위함.
 
 이 테스트는 전역 트레이싱이 켜진 상태를 가정하고, LLM 호출이 실제로 일어나는 시점에
 트레이싱이 꺼져 있는지를 확인한다 — 감싸는 코드를 나중에 지우면 여기서 실패한다.
@@ -23,6 +27,7 @@ from ai.chains.business_license_ocr_chain import (
     BusinessLicenseOcrExtract,
     run_business_license_ocr_chain,
 )
+from ai.chains.nl_search_chain import run_nl_search_chain
 from ai.chains.rag_chat_chain import run_rag_chat_chain
 from ai.chains.report_chain import run_report_chain
 
@@ -125,6 +130,26 @@ def test_rag_chat_chain_disables_tracing_during_llm_call(mock_get_llm, mock_redi
     assert tracing_states, "LLM이 호출되지 않아 검증이 무의미하다"
     assert all(enabled is False for _thread, enabled in tracing_states), (
         f"rag_chat_chain의 LLM 호출이 트레이싱된다(고객 질의 외부 전송): {tracing_states}"
+    )
+
+
+@patch("ai.chains.nl_search_chain.get_llm")
+def test_nl_search_chain_disables_tracing_during_llm_call(mock_get_llm):
+    """사용자 자유 검색어(회사명·시설명이 섞일 수 있음)가 전송되지 않아야 한다."""
+    import datetime
+
+    tracing_states: list = []
+    mock_get_llm.return_value = _tracing_recording_llm(tracing_states)
+
+    with tracing_context(enabled=True):
+        try:
+            run_nl_search_chain("OO건설 시설 균열 C등급", datetime.date(2026, 7, 29))
+        except Exception:  # noqa: BLE001 — MagicMock 응답이라 정규화 단계가 깨질 수 있다.
+            pass
+
+    assert tracing_states, "LLM이 호출되지 않아 검증이 무의미하다"
+    assert all(enabled is False for _thread, enabled in tracing_states), (
+        f"nl_search_chain의 LLM 호출이 트레이싱된다(사용자 입력 외부 전송): {tracing_states}"
     )
 
 

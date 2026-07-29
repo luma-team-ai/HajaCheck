@@ -2,6 +2,9 @@
 
 LLM은 DB 쿼리나 기준일에 종속된 상대 날짜를 만들지 않는다. 캐시 가능한 ``NlSearchIntentV2``를
 반환하고, 상대 날짜와 숫자 연산자는 Python 정규화 단계에서 최종 필터로 변환한다.
+
+``query``는 사용자 자유 입력(1~500자)이라 회사명·시설명이 섞여 들어올 수 있으므로 LangSmith
+트레이싱에서 제외한다(rag_chat_chain의 고객 질의와 동일한 취급).
 """
 
 import calendar
@@ -9,6 +12,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal, Optional
 
+from langsmith.run_helpers import tracing_context
 from pydantic import BaseModel, Field, model_validator
 
 from ai.core.llm_client import get_llm
@@ -204,5 +208,8 @@ def run_nl_search_chain(query: str, reference_date: date) -> NlSearchResult:
     """LLM 의미 해석 결과를 기준일에 맞춰 최종 필터로 정규화한다."""
 
     prompt = _build_prompt(query)
-    intent = get_llm().with_structured_output(NlSearchIntentV2).invoke(prompt)
+    # 사용자 자유 입력 외부 전송 차단 — 모듈 docstring 참고.
+    # 전역 LANGCHAIN_TRACING_V2 값과 무관하게 항상 비전송(트레이싱이 꺼져 있어도 무해).
+    with tracing_context(enabled=False):
+        intent = get_llm().with_structured_output(NlSearchIntentV2).invoke(prompt)
     return normalize_nl_search_intent(intent, reference_date)
