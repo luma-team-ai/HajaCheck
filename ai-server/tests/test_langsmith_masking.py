@@ -282,7 +282,7 @@ def test_error_path_masked_with_boot_guard_anonymizer(monkeypatch):
 
 
 def test_scrub_error_anonymizer_keeps_type_drops_content():
-    """anonymizer 단위 계약 — 예외 타입명은 남기고 메시지·트레이스백은 버린다."""
+    """anonymizer 단위 계약 — repr() 형태(타입명 뒤 괄호)일 때만 타입명을 남기고 나머지는 버린다."""
     scrubbed = scrub_error_anonymizer(
         {"error": f"OutputParserException('{SENSITIVE_INPUT}')\nTraceback (most recent call last): ..."}
     )
@@ -291,6 +291,24 @@ def test_scrub_error_anonymizer_keeps_type_drops_content():
 
     # error 래핑이 아닌 형태(inputs/outputs 경로)가 들어오면 전부 비전송 — env 마스킹과 같은 방향.
     assert scrub_error_anonymizer({"prompt": SENSITIVE_INPUT}) == {}
+
+
+def test_scrub_error_anonymizer_rejects_non_repr_format(monkeypatch):
+    """5차 리뷰 P2 회귀 — repr() 형태(타입명+괄호)가 아니면 선두 토큰도 신뢰하지 않는다.
+
+    이전 구현은 "식별자로 시작하면" 무조건 타입명으로 간주해 남겼다. langsmith가 항상
+    repr(error)를 쓰는 게 확인됐지만(run_helpers._format_error_with_exceptions_to_handle
+    실측), 혹시 다른 경로나 커스텀 __repr__이 괄호 없는 순수 메시지를 채우면 그 메시지의
+    선두 단어(이메일 로컬파트·파일명·ID 등 민감할 수 있는 토큰)가 그대로 샐 수 있었다.
+    """
+    leaky = f"john.doe raised issue with {SENSITIVE_INPUT}"  # 식별자로 시작하지만 괄호 없음
+    scrubbed = scrub_error_anonymizer({"error": leaky})
+    assert "john.doe" not in scrubbed["error"], "괄호 없는 선두 토큰까지 타입명으로 오인해 반향했다"
+    assert SENSITIVE_INPUT not in scrubbed["error"]
+
+    # 진짜 repr() 형태는 여전히 타입명을 남긴다 — 과도하게 보수적으로 변한 게 아님을 확인.
+    scrubbed_repr = scrub_error_anonymizer({"error": f"ValueError('{SENSITIVE_INPUT}')"})
+    assert "ValueError" in scrubbed_repr["error"]
 
 
 # ── 부팅 가드 — P2 (fail-open 차단) ──────────────────────────────────────────────
@@ -313,6 +331,26 @@ def test_boot_guard_blocks_partial_masking(monkeypatch):
     monkeypatch.delenv("LANGSMITH_HIDE_OUTPUTS", raising=False)
 
     with pytest.raises(RuntimeError, match="LANGSMITH_HIDE_OUTPUTS"):
+        enforce_masked_tracing()
+
+
+def test_boot_guard_blocks_api_key_without_masking_even_when_tracing_off(monkeypatch):
+    """5차 리뷰 P2 회귀 — 부팅 시 트레이싱 OFF라도 API 키가 있으면 HIDE 완전성을 강제한다.
+
+    4차 수정은 anonymizer 선점만 API 키 기준으로 넓히고 fail-closed(RuntimeError)는
+    tracing_is_enabled() 기준으로 좁게 남겨둬서, "부팅 시 트레이싱 OFF + API 키 있음 +
+    HIDE 미설정" 조합에서 마스킹이 안 된 싱글턴이 조용히 고정되는 비대칭이 있었다(리뷰가
+    지적). 이제는 API 키만 있어도 HIDE가 불완전하면 기동을 막는다 — anonymizer가 실려도
+    _hide_inputs/_hide_outputs가 미리 잘못 고정되는 걸 막기 위함.
+    """
+    _clear_tracing_env(monkeypatch)
+    monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "false")  # 부팅 시 트레이싱은 명시적으로 OFF
+    monkeypatch.delenv("LANGSMITH_HIDE_INPUTS", raising=False)
+    monkeypatch.delenv("LANGSMITH_HIDE_OUTPUTS", raising=False)
+
+    assert not ls_utils.tracing_is_enabled(), "이 테스트의 전제(부팅 시 트레이싱 OFF)가 깨졌다"
+    with pytest.raises(RuntimeError, match="LANGSMITH_HIDE"):
         enforce_masked_tracing()
 
 
@@ -455,6 +493,29 @@ def test_boot_guard_installs_error_anonymizer(monkeypatch):
     assert client is not None, "부팅 가드가 싱글턴을 선점 생성하지 않았다"
     assert client._anonymizer is scrub_error_anonymizer, (
         "싱글턴에 error 스크럽이 실리지 않았다 — 예외 경로(P1) 가드가 무효"
+    )
+
+
+def test_boot_guard_forces_anonymizer_onto_preexisting_client(monkeypatch):
+    """5차 리뷰 P2 회귀 — 싱글턴이 anonymizer 없이 이미 존재해도 가드가 강제로 스크럽을 건다.
+
+    `get_cached_client(anonymizer=...)`는 싱글턴이 이미 있으면 kwargs를 조용히 무시한다
+    (langsmith 자체 동작). 보조 진입점이 langsmith를 먼저 건드려 anonymizer 없는 싱글턴을
+    만들어버린 상황을 직접 재현한다 — 가드가 "이미 있으니 통과"하지 않고 명시적으로
+    `_anonymizer`를 재할당하는지 확인한다.
+    """
+    monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
+    monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true")
+    monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "true")
+
+    # 가드보다 먼저 anonymizer 없는 싱글턴이 만들어진 상황을 직접 재현.
+    ls_run_trees._CLIENT = Client(api_key=FAKE_LANGSMITH_KEY)
+    assert ls_run_trees._CLIENT._anonymizer is None, "이 테스트의 전제(anonymizer 없는 선점)가 깨졌다"
+
+    enforce_masked_tracing()
+
+    assert ls_run_trees._CLIENT._anonymizer is scrub_error_anonymizer, (
+        "이미 존재하던 싱글턴에 스크럽을 강제하지 못했다 — 조용한 무방비(P2) 재발"
     )
 
 
