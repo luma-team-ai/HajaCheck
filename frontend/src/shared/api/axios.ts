@@ -2,6 +2,7 @@
 // 백엔드 envelope({ success, data, error })은 인터셉터에서 해제 — 컴포넌트/훅은 data만 다룬다
 import axios from 'axios';
 import { LOGIN_PATH, PLATFORM_ADMIN_LOGIN_PATH, PLATFORM_ADMIN_PATH_PREFIX } from '../constants/authPaths';
+import { useInspectionStore } from '../../features/inspection/store/inspectionStore';
 import type { ApiError, ApiResponse } from './types';
 
 // 세션 탐지용 요청(getMe 등)은 401을 "미로그인"이라는 정상 신호로 받으므로 전역 하드 리다이렉트에서
@@ -52,6 +53,12 @@ api.interceptors.response.use(
     // 이미 로그인 경로면 리다이렉트 스킵 — 로그인 화면 세션체크·로그인 실패 401이 무한 리로드로 이어지는 것 방지
     // redirectTarget이 basename까지 반영된 정확한 경로라 정확 일치로 비교(과매칭 방지 — 예: '/company/login')
     if (status === 401 && !skipAuthRedirect && window.location.pathname !== redirectTarget) {
+      // inspectionStore가 localStorage에 영속화되므로(#1194), 로그인 화면으로 하드 리다이렉트하기
+      // 전에 지워야 한다 — 안 그러면 공용 PC에서 세션 만료된 사용자의 activeInspectionId가
+      // 브라우저에 남아 다음 로그인 사용자의 사이드바 동적 링크에 노출된다(PR머신 리뷰 P1).
+      const { clearActiveInspectionId, clearActiveReportId } = useInspectionStore.getState();
+      clearActiveInspectionId();
+      clearActiveReportId();
       window.location.href = redirectTarget; // 401 일괄 처리
     }
     const apiError: ApiError = {
