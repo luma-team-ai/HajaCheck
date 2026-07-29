@@ -86,6 +86,15 @@ alter type defect_status_type owner to postgres;
 
 comment on type defect_status_type is '결함 조치 상태(탐지됨/확인됨/조치대기/조치중/해결됨)';
 
+-- defect_action_logs.phase 전용(#1193/HAJA-569) — defect_status_type을 재사용하지 않는다. 재사용하면
+-- V22(구 defect_status_type drop → 신규 타입 rename)가 이 테이블의 의존성 때문에 실패한다(위 동결
+-- 주석과 같은 이유로 V22는 수정 대상이 아니다). IN_PROGRESS/RESOLVED 두 라벨만 필요한 독립 타입이다.
+create type defect_action_log_phase_type as enum ('IN_PROGRESS', 'RESOLVED');
+
+alter type defect_action_log_phase_type owner to postgres;
+
+comment on type defect_action_log_phase_type is '조치 등록 이력의 제출 시점 전이 목표(조치중/조치완료)';
+
 create type report_status_type as enum ('DRAFT', 'FINALIZED');
 
 alter type report_status_type owner to postgres;
@@ -982,6 +991,46 @@ alter table defect_revisions
 
 create index idx_defect_revisions_defect
     on defect_revisions (defect_id);
+
+create table defect_action_logs
+(
+    id                 bigint generated always as identity
+        primary key,
+    defect_id          bigint                                 not null
+        references defects,
+    media_id           bigint                                 not null
+        references media,
+    phase              defect_action_log_phase_type           not null,
+    action_content     text                                   not null,
+    action_date        date                                   not null,
+    action_assignee_id bigint                                 not null
+        references users,
+    created_at         timestamp with time zone default now() not null
+);
+
+comment on table defect_action_logs is '조치 등록 제출 이력(append-only, #1193/HAJA-569) — 조치중(IN_PROGRESS) 단계에서 시간차를 두고 여러 번 등록하는 사진/조치내용 이력을 보존한다.';
+
+comment on column defect_action_logs.id is '조치 등록 이력 식별자';
+
+comment on column defect_action_logs.defect_id is '대상 결함 식별자';
+
+comment on column defect_action_logs.media_id is '해당 제출의 조치 사진 미디어 식별자';
+
+comment on column defect_action_logs.phase is '제출 시점의 전이 목표 상태(IN_PROGRESS 또는 RESOLVED)';
+
+comment on column defect_action_logs.action_content is '해당 제출의 조치 내용';
+
+comment on column defect_action_logs.action_date is '해당 제출의 조치일';
+
+comment on column defect_action_logs.action_assignee_id is '해당 제출의 조치 담당자 사용자 식별자';
+
+comment on column defect_action_logs.created_at is '이력 생성 시각';
+
+alter table defect_action_logs
+    owner to postgres;
+
+create index idx_defect_action_logs_defect_phase
+    on defect_action_logs (defect_id, phase);
 
 create table reports
 (
