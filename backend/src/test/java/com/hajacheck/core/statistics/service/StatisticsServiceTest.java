@@ -1,7 +1,6 @@
 package com.hajacheck.core.statistics.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -40,6 +39,7 @@ class StatisticsServiceTest {
 
     private static final Long USER_ID = 10L;
     private static final Long COMPANY_ID = 20L;
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     @Mock
     private CompanyScopeGuard companyScopeGuard;
@@ -59,7 +59,7 @@ class StatisticsServiceTest {
         Inspection inspection = inspection(100L, facility.getId(), YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1));
         when(facilityRepository.findByCompanyId(COMPANY_ID)).thenReturn(List.of(facility));
         when(inspectionRepository.findByFacilityIdInAndInspectionDateGreaterThanEqualAndInspectionDateLessThan(
-                        eq(List.of(facility.getId())), any(LocalDate.class), any(LocalDate.class)))
+                        eq(List.of(facility.getId())), eq(expectedQueryFrom(6)), eq(expectedQueryTo(6))))
                 .thenReturn(List.of(inspection));
         when(defectRepository.countGroupByInspectionId(List.of(inspection.getId()))).thenReturn(List.of(defectCount(100L, 5L)));
         when(defectRepository.countGroupByStatus(List.of(inspection.getId()))).thenReturn(List.of(
@@ -83,7 +83,7 @@ class StatisticsServiceTest {
         Inspection inspection = inspection(100L, facility.getId(), thisMonth.atDay(1));
         when(facilityRepository.findByCompanyId(COMPANY_ID)).thenReturn(List.of(facility));
         when(inspectionRepository.findByFacilityIdInAndInspectionDateGreaterThanEqualAndInspectionDateLessThan(
-                        eq(List.of(facility.getId())), any(LocalDate.class), any(LocalDate.class)))
+                        eq(List.of(facility.getId())), eq(expectedQueryFrom(3)), eq(expectedQueryTo(3))))
                 .thenReturn(List.of(inspection));
         when(defectRepository.countGroupByInspectionId(List.of(inspection.getId()))).thenReturn(List.of(defectCount(100L, 7L)));
 
@@ -102,7 +102,7 @@ class StatisticsServiceTest {
         Inspection inspection = inspection(100L, facility.getId(), YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(2));
         when(facilityRepository.findByCompanyId(COMPANY_ID)).thenReturn(List.of(facility));
         when(inspectionRepository.findByFacilityIdInAndInspectionDateGreaterThanEqualAndInspectionDateLessThan(
-                        eq(List.of(facility.getId())), any(LocalDate.class), any(LocalDate.class)))
+                        eq(List.of(facility.getId())), eq(expectedQueryFrom(6)), eq(expectedQueryTo(6))))
                 .thenReturn(List.of(inspection));
         when(defectRepository.countGroupByInspectionId(List.of(inspection.getId()))).thenReturn(List.of(defectCount(100L, 2L)));
         when(defectRepository.countGroupByInspectionIdAndGrade(List.of(inspection.getId()))).thenReturn(List.of(
@@ -125,7 +125,7 @@ class StatisticsServiceTest {
         Inspection inspection = inspection(100L, facility.getId(), YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1));
         when(facilityRepository.findByCompanyId(COMPANY_ID)).thenReturn(List.of(facility));
         when(inspectionRepository.findByFacilityIdInAndInspectionDateGreaterThanEqualAndInspectionDateLessThan(
-                        eq(List.of(facility.getId())), any(LocalDate.class), any(LocalDate.class)))
+                        eq(List.of(facility.getId())), eq(expectedQueryFrom(6)), eq(expectedQueryTo(6))))
                 .thenReturn(List.of(inspection));
         when(defectRepository.countGroupByType(List.of(inspection.getId()))).thenReturn(List.of(
                 typeCount(DefectType.CRACK, 3L),
@@ -136,6 +136,16 @@ class StatisticsServiceTest {
         assertThat(result).hasSize(1);
         assertThat(result.get(0).type()).isEqualTo("균열");
         assertThat(result.get(0).count()).isEqualTo(3L);
+    }
+
+    private static LocalDate expectedQueryFrom(int months) {
+        YearMonth endMonth = YearMonth.now(KST).plusMonths(1);
+        YearMonth startMonth = endMonth.minusMonths(months);
+        return startMonth.minusMonths(months).atDay(1);
+    }
+
+    private static LocalDate expectedQueryTo(int months) {
+        return YearMonth.now(KST).plusMonths(1).atDay(1);
     }
 
     private static Facility facility(Long id, String type) {
