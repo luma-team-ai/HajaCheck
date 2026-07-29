@@ -375,8 +375,14 @@ export function InspectionCreatePage() {
   // "이어서 하기"(팀 리뷰 반영, 2026-07-28) — 새 회차를 만드는 대신 기존 진행 중 회차로 바로
   // 돌아간다. AI 분석 실행/상태 화면은 어떤 단계(대기·진행 중·완료)든 그 회차 id 하나로 알아서
   // 재구성하므로(rebuildFromDb) stage를 미리 알 필요 없이 /analysis로 보내면 된다.
+  // hasSubmittedRef를 먼저 세우지 않으면 hasDraftInput이 true인 채(폼을 이미 채워둔 상태)라 바로
+  // 아래 navigate가 이 페이지 자신의 useBlocker에 걸려 이탈 확인창이 또 뜨고 이동이 막힌다 —
+  // submitInspection 성공 경로와 동일한 이유(PR머신 리뷰 발견, CI에서 재현).
   const handleResumeExisting = () => {
     if (duplicateActiveRound === null) return;
+    hasSubmittedRef.current = true;
+    clearInspectionCreateDraft();
+    void clearDraftMediaFiles();
     navigate(`/inspections/${duplicateActiveRound.id}/analysis`);
   };
 

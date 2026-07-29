@@ -6,6 +6,7 @@
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { useInspectionStore } from '../../features/inspection/store/inspectionStore';
 
 const server = setupServer(
   http.get('/api/test-401', () =>
@@ -125,6 +126,24 @@ describe('axios 401 인터셉터 — 로그인 경로 가드 (기본 base=/)', (
       await expect(api.get('/test-401')).rejects.toMatchObject({ status: 401 });
     } finally {
       restore();
+    }
+  });
+
+  // PR머신 리뷰 P2(#1194) — inspectionStore가 localStorage에 영속화되면서, 401 하드 리다이렉트 전에
+  // 지우지 않으면 공용 PC에서 세션 만료된 사용자의 activeInspectionId가 다음 로그인 사용자에게 샌다.
+  it('401 하드 리다이렉트 시 inspectionStore(activeInspectionId/activeReportId)를 비운다', async () => {
+    useInspectionStore.getState().setActiveInspectionId(42);
+    useInspectionStore.getState().setActiveReportId(7);
+    const api = await importFreshApi();
+    const { restore } = mockLocation('/dashboard');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(useInspectionStore.getState().activeInspectionId).toBeNull();
+      expect(useInspectionStore.getState().activeReportId).toBeNull();
+    } finally {
+      restore();
+      useInspectionStore.getState().clearActiveInspectionId();
+      useInspectionStore.getState().clearActiveReportId();
     }
   });
 });
