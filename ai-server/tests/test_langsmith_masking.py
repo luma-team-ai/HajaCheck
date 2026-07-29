@@ -321,6 +321,38 @@ def test_scrub_error_anonymizer_rejects_non_repr_format(monkeypatch):
     assert "ValueError" in scrubbed_repr["error"]
 
 
+def test_scrub_error_anonymizer_never_echoes_unknown_identifiers():
+    """8차 리뷰 P3 회귀 고정 — {"error"} 단일 키 오분류로도 미지 토큰이 반향되지 않는다.
+
+    이 anonymizer는 error 래핑만 받는 게 아니라, HIDE가 꺼진 백스톱 경로에서는 run의
+    inputs/outputs dict에도 적용된다. 어떤 run의 inputs가 우연히 정확히
+    `{"error": "<식별자(...)>"}` 형태이면 키 이름만으로는 진짜 예외와 구분할 수 없다 —
+    그래서 타입명 반향은 실존 예외 화이트리스트(빌트인 전체 + 실경로 서드파티 최소 목록)
+    정확 일치일 때만 허용한다. 오분류의 결과는 항상 "고정 문구"(안전 방향)여야 한다.
+    """
+    # ① 리뷰어 제시 케이스 — inputs가 error 키를 가장: 고객사명 등 미지 식별자는 반향 금지.
+    scrubbed = scrub_error_anonymizer({"error": "CustomerCorp(비밀)"})
+    assert "CustomerCorp" not in scrubbed["error"], (
+        "화이트리스트 밖 식별자가 타입명으로 오인·반향됐다 — 백스톱 경로 잔여 유출면(P3)"
+    )
+    assert "비밀" not in scrubbed["error"]
+
+    # ② 점 표기 가장 — 화이트리스트 이름(KeyError)을 접미로 붙여도 정확 일치가 아니면 반향 금지.
+    scrubbed_dotted = scrub_error_anonymizer({"error": "CustomerSecret.KeyError(x)"})
+    assert "CustomerSecret" not in scrubbed_dotted["error"]
+    assert "KeyError" not in scrubbed_dotted["error"]
+
+    # ③ 미등록 커스텀 예외 — 진짜 예외여도 화이트리스트 밖이면 고정 문구(관측성보다 안전 우선).
+    scrubbed_custom = scrub_error_anonymizer({"error": "SomeVendorSpecificFailure('x')"})
+    assert "SomeVendorSpecificFailure" not in scrubbed_custom["error"]
+
+    # ④ 화이트리스트 정상 동작 — 빌트인·명시 등록 서드파티 타입명은 계속 남는다(관측 유지).
+    for name in ("KeyError", "RuntimeError", "OutputParserException", "ValidationError"):
+        kept = scrub_error_anonymizer({"error": f"{name}('{SENSITIVE_INPUT}')"})
+        assert name in kept["error"]
+        assert SENSITIVE_INPUT not in kept["error"]
+
+
 # ── 부팅 가드 — P2 (fail-open 차단) ──────────────────────────────────────────────
 
 
@@ -868,7 +900,9 @@ def _smoke_ocr(fake_llm):
         "ai.chains.business_license_ocr_chain._extract_text_lines",
         return_value=[(SENSITIVE_INPUT, 0.99)],
     ):
-        run_business_license_ocr_chain("aW1nLWJ5dGVz")
+        # _decode_image가 패치되어 인자는 사용되지 않는다 — base64처럼 보이는 리터럴은
+        # 시크릿 스캐너 오탐 후보라 일부러 평문 더미를 쓴다.
+        run_business_license_ocr_chain("unused-image-payload")
 
 
 def _smoke_defect_explain(fake_llm):

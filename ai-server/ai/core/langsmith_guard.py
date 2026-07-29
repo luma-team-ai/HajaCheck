@@ -127,6 +127,7 @@ API 키+트레이싱이 로드돼도 재판정되지 않아, fail-closed 조기 
 """
 from __future__ import annotations
 
+import builtins
 import re
 
 from langsmith import utils as ls_utils
@@ -139,15 +140,43 @@ from langsmith import utils as ls_utils
 # 이전엔 괄호 유무를 안 봐서 순수 메시지의 선두 토큰까지 "타입명"으로 오인해 반향할 수 있었다).
 _EXCEPTION_REPR_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_.]*)\(")
 
+# 타입명 반향 화이트리스트(8차 리뷰 P3) — repr 형태 매칭만으로는 "우연히 {"error": ...} 단일 키
+# 형태인 inputs/outputs"(백스톱 경로)를 진짜 예외와 구분할 수 없다. 예: {"error":
+# "CustomerCorp(비밀)"}이 들어오면 선두 토큰 "CustomerCorp"가 타입명으로 오인·반향된다.
+# 그래서 매칭된 이름이 **실존 예외 타입으로 확인될 때만** 반향한다:
+# - 빌트인 예외 전체(임포트 시점에 builtins에서 기계적으로 수집 — 수동 관리 불필요), 그리고
+# - ai-server 실경로에서 실제로 던져지는 서드파티 예외의 최소 명시 목록.
+# 화이트리스트 밖 이름(미등록 커스텀 예외 포함)은 고정 문구로만 — 관측성이 한 단계 줄지만
+# 유출 방향 오류는 구조적으로 불가능해진다(모르는 토큰은 절대 반향하지 않는다).
+# 정확 일치(exact match)로만 비교한다 — "CustomerSecret.KeyError(...)"처럼 화이트리스트
+# 이름을 접미로 가장한 점 표기 문자열이 앞부분을 반향시키는 우회를 막기 위함.
+_SAFE_EXCEPTION_TYPE_NAMES: frozenset[str] = frozenset(
+    name
+    for name, obj in vars(builtins).items()
+    if isinstance(obj, type) and issubclass(obj, BaseException)
+) | frozenset({
+    "OutputParserException",  # langchain-core — structured output 파싱 실패(가장 흔한 실경로)
+    "ValidationError",        # pydantic — 스키마 검증 실패
+    "HfHubHTTPError",         # huggingface_hub — HF Serverless 호출 실패
+    "RedisError",             # redis — 캐시 경로 실패
+})
+
 
 def scrub_error_anonymizer(data: dict) -> dict:
     """LangSmith Client의 anonymizer 훅 — run의 error 필드에서 내용(메시지·트레이스백)을 제거한다.
 
     `Client._hide_run_error`는 error 문자열을 `{"error": ...}`로 감싸 anonymizer에 넘기고
     반환 dict의 "error" 키를 다시 꺼낸다(langsmith 0.10.10). `repr(error)` 형태(타입명 뒤에
-    괄호가 바로 옴)로 확인되는 경우에만 타입명을 남기고 나머지를 치환한다 — 그 형태가 아니면
-    타입명도 신뢰하지 않고 고정 문구만 돌려준다(무엇이 실패했는지는 가능한 선에서만 추적하되,
-    원문·오인식 위험이 있는 토큰은 절대 전송하지 않는다).
+    괄호가 바로 옴)이고 **그 타입명이 실존 예외 화이트리스트에 있을 때만** 타입명을 남기고
+    나머지를 치환한다 — 둘 중 하나라도 아니면 타입명도 신뢰하지 않고 고정 문구만 돌려준다
+    (무엇이 실패했는지는 가능한 선에서만 추적하되, 원문·오인식 위험이 있는 토큰은 절대
+    전송하지 않는다).
+
+    화이트리스트가 필요한 이유(8차 리뷰 P3): 이 함수는 error 래핑만 받는 게 아니다 — HIDE가
+    꺼진 백스톱 경로에서는 run의 inputs/outputs dict에도 그대로 적용되는데, 호출 문맥이
+    전달되지 않아 "우연히 정확히 {"error": <식별자(...) 꼴 문자열>} 형태인 inputs"를 진짜
+    예외 repr과 키 이름만으로는 구분할 수 없다. 오분류되더라도 화이트리스트 밖 토큰은
+    반향되지 않으므로, 오분류의 결과가 "고정 문구 반환"(안전 방향)으로 수렴한다.
 
     inputs/outputs 경로: HIDE env가 true면 anonymizer보다 먼저 `{}`로 대체되므로 이 함수는
     호출되지 않는다. 혹시 HIDE가 꺼진 채 이 anonymizer만 살아있는 비정상 조합이 되면 전부
@@ -156,7 +185,7 @@ def scrub_error_anonymizer(data: dict) -> dict:
     if set(data.keys()) == {"error"}:
         error = data["error"]
         match = _EXCEPTION_REPR_RE.match(str(error) if error is not None else "")
-        if match:
+        if match and match.group(1) in _SAFE_EXCEPTION_TYPE_NAMES:
             return {"error": f"{match.group(1)}(...) [메시지·트레이스백 마스킹 — #1240]"}
         return {"error": "[예외 발생 — 내용 마스킹 #1240]"}
     return {}
