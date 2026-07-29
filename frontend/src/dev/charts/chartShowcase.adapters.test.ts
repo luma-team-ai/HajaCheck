@@ -40,7 +40,7 @@ describe('chartShowcase adapters', () => {
     expect(result).toEqual([
       { status: '분석중', count: 1 },
       { status: '검수대기', count: 1 },
-      { status: '조치대기', count: 1 },
+      { status: '검수확정', count: 1 },
       { status: '완료', count: 3 },
     ]);
   });
