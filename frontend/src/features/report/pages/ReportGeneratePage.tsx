@@ -427,8 +427,12 @@ export function ReportGeneratePage() {
 
       {/* grounding 검증 실패 상태 — 통과 완료 표시는 상단 단계/확정 버튼 상태로만 드러낸다. */}
       {report.groundingCheckPassed === false && (
-        <div className="rounded-lg bg-warning-soft-bg p-3 text-sm text-warning-soft-fg">
-          ⚠ 검증 실패 — 내용을 확인 후 다시 검증하세요.
+        <div className="flex items-center gap-3 rounded-lg border border-warning-soft-border bg-warning-soft-bg p-4 text-warning-soft-fg text-sm">
+          <svg className="h-5 w-5 shrink-0 text-warning-soft-fg" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M10 2.4 18 17H2L10 2.4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+            <path d="M10 7v4.2M10 14.2v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+          <span className="font-medium">검증 실패 — 내용을 확인 후 다시 검증하세요.</span>
         </div>
       )}
 
