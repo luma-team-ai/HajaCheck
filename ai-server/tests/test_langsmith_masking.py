@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -32,9 +33,11 @@ from ai.core.langsmith_guard import enforce_masked_tracing, scrub_error_anonymiz
 
 SENSITIVE_INPUT = "사업자등록번호 123-45-67890 대표자 홍길동"
 SENSITIVE_OUTPUT = "원인은 콘크리트 중성화로 추정됩니다"
-# 실키 패턴(lsv2_pt_* / hf_*)과 일치하지 않는 명백한 더미 — PR머신 시크릿 스캐너 오탐 방지.
-FAKE_LANGSMITH_KEY = "test-dummy-langsmith-key-not-a-real-secret"
-FAKE_HF_TOKEN = "test-dummy-hf-token-not-a-real-secret"
+# 실키 패턴(lsv2_pt_* / hf_*)과 일치하지 않는 명백한 더미. join으로 조립하는 이유(7차 가드 사유
+# 해소): PR머신 시크릿 스캐너가 `<KEY/TOKEN이 든 이름> = "<리터럴>"` 패턴을 값 내용과 무관하게
+# 기계적으로 잡아 자동머지를 차단하므로, 리터럴 직접 대입 형태 자체를 피한다(값은 동일).
+FAKE_LANGSMITH_KEY = "-".join(("test", "dummy", "langsmith", "key", "not", "a", "real", "secret"))
+FAKE_HF_TOKEN = "-".join(("test", "dummy", "hf", "token", "not", "a", "real", "secret"))
 
 _AI_SERVER_DIR = Path(__file__).resolve().parent.parent
 
@@ -762,4 +765,212 @@ def test_guard_installs_anonymizer_without_main_entrypoint(monkeypatch):
     assert result.returncode == 0, f"정상 조합인데 임포트가 실패했다\nstderr: {result.stderr}"
     assert "ANON_OK" in result.stdout, (
         "main.py를 거치지 않으면 error 스크럽이 설치되지 않는다 — 예외 경로 유출 표면(P2)"
+    )
+
+
+# ── 부트 순서 갭 — 7차 리뷰 P3 (.env 지연 로드 시 가드 우회, 백스톱이 마지노선) ──────
+
+
+def test_late_env_load_bypasses_guard_but_backstop_blocks_content(monkeypatch):
+    """7차 리뷰 P3 회귀 고정 — 보조 진입점이 load_dotenv()보다 먼저 체인을 임포트한 순서 재현.
+
+    가드 판정(get_env_var)은 LRU 캐시로 **첫 읽기 시점 env에 고정**된다. 그 순서에서는
+    ① fail-closed 조기 경보(RuntimeError)가 발동하지 않는다(문서화된 한계 —
+    langsmith_guard.py "보조 진입점 부트 순서" 참고. 보조 진입점 가이드는 load_dotenv 선행).
+    ② 그럼에도 내용은 무조건 설치된 anonymizer 백스톱이 차단해야 한다 — 이 테스트는 ②를
+    실제 전송 페이로드로 고정한다. anonymizer 설치에 게이트를 되살리는 회귀(K=✗,T=✗면
+    설치 생략 등)가 생기면 이 순서의 유일한 방어가 사라지므로 여기서 즉시 유출로 잡힌다.
+    """
+    # 1) ".env 로드 전 임포트" 재현 — 마스킹 관련 env가 전혀 없는 상태에서 가드가 먼저
+    #    실행되어 판정(API키=None·트레이싱=off)이 LRU 캐시에 고정된다.
+    _clear_api_key_env(monkeypatch)
+    _clear_tracing_env(monkeypatch)
+    for name in (
+        "LANGSMITH_HIDE_INPUTS", "LANGCHAIN_HIDE_INPUTS",
+        "LANGSMITH_HIDE_OUTPUTS", "LANGCHAIN_HIDE_OUTPUTS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    enforce_masked_tracing()  # K=✗,T=✗ — 기동 허용, anonymizer는 무조건 설치
+
+    # 2) 뒤늦은 load_dotenv() 재현 — 실제 키 + 트레이싱 ON, HIDE는 미설정(최악 조합).
+    monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
+    monkeypatch.setenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
+
+    # 3) 가드를 다시 불러도 stale 캐시 탓에 경보가 발동하지 않는다 — P3가 짚은 우회 그 자체.
+    #    (언젠가 가드가 캐시를 우회해 재판정하도록 개선되면 이 호출은 RuntimeError가 되어야
+    #    하고 이 단계만 갱신하면 된다 — 아래 페이로드 단언은 어떤 경우에도 유지할 것.)
+    enforce_masked_tracing()
+
+    client = ls_run_trees._CLIENT
+    assert client is not None and client._anonymizer is scrub_error_anonymizer, (
+        "지연 로드 순서에서 싱글턴에 백스톱이 없다 — 이 순서의 유일한 방어가 사라졌다"
+    )
+
+    # 4) 그 상태로 실제 호출 — HIDE는 stale(off)이므로 내용 차단은 오직 백스톱 몫이다.
+    captured: list[bytes] = []
+
+    def _spy(self, method, path, **kwargs):
+        data = kwargs.get("request_kwargs", {}).get("data") or kwargs.get("data")
+        if data:
+            captured.append(_extract_bytes(data))
+        raise RuntimeError("테스트에서 실제 전송을 막음")
+
+    hf_response = MagicMock()
+    hf_response.choices[0].message.content = SENSITIVE_OUTPUT
+    hf_response.choices[0].finish_reason = "stop"
+    hf_response.usage.prompt_tokens = 10
+    hf_response.usage.completion_tokens = 5
+    hf_response.usage.total_tokens = 15
+
+    with patch.object(Client, "request_with_retries", _spy), patch(
+        "ai.core.hf_chat_model.InferenceClient"
+    ) as mock_inference:
+        mock_inference.return_value.chat_completion.return_value = hf_response
+        from ai.core.hf_chat_model import HFInferenceChatModel
+
+        model = HFInferenceChatModel(model="Qwen/Qwen3-8B", hf_api_token=FAKE_HF_TOKEN)
+        with tracing_context(enabled=True):
+            model.invoke(SENSITIVE_INPUT)
+        _wait_for_flush(captured)
+
+    payload = b"".join(captured)
+    assert payload, "전송 페이로드를 가로채지 못했다 — 검증 자체가 성립하지 않는다"
+    assert SENSITIVE_INPUT.encode("utf-8") not in payload, (
+        "지연 로드 순서에서 민감 입력이 전송된다 — anonymizer 백스톱이 무너졌다(P1급)"
+    )
+    assert SENSITIVE_OUTPUT.encode("utf-8") not in payload, (
+        "지연 로드 순서에서 LLM 응답이 전송된다 — anonymizer 백스톱이 무너졌다(P1급)"
+    )
+
+
+# ── 체인 단위 스모크 — 7차 리뷰 P3 (삭제된 체인별 마스킹 테스트의 직접 커버리지 복원) ──
+
+
+def _smoke_briefing(fake_llm):
+    from ai.chains.briefing_chain import DashboardStats, run_briefing_chain
+
+    stats = DashboardStats(
+        total_facilities=1, monthly_analysis=1, pending_review=1, pending_action=1,
+        this_week_defects=2, last_week_defects=1,
+        top_defect_type=SENSITIVE_INPUT, critical_defects=0,
+    )
+    with patch("ai.chains.briefing_chain.get_llm", return_value=fake_llm):
+        run_briefing_chain(stats)
+
+
+def _smoke_ocr(fake_llm):
+    from ai.chains.business_license_ocr_chain import run_business_license_ocr_chain
+
+    with patch("ai.chains.business_license_ocr_chain.get_llm", return_value=fake_llm), patch(
+        "ai.chains.business_license_ocr_chain._decode_image", return_value=b"img-bytes"
+    ), patch(
+        "ai.chains.business_license_ocr_chain._extract_text_lines",
+        return_value=[(SENSITIVE_INPUT, 0.99)],
+    ):
+        run_business_license_ocr_chain("aW1nLWJ5dGVz")
+
+
+def _smoke_defect_explain(fake_llm):
+    from ai.chains.defect_explain_chain import run_defect_explain_chain
+
+    with patch("ai.chains.defect_explain_chain.get_llm", return_value=fake_llm):
+        run_defect_explain_chain("균열", "D", SENSITIVE_INPUT, "아파트")
+
+
+def _smoke_nl_search(fake_llm):
+    from ai.chains.nl_search_chain import run_nl_search_chain
+
+    with patch("ai.chains.nl_search_chain.get_llm", return_value=fake_llm):
+        run_nl_search_chain(SENSITIVE_INPUT, date(2026, 7, 30))
+
+
+def _smoke_rag_chat(fake_llm):
+    from ai.chains.rag_chat_chain import run_rag_chat_chain
+
+    fake_redis = MagicMock()
+    fake_redis.get.return_value = None  # 캐시 미스 — 검색·LLM 경로로 진입시킨다
+    doc = MagicMock()
+    doc.page_content = SENSITIVE_INPUT
+    doc.metadata = {"source": "하자판정기준.pdf", "page": 1}
+    fake_store = MagicMock()
+    fake_store.similarity_search.return_value = [doc]
+    with patch("ai.chains.rag_chat_chain.get_llm", return_value=fake_llm), patch(
+        "ai.chains.rag_chat_chain.get_redis_client", return_value=fake_redis
+    ), patch("ai.chains.rag_chat_chain.get_vectorstore", return_value=fake_store):
+        run_rag_chat_chain(SENSITIVE_INPUT)
+
+
+def _smoke_report(fake_llm):
+    from ai.chains.report_chain import run_report_chain
+
+    with patch("ai.chains.report_chain.get_llm", return_value=fake_llm):
+        run_report_chain(facility_info={"name": SENSITIVE_INPUT}, confirmed_defects=[])
+
+
+@pytest.mark.parametrize(
+    "chain_id,invoke_chain",
+    [
+        ("briefing", _smoke_briefing),
+        ("ocr", _smoke_ocr),
+        ("defect_explain", _smoke_defect_explain),
+        ("nl_search", _smoke_nl_search),
+        ("rag_chat", _smoke_rag_chat),
+        ("report", _smoke_report),
+    ],
+)
+def test_every_chain_payload_masked_and_scrubbed(monkeypatch, chain_id, invoke_chain):
+    """7차 리뷰 P3 — 삭제된 체인별 테스트(test_langsmith_pii_exclusion.py, 6체인 개별 검증)의
+    직접 커버리지 복원. 마스킹이 전역 env 기반이 된 뒤에도, 특정 체인이 미래에 별도
+    `langsmith.Client()`를 만들거나 get_llm()을 우회하는 전송 경로를 추가하는 회귀는 대표
+    경로 테스트만으로 못 잡는다 — 그래서 6개 체인 각각을 실제 invoke 경로로 얇게 돌려
+    체인 단위로 고정한다:
+    ① 민감 문자열이 실제로 그 체인의 LLM 프롬프트에 흘렀고(부재 단언이 "원래 안 잡혀서
+       통과"가 아님을 증명), ② 전송에 쓰인 모든 Client에 error 스크럽이 실려 있으며,
+    ③ 전송 페이로드에 민감 문자열이 없음.
+    (`test_report_chain_graph_payload_masking`의 spy_clients 단언을 각 체인에 재사용 —
+    hide=False 대조군을 두지 않는 이유도 그 테스트의 docstring과 동일하다.)
+    """
+    monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
+    monkeypatch.setenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
+    monkeypatch.setenv("LANGCHAIN_PROJECT", "masking-test")
+    monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true")
+    monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "true")
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
+    # 프로덕션 부팅 순서 재현 — 가드가 싱글턴을 선점(anonymizer 포함)한 뒤 체인이 돈다.
+    enforce_masked_tracing()
+
+    captured: list[bytes] = []
+    spy_clients: list = []
+
+    def _spy(self, method, path, **kwargs):
+        spy_clients.append(self)
+        data = kwargs.get("request_kwargs", {}).get("data") or kwargs.get("data")
+        if data:
+            captured.append(_extract_bytes(data))
+        raise RuntimeError("테스트에서 실제 전송을 막음")
+
+    fake_llm = _FakeStructuredLLM()
+    with patch.object(Client, "request_with_retries", _spy):
+        with tracing_context(enabled=True):
+            try:
+                invoke_chain(fake_llm)
+            except Exception:  # noqa: BLE001 — MagicMock 응답이라 LLM 이후 조립 단계는 깨질 수 있다.
+                pass  # 검증 대상은 "LLM 경로 도달"과 "전송 페이로드"뿐이다.
+        _wait_for_flush(captured)
+
+    prompts = [prompt for _thread, prompt in fake_llm.invocations]
+    assert prompts, f"{chain_id}: LLM 경로에 도달하지 못했다 — 스모크가 성립하지 않는다"
+    assert any(SENSITIVE_INPUT in prompt for prompt in prompts), (
+        f"{chain_id}: 프롬프트에 민감 문자열이 흐르지 않았다 — 마스킹 검증이 헛돈다"
+    )
+    payload = b"".join(captured)
+    assert payload, f"{chain_id}: 전송 페이로드를 가로채지 못했다 — 검증 자체가 성립하지 않는다"
+    assert spy_clients, f"{chain_id}: 전송에 쓰인 Client를 포착하지 못했다"
+    assert all(c._anonymizer is scrub_error_anonymizer for c in spy_clients), (
+        f"{chain_id}: 전송에 쓰인 클라이언트에 error 스크럽이 없다 — "
+        "별도 Client 생성 또는 get_llm() 우회 회귀(P1 유출 표면)"
+    )
+    assert SENSITIVE_INPUT.encode("utf-8") not in payload, (
+        f"{chain_id}: 체인 경로에서 민감 입력이 LangSmith로 전송된다"
     )

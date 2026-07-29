@@ -112,6 +112,18 @@ test_langsmith_masking.py 픽스처 docstring 참고).
 
 호출 시점: `main.py`의 `load_dotenv()` 직후, 라우터 임포트 전. 워커 프로세스마다 모듈 로드
 시 1회 실행되면 충분하다.
+
+## 보조 진입점 부트 순서 — load_dotenv()는 항상 체인 임포트보다 먼저 (7차 리뷰 P3)
+
+위 LRU 캐시 고정의 따름정리: 배치 스크립트·노트북 같은 보조 진입점이 `import ai.chains.xxx`
+(→ llm_client 임포트 → 임포트 시점 가드 실행)를 **load_dotenv()보다 먼저** 하면, 가드는
+아직 비어 있는 env(API키=None·트레이싱=off)로 판정을 캐시에 고정한다 — 이후 뒤늦게 실제
+API 키+트레이싱이 로드돼도 재판정되지 않아, fail-closed 조기 경보(RuntimeError)가 그
+순서에서는 발동하지 않는다. 내용 자체는 무조건 설치된 anonymizer 백스톱이 계속 차단하므로
+유출로는 이어지지 않지만(`test_late_env_load_bypasses_guard_but_backstop_blocks_content`로
+페이로드 고정), 경보 없이 백스톱만으로 버티는 비정상 상태가 되므로 **보조 진입점은 반드시
+어떤 체인·llm_client 임포트보다 먼저 load_dotenv()를 호출한다** — main.py가 지키는 순서와
+동일하게.
 """
 from __future__ import annotations
 
@@ -173,11 +185,28 @@ def enforce_masked_tracing() -> None:
       전송이 실제로 가능한 조건에서 마스킹이 불완전하면 기동을 중단한다(fail-closed).
       둘 다 없으면 강제하지 않는다 — 아무것도 설정 안 한 개발·테스트 프로세스까지 HIDE
       설정을 요구하면 과잉이고, 그 경우의 잔여 위험은 아래 무조건 설치가 흡수한다.
+
+      ⚠️ 이 abort는 아래 anonymizer 백스톱과 **의도적 중복**이다(7차 리뷰 P3 확정 —
+      제거·완화 리팩터링 금지). 내용 유출만 보면 K=✓,T=✗,H=✗ 조합에서도 백스톱이
+      inputs/outputs를 `{}`로 이미 차단하므로 abort의 추가 이득이 없어 보이지만, abort의
+      목적은 유출 차단이 아니라 **HIDE 오설정의 조기 노출**이다: 백스톱만 믿고 조용히
+      기동하면 운영자는 마스킹 env가 깨진 줄 모른 채 운영을 계속하게 되는데, 백스톱은
+      최후의 안전망이지 정상 운영 상태가 아니다(구조 정보까지 전부 `{}`가 되어 트레이싱
+      도입 목적 자체가 무너진 상태). LANGCHAIN_API_KEY만 export된 개발·CI에서 무관한
+      임포트가 실패하는 파급은 "그 env가 오설정"이라는 신호 그 자체이므로 수용한다.
     - **anonymizer 선점 설치**: 조건 없음, 항상. 조건식을 두면 HIDE 강제 조건과 갈라지는
       조합이 반드시 생긴다는 것이 4~6차 리뷰의 교훈이다(6차 리뷰 P1 — 모듈 docstring
       "비대칭의 뿌리 제거" 참고). API 키 없이도 Client 생성·전송 시도가 모두 가능함을
       실측으로 확인했고, 우리 anonymizer는 inputs/outputs에 `{}`를 돌려주는 전 필드
       백스톱이라 어떤 상태에서 설치돼도 마스킹 방향으로만 작동한다.
+
+      K=✗,T=✗(전송 불가로 보이는 순수 로컬·CI 프로세스)에서도 설치하는 이유(7차 리뷰
+      P3 확정 — 게이트 추가 금지): ① 여기에 조건식을 되살리는 순간 위 HIDE 강제 조건과
+      갈라지는 조합이 다시 생긴다(4~6차 두더지잡기의 구조적 교훈). ② "부팅 시 전송 불가"
+      판정은 get_env_var LRU 캐시에 고정된 **그 순간의 env**일 뿐이다 — 보조 진입점이
+      체인 임포트 후 뒤늦게 .env를 로드하면(모듈 docstring "보조 진입점 부트 순서" 참고)
+      같은 프로세스가 나중에 전송 가능 상태가 되고, 그때 유일한 방어가 이미 실려 있는
+      이 백스톱이다. ③ 비용은 Client 객체 1개 + "API 키 없음" 경고 로그 1줄로 경미하다.
     """
     api_key_configured = ls_utils.get_env_var("API_KEY", default=None) is not None
     # 부팅 시점엔 활성 run tree·컨텍스트 오버라이드가 없으므로 순수 env 판정이다.
