@@ -86,16 +86,51 @@ export function DetailSection({
     setPage(0);
   };
 
+  const getGradeCount = (g: GradeFilter) => {
+    if (g === 'ALL') return items.length;
+    return items.filter((item) => item.severity_grade === g).length;
+  };
+
+  const GRADE_DOT_COLOR: Record<string, string> = {
+    A: 'bg-green-600',
+    B: 'bg-lime-600',
+    C: 'bg-yellow-500',
+    D: 'bg-orange-500',
+    E: 'bg-red-600',
+  };
+
   return (
     <section className="flex flex-col gap-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-medium leading-7 text-heading">상세 내역</h2>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs font-medium tracking-wide text-text-default">등급:</span>
-          <div className="flex flex-wrap items-center gap-1" role="group" aria-label="등급 필터">
+        <div className="inline-flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xs font-medium tracking-wide text-zinc-700">등급:</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="등급 필터">
             {visibleGradeFilters.map((filterGrade) => {
               const isSelected = grade === filterGrade;
-              const badgeStyle = filterGrade !== 'ALL' ? GRADE_BADGE_STYLE[filterGrade] : null;
+              const count = getGradeCount(filterGrade);
+              const dotColor = GRADE_DOT_COLOR[filterGrade];
+
+              if (filterGrade === 'ALL') {
+                return (
+                  <button
+                    key="ALL"
+                    type="button"
+                    onClick={() => selectFilter('ALL')}
+                    aria-pressed={isSelected}
+                    className={`inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-black text-white'
+                        : 'bg-neutral-50 border border-zinc-200 text-zinc-900 hover:bg-zinc-100'
+                    }`}
+                  >
+                    전체 ({count})
+                  </button>
+                );
+              }
 
               return (
                 <button
@@ -103,49 +138,47 @@ export function DetailSection({
                   type="button"
                   onClick={() => selectFilter(filterGrade)}
                   aria-pressed={isSelected}
-                  className={`inline-flex min-w-8 items-center justify-center rounded-full px-3 py-1 text-xs font-bold transition ${
+                  className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition cursor-pointer border ${
                     isSelected
-                      ? 'ring-2 ring-primary/40 shadow-xs scale-105'
-                      : 'opacity-70 hover:opacity-100'
-                  } ${
-                    filterGrade === 'ALL'
-                      ? isSelected
-                        ? 'bg-primary text-surface'
-                        : 'border border-border bg-surface text-heading hover:bg-surface-muted'
-                      : ''
+                      ? 'bg-black text-white border-black'
+                      : 'bg-neutral-50 text-zinc-900 border-zinc-200 hover:bg-zinc-100'
                   }`}
-                  style={
-                    badgeStyle
-                      ? { backgroundColor: badgeStyle.bg, color: badgeStyle.text }
-                      : undefined
-                  }
                 >
-                  {filterGrade === 'ALL' ? '전체' : filterGrade}
+                  <span className={`size-2 rounded-full shrink-0 ${dotColor}`} />
+                  <span>
+                    {filterGrade} ({count})
+                  </span>
                 </button>
               );
             })}
           </div>
-          <div className="ml-1 flex items-center gap-2 text-xs text-text-muted">
+
+          <div className="ml-1 flex items-center gap-1">
             <button
               type="button"
               onClick={() => setPage((current) => Math.max(0, current - 1))}
               disabled={safePage === 0}
               aria-label="이전 페이지"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border bg-surface text-text-default disabled:opacity-35"
+              className="size-8 rounded-full border border-zinc-200 flex justify-center items-center text-zinc-700 disabled:opacity-35 hover:bg-zinc-100 transition cursor-pointer"
             >
-              ‹
+              <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m15 18-6-6 6-6"/>
+              </svg>
             </button>
-            <span aria-live="polite">
-              <strong className="text-heading">{safePage + 1}</strong> / {totalPages}
-            </span>
+            <div className="px-2 flex items-center gap-1 text-xs" aria-live="polite">
+              <span className="font-bold text-zinc-900">{safePage + 1}</span>
+              <span className="text-zinc-500 font-normal">/ {totalPages}</span>
+            </div>
             <button
               type="button"
               onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))}
               disabled={safePage === totalPages - 1}
               aria-label="다음 페이지"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border bg-surface text-text-default disabled:opacity-35"
+              className="size-8 rounded-full border border-zinc-200 flex justify-center items-center text-zinc-700 disabled:opacity-35 hover:bg-zinc-100 transition cursor-pointer"
             >
-              ›
+              <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m9 18 6-6-6-6"/>
+              </svg>
             </button>
           </div>
         </div>

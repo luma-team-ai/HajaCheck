@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -591,7 +591,7 @@ describe('ReportGeneratePage', () => {
     const filterGroup = screen.getByRole('group', { name: '등급 필터' });
     expect(filterGroup).toBeTruthy();
     for (const g of ['전체', 'A', 'B', 'C', 'D', 'E']) {
-      expect(screen.getByRole('button', { name: g })).toBeTruthy();
+      expect(within(filterGroup).getByRole('button', { name: new RegExp(`^${g}`) })).toBeTruthy();
     }
   });
 
@@ -600,7 +600,10 @@ describe('ReportGeneratePage', () => {
     await screen.findByText('보고서 생성 결과');
     expect(screen.getByRole('button', { name: '이전 페이지' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '다음 페이지' })).toBeTruthy();
-    expect(screen.getByText((_, node) => node?.textContent === '1 / 1')).toBeTruthy();
+    const detailSection = screen.getByRole('heading', { name: '상세 내역' }).closest('section');
+    expect(detailSection).toBeTruthy();
+    expect(within(detailSection!).getByText('1', { selector: 'span.font-bold' })).toBeTruthy();
+    expect(within(detailSection!).getByText('/ 1', { selector: 'span.text-zinc-500' })).toBeTruthy();
   });
 
   it('조치 권고에 시급성 pill과 DEFECT badge가 렌더링된다', async () => {
