@@ -295,13 +295,15 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     });
 
     expect(
-      await screen.findByText('이미 진행 중인 2회차가 있습니다.', { exact: false }),
+      await screen.findByText('이미 진행 중인 2회차가 있습니다. 이어서 진행하시겠습니까, 새 회차를 만드시겠습니까?'),
     ).not.toBeNull();
     expect(createCallCount).toBe(0);
 
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
     await waitFor(() =>
-      expect(screen.queryByText('이미 진행 중인 2회차가 있습니다.', { exact: false })).toBeNull(),
+      expect(
+        screen.queryByText('이미 진행 중인 2회차가 있습니다. 이어서 진행하시겠습니까, 새 회차를 만드시겠습니까?'),
+      ).toBeNull(),
     );
     expect(createCallCount).toBe(0);
     // 취소 후에도 계속 편집 가능해야 한다(회차를 만들지 않았으므로 잠기지 않음)
@@ -342,7 +344,7 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
     });
-    await screen.findByText('이미 진행 중인 2회차가 있습니다.', { exact: false });
+    await screen.findByText('이미 진행 중인 2회차가 있습니다. 이어서 진행하시겠습니까, 새 회차를 만드시겠습니까?');
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '계속 생성' }));
@@ -377,7 +379,7 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
     });
-    await screen.findByText('이미 진행 중인 2회차가 있습니다.', { exact: false });
+    await screen.findByText('이미 진행 중인 2회차가 있습니다. 이어서 진행하시겠습니까, 새 회차를 만드시겠습니까?');
 
     fireEvent.click(screen.getByRole('button', { name: '이어서 하기' }));
 
