@@ -4,6 +4,7 @@ import { ReadOnlyConversationPanel } from '../components/ReadOnlyConversationPan
 import { AdminCounselInfoPanel } from '../components/AdminCounselInfoPanel';
 import { useAdminCounselTicketsByDate } from '../hooks/useAdminCounselTicketsByDate';
 import { useAdminCounselTranscript } from '../hooks/useAdminCounselTranscript';
+import { useAdminCounselHistoryTranscript } from '../hooks/useAdminCounselHistoryTranscript';
 import { getApiErrorMessage } from '../../../shared/api/types';
 import type { CounselTicketSummaryResponse } from '../types';
 
@@ -26,6 +27,9 @@ export function PlatformAdminCounselsPage() {
   const [date, setDate] = useState(todayDateString());
   const [page, setPage] = useState(0);
   const [selectedTicket, setSelectedTicket] = useState<CounselTicketSummaryResponse | null>(null);
+  // 우측 정보 패널 "이력" 탭에서 고른 과거 상담 — null이면 selectedTicket(오늘 티켓)의 대화를,
+  // 값이 있으면 이 과거 티켓의 대화를 중앙 패널에 보여준다(좌측 선택 상태는 그대로 유지, 사용자 요청).
+  const [historyTicket, setHistoryTicket] = useState<CounselTicketSummaryResponse | null>(null);
 
   const { data, isLoading, isError, error } = useAdminCounselTicketsByDate(date, page, DEFAULT_PAGE_SIZE);
   const tickets = data?.content ?? [];
@@ -37,14 +41,25 @@ export function PlatformAdminCounselsPage() {
     error: messagesError,
   } = useAdminCounselTranscript(selectedTicket?.id ?? null);
 
+  const {
+    data: historyMessages,
+    isLoading: isHistoryMessagesLoading,
+    isError: isHistoryMessagesError,
+    error: historyMessagesError,
+  } = useAdminCounselHistoryTranscript(selectedTicket?.id ?? null, historyTicket?.id ?? null);
+
+  const isHistoryView = historyTicket !== null;
+
   function handleDateChange(nextDate: string) {
     setDate(nextDate);
     setPage(0);
     setSelectedTicket(null);
+    setHistoryTicket(null);
   }
 
   function handleSelect(ticket: CounselTicketSummaryResponse) {
     setSelectedTicket(ticket);
+    setHistoryTicket(null);
   }
 
   return (
@@ -60,13 +75,32 @@ export function PlatformAdminCounselsPage() {
           selectedTicketId={selectedTicket?.id ?? null}
           onSelect={handleSelect}
         />
-        <ReadOnlyConversationPanel
+        {isHistoryView ? (
+          <ReadOnlyConversationPanel
+            ticket={historyTicket}
+            messages={historyMessages ?? []}
+            loading={isHistoryMessagesLoading}
+            error={
+              isHistoryMessagesError
+                ? getApiErrorMessage(historyMessagesError, '대화 내용을 불러오지 못했습니다.')
+                : null
+            }
+            isHistoryView
+            onBackFromHistory={() => setHistoryTicket(null)}
+          />
+        ) : (
+          <ReadOnlyConversationPanel
+            ticket={selectedTicket}
+            messages={messages ?? []}
+            loading={isMessagesLoading}
+            error={isMessagesError ? getApiErrorMessage(messagesError, '대화 내용을 불러오지 못했습니다.') : null}
+          />
+        )}
+        <AdminCounselInfoPanel
           ticket={selectedTicket}
-          messages={messages ?? []}
-          loading={isMessagesLoading}
-          error={isMessagesError ? getApiErrorMessage(messagesError, '대화 내용을 불러오지 못했습니다.') : null}
+          selectedHistoryTicketId={historyTicket?.id ?? null}
+          onSelectHistory={setHistoryTicket}
         />
-        <AdminCounselInfoPanel ticket={selectedTicket} />
       </div>
     </div>
   );

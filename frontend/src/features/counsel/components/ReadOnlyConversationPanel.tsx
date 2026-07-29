@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import backIcon from '../../../assets/brand/sidenav-chevron.svg';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { MessageBubble } from './ConversationPanel';
 import type { ChatMessageResponse, CounselTicketSummaryResponse } from '../types';
@@ -17,13 +18,25 @@ type Props = {
   messages: ChatMessageResponse[];
   loading: boolean;
   error: string | null;
+  // 우측 정보 패널의 "이력" 탭에서 과거 상담을 골랐을 때(사용자 요청) — 좌측 "오늘 티켓" 선택은
+  // 그대로 두고 이 중앙 패널만 과거 대화로 바꿔 보여준다. 배너로 어느 상담을 보고 있는지 알리고,
+  // 뒤로가기로 원래 선택된(오늘) 티켓 대화로 복귀한다.
+  isHistoryView?: boolean;
+  onBackFromHistory?: () => void;
 };
 
 // 플랫폼 관리자 상담 관리(#1168) — 중앙 대화 트랜스크립트 패널. ConversationPanel과 달리 읽기
 // 전용이라 입력창(ChatInputBox)·타이핑 인디케이터·연결/종료 버튼이 전혀 없다(회귀 방지 핵심 —
 // ReadOnlyConversationPanel.test.tsx에서 이 미렌더를 고정한다). MessageBubble만 재사용해 메시지
 // 목록을 그대로 보여준다.
-export function ReadOnlyConversationPanel({ ticket, messages, loading, error }: Props) {
+export function ReadOnlyConversationPanel({
+  ticket,
+  messages,
+  loading,
+  error,
+  isHistoryView = false,
+  onBackFromHistory,
+}: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -40,6 +53,19 @@ export function ReadOnlyConversationPanel({ ticket, messages, loading, error }: 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {isHistoryView && (
+        <div className="flex items-center gap-2 border-b border-border bg-point/5 px-6 py-2">
+          <button
+            type="button"
+            onClick={onBackFromHistory}
+            className="flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-point hover:bg-white"
+          >
+            <img src={backIcon} alt="" className="size-3 rotate-90" aria-hidden="true" />
+            현재 상담으로 돌아가기
+          </button>
+          <span className="text-xs text-text-muted">과거 상담 이력을 보고 있습니다</span>
+        </div>
+      )}
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <div className="flex items-center gap-2">
           <h1 className="m-0 text-lg font-semibold text-primary">{ticket.title}</h1>

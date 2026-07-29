@@ -3,7 +3,7 @@
 // 정보 탭의 고객 프로필/담당 상담원 노출과, 이력 탭 드릴다운(목록 → 대화 → 목록으로) 플로우를 검증한다.
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { counselHandlers } from '../api/counselApi.handlers';
 import type { CounselTicketSummaryResponse } from '../types';
 import { AdminCounselInfoPanel } from './AdminCounselInfoPanel';
@@ -36,7 +36,9 @@ const ticket: CounselTicketSummaryResponse = {
 
 describe('AdminCounselInfoPanel', () => {
   it('정보 탭에서 고객 프로필과 담당 상담원을 보여준다', () => {
-    render(<AdminCounselInfoPanel ticket={ticket} />);
+    render(
+      <AdminCounselInfoPanel ticket={ticket} selectedHistoryTicketId={null} onSelectHistory={() => {}} />,
+    );
 
     expect(screen.getByText('박고객')).toBeTruthy();
     expect(screen.getByText('customer300@example.com')).toBeTruthy();
@@ -44,8 +46,15 @@ describe('AdminCounselInfoPanel', () => {
     expect(screen.getByText('김상담')).toBeTruthy();
   });
 
-  it('이력 탭 클릭 시 과거 상담 목록을 불러오고, 항목 클릭 시 대화 상세로 드릴다운한다', async () => {
-    render(<AdminCounselInfoPanel ticket={ticket} />);
+  it('이력 탭 클릭 시 과거 상담 목록을 불러오고, 항목 클릭 시 onSelectHistory로 위임한다', async () => {
+    const handleSelectHistory = vi.fn();
+    render(
+      <AdminCounselInfoPanel
+        ticket={ticket}
+        selectedHistoryTicketId={null}
+        onSelectHistory={handleSelectHistory}
+      />,
+    );
 
     fireEvent.click(screen.getByRole('button', { name: '이력' }));
 
@@ -53,15 +62,13 @@ describe('AdminCounselInfoPanel', () => {
 
     fireEvent.click(screen.getByText('지난 요금제 변경 문의'));
 
-    expect(await screen.findByText('요금제를 낮추고 싶어요.')).toBeTruthy();
-
-    fireEvent.click(screen.getByText('목록으로'));
-
-    expect(await screen.findByText('지난 요금제 변경 문의')).toBeTruthy();
+    expect(handleSelectHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '지난 요금제 변경 문의' }),
+    );
   });
 
   it('티켓이 없으면 안내 문구를 보여준다', () => {
-    render(<AdminCounselInfoPanel ticket={null} />);
+    render(<AdminCounselInfoPanel ticket={null} selectedHistoryTicketId={null} onSelectHistory={() => {}} />);
 
     expect(screen.getByText('티켓을 선택하면 정보가 표시됩니다.')).toBeTruthy();
   });
