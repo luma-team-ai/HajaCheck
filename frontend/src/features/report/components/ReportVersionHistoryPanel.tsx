@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
+import { Modal } from '../../../shared/components/Modal';
+import { Button } from '../../../shared/components/Button';
 import { reportApi } from '../api/reportApi';
 import { isReportContent } from '../types';
 import { useReportVersionHistory } from '../hooks/useReportVersionHistory';
@@ -17,6 +19,9 @@ type CompareState = {
   version: number;
   diffs: DiffEntry[];
 };
+
+// 되돌리기 확인 모달용
+type RevertTarget = { versionId: number; version: number };
 
 function formatShortDate(iso: string): string {
   const date = new Date(iso);
@@ -58,6 +63,8 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
   const [compareState, setCompareState] = useState<CompareState | null>(null);
   const [busyVersion, setBusyVersion] = useState<number | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  // 되돌리기 확인 모달용 — window.confirm 대체
+  const [pendingRevert, setPendingRevert] = useState<RevertTarget | null>(null);
 
   async function handleCompare(versionId: number, version: number) {
     if (!activeReport || version === activeReport.version) return;
@@ -83,14 +90,20 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
     }
   }
 
-  async function handleRevert(versionId: number, version: number) {
+  // 되돌리기 버튼 클릭 → 확인 모달 표시 (window.confirm 대체)
+  function handleRevert(versionId: number, version: number) {
     if (!activeReport || version === activeReport.version) return;
     if (activeReport.status !== 'DRAFT') {
       setActionMessage('완료된 보고서는 되돌릴 수 없습니다. 편집 중인 보고서에서만 가능합니다.');
       return;
     }
-    if (!window.confirm(`v${version} 내용으로 되돌리면 현재 편집 내용이 대체됩니다. 계속하시겠습니까?`)) return;
+    setPendingRevert({ versionId, version });
+  }
 
+  async function confirmRevert() {
+    if (!pendingRevert || !activeReport) return;
+    const { versionId, version } = pendingRevert;
+    setPendingRevert(null);
     setBusyVersion(versionId);
     setActionMessage(null);
     try {
@@ -112,6 +125,30 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
 
   return (
     <div className="w-72 shrink-0 py-4 pr-4">
+      {/* 되돌리기 확인 모달 */}
+      <Modal
+        open={pendingRevert !== null}
+        onClose={() => setPendingRevert(null)}
+        title="이전 버전으로 되돌리기"
+        closeOnOverlayClick={false}
+      >
+        <div className="flex flex-col gap-6">
+          <p className="text-sm leading-6 text-text-default">
+            <span className="font-semibold">v{pendingRevert?.version}</span> 내용으로 되돌리면{' '}
+            <span className="font-semibold text-danger">현재 편집 내용이 대체됩니다.</span>
+            <br />계속하시겠습니까?
+          </p>
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={() => setPendingRevert(null)}>
+              취소
+            </Button>
+            <Button variant="danger" onClick={() => void confirmRevert()}>
+              되돌리기
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-surface-muted p-5">
         <div className="flex items-center justify-between pb-6">
           <h3 className="m-0 text-base font-semibold text-zinc-900">버전 이력</h3>
@@ -153,7 +190,7 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
                           {isBusy ? '확인 중…' : '비교'}
                         </button>
                         {!isCurrent && (
-                          <button type="button" disabled={isBusy} onClick={() => void handleRevert(version.id, version.version)} className="rounded-full border border-border bg-surface px-3.5 py-1 text-xs font-medium text-text-muted shadow-2xs disabled:cursor-not-allowed disabled:opacity-50">
+                          <button type="button" disabled={isBusy} onClick={() => handleRevert(version.id, version.version)} className="rounded-full border border-border bg-surface px-3.5 py-1 text-xs font-medium text-text-muted shadow-2xs disabled:cursor-not-allowed disabled:opacity-50">
                             되돌리기
                           </button>
                         )}
