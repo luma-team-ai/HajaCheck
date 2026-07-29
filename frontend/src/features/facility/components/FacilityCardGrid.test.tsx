@@ -25,6 +25,7 @@ const mockFacility: Facility = {
   latestDefectId: null,
   thumbnailUrl: null,
   lastInspectedAt: null,
+  defectCount: 0,
 };
 
 // FacilityCardGrid는 데이터를 직접 조회하지 않는 순수 프레젠테이셔널 컴포넌트이므로

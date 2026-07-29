@@ -136,6 +136,8 @@ export const facilityHandlers = [
       thumbnailUrl: null,
       // 신규 등록 시설물은 아직 점검 이력이 없다.
       lastInspectedAt: null,
+      // 신규 등록 시설물은 아직 하자가 없다(HAJA-515/#1075).
+      defectCount: 0,
     };
     nextId += 1;
     facilities = [created, ...facilities];

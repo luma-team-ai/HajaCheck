@@ -150,6 +150,58 @@ class DefectRepositoryTest extends PostgresTestSupport {
                 .containsExactly(1L);
     }
 
+    // 시설물 카드 하자건수 배지(HAJA-515/#1075) — findLatestByFacilityIds(대표 하자 id 배치조회)와 동일한
+    // join(Defect→Inspection→Facility) + companyId 스코프 + deleted=false 필터가 실제 PG 스키마에서
+    // 정상 동작하는지, 삭제된 하자·타 회사 시설물·타 시설물 하자가 섞이지 않는지 실 DB로 고정한다
+    // (FacilityServiceTest의 Mockito 단위 테스트는 쿼리 자체의 join/그룹핑 정확성은 증명하지 못한다).
+    @Test
+    void countGroupByFacilityIds_시설물별비삭제하자건수집계_삭제제외_타회사제외() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityA = seedFacility(ownerId, "강남 오피스타워");
+        Long facilityB = seedFacility(ownerId, "한강대교 북단");
+        Long inspectionA = seedInspection(facilityA, ownerId, 1);
+        Long inspectionB = seedInspection(facilityB, ownerId, 1);
+        defectRepository.save(newDefect(inspectionA, DefectGrade.C, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionA, DefectGrade.D, DefectStatus.CONFIRMED, false));
+        // 삭제된 하자는 집계에서 제외되어야 한다.
+        defectRepository.save(newDefect(inspectionA, DefectGrade.E, DefectStatus.RESOLVED, true));
+        defectRepository.save(newDefect(inspectionB, DefectGrade.A, DefectStatus.DETECTED, false));
+
+        // 타 회사 시설물의 하자는 companyId 스코프로 걸러져 결과에 전혀 나타나지 않아야 한다(IDOR 방지 —
+        // findByIdAndCompanyId 등 다른 조회와 동일 원칙).
+        Long strangerId = seedOwner("owner-b@haja.com");
+        Long strangerFacility = seedFacility(strangerId, "타회사시설");
+        Long strangerInspection = seedInspection(strangerFacility, strangerId, 1);
+        defectRepository.save(newDefect(strangerInspection, DefectGrade.A, DefectStatus.DETECTED, false));
+
+        List<FacilityDefectCountProjection> result = defectRepository.countGroupByFacilityIds(
+                List.of(facilityA, facilityB, strangerFacility), companyId(ownerId));
+
+        assertThat(result)
+                .filteredOn(p -> p.getFacilityId().equals(facilityA))
+                .extracting(FacilityDefectCountProjection::getCnt)
+                .containsExactly(2L);
+        assertThat(result)
+                .filteredOn(p -> p.getFacilityId().equals(facilityB))
+                .extracting(FacilityDefectCountProjection::getCnt)
+                .containsExactly(1L);
+        assertThat(result)
+                .noneMatch(p -> p.getFacilityId().equals(strangerFacility));
+    }
+
+    // 하자가 하나도 없는 시설물은 group by 대상 행 자체가 없어 결과 리스트에 나타나지 않는다 — 이 자체가
+    // FacilityService가 getOrDefault(id, 0L)로 0건을 채워야 하는 이유다.
+    @Test
+    void countGroupByFacilityIds_하자없는시설은결과에없음() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityWithNoDefects = seedFacility(ownerId, "하자없는시설");
+
+        List<FacilityDefectCountProjection> result = defectRepository.countGroupByFacilityIds(
+                List.of(facilityWithNoDefects), companyId(ownerId));
+
+        assertThat(result).isEmpty();
+    }
+
     @Test
     void findPendingPriorityDefects_미분류는최하단_등급E부터A까지내림차순() {
         // #327 회귀 방지 — PostgreSQL은 "ORDER BY ... DESC" 시 기본이 NULLS FIRST라, 파생 쿼리

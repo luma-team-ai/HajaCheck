@@ -25,6 +25,7 @@ const baseFacility: Facility = {
   latestDefectId: null,
   thumbnailUrl: null,
   lastInspectedAt: null,
+  defectCount: 0,
 };
 
 describe('FacilityCard', () => {
@@ -103,6 +104,18 @@ describe('FacilityCard', () => {
     render(<FacilityCard facility={baseFacility} onSelect={vi.fn()} />);
 
     expect(screen.getByText('점검 이력 없음')).not.toBeNull();
+  });
+
+  it('하자건수 배지를 표시한다(HAJA-515/#1075)', () => {
+    render(<FacilityCard facility={{ ...baseFacility, defectCount: 3 }} onSelect={vi.fn()} />);
+
+    expect(screen.getByText('하자 3건')).not.toBeNull();
+  });
+
+  it('하자가 0건이면 "하자 0건"을 표시한다(null 아닌 0으로 폴백)', () => {
+    render(<FacilityCard facility={baseFacility} onSelect={vi.fn()} />);
+
+    expect(screen.getByText('하자 0건')).not.toBeNull();
   });
 
   it('카드를 클릭하면 onSelect가 시설물 id와 latestDefectId로 호출된다', () => {

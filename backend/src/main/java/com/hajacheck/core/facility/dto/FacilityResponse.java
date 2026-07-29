@@ -39,7 +39,10 @@ public record FacilityResponse(
         String highestGrade,
         // 지도 경고/주의 건수 — D/E는 경고, C는 주의로 집계한다. 집계 가능한 하자가 없으면 0.
         Long warningCount,
-        Long cautionCount
+        Long cautionCount,
+        // 시설물 카드 하자건수 배지(HAJA-515/#1075, HAJA-368 후행) — 시설물별 비삭제 하자 총건수.
+        // 하자가 없으면 null이 아니라 0(배지에 "하자 0건"으로 표시 가능해야 하므로 항상 값을 채운다).
+        long defectCount
 ) {
     /**
      * 지도 집계 필드가 추가되기 전의 호출부와 호환한다.
@@ -85,25 +88,33 @@ public record FacilityResponse(
                 lastInspectedAt,
                 null,
                 0L,
+                0L,
                 0L);
     }
 
     public static FacilityResponse from(Facility facility) {
-        return from(facility, null, null, null);
+        return from(facility, null, null, null, null, 0L, 0L, 0L);
     }
 
     public static FacilityResponse from(Facility facility, Long latestDefectId) {
-        return from(facility, latestDefectId, null, null);
+        return from(facility, latestDefectId, null, null, null, 0L, 0L, 0L);
     }
 
     public static FacilityResponse from(
             Facility facility, Long latestDefectId, String thumbnailUrl, LocalDate lastInspectedAt) {
-        return from(facility, latestDefectId, thumbnailUrl, lastInspectedAt, null, 0L, 0L);
+        return from(facility, latestDefectId, thumbnailUrl, lastInspectedAt, null, 0L, 0L, 0L);
     }
 
     public static FacilityResponse from(
             Facility facility, Long latestDefectId, String thumbnailUrl, LocalDate lastInspectedAt,
             String highestGrade, Long warningCount, Long cautionCount) {
+        return from(facility, latestDefectId, thumbnailUrl, lastInspectedAt,
+                highestGrade, warningCount, cautionCount, 0L);
+    }
+
+    public static FacilityResponse from(
+            Facility facility, Long latestDefectId, String thumbnailUrl, LocalDate lastInspectedAt,
+            String highestGrade, Long warningCount, Long cautionCount, long defectCount) {
         return new FacilityResponse(
                 facility.getId(),
                 facility.getName(),
@@ -125,7 +136,7 @@ public record FacilityResponse(
                 lastInspectedAt,
                 highestGrade,
                 warningCount,
-                cautionCount
-        );
+                cautionCount,
+                defectCount);
     }
 }
