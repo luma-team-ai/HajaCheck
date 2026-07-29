@@ -43,9 +43,9 @@ function renderPage(): void {
 }
 
 describe('FacilityInspectionComparePage (통합 테스트)', () => {
-  // 2026-07-29 사용자 결정 — 회차를 직접 고르는 드롭다운을 제거하고, 서버가 자동으로 고른
-  // 최근 2개 회차를 읽기 전용으로만 보여준다.
-  it('제목과 서버가 고른 회차 1쌍을 읽기 전용으로 렌더링한다', async () => {
+  // 2026-07-30 사용자 결정 — "이전 회차"는 서버가 자동으로 고른 값을 읽기 전용으로만
+  // 보여주고, "현재 회차"만 사용자가 다른 회차로 바꿔볼 수 있는 드롭다운으로 유지한다.
+  it('이전 회차는 읽기 전용, 현재 회차는 선택 가능한 드롭다운으로 렌더링한다', async () => {
     renderPage();
 
     expect(await screen.findByText('회차 간 비교')).not.toBeNull();
@@ -54,11 +54,12 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
     expect(screen.getByText('이전 회차:', { exact: false }).parentElement?.textContent).toContain(
       `${mockInspectionComparison.beforeCycle.cycle}회차`,
     );
-    expect(screen.getByText('현재 회차:', { exact: false }).parentElement?.textContent).toContain(
-      `${mockInspectionComparison.afterCycle.cycle}회차`,
-    );
-    // select가 아니라 읽기 전용 표시라 편집 가능한 폼 컨트롤이 없어야 한다.
-    expect(screen.queryByRole('combobox')).toBeNull();
+
+    const afterSelect = screen.getByLabelText('현재 회차');
+    expect(afterSelect.tagName).toBe('SELECT');
+    expect((afterSelect as HTMLSelectElement).value).toBe(String(mockInspectionComparison.afterCycle.cycle));
+    // 편집 가능한 폼 컨트롤은 "현재 회차" 하나뿐이어야 한다("이전 회차"엔 없음).
+    expect(screen.getAllByRole('combobox')).toHaveLength(1);
   });
 
   // #1157 회귀고정 — 과거엔 DEFAULT_BEFORE_CYCLE=7/DEFAULT_AFTER_CYCLE=8이 하드코딩돼 있어
@@ -78,6 +79,33 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
       expect(capturedSearch).not.toBeNull();
       expect(capturedSearch).not.toContain('before=');
       expect(capturedSearch).not.toContain('after=');
+    } finally {
+      server.events.removeListener('request:match', captureRequest);
+    }
+  });
+
+  // 회귀고정 — "현재 회차"만 바꾸면 beforeCycle 상태가 undefined로 남아, 재요청이 after만
+  // 보내고 before는 생략된다. 서버는 이걸 "둘 다 생략"으로 오인해 방금 고른 after값까지
+  // 자동 대체로 덮어쓴다("이전 회차"는 UI에 표시된 값과 실제 데이터가 어긋나게 된다).
+  // "현재 회차"를 바꿀 때 "이전 회차" 표시값도 함께 실려야 한다.
+  it('현재 회차를 다시 선택해도 이전 회차 값을 함께 실어 재요청한다(#1157)', async () => {
+    const capturedSearches: string[] = [];
+    const captureRequest = ({ request }: { request: Request }) => {
+      capturedSearches.push(new URL(request.url).search);
+    };
+    server.events.on('request:match', captureRequest);
+
+    try {
+      renderPage();
+      await screen.findByText('회차 간 비교');
+
+      fireEvent.change(screen.getByLabelText('현재 회차'), { target: { value: '5' } });
+
+      await screen.findByText('회차 간 비교');
+      const lastSearch = capturedSearches[capturedSearches.length - 1];
+      expect(lastSearch).toContain('after=5');
+      expect(lastSearch).toContain('before=');
+      expect(lastSearch).not.toBe('');
     } finally {
       server.events.removeListener('request:match', captureRequest);
     }
