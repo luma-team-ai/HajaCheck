@@ -50,7 +50,7 @@ export function ReportRowMenu({
           onClose();
         }}
       >
-        버전 이력
+        변경 이력
       </button>
       <button
         type="button"
@@ -59,7 +59,7 @@ export function ReportRowMenu({
         className="w-full cursor-pointer border-none bg-none px-3 py-1.5 text-left text-sm font-medium text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-400"
         onClick={onClone}
       >
-        {isClonePending ? '복제 중' : '복제'}
+        {isClonePending ? '복사 중' : '복사'}
       </button>
       <button
         type="button"
@@ -69,7 +69,7 @@ export function ReportRowMenu({
         className="w-full cursor-pointer border-none bg-none px-3 py-1.5 text-left text-sm font-medium text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-400"
         onClick={onSubmit}
       >
-        {isSubmitPending ? '제출 중' : '제출 처리'}
+        {isSubmitPending ? '발행 중' : '발행'}
       </button>
       {actionError && (
         <p role="alert" className="m-0 px-3 py-1 text-xs leading-4 text-red-600">

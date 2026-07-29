@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, RouterProvider, createMemoryRouter } from 'react-router-dom';
 import type { ReportDetailResponse } from '../api/reportApi';
 import type { InspectionResponse, DefectDetailItem, MediaResponse } from '../../inspection/api/inspectionApi.types';
 import { isReportContent, type ReportContent } from '../types';
@@ -442,17 +442,18 @@ describe('ReportGeneratePage', () => {
     expect(requestCount).toBe(0);
   });
 
-  it('미리보기 새로고침은 같은-origin PDF 사전 확인을 다시 수행한다', async () => {
-    let preflightCount = 0;
-    server.use(
-      http.get('/api/reports/1/pdf/storage-key', () => {
-        preflightCount += 1;
-        return new Response('fake-pdf-binary', {
-          status: 200,
-          headers: { 'Content-Type': 'application/pdf' },
-        });
-      }),
-    );
+  // 회귀 테스트(#1235 P2) — 언마운트 없이(같은 라우트 패턴, reportId만 바뀌는 클라이언트 라우팅)
+  // same-origin 프리플라이트 대상 리포트에서 프리플라이트 비대상(cross-origin) 리포트로 전환하면,
+  // verifyPdfPreview가 pdfBlobUrl을 건드리지 않고 조기 종료해 이전 리포트의 blob이 새 화면에
+  // 그대로 남아있던 문제를 검증한다.
+  it('#1235 P2: 리포트 전환 시 이전 리포트의 blob URL을 재사용하지 않는다', async () => {
+    const report2: ReportDetailResponse = {
+      ...mockReportDetailResponse,
+      id: 2,
+      groundingCheckPassed: true,
+      status: 'FINALIZED',
+      pdfUrl: 'https://cdn.example.test/report2.pdf',
+    };
     reportState = {
       ...mockReportDetailResponse,
       groundingCheckPassed: true,
@@ -460,12 +461,46 @@ describe('ReportGeneratePage', () => {
       pdfUrl: '/api/reports/1/pdf/storage-key',
     };
 
-    renderPageWithPath('/reports/1?mode=export');
-    const refreshButton = await screen.findByRole('button', { name: '미리보기 새로고침' });
-    await waitFor(() => expect(preflightCount).toBe(1));
+    server.use(
+      http.get('/api/reports/1/pdf/storage-key', () =>
+        new Response('fake-pdf-binary', {
+          status: 200,
+          headers: { 'Content-Type': 'application/pdf' },
+        }),
+      ),
+      http.get('/api/reports/1', () => HttpResponse.json({ success: true, data: reportState })),
+      http.get('/api/reports/2', () => HttpResponse.json({ success: true, data: report2 })),
+      http.get('https://cdn.example.test/report2.pdf', () =>
+        new Response('fake-pdf-binary-2', {
+          status: 200,
+          headers: { 'Content-Type': 'application/pdf', 'Access-Control-Allow-Origin': '*' },
+        }),
+      ),
+    );
 
-    fireEvent.click(refreshButton);
-    await waitFor(() => expect(preflightCount).toBe(2));
+    const queryClient = new QueryClient();
+    const router = createMemoryRouter(
+      [{ path: '/reports/:reportId', element: <ReportGeneratePage /> }],
+      { initialEntries: ['/reports/1?mode=export'] },
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    const firstFrame = await screen.findByTitle('저장된 보고서 PDF');
+    expect(firstFrame.getAttribute('src')).toContain('blob:');
+
+    await router.navigate('/reports/2?mode=export');
+
+    // pdfPreviewKey가 바뀌면 iframe이 새 DOM 노드로 리마운트되므로, 특정 노드를 미리 붙잡지 않고
+    // waitFor 콜백마다 현재 DOM을 다시 조회해 최종 정착 상태를 확인한다.
+    await waitFor(() => {
+      const frame = screen.getByTitle('저장된 보고서 PDF');
+      expect(frame.getAttribute('src')).toContain('https://cdn.example.test/report2.pdf');
+      expect(frame.getAttribute('src')).not.toContain('blob:');
+    });
   });
 
   it('/reports/:reportId?mode=export에서 pdfUrl이 없으면 코드 미리보기 대신 저장된 PDF 없음 상태를 보여준다', async () => {
@@ -491,6 +526,44 @@ describe('ReportGeneratePage', () => {
     expect(emptyTitle.closest('div')?.parentElement?.className).toContain('mx-auto');
     expect(screen.queryByTitle('저장된 보고서 PDF')).toBeNull();
     expect(screen.queryByLabelText('점검 목적')).toBeNull();
+  });
+
+  // 회귀 테스트(사용자 리포트 픽스) — 확정 검증을 통과했는데도 아직 확정(PDF 업로드)하지 않은
+  // 상태에서 "PDF 미리보기"에 들어가면, 서버에 저장된 PDF가 없어도 클라이언트에서 즉석
+  // 렌더링한 미리보기가 떠야 한다("확정하기 전 PDF를 보는 기능"의 본래 의도).
+  it('/reports/:reportId?mode=export에서 확정 전이어도 검증을 통과했으면 즉석 미리보기를 렌더한다', async () => {
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: true,
+      status: 'DRAFT',
+      pdfUrl: null,
+    };
+
+    renderPageWithPath('/reports/1?mode=export');
+
+    const pdfFrame = await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
+    expect(pdfFrame.getAttribute('src')).toContain('blob:');
+    expect(screen.getByText(/아직 확정되지 않은 미리보기입니다/)).toBeTruthy();
+    expect(screen.queryByText('저장된 PDF가 없습니다.')).toBeNull();
+  });
+
+  // 검증 전(그리고 grounding이라는 단어를 노출하지 않는지) 확인 — 일반 점검자가 이해할 수 있는
+  // 문구여야 한다.
+  it('확정 검증을 아직 통과하지 못했으면 미리보기 대신 안내 문구를 plain하게 보여준다', async () => {
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: null,
+      status: 'DRAFT',
+      pdfUrl: null,
+    };
+
+    renderPageWithPath('/reports/1?mode=export');
+
+    const guidance = await screen.findByText('아직 미리 볼 수 없습니다.');
+    expect(guidance).toBeTruthy();
+    expect(screen.getByText(/확정 검증을 통과한 뒤 다시 시도해 주세요/)).toBeTruthy();
+    expect(screen.queryByText(/grounding/i)).toBeNull();
+    expect(screen.queryByTitle('보고서 PDF 미리보기(확정 전)')).toBeNull();
   });
 
   it('content가 편집되지 않은 상태에서는 확정 검증 버튼이 항상 비활성화되지 않는다', async () => {
@@ -574,26 +647,25 @@ describe('ReportGeneratePage', () => {
     expect(screen.getByText('총 지적 수')).toBeTruthy();
   });
 
-  it('단계 표시 A→E(초안 생성/AI 분류/엔지니어 확인/최종 승인/발행)가 렌더링된다', async () => {
+  it('단계 표시 A→C(AI 분류/작성자 확인/발행)가 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
-    expect(screen.getByText('초안 생성')).toBeTruthy();
     expect(screen.getByText('AI 분류')).toBeTruthy();
-    expect(screen.getByText('엔지니어 확인')).toBeTruthy();
-    expect(screen.getByText('최종 승인')).toBeTruthy();
+    expect(screen.getByText('작성자 확인')).toBeTruthy();
     expect(screen.getByText('발행')).toBeTruthy();
+    expect(screen.queryByText('초안 생성')).toBeNull();
+    expect(screen.queryByText('엔지니어 확인')).toBeNull();
+    expect(screen.queryByText('최종 승인')).toBeNull();
   });
 
-  it('상세 내역 등급 필터 pills가 데이터에 맞게 렌더링된다', async () => {
+  it('상세 내역 등급 필터 pills(전체, A, B, C, D, E)가 항상 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
     const filterGroup = screen.getByRole('group', { name: '등급 필터' });
     expect(filterGroup).toBeTruthy();
-    for (const g of ['전체', 'A', 'B', 'C']) {
-      expect(screen.getByRole('button', { name: g })).toBeTruthy();
+    for (const g of ['전체', 'A', 'B', 'C', 'D', 'E']) {
+      expect(within(filterGroup).getByRole('button', { name: new RegExp(`^${g}`) })).toBeTruthy();
     }
-    expect(screen.queryByRole('button', { name: 'D' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'E' })).toBeNull();
   });
 
   it('상세 내역 페이지네이션 컨트롤이 렌더링된다', async () => {
@@ -601,7 +673,10 @@ describe('ReportGeneratePage', () => {
     await screen.findByText('보고서 생성 결과');
     expect(screen.getByRole('button', { name: '이전 페이지' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '다음 페이지' })).toBeTruthy();
-    expect(screen.getByText((_, node) => node?.textContent === '1 / 1')).toBeTruthy();
+    const detailSection = screen.getByRole('heading', { name: '상세 내역' }).closest('section');
+    expect(detailSection).toBeTruthy();
+    expect(within(detailSection!).getByText('1', { selector: 'span.font-bold' })).toBeTruthy();
+    expect(within(detailSection!).getByText('/ 1', { selector: 'span.text-zinc-500' })).toBeTruthy();
   });
 
   it('조치 권고에 시급성 pill과 DEFECT badge가 렌더링된다', async () => {
@@ -621,7 +696,7 @@ describe('ReportGeneratePage', () => {
 });
 
 describe('DetailSection', () => {
-  it('상세 항목을 삭제해도 남은 항목의 현장 이미지 순서를 유지한다', () => {
+  it('상세 항목과 현장 이미지 목록을 정상적으로 렌더링한다', () => {
     const content: ReportContent = {
       ...mockContent,
       detail: {
@@ -631,32 +706,21 @@ describe('DetailSection', () => {
         ],
       },
     };
-    let currentContent = content;
     const imageUrls = ['/images/first.jpg', '/images/second.jpg'];
-    const onChange = (next: ReportContent) => {
-      currentContent = next;
-    };
-    const { rerender } = render(
+    render(
       <DetailSection
-        content={currentContent}
-        onChange={onChange}
-        readOnly={false}
-        imageUrls={imageUrls}
-      />,
-    );
-
-    fireEvent.click(screen.getAllByRole('button', { name: '이 항목 삭제' })[0]);
-    rerender(
-      <DetailSection
-        content={currentContent}
-        onChange={onChange}
+        content={content}
+        onChange={() => {}}
         readOnly={false}
         imageUrls={imageUrls}
       />,
     );
 
     expect(screen.getAllByRole('img').map((image) => image.getAttribute('src'))).toEqual([
+      '/images/first.jpg',
       '/images/second.jpg',
     ]);
+    expect(screen.queryByText('이 항목 삭제')).toBeNull();
+    expect(screen.queryByText('+ 상세 항목 추가')).toBeNull();
   });
 });

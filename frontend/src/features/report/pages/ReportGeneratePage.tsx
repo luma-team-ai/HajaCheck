@@ -42,11 +42,9 @@ interface StepContext {
 }
 
 const REPORT_STEPS: ReadonlyArray<{ key: string; label: string; isActive: (ctx: StepContext) => boolean }> = [
-  { key: 'A', label: '초안 생성', isActive: () => true },
-  { key: 'B', label: 'AI 분류', isActive: (ctx) => ctx.hasContent },
-  { key: 'C', label: '엔지니어 확인', isActive: (ctx) => ctx.groundingCheckPassed === true || ctx.dirty },
-  { key: 'D', label: '최종 승인', isActive: (ctx) => ctx.isFinalized },
-  { key: 'E', label: '발행', isActive: (ctx) => ctx.isFinalized && ctx.hasPdf },
+  { key: 'A', label: 'AI 분류', isActive: (ctx) => ctx.hasContent },
+  { key: 'B', label: '작성자 확인', isActive: (ctx) => ctx.groundingCheckPassed === true || ctx.dirty },
+  { key: 'C', label: '발행', isActive: (ctx) => ctx.isFinalized && ctx.hasPdf },
 ];
 
 const PDF_VIEWER_FRAGMENT = 'toolbar=0&navpanes=0&view=FitH';
@@ -107,7 +105,6 @@ export function ReportGeneratePage() {
   const [pdfPreviewKey, setPdfPreviewKey] = useState(0);
   const [pdfLoadError, setPdfLoadError] = useState<string | null>(null);
   const [isPdfChecking, setIsPdfChecking] = useState(false);
-  const manualRefreshControllerRef = useRef<AbortController | null>(null);
   const inspectionId = report?.inspectionId ?? 0;
   const setActiveReportId = useInspectionStore((state) => state.setActiveReportId);
 
@@ -118,6 +115,12 @@ export function ReportGeneratePage() {
   }, [parsedReportId, hasValidReportId, setActiveReportId]);
 
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  // 확정 전 미리보기(사용자 리포트 픽스) — "PDF 미리보기" 링크는 확정 여부와 무관하게 항상
+  // 노출되는데, 실제로는 report.pdfUrl(확정 시 업로드된 저장본)이 있을 때만 내용을 보여주고
+  // 그 전에는 "저장된 PDF가 없습니다"만 떴다. 확정 검증을 통과한 뒤에는, 서버에 올리기 전
+  // 클라이언트에서 exportReportToPdf로 즉석 렌더링해 진짜 미리보기를 제공한다.
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const verifyPdfPreview = useCallback(async (pdfUrl: string, signal?: AbortSignal) => {
     setPdfLoadError(null);
@@ -154,6 +157,15 @@ export function ReportGeneratePage() {
 
   useEffect(() => {
     setPdfLoadError(null);
+    // #1235 P2 픽스 — 리포트 전환(같은 라우트 패턴 안에서 reportId만 바뀌는 클라이언트 라우팅,
+    // 언마운트 없음) 시 이전 리포트의 blob URL을 무조건 먼저 리셋한다. shouldPreflightPdf가
+    // false를 반환하거나 새 report에 pdfUrl 자체가 없는 경우 verifyPdfPreview가 pdfBlobUrl을
+    // 건드리지 않고 조기 종료해, buildPdfPreviewSrc의 `blobUrl || normalizePdfPreviewUrl(pdfUrl)`
+    // 우선순위 때문에 이전 리포트의 PDF가 새 리포트 화면에 그대로 남아있던 문제를 막는다.
+    setPdfBlobUrl((prevUrl) => {
+      if (prevUrl) URL.revokeObjectURL(prevUrl);
+      return null;
+    });
     if (!report?.pdfUrl || !isExportMode) return;
 
     const controller = new AbortController();
@@ -161,10 +173,22 @@ export function ReportGeneratePage() {
     return () => controller.abort();
   }, [isExportMode, report?.pdfUrl, verifyPdfPreview]);
 
-  useEffect(() => () => {
-    manualRefreshControllerRef.current?.abort();
-    manualRefreshControllerRef.current = null;
+  // #1235 P3 픽스 — 마지막 blob URL(pdfBlobUrl/previewBlobUrl)은 새 blob으로 교체될 때만
+  // revoke됐고, 컴포넌트가 언마운트될 때(다른 라우트로 이동) 정리되지 않았다. ref로 최신값을
+  // 추적해 언마운트 시점에만 한 번 revoke한다(교체 시 이미 일어나는 revoke와 중복되지 않도록
+  // 별도 effect로 분리).
+  const pdfBlobUrlRef = useRef<string | null>(null);
+  pdfBlobUrlRef.current = pdfBlobUrl;
+  const previewBlobUrlRef = useRef<string | null>(null);
+  previewBlobUrlRef.current = previewBlobUrl;
+
+  useEffect(() => {
+    return () => {
+      if (pdfBlobUrlRef.current) URL.revokeObjectURL(pdfBlobUrlRef.current);
+      if (previewBlobUrlRef.current) URL.revokeObjectURL(previewBlobUrlRef.current);
+    };
   }, []);
+
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
   const defectImageUrls = useMemo(
@@ -193,6 +217,51 @@ export function ReportGeneratePage() {
 
   const dirty = content !== null && savedContent !== null && JSON.stringify(content) !== JSON.stringify(savedContent);
   const isFinalized = report?.status === 'FINALIZED';
+
+  // 확정 검증을 통과하고(groundingCheckPassed === true) 저장되지 않은 변경이 없으면(!dirty),
+  // 최종 확정 시 생성될 것과 동일한 조건으로 미리 PDF를 렌더링해둔다 — handleGeneratePdfAndFinalize와
+  // 동일한 옵션을 쓰되 서버 업로드/확정은 하지 않는다(순수 클라이언트 미리보기).
+  const canPreviewBeforeFinalize =
+    Boolean(content) && report?.groundingCheckPassed === true && !dirty;
+
+  // useInspectionResult(useInspectionResultReal)은 매 렌더마다 새 data 객체를 만든다(메모이제이션
+  // 없음) — 아래 effect 의존성 배열에 inspectionData를 직접 넣으면 setPreviewBlobUrl → 리렌더 →
+  // inspectionData 참조 변경 → effect 재실행이 무한 반복돼 메모리 초과로 죽는다. ref로만 최신값을
+  // 읽고 의존성에서는 제외한다.
+  const inspectionDataRef = useRef(inspectionData);
+  inspectionDataRef.current = inspectionData;
+
+  useEffect(() => {
+    setPreviewError(null);
+    if (!isExportMode || !report || report.pdfUrl || isFinalized || !content) return;
+    if (!canPreviewBeforeFinalize) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const latestInspectionData = inspectionDataRef.current;
+        const blob = await exportReportToPdf(content, {
+          facilityName: latestInspectionData?.facilityName,
+          inspectionRound: latestInspectionData?.roundNo,
+          issuedAt: new Date(report.createdAt),
+          defectImages: latestInspectionData?.defects.flatMap((defect) =>
+            defect.thumbnailUrl ? [{ defectType: defect.type, imageUrl: defect.thumbnailUrl }] : [],
+          ),
+        });
+        if (cancelled) return;
+        const objectUrl = URL.createObjectURL(blob);
+        setPreviewBlobUrl((prevUrl) => {
+          if (prevUrl) URL.revokeObjectURL(prevUrl);
+          return objectUrl;
+        });
+      } catch (err) {
+        if (!cancelled) setPreviewError(extractErrorMessage(err, '미리보기를 만들지 못했습니다.'));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isExportMode, report, isFinalized, content, canPreviewBeforeFinalize]);
 
   const handleSave = async () => {
     if (!report || !content || isSaving) return;
@@ -269,18 +338,6 @@ export function ReportGeneratePage() {
     }
   };
 
-  const handleRefreshPdf = () => {
-    if (!report?.pdfUrl) return;
-    manualRefreshControllerRef.current?.abort();
-    const controller = new AbortController();
-    manualRefreshControllerRef.current = controller;
-    void verifyPdfPreview(report.pdfUrl, controller.signal).finally(() => {
-      if (manualRefreshControllerRef.current === controller) {
-        manualRefreshControllerRef.current = null;
-      }
-    });
-  };
-
   const handleBackToViewer = () => {
     if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
       navigate('/reports');
@@ -351,14 +408,6 @@ export function ReportGeneratePage() {
             <span>자동 저장됨 · {formatElapsedTime(report.createdAt)}</span>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleRefreshPdf}
-              className="inline-flex items-center justify-center gap-1.5 rounded-full border border-border bg-surface px-4 py-1.5 text-base font-medium text-heading"
-            >
-              <span className="inline-block select-none text-base leading-none" aria-hidden="true">↻</span>
-              미리보기 새로고침
-            </button>
             <Button
               onClick={() => void handleDownloadStoredPdf()}
               variant="primary"
@@ -394,12 +443,44 @@ export function ReportGeneratePage() {
             <div className="flex flex-1 items-center justify-center">
               <AILoadingIndicator message="PDF를 불러오는 중..." />
             </div>
-          ) : (
+          ) : isFinalized ? (
+            // 확정 완료됐는데 저장된 PDF가 없는 데이터 이상 상태 — 편집 화면 자체가 잠겨 있어
+            // "돌아가서 다시 시도" 안내가 성립하지 않는다.
             <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-surface p-8 text-center shadow-sm">
               <div className="flex max-w-md flex-col gap-3">
                 <p className="text-lg font-semibold text-text-default">저장된 PDF가 없습니다.</p>
+                <p className="text-sm text-text-muted">PDF 파일을 찾을 수 없습니다. 관리자에게 문의해 주세요.</p>
+              </div>
+            </div>
+          ) : previewError ? (
+            <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-4 rounded-lg border border-border bg-surface p-8 text-center shadow-sm">
+              <p className="text-lg font-semibold text-text-default">미리보기를 만들지 못했습니다.</p>
+              <p className="text-sm text-text-muted">{previewError}</p>
+            </div>
+          ) : previewBlobUrl ? (
+            // 확정 전 미리보기 — 아직 서버에 저장되지 않은 임시 렌더링임을 명확히 표시한다.
+            <div className="mx-auto flex h-full w-full max-w-[860px] flex-col overflow-hidden bg-surface shadow-sm">
+              <p className="m-0 border-b border-warning-soft-border bg-warning-soft-bg px-4 py-2 text-xs text-warning-soft-fg">
+                아직 확정되지 않은 미리보기입니다. 실제 발행 후 저장되는 최종 PDF와 다를 수 있습니다.
+              </p>
+              <iframe
+                title="보고서 PDF 미리보기(확정 전)"
+                src={buildPdfPreviewSrc(previewBlobUrl, previewBlobUrl)}
+                className="block h-full w-full flex-1 border-0 bg-surface"
+              />
+            </div>
+          ) : canPreviewBeforeFinalize ? (
+            <div className="flex flex-1 items-center justify-center">
+              <AILoadingIndicator message="미리보기를 만드는 중..." />
+            </div>
+          ) : (
+            <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-surface p-8 text-center shadow-sm">
+              <div className="flex max-w-md flex-col gap-3">
+                <p className="text-lg font-semibold text-text-default">아직 미리 볼 수 없습니다.</p>
                 <p className="text-sm text-text-muted">
-                  편집 화면에서 grounding 검증을 통과한 뒤 PDF 생성 및 확정을 먼저 완료하세요.
+                  {dirty
+                    ? '편집한 내용을 아직 저장하지 않았습니다. 저장한 뒤 다시 시도해 주세요.'
+                    : '편집 화면으로 돌아가 확정 검증을 통과한 뒤 다시 시도해 주세요.'}
                 </p>
               </div>
             </div>
@@ -429,8 +510,12 @@ export function ReportGeneratePage() {
 
       {/* grounding 검증 실패 상태 — 통과 완료 표시는 상단 단계/확정 버튼 상태로만 드러낸다. */}
       {report.groundingCheckPassed === false && (
-        <div className="rounded-lg bg-warning-soft-bg p-3 text-sm text-warning-soft-fg">
-          ⚠ 검증 실패 — 내용을 확인 후 다시 검증하세요.
+        <div className="flex items-center gap-3 rounded-lg border border-warning-soft-border bg-warning-soft-bg p-4 text-warning-soft-fg text-sm">
+          <svg className="h-5 w-5 shrink-0 text-warning-soft-fg" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M10 2.4 18 17H2L10 2.4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+            <path d="M10 7v4.2M10 14.2v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+          <span className="font-medium">검증 실패 — 내용을 확인 후 다시 검증하세요.</span>
         </div>
       )}
 

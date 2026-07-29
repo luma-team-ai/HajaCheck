@@ -112,7 +112,7 @@ export function ReportEditorHero({
           <dt className="text-xs font-medium tracking-wide text-text-default">현재 상태</dt>
           <dd className="m-0 flex items-center justify-between">
             <div>
-              <p className="text-3xl font-medium leading-9 text-heading">
+              <p className="text-3xl font-bold leading-9 text-heading">
                 {isFinalized ? '확정' : '검수 중'}
               </p>
               <p className="mt-1 text-xs text-text-default">
@@ -156,9 +156,9 @@ export function ReportEditorHero({
       </dl>
 
       <section className="rounded-lg border border-border bg-surface px-4 py-8 sm:px-8 sm:pb-10">
-        <ol className="relative grid grid-cols-5" aria-label="보고서 작성 단계">
+        <ol className="relative grid grid-cols-3" aria-label="보고서 작성 단계">
           <div
-            className="absolute left-[10%] right-[10%] top-5 h-px bg-border"
+            className="absolute left-[16.7%] right-[16.7%] top-5 h-px bg-border"
             aria-hidden="true"
           />
           {steps.map((step, index) => (
