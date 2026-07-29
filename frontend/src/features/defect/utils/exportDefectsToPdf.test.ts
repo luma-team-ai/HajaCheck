@@ -8,12 +8,14 @@ const mockSave = vi.fn();
 const mockAddFileToVFS = vi.fn();
 const mockAddFont = vi.fn();
 const mockSetFont = vi.fn();
+const mockSetFontSize = vi.fn();
 const mockText = vi.fn();
 
 class MockJsPDF {
   addFileToVFS = mockAddFileToVFS;
   addFont = mockAddFont;
   setFont = mockSetFont;
+  setFontSize = mockSetFontSize;
   text = mockText;
   save = mockSave;
 }
@@ -28,6 +30,10 @@ vi.mock('jspdf-autotable', () => ({
 
 vi.mock('pretendard/dist/public/static/alternative/Pretendard-Regular.ttf?url', () => ({
   default: 'https://example.test/Pretendard-Regular.ttf',
+}));
+
+vi.mock('pretendard/dist/public/static/alternative/Pretendard-Bold.ttf?url', () => ({
+  default: 'https://example.test/Pretendard-Bold.ttf',
 }));
 
 function makeDefect(overrides: Partial<Defect> = {}): Defect {
@@ -87,6 +93,7 @@ describe('exportDefectsToPdf', () => {
     mockAddFileToVFS.mockClear();
     mockAddFont.mockClear();
     mockSetFont.mockClear();
+    mockSetFontSize.mockClear();
     mockText.mockClear();
 
     vi.stubGlobal(
@@ -112,15 +119,46 @@ describe('exportDefectsToPdf', () => {
       ['하자 ID', '유형', '등급', '시설물', '상태', '발견일'],
     ]);
     expect(options.body).toEqual(buildDefectExportRows(defects));
-    expect(options.headStyles).toEqual({
+    expect(options.startY).toBe(28);
+    expect(options.theme).toBe('grid');
+    expect(options.styles).toMatchObject({
       font: 'Pretendard',
       fontStyle: 'normal',
+      textColor: [0, 0, 0],
+      lineColor: [0, 0, 0],
+      lineWidth: 0.1,
+      halign: 'left',
+    });
+    expect(options.headStyles).toMatchObject({
+      font: 'Pretendard',
+      fontStyle: 'bold',
+      fillColor: [255, 255, 255],
+      textColor: [0, 0, 0],
+      lineColor: [0, 0, 0],
+      lineWidth: 0.1,
+      halign: 'left',
     });
 
     expect(mockAddFont).toHaveBeenCalledWith(
       'Pretendard-Regular.ttf',
       'Pretendard',
       'normal',
+    );
+    expect(mockAddFont).toHaveBeenCalledWith(
+      'Pretendard-Bold.ttf',
+      'Pretendard',
+      'bold',
+    );
+    expect(mockSetFont).toHaveBeenNthCalledWith(1, 'Pretendard', 'bold');
+    expect(mockSetFont).toHaveBeenNthCalledWith(2, 'Pretendard', 'normal');
+    expect(mockSetFontSize).toHaveBeenNthCalledWith(1, 16);
+    expect(mockSetFontSize).toHaveBeenNthCalledWith(2, 9);
+    expect(mockText).toHaveBeenNthCalledWith(1, '하자 목록', 14, 15);
+    expect(mockText).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(/^내보낸 시각: .+ · 총 1건$/),
+      14,
+      22,
     );
     expect(mockSave).toHaveBeenCalledTimes(1);
     expect(mockSave.mock.calls[0][0]).toMatch(/^하자목록_\d{8}\.pdf$/);
