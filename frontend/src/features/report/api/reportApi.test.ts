@@ -75,7 +75,7 @@ describe('reportApi', () => {
     const controller = new AbortController();
     controller.abort();
 
-    await expect(reportApi.generateReportDraft(1, controller.signal)).rejects.toThrow();
+    await expect(reportApi.generateReportDraft(1, undefined, controller.signal)).rejects.toThrow();
   });
 
   it('getReport는 보고서 상세를 조회한다', async () => {
