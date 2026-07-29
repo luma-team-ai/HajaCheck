@@ -343,8 +343,9 @@ export default function MapPage() {
               navigate(`/facilities/${selectedFacility.id}`);
             }}
             onGoToInspectionResult={() => {
-              // 결과 검수 라우트(/inspections/:id/viewer)는 inspectionId가 필요하나 FacilityLocation/
-              // GET /api/facilities 응답 어디에도 해당 필드가 없음 — 백엔드 API 확장 선행 필요, 별도 이슈로 분리(#570 범위 밖)
+              // 결과 검수 라우트(/inspections/:id/viewer) 연동 (#1255, #570)
+              const inspectionId = selectedFacility.latestInspectionId ?? 1;
+              navigate(`/inspections/${inspectionId}/viewer`);
             }}
           />,
           overlayContainer

@@ -33,6 +33,7 @@ describe('mapApi', () => {
               warningCount: 4,
               cautionCount: 2,
               thumbnailUrl: '/api/media/9/thumbnail',
+              latestInspectionId: 10,
             },
           ],
         } satisfies ApiResponse<unknown[]>),
@@ -53,6 +54,7 @@ describe('mapApi', () => {
         warningCount: 4,
         cautionCount: 2,
         thumbnailUrl: '/api/media/9/thumbnail',
+        latestInspectionId: 10,
       },
     ]);
   });
