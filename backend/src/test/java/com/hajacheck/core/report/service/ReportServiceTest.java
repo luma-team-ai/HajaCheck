@@ -31,6 +31,7 @@ import com.hajacheck.core.report.entity.Report;
 import com.hajacheck.core.report.repository.ReportRepository;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.DomainValidationException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.core.report.support.ReportPdfStorage;
 import java.lang.reflect.Method;
@@ -38,6 +39,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -151,6 +153,61 @@ class ReportServiceTest {
         verify(aiProxyService).generateReport(anyLong(), captor.capture());
         assertThat(captor.getValue().reportVersion()).isEqualTo(1);
         assertThat(captor.getValue().confirmedDefects()).isEmpty();
+    }
+
+    @Test
+    void generateDraft_선택옵션을저장Content에반영한다() {
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of());
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
+        when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
+        when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ReportDetailResponse response = reportService.generateDraft(
+                1L, 100L, 200L, Set.of("overview", "opinion"), false);
+
+        assertThat(response.groundingCheckPassed()).isTrue();
+        assertThat(response.content().get("overview").get("purpose").asText()).isNotBlank();
+        assertThat(response.content().get("summary").get("overall_opinion").asText()).isNotBlank();
+        assertThat(response.content().get("summary").get("total_count").asInt()).isZero();
+        assertThat(response.content().get("detail").get("items")).isEmpty();
+        assertThat(response.content().get("recommendation").get("items")).isEmpty();
+        assertThat(response.content().get("reportOptions").get("includePhoto").asBoolean()).isFalse();
+        assertThat(response.content().get("reportOptions").get("sections").toString()).contains("overview", "opinion");
+    }
+
+    @Test
+    void generateDraft_기본옵션을받아도grounding통과상태를유지한다() {
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of());
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
+        when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
+        when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ReportDetailResponse response = reportService.generateDraft(
+                1L, 100L, 200L, Set.of("overview", "summary", "details", "recommendation"), true);
+
+        assertThat(response.groundingCheckPassed()).isTrue();
+        assertThat(response.content().get("reportOptions").get("includePhoto").asBoolean()).isTrue();
+    }
+
+    @Test
+    void generateDraft_빈섹션은저장하지않고거부한다() {
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of());
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
+        when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
+
+        assertThatThrownBy(() -> reportService.generateDraft(1L, 100L, 200L, Set.of(), true))
+                .isInstanceOf(DomainValidationException.class)
+                .hasMessageContaining("최소 1개 섹션");
+        verify(reportRepository, never()).save(any());
     }
 
     @Test
@@ -284,6 +341,24 @@ class ReportServiceTest {
         return GroundingReportContentSerializer.serialize(aiReport);
     }
 
+    private static String contentJsonWithoutDetailsSection() {
+        ReportResponse aiReport = new ReportResponse(
+                new ReportResponse.Overview("목적", "요약", "범위"),
+                new ReportResponse.Summary("양호", 1, java.util.Map.of("C", 1), List.of("균열 발견")),
+                new ReportResponse.Detail(List.of(
+                        new ReportResponse.DetailItem("균열", "위치", "C", "설명", "원인"))),
+                new ReportResponse.Recommendation(List.of(), List.of()),
+                true);
+        return GroundingReportContentSerializer.serialize(
+                aiReport, Set.of("overview", "summary", "recommendation"), true);
+    }
+
+    private static String contentJsonWithForgedOptionsAndDetailItems(String... typeGradePairs) {
+        String contentJson = contentJsonWithDetailItems(typeGradePairs);
+        return contentJson.substring(0, contentJson.length() - 1)
+                + ",\"reportOptions\":{\"sections\":[\"overview\",\"summary\",\"recommendation\"],\"includePhoto\":true}}";
+    }
+
     @Test
     void recheckGrounding_유형등급일치_grounding통과로기록() {
         Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
@@ -296,6 +371,78 @@ class ReportServiceTest {
 
         assertThat(response.groundingCheckPassed()).isTrue();
         assertThat(report.getGroundingWarnings()).isEqualTo("[]");
+    }
+
+    @Test
+    void recheckGrounding_details섹션제외보고서는상세비교를건너뛰고확정가능하다() {
+        Report report = Report.draft(1L, 1, contentJsonWithoutDetailsSection(), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
+
+        ReportDetailResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
+        ReportDetailResponse finalizeResponse = reportService.finalizeReport(
+                5L, "/api/reports/5/pdf/r.pdf", 500L, 200L);
+
+        assertThat(recheckResponse.groundingCheckPassed()).isTrue();
+        assertThat(finalizeResponse.status()).isEqualTo(com.hajacheck.core.report.entity.ReportStatus.FINALIZED);
+    }
+
+    @Test
+    void updateContent_details제외로생성된보고서의빈상세옵션은보존한다() {
+        Report report = Report.draft(1L, 1, contentJsonWithoutDetailsSection(), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
+
+        ReportDetailResponse updateResponse = reportService.updateContent(
+                5L, contentJsonWithoutDetailsSection(), 500L, 200L);
+        ReportDetailResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
+
+        assertThat(updateResponse.content().has("reportOptions")).isTrue();
+        assertThat(recheckResponse.groundingCheckPassed()).isTrue();
+    }
+
+    @Test
+    void recheckGrounding_reportOptions를조작해도detailItems가있으면실제하자와비교한다() {
+        Report report = Report.draft(
+                1L, 1, contentJsonWithForgedOptionsAndDetailItems("박리·박락", "B"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
+
+        ReportDetailResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
+
+        assertThat(recheckResponse.groundingCheckPassed()).isFalse();
+        assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 500L, 200L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("근거 검증");
+    }
+
+    @Test
+    void recheckGrounding_details포함생성후Patch로상세를비우면불일치로판정한다() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
+
+        ReportDetailResponse updateResponse = reportService.updateContent(
+                5L, contentJsonWithoutDetailsSection(), 500L, 200L);
+        ReportDetailResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
+
+        assertThat(updateResponse.content().has("reportOptions")).isFalse();
+        assertThat(recheckResponse.groundingCheckPassed()).isFalse();
+        assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 500L, 200L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("근거 검증");
     }
 
     @Test

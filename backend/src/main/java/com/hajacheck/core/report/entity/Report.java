@@ -124,6 +124,14 @@ public class Report extends BaseTimeEntity {
         this.editedBy = editedBy;
     }
 
+    /** 생성 옵션 적용은 검증된 AI 응답의 표시 범위만 줄이는 작업이므로 grounding 판정을 유지한다. */
+    public void applyGeneratedOptions(String contentJson, Long editedBy) {
+        requireDraft("applyGeneratedOptions");
+        requireContent(contentJson);
+        this.contentJson = contentJson;
+        this.editedBy = editedBy;
+    }
+
     /** 비동기 Grounding 요청 전에, 아직 생성되지 않은 payload와 분리된 요청 식별자를 캡처한다. */
     public GroundingRequestContext captureGroundingRequestContext() {
         requireDraft("captureGroundingRequestContext");

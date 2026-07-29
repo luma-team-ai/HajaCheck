@@ -223,6 +223,7 @@ export function ReportGeneratePage() {
   // 동일한 옵션을 쓰되 서버 업로드/확정은 하지 않는다(순수 클라이언트 미리보기).
   const canPreviewBeforeFinalize =
     Boolean(content) && report?.groundingCheckPassed === true && !dirty;
+  const includeReportPhotos = content?.reportOptions?.includePhoto !== false;
 
   // useInspectionResult(useInspectionResultReal)은 매 렌더마다 새 data 객체를 만든다(메모이제이션
   // 없음) — 아래 effect 의존성 배열에 inspectionData를 직접 넣으면 setPreviewBlobUrl → 리렌더 →
@@ -248,9 +249,11 @@ export function ReportGeneratePage() {
           facilityName: latestInspectionData?.facilityName,
           inspectionRound: latestInspectionData?.roundNo,
           issuedAt: new Date(report.createdAt),
-          defectImages: latestInspectionData?.defects.flatMap((defect) =>
-            defect.thumbnailUrl ? [{ defectType: defect.type, imageUrl: defect.thumbnailUrl }] : [],
-          ),
+          defectImages: includeReportPhotos
+            ? latestInspectionData?.defects.flatMap((defect) =>
+                defect.thumbnailUrl ? [{ defectType: defect.type, imageUrl: defect.thumbnailUrl }] : [],
+              )
+            : [],
         });
         if (cancelled) return;
         const objectUrl = URL.createObjectURL(blob);
@@ -265,7 +268,7 @@ export function ReportGeneratePage() {
     return () => {
       cancelled = true;
     };
-  }, [isExportMode, report, isFinalized, content, canPreviewBeforeFinalize]);
+  }, [isExportMode, report, isFinalized, content, canPreviewBeforeFinalize, includeReportPhotos]);
 
   const handleSave = async () => {
     if (!report || !content || isSaving) return;
@@ -304,9 +307,11 @@ export function ReportGeneratePage() {
         facilityName: inspectionData?.facilityName,
         inspectionRound: inspectionData?.roundNo,
         issuedAt: new Date(report.createdAt),
-        defectImages: inspectionData?.defects.flatMap((defect) =>
-          defect.thumbnailUrl ? [{ defectType: defect.type, imageUrl: defect.thumbnailUrl }] : [],
-        ),
+        defectImages: includeReportPhotos
+          ? inspectionData?.defects.flatMap((defect) =>
+              defect.thumbnailUrl ? [{ defectType: defect.type, imageUrl: defect.thumbnailUrl }] : [],
+            )
+          : [],
       });
       const fileName = buildReportPdfFileName(report.inspectionId);
       const uploadResponse = await reportApi.uploadPdf(report.id, pdfBlob, fileName);
