@@ -10,7 +10,7 @@ import { ReportRowMenu } from './ReportRowMenu';
 import { ReportStatusBadge } from './ReportStatusBadge';
 import { SelectionCheckbox } from './SelectionCheckbox';
 import { formatReportListTitle } from '../utils/reportListFormat';
-import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../constants';
+import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE, WARNING_TRIANGLE } from '../constants';
 
 type Props = {
   reports: ReportListItem[] | undefined;
@@ -124,11 +124,8 @@ export function ReportListTable({
               title={AI_DRAFT_WARNING}
               className="inline-flex shrink-0 text-warning-soft-fg"
             >
-              <svg className="h-4 w-4" viewBox="0 0 18.3333 15.8333" fill="none" aria-hidden="true">
-                <path
-                  d="M0 15.8333L9.16667 0L18.3333 15.8333H0V15.8333M2.875 14.1667H15.4583L9.16667 3.33333L2.875 14.1667V14.1667M9.16667 13.3333C9.40278 13.3333 9.60069 13.2535 9.76042 13.0938C9.92014 12.934 10 12.7361 10 12.5C10 12.2639 9.92014 12.066 9.76042 11.9062C9.60069 11.7465 9.40278 11.6667 9.16667 11.6667C8.93056 11.6667 8.73264 11.7465 8.57292 11.9062C8.41319 12.066 8.33333 12.2639 8.33333 12.5C8.33333 12.7361 8.41319 12.934 8.57292 13.0938C8.73264 13.2535 8.93056 13.3333 9.16667 13.3333V13.3333M8.33333 10.8333H10V6.66667H8.33333V10.8333V10.8333M9.16667 8.75V8.75V8.75V8.75V8.75"
-                  fill="currentColor"
-                />
+              <svg className="h-4 w-4" viewBox={WARNING_TRIANGLE.viewBox} fill="none" aria-hidden="true">
+                <path d={WARNING_TRIANGLE.path} fill="currentColor" />
               </svg>
             </span>
             <Link
