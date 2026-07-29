@@ -693,6 +693,31 @@ describe('ReportGeneratePage', () => {
     expect(screen.getByText((_, node) => node?.textContent === AI_DRAFT_WARNING)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'PDF 미리보기' })).toBeTruthy();
   });
+
+  it('확정 전 미리보기가 뜬 상태에서 페이지 이탈/전환 시 이전 미리보기 blob URL이 즉시 revoke 및 정리된다', async () => {
+    const revokeObjectURLSpy = vi.spyOn(URL, 'revokeObjectURL');
+    const createObjectURLSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:http://localhost/fake-preview-url');
+
+    reportState = {
+      ...mockReport,
+      id: 1,
+      status: 'DRAFT',
+      pdfUrl: null,
+      groundingCheckPassed: true,
+    };
+
+    const { unmount } = renderPageWithPath('/reports/1?mode=export');
+
+    await waitFor(() => {
+      expect(screen.getByTitle('보고서 PDF 미리보기(확정 전)')).toBeTruthy();
+    });
+
+    unmount();
+
+    expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:http://localhost/fake-preview-url');
+    createObjectURLSpy.mockRestore();
+    revokeObjectURLSpy.mockRestore();
+  });
 });
 
 describe('DetailSection', () => {

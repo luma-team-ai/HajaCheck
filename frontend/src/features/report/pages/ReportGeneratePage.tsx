@@ -232,6 +232,10 @@ export function ReportGeneratePage() {
   inspectionDataRef.current = inspectionData;
 
   useEffect(() => {
+    setPreviewBlobUrl((prevUrl) => {
+      if (prevUrl) URL.revokeObjectURL(prevUrl);
+      return null;
+    });
     setPreviewError(null);
     if (!isExportMode || !report || report.pdfUrl || isFinalized || !content) return;
     if (!canPreviewBeforeFinalize) return;
