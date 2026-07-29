@@ -4,10 +4,12 @@ import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
 import { DistributionBar } from '../../../shared/components/charts/DistributionBar';
+import { CHART_GRADE_COLORS } from '../../../shared/components/charts/palette';
 import { useInspectionResultReal } from '../../inspection/hooks/useInspectionResultReal';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import type { DefectType } from '../../inspection/types';
 import { reportApi, type ReportSummaryResponse } from '../api/reportApi';
+import { WARNING_TRIANGLE } from '../constants';
 
 // 등급 라벨 — 이 페이지 전용 상수 (다른 feature와의 직접 import 금지 — #832)
 const GRADE_LABELS: Record<string, string> = {
@@ -18,29 +20,19 @@ const GRADE_LABELS: Record<string, string> = {
   E: '심각',
 };
 
-// 등급별 색상 (Figma 기준)
-const GRADE_COLORS: Record<string, string> = {
-  A: '#22c55e', // 초록
-  B: '#3b82f6', // 파랑
-  C: '#eab308', // 노랑
-  D: '#f97316', // 주황
-  E: '#ef4444', // 빨강
-};
-
-// 등급 배지(옅은 배경+진한 텍스트 알약) 전용 색상 — Figma는 배지를 꽉 찬 원이 아니라
-// 배경 10% 톤 + 진한 텍스트로 그린다(node 180:5080, 180:5131 등, #925).
+// 등급 배지(옅은 배경+진한 텍스트 알약) 전용 색상 — shared/chart/palette.ts의
+// CHART_GRADE_COLORS와 동일한 hex로 맞춘다(node 180:5080, 180:5131 등, #925).
 const GRADE_BADGE_STYLE: Record<string, { bg: string; text: string }> = {
-  A: { bg: '#dcfce7', text: '#15803d' },
-  B: { bg: '#dbeafe', text: '#1d4ed8' },
+  A: { bg: '#e3f5e6', text: '#16a34a' },
+  B: { bg: '#eef6df', text: '#65a30d' },
   C: { bg: '#fef9c3', text: '#a16207' },
   D: { bg: '#ffedd5', text: '#c2410c' },
-  E: { bg: 'rgba(239,68,68,0.1)', text: '#ef4444' },
+  E: { bg: '#fef2f2', text: '#dc2626' },
 };
 
 const GRADE_ORDER = ['A', 'B', 'C', 'D', 'E'] as const;
 
-// 설정 컨트롤이 아직 비활성인 이유(#886 P2) — 백엔드/ai-server 옵션 연동 전까지 공통 사용.
-const NOT_APPLIED_TITLE = '아직 생성 결과에 반영되지 않습니다 (백엔드 연동 예정)';
+
 
 // 유형별 카드 — Figma는 5종을 항상 고정 노출하므로 0건 유형도 렌더한다(AI 자동탐지는 3종이고
 // 누수·백태/도장 손상은 수동 추가로만 생기지만, 칸이 사라지면 레이아웃이 흔들린다).
@@ -80,10 +72,7 @@ const ICONS = {
     viewBox: '0 0 15 15',
     path: 'M4.95833 7.33333L2.9375 5.33333L3.8125 4.45833L4.9375 5.58333L7.02083 3.5L7.89583 4.375L4.95833 7.33333V7.33333M13.8333 15L8.58333 9.75C8.16667 10.0833 7.6875 10.3472 7.14583 10.5417C6.60417 10.7361 6.02778 10.8333 5.41667 10.8333C3.90278 10.8333 2.62153 10.309 1.57292 9.26042C0.524305 8.21181 0 6.93056 0 5.41667C0 3.90278 0.524305 2.62153 1.57292 1.57292C2.62153 0.524305 3.90278 0 5.41667 0C6.93056 0 8.21181 0.524305 9.26042 1.57292C10.309 2.62153 10.8333 3.90278 10.8333 5.41667C10.8333 6.02778 10.7361 6.60417 10.5417 7.14583C10.3472 7.6875 10.0833 8.16667 9.75 8.58333L15 13.8333L13.8333 15V15M5.41667 9.16667C6.45833 9.16667 7.34375 8.80208 8.07292 8.07292C8.80208 7.34375 9.16667 6.45833 9.16667 5.41667C9.16667 4.375 8.80208 3.48958 8.07292 2.76042C7.34375 2.03125 6.45833 1.66667 5.41667 1.66667C4.375 1.66667 3.48958 2.03125 2.76042 2.76042C2.03125 3.48958 1.66667 4.375 1.66667 5.41667C1.66667 6.45833 2.03125 7.34375 2.76042 8.07292C3.48958 8.80208 4.375 9.16667 5.41667 9.16667V9.16667',
   },
-  warningTriangle: {
-    viewBox: '0 0 18.3333 15.8333',
-    path: 'M0 15.8333L9.16667 0L18.3333 15.8333H0V15.8333M2.875 14.1667H15.4583L9.16667 3.33333L2.875 14.1667V14.1667M9.16667 13.3333C9.40278 13.3333 9.60069 13.2535 9.76042 13.0938C9.92014 12.934 10 12.7361 10 12.5C10 12.2639 9.92014 12.066 9.76042 11.9062C9.60069 11.7465 9.40278 11.6667 9.16667 11.6667C8.93056 11.6667 8.73264 11.7465 8.57292 11.9062C8.41319 12.066 8.33333 12.2639 8.33333 12.5C8.33333 12.7361 8.41319 12.934 8.57292 13.0938C8.73264 13.2535 8.93056 13.3333 9.16667 13.3333V13.3333M8.33333 10.8333H10V6.66667H8.33333V10.8333V10.8333M9.16667 8.75V8.75V8.75V8.75V8.75',
-  },
+  warningTriangle: WARNING_TRIANGLE,
   barChart: {
     viewBox: '0 0 13.3333 13.3333',
     path: 'M10 13.3333V7.5H13.3333V13.3333H10V13.3333M5 13.3333V0H8.33333V13.3333H5V13.3333M0 13.3333V4.16667H3.33333V13.3333H0V13.3333',
@@ -119,6 +108,10 @@ const ICONS = {
   history: {
     viewBox: '0 0 13.5 13.5',
     path: 'M6.75 13.5C5.025 13.5 3.52187 12.9281 2.24062 11.7844C0.959375 10.6406 0.225 9.2125 0.0375 7.5H1.575C1.75 8.8 2.32813 9.875 3.30938 10.725C4.29063 11.575 5.4375 12 6.75 12C8.2125 12 9.45313 11.4906 10.4719 10.4719C11.4906 9.45313 12 8.2125 12 6.75C12 5.2875 11.4906 4.04688 10.4719 3.02813C9.45313 2.00938 8.2125 1.5 6.75 1.5C5.8875 1.5 5.08125 1.7 4.33125 2.1C3.58125 2.5 2.95 3.05 2.4375 3.75H4.5V5.25H0V0.75H1.5V2.5125C2.1375 1.7125 2.91562 1.09375 3.83437 0.65625C4.75312 0.21875 5.725 0 6.75 0C7.6875 0 8.56562 0.178125 9.38437 0.534375C10.2031 0.890625 10.9156 1.37187 11.5219 1.97812C12.1281 2.58437 12.6094 3.29687 12.9656 4.11562C13.3219 4.93437 13.5 5.8125 13.5 6.75C13.5 7.6875 13.3219 8.56562 12.9656 9.38437C12.6094 10.2031 12.1281 10.9156 11.5219 11.5219C10.9156 12.1281 10.2031 12.6094 9.38437 12.9656C8.56562 13.3219 7.6875 13.5 6.75 13.5V13.5M8.85 9.9L6 7.05V3H7.5V6.45L9.9 8.85L8.85 9.9V9.9',
+  },
+  clock: {
+    viewBox: '0 0 16 16',
+    path: 'M8 0C12.4183 0 16 3.58172 16 8C16 12.4183 12.4183 16 8 16C3.58172 16 0 12.4183 0 8C0 3.58172 3.58172 0 8 0ZM8 2.5C4.96243 2.5 2.5 4.96243 2.5 8C2.5 11.0376 4.96243 13.5 8 13.5C11.0376 13.5 13.5 11.0376 13.5 8C13.5 4.96243 11.0376 2.5 8 2.5ZM7.25 4H8.75V8.5L11.5 10.5L10.5 12L7.25 9.5V4Z',
   },
   documentAccent: {
     // 최근 작업 내역 항목 아이콘 — 문서 아이콘, 연빨강 원형 배경 위에 표시(#925)
@@ -162,21 +155,14 @@ export function ReportEntryPage() {
   // 데이터 조회
   const { data, isLoading, isError, refetch } = useInspectionResultReal(inspectionId);
 
-  // 보고서 설정 — 백엔드 POST /inspections/{id}/reports가 옵션을 받지 않아 아직 전송되지 않는다(#876 범위 밖).
-  // 템플릿·언어는 선택지가 하나뿐이라 상태가 아니라 상수로 둔다(고를 게 없는데 setter를 두면 죽은 코드가 된다).
-  const template = '정밀안전점검 표준';
-  const language = '국문';
-  // 이 값들은 아직 생성 요청에 실리지 않는다(백엔드가 옵션을 안 받음) → 전부 읽기 전용 상수로 둔다.
-  // 켜고 끌 수 있는데 결과에 반영되지 않으면 사용자를 속이는 UI가 된다(#886 P2).
-  // 백엔드·ai-server 연동이 끝나면 useState로 되돌리고 disabled를 푼다.
-  const sections = {
+  const [sections, setSections] = useState({
     overview: true,
     summary: true,
     details: true,
     recommendation: true,
     opinion: false,
-  };
-  const includePhoto = true;
+  });
+  const [includePhoto, setIncludePhoto] = useState(true);
 
   // UI 상태
   const [isGenerating, setIsGenerating] = useState(false);
@@ -252,10 +238,6 @@ export function ReportEntryPage() {
       null
     : null;
 
-  // Figma 하단 바에는 "예상 생성 시간 약 N분"이 있지만 여기서 계산하지 않는다 —
-  // 실제 소요는 LLM 체인·백엔드만 아는 값이라 프론트가 추정하면 틀린 숫자를 확정적으로 보여주게 된다.
-  // 백엔드가 생성 소요 추정치를 내려주면 그때 표기한다(보고서 도메인 담당 영역).
-
   const handleGenerateReport = useCallback(async () => {
     if (!data || data.reviewedCount !== data.totalCount || isGenerating) return;
 
@@ -291,7 +273,7 @@ export function ReportEntryPage() {
   const isComplete = data.reviewedCount === data.totalCount;
 
   return (
-    <div>
+    <div className="pb-6">
       {/* Figma node 180:5040 "Background+Border+Shadow" — 섹션 1~5(제목~최근작업내역)를
           감싸는 흰색 카드. 이전 구현에 이 바깥 카드 자체가 통째로 빠져 있었다(#927).
           6.하단 액션바는 Figma에서도 이 카드의 형제 요소로 별도 카드다(고정 오버레이 아님, #961). */}
@@ -313,10 +295,10 @@ export function ReportEntryPage() {
         <div className="flex gap-6">
           {/* 이미지 개수 */}
           <div className="flex gap-3 border-r border-border pr-6">
-            <Icon spec={ICONS.image} fill="#77767B" className="h-[17px] w-[17px] shrink-0" />
+            <Icon spec={ICONS.image} fill="#77767B" className="h-[17px] w-[17px] shrink-0 self-center" />
             <div>
               <div className="text-xs font-medium tracking-wide text-text-muted">이미지</div>
-              <div className="mt-1 text-xl font-bold text-black">
+              <div className="mt-1 flex min-h-7 items-center text-xl font-bold text-black">
                 {data.media?.length || 0}장
               </div>
             </div>
@@ -327,16 +309,16 @@ export function ReportEntryPage() {
             <Icon spec={ICONS.magnifier} fill="#77767B" className="h-[15px] w-[15px] shrink-0 self-center" />
             <div>
               <div className="text-xs font-medium tracking-wide text-text-muted">확정 하자</div>
-              <div className="mt-1 text-xl font-bold text-black">{data.reviewedCount}</div>
+              <div className="mt-1 flex min-h-7 items-center text-xl font-bold text-black">{data.reviewedCount}</div>
             </div>
           </div>
 
           {/* 최고 등급 */}
           <div className="flex gap-3 pr-6">
-            <Icon spec={ICONS.warningTriangle} fill="#77767B" className="h-4 w-4 shrink-0 self-center" />
+            <Icon spec={ICONS.warningTriangle} fill="currentColor" className="h-4 w-4 shrink-0 self-center text-text-muted" />
             <div>
               <div className="text-xs font-medium tracking-wide text-text-muted">최고 등급</div>
-              <div className="mt-1 flex items-center gap-2">
+              <div className="mt-1 flex min-h-7 items-center gap-2">
                 {maxGrade ? <GradeBadge grade={maxGrade} /> : <span className="text-text-muted">없음</span>}
               </div>
             </div>
@@ -347,7 +329,7 @@ export function ReportEntryPage() {
         <div className="flex items-center gap-3">
           <div className="text-right">
             <div className="text-xs font-medium tracking-wide text-text-muted">검수 완료율</div>
-            <div className="mt-1 text-xl font-bold text-black">
+            <div className="mt-1 flex min-h-7 items-center text-xl font-bold text-black">
               {data.totalCount > 0 ? Math.round((data.reviewedCount / data.totalCount) * 100) : 0}%
             </div>
           </div>
@@ -368,7 +350,7 @@ export function ReportEntryPage() {
       {/* 3. Defect Summary Block */}
       <div className="flex flex-col gap-6">
         <h2 className="flex items-center gap-2 text-xl font-medium text-black">
-          <Icon spec={ICONS.barChart} fill="black" className="h-[13px] w-[13px]" />
+          <Icon spec={ICONS.barChart} fill="currentColor" className="h-[13px] w-[13px]" />
           <span>하자 현황</span>
         </h2>
 
@@ -389,7 +371,7 @@ export function ReportEntryPage() {
                 // 분자(gradeDistribution)가 확정 하자 기준이므로 분모도 맞춘다 —
                 // totalCount로 나누면 미검수분만큼 막대가 100%를 못 채운다.
                 percent: ((gradeDistribution[grade] || 0) / (confirmedDefects.length || 1)) * 100,
-                color: GRADE_COLORS[grade],
+                color: CHART_GRADE_COLORS[grade],
               }))}
             />
           </div>
@@ -405,7 +387,7 @@ export function ReportEntryPage() {
                 >
                   <div
                     className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: GRADE_COLORS[grade] }}
+                    style={{ backgroundColor: CHART_GRADE_COLORS[grade] }}
                   />
                   <span className="text-xs font-medium text-black">
                     {grade} ({count})
@@ -438,7 +420,7 @@ export function ReportEntryPage() {
       <div className="flex flex-col gap-6">
         <div className="flex items-end justify-between">
           <h2 className="flex items-center gap-2 text-xl font-medium text-black">
-            <Icon spec={ICONS.settingsGrid} fill="black" className="h-[15px] w-[15px]" />
+            <Icon spec={ICONS.settingsGrid} fill="currentColor" className="h-[15px] w-[15px]" />
             보고서 설정
           </h2>
           <div className="inline-flex items-center gap-1 rounded-full bg-surface-muted px-3 py-1">
@@ -450,43 +432,6 @@ export function ReportEntryPage() {
         </div>
 
         <div className="rounded-[20px] border border-border bg-surface p-6">
-          {/* 아래 설정은 아직 생성 요청에 실리지 않는다(#886 P2). title 툴팁은 hover해야만 보이므로
-              항상 보이는 배너로도 알린다 — 연동 완료 시 이 배너와 disabled를 함께 제거한다. */}
-          <p className="mb-5 rounded-2xl border border-border bg-surface-muted px-4 py-3 text-xs text-text-muted">
-            아래 설정은 <strong className="font-semibold text-text-default">아직 생성 결과에 반영되지 않습니다.</strong>{' '}
-            백엔드 연동 후 활성화될 예정이라 현재는 선택할 수 없습니다.
-          </p>
-
-          {/* 템플릿 & 언어 */}
-          <div className="mb-6 flex gap-4">
-            <div className="flex-1">
-              <div className="mb-2 text-xs font-medium tracking-wide text-text-muted">템플릿 선택</div>
-              <button
-                className="flex w-full items-center justify-between rounded-full border border-border bg-white px-4 py-2.5 text-left text-sm font-medium text-black"
-                disabled
-              >
-                <span className="inline-flex items-center gap-2">
-                  <Icon spec={ICONS.document} fill="#1C1B1C" className="h-[15px] w-3" />
-                  {template}
-                </span>
-                <Icon spec={ICONS.chevronDown} fill="#1C1B1C" className="h-[5.5px] w-[9px]" />
-              </button>
-            </div>
-
-            <div className="w-px bg-border" />
-
-            <div className="flex-1">
-              <div className="mb-2 text-xs font-medium tracking-wide text-text-muted">언어</div>
-              <button
-                className="flex w-full items-center gap-2 rounded-full border border-border bg-white px-4 py-2.5 text-left text-sm font-medium text-black"
-                disabled
-              >
-                <Icon spec={ICONS.globe} fill="#1C1B1C" className="h-[15px] w-[15px]" />
-                {language}
-              </button>
-            </div>
-          </div>
-
           {/* 섹션 선택 */}
           <div className="mb-6">
             <div className="mb-3 text-xs font-medium tracking-wide text-text-muted">
@@ -495,32 +440,23 @@ export function ReportEntryPage() {
             <div className="flex flex-wrap gap-2">
               {[
                 { key: 'overview', label: '점검 개요' },
-                {
-                  key: 'summary',
-                  label: '하자 현황 요약',
-                  disabled: true,
-                  title: 'Grounding check 근거 데이터로 필수입니다',
-                },
-                {
-                  key: 'details',
-                  label: '유형별 상세',
-                  disabled: true,
-                  title: 'Grounding check 근거 데이터로 필수입니다',
-                },
-                { key: 'recommendation', label: '조치 권고', title: NOT_APPLIED_TITLE },
-                { key: 'opinion', label: '종합 의견', title: '준비 중입니다' },
+                { key: 'summary', label: '하자 현황 요약' },
+                { key: 'details', label: '유형별 상세' },
+                { key: 'recommendation', label: '조치 권고' },
+                { key: 'opinion', label: '종합 의견' },
               ].map((sec) => {
-                const isSelected = sections[sec.key as keyof typeof sections] || false;
+                const sectionKey = sec.key as keyof typeof sections;
+                const isSelected = sections[sectionKey];
                 return (
                   <button
                     key={sec.key}
-                    disabled
+                    type="button"
                     aria-pressed={isSelected}
-                    title={sec.title ?? NOT_APPLIED_TITLE}
+                    onClick={() => setSections((prev) => ({ ...prev, [sectionKey]: !prev[sectionKey] }))}
                     className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-all ${
                       isSelected
                         ? 'border-black bg-black text-white'
-                        : 'border-border bg-white text-black disabled:bg-surface disabled:text-text-muted'
+                        : 'border-border bg-white text-black'
                     }`}
                   >
                     {isSelected && <Icon spec={ICONS.check} fill="currentColor" className="h-2 w-[11px]" />}
@@ -531,17 +467,10 @@ export function ReportEntryPage() {
             </div>
           </div>
 
-          {/* 고지 문구 — 이슈 #463 요구항목("AI 초안이며 법정 제출용 아님"을 설정 단계에도 배치).
-              생성 버튼을 누르기 전에 읽히도록 설정 블록 안, 액션바보다 위에 둔다. */}
-          <p className="mb-4 rounded-2xl bg-warning-soft-bg px-4 py-3 text-xs text-warning-soft-fg">
-            생성되는 문서는 <strong className="font-semibold">AI가 작성한 초안</strong>입니다. 법정 제출용
-            보고서가 아니며, 점검자의 검토·수정을 거쳐야 합니다.
-          </p>
-
           {/* 대표 사진 토글 */}
           <div className="flex items-center justify-between rounded-full border border-border bg-white p-4">
             <div className="flex items-center gap-3">
-              <Icon spec={ICONS.camera} fill="black" className="h-[15px] w-4 shrink-0" />
+              <Icon spec={ICONS.camera} fill="currentColor" className="h-[15px] w-4 shrink-0 text-black" />
               <div className="flex flex-col gap-1">
                 <div className="text-sm font-medium text-black">대표 사진 자동 삽입</div>
                 <div className="text-xs text-text-muted">
@@ -550,8 +479,9 @@ export function ReportEntryPage() {
               </div>
             </div>
             <button
-              disabled
-              title={NOT_APPLIED_TITLE}
+              type="button"
+              aria-label="대표 사진 자동 삽입"
+              onClick={() => setIncludePhoto((prev) => !prev)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                 includePhoto ? 'bg-black' : 'bg-border'
               }`}
@@ -616,14 +546,18 @@ export function ReportEntryPage() {
       <div className="mx-auto mt-6 w-full max-w-[1024px] rounded-2xl border border-border bg-white px-6 py-4 shadow-[0px_8px_12px_rgba(0,0,0,0.08)]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm text-text-muted">
-            <Icon spec={ICONS.history} fill="#77767B" className="h-[13.5px] w-3" />
+            <Icon spec={ICONS.clock} fill="#77767B" className="h-4 w-4" />
             <span>
-              확정 하자 <span className="font-semibold text-black">{data.reviewedCount}건</span> 기준으로
-              생성합니다
+              확정 하자 <span className="font-semibold text-black">{data.reviewedCount}건</span> 기준
             </span>
           </div>
           <div className="flex gap-3">
-            <Button variant="secondary" size="md" disabled>
+            <Button
+              variant="secondary"
+              size="md"
+              disabled={reports.length === 0}
+              onClick={() => reports.length > 0 && navigate(`/reports/${reports[0].id}?mode=export`)}
+            >
               미리보기
             </Button>
             <Button
