@@ -183,7 +183,8 @@ export interface DefectActionResult {
 // 하자 상세 모달 "상태 저장" 제출 body — PATCH /api/defects/{id}/action, DefectActionResultRequest
 // 1:1(contract.md §"조치 결과 등록" 확정, #726). targetStatus(#1128) — "진행상태" select 값으로,
 // 이제 IN_PROGRESS(조치중)/RESOLVED(조치완료) 중 백엔드가 실제로 전이한 상태를 명시적으로 보낸다
-// (과거엔 항상 RESOLVED로만 전이해 이 필드가 없었음).
+// (과거엔 항상 RESOLVED로만 전이해 이 필드가 없었음). targetStatus가 현재 상태와 같은 IN_PROGRESS는
+// (#1193/HAJA-569) 상태를 유지한 채 "조치중" 사진을 시간차를 두고 추가 등록하는 재제출을 의미한다.
 export interface DefectActionSubmitRequest {
   actionContent: string;
   actionDate: string;
@@ -191,3 +192,19 @@ export interface DefectActionSubmitRequest {
   actionMediaId: number;
   targetStatus: 'IN_PROGRESS' | 'RESOLVED';
 }
+
+// 조치 등록 제출 이력 1건 — GET /api/defects/{id}/action-logs?phase=, backend
+// DefectActionLogResponse와 1:1(#1193/HAJA-569 백엔드, #1211/HAJA-574 프론트). phase(IN_PROGRESS는
+// "조치 사진" 탭, RESOLVED는 "조치 완료 사진" 탭)별로 여러 건 존재할 수 있어 하자 상세 모달에서
+// 등록일 select로 넘겨보기 위한 목록 조회 전용 타입이다.
+export interface DefectActionLogEntry {
+  id: number;
+  photoUrl: string | null;
+  actionContent: string;
+  actionDate: string; // YYYY-MM-DD
+  actionAssigneeId: number;
+  actionAssigneeName: string | null;
+  createdAt: string;
+}
+
+export type DefectActionLogPhase = 'IN_PROGRESS' | 'RESOLVED';

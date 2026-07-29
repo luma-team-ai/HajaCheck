@@ -3,6 +3,8 @@ import { api } from '../../../shared/api/axios';
 import type { PageResponse } from '../../../shared/api/types';
 import type {
   Defect,
+  DefectActionLogEntry,
+  DefectActionLogPhase,
   DefectActionSubmitRequest,
   DefectListFilters,
   DefectRevision,
@@ -123,4 +125,9 @@ export const defectApi = {
       ...response,
       data: normalizeDefect(response.data),
     })),
+  // GET /api/defects/{id}/action-logs?phase= — 조치 등록 제출 이력 조회(#1193/HAJA-569 백엔드,
+  // #1211/HAJA-574). 페이지네이션 없이 배열 전체를 반환하며, 백엔드가 createdAt 내림차순(최신 우선)
+  // 으로 이미 정렬해 내려준다.
+  getActionLogs: (id: number, phase: DefectActionLogPhase) =>
+    api.get<DefectActionLogEntry[]>(`/defects/${id}/action-logs`, { params: { phase } }),
 };
