@@ -2,7 +2,6 @@ import { http, HttpResponse } from 'msw';
 import type {
   BotScenarioButtonResponse,
   ChatMessageResponse,
-  CounselTicketNoteResponse,
   CounselTicketSummaryResponse,
 } from '../types';
 
@@ -95,12 +94,6 @@ export const mockCounselorLeaf: BotScenarioButtonResponse = {
   buttonLabel: '상담원 연결',
   leadsToCounselor: true,
 };
-
-// 상담원 비공개 메모(#1022/HAJA-504) — ticketId별 in-memory 저장소. 티켓 4(mockInProgressQueueTicket)는
-// 이미 메모가 있는 케이스로, 나머지는 아직 없는(empty) 케이스로 검증한다.
-export const mockCounselTicketNotes = new Map<number, CounselTicketNoteResponse>([
-  [4, { ticketId: 4, counselorId: 9, content: '고객이 등급 산정 기준 재설명 요청함.', updatedAt: '2026-07-27T10:00:00' }],
-]);
 
 // 플랫폼 관리자 상담 관리(#1168) — 날짜별 관리자 조회 목록 픽스처. createdAt이 서로 다른 날짜라
 // AdminCounselDatePanel의 날짜 변경 시 재조회 테스트에 쓴다. 고객 프로필 스냅샷(이름/이메일/플랜/
@@ -264,24 +257,6 @@ export const counselHandlers = [
       ],
     }),
   ),
-  // GET/PUT .../note(#1022, HAJA-504) — 상담원 전용 비공개 메모. 없으면 empty(모든 필드 null) 반환.
-  http.get('/api/counsel/tickets/:id/note', ({ params }) => {
-    const id = Number(params.id);
-    const note = mockCounselTicketNotes.get(id) ?? { ticketId: id, counselorId: null, content: null, updatedAt: null };
-    return HttpResponse.json({ success: true, data: note });
-  }),
-  http.put('/api/counsel/tickets/:id/note', async ({ params, request }) => {
-    const id = Number(params.id);
-    const body = (await request.json()) as { content: string };
-    const note: CounselTicketNoteResponse = {
-      ticketId: id,
-      counselorId: 9,
-      content: body.content,
-      updatedAt: new Date().toISOString(),
-    };
-    mockCounselTicketNotes.set(id, note);
-    return HttpResponse.json({ success: true, data: note });
-  }),
   // GET /api/counsel/tickets/admin(#1168) — 플랫폼 관리자 날짜별 조회. date(YYYY-MM-DD) 쿼리로
   // createdAt이 같은 날짜인 티켓만 필터한다(접수일 기준, 종료일 아님 — 계획 확정 사항).
   http.get('/api/counsel/tickets/admin', ({ request }) => {
