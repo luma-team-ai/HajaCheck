@@ -246,7 +246,6 @@ describe('ReportListPage', () => {
 
   it('DRAFT 행 삭제는 DELETE 호출 후 목록에서 해당 보고서를 제외한다', async () => {
     let deleted = false;
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     server.use(
       http.delete('/api/reports/103', () => {
         deleted = true;
@@ -282,13 +281,14 @@ describe('ReportListPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
     fireEvent.click(await screen.findByRole('menuitem', { name: '삭제' }));
 
+    // 공용 Modal 확인 버튼 클릭
+    fireEvent.click(await screen.findByRole('button', { name: '삭제' }));
+
     await waitFor(() => expect(screen.queryByText(REPORT_103_TITLE)).toBeNull());
-    expect(confirmSpy).toHaveBeenCalledWith('이 보고서 초안을 삭제하면 되돌릴 수 없습니다. 계속하시겠습니까?');
     expect(deleted).toBe(true);
   });
 
   it('DRAFT 행 삭제를 확인창에서 취소하면 DELETE를 호출하지 않는다', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     let deleteCount = 0;
     server.use(
       http.delete('/api/reports/103', () => {
@@ -303,7 +303,9 @@ describe('ReportListPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
     fireEvent.click(await screen.findByRole('menuitem', { name: '삭제' }));
 
-    expect(confirmSpy).toHaveBeenCalled();
+    // 공용 Modal 취소 버튼 클릭 → DELETE 미호출
+    fireEvent.click(await screen.findByRole('button', { name: '취소' }));
+
     expect(deleteCount).toBe(0);
     expect(screen.getByText(REPORT_103_TITLE)).toBeTruthy();
   });

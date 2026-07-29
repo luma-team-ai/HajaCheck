@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { TableFooterPagination } from '../../../shared/components/TableFooterPagination/TableFooterPagination';
+import { Modal } from '../../../shared/components/Modal';
+import { Button } from '../../../shared/components/Button';
 import { reportApi } from '../api/reportApi';
 import { useCompanyReports } from '../hooks/useCompanyReports';
 import { useCompanyReportsSummary } from '../hooks/useCompanyReportsSummary';
@@ -35,6 +37,8 @@ export function ReportListPage() {
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<{ reportId: number; type: 'clone' | 'submit' | 'delete' } | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<number, string | undefined>>({});
+  // 삭제 확인 모달용 — 삭제 버튼 클릭 시 대상 row를 보관하고 Modal로 확인한다
+  const [pendingDeleteRow, setPendingDeleteRow] = useState<ReportListItem | null>(null);
 
   const summaryQuery = useCompanyReportsSummary();
   const listQuery = useCompanyReports(filters);
@@ -156,11 +160,16 @@ export function ReportListPage() {
     }
   }
 
-  async function handleDeleteReport(row: ReportListItem) {
+  // 삭제 버튼 클릭 → 확인 모달 표시 (window.confirm 대체)
+  function handleDeleteReport(row: ReportListItem) {
     if (pendingAction || row.status !== 'DRAFT') return;
-    if (!window.confirm('이 보고서 초안을 삭제하면 되돌릴 수 없습니다. 계속하시겠습니까?')) {
-      return;
-    }
+    setPendingDeleteRow(row);
+  }
+
+  async function confirmDeleteReport() {
+    if (!pendingDeleteRow) return;
+    const row = pendingDeleteRow;
+    setPendingDeleteRow(null);
     setPendingAction({ reportId: row.id, type: 'delete' });
     setActionErrors((prev) => ({ ...prev, [row.id]: undefined }));
     try {
@@ -212,8 +221,60 @@ export function ReportListPage() {
     setIsExporting(false);
   }
 
+  // 진행 중 레이블 (복제 중 / 삭제 중)
+  const progressLabel =
+    pendingAction?.type === 'clone'
+      ? '보고서를 복제하는 중입니다...'
+      : pendingAction?.type === 'delete'
+        ? '보고서를 삭제하는 중입니다...'
+        : null;
+
   return (
     <div className="flex min-h-full flex-col gap-5 bg-surface-muted p-6">
+
+      {/* 삭제 확인 모달 */}
+      <Modal
+        open={pendingDeleteRow !== null}
+        onClose={() => setPendingDeleteRow(null)}
+        title="보고서 초안 삭제"
+        closeOnOverlayClick={false}
+      >
+        <div className="flex flex-col gap-6">
+          <p className="text-sm leading-6 text-text-default">
+            이 보고서 초안을 삭제하면 <span className="font-semibold text-danger">되돌릴 수 없습니다.</span>
+            <br />계속하시겠습니까?
+          </p>
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={() => setPendingDeleteRow(null)}>
+              취소
+            </Button>
+            <Button variant="danger" onClick={() => void confirmDeleteReport()}>
+              삭제
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 복제/삭제 진행 중 모달 */}
+      <Modal
+        open={progressLabel !== null}
+        onClose={() => {}}
+        closeOnOverlayClick={false}
+      >
+        <div className="flex flex-col items-center gap-4 px-2 py-2">
+          <svg
+            className="h-8 w-8 animate-spin text-primary"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+          >
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+          </svg>
+          <p className="text-sm font-medium text-heading">{progressLabel}</p>
+        </div>
+      </Modal>
+
       <div className="flex min-h-full flex-1 overflow-hidden rounded-[20px] border border-border bg-surface shadow-sm">
         <div className="flex flex-1 flex-col">
           <div className="flex items-end justify-between border-b border-border px-8 py-6">
@@ -277,7 +338,7 @@ export function ReportListPage() {
                   onOpenVersionHistory={setActiveReport}
                   onCloneReport={(row) => void handleCloneReport(row)}
                   onSubmitReport={(row) => void handleSubmitReport(row)}
-                  onDeleteReport={(row) => void handleDeleteReport(row)}
+                  onDeleteReport={(row) => handleDeleteReport(row)}
                   pendingAction={pendingAction}
                   actionErrors={actionErrors}
                 />
