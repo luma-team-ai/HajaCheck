@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import defaultAvatarIcon from '../../../assets/brand/sidenav-default-avatar.svg';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
@@ -63,6 +64,14 @@ export function AdminCounselDatePanel({
   onSelect,
 }: Props) {
   const totalPages = Math.max(1, Math.ceil(totalElements / DEFAULT_PAGE_SIZE));
+  const today = new Date().toLocaleDateString('sv-SE');
+
+  const [openGroupKey, setOpenGroupKey] = useState<string | null>('waiting');
+
+  const toggleGroup = (key: string) => {
+    setOpenGroupKey((prevKey) => (prevKey === key ? null : key));
+  };
+
   function renderTicketCard(ticket: CounselTicketSummaryResponse) {
     const selected = ticket.id === selectedTicketId;
     const badge = getCardBadge(ticket.status);
@@ -72,10 +81,10 @@ export function AdminCounselDatePanel({
         type="button"
         onClick={() => onSelect(ticket)}
         aria-pressed={selected}
-        className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors ${
+        className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors ${
           selected
-            ? 'border-l-4 border-l-point bg-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.08)] outline outline-1 outline-point'
-            : 'border-l-4 border-l-transparent opacity-70 hover:bg-white/60'
+            ? 'border-point bg-surface-sunken shadow-[0px_1px_2px_0px_rgba(0,0,0,0.08)]'
+            : 'border-border/60 bg-white/40 opacity-70 hover:border-point/40 hover:bg-white/80 hover:opacity-100'
         }`}
       >
         <ChatAvatar icon={defaultAvatarIcon} bgClassName="bg-surface-sunken" />
@@ -105,6 +114,7 @@ export function AdminCounselDatePanel({
           type="date"
           aria-label="날짜 검색"
           value={date}
+          max={today}
           onChange={(event) => onDateChange(event.target.value)}
           className="h-9 w-full rounded-lg border border-border bg-white px-3 text-[13px] text-text-default focus:border-point focus:outline-none focus:ring-1 focus:ring-point"
         />
@@ -114,7 +124,7 @@ export function AdminCounselDatePanel({
         상담 세션 ({tickets.length})
       </p>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 pt-1 pb-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-2 pt-2 pb-4">
         {loading && <LoadingSpinner className="flex items-center justify-center py-6" />}
         {error && <p className="px-3 text-sm text-red-600">{error}</p>}
         {!loading && !error && tickets.length === 0 && (
@@ -127,18 +137,41 @@ export function AdminCounselDatePanel({
             if (groupTickets.length === 0) {
               return null;
             }
+            const isOpen = group.key === openGroupKey;
             return (
-              <div key={group.key} className="flex min-h-0 flex-col">
-                <div className="flex items-center gap-1.5 px-1 pb-1">
-                  <span className={`size-1.5 rounded-full ${group.dotClassName}`} aria-hidden="true" />
-                  <p className="m-0 text-xs font-semibold text-text-muted">
-                    {group.label} ({groupTickets.length})
-                  </p>
-                </div>
-                {/* 그룹당 최대 4~5건 노출 후 내부 스크롤 — 목록이 길어져도 패널 전체가 늘어지지 않게 함 */}
-                <div className="flex max-h-64 flex-col gap-1 overflow-y-auto pr-1">
-                  {groupTickets.map(renderTicketCard)}
-                </div>
+              <div
+                key={group.key}
+                className="flex min-h-0 flex-col gap-2 rounded-2xl border border-border/80 bg-white/40 p-3 shadow-[0px_1px_2px_0px_rgba(0,0,0,0.02)]"
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.key)}
+                  className="flex w-full items-center justify-between px-1 py-0.5 hover:opacity-80"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className={`size-1.5 rounded-full ${group.dotClassName}`} aria-hidden="true" />
+                    <p className="m-0 text-xs font-semibold text-text-muted">
+                      {group.label} ({groupTickets.length})
+                    </p>
+                  </div>
+                  <svg
+                    className={`size-3.5 text-text-muted transition-transform duration-200 ${
+                      isOpen ? 'rotate-180' : ''
+                    }`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {/* 그룹당 최대 6~7건 노출 후 내부 스크롤 — 단일 아코디언이므로 한도를 넉넉하게 완화(max-h-64 -> max-h-[520px]) */}
+                {isOpen && (
+                  <div className="flex max-h-[520px] flex-col gap-2 overflow-y-auto pr-1">
+                    {groupTickets.map(renderTicketCard)}
+                  </div>
+                )}
               </div>
             );
           })}
