@@ -6,21 +6,25 @@ interface Props {
   changeRate: number;
   /** 변화율 뒤에 붙는 단위. 기본값 '%'. */
   changeUnit?: string;
-  isLast?: boolean;
+  showDivider?: boolean;
 }
 
-export function StatisticsKpiCard({ label, value, changeRate, changeUnit = '%' }: Props) {
+export function StatisticsKpiCard({ label, value, changeRate, changeUnit = '%', showDivider = false }: Props) {
   const arrow = changeRate > 0 ? '▲' : changeRate < 0 ? '▼' : '';
   const changeText = `${Math.abs(changeRate)}${changeUnit}`;
 
   return (
-    <div className="flex-1 min-w-0 h-36 p-5 sm:p-6 flex flex-col justify-between items-start overflow-hidden">
+    <div
+      className={`flex-1 min-w-0 h-36 p-6 flex flex-col justify-between items-start overflow-hidden ${
+        showDivider ? 'border-b border-zinc-200' : ''
+      }`}
+    >
       <span className="text-zinc-500 text-sm font-medium truncate w-full">{label}</span>
-      <div className="pt-4 sm:pt-6 flex items-baseline gap-2 min-w-0 w-full flex-wrap overflow-hidden">
-        <span className="text-zinc-900 text-3xl sm:text-4xl xl:text-5xl font-semibold leading-none tracking-tight">
+      <div className="pt-6 flex items-baseline gap-2 min-w-0 w-full flex-wrap overflow-hidden">
+        <span className="text-zinc-900 text-4xl xl:text-5xl font-semibold leading-10 tracking-tight">
           {value}
         </span>
-        <span className="flex items-center gap-0.5 pb-0.5 text-zinc-500 text-xs sm:text-sm font-normal whitespace-nowrap shrink-0">
+        <span className="flex items-center gap-1 pb-1 text-zinc-500 text-sm font-normal whitespace-nowrap shrink-0">
           {arrow && (
             <span className="text-[10px]" aria-hidden="true">
               {arrow}
