@@ -68,10 +68,10 @@ function normalizePdfPreviewUrl(pdfUrl: string): string {
   }
 }
 
-function buildPdfPreviewSrc(pdfUrl: string): string {
-  const normalized = normalizePdfPreviewUrl(pdfUrl);
-  const hashIndex = normalized.indexOf('#');
-  const baseUrl = hashIndex >= 0 ? normalized.slice(0, hashIndex) : normalized;
+function buildPdfPreviewSrc(pdfUrl: string, blobUrl?: string | null): string {
+  const targetUrl = blobUrl || normalizePdfPreviewUrl(pdfUrl);
+  const hashIndex = targetUrl.indexOf('#');
+  const baseUrl = hashIndex >= 0 ? targetUrl.slice(0, hashIndex) : targetUrl;
   return `${baseUrl}#${PDF_VIEWER_FRAGMENT}`;
 }
 
@@ -117,6 +117,8 @@ export function ReportGeneratePage() {
     }
   }, [parsedReportId, hasValidReportId, setActiveReportId]);
 
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+
   const verifyPdfPreview = useCallback(async (pdfUrl: string, signal?: AbortSignal) => {
     setPdfLoadError(null);
 
@@ -129,12 +131,18 @@ export function ReportGeneratePage() {
     try {
       const requestUrl = normalizePdfPreviewUrl(pdfUrl);
       const response = await fetch(requestUrl, {
-        method: 'HEAD',
+        method: 'GET',
         credentials: 'include',
         cache: 'no-store',
         signal,
       });
       if (!response.ok) throw new Error(`PDF 응답 오류 (${response.status})`);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      setPdfBlobUrl((prevUrl) => {
+        if (prevUrl) URL.revokeObjectURL(prevUrl);
+        return objectUrl;
+      });
       setPdfPreviewKey((current) => current + 1);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -377,7 +385,7 @@ export function ReportGeneratePage() {
               <iframe
                 key={pdfPreviewKey}
                 title="저장된 보고서 PDF"
-                src={buildPdfPreviewSrc(report.pdfUrl)}
+                src={buildPdfPreviewSrc(report.pdfUrl, pdfBlobUrl)}
                 className="block h-full w-full border-0 bg-surface"
                 onErrorCapture={() => setPdfLoadError('저장된 PDF URL을 브라우저에서 직접 열 수 없습니다.')}
               />
