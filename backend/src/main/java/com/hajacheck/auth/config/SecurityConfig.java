@@ -25,6 +25,7 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 
 /**
@@ -52,14 +53,15 @@ public class SecurityConfig {
     // securityContextRepository 는 아래 @Bean 으로 정의 — 순환 생성을 피하려 메서드 파라미터로 주입받는다.
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http,
-                                           SecurityContextRepository securityContextRepository)
+                                           SecurityContextRepository securityContextRepository,
+                                           CsrfTokenRepository csrfTokenRepository)
             throws Exception {
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
 
         http
                 // CSRF: double-submit(SPA axios 가 X-XSRF-TOKEN 자동 전송) — HttpOnly=false 쿠키.
                 .csrf(csrf -> csrf
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .csrfTokenRepository(csrfTokenRepository)
                         .csrfTokenRequestHandler(csrfHandler))
                 // CsrfFilter 직후 토큰을 강제 로드해 XSRF-TOKEN 쿠키를 응답에 심는다.
                 .addFilterAfter(csrfCookieFilter, CsrfFilter.class)
@@ -134,6 +136,16 @@ public class SecurityConfig {
 
         // CORS: dev(Vite proxy)·prod(nginx) 모두 프론트와 동일 오리진으로 프록시되므로 CORS 설정 불필요.
         return http.build();
+    }
+
+    /**
+     * CSRF 토큰 저장소 — 필터체인(위 csrf 설정)과 AuthController(로그아웃 시 토큰 회전, #1200)가
+     * 반드시 같은 인스턴스를 써야 한다. 인라인 생성하면 쿠키명·httpOnly·path 설정이 이원화돼
+     * 컨트롤러가 심은 쿠키를 필터가 못 읽는 조용한 불일치가 생긴다.
+     */
+    @Bean
+    public CsrfTokenRepository csrfTokenRepository() {
+        return CookieCsrfTokenRepository.withHttpOnlyFalse();
     }
 
     @Bean
