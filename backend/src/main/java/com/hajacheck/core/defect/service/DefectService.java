@@ -4,14 +4,17 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.auth.service.CompanyScopeGuard;
+import com.hajacheck.core.defect.dto.DefectActionLogResponse;
 import com.hajacheck.core.defect.dto.DefectActionResultRequest;
 import com.hajacheck.core.defect.dto.DefectResponse;
 import com.hajacheck.core.defect.dto.DefectRevisionResponse;
 import com.hajacheck.core.defect.entity.Defect;
+import com.hajacheck.core.defect.entity.DefectActionLog;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectRevision;
 import com.hajacheck.core.defect.entity.DefectStatus;
 import com.hajacheck.core.defect.entity.DefectType;
+import com.hajacheck.core.defect.repository.DefectActionLogRepository;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.DefectRevisionRepository;
 import com.hajacheck.core.media.repository.MediaRepository;
@@ -19,6 +22,7 @@ import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.DomainValidationException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +42,7 @@ public class DefectService {
 
     private final DefectRepository defectRepository;
     private final DefectRevisionRepository defectRevisionRepository;
+    private final DefectActionLogRepository defectActionLogRepository;
     private final CompanyScopeGuard companyScopeGuard;
     private final AuthService authService;
     private final MediaRepository mediaRepository;
@@ -96,13 +101,48 @@ public class DefectService {
         defect.registerActionResult(
                 request.actionMediaId(), request.actionContent(), request.actionDate(), request.actionAssigneeId(),
                 targetStatus);
-        defectRevisionRepository.save(DefectRevision.record(
-                defect.getId(), userId, "status", previousStatus.name(), defect.getStatus().name(), null));
+        // 이번 제출을 append-only 이력으로 남긴다(#1193/HAJA-569) — flat 필드(위)는 "최신 스냅샷"만
+        // 유지하지만, 이 테이블은 targetStatus=IN_PROGRESS 유지 재제출을 포함해 모든 제출을 보존한다.
+        defectActionLogRepository.save(DefectActionLog.record(
+                defect.getId(), request.actionMediaId(), targetStatus, request.actionContent(),
+                request.actionDate(), request.actionAssigneeId()));
+        // 상태가 실제로 바뀐 제출만 활동기록 타임라인(defect_revisions)에 남긴다 — IN_PROGRESS 유지
+        // 재제출은 상태 변경이 아니므로 타임라인에 안 남기고 위 이력 테이블에만 남는다(#1193/HAJA-569,
+        // 활동기록은 "상태 변경"만 다루는 기존 의미 유지).
+        if (previousStatus != defect.getStatus()) {
+            defectRevisionRepository.save(DefectRevision.record(
+                    defect.getId(), userId, "status", previousStatus.name(), defect.getStatus().name(), null));
+        }
 
         String actionAssigneeName = userRepository.findById(request.actionAssigneeId())
                 .map(User::getName)
                 .orElse(null);
         return DefectResponse.from(defect, actionAssigneeName);
+    }
+
+    /**
+     * 조치 등록 제출 이력 조회(#1193/HAJA-569) — 하자 상세 모달 "조치 사진"/"조치 완료 사진" 탭이
+     * 항목 2개 이상일 때 등록일 select로 넘겨보는 이력이다. findByIdAndCompanyId로 회사 범위를
+     * 먼저 검증해 cross-company IDOR을 차단한다(get()/getRevisions()와 동일 원칙). 담당자 이름은
+     * 건수가 적어(조치 등록 폼 제출 횟수만큼) row별 조회로 충분하다.
+     */
+    public List<DefectActionLogResponse> getActionLogs(
+            Long userId, Long companyId, Long defectId, DefectStatus phase) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        if (phase != DefectStatus.IN_PROGRESS && phase != DefectStatus.RESOLVED) {
+            throw new DomainValidationException(
+                    "조치 이력 조회 불가: phase는 IN_PROGRESS/RESOLVED만 지정할 수 있다 (요청 phase=%s)"
+                            .formatted(phase));
+        }
+        defectRepository.findByIdAndCompanyId(defectId, companyId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
+        List<DefectActionLog> logs =
+                defectActionLogRepository.findByDefectIdAndPhaseOrderByCreatedAtDesc(defectId, phase);
+        return logs.stream()
+                .map(log -> DefectActionLogResponse.from(log, userRepository.findById(log.getActionAssigneeId())
+                        .map(User::getName)
+                        .orElse(null)))
+                .toList();
     }
 
     // defect_revisions.old_value/new_value 는 varchar(255)인데 조치 내용은 최대 2000자까지
