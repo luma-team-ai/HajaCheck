@@ -600,21 +600,17 @@ export function ResultViewerPage() {
               <div className="flex items-center justify-between gap-3 rounded-lg bg-primary/10 px-4 py-3 text-sm text-text-default">
                 <span>
                   {allReviewed
-                    ? '모든 하자의 검수가 완료되었습니다. 점검 요약으로 이동하세요.'
+                    ? "모든 하자의 검수가 완료되었습니다. 우측 상단 '점검 요약' 버튼으로 이동하세요."
                     : isLastMedia
                       ? `이 이미지의 검수가 완료되었습니다. 아직 확정되지 않은 하자가 ${data.totalCount - data.reviewedCount}건 남아 있습니다.`
                       : '이 이미지의 검수가 완료되었습니다. 다음 이미지로 이동하세요.'}
                 </span>
-                {allReviewed ? (
-                  <Button type="button" variant="primary" size="sm" onClick={handleGenerateReport}>
-                    점검 요약으로 이동
+                {/* 전체 완료 시엔 CTA를 두지 않는다 — 헤더의 '점검 요약' 버튼이 그때 활성화되므로
+                    같은 동작을 하는 버튼이 둘이 된다. 배너는 문구로 그 버튼을 가리키기만 한다. */}
+                {!allReviewed && !isLastMedia && (
+                  <Button type="button" variant="primary" size="sm" onClick={handleNextMedia}>
+                    다음 이미지 →
                   </Button>
-                ) : (
-                  !isLastMedia && (
-                    <Button type="button" variant="primary" size="sm" onClick={handleNextMedia}>
-                      다음 이미지 →
-                    </Button>
-                  )
                 )}
               </div>
             )}

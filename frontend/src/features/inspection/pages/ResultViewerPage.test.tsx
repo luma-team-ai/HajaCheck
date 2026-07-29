@@ -447,10 +447,11 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(screen.getByRole('button', { name: '누락 추가' }).hasAttribute('disabled')).toBe(true);
     // 모든 검수가 끝났으므로 점검 요약만 열려 있어야 한다
     expect(screen.getByRole('button', { name: '점검 요약' }).hasAttribute('disabled')).toBe(false);
+    // 배너는 안내 문구만 — 헤더의 '점검 요약'과 중복되는 CTA 버튼은 두지 않는다.
     expect(
-      screen.getByText('모든 하자의 검수가 완료되었습니다. 점검 요약으로 이동하세요.'),
+      screen.getByText("모든 하자의 검수가 완료되었습니다. 우측 상단 '점검 요약' 버튼으로 이동하세요."),
     ).not.toBeNull();
-    expect(screen.getByRole('button', { name: '점검 요약으로 이동' })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '점검 요약으로 이동' })).toBeNull();
   });
 
   it('오탐 삭제는 브라우저 prompt이 아니라 모달로 사유를 받는다(#1255)', async () => {
