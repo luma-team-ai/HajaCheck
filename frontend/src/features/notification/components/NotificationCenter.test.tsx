@@ -69,6 +69,30 @@ describe('NotificationCenter', () => {
     expect(await screen.findByText('상담 이력 페이지')).not.toBeNull();
   });
 
+  // #1262 — INSPECTION_DUE "점검 시작"도 COUNSEL_REPLIED "대화 열기"와 마찬가지로 markAsRead만
+  // 하고 이동은 안 하던 버그. payload.facilityId를 읽어 점검 생성 화면으로 이동한다(대시보드
+  // UpcomingInspectionCard와 동일 경로/쿼리 패턴).
+  it('INSPECTION_DUE "점검 시작" 클릭 시 facilityId를 담아 점검 생성 화면으로 이동한다(#1262)', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/" element={<Harness />} />
+            <Route path="/inspections/create" element={<p>점검 생성 화면</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    await screen.findByText('점검일 도래');
+
+    fireEvent.click(screen.getByRole('button', { name: '점검 시작' }));
+
+    expect(await screen.findByText('점검 생성 화면')).not.toBeNull();
+  });
+
   it('벨을 클릭하면 드롭다운이 열리고 목 데이터를 렌더링한다', async () => {
     renderHarness();
 

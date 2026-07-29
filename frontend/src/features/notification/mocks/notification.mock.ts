@@ -31,7 +31,8 @@ export const mockNotifications: NotificationApiItem[] = [
   {
     id: 4,
     type: 'INSPECTION_DUE',
-    payload: { description: '한강대교 북단 D-3' },
+    // facilityId는 "점검 시작" 액션 이동(#1262)에 실제로 쓰인다 — 실 BE payload와 동일하게 채운다.
+    payload: { description: '한강대교 북단 D-3', facilityId: 1 },
     isRead: true,
     createdAt: minutesAgo(180),
   },
