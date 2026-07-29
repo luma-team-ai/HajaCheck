@@ -6,15 +6,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.global.exception.DomainValidationException;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.Set;
 
 /**
- * INSPECTION_DUE 알림 payload 직렬화/역파싱 유틸(NOTI-01, #425 / 알림설정 게이팅, #540 ③).
+ * INSPECTION_DUE 알림 payload 직렬화/역파싱 유틸(NOTI-01, #425 / 알림설정 게이팅, #540 ③ /
+ * 알림센터 부제목, #1233).
  *
- * <p>{@code {facilityId, facilityName, nextInspectionDueAt, kind}} 형태의 저장용 JSON을 만들고,
- * 배치가 멱등성 체크에 쓸 수 있도록 payload에서 dedupe 키({@code facilityId|nextInspectionDueAt|kind})를
- * 다시 뽑아낸다. MAPPER는 {@code JavaTimeModule}이 없으므로 {@link LocalDate}를 직접 넣지 않고
- * {@code toString()}으로 미리 String 변환해 record에 담는다
+ * <p>{@code {facilityId, facilityName, nextInspectionDueAt, kind, description}} 형태의 저장용
+ * JSON을 만들고, 배치가 멱등성 체크에 쓸 수 있도록 payload에서 dedupe 키
+ * ({@code facilityId|nextInspectionDueAt|kind})를 다시 뽑아낸다. MAPPER는 {@code JavaTimeModule}이
+ * 없으므로 {@link LocalDate}를 직접 넣지 않고 {@code toString()}으로 미리 String 변환해 record에 담는다
  * (GroundingReportContentSerializer 의 plain ObjectMapper 패턴과 동일).
  *
  * <p>{@link Kind}는 #540 ③(알림설정)에서 3종으로 확장됐다(사람검수 P2 #1032) — 사전 알림
@@ -46,7 +48,13 @@ public final class InspectionDueNotificationPayload {
         OVERDUE
     }
 
-    public static String serialize(Facility facility, Kind kind) {
+    /**
+     * @param today 알림센터 부제목(description)의 D-day 문구 계산 기준일 — 스케줄러가 배치 전체에
+     *              쓰는 {@code Clock} 기반 {@code today}를 그대로 넘겨받는다(#1233). 이 메서드 안에서
+     *              {@code LocalDate.now()}를 새로 부르면 배치의 kind 판정 기준일과 어긋날 수 있어
+     *              (자정 근처 실행 시) 호출부의 today를 그대로 재사용한다.
+     */
+    public static String serialize(Facility facility, Kind kind, LocalDate today) {
         if (facility == null) {
             throw new DomainValidationException("INSPECTION_DUE 알림 payload 대상 시설물은 필수다");
         }
@@ -58,12 +66,27 @@ public final class InspectionDueNotificationPayload {
                 facility.getId(),
                 facility.getName(),
                 dueAt == null ? null : dueAt.toString(),
-                kind.name());
+                kind.name(),
+                describe(facility.getName(), dueAt, today));
         try {
             return MAPPER.writeValueAsString(payload);
         } catch (JsonProcessingException e) {
             throw new DomainValidationException("INSPECTION_DUE 알림 payload를 직렬화할 수 없다");
         }
+    }
+
+    /**
+     * "{시설물명} D-{n}" 형태의 알림센터 부제목(#1233, Figma node-id 208-2458). D-day 라벨 포맷은
+     * frontend {@code inspectionCycleStatus.ts}/{@code UpcomingInspectionCard.tsx}와 동일하게
+     * 맞춘다(D-DAY/D-n/D+n) — 프론트가 별도 계산 없이 그대로 표시만 하므로 여기서 포맷을 통일해야 한다.
+     */
+    private static String describe(String facilityName, LocalDate dueAt, LocalDate today) {
+        if (dueAt == null || today == null) {
+            return facilityName;
+        }
+        long diffDays = ChronoUnit.DAYS.between(today, dueAt);
+        String dDayLabel = diffDays == 0 ? "D-DAY" : diffDays > 0 ? "D-" + diffDays : "D+" + Math.abs(diffDays);
+        return facilityName + " " + dDayLabel;
     }
 
     /**
@@ -155,6 +178,7 @@ public final class InspectionDueNotificationPayload {
         return facilityId + "|" + nextInspectionDueAt + "|" + kind;
     }
 
-    private record Payload(Long facilityId, String facilityName, String nextInspectionDueAt, String kind) {
+    private record Payload(
+            Long facilityId, String facilityName, String nextInspectionDueAt, String kind, String description) {
     }
 }

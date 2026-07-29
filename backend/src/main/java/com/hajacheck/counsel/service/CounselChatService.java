@@ -110,7 +110,7 @@ public class CounselChatService {
                 public void afterCommit() {
                     try {
                         notificationService.notify(ticket.getUserId(), NotificationType.COUNSEL_REPLIED,
-                                CounselReplyNotificationPayload.serialize(ticketId));
+                                CounselReplyNotificationPayload.serialize(ticketId, ticket.getTitle()));
                     } catch (Exception e) {
                         log.warn("COUNSEL_REPLIED 알림 발행 실패 — ticketId={} exception={}",
                                 ticketId, e.getClass().getSimpleName());

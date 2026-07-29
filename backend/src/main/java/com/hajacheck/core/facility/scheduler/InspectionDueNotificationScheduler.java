@@ -247,7 +247,7 @@ public class InspectionDueNotificationScheduler {
             // 영향을 주지 않는다.
             try {
                 notificationService.notify(recipientUserId, NotificationType.INSPECTION_DUE,
-                        InspectionDueNotificationPayload.serialize(facility, kind));
+                        InspectionDueNotificationPayload.serialize(facility, kind, today));
                 published++;
             } catch (DataIntegrityViolationException e) {
                 // JPA는 유니크 위반과 FK/NOT NULL/CHECK 위반 등 모든 무결성 오류를 이 예외 하나로
