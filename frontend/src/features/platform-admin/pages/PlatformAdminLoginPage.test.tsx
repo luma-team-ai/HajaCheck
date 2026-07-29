@@ -201,7 +201,8 @@ describe('PlatformAdminLoginPage', () => {
     fillAndSubmit();
 
     await waitFor(() => {
-      expect(screen.getByText('요청이 만료되었습니다. 다시 시도해 주세요.')).not.toBeNull();
+      // role="alert" — 문구뿐 아니라 스크린리더 즉시 노출까지 함께 고정한다(CompanyLoginTab과 동일 규약)
+      expect(screen.getByRole('alert').textContent).toBe('요청이 만료되었습니다. 다시 시도해 주세요.');
     });
     expect(useAuthStore.getState().user).toBeNull();
   });

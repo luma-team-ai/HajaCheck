@@ -94,7 +94,12 @@ export function PlatformAdminLoginPage() {
             />
           </div>
 
-          {errorMessage && <p className={ERROR_CLASSES}>{errorMessage}</p>}
+          {/* role="alert" — 로그인 실패 사유를 스크린리더가 즉시 읽도록(기업 로그인 CompanyLoginTab과 동일) */}
+          {errorMessage && (
+            <p role="alert" className={ERROR_CLASSES}>
+              {errorMessage}
+            </p>
+          )}
 
           <Button
             type="submit"
