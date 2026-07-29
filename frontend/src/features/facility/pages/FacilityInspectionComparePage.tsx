@@ -11,14 +11,15 @@ import { exportComparisonReportAsPng } from '../utils/exportComparisonReportAsPn
 import { useFacilityComparison } from '../hooks/useFacilityComparison';
 
 const DEFAULT_FACILITY_ID = 'detail';
-const DEFAULT_BEFORE_CYCLE = 7;
-const DEFAULT_AFTER_CYCLE = 8;
 
 // 회차 간 비교(dev-04-02, #489) — 하자 상세 화면의 "회차비교" 탭에서 navigate로 진입.
 export function FacilityInspectionComparePage() {
   const { id = DEFAULT_FACILITY_ID } = useParams<{ id: string }>();
-  const [beforeCycle, setBeforeCycle] = useState(DEFAULT_BEFORE_CYCLE);
-  const [afterCycle, setAfterCycle] = useState(DEFAULT_AFTER_CYCLE);
+  // #1157 — 시설물마다 실제 점검 회차가 다르므로 화면 진입 시 유효한 회차를 미리 알 수 없다
+  // (과거엔 7/8회차로 하드코딩해 그 회차가 없는 시설물에서 항상 실패했다). undefined면 서버가
+  // 이 시설물의 실제 최근 2개 회차로 자동 대체해 응답하고, 그 값을 select 표시에 그대로 반영한다.
+  const [beforeCycle, setBeforeCycle] = useState<number | undefined>(undefined);
+  const [afterCycle, setAfterCycle] = useState<number | undefined>(undefined);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const exportTargetRef = useRef<HTMLDivElement | null>(null);
@@ -56,6 +57,25 @@ export function FacilityInspectionComparePage() {
     );
   }
 
+  // 서버가 자동 대체한 회차를 select 표시값으로 사용한다(#1157) — 사용자가 아직 명시적으로
+  // 고르지 않았으면(undefined) 응답에 실린 beforeCycle/afterCycle이 곧 서버가 고른 실제 값이다.
+  const displayedBeforeCycle = beforeCycle ?? data.beforeCycle.cycle;
+  const displayedAfterCycle = afterCycle ?? data.afterCycle.cycle;
+
+  // code-reviewer P1 — 한쪽 회차만 바꾸고 다른 쪽을 undefined로 남겨두면, 재요청 시 서버가
+  // "둘 다 생략" 경로로 오인해 방금 고른 값까지 자동 대체로 덮어써 버린다(select엔 사용자가
+  // 고른 값이 남아 있는데 실제 비교 데이터는 서버가 다시 고른 값이 되는 불일치). 한쪽을 바꿀 때
+  // 다른 쪽도 현재 표시값으로 함께 명시해, 사용자가 한 번이라도 선택한 뒤로는 두 값이 항상
+  // 같이 정의되도록 한다.
+  const handleBeforeCycleChange = (cycle: number) => {
+    setBeforeCycle(cycle);
+    setAfterCycle(displayedAfterCycle);
+  };
+  const handleAfterCycleChange = (cycle: number) => {
+    setAfterCycle(cycle);
+    setBeforeCycle(displayedBeforeCycle);
+  };
+
   return (
     // 사이드바·헤더는 AppLayout(shared)이 별도로 렌더링하므로, 이 콘텐츠 영역만 캡처하면
     // "메인 콘텐츠 영역만" PNG로 내보내는 요구사항이 자연히 충족된다(#489 확정).
@@ -67,15 +87,15 @@ export function FacilityInspectionComparePage() {
             <InspectionCycleSelect
               label="이전 회차"
               options={data.availableCycles}
-              value={beforeCycle}
-              onChange={setBeforeCycle}
+              value={displayedBeforeCycle}
+              onChange={handleBeforeCycleChange}
             />
             <span className="text-sm font-semibold text-text-muted">VS</span>
             <InspectionCycleSelect
               label="현재 회차"
               options={data.availableCycles}
-              value={afterCycle}
-              onChange={setAfterCycle}
+              value={displayedAfterCycle}
+              onChange={handleAfterCycleChange}
             />
           </div>
         </div>
