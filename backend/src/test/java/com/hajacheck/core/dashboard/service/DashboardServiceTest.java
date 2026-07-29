@@ -245,12 +245,52 @@ class DashboardServiceTest {
                 dashboardService.getPendingPriority(USER_ID, OWNER_ID);
 
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).location()).isEqualTo("내시설");
+        // location은 이름·유형·주소를 " · "로 이어붙인다(Figma "이름+세부정보" 정합) — 이 fixture는
+        // type("BUILDING")만 채워져 있고 address는 없어(null은 필터링) "내시설 · BUILDING"이 된다.
+        assertThat(result.get(0).location()).isEqualTo("내시설 · BUILDING");
         assertThat(result.get(0).grade()).isEqualTo("E");
         // 타인(OTHER_OWNER_ID) 소유 시설물은 findByCompanyId(OWNER_ID) 결과에 없으므로
         // defectRepository 조회 인자에도 해당 시설물의 inspectionId 가 절대 섞이지 않는다.
         verify(defectRepository).findPendingPriorityDefects(
                 List.of(200L), DefectStatus.CONFIRMED, PageRequest.of(0, 10));
+    }
+
+    @Test
+    void getPendingPriority_이름유형주소모두있으면_3파트를이어붙인다() {
+        Facility facility = Facility.builder()
+                .companyId(OWNER_ID).name("여의도 파크센터").type("BUILDING").address("서울시 영등포구").build();
+        setId(facility, "id", FACILITY_ID);
+        when(facilityRepository.findByCompanyId(OWNER_ID)).thenReturn(List.of(facility));
+        Inspection myInspection =
+                inspection(200L, FACILITY_ID, OWNER_ID, LocalDate.now(), InspectionStatus.REVIEWED);
+        when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of(myInspection));
+        Defect pending = defect(300L, 200L, DefectGrade.E, DefectStatus.CONFIRMED);
+        when(defectRepository.findPendingPriorityDefects(
+                List.of(200L), DefectStatus.CONFIRMED, PageRequest.of(0, 10)))
+                .thenReturn(List.of(pending));
+
+        List<PendingPriorityResponse> result = dashboardService.getPendingPriority(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).location()).isEqualTo("여의도 파크센터 · BUILDING · 서울시 영등포구");
+    }
+
+    @Test
+    void getPendingPriority_시설물매핑실패하면_location은대시로표시된다() {
+        // facilityIdByInspectionId가 가리키는 시설물이 facilityById에 없는(이론상 거의 불가능하나
+        // 방어 로직 검증 목적의) 경계 케이스 — locationOf(null)이 "-"를 반환하는지 확인한다.
+        when(facilityRepository.findByCompanyId(OWNER_ID))
+                .thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "내시설")));
+        Inspection orphanInspection =
+                inspection(200L, 999L, OWNER_ID, LocalDate.now(), InspectionStatus.REVIEWED);
+        when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID))).thenReturn(List.of(orphanInspection));
+        Defect pending = defect(300L, 200L, DefectGrade.E, DefectStatus.CONFIRMED);
+        when(defectRepository.findPendingPriorityDefects(
+                List.of(200L), DefectStatus.CONFIRMED, PageRequest.of(0, 10)))
+                .thenReturn(List.of(pending));
+
+        List<PendingPriorityResponse> result = dashboardService.getPendingPriority(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).location()).isEqualTo("-");
     }
 
     @Test
