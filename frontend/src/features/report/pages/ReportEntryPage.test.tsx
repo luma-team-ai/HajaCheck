@@ -432,6 +432,7 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
               version: 1,
               status: 'DRAFT',
               groundingCheckPassed: null,
+              createdByName: '알수없음',
               createdAt: '2026-06-22T10:00:00Z',
             },
           ] satisfies ReportSummaryResponse[],
