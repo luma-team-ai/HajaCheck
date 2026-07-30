@@ -18,13 +18,17 @@ const GRADE_BADGE_STYLE: Record<string, { bg: string; text: string }> = {
 const INLINE_INPUT_CLASSES =
   'w-full rounded-lg border border-transparent bg-transparent px-0 py-0 text-left text-base font-semibold leading-6 text-heading outline-none transition focus:border-primary focus:bg-surface focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed read-only:text-heading';
 
+// LabeledTextArea 기본 FIELD_CLASSES(px-4 py-3 border-border bg-surface 등)와 같은 속성을 덮어써야
+// 하는데, Tailwind는 클래스 문자열 순서가 아니라 유틸리티가 생성된 스케일 순서로 캐스케이드를
+// 결정한다(px-4가 px-0보다 나중에 정의돼 실제로는 px-4가 이긴다) — 그래서 충돌하는 속성엔 `!`를
+// 붙여 항상 이기도록 강제한다(다른 곳의 StatisticsFilterBar.tsx 관례와 동일).
 const INLINE_TEXTAREA_CLASSES =
-  'min-h-0 border-transparent bg-transparent px-0 py-0 text-sm leading-6 focus:border-primary focus:bg-surface read-only:bg-transparent read-only:text-heading';
+  'min-h-0 border-transparent! bg-transparent! px-0! py-0! text-sm leading-6 focus:border-primary focus:bg-surface read-only:bg-transparent! read-only:text-heading!';
 
 // "위치"는 긴 주소가 들어오면(예: "충남 예산군 응봉면 예당관광...") 한 줄 입력으로는 잘려 보이므로,
 // 하자 유형(짧은 값 전제)과 달리 자동 줄바꿈되는 textarea를 쓴다.
 const INLINE_LOCATION_TEXTAREA_CLASSES =
-  'min-h-0 border-transparent bg-transparent px-0 py-0 text-left text-base font-semibold leading-6 text-heading focus:border-primary focus:bg-surface read-only:bg-transparent read-only:text-heading';
+  'min-h-0 border-transparent! bg-transparent! px-0! py-0! text-left text-base! font-semibold leading-6 text-heading! focus:border-primary focus:bg-surface read-only:bg-transparent! read-only:text-heading!';
 
 interface DetailSectionProps {
   content: ReportContent;
