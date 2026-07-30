@@ -63,6 +63,7 @@ services:
       args:
         VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:?VITE_KAKAO_MAP_APP_KEY가 .env에 설정되어야 합니다}
         # 토스 결제창 SDK 클라이언트 키(#988) — Vite가 빌드 시점에 인라인한다(런타임 주입 불가).
-        # 공개돼도 되는 키라 :- 소프트(미설정 시 결제 화면만 동작하지 않음). 서버 시크릿
+        # 공개돼도 되는 키지만 운영은 카카오와 동일하게 강제(:?) — 소프트(:-)로 두면 키가 비어도
+        # 빌드·헬스체크가 전부 통과한 뒤 결제 경로만 런타임에 조용히 깨진다(#1339). 서버 시크릿
         # TOSS_SECRET_KEY와 절대 혼동하지 말 것.
-        VITE_TOSS_CLIENT_KEY: ${VITE_TOSS_CLIENT_KEY:-}
+        VITE_TOSS_CLIENT_KEY: ${VITE_TOSS_CLIENT_KEY:?VITE_TOSS_CLIENT_KEY가 .env에 설정되어야 합니다}

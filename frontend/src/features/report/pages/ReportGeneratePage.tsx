@@ -9,7 +9,12 @@ import { useInspectionResult } from '../../inspection/hooks/useInspectionResult'
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import { reportApi } from '../api/reportApi';
 import type { ReportDetailResponse } from '../api/reportApi';
+import type { Defect } from '../../inspection/types';
 import { ReportContentEditor } from '../components/ReportContentEditor';
+import {
+  groupDefectsByMedia,
+  type DefectPhotoGroup,
+} from '../components/editor/DefectPhoto';
 import { ReportEditorHero } from '../components/editor/ReportEditorHero';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
@@ -198,8 +203,29 @@ export function ReportGeneratePage() {
 
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
-  const defectImageUrls = useMemo(
-    () => inspectionData?.defects.map((defect) => defect.imageUrl) ?? [],
+  // 하자 상세 항목은 defects와 같은 순서로 만들어지므로 사진도 그 순서 그대로 1:1로 넘긴다.
+  // 항목마다 "그 하자"가 주인공이지만, 같은 사진에 찍힌 다른 하자도 흐리게 함께 보여준다(#1333).
+  const defectPhotos = useMemo<DefectPhotoGroup[]>(() => {
+    const defects = inspectionData?.defects ?? [];
+    const siblingsByMediaId = new Map<number, Defect[]>();
+    defects.forEach((defect) => {
+      if (defect.mediaId == null) return;
+      const bucket = siblingsByMediaId.get(defect.mediaId);
+      if (bucket) bucket.push(defect);
+      else siblingsByMediaId.set(defect.mediaId, [defect]);
+    });
+    return defects.map((defect) => ({
+      mediaId: defect.mediaId ?? null,
+      imageUrl: defect.imageUrl,
+      defects:
+        defect.mediaId == null ? [defect] : (siblingsByMediaId.get(defect.mediaId) ?? [defect]),
+      highlightDefectId: defect.id,
+    }));
+  }, [inspectionData?.defects]);
+
+  // 부위별 사진은 사진 단위 — 같은 사진의 하자를 한 장에 모아 중복 표시를 없앤다(#1333).
+  const defectPhotoGroups = useMemo(
+    () => groupDefectsByMedia(inspectionData?.defects ?? []),
     [inspectionData?.defects],
   );
 
@@ -644,7 +670,8 @@ export function ReportGeneratePage() {
           content={content}
           onChange={setContent}
           readOnly={isFinalized || isSaving || isRechecking || isFinalizing}
-          defectImageUrls={defectImageUrls}
+          defectPhotos={defectPhotos}
+          defectPhotoGroups={defectPhotoGroups}
         />
       )}
 
