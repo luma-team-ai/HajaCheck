@@ -1,28 +1,11 @@
 # 기존 PostgreSQL 수동 증분 반영 절차 (Flyway 이전 — 보관)
 
-> **문서 버전:** v0.5 · **최종 수정:** 2026-07-30 · 이전 버전 `archive/`
+> **문서 버전:** v0.4 · **최종 수정:** 2026-07-25 · 이전 버전 `archive/`
 
 > ⚠️ **Flyway 도입(#359) 이후 보관 문서.** 신규 마이그레이션은 더 이상 이 디렉터리에 수동 SQL로
 > 추가하지 않는다 — `backend/src/main/resources/db/migration/`의 Flyway 버전 파일(`V{n}__*.sql`)이
 > 유일한 진실 소스다. 이 디렉터리와 아래 절차는 Flyway 도입 이전에 arm1 프로덕션 등 기존 DB를
 > 현재 스키마로 수동 정합했던 이력의 기록으로만 남긴다(신규 DB에는 적용하지 않는다).
-
-> 🚫 **이 디렉터리의 SQL을 운영 DB에 직접 실행하지 않는다(2026-07-30 확정).** 아래 절차는 이제
-> 실행 지침이 아니라 이력 기록이다. arm1 프로덕션은 2026-07-22 baseline-on-migrate 로 V1을
-> **실행하지 않고 스탬프만** 했기 때문에 이 디렉터리의 일부가 prod에 반영되지 않은 채 남아 있었고,
-> 그 격차는 **Flyway forward migration 으로만** 메웠다:
->
-> | 이 디렉터리 파일 | prod 반영 경로 |
-> |---|---|
-> | `20260716_04/05_menu_schema_*` | **V35**(#1308 — 미반영 상태로 남아 승격 배포 기동 실패를 유발) |
-> | `20260716_01/02_ha25_expand/finalize` 중 부분 UNIQUE 3종·`fk_inspections_assigned_inspector`·`updated_at` 트리거 3종·`chat_message_citations.snippet` NOT NULL | **V36**(#1311) |
-> | `20260719_01_ap020_notification_history_index` | **V36**(#1311) |
-> | `20260716_02` 의 `check_inspection_assigned_inspector_company()` + 트리거 | **미반영 — #604 유지**. 이 트리거는 앱(`AuthService.validateAssignableInspector`)보다 엄격해(회사 `APPROVED`+`VERIFIED` 추가 요구, 진위확인 fail-open 과 충돌) 그대로 넣으면 정상 점검 생성이 거부된다. 앱↔DB 의미 정렬 후 별도 반영. |
-> | `20260720_01`·`20260721_01`·`20260722_01`(×2)·`20260722_02` | V1~V5 로 이미 흡수 |
->
-> 남은 차이(prod 에만 있는 레거시 중복 UNIQUE 6종·orphan 컬럼 `usage_counters.lock_version`·소문자
-> orphan enum 23종)는 전부 pre-Flyway Hibernate 잔재이며, 제거는 `DROP` 이라 사용처 실측을 붙여
-> 별도 마이그레이션으로 처리한다.
 
 이 디렉터리는 이미 운영 중인 v0.3 계열 PostgreSQL을 현재
 [`HajaCheck_script.sql`](../HajaCheck_script.sql) 스키마로 올리는 수동 증분 SQL을 보관한다.
