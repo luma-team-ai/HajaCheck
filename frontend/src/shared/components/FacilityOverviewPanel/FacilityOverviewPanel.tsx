@@ -42,7 +42,6 @@ export interface FacilityOverviewPanelProps {
   /** "다음 점검일" D-day 배지 — feature마다 계산 로직이 달라 호출부가 렌더링해 전달 */
   nextInspectionBadge: ReactNode;
   history: FacilityOverviewHistoryItem[];
-  onEditInfo?: () => void;
   onNewInspection?: () => void;
   /** 기본 "+ 새 점검" — 호출부 맥락에 따라 문구를 바꿀 수 있게 */
   newInspectionLabel?: string;
@@ -63,7 +62,6 @@ export function FacilityOverviewPanel({
   unresolvedDefectCount,
   nextInspectionBadge,
   history,
-  onEditInfo,
   onNewInspection,
   newInspectionLabel = '+ 새 점검',
   onDefectsTabClick,
@@ -92,13 +90,6 @@ export function FacilityOverviewPanel({
             </div>
 
             <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={onEditInfo}
-                className="rounded-xl bg-white px-5 py-2 text-base font-normal text-zinc-900 outline outline-1 outline-offset-[-1px] outline-neutral-300/30"
-              >
-                정보 수정
-              </button>
               <button
                 type="button"
                 onClick={onNewInspection}
