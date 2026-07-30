@@ -157,10 +157,29 @@ export interface MyReportCard {
 
 // ---- 마이페이지 — 비밀번호 변경(#1316, HAJA-602) ----
 // PATCH /api/users/me/password — BE #1315와 병렬 구현(handoff docs/_local/handoff/password-change-fe-1316-next.md
-// 가 계약 소스). 성공 시 서버가 현재 세션을 무효화한다. 에러는 반드시 status로 분기한다(메시지 문자열
-// 매칭 금지) — 401: 현재 비밀번호 불일치(세션 만료 아님, 전역 401 리다이렉트 우회 필요) / 400: 소셜
-// 전용 계정·정책 위반·신구 동일 / 429: 요청 과다.
+// 가 계약 소스). 성공 시 서버가 현재 세션을 무효화한다. status(401)만으로는 "현재 비밀번호 불일치"와
+// "세션 만료·미인증"을 구분할 수 없어(둘 다 401) code로 분기해야 한다 — 400: 소셜 전용 계정·정책
+// 위반·신구 동일 / 429: 요청 과다.
 export interface PasswordChangeRequest {
   currentPassword: string;
   newPassword: string;
 }
+
+// BE(#1315) 실코드 확인 완료(2026-07-30) — RestAuthenticationEntryPoint → ErrorCode.UNAUTHORIZED
+// (미인증·세션 만료), PasswordChangeService:90 → ErrorCode.AUTH_INVALID_CREDENTIALS(현재 비밀번호
+// 불일치). 이 두 코드로 401을 화이트리스트 분기한다 — code==='UNAUTHORIZED'일 때만 세션 만료로 보고
+// 로그아웃시키고, 그 외 401(AUTH_INVALID_CREDENTIALS 포함 + 알 수 없는 코드)은 전부 "현재 비밀번호
+// 오류"로 취급해 필드 인라인 에러만 보여준다(모르는 401을 세션 만료로 오분류해 정상 재시도까지
+// 강제 로그아웃시키는 게 더 나쁜 방향이므로 — 코드 리뷰 P2-2). mypageApi.handlers.ts(목)·
+// PasswordChangeSection(컴포넌트)·테스트가 전부 이 상수를 참조해 하드코딩 문자열이 흩어지지
+// 않게 한다.
+export const PASSWORD_CHANGE_ERROR_CODE = {
+  SESSION_EXPIRED: 'UNAUTHORIZED',
+  INVALID_CREDENTIALS: 'AUTH_INVALID_CREDENTIALS',
+  PASSWORD_NOT_SET: 'AUTH_PASSWORD_NOT_SET',
+  PASSWORD_UNCHANGED: 'AUTH_PASSWORD_UNCHANGED',
+  TOO_MANY_REQUESTS: 'AUTH_TOO_MANY_REQUESTS',
+} as const;
+
+export type PasswordChangeErrorCode =
+  (typeof PASSWORD_CHANGE_ERROR_CODE)[keyof typeof PASSWORD_CHANGE_ERROR_CODE];
