@@ -81,6 +81,103 @@ export function resetMypagePaymentMockStore(): void {
   mockPaymentsState.push(...mockPayments);
 }
 
+// 비밀번호 변경 MSW 전용 트리거 — mockPayments의 MYPAGE_PAYMENT_DEV_TRIGGER와 동일 패턴. 실 백엔드
+// 시나리오(계정 상태·rate limit·세션 만료)를 목 데이터로 자연 발생시킬 수 없어 currentPassword 값으로
+// 분기한다.
+export const MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER = {
+  wrongCurrentPassword: '__wrong_current_password__',
+  sessionExpired: '__session_expired__',
+  passwordNotSet: '__password_not_set__',
+  rateLimited: '__rate_limited__',
+  serverError: '__server_error__',
+} as const;
+
+// 비밀번호 변경(#1316, HAJA-602) — BE #1315 병렬 구현이라 실 API 대신 handoff 계약대로 흉내낸다.
+// 에러 코드는 실 백엔드 ErrorCode(#1315)와 1:1로 맞춘다(보안 리뷰 P2-3 — status만으론 "현재 비밀번호
+// 불일치"와 "세션 만료"가 둘 다 401이라 구분이 안 되고, FE가 code로 분기하려면 목도 실 코드를 내려야
+// 회귀를 못 잡는다). 전용 트리거(MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER)로 401(자격 불일치/세션 만료
+// 2종)·400·429·500(미분류) 시나리오를 재현하고, currentPassword === newPassword(신·구 동일)는 별도
+// 트리거 없이 실제 값 비교로 400을 재현한다. 별도 export(mypagePasswordChangeHandler)로도 노출한다 —
+// 하이브리드(VITE_ENABLE_MSW=hybrid) 개발 환경에서는 mocks/handlers.ts가 이 핸들러 하나만 제외하고
+// 나머지 mypageHandlers는 그대로 둔다(보안 리뷰 P2-3, effectiveReportHandlers 패턴 준용 — 다른
+// /me/* 엔드포인트는 아직 BE 병렬 미착수라 목이 계속 필요하다).
+export const mypagePasswordChangeHandler = http.patch(
+  '/api/users/me/password',
+  async ({ request }) => {
+    const { currentPassword, newPassword } = (await request.json()) as {
+      currentPassword?: string;
+      newPassword?: string;
+    };
+
+    if (currentPassword === MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.rateLimited) {
+      const body: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'AUTH_TOO_MANY_REQUESTS', message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.' },
+      };
+      return HttpResponse.json(body, { status: 429 });
+    }
+
+    if (currentPassword === MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.wrongCurrentPassword) {
+      const body: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'AUTH_INVALID_CREDENTIALS', message: '현재 비밀번호가 일치하지 않습니다.' },
+      };
+      return HttpResponse.json(body, { status: 401 });
+    }
+
+    // 세션 만료·미인증(#1315) — "현재 비밀번호 불일치"와 status(401)는 같지만 code가 다르다. FE는
+    // 이 트리거로 axios skipAuthRedirect 우회 후 자체 재로그인 유도(P2-1)를 검증한다.
+    if (currentPassword === MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.sessionExpired) {
+      const body: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'UNAUTHORIZED', message: '인증이 필요합니다.' },
+      };
+      return HttpResponse.json(body, { status: 401 });
+    }
+
+    if (currentPassword === MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.passwordNotSet) {
+      const body: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: {
+          code: 'AUTH_PASSWORD_NOT_SET',
+          message: '소셜 로그인 전용 계정은 비밀번호를 변경할 수 없습니다.',
+        },
+      };
+      return HttpResponse.json(body, { status: 400 });
+    }
+
+    if (newPassword !== undefined && currentPassword === newPassword) {
+      const body: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: {
+          code: 'AUTH_PASSWORD_UNCHANGED',
+          message: '현재 비밀번호와 동일한 비밀번호로는 변경할 수 없습니다.',
+        },
+      };
+      return HttpResponse.json(body, { status: 400 });
+    }
+
+    // 401/400/429 외 미분류 실패(CSRF 403·계정 상태 403·500·오프라인 등, P2-2) 재현용 — FE의
+    // else 폴백(getApiErrorMessage) 렌더를 검증한다.
+    if (currentPassword === MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.serverError) {
+      const body: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'INTERNAL_SERVER_ERROR', message: '일시적인 오류가 발생했습니다.' },
+      };
+      return HttpResponse.json(body, { status: 500 });
+    }
+
+    const body: ApiResponse<null> = { success: true, data: null };
+    return HttpResponse.json(body);
+  },
+);
+
 export const mypageHandlers = [
   http.get('/api/me/plan', () => {
     const body: ApiResponse<MyPlan> = { success: true, data: mockMyPlanState };
@@ -268,66 +365,10 @@ export const mypageHandlers = [
     return HttpResponse.json(body);
   }),
 
-  // 비밀번호 변경(#1316, HAJA-602) — BE #1315 병렬 구현이라 실 API 대신 handoff 계약대로 흉내낸다.
-  // 전용 트리거(MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER)로 401/400/429 3가지 실패 시나리오를 재현하고,
-  // currentPassword === newPassword(신·구 동일)는 별도 트리거 없이 실제 값 비교로 400을 재현한다.
-  http.patch('/api/users/me/password', async ({ request }) => {
-    const { currentPassword, newPassword } = (await request.json()) as {
-      currentPassword?: string;
-      newPassword?: string;
-    };
-
-    if (currentPassword === MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.rateLimited) {
-      const body: ApiResponse<null> = {
-        success: false,
-        data: null,
-        error: { code: 'TOO_MANY_REQUESTS', message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.' },
-      };
-      return HttpResponse.json(body, { status: 429 });
-    }
-
-    if (currentPassword === MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.wrongCurrentPassword) {
-      const body: ApiResponse<null> = {
-        success: false,
-        data: null,
-        error: { code: 'AUTH_CURRENT_PASSWORD_MISMATCH', message: '현재 비밀번호가 일치하지 않습니다.' },
-      };
-      return HttpResponse.json(body, { status: 401 });
-    }
-
-    if (currentPassword === MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.socialOnlyAccount) {
-      const body: ApiResponse<null> = {
-        success: false,
-        data: null,
-        error: {
-          code: 'AUTH_SOCIAL_ONLY_ACCOUNT',
-          message: '소셜 로그인 전용 계정은 비밀번호를 변경할 수 없습니다.',
-        },
-      };
-      return HttpResponse.json(body, { status: 400 });
-    }
-
-    if (newPassword !== undefined && currentPassword === newPassword) {
-      const body: ApiResponse<null> = {
-        success: false,
-        data: null,
-        error: {
-          code: 'AUTH_PASSWORD_SAME_AS_CURRENT',
-          message: '현재 비밀번호와 동일한 비밀번호로는 변경할 수 없습니다.',
-        },
-      };
-      return HttpResponse.json(body, { status: 400 });
-    }
-
-    const body: ApiResponse<null> = { success: true, data: null };
-    return HttpResponse.json(body);
-  }),
+  // 비밀번호 변경(#1316, HAJA-602) — 별도 export(mypagePasswordChangeHandler)로도 노출한다.
+  // BE #1315가 실 구현이라(핸드오프와 별개로 병렬 진행 중) 하이브리드(VITE_ENABLE_MSW=hybrid) 개발
+  // 환경에서는 mocks/handlers.ts가 이 핸들러 하나만 제외하고 나머지 mypageHandlers는 그대로
+  // 둔다(보안 리뷰 P2-3 — effectiveReportHandlers 패턴 준용, 다른 /me/* 엔드포인트는 아직 BE
+  // 병렬 미착수라 목이 계속 필요하다).
+  mypagePasswordChangeHandler,
 ];
-
-// 비밀번호 변경 MSW 전용 트리거 — mockPayments의 MYPAGE_PAYMENT_DEV_TRIGGER와 동일 패턴. 실 백엔드
-// 시나리오(계정 상태·rate limit)를 목 데이터로 자연 발생시킬 수 없어 currentPassword 값으로 분기한다.
-export const MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER = {
-  wrongCurrentPassword: '__wrong_current_password__',
-  socialOnlyAccount: '__social_only_account__',
-  rateLimited: '__rate_limited__',
-} as const;
