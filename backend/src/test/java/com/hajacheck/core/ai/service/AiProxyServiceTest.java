@@ -16,6 +16,7 @@ import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.support.InMemoryRateLimiter;
+import com.hajacheck.support.StubRateLimiter;
 import java.net.ConnectException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
@@ -168,8 +169,8 @@ class AiProxyServiceTest {
     @Test
     void explainDefect_전역rate_limit초과_AUTH_TOO_MANY_REQUESTS_내부호출없음() {
         // 사용자 축은 통과하되 전역 축만 초과 → 429, FastAPI 호출 없음(#582 Critical).
-        AiProxyService limited = newService((key, limit, window) -> !key.startsWith("rate:ai-proxy:global")
-                && !key.equals("rate:ai-proxy:daily")); // 전역 키만 거부
+        AiProxyService limited = newService(StubRateLimiter.of((key, limit, window) -> !key.startsWith("rate:ai-proxy:global")
+                && !key.equals("rate:ai-proxy:daily"))); // 전역 키만 거부
 
         assertThatThrownBy(() -> limited.explainDefect(USER_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
@@ -181,7 +182,7 @@ class AiProxyServiceTest {
     @Test
     void explainDefect_사용자rate_limit초과_AUTH_TOO_MANY_REQUESTS_내부호출없음() {
         // per-user 캡(P2-A): 사용자 축만 초과해도 429, FastAPI 호출 없음. 사용자 키만 거부한다.
-        AiProxyService limited = newService((key, limit, window) -> !key.startsWith("rate:ai-proxy:user:"));
+        AiProxyService limited = newService(StubRateLimiter.of((key, limit, window) -> !key.startsWith("rate:ai-proxy:user:")));
 
         assertThatThrownBy(() -> limited.explainDefect(USER_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
@@ -193,7 +194,7 @@ class AiProxyServiceTest {
     @Test
     void explainDefect_전역일일캡초과_AUTH_TOO_MANY_REQUESTS_내부호출없음() {
         // P2-C: 분당 전역은 통과하되 일일 전역 캡만 초과 → 429, FastAPI 호출 없음.
-        AiProxyService limited = newService((key, limit, window) -> !key.equals("rate:ai-proxy:daily"));
+        AiProxyService limited = newService(StubRateLimiter.of((key, limit, window) -> !key.equals("rate:ai-proxy:daily")));
 
         assertThatThrownBy(() -> limited.explainDefect(USER_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)

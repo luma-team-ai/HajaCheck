@@ -2,8 +2,12 @@ package com.hajacheck.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -12,7 +16,10 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
@@ -47,9 +54,34 @@ class AuthCsrfRotationIntegrationTest extends PostgresTestSupport {
 
     private static final String CSRF_COOKIE = "XSRF-TOKEN";
     private static final String CSRF_HEADER = "X-XSRF-TOKEN";
+    // ⚠️ 프로덕션 세션 쿠키명은 "SESSION"(Spring Session Redis)이지만, test 프로파일은
+    // RedisAutoConfiguration 을 제외해 Spring Session 이 뜨지 않는다 → 톰캣 자체 세션 쿠키명이 쓰인다.
+    // 여기서 고정하려는 것은 CSRF 쿠키 회전이지 세션 쿠키명이 아니므로 실행 환경의 이름을 그대로 따른다.
+    private static final String SESSION_COOKIE = "JSESSIONID";
+    // 이 클래스는 트랜잭션 롤백이 없다(실 HTTP) → 다른 테스트와 겹치지 않을 고유 이메일을 쓰고 직접 지운다.
+    private static final String PW_EMAIL = "csrf-rotation-pw@haja.com";
+    private static final String PW_CURRENT = "oldpass1";
+    private static final String PW_NEW = "newpass1";
 
     @Autowired
     private TestRestTemplate restTemplate;
+    @Autowired
+    private UserRepository userRepository;
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @BeforeEach
+    void setUp() {
+        // TestRestTemplate 기본 팩토리(SimpleClientHttpRequestFactory)는 HttpURLConnection 기반이라
+        // PATCH 를 보내지 못한다("Invalid HTTP method: PATCH"). 비밀번호 변경이 PATCH 라 JDK HttpClient
+        // 팩토리로 교체한다(httpclient5 의존성을 추가하지 않기 위한 선택).
+        restTemplate.getRestTemplate().setRequestFactory(new JdkClientHttpRequestFactory());
+    }
+
+    @AfterEach
+    void tearDown() {
+        userRepository.findByEmail(PW_EMAIL).ifPresent(userRepository::delete);
+    }
 
     /**
      * 고정하는 불변식 3가지:
@@ -89,6 +121,58 @@ class AuthCsrfRotationIntegrationTest extends PostgresTestSupport {
                 .as("삭제도 재사용도 아닌 '회전' — 이전 토큰은 폐기되고 새 값이 내려가야 한다")
                 .isNotBlank()
                 .isNotEqualTo(oldToken);
+    }
+
+    /**
+     * 같은 3불변식을 <b>비밀번호 변경(PATCH)</b>에 대해서도 고정한다(#1315). 회전 로직 자체는 로그아웃과
+     * 공유(SessionTerminator)라 중복처럼 보이지만, 이 엔드포인트만 CSRF 예외 목록에 들어가거나 별도
+     * 경로로 갈라지는 순간 회전 전제("여기 도달 = 쿠키가 이미 있었다")가 조용히 깨진다 — 그때
+     * 필터×컨트롤러 이중 Set-Cookie 가 되고, 비밀번호를 바꾼 직후 재로그인 첫 POST 가 403 이 된다(#1200 재발).
+     */
+    @Test
+    void 비밀번호변경_CSRF쿠키도_삭제가아니라_새값으로회전() {
+        userRepository.save(User.createCompanyOwner(PW_EMAIL, "김대표", passwordEncoder.encode(PW_CURRENT)));
+
+        // 1단계: CSRF 프라이밍.
+        ResponseEntity<String> primed = restTemplate.getForEntity("/api/users/me", String.class);
+        String csrfToken = extractCookieValue(primed, CSRF_COOKIE);
+        assertThat(csrfToken).isNotBlank();
+
+        // 2단계: 실제 로그인 → SESSION 쿠키 확보(인증 없이는 401 이라 컨트롤러에 도달하지 못한다).
+        ResponseEntity<String> login = restTemplate.exchange("/api/auth/login", HttpMethod.POST,
+                new HttpEntity<>("{\"loginId\":\"" + PW_EMAIL + "\",\"password\":\"" + PW_CURRENT + "\"}",
+                        jsonHeaders(csrfToken, null)),
+                String.class);
+        assertThat(login.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String sessionId = extractCookieValue(login, SESSION_COOKIE);
+        assertThat(sessionId).as("로그인 응답에 세션 쿠키가 있어야 한다").isNotBlank();
+
+        // 3단계: 받은 토큰을 쿠키+헤더로 double-submit 해 비밀번호 변경(= 실제 브라우저 요청과 동일 경로).
+        ResponseEntity<String> changed = restTemplate.exchange("/api/users/me/password", HttpMethod.PATCH,
+                new HttpEntity<>("{\"currentPassword\":\"" + PW_CURRENT + "\",\"newPassword\":\"" + PW_NEW + "\"}",
+                        jsonHeaders(csrfToken, sessionId)),
+                String.class);
+        assertThat(changed.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        List<String> csrfSetCookies = csrfSetCookies(changed);
+        assertThat(csrfSetCookies).as("필터×컨트롤러 이중 발급 금지").hasSize(1);
+        assertThat(csrfSetCookies.get(0)).as("삭제 지시(Max-Age=0)가 아니어야 한다").doesNotContain("Max-Age=0");
+        assertThat(extractCookieValue(changed, CSRF_COOKIE))
+                .as("삭제도 재사용도 아닌 '회전'")
+                .isNotBlank()
+                .isNotEqualTo(csrfToken);
+    }
+
+    private static HttpHeaders jsonHeaders(String csrfToken, String sessionId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String cookie = CSRF_COOKIE + "=" + csrfToken;
+        if (sessionId != null) {
+            cookie += "; " + SESSION_COOKIE + "=" + sessionId;
+        }
+        headers.add(HttpHeaders.COOKIE, cookie);
+        headers.add(CSRF_HEADER, csrfToken);
+        return headers;
     }
 
     private static List<String> csrfSetCookies(ResponseEntity<String> response) {

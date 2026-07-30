@@ -183,6 +183,41 @@ class PasswordChangeServiceTest {
     }
 
     @Test
+    void 변경에_성공하면_한도가_즉시_해제된다() {
+        // 성공 = 현재 비밀번호를 안다는 증명이라 실패 카운터를 계속 들고 있을 이유가 없다. 해제하지
+        // 않으면 오타 몇 번 뒤 성공한 정상 사용자가 곧바로 자기 계정의 재변경을 스스로 막게 된다.
+        int limit = authProperties.getPasswordChangeRateLimit().getUserLimit();
+        for (int i = 0; i < limit - 1; i++) {
+            assertThatThrownBy(() -> change(USER_ID, "wrongpw1", NEW_PASSWORD))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode").isEqualTo(ErrorCode.AUTH_INVALID_CREDENTIALS);
+        }
+
+        // 남은 마지막 1회로 성공 → 카운터 해제.
+        change(USER_ID, CURRENT_PASSWORD, NEW_PASSWORD);
+
+        // 해제되지 않았다면 이 시점엔 한도가 소진돼 429 여야 한다. 창을 밀지 않고 곧바로 재변경한다.
+        change(USER_ID, NEW_PASSWORD, "thirdpw1");
+        assertThat(passwordEncoder.matches("thirdpw1", user.getPasswordHash())).isTrue();
+    }
+
+    @Test
+    void 실패만으로는_한도가_풀리지_않는다() {
+        // 위 해제 로직이 "성공했을 때만" 도는지 확인하는 반대편 경계 — 실패 경로에서 새면
+        // 무차별 대입 방어가 통째로 무력화된다.
+        int limit = authProperties.getPasswordChangeRateLimit().getUserLimit();
+        for (int i = 0; i < limit; i++) {
+            assertThatThrownBy(() -> change(USER_ID, "wrongpw1", NEW_PASSWORD))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode").isEqualTo(ErrorCode.AUTH_INVALID_CREDENTIALS);
+        }
+
+        assertThatThrownBy(() -> change(USER_ID, "wrongpw1", NEW_PASSWORD))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS);
+    }
+
+    @Test
     void 한도는_사용자별로_독립이다() {
         // 한 사용자의 시도가 다른 사용자의 변경을 막으면 그 자체가 DoS 수단이 된다.
         int limit = authProperties.getPasswordChangeRateLimit().getUserLimit();

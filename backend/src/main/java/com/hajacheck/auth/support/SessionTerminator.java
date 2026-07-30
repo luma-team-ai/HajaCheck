@@ -30,7 +30,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>⚠️ <b>무효화 범위는 "현재 세션"뿐</b>이다. 다른 기기에 남은 세션은 그대로 살아 있다 — 현 설정은
  * non-indexed Redis 세션이라 {@code FindByIndexNameSessionRepository} 빈이 없고 주입하면 기동이
- * 실패한다(PasswordResetService javadoc 에 기록된 기존 한계). 전 기기 무효화는 별도 이슈다.
+ * 실패한다(PasswordResetService javadoc 에 기록된 기존 한계). <b>전 기기 무효화는 후속 이슈 #1318</b>.
  */
 @Component
 @RequiredArgsConstructor

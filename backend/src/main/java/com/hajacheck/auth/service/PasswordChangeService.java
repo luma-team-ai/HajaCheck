@@ -30,7 +30,8 @@ import org.springframework.transaction.annotation.Transactional;
  * (= 트랜잭션 커밋)한 뒤 {@code SessionTerminator} 로 현재 세션을 끝낸다. 그리고 <b>현재 세션만</b>
  * 끝난다: 다른 기기 세션은 살아 있다(non-indexed Redis 세션이라
  * {@code FindByIndexNameSessionRepository} 빈이 없고 주입하면 기동 실패 — PasswordResetService
- * javadoc 에 기록된 기존 한계). 전 기기 무효화는 별도 이슈.
+ * javadoc 에 기록된 기존 한계). <b>전 기기 무효화는 후속 이슈 #1318</b> 이며, 아래 rate-limit 한계
+ * (자기계정 봉쇄)의 근본 해결이기도 하다.
  *
  * <p>⚠️ 비밀번호 평문·해시는 로그·예외 메시지·응답 어디에도 남기지 않는다(userId 만 기록).
  */
@@ -41,6 +42,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class PasswordChangeService {
 
     private static final String RATE_LIMIT_USER_KEY_PREFIX = "rate:password-change:user:";
+    // 429 를 맞은 횟수를 세는 별도 축(사용자 축과 키가 달라 서로 소모하지 않는다) — 침해 의심 경보 전용.
+    private static final String BREACH_ALERT_KEY_PREFIX = "rate:password-change:breach:user:";
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -92,6 +95,15 @@ public class PasswordChangeService {
 
         user.changePassword(passwordEncoder.encode(request.newPassword()));
 
+        // 성공 = 호출자가 현재 비밀번호를 안다는 증명 → 실패 시도를 세던 한도는 목적을 다했다. 즉시 해제해
+        // 정상 사용자가 "오타 몇 번 뒤 성공"한 직후 자기 계정의 재변경을 스스로 막는 일을 없앤다.
+        // 무차별 대입 방어력은 줄지 않는다: 여기 도달하려면 이미 현재 비밀번호를 맞혀야 한다.
+        // ⚠️ 트랜잭션 커밋 전에 지운다(afterCommit 콜백을 쓰지 않는다) — 뒤이어 커밋이 실패하면 변경 없이
+        // 카운터만 풀리지만, 그 카운터를 되찾는 쪽도 이미 현재 비밀번호를 아는 사람이라 공격자에게 주는
+        // 이득이 없다. InviteCodeService 가 afterCommit 을 쓰는 이유(1회용 코드가 영구 소각됨)와 달리
+        // 여기서 잃는 것은 "남은 시도 횟수"뿐이라 복잡도를 더할 실익이 없다.
+        rateLimiter.reset(RATE_LIMIT_USER_KEY_PREFIX + userId);
+
         log.info("비밀번호 변경 완료 — userId={}", userId);
     }
 
@@ -99,15 +111,46 @@ public class PasswordChangeService {
      * 사용자(userId) 축 하나만 사용한다 — 이미 인증된 요청이라 계정 열거 축(이메일)도, 익명 트래픽을
      * 받아내는 전역 상한도 필요 없다. IP 축 미사용 사유는 {@code RateLimiter} javadoc 참조.
      *
-     * <p>성공·실패를 가리지 않고 카운트한다(고정 창 카운터의 의미 그대로). 자기 계정에만 걸리므로
-     * 타 사용자에게 영향이 없고, 공격자가 남의 카운터를 소모시켜 변경을 막는 DoS 도 성립하지 않는다.
+     * <p>성공·실패를 가리지 않고 카운트하되 <b>성공 시에는 즉시 해제</b>한다(위 changePassword 참조).
+     *
+     * <p>⚠️ <b>알려진 한계 — 자기계정 봉쇄(self-account DoS)</b>: 축이 {@code userId} 라, 이 엔드포인트가
+     * 방어 대상으로 삼는 상황(세션 탈취)에서 <b>공격자와 피해자가 같은 카운터를 공유</b>한다. 공격자가
+     * 창마다 한도를 소모시키면 피해자는 계속 429 를 맞아 <b>비밀번호를 바꿔 접근을 회수하지 못한다</b> —
+     * 타 사용자에게 영향이 없을 뿐, "DoS 가 성립하지 않는다"는 말은 틀렸다. 정확히 복구 경로를 봉쇄하는
+     * 형태의 DoS 다. <b>탈출 경로</b>는 이 축과 무관한 비로그인 이메일 재설정
+     * ({@code POST /api/auth/password-reset-request} → 메일 링크; rate-limit 축이 이메일·전역이라 별개).
+     * <b>근본 해결은 전 기기 세션 무효화(#1318)</b> — 탈취 세션을 끊어야 공격자가 카운터를 소모할 수단이
+     * 사라진다. 한도를 키우는 건 해결이 아니다(브루트포스 방어를 포기하면서 봉쇄 시점만 늦춘다).
      */
     private void enforceRateLimit(Long userId) {
         AuthProperties.PasswordChangeRateLimit limits = authProperties.getPasswordChangeRateLimit();
-        if (!rateLimiter.tryAcquire(RATE_LIMIT_USER_KEY_PREFIX + userId,
+        if (rateLimiter.tryAcquire(RATE_LIMIT_USER_KEY_PREFIX + userId,
                 limits.getUserLimit(), limits.getUserWindow())) {
-            log.warn("비밀번호 변경 rate-limit 초과 — userId={}", userId);
-            throw new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);
+            return;
         }
+        logRateLimitExceeded(userId, limits);
+        throw new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);
+    }
+
+    /**
+     * 429 를 <b>단발</b>(정상 사용자의 오타 연타)과 <b>반복</b>(세션 탈취 후 대입 또는 자기계정 봉쇄
+     * 진행 중)으로 구분해 남긴다. 429 횟수를 세는 별도 축을 하나 더 두고, 그 축까지 넘치면 ERROR 로
+     * 승격한다 — 모든 429 를 같은 WARN 으로 남기면 실제 침해가 잡음에 묻혀 아무도 알아채지 못한다.
+     * (경보 축은 사용자 축과 키가 달라 서로의 한도를 소모하지 않고, 변경 성공 시에도 지우지 않는다 —
+     * 지우면 공격자가 성공 한 번으로 자기 흔적을 덮을 수 있다.)
+     *
+     * <p>⚠️ 어느 경로든 비밀번호 평문·해시는 남기지 않는다. 식별자는 userId 뿐이다.
+     */
+    private void logRateLimitExceeded(Long userId, AuthProperties.PasswordChangeRateLimit limits) {
+        boolean repeated = !rateLimiter.tryAcquire(BREACH_ALERT_KEY_PREFIX + userId,
+                limits.getBreachAlertThreshold(), limits.getBreachAlertWindow());
+        if (repeated) {
+            log.error("비밀번호 변경 rate-limit 반복 초과 — 세션 탈취 후 비밀번호 대입 또는 변경 봉쇄 의심."
+                            + " userId={} threshold={}/{}",
+                    userId, limits.getBreachAlertThreshold(), limits.getBreachAlertWindow());
+            return;
+        }
+        log.warn("비밀번호 변경 rate-limit 초과 — userId={} limit={}/{}",
+                userId, limits.getUserLimit(), limits.getUserWindow());
     }
 }
