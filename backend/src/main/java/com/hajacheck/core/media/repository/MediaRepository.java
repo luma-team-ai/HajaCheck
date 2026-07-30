@@ -26,6 +26,12 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
     // id asc 고정으로 조회 순서를 일관되게 유지한다.
     List<Media> findByInspectionIdOrderByIdAsc(Long inspectionId);
 
+    // 회차별 대표 사진(HAJA-612/#1346, 코드 리뷰 P2) — 회차 비교 "시각적 비교"는 그 회차의 첫 사진
+    // 1장만 필요한데, 위 findByInspectionIdOrderByIdAsc로 전체 목록을 가져오면 sourceVideoId/
+    // frameIndex(영상 프레임 추출)로 한 회차에 수백~수천 행이 쌓였을 때 낭비가 크다. id asc 첫 1건만
+    // DB에서 바로 조회한다.
+    Optional<Media> findFirstByInspectionIdOrderByIdAsc(Long inspectionId);
+
     // 시설물 대표 사진(#632/#652, HAJA-377) — 최대 4장 제한을 업로드 전 애플리케이션 레벨에서 검증하기
     // 위한 현재 보유 장수 집계. facility_id 만 채워진 로우(inspection_id=null)만 센다.
     long countByFacilityId(Long facilityId);
