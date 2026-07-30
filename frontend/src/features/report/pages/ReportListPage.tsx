@@ -11,11 +11,10 @@ import { ReportListFilterBar } from '../components/ReportListFilterBar';
 import { ReportListKpiBar } from '../components/ReportListKpiBar';
 import { ReportListTable } from '../components/ReportListTable';
 import { ReportVersionHistoryPanel } from '../components/ReportVersionHistoryPanel';
-import { inspectionApi } from '../../inspection/api/inspectionApi';
-import { DEFECT_TYPE_CODE_LABELS } from '../../inspection/api/inspectionApi.types';
 import { isReportContent } from '../types';
 import type { ReportListFilters, ReportListItem } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import { buildReportPdfContext } from '../utils/reportPdfContext';
 import { formatReportListTitle } from '../utils/reportListFormat';
 
 const DEFAULT_PAGE_SIZE = 10;
@@ -134,21 +133,15 @@ export function ReportListPage() {
           throw new Error('근거 재검증을 통과하지 못했습니다.');
         }
       }
-      let defectImages: { defectType: string; imageUrl: string }[] = [];
-      try {
-        const defects = await inspectionApi.getDefects(report.inspectionId);
-        defectImages = defects.data.flatMap((defect) =>
-          defect.imageUrl ? [{ defectType: DEFECT_TYPE_CODE_LABELS[defect.type], imageUrl: defect.imageUrl }] : [],
-        );
-      } catch {
-        // 사진 조회 실패는 확정 흐름을 막지 않는다. PDF는 본문만으로도 유효하며 사진대지만 생략한다.
-      }
-      const pdfBlob = await exportReportToPdf(content, {
-        facilityName: row.facilityName,
-        inspectionRound: row.roundNo,
-        issuedAt: new Date(report.createdAt),
-        defectImages: content.reportOptions?.includePhoto === false ? [] : defectImages,
-      });
+      const pdfBlob = await exportReportToPdf(
+        content,
+        buildReportPdfContext(
+          report,
+          null,
+          content.reportOptions?.includePhoto !== false,
+          { facilityName: row.facilityName, inspectionRound: row.roundNo },
+        ),
+      );
       const fileName = buildReportPdfFileName(report.inspectionId);
       const uploadResponse = await reportApi.uploadPdf(row.id, pdfBlob, fileName);
       await reportApi.finalizeReport(row.id, uploadResponse.data.pdfUrl);

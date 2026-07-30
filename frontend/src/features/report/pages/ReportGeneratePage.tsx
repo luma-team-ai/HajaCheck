@@ -6,7 +6,6 @@ import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicato
 import { Button } from '../../../shared/components/Button';
 import { useInspectionResult } from '../../inspection/hooks/useInspectionResult';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
-import type { InspectionResult } from '../../inspection/types';
 import { reportApi } from '../api/reportApi';
 import type { ReportDetailResponse } from '../api/reportApi';
 import { ReportContentEditor } from '../components/ReportContentEditor';
@@ -14,7 +13,7 @@ import { ReportEditorHero } from '../components/editor/ReportEditorHero';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
-import type { ReportPdfContext, ReportPdfImage } from '../utils/exportReportToPdf';
+import { buildReportPdfContext } from '../utils/reportPdfContext';
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message) {
@@ -82,55 +81,6 @@ function shouldPreflightPdf(pdfUrl: string): boolean {
   } catch {
     return false;
   }
-}
-
-function buildDefectImageSummary(defect: NonNullable<ReportDetailResponse['context']>['defects'][number]): string {
-  const parts = [
-    defect.location,
-    defect.crackWidthMm ? `균열폭 ${defect.crackWidthMm}mm` : null,
-    defect.crackLengthMm ? `길이 ${defect.crackLengthMm}mm` : null,
-    defect.areaRatio ? `면적비 ${Math.round(defect.areaRatio * 100)}%` : null,
-    defect.confidence ? `신뢰도 ${Math.round(defect.confidence * 100)}%` : null,
-  ].filter(Boolean);
-  return parts.join(' · ');
-}
-
-function buildReportPdfContext(
-  report: ReportDetailResponse,
-  inspectionData: InspectionResult | null | undefined,
-  includeReportPhotos: boolean,
-): ReportPdfContext {
-  const mediaById = new Map((report.context?.media ?? []).map((media) => [media.id, media]));
-  const contextImages: ReportPdfImage[] = includeReportPhotos
-    ? (report.context?.defects ?? []).flatMap((defect) => {
-        const media = defect.mediaId ? mediaById.get(defect.mediaId) : undefined;
-        const imageUrl = media?.thumbnailUrl ?? media?.detailUrl;
-        if (!imageUrl) return [];
-        return [{
-          defectType: defect.typeLabel ?? defect.type,
-          imageUrl,
-          grade: defect.grade ?? undefined,
-          summary: buildDefectImageSummary(defect),
-        }];
-      })
-    : [];
-  const fallbackImages: ReportPdfImage[] = includeReportPhotos
-    ? inspectionData?.defects.flatMap((defect) =>
-        defect.thumbnailUrl ? [{
-          defectType: defect.type,
-          imageUrl: defect.thumbnailUrl,
-          grade: defect.grade,
-          summary: defect.summary,
-        }] : [],
-      ) ?? []
-    : [];
-
-  return {
-    facilityName: report.context?.facility?.name ?? inspectionData?.facilityName,
-    inspectionRound: report.context?.inspection?.roundNo ?? inspectionData?.roundNo,
-    issuedAt: new Date(report.createdAt),
-    defectImages: contextImages.length > 0 ? contextImages : fallbackImages,
-  };
 }
 
 export function ReportGeneratePage() {
