@@ -121,11 +121,12 @@ describe('ReportListPage', () => {
 
     const firstRow = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
     fireEvent.click(within(firstRow).getByRole('checkbox', { name: `${REPORT_101_TITLE} 선택` }));
-    expect(screen.getByRole('button', { name: /내보내기\(일괄\)/ }).textContent).toContain('(1)');
+    expect(screen.getByText('다운로드는 완료된 PDF만 가능합니다. 편집 중인 보고서는 발행을 완료한 뒤 PDF 일괄 다운로드 대상에 포함됩니다.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /PDF 일괄 다운로드/ }).textContent).toContain('(1)');
 
     fireEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
     expect(await screen.findByText(/\[26-03\] 수원 스마트팩토리/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /내보내기\(일괄\)/ }).textContent).toContain('(1)');
+    expect(screen.getByRole('button', { name: /PDF 일괄 다운로드/ }).textContent).toContain('(1)');
   });
 
   // NOTES.md §2.2 "[WHEN: 보고서 목록/이력 관리 개발 시] MUST: 행 클릭 시 변경 이력 플라이아웃" —

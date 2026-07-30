@@ -301,11 +301,16 @@ export function ReportListPage() {
                     d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                   />
                 </svg>
-                <span>{isExporting ? '내보내는 중…' : '내보내기(일괄)'}{exportableRows.length > 0 ? ` (${exportableRows.length})` : ''}</span>
+                <span>{isExporting ? '다운로드 중…' : 'PDF 일괄 다운로드'}{exportableRows.length > 0 ? ` (${exportableRows.length})` : ''}</span>
               </button>
             </div>
           </div>
-          {exportMessage && <p className="m-0 border-b border-border px-8 py-2 text-xs text-text-muted">{exportMessage}</p>}
+          <div className="border-b border-border px-8 py-2 text-xs leading-5 text-text-muted">
+            <p className="m-0">
+              다운로드는 완료된 PDF만 가능합니다. 편집 중인 보고서는 발행을 완료한 뒤 PDF 일괄 다운로드 대상에 포함됩니다.
+            </p>
+            {exportMessage && <p className="m-0 mt-1 font-medium text-heading">{exportMessage}</p>}
+          </div>
 
           <ReportListKpiBar
             summary={summaryQuery.data}
