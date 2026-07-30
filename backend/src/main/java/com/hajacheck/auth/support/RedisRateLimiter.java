@@ -53,4 +53,10 @@ public class RedisRateLimiter implements RateLimiter {
         // 무제한 메일 폭탄이 열린다. 스크립트가 항상 0/1 을 반환해 null 은 도달 불가하지만 방어적으로 차단한다.
         return Long.valueOf(1L).equals(allowed);
     }
+
+    @Override
+    public void reset(String key) {
+        // DEL 은 미존재 키에도 안전하다(0 반환) — 멱등.
+        redisTemplate.delete(key);
+    }
 }
