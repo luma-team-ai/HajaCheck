@@ -34,9 +34,11 @@ export default function LandingPage() {
 
   const { data: planData, isError, refetch } = useQuery({
     queryKey: ['publicPlans'],
-    queryFn: ({ signal }) => publicPlanApi.getPlans(signal).then((res) => res.data.data.plans),
+    queryFn: ({ signal }) => publicPlanApi.getPlans(signal).then((res) => res.data.plans),
     staleTime: 5 * 60 * 1000,
   });
+
+  const shouldShowPricingError = isError && !planData;
 
   const pricingTiers = useMemo(
     () => (planData ? formatPricingTiersFromApi(planData) : PRICING_TIERS),
@@ -206,7 +208,7 @@ export default function LandingPage() {
         <h2>합리적인 요금제</h2>
         <p>시설물 규모와 필요 기능에 맞춰 최적의 플랜을 선택하세요.</p>
 
-        {isError ? (
+        {shouldShowPricingError ? (
           <div className="landing-pricing-error" role="alert">
             <p>요금제 정보를 불러오지 못했습니다.</p>
             <button type="button" onClick={() => refetch()} className="landing-pricing-retry-btn">
