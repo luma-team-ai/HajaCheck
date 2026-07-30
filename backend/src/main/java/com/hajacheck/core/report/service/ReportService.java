@@ -3,6 +3,10 @@ package com.hajacheck.core.report.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.hajacheck.auth.entity.Company;
+import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.CompanyRepository;
+import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
@@ -15,6 +19,8 @@ import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.inspection.dto.InspectionResponse;
 import com.hajacheck.core.inspection.service.InspectionService;
+import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.core.report.dto.ReportDetailResponse;
 import com.hajacheck.core.report.dto.ReportSummaryResponse;
 import com.hajacheck.core.report.dto.CompanyReportListItemResponse;
@@ -38,6 +44,7 @@ import java.util.LinkedHashMap;
 import java.util.Set;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.util.stream.Stream;
 import com.hajacheck.core.defect.repository.InspectionGradeCountProjection;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -80,6 +87,9 @@ public class ReportService {
     private final AiProxyService aiProxyService;
     private final CompanyScopeGuard companyScopeGuard;
     private final ReportPdfStorage reportPdfStorage;
+    private final CompanyRepository companyRepository;
+    private final UserRepository userRepository;
+    private final MediaRepository mediaRepository;
 
     /**
      * 확정 하자를 근거로 AI 보고서 초안을 생성한다.
@@ -130,21 +140,23 @@ public class ReportService {
                     userId);
         }
 
-        return ReportDetailResponse.from(reportRepository.save(report));
+        return toDetailResponse(reportRepository.save(report), userId, companyId, inspection, facility);
     }
 
     public ReportDetailResponse getReport(Long reportId, Long userId, Long companyId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
-        return ReportDetailResponse.from(findCompanyReport(reportId, userId, companyId));
+        ScopedReport scoped = findCompanyReportWithInspection(reportId, userId, companyId);
+        return toDetailResponse(scoped.report(), userId, companyId, scoped.inspection());
     }
 
     @Transactional
     public ReportDetailResponse cloneReport(Long reportId, Long companyId, Long userId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
-        Report source = findCompanyReport(reportId, userId, companyId);
+        ScopedReport scoped = findCompanyReportWithInspection(reportId, userId, companyId);
+        Report source = scoped.report();
         int nextVersion = nextVersion(source.getInspectionId());
         Report clone = Report.draft(source.getInspectionId(), nextVersion, source.getContentJson(), userId);
-        return ReportDetailResponse.from(reportRepository.saveAndFlush(clone));
+        return toDetailResponse(reportRepository.saveAndFlush(clone), userId, companyId, scoped.inspection());
     }
 
     public List<ReportSummaryResponse> listReports(Long inspectionId, Long userId, Long companyId) {
@@ -213,9 +225,10 @@ public class ReportService {
     public ReportDetailResponse updateContent(
             Long reportId, String contentJson, Long companyId, Long editedByUserId) {
         companyScopeGuard.requireEffectiveMembership(editedByUserId, companyId);
-        Report report = findCompanyReport(reportId, editedByUserId, companyId);
+        ScopedReport scoped = findCompanyReportWithInspection(reportId, editedByUserId, companyId);
+        Report report = scoped.report();
         report.updateContent(sanitizeClientContentJson(report.getContentJson(), contentJson), editedByUserId);
-        return ReportDetailResponse.from(report);
+        return toDetailResponse(report, editedByUserId, companyId, scoped.inspection());
     }
 
     /**
@@ -228,7 +241,8 @@ public class ReportService {
     @Transactional
     public ReportDetailResponse recheckGrounding(Long reportId, Long companyId, Long userId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
-        Report report = findCompanyReport(reportId, userId, companyId);
+        ScopedReport scoped = findCompanyReportWithInspection(reportId, userId, companyId);
+        Report report = scoped.report();
 
         List<Defect> confirmedDefects = defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
                 report.getInspectionId(), CONFIRMED_DEFECT_STATUSES);
@@ -241,7 +255,7 @@ public class ReportService {
                 || (actual.isEmpty() && excludesDetailsByGeneratedOptions(report.getContentJson()));
         report.recordStructuralGroundingRecheck(
                 matched, matched ? NO_GROUNDING_WARNINGS : STRUCTURAL_MISMATCH_WARNINGS, userId);
-        return ReportDetailResponse.from(report);
+        return toDetailResponse(report, userId, companyId, scoped.inspection());
     }
 
     private static String gradeLabel(DefectGrade grade) {
@@ -354,11 +368,12 @@ public class ReportService {
     public ReportDetailResponse finalizeReport(
             Long reportId, String pdfUrl, Long companyId, Long editedByUserId) {
         companyScopeGuard.requireEffectiveMembership(editedByUserId, companyId);
-        Report report = findCompanyReport(reportId, editedByUserId, companyId);
+        ScopedReport scoped = findCompanyReportWithInspection(reportId, editedByUserId, companyId);
+        Report report = scoped.report();
         String storageKey = requireOwnPdfUrl(reportId, pdfUrl);
         reportPdfStorage.load(reportId, storageKey);
         report.finalizeReport(pdfUrl, editedByUserId);
-        return ReportDetailResponse.from(report);
+        return toDetailResponse(report, editedByUserId, companyId, scoped.inspection());
     }
 
     @Transactional
@@ -386,6 +401,153 @@ public class ReportService {
                 .orElse(1);
     }
 
+    private ReportDetailResponse toDetailResponse(Report report, Long userId, Long companyId) {
+        return toDetailResponse(report, userId, companyId, null);
+    }
+
+    private ReportDetailResponse toDetailResponse(
+            Report report, Long userId, Long companyId, InspectionResponse inspection) {
+        return ReportDetailResponse.from(report, buildContext(report, userId, companyId, inspection, null));
+    }
+
+    private ReportDetailResponse toDetailResponse(
+            Report report, Long userId, Long companyId, InspectionResponse inspection, FacilityResponse facility) {
+        return ReportDetailResponse.from(report, buildContext(report, userId, companyId, inspection, facility));
+    }
+
+    private ReportDetailResponse.ReportContext buildContext(
+            Report report, Long userId, Long companyId, InspectionResponse knownInspection,
+            FacilityResponse knownFacility) {
+        InspectionResponse inspection = knownInspection != null
+                ? knownInspection
+                : inspectionService.getInspection(userId, companyId, report.getInspectionId());
+        if (inspection == null) {
+            return null;
+        }
+        FacilityResponse facility = knownFacility != null
+                ? knownFacility
+                : facilityService.get(userId, companyId, inspection.facilityId());
+        List<Defect> defects = defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
+                report.getInspectionId(), CONFIRMED_DEFECT_STATUSES);
+        List<Media> media = mediaRepository.findByInspectionIdOrderByIdAsc(report.getInspectionId());
+        Company company = companyRepository.findById(companyId).orElse(null);
+        Map<Long, User> users = usersById(
+                inspection.createdBy(), inspection.assignedInspectorId(), report.getCreatedBy());
+
+        return new ReportDetailResponse.ReportContext(
+                toFacilityContext(facility),
+                toInspectionContext(inspection),
+                toCompanyContext(company),
+                toUserContext(users.get(inspection.assignedInspectorId())),
+                toUserContext(users.get(inspection.createdBy())),
+                defects.stream().map(this::toDefectContext).toList(),
+                media.stream().map(this::toMediaContext).toList());
+    }
+
+    private Map<Long, User> usersById(Long... ids) {
+        List<Long> validIds = Stream.of(ids).filter(id -> id != null && id > 0).distinct().toList();
+        if (validIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, User> result = new HashMap<>();
+        for (User user : userRepository.findAllById(validIds)) {
+            result.put(user.getId(), user);
+        }
+        return result;
+    }
+
+    private ReportDetailResponse.FacilityContext toFacilityContext(FacilityResponse facility) {
+        if (facility == null) {
+            return null;
+        }
+        return new ReportDetailResponse.FacilityContext(
+                facility.id(),
+                facility.name(),
+                facility.type(),
+                facility.address(),
+                facility.latitude(),
+                facility.longitude(),
+                facility.builtYear(),
+                facility.scale(),
+                facility.inspectionCycleMonths(),
+                facility.nextInspectionDueAt(),
+                facility.initialGrade(),
+                facility.assigneeUserId(),
+                facility.memo(),
+                facility.thumbnailUrl());
+    }
+
+    private ReportDetailResponse.InspectionContext toInspectionContext(InspectionResponse inspection) {
+        return new ReportDetailResponse.InspectionContext(
+                inspection.id(),
+                inspection.facilityId(),
+                inspection.createdBy(),
+                inspection.assignedInspectorId(),
+                inspection.roundNo(),
+                inspection.inspectionDate(),
+                inspection.type(),
+                inspection.status(),
+                inspection.createdAt());
+    }
+
+    private ReportDetailResponse.CompanyContext toCompanyContext(Company company) {
+        if (company == null) {
+            return null;
+        }
+        return new ReportDetailResponse.CompanyContext(
+                company.getId(),
+                company.getName(),
+                company.getRepresentativeName(),
+                company.getAddress(),
+                company.getAddressDetail());
+    }
+
+    private ReportDetailResponse.UserContext toUserContext(User user) {
+        if (user == null) {
+            return null;
+        }
+        return new ReportDetailResponse.UserContext(
+                user.getId(),
+                user.getName(),
+                user.getRole() == null ? null : user.getRole().name());
+    }
+
+    private ReportDetailResponse.DefectContext toDefectContext(Defect defect) {
+        return new ReportDetailResponse.DefectContext(
+                defect.getId(),
+                defect.getType(),
+                defect.getType() == null ? null : defect.getType().label(),
+                defect.getGrade(),
+                defect.getStatus(),
+                defect.getLocation(),
+                defect.getConfidence(),
+                defect.getMediaId(),
+                defect.getBboxX(),
+                defect.getBboxY(),
+                defect.getBboxW(),
+                defect.getBboxH(),
+                defect.getCrackWidthMm(),
+                defect.getCrackLengthMm(),
+                defect.getAreaRatio(),
+                defect.getActionContent(),
+                defect.getActionDate(),
+                defect.getActionAssigneeId());
+    }
+
+    private ReportDetailResponse.MediaContext toMediaContext(Media media) {
+        return new ReportDetailResponse.MediaContext(
+                media.getId(),
+                media.getInspectionId(),
+                media.getFacilityId(),
+                media.getFileType() == null ? null : media.getFileType().name(),
+                media.getThumbnailUrl() == null || media.getId() == null
+                        ? null : "/api/media/%d/thumbnail".formatted(media.getId()),
+                media.getDetailUrl() == null || media.getId() == null
+                        ? null : "/api/media/%d/detail".formatted(media.getId()),
+                media.getOriginalFilename(),
+                media.getCapturedAt());
+    }
+
     private ReportResponse callAiServer(Long userId, ReportRequest request) {
         // AiProxyService.generateReport()는 연결/타임아웃/응답형식 실패를 이미 BusinessException으로
         // 던진다(AiProxyService 참고) — 여기서 잡는 것은 envelope 자체는 정상 수신했으나 AI 서버가
@@ -403,13 +565,21 @@ public class ReportService {
      * 미존재/타인소유 모두 REPORT_NOT_FOUND(404) 로 통일 응답한다.
      */
     private Report findCompanyReport(Long reportId, Long userId, Long companyId) {
+        return findCompanyReportWithInspection(reportId, userId, companyId).report();
+    }
+
+    private record ScopedReport(Report report, InspectionResponse inspection) {
+    }
+
+    private ScopedReport findCompanyReportWithInspection(Long reportId, Long userId, Long companyId) {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.REPORT_NOT_FOUND));
         if (report.getDeletedAt() != null) {
             throw new BusinessException(ErrorCode.REPORT_NOT_FOUND);
         }
+        InspectionResponse inspection;
         try {
-            inspectionService.getInspection(userId, companyId, report.getInspectionId());
+            inspection = inspectionService.getInspection(userId, companyId, report.getInspectionId());
         } catch (BusinessException e) {
             if (e.getErrorCode() == ErrorCode.INSPECTION_NOT_FOUND
                     || e.getErrorCode() == ErrorCode.FACILITY_NOT_FOUND) {
@@ -417,6 +587,6 @@ public class ReportService {
             }
             throw e;
         }
-        return report;
+        return new ScopedReport(report, inspection);
     }
 }

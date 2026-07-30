@@ -80,4 +80,15 @@ describe('ReportContentEditor', () => {
     expect(purposeTextarea.className).toContain('resize-none');
     expect(purposeTextarea.className).not.toContain('resize-y');
   });
+
+  it('서식 섹션 추가 메뉴는 버튼 아래가 아니라 위쪽으로 펼쳐 선택성을 확보한다', () => {
+    render(<ReportContentEditor content={mockContent} onChange={() => {}} readOnly={false} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '+ 서식 섹션 추가' }));
+
+    const menuItem = screen.getByRole('button', { name: '안전성 평가' });
+    const menu = menuItem.parentElement as HTMLElement;
+    expect(menu.className).toContain('bottom-full');
+    expect(menu.className).not.toContain('top-full');
+  });
 });
