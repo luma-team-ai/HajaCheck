@@ -87,6 +87,7 @@ const mockReport: ReportDetailResponse = {
 };
 
 let generateReportCallCount = 0;
+let updateReportCallCount = 0;
 let reportState: ReportDetailResponse = mockReport;
 let uploadedPdfFileName: string | null = null;
 let uploadedPdfSize: number | null = null;
@@ -120,6 +121,7 @@ const server = setupServer(
   }),
   http.get('/api/reports/1', () => HttpResponse.json({ success: true, data: reportState })),
   http.patch('/api/reports/1', async ({ request }) => {
+    updateReportCallCount += 1;
     const body = (await request.json()) as { contentJson: string };
     reportState = { ...reportState, content: JSON.parse(body.contentJson), groundingCheckPassed: null };
     return HttpResponse.json({ success: true, data: reportState });
@@ -164,6 +166,7 @@ const server = setupServer(
 beforeAll(() => server.listen());
 beforeEach(() => {
   generateReportCallCount = 0;
+  updateReportCallCount = 0;
   reportState = mockReport;
   uploadedPdfFileName = null;
   uploadedPdfSize = null;
@@ -284,6 +287,21 @@ describe('ReportGeneratePage', () => {
     await waitFor(() => expect(purposeInput.readOnly).toBe(true));
     resolveSave?.();
     await waitFor(() => expect(purposeInput.readOnly).toBe(false));
+  });
+
+  it('내용이 비어 있는 추가 섹션은 저장할 수 없다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    fireEvent.click(screen.getByRole('button', { name: '+ 서식 섹션 추가' }));
+    fireEvent.click(screen.getByRole('button', { name: '제출문' }));
+
+    const saveButton = screen.getByRole('button', { name: '저장' }) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(true);
+    expect(screen.getByRole('alert').textContent).toContain('제출문');
+
+    fireEvent.click(saveButton);
+    expect(updateReportCallCount).toBe(0);
   });
 
   it('기존 reportId 상세 content로 진입해 바로 PDF 생성 후 확정할 수 있다', async () => {

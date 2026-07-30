@@ -30,7 +30,7 @@ const INLINE_INPUT_CLASSES =
   'w-full rounded-lg border border-transparent bg-transparent px-0 py-0 text-base font-medium leading-6 text-heading outline-none transition focus:border-primary focus:bg-surface focus:px-2 focus:py-1 focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed read-only:text-heading';
 
 const INLINE_TEXTAREA_CLASS =
-  'min-h-0 border-transparent bg-transparent px-0 py-0 leading-6 focus:border-primary focus:bg-surface focus:px-2 focus:py-1 read-only:bg-transparent read-only:text-heading';
+  'min-h-0 border-transparent bg-transparent px-0 py-0 leading-6 focus:border-primary focus:bg-surface read-only:bg-transparent read-only:text-heading';
 
 export function RecommendationSection({
   content,

@@ -40,6 +40,22 @@ describe('LandingPage 제품 스크린샷 및 요금제', () => {
     });
   });
 
+  it('요금제 카드에는 가입 또는 문의 CTA를 표시하지 않는다', () => {
+    renderWithProviders(<LandingPage />);
+
+    expect(screen.queryByRole('link', { name: '무료 시작' })).toBeNull();
+    expect(screen.queryByRole('link', { name: '업그레이드 문의' })).toBeNull();
+    expect(screen.queryByRole('link', { name: '도입 문의' })).toBeNull();
+  });
+
+  it('레포에 없는 센서, BIM, 드론 연동 기능을 랜딩에 소개하지 않는다', () => {
+    renderWithProviders(<LandingPage />);
+
+    expect(screen.queryByText(/센서 데이터|BIM 연동|드론 촬영/)).toBeNull();
+    expect(screen.getByText(/시설물 정보와 점검 이력을 한 곳에서 관리하고/)).toBeTruthy();
+    expect(screen.getByText(/현장 사진과 영상을 업로드하면/)).toBeTruthy();
+  });
+
   it('공개 요금제 API를 통해 요금제 카탈로그 데이터를 동적으로 받아와 렌더링한다', async () => {
     const plans: PublicPlanCatalogResponse = {
       plans: [

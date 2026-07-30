@@ -93,8 +93,8 @@ export default function LandingPage() {
           미래를 예측하다
         </h1>
         <p>
-          AI 기술과 체계적인 데이터 관리로 시설물의 수명을 늘리고 유지보수 비용을 절감하세요.
-          도면부터 센서 데이터까지 완벽하게 통제합니다.
+          시설물 정보부터 점검 결과와 하자 이력까지 한 곳에서 관리하세요.
+          AI 분석과 보고서 생성으로 점검 업무를 더 빠르게 이어갑니다.
         </p>
         <a className="landing-cta" href="/login">
           무료로 시작하기 →
@@ -157,9 +157,9 @@ export default function LandingPage() {
           완벽하게
         </h2>
         <p className="landing-p--wide">
-          도면, 센서 데이터, 점검 이력 등 흩어져 있는 시설물 정보를 중앙 집중화하여 언제 어디서나 쉽게
+          시설물 정보와 점검 이력을 한 곳에서 관리하고, 점검 회차별 결과와 하자 현황을 확인하세요.
           <br />
-          접근하고 관리하세요. 최신 BIM 연동을 지원합니다.
+          시설물별 점검 주기를 설정해 다음 점검 일정을 관리할 수 있습니다.
         </p>
         <div className="landing-visual landing-screen-visual">
           <img src={analysisViewerImage} alt="분석 결과 뷰어 화면" className="landing-screen-image" loading="lazy" />
@@ -170,8 +170,9 @@ export default function LandingPage() {
         <p className="landing-eyebrow">INSPECTION MANAGEMENT</p>
         <h2>체계적인 점검 일정과 이력 관리</h2>
         <p>
-          정기, 수시 점검 일정을 누락 없이 관리하고, 현장에서 모바일로 즉시 결과를 입력하세요.
-          데이터는 클라우드에 안전하게 동기화됩니다.
+          정기·정밀·긴급 점검 회차를 만들고, 사진과 영상을 업로드해 점검을 시작하세요.
+          <br />
+          분석 결과와 검수 상태를 확인하며 점검 이력을 관리할 수 있습니다.
         </p>
         <div className="landing-visual landing-screen-visual">
           <img src={inspectionCycleImage} alt="시설물 점검 주기 설정 화면" className="landing-screen-image" loading="lazy" />
@@ -186,9 +187,9 @@ export default function LandingPage() {
           미세한 결함
         </h2>
         <p>
-          드론 촬영 이미지나 현장 사진을 업로드하면, AI 비전 기술이 균열, 누수, 박락 등{' '}
+          현장 사진과 영상을 업로드하면, AI 비전 기술이 균열, 누수, 박리·박락 등{' '}
           <span className="landing-nowrap">육안으로 놓치기</span> 쉬운 하자를 자동으로
-          분석하고 심각도를 분류합니다.
+          탐지하고 등급과 위치를 확인할 수 있습니다.
         </p>
         <div className="landing-badge-row">
           <span className="landing-pill landing-pill--danger">
@@ -239,12 +240,6 @@ export default function LandingPage() {
                     </li>
                   ))}
                 </ul>
-                <a
-                  className={`landing-pricing-cta${tier.inverted ? ' landing-pricing-cta--white' : ''}`}
-                  href="/login"
-                >
-                  {tier.ctaLabel}
-                </a>
               </div>
             ))}
           </div>

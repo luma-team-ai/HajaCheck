@@ -164,9 +164,7 @@ export function ReportEditorHero({
           {steps.map((step, index) => (
             <li
               key={step.key}
-              className={`relative z-10 flex min-w-0 flex-col items-center gap-2 text-center ${
-                step.active ? 'opacity-100' : 'opacity-30'
-              }`}
+              className="relative z-10 flex min-w-0 flex-col items-center gap-2 text-center"
             >
               <span
                 className={`inline-flex h-10 w-10 items-center justify-center rounded-full text-base font-bold ${
@@ -178,7 +176,11 @@ export function ReportEditorHero({
               >
                 {step.key}
               </span>
-              <span className="truncate text-[11px] font-medium tracking-wide text-heading sm:text-xs">
+              <span
+                className={`truncate text-[11px] font-medium tracking-wide text-heading sm:text-xs ${
+                  step.active ? 'opacity-100' : 'opacity-30'
+                }`}
+              >
                 {step.label}
               </span>
             </li>
