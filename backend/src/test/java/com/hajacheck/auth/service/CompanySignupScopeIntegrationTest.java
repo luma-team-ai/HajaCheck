@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hajacheck.auth.dto.CompanySignupRequest;
 import com.hajacheck.auth.dto.CompanySignupResponse;
 import com.hajacheck.auth.entity.BusinessVerificationStatus;
@@ -149,20 +151,23 @@ class CompanySignupScopeIntegrationTest extends PostgresTestSupport {
     }
 
     @Test
-    void 가입시_국세청진위확인_결과가_ocrRaw에_영속된다() {
+    void 가입시_국세청진위확인_결과가_ocrRaw에_영속된다() throws Exception {
         CompanySignupResponse response = signup("scope-e@haja.test", "666-66-66666", "(주)스코프E");
         Company company = companyRepository.findById(response.companyId()).orElseThrow();
 
         // 자동승인은 진위확인 결과와 무관하게 VERIFIED 를 만든다 → companies 행만으로는 "국세청이 확인해
         // 준 회사"와 "확인하지 못한 회사"를 구분할 수 없다. provenance 를 jsonb 에 남겨야 사후 집계가 된다.
         // 테스트 프로파일은 국세청 키가 없어 SKIPPED(fail-open) 가 나온다.
-        assertThat(company.getBusinessRegistrationOcrRaw())
-                .contains("\"ntsOutcome\":\"SKIPPED\"")
-                .contains("\"source\":\"MANUAL_INPUT\"")
-                .contains("\"ntsCheckedAt\"");
-        // 개인정보는 절대 남기지 않는다(사업자번호·대표자명·이메일).
-        assertThat(company.getBusinessRegistrationOcrRaw())
-                .doesNotContain("666").doesNotContain("김민수").doesNotContain("scope-e@haja.test");
+        JsonNode raw = new ObjectMapper().readTree(company.getBusinessRegistrationOcrRaw());
+        assertThat(raw.get("ntsOutcome").asText()).isEqualTo("SKIPPED");
+        assertThat(raw.get("source").asText()).isEqualTo("MANUAL_INPUT");
+        assertThat(raw.get("ntsCheckedAt").asText()).isNotBlank();
+
+        // 개인정보(사업자번호·대표자명·이메일)는 절대 남기지 않는다. 부분 문자열 검사 대신 **키 집합을
+        // 고정**한다 — 값에 담긴 숫자가 우연히 겹쳐 깨지지 않고(ntsCheckedAt 의 나노초가 사업자번호와
+        // 겹쳐 실패한 전례), PII 가 새 키로 추가되면 그 자체로 실패하므로 감지력이 더 강하다.
+        assertThat(raw.fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("source", "ntsOutcome", "ntsCheckedAt");
     }
 
     @Test

@@ -25,8 +25,6 @@ public record MyPlanResponse(PlanInfo plan, Limits limits, Usage usage) {
      *                            <b>FREE 한도</b>다(무결제 유료 혜택 차단 —
      *                            {@code PaymentGraceService#resolveEffectivePlan}). 이 필드가 없으면
      *                            화면은 "STANDARD 인데 좌석 한도가 1"이라는 모순을 설명할 수 없다.
-     */
-    /**
      * @param businessVerified <b>국세청 진위확인을 통과했음을 증명할 수 있는가</b>(#1324 재정의).
      *                         회사 구독이면 boolean, 개인 구독(companyId=null)이면 {@code null}(화면 미표시).
      *                         <p>⚠️ "회사 승인 상태"가 아니다 — 가입 즉시 자동승인 이후 회사는 전건

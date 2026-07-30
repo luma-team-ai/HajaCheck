@@ -268,9 +268,12 @@ class V38AutoApproveExistingCompaniesMigrationTest {
         migrateTo("36");
         JdbcTemplate jdbc = jdbc();
 
-        // 실행 순서 계약 — (2) 레거시 스탬프가 (3) 승격보다 먼저 돌기 때문에, 이 회사는 (2) 시점엔
-        // 아직 PENDING 이라 레거시로 잡히지 않고 (3) 에서 UNKNOWN_BACKFILL 을 받는다.
-        // 순서가 뒤바뀌면 "검증한 적 없는 회사"가 LEGACY_VERIFIED(=진짜 검증)로 둔갑한다.
+        // "검증한 적 없는 회사"가 LEGACY_VERIFIED(=진짜 검증)로 둔갑하지 않음을 고정한다.
+        // ⚠️ 둔갑을 막는 것은 문장 순서가 아니라 (2)의 `ntsOutcome is null` 술어다 — (3)이 먼저 돌아
+        // UNKNOWN_BACKFILL 이 붙어도 (2)는 "키가 이미 있음"으로 그 행을 건너뛰므로 결과가 같다
+        // (V38 SQL 주석 참조). 이 테스트가 실제로 지키는 계약은 **그 술어가 느슨해지지 않는 것**이다 —
+        // 누군가 (2)를 `is distinct from 'LEGACY_VERIFIED'` 류로 바꾸면 그때는 순서가 실제로
+        // load-bearing 이 되고, UNKNOWN_BACKFILL 이 LEGACY_VERIFIED 로 덮이면서 이 단언이 깨진다.
         long owner = insertUser(jdbc, "v38-order@haja.test", "ADMIN", "ACTIVE");
         long company = insertCompany(jdbc, owner, "V38 순서회사", "3900000002", "PENDING_REVIEW", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", company, owner);
@@ -500,11 +503,17 @@ class V38AutoApproveExistingCompaniesMigrationTest {
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
+    // ⚠️ 멱등성 판정의 기준이므로, V38 이 쓰는 컬럼은 하나도 빠뜨리면 안 된다 — 빠진 컬럼은
+    // 재실행 시 덮여도 이 스냅샷이 같게 나와 "멱등하다"는 거짓 통과가 된다.
+    // business_registration_ocr_raw 가 특히 중요하다: (2) 레거시 스탬프와 (3) 승격이 이 컬럼에
+    // 쓰므로, 재실행에서 UNKNOWN_BACKFILL 이 LEGACY_VERIFIED 로 뒤바뀌거나 ntsBackfilledAt 이
+    // 새 시각으로 덮이는 회귀를 여기서 잡는다.
     private String snapshot(JdbcTemplate jdbc, long companyId, long ownerId) {
         return jdbc.queryForObject("""
                 select concat_ws('|',
                            c.status::text, c.verification_status::text,
                            c.reviewed_at::text, coalesce(c.reviewed_by::text, 'null'), c.verified_at::text,
+                           coalesce(c.business_registration_ocr_raw::text, 'null'),
                            u.company_id::text,
                            (select concat_ws(',', count(*)::text, min(m.status::text), min(m.approved_at)::text)
                               from company_memberships m

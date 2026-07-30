@@ -62,11 +62,16 @@ where status = 'PENDING_REVIEW'::company_status_type
 --     판정하므로(fail-safe), ⓐ를 구분해 두지 않으면 **진짜 검증된 기존 회사의 배지가 거짓으로 꺼진다**
 --     (자동승인분에 배지를 잘못 켜는 것과 정확히 반대 방향의 허위 표시).
 --
---     "레거시 VERIFIED = 진짜 검증"이라고 단정할 수 있는 근거: #1324 이전에 verification_status 가
---     VERIFIED 가 되는 경로는 **오직 두 개**였다 — 가입 시 국세청 성공(CompanyAccountWriter 의
+--     "레거시 VERIFIED = 진짜 검증"이라고 보는 근거: #1324 이전에 verification_status 가 VERIFIED 가
+--     되는 **애플리케이션 경로는 두 개뿐**이었다 — 가입 시 국세청 성공(CompanyAccountWriter 의
 --     businessVerified 분기)과 #888 재검증 성공(PendingBusinessReverifyWriter.markVerified).
 --     둘 다 국세청이 실제로 확인해 준 경우다. (#1324 부터 무조건 VERIFIED 를 찍는 경로가 생겼지만,
 --     그 경로로 저장된 행은 애플리케이션이 ntsOutcome 을 함께 남기므로 아래 `is null` 에 걸리지 않는다.)
+--
+--     ⚠️ 단, **수동 SQL 편집분은 구분할 수 없다** — approve() 는 호출부가 0건인데 prod 에는 APPROVED
+--     행이 존재하므로 그 DB 는 수동 편집을 겪었다. 그런 행에도 이 스탬프가 붙지만, 그 행들은 이 PR
+--     이전에도 이미 배지가 켜져 있었으므로(당시 판정 근거가 verification_status 자체였다) 여기서는
+--     **기존 배지 동작을 보존하는 쪽**을 택한 것이다. 새로 허위 표시를 만드는 게 아니다.
 --
 --     ⚠️ 실행 순서: 이 문장은 반드시 **(3) 의 UNKNOWN_BACKFILL 병합보다 먼저** 와야 한다. (3) 이 먼저
 --     돌면 소급분에 ntsOutcome 이 이미 생겨 이 문장의 `is null` 조건에서 빠지므로 결과 자체는 같지만,
