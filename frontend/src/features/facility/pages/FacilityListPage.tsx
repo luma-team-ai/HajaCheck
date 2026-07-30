@@ -83,12 +83,10 @@ export function FacilityListPage() {
     submissionAttemptRef.current += 1;
   };
 
-  // 시설물 이름 클릭 → 하자 오버레이(HAJA-434 갭1, Figma node-id=1-3958 흐름)로 직행.
-  // 대표 하자가 없는 시설물(하자 미탐지)은 갈 곳이 없으므로 기존 시설물 상세로 폴백한다.
-  const handleSelectFacility = (id: number, latestDefectId: number | null) => {
-    navigate(
-      latestDefectId != null ? `/facilities/${id}/defects/${latestDefectId}` : `/facilities/${id}`,
-    );
+  // 시설물 이름 클릭 → 시설물 상세 화면(/facilities/:id)으로 이동한다. 하자 오버레이(구 HAJA-434
+  // 갭1 직행 동작)는 상세 화면의 "하자 현황" 탭에서 대표 하자가 있을 때만 진입하도록 이동됐다.
+  const handleSelectFacility = (id: number) => {
+    navigate(`/facilities/${id}`);
   };
 
   const handleSubmit = async (payload: CreateFacilityRequest, photos: File[]) => {

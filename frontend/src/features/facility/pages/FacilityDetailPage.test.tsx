@@ -2,10 +2,14 @@
 // FacilityDetailPage 통합 테스트 — 실제 useFacility(MSW facilityHandlers) + 목 useFacilityInspectionOverview 조합을 검증한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import type { ApiResponse } from '../../../shared/api/types';
 import { facilityHandlers } from '../api/facilityApi.handlers';
+import { mockFacilities } from '../mocks/facility.mock';
+import type { Facility } from '../types';
 import { FacilityDetailPage } from './FacilityDetailPage';
 
 const server = setupServer(...facilityHandlers);
@@ -67,6 +71,49 @@ describe('FacilityDetailPage (통합 테스트)', () => {
     fireEvent.click(screen.getByRole('button', { name: '개요' }));
 
     expect(screen.getByText('준비 중인 화면입니다.')).not.toBeNull();
+  });
+
+  it('"문서" 탭은 더 이상 표시되지 않는다', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: '강남 오피스타워 A동' });
+
+    expect(screen.queryByRole('button', { name: '문서' })).toBeNull();
+  });
+
+  it('대표 하자가 없으면 "하자 현황" 탭 클릭 시 로컬 탭 전환(준비 중 안내)만 된다', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: '강남 오피스타워 A동' });
+
+    fireEvent.click(screen.getByRole('button', { name: '하자 현황' }));
+
+    expect(screen.getByText('준비 중인 화면입니다.')).not.toBeNull();
+  });
+
+  it('대표 하자가 있으면 "하자 현황" 탭 클릭 시 하자 상세 오버레이로 이동한다', async () => {
+    const facilityWithDefect: Facility = { ...mockFacilities[0], latestDefectId: 42 };
+    server.use(
+      http.get('/api/facilities/:id', () => {
+        const body: ApiResponse<Facility> = { success: true, data: facilityWithDefect };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/facilities/1']}>
+          <Routes>
+            <Route path="/facilities/:id" element={<FacilityDetailPage />} />
+            <Route path="/facilities/:id/defects/:defectId" element={<div>하자 상세 오버레이</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole('heading', { name: '강남 오피스타워 A동' });
+
+    fireEvent.click(screen.getByRole('button', { name: '하자 현황' }));
+
+    expect(await screen.findByText('하자 상세 오버레이')).not.toBeNull();
   });
 
   it('존재하지 않는 시설물이면 에러 메시지를 표시한다', async () => {

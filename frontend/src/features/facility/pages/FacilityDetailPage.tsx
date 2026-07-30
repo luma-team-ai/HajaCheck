@@ -49,6 +49,13 @@ export function FacilityDetailPage() {
       history={overview?.history ?? []}
       // 시설물 수정 API(PUT /api/facilities/{id})는 아직 이 화면에 배선되지 않음 — 후속 작업
       onNewInspection={() => navigate(`/inspections/create?facilityId=${facilityId}`)}
+      // "하자 현황" 탭 클릭 → 대표 하자 오버레이로 드릴다운. 대표 하자가 없으면 갈 곳이 없으므로
+      // 프롭을 넘기지 않아 패널이 기존처럼 로컬 탭 전환("준비 중인 화면입니다")으로 폴백한다.
+      onDefectsTabClick={
+        facility.latestDefectId != null
+          ? () => navigate(`/facilities/${facilityId}/defects/${facility.latestDefectId}`)
+          : undefined
+      }
     />
   );
 }
