@@ -62,6 +62,20 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
     expect(screen.getAllByRole('combobox')).toHaveLength(1);
   });
 
+  // PR머신 P2 회귀고정(#1275) — "이전 회차"보다 이르거나 같은 회차를 "현재 회차"로 고르면
+  // before>=after가 되어 서버가 400 INVALID_INPUT을 던진다. 선택지 자체에서 그런 회차가
+  // 빠져 있어야 한다(목 데이터: beforeCycle=7, availableCycles=[5,6,7,8,9] → 8·9만 남아야 함).
+  it('"현재 회차" 선택지에 이전 회차 이하 값이 포함되지 않는다(#1275)', async () => {
+    renderPage();
+    await screen.findByText('회차 간 비교');
+
+    const afterSelect = screen.getByLabelText('현재 회차') as HTMLSelectElement;
+    const optionValues = Array.from(afterSelect.options).map((option) => Number(option.value));
+
+    expect(optionValues.every((cycle) => cycle > mockInspectionComparison.beforeCycle.cycle)).toBe(true);
+    expect(optionValues).not.toContain(mockInspectionComparison.beforeCycle.cycle);
+  });
+
   // #1157 회귀고정 — 과거엔 DEFAULT_BEFORE_CYCLE=7/DEFAULT_AFTER_CYCLE=8이 하드코딩돼 있어
   // 그 회차가 없는 시설물에서 화면 진입 즉시 실패했다. 최초 요청은 before/after를 아예 보내지
   // 않아야 한다(서버가 자동 대체하도록) — 하드코딩 값이 되살아나면 이 테스트가 잡는다.
@@ -99,11 +113,12 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
       renderPage();
       await screen.findByText('회차 간 비교');
 
-      fireEvent.change(screen.getByLabelText('현재 회차'), { target: { value: '5' } });
+      // #1275 필터로 이전 회차(7) 이하는 선택지에서 빠지므로, 유효한 대안 회차(9)를 고른다.
+      fireEvent.change(screen.getByLabelText('현재 회차'), { target: { value: '9' } });
 
       await screen.findByText('회차 간 비교');
       const lastSearch = capturedSearches[capturedSearches.length - 1];
-      expect(lastSearch).toContain('after=5');
+      expect(lastSearch).toContain('after=9');
       expect(lastSearch).toContain('before=');
       expect(lastSearch).not.toBe('');
     } finally {

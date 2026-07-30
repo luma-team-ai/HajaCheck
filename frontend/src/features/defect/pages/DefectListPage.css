@@ -68,6 +68,12 @@
   gap: 12px;
 }
 
+.defect-list-page__export-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
 .defect-filter-bar {
   display: flex;
   flex-direction: column;
@@ -530,12 +536,6 @@
 }
 
 /* --- 점검 목록(InspectionTable, HAJA-393/394 · #725/#726) --- */
-
-.inspection-table__id-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
 
 .inspection-table__grade-group {
   display: inline-flex;

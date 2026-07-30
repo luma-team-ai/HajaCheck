@@ -1,8 +1,7 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
 import { Button } from "../../../shared/components/Button";
 import { TableFooterPagination } from "../../../shared/components/TableFooterPagination";
-import { defectApi } from "../api/defectApi";
+import { fetchFilteredDefectsForExport } from "../api/defectApi";
 import { InspectionFilterBar } from "../components/InspectionFilterBar";
 import { InspectionTable } from "../components/InspectionTable";
 import { useInspections } from "../hooks/useInspections";
@@ -23,13 +22,12 @@ const DEFAULT_SIZE = 10;
 // DefectStatusReasonModal/useDefectActionBoard)와 DefectFilterBar는 삭제하지 않고 참조만 제거한다 —
 // #630을 별도 라우트로 분리할지 완전 폐기할지는 후속 이슈에서 결정(이번 세션 범위 밖).
 export function DefectListPage() {
-  const navigate = useNavigate();
   const [inspectionFilters, setInspectionFilters] = useState<InspectionListFilters>({
     page: 0,
     size: DEFAULT_SIZE,
   });
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const {
     data: inspectionData,
@@ -43,18 +41,7 @@ export function DefectListPage() {
   const totalElements = inspectionData?.totalElements ?? 0;
   const inspectionTotalPages = Math.max(1, Math.ceil(totalElements / inspectionSize));
 
-  const selectedInspections = useMemo(
-    () => (inspectionData?.content ?? []).filter((inspection) => selectedIds.has(inspection.id)),
-    [inspectionData, selectedIds],
-  );
-  const canGenerateReport = selectedInspections.length === 1;
-  const canExport = selectedInspections.length > 0;
-  const reportButtonTitle =
-    selectedInspections.length === 0
-      ? "보고서를 생성할 점검을 선택하세요"
-      : selectedInspections.length > 1
-        ? "보고서는 점검 1건씩만 생성할 수 있습니다"
-        : undefined;
+  const canExport = totalElements > 0;
 
   const handleInspectionPageChange = (page: number) => {
     setInspectionFilters((prev) => ({ ...prev, page: page - 1 }));
@@ -64,25 +51,18 @@ export function DefectListPage() {
     setInspectionFilters((prev) => ({ ...prev, size: nextSize, page: 0 }));
   };
 
-  const handleGenerateReport = () => {
-    if (!canGenerateReport) return;
-    navigate(`/inspections/${selectedInspections[0].id}/reports`);
-  };
-
-  // "내보내기"는 선택된 점검(들)에 속한 하자 전체를 모아 PDF로 내보낸다 — 기존(하자 단건 선택 후
-  // 바로 내보내기)과 달리 점검 단위 선택이라 하자 목록을 먼저 조회해야 한다(HAJA-393/394 재해석).
+  // "내보내기"는 선택 여부·현재 페이지와 무관하게 현재 필터에 해당하는 모든 점검의 하자를 모아
+  // PDF로 내보낸다. 관리자 사용자 목록 내보내기와 동일한 "필터 결과 전체" 계약이다.
   const handleExport = async () => {
     if (!canExport || isExporting) return;
     setIsExporting(true);
+    setExportError(null);
     try {
-      const defectsByInspection = await Promise.all(
-        selectedInspections.map((inspection) =>
-          defectApi.getByInspection(inspection.id).then((res) => res.data),
-        ),
-      );
-      await exportDefectsToPdf(defectsByInspection.flat());
+      const defects = await fetchFilteredDefectsForExport(inspectionFilters);
+      await exportDefectsToPdf(defects);
     } catch (error) {
       console.error("점검 하자 목록 PDF 내보내기 실패", error);
+      setExportError("내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setIsExporting(false);
     }
@@ -118,27 +98,22 @@ export function DefectListPage() {
               variant="secondary"
               size="md"
               disabled={!canExport || isExporting}
-              title={canExport ? undefined : "내보낼 점검을 선택하세요"}
+              title={canExport ? undefined : "내보낼 필터 결과가 없습니다"}
               onClick={handleExport}
             >
               {isExporting ? "내보내는 중..." : "내보내기"}
             </Button>
-            <Button
-              variant="primary"
-              size="md"
-              disabled={!canGenerateReport}
-              title={reportButtonTitle}
-              onClick={handleGenerateReport}
-            >
-              보고서 생성
-            </Button>
+            {exportError && (
+              <p className="defect-list-page__export-error" role="alert">
+                {exportError}
+              </p>
+            )}
           </div>
         </div>
 
         <InspectionFilterBar
           filters={inspectionFilters}
           onChange={setInspectionFilters}
-          onNlApplied={() => setSelectedIds(new Set())}
         />
       </header>
 
@@ -149,8 +124,6 @@ export function DefectListPage() {
             isLoading={isInspectionLoading}
             isError={isInspectionError}
             onRetry={refetchInspections}
-            selectedIds={selectedIds}
-            onSelectionChange={setSelectedIds}
           />
         </div>
 

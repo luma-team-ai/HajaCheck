@@ -274,11 +274,19 @@ public class InspectionService {
         return inspection;
     }
 
-    /** 점검 회차 상태 전이(AI 분석 실행/상태, dev-05-04) — 회사 스코프 검증 후 advanceTo 위임. */
+    /**
+     * 점검 회차 상태 전이(AI 분석 실행/상태, dev-05-04) — 회사 스코프 검증 후 advanceTo 위임.
+     *
+     * <p>전이된 엔티티를 그대로 반환한다(#494/#495) — {@link com.hajacheck.core.analysis.service.InspectionAnalysisWorker}가 ANALYZED
+     * 전이 직후 createdBy/assignedInspectorId/roundNo로 ANALYSIS_DONE·REVIEW_PENDING 알림을
+     * 발행하는 데 필요하다. 트랜잭션이 이 메서드 반환 시점에 커밋되므로, 호출부는 스칼라 필드만
+     * 읽어야 한다(facility 등 지연 연관관계는 트랜잭션 밖에서 접근 시 LazyInitializationException).
+     */
     @Transactional
-    public void advanceStatus(Long requesterUserId, Long companyId, Long inspectionId, InspectionStatus next) {
+    public Inspection advanceStatus(Long requesterUserId, Long companyId, Long inspectionId, InspectionStatus next) {
         Inspection inspection = getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
         inspection.advanceTo(next);
+        return inspection;
     }
 
     /**

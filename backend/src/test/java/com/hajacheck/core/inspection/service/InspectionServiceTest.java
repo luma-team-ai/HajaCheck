@@ -295,6 +295,30 @@ class InspectionServiceTest {
     }
 
     @Test
+    void advanceStatus_전이된Inspection엔티티를반환한다() {
+        // #494/#495 — InspectionAnalysisWorker가 ANALYZED 전이 직후 이 반환값의
+        // createdBy/assignedInspectorId/roundNo로 ANALYSIS_DONE/REVIEW_PENDING 알림을 발행한다.
+        Inspection inspection = Inspection.builder()
+                .facilityId(1L)
+                .createdBy(100L)
+                .assignedInspectorId(200L)
+                .roundNo(3)
+                .inspectionDate(LocalDate.of(2026, 7, 20))
+                .status(InspectionStatus.ANALYZING)
+                .build();
+        setId(inspection, 10L);
+        when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+
+        Inspection result = service.advanceStatus(300L, 100L, 10L, InspectionStatus.ANALYZED);
+
+        assertThat(result.getStatus()).isEqualTo(InspectionStatus.ANALYZED);
+        assertThat(result.getCreatedBy()).isEqualTo(100L);
+        assertThat(result.getAssignedInspectorId()).isEqualTo(200L);
+        assertThat(result.getRoundNo()).isEqualTo(3);
+    }
+
+    @Test
     void list_owner스코프로위임_필터그대로전달_시설물명담당자명하자건수포함매핑() {
         Pageable pageable = PageRequest.of(0, 20);
         Inspection inspection = inspectionWithFacility(10L, 1L, "테스트빌딩", 200L, InspectionStatus.ANALYZED, InspectionType.DETAILED);
