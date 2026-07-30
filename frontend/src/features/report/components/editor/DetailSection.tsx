@@ -21,6 +21,11 @@ const INLINE_INPUT_CLASSES =
 const INLINE_TEXTAREA_CLASSES =
   'min-h-0 border-transparent bg-transparent px-0 py-0 text-sm leading-6 focus:border-primary focus:bg-surface read-only:bg-transparent read-only:text-heading';
 
+// "위치"는 긴 주소가 들어오면(예: "충남 예산군 응봉면 예당관광...") 한 줄 입력으로는 잘려 보이므로,
+// 하자 유형(짧은 값 전제)과 달리 자동 줄바꿈되는 textarea를 쓴다.
+const INLINE_LOCATION_TEXTAREA_CLASSES =
+  'min-h-0 border-transparent bg-transparent px-0 py-0 text-base font-semibold leading-6 text-heading focus:border-primary focus:bg-surface focus:px-2 focus:py-1 read-only:bg-transparent read-only:text-heading';
+
 interface DetailSectionProps {
   content: ReportContent;
   onChange: (next: ReportContent) => void;
@@ -227,16 +232,16 @@ export function DetailSection({
                         onChange={(event) => updateItem(index, { defect_type: event.target.value })}
                       />
                   </label>
-                  <label className="flex min-w-0 flex-col gap-1">
-                      <span className="text-xs font-medium tracking-wide text-text-muted">위치</span>
-                      <input
-                        aria-label={`하자 ${index + 1} 위치`}
-                        className={INLINE_INPUT_CLASSES}
-                        value={item.location}
-                        disabled={readOnly}
-                        onChange={(event) => updateItem(index, { location: event.target.value })}
-                      />
-                  </label>
+                  <LabeledTextArea
+                    label="위치"
+                    labelClassName="text-text-muted"
+                    className="min-w-0"
+                    value={item.location}
+                    readOnly={readOnly}
+                    rows={1}
+                    textareaClassName={INLINE_LOCATION_TEXTAREA_CLASSES}
+                    onChange={(value) => updateItem(index, { location: value })}
+                  />
                   <label className="flex min-w-0 flex-col gap-2">
                       <span className="text-xs font-medium tracking-wide text-text-muted">등급</span>
                       <input
