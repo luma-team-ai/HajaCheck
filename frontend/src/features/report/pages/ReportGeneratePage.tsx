@@ -46,7 +46,7 @@ interface StepContext {
 
 const REPORT_STEPS: ReadonlyArray<{ key: string; label: string; isActive: (ctx: StepContext) => boolean }> = [
   { key: 'A', label: 'AI 분류', isActive: (ctx) => ctx.hasContent },
-  { key: 'B', label: '작성자 확인', isActive: (ctx) => ctx.groundingCheckPassed === true || ctx.dirty },
+  { key: 'B', label: '작성자 확인', isActive: (ctx) => ctx.groundingCheckPassed === true },
   { key: 'C', label: '발행', isActive: (ctx) => ctx.isFinalized && ctx.hasPdf },
 ];
 
