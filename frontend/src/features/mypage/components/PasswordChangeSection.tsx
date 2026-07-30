@@ -57,6 +57,10 @@ type CompletionState = 'success' | 'sessionExpired' | null;
 // 사용자가 화면에 머무는 에러 경로(401 현재비번불일치/400/429/500)에서도 에러가 settle되는 즉시
 // removeCachedVariables()로 MutationCache의 평문 variables를 제거한다(보안 리뷰 P3-2) —
 // clearSensitiveState()(mutation.reset() 포함)와 달리 화면에 노출 중인 에러 메시지는 지우지 않는다.
+//
+// 성공 안내(REDIRECT_DELAY_MS) 노출 중 SideNavBar 등으로 화면을 벗어나 언마운트되면, 위 리다이렉트
+// useEffect의 cleanup이 setTimeout을 취소해 clearSensitiveState()가 발화하지 않는다 — 그래서
+// 마운트 스코프 cleanup에서 removeCachedVariables()를 한 번 더 호출한다(PR머신 재검수 P3).
 export function PasswordChangeSection() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -112,6 +116,14 @@ export function PasswordChangeSection() {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- completed 세팅 시점 스냅샷이면 충분(마운트 중 재실행 불필요)
   }, [completed]);
+
+  // 언마운트 시 평문 정리(PR머신 재검수 P3) — 성공 안내(REDIRECT_DELAY_MS) 노출 중 SideNavBar 등으로
+  // 화면을 벗어나면 위 리다이렉트 useEffect의 cleanup이 setTimeout을 clearTimeout으로 취소해
+  // clearSensitiveState()가 발화하지 않는다. removeCachedVariables()는 mutation.reset()을 부르지
+  // 않아 화면 상태(에러 메시지 등)를 건드리지 않으므로, 정상 발화 경로와 별개로 마운트 스코프
+  // cleanup에서도 안전하게 한 번 더 호출해 MutationCache에 평문 variables가 gcTime(5분) 동안
+  // 남지 않게 한다.
+  useEffect(() => () => removeCachedVariables(), [removeCachedVariables]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
