@@ -276,11 +276,11 @@ export function ReportListPage() {
               <span className="text-base font-medium text-text-muted">총 {totalItems}건</span>
             </div>
             <div className="flex items-center gap-3">
-              <button
-                type="button"
+              <Button
+                variant="secondary"
+                size="md"
                 disabled={exportableRows.length === 0 || isExporting}
                 onClick={() => void handleBulkExport()}
-                className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-4 py-1.5 text-sm font-medium text-heading shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                 title={
                   selectedRows.length > 0 && exportableRows.length === 0
                     ? '선택한 보고서 중 완료(PDF 확정) 상태가 없습니다'
@@ -302,7 +302,7 @@ export function ReportListPage() {
                   />
                 </svg>
                 <span>{isExporting ? '다운로드 중…' : 'PDF 일괄 다운로드'}{exportableRows.length > 0 ? ` (${exportableRows.length})` : ''}</span>
-              </button>
+              </Button>
             </div>
           </div>
           <div className="border-b border-border px-8 py-2 text-xs leading-5 text-text-muted">

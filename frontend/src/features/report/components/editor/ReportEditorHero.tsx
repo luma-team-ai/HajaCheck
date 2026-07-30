@@ -101,20 +101,10 @@ export function ReportEditorHero({
           <Button onClick={onSaveClick} variant="secondary" size="md" disabled={!canSave || isSaving}>
             {isSaving ? '저장 중...' : '임시저장'}
           </Button>
-          <button
-            type="button"
-            onClick={onPreviewClick}
-            className="inline-flex items-center justify-center rounded-full border border-border bg-surface px-6 py-2 text-xs font-medium text-heading no-underline transition hover:bg-surface-muted"
-          >
+          <Button onClick={onPreviewClick} variant="secondary" size="md">
             PDF 미리보기
-          </button>
-          <Button
-            onClick={onFinalize}
-            variant="primary"
-            size="md"
-            disabled={!canFinalize || isFinalizing}
-            className="min-w-[168px] gap-2 bg-primary px-5 text-xs text-surface"
-          >
+          </Button>
+          <Button onClick={onFinalize} variant="primary" size="md" disabled={!canFinalize || isFinalizing}>
             {finalizeLabel ?? (isFinalizing ? 'PDF 생성/확정 중...' : '최종 보고서 확정')}
             <PaperPlaneIcon />
           </Button>
