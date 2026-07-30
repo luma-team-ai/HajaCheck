@@ -15,13 +15,19 @@ import com.hajacheck.core.analysis.dto.AnalysisStatusResponse;
 import com.hajacheck.core.analysis.support.AnalysisProgressStore;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.service.DefectWriter;
+import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.inspection.entity.InspectionType;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
 import com.hajacheck.membership.service.AnalysisQuotaCharge;
 import com.hajacheck.membership.service.QuotaService;
+import com.hajacheck.notification.entity.NotificationType;
+import com.hajacheck.notification.service.NotificationService;
+import java.time.LocalDate;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -56,6 +62,8 @@ class InspectionAnalysisWorkerTest {
     private AnalysisProgressStore progressStore;
     @Mock
     private QuotaService quotaService;
+    @Mock
+    private NotificationService notificationService;
 
     @InjectMocks
     private InspectionAnalysisWorker worker;
@@ -63,6 +71,10 @@ class InspectionAnalysisWorkerTest {
     private static final Long USER_ID = 1L;
     private static final Long COMPANY_ID = 10L;
     private static final Long INSPECTION_ID = 100L;
+    // ANALYSIS_DONE/REVIEW_PENDING 수신자(#494/#495) — advanceStatus가 반환하는 Inspection에서 읽는다.
+    private static final Long CREATED_BY = 5L;
+    private static final Long ASSIGNED_INSPECTOR_ID = 6L;
+    private static final Integer ROUND_NO = 3;
     // 세대 토큰(코드 리뷰 P1) — 대부분의 테스트는 펜싱과 무관하므로 findGeneration을 스텁하지
     // 않는다(기본값 Optional.empty() → isCurrentGeneration이 "유효함"으로 보수적으로 판단해 기존
     // 동작이 그대로 유지된다). 펜싱 자체를 검증하는 테스트만 findGeneration을 별도로 스텁한다.
@@ -70,6 +82,28 @@ class InspectionAnalysisWorkerTest {
     // 차감 좌표(#843 머신 검수 P2) — 워커는 이 좌표를 그대로 보상에 넘길 뿐 기간·구독을 재계산하지 않는다.
     private static final AnalysisQuotaCharge CHARGE =
             AnalysisQuotaCharge.of(77L, java.time.LocalDate.of(2026, 7, 1), 2);
+
+    // advanceStatus가 이제 Inspection을 반환한다(#494/#495, ANALYSIS_DONE/REVIEW_PENDING 알림용
+    // createdBy/assignedInspectorId/roundNo 조회). LENIENT 전략이라 이 스텁을 안 쓰는(전체 실패 등)
+    // 테스트에서도 실패하지 않는다 — every 테스트마다 반복 스텁하지 않기 위해 공통으로 둔다.
+    @BeforeEach
+    void stubAdvanceStatus() {
+        when(inspectionService.advanceStatus(any(), any(), any(), any())).thenReturn(inspectionEntity());
+    }
+
+    private Inspection inspectionEntity() {
+        Inspection inspection = Inspection.builder()
+                .facilityId(1L)
+                .createdBy(CREATED_BY)
+                .assignedInspectorId(ASSIGNED_INSPECTOR_ID)
+                .roundNo(ROUND_NO)
+                .inspectionDate(LocalDate.of(2026, 7, 20))
+                .type(InspectionType.REGULAR)
+                .status(InspectionStatus.ANALYZING)
+                .build();
+        ReflectionTestUtils.setField(inspection, "id", INSPECTION_ID);
+        return inspection;
+    }
 
     private Media image(Long id) {
         Media media = Media.builder()
@@ -324,6 +358,48 @@ class InspectionAnalysisWorkerTest {
         ArgumentCaptor<AnalysisStatusResponse> captor = ArgumentCaptor.forClass(AnalysisStatusResponse.class);
         verify(progressStore, Mockito.atLeastOnce()).save(captor.capture());
         assertThat(captor.getAllValues().get(captor.getAllValues().size() - 1).stage()).isEqualTo("failed");
+    }
+
+    // ── ANALYSIS_DONE/REVIEW_PENDING 알림 발행(#494/#495) ──
+
+    @Test
+    void runAsync_ANALYZED로전이하면_ANALYSIS_DONE은createdBy에게_REVIEW_PENDING은담당점검자에게발행한다() {
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(detection("CRACK", "A")));
+        when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING, GENERATION, CHARGE);
+
+        verify(notificationService).notify(eq(CREATED_BY), eq(NotificationType.ANALYSIS_DONE), anyString());
+        verify(notificationService).notify(eq(ASSIGNED_INSPECTOR_ID), eq(NotificationType.REVIEW_PENDING), anyString());
+    }
+
+    @Test
+    void runAsync_전체실패로ANALYZED전이가안되면_알림을발행하지않는다() {
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString())).thenThrow(new RuntimeException("AI 서버 다운"));
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
+                InspectionStatus.UPLOADING, GENERATION, CHARGE);
+
+        verify(notificationService, never()).notify(any(), any(), anyString());
+    }
+
+    @Test
+    void runAsync_알림발행이실패해도_진행률저장done을건너뛰지않는다() {
+        // refundIfNothingPersisted와 동일한 이유(주석 참고) — notify()가 던지면 뒤따르는 "done" 진행률
+        // 저장이 생략돼 분석은 실제로 끝났는데 프론트가 영원히 폴링한다.
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(detection("CRACK", "A")));
+        when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.doThrow(new RuntimeException("알림 발행 실패"))
+                .when(notificationService).notify(any(), any(), anyString());
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING, GENERATION, CHARGE);
+
+        ArgumentCaptor<AnalysisStatusResponse> captor = ArgumentCaptor.forClass(AnalysisStatusResponse.class);
+        verify(progressStore, Mockito.atLeastOnce()).save(captor.capture());
+        assertThat(captor.getAllValues().get(captor.getAllValues().size() - 1).stage()).isEqualTo("done");
     }
 
     private DetectedDefectItem detection(String type, String grade) {
