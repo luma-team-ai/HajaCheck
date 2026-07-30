@@ -13,6 +13,7 @@ import { ReportEditorHero } from '../components/editor/ReportEditorHero';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import { getEmptyManualSectionLabels } from '../utils/manualSectionValidation';
 import { buildReportPdfContext } from '../utils/reportPdfContext';
 
 function extractErrorMessage(err: unknown, fallback: string): string {
@@ -217,6 +218,8 @@ export function ReportGeneratePage() {
   }, [applyReport, reportQuery.data]);
 
   const dirty = content !== null && savedContent !== null && JSON.stringify(content) !== JSON.stringify(savedContent);
+  const emptyManualSectionLabels = useMemo(() => getEmptyManualSectionLabels(content), [content]);
+  const hasEmptyManualSections = emptyManualSectionLabels.length > 0;
   const isFinalized = report?.status === 'FINALIZED';
 
   // 확정 검증을 통과하고(groundingCheckPassed === true) 저장되지 않은 변경이 없으면(!dirty),
@@ -268,6 +271,10 @@ export function ReportGeneratePage() {
 
   const handleSave = async () => {
     if (!report || !content || isSaving) return;
+    if (hasEmptyManualSections) {
+      setSaveError('내용이 비어 있는 추가 섹션을 입력하거나 삭제한 뒤 저장하세요.');
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     try {
@@ -556,7 +563,11 @@ export function ReportGeneratePage() {
       {!isFinalized && (
         <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-6">
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={handleSave} variant="primary" disabled={!dirty || isSaving}>
+            <Button
+              onClick={handleSave}
+              variant="primary"
+              disabled={!dirty || isSaving || hasEmptyManualSections}
+            >
               {isSaving ? '저장 중...' : '저장'}
             </Button>
             <Button
@@ -570,6 +581,11 @@ export function ReportGeneratePage() {
           {dirty && (
             <p className="text-xs text-text-muted">
               저장하지 않은 변경 사항이 있습니다. 확정 검증 전에 저장하세요.
+            </p>
+          )}
+          {hasEmptyManualSections && (
+            <p className="text-xs text-danger" role="alert">
+              내용이 비어 있는 추가 섹션이 있습니다: {emptyManualSectionLabels.join(', ')}
             </p>
           )}
           {report.groundingCheckPassed !== true && !dirty && (

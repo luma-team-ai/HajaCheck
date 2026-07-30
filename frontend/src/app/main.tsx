@@ -6,9 +6,25 @@ import { AuthGate } from './AuthGate';
 import { router } from './router';
 import { DevModeBadge } from '../shared/components/DevModeBadge';
 import { shouldEnableMocking } from '../shared/utils/shouldEnableMocking';
+import pretendardVariableUrl from 'pretendard/dist/web/variable/woff2/PretendardVariable.woff2?url';
 import '../styles/global.css';
 
 const queryClient = new QueryClient();
+
+function preloadPretendard(): void {
+  if (document.querySelector('link[data-font="pretendard-variable"]')) return;
+
+  const link = document.createElement('link');
+  link.rel = 'preload';
+  link.as = 'font';
+  link.type = 'font/woff2';
+  link.crossOrigin = 'anonymous';
+  link.href = pretendardVariableUrl;
+  link.dataset.font = 'pretendard-variable';
+  document.head.appendChild(link);
+}
+
+preloadPretendard();
 
 // worker.start() 가 (서비스워커 등록 지연·캐시 이슈 등으로) 영영 안 끝나면 앱이 흰 화면으로 멈추므로
 // 타임아웃을 둔다 — 초과 시 목 없이 그냥 렌더한다(로컬 개발이라 목 미동작은 콘솔 경고로 족함).
