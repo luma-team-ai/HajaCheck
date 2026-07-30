@@ -1,4 +1,5 @@
 import type {
+  GenericManualSectionData,
   ManualSection,
   ManualSectionType,
   ParticipantsSectionData,
@@ -16,6 +17,7 @@ import {
 import { AddSectionMenu } from './editor/AddSectionMenu';
 import { DetailSection } from './editor/DetailSection';
 import { DraggableSectionSlot } from './editor/DraggableSectionSlot';
+import { GenericManualSectionForm } from './editor/GenericManualSectionForm';
 import { OverviewSection } from './editor/OverviewSection';
 import { ParticipantsSectionForm } from './editor/ParticipantsSectionForm';
 import { PhotosSectionPreview } from './editor/PhotosSectionPreview';
@@ -41,7 +43,9 @@ const EMPTY_SUBMISSION: SubmissionSectionData = {
 const EMPTY_PARTICIPANTS: ParticipantsSectionData = { entries: [] };
 
 function defaultManualData(type: ManualSectionType): ManualSection['data'] {
-  return type === 'submission' ? { ...EMPTY_SUBMISSION } : { ...EMPTY_PARTICIPANTS };
+  if (type === 'submission') return { ...EMPTY_SUBMISSION };
+  if (type === 'participants') return { ...EMPTY_PARTICIPANTS };
+  return { body: '' };
 }
 
 // 데이터 상태는 상위 페이지가 소유하고, 이 컴포넌트는 본문 섹션의 배치·순서만 담당한다.
@@ -135,9 +139,16 @@ export function ReportContentEditor({
                 readOnly={readOnly}
                 onChange={(data) => updateManualSectionData(manual.id, data)}
               />
-            ) : (
+            ) : manual.type === 'participants' ? (
               <ParticipantsSectionForm
                 data={manual.data as ParticipantsSectionData}
+                readOnly={readOnly}
+                onChange={(data) => updateManualSectionData(manual.id, data)}
+              />
+            ) : (
+              <GenericManualSectionForm
+                title={manual.title}
+                data={manual.data as GenericManualSectionData}
                 readOnly={readOnly}
                 onChange={(data) => updateManualSectionData(manual.id, data)}
               />

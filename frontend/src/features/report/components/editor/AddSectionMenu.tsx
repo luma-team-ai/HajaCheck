@@ -8,9 +8,20 @@ interface AddSectionMenuProps {
   onAdd: (type: ManualSectionType) => void;
 }
 
-const OPTIONS: ManualSectionType[] = ['submission', 'participants'];
+const OPTIONS: ManualSectionType[] = [
+  'submission',
+  'overview-form',
+  'inspection-result-repair',
+  'participants',
+  'summary-opinion',
+  'member-condition-repair',
+  'safety-assessment',
+  'field-test',
+  'facility-status',
+  'location-drawing-photos',
+];
 
-// 백엔드가 만들 수 없는 서식 섹션(제출문·참여기술진 명단)을 편집기에 추가하는 진입점.
+// 백엔드가 만들 수 없는 표준서식 섹션을 content_json 수동 섹션으로 추가하는 진입점.
 export function AddSectionMenu({ existingTypes, onAdd }: AddSectionMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const available = OPTIONS.filter((type) => !existingTypes.includes(type));
@@ -27,7 +38,7 @@ export function AddSectionMenu({ existingTypes, onAdd }: AddSectionMenuProps) {
         + 서식 섹션 추가
       </button>
       {isOpen && (
-        <div className="absolute left-0 top-full z-10 mt-1 flex w-56 flex-col gap-1 rounded-lg border border-border bg-surface p-1.5 shadow-lg">
+        <div className="absolute left-0 top-full z-10 mt-1 flex max-h-80 w-72 flex-col gap-1 overflow-y-auto rounded-lg border border-border bg-surface p-1.5 shadow-lg">
           {available.map((type) => (
             <button
               key={type}

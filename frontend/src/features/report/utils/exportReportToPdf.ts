@@ -1,6 +1,11 @@
 import notoBoldUrl from '../../../assets/fonts/NotoSansKR-Bold.subset.ttf?url';
 import notoRegularUrl from '../../../assets/fonts/NotoSansKR-Regular.subset.ttf?url';
-import type { ParticipantsSectionData, ReportContent, SubmissionSectionData } from '../types';
+import type {
+  GenericManualSectionData,
+  ParticipantsSectionData,
+  ReportContent,
+  SubmissionSectionData,
+} from '../types';
 import { isFixedSectionKey, resolveSectionOrder } from './sectionOrder';
 
 // ---------------------------------------------------------------------------
@@ -534,6 +539,21 @@ export async function exportReportToPdf(
     return lastTableY();
   };
 
+  // ── 일반 수동 섹션 ──────────────────────────────────────────────────────
+  // 안전성 평가·현장시험·도면류처럼 DB/AI 스키마에 없는 항목은 사용자가 입력한 본문을 같은
+  // 관공서 표 양식으로 싣는다. 새 컬럼 없이 reports.content_json 안에서만 왕복된다.
+  const renderGenericManualBlock = (label: string, data: GenericManualSectionData, startY: number): number => {
+    const y = sectionTitle(label, startY);
+    autoTable(doc, {
+      ...tableDefaults,
+      ...subTable,
+      startY: y,
+      body: [[data.body?.trim() || '입력된 내용이 없습니다.']],
+      bodyStyles: { minCellHeight: 24, valign: 'top', halign: 'left' },
+    });
+    return lastTableY();
+  };
+
   // ── 부위별 사진(고정 섹션) ───────────────────────────────────────────────
   // 사진 1장 = "이미지 행 + 캡션 행" 2행짜리 표 한 칸으로 넣는다(원본 "전경사진" 관용구 그대로:
   // 사진 아래 캡션이 같은 테두리 안에 있음). 좌표를 직접 계산해 doc.addImage+doc.rect로 쌓던
@@ -620,8 +640,10 @@ export async function exportReportToPdf(
       // 다음 섹션은 반드시 새 페이지에서 시작 — 커서를 페이지 하단 너머로 밀어 다음 반복의
       // ensureSpace가 무조건 addPage하도록 유도한다.
       cursorY = BOTTOM_LIMIT + 1;
-    } else {
+    } else if (manual.type === 'participants') {
       cursorY = renderParticipantsBlock(`${number}. 참여기술진 명단`, manual.data as ParticipantsSectionData, cursorY);
+    } else {
+      cursorY = renderGenericManualBlock(`${number}. ${manual.title}`, manual.data as GenericManualSectionData, cursorY);
     }
   });
 

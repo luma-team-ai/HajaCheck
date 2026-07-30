@@ -44,10 +44,10 @@ export interface ReportOptions {
   includePhoto?: boolean;
 }
 
-// 백엔드가 생산할 수 없는 서식 섹션(제출문·참여기술진 명단 — 계약 당사자·참여 기술자 실명 등은
-// 시스템이 아는 값이 아니다)을 편집 화면에서 수동 입력받기 위한 타입. content_json은 jsonb
-// opaque 컬럼이고 UpdateReportContentRequest도 문자열 하나만 받으므로(스키마 검증 없음),
-// 아래 타입은 프론트 전용 확장이며 마이그레이션 없이 저장·왕복된다.
+// 백엔드가 생산할 수 없는 서식 섹션(제출문·참여기술진 명단·안전성평가·현장시험 등)은 편집
+// 화면에서 수동 입력받는다. content_json은 jsonb opaque 컬럼이고 UpdateReportContentRequest도
+// 문자열 하나만 받으므로(스키마 검증 없음), 아래 타입은 프론트 전용 확장이며 마이그레이션 없이
+// 저장·왕복된다.
 export interface SubmissionSectionData {
   recipient: string; // 수신자 (예: "서울특별시장 귀하")
   contractDate: string; // 계약 체결일
@@ -67,13 +67,27 @@ export interface ParticipantsSectionData {
   entries: ParticipantEntry[];
 }
 
-export type ManualSectionType = 'submission' | 'participants';
+export interface GenericManualSectionData {
+  body: string;
+}
+
+export type ManualSectionType =
+  | 'submission'
+  | 'overview-form'
+  | 'inspection-result-repair'
+  | 'participants'
+  | 'summary-opinion'
+  | 'member-condition-repair'
+  | 'safety-assessment'
+  | 'field-test'
+  | 'facility-status'
+  | 'location-drawing-photos';
 
 export interface ManualSection {
   id: string;
   type: ManualSectionType;
   title: string;
-  data: SubmissionSectionData | ParticipantsSectionData;
+  data: SubmissionSectionData | ParticipantsSectionData | GenericManualSectionData;
 }
 
 // 편집기 카드(고정 5종) + 수동 섹션을 함께 자유 순서로 배치하기 위한 키. 고정 섹션은 이 문자열

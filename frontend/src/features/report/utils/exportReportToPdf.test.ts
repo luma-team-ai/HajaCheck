@@ -199,6 +199,29 @@ describe('exportReportToPdf', () => {
     expect(mockAddPage).toHaveBeenCalledTimes(1);
   });
 
+  it('안전성 평가 같은 generic 수동 섹션도 sectionOrder 위치에 관공서 표로 렌더링한다', async () => {
+    const content = makeContent({
+      manualSections: [
+        {
+          id: 'manual-safety-1',
+          type: 'safety-assessment',
+          title: '안전성 평가',
+          data: { body: '구조 안전성 검토 결과를 입력합니다.' },
+        },
+      ],
+      sectionOrder: ['overview', 'manual-safety-1', 'summary', 'detail', 'recommendation'],
+    });
+
+    await exportReportToPdf(content);
+
+    const renderedText = mockText.mock.calls.map(([text]) => text).flat();
+    expect(renderedText).toContain('2. 안전성 평가');
+    const genericOptions = findTableOptions((options) =>
+      JSON.stringify(options.body).includes('구조 안전성 검토 결과를 입력합니다.'),
+    );
+    expect(genericOptions?.body).toEqual([['구조 안전성 검토 결과를 입력합니다.']]);
+  });
+
   it('부위별 사진도 다른 섹션과 동등하게 sectionOrder로 자유롭게 재배치된다', async () => {
     vi.mocked(fetch).mockImplementation((input) => {
       if (String(input) === '/api/media/1/thumbnail') {

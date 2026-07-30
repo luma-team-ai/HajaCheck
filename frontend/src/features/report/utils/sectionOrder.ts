@@ -12,7 +12,15 @@ const FIXED_SECTION_LABELS: Record<(typeof FIXED_SECTION_KEYS)[number], string> 
 
 export const MANUAL_SECTION_LABELS = {
   submission: '제출문',
-  participants: '참여기술진 명단',
+  'overview-form': '기본현황',
+  'inspection-result-repair': '점검 결과 및 보수보강',
+  participants: '책임/참여기술자',
+  'summary-opinion': '결과요약/종합의견',
+  'member-condition-repair': '부위별 상태평가/보수보강',
+  'safety-assessment': '안전성 평가',
+  'field-test': '현장시험',
+  'facility-status': '시설물 현황',
+  'location-drawing-photos': '위치도/전경/도면/부위별 사진',
 } as const;
 
 /**

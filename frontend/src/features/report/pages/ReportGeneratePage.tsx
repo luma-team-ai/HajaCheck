@@ -222,8 +222,8 @@ export function ReportGeneratePage() {
   // 확정 검증을 통과하고(groundingCheckPassed === true) 저장되지 않은 변경이 없으면(!dirty),
   // 최종 확정 시 생성될 것과 동일한 조건으로 미리 PDF를 렌더링해둔다 — handleGeneratePdfAndFinalize와
   // 동일한 옵션을 쓰되 서버 업로드/확정은 하지 않는다(순수 클라이언트 미리보기).
-  const canPreviewBeforeFinalize =
-    Boolean(content) && report?.groundingCheckPassed === true && !dirty;
+  const canRenderClientPreview =
+    Boolean(content) && !dirty && (report?.groundingCheckPassed === true || isFinalized);
   const includeReportPhotos = content?.reportOptions?.includePhoto !== false;
 
   // useInspectionResult(useInspectionResultReal)은 매 렌더마다 새 data 객체를 만든다(메모이제이션
@@ -239,8 +239,9 @@ export function ReportGeneratePage() {
       return null;
     });
     setPreviewError(null);
-    if (!isExportMode || !report || report.pdfUrl || isFinalized || !content) return;
-    if (!canPreviewBeforeFinalize) return;
+    if (!isExportMode || !report || !content) return;
+    if (report.pdfUrl && !pdfLoadError) return;
+    if (!canRenderClientPreview) return;
 
     let cancelled = false;
     void (async () => {
@@ -263,7 +264,7 @@ export function ReportGeneratePage() {
     return () => {
       cancelled = true;
     };
-  }, [isExportMode, report, isFinalized, content, canPreviewBeforeFinalize, includeReportPhotos]);
+  }, [isExportMode, report, content, pdfLoadError, canRenderClientPreview, includeReportPhotos]);
 
   const handleSave = async () => {
     if (!report || !content || isSaving) return;
@@ -314,17 +315,24 @@ export function ReportGeneratePage() {
   };
 
   const handleDownloadStoredPdf = async () => {
-    if (!report?.pdfUrl || isDownloadingPdf) return;
+    const currentReport = report;
+    if (!currentReport || (!currentReport.pdfUrl && !previewBlobUrl) || isDownloadingPdf) return;
     setIsDownloadingPdf(true);
     setFinalizeError(null);
     try {
-      const response = await fetch(normalizePdfPreviewUrl(report.pdfUrl), { credentials: 'include' });
-      if (!response.ok) throw new Error(`PDF ${response.status}`);
-      const blob = await response.blob();
+      let blob: Blob;
+      if (previewBlobUrl) {
+        const response = await fetch(previewBlobUrl);
+        blob = await response.blob();
+      } else {
+        const response = await fetch(normalizePdfPreviewUrl(currentReport.pdfUrl!), { credentials: 'include' });
+        if (!response.ok) throw new Error(`PDF ${response.status}`);
+        blob = await response.blob();
+      }
       const objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = objectUrl;
-      anchor.download = buildReportPdfFileName(report.inspectionId);
+      anchor.download = buildReportPdfFileName(currentReport.inspectionId);
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -409,7 +417,7 @@ export function ReportGeneratePage() {
             <Button
               onClick={() => void handleDownloadStoredPdf()}
               variant="primary"
-              disabled={isDownloadingPdf || !report.pdfUrl}
+              disabled={isDownloadingPdf || (!report.pdfUrl && !previewBlobUrl)}
             >
               {isDownloadingPdf ? '내보내는 중...' : 'PDF 내보내기'}
               <svg className="ml-1 h-4 w-4 text-surface" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -419,15 +427,7 @@ export function ReportGeneratePage() {
           </div>
         </div>
         <div className="flex min-h-0 flex-1 overflow-hidden bg-surface-sunken px-6 py-5">
-          {report.pdfUrl && pdfLoadError ? (
-            <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-4 rounded-lg border border-border bg-surface p-8 text-center shadow-sm">
-              <p className="text-lg font-semibold text-text-default">PDF를 불러올 수 없습니다.</p>
-              <p className="text-sm text-text-muted">{pdfLoadError}</p>
-              <Button onClick={() => void handleDownloadStoredPdf()} variant="secondary">
-                PDF 내보내기 시도
-              </Button>
-            </div>
-          ) : report.pdfUrl && !isPdfChecking ? (
+          {report.pdfUrl && !pdfLoadError && !isPdfChecking ? (
             <div className="mx-auto h-full w-full max-w-[860px] overflow-hidden bg-surface shadow-sm">
               <iframe
                 key={pdfPreviewKey}
@@ -441,25 +441,19 @@ export function ReportGeneratePage() {
             <div className="flex flex-1 items-center justify-center">
               <AILoadingIndicator message="PDF를 불러오는 중..." />
             </div>
-          ) : isFinalized ? (
-            // 확정 완료됐는데 저장된 PDF가 없는 데이터 이상 상태 — 편집 화면 자체가 잠겨 있어
-            // "돌아가서 다시 시도" 안내가 성립하지 않는다.
-            <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-surface p-8 text-center shadow-sm">
-              <div className="flex max-w-md flex-col gap-3">
-                <p className="text-lg font-semibold text-text-default">저장된 PDF가 없습니다.</p>
-                <p className="text-sm text-text-muted">PDF 파일을 찾을 수 없습니다. 관리자에게 문의해 주세요.</p>
-              </div>
-            </div>
           ) : previewError ? (
             <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-4 rounded-lg border border-border bg-surface p-8 text-center shadow-sm">
               <p className="text-lg font-semibold text-text-default">미리보기를 만들지 못했습니다.</p>
               <p className="text-sm text-text-muted">{previewError}</p>
             </div>
           ) : previewBlobUrl ? (
-            // 확정 전 미리보기 — 아직 서버에 저장되지 않은 임시 렌더링임을 명확히 표시한다.
+            // 저장 PDF fallback 또는 확정 전 미리보기 — 서버 저장본이 아니라 현재 content_json을
+            // 클라이언트에서 같은 exporter로 다시 렌더링한 결과임을 명확히 표시한다.
             <div className="mx-auto flex h-full w-full max-w-[860px] flex-col overflow-hidden bg-surface shadow-sm">
               <p className="m-0 border-b border-warning-soft-border bg-warning-soft-bg px-4 py-2 text-xs text-warning-soft-fg">
-                아직 확정되지 않은 미리보기입니다. 실제 발행 후 저장되는 최종 PDF와 다를 수 있습니다.
+                {pdfLoadError
+                  ? `저장된 PDF를 찾지 못해 현재 보고서 내용으로 다시 렌더링했습니다. (${pdfLoadError})`
+                  : '아직 확정되지 않은 미리보기입니다. 실제 발행 후 저장되는 최종 PDF와 다를 수 있습니다.'}
               </p>
               <iframe
                 title="보고서 PDF 미리보기(확정 전)"
@@ -467,9 +461,25 @@ export function ReportGeneratePage() {
                 className="block h-full w-full flex-1 border-0 bg-surface"
               />
             </div>
-          ) : canPreviewBeforeFinalize ? (
+          ) : canRenderClientPreview ? (
             <div className="flex flex-1 items-center justify-center">
               <AILoadingIndicator message="미리보기를 만드는 중..." />
+            </div>
+          ) : report.pdfUrl && pdfLoadError ? (
+            <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-4 rounded-lg border border-border bg-surface p-8 text-center shadow-sm">
+              <p className="text-lg font-semibold text-text-default">PDF를 불러올 수 없습니다.</p>
+              <p className="text-sm text-text-muted">{pdfLoadError}</p>
+              <Button onClick={() => void handleDownloadStoredPdf()} variant="secondary">
+                PDF 내보내기 시도
+              </Button>
+            </div>
+          ) : isFinalized ? (
+            // 확정 완료됐지만 content_json으로도 fallback을 만들 수 없는 데이터 이상 상태.
+            <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-surface p-8 text-center shadow-sm">
+              <div className="flex max-w-md flex-col gap-3">
+                <p className="text-lg font-semibold text-text-default">저장된 PDF가 없습니다.</p>
+                <p className="text-sm text-text-muted">PDF 파일을 찾을 수 없습니다. 관리자에게 문의해 주세요.</p>
+              </div>
             </div>
           ) : (
             <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-surface p-8 text-center shadow-sm">
