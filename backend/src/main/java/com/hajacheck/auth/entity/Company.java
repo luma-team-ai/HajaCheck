@@ -141,8 +141,12 @@ public class Company extends BaseTimeEntity {
     /**
      * 가입 신청 팩토리 — 진위확인 PENDING, 승인 PENDING_REVIEW 로 생성.
      * OCR 은 stub 값(호출부에서 {@code {"source":"MANUAL_INPUT"}} 전달). {@code businessStartDate} 는
-     * 국세청 진위확인 파라미터로 신규 가입 시 항상 전달된다(#596). 진위 성공 시 호출부가 생성 직후
-     * {@link #markBusinessVerified()} 로 VERIFIED 전이시킨다.
+     * 국세청 진위확인 파라미터로 신규 가입 시 항상 전달된다(#596).
+     *
+     * <p>이 팩토리는 "신청 시점의 초기 상태"만 만든다 — 실제 가입 경로
+     * ({@code CompanyAccountWriter#createAccount})는 생성 직후 같은 트랜잭션에서
+     * {@link #markBusinessVerified()} + {@link #autoApprove()} 로 VERIFIED/APPROVED 로 전이시킨다(#1324).
+     * 팩토리 이름·의미와 기존 호출부·테스트를 지키기 위해 초기 상태는 그대로 두고 전이는 writer 가 맡는다.
      */
     public static Company createPendingReview(Long ownerUserId, String name, String businessRegistrationNumber,
                                               String representativeName, String address, String addressDetail,
@@ -182,6 +186,36 @@ public class Company extends BaseTimeEntity {
         }
         this.status = CompanyStatus.APPROVED;
         this.reviewedBy = reviewerUserId;
+        this.reviewedAt = Instant.now();
+        this.rejectionReason = null;
+    }
+
+    /**
+     * 가입 즉시 자동승인(#1324) — 사람 심사자 없이 시스템이 승인한다.
+     *
+     * <p><b>근거</b>: 관리자 승인 화면·API 가 아직 배선되지 않았고({@link #approve(Long)} 호출부 0건),
+     * 프론트는 이미 승인 대기 단계를 제거해 "가입 완료 → 로그인" 흐름이다. 그대로 두면 신규 가입 기업이
+     * 영구 {@code PENDING_REVIEW} 로 남아 회사 스코프 기능(점검 생성·담당자 배정)이 전혀 열리지 않는다
+     * (스코프 판정은 회사 {@code APPROVED} + {@code VERIFIED} + 오너의 유효 멤버십을 모두 요구한다 —
+     * {@code CompanyMembershipRepository.existsEffectiveApprovedMembership}).
+     *
+     * <p><b>{@link #approve(Long)} 와 분리한 이유</b>: 관리자 수동 승인은 "{@code VERIFIED} 선행" 가드를
+     * 유지해야 한다(향후 배선). 자동승인은 진위확인 결과와 무관하게 통과시키는 운영 결정이므로 그 가드를
+     * 느슨하게 풀지 않고 별 경로로 둔다. 진위확인 상태 승격은 {@link #markBusinessVerified()} 책임이다.
+     *
+     * <p>{@code reviewedBy = null} 은 "사람 심사자 없음(시스템 자동승인)"을 뜻한다
+     * (companies.reviewed_by 는 nullable). {@code PENDING_REVIEW} 에서만 호출 가능하므로 반려된 회사가
+     * 자동승인으로 되살아나지 않는다.
+     *
+     * <p>⚠️ 계약: {@link #approve(Long)} 와 동일하게, 호출부는 <b>같은 트랜잭션에서 오너의</b>
+     * {@link CompanyMembership} <b>도 APPROVED 로 발급</b>해야 한다 — 회사만 승인하고 멤버십을 빼면
+     * "승인된 회사인데 오너에게 유효 소속이 없는" 불일치가 남아 스코프가 여전히 닫힌다
+     * (배선 지점: {@code CompanyAccountWriter#createAccount}).
+     */
+    public void autoApprove() {
+        requirePendingReview("autoApprove");
+        this.status = CompanyStatus.APPROVED;
+        this.reviewedBy = null;
         this.reviewedAt = Instant.now();
         this.rejectionReason = null;
     }

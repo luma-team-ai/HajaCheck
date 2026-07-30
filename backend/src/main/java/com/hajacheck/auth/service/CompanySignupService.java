@@ -54,8 +54,11 @@ public class CompanySignupService {
     private final AuthProperties authProperties;
 
     /**
-     * 회원가입: ①이메일/사업자번호 선검사(조기 409) ②파일 저장(트랜잭션 밖 IO)
-     * ③User+Company+Consents 원자저장(writer) ④가입상태 토큰 발급 ⑤마스킹 응답.
+     * 회원가입: ①이메일/사업자번호 선검사(조기 409) ②국세청 진위확인(확정 불량이면 차단) ③파일 저장
+     * (트랜잭션 밖 IO) ④User+Company(VERIFIED·APPROVED)+오너 멤버십+Consents 원자저장(writer)
+     * ⑤가입상태 토큰 발급 ⑥마스킹 응답.
+     *
+     * <p>응답 {@code status} 는 #1324 부터 항상 {@code APPROVED} 다 — 승인 대기 단계가 없다.
      */
     public CompanySignupResponse signup(CompanySignupRequest request) {
         String email = request.email();
@@ -69,20 +72,20 @@ public class CompanySignupService {
             throw new BusinessException(ErrorCode.AUTH_BUSINESS_NUMBER_DUPLICATED);
         }
 
-        // ②' 국세청 진위확인(트랜잭션·파일저장 전 외부 호출). 진위 불일치·휴/폐업·미등록은 가입 차단,
-        //     외부 장애·미설정은 fail-open(스킵) — 정상 가입을 막지 않는다(#596).
+        // ② 국세청 진위확인(트랜잭션·파일저장 전 외부 호출). 진위 불일치·휴/폐업·미등록은 가입 차단,
+        //    외부 장애·미설정은 fail-open(스킵) — 정상 가입을 막지 않는다(#596).
+        //    ⚠️ 이 차단 로직은 #1324 자동승인의 유일한 품질 게이트다(확정 불량만 걸러낸다) — 풀지 말 것.
         NtsVerificationOutcome verification = ntsBusinessVerifyClient.validate(
                 normalizedBrn, request.representativeName(), request.businessStartDate());
         if (isVerificationBlocked(verification)) {
             throw new BusinessException(ErrorCode.AUTH_BUSINESS_VERIFICATION_FAILED);
         }
-        boolean businessVerified = verification == NtsVerificationOutcome.VERIFIED;
 
-        // ② 파일 저장(트랜잭션 밖). 검증 실패는 FILE_* 로 던진다.
+        // ③ 파일 저장(트랜잭션 밖). 검증 실패는 FILE_* 로 던진다.
         StoredFile stored = fileStorage.store(request.businessRegistrationFile(), FILE_CATEGORY,
                 fileStorageProperties.getAllowedContentTypes(), fileStorageProperties.getMaxSizeBytes());
 
-        // ③ 원자저장 — 실패 시 파일 보상삭제.
+        // ④ 원자저장(회사 VERIFIED+APPROVED, 오너 멤버십 포함) — 실패 시 파일 보상삭제.
         Company company;
         try {
             String passwordHash = passwordEncoder.encode(request.password());
@@ -91,7 +94,7 @@ public class CompanySignupService {
                     request.companyName(), normalizedBrn, request.address(), request.addressDetail(),
                     stored.url(), OCR_STUB_RAW,
                     policyProperties.getTermsVersion(), policyProperties.getPrivacyVersion(),
-                    request.businessStartDate(), businessVerified);
+                    request.businessStartDate());
         } catch (DataIntegrityViolationException e) {
             // 선검사와 저장 사이의 경합(동시 가입) — unique 위반. 파일 정리 후 email/brn 구분해 409.
             fileStorage.delete(stored.storageKey());
@@ -105,13 +108,19 @@ public class CompanySignupService {
             throw e;
         }
 
-        // ④ 가입 상태 토큰(장기, peek 용) — 값은 companyId.
+        // 감사 로그(#1324) — 자동승인은 사람 심사자가 없어(companies.reviewed_by=null) "왜 승인됐는지"가
+        // DB 에 남지 않는다. 진위확인 결과를 여기 남겨 SKIPPED(국세청 키 미설정·장애 fail-open)로 승인된
+        // 건을 사후에 구분할 수 있게 한다. 개인정보(이메일·사업자번호·대표자명)는 남기지 않는다.
+        log.info("기업 가입 자동승인(#1324) — companyId={}, 국세청 진위확인 결과={}",
+                company.getId(), verification);
+
+        // ⑤ 가입 상태 토큰(장기, peek 용) — 값은 companyId.
         String signupToken = tokenStore.issue(
                 TokenNamespaces.SIGNUP_STATUS,
                 company.getId().toString(),
                 authProperties.getSignupStatusTtl());
 
-        // ⑤ 마스킹 응답.
+        // ⑥ 마스킹 응답.
         return CompanySignupResponse.from(company, email, signupToken);
     }
 
