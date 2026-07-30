@@ -230,12 +230,31 @@
   gap: 10px;
 }
 
+.defect-activity-panel .defect-activity-list li {
+  position: relative;
+}
+
+.defect-activity-panel .defect-activity-list li:not(:last-child)::before {
+  position: absolute;
+  top: 12px;
+  left: 3px;
+  width: 2px;
+  height: calc(100% + 18px);
+  background: var(--color-border);
+  content: '';
+}
+
 .defect-activity-dot {
   width: 7px;
   height: 7px;
   margin-top: 6px;
   border-radius: 50%;
   background: var(--color-primary);
+}
+
+.defect-activity-panel .defect-activity-dot {
+  position: relative;
+  z-index: 1;
 }
 
 .defect-activity-meta { display: flex; align-items: center; gap: 8px; }

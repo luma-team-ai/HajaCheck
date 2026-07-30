@@ -394,8 +394,7 @@
   font-weight: 700;
 }
 
-/* dot + 세로 연결선 타임라인(Figma 정렬, #937) — ActivityHistoryPanel(하자 단건, defect-activity-panel
-   클래스)과는 다른 조상 클래스(inspection-activity-panel)로 스코프해 그쪽 스타일에는 영향을 주지 않는다. */
+/* dot + 세로 연결선 타임라인(Figma 정렬, #937) */
 .inspection-activity-panel .defect-activity-list li {
   position: relative;
 }
@@ -408,7 +407,7 @@
 .inspection-activity-panel .defect-activity-list li:not(:last-child)::before {
   position: absolute;
   top: 12px;
-  left: 5px;
+  left: 3px;
   width: 2px;
   height: calc(100% + 18px);
   background: var(--color-border);
@@ -421,21 +420,15 @@
   padding: 10px 12px;
 }
 
-.inspection-activity-panel__more {
-  width: 100%;
-  margin-top: 14px;
-  border: 1px solid var(--color-border);
-  border-radius: 9999px;
-  background: var(--color-surface);
-  padding: 8px 0;
-  color: var(--color-text-default);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
+.inspection-activity-panel .defect-activity-status-badge {
+  margin-top: 6px;
 }
 
-.inspection-activity-panel__more:hover {
-  background: var(--color-surface-sunken);
+.inspection-activity-panel__list {
+  max-height: min(520px, calc(100vh - 260px));
+  padding-right: 6px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 /* --- 하자 상세 모달 --- */

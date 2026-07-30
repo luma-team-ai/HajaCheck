@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useInspectionActivity } from '../hooks/useInspectionActivity';
 import {
   describeDefectChange,
@@ -10,19 +9,11 @@ type Props = {
   defects: Defect[];
 };
 
-// 처음 렌더링하는 활동 항목 수 — 나머지는 "더보기" 클릭 시 한 번에 펼쳐 보여준다(Figma 정렬, #937).
-const INITIAL_VISIBLE_COUNT = 5;
-
 // 점검 상세(카드형) 우측 "활동 기록" 사이드바 — contract.md §화면 구조 ②. ActivityHistoryPanel(하자
 // 단건)과 달리 점검에 속한 하자 전체의 활동을 모아 보여준다(useInspectionActivity 참고). 백엔드
-// 페이지네이션은 없고(useInspectionActivity가 전체를 한 번에 반환), "더보기"는 클라이언트 사이드로만
-// 나머지 항목을 펼친다.
+// 페이지네이션은 없고(useInspectionActivity가 전체를 한 번에 반환), 목록 영역에서 스크롤한다.
 export function InspectionActivityPanel({ defects }: Props) {
   const { items, isLoading, isError } = useInspectionActivity(defects);
-  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
-
-  const visibleItems = items.slice(0, visibleCount);
-  const hiddenCount = items.length - visibleItems.length;
 
   return (
     <aside className="defect-card inspection-activity-panel" aria-label="점검 활동 기록">
@@ -43,48 +34,36 @@ export function InspectionActivityPanel({ defects }: Props) {
       )}
 
       {!isLoading && !isError && items.length > 0 && (
-        <>
-          <ol className="defect-activity-list">
-            {visibleItems.map((item) => {
-              const presentation =
-                item.fieldChanged === 'status'
-                  ? getDefectRevisionStatusPresentation(item.newValue)
-                  : null;
+        <ol className="defect-activity-list inspection-activity-panel__list">
+          {items.map((item) => {
+            const presentation =
+              item.fieldChanged === 'status'
+                ? getDefectRevisionStatusPresentation(item.newValue)
+                : null;
 
-              return (
-                <li key={item.id}>
-                  <span className="defect-activity-dot" aria-hidden="true" />
-                  <div className="inspection-activity-panel__entry">
-                    <div className="defect-activity-meta">
-                      <span className="inspection-activity-panel__code">{item.defectCode}</span>
-                      {presentation && (
-                        <span className={`defect-activity-status-badge ${presentation.className}`}>
-                          <span aria-hidden="true" />
-                          {presentation.label}
-                        </span>
-                      )}
-                      <time dateTime={item.createdAt}>
-                        {new Date(item.createdAt).toLocaleString('ko-KR')}
-                      </time>
-                    </div>
-                    <p>{describeDefectChange(item.fieldChanged, item.oldValue, item.newValue)}</p>
-                    {item.reason && <p>사유: {item.reason}</p>}
+            return (
+              <li key={item.id}>
+                <span className="defect-activity-dot" aria-hidden="true" />
+                <div className="inspection-activity-panel__entry">
+                  <div className="defect-activity-meta">
+                    <span className="inspection-activity-panel__code">{item.defectCode}</span>
+                    <time dateTime={item.createdAt}>
+                      {new Date(item.createdAt).toLocaleString('ko-KR')}
+                    </time>
                   </div>
-                </li>
-              );
-            })}
-          </ol>
-
-          {hiddenCount > 0 && (
-            <button
-              type="button"
-              className="inspection-activity-panel__more"
-              onClick={() => setVisibleCount(items.length)}
-            >
-              더보기 ({hiddenCount})
-            </button>
-          )}
-        </>
+                  {presentation && (
+                    <span className={`defect-activity-status-badge ${presentation.className}`}>
+                      <span aria-hidden="true" />
+                      {presentation.label}
+                    </span>
+                  )}
+                  <p>{describeDefectChange(item.fieldChanged, item.oldValue, item.newValue)}</p>
+                  {item.reason && <p>사유: {item.reason}</p>}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
       )}
     </aside>
   );
