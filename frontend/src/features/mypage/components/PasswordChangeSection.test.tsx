@@ -59,11 +59,11 @@ function LocationProbe() {
   return <span data-testid="location">{location.pathname}</span>;
 }
 
-function renderSection(): QueryClient {
+function renderSection(): { queryClient: QueryClient; unmount: () => void } {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  render(
+  const { unmount } = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/mypage/profile']}>
         <Routes>
@@ -80,7 +80,7 @@ function renderSection(): QueryClient {
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  return queryClient;
+  return { queryClient, unmount };
 }
 
 const VALID_NEW_PASSWORD = 'NewPassw0rd!';
@@ -141,7 +141,7 @@ describe('PasswordChangeSection', () => {
   });
 
   it('성공 시 안내 문구를 보여주고 잠시 후 클라이언트 세션을 정리해 /login으로 이동한다', async () => {
-    const queryClient = renderSection();
+    const { queryClient } = renderSection();
     fillForm();
 
     fireEvent.click(submitButton());
@@ -181,8 +181,30 @@ describe('PasswordChangeSection', () => {
     expect(logoutCallCount).toBe(1);
   });
 
+  // PR머신 재검수 P3 — 성공 안내(REDIRECT_DELAY_MS) 노출 중 SideNavBar 등으로 화면을 벗어나
+  // 언마운트되면, 리다이렉트 useEffect의 cleanup이 setTimeout을 취소해 그 안의
+  // clearSensitiveState()가 발화하지 않는다. 이 경우에도 마운트 스코프 cleanup의
+  // removeCachedVariables() 호출로 MutationCache에 평문 variables가 남지 않아야 한다.
+  it('성공 안내 노출 중(리다이렉트 타이머 발화 전) 언마운트해도 MutationCache에 평문이 남지 않는다(P3 회귀 방지)', async () => {
+    const { queryClient, unmount } = renderSection();
+    fillForm();
+
+    fireEvent.click(submitButton());
+
+    expect(await screen.findByText('비밀번호가 변경되었습니다. 다시 로그인해 주세요.')).toBeTruthy();
+    // REDIRECT_DELAY_MS(1200ms)가 아직 경과하지 않은 시점 — 정상 리다이렉트 타이머는 아직 발화 전이다.
+    expect(logoutCallCount).toBe(0);
+
+    unmount();
+
+    expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
+    // 언마운트됐으므로 타이머가 나중에 발화해도(실제로는 clearTimeout으로 취소됨) 로그아웃은 없다.
+    await sleep(REDIRECT_DELAY_MS + 150);
+    expect(logoutCallCount).toBe(0);
+  });
+
   it('401(현재 비밀번호 불일치, AUTH_INVALID_CREDENTIALS)이면 필드 인라인 에러만 보여주고 전역 로그인 리다이렉트로 새지 않는다', async () => {
-    const queryClient = renderSection();
+    const { queryClient } = renderSection();
     fillForm({ current: MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.wrongCurrentPassword });
 
     fireEvent.click(submitButton());
@@ -202,7 +224,7 @@ describe('PasswordChangeSection', () => {
   // 인라인 처리해야 한다 — "모르는 401은 전부 세션 만료"로 취급하면 가장 흔한 정상 재시도(오타)까지
   // 세션을 파괴한다.
   it('401(세션 만료, code===UNAUTHORIZED)이면 현재 비밀번호 오류로 오인하지 않고 재로그인시킨다', async () => {
-    const queryClient = renderSection();
+    const { queryClient } = renderSection();
     fillForm({ current: MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.sessionExpired });
 
     fireEvent.click(submitButton());
@@ -250,7 +272,7 @@ describe('PasswordChangeSection', () => {
   // 보안 리뷰 P2-2 — 401/400/429 어디에도 안 걸리는 응답(CSRF 403·계정상태 403·500·오프라인 등)이
   // 화면을 완전 무반응으로 만들지 않는지 검증한다(else 폴백).
   it('401/400/429 외 응답(예: 500)이면 무반응 대신 서버 메시지를 else 폴백으로 보여준다', async () => {
-    const queryClient = renderSection();
+    const { queryClient } = renderSection();
     fillForm({ current: MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.serverError });
 
     fireEvent.click(submitButton());
