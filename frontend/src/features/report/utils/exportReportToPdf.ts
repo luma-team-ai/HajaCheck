@@ -60,6 +60,9 @@ const FONT_SIZE = {
 const BLACK: [number, number, number] = [0, 0, 0];
 /** 표 헤더·라벨 배경. 원본 계측 0.8 → 204. */
 const HEAD_FILL: [number, number, number] = [204, 204, 204];
+// 하자 박스 색(#1333) — 흑백 괘선뿐인 관공서 서식에서 사진 위 마킹만 눈에 띄어야 하므로
+// 화면 오버레이(--color-selection, 마젠타 #d946ef)와 같은 색을 쓴다.
+const BOX_COLOR: [number, number, number] = [217, 70, 239];
 
 const PT_TO_MM = 25.4 / 72;
 /** 표 내부 괘선 0.36pt. */
@@ -74,6 +77,14 @@ export interface ReportPdfContext {
   defectImages?: ReportPdfImage[];
 }
 
+/** PDF 사진 위에 그릴 하자 박스 — 0~1 정규화 좌표(이미지 좌상단 기준). */
+export interface ReportPdfBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface ReportPdfImage {
   defectType: string;
   imageUrl: string;
@@ -81,6 +92,10 @@ export interface ReportPdfImage {
   grade?: string;
   /** AI/점검자 분석 요약 — 캡션에 짧게 덧붙여 "균열" 같은 유형명 단독 표기를 피한다. */
   summary?: string;
+  /** 이 사진에서 탐지된 하자 박스(#1333). 비어 있으면 사진만 그린다. */
+  boxes?: ReportPdfBox[];
+  /** 한 사진에 하자가 여러 건일 때 캡션에 건수를 덧붙이기 위한 값. */
+  defectCount?: number;
 }
 
 const PHOTO_CAPTION_SUMMARY_MAX = 40;
@@ -93,11 +108,14 @@ const PHOTO_CAPTION_SUMMARY_MAX = 40;
 function formatPhotoCaption(image: ReportPdfImage): string {
   const type = image.defectType || '부위';
   const gradeSuffix = image.grade ? `(${image.grade}등급)` : '';
+  // 사진 단위로 묶으면서(#1333) 한 장에 하자가 여러 건일 수 있다 — 캡션은 대표 1건 기준이므로
+  // 나머지를 "외 N건"으로 밝혀 캡션과 박스 개수가 어긋나 보이지 않게 한다.
+  const countSuffix = (image.defectCount ?? 1) > 1 ? ` 외 ${(image.defectCount ?? 1) - 1}건` : '';
   const summary = (image.summary ?? '').trim();
-  if (!summary) return `${type}${gradeSuffix}`;
+  if (!summary) return `${type}${gradeSuffix}${countSuffix}`;
   const truncated =
     summary.length > PHOTO_CAPTION_SUMMARY_MAX ? `${summary.slice(0, PHOTO_CAPTION_SUMMARY_MAX)}…` : summary;
-  return `${type}${gradeSuffix} — ${truncated}`;
+  return `${type}${gradeSuffix}${countSuffix} — ${truncated}`;
 }
 
 /**
@@ -584,14 +602,29 @@ export async function exportReportToPdf(
         const image = photoEntries[data.row.index / 2];
         if (!image) return;
         const padding = 2;
-        doc.addImage(
-          image.dataUrl,
-          image.format,
-          data.cell.x + padding,
-          data.cell.y + padding,
-          data.cell.width - padding * 2,
-          data.cell.height - padding * 2,
-        );
+        const imageX = data.cell.x + padding;
+        const imageY = data.cell.y + padding;
+        const imageW = data.cell.width - padding * 2;
+        const imageH = data.cell.height - padding * 2;
+        doc.addImage(image.dataUrl, image.format, imageX, imageY, imageW, imageH);
+
+        // 탐지 하자 박스(#1333). addImage 는 이미지를 위 사각형에 그대로 늘려 넣으므로
+        // 정규화 좌표(0~1)가 이 사각형에 선형 대응한다 — object-cover 같은 크롭 보정이 필요 없다.
+        const boxes = image.boxes ?? [];
+        if (boxes.length === 0) return;
+        doc.setDrawColor(...BOX_COLOR);
+        doc.setLineWidth(LINE_OUTER);
+        boxes.forEach((box) => {
+          doc.rect(
+            imageX + box.x * imageW,
+            imageY + box.y * imageH,
+            box.width * imageW,
+            box.height * imageH,
+          );
+        });
+        // 표 괘선이 이 색·굵기를 물려받지 않도록 원복한다(autoTable 이 셀마다 다시 그린다).
+        doc.setDrawColor(...BLACK);
+        doc.setLineWidth(LINE_INNER);
       },
     });
     return lastTableY();

@@ -12,6 +12,8 @@ import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../constants';
 import { mockReportDetailResponse } from '../mocks/reportDetail.mock';
 import { ReportGeneratePage } from './ReportGeneratePage';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import type { Defect } from '../../inspection/types';
+import type { DefectPhotoGroup } from '../components/editor/DefectPhoto';
 import { DetailSection } from '../components/editor/DetailSection';
 
 vi.mock('../utils/exportReportToPdf', () => ({
@@ -790,6 +792,26 @@ describe('ReportGeneratePage', () => {
   });
 });
 
+/** DetailSection이 쓰는 최소 필드만 채운 사진 그룹 — bbox가 null이면 박스를 그리지 않는 경로를 검증한다. */
+function buildDefectPhotoGroup(
+  imageUrl: string,
+  defectId: number,
+  bbox: { x: number; y: number; width: number; height: number } | null,
+): DefectPhotoGroup {
+  const defect = {
+    id: defectId,
+    type: '균열',
+    grade: 'C',
+    status: 'DETECTED',
+    confidence: 0.9,
+    bbox,
+    summary: '',
+    mediaId: defectId,
+    imageUrl,
+  } as unknown as Defect;
+  return { mediaId: defectId, imageUrl, defects: [defect], highlightDefectId: defectId };
+}
+
 describe('DetailSection', () => {
   it('상세 항목과 현장 이미지 목록을 정상적으로 렌더링한다', () => {
     const content: ReportContent = {
@@ -801,13 +823,16 @@ describe('DetailSection', () => {
         ],
       },
     };
-    const imageUrls = ['/images/first.jpg', '/images/second.jpg'];
+    const defectPhotos = [
+      buildDefectPhotoGroup('/images/first.jpg', 1, { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }),
+      buildDefectPhotoGroup('/images/second.jpg', 2, { x: 0.5, y: 0.5, width: 0.2, height: 0.2 }),
+    ];
     render(
       <DetailSection
         content={content}
         onChange={() => {}}
         readOnly={false}
-        imageUrls={imageUrls}
+        defectPhotos={defectPhotos}
       />,
     );
 
@@ -817,5 +842,53 @@ describe('DetailSection', () => {
     ]);
     expect(screen.queryByText('이 항목 삭제')).toBeNull();
     expect(screen.queryByText('+ 상세 항목 추가')).toBeNull();
+  });
+
+  // #1333 — 사진만 나오고 박스가 안 그려지던 회귀를 고정한다. bbox는 % 인라인 스타일로만
+  // 표현되므로(테스트용 role/label이 없음) 스타일 값으로 검증한다.
+  it('하자 bbox를 사진 위에 박스로 그린다', () => {
+    const content: ReportContent = {
+      ...mockContent,
+      detail: {
+        items: [{ defect_type: '균열', location: 'A', severity_grade: 'C', description: '', cause: '' }],
+      },
+    };
+    const { container } = render(
+      <DetailSection
+        content={content}
+        onChange={() => {}}
+        readOnly={false}
+        defectPhotos={[
+          buildDefectPhotoGroup('/images/first.jpg', 1, { x: 0.25, y: 0.5, width: 0.1, height: 0.2 }),
+        ]}
+      />,
+    );
+
+    const box = container.querySelector('span[aria-hidden="true"].absolute') as HTMLElement | null;
+    expect(box).not.toBeNull();
+    expect(box?.style.left).toBe('25%');
+    expect(box?.style.top).toBe('50%');
+    expect(box?.style.width).toBe('10%');
+    expect(box?.style.height).toBe('20%');
+  });
+
+  it('bbox가 없는 하자는 사진만 그리고 박스를 만들지 않는다', () => {
+    const content: ReportContent = {
+      ...mockContent,
+      detail: {
+        items: [{ defect_type: '균열', location: 'A', severity_grade: 'C', description: '', cause: '' }],
+      },
+    };
+    const { container } = render(
+      <DetailSection
+        content={content}
+        onChange={() => {}}
+        readOnly={false}
+        defectPhotos={[buildDefectPhotoGroup('/images/first.jpg', 1, null)]}
+      />,
+    );
+
+    expect(screen.getAllByRole('img')).toHaveLength(1);
+    expect(container.querySelector('span[aria-hidden="true"].absolute')).toBeNull();
   });
 });
