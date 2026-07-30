@@ -139,8 +139,8 @@ describe('exportReportToPdf', () => {
     expect(renderedText).toContain('1. 기본현황');
     expect(renderedText).toContain('가. 일반현황');
     expect(renderedText).toContain('2. 결과 요약');
-    expect(renderedText).toContain('3. 진단 외관조사결과');
-    expect(renderedText).toContain('4. 보수ㆍ보강방안');
+    expect(renderedText).toContain('3. 진단 외관조사결과 기본사항');
+    expect(renderedText).toContain('4. 보수ㆍ보강(안)');
     // 지원되지 않는 서명·참여자 필드는 만들지 않는다(수동 섹션을 추가하지 않은 기본 상태).
     expect(renderedText).not.toContain('제  출  문');
     expect(renderedText).not.toContain('작성자');
@@ -199,13 +199,13 @@ describe('exportReportToPdf', () => {
     expect(mockAddPage).toHaveBeenCalledTimes(1);
   });
 
-  it('안전성 평가 같은 generic 수동 섹션도 sectionOrder 위치에 관공서 표로 렌더링한다', async () => {
+  it('안전성평가 결과 같은 generic 수동 섹션도 sectionOrder 위치에 관공서 표로 렌더링한다', async () => {
     const content = makeContent({
       manualSections: [
         {
           id: 'manual-safety-1',
           type: 'safety-assessment',
-          title: '안전성 평가',
+          title: '안전성평가 결과',
           data: { body: '구조 안전성 검토 결과를 입력합니다.' },
         },
       ],
@@ -215,7 +215,7 @@ describe('exportReportToPdf', () => {
     await exportReportToPdf(content);
 
     const renderedText = mockText.mock.calls.map(([text]) => text).flat();
-    expect(renderedText).toContain('2. 안전성 평가');
+    expect(renderedText).toContain('2. 안전성평가 결과');
     const genericOptions = findTableOptions((options) =>
       JSON.stringify(options.body).includes('구조 안전성 검토 결과를 입력합니다.'),
     );

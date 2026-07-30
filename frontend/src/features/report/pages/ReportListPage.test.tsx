@@ -135,8 +135,8 @@ describe('ReportListPage', () => {
     renderPage();
 
     expect(
-      screen.getByText('행의 ⋮ 메뉴에서 "변경 이력"을 선택하면 여기에 보고서 버전 목록이 표시됩니다.'),
-    ).toBeTruthy();
+      screen.queryByText('행의 ⋮ 메뉴에서 "변경 이력"을 선택하면 여기에 보고서 버전 목록이 표시됩니다.'),
+    ).toBeNull();
 
     const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
     fireEvent.click(row);

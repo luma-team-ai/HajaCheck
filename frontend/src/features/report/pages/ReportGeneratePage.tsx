@@ -542,7 +542,7 @@ export function ReportGeneratePage() {
         </div>
       )}
 
-      {/* 5-8. 보고서 본문 에디터 (개요/요약 결론/상세 내역/조치 권고) */}
+      {/* 5-8. 보고서 본문 에디터 (기본현황/결과 요약/진단 외관조사결과/보수ㆍ보강) */}
       {content && (
         <ReportContentEditor
           content={content}

@@ -86,7 +86,7 @@ describe('ReportContentEditor', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '+ 서식 섹션 추가' }));
 
-    const menuItem = screen.getByRole('button', { name: '안전성 평가' });
+    const menuItem = screen.getByRole('button', { name: '안전성평가 결과' });
     const menu = menuItem.parentElement as HTMLElement;
     expect(menu.className).toContain('bottom-full');
     expect(menu.className).not.toContain('top-full');

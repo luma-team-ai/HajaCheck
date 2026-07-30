@@ -20,6 +20,11 @@ type CompareState = {
   diffs: DiffEntry[];
 };
 
+type ActionModalState = {
+  title: string;
+  message: string;
+};
+
 // 되돌리기 확인 모달용
 type RevertTarget = { versionId: number; version: number };
 
@@ -47,11 +52,11 @@ const DIFF_PATH_LABELS: Record<string, string> = {
   'summary.total_count': '결과 요약 > 총 하자 수',
   'summary.count_by_grade': '결과 요약 > 등급별 개수',
   'summary.key_findings': '결과 요약 > 주요 발견사항',
-  detail: '상세 내역',
-  'detail.items': '상세 내역 > 하자 항목',
-  recommendation: '보수ㆍ보강방안',
-  'recommendation.items': '보수ㆍ보강방안 > 권고 조치',
-  'recommendation.monitoring_points': '보수ㆍ보강방안 > 지속 관찰 부위',
+  detail: '진단 외관조사결과 기본사항',
+  'detail.items': '진단 외관조사결과 기본사항 > 하자 항목',
+  recommendation: '보수ㆍ보강(안)',
+  'recommendation.items': '보수ㆍ보강(안) > 권고 조치',
+  'recommendation.monitoring_points': '보수ㆍ보강(안) > 지속 관찰 부위',
   reportOptions: '보고서 옵션',
   manualSections: '수동 서식 섹션',
   sectionOrder: '섹션 순서',
@@ -115,21 +120,21 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
   const { data: versions, isLoading, isError } = useReportVersionHistory(activeReport);
   const [compareState, setCompareState] = useState<CompareState | null>(null);
   const [busyVersion, setBusyVersion] = useState<number | null>(null);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionModal, setActionModal] = useState<ActionModalState | null>(null);
   // 되돌리기 확인 모달용 — window.confirm 대체
   const [pendingRevert, setPendingRevert] = useState<RevertTarget | null>(null);
 
   async function handleCompare(versionId: number, version: number) {
     if (!activeReport || version === activeReport.version) return;
     setBusyVersion(versionId);
-    setActionMessage(null);
+    setActionModal(null);
     try {
       const [currentResponse, selectedResponse] = await Promise.all([
         reportApi.getReport(activeReport.id),
         reportApi.getReport(versionId),
       ]);
       if (!isReportContent(currentResponse.data.content) || !isReportContent(selectedResponse.data.content)) {
-        setActionMessage('보고서 본문 형식이 달라 비교할 수 없습니다.');
+        setActionModal({ title: '비교할 수 없음', message: '보고서 본문 형식이 달라 비교할 수 없습니다.' });
         return;
       }
       setCompareState({
@@ -137,7 +142,7 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
         diffs: collectDiffs(currentResponse.data.content, selectedResponse.data.content),
       });
     } catch {
-      setActionMessage('비교할 보고서 버전을 불러오지 못했습니다.');
+      setActionModal({ title: '비교 실패', message: '비교할 보고서 버전을 불러오지 못했습니다.' });
     } finally {
       setBusyVersion(null);
     }
@@ -147,7 +152,10 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
   function handleRevert(versionId: number, version: number) {
     if (!activeReport || version === activeReport.version) return;
     if (activeReport.status !== 'DRAFT') {
-      setActionMessage('완료된 보고서는 되돌릴 수 없습니다. 편집 중인 보고서에서만 가능합니다.');
+      setActionModal({
+        title: '되돌릴 수 없음',
+        message: '완료된 보고서는 되돌릴 수 없습니다. 편집 중인 보고서에서만 가능합니다.',
+      });
       return;
     }
     setPendingRevert({ versionId, version });
@@ -158,19 +166,19 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
     const { versionId, version } = pendingRevert;
     setPendingRevert(null);
     setBusyVersion(versionId);
-    setActionMessage(null);
+    setActionModal(null);
     try {
       const selectedResponse = await reportApi.getReport(versionId);
       if (!isReportContent(selectedResponse.data.content)) {
-        setActionMessage('선택한 버전의 본문 형식이 달라 되돌릴 수 없습니다.');
+        setActionModal({ title: '되돌릴 수 없음', message: '선택한 버전의 본문 형식이 달라 되돌릴 수 없습니다.' });
         return;
       }
       await reportApi.updateContent(activeReport.id, selectedResponse.data.content);
-      setActionMessage(`v${version} 내용으로 되돌렸습니다. 근거 검증을 다시 실행해야 합니다.`);
+      setActionModal({ title: '이전 버전 적용 완료', message: `v${version} 내용으로 되돌렸습니다. 근거 검증을 다시 실행해야 합니다.` });
       setCompareState(null);
       onReverted?.();
     } catch {
-      setActionMessage('보고서 되돌리기에 실패했습니다. 현재 상태와 권한을 확인해 주세요.');
+      setActionModal({ title: '되돌리기 실패', message: '보고서 되돌리기에 실패했습니다. 현재 상태와 권한을 확인해 주세요.' });
     } finally {
       setBusyVersion(null);
     }
@@ -202,13 +210,27 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
         </div>
       </Modal>
 
+      <Modal
+        open={actionModal !== null}
+        onClose={() => setActionModal(null)}
+        title={actionModal?.title ?? '알림'}
+      >
+        <div className="flex flex-col gap-6">
+          <p className="text-sm leading-6 text-text-default">{actionModal?.message}</p>
+          <div className="flex justify-end">
+            <Button variant="secondary" onClick={() => setActionModal(null)}>
+              확인
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-surface-muted p-5">
         <div className="flex items-center justify-between pb-6">
           <h3 className="m-0 text-base font-semibold text-zinc-900">변경 이력</h3>
           <button type="button" aria-label="변경 이력 패널 닫기" onClick={onClose} className="cursor-pointer border-none bg-none text-zinc-500">✕</button>
         </div>
 
-        {!activeReport && <p className="text-sm text-text-muted">행의 ⋮ 메뉴에서 "변경 이력"을 선택하면 여기에 보고서 버전 목록이 표시됩니다.</p>}
         {activeReport && isLoading && <LoadingSpinner className="flex items-center gap-2" />}
         {activeReport && isError && <p className="text-sm text-danger">버전 이력을 불러오지 못했습니다.</p>}
 
@@ -253,8 +275,6 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
                 );
               })}
             </ul>
-
-            {actionMessage && <p className="mt-4 border-t border-border pt-3 text-xs leading-5 text-text-muted">{actionMessage}</p>}
           </>
         )}
       </div>

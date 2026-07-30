@@ -102,7 +102,6 @@ export function DetailSection({
   return (
     <section className="flex flex-col gap-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-xl font-medium leading-7 text-heading">상세 내역</h2>
         <div className="inline-flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2.5">
             <span className="text-xs font-medium tracking-wide text-zinc-700">등급:</span>
@@ -186,7 +185,7 @@ export function DetailSection({
 
       {pageItems.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-8 text-center text-sm text-text-muted">
-          해당 등급의 지적 내역이 없습니다.
+          해당 등급의 하자 내역이 없습니다.
         </div>
       ) : (
         <div className="flex flex-col gap-4">
@@ -200,7 +199,7 @@ export function DetailSection({
                 <div className="relative min-h-72 overflow-hidden bg-surface-sunken">
                   <DefectImage
                     src={visibleImageUrls[index]}
-                    alt={`지적 ${index + 1} 현장 이미지`}
+                    alt={`하자 ${index + 1} 현장 이미지`}
                   />
                   <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-surface/90 px-3 py-1.5 text-xs font-semibold tracking-wide text-heading backdrop-blur-[10px]">
                     <span
@@ -213,15 +212,15 @@ export function DetailSection({
                       }`}
                       aria-hidden="true"
                     />
-                    DEFECT #{String(index + 1).padStart(2, '0')}
+                    하자 #{String(index + 1).padStart(2, '0')}
                   </div>
                 </div>
 
                 <div className="grid min-w-0 content-start gap-5 border-t border-border px-8 py-8 lg:border-l lg:border-t-0">
                   <label className="flex min-w-0 flex-col gap-1">
-                      <span className="text-xs font-medium tracking-wide text-text-muted">지적 유형</span>
+                      <span className="text-xs font-medium tracking-wide text-text-muted">하자 유형</span>
                       <input
-                        aria-label={`지적 ${index + 1} 유형`}
+                        aria-label={`하자 ${index + 1} 유형`}
                         className={INLINE_INPUT_CLASSES}
                         value={item.defect_type}
                         disabled={readOnly}
@@ -231,7 +230,7 @@ export function DetailSection({
                   <label className="flex min-w-0 flex-col gap-1">
                       <span className="text-xs font-medium tracking-wide text-text-muted">위치</span>
                       <input
-                        aria-label={`지적 ${index + 1} 위치`}
+                        aria-label={`하자 ${index + 1} 위치`}
                         className={INLINE_INPUT_CLASSES}
                         value={item.location}
                         disabled={readOnly}
@@ -241,7 +240,7 @@ export function DetailSection({
                   <label className="flex min-w-0 flex-col gap-2">
                       <span className="text-xs font-medium tracking-wide text-text-muted">등급</span>
                       <input
-                        aria-label={`지적 ${index + 1} 등급`}
+                        aria-label={`하자 ${index + 1} 등급`}
                         className="w-24 rounded-full px-3 py-1 text-center text-sm font-bold border-0 outline-none focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed"
                         style={
                           GRADE_BADGE_STYLE[item.severity_grade]

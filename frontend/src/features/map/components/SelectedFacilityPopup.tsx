@@ -3,16 +3,12 @@ import type { DefectGrade, FacilityLocation } from '../types';
 
 interface SelectedFacilityPopupProps {
   facility: FacilityLocation;
-  canGoToInspectionResult: boolean;
   onViewDetail: () => void;
-  onGoToInspectionResult: () => void;
 }
 
 export function SelectedFacilityPopup({
   facility,
-  canGoToInspectionResult,
   onViewDetail,
-  onGoToInspectionResult,
 }: SelectedFacilityPopupProps) {
   // 등급별 안전 등급 텍스트 매핑 — 등급 API 미연동(#661)으로 null이면 "등급 미정" 표기
   const getStatusText = (grade: DefectGrade | null) => {
@@ -74,24 +70,14 @@ export function SelectedFacilityPopup({
           </div>
         </div>
       </div>
-      <div className="mt-4 flex items-center gap-3">
+      <div className="mt-4 flex justify-center">
         {/* border-border(#e4e4e7)로 시맨틱 토큰 치환(정확히 일치, P3). flex-1 w-full로 팝업 하단을 가로로 꽉 채운다 */}
         <button
           type="button"
           onClick={onViewDetail}
-          className="flex h-10 flex-1 w-full items-center justify-center rounded-[999px] border border-border bg-[#f7f7f7] font-medium text-[#52525b] text-[14px] leading-[21px] transition hover:opacity-85"
+          className="flex h-10 w-full items-center justify-center rounded-[999px] border border-border bg-[#f7f7f7] font-medium text-[#52525b] text-[14px] leading-[21px] transition hover:opacity-85"
         >
           상세 보기
-        </button>
-        {/* bg-primary(#18181b)로 시맨틱 토큰 치환(정확히 일치, P3). flex-1 w-full로 팝업 하단을 가로로 꽉 채운다 */}
-        <button
-          type="button"
-          onClick={onGoToInspectionResult}
-          disabled={!canGoToInspectionResult}
-          title={canGoToInspectionResult ? undefined : '점검 이력이 없어 결과 검수를 열 수 없습니다.'}
-          className="flex h-10 flex-1 w-full items-center justify-center rounded-[999px] bg-primary font-medium text-white text-[14px] leading-[21px] transition hover:opacity-85 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500 disabled:hover:opacity-100"
-        >
-          결과 검수
         </button>
       </div>
     </div>

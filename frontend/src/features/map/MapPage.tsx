@@ -339,14 +339,8 @@ export default function MapPage() {
         {selectedFacility && createPortal(
           <SelectedFacilityPopup
             facility={selectedFacility}
-            canGoToInspectionResult={selectedFacility.latestInspectionId != null}
             onViewDetail={() => {
               navigate(`/facilities/${selectedFacility.id}`);
-            }}
-            onGoToInspectionResult={() => {
-              // 결과 검수 라우트(/inspections/:id/viewer) 연동 (#1255, #570)
-              if (selectedFacility.latestInspectionId == null) return;
-              navigate(`/inspections/${selectedFacility.latestInspectionId}/viewer`);
             }}
           />,
           overlayContainer

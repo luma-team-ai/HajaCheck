@@ -15,9 +15,7 @@ export function SubmissionSectionForm({ data, onChange, readOnly }: SubmissionSe
   const update = (patch: Partial<SubmissionSectionData>) => onChange({ ...data, ...patch });
 
   return (
-    <section className="flex flex-col gap-6 rounded-lg border border-border bg-surface p-6 sm:p-8">
-      <h2 className="text-xl font-medium leading-7 text-heading">제출문</h2>
-
+    <section className="flex flex-col gap-6">
       <LabeledTextArea
         label="수신자"
         value={data.recipient}
