@@ -7,6 +7,7 @@ import {
   mockMyReports,
 } from '../mocks/myInspections.mock';
 import { mockMyPlan, mockPayments, mockSeats } from '../mocks/mypage.mock';
+import { PASSWORD_CHANGE_ERROR_CODE } from '../types';
 import type {
   InspectionHistoryRow,
   MyInspectionsSummary,
@@ -87,20 +88,22 @@ export function resetMypagePaymentMockStore(): void {
 export const MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER = {
   wrongCurrentPassword: '__wrong_current_password__',
   sessionExpired: '__session_expired__',
+  unknownAuthError: '__unknown_auth_error__',
   passwordNotSet: '__password_not_set__',
   rateLimited: '__rate_limited__',
   serverError: '__server_error__',
 } as const;
 
 // 비밀번호 변경(#1316, HAJA-602) — BE #1315 병렬 구현이라 실 API 대신 handoff 계약대로 흉내낸다.
-// 에러 코드는 실 백엔드 ErrorCode(#1315)와 1:1로 맞춘다(보안 리뷰 P2-3 — status만으론 "현재 비밀번호
-// 불일치"와 "세션 만료"가 둘 다 401이라 구분이 안 되고, FE가 code로 분기하려면 목도 실 코드를 내려야
-// 회귀를 못 잡는다). 전용 트리거(MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER)로 401(자격 불일치/세션 만료
-// 2종)·400·429·500(미분류) 시나리오를 재현하고, currentPassword === newPassword(신·구 동일)는 별도
-// 트리거 없이 실제 값 비교로 400을 재현한다. 별도 export(mypagePasswordChangeHandler)로도 노출한다 —
+// 에러 코드는 types.ts의 PASSWORD_CHANGE_ERROR_CODE(실 백엔드 ErrorCode(#1315) 확인 완료 —
+// RestAuthenticationEntryPoint→UNAUTHORIZED, PasswordChangeService:90→AUTH_INVALID_CREDENTIALS)를
+// 그대로 참조한다 — 목·컴포넌트·테스트가 같은 소스를 보게 해 하드코딩 문자열이 흩어지지 않는다.
+// 전용 트리거(MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER)로 401(자격 불일치/세션 만료 2종)·400·429·
+// 500(미분류) 시나리오를 재현하고, currentPassword === newPassword(신·구 동일)는 별도 트리거 없이
+// 실제 값 비교로 400을 재현한다. 별도 export(mypagePasswordChangeHandler)로도 노출한다 —
 // 하이브리드(VITE_ENABLE_MSW=hybrid) 개발 환경에서는 mocks/handlers.ts가 이 핸들러 하나만 제외하고
-// 나머지 mypageHandlers는 그대로 둔다(보안 리뷰 P2-3, effectiveReportHandlers 패턴 준용 — 다른
-// /me/* 엔드포인트는 아직 BE 병렬 미착수라 목이 계속 필요하다).
+// 나머지 mypageHandlers는 그대로 둔다(effectiveReportHandlers 패턴 준용 — 다른 /me/* 엔드포인트는
+// 아직 BE 병렬 미착수라 목이 계속 필요하다).
 export const mypagePasswordChangeHandler = http.patch(
   '/api/users/me/password',
   async ({ request }) => {
@@ -113,7 +116,10 @@ export const mypagePasswordChangeHandler = http.patch(
       const body: ApiResponse<null> = {
         success: false,
         data: null,
-        error: { code: 'AUTH_TOO_MANY_REQUESTS', message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.' },
+        error: {
+          code: PASSWORD_CHANGE_ERROR_CODE.TOO_MANY_REQUESTS,
+          message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.',
+        },
       };
       return HttpResponse.json(body, { status: 429 });
     }
@@ -122,7 +128,10 @@ export const mypagePasswordChangeHandler = http.patch(
       const body: ApiResponse<null> = {
         success: false,
         data: null,
-        error: { code: 'AUTH_INVALID_CREDENTIALS', message: '현재 비밀번호가 일치하지 않습니다.' },
+        error: {
+          code: PASSWORD_CHANGE_ERROR_CODE.INVALID_CREDENTIALS,
+          message: '현재 비밀번호가 일치하지 않습니다.',
+        },
       };
       return HttpResponse.json(body, { status: 401 });
     }
@@ -133,7 +142,19 @@ export const mypagePasswordChangeHandler = http.patch(
       const body: ApiResponse<null> = {
         success: false,
         data: null,
-        error: { code: 'UNAUTHORIZED', message: '인증이 필요합니다.' },
+        error: { code: PASSWORD_CHANGE_ERROR_CODE.SESSION_EXPIRED, message: '인증이 필요합니다.' },
+      };
+      return HttpResponse.json(body, { status: 401 });
+    }
+
+    // 401이지만 SESSION_EXPIRED('UNAUTHORIZED')도 INVALID_CREDENTIALS도 아닌 임의 코드 — FE가
+    // "화이트리스트(SESSION_EXPIRED)만 로그아웃, 그 외 401은 전부 현재 비밀번호 오류로 인라인
+    // 처리"하는지 검증한다(보안 리뷰 P2-2, 분기 반전).
+    if (currentPassword === MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.unknownAuthError) {
+      const body: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'AUTH_SOME_UNMAPPED_CODE', message: '인증 오류가 발생했습니다.' },
       };
       return HttpResponse.json(body, { status: 401 });
     }
@@ -143,7 +164,7 @@ export const mypagePasswordChangeHandler = http.patch(
         success: false,
         data: null,
         error: {
-          code: 'AUTH_PASSWORD_NOT_SET',
+          code: PASSWORD_CHANGE_ERROR_CODE.PASSWORD_NOT_SET,
           message: '소셜 로그인 전용 계정은 비밀번호를 변경할 수 없습니다.',
         },
       };
@@ -155,7 +176,7 @@ export const mypagePasswordChangeHandler = http.patch(
         success: false,
         data: null,
         error: {
-          code: 'AUTH_PASSWORD_UNCHANGED',
+          code: PASSWORD_CHANGE_ERROR_CODE.PASSWORD_UNCHANGED,
           message: '현재 비밀번호와 동일한 비밀번호로는 변경할 수 없습니다.',
         },
       };
@@ -163,7 +184,8 @@ export const mypagePasswordChangeHandler = http.patch(
     }
 
     // 401/400/429 외 미분류 실패(CSRF 403·계정 상태 403·500·오프라인 등, P2-2) 재현용 — FE의
-    // else 폴백(getApiErrorMessage) 렌더를 검증한다.
+    // else 폴백(getApiErrorMessage) 렌더를 검증한다. 이 코드는 PASSWORD_CHANGE_ERROR_CODE에 없는
+    // 임의 코드라 화이트리스트(SESSION_EXPIRED) 밖으로 떨어져 else 폴백을 그대로 검증한다.
     if (currentPassword === MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.serverError) {
       const body: ApiResponse<null> = {
         success: false,
