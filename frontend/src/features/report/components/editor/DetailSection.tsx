@@ -16,7 +16,7 @@ const GRADE_BADGE_STYLE: Record<string, { bg: string; text: string }> = {
 };
 
 const INLINE_INPUT_CLASSES =
-  'w-full rounded-lg border border-transparent bg-transparent px-0 py-0 text-base font-semibold leading-6 text-heading outline-none transition focus:border-primary focus:bg-surface focus:px-2 focus:py-1 focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed read-only:text-heading';
+  'w-full rounded-lg border border-transparent bg-transparent px-0 py-0 text-left text-base font-semibold leading-6 text-heading outline-none transition focus:border-primary focus:bg-surface focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed read-only:text-heading';
 
 const INLINE_TEXTAREA_CLASSES =
   'min-h-0 border-transparent bg-transparent px-0 py-0 text-sm leading-6 focus:border-primary focus:bg-surface read-only:bg-transparent read-only:text-heading';
@@ -24,7 +24,7 @@ const INLINE_TEXTAREA_CLASSES =
 // "위치"는 긴 주소가 들어오면(예: "충남 예산군 응봉면 예당관광...") 한 줄 입력으로는 잘려 보이므로,
 // 하자 유형(짧은 값 전제)과 달리 자동 줄바꿈되는 textarea를 쓴다.
 const INLINE_LOCATION_TEXTAREA_CLASSES =
-  'min-h-0 border-transparent bg-transparent px-0 py-0 text-base font-semibold leading-6 text-heading focus:border-primary focus:bg-surface focus:px-2 focus:py-1 read-only:bg-transparent read-only:text-heading';
+  'min-h-0 border-transparent bg-transparent px-0 py-0 text-left text-base font-semibold leading-6 text-heading focus:border-primary focus:bg-surface read-only:bg-transparent read-only:text-heading';
 
 interface DetailSectionProps {
   content: ReportContent;
