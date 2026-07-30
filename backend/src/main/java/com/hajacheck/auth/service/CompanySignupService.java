@@ -55,6 +55,14 @@ public class CompanySignupService {
     /** OCR 원본 stub — 실제 OCR 연동 전까지 "수동 입력"임을 나타내는 출처 표기(V1 컬럼 주석 참조). */
     private static final String OCR_SOURCE_MANUAL_INPUT = "MANUAL_INPUT";
 
+    /**
+     * {@link #buildOcrRaw} 직렬화가 실패했을 때만 쓰는 최소 stub — <b>손으로 조립한 유일한 JSON 리터럴</b>
+     * 이라 상수로 고정한다(가변값이 섞이지 않으므로 이스케이프 문제가 원천적으로 없다).
+     * ⚠️ 여기엔 {@code ntsOutcome} 이 없다 = "증명할 수 없음" → {@code Company#isNtsVerified} 가 false 로
+     * 판정한다. fail-safe 방향이라 의도된 동작이다.
+     */
+    private static final String OCR_RAW_FALLBACK = "{\"source\":\"" + OCR_SOURCE_MANUAL_INPUT + "\"}";
+
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
     private final CompanyAccountWriter accountWriter;
@@ -175,9 +183,18 @@ public class CompanySignupService {
      * ({@code SKIPPED})의 companies 행이 완전히 같아져, 배포 후에는 "검증 없이 승인된 회사"를
      * 재구성할 방법이 사라진다. 그 provenance 를 스키마 변경 없이 기존 jsonb 컬럼에 남긴다.
      *
-     * <p>집계 쿼리(신규 가입 + V38 소급분을 한 번에):
+     * <p><b>⚠️ {@code ntsOutcome} 의 값 공간은 enum 이 아니다 — {@code valueOf()} 로 파싱하지 말 것.</b>
+     * 여기서 쓰는 {@link NtsVerificationOutcome} 라벨에 더해, V38 마이그레이션이 심는
+     * {@code UNKNOWN_BACKFILL}(소급 승인분 = 검증한 적 없음)·{@code LEGACY_VERIFIED}(#1324 이전에 진짜
+     * 검증을 통과한 기존 회사)가 같은 키를 공유하고, 키가 <b>아예 없는</b> 행도 있다({@link #OCR_RAW_FALLBACK}
+     * 낙하분·컬럼 null·V38 이전 데이터). 판정은 문자열 화이트리스트로 한다({@code Company#isNtsVerified}).
+     * 시각 키도 출처에 따라 갈린다: {@code ntsCheckedAt}(여기, 실제 조회 시각) vs
+     * {@code ntsBackfilledAt}(V38, 소급 스탬프 시각).
+     *
+     * <p>집계 쿼리(신규 가입 + V38 소급분을 한 번에) — "국세청 검증을 증명할 수 없는 회사":
      * {@code select count(*) from companies
-     *        where business_registration_ocr_raw->>'ntsOutcome' is distinct from 'VERIFIED'}
+     *        where business_registration_ocr_raw->>'ntsOutcome' not in ('VERIFIED','LEGACY_VERIFIED')
+     *           or business_registration_ocr_raw->>'ntsOutcome' is null}
      *
      * <p>⚠️ 개인정보 금지 — enum 라벨과 타임스탬프만 남긴다(사업자번호·대표자명·이메일 절대 금지).
      * 문자열을 손으로 이어붙이지 않고 Jackson 으로 직렬화해 이스케이프를 보장한다(jsonb 는 문법이
@@ -195,7 +212,7 @@ public class CompanySignupService {
             // provenance 기록 실패가 회원가입 장애로 번지면 안 된다. 최소 stub 으로 낙하한다.
             log.warn("OCR 원본 provenance 직렬화 실패 — stub 으로 대체. exception={}",
                     e.getClass().getSimpleName());
-            return "{\"source\":\"" + OCR_SOURCE_MANUAL_INPUT + "\"}";
+            return OCR_RAW_FALLBACK;
         }
     }
 
