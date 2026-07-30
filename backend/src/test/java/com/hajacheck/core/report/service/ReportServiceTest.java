@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -382,6 +383,7 @@ class ReportServiceTest {
 
         assertThat(response.groundingCheckPassed()).isTrue();
         assertThat(report.getGroundingWarnings()).isEqualTo("[]");
+        verify(defectRepository, times(1)).findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any());
     }
 
     @Test

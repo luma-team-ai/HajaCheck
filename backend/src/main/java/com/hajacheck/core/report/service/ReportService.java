@@ -140,7 +140,8 @@ public class ReportService {
                     userId);
         }
 
-        return toDetailResponse(reportRepository.save(report), userId, companyId, inspection, facility);
+        return toDetailResponse(reportRepository.save(report), userId, companyId, inspection, facility,
+                confirmedDefects);
     }
 
     public ReportDetailResponse getReport(Long reportId, Long userId, Long companyId) {
@@ -255,7 +256,7 @@ public class ReportService {
                 || (actual.isEmpty() && excludesDetailsByGeneratedOptions(report.getContentJson()));
         report.recordStructuralGroundingRecheck(
                 matched, matched ? NO_GROUNDING_WARNINGS : STRUCTURAL_MISMATCH_WARNINGS, userId);
-        return toDetailResponse(report, userId, companyId, scoped.inspection());
+        return toDetailResponse(report, userId, companyId, scoped.inspection(), null, confirmedDefects);
     }
 
     private static String gradeLabel(DefectGrade grade) {
@@ -401,23 +402,26 @@ public class ReportService {
                 .orElse(1);
     }
 
-    private ReportDetailResponse toDetailResponse(Report report, Long userId, Long companyId) {
-        return toDetailResponse(report, userId, companyId, null);
-    }
-
     private ReportDetailResponse toDetailResponse(
             Report report, Long userId, Long companyId, InspectionResponse inspection) {
-        return ReportDetailResponse.from(report, buildContext(report, userId, companyId, inspection, null));
+        return toDetailResponse(report, userId, companyId, inspection, null, null);
     }
 
     private ReportDetailResponse toDetailResponse(
             Report report, Long userId, Long companyId, InspectionResponse inspection, FacilityResponse facility) {
-        return ReportDetailResponse.from(report, buildContext(report, userId, companyId, inspection, facility));
+        return toDetailResponse(report, userId, companyId, inspection, facility, null);
+    }
+
+    private ReportDetailResponse toDetailResponse(
+            Report report, Long userId, Long companyId, InspectionResponse inspection, FacilityResponse facility,
+            List<Defect> confirmedDefects) {
+        return ReportDetailResponse.from(report, buildContext(
+                report, userId, companyId, inspection, facility, confirmedDefects));
     }
 
     private ReportDetailResponse.ReportContext buildContext(
             Report report, Long userId, Long companyId, InspectionResponse knownInspection,
-            FacilityResponse knownFacility) {
+            FacilityResponse knownFacility, List<Defect> knownConfirmedDefects) {
         InspectionResponse inspection = knownInspection != null
                 ? knownInspection
                 : inspectionService.getInspection(userId, companyId, report.getInspectionId());
@@ -427,8 +431,10 @@ public class ReportService {
         FacilityResponse facility = knownFacility != null
                 ? knownFacility
                 : facilityService.get(userId, companyId, inspection.facilityId());
-        List<Defect> defects = defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
-                report.getInspectionId(), CONFIRMED_DEFECT_STATUSES);
+        List<Defect> defects = knownConfirmedDefects != null
+                ? knownConfirmedDefects
+                : defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
+                        report.getInspectionId(), CONFIRMED_DEFECT_STATUSES);
         List<Media> media = mediaRepository.findByInspectionIdOrderByIdAsc(report.getInspectionId());
         Company company = companyRepository.findById(companyId).orElse(null);
         Map<Long, User> users = usersById(
