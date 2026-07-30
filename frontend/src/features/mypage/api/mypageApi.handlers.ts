@@ -267,4 +267,67 @@ export const mypageHandlers = [
     const body: ApiResponse<MyReportCard[]> = { success: true, data: mockMyReports };
     return HttpResponse.json(body);
   }),
+
+  // 비밀번호 변경(#1316, HAJA-602) — BE #1315 병렬 구현이라 실 API 대신 handoff 계약대로 흉내낸다.
+  // 전용 트리거(MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER)로 401/400/429 3가지 실패 시나리오를 재현하고,
+  // currentPassword === newPassword(신·구 동일)는 별도 트리거 없이 실제 값 비교로 400을 재현한다.
+  http.patch('/api/users/me/password', async ({ request }) => {
+    const { currentPassword, newPassword } = (await request.json()) as {
+      currentPassword?: string;
+      newPassword?: string;
+    };
+
+    if (currentPassword === MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.rateLimited) {
+      const body: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'TOO_MANY_REQUESTS', message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.' },
+      };
+      return HttpResponse.json(body, { status: 429 });
+    }
+
+    if (currentPassword === MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.wrongCurrentPassword) {
+      const body: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'AUTH_CURRENT_PASSWORD_MISMATCH', message: '현재 비밀번호가 일치하지 않습니다.' },
+      };
+      return HttpResponse.json(body, { status: 401 });
+    }
+
+    if (currentPassword === MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER.socialOnlyAccount) {
+      const body: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: {
+          code: 'AUTH_SOCIAL_ONLY_ACCOUNT',
+          message: '소셜 로그인 전용 계정은 비밀번호를 변경할 수 없습니다.',
+        },
+      };
+      return HttpResponse.json(body, { status: 400 });
+    }
+
+    if (newPassword !== undefined && currentPassword === newPassword) {
+      const body: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: {
+          code: 'AUTH_PASSWORD_SAME_AS_CURRENT',
+          message: '현재 비밀번호와 동일한 비밀번호로는 변경할 수 없습니다.',
+        },
+      };
+      return HttpResponse.json(body, { status: 400 });
+    }
+
+    const body: ApiResponse<null> = { success: true, data: null };
+    return HttpResponse.json(body);
+  }),
 ];
+
+// 비밀번호 변경 MSW 전용 트리거 — mockPayments의 MYPAGE_PAYMENT_DEV_TRIGGER와 동일 패턴. 실 백엔드
+// 시나리오(계정 상태·rate limit)를 목 데이터로 자연 발생시킬 수 없어 currentPassword 값으로 분기한다.
+export const MYPAGE_PASSWORD_CHANGE_DEV_TRIGGER = {
+  wrongCurrentPassword: '__wrong_current_password__',
+  socialOnlyAccount: '__social_only_account__',
+  rateLimited: '__rate_limited__',
+} as const;

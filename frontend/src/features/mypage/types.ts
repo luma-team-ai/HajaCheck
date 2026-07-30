@@ -154,3 +154,13 @@ export interface MyReportCard {
   fileSizeBytes: number | null; // null이면 PDF 조회 실패 — 화면에서 크기 표시 자체를 감춘다
   gradeDots: ReportGradeDotColor[];
 }
+
+// ---- 마이페이지 — 비밀번호 변경(#1316, HAJA-602) ----
+// PATCH /api/users/me/password — BE #1315와 병렬 구현(handoff docs/_local/handoff/password-change-fe-1316-next.md
+// 가 계약 소스). 성공 시 서버가 현재 세션을 무효화한다. 에러는 반드시 status로 분기한다(메시지 문자열
+// 매칭 금지) — 401: 현재 비밀번호 불일치(세션 만료 아님, 전역 401 리다이렉트 우회 필요) / 400: 소셜
+// 전용 계정·정책 위반·신구 동일 / 429: 요청 과다.
+export interface PasswordChangeRequest {
+  currentPassword: string;
+  newPassword: string;
+}
