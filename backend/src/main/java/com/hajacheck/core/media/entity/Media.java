@@ -54,12 +54,20 @@ public class Media {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "inspection_id", nullable = false)
+    // 폴리모픽 소유(Option B, #632): inspection_id(점검 중 사진)/facility_id(시설물 대표 사진) 중
+    // 정확히 하나만 채워진다(DB chk_media_inspection_xor_facility). 시설물 대표 사진 로우는 이 값이
+    // null 이므로 nullable/optional 로 매핑해야 한다 — 마이그레이션(V19)과 같은 커밋에서 동시 변경하지
+    // 않으면 ddl-auto=validate 부팅 가드가 스키마 불일치로 기동을 막는다(#531 재발 방지).
+    @Column(name = "inspection_id")
     private Long inspectionId;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "inspection_id", insertable = false, updatable = false)
     private Inspection inspection;
+
+    /** 시설물 대표 사진(#632/#652)이 속한 시설물 — nullable, inspectionId 와 정확히 하나만 채워진다. */
+    @Column(name = "facility_id")
+    private Long facilityId;
 
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "file_type", columnDefinition = "media_file_type", nullable = false)
@@ -71,6 +79,10 @@ public class Media {
 
     @Column(name = "thumbnail_url", length = 500)
     private String thumbnailUrl;
+
+    /** 분석 결과 뷰어 전용 상세 이미지 저장키(#788/#789, V13 — nullable, 이전 업로드 행은 NULL). */
+    @Column(name = "detail_url", length = 500)
+    private String detailUrl;
 
     @Column(name = "source_video_id")
     private Long sourceVideoId;
@@ -101,14 +113,25 @@ public class Media {
     @Column(name = "mime_type", length = 100)
     private String mimeType;
 
+    /**
+     * 업로드 시 클라이언트가 보낸 원본 파일명(표시 전용, V26) — nullable, V26 이전 업로드 행은 NULL.
+     * originalUrl(저장키)은 여전히 UUID다 — 이 필드는 저장 경로가 아니라 AI 분석 실행/상태 화면 등에서
+     * "이미지 N" 순번 라벨 대신 보여줄 표시용 메타데이터일 뿐이라 PRD FR-2 원본 비공개 서빙 정책과 무관하다.
+     */
+    @Column(name = "original_filename", length = 255)
+    private String originalFilename;
+
     @Builder
-    private Media(Long inspectionId, MediaFileType fileType, String originalUrl, String thumbnailUrl,
-                  Long sourceVideoId, Integer frameIndex, LocalDateTime capturedAt,
-                  BigDecimal gpsLat, BigDecimal gpsLng, boolean mimeSignatureVerified, String mimeType) {
+    private Media(Long inspectionId, Long facilityId, MediaFileType fileType, String originalUrl,
+                  String thumbnailUrl, String detailUrl, Long sourceVideoId, Integer frameIndex,
+                  LocalDateTime capturedAt, BigDecimal gpsLat, BigDecimal gpsLng,
+                  boolean mimeSignatureVerified, String mimeType, String originalFilename) {
         this.inspectionId = inspectionId;
+        this.facilityId = facilityId;
         this.fileType = fileType;
         this.originalUrl = originalUrl;
         this.thumbnailUrl = thumbnailUrl;
+        this.detailUrl = detailUrl;
         this.sourceVideoId = sourceVideoId;
         this.frameIndex = frameIndex;
         this.capturedAt = capturedAt;
@@ -116,5 +139,6 @@ public class Media {
         this.gpsLng = gpsLng;
         this.mimeSignatureVerified = mimeSignatureVerified;
         this.mimeType = mimeType;
+        this.originalFilename = originalFilename;
     }
 }

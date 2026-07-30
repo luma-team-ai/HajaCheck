@@ -2,21 +2,16 @@ import type { ReactNode, MouseEvent as ReactMouseEvent } from 'react';
 import { useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from '../Header';
-import type { BreadcrumbItem } from '../Header';
+import type { BreadcrumbItem, HeaderProfileMenu } from '../Header';
 import { SideNavBar } from '../SideNavBar';
 import type { SideNavItem } from '../SideNavBar';
+import type { Role } from '../../constants/roles';
 import { BottomNavBarFab } from '../BottomNavBarFab';
 import { FloatingPopup } from '../FloatingPopup';
 
-// 고객지원 퀵링크 패널 진입점 — 아직 실제로 구현된 지원 페이지는 AI 어시스턴트(/support/ai-assistant)
-// 뿐이라(상담 챗봇·상담 이력은 미구현 placeholder), 모든 항목이 그 페이지로 이동한다(#499, 사용자 결정).
-const SUPPORT_ENTRY_HREF = '/support/ai-assistant';
-
-interface AppLayoutUser {
-  name: string;
-  plan?: string;
-  avatarUrl?: string;
-}
+// 고객지원 퀵링크 패널 진입점 — 상담 챗봇(#20, HAJA-33)이 구현되어, 카테고리 버튼들은 챗봇에서
+// 실제 시나리오 선택으로 이어진다(딥링크로 카테고리를 미리 선택하는 기능은 아직 없음).
+const SUPPORT_ENTRY_HREF = '/support/chat-bot';
 
 interface AppLayoutProps {
   /** Header 브레드크럼(현재 위치) — 페이지별로 필수 지정 */
@@ -24,7 +19,7 @@ interface AppLayoutProps {
   children: ReactNode;
   /**
    * SideNavBar 활성 항목 경로. 미지정 시 현재 URL(useLocation) 기준.
-   * 실제 라우트가 Figma 메뉴 href와 다른 페이지(예: /defects/:id → /defects/detail)는
+   * 실제 라우트가 Figma 메뉴 href와 다른 페이지(예: /inspections/:id/defects)는
    * 명시적으로 넘겨 해당 메뉴가 펼쳐/강조되도록 한다.
    */
   activeHref?: string;
@@ -39,16 +34,22 @@ interface AppLayoutProps {
    */
   isRouteImplemented?: (href: string) => boolean;
   isAdmin?: boolean;
+  /** SideNavBar 브랜드 로고 옆 역할 배지(예: ADMIN/INSPECTOR/USER). 미지정 시 배지 미표시(#1199). */
+  role?: Role;
   /** SideNavBar 브랜드 로고 링크 override(#535 플랫폼 관리자 콘솔). 미지정 시 SideNavBar 기본값('/dashboard') */
   brandHref?: string;
-  /** 사이드바 하단 프로필. 미지정 시 프로필 블록 미표시 */
-  user?: AppLayoutUser;
-  /** 로그아웃 핸들러. 미지정 시 로그아웃 버튼 자체가 렌더링되지 않음 */
-  onLogout?: () => void;
   /** Header 알림 미읽음 수 */
   unreadCount?: number;
   onNotificationClick?: () => void;
   onProfileClick?: () => void;
+  /** 제공 시 Header 프로필 버튼 클릭이 onProfileClick 대신 이 정보로 드롭다운 메뉴를 연다(HAJA-758) */
+  profileMenu?: HeaderProfileMenu;
+  /**
+   * 우측 하단 고객지원 퀵상담 FAB(BottomNavBarFab) + 팝업 노출 여부. 미지정 시 true(기존 동작).
+   * 플랫폼 관리자 콘솔(PlatformAdminShellRoute)은 내부 운영진 화면이라 고객 대상 지원 진입점이
+   * 필요 없어 false로 끈다(사용자 지시, #576 후속).
+   */
+  showSupportFab?: boolean;
 }
 
 // 로그인 후 내부 페이지 공통 앱 셸 — 신규 공통 컴포넌트 SideNavBar + Header 조합(HAJA-186, #217).
@@ -62,12 +63,13 @@ export function AppLayout({
   adminItem,
   isRouteImplemented,
   isAdmin,
+  role,
   brandHref,
-  user,
-  onLogout,
   unreadCount,
   onNotificationClick,
   onProfileClick,
+  profileMenu,
+  showSupportFab = true,
 }: AppLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -80,9 +82,9 @@ export function AppLayout({
   // (suppressNextBellClickRef, PR머신 P2 #474)으로 해소한다.
   const suppressNextFabClickRef = useRef(false);
 
-  function goToSupportEntry() {
+  function goToSupportEntry(category?: string) {
     setIsSupportPopupOpen(false);
-    navigate(SUPPORT_ENTRY_HREF);
+    navigate(category ? `${SUPPORT_ENTRY_HREF}?category=${category}` : SUPPORT_ENTRY_HREF);
   }
 
   function handleFabClick() {
@@ -115,10 +117,8 @@ export function AppLayout({
         activeHref={resolvedActiveHref}
         isRouteImplemented={isRouteImplemented}
         isAdmin={isAdmin}
+        role={role}
         brandHref={brandHref}
-        // 사이드바 하단 프로필은 관리자에게만 노출 — 일반 사용자 프로필은 별도 이슈에서 헤더에 붙일 예정(HAJA-167, #184)
-        user={isAdmin ? user : undefined}
-        onLogout={onLogout}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header
@@ -126,19 +126,20 @@ export function AppLayout({
           unreadCount={unreadCount}
           onNotificationClick={onNotificationClick}
           onProfileClick={onProfileClick}
+          profileMenu={profileMenu}
         />
         <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
       </div>
-      <BottomNavBarFab onClick={handleFabClick} />
-      {isSupportPopupOpen && (
+      {showSupportFab && <BottomNavBarFab onClick={handleFabClick} />}
+      {showSupportFab && isSupportPopupOpen && (
         <FloatingPopup
           onClose={() => setIsSupportPopupOpen(false)}
           links={[
-            { label: '서비스 이용 방법', onClick: goToSupportEntry },
-            { label: '분석 결과 문의', onClick: goToSupportEntry },
-            { label: '요금·기타', onClick: goToSupportEntry },
+            { label: '서비스 이용 방법', onClick: () => goToSupportEntry('USAGE_GUIDE') },
+            { label: '분석 결과 문의', onClick: () => goToSupportEntry('INSPECTION_REPORT') },
+            { label: '요금·기타', onClick: () => goToSupportEntry('ACCOUNT_BILLING') },
           ]}
-          onConnectAgent={goToSupportEntry}
+          onConnectAgent={() => goToSupportEntry()}
         />
       )}
     </div>

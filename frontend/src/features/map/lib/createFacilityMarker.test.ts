@@ -77,9 +77,17 @@ describe('createFacilityMarker', () => {
       maps: {
         LatLng: vi.fn(),
         Size: vi.fn(),
+        Point: vi.fn(function Point(this: Record<string, unknown>, x: number, y: number) {
+          this.x = x;
+          this.y = y;
+        }),
         MarkerImage: vi.fn(),
         Marker: vi.fn(function Marker(this: Record<string, unknown>, options: Record<string, unknown>) {
           Object.assign(this, options);
+          this.setZIndex = vi.fn((zIndex: number) => {
+            this.zIndex = zIndex;
+          });
+          this.setImage = vi.fn();
         }),
         event: { addListener },
       },
@@ -106,5 +114,15 @@ describe('createFacilityMarker', () => {
     clickHandler();
 
     expect(onSelect).toHaveBeenCalledWith(baseFacility, marker);
+  });
+
+  it('isSelected가 true이면 Figma 시안 정합 콤팩트 선택 마커(32x36) SVG 마커와 z-index 20을 생성한다', () => {
+    stubKakaoMaps();
+    const marker = createFacilityMarker({} as never, baseFacility, vi.fn(), true);
+
+    const markerImageCall = (window.kakao.maps.MarkerImage as ReturnType<typeof vi.fn>).mock.calls[0];
+    const decodedSvg = atob((markerImageCall[0] as string).split(',')[1]);
+    expect(decodedSvg).toContain('viewBox="0 0 32 36"');
+    expect((marker as unknown as { zIndex: number }).zIndex).toBe(20);
   });
 });

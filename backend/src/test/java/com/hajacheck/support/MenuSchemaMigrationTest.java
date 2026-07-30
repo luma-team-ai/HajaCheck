@@ -19,7 +19,7 @@ class MenuSchemaMigrationTest {
 
     @Test
     void v03기준선에_메뉴스키마를_재실행가능하게_적용하고_의미드리프트를_탐지한다() {
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17")
+        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16")
                 .withDatabaseName("hajacheck")
                 .withUsername("postgres")
                 .withStartupTimeout(Duration.ofMinutes(2))

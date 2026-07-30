@@ -100,7 +100,7 @@ class GlobalExceptionHandlerTest {
     }
 
     /**
-     * multipart 전역 한도(max-file-size 20MB/max-request-size 205MB, 리뷰 P2) 상향 이후에도, 한도
+     * multipart 전역 한도(max-file-size 20MB/max-request-size 1005MB, 리뷰 P2) 상향 이후에도, 한도
      * 초과 업로드가 서블릿 단계에서 raw 500이 아니라 FILE_TOO_LARGE(400)의 ApiResponse 계약으로
      * 매핑되는지 고정한다. MockMvc의 MockMultipartHttpServletRequest는 실 컨테이너의
      * MultipartConfigElement 크기 검증을 거치지 않아 대용량 업로드로 이 예외를 실제 재현할 수 없으므로,

@@ -19,11 +19,20 @@ public class AuthProperties {
     /** 가입 상태 조회 토큰 TTL. 기본 30일. */
     private Duration signupStatusTtl = Duration.ofDays(30);
 
+    /**
+     * 사용자 초대 코드 TTL(#794). 기본 180초 — 발급 모달의 카운트다운(프론트)과 동일해야 한다.
+     * 1회용(redeem 시 즉시 삭제)이라 짧게 둘수록 발급 화면 캡처·전달 지연으로 인한 도용 창이 좁아진다.
+     */
+    private Duration inviteCodeTtl = Duration.ofSeconds(180);
+
     /** 비밀번호 재설정 1단계 rate-limit(2단계엔 걸지 않는다 — 계약 §Rate-limit). */
     private PasswordResetRateLimit passwordResetRateLimit = new PasswordResetRateLimit();
 
     /** 사업자등록증 OCR 공개 프록시 rate-limit(#557 / HAJA-324). */
     private BusinessLicenseOcrRateLimit businessLicenseOcrRateLimit = new BusinessLicenseOcrRateLimit();
+
+    /** 초대 코드 redeem rate-limit(#794, PR머신 리뷰 P2 — 무차별 대입 방어). */
+    private InviteCodeRedeemRateLimit inviteCodeRedeemRateLimit = new InviteCodeRedeemRateLimit();
 
     /**
      * 비밀번호 재설정 요청 rate-limit 설정. 축은 <b>대상 이메일</b>과 <b>전역 상한</b> 둘뿐이다(IP 축 미사용).
@@ -161,6 +170,35 @@ public class AuthProperties {
         }
     }
 
+    /**
+     * 초대 코드 redeem rate-limit 설정(#794) — 이미 로그인된(WAITING) 사용자가 호출하는 엔드포인트라
+     * 비밀번호 재설정(비로그인, 이메일 축)과 달리 <b>사용자(userId) 축</b> 하나로 충분하다.
+     * 코드 공간(32^6 ≈ 8.8억)·TTL 180초로 단발 성공 확률은 극히 낮지만, 무제한 반복 시도를 막아
+     * 온라인 브루트포스의 실익을 없앤다. 기본 5분 5회 — 정상 사용자의 오타 재시도는 통과시키는 선.
+     */
+    public static class InviteCodeRedeemRateLimit {
+
+        private int userLimit = 5;
+
+        private Duration userWindow = Duration.ofMinutes(5);
+
+        public int getUserLimit() {
+            return userLimit;
+        }
+
+        public void setUserLimit(int userLimit) {
+            this.userLimit = userLimit;
+        }
+
+        public Duration getUserWindow() {
+            return userWindow;
+        }
+
+        public void setUserWindow(Duration userWindow) {
+            this.userWindow = userWindow;
+        }
+    }
+
     public PasswordResetRateLimit getPasswordResetRateLimit() {
         return passwordResetRateLimit;
     }
@@ -191,5 +229,21 @@ public class AuthProperties {
 
     public void setSignupStatusTtl(Duration signupStatusTtl) {
         this.signupStatusTtl = signupStatusTtl;
+    }
+
+    public Duration getInviteCodeTtl() {
+        return inviteCodeTtl;
+    }
+
+    public void setInviteCodeTtl(Duration inviteCodeTtl) {
+        this.inviteCodeTtl = inviteCodeTtl;
+    }
+
+    public InviteCodeRedeemRateLimit getInviteCodeRedeemRateLimit() {
+        return inviteCodeRedeemRateLimit;
+    }
+
+    public void setInviteCodeRedeemRateLimit(InviteCodeRedeemRateLimit inviteCodeRedeemRateLimit) {
+        this.inviteCodeRedeemRateLimit = inviteCodeRedeemRateLimit;
     }
 }

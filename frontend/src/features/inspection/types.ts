@@ -1,8 +1,8 @@
 // FR-4 결과 시각화·검수 — PRD §5 FR-4, §6.3 데이터 모델(안) 기준
-// 탐지 클래스 3종 확정(PRD v0.42, 2026-07-13) — 누수백태·도장손상은 데이터 확보 상황상 범위 제외
-export type DefectType = '균열' | '박리박락' | '철근노출';
+// 탐지 클래스 5종(AI 탐지 3종 + 수동 입력 확대 2종) — 누수백태·도장손상은 수동 입력 기능으로 확대
+export type DefectType = '균열' | '박리박락' | '누수·백태' | '철근노출' | '도장 손상';
 export type DefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
-export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'ACTION_PENDING' | 'IN_PROGRESS' | 'RESOLVED';
+export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'IN_PROGRESS' | 'RESOLVED';
 
 export interface DefectBoundingBox {
   x: number; // 0~1 정규화 좌표 (이미지 너비 기준)
@@ -24,18 +24,39 @@ export interface Defect {
   lengthMm?: number; // 균열 길이(균열 전용)
   areaRatio?: number; // 마스크 면적 비율 0~1(박리박락·철근노출 전용)
   summary: string; // 분석 요약
+  mediaId?: number | null; // 이미지 ID — 백엔드에서 제공. null이면 미지정(수동 추가 등)
+  imageUrl?: string | null; // 이미지 URL — 백엔드 형식: /api/media/{mediaId}/thumbnail
+  thumbnailUrl?: string | null; // PDF 사진대지용 축소본 — 원본/상세 이미지는 PDF에 넣지 않는다.
 }
 
 export interface InspectionMedia {
   id: number;
-  imageUrl: string;
-  width: number;
-  height: number;
+  imageUrl: string; // 상세 이미지 URL(detailUrl 우선, 폴백은 thumbnail)
+  thumbnailUrl?: string; // 폴백용 썸네일 URL — imageUrl(detail)이 실패했을 때 사용(#796)
+  // 백엔드가 실제 이미지 크기를 제공하지 않음(#781) — 항상 undefined. DefectOverlay는 값이
+  // 없으면 maxWidth 제약을 걸지 않고 컨테이너 폭 그대로(w-full) 렌더링한다.
+  width?: number;
+  height?: number;
+}
+
+// 촬영 데이터 업로드 — API 명세서 v0.3 AP-005, POST /api/inspections/{id}/media.
+// backend MediaResponse와 1:1(originalUrl은 의도적으로 없음 — 원본 비공개 정책).
+export interface Media {
+  id: number;
+  inspectionId: number;
+  fileType: 'IMAGE' | 'VIDEO';
+  thumbnailUrl: string;
+  mimeType: string;
+  capturedAt: string | null;
+  gpsLat: number | null;
+  gpsLng: number | null;
+  createdAt: string;
 }
 
 export interface InspectionResult {
   inspectionId: number;
-  media: InspectionMedia;
+  roundNo: number; // 회차 번호 — 보고서 생성 진입점의 "N회차" 표기용 (#876)
+  media: InspectionMedia[]; // 전체 미디어 목록 (#804)
   defects: Defect[];
   defectCode: string; // 예: DEF-0192
   facilityName: string; // 예: 강남 오피스타워 A동
@@ -45,13 +66,17 @@ export interface InspectionResult {
   totalCount: number; // 예: 214
 }
 
+// backend InspectionType(정기/정밀/긴급)과 1:1.
+export type InspectionType = 'REGULAR' | 'DETAILED' | 'EMERGENCY';
+
 // 점검(회차) 생성 — API 명세서 v0.3 AP-004, POST /api/inspections.
-// backend InspectionCreateRequest(facilityId/inspectionDate/assignedInspectorId)와 1:1.
+// backend InspectionCreateRequest(facilityId/inspectionDate/assignedInspectorId/type)와 1:1.
 export interface InspectionCreateRequest {
   facilityId: number;
   /** YYYY-MM-DD */
   inspectionDate: string;
   assignedInspectorId: number;
+  type: InspectionType;
 }
 
 // backend InspectionResponse와 1:1
@@ -73,8 +98,8 @@ export interface FacilityOption {
   name: string;
 }
 
-// 점검(회차) 생성 화면 상단의 시설물 개요 패널(shared/FacilityOverviewPanel) 전용 — facility
-// feature의 Facility/FacilityInspectionOverview 타입과 같은 이유로 로컬 정의(cross-feature import 금지).
+// 분석 결과 뷰어(useInspectionResultReal)가 GET /api/facilities/{id}로 조회하는 시설물 상세 —
+// 위 FacilityOption과 같은 이유로 로컬 정의(cross-feature import 금지).
 export interface FacilityDetail {
   id: number;
   name: string;
@@ -83,27 +108,4 @@ export interface FacilityDetail {
   builtYear: number | null;
   scale: string | null;
   nextInspectionDueAt: string | null;
-}
-
-export type DefectGradeLetter = 'A' | 'B' | 'C' | 'D' | 'E';
-
-export interface FacilityOverviewHistoryEntry {
-  id: number;
-  roundNo: number;
-  /** YYYY-MM-DD */
-  inspectionDate: string;
-  inspectorName: string;
-  status: string;
-  imageCount: number;
-  defectGradeBreakdown: { grade: DefectGradeLetter; count: number }[];
-  changeNote?: string;
-  additionalImageCount?: number;
-}
-
-export interface FacilityOverview {
-  overallGrade: DefectGradeLetter | null;
-  totalRounds: number;
-  cumulativeDefectCount: number;
-  unresolvedDefectCount: number;
-  history: FacilityOverviewHistoryEntry[];
 }

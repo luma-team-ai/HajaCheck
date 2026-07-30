@@ -1,6 +1,7 @@
 package com.hajacheck.core.defect.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.CompanyMembership;
@@ -75,10 +76,15 @@ class DefectRepositoryTest extends PostgresTestSupport {
     }
 
     private Long seedFacility(Long ownerId, String name) {
-        Facility facility = Facility.builder().ownerId(ownerId).name(name).type("BUILDING").build();
+        Long companyId = em.find(User.class, ownerId).getCompanyId();
+        Facility facility = Facility.builder().companyId(companyId).name(name).type("BUILDING").build();
         em.persist(facility);
         em.flush();
         return facility.getId();
+    }
+
+    private Long companyId(Long ownerId) {
+        return em.find(User.class, ownerId).getCompanyId();
     }
 
     private Long seedInspection(Long facilityId, Long createdBy, int roundNo) {
@@ -126,7 +132,7 @@ class DefectRepositoryTest extends PostgresTestSupport {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
-        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, false));
         defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.RESOLVED, false));
         defectRepository.save(newDefect(inspectionId, DefectGrade.A, DefectStatus.DETECTED, false));
         // 삭제된 결함은 집계에서 제외되어야 한다.
@@ -144,6 +150,58 @@ class DefectRepositoryTest extends PostgresTestSupport {
                 .containsExactly(1L);
     }
 
+    // 시설물 카드 하자건수 배지(HAJA-515/#1075) — findLatestByFacilityIds(대표 하자 id 배치조회)와 동일한
+    // join(Defect→Inspection→Facility) + companyId 스코프 + deleted=false 필터가 실제 PG 스키마에서
+    // 정상 동작하는지, 삭제된 하자·타 회사 시설물·타 시설물 하자가 섞이지 않는지 실 DB로 고정한다
+    // (FacilityServiceTest의 Mockito 단위 테스트는 쿼리 자체의 join/그룹핑 정확성은 증명하지 못한다).
+    @Test
+    void countGroupByFacilityIds_시설물별비삭제하자건수집계_삭제제외_타회사제외() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityA = seedFacility(ownerId, "강남 오피스타워");
+        Long facilityB = seedFacility(ownerId, "한강대교 북단");
+        Long inspectionA = seedInspection(facilityA, ownerId, 1);
+        Long inspectionB = seedInspection(facilityB, ownerId, 1);
+        defectRepository.save(newDefect(inspectionA, DefectGrade.C, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionA, DefectGrade.D, DefectStatus.CONFIRMED, false));
+        // 삭제된 하자는 집계에서 제외되어야 한다.
+        defectRepository.save(newDefect(inspectionA, DefectGrade.E, DefectStatus.RESOLVED, true));
+        defectRepository.save(newDefect(inspectionB, DefectGrade.A, DefectStatus.DETECTED, false));
+
+        // 타 회사 시설물의 하자는 companyId 스코프로 걸러져 결과에 전혀 나타나지 않아야 한다(IDOR 방지 —
+        // findByIdAndCompanyId 등 다른 조회와 동일 원칙).
+        Long strangerId = seedOwner("owner-b@haja.com");
+        Long strangerFacility = seedFacility(strangerId, "타회사시설");
+        Long strangerInspection = seedInspection(strangerFacility, strangerId, 1);
+        defectRepository.save(newDefect(strangerInspection, DefectGrade.A, DefectStatus.DETECTED, false));
+
+        List<FacilityDefectCountProjection> result = defectRepository.countGroupByFacilityIds(
+                List.of(facilityA, facilityB, strangerFacility), companyId(ownerId));
+
+        assertThat(result)
+                .filteredOn(p -> p.getFacilityId().equals(facilityA))
+                .extracting(FacilityDefectCountProjection::getCnt)
+                .containsExactly(2L);
+        assertThat(result)
+                .filteredOn(p -> p.getFacilityId().equals(facilityB))
+                .extracting(FacilityDefectCountProjection::getCnt)
+                .containsExactly(1L);
+        assertThat(result)
+                .noneMatch(p -> p.getFacilityId().equals(strangerFacility));
+    }
+
+    // 하자가 하나도 없는 시설물은 group by 대상 행 자체가 없어 결과 리스트에 나타나지 않는다 — 이 자체가
+    // FacilityService가 getOrDefault(id, 0L)로 0건을 채워야 하는 이유다.
+    @Test
+    void countGroupByFacilityIds_하자없는시설은결과에없음() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityWithNoDefects = seedFacility(ownerId, "하자없는시설");
+
+        List<FacilityDefectCountProjection> result = defectRepository.countGroupByFacilityIds(
+                List.of(facilityWithNoDefects), companyId(ownerId));
+
+        assertThat(result).isEmpty();
+    }
+
     @Test
     void findPendingPriorityDefects_미분류는최하단_등급E부터A까지내림차순() {
         // #327 회귀 방지 — PostgreSQL은 "ORDER BY ... DESC" 시 기본이 NULLS FIRST라, 파생 쿼리
@@ -152,18 +210,18 @@ class DefectRepositoryTest extends PostgresTestSupport {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
-        defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.ACTION_PENDING, false));
-        defectRepository.save(newDefect(inspectionId, null, DefectStatus.ACTION_PENDING, false)); // 미분류
-        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
-        defectRepository.save(newDefect(inspectionId, DefectGrade.D, DefectStatus.ACTION_PENDING, false));
-        defectRepository.save(newDefect(inspectionId, DefectGrade.B, DefectStatus.ACTION_PENDING, false));
-        defectRepository.save(newDefect(inspectionId, DefectGrade.A, DefectStatus.ACTION_PENDING, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.CONFIRMED, false));
+        defectRepository.save(newDefect(inspectionId, null, DefectStatus.CONFIRMED, false)); // 미분류
+        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.D, DefectStatus.CONFIRMED, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.B, DefectStatus.CONFIRMED, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.A, DefectStatus.CONFIRMED, false));
         // 다른 상태(RESOLVED)와 삭제된 결함은 우선순위 목록에서 제외되어야 한다.
         defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.RESOLVED, false));
-        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, true));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, true));
 
         List<Defect> result = defectRepository.findPendingPriorityDefects(
-                List.of(inspectionId), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10));
+                List.of(inspectionId), DefectStatus.CONFIRMED, PageRequest.of(0, 10));
 
         assertThat(result).extracting(Defect::getGrade)
                 .containsExactly(
@@ -177,9 +235,9 @@ class DefectRepositoryTest extends PostgresTestSupport {
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
 
         Defect older = defectRepository.save(
-                newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+                newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, false));
         Defect newer = defectRepository.save(
-                newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+                newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, false));
         em.flush();
 
         // @CreatedDate 는 persist 시점에 auditing 이 "now" 로 덮어써 저장 순서만으로는 createdAt
@@ -190,7 +248,7 @@ class DefectRepositoryTest extends PostgresTestSupport {
         em.clear();
 
         List<Defect> result = defectRepository.findPendingPriorityDefects(
-                List.of(inspectionId), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10));
+                List.of(inspectionId), DefectStatus.CONFIRMED, PageRequest.of(0, 10));
 
         assertThat(result).extracting(Defect::getId).containsExactly(newer.getId(), older.getId());
     }
@@ -201,11 +259,11 @@ class DefectRepositoryTest extends PostgresTestSupport {
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
         for (int i = 0; i < 12; i++) {
-            defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+            defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, false));
         }
 
         List<Defect> result = defectRepository.findPendingPriorityDefects(
-                List.of(inspectionId), DefectStatus.ACTION_PENDING, PageRequest.of(0, 10));
+                List.of(inspectionId), DefectStatus.CONFIRMED, PageRequest.of(0, 10));
 
         // @Query + Pageable 전환 후에도 findTop10 파생 쿼리와 동등한 상위 10건 제한이 유지돼야 한다.
         assertThat(result).hasSize(10);
@@ -217,24 +275,6 @@ class DefectRepositoryTest extends PostgresTestSupport {
                 .setParameter(1, createdAt)
                 .setParameter(2, defectId)
                 .executeUpdate();
-    }
-
-    @Test
-    void countByInspectionIdInAndStatusAndDeletedFalseAndCreatedAtRange_기간내만집계() {
-        Long ownerId = seedOwner("owner-a@haja.com");
-        Long facilityId = seedFacility(ownerId, "테스트빌딩");
-        Long inspectionId = seedInspection(facilityId, ownerId, 1);
-        defectRepository.save(newDefect(inspectionId, DefectGrade.D, DefectStatus.ACTION_PENDING, false));
-
-        LocalDateTime from = LocalDateTime.now().minusDays(1);
-        LocalDateTime to = LocalDateTime.now().plusDays(1);
-        long inRange = defectRepository.countByInspectionIdInAndStatusAndDeletedFalseAndCreatedAtRange(
-                List.of(inspectionId), DefectStatus.ACTION_PENDING, from, to);
-        long outOfRange = defectRepository.countByInspectionIdInAndStatusAndDeletedFalseAndCreatedAtRange(
-                List.of(inspectionId), DefectStatus.ACTION_PENDING, from.minusDays(10), from.minusDays(5));
-
-        assertThat(inRange).isEqualTo(1);
-        assertThat(outOfRange).isEqualTo(0);
     }
 
     @Test
@@ -293,10 +333,44 @@ class DefectRepositoryTest extends PostgresTestSupport {
                 .containsExactly(2L);
     }
 
+    @Test
+    void countGroupByInspectionIdAndGrade_점검별등급별건수집계_삭제된하자와등급null은제외() {
+        // #893/HAJA-458 — 점검 목록 등급분포. 소프트 삭제된 하자(deleted=true)와 등급 미분류
+        // (grade=null, AI 미분석 등)는 다른 집계 쿼리(countGroupByGrade 등)와 동일하게 제외돼야 한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionA = seedInspection(facilityId, ownerId, 1);
+        Long inspectionB = seedInspection(facilityId, ownerId, 2);
+        defectRepository.save(newDefect(inspectionA, DefectGrade.B, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionA, DefectGrade.B, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionA, DefectGrade.C, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionA, DefectGrade.E, DefectStatus.DETECTED, true)); // 삭제됨 — 제외
+        defectRepository.save(newDefect(inspectionA, null, DefectStatus.DETECTED, false)); // 등급 미분류 — 제외
+        defectRepository.save(newDefect(inspectionB, DefectGrade.A, DefectStatus.DETECTED, false));
+
+        List<InspectionGradeCountProjection> result = defectRepository.countGroupByInspectionIdAndGrade(
+                List.of(inspectionA, inspectionB));
+
+        assertThat(result)
+                .filteredOn(p -> p.getInspectionId().equals(inspectionA) && p.getGrade() == DefectGrade.B)
+                .extracting(InspectionGradeCountProjection::getCnt)
+                .containsExactly(2L);
+        assertThat(result)
+                .filteredOn(p -> p.getInspectionId().equals(inspectionA) && p.getGrade() == DefectGrade.C)
+                .extracting(InspectionGradeCountProjection::getCnt)
+                .containsExactly(1L);
+        assertThat(result)
+                .filteredOn(p -> p.getInspectionId().equals(inspectionB))
+                .extracting(InspectionGradeCountProjection::getGrade, InspectionGradeCountProjection::getCnt)
+                .containsExactly(tuple(DefectGrade.A, 1L));
+        // 삭제된 하자(E)·등급 미분류 하자는 어떤 그룹에도 나타나지 않아야 한다.
+        assertThat(result).noneMatch(p -> p.getGrade() == DefectGrade.E);
+    }
+
     // ── HAJA-30: 하자 목록·상세 조회 ──
 
     @Test
-    void findPageByOwnerIdAndFilters_owner스코프_본인시설하자만조회() {
+    void findPageByCompanyIdAndFilters_owner스코프_본인시설하자만조회() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long strangerId = seedOwner("owner-b@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
@@ -306,44 +380,44 @@ class DefectRepositoryTest extends PostgresTestSupport {
         defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
         defectRepository.save(newDefect(strangerInspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
 
-        Page<Defect> result = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, null, null, PageRequest.of(0, 10));
+        Page<Defect> result = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, null, PageRequest.of(0, 10));
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getTotalElements()).isEqualTo(1);
     }
 
     @Test
-    void findPageByOwnerIdAndFilters_삭제된하자는제외() {
+    void findPageByCompanyIdAndFilters_삭제된하자는제외() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
         defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
         defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, true));
 
-        Page<Defect> result = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, null, null, PageRequest.of(0, 10));
+        Page<Defect> result = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, null, PageRequest.of(0, 10));
 
         assertThat(result.getContent()).hasSize(1);
     }
 
     @Test
-    void findPageByOwnerIdAndFilters_유형등급상태필터적용() {
+    void findPageByCompanyIdAndFilters_유형등급상태필터적용() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
         defectRepository.save(newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
-        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.ACTION_PENDING, false));
+        defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.CONFIRMED, false));
 
         // 등급 필터는 "이상"(임계값) 의미다 — grade=E(최고 등급)를 주면 E 자기 자신만 매치되므로
         // 임계값과 정확 일치가 동일한 결과라 이 케이스만으로는 회귀를 못 잡는다. 임계값 전용
-        // 회귀 방지는 아래 findPageByOwnerIdAndFilters_등급필터는이상_임계값의미 에서 별도 검증한다.
-        Page<Defect> gradeFiltered = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, DefectGrade.E, null, PageRequest.of(0, 10));
-        Page<Defect> statusFiltered = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, null, DefectStatus.DETECTED, PageRequest.of(0, 10));
-        Page<Defect> typeFiltered = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, DefectType.CRACK, null, null, PageRequest.of(0, 10));
+        // 회귀 방지는 아래 findPageByCompanyIdAndFilters_등급필터는이상_임계값의미 에서 별도 검증한다.
+        Page<Defect> gradeFiltered = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, DefectGrade.E, null, PageRequest.of(0, 10));
+        Page<Defect> statusFiltered = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, DefectStatus.DETECTED, PageRequest.of(0, 10));
+        Page<Defect> typeFiltered = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), DefectType.CRACK, null, null, PageRequest.of(0, 10));
 
         assertThat(gradeFiltered.getContent()).extracting(Defect::getGrade).containsExactly(DefectGrade.E);
         assertThat(statusFiltered.getContent()).extracting(Defect::getStatus)
@@ -352,7 +426,7 @@ class DefectRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void findPageByOwnerIdAndFilters_등급필터는이상_임계값의미() {
+    void findPageByCompanyIdAndFilters_등급필터는이상_임계값의미() {
         // PR #372 code-reviewer P2 — "등급: X 이상" UI 라벨과 달리 백엔드가 grade == X 정확 일치만
         // 반환해 X보다 심각한 등급이 결과에서 누락되던 결함의 회귀 방지 테스트. PG named enum
         // (defect_grade_type)의 실제 DB측 >= 비교(A<B<C<D<E 선언순)를 Testcontainers로 검증한다.
@@ -366,14 +440,14 @@ class DefectRepositoryTest extends PostgresTestSupport {
         defectRepository.save(newDefect(inspectionId, DefectGrade.E, DefectStatus.DETECTED, false));
 
         // 중간값(C) 필터 — C·D·E는 포함, A·B는 제외.
-        Page<Defect> cOrAbove = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, DefectGrade.C, null, PageRequest.of(0, 10));
+        Page<Defect> cOrAbove = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, DefectGrade.C, null, PageRequest.of(0, 10));
         // 최저 등급(A) 필터 — 전부 포함(임계값이 사실상 무필터와 동일).
-        Page<Defect> aOrAbove = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, DefectGrade.A, null, PageRequest.of(0, 10));
+        Page<Defect> aOrAbove = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, DefectGrade.A, null, PageRequest.of(0, 10));
         // 최고 등급(E) 필터 — E만 포함(정확 일치와 결과가 같아지는 경계).
-        Page<Defect> eOrAbove = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, DefectGrade.E, null, PageRequest.of(0, 10));
+        Page<Defect> eOrAbove = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, DefectGrade.E, null, PageRequest.of(0, 10));
 
         assertThat(cOrAbove.getContent()).extracting(Defect::getGrade)
                 .containsExactlyInAnyOrder(DefectGrade.C, DefectGrade.D, DefectGrade.E);
@@ -383,7 +457,7 @@ class DefectRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void findPageByOwnerIdAndFilters_최신순정렬() {
+    void findPageByCompanyIdAndFilters_최신순정렬() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
@@ -397,15 +471,15 @@ class DefectRepositoryTest extends PostgresTestSupport {
         updateCreatedAt(newer.getId(), base.plusMinutes(10));
         em.clear();
 
-        Page<Defect> result = defectRepository.findPageByOwnerIdAndFilters(
-                ownerId, null, null, null, PageRequest.of(0, 10));
+        Page<Defect> result = defectRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, null, PageRequest.of(0, 10));
 
         assertThat(result.getContent()).extracting(Defect::getId)
                 .containsExactly(newer.getId(), older.getId());
     }
 
     @Test
-    void findByIdAndOwnerId_본인소유하자_조회됨() {
+    void findByIdAndCompanyId_본인소유하자_조회됨() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
@@ -417,14 +491,14 @@ class DefectRepositoryTest extends PostgresTestSupport {
         em.flush();
         em.clear();
 
-        Optional<Defect> result = defectRepository.findByIdAndOwnerId(saved.getId(), ownerId);
+        Optional<Defect> result = defectRepository.findByIdAndCompanyId(saved.getId(), companyId(ownerId));
 
         assertThat(result).isPresent();
         assertThat(result.get().getInspection().getFacility().getId()).isEqualTo(facilityId);
     }
 
     @Test
-    void findByIdAndOwnerId_타인소유하자_빈값() {
+    void findByIdAndCompanyId_타인소유하자_빈값() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long strangerId = seedOwner("owner-b@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
@@ -432,20 +506,111 @@ class DefectRepositoryTest extends PostgresTestSupport {
         Defect saved = defectRepository.save(
                 newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
 
-        Optional<Defect> result = defectRepository.findByIdAndOwnerId(saved.getId(), strangerId);
+        Optional<Defect> result = defectRepository.findByIdAndCompanyId(saved.getId(), companyId(strangerId));
 
         assertThat(result).isEmpty();
     }
 
     @Test
-    void findByIdAndOwnerId_삭제된하자_빈값() {
+    void findByIdAndCompanyId_삭제된하자_빈값() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, 1);
         Defect saved = defectRepository.save(
                 newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, true));
 
-        Optional<Defect> result = defectRepository.findByIdAndOwnerId(saved.getId(), ownerId);
+        Optional<Defect> result = defectRepository.findByIdAndCompanyId(saved.getId(), companyId(ownerId));
+
+        assertThat(result).isEmpty();
+    }
+
+    // ── 마이페이지 "내 보고서" gradeDots(#844) ──
+
+    @Test
+    void findDistinctGradesByInspectionIds_점검별로중복없이등급만반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionA = seedInspection(facilityId, ownerId, 1);
+        Long inspectionB = seedInspection(facilityId, ownerId, 2);
+        // A: E 등급 2건(중복 제거되어 E 1건만 반환돼야 함) + null 등급 1건(제외돼야 함)
+        defectRepository.save(newDefect(inspectionA, DefectGrade.E, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefect(inspectionA, DefectGrade.E, DefectStatus.RESOLVED, false));
+        defectRepository.save(newDefect(inspectionA, null, DefectStatus.DETECTED, false));
+        // 삭제된 하자는 등급이 있어도 제외
+        defectRepository.save(newDefect(inspectionA, DefectGrade.A, DefectStatus.DETECTED, true));
+        // B: C 등급 1건 — 다른 점검이라 A와 섞이면 안 된다
+        defectRepository.save(newDefect(inspectionB, DefectGrade.C, DefectStatus.DETECTED, false));
+
+        List<InspectionGradeProjection> result =
+                defectRepository.findDistinctGradesByInspectionIds(List.of(inspectionA, inspectionB));
+
+        assertThat(result).hasSize(2);
+        assertThat(result.stream()
+                .filter(p -> p.getInspectionId().equals(inspectionA))
+                .map(InspectionGradeProjection::getGrade))
+                .containsExactly(DefectGrade.E);
+        assertThat(result.stream()
+                .filter(p -> p.getInspectionId().equals(inspectionB))
+                .map(InspectionGradeProjection::getGrade))
+                .containsExactly(DefectGrade.C);
+    }
+
+    // ── #970 갭3 / HAJA-437: location + previous_defect_id(self-referencing FK) 실 PG 검증 ──
+
+    @Test
+    void save_location과previousDefectId_실PG에저장및조회() {
+        // self-referencing FK(previous_defect_id → defects.id)가 실제 PostgreSQL DDL(V24)에서
+        // 정상 동작하는지 확인 — Mockito 단위테스트로는 실제 FK 제약/컬럼 타입을 검증할 수 없다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long round1 = seedInspection(facilityId, ownerId, 1);
+        Long round2 = seedInspection(facilityId, ownerId, 2);
+
+        Defect previous = defectRepository.save(newDefect(round1, DefectGrade.C, DefectStatus.DETECTED, false));
+        Defect current = Defect.builder()
+                .inspectionId(round2)
+                .type(DefectType.CRACK)
+                .confidence(0.9)
+                .grade(DefectGrade.C)
+                .status(DefectStatus.DETECTED)
+                .location("외벽 동측 12층 부근")
+                .build();
+        current = defectRepository.save(current);
+        current.confirmPreviousDefect(previous.getId());
+        defectRepository.save(current);
+        em.flush();
+        em.clear();
+
+        Defect reloaded = defectRepository.findById(current.getId()).orElseThrow();
+        assertThat(reloaded.getLocation()).isEqualTo("외벽 동측 12층 부근");
+        assertThat(reloaded.getPreviousDefectId()).isEqualTo(previous.getId());
+    }
+
+    @Test
+    void save_location과previousDefectId_기본값은null() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+
+        Defect saved = defectRepository.save(
+                newDefect(inspectionId, DefectGrade.C, DefectStatus.DETECTED, false));
+        em.flush();
+        em.clear();
+
+        Defect reloaded = defectRepository.findById(saved.getId()).orElseThrow();
+        assertThat(reloaded.getLocation()).isNull();
+        assertThat(reloaded.getPreviousDefectId()).isNull();
+    }
+
+    @Test
+    void findDistinctGradesByInspectionIds_대상점검없으면빈리스트() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+        defectRepository.save(newDefect(inspectionId, DefectGrade.B, DefectStatus.DETECTED, false));
+
+        List<InspectionGradeProjection> result =
+                defectRepository.findDistinctGradesByInspectionIds(List.of());
 
         assertThat(result).isEmpty();
     }

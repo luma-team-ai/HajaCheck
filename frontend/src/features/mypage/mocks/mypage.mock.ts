@@ -1,8 +1,16 @@
-import type { MyPlan, SeatsInfo } from '../types';
+import type { MyPlan, PaymentHistoryItem, SeatsInfo } from '../types';
 
-// 백엔드 #211(HAJA-177) 미배포 대비 예제 데이터(HAJA-185) — Figma "My Page - My Plan Management" 시안 기준
+// 백엔드 #211(HAJA-177) 미배포 대비 예제 데이터(HAJA-185) — Figma "My Page - My Plan Management" 시안 기준.
+// priceMonthly=29000은 PRD 확정 STANDARD가(platform-admin planPolicyApi.handlers.ts 시드값과 동일 기준,
+// #712 리디자인 시 99000 → 정정). nextBillingDate/businessVerified는 BE #711/PR#714에서 확정된 신규 필드.
 export const mockMyPlan: MyPlan = {
-  plan: { name: 'STANDARD', priceMonthly: 99000, status: 'ACTIVE' },
+  plan: {
+    name: 'STANDARD',
+    priceMonthly: 29000,
+    status: 'ACTIVE',
+    nextBillingDate: '2026-08-01',
+    businessVerified: true,
+  },
   limits: { maxFacilities: 10, maxMonthlyAnalyses: 1000, maxSeats: 3 },
   usage: { facilityCount: 4, analyzedImageCount: 786, seatCount: 2, period: '2026-07-01' },
 };
@@ -29,3 +37,19 @@ export const mockSeats: SeatsInfo = {
     },
   ],
 };
+
+// 결제 내역 실연동(#864, 토스페이먼츠 #989/HAJA-490) 예제 데이터 — 백엔드(#988) 미배포 시 usePayments
+// 네이티브 폴백용(fetchWithFallback). MSW 핸들러(mypageApi.handlers.ts)는 이 값을 초기 상태로 삼아
+// 결제 승인 성공 시 새 레코드를 앞에 추가한다.
+export const mockPayments: PaymentHistoryItem[] = [
+  {
+    id: 1,
+    orderId: 'order_mock_20260701',
+    planName: 'STANDARD',
+    amount: 29000,
+    status: 'PAID',
+    method: '카드',
+    approvedAt: '2026-07-01T09:12:00',
+    receiptUrl: 'https://mock.tosspayments.com/receipt/order_mock_20260701',
+  },
+];

@@ -1,11 +1,11 @@
-"""사업자등록증 OCR 체인 (HAJA-169/#552, 개업일자 추출 #598, RapidOCR→EasyOCR 교체 #605)
-— AI_개발_컨벤션.md §8 절차를 따름.
+"""사업자등록증 OCR 체인 (HAJA-169/#552, 개업일자 추출 #598, RapidOCR→EasyOCR 교체 #605,
+EasyOCR→RapidOCR PP-OCRv5 한국어 교체 #722) — AI_개발_컨벤션.md §8 절차를 따름.
 
-EasyOCR(`ai/core/ocr_client.py`, 한국어 모델)로 이미지에서 텍스트 라인을 추출한 뒤,
-LLM structured output으로 사업자등록번호/상호/대표자명/개업연월일 4필드를 파싱한다.
-EasyOCR도 완벽하진 않아 유사 글자 오탈자(예: "다"↔"타", "0"↔"O")가 남을 수 있는데, 이는
-LLM 프롬프트(`ai/prompts/business_license_ocr.md`)의 문맥 기반 오탈자 교정 지시로 보정한다
-(단, 없는 값을 지어내진 않는다 — 인식 안 되면 null).
+RapidOCR(`ai/core/ocr_client.py`, PP-OCRv5 한국어 인식모델)로 이미지에서 텍스트 라인을
+추출한 뒤, LLM structured output으로 사업자등록번호/상호/대표자명/개업연월일 4필드를
+파싱한다. RapidOCR도 완벽하진 않아 유사 글자 오탈자가 남을 수 있는데, 이는 LLM 프롬프트
+(`ai/prompts/business_license_ocr.md`)의 문맥 기반 오탈자 교정 지시로 보정한다(단, 없는
+값을 지어내진 않는다 — 인식 안 되면 null).
 
 사업자등록번호는 OCR 원문에서 정규식으로도 탐지해 LLM이 놓치거나 하이픈 표기를 다르게 한
 경우를 보정한다 — 숫자는 OCR 자체 신뢰도가 높고 포맷이 고정(3-2-5자리)이라 결정론적 정규식
@@ -23,6 +23,11 @@ LLM 프롬프트(`ai/prompts/business_license_ocr.md`)의 문맥 기반 오탈�
 남기지 않는다 — 이 파일은 어떤 로그도 남기지 않는다(체인 자체는 로거를 두지 않음). 예외는
 삼키지 않고 그대로 호출부(라우터)로 전파하며, 라우터의 `logger.exception`에는 예외 타입/스택만
 남고 OCR 원문·LLM 응답 내용은 포함하지 않는다(`routers/ai_router.py` 참고).
+LangSmith 트레이싱(#1240): 프롬프트(=OCR 원문 전체)와 LLM 응답이 외부 LangSmith 서버로
+나가지 않도록 전역 입출력 마스킹(LANGSMITH_HIDE_INPUTS/HIDE_OUTPUTS)에 의존한다. 체인별
+코드 차단은 두지 않는다 — 위 #552 조항을 트레이싱 경로에 한해 해제하는 것으로, 2026-07-29
+정재봉 승인(충돌 인지 상태) 하에 결정됐다. 마스킹 env가 빠진 환경에서는 OCR 원문이 전송되므로,
+배포 시 해당 env 설정이 반드시 함께 들어가야 한다.
 """
 import base64
 import binascii
@@ -33,7 +38,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from ai.core.llm_client import get_llm
+from ai.core.llm_client import SHORT_CACHE_TTL_SECONDS, get_llm
 from ai.core.ocr_client import get_ocr_engine
 from ai.core.prompt_safety import wrap_untrusted
 
@@ -97,18 +102,21 @@ def _decode_image(image_base64: str) -> bytes:
 
 
 def _extract_text_lines(image_bytes: bytes) -> list[tuple[str, float]]:
-    """EasyOCR로 (텍스트, 신뢰도) 라인 목록을 추출한다. 텍스트를 못 찾으면 빈 리스트.
+    """RapidOCR로 (텍스트, 신뢰도) 라인 목록을 추출한다. 텍스트를 못 찾으면 빈 리스트.
 
-    EasyOCR `readtext()`는 파일 경로/numpy 배열/bytes를 모두 받아들이므로(내부
-    `reformat_input()`이 bytes를 cv2.imdecode로 직접 디코딩) 별도 PIL/np 변환 없이
-    원본 bytes를 그대로 넘긴다. `detail=1, paragraph=False`로 RapidOCR과 동일한
-    `(box, text, confidence)` 튜플 목록을 받아 하위 로직(정규식 후처리 등)을 그대로 유지한다.
+    RapidOCR 인스턴스는 이미지를 직접 콜(`engine(image_bytes)`)로 받는다. 입력은 파일
+    경로/numpy 배열/bytes/PIL.Image를 모두 받아들이므로(내부 `LoadImage`가 bytes를
+    cv2.imdecode로 직접 디코딩) 별도 PIL/np 변환 없이 원본 bytes를 그대로 넘긴다.
+
+    결과(`RapidOCROutput`)의 `res.txts`/`res.scores`는 각각 `tuple[str, ...]`/
+    `tuple[float, ...]`이며, 텍스트를 하나도 못 찾으면 둘 다 `None`(falsy)이다. 하위 로직
+    (정규식 후처리 등)이 기대하는 반환 계약 `list[tuple[str, float]]`은 그대로 유지한다.
     """
     engine = get_ocr_engine()
-    result = engine.readtext(image_bytes, detail=1, paragraph=False)
-    if not result:
+    result = engine(image_bytes)
+    if not result.txts:
         return []
-    return [(text, float(score)) for _box, text, score in result]
+    return [(str(text), float(score)) for text, score in zip(result.txts, result.scores)]
 
 
 def _normalize_reg_number(candidate: Optional[str]) -> Optional[str]:
@@ -173,7 +181,11 @@ def run_business_license_ocr_chain(image_base64: str) -> BusinessLicenseOcrResul
     avg_confidence = sum(score for _text, score in lines_with_scores) / len(lines_with_scores)
 
     prompt = _build_prompt("\n".join(texts))
-    llm_result = get_llm().with_structured_output(BusinessLicenseOcrExtract).invoke(prompt)
+    llm_result = (
+        get_llm()
+        .with_structured_output(BusinessLicenseOcrExtract, ttl=SHORT_CACHE_TTL_SECONDS)
+        .invoke(prompt)
+    )
 
     business_registration_number = _find_business_reg_number(
         texts

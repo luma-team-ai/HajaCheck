@@ -1,4 +1,11 @@
-import type { PlanStatus, SeatMemberRole, SeatMemberStatus } from './types';
+import type {
+  InspectionHistoryRole,
+  InspectionHistoryStatus,
+  PlanStatus,
+  ReportGradeDotColor,
+  SeatMemberRole,
+  SeatMemberStatus,
+} from './types';
 
 // success(초록)/warning(앰버) 색상 토큰이 shared/styles/tokens.css에 없다(2026-07-16 확인).
 // tokens.css는 다른 오너의 자산이라 이번 스타일 전환 범위에서 건드리지 않고, 삭제된 mypage.css에
@@ -26,7 +33,7 @@ export const SEAT_ROLE_BADGE_CLASS: Record<SeatMemberRole, string> = {
   COUNSELOR: 'bg-neutral-100 text-text-default',
 };
 
-// 좌석 상태 색점 — ACTIVE는 success 색, SUSPENDED는 기존 danger 토큰 재사용
+// 좌석 상태 색점 — ACTIVE는 success 색, SUSPENDED는 기존 danger 토큰 재사용.
 export const SEAT_STATUS_DOT_CLASS: Record<SeatMemberStatus, string> = {
   ACTIVE: 'bg-[#16a34a]',
   SUSPENDED: 'bg-danger',
@@ -36,8 +43,44 @@ export const SEAT_STATUS_DOT_CLASS: Record<SeatMemberStatus, string> = {
 export const USAGE_WARNING_BADGE_CLASS = 'bg-[#fdf0d5] text-[#b5670a]';
 
 // 사용량 프로그레스 바 채움색 — 평시는 tokens.css bg-primary(시안이 zinc-900 계열 바),
-// 경고(80%↑)는 신규 hex 대신 기존 --color-danger 토큰 재사용
+// 경고(80%↑)는 Figma 리디자인(node 1463-2786, #712)에서 빨강 → 앰버로 변경. Tailwind 표준
+// 팔레트(amber-500)를 그대로 쓴다 — USAGE_WARNING_BADGE_CLASS(앰버 pill)와 같은 계열, 신규 hex 없음.
 export const USAGE_BAR_FILL_CLASS = {
   normal: 'bg-primary',
-  warning: 'bg-danger',
+  warning: 'bg-amber-500',
 } as const;
+
+// ---- 내 점검 이력 / 보고서 (HAJA-366, #668) ----
+
+// 점검 이력 역할 배지 — "소유자=검정 채움, 점검자=연회색"(Figma), SEAT_ROLE_BADGE_CLASS와 동일 팔레트 재사용.
+export const INSPECTION_ROLE_BADGE_CLASS: Record<InspectionHistoryRole, string> = {
+  OWNER: 'bg-primary text-surface',
+  INSPECTOR: 'bg-neutral-100 text-text-default',
+};
+
+export const INSPECTION_ROLE_LABEL: Record<InspectionHistoryRole, string> = {
+  OWNER: '소유자',
+  INSPECTOR: '점검자',
+};
+
+// 점검 이력 상태 점 — 검수완료=emerald·검수대기=amber·분석중=blue(handoff 지시). Tailwind 표준
+// 팔레트만 사용(신규 hex 도입 없음) — 하자 표현 상수와 동일 계열.
+export const INSPECTION_STATUS_DOT_CLASS: Record<InspectionHistoryStatus, string> = {
+  REVIEW_DONE: 'bg-emerald-500',
+  REVIEW_PENDING: 'bg-amber-500',
+  ANALYZING: 'bg-blue-500',
+};
+
+export const INSPECTION_STATUS_LABEL: Record<InspectionHistoryStatus, string> = {
+  REVIEW_DONE: '검수완료',
+  REVIEW_PENDING: '검수대기',
+  ANALYZING: '분석중',
+};
+
+// 보고서 카드 등급 dots — 신호등 3색. RED/GREEN은 파일 내 기존 hex(#dc2626/#16a34a 계열)를 재사용하고,
+// ORANGE는 Tailwind 표준 팔레트(orange-500)를 쓴다(신규 hex 도입 없음).
+export const REPORT_GRADE_DOT_CLASS: Record<ReportGradeDotColor, string> = {
+  RED: 'bg-danger',
+  ORANGE: 'bg-orange-500',
+  GREEN: 'bg-[#16a34a]',
+};

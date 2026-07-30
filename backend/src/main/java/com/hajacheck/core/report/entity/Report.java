@@ -17,6 +17,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
+import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -81,6 +82,9 @@ public class Report extends BaseTimeEntity {
     @Column(name = "created_by")
     private Long createdBy;
 
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @Builder(access = AccessLevel.PRIVATE)
     private Report(Long inspectionId, int version, String contentJson,
                    Boolean groundingCheckPassed, String groundingWarnings,
@@ -120,6 +124,14 @@ public class Report extends BaseTimeEntity {
         this.editedBy = editedBy;
     }
 
+    /** 생성 옵션 적용은 검증된 AI 응답의 표시 범위만 줄이는 작업이므로 grounding 판정을 유지한다. */
+    public void applyGeneratedOptions(String contentJson, Long editedBy) {
+        requireDraft("applyGeneratedOptions");
+        requireContent(contentJson);
+        this.contentJson = contentJson;
+        this.editedBy = editedBy;
+    }
+
     /** 비동기 Grounding 요청 전에, 아직 생성되지 않은 payload와 분리된 요청 식별자를 캡처한다. */
     public GroundingRequestContext captureGroundingRequestContext() {
         requireDraft("captureGroundingRequestContext");
@@ -141,6 +153,22 @@ public class Report extends BaseTimeEntity {
         this.editedBy = editedBy;
     }
 
+    /**
+     * AI 서버(LLM) 재호출 없이, 현재 저장된 본문(contentJson)이 확정 하자 목록과 구조적으로
+     * 일치하는지만 재검증한 결과를 기록한다(#680). {@link #recordGroundingResult}는 AI 응답과
+     * 결합된 {@link GroundingCheckResult}/{@link GroundingCheckTarget} 상관관계 검증에 묶여 있어
+     * 재사용할 수 없으므로 별도 도메인 메서드로 둔다 — 편집(updateContent)으로 null이 된
+     * groundingCheckPassed를 AI 재호출 없이 복구할 유일한 경로다.
+     */
+    public void recordStructuralGroundingRecheck(boolean matched, String warningsJson, Long editedBy) {
+        requireDraft("recordStructuralGroundingRecheck");
+        String normalizedWarnings = JsonValidator.normalizeOrRequireValid(
+                warningsJson, "근거 재검증 경고(groundingWarnings)");
+        this.groundingCheckPassed = matched;
+        this.groundingWarnings = normalizedWarnings;
+        this.editedBy = editedBy;
+    }
+
     public void finalizeReport(String pdfUrl, Long editedBy) {
         requireDraft("finalizeReport");
         if (!Boolean.TRUE.equals(this.groundingCheckPassed)) {
@@ -151,6 +179,15 @@ public class Report extends BaseTimeEntity {
         this.pdfUrl = pdfUrl;
         this.editedBy = editedBy;
         this.status = ReportStatus.FINALIZED;
+    }
+
+    public void markDeleted(Long editedBy) {
+        requireDraft("delete");
+        if (this.deletedAt != null) {
+            return;
+        }
+        this.deletedAt = LocalDateTime.now();
+        this.editedBy = editedBy;
     }
 
     private void requireDraft(String action) {

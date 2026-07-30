@@ -1,5 +1,6 @@
 package com.hajacheck.bizverify.config;
 
+import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -18,7 +19,40 @@ public class BizVerifyProperties {
     private String baseUrl;
     private String serviceKey;
     private long connectTimeoutMs = 3000;
+
+    /**
+     * <b>제출 경로 전용</b>(회원가입 게이트, {@code CompanySignupService} → {@code validate()} 단독 호출) —
+     * PR #880 이전 값(5000) 그대로 유지, 재시도도 없다. 이 엔드포인트({@code POST /api/auth/companies})는
+     * permitAll + rate-limit 미적용이라, 재시도·타임아웃 상향으로 요청당 대기시간이 늘면 국세청 장애가
+     * 장기화될 때 Tomcat 워커 스레드가 고갈될 수 있다(2026-07-26 PR #889 P1 리뷰). 실패해도 fail-open으로
+     * 가입은 그대로 통과(verificationStatus=PENDING)하고 후속 #888 스케줄러가 나중에 재검증하므로,
+     * 제출 시점 재시도로 얻는 이득(즉시 VERIFIED 확정 확률)보다 무인증 엔드포인트의 스레드 점유 비용이 더
+     * 크다고 판단했다. {@link #realtimeReadTimeoutMs}·{@link #retryMaxAttempts}와 반드시 구분할 것.
+     */
     private long readTimeoutMs = 5000;
+
+    /**
+     * <b>실시간 진위확인 경로 전용</b>(#648, {@code POST /api/auth/business-verification} →
+     * {@code verifyRealtime()}이 쓰는 status 호출 + 내부 validate 호출) — 5000→8000 상향(#880, 2026-07-26
+     * 실측: odcloud 게이트웨이가 장애 없이도 5초를 자주 넘김). 이 경로는 전역 rate-limit({@link RateLimit},
+     * 분당10/일300)으로 보호되는 인터랙티브(사용자가 버튼 누르고 대기) 경로라 재시도·상향된 타임아웃의
+     * 스레드 점유 비용을 감수할 가치가 있다(제출 경로와 달리).
+     */
+    private long realtimeReadTimeoutMs = 8000;
+
+    /**
+     * 일시적 실패(연결 실패·타임아웃·5xx) 재시도 횟수(#880) — 최초 시도 제외 횟수. 기본 1(=최대 2회 시도).
+     * <b>실시간 진위확인 경로에만 적용</b>된다(제출 경로 {@code validate()}는 재시도하지 않음 — 위
+     * {@link #readTimeoutMs} javadoc 참고). 4xx·응답 파싱 실패·해석 불가는 재시도하지 않는다
+     * ({@link NtsBusinessVerifyClient} 참고).
+     */
+    private int retryMaxAttempts = 1;
+
+    /** 재시도 사이 대기 시간(ms, #880) — 실시간 진위확인 경로에만 적용. */
+    private long retryBackoffMs = 300;
+
+    /** 실시간 진위확인 공개 API(#648) rate-limit. */
+    private RateLimit rateLimit = new RateLimit();
 
     public String getBaseUrl() {
         return baseUrl;
@@ -50,5 +84,100 @@ public class BizVerifyProperties {
 
     public void setReadTimeoutMs(long readTimeoutMs) {
         this.readTimeoutMs = readTimeoutMs;
+    }
+
+    public long getRealtimeReadTimeoutMs() {
+        return realtimeReadTimeoutMs;
+    }
+
+    public void setRealtimeReadTimeoutMs(long realtimeReadTimeoutMs) {
+        this.realtimeReadTimeoutMs = realtimeReadTimeoutMs;
+    }
+
+    public int getRetryMaxAttempts() {
+        return retryMaxAttempts;
+    }
+
+    public void setRetryMaxAttempts(int retryMaxAttempts) {
+        this.retryMaxAttempts = retryMaxAttempts;
+    }
+
+    public long getRetryBackoffMs() {
+        return retryBackoffMs;
+    }
+
+    public void setRetryBackoffMs(long retryBackoffMs) {
+        this.retryBackoffMs = retryBackoffMs;
+    }
+
+    public RateLimit getRateLimit() {
+        return rateLimit;
+    }
+
+    public void setRateLimit(RateLimit rateLimit) {
+        this.rateLimit = rateLimit;
+    }
+
+    /**
+     * 실시간 진위확인 공개 API(#648, {@code POST /api/auth/business-verification}) rate-limit 설정 —
+     * 비로그인(가입 전) 엔드포인트라 {@code BusinessLicenseOcrRateLimit}(AuthProperties)와 동일하게
+     * 사용자 축이 없다. 축은 <b>전역 상한</b> 둘(분당 + 일일)뿐이다.
+     *
+     * <p>⚠️ <b>IP 축을 쓰지 않는 이유는 {@code RateLimiter} 인터페이스 javadoc과 동일</b>(2026-07-17 A
+     * 결정) — host nginx 가 {@code X-Forwarded-For} 에 클라 제공값을 덧붙이고 스프링이 첫 항목을 클라
+     * IP 로 채택해 헤더 위조로 무력화되며, 실제 엣지가 레포 밖 host nginx 라 레포만 고쳐선 완결되지
+     * 않는다. 이 레포의 다른 비로그인 공개 엔드포인트(OCR·비밀번호 재설정)도 모두 이 결정을 따른다.
+     *
+     * <p><b>일일 캡이 특히 중요한 이유</b>: 이 엔드포인트가 호출하는 국세청 status+validate API는
+     * data.go.kr 발급 서비스키를 실 회원가입 플로우({@code CompanySignupService})와 <b>공유</b>한다.
+     * 이 비로그인 API가 남용되면 그 키의 일일 트래픽 쿼터를 소진해 실제 가입자의 진위확인까지
+     * fail-open(SKIPPED)으로 밀어낼 수 있다 — 분당 캡만으로는 지속 반복 시 총량이 무제한이라 일일
+     * 절대 캡을 반드시 둔다(BusinessLicenseOcrRateLimit과 동일 기조).
+     */
+    public static class RateLimit {
+
+        /** 전역 상한(전체 합산) 허용 횟수. 기본 분당 10회 — 실사용(가입 전 진위확인 버튼 클릭)엔 여유. */
+        private int globalLimit = 10;
+
+        /** 전역 상한 창 길이. */
+        private Duration globalWindow = Duration.ofMinutes(1);
+
+        /** 일일 절대 캡 — 공유 서비스키의 국세청 API 일일 쿼터 소진(=실 가입 fail-open 전이) 방지. */
+        private int dailyLimit = 300;
+
+        /** 일일 캡 창 길이. */
+        private Duration dailyWindow = Duration.ofDays(1);
+
+        public int getGlobalLimit() {
+            return globalLimit;
+        }
+
+        public void setGlobalLimit(int globalLimit) {
+            this.globalLimit = globalLimit;
+        }
+
+        public Duration getGlobalWindow() {
+            return globalWindow;
+        }
+
+        public void setGlobalWindow(Duration globalWindow) {
+            this.globalWindow = globalWindow;
+        }
+
+        public int getDailyLimit() {
+            return dailyLimit;
+        }
+
+        public void setDailyLimit(int dailyLimit) {
+            this.dailyLimit = dailyLimit;
+        }
+
+        public Duration getDailyWindow() {
+            return dailyWindow;
+        }
+
+        public void setDailyWindow(Duration dailyWindow) {
+            this.dailyWindow = dailyWindow;
+        }
     }
 }

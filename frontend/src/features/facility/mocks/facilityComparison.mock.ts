@@ -59,10 +59,14 @@ export const mockInspectionComparison: InspectionComparisonResult = {
       note: '재도장 작업 완료 (5월)',
     },
   ],
+  // 9회차(#1275) — beforeCycle(7)보다 이후인 회차가 8 하나뿐이면 "현재 회차" 재선택
+  // 테스트에서 실제로 다른 회차로 바꿔볼 대상이 없다. 필터 이후에도 선택 가능한 대안이
+  // 존재하도록 유지한다.
   availableCycles: [
     { cycle: 5, date: '2025-12-18' },
     { cycle: 6, date: '2026-01-20' },
     { cycle: 7, date: '2026-03-18' },
     { cycle: 8, date: '2026-06-21' },
+    { cycle: 9, date: '2026-07-29' },
   ],
 };

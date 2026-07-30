@@ -3,12 +3,14 @@
 현황 데이터 → 자연어 주간 브리핑. 설계 원칙:
 - **수치는 코드로 계산·주입, LLM은 자연어만 생성** (전주 대비 변화율·추세를 LLM이 지어내지 않도록 — 수치 환각 방지).
 - AI_개발_컨벤션.md §8 예시 체인 절차 준수: 프롬프트 파일 분리 + structured output.
+- stats(회사 현황 수치·주요 하자유형)가 프롬프트에 섞이지만 LangSmith 전송은 전역 입출력
+  마스킹(LANGSMITH_HIDE_INPUTS/HIDE_OUTPUTS)으로 차단한다 — #1240. 체인별 코드 차단은 두지 않는다.
 """
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from ai.core.llm_client import get_llm
+from ai.core.llm_client import SHORT_CACHE_TTL_SECONDS, get_llm
 from ai.core.prompt_safety import wrap_untrusted
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
@@ -19,7 +21,7 @@ class DashboardStats(BaseModel):
     total_facilities: int  # 전체 시설물 수
     monthly_analysis: int  # 이번 달 분석 장수
     pending_review: int  # 검수 대기 건수
-    pending_action: int  # 조치 대기 건수
+    pending_action: int  # 검수확정 건수(HAJA-499 — 필드명은 계약 변경을 피하려 유지)
     this_week_defects: int  # 이번 주 등록 하자
     last_week_defects: int  # 지난 주 등록 하자 (변화율 계산용)
     top_defect_type: str  # 주요 발생 유형
@@ -91,5 +93,6 @@ def run_briefing_chain(stats: DashboardStats) -> tuple[WeeklyBriefing, BriefingF
     """현황 데이터로 주간 브리핑 생성. (브리핑 자연어, 코드 계산 파생사실) 반환."""
     facts = derive_facts(stats)
     prompt = _build_prompt(stats, facts)
-    briefing = get_llm().with_structured_output(WeeklyBriefing).invoke(prompt)
+    # stats(회사 현황 수치·주요 하자유형)가 프롬프트에 섞이므로 캐시 TTL을 짧게 둔다(#623 P2 픽스).
+    briefing = get_llm().with_structured_output(WeeklyBriefing, ttl=SHORT_CACHE_TTL_SECONDS).invoke(prompt)
     return briefing, facts

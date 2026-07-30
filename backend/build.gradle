@@ -44,6 +44,10 @@ dependencies {
     // 점검 미디어 업로드(dev-05-03) — EXIF/GPS 추출(순수 Java, 네이티브 의존성 없음)
     implementation 'com.drewnoakes:metadata-extractor:2.19.0'
 
+    // RAG 문서 관리(#22 / HAJA-35) — 업로드된 PDF에서 텍스트를 추출해 FastAPI에 JSON으로 전달하기 위한
+    // 신규 의존성(Spring↔FastAPI 컨테이너 간 파일 공유 볼륨이 없어 파일이 아니라 텍스트 payload를 넘긴다).
+    implementation 'org.apache.pdfbox:pdfbox:3.0.3'
+
     // Flyway 스키마 마이그레이션(#359) — Spring Boot 3.3.5 BOM이 버전을 관리(명시 불필요).
     // Flyway 10+ 부터 PostgreSQL 드라이버 지원이 별도 아티팩트로 분리됐다.
     implementation 'org.flywaydb:flyway-core'

@@ -19,6 +19,9 @@ const platformAdminUser: User = {
   role: 'PLATFORM_ADMIN',
   companyId: null,
   profileImageUrl: null,
+  createdAt: '2026-01-01T00:00:00',
+  companyName: null,
+  status: 'ACTIVE',
 };
 
 const nonPlatformAdminUser: User = {
@@ -176,6 +179,30 @@ describe('PlatformAdminLoginPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText('아이디 또는 비밀번호가 올바르지 않습니다.')).not.toBeNull();
+    });
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+
+  // #1200 — CSRF 토큰 누락·만료로 로그인 POST가 403 FORBIDDEN으로 거부될 때, 매핑이 없어
+  // 기본 문구("로그인에 실패했습니다")가 떠서 자격 증명 오류로 오인됐다(CompanyLoginTab과 동일 경로).
+  it('403 FORBIDDEN(CSRF)이면 재시도 안내 문구를 표시한다(#1200)', async () => {
+    server.use(
+      http.post('/api/auth/login', () => {
+        const failure: ApiResponse<null> = {
+          success: false,
+          data: null,
+          error: { code: 'FORBIDDEN', message: '접근 권한이 없습니다.' },
+        };
+        return HttpResponse.json(failure, { status: 403 });
+      }),
+    );
+    renderPage();
+
+    fillAndSubmit();
+
+    await waitFor(() => {
+      // role="alert" — 문구뿐 아니라 스크린리더 즉시 노출까지 함께 고정한다(CompanyLoginTab과 동일 규약)
+      expect(screen.getByRole('alert').textContent).toBe('요청이 만료되었습니다. 다시 시도해 주세요.');
     });
     expect(useAuthStore.getState().user).toBeNull();
   });

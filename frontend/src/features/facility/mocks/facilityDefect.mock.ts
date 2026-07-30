@@ -1,28 +1,31 @@
-﻿import { buildDefectImagePlaceholder } from '../utils/defectImagePlaceholder';
+import { buildDefectImagePlaceholder } from '../utils/defectImagePlaceholder';
 import type {
   FacilityDefectActivityLogItem,
   FacilityDefectAiExplanation,
-  FacilityDefectDetail,
+  FacilityDefectDetailResponse,
 } from '../types';
 
-// dev-04-02(Figma "hajaCheck Defect Detail") 캡처 기준 예제 하자 — 강남 오피스타워 A동(facility id=1)
+// dev-04-02(Figma "hajaCheck Defect Detail") 캡처 기준 예제 하자 — 강남 오피스타워 A동(facility id=1).
+// 실 백엔드 GET /api/defects/{id}(DefectResponse) 응답 원본(raw) 모양 그대로 목을 구성한다 —
+// facilityDefectApi.getDetail이 이 값을 FacilityDefectDetail로 매핑한다(mm→m 변환·confidence*100 등).
 // imageUrl은 "원본"(마킹 없는 원본 사진) 기준 — "오버레이" 탭의 빨간 마킹 레이어는
 // FacilityDefectImagePanel이 buildDefectOverlayMarkingImage()로 별도 absolute 레이어로 얹는다.
-export const mockFacilityDefectDetail: FacilityDefectDetail = {
+export const mockFacilityDefectDetailResponse: FacilityDefectDetailResponse = {
   id: 101,
+  inspectionId: 8,
   facilityId: 1,
   facilityName: '강남 오피스타워 A동',
-  defectType: '균열',
-  grade: 'E',
-  confidencePercent: 94,
-  widthMm: 0.8,
-  lengthM: 2.4,
-  foundCycle: 8,
-  foundAt: '2026-06-21',
   location: '외벽 동측 12층 부근',
   assigneeName: '김검수',
-  status: 'ACTION_PENDING',
+  foundCycle: 8,
+  typeLabel: '균열',
+  grade: 'E',
+  status: 'CONFIRMED',
+  confidence: 0.94,
+  crackWidthMm: 0.8,
+  crackLengthMm: 2400,
   imageUrl: buildDefectImagePlaceholder('원본 이미지'),
+  createdAt: '2026-06-21T09:00:00.000Z',
 };
 
 export const mockFacilityDefectActivityLog: FacilityDefectActivityLogItem[] = [

@@ -11,17 +11,18 @@ import { exportComparisonReportAsPng } from '../utils/exportComparisonReportAsPn
 import { useFacilityComparison } from '../hooks/useFacilityComparison';
 
 const DEFAULT_FACILITY_ID = 'detail';
-const DEFAULT_BEFORE_CYCLE = 7;
-const DEFAULT_AFTER_CYCLE = 8;
 
 // 회차 간 비교(dev-04-02, #489) — 하자 상세 화면의 "회차비교" 탭에서 navigate로 진입.
 export function FacilityInspectionComparePage() {
   const { id = DEFAULT_FACILITY_ID } = useParams<{ id: string }>();
-  const [beforeCycle, setBeforeCycle] = useState(DEFAULT_BEFORE_CYCLE);
-  const [afterCycle, setAfterCycle] = useState(DEFAULT_AFTER_CYCLE);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const exportTargetRef = useRef<HTMLDivElement | null>(null);
+  // #1157 — before/after를 지정하지 않으면 서버가 이 시설물의 실제 최근 2개 회차로 자동
+  // 대체해 응답한다. "이전 회차"는 항상 서버가 고른 값을 읽기 전용으로 보여주고(선택 UI
+  // 없음), "현재 회차"만 사용자가 다른 회차로 바꿔볼 수 있다(2026-07-30 사용자 결정).
+  const [beforeCycle, setBeforeCycle] = useState<number | undefined>(undefined);
+  const [afterCycle, setAfterCycle] = useState<number | undefined>(undefined);
   const { data, isLoading, isError, refetch } = useFacilityComparison(id, beforeCycle, afterCycle);
 
   const handleExportClick = async () => {
@@ -56,6 +57,29 @@ export function FacilityInspectionComparePage() {
     );
   }
 
+  // 서버가 자동 대체한 회차를 표시값으로 사용한다(#1157) — 사용자가 아직 명시적으로
+  // 고르지 않았으면(undefined) 응답에 실린 값이 곧 서버가 고른 실제 값이다.
+  const displayedBeforeCycle = beforeCycle ?? data.beforeCycle.cycle;
+  const displayedAfterCycle = afterCycle ?? data.afterCycle.cycle;
+
+  // #1291 — "이전 회차"를 서버가 처음 고른 값에 고정한 채 cycle > displayedBeforeCycle로만
+  // 필터링하면(PR머신 P2/#1275 당시 방식), 대부분 최신 1개 회차만 남아 드롭박스가 사실상
+  // 무의미해진다("이전 회차"가 통상 최신-1회차라서). data.availableCycles는 서버가 cycle
+  // 오름차순으로 정렬해 내려준다(FacilityComparisonService.compare) — 첫 회차는 비교 대상
+  // "이전"이 없어 선택지에서만 제외하고, 나머지는 전부 선택 가능하게 한다.
+  const afterCycleOptions = data.availableCycles.slice(1);
+
+  // "현재 회차"를 고르면 "이전 회차"는 고정값이 아니라 목록상 바로 직전 회차로 다시 계산해
+  // 함께 보낸다 — before>=after 조합 자체가 생길 수 없어(afterCycleOptions가 이미 첫 회차를
+  // 제외했으므로 previous는 항상 존재) #1275류 400 INVALID_INPUT을 재현하지 않으면서도 전체
+  // 회차를 선택지로 남길 수 있다.
+  const handleAfterCycleChange = (cycle: number) => {
+    const index = data.availableCycles.findIndex((option) => option.cycle === cycle);
+    const previousCycle = index > 0 ? data.availableCycles[index - 1].cycle : displayedBeforeCycle;
+    setAfterCycle(cycle);
+    setBeforeCycle(previousCycle);
+  };
+
   return (
     // 사이드바·헤더는 AppLayout(shared)이 별도로 렌더링하므로, 이 콘텐츠 영역만 캡처하면
     // "메인 콘텐츠 영역만" PNG로 내보내는 요구사항이 자연히 충족된다(#489 확정).
@@ -64,18 +88,22 @@ export function FacilityInspectionComparePage() {
         <div className="flex flex-col gap-3">
           <h1 className="dashboard-page-title">회차 간 비교</h1>
           <div className="flex items-center gap-3">
-            <InspectionCycleSelect
-              label="이전 회차"
-              options={data.availableCycles}
-              value={beforeCycle}
-              onChange={setBeforeCycle}
-            />
+            {/* "이전 회차"는 서버가 자동으로 고른 값을 고정 표시한다(읽기 전용, 2026-07-29
+                사용자 결정) — 선택 가능한 드롭다운을 제공하지 않는다.
+                code-reviewer P2 — aria-label을 쓰면 접근성 트리에서 자식 텍스트(실제 회차·날짜
+                값)가 통째로 가려져 스크린리더 사용자에게 값 자체가 전달되지 않는다. 시각적으로만
+                숨긴 라벨 텍스트 뒤에 실제 값을 그대로 두어 라벨·값 둘 다 전달되게 한다. */}
+            <span className="rounded-full border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text-default">
+              <span className="sr-only">이전 회차: </span>
+              {data.beforeCycle.cycle}회차 {data.beforeCycle.date}
+            </span>
             <span className="text-sm font-semibold text-text-muted">VS</span>
+            {/* "현재 회차"만 사용자가 다른 회차로 바꿔볼 수 있다(2026-07-30 사용자 결정). */}
             <InspectionCycleSelect
               label="현재 회차"
-              options={data.availableCycles}
-              value={afterCycle}
-              onChange={setAfterCycle}
+              options={afterCycleOptions}
+              value={displayedAfterCycle}
+              onChange={handleAfterCycleChange}
             />
           </div>
         </div>
@@ -105,7 +133,9 @@ export function FacilityInspectionComparePage() {
         />
         <div className="flex flex-col gap-3">
           <h2 className="m-0 text-base font-bold text-heading">진행성 균열 추이</h2>
-          <CrackTrendChart data={data.crackTrend} />
+          {/* 실 백엔드(HAJA-531/#1112)는 crackTrend를 응답에서 생략한다(null/undefined) — LineChart가
+              data.length에 바로 접근해 크래시하므로 빈 배열로 방어한다(react-reviewer 발견, 즉시 수정). */}
+          <CrackTrendChart data={data.crackTrend ?? []} />
         </div>
       </div>
 

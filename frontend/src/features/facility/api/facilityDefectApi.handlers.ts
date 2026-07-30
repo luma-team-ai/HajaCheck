@@ -3,19 +3,34 @@ import type { ApiResponse } from '../../../shared/api/types';
 import {
   mockFacilityDefectActivityLog,
   mockFacilityDefectAiExplanation,
-  mockFacilityDefectDetail,
+  mockFacilityDefectDetailResponse,
 } from '../mocks/facilityDefect.mock';
 import type {
   FacilityDefectActivityLogItem,
   FacilityDefectAiExplanation,
-  FacilityDefectDetail,
+  FacilityDefectDetailResponse,
 } from '../types';
 
-// "다음 단계로 전이" 버튼은 상태 mutation이 아닌 /defects/:id로의 단순 페이지 이동이라(#489 확정)
-// 이 목은 조회 전용 — 상태 변경 POST 핸들러/mutable 저장소는 두지 않는다.
+// 하자 상세는 이제 실 백엔드 계약(GET/PATCH /api/defects/{id}*)을 그대로 목에서도 재현한다 —
+// facilityDefectApi.getDetail이 매핑을 담당하므로 이 목은 raw(FacilityDefectDetailResponse) 그대로
+// 반환한다. location 편집(PATCH .../location)은 목에 반영해도 다음 GET 요청부터 초기화되므로
+// (mutable 저장소를 두지 않음) 입력값을 그대로 되돌려주는 정도로만 재현한다.
 export const facilityDefectHandlers = [
-  http.get('/api/facilities/:id/defect-detail', () => {
-    const body: ApiResponse<FacilityDefectDetail> = { success: true, data: mockFacilityDefectDetail };
+  http.get('/api/defects/:id', () => {
+    const body: ApiResponse<FacilityDefectDetailResponse> = {
+      success: true,
+      data: mockFacilityDefectDetailResponse,
+    };
+    return HttpResponse.json(body);
+  }),
+
+  http.patch('/api/defects/:id/location', async ({ request }) => {
+    const { location } = (await request.json()) as { location: string | null };
+    const normalized = location == null || location.trim() === '' ? null : location;
+    const body: ApiResponse<FacilityDefectDetailResponse> = {
+      success: true,
+      data: { ...mockFacilityDefectDetailResponse, location: normalized },
+    };
     return HttpResponse.json(body);
   }),
 

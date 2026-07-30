@@ -10,7 +10,9 @@ function nextId() {
 }
 
 // 검색 0건 안내 문구 — 목(support.mock)과 이 훅의 RAG_NO_RESULT 분기가 공유(단일 출처).
-export const RAG_NO_RESULT_TEXT = '관련 근거를 찾지 못했습니다.';
+// 시스템 에러처럼 읽히지 않도록 안내형 문구 + 예시 질문을 함께 제시한다.
+export const RAG_NO_RESULT_TEXT =
+  '이 질문엔 답변드리기 어려워요. 점검 기준·법규 관련 질문을 해주시면 도움드릴게요.\n(예: "정기안전점검은 얼마나 자주 하나요?")';
 
 function isApiError(err: unknown): err is ApiError {
   return typeof err === 'object' && err !== null && 'code' in err && 'message' in err;

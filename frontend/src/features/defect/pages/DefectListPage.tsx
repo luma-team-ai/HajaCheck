@@ -1,72 +1,68 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
 import { Button } from "../../../shared/components/Button";
 import { TableFooterPagination } from "../../../shared/components/TableFooterPagination";
-import { DefectFilterBar } from "../components/DefectFilterBar";
-import { DefectTable } from "../components/DefectTable";
-import { useDefects } from "../hooks/useDefects";
-import type { DefectListFilters } from "../types";
+import { fetchFilteredDefectsForExport } from "../api/defectApi";
+import { InspectionFilterBar } from "../components/InspectionFilterBar";
+import { InspectionTable } from "../components/InspectionTable";
+import { useInspections } from "../hooks/useInspections";
+import type { InspectionListFilters } from "../types";
 import { exportDefectsToPdf } from "../utils/exportDefectsToPdf";
 import "./DefectListPage.css";
 
 const DEFAULT_SIZE = 10;
 
-// 하자 목록 — HAJA-30. FacilityListPage(features/facility)와 동일하게 목록 조회 훅 + 테이블 +
-// (신규) 필터·페이지네이션 조합으로 구성한다. AppShellRoute 자식(셸 포함) — /defects/:id(상세)와
-// 동일한 셸 아래 목록→상세 이동 흐름을 유지한다.
+// 하자 목록 — HAJA-30 → HAJA-393/394(#725/#726)에서 점검(Inspection) 단위로 재해석했다(사용자 확정
+// 지시, 2026-07-24 — 시각 디자인은 유지하되 로우를 점검 단위로 변경).
+//
+// 2026-07-26 정정(#726 코멘트): 실구현 과정에서 이 페이지에 "목록 보기/보드 보기" 2탭 구조를 얹고
+// 하자 단건 기준 조치 보드(#630/HAJA-349, DefectActionBoard)를 "보드 보기" 탭으로 끼워 넣었으나,
+// 이는 서로 다른 그레인(점검 vs 하자)의 별개 기능을 한 페이지에 억지로 합친 설계 오류였다 — 사용자가
+// 되돌리라고 확정 지시. 이 페이지는 다시 점검 단위 목록 단일 플로우로만 구성한다.
+// DefectActionBoard 컴포넌트 트리(DefectActionBoard/DefectBoardColumn/DefectBoardCard/
+// DefectStatusReasonModal/useDefectActionBoard)와 DefectFilterBar는 삭제하지 않고 참조만 제거한다 —
+// #630을 별도 라우트로 분리할지 완전 폐기할지는 후속 이슈에서 결정(이번 세션 범위 밖).
 export function DefectListPage() {
-  const navigate = useNavigate();
-  const [filters, setFilters] = useState<DefectListFilters>({
+  const [inspectionFilters, setInspectionFilters] = useState<InspectionListFilters>({
     page: 0,
     size: DEFAULT_SIZE,
   });
-  const { data, isLoading, isError, refetch } = useDefects(filters);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
-  const size = filters.size ?? DEFAULT_SIZE;
-  const currentPage = (filters.page ?? 0) + 1; // TableFooterPagination/Pagination은 1-based
-  const totalElements = data?.totalElements ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalElements / size));
+  const {
+    data: inspectionData,
+    isLoading: isInspectionLoading,
+    isError: isInspectionError,
+    refetch: refetchInspections,
+  } = useInspections(inspectionFilters);
 
-  const selectedDefects = useMemo(
-    () => (data?.content ?? []).filter((defect) => selectedIds.has(defect.id)),
-    [data, selectedIds],
-  );
-  const selectedInspectionIds = useMemo(
-    () => new Set(selectedDefects.map((defect) => defect.inspectionId)),
-    [selectedDefects],
-  );
-  const canGenerateReport =
-    selectedDefects.length > 0 && selectedInspectionIds.size === 1;
-  const reportButtonTitle =
-    selectedDefects.length === 0
-      ? "보고서를 생성할 하자를 선택하세요"
-      : selectedInspectionIds.size > 1
-        ? "같은 점검 회차의 하자만 선택하세요"
-        : undefined;
-  const canExport = selectedDefects.length > 0;
+  const inspectionSize = inspectionFilters.size ?? DEFAULT_SIZE;
+  const inspectionCurrentPage = (inspectionFilters.page ?? 0) + 1; // TableFooterPagination은 1-based
+  const totalElements = inspectionData?.totalElements ?? 0;
+  const inspectionTotalPages = Math.max(1, Math.ceil(totalElements / inspectionSize));
 
-  const handlePageChange = (page: number) => {
-    setFilters((prev) => ({ ...prev, page: page - 1 }));
+  const canExport = totalElements > 0;
+
+  const handleInspectionPageChange = (page: number) => {
+    setInspectionFilters((prev) => ({ ...prev, page: page - 1 }));
   };
 
-  const handlePageSizeChange = (nextSize: number) => {
-    setFilters((prev) => ({ ...prev, size: nextSize, page: 0 }));
+  const handleInspectionPageSizeChange = (nextSize: number) => {
+    setInspectionFilters((prev) => ({ ...prev, size: nextSize, page: 0 }));
   };
 
-  const handleGenerateReport = () => {
-    if (!canGenerateReport) return;
-    navigate(`/inspections/${selectedDefects[0].inspectionId}/viewer`);
-  };
-
+  // "내보내기"는 선택 여부·현재 페이지와 무관하게 현재 필터에 해당하는 모든 점검의 하자를 모아
+  // PDF로 내보낸다. 관리자 사용자 목록 내보내기와 동일한 "필터 결과 전체" 계약이다.
   const handleExport = async () => {
     if (!canExport || isExporting) return;
     setIsExporting(true);
+    setExportError(null);
     try {
-      await exportDefectsToPdf(selectedDefects);
+      const defects = await fetchFilteredDefectsForExport(inspectionFilters);
+      await exportDefectsToPdf(defects);
     } catch (error) {
-      console.error("하자 목록 PDF 내보내기 실패", error);
+      console.error("점검 하자 목록 PDF 내보내기 실패", error);
+      setExportError("내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setIsExporting(false);
     }
@@ -102,47 +98,44 @@ export function DefectListPage() {
               variant="secondary"
               size="md"
               disabled={!canExport || isExporting}
-              title={canExport ? undefined : "내보낼 하자를 선택하세요"}
+              title={canExport ? undefined : "내보낼 필터 결과가 없습니다"}
               onClick={handleExport}
             >
               {isExporting ? "내보내는 중..." : "내보내기"}
             </Button>
-            <Button
-              variant="primary"
-              size="md"
-              disabled={!canGenerateReport}
-              title={reportButtonTitle}
-              onClick={handleGenerateReport}
-            >
-              보고서 생성
-            </Button>
+            {exportError && (
+              <p className="defect-list-page__export-error" role="alert">
+                {exportError}
+              </p>
+            )}
           </div>
         </div>
 
-        <DefectFilterBar filters={filters} onChange={setFilters} />
+        <InspectionFilterBar
+          filters={inspectionFilters}
+          onChange={setInspectionFilters}
+        />
       </header>
 
       <div className="defect-list-page__table-region">
         <div className="defect-list-page__table-scroll">
-          <DefectTable
-            defects={data?.content}
-            isLoading={isLoading}
-            isError={isError}
-            onRetry={refetch}
-            selectedIds={selectedIds}
-            onSelectionChange={setSelectedIds}
+          <InspectionTable
+            inspections={inspectionData?.content}
+            isLoading={isInspectionLoading}
+            isError={isInspectionError}
+            onRetry={refetchInspections}
           />
         </div>
 
-        {!isLoading && !isError && (
+        {!isInspectionLoading && !isInspectionError && (
           <div className="defect-list-page__pagination">
             <TableFooterPagination
-              pageSize={size}
-              onPageSizeChange={handlePageSizeChange}
-              currentPage={currentPage}
-              totalPages={totalPages}
+              pageSize={inspectionSize}
+              onPageSizeChange={handleInspectionPageSizeChange}
+              currentPage={inspectionCurrentPage}
+              totalPages={inspectionTotalPages}
               totalItems={totalElements}
-              onPageChange={handlePageChange}
+              onPageChange={handleInspectionPageChange}
             />
           </div>
         )}

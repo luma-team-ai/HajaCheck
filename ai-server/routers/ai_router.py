@@ -1,6 +1,7 @@
 """AI 엔드포인트 — 네이밍: /ai/{기능} (AI_개발_컨벤션.md §5, v0.2)
 
 /ai/report · /ai/chat · /ai/briefing · /ai/defect-explain · /ai/nl-search · /ai/grounding-check
+/ai/rag-chat · /ai/detect-defects
 
 동기/비동기 경계(§5 v0.2, HAJA-208): 비동기 잡 패턴(잡 ID -> 폴링) 원칙은 클라이언트 대면
 경계(예: 백엔드 /api/reports)에 적용된다. 이 라우터의 /ai/* 는 verify_internal_key로 보호되는
@@ -24,7 +25,12 @@ from ai.chains.business_license_ocr_chain import (
     MAX_IMAGE_BASE64_LENGTH,
     run_business_license_ocr_chain,
 )
+from ai.chains.defect_detection_chain import (
+    MAX_IMAGE_BASE64_LENGTH as DEFECT_DETECTION_MAX_IMAGE_BASE64_LENGTH,
+    run_defect_detection_chain,
+)
 from ai.chains.defect_explain_chain import run_defect_explain_chain
+from ai.chains.rag_chat_chain import run_rag_chat_chain
 from ai.chains.report_chain import FACILITY_FIELD_LABELS, run_report_chain
 from ai.core.grounding import (
     GroundingClaims,
@@ -32,6 +38,7 @@ from ai.core.grounding import (
     MismatchPolicy,
     check_grounding,
 )
+from ai.core.rag_ingest import delete_stale_chunks, ingest_document
 from ai.core.schemas import AIErrorCode, AIResponse
 
 logger = logging.getLogger(__name__)
@@ -69,6 +76,54 @@ def defect_explain(req: DefectExplainRequest) -> AIResponse:
         logger.exception("POST /ai/defect-explain 처리 중 예상치 못한 예외 발생")
         return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "하자 설명 생성 중 오류가 발생했습니다")
     return AIResponse.ok(result.model_dump())
+
+
+class RagChatRequest(BaseModel):
+    """고객지원 RAG 챗봇 요청 (FR-6, contract.md `POST /ai/rag-chat`)."""
+
+    question: str = Field(min_length=1)
+    # Spring이 세션 소유·session_type='RAG'를 검증한 뒤 넘기는 값(design §7) — 이관 전인
+    # 현재 파이프라인은 세션·이력 연동이 없어 미사용(후속 이슈, design §9).
+    session_id: Optional[int] = Field(default=None, ge=1)
+
+
+@router.post("/rag-chat")
+def rag_chat(req: RagChatRequest) -> AIResponse:
+    try:
+        return run_rag_chat_chain(req.question)
+    except OutputParserException:
+        # report/defect-explain과 동일 이유로 (ValueError, PydanticValidationError)절보다 먼저
+        # 잡아야 한다 — OutputParserException은 ValueError의 서브클래스.
+        logger.exception("POST /ai/rag-chat — LLM 출력 파싱 실패(OutputParserException)")
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "답변 생성 결과를 처리하지 못했습니다")
+    except (ValueError, PydanticValidationError):
+        # 비-LLM 검증 실패(예: get_vectorstore의 알 수 없는 컬렉션 ValueError 등) — LLM 호출·파싱과
+        # 무관한 코드 경로이므로 report/grounding-check와 동일하게 VALIDATION_ERROR.
+        logger.exception("POST /ai/rag-chat — 비-LLM 검증 실패(ValueError/PydanticValidationError)")
+        return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, "요청 처리 중 검증 오류가 발생했습니다")
+    except Exception:  # noqa: BLE001 — LLM 클라이언트 오류부터 Redis 장애까지 포괄하는 최종 폴백.
+        logger.exception("POST /ai/rag-chat 처리 중 예상치 못한 예외 발생")
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "답변 생성 중 오류가 발생했습니다")
+
+
+class DetectDefectsRequest(BaseModel):
+    """AI 하자 탐지 요청(dev-05-04, AP-006) — 이미지 1장당 1회 호출(Spring이 회차의 미디어를
+    순회하며 여러 번 호출). image_base64 max_length는 점검 미디어 업로드 상한 20MB의 base64
+    상당치(business_license_ocr_chain과 동일한 DoS 방지 근거, 도메인별 상한 분리)."""
+
+    image_base64: str = Field(min_length=1, max_length=DEFECT_DETECTION_MAX_IMAGE_BASE64_LENGTH)
+
+
+@router.post("/detect-defects")
+def detect_defects(req: DetectDefectsRequest) -> AIResponse:
+    try:
+        detections = run_defect_detection_chain(req.image_base64)
+    except Exception:  # noqa: BLE001 — 디코딩 실패·모델 로드 실패·추론 오류 전반의 표준 폴백
+        logger.exception("POST /ai/detect-defects 처리 중 예상치 못한 예외 발생")
+        return AIResponse.fail(
+            AIErrorCode.VISION_INFERENCE_FAILED, "하자 탐지 중 오류가 발생했습니다"
+        )
+    return AIResponse.ok({"detections": [d.model_dump() for d in detections]})
 
 
 class GroundingCheckRequest(BaseModel):
@@ -225,6 +280,57 @@ def report(req: ReportRequest) -> AIResponse:
     return AIResponse.ok(result)
 
 
+class RagDocumentEmbedRequest(BaseModel):
+    """RAG 문서 임베딩 요청(#22/HAJA-35) — Spring RagDocumentService가 PDF에서 추출한 텍스트와
+    rag_documents 메타데이터를 그대로 실어 보낸다(docs/design/ai/rag_chroma_schema.md §4/§5 필드 정의).
+    """
+
+    doc_id: str = Field(min_length=1, pattern=r"^[1-9][0-9]*$")
+    title: str = Field(min_length=1)
+    doc_type: str = Field(min_length=1)
+    target_collection: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    effective_date: Optional[str] = None
+    publisher: Optional[str] = None
+    authored_at: Optional[str] = None
+    verification_status: Optional[str] = None
+
+
+@router.post("/rag-documents/embed")
+def rag_documents_embed(req: RagDocumentEmbedRequest) -> AIResponse:
+    """RAG 문서 임베딩(#22/HAJA-35, PRD FR-8-B) — 청킹+적재(upsert)를 먼저 하고, 성공한 뒤에만
+    옛 문서의 초과 청크(재임베딩으로 청크 수가 줄어든 경우의 나머지)를 정리한다. 이전엔 삭제를
+    먼저 해 재삽입 실패 시 방금까지 정상 서빙되던 임베딩을 통째로 잃는 창이 있었다(PR#685 리뷰
+    P2) — add_texts()가 동일 chunk id를 upsert하므로 삭제 없이도 재임베딩이 안전하게 덮어써진다.
+    LLM 호출이 없는 결정론적 데이터 처리라 grounding-check와 같은 계열이지만, 이 레포 catch-all
+    관례(ValueError→VALIDATION_ERROR, 나머지→고정 메시지 폴백)를 그대로 재사용한다 — 임베딩 모델
+    로드 실패 등 예측 어려운 실패도 스택은 서버 로그로만 남기고 클라이언트에는 내부 정보를
+    노출하지 않는다.
+    """
+    try:
+        chunk_count = ingest_document(
+            req.doc_id,
+            req.title,
+            req.doc_type,
+            req.target_collection,
+            req.text,
+            effective_date=req.effective_date,
+            publisher=req.publisher,
+            authored_at=req.authored_at,
+            verification_status=req.verification_status,
+        )
+        # 옛 문서가 더 길었을 때만 남는 초과 청크 정리 — 실패해도 새 임베딩 자체는 이미 반영돼
+        # 있으므로 검색 결과에 영향 없다(최악의 경우 초과분 몇 개가 잠시 더 남을 뿐).
+        delete_stale_chunks(req.doc_id, req.target_collection, chunk_count)
+    except ValueError as e:
+        # target_collection이 regulations/defect_kb가 아닌 경우 등 — 내부 경로/모델명 노출 없는 메시지.
+        return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, str(e))
+    except Exception:  # noqa: BLE001 — Chroma 쓰기 실패·임베딩 모델 오류 등 표준 폴백(다른 엔드포인트와 동일 패턴)
+        logger.exception("POST /ai/rag-documents/embed 처리 중 예상치 못한 예외 발생")
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "문서 임베딩 중 오류가 발생했습니다")
+    return AIResponse.ok({"chunk_count": chunk_count})
+
+
 class BusinessLicenseOcrRequest(BaseModel):
     """사업자등록증 OCR 요청 — image_base64 경로만 구현(HAJA-169/#552). file_ref는 seam only(미구현)."""
 
@@ -239,8 +345,9 @@ class BusinessLicenseOcrRequest(BaseModel):
 
 @router.post("/business-license-ocr")
 def business_license_ocr(req: BusinessLicenseOcrRequest) -> AIResponse:
-    """사업자등록증 OCR (HAJA-169/#552, RapidOCR→EasyOCR 교체 #605) — EasyOCR(한국어 모델)
-    + LLM structured output(오탈자 교정 포함).
+    """사업자등록증 OCR (HAJA-169/#552, RapidOCR→EasyOCR 교체 #605, EasyOCR→RapidOCR
+    PP-OCRv5 한국어 교체 #722) — RapidOCR(PP-OCRv5 한국어 인식모델) + LLM structured
+    output(오탈자 교정 포함).
 
     image_base64만 지원한다(file_ref는 아직 미구현 — 값이 와도 무시). 이미지가 없으면
     VALIDATION_ERROR. OCR 디코딩 실패·모델 로드 실패·LLM 파싱 실패 등은 예외를 삼키지 않고

@@ -13,6 +13,9 @@ const mockUser: User = {
   role: 'USER',
   companyId: 1,
   profileImageUrl: null,
+  createdAt: '2026-01-01T00:00:00',
+  companyName: '하자체크',
+  status: 'ACTIVE',
 };
 
 afterEach(() => {
@@ -42,6 +45,14 @@ function renderAt(path: string) {
           }
         />
         <Route path="/login" element={<div>로그인 페이지</div>} />
+        <Route
+          path="/invite-code"
+          element={
+            <ProtectedRoute>
+              <div>초대 코드 입력 페이지</div>
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </MemoryRouter>,
   );
@@ -89,5 +100,24 @@ describe('ProtectedRoute', () => {
 
     expect(screen.getByText('로그인 페이지')).not.toBeNull();
     expect(screen.queryByText('점검자 콘텐츠')).toBeNull();
+  });
+
+  // 초대 코드 미입력(status=WAITING, #794/#799) — company_id가 없어 대부분의 보호 리소스가
+  // 백엔드에서 403(AUTH_ACCOUNT_WAITING)으로 막히므로, 프론트에서 선제적으로 리다이렉트한다.
+  it('status=WAITING이면 대시보드 대신 초대 코드 입력 화면으로 보낸다', () => {
+    useAuthStore.setState({ user: { ...mockUser, status: 'WAITING' } });
+
+    renderAt('/dashboard');
+
+    expect(screen.getByText('초대 코드 입력 페이지')).not.toBeNull();
+    expect(screen.queryByText('대시보드 콘텐츠')).toBeNull();
+  });
+
+  it('status=WAITING이어도 초대 코드 입력 화면 자체는 렌더한다(리다이렉트 루프 방지)', () => {
+    useAuthStore.setState({ user: { ...mockUser, status: 'WAITING' } });
+
+    renderAt('/invite-code');
+
+    expect(screen.getByText('초대 코드 입력 페이지')).not.toBeNull();
   });
 });

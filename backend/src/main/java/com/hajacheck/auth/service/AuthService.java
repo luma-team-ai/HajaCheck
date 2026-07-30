@@ -1,14 +1,18 @@
 package com.hajacheck.auth.service;
 
+import com.hajacheck.auth.dto.AssignableUserResponse;
 import com.hajacheck.auth.dto.UserResponse;
+import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyMembershipRepository;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.Instant;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
@@ -25,6 +29,7 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final CompanyMembershipRepository companyMembershipRepository;
+    private final CompanyRepository companyRepository;
 
     /**
      * 로그인 성공 후 lastLoginAt 갱신(dirty checking).
@@ -36,8 +41,26 @@ public class AuthService {
         findUser(userId).updateLastLogin(Instant.now());
     }
 
+    /**
+     * 내 정보 조회(#740) — 가입일(createdAt)과 소속 기업명(companyName)을 함께 응답한다.
+     * companyId가 null인 개인 회원은 companyName=null. companyId가 있어도 회사가 삭제 등으로
+     * 조회되지 않으면 존재 열거 없이 companyName=null로 방어(이 API는 본인 조회이므로 오류로
+     * 막을 필요 없이 null로 내려주는 편이 UX상 적절 — PlatformAdminUserResponse.from(User, String)와
+     * 동일한 "호출부가 조회한 값을 넘긴다" 패턴).
+     */
     public UserResponse getMe(Long userId) {
-        return UserResponse.from(findUser(userId));
+        User user = findUser(userId);
+        String companyName = resolveCompanyName(user.getCompanyId());
+        return UserResponse.from(user, companyName);
+    }
+
+    private String resolveCompanyName(Long companyId) {
+        if (companyId == null) {
+            return null;
+        }
+        return companyRepository.findById(companyId)
+                .map(Company::getName)
+                .orElse(null);
     }
 
     /**
@@ -76,6 +99,31 @@ public class AuthService {
         if (!requesterMembershipEffective || !assigneeMembershipEffective) {
             throw new BusinessException(ErrorCode.AUTH_INVALID_INSPECTOR);
         }
+    }
+
+    /**
+     * 배정 가능한 회사 소속 사용자 목록(#690) — validateAssignableInspector 와 동일 자격 조건
+     * (활성·INSPECTOR/ADMIN 역할·유효 APPROVED 멤버십)을 목록으로 반환한다.
+     * companyId 는 LoginUser(세션 인증 결과)에서만 취득 — 요청 파라미터로 받지 않아 cross-company
+     * 열람을 원천 차단한다(FacilityController 의 companyId 스코프 패턴과 동일).
+     *
+     * PR머신 P2 픽스: users.company_id 는 조회 편의 포인터일 뿐 권한의 단독 근거가 아니다
+     * (validateAssignableInspector 의 동일 원칙 — 클래스 상단 주석 참고). 멤버십이 revoke/만료된
+     * 뒤에도 세션(LoginUser)이 아직 유효하면 companyId 포인터만으로 회사 전체 명부를 열람할 수
+     * 있는 인가 갭이 있었다 — 요청자 본인의 유효 APPROVED 멤버십을 먼저 재확인한다.
+     */
+    public List<AssignableUserResponse> listAssignableUsers(Long companyId, Long requesterUserId) {
+        Instant now = Instant.now();
+        boolean requesterMembershipEffective = companyId != null
+                && companyMembershipRepository.existsEffectiveApprovedMembership(companyId, requesterUserId, now);
+        if (!requesterMembershipEffective) {
+            throw new BusinessException(ErrorCode.AUTH_INVALID_INSPECTOR);
+        }
+        return companyMembershipRepository
+                .findAssignableUsersInCompany(companyId, now)
+                .stream()
+                .map(AssignableUserResponse::from)
+                .toList();
     }
 
     private User findUser(Long userId) {

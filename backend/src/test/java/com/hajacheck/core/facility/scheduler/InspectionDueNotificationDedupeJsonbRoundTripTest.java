@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.core.facility.scheduler.InspectionDueNotificationPayload.Kind;
 import com.hajacheck.notification.entity.Notification;
 import com.hajacheck.notification.entity.NotificationType;
 import com.hajacheck.notification.repository.NotificationRepository;
@@ -47,15 +48,15 @@ class InspectionDueNotificationDedupeJsonbRoundTripTest extends PostgresTestSupp
         em.flush();
 
         Facility facility = Facility.builder()
-                .ownerId(owner.getId())
+                .companyId(owner.getId())
                 .name("강남빌딩")
                 .type("BUILDING")
                 .nextInspectionDueAt(LocalDate.of(2026, 7, 21))
                 .build();
         ReflectionTestUtils.setField(facility, "id", 10L);
 
-        String expectedKey = InspectionDueNotificationPayload.dedupeKeyOf(facility);
-        String payload = InspectionDueNotificationPayload.serialize(facility);
+        String expectedKey = InspectionDueNotificationPayload.dedupeKeyOf(facility, Kind.DUE);
+        String payload = InspectionDueNotificationPayload.serialize(facility, Kind.DUE, LocalDate.of(2026, 7, 21));
 
         Notification saved = notificationRepository.save(
                 Notification.create(owner.getId(), NotificationType.INSPECTION_DUE, payload));
@@ -65,7 +66,7 @@ class InspectionDueNotificationDedupeJsonbRoundTripTest extends PostgresTestSupp
         Notification reread = notificationRepository.findById(saved.getId()).orElseThrow();
 
         assertThat(InspectionDueNotificationPayload.extractDedupeKey(reread.getPayloadJson()))
-                .isEqualTo(expectedKey)
-                .isEqualTo("10|2026-07-21");
+                .containsExactly(expectedKey)
+                .containsExactly("10|2026-07-21|DUE");
     }
 }

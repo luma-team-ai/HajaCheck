@@ -12,6 +12,9 @@ import { usePlatformAdminLogin } from '../hooks/usePlatformAdminLogin';
 
 const ERROR_MESSAGES: Record<string, string> = {
   AUTH_INVALID_CREDENTIALS: '아이디 또는 비밀번호가 올바르지 않습니다.',
+  // CSRF 토큰 누락·만료(#1200) — 이 화면도 useCsrfPrime + POST /auth/login이라 403 노출 경로가
+  // 기업 로그인(CompanyLoginTab)과 동일하다. 기본 문구로 표시하면 자격 증명 오류로 오인된다.
+  FORBIDDEN: '요청이 만료되었습니다. 다시 시도해 주세요.',
 };
 const DEFAULT_ERROR_MESSAGE = '로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.';
 const ROLE_DENIED_MESSAGE = '플랫폼 관리자 계정이 아닙니다.';
@@ -91,7 +94,12 @@ export function PlatformAdminLoginPage() {
             />
           </div>
 
-          {errorMessage && <p className={ERROR_CLASSES}>{errorMessage}</p>}
+          {/* role="alert" — 로그인 실패 사유를 스크린리더가 즉시 읽도록(기업 로그인 CompanyLoginTab과 동일) */}
+          {errorMessage && (
+            <p role="alert" className={ERROR_CLASSES}>
+              {errorMessage}
+            </p>
+          )}
 
           <Button
             type="submit"

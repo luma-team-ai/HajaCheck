@@ -14,10 +14,15 @@ public class AiServerProperties {
 
     private String baseUrl;
     private String internalKey;
+    // 하자 자연어 검색(HAJA-120) 전용 — X-Internal-Key와 별개 토큰(contract.md InternalServiceToken).
+    private String internalServiceToken;
     private long connectTimeoutMs = 3000;
     // HF Inference(Qwen3 reasoning) 정상 응답이 최대 HF_TIMEOUT(기본 120s)까지 걸릴 수 있어
     // application.yml 미설정 시 기본 폴백도 그보다 크게 유지한다(#448 P1). 실제값은 application.yml.
     private long readTimeoutMs = 150000;
+    // 플랫폼 관리자 모니터링(#728) ai-server 헬스체크 전용 타임아웃 — 위 readTimeoutMs(150s)를 그대로
+    // 쓰면 ai-server가 느릴 때 대시보드 요청이 150초씩 멈춘다. 헬스체크는 짧게 끊고 DOWN 으로 표시한다.
+    private long healthCheckTimeoutMs = 3000;
 
     public String getBaseUrl() {
         return baseUrl;
@@ -35,6 +40,14 @@ public class AiServerProperties {
         this.internalKey = internalKey;
     }
 
+    public String getInternalServiceToken() {
+        return internalServiceToken;
+    }
+
+    public void setInternalServiceToken(String internalServiceToken) {
+        this.internalServiceToken = internalServiceToken;
+    }
+
     public long getConnectTimeoutMs() {
         return connectTimeoutMs;
     }
@@ -49,5 +62,13 @@ public class AiServerProperties {
 
     public void setReadTimeoutMs(long readTimeoutMs) {
         this.readTimeoutMs = readTimeoutMs;
+    }
+
+    public long getHealthCheckTimeoutMs() {
+        return healthCheckTimeoutMs;
+    }
+
+    public void setHealthCheckTimeoutMs(long healthCheckTimeoutMs) {
+        this.healthCheckTimeoutMs = healthCheckTimeoutMs;
     }
 }

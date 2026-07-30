@@ -17,6 +17,7 @@ import com.hajacheck.membership.entity.UserPlanStatus;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
@@ -43,35 +44,44 @@ public class MembershipService {
     // count 쿼리로 산출해 정확성을 유지한다.
     private static final int MEMBERSHIP_SEATS_MAX = 200;
 
+    // usage_counters.period 집계 존과 nextBillingDate(startedAt 기준 파생 계산) 존을 동일하게 고정(#711).
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
     private final PlanRepository planRepository;
     private final UserPlanRepository userPlanRepository;
     private final UsageCounterRepository usageCounterRepository;
+    // 미결제 유예(#1177) — 한도 표시를 실제 강제 기준(FREE)과 일치시키고 결제 마감을 노출한다.
+    private final PaymentGraceService paymentGraceService;
 
     public MyPlanResponse getMyPlan(Long userId) {
         User user = findUser(userId);
         UserPlan userPlan = resolveCurrentUserPlan(userId, user.getCompanyId());
         Plan plan = findPlan(userPlan.getPlanId());
-        LocalDate period = currentPeriod();
-        UsageCounter usage = usageCounterRepository
-                .findByUserPlanIdAndPeriod(userPlan.getId(), period)
-                .orElse(null);
-        return MyPlanResponse.from(userPlan, plan, usage, period);
+        Company company = user.getCompanyId() == null
+                ? null
+                : companyRepository.findById(user.getCompanyId()).orElse(null);
+        return buildResponseWithUsage(userPlan, plan, company);
     }
 
     public SeatsResponse getSeats(Long userId) {
         User user = findUser(userId);
         Long companyId = user.getCompanyId();
 
+        // ⚠️ 좌석 한도도 "실제로 적용 중인" 요금제 기준이다(#1177 리뷰 P2-A) — 미결제 유예 중이면 FREE.
+        // 여기만 구독 요금제를 그대로 쓰면 화면은 "점검자 좌석 (1/5)"인데 실제 초대는
+        // QuotaService#hasAvailableSeat(FREE=1석)에서 막힌다. MyPlanResponse·AdminPlanItem 이 같은
+        // 이유로 이미 실효 요금제를 쓰므로, 한 곳만 남기면 같은 종류의 모순이 그대로 남는다.
         if (companyId == null) {
             UserPlan userPlan = resolveCurrentUserPlan(userId, null);
-            Plan plan = findPlan(userPlan.getPlanId());
+            Plan plan = paymentGraceService.resolveEffectivePlan(
+                    userPlan, findPlan(userPlan.getPlanId()));
             return SeatsResponse.of(1, List.of(user), plan.getMaxSeats());
         }
 
         UserPlan userPlan = resolveCurrentUserPlan(userId, companyId);
-        Plan plan = findPlan(userPlan.getPlanId());
+        Plan plan = paymentGraceService.resolveEffectivePlan(userPlan, findPlan(userPlan.getPlanId()));
         long totalActive = userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE);
         List<User> members = userRepository.findByCompanyIdAndStatusOrderByIdAsc(
                 companyId, UserStatus.ACTIVE, PageRequest.of(0, MEMBERSHIP_SEATS_MAX));
@@ -98,6 +108,13 @@ public class MembershipService {
         return UpgradeInquiryResponse.from(userPlan);
     }
 
+    /**
+     * 현재 구독 조회 — ACTIVE 우선, 없으면 UPGRADE_REQUESTED(여전히 유효한 구독).
+     *
+     * <p>결제 쓰기 경로({@code PaymentWriter})는 같은 규칙을 {@link PlanTransitionService#resolveCurrentUserPlan}
+     * 으로 수행한다. 두 곳이 <b>같은 우선순위 판정</b>을 쓴다는 사실을 고정해 두기 위해 서로를 참조한다 —
+     * 한쪽만 바꾸면 조회 화면과 결제 대상 구독이 어긋난다.
+     */
     private UserPlan resolveCurrentUserPlan(Long userId, Long companyId) {
         if (companyId != null) {
             return userPlanRepository
@@ -123,8 +140,21 @@ public class MembershipService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
     }
 
+    private MyPlanResponse buildResponseWithUsage(UserPlan userPlan, Plan plan, Company company) {
+        LocalDate period = currentPeriod();
+        UsageCounter usage = usageCounterRepository
+                .findByUserPlanIdAndPeriod(userPlan.getId(), period)
+                .orElse(null);
+        // 미결제 유예(#1177)면 한도는 FREE, 마감은 결제 유도 배너용으로 함께 내려준다 — 판정은
+        // PaymentGraceService 단일 소스를 쓴다(QuotaService 의 실제 차단 기준과 같은 값이어야 한다).
+        Plan effectivePlan = paymentGraceService.resolveEffectivePlan(userPlan, plan);
+        Instant paymentPendingUntil = paymentGraceService.resolveGraceDeadline(userPlan);
+        return MyPlanResponse.from(userPlan, plan, usage, period, company, KST, effectivePlan,
+                paymentPendingUntil);
+    }
+
     private LocalDate currentPeriod() {
         // 사용량 집계(usage_counters.period) 존과 일치 — 서버 기본 타임존에 의존하지 않고 KST 로 고정.
-        return YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1);
+        return YearMonth.now(KST).atDay(1);
     }
 }

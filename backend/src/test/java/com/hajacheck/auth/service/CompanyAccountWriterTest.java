@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.entity.Company;
+import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserConsentRepository;
@@ -17,6 +18,7 @@ import com.hajacheck.membership.service.PlanProvisioningService;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -75,5 +77,25 @@ class CompanyAccountWriterTest {
 
         // 국세청 진위확인 성공(businessVerified=true)이면 같은 트랜잭션에서 VERIFIED 로 전이한다(#596).
         verify(company).markBusinessVerified();
+    }
+
+    @Test
+    void createAccount_owner계정은_회사관리자ADMIN으로_저장된다() {
+        User user = User.createCompanyOwner("owner@haja.com", "김민수", "$2a$hashed");
+        Company company = mock(Company.class);
+        when(company.getId()).thenReturn(99L);
+        when(userRepository.save(any(User.class))).thenReturn(user);
+        when(companyRepository.save(any(Company.class))).thenReturn(company);
+
+        accountWriter.createAccount(
+                "owner@haja.com", "김민수", "$2a$hashed",
+                "(주)하자체크", "1234567890", "서울시 강남구", "101호",
+                "/files/x.png", "{}", "1.0", "1.0",
+                LocalDate.of(2020, 1, 1), false);
+
+        // 기업 owner=회사 관리자(#636) → 저장되는 user 는 ADMIN 이어야 한다.
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(userCaptor.capture());
+        assertThat(userCaptor.getValue().getRole()).isEqualTo(Role.ADMIN);
     }
 }

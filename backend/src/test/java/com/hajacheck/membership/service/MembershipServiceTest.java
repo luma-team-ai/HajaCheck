@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.entity.Company;
@@ -27,9 +29,11 @@ import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,17 +59,30 @@ class MembershipServiceTest {
     private UserPlanRepository userPlanRepository;
     @Mock
     private UsageCounterRepository usageCounterRepository;
-
+    @Mock
+    private PaymentGraceService paymentGraceService;
     @InjectMocks
     private MembershipService service;
+
+    /**
+     * 미결제 유예(#1177) 판정 — 이 테스트들은 유예와 무관하므로 <b>항상 구독 요금제 그대로</b>를
+     * 돌려주도록 스텁한다(유예가 아닐 때의 실제 동작과 같다).
+     */
+    @BeforeEach
+    void stubNoPaymentGrace() {
+        when(paymentGraceService.resolveEffectivePlan(any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+    }
 
     private static final Long USER_ID = 1L;
     private static final Long COMPANY_ID = 10L;
     private static final Long PLAN_ID = 100L;
+    private static final Long ENTERPRISE_PLAN_ID = 101L;
 
     private User individualUser;
     private User companyUser;
     private Plan standardPlan;
+    private Plan enterprisePlan;
 
     @BeforeEach
     void setUp() {
@@ -73,6 +90,10 @@ class MembershipServiceTest {
         companyUser = user(USER_ID, COMPANY_ID);
         standardPlan = Plan.create(PlanName.STANDARD, 10, 1000, 3, false, true, false,
                 BigDecimal.valueOf(99000));
+        setId(standardPlan, PLAN_ID);
+        enterprisePlan = Plan.create(PlanName.ENTERPRISE, null, null, null, false, true, true,
+                BigDecimal.valueOf(299000));
+        setId(enterprisePlan, ENTERPRISE_PLAN_ID);
     }
 
     // ── getMyPlan ──
@@ -163,6 +184,93 @@ class MembershipServiceTest {
         MyPlanResponse response = service.getMyPlan(USER_ID);
 
         assertThat(response.plan().name()).isEqualTo("STANDARD");
+    }
+
+    @Test
+    void 내플랜조회_유료플랜_다음결제일은_currentPeriodEnd를_KST_LocalDate로변환한값() {
+        // #1104 — nextBillingDate는 더 이상 startedAt에서 파생되지 않고 current_period_end 컬럼을
+        // 그대로 읽는다. startNewBillingPeriod가 KST 기준 1개월 후로 채우므로 그 값을 그대로 검증한다.
+        Instant periodStart = ZonedDateTime.of(2026, 1, 15, 10, 0, 0, 0, ZoneId.of("Asia/Seoul")).toInstant();
+        UserPlan userPlan = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
+        userPlan.startNewBillingPeriod(periodStart);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(500L), any())).thenReturn(Optional.empty());
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().nextBillingDate()).isEqualTo(LocalDate.of(2026, 2, 15));
+    }
+
+    @Test
+    void 내플랜조회_FREE플랜은_다음결제일_null() {
+        Plan freePlan = Plan.create(PlanName.FREE, 1, 50, 1, true, false, false, BigDecimal.ZERO);
+        UserPlan userPlan = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(freePlan));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(500L), any())).thenReturn(Optional.empty());
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().nextBillingDate()).isNull();
+    }
+
+    @Test
+    void 내플랜조회_회사구독_VERIFIED면_businessVerified_true() {
+        UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+        Company company = company(COMPANY_ID, USER_ID);
+        company.markBusinessVerified();
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
+        when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        when(companyRepository.findById(COMPANY_ID)).thenReturn(Optional.of(company));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(501L), any())).thenReturn(Optional.empty());
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().businessVerified()).isTrue();
+    }
+
+    @Test
+    void 내플랜조회_회사구독인데_company조회실패시_businessVerified_false_null아님() {
+        // 방어적 케이스(정상 데이터에선 발생 불가) — userPlan.companyId 로 "회사 구독"임은 확정됐는데
+        // companyRepository.findById 가 비어 company==null 이 되더라도, 계약("회사 구독=boolean")상
+        // 개인 구독의 null 과 구분되어야 하므로 false 여야 한다.
+        UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
+        when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        when(companyRepository.findById(COMPANY_ID)).thenReturn(Optional.empty());
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(501L), any())).thenReturn(Optional.empty());
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().businessVerified()).isFalse();
+    }
+
+    @Test
+    void 내플랜조회_개인구독은_businessVerified_null() {
+        UserPlan userPlan = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(individualUser));
+        when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(500L), any())).thenReturn(Optional.empty());
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().businessVerified()).isNull();
     }
 
     // ── getSeats ──
@@ -320,6 +428,10 @@ class MembershipServiceTest {
         assertThat(response.status()).isEqualTo("UPGRADE_REQUESTED");
     }
 
+    // 모의 결제(checkout, #711) 테스트는 제거됐다 — 그 메서드가 실결제(#988)로 대체되면서
+    // MembershipService 에서 사라졌다. 이관된 전이·가드 검증은 PlanTransitionServiceTest·
+    // PaymentWriterTest 가 이어받는다.
+
     // ── fixtures ──
 
     private static User user(Long id, Long companyId) {
@@ -357,4 +469,5 @@ class MembershipServiceTest {
             throw new IllegalStateException(e);
         }
     }
+
 }

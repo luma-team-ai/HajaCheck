@@ -1,8 +1,9 @@
 package com.hajacheck.core.ai.service;
 
+import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.ai.dto.BriefingStatsRequest;
+import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.core.defect.entity.DefectGrade;
-import com.hajacheck.core.defect.entity.DefectStatus;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.DefectTypeCountProjection;
 import com.hajacheck.core.defect.repository.GradeCountProjection;
@@ -11,6 +12,8 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -34,8 +37,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>DashboardService 의 private 헬퍼(ownedFacilityIds/inspectionIdsOf/countInspections 등)는
  * 재사용하지 않고 이 서비스가 독립적으로 조합한다 — #248 handoff 의도적 선택: DashboardService(#222
  * 최근 파일)를 수정하면 리뷰 diff 가 커지므로, 최소한의 조합 로직만 이 서비스에 새로 둔다.
- * 모든 조회는 로그인 사용자(ownerId)가 소유한 facilities.owner_id 범위로만 집계한다
- * (cross-owner IDOR 방지, DashboardService/facility 도메인과 동일 원칙).
+ * 모든 조회는 로그인 사용자의 회사(companyId)가 소유한 facilities.company_id 범위로만 집계한다
+ * (cross-company IDOR 방지, DashboardService/facility 도메인과 동일 원칙).
  */
 @Service
 @Transactional(readOnly = true)
@@ -46,29 +49,39 @@ public class BriefingStatsService {
     private static final Set<InspectionStatus> ANALYZED_OR_LATER_STATUSES =
             EnumSet.of(InspectionStatus.ANALYZED, InspectionStatus.REVIEWED, InspectionStatus.REPORTED);
     private static final Set<InspectionStatus> PENDING_REVIEW_STATUSES = EnumSet.of(InspectionStatus.ANALYZED);
+    // DashboardService와 동일 의미 변경(HAJA-499) — "조치 대기"(하자 ACTION_PENDING) 대신 "검수확정"
+    // (점검 REVIEWED) 건수를 센다. 필드명(pendingAction)은 계약 변경을 피하려 유지.
+    private static final Set<InspectionStatus> REVIEW_CONFIRMED_STATUSES = EnumSet.of(InspectionStatus.REVIEWED);
     private static final Set<DefectGrade> CRITICAL_GRADES = EnumSet.of(DefectGrade.D, DefectGrade.E);
 
     private final FacilityRepository facilityRepository;
     private final InspectionRepository inspectionRepository;
     private final DefectRepository defectRepository;
+    private final AiProxyRateLimiter aiProxyRateLimiter;
+    private final CompanyScopeGuard companyScopeGuard;
 
-    public BriefingStatsRequest buildStats(Long ownerId) {
-        List<Long> facilityIds = facilityRepository.findByOwnerId(ownerId).stream().map(Facility::getId).toList();
+    public BriefingStatsRequest buildStats(Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        // 브리핑도 FastAPI(/ai/briefing) 프록시 경로다 — DB 집계 전에 스레드풀 보호 가드를 적용해
+        // 초과 시 429로 즉시 중단한다(사용자 축 → 전역 축, AiProxyRateLimiter 참고).
+        aiProxyRateLimiter.checkUser(userId);
+        aiProxyRateLimiter.checkGlobal();
+
+        List<Long> facilityIds = facilityRepository.findByCompanyId(companyId).stream().map(Facility::getId).toList();
         List<Long> inspectionIds = facilityIds.isEmpty() ? List.of()
                 : inspectionRepository.findByFacilityIdIn(facilityIds).stream().map(Inspection::getId).toList();
 
         LocalDate thisMonthStart = LocalDate.now(KST).withDayOfMonth(1);
         LocalDate nextMonthStart = thisMonthStart.plusMonths(1);
 
-        long totalFacilities = facilityRepository.countByOwnerId(ownerId);
+        long totalFacilities = facilityRepository.countByCompanyId(companyId);
         long monthlyAnalysis = facilityIds.isEmpty() ? 0
                 : inspectionRepository.countByFacilityIdInAndStatusInAndInspectionDateRange(
                         facilityIds, ANALYZED_OR_LATER_STATUSES, thisMonthStart, nextMonthStart);
         long pendingReview = facilityIds.isEmpty() ? 0
                 : inspectionRepository.countByFacilityIdInAndStatusIn(facilityIds, PENDING_REVIEW_STATUSES);
-        long pendingAction = inspectionIds.isEmpty() ? 0
-                : defectRepository.countByInspectionIdInAndStatusAndDeletedFalse(
-                        inspectionIds, DefectStatus.ACTION_PENDING);
+        long pendingAction = facilityIds.isEmpty() ? 0
+                : inspectionRepository.countByFacilityIdInAndStatusIn(facilityIds, REVIEW_CONFIRMED_STATUSES);
 
         LocalDate thisWeekStart = LocalDate.now(KST).with(DayOfWeek.MONDAY);
         LocalDate nextWeekStart = thisWeekStart.plusWeeks(1);

@@ -85,6 +85,12 @@ services:
       # 국세청 사업자 진위확인(#596) serviceKey — spring bizverify 클라이언트가 읽음. fail-open이라
       # 미설정이면 진위확인 SKIP(가입은 됨, verificationStatus=PENDING). :- 로 미설정 허용(기동 안 막음).
       BUSINESS_REGISTRATION_API_KEY: ${BUSINESS_REGISTRATION_API_KEY:-}
+      # 토스페이먼츠 샌드박스 결제(#988) 시크릿 — spring payment 클라이언트가 읽음. 미설정이면 결제
+      # 진입점만 PAYMENT_GATEWAY_ERROR(502)로 fail-close 되고 나머지 기능·기동은 정상이다. :- 소프트인
+      # 이유: 결제는 샌드박스 데모 부가기능이라 키 누락으로 배포 전체를 멈추면 안 된다(:? 는
+      # AI_INTERNAL_KEY·SMTP_PASSWORD처럼 없으면 서비스가 성립하지 않는 것에만 쓴다).
+      # ⚠️ 서버 전용 시크릿이다 — VITE_ 접두사 금지(붙이면 프론트 번들에 인라인되어 공개된다).
+      TOSS_SECRET_KEY: ${TOSS_SECRET_KEY:-}
       # OAuth2 registration(KAKAO_CLIENT_ID 등)은 아직 어떤 코드도 참조하지 않아 여기서는 미주입한다.
       # Spring Boot는 registration.{provider}.client-id 키가 "존재"하기만 해도(빈 문자열이어도)
       # OAuth2ClientProperties 검증에서 기동 실패시키므로, 실제 값이 있을 때만 개별 추가할 것
@@ -114,6 +120,28 @@ services:
       # HF 캐시를 named volume(hf_cache) 경로로 고정 — transformers/hub/sentence-transformers가
       # 모두 HF_HOME 하위를 쓰므로 이 한 줄로 bge-m3 모델 캐시가 영속화된다(#439).
       HF_HOME: /app/hf_cache
+      # LangSmith 트레이싱(design-03-13/HAJA-115 — .env.example 스캐폴딩은 PR #114로 이미 완료,
+      # 이 4줄은 그 값을 컨테이너로 passthrough만 함). 미설정(빈값/false) 시 비활성 — get_llm()이
+      # 유일한 LLM 호출 지점이라 코드 변경 없이 전 체인 자동 트레이싱됨.
+      LANGCHAIN_TRACING_V2: ${LANGCHAIN_TRACING_V2:-false}
+      LANGCHAIN_ENDPOINT: ${LANGCHAIN_ENDPOINT:-}
+      LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
+      LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-}
+      # 입출력 마스킹(#1240) — 프롬프트·응답 내용을 LangSmith로 보내지 않는다(호출 횟수·지연시간·
+      # 에러만 남음). 체인 6개 전부가 민감정보(개인정보·고객사 정보·사용자 자유입력)를 프롬프트에
+      # 담으므로 트레이싱을 켤 때 이 둘이 반드시 true여야 한다. 기본값 true — 설정 누락 시에도
+      # 새지 않도록 fail-safe 방향으로 둔다.
+      # ⚠️ false는 "마스킹 끄기" 토글이 아니다(9차 리뷰 P3): 트레이싱이 켜져 있거나 API 키가
+      # 있으면 false 설정 시 부팅 가드(langsmith_guard.py)가 기동을 거부하고, 그 외 조합에서도
+      # 무조건 설치되는 anonymizer 백스톱이 내용을 {}로 치환하므로 내용 마스킹은 항상 강제된다.
+      # 원문 가시성이 정말 필요하면 값 변경이 아니라 가드·마스킹 제거 PR로 진행할 것.
+      LANGSMITH_HIDE_INPUTS: ${LANGSMITH_HIDE_INPUTS:-true}
+      LANGSMITH_HIDE_OUTPUTS: ${LANGSMITH_HIDE_OUTPUTS:-true}
+      # ultralytics(dev-05-04)가 기본으로 쓰려는 /app/.config는 non-root(fastapi, uid 999) 컨테이너에서
+      # 쓰기 불가 — 미지정 시 매 요청마다 "not writeable, defaulting to /tmp" 경고가 반복된다.
+      # 기존 hf_cache 볼륨(이미 fastapi 소유) 하위로 고정해 재기동해도 설정이 유지되게 한다.
+      YOLO_CONFIG_DIR: /app/hf_cache/ultralytics
+      MPLCONFIGDIR: /app/hf_cache/matplotlib
     volumes:
       - chroma_data:/app/chroma_data
       - hf_cache:/app/hf_cache
@@ -134,6 +162,10 @@ services:
         # 무가드(빈 값이면 Vite가 undefined를 인라인 — 지도 페이지만 영향, 기동은 막지 않음).
         # 운영(arm1/prod)은 :? 가드로 강제 — docker-compose.arm1.yml / docker-compose.prod.yml 참조.
         VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:-}
+        # 토스 결제창 SDK 클라이언트 키(#988) — Vite가 빌드 시점에 인라인한다(런타임 주입 불가).
+        # 공개돼도 되는 키라 :- 소프트(미설정 시 결제 화면만 동작하지 않음). 서버 시크릿
+        # TOSS_SECRET_KEY와 절대 혼동하지 말 것.
+        VITE_TOSS_CLIENT_KEY: ${VITE_TOSS_CLIENT_KEY:-}
     depends_on:
       spring:
         condition: service_healthy

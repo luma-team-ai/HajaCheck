@@ -1,7 +1,14 @@
 // 공통 axios 인스턴스 — 컴포넌트에서 axios 직접 import 금지 (React_코드_컨벤션.md §3)
 // 백엔드 envelope({ success, data, error })은 인터셉터에서 해제 — 컴포넌트/훅은 data만 다룬다
 import axios from 'axios';
-import { LOGIN_PATH, PLATFORM_ADMIN_LOGIN_PATH, PLATFORM_ADMIN_PATH_PREFIX } from '../constants/authPaths';
+import {
+  COUNSELOR_LOGIN_PATH,
+  COUNSELOR_PATH_PREFIX,
+  LOGIN_PATH,
+  PLATFORM_ADMIN_LOGIN_PATH,
+  PLATFORM_ADMIN_PATH_PREFIX,
+} from '../constants/authPaths';
+import { useInspectionStore } from '../../features/inspection/store/inspectionStore';
 import type { ApiError, ApiResponse } from './types';
 
 // 세션 탐지용 요청(getMe 등)은 401을 "미로그인"이라는 정상 신호로 받으므로 전역 하드 리다이렉트에서
@@ -20,6 +27,12 @@ export const api = axios.create({
 
 api.interceptors.response.use(
   (response) => {
+    // blob 응답(파일 다운로드, 예: 상담 대화 내보내기)은 envelope({success,data,error}) 형태가
+    // 아니라 파일 본문 자체이므로 unwrap을 건너뛴다 — body.success/body.data 접근 시 Blob에 그런
+    // 필드가 없어 response.data가 undefined로 뭉개지는 회귀를 방지한다(카운슬 대화 내보내기 신설).
+    if (response.config.responseType === 'blob') {
+      return response;
+    }
     const body = response.data as ApiResponse<unknown>;
     if (body && body.success === false) {
       const apiError: ApiError = {
@@ -36,16 +49,24 @@ api.interceptors.response.use(
     // 세션 탐지 요청(skipAuthRedirect)은 401이어도 하드 리다이렉트하지 않는다 — 공개 라우트에서
     // getMe 401은 '미로그인'일 뿐이고, 보호 라우트 가드는 ProtectedRoute가 담당한다(#276).
     const skipAuthRedirect = error.config?.skipAuthRedirect === true;
-    // 플랫폼 관리자 콘솔(#535)은 별도 로그인 경로를 쓴다 — /platform-admin 하위에서 401이 나면
-    // 기업회원 로그인(LOGIN_PATH)이 아니라 플랫폼 관리자 로그인으로 리다이렉트한다.
-    // PLATFORM_ADMIN_PATH_PREFIX는 BASE_URL을 반영한 경로라 basename 배포에서도 정확히 매칭된다
-    // (raw '/platform-admin' 비교는 basename 배포에서 항상 false — PR머신 리뷰 P2, #558).
+    // 플랫폼 관리자 콘솔(#535)·상담원 콘솔은 각각 별도 로그인 경로를 쓴다 — 해당 경로 하위에서
+    // 401이 나면 기업회원 로그인(LOGIN_PATH)이 아니라 각 전용 로그인으로 리다이렉트한다.
+    // *_PATH_PREFIX는 BASE_URL을 반영한 경로라 basename 배포에서도 정확히 매칭된다
+    // (raw prefix 비교는 basename 배포에서 항상 false — PR머신 리뷰 P2, #558).
     const redirectTarget = window.location.pathname.startsWith(PLATFORM_ADMIN_PATH_PREFIX)
       ? PLATFORM_ADMIN_LOGIN_PATH
-      : LOGIN_PATH;
+      : window.location.pathname.startsWith(COUNSELOR_PATH_PREFIX)
+        ? COUNSELOR_LOGIN_PATH
+        : LOGIN_PATH;
     // 이미 로그인 경로면 리다이렉트 스킵 — 로그인 화면 세션체크·로그인 실패 401이 무한 리로드로 이어지는 것 방지
     // redirectTarget이 basename까지 반영된 정확한 경로라 정확 일치로 비교(과매칭 방지 — 예: '/company/login')
     if (status === 401 && !skipAuthRedirect && window.location.pathname !== redirectTarget) {
+      // inspectionStore가 localStorage에 영속화되므로(#1194), 로그인 화면으로 하드 리다이렉트하기
+      // 전에 지워야 한다 — 안 그러면 공용 PC에서 세션 만료된 사용자의 activeInspectionId가
+      // 브라우저에 남아 다음 로그인 사용자의 사이드바 동적 링크에 노출된다(PR머신 리뷰 P1).
+      const { clearActiveInspectionId, clearActiveReportId } = useInspectionStore.getState();
+      clearActiveInspectionId();
+      clearActiveReportId();
       window.location.href = redirectTarget; // 401 일괄 처리
     }
     const apiError: ApiError = {

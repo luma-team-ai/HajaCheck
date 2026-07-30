@@ -83,8 +83,8 @@ export interface AdminPlanCatalogItem {
   maxFacilities: number | null;
   /** null = 무제한 */
   maxMonthlyAnalyses: number | null;
-  /** 0 = 좌석 없음(1인 계정) */
-  maxSeats: number;
+  /** null = 무제한, 1 이하 = 추가 좌석 없음(1인 계정) */
+  maxSeats: number | null;
   hasPdfWatermark: boolean;
   hasCounselorAccess: boolean;
   hasAiAddon: boolean;
@@ -94,4 +94,90 @@ export interface AdminPlanCatalogItem {
 
 export interface AdminPlanCatalogResponse {
   plans: AdminPlanCatalogItem[];
+}
+
+// ── 플랜 변경(#890 Phase 1/2, PATCH /api/admin/plan · GET /api/admin/plan/change-preview) ──
+
+/** 하향으로 정지될 구성원 한 명 — 이름·이메일까지 받아야 관리자가 누구인지 보고 판단할 수 있다. */
+export interface PlanChangePreviewSuspendTarget {
+  userId: number;
+  name: string;
+  email: string;
+}
+
+/**
+ * GET /api/admin/plan/change-preview 응답 — 이 요금제로 바꾸면 무엇이 정지·읽기전용이 되는지
+ * 부작용 없이 미리 본다(#890).
+ *
+ * ⚠️ facilityOverflowCount는 "대상 요금제 기준 총량"이지 "이번에 새로 바뀌는 증분"이 아니다 — 이미
+ * 이전 하향으로 읽기전용이던 시설물도 포함된 개수다. 화면에 "새로 N개가 읽기전용이 됩니다"로
+ * 렌더하면 오인을 준다.
+ */
+export interface PlanChangePreviewResponse {
+  targetPlan: AdminUserPlan;
+  requiresConfirmation: boolean;
+  seatsToSuspend: PlanChangePreviewSuspendTarget[];
+  facilityOverflowCount: number;
+}
+
+/**
+ * PATCH /api/admin/plan 요청 바디.
+ *
+ * @param confirmOverflow 하향으로 한도를 넘는 자원이 있는데 이 값이 없으면 서버가 아무것도 바꾸지
+ *                        않고 409(PLAN_DOWNGRADE_CONFIRMATION_REQUIRED)로 거절한다.
+ * @param keepUserIds     좌석이 넘칠 때 관리자가 직접 유지할 구성원 id(#890 Phase 2). 미지정이면
+ *                        기존 동작(id 오름차순 자동 선정) — change-preview와 동일한 값을 넘겨야
+ *                        미리보기·실제 결과가 어긋나지 않는다.
+ */
+export interface PlanChangeRequestPayload {
+  planName: AdminUserPlan;
+  confirmOverflow?: boolean;
+  keepUserIds?: number[];
+}
+
+// GET /api/admin/plan 응답 — 내 회사의 현재 구독+이번 달 사용량(#507). "사용자 등록" 버튼 클릭 시
+// 좌석 잔여를 미리 확인하는 용도로 쓴다(#872 후속) — plan은 AdminPlanCatalogItem과 1:1(AdminPlanItem).
+export interface AdminCurrentPlanUsage {
+  analyzedImageCount: number;
+  analysisRequestCount: number;
+  facilityCount: number;
+  seatCount: number;
+  period: string;
+}
+
+// ── 플랜 하향 예약(#1105 / HAJA-526, POST·DELETE /api/admin/plan/scheduled-change) ──
+// 즉시 전이 대신 다음 결제 주기(currentPeriodEnd)에 적용되도록 예약한다. 대상은 FREE만
+// 지원(정기결제 미지원 — 유료↔유료 예약은 #1177로 분리) — 백엔드가 PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED
+// (403)로 막으므로 UI도 FREE 대상일 때만 예약 선택지를 노출한다(#1191).
+
+/** 예약 하향 상태값. GET /api/admin/plan.scheduledChange 에는 PENDING 건만 채워진다(없으면 null). */
+export type ScheduledPlanChangeStatus = 'PENDING' | 'APPLIED' | 'CANCELED' | 'FAILED';
+
+/** 대기 중인 하향 예약 1건 — POST/DELETE 응답, GET /api/admin/plan.scheduledChange 와 동일 타입. */
+export interface AdminScheduledPlanChange {
+  id: number;
+  targetPlanName: AdminUserPlan;
+  /** 적용 예정 시각(= 신청 시점의 currentPeriodEnd). 그때까지는 기존 플랜·좌석이 그대로 유지된다. */
+  effectiveAt: string;
+  keepUserIds: number[];
+  status: ScheduledPlanChangeStatus;
+}
+
+/**
+ * POST /api/admin/plan/scheduled-change 요청 바디 — PlanChangeRequestPayload와 필드가 동일해
+ * 그대로 재사용한다(계약: AdminScheduledPlanChangeRequest 1:1). planName은 FREE만 허용되고, 그 외
+ * 값을 보내면 백엔드가 PLAN_SCHEDULE_PAID_TARGET_UNSUPPORTED(403)로 거절한다.
+ */
+export type AdminScheduledPlanChangeRequestPayload = PlanChangeRequestPayload;
+
+export interface AdminCurrentPlanResponse {
+  subscriptionId: number;
+  plan: AdminPlanCatalogItem;
+  status: string;
+  startedAt: string;
+  /** 현재 결제 주기 종료 시각. null = 무기한(FREE). 하향 예약의 적용 예정일이 곧 이 값이다(#1105). */
+  currentPeriodEnd: string | null;
+  /** 대기 중인 하향 예약(#1105). 없으면 null — 프론트는 이 필드의 존재로 예약 유무를 판정한다. */
+  scheduledChange: AdminScheduledPlanChange | null;
+  usage: AdminCurrentPlanUsage;
 }

@@ -13,6 +13,9 @@ import { isLoginFormValid } from '../utils/validateLoginForm';
 
 const ERROR_MESSAGES: Record<string, string> = {
   AUTH_INVALID_CREDENTIALS: '아이디 또는 비밀번호가 올바르지 않습니다.',
+  // CSRF 토큰 누락·만료(#1200) — 자격 증명 문제가 아니라 요청이 거부된 것이라, 기본 문구
+  // ("로그인에 실패했습니다")로 표시하면 아이디/비밀번호가 틀린 것으로 오인된다. 재시도를 유도한다.
+  FORBIDDEN: '요청이 만료되었습니다. 다시 시도해 주세요.',
 };
 const DEFAULT_ERROR_MESSAGE = '로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.';
 
@@ -102,7 +105,11 @@ export function CompanyLoginTab() {
         </div>
       </div>
 
-      {errorMessage && <p className={ERROR_CLASSES}>{errorMessage}</p>}
+      {errorMessage && (
+        <p role="alert" className={ERROR_CLASSES}>
+          {errorMessage}
+        </p>
+      )}
 
       <label className="flex cursor-pointer items-center gap-2 text-[13px] text-text-default">
         <input

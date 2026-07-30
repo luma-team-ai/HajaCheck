@@ -11,6 +11,12 @@ COPY gradlew ./
 COPY gradle ./gradle
 COPY build.gradle settings.gradle ./
 RUN chmod +x gradlew
+# Gradle 배포판(zip) 선다운로드 — 이 레이어는 gradlew/build.gradle 등이 안 바뀌면 캐시되므로,
+# 소스만 바뀌는 일반 PR 빌드에서는 COPY src 이후 배포판을 매번 다시 받지 않는다. 이게 없으면
+# 코드 한 줄만 바뀌어도 COPY src가 캐시를 깨서 그 아래 RUN이 매번 처음부터 배포판을 새로
+# 받는데, services.gradle.org 일시 504/타임아웃에 걸리면 무관한 PR의 도커 빌드가 실패한다
+# (PR #779 CI 실패 조사 중 발견 — 회귀 아님, 최초부터 있던 구조적 문제).
+RUN ./gradlew --version --no-daemon
 
 COPY src ./src
 RUN ./gradlew bootJar --no-daemon -x test

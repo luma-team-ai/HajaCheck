@@ -9,8 +9,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { notificationHandlers } from '../api/notificationApi.handlers';
+import { mockNotifications } from '../mocks/notification.mock';
 import { NotificationCenter } from './NotificationCenter';
 
 const server = setupServer(...notificationHandlers);
@@ -37,13 +39,123 @@ function Harness() {
 function renderHarness() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <Harness />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <Harness />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
 describe('NotificationCenter', () => {
+  it('COUNSEL_REPLIED "대화 열기" 클릭 시 상담 이력 페이지로 이동한다(#1022 후속: 이동 안 하던 버그 수정)', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/" element={<Harness />} />
+            <Route path="/support/history" element={<p>상담 이력 페이지</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    await screen.findByText('검수 대기 알림');
+
+    fireEvent.click(screen.getByRole('button', { name: '대화 열기' }));
+
+    expect(await screen.findByText('상담 이력 페이지')).not.toBeNull();
+  });
+
+  // #1262 — INSPECTION_DUE "점검 시작"도 COUNSEL_REPLIED "대화 열기"와 마찬가지로 markAsRead만
+  // 하고 이동은 안 하던 버그. payload.facilityId를 읽어 점검 생성 화면으로 이동한다(대시보드
+  // UpcomingInspectionCard와 동일 경로/쿼리 패턴).
+  it('INSPECTION_DUE "점검 시작" 클릭 시 facilityId를 담아 점검 생성 화면으로 이동한다(#1262)', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/" element={<Harness />} />
+            <Route path="/inspections/create" element={<p>점검 생성 화면</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    await screen.findByText('점검일 도래');
+
+    fireEvent.click(screen.getByRole('button', { name: '점검 시작' }));
+
+    expect(await screen.findByText('점검 생성 화면')).not.toBeNull();
+  });
+
+  // HAJA-595 — ANALYSIS_DONE/REVIEW_PENDING도 COUNSEL_REPLIED/INSPECTION_DUE와 같은 이력의
+  // "markAsRead만 하고 이동은 안 함" 버그였다. 두 유형 모두 같은 payload 형태({inspectionId, ...},
+  // InspectionAnalysisNotificationPayload 확인 완료)를 공유하므로 GET 응답을 단건으로 좁혀 목 데이터의
+  // 다른 ANALYSIS_DONE(id 5, inspectionId 없음)과 버튼 라벨이 겹치는 걸 피한다.
+  it('ANALYSIS_DONE "결과 보기" 클릭 시 분석 결과 뷰어로 이동한다(HAJA-595)', async () => {
+    server.use(
+      http.get('/api/notifications', () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            {
+              id: 1,
+              type: 'ANALYSIS_DONE',
+              payload: { description: '8회차', inspectionId: 101 },
+              isRead: false,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        }),
+      ),
+    );
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/" element={<Harness />} />
+            <Route path="/inspections/:id/viewer" element={<p>분석 결과 뷰어 화면</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    await screen.findByText('AI 분석 완료');
+
+    fireEvent.click(screen.getByRole('button', { name: '결과 보기' }));
+
+    expect(await screen.findByText('분석 결과 뷰어 화면')).not.toBeNull();
+  });
+
+  it('REVIEW_PENDING "검수하기" 클릭 시 해당 점검의 하자 목록으로 이동한다(HAJA-595)', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/" element={<Harness />} />
+            <Route path="/inspections/:id/defects" element={<p>하자 목록 화면</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    await screen.findByText('검수 대기 알림');
+
+    fireEvent.click(screen.getByRole('button', { name: '검수하기' }));
+
+    expect(await screen.findByText('하자 목록 화면')).not.toBeNull();
+  });
+
   it('벨을 클릭하면 드롭다운이 열리고 목 데이터를 렌더링한다', async () => {
     renderHarness();
 
@@ -57,6 +169,33 @@ describe('NotificationCenter', () => {
     expect(screen.getByText('검수 대기 알림')).toBeTruthy();
     // 목 데이터 5건 중 미읽음 3건(id 1,2,3)
     expect(screen.getByText('미읽음 3')).toBeTruthy();
+  });
+
+  // #1233 — 백엔드가 COUNSEL_REPLIED/INSPECTION_DUE payload에 description을 채우기 시작했다.
+  // extractDescription()이 그 값을 그대로 부제목으로 렌더링하는지 확인한다(목 데이터는 이미 채워둔 상태).
+  it('payload.description이 있으면 알림 부제목으로 표시한다(#1233)', async () => {
+    renderHarness();
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+
+    expect(await screen.findByText('요금제 문의')).toBeTruthy();
+    expect(screen.getByText('한강대교 북단 D-3')).toBeTruthy();
+  });
+
+  // #1244 — 유형별 아이콘(NOTIFICATION_TYPE_META.iconSrc)이 각 알림 뱃지에 실제로 전달되는지 확인.
+  // 목 데이터 5건 중 ANALYSIS_DONE 2건이 같은 로봇 아이콘을 쓴다. data-testid로 뱃지 아이콘만
+  // 골라낸다(테스트 환경에서 svg import가 data URI로 인라인돼 src 문자열 기반 구분은 불가능하고,
+  // 개별 닫기(X) 아이콘도 같은 li 안에 별도로 존재한다).
+  it('알림 유형별로 서로 다른 아이콘을 뱃지로 렌더링한다(#1244)', async () => {
+    const { container } = renderHarness();
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    await screen.findByText('검수 대기 알림');
+
+    const badgeIconSrcs = Array.from(container.querySelectorAll('[data-testid="notification-badge-icon"]')).map(
+      (img) => img.getAttribute('src'),
+    );
+    expect(badgeIconSrcs).toHaveLength(5);
+    // AI 분석(x2, 동일 아이콘)·검수·상담·점검일 = 서로 다른 아이콘 4종
+    expect(new Set(badgeIconSrcs).size).toBe(4);
   });
 
   it('카테고리 필터를 클릭하면 해당 카테고리 항목만 보인다', async () => {
@@ -114,6 +253,63 @@ describe('NotificationCenter', () => {
     await waitFor(() => {
       expect(screen.getByText('미읽음 3')).toBeTruthy();
     });
+  });
+
+  // 개별 닫기(X)는 로컬 숨김이 아니라 DELETE /api/notifications/{id} — 서버에서 실제로 삭제되고,
+  // 성공 후 목록 invalidate로 다시 조회해도 그 항목이 돌아오지 않아야 한다. GET 목을 상태 있게
+  // 구성해(삭제된 id를 실제로 빼서 응답) 낙관적 제거가 아니라 서버 반영까지 검증한다.
+  it('알림의 X를 누르면 서버에 DELETE 요청이 나가고 목록에서 사라진다', async () => {
+    let remaining = [...mockNotifications];
+    const deletedIds: number[] = [];
+    server.use(
+      http.get('/api/notifications', () => HttpResponse.json({ success: true, data: remaining })),
+      http.delete('/api/notifications/:id', ({ params }) => {
+        const id = Number(params.id);
+        deletedIds.push(id);
+        remaining = remaining.filter((item) => item.id !== id);
+        return HttpResponse.json({ success: true, data: null });
+      }),
+    );
+
+    renderHarness();
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    const target = await screen.findByText('검수 대기 알림');
+
+    const dismissButton = target.closest('li')?.querySelector('button[aria-label="알림 닫기"]');
+    fireEvent.click(dismissButton as HTMLElement);
+
+    await waitFor(() => {
+      expect(screen.queryByText('검수 대기 알림')).toBeNull();
+    });
+    expect(deletedIds).toEqual([2]);
+    // 미읽음 3건 중 1건(id 2)이 삭제돼 2건으로 줄고, 재조회 후에도 되돌아오지 않는다.
+    expect(await screen.findByText('미읽음 2')).toBeTruthy();
+  });
+
+  it('DELETE가 실패하면 낙관적으로 지웠던 알림이 목록에 복원된다', async () => {
+    server.use(
+      http.delete('/api/notifications/:id', () => HttpResponse.json({ success: false }, { status: 500 })),
+    );
+
+    renderHarness();
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    const target = await screen.findByText('검수 대기 알림');
+
+    const dismissButton = target.closest('li')?.querySelector('button[aria-label="알림 닫기"]');
+    fireEvent.click(dismissButton as HTMLElement);
+
+    await waitFor(() => {
+      expect(screen.getByText('검수 대기 알림')).toBeTruthy();
+    });
+    expect(screen.getByText('미읽음 3')).toBeTruthy();
+  });
+
+  it('하단 "알림 전체 보기" 버튼은 노출하지 않는다', async () => {
+    renderHarness();
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    await screen.findByText('검수 대기 알림');
+
+    expect(screen.queryByRole('button', { name: '알림 전체 보기' })).toBeNull();
   });
 
   // PR머신 P1: BE NotificationType이 constants.ts의 4종 밖의 값을 내려주면(예: enum이 FE 배포보다

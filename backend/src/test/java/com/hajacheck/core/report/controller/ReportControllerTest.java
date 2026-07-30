@@ -3,6 +3,7 @@ package com.hajacheck.core.report.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -29,6 +30,7 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.report.dto.UpdateReportContentRequest;
 import com.hajacheck.core.report.entity.Report;
+import com.hajacheck.core.report.entity.ReportStatus;
 import com.hajacheck.core.report.repository.ReportRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
@@ -103,7 +105,7 @@ class ReportControllerTest extends PostgresTestSupport {
 
     private Inspection seedInspection(User owner) {
         Facility facility = facilityRepository.save(Facility.builder()
-                .ownerId(owner.getId())
+                .companyId(owner.getCompanyId())
                 .name("테스트빌딩")
                 .type("BUILDING")
                 .address("서울시 강남구")
@@ -220,9 +222,150 @@ class ReportControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void 근거재검증_미인증_401() throws Exception {
+        mockMvc.perform(post("/api/reports/{id}/grounding-recheck", 1L).with(csrf()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 근거재검증_존재하지않는보고서_404() throws Exception {
+        User owner = seedOwner("recheck-no-report-owner@haja.com");
+
+        mockMvc.perform(post("/api/reports/{id}/grounding-recheck", 999L)
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("REPORT_NOT_FOUND"));
+    }
+
+    @Test
+    void 근거재검증_타인소유_404() throws Exception {
+        User owner = seedOwner("recheck-owner@haja.com");
+        User stranger = seedOwner("recheck-stranger@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+
+        mockMvc.perform(post("/api/reports/{id}/grounding-recheck", report.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(stranger))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("REPORT_NOT_FOUND"));
+    }
+
+    @Test
+    void 근거재검증_본인소유_200과재검증결과반환() throws Exception {
+        User owner = seedOwner("recheck-owner2@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+
+        mockMvc.perform(post("/api/reports/{id}/grounding-recheck", report.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(report.getId()))
+                .andExpect(jsonPath("$.data.groundingCheckPassed").exists());
+    }
+
+    @Test
     void 초안생성_미인증_401() throws Exception {
         mockMvc.perform(post("/api/inspections/{id}/reports", 1L).with(csrf()))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 복제_본인소유_다음버전DRAFT를생성하고검증필드를초기화() throws Exception {
+        User owner = seedOwner("report-clone-owner@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report source = Report.draft(inspection.getId(), 1, "{\"summary\":\"복제 원본\"}", owner.getId());
+        source.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                source.captureGroundingRequestContext(), source.getContentJson()),
+                        null),
+                owner.getId());
+        source.finalizeReport("/api/reports/1/pdf/source.pdf", owner.getId());
+        source = reportRepository.save(source);
+
+        String response = mockMvc.perform(post("/api/reports/{id}/clone", source.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.inspectionId").value(inspection.getId()))
+                .andExpect(jsonPath("$.data.version").value(2))
+                .andExpect(jsonPath("$.data.status").value("DRAFT"))
+                .andExpect(jsonPath("$.data.content.summary").value("복제 원본"))
+                .andExpect(jsonPath("$.data.groundingCheckPassed").doesNotExist())
+                .andExpect(jsonPath("$.data.pdfUrl").doesNotExist())
+                .andExpect(jsonPath("$.data.createdBy").value(owner.getId()))
+                .andReturn().getResponse().getContentAsString();
+
+        Long clonedId = objectMapper.readTree(response).path("data").path("id").asLong();
+        Report cloned = reportRepository.findById(clonedId).orElseThrow();
+        assertThat(cloned.getContentJson()).contains("복제 원본");
+        assertThat(cloned.getStatus()).isEqualTo(ReportStatus.DRAFT);
+        assertThat(cloned.getGroundingCheckPassed()).isNull();
+        assertThat(cloned.getGroundingWarnings()).isNull();
+        assertThat(cloned.getPdfUrl()).isNull();
+    }
+
+    @Test
+    void 복제_타인소유_404() throws Exception {
+        User owner = seedOwner("report-clone-owner2@haja.com");
+        User stranger = seedOwner("report-clone-stranger@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report source = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+
+        mockMvc.perform(post("/api/reports/{id}/clone", source.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(stranger))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("REPORT_NOT_FOUND"));
+    }
+
+    @Test
+    void 삭제_DRAFT상태_200과softDelete처리() throws Exception {
+        User owner = seedOwner("report-delete-owner@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+
+        mockMvc.perform(delete("/api/reports/{id}", report.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        Report deleted = reportRepository.findById(report.getId()).orElseThrow();
+        assertThat(deleted.getDeletedAt()).isNotNull();
+
+        mockMvc.perform(get("/api/reports/{id}", report.getId()).with(authentication(authOf(owner))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("REPORT_NOT_FOUND"));
+    }
+
+    @Test
+    void 삭제_FINALIZED상태_409_INVALID_STATE_TRANSITION() throws Exception {
+        User owner = seedOwner("report-delete-finalized-owner@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = Report.draft(inspection.getId(), 1, "{}", owner.getId());
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                owner.getId());
+        report.finalizeReport("/api/reports/1/pdf/source.pdf", owner.getId());
+        report = reportRepository.save(report);
+
+        mockMvc.perform(delete("/api/reports/{id}", report.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATE_TRANSITION"));
+
+        Report finalized = reportRepository.findById(report.getId()).orElseThrow();
+        assertThat(finalized.getDeletedAt()).isNull();
     }
 
     /**
@@ -397,5 +540,44 @@ class ReportControllerTest extends PostgresTestSupport {
 
         assertThat(response.getStatusCode()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
         assertThat(response.getBody().error().code()).isEqualTo("REPORT_VERSION_CONFLICT");
+    }
+
+    @Test
+    void 회사보고서목록은_회사범위와필터_페이지계약을반환한다() throws Exception {
+        User owner = seedOwner("company-report-list-owner@haja.com");
+        Inspection first = seedInspection(owner);
+        Inspection second = seedInspection(owner);
+        reportRepository.save(Report.draft(first.getId(), 1, "{}", owner.getId()));
+        reportRepository.save(Report.draft(second.getId(), 1, "{}", owner.getId()));
+
+        mockMvc.perform(get("/api/reports")
+                        .param("status", ReportStatus.DRAFT.name())
+                        .param("page", "0").param("size", "1")
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.content[0].facilityName").value("테스트빌딩"))
+                .andExpect(jsonPath("$.data.content[0].gradeDistribution.A").value(0));
+    }
+
+    @Test
+    void 회사보고서요약은_현재회사보고서만_상태별KPI로반환한다() throws Exception {
+        User owner = seedOwner("company-report-summary-owner@haja.com");
+        User stranger = seedOwner("company-report-summary-stranger@haja.com");
+        Inspection ownInspection = seedInspection(owner);
+        Inspection strangerInspection = seedInspection(stranger);
+        reportRepository.save(Report.draft(ownInspection.getId(), 1, "{}", owner.getId()));
+        reportRepository.save(Report.draft(ownInspection.getId(), 2, "{}", owner.getId()));
+        reportRepository.save(Report.draft(strangerInspection.getId(), 1, "{}", stranger.getId()));
+
+        mockMvc.perform(get("/api/reports/summary").with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.totalCount").value(2))
+                .andExpect(jsonPath("$.data.draftCount").value(2))
+                .andExpect(jsonPath("$.data.finalizedCount").value(0))
+                .andExpect(jsonPath("$.data.issuedThisMonthCount").value(0));
     }
 }

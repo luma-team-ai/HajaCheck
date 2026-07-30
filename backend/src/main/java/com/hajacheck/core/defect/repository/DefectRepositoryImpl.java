@@ -32,8 +32,8 @@ public class DefectRepositoryImpl implements DefectRepositoryCustom {
     private final EntityManager em;
 
     @Override
-    public Page<Defect> findPageByOwnerIdAndFilters(
-            Long ownerId, DefectType type, DefectGrade grade, DefectStatus status, Pageable pageable) {
+    public Page<Defect> findPageByCompanyIdAndFilters(
+            Long companyId, DefectType type, DefectGrade grade, DefectStatus status, Pageable pageable) {
 
         CriteriaBuilder cb = em.getCriteriaBuilder();
 
@@ -44,7 +44,7 @@ public class DefectRepositoryImpl implements DefectRepositoryCustom {
         root.fetch("inspection").fetch("facility");
 
         query.select(root)
-                .where(buildPredicates(cb, root, facility, ownerId, type, grade, status).toArray(new Predicate[0]))
+                .where(buildPredicates(cb, root, facility, companyId, type, grade, status).toArray(new Predicate[0]))
                 .orderBy(cb.desc(root.get("createdAt")));
 
         List<Defect> content = em.createQuery(query)
@@ -57,7 +57,7 @@ public class DefectRepositoryImpl implements DefectRepositoryCustom {
         Join<Defect, Inspection> countInspection = countRoot.join("inspection");
         Join<Inspection, Facility> countFacility = countInspection.join("facility");
         countQuery.select(cb.count(countRoot))
-                .where(buildPredicates(cb, countRoot, countFacility, ownerId, type, grade, status)
+                .where(buildPredicates(cb, countRoot, countFacility, companyId, type, grade, status)
                         .toArray(new Predicate[0]));
 
         Long total = em.createQuery(countQuery).getSingleResult();
@@ -67,9 +67,9 @@ public class DefectRepositoryImpl implements DefectRepositoryCustom {
 
     private List<Predicate> buildPredicates(
             CriteriaBuilder cb, Root<Defect> root, Join<Inspection, Facility> facility,
-            Long ownerId, DefectType type, DefectGrade grade, DefectStatus status) {
+            Long companyId, DefectType type, DefectGrade grade, DefectStatus status) {
         List<Predicate> predicates = new ArrayList<>();
-        predicates.add(cb.equal(facility.get("ownerId"), ownerId));
+        predicates.add(cb.equal(facility.get("companyId"), companyId));
         predicates.add(cb.isFalse(root.get("deleted")));
         if (type != null) {
             predicates.add(cb.equal(root.get("type"), type));

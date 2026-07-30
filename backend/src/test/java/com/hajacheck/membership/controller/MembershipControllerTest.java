@@ -1,5 +1,6 @@
 package com.hajacheck.membership.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -185,4 +186,9 @@ class MembershipControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("UPGRADE_REQUESTED"));
     }
+
+    // 모의 결제(POST /api/me/plan/checkout, #711) 테스트는 제거됐다 — 엔드포인트 자체가 실결제
+    // (POST /api/me/plan/orders → POST /api/me/payments/confirm, #988)로 대체됐다. 이관된 가드
+    // (FREE 거부·소유자 인가·동일 플랜·하향 초과 확인·부분 UQ 경합) 검증은 PaymentControllerTest·
+    // PaymentWriterTest 가 이어받는다.
 }

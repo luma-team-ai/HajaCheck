@@ -5,7 +5,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
- * DB 접근 테스트 공용 베이스 — 운영 목표와 같은 PostgreSQL 17(Testcontainers)에 붙는다.
+ * DB 접근 테스트 공용 베이스 — 운영 목표와 같은 PostgreSQL 16(Testcontainers)에 붙는다.
  *
  * <p>이유: {@code @JdbcTypeCode(NAMED_ENUM)} 으로 매핑한 PG named enum(role_type 등)은 H2 로 재현할 수
  * 없어, enum 이 걸린 User 엔티티/리포지토리는 실 PG 에서만 정합성(ddl-auto=validate)을 검증할 수 있다.
@@ -31,7 +31,7 @@ public abstract class PostgresTestSupport {
         if (EXTERNAL_URL != null && !EXTERNAL_URL.isBlank()) {
             return null;
         }
-        return new PostgreSQLContainer<>("postgres:17")
+        return new PostgreSQLContainer<>("postgres:16")
                 .withDatabaseName("hajacheck")
                 .withUsername("postgres")
                 .withInitScript("db/HajaCheck_script.sql");

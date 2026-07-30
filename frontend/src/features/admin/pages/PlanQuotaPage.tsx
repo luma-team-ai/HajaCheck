@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pagination } from '../../../shared/components/Pagination/Pagination';
 import { CurrentPlanCard } from '../components/CurrentPlanCard';
+import { PlanChangeControl } from '../components/PlanChangeControl';
 import { PlanQuotaKpiCards } from '../components/PlanQuotaKpiCards';
 import { PlanQuotaTable } from '../components/PlanQuotaTable';
 import { SearchIcon } from '../components/icons/SearchIcon';
+import { useAdminCurrentPlan } from '../hooks/useAdminCurrentPlan';
 import { useAdminPlanCatalog } from '../hooks/useAdminPlanCatalog';
 import { usePlanQuotaUsers } from '../hooks/usePlanQuotaUsers';
 import { PLAN_QUOTA_DEFAULT_PAGE_SIZE } from '../planQuota.constants';
@@ -21,6 +23,8 @@ export function PlanQuotaPage() {
   const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(1);
 
+  // 목록 크기는 고정값 — CurrentPlanCard와 나란한 좁은 컬럼에 표가 들어가는 레이아웃이라
+  // 페이지 크기를 사용자가 바꿀 수 있게 하면(선택형 UI) 폭·행 수가 흔들려 오히려 어색하다.
   const pageSize = PLAN_QUOTA_DEFAULT_PAGE_SIZE;
 
   // 타이핑마다 조회하지 않도록 검색어를 디바운스한다
@@ -43,6 +47,9 @@ export function PlanQuotaPage() {
 
   const { data, isLoading, isError, refetch } = usePlanQuotaUsers(params);
   const { data: catalogData } = useAdminPlanCatalog();
+  // 하향 예약(#1105 / HAJA-526, #1191) 배너·"즉시/예약" 선택에 쓰는 currentPeriodEnd·scheduledChange는
+  // GET /api/admin/plan에서만 내려온다 — plan-quota 목록의 companyPlan(#508)과는 별개 조회다.
+  const { data: currentPlanData } = useAdminCurrentPlan();
 
   const users = data?.content ?? [];
   const totalElements = data?.totalElements ?? 0;
@@ -50,6 +57,9 @@ export function PlanQuotaPage() {
   // "현재 플랜" 카드는 표 행 선택과 무관하게 내 회사(company_id) 플랜 고정값이다(#508 확정).
   // 조회 전에는 undefined(로딩 표시), 조회 실패 시에는 null(안내 문구)로 넘긴다.
   const companyPlan = isError ? null : data?.stats.companyPlan;
+  // (#887) "활성 플랜 없음"은 정상 응답(200, companyPlan=null)이라 isError와 다른 안내를 보여준다 —
+  // 회사 스코프 상속 자체는 실패하지 않고(방어 처리), 그저 회사가 아직 구독 중인 플랜이 없는 상태다.
+  const hasNoActivePlan = !isLoading && !isError && data !== undefined && data.stats.companyPlan === null;
 
   const rangeStart = totalElements === 0 ? 0 : (page - 1) * pageSize + 1;
   const rangeEnd = Math.min(page * pageSize, totalElements);
@@ -85,21 +95,43 @@ export function PlanQuotaPage() {
 
         <PlanQuotaKpiCards stats={data?.stats} isError={isError} />
 
+        {hasNoActivePlan && (
+          <div
+            role="status"
+            className="rounded-2xl border border-dashed border-border bg-surface-muted px-4 py-3 text-sm text-text-muted"
+          >
+            현재 회사에 활성화된 플랜 구독이 없습니다. 플랜을 등록하면 멤버별 쿼터 사용량이 표시됩니다.
+          </div>
+        )}
+
         {/* 본문 — 쿼터 사용량 표(좌) / 현재 플랜 카드(우) */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
-          <PlanQuotaTable
-            users={users}
-            isLoading={isLoading}
-            isError={isError}
-            onRetry={() => void refetch()}
-          />
+          <div className="overflow-hidden rounded-[20px] border border-border bg-surface">
+            <PlanQuotaTable
+              users={users}
+              isLoading={isLoading}
+              isError={isError}
+              onRetry={() => void refetch()}
+            />
+          </div>
           <div className="flex flex-col gap-3">
             <p className="px-4 py-3 text-xs font-medium text-text-muted">현재 플랜</p>
-            <CurrentPlanCard plan={companyPlan} catalog={catalogData?.plans} />
+            <CurrentPlanCard
+              plan={companyPlan}
+              catalog={catalogData?.plans}
+              scheduledChange={currentPlanData?.scheduledChange ?? null}
+            />
+            <PlanChangeControl
+              currentPlan={companyPlan}
+              catalog={catalogData?.plans}
+              currentPeriodEnd={currentPlanData?.currentPeriodEnd ?? null}
+              hasPendingSchedule={currentPlanData?.scheduledChange != null}
+            />
           </div>
         </div>
 
-        {/* 페이지네이션 — 표시 범위(좌) / 페이지 버튼(우) */}
+        {/* 페이지네이션 — 표시 범위(좌) / 페이지 버튼(우). 표 컬럼 안이 아니라 본문 전체 하단에
+            고정해, 표 행 수가 적어도 다른 화면들처럼 항상 카드 맨 아래에 위치한다. */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6">
           <p className="text-sm text-text-muted">
             전체 {totalElements.toLocaleString('ko-KR')}명 중 {rangeStart}-{rangeEnd} 표시

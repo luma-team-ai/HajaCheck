@@ -8,11 +8,14 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
+import com.hajacheck.auth.support.RateLimiter;
 import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
+import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.support.InMemoryRateLimiter;
 import java.net.ConnectException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
@@ -30,8 +33,11 @@ import org.springframework.web.client.RestClient;
 class AiProxyServiceTest {
 
     private static final String AI_SERVER_URL = "http://ai-server-test/ai/defect-explain";
+    private static final Long USER_ID = 1L;
 
     private MockRestServiceServer mockServer;
+    private RestClient.Builder builder;
+    private AiServerProperties properties;
     private AiProxyService aiProxyService;
 
     private static final DefectExplainRequest REQUEST =
@@ -39,16 +45,21 @@ class AiProxyServiceTest {
 
     @BeforeEach
     void setUp() {
-        AiServerProperties properties = new AiServerProperties();
+        properties = new AiServerProperties();
         properties.setBaseUrl("http://ai-server-test");
         properties.setInternalKey("test-internal-key");
         properties.setConnectTimeoutMs(3000);
         properties.setReadTimeoutMs(60000);
 
-        RestClient.Builder builder = RestClient.builder().baseUrl(properties.getBaseUrl());
+        builder = RestClient.builder().baseUrl(properties.getBaseUrl());
         mockServer = MockRestServiceServer.bindTo(builder).build();
         // briefingStatsService 는 defect-explain 테스트에서 사용하지 않아 null(#248 추가 의존성).
-        aiProxyService = new AiProxyService(builder.build(), properties, null);
+        // rate-limiter 는 in-memory fake(한도 내 통과) 주입 — 실 구현은 @Profile("!test").
+        aiProxyService = newService(new InMemoryRateLimiter());
+    }
+
+    private AiProxyService newService(RateLimiter rateLimiter) {
+        return new AiProxyService(builder.build(), properties, null, new AiProxyRateLimiter(rateLimiter));
     }
 
     @Test
@@ -62,7 +73,7 @@ class AiProxyServiceTest {
                                 {"success":true,"data":{"cause":"철근 부식","risk":"구조 내력 저하","action":"단면 보수 후 재도장"},"usage":{"tokens":120}}
                                 """));
 
-        ApiResponse<?> response = aiProxyService.explainDefect(REQUEST);
+        ApiResponse<?> response = aiProxyService.explainDefect(USER_ID, REQUEST);
 
         assertThat(response.success()).isTrue();
         assertThat(response.data()).isNotNull();
@@ -78,7 +89,7 @@ class AiProxyServiceTest {
                                 {"success":false,"error":{"code":"LLM_INVALID_OUTPUT","message":"모델 응답 파싱 실패"}}
                                 """));
 
-        ApiResponse<?> response = aiProxyService.explainDefect(REQUEST);
+        ApiResponse<?> response = aiProxyService.explainDefect(USER_ID, REQUEST);
 
         assertThat(response.success()).isFalse();
         assertThat(response.error().code()).isEqualTo("LLM_INVALID_OUTPUT");
@@ -92,7 +103,7 @@ class AiProxyServiceTest {
                     throw new ConnectException("Connection refused");
                 });
 
-        assertThatThrownBy(() -> aiProxyService.explainDefect(REQUEST))
+        assertThatThrownBy(() -> aiProxyService.explainDefect(USER_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_SERVER_UNREACHABLE));
@@ -107,7 +118,7 @@ class AiProxyServiceTest {
                     throw new HttpTimeoutException("Response timed out");
                 });
 
-        assertThatThrownBy(() -> aiProxyService.explainDefect(REQUEST))
+        assertThatThrownBy(() -> aiProxyService.explainDefect(USER_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_SERVER_TIMEOUT));
@@ -122,7 +133,7 @@ class AiProxyServiceTest {
                     throw new HttpConnectTimeoutException("Connect timed out");
                 });
 
-        assertThatThrownBy(() -> aiProxyService.explainDefect(REQUEST))
+        assertThatThrownBy(() -> aiProxyService.explainDefect(USER_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_SERVER_UNREACHABLE));
@@ -134,7 +145,7 @@ class AiProxyServiceTest {
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andRespond(withServerError());
 
-        assertThatThrownBy(() -> aiProxyService.explainDefect(REQUEST))
+        assertThatThrownBy(() -> aiProxyService.explainDefect(USER_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_SERVER_ERROR));
@@ -148,10 +159,47 @@ class AiProxyServiceTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"detail\":\"invalid request\"}"));
 
-        assertThatThrownBy(() -> aiProxyService.explainDefect(REQUEST))
+        assertThatThrownBy(() -> aiProxyService.explainDefect(USER_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_REQUEST_REJECTED));
+    }
+
+    @Test
+    void explainDefect_전역rate_limit초과_AUTH_TOO_MANY_REQUESTS_내부호출없음() {
+        // 사용자 축은 통과하되 전역 축만 초과 → 429, FastAPI 호출 없음(#582 Critical).
+        AiProxyService limited = newService((key, limit, window) -> !key.startsWith("rate:ai-proxy:global")
+                && !key.equals("rate:ai-proxy:daily")); // 전역 키만 거부
+
+        assertThatThrownBy(() -> limited.explainDefect(USER_ID, REQUEST))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS));
+        mockServer.verify(); // 기대치 없음 = 어떤 FastAPI 요청도 발생하지 않아야 통과
+    }
+
+    @Test
+    void explainDefect_사용자rate_limit초과_AUTH_TOO_MANY_REQUESTS_내부호출없음() {
+        // per-user 캡(P2-A): 사용자 축만 초과해도 429, FastAPI 호출 없음. 사용자 키만 거부한다.
+        AiProxyService limited = newService((key, limit, window) -> !key.startsWith("rate:ai-proxy:user:"));
+
+        assertThatThrownBy(() -> limited.explainDefect(USER_ID, REQUEST))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS));
+        mockServer.verify();
+    }
+
+    @Test
+    void explainDefect_전역일일캡초과_AUTH_TOO_MANY_REQUESTS_내부호출없음() {
+        // P2-C: 분당 전역은 통과하되 일일 전역 캡만 초과 → 429, FastAPI 호출 없음.
+        AiProxyService limited = newService((key, limit, window) -> !key.equals("rate:ai-proxy:daily"));
+
+        assertThatThrownBy(() -> limited.explainDefect(USER_ID, REQUEST))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS));
+        mockServer.verify();
     }
 
     @Test
@@ -162,7 +210,7 @@ class AiProxyServiceTest {
                         .body("{\"foo\":\"bar\"}"));
 
         // success 필드 없이 역직렬화되면 boolean 기본값 false 로 매핑되고 error 도 없어 AI_INVALID_RESPONSE.
-        assertThatThrownBy(() -> aiProxyService.explainDefect(REQUEST))
+        assertThatThrownBy(() -> aiProxyService.explainDefect(USER_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_INVALID_RESPONSE));

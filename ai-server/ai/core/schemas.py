@@ -15,6 +15,7 @@ class AIErrorCode(str, Enum):
     LLM_INVALID_OUTPUT = "LLM_INVALID_OUTPUT"  # 스키마 파싱 실패
     RAG_NO_RESULT = "RAG_NO_RESULT"
     VALIDATION_ERROR = "VALIDATION_ERROR"  # 비-LLM 코드 경로(입력·대조 검증) 실패 — grounding 등
+    VISION_INFERENCE_FAILED = "VISION_INFERENCE_FAILED"  # YOLO 모델 로드/추론 실패(dev-05-04)
 
 
 class AIError(BaseModel):

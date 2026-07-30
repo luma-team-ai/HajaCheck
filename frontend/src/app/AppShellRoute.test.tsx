@@ -6,6 +6,7 @@ import { setupServer } from 'msw/node';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { notificationHandlers } from '../features/notification/api/notificationApi.handlers';
+import { menuHandlers } from '../features/menu/api/menuApi.handlers';
 import { MYPAGE_PLAN_ROUTE } from '../features/auth/constants';
 import { useAuthStore } from '../features/auth/store/authStore';
 import type { User } from '../features/auth/types';
@@ -18,11 +19,17 @@ const baseUser: User = {
   role: 'USER',
   companyId: 1,
   profileImageUrl: null,
+  createdAt: '2026-01-01T00:00:00',
+  companyName: '하자체크',
+  status: 'ACTIVE',
 };
 
 // 알림 센터(HAJA-38) 연결 후 로그인 사용자 렌더 시 useNotifications가 GET /api/notifications를
 // 실제로 호출하므로, 이 파일의 모든 로그인 케이스가 안정적으로 돌게 알림 목 핸들러를 함께 띄운다.
-const server = setupServer(...notificationHandlers);
+// menuHandlers(#1003)도 함께 띄운다 — SideNavBar가 이제 GET /api/menus로 메뉴를 조회하며, mock
+// 트리(menu.mock.ts)는 기존 SideNavBar DEFAULT_ITEMS/DEFAULT_ADMIN_ITEM과 라벨을 동일하게 맞춰뒀으므로
+// 아래 기존 어서션들은 DB 경로로 바뀌어도 그대로 유효하다.
+const server = setupServer(...notificationHandlers, ...menuHandlers);
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterAll(() => server.close());
 
@@ -66,6 +73,14 @@ function renderAt(initialPath: string) {
               activeHref: '/inspections/1/viewer',
             },
           },
+          {
+            path: '/support/history',
+            element: <div>내 상담 이력 페이지</div>,
+            handle: {
+              breadcrumb: [{ label: '고객지원' }, { label: '내 상담 이력' }],
+              activeHref: '/support/history',
+            },
+          },
         ],
       },
     ],
@@ -93,12 +108,27 @@ describe('AppShellRoute', () => {
     expect(screen.getByText('핸들 없는 페이지')).not.toBeNull();
   });
 
+  // '통계'(/statistics)는 HAJA-40(#27)에서 실제 라우트로 구현되어 더 이상 미구현 예시로 쓸 수
+  // 없다 — '설정'(/settings)은 아직 라우터에 없는 항목이라 이 시나리오의 예시로 대체한다
+  // (implementedRoutes.test.ts와 동일 화이트리스트 기준).
   it('router.tsx의 실제 isRouteImplemented를 SideNavBar까지 연결한다(미구현 경로 클릭 시 안내)', () => {
     renderAt('/dashboard');
 
-    fireEvent.click(screen.getByText('통계'));
+    fireEvent.click(screen.getByText('설정'));
 
     expect(screen.getByRole('status').textContent).toBe('아직 구현되지 않은 페이지입니다');
+  });
+
+  it('일반 페이지에서는 고객지원 FAB을 보여준다', () => {
+    renderAt('/dashboard');
+
+    expect(screen.getByRole('button', { name: '고객지원 챗봇 열기' })).not.toBeNull();
+  });
+
+  it('/support/* 페이지는 이미 상담 진입점이라 FAB을 감춘다(전송창 가림 방지)', () => {
+    renderAt('/support/history');
+
+    expect(screen.queryByRole('button', { name: '고객지원 챗봇 열기' })).toBeNull();
   });
 
   it('프로필 클릭 시 MYPAGE_PLAN_ROUTE 상수 경로로 이동한다(#280 P3)', () => {
@@ -109,22 +139,20 @@ describe('AppShellRoute', () => {
     expect(screen.getByText('마이페이지 이용권 페이지')).not.toBeNull();
   });
 
-  it('로그인 사용자의 role이 ADMIN이면 관리자 메뉴와 사이드바 프로필이 노출된다(HAJA-167, #184)', () => {
+  it('로그인 사용자의 role이 ADMIN이면 관리자 메뉴가 노출된다(HAJA-167, #184)', () => {
     useAuthStore.setState({ user: { ...baseUser, role: 'ADMIN' } });
 
     renderAt('/dashboard');
 
     expect(screen.getByText('관리자 페이지')).not.toBeNull();
-    expect(screen.getByText('하자체크 담당자')).not.toBeNull();
   });
 
-  it('로그인 사용자의 role이 ADMIN이 아니면 관리자 메뉴와 사이드바 프로필이 노출되지 않는다(HAJA-167, #184)', () => {
+  it('로그인 사용자의 role이 ADMIN이 아니면 관리자 메뉴가 노출되지 않는다(HAJA-167, #184)', () => {
     useAuthStore.setState({ user: { ...baseUser, role: 'USER' } });
 
     renderAt('/dashboard');
 
     expect(screen.queryByText('관리자 페이지')).toBeNull();
-    expect(screen.queryByText('하자체크 담당자')).toBeNull();
   });
 
   it('id=1이 아닌 동적 라우트로 진입해도 사이드바 "분석 결과 뷰어"가 활성 표시된다(#368)', () => {
@@ -135,6 +163,38 @@ describe('AppShellRoute', () => {
     expect(screen.getByText('분석 결과 뷰어 페이지')).not.toBeNull();
     const link = screen.getByRole('link', { name: '분석 결과 뷰어' });
     expect(link.getAttribute('aria-current')).toBe('page');
+  });
+
+  it('GET /api/menus 응답이 로드되면 사이드바가 DB 트리로 교체된다(#1003)', async () => {
+    server.use(
+      http.get('/api/menus', () => {
+        const body = {
+          success: true,
+          data: [
+            {
+              code: 'DB_ONLY',
+              name: 'DB전용메뉴',
+              menuType: 'INTERNAL',
+              iconKey: 'dashboard',
+              path: '/db-only',
+              activePathPattern: null,
+              opensNewTab: false,
+              enabled: true,
+              children: [],
+            },
+          ],
+        };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    renderAt('/dashboard');
+
+    // 쿼리가 해소되기 전(defaults)에는 없던 DB 전용 라벨이 나타나야 한다.
+    expect(await screen.findByText('DB전용메뉴')).not.toBeNull();
+    // SideNavBar 기본값(DEFAULT_ITEMS)에만 있던 항목은 더 이상 없어야 한다 — 실제로 DB 응답으로
+    // 교체됐다는 증거(단순히 defaults가 우연히 남아있는 게 아님).
+    expect(screen.queryByText('통계')).toBeNull();
   });
 
   it('로그인 사용자는 벨 배지에 미읽음 수가 표시되고 클릭 시 알림 패널이 열린다(HAJA-38)', async () => {

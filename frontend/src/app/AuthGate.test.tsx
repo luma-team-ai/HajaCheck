@@ -19,6 +19,9 @@ const mockUser: User = {
   role: 'USER',
   companyId: 1,
   profileImageUrl: null,
+  createdAt: '2026-01-01T00:00:00',
+  companyName: '하자체크',
+  status: 'ACTIVE',
 };
 
 const server = setupServer();

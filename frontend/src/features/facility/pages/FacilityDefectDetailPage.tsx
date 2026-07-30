@@ -22,10 +22,11 @@ export function FacilityDefectDetailPage() {
     navigate(`/facilities/${facilityId}/defects/${defectId}/compare`);
   };
 
-  // "다음 단계로 전이" — 상태 mutation이 아니라 하자 관리 도메인(/defects/:id, DefectDetailPage)으로
-  // 이동하는 단순 navigation이다(#489 확정). 별도 상태 전이 mutation/API는 두지 않는다.
+  // "다음 단계로 전이"는 상태 mutation 없이 해당 하자가 속한 점검의 하자 목록으로 이동한다.
   const handleTransitionClick = () => {
-    navigate(`/defects/${defectId}`);
+    if (defect) {
+      navigate(`/inspections/${defect.inspectionId}/defects`);
+    }
   };
 
   if (isLoading) {
@@ -61,8 +62,8 @@ export function FacilityDefectDetailPage() {
       <FacilityDefectAiExplainPanel
         defectId={defect.id}
         defectType={defect.defectType}
-        grade={defect.grade}
-        location={defect.location}
+        grade={defect.grade ?? ''}
+        location={defect.location ?? ''}
       />
 
       <FacilityDefectActivityTimeline facilityId={defectId} />

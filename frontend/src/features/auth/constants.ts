@@ -5,6 +5,8 @@ export const GOOGLE_OAUTH_PATH = '/api/auth/oauth2/google';
 // 기업 인증 플로우 — HAJA-170(#187) — API 경로(axios baseURL='/api' 기준 상대경로)
 export const EMAIL_AVAILABILITY_PATH = '/auth/email-availability';
 export const COMPANY_SIGNUP_PATH = '/auth/companies';
+// 사업자 진위확인(#648 BE, #663 FE) — 회원가입 제출 전 국세청 등록정보 일치 확인, 비로그인 공개
+export const BUSINESS_VERIFICATION_PATH = '/auth/business-verification';
 export const ID_INQUIRY_PATH = '/auth/id-inquiry';
 // 비밀번호 찾기 — 이메일 링크 방식(#301, HAJA-224) — docs/api-contract/contract.md "비밀번호 찾기 1·2단계"
 export const PASSWORD_RESET_REQUEST_PATH = '/auth/password-reset-request';
@@ -30,8 +32,17 @@ export const FIND_ID_ROUTE = '/find-id';
 // "{FRONTEND_BASE_URL}/reset-password?token=...")와 경로가 반드시 일치해야 한다(하드코딩 금지 방지).
 export const FIND_PASSWORD_ROUTE = '/find-password';
 export const RESET_PASSWORD_ROUTE = '/reset-password';
+// 초대 코드 입력(#799, #794) — INVITE_CODE_ROUTE는 shared/components/ProtectedRoute도 참조하므로
+// shared/constants/routes로 승격했다(LOGIN_ROUTE와 동일한 이유, 위 참고 주석 §참조). 재export.
+export { INVITE_CODE_ROUTE } from '../../shared/constants/routes';
+// 초대 코드 redeem API 경로(app/router.tsx 무관, authApi.ts와 공유 — 하드코딩 방지) — #794 백엔드
+// 계약: POST /api/users/me/invite-code (backend UserController#redeemInviteCode, PR #801)
+export const INVITE_CODE_REDEEM_PATH = '/users/me/invite-code';
+
 // 프로필 클릭 이동 경로(app/AppShellRoute.tsx와 공유, 하드코딩 방지 — #280 P3)
 export const MYPAGE_PLAN_ROUTE = '/mypage/plan';
+// Header 프로필 드롭다운 "내 정보" 이동 경로(HAJA-758, app/AppShellRoute.tsx와 공유)
+export const MYPAGE_PROFILE_ROUTE = '/mypage/profile';
 
 // 사업자등록증 업로드 제약 — 계약(contract.md) FILE_INVALID_TYPE/FILE_TOO_LARGE와 정합
 export const BUSINESS_LICENSE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];

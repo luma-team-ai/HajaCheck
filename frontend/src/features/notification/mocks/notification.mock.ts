@@ -10,28 +10,32 @@ export const mockNotifications: NotificationApiItem[] = [
   {
     id: 1,
     type: 'ANALYSIS_DONE',
-    payload: { description: '강남 오피스타워 8회차 · 하자 87건 탐지' },
+    // inspectionId는 "결과 보기" 액션 이동(HAJA-595)에 실제로 쓰인다 — 실 BE payload
+    // (InspectionAnalysisNotificationPayload.serialize)와 동일하게 채운다.
+    payload: { description: '8회차', inspectionId: 101 },
     isRead: false,
     createdAt: minutesAgo(0),
   },
   {
     id: 2,
     type: 'REVIEW_PENDING',
-    payload: null,
+    // inspectionId는 "검수하기" 액션 이동(HAJA-595)에 실제로 쓰인다.
+    payload: { description: '8회차', inspectionId: 101 },
     isRead: false,
     createdAt: minutesAgo(12),
   },
   {
     id: 3,
     type: 'COUNSEL_REPLIED',
-    payload: { description: '요금제 문의' },
+    payload: { description: '요금제 문의', ticketId: 501 },
     isRead: false,
     createdAt: minutesAgo(60),
   },
   {
     id: 4,
     type: 'INSPECTION_DUE',
-    payload: { description: '한강대교 북단 D-3' },
+    // facilityId는 "점검 시작" 액션 이동(#1262)에 실제로 쓰인다 — 실 BE payload와 동일하게 채운다.
+    payload: { description: '한강대교 북단 D-3', facilityId: 1 },
     isRead: true,
     createdAt: minutesAgo(180),
   },

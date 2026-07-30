@@ -45,7 +45,7 @@ public class CompanyAccountWriter {
                                  String termsVersion, String privacyVersion,
                                  LocalDate businessStartDate, boolean businessVerified) {
 
-        // user.name = 대표자명(표시명). role=USER, status=ACTIVE.
+        // user.name = 대표자명(표시명). role=ADMIN(회사 owner=회사 관리자, #636), status=ACTIVE.
         User user = userRepository.save(User.createCompanyOwner(email, representativeName, passwordHash));
 
         Company company = companyRepository.save(Company.createPendingReview(

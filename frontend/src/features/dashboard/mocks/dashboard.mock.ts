@@ -43,6 +43,7 @@ function hoursAgo(hours: number): string {
 export const mockPendingPriority: PendingPriorityItem[] = [
   {
     id: 1,
+    inspectionId: 101,
     grade: 'E',
     title: '철근 노출',
     location: '여의도 파크센터 - 지하 3층 기둥',
@@ -50,6 +51,7 @@ export const mockPendingPriority: PendingPriorityItem[] = [
   },
   {
     id: 2,
+    inspectionId: 102,
     grade: 'D',
     title: '균열 (관통)',
     location: '강남 오피스타워 A동 - 외벽 북측',
@@ -57,6 +59,7 @@ export const mockPendingPriority: PendingPriorityItem[] = [
   },
   {
     id: 3,
+    inspectionId: 103,
     grade: 'D',
     title: '누수·백태',
     location: '한강대교 북단 - 교각 하부 3번',
@@ -66,6 +69,7 @@ export const mockPendingPriority: PendingPriorityItem[] = [
   // 육안 확인할 수 있도록 미분류 샘플을 1건 포함한다(HAJA-17 dev-03-01).
   {
     id: 4,
+    inspectionId: 104,
     grade: null,
     title: '도장 손상',
     location: '판교 테크노밸리 - 외벽 동측',
@@ -88,7 +92,7 @@ export const mockRecentInspections: RecentInspectionItem[] = [
     inspectedAt: '2026-07-12',
     inspector: '이서연',
     defectCount: 3,
-    status: '조치대기',
+    status: '검수확정',
   },
   {
     id: 3,
@@ -115,6 +119,162 @@ export const mockRecentInspections: RecentInspectionItem[] = [
     status: '완료',
   },
 ];
+
+// "최근 점검 전체보기"(신규, GET /api/dashboard/recent-inspections/search) 전용 목 데이터 —
+// 페이지네이션이 화면상 실제로 동작하는 걸 눈으로 확인할 수 있도록 10건보다 많이 둔다(22건).
+// 앞 5건은 위젯 목(mockRecentInspections)과 동일값을 유지해 "필터 없이 호출하면 위젯과 동일한
+// 상위 항목"이라는 계약을 목 데이터에서도 시각적으로 대조할 수 있게 한다.
+export const mockRecentInspectionsFull: RecentInspectionItem[] = [
+  ...mockRecentInspections,
+  {
+    id: 6,
+    facilityName: '부산 마린센터',
+    inspectedAt: '2026-07-08',
+    inspector: '한지민',
+    defectCount: 4,
+    status: '검수대기',
+  },
+  {
+    id: 7,
+    facilityName: '대전 테크노파크',
+    inspectedAt: '2026-07-08',
+    inspector: '김현수',
+    defectCount: 1,
+    status: '검수확정',
+  },
+  {
+    id: 8,
+    facilityName: '광주 이노밸리',
+    inspectedAt: '2026-07-07',
+    inspector: '이서연',
+    defectCount: 0,
+    status: '분석중',
+  },
+  {
+    id: 9,
+    facilityName: '울산 산업단지 3동',
+    inspectedAt: '2026-07-07',
+    inspector: '박도윤',
+    defectCount: 8,
+    status: '완료',
+  },
+  {
+    id: 10,
+    facilityName: '세종 시청사',
+    inspectedAt: '2026-07-06',
+    inspector: '최지우',
+    defectCount: 2,
+    status: '완료',
+  },
+  {
+    id: 11,
+    facilityName: '인천 국제터미널',
+    inspectedAt: '2026-07-06',
+    inspector: '정민준',
+    defectCount: 5,
+    status: '검수확정',
+  },
+  {
+    id: 12,
+    facilityName: '창원 산업센터',
+    inspectedAt: '2026-07-05',
+    inspector: '한지민',
+    defectCount: 0,
+    status: '분석중',
+  },
+  {
+    id: 13,
+    facilityName: '전주 한옥마을 안전센터',
+    inspectedAt: '2026-07-05',
+    inspector: '김현수',
+    defectCount: 3,
+    status: '검수대기',
+  },
+  {
+    id: 14,
+    facilityName: '청주 물류단지',
+    inspectedAt: '2026-07-04',
+    inspector: '이서연',
+    defectCount: 7,
+    status: '완료',
+  },
+  {
+    id: 15,
+    facilityName: '천안 스마트타운',
+    inspectedAt: '2026-07-04',
+    inspector: '박도윤',
+    defectCount: 1,
+    status: '검수확정',
+  },
+  {
+    id: 16,
+    facilityName: '여수 화학단지 2공장',
+    inspectedAt: '2026-07-03',
+    inspector: '최지우',
+    defectCount: 0,
+    status: '분석중',
+  },
+  {
+    id: 17,
+    facilityName: '포항 제철단지',
+    inspectedAt: '2026-07-03',
+    inspector: '정민준',
+    defectCount: 6,
+    status: '검수대기',
+  },
+  {
+    id: 18,
+    facilityName: '거제 조선소 A안벽',
+    inspectedAt: '2026-07-02',
+    inspector: '한지민',
+    defectCount: 2,
+    status: '완료',
+  },
+  {
+    id: 19,
+    facilityName: '제주 공항 물류센터',
+    inspectedAt: '2026-07-02',
+    inspector: '김현수',
+    defectCount: 4,
+    status: '검수확정',
+  },
+  {
+    id: 20,
+    facilityName: '춘천 데이터센터',
+    inspectedAt: '2026-07-01',
+    inspector: '이서연',
+    defectCount: 0,
+    status: '분석중',
+  },
+  {
+    id: 21,
+    facilityName: '강릉 해양센터',
+    inspectedAt: '2026-06-30',
+    inspector: '박도윤',
+    defectCount: 3,
+    status: '검수대기',
+  },
+  {
+    id: 22,
+    facilityName: '안동 문화센터',
+    inspectedAt: '2026-06-29',
+    inspector: '최지우',
+    defectCount: 5,
+    status: '완료',
+  },
+];
+
+// "최근 점검 전체보기" 필터 바의 "시설물 종류" — mockRecentInspectionsFull 항목(id)별 카테고리.
+// 실 API는 응답 바디에 종류를 안 돌려주고(facility.type은 필터링에만 쓰임) 요청 파라미터로만
+// 받으므로, MSW 핸들러가 접두(prefix) 매칭을 흉내 내기 위한 핸들러 전용 조회 테이블이다
+// (RecentInspectionResponse에 필드로 노출하지 않는다 — 백엔드 계약과 1:1 유지).
+export const mockRecentInspectionFacilityTypeById: Record<number, string> = {
+  1: '건물', 2: '건물', 3: '건물-긴급-1개월', 4: '기타', 5: '건물',
+  6: '건물', 7: '기타', 8: '건물', 9: '기타', 10: '건물',
+  11: '도로', 12: '기타', 13: '건물', 14: '기타', 15: '건물',
+  16: '기타', 17: '기타', 18: '교량', 19: '도로', 20: '기타',
+  21: '교량-정기-4개월', 22: '건물',
+};
 
 function daysFromNowIsoDate(days: number): string {
   const date = new Date(Date.now() + days * 24 * 60 * 60 * 1000);

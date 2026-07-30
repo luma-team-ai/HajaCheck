@@ -1,7 +1,6 @@
 package com.hajacheck.notification.repository;
 
 import com.hajacheck.notification.entity.Notification;
-import com.hajacheck.notification.entity.NotificationType;
 import java.util.List;
 import java.util.Set;
 import org.springframework.data.domain.Pageable;
@@ -36,9 +35,39 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     boolean existsByIdAndUserIdAndReadTrue(Long notificationId, Long userId);
 
     /**
-     * 여러 사용자의 특정 유형 알림 이력을 한 번에 조회. INSPECTION_DUE 배치(NOTI-01, #425)가 owner별 개별 조회
-     * (N+1)를 피해 대상 owner 전체 알림을 1쿼리로 가져와 dedupe 키 집합을 만드는 데 쓴다. 유형을 파라미터로
-     * 받아 다른 트리거의 멱등성 체크에도 재사용 가능하게 둔다.
+     * 알림 센터 개별 닫기(X) — 본인 소유 알림 1건을 물리 삭제한다. userId를 where에 함께 걸어
+     * 타인 소유 행은 애초에 매칭되지 않게 하고(cross-user IDOR 방지), 영향 행 수로 존재/소유를
+     * 한 번에 판정한다(markAsReadIfUnread 와 동일 패턴 — 조회 후 삭제하면 TOCTOU가 생긴다).
      */
-    List<Notification> findAllByUserIdInAndType(Set<Long> userIds, NotificationType type);
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            delete from Notification n
+            where n.id = :notificationId
+              and n.userId = :userId
+            """)
+    int deleteByIdAndUserId(
+            @Param("notificationId") Long notificationId,
+            @Param("userId") Long userId);
+
+    /**
+     * INSPECTION_DUE 알림 중 {@code kind} 필드가 없는(#540 이전 저장분) 레거시 payload만 조회한다(#1050).
+     * V25 유니크 인덱스({@code uq_notifications_inspection_due_dedupe})는 {@code payload_json->>'kind'}가
+     * NULL인 행을 원자적으로 방어하지 못한다 — PostgreSQL unique index는 NULL을 서로 다른 값으로 취급해
+     * NULL 값이 있는 행끼리는 유니크 제약을 통과시킨다. 이 메서드는 그 좁은 사각지대만 별도로 방어하기
+     * 위한 애플리케이션 레벨 체크에 쓰인다({@link com.hajacheck.core.facility.scheduler
+     * .InspectionDueNotificationScheduler} 참고).
+     *
+     * <p>⚠️ 이 조회 대상은 <b>#540 배포 시점 이후로 늘어나지 않는 유한 집합</b>이다 — #540 이후 모든
+     * 발행 경로({@code InspectionDueNotificationPayload#serialize})가 kind를 필수 인자로 받아 항상
+     * 채우므로, 신규로 저장되는 INSPECTION_DUE payload는 전부 kind를 갖는다. 따라서 날짜 윈도우 없이
+     * 조회해도 #1050 이전에 있었던 "무제한 누적" 문제(구 {@code NOTIFICATION_LOOKBACK_DAYS} 400일
+     * 슬라이딩 윈도우, PR머신+사람검수 P2 #1032)가 재발하지 않는다.
+     */
+    @Query(value = """
+            select * from notifications
+             where user_id in (:userIds)
+               and type = 'INSPECTION_DUE'
+               and payload_json ->> 'kind' is null
+            """, nativeQuery = true)
+    List<Notification> findLegacyKindLessInspectionDueByUserIdIn(@Param("userIds") Set<Long> userIds);
 }

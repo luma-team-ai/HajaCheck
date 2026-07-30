@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // PR #232 3차 재검수 회귀 테스트를 새 앱 셸(AppShellRoute+AppLayout, #227/HAJA-186)에 맞게 이식(#231, HAJA-189).
-// AuthGate + ProtectedRoute + AppShellRoute(SideNavBar 로그아웃 버튼) + LoginPage를 실제 컴포넌트로
-// 조합한 통합 테스트. 근본원인: 로그아웃의 queryClient.clear()가 AuthGate의 상시 getMe 옵저버를
+// AuthGate + ProtectedRoute + AppShellRoute(Header 프로필 드롭다운의 로그아웃, #1003 이후 사이드바
+// 하단 로그아웃 버튼은 제거됨) + LoginPage를 실제 컴포넌트로 조합한 통합 테스트. 근본원인: 로그아웃의
+// queryClient.clear()가 AuthGate의 상시 getMe 옵저버를
 // 재-pending시켜 스플래시가 재노출되고(P2-C), 그 재구독이 즉시 재요청으로 이어져 쿠키가 아직
 // 유효하면 세션이 재복원되던 문제(P2-D)를 검증한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -25,6 +26,9 @@ const mockUser: User = {
   role: 'USER',
   companyId: 1,
   profileImageUrl: null,
+  createdAt: '2026-01-01T00:00:00',
+  companyName: '하자체크',
+  status: 'ACTIVE',
 };
 
 const server = setupServer();
@@ -39,7 +43,11 @@ afterAll(() => server.close());
 
 // useMatches()(AppShellRoute)는 data router에서만 동작하므로 실제 router.tsx와 동일하게
 // createMemoryRouter/RouterProvider로 구성한다 — ProtectedRoute가 AppShell 부모를 감싸고,
-// /dashboard가 그 자식(handle로 breadcrumb 선언)이라 SideNavBar 로그아웃 버튼까지 실제로 렌더된다.
+// /dashboard가 그 자식(handle로 breadcrumb 선언)이라 Header 프로필 드롭다운까지 실제로 렌더된다.
+function clickLogout() {
+  fireEvent.click(screen.getByRole('button', { name: '내 프로필' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: /로그아웃/ }));
+}
 function renderApp(initialPath = '/dashboard') {
   const queryClient = new QueryClient();
   const router = createMemoryRouter(
@@ -107,7 +115,7 @@ describe('로그아웃 흐름(AuthGate + ProtectedRoute + AppShellRoute + LoginP
     });
     expect(screen.queryByRole('status')).toBeNull();
 
-    fireEvent.click(screen.getByText('로그아웃'));
+    clickLogout();
 
     // 로그아웃 처리 도중에도 스플래시(부트스트랩 로딩)가 재노출되지 않아야 한다
     expect(screen.queryByRole('status')).toBeNull();
@@ -137,7 +145,7 @@ describe('로그아웃 흐름(AuthGate + ProtectedRoute + AppShellRoute + LoginP
       expect(screen.getByText('대시보드 콘텐츠')).not.toBeNull();
     });
 
-    fireEvent.click(screen.getByText('로그아웃'));
+    clickLogout();
 
     await waitFor(() => {
       expect(screen.getByRole('tablist')).not.toBeNull(); // LoginPage 도달 확인

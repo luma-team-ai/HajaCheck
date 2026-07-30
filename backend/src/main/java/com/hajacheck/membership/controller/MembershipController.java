@@ -48,4 +48,9 @@ public class MembershipController {
             @AuthenticationPrincipal LoginUser loginUser) {
         return ResponseEntity.ok(ApiResponse.ok(membershipService.requestUpgrade(loginUser.getUserId())));
     }
+
+    // 모의 결제(POST /api/me/plan/checkout, #711)는 제거됐다 — 실결제(토스페이먼츠 샌드박스)로 대체되어
+    // POST /api/me/plan/orders → POST /api/me/payments/confirm 2단계가 그 역할을 한다(#988,
+    // com.hajacheck.payment.controller.PaymentController). checkout 이 갖고 있던 가드(FREE 거부·소유자
+    // 인가·동일 플랜·하향 초과 확인·부분 UQ 경합)는 전부 그쪽 주문 생성/승인 경로로 이관했다.
 }

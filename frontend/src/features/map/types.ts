@@ -20,11 +20,17 @@ export interface FacilityLocation {
   category: string;
   latitude: number;
   longitude: number;
-  /** 해당 시설물에 등록된 하자 중 최고 등급 */
-  highestGrade: DefectGrade;
-  /** 결함(경고) 건수 */
-  warningCount: number;
-  /** 주의 건수 */
-  cautionCount: number;
+  /**
+   * 해당 시설물에 등록된 하자 중 최고 등급.
+   * 백엔드 FacilityResponse가 기존 점검/하자 데이터에서 계산한 시설물 내 최고 심각도 등급.
+   * 등급이 있는 하자가 없으면 null("등급 미정")이다.
+   */
+  highestGrade: DefectGrade | null;
+  /** 결함(경고) 건수 — 기존 하자 등급 D/E 집계 */
+  warningCount: number | null;
+  /** 주의 건수 — 기존 하자 등급 C 집계 */
+  cautionCount: number | null;
   thumbnailUrl: string | null;
+  /** 가장 최근 점검(회차) ID — API 하위 호환을 위해 유지한다. */
+  latestInspectionId?: number | null;
 }

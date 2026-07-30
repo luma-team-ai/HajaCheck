@@ -2,8 +2,10 @@ package com.hajacheck.core.facility.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.core.facility.entity.FacilityInitialGrade;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
 import java.util.List;
@@ -19,7 +21,7 @@ import org.springframework.data.domain.Slice;
 import org.springframework.test.context.ActiveProfiles;
 
 // 실 PG DDL(facilities) 대조를 위해 임베디드 교체를 끄고 Testcontainers PostgreSQL 사용 (리뷰 P2).
-// facilities.owner_id 는 users(id) FK 이므로, 시설물 저장 전 owner User 를 먼저 시드한다.
+// facilities.company_id 는 companies(id) FK 이므로, 시설물 저장 전 회사를 먼저 시드한다.
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)
 @ActiveProfiles("test")
@@ -31,17 +33,35 @@ class FacilityRepositoryTest extends PostgresTestSupport {
     @Autowired
     private TestEntityManager em;
 
-    // FK(owner_id → users) 충족용 owner User 시드 후 생성된 id 반환.
+    // FK(company_id → companies) 충족용 회사 시드 후 생성된 id 반환.
     private Long seedOwner(String email) {
         User owner = User.createCompanyOwner(email, "소유자", "$2a$10$testtesttesttesttesttes");
         em.persist(owner);
+        Company company = Company.createPendingReview(
+                owner.getId(),
+                email + " 회사",
+                "BRN-" + Math.abs(email.hashCode()),
+                "대표자",
+                "서울",
+                null,
+                "https://example.com/brn",
+                "{\"source\":\"TEST\"}");
+        em.persist(company);
         em.flush();
-        return owner.getId();
+        return company.getId();
+    }
+
+    // FK(assignee_user_id → users) 충족용 사용자 시드 후 생성된 user id 반환.
+    private Long seedUser(String email) {
+        User user = User.createCompanyOwner(email, "담당자", "$2a$10$testtesttesttesttesttes");
+        em.persist(user);
+        em.flush();
+        return user.getId();
     }
 
     private Facility newFacility(Long ownerId, String name) {
         return Facility.builder()
-                .ownerId(ownerId)
+                .companyId(ownerId)
                 .name(name)
                 .type("BUILDING")
                 .address("서울시 강남구")
@@ -50,7 +70,7 @@ class FacilityRepositoryTest extends PostgresTestSupport {
 
     private Facility newFacilityWithDueAt(Long ownerId, String name, LocalDate nextInspectionDueAt) {
         return Facility.builder()
-                .ownerId(ownerId)
+                .companyId(ownerId)
                 .name(name)
                 .type("BUILDING")
                 .address("서울시 강남구")
@@ -70,15 +90,51 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         assertThat(saved.getName()).isEqualTo("테스트빌딩");
     }
 
+    // 시설물 등록 필드 확장(#628 / HAJA-347) — initial_grade(NAMED_ENUM 매핑)·assignee_user_id·memo가
+    // 실 PG 왕복 후에도 그대로 유지되는지 확인한다.
     @Test
-    void findByOwnerId_소유자별목록_본인시설만반환() {
+    void save_초기등급담당자메모_저장후조회시그대로반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long assigneeId = seedUser("assignee@haja.com");
+        Facility facility = Facility.builder()
+                .companyId(ownerId)
+                .name("등급테스트빌딩")
+                .type("BUILDING")
+                .initialGrade(FacilityInitialGrade.D)
+                .assigneeUserId(assigneeId)
+                .memo("옥상 방수 재시공 필요")
+                .build();
+
+        Facility saved = facilityRepository.save(facility);
+        em.flush();
+        em.clear();
+        Facility found = facilityRepository.findById(saved.getId()).orElseThrow();
+
+        assertThat(found.getInitialGrade()).isEqualTo(FacilityInitialGrade.D);
+        assertThat(found.getAssigneeUserId()).isEqualTo(assigneeId);
+        assertThat(found.getMemo()).isEqualTo("옥상 방수 재시공 필요");
+    }
+
+    @Test
+    void save_초기등급담당자메모_미입력시_null유지() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+
+        Facility saved = facilityRepository.save(newFacility(ownerId, "테스트빌딩"));
+
+        assertThat(saved.getInitialGrade()).isNull();
+        assertThat(saved.getAssigneeUserId()).isNull();
+        assertThat(saved.getMemo()).isNull();
+    }
+
+    @Test
+    void findByCompanyId_소유자별목록_본인시설만반환() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long otherOwnerId = seedOwner("owner-b@haja.com");
         facilityRepository.save(newFacility(ownerId, "1번소유자시설A"));
         facilityRepository.save(newFacility(ownerId, "1번소유자시설B"));
         facilityRepository.save(newFacility(otherOwnerId, "2번소유자시설"));
 
-        List<Facility> found = facilityRepository.findByOwnerId(ownerId);
+        List<Facility> found = facilityRepository.findByCompanyId(ownerId);
 
         assertThat(found).hasSize(2)
                 .extracting(Facility::getName)
@@ -87,13 +143,13 @@ class FacilityRepositoryTest extends PostgresTestSupport {
 
     // 시설물 목록 조회 상한(#484) — 상한 초과 데이터 시 limit(Pageable) 건수만 반환되는지 확인.
     @Test
-    void findByOwnerIdOrderByIdAsc_상한초과시_limit건수만_id오름차순반환() {
+    void findByCompanyIdOrderByIdAsc_상한초과시_limit건수만_id오름차순반환() {
         Long ownerId = seedOwner("owner-a@haja.com");
         for (int i = 0; i < 5; i++) {
             facilityRepository.save(newFacility(ownerId, "시설" + i));
         }
 
-        List<Facility> found = facilityRepository.findByOwnerIdOrderByIdAsc(ownerId, PageRequest.of(0, 3));
+        List<Facility> found = facilityRepository.findByCompanyIdOrderByIdAsc(ownerId, PageRequest.of(0, 3));
 
         assertThat(found).hasSize(3)
                 .extracting(Facility::getName)
@@ -101,32 +157,32 @@ class FacilityRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void findByIdAndOwnerId_본인소유_반환() {
+    void findByIdAndCompanyId_본인소유_반환() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Facility saved = facilityRepository.save(newFacility(ownerId, "테스트빌딩"));
 
-        Optional<Facility> found = facilityRepository.findByIdAndOwnerId(saved.getId(), ownerId);
+        Optional<Facility> found = facilityRepository.findByIdAndCompanyId(saved.getId(), ownerId);
 
         assertThat(found).isPresent();
         assertThat(found.get().getName()).isEqualTo("테스트빌딩");
     }
 
     @Test
-    void findByIdAndOwnerId_타인소유_빈값() {
+    void findByIdAndCompanyId_타인소유_빈값() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long otherOwnerId = seedOwner("owner-b@haja.com");
         Facility saved = facilityRepository.save(newFacility(ownerId, "테스트빌딩"));
 
-        Optional<Facility> found = facilityRepository.findByIdAndOwnerId(saved.getId(), otherOwnerId);
+        Optional<Facility> found = facilityRepository.findByIdAndCompanyId(saved.getId(), otherOwnerId);
 
         assertThat(found).isEmpty();
     }
 
     @Test
-    void findByIdAndOwnerId_없는id_빈값() {
+    void findByIdAndCompanyId_없는id_빈값() {
         Long ownerId = seedOwner("owner-a@haja.com");
 
-        Optional<Facility> found = facilityRepository.findByIdAndOwnerId(999L, ownerId);
+        Optional<Facility> found = facilityRepository.findByIdAndCompanyId(999L, ownerId);
 
         assertThat(found).isEmpty();
     }
@@ -152,7 +208,7 @@ class FacilityRepositoryTest extends PostgresTestSupport {
 
     // 다가오는 점검 예정 조회(dev-03-02) — owner_id 단일 스코프, 범위 밖·null·타인소유 제외, 정렬·limit 확인.
     @Test
-    void findUpcomingByOwnerId_범위내만_오름차순_반환() {
+    void findUpcomingByCompanyId_범위내만_오름차순_반환() {
         Long ownerId = seedOwner("owner-a@haja.com");
         LocalDate today = LocalDate.now();
         facilityRepository.save(newFacilityWithDueAt(ownerId, "10일후", today.plusDays(10)));
@@ -160,7 +216,7 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         facilityRepository.save(newFacilityWithDueAt(ownerId, "40일후_범위밖", today.plusDays(40)));
         facilityRepository.save(newFacility(ownerId, "예정일없음"));
 
-        List<Facility> found = facilityRepository.findUpcomingByOwnerId(
+        List<Facility> found = facilityRepository.findUpcomingByCompanyId(
                 ownerId, today, today.plusDays(30), PageRequest.of(0, 10));
 
         assertThat(found).hasSize(2)
@@ -169,14 +225,14 @@ class FacilityRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void findUpcomingByOwnerId_타인소유는제외() {
+    void findUpcomingByCompanyId_타인소유는제외() {
         Long ownerId = seedOwner("owner-a@haja.com");
         Long otherOwnerId = seedOwner("owner-b@haja.com");
         LocalDate today = LocalDate.now();
         facilityRepository.save(newFacilityWithDueAt(ownerId, "본인시설", today.plusDays(5)));
         facilityRepository.save(newFacilityWithDueAt(otherOwnerId, "타인시설", today.plusDays(5)));
 
-        List<Facility> found = facilityRepository.findUpcomingByOwnerId(
+        List<Facility> found = facilityRepository.findUpcomingByCompanyId(
                 ownerId, today, today.plusDays(30), PageRequest.of(0, 10));
 
         assertThat(found).hasSize(1)
@@ -185,14 +241,14 @@ class FacilityRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void findUpcomingByOwnerId_limit건수만큼만_반환() {
+    void findUpcomingByCompanyId_limit건수만큼만_반환() {
         Long ownerId = seedOwner("owner-a@haja.com");
         LocalDate today = LocalDate.now();
         facilityRepository.save(newFacilityWithDueAt(ownerId, "1일후", today.plusDays(1)));
         facilityRepository.save(newFacilityWithDueAt(ownerId, "2일후", today.plusDays(2)));
         facilityRepository.save(newFacilityWithDueAt(ownerId, "3일후", today.plusDays(3)));
 
-        List<Facility> found = facilityRepository.findUpcomingByOwnerId(
+        List<Facility> found = facilityRepository.findUpcomingByCompanyId(
                 ownerId, today, today.plusDays(30), PageRequest.of(0, 2));
 
         assertThat(found).hasSize(2)
@@ -201,13 +257,13 @@ class FacilityRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void findUpcomingByOwnerId_from경계값_오늘포함() {
+    void findUpcomingByCompanyId_from경계값_오늘포함() {
         // from(오늘) 자체와 같은 nextInspectionDueAt 도 포함돼야 한다(inclusive, dDay=0).
         Long ownerId = seedOwner("owner-a@haja.com");
         LocalDate today = LocalDate.now();
         facilityRepository.save(newFacilityWithDueAt(ownerId, "오늘마감", today));
 
-        List<Facility> found = facilityRepository.findUpcomingByOwnerId(
+        List<Facility> found = facilityRepository.findUpcomingByCompanyId(
                 ownerId, today, today.plusDays(30), PageRequest.of(0, 10));
 
         assertThat(found).hasSize(1)
@@ -216,13 +272,13 @@ class FacilityRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void findUpcomingByOwnerId_to경계값_범위끝포함() {
+    void findUpcomingByCompanyId_to경계값_범위끝포함() {
         // to(오늘+days) 자체와 같은 nextInspectionDueAt 도 포함돼야 한다(inclusive).
         Long ownerId = seedOwner("owner-a@haja.com");
         LocalDate today = LocalDate.now();
         facilityRepository.save(newFacilityWithDueAt(ownerId, "범위끝마감", today.plusDays(30)));
 
-        List<Facility> found = facilityRepository.findUpcomingByOwnerId(
+        List<Facility> found = facilityRepository.findUpcomingByCompanyId(
                 ownerId, today, today.plusDays(30), PageRequest.of(0, 10));
 
         assertThat(found).hasSize(1)
@@ -231,11 +287,11 @@ class FacilityRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
-    void findUpcomingByOwnerId_소유시설없으면_빈목록() {
+    void findUpcomingByCompanyId_소유시설없으면_빈목록() {
         Long ownerId = seedOwner("owner-a@haja.com");
         LocalDate today = LocalDate.now();
 
-        List<Facility> found = facilityRepository.findUpcomingByOwnerId(
+        List<Facility> found = facilityRepository.findUpcomingByCompanyId(
                 ownerId, today, today.plusDays(30), PageRequest.of(0, 10));
 
         assertThat(found).isEmpty();
@@ -298,7 +354,8 @@ class FacilityRepositoryTest extends PostgresTestSupport {
             Facility f = facilityRepository.findById(savedIds.get(i)).orElseThrow();
             f.updateInfo(f.getName() + "_수정", f.getType(), f.getAddress(),
                     f.getLatitude(), f.getLongitude(), f.getBuiltYear(),
-                    f.getScale(), f.getInspectionCycleMonths(), f.getNextInspectionDueAt());
+                    f.getScale(), f.getInspectionCycleMonths(), f.getNextInspectionDueAt(),
+                    f.getInitialGrade(), f.getAssigneeUserId(), f.getMemo());
             facilityRepository.save(f);
         }
         em.flush();

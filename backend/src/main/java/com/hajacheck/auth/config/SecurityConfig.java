@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -24,6 +25,7 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 
 /**
@@ -51,14 +53,15 @@ public class SecurityConfig {
     // securityContextRepository 는 아래 @Bean 으로 정의 — 순환 생성을 피하려 메서드 파라미터로 주입받는다.
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http,
-                                           SecurityContextRepository securityContextRepository)
+                                           SecurityContextRepository securityContextRepository,
+                                           CsrfTokenRepository csrfTokenRepository)
             throws Exception {
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
 
         http
                 // CSRF: double-submit(SPA axios 가 X-XSRF-TOKEN 자동 전송) — HttpOnly=false 쿠키.
                 .csrf(csrf -> csrf
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .csrfTokenRepository(csrfTokenRepository)
                         .csrfTokenRequestHandler(csrfHandler))
                 // CsrfFilter 직후 토큰을 강제 로드해 XSRF-TOKEN 쿠키를 응답에 심는다.
                 .addFilterAfter(csrfCookieFilter, CsrfFilter.class)
@@ -74,10 +77,53 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**")
                         .permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/plans").permitAll()
+                        // Actuator 과노출 차단(#728 리뷰 지적) — health 를 제외한 나머지(예: metrics)는
+                        // management.endpoints.web.exposure.include(application.yml) 로 이미 열려 있어
+                        // 위 permitAll 목록에 없으면 anyRequest().authenticated() 로 떨어져 "로그인만 하면"
+                        // 누구나 조회 가능했다. 플랫폼 관리자 모니터링 화면(#728)은 이 엔드포인트들을 HTTP로
+                        // 재호출하지 않고 HealthEndpoint/MetricsEndpoint 빈을 직접 호출하므로, 여기서 막아도
+                        // 그 화면 기능에는 영향이 없다 — 순수 외부 직접 접근 차단용.
+                        .requestMatchers("/actuator/**").hasRole("PLATFORM_ADMIN")
+                        // RAG 문서 관리(#22/HAJA-35) — company_id 스코프가 없는 "전 테넌트 공유" 지식베이스
+                        // (regulations/defect_kb Chroma 컬렉션 원본)라 PLATFORM_ADMIN 전용이다(설계 §6:
+                        // 전역 데이터는 platform-admin으로 엄격 분리, "/api/admin/**"(ADMIN)와 절대 겹치지
+                        // 않아야 함). 프론트도 PlatformAdminRoute로만 열려 있다(router.tsx) — 회사 ADMIN까지
+                        // 열면 한 회사 관리자가 API 직접 호출로 전사 공유 KB를 오염시킬 수 있다(PR #685 리뷰 P1).
+                        // 더 구체적인 패턴이라 아래 "/api/admin/**"(ADMIN 전용) 보다 먼저 와야 매칭된다 —
+                        // 순서를 바꾸면 이 규칙은 죽은 코드가 된다.
+                        .requestMatchers("/api/admin/rag-documents/**").hasRole("PLATFORM_ADMIN")
                         // 관리자 콘솔(#405 사용자 관리, #507 플랜·쿼터 관리) — 엔드포인트 레벨에서 ADMIN role 을
                         // 강제한다. 프론트 AdminRoute 는 UX 가드일 뿐 실제 차단은 이 경계가 최종 방어선이다.
                         // 회사 스코프·데이터 소유권은 각 서비스가 company_id 로 추가 필터링한다.
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        // 플랫폼 관리자 콘솔(#576 사용자 관리) — 회사 스코프 없는 전사 데이터라 별도 role로
+                        // 엄격히 분리한다. "/api/admin/**"(ADMIN)와 절대 겹치지 않아야 한다(설계 §6 원칙).
+                        .requestMatchers("/api/platform-admin/**").hasRole("PLATFORM_ADMIN")
+                        // 하자 자연어 검색(HAJA-120, HAJA-509) — 점검자·회사 관리자 역할을 엔드포인트
+                        // 레벨에서 강제(설계 §4).
+                        // has_ai_addon 플랜 게이트는 역할과 무관한 별도 축이라 NlSearchService가 담당한다.
+                        .requestMatchers(HttpMethod.POST, "/api/defects/nl-search")
+                        .hasAnyRole("INSPECTOR", "ADMIN")
+                        // 전문 상담(FR-7, #20/HAJA-33) — 상담원 콘솔 축(대기열 조회·셀프-클레임 배정)은
+                        // COUNSELOR/PLATFORM_ADMIN 만. 종료·이탈의 세부 소유권(담당 상담원 본인/티켓 소유자)은
+                        // 서비스가 검증하므로 여기서는 대기열·배정만 role 게이트로 막는다. 티켓 생성은 로그인만
+                        // 요구하고 요금제 게이트(has_counselor_access)는 CounselTicketService가 담당한다.
+                        .requestMatchers(HttpMethod.GET, "/api/counsel/tickets").hasAnyRole("COUNSELOR", "PLATFORM_ADMIN")
+                        // 관리자 날짜별 상담 목록(#1168) — 전 고객의 이름·이메일·가입일(PII)을 반환하므로
+                        // 컨트롤러의 role 분기 한 줄을 유일 방어선으로 두지 않는다(#1263). 위 대기열 매처는
+                        // 정확 경로라 이 하위 경로를 덮지 않아, 매처가 없으면 anyRequest().authenticated() 로
+                        // 떨어져 "리팩터링 중 컨트롤러 if 유실 = PII 전량 노출"이 된다. 컨트롤러 체크는 유지(이중 방어).
+                        .requestMatchers(HttpMethod.GET, "/api/counsel/tickets/admin").hasRole("PLATFORM_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/counsel/tickets/*/assign").hasAnyRole("COUNSELOR", "PLATFORM_ADMIN")
+                        // 상담원 비공개 메모(#1021/HAJA-503) — 고객 비노출, 담당 상담원 본인만. role 게이트는
+                        // 최소 방어선이고, "담당 상담원 본인" 세부 소유권은 CounselTicketNoteService가 검증한다.
+                        .requestMatchers(HttpMethod.GET, "/api/counsel/tickets/*/note").hasAnyRole("COUNSELOR", "PLATFORM_ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/counsel/tickets/*/note").hasAnyRole("COUNSELOR", "PLATFORM_ADMIN")
+                        // WebSocket 핸드셰이크 — 실질 인증은 CounselHandshakeInterceptor(SESSION 쿠키 검증)와
+                        // StompAuthChannelInterceptor(CONNECT 재검증·SUBSCRIBE 당사자 검증)가 담당한다. 이 매처는
+                        // "인증 필요"를 명시적으로 문서화하는 최소 경계다(anyRequest로도 커버되지만 의도 고정).
+                        .requestMatchers("/ws/**").authenticated()
                         // 그 밖은 "인증됨"만 요구. 소셜 셀프가입 계정(companyId=null·role=USER)에 대한
                         // companyId/role 기반 리소스 권한 경계는 각 도메인 엔드포인트에서 후속 과제로 부여한다.
                         .anyRequest().authenticated())
@@ -96,6 +142,16 @@ public class SecurityConfig {
 
         // CORS: dev(Vite proxy)·prod(nginx) 모두 프론트와 동일 오리진으로 프록시되므로 CORS 설정 불필요.
         return http.build();
+    }
+
+    /**
+     * CSRF 토큰 저장소 — 필터체인(위 csrf 설정)과 AuthController(로그아웃 시 토큰 회전, #1200)가
+     * 반드시 같은 인스턴스를 써야 한다. 인라인 생성하면 쿠키명·httpOnly·path 설정이 이원화돼
+     * 컨트롤러가 심은 쿠키를 필터가 못 읽는 조용한 불일치가 생긴다.
+     */
+    @Bean
+    public CsrfTokenRepository csrfTokenRepository() {
+        return CookieCsrfTokenRepository.withHttpOnlyFalse();
     }
 
     @Bean

@@ -68,6 +68,12 @@
   gap: 12px;
 }
 
+.defect-list-page__export-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
 .defect-filter-bar {
   display: flex;
   flex-direction: column;
@@ -149,6 +155,20 @@
 .defect-filter-bar__submit:disabled {
   cursor: not-allowed;
   opacity: 1;
+}
+
+.defect-filter-bar__ai-message {
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-point) 8%, var(--color-surface));
+  color: var(--color-text-default);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.defect-filter-bar__ai-message--error {
+  background: var(--color-danger-soft-bg);
+  color: var(--color-danger);
 }
 
 .defect-filter-bar__result {
@@ -513,6 +533,26 @@
 .defect-list-page__pagination > div {
   min-height: 64px;
   padding-inline: 32px;
+}
+
+/* --- 점검 목록(InspectionTable, HAJA-393/394 · #725/#726) --- */
+
+.inspection-table__grade-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.inspection-table__grade-group .defect-list-table__grade {
+  width: auto;
+  padding: 0 6px;
+  border-radius: 9999px;
+}
+
+.inspection-table__status {
+  color: var(--color-text-default);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 @keyframes defect-list-loading {

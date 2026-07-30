@@ -42,12 +42,26 @@ export function PlatformAdminShellRoute() {
       items={[]}
       adminItem={PLATFORM_ADMIN_NAV_ITEM}
       isAdmin
-      // 로고 클릭 시 "사용자 관리"로 바로 이동 + 그 메뉴가 활성 선택되도록, 리다이렉트를 거치는
-      // 인덱스 경로('/platform-admin')가 아니라 첫 메뉴 경로를 직접 가리킨다(router.tsx의
-      // '/platform-admin/users' 라우트 handle.activeHref와 동일 값이어야 사이드바가 강조된다).
-      brandHref="/platform-admin/users"
-      user={authUser ? { name: authUser.name } : undefined}
-      onLogout={() => void logout()}
+      // 로고 클릭 시 "대시보드"(옛 서비스 통계, 메뉴 최상위)로 바로 이동 + 그 메뉴가 활성
+      // 선택되도록, 리다이렉트를 거치는 인덱스 경로('/platform-admin')가 아니라 첫 메뉴 경로를
+      // 직접 가리킨다(router.tsx의 '/platform-admin/stats' 라우트 handle.activeHref와 동일
+      // 값이어야 사이드바가 강조된다).
+      brandHref="/platform-admin/stats"
+      // Header 프로필 드롭다운(#773) — 플랫폼 관리자는 기업 소속·구독 플랜이 없어(company_id 없음)
+      // 일반 사용자 셸(AppShellRoute)의 companyName/planLabel/내 정보/내 플랜 항목을 그대로 채울 수
+      // 없다. 마이페이지도 없으므로 이름·이메일 + 로그아웃만 노출한다(ProfileMenu는 그 값들이
+      // 없으면 해당 UI를 자체적으로 생략).
+      profileMenu={
+        authUser
+          ? {
+              name: authUser.name,
+              email: authUser.email,
+              onLogout: () => void logout(),
+            }
+          : undefined
+      }
+      // 우측 하단 고객지원 퀵상담 FAB — 이 콘솔은 플랫폼 운영진 전용이라 고객 지원 진입점이 불필요(사용자 지시).
+      showSupportFab={false}
     >
       <Outlet />
     </AppLayout>

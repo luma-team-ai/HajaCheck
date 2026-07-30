@@ -102,7 +102,7 @@ class InspectionServiceConcurrencyTest extends PostgresTestSupport {
         inspectorMembership = companyMembershipRepository.save(inspectorMembership);
 
         Facility facility = facilityRepository.save(
-                Facility.builder().ownerId(owner.getId()).name("동시성테스트시설").type("BUILDING").build());
+                Facility.builder().companyId(company.getId()).name("동시성테스트시설").type("BUILDING").build());
 
         this.ownerId = owner.getId();
         this.inspectorId = inspector.getId();
@@ -147,7 +147,7 @@ class InspectionServiceConcurrencyTest extends PostgresTestSupport {
                 start.await();
                 InspectionCreateRequest request =
                         new InspectionCreateRequest(facilityId, LocalDate.now(), inspectorId);
-                return inspectionService.createInspection(request, ownerId).roundNo();
+                return inspectionService.createInspection(request, companyId, ownerId).roundNo();
             }));
         }
         ready.await();

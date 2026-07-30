@@ -29,6 +29,20 @@ async function importFreshApi() {
   return mod.api;
 }
 
+// axios.ts는 내부에서 '../../features/inspection/store/inspectionStore'를 import한다 — 위
+// importFreshApi처럼 vi.resetModules() 후 axios만 다시 import하면, 그 axios가 실제로 참조하는
+// inspectionStore 모듈 인스턴스와 이 테스트 파일이 (resetModules 이전에) 정적 import했을 인스턴스가
+// 서로 달라져 store 상태를 공유하지 않는다. 401 clear 검증은 반드시 axios와 같은 사이클에서
+// 다시 import한 인스턴스로 설정·검증해야 한다.
+async function importFreshApiWithInspectionStore() {
+  vi.resetModules();
+  const [axiosMod, storeMod] = await Promise.all([
+    import('./axios'),
+    import('../../features/inspection/store/inspectionStore'),
+  ]);
+  return { api: axiosMod.api, useInspectionStore: storeMod.useInspectionStore };
+}
+
 // jsdom의 Location 인스턴스는 href/pathname 접근자가 non-configurable이라 직접 재정의 불가.
 // 대신 원본 Location을 Proxy로 감싸 pathname 읽기·href 쓰기만 가로채고,
 // origin 등 나머지 속성·메서드는 Reflect로 원본에 위임 — axios/MSW의 상대경로 URL 해석은 그대로 유지
@@ -127,6 +141,22 @@ describe('axios 401 인터셉터 — 로그인 경로 가드 (기본 base=/)', (
       restore();
     }
   });
+
+  // PR머신 리뷰 P2(#1194) — inspectionStore가 localStorage에 영속화되면서, 401 하드 리다이렉트 전에
+  // 지우지 않으면 공용 PC에서 세션 만료된 사용자의 activeInspectionId가 다음 로그인 사용자에게 샌다.
+  it('401 하드 리다이렉트 시 inspectionStore(activeInspectionId/activeReportId)를 비운다', async () => {
+    const { api, useInspectionStore } = await importFreshApiWithInspectionStore();
+    useInspectionStore.getState().setActiveInspectionId(42);
+    useInspectionStore.getState().setActiveReportId(7);
+    const { restore } = mockLocation('/dashboard');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(useInspectionStore.getState().activeInspectionId).toBeNull();
+      expect(useInspectionStore.getState().activeReportId).toBeNull();
+    } finally {
+      restore();
+    }
+  });
 });
 
 describe('axios 401 인터셉터 — basename 배포(base=/app/)', () => {
@@ -198,6 +228,30 @@ describe('axios 401 인터셉터 — 플랫폼 관리자 콘솔(#535, base=/)', 
     try {
       await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
       expect(hrefSetter).toHaveBeenCalledWith('/login');
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('axios 401 인터셉터 — 상담원 콘솔(base=/)', () => {
+  it('/counsel-console 하위 경로에서 401이면 /counsel-console/login으로 리다이렉트한다(일반 /login이 아님)', async () => {
+    const api = await importFreshApi();
+    const { hrefSetter, restore } = mockLocation('/counsel-console/queue');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(hrefSetter).toHaveBeenCalledWith('/counsel-console/login');
+    } finally {
+      restore();
+    }
+  });
+
+  it('/counsel-console/login 경로면 401이어도 재대입하지 않는다(무한 리로드 방지)', async () => {
+    const api = await importFreshApi();
+    const { hrefSetter, restore } = mockLocation('/counsel-console/login');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(hrefSetter).not.toHaveBeenCalled();
     } finally {
       restore();
     }

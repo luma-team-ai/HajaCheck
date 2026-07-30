@@ -121,6 +121,19 @@ describe('NotificationDropdown', () => {
     }).not.toThrow();
   });
 
+  // #1244 — 유형별 아이콘(iconSrc)이 있으면 뱃지로 렌더하고, 없는 항목(폴백 메타 등)은 기존처럼
+  // 아이콘 없이(왼쪽 여백만 pl-3.5로) 렌더한다.
+  it('iconSrc가 있으면 아이콘 뱃지를 렌더하고, 없으면 렌더하지 않는다(#1244)', () => {
+    const items: NotificationItem[] = [
+      { ...notifications[0], iconSrc: '/icons/analysis.svg' },
+      notifications[1],
+    ];
+    const { container } = render(<NotificationDropdown notifications={items} unreadCount={1} />);
+
+    const icons = container.querySelectorAll('li img[src="/icons/analysis.svg"]');
+    expect(icons).toHaveLength(1);
+  });
+
   it('필터 선택 시 onFilterChange가 호출되고 해당 카테고리만 표시된다', () => {
     const handleFilterChange = vi.fn();
     const { rerender } = render(

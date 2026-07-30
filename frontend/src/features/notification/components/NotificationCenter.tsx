@@ -1,10 +1,40 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { NotificationItem } from '../../../shared/components/NotificationDropdown';
 import { NotificationDropdown } from '../../../shared/components/NotificationDropdown';
-import { NOTIFICATION_ALL_FILTER_KEY, NOTIFICATION_FILTERS, getNotificationTypeMeta } from '../constants';
-import { useMarkNotificationsAsRead, useNotifications } from '../hooks/useNotifications';
+import {
+  INSPECTION_NEW_PATH,
+  NOTIFICATION_ALL_FILTER_KEY,
+  NOTIFICATION_FILTERS,
+  getNotificationTypeMeta,
+} from '../constants';
+import { useDeleteNotification, useMarkNotificationsAsRead, useNotifications } from '../hooks/useNotifications';
 import type { NotificationApiItem } from '../types';
 import { formatElapsedTime } from '../utils/formatElapsedTime';
+
+// "대화 열기" 버튼이 markAsRead만 호출하고 실제로 어디로도 이동하지 않던 버그 수정(사용자 피드백,
+// #1262 1차). COUNSEL_REPLIED payload는 백엔드가 항상 {ticketId}로 직렬화한다
+// (CounselReplyNotificationPayload 확인 완료).
+function resolveCounselTicketId(raw: NotificationApiItem): number | null {
+  const ticketId = raw.payload?.ticketId;
+  return typeof ticketId === 'number' ? ticketId : null;
+}
+
+// "점검 시작" 버튼 이동(#1262 2차). INSPECTION_DUE payload는 백엔드가 항상 {facilityId, ...}로
+// 직렬화한다(InspectionDueNotificationPayload 확인 완료) — 대시보드 UpcomingInspectionCard와
+// 동일하게 /inspections/create?facilityId=... 로 이동한다.
+function resolveInspectionDueFacilityId(raw: NotificationApiItem): number | null {
+  const facilityId = raw.payload?.facilityId;
+  return typeof facilityId === 'number' ? facilityId : null;
+}
+
+// "결과 보기"(ANALYSIS_DONE)/"검수하기"(REVIEW_PENDING) 버튼 이동(HAJA-595). 두 알림은 같은 전이
+// 지점(Inspection이 ANALYZED로 바뀌는 순간)에서 함께 발행되고 같은 payload 형태를 공유한다 —
+// {inspectionId, description}(InspectionAnalysisNotificationPayload.serialize 확인 완료).
+function resolveInspectionId(raw: NotificationApiItem): number | null {
+  const inspectionId = raw.payload?.inspectionId;
+  return typeof inspectionId === 'number' ? inspectionId : null;
+}
 
 interface NotificationCenterProps {
   /** 패널 열림 여부 — Header 벨(shared, AppLayout 내부)이 AppShellRoute에 있어 토글 핸들러도
@@ -20,23 +50,26 @@ function extractDescription(payload: NotificationApiItem['payload']): string | u
   return typeof raw === 'string' ? raw : undefined;
 }
 
-// Header 벨 클릭 시 열리는 알림 패널 컨테이너 — shared NotificationDropdown(프리젠테이션, 이은석 소유·
-// 미터치)을 그대로 렌더한다(HAJA-38, Figma node-id 208-2458 / Anima 파트3 NotificationPanelSection).
+// Header 벨 클릭 시 열리는 알림 패널 컨테이너 — shared NotificationDropdown(프리젠테이션, 이은석 소유,
+// 이번 유형별 아이콘 배선(#1244)만 예외적으로 함께 수정)을 그대로 렌더한다(HAJA-38, Figma node-id
+// 208-2458 / Anima 파트3 NotificationPanelSection).
 export function NotificationCenter({ open, onClose, enabled }: NotificationCenterProps) {
+  const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState(NOTIFICATION_ALL_FILTER_KEY);
-  // 개별 닫기(X) 로컬 상태 — 전용 삭제 API가 없어(#564) 서버엔 읽음처리만 반영하고, 화면에서
-  // 실제로 사라지는 동작은 이 클라이언트 전용 dismiss 목록으로 구현한다(재검수 반영: 읽음처리만으로는
-  // X를 눌러도 목록에 그대로 남아 "닫기"라는 라벨과 실제 동작이 어긋났었다).
-  const [dismissedIds, setDismissedIds] = useState<Set<number>>(() => new Set());
   const { data } = useNotifications(enabled);
   const { markAsRead, markAllAsRead } = useMarkNotificationsAsRead();
+  const { deleteNotification } = useDeleteNotification();
 
-  const notifications = (data ?? []).filter((raw) => !dismissedIds.has(raw.id));
+  const notifications = data ?? [];
 
   // markAsRead(useMutation.mutate 래퍼)는 렌더마다 identity가 바뀌어 useMemo 의존성으로 써도
   // 매 렌더 재계산됐다(P2) — 목록 규모가 작아(최대 30건, BE 컷 기준) 순수 계산으로 충분하다.
   const items: NotificationItem[] = notifications.map((raw) => {
     const meta = getNotificationTypeMeta(raw.type);
+    const counselTicketId = raw.type === 'COUNSEL_REPLIED' ? resolveCounselTicketId(raw) : null;
+    const inspectionDueFacilityId = raw.type === 'INSPECTION_DUE' ? resolveInspectionDueFacilityId(raw) : null;
+    const inspectionId =
+      raw.type === 'ANALYSIS_DONE' || raw.type === 'REVIEW_PENDING' ? resolveInspectionId(raw) : null;
     return {
       id: raw.id,
       category: meta.category,
@@ -44,12 +77,35 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
       description: extractDescription(raw.payload),
       timestamp: formatElapsedTime(raw.createdAt),
       read: raw.isRead,
+      iconSrc: meta.iconSrc,
       // 폴백(미지의 type) 메타는 actionLabel이 없다 — 의미를 모르는 액션 버튼을 노출하지 않는다.
-      ...(meta.actionLabel ? { actionLabel: meta.actionLabel, onAction: () => markAsRead(raw.id) } : {}),
-      onDismiss: () => {
-        markAsRead(raw.id);
-        setDismissedIds((prev) => new Set(prev).add(raw.id));
-      },
+      ...(meta.actionLabel
+        ? {
+            actionLabel: meta.actionLabel,
+            onAction: () => {
+              markAsRead(raw.id);
+              if (counselTicketId !== null) {
+                navigate(`/support/history?ticketId=${counselTicketId}`);
+                onClose();
+              } else if (inspectionDueFacilityId !== null) {
+                navigate(`${INSPECTION_NEW_PATH}?facilityId=${inspectionDueFacilityId}`);
+                onClose();
+              } else if (raw.type === 'ANALYSIS_DONE' && inspectionId !== null) {
+                // "결과 보기" — 분석 결과 뷰어(mypage/MyInspectionsTable.tsx "결과 보기"와 동일 경로).
+                navigate(`/inspections/${inspectionId}/viewer`);
+                onClose();
+              } else if (raw.type === 'REVIEW_PENDING' && inspectionId !== null) {
+                // "검수하기" — 해당 점검의 하자 목록(dashboard/PendingPriorityCard.tsx "검수하기"와 같은
+                // 기본 경로 — feature 간 직접 import 금지라 경로 문자열은 로컬로 재구성). payload에
+                // defectId가 없어 PendingPriorityCard처럼 특정 하자 모달을 자동으로 열지는 못한다.
+                navigate(`/inspections/${inspectionId}/defects`);
+                onClose();
+              }
+            },
+          }
+        : {}),
+      // X는 "숨김"이 아니라 실제 삭제 — DELETE /api/notifications/{id}로 notifications 행을 지운다.
+      onDismiss: () => deleteNotification(raw.id),
     };
   });
 
@@ -70,9 +126,6 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
         activeFilter={activeFilter}
         onFilterChange={setActiveFilter}
         onMarkAllRead={() => markAllAsRead(notifications.filter((item) => !item.isRead).map((item) => item.id))}
-        onViewAll={() => {
-          // TODO(HAJA-38 후속): 알림 전체 보기 페이지(/notifications) 라우트가 생기면 navigate 연결
-        }}
         onClose={onClose}
       />
     </div>

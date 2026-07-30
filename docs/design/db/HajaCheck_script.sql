@@ -13,7 +13,7 @@ alter type social_provider_type owner to postgres;
 
 comment on type social_provider_type is '소셜 로그인 제공자';
 
-create type user_status_type as enum ('ACTIVE', 'SUSPENDED');
+create type user_status_type as enum ('ACTIVE', 'SUSPENDED', 'WAITING');
 
 alter type user_status_type owner to postgres;
 
@@ -31,11 +31,35 @@ alter type user_plan_status_type owner to postgres;
 
 comment on type user_plan_status_type is '사용자 구독 상태(이용중/만료/업그레이드 요청)';
 
+create type payment_status_type as enum ('READY', 'PAID', 'FAILED', 'CANCELED');
+
+alter type payment_status_type owner to postgres;
+
+comment on type payment_status_type is '결제 상태(주문생성/승인완료/실패/취소)';
+
+create type payment_method_type as enum ('CARD');
+
+alter type payment_method_type owner to postgres;
+
+comment on type payment_method_type is '결제 수단(이번 범위는 카드 단일 — 간편결제·계좌이체는 범위 밖)';
+
+create type scheduled_plan_change_status_type as enum ('PENDING', 'APPLIED', 'CANCELED', 'FAILED');
+
+alter type scheduled_plan_change_status_type owner to postgres;
+
+comment on type scheduled_plan_change_status_type is '플랜 하향 예약 상태(대기/적용됨/취소됨/실패)';
+
 create type inspection_status_type as enum ('CREATED', 'UPLOADING', 'ANALYZING', 'ANALYZED', 'REVIEWED', 'REPORTED');
 
 alter type inspection_status_type owner to postgres;
 
 comment on type inspection_status_type is '점검 처리 상태(생성/업로드중/분석중/분석완료/검토완료/보고서화)';
+
+create type inspection_type as enum ('REGULAR', 'DETAILED', 'EMERGENCY');
+
+alter type inspection_type owner to postgres;
+
+comment on type inspection_type is '점검 유형(정기/정밀/긴급)';
 
 create type media_file_type as enum ('IMAGE', 'VIDEO');
 
@@ -55,11 +79,27 @@ alter type defect_grade_type owner to postgres;
 
 comment on type defect_grade_type is '결함 위험 또는 심각도 등급(A~E)';
 
+-- ⚠️ 의도적으로 pre-V22 상태(ACTION_PENDING 포함)로 동결한다 — 4라벨로 갱신하지 말 것.
+-- 이 파일은 문서가 아니라 (1) FlywayBaselineOnExistingDbIntegrationTest·
+-- DefectStatusBackfillMigrationTest 의 "마이그레이션 이전 기존 DB" initScript 이고,
+-- (2) Ha25IncrementalMigrationTest 가 v0.3+증분 체인과 카탈로그를 대조하는 파리티 기준이다.
+-- 여기를 4라벨로 바꾸면 V22 의 백필 UPDATE 가 검증할 대상 자체가 사라지고(ACTION_PENDING 행을
+-- 심을 수 없게 된다), v0.3+증분 체인에는 대응 스크립트가 없어 파리티도 깨진다.
+-- V12/V13/V16 같은 재적용 안전 마이그레이션과 달리 V22 은 파리티 체인에 편입하지 않는다.
 create type defect_status_type as enum ('DETECTED', 'CONFIRMED', 'ACTION_PENDING', 'IN_PROGRESS', 'RESOLVED');
 
 alter type defect_status_type owner to postgres;
 
 comment on type defect_status_type is '결함 조치 상태(탐지됨/확인됨/조치대기/조치중/해결됨)';
+
+-- defect_action_logs.phase 전용(#1193/HAJA-569) — defect_status_type을 재사용하지 않는다. 재사용하면
+-- V22(구 defect_status_type drop → 신규 타입 rename)가 이 테이블의 의존성 때문에 실패한다(위 동결
+-- 주석과 같은 이유로 V22는 수정 대상이 아니다). IN_PROGRESS/RESOLVED 두 라벨만 필요한 독립 타입이다.
+create type defect_action_log_phase_type as enum ('IN_PROGRESS', 'RESOLVED');
+
+alter type defect_action_log_phase_type owner to postgres;
+
+comment on type defect_action_log_phase_type is '조치 등록 이력의 제출 시점 전이 목표(조치중/조치완료)';
 
 create type report_status_type as enum ('DRAFT', 'FINALIZED');
 
@@ -85,6 +125,12 @@ alter type counsel_ticket_status_type owner to postgres;
 
 comment on type counsel_ticket_status_type is '상담 티켓 처리 상태(대기/진행중/해결/오프라인 이탈)';
 
+create type counsel_type as enum ('USAGE', 'ANALYSIS_RESULT', 'BILLING_ETC');
+
+alter type counsel_type owner to postgres;
+
+comment on type counsel_type is '상담 유형(이용 방법/분석 결과/결제·기타)';
+
 create type rag_doc_source_type as enum ('LAW', 'GUIDELINE');
 
 alter type rag_doc_source_type owner to postgres;
@@ -109,11 +155,11 @@ alter type rag_embedding_status_type owner to postgres;
 
 comment on type rag_embedding_status_type is 'RAG 문서 임베딩 처리 상태(대기/임베딩중/완료/실패)';
 
-create type notification_type as enum ('ANALYSIS_DONE', 'REVIEW_PENDING', 'COUNSEL_REPLIED', 'INSPECTION_DUE');
+create type notification_type as enum ('ANALYSIS_DONE', 'REVIEW_PENDING', 'COUNSEL_REPLIED', 'INSPECTION_DUE', 'PLAN_EXPIRED', 'PLAN_DOWNGRADED', 'PLAN_DOWNGRADE_FAILED');
 
 alter type notification_type owner to postgres;
 
-comment on type notification_type is '알림 유형(분석완료/검토대기/상담답변/점검예정)';
+comment on type notification_type is '알림 유형(분석완료/검토대기/상담답변/점검예정/구독만료강등/예약하향적용/예약하향실패)';
 
 create type company_status_type as enum ('PENDING_REVIEW', 'APPROVED', 'REJECTED');
 
@@ -144,6 +190,13 @@ create type menu_node_type as enum ('GROUP', 'INTERNAL', 'EXTERNAL');
 alter type menu_node_type owner to postgres;
 
 comment on type menu_node_type is '사이드바 메뉴 노드 유형(그룹/내부 링크/외부 링크)';
+
+create type facility_initial_grade_type as enum ('A', 'B', 'C', 'D', 'E');
+
+alter type facility_initial_grade_type owner to postgres;
+
+comment on type facility_initial_grade_type is
+    '시설물 등록 시 입력하는 초기 등급(A~E) — defect_grade_type(점검 이력 기반 하자 위험도)과는 별개의 독립 개념';
 
 create table users
 (
@@ -379,7 +432,7 @@ create table plans
         unique,
     max_facilities       integer,
     max_monthly_analyses integer,
-    max_seats            integer                  default 0     not null,
+    max_seats            integer,
     has_pdf_watermark    boolean                  default false not null,
     has_counselor_access boolean                  default false not null,
     has_ai_addon         boolean                  default false not null,
@@ -398,7 +451,7 @@ comment on column plans.max_facilities is '요금제에서 등록 가능한 최�
 
 comment on column plans.max_monthly_analyses is '월간 최대 분석 가능 횟수';
 
-comment on column plans.max_seats is '요금제에서 허용하는 최대 사용자 좌석 수';
+comment on column plans.max_seats is '요금제에서 허용하는 최대 사용자 좌석 수(NULL은 무제한)';
 
 comment on column plans.has_pdf_watermark is '생성된 PDF에 워터마크를 표시하는지 여부';
 
@@ -428,6 +481,9 @@ create table user_plans
     status     user_plan_status_type    default 'ACTIVE'::user_plan_status_type not null,
     started_at timestamp with time zone default now()                           not null,
     ended_at   timestamp with time zone,
+    current_period_start timestamptz,
+    current_period_end   timestamptz,
+    payment_pending_until timestamptz,
     constraint ck_user_plans_owner_xor
         check ((user_id is not null) <> (company_id is not null))
 );
@@ -447,6 +503,12 @@ comment on column user_plans.status is '구독 상태';
 comment on column user_plans.started_at is '구독 시작 시각';
 
 comment on column user_plans.ended_at is '구독 종료 시각';
+
+comment on column user_plans.current_period_start is '현재 결제 주기 시작 시각(#1104). 신규 발급/전이 시각으로 채워진다.';
+
+comment on column user_plans.current_period_end is '현재 결제 주기 종료 시각(#1104). NULL = 무기한(FREE). 결제 승인 전이 시 리셋(now~now+1개월), 관리자 플랜 변경(무결제) 시 기존 값이 승계된다.';
+
+comment on column user_plans.payment_pending_until is '미결제 유예 마감 시각(#1177). NULL = 정상 구독. NOT NULL = 유료→유료 하향(C안)으로 결제 없이 발급된 유료 구독이며, 이 시각까지 결제되지 않으면 FREE로 강등된다. 유예 중에는 티어 이름과 무관하게 FREE 엔타이틀먼트(한도 3종 + 상담사 연결·AI 부가기능)가 적용된다 — 무결제 유료 혜택 차단. 유예 중 행은 current_period_end 도 같은 값을 갖는다(유예 만료 강등이 기존 만료 강등 경로를 그대로 재사용하기 때문). 관리자 즉시 변경으로 다른 유료 요금제로 옮겨도 이 값은 승계된다(유예 세탁 방지).';
 
 alter table user_plans
     owner to postgres;
@@ -468,6 +530,12 @@ create unique index uq_user_plans_active_company
 comment on index uq_user_plans_active_user is '동일 사용자에게 ACTIVE 구독이 둘 이상 존재하는 것을 방지한다(중복 과금·엔타이틀먼트 혼선 차단).';
 
 comment on index uq_user_plans_active_company is '동일 회사에 ACTIVE 구독이 둘 이상 존재하는 것을 방지한다(중복 과금·엔타이틀먼트 혼선 차단).';
+
+create index idx_user_plans_payment_pending
+    on user_plans (payment_pending_until, id)
+    where (payment_pending_until is not null);
+
+comment on index idx_user_plans_payment_pending is '미결제 유예(#1177) 만료 강등 배치의 대상 조회(payment_pending_until < now, id keyset 순회)를 위한 부분 인덱스. 정상 구독은 payment_pending_until 이 NULL 이라 인덱스에서 제외된다.';
 
 create table usage_counters
 (
@@ -516,12 +584,169 @@ comment on column usage_counters.created_at is '사용량 집계 레코드 생�
 alter table usage_counters
     owner to postgres;
 
+create table payments
+(
+    id              bigint generated always as identity
+        primary key,
+    order_id        varchar(64)                                                  not null,
+    user_id         bigint                                                       not null
+        references users,
+    company_id      bigint
+        references companies,
+    user_plan_id    bigint
+        references user_plans,
+    plan_id         bigint                                                       not null
+        references plans,
+    plan_name       plan_name_type                                               not null,
+    amount          numeric(10, 2)                                               not null,
+    status          payment_status_type      default 'READY'::payment_status_type not null,
+    method          payment_method_type,
+    payment_key     varchar(200),
+    receipt_url     text,
+    requested_at    timestamp with time zone default now()                       not null,
+    approved_at     timestamp with time zone,
+    failure_code    varchar(100),
+    failure_message text,
+    confirm_attempt_count integer            default 0                             not null
+);
+
+comment on table payments is '플랜 구독 결제 원장. 주문 사전 등록(READY)→승인(PAID) 2단계로 관리하며, 금액·요금제명을 결제 시점 스냅샷으로 보관해 이후 요금제 가격이 바뀌어도 과거 이력이 소급 변경되지 않는다.';
+
+comment on column payments.id is '결제 식별자';
+
+comment on column payments.order_id is '서버가 발급한 주문 식별자(UUID 기반). 클라이언트 제공 값을 신뢰하지 않는다.';
+
+comment on column payments.user_id is '결제를 요청한 사용자 식별자(구독 소유자)';
+
+comment on column payments.company_id is '회사 구독 결제일 때의 기업 계정 식별자(개인 구독은 NULL)';
+
+comment on column payments.user_plan_id is '승인 성공으로 발급된 구독 식별자. READY 단계에서는 NULL이며, PAID인데 NULL이면 승인은 됐으나 플랜 전이가 끝나지 않은 상태(운영 대사 신호)다.';
+
+comment on column payments.plan_id is '결제 대상 요금제 식별자';
+
+comment on column payments.plan_name is '결제 시점 요금제명 스냅샷(요금제 개명·재정의와 무관하게 이력 보존)';
+
+comment on column payments.amount is '결제 시점 청구 금액 스냅샷(서버가 plans.price_monthly로 결정하며 클라이언트 전달값을 쓰지 않는다)';
+
+comment on column payments.status is '결제 상태';
+
+comment on column payments.method is '결제 수단(승인 성공 시 기록, 카드 외 수단은 NULL)';
+
+comment on column payments.payment_key is 'PG(토스페이먼츠)가 발급한 결제 키. 승인 성공 시 기록하며 부분 유니크 인덱스로 중복 승인을 최종 차단한다.';
+
+comment on column payments.receipt_url is 'PG 영수증 URL(승인 성공 시 기록)';
+
+comment on column payments.requested_at is '주문 생성 시각';
+
+comment on column payments.approved_at is '결제 승인 시각(승인 성공 시 기록)';
+
+comment on column payments.failure_code is 'PG가 반환한 실패 코드(승인 실패 시 기록)';
+
+comment on column payments.failure_message is 'PG가 반환한 실패 사유(승인 실패 시 기록)';
+
+comment on column payments.confirm_attempt_count is '이 주문으로 PG 승인을 시도한 횟수. 승인 결과가 불명이면 주문을 READY로 남겨 재확정을 허용하는데(승인이 성사된 뒤 응답만 못 받았을 수 있다), 그 대가로 "1주문=최대 1회 호출"이라는 자연 상한이 사라지므로 이 카운터가 주문당 아웃바운드 호출 상한을 강제한다.';
+
+alter table payments
+    owner to postgres;
+
+create unique index uq_payments_order_id
+    on payments (order_id);
+
+create unique index uq_payments_payment_key
+    on payments (payment_key)
+    where (payment_key is not null);
+
+create index idx_payments_user
+    on payments (user_id);
+
+create index idx_payments_company
+    on payments (company_id);
+
+comment on index uq_payments_order_id is '동일 주문 식별자가 둘 이상 존재하는 것을 방지한다(주문 사전 등록의 유일성 보장).';
+
+comment on index uq_payments_payment_key is '동일 PG 결제 키로 두 건 이상이 승인되는 것을 방지한다(중복 승인·중복 청구 최종 방어선).';
+
+comment on index idx_payments_user is '사용자별 결제 이력 조회를 위한 인덱스';
+
+comment on index idx_payments_company is '회사별 결제 이력 조회를 위한 인덱스';
+
+create unique index uq_payments_ready_company
+    on payments (company_id, plan_id)
+    where (status = 'READY'::payment_status_type and company_id is not null);
+
+create unique index uq_payments_ready_user
+    on payments (user_id, plan_id)
+    where (status = 'READY'::payment_status_type and company_id is null);
+
+comment on index uq_payments_ready_company is '동일 회사·동일 요금제로 승인 대기(READY) 주문이 둘 이상 만들어지는 것을 방지한다. 애플리케이션의 재사용(dedup) 로직은 "조회 후 없으면 생성"이라 비원자적이라, 동시 주문 생성 두 건이 서로를 못 보고 각각 결제되면 같은 업그레이드에 이중 청구가 난다 — 그 경합을 DB 레벨에서 직렬화한다.';
+
+comment on index uq_payments_ready_user is '동일 개인·동일 요금제로 승인 대기(READY) 주문이 둘 이상 만들어지는 것을 방지한다(개인 구독 축). 소유 주체가 user_id/company_id 양자택일이라 회사 축 인덱스와 조건이 서로 배타적이며, 개인 시절 주문과 기업 소속 이후 주문은 서로 다른 인덱스에 속해 충돌하지 않는다.';
+
+create table scheduled_plan_changes
+(
+    id             bigint generated always as identity
+        primary key,
+    user_plan_id   bigint                                                                                 not null
+        references user_plans,
+    target_plan_id bigint                                                                                 not null
+        references plans,
+    effective_at   timestamp with time zone                                                               not null,
+    keep_user_ids  bigint[]                         default '{}'::bigint[]                                not null,
+    confirmed_seat_overflow integer                 default 0                                             not null,
+    status         scheduled_plan_change_status_type default 'PENDING'::scheduled_plan_change_status_type not null,
+    created_by     bigint                                                                                 not null
+        references users,
+    created_at     timestamp with time zone         default now()                                         not null,
+    applied_at     timestamp with time zone,
+    failure_reason text
+);
+
+comment on table scheduled_plan_changes is '플랜 하향 예약 원장(#1105). 하향을 즉시 반영하지 않고 예약만 남겨, 잔여 결제 기간에는 현재 요금제를 유지하고 effective_at(=예약 시점의 user_plans.current_period_end)에 스케줄러가 무결제 전이한다. 상향은 예약 대상이 아니며(결제 경로 전용) 상향·즉시 변경 시 PENDING 예약은 CANCELED 로 무효화된다.';
+
+comment on column scheduled_plan_changes.id is '예약 식별자';
+
+comment on column scheduled_plan_changes.user_plan_id is '예약을 건 시점의 구독 식별자(user_plans). 이 구독이 다른 경로로 전이(결제 승인·즉시 변경·만료 강등)되면 예약은 실행 시점에 무효(CANCELED)로 판정된다.';
+
+comment on column scheduled_plan_changes.target_plan_id is '하향 대상 요금제 식별자. ⚠️ 무료 요금제(price_monthly = 0)만 허용한다 — 정기결제(빌링키)가 없어 유료 대상을 허용하면 청구 없이 유료 1개월이 발급되고, 티어를 한 단계씩 내릴 때마다 무상 기간을 반복 취득할 수 있다(#1105 보안 리뷰 P1).';
+
+comment on column scheduled_plan_changes.effective_at is '예약 실행 기준 시각. 예약 생성 시점의 user_plans.current_period_end(#1104)를 그대로 복사한다 — 잔여 기간이 끝나는 순간이 곧 적용 시점이다.';
+
+comment on column scheduled_plan_changes.keep_user_ids is '하향으로 좌석이 넘칠 때 관리자가 유지하도록 선택한 구성원 id(#890 Phase 2와 같은 의미). 빈 배열이면 자동 규칙(owner + id 오름차순). ⚠️ 예약은 이 목록을 한 달 가까이 보관하므로 실행 시점에 반드시 재검증한다(퇴사·정지 id 드롭 → 자동 규칙 보충 → ACTIVE ADMIN 잔존 재확인).';
+
+comment on column scheduled_plan_changes.confirmed_seat_overflow is '신청 시점에 관리자가 confirmOverflow=true 로 확인한 정지 예정 인원 수(#1105 리뷰 P2-4). confirmOverflow 는 "그 시점 미리보기"에 대한 동의이므로, 실행 시점 정지 인원이 이 값을 넘으면 동의 범위를 벗어난 것이다 — 그때는 적용하지 않고 FAILED 로 종료해 상위 요금제를 유지한다(아무도 잘못 정지되지 않는 fail-safe).';
+
+comment on column scheduled_plan_changes.status is '예약 상태. PENDING 만 실행 대상이며 전이는 UPDATE ... WHERE status = PENDING 조건부로만 이뤄진다(중복 실행 차단).';
+
+comment on column scheduled_plan_changes.created_by is '예약을 생성한 사용자 식별자(회사 owner). 오예약 추적용 감사 정보다.';
+
+comment on column scheduled_plan_changes.created_at is '예약 생성 시각';
+
+comment on column scheduled_plan_changes.applied_at is '예약이 실제로 적용(APPLIED)된 시각. 실패·취소 건은 NULL이다.';
+
+comment on column scheduled_plan_changes.failure_reason is '실행이 FAILED 로 끝났거나 무효(CANCELED)로 판정된 사유. 사람이 원인을 특정하기 위한 값이라 개인정보(이메일·이름 등)를 담지 않는다.';
+
+alter table scheduled_plan_changes
+    owner to postgres;
+
+create unique index uq_scheduled_plan_changes_pending
+    on scheduled_plan_changes (user_plan_id)
+    where (status = 'PENDING'::scheduled_plan_change_status_type);
+
+comment on index uq_scheduled_plan_changes_pending is '한 구독에 대기 중(PENDING) 예약이 둘 이상 만들어지는 것을 방지한다. 애플리케이션의 "조회 후 없으면 생성"은 비원자적이라 동시 요청 두 건이 서로를 못 보고 각각 예약될 수 있는데, 그 상태가 되면 같은 주기에 하향이 두 번 실행돼 좌석 정지 결과가 예측 불가능해진다 — 그 경합을 DB 레벨에서 직렬화한다.';
+
+create index idx_scheduled_plan_changes_due
+    on scheduled_plan_changes (effective_at)
+    where (status = 'PENDING'::scheduled_plan_change_status_type);
+
+comment on index idx_scheduled_plan_changes_due is '스케줄러의 실행 대상 조회(status = PENDING AND effective_at <= now)를 위한 부분 인덱스. 적용·취소된 예약은 인덱스에서 빠지므로 원장이 누적돼도 조회 비용이 늘지 않는다.';
+
 create table facilities
 (
     id                      bigint generated always as identity
         primary key,
-    owner_id                bigint                                 not null
-        references users,
+    company_id              bigint                                 not null
+        constraint fk_facilities_company
+            references companies,
     name                    varchar(200)                           not null,
     type                    varchar(20)                            not null,
     address                 varchar(300),
@@ -532,14 +757,19 @@ create table facilities
     inspection_cycle_months integer,
     next_inspection_due_at  date,
     created_at              timestamp with time zone default now() not null,
-    updated_at              timestamp with time zone default now() not null
+    updated_at              timestamp with time zone default now() not null,
+    initial_grade           facility_initial_grade_type,
+    assignee_user_id        bigint
+        constraint fk_facilities_assignee
+            references users,
+    memo                    text
 );
 
-comment on table facilities is '사용자가 소유하거나 관리하는 점검 대상 시설 정보를 관리한다.';
+comment on table facilities is '회사가 소유·관리하는 점검 대상 시설 정보를 관리한다.';
 
 comment on column facilities.id is '시설 식별자';
 
-comment on column facilities.owner_id is '시설 소유자 또는 관리자 사용자 식별자';
+comment on column facilities.company_id is '시설을 소유·관리하는 회사 식별자';
 
 comment on column facilities.name is '시설 명칭';
 
@@ -563,11 +793,28 @@ comment on column facilities.created_at is '시설 생성 시각';
 
 comment on column facilities.updated_at is '시설 최종 수정 시각';
 
+comment on column facilities.initial_grade is
+    '시설물 등록 시 입력하는 초기 등급(A~E, nullable). 대시보드 하자 등급 분포(defects.grade 기반 계산값)와 혼동하지 말 것';
+
+comment on column facilities.assignee_user_id is
+    '시설물 담당자로 배정된 사용자 식별자(nullable). 배정 가능 여부는 AuthService.validateAssignableInspector로 애플리케이션에서 검증(활성 사용자·INSPECTOR/ADMIN 역할·요청자와 동일 회사·양쪽 유효 멤버십)';
+
+comment on column facilities.memo is '시설물 등록 메모(자유 텍스트, nullable)';
+
 alter table facilities
     owner to postgres;
 
-create index idx_facilities_owner
-    on facilities (owner_id);
+create index idx_facilities_company
+    on facilities (company_id);
+
+create index idx_facilities_assignee
+    on facilities (assignee_user_id);
+
+-- #509 — InspectionDueNotificationScheduler(NOTI-01)의 next_inspection_due_at <= 오늘 풀스캔 해소.
+-- 점검 주기 미설정 시설물(NULL)은 배치 조건에 애초에 안 걸리므로 부분 인덱스로 크기를 줄인다.
+create index idx_facilities_next_inspection_due_at
+    on facilities (next_inspection_due_at)
+    where next_inspection_due_at is not null;
 
 create table inspections
 (
@@ -582,6 +829,7 @@ create table inspections
         references users,
     round_no        integer                                                            not null,
     inspection_date date                                                               not null,
+    type            inspection_type          default 'REGULAR'::inspection_type        not null,
     status          inspection_status_type   default 'CREATED'::inspection_status_type not null,
     created_at      timestamp with time zone default now()                             not null,
     unique (facility_id, round_no)
@@ -601,6 +849,8 @@ comment on column inspections.round_no is '시설별 점검 회차';
 
 comment on column inspections.inspection_date is '점검 수행일';
 
+comment on column inspections.type is '점검 유형(REGULAR=정기, DETAILED=정밀, EMERGENCY=긴급)';
+
 comment on column inspections.status is '점검 처리 상태';
 
 comment on column inspections.created_at is '점검 생성 시각';
@@ -618,11 +868,14 @@ create table media
 (
     id                      bigint generated always as identity
         primary key,
-    inspection_id           bigint                                 not null
+    inspection_id           bigint
         references inspections,
+    facility_id             bigint
+        constraint fk_media_facility references facilities,
     file_type               media_file_type                        not null,
     original_url            varchar(500)                           not null,
     thumbnail_url           varchar(500),
+    detail_url              varchar(500),
     source_video_id         bigint,
     frame_index             integer,
     captured_at             timestamp with time zone,
@@ -630,20 +883,27 @@ create table media
     gps_lng                 numeric(9, 6),
     mime_signature_verified boolean                  default false not null,
     created_at              timestamp with time zone default now() not null,
-    mime_type               varchar(100)
+    mime_type               varchar(100),
+    original_filename       varchar(255),
+    constraint chk_media_inspection_xor_facility
+        check ((inspection_id is not null) <> (facility_id is not null))
 );
 
 comment on table media is '점검 과정에서 등록하거나 추출한 이미지 및 영상 정보를 관리한다.';
 
 comment on column media.id is '미디어 식별자';
 
-comment on column media.inspection_id is '미디어가 속한 점검 식별자';
+comment on column media.inspection_id is '미디어가 속한 점검 식별자 — nullable(Option B, #632): facility_id 와 정확히 하나만 채워진다(chk_media_inspection_xor_facility)';
+
+comment on column media.facility_id is '시설물 대표 사진(#632/#652, HAJA-377)이 속한 시설물 식별자 — nullable, inspection_id 와 정확히 하나만 채워진다(chk_media_inspection_xor_facility)';
 
 comment on column media.file_type is '미디어 파일 유형';
 
 comment on column media.original_url is '원본 미디어 파일 URL';
 
 comment on column media.thumbnail_url is '미디어 썸네일 이미지 URL';
+
+comment on column media.detail_url is '분석 결과 뷰어 전용 상세 이미지 저장키(#788/#789, V13 — nullable, V13 이전 업로드 행은 NULL)';
 
 comment on column media.source_video_id is '프레임 이미지의 원본 영상 식별자(media.id 자기 참조 개념이나 FK 미설정 — 영상 프레임 추출 파이프라인의 유연한 기록을 위함)';
 
@@ -661,11 +921,17 @@ comment on column media.created_at is '미디어 레코드 생성 시각';
 
 comment on column media.mime_type is '미디어 MIME 타입(예: image/jpeg, video/mp4)';
 
+comment on column media.original_filename is '업로드 시 클라이언트가 보낸 원본 파일명(표시 전용) — nullable, V26 이전 업로드 행은 NULL(조회 시 "이미지 N" 순번으로 폴백)';
+
 alter table media
     owner to postgres;
 
 create index idx_media_inspection
     on media (inspection_id);
+
+create index idx_media_facility
+    on media (facility_id)
+    where facility_id is not null;
 
 create table defects
 (
@@ -674,6 +940,8 @@ create table defects
     lock_version    bigint                   default 0                              not null,
     inspection_id   bigint                                                          not null
         references inspections,
+    media_id        bigint
+        references media,
     type            defect_type                                                     not null,
     bbox_x          double precision,
     bbox_y          double precision,
@@ -686,7 +954,17 @@ create table defects
     is_deleted      boolean                  default false                          not null,
     crack_width_mm  double precision,
     crack_length_mm double precision,
-    created_at      timestamp with time zone default now()                          not null
+    area_ratio      double precision,
+    action_media_id    bigint
+        references media,
+    action_content     text,
+    action_date        date,
+    action_assignee_id bigint
+        references users,
+    created_at      timestamp with time zone default now()                          not null,
+    location            text,
+    previous_defect_id  bigint
+        references defects
 );
 
 comment on table defects is '점검 이미지에서 탐지되거나 검토된 시설 결함 정보를 관리한다.';
@@ -696,6 +974,8 @@ comment on column defects.id is '결함 식별자';
 comment on column defects.lock_version is '상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전';
 
 comment on column defects.inspection_id is '결함이 발견된 점검 식별자';
+
+comment on column defects.media_id is '결함이 탐지된 촬영 이미지 식별자(HAJA-314, nullable — AI 탐지 파이프라인 도입 전 기존 행은 NULL)';
 
 comment on column defects.type is '결함 유형';
 
@@ -721,13 +1001,30 @@ comment on column defects.crack_width_mm is '균열 폭(mm)';
 
 comment on column defects.crack_length_mm is '균열 길이(mm)';
 
+comment on column defects.area_ratio is '결함 면적비율(탐지 bbox 면적 ÷ 이미지 전체 면적, HAJA-803, nullable)';
+
+comment on column defects.action_media_id is '조치 후 사진(HAJA-393/#725) — 조치 결과 등록 시 업로드한 촬영 이미지 식별자, nullable';
+
+comment on column defects.action_content is '조치 내용(HAJA-393/#725) — 조치 결과 등록 시 입력한 텍스트, nullable';
+
+comment on column defects.action_date is '조치일(HAJA-393/#725) — 조치 결과 등록 시 입력한 날짜, nullable';
+
+comment on column defects.action_assignee_id is '조치 담당자(HAJA-393/#725) — GET /api/facilities/assignable-users 로 선택된 회사 소속 사용자, nullable';
+
 comment on column defects.created_at is '결함 생성 시각';
+
+comment on column defects.location is '하자 위치 텍스트(예: 외벽 동측 12층 부근) — 검수자 사후 편집';
+
+comment on column defects.previous_defect_id is '이전 회차 대응 하자 id(검수자 확정, self-referencing) — 회차 간 비교용';
 
 alter table defects
     owner to postgres;
 
 create index idx_defects_inspection
     on defects (inspection_id);
+
+create index idx_defects_media
+    on defects (media_id);
 
 create table defect_revisions
 (
@@ -768,6 +1065,46 @@ alter table defect_revisions
 create index idx_defect_revisions_defect
     on defect_revisions (defect_id);
 
+create table defect_action_logs
+(
+    id                 bigint generated always as identity
+        primary key,
+    defect_id          bigint                                 not null
+        references defects,
+    media_id           bigint                                 not null
+        references media,
+    phase              defect_action_log_phase_type           not null,
+    action_content     text                                   not null,
+    action_date        date                                   not null,
+    action_assignee_id bigint                                 not null
+        references users,
+    created_at         timestamp with time zone default now() not null
+);
+
+comment on table defect_action_logs is '조치 등록 제출 이력(append-only, #1193/HAJA-569) — 조치중(IN_PROGRESS) 단계에서 시간차를 두고 여러 번 등록하는 사진/조치내용 이력을 보존한다.';
+
+comment on column defect_action_logs.id is '조치 등록 이력 식별자';
+
+comment on column defect_action_logs.defect_id is '대상 결함 식별자';
+
+comment on column defect_action_logs.media_id is '해당 제출의 조치 사진 미디어 식별자';
+
+comment on column defect_action_logs.phase is '제출 시점의 전이 목표 상태(IN_PROGRESS 또는 RESOLVED)';
+
+comment on column defect_action_logs.action_content is '해당 제출의 조치 내용';
+
+comment on column defect_action_logs.action_date is '해당 제출의 조치일';
+
+comment on column defect_action_logs.action_assignee_id is '해당 제출의 조치 담당자 사용자 식별자';
+
+comment on column defect_action_logs.created_at is '이력 생성 시각';
+
+alter table defect_action_logs
+    owner to postgres;
+
+create index idx_defect_action_logs_defect_phase
+    on defect_action_logs (defect_id, phase);
+
 create table reports
 (
     id                     bigint generated always as identity
@@ -788,6 +1125,7 @@ create table reports
         constraint fk_reports_created_by
             references users,
     updated_at             timestamp with time zone default now()                       not null,
+    deleted_at             timestamp with time zone,
     unique (inspection_id, version)
 );
 
@@ -818,6 +1156,8 @@ comment on column reports.created_at is '보고서 생성 시각';
 comment on column reports.created_by is '보고서 최초 작성자 사용자 식별자';
 
 comment on column reports.updated_at is '보고서 최종 수정 시각';
+
+comment on column reports.deleted_at is '보고서 DRAFT soft delete 시각. NULL = 활성. FINALIZED 보고서는 삭제 불가 정책으로 유지한다.';
 
 alter table reports
     owner to postgres;
@@ -866,6 +1206,8 @@ create table chat_messages
     sender      chat_sender_type                       not null,
     content     text                                   not null,
     scenario_id bigint,
+    attachment_key       varchar(500),
+    attachment_mime_type varchar(100),
     created_at  timestamp with time zone default now() not null
 );
 
@@ -901,7 +1243,11 @@ create table counsel_tickets
     session_id     bigint
         references chat_sessions,
     status         counsel_ticket_status_type default 'WAITING'::counsel_ticket_status_type not null,
+    counsel_type   counsel_type                                                             not null,
     queue_position integer,
+    ticket_number  varchar(20)                                                              not null,
+    category       varchar(100)                                                             not null,
+    title          varchar(200)                                                             not null,
     created_at     timestamp with time zone   default now()                                 not null,
     ended_at       timestamp with time zone
 );
@@ -919,6 +1265,8 @@ comment on column counsel_tickets.counselor_id is '배정된 상담사 사용자
 comment on column counsel_tickets.session_id is '상담 대화가 이루어지는 채팅 세션 식별자(chat_sessions, session_type=COUNSEL)';
 
 comment on column counsel_tickets.status is '상담 티켓 처리 상태';
+
+comment on column counsel_tickets.counsel_type is '상담 유형';
 
 comment on column counsel_tickets.queue_position is '상담 대기열 순번';
 
@@ -938,12 +1286,67 @@ create index idx_counsel_tickets_user
 create index idx_counsel_tickets_session
     on counsel_tickets (session_id);
 
+create index idx_counsel_tickets_created_at
+    on counsel_tickets (created_at);
+
 create unique index uq_counsel_tickets_session
     on counsel_tickets (session_id)
     where (session_id is not null);
 
 comment on index uq_counsel_tickets_session is
     '하나의 전문상담 세션이 여러 상담 티켓에 중복 배정되는 것을 방지한다.';
+
+create unique index uq_counsel_tickets_ticket_number
+    on counsel_tickets (ticket_number);
+
+create table counsel_ticket_notes
+(
+    id           bigint generated always as identity
+        primary key,
+    ticket_id    bigint                                 not null
+        references counsel_tickets,
+    counselor_id bigint                                 not null,
+    content      text,
+    updated_at   timestamp with time zone default now() not null
+);
+
+comment on table counsel_ticket_notes is '상담원 전용 비공개 메모(고객 비노출, 티켓당 1개, #1021/HAJA-503)';
+
+comment on column counsel_ticket_notes.id is '상담 티켓 메모 식별자';
+
+comment on column counsel_ticket_notes.ticket_id is 'counsel_tickets FK, 티켓당 1개(unique)';
+
+comment on column counsel_ticket_notes.counselor_id is '최근 메모 작성/갱신 상담원 ID';
+
+comment on column counsel_ticket_notes.content is '메모 본문(nullable — 빈 메모 허용)';
+
+comment on column counsel_ticket_notes.updated_at is '메모 최종 갱신 시각';
+
+alter table counsel_ticket_notes
+    owner to postgres;
+
+create unique index uq_counsel_ticket_notes_ticket_id
+    on counsel_ticket_notes (ticket_id);
+
+create table counselor_skills
+(
+    counselor_id bigint       not null
+        references users,
+    counsel_type counsel_type not null,
+    primary key (counselor_id, counsel_type)
+);
+
+comment on table counselor_skills is '상담사가 처리 가능한 상담 유형(다대다)';
+
+comment on column counselor_skills.counselor_id is '상담사 사용자 식별자(users, role=COUNSELOR — DB 제약 아닌 서비스 레벨 검증)';
+
+comment on column counselor_skills.counsel_type is '처리 가능한 상담 유형';
+
+alter table counselor_skills
+    owner to postgres;
+
+create index idx_counselor_skills_counsel_type
+    on counselor_skills (counsel_type);
 
 create table bot_scenarios
 (
@@ -1137,6 +1540,64 @@ create index idx_notifications_user_unread
 -- 조회(폴링마다 실행)는 seq scan+sort로 빠진다 — 정렬 컬럼까지 포함한 일반 인덱스로 별도 커버한다.
 create index idx_notifications_user_history
     on notifications (user_id, created_at desc, id desc);
+
+-- INSPECTION_DUE 알림 멱등성(dedup)을 DB 유니크 제약으로 원자적으로 보장한다(V25, #1050). kind가 있는
+-- (#540 이후 생성된) payload만 방어하며, kind가 NULL인 레거시 payload는 이 인덱스로 못 잡는다(PostgreSQL
+-- unique index는 NULL을 서로 다른 값으로 취급) — 그 사각지대는 애플리케이션 레벨에서 별도로 방어한다
+-- (InspectionDueNotificationScheduler.findLegacyKindLessInspectionDueByUserIdIn 참고).
+create unique index uq_notifications_inspection_due_dedupe
+    on notifications (
+        user_id,
+        ((payload_json ->> 'facilityId')::bigint),
+        (payload_json ->> 'nextInspectionDueAt'),
+        (payload_json ->> 'kind')
+    )
+    where type = 'INSPECTION_DUE';
+
+create table inspection_notification_settings
+(
+    id                         bigint generated always as identity
+        primary key,
+    user_id                    bigint                   not null
+        constraint fk_inspection_notification_settings_user
+            references users
+            on delete cascade,
+    facility_id                bigint                   not null
+        constraint fk_inspection_notification_settings_facility
+            references facilities
+            on delete cascade,
+    notify_before_enabled      boolean                  default true  not null,
+    notify_before_days         smallint                 default 7     not null,
+    warn_on_overdue_enabled    boolean                  default false not null,
+    created_at                 timestamp with time zone default now() not null,
+    updated_at                 timestamp with time zone default now() not null,
+    constraint uk_inspection_notification_settings_user_facility
+        unique (user_id, facility_id),
+    constraint ck_inspection_notification_settings_before_days
+        check (notify_before_days between 1 and 365)
+);
+
+comment on table inspection_notification_settings is '사용자·시설별 점검 예정 및 기한 경과 알림 설정';
+
+comment on column inspection_notification_settings.user_id is '알림 설정 사용자 식별자';
+
+comment on column inspection_notification_settings.facility_id is '알림 설정 대상 시설 식별자';
+
+comment on column inspection_notification_settings.notify_before_enabled is '점검 예정 사전 알림 사용 여부';
+
+comment on column inspection_notification_settings.notify_before_days is '점검 예정일 전 알림 일수(1~365일)';
+
+comment on column inspection_notification_settings.warn_on_overdue_enabled is '점검 예정일 경과 알림 사용 여부';
+
+comment on column inspection_notification_settings.created_at is '알림 설정 생성 시각';
+
+comment on column inspection_notification_settings.updated_at is '알림 설정 최종 수정 시각';
+
+alter table inspection_notification_settings
+    owner to postgres;
+
+create index idx_inspection_notification_settings_facility
+    on inspection_notification_settings (facility_id);
 
 create table api_system_logs
 (
@@ -1386,15 +1847,26 @@ execute procedure set_updated_at();
 
 comment on trigger trg_plans_set_updated_at on plans is 'plans 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
 
+create trigger trg_inspection_notification_settings_set_updated_at
+    before update
+    on inspection_notification_settings
+    for each row
+execute procedure set_updated_at();
+
+comment on trigger trg_inspection_notification_settings_set_updated_at on inspection_notification_settings is '점검 알림 설정 변경 시 updated_at을 현재 시각으로 갱신한다.';
+
 -- 구독 요금제 시드(#517 / HAJA-308) — PRD §2.4(v0.44 확정) 요금제 표. 신규 설치 전용이며,
 -- 기존 운영 DB는 대신 docs/design/db/migrations/20260721_01_plans_seed_free_assign.sql 을 사용한다.
--- max_seats 는 NOT NULL 컬럼이라 Enterprise "무제한"은 sentinel 1000000 으로 표현한다.
+-- 제한값이 NULL인 경우 무제한을 의미한다.
 insert into plans (name, max_facilities, max_monthly_analyses, max_seats,
                    has_pdf_watermark, has_counselor_access, has_ai_addon, price_monthly)
 values
+    -- FREE 좌석은 1석이다(대표 전용, #858 — #843/V19 상향을 되돌림). FREE = 대표 1인 티어 설계이며,
+    -- 구성원을 늘리려면 STANDARD(3석)로 유료 전환해야 한다. 초대 실패 시 사유를 명확히 안내하는 것은
+    -- #857(온보딩 UX)에서 별도로 다룬다.
     ('FREE'::plan_name_type, 1, 50, 1, true, false, false, 0.00),
     ('STANDARD'::plan_name_type, 10, 1000, 3, false, true, true, 29000.00),
-    ('ENTERPRISE'::plan_name_type, null, null, 1000000, false, true, true, 59000.00)
+    ('ENTERPRISE'::plan_name_type, null, null, null, false, true, true, 59000.00)
 on conflict (name) do nothing;
 
 create trigger trg_facilities_set_updated_at

@@ -1,5 +1,6 @@
 package com.hajacheck.core.facility.dto;
 
+import com.hajacheck.core.facility.entity.FacilityInitialGrade;
 import com.hajacheck.core.facility.validation.ValidBuiltYear;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -25,6 +26,9 @@ public record FacilityUpdateRequest(
         @Size(max = 100) String scale,
         // @Max(120): 상한(10년) — FacilityScheduleRequest 와 동일 기준(#351).
         @Min(0) @Max(120) Integer inspectionCycleMonths,
-        LocalDate nextInspectionDueAt
+        LocalDate nextInspectionDueAt,
+        FacilityInitialGrade initialGrade,
+        Long assigneeUserId,
+        @Size(max = 2000) String memo
 ) {
 }

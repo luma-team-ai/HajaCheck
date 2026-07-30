@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.5 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
+> **문서 버전:** v0.11 · **최종 수정:** 2026-07-28 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -106,13 +106,13 @@
 
 ---
 
-## POST /ai/rag-chat — ⏳ 미구현(설계만, 예: `docs/design/ai/rag_chroma_schema.md` 참조) — 계획 엔드포인트
+## POST /ai/rag-chat — ✅ 구현됨(내부 전용, Spring 프록시는 후속 이슈)
 
-점검 기준·법규 질의 전담 RAG 챗봇(FR-6). 성공 시 `AIResponse.data`는 `RagAnswerData` 형태이며, `sources[]`는 표시 라벨(`locator`)과 원문 발췌(`snippet`)를 분리한다.
+점검 기준·법규 질의 전담 RAG 챗봇(FR-6). FastAPI 라우트는 `ai-server/routers/ai_router.py`에 구현되어 있다(체인: `ai-server/ai/chains/rag_chat_chain.py`, GitHub #19/HAJA-28). 성공 시 `AIResponse.data`는 `RagAnswerData` 형태이며, `sources[]`는 표시 라벨(`locator`)과 원문 발췌(`snippet`)를 분리한다.
 
-> **내부 호출 계약**: PRD §6의 Spring Boot → FastAPI 구조를 따른다. 프론트엔드는 이 엔드포인트를 직접 호출하지 않는다. Spring Boot는 `session_id`가 인증 사용자 소유이고 `session_type='RAG'`인지 확인한 뒤에만 FastAPI를 호출한다. 세션이 존재하지 않거나 타인 소유이면 정보 노출을 막기 위해 모두 `404`로 처리하고 FastAPI 호출은 생략한다. 따라서 아래 `session_id`는 클라이언트가 임의 지정한 값이 아니라 Spring Boot가 검증한 서버 관리 식별자다.
+> **내부 호출 계약**: PRD §6의 Spring Boot → FastAPI 구조를 따른다. 프론트엔드는 이 엔드포인트를 직접 호출하지 않는다. **Spring `/api/ai/rag-chat` 프록시(요청자의 `session_id` 소유·`session_type='RAG'` 검증 포함)는 이번 범위에 포함되지 않고 후속 이슈로 분리됐다** — `/api/chat-sessions` 자체가 아직 미구현이기 때문이다(`docs/design/ai/rag_chatbot_design.md` §9 참조). FastAPI 요청 스키마는 `session_id`(선택, 양의 정수)를 받지만 **현재 파이프라인은 이 값을 사용하지 않는다**(세션·대화 이력 연동 전 상태) — 아래 `session_id`는 향후 Spring이 검증해 넘길 서버 관리 식별자를 위한 선점 필드다.
 >
-> Spring Boot는 환경변수로 주입된 내부 서비스 토큰을 `X-Internal-Service-Token` 헤더에 담고, FastAPI는 일치하지 않거나 누락된 요청을 처리 전에 거부해야 한다. 토큰 값은 저장소·로그·OpenAPI에 기록하지 않는다. 운영 nginx는 `/ai/rag-chat`을 FastAPI로 직접 프록시하면 안 되며, 현재 `/ai/**` 직접 경로는 이 엔드포인트 구현 전에 Spring Boot 경유 또는 외부 차단으로 변경해야 한다. 이 인증·라우팅 구현은 후속 Spring/FastAPI 배포 작업의 선행조건이다.
+> Spring Boot는 환경변수로 주입된 내부키를 **`X-Internal-Key`** 헤더에 담고(`AI_INTERNAL_KEY`, 다른 `/ai/*`와 공유 단일 소스), FastAPI는 일치하지 않거나 누락된 요청을 처리 전에 거부한다(`deps.py::verify_internal_key`, `hmac.compare_digest` 상수시간 비교 — 위 "접근 모델" 절과 동일 메커니즘). 토큰 값은 저장소·로그·OpenAPI에 기록하지 않는다. 운영 nginx는 다른 `/ai/*`와 동일하게 공개 프록시 대상에서 이미 제외돼 있다(2026-07-16 확정, 위 "접근 모델" 절 참조).
 
 **요청**:
 ```json
@@ -144,7 +144,9 @@
 }
 ```
 
-**응답 실패**: `RAG_NO_RESULT`(검색 결과 0건) 또는 공통 LLM 오류 코드.
+**응답 실패**: `RAG_NO_RESULT`(검색 결과 0건, 캐시 저장 안 함) · `VALIDATION_ERROR`(비-LLM 검증 실패) · 공통 LLM 오류 코드(`LLM_INVALID_OUTPUT` 등).
+
+정상 응답은 Redis에 `ai:cache:rag-chat:{sha256(question)[:16]}` 키로 캐시된다(TTL 1일, `llm_client.CACHE_TTL_SECONDS` 공유). 캐시 히트 시 Chroma·LLM 호출 없이 저장된 `RagAnswerData`를 그대로 반환한다.
 
 `sources[].doc_id`는 PostgreSQL `rag_documents.id`를 문자열화한 양의 정수 문자열(`^[1-9][0-9]*$`)이다. Spring Boot가 `chat_message_citations.document_id`에 저장할 때 패턴 검증을 통과한 값을 `int(doc_id)`로 변환한다.
 
@@ -264,6 +266,7 @@ FastAPI validation error(`detail[]`)를 반환한다.
 | PUT | `/api/facilities/{id}` | 시설물 수정 | 허남/김관영 |
 | DELETE | `/api/facilities/{id}` | 시설물 삭제 | 허남/김관영 |
 | POST | `/api/facilities/{id}/schedule` | 시설물 점검주기 설정(dev-04-03) | 허남/김관영 |
+| GET | `/api/facilities/status` | 시설물 현황 전용 목록(#540 ⑥, HAJA-378) | 허남 |
 | POST | `/api/inspections` | 점검(회차) 생성 | 황승현 |
 | POST | `/api/inspections/{id}/media` | 촬영 데이터 업로드 | 황승현 |
 | POST | `/api/inspections/{id}/analyze` | AI 분석 요청 | 황승현 |
@@ -289,12 +292,12 @@ FastAPI validation error(`detail[]`)를 반환한다.
 | FR-9 | GET | `/api/notifications` (P1) | 알림 센터 | 미배정 |
 | 공통 | GET | `/actuator/health`, `/health` | 헬스체크 | 인프라 |
 
-> 하자 관리 메뉴(`/api/defects` 목록·검색, 공개 `/api/defects/nl-search` → 내부 `/ai/nl-search`)는 유병현/정재봉 담당(§7 표), 위 FR-4 검수 경로와 데이터는 공유하되 엔드포인트는 별도. 자연어 검색 공개 경로는 Spring Boot가 인증·점검자 권한·`has_ai_addon`을 검사한 뒤에만 내부 FastAPI로 전달한다. 회사 플랜은 `company_memberships`의 승인·미회수·미만료 소속을 회사 승인·진위확인과 함께 검증한다. `GET /api/defects`는 클라이언트 필터와 별개로 `facilities.owner_id`(개인 소유) 또는 회사 소속 공유 시설물(등록자가 아니어도, 시설물 소유자와 요청자 **양쪽 모두**가 같은 회사에 대해 유효한 `company_memberships`를 가진 경우에만 조회 가능 — 요청자 본인의 멤버십이 미승인·회수·만료 상태면 제외) 또는 `inspections.assigned_inspector_id`를 기준으로 범위를 강제하고, 관리자는 전체 범위를 조회하되 모든 역할에서 `is_deleted=false`만 페이지 응답한다. 허용 역할의 조회 가능 결과가 0건이면 `200` 빈 페이지이며, `403`은 엔드포인트 허용 역할이 아닌 경우에만 사용한다. 상세 필드·페이지 규약은 OpenAPI SOT를 따른다.
+> 하자 관리 메뉴(`/api/defects` 목록·검색, 공개 `/api/defects/nl-search` → 내부 `/ai/nl-search`)는 유병현/정재봉 담당(§7 표), 위 FR-4 검수 경로와 데이터는 공유하되 엔드포인트는 별도. 시설과 시설 경유 점검·하자·미디어·보고서·AI 브리핑의 데이터 범위는 `facilities.company_id = 인증 주체 companyId`인 **단일 회사 스코프**다. 요청 시마다 사용자가 ACTIVE이고 `users.company_id`가 일치하며, 회사가 APPROVED+VERIFIED이고 멤버십이 APPROVED·승인시각 존재·미회수·미만료인지 현재 DB에서 검증한다. 관리자도 타회사 전체 조회 예외가 없고, 담당 점검자(`assigned_inspector_id`)라는 이유만으로 타회사 시설 범위를 확장하지 않는다. 유효 소속이 아니면 `403 FORBIDDEN`, 유효 소속이지만 범위 내 결과가 없으면 `200` 빈 페이지이며 모든 역할에서 `is_deleted=false`만 페이지 응답한다. 상세 필드·페이지 규약은 OpenAPI SOT를 따른다.
 
 ## 다음 추가 예정 (각 담당자)
 
-- `/ai/rag-chat` — RAG 챗봇 (이은석)
-- `/api/defects/nl-search` — 자연어 검색 공개 게이트웨이(Spring Boot, 인증·플랜 검사) → 내부 `/ai/nl-search`(FastAPI, 외부 직접 노출 금지)
+- `/api/ai/rag-chat` — Spring 프록시(session_id 소유·session_type='RAG' 검증) + `/api/chat-sessions`, `chat_message_citations` 영속화 (이은석, 후속 이슈)
+- `/api/defects/nl-search` — 구현 완료. 자연어 검색 공개 게이트웨이(Spring Boot, 인증·플랜 검사) → 내부 `/ai/nl-search`(FastAPI, 외부 직접 노출 금지)
 - Spring Boot REST 엔드포인트 전체 (백엔드 담당)
 
 ---
@@ -429,4 +432,200 @@ RapidOCR(한국어)+LLM 파싱. 백엔드 프록시(`/api/auth/business-license/
 ### 추가 ErrorCode (Spring `ErrorCode`)
 이번 배포: `AUTH_EMAIL_DUPLICATED`(409) · `AUTH_BUSINESS_NUMBER_DUPLICATED`(409) · `AUTH_ACCOUNT_NOT_FOUND`(404) · `AUTH_SIGNUP_TOKEN_INVALID`(404) · `FILE_REQUIRED`(400) · `FILE_INVALID_TYPE`(400) · `FILE_TOO_LARGE`(400) · `FILE_UPLOAD_FAILED`(500)
 비밀번호 찾기(#194, 이메일 링크 방식): `AUTH_RESET_TOKEN_INVALID`(400, 기존 예약분) · `AUTH_TOO_MANY_REQUESTS`(429, 신규)
+
+## 하자 목록·상세 화면 개편 (draft, HAJA-393/394 · #725/#726, 2026-07-24)
+
+> HAJA-26(#17, CLOSED·main 승격완료)로 나온 기존 하자 목록/상세를 Figma 재설계안 기준으로 개편. **이 섹션은 Figma 3개 노드를 실사 확인한 결과 확정** — 세부 구현 중 어긋나는 부분이 있으면 PR에 `[CONTRACT-CHANGE-REQUEST]`로 표시하고 이 문서를 갱신한다.
+
+Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?node-id=1-2099&m=dev) · [상세(카드형)](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?node-id=1547-2912&m=dev) · [상세 모달](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?node-id=1562-3682&m=dev)
+
+⚠️ **Figma 팀 플랜이 Starter라 Dev Mode/MCP 호출이 제한된다**(`get_metadata` 2회 만에 rate limit). 프론트 세션은 Figma MCP 호출을 아껴 쓰고, 아래 확정된 필드부터 참고할 것.
+
+### 화면 구조 (3단, 실사 확인 완료)
+1. **하자 목록 화면**(node `1-2099`) — 실제로 열어보니 **하자 단건 플랫 테이블**(하자ID/썸네일/유형/등급/시설물/위치/상태/등록일/담당자, AI 자연어 검색바, 필터칩, 페이지네이션). 기존 `DefectListPage`와 시각 구조는 유사. **사용자 확정 지시(2026-07-24): 시각 디자인은 유지하되 로우 단위를 점검(Inspection)으로 재해석** — 컬럼도 하자 단건이 아니라 점검 단위 정보(점검일·시설물·하자 건수·등급분포 등)로 바꿔야 함. Figma가 아직 최신 재설계를 반영 못한 상태.
+2. **점검 상세**(node `1547-2912`, "Defect Management Detail card list") — ✅ Figma가 설명과 정확히 일치. 브레드크럼("하자 관리 > 하자 목록 > 하자 상세") + KPI 4종(총 하자/검수확정/조치중/조치완료) + 필터·정렬 + **하자 카드 그리드**(카드당: 유형, 등급뱃지, 상태뱃지, 썸네일, AI신뢰도, 최대폭) + 우측 사이드바 "활동 기록"(타임라인 — 상태변경·담당자배정·조치내용이 텍스트로 이미 존재)
+3. **하자 상세 모달**(node `1562-3682`, "Defect Management Detail - modal") — ✅ 실사 확인 완료(브라우저 스크린샷). 사이드바/헤더 제외 전체 영역 모달. 좌측: 헤더(하자ID+유형+등급+상태뱃지) → "조치 전 사진(원본)"(bbox 오버레이) → 통계 3종(AI신뢰도/균열 폭(최대)/균열 길이(추정)) → "AI 분석 설명"(원인/위험도/조치권고). 우측 "조치 결과 등록": 아래 필드 참조. 하단 "활동 기록" 타임라인(상태·일시·담당자).
+
+### 모달 "조치 결과 등록" 필드 (확정, node `1562-3682` 실사)
+| 필드(Figma 라벨) | 타입 | 필수 | 비고 |
+|---|---|---|---|
+| 조치 후 사진 업로드 | 파일(JPG/PNG, 최대 10MB) | ✅ | 드래그앤드롭 업로드 영역 |
+| 조치 내용 | 텍스트(멀티라인) | ✅ | placeholder "조치 내용을 입력해 주세요." |
+| 조치일 | 날짜 | ✅ | |
+| 담당자 | 드롭다운(예: "김현수 과장") | ✅ | **#690 "배정 가능한 담당자(회사 소속 사용자) 목록 조회 API" 재사용 대상** |
+| (버튼) 조치 완료 등록 | — | — | **결정(2026-07-24, BE)**: 신규 `PATCH /api/defects/{id}/action` — 상태 전이는 RESOLVED로 고정, 기존 `PATCH /api/defects/{id}/status`는 확장하지 않음(아래 "엔드포인트 매핑" 근거 참고) |
+
+### 엔드포인트 매핑 (기존 재사용 우선)
+
+| 화면 | 엔드포인트 | 상태 |
+|---|---|---|
+| ①점검 단위 목록 | `GET /api/inspections` (페이지네이션, 상태/시설물 필터) | **구현 완료** — 응답 `InspectionListItemResponse{id, facilityId, facilityName, roundNo, inspectionDate, assignedInspectorId, assigneeName, status, defectCount, gradeDistribution}`. `gradeDistribution`은 `Map<String,Long>`으로 A~E 5개 키를 항상 포함(하자 없는 등급은 0). 담당자 표시 필드명은 `assigneeName`으로 확정(초기 구현 `assignedInspectorName`에서 FE 계약 정합을 위해 리네임, #893/HAJA-458) |
+| ②점검별 하자 카드 목록 | `GET /api/inspections/{id}/defects` | **기존 재사용** (`DefectRevisionController`, `DefectDetailItem` 반환). 카드 UI에 필요한 필드(썸네일 등)가 부족하면 `DefectDetailItem` 확장 — 신규 엔드포인트 만들지 말 것 |
+| ③하자 상세 모달 조회 | `GET /api/defects/{id}` (`DefectResponse`) | **구현 완료** — "조치 결과 등록" 필드(조치내용/조치일/담당자/조치후사진) 저장용 컬럼을 `Defect` 엔티티에 추가. Flyway **V12**로 추가(handoff는 애초 "V5"를 지정했으나 그 사이 V5~V11이 다른 PR에서 선점돼 다음 번호로 진행, V1~V11 무수정) |
+| ③조치 결과 등록 | **신규** `PATCH /api/defects/{id}/action` (`DefectActionResultRequest`) | **구현 완료** — 상태전이(`PATCH /status`)와 분리한 이유: (1) 조치완료 폼에는 "역행/건너뛰기 사유" 입력란이 없어 4개 필드가 항상 전부 필수인데, `DefectStatusUpdateRequest`에 조건부 필수 필드를 얹으면 검증이 status 값에 따라 달라져 복잡해짐 (2) 상태전이 API의 기존 의미(모든 상태 간 자유 전이+사유)와 "조치 등록"의 의미(IN_PROGRESS→RESOLVED 전용, 항상 4필드 세트)가 달라 한 엔드포인트에 섞으면 계약이 모호해짐. 내부적으로 `Defect#registerActionResult()`가 기존 `changeStatus()`의 정방향 전이 규칙(IN_PROGRESS에서만 사유 없이 허용)을 재사용하므로 순서를 건너뛴 완료 처리는 400으로 자연히 거부됨 |
+| ③담당자 드롭다운 옵션 | `GET /api/facilities/assignable-users` (#690, `FacilityController.java:102`, `AssignableUserResponse{id,name,role}`) | **구현 완료** — 기존 API 그대로 재사용. `DefectActionResultRequest.actionAssigneeId`도 서비스 계층에서 `AuthService.validateAssignableInspector()`(#690과 동일 자격조건: 활성·INSPECTOR/ADMIN·유효 승인 멤버십)로 검증해 cross-company IDOR 차단 |
+| ③파일 업로드(조치 후 사진) | `POST /api/inspections/{id}/media` | **기존 media API 재사용** — 업로드 후 반환된 mediaId를 `DefectActionResultRequest.actionMediaId`로 전달. 서비스가 해당 media가 하자와 같은 inspection 소속인지 검증(`MediaRepository.findByIdAndInspectionId`)해 타 점검/타 회사 media 연결을 차단 |
+
+### 잔여 TBD
+- 하자당 첨부파일("조치 후 사진") 다건 허용 여부, 기존 `mediaId`(탐지 이미지 1개, nullable)와의 관계 구분 — 현재는 1건(actionMediaId)만 지원
+- `GET /api/inspections` 목록의 정렬/기본 필터 및 페이지 크기(현재 구현: 점검일 최신순 desc + 동일일자 id desc, 기본 페이지 크기 20)
+
+### 관련 이슈
+선행 #17(HAJA-26, CLOSED) · 연관(중복 여부 확인 필요) #527(하자 상세 이미지뷰어/활동기록/SLA) · #630(조치 보드 칸반)
 > `AUTH_VERIFICATION_FAILED`(400)는 보안질문 방식 전용으로 예약됐으나 그 방식이 폐기돼 **참조 0건** — 제거 대상(후속 정리). 이번 PR에서는 건드리지 않는다.
+
+### 설계 정정 — "목록 보기/보드 보기" 2탭 구조 폐기 (사용자 확정 지시, 2026-07-26 → PR #899로 구현 완료)
+`DefectListPage`가 실제 구현되면서 위 ①점검 단위 목록과 `#630`(조치 보드 칸반, 하자 단건 기준)이 같은 페이지 안에 탭(`목록 보기`/`보드 보기`)으로 얹혀버렸던 것을 설계 오류로 확정하고 제거했다. `DefectListPage`(`/defects/list`)는 이제 **①점검 단위 목록만** 표시한다(탭 없음) — `DefectActionBoard`/`DefectFilterBar` 컴포넌트는 삭제하지 않고 참조만 제거(`#630`을 별도 라우트로 분리할지 완전 폐기할지는 후속 이슈). `/defects/:id`(`DefectDetailPage`)는 대시보드 `PendingPriorityCard`·시설물 `FacilityDefectDetailPage`가 독립적으로 딥링크하므로 그대로 유지.
+
+### GET /api/inspections — 점검·하자 자연어 필터 확장 (2026-07-28, #1139/HAJA-538)
+기존 `POST /api/defects/nl-search`(HAJA-120)는 자연어를 `{type[], grade[], status[], confidenceMin}` 필터 조건으로만 변환하고 조회는 하지 않는다. "검색한 하자 조건에 해당하는 점검을 보여줘야 함"이라는 요구사항에 따라, 점검 목록 화면에 자연어 검색창(`InspectionNlSearchBar`)을 신설하고 `GET /api/inspections`에 선택 파라미터 `defectType`/`defectGrade`/`defectStatus`(배열)를 추가했다. 매칭 조건: 해당 점검에 속한 하자 **하나가** 세 조건을 동시에 만족해야 포함(EXISTS 서브쿼리 — JOIN+독립 IN이 아님, 서로 다른 하자가 조건을 나눠 만족하는 false positive 방지). `defectGrade`는 기존 단일 등급 임계값(`>=`) 필터와 달리 **정확 매칭(IN)** — nl-search 출력 배열 시맨틱에 맞춤. 프론트는 axios `paramsSerializer:{indexes:null}`로 배열 쿼리 파라미터를 Spring `List<T>` 바인딩과 정합시켰다. 관련: #878(BE, HAJA-452)·#726(FE, HAJA-394).
+
+이번 확장으로 날짜·점검 종류·점검 진행 상태·점검 회차·하자 건수를 같은 목록 API에서 필터링한다.
+
+| 파라미터 | 의미 |
+|---|---|
+| `status`(반복) | raw 점검 상태 `CREATED|UPLOADING|ANALYZING|ANALYZED|REVIEWED|REPORTED`. 기존 단일 `status` 요청도 호환 |
+| `inspectionType`(반복) | `REGULAR|DETAILED|EMERGENCY` |
+| `inspectionDateFrom` / `inspectionDateTo` | `inspectionDate` 기준 포함 범위 |
+| `roundNoMin` / `roundNoMax` | 시설물별 점검 회차 포함 범위, 1 이상 |
+| `defectCountMin` / `defectCountMax` | 해당 점검의 `deleted=false` **전체 하자 건수** 포함 범위, 0 이상 |
+| `defectType` / `defectGrade` / `defectStatus`(반복) | 같은 비삭제 하자 하나가 지정된 축을 모두 만족하는 프로파일 |
+
+배열 안에서는 OR, 서로 다른 축 사이에서는 AND다. 하자 건수는 유형·등급·상태 필터에 매칭된 하자
+건수가 아니라 응답 `defectCount`와 동일한 전체 비삭제 하자 집계다. 날짜·회차·건수의 시작값이 종료값보다
+크거나 하한을 위반하면 `400 INVALID_INPUT`이다. 정렬과 회사 스코프는 기존대로
+`inspectionDate DESC, id DESC` 및 인증 주체의 단일 회사 범위를 유지한다.
+
+공개 `POST /api/defects/nl-search` 요청은 계속 `{query}`만 받는다. Spring은 내부 FastAPI
+`POST /ai/nl-search`에 `{query, referenceDate}`를 보내며, `referenceDate`는 브라우저 입력이 아니라
+서버의 KST `Clock`으로 산출한다. FastAPI가 반환한 최종 날짜·회차·건수 범위와 enum을 Spring이 한 번 더
+검증하며, 계약 밖 enum·중복 배열 값이나 역전된 범위는 공개 게이트웨이에서 `ErrorApiResponse` 형태의
+`502 AI_INVALID_RESPONSE`로 처리한다.
+
+## GET /api/platform-admin/monitoring — 플랫폼 관리자 시스템 모니터링 (#728, frontend PR #732 계약 확정 2026-07-24)
+
+PLATFORM_ADMIN 전용(SecurityConfig `hasRole(PLATFORM_ADMIN)`). companyId 스코프 없이 플랫폼 전체 인프라 상태를 반환한다.
+
+**성공 200** (`ApiResponse` envelope) `data`:
+```json
+{
+  "serverHealth": [
+    { "id": "api-server", "name": "API 서버", "status": "HEALTHY", "metric": null },
+    { "id": "ai-analysis-server", "name": "AI 분석 서버", "status": "HEALTHY", "metric": null },
+    { "id": "db", "name": "DB", "status": "HEALTHY", "metric": null }
+  ],
+  "jobQueue": { "summary": { "inProgress": 0, "completed": 0, "failed": 0 }, "jobs": [] },
+  "resourceUsage": { "cpuUsagePercent": 42.5, "memoryUsagePercent": 61.3, "diskUsagePercent": 74.8 },
+  "errorLogs": [
+    { "id": "...", "timestamp": "2026-07-24 14:02:11", "level": "ERROR", "service": "AiProxyService", "message": "..." }
+  ]
+}
+```
+
+- `serverHealth`: 자체 서버·DB는 `HealthEndpoint`(Actuator) 빈을 Java API로 직접 호출(HTTP 재호출 아님) — `UP`→`HEALTHY`, `DOWN`→`DOWN`, 그 외→`DEGRADED`. AI 분석 서버는 ai-server `GET /health`를 3초 타임아웃으로 폴링(연결 실패/타임아웃→`DOWN`, 비정상 상태코드→`DEGRADED`).
+- `jobQueue`: **AI 자동 분석 파이프라인이 아직 코드베이스에 없어(#728 범위 제외, AI 탐지 기능 완료 후 별도 이슈) 항상 `summary` 전부 0, `jobs` 빈 배열을 반환한다.** 없는 데이터를 지어내지 않는다 — 프론트 `AnalysisJobQueueCard`는 그대로 렌더되어 0/빈 목록으로 보인다.
+- `resourceUsage`: `MetricsEndpoint`(Actuator)로 조회한 **현재 시점(라이브) 값** — `system.cpu.usage`, `jvm.memory.used`/`max`(area:heap), `disk.free`/`total`. 시계열이 아니다. (HF API 사용량 카드를 대체 — HF는 사용량 조회 공개 API가 없어 별도 과업으로 분리, 2026-07-24 결정.)
+- `errorLogs`: 최근 50건, 최신순. `RedisErrorLogAppender`가 애플리케이션 전역의 기존 `log.error`/`log.warn` 호출(예: AiProxyService AI 서버 연결 실패, GlobalExceptionHandler 미처리 예외)을 Redis capped list(최근 200건)에 실시간 적재한 것을 조회한다 — 별도 계측 없이 실제 발생 이벤트만 노출.
+- **Actuator 과노출 차단**: `/actuator/health`만 무인증(docker healthcheck용), 그 외(`/actuator/metrics` 등)는 이번에 `hasRole(PLATFORM_ADMIN)`으로 제한(SecurityConfig) — 이전에는 로그인만 하면 누구나 조회 가능했다.
+
+### ErrorCode
+이번 엔드포인트는 신규 ErrorCode 없음(정상 조회 실패 케이스가 없음 — AI 서버/Actuator 실패는 상태값(`DOWN`/`DEGRADED`)으로 흡수하고 200을 반환).
+
+---
+
+## 시설물 현황 전용 목록 API (#540 ⑥, HAJA-378, 2026-07-24)
+
+> 이슈 #540 ⑥ "현황 전용 목록 API" — 대시보드 스타일 "시설물 현황" 요약 테이블 화면 전용 읽기 전용 엔드포인트. 기존 `GET /api/facilities`(CRUD 상세, `FacilityResponse` 반환)를 화면에 그대로 재사용하지 않고 화면 전용 응답(`FacilityStatusResponse`)을 신설했다.
+
+### GET /api/facilities/status
+
+- 인증: 세션 필요(미인증 401). 회사 스코프는 `LoginUser.companyId`로만 결정한다 — 요청 파라미터/바디로 companyId를 받지 않는다(cross-company IDOR 방지, 기존 `FacilityController` 원칙과 동일). `CompanyScopeGuard.requireEffectiveMembership` 통과 못하면 403 `FORBIDDEN`.
+- 응답: `List<FacilityStatusResponse>`(페이지네이션 없음) — 기존 `GET /api/facilities`와 동일하게 #484 상한(500건) 방어값을 재사용한다. 상한 도달 시 서버 WARN 로그만 남기고 응답 계약(배열)은 그대로 유지한다.
+- 시설물이 없으면 `200` + 빈 배열.
+
+**FacilityStatusResponse 필드**
+
+| 필드 | 타입 | nullable | 설명 |
+|---|---|---|---|
+| facilityId | Long | - | 시설물 ID |
+| facilityName | String | - | 시설물명 |
+| initialGrade | `FacilityInitialGrade`(A~E) | ✅ | 등록 시 입력한 정적 초기 등급. ⚠️ 점검 이력 기반으로 동적 산출되는 등급이 **아니다**(별도 미해결 과제, 이번 범위 밖) |
+| nextInspectionDueAt | LocalDate | ✅ | 다음 점검 예정일 |
+| dDay | Long | ✅ | `nextInspectionDueAt - today`(KST 기준, dev-03-02 `UpcomingInspectionResponse`와 동일 관례) — nextInspectionDueAt 이 없으면 null(음수 가능 — 마감 경과 시) |
+| assigneeUserId | Long | ✅ | 담당자 미배정 시 null |
+| assigneeName | String | ✅ | 담당자 표시명(배치 조회로 조립, N+1 방지) — 담당자 미배정 시 null |
+| lastInspectedAt | LocalDate | ✅ | 시설물의 가장 최근 `Inspection.inspectionDate`(점검 이력이 없으면 null) |
+
+예시 응답:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "facilityId": 10,
+      "facilityName": "테스트빌딩",
+      "initialGrade": "B",
+      "nextInspectionDueAt": "2026-08-01",
+      "dDay": 8,
+      "assigneeUserId": 5,
+      "assigneeName": "김점검",
+      "lastInspectedAt": "2026-07-10"
+    }
+  ],
+  "error": null
+}
+```
+
+- 신규 ErrorCode 없음 — 기존 `FORBIDDEN`(403) 재사용. `FACILITY_NOT_FOUND`는 단건 조회 전용이라 이 목록 엔드포인트에서는 발생하지 않는다.
+
+## 대시보드 "최근 점검 전체보기" 페이지네이션+검색 API (신규, 2026-07-26)
+
+> 대시보드 카드 "최근 점검"의 "전체보기" 버튼 → `/dashboard/recent-inspections` 전체 목록 화면. 기존 위젯
+> 엔드포인트 `GET /api/dashboard/recent-inspections`(상위 10건 고정 배열, `List<RecentInspectionResponse>`)는
+> **완전히 무변경**으로 남긴다 — 아래는 완전히 별도의 신규 엔드포인트다(회귀 위험 없는 additive 확장).
+> `defectApi.getInspections`/`GET /api/inspections`(하자 목록 개편, HAJA-393/394, §"하자 목록·상세 화면 개편")를
+> 재사용하지 않는 이유: 그쪽 `InspectionStatus`는 raw 6단계(`CREATED|UPLOADING|ANALYZING|ANALYZED|REVIEWED|REPORTED`)이고,
+> 대시보드는 이미 화면용 4단계 한글 라벨(`분석중|검수대기|검수확정|완료`)로 서버에서 번역해 반환한다 — 두 체계를
+> 다시 매핑하는 대신 대시보드가 이미 가진 번역 로직을 확장하는 쪽이 안전하다.
+
+### GET /api/dashboard/recent-inspections/search
+
+- 인증: 세션 필요(미인증 401). 회사 스코프는 기존 대시보드 엔드포인트와 동일하게 `LoginUser`로만 결정(`CompanyScopeGuard.requireEffectiveMembership` 실패 시 403 `FORBIDDEN`) — 요청 파라미터로 companyId를 받지 않는다.
+- Query Parameters(전부 optional):
+
+| 파라미터 | 타입 | 기본값 | 설명 |
+|---|---|---|---|
+| `page` | int | 0 | Spring Data 관례(0-based) |
+| `size` | int | 10 | 페이지 크기, 서버가 **최대 100**으로 캡(과다조회 방지 — `FacilityService.FACILITY_LIST_MAX` 방어 컨벤션과 동일 원칙) |
+| `status` | string | 없음 | 대시보드 4단계 한글 라벨 중 하나: `분석중`/`검수대기`/`검수확정`/`완료`. 그 외 값은 400 `INVALID_INPUT` |
+| `facilityId` | Long | 없음 | 특정 시설물로 한정 |
+| `facilityType` | string | 없음 | 시설물 종류 카테고리(예: `건물`/`교량`/`도로`/`기타`) 접두(prefix) 매칭. `facility.type`이 레거시 단순값("건물")과 #731 등록 모달의 컴파운드값("건물-긴급-1개월")을 함께 가질 수 있어 접두 LIKE로 매칭한다 |
+| `query` | string | 없음 | 시설물명 또는 담당자명(대소문자 무시 부분일치) 자유 텍스트 검색. 담당자명은 `RecentInspectionResponse.inspector`와 동일하게 `Inspection.createdBy` 기준(기존 위젯 관례 유지 — `assignedInspectorId`가 아님) |
+
+- 응답: `PageResponse<RecentInspectionResponse>`(`content`/`page`/`totalElements` — 기존 `GET /api/inspections`와 동일 envelope 형태, `docs/api-contract/contract.md` §"하자 목록·상세 화면 개편" 참고). `RecentInspectionResponse` 필드는 기존 위젯 엔드포인트와 100% 동일(`id, facilityName, inspectedAt, inspector, defectCount, status`).
+- 정렬: 항상 `inspectionDate desc, id desc`(기존 위젯과 동일 기준) — 파라미터화하지 않는다.
+- 파라미터 없이(또는 `page=0&size=10`만) 호출하면 기존 위젯과 **동일한 회사 스코프·정렬 기준**으로 상위 10건을 반환한다(별도 엔드포인트이므로 위젯 쪽 응답 형태 자체는 바뀌지 않음).
+
+예시 응답:
+```json
+{
+  "success": true,
+  "data": {
+    "content": [
+      {
+        "id": 400,
+        "facilityName": "강남빌딩",
+        "inspectedAt": "2026-07-10",
+        "inspector": "김검사",
+        "defectCount": 6,
+        "status": "완료"
+      }
+    ],
+    "page": 0,
+    "totalElements": 47
+  },
+  "error": null
+}
+```
+
+- 신규 ErrorCode 없음 — `INVALID_INPUT`(400, 잘못된 `status` 라벨)·`FORBIDDEN`(403) 모두 기존 공통 코드 재사용.

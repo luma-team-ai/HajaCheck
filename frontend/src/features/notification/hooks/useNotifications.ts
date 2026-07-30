@@ -48,3 +48,35 @@ export function useMarkNotificationsAsRead() {
     isPending: mutation.isPending,
   };
 }
+
+// 개별 닫기(X) — DELETE /api/notifications/{id}로 서버에서 실제 삭제한다. 목록에서 즉시 사라지도록
+// 캐시를 낙관적으로 먼저 제거하고, 실패하면 원복한다(읽음처리와 동일한 패턴). 성공 시 목록을
+// invalidate해 서버 상태(30건 컷에 밀려 있던 다음 알림 등)와 다시 맞춘다.
+export function useDeleteNotification() {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: (id: number) => notificationApi.remove(id),
+    onMutate: async (id: number) => {
+      await queryClient.cancelQueries({ queryKey: notificationKeys.list });
+      const previous = queryClient.getQueryData<NotificationApiItem[]>(notificationKeys.list);
+      queryClient.setQueryData<NotificationApiItem[]>(notificationKeys.list, (current) =>
+        current?.filter((item) => item.id !== id),
+      );
+      return { previous };
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(notificationKeys.list, context.previous);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: notificationKeys.list });
+    },
+  });
+
+  return {
+    deleteNotification: (id: number) => mutation.mutate(id),
+    isPending: mutation.isPending,
+  };
+}

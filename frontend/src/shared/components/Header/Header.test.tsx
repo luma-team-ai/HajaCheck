@@ -53,4 +53,61 @@ describe('Header', () => {
 
     expect(handleClick).toHaveBeenCalledTimes(1);
   });
+
+  const profileMenu = {
+    companyName: '하자체크',
+    planLabel: 'Free',
+    name: '김승현',
+    email: 'dsagom@gmail.com',
+    onMyInfoClick: vi.fn(),
+    onMyPlanClick: vi.fn(),
+    onLogout: vi.fn(),
+  };
+
+  it('profileMenu 제공 시 프로필 버튼 클릭은 onProfileClick 대신 드롭다운을 연다(HAJA-758)', () => {
+    const handleClick = vi.fn();
+    render(
+      <Header breadcrumb={[{ label: '대시보드' }]} onProfileClick={handleClick} profileMenu={profileMenu} />,
+      { wrapper: MemoryRouter },
+    );
+
+    expect(screen.queryByText('하자체크')).toBeNull();
+
+    fireEvent.click(screen.getByLabelText('내 프로필'));
+
+    expect(handleClick).not.toHaveBeenCalled();
+    expect(screen.getByText('하자체크')).not.toBeNull();
+  });
+
+  it('드롭다운의 내 정보 클릭 시 onMyInfoClick 호출 후 드롭다운이 닫힌다', () => {
+    const onMyInfoClick = vi.fn();
+    render(
+      <Header
+        breadcrumb={[{ label: '대시보드' }]}
+        profileMenu={{ ...profileMenu, onMyInfoClick }}
+      />,
+      { wrapper: MemoryRouter },
+    );
+
+    fireEvent.click(screen.getByLabelText('내 프로필'));
+    fireEvent.click(screen.getByRole('menuitem', { name: /내 정보/ }));
+
+    expect(onMyInfoClick).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('하자체크')).toBeNull();
+  });
+
+  it('드롭다운이 열린 상태에서 프로필 버튼을 다시 클릭하면 닫힌다(PR머신 P2)', () => {
+    render(<Header breadcrumb={[{ label: '대시보드' }]} profileMenu={profileMenu} />, {
+      wrapper: MemoryRouter,
+    });
+
+    const profileButton = screen.getByLabelText('내 프로필');
+    fireEvent.click(profileButton);
+    expect(screen.getByText('하자체크')).not.toBeNull();
+
+    fireEvent.mouseDown(profileButton);
+    fireEvent.click(profileButton);
+
+    expect(screen.queryByText('하자체크')).toBeNull();
+  });
 });

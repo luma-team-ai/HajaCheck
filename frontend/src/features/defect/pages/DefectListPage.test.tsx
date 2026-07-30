@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
-// DefectListPage 통합 테스트 — 실제 useDefects 훅 + MSW defectHandlers를 통해 목록 렌더링과
-// 초기 렌더링을 검증한다(HAJA-30, FacilityListPage.test.tsx와 동일 패턴).
+// DefectListPage 통합 테스트 — HAJA-393/394(#725/#726)로 점검(Inspection) 단위 테이블로 재해석된 것을
+// 검증한다. 2026-07-26 정정(#726 코멘트): "목록 보기/보드 보기" 2탭 구조는 설계 오류로 확정되어
+// 제거되었다 — 이 페이지는 다시 점검 단위 목록 단일 플로우만 렌더링한다("보드 보기" 탭 관련 테스트는
+// 삭제, DefectActionBoard.test.tsx가 컴포넌트 단위로 별도 커버).
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { setupServer } from "msw/node";
@@ -21,6 +24,7 @@ import {
   it,
   vi,
 } from "vitest";
+import { api } from "../../../shared/api/axios";
 import { defectHandlers } from "../api/defectApi.handlers";
 import { DefectListPage } from "./DefectListPage";
 
@@ -41,9 +45,8 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-// 목록→상세 이동(HAJA-17) 및 보고서 생성(목록→점검 회차 뷰어) 이동을 검증하기 위해 /defects/:id,
-// /inspections/:id/viewer에 마커를 렌더링하는 스텁 라우트를 둔다(대상 페이지 전체를 렌더링할 필요
-// 없이 navigate 대상만 확인하면 충분).
+// 목록→점검 상세(카드형) 이동을 검증하기 위해
+// /inspections/:id/defects에 마커를 렌더링하는 스텁 라우트를 둔다.
 function renderPage(): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -54,10 +57,9 @@ function renderPage(): void {
       <MemoryRouter initialEntries={["/defects/list"]}>
         <Routes>
           <Route path="/defects/list" element={<DefectListPage />} />
-          <Route path="/defects/:id" element={<div>하자 상세 스텁</div>} />
           <Route
-            path="/inspections/:id/viewer"
-            element={<div>점검 회차 뷰어 스텁</div>}
+            path="/inspections/:id/defects"
+            element={<div>점검 상세 스텁</div>}
           />
         </Routes>
       </MemoryRouter>
@@ -65,36 +67,49 @@ function renderPage(): void {
   );
 }
 
-describe("DefectListPage (통합 테스트)", () => {
-  it("초기 목록: MSW 목 데이터를 불러와 테이블에 렌더링한다", async () => {
+describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", () => {
+  it("초기 목록: MSW 목 데이터를 불러와 점검 단위 테이블에 렌더링한다", async () => {
     renderPage();
 
     const table = await screen.findByRole("table");
-    expect(within(table).getByText("철근 노출")).not.toBeNull();
-    expect(within(table).getByText("균열")).not.toBeNull();
-    expect(within(table).getByText("박리·박락")).not.toBeNull();
+    expect(within(table).getByText("강남 오피스타워 A동")).not.toBeNull();
+    expect(within(table).getByText("한강대교 북단")).not.toBeNull();
+    expect(within(table).getByText("판교 테크노밸리 B동")).not.toBeNull();
   });
 
-  it("LLM 검색 조건이 없으면 적용된 필터 영역을 표시하지 않는다", async () => {
+  it("점검별 하자 건수·등급분포를 mockDefects 기준으로 집계해 표시한다", async () => {
+    renderPage();
+    const table = await screen.findByRole("table");
+
+    // mockInspections id=101: mockDefects의 inspectionId=101(id 1,2) → 2건, 등급 D/C 각 1건.
+    expect(within(table).getByText("2건")).not.toBeNull();
+    // id=202: inspectionId=202(id 3) → 1건, grade=null이라 등급분포는 '-'.
+    expect(within(table).getByText("1건")).not.toBeNull();
+    // id=301: 하자 없음(빈 상태) → 0건.
+    expect(within(table).getByText("0건")).not.toBeNull();
+  });
+
+  it("적용된 필터가 없으면 필터 칩 영역을 표시하지 않는다", async () => {
     renderPage();
     await screen.findByRole("table");
 
     expect(screen.queryByText("적용된 필터:")).toBeNull();
-    expect(screen.queryByRole("button", { name: "필터 초기화" })).toBeNull();
   });
 
-  it("상세보기 링크가 각 행에 렌더링된다", async () => {
+  it("점검 상세보기 링크가 각 행에 렌더링된다", async () => {
     renderPage();
     const table = await screen.findByRole("table");
 
     const detailLinks = within(table).getAllByRole("link", {
-      name: "상세보기",
+      name: "점검 상세보기",
     });
     expect(detailLinks.length).toBeGreaterThan(0);
-    expect(detailLinks[0].getAttribute("href")).toMatch(/^\/defects\/\d+$/);
+    expect(detailLinks[0].getAttribute("href")).toMatch(
+      /^\/inspections\/\d+\/defects$/,
+    );
   });
 
-  it("행을 클릭하면 해당 하자의 상세 페이지로 이동한다", async () => {
+  it("행을 클릭하면 해당 점검의 상세(카드형) 페이지로 이동한다", async () => {
     renderPage();
     const table = await screen.findByRole("table");
     const rows = within(table).getAllByRole("row");
@@ -102,108 +117,24 @@ describe("DefectListPage (통합 테스트)", () => {
     // rows[0]은 헤더 행 — 첫 데이터 행을 클릭한다.
     fireEvent.click(rows[1]);
 
-    expect(await screen.findByText("하자 상세 스텁")).not.toBeNull();
+    expect(await screen.findByText("점검 상세 스텁")).not.toBeNull();
   });
 
-  it("행 선택을 클릭해도 상세 페이지로 이동하지 않는다", async () => {
+  it("보고서 생성 버튼과 점검 선택 체크박스를 표시하지 않고, 필터 결과가 있으면 내보내기를 활성화한다", async () => {
     renderPage();
     const table = await screen.findByRole("table");
-    const checkbox = within(table).getByRole("checkbox", {
-      name: "DEF-0001 선택",
-    });
 
-    fireEvent.click(checkbox);
-
-    expect(screen.queryByText("하자 상세 스텁")).toBeNull();
-  });
-
-  it("헤더에서 현재 페이지의 하자를 전체 선택하고 해제한다", async () => {
-    renderPage();
-    const table = await screen.findByRole("table");
-    const selectAll = within(table).getByRole("checkbox", {
-      name: "현재 페이지 하자 전체 선택",
-    });
-    const rowSelections = within(table)
-      .getAllByRole("checkbox")
-      .filter((checkbox) => checkbox !== selectAll) as HTMLInputElement[];
-
-    fireEvent.click(selectAll);
-    expect(rowSelections.every((checkbox) => checkbox.checked)).toBe(true);
-
-    fireEvent.click(selectAll);
-    expect(rowSelections.every((checkbox) => !checkbox.checked)).toBe(true);
-  });
-
-  it("일부 행만 선택하면 헤더 선택에 중간 상태를 표시한다", async () => {
-    renderPage();
-    const table = await screen.findByRole("table");
-    const selectAll = within(table).getByRole("checkbox", {
-      name: "현재 페이지 하자 전체 선택",
-    }) as HTMLInputElement;
-    const rowSelection = within(table).getByRole("checkbox", {
-      name: "DEF-0001 선택",
-    });
-
-    fireEvent.click(rowSelection);
-
-    expect(selectAll.checked).toBe(false);
-    expect(selectAll.indeterminate).toBe(true);
-  });
-
-  it("선택된 행이 없으면 보고서 생성·내보내기 버튼이 비활성화된다", async () => {
-    renderPage();
-    await screen.findByRole("table");
-
-    const reportButton = screen.getByRole("button", {
-      name: "보고서 생성",
-    }) as HTMLButtonElement;
     const exportButton = screen.getByRole("button", {
       name: "내보내기",
     }) as HTMLButtonElement;
-    expect(reportButton.disabled).toBe(true);
-    expect(exportButton.disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "보고서 생성" })).toBeNull();
+    expect(within(table).queryByRole("checkbox")).toBeNull();
+    expect(exportButton.disabled).toBe(false);
   });
 
-  it("같은 점검 회차의 하자만 선택하면 보고서 생성 버튼이 활성화되고, 클릭 시 해당 점검 회차 뷰어로 이동한다", async () => {
+  it("현재 페이지와 무관하게 필터 결과의 모든 점검에 속한 하자를 모아 PDF로 내보낸다", async () => {
     renderPage();
-    const table = await screen.findByRole("table");
-
-    // mockDefects: id 1, 2는 inspectionId 101을 공유한다.
-    fireEvent.click(within(table).getByRole("checkbox", { name: "DEF-0001 선택" }));
-    fireEvent.click(within(table).getByRole("checkbox", { name: "DEF-0002 선택" }));
-
-    const reportButton = screen.getByRole("button", {
-      name: "보고서 생성",
-    }) as HTMLButtonElement;
-    expect(reportButton.disabled).toBe(false);
-
-    fireEvent.click(reportButton);
-
-    expect(await screen.findByText("점검 회차 뷰어 스텁")).not.toBeNull();
-  });
-
-  it("서로 다른 점검 회차의 하자를 함께 선택하면 보고서 생성 버튼이 비활성화된다", async () => {
-    renderPage();
-    const table = await screen.findByRole("table");
-
-    // mockDefects: id 1은 inspectionId 101, id 3은 inspectionId 202로 서로 다른 회차다.
-    fireEvent.click(within(table).getByRole("checkbox", { name: "DEF-0001 선택" }));
-    fireEvent.click(within(table).getByRole("checkbox", { name: "DEF-0003 선택" }));
-
-    const reportButton = screen.getByRole("button", {
-      name: "보고서 생성",
-    }) as HTMLButtonElement;
-    expect(reportButton.disabled).toBe(true);
-    expect(reportButton.getAttribute("title")).toBe(
-      "같은 점검 회차의 하자만 선택하세요",
-    );
-  });
-
-  it("하자를 하나 이상 선택하면 내보내기 버튼이 활성화되고, 클릭 시 선택된 하자로 PDF 내보내기를 호출한다", async () => {
-    renderPage();
-    const table = await screen.findByRole("table");
-
-    fireEvent.click(within(table).getByRole("checkbox", { name: "DEF-0001 선택" }));
+    await screen.findByRole("table");
 
     const exportButton = screen.getByRole("button", {
       name: "내보내기",
@@ -212,11 +143,11 @@ describe("DefectListPage (통합 테스트)", () => {
 
     fireEvent.click(exportButton);
 
-    await screen.findByRole("button", { name: "내보내기" });
-    expect(mockExportDefectsToPdf).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockExportDefectsToPdf).toHaveBeenCalledTimes(1));
     const [calledDefects] = mockExportDefectsToPdf.mock.calls[0];
-    expect(calledDefects).toHaveLength(1);
-    expect(calledDefects[0].id).toBe(1);
+    // mockInspections 전체(101/202/301) 중 301은 하자 0건 → mockDefects id 1, 2, 3 전체가 모인다.
+    expect(calledDefects).toHaveLength(3);
+    expect(calledDefects.map((defect: { id: number }) => defect.id).sort()).toEqual([1, 2, 3]);
   });
 
   it("PDF 내보내기가 실패해도 버튼이 다시 클릭 가능한 상태로 복원된다", async () => {
@@ -226,22 +157,102 @@ describe("DefectListPage (통합 테스트)", () => {
       .mockImplementation(() => {});
 
     renderPage();
-    const table = await screen.findByRole("table");
-
-    fireEvent.click(within(table).getByRole("checkbox", { name: "DEF-0001 선택" }));
+    await screen.findByRole("table");
 
     const exportButton = screen.getByRole("button", {
       name: "내보내기",
     }) as HTMLButtonElement;
     fireEvent.click(exportButton);
 
-    await screen.findByRole("button", { name: "내보내기" });
-    expect(exportButton.disabled).toBe(false);
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      "하자 목록 PDF 내보내기 실패",
-      expect.any(Error),
+    await waitFor(() => {
+      expect(exportButton.disabled).toBe(false);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "점검 하자 목록 PDF 내보내기 실패",
+        expect.any(Error),
+      );
+    });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요.",
     );
 
     consoleErrorSpy.mockRestore();
   });
+
+  it("자연어 검색 결과를 실제 점검 목록 요청에 적용하고 날짜·회차 칩을 표시한다", async () => {
+    renderPage();
+    await screen.findByRole("table");
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "지난 두 달간의 1회차 점검 알려줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+
+    expect(
+      await screen.findByRole("button", {
+        name: "점검일: 2026-05-28 ~ 2026-07-28 필터 제거",
+      }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "점검회차: 1회차 필터 제거" }),
+    ).not.toBeNull();
+
+    await waitFor(() => {
+      const table = screen.getByRole("table");
+      expect(within(table).getByText("한강대교 북단")).not.toBeNull();
+      expect(within(table).queryByText("강남 오피스타워 A동")).toBeNull();
+    });
+  });
+
+  it("AI 필터를 적용한 뒤 내보내면 해당 필터 결과의 하자만 PDF에 포함한다", async () => {
+    renderPage();
+    await screen.findByRole("table");
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "지난 두 달간의 1회차 점검 알려줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+
+    await waitFor(() => {
+      const table = screen.getByRole("table");
+      expect(within(table).getByText("한강대교 북단")).not.toBeNull();
+      expect(within(table).queryByText("강남 오피스타워 A동")).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "내보내기" }));
+
+    await waitFor(() => expect(mockExportDefectsToPdf).toHaveBeenCalledTimes(1));
+    const [calledDefects] = mockExportDefectsToPdf.mock.calls[0];
+    expect(calledDefects.map((defect: { id: number }) => defect.id)).toEqual([3]);
+  });
+});
+
+// 전역 MSW 핸들러 등록 순서 회귀 방지 — mocks/handlers.ts는 inspectionHandlers를 defectHandlers보다
+// 먼저 등록한다. inspectionApi.handlers.ts의 GET /api/inspections(시설물 단건 중복확인 전용, facilityId만
+// 전송)가 page 파라미터 유무로 스스로 분기하지 않으면, 하자 목록(useInspections)의 page/size 포함
+// 요청까지 먼저 가로채 항상 빈 목록을 반환해버려 자연어 검색을 포함한 모든 필터가 무동작으로
+// 보인다(이번에 실제로 재현된 버그) — 위 describe들은 격리된 setupServer(...defectHandlers)만 써서
+// 이 충돌을 잡지 못했으므로(InspectionDefectsPage.test.tsx의 동일 패턴 참고), 반드시 전역 handlers
+// 배열로 별도 서버를 띄워 검증한다.
+describe("DefectListPage — 전역 MSW 핸들러 등록 순서 회귀 테스트", () => {
+  it(
+    "page 파라미터를 포함한 점검 목록 조회는 inspectionHandlers의 중복확인 목이 아니라 defectHandlers의 실 데이터를 반환한다",
+    async () => {
+      const { allMockHandlers } = await import("../../../mocks/handlers");
+      const globalServer = setupServer(...allMockHandlers);
+      globalServer.listen({ onUnhandledRequest: "error" });
+
+      try {
+        const response = await api.get("/inspections", {
+          params: { page: 0, size: 10 },
+        });
+        // 회귀 시(inspectionHandlers가 무조건 가로챔): totalElements === 0, content === [].
+        // mockInspections(101/202/301) 기준 실제로는 3건이 반환돼야 한다.
+        expect(response.data.totalElements).toBeGreaterThan(0);
+        expect(response.data.content.length).toBeGreaterThan(0);
+      } finally {
+        globalServer.close();
+      }
+    },
+    15_000,
+  );
 });

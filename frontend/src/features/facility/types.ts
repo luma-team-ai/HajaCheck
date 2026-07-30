@@ -1,9 +1,13 @@
 // 시설물 목록/등록 — dev-04-01(Figma), FR-003 — backend PR #176(dev 머지) 계약과 1:1
 // feature 간 직접 import 금지(React_코드_컨벤션.md §1) — 대시보드 타입과 별개로 로컬 정의
 
+// 시설물 등록 필드 확장(#628/HAJA-347) — backend FacilityInitialGrade(A~E) 그대로 정합.
+// ⚠️ 대시보드/하자 정보 패널이 쓰는 FacilityDefectGrade(점검 이력 기반 계산값)와는 별개의 독립
+// 개념이다(backend entity 주석과 동일) — 라벨 집합이 같을 뿐 서로 혼용하지 않는다.
+export type FacilityInitialGrade = 'A' | 'B' | 'C' | 'D' | 'E';
+
 export interface Facility {
   id: number;
-  ownerId: number;
   name: string;
   type: string;
   address: string | null;
@@ -17,6 +21,24 @@ export interface Facility {
   nextInspectionDueAt: string | null;
   createdAt: string;
   updatedAt: string;
+  // #628(HAJA-347) 등록 필드 확장 — 전부 선택 입력. 대표 사진은 별도 엔드포인트
+  // (POST/GET /api/facilities/{id}/media, #1017/#632)로 시설물 생성 후 조회/업로드한다 — Facility
+  // 자체 응답에는 사진 필드가 없다(#652).
+  initialGrade: FacilityInitialGrade | null;
+  assigneeUserId: number | null;
+  memo: string | null;
+  // 시설물 상세→하자 오버레이 직행(HAJA-434 갭1) — 대표(최신) 하자 id, 하자가 없으면 null.
+  latestDefectId: number | null;
+  // 시설물 카드 대표 사진(HAJA-367/#670) — /api/media/{id}/thumbnail 경로, 사진이 없으면 null.
+  thumbnailUrl: string | null;
+  // 시설물 카드 "최근 점검 MM.dd"(HAJA-514/#1074) — ISO date(YYYY-MM-DD), 점검 이력이 없으면 null.
+  lastInspectedAt: string | null;
+  // 지도/목록 실데이터 집계 — 백엔드가 기존 inspections/defects에서 계산한다.
+  highestGrade?: FacilityInitialGrade | null;
+  warningCount?: number | null;
+  cautionCount?: number | null;
+  // 시설물 카드 하자건수 배지(HAJA-515/#1075) — 비삭제 하자 총건수, 하자가 없으면 0(null 아님).
+  defectCount: number;
 }
 
 export interface CreateFacilityRequest {
@@ -31,6 +53,36 @@ export interface CreateFacilityRequest {
   // 클라이언트가 inspectionCycleMonths 기준으로 산정해 전송(utils/computeNextInspectionDueAt.ts) —
   // 백엔드가 자동계산하지 않으므로 FE가 보내지 않으면 항상 null로 저장된다.
   nextInspectionDueAt?: string | null;
+  // #628(HAJA-347) — 전부 선택 입력. assigneeUserId는 값이 있을 때만 서버가 배정 가능 검사자인지
+  // 검증한다(AuthService.validateAssignableInspector와 동일 패턴).
+  initialGrade?: FacilityInitialGrade | null;
+  assigneeUserId?: number | null;
+  memo?: string | null;
+}
+
+// 시설물 대표 사진(#652) — POST/GET /api/facilities/{id}/media, backend MediaResponse와 1:1.
+// feature 간 직접 import 금지(React_코드_컨벤션.md §1) — inspection/types.ts의 Media와 필드 셋이
+// 같지만(같은 MediaResponse를 공유) 로컬로 복제한다. facility 사진은 점검 회차에 속하지 않으므로
+// inspectionId는 항상 null로 내려온다(응답 자체에 facilityId 필드는 없음 — 호출한 엔드포인트로만 구분).
+export interface FacilityPhoto {
+  id: number;
+  inspectionId: number | null;
+  fileType: 'IMAGE' | 'VIDEO';
+  thumbnailUrl: string;
+  detailUrl: string;
+  mimeType: string;
+  capturedAt: string | null;
+  gpsLat: number | null;
+  gpsLng: number | null;
+  createdAt: string;
+}
+
+// 담당자 select 옵션 — 배정 가능한 사용자 목록. 실 API 없음(2026-07-23 조사, auth 쪽에
+// GET /api/users/me만 존재) → 이번 범위는 MSW 목 전용(facilityAssigneeApi.handlers.ts).
+// 실 연동은 후속 이슈로 분리(inspection의 assignedInspectorId도 현재 숫자 ID 직접입력이라 동일 공백).
+export interface FacilityAssignableUser {
+  id: number;
+  name: string;
 }
 
 // 점검 주기 설정(dev-04-03, FR-019) — POST /api/facilities/{id}/schedule 실 계약
@@ -42,10 +94,35 @@ export interface SetFacilityScheduleResponse {
   nextInspectionDueAt: string | null;
 }
 
-// 전체 시설물 점검 주기 현황 — 우측 테이블 전용 타입.
-// name/cycleMonths/nextInspectionDueAt은 Facility 실필드와 매핑 가능하지만,
-// type(점검유형 정기/정밀/긴급)·lastInspectedAt·assigneeName은 백엔드 계약에 없어 MSW 목 전용이다.
-// 실연동 시 Facility 계약 확장 필요(핸드오프 §8 — [CONTRACT-CHANGE-REQUEST]로 A에 요청 예정).
+// 점검 알림 설정(GitHub #540 ③) — GET/PUT /api/facilities/{id}/notification-settings,
+// backend InspectionNotificationSettingResponse/Request와 1:1. 설정을 저장한 적 없는 시설물도
+// 항상 유효한 값(서버 컬럼 기본값과 동일: 사전알림 사용/7일전/경과알림 사용, HAJA-498/V21)을 반환한다.
+export interface InspectionNotificationSettings {
+  notifyBeforeEnabled: boolean;
+  notifyBeforeDays: number;
+  warnOnOverdueEnabled: boolean;
+}
+
+export type SetInspectionNotificationSettingsRequest = InspectionNotificationSettings;
+
+// 전체 시설물 점검 주기 현황(#1136 실연동) — GET /api/facilities/status, backend
+// FacilityStatusResponse와 1:1. inspectionType은 Facility 자체가 아니라 가장 최근 점검 회차의
+// 값을 근사 재사용한다(팀 결정 — DB 마이그레이션 없이 진행, option a). 점검 이력이 없으면 null.
+export interface FacilityStatusRow {
+  facilityId: number;
+  facilityName: string;
+  initialGrade: FacilityInitialGrade | null;
+  nextInspectionDueAt: string | null;
+  dDay: number | null;
+  assigneeUserId: number | null;
+  assigneeName: string | null;
+  lastInspectedAt: string | null;
+  inspectionCycleMonths: number | null;
+  inspectionType: 'REGULAR' | 'DETAILED' | 'EMERGENCY' | null;
+}
+
+// 전체 시설물 점검 주기 현황 — 우측 테이블/좌측 카드 전용 화면 타입(FacilityStatusRow를
+// useInspectionCycleStatusRows가 이 형태로 매핑한다 — mapFacilityStatusRow 참고).
 export type InspectionCycleType = '정기' | '정밀' | '긴급';
 
 export interface InspectionCycleStatusRow {
@@ -95,31 +172,60 @@ export interface FacilityInspectionOverview {
 // feature 간 직접 import 금지(React_코드_컨벤션.md §1) — dashboard의 DefectGrade와 별개로 로컬 정의.
 export type FacilityDefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
 
-// 백엔드 DefectStatus(backend/.../defect/entity/DefectStatus.java: DETECTED/CONFIRMED/
-// ACTION_PENDING/IN_PROGRESS/RESOLVED)와 이름을 그대로 정합시킨 조치 상태.
+// 백엔드 DefectStatus(backend/.../defect/entity/DefectStatus.java:
+// DETECTED/CONFIRMED/IN_PROGRESS/RESOLVED)와 이름을 그대로 정합시킨 조치 상태.
 export type FacilityDefectStatus =
   | 'DETECTED'
   | 'CONFIRMED'
-  | 'ACTION_PENDING'
   | 'IN_PROGRESS'
   | 'RESOLVED';
 
 export interface FacilityDefectDetail {
   id: number;
+  inspectionId: number;
   facilityId: number;
   facilityName: string;
   defectType: string;
-  grade: FacilityDefectGrade;
+  /** DDL상 nullable(defect_grade_type) — 미분류면 null(FacilityGradeBadge가 '-' 배지로 처리) */
+  grade: FacilityDefectGrade | null;
   confidencePercent: number;
-  widthMm: number;
-  lengthM: number;
+  /** 균열이 아닌 유형은 null(backend DefectResponse.crackWidthMm) */
+  widthMm: number | null;
+  /** 균열이 아닌 유형은 null(backend DefectResponse.crackLengthMm ÷ 1000, mm→m 변환) */
+  lengthM: number | null;
   foundCycle: number;
   /** YYYY-MM-DD */
   foundAt: string;
-  location: string;
-  assigneeName: string;
+  /** 검수자가 사후 편집하기 전에는 null(#970 갭3) */
+  location: string | null;
+  /** 시설물 담당자(Facility.assigneeUserId) 미배정이면 null(#970 갭3) */
+  assigneeName: string | null;
   status: FacilityDefectStatus;
-  imageUrl: string;
+  /** mediaId 없으면 null(HAJA-314) */
+  imageUrl: string | null;
+}
+
+// GET/PATCH /api/defects/{id}(*) 실 백엔드 DefectResponse(backend/.../defect/dto/DefectResponse.java)의
+// 얇은 로컬 사본 — 하자 정보 패널이 실제로 쓰는 필드만 옮겨온다(feature 간 직접 import 금지,
+// React_코드_컨벤션.md §1). FacilityDefectDetail(화면 소비용, facilityDefectApi가 매핑)과는 별개의
+// 원본(raw) 계약 타입이다.
+export interface FacilityDefectDetailResponse {
+  id: number;
+  inspectionId: number;
+  facilityId: number;
+  facilityName: string;
+  location: string | null;
+  assigneeName: string | null;
+  foundCycle: number;
+  typeLabel: string;
+  grade: FacilityDefectGrade | null;
+  status: FacilityDefectStatus;
+  confidence: number;
+  crackWidthMm: number | null;
+  crackLengthMm: number | null;
+  imageUrl: string | null;
+  /** ISO 8601 (LocalDateTime) — 화면 표시는 YYYY-MM-DD로 절삭 */
+  createdAt: string;
 }
 
 export interface FacilityDefectActivityLogItem {
@@ -157,7 +263,9 @@ export interface CrackTrendPoint {
   avgWidthMm: number;
 }
 
-export type DefectChangeType = 'worsened' | 'new' | 'unchanged' | 'resolved';
+// recurring(재발생, HAJA-532/#1119) — 이전 회차 RESOLVED였던 하자가 이후 회차에 previousDefectId로
+// 재연결된 경우. 초기(#1112)엔 대응 타입이 없어 worsened로 근사 매핑했었으나 이제 정확히 구분한다.
+export type DefectChangeType = 'worsened' | 'new' | 'unchanged' | 'resolved' | 'recurring';
 
 export interface DefectChangeRow {
   id: number;
@@ -174,10 +282,14 @@ export interface InspectionComparisonResult {
   facilityName: string;
   beforeCycle: InspectionCycleOption;
   afterCycle: InspectionCycleOption;
-  beforeImageUrl: string;
-  afterImageUrl: string;
+  // 실 백엔드(GET /api/facilities/{id}/compare, HAJA-531/#1112)는 실 데이터 근거가 없어 이 세 필드를
+  // 응답에서 아예 생략한다(2026-07-28 사용자 결정) — 타입을 그 실제 부재와 맞춘다. 이전엔 필수 string/
+  // 배열로 선언돼 있어, 실 API 응답을 그대로 쓰면 undefined가 되어 CrackTrendChart가 `data.length`에서
+  // 크래시했다(react-reviewer 발견, 즉시 수정).
+  beforeImageUrl: string | null;
+  afterImageUrl: string | null;
   kpis: ComparisonKpi[];
-  crackTrend: CrackTrendPoint[];
+  crackTrend?: CrackTrendPoint[];
   changes: DefectChangeRow[];
   /** 회차 선택 드롭다운에 노출할 전체 선택지 */
   availableCycles: InspectionCycleOption[];

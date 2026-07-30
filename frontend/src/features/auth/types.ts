@@ -6,6 +6,10 @@ import type { Role } from '../../shared/constants/roles';
 
 export type { Role };
 
+// 사용자 계정 상태 — 백엔드 UserStatus enum(#794, PR #801)과 값 일치.
+// WAITING: 소셜 최초 가입 직후 company_id 없음 — 초대 코드를 redeem해야 ACTIVE로 전환된다.
+export type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'WAITING';
+
 export interface User {
   id: number;
   email: string;
@@ -13,6 +17,12 @@ export interface User {
   role: Role;
   companyId: number | null;
   profileImageUrl: string | null;
+  // 가입일시(BaseTimeEntity, 항상 존재) — 마이페이지 "내 프로필" 섹션(#744, HAJA-403)에서 사용.
+  createdAt: string;
+  // 소속 기업명 — 개인 회원/회사 미조회 시 null(#744, HAJA-403).
+  companyName: string | null;
+  // 초대 코드 입력 화면 분기용(#794, #799) — WAITING이면 ProtectedRoute가 INVITE_CODE_ROUTE로 리다이렉트.
+  status: UserStatus;
 }
 
 // 백엔드 응답 DTO 형태 — 현재는 User와 동일 필드
@@ -52,6 +62,28 @@ export interface EmailAvailabilityResponse {
   available: boolean;
 }
 
+// 사업자 진위확인(#648 BE, #663 FE) — docs/_local/handoff/backend-648-bizverify-api.md 계약.
+// 판정 결과는 언제나 200 + success:true(에러가 아니라 정상 응답 형태로 6종 result를 표현).
+export type BusinessVerificationResult =
+  | 'VERIFIED'
+  | 'NOT_REGISTERED'
+  | 'MISMATCH'
+  | 'SUSPENDED'
+  | 'CLOSED'
+  | 'UNAVAILABLE';
+
+export interface BusinessVerificationRequest {
+  businessRegistrationNumber: string;
+  representativeName: string;
+  // ISO `yyyy-MM-dd` — `<input type="date">` 값 그대로 사용
+  businessStartDate: string;
+}
+
+export interface BusinessVerificationResponse {
+  result: BusinessVerificationResult;
+  message: string;
+}
+
 // 사업자등록증 OCR 자동채움(#587) — docs/api-contract 계약: 각 필드는 인식 실패 시 null.
 // 개업일자(businessStartDate)는 #598에서 4번째 자동채움 필드로 추가됨(ISO `yyyy-MM-dd`, nullable) — #600.
 export interface BusinessLicenseOcrResponse {
@@ -87,4 +119,10 @@ export interface PasswordResetRequest {
 
 export interface PasswordResetResponse {
   reset: boolean;
+}
+
+// 초대 코드 redeem(#794 backend PR #801, #799) — 성공 시 companyId 배선 + status=ACTIVE로 전환된
+// 최신 UserResponse를 그대로 돌려준다(authStore 갱신용).
+export interface InviteCodeRedeemRequest {
+  code: string;
 }

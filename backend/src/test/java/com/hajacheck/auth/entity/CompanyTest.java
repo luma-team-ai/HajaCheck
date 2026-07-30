@@ -35,6 +35,16 @@ class CompanyTest {
     }
 
     @Test
+    void markBusinessVerificationFailed_FAILED로전이하고_verifiedAt은건드리지않는다() {
+        Company company = company();
+
+        company.markBusinessVerificationFailed();
+
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.FAILED);
+        assertThat(company.getVerifiedAt()).isNull();
+    }
+
+    @Test
     void createPendingReview_OCR원본이유효한JSON이아니면예외() {
         assertThatThrownBy(() -> Company.createPendingReview(
                 1L, "HajaCheck", "123-45-67890", "Owner", "Seoul", null,

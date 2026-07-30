@@ -11,9 +11,11 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.BusinessLicenseOcrResponse;
+import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.support.InMemoryRateLimiter;
 import java.net.ConnectException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,7 +47,10 @@ class AiProxyServiceBusinessLicenseOcrTest {
         RestClient.Builder builder = RestClient.builder().baseUrl(properties.getBaseUrl());
         mockServer = MockRestServiceServer.bindTo(builder).build();
         // briefingStatsService 는 OCR 프록시 테스트에서 사용하지 않아 null(AiProxyServiceTest 와 동일).
-        aiProxyService = new AiProxyService(builder.build(), properties, null);
+        // OCR 프록시는 AiProxyRateLimiter 대상이 아니지만(자체 rate-limit 은 BusinessLicenseOcrService),
+        // 생성자 의존성이라 in-memory fake 를 주입한다.
+        aiProxyService = new AiProxyService(builder.build(), properties, null,
+                new AiProxyRateLimiter(new InMemoryRateLimiter()));
     }
 
     @Test

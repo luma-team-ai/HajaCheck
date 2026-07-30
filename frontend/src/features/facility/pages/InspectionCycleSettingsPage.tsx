@@ -1,26 +1,44 @@
-import { useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
 import { shouldEnableMocking } from '../../../shared/utils/shouldEnableMocking';
 import { InspectionCycleSettingsCard } from '../components/InspectionCycleSettingsCard';
 import { InspectionCycleStatusTable } from '../components/InspectionCycleStatusTable';
 import { useInspectionCycleStatusRows } from '../hooks/useInspectionCycleStatusRows';
+import { useInspectionNotificationSettings } from '../hooks/useInspectionNotificationSettings';
+import { useSaveInspectionNotificationSettings } from '../hooks/useSaveInspectionNotificationSettings';
 import { useSetInspectionSchedule } from '../hooks/useSetInspectionSchedule';
 import { INSPECTION_CYCLE_DEMO_TODAY } from '../utils/inspectionCycleDemo';
 import type { InspectionCycleStatusRow, InspectionCycleType } from '../types';
 
-// 라우트에 시설물 컨텍스트가 없어(handoff §5) 쿼리파라미터(?facilityId=)로 대상 지정,
-// 미지정 시 목 대표 행(강남 오피스타워 A동, id=3 — 화면 breadcrumb과 이름이 일치)을 기본값으로 사용.
-// 실연동 시 시설물 상세 화면에서 진입하는 경로로 교체 예정(주석 유지).
-const DEFAULT_FACILITY_ID = 3;
+// 알림설정 GET이 저장한 적 없는 시설물에 대해 서버 기본값을 돌려주지만, 조회가 끝나기 전(로딩 중)
+// 잠깐 보여줄 화면 초기값도 서버 컬럼 기본값과 동일하게 맞춘다(InspectionNotificationSettingResponse
+// .defaults()와 정합 — 두 곳이 어긋나면 로딩 중/직후 토글 값이 깜빡여 보인다).
+// warnOnOverdueEnabled 기본값은 true다(HAJA-498/V21) — false로 시작했다가 연체 시설물에 알림이 더 이상
+// 발행되지 않는 회귀가 발견돼 Polalise 승인(옵션1)으로 되돌렸다.
+const DEFAULT_NOTIFY_BEFORE_ENABLED = true;
+const DEFAULT_NOTIFY_BEFORE_DAYS = 7;
+const DEFAULT_WARN_ON_OVERDUE_ENABLED = true;
 
-function findRow(rows: InspectionCycleStatusRow[], id: number): InspectionCycleStatusRow {
-  return rows.find((row) => row.id === id) ?? rows[0];
+// #1129 회귀 픽스 — 이전에는 facilityId 쿼리파라미터 미지정 시 하드코딩된 DEFAULT_FACILITY_ID(=3, 목
+// 대표 행)로 폴백했다. 이 목 행 id는 실 회사 소유 시설물과 무관한 합성값이라, 폴백이 걸리는 즉시
+// useInspectionNotificationSettings가 그 id로 실 백엔드 GET을 쏴 회사 스코프 조회(findByIdAndCompanyId,
+// IDOR 방지)가 못 찾아 FACILITY_NOT_FOUND가 났다(id를 rows[0]으로 바꿔도 마찬가지 — 이 훅이 반환하는
+// 목록 자체가 백엔드 미연동 로컬 mock이라 어떤 고정 id를 골라도 동일한 문제가 재현된다).
+// 근본 해결은 시설물을 명시적으로 "고른 뒤"에만 알림설정 조회를 쏘는 것 — id 미지정/미매칭 시 null을
+// 유지해 InspectionCycleSettingsForm(알림설정 훅 포함)을 아예 마운트하지 않는다(조건부 훅 호출 대신
+// 조건부 자식 마운트 — rules/react/hooks.md 패턴).
+function findRow(rows: InspectionCycleStatusRow[], id: number | null): InspectionCycleStatusRow | null {
+  if (id == null) {
+    return null;
+  }
+  return rows.find((row) => row.id === id) ?? null;
 }
 
 export function InspectionCycleSettingsPage() {
   const [searchParams] = useSearchParams();
-  const initialFacilityId = Number(searchParams.get('facilityId')) || DEFAULT_FACILITY_ID;
+  const facilityIdParam = searchParams.get('facilityId');
+  const initialFacilityId = facilityIdParam ? Number(facilityIdParam) : null;
 
   // 현황 목데이터를 이 훅 하나로만 조회한다(mock 모듈 직접 import 금지 — react-reviewer P1) —
   // 로딩/에러 상태를 먼저 처리하고, 데이터가 준비된 뒤에만 상호작용 상태(개월수 등)를 갖는
@@ -41,52 +59,36 @@ export function InspectionCycleSettingsPage() {
   }
 
   return (
-    <InspectionCycleSettingsPageContent rows={rows} initialFacilityId={initialFacilityId} />
+    // key로 facilityId 쿼리파라미터가 바뀌면(같은 라우트에 머문 채로) 콘텐츠를 리마운트한다 —
+    // selectedRow는 최초 마운트 시 한 번만 평가되는 lazy useState 초기값이라, key 없이는 이후
+    // facilityId 변경이 선택 상태에 반영되지 않는다(react-reviewer P2).
+    <InspectionCycleSettingsPageContent
+      key={initialFacilityId ?? 'none'}
+      rows={rows}
+      initialFacilityId={initialFacilityId}
+    />
   );
 }
 
 type ContentProps = {
   rows: InspectionCycleStatusRow[];
-  initialFacilityId: number;
+  initialFacilityId: number | null;
 };
 
 function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: ContentProps) {
-  // selectedRow·cycleType 둘 다 최초 선택행에서 파생 — cycleType만 항상 '정기'로 고정되면
-  // 세그먼트 토글이 실제 선택 행의 점검유형과 어긋난다(#462 P2). findRow는 한 번만 계산해 재사용.
-  const initialRow = findRow(rows, initialFacilityId);
-  const [selectedRow, setSelectedRow] = useState<InspectionCycleStatusRow>(initialRow);
-  const [cycleType, setCycleType] = useState<InspectionCycleType>(initialRow.type);
-  const [months, setMonths] = useState(selectedRow.cycleMonths);
-  const [nextDueAt, setNextDueAt] = useState<string | null>(selectedRow.nextInspectionDueAt);
-  const [notifyBeforeEnabled, setNotifyBeforeEnabled] = useState(true);
-  const [warnOnOverdueEnabled, setWarnOnOverdueEnabled] = useState(false);
-
-  const { setSchedule, isPending, error, resetError } = useSetInspectionSchedule();
+  const [selectedRow, setSelectedRow] = useState<InspectionCycleStatusRow | null>(() =>
+    findRow(rows, initialFacilityId),
+  );
+  // Figma대로 저장 버튼은 시설물 선택과 무관하게 항상 페이지 헤더(제목 옆) 우측에 고정된다 —
+  // 저장 동작 자체(알림설정 훅 포함)는 선택 후에만 마운트되는 InspectionCycleSettingsForm 안에
+  // 있으므로, 헤더 버튼은 ref로 그 form의 저장 함수를 간접 호출한다(#1129의 "선택 전엔 훅 미호출"
+  // 설계는 그대로 유지 — 훅을 조건부로 호출하는 게 아니라 버튼 위치만 페이지 레벨로 옮긴 것).
+  const [isSaving, setIsSaving] = useState(false);
+  const formRef = useRef<InspectionCycleSettingsFormHandle>(null);
 
   // 데모 기준일은 MSW 목이 실제로 켜져 있을 때만 주입한다 — 프로덕션(실 백엔드) 빌드에서
   // 고정 과거/미래 날짜가 새어 들어가 D-day가 잘못 계산되는 침묵 버그를 막는다(react-reviewer P2).
   const demoToday = shouldEnableMocking(import.meta.env) ? INSPECTION_CYCLE_DEMO_TODAY : undefined;
-
-  const handleSelectRow = (row: InspectionCycleStatusRow) => {
-    setSelectedRow(row);
-    setCycleType(row.type);
-    setMonths(row.cycleMonths);
-    setNextDueAt(row.nextInspectionDueAt);
-    // 다른 시설물로 선택을 옮기면 이전 시설물 저장 실패 메시지가 그대로 남아있으면 안 된다(react-reviewer P2).
-    resetError();
-  };
-
-  const handleSave = async () => {
-    try {
-      const result = await setSchedule({
-        facilityId: selectedRow.id,
-        body: { inspectionCycleMonths: months },
-      });
-      setNextDueAt(result.nextInspectionDueAt);
-    } catch {
-      // 에러는 useSetInspectionSchedule.error → 상단 배너로 이미 노출됨. 여기선 unhandled rejection만 방지.
-    }
-  };
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8">
@@ -97,41 +99,145 @@ function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: Content
             시설물별 점검 주기를 설정하면 다음 점검일을 자동 계산해 대시보드·알림에 표시합니다
           </p>
         </div>
-        <Button variant="primary" size="sm" onClick={handleSave} disabled={isPending}>
-          {isPending ? '저장 중...' : '저장'}
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => formRef.current?.save()}
+          disabled={!selectedRow || isSaving}
+        >
+          {isSaving ? '저장 중...' : '저장'}
         </Button>
       </div>
 
-      {error && (
-        <p role="alert" className="m-0 text-sm text-danger">
-          {error.message ?? '점검 주기 저장에 실패했습니다.'}
-        </p>
-      )}
-
-      {/* 카드(폭 제한) 위 → 현황 테이블 전체 너비 아래로 스택. Figma 'Table Content'처럼 7컬럼이
-          가로 스크롤 없이 모두 보이도록 테이블을 컨테이너 전체 폭으로 배치한다. */}
-      <div className="flex flex-col gap-6">
-        <div className="w-full lg:max-w-2xl">
-          <InspectionCycleSettingsCard
-            cycleType={cycleType}
-            onCycleTypeChange={setCycleType}
-            months={months}
-            onMonthsChange={setMonths}
-            lastInspectedAt={selectedRow.lastInspectedAt}
-            nextInspectionDueAt={nextDueAt}
-            notifyBeforeEnabled={notifyBeforeEnabled}
-            onNotifyBeforeChange={setNotifyBeforeEnabled}
-            warnOnOverdueEnabled={warnOnOverdueEnabled}
-            onWarnOnOverdueChange={setWarnOnOverdueEnabled}
+      {/* Figma 레이아웃대로 좌(카드)/우(테이블) 배치 — lg 미만은 세로 스택으로 폴백.
+          테이블 쪽(min-w-0)이 flex 아이템 기본폭 제약 없이 줄어들 수 있어야 그 안의
+          overflow-x-auto(InspectionCycleStatusTable 자체 래퍼)가 실제로 가로 스크롤을 낸다 —
+          7컬럼이 좁아진 우측 칸에 다 안 들어가면 테이블 내부만 스크롤되고 페이지 전체는 안 밀린다. */}
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        <div className="w-full lg:w-[420px] lg:flex-shrink-0">
+          {selectedRow ? (
+            // key로 행 전환 시 폼 전체를 리마운트한다 — cycleType/months/알림토글/에러 상태가 훅
+            // 초기값으로 자동 리셋되어, 이전 시설물 상태가 새 시설물로 새는 것을 수동 리셋 코드 없이 방지한다.
+            <InspectionCycleSettingsForm
+              ref={formRef}
+              key={selectedRow.id}
+              row={selectedRow}
+              today={demoToday}
+              onSavingChange={setIsSaving}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-border bg-surface p-10 text-center">
+              <p className="m-0 text-sm font-medium text-text-default">
+                점검 주기를 설정할 시설물을 선택해주세요
+              </p>
+              <p className="m-0 text-sm text-text-muted">
+                아래 목록에서 시설물을 클릭하면 주기 설정 카드가 나타납니다
+              </p>
+            </div>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <InspectionCycleStatusTable
+            selectedId={selectedRow?.id ?? null}
+            onSelectRow={setSelectedRow}
             today={demoToday}
           />
         </div>
-        <InspectionCycleStatusTable
-          selectedId={selectedRow.id}
-          onSelectRow={handleSelectRow}
-          today={demoToday}
-        />
       </div>
     </div>
   );
 }
+
+type FormProps = {
+  row: InspectionCycleStatusRow;
+  today?: Date;
+  onSavingChange: (isSaving: boolean) => void;
+};
+
+type InspectionCycleSettingsFormHandle = {
+  save: () => void;
+};
+
+// 시설물이 실제로 선택된 뒤에만 마운트된다 — useInspectionNotificationSettings(실 백엔드 GET)를
+// 포함한 모든 시설물 스코프 훅이 이 컴포넌트 안에 있어, 선택 전에는 어떤 facilityId로도 백엔드를
+// 호출하지 않는다(#1129). 저장 버튼 자체는 페이지 헤더에 있어(Figma 배치) ref로 노출한 save()만
+// 호출된다 — 로딩 상태는 onSavingChange로 부모에 올려보내 헤더 버튼의 disabled/라벨에 반영한다.
+const InspectionCycleSettingsForm = forwardRef<InspectionCycleSettingsFormHandle, FormProps>(
+  function InspectionCycleSettingsForm({ row, today, onSavingChange }, ref) {
+    const [cycleType, setCycleType] = useState<InspectionCycleType>(row.type);
+    const [months, setMonths] = useState(row.cycleMonths);
+    const [nextDueAt, setNextDueAt] = useState<string | null>(row.nextInspectionDueAt);
+    const [notifyBeforeEnabled, setNotifyBeforeEnabled] = useState(DEFAULT_NOTIFY_BEFORE_ENABLED);
+    // notifyBeforeDays는 화면에 입력 UI가 없다(#540 ③ 범위 — 토글만 노출) — 조회된 값을 그대로
+    // 보존했다가 저장 시 되돌려 보내, 다른 경로로 커스텀된 값이 있어도 저장 시 7일로 덮어쓰지 않는다.
+    const [notifyBeforeDays, setNotifyBeforeDays] = useState(DEFAULT_NOTIFY_BEFORE_DAYS);
+    const [warnOnOverdueEnabled, setWarnOnOverdueEnabled] = useState(DEFAULT_WARN_ON_OVERDUE_ENABLED);
+
+    const { setSchedule, isPending, error } = useSetInspectionSchedule();
+    const { data: notificationSettings } = useInspectionNotificationSettings(row.id);
+    const {
+      saveNotificationSettings,
+      isPending: isNotificationSettingsSaving,
+      error: notificationSettingsError,
+    } = useSaveInspectionNotificationSettings();
+
+    // 선택된 시설물의 알림설정 조회가 끝나면 토글 상태를 그 값으로 동기화한다(폼 초기화 — 비동기로
+    // 가져온 값을 편집 가능한 로컬 상태의 시작값으로 삼는 통상적인 패턴).
+    useEffect(() => {
+      if (notificationSettings) {
+        setNotifyBeforeEnabled(notificationSettings.notifyBeforeEnabled);
+        setNotifyBeforeDays(notificationSettings.notifyBeforeDays);
+        setWarnOnOverdueEnabled(notificationSettings.warnOnOverdueEnabled);
+      }
+    }, [notificationSettings]);
+
+    const isSaving = isPending || isNotificationSettingsSaving;
+    useEffect(() => {
+      onSavingChange(isSaving);
+    }, [isSaving, onSavingChange]);
+
+    const handleSave = useCallback(async () => {
+      try {
+        const [scheduleResult] = await Promise.all([
+          setSchedule({
+            facilityId: row.id,
+            body: { inspectionCycleMonths: months },
+          }),
+          saveNotificationSettings({
+            facilityId: row.id,
+            body: { notifyBeforeEnabled, notifyBeforeDays, warnOnOverdueEnabled },
+          }),
+        ]);
+        setNextDueAt(scheduleResult.nextInspectionDueAt);
+      } catch {
+        // 에러는 각 훅의 error → 상단 배너로 이미 노출됨. 여기선 unhandled rejection만 방지.
+      }
+    }, [row.id, months, notifyBeforeEnabled, notifyBeforeDays, warnOnOverdueEnabled, setSchedule, saveNotificationSettings]);
+
+    useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave]);
+
+    return (
+      <div className="flex flex-col gap-3">
+        {(error || notificationSettingsError) && (
+          <p role="alert" className="m-0 text-sm text-danger">
+            {error?.message ?? notificationSettingsError?.message ?? '점검 주기 저장에 실패했습니다.'}
+          </p>
+        )}
+
+        <InspectionCycleSettingsCard
+          cycleType={cycleType}
+          onCycleTypeChange={setCycleType}
+          months={months}
+          onMonthsChange={setMonths}
+          lastInspectedAt={row.lastInspectedAt}
+          nextInspectionDueAt={nextDueAt}
+          notifyBeforeEnabled={notifyBeforeEnabled}
+          onNotifyBeforeChange={setNotifyBeforeEnabled}
+          warnOnOverdueEnabled={warnOnOverdueEnabled}
+          onWarnOnOverdueChange={setWarnOnOverdueEnabled}
+          today={today}
+        />
+      </div>
+    );
+  },
+);

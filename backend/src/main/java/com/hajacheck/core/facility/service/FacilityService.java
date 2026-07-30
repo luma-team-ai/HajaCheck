@@ -1,15 +1,37 @@
 package com.hajacheck.core.facility.service;
 
+import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.auth.service.AuthService;
+import com.hajacheck.auth.service.CompanyScopeGuard;
+import com.hajacheck.auth.support.FileStorageService;
+import com.hajacheck.core.defect.entity.DefectGrade;
+import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.repository.FacilityDefectCountProjection;
+import com.hajacheck.core.defect.repository.FacilityGradeCountProjection;
+import com.hajacheck.core.defect.repository.FacilityLatestDefectProjection;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
+import com.hajacheck.core.facility.dto.FacilityStatusResponse;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.repository.FacilityRepository;
+import com.hajacheck.core.inspection.entity.Inspection;
+import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.repository.FacilityRepresentativeMediaProjection;
+import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import com.hajacheck.membership.service.QuotaService;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -17,7 +39,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 시설물 CRUD — 모든 조회/수정/삭제는 owner(로그인 사용자) 스코프로 제한한다.
+ * 시설물 CRUD — 모든 조회/수정/삭제는 로그인 사용자의 회사 스코프로 제한한다.
  */
 @Slf4j
 @Service
@@ -31,12 +53,28 @@ public class FacilityService {
     // 훨씬 크게 잡는다. 진짜 페이지네이션(Page 응답) 전환 전까지의 임시 방어값.
     private static final int FACILITY_LIST_MAX = 500;
 
+    // 시설물 현황 목록(#540 ⑥, HAJA-378) — dDay 산출 기준 시각대(DashboardService 와 동일 관례).
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
     private final FacilityRepository facilityRepository;
+    private final CompanyScopeGuard companyScopeGuard;
+    private final AuthService authService;
+    private final InspectionRepository inspectionRepository;
+    private final UserRepository userRepository;
+    private final QuotaService quotaService;
+    private final DefectRepository defectRepository;
+    private final MediaRepository mediaRepository;
+    private final FileStorageService fileStorage;
 
     @Transactional
-    public FacilityResponse create(Long ownerId, FacilityCreateRequest request) {
+    public FacilityResponse create(Long userId, Long companyId, FacilityCreateRequest request) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        // 플랜 한도(plans.max_facilities) 강제(#843) — 회사 스코프를 DB 로 재검증한 직후, 저장 전에 슬롯을
+        // 예약한다. 같은 트랜잭션이라 아래 save 가 실패하면 예약도 함께 롤백된다.
+        quotaService.reserveFacilitySlot(userId, companyId);
+        validateAssigneeIfPresent(userId, request.assigneeUserId());
         Facility facility = Facility.builder()
-                .ownerId(ownerId)
+                .companyId(companyId)
                 .name(request.name())
                 .type(request.type())
                 .address(request.address())
@@ -46,27 +84,227 @@ public class FacilityService {
                 .scale(request.scale())
                 .inspectionCycleMonths(request.inspectionCycleMonths())
                 .nextInspectionDueAt(request.nextInspectionDueAt())
+                .initialGrade(request.initialGrade())
+                .assigneeUserId(request.assigneeUserId())
+                .memo(request.memo())
                 .build();
-        return FacilityResponse.from(facilityRepository.save(facility));
+        Facility saved = facilityRepository.save(facility);
+        return FacilityResponse.from(saved);
     }
 
-    public List<FacilityResponse> list(Long ownerId) {
+    public List<FacilityResponse> list(Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
         List<Facility> facilities =
-                facilityRepository.findByOwnerIdOrderByIdAsc(ownerId, PageRequest.of(0, FACILITY_LIST_MAX));
+                facilityRepository.findByCompanyIdOrderByIdAsc(companyId, PageRequest.of(0, FACILITY_LIST_MAX));
         // #484 상한(500건)에 걸리면 나머지가 무고지로 잘린다(#502 P2) — 운영 감지를 위해 WARN 로그를 남긴다.
         // 응답 계약(List<FacilityResponse>)은 유지하고, 진짜 페이지네이션 전환 전까지의 임시 관측 수단이다.
         if (facilities.size() == FACILITY_LIST_MAX) {
-            long actualCount = facilityRepository.countByOwnerId(ownerId);
-            log.warn("시설물 목록 상한({}) 도달 — ownerId={} 실제 보유 {}건, 상한 초과분 응답에서 누락",
-                    FACILITY_LIST_MAX, ownerId, actualCount);
+            long actualCount = facilityRepository.countByCompanyId(companyId);
+            log.warn("시설물 목록 상한({}) 도달 — companyId={} 실제 보유 {}건, 상한 초과분 응답에서 누락",
+                    FACILITY_LIST_MAX, companyId, actualCount);
         }
+        if (facilities.isEmpty()) {
+            return List.of();
+        }
+
+        // HAJA-434 갭1 P1 픽스 — 시설물 클릭 시 하자 오버레이 직행은 list() 응답이 latestDefectId를
+        // 채워야 실제로 동작한다(get()만 채우면 목록 화면에서 항상 null → 항상 폴백). 시설물별
+        // findLatestIdsByFacility 반복 호출은 N+1이므로 배치 쿼리 1회로 조회한다.
+        List<Long> facilityIds = facilities.stream().map(Facility::getId).toList();
+        Map<Long, Long> latestDefectIdByFacilityId =
+                nullToEmpty(defectRepository.findLatestByFacilityIds(facilityIds, companyId)).stream()
+                        .collect(Collectors.toMap(
+                                FacilityLatestDefectProjection::getFacilityId,
+                                FacilityLatestDefectProjection::getDefectId,
+                                // facilityId asc, createdAt desc 정렬이므로 같은 facilityId의 첫 값이 최신이다.
+                                (first, second) -> first));
+
+        // 시설물 목록 대표 사진 썸네일(HAJA-367/#670) — 시설물별 findByFacilityIdOrderByIdAsc 반복 호출은
+        // N+1이므로 배치 쿼리 1회로 조회(위 latestDefectId와 동일한 조립 패턴).
+        Map<Long, String> thumbnailUrlByFacilityId =
+                nullToEmpty(mediaRepository.findFirstIdsByFacilityIds(facilityIds, companyId)).stream()
+                        .collect(Collectors.toMap(
+                                FacilityRepresentativeMediaProjection::getFacilityId,
+                                p -> thumbnailPath(p.getMediaId()),
+                                // facilityId asc, id asc 정렬이므로 같은 facilityId의 첫 값이 최초 등록 사진이다.
+                                (first, second) -> first));
+
+        // 시설물 카드 "최근 점검 MM.dd"(HAJA-514/#1074) — listStatus()가 이미 쓰는 배치 조회와 동일 패턴.
+        List<Inspection> latestInspections = nullToEmpty(inspectionRepository.findLatestByFacilityIds(facilityIds));
+        Map<Long, LocalDate> lastInspectedByFacilityId = latestInspections.stream()
+                .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getInspectionDate));
+        Map<Long, Long> latestInspectionIdByFacilityId = latestInspections.stream()
+                .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getId));
+
+        FacilityDefectSummary defectSummary = summarizeFacilityDefects(latestInspections);
+
+        // 시설물 카드 하자건수 배지(HAJA-515/#1075) — 시설물별 findLatestIdsByFacility 반복 호출을 피하는
+        // 것과 동일한 이유로 배치 쿼리 1회. 하자가 0건인 시설물은 결과에 로우 자체가 없으므로
+        // getOrDefault(id, 0L)로 명시적으로 0을 채운다(defectCount는 non-null 필드).
+        Map<Long, Long> defectCountByFacilityId =
+                defectRepository.countGroupByFacilityIds(facilityIds, companyId).stream()
+                        .collect(Collectors.toMap(
+                                FacilityDefectCountProjection::getFacilityId,
+                                FacilityDefectCountProjection::getCnt));
+
         return facilities.stream()
-                .map(FacilityResponse::from)
+                .map(facility -> FacilityResponse.from(
+                        facility,
+                        latestDefectIdByFacilityId.get(facility.getId()),
+                        thumbnailUrlByFacilityId.get(facility.getId()),
+                        lastInspectedByFacilityId.get(facility.getId()),
+                        latestInspectionIdByFacilityId.get(facility.getId()),
+                        defectSummary.highestGradeByFacilityId().get(facility.getId()),
+                        defectSummary.warningCountByFacilityId().getOrDefault(facility.getId(), 0L),
+                        defectSummary.cautionCountByFacilityId().getOrDefault(facility.getId(), 0L),
+                        defectCountByFacilityId.getOrDefault(facility.getId(), 0L)))
                 .toList();
     }
 
-    public FacilityResponse get(Long ownerId, Long facilityId) {
-        return FacilityResponse.from(findOwnedFacility(ownerId, facilityId));
+    public FacilityResponse get(Long userId, Long companyId, Long facilityId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Facility facility = findCompanyFacility(companyId, facilityId);
+        Long latestDefectId = nullToEmpty(defectRepository
+                .findLatestIdsByFacility(facilityId, companyId, PageRequest.of(0, 1)))
+                .stream()
+                .findFirst()
+                .orElse(null);
+        String thumbnailUrl = nullToEmpty(mediaRepository.findByFacilityIdOrderByIdAsc(facilityId)).stream()
+                .findFirst()
+                .map(media -> thumbnailPath(media.getId()))
+                .orElse(null);
+        List<Inspection> latestInspections =
+                nullToEmpty(inspectionRepository.findLatestByFacilityIds(List.of(facilityId)));
+        LocalDate lastInspectedAt = latestInspections.stream()
+                .findFirst()
+                .map(Inspection::getInspectionDate)
+                .orElse(null);
+        Long latestInspectionId = latestInspections.stream()
+                .findFirst()
+                .map(Inspection::getId)
+                .orElse(null);
+        FacilityDefectSummary defectSummary = summarizeFacilityDefects(latestInspections);
+        long defectCount = defectRepository.countGroupByFacilityIds(List.of(facilityId), companyId).stream()
+                .findFirst()
+                .map(FacilityDefectCountProjection::getCnt)
+                .orElse(0L);
+        return FacilityResponse.from(
+                facility,
+                latestDefectId,
+                thumbnailUrl,
+                lastInspectedAt,
+                latestInspectionId,
+                defectSummary.highestGradeByFacilityId().get(facilityId),
+                defectSummary.warningCountByFacilityId().getOrDefault(facilityId, 0L),
+                defectSummary.cautionCountByFacilityId().getOrDefault(facilityId, 0L),
+                defectCount);
+    }
+
+    // MediaResponse.from()과 동일한 경로 조립 — Media.thumbnailUrl(저장키)을 그대로 반환하지 않고
+    // 인가된 컨트롤러 엔드포인트 경로만 노출한다.
+    private static String thumbnailPath(Long mediaId) {
+        return "/api/media/" + mediaId + "/thumbnail";
+    }
+
+    private FacilityDefectSummary summarizeFacilityDefects(List<Inspection> inspections) {
+        if (inspections.isEmpty()) {
+            return FacilityDefectSummary.empty();
+        }
+        List<Long> inspectionIds = inspections.stream().map(Inspection::getId).toList();
+
+        Map<Long, DefectGrade> highestByFacilityId = new java.util.HashMap<>();
+        Map<Long, Long> warningByFacilityId = new java.util.HashMap<>();
+        Map<Long, Long> cautionByFacilityId = new java.util.HashMap<>();
+
+        for (FacilityGradeCountProjection projection :
+                nullToEmpty(defectRepository.countGroupByFacilityIdAndGrade(inspectionIds))) {
+            Long facilityId = projection.getFacilityId();
+            DefectGrade grade = projection.getGrade();
+            long count = projection.getCnt();
+            highestByFacilityId.merge(facilityId, grade, FacilityService::worseGrade);
+            if (grade == DefectGrade.D || grade == DefectGrade.E) {
+                warningByFacilityId.merge(facilityId, count, Long::sum);
+            } else if (grade == DefectGrade.C) {
+                cautionByFacilityId.merge(facilityId, count, Long::sum);
+            }
+        }
+
+        Map<Long, String> highestGradeByFacilityId = highestByFacilityId.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().name()));
+        return new FacilityDefectSummary(highestGradeByFacilityId, warningByFacilityId, cautionByFacilityId);
+    }
+
+    private static DefectGrade worseGrade(DefectGrade left, DefectGrade right) {
+        return left.ordinal() >= right.ordinal() ? left : right;
+    }
+
+    private static <T> List<T> nullToEmpty(List<T> values) {
+        return values == null ? List.of() : values;
+    }
+
+    private record FacilityDefectSummary(
+            Map<Long, String> highestGradeByFacilityId,
+            Map<Long, Long> warningCountByFacilityId,
+            Map<Long, Long> cautionCountByFacilityId
+    ) {
+        static FacilityDefectSummary empty() {
+            return new FacilityDefectSummary(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap());
+        }
+    }
+
+    /**
+     * 시설물 현황 전용 목록(#540 ⑥, HAJA-378) — 대시보드 스타일 테이블 화면 전용 읽기 전용 조회.
+     * list()와 동일한 회사 스코프·상한(#484) 정책을 재사용하되, 응답에 상태(initialGrade)·D-day·
+     * 담당자명·최근 점검일을 함께 계산해 붙인다. 담당자명/최근 점검일은 N+1 을 피하기 위해
+     * 배치 조회(findAllById/findLatestByFacilityIds) 후 Map 으로 조립한다
+     * (DashboardService.getRecentInspections() 의 creatorNameById 패턴과 동일).
+     */
+    public List<FacilityStatusResponse> listStatus(Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        List<Facility> facilities =
+                facilityRepository.findByCompanyIdOrderByIdAsc(companyId, PageRequest.of(0, FACILITY_LIST_MAX));
+        if (facilities.size() == FACILITY_LIST_MAX) {
+            long actualCount = facilityRepository.countByCompanyId(companyId);
+            log.warn("시설물 현황 목록 상한({}) 도달 — companyId={} 실제 보유 {}건, 상한 초과분 응답에서 누락",
+                    FACILITY_LIST_MAX, companyId, actualCount);
+        }
+        if (facilities.isEmpty()) {
+            return List.of();
+        }
+
+        LocalDate today = LocalDate.now(KST);
+        List<Long> facilityIds = facilities.stream().map(Facility::getId).toList();
+
+        // #1136 — 최근 점검 1건을 한 번만 조회해 lastInspectedAt/inspectionType 둘 다 파생한다
+        // (같은 조회를 두 번 하지 않도록 Inspection 자체를 값으로 두는 단일 맵).
+        Map<Long, Inspection> latestInspectionByFacilityId =
+                inspectionRepository.findLatestByFacilityIds(facilityIds).stream()
+                        .collect(Collectors.toMap(Inspection::getFacilityId, inspection -> inspection));
+
+        List<Long> assigneeIds = facilities.stream()
+                .map(Facility::getAssigneeUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, String> assigneeNameById = assigneeIds.isEmpty()
+                ? Map.of()
+                : userRepository.findAllById(assigneeIds).stream()
+                        .collect(Collectors.toMap(User::getId, User::getName));
+
+        return facilities.stream()
+                .map(facility -> {
+                    Inspection latestInspection = latestInspectionByFacilityId.get(facility.getId());
+                    return FacilityStatusResponse.of(
+                            facility,
+                            today,
+                            // assigneeUserId 가 null 이면 Map.of()(불변 빈 맵)의 get(null) 이 NPE 를 던지므로
+                            // (ImmutableCollections 는 null 키 조회 자체를 금지) null 키는 조회 전에 걸러낸다.
+                            facility.getAssigneeUserId() == null
+                                    ? null : assigneeNameById.get(facility.getAssigneeUserId()),
+                            latestInspection == null ? null : latestInspection.getInspectionDate(),
+                            latestInspection == null ? null : latestInspection.getType());
+                })
+                .toList();
     }
 
     /**
@@ -81,8 +319,10 @@ public class FacilityService {
     }
 
     @Transactional
-    public FacilityResponse update(Long ownerId, Long facilityId, FacilityUpdateRequest request) {
-        Facility facility = findOwnedFacility(ownerId, facilityId);
+    public FacilityResponse update(Long userId, Long companyId, Long facilityId, FacilityUpdateRequest request) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Facility facility = findCompanyFacility(companyId, facilityId);
+        validateAssigneeIfPresent(userId, request.assigneeUserId());
         facility.updateInfo(
                 request.name(),
                 request.type(),
@@ -92,28 +332,74 @@ public class FacilityService {
                 request.builtYear(),
                 request.scale(),
                 request.inspectionCycleMonths(),
-                request.nextInspectionDueAt());
+                request.nextInspectionDueAt(),
+                request.initialGrade(),
+                request.assigneeUserId(),
+                request.memo());
         return FacilityResponse.from(facility);
     }
 
     @Transactional
-    public void delete(Long ownerId, Long facilityId) {
-        facilityRepository.delete(findOwnedFacility(ownerId, facilityId));
+    public void delete(Long userId, Long companyId, Long facilityId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Facility facility = findCompanyFacility(companyId, facilityId);
+        // #1024 — V19(#1017)가 추가한 fk_media_facility(NO ACTION)는 시설물에 대표 사진이 남아있으면
+        // 삭제 시 FK 위반(처리되지 않은 500)을 낸다. 같은 트랜잭션에서 media 로우 + 스토리지 파일을
+        // 먼저 정리해 제약 위반 자체가 발생하지 않게 한다.
+        deleteFacilityMedia(facilityId);
+        facilityRepository.delete(facility);
+        // 시설물은 물리 삭제라 보유량이 즉시 줄어든다(#843) — 사용량 표시값을 같은 트랜잭션에서 재동기화해
+        // 카운터가 영구히 부풀어 신규 등록을 잘못 막는 드리프트를 막는다.
+        quotaService.syncFacilityUsage(userId, companyId);
     }
 
     /**
-     * 점검주기 설정(dev-04-03, #268) — owner 스코프 검증 후 엔티티 메서드로 상태전이 위임.
+     * 시설물 삭제 전 대표 사진 정리(#1024) — MediaService 를 주입하면 MediaService → FacilityService
+     * 역방향 의존과 겹쳐 순환참조가 나므로(생성자 주입, {@code @Lazy} 미사용) 주입하지 않는다. 대신
+     * MediaService 자신이 쓰는 것과 동일한 두 컴포넌트(MediaRepository, FileStorageService)를 직접 써서
+     * 스토리지 파일을 지운 뒤 media 로우를 삭제한다. FileStorageService#delete 는 best-effort/never-throws
+     * (blank/null 키는 no-op)라 개별 try/catch 없이 그대로 호출한다(MediaService.uploadMedia 의
+     * {@code storedKeys.forEach(fileStorage::delete)} 와 동일 패턴).
+     */
+    private void deleteFacilityMedia(Long facilityId) {
+        List<Media> facilityMedia = mediaRepository.findByFacilityIdOrderByIdAsc(facilityId);
+        if (facilityMedia.isEmpty()) {
+            return;
+        }
+        facilityMedia.forEach(media -> {
+            fileStorage.delete(media.getOriginalUrl());
+            fileStorage.delete(media.getThumbnailUrl());
+            fileStorage.delete(media.getDetailUrl());
+        });
+        mediaRepository.deleteAll(facilityMedia);
+    }
+
+    /**
+     * 점검주기 설정(dev-04-03, #268) — 회사 스코프 검증 후 엔티티 메서드로 상태전이 위임.
      * 기준일(오늘)은 서비스가 LocalDate.now() 로 산출해 엔티티에 주입한다.
      */
     @Transactional
-    public FacilityResponse setSchedule(Long ownerId, Long facilityId, FacilityScheduleRequest request) {
-        Facility facility = findOwnedFacility(ownerId, facilityId);
+    public FacilityResponse setSchedule(
+            Long userId, Long companyId, Long facilityId, FacilityScheduleRequest request) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Facility facility = findCompanyFacility(companyId, facilityId);
         facility.updateSchedule(request.inspectionCycleMonths(), LocalDate.now());
         return FacilityResponse.from(facility);
     }
 
-    private Facility findOwnedFacility(Long ownerId, Long facilityId) {
-        return facilityRepository.findByIdAndOwnerId(facilityId, ownerId)
+    private Facility findCompanyFacility(Long companyId, Long facilityId) {
+        return facilityRepository.findByIdAndCompanyId(facilityId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.FACILITY_NOT_FOUND));
+    }
+
+    /**
+     * 담당자 배정 검증(#628 / HAJA-347) — inspections.assigned_inspector_id와 동일하게
+     * AuthService.validateAssignableInspector 를 재사용한다. 시설물 담당자는 선택 입력(nullable)이라
+     * assigneeUserId 가 없으면 검증을 건너뛴다(값이 있을 때만 활성·역할·회사·멤버십을 검증).
+     */
+    private void validateAssigneeIfPresent(Long userId, Long assigneeUserId) {
+        if (assigneeUserId != null) {
+            authService.validateAssignableInspector(userId, assigneeUserId);
+        }
     }
 }

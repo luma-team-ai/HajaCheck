@@ -17,7 +17,7 @@ class ApiSystemLogSchemaMigrationTest {
 
     @Test
     void postgres역할없는_DB에_API시스템로그를_재실행가능하게_적용하고_의미드리프트를_거부한다() {
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17")
+        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16")
                 .withDatabaseName("hajacheck")
                 .withUsername("hajacheck")
                 .withStartupTimeout(Duration.ofMinutes(2))

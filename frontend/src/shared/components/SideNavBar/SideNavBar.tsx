@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { useInspectionStore } from '../../../features/inspection/store/inspectionStore';
+import type { Role } from '../../constants/roles';
 import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import brandIcon from '../../../assets/brand/sidenav-brand-icon.png';
 import collapseIcon from '../../../assets/brand/sidenav-collapse.svg';
@@ -13,14 +15,24 @@ import reportsIcon from '../../../assets/brand/sidenav-reports.svg';
 import supportIcon from '../../../assets/brand/sidenav-support.svg';
 import mypageIcon from '../../../assets/brand/sidenav-mypage.svg';
 import settingsIcon from '../../../assets/brand/sidenav-settings.svg';
-import logoutIcon from '../../../assets/brand/sidenav-logout.svg';
 import adminIcon from '../../../assets/brand/sidenav-admin.svg';
 import statisticsIcon from '../../../assets/brand/sidenav-statistics.svg';
-import defaultAvatarIcon from '../../../assets/brand/sidenav-default-avatar.svg';
 
 export interface SideNavSubItem {
   label: string;
   href: string;
+  /** 라벨 텍스트 변경에 안전하게 특정 항목을 찾기 위한 안정 식별자(선택) — 동적 링크 생성 등에 사용 */
+  id?: string;
+  /**
+   * activeHref와의 "현재 활성 섹션" 비교에만 쓰는 고정 href(선택, 미지정 시 href로 폴백).
+   * AI 분석/결과 뷰어/보고서 생성처럼 activeInspectionId에 따라 href가 매번 바뀌는 항목用 —
+   * router.tsx는 실제 :id와 무관하게 항상 같은 정적 activeHref(예: '/inspections/1/viewer')를
+   * 보고하므로(#368), href가 '/inspections/create'나 '/inspections/{실제id}/viewer'로 바뀌어도
+   * 매칭이 끊기지 않도록 별도로 고정해둔다.
+   */
+  matchHref?: string;
+  /** 클릭 가능 여부(미지정 시 true) — false면 표시는 하되 클릭을 막고 미구현 라우트와 동일한 안내를 띄운다(#1003, menus.is_enabled). */
+  enabled?: boolean;
 }
 
 export interface SideNavItem {
@@ -28,24 +40,22 @@ export interface SideNavItem {
   href: string;
   icon: string;
   subItems?: SideNavSubItem[];
-}
-
-interface SideNavBarUser {
-  name: string;
-  plan?: string;
-  avatarUrl?: string;
+  /** 클릭 가능 여부(미지정 시 true) — subItems가 있는 GROUP 항목은 토글 버튼이라 적용되지 않는다. */
+  enabled?: boolean;
 }
 
 interface SideNavBarProps {
   items?: SideNavItem[];
   adminItem?: SideNavItem;
   isAdmin?: boolean;
+  /** 상단 브랜드 로고 옆 역할 배지에 표시할 값(예: ADMIN/INSPECTOR/USER). 미지정 시 배지 미표시.
+   * 배지는 클릭 액션이 없으므로 브랜드 로고 Link 바깥에 별도로 렌더한다(#1199 — 기존엔 Link 안에
+   * 있어 배지를 눌러도 대시보드로 이동하는 오동작이 있었음). */
+  role?: Role;
   /** 상단 브랜드 로고 클릭 시 이동 대상. 미지정 시 기존 동작대로 '/dashboard'(#535 플랫폼 관리자
    * 콘솔처럼 일반 대시보드가 없는 셸에서 override) */
   brandHref?: string;
   activeHref?: string;
-  user?: SideNavBarUser;
-  onLogout?: () => void;
   /** 초기 접힘 상태(비제어). 기본값 false — 펼쳐진 상태로 시작 */
   defaultCollapsed?: boolean;
   /** 접기/펼치기 토글마다 호출(레이아웃 쪽에서 margin 조정 등에 사용) */
@@ -62,6 +72,15 @@ interface SideNavBarProps {
 
 const NOTICE_AUTO_DISMISS_MS = 2500;
 const NOT_IMPLEMENTED_MESSAGE = '아직 구현되지 않은 페이지입니다';
+// is_enabled=false 메뉴("표시는 하되 비활성화")도 같은 안내를 재사용한다 — 사용자 입장에서는
+// "아직 못 들어가는 메뉴"라는 점이 미구현 라우트와 동일하다(#1003 팔로우업, Menu 엔티티 코멘트 기준).
+const DISABLED_MESSAGE = NOT_IMPLEMENTED_MESSAGE;
+// 진행 중인 점검 없이 AI 분석/결과 뷰어/보고서 생성 항목을 클릭하면 점검 생성 화면으로 보내지는데
+// (allItems useMemo 참고), 왜 다른 화면으로 이동했는지 안내가 없어 혼란스럽다는 피드백(#1027).
+const NO_ACTIVE_INSPECTION_MESSAGE = '점검 데이터를 먼저 생성해야 합니다. 점검(회차) 생성 화면으로 이동합니다.';
+// activeInspectionId가 없을 때 위 안내를 띄워야 하는 항목만 표시(allItems useMemo에서 href를
+// activeInspectionId 기반으로 동적 생성하는 sub.id 3종과 동일 — #1027).
+const NO_ACTIVE_INSPECTION_SUB_IDS = new Set(['ai-analysis', 'result-viewer', 'report-entry']);
 
 // 접힌 상태 고정 폭(w-18 = 18*4px) / 펼친 상태 기본 폭 — 드래그 리사이즈 clamp 범위(HAJA-167, #184)
 const COLLAPSED_WIDTH = 72;
@@ -95,6 +114,10 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     icon: facilitiesIcon,
     subItems: [
       { label: '시설물 목록/등록', href: '/facilities/list' },
+      // facilityId 쿼리파라미터를 의도적으로 붙이지 않는다(#1129) — 전역 메뉴는 어느 시설물을
+      // 열지 알 수 없으므로, 대상 없이 진입시키고 InspectionCycleSettingsPage가 선택 UI를 보여준다.
+      // 과거엔 화면이 이 미지정 상태를 하드코딩된 목 시설물 id로 임의 폴백해 FACILITY_NOT_FOUND가
+      // 났다 — 여기서 임의 facilityId를 채워 "고치려" 하지 말 것(같은 버그 재발).
       { label: '점검 주기 설정', href: '/facilities/inspection-cycle' },
       { label: '지도 뷰', href: '/facilities/map' },
     ],
@@ -105,14 +128,33 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     icon: inspectionsIcon,
     subItems: [
       { label: '점검(회차) 생성', href: '/inspections/create' },
-      { label: '촬영 데이터 업로드', href: '/inspections/media-upload' },
-      { label: 'AI 분석 실행/상태', href: '/inspections/ai-analysis' },
-      { label: '분석 결과 뷰어', href: '/inspections/1/viewer' },
-      { label: '보고서 생성 진입점', href: '/inspections/report-entry' },
+      // 아래 세 항목의 href는 렌더 시 activeInspectionId 유무로 항상 재계산되어 덮어써진다
+      // (allItems useMemo 참고) — 여기 적힌 값은 "점검이 아직 없을 때"의 실제 동작(점검 생성으로
+      // 이동)과 맞춰 둔 것일 뿐, 그 자체로 쓰이지 않는다. matchHref는 router.tsx가 실제 :id와
+      // 무관하게 보고하는 정적 activeHref(#368)와 맞춘 고정값 — href가 바뀌어도 활성 섹션 표시가
+      // 끊기지 않게 한다.
+      {
+        id: 'ai-analysis',
+        label: 'AI 분석 실행/상태',
+        href: '/inspections/create',
+        matchHref: '/inspections/ai-analysis',
+      },
+      {
+        id: 'result-viewer',
+        label: '분석 결과 뷰어',
+        href: '/inspections/create',
+        matchHref: '/inspections/1/viewer',
+      },
+      {
+        id: 'report-entry',
+        label: '점검 요약 및 보고서 생성',
+        href: '/inspections/create',
+        matchHref: '/inspections/1/reports',
+      },
     ],
   },
-  // '하자 상세'는 목록에서 항목을 눌러 실제 id로 /defects/:id에 진입하는 방식이라 사이드바에
-  // 별도 진입점이 필요 없다(#499, 사용자 요청) — 남은 하위 항목이 '하자 목록' 하나뿐이라
+  // 점검별 하자 목록은 점검 맥락에서 진입하므로 사이드바에 별도 진입점이 필요 없다(#499, 사용자 요청) —
+  // 남은 하위 항목이 '하자 목록' 하나뿐이라
   // 통계/설정과 같이 하위메뉴 없는 단일 항목으로 정리.
   { label: '하자 관리', href: '/defects/list', icon: defectsIcon },
   {
@@ -120,9 +162,19 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     href: '/reports',
     icon: reportsIcon,
     subItems: [
-      { label: '보고서 목록/이력 관리', href: '/reports/list' },
-      { label: '보고서 편집·미리보기', href: '/reports/editor' },
-      { label: 'PDF 내보내기', href: '/reports/export-pdf' },
+      { label: '보고서 목록/이력 관리', href: '/reports' },
+      {
+        id: 'report-edit',
+        label: '보고서 편집·미리보기',
+        href: '/reports',
+        matchHref: '/reports/1',
+      },
+      {
+        id: 'report-export',
+        label: 'PDF 내보내기',
+        href: '/reports',
+        matchHref: '/reports/1?mode=export',
+      },
     ],
   },
   {
@@ -148,7 +200,6 @@ const DEFAULT_ITEMS: SideNavItem[] = [
       // 이 메뉴 구조를 다시 검토할 것.
       { label: '내 점검 이력/보고서', href: '/mypage/inspections' },
       { label: '내 플랜', href: '/mypage/plan' },
-      { label: '내 상담 내역', href: '/mypage/counsels' },
     ],
   },
   { label: '통계', href: '/statistics', icon: statisticsIcon },
@@ -166,38 +217,102 @@ const DEFAULT_ADMIN_ITEM: SideNavItem = {
   subItems: [
     { label: '사용자 관리', href: '/admin/users' },
     { label: '플랜·쿼터 관리', href: '/admin/plans-quota' },
+    { label: 'AI 분석 현황', href: '/admin/analysis-jobs' },
   ],
 };
 
 const LINK_BASE =
   'flex w-full items-center rounded-full border-none bg-none text-base font-medium text-text-default no-underline cursor-pointer hover:bg-surface-muted hover:text-primary';
 
-// w-full: 다른 메뉴 링크(LINK_BASE)와 동일하게 전체 폭을 채운 뒤 justify-center로 가운데 정렬—
-// 이전엔 w-fit이라 폭을 안 채워 접힘 상태에서 justify-center가 먹지 않고 왼쪽으로 치우쳐 보였다(#499).
-const LOGOUT_BASE =
-  'flex w-full items-center gap-3 whitespace-nowrap border-none bg-none text-sm font-medium text-[#3f3f46] cursor-pointer';
-
 export function SideNavBar({
   items = DEFAULT_ITEMS,
   adminItem = DEFAULT_ADMIN_ITEM,
   isAdmin = false,
+  role,
   brandHref = '/dashboard',
   activeHref,
-  user,
-  onLogout,
   defaultCollapsed = false,
   onCollapseToggle,
   onWidthChange,
   isRouteImplemented = () => true,
 }: SideNavBarProps) {
+  const activeInspectionId = useInspectionStore((state) => state.activeInspectionId);
+  const activeReportId = useInspectionStore((state) => state.activeReportId);
+
   // isAdmin=true일 때 spread로 매 렌더 새 배열이 생기면 activeHref 동기화 effect가 매 렌더 재실행되어
   // 수동으로 펼친 다른 그룹이 즉시 스냅백되는 버그가 있었음(PR#154 리뷰 P1) — useMemo로 참조 안정화
-  const allItems = useMemo(
-    () => (isAdmin ? [...items, adminItem] : items),
-    [isAdmin, items, adminItem],
-  );
+  // "점검 관리" 그룹의 "AI 분석 실행/상태"·"분석 결과 뷰어"·"보고서 생성 진입점" 링크를
+  // activeInspectionId로 동적 생성한다 — 점검이 아직 없으면 셋 다 점검 생성 화면으로 보낸다
+  // (점검 없이 들어가면 각자 다르게 깨지거나 빈 데모만 보여주던 것을 통일).
+  const allItems = useMemo(() => {
+    const dynamicItems = items.map((item) => {
+      if (item.label === '점검 관리') {
+        return {
+          ...item,
+          subItems: (item.subItems || []).map((sub) => {
+            if (sub.id === 'ai-analysis') {
+              return {
+                ...sub,
+                href: activeInspectionId
+                  ? `/inspections/${activeInspectionId}/analysis`
+                  : '/inspections/create',
+              };
+            }
+            if (sub.id === 'result-viewer') {
+              return {
+                ...sub,
+                href: activeInspectionId
+                  ? `/inspections/${activeInspectionId}/viewer`
+                  : '/inspections/create',
+              };
+            }
+            if (sub.id === 'report-entry') {
+              // 실제 보고서 생성 진입점 라우트는 /inspections/:id/reports(#884, ReportEntryPage) —
+              // 그 화면에서 보고서를 만들면 /reports/{reportId}(편집 화면)로 넘어가는 구조라 여기서는
+              // /reports/{reportId}가 아니라 /inspections/{inspectionId}/reports로 보내야 한다.
+              return {
+                ...sub,
+                href: activeInspectionId
+                  ? `/inspections/${activeInspectionId}/reports`
+                  : '/inspections/create',
+              };
+            }
+            return sub;
+          }),
+        };
+      }
+      if (item.label === '보고서') {
+        return {
+          ...item,
+          subItems: (item.subItems || []).map((sub) => {
+            // 보고서 편집·미리보기 — activeReportId가 있으면 해당 보고서 편집 화면으로 이동
+            if (sub.id === 'report-edit') {
+              return {
+                ...sub,
+                href: activeReportId ? `/reports/${activeReportId}` : '/reports',
+              };
+            }
+            // PDF 내보내기 — activeReportId가 있으면 해당 보고서의 내보내기 화면으로 이동
+            if (sub.id === 'report-export') {
+              return {
+                ...sub,
+                href: activeReportId ? `/reports/${activeReportId}?mode=export` : '/reports',
+              };
+            }
+            // 보고서 목록/이력 관리 — 항상 /reposts 목록 화면으로 이동(#1088)
+            if (sub.id === 'report-list') {
+              return { ...sub, href: '/reports' };
+            }
+            return sub;
+          }),
+        };
+      }
+      return item;
+    });
+    return isAdmin ? [...dynamicItems, adminItem] : dynamicItems;
+  }, [isAdmin, items, adminItem, activeInspectionId, activeReportId]);
   const [expandedLabel, setExpandedLabel] = useState<string | undefined>(() =>
-    allItems.find((item) => item.subItems?.some((sub) => sub.href === activeHref))?.label,
+    allItems.find((item) => item.subItems?.some((sub) => (sub.matchHref ?? sub.href) === activeHref))?.label,
   );
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   // 접힌 상태에서 마우스를 올렸을 때 시각적으로만 펼쳐 보이는 오버레이 트리거 — 실제 collapsed
@@ -221,7 +336,7 @@ export function SideNavBar({
   // activeHref가 마운트 이후 바뀌어도(사이드바 클릭이 아닌 다른 경로로 하위 라우트 진입 시) 해당 그룹이 펼쳐지도록 동기화
   useEffect(() => {
     const activeGroupLabel = allItems.find((item) =>
-      item.subItems?.some((sub) => sub.href === activeHref),
+      item.subItems?.some((sub) => (sub.matchHref ?? sub.href) === activeHref),
     )?.label;
     if (activeGroupLabel) {
       setExpandedLabel(activeGroupLabel);
@@ -240,14 +355,26 @@ export function SideNavBar({
     setExpandedLabel((current) => (current === label ? undefined : label));
   }
 
-  function handleNavClick(event: MouseEvent<HTMLAnchorElement>, href: string) {
-    if (isRouteImplemented(href)) {
+  function handleNavClick(
+    event: MouseEvent<HTMLAnchorElement>,
+    href: string,
+    enabled = true,
+    subId?: string,
+  ) {
+    if (!enabled || !isRouteImplemented(href)) {
+      event.preventDefault();
+      clearTimeout(noticeTimerRef.current);
+      setNotice(enabled ? NOT_IMPLEMENTED_MESSAGE : DISABLED_MESSAGE);
+      noticeTimerRef.current = setTimeout(() => setNotice(null), NOTICE_AUTO_DISMISS_MS);
       return;
     }
-    event.preventDefault();
-    clearTimeout(noticeTimerRef.current);
-    setNotice(NOT_IMPLEMENTED_MESSAGE);
-    noticeTimerRef.current = setTimeout(() => setNotice(null), NOTICE_AUTO_DISMISS_MS);
+    // 진행 중인 점검이 없어 점검 생성 화면으로 대신 보내지는 경우 — 이동은 막지 않고(정상 진행)
+    // 왜 다른 화면으로 왔는지만 안내한다(#1027).
+    if (!activeInspectionId && subId && NO_ACTIVE_INSPECTION_SUB_IDS.has(subId)) {
+      clearTimeout(noticeTimerRef.current);
+      setNotice(NO_ACTIVE_INSPECTION_MESSAGE);
+      noticeTimerRef.current = setTimeout(() => setNotice(null), NOTICE_AUTO_DISMISS_MS);
+    }
   }
 
   function handleCollapseToggle() {
@@ -359,27 +486,31 @@ export function SideNavBar({
               : 'flex-col items-center h-auto justify-center gap-3'
           }`}
         >
-          <Link
-            to={brandHref}
-            onClick={(event) => handleNavClick(event, brandHref)}
-            className={`flex w-full items-center gap-1.5 no-underline ${
-              visuallyExpanded ? '' : 'justify-center'
-            }`}
-            // brandHref override(#535 플랫폼 관리자 콘솔)에서도 문구가 어긋나지 않도록 "대시보드"
-            // 특정 문구 대신 범용 문구를 쓴다.
-            aria-label="HajaCheck 홈으로 이동"
+          <div
+            className={`flex min-w-0 items-center gap-1.5 ${visuallyExpanded ? '' : 'w-full justify-center'}`}
           >
-            {visuallyExpanded ? (
-              <img className="h-7 w-auto object-contain" src={brandLogo} alt="HajaCheck" />
-            ) : (
-              <img className="h-8 w-8 object-contain" src={brandIcon} alt="HajaCheck" />
-            )}
-            {visuallyExpanded && isAdmin && (
-              <span className="rounded-full border border-[#e5e7eb] bg-[#f3f4f6] px-[7px] py-[3px] text-[10px] tracking-[0.05em] text-[#6b7280]">
-                ADMIN
+            <Link
+              to={brandHref}
+              onClick={(event) => handleNavClick(event, brandHref)}
+              className="flex items-center no-underline"
+              // brandHref override(#535 플랫폼 관리자 콘솔)에서도 문구가 어긋나지 않도록 "대시보드"
+              // 특정 문구 대신 범용 문구를 쓴다.
+              aria-label="HajaCheck 홈으로 이동"
+            >
+              {visuallyExpanded ? (
+                <img className="h-7 w-auto object-contain" src={brandLogo} alt="HajaCheck" />
+              ) : (
+                <img className="h-8 w-8 object-contain" src={brandIcon} alt="HajaCheck" />
+              )}
+            </Link>
+            {/* 역할 배지 — 클릭 액션이 없으므로 브랜드 로고 Link 바깥에 둔다(#1199). 이전엔 Link 안에
+                있어 배지를 눌러도 대시보드로 이동하는 오동작이 있었다. */}
+            {visuallyExpanded && role && (
+              <span className="cursor-default select-none whitespace-nowrap rounded-full border border-[#e5e7eb] bg-[#f3f4f6] px-[7px] py-[3px] text-[10px] tracking-[0.05em] text-[#6b7280]">
+                {role}
               </span>
             )}
-          </Link>
+          </div>
           <button
             type="button"
             className="inline-flex h-5 w-5 cursor-pointer items-center justify-center border-none bg-none p-0"
@@ -422,15 +553,19 @@ export function SideNavBar({
                   <div className="flex flex-col gap-1 pr-4 pl-[46px]">
                     {item.subItems.map((sub) => (
                       <Link
-                        key={sub.href}
+                        // "점검 관리" 하위 항목 중 AI 분석/결과 뷰어/보고서 생성 셋은 진행 중인 점검이
+                        // 없을 때 href가 모두 '/inspections/create'로 겹친다(allItems useMemo 참고) —
+                        // href를 key로 쓰면 React key 중복이 나서 sub.id가 있으면 그걸 우선한다.
+                        key={sub.id ?? sub.href}
                         to={sub.href}
-                        onClick={(event) => handleNavClick(event, sub.href)}
+                        onClick={(event) => handleNavClick(event, sub.href, sub.enabled, sub.id)}
                         className={`whitespace-nowrap rounded-full px-4 py-[6px] text-[13px] no-underline hover:text-primary ${
-                          sub.href === activeHref
+                          (sub.matchHref ?? sub.href) === activeHref
                             ? 'bg-surface text-primary ring-1 ring-border'
                             : 'text-[#71717a]'
-                        }`}
-                        aria-current={sub.href === activeHref ? 'page' : undefined}
+                        } ${sub.enabled === false ? 'cursor-not-allowed opacity-50 hover:text-[#71717a]' : ''}`}
+                        aria-current={(sub.matchHref ?? sub.href) === activeHref ? 'page' : undefined}
+                        aria-disabled={sub.enabled === false ? true : undefined}
                       >
                         {sub.label}
                       </Link>
@@ -442,9 +577,12 @@ export function SideNavBar({
               <Link
                 key={item.href}
                 to={item.href}
-                onClick={(event) => handleNavClick(event, item.href)}
-                className={getLinkClassName(item.href === activeHref)}
+                onClick={(event) => handleNavClick(event, item.href, item.enabled)}
+                className={`${getLinkClassName(item.href === activeHref)} ${
+                  item.enabled === false ? 'cursor-not-allowed opacity-50' : ''
+                }`}
                 aria-current={item.href === activeHref ? 'page' : undefined}
+                aria-disabled={item.enabled === false ? true : undefined}
                 title={!visuallyExpanded ? item.label : undefined}
               >
                 <span
@@ -458,9 +596,9 @@ export function SideNavBar({
           )}
         </nav>
 
-        {/* 메뉴 항목 수와 무관하게 프로필·로그아웃을 사이드바 맨 아래에 고정한다 — 예전엔 nav 자체가
-            flex-1이라 항목이 적을 때(관리자 메뉴 축소 등) 아코디언 바로 아래에 거대한 빈 공간이
-            생겼다(#525 팔로우업). 남는 공간은 nav가 아니라 이 스페이서가 흡수한다. */}
+        {/* 프로필/로그아웃은 Header(우측 상단 프로필 드롭다운)에서 확인 가능해 사이드바 하단 중복
+            블록을 제거했다(#1003 팔로우업) — 스페이서는 항목 수와 무관하게 리사이즈 핸들을 맨 아래에
+            고정하기 위해 유지한다. */}
         <div className="flex-1" aria-hidden="true" />
 
         {notice && (
@@ -473,55 +611,6 @@ export function SideNavBar({
               {notice}
             </div>
           </div>
-        )}
-
-        {user && (
-          <div
-            // 접힘 상태에서도 px-4를 그대로 쓰면(72px 폭 - aside 자체 padding까지 겹쳐) 아바타(32px)가
-            // 들어갈 공간이 부족해 flex-shrink로 폭만 눌려 타원으로 보였다 — 다른 nav 항목처럼
-            // 접힘 상태 전용 패딩(px-2)으로 분기(#499).
-            className={`border-t border-[#cbc4d2]/30 pt-[17px] pb-2.5 ${visuallyExpanded ? 'px-4' : 'px-2'}`}
-          >
-            <div className={`flex items-center gap-2 ${visuallyExpanded ? '' : 'justify-center'}`}>
-              {user.avatarUrl ? (
-                <img
-                  className="h-8 w-8 flex-shrink-0 rounded-full bg-[#cbc4d2] object-cover"
-                  src={user.avatarUrl}
-                  alt=""
-                />
-              ) : (
-                // 사진 없을 때 빈 원이 아니라 기본 아이콘(건물 모양)을 넣는다 — Figma node 163-663 기준(#499)
-                <span
-                  className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#cbc4d2]"
-                  aria-hidden="true"
-                >
-                  <img className="h-[27px] w-[27px] object-contain" src={defaultAvatarIcon} alt="" />
-                </span>
-              )}
-              {visuallyExpanded && (
-                <span className="flex flex-col overflow-hidden">
-                  <span className="truncate text-sm text-heading">{user.name}</span>
-                  {user.plan && (
-                    <span className="truncate text-[11px] tracking-[0.05em] text-text-default">
-                      {user.plan}
-                    </span>
-                  )}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {onLogout && (
-          <button
-            type="button"
-            className={`${LOGOUT_BASE} ${visuallyExpanded ? 'px-4 py-2' : 'justify-center p-2'}`}
-            onClick={onLogout}
-            title={!visuallyExpanded ? '로그아웃' : undefined}
-          >
-            <img className="h-[18px] w-[18px]" src={logoutIcon} alt="" />
-            {visuallyExpanded && '로그아웃'}
-          </button>
         )}
 
         {!collapsed && (

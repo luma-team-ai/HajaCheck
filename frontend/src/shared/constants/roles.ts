@@ -22,3 +22,10 @@ export function isAdminRole(role: Role | undefined): boolean {
 export function isPlatformAdminRole(role: Role | undefined): boolean {
   return role === 'PLATFORM_ADMIN';
 }
+
+// COUNSELOR 전용 판정(#1001, HAJA-495) — 상담원 콘솔(CounselorShellRoute/CounselorRoute)이 같은
+// 기준을 쓰도록 isAdminRole/isPlatformAdminRole과 동일한 이유로 분리한다. COUNSELOR는 ADMIN도
+// PLATFORM_ADMIN도 아닌 별개 축이라 두 판정 함수를 재사용하지 않고 전용 함수를 둔다.
+export function isCounselorRole(role: Role | undefined): boolean {
+  return role === 'COUNSELOR';
+}

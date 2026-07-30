@@ -39,7 +39,7 @@ export function DashboardPage() {
         <h1 className="dashboard-page-title">대시보드</h1>
         <button
           type="button"
-          className="bg-[#111] text-white border-none rounded-full py-2.5 px-4.5 text-sm font-semibold cursor-pointer"
+          className="bg-[#111] text-white border-none rounded-full py-2.5 px-4.5 text-sm font-semibold cursor-pointer transition duration-150 hover:opacity-85"
           onClick={handleStartNewInspection}
         >
           + 새 점검 시작
@@ -49,8 +49,8 @@ export function DashboardPage() {
       <KpiSection />
 
       {/* 시안: KPI 아래는 2단 컬럼 — 좌(넓음)=등급분포+최근점검 / 우(좁음)=처리대기+AI 브리핑.
-          mt-3은 KPI 섹션과의 간격을 Figma 시안처럼 더 넓게 벌리기 위한 추가 여백(#556 후속) */}
-      <div className="mt-3 grid grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] gap-4 items-start max-[1100px]:grid-cols-1">
+          mt-6(24px): Figma 재대조(2026-07-24) 결과 mt-9(36px)가 시안보다 넓어 24px로 축소. */}
+      <div className="mt-6 grid grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] gap-4 items-start max-[1100px]:grid-cols-1">
         <div className="flex flex-col gap-4 min-w-0">
           <GradeDistributionCard />
           <RecentInspectionsTable />

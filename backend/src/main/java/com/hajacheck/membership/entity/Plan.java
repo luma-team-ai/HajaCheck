@@ -16,12 +16,14 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * 구독 요금제 — DDL plans 테이블 대응(v0.3, 279행~). 조회 전용(관리자 콘솔 등에서만 변경, 이번 범위 아님).
+ * 구독 요금제 — DDL plans 테이블 대응(v0.3, 279행~). 플랫폼 관리자 "플랜 정책 설정"(#624 후속, 사용자
+ * 지시)에서만 {@link #updatePolicy} 로 변경한다 — 그 외 화면(회사 관리자 플랜 변경 등)은 여전히 조회 전용.
  *
  * <p>name 은 PG named enum(plan_name_type) — {@code @JdbcTypeCode(NAMED_ENUM)} + columnDefinition 으로
  * 실 PG enum 에 매핑한다(ddl-auto=validate 통과, User.role 매핑 패턴 참고).
  *
- * <p>maxFacilities/maxMonthlyAnalyses 는 DDL 상 nullable(무제한 의미) — null 이면 응답에도 null 그대로 반환한다(계약).
+ * <p>maxFacilities/maxMonthlyAnalyses/maxSeats 는 DDL 상 nullable(무제한 의미) — null 이면 응답에도 null 그대로
+ * 반환한다(계약).
  */
 @Entity
 @Getter
@@ -43,7 +45,7 @@ public class Plan extends BaseTimeEntity {
     @Column(name = "max_monthly_analyses")
     private Integer maxMonthlyAnalyses;
 
-    @Column(name = "max_seats", nullable = false)
+    @Column(name = "max_seats")
     private Integer maxSeats;
 
     @Column(name = "has_pdf_watermark", nullable = false)
@@ -65,7 +67,7 @@ public class Plan extends BaseTimeEntity {
         this.name = name;
         this.maxFacilities = maxFacilities;
         this.maxMonthlyAnalyses = maxMonthlyAnalyses;
-        this.maxSeats = maxSeats == null ? 0 : maxSeats;
+        this.maxSeats = maxSeats;
         this.hasPdfWatermark = hasPdfWatermark;
         this.hasCounselorAccess = hasCounselorAccess;
         this.hasAiAddon = hasAiAddon;
@@ -73,7 +75,7 @@ public class Plan extends BaseTimeEntity {
     }
 
     /**
-     * 요금제 기준행 생성 팩토리(시드/테스트용). maxFacilities/maxMonthlyAnalyses 에 null 을 넘기면
+     * 요금제 기준행 생성 팩토리(시드/테스트용). maxFacilities/maxMonthlyAnalyses/maxSeats 에 null 을 넘기면
      * 무제한 요금제(Enterprise 등)를 표현한다.
      */
     public static Plan create(PlanName name, Integer maxFacilities, Integer maxMonthlyAnalyses, Integer maxSeats,
@@ -89,5 +91,20 @@ public class Plan extends BaseTimeEntity {
                 .hasAiAddon(hasAiAddon)
                 .priceMonthly(priceMonthly)
                 .build();
+    }
+
+    /**
+     * 가격·한도·기능 제공 여부를 일괄 변경한다(플랫폼 관리자 "플랜 정책 설정"). hasAiAddon 은 이 화면의
+     * 편집 대상이 아니라 파라미터에 없다 — 의도치 않게 false 로 덮어써지는 것을 막기 위해 아예 건드리지
+     * 않는다(다른 값들과 달리 세터가 없으므로 실수로 리셋될 수 없다).
+     */
+    public void updatePolicy(BigDecimal priceMonthly, Integer maxFacilities, Integer maxMonthlyAnalyses,
+                              Integer maxSeats, boolean hasPdfWatermark, boolean hasCounselorAccess) {
+        this.priceMonthly = priceMonthly;
+        this.maxFacilities = maxFacilities;
+        this.maxMonthlyAnalyses = maxMonthlyAnalyses;
+        this.maxSeats = maxSeats;
+        this.hasPdfWatermark = hasPdfWatermark;
+        this.hasCounselorAccess = hasCounselorAccess;
     }
 }

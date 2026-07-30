@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { computeNextInspectionDueAt } from './computeNextInspectionDueAt';
 import {
   FACILITY_FORM_INITIAL_VALUES,
   hasFacilityFormErrors,
@@ -23,50 +24,6 @@ describe('validateFacilityForm', () => {
     });
 
     expect(hasFacilityFormErrors(errors)).toBe(false);
-  });
-
-  it('위도가 범위를 벗어나면 에러를 반환한다', () => {
-    const errors = validateFacilityForm({
-      ...FACILITY_FORM_INITIAL_VALUES,
-      name: '테스트',
-      type: '건물',
-      latitude: '91',
-    });
-
-    expect(errors.latitude).toBeDefined();
-  });
-
-  it('경도가 범위를 벗어나면 에러를 반환한다', () => {
-    const errors = validateFacilityForm({
-      ...FACILITY_FORM_INITIAL_VALUES,
-      name: '테스트',
-      type: '건물',
-      longitude: '-181',
-    });
-
-    expect(errors.longitude).toBeDefined();
-  });
-
-  it('점검주기가 음수면 에러를 반환한다', () => {
-    const errors = validateFacilityForm({
-      ...FACILITY_FORM_INITIAL_VALUES,
-      name: '테스트',
-      type: '건물',
-      inspectionCycleMonths: '-1',
-    });
-
-    expect(errors.inspectionCycleMonths).toBeDefined();
-  });
-
-  it('점검주기가 정수가 아니면 에러를 반환한다', () => {
-    const errors = validateFacilityForm({
-      ...FACILITY_FORM_INITIAL_VALUES,
-      name: '테스트',
-      type: '건물',
-      inspectionCycleMonths: '1.5',
-    });
-
-    expect(errors.inspectionCycleMonths).toBeDefined();
   });
 
   it('준공년도가 정수가 아니면 에러를 반환한다', () => {
@@ -122,10 +79,44 @@ describe('validateFacilityForm', () => {
 
     expect(errors.name).toBeDefined();
   });
+
+  it('담당자 ID가 정수가 아니면 에러를 반환한다', () => {
+    const errors = validateFacilityForm({
+      ...FACILITY_FORM_INITIAL_VALUES,
+      name: '테스트',
+      type: '건물',
+      assigneeUserId: 'abc',
+    });
+
+    expect(errors.assigneeUserId).toBeDefined();
+  });
+
+  it('메모가 최대 길이를 넘으면 에러를 반환한다', () => {
+    const errors = validateFacilityForm({
+      ...FACILITY_FORM_INITIAL_VALUES,
+      name: '테스트',
+      type: '건물',
+      memo: 'a'.repeat(2001),
+    });
+
+    expect(errors.memo).toBeDefined();
+  });
+
+  it('주소와 상세주소를 합친 길이가 최대 길이를 넘으면 에러를 반환한다', () => {
+    const errors = validateFacilityForm({
+      ...FACILITY_FORM_INITIAL_VALUES,
+      name: '테스트',
+      type: '건물',
+      address: 'a'.repeat(280),
+      addressDetail: 'b'.repeat(30),
+    });
+
+    expect(errors.address).toBeDefined();
+  });
 });
 
 describe('toCreateFacilityRequest', () => {
-  it('빈 문자열 옵셔널 필드는 null로 변환한다', () => {
+  it('빈 문자열 옵셔널 필드는 null로 변환한다(latitude/longitude는 항상 null 반환 — Geocoder 병합 전)', () => {
     const request = toCreateFacilityRequest({
       ...FACILITY_FORM_INITIAL_VALUES,
       name: '강남 오피스타워 A동',
@@ -142,48 +133,86 @@ describe('toCreateFacilityRequest', () => {
       scale: null,
       inspectionCycleMonths: null,
       nextInspectionDueAt: null,
+      initialGrade: null,
+      assigneeUserId: null,
+      memo: null,
     });
+  });
+
+  it('도로명주소와 상세주소를 하나의 문자열로 합친다', () => {
+    const request = toCreateFacilityRequest({
+      ...FACILITY_FORM_INITIAL_VALUES,
+      name: '강남 오피스타워 A동',
+      type: '건물',
+      address: '서울 강남구 테헤란로 123',
+      addressDetail: '10층 1001호',
+    });
+
+    expect(request.address).toBe('서울 강남구 테헤란로 123 10층 1001호');
   });
 
   it('입력된 숫자 필드는 Number로 변환한다', () => {
     const request = toCreateFacilityRequest({
+      ...FACILITY_FORM_INITIAL_VALUES,
       name: '강남 오피스타워 A동',
       type: '건물',
       address: '서울 강남구',
-      latitude: '37.5',
-      longitude: '127.0',
       builtYear: '2008',
-      scale: '지상 20층',
-      inspectionCycleMonths: '6',
     });
 
-    expect(request.latitude).toBe(37.5);
-    expect(request.longitude).toBe(127.0);
+    expect(request.latitude).toBeNull();
+    expect(request.longitude).toBeNull();
     expect(request.builtYear).toBe(2008);
-    expect(request.inspectionCycleMonths).toBe(6);
   });
 
-  it('점검주기가 있으면 nextInspectionDueAt을 오늘로부터 해당 개월 수 뒤 날짜로 계산해 포함한다', () => {
+  // #731 — 점검주기는 더 이상 항상 null이 아니다: 선택된 type이 FACILITY_TYPE_OPTIONS(12종)의
+  // value와 정확히 일치하면 그 cycleMonths가 파생된다. 일치하는 옵션이 없는 자유 문자열(과거
+  // 데이터·예외 케이스)이면 기존처럼 null을 유지한다.
+  it('type이 FACILITY_TYPE_OPTIONS 12종 중 어느 것과도 일치하지 않으면 inspectionCycleMonths·nextInspectionDueAt은 null이다', () => {
     const request = toCreateFacilityRequest({
       ...FACILITY_FORM_INITIAL_VALUES,
       name: '강남 오피스타워 A동',
       type: '건물',
-      inspectionCycleMonths: '6',
-    });
-
-    const expected = new Date();
-    expected.setMonth(expected.getMonth() + 6);
-    expect(request.nextInspectionDueAt).toBe(expected.toISOString().slice(0, 10));
-  });
-
-  it('점검주기가 0이면 nextInspectionDueAt은 null이다', () => {
-    const request = toCreateFacilityRequest({
-      ...FACILITY_FORM_INITIAL_VALUES,
-      name: '강남 오피스타워 A동',
-      type: '건물',
-      inspectionCycleMonths: '0',
     });
 
     expect(request.nextInspectionDueAt).toBeNull();
+    expect(request.inspectionCycleMonths).toBeNull();
+    expect(request.scale).toBeNull();
+  });
+
+  it.each([
+    ['건물-긴급-1개월', 1],
+    ['건물-정기-4개월', 4],
+    ['건물-정밀-24개월', 24],
+    ['교량-정밀-12개월', 12],
+    ['기타-긴급-1개월', 1],
+  ])(
+    '유형으로 "%s"을 선택하면 inspectionCycleMonths=%i, nextInspectionDueAt이 그 주기로 계산된다(#731)',
+    (type, cycleMonths) => {
+      const request = toCreateFacilityRequest({
+        ...FACILITY_FORM_INITIAL_VALUES,
+        name: '강남 오피스타워 A동',
+        type,
+      });
+
+      expect(request.type).toBe(type);
+      expect(request.inspectionCycleMonths).toBe(cycleMonths);
+      expect(request.nextInspectionDueAt).toBe(computeNextInspectionDueAt(cycleMonths));
+    },
+  );
+
+  it('초기등급/담당자/메모를 CreateFacilityRequest에 포함한다(#628)', () => {
+    const request = toCreateFacilityRequest({
+      ...FACILITY_FORM_INITIAL_VALUES,
+      name: '강남 오피스타워 A동',
+      type: '건물',
+      initialGrade: 'B',
+      assigneeUserId: '101',
+      memo: '외벽 균열 재점검 예정',
+    });
+
+    expect(request.initialGrade).toBe('B');
+    expect(request.assigneeUserId).toBe(101);
+    expect(request.memo).toBe('외벽 균열 재점검 예정');
   });
 });

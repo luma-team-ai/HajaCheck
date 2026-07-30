@@ -1,6 +1,6 @@
 # 기존 PostgreSQL 수동 증분 반영 절차 (Flyway 이전 — 보관)
 
-> **문서 버전:** v0.2 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
+> **문서 버전:** v0.4 · **최종 수정:** 2026-07-25 · 이전 버전 `archive/`
 
 > ⚠️ **Flyway 도입(#359) 이후 보관 문서.** 신규 마이그레이션은 더 이상 이 디렉터리에 수동 SQL로
 > 추가하지 않는다 — `backend/src/main/resources/db/migration/`의 Flyway 버전 파일(`V{n}__*.sql`)이
@@ -233,7 +233,7 @@ finalize 단계는 사용자 또는 회사별 `ACTIVE` 구독이 둘 이상이�
 finalize는 NULL 잔존 행이 있으면 승격 전에 중단하고, verify는 모든 대상 테이블의 실제 행을 다시 스캔해
 NULL이 없음을 확인한 뒤 PostgreSQL 카탈로그에서 `bigint DEFAULT 0 NOT NULL` 속성까지 검증한다.
 
-`Ha25IncrementalMigrationTest`는 별도 PostgreSQL 17에서 v0.3 기준 DDL과 기존 데이터 fixture를 적재한 뒤
+`Ha25IncrementalMigrationTest`는 별도 PostgreSQL 16에서 v0.3 기준 DDL과 기존 데이터 fixture를 적재한 뒤
 미분류 비오너 때문에 expand가 중단되는지 확인 → 감사 근거가 있다고 가정한 명시적 멤버십 승인 백필 →
 expand 2회 → `lock_version=0` 백필 확인 → 미백필 finalize 차단 확인 → 나머지 필수 백필 →
 finalize 2회 → verify를 실행한다. 같은 PostgreSQL 인스턴스의 독립 DB에 캐노니컬 DDL을 추가로
@@ -247,9 +247,9 @@ replica-only 트리거를 차례로 주입해 verify가 각각 거부하는지�
 CASCADE·`updated_at` 트리거를 검증한다. GROUP 메뉴의 직접 역할 매핑과 같은 이름의 잘못된 FK·인덱스를
 주입해 `20260716_05_menu_schema_verify.sql`이 의미 드리프트를 거부하는지도 확인한다.
 
-`ApiSystemLogSchemaMigrationTest`는 빈 PostgreSQL 17에 `20260720_01_create_api_system_logs.sql`을 2회 적용해
+`ApiSystemLogSchemaMigrationTest`는 빈 PostgreSQL 16에 `20260720_01_create_api_system_logs.sql`을 2회 적용해
 재실행 가능성을 확인한다. 전용 테스트는 `POSTGRES_USER=hajacheck`이며 `postgres` DB 역할이 없는
-PostgreSQL 17에서 실행해 owner 이식성을 검증하고, identity·기본값·CHECK·인덱스 3개·`user_id` FK 부재와
+PostgreSQL 16에서 실행해 owner 이식성을 검증하고, identity·기본값·CHECK·인덱스 3개·`user_id` FK 부재와
 `request_id` 비유니크 정책을 확인한다. 같은 이름의 CHECK, request ID UNIQUE 인덱스,
 `varchar_pattern_ops` 인덱스, 예상 밖 expression 인덱스를 주입한 뒤 재실행하면 즉시 중단되는지도 검증한다.
 `Ha25IncrementalMigrationTest`도 이 독립 파일을 전체 증분 경로에 포함한 뒤 캐노니컬 DDL 신규 설치 DB와
@@ -313,7 +313,7 @@ UNIQUE 또는 `varchar_pattern_ops`를 포함한 예상 밖 의미가 있으면 
 
 이 파일은 `postgres` 같은 환경별 역할명을 하드코딩하거나 테이블 owner를 변경하지 않는다. 새 테이블은
 마이그레이션 실행 계정이 소유한다. 따라서 `POSTGRES_USER=hajacheck`처럼 `postgres` DB 역할이 없는 표준
-PostgreSQL 17 환경에서도 실행할 수 있다. 반대로 이 이식성은 애플리케이션 계정의 append-only 권한을
+PostgreSQL 16 환경에서도 실행할 수 있다. 반대로 이 이식성은 애플리케이션 계정의 append-only 권한을
 자동으로 보장한다는 뜻이 아니다.
 
 운영 적용 순서상 위 전체 체인을 처음부터 실행할 때는 메뉴 검증 후 API 시스템 로그 마이그레이션을 적용한다.
@@ -347,6 +347,15 @@ HAJA-25와 메뉴 스키마를 이미 적용한 DB에는 이 파일만 단독으
 autocommit 필요·재실행 안전). 신규 설치는 `HajaCheck_script.sql`에 이미 반영돼 있어 이 파일이 필요
 없고, 기존 운영/개발 DB만 단독으로 적용한다. 이 값이 없는 상태에서 `role='PLATFORM_ADMIN'` 사용자가
 로그인하면 `InternalAuthenticationServiceException`(No enum constant Role.PLATFORM_ADMIN)이 발생한다.
+
+`20260722_01_promotion531_schema_reconcile.sql`은 절차의 일부가 아니라 **장애 핫픽스 기록**이다
+(#531 dev→main 승격 배포 시 arm1 `ddl-auto=validate`가 누락 스키마로 boot 실패 → 프로덕션 일시 다운,
+2026-07-22 이 DDL을 수동 적용해 복구). 내용은 `@Version` `lock_version` 컬럼(`companies`,
+`usage_counters`), 통째로 누락됐던 `company_memberships` 테이블(enum·인덱스·트리거 포함),
+`rag_documents.verification_status` enum 컬럼이며 전 문장이 재실행 안전하다. 근본 원인인
+"정규 증분 없이 엔티티 스키마가 dev에 누적"은 Flyway 도입(#359/#544)으로 차단됐고, 같은 스키마는
+`V1__baseline_schema.sql`에 이미 포함돼 있다 — 따라서 **신규·기존 DB 어디에도 다시 적용하지 않으며,
+승격 프리플라이트에서 스키마 드리프트를 전수 대조해야 하는 이유의 근거 기록으로만 남긴다.**
 
 ## 롤백 원칙
 

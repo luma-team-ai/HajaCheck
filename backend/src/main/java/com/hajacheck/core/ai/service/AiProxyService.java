@@ -7,18 +7,30 @@ import com.hajacheck.core.ai.dto.BriefingStatsRequest;
 import com.hajacheck.core.ai.dto.BusinessLicenseOcrAiEnvelope;
 import com.hajacheck.core.ai.dto.BusinessLicenseOcrAiRequest;
 import com.hajacheck.core.ai.dto.BusinessLicenseOcrResponse;
+import com.hajacheck.core.ai.dto.DefectDetectionAiEnvelope;
+import com.hajacheck.core.ai.dto.DefectDetectionAiRequest;
+import com.hajacheck.core.ai.dto.DetectedDefectItem;
 import com.hajacheck.core.ai.dto.DefectExplainAiEnvelope;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
+import com.hajacheck.core.ai.dto.RagChatAiEnvelope;
+import com.hajacheck.core.ai.dto.RagChatAiRequest;
+import com.hajacheck.core.ai.dto.RagChatRequest;
+import com.hajacheck.core.ai.dto.RagChatResponse;
+import com.hajacheck.core.ai.dto.RagEmbedAiEnvelope;
+import com.hajacheck.core.ai.dto.RagEmbedRequest;
+import com.hajacheck.core.ai.dto.RagEmbedResponse;
 import com.hajacheck.core.ai.dto.ReportAiEnvelope;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
+import com.hajacheck.core.ai.support.AiProxyRateLimiter;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -43,13 +55,24 @@ public class AiProxyService {
     private static final String REPORT_PATH = "/ai/report";
     private static final String BRIEFING_PATH = "/ai/briefing";
     private static final String BUSINESS_LICENSE_OCR_PATH = "/ai/business-license-ocr";
+    private static final String RAG_CHAT_PATH = "/ai/rag-chat";
+    private static final String RAG_EMBED_PATH = "/ai/rag-documents/embed";
+    private static final String DETECT_DEFECTS_PATH = "/ai/detect-defects";
     private static final String INTERNAL_KEY_HEADER = "X-Internal-Key";
 
     private final RestClient aiServerRestClient;
     private final AiServerProperties aiServerProperties;
     private final BriefingStatsService briefingStatsService;
+    private final AiProxyRateLimiter aiProxyRateLimiter;
 
-    public ApiResponse<DefectExplainResponse> explainDefect(DefectExplainRequest request) {
+    /**
+     * @param userId 요청자 식별자 — 컨트롤러가 {@code @AuthenticationPrincipal}에서만 취득해 전달한다
+     *               (요청 바디에서 받지 않는다). 사용자 축 rate-limit 키로만 사용한다.
+     */
+    public ApiResponse<DefectExplainResponse> explainDefect(Long userId, DefectExplainRequest request) {
+        // 사용자 축 → 전역 축 순서로 rate-limit(초과 시 429·FastAPI 호출 없이 중단, AiProxyRateLimiter 참고).
+        aiProxyRateLimiter.checkUser(userId);
+        aiProxyRateLimiter.checkGlobal();
         DefectExplainAiEnvelope envelope = callAiServer(request);
         if (envelope == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
@@ -88,7 +111,14 @@ public class AiProxyService {
         }
     }
 
-    public ApiResponse<ReportResponse> generateReport(ReportRequest request) {
+    /**
+     * @param userId 요청자 식별자 — 호출부(컨트롤러/ReportService)가 {@code @AuthenticationPrincipal}
+     *               에서 확보한 값을 전달한다(요청 바디에서 받지 않는다). 사용자 축 rate-limit 키로만 사용.
+     */
+    public ApiResponse<ReportResponse> generateReport(Long userId, ReportRequest request) {
+        // 사용자 축 → 전역 축 순서로 rate-limit(초과 시 429·FastAPI 호출 없이 중단, AiProxyRateLimiter 참고).
+        aiProxyRateLimiter.checkUser(userId);
+        aiProxyRateLimiter.checkGlobal();
         ReportAiEnvelope envelope = callAiServer(request);
         if (envelope == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
@@ -127,12 +157,12 @@ public class AiProxyService {
     }
 
     /**
-     * 로그인 사용자(ownerId) 소유 범위 현황을 {@link BriefingStatsService} 로 집계해 FastAPI
-     * {@code /ai/briefing} 을 호출한다(#248 / HAJA-197). ownerId 는 컨트롤러가
-     * {@code @AuthenticationPrincipal} 에서만 취득해 전달한다(IDOR 방지).
+     * 로그인 사용자의 회사(companyId) 소유 범위 현황을 {@link BriefingStatsService} 로 집계해 FastAPI
+     * {@code /ai/briefing} 을 호출한다(#248 / HAJA-197). userId와 companyId는 컨트롤러가
+     * {@code @AuthenticationPrincipal} 에서만 취득해 각각 rate-limit과 회사 스코프에 사용한다.
      */
-    public ApiResponse<BriefingResponse> briefing(Long ownerId) {
-        BriefingStatsRequest stats = briefingStatsService.buildStats(ownerId);
+    public ApiResponse<BriefingResponse> briefing(Long userId, Long companyId) {
+        BriefingStatsRequest stats = briefingStatsService.buildStats(userId, companyId);
         BriefingAiEnvelope envelope = callAiServer(stats);
         if (envelope == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
@@ -160,6 +190,59 @@ public class AiProxyService {
                     .body(request)
                     .retrieve()
                     .body(BriefingAiEnvelope.class);
+        } catch (ResourceAccessException e) {
+            throw mapConnectionFailure(e);
+        } catch (RestClientResponseException e) {
+            throw mapResponseStatusFailure(e);
+        } catch (RestClientException e) {
+            log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    /**
+     * 고객지원 RAG 챗봇 프록시(HAJA-32, #467) — 로그인 사용자(관리자 한정 아님)가 호출한다.
+     * {@code userId} 는 컨트롤러가 {@code @AuthenticationPrincipal} 에서만 취득해 전달한다(요청 바디 금지).
+     * 사용자 축 rate-limit 키로만 사용한다.
+     *
+     * <p>프론트 요청({@code query})을 FastAPI 계약({@code question})으로 변환해 전달한다 — 필드명이 달라
+     * {@link RagChatRequest} 를 그대로 재사용할 수 없다({@link RagChatAiRequest} javadoc 참고).
+     * {@code session_id} 는 세션 소유·{@code session_type='RAG'} 검증이 후속 이슈로 분리돼 있어
+     * (contract.md §"내부 호출 계약", {@code /api/chat-sessions} 미구현) 이번 범위에서는 보내지 않는다.
+     */
+    public ApiResponse<RagChatResponse> ragChat(Long userId, RagChatRequest request) {
+        // 사용자 축 → 전역 축 순서로 rate-limit(초과 시 429·FastAPI 호출 없이 중단, AiProxyRateLimiter 참고).
+        aiProxyRateLimiter.checkUser(userId);
+        aiProxyRateLimiter.checkGlobal();
+        RagChatAiEnvelope envelope = callAiServer(new RagChatAiRequest(request.query()));
+        if (envelope == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+
+        if (!envelope.success()) {
+            RagChatAiEnvelope.ErrorBody error = envelope.error();
+            if (error == null) {
+                throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+            }
+            // RAG_NO_RESULT 등 AIErrorCode 를 가공 없이 그대로 전달 — 프론트는 error.code 로 분기한다
+            // (useRagChat.ts: code==='RAG_NO_RESULT' 는 에러가 아니라 "근거 없음" 안내로 표시).
+            return ApiResponse.fail(error.code(), error.message());
+        }
+
+        if (envelope.data() == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        return ApiResponse.ok(envelope.data());
+    }
+
+    private RagChatAiEnvelope callAiServer(RagChatAiRequest request) {
+        try {
+            return aiServerRestClient.post()
+                    .uri(RAG_CHAT_PATH)
+                    .headers(this::attachInternalKeyIfPresent)
+                    .body(request)
+                    .retrieve()
+                    .body(RagChatAiEnvelope.class);
         } catch (ResourceAccessException e) {
             throw mapConnectionFailure(e);
         } catch (RestClientResponseException e) {
@@ -211,6 +294,89 @@ public class AiProxyService {
         } catch (RestClientException e) {
             // OCR 원문/개인정보는 예외 메시지에 포함되지 않는다 — AI 서버가 그런 값을 던지지 않고,
             // 이 catch는 envelope 역직렬화 실패 등 형식 불량만 다룬다(다른 endpoint와 동일 패턴).
+            log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    /**
+     * RAG 문서 임베딩 프록시(#22/HAJA-35) — RagDocumentService가 PDF에서 추출한 텍스트를 실어
+     * FastAPI {@code /ai/rag-documents/embed}를 호출한다. 다른 프록시 메서드와 동일한
+     * try/catch(ResourceAccessException/RestClientResponseException/RestClientException) 패턴.
+     */
+    public ApiResponse<RagEmbedResponse> embedRagDocument(RagEmbedRequest request) {
+        RagEmbedAiEnvelope envelope = callAiServer(request);
+        if (envelope == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+
+        if (!envelope.success()) {
+            RagEmbedAiEnvelope.ErrorBody error = envelope.error();
+            if (error == null) {
+                throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+            }
+            return ApiResponse.fail(error.code(), error.message());
+        }
+
+        if (envelope.data() == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        return ApiResponse.ok(envelope.data());
+    }
+
+    private RagEmbedAiEnvelope callAiServer(RagEmbedRequest request) {
+        try {
+            return aiServerRestClient.post()
+                    .uri(RAG_EMBED_PATH)
+                    .headers(this::attachInternalKeyIfPresent)
+                    .body(request)
+                    .retrieve()
+                    .body(RagEmbedAiEnvelope.class);
+        } catch (ResourceAccessException e) {
+            throw mapConnectionFailure(e);
+        } catch (RestClientResponseException e) {
+            throw mapResponseStatusFailure(e);
+        } catch (RestClientException e) {
+            log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    /**
+     * 하자 탐지(dev-05-04) — InspectionAnalysisService가 회차의 이미지를 순회하며 1장씩 호출한다.
+     * 다른 /ai/* 프록시와 달리 컨트롤러가 아니라 배치 잡(비동기 서비스)에서 호출되므로 ApiResponse가
+     * 아니라 언랩된 결과를 바로 던지거나 반환한다 — 호출부가 이미지 1건 실패를 잡 전체 실패로 만들지
+     * 않고 개별 격리 처리할 수 있도록 BusinessException을 그대로 전파한다(catch는 호출부 책임).
+     */
+    public List<DetectedDefectItem> detectDefects(String imageBase64) {
+        DefectDetectionAiEnvelope envelope = callAiServer(new DefectDetectionAiRequest(imageBase64));
+        if (envelope == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        if (!envelope.success()) {
+            log.warn("AI 서버 하자 탐지 실패 응답: {}",
+                    envelope.error() != null ? envelope.error().code() : "unknown");
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        if (envelope.data() == null || envelope.data().detections() == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        return envelope.data().detections();
+    }
+
+    private DefectDetectionAiEnvelope callAiServer(DefectDetectionAiRequest request) {
+        try {
+            return aiServerRestClient.post()
+                    .uri(DETECT_DEFECTS_PATH)
+                    .headers(this::attachInternalKeyIfPresent)
+                    .body(request)
+                    .retrieve()
+                    .body(DefectDetectionAiEnvelope.class);
+        } catch (ResourceAccessException e) {
+            throw mapConnectionFailure(e);
+        } catch (RestClientResponseException e) {
+            throw mapResponseStatusFailure(e);
+        } catch (RestClientException e) {
             log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
         }

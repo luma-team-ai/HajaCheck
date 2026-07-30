@@ -17,12 +17,19 @@ public class MediaUploadProperties {
     /** 개별 파일 최대 용량(bytes). 기본 20MB(폰 카메라 사진 고려, 사업자등록증보다 큼). */
     private long maxSizeBytes = 20_971_520L;
 
-    /** 한 번의 업로드 요청에서 허용하는 최대 파일 개수 — 요청당 메모리 상한(개수×maxSizeBytes)을 통제하는
-     * 방어값이라 과도하게 키우지 않는다(리뷰 P2: 요청 총량·동시성 DoS 노출 완화). */
-    private int maxFilesPerRequest = 10;
+    /** 한 번의 업로드 요청에서 허용하는 최대 파일 개수 — 요청 총 바이트 상한(max-request-size)과는
+     * 별개로, uploadMedia()가 파일마다 동기로 수행하는 매직바이트 검증+EXIF 추출+썸네일·상세이미지
+     * 인코딩(이미지 디코딩/인코딩 다회)이 Tomcat 워커 스레드를 점유하는 시간 자체를 통제하는
+     * 방어값이다 — 소용량 파일을 대량으로 담으면 총 바이트 상한만으로는 처리 시간이 막히지 않는다
+     * (PR머신 리뷰 P1, #1067). 기존 10장 제한이 실사용에 너무 빡빡하다는 요청에 맞춰 50장으로 완화. */
+    private int maxFilesPerRequest = 50;
 
     /** 썸네일 재인코딩 시 가로/세로 중 긴 변의 최대 픽셀(비율 유지 축소). */
     private int thumbnailMaxDimension = 400;
+
+    /** 상세뷰(분석 결과 뷰어) 재인코딩 시 가로/세로 중 긴 변의 최대 픽셀 — 그리드용 썸네일보다
+     * 커야 하자(크랙 폭 등)를 육안으로 판별할 수 있다(#788). */
+    private int detailMaxDimension = 1600;
 
     public List<String> getAllowedContentTypes() {
         return allowedContentTypes;
@@ -54,5 +61,13 @@ public class MediaUploadProperties {
 
     public void setThumbnailMaxDimension(int thumbnailMaxDimension) {
         this.thumbnailMaxDimension = thumbnailMaxDimension;
+    }
+
+    public int getDetailMaxDimension() {
+        return detailMaxDimension;
+    }
+
+    public void setDetailMaxDimension(int detailMaxDimension) {
+        this.detailMaxDimension = detailMaxDimension;
     }
 }

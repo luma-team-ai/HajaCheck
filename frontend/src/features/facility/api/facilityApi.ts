@@ -2,15 +2,28 @@ import { api } from '../../../shared/api/axios';
 import type {
   CreateFacilityRequest,
   Facility,
+  FacilityStatusRow,
+  InspectionNotificationSettings,
   SetFacilityScheduleRequest,
   SetFacilityScheduleResponse,
+  SetInspectionNotificationSettingsRequest,
 } from '../types';
 
 export const facilityApi = {
   getList: () => api.get<Facility[]>('/facilities'),
+  // 시설물 현황 목록(#540 ⑥, HAJA-378) — 점검 주기 설정 화면(#1136)이 실연동에 재사용.
+  getStatusList: () => api.get<FacilityStatusRow[]>('/facilities/status'),
   getDetail: (id: number) => api.get<Facility>(`/facilities/${id}`),
   create: (body: CreateFacilityRequest) => api.post<Facility>('/facilities', body),
+  // 시설물 수정(PUT — 전체 교체, backend FacilityUpdateRequest와 1:1). 좌표 소급 재-geocoding(#618)이
+  // 기존 필드를 유지한 채 latitude/longitude만 갱신하는 용도로 이 API를 재사용한다.
+  update: (id: number, body: CreateFacilityRequest) => api.put<Facility>(`/facilities/${id}`, body),
   // 점검 주기 설정(dev-04-03, FR-019) — 저장 버튼만 실 API로 연결(handoff §2·§3)
   setSchedule: (id: number, body: SetFacilityScheduleRequest) =>
     api.post<SetFacilityScheduleResponse>(`/facilities/${id}/schedule`, body),
+  // 점검 알림 설정 조회/저장(GitHub #540 ③, backend InspectionNotificationSettingController와 1:1)
+  getNotificationSettings: (id: number) =>
+    api.get<InspectionNotificationSettings>(`/facilities/${id}/notification-settings`),
+  setNotificationSettings: (id: number, body: SetInspectionNotificationSettingsRequest) =>
+    api.put<InspectionNotificationSettings>(`/facilities/${id}/notification-settings`, body),
 };

@@ -1,11 +1,21 @@
 import { api } from '../../../shared/api/axios';
+import type { PageResponse } from '../../../shared/api/types';
 import type {
   FacilityDetail,
   FacilityOption,
   InspectionCreateRequest,
   InspectionCreateResponse,
 } from '../types';
-import type { InspectionResponse, DefectDetailItem, DefectGrade, DefectStatus } from './inspectionApi.types';
+import type {
+  InspectionResponse,
+  DefectDetailItem,
+  DefectGrade,
+  DefectStatus,
+  DefectCreateRequest,
+  AnalysisStatusResponse,
+  MediaResponse,
+  FacilityInspectionSummary,
+} from './inspectionApi.types';
 
 export interface DefectRevisionRequest {
   grade?: DefectGrade;
@@ -25,17 +35,33 @@ export const inspectionApi = {
   // 점검 회차별 하자 목록 조회
   getDefects: (inspectionId: number) =>
     api.get<DefectDetailItem[]>(`/inspections/${inspectionId}/defects`),
+  // 점검 회차별 전체 미디어 목록 조회 (하자 유무 무관, #804)
+  getMedia: (inspectionId: number) =>
+    api.get<MediaResponse[]>(`/inspections/${inspectionId}/media`),
   // 하자 검수: 오탐 삭제 또는 등급 조정 (DefectRevisionController.reviewDefect)
   reviewDefect: (defectId: number, request: DefectRevisionRequest) =>
     api.patch<DefectDetailItem>(`/defects/${defectId}`, request),
   // 하자 상태 전환 (DefectController.updateStatus)
   updateDefectStatus: (defectId: number, request: DefectStatusUpdateRequest) =>
     api.patch<DefectDetailItem>(`/defects/${defectId}/status`, request),
+  // 하자 수동 생성 — AI가 놓친 하자를 검수자가 추가 (DefectRevisionController.createManualDefect)
+  createDefect: (inspectionId: number, request: DefectCreateRequest) =>
+    api.post<DefectDetailItem>(`/inspections/${inspectionId}/defects`, request),
   // 점검(회차) 생성
   create: (body: InspectionCreateRequest) =>
     api.post<InspectionCreateResponse>('/inspections', body),
   // 점검(회차) 생성 폼의 시설물 셀렉트용 — 실 GET /api/facilities(FacilityController.list)를 그대로 호출한다.
   listFacilityOptions: () => api.get<FacilityOption[]>('/facilities'),
-  // 점검(회차) 생성 화면 상단 개요 패널용 — 실 GET /api/facilities/{id}(FacilityController.get)를 그대로 호출한다.
+  // 점검(회차) 생성 폼 — 같은 시설물에 이미 진행 중(미종료, status !== 'REPORTED')인 회차가 있는지
+  // 확인용(중복 회차 생성 약한 경고 — 확인창만 띄우고 생성 자체를 막지는 않는다).
+  listByFacility: (facilityId: number) =>
+    api.get<PageResponse<FacilityInspectionSummary>>('/inspections', { params: { facilityId } }),
+  // 분석 결과 뷰어(useInspectionResultReal)용 — 실 GET /api/facilities/{id}(FacilityController.get)를 그대로 호출한다.
   getFacilityDetail: (id: number) => api.get<FacilityDetail>(`/facilities/${id}`),
+  // AI 분석 실행/상태(dev-05-04) — 분석 시작(202 Accepted, 바로 반환) + 진행 상태 폴링.
+  startAnalysis: (inspectionId: number) => api.post<void>(`/inspections/${inspectionId}/analyze`),
+  getAnalysisStatus: (inspectionId: number) =>
+    api.get<AnalysisStatusResponse>(`/inspections/${inspectionId}/analyze`),
+  // AI 분석 취소("한 번에 하나만" 정책, 2026-07-27) — ANALYZING이 아니어도 아무 효과 없이 성공(204).
+  cancelAnalysis: (inspectionId: number) => api.delete<void>(`/inspections/${inspectionId}/analyze`),
 };

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import { Button } from '../../../shared/components/Button';
-import { LANDING_ROUTE, LOGIN_ROUTE } from '../constants';
+import { AuthGlassPanel } from '../components/AuthGlassPanel';
+import { LOGIN_ROUTE } from '../constants';
 import { ERROR_CLASSES, LABEL_CLASSES, LOGIN_INPUT_CLASSES } from '../formClasses';
 import { useCsrfPrime } from '../hooks/useCsrfPrime';
 import { usePasswordResetRequest } from '../hooks/usePasswordResetRequest';
@@ -13,6 +13,18 @@ import { isValidEmail } from '../utils/authFormValidators';
 const RATE_LIMIT_MESSAGE = '잠시 후 다시 시도해 주세요.';
 const DEFAULT_ERROR_MESSAGE = '요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.';
 const SUCCESS_MESSAGE = '입력하신 주소로 재설정 링크를 보냈습니다. 메일함을 확인해 주세요.';
+
+// 소셜 전용 계정 안내(#906) — 소셜 최초 로그인이 초대 코드 입력을 거치는 흐름(#799/#794)이 되면서
+// 초대받은 팀원은 사실상 전원 "비밀번호가 없는 계정"이다. 백엔드는 이런 계정에 재설정 메일을 보내지
+// 않지만(PasswordResetService.isPasswordResettable), 열거 방지 때문에 화면은 성공과 똑같이 보인다
+// → 안내가 없으면 오지 않을 메일을 계속 기다리게 된다.
+//
+// ⚠️ 이 문구는 계정 상태와 무관하게 항상 렌더한다. 입력한 이메일이 소셜 계정일 때만 띄우면 그 분기
+// 자체가 계정 유형 열거 표면이 된다 — 정적 안내라 그런 표면이 생기지 않는다.
+const SOCIAL_ACCOUNT_NOTICE =
+  '카카오·구글로 가입하셨다면 비밀번호가 없어 재설정 메일이 발송되지 않습니다. 해당 소셜 계정으로 로그인해 주세요.';
+const SOCIAL_NOTICE_CLASSES =
+  'm-0 rounded-xl bg-zinc-100/80 px-4 py-3 text-center text-[13px] leading-5 text-zinc-600';
 
 export function FindPasswordPage() {
   useCsrfPrime();
@@ -39,62 +51,62 @@ export function FindPasswordPage() {
     : null;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-surface-muted p-6">
-      <div className="w-full max-w-[440px] rounded-[20px] border border-border bg-surface p-10 shadow-sm">
-        <Link
-          to={LANDING_ROUTE}
-          className="mb-6 flex justify-center"
-          aria-label="HajaCheck 홈으로"
-        >
-          <img src={brandLogo} alt="HajaCheck" className="h-8 w-auto object-contain" />
-        </Link>
-        <h1 className="m-0 text-2xl font-bold text-heading">비밀번호 찾기</h1>
+    <AuthGlassPanel titleId="find-password-title">
+      <h1 id="find-password-title" className="mt-10 text-center text-xl font-semibold text-zinc-900">
+        비밀번호 찾기
+      </h1>
 
-        {isSuccess ? (
-          <div className="mt-6 flex flex-col gap-4">
-            <p className="m-0 text-sm text-text-default">{SUCCESS_MESSAGE}</p>
-            <Link to={LOGIN_ROUTE} className="text-sm font-medium text-heading underline">
-              로그인으로
-            </Link>
+      {isSuccess ? (
+        <div className="mt-4 flex flex-col items-center gap-4">
+          <p className="m-0 text-center text-sm text-zinc-500">{SUCCESS_MESSAGE}</p>
+          <p className={SOCIAL_NOTICE_CLASSES}>{SOCIAL_ACCOUNT_NOTICE}</p>
+          <Link to={LOGIN_ROUTE} className="text-sm font-medium text-zinc-900 underline">
+            로그인으로
+          </Link>
+        </div>
+      ) : (
+        <form className="mt-4 flex flex-col gap-5" onSubmit={handleSubmit}>
+          <p className="m-0 text-center text-sm text-zinc-500">
+            가입하신 이메일 주소를 입력하시면 비밀번호 재설정 링크를 보내드립니다.
+          </p>
+
+          <div className="flex flex-col gap-1.5">
+            <label className={LABEL_CLASSES} htmlFor="find-password-email">
+              이메일
+            </label>
+            <input
+              id="find-password-email"
+              type="email"
+              className={LOGIN_INPUT_CLASSES}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+              placeholder="HajaCheck@check.com"
+            />
+            {showValidation && !isValidEmail(email) && (
+              <p className={ERROR_CLASSES}>올바른 이메일 형식을 입력해 주세요.</p>
+            )}
           </div>
-        ) : (
-          <form className="mt-6 flex flex-col gap-5" onSubmit={handleSubmit}>
-            <p className="m-0 text-sm text-text-muted">
-              가입하신 이메일 주소를 입력하시면 비밀번호 재설정 링크를 보내드립니다.
+
+          {errorMessage && (
+            <p role="alert" className={ERROR_CLASSES}>
+              {errorMessage}
             </p>
+          )}
 
-            <div className="flex flex-col gap-1.5">
-              <label className={LABEL_CLASSES} htmlFor="find-password-email">
-                이메일
-              </label>
-              <input
-                id="find-password-email"
-                type="email"
-                className={LOGIN_INPUT_CLASSES}
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                autoComplete="email"
-                placeholder="HajaCheck@check.com"
-              />
-              {showValidation && !isValidEmail(email) && (
-                <p className={ERROR_CLASSES}>올바른 이메일 형식을 입력해 주세요.</p>
-              )}
-            </div>
+          <Button type="submit" size="lg" className="w-full" disabled={isPending}>
+            {isPending ? '전송 중...' : '재설정 링크 보내기'}
+          </Button>
 
-            {errorMessage && <p className={ERROR_CLASSES}>{errorMessage}</p>}
+          <p className={SOCIAL_NOTICE_CLASSES}>{SOCIAL_ACCOUNT_NOTICE}</p>
 
-            <Button type="submit" size="lg" className="w-full" disabled={isPending}>
-              {isPending ? '전송 중...' : '재설정 링크 보내기'}
-            </Button>
-
-            <p className="m-0 text-center text-sm text-text-muted">
-              <Link to={LOGIN_ROUTE} className="font-medium text-heading underline">
-                로그인으로 돌아가기
-              </Link>
-            </p>
-          </form>
-        )}
-      </div>
-    </div>
+          <p className="m-0 text-center text-sm text-zinc-500">
+            <Link to={LOGIN_ROUTE} className="font-medium text-zinc-900 underline">
+              로그인으로 돌아가기
+            </Link>
+          </p>
+        </form>
+      )}
+    </AuthGlassPanel>
   );
 }

@@ -1,10 +1,13 @@
 # hajaCheck 테이블 디자인 설계
 
-> **문서 버전:** v0.4 · **최종 수정:** 2026-07-21 · 이전 버전 `archive/`
+> **문서 버전:** v0.5 · **최종 수정:** 2026-07-24 · 이전 버전 `archive/`
+> (버전 관리 확인: v0.5는 아직 `main`에 released되지 않음 — `main`은 v0.4(2026-07-21)까지만 반영됨.
+> released 문서 실질 변경 시 요구되는 archive 스냅샷·버전 bump는 미released 문서의 예외 규칙에 따라
+> 생략하고, 이번 PR의 media_id 행 추가(dev-05-04) 반영 시각으로 최종 수정일만 갱신한다.)
 
 - 대상 스키마 파일: [HajaCheck_script.sql](HajaCheck_script.sql)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
-- 기준 문서: `report/hajaCheck착수 보고.pdf` 53~60p (테이블 정의서 1/8~8/8), [PRD_hajaCheck_v0.41.md](../../prd/archive/PRD_hajaCheck_v0.41.md)
+- 기준 문서: `report/hajaCheck착수 보고.pdf` 53~60p (테이블 정의서 1/8~8/8), [PRD_hajaCheck.md v0.47](../../prd/PRD_hajaCheck.md)
 - 인코딩: UTF-8 (BOM 없음)
 
 ---
@@ -20,6 +23,7 @@
    - 2.8 [`rag_documents` 발행처·작성일·검증여부 컬럼 추가 (HAJA-143/144 필드 누락 보완)](#28-rag_documents-발행처작성일검증여부-컬럼-추가-haja-143144-필드-누락-보완)
    - 2.9 [사이드바·관리자 메뉴 관리 테이블 신설 (`menus`/`menu_role_access`)](#29-사이드바관리자-메뉴-관리-테이블-신설-menusmenu_role_access)
    - 2.10 [API 시스템 로그 테이블 신설 (`api_system_logs`, #497/HAJA-299)](#210-api-시스템-로그-테이블-신설-api_system_logs-497haja-299)
+   - 2.11 [점검·관리자 스키마 정합화 (#568/HAJA-327)](#211-점검관리자-스키마-정합화-568haja-327)
 3. [ERD 개요 (테이블 관계)](#3-erd-개요-테이블-관계)
 4. [Enum 타입 정의](#4-enum-타입-정의)
 5. [테이블 상세](#5-테이블-상세)
@@ -40,7 +44,7 @@
 
 ## 1. 개요
 
-hajaCheck는 시설물 점검 사진/영상을 AI로 분석해 결함을 탐지하고, 점검 보고서를 생성하며, 사용자에게 RAG 기반 AI 문답·시나리오 챗봇·전문 상담사 상담을 제공하는 서비스다. 본 문서는 `HajaCheck_script.sql`(신규 PostgreSQL 초기화 기준 DDL)을 기준으로 전체 테이블 구조, 컬럼, 키, enum 값의 의미를 정리하고, 착수 보고서(킥오프) 및 `PRD_hajaCheck_v0.41.md` 대비 무엇이 달라졌는지·정합성이 맞는지 기록한다.
+hajaCheck는 시설물 점검 사진/영상을 AI로 분석해 결함을 탐지하고, 점검 보고서를 생성하며, 사용자에게 RAG 기반 AI 문답·시나리오 챗봇·전문 상담사 상담을 제공하는 서비스다. 본 문서는 `HajaCheck_script.sql`(신규 PostgreSQL 초기화 기준 DDL)을 기준으로 전체 테이블 구조, 컬럼, 키, enum 값의 의미를 정리하고, 착수 보고서(킥오프) 및 최신 `PRD_hajaCheck.md` 대비 무엇이 달라졌는지·정합성이 맞는지 기록한다.
 
 전체 테이블은 아래 8개 영역으로 구성된다.
 
@@ -51,21 +55,19 @@ hajaCheck는 시설물 점검 사진/영상을 AI로 분석해 결함을 탐지�
 | 시설물·점검 | `facilities`, `inspections`, `media` |
 | 결함·보고서 | `defects`, `defect_revisions`, `reports` |
 | RAG·상담 공용 | `chat_sessions`, `chat_messages`, `counsel_tickets`, `bot_scenarios`, `rag_documents`, `chat_message_citations` |
-| 공통 알림 | `notifications` |
+| 공통 알림 | `notifications`, `inspection_notification_settings` |
 | 사이드바·관리자 메뉴 | `menus`, `menu_role_access` |
 | 운영·관측 | `api_system_logs` |
 
 ### 1.1 초기 스키마와 테스트 기준
 
-- Flyway 도입은 보류하며, 신규 PostgreSQL 초기화의 단일 기준은 `HajaCheck_script.sql`이다.
-- 운영 중인 v0.3 계열 DB에는 이 파일을 그대로 재실행하지 않는다. HAJA-25 변경과 메뉴 스키마는
-  [`migrations/README.md`](migrations/README.md)의
-  `HAJA-25 expand → 백필 → finalize → verify → menu expand → verify` 절차로 적용한다. API 시스템 로그
-  스키마는 같은 문서의 독립 마이그레이션 `20260720_01_create_api_system_logs.sql`로 추가한다.
-- Testcontainers는 Gradle `processTestResources` 단계에서 기준 DDL·v0.3 archive·증분 SQL을 테스트
-  classpath로 직접 복사해 사용한다. 별도의 축약 DDL 사본은 유지하지 않는다.
-- 초기 요금제는 가격·한도에 대한 확정 운영값이 없으므로 스키마 DDL에 seed하지 않는다.
-  확정값은 별도 데이터 초기화 절차에서 명시적으로 관리한다.
+- 운영·로컬 DB 변경의 실행 기준은 `backend/src/main/resources/db/migration/`의 Flyway 버전 파일이다.
+  동결된 `V1__baseline_schema.sql`은 수정하지 않고 이후 변경은 새 버전으로만 추가한다.
+- `HajaCheck_script.sql`은 신규 DB의 현재 최종 상태를 설명하고 Testcontainers 초기화에 쓰는 기준 DDL이다.
+  운영 중인 DB에는 이 파일을 재실행하지 않는다.
+- `migrations/`의 날짜형 수동 SQL은 Flyway 도입 전 이력 보존용 archive다. 신규 증분 파일을 추가하지 않는다.
+- 빈 DB의 `V1→최신` 경로와 기존 캐노니컬 DB의 baseline-on-migrate 경로를 각각 통합 테스트한다.
+- 초기 요금제 3티어는 Flyway가 보장하며, 무제한 한도는 sentinel이 아니라 SQL `NULL`로 표현한다.
 
 ---
 
@@ -128,7 +130,7 @@ hajaCheck는 시설물 점검 사진/영상을 AI로 분석해 결함을 탐지�
 | FR-4: "defects 직접 UPDATE 대신 defect_revisions에 append-only 기록, 삭제는 Soft Delete" | `defect_revisions` 테이블과 `defects.is_deleted` 플래그로 그대로 구현됨. |
 | FR-7: "상담원 부재 시 대기 순번 안내 + 문의 남기기(오프라인 티켓)" | `counsel_ticket_status_type.OFFLINE_LEFT`로 반영됨. |
 | §2.4 비즈니스 모델: "상담" 이용 여부가 플랜별로 다름(Free=시나리오 챗봇만, Standard 이상=상담원 연결) | `plans.has_counselor_access` boolean으로 게이팅. RAG Q&A 자체는 P0 전 플랜 공통 기능이라 별도 플랜 제한 컬럼이 없는 것도 PRD와 일치한다. |
-| FR-1: "역할(Role): 일반 사용자/점검자/관리자/상담원, 계층 ADMIN > INSPECTOR > USER, COUNSELOR는 별도 축" | `role_type`(`ADMIN`,`INSPECTOR`,`USER`,`COUNSELOR`)로 그대로 반영됨. |
+| FR-1: "역할(Role): 일반 사용자/점검자/관리자/상담원, 계층 ADMIN > INSPECTOR > USER, COUNSELOR는 별도 축" | 기존 역할은 `role_type`에 그대로 반영하며, 플랫폼 운영용 `PLATFORM_ADMIN`은 §2.11에서 별도 추가한다. |
 
 ---
 
@@ -234,7 +236,7 @@ FR·API·플로우 동기화는 이번 범위에서 **제외**하고, ERD(DB 설
 | 경로 컬럼 분리 | `path`(이동 경로)와 `active_path_pattern`(활성 메뉴 판정용 동적 패턴)을 분리 — 메뉴 경로와 실제 라우트가 다른 경우가 이미 있다(메뉴 `/facilities/list` vs 실제 라우트 [`/facilities`](../../../frontend/src/app/router.tsx#L200), 상세 라우트 [`/defects/:id`](../../../frontend/src/app/router.tsx#L148)). `path`는 여러 메뉴가 같은 라우트를 가리킬 수 있어 UNIQUE로 두지 않고, 변경되지 않는 `code`를 UNIQUE로 둔다 |
 | 아이콘 저장 방식 | `icon_key`(프론트 번들 아이콘 키)를 우선하고 `icon_url`(CDN)은 보조 — 현재 프론트가 SVG를 번들 import하는 방식([`SideNavBar.tsx:7`](../../../frontend/src/shared/components/SideNavBar/SideNavBar.tsx))이라 `icon_key`가 실제 구현과 맞음. `GROUP`은 0~1개, `INTERNAL`/`EXTERNAL`은 정확히 1개를 CHECK로 강제(프론트 `SideNavItem.icon`이 필수 문자열([`SideNavBar.tsx:27`](../../../frontend/src/shared/components/SideNavBar/SideNavBar.tsx))이라 렌더되는 항목은 아이콘이 반드시 있어야 함) |
 | 역할 매핑 | 매핑 행이 존재하면 해당 역할에 노출되는 방식이며 별도 `can_view` 컬럼은 두지 않는다. `GROUP` 메뉴에는 매핑 행을 넣지 않는다 — 허용된 자식이 하나라도 있으면 부모 GROUP은 서비스 로직이 자동으로 포함시킨다 |
-| 역할 계층 판단 방식 | `role_type` 선언 순서(`ADMIN`, `INSPECTOR`, `USER`, `COUNSELOR`)로 권한 계층을 추론하지 않는다. enum ordinal 비교(`role >= 'INSPECTOR'` 식)에 기대지 않고, 메뉴마다 `menu_role_access`에 허용 역할을 명시적으로 매핑한다(예: `FACILITY_LIST`는 `USER`/`INSPECTOR`/`ADMIN` 세 행이 각각 필요) |
+| 역할 계층 판단 방식 | `role_type` 선언 순서로 권한 계층을 추론하지 않는다. enum ordinal 비교(`role >= 'INSPECTOR'` 식)에 기대지 않고, 메뉴마다 `menu_role_access`에 허용 역할을 명시적으로 매핑한다(예: `FACILITY_LIST`는 `USER`/`INSPECTOR`/`ADMIN` 세 행이 각각 필요). `PLATFORM_ADMIN` 메뉴 권한은 후속 인가 작업에서 명시적으로 부여한다. |
 | 권한 변경 방식 | 권한 해제는 행 삭제, 권한 부여는 행 추가로 처리한다 — 별도 상태(`is_active` 등) 컬럼을 두지 않는다 |
 | 낙관적 락(`lock_version`) 미적용 | HAJA-25(§2.6, `migrations/README.md`)가 붙인 `lock_version`은 상태 전이 동시성이 있는 6개 테이블(companies, company_memberships, defects, reports, counsel_tickets, rag_documents)에만 적용된 것으로, 메뉴는 소수 관리자가 드물게 편집하는 설정 테이블이라 동시 갱신 충돌 위험이 낮아 의도적으로 생략했다. 필요해지면 후속으로 추가한다 |
 | 보안과의 관계 | 메뉴 노출은 편의 기능일 뿐 보안 권한이 아니다. 현재 `SecurityConfig.java`(line 71)는 `anyRequest().authenticated()`로 로그인 여부만 검사하므로, 관리자 API에는 메뉴 테이블과 별개로 `@PreAuthorize`(역할) + 소유권·회사 멤버십 검증을 반드시 병행해야 한다(§2.4.2 "권한 집행 원칙"과 동일 원칙) |
@@ -291,6 +293,27 @@ FR·API·플로우 동기화는 이번 범위에서 **제외**하고, ERD(DB 설
 
 ---
 
+### 2.11 점검·관리자 스키마 정합화 (#568/HAJA-327)
+
+관리자 화면 요구사항 중 영속 구조 변경이 필요한 항목만 Flyway V5로 묶는다. 마지막 점검일과 이전 최고등급은
+기존 `inspections.inspection_date`·`defects.grade`의 조회/집계 문제이므로 컬럼을 추가하지 않으며, 상담 답변
+저장·알림 발행 서비스 배선도 이 마이그레이션 범위에 포함하지 않는다.
+
+| 항목 | 확정 내용 |
+|---|---|
+| 점검 유형 | PRD v0.47은 점검 유형 값을 열거하지 않는다. #568에서 확정한 `inspection_type` enum(`REGULAR`/`DETAILED`/`EMERGENCY`)과 `inspections.type`을 추가한다. 기존 행은 모두 `REGULAR`로 백필한 뒤 `NOT NULL DEFAULT REGULAR`를 적용한다. 시설의 점검 주기·다음 예정일은 정기 점검에만 사용하는 애플리케이션 규칙이다. |
+| 플랫폼 관리자 | `role_type`에 `PLATFORM_ADMIN`을 추가한다. 이번 범위는 DB enum과 Java enum 정합화까지이며 로그인·인가·초기 계정·메뉴 권한 부여는 후속 작업이다. |
+| 좌석 무제한 | `plans.max_seats`의 `NOT NULL`과 기본값을 제거하고 `NULL=무제한`으로 통일한다. 기존 Enterprise sentinel `1000000`만 `NULL`로 변환한다. |
+| 알림 이력 | `notifications`는 실제 발행된 알림과 읽음 여부를 저장하는 이력 테이블로 유지한다. 설정값을 이력 행에 넣지 않는다. |
+| 점검 알림 설정 | `inspection_notification_settings`가 사용자·시설별 사전 알림 사용 여부, 변경 가능한 사전 일수(기본 7일, 1~365일), 기한 경과 알림 여부를 보관한다. `(user_id, facility_id)`는 유일하며 사용자나 시설 삭제 시 설정도 연쇄 삭제한다. |
+| 후속 구현 | 설정 CRUD API·Entity/Repository·스케줄러 적용, 정기 점검에만 다음 점검일을 설정하는 서비스 검증은 별도 기능 작업으로 진행한다. |
+
+적용 파일은 `backend/src/main/resources/db/migration/V7__inspection_admin_schema.sql`이며(V5는 #596 사업자등록
+개업일자 마이그레이션이 선점, V6은 #583 예약이라 V7로 재번호), V4 레거시 데이터 백필과 빈 DB·기존 캐노니컬 DB
+경로를 PostgreSQL Testcontainers로 검증한다.
+
+---
+
 ## 3. ERD 개요 (테이블 관계)
 
 ```
@@ -298,13 +321,14 @@ companies ── (owner_user_id) >── users
 companies ──< users (company_id, 개인→기업 전환 시 오너 초대 승인 경로로 세팅)
 companies ──< company_memberships >── users (승인·회수·만료 가능한 소속 SoT)
 companies ──< user_plans (company_id, 회사 단위 플랜 — 소속 임직원 전체가 상속)
+companies ──< facilities ──< inspections ──┬──< media
+                                           ├──< defects ──< defect_revisions
+                                           └──< reports
 
 users ──┬──< user_consents
         ├──< user_plans >── plans (user_id 또는 company_id 중 하나에만 귀속, §2.6)
         │        └──< usage_counters
-        ├──< facilities ──< inspections ──┬──< media
-        │                                 ├──< defects ──< defect_revisions
-        │                                 └──< reports
+        ├──< inspection_notification_settings >── facilities
         ├──< chat_sessions ──< chat_messages ──< chat_message_citations >── rag_documents
         │        │                  │                  (+ chunk_ref → Chroma, FK 아님)
         │        │                  └── (scenario_id) >── bot_scenarios (self-referencing tree)
@@ -325,7 +349,7 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 
 `users`와 `companies`는 서로를 참조하는 **양방향 FK** 관계다: `companies.owner_user_id`는 그 회사를 가입·소유한 단 한 명의 사용자를 가리키고(회사 1건당 소유자 1명), `users.company_id`는 그 회사에 소속된 모든 사용자(소유자 본인 포함, 협업자 초대로 합류한 임직원 포함)를 가리킨다(회사 1건당 소속 사용자 N명).
 
-- `users`는 `company_memberships.user_id/invited_by`, `facilities.owner_id`, `inspections.created_by/assigned_inspector_id`, `defect_revisions.revised_by`, `reports.created_by/edited_by`, `chat_sessions.user_id`, `counsel_tickets.user_id/counselor_id`, `notifications.user_id` 등 서비스 전반의 액터로 참조된다.
+- `users`는 `company_memberships.user_id/invited_by`, `inspections.created_by/assigned_inspector_id`, `defect_revisions.revised_by`, `reports.created_by/edited_by`, `chat_sessions.user_id`, `counsel_tickets.user_id/counselor_id`, `notifications.user_id` 등 서비스 전반의 액터로 참조된다. 시설 자체의 소유 범위는 `facilities.company_id`로 회사에 귀속된다.
 - `chat_sessions`는 `session_type`(`RAG`/`SCENARIO_BOT`/`COUNSEL`) 하나로 세 가지 대화 흐름을 통합하고, `chat_messages`도 공용으로 사용한다.
 - `counsel_tickets`는 큐/배정/상태만 관리하고, 실제 대화는 `session_id`를 통해 `chat_sessions`/`chat_messages`를 그대로 재사용한다.
 - `bot_scenarios`는 `parent_id`로 자기 자신을 참조하는 계층형(트리) 구조다.
@@ -340,12 +364,13 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 
 | 타입명 | 값 | 의미 | 사용 테이블.컬럼 |
 |---|---|---|---|
-| `role_type` | `ADMIN`, `INSPECTOR`, `USER`, `COUNSELOR` | 사용자 권한 역할 | `users.role` |
+| `role_type` | `ADMIN`, `INSPECTOR`, `USER`, `COUNSELOR`, `PLATFORM_ADMIN` | 사용자 권한 역할(선언 순서는 권한 계층이 아님) | `users.role` |
 | `social_provider_type` | `KAKAO`, `GOOGLE` | 소셜 로그인 제공자 | `users.social_provider` |
 | `user_status_type` | `ACTIVE`, `SUSPENDED` | 사용자 계정 상태 | `users.status` |
 | `plan_name_type` | `FREE`, `STANDARD`, `ENTERPRISE` | 구독 요금제 명칭 | `plans.name` |
 | `user_plan_status_type` | `ACTIVE`, `EXPIRED`, `UPGRADE_REQUESTED` | 사용자 구독 상태 | `user_plans.status` |
 | `inspection_status_type` | `CREATED`, `UPLOADING`, `ANALYZING`, `ANALYZED`, `REVIEWED`, `REPORTED` | 점검 처리 상태(생성→업로드→분석→분석완료→검토완료→보고서화) | `inspections.status` |
+| `inspection_type` | `REGULAR`, `DETAILED`, `EMERGENCY` | 점검 유형(정기/정밀/긴급) | `inspections.type` |
 | `media_file_type` | `IMAGE`, `VIDEO` | 미디어 파일 유형 | `media.file_type` |
 | `defect_type` | `CRACK`, `SPALLING`, `LEAK_EFFLORESCENCE`, `REBAR_EXPOSURE`, `PAINT_DAMAGE` | 결함 유형(균열/박리·박락/누수·백태/철근노출/도장손상) | `defects.type` |
 | `defect_grade_type` | `A`, `B`, `C`, `D`, `E` | 결함 위험·심각도 등급 | `defects.grade` |
@@ -394,7 +419,7 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 - **UQ**: `email`, `(social_provider, social_id)` — 동일 소셜 계정으로 중복 가입 방지. `social_provider`/`social_id`가 NULL인 자체가입 사용자끼리는 이 UNIQUE 제약에 걸리지 않는다(PostgreSQL은 NULL을 서로 다른 값으로 취급).
 - **CK** `ck_users_auth_method`: `(social_provider IS NOT NULL AND social_id IS NOT NULL) OR password_hash IS NOT NULL` — 소셜 로그인 또는 자체가입(비밀번호) 중 최소 하나의 인증 수단은 반드시 있어야 함.
 - 인덱스: `idx_users_company (company_id)`
-- 참조 대상: `company_memberships.user_id/invited_by`, `facilities.owner_id`, `inspections.created_by/assigned_inspector_id`, `defect_revisions.revised_by`, `reports.edited_by/created_by`, `chat_sessions.user_id`, `counsel_tickets.user_id/counselor_id`, `notifications.user_id`, `user_plans.user_id`, `companies.owner_user_id/reviewed_by`, `user_consents.user_id`.
+- 참조 대상: `company_memberships.user_id/invited_by`, `inspections.created_by/assigned_inspector_id`, `defect_revisions.revised_by`, `reports.edited_by/created_by`, `chat_sessions.user_id`, `counsel_tickets.user_id/counselor_id`, `notifications.user_id`, `user_plans.user_id`, `companies.owner_user_id/reviewed_by`, `user_consents.user_id`.
 - §2.5 근거: 착수 시점엔 소셜 로그인 전용으로 `social_provider`/`social_id`가 NOT NULL이었으나, 자체 회원가입(AUTH-02) 지원을 위해 nullable로 완화하고 `password_hash`·`company_id`를 추가했다.
 
 #### `companies` — 기업 회원가입으로 생성된 회사 계정
@@ -422,6 +447,8 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 
 - **UQ**: `business_registration_number` — 동일 사업자등록번호로 중복 가입 방지.
 - 인덱스: `idx_companies_owner (owner_user_id)`
+- 참조 대상: `users.company_id`, `company_memberships.company_id`, `user_plans.company_id`,
+  `facilities.company_id`.
 - §2.5 근거: 스토리보드의 사업자등록증 업로드→OCR 자동 인식(사업자등록번호/상호명/대표자)→관리자 승인 대기 흐름을 그대로 컬럼화했다. OCR 인식(자동)과 국세청 진위확인(외부 API)은 서로 다른 검증 단계라 `business_registration_ocr_raw`(원본 추출값)와 `verification_status`(진위확인 결과)를 분리했다.
 - `verification_status`(진위확인, 자동)와 `status`(관리자 승인, 사람이 처리)는 서로 독립적인 두 축이다 — 진위확인이 통과해도 관리자가 반려할 수 있다.
 - ✅ **승인 게이팅 확정(미검증 기업 유료권한 차단)**: 단, 두 축이 독립이라도 **`status`를 `APPROVED`로 전이하려면 `verification_status = VERIFIED`가 전제조건**이다(`FAILED`/`PENDING` 회사는 승인 불가). 승인 전이는 이 조건을 강제하는 애플리케이션 트랜잭션(가능하면 트리거 병행)으로만 처리하고, **회사 귀속 `user_plans` 결제/활성화 시에도 `verification_status = VERIFIED AND status = APPROVED`를 함께 확인**한다. 승인 전이 시점의 검증 상태는 감사 로그(`reviewed_by`/`reviewed_at` + 검증 상태)로 남긴다. 이로써 국세청 진위확인에 실패한 위조/미검증 기업이 관리자 실수·절차 누락만으로 유료 기능·기업 워크스페이스 권한을 얻는 경로를 차단한다.
@@ -481,7 +508,7 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 | name | plan_name_type | N | - | UQ | 요금제 명칭(`FREE`/`STANDARD`/`ENTERPRISE`) |
 | max_facilities | integer | Y | - | | 최대 등록 가능 시설 수 |
 | max_monthly_analyses | integer | Y | - | | 월 최대 분석 가능 횟수 |
-| max_seats | integer | N | 0 | | 최대 사용자 좌석 수 |
+| max_seats | integer | Y | - | | 최대 사용자 좌석 수(`NULL`은 무제한) |
 | has_pdf_watermark | boolean | N | false | | PDF 워터마크 표시 여부 |
 | has_counselor_access | boolean | N | false | | 전문 상담사 연결 기능 제공 여부 |
 | has_ai_addon | boolean | N | false | | AI 부가 기능 제공 여부 |
@@ -530,12 +557,12 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 
 ### 5.3 시설물·점검
 
-#### `facilities` — 사용자가 소유·관리하는 점검 대상 시설
+#### `facilities` — 회사가 소유·관리하는 점검 대상 시설
 
 | 컬럼 | 타입 | NULL | 기본값 | 키 | 설명 |
 |---|---|---|---|---|---|
 | id | bigint (identity) | N | - | **PK** | 시설 식별자 |
-| owner_id | bigint | N | - | **FK→users** | 시설 소유자/관리자 |
+| company_id | bigint | N | - | **FK→companies** | 시설을 소유·관리하는 회사 |
 | name | varchar(200) | N | - | | 시설 명칭 |
 | type | varchar(20) | N | - | | 시설 유형 |
 | address | varchar(300) | Y | - | | 시설 주소 |
@@ -547,9 +574,30 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 | next_inspection_due_at | date | Y | - | | 다음 점검 예정일 |
 | created_at | timestamptz | N | now() | | 생성 시각 |
 | updated_at | timestamptz | N | now() | | 최종 수정 시각 |
+| initial_grade | facility_initial_grade_type | Y | - | | 등록 시 입력하는 초기 등급(A~E) |
+| assignee_user_id | bigint | Y | - | **FK→users** | 시설물 담당자 |
+| memo | text | Y | - | | 등록 메모(자유 텍스트) |
 
-- 인덱스: `idx_facilities_owner (owner_id)`
+- 인덱스: `idx_facilities_company (company_id)`, `idx_facilities_assignee (assignee_user_id)`,
+  `idx_facilities_next_inspection_due_at (next_inspection_due_at) WHERE next_inspection_due_at IS NOT NULL`
+  (V9, #509 — InspectionDueNotificationScheduler 풀스캔 해소)
+- V11 마이그레이션은 기존 `owner_id`의 사용자에 연결된 `users.company_id`로 시설을 이관한다(#637). 회사가
+  없거나 유효한 회사에 매핑할 수 없는 기존 시설은 임의 삭제·배정하지 않고 마이그레이션을 실패시킨다.
+  이관 완료 후 `owner_id`는 제거되고 `idx_facilities_owner`도 함께 소멸한다.
 - 착수 보고서 대비: `address`, `inspection_cycle_months`가 NOT NULL → NULL 허용으로 완화됨 (§2.1 참조)
+- `initial_grade`/`assignee_user_id`/`memo`는 V10(#628 / HAJA-347) — Figma 시설물 등록 모달의 신규
+  4개 필드(대표사진·초기 등급·담당자·메모) 중 DB DDL 소유자(Polalise) 회신 없이 진행 가능한 3개.
+  대표 사진(최대 4장, `facility_photos` 테이블 신설 예정)은 신규 테이블 설계라 Polalise 검토가 필요해
+  별도 후속 마이그레이션으로 분리했다(#632).
+  - `initial_grade`는 대시보드 "하자 등급 분포"(`defects.grade`, `defect_grade_type` 기반 계산값)와는
+    완전히 다른 개념이다. 컬럼명 분리에 더해 전용 enum `facility_initial_grade_type`(A~E)을 신설해
+    두 등급 체계가 DB 스키마 레벨에서도 섞이지 않게 한다.
+  - `assignee_user_id`는 `inspections.assigned_inspector_id`와 동일한 FK 패턴(nullable, users 참조).
+    배정 가능 여부는 `AuthService.validateAssignableInspector`로 애플리케이션에서 검증한다(활성
+    사용자·INSPECTOR/ADMIN 역할·요청자와 동일 회사·양쪽 유효 멤버십 — inspections와 동일 규칙).
+    시설물 등록은 담당자 배정이 필수가 아니고(nullable) 점검 회차 생성만큼 강한 정합성 보장이 필요한
+    상태 전이도 아니므로, `inspections`가 가진 DB 트리거(`check_inspection_assigned_inspector_company`)
+    수준의 DB 레벨 방어는 이번 범위에 포함하지 않는다.
 
 #### `inspections` — 시설별 점검 회차와 진행 상태
 
@@ -561,11 +609,14 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 | assigned_inspector_id | bigint | N | - | **FK→users** | 점검 담당자로 배정된 점검자 |
 | round_no | integer | N | - | UQ(복합) | 시설별 점검 회차 |
 | inspection_date | date | N | - | | 점검 수행일 |
+| type | inspection_type | N | `REGULAR` | | 점검 유형(정기/정밀/긴급) |
 | status | inspection_status_type | N | `CREATED` | | 점검 처리 상태 |
 | created_at | timestamptz | N | now() | | 생성 시각 |
 
 - **UQ**: `(facility_id, round_no)` — 시설별 회차 중복 방지.
 - 인덱스: `idx_inspections_facility (facility_id)`, `idx_inspections_assigned_inspector (assigned_inspector_id)`
+- 마이그레이션 이전 행은 모두 `REGULAR`로 백필한다. `facilities.inspection_cycle_months`와
+  `next_inspection_due_at`은 정기 점검에만 적용하며, 정밀·긴급 점검에는 다음 회차를 자동 설정하지 않는다.
 - `assigned_inspector_id`가 가리키는 사용자는 애플리케이션에서 `users.status=ACTIVE AND role IN (INSPECTOR, ADMIN)`인지 검증한다. 기존 데이터 마이그레이션은 담당자 확정값으로 백필한 뒤 NOT NULL을 적용하며, 근거 없이 `created_by`를 자동 복사하지 않는다.
 
 #### `media` — 점검 과정에서 등록·추출한 이미지 및 영상
@@ -602,9 +653,10 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 |---|---|---|---|---|---|
 | id | bigint (identity) | N | - | **PK** | 결함 식별자 |
 | inspection_id | bigint | N | - | **FK→inspections** | 결함이 발견된 점검 |
+| media_id | bigint | Y | - | **FK→media**(V6) | 결함이 탐지된 촬영 이미지 |
 | type | defect_type | N | - | | 결함 유형 |
 | lock_version | bigint | N | 0 | | 상태 전이 동시 갱신 충돌 감지용 낙관적 락 버전 |
-| bbox_x / bbox_y / bbox_w / bbox_h | double precision | Y | - | | 결함 바운딩 박스 좌표/크기 |
+| bbox_x / bbox_y / bbox_w / bbox_h | double precision | Y | - | | 결함 바운딩 박스 좌표/크기(0~1 정규화) |
 | confidence | double precision | N | - | | AI 결함 탐지 신뢰도 |
 | grade | defect_grade_type | Y | - | | 결함 위험·심각도 등급(A~E) |
 | status | defect_status_type | N | `DETECTED` | | 결함 조치 상태 |
@@ -614,7 +666,11 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 | crack_length_mm | double precision | Y | - | | 균열 길이(mm) |
 | created_at | timestamptz | N | now() | | 생성 시각 |
 
-- 인덱스: `idx_defects_inspection (inspection_id)`
+- 인덱스: `idx_defects_inspection (inspection_id)`, `idx_defects_media (media_id)`
+- **media_id(dev-05-04, V6 추가)**: AI 분석 실행/상태 화면이 "이미지별 처리 현황"(파일별 탐지 건수)을
+  보여주려면 하자가 어느 사진에서 나왔는지 알아야 한다. 기존 defects 행이 전혀 없었던 시점(하자를
+  생성하는 프로덕션 코드가 이번에 처음 추가됨)에 도입해 백필 없이 nullable로 추가했다 — 수동 등록 등
+  media 연결이 없는 하자 생성 경로를 스키마 레벨에서 배제하지 않기 위해 nullable 유지.
 
 #### `defect_revisions` — 결함 정보 변경 이력
 
@@ -795,6 +851,26 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 - 부분 인덱스: `idx_notifications_user_unread` — `is_read = false`인 행만 대상으로 `user_id` 인덱싱(안 읽은 알림 조회 최적화).
 - 읽음 처리는 `is_read=false` 조건의 원자적 UPDATE로 수행하고 `lock_version`을 함께 증가시킨다. 이미 읽은 알림의 재호출은 성공으로 흡수해 사용자 대면 API의 멱등성을 유지한다.
 - PRD FR-9 근거: "인앱 폴링(30초), WebSocket 푸시·이메일은 범위 제외" — 본 테이블은 폴링 조회 대상 저장소 역할만 하면 되므로 별도 발행/구독 컬럼이 없는 현재 구조로 충분하다.
+- 이 테이블은 발행 이력이다. 사용자별 on/off·사전 알림 일수 같은 정책은 아래 설정 테이블에서 관리한다.
+
+#### `inspection_notification_settings` — 사용자·시설별 점검 알림 정책
+
+| 컬럼 | 타입 | NULL | 기본값 | 키 | 설명 |
+|---|---|---|---|---|---|
+| id | bigint (identity) | N | - | **PK** | 점검 알림 설정 식별자 |
+| user_id | bigint | N | - | **FK→users**, UQ(복합) | 설정 사용자(삭제 시 설정 CASCADE) |
+| facility_id | bigint | N | - | **FK→facilities**, UQ(복합) | 대상 시설(삭제 시 설정 CASCADE) |
+| notify_before_enabled | boolean | N | true | | 점검 예정 사전 알림 사용 여부 |
+| notify_before_days | smallint | N | 7 | CK | 예정일 전 알림 일수(1~365일, 변경 가능) |
+| warn_on_overdue_enabled | boolean | N | false | | 점검 예정일 경과 알림 사용 여부 |
+| created_at | timestamptz | N | now() | | 설정 생성 시각 |
+| updated_at | timestamptz | N | now() | | 설정 최종 수정 시각 |
+
+- **UQ**: `(user_id, facility_id)` — 같은 사용자가 한 시설에 설정을 중복 생성하지 못한다.
+- **CK** `ck_inspection_notification_settings_before_days`: `notify_before_days BETWEEN 1 AND 365`.
+- 인덱스: `idx_inspection_notification_settings_facility (facility_id)` — 시설별 수신 설정 조회를 지원한다.
+- `trg_inspection_notification_settings_set_updated_at`이 설정 변경 시각을 자동 갱신한다.
+- 설정 행이 없는 경우의 제품 기본 동작과 설정 CRUD·스케줄러 배선은 후속 애플리케이션 작업에서 확정한다.
 
 ---
 
@@ -914,6 +990,7 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 |---|---|---|
 | `set_updated_at()` | 함수(plpgsql) | 행이 UPDATE될 때 `NEW.updated_at`을 `now()`로 설정하는 공용 트리거 함수 |
 | `trg_plans_set_updated_at` | 트리거 (BEFORE UPDATE, `plans`) | `plans` 행 수정 시 `updated_at` 자동 갱신 |
+| `trg_inspection_notification_settings_set_updated_at` | 트리거 (BEFORE UPDATE, `inspection_notification_settings`) | 점검 알림 설정 수정 시 `updated_at` 자동 갱신 |
 | `trg_reports_set_updated_at` | 트리거 (BEFORE UPDATE, `reports`) | `reports` 행 수정 시 `updated_at` 자동 갱신 |
 | `trg_bot_scenarios_set_updated_at` | 트리거 (BEFORE UPDATE, `bot_scenarios`) | `bot_scenarios` 행 수정 시 `updated_at` 자동 갱신 |
 | `trg_users_set_updated_at` | 트리거 (BEFORE UPDATE, `users`) | `users` 행 수정 시 `updated_at` 자동 갱신 |
@@ -922,7 +999,8 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 | `trg_facilities_set_updated_at` | 트리거 (BEFORE UPDATE, `facilities`) | `facilities` 행 수정 시 `updated_at` 자동 갱신 |
 | `trg_menus_set_updated_at` | 트리거 (BEFORE UPDATE, `menus`) | `menus` 행 수정 시 `updated_at` 자동 갱신 |
 
-✅ **확정**: `updated_at` 컬럼을 가진 테이블(`users`, `companies`, `company_memberships`, `plans`, `facilities`, `reports`, `bot_scenarios`, `menus`)에는 **모두** `set_updated_at()` 트리거를 연결한다. 여덟 테이블 모두 `updated_at`이 생성 시각에 고정되지 않고 행 수정 시 일관되게 자동 갱신된다.
+✅ **확정**: `updated_at` 컬럼을 가진 테이블에는 **모두** `set_updated_at()` 트리거를 연결한다.
+`inspection_notification_settings`도 같은 정책을 적용해 설정 변경 시각을 자동 갱신한다.
 
 ---
 
@@ -950,12 +1028,12 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 |---|---|---|
 | 계정·인증 | 소셜 로그인, 자체 회원가입, 개인·기업 가입, 관리자 승인 | `users`, `companies`, `company_memberships`, `user_consents`로 계정, 기업 승인, 승인된 소속, 약관 동의 이력 분리. `users`는 소셜 로그인과 이메일/비밀번호 가입을 모두 허용하도록 `ck_users_auth_method` 제약 적용 |
 | 멤버십·쿼터 | Free/Standard/Enterprise 플랜, 월 분석 수, 시설 수, 좌석 수 제한, 기업 임직원의 회사 플랜 상속(§2.6) | `company_memberships`가 승인·회수·만료 가능한 회사 소속 SoT를 제공하고, `plans`, `user_plans`, `usage_counters`가 플랜 정책과 개인/회사(`user_plans.company_id`) 단위 월간 사용량을 분리한다. 애플리케이션의 `QuotaInterceptor`가 두 축을 함께 검증한다. |
-| 시설물·점검 | 시설물 등록, 회차별 점검 생성, 이미지·영상 업로드, EXIF/GPS 메타데이터 | `facilities`, `inspections`, `media`로 자산-점검-미디어 흐름 구성. `media`에 파일 유형, 원본/썸네일 URL, 영상 프레임, 촬영시각, GPS, MIME 검증 결과 저장 |
+| 시설물·점검 | 시설물 등록, 유형별 회차 생성, 이미지·영상 업로드, EXIF/GPS 메타데이터 | `facilities`, `inspections`, `media`로 자산-점검-미디어 흐름 구성. `inspections.type`이 정기/정밀/긴급을 구분하고, 기존 행은 정기로 정규화한다. `media`에 파일 유형, 원본/썸네일 URL, 영상 프레임, 촬영시각, GPS, MIME 검증 결과 저장 |
 | AI 하자 탐지·검수 | 결함 유형·좌표·신뢰도·등급·상태 관리, 검수 수정 이력 | `defects`에 탐지 결과와 상태를 저장하고, `defect_revisions`에 수정 이력을 append-only로 기록. 삭제는 `is_deleted` 기반 soft delete |
 | 보고서 생성 | 점검 회차별 보고서 버전 관리, LLM 생성 결과, 근거검증 결과, PDF 산출물 | `reports`에 `content_json`, `grounding_check_passed`, `grounding_warnings`, `pdf_url`, 작성자/수정자, 버전 정보를 저장 |
 | RAG 챗봇 | 법규·지침 문서 임베딩 상태 관리, 답변 출처 표기율 100% 검증 | `rag_documents`는 문서 메타데이터와 Chroma 임베딩 상태를 관리하고, `chat_message_citations`는 답변 메시지와 문서·Chroma 청크 참조를 구조화 |
 | 시나리오 챗봇·상담 | 버튼형 챗봇, 상담원 연결, 상담 대기열, 상담 메시지 이력 | `chat_sessions`/`chat_messages`를 공용 대화 구조로 사용하고, `bot_scenarios`, `counsel_tickets`를 연결해 시나리오와 상담 큐를 분리 |
-| 알림 센터 | 분석 완료, 검수 대기, 상담 답변, 점검일 도래 알림 | `notifications`에 사용자별 알림과 읽음 여부를 저장하고, 미읽음 조회 최적화를 위해 부분 인덱스 적용 |
+| 알림 센터 | 분석 완료, 검수 대기, 상담 답변, 점검일 도래 알림 | `notifications`에는 발행 이력과 읽음 여부를, `inspection_notification_settings`에는 사용자·시설별 점검 알림 on/off와 변경 가능한 사전 일수를 저장한다. |
 | API 운영 모니터링 | API 호출의 4xx(WARN)·5xx(ERROR) 결과와 요청 추적 정보 확인 | `api_system_logs`에 요청당 최대 한 행의 정제된 메타데이터를 기록한다. 로그 레벨과 HTTP 상태 일치는 CHECK로 강제하고 사용자 식별자는 FK 없는 논리 참조로 유지 |
 
 핵심 설계 원칙은 다음 네 가지다.
@@ -976,9 +1054,10 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 |---|---|---|
 | 테이블 디자인 설계서 | `table_design.md` | 착수보고서·PRD 대비 변경 사항, ERD 개요, enum/테이블 상세, RAG·상담 공용 설계, 핵심 요구사항 요약을 설명하는 기준 문서 |
 | 최종 통합 DDL | `HajaCheck_script.sql` | 신규 DB를 현재 최종 스키마로 생성할 때 사용하는 기준 SQL |
-| 기존 DB 증분 SQL | `migrations/20260716_04_menu_schema_expand.sql` | 운영 중인 v0.3 DB에 메뉴 스키마를 추가하는 재실행 가능한 수동 SQL |
-| 메뉴 스키마 검증 SQL | `migrations/20260716_05_menu_schema_verify.sql` | 메뉴 enum·컬럼·제약·인덱스·트리거와 데이터 불변식을 배포 후 검증 |
-| API 시스템 로그 증분 SQL | `migrations/20260720_01_create_api_system_logs.sql` | 기존 DB에 `api_system_logs`를 추가하고 재실행 시 컬럼·제약·인덱스 의미 드리프트를 차단하는 독립 수동 SQL |
-| 기준 요구사항 문서 | `PRD_hajaCheck_v0.41.md` | 테이블 설계의 근거가 되는 기능 요구사항, IA, 시스템 아키텍처, 주요 데이터 모델 정의 |
+| 실행 마이그레이션 | `../../../backend/src/main/resources/db/migration/V7__inspection_admin_schema.sql` | 기존 V4 DB의 점검 유형·역할·좌석·점검 알림 설정을 최종 상태로 전환하는 Flyway V7(V5는 #596이 선점, V6은 #583 예약) |
+| 마이그레이션 검증 | `../../../backend/src/test/java/com/hajacheck/support/InspectionAdminSchemaMigrationTest.java` | V3 레거시 데이터 백필, enum·제약·기본값·설정 정책을 PostgreSQL에서 검증 |
+| Flyway 이전 마이그레이션 이력 | `migrations/README.md` 및 날짜형 SQL | Flyway 도입 전 수동 적용 이력 보존용 archive(신규 증분 파일 추가 금지) |
+| 기준 요구사항 문서 | `../../prd/PRD_hajaCheck.md` v0.47 | 기능 요구사항, IA, 시스템 아키텍처, 주요 데이터 모델 정의 |
 
-제출·공유 시에는 `table_design.md`를 설명 문서로, `HajaCheck_script.sql`을 최종 적용 기준으로 사용한다.
+제출·공유 시에는 `table_design.md`를 설명 문서로, Flyway 버전 파일을 기존 DB 적용 기준으로 사용한다.
+`HajaCheck_script.sql`은 신규 DB의 최종 상태 참조본이며 운영 DB에 직접 재실행하지 않는다.

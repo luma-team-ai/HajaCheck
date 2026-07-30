@@ -3,14 +3,18 @@
 // 새 페이지를 이 셸에 포함하려면 router.tsx의 children 배열에 라우트를 추가하고,
 // 그 라우트의 `handle`에 breadcrumb/activeHref를 선언하기만 하면 된다 — 페이지 컴포넌트 자체는
 // AppLayout을 몰라도 됨(react-router v6 표준 패턴: useMatches() + handle).
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { Outlet, useMatches, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useMatches, useNavigate, useSearchParams } from 'react-router-dom';
 import { useLogout } from '../features/auth/hooks/useLogout';
-import { MYPAGE_PLAN_ROUTE } from '../features/auth/constants';
+import { MYPAGE_PLAN_ROUTE, MYPAGE_PROFILE_ROUTE } from '../features/auth/constants';
 import { useAuthStore } from '../features/auth/store/authStore';
+import { useMenuTree } from '../features/menu/hooks/useMenuTree';
+import { toSideNavItems } from '../features/menu/utils/toSideNavItems';
 import { NotificationCenter } from '../features/notification/components/NotificationCenter';
 import { useNotifications } from '../features/notification/hooks/useNotifications';
+import { useMyPlan } from '../features/mypage/hooks/useMyPlan';
+import { PLAN_NAME_LABEL } from '../features/mypage/utils/planFormat';
 import type { BreadcrumbItem } from '../shared/components/Header';
 import { AppLayout } from '../shared/components/AppLayout';
 import { isAdminRole } from '../shared/constants/roles';
@@ -21,10 +25,12 @@ export interface AppShellHandle {
   breadcrumb: BreadcrumbItem[];
   /**
    * SideNavBar 활성 항목 경로. 미지정 시 AppLayout이 현재 URL(useLocation) 기준으로 계산.
-   * 실제 라우트가 SideNavBar 메뉴 href와 다른 페이지(예: /defects/:id → /defects/detail)는
+   * 실제 라우트가 SideNavBar 메뉴 href와 다른 페이지(예: /inspections/:id/defects)는
    * 명시적으로 지정해 해당 메뉴가 강조되도록 한다.
    */
   activeHref?: string;
+  /** 동일 pathname에서 query mode에 따라 다른 사이드바 항목을 활성화할 때 사용한다. */
+  exportActiveHref?: string;
 }
 
 function hasAppShellHandle(handle: unknown): handle is AppShellHandle {
@@ -39,6 +45,11 @@ function hasAppShellHandle(handle: unknown): handle is AppShellHandle {
 export function AppShellRoute() {
   const matches = useMatches();
   const navigate = useNavigate();
+  const location = useLocation();
+  // 고객지원 퀵상담 FAB(BottomNavBarFab) — '/support/*' 페이지는 이미 그 자체로 상담 진입점(챗봇·AI
+  // 어시스턴트·상담 이력)이라 FAB이 화면 하단 전송창을 가리기만 한다(사용자 리포트). 그 외 페이지는
+  // 기존처럼 노출한다.
+  const showSupportFab = !location.pathname.startsWith('/support/');
   const authUser = useAuthStore((state) => state.user);
   // 관리자 메뉴/사이드바 프로필 노출 여부 — role 기반(HAJA-167, #184).
   // AppLayout이 isAdmin일 때만 SideNavBar에 user를 전달하도록 내부에서 필터링한다.
@@ -46,9 +57,35 @@ export function AppShellRoute() {
   // — 각자 role === 'ADMIN'을 따로 비교하면 한쪽만 바뀌었을 때 메뉴·접근 판정이 어긋난다(#378).
   const isAdmin = isAdminRole(authUser?.role);
   const { logout } = useLogout();
+  // 사이드바 메뉴(#1003) — role 기준으로 이미 필터링된 트리를 DB에서 조회한다. 로딩/실패 중에는
+  // items/adminItem이 undefined라 AppLayout→SideNavBar가 자체 기본값(DEFAULT_ITEMS)으로 렌더한다.
+  const { data: menuTree } = useMenuTree();
+  const { items: menuItems, adminItem: menuAdminItem } = useMemo(
+    () => (menuTree ? toSideNavItems(menuTree) : { items: undefined, adminItem: undefined }),
+    [menuTree],
+  );
+  // Header 프로필 드롭다운(HAJA-758) 상단 플랜 뱃지용 — 마이페이지 "내 플랜"과 동일 소스(useMyPlan)를 재사용해
+  // 표기가 어긋나지 않게 한다. 백엔드 미배포 시에도 useMyPlan 자체가 예제 데이터로 폴백한다(HAJA-185).
+  const { data: myPlan } = useMyPlan();
+  const [searchParams] = useSearchParams();
+  const isExportMode = searchParams.get('mode') === 'export';
+
   // 가장 깊은(마지막) match부터 breadcrumb/activeHref를 선언한 handle을 찾는다.
   const current = [...matches].reverse().find((match) => hasAppShellHandle(match.handle));
   const handle = current?.handle as AppShellHandle | undefined;
+
+  // PDF 내보내기 모드에서 breadcrumb 마지막 항목을 "PDF 내보내기"로 변경
+  const breadcrumb = useMemo(() => {
+    const base = handle?.breadcrumb ?? [];
+    if (!isExportMode || base.length === 0) return base;
+    const updated = [...base];
+    updated[updated.length - 1] = { ...updated[updated.length - 1], label: 'PDF 내보내기' };
+    return updated;
+  }, [handle?.breadcrumb, isExportMode]);
+
+  const activeHref = isExportMode
+    ? (handle?.exportActiveHref ?? handle?.activeHref)
+    : handle?.activeHref;
 
   // 알림 센터(HAJA-38) — Header 벨 버튼은 AppLayout 내부(shared, 미터치)라 열림 상태와 unreadCount는
   // 이 통합지점(app/)이 들고 NotificationCenter(컨테이너)에 boolean으로만 내려준다.
@@ -97,19 +134,30 @@ export function AppShellRoute() {
   return (
     <div onMouseDownCapture={handleShellMouseDownCapture}>
       <AppLayout
-        breadcrumb={handle?.breadcrumb ?? []}
-        activeHref={handle?.activeHref}
+        breadcrumb={breadcrumb}
+        activeHref={activeHref}
+        items={menuItems}
+        adminItem={menuAdminItem}
         isRouteImplemented={isRouteImplemented}
         isAdmin={isAdmin}
-        user={
+        role={authUser?.role}
+        onProfileClick={() => navigate(MYPAGE_PLAN_ROUTE)}
+        profileMenu={
           authUser
-            ? { name: authUser.name, avatarUrl: authUser.profileImageUrl ?? undefined }
+            ? {
+                companyName: authUser.companyName ?? '개인 회원',
+                planLabel: myPlan ? PLAN_NAME_LABEL[myPlan.plan.name] : PLAN_NAME_LABEL.FREE,
+                name: authUser.name,
+                email: authUser.email,
+                onMyInfoClick: () => navigate(MYPAGE_PROFILE_ROUTE),
+                onMyPlanClick: () => navigate(MYPAGE_PLAN_ROUTE),
+                onLogout: () => void logout(),
+              }
             : undefined
         }
-        onLogout={() => void logout()}
-        onProfileClick={() => navigate(MYPAGE_PLAN_ROUTE)}
         unreadCount={unreadCount}
         onNotificationClick={handleNotificationClick}
+        showSupportFab={showSupportFab}
       >
         <Outlet />
       </AppLayout>

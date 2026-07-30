@@ -31,3 +31,13 @@ export const PASSWORD_TOGGLE_CLASSES =
 // 성공색을 재사용하는 것. tokens.css는 타 오너 자산이라 미터치 규칙상 토큰 승격 대신 로컬 상수로
 // 유지(후속 이슈로 tokens.css 승격 여부는 Frontend 리드와 별도 협의 — P3).
 export const SUCCESS_CLASSES = 'text-xs text-[#1a9a52]';
+
+// 사업자등록증 OCR 결과 피드백(#748) — 성공은 기존 SUCCESS_CLASSES를 재사용한다. 인식된 값이
+// 0개인 경우는 실패가 아니므로 중립 회색, 실패는 폼 제출을 막지 않는 보조 안내라 danger(빨강)
+// 대신 CompanySignupPage의 UNAVAILABLE 뱃지와 동일한 warning 톤을 쓴다(과도한 위험 신호 방지).
+export const OCR_FEEDBACK_NEUTRAL_CLASSES = 'text-xs text-text-muted';
+export const OCR_FEEDBACK_WARNING_CLASSES = 'text-xs text-warning-soft-fg';
+
+// 자동채움 필드 배지(#748) — CompanySignupPage가 OCR로 실제 채운 필드의 <label> 옆에 표시.
+export const AUTO_FILLED_BADGE_CLASSES =
+  'ml-1.5 inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary';

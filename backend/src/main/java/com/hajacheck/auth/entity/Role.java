@@ -8,6 +8,7 @@ package com.hajacheck.auth.entity;
  * <p>PLATFORM_ADMIN(#534, PRD v0.47) — company_id가 없는 플랫폼 운영진 전용 축. 기존 ADMIN(기업
  * 관리자, company_id 스코프)과는 별개 계층이며, docs/design/db/migrations의 role_type PG enum
  * 마이그레이션과 이 값이 반드시 함께 존재해야 한다(그렇지 않으면 로그인 시 InternalAuthenticationServiceException).
+ * 선언 순서는 권한 계층을 의미하지 않으며, 역할별 인가는 명시적인 보안 정책으로 판단한다.
  */
 public enum Role {
     ADMIN,

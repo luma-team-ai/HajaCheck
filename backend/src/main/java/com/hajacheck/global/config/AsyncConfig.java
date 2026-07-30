@@ -58,4 +58,34 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    /** AI 하자 탐지 분석 잡(dev-05-04) 전용 실행기 — {@code @Async(ANALYSIS_TASK_EXECUTOR)}로 참조한다. */
+    public static final String ANALYSIS_TASK_EXECUTOR = "analysisTaskExecutor";
+
+    /**
+     * 분석 잡 전용 실행기. mailTaskExecutor와 풀을 공유하지 않는다(장기 실행 CPU 바운드 작업이
+     * 짧은 메일 발송 큐를 막으면 안 됨).
+     *
+     * <p>동시 잡 수를 작게 유지하는 이유: FastAPI 쪽 YOLO 추론은 CPU 바운드 단일 워커 전제(§AI 서버
+     * 워커 분리 문서)라, 여기서 과도하게 병렬 호출해도 FastAPI에서 직렬화될 뿐 처리량이 늘지 않고
+     * 요청만 쌓인다. 큐가 가득 차면(동시 분석 요청 폭주) 기본 AbortPolicy로 예외를 던져 컨트롤러가
+     * 그대로 클라이언트에 실패를 알린다(메일과 달리 사용자 열거 이슈가 없어 조용히 삼킬 이유가 없음).
+     *
+     * <p><b>테넌트 격리(코드 리뷰 P2 4차)</b>: 이 풀 자체는 여전히 회사 구분 없는 전역 공유다 — 회사별
+     * 파티셔닝은 아니다. 대신 {@link com.hajacheck.core.analysis.service.InspectionAnalysisService}가
+     * 이 풀에 넣기 전에 회사별 동시 실행 상한(코어 스레드 수와 동일하게 맞춤)으로 한 회사가 큐 전체를
+     * 독점하지 못하도록 최소 방어선을 둔다 — 완전한 격리가 필요해지면 회사별 큐 분리로 승격할 것.
+     */
+    @Bean(name = ANALYSIS_TASK_EXECUTOR)
+    public TaskExecutor analysisTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("analysis-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
 }

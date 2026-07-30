@@ -15,6 +15,7 @@ import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UserPlanStatus;
+import com.hajacheck.membership.service.QuotaService;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.List;
@@ -34,10 +35,16 @@ public class AdminUserService {
 
     private final AdminUserRepository adminUserRepository;
     private final PasswordEncoder passwordEncoder;
+    private final QuotaService quotaService;
 
     // 관리자 콘솔이 프론트에 노출하는 배정 가능 역할(ROLE_CHANGE_OPTIONS: USER/INSPECTOR/ADMIN)과 동일한
     // 화이트리스트 — COUNSELOR 등 이 화면 밖의 Role은 요청을 크래프팅해도 서버가 거부한다(리뷰 P2).
     private static final Set<Role> ASSIGNABLE_ROLES = EnumSet.of(Role.ADMIN, Role.INSPECTOR, Role.USER);
+
+    // 관리자 콘솔이 프론트에 노출하는 배정 가능 상태(STATUS_CHANGE_OPTIONS: ACTIVE/SUSPENDED)와 동일한
+    // 화이트리스트 — WAITING(#794)은 소셜 가입 전용 자동 상태라 관리자가 임의로 부여할 수 없다.
+    // 허용하면 companyId는 그대로인 채 status만 WAITING이 되어 "WAITING=companyId 없음" 불변식이 깨진다.
+    private static final Set<UserStatus> ASSIGNABLE_STATUSES = EnumSet.of(UserStatus.ACTIVE, UserStatus.SUSPENDED);
 
     public AdminUserListResponse list(Long companyId, String keyword, Role role, PlanName plan, UserStatus status,
                                        Pageable pageable) {
@@ -61,6 +68,19 @@ public class AdminUserService {
     public AdminUserResponse createUser(AdminUserCreateRequest request, Long companyId) {
         requireCompanyId(companyId);
         requireAssignableRole(request.role());
+        // 좌석 잔여 확인(#872 후속) — 초대 코드 발급과 동일하게, 관리자가 직접 등록하는 경로도
+        // 좌석이 가득 찬 회사는 새 사용자를 만들지 못하게 막는다(그렇지 않으면 초대 코드 좌석
+        // 강제가 이 경로로 그대로 우회된다).
+        //
+        // PR머신 2차 재검토 P2 — hasAvailableSeat(advisory)+회사 행 잠금 대신, 초대코드 redeem
+        // (InviteCodeService#redeem)이 이미 쓰는 QuotaService#reserveSeat를 그대로 재사용한다.
+        // reserveSeat는 usage_counters 행을 잠그고 원자적 조건부 UPDATE로 좌석을 예약하므로,
+        // 이 경로와 redeem 경로가 같은 잠금 대상을 공유해 서로 직렬화된다(교차 경로 좌석 초과 방지) —
+        // 회사 행을 따로 잠글 필요가 없어지고, 그 잠금이 자가 프로비저닝(REQUIRES_NEW)과 충돌해
+        // 교착을 만들 위험도 함께 사라진다. 예약이 성공하면 usage_counters 미러도 함께 갱신되어
+        // AdminPlanService#getCurrentPlan의 좌석 표시가 실제와 어긋나는 문제(PR머신 P2)도 해소된다.
+        // 활성화(User 저장) 직전에 호출해야 한도 초과 시 등록 자체가 롤백된다(reserveSeat javadoc 계약).
+        quotaService.reserveSeat(companyId);
         // 선검사 — 명확한 중복은 저장 전에 조기 차단(CompanySignupService와 동일 패턴).
         if (adminUserRepository.existsByEmail(request.email())) {
             throw new BusinessException(ErrorCode.AUTH_EMAIL_DUPLICATED);
@@ -92,6 +112,7 @@ public class AdminUserService {
     @Transactional
     public AdminUserStatusUpdateResponse changeStatus(Long userId, UserStatus status, Long companyId,
                                                         Long requestingUserId) {
+        requireAssignableStatus(status);
         User user = findUser(userId, companyId);
         if (user.getRole() == Role.ADMIN && status == UserStatus.SUSPENDED) {
             requireNotLastOrSelfAdmin(userId, companyId, requestingUserId);
@@ -114,6 +135,12 @@ public class AdminUserService {
     private void requireAssignableRole(Role role) {
         if (!ASSIGNABLE_ROLES.contains(role)) {
             throw new BusinessException(ErrorCode.ADMIN_ROLE_NOT_ASSIGNABLE);
+        }
+    }
+
+    private void requireAssignableStatus(UserStatus status) {
+        if (!ASSIGNABLE_STATUSES.contains(status)) {
+            throw new BusinessException(ErrorCode.ADMIN_STATUS_NOT_ASSIGNABLE);
         }
     }
 

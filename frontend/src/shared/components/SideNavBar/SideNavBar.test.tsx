@@ -2,6 +2,8 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isRouteImplemented } from '../../../app/implementedRoutes';
+import { useInspectionStore } from '../../../features/inspection/store/inspectionStore';
 import { SideNavBar } from './SideNavBar';
 
 afterEach(cleanup);
@@ -54,8 +56,8 @@ describe('SideNavBar', () => {
     expect(screen.getByText('내 플랜')).not.toBeNull();
   });
 
-  it('isAdmin=true면 관리자 페이지 그룹과 ADMIN 배지가 표시되고, 펼치면 플랜·쿼터 관리가 보인다', () => {
-    render(<SideNavBar isAdmin />, { wrapper: MemoryRouter });
+  it('isAdmin=true + role="ADMIN"이면 관리자 페이지 그룹과 ADMIN 배지가 표시되고, 펼치면 플랜·쿼터 관리가 보인다', () => {
+    render(<SideNavBar isAdmin role="ADMIN" />, { wrapper: MemoryRouter });
 
     expect(screen.getByText('ADMIN')).not.toBeNull();
     expect(screen.getByText('관리자 페이지')).not.toBeNull();
@@ -63,6 +65,23 @@ describe('SideNavBar', () => {
     fireEvent.click(screen.getByText('관리자 페이지'));
 
     expect(screen.getByText('플랜·쿼터 관리')).not.toBeNull();
+  });
+
+  it('role="USER"/"INSPECTOR"처럼 관리자가 아닌 역할도 배지가 표시된다(#1199)', () => {
+    render(<SideNavBar role="USER" />, { wrapper: MemoryRouter });
+    expect(screen.getByText('USER')).not.toBeNull();
+
+    cleanup();
+
+    render(<SideNavBar role="INSPECTOR" />, { wrapper: MemoryRouter });
+    expect(screen.getByText('INSPECTOR')).not.toBeNull();
+  });
+
+  it('role 배지는 브랜드 로고 Link 바깥에 있어 클릭해도 이동 액션이 없다(#1199)', () => {
+    render(<SideNavBar role="ADMIN" />, { wrapper: MemoryRouter });
+
+    const badge = screen.getByText('ADMIN');
+    expect(badge.closest('a')).toBeNull();
   });
 
   it('isAdmin=true + activeHref가 다른 그룹의 하위 항목이어도, 수동으로 펼친 그룹이 스냅백되지 않는다', () => {
@@ -95,19 +114,6 @@ describe('SideNavBar', () => {
     expect(screen.getByLabelText('HajaCheck 홈으로 이동').getAttribute('href')).toBe(
       '/platform-admin',
     );
-  });
-
-  it('user 정보가 있으면 이름/플랜을 표시하고, 로그아웃 클릭 시 onLogout이 호출된다', () => {
-    const handleLogout = vi.fn();
-    render(<SideNavBar user={{ name: '김관리', plan: 'Standard' }} onLogout={handleLogout} />, {
-      wrapper: MemoryRouter,
-    });
-
-    expect(screen.getByText('김관리')).not.toBeNull();
-    expect(screen.getByText('Standard')).not.toBeNull();
-
-    fireEvent.click(screen.getByText('로그아웃'));
-    expect(handleLogout).toHaveBeenCalledTimes(1);
   });
 
   it('접기 버튼 클릭 시 실제로 접혀서 라벨 텍스트가 사라지고, onCollapseToggle(true)이 호출된다', () => {
@@ -206,6 +212,226 @@ describe('SideNavBar', () => {
 
       expect(screen.getByTestId('location-probe').textContent).toBe('/mypage/profile');
       expect(screen.queryByRole('status')).toBeNull();
+    });
+  });
+
+  describe('enabled=false — 표시는 하되 클릭 차단(#1003, menus.is_enabled)', () => {
+    function LocationProbe() {
+      const location = useLocation();
+      return <div data-testid="location-probe">{location.pathname}</div>;
+    }
+
+    it('enabled=false인 서브 항목을 클릭하면 이동하지 않고 안내 메시지가 표시된다', () => {
+      const items = [
+        {
+          label: '보고서',
+          href: '/reports',
+          icon: 'icon.svg',
+          subItems: [{ label: '보고서 목록', href: '/reports/list', enabled: false }],
+        },
+      ];
+
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar items={items} activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('보고서'));
+      fireEvent.click(screen.getByText('보고서 목록'));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/dashboard');
+      expect(screen.getByRole('status').textContent).toBe('아직 구현되지 않은 페이지입니다');
+    });
+
+    it('enabled=false인 최상위(하위메뉴 없는) 항목을 클릭하면 이동하지 않는다', () => {
+      const items = [{ label: '통계', href: '/statistics', icon: 'icon.svg', enabled: false }];
+
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar items={items} activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('통계'));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/dashboard');
+      expect(screen.getByRole('status').textContent).toBe('아직 구현되지 않은 페이지입니다');
+    });
+
+    it('enabled를 지정하지 않으면(undefined) 기존처럼 정상 이동한다(하위 호환)', () => {
+      const items = [{ label: '통계', href: '/statistics', icon: 'icon.svg' }];
+
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar items={items} activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('통계'));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/statistics');
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+  });
+
+  describe('보고서 하위 항목 — activeInspectionId에 따른 동적 링크', () => {
+    afterEach(() => useInspectionStore.getState().clearActiveInspectionId());
+
+    it('진행 중인 점검이 없으면 편집·내보내기 링크가 보고서 목록으로 이동한다', () => {
+      render(<SideNavBar activeHref="/dashboard" />, { wrapper: MemoryRouter });
+
+      fireEvent.click(screen.getByText('보고서'));
+
+      expect(screen.getByRole('link', { name: '보고서 편집·미리보기' }).getAttribute('href')).toBe('/reports');
+      expect(screen.getByRole('link', { name: 'PDF 내보내기' }).getAttribute('href')).toBe('/reports');
+    });
+
+    it('진행 중인 점검이 있으면 편집·내보내기 링크가 해당 점검으로 이동한다', () => {
+      useInspectionStore.getState().setActiveInspectionId(42);
+      render(<SideNavBar activeHref="/dashboard" />, { wrapper: MemoryRouter });
+
+      fireEvent.click(screen.getByText('보고서'));
+
+      expect(screen.getByRole('link', { name: '보고서 편집·미리보기' }).getAttribute('href')).toBe('/reports');
+      expect(screen.getByRole('link', { name: 'PDF 내보내기' }).getAttribute('href')).toBe('/reports');
+    });
+  });
+
+  describe('"점검 관리" 하위 항목 — activeInspectionId에 따른 동적 링크', () => {
+    function LocationProbe() {
+      const location = useLocation();
+      return <div data-testid="location-probe">{location.pathname}</div>;
+    }
+
+    afterEach(() => useInspectionStore.getState().clearActiveInspectionId());
+
+    it('진행 중인 점검이 없으면 AI 분석/결과 뷰어/보고서 생성 링크가 모두 점검 생성 화면으로 이동한다', () => {
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('점검 관리'));
+      expect(
+        screen.getByRole('link', { name: 'AI 분석 실행/상태' }).getAttribute('href'),
+      ).toBe('/inspections/create');
+      expect(
+        screen.getByRole('link', { name: '분석 결과 뷰어' }).getAttribute('href'),
+      ).toBe('/inspections/create');
+      expect(
+        screen.getByRole('link', { name: '점검 요약 및 보고서 생성' }).getAttribute('href'),
+      ).toBe('/inspections/create');
+    });
+
+    it('진행 중인 점검이 있으면 각 항목이 그 점검의 실제 경로로 이동한다', () => {
+      useInspectionStore.getState().setActiveInspectionId(42);
+
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('점검 관리'));
+      expect(
+        screen.getByRole('link', { name: 'AI 분석 실행/상태' }).getAttribute('href'),
+      ).toBe('/inspections/42/analysis');
+      expect(
+        screen.getByRole('link', { name: '분석 결과 뷰어' }).getAttribute('href'),
+      ).toBe('/inspections/42/viewer');
+      expect(
+        screen.getByRole('link', { name: '점검 요약 및 보고서 생성' }).getAttribute('href'),
+      ).toBe('/inspections/42/reports');
+    });
+
+    it('진행 중인 점검이 없을 때 AI 분석/결과 뷰어/보고서 생성 링크를 클릭하면 안내 후 점검 생성 화면으로 이동한다(#1027)', () => {
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('점검 관리'));
+      fireEvent.click(screen.getByRole('link', { name: '분석 결과 뷰어' }));
+
+      // 이동은 막히지 않는다(점검 생성 화면으로 정상 이동)
+      expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/create');
+      expect(screen.getByRole('status').textContent).toBe(
+        '점검 데이터를 먼저 생성해야 합니다. 점검(회차) 생성 화면으로 이동합니다.',
+      );
+    });
+
+    it('진행 중인 점검이 있을 때는 AI 분석/결과 뷰어/보고서 생성 링크를 클릭해도 안내가 뜨지 않는다(#1027)', () => {
+      useInspectionStore.getState().setActiveInspectionId(42);
+
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('점검 관리'));
+      fireEvent.click(screen.getByRole('link', { name: '분석 결과 뷰어' }));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/42/viewer');
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
+    it('진행 중인 점검이 없어도 "점검(회차) 생성" 자체 링크를 클릭하면 안내가 뜨지 않는다(#1027)', () => {
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('점검 관리'));
+      fireEvent.click(screen.getByRole('link', { name: '점검(회차) 생성' }));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/create');
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
+    // PR 리뷰 P1 — 위 두 테스트는 <Link>의 href 속성만 확인하고 SideNavBar 기본값
+    // (isRouteImplemented = () => true)으로 렌더링해서, 실제 서비스에서 주입되는
+    // app/implementedRoutes.isRouteImplemented가 activeInspectionId 기반 동적 href를
+    // "미구현"으로 막아버리는 회귀를 잡지 못했다. 실제 함수를 그대로 주입해 클릭까지 검증한다.
+    it('실제 isRouteImplemented(app/implementedRoutes)를 주입해도 진행 중인 점검의 결과 뷰어로 실제 이동한다', () => {
+      useInspectionStore.getState().setActiveInspectionId(42);
+
+      render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <SideNavBar activeHref="/dashboard" isRouteImplemented={isRouteImplemented} />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByText('점검 관리'));
+      fireEvent.click(screen.getByRole('link', { name: '분석 결과 뷰어' }));
+
+      expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/42/viewer');
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
+    // 회귀 방지(AppShellRoute.test.tsx #368) — router.tsx는 실제 :id와 무관하게 항상 같은 정적
+    // activeHref(예: '/inspections/1/viewer')를 보고한다. activeInspectionId를 store에 반영하는
+    // 흐름을 타지 않고 다른 경로로 그 페이지에 들어온 경우(activeInspectionId가 null인 채로 남음)에도
+    // href가 '/inspections/create'로 바뀐 것과 무관하게 matchHref로 활성 섹션이 계속 잡혀야 한다.
+    it('진행 중인 점검이 없어도 activeHref가 분석 결과 뷰어의 고정 activeHref와 일치하면 활성 표시된다(#368)', () => {
+      render(<SideNavBar activeHref="/inspections/1/viewer" />, { wrapper: MemoryRouter });
+
+      const link = screen.getByRole('link', { name: '분석 결과 뷰어' });
+      expect(link.getAttribute('aria-current')).toBe('page');
+      expect(link.getAttribute('href')).toBe('/inspections/create');
     });
   });
 

@@ -104,6 +104,12 @@ services:
       # 국세청 사업자 진위확인(#596) serviceKey — spring bizverify가 읽음. fail-open이라 미설정 시
       # 진위확인 SKIP(가입은 됨). :- 소프트 — 이 키는 기동을 막지 않는다(AI_INTERNAL_KEY와 달리 :? 아님).
       BUSINESS_REGISTRATION_API_KEY: ${BUSINESS_REGISTRATION_API_KEY:-}
+      # 토스페이먼츠 샌드박스 결제(#988) 시크릿 — spring payment 클라이언트가 읽음. 미설정이면 결제
+      # 진입점만 PAYMENT_GATEWAY_ERROR(502)로 fail-close 되고 나머지 기능·기동은 정상이다. :- 소프트인
+      # 이유: 결제는 샌드박스 데모 부가기능이라 키 누락으로 배포 전체를 멈추면 안 된다(:? 는
+      # AI_INTERNAL_KEY·SMTP_PASSWORD처럼 없으면 서비스가 성립하지 않는 것에만 쓴다).
+      # ⚠️ 서버 전용 시크릿이다 — VITE_ 접두사 금지(붙이면 프론트 번들에 인라인되어 공개된다).
+      TOSS_SECRET_KEY: ${TOSS_SECRET_KEY:-}
       # OAuth2 registration — 값은 서버 .env(미커밋)에만. 미설정 시 기동 실패(:? 가드)로 조기 차단.
       # (registration.{provider}.client-id 키가 빈 문자열로만 존재해도 기동 실패 — base 주석 참조.)
       KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:?KAKAO_CLIENT_ID가 .env에 설정되어야 합니다}
@@ -159,6 +165,18 @@ services:
       APP_ENV: prod
       # HF 캐시를 named volume(hf_cache) 경로로 고정 — bge-m3 모델 캐시 영속화(#439).
       HF_HOME: /app/hf_cache
+      # LangSmith 트레이싱(design-03-13/HAJA-115) — 미설정(빈값/false) 시 비활성.
+      LANGCHAIN_TRACING_V2: ${LANGCHAIN_TRACING_V2:-false}
+      LANGCHAIN_ENDPOINT: ${LANGCHAIN_ENDPOINT:-}
+      LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
+      LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-}
+      # 입출력 마스킹(#1240) — 프롬프트·응답 내용 비전송. 프로덕션은 실제 고객 개인정보가
+      # 흐르므로 이 둘이 반드시 true여야 한다. 기본값 true(fail-safe).
+      # ⚠️ false는 "마스킹 끄기" 토글이 아니다(9차 리뷰 P3): 트레이싱 ON 또는 API 키 존재
+      # 상태에서 false면 부팅 가드가 기동을 거부하고, 그 외에도 anonymizer 백스톱이 내용을
+      # {}로 치환한다 — 내용 마스킹은 항상 강제. 원문 가시성은 가드·마스킹 제거 PR로만.
+      LANGSMITH_HIDE_INPUTS: ${LANGSMITH_HIDE_INPUTS:-true}
+      LANGSMITH_HIDE_OUTPUTS: ${LANGSMITH_HIDE_OUTPUTS:-true}
     volumes:
       - chroma_data:/app/chroma_data
       - hf_cache:/app/hf_cache
@@ -179,6 +197,10 @@ services:
         # Vite가 빌드 시점에 인라인하는 카카오맵 키(#323) — 운영은 강제(:?). 미설정 시 지도 페이지가
         # 빌드·헬스체크 전부 통과한 뒤 런타임에만 KakaoMapKeyMissingError로 조용히 깨진다.
         VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:?VITE_KAKAO_MAP_APP_KEY가 .env에 설정되어야 합니다}
+        # 토스 결제창 SDK 클라이언트 키(#988) — Vite가 빌드 시점에 인라인한다(런타임 주입 불가).
+        # 공개돼도 되는 키라 :- 소프트(미설정 시 결제 화면만 동작하지 않음). 서버 시크릿
+        # TOSS_SECRET_KEY와 절대 혼동하지 말 것.
+        VITE_TOSS_CLIENT_KEY: ${VITE_TOSS_CLIENT_KEY:-}
     # latest 금지(PRD §6.1) — deploy.sh가 IMAGE_TAG(날짜+커밋SHA)를 주입해 태깅. 수동 실행 시 local.
     image: hajacheck-arm1-frontend:${IMAGE_TAG:-local}
     restart: unless-stopped

@@ -4,16 +4,30 @@ import { mockFacilities } from '../mocks/facility.mock';
 import type {
   CreateFacilityRequest,
   Facility,
+  FacilityStatusRow,
+  InspectionNotificationSettings,
   SetFacilityScheduleRequest,
   SetFacilityScheduleResponse,
+  SetInspectionNotificationSettingsRequest,
 } from '../types';
 import { computeNextInspectionDueAt } from '../utils/computeNextInspectionDueAt';
 import { computeDemoNextInspectionDueAt } from '../utils/inspectionCycleDemo';
+
 
 // 메모리 목 저장소 — POST로 생성한 시설물이 이후 GET 목록 조회에 즉시 반영되도록 모듈 스코프에서 유지
 // (dashboardApi.handlers.ts처럼 고정 응답만으로는 등록 폼 E2E 확인이 불가능해 facility만 mutable로 구성)
 let facilities: Facility[] = [...mockFacilities];
 let nextId = facilities.reduce((max, facility) => Math.max(max, facility.id), 0) + 1;
+
+// 점검 알림 설정 목 저장소(#540 ③) — facilityId별 설정. 저장한 적 없는 시설물은 서버 컬럼 기본값과
+// 동일한 기본값으로 응답한다. warnOnOverdueEnabled는 true가 기본이다(HAJA-498/V21 — false로 시작했다가
+// 연체 시설물 알림 미발행 회귀가 발견돼 Polalise 승인(옵션1)으로 되돌림).
+const DEFAULT_NOTIFICATION_SETTINGS: InspectionNotificationSettings = {
+  notifyBeforeEnabled: true,
+  notifyBeforeDays: 7,
+  warnOnOverdueEnabled: true,
+};
+let notificationSettingsByFacilityId = new Map<number, InspectionNotificationSettings>();
 
 // 테스트에서 setupServer(...facilityHandlers) + afterEach(() => server.resetHandlers())로 격리해도
 // 이 모듈 스코프 상태(facilities/nextId)는 resetHandlers()로 초기화되지 않는다 — POST 등록 후
@@ -23,11 +37,45 @@ let nextId = facilities.reduce((max, facility) => Math.max(max, facility.id), 0)
 export function resetFacilityMockStore(): void {
   facilities = [...mockFacilities];
   nextId = facilities.reduce((max, facility) => Math.max(max, facility.id), 0) + 1;
+  notificationSettingsByFacilityId = new Map<number, InspectionNotificationSettings>();
 }
 
 export const facilityHandlers = [
   http.get('/api/facilities', () => {
     const body: ApiResponse<Facility[]> = { success: true, data: facilities };
+    return HttpResponse.json(body);
+  }),
+
+  // 시설물 현황 목록(#540 ⑥, HAJA-378) — 점검 주기 설정 화면(#1136)이 실연동에 재사용.
+  // assigneeName/inspectionType은 이 mock 계층에 사용자 이름·점검 회차 개념이 없어 항상 null로
+  // 반환한다(프론트가 이미 null-tolerant — 표시만 "-"/기본값으로 폴백, 크래시 없음).
+  // ⚠️ 아래 GET /api/facilities/:id 보다 반드시 먼저 등록해야 한다 — MSW는 배열 등록 순서대로
+  // 첫 매치를 쓰므로, 순서가 뒤바뀌면 "status"가 :id로 잡혀(Number("status")=NaN) 항상
+  // FACILITY_NOT_FOUND(404)가 난다(실제로 이 순서 실수로 재현·수정함).
+  http.get('/api/facilities/status', () => {
+    const today = new Date();
+    const data: FacilityStatusRow[] = facilities.map((facility) => {
+      const dDay = facility.nextInspectionDueAt
+        ? Math.round(
+            (new Date(`${facility.nextInspectionDueAt}T00:00:00`).getTime() -
+              new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()) /
+              (1000 * 60 * 60 * 24),
+          )
+        : null;
+      return {
+        facilityId: facility.id,
+        facilityName: facility.name,
+        initialGrade: facility.initialGrade,
+        nextInspectionDueAt: facility.nextInspectionDueAt,
+        dDay,
+        assigneeUserId: facility.assigneeUserId,
+        assigneeName: null,
+        lastInspectedAt: facility.lastInspectedAt,
+        inspectionCycleMonths: facility.inspectionCycleMonths,
+        inspectionType: null,
+      };
+    });
+    const body: ApiResponse<FacilityStatusRow[]> = { success: true, data };
     return HttpResponse.json(body);
   }),
 
@@ -64,7 +112,6 @@ export const facilityHandlers = [
     const now = new Date().toISOString();
     const created: Facility = {
       id: nextId,
-      ownerId: 1,
       name: reqBody.name,
       type: reqBody.type,
       address: reqBody.address ?? null,
@@ -80,12 +127,71 @@ export const facilityHandlers = [
         reqBody.nextInspectionDueAt ?? computeNextInspectionDueAt(reqBody.inspectionCycleMonths),
       createdAt: now,
       updatedAt: now,
+      // #628(HAJA-347) 등록 필드 확장 — 전부 선택 입력
+      initialGrade: reqBody.initialGrade ?? null,
+      assigneeUserId: reqBody.assigneeUserId ?? null,
+      memo: reqBody.memo ?? null,
+      latestDefectId: null,
+      // 대표 사진은 등록 후 별도 업로드 API로 붙는다(#652) — 등록 직후엔 항상 null.
+      thumbnailUrl: null,
+      // 신규 등록 시설물은 아직 점검 이력이 없다.
+      lastInspectedAt: null,
+      // 신규 등록 시설물은 아직 하자가 없다(HAJA-515/#1075).
+      defectCount: 0,
     };
     nextId += 1;
     facilities = [created, ...facilities];
 
     const body: ApiResponse<Facility> = { success: true, data: created };
     return HttpResponse.json(body, { status: 201 });
+  }),
+
+  // 시설물 수정(PUT — 전체 교체). 좌표 소급 재-geocoding(#618)이 이 핸들러로 latitude/longitude를 갱신한다.
+  http.put('/api/facilities/:id', async ({ params, request }) => {
+    const id = Number(params.id);
+    const reqBody = (await request.json()) as CreateFacilityRequest;
+    const target = facilities.find((facility) => facility.id === id);
+
+    if (!target) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'FACILITY_NOT_FOUND', message: '시설물을 찾을 수 없습니다.' },
+      };
+      return HttpResponse.json(failure, { status: 404 });
+    }
+
+    if (!reqBody.name?.trim() || !reqBody.type?.trim()) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'FACILITY_VALIDATION_ERROR', message: '시설물명과 유형은 필수입니다.' },
+      };
+      return HttpResponse.json(failure, { status: 400 });
+    }
+
+    const updated: Facility = {
+      ...target,
+      name: reqBody.name,
+      type: reqBody.type,
+      address: reqBody.address ?? null,
+      latitude: reqBody.latitude ?? null,
+      longitude: reqBody.longitude ?? null,
+      builtYear: reqBody.builtYear ?? null,
+      scale: reqBody.scale ?? null,
+      inspectionCycleMonths: reqBody.inspectionCycleMonths ?? null,
+      nextInspectionDueAt: reqBody.nextInspectionDueAt ?? null,
+      // PUT은 전체 교체(FacilityUpdateRequest와 1:1) — POST와 동일하게 값을 그대로 반영한다.
+      initialGrade: reqBody.initialGrade ?? null,
+      assigneeUserId: reqBody.assigneeUserId ?? null,
+      memo: reqBody.memo ?? null,
+      latestDefectId: null,
+      updatedAt: new Date().toISOString(),
+    };
+    facilities = facilities.map((facility) => (facility.id === id ? updated : facility));
+
+    const body: ApiResponse<Facility> = { success: true, data: updated };
+    return HttpResponse.json(body);
   }),
 
   // 점검 주기 설정(dev-04-03, FR-019) — 요청 개월 수 기준 nextInspectionDueAt을 산정해 저장.
@@ -136,5 +242,45 @@ export const facilityHandlers = [
       data: { nextInspectionDueAt },
     };
     return HttpResponse.json(responseBody);
+  }),
+
+  // 점검 알림 설정 조회(#540 ③) — 저장한 적 없으면 기본값(사전알림 사용/7일전/경과알림 사용, HAJA-498/V21) 반환.
+  http.get('/api/facilities/:id/notification-settings', ({ params }) => {
+    const id = Number(params.id);
+    const target = facilities.find((facility) => facility.id === id);
+
+    if (!target) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'FACILITY_NOT_FOUND', message: '시설물을 찾을 수 없습니다.' },
+      };
+      return HttpResponse.json(failure, { status: 404 });
+    }
+
+    const data = notificationSettingsByFacilityId.get(id) ?? DEFAULT_NOTIFICATION_SETTINGS;
+    const body: ApiResponse<InspectionNotificationSettings> = { success: true, data };
+    return HttpResponse.json(body);
+  }),
+
+  // 점검 알림 설정 저장(upsert, #540 ③).
+  http.put('/api/facilities/:id/notification-settings', async ({ params, request }) => {
+    const id = Number(params.id);
+    const target = facilities.find((facility) => facility.id === id);
+
+    if (!target) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'FACILITY_NOT_FOUND', message: '시설물을 찾을 수 없습니다.' },
+      };
+      return HttpResponse.json(failure, { status: 404 });
+    }
+
+    const reqBody = (await request.json()) as SetInspectionNotificationSettingsRequest;
+    notificationSettingsByFacilityId.set(id, reqBody);
+
+    const body: ApiResponse<InspectionNotificationSettings> = { success: true, data: reqBody };
+    return HttpResponse.json(body);
   }),
 ];

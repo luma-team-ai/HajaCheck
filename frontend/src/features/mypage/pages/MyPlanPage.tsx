@@ -1,19 +1,28 @@
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
-import { BillingHistoryPlaceholder } from '../components/BillingHistoryPlaceholder';
 import { PlanCard } from '../components/PlanCard';
-import { SeatsSection } from '../components/SeatsSection';
+import { UsageLimitBanner } from '../components/UsageLimitBanner';
 import { UsageSection } from '../components/UsageSection';
 import { useMyPlan } from '../hooks/useMyPlan';
 import { MYPAGE_ERROR_CODE } from '../types';
+import { isUsageWarning, usagePercent } from '../utils/planFormat';
 
-// 마이페이지 — 내 플랜 관리 (HAJA-185, #212 / Figma 전환 #294, HAJA-221 — node 1-2776
-// "My Page - My Plan Management"). 흰 카드 하나 안에 섹션을 구분선(divide-y)으로 나눈 구조.
-// 공용 dashboard-content/dashboard-card(shared/styles/layout.css)를 참조하지 않고 이 feature
+// 마이페이지 — 내 플랜 관리 (HAJA-185, #212 / Figma 전환 #294, HAJA-221 → 리디자인 #712, node
+// 1463-2786 "My Page - My Plan Management"). 흰 카드 하나 안에 섹션을 구분선(divide-y)으로 나눈
+// 구조. 공용 dashboard-content/dashboard-card(shared/styles/layout.css)를 참조하지 않고 이 feature
 // 전용 Tailwind 마크업으로 자체 셸을 구성해, Dashboard/DefectDetail이 공유하는 클래스와의 결합을
 // 끊는다(#293 auth.css와 동일 전략 — 공유 클래스 변경 시 회귀 전파를 원천 차단).
+//
+// #712 리디자인: 좌석 멤버 테이블(SeatsSection)과 결제 이력 섹션(BillingHistoryPlaceholder)을
+// 제거한다 — 좌석은 UsageSection "점검자 좌석" 바에 이미 집계돼 있고, 결제 이력은 PlanCard 상단
+// "결제 내역" 버튼(모달)으로 대체됐다. 월 분석 사용량이 80% 이상이면 하단 플로팅 배너를 띄운다.
 export function MyPlanPage() {
   const { data, isLoading, isError, error } = useMyPlan();
   const errorCode = error?.code;
+
+  const monthlyAnalysisPercent = data
+    ? usagePercent(data.usage.analyzedImageCount, data.limits.maxMonthlyAnalyses)
+    : null;
+  const showUsageLimitBanner = isUsageWarning(monthlyAnalysisPercent);
 
   return (
     <div className="flex min-h-full flex-col gap-6 bg-surface-muted p-6 sm:p-8">
@@ -41,10 +50,9 @@ export function MyPlanPage() {
             <UsageSection limits={data.limits} usage={data.usage} />
           </>
         )}
-
-        <SeatsSection />
-        <BillingHistoryPlaceholder />
       </div>
+
+      <UsageLimitBanner visible={showUsageLimitBanner} />
     </div>
   );
 }

@@ -18,6 +18,15 @@ import org.testcontainers.utility.MountableFile;
  * 운영 증분 경로(v0.3 → HAJA-25)를 실제 psql autocommit으로 적용한 뒤 새 DB에 적용한
  * 캐노니컬 DDL과 PostgreSQL 카탈로그를 대조하고, JPA 전체 스키마를 validate한다.
  * CREATE INDEX CONCURRENTLY를 포함하므로 JDBC 트랜잭션 기반 SQL 실행기로 대체하지 않는다.
+ *
+ * <p><b>V22(defect_status_type 4단계 축소)은 이 파리티 체인에서 의도적으로 제외</b>한다. 재적용 안전한
+ * 마이그레이션(V12/V13/V16 등 {@code add column if not exists} 계열)은 캐노니컬 DDL에도 반영해 체인에
+ * 편입해왔지만, V22을 편입하려면 캐노니컬 DDL의 {@code defect_status_type}을 4라벨로 바꿔야 한다. 그러면
+ * 캐노니컬 DDL을 "마이그레이션 이전 기존 DB"로 쓰는 {@link FlywayBaselineOnExistingDbIntegrationTest}·
+ * {@link DefectStatusBackfillMigrationTest}에서 ACTION_PENDING 행을 심을 수 없게 되어, V22의 백필
+ * UPDATE 경로가 CI에서 영영 검증 불가가 된다(prod에서만 터지는 #531 형태). 백필 검증을 우선해
+ * 캐노니컬은 pre-V22 상태로 동결한다 — {@code docs/design/db/HajaCheck_script.sql}의
+ * defect_status_type 정의 위 주석 참고.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)
@@ -285,7 +294,7 @@ class Ha25IncrementalMigrationTest {
     }
 
     private static PostgreSQLContainer<?> createMigratedContainer() {
-        PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17")
+        PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16")
                 .withDatabaseName("hajacheck")
                 .withUsername("postgres")
                 .withCopyFileToContainer(
@@ -329,7 +338,166 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 MIGRATION_ROOT + "20260722_02_add_business_start_date.sql"),
-                        CONTAINER_ROOT + "20260722_02_add_business_start_date.sql");
+                        CONTAINER_ROOT + "20260722_02_add_business_start_date.sql")
+                // Flyway 도입 이후의 변경은 수동 migrations archive가 아니라 버전 파일을 이어 적용한다.
+                // V6 — #527/HAJA-314 defects.media_id, V7 — #568 점검 관리자 스키마. 둘 다 forward-apply한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("db/migration/V6__add_defects_media_id.sql"),
+                        CONTAINER_ROOT + "V6__add_defects_media_id.sql")
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V7__inspection_admin_schema.sql"),
+                        CONTAINER_ROOT + "V7__inspection_admin_schema.sql")
+                // V8 — #636 기존 회사 owner 계정 ADMIN 소급 상향(데이터 UPDATE, 스키마 변경 없음).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V8__grant_admin_to_company_owners.sql"),
+                        CONTAINER_ROOT + "V8__grant_admin_to_company_owners.sql")
+                // V9 — #509 facilities.next_inspection_due_at 부분 인덱스.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V9__add_facilities_next_inspection_due_at_index.sql"),
+                        CONTAINER_ROOT + "V9__add_facilities_next_inspection_due_at_index.sql")
+                // V10 — #628/HAJA-347 시설물 등록 필드 확장(대표 사진/초기 등급/담당자/메모).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V10__add_facility_registration_fields.sql"),
+                        CONTAINER_ROOT + "V10__add_facility_registration_fields.sql")
+                // V11 — #637 facilities 소유를 개인(owner_id)에서 회사(company_id)로 전환.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V11__migrate_facilities_to_company.sql"),
+                        CONTAINER_ROOT + "V11__migrate_facilities_to_company.sql")
+                // V12 — #725/HAJA-393 defects 조치 결과 등록 필드(action_media_id/action_content/
+                // action_date/action_assignee_id).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V12__add_defect_action_result_fields.sql"),
+                        CONTAINER_ROOT + "V12__add_defect_action_result_fields.sql")
+                // V13 — #788/#789 media.detail_url(분석 결과 뷰어 상세 이미지).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V13__add_media_detail_url.sql"),
+                        CONTAINER_ROOT + "V13__add_media_detail_url.sql")
+                // V14 — #743 상담 유형(counsel_type) 분류: counsel_tickets.counsel_type 컬럼 +
+                // counselor_skills 다대다 테이블.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V14__add_counsel_type.sql"),
+                        CONTAINER_ROOT + "V14__add_counsel_type.sql")
+                // V15 — #792 user_status_type에 WAITING(초대 대기) 라벨 추가.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V15__add_user_status_waiting.sql"),
+                        CONTAINER_ROOT + "V15__add_user_status_waiting.sql")
+                // V16 — #803 defects.area_ratio(분석 결과 뷰어 면적비율) 컬럼 추가.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V16__add_defect_area_ratio.sql"),
+                        CONTAINER_ROOT + "V16__add_defect_area_ratio.sql")
+                // #20/HAJA-33 — Flyway V18(상담 티켓 스냅샷 + 채팅 첨부 컬럼, V13 선점으로 재번호). V17(구
+                // V13, bot_scenarios 시드 데이터)는 스키마 시그니처에 영향이 없어 이 파리티 테스트에서는 생략한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V18__counsel_ticket_snapshot_and_chat_attachment.sql"),
+                        CONTAINER_ROOT + "V18__counsel_ticket_snapshot_and_chat_attachment.sql")
+                // #632/#652/HAJA-377 — Flyway V19(media.facility_id 폴리모픽 확장)도 이어서 1회
+                // forward-apply한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V19__add_media_facility_id.sql"),
+                        CONTAINER_ROOT + "V19__add_media_facility_id.sql")
+                // #988/HAJA-489 — Flyway V20(토스페이먼츠 결제 원장 payments + payment_status/method enum).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("db/migration/V20__create_payments.sql"),
+                        CONTAINER_ROOT + "V20__create_payments.sql")
+                // #1021/HAJA-503 — Flyway V23(상담원 비공개 메모 counsel_ticket_notes)도 이어서 1회
+                // forward-apply한다. V21/V22는 위 클래스 주석대로 이 파리티 체인에서 의도적으로 제외.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("db/migration/V23__counsel_ticket_note.sql"),
+                        CONTAINER_ROOT + "V23__counsel_ticket_note.sql")
+                // #970 갭3/HAJA-437 — Flyway V24(defects.location + defects.previous_defect_id)도 이어서
+                // 1회 forward-apply한다(단순 add column if not exists 계열이라 V12/V13/V16과 동일하게 캐노니컬
+                // DDL에도 반영돼 있다).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V24__add_defect_location_and_previous_defect_id.sql"),
+                        CONTAINER_ROOT + "V24__add_defect_location_and_previous_defect_id.sql")
+                // #1050 — Flyway V25(notifications.uq_notifications_inspection_due_dedupe 부분 유니크
+                // 인덱스)도 이어서 1회 forward-apply한다. V12/V13/V16과 달리 순수 additive는 아니고
+                // 인덱스 생성 직전에 기존 중복 행을 정리하는 DELETE를 포함하지만, 그 DELETE는 2회차에
+                // 대상이 0건이고 인덱스도 IF NOT EXISTS라 재적용이 안전하므로 V21/V22와 달리 제외할
+                // 이유가 없다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V25__inspection_due_notification_dedupe_unique_index.sql"),
+                        CONTAINER_ROOT + "V25__inspection_due_notification_dedupe_unique_index.sql")
+                // #1116 — media.original_filename(AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정)도
+                // 이어서 1회 forward-apply한다(단순 add column if not exists 계열이라 V12/V13/V16/V24와
+                // 동일하게 캐노니컬 DDL에도 반영돼 있다). V25는 #1050이 선점해 V26으로 이어 붙였다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V26__add_media_original_filename.sql"),
+                        CONTAINER_ROOT + "V26__add_media_original_filename.sql")
+                // #1104/HAJA-525 — Flyway V27(user_plans 결제 주기 실체화)도 이어서 1회 forward-apply한다
+                // (단순 add column if not exists + 백필 UPDATE 계열이라 V12/V13/V16/V24와 동일하게 캐노니컬
+                // DDL에도 반영돼 있다). V25=#1050 · V26=#1116이 선점해 V27로 이어 붙였다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V27__add_user_plan_billing_period.sql"),
+                        CONTAINER_ROOT + "V27__add_user_plan_billing_period.sql")
+                // #1145/HAJA-549 — Flyway V28(notification_type PLAN_EXPIRED 라벨)도 이어서 1회
+                // forward-apply한다. assertCanonicalSchemaParity가 enum 라벨까지 대조하는데 캐노니컬
+                // DDL의 notification_type에 이 라벨이 반영돼 있으므로, 이 증분 경로에서도 적용해야
+                // 파리티가 유지된다. ALTER TYPE ... ADD VALUE IF NOT EXISTS 라 V4/V15와 동일하게
+                // 재실행도 안전하다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V28__add_notification_type_plan_expired.sql"),
+                        CONTAINER_ROOT + "V28__add_notification_type_plan_expired.sql")
+                // #1172 — Flyway V29(reports.deleted_at DRAFT soft delete 시각)도 이어서 1회
+                // forward-apply한다. 캐노니컬 DDL에도 같은 컬럼이 반영돼 파리티가 유지된다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V29__add_reports_deleted_at.sql"),
+                        CONTAINER_ROOT + "V29__add_reports_deleted_at.sql")
+                // #1105/HAJA-526 — Flyway V30(scheduled_plan_changes 플랜 하향 예약 원장)도 이어서 1회
+                // forward-apply한다. assertCanonicalSchemaParity가 테이블·컬럼·인덱스·enum을 전수 대조하는데
+                // 캐노니컬 DDL에 이 테이블이 반영돼 있으므로, 이 증분 경로에서도 적용해야 파리티가 유지된다.
+                // 전 구문이 멱등(IF NOT EXISTS / DO 블록)이라 V20과 동일하게 재실행도 안전하다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V30__create_scheduled_plan_changes.sql"),
+                        CONTAINER_ROOT + "V30__create_scheduled_plan_changes.sql")
+                // #1105/HAJA-526 — Flyway V31(notification_type 예약 하향 알림 라벨 2종)도 이어서 1회
+                // forward-apply한다(V28과 같은 이유·같은 멱등 규칙).
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V31__add_notification_type_scheduled_downgrade.sql"),
+                        CONTAINER_ROOT + "V31__add_notification_type_scheduled_downgrade.sql")
+                // #1193/HAJA-569 — Flyway V32(조치 등록 이력 append-only 테이블 defect_action_logs)도
+                // 이어서 forward-apply한다. 착수 시 V29로 잡았으나 #1172/#1105가 먼저 dev에 들어와 V32로
+                // 재번호했다. 캐노니컬 DDL에 defect_action_logs가 이미 있는 baseline-on-existing 경로도
+                // 함께 지원해야 해서 전 구문이 멱등(IF NOT EXISTS)이라, V20/V28과 동일하게 두 번 실행해도
+                // 안전하다는 점까지 함께 고정한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V32__create_defect_action_logs.sql"),
+                        CONTAINER_ROOT + "V32__create_defect_action_logs.sql")
+                // #1177 — Flyway V33(user_plans.payment_pending_until 미결제 유예 표식 + 부분 인덱스)도
+                // 이어서 1회 forward-apply한다. 캐노니컬 DDL에 컬럼·인덱스가 반영돼 있으므로 이 증분
+                // 경로에서도 적용해야 assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V33__add_user_plan_payment_pending_until.sql"),
+                        CONTAINER_ROOT + "V33__add_user_plan_payment_pending_until.sql")
+                // #1168 — Flyway V34(counsel_tickets.created_at 인덱스, PR머신 리뷰 P2)도 이어서 1회
+                // forward-apply한다. 캐노니컬 DDL에 이 인덱스가 반영돼 있으므로 이 증분 경로에서도
+                // 적용해야 assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V34__add_counsel_tickets_created_at_index.sql"),
+                        CONTAINER_ROOT + "V34__add_counsel_tickets_created_at_index.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -396,6 +564,80 @@ class Ha25IncrementalMigrationTest {
         // #596 — companies.business_start_date 컬럼(ADD COLUMN IF NOT EXISTS로 재실행 가능).
         runPsql(postgres, "20260722_02_add_business_start_date.sql");
         runPsql(postgres, "20260722_02_add_business_start_date.sql");
+        // #527 / HAJA-314 — Flyway V6(defects.media_id + 인덱스)를 실제 운영 경로처럼 forward-apply.
+        // Flyway 마이그레이션은 재실행을 전제하지 않으므로(스스로 1회만 적용) 레거시 파일들과 달리 1회만 실행한다.
+        runPsql(postgres, "V6__add_defects_media_id.sql");
+        // #568 — Flyway V7(점검 관리자 스키마)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V7__inspection_admin_schema.sql");
+        // #636 — Flyway V8(회사 owner ADMIN 소급, 데이터 UPDATE)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V8__grant_admin_to_company_owners.sql");
+        // #509 — Flyway V9(facilities.next_inspection_due_at 인덱스)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V9__add_facilities_next_inspection_due_at_index.sql");
+        // #628/HAJA-347 — Flyway V10(시설물 등록 필드 확장)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V10__add_facility_registration_fields.sql");
+        // #637 — Flyway V11(facilities company scope 전환)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V11__migrate_facilities_to_company.sql");
+        // #725/HAJA-393 — Flyway V12(defects 조치 결과 등록 필드)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V12__add_defect_action_result_fields.sql");
+        // #788/#789 — Flyway V13(media.detail_url)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V13__add_media_detail_url.sql");
+        // #743 — Flyway V14(counsel_type 분류)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V14__add_counsel_type.sql");
+        // #792 — Flyway V15(user_status_type WAITING 라벨)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V15__add_user_status_waiting.sql");
+        // #803 — Flyway V16(defects.area_ratio)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V16__add_defect_area_ratio.sql");
+        // #20/HAJA-33 — Flyway V18(상담 티켓 스냅샷 + 채팅 첨부, V13 선점으로 재번호)도 이어서 1회
+        // forward-apply한다(V17 시드는 스키마 무변경이라 파리티 대상 아님).
+        runPsql(postgres, "V18__counsel_ticket_snapshot_and_chat_attachment.sql");
+        // #632/#652/HAJA-377 — Flyway V19(media.facility_id 폴리모픽 확장)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V19__add_media_facility_id.sql");
+        // #988/HAJA-489 — Flyway V20(payments 결제 원장)도 이어서 1회 forward-apply한다. 이 파일은
+        // 캐노니컬 DDL에 payments가 이미 있는 baseline-on-existing 경로도 함께 지원해야 해서 전 구문이
+        // 멱등(IF NOT EXISTS / DO 블록)이라, 두 번 실행해도 안전하다는 점까지 함께 고정한다.
+        runPsql(postgres, "V20__create_payments.sql");
+        runPsql(postgres, "V20__create_payments.sql");
+        // #1021/HAJA-503 — Flyway V23(상담원 비공개 메모)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V23__counsel_ticket_note.sql");
+        // #970 갭3/HAJA-437 — Flyway V24(defects.location + defects.previous_defect_id)도 이어서
+        // 1회 forward-apply한다.
+        runPsql(postgres, "V24__add_defect_location_and_previous_defect_id.sql");
+        // #1050 — Flyway V25(notifications.uq_notifications_inspection_due_dedupe 부분 유니크 인덱스)도
+        // 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V25__inspection_due_notification_dedupe_unique_index.sql");
+        // #1116 — media.original_filename(AI 분석 실행/상태 화면 "이미지 N" 순번 표시 문제 수정)도 이어서
+        // 1회 forward-apply한다(V25는 #1050이 선점해 V26).
+        runPsql(postgres, "V26__add_media_original_filename.sql");
+        // #1104/HAJA-525 — Flyway V27(user_plans 결제 주기 실체화)도 이어서 1회 forward-apply한다.
+        runPsql(postgres, "V27__add_user_plan_billing_period.sql");
+        // #1145/HAJA-549 — Flyway V28(notification_type PLAN_EXPIRED 라벨)도 이어서 forward-apply한다.
+        // ALTER TYPE ... ADD VALUE IF NOT EXISTS 라 재실행이 안전하다는 점까지 함께 고정한다(V4/V15와 동일).
+        runPsql(postgres, "V28__add_notification_type_plan_expired.sql");
+        runPsql(postgres, "V28__add_notification_type_plan_expired.sql");
+        // #1172 — Flyway V29(reports.deleted_at DRAFT soft delete 시각)도 이어서 forward-apply한다.
+        // ADD COLUMN IF NOT EXISTS 라 재실행이 안전하다는 점까지 함께 고정한다.
+        runPsql(postgres, "V29__add_reports_deleted_at.sql");
+        runPsql(postgres, "V29__add_reports_deleted_at.sql");
+        // #1105/HAJA-526 — Flyway V30(scheduled_plan_changes 하향 예약 원장)도 이어서 forward-apply한다.
+        // 전 구문이 멱등(IF NOT EXISTS / DO 블록)이라 두 번 실행해도 안전하다는 점까지 함께 고정한다(V20과 동일).
+        runPsql(postgres, "V30__create_scheduled_plan_changes.sql");
+        runPsql(postgres, "V30__create_scheduled_plan_changes.sql");
+        // #1105/HAJA-526 — Flyway V31(notification_type 예약 하향 알림 라벨 2종)도 이어서 forward-apply한다.
+        runPsql(postgres, "V31__add_notification_type_scheduled_downgrade.sql");
+        runPsql(postgres, "V31__add_notification_type_scheduled_downgrade.sql");
+        // #1193/HAJA-569 — Flyway V32(defect_action_logs)도 이어서 forward-apply한다. 착수 시 V29로
+        // 잡았으나 #1172/#1105가 먼저 dev에 들어와 V32로 재번호했다. CREATE TABLE/INDEX IF NOT EXISTS라
+        // 재실행이 안전하다는 점까지 함께 고정한다(V20/V28과 동일).
+        runPsql(postgres, "V32__create_defect_action_logs.sql");
+        runPsql(postgres, "V32__create_defect_action_logs.sql");
+        // #1177 — Flyway V33(user_plans.payment_pending_until 미결제 유예 표식 + 부분 인덱스)도 이어서
+        // forward-apply한다. 전 구문이 멱등(IF NOT EXISTS)이라 두 번 실행해도 안전하다는 점까지 고정한다.
+        runPsql(postgres, "V33__add_user_plan_payment_pending_until.sql");
+        runPsql(postgres, "V33__add_user_plan_payment_pending_until.sql");
+        // #1168 — Flyway V34(counsel_tickets.created_at 인덱스, PR머신 리뷰 P2)도 이어서 forward-apply한다.
+        // CREATE INDEX IF NOT EXISTS라 재실행이 안전하다는 점까지 함께 고정한다.
+        runPsql(postgres, "V34__add_counsel_tickets_created_at_index.sql");
+        runPsql(postgres, "V34__add_counsel_tickets_created_at_index.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

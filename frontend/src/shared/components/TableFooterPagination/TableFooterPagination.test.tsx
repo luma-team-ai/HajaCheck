@@ -34,7 +34,8 @@ describe('TableFooterPagination', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('페이지당 항목 수'), { target: { value: '20' } });
+    fireEvent.click(screen.getByRole('button', { name: '페이지당 항목 수' }));
+    fireEvent.click(screen.getByRole('option', { name: '20' }));
 
     expect(handlePageSizeChange).toHaveBeenCalledWith(20);
   });

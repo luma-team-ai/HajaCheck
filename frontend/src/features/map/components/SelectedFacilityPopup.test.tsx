@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // SelectedFacilityPopup 등급 배지 fallback 색상 테스트 — GradeBadge와 동일한 FALLBACK_GRADE_COLOR
 // 상수를 쓰는지 확인한다(P3, PR #265/#130 리뷰 — 이전엔 '#9CA3AF' 하드코딩이 중복돼 있었음).
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FALLBACK_GRADE_COLOR } from '../constants';
 import type { DefectGrade, FacilityLocation } from '../types';
 import { SelectedFacilityPopup } from './SelectedFacilityPopup';
@@ -21,6 +21,9 @@ const baseFacility: FacilityLocation = {
 };
 
 describe('SelectedFacilityPopup', () => {
+  afterEach(() => {
+    cleanup();
+  });
   it('실 API가 A~E 밖의 예상치 못한 등급 값을 내려줘도 GradeBadge와 동일한 FALLBACK_GRADE_COLOR를 배지 배경색으로 쓴다', () => {
     const facility: FacilityLocation = {
       ...baseFacility,
@@ -29,7 +32,10 @@ describe('SelectedFacilityPopup', () => {
     };
 
     render(
-      <SelectedFacilityPopup facility={facility} onViewDetail={() => {}} onGoToInspectionResult={() => {}} />,
+      <SelectedFacilityPopup
+        facility={facility}
+        onViewDetail={() => {}}
+      />,
     );
 
     // jest-dom 매처는 이 프로젝트에 setup되어 있지 않아 기본 매처로 검증.
@@ -38,5 +44,44 @@ describe('SelectedFacilityPopup', () => {
     const probe = document.createElement('div');
     probe.style.backgroundColor = FALLBACK_GRADE_COLOR;
     expect((badge.parentElement as HTMLElement).style.backgroundColor).toBe(probe.style.backgroundColor);
+  });
+
+  it('상세 보기 버튼 클릭 시 onViewDetail 핸들러가 호출된다', () => {
+    const handleViewDetail = vi.fn();
+    render(
+      <SelectedFacilityPopup
+        facility={baseFacility}
+        onViewDetail={handleViewDetail}
+      />,
+    );
+
+    const detailButton = screen.getByRole('button', { name: '상세 보기' });
+    detailButton.click();
+
+    expect(handleViewDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it('상세 보기 버튼은 기존 반폭 너비를 유지하고 가운데 배치된다', () => {
+    render(
+      <SelectedFacilityPopup
+        facility={baseFacility}
+        onViewDetail={() => {}}
+      />,
+    );
+
+    const detailButton = screen.getByRole('button', { name: '상세 보기' });
+    expect(detailButton.className).toContain('w-[123px]');
+    expect(detailButton.parentElement?.className).toContain('justify-center');
+  });
+
+  it('결과 검수 버튼을 렌더링하지 않는다', () => {
+    render(
+      <SelectedFacilityPopup
+        facility={baseFacility}
+        onViewDetail={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: '결과 검수' })).toBeNull();
   });
 });
