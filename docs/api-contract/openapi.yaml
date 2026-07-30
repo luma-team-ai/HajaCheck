@@ -177,6 +177,10 @@ info:
     2026-07-25 분석 결과 뷰어 전용 상세 이미지 조회(GET /api/media/{id}/detail) 신설(#788/#789) —
     그리드용 썸네일(400px 상한)보다 큰 해상도(기본 1600px)로 재인코딩된 이미지 반환. DefectDetailItem에
     detailUrl 필드 추가.
+    2026-07-30 기업 가입 즉시 자동승인(#1324) 후속 — MyPlanResponse.plan.businessVerified 의 의미를
+    "Company.verificationStatus==VERIFIED"에서 "국세청 진위확인 증명 보유(ocr_raw.ntsOutcome ∈
+    {VERIFIED, LEGACY_VERIFIED})"로 재정의. 자동승인이 verification_status 를 전건 VERIFIED 로 만들어
+    그 컬럼이 "스코프 개방 여부"만 뜻하게 됐기 때문이다(필드 타입·nullable 계약은 불변, 값 산출 근거만 변경).
     2026-07-24 내 정보 조회(GET /api/users/me, 로그인 응답 포함) UserResponse에 createdAt(가입일)·
     companyName(소속 기업명, 개인 회원/회사 미조회 시 null) 추가(#740 / HAJA-401) — 마이페이지 "내 정보"
     프로필 섹션용. 기존 필드 순서·이름 유지한 추가형(하위호환).
@@ -5534,8 +5538,16 @@ components:
               type: boolean
               nullable: true
               description: >
-                회사 구독이면 Company.verificationStatus == VERIFIED 여부. 개인 구독(companyId=null)이면
-                사업자 인증 개념이 없으므로 null(#711).
+                **국세청 진위확인을 통과했음을 증명할 수 있는가**(#1324 재정의). 회사 구독이면 boolean,
+                개인 구독(companyId=null)이면 사업자 인증 개념이 없으므로 null(#711).
+                판정 근거는 companies.verification_status 가 **아니라** 진위확인 provenance
+                (companies.business_registration_ocr_raw.ntsOutcome)다 — 가입 즉시 자동승인(#1324)으로
+                verification_status 는 전건 VERIFIED 가 되어 "회사 승인 상태"만 뜻하게 됐고, 그 값으로
+                배지를 켜면 국세청 장애·키 미설정으로 통과한 회사(SKIPPED)와 소급 승인분에까지
+                "사업자 인증 완료"라는 허위 표시가 나간다.
+                true = ntsOutcome ∈ {VERIFIED(가입 시 국세청 성공), LEGACY_VERIFIED(#1324 이전 검증분)}.
+                그 밖의 값·키 부재·JSON 파손은 모두 false(fail-safe — 증명할 수 없으면 인증 완료라고
+                말하지 않는다).
               example: true
         limits:
           type: object

@@ -110,6 +110,78 @@ class CompanyTest {
         assertThat(company.getBusinessRegistrationOcrRaw()).isNull();
     }
 
+    @Test
+    void isNtsVerified_국세청성공과_레거시검증만_true() {
+        // 신규 가입 경로: CompanySignupService.buildOcrRaw 가 실제 국세청 결과를 남긴다.
+        assertThat(companyWithOcrRaw("{\"source\":\"MANUAL_INPUT\",\"ntsOutcome\":\"VERIFIED\"}")
+                .isNtsVerified()).isTrue();
+        // V38 이 스탬프한 레거시 진짜 검증분(#1324 이전 VERIFIED 는 국세청 성공으로만 찍혔다).
+        assertThat(companyWithOcrRaw("{\"ntsOutcome\":\"LEGACY_VERIFIED\"}").isNtsVerified()).isTrue();
+    }
+
+    @Test
+    void isNtsVerified_증명할수없으면_모두false() {
+        // 국세청 장애·키 미설정으로 확인하지 못함(fail-open 으로 가입은 됐지만 검증된 건 아니다).
+        assertThat(companyWithOcrRaw("{\"ntsOutcome\":\"SKIPPED\"}").isNtsVerified()).isFalse();
+        // V38 소급 승인분 — 검증한 적이 없다.
+        assertThat(companyWithOcrRaw("{\"ntsOutcome\":\"UNKNOWN_BACKFILL\"}").isNtsVerified()).isFalse();
+        // 키 부재(직렬화 실패 fallback·V38 이전 데이터) → fail-safe false.
+        assertThat(companyWithOcrRaw("{\"source\":\"MANUAL_INPUT\"}").isNtsVerified()).isFalse();
+        // 컬럼 null.
+        assertThat(companyWithOcrRaw(null).isNtsVerified()).isFalse();
+        // 미래에 추가될 수 있는 미지의 라벨도 화이트리스트 밖이면 false(fail-open 금지).
+        assertThat(companyWithOcrRaw("{\"ntsOutcome\":\"SOME_NEW_LABEL\"}").isNtsVerified()).isFalse();
+    }
+
+    @Test
+    void isNtsVerified_verificationStatus가VERIFIED여도_provenance가없으면_false() {
+        // #1324 P1 의 핵심 — 자동승인이 verification_status 를 전건 VERIFIED 로 만들기 때문에
+        // 그 컬럼을 배지 근거로 쓰면 미검증 회사에 "사업자 인증 완료"라는 허위 표시가 나간다.
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"SKIPPED\"}");
+        company.markBusinessVerified();
+        company.autoApprove();
+
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.VERIFIED);
+        assertThat(company.getStatus()).isEqualTo(CompanyStatus.APPROVED);
+        assertThat(company.isNtsVerified()).isFalse();
+    }
+
+    @Test
+    void isNtsVerified_깨진JSON이어도_예외를던지지않고_false() {
+        // 조회 경로(마이페이지)에서 호출되므로 절대 500 을 만들면 안 된다. 값이 이상하면 "증명 불가".
+        // (createPendingReview 의 JSON 검증을 우회해 컬럼에 직접 심는다 — 외부/수동 수정 상황 재현.)
+        Company company = company();
+        setOcrRaw(company, "{not-json");
+
+        assertThat(company.isNtsVerified()).isFalse();
+    }
+
+    @Test
+    void isNtsVerified_ntsOutcome이_문자열이아니면_false() {
+        Company company = company();
+        setOcrRaw(company, "{\"ntsOutcome\":{\"nested\":\"VERIFIED\"}}");
+
+        assertThat(company.isNtsVerified()).isFalse();
+    }
+
+    private Company companyWithOcrRaw(String ocrRaw) {
+        return Company.createPendingReview(
+                1L, "HajaCheck", "123-45-67890", "Owner", "Seoul", null,
+                "https://files.example/registration.pdf", ocrRaw);
+    }
+
+    /** 유효성 검증을 우회해 컬럼 값을 직접 심는다(외부에서 손댄 jsonb 재현) — 테스트 전용. */
+    private static void setOcrRaw(Company company, String raw) {
+        try {
+            java.lang.reflect.Field field =
+                    Company.class.getDeclaredField("businessRegistrationOcrRaw");
+            field.setAccessible(true);
+            field.set(company, raw);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private Company company() {
         return Company.createPendingReview(
                 1L,

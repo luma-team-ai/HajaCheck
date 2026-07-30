@@ -1,6 +1,5 @@
 package com.hajacheck.membership.dto;
 
-import com.hajacheck.auth.entity.BusinessVerificationStatus;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.UsageCounter;
@@ -26,6 +25,14 @@ public record MyPlanResponse(PlanInfo plan, Limits limits, Usage usage) {
      *                            <b>FREE 한도</b>다(무결제 유료 혜택 차단 —
      *                            {@code PaymentGraceService#resolveEffectivePlan}). 이 필드가 없으면
      *                            화면은 "STANDARD 인데 좌석 한도가 1"이라는 모순을 설명할 수 없다.
+     */
+    /**
+     * @param businessVerified <b>국세청 진위확인을 통과했음을 증명할 수 있는가</b>(#1324 재정의).
+     *                         회사 구독이면 boolean, 개인 구독(companyId=null)이면 {@code null}(화면 미표시).
+     *                         <p>⚠️ "회사 승인 상태"가 아니다 — 가입 즉시 자동승인 이후 회사는 전건
+     *                         승인·VERIFIED 이므로 그 값으로는 아무것도 구분하지 못한다. 이 필드는
+     *                         {@code Company#isNtsVerified}(ocr_raw.ntsOutcome provenance) 를 그대로
+     *                         내보내며, 증명할 수 없으면 false 다(fail-safe).
      */
     public record PlanInfo(
             String name,
@@ -65,9 +72,16 @@ public record MyPlanResponse(PlanInfo plan, Limits limits, Usage usage) {
         // "회사 구독인지"는 company 조회 성공 여부가 아니라 userPlan.companyId(owner XOR 의 실제 소유 구분)로
         // 판별한다 — 정상 데이터에선 발생 불가하지만, 회사 구독인데 company 조회가 비어 company==null 이 되는
         // 방어적 케이스에서도 businessVerified 는 "미인증"(false)이어야 한다(개인 구독의 null 과 계약상 구분).
+        //
+        // ⚠️ 판정 근거는 companies.verification_status 가 **아니다**(#1324 P1). 자동승인이 진위확인
+        // 결과와 무관하게 그 컬럼을 전건 VERIFIED 로 만들었기 때문에, 그대로 쓰면 국세청 장애·키
+        // 미설정으로 통과한 회사와 V38 소급분에까지 "사업자 인증 완료"를 표시하게 된다(허위 표시,
+        // '미완료' 분기는 도달 불가 죽은 코드가 된다). 그 컬럼은 이제 "회사 스코프 개방 여부"라는
+        // 인가 플래그이고, 사용자 대면 "인증 사실 주장"은 provenance 기반인 Company#isNtsVerified 가
+        // 맡는다 — 증명할 수 없으면(키 부재·SKIPPED·UNKNOWN_BACKFILL) false 다.
         Boolean businessVerified = userPlan.getCompanyId() == null
                 ? null
-                : company != null && company.getVerificationStatus() == BusinessVerificationStatus.VERIFIED;
+                : company != null && company.isNtsVerified();
         PlanInfo planInfo = new PlanInfo(
                 plan.getName().name(),
                 plan.getPriceMonthly(),

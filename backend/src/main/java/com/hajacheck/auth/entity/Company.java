@@ -15,6 +15,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Set;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -32,14 +33,40 @@ import org.hibernate.type.SqlTypes;
  * <p>enum(verification_status/status) 은 PG named enum 타입이며 {@code @JdbcTypeCode(NAMED_ENUM)} +
  * columnDefinition 으로 실 PG enum 에 매핑한다(ddl-auto=validate 통과). Java enum 라벨은 v0.3 DDL 과 일치.
  *
- * <p>OCR: 현재 stub(수동입력). {@code businessRegistrationOcrRaw} 는 jsonb 원본(감사·재처리용)이며
- * 가입 시점엔 {@code {"source":"MANUAL_INPUT"}} 를 저장한다.
+ * <p>OCR: 현재 stub(수동입력). {@code businessRegistrationOcrRaw} 는 jsonb 원본(감사·재처리용)이다.
+ *
+ * <p><b>⚠️ {@code businessRegistrationOcrRaw} 는 감사 필수 키를 함께 담는다(#1324) — 컬럼을 통째로
+ * 교체하지 말고 반드시 병합할 것.</b> 컬럼명이 "ocr_raw" 라 나중에 실제 OCR 연동이 들어올 때 통째로
+ * 덮어쓰기 쉬운데, 그 순간 아래 키들이 사라지고 "국세청 검증을 증명할 수 있는 회사"를 영원히 재구성할
+ * 수 없게 된다(#1324 자동승인으로 {@code verificationStatus} 는 전건 VERIFIED 라 구분 근거가 이 컬럼뿐이다).
+ * <ul>
+ *   <li>{@code source} — OCR 출처(현재 {@code MANUAL_INPUT} stub)</li>
+ *   <li>{@code ntsOutcome} — 국세청 진위확인 provenance. {@link #isNtsVerified()} 의 판정 근거</li>
+ *   <li>{@code ntsCheckedAt}(신규 가입) / {@code ntsBackfilledAt}(V38 소급) — 기록 시각.
+ *       <b>두 키는 출처가 달라 이름이 갈린다</b>(실제 조회 시각 vs 소급 스탬프 시각)</li>
+ * </ul>
+ *
+ * <p><b>⚠️ {@code ntsOutcome} 의 값 공간은 enum 이 아니다</b> — {@code valueOf()} 로 파싱하면 터진다.
+ * {@code NtsVerificationOutcome} 라벨(VERIFIED/SKIPPED/MISMATCH/…)에 더해 마이그레이션이 심는
+ * {@code UNKNOWN_BACKFILL}(V38 소급 승인분 = 검증한 적 없음) · {@code LEGACY_VERIFIED}(#1324 이전에
+ * 진짜 검증을 통과한 기존 회사) 가 섞이고, <b>키 자체가 없는</b> 행도 있다(컬럼 null · 직렬화 실패
+ * fallback · 외부에서 쓴 값). 문자열로 다루고 화이트리스트로 판정한다.
  */
 @Entity
 @Getter
 @Table(name = "companies")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Company extends BaseTimeEntity {
+
+    /** {@code businessRegistrationOcrRaw} 안에서 국세청 진위확인 provenance 를 담는 키. */
+    private static final String NTS_OUTCOME_FIELD = "ntsOutcome";
+
+    /**
+     * "국세청 검증을 증명할 수 있다"로 인정하는 {@code ntsOutcome} 값 화이트리스트({@link #isNtsVerified}).
+     * {@code LEGACY_VERIFIED} 는 V38 이 스탬프한다 — #1324 이전에는 VERIFIED 가 오직 가입 시 국세청
+     * 성공 또는 #888 재검증 성공으로만 찍혔으므로, 그 시점의 VERIFIED 는 진짜 검증이다.
+     */
+    private static final Set<String> NTS_VERIFIED_OUTCOMES = Set.of("VERIFIED", "LEGACY_VERIFIED");
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -233,6 +260,31 @@ public class Company extends BaseTimeEntity {
         this.reviewedBy = reviewerUserId;
         this.reviewedAt = Instant.now();
         this.rejectionReason = reason;
+    }
+
+    /**
+     * <b>국세청 진위확인을 실제로 통과했음을 증명할 수 있는가</b>(#1324 P1) — 사용자 대면
+     * "사업자 인증 완료" 배지({@code MyPlanResponse.PlanInfo#businessVerified})의 유일한 판정 근거다.
+     *
+     * <p><b>왜 {@code verificationStatus} 를 쓰지 않는가</b>: #1324 자동승인이 진위확인 결과와 무관하게
+     * 전건 VERIFIED 를 찍으므로, 그 컬럼은 이제 <b>"회사 스코프를 열어도 되는가"</b>(인가 플래그)만
+     * 뜻한다. 그대로 배지에 쓰면 국세청 장애·키 미설정으로 통과한 회사(SKIPPED)와 V38 소급분
+     * (UNKNOWN_BACKFILL, 검증한 적 없음)에까지 "사업자 인증 완료"라는 <b>허위 사실을 표시</b>하게 된다.
+     * 그래서 배지는 인가 플래그가 아니라 provenance({@code ocr_raw.ntsOutcome})로 판정한다.
+     *
+     * <p><b>화이트리스트 + fail-safe</b>: {@code VERIFIED}(신규 가입 시 국세청 성공) ·
+     * {@code LEGACY_VERIFIED}(#1324 이전에 진짜 검증을 통과해 V38 이 스탬프한 기존 회사)만 true.
+     * 그 밖의 값·키 부재·JSON 파손은 모두 <b>false</b>다 — "증명할 수 없으면 인증 완료라고 말하지
+     * 않는다"가 이 배지의 계약이고, 조회 경로라 예외를 던져 500 을 만들어서도 안 된다.
+     *
+     * <p>⚠️ 이 메서드는 <b>표시 전용</b>이다. 인가 판정(스코프 개방)은 여전히
+     * {@code CompanyMembershipRepository.existsEffectiveApprovedMembership} 의 VERIFIED 조건이 맡는다 —
+     * 둘을 뒤바꾸면 자동승인 기능 자체가 되돌아간다.
+     */
+    public boolean isNtsVerified() {
+        return JsonValidator.readTextField(this.businessRegistrationOcrRaw, NTS_OUTCOME_FIELD)
+                .filter(NTS_VERIFIED_OUTCOMES::contains)
+                .isPresent();
     }
 
     /**

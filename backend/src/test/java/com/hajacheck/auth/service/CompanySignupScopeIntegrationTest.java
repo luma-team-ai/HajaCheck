@@ -166,17 +166,32 @@ class CompanySignupScopeIntegrationTest extends PostgresTestSupport {
     }
 
     @Test
-    void 운영집계쿼리로_검증없이승인된_회사를_셀_수_있다() {
+    void 운영집계쿼리로_국세청검증을_증명할수없는_회사를_셀_수_있다() {
         signup("scope-f@haja.test", "777-77-77777", "(주)스코프F");
 
-        // #1324 이후 "검증 없이 승인된 회사"를 찾는 단일 쿼리(신규 가입 + V38 소급분 공통 키).
+        // "국세청 검증을 증명할 수 없는 회사"를 찾는 단일 쿼리(신규 가입 + V38 소급분 공통 키).
         // 테스트 프로파일은 전건 SKIPPED 이므로 방금 가입한 회사가 반드시 잡혀야 한다.
-        Long unverified = (Long) entityManager.createNativeQuery("""
+        Long unprovable = (Long) entityManager.createNativeQuery("""
                 select count(*) from companies
-                 where business_registration_ocr_raw->>'ntsOutcome' is distinct from 'VERIFIED'
+                 where business_registration_ocr_raw->>'ntsOutcome' not in ('VERIFIED', 'LEGACY_VERIFIED')
+                    or business_registration_ocr_raw->>'ntsOutcome' is null
                 """).getSingleResult();
 
-        assertThat(unverified).isPositive();
+        assertThat(unprovable).isPositive();
+    }
+
+    @Test
+    void 자동승인만된_회사는_사업자인증배지가_켜지지_않는다() {
+        // #1324 P1-3 종단 검증 — 자동승인은 verification_status 를 VERIFIED 로 만들지만(스코프 개방),
+        // 사용자 대면 "사업자 인증 완료" 배지는 provenance 기준이라 꺼져 있어야 한다.
+        // 테스트 프로파일은 국세청 키가 없어 SKIPPED(fail-open) 로 통과한다 = 검증된 적 없음.
+        CompanySignupResponse response = signup("scope-g@haja.test", "555-11-22222", "(주)스코프G");
+        Company company = companyRepository.findById(response.companyId()).orElseThrow();
+
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.VERIFIED);
+        assertThat(company.isNtsVerified())
+                .as("국세청이 확인해 주지 않았는데 '사업자 인증 완료'를 표시하면 허위 표시다")
+                .isFalse();
     }
 
     /**

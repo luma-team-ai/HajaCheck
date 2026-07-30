@@ -206,12 +206,14 @@ class V38AutoApproveExistingCompaniesMigrationTest {
         // null 컬럼도 '{}' 로 깔고 병합돼 표식이 남는다(null || x = null 함정 회피).
         assertThat(ocrRawField(jdbc, nullRawCompany, "ntsOutcome")).isEqualTo("UNKNOWN_BACKFILL");
 
-        // 운영 집계 쿼리가 실제로 동작하는지 — "검증 없이 승인된 회사"를 한 번에 셀 수 있어야 한다.
-        Integer unverified = jdbc.queryForObject("""
+        // 운영 집계 쿼리가 실제로 동작하는지 — "국세청 검증을 증명할 수 없는 회사"를 한 번에 셀 수 있어야
+        // 한다(LEGACY_VERIFIED 도 증명 가능 집합이므로 화이트리스트가 두 값이다).
+        Integer unprovable = jdbc.queryForObject("""
                 select count(*) from companies
-                 where business_registration_ocr_raw->>'ntsOutcome' is distinct from 'VERIFIED'
+                 where business_registration_ocr_raw->>'ntsOutcome' not in ('VERIFIED', 'LEGACY_VERIFIED')
+                    or business_registration_ocr_raw->>'ntsOutcome' is null
                 """, Integer.class);
-        assertThat(unverified).isEqualTo(2);
+        assertThat(unprovable).isEqualTo(2);
     }
 
     @Test
@@ -234,6 +236,91 @@ class V38AutoApproveExistingCompaniesMigrationTest {
         assertThat(statusOf(jdbc, company)).isEqualTo("APPROVED");
         assertThat(membershipCount(jdbc, company, owner)).isEqualTo(1);
         assertThat(ocrRawField(jdbc, company, "ntsOutcome")).isEqualTo("VERIFIED");
+    }
+
+    @Test
+    void 레거시_진짜검증분은_LEGACY_VERIFIED로_스탬프된다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        // #1324 이전에 국세청 검증을 통과한 회사 — ntsOutcome 키가 없다(그 시절엔 기록하지 않았다).
+        // 이걸 구분해 두지 않으면 "키 부재 = 증명 불가 = false" 규칙 때문에 **진짜 검증된 기존 회사의
+        // 배지가 거짓으로 꺼진다**(자동승인분에 배지를 잘못 켜는 것과 정반대 방향의 허위 표시).
+        long owner = insertUser(jdbc, "v38-legacy@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(jdbc, owner, "V38 레거시검증회사", "3900000001", "APPROVED", "VERIFIED");
+        jdbc.update("update users set company_id = ? where id = ?", company, owner);
+        jdbc.update("update companies set business_registration_ocr_raw = ?::jsonb where id = ?",
+                "{\"source\":\"MANUAL_INPUT\"}", company);
+
+        migrateTo("38");
+
+        assertThat(ocrRawField(jdbc, company, "ntsOutcome")).isEqualTo("LEGACY_VERIFIED");
+        assertThat(ocrRawField(jdbc, company, "ntsBackfilledAt")).isNotBlank();
+        // 기존 키 보존(통째 교체가 아니라 병합).
+        assertThat(ocrRawField(jdbc, company, "source")).isEqualTo("MANUAL_INPUT");
+        // 상태는 원래대로(이 문장은 승인이 아니라 사실 기록이다).
+        assertThat(statusOf(jdbc, company)).isEqualTo("APPROVED");
+        assertThat(verificationOf(jdbc, company)).isEqualTo("VERIFIED");
+    }
+
+    @Test
+    void 소급승인분은_LEGACY_VERIFIED가아니라_UNKNOWN_BACKFILL이다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        // 실행 순서 계약 — (2) 레거시 스탬프가 (3) 승격보다 먼저 돌기 때문에, 이 회사는 (2) 시점엔
+        // 아직 PENDING 이라 레거시로 잡히지 않고 (3) 에서 UNKNOWN_BACKFILL 을 받는다.
+        // 순서가 뒤바뀌면 "검증한 적 없는 회사"가 LEGACY_VERIFIED(=진짜 검증)로 둔갑한다.
+        long owner = insertUser(jdbc, "v38-order@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(jdbc, owner, "V38 순서회사", "3900000002", "PENDING_REVIEW", "PENDING");
+        jdbc.update("update users set company_id = ? where id = ?", company, owner);
+
+        migrateTo("38");
+
+        assertThat(verificationOf(jdbc, company)).isEqualTo("VERIFIED");
+        assertThat(ocrRawField(jdbc, company, "ntsOutcome")).isEqualTo("UNKNOWN_BACKFILL");
+    }
+
+    @Test
+    void FAILED회사는_레거시스탬프도_받지않는다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        long owner = insertUser(jdbc, "v38-legacy-failed@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(
+                jdbc, owner, "V38 레거시폐업회사", "3900000003", "PENDING_REVIEW", "FAILED");
+
+        migrateTo("38");
+
+        // verification_status 가 VERIFIED 가 아니므로 (2) 대상이 아니다 = 검증 증명이 생기지 않는다.
+        assertThat(ocrRawField(jdbc, company, "ntsOutcome")).isNull();
+        assertThat(verificationOf(jdbc, company)).isEqualTo("FAILED");
+    }
+
+    @Test
+    void 감사쿼리로_국세청검증을_증명할수없는회사만_집계된다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        // 레거시 진짜 검증 1건 + 소급 승인분 1건 → 집계에는 소급분만 잡혀야 한다.
+        long legacyOwner = insertUser(jdbc, "v38-audit-legacy@haja.test", "ADMIN", "ACTIVE");
+        long legacyCompany = insertCompany(
+                jdbc, legacyOwner, "V38 감사레거시", "3900000004", "APPROVED", "VERIFIED");
+        long backfillOwner = insertUser(jdbc, "v38-audit-backfill@haja.test", "ADMIN", "ACTIVE");
+        long backfillCompany = insertCompany(
+                jdbc, backfillOwner, "V38 감사소급", "3900000005", "PENDING_REVIEW", "PENDING");
+
+        migrateTo("38");
+
+        Integer unprovable = jdbc.queryForObject("""
+                select count(*) from companies
+                 where business_registration_ocr_raw->>'ntsOutcome' not in ('VERIFIED', 'LEGACY_VERIFIED')
+                    or business_registration_ocr_raw->>'ntsOutcome' is null
+                """, Integer.class);
+
+        assertThat(unprovable).isEqualTo(1);
+        assertThat(ocrRawField(jdbc, legacyCompany, "ntsOutcome")).isEqualTo("LEGACY_VERIFIED");
+        assertThat(ocrRawField(jdbc, backfillCompany, "ntsOutcome")).isEqualTo("UNKNOWN_BACKFILL");
     }
 
     @Test
