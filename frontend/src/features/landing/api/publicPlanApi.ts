@@ -1,5 +1,4 @@
 import { api } from '../../../shared/api/axios';
-import type { ApiResponse } from '../../../shared/api/types';
 
 export interface PublicPlanApiItem {
   id: number;
@@ -19,5 +18,5 @@ export interface PublicPlanCatalogResponse {
 
 export const publicPlanApi = {
   getPlans: (signal?: AbortSignal) =>
-    api.get<ApiResponse<PublicPlanCatalogResponse>>('/plans', { signal }),
+    api.get<PublicPlanCatalogResponse>('/plans', { signal }),
 };
