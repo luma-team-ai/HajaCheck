@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { DefectDetailItem, ReportContent } from '../../types';
+import { DefectPhoto, type DefectPhotoGroup } from './DefectPhoto';
 import { LabeledTextArea } from './LabeledTextArea';
 
 type GradeFilter = 'ALL' | 'A' | 'B' | 'C' | 'D' | 'E';
@@ -25,27 +26,18 @@ interface DetailSectionProps {
   content: ReportContent;
   onChange: (next: ReportContent) => void;
   readOnly: boolean;
-  imageUrls?: Array<string | null | undefined>;
+  /**
+   * 하자 상세 항목과 **같은 순서·같은 개수**로 정렬된 사진 — `content.detail.items[i]`가
+   * `defectPhotos[i]`에 대응한다. 각 그룹은 그 사진의 하자를 모두 담되 해당 항목만 강조한다(#1333).
+   */
+  defectPhotos?: DefectPhotoGroup[];
 }
 
-function DefectImage({ src, alt }: { src?: string | null; alt: string }) {
-  const [failed, setFailed] = useState(false);
-
-  if (!src || failed) {
-    return (
-      <div className="flex h-full min-h-56 items-center justify-center bg-surface-sunken text-sm text-text-muted">
-        이미지 없음
-      </div>
-    );
-  }
-
+function DefectImagePlaceholder() {
   return (
-    <img
-      src={src}
-      alt={alt}
-      className="h-full min-h-56 w-full object-cover"
-      onError={() => setFailed(true)}
-    />
+    <div className="flex h-full min-h-56 items-center justify-center bg-surface-sunken text-sm text-text-muted">
+      이미지 없음
+    </div>
   );
 }
 
@@ -53,15 +45,15 @@ export function DetailSection({
   content,
   onChange,
   readOnly,
-  imageUrls = [],
+  defectPhotos = [],
 }: DetailSectionProps) {
   const [grade, setGrade] = useState<GradeFilter>('ALL');
   const [page, setPage] = useState(0);
-  const [visibleImageUrls, setVisibleImageUrls] = useState(imageUrls);
+  const [visiblePhotos, setVisiblePhotos] = useState(defectPhotos);
 
   useEffect(() => {
-    setVisibleImageUrls(imageUrls);
-  }, [imageUrls]);
+    setVisiblePhotos(defectPhotos);
+  }, [defectPhotos]);
 
   const items = content.detail.items;
   const indexedItems = items.map((item, index) => ({ item, index }));
@@ -196,11 +188,17 @@ export function DetailSection({
               className="rounded-lg border border-border bg-surface overflow-hidden"
             >
               <div className="grid gap-0 lg:grid-cols-[minmax(240px,325px)_minmax(200px,236px)_minmax(0,1fr)]">
-                <div className="relative min-h-72 overflow-hidden bg-surface-sunken">
-                  <DefectImage
-                    src={visibleImageUrls[index]}
-                    alt={`하자 ${index + 1} 현장 이미지`}
-                  />
+                <div className="relative flex min-h-72 items-center justify-center overflow-hidden bg-surface-sunken">
+                  {visiblePhotos[index] ? (
+                    <DefectPhoto
+                      group={visiblePhotos[index]}
+                      alt={`하자 ${index + 1} 현장 이미지`}
+                      imageClassName="max-h-[420px] w-auto max-w-full"
+                      fallback={<DefectImagePlaceholder />}
+                    />
+                  ) : (
+                    <DefectImagePlaceholder />
+                  )}
                   <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-surface/90 px-3 py-1.5 text-xs font-semibold tracking-wide text-heading backdrop-blur-[10px]">
                     <span
                       className={`h-2 w-2 rounded-full ${
