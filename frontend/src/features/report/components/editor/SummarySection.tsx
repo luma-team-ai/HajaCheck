@@ -23,9 +23,6 @@ export function SummarySection({ content, onChange, readOnly }: SummarySectionPr
           textareaClassName="min-h-20 border-0 bg-transparent p-0 shadow-none focus:border-transparent focus:ring-0 read-only:bg-transparent"
           onChange={(value) => updateSummary({ overall_opinion: value })}
         />
-        <div className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-point">
-          AI 요약 생성됨
-        </div>
       </div>
     </section>
   );
