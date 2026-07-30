@@ -62,6 +62,11 @@ export function FacilityInspectionComparePage() {
   const displayedBeforeCycle = beforeCycle ?? data.beforeCycle.cycle;
   const displayedAfterCycle = afterCycle ?? data.afterCycle.cycle;
 
+  // PR머신 P2(#1275) — "이전 회차"보다 이르거나 같은 회차를 "현재 회차"로 고르면
+  // before>=after가 되어 서버가 400 INVALID_INPUT을 던진다(자기 자신과 비교하거나 시간
+  // 역전 비교는 의미가 없다). 선택지 자체에서 그런 회차를 빼서 애초에 고를 수 없게 한다.
+  const afterCycleOptions = data.availableCycles.filter((option) => option.cycle > displayedBeforeCycle);
+
   // "현재 회차"만 선택 가능하므로, 사용자가 바꿀 때 "이전 회차"도 현재 표시값으로 함께
   // 명시해서 보낸다 — 그러지 않으면 beforeRound가 undefined로 남아 서버가 "둘 다 생략"으로
   // 오인해 방금 고른 afterCycle까지 자동 대체로 덮어써 버린다(#1157 이전 P1과 동일한 함정).
@@ -91,7 +96,7 @@ export function FacilityInspectionComparePage() {
             {/* "현재 회차"만 사용자가 다른 회차로 바꿔볼 수 있다(2026-07-30 사용자 결정). */}
             <InspectionCycleSelect
               label="현재 회차"
-              options={data.availableCycles}
+              options={afterCycleOptions}
               value={displayedAfterCycle}
               onChange={handleAfterCycleChange}
             />
