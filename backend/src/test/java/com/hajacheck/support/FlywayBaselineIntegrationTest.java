@@ -142,6 +142,9 @@ class FlywayBaselineIntegrationTest {
         // + V37(usage_counters.lock_version orphan 컬럼 제거, #1325 — prod 에만 남은 pre-Flyway
         //   Hibernate 잔재가 NOT NULL·DEFAULT 없음이라 쿼터 소비 경로의 INSERT 를 전부 막았다.
         //   빈 DB 경로에는 컬럼이 애초에 없으므로 IF EXISTS 가드로 no-op 이다).
+        // + V38(기존 기업 소급 자동승인 + 오너 멤버십 소급 발급, #1324 — 가입 즉시 자동승인 배선에 맞춰
+        //   PENDING_REVIEW 로 묶여 있던 기존 회사를 APPROVED·VERIFIED 로 올리고 누락된 오너 멤버십을
+        //   발급한다. 스키마 변경이 없는 데이터 전이라 빈 DB 경로에서는 companies 0행이라 no-op 이다).
         //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V32~V37(6개) = 37이다.
         assertThat(appliedMigrations).isEqualTo(37);
 

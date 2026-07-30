@@ -3,7 +3,6 @@ package com.hajacheck.auth.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -110,7 +109,7 @@ class CompanySignupServiceTest {
                         .isEqualTo(ErrorCode.AUTH_EMAIL_DUPLICATED));
 
         verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
-        verify(accountWriter, never()).createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean());
+        verify(accountWriter, never()).createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -137,7 +136,7 @@ class CompanySignupServiceTest {
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FILE_REQUIRED));
 
-        verify(accountWriter, never()).createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean());
+        verify(accountWriter, never()).createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -158,8 +157,9 @@ class CompanySignupServiceTest {
         when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
         when(fileStorage.store(any(), eq("business-registration"), any(), anyLong()))
                 .thenReturn(new StoredFile("/files/business-registration/x.png", "business-registration/x.png"));
-        Company company = companyStub(12L, CompanyStatus.PENDING_REVIEW);
-        when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+        // #1324 — writer 가 회사를 즉시 APPROVED 로 만들므로 응답 상태도 APPROVED 다.
+        Company company = companyStub(12L, CompanyStatus.APPROVED);
+        when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(company);
         when(tokenStore.issue(eq(TokenNamespaces.SIGNUP_STATUS), eq("12"), any(Duration.class)))
                 .thenReturn("signup-tok");
@@ -167,7 +167,7 @@ class CompanySignupServiceTest {
         CompanySignupResponse response = service.signup(request());
 
         assertThat(response.companyId()).isEqualTo(12L);
-        assertThat(response.status()).isEqualTo("PENDING_REVIEW");
+        assertThat(response.status()).isEqualTo("APPROVED");
         assertThat(response.signupToken()).isEqualTo("signup-tok");
         assertThat(response.maskedEmail()).isEqualTo("h***@c***.com");
 
@@ -179,7 +179,7 @@ class CompanySignupServiceTest {
         ArgumentCaptor<String> brnCap = ArgumentCaptor.forClass(String.class);
         verify(accountWriter).createAccount(emailCap.capture(), repCap.capture(), hashCap.capture(),
                 companyNameCap.capture(), brnCap.capture(), any(), any(), any(), any(),
-                eq("1.0"), eq("1.0"), any(), anyBoolean());
+                eq("1.0"), eq("1.0"), any());
         assertThat(emailCap.getValue()).isEqualTo("haja@check.com");
         assertThat(repCap.getValue()).isEqualTo("김민수");
         assertThat(hashCap.getValue()).isEqualTo("$2a$hashed");
@@ -196,7 +196,7 @@ class CompanySignupServiceTest {
         when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
         when(fileStorage.store(any(), eq("business-registration"), any(), anyLong()))
                 .thenReturn(new StoredFile("/files/business-registration/x.png", "business-registration/x.png"));
-        when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+        when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new DataIntegrityViolationException("users_email_key"));
 
         assertThatThrownBy(() -> service.signup(request()))
@@ -216,7 +216,7 @@ class CompanySignupServiceTest {
         when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
         when(fileStorage.store(any(), eq("business-registration"), any(), anyLong()))
                 .thenReturn(new StoredFile("/files/business-registration/x.png", "business-registration/x.png"));
-        when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+        when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new DataIntegrityViolationException("companies_business_registration_number_key"));
 
         assertThatThrownBy(() -> service.signup(request()))
@@ -240,7 +240,7 @@ class CompanySignupServiceTest {
 
         // 진위확인은 파일 저장·계정 생성보다 먼저라, 차단 시 파일을 저장하지 않는다(고아 파일 방지).
         verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
-        verify(accountWriter, never()).createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean());
+        verify(accountWriter, never()).createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -270,39 +270,40 @@ class CompanySignupServiceTest {
     }
 
     @Test
-    void signup_진위성공_계속사업자_businessVerified_true전달() {
+    void signup_진위성공_계속사업자_개업일자전달_가입성공() {
         when(userRepository.existsByEmail(anyString())).thenReturn(false);
         when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
         when(ntsBusinessVerifyClient.validate(anyString(), anyString(), any()))
                 .thenReturn(NtsVerificationOutcome.VERIFIED);
         when(fileStorage.store(any(), eq("business-registration"), any(), anyLong()))
                 .thenReturn(new StoredFile("/files/business-registration/x.png", "business-registration/x.png"));
-        Company company = companyStub(12L, CompanyStatus.PENDING_REVIEW);
-        when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+        Company company = companyStub(12L, CompanyStatus.APPROVED);
+        when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(company);
         when(tokenStore.issue(eq(TokenNamespaces.SIGNUP_STATUS), eq("12"), any(Duration.class)))
                 .thenReturn("signup-tok");
 
         service.signup(request());
 
-        // 진위확인 성공 시 writer 에 businessVerified=true, 개업일자가 전달돼야 한다.
-        ArgumentCaptor<Boolean> verifiedCap = ArgumentCaptor.forClass(Boolean.class);
+        // 개업일자(국세청 진위확인 파라미터, #596)는 writer 까지 그대로 전달돼야 한다.
+        // (#1324) 진위확인 결과를 writer 로 넘기는 businessVerified 인자는 제거됐다 — writer 가
+        // 결과와 무관하게 VERIFIED 로 승격하므로 그 인자는 죽은 값이 된다.
         ArgumentCaptor<LocalDate> startDateCap = ArgumentCaptor.forClass(LocalDate.class);
         verify(accountWriter).createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(),
-                eq("1.0"), eq("1.0"), startDateCap.capture(), verifiedCap.capture());
-        assertThat(verifiedCap.getValue()).isTrue();
+                eq("1.0"), eq("1.0"), startDateCap.capture());
         assertThat(startDateCap.getValue()).isEqualTo(LocalDate.of(2020, 1, 1));
     }
 
     @Test
-    void signup_failopen_스킵시_businessVerified_false전달_가입성공() {
-        // 기본 stub 이 SKIPPED(fail-open) — 진위확인이 스킵돼도 가입은 진행되고 businessVerified=false.
+    void signup_failopen_스킵시_가입성공_APPROVED응답() {
+        // 기본 stub 이 SKIPPED(fail-open) — 국세청 키 미설정·장애로 확인하지 못해도 가입은 진행되고,
+        // #1324 전면 자동승인이라 응답 상태도 APPROVED 다(승인 대기 단계 없음).
         when(userRepository.existsByEmail(anyString())).thenReturn(false);
         when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
         when(fileStorage.store(any(), eq("business-registration"), any(), anyLong()))
                 .thenReturn(new StoredFile("/files/business-registration/x.png", "business-registration/x.png"));
-        Company company = companyStub(12L, CompanyStatus.PENDING_REVIEW);
-        when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+        Company company = companyStub(12L, CompanyStatus.APPROVED);
+        when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(company);
         when(tokenStore.issue(eq(TokenNamespaces.SIGNUP_STATUS), eq("12"), any(Duration.class)))
                 .thenReturn("signup-tok");
@@ -310,9 +311,8 @@ class CompanySignupServiceTest {
         CompanySignupResponse response = service.signup(request());
 
         assertThat(response.companyId()).isEqualTo(12L);
-        ArgumentCaptor<Boolean> verifiedCap = ArgumentCaptor.forClass(Boolean.class);
+        assertThat(response.status()).isEqualTo("APPROVED");
         verify(accountWriter).createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(),
-                eq("1.0"), eq("1.0"), any(), verifiedCap.capture());
-        assertThat(verifiedCap.getValue()).isFalse();
+                eq("1.0"), eq("1.0"), any());
     }
 }

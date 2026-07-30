@@ -1,0 +1,375 @@
+package com.hajacheck.support;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+/**
+ * V37(#1324 기존 기업 소급 자동승인 + 오너 멤버십 소급 발급)의 <b>데이터 전이 범위</b>를 격리 검증한다.
+ *
+ * <p>V36 까지 마이그레이션한 뒤 여러 모양의 기존 데이터를 심고 V37 만 추가 적용해, 파괴적 UPDATE/INSERT 의
+ * WHERE 조건이 넓어지지 않는지(= 반려 이력·회수 멤버십·타 회사 포인터를 덮지 않는지)를 고정한다.
+ * 소급 승인은 인가 불변식을 데이터로 바꾸는 작업이라 대상 범위가 곧 보안 경계다.
+ *
+ * <p>빈 DB(신규 설치) 경로는 {@code FlywayBaselineIntegrationTest} 가, 캐노니컬 DDL 기존 DB 경로는
+ * {@code FlywayBaselineOnExistingDbIntegrationTest} 가 각각 V37 포함 전량 적용을 이미 검증한다
+ * (양쪽 모두 companies 0행이라 V37 은 no-op 으로 통과해야 한다 — 그 사실 자체도 여기서 함께 고정한다).
+ */
+@Testcontainers
+@Execution(ExecutionMode.SAME_THREAD)
+class V37AutoApproveExistingCompaniesMigrationTest {
+
+    private static final String MIGRATION_RESOURCE = "db/migration/V37__auto_approve_existing_companies.sql";
+
+    @Container
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16")
+            .withDatabaseName("hajacheck_v37_auto_approve")
+            .withUsername("postgres");
+
+    @BeforeEach
+    void resetDatabase() {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .cleanDisabled(false)
+                .load()
+                .clean();
+    }
+
+    @Test
+    void PENDING_REVIEW회사는_APPROVED_VERIFIED로_승격되고_오너멤버십이_발급된다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        long owner = insertUser(jdbc, "v37-pending-owner@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(jdbc, owner, "V37 승격회사", "3700000001", "PENDING_REVIEW", "PENDING");
+        jdbc.update("update users set company_id = ? where id = ?", company, owner);
+
+        // 전제 — 승격 전에는 스코프 3조건이 모두 비어 있다.
+        assertThat(statusOf(jdbc, company)).isEqualTo("PENDING_REVIEW");
+        assertThat(verificationOf(jdbc, company)).isEqualTo("PENDING");
+        assertThat(membershipCount(jdbc, company, owner)).isZero();
+
+        migrateTo("37");
+
+        assertThat(statusOf(jdbc, company)).isEqualTo("APPROVED");
+        assertThat(verificationOf(jdbc, company)).isEqualTo("VERIFIED");
+        assertThat(jdbc.queryForObject(
+                "select reviewed_at is not null from companies where id = ?", Boolean.class, company)).isTrue();
+        // 사람 심사자 없음 = 시스템 자동승인.
+        assertThat(jdbc.queryForObject(
+                "select reviewed_by from companies where id = ?", Long.class, company)).isNull();
+        assertThat(jdbc.queryForObject(
+                "select verified_at is not null from companies where id = ?", Boolean.class, company)).isTrue();
+
+        // 오너 멤버십 — 유효 APPROVED(approved_at 있음 · revoked_at 없음 · 만료 없음 · 초대자 없음).
+        assertThat(membershipCount(jdbc, company, owner)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                select status::text = 'APPROVED' and approved_at is not null
+                       and revoked_at is null and expires_at is null and invited_by is null
+                  from company_memberships where company_id = ? and user_id = ?
+                """, Boolean.class, company, owner)).isTrue();
+    }
+
+    @Test
+    void 소급승격후_스코프쿼리와_동일한3조건이_모두충족된다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        long owner = insertUser(jdbc, "v37-scope-owner@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(jdbc, owner, "V37 스코프회사", "3700000002", "PENDING_REVIEW", "PENDING");
+        jdbc.update("update users set company_id = ? where id = ?", company, owner);
+
+        migrateTo("37");
+
+        // existsEffectiveApprovedMembership(CompanyMembershipRepository) 와 같은 조건을 SQL 로 재현한다 —
+        // 개별 컬럼 단언이 통과해도 조합이 어긋나면 스코프는 여전히 닫힌다.
+        Boolean scopeOpen = jdbc.queryForObject("""
+                select exists (
+                    select 1
+                      from company_memberships m
+                      join users u on u.id = m.user_id
+                      join companies c on c.id = m.company_id
+                     where m.company_id = ? and m.user_id = ?
+                       and m.status = 'APPROVED'::company_membership_status_type
+                       and m.approved_at is not null
+                       and m.revoked_at is null
+                       and (m.expires_at is null or m.expires_at > now())
+                       and u.status = 'ACTIVE'::user_status_type
+                       and u.company_id = m.company_id
+                       and c.status = 'APPROVED'::company_status_type
+                       and c.verification_status = 'VERIFIED'::business_verification_status_type)
+                """, Boolean.class, company, owner);
+
+        assertThat(scopeOpen).isTrue();
+    }
+
+    @Test
+    void REJECTED회사는_소급승인대상이_아니다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        long owner = insertUser(jdbc, "v37-rejected-owner@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(jdbc, owner, "V37 반려회사", "3700000003", "REJECTED", "PENDING");
+        jdbc.update("update users set company_id = ? where id = ?", company, owner);
+
+        migrateTo("37");
+
+        // 명시적 반려 이력을 소급 승인이 덮으면 안 된다(가입 차단 우회).
+        assertThat(statusOf(jdbc, company)).isEqualTo("REJECTED");
+        assertThat(verificationOf(jdbc, company)).isEqualTo("PENDING");
+        assertThat(membershipCount(jdbc, company, owner)).isZero();
+    }
+
+    @Test
+    void 이미APPROVED_VERIFIED이고_멤버십이있는회사는_불변() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        long reviewer = insertUser(jdbc, "v37-reviewer@haja.test", "PLATFORM_ADMIN", "ACTIVE");
+        long owner = insertUser(jdbc, "v37-approved-owner@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(jdbc, owner, "V37 기승인회사", "3700000004", "APPROVED", "VERIFIED");
+        jdbc.update("""
+                update companies
+                   set reviewed_by = ?, reviewed_at = timestamptz '2026-01-02 03:04:05+09',
+                       verified_at = timestamptz '2026-01-01 00:00:00+09'
+                 where id = ?
+                """, reviewer, company);
+        jdbc.update("update users set company_id = ? where id = ?", company, owner);
+        insertMembership(jdbc, company, owner, "APPROVED");
+
+        migrateTo("37");
+
+        // 기존 심사 이력(reviewed_by/reviewed_at)과 최초 검증 시각(verified_at)을 덮지 않는다.
+        assertThat(jdbc.queryForObject(
+                "select reviewed_by from companies where id = ?", Long.class, company)).isEqualTo(reviewer);
+        assertThat(jdbc.queryForObject(
+                "select reviewed_at = timestamptz '2026-01-02 03:04:05+09' from companies where id = ?",
+                Boolean.class, company)).isTrue();
+        assertThat(jdbc.queryForObject(
+                "select verified_at = timestamptz '2026-01-01 00:00:00+09' from companies where id = ?",
+                Boolean.class, company)).isTrue();
+        // 중복 멤버십을 만들지 않는다.
+        assertThat(membershipCount(jdbc, company, owner)).isEqualTo(1);
+    }
+
+    @Test
+    void 회수된_기존멤버십은_소급승인되지않고_새행도_추가되지않는다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        long owner = insertUser(jdbc, "v37-revoked-owner@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(jdbc, owner, "V37 회수회사", "3700000005", "PENDING_REVIEW", "PENDING");
+        jdbc.update("update users set company_id = ? where id = ?", company, owner);
+        insertMembership(jdbc, company, owner, "REVOKED");
+
+        migrateTo("37");
+
+        // 회사는 승격되지만, 회수 이력은 보존한다(소급 대상은 "행 없음" 케이스 한정).
+        assertThat(statusOf(jdbc, company)).isEqualTo("APPROVED");
+        assertThat(membershipCount(jdbc, company, owner)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                select status::text from company_memberships where company_id = ? and user_id = ?
+                """, String.class, company, owner)).isEqualTo("REVOKED");
+    }
+
+    @Test
+    void 오너의_company_id가_null이면_채우고_다른회사를가리키면_덮지않는다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        // (a) company_id null 오너 → 보완 + 멤버십 발급.
+        long nullPointerOwner = insertUser(jdbc, "v37-null-ptr@haja.test", "ADMIN", "ACTIVE");
+        long companyA = insertCompany(
+                jdbc, nullPointerOwner, "V37 포인터없는회사", "3700000006", "PENDING_REVIEW", "PENDING");
+
+        // (b) 다른 회사를 가리키는 오너 → 포인터 유지 + 이 회사에는 멤버십을 만들지 않는다.
+        long strayOwner = insertUser(jdbc, "v37-stray-ptr@haja.test", "ADMIN", "ACTIVE");
+        long companyB = insertCompany(
+                jdbc, strayOwner, "V37 오너이탈회사", "3700000007", "PENDING_REVIEW", "PENDING");
+        long otherCompanyOwner = insertUser(jdbc, "v37-other-owner@haja.test", "ADMIN", "ACTIVE");
+        long otherCompany = insertCompany(
+                jdbc, otherCompanyOwner, "V37 타사", "3700000008", "APPROVED", "VERIFIED");
+        jdbc.update("update users set company_id = ? where id = ?", otherCompany, strayOwner);
+
+        migrateTo("37");
+
+        assertThat(jdbc.queryForObject(
+                "select company_id from users where id = ?", Long.class, nullPointerOwner))
+                .isEqualTo(companyA);
+        assertThat(membershipCount(jdbc, companyA, nullPointerOwner)).isEqualTo(1);
+
+        // 오너가 다른 회사를 가리키면 포인터를 되돌리지 않는다(더 큰 사고 방지).
+        assertThat(jdbc.queryForObject(
+                "select company_id from users where id = ?", Long.class, strayOwner))
+                .isEqualTo(otherCompany);
+        // 그 결과 이 회사에는 오너 멤버십이 생기지 않는다(잘못된 회사에 소속을 만들지 않는다).
+        assertThat(membershipCount(jdbc, companyB, strayOwner)).isZero();
+        // 회사 상태 승격 자체는 진행된다.
+        assertThat(statusOf(jdbc, companyB)).isEqualTo("APPROVED");
+    }
+
+    @Test
+    void 오너가_다른회사에_이미APPROVED멤버십이있으면_부분UNIQUE를_밟지않고_건너뛴다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        // uq_company_memberships_approved_user(V1): user_id 당 APPROVED 멤버십 1건.
+        long owner = insertUser(jdbc, "v37-dual-owner@haja.test", "ADMIN", "ACTIVE");
+        long otherCompanyOwner = insertUser(jdbc, "v37-dual-other@haja.test", "ADMIN", "ACTIVE");
+        long otherCompany = insertCompany(
+                jdbc, otherCompanyOwner, "V37 선점회사", "3700000009", "APPROVED", "VERIFIED");
+        insertMembership(jdbc, otherCompany, owner, "APPROVED");
+
+        long company = insertCompany(jdbc, owner, "V37 중복오너회사", "3700000010", "PENDING_REVIEW", "PENDING");
+        jdbc.update("update users set company_id = ? where id = ?", company, owner);
+
+        // 이 조건 누락 시 부분 UNIQUE 위반으로 마이그레이션 자체가 실패(= 기동 실패)한다.
+        migrateTo("37");
+
+        assertThat(statusOf(jdbc, company)).isEqualTo("APPROVED");
+        assertThat(membershipCount(jdbc, company, owner)).isZero();
+        assertThat(membershipCount(jdbc, otherCompany, owner)).isEqualTo(1);
+    }
+
+    @Test
+    void V37은_멱등하다_두번실행해도_결과가_같다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        long owner = insertUser(jdbc, "v37-idempotent@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(jdbc, owner, "V37 멱등회사", "3700000011", "PENDING_REVIEW", "PENDING");
+        jdbc.update("update users set company_id = ? where id = ?", company, owner);
+
+        migrateTo("37");
+        String firstSnapshot = snapshot(jdbc, company, owner);
+
+        // 재실행이 "정말로 실행됐다"는 것을 증명하기 위한 대조 행 — 1차 적용 이후에 심은 미승격 회사다.
+        // 재실행이 이 회사를 승격시키면 SQL 이 실제로 DB 에 닿았다는 뜻이고(공허한 통과 방지),
+        // 그러면서도 위 company 의 스냅샷이 그대로면 멱등이다.
+        long lateOwner = insertUser(jdbc, "v37-idempotent-late@haja.test", "ADMIN", "ACTIVE");
+        long lateCompany = insertCompany(
+                jdbc, lateOwner, "V37 후발회사", "3700000012", "PENDING_REVIEW", "PENDING");
+        jdbc.update("update users set company_id = ? where id = ?", lateCompany, lateOwner);
+
+        // Flyway 는 한 번만 실행하지만, prod baseline 스탬프 사고 이력(#531/#1311)이 있어 같은 SQL 을
+        // 다시 돌려도 안전한지 직접 확인한다 — 재실행이 reviewed_at 을 갱신하거나 멤버십을 중복 생성하면
+        // 여기서 스냅샷이 달라진다.
+        jdbc.execute(migrationSql());
+
+        // ① 이미 처리된 회사는 완전히 불변(멱등).
+        assertThat(snapshot(jdbc, company, owner)).isEqualTo(firstSnapshot);
+        assertThat(membershipCount(jdbc, company, owner)).isEqualTo(1);
+        // ② 대조 행은 승격됐다 = 재실행이 실제로 일어났다.
+        assertThat(statusOf(jdbc, lateCompany)).isEqualTo("APPROVED");
+        assertThat(verificationOf(jdbc, lateCompany)).isEqualTo("VERIFIED");
+        assertThat(membershipCount(jdbc, lateCompany, lateOwner)).isEqualTo(1);
+    }
+
+    @Test
+    void 회사가없는DB에서는_V37이_아무것도_하지않는다() {
+        // 신규 설치·CI 의 실제 모양(companies 0행) — no-op 으로 통과해야 한다.
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+        assertThat(jdbc.queryForObject("select count(*) from companies", Integer.class)).isZero();
+
+        migrateTo("37");
+
+        assertThat(jdbc.queryForObject("select count(*) from companies", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from company_memberships", Integer.class)).isZero();
+    }
+
+    // ── helpers ──────────────────────────────────────────────────────────────
+
+    private String snapshot(JdbcTemplate jdbc, long companyId, long ownerId) {
+        return jdbc.queryForObject("""
+                select concat_ws('|',
+                           c.status::text, c.verification_status::text,
+                           c.reviewed_at::text, coalesce(c.reviewed_by::text, 'null'), c.verified_at::text,
+                           u.company_id::text,
+                           (select concat_ws(',', count(*)::text, min(m.status::text), min(m.approved_at)::text)
+                              from company_memberships m
+                             where m.company_id = c.id and m.user_id = u.id))
+                  from companies c join users u on u.id = ?
+                 where c.id = ?
+                """, String.class, ownerId, companyId);
+    }
+
+    private long insertUser(JdbcTemplate jdbc, String email, String role, String status) {
+        return jdbc.queryForObject("""
+                insert into users (email, name, role, password_hash, status)
+                values (?, 'V37 사용자', ?::role_type, 'test-password-hash', ?::user_status_type)
+                returning id
+                """, Long.class, email, role, status);
+    }
+
+    private long insertCompany(JdbcTemplate jdbc, long ownerUserId, String name, String brn,
+                               String status, String verificationStatus) {
+        return jdbc.queryForObject("""
+                insert into companies (owner_user_id, name, business_registration_number,
+                                       representative_name, address, business_registration_file_url,
+                                       status, verification_status)
+                values (?, ?, ?, '대표자', '서울시', '/test/v37.png',
+                        ?::company_status_type, ?::business_verification_status_type)
+                returning id
+                """, Long.class, ownerUserId, name, brn, status, verificationStatus);
+    }
+
+    private void insertMembership(JdbcTemplate jdbc, long companyId, long userId, String status) {
+        jdbc.update("""
+                insert into company_memberships (company_id, user_id, status, approved_at, revoked_at)
+                values (?, ?, ?::company_membership_status_type,
+                        case when ? in ('APPROVED', 'REVOKED') then now() end,
+                        case when ? = 'REVOKED' then now() end)
+                """, companyId, userId, status, status, status);
+    }
+
+    private int membershipCount(JdbcTemplate jdbc, long companyId, long userId) {
+        return jdbc.queryForObject(
+                "select count(*) from company_memberships where company_id = ? and user_id = ?",
+                Integer.class, companyId, userId);
+    }
+
+    private String statusOf(JdbcTemplate jdbc, long companyId) {
+        return jdbc.queryForObject("select status::text from companies where id = ?", String.class, companyId);
+    }
+
+    private String verificationOf(JdbcTemplate jdbc, long companyId) {
+        return jdbc.queryForObject(
+                "select verification_status::text from companies where id = ?", String.class, companyId);
+    }
+
+    private String migrationSql() {
+        try (var in = new ClassPathResource(MIGRATION_RESOURCE).getInputStream()) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(
+                    "V37 마이그레이션 리소스를 읽지 못했다: " + MIGRATION_RESOURCE, e);
+        }
+    }
+
+    private void migrateTo(String target) {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .target(target)
+                .load()
+                .migrate();
+    }
+
+    private JdbcTemplate jdbc() {
+        return new JdbcTemplate(new DriverManagerDataSource(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()));
+    }
+}
