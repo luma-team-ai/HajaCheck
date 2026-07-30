@@ -189,6 +189,57 @@ class CompanySignupServiceTest {
     }
 
     @Test
+    void signup_진위확인결과가_ocrRaw에_담겨_writer로_전달된다() {
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
+        when(ntsBusinessVerifyClient.validate(anyString(), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.VERIFIED);
+        when(fileStorage.store(any(), eq("business-registration"), any(), anyLong()))
+                .thenReturn(new StoredFile("/files/business-registration/x.png", "business-registration/x.png"));
+        Company company = companyStub(12L, CompanyStatus.APPROVED);
+        when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(company);
+        when(tokenStore.issue(eq(TokenNamespaces.SIGNUP_STATUS), eq("12"), any(Duration.class)))
+                .thenReturn("signup-tok");
+
+        service.signup(request());
+
+        // #1324 P1 — 자동승인은 진위확인 결과와 무관하게 VERIFIED 를 만들므로, 결과 자체를 감사·재처리용
+        // jsonb(business_registration_ocr_raw)에 영속해야 사후에 "검증 없이 승인된 회사"를 집계할 수 있다.
+        ArgumentCaptor<String> ocrRawCap = ArgumentCaptor.forClass(String.class);
+        verify(accountWriter).createAccount(any(), any(), any(), any(), any(), any(), any(), any(),
+                ocrRawCap.capture(), eq("1.0"), eq("1.0"), any());
+        assertThat(ocrRawCap.getValue())
+                .contains("\"ntsOutcome\":\"VERIFIED\"")
+                .contains("\"source\":\"MANUAL_INPUT\"")
+                .contains("\"ntsCheckedAt\"");
+        // 개인정보 금지 — enum 라벨과 타임스탬프만.
+        assertThat(ocrRawCap.getValue())
+                .doesNotContain("1234567890").doesNotContain("김민수").doesNotContain("haja@check.com");
+    }
+
+    @Test
+    void signup_failopen_스킵도_ocrRaw에_SKIPPED로_기록된다() {
+        // 기본 stub 이 SKIPPED — 이 값이 남아야 "국세청이 확인해 준 회사"와 구분된다.
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
+        when(fileStorage.store(any(), eq("business-registration"), any(), anyLong()))
+                .thenReturn(new StoredFile("/files/business-registration/x.png", "business-registration/x.png"));
+        Company company = companyStub(12L, CompanyStatus.APPROVED);
+        when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(company);
+        when(tokenStore.issue(eq(TokenNamespaces.SIGNUP_STATUS), eq("12"), any(Duration.class)))
+                .thenReturn("signup-tok");
+
+        service.signup(request());
+
+        ArgumentCaptor<String> ocrRawCap = ArgumentCaptor.forClass(String.class);
+        verify(accountWriter).createAccount(any(), any(), any(), any(), any(), any(), any(), any(),
+                ocrRawCap.capture(), eq("1.0"), eq("1.0"), any());
+        assertThat(ocrRawCap.getValue()).contains("\"ntsOutcome\":\"SKIPPED\"");
+    }
+
+    @Test
     void signup_저장중경합_이메일unique위반_보상삭제후_409EMAIL() {
         when(userRepository.existsByEmail("haja@check.com"))
                 .thenReturn(false)   // 선검사 통과

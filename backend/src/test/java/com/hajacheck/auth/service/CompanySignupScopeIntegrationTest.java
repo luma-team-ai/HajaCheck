@@ -24,6 +24,8 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.support.PostgresTestSupport;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.time.Instant;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
@@ -68,6 +70,8 @@ class CompanySignupScopeIntegrationTest extends PostgresTestSupport {
     private FacilityRepository facilityRepository;
     @Autowired
     private InspectionRepository inspectionRepository;
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private CompanySignupResponse signup(String email, String brn, String companyName) {
         MockMultipartFile file = new MockMultipartFile(
@@ -142,6 +146,66 @@ class CompanySignupScopeIntegrationTest extends PostgresTestSupport {
                 .build());
 
         assertThat(inspection.getId()).isNotNull();
+    }
+
+    @Test
+    void 가입시_국세청진위확인_결과가_ocrRaw에_영속된다() {
+        CompanySignupResponse response = signup("scope-e@haja.test", "666-66-66666", "(주)스코프E");
+        Company company = companyRepository.findById(response.companyId()).orElseThrow();
+
+        // 자동승인은 진위확인 결과와 무관하게 VERIFIED 를 만든다 → companies 행만으로는 "국세청이 확인해
+        // 준 회사"와 "확인하지 못한 회사"를 구분할 수 없다. provenance 를 jsonb 에 남겨야 사후 집계가 된다.
+        // 테스트 프로파일은 국세청 키가 없어 SKIPPED(fail-open) 가 나온다.
+        assertThat(company.getBusinessRegistrationOcrRaw())
+                .contains("\"ntsOutcome\":\"SKIPPED\"")
+                .contains("\"source\":\"MANUAL_INPUT\"")
+                .contains("\"ntsCheckedAt\"");
+        // 개인정보는 절대 남기지 않는다(사업자번호·대표자명·이메일).
+        assertThat(company.getBusinessRegistrationOcrRaw())
+                .doesNotContain("666").doesNotContain("김민수").doesNotContain("scope-e@haja.test");
+    }
+
+    @Test
+    void 운영집계쿼리로_검증없이승인된_회사를_셀_수_있다() {
+        signup("scope-f@haja.test", "777-77-77777", "(주)스코프F");
+
+        // #1324 이후 "검증 없이 승인된 회사"를 찾는 단일 쿼리(신규 가입 + V38 소급분 공통 키).
+        // 테스트 프로파일은 전건 SKIPPED 이므로 방금 가입한 회사가 반드시 잡혀야 한다.
+        Long unverified = (Long) entityManager.createNativeQuery("""
+                select count(*) from companies
+                 where business_registration_ocr_raw->>'ntsOutcome' is distinct from 'VERIFIED'
+                """).getSingleResult();
+
+        assertThat(unverified).isPositive();
+    }
+
+    /**
+     * 음성 대조군(cross-tenant) — 자동승인으로 승인된 회사가 늘어난 만큼, 회사 스코프 가드가 <b>다른
+     * 회사</b>에 대해서는 여전히 닫혀 있어야 한다. 이 단언이 없으면 "모두 APPROVED" 상태에서 스코프
+     * 가드가 사실상 무력화되는 회귀(IDOR)를 놓친다.
+     */
+    @Test
+    void 다른회사_오너는_남의회사_스코프에_접근할수없다() {
+        CompanySignupResponse a = signup("tenant-a@haja.test", "888-88-88888", "(주)테넌트A");
+        CompanySignupResponse b = signup("tenant-b@haja.test", "999-99-99999", "(주)테넌트B");
+        Company companyA = companyRepository.findById(a.companyId()).orElseThrow();
+        Company companyB = companyRepository.findById(b.companyId()).orElseThrow();
+
+        // 자기 회사는 열린다(전제 — 두 회사 모두 정상 자동승인됐다).
+        assertThatCode(() -> companyScopeGuard
+                .requireEffectiveMembership(companyA.getOwnerUserId(), companyA.getId()))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> companyScopeGuard
+                .requireEffectiveMembership(companyB.getOwnerUserId(), companyB.getId()))
+                .doesNotThrowAnyException();
+
+        // 교차 접근은 양방향 모두 차단된다.
+        assertThatThrownBy(() -> companyScopeGuard
+                .requireEffectiveMembership(companyA.getOwnerUserId(), companyB.getId()))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> companyScopeGuard
+                .requireEffectiveMembership(companyB.getOwnerUserId(), companyA.getId()))
+                .isInstanceOf(BusinessException.class);
     }
 
     /**

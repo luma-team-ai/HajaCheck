@@ -53,9 +53,16 @@ class V38AutoApproveExistingCompaniesMigrationTest {
         migrateTo("36");
         JdbcTemplate jdbc = jdbc();
 
-        long owner = insertUser(jdbc, "v37-pending-owner@haja.test", "ADMIN", "ACTIVE");
+        long owner = insertUser(jdbc, "v38-pending-owner@haja.test", "ADMIN", "ACTIVE");
         long company = insertCompany(jdbc, owner, "V38 승격회사", "3700000001", "PENDING_REVIEW", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", company, owner);
+
+        // reviewed_by 에 일부러 사람 심사자를 심어 둔다 — 픽스처가 null 인 채로 두면 "마이그레이션 후
+        // null" 단언이 V38 유무와 무관하게 통과하는 공허한 단언이 된다(PR 리뷰 P3).
+        long staleReviewer = insertUser(jdbc, "v38-stale-reviewer@haja.test", "PLATFORM_ADMIN", "ACTIVE");
+        jdbc.update("update companies set reviewed_by = ? where id = ?", staleReviewer, company);
+        assertThat(jdbc.queryForObject(
+                "select reviewed_by from companies where id = ?", Long.class, company)).isEqualTo(staleReviewer);
 
         // 전제 — 승격 전에는 스코프 3조건이 모두 비어 있다.
         assertThat(statusOf(jdbc, company)).isEqualTo("PENDING_REVIEW");
@@ -68,7 +75,7 @@ class V38AutoApproveExistingCompaniesMigrationTest {
         assertThat(verificationOf(jdbc, company)).isEqualTo("VERIFIED");
         assertThat(jdbc.queryForObject(
                 "select reviewed_at is not null from companies where id = ?", Boolean.class, company)).isTrue();
-        // 사람 심사자 없음 = 시스템 자동승인.
+        // 사람 심사자 없음 = 시스템 자동승인 → 심어둔 reviewed_by 가 null 로 덮여야 한다.
         assertThat(jdbc.queryForObject(
                 "select reviewed_by from companies where id = ?", Long.class, company)).isNull();
         assertThat(jdbc.queryForObject(
@@ -88,7 +95,7 @@ class V38AutoApproveExistingCompaniesMigrationTest {
         migrateTo("36");
         JdbcTemplate jdbc = jdbc();
 
-        long owner = insertUser(jdbc, "v37-scope-owner@haja.test", "ADMIN", "ACTIVE");
+        long owner = insertUser(jdbc, "v38-scope-owner@haja.test", "ADMIN", "ACTIVE");
         long company = insertCompany(jdbc, owner, "V38 스코프회사", "3700000002", "PENDING_REVIEW", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", company, owner);
 
@@ -117,11 +124,124 @@ class V38AutoApproveExistingCompaniesMigrationTest {
     }
 
     @Test
+    void 국세청확정불량_FAILED회사는_승격되지않고_오너멤버십도_발급되지않는다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        // (PENDING_REVIEW, FAILED) — 가입 시점에는 만들어지지 않는 조합이다. #888 재검증 배치
+        // (PendingBusinessReverifyScheduler)가 국세청으로부터 미등록/불일치/휴업/폐업을 **확정**
+        // 응답받았을 때 markBusinessVerificationFailed() 로 찍는다(status 는 PENDING_REVIEW 로 남는다).
+        // 이미 탐지·격리된 불량 사업자를 소급 승인이 되살리면 안 된다.
+        long owner = insertUser(jdbc, "v38-failed-owner@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(jdbc, owner, "V38 폐업회사", "3800000001", "PENDING_REVIEW", "FAILED");
+        jdbc.update("update users set company_id = ? where id = ?", company, owner);
+
+        migrateTo("38");
+
+        assertThat(statusOf(jdbc, company)).isEqualTo("PENDING_REVIEW");
+        assertThat(verificationOf(jdbc, company)).isEqualTo("FAILED");
+        assertThat(membershipCount(jdbc, company, owner)).isZero();
+    }
+
+    @Test
+    void 이미APPROVED인데_이후FAILED확정된회사는_VERIFIED로_올라가지않는다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        // 문장(1)만 FAILED 를 제외하면 이 행이 그대로 문장(2)로 흘러든다 — 그래서 문장(2)의 조건을
+        // `<> VERIFIED` 가 아니라 `= PENDING` 으로 좁혔다. 그 계약을 여기서 고정한다.
+        long owner = insertUser(jdbc, "v38-approved-failed@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(jdbc, owner, "V38 사후폐업회사", "3800000002", "APPROVED", "FAILED");
+        jdbc.update("update users set company_id = ? where id = ?", company, owner);
+
+        migrateTo("38");
+
+        assertThat(verificationOf(jdbc, company)).isEqualTo("FAILED");
+        // 스코프의 세 번째 조건도 열어주지 않는다(나중에 verification 을 손대면 즉시 열리는 지뢰 방지).
+        assertThat(membershipCount(jdbc, company, owner)).isZero();
+    }
+
+    @Test
+    void FAILED회사_오너의_company_id포인터는_새로_배선되지_않는다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        long owner = insertUser(jdbc, "v38-failed-ptr@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(jdbc, owner, "V38 폐업포인터회사", "3800000003", "APPROVED", "FAILED");
+        // company_id 는 null 인 상태로 둔다 — 문장(3)이 이 회사를 대상으로 삼으면 채워질 것이다.
+
+        migrateTo("38");
+
+        assertThat(jdbc.queryForObject(
+                "select company_id from users where id = ?", Long.class, owner)).isNull();
+        assertThat(membershipCount(jdbc, company, owner)).isZero();
+    }
+
+    @Test
+    void 소급승격된회사는_검증없이승인됨을_ocrRaw에_남기고_기존키를_보존한다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        long owner = insertUser(jdbc, "v38-provenance@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(
+                jdbc, owner, "V38 출처회사", "3800000004", "PENDING_REVIEW", "PENDING");
+        jdbc.update("update users set company_id = ? where id = ?", company, owner);
+        jdbc.update("update companies set business_registration_ocr_raw = ?::jsonb where id = ?",
+                "{\"source\":\"MANUAL_INPUT\"}", company);
+
+        // ocr_raw 가 null 인 행도 실제로 있다(컬럼 nullable) — coalesce 분기도 함께 검증한다.
+        long nullRawOwner = insertUser(jdbc, "v38-provenance-null@haja.test", "ADMIN", "ACTIVE");
+        long nullRawCompany = insertCompany(
+                jdbc, nullRawOwner, "V38 출처없는회사", "3800000005", "PENDING_REVIEW", "PENDING");
+        jdbc.update("update users set company_id = ? where id = ?", nullRawCompany, nullRawOwner);
+        jdbc.update("update companies set business_registration_ocr_raw = null where id = ?", nullRawCompany);
+
+        migrateTo("38");
+
+        // 소급분은 "국세청이 확인해 준 값이 아니다"라는 표식을 남긴다.
+        assertThat(ocrRawField(jdbc, company, "ntsOutcome")).isEqualTo("UNKNOWN_BACKFILL");
+        assertThat(ocrRawField(jdbc, company, "ntsBackfilledAt")).isNotBlank();
+        // 기존 키는 병합으로 보존한다(|| 는 통째 교체가 아니라 키 병합).
+        assertThat(ocrRawField(jdbc, company, "source")).isEqualTo("MANUAL_INPUT");
+        // null 컬럼도 '{}' 로 깔고 병합돼 표식이 남는다(null || x = null 함정 회피).
+        assertThat(ocrRawField(jdbc, nullRawCompany, "ntsOutcome")).isEqualTo("UNKNOWN_BACKFILL");
+
+        // 운영 집계 쿼리가 실제로 동작하는지 — "검증 없이 승인된 회사"를 한 번에 셀 수 있어야 한다.
+        Integer unverified = jdbc.queryForObject("""
+                select count(*) from companies
+                 where business_registration_ocr_raw->>'ntsOutcome' is distinct from 'VERIFIED'
+                """, Integer.class);
+        assertThat(unverified).isEqualTo(2);
+    }
+
+    @Test
+    void 이미VERIFIED인_회사의_ocrRaw는_소급표식으로_오염되지_않는다() {
+        migrateTo("36");
+        JdbcTemplate jdbc = jdbc();
+
+        // 국세청이 실제로 확인해 준 회사(가입 시 VERIFIED)는 문장(2) 대상이 아니다 →
+        // provenance 를 UNKNOWN_BACKFILL 로 덮어써 "진짜 검증"을 지우면 안 된다.
+        long owner = insertUser(jdbc, "v38-real-verified@haja.test", "ADMIN", "ACTIVE");
+        long company = insertCompany(
+                jdbc, owner, "V38 진짜검증회사", "3800000006", "PENDING_REVIEW", "VERIFIED");
+        jdbc.update("update users set company_id = ? where id = ?", company, owner);
+        jdbc.update("update companies set business_registration_ocr_raw = ?::jsonb where id = ?",
+                "{\"source\":\"MANUAL_INPUT\",\"ntsOutcome\":\"VERIFIED\"}", company);
+
+        migrateTo("38");
+
+        // 승인은 되지만(스코프는 열려야 한다) provenance 는 그대로다.
+        assertThat(statusOf(jdbc, company)).isEqualTo("APPROVED");
+        assertThat(membershipCount(jdbc, company, owner)).isEqualTo(1);
+        assertThat(ocrRawField(jdbc, company, "ntsOutcome")).isEqualTo("VERIFIED");
+    }
+
+    @Test
     void REJECTED회사는_소급승인대상이_아니다() {
         migrateTo("36");
         JdbcTemplate jdbc = jdbc();
 
-        long owner = insertUser(jdbc, "v37-rejected-owner@haja.test", "ADMIN", "ACTIVE");
+        long owner = insertUser(jdbc, "v38-rejected-owner@haja.test", "ADMIN", "ACTIVE");
         long company = insertCompany(jdbc, owner, "V38 반려회사", "3700000003", "REJECTED", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", company, owner);
 
@@ -138,8 +258,8 @@ class V38AutoApproveExistingCompaniesMigrationTest {
         migrateTo("36");
         JdbcTemplate jdbc = jdbc();
 
-        long reviewer = insertUser(jdbc, "v37-reviewer@haja.test", "PLATFORM_ADMIN", "ACTIVE");
-        long owner = insertUser(jdbc, "v37-approved-owner@haja.test", "ADMIN", "ACTIVE");
+        long reviewer = insertUser(jdbc, "v38-reviewer@haja.test", "PLATFORM_ADMIN", "ACTIVE");
+        long owner = insertUser(jdbc, "v38-approved-owner@haja.test", "ADMIN", "ACTIVE");
         long company = insertCompany(jdbc, owner, "V38 기승인회사", "3700000004", "APPROVED", "VERIFIED");
         jdbc.update("""
                 update companies
@@ -170,7 +290,7 @@ class V38AutoApproveExistingCompaniesMigrationTest {
         migrateTo("36");
         JdbcTemplate jdbc = jdbc();
 
-        long owner = insertUser(jdbc, "v37-revoked-owner@haja.test", "ADMIN", "ACTIVE");
+        long owner = insertUser(jdbc, "v38-revoked-owner@haja.test", "ADMIN", "ACTIVE");
         long company = insertCompany(jdbc, owner, "V38 회수회사", "3700000005", "PENDING_REVIEW", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", company, owner);
         insertMembership(jdbc, company, owner, "REVOKED");
@@ -191,15 +311,15 @@ class V38AutoApproveExistingCompaniesMigrationTest {
         JdbcTemplate jdbc = jdbc();
 
         // (a) company_id null 오너 → 보완 + 멤버십 발급.
-        long nullPointerOwner = insertUser(jdbc, "v37-null-ptr@haja.test", "ADMIN", "ACTIVE");
+        long nullPointerOwner = insertUser(jdbc, "v38-null-ptr@haja.test", "ADMIN", "ACTIVE");
         long companyA = insertCompany(
                 jdbc, nullPointerOwner, "V38 포인터없는회사", "3700000006", "PENDING_REVIEW", "PENDING");
 
         // (b) 다른 회사를 가리키는 오너 → 포인터 유지 + 이 회사에는 멤버십을 만들지 않는다.
-        long strayOwner = insertUser(jdbc, "v37-stray-ptr@haja.test", "ADMIN", "ACTIVE");
+        long strayOwner = insertUser(jdbc, "v38-stray-ptr@haja.test", "ADMIN", "ACTIVE");
         long companyB = insertCompany(
                 jdbc, strayOwner, "V38 오너이탈회사", "3700000007", "PENDING_REVIEW", "PENDING");
-        long otherCompanyOwner = insertUser(jdbc, "v37-other-owner@haja.test", "ADMIN", "ACTIVE");
+        long otherCompanyOwner = insertUser(jdbc, "v38-other-owner@haja.test", "ADMIN", "ACTIVE");
         long otherCompany = insertCompany(
                 jdbc, otherCompanyOwner, "V38 타사", "3700000008", "APPROVED", "VERIFIED");
         jdbc.update("update users set company_id = ? where id = ?", otherCompany, strayOwner);
@@ -227,8 +347,8 @@ class V38AutoApproveExistingCompaniesMigrationTest {
         JdbcTemplate jdbc = jdbc();
 
         // uq_company_memberships_approved_user(V1): user_id 당 APPROVED 멤버십 1건.
-        long owner = insertUser(jdbc, "v37-dual-owner@haja.test", "ADMIN", "ACTIVE");
-        long otherCompanyOwner = insertUser(jdbc, "v37-dual-other@haja.test", "ADMIN", "ACTIVE");
+        long owner = insertUser(jdbc, "v38-dual-owner@haja.test", "ADMIN", "ACTIVE");
+        long otherCompanyOwner = insertUser(jdbc, "v38-dual-other@haja.test", "ADMIN", "ACTIVE");
         long otherCompany = insertCompany(
                 jdbc, otherCompanyOwner, "V38 선점회사", "3700000009", "APPROVED", "VERIFIED");
         insertMembership(jdbc, otherCompany, owner, "APPROVED");
@@ -249,7 +369,7 @@ class V38AutoApproveExistingCompaniesMigrationTest {
         migrateTo("36");
         JdbcTemplate jdbc = jdbc();
 
-        long owner = insertUser(jdbc, "v37-idempotent@haja.test", "ADMIN", "ACTIVE");
+        long owner = insertUser(jdbc, "v38-idempotent@haja.test", "ADMIN", "ACTIVE");
         long company = insertCompany(jdbc, owner, "V38 멱등회사", "3700000011", "PENDING_REVIEW", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", company, owner);
 
@@ -259,7 +379,7 @@ class V38AutoApproveExistingCompaniesMigrationTest {
         // 재실행이 "정말로 실행됐다"는 것을 증명하기 위한 대조 행 — 1차 적용 이후에 심은 미승격 회사다.
         // 재실행이 이 회사를 승격시키면 SQL 이 실제로 DB 에 닿았다는 뜻이고(공허한 통과 방지),
         // 그러면서도 위 company 의 스냅샷이 그대로면 멱등이다.
-        long lateOwner = insertUser(jdbc, "v37-idempotent-late@haja.test", "ADMIN", "ACTIVE");
+        long lateOwner = insertUser(jdbc, "v38-idempotent-late@haja.test", "ADMIN", "ACTIVE");
         long lateCompany = insertCompany(
                 jdbc, lateOwner, "V38 후발회사", "3700000012", "PENDING_REVIEW", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", lateCompany, lateOwner);
@@ -321,7 +441,7 @@ class V38AutoApproveExistingCompaniesMigrationTest {
                 insert into companies (owner_user_id, name, business_registration_number,
                                        representative_name, address, business_registration_file_url,
                                        status, verification_status)
-                values (?, ?, ?, '대표자', '서울시', '/test/v37.png',
+                values (?, ?, ?, '대표자', '서울시', '/test/v38.png',
                         ?::company_status_type, ?::business_verification_status_type)
                 returning id
                 """, Long.class, ownerUserId, name, brn, status, verificationStatus);
@@ -340,6 +460,12 @@ class V38AutoApproveExistingCompaniesMigrationTest {
         return jdbc.queryForObject(
                 "select count(*) from company_memberships where company_id = ? and user_id = ?",
                 Integer.class, companyId, userId);
+    }
+
+    private String ocrRawField(JdbcTemplate jdbc, long companyId, String key) {
+        return jdbc.queryForObject(
+                "select business_registration_ocr_raw->>? from companies where id = ?",
+                String.class, key, companyId);
     }
 
     private String statusOf(JdbcTemplate jdbc, long companyId) {

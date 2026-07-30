@@ -1,5 +1,8 @@
 package com.hajacheck.auth.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hajacheck.auth.config.AuthProperties;
 import com.hajacheck.auth.config.FileStorageProperties;
 import com.hajacheck.auth.config.PolicyProperties;
@@ -17,6 +20,7 @@ import com.hajacheck.bizverify.service.NtsBusinessVerifyClient;
 import com.hajacheck.bizverify.service.NtsVerificationOutcome;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -39,8 +43,17 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class CompanySignupService {
 
-    private static final String OCR_STUB_RAW = "{\"source\":\"MANUAL_INPUT\"}";
     private static final String FILE_CATEGORY = "business-registration";
+
+    /**
+     * jsonb 조립 전용 매퍼 — 빈으로 주입하지 않고 클래스 상수로 둔다. 애플리케이션 전역 ObjectMapper 는
+     * 직렬화 설정이 바뀔 수 있는데, 여기서 만드는 값은 DB에 그대로 적재되는 <b>영속 감사 기록</b>이라
+     * 전역 설정 변화에 흔들리면 안 된다(그리고 생성자 주입을 늘리지 않아 단위 테스트가 영향받지 않는다).
+     */
+    private static final ObjectMapper OCR_RAW_MAPPER = new ObjectMapper();
+
+    /** OCR 원본 stub — 실제 OCR 연동 전까지 "수동 입력"임을 나타내는 출처 표기(V1 컬럼 주석 참조). */
+    private static final String OCR_SOURCE_MANUAL_INPUT = "MANUAL_INPUT";
 
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
@@ -92,11 +105,20 @@ public class CompanySignupService {
             company = accountWriter.createAccount(
                     email, request.representativeName(), passwordHash,
                     request.companyName(), normalizedBrn, request.address(), request.addressDetail(),
-                    stored.url(), OCR_STUB_RAW,
+                    stored.url(), buildOcrRaw(verification),
                     policyProperties.getTermsVersion(), policyProperties.getPrivacyVersion(),
                     request.businessStartDate());
         } catch (DataIntegrityViolationException e) {
             // 선검사와 저장 사이의 경합(동시 가입) — unique 위반. 파일 정리 후 email/brn 구분해 409.
+            //
+            // 아래 분기는 "이메일 아니면 사업자번호"로 단정하는 휴리스틱이라 오분류가 가능하다 —
+            // #1324 로 오너 멤버십 INSERT 가 추가되면서 company_memberships 제약 위반
+            // (uk_company_memberships_company_user·uq_company_memberships_approved_user)도 같은
+            // catch 로 들어올 수 있게 됐다. 원인 추적 수단을 남긴다.
+            // ⚠️ 예외 메시지 원문에는 위반 행의 값(이메일·사업자번호)이 섞여 나올 수 있으므로
+            //    원문을 찍지 않고 예외 클래스명만 남긴다(개인정보 로그 유출 방지).
+            log.warn("기업 가입 원자저장 무결성 위반 — exception={} (이메일/사업자번호 중복으로 매핑 시도)",
+                    e.getClass().getSimpleName());
             fileStorage.delete(stored.storageKey());
             if (userRepository.existsByEmail(email)) {
                 throw new BusinessException(ErrorCode.AUTH_EMAIL_DUPLICATED);
@@ -108,9 +130,10 @@ public class CompanySignupService {
             throw e;
         }
 
-        // 감사 로그(#1324) — 자동승인은 사람 심사자가 없어(companies.reviewed_by=null) "왜 승인됐는지"가
-        // DB 에 남지 않는다. 진위확인 결과를 여기 남겨 SKIPPED(국세청 키 미설정·장애 fail-open)로 승인된
-        // 건을 사후에 구분할 수 있게 한다. 개인정보(이메일·사업자번호·대표자명)는 남기지 않는다.
+        // 운영 가시성용 로그(#1324). 감사의 **진실 소스는 로그가 아니라 DB**다 —
+        // companies.business_registration_ocr_raw.ntsOutcome 에 같은 값이 영속된다(buildOcrRaw).
+        // 컨테이너 로그는 회전·유실되므로 여기에만 의존하면 배포 후 재구성이 불가능하다.
+        // 개인정보(이메일·사업자번호·대표자명)는 남기지 않는다.
         log.info("기업 가입 자동승인(#1324) — companyId={}, 국세청 진위확인 결과={}",
                 company.getId(), verification);
 
@@ -142,6 +165,38 @@ public class CompanySignupService {
         Company company = companyRepository.findById(Long.valueOf(companyId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_SIGNUP_TOKEN_INVALID));
         return SignupStatusResponse.from(company);
+    }
+
+    /**
+     * companies.business_registration_ocr_raw(jsonb, "감사·재처리용")에 적재할 값을 조립한다(#1324 P1).
+     *
+     * <p><b>왜 필요한가</b>: 자동승인은 진위확인 결과와 무관하게 회사를 VERIFIED 로 만든다. 그러면
+     * 국세청이 실제로 확인해 준 회사({@code VERIFIED})와 키 미설정·장애로 확인하지 못한 회사
+     * ({@code SKIPPED})의 companies 행이 완전히 같아져, 배포 후에는 "검증 없이 승인된 회사"를
+     * 재구성할 방법이 사라진다. 그 provenance 를 스키마 변경 없이 기존 jsonb 컬럼에 남긴다.
+     *
+     * <p>집계 쿼리(신규 가입 + V38 소급분을 한 번에):
+     * {@code select count(*) from companies
+     *        where business_registration_ocr_raw->>'ntsOutcome' is distinct from 'VERIFIED'}
+     *
+     * <p>⚠️ 개인정보 금지 — enum 라벨과 타임스탬프만 남긴다(사업자번호·대표자명·이메일 절대 금지).
+     * 문자열을 손으로 이어붙이지 않고 Jackson 으로 직렬화해 이스케이프를 보장한다(jsonb 는 문법이
+     * 깨지면 flush 시점 원시 SQL 예외로 샌다 — {@code JsonValidator} 가 그 앞단을 지킨다).
+     */
+    private static String buildOcrRaw(NtsVerificationOutcome verification) {
+        ObjectNode node = OCR_RAW_MAPPER.createObjectNode();
+        node.put("source", OCR_SOURCE_MANUAL_INPUT);
+        node.put("ntsOutcome", verification.name());
+        node.put("ntsCheckedAt", Instant.now().toString());
+        try {
+            return OCR_RAW_MAPPER.writeValueAsString(node);
+        } catch (JsonProcessingException e) {
+            // 고정 스키마(문자열 3개)라 실패할 수 없지만, 실패하더라도 가입 자체를 막지는 않는다 —
+            // provenance 기록 실패가 회원가입 장애로 번지면 안 된다. 최소 stub 으로 낙하한다.
+            log.warn("OCR 원본 provenance 직렬화 실패 — stub 으로 대체. exception={}",
+                    e.getClass().getSimpleName());
+            return "{\"source\":\"" + OCR_SOURCE_MANUAL_INPUT + "\"}";
+        }
     }
 
     /**
