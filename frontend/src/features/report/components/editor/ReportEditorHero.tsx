@@ -23,6 +23,9 @@ interface ReportEditorHeroProps {
   /** "PDF 미리보기" 클릭 핸들러 — 미저장 변경분이 있으면 임시저장 후 이동하는 가드는
    * 부모(ReportGeneratePage)가 처리한다(#1338). */
   onPreviewClick: () => void;
+  canSave: boolean;
+  isSaving: boolean;
+  onSaveClick: () => void;
 }
 
 function formatDateParts(iso: string) {
@@ -68,6 +71,9 @@ export function ReportEditorHero({
   finalizeLabel,
   onFinalize,
   onPreviewClick,
+  canSave,
+  isSaving,
+  onSaveClick,
 }: ReportEditorHeroProps) {
   const created = formatDateParts(createdAt);
   const currentStepIndex = steps.reduce(
@@ -92,6 +98,9 @@ export function ReportEditorHero({
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2 xl:justify-end">
+          <Button onClick={onSaveClick} variant="secondary" size="md" disabled={!canSave || isSaving}>
+            {isSaving ? '저장 중...' : '임시저장'}
+          </Button>
           <button
             type="button"
             onClick={onPreviewClick}

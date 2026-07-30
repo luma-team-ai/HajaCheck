@@ -99,9 +99,7 @@ export function ReportGeneratePage() {
   const [savedContent, setSavedContent] = useState<ReportContent | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [isRechecking, setIsRechecking] = useState(false);
-  const [recheckError, setRecheckError] = useState<string | null>(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -291,14 +289,12 @@ export function ReportGeneratePage() {
       return false;
     }
     setIsSaving(true);
-    setSaveError(null);
     try {
       const response = await reportApi.updateContent(report.id, content);
       applyReport(response.data);
       return true;
     } catch (err) {
       const message = extractErrorMessage(err, '저장에 실패했습니다.');
-      setSaveError(message);
       if (options?.notifyErrorsViaModal) {
         setAlertModal({ open: true, title: '저장 실패', message });
       }
@@ -315,14 +311,12 @@ export function ReportGeneratePage() {
   }> => {
     if (!report || isRechecking) return { success: false };
     setIsRechecking(true);
-    setRecheckError(null);
     try {
       const response = await reportApi.groundingRecheck(report.id);
       applyReport(response.data);
       return { success: true, data: response.data };
     } catch (err) {
       const message = extractErrorMessage(err, '확정 검증에 실패했습니다.');
-      setRecheckError(message);
       return { success: false, message };
     } finally {
       setIsRechecking(false);
@@ -613,6 +607,9 @@ export function ReportGeneratePage() {
           finalizeLabel={finalizeLabel}
           onFinalize={() => void handleFinalizeAll()}
           onPreviewClick={() => void handlePreviewClick()}
+          canSave={dirty}
+          isSaving={isSaving}
+          onSaveClick={() => void handleSave({ notifyErrorsViaModal: true })}
         />
 
       {/* grounding 검증 실패 상태 — 통과 완료 표시는 상단 단계/확정 버튼 상태로만 드러낸다. */}
@@ -651,28 +648,6 @@ export function ReportGeneratePage() {
         />
       )}
 
-      {/* 9. 하단 저장/검증 상태 바 */}
-      {!isFinalized && (
-        <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-6">
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              onClick={() => void handleSave()}
-              variant="primary"
-              disabled={!dirty || isSaving}
-            >
-              {isSaving ? '저장 중...' : '임시저장'}
-            </Button>
-          </div>
-          {dirty && (
-            <p className="text-xs text-text-muted">
-              저장하지 않은 변경 사항이 있습니다.
-            </p>
-          )}
-          {saveError && <p className="text-sm text-red-600">{saveError}</p>}
-          {recheckError && <p className="text-sm text-red-600">{recheckError}</p>}
-          {finalizeError && <p className="text-sm text-red-600">{finalizeError}</p>}
-        </div>
-      )}
       </div>
       <AlertModal
         open={alertModal.open}
