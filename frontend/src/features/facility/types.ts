@@ -257,12 +257,6 @@ export interface ComparisonKpi {
   changeValue: number;
 }
 
-export interface CrackTrendPoint {
-  /** X축 라벨(예: "5회차") */
-  cycleLabel: string;
-  avgWidthMm: number;
-}
-
 // recurring(재발생, HAJA-532/#1119) — 이전 회차 RESOLVED였던 하자가 이후 회차에 previousDefectId로
 // 재연결된 경우. 초기(#1112)엔 대응 타입이 없어 worsened로 근사 매핑했었으나 이제 정확히 구분한다.
 export type DefectChangeType = 'worsened' | 'new' | 'unchanged' | 'resolved' | 'recurring';
@@ -282,14 +276,12 @@ export interface InspectionComparisonResult {
   facilityName: string;
   beforeCycle: InspectionCycleOption;
   afterCycle: InspectionCycleOption;
-  // 실 백엔드(GET /api/facilities/{id}/compare, HAJA-531/#1112)는 실 데이터 근거가 없어 이 세 필드를
-  // 응답에서 아예 생략한다(2026-07-28 사용자 결정) — 타입을 그 실제 부재와 맞춘다. 이전엔 필수 string/
-  // 배열로 선언돼 있어, 실 API 응답을 그대로 쓰면 undefined가 되어 CrackTrendChart가 `data.length`에서
-  // 크래시했다(react-reviewer 발견, 즉시 수정).
+  // 실 백엔드(GET /api/facilities/{id}/compare, HAJA-531/#1112)는 실 데이터 근거가 없어 이 두 필드를
+  // 응답에서 아예 생략한다(2026-07-28 사용자 결정) — 타입을 그 실제 부재와 맞춘다. 채우는 작업은 #1346.
+  // (같은 이유로 생략됐던 crackTrend는 실데이터 확보 경로 자체가 없어 화면에서 제거했다 — #1347.)
   beforeImageUrl: string | null;
   afterImageUrl: string | null;
   kpis: ComparisonKpi[];
-  crackTrend?: CrackTrendPoint[];
   changes: DefectChangeRow[];
   /** 회차 선택 드롭다운에 노출할 전체 선택지 */
   availableCycles: InspectionCycleOption[];
