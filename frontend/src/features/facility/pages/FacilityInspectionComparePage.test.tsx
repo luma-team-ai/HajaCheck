@@ -169,7 +169,7 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
     renderPage();
 
     expect(await screen.findByText('시각적 비교')).not.toBeNull();
-    expect(screen.getByText('동일 촬영 지점 정렬됨', { exact: false })).not.toBeNull();
+    expect(screen.getByText('회차별 대표 사진', { exact: false })).not.toBeNull();
     expect(screen.queryByText('진행성 균열 추이')).toBeNull();
     expect(screen.queryByRole('img', { name: /균열 폭 추이/ })).toBeNull();
   });
