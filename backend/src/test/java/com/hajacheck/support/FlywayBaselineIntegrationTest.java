@@ -136,14 +136,17 @@ class FlywayBaselineIntegrationTest {
         // + V35(menus·menu_role_access·menu_node_type 복구, #1308 — prod가 V1 baseline을 스탬프만 해
         //   V1 정의 객체 3종이 실물로 없던 격차를 forward 로 메운다. 빈 DB 경로에서는 V1이 이미
         //   만들었으므로 IF NOT EXISTS 가드로 no-op 이고, 메뉴 시드만 추가된다).
-        //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V32~V35(4개) = 35이다.
-        assertThat(appliedMigrations).isEqualTo(35);
+        // + V36(Flyway 이전 수동 증분 SQL 중 prod 미반영분 반영, #1311 — HAJA-25 finalize 의 부분 UNIQUE
+        //   3종·assigned_inspector FK·updated_at 트리거 3종·citations NOT NULL 과 AP-020 알림 이력 인덱스,
+        //   + V35 가 빠뜨린 idx_menus_parent. 빈 DB 경로에서는 V1 이 이미 만들어 no-op 이다).
+        //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V32~V36(5개) = 36이다.
+        assertThat(appliedMigrations).isEqualTo(36);
 
-        // 최신 적용 버전이 실제로 V35 인지 확인.
+        // 최신 적용 버전이 실제로 V36 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("35");
+        assertThat(latestVersion).isEqualTo("36");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -484,5 +487,40 @@ class FlywayBaselineIntegrationTest {
                   and indexname = 'idx_counsel_tickets_created_at'
                 """, Long.class);
         assertThat(counselTicketsCreatedAtIndex).isEqualTo(1L);
+
+        // V36(#1311)이 Flyway 이전 수동 증분(HAJA-25 finalize·AP-020)의 prod 누락분을 실제로 반영했는지
+        // 확인한다. 빈 DB 경로에서는 V1이 이미 만들어 둔 것이라 V36은 no-op 이지만, 최종 상태 계약은
+        // 두 경로가 같아야 한다 — 여기서 그 최종 상태를 고정한다.
+        Long ha25FinalizeIndexes = jdbcTemplate.queryForObject("""
+                select count(*) from pg_indexes
+                where schemaname = 'public'
+                  and indexname in ('uq_user_plans_active_user', 'uq_user_plans_active_company',
+                                    'uq_counsel_tickets_session', 'idx_notifications_user_history',
+                                    'idx_menus_parent')
+                """, Long.class);
+        assertThat(ha25FinalizeIndexes).isEqualTo(5L);
+
+        Long updatedAtTriggers = jdbcTemplate.queryForObject("""
+                select count(*) from pg_trigger
+                where not tgisinternal
+                  and tgname in ('trg_users_set_updated_at', 'trg_companies_set_updated_at',
+                                 'trg_facilities_set_updated_at')
+                """, Long.class);
+        assertThat(updatedAtTriggers).isEqualTo(3L);
+
+        Long assignedInspectorFk = jdbcTemplate.queryForObject("""
+                select count(*) from pg_constraint
+                where conname = 'fk_inspections_assigned_inspector'
+                  and conrelid = 'public.inspections'::regclass
+                  and contype = 'f' and convalidated
+                """, Long.class);
+        assertThat(assignedInspectorFk).isEqualTo(1L);
+
+        Long citationSnippetNotNull = jdbcTemplate.queryForObject("""
+                select count(*) from pg_attribute
+                where attrelid = 'public.chat_message_citations'::regclass
+                  and attname = 'snippet' and not attisdropped and attnotnull
+                """, Long.class);
+        assertThat(citationSnippetNotNull).isEqualTo(1L);
     }
 }
