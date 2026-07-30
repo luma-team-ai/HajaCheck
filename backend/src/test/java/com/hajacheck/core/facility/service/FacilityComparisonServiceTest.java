@@ -437,19 +437,20 @@ class FacilityComparisonServiceTest {
 
     @Test
     void compare_두회차모두사진있으면_각회차첫사진detailUrl로채워진다() {
-        // HAJA-612/#1346 — "시각적 비교" 대표 사진은 그 회차의 첫 사진(id asc 첫 원소).
+        // HAJA-612/#1346 — "시각적 비교" 대표 사진은 그 회차의 첫 사진(id asc 첫 원소). 코드 리뷰 P2 —
+        // 전체 목록이 아니라 findFirstByInspectionIdOrderByIdAsc로 첫 1건만 조회하므로(대량 행 낭비
+        // 방지), 리포지토리가 이미 정렬된 첫 결과 하나만 돌려준다고 가정하고 스텁한다.
         Inspection before = inspection(10L, 1, LocalDate.of(2026, 1, 1));
         Inspection after = inspection(11L, 2, LocalDate.of(2026, 2, 1));
         stubFacilityAndInspections(before, after);
         when(defectRepository.findByInspectionIdAndNotDeleted(any())).thenReturn(List.of());
 
         Media beforeFirst = media(500L, before.getId());
-        Media beforeSecond = media(501L, before.getId());
         Media afterFirst = media(600L, after.getId());
-        when(mediaRepository.findByInspectionIdOrderByIdAsc(before.getId()))
-                .thenReturn(List.of(beforeFirst, beforeSecond));
-        when(mediaRepository.findByInspectionIdOrderByIdAsc(after.getId()))
-                .thenReturn(List.of(afterFirst));
+        when(mediaRepository.findFirstByInspectionIdOrderByIdAsc(before.getId()))
+                .thenReturn(Optional.of(beforeFirst));
+        when(mediaRepository.findFirstByInspectionIdOrderByIdAsc(after.getId()))
+                .thenReturn(Optional.of(afterFirst));
 
         FacilityComparisonResponse response =
                 facilityComparisonService.compare(USER_ID, COMPANY_ID, FACILITY_ID, 1, 2);
@@ -464,8 +465,8 @@ class FacilityComparisonServiceTest {
         Inspection after = inspection(11L, 2, LocalDate.of(2026, 2, 1));
         stubFacilityAndInspections(before, after);
         when(defectRepository.findByInspectionIdAndNotDeleted(any())).thenReturn(List.of());
-        when(mediaRepository.findByInspectionIdOrderByIdAsc(before.getId())).thenReturn(List.of());
-        when(mediaRepository.findByInspectionIdOrderByIdAsc(after.getId())).thenReturn(List.of());
+        when(mediaRepository.findFirstByInspectionIdOrderByIdAsc(before.getId())).thenReturn(Optional.empty());
+        when(mediaRepository.findFirstByInspectionIdOrderByIdAsc(after.getId())).thenReturn(Optional.empty());
 
         FacilityComparisonResponse response =
                 facilityComparisonService.compare(USER_ID, COMPANY_ID, FACILITY_ID, 1, 2);
