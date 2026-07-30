@@ -93,6 +93,69 @@ describe('NotificationCenter', () => {
     expect(await screen.findByText('점검 생성 화면')).not.toBeNull();
   });
 
+  // HAJA-595 — ANALYSIS_DONE/REVIEW_PENDING도 COUNSEL_REPLIED/INSPECTION_DUE와 같은 이력의
+  // "markAsRead만 하고 이동은 안 함" 버그였다. 두 유형 모두 같은 payload 형태({inspectionId, ...},
+  // InspectionAnalysisNotificationPayload 확인 완료)를 공유하므로 GET 응답을 단건으로 좁혀 목 데이터의
+  // 다른 ANALYSIS_DONE(id 5, inspectionId 없음)과 버튼 라벨이 겹치는 걸 피한다.
+  it('ANALYSIS_DONE "결과 보기" 클릭 시 분석 결과 뷰어로 이동한다(HAJA-595)', async () => {
+    server.use(
+      http.get('/api/notifications', () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            {
+              id: 1,
+              type: 'ANALYSIS_DONE',
+              payload: { description: '8회차', inspectionId: 101 },
+              isRead: false,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        }),
+      ),
+    );
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/" element={<Harness />} />
+            <Route path="/inspections/:id/viewer" element={<p>분석 결과 뷰어 화면</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    await screen.findByText('AI 분석 완료');
+
+    fireEvent.click(screen.getByRole('button', { name: '결과 보기' }));
+
+    expect(await screen.findByText('분석 결과 뷰어 화면')).not.toBeNull();
+  });
+
+  it('REVIEW_PENDING "검수하기" 클릭 시 해당 점검의 하자 목록으로 이동한다(HAJA-595)', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/" element={<Harness />} />
+            <Route path="/inspections/:id/defects" element={<p>하자 목록 화면</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '벨' }));
+    await screen.findByText('검수 대기 알림');
+
+    fireEvent.click(screen.getByRole('button', { name: '검수하기' }));
+
+    expect(await screen.findByText('하자 목록 화면')).not.toBeNull();
+  });
+
   it('벨을 클릭하면 드롭다운이 열리고 목 데이터를 렌더링한다', async () => {
     renderHarness();
 
