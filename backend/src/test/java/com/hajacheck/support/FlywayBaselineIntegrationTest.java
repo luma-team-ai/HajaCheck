@@ -133,14 +133,17 @@ class FlywayBaselineIntegrationTest {
         //   #1193이 dev에 머지되면서(2026-07-29) 해소돼 번호열이 V1…V32·V33으로 다시 연속이 됐다.
         // + V34(counsel_tickets.created_at 인덱스, #1168 — 플랫폼 관리자 상담 관리 페이지 날짜별 조회
         //   성능, PR머신 리뷰 P2 지적 반영).
-        //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V32~V34(3개) = 34이다.
-        assertThat(appliedMigrations).isEqualTo(34);
+        // + V35(menus·menu_role_access·menu_node_type 복구, #1308 — prod가 V1 baseline을 스탬프만 해
+        //   V1 정의 객체 3종이 실물로 없던 격차를 forward 로 메운다. 빈 DB 경로에서는 V1이 이미
+        //   만들었으므로 IF NOT EXISTS 가드로 no-op 이고, 메뉴 시드만 추가된다).
+        //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V32~V35(4개) = 35이다.
+        assertThat(appliedMigrations).isEqualTo(35);
 
-        // 최신 적용 버전이 실제로 V34 인지 확인.
+        // 최신 적용 버전이 실제로 V35 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("34");
+        assertThat(latestVersion).isEqualTo("35");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
