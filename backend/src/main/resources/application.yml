@@ -102,6 +102,11 @@ app:
     invite-code-redeem-rate-limit:
       user-limit: 5
       user-window: 5m
+    # 로그인 후 비밀번호 변경(#1315) — 사용자(userId) 축 하나. 탈취된 세션이 "현재 비밀번호"를
+    # 무차별 대입해 계정을 인수하는 것을 막는다(현재 비밀번호 확인이 이 경로의 유일한 재인증 관문).
+    password-change-rate-limit:
+      user-limit: 5
+      user-window: 5m
     # 비밀번호 재설정 1단계 rate-limit(2단계엔 걸지 않음 — 계약 §Rate-limit).
     password-reset-rate-limit:
       # 대상 이메일 축 — 사용자 단위 실질 방어(특정 피해자 메일 폭탄 차단).

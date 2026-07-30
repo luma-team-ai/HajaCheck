@@ -34,6 +34,9 @@ public class AuthProperties {
     /** 초대 코드 redeem rate-limit(#794, PR머신 리뷰 P2 — 무차별 대입 방어). */
     private InviteCodeRedeemRateLimit inviteCodeRedeemRateLimit = new InviteCodeRedeemRateLimit();
 
+    /** 로그인 후 비밀번호 변경 rate-limit(#1315 — 탈취된 세션의 현재 비밀번호 무차별 대입 방어). */
+    private PasswordChangeRateLimit passwordChangeRateLimit = new PasswordChangeRateLimit();
+
     /**
      * 비밀번호 재설정 요청 rate-limit 설정. 축은 <b>대상 이메일</b>과 <b>전역 상한</b> 둘뿐이다(IP 축 미사용).
      */
@@ -197,6 +200,51 @@ public class AuthProperties {
         public void setUserWindow(Duration userWindow) {
             this.userWindow = userWindow;
         }
+    }
+
+    /**
+     * 로그인 후 비밀번호 변경 rate-limit 설정(#1315) — 이미 로그인된 사용자가 호출하는 엔드포인트라
+     * 초대 코드 redeem(InviteCodeRedeemRateLimit)과 같이 <b>사용자(userId) 축</b> 하나로 충분하다
+     * (비로그인 재설정의 이메일 축·전역 상한과 달리 계정 열거·메일 폭탄 축이 존재하지 않는다).
+     * IP 축을 쓰지 않는 이유는 {@code auth.support.RateLimiter} javadoc 과 동일(2026-07-17 A 결정).
+     *
+     * <p><b>방어 대상</b>: 세션이 탈취된 상황(XSS·기기 방치)에서 공격자가 <b>현재 비밀번호를 무차별 대입</b>해
+     * 계정을 완전히 인수하는 것. 현재 비밀번호 확인이 이 엔드포인트의 유일한 재인증 관문이므로, 그 관문에
+     * 시도 횟수 제한이 없으면 관문이 사실상 없는 것과 같다.
+     *
+     * <p>기본 5분 5회 — 정상 사용자의 오타 재시도는 통과시키되(로그인 자체는 별도 축이라 영향 없음),
+     * 온라인 브루트포스의 실익은 없애는 선. 성공·실패를 가리지 않고 카운트하므로 상한에 닿으면 창이
+     * 지날 때까지 변경이 막힌다(자기 계정 한정이라 타 사용자 영향 없음).
+     */
+    public static class PasswordChangeRateLimit {
+
+        private int userLimit = 5;
+
+        private Duration userWindow = Duration.ofMinutes(5);
+
+        public int getUserLimit() {
+            return userLimit;
+        }
+
+        public void setUserLimit(int userLimit) {
+            this.userLimit = userLimit;
+        }
+
+        public Duration getUserWindow() {
+            return userWindow;
+        }
+
+        public void setUserWindow(Duration userWindow) {
+            this.userWindow = userWindow;
+        }
+    }
+
+    public PasswordChangeRateLimit getPasswordChangeRateLimit() {
+        return passwordChangeRateLimit;
+    }
+
+    public void setPasswordChangeRateLimit(PasswordChangeRateLimit passwordChangeRateLimit) {
+        this.passwordChangeRateLimit = passwordChangeRateLimit;
     }
 
     public PasswordResetRateLimit getPasswordResetRateLimit() {
