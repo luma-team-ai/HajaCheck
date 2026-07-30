@@ -7,16 +7,18 @@ type Props = {
   defectType: string;
   grade: string;
   location: string;
+  facilityType: string;
 };
 
 // AI 설명 패널 — AI 실패가 페이지의 비-AI 기능(하자 이미지, 상태, 등급 등)을 막지 않도록
 // 이 패널 내부에서만 로딩/에러를 처리한다(React_코드_컨벤션.md §6, defect/components/DefectExplainPanel.tsx와 동일 관용구).
-export function FacilityDefectAiExplainPanel({ defectId, defectType, grade, location }: Props) {
+export function FacilityDefectAiExplainPanel({ defectId, defectType, grade, location, facilityType }: Props) {
   const { data, isLoading, isError, refetch } = useFacilityDefectExplain({
     defectId,
     defectType,
     grade,
     location,
+    facilityType,
   });
 
   const handleRetry = () => {

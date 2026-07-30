@@ -7,9 +7,12 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { facilityComparisonHandlers } from '../api/facilityComparisonApi.handlers';
 import { facilityDefectHandlers } from '../api/facilityDefectApi.handlers';
+import { facilityHandlers } from '../api/facilityApi.handlers';
 import { FacilityDefectDetailPage } from './FacilityDefectDetailPage';
 
-const server = setupServer(...facilityDefectHandlers, ...facilityComparisonHandlers);
+// #1350 — 페이지가 useFacility(facilityId)로 AI 설명용 facilityType을 조회하므로
+// GET /api/facilities/:id를 목하는 facilityHandlers도 함께 등록해야 한다.
+const server = setupServer(...facilityDefectHandlers, ...facilityComparisonHandlers, ...facilityHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {

@@ -8,6 +8,7 @@ import { ActivityHistoryPanel } from '../../defect/components/ActivityHistoryPan
 import { FacilityDefectAiExplainPanel } from '../components/FacilityDefectAiExplainPanel';
 import { FacilityDefectImagePanel } from '../components/FacilityDefectImagePanel';
 import { FacilityDefectInfoPanel } from '../components/FacilityDefectInfoPanel';
+import { useFacility } from '../hooks/useFacility';
 import { useFacilityDefectDetail } from '../hooks/useFacilityDefectDetail';
 
 const DEFAULT_ID = 'detail';
@@ -21,6 +22,9 @@ export function FacilityDefectDetailPage() {
   }>();
   const navigate = useNavigate();
   const { data: defect, isLoading, isError, refetch } = useFacilityDefectDetail(defectId);
+  // #1350 — AI 설명(POST /ai/defect-explain)이 요구하는 facility_type 소스. 이미 존재하는
+  // 시설물 상세 조회(useFacility)를 재사용한다 — 새 엔드포인트·DB 조회 불필요.
+  const { data: facility } = useFacility(Number(facilityId));
 
   // defectId는 라우트 파라미터라 항상 string이고, DEFAULT_ID('detail') 폴백이 그대로 들어오면
   // Number() 변환이 NaN이 된다 — ActivityHistoryPanel(defectId: number)에 NaN을 넘겨 불필요한
@@ -74,6 +78,7 @@ export function FacilityDefectDetailPage() {
         defectType={defect.defectType}
         grade={defect.grade ?? ''}
         location={defect.location ?? ''}
+        facilityType={facility?.type ?? ''}
       />
 
       {hasValidDefectId && <ActivityHistoryPanel defectId={numericDefectId} />}
