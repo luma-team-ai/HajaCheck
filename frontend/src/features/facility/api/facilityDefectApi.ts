@@ -1,9 +1,5 @@
 import { api } from '../../../shared/api/axios';
-import type {
-  FacilityDefectActivityLogItem,
-  FacilityDefectDetail,
-  FacilityDefectDetailResponse,
-} from '../types';
+import type { FacilityDefectDetail, FacilityDefectDetailResponse } from '../types';
 
 // crackLengthMm(mm)를 화면 표시 단위(m)로 변환 — DefectResponse는 mm 단위로만 내려준다.
 const MM_PER_M = 1000;
@@ -32,15 +28,16 @@ function toFacilityDefectDetail(raw: FacilityDefectDetailResponse): FacilityDefe
 // GET /api/defects/{id}(HAJA-30, location/assigneeName은 #970 갭3)를 호출한다 — 식별자는
 // facilityId가 아니라 defectId다(Facility.latestDefectId로 얻은 값을 FacilityDefectDetailPage가
 // :defectId 라우트 파라미터로 전달, useFacilityDefectDetail(defectId) 호출부 참고).
-// activity log/AI 설명(회차비교 포함)은 아직 백엔드 계약이 없어 MSW 목 전용으로 남는다(#489 스코프 밖).
+// 활동 이력은 GET /api/facilities/{id}/defect-detail/activity(백엔드 미구현 MSW 전용, prod 404 —
+// #1351)를 정본 features/defect/components/ActivityHistoryPanel(GET /api/defects/{id}/revisions,
+// 실 백엔드 구현됨)로 대체했다. AI 설명(회차비교 포함)은 아직 백엔드 계약이 없어 MSW 목 전용으로
+// 남는다(#489 스코프 밖).
 export const facilityDefectApi = {
   getDetail: (defectId: string) =>
     api.get<FacilityDefectDetailResponse>(`/defects/${defectId}`).then((res) => ({
       ...res,
       data: toFacilityDefectDetail(res.data),
     })),
-  getActivityLog: (facilityId: string) =>
-    api.get<FacilityDefectActivityLogItem[]>(`/facilities/${facilityId}/defect-detail/activity`),
   // PATCH /api/defects/{id}/location — 검수자 사후 위치 편집(#970 갭3). 빈 문자열/공백 정규화는
   // 백엔드(Defect#updateLocation)가 처리하므로 프론트는 입력값을 그대로 전달한다. 인라인 편집 UI는
   // 이번 PR 범위 밖이라(조회 경로 정확성 우선) 클라이언트 함수만 먼저 추가한다.

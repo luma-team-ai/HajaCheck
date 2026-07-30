@@ -14,6 +14,7 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.util.ArrayList;
@@ -57,6 +58,7 @@ public class FacilityComparisonService {
     private final FacilityRepository facilityRepository;
     private final InspectionRepository inspectionRepository;
     private final DefectRepository defectRepository;
+    private final MediaRepository mediaRepository;
     private final CompanyScopeGuard companyScopeGuard;
 
     public FacilityComparisonResponse compare(
@@ -108,8 +110,22 @@ public class FacilityComparisonService {
                 new CycleOption(afterInspection.getRoundNo(), afterInspection.getInspectionDate()),
                 buildKpis(changes),
                 changes,
-                availableCycles
+                availableCycles,
+                representativeImageUrl(beforeInspection.getId()),
+                representativeImageUrl(afterInspection.getId())
         );
+    }
+
+    // 회차별 "시각적 비교" 대표 사진(HAJA-612/#1346) — 그 회차의 첫 사진(2026-07-31 사용자 결정).
+    // 사진이 없으면 null(프론트가 기존 "사진 없음" 플레이스홀더를 그대로 보여준다). 조회 대상 inspectionId는
+    // compare()가 이미 회사 스코프(findByIdAndCompanyId → findByFacilityIdAndRoundNo)로 좁혀둔 값이라
+    // 별도 인가 분기를 만들지 않는다. URL 형식은 MediaResponse.from()/DefectDetailItem과 동일한 상대경로.
+    // 코드 리뷰 P2 — 전체 목록(findByInspectionIdOrderByIdAsc)이 아니라 첫 1건만 조회한다(영상 프레임
+    // 추출로 한 회차에 수백~수천 행이 쌓일 수 있음).
+    private String representativeImageUrl(Long inspectionId) {
+        return mediaRepository.findFirstByInspectionIdOrderByIdAsc(inspectionId)
+                .map(media -> "/api/media/" + media.getId() + "/detail")
+                .orElse(null);
     }
 
     private List<DefectChangeRow> classify(List<Defect> beforeDefects, List<Defect> afterDefects) {

@@ -36,7 +36,13 @@ RUN apt-get update \
     # uploads는 named volume 마운트 대상(#323) — 이미지에 경로가 미리 없으면 Docker가 빈 볼륨을
     # root:root 755로 새로 만들어 non-root spring이 쓰기 실패한다. 미리 만들어 소유권을 아래
     # chown -R로 함께 넘겨줘야 볼륨이 그 소유권을 상속받는다(ai-server/Dockerfile의 chroma_data와 동일 패턴).
-    && mkdir -p /app/uploads/hajacheck-files \
+    #
+    # ⚠️ compose가 마운트하는 볼륨 경로는 **빠짐없이** 여기에 나열할 것(#1357). hajacheck-report-pdf가
+    # 빠져 있어 arm1 볼륨이 root:root로 생성됐고, 보고서 확정의 PDF 업로드가 prod에서만 500이었다
+    # (AccessDeniedException: /app/uploads/hajacheck-report-pdf/reports). 마운트 대상 현황:
+    #   · hajacheck-files      → app.file-storage.base-dir      (uploads / files)
+    #   · hajacheck-report-pdf → app.report-pdf-storage.base-dir (report_uploads / report-pdfs, #455)
+    && mkdir -p /app/uploads/hajacheck-files /app/uploads/hajacheck-report-pdf \
     && chown -R spring:spring /app
 
 COPY --from=build --chown=spring:spring /workspace/build/libs/*.jar app.jar

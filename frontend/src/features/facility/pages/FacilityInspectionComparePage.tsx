@@ -4,7 +4,6 @@ import { Button } from '../../../shared/components/Button';
 import '../../../shared/styles/layout.css';
 import { ComparisonKpiCard } from '../components/ComparisonKpiCard';
 import { ComparisonVisualPanel } from '../components/ComparisonVisualPanel';
-import { CrackTrendChart } from '../components/CrackTrendChart';
 import { DefectChangeTable } from '../components/DefectChangeTable';
 import { InspectionCycleSelect } from '../components/InspectionCycleSelect';
 import { exportComparisonReportAsPng } from '../utils/exportComparisonReportAsPng';
@@ -124,19 +123,17 @@ export function FacilityInspectionComparePage() {
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+      {/* #1347 — 우측에 있던 "진행성 균열 추이" 차트를 제거했다. 차트가 쓰는 Defect.crackWidthMm는
+          값을 채우는 프로덕션 경로가 전혀 없어(AI 탐지 응답 DTO에 크랙 폭 필드 부재, 저장 로직 없음)
+          항상 빈 차트만 노출됐다. 실데이터 확보는 AI 파이프라인 스키마 확장이 선행돼야 한다(#1346 조사).
+          이제 "시각적 비교"가 이 행을 단독으로 쓰되, 사진 2장이 과도하게 커지지 않도록 폭을 제한한다. */}
+      <div className="w-full lg:max-w-4xl">
         <ComparisonVisualPanel
           beforeCycle={data.beforeCycle}
           afterCycle={data.afterCycle}
           beforeImageUrl={data.beforeImageUrl}
           afterImageUrl={data.afterImageUrl}
         />
-        <div className="flex flex-col gap-3">
-          <h2 className="m-0 text-base font-bold text-heading">진행성 균열 추이</h2>
-          {/* 실 백엔드(HAJA-531/#1112)는 crackTrend를 응답에서 생략한다(null/undefined) — LineChart가
-              data.length에 바로 접근해 크래시하므로 빈 배열로 방어한다(react-reviewer 발견, 즉시 수정). */}
-          <CrackTrendChart data={data.crackTrend ?? []} />
-        </div>
       </div>
 
       <div className="flex flex-col gap-3">

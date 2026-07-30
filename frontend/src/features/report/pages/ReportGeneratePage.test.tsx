@@ -745,6 +745,19 @@ describe('ReportGeneratePage', () => {
     expect(screen.queryByText('최종 승인')).toBeNull();
   });
 
+  it('저장하지 않은 편집이 있으면 작성자 확인 단계를 활성화한다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const authorStep = screen.getByText('작성자 확인').closest('li');
+    expect(authorStep).not.toBeNull();
+    expect(within(authorStep!).getByText('B').className).not.toContain('bg-primary');
+
+    fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '수정된 점검 목적' } });
+
+    expect(within(authorStep!).getByText('B').className).toContain('bg-primary');
+  });
+
   it('진단 외관조사결과 기본사항 등급 필터 pills(전체, A, B, C, D, E)가 항상 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
