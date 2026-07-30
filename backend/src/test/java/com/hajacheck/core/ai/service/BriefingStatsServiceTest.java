@@ -28,6 +28,7 @@ import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.support.InMemoryRateLimiter;
+import com.hajacheck.support.StubRateLimiter;
 import java.lang.reflect.Field;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -134,7 +135,7 @@ class BriefingStatsServiceTest {
     @Test
     void buildStats_rate_limit초과_AUTH_TOO_MANY_REQUESTS_집계쿼리도안함() {
         // rate-limit 은 DB 집계보다 먼저 적용된다 — 초과 시 429 를 던지고 어떤 repository 조회도 하지 않는다.
-        BriefingStatsService limited = newService((key, limit, window) -> false); // 항상 초과(거부)
+        BriefingStatsService limited = newService(StubRateLimiter.of((key, limit, window) -> false)); // 항상 초과(거부)
 
         assertThatThrownBy(() -> limited.buildStats(USER_ID, COMPANY_ID))
                 .isInstanceOf(BusinessException.class)

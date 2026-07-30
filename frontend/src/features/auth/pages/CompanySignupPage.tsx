@@ -35,7 +35,10 @@ import {
   isValidPassword,
 } from '../utils/authFormValidators';
 import { validateBusinessLicenseFile } from '../utils/validateBusinessLicenseFile';
-import { isCompanySignupFormValid } from '../utils/validateCompanySignupForm';
+import {
+  isCompanySignupFormValid,
+  type CompanySignupFormValues,
+} from '../utils/validateCompanySignupForm';
 
 const ERROR_MESSAGES: Record<string, string> = {
   AUTH_EMAIL_DUPLICATED: '이미 가입된 이메일입니다.',
@@ -49,6 +52,19 @@ const ERROR_MESSAGES: Record<string, string> = {
   AUTH_TOO_MANY_REQUESTS: '잠시 후 다시 시도해 주세요.',
 };
 const DEFAULT_ERROR_MESSAGE = '가입 신청에 실패했습니다. 잠시 후 다시 시도해 주세요.';
+// 필수항목 인라인 에러(#1332) — 회사 주소·상호명·대표자명 3필드는 기존에 에러 렌더 코드가
+// 전혀 없어 값을 비운 채 제출하면 화면이 완전히 무반응으로 보였다(사용자 실제 제보). 이메일·
+// 비밀번호 등 기존 필드와 동일한 톤·조건(showValidation && 값 비어있음)을 그대로 따른다.
+const ADDRESS_REQUIRED_MESSAGE = '주소검색으로 회사 주소를 입력해 주세요.';
+const COMPANY_NAME_REQUIRED_MESSAGE = '상호명을 입력해 주세요.';
+const REPRESENTATIVE_NAME_REQUIRED_MESSAGE = '대표자명을 입력해 주세요.';
+// 제출 버튼 위 요약 알림(#1332) — 폼이 길어 하단 개별 에러가 뷰포트 밖일 수 있으므로, "무언가
+// 빠졌다"는 사실 자체를 버튼 바로 위에서도 알린다. isCompanySignupFormValid가 다루는 "필수 입력
+// 누락/형식오류" 케이스에 한정하고, 이메일 중복(자체 메시지 있음)·진위확인 미완료(:737-742 게이트
+// 문구 있음)만으로는 띄우지 않는다 — 그 둘은 이미 각자의 자리에 원인이 명확한 안내가 있어 여기
+// 또 띄우면 "또 뭔가 빠졌나?"하는 혼란만 준다(의미 중복 방지, handoff §4 판단 근거).
+const REQUIRED_FIELD_SUMMARY_MESSAGE =
+  '입력하지 않은 필수 항목이 있습니다. 표시된 항목을 확인해 주세요.';
 const BUSINESS_VERIFICATION_DEFAULT_ERROR_MESSAGE =
   '진위확인에 실패했습니다. 잠시 후 다시 시도해 주세요.';
 const BUSINESS_VERIFICATION_GATE_MESSAGE = '사업자 진위확인을 먼저 완료해 주세요.';
@@ -432,27 +448,70 @@ export function CompanySignupPage() {
     });
   };
 
+  const companySignupFormValues: CompanySignupFormValues = {
+    email,
+    password,
+    confirmPassword,
+    companyName,
+    businessRegistrationNumber,
+    representativeName,
+    businessStartDate,
+    address,
+    businessRegistrationFile: file,
+    agreeTermsOfService,
+    agreePrivacyPolicy,
+  };
+  const isFormValid = isCompanySignupFormValid(companySignupFormValues);
+  const emailDuplicated = emailCheckResult?.available === false;
+
+  // 제출 실패 시 폼에 나타나는 순서대로 첫 무효 필드로 스크롤+포커스(#1332) — 에러 문구만으로는
+  // 폼이 길어 하단 에러가 뷰포트 밖일 수 있다(원 제보: 주소를 비운 채 제출하면 화면이 완전히
+  // 무반응으로 보임). 순서는 실제 DOM 렌더 순서를 그대로 따른다. 주소는 readOnly input이라
+  // 포커스해도 커서가 뜨지 않으므로 주소검색 버튼에, 파일 input은 hidden이라 "파일 선택"
+  // 트리거 버튼에 포커스를 준다(각 컴포넌트에 id 부여, 단순한 getElementById 매핑 — 과설계 금지).
+  const focusFirstInvalidField = () => {
+    const fieldChecks: Array<{ id: string; invalid: boolean }> = [
+      { id: 'signup-email', invalid: !isValidEmail(email) || emailDuplicated },
+      { id: 'signup-password', invalid: !isValidPassword(password) },
+      { id: 'signup-confirm-password', invalid: !doPasswordsMatch(password, confirmPassword) },
+      { id: 'company-address-search-button', invalid: address.trim().length === 0 },
+      {
+        id: 'business-registration-file-trigger',
+        invalid: validateBusinessLicenseFile(file) !== null,
+      },
+      {
+        id: 'signup-business-number',
+        invalid: !isValidBusinessNumber(businessRegistrationNumber),
+      },
+      { id: 'signup-company-name', invalid: companyName.trim().length === 0 },
+      { id: 'signup-representative-name', invalid: representativeName.trim().length === 0 },
+      {
+        id: 'signup-business-start-date',
+        invalid: !isValidBusinessStartDate(businessStartDate),
+      },
+      { id: 'signup-business-verify-button', invalid: !isBusinessVerified },
+      { id: 'signup-agree-terms', invalid: !agreeTermsOfService },
+      { id: 'signup-agree-privacy', invalid: !agreePrivacyPolicy },
+    ];
+    const firstInvalid = fieldChecks.find((fieldCheck) => fieldCheck.invalid);
+    if (!firstInvalid) return;
+    const target = document.getElementById(firstInvalid.id);
+    // jsdom(vitest)에는 scrollIntoView가 구현돼 있지 않다(Element.prototype 미구현, 다른 화면의
+    // CounselorChatWindow.tsx와 동일한 이유) — 메서드 자체에도 optional chaining을 걸어 테스트
+    // 환경에서 TypeError 없이 안전하게 no-op 처리한다.
+    target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    target?.focus();
+  };
+
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setShowValidation(true);
 
-    const form = {
-      email,
-      password,
-      confirmPassword,
-      companyName,
-      businessRegistrationNumber,
-      representativeName,
-      businessStartDate,
-      address,
-      businessRegistrationFile: file,
-      agreeTermsOfService,
-      agreePrivacyPolicy,
-    };
-    if (!isCompanySignupFormValid(form)) return;
-    if (emailCheckResult?.available === false) return;
     // 진위확인 게이트(#648, #663) — 미확인·미등록·불일치·휴폐업이면 제출 자체를 막는다.
-    if (!isBusinessVerified) return;
+    if (!isFormValid || emailDuplicated || !isBusinessVerified) {
+      focusFirstInvalidField();
+      return;
+    }
 
     signup({
       email: email.trim(),
@@ -601,6 +660,10 @@ export function CompanySignupPage() {
               addressDetail={addressDetail}
               onAddressChange={setAddress}
               onAddressDetailChange={setAddressDetail}
+              // 주소는 readOnly라 실시간(입력 중) 표시는 불필요 — 제출 시에만 안내한다(#1332).
+              errorMessage={
+                showValidation && address.trim().length === 0 ? ADDRESS_REQUIRED_MESSAGE : null
+              }
             />
 
             {/* 사업자등록증 블록 — 시안 기준 파일업로드 + 사업자정보 4필드(개업일자 포함, #600)를
@@ -654,6 +717,9 @@ export function CompanySignupPage() {
                   value={companyName}
                   onChange={(event) => handleCompanyNameChange(event.target.value)}
                 />
+                {showValidation && companyName.trim().length === 0 && (
+                  <p className={ERROR_CLASSES}>{COMPANY_NAME_REQUIRED_MESSAGE}</p>
+                )}
               </div>
 
               <div className="flex flex-col gap-1.5">
@@ -672,6 +738,9 @@ export function CompanySignupPage() {
                   value={representativeName}
                   onChange={(event) => handleRepresentativeNameChange(event.target.value)}
                 />
+                {showValidation && representativeName.trim().length === 0 && (
+                  <p className={ERROR_CLASSES}>{REPRESENTATIVE_NAME_REQUIRED_MESSAGE}</p>
+                )}
               </div>
 
               <div className="flex flex-col gap-1.5">
@@ -705,6 +774,7 @@ export function CompanySignupPage() {
               <div className="flex flex-col gap-1.5">
                 <button
                   type="button"
+                  id="signup-business-verify-button"
                   className={`${INLINE_BTN_CLASSES} self-start`}
                   onClick={handleVerifyBusiness}
                   disabled={isVerifyingBusiness || !canVerifyBusiness}
@@ -748,6 +818,7 @@ export function CompanySignupPage() {
             <div className="flex flex-col gap-1.5">
               <label className="flex cursor-pointer items-center gap-2 text-sm text-text-default">
                 <input
+                  id="signup-agree-terms"
                   type="checkbox"
                   checked={agreeTermsOfService}
                   onChange={(event) => setAgreeTermsOfService(event.target.checked)}
@@ -773,6 +844,7 @@ export function CompanySignupPage() {
             <div className="flex flex-col gap-1.5">
               <label className="flex cursor-pointer items-center gap-2 text-sm text-text-default">
                 <input
+                  id="signup-agree-privacy"
                   type="checkbox"
                   checked={agreePrivacyPolicy}
                   onChange={(event) => setAgreePrivacyPolicy(event.target.checked)}
@@ -794,6 +866,16 @@ export function CompanySignupPage() {
                 <p className={ERROR_CLASSES}>개인정보 수집·이용에 동의해야 가입할 수 있습니다.</p>
               )}
             </div>
+
+            {/* 제출 버튼 위 요약 알림(#1332) — submitErrorMessage(서버 제출 에러)와 동시에 뜨지
+                않게 !submitErrorMessage로 배타 처리한다. 이메일 중복·진위확인 미완료는 각자의
+                자리에 이미 원인이 명확한 안내가 있어(위 REQUIRED_FIELD_SUMMARY_MESSAGE 정의부
+                주석 참고) isFormValid(필수 입력 누락/형식오류)에만 한정한다. */}
+            {showValidation && !isFormValid && !submitErrorMessage && (
+              <p role="alert" className={ERROR_CLASSES}>
+                {REQUIRED_FIELD_SUMMARY_MESSAGE}
+              </p>
+            )}
 
             {submitErrorMessage && (
               <p role="alert" className={ERROR_CLASSES}>

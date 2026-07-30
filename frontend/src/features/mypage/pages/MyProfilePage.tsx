@@ -1,5 +1,6 @@
 import { useAuthStore } from '../../auth/store/authStore';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
+import { PasswordChangeSection } from '../components/PasswordChangeSection';
 import { PlanCard } from '../components/PlanCard';
 import { ProfileSection } from '../components/ProfileSection';
 import { SeatsSection } from '../components/SeatsSection';
@@ -20,6 +21,10 @@ import { MYPAGE_ERROR_CODE } from '../types';
 // 하위에서만 렌더되고, AuthGate 부트스트랩(getMe())이 이미 user를 채워둔 뒤라 이 페이지 전용 API
 // 재호출이 불필요하다. user가 없는(이론상 불가능하지만 방어적) 경우에도 플랜/사용량/좌석 섹션은
 // 계속 렌더되도록 프로필 실패가 화면 전체를 막지 않는다(React_코드_컨벤션.md §5 4상태 처리와 정합).
+//
+// 비밀번호 변경 섹션(#1316, HAJA-602) — ProfileSection 바로 아래(내 프로필 정보와 같은 계정 설정
+// 성격 섹션)에 둔다. 계정 자체 기능이라 user 유무·플랜 조회 성공 여부와 무관하게 항상 렌더한다
+// (프로필/플랜 조회 실패가 비밀번호 변경 가능 여부를 좌우할 이유가 없다).
 export function MyProfilePage() {
   const user = useAuthStore((state) => state.user);
   const { data, isLoading, isError, error } = useMyPlan();
@@ -37,6 +42,8 @@ export function MyProfilePage() {
             프로필 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
           </p>
         )}
+
+        <PasswordChangeSection />
 
         {isLoading && (
           <LoadingSpinner className="flex items-center justify-start gap-2 py-6 first:pt-0" />

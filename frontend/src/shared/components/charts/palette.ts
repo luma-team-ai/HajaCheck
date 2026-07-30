@@ -45,7 +45,7 @@ export const CHART_SERIES_COLORS: readonly string[] = [
 ];
 
 /** 전역 body 폰트(styles/global.css)와 동일 — recharts는 인라인 스타일이라 상속에 기대지 않고 명시한다. */
-export const CHART_FONT_FAMILY = "'Pretendard', -apple-system, sans-serif";
+export const CHART_FONT_FAMILY = "'Pretendard Variable', -apple-system, sans-serif";
 
 /** 공통 축(tick) 텍스트 스타일 — <XAxis tick>/<YAxis tick>에 그대로 전달. */
 export const CHART_AXIS_TICK_STYLE = {

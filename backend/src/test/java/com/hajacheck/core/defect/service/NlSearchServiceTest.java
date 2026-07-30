@@ -29,6 +29,7 @@ import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.membership.service.PaymentGraceService;
 import com.hajacheck.support.InMemoryRateLimiter;
+import com.hajacheck.support.StubRateLimiter;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.net.ConnectException;
@@ -310,7 +311,7 @@ class NlSearchServiceTest {
                 .thenReturn(Optional.of(withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L)));
         when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(addonPlan));
 
-        NlSearchService limited = newService((key, limit, window) -> false); // 항상 초과(거부)
+        NlSearchService limited = newService(StubRateLimiter.of((key, limit, window) -> false)); // 항상 초과(거부)
 
         assertThatThrownBy(() -> limited.search(USER_ID, "균열만 보여줘"))
                 .isInstanceOf(BusinessException.class)

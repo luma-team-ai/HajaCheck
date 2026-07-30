@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import LandingPage from './LandingPage';
-import { publicPlanApi } from './api/publicPlanApi';
+import { publicPlanApi, type PublicPlanCatalogResponse } from './api/publicPlanApi';
 
 afterEach(() => {
   cleanup();
@@ -15,11 +15,14 @@ function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter>{ui}</MemoryRouter>
-    </QueryClientProvider>,
-  );
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>{ui}</MemoryRouter>
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 describe('LandingPage 제품 스크린샷 및 요금제', () => {
@@ -37,15 +40,78 @@ describe('LandingPage 제품 스크린샷 및 요금제', () => {
     });
   });
 
+  it('요금제 카드에는 가입 또는 문의 CTA를 표시하지 않는다', () => {
+    renderWithProviders(<LandingPage />);
+
+    expect(screen.queryByRole('link', { name: '무료 시작' })).toBeNull();
+    expect(screen.queryByRole('link', { name: '업그레이드 문의' })).toBeNull();
+    expect(screen.queryByRole('link', { name: '도입 문의' })).toBeNull();
+  });
+
+  it('레포에 없는 센서, BIM, 드론 연동 기능을 랜딩에 소개하지 않는다', () => {
+    renderWithProviders(<LandingPage />);
+
+    expect(screen.queryByText(/센서 데이터|BIM 연동|드론 촬영/)).toBeNull();
+    expect(screen.getByText(/시설물 정보와 점검 이력을 한 곳에서 관리하고/)).toBeTruthy();
+    expect(screen.getByText(/현장 사진과 영상을 업로드하면/)).toBeTruthy();
+  });
+
   it('공개 요금제 API를 통해 요금제 카탈로그 데이터를 동적으로 받아와 렌더링한다', async () => {
+    const plans: PublicPlanCatalogResponse = {
+      plans: [
+        {
+          id: 1,
+          name: 'FREE',
+          maxFacilities: 1,
+          maxMonthlyAnalyses: 50,
+          maxSeats: 1,
+          hasPdfWatermark: true,
+          hasCounselorAccess: false,
+          hasAiAddon: false,
+          priceMonthly: 12345,
+        },
+      ],
+    };
+    vi.spyOn(publicPlanApi, 'getPlans').mockResolvedValueOnce({ data: plans } as Awaited<
+      ReturnType<typeof publicPlanApi.getPlans>
+    >);
+
     renderWithProviders(<LandingPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('합리적인 요금제')).toBeTruthy();
-      expect(screen.getByText('₩0')).toBeTruthy();
-      expect(screen.getByText('₩29,000')).toBeTruthy();
-      expect(screen.getByText('₩59,000')).toBeTruthy();
+      expect(screen.getByText('₩12,345')).toBeTruthy();
     });
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('이미 불러온 요금제가 있으면 후속 재조회 실패에도 기존 요금제를 유지한다', async () => {
+    const plans: PublicPlanCatalogResponse = {
+      plans: [
+        {
+          id: 1,
+          name: 'FREE',
+          maxFacilities: 1,
+          maxMonthlyAnalyses: 50,
+          maxSeats: 1,
+          hasPdfWatermark: true,
+          hasCounselorAccess: false,
+          hasAiAddon: false,
+          priceMonthly: 12345,
+        },
+      ],
+    };
+    const getPlans = vi.spyOn(publicPlanApi, 'getPlans');
+    getPlans.mockResolvedValueOnce({ data: plans } as Awaited<ReturnType<typeof publicPlanApi.getPlans>>);
+    getPlans.mockRejectedValueOnce(new Error('Network error'));
+
+    const { queryClient } = renderWithProviders(<LandingPage />);
+
+    await waitFor(() => expect(screen.getByText('₩12,345')).toBeTruthy());
+    await queryClient.invalidateQueries({ queryKey: ['publicPlans'] });
+
+    await waitFor(() => expect(getPlans).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('₩12,345')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('공개 요금제 API 호출 실패 시 하드코딩 요금제가 아닌 에러 안내 메시지와 다시 시도 버튼을 렌더링한다', async () => {

@@ -5,6 +5,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen } from '@testing-library/react';
 import { setupServer } from 'msw/node';
+import { MemoryRouter } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { useAuthStore } from '../../auth/store/authStore';
 import type { User } from '../../auth/types';
@@ -38,6 +39,9 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
+// 비밀번호 변경 섹션(#1316, HAJA-602) 추가로 MyProfilePage가 useLogout(내부에서 useNavigate 사용)에
+// 의존하는 PasswordChangeSection을 렌더하게 됐다 — MemoryRouter로 감싼다(회귀: Router 컨텍스트 없이
+// useNavigate를 호출하면 렌더 자체가 에러로 실패한다).
 function renderPage(): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -45,7 +49,9 @@ function renderPage(): void {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <MyProfilePage />
+      <MemoryRouter initialEntries={['/mypage/profile']}>
+        <MyProfilePage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }

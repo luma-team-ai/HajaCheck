@@ -52,6 +52,15 @@ public enum ErrorCode {
     // 휴업/폐업/미등록으로 가입을 차단하는 경우. 진위 "불일치"는 입력 오류이므로 400(401 금지 정책 준수).
     AUTH_BUSINESS_VERIFICATION_FAILED(HttpStatus.BAD_REQUEST, "사업자등록정보 진위확인에 실패했습니다. 사업자등록번호·대표자명·개업일자를 확인해 주세요."),
 
+    // 로그인 후 비밀번호 변경(#1315) — 현재 비밀번호 불일치는 위 AUTH_INVALID_CREDENTIALS(401)를 재사용한다.
+    // 아래 둘은 "인증은 됐으나 이 계정/입력으로는 변경이 성립하지 않는" 경우라 400이다(401 금지 정책 준수 —
+    // 프론트 axios 가 401 을 로그인 강제 리다이렉트로 처리하므로 폼째로 튕긴다).
+    // 소셜 전용 계정(password_hash=null) — 바꿀 "현재 비밀번호"가 애초에 없다. 비밀번호를 심어주면
+    // CustomUserDetailsService 가 금지한 비밀번호 로그인을 이 경로가 말없이 열어주게 된다.
+    AUTH_PASSWORD_NOT_SET(HttpStatus.BAD_REQUEST, "비밀번호가 설정되지 않은 계정입니다. 소셜 로그인을 이용해 주세요."),
+    // 새 비밀번호가 현재 비밀번호와 같음 — 변경이 아무 효과도 없으므로 성공으로 위장하지 않고 명시적으로 거부한다.
+    AUTH_PASSWORD_UNCHANGED(HttpStatus.BAD_REQUEST, "새 비밀번호가 현재 비밀번호와 같습니다."),
+
     // 초대 코드(#794) — 소셜 가입(WAITING) 계정이 기업 관리자가 발급한 코드를 redeem해 회사 소속으로 전환.
     // WAITING 계정이 초대 코드 redeem 외의 보호된 리소스를 요청했을 때 SessionUserRevalidationFilter가 통일 응답.
     AUTH_ACCOUNT_WAITING(HttpStatus.FORBIDDEN, "초대 코드 입력 후 이용할 수 있습니다."),

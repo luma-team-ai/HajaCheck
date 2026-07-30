@@ -163,6 +163,10 @@ export function BusinessLicenseUpload({
         <p className="m-0 text-sm text-text-muted">파일을 끌어다 놓거나</p>
         <button
           type="button"
+          // 파일 input(type="file")은 hidden 처리라 제출 실패 시 포커스 대상이 될 수 없다
+          // (display:none 요소는 브라우저에서 focus 불가) — 실제 클릭 트리거인 이 버튼을
+          // CompanySignupPage의 스크롤/포커스 대상으로 쓴다(#1332).
+          id="business-registration-file-trigger"
           className="cursor-pointer rounded-lg border border-border bg-surface px-4 py-2 text-sm font-semibold text-text-default hover:bg-surface-muted"
           onClick={() => inputRef.current?.click()}
         >

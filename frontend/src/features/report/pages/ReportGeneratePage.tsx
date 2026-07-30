@@ -4,15 +4,22 @@ import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
+import { AlertModal } from '../../../shared/components/Modal';
 import { useInspectionResult } from '../../inspection/hooks/useInspectionResult';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import { reportApi } from '../api/reportApi';
 import type { ReportDetailResponse } from '../api/reportApi';
+import type { Defect } from '../../inspection/types';
 import { ReportContentEditor } from '../components/ReportContentEditor';
+import {
+  groupDefectsByMedia,
+  type DefectPhotoGroup,
+} from '../components/editor/DefectPhoto';
 import { ReportEditorHero } from '../components/editor/ReportEditorHero';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import { getEmptyManualSectionLabels } from '../utils/manualSectionValidation';
 import { buildReportPdfContext } from '../utils/reportPdfContext';
 
 function extractErrorMessage(err: unknown, fallback: string): string {
@@ -44,7 +51,7 @@ interface StepContext {
 
 const REPORT_STEPS: ReadonlyArray<{ key: string; label: string; isActive: (ctx: StepContext) => boolean }> = [
   { key: 'A', label: 'AI 분류', isActive: (ctx) => ctx.hasContent },
-  { key: 'B', label: '작성자 확인', isActive: (ctx) => ctx.groundingCheckPassed === true || ctx.dirty },
+  { key: 'B', label: '작성자 확인', isActive: (ctx) => ctx.groundingCheckPassed === true },
   { key: 'C', label: '발행', isActive: (ctx) => ctx.isFinalized && ctx.hasPdf },
 ];
 
@@ -97,15 +104,19 @@ export function ReportGeneratePage() {
   const [savedContent, setSavedContent] = useState<ReportContent | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [isRechecking, setIsRechecking] = useState(false);
-  const [recheckError, setRecheckError] = useState<string | null>(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [pdfPreviewKey, setPdfPreviewKey] = useState(0);
   const [pdfLoadError, setPdfLoadError] = useState<string | null>(null);
   const [isPdfChecking, setIsPdfChecking] = useState(false);
+  // 임시저장/미리보기/최종확정 통합 플로우에서 공용으로 쓰는 알림 모달(#1338).
+  const [alertModal, setAlertModal] = useState<{ open: boolean; title?: string; message: string }>({
+    open: false,
+    message: '',
+  });
+  const closeAlertModal = useCallback(() => setAlertModal((prev) => ({ ...prev, open: false })), []);
   const inspectionId = report?.inspectionId ?? 0;
   const setActiveReportId = useInspectionStore((state) => state.setActiveReportId);
 
@@ -192,8 +203,29 @@ export function ReportGeneratePage() {
 
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
-  const defectImageUrls = useMemo(
-    () => inspectionData?.defects.map((defect) => defect.imageUrl) ?? [],
+  // 하자 상세 항목은 defects와 같은 순서로 만들어지므로 사진도 그 순서 그대로 1:1로 넘긴다.
+  // 항목마다 "그 하자"가 주인공이지만, 같은 사진에 찍힌 다른 하자도 흐리게 함께 보여준다(#1333).
+  const defectPhotos = useMemo<DefectPhotoGroup[]>(() => {
+    const defects = inspectionData?.defects ?? [];
+    const siblingsByMediaId = new Map<number, Defect[]>();
+    defects.forEach((defect) => {
+      if (defect.mediaId == null) return;
+      const bucket = siblingsByMediaId.get(defect.mediaId);
+      if (bucket) bucket.push(defect);
+      else siblingsByMediaId.set(defect.mediaId, [defect]);
+    });
+    return defects.map((defect) => ({
+      mediaId: defect.mediaId ?? null,
+      imageUrl: defect.imageUrl,
+      defects:
+        defect.mediaId == null ? [defect] : (siblingsByMediaId.get(defect.mediaId) ?? [defect]),
+      highlightDefectId: defect.id,
+    }));
+  }, [inspectionData?.defects]);
+
+  // 부위별 사진은 사진 단위 — 같은 사진의 하자를 한 장에 모아 중복 표시를 없앤다(#1333).
+  const defectPhotoGroups = useMemo(
+    () => groupDefectsByMedia(inspectionData?.defects ?? []),
     [inspectionData?.defects],
   );
 
@@ -217,13 +249,15 @@ export function ReportGeneratePage() {
   }, [applyReport, reportQuery.data]);
 
   const dirty = content !== null && savedContent !== null && JSON.stringify(content) !== JSON.stringify(savedContent);
+  const emptyManualSectionLabels = useMemo(() => getEmptyManualSectionLabels(content), [content]);
+  const hasEmptyManualSections = emptyManualSectionLabels.length > 0;
   const isFinalized = report?.status === 'FINALIZED';
 
-  // 확정 검증을 통과하고(groundingCheckPassed === true) 저장되지 않은 변경이 없으면(!dirty),
-  // 최종 확정 시 생성될 것과 동일한 조건으로 미리 PDF를 렌더링해둔다 — handleGeneratePdfAndFinalize와
-  // 동일한 옵션을 쓰되 서버 업로드/확정은 하지 않는다(순수 클라이언트 미리보기).
-  const canRenderClientPreview =
-    Boolean(content) && !dirty && (report?.groundingCheckPassed === true || isFinalized);
+  // 저장되지 않은 변경이 없으면(!dirty) 최종 확정 시 생성될 것과 동일한 조건으로 미리 PDF를
+  // 렌더링해둔다 — handleFinalizeAll과 동일한 옵션을 쓰되 서버 업로드/확정은 하지 않는다(순수
+  // 클라이언트 미리보기). "PDF 미리보기" 진입 자체가 임시저장 후에만 이동하도록 가드되므로(#1338),
+  // 여기서는 확정 검증 통과 여부를 더 이상 조건으로 두지 않는다.
+  const canRenderClientPreview = Boolean(content) && !dirty;
   const includeReportPhotos = content?.reportOptions?.includePhoto !== false;
 
   // useInspectionResult(useInspectionResultReal)은 매 렌더마다 새 data 객체를 만든다(메모이제이션
@@ -266,36 +300,108 @@ export function ReportGeneratePage() {
     };
   }, [isExportMode, report, content, pdfLoadError, canRenderClientPreview, includeReportPhotos]);
 
-  const handleSave = async () => {
-    if (!report || !content || isSaving) return;
+  // 임시저장 — "임시저장" 버튼(원 저장 버튼)뿐 아니라 PDF 미리보기 가드, 최종 확정 통합 플로우에서도
+  // 재사용한다(#1338). 성공 여부를 반환해 호출부가 다음 단계 진행 여부를 판단할 수 있게 한다.
+  // notifyErrorsViaModal이 true면(미리보기/최종확정 플로우) 저장 API 실패도 AlertModal로 알린다 —
+  // 빈 섹션 검증 실패는 호출부와 무관하게 항상 모달로 알린다.
+  const handleSave = async (options?: { notifyErrorsViaModal?: boolean }): Promise<boolean> => {
+    if (!report || !content || isSaving) return false;
+    if (hasEmptyManualSections) {
+      setAlertModal({
+        open: true,
+        title: '저장할 수 없습니다',
+        message: `내용이 비어 있는 추가 섹션이 있습니다: ${emptyManualSectionLabels.join(', ')}`,
+      });
+      return false;
+    }
     setIsSaving(true);
-    setSaveError(null);
     try {
       const response = await reportApi.updateContent(report.id, content);
       applyReport(response.data);
+      return true;
     } catch (err) {
-      setSaveError(extractErrorMessage(err, '저장에 실패했습니다.'));
+      const message = extractErrorMessage(err, '저장에 실패했습니다.');
+      if (options?.notifyErrorsViaModal) {
+        setAlertModal({ open: true, title: '저장 실패', message });
+      }
+      return false;
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleGroundingRecheck = async () => {
-    if (!report || isRechecking) return;
+  const handleGroundingRecheck = async (): Promise<{
+    success: boolean;
+    data?: ReportDetailResponse;
+    message?: string;
+  }> => {
+    if (!report || isRechecking) return { success: false };
     setIsRechecking(true);
-    setRecheckError(null);
     try {
       const response = await reportApi.groundingRecheck(report.id);
       applyReport(response.data);
+      return { success: true, data: response.data };
     } catch (err) {
-      setRecheckError(extractErrorMessage(err, '확정 검증에 실패했습니다.'));
+      const message = extractErrorMessage(err, '확정 검증에 실패했습니다.');
+      return { success: false, message };
     } finally {
       setIsRechecking(false);
     }
   };
 
-  const handleGeneratePdfAndFinalize = async () => {
-    if (!report || !content || isFinalizing || report.groundingCheckPassed !== true) return;
+  // "PDF 미리보기" 클릭 핸들러 — 이미 저장된 상태(또는 확정 완료)면 그대로 이동, 미저장 변경이
+  // 있으면 임시저장을 먼저 시도한 뒤에만 이동한다(#1338).
+  const handlePreviewClick = async () => {
+    if (!report) return;
+    if (isFinalized || !dirty) {
+      navigate(`/reports/${report.id}?mode=export`);
+      return;
+    }
+    const saved = await handleSave({ notifyErrorsViaModal: true });
+    if (saved) {
+      navigate(`/reports/${report.id}?mode=export`);
+    }
+  };
+
+  // "최종 보고서 확정" 버튼 핸들러 — 임시저장 → 확정 검증 → PDF 생성/업로드/확정을 순차로 진행한다(#1338).
+  // 각 단계 실패 시 AlertModal로 알리고 다음 단계로 넘어가지 않는다.
+  const handleFinalizeAll = async () => {
+    if (!report || !content || isFinalized) return;
+    if (isSaving || isRechecking || isFinalizing) return;
+
+    if (dirty) {
+      const saved = await handleSave({ notifyErrorsViaModal: true });
+      if (!saved) return;
+    }
+
+    if (hasEmptyManualSections) {
+      setAlertModal({
+        open: true,
+        title: '확정할 수 없습니다',
+        message: `내용이 비어 있는 추가 섹션이 있습니다: ${emptyManualSectionLabels.join(', ')}`,
+      });
+      return;
+    }
+
+    const recheckResult = await handleGroundingRecheck();
+    if (!recheckResult.success) {
+      setAlertModal({
+        open: true,
+        title: '확정 검증 실패',
+        message: recheckResult.message ?? '확정 검증에 실패했습니다.',
+      });
+      return;
+    }
+
+    if (recheckResult.data?.groundingCheckPassed !== true) {
+      setAlertModal({
+        open: true,
+        title: '검증 실패',
+        message: '검증 실패 — 내용을 확인 후 다시 시도하세요.',
+      });
+      return;
+    }
+
     setIsFinalizing(true);
     setFinalizeError(null);
     try {
@@ -308,7 +414,9 @@ export function ReportGeneratePage() {
       const finalizeResponse = await reportApi.finalizeReport(report.id, uploadResponse.data.pdfUrl);
       applyReport(finalizeResponse.data);
     } catch (err) {
-      setFinalizeError(extractErrorMessage(err, 'PDF 생성/확정에 실패했습니다.'));
+      const message = extractErrorMessage(err, 'PDF 생성/확정에 실패했습니다.');
+      setFinalizeError(message);
+      setAlertModal({ open: true, title: 'PDF 생성/확정 실패', message });
     } finally {
       setIsFinalizing(false);
     }
@@ -389,7 +497,17 @@ export function ReportGeneratePage() {
       ? (inspectionData.reviewedCount / inspectionData.totalCount) * 100
       : 0;
 
-  const canFinalize = report.groundingCheckPassed === true && !dirty && !isFinalized;
+  // 이제 버튼 하나로 저장→검증→PDF 생성/확정을 순차 진행하므로(#1338), 아직 저장/검증 전이어도
+  // 클릭 가능해야 한다. 진행 중(각 단계 loading state)에는 비활성화한다.
+  const canFinalize = !isFinalized;
+  const isFinalizeBusy = isSaving || isRechecking || isFinalizing;
+  const finalizeLabel = isSaving
+    ? '저장 중...'
+    : isRechecking
+      ? '검증 중...'
+      : isFinalizing
+        ? 'PDF 생성/확정 중...'
+        : '최종 보고서 확정';
   const reportStepViews = REPORT_STEPS.map((step) => ({
     key: step.key,
     label: step.label,
@@ -419,10 +537,10 @@ export function ReportGeneratePage() {
               variant="primary"
               disabled={isDownloadingPdf || (!report.pdfUrl && !previewBlobUrl)}
             >
-              {isDownloadingPdf ? '내보내는 중...' : 'PDF 내보내기'}
-              <svg className="ml-1 h-4 w-4 text-surface" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <svg className="h-4 w-4 text-surface" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
+              {isDownloadingPdf ? '내보내는 중...' : 'PDF 내보내기'}
             </Button>
           </div>
         </div>
@@ -488,7 +606,7 @@ export function ReportGeneratePage() {
                 <p className="text-sm text-text-muted">
                   {dirty
                     ? '편집한 내용을 아직 저장하지 않았습니다. 저장한 뒤 다시 시도해 주세요.'
-                    : '편집 화면으로 돌아가 확정 검증을 통과한 뒤 다시 시도해 주세요.'}
+                    : '편집 화면으로 돌아가 저장한 뒤 다시 시도해 주세요.'}
                 </p>
               </div>
             </div>
@@ -503,7 +621,6 @@ export function ReportGeneratePage() {
     <div className="min-h-full bg-surface-muted px-6 py-6 lg:px-8 lg:py-8">
       <div className="mx-auto flex w-full max-w-[1024px] flex-col gap-6">
         <ReportEditorHero
-          reportId={report.id}
           createdAt={report.createdAt}
           isFinalized={isFinalized}
           progressPercent={progressPercent}
@@ -512,8 +629,13 @@ export function ReportGeneratePage() {
           defectCount={content?.summary.total_count ?? 0}
           steps={reportStepViews}
           canFinalize={canFinalize}
-          isFinalizing={isFinalizing}
-          onFinalize={() => void handleGeneratePdfAndFinalize()}
+          isFinalizing={isFinalizeBusy}
+          finalizeLabel={finalizeLabel}
+          onFinalize={() => void handleFinalizeAll()}
+          onPreviewClick={() => void handlePreviewClick()}
+          canSave={dirty}
+          isSaving={isSaving}
+          onSaveClick={() => void handleSave({ notifyErrorsViaModal: true })}
         />
 
       {/* grounding 검증 실패 상태 — 통과 완료 표시는 상단 단계/확정 버튼 상태로만 드러낸다. */}
@@ -548,41 +670,18 @@ export function ReportGeneratePage() {
           content={content}
           onChange={setContent}
           readOnly={isFinalized || isSaving || isRechecking || isFinalizing}
-          defectImageUrls={defectImageUrls}
+          defectPhotos={defectPhotos}
+          defectPhotoGroups={defectPhotoGroups}
         />
       )}
 
-      {/* 9. 하단 저장/검증 상태 바 */}
-      {!isFinalized && (
-        <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-6">
-          <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={handleSave} variant="primary" disabled={!dirty || isSaving}>
-              {isSaving ? '저장 중...' : '저장'}
-            </Button>
-            <Button
-              onClick={handleGroundingRecheck}
-              variant="secondary"
-              disabled={dirty || isRechecking}
-            >
-              {isRechecking ? '검증 중...' : '확정 검증'}
-            </Button>
-          </div>
-          {dirty && (
-            <p className="text-xs text-text-muted">
-              저장하지 않은 변경 사항이 있습니다. 확정 검증 전에 저장하세요.
-            </p>
-          )}
-          {report.groundingCheckPassed !== true && !dirty && (
-            <p className="text-xs text-text-muted">
-              확정 검증을 통과해야 PDF 생성 및 확정이 가능합니다.
-            </p>
-          )}
-          {saveError && <p className="text-sm text-red-600">{saveError}</p>}
-          {recheckError && <p className="text-sm text-red-600">{recheckError}</p>}
-          {finalizeError && <p className="text-sm text-red-600">{finalizeError}</p>}
-        </div>
-      )}
       </div>
+      <AlertModal
+        open={alertModal.open}
+        title={alertModal.title}
+        message={alertModal.message}
+        onClose={closeAlertModal}
+      />
     </div>
   );
 }

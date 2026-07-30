@@ -18,6 +18,7 @@ import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.support.InMemoryRateLimiter;
+import com.hajacheck.support.StubRateLimiter;
 import java.net.ConnectException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -178,8 +179,8 @@ class AiProxyServiceRagChatTest {
 
     @Test
     void ragChat_전역rate_limit초과_AUTH_TOO_MANY_REQUESTS_내부호출없음() {
-        AiProxyService limited = newService((key, limit, window) -> !key.startsWith("rate:ai-proxy:global")
-                && !key.equals("rate:ai-proxy:daily"));
+        AiProxyService limited = newService(StubRateLimiter.of((key, limit, window) -> !key.startsWith("rate:ai-proxy:global")
+                && !key.equals("rate:ai-proxy:daily")));
 
         assertThatThrownBy(() -> limited.ragChat(USER_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
@@ -190,7 +191,7 @@ class AiProxyServiceRagChatTest {
 
     @Test
     void ragChat_사용자rate_limit초과_AUTH_TOO_MANY_REQUESTS_내부호출없음() {
-        AiProxyService limited = newService((key, limit, window) -> !key.startsWith("rate:ai-proxy:user:"));
+        AiProxyService limited = newService(StubRateLimiter.of((key, limit, window) -> !key.startsWith("rate:ai-proxy:user:")));
 
         assertThatThrownBy(() -> limited.ragChat(USER_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)

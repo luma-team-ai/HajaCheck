@@ -34,6 +34,9 @@ public class AuthProperties {
     /** 초대 코드 redeem rate-limit(#794, PR머신 리뷰 P2 — 무차별 대입 방어). */
     private InviteCodeRedeemRateLimit inviteCodeRedeemRateLimit = new InviteCodeRedeemRateLimit();
 
+    /** 로그인 후 비밀번호 변경 rate-limit(#1315 — 탈취된 세션의 현재 비밀번호 무차별 대입 방어). */
+    private PasswordChangeRateLimit passwordChangeRateLimit = new PasswordChangeRateLimit();
+
     /**
      * 비밀번호 재설정 요청 rate-limit 설정. 축은 <b>대상 이메일</b>과 <b>전역 상한</b> 둘뿐이다(IP 축 미사용).
      */
@@ -197,6 +200,91 @@ public class AuthProperties {
         public void setUserWindow(Duration userWindow) {
             this.userWindow = userWindow;
         }
+    }
+
+    /**
+     * 로그인 후 비밀번호 변경 rate-limit 설정(#1315) — 이미 로그인된 사용자가 호출하는 엔드포인트라
+     * 초대 코드 redeem(InviteCodeRedeemRateLimit)과 같이 <b>사용자(userId) 축</b> 하나로 충분하다
+     * (비로그인 재설정의 이메일 축·전역 상한과 달리 계정 열거·메일 폭탄 축이 존재하지 않는다).
+     * IP 축을 쓰지 않는 이유는 {@code auth.support.RateLimiter} javadoc 과 동일(2026-07-17 A 결정).
+     *
+     * <p><b>방어 대상</b>: 세션이 탈취된 상황(XSS·기기 방치)에서 공격자가 <b>현재 비밀번호를 무차별 대입</b>해
+     * 계정을 완전히 인수하는 것. 현재 비밀번호 확인이 이 엔드포인트의 유일한 재인증 관문이므로, 그 관문에
+     * 시도 횟수 제한이 없으면 관문이 사실상 없는 것과 같다.
+     *
+     * <p>기본 5분 5회 — 정상 사용자의 오타 재시도는 통과시키되(로그인 자체는 별도 축이라 영향 없음),
+     * 온라인 브루트포스의 실익은 없애는 선. <b>변경에 성공하면 카운터를 즉시 해제</b>한다(성공 = 현재
+     * 비밀번호를 안다는 증명이라 방어력 손실이 없다) — 그래서 오타 몇 번 뒤 성공한 정상 사용자가 곧바로
+     * 재변경을 막히는 일은 없다.
+     *
+     * <p>⚠️ <b>알려진 한계 — 자기계정 봉쇄(self-account DoS)가 성립한다.</b> 이 축의 키는 {@code userId}
+     * 이고, 이 엔드포인트가 방어 대상으로 삼는 상황(세션 탈취)에서 공격자는 이미 피해자 계정 안에 있으므로
+     * <b>피해자와 같은 카운터를 공유</b>한다. 공격자가 창마다 한도를 소모시키면 피해자는 계속 429 를 맞아
+     * <b>비밀번호를 바꿔 접근을 회수하지 못한다</b>. 즉 "타 사용자에게 영향이 없다"는 맞지만 "DoS 가
+     * 성립하지 않는다"는 <b>틀렸다</b> — 정확히 복구 경로를 봉쇄하는 형태의 DoS 다.
+     *
+     * <p><b>탈출 경로</b>: 이 축에 걸리지 않는 <b>비로그인 이메일 재설정</b>
+     * ({@code POST /api/auth/password-reset-request} → 메일 링크)이 남아 있다. rate-limit 축이 이메일·전역이라
+     * 완전히 별개이므로 피해자는 그 경로로 비밀번호를 되찾을 수 있다.
+     * <b>근본 해결은 전 기기 세션 무효화(#1318)</b> — 탈취 세션 자체를 끊어야 공격자가 카운터를 소모할
+     * 수단이 사라진다. 한도를 키우는 것은 해결이 아니다(무차별 대입 방어를 포기하면서 봉쇄 시점을 늦출 뿐).
+     */
+    public static class PasswordChangeRateLimit {
+
+        private int userLimit = 5;
+
+        private Duration userWindow = Duration.ofMinutes(5);
+
+        /**
+         * 침해 의심 경보 임계 — 같은 userId 가 이 횟수를 넘겨 429 를 맞으면 단순 오타가 아니라
+         * <b>세션 탈취 후 비밀번호 대입</b>이나 위 자기계정 봉쇄가 진행 중일 가능성이 높다. 그때만 로그를
+         * ERROR 로 승격해 정상 사용자의 오타 재시도와 구분한다 — 모든 429 를 같은 WARN 으로 남기면
+         * 신호가 잡음에 묻혀 침해를 아무도 알아채지 못한다. 기본 3회.
+         */
+        private int breachAlertThreshold = 3;
+
+        /** 침해 의심 경보 관찰 창. 기본 1시간 — 사용자 창(5분)보다 길어야 창을 넘나드는 반복이 잡힌다. */
+        private Duration breachAlertWindow = Duration.ofHours(1);
+
+        public int getUserLimit() {
+            return userLimit;
+        }
+
+        public void setUserLimit(int userLimit) {
+            this.userLimit = userLimit;
+        }
+
+        public Duration getUserWindow() {
+            return userWindow;
+        }
+
+        public void setUserWindow(Duration userWindow) {
+            this.userWindow = userWindow;
+        }
+
+        public int getBreachAlertThreshold() {
+            return breachAlertThreshold;
+        }
+
+        public void setBreachAlertThreshold(int breachAlertThreshold) {
+            this.breachAlertThreshold = breachAlertThreshold;
+        }
+
+        public Duration getBreachAlertWindow() {
+            return breachAlertWindow;
+        }
+
+        public void setBreachAlertWindow(Duration breachAlertWindow) {
+            this.breachAlertWindow = breachAlertWindow;
+        }
+    }
+
+    public PasswordChangeRateLimit getPasswordChangeRateLimit() {
+        return passwordChangeRateLimit;
+    }
+
+    public void setPasswordChangeRateLimit(PasswordChangeRateLimit passwordChangeRateLimit) {
+        this.passwordChangeRateLimit = passwordChangeRateLimit;
     }
 
     public PasswordResetRateLimit getPasswordResetRateLimit() {

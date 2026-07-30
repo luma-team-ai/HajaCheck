@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { Button } from '../../../../shared/components/Button';
 import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../../constants';
 
@@ -9,7 +8,6 @@ export interface ReportStepView {
 }
 
 interface ReportEditorHeroProps {
-  reportId: number;
   createdAt: string;
   isFinalized: boolean;
   progressPercent: number;
@@ -19,7 +17,15 @@ interface ReportEditorHeroProps {
   steps: ReportStepView[];
   canFinalize: boolean;
   isFinalizing: boolean;
+  /** 진행 단계별 버튼 라벨(예: "저장 중...")을 부모가 넘겨줄 때 기본 라벨 대신 사용한다. */
+  finalizeLabel?: string;
   onFinalize: () => void;
+  /** "PDF 미리보기" 클릭 핸들러 — 미저장 변경분이 있으면 임시저장 후 이동하는 가드는
+   * 부모(ReportGeneratePage)가 처리한다(#1338). */
+  onPreviewClick: () => void;
+  canSave: boolean;
+  isSaving: boolean;
+  onSaveClick: () => void;
 }
 
 function formatDateParts(iso: string) {
@@ -53,7 +59,6 @@ function PaperPlaneIcon() {
 }
 
 export function ReportEditorHero({
-  reportId,
   createdAt,
   isFinalized,
   progressPercent,
@@ -63,7 +68,12 @@ export function ReportEditorHero({
   steps,
   canFinalize,
   isFinalizing,
+  finalizeLabel,
   onFinalize,
+  onPreviewClick,
+  canSave,
+  isSaving,
+  onSaveClick,
 }: ReportEditorHeroProps) {
   const created = formatDateParts(createdAt);
   const currentStepIndex = steps.reduce(
@@ -88,20 +98,14 @@ export function ReportEditorHero({
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2 xl:justify-end">
-          <Link
-            to={`/reports/${reportId}?mode=export`}
-            className="inline-flex items-center justify-center rounded-full border border-border bg-surface px-6 py-2 text-xs font-medium text-heading no-underline transition hover:bg-surface-muted"
-          >
+          <Button onClick={onSaveClick} variant="secondary" size="md" disabled={!canSave || isSaving}>
+            {isSaving ? '저장 중...' : '임시저장'}
+          </Button>
+          <Button onClick={onPreviewClick} variant="secondary" size="md">
             PDF 미리보기
-          </Link>
-          <Button
-            onClick={onFinalize}
-            variant="primary"
-            size="md"
-            disabled={!canFinalize || isFinalizing}
-            className="min-w-[168px] gap-2 bg-primary px-5 text-xs text-surface"
-          >
-            {isFinalizing ? 'PDF 생성/확정 중...' : '최종 보고서 확정'}
+          </Button>
+          <Button onClick={onFinalize} variant="primary" size="md" disabled={!canFinalize || isFinalizing}>
+            {finalizeLabel ?? (isFinalizing ? 'PDF 생성/확정 중...' : '최종 보고서 확정')}
             <PaperPlaneIcon />
           </Button>
         </div>
@@ -164,9 +168,7 @@ export function ReportEditorHero({
           {steps.map((step, index) => (
             <li
               key={step.key}
-              className={`relative z-10 flex min-w-0 flex-col items-center gap-2 text-center ${
-                step.active ? 'opacity-100' : 'opacity-30'
-              }`}
+              className="relative z-10 flex min-w-0 flex-col items-center gap-2 text-center"
             >
               <span
                 className={`inline-flex h-10 w-10 items-center justify-center rounded-full text-base font-bold ${
@@ -178,7 +180,11 @@ export function ReportEditorHero({
               >
                 {step.key}
               </span>
-              <span className="truncate text-[11px] font-medium tracking-wide text-heading sm:text-xs">
+              <span
+                className={`truncate text-[11px] font-medium tracking-wide text-heading sm:text-xs ${
+                  step.active ? 'opacity-100' : 'opacity-30'
+                }`}
+              >
                 {step.label}
               </span>
             </li>

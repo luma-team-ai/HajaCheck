@@ -15,6 +15,7 @@ import {
   sectionLabel,
 } from '../utils/sectionOrder';
 import { AddSectionMenu } from './editor/AddSectionMenu';
+import type { DefectPhotoGroup } from './editor/DefectPhoto';
 import { DetailSection } from './editor/DetailSection';
 import { DraggableSectionSlot } from './editor/DraggableSectionSlot';
 import { GenericManualSectionForm } from './editor/GenericManualSectionForm';
@@ -29,7 +30,10 @@ interface ReportContentEditorProps {
   content: ReportContent;
   onChange: (next: ReportContent) => void;
   readOnly: boolean;
-  defectImageUrls?: Array<string | null | undefined>;
+  /** 하자 상세 항목 순서와 1:1로 맞춘 사진(항목별 강조) — DetailSection이 쓴다(#1333). */
+  defectPhotos?: DefectPhotoGroup[];
+  /** 사진 단위로 묶인 하자 그룹(사진 1장에 박스 여러 개) — PhotosSectionPreview가 쓴다(#1333). */
+  defectPhotoGroups?: DefectPhotoGroup[];
 }
 
 const EMPTY_SUBMISSION: SubmissionSectionData = {
@@ -55,7 +59,8 @@ export function ReportContentEditor({
   content,
   onChange,
   readOnly,
-  defectImageUrls = [],
+  defectPhotos = [],
+  defectPhotoGroups = [],
 }: ReportContentEditorProps) {
   const order = resolveSectionOrder(content);
   const manualSections = content.manualSections ?? [];
@@ -110,12 +115,12 @@ export function ReportContentEditor({
                 content={content}
                 onChange={onChange}
                 readOnly={readOnly}
-                imageUrls={defectImageUrls}
+                defectPhotos={defectPhotos}
               />
             ) : key === 'recommendation' ? (
               <RecommendationSection content={content} onChange={onChange} readOnly={readOnly} />
             ) : (
-              <PhotosSectionPreview imageUrls={defectImageUrls} />
+              <PhotosSectionPreview photoGroups={defectPhotoGroups} />
             );
           return (
             <DraggableSectionSlot key={key} {...slotProps} removable={false}>
