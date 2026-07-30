@@ -1,9 +1,8 @@
 import { buildDefectImagePlaceholder } from '../utils/defectImagePlaceholder';
-import type {
-  FacilityDefectActivityLogItem,
-  FacilityDefectAiExplanation,
-  FacilityDefectDetailResponse,
-} from '../types';
+// 활동 이력은 정본 ActivityHistoryPanel(GET /api/defects/{id}/revisions)로 대체되며(#1351), 그 응답
+// 타입 DefectRevision은 defect feature 소유다 — 목 데이터 모양만 그 계약과 맞추기 위해 타입을 가져온다.
+import type { DefectRevision } from '../../defect/types';
+import type { FacilityDefectAiExplanation, FacilityDefectDetailResponse } from '../types';
 
 // dev-04-02(Figma "hajaCheck Defect Detail") 캡처 기준 예제 하자 — 강남 오피스타워 A동(facility id=1).
 // 실 백엔드 GET /api/defects/{id}(DefectResponse) 응답 원본(raw) 모양 그대로 목을 구성한다 —
@@ -28,9 +27,25 @@ export const mockFacilityDefectDetailResponse: FacilityDefectDetailResponse = {
   createdAt: '2026-06-21T09:00:00.000Z',
 };
 
-export const mockFacilityDefectActivityLog: FacilityDefectActivityLogItem[] = [
-  { id: 1, message: '이점검 님이 등급을 D→E로 수정', occurredAtLabel: '6.22' },
-  { id: 2, message: 'AI 탐지 등록', occurredAtLabel: '6.21' },
+export const mockFacilityDefectRevisions: DefectRevision[] = [
+  {
+    id: 2,
+    revisedBy: 1,
+    fieldChanged: 'grade',
+    oldValue: 'D',
+    newValue: 'E',
+    reason: null,
+    createdAt: '2026-06-22T09:00:00.000Z',
+  },
+  {
+    id: 1,
+    revisedBy: 1,
+    fieldChanged: 'status',
+    oldValue: 'DETECTED',
+    newValue: 'CONFIRMED',
+    reason: null,
+    createdAt: '2026-06-21T09:00:00.000Z',
+  },
 ];
 
 export const mockFacilityDefectAiExplanation: FacilityDefectAiExplanation = {

@@ -228,13 +228,6 @@ export interface FacilityDefectDetailResponse {
   createdAt: string;
 }
 
-export interface FacilityDefectActivityLogItem {
-  id: number;
-  message: string;
-  /** 화면 표시용 축약 날짜(예: "6.22") — Figma 표기와 1:1 */
-  occurredAtLabel: string;
-}
-
 export interface FacilityDefectAiExplanation {
   diagnosis: string;
   recommendedAction: string;
