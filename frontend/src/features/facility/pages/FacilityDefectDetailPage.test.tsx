@@ -1,6 +1,7 @@
 ﻿// @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -17,14 +18,14 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-function renderPage(): void {
+function renderPage(initialEntry = '/facilities/1/defects/1'): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
 
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/facilities/1/defects/1']}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/facilities/:id/defects/:defectId" element={<FacilityDefectDetailPage />} />
           <Route path="/facilities/:id/defects/:defectId/compare" element={<div>회차비교 화면</div>} />
@@ -75,11 +76,34 @@ describe('FacilityDefectDetailPage (통합 테스트)', () => {
     expect(await screen.findByText(/구조적 스트레스로 인한 진행성 균열/)).not.toBeNull();
   });
 
-  it('활동 이력을 시각순으로 렌더링한다', async () => {
+  it('활동 기록을 GET /api/defects/{id}/revisions 결과로 렌더링한다(#1351)', async () => {
     renderPage();
 
-    expect(await screen.findByText('이점검 님이 등급을 D→E로 수정')).not.toBeNull();
-    expect(screen.getByText('AI 탐지 등록')).not.toBeNull();
+    expect(await screen.findByText("하자 등급을 'D'에서 'E'(으)로 변경했습니다.")).not.toBeNull();
+    expect(screen.getByText("상태를 '탐지됨'에서 '확인됨'(으)로 변경했습니다.")).not.toBeNull();
+  });
+
+  it('defectId가 숫자로 변환되지 않으면(NaN) 활동 기록 패널을 렌더하지 않고 revisions API를 호출하지 않는다(#1351)', async () => {
+    let revisionsCallCount = 0;
+    server.use(
+      http.get('/api/defects/:id/revisions', () => {
+        revisionsCallCount += 1;
+        return HttpResponse.json({
+          success: true,
+          data: { content: [], page: 0, totalElements: 0 },
+        });
+      }),
+    );
+
+    // 라우트 세그먼트 자체는 채워지지만 숫자로 변환 불가능한 값(비정상 진입/오래된 링크 등)이라
+    // Number(defectId)가 NaN이 되는 경로를 재현한다. facilityDefectApi.handlers.ts의
+    // GET /api/defects/:id는 id 검증 없이 항상 성공 응답을 주므로(mockFacilityDefectDetailResponse
+    // 고정 반환) 이 경로에서도 하자 상세 자체는 정상 렌더된다 — 활동 기록 패널만 가드돼야 한다.
+    renderPage('/facilities/1/defects/abc');
+
+    expect(await screen.findByText('하자 상세')).not.toBeNull();
+    expect(screen.queryByText('활동 기록')).toBeNull();
+    expect(revisionsCallCount).toBe(0);
   });
 
   it('"다음 단계로 전이" 클릭 시 해당 점검의 하자 목록으로 이동한다', async () => {

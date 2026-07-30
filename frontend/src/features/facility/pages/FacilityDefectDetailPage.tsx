@@ -1,6 +1,10 @@
 ﻿import { useNavigate, useParams } from 'react-router-dom';
 import '../../../shared/styles/layout.css';
-import { FacilityDefectActivityTimeline } from '../components/FacilityDefectActivityTimeline';
+// defect-card / defect-activity-panel 클래스는 DefectDetailPage.css에 정의돼 있다 — 이 페이지가
+// 별도로 로드하지 않으므로 ActivityHistoryPanel과 함께 임포트해 재사용한다(DefectDetailModal.tsx와
+// 동일 패턴 — 신규 스타일 중복 정의 금지, #1351).
+import '../../defect/pages/DefectDetailPage.css';
+import { ActivityHistoryPanel } from '../../defect/components/ActivityHistoryPanel';
 import { FacilityDefectAiExplainPanel } from '../components/FacilityDefectAiExplainPanel';
 import { FacilityDefectImagePanel } from '../components/FacilityDefectImagePanel';
 import { FacilityDefectInfoPanel } from '../components/FacilityDefectInfoPanel';
@@ -17,6 +21,12 @@ export function FacilityDefectDetailPage() {
   }>();
   const navigate = useNavigate();
   const { data: defect, isLoading, isError, refetch } = useFacilityDefectDetail(defectId);
+
+  // defectId는 라우트 파라미터라 항상 string이고, DEFAULT_ID('detail') 폴백이 그대로 들어오면
+  // Number() 변환이 NaN이 된다 — ActivityHistoryPanel(defectId: number)에 NaN을 넘겨 불필요한
+  // API 호출(GET /api/defects/NaN/revisions)을 만들지 않도록 가드한다(#1351).
+  const numericDefectId = Number(defectId);
+  const hasValidDefectId = Number.isFinite(numericDefectId);
 
   const handleCompareClick = () => {
     navigate(`/facilities/${facilityId}/defects/${defectId}/compare`);
@@ -66,7 +76,7 @@ export function FacilityDefectDetailPage() {
         location={defect.location ?? ''}
       />
 
-      <FacilityDefectActivityTimeline facilityId={defectId} />
+      {hasValidDefectId && <ActivityHistoryPanel defectId={numericDefectId} />}
     </div>
   );
 }
