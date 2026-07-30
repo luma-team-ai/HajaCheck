@@ -36,6 +36,15 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+- **🚀 dev → main 승격 (2026-07-31)** — **#1343**(merge `a0e0d8fc`). 13커밋 / 71파일. **CD 배포 성공**, arm1 컨테이너 5개 healthy, `Started HajacheckApplication` 확인.
+  - **포함 이슈 8건** (전건 native 자동종료 확인 — `Closes` 를 번호마다 한 줄씩 나열): #1315·#1316(비밀번호 변경 BE/FE) · #1339(토스 결제창) · #1333(리포트 하자박스) · #1332(기업 회원가입 피드백) · #1338(보고서 저장/확정검증) · #1322(보고서 편집·랜딩 정합성) · #1257(공개 요금제 API).
+  - **DB 무변경 배치** — 마이그레이션·엔티티 diff **0건**. prod `flyway_schema_history` 최신 **V37** 유지(신규 적용 0건), `Successfully validated 38 migrations`. #531류 승격 드리프트 리스크 없음.
+  - **G6 PASS** — R1: prod flyway/컨테이너 실측(문서 결론 승계 안 함) · R2: 격하 0 · R3: `VITE_TOSS_CLIENT_KEY` 가 arm1/prod compose에서 `:-`→`:?` **하드 실패로 승격**돼 .env 누락 시 배포 자체가 실패하는 변경 → 사전에 arm1 `.env` 키 존재·비어있지 않음 확인 후 진행 · R4: destructive SQL 0건 · 문서 버전관리: contract v0.11→v0.12(archive 스냅샷 헤더 보존) + openapi `info.version` 0.38.0→0.39.0-draft.
+  - **#1339 실효는 배포 후에만 검증 가능** — prod 번들 `assets/UsageSection-*.js` 에 토스 클라이언트 키 인라인 확인(`test_ck_` 접두, 길이 36 = arm1 `.env` 값 길이 일치). 수정 전 0건이던 것이 해소. **Dockerfile ARG 누락은 로컬 Vite dev 경로로는 재현 불가**한 클래스의 결함이라, 앞으로도 이 유형은 배포 후 번들 실측이 유일한 검증 수단이다.
+  - **⚠️ 기능검수 커버리지 2/8** — 승격 전 로컬 dev 스택(dev HEAD + 공유 dev DB 터널)으로 검수했으나, 공용 계정 `devteam@haja.test` 비밀번호 미확보로 **로그인 필요한 6건은 미검증**(비밀번호 변경 UI·리포트 하자박스·보고서 저장/가드·결제창·스모크). 검증된 2건 = #1257(실 `GET /api/plans` 200, DB 3플랜 값 화면 일치) · #1332(3필드 인라인 에러 + 주소검색 버튼 포커스·스크롤 206px + `role="alert"` 요약알림, "제출 무반응" 재현 안 됨).
+  - **검수 환경 함정(재발 방지)** — 로컬 기본값 `VITE_ENABLE_MSW=hybrid` 라 MSW가 `/api/auth/login`·`/api/reports/*` 등 **110여 경로를 가로챈다**. 이 상태 검수는 실배포 동작과 무관하다(프로덕션은 `import.meta.env.DEV=false` 라 MSW 미실행). **승격 검수는 반드시 `VITE_ENABLE_MSW=false` + 서비스워커 0건 확인 후 수행할 것.**
+  - **Jira** — HAJA-601·602·605·606·608 **완료** 전환 + 승격 PR 링크 코멘트. **#1338·#1322·#1257은 Jira 티켓 자체가 없음**(이슈 등록 시 Jira 동기화 ①단계 누락) — 소급 생성 보류.
+
 - **📝 기업 회원가입 필수항목 미입력 피드백 (→ dev, 2026-07-30)** — FE **#1334**(merge `766f647f`, 이슈 #1332 / HAJA-605). `awaiting-promotion` 라벨 부여, Jira `dev-pr-check`.
   - **증상**: 회사 주소를 비운 채 [가입 신청하기] → **화면 완전 무반응**(사용자 제보). `handleSubmit` 이 검증 실패 시 조용히 `return` 하는데, **주소·상호명·대표자명 3필드는 필수 검증 대상이면서 에러를 렌더하는 코드가 아예 없었다**(이메일·비밀번호·사업자번호·개업일자·약관은 전부 있었음).
   - **수정**: 3필드 인라인 에러(기존 `showValidation && 빈값` 패턴) + `CompanyAddressField` 에 `errorMessage` prop(스크립트 로드 실패 에러 우선) + **제출 실패 시 DOM 순서상 첫 무효 필드로 `scrollIntoView`+`focus()`**(주소는 `readOnly` 라 주소검색 버튼, 파일은 hidden 이라 "파일 선택" 버튼으로) + 제출 버튼 위 요약 알림(`role="alert"`).
