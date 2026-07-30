@@ -8,6 +8,13 @@ from fastapi import FastAPI
 
 load_dotenv()
 
+from ai.core.langsmith_guard import enforce_masked_tracing  # noqa: E402 — load_dotenv() 이후 임포트 필요
+
+# 라우터(→체인) 임포트 전에 실행해야 한다 — "트레이싱 ON + 마스킹 불완전"이면 여기서 기동을
+# 중단하고(fail-closed, #1240 P2), 정상이면 첫 트레이스 전에 error 스크럽을 싱글턴 Client에
+# 선점 설치한다(#1240 P1). 상세는 ai/core/langsmith_guard.py 모듈 docstring.
+enforce_masked_tracing()
+
 from routers.ai_router import router as ai_router  # noqa: E402 — load_dotenv() 이후 임포트 필요
 from routers.nl_search_router import router as nl_search_router  # noqa: E402
 
@@ -57,6 +64,7 @@ def _load_defect_models_sync() -> None:
     # 지연 임포트 — ultralytics/huggingface_hub/segmentation_models_pytorch는 무거운 의존성이라
     # 모듈 최상단에서 임포트하면 main.py를 import하는 모든 테스트(TestClient 미사용 포함)가 그
     # 비용을 진다.
+    from ai.core.embeddings import get_embeddings
     from ai.core.unet_client import get_crack_model
     from ai.core.yolo_client import get_yolo_model
 
@@ -65,6 +73,9 @@ def _load_defect_models_sync() -> None:
     get_crack_model()
     get_yolo_model("SPALLING")
     get_yolo_model("REBAR_EXPOSURE")
+    
+    # bge-m3 임베딩 모델 워밍업 추가 (첫 RAG 호출 시 콜드스타트 지연 방지)
+    get_embeddings()
 
 
 async def _warmup_defect_models() -> None:

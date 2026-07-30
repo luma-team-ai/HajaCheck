@@ -11,12 +11,11 @@ export const PLATFORM_ADMIN_NAV_ITEM: SideNavItem = {
   href: '/platform-admin',
   icon: adminIcon,
   subItems: [
+    { label: '대시보드', href: '/platform-admin/stats' },
     { label: '사용자 관리', href: '/platform-admin/users' },
     { label: '플랜·쿼터 관리', href: '/platform-admin/plans-quota' },
-    { label: '하자 유형·등급 관리', href: '/platform-admin/defect-types' },
     { label: '상담 관리', href: '/platform-admin/counsels' },
     { label: 'RAG 문서 관리', href: '/platform-admin/rag-documents' },
-    { label: '서비스 통계', href: '/platform-admin/stats' },
     { label: '시스템 모니터링', href: '/platform-admin/monitoring' },
   ],
 };

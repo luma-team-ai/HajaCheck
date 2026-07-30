@@ -21,8 +21,16 @@ type Props = {
 // 등록 모달 "대표 사진(최대 4장)" — UI(#629) + 실 업로드 연동(#652, POST /api/facilities/{id}/media).
 // 미리보기/드래그드롭/개별삭제/objectURL cleanup은 이 컴포넌트가 계속 전담하고, 선택된 File 배열만
 // onFilesChange로 상위에 노출한다 — 실제 전송(FormData 구성, 진행률)은 useUploadFacilityPhotos가 담당.
+//
+// 대표사진 선택(#1286): 백엔드는 시설물 카드 썸네일을 "가장 먼저 업로드된(id 최솟값) 사진"으로
+// 정한다(FacilityService.thumbnailUrl — findByFacilityIdOrderByIdAsc 첫 결과). 업로드는
+// List<MultipartFile> 순서 그대로 삽입되므로(IDENTITY 자동증가 = 삽입 순서), 백엔드/DB 변경 없이
+// 사용자가 고른 대표사진을 onFilesChange로 내보내는 File[]의 맨 앞(index 0)에 두는 것만으로
+// 카드 목록 썸네일에 반영된다.
 export function FacilityPhotoUploadField({ onFilesChange }: Props) {
   const [photos, setPhotos] = useState<StagedPhoto[]>([]);
+  // null이면 "아직 사용자가 명시적으로 고르지 않음" — 이 경우 첫 번째 사진을 기본 대표로 취급한다.
+  const [primaryId, setPrimaryId] = useState<string | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // 언마운트 cleanup이 항상 최신 photos를 참조하도록 ref로 미러링한다 — dep []인 채로 photos를
@@ -41,13 +49,28 @@ export function FacilityPhotoUploadField({ onFilesChange }: Props) {
     };
   }, []);
 
-  // photos가 바뀔 때마다(추가/삭제) 선택된 File 배열을 상위에 노출한다(#652). setPhotos 업데이터
-  // 내부에서 직접 호출하지 않는 이유 — React가 개발 모드(StrictMode)에서 useState 업데이터 함수를
-  // 두 번 호출해 순수성을 검증하는데, 그 안에서 onFilesChange 같은 부수효과를 호출하면 이중 호출될
-  // 수 있다. photos state 자체를 단일 진실로 삼아 effect에서 파생시키는 편이 안전하다.
+  // 실제 대표사진 id — 사용자가 고른 primaryId가 유효하면(제거되지 않았으면) 그대로 쓰고,
+  // 없으면(초기 상태이거나 대표사진이 삭제됨) 첫 번째 사진으로 자동 대체한다.
+  const effectivePrimaryId =
+    primaryId && photos.some((photo) => photo.id === primaryId) ? primaryId : (photos[0]?.id ?? null);
+
+  // photos/대표사진 선택이 바뀔 때마다(추가/삭제/대표 변경) 선택된 File 배열을 상위에 노출한다(#652).
+  // 대표사진을 배열 맨 앞(index 0)으로 재정렬해서 내보낸다(#1286) — 백엔드가 업로드 순서=id 순서로
+  // 저장하고 최솟값 id를 대표사진(썸네일)으로 삼기 때문에, 순서만 바꾸면 백엔드/DB 변경 없이도
+  // 카드 목록 썸네일에 사용자가 고른 사진이 반영된다. setPhotos 업데이터 내부에서 직접 호출하지 않는
+  // 이유 — React가 개발 모드(StrictMode)에서 useState 업데이터 함수를 두 번 호출해 순수성을
+  // 검증하는데, 그 안에서 onFilesChange 같은 부수효과를 호출하면 이중 호출될 수 있다. photos state
+  // 자체를 단일 진실로 삼아 effect에서 파생시키는 편이 안전하다.
   useEffect(() => {
-    onFilesChange?.(photos.map((photo) => photo.file));
-  }, [photos, onFilesChange]);
+    const ordered = effectivePrimaryId
+      ? [...photos].sort((a, b) => {
+          if (a.id === effectivePrimaryId) return -1;
+          if (b.id === effectivePrimaryId) return 1;
+          return 0;
+        })
+      : photos;
+    onFilesChange?.(ordered.map((photo) => photo.file));
+  }, [photos, effectivePrimaryId, onFilesChange]);
 
   const addFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -145,26 +168,48 @@ export function FacilityPhotoUploadField({ onFilesChange }: Props) {
 
       {photos.length > 0 && (
         <div className="mt-1 grid grid-cols-4 gap-2">
-          {photos.map((photo) => (
-            <div
-              key={photo.id}
-              className="group relative aspect-square overflow-hidden rounded-lg border border-border bg-surface-muted"
-            >
-              <img
-                src={photo.previewUrl}
-                alt={photo.file.name}
-                className="h-full w-full object-cover"
-              />
-              <button
-                type="button"
-                aria-label={`${photo.file.name} 제거`}
-                onClick={() => handleRemove(photo.id)}
-                className="absolute right-1 top-1 rounded-full bg-black/60 px-1.5 py-0.5 text-xs leading-none text-white"
+          {photos.map((photo) => {
+            const isPrimary = photo.id === effectivePrimaryId;
+            return (
+              <div
+                key={photo.id}
+                className={`relative aspect-square overflow-hidden rounded-lg border bg-surface-muted ${
+                  isPrimary ? 'border-primary ring-2 ring-primary' : 'border-border'
+                }`}
               >
-                ✕
-              </button>
-            </div>
-          ))}
+                <img
+                  src={photo.previewUrl}
+                  alt={photo.file.name}
+                  className="h-full w-full object-cover"
+                />
+                {isPrimary && (
+                  <span className="absolute left-1 top-1 rounded bg-primary px-1.5 py-0.5 text-[11px] font-semibold leading-none text-white">
+                    대표
+                  </span>
+                )}
+                <button
+                  type="button"
+                  aria-label={isPrimary ? `${photo.file.name}은 대표 사진입니다` : `${photo.file.name}을 대표 사진으로 설정`}
+                  aria-pressed={isPrimary}
+                  disabled={isPrimary}
+                  onClick={() => setPrimaryId(photo.id)}
+                  className={`absolute bottom-1 left-1 rounded-full px-1.5 py-0.5 text-xs leading-none ${
+                    isPrimary ? 'cursor-default bg-primary text-white' : 'cursor-pointer bg-black/60 text-white'
+                  }`}
+                >
+                  {isPrimary ? '★' : '☆'}
+                </button>
+                <button
+                  type="button"
+                  aria-label={`${photo.file.name} 제거`}
+                  onClick={() => handleRemove(photo.id)}
+                  className="absolute right-1 top-1 rounded-full bg-black/60 px-1.5 py-0.5 text-xs leading-none text-white"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

@@ -20,6 +20,11 @@ type CompareState = {
   diffs: DiffEntry[];
 };
 
+type ActionModalState = {
+  title: string;
+  message: string;
+};
+
 // 되돌리기 확인 모달용
 type RevertTarget = { versionId: number; version: number };
 
@@ -35,6 +40,59 @@ function formatShortDate(iso: string): string {
 function displayValue(value: unknown): string {
   const text = typeof value === 'string' ? value : JSON.stringify(value);
   return (text ?? '—').length > 180 ? `${text?.slice(0, 177)}…` : text ?? '—';
+}
+
+const DIFF_PATH_LABELS: Record<string, string> = {
+  overview: '기본현황',
+  'overview.purpose': '기본현황 > 점검 목적',
+  'overview.facility_summary': '기본현황 > 시설물 개요',
+  'overview.scope': '기본현황 > 점검 범위',
+  summary: '결과 요약',
+  'summary.overall_opinion': '결과 요약 > 종합 의견',
+  'summary.total_count': '결과 요약 > 총 하자 수',
+  'summary.count_by_grade': '결과 요약 > 등급별 개수',
+  'summary.key_findings': '결과 요약 > 주요 발견사항',
+  detail: '진단 외관조사결과 기본사항',
+  'detail.items': '진단 외관조사결과 기본사항 > 하자 항목',
+  recommendation: '보수ㆍ보강(안)',
+  'recommendation.items': '보수ㆍ보강(안) > 권고 조치',
+  'recommendation.monitoring_points': '보수ㆍ보강(안) > 지속 관찰 부위',
+  reportOptions: '보고서 옵션',
+  manualSections: '수동 서식 섹션',
+  sectionOrder: '섹션 순서',
+};
+
+const DIFF_SEGMENT_LABELS: Record<string, string> = {
+  defect_type: '하자 유형',
+  location: '위치',
+  severity_grade: '등급',
+  description: '조사 결과',
+  cause: '추정 원인',
+  target: '대상 부위',
+  method: '보수ㆍ보강안',
+  priority: '우선순위',
+  legal_basis: '적용 근거',
+  legal_basis_verified: '근거 검증 여부',
+  title: '제목',
+  type: '유형',
+  data: '내용',
+  body: '본문',
+  entries: '참여자',
+};
+
+function formatDiffPath(path: string): string {
+  if (DIFF_PATH_LABELS[path]) return DIFF_PATH_LABELS[path];
+  return path
+    .split('.')
+    .map((segment) => {
+      const arrayMatch = segment.match(/^(.+)\[(\d+)\]$/);
+      if (arrayMatch) {
+        const [, key, index] = arrayMatch;
+        return `${DIFF_SEGMENT_LABELS[key] ?? DIFF_PATH_LABELS[key] ?? key} ${Number(index) + 1}`;
+      }
+      return DIFF_SEGMENT_LABELS[segment] ?? DIFF_PATH_LABELS[segment] ?? segment.replaceAll('_', ' ');
+    })
+    .join(' > ');
 }
 
 function collectDiffs(current: unknown, selected: unknown, path = ''): DiffEntry[] {
@@ -62,21 +120,21 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
   const { data: versions, isLoading, isError } = useReportVersionHistory(activeReport);
   const [compareState, setCompareState] = useState<CompareState | null>(null);
   const [busyVersion, setBusyVersion] = useState<number | null>(null);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionModal, setActionModal] = useState<ActionModalState | null>(null);
   // 되돌리기 확인 모달용 — window.confirm 대체
   const [pendingRevert, setPendingRevert] = useState<RevertTarget | null>(null);
 
   async function handleCompare(versionId: number, version: number) {
     if (!activeReport || version === activeReport.version) return;
     setBusyVersion(versionId);
-    setActionMessage(null);
+    setActionModal(null);
     try {
       const [currentResponse, selectedResponse] = await Promise.all([
         reportApi.getReport(activeReport.id),
         reportApi.getReport(versionId),
       ]);
       if (!isReportContent(currentResponse.data.content) || !isReportContent(selectedResponse.data.content)) {
-        setActionMessage('보고서 본문 형식이 달라 비교할 수 없습니다.');
+        setActionModal({ title: '비교할 수 없음', message: '보고서 본문 형식이 달라 비교할 수 없습니다.' });
         return;
       }
       setCompareState({
@@ -84,7 +142,7 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
         diffs: collectDiffs(currentResponse.data.content, selectedResponse.data.content),
       });
     } catch {
-      setActionMessage('비교할 보고서 버전을 불러오지 못했습니다.');
+      setActionModal({ title: '비교 실패', message: '비교할 보고서 버전을 불러오지 못했습니다.' });
     } finally {
       setBusyVersion(null);
     }
@@ -94,7 +152,10 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
   function handleRevert(versionId: number, version: number) {
     if (!activeReport || version === activeReport.version) return;
     if (activeReport.status !== 'DRAFT') {
-      setActionMessage('완료된 보고서는 되돌릴 수 없습니다. 편집 중인 보고서에서만 가능합니다.');
+      setActionModal({
+        title: '되돌릴 수 없음',
+        message: '완료된 보고서는 되돌릴 수 없습니다. 편집 중인 보고서에서만 가능합니다.',
+      });
       return;
     }
     setPendingRevert({ versionId, version });
@@ -105,19 +166,19 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
     const { versionId, version } = pendingRevert;
     setPendingRevert(null);
     setBusyVersion(versionId);
-    setActionMessage(null);
+    setActionModal(null);
     try {
       const selectedResponse = await reportApi.getReport(versionId);
       if (!isReportContent(selectedResponse.data.content)) {
-        setActionMessage('선택한 버전의 본문 형식이 달라 되돌릴 수 없습니다.');
+        setActionModal({ title: '되돌릴 수 없음', message: '선택한 버전의 본문 형식이 달라 되돌릴 수 없습니다.' });
         return;
       }
       await reportApi.updateContent(activeReport.id, selectedResponse.data.content);
-      setActionMessage(`v${version} 내용으로 되돌렸습니다. 근거 검증을 다시 실행해야 합니다.`);
+      setActionModal({ title: '이전 버전 적용 완료', message: `v${version} 내용으로 되돌렸습니다. 근거 검증을 다시 실행해야 합니다.` });
       setCompareState(null);
       onReverted?.();
     } catch {
-      setActionMessage('보고서 되돌리기에 실패했습니다. 현재 상태와 권한을 확인해 주세요.');
+      setActionModal({ title: '되돌리기 실패', message: '보고서 되돌리기에 실패했습니다. 현재 상태와 권한을 확인해 주세요.' });
     } finally {
       setBusyVersion(null);
     }
@@ -149,13 +210,27 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
         </div>
       </Modal>
 
+      <Modal
+        open={actionModal !== null}
+        onClose={() => setActionModal(null)}
+        title={actionModal?.title ?? '알림'}
+      >
+        <div className="flex flex-col gap-6">
+          <p className="text-sm leading-6 text-text-default">{actionModal?.message}</p>
+          <div className="flex justify-end">
+            <Button variant="secondary" onClick={() => setActionModal(null)}>
+              확인
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-surface-muted p-5">
         <div className="flex items-center justify-between pb-6">
           <h3 className="m-0 text-base font-semibold text-zinc-900">변경 이력</h3>
           <button type="button" aria-label="변경 이력 패널 닫기" onClick={onClose} className="cursor-pointer border-none bg-none text-zinc-500">✕</button>
         </div>
 
-        {!activeReport && <p className="text-sm text-text-muted">행의 ⋮ 메뉴에서 "변경 이력"을 선택하면 여기에 보고서 버전 목록이 표시됩니다.</p>}
         {activeReport && isLoading && <LoadingSpinner className="flex items-center gap-2" />}
         {activeReport && isError && <p className="text-sm text-danger">버전 이력을 불러오지 못했습니다.</p>}
 
@@ -200,32 +275,39 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
                 );
               })}
             </ul>
-
-            {actionMessage && <p className="mt-4 border-t border-border pt-3 text-xs leading-5 text-text-muted">{actionMessage}</p>}
-            {compareState && (
-              <section className="mt-4 border-t border-border pt-3" aria-label="보고서 버전 비교 결과">
-                <div className="flex items-center justify-between">
-                  <h4 className="m-0 text-sm font-semibold text-heading">현재 버전 ↔ v{compareState.version}</h4>
-                  <button type="button" onClick={() => setCompareState(null)} className="border-none bg-none text-xs text-text-muted underline">닫기</button>
-                </div>
-                {compareState.diffs.length === 0 ? (
-                  <p className="mt-2 text-xs text-text-muted">본문 내용에 차이가 없습니다.</p>
-                ) : (
-                  <ul className="m-0 mt-2 max-h-48 list-none space-y-2 overflow-y-auto p-0">
-                    {compareState.diffs.map((diff) => (
-                      <li key={diff.path} className="text-xs leading-4">
-                        <div className="font-semibold text-heading">{diff.path}</div>
-                        <div className="text-text-muted">현재: {diff.current}</div>
-                        <div className="text-text-muted">v{compareState.version}: {diff.selected}</div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            )}
           </>
         )}
       </div>
+
+      <Modal
+        open={compareState !== null}
+        onClose={() => setCompareState(null)}
+        title={compareState ? `현재 버전 ↔ v${compareState.version}` : '보고서 버전 비교'}
+      >
+        <section className="w-[min(78vw,920px)]" aria-label="보고서 버전 비교 결과">
+          {compareState?.diffs.length === 0 ? (
+            <p className="m-0 text-base leading-7 text-text-muted">본문 내용에 차이가 없습니다.</p>
+          ) : (
+            <ul className="m-0 max-h-[60vh] list-none space-y-4 overflow-y-auto p-0 pr-1">
+              {compareState?.diffs.map((diff) => (
+                <li key={diff.path} className="rounded-xl border border-border bg-surface-muted p-4 text-base leading-7">
+                  <div className="mb-2 text-lg font-semibold text-heading">{formatDiffPath(diff.path)}</div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-lg bg-surface p-3">
+                      <div className="mb-1 text-sm font-semibold text-text-muted">현재</div>
+                      <div className="whitespace-pre-wrap text-base text-text-default">{diff.current}</div>
+                    </div>
+                    <div className="rounded-lg bg-surface p-3">
+                      <div className="mb-1 text-sm font-semibold text-text-muted">v{compareState.version}</div>
+                      <div className="whitespace-pre-wrap text-base text-text-default">{diff.selected}</div>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </Modal>
     </div>
   );
 }

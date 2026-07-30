@@ -426,7 +426,7 @@ describe('ReportGeneratePage', () => {
     expect(pdfFrame.getAttribute('src')).not.toContain('spring:8080');
   });
 
-  it('same-origin PDF 사전 확인 실패 시 PDF 내보내기 폴백을 표시한다', async () => {
+  it('same-origin PDF 사전 확인 실패 시 현재 보고서 내용으로 PDF 미리보기를 다시 렌더한다', async () => {
     server.use(
       http.get('/api/reports/1/pdf/storage-key', () =>
         new Response(null, { status: 403 }),
@@ -441,10 +441,13 @@ describe('ReportGeneratePage', () => {
 
     renderPageWithPath('/reports/1?mode=export');
 
-    const errorTitle = await screen.findByText('PDF를 불러올 수 없습니다.');
-    expect(errorTitle.closest('div')?.className).toContain('mx-auto');
+    const pdfFrame = await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
+    expect(pdfFrame.getAttribute('src')).toContain('blob:');
+    expect(screen.getByText(/저장된 PDF를 찾지 못해 현재 보고서 내용으로 다시 렌더링했습니다/)).toBeTruthy();
+    expect(exportReportToPdf).toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'PDF 내보내기' })).toBeTruthy();
     expect(screen.queryByTitle('저장된 보고서 PDF')).toBeNull();
+    expect(screen.queryByText('PDF를 불러올 수 없습니다.')).toBeNull();
   });
 
   it('cross-origin pdfUrl은 사전 fetch 없이 iframe이 직접 열게 한다', async () => {
@@ -533,7 +536,7 @@ describe('ReportGeneratePage', () => {
     });
   });
 
-  it('/reports/:reportId?mode=export에서 pdfUrl이 없으면 코드 미리보기 대신 저장된 PDF 없음 상태를 보여준다', async () => {
+  it('/reports/:reportId?mode=export에서 확정 보고서의 pdfUrl이 없어도 현재 내용으로 PDF 미리보기를 렌더한다', async () => {
     reportState = {
       ...mockReportDetailResponse,
       groundingCheckPassed: true,
@@ -552,9 +555,10 @@ describe('ReportGeneratePage', () => {
       </QueryClientProvider>,
     );
 
-    const emptyTitle = await screen.findByText('저장된 PDF가 없습니다.');
-    expect(emptyTitle.closest('div')?.parentElement?.className).toContain('mx-auto');
+    const pdfFrame = await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
+    expect(pdfFrame.getAttribute('src')).toContain('blob:');
     expect(screen.queryByTitle('저장된 보고서 PDF')).toBeNull();
+    expect(screen.queryByText('저장된 PDF가 없습니다.')).toBeNull();
     expect(screen.queryByLabelText('점검 목적')).toBeNull();
   });
 
@@ -607,6 +611,24 @@ describe('ReportGeneratePage', () => {
     const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
     expect(finalizeButton.disabled).toBe(true);
     expect(screen.queryByRole('button', { name: 'PDF 생성 후 확정' })).toBeNull();
+  });
+
+  it('서식 섹션 추가 메뉴에 표준서식 수동 입력 항목을 모두 노출한다', async () => {
+    renderPage();
+
+    await screen.findByText('보고서 생성 결과');
+    fireEvent.click(screen.getByRole('button', { name: '+ 서식 섹션 추가' }));
+
+    expect(screen.getByRole('button', { name: '제출문' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '기본현황' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '상태평가 결과 및 보수ㆍ보강' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '참여 기술진 명단' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '책임기술자 종합의견' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '부위별 상태평가 결과 및 보수ㆍ보강' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '안전성평가 결과' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '현장시험(비파괴 및 추가시험)' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '시설물 현황' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도' })).toBeTruthy();
   });
 
   it('저장 실패 시 axios 인터셉터가 던진 ApiError의 실제 message를 그대로 노출한다(제네릭 문구로 덮지 않는다)', async () => {
@@ -688,7 +710,7 @@ describe('ReportGeneratePage', () => {
     expect(screen.queryByText('최종 승인')).toBeNull();
   });
 
-  it('상세 내역 등급 필터 pills(전체, A, B, C, D, E)가 항상 렌더링된다', async () => {
+  it('진단 외관조사결과 기본사항 등급 필터 pills(전체, A, B, C, D, E)가 항상 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
     const filterGroup = screen.getByRole('group', { name: '등급 필터' });
@@ -698,22 +720,22 @@ describe('ReportGeneratePage', () => {
     }
   });
 
-  it('상세 내역 페이지네이션 컨트롤이 렌더링된다', async () => {
+  it('진단 외관조사결과 기본사항 페이지네이션 컨트롤이 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
     expect(screen.getByRole('button', { name: '이전 페이지' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '다음 페이지' })).toBeTruthy();
-    const detailSection = screen.getByRole('heading', { name: '상세 내역' }).closest('section');
+    const detailSection = screen.getByText('진단 외관조사결과 기본사항').closest('.rounded-lg') as HTMLElement | null;
     expect(detailSection).toBeTruthy();
     expect(within(detailSection!).getByText('1', { selector: 'span.font-bold' })).toBeTruthy();
     expect(within(detailSection!).getByText('/ 1', { selector: 'span.text-zinc-500' })).toBeTruthy();
   });
 
-  it('조치 권고에 시급성 pill과 DEFECT badge가 렌더링된다', async () => {
+  it('보수ㆍ보강에 시급성 pill과 하자 badge가 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
     expect(screen.getByDisplayValue('보수 시급성: 중')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'DEFECT #01' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '하자 #01' })).toBeTruthy();
   });
 
   it('AI 경고 배너와 PDF 미리보기 링크가 렌더링된다', async () => {

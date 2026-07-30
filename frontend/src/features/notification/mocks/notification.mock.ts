@@ -10,14 +10,17 @@ export const mockNotifications: NotificationApiItem[] = [
   {
     id: 1,
     type: 'ANALYSIS_DONE',
-    payload: { description: '강남 오피스타워 8회차 · 하자 87건 탐지' },
+    // inspectionId는 "결과 보기" 액션 이동(HAJA-595)에 실제로 쓰인다 — 실 BE payload
+    // (InspectionAnalysisNotificationPayload.serialize)와 동일하게 채운다.
+    payload: { description: '8회차', inspectionId: 101 },
     isRead: false,
     createdAt: minutesAgo(0),
   },
   {
     id: 2,
     type: 'REVIEW_PENDING',
-    payload: null,
+    // inspectionId는 "검수하기" 액션 이동(HAJA-595)에 실제로 쓰인다.
+    payload: { description: '8회차', inspectionId: 101 },
     isRead: false,
     createdAt: minutesAgo(12),
   },

@@ -57,11 +57,9 @@ export function RecommendationSection({
 
   return (
     <section className="flex flex-col gap-6">
-      <h2 className="text-xl font-medium leading-7 text-heading">조치 권고</h2>
-
       {items.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-8 text-center text-sm text-text-muted">
-          조치 권고 항목이 없습니다.
+          보수ㆍ보강 항목이 없습니다.
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -84,7 +82,7 @@ export function RecommendationSection({
                   onClick={() => moveToDefect(index)}
                   className="rounded-full bg-text-default px-3 py-1.5 text-xs font-bold text-surface transition hover:bg-heading"
                 >
-                  DEFECT #{String(index + 1).padStart(2, '0')}
+                  하자 #{String(index + 1).padStart(2, '0')}
                 </button>
               </div>
 

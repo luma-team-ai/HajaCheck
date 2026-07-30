@@ -36,10 +36,9 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 // 포커스 트랩/초기 포커스/포커스 복원은 shared Modal과 동일한 로직을 그대로 따른다.
 export function DefectDetailModal({ defectId, onClose }: Props) {
   const { data: defect, isLoading, isError, refetch } = useDefect(defectId);
-  // 조치 전/조치/조치 완료 사진 탭(#969, #1193/HAJA-569로 3탭 확장) — actionResult가 있을 때만
-  // 탭바를 노출하고, 기본은 "조치 전" 탭. "조치 사진"/"조치 완료 사진" 탭은 각 phase 이력이 1건
-  // 이상일 때만 노출한다(IN_PROGRESS는 CONFIRMED→IN_PROGRESS 최초 등록 시점부터 항상 1건 이상이라
-  // 기존 actionResult 기반 노출 조건과 실질적으로 동일한 타이밍에 나타난다).
+  // 조치 전/조치/조치 완료 사진 탭(#969, #1193/HAJA-569로 3탭 확장) — 사진 등록 전후에
+  // 레이아웃이 바뀌지 않도록 탭바는 항상 노출하고, "조치 사진"/"조치 완료 사진" 탭은 각 phase
+  // 이력이 1건 이상일 때만 추가한다. 기본은 언제나 "조치 전" 탭이다.
   const [activePhotoTab, setActivePhotoTab] = useState<'before' | 'inProgress' | 'resolved'>('before');
   // 각 탭에 이력이 2건 이상일 때만 노출되는 등록일 select의 선택값 — null이면 최신(배열 첫 항목)을
   // 기본 선택한다(백엔드가 이미 createdAt 내림차순으로 정렬해 내려줌).
@@ -153,70 +152,66 @@ export function DefectDetailModal({ defectId, onClose }: Props) {
 
             <div className="defect-detail-modal__body">
               <div className="defect-detail-modal__primary">
-                {defect.actionResult ? (
-                  <div className="defect-detail-modal__photo-tab-row">
-                    <div
-                      className="defect-detail-modal__photo-tabs"
-                      role="tablist"
-                      aria-label="조치 전/조치/조치 완료 사진"
+                <div className="defect-detail-modal__photo-tab-row">
+                  <div
+                    className="defect-detail-modal__photo-tabs"
+                    role="tablist"
+                    aria-label="조치 전/조치/조치 완료 사진"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={activePhotoTab === 'before'}
+                      className={`defect-detail-modal__photo-tab${activePhotoTab === 'before' ? ' is-active' : ''}`}
+                      onClick={() => setActivePhotoTab('before')}
                     >
+                      조치 전 사진
+                    </button>
+                    {inProgressLogs.length > 0 && (
                       <button
                         type="button"
                         role="tab"
-                        aria-selected={activePhotoTab === 'before'}
-                        className={`defect-detail-modal__photo-tab${activePhotoTab === 'before' ? ' is-active' : ''}`}
-                        onClick={() => setActivePhotoTab('before')}
+                        aria-selected={activePhotoTab === 'inProgress'}
+                        className={`defect-detail-modal__photo-tab${activePhotoTab === 'inProgress' ? ' is-active' : ''}`}
+                        onClick={() => setActivePhotoTab('inProgress')}
                       >
-                        조치 전 사진
+                        조치 사진
                       </button>
-                      {inProgressLogs.length > 0 && (
-                        <button
-                          type="button"
-                          role="tab"
-                          aria-selected={activePhotoTab === 'inProgress'}
-                          className={`defect-detail-modal__photo-tab${activePhotoTab === 'inProgress' ? ' is-active' : ''}`}
-                          onClick={() => setActivePhotoTab('inProgress')}
-                        >
-                          조치 사진
-                        </button>
-                      )}
-                      {resolvedLogs.length > 0 && (
-                        <button
-                          type="button"
-                          role="tab"
-                          aria-selected={activePhotoTab === 'resolved'}
-                          className={`defect-detail-modal__photo-tab${activePhotoTab === 'resolved' ? ' is-active' : ''}`}
-                          onClick={() => setActivePhotoTab('resolved')}
-                        >
-                          조치 완료 사진
-                        </button>
-                      )}
-                    </div>
-                    {activeTabLogs.length > 1 && (
-                      <select
-                        className="defect-detail-modal__photo-log-select"
-                        aria-label="등록일 선택"
-                        value={activeTabLog?.id ?? ''}
-                        onChange={(event) => {
-                          const logId = Number(event.target.value);
-                          if (activePhotoTab === 'inProgress') {
-                            setSelectedInProgressLogId(logId);
-                          } else if (activePhotoTab === 'resolved') {
-                            setSelectedResolvedLogId(logId);
-                          }
-                        }}
+                    )}
+                    {resolvedLogs.length > 0 && (
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={activePhotoTab === 'resolved'}
+                        className={`defect-detail-modal__photo-tab${activePhotoTab === 'resolved' ? ' is-active' : ''}`}
+                        onClick={() => setActivePhotoTab('resolved')}
                       >
-                        {activeTabLogs.map((log) => (
-                          <option key={log.id} value={log.id}>
-                            {log.actionDate}
-                          </option>
-                        ))}
-                      </select>
+                        조치 완료 사진
+                      </button>
                     )}
                   </div>
-                ) : (
-                  <p className="defect-image-viewer-label">조치 전 사진 (원본)</p>
-                )}
+                  {activeTabLogs.length > 1 && (
+                    <select
+                      className="defect-detail-modal__photo-log-select"
+                      aria-label="등록일 선택"
+                      value={activeTabLog?.id ?? ''}
+                      onChange={(event) => {
+                        const logId = Number(event.target.value);
+                        if (activePhotoTab === 'inProgress') {
+                          setSelectedInProgressLogId(logId);
+                        } else if (activePhotoTab === 'resolved') {
+                          setSelectedResolvedLogId(logId);
+                        }
+                      }}
+                    >
+                      {activeTabLogs.map((log) => (
+                        <option key={log.id} value={log.id}>
+                          {log.actionDate}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
                 {activePhotoTab !== 'before' && activeTabLog ? (
                   <DefectImageViewer
                     imageUrl={activeTabLog.photoUrl}

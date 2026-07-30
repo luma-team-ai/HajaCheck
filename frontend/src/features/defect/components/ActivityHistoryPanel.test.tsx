@@ -99,6 +99,47 @@ describe('ActivityHistoryPanel', () => {
     expect(screen.getByText('조치중')).not.toBeNull();
   });
 
+  it('조치 내용과 사진 변경은 내부 필드명과 미디어 ID 대신 사용자용 문구로 표시한다', async () => {
+    const revisions: DefectRevision[] = [
+      {
+        id: 5,
+        revisedBy: 1,
+        fieldChanged: 'actionMediaId',
+        oldValue: '408',
+        newValue: '409',
+        reason: null,
+        createdAt: '2026-07-01T09:20:00.000Z',
+      },
+      {
+        id: 4,
+        revisedBy: 1,
+        fieldChanged: 'actionContent',
+        oldValue: '조치중입니다',
+        newValue: 'ㅈ222',
+        reason: null,
+        createdAt: '2026-07-01T09:10:00.000Z',
+      },
+    ];
+    server.use(
+      http.get('/api/defects/:id/revisions', () => {
+        const body: ApiResponse<PageResponse<DefectRevision>> = {
+          success: true,
+          data: { content: revisions, page: 0, totalElements: 2 },
+        };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    renderPanel(1);
+
+    expect(await screen.findByText('조치 사진을 변경했습니다.')).not.toBeNull();
+    expect(
+      screen.getByText("조치 내용을 '조치중입니다'에서 'ㅈ222'(으)로 수정했습니다."),
+    ).not.toBeNull();
+    expect(screen.queryByText(/actionMediaId|408|409/)).toBeNull();
+    expect(screen.queryByText(/actionContent/)).toBeNull();
+  });
+
   it('이력이 페이지 크기(20건)를 넘으면 페이지네이션을 표시하고 다음 페이지를 조회한다(self-review 발견)', async () => {
     // 역행/건너뛰기 전이가 반복되면 이력이 4단계로 고정되지 않아(Defect#changeStatus는 RESOLVED
     // 전까지 상태 왕복을 허용) 20건을 넘는 케이스가 실제로 가능하다 — 그 경우 프론트가 1페이지만

@@ -11,11 +11,10 @@ import { ReportListFilterBar } from '../components/ReportListFilterBar';
 import { ReportListKpiBar } from '../components/ReportListKpiBar';
 import { ReportListTable } from '../components/ReportListTable';
 import { ReportVersionHistoryPanel } from '../components/ReportVersionHistoryPanel';
-import { inspectionApi } from '../../inspection/api/inspectionApi';
-import { DEFECT_TYPE_CODE_LABELS } from '../../inspection/api/inspectionApi.types';
 import { isReportContent } from '../types';
 import type { ReportListFilters, ReportListItem } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import { buildReportPdfContext } from '../utils/reportPdfContext';
 import { formatReportListTitle } from '../utils/reportListFormat';
 
 const DEFAULT_PAGE_SIZE = 10;
@@ -134,21 +133,15 @@ export function ReportListPage() {
           throw new Error('근거 재검증을 통과하지 못했습니다.');
         }
       }
-      let defectImages: { defectType: string; imageUrl: string }[] = [];
-      try {
-        const defects = await inspectionApi.getDefects(report.inspectionId);
-        defectImages = defects.data.flatMap((defect) =>
-          defect.imageUrl ? [{ defectType: DEFECT_TYPE_CODE_LABELS[defect.type], imageUrl: defect.imageUrl }] : [],
-        );
-      } catch {
-        // 사진 조회 실패는 확정 흐름을 막지 않는다. PDF는 본문만으로도 유효하며 사진대지만 생략한다.
-      }
-      const pdfBlob = await exportReportToPdf(content, {
-        facilityName: row.facilityName,
-        inspectionRound: row.roundNo,
-        issuedAt: new Date(report.createdAt),
-        defectImages: content.reportOptions?.includePhoto === false ? [] : defectImages,
-      });
+      const pdfBlob = await exportReportToPdf(
+        content,
+        buildReportPdfContext(
+          report,
+          null,
+          content.reportOptions?.includePhoto !== false,
+          { facilityName: row.facilityName, inspectionRound: row.roundNo },
+        ),
+      );
       const fileName = buildReportPdfFileName(report.inspectionId);
       const uploadResponse = await reportApi.uploadPdf(row.id, pdfBlob, fileName);
       await reportApi.finalizeReport(row.id, uploadResponse.data.pdfUrl);
@@ -308,11 +301,16 @@ export function ReportListPage() {
                     d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                   />
                 </svg>
-                <span>{isExporting ? '내보내는 중…' : '내보내기(일괄)'}{exportableRows.length > 0 ? ` (${exportableRows.length})` : ''}</span>
+                <span>{isExporting ? '다운로드 중…' : 'PDF 일괄 다운로드'}{exportableRows.length > 0 ? ` (${exportableRows.length})` : ''}</span>
               </button>
             </div>
           </div>
-          {exportMessage && <p className="m-0 border-b border-border px-8 py-2 text-xs text-text-muted">{exportMessage}</p>}
+          <div className="border-b border-border px-8 py-2 text-xs leading-5 text-text-muted">
+            <p className="m-0">
+              다운로드는 완료된 PDF만 가능합니다. 편집 중인 보고서는 발행을 완료한 뒤 PDF 일괄 다운로드 대상에 포함됩니다.
+            </p>
+            {exportMessage && <p className="m-0 mt-1 font-medium text-heading">{exportMessage}</p>}
+          </div>
 
           <ReportListKpiBar
             summary={summaryQuery.data}

@@ -43,6 +43,14 @@ const ACTION_STATUS_LABEL: Record<'IN_PROGRESS' | 'RESOLVED', string> = {
   RESOLVED: '조치완료',
 };
 
+function todayDateString(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // 하자 상세 모달 "상태 저장" 폼(#1128) — contract.md §"조치 결과 등록" 필드 표 확정: 조치 후 사진
 // (필수, 드래그앤드롭), 조치 내용(필수), 조치일(필수), 담당자(필수) + 진행상태(select, 필수). 제출 시
 // PATCH /api/defects/{id}/action(DefectActionResultRequest)을 호출하며, targetStatus로 IN_PROGRESS
@@ -50,6 +58,7 @@ const ACTION_STATUS_LABEL: Record<'IN_PROGRESS' | 'RESOLVED', string> = {
 // 이제 CONFIRMED→IN_PROGRESS 등록도 이 폼으로 한다.
 export function DefectActionForm({ defectId, inspectionId, status, actionResult, onSubmitted }: Props) {
   const statusOptions = ACTION_STATUS_OPTIONS[status];
+  const maxActionDate = todayDateString();
   // 보수적 기본값(#1128 코드리뷰 P2-2 취지 계승) — IN_PROGRESS처럼 옵션이 2개면 "완료"가 아니라
   // "유지(IN_PROGRESS)"를 기본 선택해, select를 건드리지 않고 실수로 조치완료까지 가는 걸 막는다.
   const [targetStatus, setTargetStatus] = useState<'IN_PROGRESS' | 'RESOLVED'>(
@@ -134,6 +143,15 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
     }
   }
 
+  function handleActionDateChange(event: ChangeEvent<HTMLInputElement>) {
+    const nextActionDate = event.target.value;
+    if (nextActionDate && nextActionDate > maxActionDate) {
+      event.currentTarget.value = actionDate;
+      return;
+    }
+    setActionDate(nextActionDate);
+  }
+
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setIsDragActive(false);
@@ -175,6 +193,7 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
     file != null &&
     actionContent.trim().length > 0 &&
     actionDate.trim().length > 0 &&
+    actionDate <= maxActionDate &&
     assigneeId !== '' &&
     !isUploading &&
     !isSubmitting;
@@ -308,7 +327,8 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
             id="defect-action-date"
             type="date"
             value={actionDate}
-            onChange={(event) => setActionDate(event.target.value)}
+            max={maxActionDate}
+            onChange={handleActionDateChange}
           />
         </div>
 

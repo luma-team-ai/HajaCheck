@@ -3,23 +3,14 @@ import { ErrorFallback } from '../../../shared/components/ErrorFallback';
 import { Pagination } from '../../../shared/components/Pagination/Pagination';
 import { DEFECT_REVISIONS_PAGE_SIZE } from '../api/defectApi';
 import { useDefectRevisions } from '../hooks/useDefectRevisions';
-import { DEFECT_STATUS_LABEL } from '../types';
-import type { DefectStatus } from '../types';
 import {
   describeDefectChange,
-  getDefectRevisionStatusLabel,
+  getDefectRevisionStatusPresentation,
 } from '../utils/describeDefectChange';
-import { STATUS_PRESENTATION } from '../constants/defectPresentation';
 
 type Props = {
   defectId: number;
 };
-
-// 담당자명은 백엔드 DefectRevisionResponse에 이름 필드가 없어(revisedBy: Long 사용자 ID만 존재)
-// 이번 범위에서 제외했다 — 필요 시 [CONTRACT-CHANGE-REQUEST] 후보(이름 필드 추가 요청).
-function isDefectStatus(value: string | null): value is DefectStatus {
-  return value != null && value in DEFECT_STATUS_LABEL;
-}
 
 // 하자 상세 화면 활동 기록 타임라인(HAJA-314) — DefectExplainPanel과 동일하게 이 패널이 자체적으로
 // 로딩/에러를 처리해, 활동 기록 조회 실패가 페이지의 다른 기능(이미지·상태 전이 등)을 막지 않게 한다.
@@ -47,19 +38,10 @@ export function ActivityHistoryPanel({ defectId }: Props) {
       {!isLoading && !isError && data && data.content.length > 0 && (
         <ol className="defect-activity-list">
           {data.content.map((revision) => {
-            const revisionStatusLabel =
-              revision.fieldChanged === 'status'
-                ? getDefectRevisionStatusLabel(revision.newValue)
-                : null;
             const presentation =
-              revisionStatusLabel && isDefectStatus(revision.newValue)
-                ? STATUS_PRESENTATION[revision.newValue]
-                : revisionStatusLabel
-                  ? {
-                      label: revisionStatusLabel,
-                      className: 'border-amber-200 bg-amber-50 text-amber-500',
-                    }
-                  : null;
+              revision.fieldChanged === 'status'
+                ? getDefectRevisionStatusPresentation(revision.newValue)
+                : null;
 
             return (
               <li key={revision.id}>

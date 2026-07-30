@@ -72,11 +72,6 @@ const CounselorLoginPage = lazy(() =>
     default: m.CounselorLoginPage,
   })),
 );
-const PlatformAdminPlaceholderPage = lazy(() =>
-  import('../features/platform-admin/pages/PlatformAdminPlaceholderPage').then((m) => ({
-    default: m.PlatformAdminPlaceholderPage,
-  })),
-);
 // 플랫폼 관리자 > 사용자 관리(#577) — 기업 관리자 콘솔의 AdminUsersPage(#405)를 그대로 옮긴 실 화면
 const PlatformAdminUsersPage = lazy(() =>
   import('../features/platform-admin/pages/PlatformAdminUsersPage').then((m) => ({
@@ -864,7 +859,7 @@ export const router = createBrowserRouter([
     children: [
       {
         path: PLATFORM_ADMIN_ROUTE,
-        element: <Navigate to="/platform-admin/users" replace />,
+        element: <Navigate to="/platform-admin/stats" replace />,
       },
       {
         path: '/platform-admin/users',
@@ -890,18 +885,6 @@ export const router = createBrowserRouter([
           activeHref: '/platform-admin/plans-quota',
         },
       }, // — features/platform-admin 플랜·쿼터 관리 실 화면 (#625, features/admin PlanQuotaPage 이식)
-      {
-        path: '/platform-admin/defect-types',
-        element: (
-          <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
-            <PlatformAdminPlaceholderPage title="하자 유형·등급 관리" />
-          </Suspense>
-        ),
-        handle: {
-          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '하자 유형·등급 관리' }],
-          activeHref: '/platform-admin/defect-types',
-        },
-      },
       {
         path: '/platform-admin/counsels',
         element: (
@@ -934,7 +917,7 @@ export const router = createBrowserRouter([
           </Suspense>
         ),
         handle: {
-          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '서비스 통계' }],
+          breadcrumb: [{ label: '플랫폼 관리자' }, { label: '대시보드' }],
           activeHref: '/platform-admin/stats',
         },
       },

@@ -26,7 +26,7 @@ export function PlatformAdminStatsPage() {
     <div className="flex min-h-full flex-col bg-surface-muted p-6 sm:p-8">
       <div className="flex flex-col gap-8 rounded-[20px] border border-border bg-surface p-6 sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-6">
-          <h1 className="m-0 text-2xl font-bold text-heading">서비스 통계</h1>
+          <h1 className="m-0 text-2xl font-bold text-heading">대시보드</h1>
           <div className="flex items-center gap-3">
             <StatsPeriodFilterSelect value={period} onChange={setPeriod} />
             <Button variant="secondary" size="sm" onClick={handleExport}>

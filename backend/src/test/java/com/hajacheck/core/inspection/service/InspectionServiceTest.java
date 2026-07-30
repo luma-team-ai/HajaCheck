@@ -228,6 +228,37 @@ class InspectionServiceTest {
         assertThat(response.roundNo()).isEqualTo(1);
     }
 
+    // #1291 — roundNo는 항상 생성 순서(max+1)라 점검일과 독립적이다. 이 검증이 없으면 새 회차의
+    // 점검일이 기존 최신 회차보다 앞서도 그대로 저장돼, 회차 번호=시간 순서 가정이 깨진다
+    // (회차 간 비교 화면이 이 가정에 의존).
+    @Test
+    void createInspection_점검일이기존최신회차보다이전_예외전파되고저장안됨() {
+        InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 20), 200L);
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+        when(inspectionRepository.findMaxInspectionDateByFacilityId(1L))
+                .thenReturn(Optional.of(LocalDate.of(2026, 7, 25)));
+
+        assertThatThrownBy(() -> service.createInspection(request, 100L, 300L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.INSPECTION_DATE_BEFORE_LATEST_ROUND));
+        verify(inspectionRepository, never()).saveAndFlush(any());
+    }
+
+    // 같은 날짜에 여러 회차를 만드는 건 막지 않는다 — 엄격히 "이전"만 막는다.
+    @Test
+    void createInspection_점검일이기존최신회차와같음_정상생성됨() {
+        InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 25), 200L);
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+        when(inspectionRepository.findMaxInspectionDateByFacilityId(1L))
+                .thenReturn(Optional.of(LocalDate.of(2026, 7, 25)));
+        when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(3);
+        when(inspectionRepository.saveAndFlush(any(Inspection.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        InspectionResponse response = service.createInspection(request, 100L, 300L);
+
+        assertThat(response.roundNo()).isEqualTo(4);
+    }
+
     @Test
     void createInspection_회차채번동시성경쟁으로unique위반_INSPECTION_ROUND_CONFLICT로변환() {
         InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 20), 200L);
@@ -292,6 +323,30 @@ class InspectionServiceTest {
         assertThatThrownBy(() -> service.getInspection(300L, 999L, 10L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.INSPECTION_NOT_FOUND));
+    }
+
+    @Test
+    void advanceStatus_전이된Inspection엔티티를반환한다() {
+        // #494/#495 — InspectionAnalysisWorker가 ANALYZED 전이 직후 이 반환값의
+        // createdBy/assignedInspectorId/roundNo로 ANALYSIS_DONE/REVIEW_PENDING 알림을 발행한다.
+        Inspection inspection = Inspection.builder()
+                .facilityId(1L)
+                .createdBy(100L)
+                .assignedInspectorId(200L)
+                .roundNo(3)
+                .inspectionDate(LocalDate.of(2026, 7, 20))
+                .status(InspectionStatus.ANALYZING)
+                .build();
+        setId(inspection, 10L);
+        when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+
+        Inspection result = service.advanceStatus(300L, 100L, 10L, InspectionStatus.ANALYZED);
+
+        assertThat(result.getStatus()).isEqualTo(InspectionStatus.ANALYZED);
+        assertThat(result.getCreatedBy()).isEqualTo(100L);
+        assertThat(result.getAssignedInspectorId()).isEqualTo(200L);
+        assertThat(result.getRoundNo()).isEqualTo(3);
     }
 
     @Test

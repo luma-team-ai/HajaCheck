@@ -62,12 +62,22 @@ export function FacilityInspectionComparePage() {
   const displayedBeforeCycle = beforeCycle ?? data.beforeCycle.cycle;
   const displayedAfterCycle = afterCycle ?? data.afterCycle.cycle;
 
-  // "현재 회차"만 선택 가능하므로, 사용자가 바꿀 때 "이전 회차"도 현재 표시값으로 함께
-  // 명시해서 보낸다 — 그러지 않으면 beforeRound가 undefined로 남아 서버가 "둘 다 생략"으로
-  // 오인해 방금 고른 afterCycle까지 자동 대체로 덮어써 버린다(#1157 이전 P1과 동일한 함정).
+  // #1291 — "이전 회차"를 서버가 처음 고른 값에 고정한 채 cycle > displayedBeforeCycle로만
+  // 필터링하면(PR머신 P2/#1275 당시 방식), 대부분 최신 1개 회차만 남아 드롭박스가 사실상
+  // 무의미해진다("이전 회차"가 통상 최신-1회차라서). data.availableCycles는 서버가 cycle
+  // 오름차순으로 정렬해 내려준다(FacilityComparisonService.compare) — 첫 회차는 비교 대상
+  // "이전"이 없어 선택지에서만 제외하고, 나머지는 전부 선택 가능하게 한다.
+  const afterCycleOptions = data.availableCycles.slice(1);
+
+  // "현재 회차"를 고르면 "이전 회차"는 고정값이 아니라 목록상 바로 직전 회차로 다시 계산해
+  // 함께 보낸다 — before>=after 조합 자체가 생길 수 없어(afterCycleOptions가 이미 첫 회차를
+  // 제외했으므로 previous는 항상 존재) #1275류 400 INVALID_INPUT을 재현하지 않으면서도 전체
+  // 회차를 선택지로 남길 수 있다.
   const handleAfterCycleChange = (cycle: number) => {
+    const index = data.availableCycles.findIndex((option) => option.cycle === cycle);
+    const previousCycle = index > 0 ? data.availableCycles[index - 1].cycle : displayedBeforeCycle;
     setAfterCycle(cycle);
-    setBeforeCycle(displayedBeforeCycle);
+    setBeforeCycle(previousCycle);
   };
 
   return (
@@ -91,7 +101,7 @@ export function FacilityInspectionComparePage() {
             {/* "현재 회차"만 사용자가 다른 회차로 바꿔볼 수 있다(2026-07-30 사용자 결정). */}
             <InspectionCycleSelect
               label="현재 회차"
-              options={data.availableCycles}
+              options={afterCycleOptions}
               value={displayedAfterCycle}
               onChange={handleAfterCycleChange}
             />
