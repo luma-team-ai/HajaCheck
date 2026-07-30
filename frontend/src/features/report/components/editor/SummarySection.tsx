@@ -18,7 +18,7 @@ export function SummarySection({ content, onChange, readOnly }: SummarySectionPr
         value={content.summary.overall_opinion}
         readOnly={readOnly}
         rows={3}
-        textareaClassName="min-h-20 px-5 py-4"
+        textareaClassName="min-h-20"
         onChange={(value) => updateSummary({ overall_opinion: value })}
       />
     </section>

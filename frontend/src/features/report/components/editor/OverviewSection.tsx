@@ -7,8 +7,6 @@ interface OverviewSectionProps {
   readOnly: boolean;
 }
 
-const FIELD_CLASS = 'min-h-20 px-5 py-4';
-
 export function OverviewSection({ content, onChange, readOnly }: OverviewSectionProps) {
   const updateOverview = (patch: Partial<ReportContent['overview']>) =>
     onChange({ ...content, overview: { ...content.overview, ...patch } });
@@ -20,7 +18,7 @@ export function OverviewSection({ content, onChange, readOnly }: OverviewSection
         value={content.overview.purpose}
         readOnly={readOnly}
         rows={3}
-        textareaClassName={`min-h-24 ${FIELD_CLASS}`}
+        textareaClassName="min-h-24"
         onChange={(value) => updateOverview({ purpose: value })}
       />
 
@@ -30,7 +28,7 @@ export function OverviewSection({ content, onChange, readOnly }: OverviewSection
           value={content.overview.facility_summary}
           readOnly={readOnly}
           rows={3}
-          textareaClassName={`min-h-28 ${FIELD_CLASS}`}
+          textareaClassName="min-h-28"
           onChange={(value) => updateOverview({ facility_summary: value })}
         />
         <LabeledTextArea
@@ -38,7 +36,7 @@ export function OverviewSection({ content, onChange, readOnly }: OverviewSection
           value={content.overview.scope}
           readOnly={readOnly}
           rows={3}
-          textareaClassName={`min-h-28 ${FIELD_CLASS}`}
+          textareaClassName="min-h-28"
           onChange={(value) => updateOverview({ scope: value })}
         />
       </div>
