@@ -171,6 +171,9 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
         expect.any(Error),
       );
     });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+    );
 
     consoleErrorSpy.mockRestore();
   });

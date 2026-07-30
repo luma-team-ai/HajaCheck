@@ -43,7 +43,7 @@ export function buildDefectExportRows(defects: Defect[]): string[][] {
   ]);
 }
 
-// 선택된 하자 행을 표 형식 그대로 클라이언트에서 PDF로 내보낸다(서버 호출 없음).
+// 현재 필터에 해당하는 하자 행을 표 형식 그대로 클라이언트에서 PDF로 내보낸다(서버 호출 없음).
 // jsPDF/jspdf-autotable/폰트는 번들 크기 때문에 클릭 시점에만 동적 import한다.
 export async function exportDefectsToPdf(defects: Defect[]): Promise<void> {
   const [{ default: jsPDF }, { default: autoTable }, regularFontResponse, boldFontResponse] = await Promise.all([

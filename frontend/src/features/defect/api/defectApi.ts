@@ -19,7 +19,7 @@ import { normalizeDefect } from '../utils/normalizeDefect';
 // DefectController.getRevisions @PageableDefault(size=20)과 반드시 일치시킬 것.
 export const DEFECT_REVISIONS_PAGE_SIZE = 20;
 const INSPECTION_EXPORT_PAGE_SIZE = 100;
-const INSPECTION_EXPORT_MAX_PAGES = 50;
+const DEFECT_EXPORT_CONCURRENCY = 5;
 
 type DefectExplainRequest = {
   defect_type: string;
@@ -135,8 +135,8 @@ export const defectApi = {
 };
 
 // 하자 목록 PDF 내보내기 — 화면 페이지와 무관하게 현재 필터에 해당하는 점검 전체를 모은다.
-// 관리자 사용자 목록 fetchAllAdminUsers와 동일하게 100건씩 순회하며, 비정상 응답에 의한 무한
-// 요청을 막기 위해 최대 50페이지(5,000건)로 제한한다.
+// 고정 페이지 상한을 두면 "필터 결과 전체" 계약을 조용히 위반하므로, 첫 응답의 totalElements를
+// 완료 기준으로 삼는다. 중간에 빈 페이지나 중복 페이지만 오면 진행 불가 오류로 명시 실패한다.
 export async function fetchAllFilteredInspections(
   filters: InspectionListFilters,
 ): Promise<InspectionListItem[]> {
@@ -145,16 +145,81 @@ export async function fetchAllFilteredInspections(
   delete filterOnly.size;
 
   const all: InspectionListItem[] = [];
-  for (let page = 0; page < INSPECTION_EXPORT_MAX_PAGES; page += 1) {
+  const seenIds = new Set<number>();
+  let expectedTotal: number | null = null;
+
+  for (let page = 0; expectedTotal == null || all.length < expectedTotal; page += 1) {
     const response = await defectApi.getInspections({
       ...filterOnly,
       page,
       size: INSPECTION_EXPORT_PAGE_SIZE,
     });
-    all.push(...response.data.content);
-    if (all.length >= response.data.totalElements || response.data.content.length === 0) {
-      break;
+    const { content, totalElements } = response.data;
+
+    if (!Number.isSafeInteger(totalElements) || totalElements < 0) {
+      throw new Error('점검 내보내기 전체 건수가 올바르지 않습니다.');
     }
+    expectedTotal ??= totalElements;
+
+    const newItems = content.filter((inspection) => {
+      if (seenIds.has(inspection.id)) return false;
+      seenIds.add(inspection.id);
+      return true;
+    });
+    if (newItems.length === 0 && all.length < expectedTotal) {
+      throw new Error('점검 내보내기 데이터를 끝까지 불러오지 못했습니다.');
+    }
+    all.push(...newItems);
   }
   return all;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex]);
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+export function filterDefectsForExport(
+  defects: Defect[],
+  filters: InspectionListFilters,
+): Defect[] {
+  return defects.filter((defect) => {
+    const matchesType = !filters.defectType?.length || filters.defectType.includes(defect.type);
+    const matchesGrade =
+      !filters.defectGrade?.length ||
+      (defect.grade != null && filters.defectGrade.includes(defect.grade));
+    const matchesStatus =
+      !filters.defectStatus?.length || filters.defectStatus.includes(defect.status);
+    return matchesType && matchesGrade && matchesStatus;
+  });
+}
+
+// 점검별 하자 API는 일괄 조회를 지원하지 않으므로 제한된 수의 워커로 호출한다.
+// 반환 순서는 점검 목록 순서를 유지하고, 하자 조건 필터는 PDF의 실제 행에도 다시 적용한다.
+export async function fetchFilteredDefectsForExport(
+  filters: InspectionListFilters,
+): Promise<Defect[]> {
+  const inspections = await fetchAllFilteredInspections(filters);
+  const defectsByInspection = await mapWithConcurrency(
+    inspections,
+    DEFECT_EXPORT_CONCURRENCY,
+    (inspection) => defectApi.getByInspection(inspection.id).then((response) => response.data),
+  );
+  return filterDefectsForExport(defectsByInspection.flat(), filters);
 }

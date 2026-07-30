@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "../../../shared/components/Button";
 import { TableFooterPagination } from "../../../shared/components/TableFooterPagination";
-import { defectApi, fetchAllFilteredInspections } from "../api/defectApi";
+import { fetchFilteredDefectsForExport } from "../api/defectApi";
 import { InspectionFilterBar } from "../components/InspectionFilterBar";
 import { InspectionTable } from "../components/InspectionTable";
 import { useInspections } from "../hooks/useInspections";
@@ -27,6 +27,7 @@ export function DefectListPage() {
     size: DEFAULT_SIZE,
   });
   const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const {
     data: inspectionData,
@@ -55,16 +56,13 @@ export function DefectListPage() {
   const handleExport = async () => {
     if (!canExport || isExporting) return;
     setIsExporting(true);
+    setExportError(null);
     try {
-      const filteredInspections = await fetchAllFilteredInspections(inspectionFilters);
-      const defectsByInspection = await Promise.all(
-        filteredInspections.map((inspection) =>
-          defectApi.getByInspection(inspection.id).then((res) => res.data),
-        ),
-      );
-      await exportDefectsToPdf(defectsByInspection.flat());
+      const defects = await fetchFilteredDefectsForExport(inspectionFilters);
+      await exportDefectsToPdf(defects);
     } catch (error) {
       console.error("점검 하자 목록 PDF 내보내기 실패", error);
+      setExportError("내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setIsExporting(false);
     }
@@ -105,6 +103,11 @@ export function DefectListPage() {
             >
               {isExporting ? "내보내는 중..." : "내보내기"}
             </Button>
+            {exportError && (
+              <p className="defect-list-page__export-error" role="alert">
+                {exportError}
+              </p>
+            )}
           </div>
         </div>
 
