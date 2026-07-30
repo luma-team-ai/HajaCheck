@@ -347,6 +347,55 @@ describe('exportReportToPdf', () => {
     expect(mockAddImage).not.toHaveBeenCalled();
   });
 
+  it('사진 캡션은 하자 유형명 단독 표기가 아니라 등급·분석요약을 함께 붙인다', async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      if (String(input) === '/api/media/1/thumbnail') {
+        return Promise.resolve({
+          ok: true,
+          blob: () => Promise.resolve(new Blob(['jpeg-bytes'], { type: 'image/jpeg' })),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, blob: () => Promise.resolve(new Blob(['font-bytes'])) } as Response);
+    });
+
+    await exportReportToPdf(makeContent(), {
+      defectImages: [
+        {
+          defectType: '균열',
+          imageUrl: '/api/media/1/thumbnail',
+          grade: 'A',
+          summary: '구조물의 내부 응력 집중 또는 외부 충격에 의해 발생했을 가능성이 있으며 지반 변형이 예상됨',
+        },
+      ],
+    });
+
+    const photoOptions = findTableOptions((options) => typeof options.didDrawCell === 'function');
+    const captionRow = (photoOptions?.body as { content: string }[][])[1];
+    expect(captionRow[0].content).toBe(
+      '< 균열(A등급) — 구조물의 내부 응력 집중 또는 외부 충격에 의해 발생했을 가능성이 있으며… >',
+    );
+  });
+
+  it('등급·분석요약이 없으면(구버전 호출부) 유형명만이라도 하위호환으로 표기한다', async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      if (String(input) === '/api/media/1/thumbnail') {
+        return Promise.resolve({
+          ok: true,
+          blob: () => Promise.resolve(new Blob(['jpeg-bytes'], { type: 'image/jpeg' })),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, blob: () => Promise.resolve(new Blob(['font-bytes'])) } as Response);
+    });
+
+    await exportReportToPdf(makeContent(), {
+      defectImages: [{ defectType: '균열', imageUrl: '/api/media/1/thumbnail' }],
+    });
+
+    const photoOptions = findTableOptions((options) => typeof options.didDrawCell === 'function');
+    const captionRow = (photoOptions?.body as { content: string }[][])[1];
+    expect(captionRow[0].content).toBe('< 균열 >');
+  });
+
   it('축소본이 없으면 빈 사진 대지를 만들지 않는다', async () => {
     await exportReportToPdf(makeContent(), { defectImages: [] });
 

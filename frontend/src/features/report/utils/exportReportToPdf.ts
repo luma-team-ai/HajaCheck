@@ -72,6 +72,27 @@ export interface ReportPdfContext {
 export interface ReportPdfImage {
   defectType: string;
   imageUrl: string;
+  /** 하자 등급(A~E) — 캡션에 "유형(등급)"으로 함께 표기해 사진만 보고도 심각도를 알 수 있게 한다. */
+  grade?: string;
+  /** AI/점검자 분석 요약 — 캡션에 짧게 덧붙여 "균열" 같은 유형명 단독 표기를 피한다. */
+  summary?: string;
+}
+
+const PHOTO_CAPTION_SUMMARY_MAX = 40;
+
+/**
+ * 사진 캡션은 유형명만 단독으로 쓰지 않는다 — "균열"만으로는 어느 사진인지 구별이 안 된다.
+ * grade·summary는 같은 하자 레코드(Defect)에서 thumbnailUrl과 함께 나온 값이라(별도 매칭 없이
+ * 그대로 짝지어 넘어옴) 오표기 위험 없이 안전하게 붙일 수 있다.
+ */
+function formatPhotoCaption(image: ReportPdfImage): string {
+  const type = image.defectType || '부위';
+  const gradeSuffix = image.grade ? `(${image.grade}등급)` : '';
+  const summary = (image.summary ?? '').trim();
+  if (!summary) return `${type}${gradeSuffix}`;
+  const truncated =
+    summary.length > PHOTO_CAPTION_SUMMARY_MAX ? `${summary.slice(0, PHOTO_CAPTION_SUMMARY_MAX)}…` : summary;
+  return `${type}${gradeSuffix} — ${truncated}`;
 }
 
 /**
@@ -531,7 +552,7 @@ export async function exportReportToPdf(
         [{ content: '', styles: { minCellHeight: PHOTO_ROW_HEIGHT + 4 } }],
         [
           {
-            content: `< ${image.defectType || '부위'} >`,
+            content: `< ${formatPhotoCaption(image)} >`,
             styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: FONT_SIZE.caption, minCellHeight: 9 },
           },
         ],

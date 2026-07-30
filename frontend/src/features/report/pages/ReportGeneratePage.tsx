@@ -251,7 +251,7 @@ export function ReportGeneratePage() {
           issuedAt: new Date(report.createdAt),
           defectImages: includeReportPhotos
             ? latestInspectionData?.defects.flatMap((defect) =>
-                defect.thumbnailUrl ? [{ defectType: defect.type, imageUrl: defect.thumbnailUrl }] : [],
+                defect.thumbnailUrl ? [{ defectType: defect.type, imageUrl: defect.thumbnailUrl, grade: defect.grade, summary: defect.summary }] : [],
               )
             : [],
         });
@@ -309,7 +309,7 @@ export function ReportGeneratePage() {
         issuedAt: new Date(report.createdAt),
         defectImages: includeReportPhotos
           ? inspectionData?.defects.flatMap((defect) =>
-              defect.thumbnailUrl ? [{ defectType: defect.type, imageUrl: defect.thumbnailUrl }] : [],
+              defect.thumbnailUrl ? [{ defectType: defect.type, imageUrl: defect.thumbnailUrl, grade: defect.grade, summary: defect.summary }] : [],
             )
           : [],
       });
