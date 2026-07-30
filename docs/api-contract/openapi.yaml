@@ -578,7 +578,8 @@ paths:
     post:
       summary: 기업 회원가입 (multipart/form-data)
       description: >
-        User(passwordHash·ACTIVE) + Company(PENDING_REVIEW) + UserConsent(약관 2건) 원자 생성.
+        User(passwordHash·ACTIVE·ADMIN) + Company(APPROVED + VERIFIED) + CompanyMembership(오너 APPROVED)
+        + UserConsent(약관 2건) 원자 생성 — 관리자 승인 대기 없이 즉시 자동승인(#1324).
         `CompanySignupController.signup` 구현됨. 검증 실패는 401 금지(400/404/409만 사용).
       tags: [auth]
       requestBody:
@@ -668,8 +669,10 @@ paths:
 
   /api/auth/companies/status:
     get:
-      summary: 가입 상태 조회 (승인 대기 화면 새로고침)
-      description: "`CompanySignupController.getSignupStatus` 구현됨. token=signupToken(불투명 문자열)."
+      summary: 가입 상태 조회
+      description: >
+        `CompanySignupController.getSignupStatus` 구현됨. token=signupToken(불투명 문자열).
+        #1324 이후 신규 가입은 항상 APPROVED 를 반환한다(자동승인) — 승인 대기 스테퍼는 프론트에서 제거됨.
       tags: [auth]
       parameters:
         - name: token
@@ -5269,11 +5272,11 @@ components:
 
     CompanySignupResponse:
       type: object
-      description: signupToken 은 승인 대기 화면 상태조회용 불투명 랜덤 문자열(PK 비노출)
+      description: signupToken 은 가입 상태조회용 불투명 랜덤 문자열(PK 비노출). status 는 자동승인(#1324)이라 항상 APPROVED.
       properties:
         companyId: { type: integer, format: int64, example: 1 }
         maskedEmail: { type: string, example: "h***@c***.com" }
-        status: { type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED], example: PENDING_REVIEW }
+        status: { type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED], example: APPROVED }
         signupToken: { type: string }
 
     CompanySignupApiResponse:
