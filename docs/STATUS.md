@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-07-30
+> 마지막 갱신: 2026-07-31
 
 ## 인프라
 
@@ -35,6 +35,13 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 > ⚠️ 지난 세션 이슈였던 JDK가 **PRD·`build.gradle`·Dockerfile·OCI 실측 네 곳 모두 17로 정합** 확인됨. (호스트 직접 `./gradlew build` 시 JDK 부재 문제는 컨테이너 빌드와 별개 — 아래 [알려진 이슈] 참조)
 
 ## 마지막 머지 PR
+
+- **📝 기업 회원가입 필수항목 미입력 피드백 (→ dev, 2026-07-30)** — FE **#1334**(merge `766f647f`, 이슈 #1332 / HAJA-605). `awaiting-promotion` 라벨 부여, Jira `dev-pr-check`.
+  - **증상**: 회사 주소를 비운 채 [가입 신청하기] → **화면 완전 무반응**(사용자 제보). `handleSubmit` 이 검증 실패 시 조용히 `return` 하는데, **주소·상호명·대표자명 3필드는 필수 검증 대상이면서 에러를 렌더하는 코드가 아예 없었다**(이메일·비밀번호·사업자번호·개업일자·약관은 전부 있었음).
+  - **수정**: 3필드 인라인 에러(기존 `showValidation && 빈값` 패턴) + `CompanyAddressField` 에 `errorMessage` prop(스크립트 로드 실패 에러 우선) + **제출 실패 시 DOM 순서상 첫 무효 필드로 `scrollIntoView`+`focus()`**(주소는 `readOnly` 라 주소검색 버튼, 파일은 hidden 이라 "파일 선택" 버튼으로) + 제출 버튼 위 요약 알림(`role="alert"`).
+  - 검증 규칙(`validateCompanySignupForm.ts`) 무변경 — 표시 계층만 추가. 백엔드·API 계약 영향 없음.
+  - PR머신 P1 0건, `ai:needs-human` 은 auth 민감영역 자동머지 가드라 사람 수동 머지. auth 테스트 246/246 PASS.
+  - 후속 **#1336**(P3) — 이전 서버 제출 에러가 남아 있으면 요약 알림이 억제됨. 소형이라 다음 프론트 PR에 묶어 처리.
 
 - **🔐 로그인 후 비밀번호 변경 (→ dev, 2026-07-30)** — BE **#1320**(squash `8ba0cbed`, 이슈 #1315 / HAJA-601) + FE **#1321**(squash `12a65207`, 이슈 #1316 / HAJA-602). 둘 다 `awaiting-promotion` 라벨 부여, Jira `dev-pr-check`.
   - 신규 **`PATCH /api/users/me/password`** — 세션 principal 로만 대상 식별(IDOR 차단), 현재 비밀번호 재인증, 소셜 전용 계정 400, 신·구 동일 400, userId 축 rate-limit(5분 5회, 성공 시 즉시 해제). 성공 시 **현재 세션 종료**(세션 무효화+쿠키 만료+CSRF 회전). 프론트는 `/mypage/profile` 에 변경 섹션 추가 후 `/login` 유도.
