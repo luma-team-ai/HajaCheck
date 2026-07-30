@@ -64,8 +64,8 @@ describe('PlatformAdminShellRoute', () => {
     // 실제 클릭 대상은 사이드바 그룹 토글 버튼으로 role로 좁혀 특정한다.
     expect(screen.getAllByText('플랫폼 관리자').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('사용자 관리 페이지')).not.toBeNull();
-    // 일반 셸의 대시보드/시설물 관리 등은 노출되지 않는다.
-    expect(screen.queryByText('대시보드')).toBeNull();
+    // 일반 셸의 시설물 관리 등은 노출되지 않는다. "대시보드"는 플랫폼 관리자 메뉴에도
+    // 별도로 존재하므로(옛 서비스 통계, 최상위 배치) 이 검증에서 제외한다.
     expect(screen.queryByText('시설물 관리')).toBeNull();
 
     // activeHref('/platform-admin/users')가 이 그룹의 하위 항목이라 마운트 시 이미 펼쳐진 상태다.
@@ -73,13 +73,13 @@ describe('PlatformAdminShellRoute', () => {
     expect(screen.getByText('시스템 모니터링')).not.toBeNull();
   });
 
-  it('로고 클릭 시 /dashboard가 아니라 사용자 관리(/platform-admin/users)로 이동한다(brandHref override)', () => {
+  it('로고 클릭 시 /dashboard가 아니라 대시보드(/platform-admin/stats)로 이동한다(brandHref override)', () => {
     useAuthStore.setState({ user: platformAdminUser });
 
     renderAt('/platform-admin/users');
 
     const logoLink = screen.getByLabelText('HajaCheck 홈으로 이동');
-    expect(logoLink.getAttribute('href')).toBe('/platform-admin/users');
+    expect(logoLink.getAttribute('href')).toBe('/platform-admin/stats');
   });
 
   it('헤더 프로필 버튼 클릭 시 드롭다운이 열리고 기업명/내 플랜 없이 이름·이메일·로그아웃만 노출한다(#773)', () => {
