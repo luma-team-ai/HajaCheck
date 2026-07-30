@@ -11,6 +11,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.service.CompanyScopeGuard;
+import com.hajacheck.auth.repository.CompanyRepository;
+import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
@@ -25,6 +27,9 @@ import com.hajacheck.core.inspection.dto.InspectionResponse;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.entity.InspectionType;
 import com.hajacheck.core.inspection.service.InspectionService;
+import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.core.report.dto.ReportDetailResponse;
 import com.hajacheck.core.report.dto.ReportSummaryResponse;
 import com.hajacheck.core.report.entity.Report;
@@ -69,6 +74,12 @@ class ReportServiceTest {
     private CompanyScopeGuard companyScopeGuard;
     @Mock
     private ReportPdfStorage reportPdfStorage;
+    @Mock
+    private CompanyRepository companyRepository;
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private MediaRepository mediaRepository;
 
     @InjectMocks
     private ReportService reportService;
@@ -639,6 +650,48 @@ class ReportServiceTest {
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.REPORT_NOT_FOUND));
         verify(inspectionService, never()).getInspection(anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
+    void getReport_기존데이터로보고서Context를함께반환한다() {
+        Report report = Report.draft(1L, 1, "{}", 100L);
+        Defect defect = Defect.builder()
+                .inspectionId(1L)
+                .mediaId(9L)
+                .type(DefectType.CRACK)
+                .confidence(0.92)
+                .grade(DefectGrade.C)
+                .status(DefectStatus.CONFIRMED)
+                .location("교량 하부 익명 위치")
+                .crackWidthMm(0.3)
+                .crackLengthMm(1200.0)
+                .build();
+        Media media = Media.builder()
+                .inspectionId(1L)
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("stored-original")
+                .thumbnailUrl("stored-thumbnail")
+                .detailUrl("stored-detail")
+                .mimeSignatureVerified(true)
+                .build();
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(1L, List.of(
+                DefectStatus.CONFIRMED, DefectStatus.IN_PROGRESS, DefectStatus.RESOLVED)))
+                .thenReturn(List.of(defect));
+        when(mediaRepository.findByInspectionIdOrderByIdAsc(1L)).thenReturn(List.of(media));
+
+        ReportDetailResponse response = reportService.getReport(5L, 200L, 100L);
+
+        assertThat(response.context()).isNotNull();
+        assertThat(response.context().facility().name()).isEqualTo("테스트빌딩");
+        assertThat(response.context().inspection().roundNo()).isEqualTo(1);
+        assertThat(response.context().defects()).hasSize(1);
+        assertThat(response.context().defects().get(0).typeLabel()).isEqualTo("균열");
+        assertThat(response.context().defects().get(0).location()).isEqualTo("교량 하부 익명 위치");
+        assertThat(response.context().media()).hasSize(1);
+        assertThat(response.context().media().get(0).thumbnailUrl()).isNull();
     }
 
     @Test
