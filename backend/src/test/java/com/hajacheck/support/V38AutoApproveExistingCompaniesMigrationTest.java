@@ -18,25 +18,25 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * V37(#1324 기존 기업 소급 자동승인 + 오너 멤버십 소급 발급)의 <b>데이터 전이 범위</b>를 격리 검증한다.
+ * V38(#1324 기존 기업 소급 자동승인 + 오너 멤버십 소급 발급)의 <b>데이터 전이 범위</b>를 격리 검증한다.
  *
- * <p>V36 까지 마이그레이션한 뒤 여러 모양의 기존 데이터를 심고 V37 만 추가 적용해, 파괴적 UPDATE/INSERT 의
+ * <p>V36 까지 마이그레이션한 뒤 여러 모양의 기존 데이터를 심고 V38 만 추가 적용해, 파괴적 UPDATE/INSERT 의
  * WHERE 조건이 넓어지지 않는지(= 반려 이력·회수 멤버십·타 회사 포인터를 덮지 않는지)를 고정한다.
  * 소급 승인은 인가 불변식을 데이터로 바꾸는 작업이라 대상 범위가 곧 보안 경계다.
  *
  * <p>빈 DB(신규 설치) 경로는 {@code FlywayBaselineIntegrationTest} 가, 캐노니컬 DDL 기존 DB 경로는
- * {@code FlywayBaselineOnExistingDbIntegrationTest} 가 각각 V37 포함 전량 적용을 이미 검증한다
- * (양쪽 모두 companies 0행이라 V37 은 no-op 으로 통과해야 한다 — 그 사실 자체도 여기서 함께 고정한다).
+ * {@code FlywayBaselineOnExistingDbIntegrationTest} 가 각각 V38 포함 전량 적용을 이미 검증한다
+ * (양쪽 모두 companies 0행이라 V38 은 no-op 으로 통과해야 한다 — 그 사실 자체도 여기서 함께 고정한다).
  */
 @Testcontainers
 @Execution(ExecutionMode.SAME_THREAD)
-class V37AutoApproveExistingCompaniesMigrationTest {
+class V38AutoApproveExistingCompaniesMigrationTest {
 
-    private static final String MIGRATION_RESOURCE = "db/migration/V37__auto_approve_existing_companies.sql";
+    private static final String MIGRATION_RESOURCE = "db/migration/V38__auto_approve_existing_companies.sql";
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16")
-            .withDatabaseName("hajacheck_v37_auto_approve")
+            .withDatabaseName("hajacheck_v38_auto_approve")
             .withUsername("postgres");
 
     @BeforeEach
@@ -54,7 +54,7 @@ class V37AutoApproveExistingCompaniesMigrationTest {
         JdbcTemplate jdbc = jdbc();
 
         long owner = insertUser(jdbc, "v37-pending-owner@haja.test", "ADMIN", "ACTIVE");
-        long company = insertCompany(jdbc, owner, "V37 승격회사", "3700000001", "PENDING_REVIEW", "PENDING");
+        long company = insertCompany(jdbc, owner, "V38 승격회사", "3700000001", "PENDING_REVIEW", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", company, owner);
 
         // 전제 — 승격 전에는 스코프 3조건이 모두 비어 있다.
@@ -62,7 +62,7 @@ class V37AutoApproveExistingCompaniesMigrationTest {
         assertThat(verificationOf(jdbc, company)).isEqualTo("PENDING");
         assertThat(membershipCount(jdbc, company, owner)).isZero();
 
-        migrateTo("37");
+        migrateTo("38");
 
         assertThat(statusOf(jdbc, company)).isEqualTo("APPROVED");
         assertThat(verificationOf(jdbc, company)).isEqualTo("VERIFIED");
@@ -89,10 +89,10 @@ class V37AutoApproveExistingCompaniesMigrationTest {
         JdbcTemplate jdbc = jdbc();
 
         long owner = insertUser(jdbc, "v37-scope-owner@haja.test", "ADMIN", "ACTIVE");
-        long company = insertCompany(jdbc, owner, "V37 스코프회사", "3700000002", "PENDING_REVIEW", "PENDING");
+        long company = insertCompany(jdbc, owner, "V38 스코프회사", "3700000002", "PENDING_REVIEW", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", company, owner);
 
-        migrateTo("37");
+        migrateTo("38");
 
         // existsEffectiveApprovedMembership(CompanyMembershipRepository) 와 같은 조건을 SQL 로 재현한다 —
         // 개별 컬럼 단언이 통과해도 조합이 어긋나면 스코프는 여전히 닫힌다.
@@ -122,10 +122,10 @@ class V37AutoApproveExistingCompaniesMigrationTest {
         JdbcTemplate jdbc = jdbc();
 
         long owner = insertUser(jdbc, "v37-rejected-owner@haja.test", "ADMIN", "ACTIVE");
-        long company = insertCompany(jdbc, owner, "V37 반려회사", "3700000003", "REJECTED", "PENDING");
+        long company = insertCompany(jdbc, owner, "V38 반려회사", "3700000003", "REJECTED", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", company, owner);
 
-        migrateTo("37");
+        migrateTo("38");
 
         // 명시적 반려 이력을 소급 승인이 덮으면 안 된다(가입 차단 우회).
         assertThat(statusOf(jdbc, company)).isEqualTo("REJECTED");
@@ -140,7 +140,7 @@ class V37AutoApproveExistingCompaniesMigrationTest {
 
         long reviewer = insertUser(jdbc, "v37-reviewer@haja.test", "PLATFORM_ADMIN", "ACTIVE");
         long owner = insertUser(jdbc, "v37-approved-owner@haja.test", "ADMIN", "ACTIVE");
-        long company = insertCompany(jdbc, owner, "V37 기승인회사", "3700000004", "APPROVED", "VERIFIED");
+        long company = insertCompany(jdbc, owner, "V38 기승인회사", "3700000004", "APPROVED", "VERIFIED");
         jdbc.update("""
                 update companies
                    set reviewed_by = ?, reviewed_at = timestamptz '2026-01-02 03:04:05+09',
@@ -150,7 +150,7 @@ class V37AutoApproveExistingCompaniesMigrationTest {
         jdbc.update("update users set company_id = ? where id = ?", company, owner);
         insertMembership(jdbc, company, owner, "APPROVED");
 
-        migrateTo("37");
+        migrateTo("38");
 
         // 기존 심사 이력(reviewed_by/reviewed_at)과 최초 검증 시각(verified_at)을 덮지 않는다.
         assertThat(jdbc.queryForObject(
@@ -171,11 +171,11 @@ class V37AutoApproveExistingCompaniesMigrationTest {
         JdbcTemplate jdbc = jdbc();
 
         long owner = insertUser(jdbc, "v37-revoked-owner@haja.test", "ADMIN", "ACTIVE");
-        long company = insertCompany(jdbc, owner, "V37 회수회사", "3700000005", "PENDING_REVIEW", "PENDING");
+        long company = insertCompany(jdbc, owner, "V38 회수회사", "3700000005", "PENDING_REVIEW", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", company, owner);
         insertMembership(jdbc, company, owner, "REVOKED");
 
-        migrateTo("37");
+        migrateTo("38");
 
         // 회사는 승격되지만, 회수 이력은 보존한다(소급 대상은 "행 없음" 케이스 한정).
         assertThat(statusOf(jdbc, company)).isEqualTo("APPROVED");
@@ -193,18 +193,18 @@ class V37AutoApproveExistingCompaniesMigrationTest {
         // (a) company_id null 오너 → 보완 + 멤버십 발급.
         long nullPointerOwner = insertUser(jdbc, "v37-null-ptr@haja.test", "ADMIN", "ACTIVE");
         long companyA = insertCompany(
-                jdbc, nullPointerOwner, "V37 포인터없는회사", "3700000006", "PENDING_REVIEW", "PENDING");
+                jdbc, nullPointerOwner, "V38 포인터없는회사", "3700000006", "PENDING_REVIEW", "PENDING");
 
         // (b) 다른 회사를 가리키는 오너 → 포인터 유지 + 이 회사에는 멤버십을 만들지 않는다.
         long strayOwner = insertUser(jdbc, "v37-stray-ptr@haja.test", "ADMIN", "ACTIVE");
         long companyB = insertCompany(
-                jdbc, strayOwner, "V37 오너이탈회사", "3700000007", "PENDING_REVIEW", "PENDING");
+                jdbc, strayOwner, "V38 오너이탈회사", "3700000007", "PENDING_REVIEW", "PENDING");
         long otherCompanyOwner = insertUser(jdbc, "v37-other-owner@haja.test", "ADMIN", "ACTIVE");
         long otherCompany = insertCompany(
-                jdbc, otherCompanyOwner, "V37 타사", "3700000008", "APPROVED", "VERIFIED");
+                jdbc, otherCompanyOwner, "V38 타사", "3700000008", "APPROVED", "VERIFIED");
         jdbc.update("update users set company_id = ? where id = ?", otherCompany, strayOwner);
 
-        migrateTo("37");
+        migrateTo("38");
 
         assertThat(jdbc.queryForObject(
                 "select company_id from users where id = ?", Long.class, nullPointerOwner))
@@ -230,14 +230,14 @@ class V37AutoApproveExistingCompaniesMigrationTest {
         long owner = insertUser(jdbc, "v37-dual-owner@haja.test", "ADMIN", "ACTIVE");
         long otherCompanyOwner = insertUser(jdbc, "v37-dual-other@haja.test", "ADMIN", "ACTIVE");
         long otherCompany = insertCompany(
-                jdbc, otherCompanyOwner, "V37 선점회사", "3700000009", "APPROVED", "VERIFIED");
+                jdbc, otherCompanyOwner, "V38 선점회사", "3700000009", "APPROVED", "VERIFIED");
         insertMembership(jdbc, otherCompany, owner, "APPROVED");
 
-        long company = insertCompany(jdbc, owner, "V37 중복오너회사", "3700000010", "PENDING_REVIEW", "PENDING");
+        long company = insertCompany(jdbc, owner, "V38 중복오너회사", "3700000010", "PENDING_REVIEW", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", company, owner);
 
         // 이 조건 누락 시 부분 UNIQUE 위반으로 마이그레이션 자체가 실패(= 기동 실패)한다.
-        migrateTo("37");
+        migrateTo("38");
 
         assertThat(statusOf(jdbc, company)).isEqualTo("APPROVED");
         assertThat(membershipCount(jdbc, company, owner)).isZero();
@@ -245,15 +245,15 @@ class V37AutoApproveExistingCompaniesMigrationTest {
     }
 
     @Test
-    void V37은_멱등하다_두번실행해도_결과가_같다() {
+    void V38은_멱등하다_두번실행해도_결과가_같다() {
         migrateTo("36");
         JdbcTemplate jdbc = jdbc();
 
         long owner = insertUser(jdbc, "v37-idempotent@haja.test", "ADMIN", "ACTIVE");
-        long company = insertCompany(jdbc, owner, "V37 멱등회사", "3700000011", "PENDING_REVIEW", "PENDING");
+        long company = insertCompany(jdbc, owner, "V38 멱등회사", "3700000011", "PENDING_REVIEW", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", company, owner);
 
-        migrateTo("37");
+        migrateTo("38");
         String firstSnapshot = snapshot(jdbc, company, owner);
 
         // 재실행이 "정말로 실행됐다"는 것을 증명하기 위한 대조 행 — 1차 적용 이후에 심은 미승격 회사다.
@@ -261,7 +261,7 @@ class V37AutoApproveExistingCompaniesMigrationTest {
         // 그러면서도 위 company 의 스냅샷이 그대로면 멱등이다.
         long lateOwner = insertUser(jdbc, "v37-idempotent-late@haja.test", "ADMIN", "ACTIVE");
         long lateCompany = insertCompany(
-                jdbc, lateOwner, "V37 후발회사", "3700000012", "PENDING_REVIEW", "PENDING");
+                jdbc, lateOwner, "V38 후발회사", "3700000012", "PENDING_REVIEW", "PENDING");
         jdbc.update("update users set company_id = ? where id = ?", lateCompany, lateOwner);
 
         // Flyway 는 한 번만 실행하지만, prod baseline 스탬프 사고 이력(#531/#1311)이 있어 같은 SQL 을
@@ -279,13 +279,13 @@ class V37AutoApproveExistingCompaniesMigrationTest {
     }
 
     @Test
-    void 회사가없는DB에서는_V37이_아무것도_하지않는다() {
+    void 회사가없는DB에서는_V38이_아무것도_하지않는다() {
         // 신규 설치·CI 의 실제 모양(companies 0행) — no-op 으로 통과해야 한다.
         migrateTo("36");
         JdbcTemplate jdbc = jdbc();
         assertThat(jdbc.queryForObject("select count(*) from companies", Integer.class)).isZero();
 
-        migrateTo("37");
+        migrateTo("38");
 
         assertThat(jdbc.queryForObject("select count(*) from companies", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from company_memberships", Integer.class)).isZero();
@@ -310,7 +310,7 @@ class V37AutoApproveExistingCompaniesMigrationTest {
     private long insertUser(JdbcTemplate jdbc, String email, String role, String status) {
         return jdbc.queryForObject("""
                 insert into users (email, name, role, password_hash, status)
-                values (?, 'V37 사용자', ?::role_type, 'test-password-hash', ?::user_status_type)
+                values (?, 'V38 사용자', ?::role_type, 'test-password-hash', ?::user_status_type)
                 returning id
                 """, Long.class, email, role, status);
     }
@@ -356,7 +356,7 @@ class V37AutoApproveExistingCompaniesMigrationTest {
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException(
-                    "V37 마이그레이션 리소스를 읽지 못했다: " + MIGRATION_RESOURCE, e);
+                    "V38 마이그레이션 리소스를 읽지 못했다: " + MIGRATION_RESOURCE, e);
         }
     }
 

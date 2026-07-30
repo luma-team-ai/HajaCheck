@@ -64,7 +64,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 그 예외를 그대로 맞는 결손이 있었다 — 정식 승인 플로우 배선(#363)까지는 users.company_id 만으로 회사
  * 스코프를 인정하는 방어적 완화를 적용한다({@link #resolveInheritedCompanyId} 참고).
  *
- * <p>(#1324 이후) 가입 경로는 이제 오너 APPROVED 멤버십을 발급하고 기존 회사도 V37 로 소급 발급됐다 —
+ * <p>(#1324 이후) 가입 경로는 이제 오너 APPROVED 멤버십을 발급하고 기존 회사도 V38 로 소급 발급됐다 —
  * 완화의 원인은 해소됐지만 게이트 복원 자체는 #363 범위로 남긴다(여기서 조이면 멤버십 없는 잔여 계정이
  * 즉시 404 가 되므로 별도 사이클에서 실측 후 처리).
  *
@@ -499,7 +499,7 @@ public class AdminPlanService {
     // "활성 플랜 없음"은 resolveCurrentCompanyPlan/getPlanQuota 가 이미 별도로 (PLAN_NOT_FOUND 또는
     // null 값) 처리하므로 여기서 미승인 멤버십과 混同될 일은 없다.
     //
-    // (#1324) 가입 시 오너 APPROVED 멤버십이 발급되고 기존 회사도 V37 로 소급 발급됐다 — 완화의 원인은
+    // (#1324) 가입 시 오너 APPROVED 멤버십이 발급되고 기존 회사도 V38 로 소급 발급됐다 — 완화의 원인은
     // 사라졌으나 게이트 복원은 #363 범위로 유지한다(잔여 무멤버십 계정 실측이 선행돼야 한다).
     private Long resolveInheritedCompanyId(Long adminUserId) {
         User admin = userRepository.findById(adminUserId)

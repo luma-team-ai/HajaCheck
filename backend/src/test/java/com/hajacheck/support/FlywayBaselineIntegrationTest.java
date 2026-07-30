@@ -4,10 +4,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.repository.PlanRepository;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -83,7 +91,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V32까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_모든_마이그레이션이_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -144,15 +152,27 @@ class FlywayBaselineIntegrationTest {
         //   빈 DB 경로에는 컬럼이 애초에 없으므로 IF EXISTS 가드로 no-op 이다).
         // + V38(기존 기업 소급 자동승인 + 오너 멤버십 소급 발급, #1324 — 가입 즉시 자동승인 배선에 맞춰
         //   PENDING_REVIEW 로 묶여 있던 기존 회사를 APPROVED·VERIFIED 로 올리고 누락된 오너 멤버십을
-        //   발급한다. 스키마 변경이 없는 데이터 전이라 빈 DB 경로에서는 companies 0행이라 no-op 이다).
-        //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V32~V37(6개) = 37이다.
-        assertThat(appliedMigrations).isEqualTo(37);
+        //   발급한다. 스키마 변경이 없는 데이터 전이라 빈 DB 경로에서는 companies 0행이라 no-op 이다.
+        //   착수 시 V37 이었으나 핫픽스 #1326 이 그 번호를 선점해 V38 로 재번호했다).
+        //
+        // ⚠️ 기대 개수를 하드코딩하지 않는다 — 예전에는 상수(36·37…)를 박아 두어 마이그레이션이 하나
+        // 늘 때마다, 그리고 번호를 선점당해 재번호할 때마다 이 단언이 무관한 이유로 깨졌다(신호 없는
+        // 실패 → 상수만 올리는 습관 → 정작 "적용 누락"은 못 잡음). 여기서 고정할 계약은 "그 수가
+        // 몇이냐"가 아니라 **디렉터리의 모든 마이그레이션이 빈 DB 에서 하나도 빠짐없이 성공 적용됐는가**다.
+        // 그래서 classpath 의 실제 V*.sql 목록과 대조한다(FlywayMigrationVersionSequenceTest 가 그
+        // 목록의 번호 연속성을 별도로 고정하므로 둘이 합쳐 "결번 없음 + 전량 적용"이 된다).
+        List<Integer> migrationVersions = migrationFileVersions();
+        assertThat(appliedMigrations)
+                .as("빈 DB 에서 db/migration 의 모든 마이그레이션(%d개)이 성공 적용돼야 한다: %s",
+                        migrationVersions.size(), migrationVersions)
+                .isEqualTo(migrationVersions.size());
 
-        // 최신 적용 버전이 실제로 V37 인지 확인.
+        // 최신 적용 버전이 디렉터리의 최대 번호인지 확인(중간에서 멈추지 않았는지).
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("37");
+        assertThat(latestVersion)
+                .isEqualTo(String.valueOf(migrationVersions.get(migrationVersions.size() - 1)));
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -528,5 +548,35 @@ class FlywayBaselineIntegrationTest {
                   and attname = 'snippet' and not attisdropped and attnotnull
                 """, Long.class);
         assertThat(citationSnippetNotNull).isEqualTo(1L);
+    }
+
+    /**
+     * classpath({@code db/migration})의 실제 마이그레이션 번호를 오름차순으로 읽는다 —
+     * 기대 개수를 상수로 박지 않기 위한 단일 진실 소스.
+     */
+    private static List<Integer> migrationFileVersions() {
+        Pattern versioned = Pattern.compile("^V(\\d+)__.+\\.sql$");
+        try {
+            Resource[] resources = new PathMatchingResourcePatternResolver()
+                    .getResources("classpath*:db/migration/V*__*.sql");
+            List<Integer> versions = new ArrayList<>();
+            for (Resource resource : resources) {
+                String filename = resource.getFilename();
+                if (filename == null) {
+                    continue;
+                }
+                Matcher matcher = versioned.matcher(filename);
+                if (matcher.matches()) {
+                    versions.add(Integer.parseInt(matcher.group(1)));
+                }
+            }
+            Collections.sort(versions);
+            assertThat(versions)
+                    .as("classpath 에서 마이그레이션 파일을 하나도 찾지 못했다 — 경로 패턴을 확인할 것")
+                    .isNotEmpty();
+            return versions;
+        } catch (IOException e) {
+            throw new UncheckedIOException("db/migration 목록을 읽지 못했다", e);
+        }
     }
 }
