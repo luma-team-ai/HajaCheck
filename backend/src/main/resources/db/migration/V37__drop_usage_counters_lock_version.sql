@@ -1,0 +1,51 @@
+-- Flyway V37 — prod 전용 orphan 컬럼 usage_counters.lock_version 제거 (#1325 / HAJA-604)
+--
+-- 무엇을 고치나 — prod 쿼터 소비 경로 전면 500:
+--   prod 의 usage_counters.lock_version 은 `bigint NOT NULL`, **DEFAULT 가 없다**.
+--   그런데 UsageCounterRepository 의 네이티브 INSERT 2곳(insertPeriodRowIfAbsent · carryOverPeriodUsage)은
+--   이 컬럼을 컬럼 목록에 넣지 않고, UsageCounter 엔티티는 **의도적으로 @Version 을 두지 않는다**
+--   (UsageCounter.java:30 — 카운터 증가는 원자적 조건부 UPDATE 정책이라 JPA 낙관적 락을 쓰지 않는다).
+--   → INSERT 마다 값이 채워지지 않아 NOT NULL 위반으로 실패한다:
+--       ERROR: null value in column "lock_version" of relation "usage_counters"
+--              violates not-null constraint
+--   QuotaService.lockPeriodRow → ensurePeriodRow 가 그 INSERT 를 타므로 아래가 전부 500 이 된다:
+--     · FacilityService:74            reserveFacilitySlot     (시설 등록)
+--     · InviteCodeService:137 외 2곳  reserveSeat             (팀원 초대)
+--     · InspectionAnalysisService:186 consumeAnalysisQuota    (AI 분석)
+--
+-- 왜 prod 에만 있나 — V35·V36 과 같은 뿌리(baseline 스탬프 사각지대):
+--   이 컬럼은 pre-Flyway Hibernate ddl-auto 시절 잔재다. V1(캐노니컬 DDL, 414~434행)에는 없고,
+--   prod 는 2026-07-22 baseline-on-migrate 로 V1 을 **실행하지 않고 스탬프만** 해서 잔재가 그대로 남았다.
+--   2026-07-30 arm1 실측 — 신규설치(V1~V36)·CI testcontainer·공유 dev(hajacheck_dev, V36) 에는 **컬럼 자체가
+--   없고**, prod 에만 있다. CI·리뷰·PR머신이 못 잡은 이유가 이것이다(재현 환경이 prod 하나뿐).
+--
+-- 왜 지금 터졌나:
+--   쿼터 강제 코드(#855, 6ef04e60)가 2026-07-30 배치 승격 #1304 에 포함되어 라이브. 그 전에는 이 컬럼에
+--   쓰는 코드가 없어 잠복해 있었다. V36 의 "의도적 제외 ②" 가 이 컬럼을 *무해한 orphan* 으로 분류하고
+--   DROP 을 후속으로 미룬 것이 놓친 지점 — 실제로는 **쓰기를 막는 컬럼**이었다.
+--   이 파일이 V36 주석이 예고한 "사용처 0건 실측을 붙인 별도 마이그레이션" 이다.
+--
+-- 왜 DEFAULT 0 이 아니라 DROP 인가:
+--   DEFAULT 0 은 아무도 읽지 않는 컬럼에 값만 채우는 미봉책이고, prod-only 잔재를 영구히 남겨
+--   앞으로의 신규설치↔prod 정합 diff 에 계속 노이즈를 만든다. 사용처가 0건이므로 제거해
+--   prod 를 정본(신규설치)과 수렴시키는 것이 맞다.
+--
+-- destructive 점검 (R4, 2026-07-30 실측):
+--   · 코드 참조 0건 — UsageCounter 엔티티 필드에 없음(전 필드 확인) · UsageCounterRepository 네이티브
+--     쿼리에 없음 · 레포 전체 grep 결과는 V36 주석 1줄뿐.
+--   · prod usage_counters **0행** — 컬럼에 담긴 데이터 자체가 없다.
+--   → 되돌릴 데이터가 없고 읽는 코드도 없으므로 DROP 의 손실 위험이 없다.
+--
+-- 다른 6개 테이블(companies·counsel_tickets·defects·notifications·rag_documents·reports)의
+-- lock_version 은 **건드리지 않는다** — 그쪽은 엔티티가 실제로 @Version 을 갖는 정상 컬럼이고,
+-- V36 이 이미 DEFAULT 0 을 부여했다.
+
+-- 운영 트래픽을 무기한 대기시키지 않는다(V7·V36 과 동일 방침).
+-- DROP COLUMN 은 ACCESS EXCLUSIVE 락을 잡지만 카탈로그만 고치는 즉시 연산이다.
+set local lock_timeout = '5s';
+
+-- IF EXISTS 가드 — 컬럼이 없는 환경(신규설치·CI·공유 dev)에서는 no-op 이어야 한다.
+-- 가드가 없으면 그쪽에서 "column does not exist" 로 **기동이 실패**한다.
+-- 재적용해도 같은 이유로 안전하다(멱등).
+alter table usage_counters
+    drop column if exists lock_version;
