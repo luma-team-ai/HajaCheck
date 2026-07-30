@@ -221,33 +221,26 @@ describe('ReportGeneratePage', () => {
     expect(screen.getByText(/잘못된 접근/)).toBeTruthy();
   });
 
-  it('편집 → 저장 → 확정 검증 → PDF 생성 후 확정 순으로 진행하면 최종 FINALIZED로 전환된다', async () => {
+  it('편집 후 최종 보고서 확정 버튼 하나로 저장→확정 검증→PDF 생성 후 확정까지 순차 진행되어 최종 FINALIZED로 전환된다', async () => {
     renderPage();
 
     await screen.findByText('보고서 생성 결과');
 
-    const saveButton = screen.getByRole('button', { name: '저장' }) as HTMLButtonElement;
+    const saveButton = screen.getByRole('button', { name: '임시저장' }) as HTMLButtonElement;
     expect(saveButton.disabled).toBe(true);
 
     const purposeInput = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
     fireEvent.change(purposeInput, { target: { value: '수정된 목적' } });
     expect(saveButton.disabled).toBe(false);
 
-    fireEvent.click(saveButton);
-    await waitFor(() => expect(saveButton.disabled).toBe(true));
-
-    const recheckButton = screen.getByRole('button', { name: '확정 검증' }) as HTMLButtonElement;
-    expect(recheckButton.disabled).toBe(false);
-    fireEvent.click(recheckButton);
-
     const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
-    await waitFor(() => expect(finalizeButton.disabled).toBe(false));
-    expect(screen.queryByText('✓ 검증 완료')).toBeNull();
+    expect(finalizeButton.disabled).toBe(false);
     fireEvent.click(finalizeButton);
 
     await waitFor(() => {
       expect(screen.getByText('이 보고서는 확정되어 더 이상 편집할 수 없습니다.')).toBeTruthy();
     });
+    expect(updateReportCallCount).toBe(1);
 
     expect(exportReportToPdf).toHaveBeenCalledWith(
       expect.objectContaining({ overview: expect.objectContaining({ purpose: '수정된 목적' }) }),
@@ -282,25 +275,29 @@ describe('ReportGeneratePage', () => {
 
     const purposeInput = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
     fireEvent.change(purposeInput, { target: { value: '저장 중 변경 방지' } });
-    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    fireEvent.click(screen.getByRole('button', { name: '임시저장' }));
 
     await waitFor(() => expect(purposeInput.readOnly).toBe(true));
     resolveSave?.();
     await waitFor(() => expect(purposeInput.readOnly).toBe(false));
   });
 
-  it('내용이 비어 있는 추가 섹션은 저장할 수 없다', async () => {
+  it('내용이 비어 있는 추가 섹션은 저장할 수 없다 — AlertModal로 안내하고 저장 API는 호출하지 않는다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
 
     fireEvent.click(screen.getByRole('button', { name: '+ 서식 섹션 추가' }));
     fireEvent.click(screen.getByRole('button', { name: '제출문' }));
 
-    const saveButton = screen.getByRole('button', { name: '저장' }) as HTMLButtonElement;
-    expect(saveButton.disabled).toBe(true);
-    expect(screen.getByRole('alert').textContent).toContain('제출문');
+    const saveButton = screen.getByRole('button', { name: '임시저장' }) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(false);
 
     fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeTruthy();
+    });
+    expect(within(screen.getByRole('dialog')).getByText(/제출문/)).toBeTruthy();
     expect(updateReportCallCount).toBe(0);
   });
 
@@ -601,7 +598,10 @@ describe('ReportGeneratePage', () => {
 
   // 검증 전(그리고 grounding이라는 단어를 노출하지 않는지) 확인 — 일반 점검자가 이해할 수 있는
   // 문구여야 한다.
-  it('확정 검증을 아직 통과하지 못했으면 미리보기 대신 안내 문구를 plain하게 보여준다', async () => {
+  // #1338 — 클라이언트 미리보기 렌더 조건은 이제 !dirty(저장됨)만으로 판단한다. 정상적인
+  // "PDF 미리보기" 클릭 흐름은 dirty면 먼저 저장을 시도하도록 가드되므로, 이 안내 문구는
+  // 그 가드를 우회해(예: 방문 이력 복귀) mode=export로 직접 들어온 미저장 상태에서만 뜬다.
+  it('저장하지 않은 변경 사항이 있는 상태로 mode=export에 진입하면 미리보기 대신 저장 안내 문구를 보여준다', async () => {
     reportState = {
       ...mockReportDetailResponse,
       groundingCheckPassed: null,
@@ -609,26 +609,41 @@ describe('ReportGeneratePage', () => {
       pdfUrl: null,
     };
 
-    renderPageWithPath('/reports/1?mode=export');
+    const queryClient = new QueryClient();
+    const router = createMemoryRouter(
+      [{ path: '/reports/:reportId', element: <ReportGeneratePage /> }],
+      { initialEntries: ['/reports/1'] },
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText('보고서 생성 결과');
+    const purposeInput = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
+    fireEvent.change(purposeInput, { target: { value: '미저장 변경' } });
+
+    await router.navigate('/reports/1?mode=export');
 
     const guidance = await screen.findByText('아직 미리 볼 수 없습니다.');
     expect(guidance).toBeTruthy();
-    expect(screen.getByText(/확정 검증을 통과한 뒤 다시 시도해 주세요/)).toBeTruthy();
+    expect(
+      screen.getByText('편집한 내용을 아직 저장하지 않았습니다. 저장한 뒤 다시 시도해 주세요.'),
+    ).toBeTruthy();
     expect(screen.queryByText(/grounding/i)).toBeNull();
+    expect(screen.queryByText(/확정 검증/)).toBeNull();
     expect(screen.queryByTitle('보고서 PDF 미리보기(확정 전)')).toBeNull();
   });
 
-  it('content가 편집되지 않은 상태에서는 확정 검증 버튼이 항상 비활성화되지 않는다', async () => {
+  it('확정 검증을 아직 통과하지 못했어도(content가 편집되지 않은 상태) 최종 보고서 확정 버튼은 활성화되어 있다', async () => {
     renderPage();
 
     await screen.findByText('보고서 생성 결과');
 
-    const recheckButton = screen.getByRole('button', { name: '확정 검증' }) as HTMLButtonElement;
-    expect(recheckButton.disabled).toBe(false);
-
     const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
-    expect(finalizeButton.disabled).toBe(true);
-    expect(screen.queryByRole('button', { name: 'PDF 생성 후 확정' })).toBeNull();
+    expect(finalizeButton.disabled).toBe(false);
+    expect(screen.queryByRole('button', { name: '확정 검증' })).toBeNull();
   });
 
   it('서식 섹션 추가 메뉴에 표준서식 수동 입력 항목을 모두 노출한다', async () => {
@@ -666,7 +681,7 @@ describe('ReportGeneratePage', () => {
     const purposeInput = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
     fireEvent.change(purposeInput, { target: { value: '수정된 목적' } });
 
-    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    fireEvent.click(screen.getByRole('button', { name: '임시저장' }));
 
     await waitFor(() => {
       expect(screen.getByText('이미 확정된 보고서는 수정할 수 없습니다.')).toBeTruthy();
@@ -756,12 +771,86 @@ describe('ReportGeneratePage', () => {
     expect(screen.getByRole('button', { name: '하자 #01' })).toBeTruthy();
   });
 
-  it('AI 경고 배너와 PDF 미리보기 링크가 렌더링된다', async () => {
+  it('AI 경고 배너와 PDF 미리보기 버튼이 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
     expect(screen.getByText(AI_DRAFT_WARNING_TITLE)).toBeTruthy();
     expect(screen.getByText((_, node) => node?.textContent === AI_DRAFT_WARNING)).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'PDF 미리보기' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'PDF 미리보기' })).toBeTruthy();
+  });
+
+  // #1338 — PDF 미리보기 = 임시저장 + 이동. 저장된 상태(!dirty)면 저장 단계 없이 바로 이동한다.
+  it('저장된 상태에서 PDF 미리보기를 클릭하면 임시저장 없이 바로 export 모드로 이동한다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    fireEvent.click(screen.getByRole('button', { name: 'PDF 미리보기' }));
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText('점검 목적')).toBeNull();
+    });
+    expect(updateReportCallCount).toBe(0);
+  });
+
+  // #1338 — 미저장 변경이 있는 상태에서 미리보기 진입 시 임시저장을 먼저 시도한 뒤 이동한다.
+  it('미저장 변경이 있는 상태에서 PDF 미리보기를 클릭하면 임시저장 후 export 모드로 이동한다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const purposeInput = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
+    fireEvent.change(purposeInput, { target: { value: '미리보기 전 저장될 내용' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'PDF 미리보기' }));
+
+    await waitFor(() => {
+      expect(updateReportCallCount).toBe(1);
+    });
+    await waitFor(() => {
+      expect(screen.queryByLabelText('점검 목적')).toBeNull();
+    });
+  });
+
+  // #1338 — 미저장 변경 + 빈 추가 섹션이 있으면 저장을 시도하지 않고 AlertModal만 띄운 채 이동하지 않는다.
+  it('미저장 변경에 빈 추가 섹션이 있으면 PDF 미리보기가 저장/이동 없이 AlertModal만 띄운다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    fireEvent.click(screen.getByRole('button', { name: '+ 서식 섹션 추가' }));
+    fireEvent.click(screen.getByRole('button', { name: '제출문' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'PDF 미리보기' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeTruthy();
+    });
+    expect(within(screen.getByRole('dialog')).getByText(/제출문/)).toBeTruthy();
+    expect(updateReportCallCount).toBe(0);
+    expect(screen.getByLabelText('점검 목적')).toBeTruthy();
+  });
+
+  // #1338 — 최종 확정 통합 플로우 중 확정 검증이 groundingCheckPassed=false를 반환하면 AlertModal로
+  // 알리고 PDF 생성/업로드/확정 단계로 진행하지 않는다.
+  it('확정 검증이 통과하지 못하면 최종 확정 플로우가 AlertModal을 띄우고 PDF 생성 단계로 진행하지 않는다', async () => {
+    server.use(
+      http.post('/api/reports/1/grounding-recheck', () => {
+        reportState = { ...reportState, groundingCheckPassed: false };
+        return HttpResponse.json({ success: true, data: reportState });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    fireEvent.click(screen.getByRole('button', { name: /최종 보고서 확정/ }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeTruthy();
+    });
+    expect(within(screen.getByRole('dialog')).getByRole('alert').textContent).toContain(
+      '내용을 확인 후 다시 시도하세요',
+    );
+    expect(exportReportToPdf).not.toHaveBeenCalled();
+    expect(uploadedPdfFileName).toBeNull();
   });
 
   it('확정 전 미리보기가 뜬 상태에서 페이지 이탈/전환 시 이전 미리보기 blob URL이 즉시 revoke 및 정리된다', async () => {
