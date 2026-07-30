@@ -13,7 +13,7 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks
 from langchain_core.exceptions import OutputParserException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic import ValidationError as PydanticValidationError
@@ -296,38 +296,79 @@ class RagDocumentEmbedRequest(BaseModel):
     verification_status: Optional[str] = None
 
 
-@router.post("/rag-documents/embed")
-def rag_documents_embed(req: RagDocumentEmbedRequest) -> AIResponse:
-    """RAG 문서 임베딩(#22/HAJA-35, PRD FR-8-B) — 청킹+적재(upsert)를 먼저 하고, 성공한 뒤에만
-    옛 문서의 초과 청크(재임베딩으로 청크 수가 줄어든 경우의 나머지)를 정리한다. 이전엔 삭제를
-    먼저 해 재삽입 실패 시 방금까지 정상 서빙되던 임베딩을 통째로 잃는 창이 있었다(PR#685 리뷰
-    P2) — add_texts()가 동일 chunk id를 upsert하므로 삭제 없이도 재임베딩이 안전하게 덮어써진다.
-    LLM 호출이 없는 결정론적 데이터 처리라 grounding-check와 같은 계열이지만, 이 레포 catch-all
-    관례(ValueError→VALIDATION_ERROR, 나머지→고정 메시지 폴백)를 그대로 재사용한다 — 임베딩 모델
-    로드 실패 등 예측 어려운 실패도 스택은 서버 로그로만 남기고 클라이언트에는 내부 정보를
-    노출하지 않는다.
-    """
+def _run_ingest_background(
+    doc_id: str,
+    title: str,
+    doc_type: str,
+    target_collection: str,
+    text: str,
+    effective_date: Optional[str],
+    publisher: Optional[str],
+    authored_at: Optional[str],
+    verification_status: Optional[str],
+    chunk_count: int,
+):
     try:
-        chunk_count = ingest_document(
-            req.doc_id,
-            req.title,
-            req.doc_type,
-            req.target_collection,
-            req.text,
-            effective_date=req.effective_date,
-            publisher=req.publisher,
-            authored_at=req.authored_at,
-            verification_status=req.verification_status,
+        # 1. 실제 청킹 및 임베딩 연산 수행 (CPU 헤비 태스크)
+        ingest_document(
+            doc_id,
+            title,
+            doc_type,
+            target_collection,
+            text,
+            effective_date=effective_date,
+            publisher=publisher,
+            authored_at=authored_at,
+            verification_status=verification_status,
         )
-        # 옛 문서가 더 길었을 때만 남는 초과 청크 정리 — 실패해도 새 임베딩 자체는 이미 반영돼
-        # 있으므로 검색 결과에 영향 없다(최악의 경우 초과분 몇 개가 잠시 더 남을 뿐).
-        delete_stale_chunks(req.doc_id, req.target_collection, chunk_count)
+        # 2. 성공한 뒤에만 초과 청크 정리
+        delete_stale_chunks(doc_id, target_collection, chunk_count)
+        logger.info(f"RAG 백그라운드 임베딩 완료: doc_id={doc_id}, 청크 수={chunk_count}")
+    except Exception as e:
+        logger.exception(f"RAG 백그라운드 임베딩 중 치명적 예외 발생 (doc_id={doc_id}): {e}")
+
+
+@router.post("/rag-documents/embed")
+def rag_documents_embed(req: RagDocumentEmbedRequest, background_tasks: BackgroundTasks) -> AIResponse:
+    """RAG 문서 임베딩(#22/HAJA-35, PRD FR-8-B) — 504 Gateway Timeout 방지를 위한 비동기 백그라운드 전환 패치.
+    청킹(텍스트 분할)은 가볍고 즉시 끝나므로 동기로 수행해 청크 수를 미리 구하고, bge-m3 임베딩 연산은 BackgroundTasks로
+    넘겨 즉시 200 OK를 리턴합니다.
+    """
+    from ai.core.chunking import split_general_text, split_regulation_text
+    from ai.core.vectorstore import COLLECTION_DEFECT_KB, COLLECTION_REGULATIONS
+
+    try:
+        # 1. 청킹(텍스트 분할)은 가벼운 연산이므로 즉시 동기 수행하여 청크 개수를 얻음
+        if req.target_collection == COLLECTION_REGULATIONS:
+            chunks = split_regulation_text(req.text)
+        elif req.target_collection == COLLECTION_DEFECT_KB:
+            chunks = split_general_text(req.text)
+        else:
+            raise ValueError(f"unknown target_collection: {req.target_collection}")
+        
+        chunk_count = len(chunks)
     except ValueError as e:
-        # target_collection이 regulations/defect_kb가 아닌 경우 등 — 내부 경로/모델명 노출 없는 메시지.
         return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, str(e))
-    except Exception:  # noqa: BLE001 — Chroma 쓰기 실패·임베딩 모델 오류 등 표준 폴백(다른 엔드포인트와 동일 패턴)
-        logger.exception("POST /ai/rag-documents/embed 처리 중 예상치 못한 예외 발생")
-        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "문서 임베딩 중 오류가 발생했습니다")
+    except Exception as e:
+        logger.exception("POST /ai/rag-documents/embed 청킹 처리 중 예외 발생")
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "문서 청킹 중 오류가 발생했습니다")
+
+    # 2. 임베딩 적재 및 초과분 삭제는 백그라운드 태스크로 연동
+    background_tasks.add_task(
+        _run_ingest_background,
+        req.doc_id,
+        req.title,
+        req.doc_type,
+        req.target_collection,
+        req.text,
+        req.effective_date,
+        req.publisher,
+        req.authored_at,
+        req.verification_status,
+        chunk_count,
+    )
+
+    # 3. 즉시 계산된 청크 개수와 함께 성공 리턴 (스프링 백엔드와 완벽 호환)
     return AIResponse.ok({"chunk_count": chunk_count})
 
 

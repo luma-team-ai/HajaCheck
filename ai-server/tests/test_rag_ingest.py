@@ -201,8 +201,9 @@ def test_embed_endpoint_잘못된target_collection_VALIDATION_ERROR(mock_ingest,
 
 @patch("routers.ai_router.delete_stale_chunks")
 @patch("routers.ai_router.ingest_document")
-def test_embed_endpoint_예상치못한예외_LLM_INVALID_OUTPUT폴백(mock_ingest, mock_delete_stale):
-    mock_ingest.side_effect = RuntimeError("chroma write failed")
+@patch("ai.core.chunking.split_regulation_text")
+def test_embed_endpoint_청킹단계_예상치못한예외_LLM_INVALID_OUTPUT폴백(mock_split, mock_ingest, mock_delete_stale):
+    mock_split.side_effect = RuntimeError("chunking failed")
 
     res = client.post(
         "/ai/rag-documents/embed",
