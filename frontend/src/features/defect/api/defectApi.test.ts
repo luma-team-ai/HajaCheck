@@ -5,8 +5,13 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse, PageResponse } from '../../../shared/api/types';
 import { mockDefects } from '../mocks/defect.mock';
-import type { InspectionListItem } from '../types';
-import { defectApi } from './defectApi';
+import { mockInspections } from '../mocks/inspection.mock';
+import type { Defect, InspectionListItem } from '../types';
+import {
+  defectApi,
+  fetchAllFilteredInspections,
+  fetchFilteredDefectsForExport,
+} from './defectApi';
 import { defectHandlers } from './defectApi.handlers';
 
 const mockDefectExplain = {
@@ -324,6 +329,159 @@ describe('defectApi.getByInspection', () => {
     await expect(defectApi.getByInspection(999999)).rejects.toMatchObject({
       code: 'INSPECTION_NOT_FOUND',
     });
+  });
+});
+
+describe('fetchAllFilteredInspections', () => {
+  it('화면 페이지·크기를 무시하고 필터를 유지한 채 모든 페이지를 순회한다', async () => {
+    const requests: Array<{ facilityId: string | null; page: string | null; size: string | null }> = [];
+    server.use(
+      http.get('/api/inspections', ({ request }) => {
+        const url = new URL(request.url);
+        const page = Number(url.searchParams.get('page'));
+        requests.push({
+          facilityId: url.searchParams.get('facilityId'),
+          page: url.searchParams.get('page'),
+          size: url.searchParams.get('size'),
+        });
+        const content = page === 0 ? mockInspections.slice(0, 2) : mockInspections.slice(2);
+        const body: ApiResponse<PageResponse<InspectionListItem>> = {
+          success: true,
+          data: {
+            content,
+            page,
+            totalElements: mockInspections.length,
+          },
+        };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    const result = await fetchAllFilteredInspections({
+      facilityId: 1,
+      page: 7,
+      size: 1,
+    });
+
+    expect(requests).toEqual([
+      { facilityId: '1', page: '0', size: '100' },
+      { facilityId: '1', page: '1', size: '100' },
+    ]);
+    expect(result.map((inspection) => inspection.id)).toEqual(
+      mockInspections.map((inspection) => inspection.id),
+    );
+  });
+
+  it('5,000건을 초과해도 고정 페이지 상한 없이 totalElements까지 조회한다', async () => {
+    const totalElements = 5_001;
+    const requestedPages: number[] = [];
+    server.use(
+      http.get('/api/inspections', ({ request }) => {
+        const url = new URL(request.url);
+        const page = Number(url.searchParams.get('page'));
+        requestedPages.push(page);
+        const start = page * 100;
+        const content = Array.from(
+          { length: Math.min(100, totalElements - start) },
+          (_, index) => ({
+            ...mockInspections[0],
+            id: start + index + 1,
+          }),
+        );
+        const body: ApiResponse<PageResponse<InspectionListItem>> = {
+          success: true,
+          data: { content, page, totalElements },
+        };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    const result = await fetchAllFilteredInspections({});
+
+    expect(result).toHaveLength(totalElements);
+    expect(result.at(-1)?.id).toBe(totalElements);
+    expect(requestedPages).toHaveLength(51);
+    expect(requestedPages.at(-1)).toBe(50);
+  });
+
+  it('전체 건수에 도달하기 전에 빈 페이지가 오면 부분 결과를 반환하지 않고 실패한다', async () => {
+    server.use(
+      http.get('/api/inspections', ({ request }) => {
+        const page = Number(new URL(request.url).searchParams.get('page'));
+        const content = page === 0 ? mockInspections.slice(0, 2) : [];
+        const body: ApiResponse<PageResponse<InspectionListItem>> = {
+          success: true,
+          data: { content, page, totalElements: 3 },
+        };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    await expect(fetchAllFilteredInspections({})).rejects.toThrow(
+      '점검 내보내기 데이터를 끝까지 불러오지 못했습니다.',
+    );
+  });
+});
+
+describe('fetchFilteredDefectsForExport', () => {
+  it('점검별 요청을 최대 5개만 병렬 실행하고 하자 조건을 PDF 행에도 적용한다', async () => {
+    const inspections = Array.from({ length: 12 }, (_, index) => ({
+      ...mockInspections[0],
+      id: 1_000 + index,
+    }));
+    let inFlight = 0;
+    let peakInFlight = 0;
+
+    server.use(
+      http.get('/api/inspections', () => {
+        const body: ApiResponse<PageResponse<InspectionListItem>> = {
+          success: true,
+          data: {
+            content: inspections,
+            page: 0,
+            totalElements: inspections.length,
+          },
+        };
+        return HttpResponse.json(body);
+      }),
+      http.get('/api/inspections/:id/defects', async ({ params }) => {
+        const inspectionId = Number(params.id);
+        const source = mockDefects[(inspectionId - 1_000) % mockDefects.length];
+        inFlight += 1;
+        peakInFlight = Math.max(peakInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight -= 1;
+
+        const defect: Defect = {
+          ...source,
+          id: inspectionId,
+          inspectionId,
+        };
+        const body: ApiResponse<Defect[]> = {
+          success: true,
+          data: [defect],
+        };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    const result = await fetchFilteredDefectsForExport({
+      defectType: ['CRACK'],
+      defectGrade: ['C'],
+      defectStatus: ['DETECTED'],
+    });
+
+    expect(peakInFlight).toBeGreaterThan(1);
+    expect(peakInFlight).toBeLessThanOrEqual(5);
+    expect(result).toHaveLength(4);
+    expect(
+      result.every(
+        (defect) =>
+          defect.type === 'CRACK' &&
+          defect.grade === 'C' &&
+          defect.status === 'DETECTED',
+      ),
+    ).toBe(true);
   });
 });
 
