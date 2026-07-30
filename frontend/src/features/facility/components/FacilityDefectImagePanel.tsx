@@ -16,7 +16,7 @@ const NO_IMAGE_PLACEHOLDER = buildDefectImagePlaceholder('이미지 없음');
 const LOCATION_PLACEHOLDER = '—';
 const GRADE_PLACEHOLDER = '-'; // FacilityGradeBadge의 미분류 표기와 동일한 문자('-')로 맞춘다
 
-// 좌측 하자 이미지 패널 — 이미지+배지+확대 아이콘, 하단 원본/오버레이/회차비교 탭, 위치 정보(dev-04-02, #489).
+// 좌측 하자 이미지 패널 — 이미지+배지, 하단 원본/오버레이/회차비교 탭, 위치 정보(dev-04-02, #489).
 // "원본"은 defect.imageUrl 단독, "오버레이"는 같은 이미지 위에 마킹 레이어(overlay marking)를 absolute로
 // 추가 렌더한다 — 실 하자 사진 자산이 없어 이미지 2벌 대신 CSS 레이어 토글로 구현했다.
 // "회차비교" 탭은 별도 화면(/facilities/:id/compare)으로 이동하는 링크라 activeTab 상태에는 포함하지 않는다.
