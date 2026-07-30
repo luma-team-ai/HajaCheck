@@ -126,6 +126,9 @@ class FacilityControllerTest extends PostgresTestSupport {
         return inspector;
     }
 
+    // #1298 — compare()가 ANALYZED 이상 상태만 비교 대상으로 허용하도록 바뀌어, 회차 간 비교
+    // 테스트가 전제하는 "이미 분석된 회차"에 맞춰 기본값을 ANALYZED로 둔다(이 헬퍼를 쓰는 다른
+    // 테스트인 /api/facilities/status 조회는 status 필드를 검증하지 않아 영향 없음).
     private Inspection saveInspection(Long facilityId, Long createdBy, Long assignedInspectorId,
                                        int roundNo, LocalDate inspectionDate) {
         return inspectionRepository.save(Inspection.builder()
@@ -134,7 +137,7 @@ class FacilityControllerTest extends PostgresTestSupport {
                 .assignedInspectorId(assignedInspectorId)
                 .roundNo(roundNo)
                 .inspectionDate(inspectionDate)
-                .status(InspectionStatus.CREATED)
+                .status(InspectionStatus.ANALYZED)
                 .build());
     }
 
@@ -694,6 +697,56 @@ class FacilityControllerTest extends PostgresTestSupport {
                         .with(csrf()).with(authentication(authOf(owner))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("INSPECTION_NOT_FOUND"));
+    }
+
+    // #1298 — availableCycles 필터를 우회해 미분석(CREATED) 회차를 직접 before/after로 지정해도
+    // 서버가 방어적으로 거부해야 한다.
+    @Test
+    void 회차간비교_명시적으로지정한회차가미분석_400_ROUND_NOT_ANALYZED() throws Exception {
+        User owner = saveUser("compare-owner5b@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        User inspector = saveInspector("compare-inspector5b@haja.com", owner.getCompanyId());
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 1, LocalDate.of(2026, 1, 1));
+        inspectionRepository.save(Inspection.builder()
+                .facilityId(facility.getId())
+                .createdBy(owner.getId())
+                .assignedInspectorId(inspector.getId())
+                .roundNo(2)
+                .inspectionDate(LocalDate.of(2026, 2, 1))
+                .status(InspectionStatus.CREATED)
+                .build());
+
+        mockMvc.perform(get("/api/facilities/{id}/compare", facility.getId())
+                        .param("before", "1").param("after", "2")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INSPECTION_COMPARISON_ROUND_NOT_ANALYZED"));
+    }
+
+    // #1298 — round_no가 가장 큰 회차가 아직 미분석(CREATED)이면 자동선택(before/after 생략)에서
+    // 건너뛰고 그 다음으로 분석 완료된 회차를 골라야 한다.
+    @Test
+    void 회차간비교_회차파라미터전부생략_미분석최신회차는자동선택에서제외_200() throws Exception {
+        User owner = saveUser("compare-owner5c@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        User inspector = saveInspector("compare-inspector5c@haja.com", owner.getCompanyId());
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 1, LocalDate.of(2026, 1, 1));
+        saveInspection(facility.getId(), owner.getId(), inspector.getId(), 2, LocalDate.of(2026, 2, 1));
+        inspectionRepository.save(Inspection.builder()
+                .facilityId(facility.getId())
+                .createdBy(owner.getId())
+                .assignedInspectorId(inspector.getId())
+                .roundNo(3)
+                .inspectionDate(LocalDate.of(2026, 3, 1))
+                .status(InspectionStatus.CREATED)
+                .build());
+
+        mockMvc.perform(get("/api/facilities/{id}/compare", facility.getId())
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.beforeCycle.cycle").value(1))
+                .andExpect(jsonPath("$.data.afterCycle.cycle").value(2))
+                .andExpect(jsonPath("$.data.availableCycles.length()").value(2));
     }
 
     @Test

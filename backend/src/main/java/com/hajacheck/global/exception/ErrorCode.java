@@ -225,6 +225,10 @@ public enum ErrorCode {
     // 회차 간 비교(#1157) — before/after 미지정 시 최근 2개 회차로 자동 대체하는데, 점검 이력이
     // 2회 미만이면 비교 자체가 성립하지 않는다.
     INSPECTION_COMPARISON_INSUFFICIENT_ROUNDS(HttpStatus.BAD_REQUEST, "비교할 점검 회차가 2회 미만입니다."),
+    // #1298 — ANALYZED 이전(CREATED/UPLOADING/ANALYZING) 회차는 AI 분석이 안 끝나 하자가 아직
+    // 없다. 이 상태를 비교 대상으로 고르면 이전/이후 회차의 실제 하자가 전부 "신규"로 오분류된다.
+    // availableCycles가 이미 걸러내지만, 클라이언트가 필터를 우회해 명시적으로 지정한 경우 방어.
+    INSPECTION_COMPARISON_ROUND_NOT_ANALYZED(HttpStatus.BAD_REQUEST, "아직 분석되지 않은 회차는 비교할 수 없습니다."),
 
     // 촬영 데이터(미디어) 업로드(dev-05-03)
     MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "미디어를 찾을 수 없습니다."),
