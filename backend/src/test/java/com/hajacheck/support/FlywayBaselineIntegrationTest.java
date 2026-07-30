@@ -139,14 +139,17 @@ class FlywayBaselineIntegrationTest {
         // + V36(Flyway 이전 수동 증분 SQL 중 prod 미반영분 반영, #1311 — HAJA-25 finalize 의 부분 UNIQUE
         //   3종·assigned_inspector FK·updated_at 트리거 3종·citations NOT NULL 과 AP-020 알림 이력 인덱스,
         //   + V35 가 빠뜨린 idx_menus_parent. 빈 DB 경로에서는 V1 이 이미 만들어 no-op 이다).
-        //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V32~V36(5개) = 36이다.
-        assertThat(appliedMigrations).isEqualTo(36);
+        // + V37(usage_counters.lock_version orphan 컬럼 제거, #1325 — prod 에만 남은 pre-Flyway
+        //   Hibernate 잔재가 NOT NULL·DEFAULT 없음이라 쿼터 소비 경로의 INSERT 를 전부 막았다.
+        //   빈 DB 경로에는 컬럼이 애초에 없으므로 IF EXISTS 가드로 no-op 이다).
+        //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V32~V37(6개) = 37이다.
+        assertThat(appliedMigrations).isEqualTo(37);
 
-        // 최신 적용 버전이 실제로 V36 인지 확인.
+        // 최신 적용 버전이 실제로 V37 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("36");
+        assertThat(latestVersion).isEqualTo("37");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
