@@ -71,11 +71,11 @@ export function SelectedFacilityPopup({
         </div>
       </div>
       <div className="mt-4 flex justify-center">
-        {/* border-border(#e4e4e7)로 시맨틱 토큰 치환(정확히 일치, P3). flex-1 w-full로 팝업 하단을 가로로 꽉 채운다 */}
+        {/* 단독 배치에서도 기존 2버튼 시절의 버튼 너비를 유지한다. */}
         <button
           type="button"
           onClick={onViewDetail}
-          className="flex h-10 w-full items-center justify-center rounded-[999px] border border-border bg-[#f7f7f7] font-medium text-[#52525b] text-[14px] leading-[21px] transition hover:opacity-85"
+          className="flex h-10 w-[123px] items-center justify-center rounded-[999px] border border-border bg-[#f7f7f7] font-medium text-[#52525b] text-[14px] leading-[21px] transition hover:opacity-85"
         >
           상세 보기
         </button>

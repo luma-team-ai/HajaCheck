@@ -91,4 +91,10 @@ describe('ReportContentEditor', () => {
     expect(menu.className).toContain('bottom-full');
     expect(menu.className).not.toContain('top-full');
   });
+
+  it('사진 섹션 제목은 DnD 헤더에서만 한 번 렌더링한다', () => {
+    render(<ReportContentEditor content={mockContent} onChange={() => {}} readOnly={false} />);
+
+    expect(screen.getAllByText('부위별 사진')).toHaveLength(1);
+  });
 });

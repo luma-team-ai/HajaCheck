@@ -61,6 +61,19 @@ describe('SelectedFacilityPopup', () => {
     expect(handleViewDetail).toHaveBeenCalledTimes(1);
   });
 
+  it('상세 보기 버튼은 기존 반폭 너비를 유지하고 가운데 배치된다', () => {
+    render(
+      <SelectedFacilityPopup
+        facility={baseFacility}
+        onViewDetail={() => {}}
+      />,
+    );
+
+    const detailButton = screen.getByRole('button', { name: '상세 보기' });
+    expect(detailButton.className).toContain('w-[123px]');
+    expect(detailButton.parentElement?.className).toContain('justify-center');
+  });
+
   it('결과 검수 버튼을 렌더링하지 않는다', () => {
     render(
       <SelectedFacilityPopup

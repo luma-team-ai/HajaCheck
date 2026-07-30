@@ -101,7 +101,7 @@ export function DetailSection({
 
   return (
     <section className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">
         <div className="inline-flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2.5">
             <span className="text-xs font-medium tracking-wide text-zinc-700">등급:</span>

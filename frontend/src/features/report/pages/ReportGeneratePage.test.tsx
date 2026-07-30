@@ -628,7 +628,7 @@ describe('ReportGeneratePage', () => {
     expect(screen.getByRole('button', { name: '안전성평가 결과' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '현장시험(비파괴 및 추가시험)' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '시설물 현황' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '현황도 및 전경사진' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도' })).toBeTruthy();
   });
 
   it('저장 실패 시 axios 인터셉터가 던진 ApiError의 실제 message를 그대로 노출한다(제네릭 문구로 덮지 않는다)', async () => {

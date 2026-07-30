@@ -20,7 +20,7 @@ export const MANUAL_SECTION_LABELS = {
   'safety-assessment': '안전성평가 결과',
   'field-test': '현장시험(비파괴 및 추가시험)',
   'facility-status': '시설물 현황',
-  'location-drawing-photos': '현황도 및 전경사진',
+  'location-drawing-photos': '위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도',
 } as const;
 
 /**

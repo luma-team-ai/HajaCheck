@@ -33,8 +33,7 @@ export function PhotosSectionPreview({ imageUrls }: PhotosSectionPreviewProps) {
   const validUrls = imageUrls.filter((url): url is string => Boolean(url));
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-6 sm:p-8">
-      <h2 className="text-xl font-medium leading-7 text-heading">부위별 사진</h2>
+    <section className="flex flex-col gap-4">
       {validUrls.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface-muted p-8 text-center text-sm text-text-muted">
           점검 촬영 축소본이 없습니다.
