@@ -23,13 +23,17 @@ function resolveCounselTicketId(raw: NotificationApiItem): number | null {
 // "점검 시작" 버튼 이동(#1262 2차). INSPECTION_DUE payload는 백엔드가 항상 {facilityId, ...}로
 // 직렬화한다(InspectionDueNotificationPayload 확인 완료) — 대시보드 UpcomingInspectionCard와
 // 동일하게 /inspections/create?facilityId=... 로 이동한다.
-//
-// ANALYSIS_DONE("결과 보기")/REVIEW_PENDING("검수하기")은 이번 범위에서 제외한다 — 백엔드에
-// 발행 트리거 자체가 없어(#494/#495, 아직 미구현) payload 구조가 확정되지 않았고, 이동에 필요한
-// inspectionId 등을 아직 얻을 수 없다.
 function resolveInspectionDueFacilityId(raw: NotificationApiItem): number | null {
   const facilityId = raw.payload?.facilityId;
   return typeof facilityId === 'number' ? facilityId : null;
+}
+
+// "결과 보기"(ANALYSIS_DONE)/"검수하기"(REVIEW_PENDING) 버튼 이동(HAJA-595). 두 알림은 같은 전이
+// 지점(Inspection이 ANALYZED로 바뀌는 순간)에서 함께 발행되고 같은 payload 형태를 공유한다 —
+// {inspectionId, description}(InspectionAnalysisNotificationPayload.serialize 확인 완료).
+function resolveInspectionId(raw: NotificationApiItem): number | null {
+  const inspectionId = raw.payload?.inspectionId;
+  return typeof inspectionId === 'number' ? inspectionId : null;
 }
 
 interface NotificationCenterProps {
@@ -64,6 +68,8 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
     const meta = getNotificationTypeMeta(raw.type);
     const counselTicketId = raw.type === 'COUNSEL_REPLIED' ? resolveCounselTicketId(raw) : null;
     const inspectionDueFacilityId = raw.type === 'INSPECTION_DUE' ? resolveInspectionDueFacilityId(raw) : null;
+    const inspectionId =
+      raw.type === 'ANALYSIS_DONE' || raw.type === 'REVIEW_PENDING' ? resolveInspectionId(raw) : null;
     return {
       id: raw.id,
       category: meta.category,
@@ -83,6 +89,16 @@ export function NotificationCenter({ open, onClose, enabled }: NotificationCente
                 onClose();
               } else if (inspectionDueFacilityId !== null) {
                 navigate(`${INSPECTION_NEW_PATH}?facilityId=${inspectionDueFacilityId}`);
+                onClose();
+              } else if (raw.type === 'ANALYSIS_DONE' && inspectionId !== null) {
+                // "결과 보기" — 분석 결과 뷰어(mypage/MyInspectionsTable.tsx "결과 보기"와 동일 경로).
+                navigate(`/inspections/${inspectionId}/viewer`);
+                onClose();
+              } else if (raw.type === 'REVIEW_PENDING' && inspectionId !== null) {
+                // "검수하기" — 해당 점검의 하자 목록(dashboard/PendingPriorityCard.tsx "검수하기"와 같은
+                // 기본 경로 — feature 간 직접 import 금지라 경로 문자열은 로컬로 재구성). payload에
+                // defectId가 없어 PendingPriorityCard처럼 특정 하자 모달을 자동으로 열지는 못한다.
+                navigate(`/inspections/${inspectionId}/defects`);
                 onClose();
               }
             },
