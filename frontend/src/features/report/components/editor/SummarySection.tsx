@@ -13,17 +13,14 @@ export function SummarySection({ content, onChange, readOnly }: SummarySectionPr
 
   return (
     <section className="flex flex-col gap-6">
-      <div className="rounded-lg border border-border bg-surface px-5 py-4">
-        <LabeledTextArea
-          label="종합 의견"
-          hideLabel
-          value={content.summary.overall_opinion}
-          readOnly={readOnly}
-          rows={3}
-          textareaClassName="min-h-20 border-0 bg-transparent p-0 shadow-none focus:border-transparent focus:ring-0 read-only:bg-transparent"
-          onChange={(value) => updateSummary({ overall_opinion: value })}
-        />
-      </div>
+      <LabeledTextArea
+        label="종합 의견"
+        value={content.summary.overall_opinion}
+        readOnly={readOnly}
+        rows={3}
+        textareaClassName="min-h-20 px-5 py-4"
+        onChange={(value) => updateSummary({ overall_opinion: value })}
+      />
     </section>
   );
 }
