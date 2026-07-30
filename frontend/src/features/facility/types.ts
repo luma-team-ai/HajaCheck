@@ -166,6 +166,25 @@ export interface FacilityInspectionOverview {
   history: FacilityInspectionHistoryItem[];
 }
 
+// 실 API 원본 응답(#1359/HAJA-616, backend FacilityInspectionOverviewResponse와 1:1) — additionalImageCount는
+// 백엔드에 없다(썸네일 미리보기 고정 2장 제외분은 순수 프론트 표시 계산, useFacilityInspectionOverview 참고).
+export interface FacilityInspectionOverviewApiResponse {
+  overallGrade: DefectGradeLetter | null;
+  totalRounds: number;
+  cumulativeDefectCount: number;
+  unresolvedDefectCount: number;
+  history: {
+    id: number;
+    roundNo: number;
+    inspectionDate: string;
+    inspectorName: string;
+    status: '검수완료' | '완료' | '진행중';
+    imageCount: number;
+    defectGradeBreakdown: { grade: DefectGradeLetter; count: number }[];
+    changeNote: string | null;
+  }[];
+}
+
 // 시설물 상세 하위 드릴다운 — 하자 정보 패널 + 회차 간 비교 (dev-04-02, #489). 위 dev-05-02 타입과는
 // 별개 화면(하자 드릴다운/회차비교)의 로컬 타입 — 이름 접두 Facility로 겹치지만 다른 라우트/목적.
 // openapi.yaml FacilityDetailResponse는 "계획안·미구현" 상태라 전부 MSW 목 전용이다.

@@ -2,6 +2,7 @@ import { api } from '../../../shared/api/axios';
 import type {
   CreateFacilityRequest,
   Facility,
+  FacilityInspectionOverviewApiResponse,
   FacilityStatusRow,
   InspectionNotificationSettings,
   SetFacilityScheduleRequest,
@@ -26,4 +27,7 @@ export const facilityApi = {
     api.get<InspectionNotificationSettings>(`/facilities/${id}/notification-settings`),
   setNotificationSettings: (id: number, body: SetInspectionNotificationSettingsRequest) =>
     api.put<InspectionNotificationSettings>(`/facilities/${id}/notification-settings`, body),
+  // 시설물 상세 "점검 이력" 탭 실 API(#1359/HAJA-616) — backend FacilityController.getInspectionOverview와 1:1.
+  getInspectionOverview: (id: number) =>
+    api.get<FacilityInspectionOverviewApiResponse>(`/facilities/${id}/inspections`),
 };
