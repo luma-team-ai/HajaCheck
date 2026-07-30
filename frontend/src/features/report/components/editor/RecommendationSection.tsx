@@ -27,10 +27,12 @@ function formatPriorityLabel(priority: string): string {
 }
 
 const INLINE_INPUT_CLASSES =
-  'w-full rounded-lg border border-transparent bg-transparent px-0 py-0 text-base font-medium leading-6 text-heading outline-none transition focus:border-primary focus:bg-surface focus:px-2 focus:py-1 focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed read-only:text-heading';
+  'w-full rounded-lg border border-transparent bg-transparent px-0 py-0 text-base font-medium leading-6 text-heading outline-none transition focus:border-primary focus:bg-surface focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed read-only:text-heading';
 
+// LabeledTextArea 기본 FIELD_CLASSES(px-4 py-3 등)와 충돌하는 속성은 `!`로 강제 우선시킨다
+// (Tailwind 캐스케이드는 클래스 순서가 아니라 스케일 순서를 따르므로 px-0만으로는 안 이긴다).
 const INLINE_TEXTAREA_CLASS =
-  'min-h-0 border-transparent bg-transparent px-0 py-0 leading-6 focus:border-primary focus:bg-surface read-only:bg-transparent read-only:text-heading';
+  'min-h-0 border-transparent! bg-transparent! px-0! py-0! leading-6 focus:border-primary focus:bg-surface read-only:bg-transparent! read-only:text-heading!';
 
 export function RecommendationSection({
   content,
