@@ -12,9 +12,7 @@ export function SummarySection({ content, onChange, readOnly }: SummarySectionPr
     onChange({ ...content, summary: { ...content.summary, ...patch } });
 
   return (
-    <section className="flex flex-col gap-6 rounded-lg border border-border bg-surface p-6 sm:p-8">
-      <h2 className="text-xl font-medium leading-7 text-heading">요약 결론</h2>
-
+    <section className="flex flex-col gap-6">
       <div className="rounded-lg border border-border bg-surface-muted px-5 py-4">
         <LabeledTextArea
           label="종합 의견"

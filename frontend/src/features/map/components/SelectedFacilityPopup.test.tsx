@@ -34,9 +34,7 @@ describe('SelectedFacilityPopup', () => {
     render(
       <SelectedFacilityPopup
         facility={facility}
-        canGoToInspectionResult
         onViewDetail={() => {}}
-        onGoToInspectionResult={() => {}}
       />,
     );
 
@@ -48,33 +46,42 @@ describe('SelectedFacilityPopup', () => {
     expect((badge.parentElement as HTMLElement).style.backgroundColor).toBe(probe.style.backgroundColor);
   });
 
-  it('결과 검수 버튼 클릭 시 onGoToInspectionResult 핸들러가 호출된다', () => {
-    const handleGoToInspectionResult = vi.fn();
+  it('상세 보기 버튼 클릭 시 onViewDetail 핸들러가 호출된다', () => {
+    const handleViewDetail = vi.fn();
     render(
       <SelectedFacilityPopup
         facility={baseFacility}
-        canGoToInspectionResult
-        onViewDetail={() => {}}
-        onGoToInspectionResult={handleGoToInspectionResult}
+        onViewDetail={handleViewDetail}
       />,
     );
 
-    const resultButton = screen.getByRole('button', { name: '결과 검수' });
-    resultButton.click();
+    const detailButton = screen.getByRole('button', { name: '상세 보기' });
+    detailButton.click();
 
-    expect(handleGoToInspectionResult).toHaveBeenCalledTimes(1);
+    expect(handleViewDetail).toHaveBeenCalledTimes(1);
   });
 
-  it('점검 이력이 없으면 결과 검수 버튼을 비활성화한다', () => {
+  it('상세 보기 버튼은 기존 반폭 너비를 유지하고 가운데 배치된다', () => {
     render(
       <SelectedFacilityPopup
         facility={baseFacility}
-        canGoToInspectionResult={false}
         onViewDetail={() => {}}
-        onGoToInspectionResult={() => {}}
       />,
     );
 
-    expect(screen.getByRole('button', { name: '결과 검수' }).hasAttribute('disabled')).toBe(true);
+    const detailButton = screen.getByRole('button', { name: '상세 보기' });
+    expect(detailButton.className).toContain('w-[123px]');
+    expect(detailButton.parentElement?.className).toContain('justify-center');
+  });
+
+  it('결과 검수 버튼을 렌더링하지 않는다', () => {
+    render(
+      <SelectedFacilityPopup
+        facility={baseFacility}
+        onViewDetail={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: '결과 검수' })).toBeNull();
   });
 });

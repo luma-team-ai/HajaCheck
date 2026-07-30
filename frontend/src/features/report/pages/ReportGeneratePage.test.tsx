@@ -621,14 +621,14 @@ describe('ReportGeneratePage', () => {
 
     expect(screen.getByRole('button', { name: '제출문' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '기본현황' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '점검 결과 및 보수보강' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '책임/참여기술자' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '결과요약/종합의견' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '부위별 상태평가/보수보강' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '안전성 평가' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '현장시험' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '상태평가 결과 및 보수ㆍ보강' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '참여 기술진 명단' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '책임기술자 종합의견' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '부위별 상태평가 결과 및 보수ㆍ보강' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '안전성평가 결과' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '현장시험(비파괴 및 추가시험)' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '시설물 현황' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '위치도/전경/도면/부위별 사진' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도' })).toBeTruthy();
   });
 
   it('저장 실패 시 axios 인터셉터가 던진 ApiError의 실제 message를 그대로 노출한다(제네릭 문구로 덮지 않는다)', async () => {
@@ -710,7 +710,7 @@ describe('ReportGeneratePage', () => {
     expect(screen.queryByText('최종 승인')).toBeNull();
   });
 
-  it('상세 내역 등급 필터 pills(전체, A, B, C, D, E)가 항상 렌더링된다', async () => {
+  it('진단 외관조사결과 기본사항 등급 필터 pills(전체, A, B, C, D, E)가 항상 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
     const filterGroup = screen.getByRole('group', { name: '등급 필터' });
@@ -720,22 +720,22 @@ describe('ReportGeneratePage', () => {
     }
   });
 
-  it('상세 내역 페이지네이션 컨트롤이 렌더링된다', async () => {
+  it('진단 외관조사결과 기본사항 페이지네이션 컨트롤이 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
     expect(screen.getByRole('button', { name: '이전 페이지' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '다음 페이지' })).toBeTruthy();
-    const detailSection = screen.getByRole('heading', { name: '상세 내역' }).closest('section');
+    const detailSection = screen.getByText('진단 외관조사결과 기본사항').closest('.rounded-lg') as HTMLElement | null;
     expect(detailSection).toBeTruthy();
     expect(within(detailSection!).getByText('1', { selector: 'span.font-bold' })).toBeTruthy();
     expect(within(detailSection!).getByText('/ 1', { selector: 'span.text-zinc-500' })).toBeTruthy();
   });
 
-  it('조치 권고에 시급성 pill과 DEFECT badge가 렌더링된다', async () => {
+  it('보수ㆍ보강에 시급성 pill과 하자 badge가 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
     expect(screen.getByDisplayValue('보수 시급성: 중')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'DEFECT #01' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '하자 #01' })).toBeTruthy();
   });
 
   it('AI 경고 배너와 PDF 미리보기 링크가 렌더링된다', async () => {

@@ -26,9 +26,8 @@ export function ParticipantsSectionForm({ data, onChange, readOnly }: Participan
   const removeEntry = (index: number) => onChange({ entries: entries.filter((_, entryIndex) => entryIndex !== index) });
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-6 sm:p-8">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-medium leading-7 text-heading">참여기술진 명단</h2>
+    <section className="flex flex-col gap-4">
+      <div className="flex justify-end">
         {!readOnly && (
           <button
             type="button"

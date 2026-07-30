@@ -191,7 +191,7 @@ export function buildReportPdfFileName(inspectionId: number): string {
   return `점검보고서_${inspectionId}_${yyyy}${mm}${dd}.pdf`;
 }
 
-// 표준서식의 구성(제출문 → 결과표 → 결과 요약 → 외관조사결과 → 보수ㆍ보강방안 → 참여기술진 명단
+// 표준서식의 구성(제출문 → 결과표 → 결과 요약 → 진단 외관조사결과 기본사항 → 보수ㆍ보강(안) → 참여 기술진 명단
 // → 부위별 사진)을 따르되, 실제 순서는 편집기에서 사용자가 정한 sectionOrder를 그대로 따른다.
 // 안전성평가(SF)·현장시험·위치도처럼 대응 데이터가 아예 없는 원본 섹션은 빈 표를 만들지 않고
 // 제외한다 — 점검관리 플로우가 수집하지 않는 값이라 채울 방법이 없다.
@@ -430,7 +430,7 @@ export async function exportReportToPdf(
     return lastTableY();
   };
 
-  // ── 4. 보수ㆍ보강방안 ────────────────────────────────────────────────────
+  // ── 4. 보수ㆍ보강(안) ────────────────────────────────────────────────────
   const renderRecommendationBlock = (label: string, startY: number): number => {
     let y = sectionTitle(label, startY);
     y = subsectionTitle('가. 보수ㆍ보강(안)', y);
@@ -540,7 +540,7 @@ export async function exportReportToPdf(
   };
 
   // ── 일반 수동 섹션 ──────────────────────────────────────────────────────
-  // 안전성 평가·현장시험·도면류처럼 DB/AI 스키마에 없는 항목은 사용자가 입력한 본문을 같은
+  // 안전성평가 결과·현장시험·도면류처럼 DB/AI 스키마에 없는 항목은 사용자가 입력한 본문을 같은
   // 관공서 표 양식으로 싣는다. 새 컬럼 없이 reports.content_json 안에서만 왕복된다.
   const renderGenericManualBlock = (label: string, data: GenericManualSectionData, startY: number): number => {
     const y = sectionTitle(label, startY);
@@ -628,8 +628,8 @@ export async function exportReportToPdf(
     if (isFixedSectionKey(key)) {
       if (key === 'overview') cursorY = renderOverviewBlock(`${number}. 기본현황`, cursorY);
       else if (key === 'summary') cursorY = renderSummaryBlock(`${number}. 결과 요약`, cursorY);
-      else if (key === 'detail') cursorY = renderDetailBlock(`${number}. 진단 외관조사결과`, cursorY);
-      else if (key === 'recommendation') cursorY = renderRecommendationBlock(`${number}. 보수ㆍ보강방안`, cursorY);
+      else if (key === 'detail') cursorY = renderDetailBlock(`${number}. 진단 외관조사결과 기본사항`, cursorY);
+      else if (key === 'recommendation') cursorY = renderRecommendationBlock(`${number}. 보수ㆍ보강(안)`, cursorY);
       else cursorY = renderPhotosBlock(`${number}. 부위별 사진`, cursorY);
       return;
     }

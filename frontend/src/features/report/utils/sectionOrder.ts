@@ -5,22 +5,22 @@ const DEFAULT_ORDER: SectionKey[] = [...FIXED_SECTION_KEYS];
 const FIXED_SECTION_LABELS: Record<(typeof FIXED_SECTION_KEYS)[number], string> = {
   overview: '기본현황',
   summary: '결과 요약',
-  detail: '진단 외관조사결과',
-  recommendation: '보수ㆍ보강방안',
+  detail: '진단 외관조사결과 기본사항',
+  recommendation: '보수ㆍ보강(안)',
   photos: '부위별 사진',
 };
 
 export const MANUAL_SECTION_LABELS = {
   submission: '제출문',
   'overview-form': '기본현황',
-  'inspection-result-repair': '점검 결과 및 보수보강',
-  participants: '책임/참여기술자',
-  'summary-opinion': '결과요약/종합의견',
-  'member-condition-repair': '부위별 상태평가/보수보강',
-  'safety-assessment': '안전성 평가',
-  'field-test': '현장시험',
+  'inspection-result-repair': '상태평가 결과 및 보수ㆍ보강',
+  participants: '참여 기술진 명단',
+  'summary-opinion': '책임기술자 종합의견',
+  'member-condition-repair': '부위별 상태평가 결과 및 보수ㆍ보강',
+  'safety-assessment': '안전성평가 결과',
+  'field-test': '현장시험(비파괴 및 추가시험)',
   'facility-status': '시설물 현황',
-  'location-drawing-photos': '위치도/전경/도면/부위별 사진',
+  'location-drawing-photos': '위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도',
 } as const;
 
 /**

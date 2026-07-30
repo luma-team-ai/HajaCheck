@@ -446,26 +446,24 @@ describe('MapPage', () => {
     expect(mapInstance.panTo).toHaveBeenCalled();
   });
 
-  it('결과 검수 버튼 클릭 시 선택 시설물의 latestInspectionId로 결과 뷰어에 이동한다', async () => {
+  it('선택 팝업은 결과 검수 버튼을 렌더링하지 않는다', async () => {
     renderMapPage();
     await screen.findByText('한강대교 북단');
 
     fireEvent.click(screen.getByText('한강대교 북단'));
-    fireEvent.click(await screen.findByRole('button', { name: '결과 검수' }));
 
-    expect(screen.getByTestId('location-probe').textContent).toBe('/inspections/10/viewer');
+    expect(await screen.findByRole('button', { name: '상세 보기' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '결과 검수' })).toBeNull();
   });
 
-  it('latestInspectionId가 없는 시설물은 결과 검수 버튼이 비활성화되고 점검 ID 1로 대체 이동하지 않는다', async () => {
+  it('latestInspectionId가 없는 시설물도 점검 ID 1로 대체 이동하지 않는다', async () => {
     renderMapPage();
     await screen.findByText('남산1호터널');
 
     fireEvent.click(screen.getByText('남산1호터널'));
 
-    const resultButton = await screen.findByRole('button', { name: '결과 검수' });
-    expect(resultButton.hasAttribute('disabled')).toBe(true);
-    fireEvent.click(resultButton);
-
+    expect(await screen.findByRole('button', { name: '상세 보기' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '결과 검수' })).toBeNull();
     expect(screen.getByTestId('location-probe').textContent).toBe('/');
   });
 });

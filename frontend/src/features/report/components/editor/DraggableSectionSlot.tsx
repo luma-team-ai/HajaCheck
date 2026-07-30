@@ -10,9 +10,7 @@ interface DraggableSectionSlotProps {
   children: ReactNode;
 }
 
-// 자소서 편집기(사람인 등) 스타일 — 각 섹션 카드 위에 드래그 손잡이 바를 얹어 순서를 바꾼다.
-// 기존 섹션 컴포넌트(OverviewSection 등)는 이 컴포넌트가 감쌀 뿐 내부를 전혀 건드리지 않는다
-// (그 컴포넌트들은 이미 자기 카드 테두리·헤더를 그리므로, 이 래퍼는 얇은 손잡이 바만 추가).
+// 각 섹션의 공통 카드 골격과 제목 행을 제공한다. 내부 섹션은 자기 제목/외곽선을 다시 그리지 않는다.
 // 새 의존성을 넣지 않기 위해 dnd-kit 대신 네이티브 HTML5 Drag and Drop을 쓴다(이 화면은 데스크톱
 // 편집 전용이라 마우스 드래그만 지원해도 충분하다는 판단).
 export function DraggableSectionSlot({
@@ -46,9 +44,11 @@ export function DraggableSectionSlot({
         const fromIndex = Number(event.dataTransfer.getData('text/plain'));
         if (!Number.isNaN(fromIndex)) onReorder(fromIndex, index);
       }}
-      className={`flex flex-col gap-1.5 rounded-lg transition ${isDragOver ? 'ring-2 ring-primary/40' : ''}`}
+      className={`flex flex-col gap-6 rounded-lg border border-border bg-surface p-6 transition sm:p-8 ${
+        isDragOver ? 'ring-2 ring-primary/40' : ''
+      }`}
     >
-      <div className="flex items-center justify-between px-1 text-xs text-text-muted">
+      <div className="flex items-center justify-between gap-4">
         <div
           draggable={!readOnly}
           onDragStart={(event) => {
@@ -56,10 +56,12 @@ export function DraggableSectionSlot({
             event.dataTransfer.setData('text/plain', String(index));
             event.dataTransfer.effectAllowed = 'move';
           }}
-          className={`flex items-center gap-1.5 select-none ${readOnly ? '' : 'cursor-grab active:cursor-grabbing'}`}
+          className={`flex min-w-0 items-center gap-2 select-none text-xl font-medium leading-7 text-heading ${
+            readOnly ? '' : 'cursor-grab active:cursor-grabbing'
+          }`}
           aria-label={`${label} 섹션${readOnly ? '' : ' 드래그로 순서 변경'}`}
         >
-          <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <svg className="h-4 w-4 shrink-0 text-text-muted" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <circle cx="5" cy="4" r="1" fill="currentColor" />
             <circle cx="5" cy="8" r="1" fill="currentColor" />
             <circle cx="5" cy="12" r="1" fill="currentColor" />
@@ -67,13 +69,13 @@ export function DraggableSectionSlot({
             <circle cx="11" cy="8" r="1" fill="currentColor" />
             <circle cx="11" cy="12" r="1" fill="currentColor" />
           </svg>
-          <span className="font-medium tracking-wide">{label}</span>
+          <span className="truncate">{label}</span>
         </div>
         {removable && !readOnly && onRemove && (
           <button
             type="button"
             onClick={onRemove}
-            className="rounded-full px-2 py-0.5 transition hover:bg-surface-muted hover:text-red-600"
+            className="shrink-0 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-text-muted transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
           >
             섹션 삭제
           </button>
