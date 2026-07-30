@@ -42,13 +42,6 @@ export function FacilityDefectImagePanel({ defect, onCompareClick }: Props) {
         <span className="absolute left-3 top-3 rounded-full bg-black/65 px-2.5 py-1 text-xs font-bold text-white">
           {defect.defectType} · {defect.grade ?? GRADE_PLACEHOLDER} · 신뢰도 {defect.confidencePercent}%
         </span>
-        <button
-          type="button"
-          aria-label="이미지 확대"
-          className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white"
-        >
-          <span aria-hidden="true">🔍</span>
-        </button>
       </div>
 
       <div className="flex gap-2" role="tablist" aria-label="하자 이미지 보기 방식">
