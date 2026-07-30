@@ -36,6 +36,15 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+- **🔍 하자 상세 '활동 이력' prod 404 수정 (→ dev, 2026-07-31)** — FE **#1353**(merge `0e432c15`, 이슈 #1351 / HAJA-613). `awaiting-promotion` 라벨 부여, Jira `dev-pr-check`. **마이그레이션 0건**(프론트 전용).
+  - **발견 경위**: 승격 #1343 배포 직후 **prod 로그 점검**에서 발견. 기능검수(클릭 경로)로는 안 잡혔고, `WARN 존재하지 않는 리소스 요청: GET api/facilities/63/defect-detail/activity` 가 8초 내 4회 × 2회(react-query 재시도) 찍힌 것이 단서였다.
+  - **원인 두 겹** — ① `FacilityDefectDetailPage.tsx:69` 가 `facilityId` 자리에 `defectId` 를 전달(라우트는 `/facilities/:id/defects/:defectId` 로 둘 다 있음). **둘 다 `string` 이라 타입체커가 못 잡는다.** 실측으로 확정: `facilities.id=63` **0건**, `defects.id=63` 존재(`facility_id=2`). ② 그 엔드포인트는 **백엔드 구현이 아예 없다** — MSW 목 전용(`facilityDefectApi.ts:35` 주석, #489 스코프 밖). **①만 고쳐도 prod 404는 그대로**다.
+  - **수정**: 활동 기록 구현이 두 갈래로 병존했다 → 정본(`features/defect/ActivityHistoryPanel`, `GET /api/defects/{id}/revisions`, `DefectController.java:130` 구현·`defect_revisions` 51행 실측)으로 교체하고 facility 쪽 목 전용 자산(컴포넌트·훅·API 메서드·MSW 핸들러·타입·목데이터) 전량 제거. **83줄 추가 / 89줄 삭제로 순감소**, 백엔드 무변경.
+  - 함정 2개 처리: `defectId` string→number 변환 시 `DEFAULT_ID='detail'` 폴백이 `NaN` 이 되는 경로를 `Number.isFinite` 로 가드(**테스트가 `revisionsCallCount === 0` 단언**) · `.defect-card`/`.defect-activity-panel` CSS가 `DefectDetailPage.css` 에 있어 import 없으면 무스타일 렌더 → `DefectDetailModal.tsx` 와 동일 패턴으로 재사용.
+  - **⚠️ 교훈(재발 방지)**: 로컬 기본값 `VITE_ENABLE_MSW=hybrid` 가 **미구현 엔드포인트를 목으로 채워** 개발·리뷰 내내 정상으로 보이게 했다. prod(`import.meta.env.DEV=false`)에만 MSW가 없다. **"목 전용" 주석이 달린 API는 prod 미동작이 확정**이므로, 그런 코드가 화면에 남아 있으면 결함으로 간주할 것.
+  - **로컬 테스트 4파일 실패는 이번 변경과 무관** — base(`origin/dev` `ebbfc911`)에서 동일 재현, 단독 실행 시 PASS, 같은 base의 열린 PR #1349·#1352 는 CI PASS. 로컬 Node v24(CI는 v20)·TZ 조합의 **테스트 격리 문제**(파일 간 상태 공유)로 판정. 미해결 — 별도 이슈 후보.
+  - G1 PASS(근거 5건: handoff 전량 실측·R3 무관·R4 0건·파일 겹침 0). Normal 사이클이라 메타 code-reviewer·G3.5 생략, PR머신 검수·머지 위임(`ai:merged-by-machine`). CI frontend PASS.
+
 - **🚀 dev → main 승격 (2026-07-31)** — **#1343**(merge `a0e0d8fc`). 13커밋 / 71파일. **CD 배포 성공**, arm1 컨테이너 5개 healthy, `Started HajacheckApplication` 확인.
   - **포함 이슈 8건** (전건 native 자동종료 확인 — `Closes` 를 번호마다 한 줄씩 나열): #1315·#1316(비밀번호 변경 BE/FE) · #1339(토스 결제창) · #1333(리포트 하자박스) · #1332(기업 회원가입 피드백) · #1338(보고서 저장/확정검증) · #1322(보고서 편집·랜딩 정합성) · #1257(공개 요금제 API).
   - **DB 무변경 배치** — 마이그레이션·엔티티 diff **0건**. prod `flyway_schema_history` 최신 **V37** 유지(신규 적용 0건), `Successfully validated 38 migrations`. #531류 승격 드리프트 리스크 없음.
