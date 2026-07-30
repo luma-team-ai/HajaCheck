@@ -73,10 +73,15 @@ public class InspectionService {
         // 담당자 배정 검증 — users.status=ACTIVE AND role IN (INSPECTOR, ADMIN) + 요청자와 동일 회사(table_design.md §inspections).
         authService.validateAssignableInspector(creatorUserId, request.assignedInspectorId());
 
-        validateInspectionDate(request.inspectionDate(), facility);
+        validateInspectionDateBounds(request.inspectionDate(), facility);
 
         // 회차 채번 동시성 경쟁 방지 — 같은 시설물에 대한 동시 생성 요청을 행 잠금으로 직렬화한 뒤 max+1 을 읽는다.
+        // code-reviewer P1(#1291) — "기존 최신 회차보다 이전 날짜 금지" 검증(validateInspectionDateNotBeforeLatestRound)도
+        // 반드시 이 잠금 뒤에서 읽어야 한다. 잠금 앞에서 읽으면 두 동시 요청이 서로 다른 날짜로 같은 "현재 최신 날짜"
+        // 스냅샷을 보고 둘 다 통과할 수 있고, 그 뒤 랜덤한 순서로 커밋되면서 roundNo 오름차순과 점검일 순서가 다시
+        // 어긋난다(이 검증 자체가 막으려던 상황이 그대로 재현됨) — nextRoundNo 계산과 동일한 이유로 잠금 뒤에 둔다.
         facilityService.lockForUpdate(request.facilityId());
+        validateInspectionDateNotBeforeLatestRound(request.inspectionDate(), request.facilityId());
         int nextRoundNo = inspectionRepository.findMaxRoundNoByFacilityId(request.facilityId()) + 1;
 
         Inspection inspection = Inspection.builder()
@@ -331,12 +336,24 @@ public class InspectionService {
     // 업로드해 AI 분석까지 이어지는 흐름) — 미래 날짜는 애초에 의미가 없어 전부 거부한다. PRD가
     // 사전 예약 스케줄링을 명시하지 않는 한(기존 12개월 여유폭은 "정식 정책 확정 전 임시 여유폭"
     // 이었을 뿐, 실제 예약 기능은 아니었음) 오늘까지만 허용한다.
-    private void validateInspectionDate(LocalDate inspectionDate, FacilityResponse facility) {
+    private void validateInspectionDateBounds(LocalDate inspectionDate, FacilityResponse facility) {
         if (inspectionDate.isBefore(facility.createdAt().toLocalDate())) {
             throw new BusinessException(ErrorCode.INSPECTION_DATE_INVALID);
         }
         if (inspectionDate.isAfter(LocalDate.now())) {
             throw new BusinessException(ErrorCode.INSPECTION_DATE_INVALID);
         }
+    }
+
+    // #1291 — roundNo는 항상 생성 순서(max+1)라 점검일과 독립적이다. 점검일이 기존 최신 회차보다
+    // 앞서면 허용하던 걸 막는다(회차 간 비교 화면이 회차 번호 오름차순=시간 순서로 가정해서 깨짐).
+    // 같은 날짜(하루 여러 회차)는 허용 — 엄격히 "이전"만 막는다. code-reviewer P1 — 반드시
+    // facilityService.lockForUpdate 뒤에서 호출해야 한다(호출부 주석 참고, TOCTOU 방지).
+    private void validateInspectionDateNotBeforeLatestRound(LocalDate inspectionDate, Long facilityId) {
+        inspectionRepository.findMaxInspectionDateByFacilityId(facilityId)
+                .filter(inspectionDate::isBefore)
+                .ifPresent(latest -> {
+                    throw new BusinessException(ErrorCode.INSPECTION_DATE_BEFORE_LATEST_ROUND);
+                });
     }
 }

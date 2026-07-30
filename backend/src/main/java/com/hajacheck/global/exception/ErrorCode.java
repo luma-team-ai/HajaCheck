@@ -219,6 +219,9 @@ public enum ErrorCode {
     INSPECTION_ROUND_CONFLICT(HttpStatus.CONFLICT, "다른 요청과 충돌하여 점검 회차를 생성하지 못했습니다. 다시 시도해 주세요."),
     // 점검일 도메인 검증 — 시설물 등록일 이전이거나 지나치게 먼 미래는 비정상 입력으로 간주.
     INSPECTION_DATE_INVALID(HttpStatus.BAD_REQUEST, "점검일이 올바르지 않습니다."),
+    // #1291 — roundNo는 항상 생성 순서(max+1)라 점검일과 독립적이다. 새 회차의 점검일이 같은
+    // 시설물의 기존 최신 회차보다 앞서면 회차 번호=시간 순서 가정이 깨진다(회차 간 비교 화면 등).
+    INSPECTION_DATE_BEFORE_LATEST_ROUND(HttpStatus.BAD_REQUEST, "점검일은 최근 회차의 점검일 이후여야 합니다."),
     // 회차 간 비교(#1157) — before/after 미지정 시 최근 2개 회차로 자동 대체하는데, 점검 이력이
     // 2회 미만이면 비교 자체가 성립하지 않는다.
     INSPECTION_COMPARISON_INSUFFICIENT_ROUNDS(HttpStatus.BAD_REQUEST, "비교할 점검 회차가 2회 미만입니다."),

@@ -62,18 +62,47 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
     expect(screen.getAllByRole('combobox')).toHaveLength(1);
   });
 
-  // PR머신 P2 회귀고정(#1275) — "이전 회차"보다 이르거나 같은 회차를 "현재 회차"로 고르면
-  // before>=after가 되어 서버가 400 INVALID_INPUT을 던진다. 선택지 자체에서 그런 회차가
-  // 빠져 있어야 한다(목 데이터: beforeCycle=7, availableCycles=[5,6,7,8,9] → 8·9만 남아야 함).
-  it('"현재 회차" 선택지에 이전 회차 이하 값이 포함되지 않는다(#1275)', async () => {
+  // #1291 회귀고정 — #1275 당시엔 "이전 회차"를 고정한 채 cycle > beforeCycle로만 필터링해
+  // 대부분 최신 1개 회차만 선택 가능했다(드롭박스가 사실상 무의미). "현재 회차"를 고르면
+  // "이전 회차"도 목록상 바로 직전 회차로 함께 재계산되므로(handleAfterCycleChange), 첫 회차
+  // (비교 대상 "이전"이 없는 회차)만 빼고 전체가 선택 가능해야 한다
+  // (목 데이터: availableCycles=[5,6,7,8,9] → 6·7·8·9 전부 남아야 함).
+  it('"현재 회차" 선택지에 첫 회차를 제외한 전체 회차가 나온다(#1291)', async () => {
     renderPage();
     await screen.findByText('회차 간 비교');
 
     const afterSelect = screen.getByLabelText('현재 회차') as HTMLSelectElement;
     const optionValues = Array.from(afterSelect.options).map((option) => Number(option.value));
 
-    expect(optionValues.every((cycle) => cycle > mockInspectionComparison.beforeCycle.cycle)).toBe(true);
-    expect(optionValues).not.toContain(mockInspectionComparison.beforeCycle.cycle);
+    const [firstCycle, ...restCycles] = mockInspectionComparison.availableCycles.map((option) => option.cycle);
+    expect(optionValues).toEqual(restCycles);
+    expect(optionValues).not.toContain(firstCycle);
+  });
+
+  // #1291 — "현재 회차"로 무엇을 고르든 "이전 회차"는 고정값이 아니라 목록상 바로 직전
+  // 회차로 재계산돼야 한다(예: 6을 고르면 이전 회차는 5). 이전엔 항상 서버 최초 응답의
+  // beforeCycle(7)로 고정 전송돼 이 케이스에서 실제로는 회차 5↔6 비교가 아니라 7↔6(=역전,
+  // 서버가 400) 요청이 나갔을 것이다.
+  it('"현재 회차"를 목록 중간 값으로 바꾸면 "이전 회차"도 바로 직전 회차로 재계산해 요청한다(#1291)', async () => {
+    const capturedSearches: string[] = [];
+    const captureRequest = ({ request }: { request: Request }) => {
+      capturedSearches.push(new URL(request.url).search);
+    };
+    server.events.on('request:match', captureRequest);
+
+    try {
+      renderPage();
+      await screen.findByText('회차 간 비교');
+
+      fireEvent.change(screen.getByLabelText('현재 회차'), { target: { value: '6' } });
+
+      await screen.findByText('회차 간 비교');
+      const lastSearch = capturedSearches[capturedSearches.length - 1];
+      expect(lastSearch).toContain('after=6');
+      expect(lastSearch).toContain('before=5');
+    } finally {
+      server.events.removeListener('request:match', captureRequest);
+    }
   });
 
   // #1157 회귀고정 — 과거엔 DEFAULT_BEFORE_CYCLE=7/DEFAULT_AFTER_CYCLE=8이 하드코딩돼 있어
@@ -113,7 +142,6 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
       renderPage();
       await screen.findByText('회차 간 비교');
 
-      // #1275 필터로 이전 회차(7) 이하는 선택지에서 빠지므로, 유효한 대안 회차(9)를 고른다.
       fireEvent.change(screen.getByLabelText('현재 회차'), { target: { value: '9' } });
 
       await screen.findByText('회차 간 비교');
