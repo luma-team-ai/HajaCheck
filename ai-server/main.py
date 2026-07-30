@@ -64,6 +64,7 @@ def _load_defect_models_sync() -> None:
     # 지연 임포트 — ultralytics/huggingface_hub/segmentation_models_pytorch는 무거운 의존성이라
     # 모듈 최상단에서 임포트하면 main.py를 import하는 모든 테스트(TestClient 미사용 포함)가 그
     # 비용을 진다.
+    from ai.core.embeddings import get_embeddings
     from ai.core.unet_client import get_crack_model
     from ai.core.yolo_client import get_yolo_model
 
@@ -72,6 +73,9 @@ def _load_defect_models_sync() -> None:
     get_crack_model()
     get_yolo_model("SPALLING")
     get_yolo_model("REBAR_EXPOSURE")
+    
+    # bge-m3 임베딩 모델 워밍업 추가 (첫 RAG 호출 시 콜드스타트 지연 방지)
+    get_embeddings()
 
 
 async def _warmup_defect_models() -> None:
