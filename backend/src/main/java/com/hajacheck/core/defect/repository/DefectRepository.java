@@ -145,4 +145,9 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
     // AI 재분석 fail-closed 가드(코드 리뷰 P1 5차) — ANALYZED 회차에 비삭제 하자가 하나라도 있으면
     // 재분석을 거부한다(InspectionAnalysisService.hasExistingDefects). 목록을 로딩하지 않고 존재만 확인.
     boolean existsByInspectionIdAndDeletedFalse(Long inspectionId);
+
+    // 시설물 상세 "점검 이력" 탭 미조치 건수(#1359/HAJA-616) — RESOLVED가 유일한 종결 상태이므로
+    // 그 외(DETECTED/CONFIRMED/IN_PROGRESS)는 전부 미조치로 센다.
+    long countByInspectionIdInAndDeletedFalseAndStatusNot(
+            Collection<Long> inspectionIds, DefectStatus resolvedStatus);
 }
