@@ -492,4 +492,50 @@ describe('ReportListPage', () => {
     expect(await screen.findByText('변경 이력')).toBeTruthy();
     expect(await screen.findByText(/알 수 없음/)).toBeTruthy();
   });
+
+  it('변경 이력 비교 결과는 패널 내부가 아니라 공용 모달로 열고 내부 key를 한글 라벨로 표시한다', async () => {
+    server.use(
+      http.get('/api/reports/:id', ({ params }) => {
+        const id = Number(params.id);
+        return HttpResponse.json({
+          success: true,
+          data: {
+            id,
+            inspectionId: 1,
+            version: id === 102 ? 2 : 3,
+            status: 'FINALIZED',
+            groundingCheckPassed: true,
+            pdfUrl: `/api/reports/${id}/pdf/storage-key`,
+            content: {
+              ...reportContent,
+              overview: {
+                ...reportContent.overview,
+                facility_summary: id === 102 ? '이전 시설물 개요' : '현재 시설물 개요',
+              },
+            },
+            createdBy: 1,
+            createdAt: '2026-07-24T14:30:00',
+          },
+        });
+      }),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '변경 이력' }));
+    const historyPanel = await screen.findByText('변경 이력');
+    const panelRoot = historyPanel.closest('.w-72') as HTMLElement;
+
+    const compareButtons = await screen.findAllByRole<HTMLButtonElement>('button', { name: '비교' });
+    fireEvent.click(compareButtons.find((button) => !button.disabled)!);
+
+    const dialog = await screen.findByRole('dialog', { name: '현재 버전 ↔ v2' });
+    expect(within(dialog).getByText('기본현황 > 시설물 개요')).toBeTruthy();
+    expect(within(dialog).getByText('현재 시설물 개요')).toBeTruthy();
+    expect(within(dialog).getByText('이전 시설물 개요')).toBeTruthy();
+    expect(within(dialog).queryByText('overview.facility_summary')).toBeNull();
+    expect(within(panelRoot).queryByLabelText('보고서 버전 비교 결과')).toBeNull();
+  });
 });

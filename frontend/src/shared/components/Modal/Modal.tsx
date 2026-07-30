@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 interface ModalProps {
@@ -21,6 +21,7 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 
 export function Modal({ open, onClose, title, children, closeOnOverlayClick = true }: ModalProps) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
   // onClose가 부모 렌더마다 새로 생성돼도 effect가 재실행되지 않도록 ref로 최신값만 참조
   const onCloseRef = useRef(onClose);
@@ -101,12 +102,13 @@ export function Modal({ open, onClose, title, children, closeOnOverlayClick = tr
         className="max-h-[85vh] min-w-80 max-w-[90vw] overflow-y-auto rounded-[20px] border border-border bg-surface p-6 shadow-2xl"
         role="dialog"
         aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
         onClick={handleContentClick}
       >
         {title && (
           <div className="mb-6 flex items-start justify-between gap-4">
-            <h2 className="m-0 text-xl font-medium text-heading">{title}</h2>
+            <h2 id={titleId} className="m-0 text-xl font-medium text-heading">{title}</h2>
             <button
               type="button"
               aria-label="닫기"

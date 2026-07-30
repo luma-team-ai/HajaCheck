@@ -37,6 +37,59 @@ function displayValue(value: unknown): string {
   return (text ?? '—').length > 180 ? `${text?.slice(0, 177)}…` : text ?? '—';
 }
 
+const DIFF_PATH_LABELS: Record<string, string> = {
+  overview: '기본현황',
+  'overview.purpose': '기본현황 > 점검 목적',
+  'overview.facility_summary': '기본현황 > 시설물 개요',
+  'overview.scope': '기본현황 > 점검 범위',
+  summary: '결과 요약',
+  'summary.overall_opinion': '결과 요약 > 종합 의견',
+  'summary.total_count': '결과 요약 > 총 하자 수',
+  'summary.count_by_grade': '결과 요약 > 등급별 개수',
+  'summary.key_findings': '결과 요약 > 주요 발견사항',
+  detail: '상세 내역',
+  'detail.items': '상세 내역 > 하자 항목',
+  recommendation: '보수ㆍ보강방안',
+  'recommendation.items': '보수ㆍ보강방안 > 권고 조치',
+  'recommendation.monitoring_points': '보수ㆍ보강방안 > 지속 관찰 부위',
+  reportOptions: '보고서 옵션',
+  manualSections: '수동 서식 섹션',
+  sectionOrder: '섹션 순서',
+};
+
+const DIFF_SEGMENT_LABELS: Record<string, string> = {
+  defect_type: '하자 유형',
+  location: '위치',
+  severity_grade: '등급',
+  description: '조사 결과',
+  cause: '추정 원인',
+  target: '대상 부위',
+  method: '보수ㆍ보강안',
+  priority: '우선순위',
+  legal_basis: '적용 근거',
+  legal_basis_verified: '근거 검증 여부',
+  title: '제목',
+  type: '유형',
+  data: '내용',
+  body: '본문',
+  entries: '참여자',
+};
+
+function formatDiffPath(path: string): string {
+  if (DIFF_PATH_LABELS[path]) return DIFF_PATH_LABELS[path];
+  return path
+    .split('.')
+    .map((segment) => {
+      const arrayMatch = segment.match(/^(.+)\[(\d+)\]$/);
+      if (arrayMatch) {
+        const [, key, index] = arrayMatch;
+        return `${DIFF_SEGMENT_LABELS[key] ?? DIFF_PATH_LABELS[key] ?? key} ${Number(index) + 1}`;
+      }
+      return DIFF_SEGMENT_LABELS[segment] ?? DIFF_PATH_LABELS[segment] ?? segment.replaceAll('_', ' ');
+    })
+    .join(' > ');
+}
+
 function collectDiffs(current: unknown, selected: unknown, path = ''): DiffEntry[] {
   if (Object.is(current, selected)) return [];
   if (Array.isArray(current) && Array.isArray(selected)) {
@@ -202,30 +255,39 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
             </ul>
 
             {actionMessage && <p className="mt-4 border-t border-border pt-3 text-xs leading-5 text-text-muted">{actionMessage}</p>}
-            {compareState && (
-              <section className="mt-4 border-t border-border pt-3" aria-label="보고서 버전 비교 결과">
-                <div className="flex items-center justify-between">
-                  <h4 className="m-0 text-sm font-semibold text-heading">현재 버전 ↔ v{compareState.version}</h4>
-                  <button type="button" onClick={() => setCompareState(null)} className="border-none bg-none text-xs text-text-muted underline">닫기</button>
-                </div>
-                {compareState.diffs.length === 0 ? (
-                  <p className="mt-2 text-xs text-text-muted">본문 내용에 차이가 없습니다.</p>
-                ) : (
-                  <ul className="m-0 mt-2 max-h-48 list-none space-y-2 overflow-y-auto p-0">
-                    {compareState.diffs.map((diff) => (
-                      <li key={diff.path} className="text-xs leading-4">
-                        <div className="font-semibold text-heading">{diff.path}</div>
-                        <div className="text-text-muted">현재: {diff.current}</div>
-                        <div className="text-text-muted">v{compareState.version}: {diff.selected}</div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            )}
           </>
         )}
       </div>
+
+      <Modal
+        open={compareState !== null}
+        onClose={() => setCompareState(null)}
+        title={compareState ? `현재 버전 ↔ v${compareState.version}` : '보고서 버전 비교'}
+      >
+        <section className="w-[min(78vw,920px)]" aria-label="보고서 버전 비교 결과">
+          {compareState?.diffs.length === 0 ? (
+            <p className="m-0 text-base leading-7 text-text-muted">본문 내용에 차이가 없습니다.</p>
+          ) : (
+            <ul className="m-0 max-h-[60vh] list-none space-y-4 overflow-y-auto p-0 pr-1">
+              {compareState?.diffs.map((diff) => (
+                <li key={diff.path} className="rounded-xl border border-border bg-surface-muted p-4 text-base leading-7">
+                  <div className="mb-2 text-lg font-semibold text-heading">{formatDiffPath(diff.path)}</div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-lg bg-surface p-3">
+                      <div className="mb-1 text-sm font-semibold text-text-muted">현재</div>
+                      <div className="whitespace-pre-wrap text-base text-text-default">{diff.current}</div>
+                    </div>
+                    <div className="rounded-lg bg-surface p-3">
+                      <div className="mb-1 text-sm font-semibold text-text-muted">v{compareState.version}</div>
+                      <div className="whitespace-pre-wrap text-base text-text-default">{diff.selected}</div>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </Modal>
     </div>
   );
 }

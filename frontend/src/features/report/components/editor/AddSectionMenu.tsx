@@ -38,7 +38,7 @@ export function AddSectionMenu({ existingTypes, onAdd }: AddSectionMenuProps) {
         + 서식 섹션 추가
       </button>
       {isOpen && (
-        <div className="absolute left-0 top-full z-10 mt-1 flex max-h-80 w-72 flex-col gap-1 overflow-y-auto rounded-lg border border-border bg-surface p-1.5 shadow-lg">
+        <div className="absolute bottom-full left-0 z-10 mb-2 flex max-h-80 w-72 flex-col gap-1 overflow-y-auto rounded-lg border border-border bg-surface p-1.5 shadow-lg">
           {available.map((type) => (
             <button
               key={type}
