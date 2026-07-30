@@ -15,12 +15,6 @@ export const mockInspectionComparison: InspectionComparisonResult = {
     { key: 'resolved', label: '개선/조치 완료', value: 5, changeValue: -5 },
     { key: 'gradeEscalated', label: '등급 상승', value: 3, changeValue: 3 },
   ],
-  crackTrend: [
-    { cycleLabel: '5회차', avgWidthMm: 0.3 },
-    { cycleLabel: '6회차', avgWidthMm: 0.45 },
-    { cycleLabel: '7회차', avgWidthMm: 0.6 },
-    { cycleLabel: '8회차', avgWidthMm: 0.8 },
-  ],
   changes: [
     {
       id: 1,

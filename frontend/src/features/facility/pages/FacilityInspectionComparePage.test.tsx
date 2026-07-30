@@ -164,13 +164,14 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
     expect(screen.getByText('등급 상승')).not.toBeNull();
   });
 
-  it('시각적 비교 패널과 진행성 균열 추이 차트를 렌더링한다', async () => {
+  // #1347 — "진행성 균열 추이" 차트는 제거했다(Defect.crackWidthMm를 채우는 경로가 없어 항상 빈 차트).
+  it('시각적 비교 패널을 렌더링하고 진행성 균열 추이 차트는 노출하지 않는다', async () => {
     renderPage();
 
     expect(await screen.findByText('시각적 비교')).not.toBeNull();
     expect(screen.getByText('동일 촬영 지점 정렬됨', { exact: false })).not.toBeNull();
-    expect(screen.getByText('진행성 균열 추이')).not.toBeNull();
-    expect(screen.getByRole('img', { name: /균열 폭 추이/ })).not.toBeNull();
+    expect(screen.queryByText('진행성 균열 추이')).toBeNull();
+    expect(screen.queryByRole('img', { name: /균열 폭 추이/ })).toBeNull();
   });
 
   // #1344 — 위치(Defect.location)가 비어 있는 하자가 많아 "null / 균열"이 그대로 노출되던 문제로
@@ -198,13 +199,13 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
     expect(exportComparisonReportAsPngMock.mock.calls[0][1]).toBe('1');
   });
 
-  // 회귀 고정 — 실 백엔드(HAJA-531/#1112)는 beforeImageUrl/afterImageUrl/crackTrend를 응답에서
-  // 아예 생략한다(null/undefined). 이 필드들을 필수로 선언했던 예전 타입 그대로 두면
-  // CrackTrendChart가 data.length에서 크래시하고 <img>는 깨진 아이콘만 보였다.
-  it('백엔드가 이미지/균열추이 필드를 생략해도(실 API 응답 형태) 크래시 없이 플레이스홀더를 보여준다', async () => {
+  // 회귀 고정 — 실 백엔드(HAJA-531/#1112)는 beforeImageUrl/afterImageUrl을 응답에서 아예 생략한다
+  // (null/undefined). 이 필드들을 필수로 선언했던 예전 타입 그대로 두면 <img>가 깨진 아이콘만 보였다.
+  // 채우는 작업은 #1346. (함께 생략되던 crackTrend는 #1347에서 화면 자체를 제거했다.)
+  it('백엔드가 이미지 필드를 생략해도(실 API 응답 형태) 크래시 없이 플레이스홀더를 보여준다', async () => {
     server.use(
       http.get('/api/facilities/:id/compare', () => {
-        const body: ApiResponse<Omit<InspectionComparisonResult, 'beforeImageUrl' | 'afterImageUrl' | 'crackTrend'>> = {
+        const body: ApiResponse<Omit<InspectionComparisonResult, 'beforeImageUrl' | 'afterImageUrl'>> = {
           success: true,
           data: {
             facilityId: mockInspectionComparison.facilityId,
@@ -224,6 +225,5 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
 
     expect(await screen.findByText('회차 간 비교')).not.toBeNull();
     expect(await screen.findAllByText('사진 없음')).toHaveLength(2);
-    expect(await screen.findByText('표시할 데이터가 없습니다.')).not.toBeNull();
   });
 });
