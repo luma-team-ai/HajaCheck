@@ -173,11 +173,15 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
     expect(screen.getByRole('img', { name: /균열 폭 추이/ })).not.toBeNull();
   });
 
-  it('하자 변화 목록 테이블에 위치·변화 배지를 렌더링한다', async () => {
+  // #1344 — 위치(Defect.location)가 비어 있는 하자가 많아 "null / 균열"이 그대로 노출되던 문제로
+  // 첫 컬럼을 "위치/유형" → "유형"으로 좁혔다. 위치 문자열은 더 이상 렌더링되지 않는다.
+  it('하자 변화 목록 테이블에 유형·변화 배지를 렌더링한다', async () => {
     renderPage();
 
     expect(await screen.findByText('하자 변화 목록')).not.toBeNull();
-    expect(screen.getByText('외벽 A구간 / 균열')).not.toBeNull();
+    expect(screen.getByText('유형')).not.toBeNull();
+    expect(screen.getByText('균열')).not.toBeNull();
+    expect(screen.queryByText(/외벽 A구간/)).toBeNull();
     expect(screen.getByText('악화')).not.toBeNull();
     expect(screen.getByText('신규')).not.toBeNull();
     expect(screen.getByText('유지')).not.toBeNull();

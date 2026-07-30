@@ -10,13 +10,17 @@ type Props = {
   afterCycle: number;
 };
 
-// 하자 변화 목록 테이블 — 위치/유형, 회차별 등급, 변화 배지, 비고(#489 스펙).
+// 하자 변화 목록 테이블 — 유형, 회차별 등급, 변화 배지, 비고(#489 스펙).
+//
+// #1344 — 원래 "위치/유형" 한 컬럼에 `${location} / ${defectType}`을 합쳐 찍었으나, 백엔드가 내려주는
+// Defect.location이 비어 있는 하자가 많아 화면에 "null / 균열"이 그대로 노출됐다. 위치는 빼고 유형만
+// 보여준다(2026-07-31 사용자 결정). 응답의 location 필드 자체는 API 계약대로 유지한다.
 export function DefectChangeTable({ rows, beforeCycle, afterCycle }: Props) {
   const columns: TableColumn<DefectChangeRow>[] = [
     {
-      key: 'location',
-      header: '위치/유형',
-      render: (row) => `${row.location} / ${row.defectType}`,
+      key: 'defectType',
+      header: '유형',
+      render: (row) => row.defectType,
     },
     {
       key: 'gradeBefore',
