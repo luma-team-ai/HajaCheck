@@ -36,6 +36,14 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+- **🔐 로그인 후 비밀번호 변경 (→ dev, 2026-07-30)** — BE **#1320**(squash `8ba0cbed`, 이슈 #1315 / HAJA-601) + FE **#1321**(squash `12a65207`, 이슈 #1316 / HAJA-602). 둘 다 `awaiting-promotion` 라벨 부여, Jira `dev-pr-check`.
+  - 신규 **`PATCH /api/users/me/password`** — 세션 principal 로만 대상 식별(IDOR 차단), 현재 비밀번호 재인증, 소셜 전용 계정 400, 신·구 동일 400, userId 축 rate-limit(5분 5회, 성공 시 즉시 해제). 성공 시 **현재 세션 종료**(세션 무효화+쿠키 만료+CSRF 회전). 프론트는 `/mypage/profile` 에 변경 섹션 추가 후 `/login` 유도.
+  - **DB 변경 없음** — `users.password_hash` 와 `User.changePassword()`·`hasPassword()` 재사용, Flyway 파일 0건. 세션 정리 4단계는 `SessionTerminator` 로 추출해 `AuthController.logout` 과 공유(동작 불변, #1200 CSRF 회귀 없음).
+  - 계약: `docs/api-contract/contract.md` v0.11→**v0.12**(archive 스냅샷) · `openapi.yaml` **info.version 0.39.0-draft**. 프론트 규약으로 **"401 은 status 가 아니라 code 로 분기"**(`UNAUTHORIZED`=세션 만료 / `AUTH_INVALID_CREDENTIALS`=현재 비번 불일치)를 명문화.
+  - Critical 사이클: code-reviewer(opus)+security-reviewer(opus) **P1 0건**, PR머신 2라운드 P1 0건. 테스트 BE 1958 / FE 95 PASS.
+  - ⚠️ **알려진 한계(의도)**: 세션 무효화는 **현재 세션만**. 다른 기기 세션은 살아있다 — non-indexed Redis 세션이라 `FindByIndexNameSessionRepository` 주입 시 앱 기동 실패. → 후속 **#1318**. 그 결과 rate-limit 축(userId)이 **세션 탈취 시 피해자의 비밀번호 변경을 봉쇄**할 수 있다(탈출 경로 = 비로그인 이메일 재설정).
+  - 후속: **#1318**(전 기기 세션 무효화) · **#1319**(변경 알림 메일·재설정 토큰 무효화·BCrypt 72바이트 절단 대응·`password_updated_at` 감사 컬럼·만료 쿠키 Secure/SameSite)
+
 - **🚀 dev→main 배치 승격 + P0 기동실패 복구 + pre-Flyway 누락분 정리 (→ main, 2026-07-30)** — 승격 **#1304**(merge `88e21514`, **357커밋 / 1,352파일 / Flyway V6~V34 29건 / 이슈 163건**) → **P0 프로덕션 다운** → 핫픽스 **#1309**(V35, merge `1aaf5b4e`)로 복구 → 후속 승격 **#1313**(merge `d84f9c44`, V36 + PRD v1.0). **최종 prod = Flyway V36, 컨테이너 5개 healthy, `/` 200 · `/api/health` 401.**
   **🔴 사고 — baseline 스탬프 누락으로 승격 배포 기동 실패**: 승격 직후 CD 실패. Flyway 자체는 정상(`Successfully validated 35 migrations`·`Current version: 34`, V6~V34 전건 적용 성공)이었고, 실패는 `ddl-auto=validate`의 `Schema-validation: missing table [menu_role_access]`. **원인 = prod 가 2026-07-22 `baseline-on-migrate` 로 V1 을 실행하지 않고 스탬프만 해, V1(캐노니컬 DDL 기준)에 정의된 `menu_node_type`·`menus`·`menu_role_access` 가 실물 없이 "적용됨" 상태로 묻힌 것.** #1003(사이드바·관리자 nav 를 menus DB 조회로 전환)이 그 엔티티를 실제로 쓰기 시작하며 잠재 결함이 표면화됐다. **메타 프리플라이트의 사각지대** — V6~V34 재생만 검증하고 **V1↔prod 정합은 "이미 스탬프 완료"로 넘겼다**(#602 승격 때 했어야 할 V1 diff 가 이 두 테이블을 놓쳤고, 오늘도 재확인하지 않았다).
   **복구(V35, #1308/PR #1309)**: enum + 테이블 2종 + 인덱스 + 트리거 2종(V1 정의 그대로) + **메뉴 트리 시드 29행·접근권한 61행**(menus 는 마이그레이션 시드가 없어 공유 dev DB 에만 수동 입력돼 있었다 → 없으면 prod nav 가 빈 화면). 전부 `IF NOT EXISTS` 가드라 V1 실행 DB 에선 no-op. **롤백은 선택지가 아니었다** — 구 코드는 V11 이 제거한 `facilities.owner_id` 를 기대해 validate 에서 동일 실패.
