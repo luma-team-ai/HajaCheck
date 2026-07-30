@@ -251,3 +251,36 @@ describe('DefectActionForm — 진행상태 select(#1128)', () => {
     uploadSpy.mockRestore();
   });
 });
+
+describe('DefectActionForm — 조치일 범위', () => {
+  it('조치일은 로컬 날짜 기준 오늘까지만 선택할 수 있다', () => {
+    renderForm();
+
+    const today = new Date();
+    const expectedMax = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, '0'),
+      String(today.getDate()).padStart(2, '0'),
+    ].join('-');
+    const actionDateInput = screen.getByLabelText('조치일 *') as HTMLInputElement;
+
+    expect(actionDateInput.max).toBe(expectedMax);
+  });
+
+  it('미래 조치일은 직접 입력해도 입력값으로 반영되지 않는다', () => {
+    renderForm();
+
+    const future = new Date();
+    future.setDate(future.getDate() + 1);
+    const futureDate = [
+      future.getFullYear(),
+      String(future.getMonth() + 1).padStart(2, '0'),
+      String(future.getDate()).padStart(2, '0'),
+    ].join('-');
+
+    const actionDateInput = screen.getByLabelText('조치일 *') as HTMLInputElement;
+    fireEvent.change(actionDateInput, { target: { value: futureDate } });
+
+    expect(actionDateInput.value).toBe('');
+  });
+});

@@ -89,6 +89,17 @@ describe('InspectionActivityPanel — 더보기', () => {
     expect(within(panel).getByRole('button', { name: '더보기 (4)' })).not.toBeNull();
   });
 
+  it('상태 변경 항목에 하자 상세 모달과 같은 색상 상태 배지를 표시한다', async () => {
+    renderPanel();
+
+    const panel = screen.getByLabelText('점검 활동 기록');
+    const badge = (await within(panel).findAllByText('조치중'))[0];
+
+    expect(badge.className).toContain('defect-activity-status-badge');
+    expect(badge.className).toContain('bg-orange-50');
+    expect(badge.className).toContain('text-orange-500');
+  });
+
   it('더보기를 클릭하면 남은 항목이 모두 펼쳐지고 버튼이 사라진다', async () => {
     renderPanel();
 

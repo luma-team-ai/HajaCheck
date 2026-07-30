@@ -81,13 +81,15 @@ function mockActionLogsHandler(logs: { IN_PROGRESS?: DefectActionLogEntry[]; RES
 }
 
 describe('DefectDetailModal — 조치 전/조치/조치 완료 사진 3탭(#1193/HAJA-569)', () => {
-  it('actionResult가 없으면 탭바 없이 기존 라벨("조치 전 사진 (원본)")만 보인다', async () => {
+  it('actionResult와 조치 이력이 없어도 조치 전 사진 탭 디자인을 유지한다', async () => {
     renderModal(1); // mockDefects id=1: actionResult 없음
 
     await screen.findByText('철근 노출');
 
-    expect(screen.getByText('조치 전 사진 (원본)')).not.toBeNull();
-    expect(screen.queryByRole('tablist', { name: '조치 전/조치/조치 완료 사진' })).toBeNull();
+    expect(screen.getByRole('tablist', { name: '조치 전/조치/조치 완료 사진' })).not.toBeNull();
+    expect(screen.getByRole('tab', { name: '조치 전 사진' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByRole('tab', { name: '조치 사진' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: '조치 완료 사진' })).toBeNull();
   });
 
   it('actionResult가 있고 조치중 이력이 1건이면 "조치 사진" 탭만 추가로 노출되고 select는 없다', async () => {
