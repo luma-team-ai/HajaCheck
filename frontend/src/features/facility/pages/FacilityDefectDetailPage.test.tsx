@@ -79,6 +79,19 @@ describe('FacilityDefectDetailPage (통합 테스트)', () => {
     expect(await screen.findByText(/구조적 스트레스로 인한 진행성 균열/)).not.toBeNull();
   });
 
+  // code-reviewer P2(PR #1364) — 시설물 상세 조회(useFacility)가 실패해도 AI 설명 조회 자체가
+  // 영구히 막히지 않고(facilityType 자리표시자로 계속 시도) 콘텐츠를 표시해야 한다. 이전엔
+  // facilityType이 끝내 비어있으면 enabled가 계속 false로 남아 패널이 조용히 빈 화면이었다.
+  it('시설물 조회(GET /api/facilities/:id)가 실패해도 AI 설명 패널은 빈 화면이 아니라 정상 표시된다', async () => {
+    server.use(
+      http.get('/api/facilities/:id', () => new HttpResponse(null, { status: 500 })),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText(/구조적 스트레스로 인한 진행성 균열/)).not.toBeNull();
+  });
+
   it('활동 기록을 GET /api/defects/{id}/revisions 결과로 렌더링한다(#1351)', async () => {
     renderPage();
 

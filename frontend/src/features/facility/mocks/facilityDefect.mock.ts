@@ -49,7 +49,8 @@ export const mockFacilityDefectRevisions: DefectRevision[] = [
 ];
 
 export const mockFacilityDefectAiExplanation: FacilityDefectAiExplanation = {
-  diagnosis: '구조적 스트레스로 인한 진행성 균열로 판단됩니다.',
-  recommendedAction:
+  cause: '구조적 스트레스로 인한 진행성 균열로 판단됩니다.',
+  risk: '방치 시 철근 부식과 구조 강도 저하로 이어질 수 있습니다.',
+  action:
     '현재 폭 0.8mm로 허용 기준을 초과하였으며, 철근 부식을 방지하기 위해 에폭시 주입 공법을 통한 긴급 보수가 권장됩니다.',
 };

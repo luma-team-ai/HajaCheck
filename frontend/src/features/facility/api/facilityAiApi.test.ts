@@ -22,7 +22,7 @@ describe('facilityAiApi.getDefectExplanation', () => {
         capturedBody = (await request.json()) as Record<string, string>;
         return HttpResponse.json({
           success: true,
-          data: { diagnosis: 'd', recommendedAction: 'a' },
+          data: { cause: 'c', risk: 'r', action: 'a' },
         });
       }),
     );
@@ -47,7 +47,7 @@ describe('facilityAiApi.getDefectExplanation', () => {
         capturedBody = (await request.json()) as Record<string, string>;
         return HttpResponse.json({
           success: true,
-          data: { diagnosis: 'd', recommendedAction: 'a' },
+          data: { cause: 'c', risk: 'r', action: 'a' },
         });
       }),
     );
@@ -61,5 +61,31 @@ describe('facilityAiApi.getDefectExplanation', () => {
     });
 
     expect(capturedBody!.location).toBe('외벽 동측 12층 부근');
+  });
+
+  // PR머신 P1 — 실 엔드포인트 POST /api/ai/defect-explain의 응답은 {cause,risk,action}이다
+  // (ai-server tests/test_defect_explain.py:60,76, defect 기능의 DefectExplain과 동일 계약).
+  // 응답 매핑이 실 계약과 어긋나면 목이 잘못된 형태를 반환해도 이 테스트가 그 불일치를 드러낸다.
+  it('실 응답 형태({cause,risk,action})를 받으면 해당 필드가 그대로 채워진다', async () => {
+    server.use(
+      http.post('/api/ai/defect-explain', () =>
+        HttpResponse.json({
+          success: true,
+          data: { cause: '진행성 균열', risk: '구조 강도 저하', action: '에폭시 주입 보수' },
+        }),
+      ),
+    );
+
+    const res = await facilityAiApi.getDefectExplanation({
+      defectId: 1,
+      defectType: '균열',
+      grade: 'D',
+      location: '외벽 동측 12층 부근',
+      facilityType: '건물',
+    });
+
+    expect(res.data.cause).toBe('진행성 균열');
+    expect(res.data.risk).toBe('구조 강도 저하');
+    expect(res.data.action).toBe('에폭시 주입 보수');
   });
 });

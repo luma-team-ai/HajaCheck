@@ -23,8 +23,10 @@ export function FacilityDefectDetailPage() {
   const navigate = useNavigate();
   const { data: defect, isLoading, isError, refetch } = useFacilityDefectDetail(defectId);
   // #1350 — AI 설명(POST /ai/defect-explain)이 요구하는 facility_type 소스. 이미 존재하는
-  // 시설물 상세 조회(useFacility)를 재사용한다 — 새 엔드포인트·DB 조회 불필요.
-  const { data: facility } = useFacility(Number(facilityId));
+  // 시설물 상세 조회(useFacility)를 재사용한다 — 새 엔드포인트·DB 조회 불필요. isLoading은
+  // FacilityDefectAiExplainPanel에 그대로 넘겨 하자 조회가 먼저 끝나도 시설물 조회 완료 전까지
+  // AI 설명 조회를 대기시킨다(code-reviewer P2, PR #1364).
+  const { data: facility, isLoading: isFacilityLoading } = useFacility(Number(facilityId));
 
   // defectId는 라우트 파라미터라 항상 string이고, DEFAULT_ID('detail') 폴백이 그대로 들어오면
   // Number() 변환이 NaN이 된다 — ActivityHistoryPanel(defectId: number)에 NaN을 넘겨 불필요한
@@ -79,6 +81,7 @@ export function FacilityDefectDetailPage() {
         grade={defect.grade ?? ''}
         location={defect.location ?? ''}
         facilityType={facility?.type ?? ''}
+        isFacilityLoading={isFacilityLoading}
       />
 
       {hasValidDefectId && <ActivityHistoryPanel defectId={numericDefectId} />}
