@@ -118,6 +118,36 @@ describe('FacilityCard', () => {
     expect(screen.getByText('하자 0건')).not.toBeNull();
   });
 
+  // Figma 시안 정합 — 하자건수 배지의 글자색·배경색이 등급 점(dot)과 동일 팔레트를 쓴다.
+  // code-reviewer P3 — Record 전체가 손으로 옮겨적은 hex라 등급 하나만 검증하면 다른 등급의
+  // 오타가 안 잡힌다. A~E 전부 단언해 향후 드리프트를 잡는다.
+  it.each([
+    ['A', 'bg-[#e3f5e6]', 'text-[#16a34a]'],
+    ['B', 'bg-[#eef6df]', 'text-[#65a30d]'],
+    ['C', 'bg-[#fdf6d5]', 'text-[#b58b0a]'],
+    ['D', 'bg-[#fdf0d5]', 'text-[#b5670a]'],
+    ['E', 'bg-[#fde8e8]', 'text-[#dc2626]'],
+  ] as const)('등급 %s이면 하자건수 배지가 %s %s 클래스를 사용한다', (grade, bgClass, textClass) => {
+    render(
+      <FacilityCard
+        facility={{ ...baseFacility, initialGrade: grade, defectCount: 12 }}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    const badge = screen.getByText('하자 12건');
+    expect(badge.className).toContain(bgClass);
+    expect(badge.className).toContain(textClass);
+  });
+
+  it('등급이 없으면 하자건수 배지가 기본 회색 클래스를 유지한다', () => {
+    render(<FacilityCard facility={{ ...baseFacility, defectCount: 5 }} onSelect={vi.fn()} />);
+
+    const badge = screen.getByText('하자 5건');
+    expect(badge.className).toContain('bg-surface-sunken');
+    expect(badge.className).toContain('text-text');
+  });
+
   it('카드를 클릭하면 onSelect가 시설물 id와 latestDefectId로 호출된다', () => {
     const handleSelect = vi.fn();
     render(
