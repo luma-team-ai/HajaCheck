@@ -67,15 +67,18 @@ class CompanyAuthIntegrationTest extends PostgresTestSupport {
         org.assertj.core.api.Assertions.assertThat(result.getResponse().getStatus()).isEqualTo(201);
         JsonNode data = objectMapper.readTree(result.getResponse().getContentAsString()).get("data");
         org.assertj.core.api.Assertions.assertThat(data.get("companyId").asLong()).isPositive();
-        org.assertj.core.api.Assertions.assertThat(data.get("status").asText()).isEqualTo("PENDING_REVIEW");
+        // #1324 — 가입 즉시 자동승인(승인 대기 단계 없음). 테스트 프로파일은 국세청 키가 없어
+        // 진위확인이 SKIPPED(fail-open) 인데, 그래도 APPROVED 여야 한다(전면 자동승인).
+        org.assertj.core.api.Assertions.assertThat(data.get("status").asText()).isEqualTo("APPROVED");
         org.assertj.core.api.Assertions.assertThat(data.get("maskedEmail").asText()).isEqualTo("o***@h***.com");
         String signupToken = data.get("signupToken").asText();
         org.assertj.core.api.Assertions.assertThat(signupToken).isNotBlank();
 
-        // 가입 상태 조회(승인 대기 새로고침)
+        // 가입 상태 조회(새로고침) — 저장된 회사 상태도 APPROVED.
         mockMvc.perform(get("/api/auth/companies/status").param("token", signupToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andExpect(jsonPath("$.data.rejectionReason").doesNotExist())
                 .andExpect(jsonPath("$.data.companyName").value("(주)하자체크"));
     }
 

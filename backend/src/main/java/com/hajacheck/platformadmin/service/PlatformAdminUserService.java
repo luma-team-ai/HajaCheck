@@ -89,6 +89,10 @@ public class PlatformAdminUserService {
             // 정합을 맞춘다(PR머신 리뷰 P2) — 승인 대기/반려 companyId를 직접 크래프팅해도 존재 여부만
             // 확인하고 통과시키면 아직 유효하지 않은 회사에 사용자가 조기 배선된다. 리소스 존재 여부
             // 열거를 피하기 위해 미존재와 동일하게 COMPANY_NOT_FOUND로 응답한다.
+            // (#1324) 가입 즉시 자동승인 이후에도 이 가드는 유효하다 — "항상 통과"가 아니다.
+            // 여전히 걸리는 집합: ①V38 이전에 반려된 REJECTED 회사 ②국세청 확정 불량(FAILED)이라
+            // V38 소급 승인에서 제외돼 PENDING_REVIEW 로 남은 회사. 즉 이 가드가 실제로 막는 대상이
+            // "아직 심사 안 끝난 회사"에서 "승인해서는 안 되는 회사"로 바뀌었을 뿐 가치는 그대로다.
             if (company.getStatus() != CompanyStatus.APPROVED) {
                 throw new BusinessException(ErrorCode.COMPANY_NOT_FOUND);
             }
