@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes, RouterProvider, createMemoryRouter } from 'react-router-dom';
+import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import type { ReportDetailResponse } from '../api/reportApi';
 import type { InspectionResponse, DefectDetailItem, MediaResponse } from '../../inspection/api/inspectionApi.types';
 import { isReportContent, type ReportContent } from '../types';
@@ -185,13 +185,13 @@ afterAll(() => server.close());
 describe('ReportGeneratePage', () => {
   const renderPageWithPath = (path: string) => {
     const queryClient = new QueryClient();
+    const router = createMemoryRouter(
+      [{ path: '/reports/:reportId', element: <ReportGeneratePage /> }],
+      { initialEntries: [path] },
+    );
     return render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={[path]}>
-          <Routes>
-            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
-          </Routes>
-        </MemoryRouter>
+        <RouterProvider router={router} />
       </QueryClientProvider>,
     );
   };
@@ -209,16 +209,7 @@ describe('ReportGeneratePage', () => {
   });
 
   it('should handle invalid report ID gracefully', () => {
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/reports/invalid']}>
-          <Routes>
-            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPageWithPath('/reports/invalid');
 
     expect(screen.getByText(/잘못된 접근/)).toBeTruthy();
   });
@@ -314,16 +305,7 @@ describe('ReportGeneratePage', () => {
       groundingCheckPassed: true,
     };
 
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/reports/1']}>
-          <Routes>
-            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await screen.findByDisplayValue(realContractContent.overview.purpose);
 
@@ -392,16 +374,7 @@ describe('ReportGeneratePage', () => {
       pdfUrl: '/api/reports/1/pdf/storage-key',
     };
 
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/reports/1?mode=export']}>
-          <Routes>
-            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPageWithPath('/reports/1?mode=export');
 
     const pdfFrame = await screen.findByTitle('저장된 보고서 PDF');
     expect(preflightCount).toBe(1);
@@ -561,16 +534,7 @@ describe('ReportGeneratePage', () => {
       pdfUrl: null,
     };
 
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/reports/1?mode=export']}>
-          <Routes>
-            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPageWithPath('/reports/1?mode=export');
 
     const pdfFrame = await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
     expect(pdfFrame.getAttribute('src')).toContain('blob:');
@@ -600,9 +564,24 @@ describe('ReportGeneratePage', () => {
 
   // 검증 전(그리고 grounding이라는 단어를 노출하지 않는지) 확인 — 일반 점검자가 이해할 수 있는
   // 문구여야 한다.
-  // #1338 — 클라이언트 미리보기 렌더 조건은 이제 !dirty(저장됨)만으로 판단한다. 정상적인
-  // "PDF 미리보기" 클릭 흐름은 dirty면 먼저 저장을 시도하도록 가드되므로, 이 안내 문구는
-  // 그 가드를 우회해(예: 방문 이력 복귀) mode=export로 직접 들어온 미저장 상태에서만 뜬다.
+  // #1341 P2 — 버튼 클릭 가드는 직접 URL 진입/새로고침에는 적용되지 않으므로,
+  // mode=export 렌더 조건 자체도 저장 여부와 확정 검증 통과 여부를 함께 확인해야 한다.
+  it('저장된 상태라도 확정 검증을 통과하지 못한 보고서로 mode=export에 직접 진입하면 미리보기를 렌더하지 않는다', async () => {
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: null,
+      status: 'DRAFT',
+      pdfUrl: null,
+    };
+
+    renderPageWithPath('/reports/1?mode=export');
+
+    await screen.findByText('아직 미리 볼 수 없습니다.');
+    expect(screen.queryByTitle('보고서 PDF 미리보기(확정 전)')).toBeNull();
+    expect(exportReportToPdf).not.toHaveBeenCalled();
+    expect(screen.queryByText(/grounding/i)).toBeNull();
+  });
+
   it('저장하지 않은 변경 사항이 있는 상태로 mode=export에 진입하면 미리보기 대신 저장 안내 문구를 보여준다', async () => {
     reportState = {
       ...mockReportDetailResponse,
@@ -646,6 +625,30 @@ describe('ReportGeneratePage', () => {
     const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
     expect(finalizeButton.disabled).toBe(false);
     expect(screen.queryByRole('button', { name: '확정 검증' })).toBeNull();
+  });
+
+  it('저장된 보고서에 내용이 비어 있는 수동 섹션이 있으면 최종 보고서 확정 버튼을 비활성화한다', async () => {
+    reportState = {
+      ...mockReport,
+      groundingCheckPassed: true,
+      content: {
+        ...mockContent,
+        manualSections: [
+          {
+            id: 'manual-empty-safety',
+            type: 'safety-assessment',
+            title: '안전성평가 결과',
+            data: { body: '' },
+          },
+        ],
+      },
+    };
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
+    expect(finalizeButton.disabled).toBe(true);
   });
 
   it('서식 섹션 추가 메뉴에 표준서식 수동 입력 항목을 모두 노출한다', async () => {
@@ -700,16 +703,7 @@ describe('ReportGeneratePage', () => {
       }),
     );
 
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/reports/99']}>
-          <Routes>
-            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPageWithPath('/reports/99');
 
     await waitFor(() => {
       expect(screen.getByText('보고서 생성 결과')).toBeTruthy();
@@ -782,7 +776,7 @@ describe('ReportGeneratePage', () => {
   it('보수ㆍ보강에 시급성 pill과 하자 badge가 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
-    expect(screen.getByDisplayValue('보수 시급성: 중')).toBeTruthy();
+    expect(screen.getByLabelText('권고 1 보수 시급성').textContent).toBe('보수 시급성: 중');
     expect(screen.getByRole('button', { name: '하자 #01' })).toBeTruthy();
   });
 
@@ -823,6 +817,74 @@ describe('ReportGeneratePage', () => {
     await waitFor(() => {
       expect(screen.queryByLabelText('점검 목적')).toBeNull();
     });
+  });
+
+  it('미저장 변경 상태에서 PDF 내보내기가 아닌 다른 라우트로 이탈하면 임시저장 모달을 띄우고 저장 후 이동한다', async () => {
+    const queryClient = new QueryClient();
+    const router = createMemoryRouter(
+      [
+        { path: '/reports/:reportId', element: <ReportGeneratePage /> },
+        { path: '/dashboard', element: <div>대시보드 페이지</div> },
+      ],
+      { initialEntries: ['/reports/1'] },
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText('보고서 생성 결과');
+    fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '이탈 전 저장' } });
+
+    await router.navigate('/dashboard');
+
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(screen.getByText('편집한 내용이 저장되지 않았습니다')).toBeTruthy();
+    expect(screen.getByText('이 페이지를 나가기 전에 변경 내용을 임시저장합니다.')).toBeTruthy();
+    expect(router.state.location.pathname).toBe('/reports/1');
+    expect(updateReportCallCount).toBe(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(router.state.location.pathname).toBe('/reports/1');
+
+    await router.navigate('/dashboard');
+    await screen.findByText('편집한 내용이 저장되지 않았습니다');
+    fireEvent.click(screen.getByRole('button', { name: '임시저장 후 나가기' }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard'));
+    expect(screen.getByText('대시보드 페이지')).toBeTruthy();
+    expect(updateReportCallCount).toBe(1);
+  });
+
+  it('미저장 상태의 PDF 미리보기에서도 다른 라우트 이탈 시 같은 임시저장 모달을 띄운다', async () => {
+    const queryClient = new QueryClient();
+    const router = createMemoryRouter(
+      [
+        { path: '/reports/:reportId', element: <ReportGeneratePage /> },
+        { path: '/dashboard', element: <div>대시보드 페이지</div> },
+      ],
+      { initialEntries: ['/reports/1'] },
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText('보고서 생성 결과');
+    fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '미리보기 이탈 전 저장' } });
+
+    await router.navigate('/reports/1?mode=export');
+    await screen.findByText('아직 미리 볼 수 없습니다.');
+
+    await router.navigate('/dashboard');
+
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(screen.getByText('편집한 내용이 저장되지 않았습니다')).toBeTruthy();
+    expect(router.state.location.pathname).toBe('/reports/1');
+    expect(router.state.location.search).toBe('?mode=export');
   });
 
   // #1338 — 미저장 변경 + 빈 추가 섹션이 있으면 저장을 시도하지 않고 AlertModal만 띄운 채 이동하지 않는다.

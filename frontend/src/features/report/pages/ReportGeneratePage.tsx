@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useBlocker, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
-import { AlertModal } from '../../../shared/components/Modal';
+import { AlertModal, Modal } from '../../../shared/components/Modal';
 import { useInspectionResult } from '../../inspection/hooks/useInspectionResult';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import { reportApi } from '../api/reportApi';
@@ -88,6 +89,11 @@ function shouldPreflightPdf(pdfUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isPdfExportLocation(pathname: string, search: string, reportId: number): boolean {
+  if (pathname !== `/reports/${reportId}`) return false;
+  return new URLSearchParams(search).get('mode') === 'export';
 }
 
 export function ReportGeneratePage() {
@@ -252,12 +258,21 @@ export function ReportGeneratePage() {
   const emptyManualSectionLabels = useMemo(() => getEmptyManualSectionLabels(content), [content]);
   const hasEmptyManualSections = emptyManualSectionLabels.length > 0;
   const isFinalized = report?.status === 'FINALIZED';
+  const [isLeavingAfterSave, setIsLeavingAfterSave] = useState(false);
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
+    if (!report || !dirty || isFinalized) return false;
+    const isSameLocation =
+      currentLocation.pathname === nextLocation.pathname &&
+      currentLocation.search === nextLocation.search &&
+      currentLocation.hash === nextLocation.hash;
+    if (isSameLocation) return false;
+    return !isPdfExportLocation(nextLocation.pathname, nextLocation.search, report.id);
+  });
 
-  // 저장되지 않은 변경이 없으면(!dirty) 최종 확정 시 생성될 것과 동일한 조건으로 미리 PDF를
-  // 렌더링해둔다 — handleFinalizeAll과 동일한 옵션을 쓰되 서버 업로드/확정은 하지 않는다(순수
-  // 클라이언트 미리보기). "PDF 미리보기" 진입 자체가 임시저장 후에만 이동하도록 가드되므로(#1338),
-  // 여기서는 확정 검증 통과 여부를 더 이상 조건으로 두지 않는다.
-  const canRenderClientPreview = Boolean(content) && !dirty;
+  // 저장된 상태이면서 확정 검증을 통과했거나 이미 확정된 보고서만 클라이언트 미리보기를 렌더링한다.
+  // 버튼 클릭 가드는 직접 URL 진입/새로고침에는 적용되지 않으므로 여기서도 검증 상태를 확인한다.
+  const canRenderClientPreview =
+    Boolean(content) && !dirty && (report?.groundingCheckPassed === true || isFinalized);
   const includeReportPhotos = content?.reportOptions?.includePhoto !== false;
 
   // useInspectionResult(useInspectionResultReal)은 매 렌더마다 새 data 객체를 만든다(메모이제이션
@@ -302,9 +317,7 @@ export function ReportGeneratePage() {
 
   // 임시저장 — "임시저장" 버튼(원 저장 버튼)뿐 아니라 PDF 미리보기 가드, 최종 확정 통합 플로우에서도
   // 재사용한다(#1338). 성공 여부를 반환해 호출부가 다음 단계 진행 여부를 판단할 수 있게 한다.
-  // notifyErrorsViaModal이 true면(미리보기/최종확정 플로우) 저장 API 실패도 AlertModal로 알린다 —
-  // 빈 섹션 검증 실패는 호출부와 무관하게 항상 모달로 알린다.
-  const handleSave = async (options?: { notifyErrorsViaModal?: boolean }): Promise<boolean> => {
+  const handleSave = async (): Promise<boolean> => {
     if (!report || !content || isSaving) return false;
     if (hasEmptyManualSections) {
       setAlertModal({
@@ -321,13 +334,27 @@ export function ReportGeneratePage() {
       return true;
     } catch (err) {
       const message = extractErrorMessage(err, '저장에 실패했습니다.');
-      if (options?.notifyErrorsViaModal) {
-        setAlertModal({ open: true, title: '저장 실패', message });
-      }
+      setAlertModal({ open: true, title: '저장 실패', message });
       return false;
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleCancelLeave = () => {
+    blocker.reset?.();
+  };
+
+  const handleConfirmLeave = async () => {
+    if (isLeavingAfterSave) return;
+    setIsLeavingAfterSave(true);
+    const saved = await handleSave();
+    if (!saved) {
+      setIsLeavingAfterSave(false);
+      return;
+    }
+    flushSync(() => setIsLeavingAfterSave(false));
+    blocker.proceed?.();
   };
 
   const handleGroundingRecheck = async (): Promise<{
@@ -357,7 +384,7 @@ export function ReportGeneratePage() {
       navigate(`/reports/${report.id}?mode=export`);
       return;
     }
-    const saved = await handleSave({ notifyErrorsViaModal: true });
+    const saved = await handleSave();
     if (saved) {
       navigate(`/reports/${report.id}?mode=export`);
     }
@@ -370,7 +397,7 @@ export function ReportGeneratePage() {
     if (isSaving || isRechecking || isFinalizing) return;
 
     if (dirty) {
-      const saved = await handleSave({ notifyErrorsViaModal: true });
+      const saved = await handleSave();
       if (!saved) return;
     }
 
@@ -499,7 +526,7 @@ export function ReportGeneratePage() {
 
   // 이제 버튼 하나로 저장→검증→PDF 생성/확정을 순차 진행하므로(#1338), 아직 저장/검증 전이어도
   // 클릭 가능해야 한다. 진행 중(각 단계 loading state)에는 비활성화한다.
-  const canFinalize = !isFinalized;
+  const canFinalize = !isFinalized && !hasEmptyManualSections;
   const isFinalizeBusy = isSaving || isRechecking || isFinalizing;
   const finalizeLabel = isSaving
     ? '저장 중...'
@@ -519,6 +546,37 @@ export function ReportGeneratePage() {
       hasPdf: Boolean(report.pdfUrl),
     }),
   }));
+  const alertModalElement = (
+    <AlertModal
+      open={alertModal.open}
+      title={alertModal.title}
+      message={alertModal.message}
+      onClose={closeAlertModal}
+    />
+  );
+  const leaveSaveModal =
+    blocker.state === 'blocked' ? (
+      <Modal
+        open
+        onClose={handleCancelLeave}
+        title="편집한 내용이 저장되지 않았습니다"
+        closeOnOverlayClick={false}
+      >
+        <div className="flex w-80 flex-col gap-6">
+          <p className="m-0 text-sm text-text-muted">
+            이 페이지를 나가기 전에 변경 내용을 임시저장합니다.
+          </p>
+          <div className="flex justify-end gap-3">
+            <Button type="button" variant="secondary" onClick={handleCancelLeave} disabled={isLeavingAfterSave}>
+              취소
+            </Button>
+            <Button type="button" variant="primary" onClick={() => void handleConfirmLeave()} disabled={isLeavingAfterSave}>
+              {isLeavingAfterSave ? '저장 중...' : '임시저장 후 나가기'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    ) : null;
 
   if (isExportMode) {
     return (
@@ -613,6 +671,8 @@ export function ReportGeneratePage() {
           )}
         </div>
         {finalizeError && <p className="m-0 bg-surface px-6 py-2 text-sm text-danger">{finalizeError}</p>}
+        {alertModalElement}
+        {leaveSaveModal}
       </div>
     );
   }
@@ -635,7 +695,7 @@ export function ReportGeneratePage() {
           onPreviewClick={() => void handlePreviewClick()}
           canSave={dirty}
           isSaving={isSaving}
-          onSaveClick={() => void handleSave({ notifyErrorsViaModal: true })}
+          onSaveClick={() => void handleSave()}
         />
 
       {/* grounding 검증 실패 상태 — 통과 완료 표시는 상단 단계/확정 버튼 상태로만 드러낸다. */}
@@ -676,12 +736,8 @@ export function ReportGeneratePage() {
       )}
 
       </div>
-      <AlertModal
-        open={alertModal.open}
-        title={alertModal.title}
-        message={alertModal.message}
-        onClose={closeAlertModal}
-      />
+      {alertModalElement}
+      {leaveSaveModal}
     </div>
   );
 }
