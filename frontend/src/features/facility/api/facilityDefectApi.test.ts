@@ -22,6 +22,11 @@ describe('facilityDefectApi.getDetail', () => {
     expect(res.data.confidencePercent).toBe(mockFacilityDefectDetailResponse.confidence * 100);
     expect(res.data.lengthM).toBe((mockFacilityDefectDetailResponse.crackLengthMm ?? 0) / 1000);
     expect(res.data.foundAt).toBe('2026-06-21');
+    // #1369 — bbox 좌표가 매핑에서 버려지지 않고 그대로 전달되는지 고정.
+    expect(res.data.bboxX).toBe(mockFacilityDefectDetailResponse.bboxX);
+    expect(res.data.bboxY).toBe(mockFacilityDefectDetailResponse.bboxY);
+    expect(res.data.bboxW).toBe(mockFacilityDefectDetailResponse.bboxW);
+    expect(res.data.bboxH).toBe(mockFacilityDefectDetailResponse.bboxH);
   });
 });
 
