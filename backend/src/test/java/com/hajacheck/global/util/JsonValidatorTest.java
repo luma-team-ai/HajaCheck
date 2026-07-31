@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.hajacheck.global.exception.DomainValidationException;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class JsonValidatorTest {
@@ -50,6 +51,53 @@ class JsonValidatorTest {
             assertThat(JsonValidator.readTextField("[\"VERIFIED\"]", "ntsOutcome")).isEmpty();
             assertThat(JsonValidator.readTextField("\"VERIFIED\"", "ntsOutcome")).isEmpty();
         }).doesNotThrowAnyException();
+    }
+
+    @Test
+    void mergeTextFields_기존키를_보존하고_같은키만_덮어쓴다() {
+        String merged = JsonValidator.mergeTextFields(
+                "{\"source\":\"MANUAL_INPUT\",\"ntsOutcome\":\"SKIPPED\"}",
+                Map.of("ntsOutcome", "VERIFIED", "ntsCheckedAt", "2026-07-31T00:00:00Z"));
+
+        assertThat(JsonValidator.readTextField(merged, "source")).contains("MANUAL_INPUT");
+        assertThat(JsonValidator.readTextField(merged, "ntsOutcome")).contains("VERIFIED");
+        assertThat(JsonValidator.readTextField(merged, "ntsCheckedAt")).contains("2026-07-31T00:00:00Z");
+    }
+
+    @Test
+    void mergeTextFields_원본이_null이나_공백이면_새객체로시작한다() {
+        assertThat(JsonValidator.readTextField(
+                JsonValidator.mergeTextFields(null, Map.of("ntsOutcome", "VERIFIED")),
+                "ntsOutcome")).contains("VERIFIED");
+        assertThat(JsonValidator.readTextField(
+                JsonValidator.mergeTextFields("   ", Map.of("ntsOutcome", "VERIFIED")),
+                "ntsOutcome")).contains("VERIFIED");
+    }
+
+    @Test
+    void mergeTextFields_파손되거나_객체가아닌원본은_지우지않고_보존한다() {
+        // 감사용 컬럼이라 "읽을 수 없다"고 버리면 그것도 기록 소실이다 — rawBeforeMerge 로 남긴다.
+        String merged = JsonValidator.mergeTextFields("{not-json", Map.of("ntsOutcome", "VERIFIED"));
+
+        assertThat(JsonValidator.readTextField(merged, "ntsOutcome")).contains("VERIFIED");
+        assertThat(JsonValidator.readTextField(merged, "rawBeforeMerge")).contains("{not-json");
+
+        String fromArray = JsonValidator.mergeTextFields("[\"VERIFIED\"]", Map.of("ntsOutcome", "VERIFIED"));
+        assertThat(JsonValidator.readTextField(fromArray, "rawBeforeMerge")).contains("[\"VERIFIED\"]");
+    }
+
+    @Test
+    void mergeTextFields_결과는_항상_유효한JSON이다() {
+        // jsonb 컬럼에 그대로 적재되므로 문법이 깨지면 flush 시점 원시 SQL 예외로 샌다.
+        assertThatCode(() -> JsonValidator.requireValidJson(
+                JsonValidator.mergeTextFields("{\"source\":\"MANUAL_INPUT\"}",
+                        Map.of("ntsOutcome", "VERIFIED")),
+                "병합 결과")).doesNotThrowAnyException();
+
+        // 값에 따옴표·중괄호가 섞여도 Jackson 이 이스케이프한다(문자열 접합 금지 규약).
+        String merged = JsonValidator.mergeTextFields(null, Map.of("ntsOutcome", "A\"B{}\\C"));
+        assertThatCode(() -> JsonValidator.requireValidJson(merged, "병합 결과")).doesNotThrowAnyException();
+        assertThat(JsonValidator.readTextField(merged, "ntsOutcome")).contains("A\"B{}\\C");
     }
 
     @Test
