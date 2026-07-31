@@ -6,7 +6,7 @@ import { ComparisonKpiCard } from '../components/ComparisonKpiCard';
 import { ComparisonVisualPanel } from '../components/ComparisonVisualPanel';
 import { DefectChangeTable } from '../components/DefectChangeTable';
 import { InspectionCycleSelect } from '../components/InspectionCycleSelect';
-import { exportComparisonReportAsPng } from '../utils/exportComparisonReportAsPng';
+import { exportComparisonReportAsPdf } from '../utils/exportComparisonReportAsPdf';
 import { useFacilityComparison } from '../hooks/useFacilityComparison';
 
 const DEFAULT_FACILITY_ID = 'detail';
@@ -29,7 +29,7 @@ export function FacilityInspectionComparePage() {
     setIsExporting(true);
     setExportError(null);
     try {
-      await exportComparisonReportAsPng(exportTargetRef.current, id);
+      await exportComparisonReportAsPdf(exportTargetRef.current, id);
     } catch {
       setExportError('내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
