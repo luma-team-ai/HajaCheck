@@ -3,6 +3,7 @@ package com.hajacheck.auth.entity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.hajacheck.global.util.JsonValidator;
 import org.junit.jupiter.api.Test;
 
 class CompanyTest {
@@ -144,6 +145,51 @@ class CompanyTest {
         assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.VERIFIED);
         assertThat(company.getStatus()).isEqualTo(CompanyStatus.APPROVED);
         assertThat(company.isNtsVerified()).isFalse();
+    }
+
+    @Test
+    void markBusinessVerified_는_provenance를_건드리지않는다() {
+        // #1324 P1 — 가입 경로는 진위확인 결과와 무관하게 이 메서드를 호출한다. 여기서 ntsOutcome 을
+        // 찍으면 국세청이 확인해 주지 않은 회사(SKIPPED)에 허위 provenance 가 박힌다.
+        // 가입 경로 provenance 의 진실 소스는 CompanySignupService.buildOcrRaw(생성 시점 인자)다.
+        Company company = companyWithOcrRaw("{\"source\":\"MANUAL_INPUT\",\"ntsOutcome\":\"SKIPPED\"}");
+
+        company.markBusinessVerified();
+
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.VERIFIED);
+        assertThat(JsonValidator.readTextField(company.getBusinessRegistrationOcrRaw(), "ntsOutcome"))
+                .contains("SKIPPED");
+        assertThat(company.isNtsVerified()).isFalse();
+    }
+
+    @Test
+    void markBusinessVerifiedByNts_는_provenance를_VERIFIED로_갱신하고_기존키를보존한다() {
+        // #888 재검증 배치 전용 경로 — 국세청이 실제로 확인해 준 경우에만 호출된다.
+        Company company = companyWithOcrRaw("{\"source\":\"MANUAL_INPUT\",\"ntsOutcome\":\"SKIPPED\"}");
+
+        company.markBusinessVerifiedByNts();
+
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.VERIFIED);
+        assertThat(company.getVerifiedAt()).isNotNull();
+        // 대상 조회(findNtsReverifyTargets)의 제외 화이트리스트에 들어가 다음 회차에서 빠진다(루프 종료).
+        assertThat(JsonValidator.readTextField(company.getBusinessRegistrationOcrRaw(), "ntsOutcome"))
+                .contains("VERIFIED");
+        // 실제 조회 시각 키 규약은 가입 경로(buildOcrRaw)와 동일하다.
+        assertThat(JsonValidator.readTextField(company.getBusinessRegistrationOcrRaw(), "ntsCheckedAt"))
+                .isPresent();
+        // 감사 키 병합 보존 — 통째 교체 금지(클래스 javadoc 경고).
+        assertThat(JsonValidator.readTextField(company.getBusinessRegistrationOcrRaw(), "source"))
+                .contains("MANUAL_INPUT");
+        assertThat(company.isNtsVerified()).isTrue();
+    }
+
+    @Test
+    void markBusinessVerifiedByNts_는_컬럼이null이어도_provenance를남긴다() {
+        Company company = companyWithOcrRaw(null);
+
+        company.markBusinessVerifiedByNts();
+
+        assertThat(company.isNtsVerified()).isTrue();
     }
 
     @Test

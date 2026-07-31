@@ -15,6 +15,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Map;
 import java.util.Set;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -62,11 +63,20 @@ public class Company extends BaseTimeEntity {
     private static final String NTS_OUTCOME_FIELD = "ntsOutcome";
 
     /**
+     * 실제 국세청 조회 시각을 담는 키 — {@code CompanySignupService.buildOcrRaw} 와 <b>같은 규약</b>이다
+     * (V38 소급 스탬프는 출처가 달라 {@code ntsBackfilledAt} 을 쓴다 — 클래스 javadoc 참고).
+     */
+    private static final String NTS_CHECKED_AT_FIELD = "ntsCheckedAt";
+
+    /** 국세청이 진위를 확인해 준 경우의 {@code ntsOutcome} 값({@code NtsVerificationOutcome.VERIFIED} 라벨). */
+    private static final String NTS_OUTCOME_VERIFIED = "VERIFIED";
+
+    /**
      * "국세청 검증을 증명할 수 있다"로 인정하는 {@code ntsOutcome} 값 화이트리스트({@link #isNtsVerified}).
      * {@code LEGACY_VERIFIED} 는 V38 이 스탬프한다 — #1324 이전에는 VERIFIED 가 오직 가입 시 국세청
      * 성공 또는 #888 재검증 성공으로만 찍혔으므로, 그 시점의 VERIFIED 는 진짜 검증이다.
      */
-    private static final Set<String> NTS_VERIFIED_OUTCOMES = Set.of("VERIFIED", "LEGACY_VERIFIED");
+    private static final Set<String> NTS_VERIFIED_OUTCOMES = Set.of(NTS_OUTCOME_VERIFIED, "LEGACY_VERIFIED");
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -288,11 +298,52 @@ public class Company extends BaseTimeEntity {
     }
 
     /**
-     * 사업자등록 진위확인 완료 (상태 전이 — 현재 미배선, 실제 OCR/국세청 연동 후속 과제).
+     * 사업자등록 진위확인 상태를 VERIFIED 로 올린다 — <b>인가 플래그 전이만</b> 한다.
+     *
+     * <p>⚠️ <b>이 메서드는 provenance({@code ocr_raw.ntsOutcome})를 건드리지 않는다. 의도된 것이다.</b>
+     * 가입 경로({@code CompanyAccountWriter#createAccount})는 진위확인 결과와 <b>무관하게</b> 이 메서드를
+     * 호출하므로(#1324 자동승인), 여기서 {@code ntsOutcome=VERIFIED} 를 찍으면 국세청 장애로 통과한
+     * 회사(SKIPPED)에까지 "국세청이 확인해 줌"이라는 <b>허위 provenance</b>가 박힌다 — 배지
+     * ({@link #isNtsVerified()})와 재검증 대상 판정
+     * ({@code CompanyRepository#findNtsReverifyTargets})이 동시에 무너진다.
+     *
+     * <p><b>가입 경로 provenance 의 진실 소스 = {@code CompanySignupService.buildOcrRaw(verification)}</b>
+     * 다. 회사 생성 시점에 실제 outcome(VERIFIED/SKIPPED)이 {@code ocr_raw} 로 들어오고, 이 메서드는 그
+     * 값을 <b>덮지 않는다</b>(중복 기록 금지 — 한 곳에서만 쓴다).
+     *
+     * <p>국세청이 <b>실제로 확인해 준</b> 결과로 VERIFIED 를 확정하는 경로(#888 재검증 배치)는 이 메서드가
+     * 아니라 {@link #markBusinessVerifiedByNts()} 를 써야 한다.
      */
     public void markBusinessVerified() {
         this.verificationStatus = BusinessVerificationStatus.VERIFIED;
         this.verifiedAt = Instant.now();
+    }
+
+    /**
+     * 국세청 재조회가 <b>실제로 진위를 확인해 준</b> VERIFIED 확정(#888 재검증 배치 전용, #1324 P1) —
+     * 인가 플래그 전이({@link #markBusinessVerified()})에 더해 <b>provenance 를 함께 기록</b>한다.
+     *
+     * <p><b>왜 provenance 갱신이 필수인가</b> — 둘 다 이걸 빼면 즉시 깨진다:
+     * <ul>
+     *   <li><b>루프 종료</b>: 재검증 대상 조회({@code CompanyRepository#findNtsReverifyTargets})는
+     *       "VERIFIED 인데 provenance 로 증명 불가"인 회사를 매 회차 다시 집는다. 확인에 성공하고도
+     *       {@code ntsOutcome} 이 SKIPPED 로 남으면 <b>같은 회사를 매일 재조회하는 무한 루프</b>가 되어
+     *       국세청 일일 쿼터를 잠식한다.</li>
+     *   <li><b>배지 정합</b>: {@link #isNtsVerified()} 는 provenance 로만 판정하므로, 갱신하지 않으면
+     *       진짜 검증을 통과한 회사의 "사업자 인증 완료" 배지가 거짓으로 꺼진 채 남는다.</li>
+     * </ul>
+     *
+     * <p>키 규약은 가입 경로({@code CompanySignupService.buildOcrRaw})와 <b>동일</b>하다:
+     * {@code ntsOutcome=VERIFIED} + {@code ntsCheckedAt}(실제 조회 시각). 기존 키({@code source} 등)는
+     * {@link JsonValidator#mergeTextFields} 로 <b>병합 보존</b>한다 — 통째 교체는 감사 기록 소실이다
+     * (클래스 javadoc 경고).
+     */
+    public void markBusinessVerifiedByNts() {
+        markBusinessVerified();
+        this.businessRegistrationOcrRaw = JsonValidator.mergeTextFields(
+                this.businessRegistrationOcrRaw,
+                Map.of(NTS_OUTCOME_FIELD, NTS_OUTCOME_VERIFIED,
+                        NTS_CHECKED_AT_FIELD, Instant.now().toString()));
     }
 
     /**
@@ -305,6 +356,13 @@ public class Company extends BaseTimeEntity {
      * 확정 시각이 필요해지면 이 필드를 재사용하지 말고 {@code failedAt} 같은 전용 컬럼을 새로 추가할 것
      * (재사용 시 이후 재검증으로 FAILED→VERIFIED 전이가 생기면 "최초 검증 시각"과 "최근 실패 시각"이
      * 뒤섞여 의미가 오염된다).
+     *
+     * <p>⚠️ <b>계약(#1324 P1)</b>: 호출부는 같은 트랜잭션에서 <b>오너의 {@link CompanyMembership} 도
+     * 회수</b>({@code revoke()})해야 한다. FAILED 만으로도 스코프 판정
+     * ({@code CompanyMembershipRepository.existsEffectiveApprovedMembership} 의 VERIFIED 조건)이 닫히지만,
+     * 멤버십 행이 APPROVED 로 남아 있으면 나중에 누군가 verification 을 손대는 순간 즉시 스코프가 열리는
+     * 지뢰가 된다(V38 이 FAILED 회사에 멤버십을 아예 만들지 않는 것과 같은 이유).
+     * 배선 지점: {@code PendingBusinessReverifyWriter#markFailed}.
      */
     public void markBusinessVerificationFailed() {
         this.verificationStatus = BusinessVerificationStatus.FAILED;

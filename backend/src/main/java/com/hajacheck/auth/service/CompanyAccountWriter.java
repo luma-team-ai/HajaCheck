@@ -70,6 +70,13 @@ public class CompanyAccountWriter {
         // fail-open)도 통과시킨다. 확정 불량(MISMATCH/SUSPENDED/CLOSED)은 이 지점에 도달하기 전
         // CompanySignupService 가 이미 가입을 차단하므로, 여기 오는 회사는 "불량으로 확정되지 않은" 회사다.
         // VERIFIED 는 스코프 판정·DB 트리거의 필수 조건이라 PENDING 으로 남기면 점검 생성이 막힌다.
+        //
+        // ⚠️ provenance(ocr_raw.ntsOutcome)의 **진실 소스는 여기가 아니라 위 ocrRaw 인자**다
+        // (CompanySignupService.buildOcrRaw 가 실제 outcome VERIFIED/SKIPPED 를 담아 넘긴다 — 한 곳에서만
+        // 쓴다). 그래서 여기서는 provenance 를 기록하지 않는 markBusinessVerified() 를 쓴다.
+        // markBusinessVerifiedByNts()(= ntsOutcome=VERIFIED 스탬프)로 바꾸면, 국세청이 확인해 주지 않은
+        // 회사(SKIPPED)에 "확인됨" 이라는 허위 provenance 가 박혀 사업자 인증 배지(Company#isNtsVerified)와
+        // 재검증 대상 판정(CompanyRepository#findNtsReverifyTargets)이 동시에 무너진다 — #1324 P1.
         company.markBusinessVerified();
 
         // 가입 즉시 자동승인(#1324) — 관리자 승인 화면·API 미배선 + 프론트가 승인 대기 단계를 제거한 상태라
