@@ -1,4 +1,5 @@
 import {
+  FACILITY_CARD_DEFECT_COUNT_BADGE_CLASS,
   FACILITY_CARD_GRADE_DOT_COLOR,
   FACILITY_CARD_UPCOMING_BADGE_BG,
 } from '../facilityCardGradeDotColors';
@@ -25,6 +26,10 @@ export function FacilityCard({ facility, onSelect }: Props) {
     facility.address ?? '주소 미등록',
     facility.builtYear != null ? `준공 ${facility.builtYear}` : null,
   ].filter((part): part is string => Boolean(part));
+
+  const defectBadgeClass = facility.initialGrade
+    ? FACILITY_CARD_DEFECT_COUNT_BADGE_CLASS[facility.initialGrade]
+    : 'bg-surface-sunken text-text';
 
   // code-reviewer P2 — 카드 전체를 버튼으로 감싸면서 aria-label을 이름만으로 두면 등급·다음
   // 점검일·최근 점검일 등 시각적으로는 보이는 정보가 스크린리더에서 사라진다. 카드 내용을
@@ -89,7 +94,7 @@ export function FacilityCard({ facility, onSelect }: Props) {
 
         <div className="mt-3 flex items-center justify-between border-t border-border/50 pt-4">
           <span
-            className="inline-flex items-center rounded-full bg-surface-sunken px-2.5 py-1 text-xs font-medium text-text"
+            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${defectBadgeClass}`}
           >
             하자 {facility.defectCount}건
           </span>
