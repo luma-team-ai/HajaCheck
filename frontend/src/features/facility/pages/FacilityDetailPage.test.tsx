@@ -64,13 +64,11 @@ describe('FacilityDetailPage (통합 테스트)', () => {
     expect(screen.getAllByText('결과 보기')).toHaveLength(1);
   });
 
-  it('다른 탭을 클릭하면 준비 중 안내가 표시된다', async () => {
+  it('"개요" 탭은 더 이상 표시되지 않는다', async () => {
     renderPage();
     await screen.findByRole('heading', { name: '강남 오피스타워 A동' });
 
-    fireEvent.click(screen.getByRole('button', { name: '개요' }));
-
-    expect(screen.getByText('준비 중인 화면입니다.')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '개요' })).toBeNull();
   });
 
   it('"문서" 탭은 더 이상 표시되지 않는다', async () => {
