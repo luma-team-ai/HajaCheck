@@ -23,7 +23,6 @@ const DEFAULT_GRADE_BADGE_CLASS = 'bg-neutral-100 outline-neutral-300';
 const DEFAULT_GRADE_DOT_CLASS = 'bg-neutral-400';
 
 const TABS = [
-  { key: 'overview', label: '개요' },
   { key: 'history', label: '점검 이력' },
   { key: 'defects', label: '하자 현황' },
 ] as const;

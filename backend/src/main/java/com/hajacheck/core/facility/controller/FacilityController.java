@@ -5,6 +5,7 @@ import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.core.facility.dto.FacilityComparisonResponse;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
+import com.hajacheck.core.facility.dto.FacilityInspectionOverviewResponse;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.dto.FacilityStatusResponse;
@@ -12,6 +13,7 @@ import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.dto.InspectionNotificationSettingRequest;
 import com.hajacheck.core.facility.dto.InspectionNotificationSettingResponse;
 import com.hajacheck.core.facility.service.FacilityComparisonService;
+import com.hajacheck.core.facility.service.FacilityInspectionOverviewService;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.facility.service.InspectionNotificationSettingService;
 import com.hajacheck.global.common.ApiResponse;
@@ -47,6 +49,7 @@ public class FacilityController {
     private final AuthService authService;
     private final InspectionNotificationSettingService inspectionNotificationSettingService;
     private final FacilityComparisonService facilityComparisonService;
+    private final FacilityInspectionOverviewService facilityInspectionOverviewService;
 
     @Operation(summary = "시설물 등록", description = "로그인 사용자의 회사 소유로 시설물을 신규 등록한다")
     @PostMapping
@@ -153,6 +156,18 @@ public class FacilityController {
             @RequestParam(required = false) Integer after) {
         return ResponseEntity.ok(ApiResponse.ok(facilityComparisonService.compare(
                 loginUser.getUserId(), loginUser.getCompanyId(), id, before, after)));
+    }
+
+    @Operation(summary = "시설물 점검 이력 조회",
+            description = "로그인 사용자의 회사가 소유한 시설물의 전체 점검 회차 이력과 집계(전체 등급/회차수/누적 하자/"
+                    + "미조치 건수)를 반환한다(#1359/HAJA-616). 최신 회차에는 이전 회차 대비 변화 메모(changeNote)가"
+                    + " 함께 내려간다(비교 가능한 상태일 때만).")
+    @GetMapping("/{id}/inspections")
+    public ResponseEntity<ApiResponse<FacilityInspectionOverviewResponse>> getInspectionOverview(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                facilityInspectionOverviewService.get(loginUser.getUserId(), loginUser.getCompanyId(), id)));
     }
 
     @Operation(summary = "배정 가능한 담당자 목록 조회",

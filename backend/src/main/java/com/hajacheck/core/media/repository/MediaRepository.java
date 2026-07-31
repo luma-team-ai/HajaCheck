@@ -76,4 +76,16 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
 
         long getMediaCount();
     }
+
+    // 시설물 상세 "점검 이력" 탭 회차별 이미지 장수(#1359/HAJA-616) — 회차 목록을 한 번에 배치 집계.
+    @Query("select m.inspectionId as inspectionId, count(m) as cnt from Media m "
+            + "where m.inspectionId in :inspectionIds group by m.inspectionId")
+    List<InspectionMediaCountProjection> countGroupByInspectionIds(
+            @Param("inspectionIds") Collection<Long> inspectionIds);
+
+    interface InspectionMediaCountProjection {
+        Long getInspectionId();
+
+        long getCnt();
+    }
 }

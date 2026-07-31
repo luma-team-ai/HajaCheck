@@ -51,6 +51,9 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     // 회차 간 비교(HAJA-531/#1112) — 시설물 1건의 특정 회차 단건 조회.
     Optional<Inspection> findByFacilityIdAndRoundNo(Long facilityId, Integer roundNo);
 
+    // 시설물 상세 "점검 이력" 탭(#1359/HAJA-616) — 시설물 1건의 전체 회차를 최신순으로 조회.
+    List<Inspection> findByFacilityIdOrderByRoundNoDesc(Long facilityId);
+
     // 시설물 현황 목록(#540 ⑥, HAJA-378) — 시설물별 "최근 점검일" 1건씩만 필요하다.
     // findRecentByFacilityIds 는 전체 시설물이 뒤섞인 플랫 리스트라 시설물별 최신 1건 추출에는
     // 부적합(서비스단 재그룹 없이는 못 씀). Postgres DISTINCT ON 으로 시설물별 최신 1건만
