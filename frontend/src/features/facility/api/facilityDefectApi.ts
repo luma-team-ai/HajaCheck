@@ -21,6 +21,10 @@ function toFacilityDefectDetail(raw: FacilityDefectDetailResponse): FacilityDefe
     assigneeName: raw.assigneeName,
     status: raw.status,
     imageUrl: raw.imageUrl,
+    bboxX: raw.bboxX,
+    bboxY: raw.bboxY,
+    bboxW: raw.bboxW,
+    bboxH: raw.bboxH,
   };
 }
 

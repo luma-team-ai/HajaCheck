@@ -222,6 +222,13 @@ export interface FacilityDefectDetail {
   status: FacilityDefectStatus;
   /** mediaId 없으면 null(HAJA-314) */
   imageUrl: string | null;
+  // #1369 — 오버레이 탭 마킹이 고정 placeholder라 항상 같은 위치에 표시되던 결함 수정. 0~1 정규화
+  // 좌표(backend DefectResponse.bboxX/Y/W/H) — 넷 중 하나라도 null이면 마킹을 표시하지 않는다
+  // (defect 기능의 DefectImageViewer.tsx와 동일한 hasBbox 가드 패턴).
+  bboxX: number | null;
+  bboxY: number | null;
+  bboxW: number | null;
+  bboxH: number | null;
 }
 
 // GET/PATCH /api/defects/{id}(*) 실 백엔드 DefectResponse(backend/.../defect/dto/DefectResponse.java)의
@@ -243,6 +250,11 @@ export interface FacilityDefectDetailResponse {
   crackWidthMm: number | null;
   crackLengthMm: number | null;
   imageUrl: string | null;
+  // #1369 — 0~1 정규화 좌표(backend DefectResponse.bboxX/Y/W/H), nullable.
+  bboxX: number | null;
+  bboxY: number | null;
+  bboxW: number | null;
+  bboxH: number | null;
   /** ISO 8601 (LocalDateTime) — 화면 표시는 YYYY-MM-DD로 절삭 */
   createdAt: string;
 }

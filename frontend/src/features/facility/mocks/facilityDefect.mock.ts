@@ -7,8 +7,8 @@ import type { FacilityDefectAiExplanation, FacilityDefectDetailResponse } from '
 // dev-04-02(Figma "hajaCheck Defect Detail") 캡처 기준 예제 하자 — 강남 오피스타워 A동(facility id=1).
 // 실 백엔드 GET /api/defects/{id}(DefectResponse) 응답 원본(raw) 모양 그대로 목을 구성한다 —
 // facilityDefectApi.getDetail이 이 값을 FacilityDefectDetail로 매핑한다(mm→m 변환·confidence*100 등).
-// imageUrl은 "원본"(마킹 없는 원본 사진) 기준 — "오버레이" 탭의 빨간 마킹 레이어는
-// FacilityDefectImagePanel이 buildDefectOverlayMarkingImage()로 별도 absolute 레이어로 얹는다.
+// imageUrl은 "원본"(마킹 없는 원본 사진) 기준 — "오버레이" 탭의 빨간 마킹 박스는 FacilityDefectImagePanel이
+// bboxX/Y/W/H(0~1 정규화 좌표)로 absolute 위치를 계산해 얹는다(#1369).
 export const mockFacilityDefectDetailResponse: FacilityDefectDetailResponse = {
   id: 101,
   inspectionId: 8,
@@ -24,6 +24,10 @@ export const mockFacilityDefectDetailResponse: FacilityDefectDetailResponse = {
   crackWidthMm: 0.8,
   crackLengthMm: 2400,
   imageUrl: buildDefectImagePlaceholder('원본 이미지'),
+  bboxX: 0.42,
+  bboxY: 0.1,
+  bboxW: 0.08,
+  bboxH: 0.75,
   createdAt: '2026-06-21T09:00:00.000Z',
 };
 
