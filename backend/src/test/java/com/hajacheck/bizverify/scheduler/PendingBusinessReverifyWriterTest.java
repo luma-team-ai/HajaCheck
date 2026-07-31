@@ -6,10 +6,9 @@ import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.entity.BusinessVerificationStatus;
 import com.hajacheck.auth.entity.Company;
-import com.hajacheck.auth.entity.CompanyMembership;
-import com.hajacheck.auth.entity.CompanyMembershipStatus;
 import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.CompanyRepository;
+import com.hajacheck.bizverify.service.NtsVerificationOutcome;
 import com.hajacheck.global.util.JsonValidator;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,9 +16,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * PendingBusinessReverifyWriter 단위테스트(#888, provenance·멤버십 회수는 #1324 P1) — 엔티티 상태 전이
- * 자체는 CompanyTest 가 검증하므로, 여기서는 조회된 회사에 올바른 전이가 적용되는지, 확정 불량 시 오너
- * 멤버십이 회수되는지, "소멸(조회 안 됨)" 방어를 검증한다.
+ * PendingBusinessReverifyWriter 단위테스트(#888, provenance 기록은 #1324 P1) — 엔티티 상태 전이 자체는
+ * CompanyTest 가 검증하므로, 여기서는 조회된 회사에 올바른 전이가 적용되는지, 확정 불량 시 멤버십을
+ * <b>회수하지 않는다는 의도적 선택</b>(비가역·복구 경로 부재, 후속 #1367), "소멸(조회 안 됨)" 방어를 검증한다.
  */
 class PendingBusinessReverifyWriterTest {
 
@@ -27,14 +26,12 @@ class PendingBusinessReverifyWriterTest {
     private static final long OWNER_ID = 7L;
 
     private CompanyRepository companyRepository;
-    private CompanyMembershipRepository companyMembershipRepository;
     private PendingBusinessReverifyWriter writer;
 
     @BeforeEach
     void setUp() {
         companyRepository = mock(CompanyRepository.class);
-        companyMembershipRepository = mock(CompanyMembershipRepository.class);
-        writer = new PendingBusinessReverifyWriter(companyRepository, companyMembershipRepository);
+        writer = new PendingBusinessReverifyWriter(companyRepository);
     }
 
     private Company pendingCompany() {
@@ -101,46 +98,27 @@ class PendingBusinessReverifyWriterTest {
     void markFailed_FAILED로전이() {
         Company company = pendingCompany();
         stubCompany(company);
-        when(companyMembershipRepository.findByCompanyIdAndUserId(COMPANY_ID, OWNER_ID))
-                .thenReturn(Optional.empty());
 
-        writer.markFailed(COMPANY_ID);
+        writer.markFailed(COMPANY_ID, NtsVerificationOutcome.CLOSED);
 
         assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.FAILED);
     }
 
     @Test
-    @DisplayName("markFailed는 오너의 APPROVED 멤버십을 회수해 스코프 재개방 지뢰를 제거한다")
-    void markFailed_오너멤버십회수() {
+    @DisplayName("markFailed는 멤버십을 회수하지 않는다 — 의도적 선택(비가역·복구 경로 부재, 후속 #1367)")
+    void markFailed_멤버십은회수하지않는다() {
+        // FAILED 전이만으로 스코프 판정(existsEffectiveApprovedMembership 의 VERIFIED 조건)과 동일 불변식의
+        // DB 트리거가 전 구성원의 회사 스코프를 닫는다 → 되돌릴 수 없는 멤버십 회수를 추가하지 않는다.
+        // (스코프가 실제로 닫히는지는 CompanyMembershipRepositoryTest 의 실 DB 통합 테스트가 실증한다.)
         Company company = pendingCompany();
         stubCompany(company);
-        CompanyMembership ownerMembership = CompanyMembership.approvedOwner(COMPANY_ID, OWNER_ID);
-        when(companyMembershipRepository.findByCompanyIdAndUserId(COMPANY_ID, OWNER_ID))
-                .thenReturn(Optional.of(ownerMembership));
 
-        writer.markFailed(COMPANY_ID);
+        writer.markFailed(COMPANY_ID, NtsVerificationOutcome.MISMATCH);
 
-        assertThat(ownerMembership.getStatus()).isEqualTo(CompanyMembershipStatus.REVOKED);
-        assertThat(ownerMembership.getRevokedAt()).isNotNull();
-        // 회수된 멤버십은 유효 판정에서 빠진다 = 회사 스코프가 닫힌다.
-        assertThat(ownerMembership.isEffectiveAt(java.time.Instant.now())).isFalse();
-    }
-
-    @Test
-    @DisplayName("markFailed는 이미 회수된 멤버십에는 상태 전이를 시도하지 않는다(재실행 안전)")
-    void markFailed_이미회수된멤버십은건드리지않는다() {
-        Company company = pendingCompany();
-        stubCompany(company);
-        CompanyMembership ownerMembership = CompanyMembership.approvedOwner(COMPANY_ID, OWNER_ID);
-        ownerMembership.revoke();
-        when(companyMembershipRepository.findByCompanyIdAndUserId(COMPANY_ID, OWNER_ID))
-                .thenReturn(Optional.of(ownerMembership));
-
-        writer.markFailed(COMPANY_ID);
-
-        // revoke()는 APPROVED 에서만 허용되는 전이 — 가드가 없으면 여기서 예외로 배치 1건이 실패한다.
         assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.FAILED);
-        assertThat(ownerMembership.getStatus()).isEqualTo(CompanyMembershipStatus.REVOKED);
+        // 멤버십 리포지토리를 협력자로 갖지 않는다 = 어떤 멤버십 행도 건드릴 수 없다(회귀 방지 고정).
+        assertThat(PendingBusinessReverifyWriter.class.getDeclaredFields())
+                .noneMatch(field -> CompanyMembershipRepository.class.isAssignableFrom(field.getType()));
     }
 
     @Test
@@ -149,7 +127,7 @@ class PendingBusinessReverifyWriterTest {
         when(companyRepository.findById(999L)).thenReturn(Optional.empty());
 
         writer.markVerified(999L);
-        writer.markFailed(999L);
+        writer.markFailed(999L, NtsVerificationOutcome.SUSPENDED);
         // 예외 없이 통과하면 성공 — 별도 assertion 불필요(방어 동작 자체가 검증 대상).
     }
 }

@@ -83,11 +83,11 @@ class PendingBusinessReverifySchedulerTest {
         scheduler.reverifyPendingCompanies();
 
         verify(writer).markVerified(1L);
-        verify(writer, never()).markFailed(anyLong());
+        verify(writer, never()).markFailed(anyLong(), any());
     }
 
     @Test
-    @DisplayName("불일치/휴업/폐업/미등록 결과는 writer.markFailed로 FAILED 전이된다")
+    @DisplayName("불일치/휴업/폐업/미등록 결과는 판정 outcome과 함께 writer.markFailed로 FAILED 전이된다")
     void 불일치_휴업_폐업_미등록_FAILED_반영() {
         Company mismatch = pendingCompany(1L, "1111111111", "A");
         Company suspended = pendingCompany(2L, "2222222222", "B");
@@ -105,10 +105,10 @@ class PendingBusinessReverifySchedulerTest {
 
         scheduler.reverifyPendingCompanies();
 
-        verify(writer).markFailed(1L);
-        verify(writer).markFailed(2L);
-        verify(writer).markFailed(3L);
-        verify(writer).markFailed(4L);
+        verify(writer).markFailed(1L, NtsVerificationOutcome.MISMATCH);
+        verify(writer).markFailed(2L, NtsVerificationOutcome.SUSPENDED);
+        verify(writer).markFailed(3L, NtsVerificationOutcome.CLOSED);
+        verify(writer).markFailed(4L, NtsVerificationOutcome.NOT_REGISTERED);
         verify(writer, never()).markVerified(anyLong());
     }
 
@@ -123,7 +123,7 @@ class PendingBusinessReverifySchedulerTest {
         scheduler.reverifyPendingCompanies();
 
         verify(writer, never()).markVerified(anyLong());
-        verify(writer, never()).markFailed(anyLong());
+        verify(writer, never()).markFailed(anyLong(), any());
     }
 
     @Test
@@ -166,6 +166,6 @@ class PendingBusinessReverifySchedulerTest {
         scheduler.reverifyPendingCompanies();
 
         verify(writer).markVerified(2L);
-        verify(writer, never()).markFailed(1L);
+        verify(writer, never()).markFailed(eq(1L), any());
     }
 }

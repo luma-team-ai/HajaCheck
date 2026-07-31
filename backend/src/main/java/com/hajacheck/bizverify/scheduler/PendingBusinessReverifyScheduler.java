@@ -37,7 +37,9 @@ import org.springframework.stereotype.Component;
  *       대상에서 빠지게 하는 <b>루프 종료 조건</b>이다(빠뜨리면 같은 회사를 매일 재조회한다).</li>
  *   <li>{@link NtsVerificationOutcome#NOT_REGISTERED}/{@link NtsVerificationOutcome#MISMATCH}/
  *       {@link NtsVerificationOutcome#SUSPENDED}/{@link NtsVerificationOutcome#CLOSED} →
- *       {@link PendingBusinessReverifyWriter#markFailed}(FAILED + <b>오너 멤버십 회수</b>)</li>
+ *       {@link PendingBusinessReverifyWriter#markFailed}(FAILED) — FAILED 자체가 스코프 판정·DB
+ *       트리거의 VERIFIED 조건을 깨뜨려 <b>전 구성원의 회사 스코프를 닫는다</b>. 멤버십 행은 의도적으로
+ *       회수하지 않는다(비가역·복구 경로 부재 — 그 javadoc 참고, 후속 #1367)</li>
  *   <li>{@link NtsVerificationOutcome#SKIPPED}(국세청 장애·미설정) → 아무 갱신도 하지 않는다(현 상태
  *       유지, 다음 회차 재시도) — 장애로 인한 SKIPPED를 FAILED로 잘못 확정하면 안 되는 것이 핵심.</li>
  * </ul>
@@ -101,7 +103,9 @@ public class PendingBusinessReverifyScheduler {
                         verified++;
                     }
                     case NOT_REGISTERED, MISMATCH, SUSPENDED, CLOSED -> {
-                        writer.markFailed(company.getId());
+                        // 판정 outcome 을 함께 넘긴다 — writer 가 경고 로그에 사유를 남겨야 운영이
+                        // 확정 불량(회사 스코프 차단)의 근거를 사후에 추적할 수 있다.
+                        writer.markFailed(company.getId(), outcome);
                         failed++;
                     }
                     case SKIPPED -> skipped++; // 국세청 장애·미설정 — 현 상태 유지, 다음 회차 재시도.

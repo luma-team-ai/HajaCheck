@@ -357,12 +357,13 @@ public class Company extends BaseTimeEntity {
      * (재사용 시 이후 재검증으로 FAILED→VERIFIED 전이가 생기면 "최초 검증 시각"과 "최근 실패 시각"이
      * 뒤섞여 의미가 오염된다).
      *
-     * <p>⚠️ <b>계약(#1324 P1)</b>: 호출부는 같은 트랜잭션에서 <b>오너의 {@link CompanyMembership} 도
-     * 회수</b>({@code revoke()})해야 한다. FAILED 만으로도 스코프 판정
-     * ({@code CompanyMembershipRepository.existsEffectiveApprovedMembership} 의 VERIFIED 조건)이 닫히지만,
-     * 멤버십 행이 APPROVED 로 남아 있으면 나중에 누군가 verification 을 손대는 순간 즉시 스코프가 열리는
-     * 지뢰가 된다(V38 이 FAILED 회사에 멤버십을 아예 만들지 않는 것과 같은 이유).
-     * 배선 지점: {@code PendingBusinessReverifyWriter#markFailed}.
+     * <p><b>이 한 줄이 회사 스코프를 닫는다(#1324 리뷰 확인)</b>: 스코프 판정
+     * ({@code CompanyMembershipRepository.existsEffectiveApprovedMembership})과 동일 불변식의 DB 트리거
+     * ({@code check_inspection_assigned_inspector_company})가 <b>둘 다</b>
+     * {@code verificationStatus=VERIFIED} 를 요구하므로, FAILED 전이만으로 오너를 포함한 <b>전 구성원</b>의
+     * 점검 생성·담당자 배정이 막힌다. 따라서 호출부가 {@link CompanyMembership} 을 추가로 회수할 필요는
+     * <b>없다</b> — 회수는 차단에 아무것도 더하지 않으면서 되돌릴 수 없는 상태만 만든다(근거·후속 #1367 은
+     * {@code PendingBusinessReverifyWriter#markFailed} javadoc 참고).
      */
     public void markBusinessVerificationFailed() {
         this.verificationStatus = BusinessVerificationStatus.FAILED;
