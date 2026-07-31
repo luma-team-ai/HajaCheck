@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-07-30
+> 마지막 갱신: 2026-07-31
 
 ## 인프라
 
@@ -36,6 +36,31 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+- **🔍 하자 상세 '활동 이력' prod 404 수정 (→ dev, 2026-07-31)** — FE **#1353**(merge `0e432c15`, 이슈 #1351 / HAJA-613). `awaiting-promotion` 라벨 부여, Jira `dev-pr-check`. **마이그레이션 0건**(프론트 전용).
+  - **발견 경위**: 승격 #1343 배포 직후 **prod 로그 점검**에서 발견. 기능검수(클릭 경로)로는 안 잡혔고, `WARN 존재하지 않는 리소스 요청: GET api/facilities/63/defect-detail/activity` 가 8초 내 4회 × 2회(react-query 재시도) 찍힌 것이 단서였다.
+  - **원인 두 겹** — ① `FacilityDefectDetailPage.tsx:69` 가 `facilityId` 자리에 `defectId` 를 전달(라우트는 `/facilities/:id/defects/:defectId` 로 둘 다 있음). **둘 다 `string` 이라 타입체커가 못 잡는다.** 실측으로 확정: `facilities.id=63` **0건**, `defects.id=63` 존재(`facility_id=2`). ② 그 엔드포인트는 **백엔드 구현이 아예 없다** — MSW 목 전용(`facilityDefectApi.ts:35` 주석, #489 스코프 밖). **①만 고쳐도 prod 404는 그대로**다.
+  - **수정**: 활동 기록 구현이 두 갈래로 병존했다 → 정본(`features/defect/ActivityHistoryPanel`, `GET /api/defects/{id}/revisions`, `DefectController.java:130` 구현·`defect_revisions` 51행 실측)으로 교체하고 facility 쪽 목 전용 자산(컴포넌트·훅·API 메서드·MSW 핸들러·타입·목데이터) 전량 제거. **83줄 추가 / 89줄 삭제로 순감소**, 백엔드 무변경.
+  - 함정 2개 처리: `defectId` string→number 변환 시 `DEFAULT_ID='detail'` 폴백이 `NaN` 이 되는 경로를 `Number.isFinite` 로 가드(**테스트가 `revisionsCallCount === 0` 단언**) · `.defect-card`/`.defect-activity-panel` CSS가 `DefectDetailPage.css` 에 있어 import 없으면 무스타일 렌더 → `DefectDetailModal.tsx` 와 동일 패턴으로 재사용.
+  - **⚠️ 교훈(재발 방지)**: 로컬 기본값 `VITE_ENABLE_MSW=hybrid` 가 **미구현 엔드포인트를 목으로 채워** 개발·리뷰 내내 정상으로 보이게 했다. prod(`import.meta.env.DEV=false`)에만 MSW가 없다. **"목 전용" 주석이 달린 API는 prod 미동작이 확정**이므로, 그런 코드가 화면에 남아 있으면 결함으로 간주할 것.
+  - **로컬 테스트 4파일 실패는 이번 변경과 무관** — base(`origin/dev` `ebbfc911`)에서 동일 재현, 단독 실행 시 PASS, 같은 base의 열린 PR #1349·#1352 는 CI PASS. 로컬 Node v24(CI는 v20)·TZ 조합의 **테스트 격리 문제**(파일 간 상태 공유)로 판정. 미해결 — 별도 이슈 후보.
+  - G1 PASS(근거 5건: handoff 전량 실측·R3 무관·R4 0건·파일 겹침 0). Normal 사이클이라 메타 code-reviewer·G3.5 생략, PR머신 검수·머지 위임(`ai:merged-by-machine`). CI frontend PASS.
+
+- **🚀 dev → main 승격 (2026-07-31)** — **#1343**(merge `a0e0d8fc`). 13커밋 / 71파일. **CD 배포 성공**, arm1 컨테이너 5개 healthy, `Started HajacheckApplication` 확인.
+  - **포함 이슈 8건** (전건 native 자동종료 확인 — `Closes` 를 번호마다 한 줄씩 나열): #1315·#1316(비밀번호 변경 BE/FE) · #1339(토스 결제창) · #1333(리포트 하자박스) · #1332(기업 회원가입 피드백) · #1338(보고서 저장/확정검증) · #1322(보고서 편집·랜딩 정합성) · #1257(공개 요금제 API).
+  - **DB 무변경 배치** — 마이그레이션·엔티티 diff **0건**. prod `flyway_schema_history` 최신 **V37** 유지(신규 적용 0건), `Successfully validated 38 migrations`. #531류 승격 드리프트 리스크 없음.
+  - **G6 PASS** — R1: prod flyway/컨테이너 실측(문서 결론 승계 안 함) · R2: 격하 0 · R3: `VITE_TOSS_CLIENT_KEY` 가 arm1/prod compose에서 `:-`→`:?` **하드 실패로 승격**돼 .env 누락 시 배포 자체가 실패하는 변경 → 사전에 arm1 `.env` 키 존재·비어있지 않음 확인 후 진행 · R4: destructive SQL 0건 · 문서 버전관리: contract v0.11→v0.12(archive 스냅샷 헤더 보존) + openapi `info.version` 0.38.0→0.39.0-draft.
+  - **#1339 실효는 배포 후에만 검증 가능** — prod 번들 `assets/UsageSection-*.js` 에 토스 클라이언트 키 인라인 확인(`test_ck_` 접두, 길이 36 = arm1 `.env` 값 길이 일치). 수정 전 0건이던 것이 해소. **Dockerfile ARG 누락은 로컬 Vite dev 경로로는 재현 불가**한 클래스의 결함이라, 앞으로도 이 유형은 배포 후 번들 실측이 유일한 검증 수단이다.
+  - **⚠️ 기능검수 커버리지 2/8** — 승격 전 로컬 dev 스택(dev HEAD + 공유 dev DB 터널)으로 검수했으나, 공용 계정 `devteam@haja.test` 비밀번호 미확보로 **로그인 필요한 6건은 미검증**(비밀번호 변경 UI·리포트 하자박스·보고서 저장/가드·결제창·스모크). 검증된 2건 = #1257(실 `GET /api/plans` 200, DB 3플랜 값 화면 일치) · #1332(3필드 인라인 에러 + 주소검색 버튼 포커스·스크롤 206px + `role="alert"` 요약알림, "제출 무반응" 재현 안 됨).
+  - **검수 환경 함정(재발 방지)** — 로컬 기본값 `VITE_ENABLE_MSW=hybrid` 라 MSW가 `/api/auth/login`·`/api/reports/*` 등 **110여 경로를 가로챈다**. 이 상태 검수는 실배포 동작과 무관하다(프로덕션은 `import.meta.env.DEV=false` 라 MSW 미실행). **승격 검수는 반드시 `VITE_ENABLE_MSW=false` + 서비스워커 0건 확인 후 수행할 것.**
+  - **Jira** — HAJA-601·602·605·606·608 **완료** 전환 + 승격 PR 링크 코멘트. **#1338·#1322·#1257은 Jira 티켓 자체가 없음**(이슈 등록 시 Jira 동기화 ①단계 누락) — 소급 생성 보류.
+
+- **📝 기업 회원가입 필수항목 미입력 피드백 (→ dev, 2026-07-30)** — FE **#1334**(merge `766f647f`, 이슈 #1332 / HAJA-605). `awaiting-promotion` 라벨 부여, Jira `dev-pr-check`.
+  - **증상**: 회사 주소를 비운 채 [가입 신청하기] → **화면 완전 무반응**(사용자 제보). `handleSubmit` 이 검증 실패 시 조용히 `return` 하는데, **주소·상호명·대표자명 3필드는 필수 검증 대상이면서 에러를 렌더하는 코드가 아예 없었다**(이메일·비밀번호·사업자번호·개업일자·약관은 전부 있었음).
+  - **수정**: 3필드 인라인 에러(기존 `showValidation && 빈값` 패턴) + `CompanyAddressField` 에 `errorMessage` prop(스크립트 로드 실패 에러 우선) + **제출 실패 시 DOM 순서상 첫 무효 필드로 `scrollIntoView`+`focus()`**(주소는 `readOnly` 라 주소검색 버튼, 파일은 hidden 이라 "파일 선택" 버튼으로) + 제출 버튼 위 요약 알림(`role="alert"`).
+  - 검증 규칙(`validateCompanySignupForm.ts`) 무변경 — 표시 계층만 추가. 백엔드·API 계약 영향 없음.
+  - PR머신 P1 0건, `ai:needs-human` 은 auth 민감영역 자동머지 가드라 사람 수동 머지. auth 테스트 246/246 PASS.
+  - 후속 **#1336**(P3) — 이전 서버 제출 에러가 남아 있으면 요약 알림이 억제됨. 소형이라 다음 프론트 PR에 묶어 처리.
+
 - **🔐 로그인 후 비밀번호 변경 (→ dev, 2026-07-30)** — BE **#1320**(squash `8ba0cbed`, 이슈 #1315 / HAJA-601) + FE **#1321**(squash `12a65207`, 이슈 #1316 / HAJA-602). 둘 다 `awaiting-promotion` 라벨 부여, Jira `dev-pr-check`.
   - 신규 **`PATCH /api/users/me/password`** — 세션 principal 로만 대상 식별(IDOR 차단), 현재 비밀번호 재인증, 소셜 전용 계정 400, 신·구 동일 400, userId 축 rate-limit(5분 5회, 성공 시 즉시 해제). 성공 시 **현재 세션 종료**(세션 무효화+쿠키 만료+CSRF 회전). 프론트는 `/mypage/profile` 에 변경 섹션 추가 후 `/login` 유도.
   - **DB 변경 없음** — `users.password_hash` 와 `User.changePassword()`·`hasPassword()` 재사용, Flyway 파일 0건. 세션 정리 4단계는 `SessionTerminator` 로 추출해 `AuthController.logout` 과 공유(동작 불변, #1200 CSRF 회귀 없음).
@@ -43,6 +68,22 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
   - Critical 사이클: code-reviewer(opus)+security-reviewer(opus) **P1 0건**, PR머신 2라운드 P1 0건. 테스트 BE 1958 / FE 95 PASS.
   - ⚠️ **알려진 한계(의도)**: 세션 무효화는 **현재 세션만**. 다른 기기 세션은 살아있다 — non-indexed Redis 세션이라 `FindByIndexNameSessionRepository` 주입 시 앱 기동 실패. → 후속 **#1318**. 그 결과 rate-limit 축(userId)이 **세션 탈취 시 피해자의 비밀번호 변경을 봉쇄**할 수 있다(탈출 경로 = 비로그인 이메일 재설정).
   - 후속: **#1318**(전 기기 세션 무효화) · **#1319**(변경 알림 메일·재설정 토큰 무효화·BCrypt 72바이트 절단 대응·`password_updated_at` 감사 컬럼·만료 쿠키 Secure/SameSite)
+
+- **🔴 hotfix: prod 쿼터 소비 경로 전면 500 복구 — usage_counters.lock_version orphan 컬럼 제거 (→ main, 2026-07-30, #1325 / HAJA-604)** — **#1326**(`b1238e77`, merge `9ca0cab9`, **V37**). 승격 #1304 **전체 검수 중 메타가 발견**. **prod 실적용 완료**(`flyway_schema_history` V37 `success=t` 22:44:32, 12ms · `Started HajacheckApplication` · 컨테이너 5개 healthy · `/` 200 · `/api/health` 401).
+  **증상** — 쿼터를 소비하는 모든 요청이 500: `FacilityService:74`(시설 등록) · `InviteCodeService:137` 외 2곳(팀원 초대) · `InspectionAnalysisService:186`(AI 분석). 경로는 `QuotaService.lockPeriodRow` → `ensurePeriodRow` → INSERT.
+  **원인** — prod `usage_counters.lock_version` = `bigint NOT NULL` + **DEFAULT 없음**. `UsageCounterRepository` 네이티브 INSERT 2곳(`:51`·`:87`)은 이 컬럼을 넣지 않고, `UsageCounter` 엔티티는 **의도적으로 `@Version`을 두지 않는다**(`UsageCounter.java:30` — 원자적 조건부 UPDATE 정책) → INSERT마다 NOT NULL 위반. **pre-Flyway Hibernate `ddl-auto` 잔재이며 #1308(V35)·#1311(V36)과 같은 뿌리** — V1 정본에 없는데 prod가 V1을 스탬프만 했다.
+  **왜 아무도 못 잡았나** — 재현 환경이 **prod 하나뿐**이다. 신규설치(V1~V36)·CI testcontainer·공유 dev(`hajacheck_dev`) 전부 **컬럼 자체가 없어** no-op(2026-07-30 arm1 실측). 쿼터 강제 코드(#855, `6ef04e60`)가 #1304로 라이브되며 잠복이 표면화됐다. **V36의 "의도적 제외 ②"가 이 컬럼을 *무해한 orphan* 으로 분류한 것이 놓친 지점** — orphan 판정에 "읽는 코드가 있나"만 보고 **"쓰기를 막나"(nullability·default)를 보지 않았다.**
+  **조치** — `alter table usage_counters drop column if exists lock_version`. DEFAULT 0 보정이 아니라 DROP인 근거는 **사용처 0건 실측**(엔티티 필드·네이티브 쿼리·레포 전체 참조 0건, prod 0행) — 정본과 수렴시켜 앞으로의 정합 diff 노이즈를 없앤다. 컬럼 없는 환경엔 `IF EXISTS` 가드로 no-op.
+  **검증** — `./gradlew test` **1934건 PASS**. 신설 `V37UsageCounterLockVersionMigrationTest`(3케이스)는 prod 지형을 모사해 **V37 이전 앱 실제 INSERT 실패 → 이후 성공**까지 단언(V36이 PR #1312에서 받은 "forward 분기가 어느 테스트에서도 안 탄다" P2 지적의 재발 방지). **prod 실물 복제본 프리플라이트**: 장애 재현 → Flyway 엔진 직접 적용(`now at version v37`) → 복구 확인(`INSERT 0 1`, 재실행 시 `ON CONFLICT` 정상 — prod 중복 UNIQUE 6종 환경에서도 duplicate key 없음) → 재적용 멱등 → **실 spring 이미지 기동 `Started HajacheckApplication`**. 배포 후 prod에서 **롤백 트랜잭션으로 앱 실제 INSERT 성공 실증**(데이터 무잔존).
+  **게이트 G6 PASS** — R1: V36의 "orphan 무해" 판단을 카탈로그 실측+격리 DB 재현으로 **반증**(문서 결론 승계 안 함) · R2: 격하 0 · R3: `.env`·nginx·compose·deploy 변경 **0건** · R4: 위 사용처 0건·0행 실측 · 파일 겹침 0, dev V37 선점 없음.
+  **후속** — 백머지 **#1327**(main→dev, `1a677cad`) 완료. **#1324**(기업 자동승인)는 **V38**로 번호 확정 — 회사 스코프를 여는 순간 이 결함이 표면화되므로 V37 선행이 필요했다(해당 이슈에 코멘트 등록). #1324가 진위확인 SKIPPED를 `VERIFIED`로 굳히면 **#604 트리거 제외 근거가 사라지므로 재검토** 필요. 남은 prod 잔재(레거시 중복 UNIQUE 6종·소문자 orphan enum 23종·`rag_documents.target_collection` prod-only DEFAULT)는 **쓰기를 막지 않음을 확인** — 별건 유지.
+
+- **✅ 2026-07-30 승격분 전체 검수 (메타, main 기준)** — 사용자 요청으로 #1304·#1309·#1313 승격 결과를 전수 검수. **P1 1건 발견 → 위 #1325로 즉시 복구**, 나머지는 이상 없음.
+  · **서비스**: 컨테이너 5개 healthy · `/` 200 · `/api/health` 401 · CD 연속 success · **Flyway 실패 이력 0**
+  · **스키마 정합**: 신규설치(V1~V36) ↔ prod **카탈로그 전수 diff**(컬럼·인덱스·제약·트리거·enum 575 vs 610행) — 잔여 차이가 STATUS 기록 **"의도적 제외 3건"과 정확히 일치**
+  · **STATUS 기록 독립 검증**: "prod-only UNIQUE 6종은 레거시 중복" 주장을 실측 재확인 — prod에 `uk_*`와 V1의 `*_key`가 **같은 컬럼 조합으로 중복 존재**, 무결성 갭 아님 ✅ / **#604 트리거 prod 미배포가 의도대로 유지**됨 ✅
+  · **이슈 종료**: 승격 PR #1304 본문 **166건 전건 closed**, 누락 0. `awaiting-promotion` 잔존 2건(#1315·#1316)은 오늘 dev 머지분이라 정상
+  · **잔여(결함 아님)**: Jira `dev-pr-check` **132건** 완료 전환 미처리 — JQL 일괄 변경 권장(`project = HAJA AND status = "dev-pr-check"`)
 
 - **🚀 dev→main 배치 승격 + P0 기동실패 복구 + pre-Flyway 누락분 정리 (→ main, 2026-07-30)** — 승격 **#1304**(merge `88e21514`, **357커밋 / 1,352파일 / Flyway V6~V34 29건 / 이슈 163건**) → **P0 프로덕션 다운** → 핫픽스 **#1309**(V35, merge `1aaf5b4e`)로 복구 → 후속 승격 **#1313**(merge `d84f9c44`, V36 + PRD v1.0). **최종 prod = Flyway V36, 컨테이너 5개 healthy, `/` 200 · `/api/health` 401.**
   **🔴 사고 — baseline 스탬프 누락으로 승격 배포 기동 실패**: 승격 직후 CD 실패. Flyway 자체는 정상(`Successfully validated 35 migrations`·`Current version: 34`, V6~V34 전건 적용 성공)이었고, 실패는 `ddl-auto=validate`의 `Schema-validation: missing table [menu_role_access]`. **원인 = prod 가 2026-07-22 `baseline-on-migrate` 로 V1 을 실행하지 않고 스탬프만 해, V1(캐노니컬 DDL 기준)에 정의된 `menu_node_type`·`menus`·`menu_role_access` 가 실물 없이 "적용됨" 상태로 묻힌 것.** #1003(사이드바·관리자 nav 를 menus DB 조회로 전환)이 그 엔티티를 실제로 쓰기 시작하며 잠재 결함이 표면화됐다. **메타 프리플라이트의 사각지대** — V6~V34 재생만 검증하고 **V1↔prod 정합은 "이미 스탬프 완료"로 넘겼다**(#602 승격 때 했어야 할 V1 diff 가 이 두 테이블을 놓쳤고, 오늘도 재확인하지 않았다).

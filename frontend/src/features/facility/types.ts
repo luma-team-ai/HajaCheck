@@ -228,9 +228,14 @@ export interface FacilityDefectDetailResponse {
   createdAt: string;
 }
 
+// PR머신 P1 — POST /api/ai/defect-explain 실 응답은 {cause,risk,action}이다(ai-server
+// tests/test_defect_explain.py:60,76, defect 기능의 DefectExplain과 동일 계약). 이전에 여기 있던
+// {diagnosis, recommendedAction}은 존재하지 않는 필드라 prod에서 항상 undefined로 렌더돼
+// #1350이 고치려던 "AI 설명 빈 화면"이 응답 필드명 불일치로 재발했다.
 export interface FacilityDefectAiExplanation {
-  diagnosis: string;
-  recommendedAction: string;
+  cause: string;
+  risk: string;
+  action: string;
 }
 
 // 회차 간 비교 화면 전용 타입.
